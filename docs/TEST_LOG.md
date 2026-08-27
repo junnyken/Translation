@@ -301,3 +301,102 @@ chỉ sắp thứ tự dòng, không đụng ký tự nào trong text.
   **provisional, cần đo lại khi có ảnh thật**. Đúng như spec M3 §7.4 yêu cầu đánh dấu.
 - Tiêu chí "≥80% region đọc ra text đúng nghĩa trên ảnh thật" **CHƯA nghiệm thu** —
   chung một nút thắt với tiêu chí ≥90% của M2 (đang chờ ảnh có license rõ).
+
+---
+
+## M4 — Inpainting (xoá chữ gốc bằng LaMa)
+
+**Ngày:** 2026-08-27 · **Môi trường:** container `worker` (CPU), onnxruntime 1.20.1,
+model `lama-manga-dynamic.onnx` 197MB (sha256 `de31ffa5…5315f9`, nguồn `ogkalu/lama-manga-onnx-dynamic`).
+
+### 1. Audit Before Build — kết quả kiểm chứng thật
+
+| # | Mục | Kết quả |
+|---|---|---|
+| 1 | `IInpainter.inpaint(image_path, masks) -> str` chưa đổi | Đạt |
+| 2 | `Page.clean_image_path` tồn tại, nullable, không NOT NULL | Đạt (`character varying(1024)`, nullable) |
+| 3 | Weight LaMa tải được + mount vào worker | Đạt — 197MB, mount sẵn qua `./models:/models:ro` (không cần build lại image) |
+| 4 | **LaMa có trả ảnh cùng kích thước ảnh gốc không?** | **Có** — `image[b,3,h,w]` + `mask[b,1,h,w]` → `inpainted[b,3,h,w]`, cùng h×w. Nhưng lộ ra 1 ràng buộc cứng, xem dưới |
+| 5 | Đĩa đủ chỗ cho ảnh clean | Đạt — còn 70GB; ảnh clean ~2/3 kích thước ảnh gốc (PNG) |
+| 6 | Gap = `IInpainter` chưa implement | Đúng phạm vi, không lấn sang M5 |
+
+**Ràng buộc cứng phát hiện ở Audit 4 (nếu không xử lý thì hỏng lúc chạy):**
+
+```
+1401x2001 (không chia hết 8) -> ONNXRuntimeError: Non-zero status code ... Mul node
+                                 "Attempting to broadcast an axis by a dimension other than 1. 2001 by 2008"
+1400x2000 (chia hết 8)       -> OK, output (1,3,1400,2000), 54,3s
+```
+
+⇒ code **luôn pad** mép phải/dưới về bội số 8 (mode `edge` để không tạo viền đen giả), chạy xong cắt lại
+đúng kích thước gốc. Có unit test canh cả hai chiều.
+
+### 2. Test tự động
+
+```
+$ cd backend && ../.venv/bin/python -m pytest
+192 passed, 6 skipped in 30.65s
+```
+
+| Nhóm | File | Số test |
+|---|---|---|
+| Unit — mask + dilate + clamp | `tests/test_inpaint_mask_unit.py` | 13 |
+| Unit — LamaInpainter (pad, ghép ảnh, không ghi đè) | `tests/test_inpaint_lama_unit.py` | 12 |
+| Integration — task inpaint trên DB thật | `tests/test_inpaint_task_integration.py` | 12 |
+| Guardrail kiến trúc (M1→M4) | `tests/test_no_ai_logic.py` | 15 |
+| LaMa thật trên fixture | `tests/test_inpaint_real_model.py` | 1 (skipped, opt-in) |
+| Kế thừa M1+M2+M3 | các file trước | 139 |
+
+Bài test đáng chú ý của M4:
+- `test_khong_ghi_de_anh_goc` + `test_anh_goc_khong_bi_ghi_de` — **invariant quan trọng nhất**, so md5 trước/sau.
+- `test_chi_thay_pixel_trong_mask` — model chỉ được đụng vùng mask, ngoài mask giữ nguyên từng pixel.
+- `test_anh_le_duoc_pad_truoc_khi_vao_model` — sinh ra từ ràng buộc bội số 8 ở §1.
+- `test_ratio_vuot_tran_bi_kep_xuong_15_phan_tram` — nới mask không bao giờ quá 15%.
+- `test_ocr_lai_con_chu_thi_danh_dau_can_review` — kiểm chứng khách quan, còn chữ thì không tự nhận xong.
+- `test_chay_lai_xoa_anh_clean_cu_khong_de_file_rac` — idempotent, so danh sách file trong thư mục.
+- `test_page_chua_ocr_thi_tu_choi_inpaint`, `test_thieu_ket_qua_ocr_cua_mot_vung_thi_tu_choi` — không xoá chữ trên dữ liệu dở dang.
+- `test_khong_lang_le_fallback_opencv_khi_lama_loi` — constraint 10.
+
+### 3. Live verification — LaMa THẬT qua worker
+
+Chạy đúng đường thật (`POST /pages/{id}/retry-inpaint` → Redis → worker → LaMa → DB):
+
+| Ảnh | Vùng | Diện tích bị mask | Kết quả | OCR lại còn chữ | Thời gian |
+|---|---|---|---|---|---|
+| `few_bubbles.png` (1200×1700) | 2 | 1,3% | `inpainted` | **0/2 vùng** | 63,2s |
+| `many_bubbles.png` (1400×2000) | 6 | 3,3% | `inpainted` | **0/6 vùng** | 44,8s |
+
+**Invariant ảnh gốc — so md5 trước/sau:**
+
+```
+few_bubbles  gốc: 3eb2acc6aec7a2d0a504b2bf42ce591e -> 3eb2acc6aec7a2d0a504b2bf42ce591e  (y nguyên)
+many_bubbles gốc: bf9df4751a3f9517a453ba9804154650 -> bf9df4751a3f9517a453ba9804154650  (y nguyên)
+```
+
+Thư mục `pages/` sau khi chạy có **đúng 4 file**: 2 ảnh gốc + 2 ảnh clean (`<id>_clean.png`) — không file rác.
+
+**Nhìn bằng mắt** (tải qua `GET /pages/{id}/clean-image`): cả 6 bubble của `many_bubbles.png` trở thành
+hình ellipse trắng sạch, viền bubble và khung panel giữ nguyên nét, nền xám không bị loang, không còn
+bóng chữ. Không thấy artifact.
+
+**Idempotent — chạy lại thật:**
+
+```
+TRƯỚC retry: 4 file trong pages/, md5 ảnh clean = 267f160b4759ef9318633359ef85b56f
+POST /pages/{id}/retry-inpaint  -> 202
+SAU   retry: 4 file trong pages/, md5 ảnh clean = 267f160b4759ef9318633359ef85b56f
+md5 ảnh gốc: bf9df4751a3f9517a453ba9804154650  (không đổi)
+log worker : "6 vùng, inpainted, còn chữ ở 0 vùng, xoá ảnh clean cũ=True, 43,5s"
+```
+
+⇒ số file **không tăng** (xoá cũ trước khi ghi mới), ảnh gốc không đổi. md5 ảnh clean trùng nhau
+giữa 2 lần chạy cho thấy model chạy tất định — không phải do bỏ qua bước xử lý.
+
+### 4. Giới hạn của lần đo này
+
+- Vẫn là **ảnh tổng hợp** (`test_fixtures/`) → **provisional, cần đo lại khi có ảnh manga thật**,
+  đúng như spec M4 §7.4 yêu cầu đánh dấu.
+- Ảnh tổng hợp có nền phẳng (trắng/xám) nên inpaint dễ hơn thực tế rất nhiều. Trang manga thật có
+  nét vẽ, lưới halftone, viền bubble cách điệu — **không được suy ra kết quả sẽ tương đương**.
+- Tiêu chí "≥90% vùng OCR lại không còn chữ **trên ảnh thật**" vì vậy **CHƯA nghiệm thu** —
+  cùng nút thắt với M2/M3.

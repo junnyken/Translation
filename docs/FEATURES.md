@@ -13,7 +13,7 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 | M1 | Data model 7 bảng + migration 2 chiều + API contract `/api/v1` + interface 5 engine | **LIVE** |
 | M2 | Nhận diện khung chữ (comic-text-detector) → `TextRegion` + confidence | **LIVE** (đo trên ảnh tổng hợp; ảnh manga thật chưa đo — xem TEST_LOG) |
 | M3 | OCR theo ngôn ngữ nguồn (manga-ocr cho `ja`, PaddleOCR cho `zh`/`en`) | **LIVE** (đo trên ảnh tổng hợp — provisional, xem TEST_LOG) |
-| M4 | Xóa chữ gốc bằng LaMa → ảnh clean (giữ nguyên ảnh gốc) | CHƯA |
+| M4 | Xoá chữ gốc bằng LaMa → ảnh clean (giữ nguyên ảnh gốc) | **LIVE** (đo trên ảnh tổng hợp — provisional, xem TEST_LOG) |
 | M5 | Dịch 2 đường: `google_fast` (miễn phí) và `llm_context` (giữ mạch văn cả trang) + reading order | CHƯA |
 | M6 | Tự tính cỡ chữ + xuống dòng cho vừa bubble (đo font-metrics thật) | CHƯA |
 | M7 | Màn sửa tay: sửa bản dịch, kéo lại khung, đổi font/size | CHƯA |
@@ -21,7 +21,7 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 | M9 | Chạy cả chapter theo hàng đợi + xoay API key khi hết quota | CHƯA |
 | M10 | Khai báo mục đích sử dụng + nhắc trách nhiệm bản quyền khi export | Một phần: field `intended_use` đã **LIVE** từ M1; modal nhắc + gate export CHƯA |
 
-## Những gì dùng được ngay hôm nay (sau M3)
+## Những gì dùng được ngay hôm nay (sau M4)
 
 - Tạo project dịch (chọn ngôn ngữ nguồn, mục đích sử dụng) qua API/Swagger.
 - Upload từng trang ảnh: file được lưu thật, trang vào hàng đợi và **worker tự động nhận diện khung chữ**.
@@ -33,11 +33,15 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
   tiếng Nhật dùng manga-ocr, tiếng Trung/Anh dùng PaddleOCR theo ngôn ngữ nguồn của project.
 - Xem chữ đã đọc được của từng khung qua `GET /pages/{id}/ocr`; vùng đọc không ra chữ được
   đánh dấu `needs_manual` để sửa tay sau, **không bị giấu đi**.
+- **Tự xoá chữ gốc khỏi ảnh** ngay sau khi đọc xong, tạo ra ảnh "sạch" để lát nữa chèn chữ dịch.
+  Xem/tải ảnh sạch qua `GET /pages/{id}/clean-image`. **Ảnh gốc luôn được giữ nguyên** thành file riêng.
+- Hệ thống tự kiểm lại việc xoá bằng cách đọc lại đúng vùng vừa xoá: còn chữ thì trang bị đánh dấu
+  `inpaint_needs_review` chứ không âm thầm coi là xong.
 
 ## Những gì **chưa** dùng được (nói thẳng để không hiểu nhầm)
 
-- Chưa dịch được chữ nào: đã đọc được chữ gốc, nhưng chưa xóa chữ gốc khỏi ảnh (M4),
-  chưa dịch sang tiếng Việt (M5), chưa canh chữ vào khung (M6).
+- Chưa dịch được chữ nào: đã có ảnh sạch và chữ gốc, nhưng chưa dịch sang tiếng Việt (M5),
+  chưa canh chữ vào khung (M6).
 - Chưa có giao diện người dùng — mới chỉ có Swagger để thao tác tay; chưa có ảnh vẽ khung để nhìn bằng mắt (M7).
 - **Chưa đo trên trang manga scan thật**: số liệu nhận diện (M2) và độ chính xác đọc chữ (M3)
   hiện chỉ đo trên ảnh tổng hợp do repo tự sinh — chưa nghiệm thu cuối cùng.

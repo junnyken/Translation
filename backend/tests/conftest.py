@@ -185,12 +185,17 @@ def fake_detector(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def no_broker_for_chained_ocr(monkeypatch):
-    """Chặn detect->OCR chain gọi broker thật; ghi lại job_id đã đẩy."""
+    """Chặn chuỗi detect->OCR->inpaint gọi broker thật; ghi lại job_id đã đẩy.
+
+    Không có fixture này, `.delay()` sẽ ngồi retry kết nối Redis và treo cả test suite.
+    """
     from app.workers import tasks
 
     sent: list = []
     monkeypatch.setattr(tasks.run_ocr_job, "delay", lambda job_id: sent.append(job_id))
+    monkeypatch.setattr(tasks.run_inpaint_job, "delay", lambda job_id: sent.append(job_id))
     monkeypatch.setattr("app.api.v1.routes.dispatch_ocr_job", lambda job_id: (True, None))
+    monkeypatch.setattr("app.api.v1.routes.dispatch_inpaint_job", lambda job_id: (True, None))
     return sent
 
 
@@ -220,3 +225,43 @@ def fake_ocr_engine(monkeypatch):
 
     yield _install
     tasks.reset_ocr_engines()
+
+
+@pytest.fixture
+def fake_inpainter(monkeypatch):
+    """Inpainter giả lập: ghi ra file ảnh clean THẬT (để test đường dẫn/xoá file/idempotent)."""
+    from pathlib import Path
+
+    from PIL import Image
+
+    from app.workers import tasks
+
+    def _install(raises=None, fill=(255, 255, 255)):
+        class _Fake:
+            def __init__(self):
+                self.calls = []
+                self.dilate_ratio = 0.08
+
+            def dilated_masks(self, w, h, masks):
+                return list(masks)
+
+            def clean_path_for(self, image_path):
+                src = Path(image_path)
+                return src.with_name(f"{src.stem}_clean.png")
+
+            def inpaint(self, image_path, masks):
+                self.calls.append((image_path, list(masks)))
+                if raises is not None:
+                    raise raises
+                target = self.clean_path_for(image_path)
+                with Image.open(image_path) as im:
+                    size = im.size
+                Image.new("RGB", size, fill).save(target)
+                return str(target)
+
+        fake = _Fake()
+        monkeypatch.setattr(tasks, "get_inpainter", lambda: fake)
+        return fake
+
+    yield _install
+    tasks.reset_inpainter()

@@ -44,6 +44,14 @@ class IObjectStorage(Protocol):
     def exists(self, path: str) -> bool:
         ...
 
+    def delete(self, path: str) -> bool:
+        """Xoá file (idempotent guard của M4). Trả True nếu có file để xoá."""
+        ...
+
+    def abs_path(self, path: str) -> str:
+        """Đường dẫn tuyệt đối tương ứng path tương đối lưu trong DB."""
+        ...
+
 
 class LocalObjectStorage:
     """Lưu xuống volume: <root>/projects/<project_id>/pages/<page_id><ext>"""
@@ -66,6 +74,23 @@ class LocalObjectStorage:
 
     def exists(self, path: str) -> bool:
         return self._abs(path).is_file()
+
+    def delete(self, path: str) -> bool:
+        target = self._abs(path)
+        if target.is_file():
+            target.unlink()
+            return True
+        return False
+
+    def abs_path(self, path: str) -> str:
+        return str(self._abs(path))
+
+    def to_relative(self, absolute_path: str) -> str:
+        """Đổi đường dẫn tuyệt đối về dạng tương đối để lưu DB (khớp cách M1 lưu ảnh gốc)."""
+        try:
+            return str(Path(absolute_path).resolve().relative_to(self.root.resolve()))
+        except ValueError:
+            return absolute_path
 
 
 class SupabaseStorageNotConfigured(RuntimeError):

@@ -21,8 +21,8 @@ FORBIDDEN = (
 )
 
 APP_DIR = Path(__file__).resolve().parent.parent / "app"
-#: Chỉ 3 thư mục này được phép chạm tới runtime model (M2: detect, M3: ocr).
-ALLOWED_MODEL_DIRS = ("services/detect", "services/ocr", "workers")
+#: Chỉ các thư mục này được phép chạm runtime model (M2: detect, M3: ocr, M4: inpaint).
+ALLOWED_MODEL_DIRS = ("services/detect", "services/ocr", "services/inpaint", "workers")
 
 
 def _imports(py: Path) -> list[tuple[int, str]]:
@@ -80,7 +80,11 @@ def test_celery_da_dang_ky_dung_task_detect_cua_m2():
     import app.workers.tasks  # noqa: F401
 
     user_tasks = {t for t in celery_app.tasks if not t.startswith("celery.")}
-    assert user_tasks == {"detect.run_detect_job", "ocr.run_ocr_job"}, user_tasks
+    assert user_tasks == {
+        "detect.run_detect_job",
+        "ocr.run_ocr_job",
+        "inpaint.run_inpaint_job",
+    }, user_tasks
 
 
 def test_task_detect_co_timeout_khong_de_worker_treo():
@@ -94,7 +98,7 @@ def test_task_detect_co_timeout_khong_de_worker_treo():
 
 OCR_LIBS = ("manga_ocr", "paddleocr", "paddle", "torch", "transformers")
 #: Thêm services/ocr vào danh sách thư mục được phép chạm runtime model.
-ALLOWED_OCR_DIRS = ("services/ocr", "services/detect", "workers")
+ALLOWED_OCR_DIRS = ("services/ocr", "services/detect", "services/inpaint", "workers")
 
 
 def test_duong_di_http_khong_nap_thu_vien_ocr():
@@ -162,3 +166,71 @@ def test_task_ocr_co_timeout_rieng_khac_detect():
     assert run_ocr_job.soft_time_limit != run_detect_job.soft_time_limit, (
         "OCR phải có timeout riêng, không dùng chung biến với detect"
     )
+
+
+# ---------------- M4: model inpaint cũng chỉ sống trong worker ----------------
+
+
+def test_api_handler_khong_goi_thang_inpainter():
+    routes = (APP_DIR / "api" / "v1" / "routes.py").read_text()
+    assert "LamaInpainter" not in routes
+    assert "get_inpainter" not in routes
+    assert "dispatch_inpaint_job" in routes
+
+
+def test_import_app_khong_keo_theo_model_inpaint():
+    import subprocess
+    import sys
+
+    code = (
+        "import sys; import app.main;"
+        " bad=[m for m in ('onnxruntime','torch','cv2') if m in sys.modules];"
+        " assert not bad, f'API đã nạp {bad}';"
+        " print('ok')"
+    )
+    r = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, cwd=str(APP_DIR.parent)
+    )
+    assert r.returncode == 0, r.stderr
+    assert "ok" in r.stdout
+
+
+def test_module_inpaint_import_tre_khong_nap_onnx():
+    import subprocess
+    import sys
+
+    code = (
+        "import sys; import app.services.inpaint.lama as l;"
+        " assert 'onnxruntime' not in sys.modules, 'import lama đã kéo theo onnxruntime';"
+        " print('ok')"
+    )
+    r = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, cwd=str(APP_DIR.parent)
+    )
+    assert r.returncode == 0, r.stderr
+    assert "ok" in r.stdout
+
+
+def test_ba_task_co_ba_timeout_rieng():
+    from app.workers.tasks import run_detect_job, run_inpaint_job, run_ocr_job
+
+    limits = {
+        "detect": run_detect_job.soft_time_limit,
+        "ocr": run_ocr_job.soft_time_limit,
+        "inpaint": run_inpaint_job.soft_time_limit,
+    }
+    assert all(v is not None for v in limits.values()), limits
+    assert run_inpaint_job.time_limit > run_inpaint_job.soft_time_limit
+    # inpaint phải có biến timeout RIÊNG, không tái dùng của detect
+    assert limits["inpaint"] != limits["detect"], limits
+
+
+def test_khong_lang_le_fallback_opencv_khi_lama_loi():
+    """Constraint 10 của M4: fallback phải bật tường minh, mặc định TẮT."""
+    from app.core.config import Settings
+
+    assert Settings().inpaint_allow_opencv_fallback is False
+    lama = (APP_DIR / "services" / "inpaint" / "lama.py").read_text()
+    # cấm DÙNG cv2, không cấm nhắc tới trong ghi chú
+    assert "import cv2" not in lama, "LamaInpainter không được import cv2"
+    assert "cv2.inpaint(" not in lama, "LamaInpainter không được tự lùi về cv2.inpaint"

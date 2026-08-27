@@ -10,8 +10,8 @@ Quy tắc: **tuần tự**, mini-spec sau chỉ mở khi mini-spec trước đã
 | **M1** | Nền dữ liệu + hợp đồng API + interface engine | 7 bảng, migration 2 chiều, 6 endpoint, 5 Protocol | Chốt sai schema → sửa giữa đường | ✅ **CLOSED — approved 2026-08-27** (`v0.1-M1`, `9d093be`) |
 | **M2** | Nhận diện khung chữ (comic-text-detector) | `CTDDetector(IDetector)` + task Celery `detect` đầu tiên | Model weight + môi trường inference (CPU/GPU); bbox lệch → hỏng cả M3/M4 | ✅ **XONG** (`v0.2-M2`) — còn treo: đo trên manga thật |
 | **M3** | OCR theo ngôn ngữ nguồn | `MangaOCREngine`, `PaddleOCREngine` + factory theo `source_lang` | Crop sai vùng → OCR đúng mà nội dung sai; RAM/model load lặp | ✅ **XONG** (`v0.3-M3`) — còn treo: đo trên manga thật |
-| **M4** | Xóa chữ gốc (LaMa) ⏭ kế tiếp | `LamaInpainter(IInpainter)`, `Page.clean_image_path` | CPU chậm; mask dilate quá tay ăn vào tranh | Chưa |
-| **M5** | Dịch 2 đường + thứ tự đọc | `GoogleTranslateEngine`, `LLMContextTranslator`, `ReadingOrderResolver`, bảng `APIKeyPool` | Lệch dòng khi ghép bản dịch về region; đốt token | Chưa |
+| **M4** | Xoá chữ gốc (LaMa) | `LamaInpainter(IInpainter)`, `Page.clean_image_path` | CPU chậm; mask dilate quá tay ăn vào tranh | ✅ **XONG** (`v0.4-M4`) — còn treo: đo trên manga thật |
+| **M5** | Dịch 2 đường + thứ tự đọc ⏭ kế tiếp | `GoogleTranslateEngine`, `LLMContextTranslator`, `ReadingOrderResolver`, bảng `APIKeyPool` | Lệch dòng khi ghép bản dịch về region; đốt token | Chưa |
 | **M6** | Tự canh cỡ chữ vừa bubble | `FitToBoxTypesetter(ITypesetter)` | Đo font-metrics sai (tiếng Việt có dấu) → tràn khung | Chưa |
 | **M7** | Màn sửa tay | `PATCH /regions/{id}` + Page Detail UI | Sửa 1 region đụng region khác; re-fit sai phạm vi | Chưa |
 | **M8** | Xuất PNG/CBZ + lưu/mở project | `ExportJob`, `ChapterExporter` | Export dùng bản cũ sau khi đã sửa tay | Chưa |
@@ -24,7 +24,7 @@ Quy tắc: **tuần tự**, mini-spec sau chỉ mở khi mini-spec trước đã
 |---|---|---|
 | 3–5 trang **manga scan thật** (nhiều bubble / ít bubble / có SFX rời) | Đo tỷ lệ nhận diện M2, độ chính xác OCR M3 | **Chưa có — cần bạn cung cấp** |
 | Model weight comic-text-detector | M2 | ✅ Đã tải (ONNX 91MB, xem ARCH.md §5) |
-| Model weight LaMa | M4 | Chưa tải |
+| Model weight LaMa | M4 | ✅ Đã tải (ONNX 197MB, MIT/Apache — xem ARCH.md §7) |
 | API key dịch (Gemini/GPT) + key dự phòng | M5, M9 | Chưa có |
 | File font HLCOMIC2 / HLCOMIC1 / MTO Comic / Anime Ace / Wild Words | M6 | Chưa có |
 | Credential Supabase (DB + Storage) nếu muốn dùng Supabase managed | Toàn Phase | Chưa có (đang chạy Postgres local) |
@@ -39,7 +39,16 @@ Thiếu 4 mục đầu thì M2/M4/M5/M6 **không thể verify thật** — sẽ 
 4. Cập nhật `ARCH.md` / `API.md` / `FEATURES.md` / `TEST_LOG.md`.
 5. Viết `docs/REPORT_M<n>.md` → chốt xong mới mở mini-spec kế.
 
-## Phác thảo M4 (mini-spec kế tiếp)
+## Phác thảo M5 (mini-spec kế tiếp)
+
+- 2 nhánh dịch: `google_fast` (miễn phí, theo dòng) và `llm_context` (gộp cả trang, giữ mạch văn).
+- `ReadingOrderResolver`: JP đọc phải→trái, EN trái→phải — **cấu hình theo `source_lang`**, không hard-code.
+- Bảng mới `APIKeyPool` + xoay key khi hết quota; hết sạch key ⇒ `blocked_quota`, không âm thầm hạ cấp.
+- Giữ nguyên `raw_text` của M3 làm đầu vào (lỗi OCR để LLM tự sửa theo ngữ cảnh).
+- Cần trước khi làm: **API key dịch + key dự phòng**.
+
+<details>
+<summary>Phác thảo M4 (đã hoàn thành)</summary>
 
 - `LamaInpainter(IInpainter)` — mask từ `TextRegion.bbox`, dilate ≤15%, xử lý **theo Page** (1 lần gọi model).
 - Ghi `Page.clean_image_path`; **không ghi đè ảnh gốc** (có test regression canh).
@@ -67,5 +76,6 @@ Thiếu 4 mục đầu thì M2/M4/M5/M6 **không thể verify thật** — sẽ 
 - Timeout an toàn (~60s/ảnh) → `Page.status=detection_failed`, không treo worker.
 - Page đi đúng đường `queued → detecting → detected | detection_failed` (dùng `assert_transition` đã có).
 - Tiêu chí đạt: nhận đúng ≥90% bubble có chữ (đếm tay đối chiếu), không bbox âm/vượt kích thước ảnh.
+</details>
 </details>
 </details>

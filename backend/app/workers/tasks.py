@@ -14,7 +14,8 @@ import uuid
 from pathlib import Path
 
 from celery.exceptions import SoftTimeLimitExceeded
-from sqlalchemy import delete, select
+from PIL import Image
+from sqlalchemy import delete, func, select
 
 from app.core.config import get_settings
 from app.core.db_sync import sync_session
@@ -363,6 +364,8 @@ def _run_ocr(job_id: uuid.UUID) -> dict:
         job.error_log = None
         session.commit()
 
+    inpaint_job_id = enqueue_inpaint_after_ocr(page_id) if settings.inpaint_auto_chain else None
+
     needs_manual = sum(1 for r in results if r[3] is OCRStatus.needs_manual)
     logger.info(
         "ocr job %s: %d region (%d needs_manual), engine=%s, xóa %d kết quả cũ, %.1fs",
@@ -377,6 +380,7 @@ def _run_ocr(job_id: uuid.UUID) -> dict:
         "engine": engine.engine_enum.value,
         "replaced_results": deleted,
         "elapsed_seconds": round(elapsed, 2),
+        "inpaint_job_id": str(inpaint_job_id) if inpaint_job_id else None,
     }
 
 
@@ -415,3 +419,223 @@ def _mark_job_failed(job_id: uuid.UUID, reason: str) -> None:
             job.status = JobStatus.failed
             job.error_log = reason[:4000]
         session.commit()
+
+
+# ============================ M4: Inpaint (xoá chữ gốc) ============================
+
+
+class InpaintPreconditionFailed(RuntimeError):
+    """Page chưa đủ điều kiện để inpaint — báo rõ thay vì xoá chữ trên dữ liệu dở dang."""
+
+
+#: Inpainter nạp 1 lần/process (weight ~197MB).
+_inpainter = None
+
+
+def get_inpainter():
+    """Import trễ để tiến trình API không bao giờ nạp onnxruntime/model inpaint."""
+    global _inpainter
+    if _inpainter is None:
+        from app.services.inpaint.lama import LamaInpainter
+
+        _inpainter = LamaInpainter(
+            weights_path=settings.inpaint_weights_path,
+            device=settings.inpaint_device,
+            dilate_ratio=settings.inpaint_dilate_ratio,
+            intra_op_threads=settings.inpaint_intra_op_threads,
+        )
+    return _inpainter
+
+
+def reset_inpainter() -> None:
+    """Dùng trong test để cắm inpainter giả lập."""
+    global _inpainter
+    _inpainter = None
+
+
+def enqueue_inpaint_after_ocr(page_id: uuid.UUID) -> uuid.UUID | None:
+    """Nối chuỗi: OCR xong → tự xếp việc xoá chữ gốc (pipeline tự chảy)."""
+    with sync_session() as session:
+        job = Job(type=JobType.inpaint, page_id=page_id, status=JobStatus.queued)
+        session.add(job)
+        session.commit()
+        job_id = job.id
+
+    try:
+        run_inpaint_job.delay(str(job_id))
+    except Exception as exc:  # noqa: BLE001
+        reason = f"enqueue_failed: {type(exc).__name__}: {exc}"
+        logger.error("Không đẩy được job inpaint %s: %s", job_id, reason)
+        with sync_session() as session:
+            job = session.get(Job, job_id)
+            if job is not None:
+                job.error_log = reason
+                session.commit()
+    return job_id
+
+
+def _advance_page(page: Page, target: PageStatus) -> None:
+    """Đổi trạng thái page qua đúng state machine của M1 (chạy lại cùng trạng thái = no-op)."""
+    if page.status is target:
+        return
+    assert_transition(page.status, target)
+    page.status = target
+
+
+def _verify_text_removed(clean_abs_path: str, dilated: list, source_lang: str) -> list[str]:
+    """Kiểm chứng KHÁCH QUAN: OCR lại đúng vùng vừa xoá trên ảnh clean.
+
+    Trả danh sách text còn đọc được. Rỗng = xoá sạch. Không dựa vào cảm nhận "nhìn thấy artifact".
+    """
+    from app.services.ocr.engines import has_meaningful_text
+
+    engine = get_ocr_engine_cached(source_lang)
+    leftovers: list[str] = []
+    for bbox in dilated:
+        try:
+            text, _confidence = engine.recognize(clean_abs_path, bbox)
+        except Exception as exc:  # noqa: BLE001 - lỗi kiểm chứng không được giết job inpaint
+            logger.warning("Kiểm chứng OCR trên vùng %s lỗi: %s", bbox, exc)
+            continue
+        if has_meaningful_text(text):
+            leftovers.append(text.strip())
+    return leftovers
+
+
+def _run_inpaint(job_id: uuid.UUID) -> dict:
+    started = time.perf_counter()
+    from app.services.interfaces import BBox
+    from app.services.storage import get_storage
+
+    with sync_session() as session:
+        job = session.get(Job, job_id)
+        if job is None:
+            logger.warning("Job %s không tồn tại", job_id)
+            return {"status": "job_not_found", "job_id": str(job_id)}
+        if job.type is not JobType.inpaint:
+            return {"status": "wrong_job_type", "job_id": str(job_id), "type": job.type.value}
+
+        page = session.get(Page, job.page_id)
+        if page is None:
+            job.status = JobStatus.failed
+            job.error_log = "page_not_found"
+            session.commit()
+            return {"status": "page_not_found", "job_id": str(job_id)}
+
+        project = session.get(Project, page.project_id)
+        page_id = page.id
+        source_lang = project.source_lang.value
+        image_rel = page.image_path
+        old_clean_rel = page.clean_image_path
+
+        if page.status not in (PageStatus.ocr_done, PageStatus.inpainted, PageStatus.inpaint_needs_review):
+            job.status = JobStatus.failed
+            job.error_log = (
+                f"precondition_failed: page đang ở '{page.status.value}', "
+                "cần 'ocr_done' (chạy OCR trước khi xoá chữ)"
+            )
+            session.commit()
+            return {"status": "failed", "job_id": str(job_id), "error": job.error_log}
+
+        regions = list(
+            session.execute(
+                select(TextRegion).where(TextRegion.page_id == page_id).order_by(TextRegion.created_at)
+            ).scalars()
+        )
+        if not regions:
+            job.status = JobStatus.failed
+            job.error_log = "no_region: page chưa có TextRegion nào (chạy detect trước)"
+            session.commit()
+            return {"status": "failed", "job_id": str(job_id), "error": "no_region"}
+
+        ocr_count = session.scalar(
+            select(func.count(OCRResult.id)).where(
+                OCRResult.region_id.in_([r.id for r in regions])
+            )
+        )
+        if not ocr_count or ocr_count < len(regions):
+            job.status = JobStatus.failed
+            job.error_log = (
+                f"missing_ocr: {ocr_count or 0}/{len(regions)} vùng có kết quả OCR — "
+                "không xoá chữ khi chưa đọc xong (chạy lại OCR trước)"
+            )
+            session.commit()
+            return {"status": "failed", "job_id": str(job_id), "error": job.error_log}
+
+        boxes = [BBox(x=r.bbox_x, y=r.bbox_y, w=r.bbox_w, h=r.bbox_h) for r in regions]
+        job.status = JobStatus.running
+        session.commit()
+
+    storage = get_storage()
+    image_abs = resolve_image_path(image_rel)
+
+    # Idempotent guard: xoá ảnh clean cũ trước khi ghi mới, không để file rác.
+    deleted_old = False
+    if old_clean_rel:
+        deleted_old = storage.delete(old_clean_rel)
+
+    inpainter = get_inpainter()
+    clean_abs = inpainter.inpaint(image_abs, boxes)
+    clean_rel = storage.to_relative(clean_abs)
+
+    leftovers: list[str] = []
+    if settings.inpaint_verify_by_ocr:
+        with Image.open(image_abs) as im:
+            width, height = im.size
+        dilated = inpainter.dilated_masks(width, height, boxes)
+        leftovers = _verify_text_removed(clean_abs, dilated, source_lang)
+
+    elapsed = time.perf_counter() - started
+    target_status = PageStatus.inpaint_needs_review if leftovers else PageStatus.inpainted
+
+    with sync_session() as session:
+        page = session.get(Page, page_id)
+        page.clean_image_path = clean_rel
+        _advance_page(page, target_status)
+
+        job = session.get(Job, job_id)
+        job.status = JobStatus.done
+        job.error_log = None
+        session.commit()
+
+    logger.info(
+        "inpaint job %s: %d vùng, %s, còn chữ ở %d vùng, xoá ảnh clean cũ=%s, %.1fs",
+        job_id, len(boxes), target_status.value, len(leftovers), deleted_old, elapsed,
+    )
+    return {
+        "status": "done",
+        "job_id": str(job_id),
+        "page_id": str(page_id),
+        "regions": len(boxes),
+        "clean_image_path": clean_rel,
+        "page_status": target_status.value,
+        "regions_with_text_left": len(leftovers),
+        "replaced_old_clean_image": deleted_old,
+        "elapsed_seconds": round(elapsed, 2),
+    }
+
+
+@celery_app.task(
+    bind=True,
+    name="inpaint.run_inpaint_job",
+    soft_time_limit=settings.inpaint_timeout_seconds,
+    time_limit=settings.inpaint_timeout_seconds + 30,
+)
+def run_inpaint_job(self, job_id: str) -> dict:
+    """Xoá chữ gốc khỏi ảnh, sinh ảnh clean MỚI (không đụng ảnh gốc).
+
+    Lỗi/timeout: Job=failed + error_log, Page GIỮ NGUYÊN trạng thái cũ (không nhảy `inpainted`).
+    """
+    jid = uuid.UUID(str(job_id))
+    try:
+        return _run_inpaint(jid)
+    except SoftTimeLimitExceeded:
+        reason = f"timeout: vượt {settings.inpaint_timeout_seconds}s"
+        logger.error("inpaint job %s %s", jid, reason)
+        _mark_job_failed(jid, reason)
+        return {"status": "failed", "job_id": str(jid), "error": reason}
+    except Exception as exc:  # noqa: BLE001
+        reason = f"{type(exc).__name__}: {exc}"
+        logger.exception("inpaint job %s thất bại", jid)
+        _mark_job_failed(jid, reason)
+        return {"status": "failed", "job_id": str(jid), "error": reason}

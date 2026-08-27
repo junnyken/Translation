@@ -122,17 +122,48 @@ Chạy lại là **idempotent**: kết quả OCR cũ của đúng các region đ
 
 > Bình thường **không cần gọi tay**: detect xong hệ thống tự xếp việc OCR (`OCR_AUTO_CHAIN=true`).
 
-## 9. `GET /api/v1/jobs/{job_id}` → 200
+## 9. `GET /api/v1/pages/{page_id}/clean-image` → 200 *(M4)*
+
+Trả **file ảnh** đã xoá chữ gốc (`image/png`, binary).
+
+| Lỗi | Mã |
+|---|---|
+| page không tồn tại | 404 |
+| chưa chạy xoá chữ (chưa có `clean_image_path`) | 404 kèm lý do rõ |
+| DB có đường dẫn nhưng file đã mất | 404 kèm đường dẫn để truy vết |
+
+> Ảnh **gốc không bao giờ bị thay** — ảnh clean là file riêng (`<tên gốc>_clean.png`).
+> `GET /pages/{id}` vẫn trả `image_path` (gốc) và `clean_image_path` (clean) tách bạch.
+
+## 10. `POST /api/v1/pages/{page_id}/retry-inpaint` → 202 *(M4)*
+
+Xếp lại việc xoá chữ. Chỉ enqueue.
+
+| Lỗi | Mã |
+|---|---|
+| page không tồn tại | 404 |
+| page chưa OCR xong (không ở `ocr_done`/`inpainted`/`inpaint_needs_review`) | 409 |
+
+Chạy lại là **idempotent**: ảnh clean cũ bị xoá trước khi ghi ảnh mới, không để file rác.
+
+> Bình thường **không cần gọi tay**: OCR xong hệ thống tự xếp việc xoá chữ (`INPAINT_AUTO_CHAIN=true`).
+
+## 11. `GET /api/v1/jobs/{job_id}` → 200
 
 ```json
 { "id": "…", "type": "detect", "page_id": "…", "status": "queued",
   "retry_count": 0, "error_log": null, "created_at": "…", "updated_at": "…" }
 ```
 Dùng chung cho mọi loại job xuyên suốt Phase. Không tồn tại → `404`.
-Job detect/ocr: `status` đi `queued → running → done | failed`; khi `failed`, `error_log` ghi nguyên nhân
-(`timeout: vượt Ns`, `FileNotFoundError: …`, `enqueue_failed: …`, `no_region: …`).
+Job detect/ocr/inpaint: `status` đi `queued → running → done | failed`; khi `failed`, `error_log` ghi
+nguyên nhân (`timeout: vượt Ns`, `FileNotFoundError: …`, `enqueue_failed: …`, `no_region: …`,
+`precondition_failed: …`, `missing_ocr: …`).
 
 Khi job OCR lỗi, `Page.status` **giữ nguyên `detected`** (không nhảy `ocr_done`) để còn chạy lại được.
+Khi job inpaint lỗi, `Page.status` giữ nguyên `ocr_done` và `clean_image_path` **không** được ghi.
+
+`Page.status` sau khi xoá chữ: `inpainted` (OCR lại vùng đã xoá không còn chữ) hoặc
+`inpaint_needs_review` (còn đọc ra chữ ⇒ xoá chưa sạch, cần xem lại).
 
 ## Bảng enum (chốt ở M1, M2–M10 không đổi âm thầm)
 
@@ -154,7 +185,6 @@ Khi job OCR lỗi, `Page.status` **giữ nguyên `detected`** (không nhảy `oc
 
 ## Endpoint sẽ thêm ở mini-spec sau (chưa tồn tại)
 
-`GET /pages/{id}/clean-image` (M4) ·
 `POST|GET /pages/{id}/translate|translation` (M5) · `POST /pages/{id}/typeset`, `GET /pages/{id}/typeset-preview` (M6) ·
 `PATCH /regions/{id}` (M7) · `POST /projects/{id}/export`, `GET /export-jobs/{id}` (M8) ·
 `POST /projects/{id}/run-batch`, `GET /projects/{id}/batch-status` (M9).

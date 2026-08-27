@@ -54,6 +54,21 @@ class Settings(BaseSettings):
     ocr_timeout_seconds: int = 600
     #: Tự nối OCR ngay sau khi detect xong (pipeline tự chảy).
     ocr_auto_chain: bool = True
+    # ---- M4: inpaint (LaMa) ----
+    inpaint_weights_path: str = "/models/lama-manga-dynamic.onnx"
+    inpaint_device: str = "cpu"
+    #: Nới mask quanh bbox để không sót viền chữ. Trần cứng 15% ở tầng code (mask.MAX_DILATE_RATIO).
+    inpaint_dilate_ratio: float = 0.08
+    #: Timeout RIÊNG cho inpaint (đo thật: 54,3s/ảnh 1400x2000 trên CPU, chưa tính bước kiểm chứng).
+    inpaint_timeout_seconds: int = 600
+    inpaint_auto_chain: bool = True
+    #: Kiểm chứng khách quan: OCR lại đúng vùng đã xoá, còn chữ -> inpaint_needs_review.
+    inpaint_verify_by_ocr: bool = True
+    inpaint_intra_op_threads: int = 0
+    #: Constraint 10 của M4: KHÔNG lặng lẽ lùi về cv2.inpaint khi LaMa lỗi.
+    #: Muốn cho phép fallback thì phải bật tường minh ở đây.
+    inpaint_allow_opencv_fallback: bool = False
+
     #: paddlepaddle 3.3.1 vỡ ở nhánh oneDNN/PIR trên CPU này
     #: (NotImplementedError: ConvertPirAttribute2RuntimeAttribute ... onednn_instruction.cc)
     #: -> phải tắt oneDNN thì PaddleOCR mới chạy. Xem docs/TEST_LOG.md § M3.

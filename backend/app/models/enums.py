@@ -94,7 +94,8 @@ PAGE_STATUS_TRANSITIONS: dict[PageStatus, tuple[PageStatus, ...]] = {
     PageStatus.detected: (PageStatus.ocr_done, PageStatus.detecting),
     PageStatus.detection_failed: (PageStatus.detecting,),
     PageStatus.ocr_done: (PageStatus.inpainted, PageStatus.inpaint_needs_review),
-    PageStatus.inpainted: (PageStatus.translated,),
+    # inpainted -> inpaint_needs_review: chạy lại inpaint ra kết quả tệ hơn (thêm ở M4)
+    PageStatus.inpainted: (PageStatus.translated, PageStatus.inpaint_needs_review),
     PageStatus.inpaint_needs_review: (PageStatus.inpainted, PageStatus.translated),
     PageStatus.translated: (PageStatus.typeset_done,),
     PageStatus.typeset_done: (PageStatus.ready_for_export, PageStatus.translated),

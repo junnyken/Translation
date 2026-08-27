@@ -1,7 +1,7 @@
 # ARCH.md — Translation (Phase MTE: Manga Translation Extension)
 
-> Trạng thái: **M3 hoàn tất** (M1 contract · M2 nhận diện khung chữ · M3 OCR đọc chữ trong khung).
-> Chưa có inpaint/translate/typeset — thuộc M4–M6.
+> Trạng thái: **M4 hoàn tất** (M1 contract · M2 nhận diện khung · M3 đọc chữ · M4 xoá chữ gốc khỏi ảnh).
+> Chưa có translate/typeset — thuộc M5–M6.
 
 ## 1. Bức tranh tổng thể
 
@@ -40,6 +40,7 @@ Quy tắc kiến trúc **giữ nguyên xuyên suốt Phase** (M1 chốt, M2–M1
 | Storage | Volume local (`LocalObjectStorage`) | Adapter Supabase Storage **chưa implement** — xem §6 (nợ kỹ thuật) |
 | Detector (M2) | comic-text-detector qua ONNX Runtime (CPU) | Chỉ chạy trong worker; tiến trình API không nạp model |
 | OCR (M3) | manga-ocr (`ja`) · PaddleOCR (`zh`/`en`) | Cùng worker; **image worker tách khỏi image api** (multi-stage) |
+| Inpaint (M4) | LaMa bản finetune manga, qua ONNX Runtime (CPU) | Cùng worker; sinh ảnh clean thành **file mới**, không đụng ảnh gốc |
 
 ## 3. Data model (7 bảng, chốt ở M1)
 
@@ -179,7 +180,67 @@ Model OCR tải lúc chạy lần đầu (manga-ocr ~440MB từ HuggingFace, Pad
 vào volume `model_cache` (`HF_HOME=/model-cache/hf`, `PADDLE_PDX_CACHE_HOME=/model-cache/paddle`)
 — không tải lại mỗi lần khởi động container.
 
-## 7. Giới hạn đã biết (cố ý để lại)
+
+## 7. Model weight inpaint (M4)
+
+| Mục | Giá trị |
+|---|---|
+| Model | LaMa finetune trên 300k ảnh manga/anime (`lama_large_512px`) |
+| File dùng | `lama-manga-dynamic.onnx` (~197 MB) |
+| Nguồn tải | `https://huggingface.co/ogkalu/lama-manga-onnx-dynamic` |
+| SHA-256 | `de31ffa5ba26916b8ea35319f6c12151ff9654d4261bccf0583a69bb095315f9` |
+| License bản ONNX | `apache-2.0` |
+| License checkpoint gốc (`dreMaz/AnimeMangaInpainting`) | **`mit`** |
+| Base model (`advimman/lama` big-lama) | code Apache-2.0; **weight gốc của big-lama là CC BY-NC-SA (phi thương mại)** |
+
+**Xử lý license:** chuỗi bản quyền ở đây sạch hơn M2 — checkpoint manga (`lama_large_512px.ckpt`)
+công bố theo **MIT**, bản ONNX theo Apache-2.0. Tuy vậy nó là bản finetune từ big-lama, mà weight
+big-lama gốc mang giấy phép **phi thương mại**. Vì vậy dự án giữ nguyên lập trường thận trọng như M2:
+dùng cho **cá nhân/nội bộ**, không phân phối lại weight, **không** dùng cho SaaS thương mại nếu chưa
+kiểm tra lại chuỗi license với tác giả. Không copy code inference của repo gốc — chỉ nạp weight qua
+`onnxruntime`, toàn bộ dựng mask / pad / ghép ảnh tự viết trong `app/services/inpaint/`.
+
+Weight **không commit vào git**. Cách lấy:
+
+```bash
+curl -L -o models/lama-manga-dynamic.onnx \
+  https://huggingface.co/ogkalu/lama-manga-onnx-dynamic/resolve/main/lama-manga-dynamic.onnx
+```
+
+### Ràng buộc kỹ thuật đã đo thật
+
+- Input: `image[b,3,h,w]` + `mask[b,1,h,w]` (0..1 float), output `inpainted[b,3,h,w]`
+  **cùng kích thước ảnh vào** — không phải resize về 512 rồi phóng lại.
+- **Cạnh ảnh phải chia hết 8**: `1401×2001` → `ONNXRuntimeError` ở node `Mul`;
+  `1400×2000` → chạy bình thường. Vì vậy code **luôn pad** mép phải/dưới (mode `edge`) rồi cắt lại.
+- Tốc độ: **54,3s/ảnh 1400×2000 trên CPU** (chưa tính bước kiểm chứng).
+
+### Đường đi của bước xoá chữ
+
+```
+OCR xong (Page=ocr_done) ──► tự tạo Job(type=inpaint) + đẩy sang worker   [INPAINT_AUTO_CHAIN=true]
+                                          │
+                                          ▼
+              kiểm điều kiện: page phải ocr_done, mọi region phải có OCRResult
+              dựng mask từ TextRegion.bbox, nới ≤15% (INPAINT_DILATE_RATIO), clamp trong ảnh
+              xoá ảnh clean CŨ (nếu có) → chạy LaMa → ghép: ngoài mask giữ nguyên pixel gốc
+              lưu file MỚI <tên gốc>_clean.png  (ảnh gốc không bao giờ bị đụng)
+                                          │
+                                          ▼
+              KIỂM CHỨNG: OCR lại đúng vùng vừa xoá trên ảnh clean
+                 còn chữ  → Page = inpaint_needs_review
+                 sạch     → Page = inpainted
+              lỗi/timeout → Job=failed, Page GIỮ trạng thái cũ, không ghi clean_image_path
+```
+
+Vì sao kiểm chứng bằng OCR lại: đó là tiêu chí **khách quan, đo được**, thay cho đánh giá cảm tính
+"nhìn có thấy artifact không". Nếu LaMa xoá hụt, OCR sẽ đọc lại được chữ và page bị đánh dấu cần review.
+
+Tham số `.env`: `INPAINT_DILATE_RATIO` (0.08 — trần cứng 0.15 trong code), `INPAINT_TIMEOUT_SECONDS`
+(riêng, không dùng chung với detect/OCR), `INPAINT_VERIFY_BY_OCR`, `INPAINT_ALLOW_OPENCV_FALLBACK`
+(**mặc định false** — LaMa lỗi thì job fail, không lặng lẽ lùi về `cv2.inpaint` chất lượng kém).
+
+## 8. Giới hạn đã biết (cố ý để lại)
 
 - **Supabase Storage chưa có adapter.** M1 chạy `STORAGE_BACKEND=local` (đã verify thật).
   Khi đặt `STORAGE_BACKEND=supabase`, app **fail ngay** với thông báo rõ ràng thay vì im lặng ghi sai chỗ.
@@ -188,7 +249,7 @@ vào volume `model_cache` (`HF_HOME=/model-cache/hf`, `PADDLE_PDX_CACHE_HOME=/mo
   Nếu broker chết, job đứng ở `queued` kèm `error_log=enqueue_failed:…` (không giả vờ đã gửi).
 - **NỢ KỸ THUẬT (tracked):** `SupabaseStorageAdapter` chưa viết — cần khi có credential Supabase.
   Nên làm trước M4 vì M4 bắt đầu sinh thêm ảnh clean. Hiện `STORAGE_BACKEND=supabase` fail có thông báo rõ.
-- **Chưa có inpaint/translate/typeset** — M4–M6.
+- **Chưa có translate/typeset** — M5–M6.
 - **M2 chưa xử lý** ảnh xoay/nghiêng, scan chất lượng kém; chưa auto-retry khi timeout (thuộc M9);
   chưa có UI vẽ overlay box (thuộc M7).
 - **Chưa có auth/user management** — nếu cần multi-user phải là mini-spec riêng, không nhét vào MTE.

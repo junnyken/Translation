@@ -10,6 +10,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -28,7 +29,7 @@ from app.schemas.common import (
     ProjectRead,
     RegionRead,
 )
-from app.services.dispatch import dispatch_detect_job, dispatch_ocr_job
+from app.services.dispatch import dispatch_detect_job, dispatch_inpaint_job, dispatch_ocr_job
 from app.services.storage import UnsupportedImage, get_storage, sniff_image
 
 router = APIRouter(prefix="/api/v1")
@@ -229,6 +230,65 @@ async def retry_ocr(
     await session.refresh(job)
 
     sent, reason = dispatch_ocr_job(job.id)
+    if not sent:
+        job.error_log = reason
+        await session.commit()
+
+    return PageAccepted(page_id=page.id, status=page.status, job_id=job.id)
+
+
+@router.get(
+    "/pages/{page_id}/clean-image",
+    tags=["pages"],
+    response_class=FileResponse,
+    responses={200: {"content": {"image/png": {}}}, 404: {"description": "Chưa có ảnh clean"}},
+)
+async def get_clean_image(
+    page_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> FileResponse:
+    """Ảnh đã xoá chữ gốc (M4). Ảnh GỐC không bao giờ bị thay — đây là file riêng."""
+    page = await _get_page_or_404(session, page_id)
+    if not page.clean_image_path:
+        raise HTTPException(
+            status_code=404,
+            detail="Page chưa có ảnh clean — bước xoá chữ (inpaint) chưa chạy xong",
+        )
+    storage = get_storage()
+    if not storage.exists(page.clean_image_path):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Đường dẫn ảnh clean có trong DB nhưng file không còn: {page.clean_image_path}",
+        )
+    return FileResponse(storage.abs_path(page.clean_image_path), media_type="image/png")
+
+
+@router.post(
+    "/pages/{page_id}/retry-inpaint",
+    response_model=PageAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["pages"],
+)
+async def retry_inpaint(
+    page_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> PageAccepted:
+    """Xếp lại việc xoá chữ cho 1 page. Chỉ enqueue — không chạy inpaint trong request."""
+    page = await _get_page_or_404(session, page_id)
+    if page.status not in (
+        PageStatus.ocr_done,
+        PageStatus.inpainted,
+        PageStatus.inpaint_needs_review,
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Page đang ở '{page.status.value}' — cần OCR xong trước khi xoá chữ",
+        )
+
+    job = Job(type=JobType.inpaint, page_id=page.id, status=JobStatus.queued)
+    session.add(job)
+    await session.commit()
+    await session.refresh(job)
+
+    sent, reason = dispatch_inpaint_job(job.id)
     if not sent:
         job.error_log = reason
         await session.commit()
