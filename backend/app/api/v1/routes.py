@@ -17,12 +17,21 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
-from app.models import Job, OCRResult, Page, Project, TextRegion, TranslationResult
+from app.models import (
+    Job,
+    OCRResult,
+    Page,
+    Project,
+    TextRegion,
+    TranslationResult,
+    TypesetResult,
+)
 from app.models.enums import JobStatus, JobType, PageStatus, TranslationEngine
 from app.schemas.common import (
     JobRead,
     OCRResultRead,
     TranslationResultRead,
+    TypesetResultRead,
     PageAccepted,
     PageRead,
     ProjectCreate,
@@ -35,8 +44,11 @@ from app.services.dispatch import (
     dispatch_inpaint_job,
     dispatch_ocr_job,
     dispatch_translate_job,
+    dispatch_typeset_job,
 )
 from app.services.storage import UnsupportedImage, get_storage, sniff_image
+# CHỈ import module quy ước đường dẫn — KHÔNG kéo theo Pillow vào tiến trình API.
+from app.services.typeset.paths import preview_relative_path
 
 router = APIRouter(prefix="/api/v1")
 
@@ -355,6 +367,81 @@ async def retry_translate(
     await session.refresh(job)
 
     sent, reason = dispatch_translate_job(job.id, engine.value if engine else None)
+    if not sent:
+        job.error_log = reason
+        await session.commit()
+
+    return PageAccepted(page_id=page.id, status=page.status, job_id=job.id)
+
+
+@router.get("/pages/{page_id}/typeset", response_model=list[TypesetResultRead], tags=["pages"])
+async def list_page_typeset(
+    page_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> list[TypesetResult]:
+    """Kết quả canh chữ theo từng vùng, sắp theo ĐÚNG thứ tự đọc (M6).
+
+    Trả `[]` khi chưa canh. `fit_status`: `fit_ok` · `overflow_warning` (không vừa dù đã xuống
+    cỡ nhỏ nhất — M7 sẽ sửa tay) · `pending` (vùng chưa có bản dịch nên chưa có gì để canh).
+    Cảnh báo tràn khung PHẢI đọc được ở đây, không bị ảnh preview đẹp che mất.
+    """
+    await _get_page_or_404(session, page_id)
+    stmt = (
+        select(TypesetResult)
+        .join(TextRegion, TextRegion.id == TypesetResult.region_id)
+        .where(TextRegion.page_id == page_id)
+        .order_by(TextRegion.reading_order.nulls_last(), TextRegion.created_at)
+    )
+    return list((await session.execute(stmt)).scalars())
+
+
+@router.get(
+    "/pages/{page_id}/typeset-preview",
+    tags=["pages"],
+    response_class=FileResponse,
+    responses={200: {"content": {"image/png": {}}}, 404: {"description": "Chưa render preview"}},
+)
+async def get_typeset_preview(
+    page_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> FileResponse:
+    """Ảnh xem thử: ảnh clean của M4 + chữ dịch đã canh (M6).
+
+    CHỈ phục vụ file đã render sẵn — endpoint này không bao giờ tự render (việc nặng thuộc
+    worker). Ảnh gốc và ảnh clean không hề bị đụng tới; đây là file thứ ba.
+    """
+    await _get_page_or_404(session, page_id)
+    storage = get_storage()
+    rel = preview_relative_path(page_id)
+    if not storage.exists(rel):
+        raise HTTPException(
+            status_code=404,
+            detail="Page chưa có ảnh preview — bước canh chữ (typeset) chưa chạy xong",
+        )
+    return FileResponse(storage.abs_path(rel), media_type="image/png")
+
+
+@router.post(
+    "/pages/{page_id}/retry-typeset",
+    response_model=PageAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["pages"],
+)
+async def retry_typeset(
+    page_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> PageAccepted:
+    """Xếp lại việc canh chữ. Chỉ enqueue, không render trong request."""
+    page = await _get_page_or_404(session, page_id)
+    if page.status not in (PageStatus.translated, PageStatus.typeset_done):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Page đang ở '{page.status.value}' — cần dịch xong trước khi canh chữ",
+        )
+
+    job = Job(type=JobType.typeset, page_id=page.id, status=JobStatus.queued)
+    session.add(job)
+    await session.commit()
+    await session.refresh(job)
+
+    sent, reason = dispatch_typeset_job(job.id)
     if not sent:
         job.error_log = reason
         await session.commit()

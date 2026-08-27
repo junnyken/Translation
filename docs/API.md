@@ -184,20 +184,69 @@ tự tiêu token khi user chưa chọn). Chỉ enqueue, không dịch trong requ
 Chạy lại là **idempotent**: bản dịch cũ của page bị xoá trước khi ghi bản mới, không nhân đôi.
 `reading_order` của `TextRegion` được **điền ở bước này** (từ M1 tới M4 cột này còn NULL).
 
-## 13. `GET /api/v1/jobs/{job_id}` → 200
+## 13. `GET /api/v1/pages/{page_id}/typeset` → 200 *(M6)*
+
+```json
+[ { "region_id": "…", "font_family": "Bangers", "font_size": 30.0,
+    "wrapped_text": "Chào buổi\nsáng.", "padding_ratio": 0.09,
+    "fit_status": "fit_ok", "edited_by_user": false } ]
+```
+Kết quả canh chữ theo từng vùng, **sắp theo đúng thứ tự đọc**. Chưa canh → `[]`.
+
+- `fit_status`: `fit_ok` · `overflow_warning` (không vừa dù đã xuống `TYPESET_MIN_FONT_SIZE` —
+  **hệ thống không co chữ nhỏ hơn min**, để M7 sửa tay) · `pending` (vùng chưa có bản dịch nên
+  chưa có gì để canh; `font_size` = `null`).
+- Cảnh báo tràn khung **phải đọc được ở đây** — không bị ảnh preview đẹp che mất.
+- `wrapped_text` là văn bản đã chèn ký tự xuống dòng; **nội dung bản dịch không bị sửa**.
+- `edited_by_user` dành cho M7, kết quả tự động của M6 luôn `false`.
+
+## 14. `GET /api/v1/pages/{page_id}/typeset-preview` → 200 *(M6)*
+
+Ảnh xem thử: ảnh clean của M4 + chữ dịch đã canh. Kích thước **bằng đúng ảnh clean**.
+Vùng `overflow_warning` được vẽ **khung đỏ** để cảnh báo nhìn thấy được.
+
+| Lỗi | Mã |
+|---|---|
+| page không tồn tại | 404 |
+| chưa render preview (typeset chưa chạy xong) | 404 |
+
+Endpoint này **chỉ phục vụ file đã render sẵn** — không bao giờ tự render (việc nặng thuộc worker,
+và tiến trình API không nạp engine render).
+
+Đây là **file thứ ba**, không đụng tới `image_path` (ảnh gốc) hay `clean_image_path` (ảnh sạch):
+`previews/<page_id>/typeset.png`. Đường dẫn ổn định theo page nên chạy lại là ghi đè đúng file.
+
+## 15. `POST /api/v1/pages/{page_id}/retry-typeset` → 202 *(M6)*
+
+Xếp lại việc canh chữ. Chỉ enqueue, không render trong request.
+
+```json
+{ "page_id": "…", "status": "translated", "job_id": "…job mới…" }
+```
+| Lỗi | Mã |
+|---|---|
+| page không tồn tại | 404 |
+| page chưa dịch xong (không ở `translated`/`typeset_done`) | 409 |
+
+Chạy lại là **idempotent**: kết quả cũ bị xoá trước khi ghi mới, preview ghi đè đúng đường dẫn cũ
+(ghi ra file tạm rồi đổi chỗ nguyên tử) — không nhân bản bản ghi, không để lại file rác.
+
+## 16. `GET /api/v1/jobs/{job_id}` → 200
 
 ```json
 { "id": "…", "type": "detect", "page_id": "…", "status": "queued",
   "retry_count": 0, "error_log": null, "created_at": "…", "updated_at": "…" }
 ```
 Dùng chung cho mọi loại job xuyên suốt Phase. Không tồn tại → `404`.
-Job detect/ocr/inpaint/translate: `status` đi `queued → running → done | failed`; khi `failed`, `error_log` ghi
+Job detect/ocr/inpaint/translate/typeset: `status` đi `queued → running → done | failed`; khi `failed`, `error_log` ghi
 nguyên nhân (`timeout: vượt Ns`, `FileNotFoundError: …`, `enqueue_failed: …`, `no_region: …`,
 `precondition_failed: …`, `missing_ocr: …`).
 
 Khi job OCR lỗi, `Page.status` **giữ nguyên `detected`** (không nhảy `ocr_done`) để còn chạy lại được.
 Khi job inpaint lỗi, `Page.status` giữ nguyên `ocr_done` và `clean_image_path` **không** được ghi.
 Khi job translate lỗi, `Page.status` giữ nguyên `inpainted` để còn chạy lại được.
+Khi job typeset lỗi (thiếu font, timeout…), `Page.status` giữ nguyên `translated` và **không có preview
+nửa vời** — ảnh chỉ được đổi chỗ sau khi vẽ xong.
 Job translate lùi về `google_fast` vẫn là `done`, nhưng `error_log` ghi `fallback_used: <lý do gốc>`
 và mọi dòng của trang mang `status=fallback_used` — thành công **có dán nhãn**, không im lặng.
 
@@ -224,6 +273,5 @@ và mọi dòng của trang mang `status=fallback_used` — thành công **có d
 
 ## Endpoint sẽ thêm ở mini-spec sau (chưa tồn tại)
 
-`POST /pages/{id}/typeset`, `GET /pages/{id}/typeset-preview` (M6) ·
 `PATCH /regions/{id}` (M7) · `POST /projects/{id}/export`, `GET /export-jobs/{id}` (M8) ·
 `POST /projects/{id}/run-batch`, `GET /projects/{id}/batch-status` (M9).

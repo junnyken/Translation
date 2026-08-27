@@ -502,3 +502,156 @@ Cả hai đều ghi vào `ARCH.md §8` để người sau không kỳ vọng sai
   các page `ja` trong DB đang dừng ở `detected`.
 - Nhánh `fallback_used` (LLM chết → lùi về Google) mới verify bằng **integration test giả lập lỗi**,
   chưa gặp tình huống hết quota thật.
+
+---
+
+## M6 — Canh cỡ chữ & ngắt dòng cho vừa bubble
+
+**Ngày:** 2026-08-27 · **Môi trường:** workspace `trieunt-c`, Docker, Python 3.12.3,
+Postgres 16-alpine, Redis 7-alpine, worker Celery `translation-worker-1`, Pillow 11.0.0.
+Font: `fonts/` mount vào worker theo `FONT_DIR=/fonts` (API **không** mount, không cần).
+
+### 1. Audit Before Build — 7 mục, có bằng chứng
+
+| # | Mục | Kết quả |
+|---|---|---|
+| 1 | `ITypesetter.fit(text, bbox, font_family) -> dict` + bảng `TypesetResult` | Nguyên vẹn từ M1: đủ 6 cột (`font_family`, `font_size`, `wrapped_text`, `padding_ratio`, `fit_status`, `edited_by_user`), `region_id` unique, enum `FitStatus(pending/fit_ok/overflow_warning)`, `JobType.typeset` có sẵn ⇒ **không cần migration** |
+| 2 | Page `translated` thật + đơn vị bbox | Page `e08da9e4` (6 vùng / 6 bản dịch / 0 typeset). bbox max `(x+w, y+h) = (1147, 1798)` nằm gọn trong ảnh clean `1400×2000` ⇒ **bbox đúng pixel của ảnh clean**, không phải thumbnail |
+| 3 | Pillow trong worker | `11.0.0`; có `getlength` ✓, có `multiline_textbbox` ✓, **`textsize`/`getsize` đã bị gỡ khỏi Pillow 11** (`hasattr = False`) nên không có nguy cơ lỡ tay dùng API cũ |
+| 4 | File font + hỗ trợ tiếng Việt | `fonts/` chưa được mount vào worker ⇒ **đã bổ sung volume `./fonts:/fonts:ro`**. Độ phủ dấu đã đo ở `docs/FONTS.md`: 4 font bundle đều 134/134 |
+| 5 | License font trước khi commit | Cả 4 font **SIL OFL 1.1**, có `OFL.txt` đi kèm ⇒ **có quyền phân phối**, nên được commit (spec cấm commit font *trừ khi* quyền phân phối được xác nhận — điều kiện này đã thoả) |
+| 6 | Đường dẫn preview + quyền ghi/đọc | Worker ghi `/data/storage/previews/_audit/probe.txt` → **API đọc lại được** đúng nội dung ⇒ chung volume `storage_data`. Đĩa còn **68 GB** |
+| 7 | Gap | `typeset_result` có **0 record**, không có implementation nào của `ITypesetter` ⇒ đúng phạm vi M6 |
+
+**Phát hiện lớn nhất của audit — `raqm` KHÔNG có trong worker.**
+Workspace có `features.check("raqm") = True` nhưng **worker là `False`**. Đo hậu quả thật:
+
+| Dạng chuỗi | `getlength()` | Render ra |
+|---|---|---|
+| NFC (dựng sẵn) | 325.0 | `ĐỪNG NGOẢNH LẠI! CẨN THẬN` ✅ |
+| NFD (tách dấu) | **325.0 — y hệt** | `ĐUNG NGOANH LAỊ! CAN THAN` ❌ |
+
+⇒ Chuỗi NFD render **sai** mà phép đo **vẫn trả đúng con số của NFC**, nên sai không lộ ra qua
+bất kỳ assert nào về kích thước. Dữ liệu M5 hiện tại tình cờ là NFC (đã kiểm 3 mẫu), nhưng Gemini
+không cam kết trả NFC. → M6 **chuẩn hoá NFC trong đường đo/vẽ** (xem REPORT_M6 §3).
+
+### 2. Test tự động
+
+```
+$ cd backend && ../.venv/bin/python -m pytest
+329 passed, 6 skipped in 44.22s
+```
+
+| Nhóm | File | Số test |
+|---|---|---|
+| Unit — ngắt dòng, đo chữ, FontResolver, chặn tofu | `tests/test_typeset_layout_unit.py` | 21 |
+| Unit — thuật toán chọn cỡ chữ | `tests/test_typeset_fitter_unit.py` | 13 |
+| Integration — task typeset + 3 endpoint trên DB thật | `tests/test_typeset_task_integration.py` | 17 |
+| Guardrail kiến trúc (M1→M6) | `tests/test_no_ai_logic.py` | 27 (+6 của M6) |
+| Font bundle đủ dấu tiếng Việt | `tests/test_fonts_vietnamese.py` | 16 |
+| Kế thừa M1–M5 | các file trước | 235 |
+
+Bài test đáng chú ý của M6:
+- `test_giam_1px_lay_duoc_co_lon_nhat_ke_ca_khi_khong_don_dieu` — **khoá lại bằng chứng §4**: ca
+  `"Cẩn thận!"` phải KHÔNG đơn điệu, và `fit()` phải trả đúng cỡ lớn nhất trong tập vừa.
+- `test_thieu_glyph_bao_loi_khong_am_tham_ra_o_vuong` — tự cắt một font chỉ còn ASCII rồi bắt buộc
+  phải ném `font_missing_glyph`.
+- `test_khong_co_chu_thi_pending_khong_phai_overflow` — vùng chưa có bản dịch không được gắn "tràn khung".
+- `test_preview_that_su_co_ve_chu_len` — preview phải KHÁC ảnh clean; giống hệt nghĩa là không vẽ được gì.
+- `test_khong_dung_toi_du_lieu_cua_m2_m5` — so nguyên bộ `(reading_order, bbox, translated_text, token_cost)`
+  trước/sau typeset.
+- `test_api_khong_nap_engine_render_cua_m6` + `test_package_typeset_khong_keo_theo_pillow` — API
+  không được nạp Pillow; vì thế quy ước đường dẫn preview tách sang `typeset/paths.py`.
+- `test_endpoint_preview_chi_phuc_vu_file_khong_tu_render` — quét thân hàm, cấm mọi dấu vết renderer.
+- `test_nam_task_co_nam_timeout_rieng` — nay là **năm** timeout độc lập.
+
+### 3. Live verification — Run A (bắt buộc)
+
+Đường thật: `POST /pages/{id}/retry-typeset` → Redis → worker Celery → Pillow → DB + file preview.
+Page `e08da9e4`, 6 bubble, bản dịch **thật từ Gemini** (M5), ảnh clean 1400×2000, font `Bangers`.
+
+| # | Bản dịch | bbox | Cỡ chữ | Ngắt dòng | Trạng thái |
+|---|---|---|---|---|---|
+| 1 | Chào buổi sáng. | 192×85 | 30 | 2 dòng | `fit_ok` |
+| 2 | Ngươi là ai? | 192×81 | **36** | 1 dòng | `fit_ok` |
+| 3 | Ta ở đây. | 106×85 | 33 | 2 dòng | `fit_ok` |
+| 4 | Cẩn thận! | 108×84 | **27** | 2 dòng | `fit_ok` |
+| 5 | Đi thôi nào. | 163×80 | 32 | 1 dòng | `fit_ok` |
+| 6 | Tạm kết tại đây. | 183×82 | 29 | 2 dòng | `fit_ok` |
+
+**Thời gian: 0,5–0,6 s/trang** (rẻ hơn detect 40-61s, OCR, inpaint 45-63s rất nhiều — M6 không nạp model).
+
+**Checksum — bằng chứng M6 không đụng output của M4:**
+
+```
+TRƯỚC: gốc bf9df4751a3f9517a453ba9804154650 · clean 267f160b4759ef9318633359ef85b56f
+SAU  : gốc bf9df4751a3f9517a453ba9804154650 · clean 267f160b4759ef9318633359ef85b56f
+```
+Preview là **file thứ ba**: `previews/<page_id>/typeset.png`, đúng 1400×2000 = kích thước ảnh clean.
+
+**Nhìn bằng mắt** (tải qua `GET /pages/{id}/typeset-preview`): cả 6 bubble có chữ tiếng Việt căn giữa
+cả hai chiều, **đủ dấu** (`CHÀO BUỔI SÁNG`, `NGƯƠI LÀ AI?`, `TA Ở ĐÂY`, `CẨN THẬN!`, `ĐI THÔI NÀO`,
+`TẠM KẾT TẠI ĐÂY`), không chữ nào chạm viền bubble, không có ô vuông.
+
+**Ca tràn khung có chủ ý** (spec Run A yêu cầu) — nhét 1 câu 208 ký tự vào bubble 192×81:
+
+| Vùng | Cỡ chữ | Số dòng | Trạng thái |
+|---|---|---|---|
+| câu dài 208 ký tự | **10 = đúng `TYPESET_MIN_FONT_SIZE`** | 7 | `overflow_warning` |
+| "Tạm biệt." | 29 | 1 | `fit_ok` |
+
+⇒ Hệ thống **không co chữ xuống dưới min để giả vờ vừa khung**. Preview vẽ khung đỏ quanh vùng tràn,
+chữ nằm trong bbox, không tràn vô hạn ra trang. Cảnh báo đọc được ở `GET /pages/{id}/typeset`.
+
+**Idempotent — chạy lại thật 2 lần:**
+
+```
+TRƯỚC : 6 bản ghi typeset_result, thư mục previews/<page_id>/ có đúng 1 file typeset.png
+retry x2 -> log: "6 vùng (vừa 6, tràn 0, chưa có chữ 0), xoá 6 kết quả cũ"
+SAU   : 6 bản ghi typeset_result, vẫn đúng 1 file typeset.png, không có file .tmp.png sót lại
+```
+
+### 4. Đo tính đơn điệu — vì sao KHÔNG dùng tìm kiếm nhị phân
+
+Spec §6 cho phép nhị phân *nếu* quan hệ "vừa khung theo cỡ chữ" đơn điệu. **Đo thật trên 8 ca**
+(6 bubble thật + 2 ca khắc nghiệt), chuỗi `fits(10..28)`:
+
+| Ca | Chuỗi `fits(10→28)` | Đơn điệu? |
+|---|---|---|
+| Chào buổi sáng. (192×85) | `1111111111111111111` | có |
+| **Cẩn thận! (108×84)** | `1111111111111110110` | **KHÔNG** |
+| **token dài (300×200)** | `1111111111101111111` | **KHÔNG** |
+| 5 ca còn lại | đơn điệu | có |
+
+`"Cẩn thận!"` **vừa ở cỡ 25, hỏng ở 26, lại vừa ở 27** — vì tăng cỡ làm ngắt dòng nhảy từ 2 dòng
+xuống 1 dòng (hoặc ngược lại) một cách rời rạc. Tìm kiếm nhị phân sẽ dừng ở **25** và bỏ sót **27**.
+
+⇒ **2/8 ca không đơn điệu ⇒ chuyển hẳn sang giảm dần 1px**, chỉ giữ một thuật toán trong production
+đúng như spec §6 yêu cầu. Có test khoá lại ca này để không ai "tối ưu" ngược về nhị phân.
+
+### 5. Đo trần cỡ chữ — vì sao đổi mặc định 28 → 40
+
+Chạy Run A lần đầu với `TYPESET_MAX_FONT_SIZE=28` (giá trị spec đề xuất): **5/6 vùng dừng đúng ở 28**.
+Nhiều vùng cùng chạm đúng trần là dấu hiệu **trần đang chặn, không phải bubble**. Đo lại khi nới trần:
+
+| Trần | Cỡ chọn được cho 6 vùng | Còn chạm trần? |
+|---|---|---|
+| 28 | 28, 28, 28, 27, 28, 28 | **có — 5/6** |
+| **40** | 30, 36, 33, 27, 32, 29 | không |
+| 56 | 30, 36, 33, 27, 32, 29 | không (giống hệt 40) |
+| 72 | 30, 36, 33, 27, 32, 29 | không (giống hệt 40) |
+
+Trên 40 thì hình học bubble mới là ràng buộc, nới thêm vô ích. → **mặc định đổi thành 40**, ghi rõ
+lý do trong `.env.example` và `config.py`.
+
+### 6. Giới hạn của lần đo này
+
+- Vẫn là **ảnh tổng hợp** nền phẳng, bubble hình ellipse đều đặn — **Run C (manga scan thật) CHƯA chạy**,
+  cùng nút thắt với M2/M3/M4/M5.
+- **Run B (font comic mà spec chỉ định) KHÔNG chạy được**: `HL Comic2` chỉ có 38/134 ký tự tiếng Việt,
+  Anime Ace "Limited European Characters" + phải mua license, MTO Comic không tồn tại (`docs/FONTS.md`).
+  M6 chạy bằng **Bangers — font comic thật, SIL OFL, đủ 134/134 dấu**, không phải font hệ thống chữa cháy.
+  Nhưng đây **chưa phải** typography đã được duyệt bởi người làm truyện.
+- Chưa có **text dọc / chữ xoay / SFX** — M6 chỉ layout chữ Việt nằm ngang trong bbox (đúng phạm vi spec).
+- Chưa đo trên bubble **không phải hình chữ nhật**: bbox là hình chữ nhật bao quanh bubble ellipse, nên
+  chữ căn giữa vẫn có thể chạm mép cong ở bubble dẹt. Trên fixture chưa thấy, cần Run C xác nhận.

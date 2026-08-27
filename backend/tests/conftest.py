@@ -8,6 +8,7 @@ import os
 import tempfile
 import uuid
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 import pytest
 
@@ -20,6 +21,8 @@ os.environ["DATABASE_URL"] = TEST_DB_URL
 _STORAGE_ROOT = tempfile.mkdtemp(prefix="translation-test-storage-")
 os.environ["STORAGE_LOCAL_ROOT"] = _STORAGE_ROOT
 os.environ["STORAGE_BACKEND"] = "local"
+# M6: font nằm trong repo (`fonts/`), không phải /fonts của container.
+os.environ.setdefault("FONT_DIR", str(Path(__file__).resolve().parents[2] / "fonts"))
 
 import sqlalchemy as sa  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
@@ -202,6 +205,8 @@ def no_broker_for_chained_ocr(monkeypatch):
     monkeypatch.setattr(
         "app.api.v1.routes.dispatch_translate_job", lambda job_id, engine=None: (True, None)
     )
+    monkeypatch.setattr(tasks.run_typeset_job, "delay", lambda job_id: sent.append(job_id))
+    monkeypatch.setattr("app.api.v1.routes.dispatch_typeset_job", lambda job_id: (True, None))
     return sent
 
 

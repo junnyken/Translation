@@ -19,8 +19,17 @@ from sqlalchemy import delete, func, select
 
 from app.core.config import get_settings
 from app.core.db_sync import sync_session
-from app.models import Job, OCRResult, Page, Project, TextRegion, TranslationResult
+from app.models import (
+    Job,
+    OCRResult,
+    Page,
+    Project,
+    TextRegion,
+    TranslationResult,
+    TypesetResult,
+)
 from app.models.enums import (
+    FitStatus,
     JobStatus,
     JobType,
     OCRStatus,
@@ -830,6 +839,10 @@ def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dic
         job.error_log = f"fallback_used: {fallback_reason}"[:4000] if fallback_reason else None
         session.commit()
 
+    typeset_job_id = (
+        enqueue_typeset_after_translate(page_id) if settings.typeset_auto_chain else None
+    )
+
     logger.info(
         "translate job %s: %d vùng (%d dòng rỗng), engine=%s%s, token=%s, xoá %d bản dịch cũ, %.1fs",
         job_id, len(ordered_specs), empty, used_engine,
@@ -849,6 +862,7 @@ def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dic
         "key_rotations": usage.key_rotations if usage else 0,
         "replaced_results": deleted,
         "elapsed_seconds": round(elapsed, 2),
+        "typeset_job_id": str(typeset_job_id) if typeset_job_id else None,
     }
 
 
@@ -874,5 +888,248 @@ def run_translate_job(self, job_id: str, engine: str | None = None) -> dict:
     except Exception as exc:  # noqa: BLE001
         reason = f"{type(exc).__name__}: {exc}"
         logger.exception("translate job %s thất bại", jid)
+        _mark_job_failed(jid, reason)
+        return {"status": "failed", "job_id": str(jid), "error": reason}
+
+
+# ============================ M6: Canh chữ vào bubble ============================
+
+
+def enqueue_typeset_after_translate(page_id: uuid.UUID) -> uuid.UUID | None:
+    """Nối chuỗi: dịch xong → tự xếp việc canh chữ."""
+    with sync_session() as session:
+        job = Job(type=JobType.typeset, page_id=page_id, status=JobStatus.queued)
+        session.add(job)
+        session.commit()
+        job_id = job.id
+
+    try:
+        run_typeset_job.delay(str(job_id))
+    except Exception as exc:  # noqa: BLE001
+        reason = f"enqueue_failed: {type(exc).__name__}: {exc}"
+        logger.error("Không đẩy được job typeset %s: %s", job_id, reason)
+        with sync_session() as session:
+            job = session.get(Job, job_id)
+            if job is not None:
+                job.error_log = reason
+                session.commit()
+    return job_id
+
+
+def build_typesetter():
+    """Dựng typesetter + resolver từ config. Import TRỄ để API không kéo theo Pillow/font."""
+    from app.services.typeset.fitter import FitToBoxTypesetter
+    from app.services.typeset.fonts import FontResolver
+
+    resolver = FontResolver(
+        font_dir=settings.font_dir,
+        default_family=settings.default_font_family,
+        allow_fallback=settings.allow_font_fallback,
+    )
+    typesetter = FitToBoxTypesetter(
+        font_resolver=resolver,
+        min_font_size=settings.typeset_min_font_size,
+        max_font_size=settings.typeset_max_font_size,
+        padding_ratio=settings.typeset_padding_ratio,
+        line_spacing_ratio=settings.typeset_line_spacing_ratio,
+        stroke_width=settings.typeset_stroke_width,
+    )
+    return typesetter, resolver
+
+
+def _run_typeset(job_id: uuid.UUID) -> dict:
+    started = time.perf_counter()
+    from app.services.interfaces import BBox
+    from app.services.storage import get_storage
+    from app.services.typeset.preview import (
+        PagePreviewRenderer,
+        RegionDraw,
+        preview_relative_path,
+    )
+
+    with sync_session() as session:
+        job = session.get(Job, job_id)
+        if job is None:
+            logger.warning("Job %s không tồn tại", job_id)
+            return {"status": "job_not_found", "job_id": str(job_id)}
+        if job.type is not JobType.typeset:
+            return {"status": "wrong_job_type", "job_id": str(job_id), "type": job.type.value}
+
+        page = session.get(Page, job.page_id)
+        if page is None:
+            job.status = JobStatus.failed
+            job.error_log = "page_not_found"
+            session.commit()
+            return {"status": "page_not_found", "job_id": str(job_id)}
+
+        page_id = page.id
+        clean_rel = page.clean_image_path
+
+        if page.status not in (PageStatus.translated, PageStatus.typeset_done):
+            job.status = JobStatus.failed
+            job.error_log = (
+                f"precondition_failed: page đang ở '{page.status.value}', "
+                "cần 'translated' (chạy dịch trước khi canh chữ)"
+            )
+            session.commit()
+            return {"status": "failed", "job_id": str(job_id), "error": job.error_log}
+
+        if not clean_rel:
+            job.status = JobStatus.failed
+            job.error_log = "no_clean_image: page chưa có ảnh clean của M4"
+            session.commit()
+            return {"status": "failed", "job_id": str(job_id), "error": job.error_log}
+
+        regions = list(
+            session.execute(
+                select(TextRegion)
+                .where(TextRegion.page_id == page_id)
+                .order_by(TextRegion.reading_order.nulls_last(), TextRegion.created_at)
+            ).scalars()
+        )
+        if not regions:
+            job.status = JobStatus.failed
+            job.error_log = "no_region: page chưa có TextRegion nào"
+            session.commit()
+            return {"status": "failed", "job_id": str(job_id), "error": "no_region"}
+
+        translations = {
+            row.region_id: row
+            for row in session.execute(
+                select(TranslationResult).where(
+                    TranslationResult.region_id.in_([r.id for r in regions])
+                )
+            ).scalars()
+        }
+        if len(translations) < len(regions):
+            # Thiếu bản dịch ⇒ KHÔNG tạo preview nửa vời.
+            job.status = JobStatus.failed
+            job.error_log = (
+                f"missing_translation: {len(translations)}/{len(regions)} vùng có bản dịch — "
+                "không canh chữ khi chưa dịch xong"
+            )
+            session.commit()
+            return {"status": "failed", "job_id": str(job_id), "error": job.error_log}
+
+        specs = [
+            (
+                r.id,
+                BBox(x=r.bbox_x, y=r.bbox_y, w=r.bbox_w, h=r.bbox_h),
+                translations[r.id].translated_text or "",
+            )
+            for r in regions
+        ]
+        job.status = JobStatus.running
+        session.commit()
+
+    # ---- tính toán NGOÀI transaction: nạp font + đo chữ là việc nặng ----
+    typesetter, resolver = build_typesetter()
+    font_family = settings.default_font_family
+    ket_qua: list[tuple[uuid.UUID, BBox, dict]] = [
+        (region_id, bbox, typesetter.fit(text, bbox, font_family)) for region_id, bbox, text in specs
+    ]
+
+    storage = get_storage()
+    preview_rel = preview_relative_path(page_id)
+    renderer = PagePreviewRenderer(
+        font_resolver=resolver,
+        line_spacing_ratio=settings.typeset_line_spacing_ratio,
+        text_color=settings.typeset_text_color,
+        stroke_color=settings.typeset_stroke_color,
+        stroke_width=settings.typeset_stroke_width,
+    )
+    renderer.render(
+        clean_image_path=storage.abs_path(clean_rel),
+        regions=[
+            RegionDraw(
+                bbox=bbox,
+                wrapped_text=fit["wrapped_text"],
+                font_family=font_family,
+                font_size=fit["font_size"],
+                padding_ratio=settings.typeset_padding_ratio,
+                overflow=fit["fit_status"] == FitStatus.overflow_warning.value,
+            )
+            for _rid, bbox, fit in ket_qua
+        ],
+        target_path=storage.abs_path(preview_rel),
+    )
+
+    elapsed = time.perf_counter() - started
+
+    with sync_session() as session:
+        region_ids = [rid for rid, _b, _f in ket_qua]
+        deleted = session.execute(
+            delete(TypesetResult).where(TypesetResult.region_id.in_(region_ids))
+        ).rowcount
+
+        dem = {"fit_ok": 0, "overflow_warning": 0, "pending": 0}
+        for region_id, _bbox, fit in ket_qua:
+            dem[fit["fit_status"]] = dem.get(fit["fit_status"], 0) + 1
+            session.add(
+                TypesetResult(
+                    region_id=region_id,
+                    font_family=font_family,
+                    font_size=fit["font_size"],
+                    wrapped_text=fit["wrapped_text"] or None,
+                    padding_ratio=settings.typeset_padding_ratio,
+                    fit_status=FitStatus(fit["fit_status"]),
+                    edited_by_user=False,
+                )
+            )
+
+        page = session.get(Page, page_id)
+        if page.status is not PageStatus.typeset_done:
+            assert_transition(page.status, PageStatus.typeset_done)
+            page.status = PageStatus.typeset_done
+
+        job = session.get(Job, job_id)
+        job.status = JobStatus.done
+        job.error_log = None
+        session.commit()
+
+    logger.info(
+        "typeset job %s: %d vùng (vừa %d, tràn %d, chưa có chữ %d), font=%s, "
+        "xoá %d kết quả cũ, preview=%s, %.1fs",
+        job_id, len(ket_qua), dem["fit_ok"], dem["overflow_warning"], dem["pending"],
+        font_family, deleted, preview_rel, elapsed,
+    )
+    return {
+        "status": "done",
+        "job_id": str(job_id),
+        "page_id": str(page_id),
+        "regions": len(ket_qua),
+        "fit_ok": dem["fit_ok"],
+        "overflow_warning": dem["overflow_warning"],
+        "pending": dem["pending"],
+        "font_family": font_family,
+        "preview_path": preview_rel,
+        "replaced_results": deleted,
+        "elapsed_seconds": round(elapsed, 2),
+    }
+
+
+@celery_app.task(
+    bind=True,
+    name="typeset.run_typeset_job",
+    soft_time_limit=settings.typeset_timeout_seconds,
+    time_limit=settings.typeset_timeout_seconds + 30,
+)
+def run_typeset_job(self, job_id: str) -> dict:
+    """Canh cỡ chữ + ngắt dòng cho mọi vùng của 1 page, rồi render ảnh preview riêng.
+
+    Lỗi/timeout/thiếu font: Job=failed + error_log, Page GIỮ `translated`, KHÔNG công bố
+    preview dở dang (ảnh chỉ được đổi chỗ nguyên tử sau khi vẽ xong).
+    """
+    jid = uuid.UUID(str(job_id))
+    try:
+        return _run_typeset(jid)
+    except SoftTimeLimitExceeded:
+        reason = f"timeout: vượt {settings.typeset_timeout_seconds}s"
+        logger.error("typeset job %s %s", jid, reason)
+        _mark_job_failed(jid, reason)
+        return {"status": "failed", "job_id": str(jid), "error": reason}
+    except Exception as exc:  # noqa: BLE001
+        reason = f"{type(exc).__name__}: {exc}"
+        logger.exception("typeset job %s thất bại", jid)
         _mark_job_failed(jid, reason)
         return {"status": "failed", "job_id": str(jid), "error": reason}

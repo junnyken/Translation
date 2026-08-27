@@ -85,6 +85,7 @@ def test_celery_da_dang_ky_dung_task_detect_cua_m2():
         "ocr.run_ocr_job",
         "inpaint.run_inpaint_job",
         "translate.run_translate_job",
+        "typeset.run_typeset_job",
     }, user_tasks
 
 
@@ -290,12 +291,13 @@ def test_key_khong_bi_ghi_vao_db_hay_tra_ra_api():
     assert "api_key" not in models.lower(), "Không lưu API key trong bảng DB ở M5"
 
 
-def test_bon_task_co_bon_timeout_rieng():
+def test_nam_task_co_nam_timeout_rieng():
     from app.workers.tasks import (
         run_detect_job,
         run_inpaint_job,
         run_ocr_job,
         run_translate_job,
+        run_typeset_job,
     )
 
     limits = {
@@ -303,9 +305,11 @@ def test_bon_task_co_bon_timeout_rieng():
         "ocr": run_ocr_job.soft_time_limit,
         "inpaint": run_inpaint_job.soft_time_limit,
         "translate": run_translate_job.soft_time_limit,
+        "typeset": run_typeset_job.soft_time_limit,
     }
     assert all(v is not None for v in limits.values()), limits
     assert limits["translate"] != limits["detect"], limits
+    assert limits["typeset"] != limits["translate"], limits
 
 
 def test_mac_dinh_khong_tu_tieu_token_cua_nguoi_dung():
@@ -321,3 +325,73 @@ def test_mac_dinh_tat_thinking_de_khong_dot_token():
 
     assert Settings().llm_thinking_budget == 0
     assert "2.5" not in Settings().llm_model_name, "gemini-2.5-* đã bị chặn với key mới (404)"
+
+
+# ---------------- M6: canh chữ vào bubble ----------------
+
+
+def test_api_khong_nap_engine_render_cua_m6():
+    """Tiến trình API phải KHÔNG nạp Pillow/engine render — việc nặng thuộc worker."""
+    import subprocess
+    import sys
+
+    code = (
+        "import sys; import app.main;"
+        " bad=[m for m in ('PIL','onnxruntime','torch','cv2') if m in sys.modules];"
+        " assert not bad, f'API đã nạp {bad}';"
+        " print('ok')"
+    )
+    r = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, cwd=str(APP_DIR.parent)
+    )
+    assert r.returncode == 0, r.stderr
+
+
+def test_package_typeset_khong_keo_theo_pillow():
+    """`app.services.typeset` phải nạp được mà không kéo Pillow — API dùng nó để lấy đường dẫn."""
+    import subprocess
+    import sys
+
+    code = (
+        "import sys; import app.services.typeset.paths as p;"
+        " assert 'PIL' not in sys.modules, 'import typeset.paths đã kéo theo Pillow';"
+        " assert p.preview_relative_path;"
+        " print('ok')"
+    )
+    r = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, cwd=str(APP_DIR.parent)
+    )
+    assert r.returncode == 0, r.stderr
+
+
+def test_endpoint_preview_chi_phuc_vu_file_khong_tu_render():
+    """Endpoint preview không được gọi renderer — nếu chưa có file thì trả 404."""
+    routes = (APP_DIR / "api" / "v1" / "routes.py").read_text()
+    than_ham = routes[routes.index("async def get_typeset_preview") :]
+    than_ham = than_ham[: than_ham.index("@router.post")]
+    for cam in ("PagePreviewRenderer", "FitToBoxTypesetter", "ImageDraw", "render("):
+        assert cam not in than_ham, f"endpoint preview không được đụng tới {cam}"
+    assert "404" in than_ham
+
+
+def test_khong_co_hai_thuat_toan_fit_song_song():
+    """Spec §6: chỉ giữ MỘT thuật toán trong production (đã chọn giảm 1px, có bằng chứng)."""
+    fitter = (APP_DIR / "services" / "typeset" / "fitter.py").read_text()
+    than = fitter[fitter.index("def fit(") :]
+    assert "//" not in than.split('"""')[2], "còn dấu vết tìm kiếm nhị phân trong fit()"
+
+
+def test_khong_co_font_path_hard_code():
+    """Font phải qua FontResolver + FONT_DIR, không nhét thẳng đường dẫn vào code."""
+    for name in ("fitter.py", "preview.py", "layout.py"):
+        noi_dung = (APP_DIR / "services" / "typeset" / name).read_text()
+        assert ".ttf" not in noi_dung, f"{name} hard-code đường dẫn font"
+
+
+def test_khong_bao_gio_co_chu_nho_hon_min():
+    from app.core.config import Settings
+
+    s = Settings()
+    assert s.typeset_min_font_size >= 1
+    assert s.typeset_min_font_size <= s.typeset_max_font_size
+    assert s.allow_font_fallback is False, "mặc định KHÔNG được âm thầm đổi font"

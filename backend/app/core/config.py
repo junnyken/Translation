@@ -74,6 +74,29 @@ class Settings(BaseSettings):
     #: Ép hướng đọc (ltr/rtl). Rỗng = suy theo source_lang (ja -> rtl).
     reading_direction_override: str = ""
 
+    # ---- M6: canh chữ vào bubble ----
+    #: Thư mục font, mount vào worker. API KHÔNG cần đọc (không nạp engine render).
+    font_dir: str = "/fonts"
+    #: Family mặc định khi Project chưa chọn. Phải nằm trong whitelist FONT_REGISTRY.
+    default_font_family: str = "Bangers"
+    #: Font hỏng/thiếu ⇒ lỗi rõ. Chỉ bật cái này khi CHẤP NHẬN bị đổi font âm thầm.
+    allow_font_fallback: bool = False
+    #: Không bao giờ co chữ nhỏ hơn min để giả vờ vừa khung — dưới min là overflow_warning.
+    typeset_min_font_size: int = 10
+    #: Spec đề xuất 28, nhưng ĐO THẬT trên trang 1400x2000: 5/6 vùng dừng đúng ở 28 ⇒ trần
+    #: đang chặn chứ không phải bubble. Nới lên 40 thì không vùng nào chạm trần (30-36) và
+    #: trên 40 không đổi gì nữa. Xem REPORT_M6 §3.
+    typeset_max_font_size: int = 40
+    typeset_padding_ratio: float = 0.09
+    typeset_line_spacing_ratio: float = 0.18
+    #: Viền chữ (0 = tắt). Bật lên thì phép đo cũng tính viền, không lệch.
+    typeset_stroke_width: int = 0
+    typeset_text_color: str = "black"
+    typeset_stroke_color: str = "white"
+    #: Timeout RIÊNG cho typeset — nay là năm timeout độc lập (có test canh).
+    typeset_timeout_seconds: int = 600
+    typeset_auto_chain: bool = True
+
     # ---- M4: inpaint (LaMa) ----
     inpaint_weights_path: str = "/models/lama-manga-dynamic.onnx"
     inpaint_device: str = "cpu"

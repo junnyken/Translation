@@ -15,13 +15,13 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 | M3 | OCR theo ngôn ngữ nguồn (manga-ocr cho `ja`, PaddleOCR cho `zh`/`en`) | **LIVE** (đo trên ảnh tổng hợp — provisional, xem TEST_LOG) |
 | M4 | Xoá chữ gốc bằng LaMa → ảnh clean (giữ nguyên ảnh gốc) | **LIVE** (đo trên ảnh tổng hợp — provisional, xem TEST_LOG) |
 | M5 | Dịch 2 đường: `google_fast` (miễn phí) và `llm_context` (giữ mạch văn cả trang) + reading order | **LIVE** (đo trên ảnh tổng hợp thoại tiếng Anh; manga thật + tiếng Nhật chưa đo — xem TEST_LOG) |
-| M6 | Tự tính cỡ chữ + xuống dòng cho vừa bubble (đo font-metrics thật) | CHƯA |
+| M6 | Tự tính cỡ chữ + xuống dòng cho vừa bubble (đo font-metrics thật) | **LIVE** (đo trên ảnh tổng hợp; manga thật chưa đo — xem TEST_LOG) |
 | M7 | Màn sửa tay: sửa bản dịch, kéo lại khung, đổi font/size | CHƯA |
 | M8 | Xuất chapter PNG/CBZ + lưu/mở lại project | CHƯA |
 | M9 | Chạy cả chapter theo hàng đợi + xoay API key khi hết quota | CHƯA |
 | M10 | Khai báo mục đích sử dụng + nhắc trách nhiệm bản quyền khi export | Một phần: field `intended_use` đã **LIVE** từ M1; modal nhắc + gate export CHƯA |
 
-## Những gì dùng được ngay hôm nay (sau M5)
+## Những gì dùng được ngay hôm nay (sau M6)
 
 - Tạo project dịch (chọn ngôn ngữ nguồn, mục đích sử dụng) qua API/Swagger.
 - Upload từng trang ảnh: file được lưu thật, trang vào hàng đợi và **worker tự động nhận diện khung chữ**.
@@ -47,15 +47,27 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 - Xem bản dịch từng khung qua `GET /pages/{id}/translation`, kèm **số token đã tiêu thật** của trang đó.
 - Nếu bên dịch AI hỏng hoặc hết lượt, hệ thống **tự lùi về bản miễn phí và dán nhãn `fallback_used`** —
   không bao giờ trả về bản dịch rỗng rồi báo là xong. Dòng nào AI không trả thì để `pending`.
+- **Tự chèn chữ dịch vào đúng bong bóng** ngay sau khi dịch xong: hệ thống tự chọn cỡ chữ lớn nhất mà
+  vẫn vừa khung, tự xuống dòng, căn giữa — và **xem được ngay bằng ảnh** qua
+  `GET /pages/{id}/typeset-preview`. Đây là lần đầu có **trang truyện tiếng Việt hoàn chỉnh** để nhìn.
+- **Chữ quá dài không bị bóp bé tí cho vừa**: xuống tới cỡ nhỏ nhất mà vẫn không vừa thì vùng đó được
+  đánh dấu **cảnh báo tràn khung** (viền đỏ trên ảnh xem thử) để người biên tập sửa tay ở bước sau,
+  chứ hệ thống không tự làm chữ bé đến mức không đọc nổi.
+- **Không bao giờ ra ô vuông**: nếu font thiếu chữ có dấu tiếng Việt, hệ thống báo lỗi rõ thay vì vẽ
+  ô vuông rồi báo thành công.
+- **Ảnh gốc và ảnh sạch vẫn nguyên vẹn** — ảnh xem thử là file thứ ba, tách riêng.
 
 ## Những gì **chưa** dùng được (nói thẳng để không hiểu nhầm)
 
-- **Chữ dịch chưa được đưa vào ảnh**: đã có ảnh sạch + bản dịch, nhưng chưa canh cỡ chữ và chèn vào
-  khung (M6) — nên chưa có trang truyện thành phẩm để xem.
+- **Chưa sửa tay được**: thấy chỗ dịch sai hay chữ tràn thì chưa có màn hình để sửa (M7).
+- **Chưa xuất được chapter** ra PNG/CBZ để đọc hay giao khách (M8).
 - Chưa có giao diện người dùng — mới chỉ có Swagger để thao tác tay; chưa có ảnh vẽ khung để nhìn bằng mắt (M7).
 - **Chưa đo trên trang manga scan thật**: số liệu nhận diện (M2), độ chính xác đọc chữ (M3),
-  xoá chữ (M4) và chất lượng dịch (M5) hiện chỉ đo trên ảnh tổng hợp do repo tự sinh —
+  xoá chữ (M4), chất lượng dịch (M5) và canh chữ (M6) hiện chỉ đo trên ảnh tổng hợp do repo tự sinh —
   chưa nghiệm thu cuối cùng.
+- **Chữ chỉ nằm ngang**: chưa hỗ trợ chữ dọc, chữ xoay nghiêng hay chữ tượng thanh (SFX) cách điệu.
+- **Bong bóng dẹt có thể bị chạm mép**: hệ thống tính theo khung chữ nhật bao quanh bong bóng, nên với
+  bong bóng rất dẹt chữ vẫn có thể chạm mép cong. Chưa gặp trên ảnh mẫu, cần thử ảnh thật.
 - **Đường dịch tiếng Nhật (phải→trái) chưa chạy thật đầu-cuối** — mới verify bằng test tự động.
 - Nhiều API key **không** làm tăng hạn mức nếu các key thuộc cùng một project Google
   (Gemini tính giới hạn theo project, không theo key).

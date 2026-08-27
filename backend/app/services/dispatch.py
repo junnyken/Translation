@@ -62,3 +62,16 @@ def dispatch_translate_job(job_id: uuid.UUID, engine: str | None = None) -> tupl
         reason = f"enqueue_failed: {type(exc).__name__}: {exc}"
         logger.error("Không đẩy được job translate %s: %s", job_id, reason)
         return False, reason
+
+
+def dispatch_typeset_job(job_id: uuid.UUID) -> tuple[bool, str | None]:
+    """Trả (đã_gửi, lý_do_lỗi). Broker chết thì nói thật, không giả vờ đã gửi."""
+    try:
+        from app.workers.tasks import run_typeset_job
+
+        run_typeset_job.delay(str(job_id))
+        return True, None
+    except Exception as exc:  # noqa: BLE001
+        reason = f"enqueue_failed: {type(exc).__name__}: {exc}"
+        logger.error("Không đẩy được job typeset %s: %s", job_id, reason)
+        return False, reason

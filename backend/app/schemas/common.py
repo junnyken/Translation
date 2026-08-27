@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.enums import (
     IntendedUse,
+    FitStatus,
     OCREngine,
     OCRStatus,
     TranslationEngine,
@@ -140,3 +141,16 @@ class TranslationResultRead(ORMModel):
     token_cost: int | None
     edited_by_user: bool
     status: TranslationStatus
+
+
+# ---------- TypesetResult (M6) ----------
+class TypesetResultRead(ORMModel):
+    region_id: uuid.UUID
+    font_family: str | None
+    #: NULL khi vùng chưa có bản dịch để canh (`fit_status=pending`) — KHÔNG phải bug.
+    font_size: float | None
+    wrapped_text: str | None
+    padding_ratio: float | None
+    #: `fit_ok` · `overflow_warning` (không vừa dù đã xuống cỡ nhỏ nhất) · `pending` (chưa có chữ).
+    fit_status: FitStatus
+    edited_by_user: bool
