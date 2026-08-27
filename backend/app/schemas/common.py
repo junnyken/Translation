@@ -8,6 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.enums import (
     IntendedUse,
+    OCREngine,
+    OCRStatus,
     JobStatus,
     JobType,
     PageStatus,
@@ -113,3 +115,13 @@ class JobRead(ORMModel):
     error_log: str | None
     created_at: datetime
     updated_at: datetime
+
+
+# ---------- OCRResult (M3) ----------
+class OCRResultRead(ORMModel):
+    region_id: uuid.UUID
+    raw_text: str | None
+    ocr_engine: OCREngine | None
+    #: NULL khi engine không cung cấp confidence thật (manga-ocr) — KHÔNG phải bug.
+    confidence: float | None
+    status: OCRStatus

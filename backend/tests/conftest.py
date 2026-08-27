@@ -181,3 +181,42 @@ def fake_detector(monkeypatch):
 
     yield _install
     tasks.reset_detector()
+
+
+@pytest.fixture(autouse=True)
+def no_broker_for_chained_ocr(monkeypatch):
+    """Chặn detect->OCR chain gọi broker thật; ghi lại job_id đã đẩy."""
+    from app.workers import tasks
+
+    sent: list = []
+    monkeypatch.setattr(tasks.run_ocr_job, "delay", lambda job_id: sent.append(job_id))
+    monkeypatch.setattr("app.api.v1.routes.dispatch_ocr_job", lambda job_id: (True, None))
+    return sent
+
+
+@pytest.fixture
+def fake_ocr_engine(monkeypatch):
+    """Cắm engine OCR giả lập (không nạp torch/paddle trong test nhanh)."""
+    from app.models.enums import OCREngine
+    from app.workers import tasks
+
+    def _install(results=None, raises=None, engine_enum=OCREngine.manga_ocr, per_call=None):
+        class _Fake:
+            def __init__(self):
+                self.engine_enum = engine_enum
+                self.calls = []
+
+            def recognize(self, image_path, bbox):
+                self.calls.append((image_path, bbox))
+                if raises is not None:
+                    raise raises
+                if per_call is not None:
+                    return per_call(len(self.calls) - 1, bbox)
+                return results if results is not None else ("text mẫu", None)
+
+        fake = _Fake()
+        monkeypatch.setattr(tasks, "get_ocr_engine_cached", lambda source_lang: fake)
+        return fake
+
+    yield _install
+    tasks.reset_ocr_engines()

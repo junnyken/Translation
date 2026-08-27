@@ -93,15 +93,46 @@ Tạo `Job(type=detect)` mới rồi enqueue — vẫn không chạy detect tron
 
 Chạy lại là **idempotent**: region cũ của page bị xóa trước khi ghi region mới, không nhân đôi.
 
-## 7. `GET /api/v1/jobs/{job_id}` → 200
+## 7. `GET /api/v1/pages/{page_id}/ocr` → 200 *(M3)*
+
+Kết quả OCR theo từng vùng chữ của trang.
+
+```json
+[ { "region_id": "…", "raw_text": "こんにちは", "ocr_engine": "manga_ocr",
+    "confidence": null, "status": "ok" } ]
+```
+- Trả `[]` khi job OCR chưa chạy — **không bịa text**.
+- `ocr_engine`: `manga_ocr` (source_lang `ja`) hoặc `paddle_ocr` (`zh`/`en`).
+- **`confidence: null` là bình thường với `manga_ocr`** — thư viện không cung cấp điểm tin cậy
+  (xem ARCH.md §6). Với `paddle_ocr` đây là số thật, trung bình các dòng trong vùng.
+- `status`: `ok` · `needs_manual` (text rỗng/không có ký tự có nghĩa, hoặc confidence dưới ngưỡng).
+  Region `needs_manual` **vẫn được lưu**, không bị bỏ.
+- Thứ tự giống `GET /pages/{id}/regions`.
+
+## 8. `POST /api/v1/pages/{page_id}/retry-ocr` → 202 *(M3)*
+
+Xếp lại việc OCR cho 1 page (sau khi sửa tham số, hoặc job trước lỗi). Chỉ enqueue.
+
+| Lỗi | Mã |
+|---|---|
+| page không tồn tại | 404 |
+| page chưa có vùng chữ nào (chưa detect) | 409 |
+
+Chạy lại là **idempotent**: kết quả OCR cũ của đúng các region đó bị xóa trước khi ghi mới.
+
+> Bình thường **không cần gọi tay**: detect xong hệ thống tự xếp việc OCR (`OCR_AUTO_CHAIN=true`).
+
+## 9. `GET /api/v1/jobs/{job_id}` → 200
 
 ```json
 { "id": "…", "type": "detect", "page_id": "…", "status": "queued",
   "retry_count": 0, "error_log": null, "created_at": "…", "updated_at": "…" }
 ```
 Dùng chung cho mọi loại job xuyên suốt Phase. Không tồn tại → `404`.
-Job detect: `status` đi `queued → running → done | failed`; khi `failed`, `error_log` ghi nguyên nhân
-(`timeout: vượt Ns`, `FileNotFoundError: …`, `enqueue_failed: …`).
+Job detect/ocr: `status` đi `queued → running → done | failed`; khi `failed`, `error_log` ghi nguyên nhân
+(`timeout: vượt Ns`, `FileNotFoundError: …`, `enqueue_failed: …`, `no_region: …`).
+
+Khi job OCR lỗi, `Page.status` **giữ nguyên `detected`** (không nhảy `ocr_done`) để còn chạy lại được.
 
 ## Bảng enum (chốt ở M1, M2–M10 không đổi âm thầm)
 
@@ -123,7 +154,7 @@ Job detect: `status` đi `queued → running → done | failed`; khi `failed`, `
 
 ## Endpoint sẽ thêm ở mini-spec sau (chưa tồn tại)
 
-`GET /pages/{id}/ocr` (M3) · `GET /pages/{id}/clean-image` (M4) ·
+`GET /pages/{id}/clean-image` (M4) ·
 `POST|GET /pages/{id}/translate|translation` (M5) · `POST /pages/{id}/typeset`, `GET /pages/{id}/typeset-preview` (M6) ·
 `PATCH /regions/{id}` (M7) · `POST /projects/{id}/export`, `GET /export-jobs/{id}` (M8) ·
 `POST /projects/{id}/run-batch`, `GET /projects/{id}/batch-status` (M9).

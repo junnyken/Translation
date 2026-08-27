@@ -45,6 +45,20 @@ class Settings(BaseSettings):
     #: trong .env (đo thật: ~39s/ảnh 1400x2000 trên workspace này).
     detect_timeout_seconds: int = 60
 
+    # ---- M3: OCR ----
+    ocr_device: str = "cpu"
+    #: Chỉ áp cho engine CÓ confidence thật (PaddleOCR). manga-ocr không trả confidence
+    #: -> confidence=NULL, tiêu chí needs_manual dựa vào text rỗng/không có ký tự có nghĩa.
+    ocr_conf_threshold: float = 0.5
+    #: Timeout RIÊNG cho OCR (không dùng chung với detect): OCR chạy N vùng/trang nên chậm hơn.
+    ocr_timeout_seconds: int = 600
+    #: Tự nối OCR ngay sau khi detect xong (pipeline tự chảy).
+    ocr_auto_chain: bool = True
+    #: paddlepaddle 3.3.1 vỡ ở nhánh oneDNN/PIR trên CPU này
+    #: (NotImplementedError: ConvertPirAttribute2RuntimeAttribute ... onednn_instruction.cc)
+    #: -> phải tắt oneDNN thì PaddleOCR mới chạy. Xem docs/TEST_LOG.md § M3.
+    ocr_paddle_enable_mkldnn: bool = False
+
     app_env: str = "dev"
     log_level: str = "INFO"
 

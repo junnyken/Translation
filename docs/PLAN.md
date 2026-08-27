@@ -9,8 +9,8 @@ Quy tắc: **tuần tự**, mini-spec sau chỉ mở khi mini-spec trước đã
 |---|---|---|---|---|
 | **M1** | Nền dữ liệu + hợp đồng API + interface engine | 7 bảng, migration 2 chiều, 6 endpoint, 5 Protocol | Chốt sai schema → sửa giữa đường | ✅ **CLOSED — approved 2026-08-27** (`v0.1-M1`, `9d093be`) |
 | **M2** | Nhận diện khung chữ (comic-text-detector) | `CTDDetector(IDetector)` + task Celery `detect` đầu tiên | Model weight + môi trường inference (CPU/GPU); bbox lệch → hỏng cả M3/M4 | ✅ **XONG** (`v0.2-M2`) — còn treo: đo trên manga thật |
-| **M3** | OCR theo ngôn ngữ nguồn ⏭ kế tiếp | `MangaOCREngine`, `PaddleOCREngine` + factory theo `source_lang` | Crop sai vùng → OCR đúng mà nội dung sai; RAM/model load lặp | Chưa |
-| **M4** | Xóa chữ gốc (LaMa) | `LamaInpainter(IInpainter)`, `Page.clean_image_path` | CPU chậm; mask dilate quá tay ăn vào tranh | Chưa |
+| **M3** | OCR theo ngôn ngữ nguồn | `MangaOCREngine`, `PaddleOCREngine` + factory theo `source_lang` | Crop sai vùng → OCR đúng mà nội dung sai; RAM/model load lặp | ✅ **XONG** (`v0.3-M3`) — còn treo: đo trên manga thật |
+| **M4** | Xóa chữ gốc (LaMa) ⏭ kế tiếp | `LamaInpainter(IInpainter)`, `Page.clean_image_path` | CPU chậm; mask dilate quá tay ăn vào tranh | Chưa |
 | **M5** | Dịch 2 đường + thứ tự đọc | `GoogleTranslateEngine`, `LLMContextTranslator`, `ReadingOrderResolver`, bảng `APIKeyPool` | Lệch dòng khi ghép bản dịch về region; đốt token | Chưa |
 | **M6** | Tự canh cỡ chữ vừa bubble | `FitToBoxTypesetter(ITypesetter)` | Đo font-metrics sai (tiếng Việt có dấu) → tràn khung | Chưa |
 | **M7** | Màn sửa tay | `PATCH /regions/{id}` + Page Detail UI | Sửa 1 region đụng region khác; re-fit sai phạm vi | Chưa |
@@ -39,7 +39,16 @@ Thiếu 4 mục đầu thì M2/M4/M5/M6 **không thể verify thật** — sẽ 
 4. Cập nhật `ARCH.md` / `API.md` / `FEATURES.md` / `TEST_LOG.md`.
 5. Viết `docs/REPORT_M<n>.md` → chốt xong mới mở mini-spec kế.
 
-## Phác thảo M3 (mini-spec kế tiếp)
+## Phác thảo M4 (mini-spec kế tiếp)
+
+- `LamaInpainter(IInpainter)` — mask từ `TextRegion.bbox`, dilate ≤15%, xử lý **theo Page** (1 lần gọi model).
+- Ghi `Page.clean_image_path`; **không ghi đè ảnh gốc** (có test regression canh).
+- Artifact rõ → `Page.status=inpaint_needs_review`, không tự pass.
+- Kiểm chứng bằng cách OCR lại chính vùng đã xóa: kỳ vọng trả rỗng.
+- Cân nhắc dùng output `seg` (mask chữ) mà CTD đã trả sẵn ở M2 thay vì chỉ dựa vào bbox chữ nhật.
+
+<details>
+<summary>Phác thảo M3 (đã hoàn thành)</summary>
 
 - `MangaOCREngine` (`ja`) / `PaddleOCREngine` (`zh`,`en`) + factory chọn theo `Project.source_lang`.
 - Crop theo `TextRegion.bbox` đã có từ M2 — **đối chiếu tay vài mẫu crop trước khi code OCR** (crop lệch thì OCR đúng cũng vô nghĩa).
@@ -58,4 +67,5 @@ Thiếu 4 mục đầu thì M2/M4/M5/M6 **không thể verify thật** — sẽ 
 - Timeout an toàn (~60s/ảnh) → `Page.status=detection_failed`, không treo worker.
 - Page đi đúng đường `queued → detecting → detected | detection_failed` (dùng `assert_transition` đã có).
 - Tiêu chí đạt: nhận đúng ≥90% bubble có chữ (đếm tay đối chiếu), không bbox âm/vượt kích thước ảnh.
+</details>
 </details>

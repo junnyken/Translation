@@ -12,7 +12,7 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 |---|---|---|
 | M1 | Data model 7 bảng + migration 2 chiều + API contract `/api/v1` + interface 5 engine | **LIVE** |
 | M2 | Nhận diện khung chữ (comic-text-detector) → `TextRegion` + confidence | **LIVE** (đo trên ảnh tổng hợp; ảnh manga thật chưa đo — xem TEST_LOG) |
-| M3 | OCR theo ngôn ngữ nguồn (manga-ocr cho `ja`, PaddleOCR cho `zh`/`en`) | CHƯA |
+| M3 | OCR theo ngôn ngữ nguồn (manga-ocr cho `ja`, PaddleOCR cho `zh`/`en`) | **LIVE** (đo trên ảnh tổng hợp — provisional, xem TEST_LOG) |
 | M4 | Xóa chữ gốc bằng LaMa → ảnh clean (giữ nguyên ảnh gốc) | CHƯA |
 | M5 | Dịch 2 đường: `google_fast` (miễn phí) và `llm_context` (giữ mạch văn cả trang) + reading order | CHƯA |
 | M6 | Tự tính cỡ chữ + xuống dòng cho vừa bubble (đo font-metrics thật) | CHƯA |
@@ -21,7 +21,7 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 | M9 | Chạy cả chapter theo hàng đợi + xoay API key khi hết quota | CHƯA |
 | M10 | Khai báo mục đích sử dụng + nhắc trách nhiệm bản quyền khi export | Một phần: field `intended_use` đã **LIVE** từ M1; modal nhắc + gate export CHƯA |
 
-## Những gì dùng được ngay hôm nay (sau M2)
+## Những gì dùng được ngay hôm nay (sau M3)
 
 - Tạo project dịch (chọn ngôn ngữ nguồn, mục đích sử dụng) qua API/Swagger.
 - Upload từng trang ảnh: file được lưu thật, trang vào hàng đợi và **worker tự động nhận diện khung chữ**.
@@ -29,12 +29,17 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
   Khung độ tin cậy thấp vẫn hiện (đánh dấu `low_confidence`), khung chồng nhau bị gắn cờ `overlap_suspect`.
 - Xem trạng thái trang (`queued → detecting → detected | detection_failed`) và trạng thái việc.
 - Chạy lại nhận diện cho 1 trang bằng `POST /pages/{id}/retry-detect` (không tạo khung trùng lặp).
+- **Tự đọc chữ trong từng khung** ngay sau khi nhận diện xong (không phải bấm thêm nút):
+  tiếng Nhật dùng manga-ocr, tiếng Trung/Anh dùng PaddleOCR theo ngôn ngữ nguồn của project.
+- Xem chữ đã đọc được của từng khung qua `GET /pages/{id}/ocr`; vùng đọc không ra chữ được
+  đánh dấu `needs_manual` để sửa tay sau, **không bị giấu đi**.
 
 ## Những gì **chưa** dùng được (nói thẳng để không hiểu nhầm)
 
-- Chưa dịch được chữ nào: mới nhận diện được **vị trí** khung chữ, chưa đọc chữ (M3), chưa xóa chữ gốc (M4),
-  chưa dịch (M5), chưa canh chữ (M6).
+- Chưa dịch được chữ nào: đã đọc được chữ gốc, nhưng chưa xóa chữ gốc khỏi ảnh (M4),
+  chưa dịch sang tiếng Việt (M5), chưa canh chữ vào khung (M6).
 - Chưa có giao diện người dùng — mới chỉ có Swagger để thao tác tay; chưa có ảnh vẽ khung để nhìn bằng mắt (M7).
-- **Chưa đo trên trang manga scan thật**: số liệu nhận diện hiện có chỉ đo trên ảnh tổng hợp do repo tự sinh.
+- **Chưa đo trên trang manga scan thật**: số liệu nhận diện (M2) và độ chính xác đọc chữ (M3)
+  hiện chỉ đo trên ảnh tổng hợp do repo tự sinh — chưa nghiệm thu cuối cùng.
 - Chưa tự chạy lại khi quá giờ (chỉ ghi `detection_failed`, phải bấm chạy lại) — auto-retry thuộc M9.
 - Chưa lưu ảnh lên Supabase Storage (đang lưu trên ổ đĩa của server).

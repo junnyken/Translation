@@ -16,10 +16,11 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
-from app.models import Job, Page, Project, TextRegion
+from app.models import Job, OCRResult, Page, Project, TextRegion
 from app.models.enums import JobStatus, JobType, PageStatus
 from app.schemas.common import (
     JobRead,
+    OCRResultRead,
     PageAccepted,
     PageRead,
     ProjectCreate,
@@ -27,7 +28,7 @@ from app.schemas.common import (
     ProjectRead,
     RegionRead,
 )
-from app.services.dispatch import dispatch_detect_job
+from app.services.dispatch import dispatch_detect_job, dispatch_ocr_job
 from app.services.storage import UnsupportedImage, get_storage, sniff_image
 
 router = APIRouter(prefix="/api/v1")
@@ -176,6 +177,58 @@ async def retry_detect(
     await session.refresh(job)
 
     sent, reason = dispatch_detect_job(job.id)
+    if not sent:
+        job.error_log = reason
+        await session.commit()
+
+    return PageAccepted(page_id=page.id, status=page.status, job_id=job.id)
+
+
+@router.get("/pages/{page_id}/ocr", response_model=list[OCRResultRead], tags=["pages"])
+async def list_page_ocr(
+    page_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> list[OCRResult]:
+    """Kết quả OCR theo từng region của page (M3).
+
+    Trả `[]` khi job OCR chưa chạy — không bịa text. `confidence = null` là BÌNH THƯỜNG
+    với engine manga-ocr (thư viện không cung cấp điểm tin cậy), không phải lỗi.
+    """
+    await _get_page_or_404(session, page_id)
+    stmt = (
+        select(OCRResult)
+        .join(TextRegion, TextRegion.id == OCRResult.region_id)
+        .where(TextRegion.page_id == page_id)
+        .order_by(TextRegion.reading_order.nulls_last(), TextRegion.created_at)
+    )
+    return list((await session.execute(stmt)).scalars())
+
+
+@router.post(
+    "/pages/{page_id}/retry-ocr",
+    response_model=PageAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["pages"],
+)
+async def retry_ocr(
+    page_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> PageAccepted:
+    """Xếp lại việc OCR cho 1 page. Chỉ enqueue — không chạy OCR trong request."""
+    page = await _get_page_or_404(session, page_id)
+    region_count = await session.scalar(
+        select(func.count(TextRegion.id)).where(TextRegion.page_id == page_id)
+    )
+    if not region_count:
+        raise HTTPException(
+            status_code=409,
+            detail="Page chưa có vùng chữ nào — chạy detect trước (POST /pages/{id}/retry-detect)",
+        )
+
+    job = Job(type=JobType.ocr, page_id=page.id, status=JobStatus.queued)
+    session.add(job)
+    await session.commit()
+    await session.refresh(job)
+
+    sent, reason = dispatch_ocr_job(job.id)
     if not sent:
         job.error_log = reason
         await session.commit()

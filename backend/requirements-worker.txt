@@ -1,0 +1,8 @@
+# Phụ thuộc CHỈ dành cho worker (M3 — OCR). Không cài vào image api.
+# torch bản CPU cài riêng trong Dockerfile qua index của PyTorch:
+#   pip install --index-url https://download.pytorch.org/whl/cpu torch
+# (bản trên PyPI kéo theo toàn bộ stack CUDA ~4GB, vô dụng trên máy chỉ có CPU)
+manga-ocr==0.1.16
+paddleocr==3.7.0
+# paddleocr KHÔNG tự kéo framework -> phải khai tường minh, nếu không sẽ lỗi lúc chạy
+paddlepaddle==3.3.1

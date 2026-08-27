@@ -23,3 +23,16 @@ def dispatch_detect_job(job_id: uuid.UUID) -> tuple[bool, str | None]:
         reason = f"enqueue_failed: {type(exc).__name__}: {exc}"
         logger.error("Không đẩy được job detect %s: %s", job_id, reason)
         return False, reason
+
+
+def dispatch_ocr_job(job_id: uuid.UUID) -> tuple[bool, str | None]:
+    """Trả (đã_gửi, lý_do_lỗi). Cùng nguyên tắc với detect: broker chết thì nói thật."""
+    try:
+        from app.workers.tasks import run_ocr_job
+
+        run_ocr_job.delay(str(job_id))
+        return True, None
+    except Exception as exc:  # noqa: BLE001
+        reason = f"enqueue_failed: {type(exc).__name__}: {exc}"
+        logger.error("Không đẩy được job ocr %s: %s", job_id, reason)
+        return False, reason
