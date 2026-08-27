@@ -96,6 +96,9 @@ class Settings(BaseSettings):
     #: Timeout RIÊNG cho typeset — nay là năm timeout độc lập (có test canh).
     typeset_timeout_seconds: int = 600
     typeset_auto_chain: bool = True
+    # ---- M7: sửa tay từng vùng ----
+    #: Canh lại 1 vùng nhanh hơn cả trang nhiều (đo thật ~0,5s/trang) nên timeout ngắn hơn.
+    refit_timeout_seconds: int = 180
 
     # ---- M4: inpaint (LaMa) ----
     inpaint_weights_path: str = "/models/lama-manga-dynamic.onnx"

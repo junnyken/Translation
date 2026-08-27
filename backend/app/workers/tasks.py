@@ -39,6 +39,7 @@ from app.models.enums import (
     TranslationStatus,
     assert_transition,
 )
+from app.services.typeset.paths import preview_relative_path
 from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -937,15 +938,64 @@ def build_typesetter():
     return typesetter, resolver
 
 
+def render_page_preview(page_id: uuid.UUID, resolver=None) -> str:
+    """Vẽ lại preview CẢ TRANG từ đúng những gì đang có trong DB.
+
+    Dùng chung cho M6 (canh cả trang) và M7 (sửa tay 1 vùng). Cố ý **luôn vẽ cả trang** dù chỉ
+    sửa một vùng: vẽ từng phần dễ sinh lỗi hình khi các bubble chồng nhau, và vẽ cả trang mới
+    bảo đảm ảnh khớp DB.
+    """
+    from app.services.interfaces import BBox
+    from app.services.storage import get_storage
+    from app.services.typeset.preview import PagePreviewRenderer, RegionDraw
+
+    if resolver is None:
+        _typesetter, resolver = build_typesetter()
+
+    with sync_session() as session:
+        page = session.get(Page, page_id)
+        if page is None or not page.clean_image_path:
+            raise RuntimeError(f"no_clean_image: page {page_id} chưa có ảnh clean của M4")
+        clean_rel = page.clean_image_path
+        rows = list(
+            session.execute(
+                select(TextRegion, TypesetResult)
+                .join(TypesetResult, TypesetResult.region_id == TextRegion.id)
+                .where(TextRegion.page_id == page_id)
+                .order_by(TextRegion.reading_order.nulls_last(), TextRegion.created_at)
+            ).all()
+        )
+        ve = [
+            RegionDraw(
+                bbox=BBox(x=r.bbox_x, y=r.bbox_y, w=r.bbox_w, h=r.bbox_h),
+                wrapped_text=ts.wrapped_text or "",
+                font_family=ts.font_family or settings.default_font_family,
+                font_size=ts.font_size,
+                padding_ratio=ts.padding_ratio if ts.padding_ratio is not None else settings.typeset_padding_ratio,
+                overflow=ts.fit_status is FitStatus.overflow_warning,
+            )
+            for r, ts in rows
+        ]
+
+    storage = get_storage()
+    preview_rel = preview_relative_path(page_id)
+    PagePreviewRenderer(
+        font_resolver=resolver,
+        line_spacing_ratio=settings.typeset_line_spacing_ratio,
+        text_color=settings.typeset_text_color,
+        stroke_color=settings.typeset_stroke_color,
+        stroke_width=settings.typeset_stroke_width,
+    ).render(
+        clean_image_path=storage.abs_path(clean_rel),
+        regions=ve,
+        target_path=storage.abs_path(preview_rel),
+    )
+    return preview_rel
+
+
 def _run_typeset(job_id: uuid.UUID) -> dict:
     started = time.perf_counter()
     from app.services.interfaces import BBox
-    from app.services.storage import get_storage
-    from app.services.typeset.preview import (
-        PagePreviewRenderer,
-        RegionDraw,
-        preview_relative_path,
-    )
 
     with sync_session() as session:
         job = session.get(Job, job_id)
@@ -1029,39 +1079,11 @@ def _run_typeset(job_id: uuid.UUID) -> dict:
         (region_id, bbox, typesetter.fit(text, bbox, font_family)) for region_id, bbox, text in specs
     ]
 
-    storage = get_storage()
-    preview_rel = preview_relative_path(page_id)
-    renderer = PagePreviewRenderer(
-        font_resolver=resolver,
-        line_spacing_ratio=settings.typeset_line_spacing_ratio,
-        text_color=settings.typeset_text_color,
-        stroke_color=settings.typeset_stroke_color,
-        stroke_width=settings.typeset_stroke_width,
-    )
-    renderer.render(
-        clean_image_path=storage.abs_path(clean_rel),
-        regions=[
-            RegionDraw(
-                bbox=bbox,
-                wrapped_text=fit["wrapped_text"],
-                font_family=font_family,
-                font_size=fit["font_size"],
-                padding_ratio=settings.typeset_padding_ratio,
-                overflow=fit["fit_status"] == FitStatus.overflow_warning.value,
-            )
-            for _rid, bbox, fit in ket_qua
-        ],
-        target_path=storage.abs_path(preview_rel),
-    )
-
-    elapsed = time.perf_counter() - started
-
     with sync_session() as session:
         region_ids = [rid for rid, _b, _f in ket_qua]
         deleted = session.execute(
             delete(TypesetResult).where(TypesetResult.region_id.in_(region_ids))
         ).rowcount
-
         dem = {"fit_ok": 0, "overflow_warning": 0, "pending": 0}
         for region_id, _bbox, fit in ket_qua:
             dem[fit["fit_status"]] = dem.get(fit["fit_status"], 0) + 1
@@ -1076,7 +1098,14 @@ def _run_typeset(job_id: uuid.UUID) -> dict:
                     edited_by_user=False,
                 )
             )
+        session.commit()
 
+    # Vẽ preview từ ĐÚNG những gì vừa ghi xuống DB — cùng một hàm mà M7 dùng lại khi
+    # sửa tay 1 vùng, nên preview luôn phản ánh trạng thái DB, không có 2 đường vẽ khác nhau.
+    preview_rel = render_page_preview(page_id, resolver)
+    elapsed = time.perf_counter() - started
+
+    with sync_session() as session:
         page = session.get(Page, page_id)
         if page.status is not PageStatus.typeset_done:
             assert_transition(page.status, PageStatus.typeset_done)
@@ -1131,5 +1160,334 @@ def run_typeset_job(self, job_id: str) -> dict:
     except Exception as exc:  # noqa: BLE001
         reason = f"{type(exc).__name__}: {exc}"
         logger.exception("typeset job %s thất bại", jid)
+        _mark_job_failed(jid, reason)
+        return {"status": "failed", "job_id": str(jid), "error": reason}
+
+
+# ============================ M7: Sửa tay theo từng vùng ============================
+
+
+def _job_for_region(region_id: uuid.UUID, job_type: JobType) -> tuple[uuid.UUID, uuid.UUID] | None:
+    """Tạo Job gắn với page của region. Trả (job_id, page_id), None nếu region không tồn tại."""
+    with sync_session() as session:
+        region = session.get(TextRegion, region_id)
+        if region is None:
+            return None
+        job = Job(type=job_type, page_id=region.page_id, status=JobStatus.queued)
+        session.add(job)
+        session.commit()
+        return job.id, region.page_id
+
+
+def _region_context(session, region_id: uuid.UUID):
+    """Gom region + page + project trong 1 lần đọc. None nếu thiếu mắt xích nào."""
+    region = session.get(TextRegion, region_id)
+    if region is None:
+        return None
+    page = session.get(Page, region.page_id)
+    if page is None:
+        return None
+    return region, page, session.get(Project, page.project_id)
+
+
+def _run_refit(job_id: uuid.UUID, region_id: uuid.UUID, font_size_override: float | None = None) -> dict:
+    """Canh lại chữ cho ĐÚNG MỘT vùng, rồi vẽ lại preview cả trang.
+
+    `font_size_override`: người dùng ghim cỡ chữ cụ thể (đổi font/size thủ công). Có ghim thì
+    KHÔNG dò cỡ nữa — dùng đúng cỡ đó rồi báo thật là vừa hay tràn.
+    """
+    started = time.perf_counter()
+    from app.services.interfaces import BBox
+
+    with sync_session() as session:
+        job = session.get(Job, job_id)
+        if job is None:
+            logger.warning("Job %s không tồn tại", job_id)
+            return {"status": "job_not_found", "job_id": str(job_id)}
+        if job.type is not JobType.typeset:
+            return {"status": "wrong_job_type", "job_id": str(job_id), "type": job.type.value}
+
+        ctx = _region_context(session, region_id)
+        if ctx is None:
+            job.status = JobStatus.failed
+            job.error_log = f"region_not_found: {region_id}"
+            session.commit()
+            return {"status": "failed", "job_id": str(job_id), "error": job.error_log}
+        region, page, _project = ctx
+
+        translation = session.execute(
+            select(TranslationResult).where(TranslationResult.region_id == region_id)
+        ).scalars().first()
+        if translation is None:
+            # Không canh chữ cho vùng chưa từng được dịch — không bịa nội dung.
+            job.status = JobStatus.failed
+            job.error_log = "missing_translation: vùng này chưa có bản dịch, không thể canh chữ"
+            session.commit()
+            return {"status": "failed", "job_id": str(job_id), "error": job.error_log}
+
+        cu = session.execute(
+            select(TypesetResult).where(TypesetResult.region_id == region_id)
+        ).scalars().first()
+        font_family = (cu.font_family if cu and cu.font_family else settings.default_font_family)
+        page_id = page.id
+        bbox = BBox(x=region.bbox_x, y=region.bbox_y, w=region.bbox_w, h=region.bbox_h)
+        text = translation.translated_text or ""
+        job.status = JobStatus.running
+        session.commit()
+
+    typesetter, resolver = build_typesetter()
+    if font_size_override is not None:
+        fit = typesetter.fit_at_size(text, bbox, font_family, float(font_size_override))
+    else:
+        fit = typesetter.fit(text, bbox, font_family)
+
+    with sync_session() as session:
+        # Idempotent: xoá kết quả cũ của ĐÚNG vùng này rồi ghi mới, không đụng vùng khác.
+        session.execute(delete(TypesetResult).where(TypesetResult.region_id == region_id))
+        session.add(
+            TypesetResult(
+                region_id=region_id,
+                font_family=font_family,
+                font_size=fit["font_size"],
+                wrapped_text=fit["wrapped_text"] or None,
+                padding_ratio=settings.typeset_padding_ratio,
+                fit_status=FitStatus(fit["fit_status"]),
+                edited_by_user=True,  # đây là đường sửa tay — luôn đánh dấu để còn audit
+            )
+        )
+        session.commit()
+
+    preview_rel = render_page_preview(page_id, resolver)
+    elapsed = time.perf_counter() - started
+
+    with sync_session() as session:
+        job = session.get(Job, job_id)
+        job.status = JobStatus.done
+        job.error_log = None
+        session.commit()
+
+    logger.info(
+        "refit vùng %s: cỡ=%s (%s%s), font=%s, preview=%s, %.2fs",
+        region_id, fit["font_size"], fit["fit_status"],
+        ", cỡ do người dùng ghim" if font_size_override is not None else "",
+        font_family, preview_rel, elapsed,
+    )
+    return {
+        "status": "done",
+        "job_id": str(job_id),
+        "region_id": str(region_id),
+        "page_id": str(page_id),
+        "font_family": font_family,
+        "font_size": fit["font_size"],
+        "fit_status": fit["fit_status"],
+        "pinned_size": font_size_override is not None,
+        "preview_path": preview_rel,
+        "elapsed_seconds": round(elapsed, 2),
+    }
+
+
+@celery_app.task(
+    bind=True,
+    name="typeset.run_refit_job",
+    soft_time_limit=settings.refit_timeout_seconds,
+    time_limit=settings.refit_timeout_seconds + 30,
+)
+def run_refit_job(self, job_id: str, region_id: str, font_size: float | None = None) -> dict:
+    """Canh lại chữ cho 1 vùng sau khi người dùng sửa tay. Preview vẽ lại CẢ TRANG."""
+    jid = uuid.UUID(str(job_id))
+    try:
+        return _run_refit(jid, uuid.UUID(str(region_id)), font_size)
+    except SoftTimeLimitExceeded:
+        reason = f"timeout: vượt {settings.refit_timeout_seconds}s"
+        logger.error("refit job %s %s", jid, reason)
+        _mark_job_failed(jid, reason)
+        return {"status": "failed", "job_id": str(jid), "error": reason}
+    except Exception as exc:  # noqa: BLE001
+        reason = f"{type(exc).__name__}: {exc}"
+        logger.exception("refit job %s thất bại", jid)
+        _mark_job_failed(jid, reason)
+        return {"status": "failed", "job_id": str(jid), "error": reason}
+
+
+def _run_region_reocr(job_id: uuid.UUID, region_id: uuid.UUID) -> dict:
+    """Đọc lại chữ gốc của MỘT vùng từ ảnh GỐC (không phải ảnh clean — ảnh clean đã xoá chữ)."""
+    started = time.perf_counter()
+    from app.services.interfaces import BBox
+
+    with sync_session() as session:
+        job = session.get(Job, job_id)
+        if job is None:
+            return {"status": "job_not_found", "job_id": str(job_id)}
+        if job.type is not JobType.ocr:
+            return {"status": "wrong_job_type", "job_id": str(job_id), "type": job.type.value}
+        ctx = _region_context(session, region_id)
+        if ctx is None:
+            job.status = JobStatus.failed
+            job.error_log = f"region_not_found: {region_id}"
+            session.commit()
+            return {"status": "failed", "job_id": str(job_id), "error": job.error_log}
+        region, page, project = ctx
+        bbox = BBox(x=region.bbox_x, y=region.bbox_y, w=region.bbox_w, h=region.bbox_h)
+        image_path = resolve_image_path(page.image_path)
+        source_lang = project.source_lang.value
+        job.status = JobStatus.running
+        session.commit()
+
+    engine = get_ocr_engine_cached(source_lang)
+    text, confidence = engine.recognize(image_path, bbox)
+    trang_thai = _classify_ocr(text, confidence)
+
+    with sync_session() as session:
+        session.execute(delete(OCRResult).where(OCRResult.region_id == region_id))
+        session.add(
+            OCRResult(
+                region_id=region_id,
+                raw_text=text,
+                ocr_engine=getattr(engine, "engine_enum", None),
+                confidence=confidence,
+                status=trang_thai,
+            )
+        )
+        job = session.get(Job, job_id)
+        job.status = JobStatus.done
+        job.error_log = None
+        session.commit()
+
+    elapsed = time.perf_counter() - started
+    logger.info("re-OCR vùng %s: %r (%s), %.2fs", region_id, (text or "")[:40], trang_thai.value, elapsed)
+    return {
+        "status": "done", "job_id": str(job_id), "region_id": str(region_id),
+        "raw_text": text, "confidence": confidence, "ocr_status": trang_thai.value,
+        "elapsed_seconds": round(elapsed, 2),
+    }
+
+
+@celery_app.task(
+    bind=True,
+    name="ocr.run_region_reocr_job",
+    soft_time_limit=settings.ocr_timeout_seconds,
+    time_limit=settings.ocr_timeout_seconds + 30,
+)
+def run_region_reocr_job(self, job_id: str, region_id: str) -> dict:
+    """Đọc lại chữ gốc của 1 vùng. KHÔNG tự dịch lại — người dùng chủ động bấm tiếp."""
+    jid = uuid.UUID(str(job_id))
+    try:
+        return _run_region_reocr(jid, uuid.UUID(str(region_id)))
+    except SoftTimeLimitExceeded:
+        reason = f"timeout: vượt {settings.ocr_timeout_seconds}s"
+        _mark_job_failed(jid, reason)
+        return {"status": "failed", "job_id": str(jid), "error": reason}
+    except Exception as exc:  # noqa: BLE001
+        reason = f"{type(exc).__name__}: {exc}"
+        logger.exception("re-OCR job %s thất bại", jid)
+        _mark_job_failed(jid, reason)
+        return {"status": "failed", "job_id": str(jid), "error": reason}
+
+
+def _run_region_retranslate(job_id: uuid.UUID, region_id: uuid.UUID, engine_override: str | None) -> dict:
+    """Dịch lại MỘT vùng từ `OCRResult.raw_text` hiện tại.
+
+    Dịch lại 1 dòng lẻ thì `llm_context` mất hết lợi thế ngữ cảnh cả trang — đây là đánh đổi
+    có ý thức của việc sửa tay từng vùng, ghi rõ trong REPORT_M7.
+    """
+    started = time.perf_counter()
+    from app.services.translate.engines import QuotaExhausted, TranslationFailed
+
+    with sync_session() as session:
+        job = session.get(Job, job_id)
+        if job is None:
+            return {"status": "job_not_found", "job_id": str(job_id)}
+        if job.type is not JobType.translate:
+            return {"status": "wrong_job_type", "job_id": str(job_id), "type": job.type.value}
+        ctx = _region_context(session, region_id)
+        if ctx is None:
+            job.status = JobStatus.failed
+            job.error_log = f"region_not_found: {region_id}"
+            session.commit()
+            return {"status": "failed", "job_id": str(job_id), "error": job.error_log}
+        _region, _page, project = ctx
+
+        ocr = session.execute(
+            select(OCRResult).where(OCRResult.region_id == region_id)
+        ).scalars().first()
+        if ocr is None or not (ocr.raw_text or "").strip():
+            job.status = JobStatus.failed
+            job.error_log = "missing_ocr: vùng này chưa đọc được chữ gốc, không có gì để dịch"
+            session.commit()
+            return {"status": "failed", "job_id": str(job_id), "error": job.error_log}
+
+        raw_text = ocr.raw_text
+        source_lang = project.source_lang.value
+        target_lang = project.target_lang.value
+        job.status = JobStatus.running
+        session.commit()
+
+    engine_name = engine_override or settings.translate_default_engine
+    used_engine, fallback_reason = engine_name, None
+    translator = build_translator(engine_name)
+    try:
+        dich = translator.translate([raw_text], source_lang, target_lang)
+    except (QuotaExhausted, TranslationFailed) as exc:
+        if engine_name != TranslationEngine.llm_context.value or not settings.llm_fallback_to_google:
+            raise
+        fallback_reason = f"{type(exc).__name__}: {exc}"
+        logger.warning("LLM lỗi khi dịch lại vùng (%s) -> lùi về google_fast", fallback_reason[:200])
+        used_engine = TranslationEngine.google_fast.value
+        translator = build_translator(used_engine)
+        dich = translator.translate([raw_text], source_lang, target_lang)
+
+    text = (dich[0] if dich else "") or ""
+    usage = getattr(translator, "usage", None)
+
+    with sync_session() as session:
+        session.execute(delete(TranslationResult).where(TranslationResult.region_id == region_id))
+        session.add(
+            TranslationResult(
+                region_id=region_id,
+                translated_text=text or None,
+                engine=TranslationEngine(used_engine),
+                model_name=getattr(translator, "model_name", None),
+                token_cost=(usage.total_tokens if usage else None),
+                status=(
+                    TranslationStatus.pending
+                    if not text.strip()
+                    else (TranslationStatus.fallback_used if fallback_reason else TranslationStatus.ok)
+                ),
+                edited_by_user=False,  # máy dịch lại, KHÔNG phải người gõ tay
+            )
+        )
+        job = session.get(Job, job_id)
+        job.status = JobStatus.done
+        job.error_log = f"fallback_used: {fallback_reason}"[:4000] if fallback_reason else None
+        session.commit()
+
+    elapsed = time.perf_counter() - started
+    logger.info("dịch lại vùng %s: %r engine=%s, %.2fs", region_id, text[:40], used_engine, elapsed)
+    return {
+        "status": "done", "job_id": str(job_id), "region_id": str(region_id),
+        "translated_text": text, "engine": used_engine, "fallback": bool(fallback_reason),
+        "token_cost": usage.total_tokens if usage else None,
+        "elapsed_seconds": round(elapsed, 2),
+    }
+
+
+@celery_app.task(
+    bind=True,
+    name="translate.run_region_retranslate_job",
+    soft_time_limit=settings.translate_timeout_seconds,
+    time_limit=settings.translate_timeout_seconds + 30,
+)
+def run_region_retranslate_job(self, job_id: str, region_id: str, engine: str | None = None) -> dict:
+    """Dịch lại 1 vùng. KHÔNG tự canh chữ lại — người dùng chủ động bấm tiếp."""
+    jid = uuid.UUID(str(job_id))
+    try:
+        return _run_region_retranslate(jid, uuid.UUID(str(region_id)), engine)
+    except SoftTimeLimitExceeded:
+        reason = f"timeout: vượt {settings.translate_timeout_seconds}s"
+        _mark_job_failed(jid, reason)
+        return {"status": "failed", "job_id": str(jid), "error": reason}
+    except Exception as exc:  # noqa: BLE001
+        reason = f"{type(exc).__name__}: {exc}"
+        logger.exception("dịch lại vùng %s thất bại", jid)
         _mark_job_failed(jid, reason)
         return {"status": "failed", "job_id": str(jid), "error": reason}

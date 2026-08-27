@@ -113,3 +113,30 @@ class FitToBoxTypesetter:
             "wrapped_text": wrapped,
             "fit_status": OVERFLOW_WARNING,
         }
+
+    def fit_at_size(self, text: str, bbox: BBox, font_family: str, font_size: float) -> dict:
+        """Canh chữ ở ĐÚNG cỡ người dùng ghim (M7) — không dò cỡ, chỉ báo thật vừa hay tràn.
+
+        Người dùng đổi cỡ chữ tay là vì auto-fit chưa vừa ý, nên tôn trọng lựa chọn đó. Nhưng
+        vẫn phải nói thật: cỡ đó tràn khung thì gắn `overflow_warning`, không giả vờ vừa.
+        Cỡ bị kẹp trong [min, max] để không ai đặt cỡ 500px làm vỡ trang.
+        """
+        text = normalize_for_layout(text)
+        size = int(round(max(self.min_font_size, min(float(font_size), self.max_font_size))))
+        if not text.strip():
+            return {"font_size": None, "wrapped_text": "", "fit_status": PENDING}
+
+        rect = self.content_rect(bbox)
+        if not rect.usable:
+            return {"font_size": float(size), "wrapped_text": text, "fit_status": OVERFLOW_WARNING}
+
+        self.font_resolver.assert_can_render(
+            self.font_resolver.resolve(font_family, size), text
+        )
+        wrapped, w, h = self._do_thu(text, font_family, size, rect)
+        vua = w <= rect.width and h <= rect.height
+        return {
+            "font_size": float(size),
+            "wrapped_text": wrapped,
+            "fit_status": FIT_OK if vua else OVERFLOW_WARNING,
+        }

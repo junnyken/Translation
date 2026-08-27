@@ -84,15 +84,21 @@ class PagePreviewRenderer:
             x = trai + (rong - khoi_rong) / 2 - left
             y = tren + (cao - khoi_cao) / 2 - top
 
-            # Kẹp trong biên ảnh: chữ tràn cũng không được vẽ ra ngoài trang.
-            x = max(0.0, min(x, canvas.width - 1.0))
-            y = max(0.0, min(y, canvas.height - 1.0))
-
-            draw.multiline_text(
-                (x, y), region.wrapped_text, font=font, fill=self.text_color,
+            # Vẽ vào một ô riêng ĐÚNG BẰNG bbox rồi dán đè, thay vì vẽ thẳng lên trang.
+            # Nhờ vậy chữ bị cắt gọn trong khung của chính nó: vùng tràn khung không bao giờ
+            # đè lên bubble khác hay chạy dọc suốt trang.
+            # (Bản đầu chỉ kẹp ĐIỂM BẮT ĐẦU vào biên ảnh — chữ vẫn tràn ra ngoài; lỗi này chỉ lộ
+            #  khi mở màn sửa tay của M7 và ghim một cỡ chữ lớn.)
+            o_rong = max(int(round(region.bbox.w)), 1)
+            o_cao = max(int(round(region.bbox.h)), 1)
+            o = Image.new("RGBA", (o_rong, o_cao), (0, 0, 0, 0))
+            ImageDraw.Draw(o).multiline_text(
+                (x - region.bbox.x, y - region.bbox.y),
+                region.wrapped_text, font=font, fill=self.text_color,
                 spacing=spacing, align="center",
                 stroke_width=self.stroke_width, stroke_fill=self.stroke_color,
             )
+            canvas.paste(o, (int(round(region.bbox.x)), int(round(region.bbox.y))), o)
             if region.overflow and self.mark_overflow:
                 # Vùng tràn phải NHÌN THẤY được trên preview, không để chữ đẹp che mất cảnh báo.
                 draw.rectangle(

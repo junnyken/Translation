@@ -66,6 +66,20 @@ services:
     # M2/M3: worker tiêu thụ Job(type=detect) và Job(type=ocr) bằng comic-text-detector (ONNX, CPU).
     command: celery -A app.workers.celery_app.celery_app worker -l info -Q celery --concurrency=1
 
+  # M7 — màn sửa tay. Chỉ là consumer của API, không đụng DB/Redis.
+  frontend:
+    build: ./frontend
+    depends_on:
+      - api
+    environment:
+      # Trong mạng docker thì gọi thẳng service `api`, không qua cổng máy host.
+      VITE_API_TARGET: http://api:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "5174:5173"
+
 volumes:
   db_data:
   storage_data:

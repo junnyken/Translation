@@ -12,3 +12,5 @@ models/
 *.onnx
 *.pt
 test_fixtures/external/
+frontend/node_modules/
+frontend/dist/

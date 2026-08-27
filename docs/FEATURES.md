@@ -16,12 +16,12 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 | M4 | Xoá chữ gốc bằng LaMa → ảnh clean (giữ nguyên ảnh gốc) | **LIVE** (đo trên ảnh tổng hợp — provisional, xem TEST_LOG) |
 | M5 | Dịch 2 đường: `google_fast` (miễn phí) và `llm_context` (giữ mạch văn cả trang) + reading order | **LIVE** (đo trên ảnh tổng hợp thoại tiếng Anh; manga thật + tiếng Nhật chưa đo — xem TEST_LOG) |
 | M6 | Tự tính cỡ chữ + xuống dòng cho vừa bubble (đo font-metrics thật) | **LIVE** (đo trên ảnh tổng hợp; manga thật chưa đo — xem TEST_LOG) |
-| M7 | Màn sửa tay: sửa bản dịch, kéo lại khung, đổi font/size | CHƯA |
+| M7 | Màn sửa tay: sửa bản dịch, kéo lại khung, đổi font/size | **LIVE** (thao tác thật trên trình duyệt; xem TEST_LOG) |
 | M8 | Xuất chapter PNG/CBZ + lưu/mở lại project | CHƯA |
 | M9 | Chạy cả chapter theo hàng đợi + xoay API key khi hết quota | CHƯA |
 | M10 | Khai báo mục đích sử dụng + nhắc trách nhiệm bản quyền khi export | Một phần: field `intended_use` đã **LIVE** từ M1; modal nhắc + gate export CHƯA |
 
-## Những gì dùng được ngay hôm nay (sau M6)
+## Những gì dùng được ngay hôm nay (sau M7)
 
 - Tạo project dịch (chọn ngôn ngữ nguồn, mục đích sử dụng) qua API/Swagger.
 - Upload từng trang ảnh: file được lưu thật, trang vào hàng đợi và **worker tự động nhận diện khung chữ**.
@@ -56,11 +56,25 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 - **Không bao giờ ra ô vuông**: nếu font thiếu chữ có dấu tiếng Việt, hệ thống báo lỗi rõ thay vì vẽ
   ô vuông rồi báo thành công.
 - **Ảnh gốc và ảnh sạch vẫn nguyên vẹn** — ảnh xem thử là file thứ ba, tách riêng.
+- **Có màn hình để sửa tay** (giao diện đầu tiên của dự án, mở ở cổng 5174): nhìn thấy trang truyện
+  đã chèn chữ, các khung chữ vẽ chồng lên ảnh, và bảng sửa cho từng vùng.
+  - Sửa **bản dịch**, đổi **kiểu chữ**, **ghim cỡ chữ** nếu không ưng cỡ máy tự chọn.
+  - **Kéo và co giãn khung chữ** ngay trên ảnh bằng chuột.
+  - Bấm lưu là hệ thống **canh lại đúng vùng đó** rồi vẽ lại ảnh — không tính lại cả trang.
+  - Có nút **đọc lại chữ gốc** và **dịch lại** cho riêng từng vùng.
+- **Không giấu cảnh báo**: mỗi vùng hiện nhãn bằng chữ (“Tràn khung”, “Cần đọc lại”,
+  “Khung kém tin cậy”) và có ô bật/tắt để tô cảnh báo lên ảnh.
+- **Biết chỗ nào người sửa, chỗ nào máy làm**: mỗi vùng ghi rõ “máy dịch / đã sửa tay”.
 
 ## Những gì **chưa** dùng được (nói thẳng để không hiểu nhầm)
 
-- **Chưa sửa tay được**: thấy chỗ dịch sai hay chữ tràn thì chưa có màn hình để sửa (M7).
 - **Chưa xuất được chapter** ra PNG/CBZ để đọc hay giao khách (M8).
+- **Chưa có đăng nhập**: ai mở được đường link là sửa được, và hệ thống chỉ ghi “có người sửa”
+  chứ không ghi **ai** sửa.
+- **Chưa lùi lại được**: sửa là đè lên bản cũ, không có lịch sử phiên bản. Dữ liệu gốc (khung chữ,
+  chữ OCR, bản dịch máy) thì vẫn giữ để đối chiếu.
+- **Chưa sửa được nhiều vùng cùng lúc.**
+- **Chưa kéo khung được bằng bàn phím** — thao tác kéo khung hiện chỉ dùng chuột được.
 - Chưa có giao diện người dùng — mới chỉ có Swagger để thao tác tay; chưa có ảnh vẽ khung để nhìn bằng mắt (M7).
 - **Chưa đo trên trang manga scan thật**: số liệu nhận diện (M2), độ chính xác đọc chữ (M3),
   xoá chữ (M4), chất lượng dịch (M5) và canh chữ (M6) hiện chỉ đo trên ảnh tổng hợp do repo tự sinh —

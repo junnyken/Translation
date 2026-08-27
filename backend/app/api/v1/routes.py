@@ -26,12 +26,18 @@ from app.models import (
     TranslationResult,
     TypesetResult,
 )
-from app.models.enums import JobStatus, JobType, PageStatus, TranslationEngine
+from app.models.enums import FitStatus, JobStatus, JobType, PageStatus, TranslationEngine
 from app.schemas.common import (
     JobRead,
     OCRResultRead,
     TranslationResultRead,
     TypesetResultRead,
+    BBoxOut,
+    PageDetail,
+    RegionDetail,
+    RegionPatch,
+    RegionPatchAccepted,
+    JobAccepted,
     PageAccepted,
     PageRead,
     ProjectCreate,
@@ -45,10 +51,15 @@ from app.services.dispatch import (
     dispatch_ocr_job,
     dispatch_translate_job,
     dispatch_typeset_job,
+    dispatch_refit_job,
+    dispatch_region_reocr_job,
+    dispatch_region_retranslate_job,
 )
 from app.services.storage import UnsupportedImage, get_storage, sniff_image
 # CHỈ import module quy ước đường dẫn — KHÔNG kéo theo Pillow vào tiến trình API.
 from app.services.typeset.paths import preview_relative_path
+# Whitelist font của M6 — UI chỉ được chọn trong danh sách này, không tự chế font mới.
+from app.services.typeset.registry import FONT_REGISTRY
 
 router = APIRouter(prefix="/api/v1")
 
@@ -416,7 +427,13 @@ async def get_typeset_preview(
             status_code=404,
             detail="Page chưa có ảnh preview — bước canh chữ (typeset) chưa chạy xong",
         )
-    return FileResponse(storage.abs_path(rel), media_type="image/png")
+    # `no-cache` = trình duyệt PHẢI hỏi lại server trước khi dùng bản đã lưu. Đường dẫn preview
+    # cố định theo page nên thiếu header này thì sau khi sửa tay (M7) người dùng vẫn thấy ảnh cũ.
+    return FileResponse(
+        storage.abs_path(rel),
+        media_type="image/png",
+        headers={"Cache-Control": "no-cache, must-revalidate"},
+    )
 
 
 @router.post(
@@ -447,6 +464,256 @@ async def retry_typeset(
         await session.commit()
 
     return PageAccepted(page_id=page.id, status=page.status, job_id=job.id)
+
+
+# ============================ M7: sửa tay từng vùng ============================
+
+
+async def _get_region_or_404(session: AsyncSession, region_id: uuid.UUID) -> TextRegion:
+    region = await session.get(TextRegion, region_id)
+    if region is None:
+        raise HTTPException(status_code=404, detail=f"Không tìm thấy vùng chữ {region_id}")
+    return region
+
+
+@router.get("/pages/{page_id}/detail", response_model=PageDetail, tags=["pages"])
+async def get_page_detail(
+    page_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+) -> PageDetail:
+    """Gom TẤT CẢ dữ liệu của 1 trang cho màn sửa tay (M7) — 1 lần gọi thay vì 5 lần.
+
+    Mọi cảnh báo đều lộ ra ở đây và **không bị ẩn**: `status` của vùng (`low_confidence`),
+    `ocr_status` (`needs_manual`), `fit_status` (`overflow_warning`), cùng cờ `edited_by_user`
+    của cả bản dịch lẫn kết quả canh chữ để biết chỗ nào người sửa, chỗ nào máy làm.
+    """
+    page = await _get_page_or_404(session, page_id)
+
+    stmt = (
+        select(TextRegion, OCRResult, TranslationResult, TypesetResult)
+        .outerjoin(OCRResult, OCRResult.region_id == TextRegion.id)
+        .outerjoin(TranslationResult, TranslationResult.region_id == TextRegion.id)
+        .outerjoin(TypesetResult, TypesetResult.region_id == TextRegion.id)
+        .where(TextRegion.page_id == page_id)
+        .order_by(TextRegion.reading_order.nulls_last(), TextRegion.created_at)
+    )
+    rows = (await session.execute(stmt)).all()
+
+    regions = [
+        RegionDetail(
+            id=region.id,
+            bbox=BBoxOut(x=region.bbox_x, y=region.bbox_y, w=region.bbox_w, h=region.bbox_h),
+            confidence=region.confidence,
+            overlap_suspect=region.overlap_suspect,
+            reading_order=region.reading_order,
+            status=region.status,
+            raw_text=ocr.raw_text if ocr else None,
+            ocr_confidence=ocr.confidence if ocr else None,
+            ocr_status=ocr.status if ocr else None,
+            translated_text=tr.translated_text if tr else None,
+            translation_status=tr.status if tr else None,
+            translation_edited_by_user=bool(tr.edited_by_user) if tr else False,
+            font_family=ts.font_family if ts else None,
+            font_size=ts.font_size if ts else None,
+            wrapped_text=ts.wrapped_text if ts else None,
+            fit_status=ts.fit_status if ts else None,
+            typeset_edited_by_user=bool(ts.edited_by_user) if ts else False,
+        )
+        for region, ocr, tr, ts in rows
+    ]
+
+    storage = get_storage()
+    preview_rel = preview_relative_path(page_id)
+    return PageDetail(
+        page=page,
+        # Chỉ trả URL khi file CÓ THẬT — không đưa link chết cho UI.
+        preview_url=(
+            f"/api/v1/pages/{page_id}/typeset-preview" if storage.exists(preview_rel) else None
+        ),
+        font_families=sorted(FONT_REGISTRY),
+        min_font_size=settings.typeset_min_font_size,
+        max_font_size=settings.typeset_max_font_size,
+        regions=regions,
+    )
+
+
+@router.patch(
+    "/regions/{region_id}",
+    response_model=RegionPatchAccepted,
+    status_code=status.HTTP_200_OK,
+    tags=["regions"],
+)
+async def patch_region(
+    region_id: uuid.UUID,
+    patch: RegionPatch,
+    session: AsyncSession = Depends(get_session),
+) -> RegionPatchAccepted:
+    """Sửa tay 1 vùng: bản dịch / khung chữ / font / cỡ chữ, rồi **canh lại đúng vùng đó**.
+
+    Ghi thẳng phần sửa vào DB, đánh dấu `edited_by_user=true`, rồi xếp việc canh chữ chạy nền
+    (không canh trong request). Vì bản canh cũ đã không còn đúng với nội dung mới, `fit_status`
+    trả về là **`pending`** — không trả trạng thái cũ để khỏi báo nhầm là "vẫn vừa khung".
+
+    `font_size` = **ghim cỡ chữ**: canh lại sẽ dùng đúng cỡ đó. Bỏ trống = tự dò cỡ như M6.
+    Dữ liệu gốc (bbox của M2 thì có sửa, còn chữ OCR của M3) **không bị đụng tới**.
+    """
+    if not patch.co_thay_doi():
+        raise HTTPException(status_code=422, detail="Không có trường nào để sửa")
+
+    region = await _get_region_or_404(session, region_id)
+    da_sua: list[str] = []
+
+    if patch.bbox is not None:
+        region.bbox_x, region.bbox_y = patch.bbox.x, patch.bbox.y
+        region.bbox_w, region.bbox_h = patch.bbox.w, patch.bbox.h
+        da_sua.append("bbox")
+
+    if patch.translated_text is not None:
+        row = (
+            await session.execute(
+                select(TranslationResult).where(TranslationResult.region_id == region_id)
+            )
+        ).scalars().first()
+        if row is None:
+            raise HTTPException(
+                status_code=409,
+                detail="Vùng này chưa có bản dịch để sửa — chạy bước dịch (M5) trước",
+            )
+        row.translated_text = patch.translated_text or None
+        row.edited_by_user = True
+        da_sua.append("translated_text")
+
+    typeset = (
+        await session.execute(select(TypesetResult).where(TypesetResult.region_id == region_id))
+    ).scalars().first()
+
+    if patch.font_family is not None:
+        if patch.font_family not in FONT_REGISTRY:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"font_not_found: '{patch.font_family}' không nằm trong whitelist "
+                    f"({', '.join(sorted(FONT_REGISTRY))})"
+                ),
+            )
+        if typeset is None:
+            raise HTTPException(
+                status_code=409,
+                detail="Vùng này chưa canh chữ lần nào — chạy bước canh chữ (M6) trước",
+            )
+        typeset.font_family = patch.font_family
+        da_sua.append("font_family")
+
+    if patch.font_size is not None:
+        da_sua.append("font_size")
+
+    if typeset is not None:
+        # Bản canh cũ không còn đúng với nội dung mới -> nói thật là "chưa canh", không giữ fit_ok.
+        typeset.fit_status = FitStatus.pending
+        typeset.edited_by_user = True
+
+    job = Job(type=JobType.typeset, page_id=region.page_id, status=JobStatus.queued)
+    session.add(job)
+    await session.commit()
+    await session.refresh(job)
+
+    sent, reason = dispatch_refit_job(job.id, region_id, patch.font_size)
+    if not sent:
+        job.error_log = reason
+        await session.commit()
+
+    return RegionPatchAccepted(
+        region_id=region_id,
+        page_id=region.page_id,
+        fit_status=FitStatus.pending,
+        refit_job_id=job.id,
+        edited_fields=da_sua,
+        edited_by_user=True,
+    )
+
+
+@router.post(
+    "/regions/{region_id}/re-fit",
+    response_model=JobAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["regions"],
+)
+async def refit_region(
+    region_id: uuid.UUID,
+    font_size: float | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> JobAccepted:
+    """Canh lại chữ cho 1 vùng mà KHÔNG sửa gì (dùng khi đổi cấu hình font/padding)."""
+    region = await _get_region_or_404(session, region_id)
+    job = Job(type=JobType.typeset, page_id=region.page_id, status=JobStatus.queued)
+    session.add(job)
+    await session.commit()
+    await session.refresh(job)
+
+    sent, reason = dispatch_refit_job(job.id, region_id, font_size)
+    if not sent:
+        job.error_log = reason
+        await session.commit()
+    return JobAccepted(job_id=job.id, page_id=region.page_id, status=job.status)
+
+
+@router.post(
+    "/regions/{region_id}/re-ocr",
+    response_model=JobAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["regions"],
+)
+async def reocr_region(
+    region_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> JobAccepted:
+    """Đọc lại chữ gốc của 1 vùng từ **ảnh gốc** (ảnh clean đã bị xoá chữ nên không dùng được).
+
+    KHÔNG tự dịch lại và không tự canh lại — người dùng chủ động bấm tiếp, để không âm thầm
+    ghi đè bản dịch mà họ có thể đã sửa tay.
+    """
+    region = await _get_region_or_404(session, region_id)
+    job = Job(type=JobType.ocr, page_id=region.page_id, status=JobStatus.queued)
+    session.add(job)
+    await session.commit()
+    await session.refresh(job)
+
+    sent, reason = dispatch_region_reocr_job(job.id, region_id)
+    if not sent:
+        job.error_log = reason
+        await session.commit()
+    return JobAccepted(job_id=job.id, page_id=region.page_id, status=job.status)
+
+
+@router.post(
+    "/regions/{region_id}/re-translate",
+    response_model=JobAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["regions"],
+)
+async def retranslate_region(
+    region_id: uuid.UUID,
+    engine: TranslationEngine | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> JobAccepted:
+    """Dịch lại 1 vùng từ chữ gốc hiện tại. **Ghi đè bản dịch**, kể cả bản đã sửa tay.
+
+    Lưu ý: dịch lại một dòng lẻ thì `llm_context` mất lợi thế ngữ cảnh cả trang.
+    KHÔNG tự canh chữ lại — bấm "canh lại" hoặc sửa tiếp thì mới canh.
+    """
+    region = await _get_region_or_404(session, region_id)
+    job = Job(type=JobType.translate, page_id=region.page_id, status=JobStatus.queued)
+    session.add(job)
+    await session.commit()
+    await session.refresh(job)
+
+    sent, reason = dispatch_region_retranslate_job(
+        job.id, region_id, engine.value if engine else None
+    )
+    if not sent:
+        job.error_log = reason
+        await session.commit()
+    return JobAccepted(job_id=job.id, page_id=region.page_id, status=job.status)
 
 
 @router.get("/jobs/{job_id}", response_model=JobRead, tags=["jobs"])

@@ -327,3 +327,45 @@ async def test_khong_dung_toi_du_lieu_cua_m2_m5(full_pipeline):
             ).all()
         ]
     assert sau == truoc
+
+
+async def test_chu_khong_bao_gio_ve_ra_ngoai_khung(full_pipeline, storage_root):
+    """Vùng tràn khung phải bị CẮT GỌN trong bbox, không đè lên phần còn lại của trang.
+
+    Lỗi thật đã gặp: chữ tràn được vẽ chạy dọc suốt trang, đè lên bubble khác — chỉ lộ ra khi
+    mở màn sửa tay (M7) và ghim cỡ chữ lớn. So từng pixel NGOÀI mọi bbox với ảnh clean.
+    """
+    page_id = await full_pipeline()
+    with sync_session() as s:
+        region = s.execute(
+            sa.select(TextRegion).where(TextRegion.page_id == uuid.UUID(page_id))
+            .order_by(TextRegion.reading_order)
+        ).scalars().first()
+        row = s.execute(
+            sa.select(TranslationResult).where(TranslationResult.region_id == region.id)
+        ).scalars().one()
+        row.translated_text = "Một câu thoại dài kinh khủng " * 12
+        s.commit()
+    run_typeset_job(_job_id(page_id, JobType.typeset))
+
+    page = _page(page_id)
+    with sync_session() as s:
+        khung = [
+            (r.bbox_x, r.bbox_y, r.bbox_w, r.bbox_h)
+            for r in s.execute(
+                sa.select(TextRegion).where(TextRegion.page_id == uuid.UUID(page_id))
+            ).scalars()
+        ]
+
+    with Image.open(Path(storage_root) / page.clean_image_path) as clean, \
+         Image.open(Path(storage_root) / preview_relative_path(uuid.UUID(page_id))) as pv:
+        sach, xem = clean.convert("RGB").copy(), pv.convert("RGB").copy()
+    # Bôi trắng mọi bbox trên CẢ HAI ảnh; phần còn lại phải giống hệt nhau.
+    from PIL import ImageDraw as _Draw
+    for anh in (sach, xem):
+        d = _Draw.Draw(anh)
+        for x, y, w, h in khung:
+            # nới 3px cho viền cảnh báo màu đỏ mà renderer cố ý vẽ quanh vùng tràn
+            d.rectangle([x - 3, y - 3, x + w + 3, y + h + 3], fill="white")
+    assert list(sach.getdata()) == list(xem.getdata()), \
+        "có pixel chữ nằm NGOÀI bbox — chữ đã tràn ra ngoài khung"

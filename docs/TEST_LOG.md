@@ -655,3 +655,107 @@ lý do trong `.env.example` và `config.py`.
 - Chưa có **text dọc / chữ xoay / SFX** — M6 chỉ layout chữ Việt nằm ngang trong bbox (đúng phạm vi spec).
 - Chưa đo trên bubble **không phải hình chữ nhật**: bbox là hình chữ nhật bao quanh bubble ellipse, nên
   chữ căn giữa vẫn có thể chạm mép cong ở bubble dẹt. Trên fixture chưa thấy, cần Run C xác nhận.
+
+---
+
+## M7 — Màn sửa tay từng vùng
+
+**Ngày:** 2026-08-28 · **Môi trường:** workspace `trieunt-c`, Docker, Python 3.12.3, Node 22,
+Postgres 16-alpine, Redis 7-alpine, worker Celery, frontend Vite/React 18 (cổng 5174),
+kiểm giao diện bằng Playwright + Chromium 151.
+
+### 1. Audit Before Build — 6 mục, có bằng chứng
+
+| # | Mục | Kết quả |
+|---|---|---|
+| 1 | `edited_by_user` trên `TranslationResult` + `TypesetResult` | Có sẵn từ M1, `nullable=False, default=False`. DB thật: **16/16 record đều `false`** ⇒ chưa có gì được sửa tay |
+| 2 | `TextRegion.bbox_x/y/w/h` | Có sẵn — nhưng **`nullable=False`**, không phải nullable như spec ghi. Không sao: bbox luôn bắt buộc |
+| 3 | `GET /pages/{id}/typeset-preview` từ M6 | Có, trả PNG đúng kích thước ảnh clean |
+| 4 | `FitToBoxTypesetter.fit()` từ M6 | Nguyên vẹn `fit(text, bbox, font_family) -> dict` ⇒ M7 gọi lại, không viết lại logic |
+| 5 | Chuẩn hoá NFC của M6 | Có ở `fitter.py` + `layout.py`, **không** ghi ngược vào `TranslationResult` ⇒ M7 giữ nguyên |
+| 6 | Gap | Không có endpoint `PATCH` nào, không có thư mục frontend nào ⇒ đúng phạm vi M7 |
+
+**Về việc thêm cột:** spec §4A yêu cầu nêu rõ nếu cần cột mới. **Không cần cột nào** —
+`TimestampMixin` đã có `updated_at` với `onupdate=func.now()` nên thời điểm sửa tay tự được ghi;
+chưa có auth nên không có user id để lưu.
+
+**Phát hiện của audit — ảnh xem thử bị trình duyệt nhớ bản cũ.** Endpoint preview của M6 trả
+`etag` + `last-modified` nhưng **không có `Cache-Control`**, mà đường dẫn lại cố định theo page.
+Sửa xong mà trình duyệt hiện ảnh cũ thì phạm đúng constraint 8 của M7. → thêm
+`Cache-Control: no-cache, must-revalidate` ở server **và** tham số `?v=` ở client (hai lớp).
+
+### 2. Test tự động
+
+```
+$ cd backend && ../.venv/bin/python -m pytest
+366 passed, 6 skipped in 72.99s
+```
+
+| Nhóm | File | Số test |
+|---|---|---|
+| Integration — PATCH vùng, canh lại, đọc lại, dịch lại, chi tiết trang | `tests/test_region_edit_integration.py` | 31 |
+| Guardrail kiến trúc (M1→M7) | `tests/test_no_ai_logic.py` | 32 (+5 của M7) |
+| M6 + bất biến "chữ không tràn ra ngoài khung" | `tests/test_typeset_task_integration.py` | 18 (+1) |
+| Kế thừa M1–M6 | các file trước | 315 |
+
+Bài test đáng chú ý của M7:
+- `test_canh_lai_mot_vung_khong_dung_vung_khac` — chụp nguyên trạng vùng B trước/sau khi sửa vùng A.
+- `test_auto_fit_khong_bao_gio_danh_dau_sua_tay` — quét mã nguồn: nhánh tự động chỉ được có
+  `edited_by_user=False`, nhánh sửa tay mới được `True`.
+- `test_sua_tay_khong_dung_chu_goc_ocr` — sửa bản dịch không được đụng `raw_text` của M3.
+- `test_sua_vung_khong_dung_anh_goc_va_anh_clean` — so md5 trước/sau.
+- `test_ghim_co_qua_lon_thi_bao_tran_khong_gia_vo_vua` — ghim cỡ to quá khung vẫn dùng cỡ đó
+  nhưng phải gắn `overflow_warning`.
+- `test_sua_tay_khong_render_dong_bo_trong_request` — quét thân hàm `patch_region`, cấm mọi dấu vết
+  renderer/typesetter.
+- `test_preview_khong_duoc_cache` + `test_preview_co_header_chong_cache` — canh lỗi ở §1.
+- `test_chu_khong_bao_gio_ve_ra_ngoai_khung` — **sinh ra từ lỗi thật ở §4**: bôi trắng mọi bbox trên
+  cả ảnh clean lẫn ảnh preview rồi so **từng pixel**; khác nhau nghĩa là có chữ vẽ ra ngoài khung.
+
+### 3. Live verification — thao tác THẬT trên giao diện
+
+Chạy Chromium thật, click/gõ/kéo chuột trên UI ở `localhost:5174`, đối chiếu DB qua API và md5 ảnh
+preview trong volume. Trang `e08da9e4`, 6 bubble, bản dịch thật từ M5.
+
+| # | Thao tác trên UI | Kết quả DB | Ảnh preview |
+|---|---|---|---|
+| 0 | mở trang | 6 khung vẽ đúng vị trí bubble, 6 thẻ vùng, 0 lỗi JS | `8ad51c74…` |
+| 1 | gõ câu dài 118 ký tự → **Lưu & canh lại** | cỡ **30 → 13**, 4 dòng, `fit_ok`, `edited_by_user=true` | `3992003…` **đã vẽ lại** |
+| 2 | sửa lại thành `"Chào cậu!"` | cỡ **13 → 40** (kịch trần), `fit_ok` | `07f2d78…` **đã vẽ lại** |
+| 3 | đổi kiểu chữ `Mansalva` + ghim cỡ **16** | `font_family=Mansalva`, `font_size=16`, `fit_ok` | `f03c91d…` **đã vẽ lại** |
+| 4 | **kéo khung chữ** bằng chuột 60×40 px màn hình | bbox `(240,164)` → `(324,220)` = **+84, +56 px ảnh gốc** | `d0cb404…` **đã vẽ lại** |
+| 5 | bật/tắt ô “Hiện cảnh báo” | khung cảnh báo: 1 → **0** → 1 | — |
+| 6 | ghim cỡ **40** cho câu dài | cỡ **40** (đúng cỡ ghim), `overflow_warning`, nhãn đỏ “Tràn khung”, bộ đếm “1 vùng tràn khung” | có khung đỏ |
+
+**Phép thử tỷ lệ ở bước 4 là bằng chứng quan trọng:** kéo 60 px trên màn hình cho ra **84 px** trên
+ảnh gốc — đúng bằng `60 ÷ (1000/1400)`. Nếu quy đổi sai thì khung sẽ lệch khỏi bubble.
+
+Ảnh gốc và ảnh clean **không đổi md5** sau toàn bộ chuỗi thao tác trên (có test tự động canh).
+
+### 4. Hai lỗi thật do live verification làm lộ ra
+
+**Lỗi A — khung chữ vẽ lệch hẳn khỏi bubble (lỗi của M7, đã sửa).**
+Ảnh chụp đầu tiên cho thấy khung vùng 2 và vùng 4 nằm **ngoài ảnh**. Nguyên nhân: tỷ lệ quy đổi
+được tính lúc ảnh **chưa tải xong** nên `naturalWidth = 0`, hàm bỏ qua và tỷ lệ kẹt ở `1`.
+Sửa: overlay tự sở hữu thẻ `<img>` và tính lại tỷ lệ đúng lúc sự kiện `load`; trước khi đo được thì
+**không vẽ khung nào** (`tyLe = null`) — thà chưa hiện còn hơn hiện sai chỗ.
+
+**Lỗi B — chữ tràn khung chạy dọc suốt trang (lỗi của M6, đã sửa).**
+Khi ghim cỡ chữ 40 cho một câu dài, chữ được vẽ **đè lên các khung tranh khác**, chạy dọc gần hết
+trang. M6 mới chỉ kẹp *điểm bắt đầu* vào biên ảnh chứ chưa cắt chữ theo khung, nên vi phạm chính
+ràng buộc của M6: *“không tràn vô hạn ra ảnh”*. Lỗi này **không lộ ra ở M6** vì ca tràn khi đó ở cỡ
+nhỏ nhất (10 px) nên khối chữ vẫn gần bằng bbox.
+Sửa: mỗi vùng được vẽ vào **một ô riêng đúng bằng bbox** rồi dán đè lên trang, nên chữ luôn bị cắt
+gọn trong khung của chính nó. Kèm test bất biến so từng pixel ngoài bbox.
+
+### 5. Giới hạn của lần đo này
+
+- Vẫn là **ảnh tổng hợp** — Run C (manga scan thật) vẫn treo, cùng nút thắt từ M2.
+- **Chưa có auth**: ai mở được URL là sửa được, và `edited_by_user` chỉ nói “có người sửa”, không
+  nói **ai** sửa. Đúng phạm vi spec (multi-user là mini-spec riêng).
+- **Chưa có lịch sử phiên bản**: sửa đè lên bản cũ, không lùi lại được. Dữ liệu gốc của M2/M3/M5 thì
+  vẫn còn nguyên để đối chiếu.
+- **Giao diện chỉ mới thử ở 1600×1100** bằng Chromium. Chưa thử màn hình nhỏ, chưa thử Firefox/Safari,
+  chưa kiểm khả năng dùng bằng bàn phím cho thao tác kéo khung.
+- **Dịch lại 1 vùng lẻ thì `llm_context` mất ngữ cảnh cả trang** — đánh đổi có ý thức của việc sửa
+  từng vùng, đã ghi trong mô tả endpoint.

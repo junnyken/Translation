@@ -86,6 +86,9 @@ def test_celery_da_dang_ky_dung_task_detect_cua_m2():
         "inpaint.run_inpaint_job",
         "translate.run_translate_job",
         "typeset.run_typeset_job",
+        "typeset.run_refit_job",
+        "ocr.run_region_reocr_job",
+        "translate.run_region_retranslate_job",
     }, user_tasks
 
 
@@ -395,3 +398,60 @@ def test_khong_bao_gio_co_chu_nho_hon_min():
     assert s.typeset_min_font_size >= 1
     assert s.typeset_min_font_size <= s.typeset_max_font_size
     assert s.allow_font_fallback is False, "mặc định KHÔNG được âm thầm đổi font"
+
+
+# ---------------- M7: sửa tay từng vùng ----------------
+
+
+def test_whitelist_font_doc_duoc_ma_khong_keo_pillow():
+    """API cần danh sách font để validate PATCH — nhưng vẫn không được nạp engine render."""
+    import subprocess
+    import sys
+
+    code = (
+        "import sys; from app.services.typeset.registry import FONT_REGISTRY;"
+        " assert 'PIL' not in sys.modules, 'import registry đã kéo theo Pillow';"
+        " assert 'Bangers' in FONT_REGISTRY;"
+        " print('ok')"
+    )
+    r = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, cwd=str(APP_DIR.parent)
+    )
+    assert r.returncode == 0, r.stderr
+
+
+def test_sua_tay_khong_render_dong_bo_trong_request():
+    """PATCH region chỉ được ghi DB + xếp việc; mọi thứ nặng phải qua Celery."""
+    routes = (APP_DIR / "api" / "v1" / "routes.py").read_text()
+    than = routes[routes.index("async def patch_region") :]
+    than = than[: than.index("@router.post")]
+    for cam in ("FitToBoxTypesetter", "PagePreviewRenderer", "render_page_preview", "ImageDraw"):
+        assert cam not in than, f"PATCH region không được gọi {cam} đồng bộ"
+    assert "dispatch_refit_job" in than
+
+
+def test_preview_khong_duoc_cache():
+    """Đường dẫn preview cố định theo page ⇒ phải có header chống cache, không thì sửa xong
+    người dùng vẫn thấy ảnh cũ (M7 constraint 8)."""
+    routes = (APP_DIR / "api" / "v1" / "routes.py").read_text()
+    than = routes[routes.index("async def get_typeset_preview") :]
+    than = than[: than.index("@router.post")]
+    assert "no-cache" in than
+
+
+def test_auto_fit_khong_bao_gio_danh_dau_sua_tay():
+    """Chỉ đường sửa tay mới được set edited_by_user=true — auto luôn false."""
+    tasks = (APP_DIR / "workers" / "tasks.py").read_text()
+    tu_dong = tasks[tasks.index("def _run_typeset") : tasks.index("def _run_refit")]
+    assert "edited_by_user=False" in tu_dong
+    assert "edited_by_user=True" not in tu_dong, "đường tự động không được đánh dấu sửa tay"
+
+    sua_tay = tasks[tasks.index("def _run_refit") : tasks.index("def _run_region_reocr")]
+    assert "edited_by_user=True" in sua_tay
+
+
+def test_sau_task_co_sau_timeout_rieng():
+    from app.workers.tasks import run_refit_job, run_typeset_job
+
+    assert run_refit_job.soft_time_limit is not None
+    assert run_refit_job.soft_time_limit != run_typeset_job.soft_time_limit

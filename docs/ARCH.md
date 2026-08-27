@@ -1,7 +1,7 @@
 # ARCH.md — Translation (Phase MTE: Manga Translation Extension)
 
-> Trạng thái: **M6 hoàn tất** (M1 contract · M2 nhận diện khung · M3 đọc chữ · M4 xoá chữ · M5 dịch ·
-> M6 canh chữ vào khung + ảnh xem thử). Chưa có màn sửa tay (M7) và chưa export (M8).
+> Trạng thái: **M7 hoàn tất** (M1 contract · M2 nhận diện khung · M3 đọc chữ · M4 xoá chữ · M5 dịch ·
+> M6 canh chữ + ảnh xem thử · M7 màn sửa tay). Chưa export chapter — M8.
 
 ## 1. Bức tranh tổng thể
 
@@ -43,6 +43,7 @@ Quy tắc kiến trúc **giữ nguyên xuyên suốt Phase** (M1 chốt, M2–M1
 | Inpaint (M4) | LaMa bản finetune manga, qua ONNX Runtime (CPU) | Cùng worker; sinh ảnh clean thành **file mới**, không đụng ảnh gốc |
 | Dịch (M5) | `google_fast` (miễn phí) · `llm_context` (Gemini) | Gọi API qua HTTPS, **không nạp model**; key chỉ đọc từ `.env` |
 | Canh chữ (M6) | Pillow + font SIL OFL | Đo font metrics thật; **không nạp model**; font mount `FONT_DIR`, chỉ worker |
+| Sửa tay (M7) | React 18 + Vite | Chỉ là bên tiêu thụ API; không đụng DB/Redis; chạy service riêng |
 
 ## 3. Data model (7 bảng, chốt ở M1)
 

@@ -10,7 +10,6 @@ from __future__ import annotations
 import logging
 import threading
 import unicodedata
-from dataclasses import dataclass
 from pathlib import Path
 
 from PIL import ImageFont
@@ -26,24 +25,7 @@ class MissingGlyph(RuntimeError):
     """Font thiếu glyph cho ký tự trong text — render sẽ ra ô vuông (tofu)."""
 
 
-@dataclass(frozen=True)
-class FontSpec:
-    #: Đường dẫn tương đối trong FONT_DIR.
-    relative_path: str
-    #: Tên nét của font biến thiên. BẪY: file nghiêng dùng tên "Bold Italic", KHÔNG phải "Bold".
-    variation: str | None = None
-
-
-#: Whitelist family → file. Thêm font mới PHẢI kèm test `test_fonts_vietnamese.py` (đủ 134 dấu).
-FONT_REGISTRY: dict[str, FontSpec] = {
-    "Bangers": FontSpec("Bangers/Bangers-Regular.ttf"),
-    "ShantellSans": FontSpec("ShantellSans/ShantellSans-Roman-VF.ttf", "Regular"),
-    "ShantellSans-Bold": FontSpec("ShantellSans/ShantellSans-Roman-VF.ttf", "Bold"),
-    "ShantellSans-Italic": FontSpec("ShantellSans/ShantellSans-Italic-VF.ttf", "Italic"),
-    "ShantellSans-BoldItalic": FontSpec("ShantellSans/ShantellSans-Italic-VF.ttf", "Bold Italic"),
-    "Mansalva": FontSpec("Mansalva/Mansalva-Regular.ttf"),
-    "SigmarOne": FontSpec("SigmarOne/SigmarOne-Regular.ttf"),
-}
+from app.services.typeset.registry import FONT_REGISTRY, FontSpec
 
 #: Ký tự chắc chắn không font nào có glyph — dùng làm mẫu đối chiếu để phát hiện tofu.
 _SENTINEL = ""

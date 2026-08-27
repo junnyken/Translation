@@ -231,7 +231,80 @@ Xếp lại việc canh chữ. Chỉ enqueue, không render trong request.
 Chạy lại là **idempotent**: kết quả cũ bị xoá trước khi ghi mới, preview ghi đè đúng đường dẫn cũ
 (ghi ra file tạm rồi đổi chỗ nguyên tử) — không nhân bản bản ghi, không để lại file rác.
 
-## 16. `GET /api/v1/jobs/{job_id}` → 200
+## 16. `GET /api/v1/pages/{page_id}/detail` → 200 *(M7)*
+
+Gom **tất cả** dữ liệu của 1 trang cho màn sửa tay — 1 lần gọi thay vì 5 lần.
+
+```json
+{ "page": { "…": "như mục 4" },
+  "preview_url": "/api/v1/pages/…/typeset-preview",
+  "font_families": ["Bangers", "Mansalva", "ShantellSans", "…"],
+  "min_font_size": 10, "max_font_size": 40,
+  "regions": [ { "id": "…", "bbox": {"x":240,"y":164,"w":192,"h":85},
+     "confidence": 0.91, "overlap_suspect": false, "reading_order": 1, "status": "ok",
+     "raw_text": "GOOD MORNING", "ocr_confidence": null, "ocr_status": "ok",
+     "translated_text": "Chào buổi sáng.", "translation_status": "ok",
+     "translation_edited_by_user": false,
+     "font_family": "Bangers", "font_size": 30.0, "wrapped_text": "Chào buổi\nsáng.",
+     "fit_status": "fit_ok", "typeset_edited_by_user": false } ] }
+```
+
+- `preview_url` là `null` khi **file preview chưa có thật** — không trả link chết.
+- `font_families` lấy từ whitelist của M6; giao diện **chỉ được chọn trong danh sách này**.
+- Mọi cảnh báo đều lộ ra và không bị ẩn: `status` (`low_confidence`), `ocr_status`
+  (`needs_manual`), `translation_status` (`fallback_used`), `fit_status` (`overflow_warning`).
+- Hai cờ `*_edited_by_user` cho biết chỗ nào người sửa, chỗ nào máy làm.
+
+## 17. `PATCH /api/v1/regions/{region_id}` → 200 *(M7)*
+
+Sửa tay 1 vùng rồi **canh lại đúng vùng đó** (không tính lại cả trang).
+
+```json
+{ "translated_text": "Chào cậu nhé!", "bbox": {"x":240,"y":164,"w":192,"h":85},
+  "font_family": "Mansalva", "font_size": 16 }
+```
+Trường nào bỏ trống thì giữ nguyên trường đó. Body rỗng → `422`.
+
+```json
+{ "region_id": "…", "page_id": "…", "fit_status": "pending",
+  "refit_job_id": "…", "edited_fields": ["translated_text"], "edited_by_user": true }
+```
+
+- **`fit_status` luôn trả `pending`**, không phải trạng thái cũ: bản canh cũ đã không còn đúng với
+  nội dung vừa sửa, báo `fit_ok` lúc này là nói sai. Theo dõi `refit_job_id` để biết khi nào xong.
+- **`font_size` = ghim cỡ chữ**: canh lại dùng **đúng** cỡ đó thay vì tự dò. Cỡ đó tràn khung thì
+  vẫn giữ cỡ nhưng gắn `overflow_warning` — không giả vờ vừa. Bỏ trống = quay lại tự dò như M6.
+- Ghi `edited_by_user=true` lên bản dịch và/hoặc kết quả canh chữ tương ứng.
+- **Không đụng** `raw_text` của M3 và không đụng ảnh gốc/ảnh clean.
+
+| Lỗi | Mã |
+|---|---|
+| vùng không tồn tại | 404 |
+| không có trường nào để sửa / bbox rộng-cao ≤ 0 / trường lạ | 422 |
+| `font_family` ngoài whitelist (`font_not_found`) | 422 |
+| sửa bản dịch khi vùng chưa từng được dịch | 409 |
+
+## 18. `POST /api/v1/regions/{region_id}/re-fit` → 202 *(M7)*
+
+Canh lại 1 vùng mà không sửa gì (dùng khi đổi cấu hình font/padding).
+Query `font_size` (tuỳ chọn) để ghim cỡ.
+
+## 19. `POST /api/v1/regions/{region_id}/re-ocr` → 202 *(M7)*
+
+Đọc lại chữ gốc của 1 vùng từ **ảnh gốc** (ảnh clean đã bị xoá chữ nên không dùng được).
+**Không** tự dịch lại và **không** tự canh lại — vì cả hai đều ghi đè, có thể xoá mất phần người
+dùng vừa sửa tay.
+
+## 20. `POST /api/v1/regions/{region_id}/re-translate` → 202 *(M7)*
+
+Dịch lại 1 vùng từ chữ gốc hiện tại. Query `engine` (tuỳ chọn): `google_fast` | `llm_context`.
+**Ghi đè bản dịch**, kể cả bản đã sửa tay. Lưu ý: dịch lại một dòng lẻ thì `llm_context` mất lợi
+thế ngữ cảnh cả trang.
+
+Cả ba endpoint trên trả `{ "job_id": "…", "page_id": "…", "status": "queued" }`, `404` nếu vùng
+không tồn tại, và **không bao giờ chạy đồng bộ trong request**.
+
+## 21. `GET /api/v1/jobs/{job_id}` → 200
 
 ```json
 { "id": "…", "type": "detect", "page_id": "…", "status": "queued",
@@ -273,5 +346,5 @@ và mọi dòng của trang mang `status=fallback_used` — thành công **có d
 
 ## Endpoint sẽ thêm ở mini-spec sau (chưa tồn tại)
 
-`PATCH /regions/{id}` (M7) · `POST /projects/{id}/export`, `GET /export-jobs/{id}` (M8) ·
+`POST /projects/{id}/export`, `GET /export-jobs/{id}` (M8) ·
 `POST /projects/{id}/run-batch`, `GET /projects/{id}/batch-status` (M9).

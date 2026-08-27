@@ -154,3 +154,90 @@ class TypesetResultRead(ORMModel):
     #: `fit_ok` · `overflow_warning` (không vừa dù đã xuống cỡ nhỏ nhất) · `pending` (chưa có chữ).
     fit_status: FitStatus
     edited_by_user: bool
+
+
+# ---------- M7: sửa tay từng vùng ----------
+class BBoxIn(BaseModel):
+    """Khung chữ do người dùng kéo lại. Rộng/cao phải dương — bbox âm là vô nghĩa."""
+
+    x: float = Field(ge=0)
+    y: float = Field(ge=0)
+    w: float = Field(gt=0)
+    h: float = Field(gt=0)
+
+
+class RegionPatch(BaseModel):
+    """Sửa tay 1 vùng. Trường nào bỏ trống thì giữ nguyên trường đó.
+
+    `font_size` có nghĩa **ghim cỡ chữ**: canh lại sẽ dùng đúng cỡ đó thay vì tự dò.
+    Bỏ trống `font_size` = quay lại chế độ tự dò cỡ.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    translated_text: str | None = None
+    bbox: BBoxIn | None = None
+    font_family: str | None = None
+    font_size: float | None = Field(default=None, gt=0)
+
+    def co_thay_doi(self) -> bool:
+        return any(
+            v is not None
+            for v in (self.translated_text, self.bbox, self.font_family, self.font_size)
+        )
+
+
+class JobAccepted(BaseModel):
+    """Đã xếp việc vào hàng đợi. Kết quả tra bằng `GET /jobs/{job_id}` — không chạy trong request."""
+
+    job_id: uuid.UUID
+    page_id: uuid.UUID
+    status: JobStatus
+
+
+class RegionPatchAccepted(BaseModel):
+    """Sửa xong là ghi ngay, nhưng canh chữ lại chạy nền — nên `fit_status` trả về là
+    `pending`, KHÔNG phải trạng thái cũ (bản canh cũ đã không còn đúng với nội dung mới)."""
+
+    region_id: uuid.UUID
+    page_id: uuid.UUID
+    fit_status: FitStatus
+    refit_job_id: uuid.UUID
+    edited_fields: list[str]
+    edited_by_user: bool
+
+
+class RegionDetail(ORMModel):
+    """Gom mọi thứ của 1 vùng cho màn sửa tay: khung, chữ gốc, bản dịch, kết quả canh chữ."""
+
+    id: uuid.UUID
+    bbox: BBoxOut
+    confidence: float | None
+    overlap_suspect: bool
+    reading_order: int | None
+    status: RegionStatus
+    #: Chữ gốc OCR đọc được (M3) — `null` nếu chưa chạy OCR.
+    raw_text: str | None = None
+    ocr_confidence: float | None = None
+    ocr_status: OCRStatus | None = None
+    translated_text: str | None = None
+    translation_status: TranslationStatus | None = None
+    translation_edited_by_user: bool = False
+    font_family: str | None = None
+    font_size: float | None = None
+    wrapped_text: str | None = None
+    fit_status: FitStatus | None = None
+    typeset_edited_by_user: bool = False
+
+
+class PageDetail(BaseModel):
+    """Toàn bộ dữ liệu 1 trang cho màn sửa tay (M7) — gọi 1 lần thay vì 5 lần."""
+
+    page: PageRead
+    #: Đường dẫn ảnh xem thử. `null` khi chưa canh chữ xong.
+    preview_url: str | None
+    #: Danh sách font được phép chọn — lấy từ whitelist của M6, UI không tự chế thêm.
+    font_families: list[str]
+    min_font_size: int
+    max_font_size: int
+    regions: list[RegionDetail]
