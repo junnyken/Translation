@@ -17,11 +17,12 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
-from app.models import Job, OCRResult, Page, Project, TextRegion
-from app.models.enums import JobStatus, JobType, PageStatus
+from app.models import Job, OCRResult, Page, Project, TextRegion, TranslationResult
+from app.models.enums import JobStatus, JobType, PageStatus, TranslationEngine
 from app.schemas.common import (
     JobRead,
     OCRResultRead,
+    TranslationResultRead,
     PageAccepted,
     PageRead,
     ProjectCreate,
@@ -29,7 +30,12 @@ from app.schemas.common import (
     ProjectRead,
     RegionRead,
 )
-from app.services.dispatch import dispatch_detect_job, dispatch_inpaint_job, dispatch_ocr_job
+from app.services.dispatch import (
+    dispatch_detect_job,
+    dispatch_inpaint_job,
+    dispatch_ocr_job,
+    dispatch_translate_job,
+)
 from app.services.storage import UnsupportedImage, get_storage, sniff_image
 
 router = APIRouter(prefix="/api/v1")
@@ -289,6 +295,66 @@ async def retry_inpaint(
     await session.refresh(job)
 
     sent, reason = dispatch_inpaint_job(job.id)
+    if not sent:
+        job.error_log = reason
+        await session.commit()
+
+    return PageAccepted(page_id=page.id, status=page.status, job_id=job.id)
+
+
+@router.get(
+    "/pages/{page_id}/translation", response_model=list[TranslationResultRead], tags=["pages"]
+)
+async def list_page_translation(
+    page_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> list[TranslationResult]:
+    """Bản dịch theo từng vùng chữ, sắp theo ĐÚNG thứ tự đọc (M5).
+
+    Trả `[]` khi chưa dịch — không bịa bản dịch. `status`: `ok` · `fallback_used`
+    (LLM lỗi nên đã lùi về Google) · `pending` (model không trả dòng này, cần xem lại).
+    """
+    await _get_page_or_404(session, page_id)
+    stmt = (
+        select(TranslationResult)
+        .join(TextRegion, TextRegion.id == TranslationResult.region_id)
+        .where(TextRegion.page_id == page_id)
+        .order_by(TextRegion.reading_order.nulls_last(), TextRegion.created_at)
+    )
+    return list((await session.execute(stmt)).scalars())
+
+
+@router.post(
+    "/pages/{page_id}/retry-translate",
+    response_model=PageAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["pages"],
+)
+async def retry_translate(
+    page_id: uuid.UUID,
+    engine: TranslationEngine | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> PageAccepted:
+    """Xếp lại việc dịch. `engine` (tuỳ chọn): `google_fast` (miễn phí) hoặc `llm_context` (tốn token).
+
+    Không truyền `engine` thì dùng mặc định trong cấu hình. Chỉ enqueue, không dịch trong request.
+    """
+    page = await _get_page_or_404(session, page_id)
+    if page.status not in (
+        PageStatus.inpainted,
+        PageStatus.inpaint_needs_review,
+        PageStatus.translated,
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Page đang ở '{page.status.value}' — cần xoá chữ xong trước khi dịch",
+        )
+
+    job = Job(type=JobType.translate, page_id=page.id, status=JobStatus.queued)
+    session.add(job)
+    await session.commit()
+    await session.refresh(job)
+
+    sent, reason = dispatch_translate_job(job.id, engine.value if engine else None)
     if not sent:
         job.error_log = reason
         await session.commit()

@@ -10,6 +10,8 @@ from app.models.enums import (
     IntendedUse,
     OCREngine,
     OCRStatus,
+    TranslationEngine,
+    TranslationStatus,
     JobStatus,
     JobType,
     PageStatus,
@@ -125,3 +127,16 @@ class OCRResultRead(ORMModel):
     #: NULL khi engine không cung cấp confidence thật (manga-ocr) — KHÔNG phải bug.
     confidence: float | None
     status: OCRStatus
+
+
+# ---------- TranslationResult (M5) ----------
+class TranslationResultRead(ORMModel):
+    region_id: uuid.UUID
+    translated_text: str | None
+    engine: TranslationEngine | None
+    model_name: str | None
+    #: Chi phí token của CẢ TRANG, ghi ở đúng 1 dòng đầu trang (các dòng khác NULL)
+    #: để cộng toàn bảng vẫn ra tổng thật.
+    token_cost: int | None
+    edited_by_user: bool
+    status: TranslationStatus

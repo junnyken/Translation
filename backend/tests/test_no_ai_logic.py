@@ -84,6 +84,7 @@ def test_celery_da_dang_ky_dung_task_detect_cua_m2():
         "detect.run_detect_job",
         "ocr.run_ocr_job",
         "inpaint.run_inpaint_job",
+        "translate.run_translate_job",
     }, user_tasks
 
 
@@ -234,3 +235,89 @@ def test_khong_lang_le_fallback_opencv_khi_lama_loi():
     # cấm DÙNG cv2, không cấm nhắc tới trong ghi chú
     assert "import cv2" not in lama, "LamaInpainter không được import cv2"
     assert "cv2.inpaint(" not in lama, "LamaInpainter không được tự lùi về cv2.inpaint"
+
+
+# ---------------- M5: API key không được lọt vào git ----------------
+
+REPO_ROOT = APP_DIR.parent.parent
+
+#: Mẫu key hay gặp: Google/Gemini (AIza..., AQ....), OpenAI (sk-...), Anthropic (sk-ant-...).
+KEY_PATTERNS = (
+    r"AIza[0-9A-Za-z_\-]{30,}",
+    r"AQ\.[0-9A-Za-z_\-]{30,}",
+    r"sk-[A-Za-z0-9_\-]{20,}",
+    r"sk-ant-[A-Za-z0-9_\-]{20,}",
+)
+
+
+def _tracked_files() -> list[str]:
+    import subprocess
+
+    out = subprocess.run(
+        ["git", "ls-files"], capture_output=True, text=True, cwd=str(REPO_ROOT)
+    )
+    return [f for f in out.stdout.splitlines() if f]
+
+
+def test_khong_co_api_key_nao_bi_commit_vao_git():
+    """GUARDRAIL M5: key chỉ được sống trong .env (đã gitignore), tuyệt đối không vào git."""
+    import re
+
+    hits = []
+    for rel in _tracked_files():
+        path = REPO_ROOT / rel
+        if not path.is_file() or path.suffix in (".png", ".jpg", ".jpeg", ".onnx"):
+            continue
+        try:
+            content = path.read_text(errors="ignore")
+        except Exception:  # noqa: BLE001
+            continue
+        for pattern in KEY_PATTERNS:
+            for match in re.finditer(pattern, content):
+                hits.append(f"{rel}: {match.group(0)[:8]}…")
+    assert hits == [], f"Có API key bị commit vào git: {hits}"
+
+
+def test_file_env_that_khong_duoc_track():
+    assert ".env" not in _tracked_files(), ".env chứa key — không được commit"
+
+
+def test_key_khong_bi_ghi_vao_db_hay_tra_ra_api():
+    """Key chỉ đọc từ settings; không có cột nào trong DB và không endpoint nào trả ra."""
+    routes = (APP_DIR / "api" / "v1" / "routes.py").read_text()
+    models = (APP_DIR / "models" / "__init__.py").read_text()
+    assert "gemini_api_key" not in routes.lower()
+    assert "api_key" not in models.lower(), "Không lưu API key trong bảng DB ở M5"
+
+
+def test_bon_task_co_bon_timeout_rieng():
+    from app.workers.tasks import (
+        run_detect_job,
+        run_inpaint_job,
+        run_ocr_job,
+        run_translate_job,
+    )
+
+    limits = {
+        "detect": run_detect_job.soft_time_limit,
+        "ocr": run_ocr_job.soft_time_limit,
+        "inpaint": run_inpaint_job.soft_time_limit,
+        "translate": run_translate_job.soft_time_limit,
+    }
+    assert all(v is not None for v in limits.values()), limits
+    assert limits["translate"] != limits["detect"], limits
+
+
+def test_mac_dinh_khong_tu_tieu_token_cua_nguoi_dung():
+    """Auto-chain sau inpaint phải dùng engine MIỄN PHÍ trừ khi người dùng chọn khác."""
+    from app.core.config import Settings
+
+    assert Settings().translate_default_engine == "google_fast"
+
+
+def test_mac_dinh_tat_thinking_de_khong_dot_token():
+    """Đo thật: không tắt thinking thì 938 token suy nghĩ cho 6 dòng (đắt gấp ~7,7 lần)."""
+    from app.core.config import Settings
+
+    assert Settings().llm_thinking_budget == 0
+    assert "2.5" not in Settings().llm_model_name, "gemini-2.5-* đã bị chặn với key mới (404)"

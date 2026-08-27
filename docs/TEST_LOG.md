@@ -400,3 +400,105 @@ giữa 2 lần chạy cho thấy model chạy tất định — không phải do
   nét vẽ, lưới halftone, viền bubble cách điệu — **không được suy ra kết quả sẽ tương đương**.
 - Tiêu chí "≥90% vùng OCR lại không còn chữ **trên ảnh thật**" vì vậy **CHƯA nghiệm thu** —
   cùng nút thắt với M2/M3.
+
+---
+
+## M5 — Dịch 2 đường + thứ tự đọc
+
+**Ngày:** 2026-08-27 · **Môi trường:** workspace `trieunt-c`, Docker, Python 3.12.3,
+Postgres 16-alpine (`translation-db-1`), Redis 7-alpine, worker Celery `translation-worker-1`.
+API dịch gọi qua HTTPS — **không nạp model**, nên chạy được cả ở image `api` lẫn `worker`.
+
+### 1. Test tự động
+
+```
+$ cd backend && ../.venv/bin/python -m pytest
+256 passed, 6 skipped in 34.28s
+```
+
+| Nhóm | File | Số test |
+|---|---|---|
+| Unit — 2 engine dịch, parse response, xoay key | `tests/test_translate_engines_unit.py` | 30 |
+| Unit — thứ tự đọc (ltr/rtl, gom dải ngang) | `tests/test_translate_reading_order_unit.py` | 15 |
+| Integration — task translate trên DB thật | `tests/test_translate_task_integration.py` | 13 |
+| Guardrail kiến trúc (M1→M5) | `tests/test_no_ai_logic.py` | 21 (+6 của M5) |
+| Kế thừa M1+M2+M3+M4 | các file trước | 177 |
+| Model/OCR thật (opt-in) | `test_*_real_*.py` | 6 (skipped) |
+
+Bài test đáng chú ý của M5:
+- `test_khong_co_api_key_nao_bi_commit_vao_git` — quét **toàn bộ file git track** tìm chuỗi giống API key.
+- `test_file_env_that_khong_duoc_track` + `test_key_khong_bi_ghi_vao_db_hay_tra_ra_api` — constraint 7:
+  key chỉ sống trong `.env`, không lọt vào DB, không lọt ra response.
+- `test_mac_dinh_khong_tu_tieu_token_cua_nguoi_dung` — canh `TRANSLATE_DEFAULT_ENGINE=google_fast`.
+  Đổi mặc định sang `llm_context` sẽ **làm đỏ test**, không lặng lẽ tiêu tiền người dùng.
+- `test_mac_dinh_tat_thinking_de_khong_dot_token` — canh `LLM_THINKING_BUDGET=0` (xem §3).
+- `test_bon_task_co_bon_timeout_rieng` → nay là **bốn** timeout riêng (detect/OCR/inpaint/translate).
+- `parse_response`: thiếu dòng → chuỗi rỗng + `status=pending`, **không bịa nội dung**; thừa dòng → cắt.
+- `test_engine_la_bao_loi_khong_fallback_am_tham` — engine lạ raise `UnsupportedTranslationEngine`, không fallback âm thầm.
+
+### 2. Live verification — gọi API dịch THẬT qua worker
+
+Đường thật: `POST /pages/{id}/retry-translate` → Redis → worker Celery → HTTPS → DB.
+
+**2a. `llm_context` (Gemini) — trang 6 bubble, en → vi:**
+
+| # | OCR đọc được | Bản dịch | token_cost |
+|---|---|---|---|
+| 1 | `GOOD\nMORNING` | Chào buổi sáng. | **227** |
+| 2 | `WHO\nARE YOU?` | Ngươi là ai? | NULL |
+| 3 | `IAM\nHERE` | Ta ở đây. | NULL |
+| 4 | `LOOK\nOUT!` | Cẩn thận! | NULL |
+| 5 | `LET US\nGO NOW` | Đi thôi nào. | NULL |
+| 6 | `THE END\nFOR NOW` | Tạm kết tại đây. | NULL |
+
+- `reading_order` được điền **1..6** (cột này để NULL từ M1, M5 chịu trách nhiệm điền).
+- `IAM` là **lỗi OCR** của `I AM` — LLM tự sửa theo ngữ cảnh, đúng như thiết kế (`raw_text` giữ nguyên,
+  không normalize ở M3).
+- `token_cost` ghi ở **đúng 1 dòng đầu trang**: `SUM(token_cost)` toàn bảng = 227 = chi phí thật của
+  1 request, không bị nhân bản 6 lần.
+
+**2b. Đối chứng 2 engine trên CÙNG một trang (2 bubble, en → vi):**
+
+| Engine | `HELLO\nTHERE` → | `GOODBYE` → | Token | Thời gian |
+|---|---|---|---|---|
+| `google_fast` | **"Xin chào\nĐÓ"** ❌ | "TẠM BIỆT" | 0 (miễn phí) | <1s |
+| `llm_context` | **"Chào nhé."** ✅ | "Tạm biệt." | 164 | ~5s |
+
+Đây là **bằng chứng thật cho lý do tồn tại của 2 đường**: `google_fast` dịch rời từng dòng nên
+`THERE` thành `ĐÓ` — vô nghĩa trong ngữ cảnh chào hỏi. `llm_context` gộp 2 dòng của cùng 1 bubble
+thành một câu thoại tự nhiên. Không suy đoán — đo trên đúng dữ liệu đó.
+
+Chạy lại trên cùng page **thay thế** bản dịch cũ (xoá theo `region_id` rồi ghi mới), không tích luỹ
+bản trùng — cùng cách M4 xử lý ảnh clean.
+
+### 3. Đo bẫy "thinking" đốt token
+
+Cùng 1 trang 6 dòng, cùng prompt, chỉ đổi model/cấu hình:
+
+| Model | thinking token | tổng token | thời gian |
+|---|---|---|---|
+| `gemini-3.6-flash` (không tắt thinking) | **938** | 1072 | 7,0s |
+| `gemini-3-flash-preview` + `thinkingBudget=0` | 0 | 133 | 2,0s |
+| **`gemini-3.1-flash-lite` + `thinkingBudget=0`** (mặc định) | **0** | **140** | **1,6s** |
+
+⇒ Không tắt thinking thì **đắt gấp ~7,7 lần, chậm gấp 4 lần** mà chất lượng dịch trên mẫu này
+tương đương. Nếu model vẫn trả `thoughtsTokenCount > 0` dù đã yêu cầu tắt, worker **ghi cảnh báo
+vào log** — hoá đơn phình lên sẽ không diễn ra âm thầm.
+
+### 4. Hai giả định của spec bị thực tế bác bỏ
+
+| Spec giả định | Thực tế đo được |
+|---|---|
+| Dùng `gemini-2.5-flash` | **404 NOT_FOUND** — *"This model is no longer available to new users"*. Phải đổi sang dòng 3.x. |
+| Nhiều API key ⇒ nhiều quota | Tài liệu Gemini: *"Rate limits are applied per project, not per API key."* ⇒ **xoay key trong cùng project không tăng hạn mức**. Cơ chế xoay vẫn giữ (có test) nhưng chỉ có tác dụng khi key thuộc **project khác nhau**. |
+
+Cả hai đều ghi vào `ARCH.md §8` để người sau không kỳ vọng sai.
+
+### 5. Giới hạn của lần đo này
+
+- Vẫn là **ảnh tổng hợp** (`test_fixtures/`) với thoại tiếng Anh ngắn — **chưa đo trên manga thật**,
+  chưa đo tiếng Nhật/Trung. Cùng nút thắt với M2/M3/M4.
+- Hướng đọc `rtl` (manga Nhật) mới chỉ verify bằng **unit test**, chưa có trang JP thật chạy đầu-cuối:
+  các page `ja` trong DB đang dừng ở `detected`.
+- Nhánh `fallback_used` (LLM chết → lùi về Google) mới verify bằng **integration test giả lập lỗi**,
+  chưa gặp tình huống hết quota thật.

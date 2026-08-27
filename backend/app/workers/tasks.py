@@ -19,13 +19,15 @@ from sqlalchemy import delete, func, select
 
 from app.core.config import get_settings
 from app.core.db_sync import sync_session
-from app.models import Job, OCRResult, Page, Project, TextRegion
+from app.models import Job, OCRResult, Page, Project, TextRegion, TranslationResult
 from app.models.enums import (
     JobStatus,
     JobType,
     OCRStatus,
     PageStatus,
     RegionStatus,
+    TranslationEngine,
+    TranslationStatus,
     assert_transition,
 )
 from app.workers.celery_app import celery_app
@@ -598,6 +600,10 @@ def _run_inpaint(job_id: uuid.UUID) -> dict:
         job.error_log = None
         session.commit()
 
+    translate_job_id = (
+        enqueue_translate_after_inpaint(page_id) if settings.translate_auto_chain else None
+    )
+
     logger.info(
         "inpaint job %s: %d vùng, %s, còn chữ ở %d vùng, xoá ảnh clean cũ=%s, %.1fs",
         job_id, len(boxes), target_status.value, len(leftovers), deleted_old, elapsed,
@@ -612,6 +618,7 @@ def _run_inpaint(job_id: uuid.UUID) -> dict:
         "regions_with_text_left": len(leftovers),
         "replaced_old_clean_image": deleted_old,
         "elapsed_seconds": round(elapsed, 2),
+        "translate_job_id": str(translate_job_id) if translate_job_id else None,
     }
 
 
@@ -637,5 +644,235 @@ def run_inpaint_job(self, job_id: str) -> dict:
     except Exception as exc:  # noqa: BLE001
         reason = f"{type(exc).__name__}: {exc}"
         logger.exception("inpaint job %s thất bại", jid)
+        _mark_job_failed(jid, reason)
+        return {"status": "failed", "job_id": str(jid), "error": reason}
+
+
+# ============================ M5: Dịch ============================
+
+
+def enqueue_translate_after_inpaint(page_id: uuid.UUID) -> uuid.UUID | None:
+    """Nối chuỗi: xoá chữ xong → tự xếp việc dịch."""
+    with sync_session() as session:
+        job = Job(type=JobType.translate, page_id=page_id, status=JobStatus.queued)
+        session.add(job)
+        session.commit()
+        job_id = job.id
+
+    try:
+        run_translate_job.delay(str(job_id))
+    except Exception as exc:  # noqa: BLE001
+        reason = f"enqueue_failed: {type(exc).__name__}: {exc}"
+        logger.error("Không đẩy được job translate %s: %s", job_id, reason)
+        with sync_session() as session:
+            job = session.get(Job, job_id)
+            if job is not None:
+                job.error_log = reason
+                session.commit()
+    return job_id
+
+
+def build_translator(engine: str):
+    """Tạo translator theo tên engine. Import trễ; key chỉ đọc từ settings (.env)."""
+    from app.services.translate.engines import get_translator
+
+    if engine == TranslationEngine.llm_context.value:
+        return get_translator(
+            engine,
+            api_keys=settings.gemini_api_key_list,
+            model_name=settings.llm_model_name,
+            timeout=settings.translate_timeout_seconds,
+            temperature=settings.llm_temperature,
+            max_output_tokens=settings.llm_max_output_tokens,
+            thinking_budget=settings.llm_thinking_budget,
+        )
+    return get_translator(engine)
+
+
+def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dict:
+    started = time.perf_counter()
+    from app.services.translate.engines import QuotaExhausted, TranslationFailed
+    from app.services.translate.reading_order import calculate_reading_order
+
+    with sync_session() as session:
+        job = session.get(Job, job_id)
+        if job is None:
+            logger.warning("Job %s không tồn tại", job_id)
+            return {"status": "job_not_found", "job_id": str(job_id)}
+        if job.type is not JobType.translate:
+            return {"status": "wrong_job_type", "job_id": str(job_id), "type": job.type.value}
+
+        page = session.get(Page, job.page_id)
+        if page is None:
+            job.status = JobStatus.failed
+            job.error_log = "page_not_found"
+            session.commit()
+            return {"status": "page_not_found", "job_id": str(job_id)}
+
+        project = session.get(Project, page.project_id)
+        page_id = page.id
+        source_lang = project.source_lang.value
+        target_lang = project.target_lang.value
+
+        if page.status not in (
+            PageStatus.inpainted,
+            PageStatus.inpaint_needs_review,
+            PageStatus.translated,
+        ):
+            job.status = JobStatus.failed
+            job.error_log = (
+                f"precondition_failed: page đang ở '{page.status.value}', "
+                "cần 'inpainted' (chạy xoá chữ trước khi dịch)"
+            )
+            session.commit()
+            return {"status": "failed", "job_id": str(job_id), "error": job.error_log}
+
+        regions = list(
+            session.execute(
+                select(TextRegion).where(TextRegion.page_id == page_id).order_by(TextRegion.created_at)
+            ).scalars()
+        )
+        if not regions:
+            job.status = JobStatus.failed
+            job.error_log = "no_region: page chưa có TextRegion nào"
+            session.commit()
+            return {"status": "failed", "job_id": str(job_id), "error": "no_region"}
+
+        ocr_map = {
+            row.region_id: row
+            for row in session.execute(
+                select(OCRResult).where(OCRResult.region_id.in_([r.id for r in regions]))
+            ).scalars()
+        }
+        if len(ocr_map) < len(regions):
+            job.status = JobStatus.failed
+            job.error_log = (
+                f"missing_ocr: {len(ocr_map)}/{len(regions)} vùng có kết quả OCR — "
+                "không dịch khi chưa đọc xong chữ"
+            )
+            session.commit()
+            return {"status": "failed", "job_id": str(job_id), "error": job.error_log}
+
+        # Thứ tự đọc: tính TRƯỚC khi gửi dịch, và ghi luôn vào TextRegion.reading_order
+        # (cột này để NULL từ M1, M5 là bước chịu trách nhiệm điền).
+        ordered = calculate_reading_order(
+            regions, source_lang, settings.reading_direction_override or None
+        )
+        for position, region in enumerate(ordered, start=1):
+            region.reading_order = position
+
+        ordered_specs = [
+            (r.id, (ocr_map[r.id].raw_text or ""), position)
+            for position, r in enumerate(ordered, start=1)
+        ]
+        job.status = JobStatus.running
+        session.commit()
+
+    engine_name = engine_override or settings.translate_default_engine
+    texts = [text for _rid, text, _pos in ordered_specs]
+
+    used_engine = engine_name
+    fallback_reason: str | None = None
+    translator = build_translator(engine_name)
+    try:
+        translated = translator.translate(texts, source_lang, target_lang)
+    except (QuotaExhausted, TranslationFailed) as exc:
+        if engine_name != TranslationEngine.llm_context.value or not settings.llm_fallback_to_google:
+            raise
+        # Không âm thầm trả bản rỗng: lùi về google_fast và ĐÁNH DẤU fallback_used.
+        fallback_reason = f"{type(exc).__name__}: {exc}"
+        logger.warning("LLM lỗi (%s) -> lùi về google_fast", fallback_reason[:200])
+        used_engine = TranslationEngine.google_fast.value
+        translator = build_translator(used_engine)
+        translated = translator.translate(texts, source_lang, target_lang)
+
+    usage = getattr(translator, "usage", None)
+    elapsed = time.perf_counter() - started
+
+    with sync_session() as session:
+        region_ids = [rid for rid, _t, _p in ordered_specs]
+        deleted = session.execute(
+            delete(TranslationResult).where(TranslationResult.region_id.in_(region_ids))
+        ).rowcount
+
+        empty = 0
+        for index, ((region_id, _src, _pos), text) in enumerate(zip(ordered_specs, translated, strict=False)):
+            is_empty = not (text or "").strip()
+            empty += int(is_empty)
+            session.add(
+                TranslationResult(
+                    region_id=region_id,
+                    translated_text=text or None,
+                    engine=TranslationEngine(used_engine),
+                    model_name=getattr(translator, "model_name", None),
+                    # Chi phí token là của CẢ TRANG (1 request) -> ghi vào đúng 1 dòng đầu
+                    # để cộng token_cost toàn bảng vẫn ra tổng thật, không nhân bản.
+                    token_cost=(usage.total_tokens if usage and index == 0 else None),
+                    status=(
+                        TranslationStatus.pending
+                        if is_empty
+                        else (
+                            TranslationStatus.fallback_used
+                            if fallback_reason
+                            else TranslationStatus.ok
+                        )
+                    ),
+                )
+            )
+
+        page = session.get(Page, page_id)
+        if page.status is not PageStatus.translated:
+            assert_transition(page.status, PageStatus.translated)
+            page.status = PageStatus.translated
+
+        job = session.get(Job, job_id)
+        job.status = JobStatus.done
+        job.error_log = f"fallback_used: {fallback_reason}"[:4000] if fallback_reason else None
+        session.commit()
+
+    logger.info(
+        "translate job %s: %d vùng (%d dòng rỗng), engine=%s%s, token=%s, xoá %d bản dịch cũ, %.1fs",
+        job_id, len(ordered_specs), empty, used_engine,
+        " (fallback)" if fallback_reason else "",
+        usage.total_tokens if usage else None, deleted, elapsed,
+    )
+    return {
+        "status": "done",
+        "job_id": str(job_id),
+        "page_id": str(page_id),
+        "regions": len(ordered_specs),
+        "engine": used_engine,
+        "fallback": bool(fallback_reason),
+        "empty_lines": empty,
+        "token_cost": usage.total_tokens if usage else None,
+        "thought_tokens": usage.thought_tokens if usage else None,
+        "key_rotations": usage.key_rotations if usage else 0,
+        "replaced_results": deleted,
+        "elapsed_seconds": round(elapsed, 2),
+    }
+
+
+@celery_app.task(
+    bind=True,
+    name="translate.run_translate_job",
+    soft_time_limit=settings.translate_timeout_seconds,
+    time_limit=settings.translate_timeout_seconds + 30,
+)
+def run_translate_job(self, job_id: str, engine: str | None = None) -> dict:
+    """Dịch toàn bộ vùng chữ của 1 page theo đúng thứ tự đọc.
+
+    Lỗi/timeout: Job=failed + error_log, Page GIỮ `inpainted` để còn chạy lại.
+    """
+    jid = uuid.UUID(str(job_id))
+    try:
+        return _run_translate(jid, engine)
+    except SoftTimeLimitExceeded:
+        reason = f"timeout: vượt {settings.translate_timeout_seconds}s"
+        logger.error("translate job %s %s", jid, reason)
+        _mark_job_failed(jid, reason)
+        return {"status": "failed", "job_id": str(jid), "error": reason}
+    except Exception as exc:  # noqa: BLE001
+        reason = f"{type(exc).__name__}: {exc}"
+        logger.exception("translate job %s thất bại", jid)
         _mark_job_failed(jid, reason)
         return {"status": "failed", "job_id": str(jid), "error": reason}

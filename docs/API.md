@@ -76,7 +76,8 @@ Sắp xếp theo `reading_order` (NULL xuống cuối) rồi `created_at`.
 - `confidence` < `CTD_CONF_THRESHOLD` → `status = "low_confidence"` (**vẫn trả về**, không bị lọc bỏ).
 - 2 region chồng nhau > `CTD_OVERLAP_SUSPECT_RATIO` (so với box nhỏ hơn) → cả hai có `overlap_suspect = true`;
   hệ thống **chỉ gắn cờ**, không tự merge/xóa.
-- `reading_order` vẫn `null` cho tới M5.
+- `reading_order` là `null` cho tới khi job **translate (M5)** chạy; M5 là bước điền cột này
+  (`ja` đọc phải→trái, `en`/`zh` trái→phải).
 
 ## 6. `POST /api/v1/pages/{page_id}/retry-detect` → 202 *(M2)*
 
@@ -148,19 +149,57 @@ Chạy lại là **idempotent**: ảnh clean cũ bị xoá trước khi ghi ản
 
 > Bình thường **không cần gọi tay**: OCR xong hệ thống tự xếp việc xoá chữ (`INPAINT_AUTO_CHAIN=true`).
 
-## 11. `GET /api/v1/jobs/{job_id}` → 200
+## 11. `GET /api/v1/pages/{page_id}/translation` → 200 *(M5)*
+
+```json
+[ { "region_id": "…", "translated_text": "Chào buổi sáng.", "engine": "llm_context",
+    "model_name": "gemini-3.1-flash-lite", "token_cost": 227,
+    "edited_by_user": false, "status": "ok" } ]
+```
+Trả bản dịch của từng vùng chữ, **sắp theo đúng thứ tự đọc** (`reading_order` NULL xuống cuối).
+Chưa dịch → `[]`, **không bịa bản dịch**.
+
+- `status`: `ok` · `fallback_used` (LLM lỗi nên đã lùi về `google_fast`) · `pending` (model không trả
+  dòng này ⇒ **chưa có bản dịch**, không phải "đã xong").
+- `token_cost` là chi phí của **cả trang** (`llm_context` gọi 1 request/trang) nên chỉ ghi ở **đúng 1
+  dòng đầu trang**, các dòng còn lại `null` — cộng `token_cost` toàn bảng vẫn ra tổng thật.
+  `google_fast` miễn phí ⇒ luôn `null`.
+- `edited_by_user` dành cho M7 (sửa tay), tới M5 luôn `false`.
+
+## 12. `POST /api/v1/pages/{page_id}/retry-translate` → 202 *(M5)*
+
+Xếp lại việc dịch. Query param `engine` (tuỳ chọn): `google_fast` | `llm_context`.
+Không truyền → dùng `TRANSLATE_DEFAULT_ENGINE` (**mặc định `google_fast`, miễn phí** — hệ thống không
+tự tiêu token khi user chưa chọn). Chỉ enqueue, không dịch trong request.
+
+```json
+{ "page_id": "…", "status": "inpainted", "job_id": "…job mới…" }
+```
+| Lỗi | Mã |
+|---|---|
+| page không tồn tại | 404 |
+| page chưa xoá chữ xong (không ở `inpainted`/`inpaint_needs_review`/`translated`) | 409 |
+| `engine` không thuộc 2 giá trị đã chốt | 422 |
+
+Chạy lại là **idempotent**: bản dịch cũ của page bị xoá trước khi ghi bản mới, không nhân đôi.
+`reading_order` của `TextRegion` được **điền ở bước này** (từ M1 tới M4 cột này còn NULL).
+
+## 13. `GET /api/v1/jobs/{job_id}` → 200
 
 ```json
 { "id": "…", "type": "detect", "page_id": "…", "status": "queued",
   "retry_count": 0, "error_log": null, "created_at": "…", "updated_at": "…" }
 ```
 Dùng chung cho mọi loại job xuyên suốt Phase. Không tồn tại → `404`.
-Job detect/ocr/inpaint: `status` đi `queued → running → done | failed`; khi `failed`, `error_log` ghi
+Job detect/ocr/inpaint/translate: `status` đi `queued → running → done | failed`; khi `failed`, `error_log` ghi
 nguyên nhân (`timeout: vượt Ns`, `FileNotFoundError: …`, `enqueue_failed: …`, `no_region: …`,
 `precondition_failed: …`, `missing_ocr: …`).
 
 Khi job OCR lỗi, `Page.status` **giữ nguyên `detected`** (không nhảy `ocr_done`) để còn chạy lại được.
 Khi job inpaint lỗi, `Page.status` giữ nguyên `ocr_done` và `clean_image_path` **không** được ghi.
+Khi job translate lỗi, `Page.status` giữ nguyên `inpainted` để còn chạy lại được.
+Job translate lùi về `google_fast` vẫn là `done`, nhưng `error_log` ghi `fallback_used: <lý do gốc>`
+và mọi dòng của trang mang `status=fallback_used` — thành công **có dán nhãn**, không im lặng.
 
 `Page.status` sau khi xoá chữ: `inpainted` (OCR lại vùng đã xoá không còn chữ) hoặc
 `inpaint_needs_review` (còn đọc ra chữ ⇒ xoá chưa sạch, cần xem lại).
@@ -185,6 +224,6 @@ Khi job inpaint lỗi, `Page.status` giữ nguyên `ocr_done` và `clean_image_p
 
 ## Endpoint sẽ thêm ở mini-spec sau (chưa tồn tại)
 
-`POST|GET /pages/{id}/translate|translation` (M5) · `POST /pages/{id}/typeset`, `GET /pages/{id}/typeset-preview` (M6) ·
+`POST /pages/{id}/typeset`, `GET /pages/{id}/typeset-preview` (M6) ·
 `PATCH /regions/{id}` (M7) · `POST /projects/{id}/export`, `GET /export-jobs/{id}` (M8) ·
 `POST /projects/{id}/run-batch`, `GET /projects/{id}/batch-status` (M9).

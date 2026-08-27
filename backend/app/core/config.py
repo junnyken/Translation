@@ -54,6 +54,26 @@ class Settings(BaseSettings):
     ocr_timeout_seconds: int = 600
     #: Tự nối OCR ngay sau khi detect xong (pipeline tự chảy).
     ocr_auto_chain: bool = True
+    # ---- M5: dịch ----
+    #: Engine chạy tự động sau inpaint. MẶC ĐỊNH google_fast (miễn phí) — không tự tiêu
+    #: token của người dùng khi họ chưa chọn. Đổi sang llm_context qua .env hoặc query param.
+    translate_default_engine: str = "google_fast"
+    #: Nhiều key ngăn cách bằng dấu phẩy, chỉ đọc từ .env — KHÔNG bao giờ lưu vào DB/git.
+    gemini_api_keys: str = ""
+    #: gemini-2.5-flash đã bị Google chặn với key mới (404 "no longer available to new users").
+    llm_model_name: str = "gemini-3.1-flash-lite"
+    #: 0 = TẮT thinking. Đo thật: không tắt thì 938 token suy nghĩ cho 6 dòng (đắt gấp ~7,7 lần).
+    llm_thinking_budget: int = 0
+    llm_temperature: float = 0.3
+    llm_max_output_tokens: int = 8192
+    #: LLM lỗi/hết quota -> tự lùi về google_fast, ghi status=fallback_used (không trả bản rỗng).
+    llm_fallback_to_google: bool = True
+    #: Timeout RIÊNG cho dịch, không dùng chung với detect/OCR/inpaint.
+    translate_timeout_seconds: int = 900
+    translate_auto_chain: bool = True
+    #: Ép hướng đọc (ltr/rtl). Rỗng = suy theo source_lang (ja -> rtl).
+    reading_direction_override: str = ""
+
     # ---- M4: inpaint (LaMa) ----
     inpaint_weights_path: str = "/models/lama-manga-dynamic.onnx"
     inpaint_device: str = "cpu"
@@ -76,6 +96,11 @@ class Settings(BaseSettings):
 
     app_env: str = "dev"
     log_level: str = "INFO"
+
+    @property
+    def gemini_api_key_list(self) -> list[str]:
+        """Tách chuỗi key thành list. Không log, không trả ra API."""
+        return [k.strip() for k in self.gemini_api_keys.split(",") if k.strip()]
 
     @property
     def sync_database_url(self) -> str:

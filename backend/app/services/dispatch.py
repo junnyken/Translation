@@ -49,3 +49,16 @@ def dispatch_inpaint_job(job_id: uuid.UUID) -> tuple[bool, str | None]:
         reason = f"enqueue_failed: {type(exc).__name__}: {exc}"
         logger.error("Không đẩy được job inpaint %s: %s", job_id, reason)
         return False, reason
+
+
+def dispatch_translate_job(job_id: uuid.UUID, engine: str | None = None) -> tuple[bool, str | None]:
+    """Trả (đã_gửi, lý_do_lỗi). Broker chết thì nói thật, không giả vờ đã gửi."""
+    try:
+        from app.workers.tasks import run_translate_job
+
+        run_translate_job.delay(str(job_id), engine)
+        return True, None
+    except Exception as exc:  # noqa: BLE001
+        reason = f"enqueue_failed: {type(exc).__name__}: {exc}"
+        logger.error("Không đẩy được job translate %s: %s", job_id, reason)
+        return False, reason

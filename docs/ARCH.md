@@ -1,7 +1,7 @@
 # ARCH.md — Translation (Phase MTE: Manga Translation Extension)
 
-> Trạng thái: **M4 hoàn tất** (M1 contract · M2 nhận diện khung · M3 đọc chữ · M4 xoá chữ gốc khỏi ảnh).
-> Chưa có translate/typeset — thuộc M5–M6.
+> Trạng thái: **M5 hoàn tất** (M1 contract · M2 nhận diện khung · M3 đọc chữ · M4 xoá chữ · M5 dịch sang tiếng Việt).
+> Chưa có typeset (chèn chữ vào khung) — thuộc M6.
 
 ## 1. Bức tranh tổng thể
 
@@ -41,6 +41,7 @@ Quy tắc kiến trúc **giữ nguyên xuyên suốt Phase** (M1 chốt, M2–M1
 | Detector (M2) | comic-text-detector qua ONNX Runtime (CPU) | Chỉ chạy trong worker; tiến trình API không nạp model |
 | OCR (M3) | manga-ocr (`ja`) · PaddleOCR (`zh`/`en`) | Cùng worker; **image worker tách khỏi image api** (multi-stage) |
 | Inpaint (M4) | LaMa bản finetune manga, qua ONNX Runtime (CPU) | Cùng worker; sinh ảnh clean thành **file mới**, không đụng ảnh gốc |
+| Dịch (M5) | `google_fast` (miễn phí) · `llm_context` (Gemini) | Gọi API qua HTTPS, **không nạp model**; key chỉ đọc từ `.env` |
 
 ## 3. Data model (7 bảng, chốt ở M1)
 
@@ -240,7 +241,83 @@ Tham số `.env`: `INPAINT_DILATE_RATIO` (0.08 — trần cứng 0.15 trong code
 (riêng, không dùng chung với detect/OCR), `INPAINT_VERIFY_BY_OCR`, `INPAINT_ALLOW_OPENCV_FALLBACK`
 (**mặc định false** — LaMa lỗi thì job fail, không lặng lẽ lùi về `cv2.inpaint` chất lượng kém).
 
-## 8. Giới hạn đã biết (cố ý để lại)
+
+## 8. Dịch (M5)
+
+Hai đường **cố ý tách rời**, người dùng kiểm soát khi nào tốn tiền:
+
+| Đường | Cách chạy | Chi phí | Điểm yếu |
+|---|---|---|---|
+| `google_fast` | dịch **từng dòng** qua endpoint Google Translate công khai | miễn phí | không có ngữ cảnh liên câu |
+| `llm_context` | gộp **cả trang** thành 1 request Gemini, giữ mạch văn | tốn token | phụ thuộc quota/API key |
+
+**Mặc định của pipeline tự chảy là `google_fast`** — hệ thống không bao giờ tự tiêu token của người
+dùng khi họ chưa chọn. Muốn chất lượng cao thì gọi `POST /pages/{id}/retry-translate?engine=llm_context`
+hoặc đổi `TRANSLATE_DEFAULT_ENGINE` trong `.env`.
+
+### Chọn model — và cái bẫy "thinking" đốt token
+
+Đo thật trên cùng 1 trang 6 dòng, cùng prompt:
+
+| Model | thinking token | tổng token | thời gian |
+|---|---|---|---|
+| `gemini-3.6-flash` (không tắt thinking) | **938** | 1072 | 7,0s |
+| `gemini-3-flash-preview` + `thinkingBudget=0` | 0 | 133 | 2,0s |
+| **`gemini-3.1-flash-lite` + `thinkingBudget=0`** (mặc định) | **0** | **140** | **1,6s** |
+
+Chất lượng dịch của 3 model trên mẫu này tương đương, nhưng để mặc định (không tắt thinking) thì
+**đắt gấp ~7,7 lần và chậm gấp 4 lần**. Vì vậy:
+
+- `LLM_THINKING_BUDGET=0` là **mặc định**, có test canh.
+- Nếu model vẫn trả về `thoughtsTokenCount > 0` dù đã yêu cầu tắt, worker **ghi cảnh báo vào log**
+  — để hoá đơn phình lên không diễn ra âm thầm.
+- `token_cost` thật của mỗi trang được ghi vào DB (xem dưới).
+
+`gemini-2.5-flash` — đúng model mà spec lấy làm ví dụ — **không dùng được nữa**:
+`404 NOT_FOUND: "This model is no longer available to new users"`. Google trỏ sang `gemini-3.6-flash`.
+
+### Rate limit: tính theo PROJECT, không theo key
+
+Tài liệu chính thức của Gemini API **không còn công bố con số free-tier** (phải xem trong AI Studio),
+và ghi rõ: *"Rate limits are applied per project, not per API key."*
+
+⇒ **Xoay nhiều key trong CÙNG một project không tăng được hạn mức.** Cơ chế xoay key vẫn được
+implement (và có test), nhưng chỉ thực sự có tác dụng khi các key thuộc **project khác nhau**.
+Đây là điểm khác với giả định ban đầu của spec, ghi lại để không ai kỳ vọng sai.
+
+### Chi phí token ghi vào đâu
+
+`llm_context` gọi **1 request cho cả trang**, nên chi phí là của trang chứ không của từng vùng.
+`TranslationResult.token_cost` được ghi **đúng 1 dòng đầu trang**, các dòng còn lại `NULL` —
+cộng `token_cost` toàn bảng vẫn ra tổng chi phí thật, không bị nhân bản.
+
+### Thứ tự đọc
+
+`TextRegion.reading_order` để `NULL` từ M1; **M5 là bước điền cột này**. Thuật toán: gom bbox thành
+các dải ngang (dải cao ≈ trung vị chiều cao bbox × 0,6 — để bubble lệch vài chục pixel vẫn tính cùng
+hàng), sắp dải từ trên xuống, trong mỗi dải sắp theo hướng đọc:
+
+- `ja` → **phải sang trái** (manga Nhật)
+- `en`, `zh` → trái sang phải
+- ép cứng được bằng `READING_DIRECTION_OVERRIDE=ltr|rtl`
+
+Thứ tự này quyết định thứ tự dòng gửi cho LLM, nên sai ở đây là hỏng mạch văn cả trang.
+
+### API key
+
+Key **chỉ nằm trong `.env`** (`GEMINI_API_KEYS`, nhiều key ngăn cách bằng dấu phẩy). **Không** tạo bảng
+`APIKeyPool` ở M5: spec §4A của M5 không liệt kê bảng này, và constraint 7 yêu cầu key chỉ ở `.env`/secrets
+— đưa key vào Postgres sẽ cần mã hoá + xoay khoá, đó là việc của M9 nếu thật sự cần chia trạng thái
+quota giữa nhiều worker. Có 3 guardrail test quét toàn bộ file được git track để chặn key lọt vào commit.
+
+### Khi LLM chết
+
+`llm_context` lỗi/hết quota → **tự lùi về `google_fast`**, mọi dòng của trang được đánh dấu
+`status=fallback_used` và `Job.error_log` ghi lý do gốc. Không bao giờ trả bản dịch rỗng mà báo thành công.
+Nếu model không trả về dòng nào đó, dòng ấy giữ `status=pending` (enum `TranslationStatus` chốt ở M1
+không có `needs_manual`) — nghĩa là "chưa có bản dịch", không phải "đã xong".
+
+## 9. Giới hạn đã biết (cố ý để lại)
 
 - **Supabase Storage chưa có adapter.** M1 chạy `STORAGE_BACKEND=local` (đã verify thật).
   Khi đặt `STORAGE_BACKEND=supabase`, app **fail ngay** với thông báo rõ ràng thay vì im lặng ghi sai chỗ.
@@ -249,7 +326,7 @@ Tham số `.env`: `INPAINT_DILATE_RATIO` (0.08 — trần cứng 0.15 trong code
   Nếu broker chết, job đứng ở `queued` kèm `error_log=enqueue_failed:…` (không giả vờ đã gửi).
 - **NỢ KỸ THUẬT (tracked):** `SupabaseStorageAdapter` chưa viết — cần khi có credential Supabase.
   Nên làm trước M4 vì M4 bắt đầu sinh thêm ảnh clean. Hiện `STORAGE_BACKEND=supabase` fail có thông báo rõ.
-- **Chưa có translate/typeset** — M5–M6.
+- **Chưa có typeset** — M6.
 - **M2 chưa xử lý** ảnh xoay/nghiêng, scan chất lượng kém; chưa auto-retry khi timeout (thuộc M9);
   chưa có UI vẽ overlay box (thuộc M7).
 - **Chưa có auth/user management** — nếu cần multi-user phải là mini-spec riêng, không nhét vào MTE.

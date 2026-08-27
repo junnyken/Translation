@@ -194,8 +194,14 @@ def no_broker_for_chained_ocr(monkeypatch):
     sent: list = []
     monkeypatch.setattr(tasks.run_ocr_job, "delay", lambda job_id: sent.append(job_id))
     monkeypatch.setattr(tasks.run_inpaint_job, "delay", lambda job_id: sent.append(job_id))
+    monkeypatch.setattr(
+        tasks.run_translate_job, "delay", lambda job_id, engine=None: sent.append(job_id)
+    )
     monkeypatch.setattr("app.api.v1.routes.dispatch_ocr_job", lambda job_id: (True, None))
     monkeypatch.setattr("app.api.v1.routes.dispatch_inpaint_job", lambda job_id: (True, None))
+    monkeypatch.setattr(
+        "app.api.v1.routes.dispatch_translate_job", lambda job_id, engine=None: (True, None)
+    )
     return sent
 
 
@@ -265,3 +271,38 @@ def fake_inpainter(monkeypatch):
 
     yield _install
     tasks.reset_inpainter()
+
+
+@pytest.fixture
+def fake_translator(monkeypatch):
+    """Translator giả lập cho cả 2 path, có thể ép lỗi để thử nhánh fallback."""
+    from app.services.translate.engines import UsageStats
+    from app.workers import tasks
+
+    made: list = []
+
+    def _install(prefix="VI:", raises_for=None, total_tokens=123):
+        class _Fake:
+            def __init__(self, engine_name):
+                self.engine_name = engine_name
+                self.model_name = f"fake-{engine_name}"
+                self.usage = UsageStats(model_name=self.model_name, total_tokens=total_tokens)
+                self.calls = []
+
+            def translate(self, texts, source_lang, target_lang):
+                self.calls.append(list(texts))
+                if raises_for and self.engine_name == raises_for:
+                    from app.services.translate.engines import QuotaExhausted
+
+                    raise QuotaExhausted("hết quota giả lập")
+                return [f"{prefix}{t}" for t in texts]
+
+        def _build(engine_name):
+            fake = _Fake(engine_name)
+            made.append(fake)
+            return fake
+
+        monkeypatch.setattr(tasks, "build_translator", _build)
+        return made
+
+    return _install

@@ -11,8 +11,8 @@ Quy tắc: **tuần tự**, mini-spec sau chỉ mở khi mini-spec trước đã
 | **M2** | Nhận diện khung chữ (comic-text-detector) | `CTDDetector(IDetector)` + task Celery `detect` đầu tiên | Model weight + môi trường inference (CPU/GPU); bbox lệch → hỏng cả M3/M4 | ✅ **XONG** (`v0.2-M2`) — còn treo: đo trên manga thật |
 | **M3** | OCR theo ngôn ngữ nguồn | `MangaOCREngine`, `PaddleOCREngine` + factory theo `source_lang` | Crop sai vùng → OCR đúng mà nội dung sai; RAM/model load lặp | ✅ **XONG** (`v0.3-M3`) — còn treo: đo trên manga thật |
 | **M4** | Xoá chữ gốc (LaMa) | `LamaInpainter(IInpainter)`, `Page.clean_image_path` | CPU chậm; mask dilate quá tay ăn vào tranh | ✅ **XONG** (`v0.4-M4`) — còn treo: đo trên manga thật |
-| **M5** | Dịch 2 đường + thứ tự đọc ⏭ kế tiếp | `GoogleTranslateEngine`, `LLMContextTranslator`, `ReadingOrderResolver`, bảng `APIKeyPool` | Lệch dòng khi ghép bản dịch về region; đốt token | Chưa |
-| **M6** | Tự canh cỡ chữ vừa bubble | `FitToBoxTypesetter(ITypesetter)` | Đo font-metrics sai (tiếng Việt có dấu) → tràn khung | Chưa |
+| **M5** | Dịch 2 đường + thứ tự đọc | `GoogleTranslateEngine`, `LLMContextTranslator`, `ReadingOrderResolver` (**không** tạo bảng `APIKeyPool` — key ở `.env`, xem ARCH §8) | Lệch dòng khi ghép bản dịch về region; đốt token | ✅ **XONG** (`v0.5-M5`) — còn treo: đo trên manga thật + trang JP |
+| **M6** | Tự canh cỡ chữ vừa bubble ⏭ kế tiếp | `FitToBoxTypesetter(ITypesetter)` | Đo font-metrics sai (tiếng Việt có dấu) → tràn khung | Chưa |
 | **M7** | Màn sửa tay | `PATCH /regions/{id}` + Page Detail UI | Sửa 1 region đụng region khác; re-fit sai phạm vi | Chưa |
 | **M8** | Xuất PNG/CBZ + lưu/mở project | `ExportJob`, `ChapterExporter` | Export dùng bản cũ sau khi đã sửa tay | Chưa |
 | **M9** | Chạy cả chapter + xoay API key | `KeyRotationManager`, `BatchOrchestrator` | Vượt rate-limit provider; hết sạch key mà vẫn báo thành công | Chưa |
@@ -25,11 +25,12 @@ Quy tắc: **tuần tự**, mini-spec sau chỉ mở khi mini-spec trước đã
 | 3–5 trang **manga scan thật** (nhiều bubble / ít bubble / có SFX rời) | Đo tỷ lệ nhận diện M2, độ chính xác OCR M3 | **Chưa có — cần bạn cung cấp** |
 | Model weight comic-text-detector | M2 | ✅ Đã tải (ONNX 91MB, xem ARCH.md §5) |
 | Model weight LaMa | M4 | ✅ Đã tải (ONNX 197MB, MIT/Apache — xem ARCH.md §7) |
-| API key dịch (Gemini/GPT) + key dự phòng | M5, M9 | Chưa có |
+| API key dịch (Gemini/GPT) + key dự phòng | M5, M9 | ✅ Đã có (`GEMINI_API_KEYS` trong `.env`) — lưu ý quota tính theo **project**, không theo key |
 | File font HLCOMIC2 / HLCOMIC1 / MTO Comic / Anime Ace / Wild Words | M6 | Chưa có |
 | Credential Supabase (DB + Storage) nếu muốn dùng Supabase managed | Toàn Phase | Chưa có (đang chạy Postgres local) |
 
-Thiếu 4 mục đầu thì M2/M4/M5/M6 **không thể verify thật** — sẽ chỉ có code chưa được chứng minh.
+Còn thiếu **ảnh manga thật** (nút thắt chung của M2/M3/M4/M5 — mọi số liệu hiện tại đều đo trên ảnh
+tổng hợp) và **file font** (M6 không verify được nếu thiếu).
 
 ## Cách chạy mỗi mini-spec (áp cho M2 trở đi)
 
@@ -39,13 +40,28 @@ Thiếu 4 mục đầu thì M2/M4/M5/M6 **không thể verify thật** — sẽ 
 4. Cập nhật `ARCH.md` / `API.md` / `FEATURES.md` / `TEST_LOG.md`.
 5. Viết `docs/REPORT_M<n>.md` → chốt xong mới mở mini-spec kế.
 
-## Phác thảo M5 (mini-spec kế tiếp)
+## Phác thảo M6 (mini-spec kế tiếp)
+
+- `FitToBoxTypesetter(ITypesetter)` — chèn bản dịch của M5 vào ảnh clean của M4, tự tính cỡ chữ +
+  ngắt dòng cho vừa `TextRegion.bbox`.
+- **Đo font-metrics thật** (không ước lượng theo số ký tự): tiếng Việt có dấu nên chiều cao dòng
+  khác hẳn tiếng Anh — đây là rủi ro lớn nhất của M6.
+- Không vừa khung dù đã thu nhỏ tới ngưỡng ⇒ `TypesetResult.fit_status=overflow_warning`
+  (enum đã chốt ở M1), **không tự cắt chữ**, không tự tràn ra ngoài bubble.
+- Cần trước khi làm: **file font** HLCOMIC2 / MTO Comic / Anime Ace / Wild Words — chưa có.
+
+<details>
+<summary>Phác thảo M5 (đã hoàn thành)</summary>
 
 - 2 nhánh dịch: `google_fast` (miễn phí, theo dòng) và `llm_context` (gộp cả trang, giữ mạch văn).
 - `ReadingOrderResolver`: JP đọc phải→trái, EN trái→phải — **cấu hình theo `source_lang`**, không hard-code.
-- Bảng mới `APIKeyPool` + xoay key khi hết quota; hết sạch key ⇒ `blocked_quota`, không âm thầm hạ cấp.
-- Giữ nguyên `raw_text` của M3 làm đầu vào (lỗi OCR để LLM tự sửa theo ngữ cảnh).
-- Cần trước khi làm: **API key dịch + key dự phòng**.
+- Xoay key khi hết quota; hết sạch key ⇒ báo rõ, không âm thầm hạ cấp.
+  **Đã bỏ bảng `APIKeyPool`**: spec §4A của M5 không liệt kê bảng này và constraint 7 buộc key chỉ nằm
+  ở `.env`/secrets — đưa key vào Postgres sẽ kéo theo mã hoá + xoay khoá, đẩy sang M9 nếu thật sự cần.
+- Giữ nguyên `raw_text` của M3 làm đầu vào (lỗi OCR để LLM tự sửa theo ngữ cảnh) — **đã kiểm chứng thật**:
+  `IAM` (OCR đọc sai `I AM`) được LLM dịch đúng thành "Ta ở đây."
+
+</details>
 
 <details>
 <summary>Phác thảo M4 (đã hoàn thành)</summary>
