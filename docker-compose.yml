@@ -55,8 +55,9 @@ services:
     volumes:
       - ./backend:/app
       - storage_data:/data/storage
-    # M1: chưa có task Celery thật nào (task đầu tiên = detect, bắt đầu ở M2).
-    command: celery -A app.workers.celery_app.celery_app worker -l info -Q celery
+      - ./models:/models:ro
+    # M2: worker tiêu thụ Job(type=detect) bằng comic-text-detector (ONNX, CPU).
+    command: celery -A app.workers.celery_app.celery_app worker -l info -Q celery --concurrency=1
 
 volumes:
   db_data:

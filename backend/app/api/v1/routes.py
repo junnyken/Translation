@@ -27,6 +27,7 @@ from app.schemas.common import (
     ProjectRead,
     RegionRead,
 )
+from app.services.dispatch import dispatch_detect_job
 from app.services.storage import UnsupportedImage, get_storage, sniff_image
 
 router = APIRouter(prefix="/api/v1")
@@ -123,6 +124,12 @@ async def upload_page(
     await session.refresh(page)
     await session.refresh(job)
 
+    # M2: đẩy việc sang worker. Chỉ enqueue — KHÔNG chờ detect chạy xong trong request.
+    sent, reason = dispatch_detect_job(job.id)
+    if not sent:
+        job.error_log = reason
+        await session.commit()
+
     return PageAccepted(page_id=page.id, status=page.status, job_id=job.id)
 
 
@@ -144,6 +151,36 @@ async def list_page_regions(
     )
     regions = (await session.execute(stmt)).scalars().all()
     return [RegionRead.from_model(r) for r in regions]
+
+
+@router.post(
+    "/pages/{page_id}/retry-detect",
+    response_model=PageAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["pages"],
+)
+async def retry_detect(
+    page_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> PageAccepted:
+    """Xếp lại việc detect cho 1 page (dùng sau khi detection_failed hoặc muốn chạy lại).
+
+    Vẫn chỉ enqueue — không chạy detect trong request.
+    """
+    page = await _get_page_or_404(session, page_id)
+    if page.status is PageStatus.detecting:
+        raise HTTPException(status_code=409, detail="Page đang detect, không xếp thêm việc trùng")
+
+    job = Job(type=JobType.detect, page_id=page.id, status=JobStatus.queued)
+    session.add(job)
+    await session.commit()
+    await session.refresh(job)
+
+    sent, reason = dispatch_detect_job(job.id)
+    if not sent:
+        job.error_log = reason
+        await session.commit()
+
+    return PageAccepted(page_id=page.id, status=page.status, job_id=job.id)
 
 
 @router.get("/jobs/{job_id}", response_model=JobRead, tags=["jobs"])

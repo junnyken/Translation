@@ -1,7 +1,7 @@
 # ARCH.md — Translation (Phase MTE: Manga Translation Extension)
 
-> Trạng thái: **M1 hoàn tất** (data model + API contract + interface engine).
-> Chưa có logic AI thật — detect/OCR/inpaint/translate/typeset thuộc M2–M6.
+> Trạng thái: **M2 hoàn tất** (M1: data model + contract · M2: nhận diện khung chữ chạy thật trong worker).
+> Chưa có OCR/inpaint/translate/typeset — thuộc M3–M6.
 
 ## 1. Bức tranh tổng thể
 
@@ -37,7 +37,8 @@ Quy tắc kiến trúc **giữ nguyên xuyên suốt Phase** (M1 chốt, M2–M1
 | Migration | Alembic (driver sync `psycopg`) | Đã test 2 chiều `upgrade head` / `downgrade base` |
 | DB | Postgres 16 (local) hoặc Supabase managed | Đổi bằng `DATABASE_URL`, không sửa code |
 | Queue | Redis + Celery | M1 chỉ ghi record `Job`; task Celery thật bắt đầu ở M2 |
-| Storage | Volume local (`LocalObjectStorage`) | Adapter Supabase Storage **chưa implement** — xem §5 |
+| Storage | Volume local (`LocalObjectStorage`) | Adapter Supabase Storage **chưa implement** — xem §6 (nợ kỹ thuật) |
+| Detector (M2) | comic-text-detector qua ONNX Runtime (CPU) | Chỉ chạy trong worker; tiến trình API không nạp model |
 
 ## 3. Data model (7 bảng, chốt ở M1)
 
@@ -69,11 +70,71 @@ Project 1─n Page 1─n TextRegion 1─1 OCRResult
 Kèm 5 stub `Unimplemented*` — **ném `NotImplementedError` kèm tên mini-spec phụ trách**, không trả kết quả giả.
 Implementation thật (M2–M6) phải giữ nguyên tên method để không phải sửa lại contract DB/API.
 
-## 5. Giới hạn đã biết ở M1 (cố ý để lại)
+**M2 — `CTDDetector`:** implement đúng `IDetector.detect(image_path) -> list[BBox]`. Vì `BBox` không
+có chỗ chứa confidence, M2 **bổ sung** `detect_regions()` trả `DetectedRegion(bbox, confidence, cls)`;
+Protocol M1 giữ nguyên, không đổi tên method nào. Detector **không tự lọc** theo `conf_threshold` —
+lọc/gắn cờ là việc của Celery task, để detector chỉ làm đúng 1 việc: trả kết quả thô.
+
+
+## 5. Model weight (M2)
+
+| Mục | Giá trị |
+|---|---|
+| Model | comic-text-detector (dmMaze) — YOLOv5 head + UNet mask + DBNet line |
+| File dùng | `comic-text-detector.onnx` (~91 MB) |
+| Nguồn tải | `https://huggingface.co/mayocream/comic-text-detector-onnx` (file `comic-text-detector.onnx`) |
+| SHA-256 | `1a86ace74961413cbd650002e7bb4dcec4980ffa21b2f19b86933372071d718f` |
+| License ghi trên HF card | `apache-2.0` |
+| License repo gốc (dmMaze/comic-text-detector) | **GPL-3.0** |
+
+**Xử lý mâu thuẫn license:** HF card của bản ONNX ghi `apache-2.0` nhưng repo gốc sinh ra weight này là
+GPL-3.0 (bản convert SafeTensors `mayocream/comic-text-detector` cũng ghi GPL-3.0). Vì không chắc bản ONNX
+được relicense hợp lệ, dự án **áp theo điều kiện chặt hơn (GPL-3.0)**:
+
+- Dùng cho **mục đích cá nhân/nội bộ**, không phân phối lại file weight kèm sản phẩm.
+- **Không** dùng cho SaaS thương mại nếu chưa xin phép nguồn gốc.
+- **Không** copy code inference của repo gốc vào codebase — chỉ nạp weight qua `onnxruntime`;
+  toàn bộ tiền/hậu xử lý (letterbox, giải mã YOLO, NMS, clamp bbox) do dự án tự viết trong
+  `app/services/detect/`. Đây là ranh giới giữ đúng guardrail "không nhúng code GPL" của M1.
+
+Weight **không commit vào git** (`.gitignore`: `models/`, `*.onnx`, `*.pt`). Cách lấy:
+
+```bash
+mkdir -p models
+curl -L -o models/comic-text-detector.onnx \
+  https://huggingface.co/mayocream/comic-text-detector-onnx/resolve/main/comic-text-detector.onnx
+# docker-compose mount ./models -> /models (chỉ cho service worker, api không cần)
+```
+
+### Đường đi của bước detect
+
+```
+POST /pages  ──►  lưu ảnh + Job(detect, queued)  ──►  Celery (Redis)
+                        │ 202 ngay, không chờ            │
+                        ▼                                ▼
+                    client polling                 worker: CTDDetector.detect_regions()
+                    GET /jobs/{id}                    letterbox 1024 → ONNX → NMS → clamp
+                                                        │
+                                                        ▼
+                                          xóa region cũ của page (idempotent)
+                                          ghi TextRegion + confidence + overlap_suspect
+                                          Page: queued → detecting → detected | detection_failed
+```
+
+Tham số điều chỉnh được qua `.env` (không hard-code): `CTD_CONF_THRESHOLD` (0.5 — dưới ngưỡng là
+`low_confidence`, **vẫn lưu**), `CTD_RAW_MIN_CONF` (0.25 — sàn nhiễu trước NMS), `CTD_NMS_IOU` (0.45),
+`CTD_OVERLAP_SUSPECT_RATIO` (0.8), `CTD_INPUT_SIZE` (1024), `DETECT_TIMEOUT_SECONDS`.
+
+## 6. Giới hạn đã biết (cố ý để lại)
 
 - **Supabase Storage chưa có adapter.** M1 chạy `STORAGE_BACKEND=local` (đã verify thật).
   Khi đặt `STORAGE_BACKEND=supabase`, app **fail ngay** với thông báo rõ ràng thay vì im lặng ghi sai chỗ.
   Nối Supabase Storage cần credential thật → làm khi có key (ưu tiên trước M4 vì M4 sinh thêm ảnh clean).
-- **Chưa dispatch Celery task**: upload page tạo `Job(type=detect, status=queued)` trong DB, chưa gửi lên broker.
-  M2 sẽ bind task thật vào đúng record này.
+- ~~Chưa dispatch Celery task~~ → **đã xong ở M2**: upload page enqueue `detect.run_detect_job`.
+  Nếu broker chết, job đứng ở `queued` kèm `error_log=enqueue_failed:…` (không giả vờ đã gửi).
+- **NỢ KỸ THUẬT (tracked):** `SupabaseStorageAdapter` chưa viết — cần khi có credential Supabase.
+  Nên làm trước M4 vì M4 bắt đầu sinh thêm ảnh clean. Hiện `STORAGE_BACKEND=supabase` fail có thông báo rõ.
+- **Chưa có OCR/inpaint/translate/typeset** — M3–M6.
+- **M2 chưa xử lý** ảnh xoay/nghiêng, scan chất lượng kém; chưa auto-retry khi timeout (thuộc M9);
+  chưa có UI vẽ overlay box (thuộc M7).
 - **Chưa có auth/user management** — nếu cần multi-user phải là mini-spec riêng, không nhét vào MTE.

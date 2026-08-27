@@ -27,6 +27,24 @@ class Settings(BaseSettings):
     # Upload
     max_upload_mb: int = 25
 
+    # ---- M2: comic-text-detector ----
+    #: Đường dẫn file weight ONNX. Không có file -> job detect fail rõ ràng,
+    #: tuyệt đối không detect bằng weight giả.
+    model_weights_path: str = "/models/comic-text-detector.onnx"
+    ctd_device: str = "cpu"
+    #: Dưới ngưỡng này region vẫn được LƯU với status=low_confidence (không loại bỏ).
+    ctd_conf_threshold: float = 0.5
+    #: Sàn nhiễu trước NMS — phải nhỏ hơn ctd_conf_threshold để low_confidence còn được giữ.
+    ctd_raw_min_conf: float = 0.25
+    ctd_nms_iou: float = 0.45
+    ctd_input_size: int = 1024
+    ctd_intra_op_threads: int = 0
+    #: 2 box chồng nhau quá tỷ lệ này (so với box nhỏ hơn) -> gắn cờ overlap_suspect.
+    ctd_overlap_suspect_ratio: float = 0.8
+    #: Timeout job detect. Mặc định 60s theo spec; trên máy chỉ có CPU nên đặt cao hơn
+    #: trong .env (đo thật: ~39s/ảnh 1400x2000 trên workspace này).
+    detect_timeout_seconds: int = 60
+
     app_env: str = "dev"
     log_level: str = "INFO"
 

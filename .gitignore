@@ -8,3 +8,7 @@ storage/local/*
 *.egg-info/
 .coverage
 htmlcov/
+models/
+*.onnx
+*.pt
+test_fixtures/external/

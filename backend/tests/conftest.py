@@ -134,3 +134,50 @@ def sample_page_image() -> bytes:
 @pytest.fixture
 def new_uuid() -> uuid.UUID:
     return uuid.uuid4()
+
+
+@pytest.fixture(autouse=True)
+def fake_dispatch(monkeypatch):
+    """Chặn gọi broker thật trong test API — ghi lại job_id đã được đẩy đi.
+
+    Có test riêng (test_detect_task_integration) kiểm hành vi khi broker chết.
+    """
+    sent: list = []
+
+    def _fake(job_id):
+        sent.append(job_id)
+        return True, None
+
+    monkeypatch.setattr("app.api.v1.routes.dispatch_detect_job", _fake)
+    return sent
+
+
+@pytest.fixture
+def fixtures_dir():
+    import os
+
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "test_fixtures")
+
+
+@pytest.fixture
+def fake_detector(monkeypatch):
+    """Cắm detector giả lập vào worker (không nạp ONNX 91MB trong test nhanh)."""
+    from app.workers import tasks
+
+    def _install(regions=None, raises=None):
+        class _Fake:
+            conf_threshold = 0.5
+
+            def detect_regions(self, image_path):
+                if raises is not None:
+                    raise raises
+                return list(regions or [])
+
+            def detect(self, image_path):
+                return [r.bbox for r in self.detect_regions(image_path)]
+
+        tasks._detector = _Fake()
+        return tasks._detector
+
+    yield _install
+    tasks.reset_detector()

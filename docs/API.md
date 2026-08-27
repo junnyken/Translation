@@ -38,7 +38,10 @@ Không tồn tại → `404`.
 `multipart/form-data`, field `file` = ảnh trang (JPEG/PNG/WEBP, mặc định ≤ 25MB).
 
 Hành vi: lưu file xuống storage → tạo `Page(status=queued, order=max+1)` →
-tạo `Job(type=detect, status=queued)`. **Không** chạy detect trong request.
+tạo `Job(type=detect, status=queued)` → **đẩy job sang worker (M2)**. **Không** chạy detect trong request.
+
+Nếu broker (Redis) chết: vẫn trả 202 (ảnh đã lưu), job đứng ở `queued` và `error_log` ghi
+`enqueue_failed: …` — không giả vờ đã gửi. Chạy lại bằng `POST /pages/{id}/retry-detect`.
 
 Response 202:
 ```json
@@ -67,15 +70,38 @@ Response 202:
 [ { "id": "…", "page_id": "…", "bbox": { "x": 0, "y": 0, "w": 0, "h": 0 },
     "confidence": null, "overlap_suspect": false, "reading_order": null, "status": "pending" } ]
 ```
-**M1 luôn trả `[]`** vì chưa có M2 — không bịa region. Sắp xếp theo `reading_order` (NULL xuống cuối) rồi `created_at`.
+Từ **M2** endpoint này trả dữ liệu thật sau khi job detect chạy xong (trước đó là `[]`, không bịa region).
+Sắp xếp theo `reading_order` (NULL xuống cuối) rồi `created_at`.
 
-## 6. `GET /api/v1/jobs/{job_id}` → 200
+- `confidence` < `CTD_CONF_THRESHOLD` → `status = "low_confidence"` (**vẫn trả về**, không bị lọc bỏ).
+- 2 region chồng nhau > `CTD_OVERLAP_SUSPECT_RATIO` (so với box nhỏ hơn) → cả hai có `overlap_suspect = true`;
+  hệ thống **chỉ gắn cờ**, không tự merge/xóa.
+- `reading_order` vẫn `null` cho tới M5.
+
+## 6. `POST /api/v1/pages/{page_id}/retry-detect` → 202 *(M2)*
+
+Xếp lại việc detect cho 1 page (sau `detection_failed`, hoặc muốn chạy lại sau khi đổi tham số).
+Tạo `Job(type=detect)` mới rồi enqueue — vẫn không chạy detect trong request.
+
+```json
+{ "page_id": "…", "status": "detected", "job_id": "…job mới…" }
+```
+| Lỗi | Mã |
+|---|---|
+| page không tồn tại | 404 |
+| page đang `detecting` (tránh chạy trùng) | 409 |
+
+Chạy lại là **idempotent**: region cũ của page bị xóa trước khi ghi region mới, không nhân đôi.
+
+## 7. `GET /api/v1/jobs/{job_id}` → 200
 
 ```json
 { "id": "…", "type": "detect", "page_id": "…", "status": "queued",
   "retry_count": 0, "error_log": null, "created_at": "…", "updated_at": "…" }
 ```
 Dùng chung cho mọi loại job xuyên suốt Phase. Không tồn tại → `404`.
+Job detect: `status` đi `queued → running → done | failed`; khi `failed`, `error_log` ghi nguyên nhân
+(`timeout: vượt Ns`, `FileNotFoundError: …`, `enqueue_failed: …`).
 
 ## Bảng enum (chốt ở M1, M2–M10 không đổi âm thầm)
 
