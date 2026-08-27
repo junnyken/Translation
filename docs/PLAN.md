@@ -26,11 +26,11 @@ Quy tắc: **tuần tự**, mini-spec sau chỉ mở khi mini-spec trước đã
 | Model weight comic-text-detector | M2 | ✅ Đã tải (ONNX 91MB, xem ARCH.md §5) |
 | Model weight LaMa | M4 | ✅ Đã tải (ONNX 197MB, MIT/Apache — xem ARCH.md §7) |
 | API key dịch (Gemini/GPT) + key dự phòng | M5, M9 | ✅ Đã có (`GEMINI_API_KEYS` trong `.env`) — lưu ý quota tính theo **project**, không theo key |
-| File font HLCOMIC2 / HLCOMIC1 / MTO Comic / Anime Ace / Wild Words | M6 | Chưa có |
+| File font cho M6 | M6 | ✅ **Đã có** — nhưng **không phải 3 font spec chỉ định**: HL Comic2 chỉ 38/134 ký tự Việt (font mã TCVN3 đời 2004), Anime Ace "Limited European Characters" + phải mua license, MTO Comic không tồn tại. Đã thay bằng **Bangers · Shantell Sans · Mansalva · Sigmar One** (SIL OFL, đo thật 134/134) trong `fonts/` — xem `docs/FONTS.md` |
 | Credential Supabase (DB + Storage) nếu muốn dùng Supabase managed | Toàn Phase | Chưa có (đang chạy Postgres local) |
 
-Còn thiếu **ảnh manga thật** (nút thắt chung của M2/M3/M4/M5 — mọi số liệu hiện tại đều đo trên ảnh
-tổng hợp) và **file font** (M6 không verify được nếu thiếu).
+Còn thiếu **ảnh manga thật** — nút thắt chung của M2/M3/M4/M5, mọi số liệu hiện tại đều đo trên ảnh
+tổng hợp. Font cho M6 đã giải quyết xong (xem `docs/FONTS.md`).
 
 ## Cách chạy mỗi mini-spec (áp cho M2 trở đi)
 
@@ -48,7 +48,8 @@ tổng hợp) và **file font** (M6 không verify được nếu thiếu).
   khác hẳn tiếng Anh — đây là rủi ro lớn nhất của M6.
 - Không vừa khung dù đã thu nhỏ tới ngưỡng ⇒ `TypesetResult.fit_status=overflow_warning`
   (enum đã chốt ở M1), **không tự cắt chữ**, không tự tràn ra ngoài bubble.
-- Cần trước khi làm: **file font** HLCOMIC2 / MTO Comic / Anime Ace / Wild Words — chưa có.
+- Font: đã có sẵn trong `fonts/` (4 font OFL, đủ 134 ký tự Việt, có test canh). **Bangers không có chữ thường**;
+  cần đậm/nghiêng thì dùng Shantell Sans. Chi tiết + bẫy: `docs/FONTS.md`.
 
 <details>
 <summary>Phác thảo M5 (đã hoàn thành)</summary>

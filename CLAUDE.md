@@ -10,7 +10,10 @@
 4. **Không chạy AI đồng bộ trong HTTP request** — trả `202 Accepted` + `job_id`.
 5. **API luôn có prefix `/api/v1`**. Response luôn qua Pydantic schema.
 6. **Không đổi tên field/enum/method đã chốt** ở `docs/API.md` và `interfaces.py`. Cần đổi → ghi rõ lý do trong báo cáo mini-spec.
-7. **Chỉ tạo bảng đủ cho mini-spec hiện tại** (`APIKeyPool` ở M5, `ExportJob` ở M8 — chưa tạo trước).
+7. **Chỉ tạo bảng đủ cho mini-spec hiện tại** (`ExportJob` ở M8 — chưa tạo trước).
+   `APIKeyPool` **đã bỏ ở M5**: key chỉ nằm trong `.env`, và Gemini tính rate limit theo *project* chứ
+   không theo key nên xoay key cùng project vô nghĩa. Đẩy sang M9 nếu thật sự cần chia quota giữa worker
+   (lý do đầy đủ: `docs/REPORT_M5.md` §3).
 
 ## Làm việc theo mini-spec
 
