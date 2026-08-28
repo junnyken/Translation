@@ -4,53 +4,67 @@
 # VÌ SAO API VÀ WORKER CHẠY CHUNG MỘT CONTAINER:
 # 7 endpoint của API phục vụ file mà worker ghi ra (ảnh clean của M4, ảnh xem thử của M6/M7,
 # file CBZ của M8). Ở máy nhà chúng dùng chung volume `storage_data`. Trên Vibe Host mỗi
-# website là một container với đĩa RIÊNG, và nền tảng chưa cho tạo cụm nhiều container dùng
-# chung volume — tách ra là mọi ảnh và file xuất đều 404.
+# website là một container ĐĨA RIÊNG, và nền tảng chỉ nhận thư mục con `backend`/`frontend`
+# làm gốc build, không tạo được cụm nhiều container dùng chung volume — tách ra là mọi ảnh và
+# file xuất đều 404.
 #
-# Đánh đổi đã biết: image này nặng (~4,5GB, có cả stack AI) nên tiến trình API cũng nằm trong
-# đó. Ranh giới "API không NẠP model" vẫn giữ nguyên — các module AI đều import trễ, guardrail
-# `test_api_khong_nap_engine_render_cua_m6` vẫn canh điều đó.
-#
-# ROLE=all (mặc định) chạy cả hai; ROLE=api / ROLE=worker để tách khi nào có volume dùng chung.
-set -euo pipefail
-
-# BÀI HỌC TRẢ GIÁ: worker Celery dùng ~180MB ngay lúc khởi động (đo thật, chưa xử lý gì).
-# Cấp container dưới mức đó là bị nhân hệ điều hành giết bằng SIGKILL, log chỉ hiện đúng chữ
-# 'Killed' mà không nói vì sao. Đừng cấp dưới 1GB cho container chạy ROLE=all.
+# VÌ SAO UVICORN CHẠY Ở TIỀN CẢNH CÒN CELERY Ở NỀN:
+# Nền tảng loại bỏ bản mới nếu container khởi động lại 3 lần. Bản đầu cho hai tiến trình "chết
+# cùng nhau" ⇒ celery bị hạ là kéo sập cả website, và trang không bao giờ lên được. Nay API luôn
+# sống để phục vụ, còn celery được bật lại và **đếm số lần chết** — báo ra `/healthz`, KHÔNG im lặng.
+set -uo pipefail
 
 ROLE="${ROLE:-all}"
 PORT="${PORT:-8000}"
+TRANG_THAI_WORKER="${WORKER_STATE_FILE:-/tmp/trang-thai-worker.json}"
+
+lenh_worker() {
+  # --pool=solo: một tiến trình duy nhất, không fork. Xử lý mỗi lần một việc nên không mất gì,
+  #   mà bớt được một bản sao toàn bộ thư viện AI trong bộ nhớ.
+  # --without-gossip/mingle/heartbeat: chỉ có MỘT worker, không cần dò tìm worker khác.
+  celery -A app.workers.celery_app.celery_app worker \
+    -l info -Q celery --pool=solo \
+    --without-gossip --without-mingle --without-heartbeat
+}
+
+ghi_trang_thai() {
+  printf '{"trang_thai":"%s","so_lan_chet":%s,"ma_thoat_gan_nhat":%s,"luc":"%s"}\n' \
+    "$1" "${2:-0}" "${3:-null}" "$(date -u +%FT%TZ)" > "$TRANG_THAI_WORKER"
+}
 
 if [ "$ROLE" = "all" ] || [ "$ROLE" = "api" ]; then
   echo "[khoi-dong] chạy migration…"
-  alembic upgrade head
+  alembic upgrade head || { echo "[khoi-dong] MIGRATION HỎNG — dừng"; exit 1; }
 fi
 
-chay_worker() {
-  echo "[khoi-dong] worker Celery…"
-  exec celery -A app.workers.celery_app.celery_app worker -l info -Q celery --concurrency=1
-}
-chay_api() {
-  echo "[khoi-dong] API trên cổng ${PORT}…"
-  exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT}"
-}
-
 case "$ROLE" in
-  worker) chay_worker ;;
-  api)    chay_api ;;
+  worker)
+    ghi_trang_thai running 0
+    exec bash -c "$(declare -f lenh_worker); lenh_worker"
+    ;;
+  api)
+    ghi_trang_thai disabled 0
+    exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT}"
+    ;;
   all)
-    celery -A app.workers.celery_app.celery_app worker -l info -Q celery --concurrency=1 &
-    PID_WORKER=$!
-    uvicorn app.main:app --host 0.0.0.0 --port "${PORT}" &
-    PID_API=$!
-    # Tiến trình nào chết trước cũng phải kéo cả container xuống để nền tảng khởi động lại.
-    # Không có dòng này thì worker chết âm thầm mà API vẫn 200 — pipeline đứng im không ai biết,
-    # đúng loại sự cố đã gặp khi worker bị OOM (xem docs/REPORT_M8.md §7).
-    wait -n "$PID_WORKER" "$PID_API"
-    MA=$?
-    echo "[khoi-dong] một tiến trình đã thoát (mã $MA) — dừng cả container để được khởi động lại"
-    kill "$PID_WORKER" "$PID_API" 2>/dev/null || true
-    exit 1
+    ghi_trang_thai starting 0
+    (
+      SO_LAN_CHET=0
+      while true; do
+        lenh_worker
+        MA=$?
+        SO_LAN_CHET=$((SO_LAN_CHET + 1))
+        # 137 = bị SIGKILL, gần như luôn là hết bộ nhớ. Nói thẳng ra thay vì để người đọc đoán.
+        if [ "$MA" -eq 137 ]; then
+          echo "[worker] BỊ GIẾT (SIGKILL/137) — gần như chắc chắn là container hết bộ nhớ." >&2
+        fi
+        echo "[worker] đã thoát (mã $MA), lần chết thứ $SO_LAN_CHET — bật lại sau 10s" >&2
+        ghi_trang_thai restarting "$SO_LAN_CHET" "$MA"
+        sleep 10
+      done
+    ) &
+    echo "[khoi-dong] API trên cổng ${PORT} (worker chạy nền)…"
+    exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT}"
     ;;
   *) echo "ROLE không hợp lệ: '$ROLE' (chỉ all|api|worker)"; exit 2 ;;
 esac

@@ -1,4 +1,6 @@
 """Entrypoint FastAPI của Translation (Phase MTE)."""
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -44,8 +46,23 @@ async def root() -> dict:
 
 @app.get("/healthz", tags=["ops"])
 async def healthz() -> dict:
-    """Kiểm tra sống — nền tảng hosting dùng để biết container đã sẵn sàng chưa."""
-    return {"status": "ok"}
+    """Kiểm tra sống — nền tảng hosting dùng để biết container đã sẵn sàng chưa.
+
+    Khi API và worker chạy chung một container (`ROLE=all` lúc deploy), endpoint này còn báo
+    **tình trạng worker**: worker chết mà API vẫn 200 là loại sự cố tệ nhất — pipeline đứng im
+    mà nhìn từ ngoài vẫn thấy "bình thường". Ở đây nói thẳng ra.
+    """
+    import json
+    from pathlib import Path as _Path
+
+    ket_qua: dict = {"status": "ok"}
+    duong_dan = _Path(os.environ.get("WORKER_STATE_FILE", "/tmp/trang-thai-worker.json"))
+    try:
+        ket_qua["worker"] = json.loads(duong_dan.read_text())
+    except Exception:
+        # Chạy ở máy nhà thì worker là container riêng, không có file này — không phải lỗi.
+        ket_qua["worker"] = {"trang_thai": "khong_ro"}
+    return ket_qua
 
 
 app.include_router(v1_router)
