@@ -20,6 +20,20 @@ async function doc(res) {
   return res.json()
 }
 
+export const taoProject = (thongTin) =>
+  fetch(`${BASE}/projects`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(thongTin),
+  }).then(doc)
+
+/** Tải 1 trang lên. Trả {page_id, job_id, status}. */
+export const taiTrangLen = (projectId, file) => {
+  const form = new FormData()
+  form.append('file', file)
+  return fetch(`${BASE}/projects/${projectId}/pages`, { method: 'POST', body: form }).then(doc)
+}
+
 export const layProject = (id) => fetch(`${BASE}/projects/${id}`).then(doc)
 export const layChiTietTrang = (id) => fetch(`${BASE}/pages/${id}/detail`).then(doc)
 export const layJob = (id) => fetch(`${BASE}/jobs/${id}`).then(doc)

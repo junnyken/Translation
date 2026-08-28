@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import * as api from './api.js'
 import BboxOverlay from './components/BboxOverlay.jsx'
 import ExportPanel from './components/ExportPanel.jsx'
+import NewProjectPanel from './components/NewProjectPanel.jsx'
 import RegionPanel from './components/RegionPanel.jsx'
 import StatusBadge from './components/StatusBadge.jsx'
 
@@ -9,6 +10,18 @@ import StatusBadge from './components/StatusBadge.jsx'
 function docDiaChi() {
   const p = new URLSearchParams(window.location.hash.slice(1))
   return { pageId: p.get('page') || '', projectId: p.get('project') || '' }
+}
+
+const KHOA_NHO = 'translation:chapter-gan-day'
+
+function docChapterDaLuu() {
+  try { return JSON.parse(localStorage.getItem(KHOA_NHO) || '[]') } catch { return [] }
+}
+function luuChapter(id, ten) {
+  try {
+    const cu = docChapterDaLuu().filter((c) => c.id !== id)
+    localStorage.setItem(KHOA_NHO, JSON.stringify([{ id, ten }, ...cu].slice(0, 12)))
+  } catch { /* trình duyệt chặn lưu thì bỏ qua, không phải lỗi */ }
 }
 
 export default function App() {
@@ -23,6 +36,7 @@ export default function App() {
   const [thongBao, setThongBao] = useState(null)
   // Đổi mỗi lần vẽ lại preview để trình duyệt không dùng ảnh cũ trong bộ nhớ đệm.
   const [phienBanAnh, setPhienBanAnh] = useState(0)
+  const [ganDay, setGanDay] = useState(docChapterDaLuu)
 
   useEffect(() => {
     const doi = () => setDiaChi(docDiaChi())
@@ -49,7 +63,11 @@ export default function App() {
 
   useEffect(() => {
     if (!projectId) return setProject(null)
-    api.layProject(projectId).then(setProject).catch((e) => setLoi(e.message))
+    api.layProject(projectId).then((p) => {
+      setProject(p)
+      luuChapter(p.id, p.name)
+      setGanDay(docChapterDaLuu())
+    }).catch((e) => setLoi(e.message))
   }, [projectId])
 
   const mo = () => {
@@ -118,6 +136,30 @@ export default function App() {
 
       {loi && <div className="bang-loi">Lỗi: {loi}</div>}
       {thongBao && <div className="bang-tin">{thongBao}</div>}
+
+      {!projectId && !pageId && (
+        <div className="bo-cuc-project">
+          <NewProjectPanel onXong={(id) => { window.location.hash = `project=${id}` }} />
+          <section className="danh-sach">
+            <h2>Chapter gần đây</h2>
+            {ganDay.length === 0 ? (
+              <p className="ghi-chu">
+                Chưa có chapter nào. Tạo một chapter ở bên trái để bắt đầu — hoặc dán mã chapter
+                vào ô trên cùng nếu bạn đã có sẵn.
+              </p>
+            ) : (
+              <ul>
+                {ganDay.map((c) => (
+                  <li key={c.id}>
+                    <a href={`#project=${c.id}`}>{c.ten}</a>
+                    <span className="ghi-chu">{c.id.slice(0, 8)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
+      )}
 
       {project && !pageId && (
         <div className="bo-cuc-project">

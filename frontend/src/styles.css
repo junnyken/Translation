@@ -115,3 +115,9 @@ button.chinh { background: var(--chinh); color: #fff; border-color: var(--chinh)
 }
 .bang-tin.canh-bao-o { background: #fffaeb; color: var(--canh); border-color: #fedf89; }
 .bang-xuat code { background: #f2f4f7; padding: 1px 5px; border-radius: 4px; word-break: break-all; }
+
+/* ---- tạo chapter mới ---- */
+.bang-tao { background: var(--the); border: 1px solid var(--vien); border-radius: 10px; padding: 14px; }
+.bang-tao input[type="file"] { width: 100%; padding: 8px; background: #fcfcfd; }
+.bang-tao input[type="text"], .bang-tao .nhan input { width: 100%; }
+.bang-tao h2 { margin-bottom: 4px; }
