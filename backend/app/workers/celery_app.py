@@ -20,4 +20,7 @@ celery_app.conf.update(
     task_acks_late=True,
     worker_prefetch_multiplier=1,
     timezone="Asia/Ho_Chi_Minh",
+    # Khi chạy thật, worker và Redis khởi động không cùng lúc. Không bật cái này thì Celery 6 sẽ
+    # KHÔNG thử lại lúc mới bật và worker chết ngay nếu Redis chậm hơn vài giây.
+    broker_connection_retry_on_startup=True,
 )

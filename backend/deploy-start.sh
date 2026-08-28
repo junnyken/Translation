@@ -14,6 +14,10 @@
 # ROLE=all (mặc định) chạy cả hai; ROLE=api / ROLE=worker để tách khi nào có volume dùng chung.
 set -euo pipefail
 
+# BÀI HỌC TRẢ GIÁ: worker Celery dùng ~180MB ngay lúc khởi động (đo thật, chưa xử lý gì).
+# Cấp container dưới mức đó là bị nhân hệ điều hành giết bằng SIGKILL, log chỉ hiện đúng chữ
+# 'Killed' mà không nói vì sao. Đừng cấp dưới 1GB cho container chạy ROLE=all.
+
 ROLE="${ROLE:-all}"
 PORT="${PORT:-8000}"
 
