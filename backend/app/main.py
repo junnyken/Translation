@@ -30,6 +30,18 @@ if _settings.cors_allow_origin_list:
     )
 
 
+@app.get("/", tags=["ops"])
+async def root() -> dict:
+    """Trang gốc. Nền tảng hosting thăm dò `/` để biết ứng dụng đã sẵn sàng chưa —
+    thiếu route này thì nó nhận 404 và coi như deploy hỏng, dù ứng dụng chạy bình thường."""
+    return {
+        "service": "Translation — Manga Translation Extension (MTE)",
+        "status": "ok",
+        "docs": "/docs",
+        "api": "/api/v1",
+    }
+
+
 @app.get("/healthz", tags=["ops"])
 async def healthz() -> dict:
     """Kiểm tra sống — nền tảng hosting dùng để biết container đã sẵn sàng chưa."""
