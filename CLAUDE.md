@@ -28,7 +28,7 @@
 ## Lệnh hay dùng
 
 ```bash
-docker compose up -d db redis api worker
+docker compose -f deploy/docker-compose.yml up -d db redis api worker
 cd backend && ../.venv/bin/python -m pytest
 cd backend && ../.venv/bin/alembic revision --autogenerate -m "M<n> ..."   # LUÔN đọc lại file gen ra
 ```

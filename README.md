@@ -22,9 +22,9 @@ curl -L -o models/comic-text-detector.onnx \
 curl -L -o models/lama-manga-dynamic.onnx \
   https://huggingface.co/ogkalu/lama-manga-onnx-dynamic/resolve/main/lama-manga-dynamic.onnx
 
-docker compose up -d db redis      # hạ tầng
-docker compose up -d api worker    # API (tự chạy migration) + worker chạy pipeline
-docker compose up -d frontend      # màn sửa tay (M7)
+docker compose -f deploy/docker-compose.yml up -d db redis      # hạ tầng
+docker compose -f deploy/docker-compose.yml up -d api worker    # API (tự chạy migration) + worker chạy pipeline
+docker compose -f deploy/docker-compose.yml up -d frontend      # màn sửa tay (M7)
 # Swagger:      http://localhost:8010/docs
 # Màn sửa tay:  http://localhost:5174
 ```
@@ -46,18 +46,21 @@ chọn CBZ/ZIP/PNG → tải về. Hoặc qua API: `POST /projects/{id}/export` 
 Image `worker` nặng ~4,5GB (torch CPU + manga-ocr + PaddleOCR); image `api` giữ 1,06GB vì
 **không** chứa thư viện AI. Lần chạy đầu worker tải model OCR (~460MB) vào volume `model_cache`.
 
+> `docker-compose.yml` nằm ở `deploy/` chứ không phải gốc repo: nền tảng hosting quét gốc, thấy
+> file compose là từ chối build với lỗi *"compose: chưa hỗ trợ deploy stack"*.
+
 Cổng mặc định (đổi trong `.env`): API `8010`, màn sửa tay `5174`, Postgres `5433`, Redis `6380`.
 
 ## Chạy test
 
 ```bash
-docker compose up -d db
+docker compose -f deploy/docker-compose.yml up -d db
 cd backend
 python3 -m venv ../.venv && ../.venv/bin/pip install -r requirements-dev.txt
 ../.venv/bin/python -m pytest          # 421 test: unit + integration + migration + guardrail
 MTE_RUN_MODEL_TESTS=1 ../.venv/bin/python -m pytest tests/test_detect_real_model.py  # ONNX thật (~40-60s/ảnh)
 # Engine OCR thật phải chạy trong container worker:
-docker compose exec worker sh -c "MTE_RUN_OCR_TESTS=1 python -m pytest tests/test_ocr_real_engine.py -q"
+docker compose -f deploy/docker-compose.yml exec worker sh -c "MTE_RUN_OCR_TESTS=1 python -m pytest tests/test_ocr_real_engine.py -q"
 ```
 Test dùng **Postgres thật** (DB `translation_test`), không mock.
 
