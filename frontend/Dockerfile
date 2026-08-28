@@ -29,8 +29,10 @@ COPY docker-entrypoint.sh /docker-entrypoint.d/40-sinh-config.sh
 RUN chmod +x /docker-entrypoint.d/40-sinh-config.sh
 # SPA: mọi đường dẫn không phải file đều trả index.html, nếu không thì F5 sẽ ra 404.
 RUN printf 'server {\n\
-  listen 80;\n\
+  listen 8000;\n\
   root /usr/share/nginx/html;\n\
   location / { try_files $uri $uri/ /index.html; }\n\
 }\n' > /etc/nginx/conf.d/default.conf
-EXPOSE 80
+# Nghe cổng 8000 giống website API. Để nginx ở cổng 80 mặc định thì nền tảng dựng xong,
+# health-gate báo 2xx ổn định, nhưng bước chuyển traffic cuối cùng vẫn treo rồi báo lỗi.
+EXPOSE 8000
