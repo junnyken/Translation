@@ -55,12 +55,15 @@ from app.schemas.common import (
     ExportJobRead,
     ExportPreview,
     ExportRequest,
+    ExportWarningsRead,
     BatchAccepted,
     BatchConfigRead,
     BatchCreate,
     BatchItemRead,
     BatchItemsPage,
     BatchResumeAccepted,
+    AcknowledgeRead,
+    AcknowledgeRequest,
     BatchResumeRequest,
     BatchRunList,
     BatchRunRead,
@@ -1039,6 +1042,74 @@ async def cancel_batch_run(
     me = await session.get(BatchRun, batch_run_id)
     await session.refresh(me)
     return me
+
+
+# ============================ M10: khai báo mục đích & cảnh báo trước khi xuất ============================
+
+
+@router.get(
+    "/projects/{project_id}/export-warnings",
+    response_model=ExportWarningsRead,
+    tags=["compliance"],
+)
+async def get_export_warnings(
+    project_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> ExportWarningsRead:
+    """Những gì người dùng phải nhìn thấy TRƯỚC khi mang file đi.
+
+    Chỉ đếm trên các trang **sẽ được xuất**: vùng lỗi ở trang chưa chèn chữ xong không nằm trong
+    file giao đi, đếm vào chỉ làm người dùng hoang mang rồi bỏ qua cả cảnh báo thật.
+
+    `acknowledged` để giao diện biết đã xác nhận cho chapter này chưa — cảnh báo hiện **một lần**.
+    """
+    await _get_project_or_404(session, project_id)
+    from app.services.compliance import ComplianceGate
+
+    cb = await ComplianceGate().get_export_warnings(session, project_id)
+    return ExportWarningsRead(
+        overflow_warning_count=cb.overflow_warning_count,
+        needs_manual_count=cb.needs_manual_count,
+        acknowledged=cb.acknowledged,
+        acknowledged_at=cb.acknowledged_at,
+    )
+
+
+@router.post(
+    "/export-jobs/{job_id}/acknowledge", response_model=AcknowledgeRead, tags=["compliance"]
+)
+async def acknowledge_export(
+    job_id: uuid.UUID,
+    body: AcknowledgeRequest,
+    session: AsyncSession = Depends(get_session),
+) -> AcknowledgeRead:
+    """Ghi lại việc người dùng đã đọc cảnh báo bản quyền cho lần xuất này.
+
+    **Không chặn xuất.** Đây là công cụ cá nhân; chặn cứng chỉ khiến người ta đi đường vòng, mà
+    cũng chẳng bảo vệ được ai. Việc của endpoint này là để lại **bằng chứng đã xem cảnh báo**:
+    lúc nào, khai báo dùng vào việc gì, và **đúng những con số cảnh báo hiện trên màn hình lúc đó**.
+
+    Số cảnh báo được đếm lại tại đây chứ không nhận từ giao diện gửi lên — số do máy khách gửi thì
+    không còn là bằng chứng nữa.
+    """
+    job = await session.get(ExportJob, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Việc xuất không tồn tại")
+    project = await session.get(Project, job.project_id)
+
+    from app.services.compliance import ComplianceGate
+
+    cong = ComplianceGate()
+    cb = await cong.get_export_warnings(session, job.project_id)
+    ban_ghi = await cong.log_export_acknowledgement(
+        session,
+        project_id=job.project_id,
+        export_job_id=job.id,
+        intended_use=project.intended_use,
+        overflow_warning_count=cb.overflow_warning_count,
+        needs_manual_count=cb.needs_manual_count,
+        user_acknowledged=body.user_acknowledged,
+    )
+    return AcknowledgeRead.model_validate(ban_ghi, from_attributes=True)
 
 
 @router.get("/batch-config", response_model=BatchConfigRead, tags=["batch"])

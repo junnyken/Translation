@@ -19,9 +19,9 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 | M7 | Màn sửa tay: sửa bản dịch, kéo lại khung, đổi font/size | **LIVE** (thao tác thật trên trình duyệt; xem TEST_LOG) |
 | M8 | Xuất chapter PNG/CBZ + lưu/mở lại project | **LIVE** (xuất thật 4 trang; chưa mở bằng app đọc truyện thật) |
 | M9 | Chạy **cả chapter bằng một mẻ**: tiến độ thật, thử lại lỗi tạm thời, cổng hạn mức, chạy lại trang hỏng | **LIVE** (4 Run bắt buộc trên truyện thật; giao diện chưa bấm tay — xem TEST_LOG §M9) |
-| M10 | Khai báo mục đích sử dụng + nhắc trách nhiệm bản quyền khi export | Một phần: field `intended_use` đã **LIVE** từ M1; modal nhắc + gate export CHƯA |
+| M10 | Khai báo mục đích sử dụng (bắt buộc, không mặc định) + nhắc trách nhiệm bản quyền & chất lượng trước khi xuất | **LIVE** (chạy thật đầu-cuối; giao diện chưa bấm tay — xem TEST_LOG §M10) |
 
-## Những gì dùng được ngay hôm nay (sau M9)
+## Những gì dùng được ngay hôm nay (sau M10)
 
 - Tạo project dịch (chọn ngôn ngữ nguồn, mục đích sử dụng) qua API/Swagger.
 - Upload từng trang ảnh: file được lưu thật, trang vào hàng đợi và **worker tự động nhận diện khung chữ**.
@@ -105,6 +105,24 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 - Chưa tự thử lại khi **chất lượng** kém (đọc sai, dịch sai, xoá chữ chưa sạch) — đó không phải
   lỗi hạ tầng, vẫn phải sửa tay ở màn sửa.
 - Chưa lưu ảnh lên Supabase Storage (đang lưu trên ổ đĩa của server).
+
+## Khai báo mục đích & nhắc trách nhiệm (M10)
+
+- Tạo chapter **bắt buộc tự khai mục đích sử dụng** (đọc cá nhân / học tập / khác). Hệ thống
+  **không chọn hộ** — ô này để trống tới khi bạn chọn, và nút tạo chưa bấm được.
+- Khai báo hiện ở màn chapter và **không sửa được** về sau.
+- Lần đầu xuất một chapter, hệ thống hiện một nhắc gọn: bạn chịu trách nhiệm về bản quyền nội
+  dung gốc, công cụ dành cho mục đích cá nhân/học tập, file chỉ nằm trên máy bạn — hệ thống
+  **không** tự đăng công khai hay chia sẻ cho ai.
+- Cùng lúc đó hiện luôn **chất lượng bản sắp xuất**: bao nhiêu vùng chữ tràn ra ngoài bong bóng,
+  bao nhiêu bong bóng sẽ **trống** vì chưa đọc được chữ gốc.
+- Tick ô xác nhận thì nút xuất mới sáng. **Không chặn** bạn — tick là xuất được ngay, và việc tick
+  được ghi lại kèm đúng những con số vừa hiện.
+- Nhắc chỉ hiện **một lần cho mỗi chapter**, lần sau xuất đi thẳng.
+- Nhật ký chỉ lưu **số liệu** (mục đích đã khai, số vùng lỗi, thời điểm xác nhận) — **không** lưu
+  nội dung, ảnh hay bản dịch của bạn.
+- **Không** watermark, **không** khoá file: chúng không giúp gì cho việc tuân thủ bản quyền thật,
+  chỉ làm hỏng ảnh của chính bạn.
 
 ## Chạy cả chapter (M9)
 

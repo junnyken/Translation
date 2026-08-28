@@ -372,3 +372,36 @@ class BatchConfigRead(BaseModel):
 
 class BatchRunList(BaseModel):
     runs: list[BatchRunRead]
+
+
+# ---------- M10: khai báo mục đích & cảnh báo trước khi xuất ----------
+class ExportWarningsRead(BaseModel):
+    """Những gì phải hiện ra trước khi người dùng mang file đi.
+
+    `acknowledged` cho giao diện biết chapter này đã xác nhận lần nào chưa — cảnh báo chỉ hiện
+    **một lần**, hiện lại mỗi lần xuất là kiểu cảnh báo mà ai cũng bấm cho qua.
+    """
+
+    overflow_warning_count: int
+    needs_manual_count: int
+    acknowledged: bool
+    acknowledged_at: datetime | None
+
+
+class AcknowledgeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: Đã tick "Đã đọc và chấp nhận trách nhiệm bản quyền" hay chưa. Gửi `false` cũng được ghi
+    #: nhận — có người mở cảnh báo ra rồi bỏ đi cũng là một sự thật đáng lưu.
+    user_acknowledged: bool
+
+
+class AcknowledgeRead(BaseModel):
+    id: uuid.UUID
+    project_id: uuid.UUID
+    export_job_id: uuid.UUID | None
+    intended_use: IntendedUse
+    overflow_warning_count: int
+    needs_manual_count: int
+    user_acknowledged: bool
+    acknowledged_at: datetime | None

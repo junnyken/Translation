@@ -317,3 +317,43 @@ class BatchItem(TimestampMixin, Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     batch_run: Mapped["BatchRun"] = relationship(back_populates="items")
+
+
+class ExportComplianceLog(TimestampMixin, Base):
+    """Bằng chứng người dùng ĐÃ ĐỌC cảnh báo trước khi mang file đi (M10).
+
+    Bảng riêng thay vì nhét vào `ExportJob.error_log`: đây là bản ghi tuân thủ, cần tra cứu được
+    ("chapter này đã xác nhận chưa, lúc nào, khai báo dùng vào việc gì"), mà `error_log` là chỗ
+    ghi lỗi kỹ thuật — trộn hai thứ vào nhau thì cả hai cùng khó đọc.
+
+    **Chỉ lưu số liệu, tuyệt đối không lưu nội dung export.** Không có tên file gốc, không có ảnh,
+    không có bản dịch ở đây.
+    """
+
+    __tablename__ = "export_compliance_log"
+    __table_args__ = (
+        Index("ix_export_compliance_project", "project_id", "acknowledged_at"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("project.id", ondelete="CASCADE"), nullable=False
+    )
+    #: Lần xuất được xác nhận. `SET NULL` để xoá bản ghi xuất không xoá mất bằng chứng tuân thủ.
+    export_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("export_job.id", ondelete="SET NULL"), nullable=True
+    )
+    #: CHỤP LẠI lúc xác nhận. Đọc lại từ `Project` sẽ sai nếu về sau có mini-spec cho sửa khai báo.
+    intended_use: Mapped[IntendedUse] = mapped_column(
+        _enum(IntendedUse, "intended_use"), nullable=False
+    )
+    #: Số vùng còn tràn khung / chưa đọc được chữ **tại thời điểm xác nhận** — người dùng đã nhìn
+    #: thấy đúng những con số này.
+    overflow_warning_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    needs_manual_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    #: Đã tick "Đã đọc và chấp nhận trách nhiệm bản quyền" hay chưa. Ghi cả `false` cũng có ý
+    #: nghĩa: có người mở cảnh báo ra rồi bỏ đi.
+    user_acknowledged: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    acknowledged_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

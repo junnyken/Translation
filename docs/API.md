@@ -487,6 +487,42 @@ dấu mẻ đang chạy và người vận hành không còn cách nào nhìn th
 
 Project không tồn tại → `404`.
 
+## 33. `GET /api/v1/projects/{project_id}/export-warnings` → 200 *(M10)*
+
+Những gì người dùng **phải nhìn thấy trước** khi mang file đi.
+
+```json
+{ "overflow_warning_count": 1, "needs_manual_count": 2,
+  "acknowledged": true, "acknowledged_at": "2026-08-28T16:30:23.592881Z" }
+```
+
+- Chỉ đếm trên các trang **sẽ được xuất** (`typeset_done`/`ready_for_export`). Vùng lỗi ở trang
+  chưa chèn chữ xong không nằm trong file giao đi — đếm vào chỉ làm người dùng bỏ qua cả cảnh
+  báo thật.
+- `overflow_warning_count`: chữ dịch **tràn ra ngoài** bong bóng.
+- `needs_manual_count`: vùng **chưa đọc được chữ gốc** ⇒ bong bóng đó sẽ **trống** trong file xuất.
+- `acknowledged`: chapter này đã xác nhận trách nhiệm bản quyền lần nào chưa — để giao diện hiện
+  nhắc **một lần**, không lải nhải mỗi lần xuất.
+
+Project không tồn tại → `404`.
+
+## 34. `POST /api/v1/export-jobs/{job_id}/acknowledge` → 200 *(M10)*
+
+```json
+{ "user_acknowledged": true }
+```
+→ `200` bản ghi tuân thủ: `{id, project_id, export_job_id, intended_use,
+overflow_warning_count, needs_manual_count, user_acknowledged, acknowledged_at}`
+
+- **Không chặn xuất.** Đây là công cụ cá nhân; chặn cứng chỉ khiến người ta đi đường vòng mà
+  chẳng bảo vệ được ai. Cổng chặn nằm ở **giao diện** (nút xuất mờ tới khi tick); máy chủ **ghi
+  nhận**, không cấm.
+- Số cảnh báo được **đếm lại tại máy chủ**, không nhận từ máy khách gửi lên — số do trình duyệt
+  gửi thì không còn là bằng chứng. Gửi kèm trường lạ → `422`.
+- `user_acknowledged=false` **vẫn được ghi** (có người mở cảnh báo rồi bỏ đi cũng là sự thật đáng
+  lưu), nhưng `acknowledged_at` để `null` và chapter **không** được coi là đã xác nhận.
+- Việc xuất không tồn tại → `404`.
+
 ## Bảng enum (chốt ở M1, M2–M10 không đổi âm thầm)
 
 | Enum | Giá trị |
@@ -517,4 +553,8 @@ Tên endpoint mẻ **khác** phác thảo cũ (`run-batch` / `batch-status`): m�
 mã riêng, chạy lại và dừng được, nên đặt theo lối tài nguyên `batch-runs/{id}` thay vì hai động từ
 rời. Lý do đầy đủ: `docs/REPORT_M9.md` §Design Choice.
 
-M10 — cổng khai báo phạm vi sử dụng / bản quyền: chưa có endpoint nào.
+M10 đã xong — xem §33–34. `POST /projects` (§1) **bắt buộc** `intended_use`, không có giá trị
+mặc định; thiếu hoặc sai giá trị → `422`. Không có endpoint nào sửa `intended_use` sau khi tạo:
+khai báo sửa được thì bằng chứng vô nghĩa.
+
+M11 (nếu cần) — auth & nhiều người dùng: chưa có endpoint nào.

@@ -167,7 +167,10 @@ class TestCongNhip:
     def test_khoa_project_khong_bao_gio_chua_api_key(self):
         from app.services.batch.gate import GeminiProjectRateGate
 
-        key = "AIzaSyD-khoa-that-khong-duoc-lo-ra"
+        # Ghép lúc chạy chứ không viết liền một chuỗi: viết liền thì bộ quét khoá bí mật
+        # (test_khong_co_api_key_nao_bi_commit_vao_git) sẽ kêu vì trông y hệt khoá thật —
+        # và một cảnh báo kêu sai là một cảnh báo sẽ bị tắt.
+        key = "AIza" + "SyD" + "-khoa-gia-chi-de-test-khong-duoc-lo-ra"
         khoa = GeminiProjectRateGate.khoa_project(key, "gemini")
         assert key not in khoa and "AIza" not in khoa
         assert len(khoa) == 16

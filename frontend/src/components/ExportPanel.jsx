@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import * as api from '../api.js'
+import ExportWarningModal from './ExportWarningModal.jsx'
 
 const DINH_DANG = [
   { ma: 'cbz', ten: 'CBZ — 1 file cho cả chapter', goiY: 'Đọc bằng ứng dụng truyện tranh (Tachiyomi, Perfect Viewer…)' },
@@ -10,6 +11,8 @@ const DINH_DANG = [
 /** Bảng xuất chapter: xem trước cảnh báo → chọn định dạng → theo dõi → tải về. */
 export default function ExportPanel({ projectId, tenProject }) {
   const [xemTruoc, setXemTruoc] = useState(null)
+  const [canhBao, setCanhBao] = useState(null)
+  const [hienCanhBao, setHienCanhBao] = useState(false)
   const [dinhDang, setDinhDang] = useState('cbz')
   const [job, setJob] = useState(null)
   const [dangChay, setDangChay] = useState(false)
@@ -18,16 +21,33 @@ export default function ExportPanel({ projectId, tenProject }) {
   const nap = useCallback(() => {
     setLoi(null)
     api.xemTruocXuat(projectId).then(setXemTruoc).catch((e) => setLoi(e.message))
+    api.layCanhBaoXuat(projectId).then(setCanhBao).catch((e) => setLoi(e.message))
   }, [projectId])
 
   useEffect(() => { nap() }, [nap])
 
-  const xuat = async () => {
+  /** Bấm "Xuất": chapter chưa xác nhận bản quyền lần nào thì hỏi trước, đã xác nhận thì đi thẳng. */
+  const bamXuat = () => {
+    if (canhBao && !canhBao.acknowledged) return setHienCanhBao(true)
+    xuat(false)
+  }
+
+  const xuat = async (vuaTick) => {
+    setHienCanhBao(false)
     setDangChay(true)
     setLoi(null)
     setJob(null)
     try {
       const { job_id } = await api.xuatChapter(projectId, dinhDang)
+      // Ghi lại việc đã đọc cảnh báo NGAY khi có mã việc xuất, trước lúc tải file về.
+      // Không để việc ghi nhận làm hỏng lần xuất: file vẫn phải ra.
+      if (vuaTick) {
+        try {
+          await api.xacNhanXuat(job_id, true)
+        } catch (e) {
+          setLoi(`Không ghi được xác nhận: ${e.message}`)
+        }
+      }
       const xong = await api.choXuatXong(job_id, { onTien: setJob })
       setJob(xong)
       nap()
@@ -75,9 +95,27 @@ export default function ExportPanel({ projectId, tenProject }) {
       </label>
       <p className="ghi-chu">{chon.goiY}</p>
 
-      <button className="chinh" onClick={xuat} disabled={dangChay || khongCoGiDeXuat}>
+      <button className="chinh" onClick={bamXuat} disabled={dangChay || khongCoGiDeXuat}>
         {dangChay ? 'Đang xuất…' : 'Xuất chapter'}
       </button>
+      {canhBao?.acknowledged && (
+        <p className="ghi-chu">
+          Đã xác nhận trách nhiệm bản quyền cho chapter này
+          {canhBao.acknowledged_at
+            ? ` lúc ${new Date(canhBao.acknowledged_at).toLocaleString('vi-VN')}`
+            : ''}
+          .
+        </p>
+      )}
+
+      {hienCanhBao && (
+        <ExportWarningModal
+          canhBao={canhBao}
+          dinhDang={dinhDang}
+          onHuy={() => setHienCanhBao(false)}
+          onDongY={() => xuat(true)}
+        />
+      )}
       {khongCoGiDeXuat && (
         <p className="ghi-chu">Chưa có trang nào chèn chữ xong nên chưa xuất được.</p>
       )}

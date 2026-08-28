@@ -37,6 +37,7 @@ from app.core.db import get_session  # noqa: E402
 from app.main import app  # noqa: E402
 
 TABLES = (
+    "export_compliance_log",
     "batch_item",
     "batch_run",
     "export_job",

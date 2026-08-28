@@ -6,24 +6,27 @@ const NGON_NGU = [
   { ma: 'ja', ten: 'Tiếng Nhật (manga)' },
   { ma: 'zh', ten: 'Tiếng Trung' },
 ]
+// Cố ý KHÔNG có lựa chọn nào được chọn sẵn: chọn hộ người dùng là suy đoán mục đích sử dụng
+// thay họ, mà đây đúng là chỗ họ phải tự khai và tự chịu trách nhiệm.
 const MUC_DICH = [
-  { ma: 'personal', ten: 'Đọc cá nhân' },
-  { ma: 'study', ten: 'Học tập / nghiên cứu' },
-  { ma: 'other', ten: 'Khác' },
+  { ma: 'personal', ten: 'Đọc cá nhân', mo_ta: 'Tự dịch để mình đọc, không đưa cho ai khác.' },
+  { ma: 'study', ten: 'Học tập / nghiên cứu', mo_ta: 'Học ngôn ngữ, làm bài tập, nghiên cứu dịch thuật.' },
+  { ma: 'other', ten: 'Khác', mo_ta: 'Mục đích khác — bạn tự chịu trách nhiệm về bản quyền nội dung gốc.' },
 ]
 
 /** Tạo chapter mới rồi tải các trang lên — bước đầu tiên, trước đây chỉ làm được qua Swagger. */
 export default function NewProjectPanel({ onXong }) {
   const [ten, setTen] = useState('')
   const [nguon, setNguon] = useState('en')
-  const [mucDich, setMucDich] = useState('personal')
+  const [mucDich, setMucDich] = useState('')
   const [files, setFiles] = useState([])
   const [dangChay, setDangChay] = useState(false)
   const [daXong, setDaXong] = useState(0)
   const [loi, setLoi] = useState(null)
 
   const batDau = async () => {
-    if (!ten.trim() || !files.length) return
+    // Chặn ngay ở đây nữa, không chỉ dựa vào nút mờ: nút mờ không phải là ràng buộc.
+    if (!ten.trim() || !files.length || !mucDich) return
     setDangChay(true); setLoi(null); setDaXong(0)
     try {
       const project = await api.taoProject({
@@ -67,10 +70,18 @@ export default function NewProjectPanel({ onXong }) {
         <label className="nhan cot">
           Mục đích sử dụng
           <select value={mucDich} onChange={(e) => setMucDich(e.target.value)} disabled={dangChay}>
+            <option value="" disabled>— hãy chọn —</option>
             {MUC_DICH.map((m) => <option key={m.ma} value={m.ma}>{m.ten}</option>)}
           </select>
         </label>
       </div>
+
+      <p className="ghi-chu">
+        {mucDich
+          ? MUC_DICH.find((m) => m.ma === mucDich).mo_ta
+          : 'Bạn cần tự khai mục đích sử dụng — hệ thống không chọn hộ. Khai báo này gắn với '
+            + 'chapter và không sửa được về sau.'}
+      </p>
 
       <label className="nhan">
         Các trang truyện
@@ -85,7 +96,8 @@ export default function NewProjectPanel({ onXong }) {
         </p>
       )}
 
-      <button className="chinh" onClick={batDau} disabled={dangChay || !ten.trim() || !files.length}>
+      <button className="chinh" onClick={batDau}
+              disabled={dangChay || !ten.trim() || !files.length || !mucDich}>
         {dangChay ? `Đang tải lên ${daXong}/${files.length}…` : 'Tạo & bắt đầu dịch'}
       </button>
 

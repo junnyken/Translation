@@ -1154,3 +1154,85 @@ và mẻ đứng im khi vòng đẩy việc chỉ toàn mục bị bỏ qua.
   định đã trả về **2s**.
 - **Giao diện chưa bấm thật trên trình duyệt.** Bảng "Chạy cả chapter" đã dựng và build sạch,
   các endpoint nó gọi đều đã đo ở trên, nhưng chưa có phiên thao tác tay như M7.
+
+## M10 — Khai báo mục đích & nhắc trách nhiệm trước khi giao file
+
+> Số liệu do `scripts/do_run_m10.py` in ra. Chạy lại:
+> `.venv/bin/python scripts/do_run_m10.py <project_id>`.
+> Chạy trên chapter thật của Run A (Pepper&Carrot 3 trang) — **không dựng dữ liệu giả**: vùng
+> tràn khung được tạo bằng đúng thao tác người dùng làm ở màn sửa tay, không ghi thẳng
+> `overflow_warning` vào DB.
+
+### 1. Test tự động
+
+| Nhóm | Số test | Kết quả |
+|---|---|---|
+| Toàn bộ M1–M10 | **579** | pass, 0 fail |
+| Riêng M10 (`test_compliance_unit.py` + `test_compliance_integration.py`) | 27 | pass |
+| Guardrail (`test_no_ai_logic.py`) | 53 | pass |
+
+Guardrail của M10:
+
+- giao diện **không chọn hộ** mục đích sử dụng (`useState('')`, nút mờ khi chưa chọn),
+- nút xuất trong hộp thoại có `disabled={!daTick}`,
+- hộp thoại hiện **đủ cả hai** loại cảnh báo, không ẩn bớt,
+- **không** watermark/DRM ở bất kỳ đâu — quét **phần mã**, bỏ chú thích và chuỗi tài liệu,
+- không có `public_url`/`share_link`/`make_public`/`publish` trong tầng API,
+- bảng nhật ký tuân thủ **chỉ có 10 cột số liệu**, không cột nào chứa nội dung.
+
+### 2. Live — khai báo là bắt buộc, không có mặc định
+
+| Gửi lên | HTTP |
+|---|---|
+| thiếu hẳn `intended_use` | **422** |
+| `intended_use: "commercial"` (ngoài enum) | **422** |
+| `intended_use: ""` | **422** |
+| `intended_use: "study"` | **201** |
+
+### 3. Live — cảnh báo hiện đúng số thật
+
+Tạo vùng tràn khung bằng thao tác thật: sửa bản dịch một vùng thành câu **170 ký tự** qua màn sửa
+tay → hệ thống canh lại → vùng đó thành `overflow_warning` **ở cỡ chữ 10** (đã thu tới đáy
+`TYPESET_MIN_FONT_SIZE` mà vẫn không vừa — đúng hành vi M6).
+
+```
+GET /projects/{id}/export-warnings
+{"overflow_warning_count": 1, "needs_manual_count": 2,
+ "acknowledged": false, "acknowledged_at": null}
+```
+
+`needs_manual_count = 2` là **số thật có sẵn** từ Run A: hai bong bóng OCR không đọc ra chữ, nên
+sẽ **trống** trong file xuất — đúng thứ người dùng cần biết trước khi mang file đi.
+
+### 4. Live — xác nhận, ghi nhận, và không hỏi lại
+
+| Bước | Kết quả |
+|---|---|
+| `POST /projects/{id}/export` | `202`, có `job_id` |
+| `POST /export-jobs/{job_id}/acknowledge {user_acknowledged:true}` | `200`, bản ghi có `overflow_warning_count=1`, `needs_manual_count=2`, `intended_use=study`, `acknowledged_at` có mốc |
+| việc xuất | `done` |
+| `GET export-warnings` lần sau | `acknowledged: true` ⇒ hộp thoại **không hiện lại** |
+| Tải file về | `200`, **10.140.252 byte** — xuất không bị chặn |
+
+Nhật ký trong DB đúng 10 cột: `id, project_id, export_job_id, intended_use,
+overflow_warning_count, needs_manual_count, user_acknowledged, acknowledged_at, created_at,
+updated_at`. **Không** đường dẫn file, **không** ảnh, **không** bản dịch.
+
+### 5. Hai lỗi thật lộ ra khi chạy M10
+
+| # | Lỗi | Vì sao đáng ghi |
+|---|---|---|
+| 1 | Bộ quét khoá bí mật đỏ vì một **khoá giả** trong test của M9 | Chuỗi `AIzaSyD-…` viết liền trong `test_batch_unit.py` chỉ lộ ra sau khi M9 được commit (bộ quét chỉ soi file git đã theo dõi). **Một cảnh báo kêu sai là một cảnh báo sẽ bị tắt** — sửa bằng cách ghép chuỗi lúc chạy, không nới lỏng bộ quét |
+| 2 | Guardrail "không watermark" đỏ vì **chính đoạn văn giải thích** "không làm watermark" | Soi lời văn thay vì soi mã ⇒ test đỏ vì đúng lý do ngược hẳn ý nghĩa của nó. Sửa: bỏ chú thích + chuỗi tài liệu bằng `tokenize` rồi mới quét |
+
+Ngoài ra script đo của chính M10 từng treo 10 phút vì hỏi trạng thái việc xuất ở sai bảng
+(`/jobs/{id}` thay vì `/export-jobs/{id}`, luôn trả 404 rồi ngồi chờ hết giờ). Không phải lỗi sản
+phẩm, nhưng ghi lại vì nó cho thấy **chờ mà không kiểm tra mã trả về** là cái bẫy im lặng.
+
+### 6. Giới hạn của lần đo này
+
+- **Giao diện chưa bấm tay trên trình duyệt.** Hộp thoại đã dựng, build sạch, guardrail canh phần
+  logic; nhưng chưa có phiên thao tác thật như M7.
+- **Chưa đo trường hợp chapter hoàn toàn sạch** (0 tràn khung, 0 chưa đọc được) trên hệ thật —
+  mới kiểm bằng test tích hợp.
+- `user_acknowledged=false` mới kiểm bằng test, chưa bấm "Để sau" trên giao diện thật.

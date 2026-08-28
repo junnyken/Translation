@@ -651,3 +651,78 @@ def test_bo_dieu_phoi_doc_du_cau_hinh_thu_lai():
     assert dp.retry_policy.jitter == s.batch_retry_jitter
     assert dp.max_concurrent_pages == s.batch_max_concurrent_pages
     assert dp.stale_item_seconds == s.batch_stale_item_seconds
+
+
+# ---------------- M10: khai báo mục đích & cảnh báo bản quyền ----------------
+
+FE_DIR = Path(__file__).resolve().parents[2] / "frontend" / "src"
+
+
+def test_giao_dien_khong_chon_ho_muc_dich_su_dung():
+    """Chọn sẵn một mục đích là suy đoán hộ người dùng — đúng thứ khai báo này sinh ra để tránh.
+
+    Trước M10 ô này mặc định `personal`, nghĩa là ai bấm nhanh cũng thành "đọc cá nhân" mà
+    không hề tự khai.
+    """
+    src = (FE_DIR / "components" / "NewProjectPanel.jsx").read_text()
+    assert "useState('personal')" not in src, "vẫn đang chọn sẵn mục đích hộ người dùng"
+    assert "useState('')" in src
+    assert "!mucDich" in src, "chưa chọn mục đích thì không được cho tạo chapter"
+
+
+def test_nut_xuat_trong_hop_thoai_chi_sang_khi_da_tick():
+    """Bằng chứng "đã xem cảnh báo" phải là một hành động có chủ ý, không phải bấm cho qua."""
+    src = (FE_DIR / "components" / "ExportWarningModal.jsx").read_text()
+    assert "disabled={!daTick}" in src
+
+
+def test_hop_thoai_hien_du_ca_hai_loai_canh_bao():
+    """Ẩn bớt cảnh báo để đỡ làm người dùng lo là cách giao đi một bản lỗi mà họ không biết."""
+    src = (FE_DIR / "components" / "ExportWarningModal.jsx").read_text()
+    assert "overflow_warning_count" in src and "needs_manual_count" in src
+
+
+def _ma_khong_ke_chu_thich(f: Path) -> str:
+    """Bỏ chú thích và chuỗi tài liệu, chỉ giữ phần MÃ.
+
+    Cần thiết vì chính đoạn văn giải thích "không làm watermark" cũng chứa từ đó — soi lời văn
+    thì guardrail sẽ đỏ vì đúng lý do ngược hẳn với ý nghĩa của nó.
+    """
+    import re
+    import tokenize
+
+    if f.suffix == ".py":
+        with tokenize.open(f) as fh:
+            return " ".join(
+                tok.string for tok in tokenize.generate_tokens(fh.readline)
+                if tok.type not in (tokenize.COMMENT, tokenize.STRING)
+            ).lower()
+    ma = re.sub(r"/\*.*?\*/", " ", f.read_text(), flags=re.S)   # /* … */
+    ma = re.sub(r"(?m)^\s*//.*$", " ", ma)                       # // …
+    return ma.lower()
+
+
+def test_khong_lam_watermark_hay_drm():
+    """Mini-spec cấm: nó không giúp gì cho việc tuân thủ bản quyền thật, chỉ làm hỏng ảnh của
+    chính người dùng. Soi phần MÃ, không soi lời văn."""
+    for goc in (APP_DIR, FE_DIR):
+        for f in list(goc.rglob("*.py")) + list(goc.rglob("*.jsx")) + list(goc.rglob("*.js")):
+            ma = _ma_khong_ke_chu_thich(f)
+            for cam in ("watermark", "drm", "encrypt_export"):
+                assert cam not in ma, f"{f.name} có mã {cam}"
+
+
+def test_khong_co_duong_nao_tu_dong_chia_se_ban_xuat():
+    """File xuất ra chỉ nằm trên máy người dùng — không có đường nào tự đăng công khai."""
+    routes = (APP_DIR / "api" / "v1" / "routes.py").read_text().lower()
+    for cam in ("public_url", "share_link", "make_public", "upload_to_cloud", "publish"):
+        assert cam not in routes, f"routes.py có {cam}"
+
+
+def test_nhat_ky_tuan_thu_chi_luu_so_lieu():
+    """Không lưu nội dung export vào máy chủ — chỉ metadata."""
+    from app.models import ExportComplianceLog
+
+    cot = {c.name for c in ExportComplianceLog.__table__.columns}
+    for cam in ("output_path", "content", "text", "image", "file"):
+        assert not any(cam in c for c in cot), f"cột {cam} — đang lưu nội dung export"

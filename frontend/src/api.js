@@ -118,3 +118,17 @@ export const chayLaiMe = (id, itemIds = null) =>
   }).then(doc)
 
 export const huyMe = (id) => fetch(`${BASE}/batch-runs/${id}/cancel`, { method: 'POST' }).then(doc)
+
+// ---------- M10: khai báo mục đích & cảnh báo trước khi xuất ----------
+
+/** Số vùng còn lỗi + chapter này đã xác nhận bản quyền lần nào chưa. */
+export const layCanhBaoXuat = (projectId) =>
+  fetch(`${BASE}/projects/${projectId}/export-warnings`).then(doc)
+
+/** Ghi lại việc người dùng đã đọc cảnh báo. Máy chủ tự đếm lại số liệu, không nhận từ đây. */
+export const xacNhanXuat = (jobId, daTick) =>
+  fetch(`${BASE}/export-jobs/${jobId}/acknowledge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_acknowledged: daTick }),
+  }).then(doc)

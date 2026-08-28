@@ -47,7 +47,7 @@ Quy tắc kiến trúc **giữ nguyên xuyên suốt Phase** (M1 chốt, M2–M1
 | Sửa tay (M7) | React 18 + Vite | Chỉ là bên tiêu thụ API; không đụng DB/Redis; chạy service riêng |
 | Xuất chapter (M8) | `zipfile` builtin + renderer M6 | **Không thêm phụ thuộc**; không nạp model; chạy trong worker |
 
-## 3. Data model (7 bảng chốt ở M1 + `ExportJob` ở M8 + `BatchRun`/`BatchItem` ở M9)
+## 3. Data model (7 bảng chốt ở M1 + `ExportJob` ở M8 + `BatchRun`/`BatchItem` ở M9 + `ExportComplianceLog` ở M10)
 
 ```
 Project 1─n Page 1─n TextRegion 1─1 OCRResult
@@ -57,7 +57,7 @@ Project 1─n Page 1─n TextRegion 1─1 OCRResult
 ```
 
 - `Project`: `source_lang(ja|zh|en)`, `target_lang(vi)`, `intended_use(personal|study|other)` —
-  `intended_use` tạo sẵn từ M1 để M10 không phải migrate thêm cột.
+  `intended_use` tạo sẵn từ M1 nên **M10 không phải migrate** — chỉ thêm phần khai báo ở giao diện (§11).
 - `Page.status`: state machine chính, khai báo **đủ 10 giá trị ngay ở M1**
   (`queued → detecting → detected/detection_failed → ocr_done → inpainted/inpaint_needs_review →
   translated → typeset_done → ready_for_export`) để tránh `ALTER TYPE` enum nhiều lần trên Postgres.
@@ -404,6 +404,57 @@ treo. `resume` không kèm danh sách mục sẽ tự chạy bước thu hồi n
 Xuất là hành động **có chủ ý** của người vận hành ở M8: tự xuất sau khi dịch xong có thể phát hành
 bản còn `overflow_warning`. Giao diện chỉ dẫn người dùng sang bảng xuất sau khi mẻ xong. Có guardrail
 test cấm `orchestrator.py`/`dispatch.py` nhắc tới `ExportJob`/`run_export_job`.
+
+## 11. Cổng khai báo & cảnh báo trước khi giao file (M10)
+
+### Cảnh báo, không chặn
+
+Đây là công cụ cá nhân, không phải hệ thống kiểm duyệt. Chặn cứng chỉ khiến người dùng đi đường
+vòng mà chẳng bảo vệ được ai. Nhưng cũng **không im lặng cho qua**: trước khi tải file về, người
+dùng phải nhìn thấy đúng số vùng còn lỗi, phải **tự tick** xác nhận, và việc tick đó được ghi lại.
+
+Ranh giới rõ ràng:
+
+| Tầng | Vai trò |
+|---|---|
+| Giao diện | **Chặn**: nút xuất mờ tới khi tick ô xác nhận |
+| Máy chủ | **Ghi nhận**, không cấm — `POST /export-jobs/{id}/acknowledge` chỉ ghi bằng chứng |
+
+Có guardrail test canh cả hai đầu: một test khẳng định nút trong hộp thoại có `disabled={!daTick}`,
+một test khác khẳng định máy chủ **vẫn cho xuất và cho tải về** khi chưa xác nhận.
+
+### Số liệu trong bằng chứng do MÁY CHỦ đếm
+
+`acknowledge` **không nhận** số cảnh báo từ trình duyệt gửi lên (gửi kèm là `422`). Số do máy
+khách gửi thì không còn là bằng chứng — nó chứng minh trình duyệt nói gì, không chứng minh hệ
+thống lúc đó thế nào.
+
+### `export_compliance_log` — chỉ số liệu, không nội dung
+
+Bảng riêng thay vì nhét vào `ExportJob.error_log`: đây là bản ghi tuân thủ cần tra cứu được
+("chapter này đã xác nhận chưa, lúc nào, khai để dùng vào việc gì"), còn `error_log` là chỗ ghi
+lỗi kỹ thuật — trộn vào nhau thì cả hai cùng khó đọc.
+
+Đúng **10 cột**, không cột nào chứa đường dẫn file, ảnh hay bản dịch. Có guardrail test liệt kê
+tên cột và chặn mọi cột tên chứa `output_path`/`content`/`text`/`image`/`file`.
+`export_job_id` để `SET NULL` khi xoá bản ghi xuất: xoá file đã xuất **không được** xoá mất bằng
+chứng đã xác nhận.
+
+### Khai báo mục đích: không có mặc định
+
+`Project.intended_use` đã `NOT NULL` từ M1 và `ProjectCreate` không có giá trị mặc định, nên
+**không cần migrate**. Chỗ hỏng nằm ở giao diện: ô chọn trước M10 mặc định sẵn `personal`, nghĩa
+là ai bấm nhanh cũng thành "đọc cá nhân" mà chưa hề tự khai. M10 bỏ mặc định (`— hãy chọn —`), và
+nút tạo chapter mờ tới khi chọn.
+
+Khai báo **không sửa được** sau khi tạo — không có endpoint nào cho sửa, và có test canh cả
+`PATCH` lẫn `PUT` trên `/projects/{id}`.
+
+### Không watermark/DRM
+
+Mini-spec cấm, và lý do đứng vững: nó không giúp gì cho việc tuân thủ bản quyền thật, chỉ làm hỏng
+ảnh của chính người dùng. Guardrail test quét **phần mã** (bỏ chú thích và chuỗi tài liệu, bằng
+`tokenize`) — soi cả lời văn thì chính đoạn giải thích "không làm watermark" cũng làm test đỏ.
 
 ## 9. Giới hạn đã biết (cố ý để lại)
 

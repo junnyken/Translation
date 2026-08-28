@@ -132,3 +132,27 @@ button.chinh { background: var(--chinh); color: #fff; border-color: var(--chinh)
 .bang-muc tr:last-child td { border-bottom: none; }
 /* Lỗi dài phải xuống dòng chứ không đẩy giãn bảng ra ngoài màn hình. */
 .bang-muc .o-loi { color: var(--mo); max-width: 260px; overflow-wrap: anywhere; }
+
+/* ---- M10: hộp thoại nhắc trách nhiệm trước khi xuất ---- */
+.lop-phu {
+  position: fixed; inset: 0; background: rgba(16, 24, 40, .55);
+  display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 50;
+}
+.hop-thoai {
+  background: var(--the); border: 1px solid var(--vien); border-radius: 12px; padding: 20px;
+  max-width: 520px; width: 100%; max-height: 90vh; overflow: auto;
+  box-shadow: 0 20px 48px rgba(16, 24, 40, .28);
+}
+.hop-thoai h2 { margin: 0 0 10px; }
+.hop-thoai h3 { margin: 16px 0 6px; font-size: 14px; color: var(--mo); }
+/* Đoạn bản quyền là thứ người dùng PHẢI đọc — không để nó chìm vào nền như ghi chú phụ. */
+.loi-ban-quyen {
+  background: #fffaeb; border: 1px solid #fedf89; border-radius: 8px;
+  padding: 10px 12px; font-size: 13.5px; line-height: 1.55; margin: 0;
+}
+.o-tick {
+  display: flex; gap: 8px; align-items: flex-start; margin: 16px 0 12px;
+  font-size: 13.5px; line-height: 1.5; cursor: pointer;
+}
+.o-tick input { margin-top: 2px; }
+.hop-thoai .hang.nut { justify-content: flex-end; }

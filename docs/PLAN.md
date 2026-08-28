@@ -16,7 +16,7 @@ Quy tắc: **tuần tự**, mini-spec sau chỉ mở khi mini-spec trước đã
 | **M7** | Màn sửa tay | `PATCH /regions/{id}` + Page Detail UI (React) | Sửa 1 region đụng region khác; re-fit sai phạm vi | ✅ **XONG** (`v0.7-M7`) — lộ ra 2 lỗi thật (khung vẽ lệch, chữ tràn ra ngoài trang) đã sửa |
 | **M8** | Xuất PNG/CBZ + lưu/mở project | `ExportJob`, `ChapterExporter` | Export dùng bản cũ sau khi đã sửa tay | ✅ **XONG** (`v0.8-M8`) — rủi ro dự đoán KHÔNG xảy ra; lộ ra lỗi khác: retry-translate chết từ M6 |
 | **M9** | Chạy cả chapter theo mẻ ✅ xong | `BatchOrchestrator`, `GeminiProjectRateGate`, `RetryPolicy` | Vượt hạn mức nhà cung cấp; báo mẻ xong khi còn trang chưa chạy; thử lại vô hạn | Đã gộp watchdog việc chết vì worker bị giết (hỏi broker, không đoán theo đồng hồ). **Bỏ** `KeyRotationManager`: M5 đã đo — xoay khoá cùng project Gemini không tăng hạn mức |
-| **M10** | Guardrail bản quyền | modal nhắc + gate `intended_use` | Over-scope thành hệ kiểm duyệt nội dung | Field đã có từ M1 |
+| **M10** | Khai báo mục đích + nhắc trách nhiệm trước khi xuất ✅ xong | `ComplianceGate`, `ExportComplianceLog` | Chặn cứng chức năng khiến người dùng đi đường vòng; cảnh báo lải nhải thì ai cũng bấm cho qua | Cảnh báo hiện **một lần/chapter**, máy chủ **ghi nhận** chứ không cấm; số liệu do máy chủ đếm lại, không nhận từ trình duyệt |
 
 ## Điều kiện tiên quyết cần chuẩn bị trước (không phải code)
 
@@ -40,12 +40,21 @@ bóng thoại, OCR đúng 3/3, canh chữ 5/5 vừa khung. Còn thiếu **manga 
 4. Cập nhật `ARCH.md` / `API.md` / `FEATURES.md` / `TEST_LOG.md`.
 5. Viết `docs/REPORT_M<n>.md` → chốt xong mới mở mini-spec kế.
 
-## Phác thảo M10 (mini-spec kế tiếp)
+## Phác thảo M11 (nếu thật sự cần)
 
-- **Cổng khai báo phạm vi sử dụng & bản quyền** trước khi xuất: nhắc trách nhiệm, không mặc định
-  chia sẻ/công khai. Field `intended_use` đã có sẵn từ M1 nên không phải migrate thêm cột.
-- Không nhét vào M9: mẻ là chuyện điều phối, còn đây là chuyện tuân thủ — trộn vào nhau thì cả hai
-  cùng khó kiểm.
+- **Nhiều người dùng & phân quyền**: hiện `edited_by_user` chỉ nói "có người sửa", không nói "ai".
+  Chỉ làm khi có nhu cầu thật — thêm auth vào một công cụ một người dùng là tự tạo việc.
+- Chưa làm và **cố ý** chưa làm: lưu nhiều phiên bản xuất, watermark/DRM, cảnh báo đa ngôn ngữ.
+
+<details>
+<summary>Phác thảo M10 (đã hoàn thành)</summary>
+
+- Khai báo `intended_use` bắt buộc, **không mặc định** — chỗ hỏng thật nằm ở giao diện chứ không
+  ở DB (cột đã `NOT NULL` từ M1).
+- Nhắc trách nhiệm + chất lượng **một lần/chapter** trước khi xuất; máy chủ ghi nhận, không cấm.
+- `ExportComplianceLog` chỉ lưu số liệu, không lưu nội dung export.
+
+</details>
 
 <details>
 <summary>Phác thảo M6 (đã hoàn thành)</summary>

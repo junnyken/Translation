@@ -15,6 +15,13 @@ function docDiaChi() {
 
 const KHOA_NHO = 'translation:chapter-gan-day'
 
+/** Khai báo mục đích sử dụng (M10) — hiện lại đúng thứ người dùng đã tự khai, không diễn giải thêm. */
+const MUC_DICH_TEN = {
+  personal: 'Đọc cá nhân',
+  study: 'Học tập / nghiên cứu',
+  other: 'Khác',
+}
+
 function docChapterDaLuu() {
   try { return JSON.parse(localStorage.getItem(KHOA_NHO) || '[]') } catch { return [] }
 }
@@ -166,6 +173,10 @@ export default function App() {
         <div className="bo-cuc-project">
           <section className="danh-sach">
             <h2>{project.name}</h2>
+            <p className="ghi-chu">
+              Mục đích đã khai: <b>{MUC_DICH_TEN[project.intended_use] ?? project.intended_use}</b>
+              {' '}· không sửa được sau khi tạo
+            </p>
             <p className="ghi-chu">Chọn một trang để sửa:</p>
             <ul>
               {(project.pages ?? []).map((p) => (
