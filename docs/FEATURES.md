@@ -21,8 +21,9 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 | M9 | Chạy **cả chapter bằng một mẻ**: tiến độ thật, thử lại lỗi tạm thời, cổng hạn mức, chạy lại trang hỏng | **LIVE** (4 Run bắt buộc trên truyện thật; giao diện chưa bấm tay — xem TEST_LOG §M9) |
 | M10 | Khai báo mục đích sử dụng (bắt buộc, không mặc định) + nhắc trách nhiệm bản quyền & chất lượng trước khi xuất | **LIVE** (chạy thật đầu-cuối; giao diện chưa bấm tay — xem TEST_LOG §M10) |
 | E11 | Làm lại giao diện: bố cục, bộ màu, vùng kéo-thả, dòng thời gian pipeline, diễn giải trạng thái trung thực, dùng được bằng bàn phím và trên điện thoại | **LIVE** (kiểm thật trên Chromium ở 4 kích thước — xem TEST_LOG §E11) |
+| E12 | Chỉ ra vùng nào cần rà soát trước khi xuất, kèm lý do đọc được — không tự xoá vùng nào | **LIVE** (Run A–D 15/15 trên trang thật + Chromium 10/10 — xem TEST_LOG §E12) |
 
-## Những gì dùng được ngay hôm nay (sau E11)
+## Những gì dùng được ngay hôm nay (sau E12)
 
 - Tạo project dịch (chọn ngôn ngữ nguồn, mục đích sử dụng) qua API/Swagger.
 - Upload từng trang ảnh: file được lưu thật, trang vào hàng đợi và **worker tự động nhận diện khung chữ**.
@@ -106,6 +107,26 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 - Chưa tự thử lại khi **chất lượng** kém (đọc sai, dịch sai, xoá chữ chưa sạch) — đó không phải
   lỗi hạ tầng, vẫn phải sửa tay ở màn sửa.
 - Chưa lưu ảnh lên Supabase Storage (đang lưu trên ổ đĩa của server).
+
+## Chỉ ra chỗ cần rà soát (E12)
+
+- Sau khi căn chữ xong, hệ thống **tự chấm từng vùng chữ** rồi nói rõ vùng nào nên xem lại và
+  **vì sao** — bằng câu tiếng Việt, không phải mã kỹ thuật.
+- Ví dụ lý do: *"OCR không đọc được nội dung"*, *"Khung chữ có điểm nhận diện thấp"*,
+  *"Bản dịch dài bất thường so với chữ gốc"*, *"Chữ dịch chưa vừa khung"*,
+  *"Có thể là số hoặc ký hiệu trang trí"*.
+- Mỗi vùng được xếp vào một trong bốn nhóm: **có khả năng là chữ cần dịch**, *có thể là hiệu ứng
+  âm thanh*, *có thể là số/trang trí*, *chưa chắc*. Máy chỉ nói "có thể" — **quyết định là của bạn**.
+- Hai nút ở màn sửa tay: **Giữ để dịch** và **Bỏ qua vùng này**. Bỏ qua chỉ ghi lại quyết định —
+  khung chữ, chữ gốc và bản dịch **vẫn được giữ nguyên**, không xoá gì.
+- **Không tự bỏ** tiếng động, số trang hay chữ viết hoa. `NO!`, `PHEW!`, `18` đều có thể là chữ
+  cần dịch tuỳ truyện.
+- Vùng **chưa được đánh giá** được đếm riêng, không bao giờ bị coi là "sạch".
+- Với engine OCR không trả điểm tin cậy (tiếng Nhật), hệ thống nói đúng là *"engine không cung cấp
+  điểm tin cậy"* — **không** hiện thành 0%.
+- Hộp thoại xuất hiện thêm ba số: bao nhiêu vùng cần rà soát, bao nhiêu chưa đánh giá, bao nhiêu
+  bạn đã chủ động bỏ qua — **tách riêng** khỏi phần nhắc trách nhiệm bản quyền.
+- Đây là kết quả của một **bộ luật đọc bằng chứng**, không phải lời bảo đảm dịch đúng nghĩa.
 
 ## Giao diện & luồng thao tác (E11)
 

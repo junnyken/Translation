@@ -351,3 +351,19 @@ button:disabled { cursor: not-allowed; opacity: .55; }
    chuỗi trộn <b> và <br/> bị ngắt dòng lung tung, đọc ra thành "2" một dòng. */
 .ds-canh-bao { margin: 6px 0; padding-left: 18px; }
 .ds-canh-bao li { margin: 2px 0; }
+
+/* ---- E12: đánh giá chất lượng vùng ---- */
+.hop-chat-luong {
+  border-top: 1px solid var(--vien); margin-top: 14px; padding-top: 14px;
+}
+.hop-chat-luong h4 { margin: 0; font-size: 14px; }
+.ds-ly-do { margin: 6px 0 10px; padding-left: 18px; font-size: 13px; color: var(--chu); }
+.ds-ly-do li { margin: 3px 0; }
+.ds-phan-loai { list-style: none; padding: 0; margin: 0; font-size: 13.5px; }
+.ds-phan-loai li {
+  display: flex; align-items: center; gap: 8px; padding: 7px 0;
+  border-bottom: 1px solid var(--vien);
+}
+.ds-phan-loai li:last-child { border-bottom: none; }
+.ds-phan-loai li b { margin-left: auto; }
+.the-tt-trung { background: var(--the-mo); border-color: var(--vien); color: var(--mo); }

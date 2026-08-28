@@ -4,8 +4,10 @@ import BatchPanel from './components/BatchPanel.jsx'
 import BboxOverlay from './components/BboxOverlay.jsx'
 import ExportPanel from './components/ExportPanel.jsx'
 import RegionPanel from './components/RegionPanel.jsx'
+import RegionQualityBox from './components/RegionQualityBox.jsx'
 import ChapterCreateForm from './components/chapter/ChapterCreateForm.jsx'
 import ChapterProgress from './components/chapter/ChapterProgress.jsx'
+import QualityPanel from './components/chapter/QualityPanel.jsx'
 import ChapterRecentList from './components/chapter/ChapterRecentList.jsx'
 import ChapterSummary from './components/chapter/ChapterSummary.jsx'
 import ReviewToolbar from './components/chapter/ReviewToolbar.jsx'
@@ -39,6 +41,8 @@ export default function App() {
   const [nhap, setNhap] = useState(projectId || pageId)
   const [project, setProject] = useState(null)
   const [canhBao, setCanhBao] = useState(null)
+  const [chatLuongChapter, setChatLuongChapter] = useState(null)
+  const [chatLuongTrang, setChatLuongTrang] = useState(null)
   const [chiTiet, setChiTiet] = useState(null)
   const [dangChon, setDangChon] = useState(null)
   const [hienCanhBaoAnh, setHienCanhBaoAnh] = useState(true)
@@ -60,6 +64,8 @@ export default function App() {
     try {
       const data = await api.layChiTietTrang(id)
       setChiTiet(data)
+      // Chấm chất lượng chạy sau bước căn chữ; trang chưa tới đó thì chưa có gì để hiện.
+      api.layChatLuongTrang(id).then(setChatLuongTrang).catch(() => setChatLuongTrang(null))
       setPhienBanAnh((v) => v + 1)
       setDangChon((cu) => (data.regions.some((r) => r.id === cu) ? cu : data.regions[0]?.id ?? null))
     } catch (e) {
@@ -79,6 +85,7 @@ export default function App() {
     setGanDay(docChapterDaLuu())
     try {
       setCanhBao(await api.layCanhBaoXuat(id))
+      setChatLuongChapter(await api.layTomTatChatLuong(id))
     } catch { /* chapter chưa có gì để cảnh báo thì thôi, không phải lỗi chặn */ }
     return p
   }, [])
@@ -122,6 +129,23 @@ export default function App() {
     } catch (e) {
       setLoi(e.message)
       setThongBao(null)
+    } finally {
+      setDangBan(false)
+    }
+  }
+
+  /** Ghi quyết định của người cho một vùng (E12). Không đụng tới dữ liệu dịch. */
+  const quyetDinhVung = async (regionId, quyetDinh) => {
+    setDangBan(true)
+    setLoi(null)
+    try {
+      await api.ghiQuyetDinhVung(regionId, quyetDinh)
+      setChatLuongTrang(await api.layChatLuongTrang(pageId))
+      setThongBao(quyetDinh === 'skip'
+        ? 'Đã ghi: bỏ qua vùng này. Dữ liệu vẫn được giữ nguyên.'
+        : 'Đã ghi: giữ vùng này để dịch.')
+    } catch (e) {
+      setLoi(e.message)
     } finally {
       setDangBan(false)
     }
@@ -228,6 +252,7 @@ export default function App() {
                 onNapLai={() => napProject(project.id).catch((e) => setLoi(e.message))}
               />
               <div className="cot-phai">
+                <QualityPanel tomTat={chatLuongChapter} trangDau={dsTrang[0]?.id} />
                 <BatchPanel projectId={project.id} soTrang={dsTrang.length} />
                 <ExportPanel projectId={project.id} tenProject={project.name} />
               </div>
@@ -290,6 +315,15 @@ export default function App() {
                     </button>
                   ))}
                 </div>
+
+                {vungDangChon && (
+                  <RegionQualityBox
+                    danhGia={(chatLuongTrang?.regions ?? [])
+                      .find((d) => d.region_id === vungDangChon.id)}
+                    dangBan={dangBan}
+                    onQuyetDinh={(qd) => quyetDinhVung(vungDangChon.id, qd)}
+                  />
+                )}
 
                 {vungDangChon && (
                   <RegionPanel

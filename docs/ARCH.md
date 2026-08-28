@@ -47,7 +47,7 @@ Quy tắc kiến trúc **giữ nguyên xuyên suốt Phase** (M1 chốt, M2–M1
 | Sửa tay (M7) | React 18 + Vite | Chỉ là bên tiêu thụ API; không đụng DB/Redis; chạy service riêng |
 | Xuất chapter (M8) | `zipfile` builtin + renderer M6 | **Không thêm phụ thuộc**; không nạp model; chạy trong worker |
 
-## 3. Data model (7 bảng chốt ở M1 + `ExportJob` ở M8 + `BatchRun`/`BatchItem` ở M9 + `ExportComplianceLog` ở M10)
+## 3. Data model (7 bảng chốt ở M1 + `ExportJob` ở M8 + `BatchRun`/`BatchItem` ở M9 + `ExportComplianceLog` ở M10 + `RegionQualityAssessment` ở E12)
 
 ```
 Project 1─n Page 1─n TextRegion 1─1 OCRResult
@@ -511,6 +511,59 @@ và nếu hết kiên nhẫn thì nói *"vẫn đang chạy"* — không nói l�
 
 Chưa có `GET /projects` để liệt kê chapter, nên danh sách "gần đây" nằm trong bộ nhớ trình duyệt
 và giao diện **nói rõ điều đó**. Không tự thêm endpoint ở E11 — xem `REPORT_E11.md §7`.
+
+## 13. Cổng chất lượng từng vùng (E12)
+
+### Việc duy nhất nó làm: biến bằng chứng có sẵn thành lý do đọc được
+
+Sau khi căn chữ xong, mỗi vùng chữ được chấm bằng **luật thuần**, không gọi mô hình nào. Toàn bộ
+đầu vào đã nằm sẵn trong DB từ M2–M6: điểm nhận diện khung, trạng thái/nội dung OCR, trạng
+thái/độ dài bản dịch, hình học khung, kết quả căn chữ. E12 chỉ đọc chúng rồi nói thành câu.
+
+Vì sao **không** hỏi thêm một con AI để chấm bản dịch: nhờ LLM chấm chính bản dịch của LLM là để
+nó tự khen mình; kết quả không lặp lại được và tốn token mỗi lần chấm.
+
+Vì sao **không có điểm 0–100**: một con số gộp nhiều thứ khác bản chất lại nghe như đo được chính
+xác, trong khi không giải thích được vì sao. `overall_band` + `relevance` + danh sách lý do thì
+nói được thành câu, và người dùng quyết định được.
+
+### Ranh giới cứng: máy không kết luận thay người
+
+| Cấm | Vì sao |
+|---|---|
+| Xoá vùng nghi ngờ | Số trang, tiếng động, chữ trong tranh — cái nào đáng dịch là tuỳ truyện |
+| Sửa `raw_text` / `translated_text` | Đó là dữ liệu của M3/M5; E12 chỉ đọc |
+| Luật "viết hoa = bỏ" hay "ngắn = bỏ" | `NO!`, `PHEW!`, `18` đều có thể hợp lệ |
+| Tự đặt `reviewed_skip` | Chỉ người dùng bấm mới được. Bỏ qua **không** xoá dữ liệu |
+
+Bộ chấm nằm ở `services/quality/assessor.py` là **hàm thuần**: không chạm DB, không chạm mạng,
+không sửa dữ liệu vào. Nhờ vậy 41 test đơn vị chạy không cần Postgres, và không có đường nào để
+lén ghi đè dữ liệu của bước khác trong lúc chấm.
+
+### 18 mã lý do, một bảng trắng
+
+Mã lý do đi thẳng ra giao diện và vào bảng đếm, nên chúng là **bảng trắng cố định** ở
+`services/quality/reasons.py`, mỗi mã kèm một câu tiếng Việt. Có test bắt lỗi nếu bộ chấm sinh ra
+mã ngoài bảng, và test khác bắt lỗi nếu một mã chưa có câu mô tả.
+
+Một mã đặc biệt: `ocr_confidence_unavailable` **chỉ để biết**, không đủ để bắt rà soát —
+manga-ocr không bao giờ trả điểm tin cậy, nên coi đó là dấu hiệu xấu sẽ bắt rà soát toàn bộ trang
+tiếng Nhật. "Không có điểm" khác hẳn "điểm thấp", và giao diện **không bao giờ** hiện nó là 0%.
+
+### Chạy ở đâu, khi nào
+
+Chấm chạy **trong worker** ngay sau khi căn chữ xong (và sau mỗi lần sửa tay + căn lại), không
+chạy trong request HTTP. Không thêm loại `Job` mới: thêm giá trị vào enum `job_type` của Postgres
+cần `ALTER TYPE`, mà M1 đã cố ý khai đủ mọi loại từ đầu để tránh đúng chuyện đó.
+
+Chấm hỏng **không** kéo theo việc căn chữ: trang vẫn giữ nguyên kết quả, chỉ là chưa có đánh giá —
+và bảng tổng hợp nói "chưa đánh giá" chứ không báo 0 cảnh báo.
+
+### Quyết định của người được giữ
+
+Chấm lại giữ nguyên `reviewed_keep`/`reviewed_skip`, **trừ khi bằng chứng đổi** (so sánh
+`evidence_snapshot`). Chấm lại mà xoá mất quyết định của người là xoá công họ đã bỏ ra; ngược lại,
+giữ quyết định cũ trong khi nội dung đã đổi là để họ tin vào một kết luận không còn đúng.
 
 ## 9. Giới hạn đã biết (cố ý để lại)
 

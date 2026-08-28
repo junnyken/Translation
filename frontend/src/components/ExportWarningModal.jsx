@@ -20,6 +20,11 @@ export default function ExportWarningModal({ canhBao, dinhDang, onHuy, onDongY }
 
   const soTran = canhBao?.overflow_warning_count ?? 0
   const soCanDoc = canhBao?.needs_manual_count ?? 0
+  // Số của E12 để RIÊNG: chất lượng là một chuyện, trách nhiệm bản quyền là chuyện khác —
+  // trộn vào nhau sẽ khiến người dùng tưởng tick một ô là xong cả hai.
+  const soRaSoat = canhBao?.quality_needs_review_count ?? 0
+  const soChuaCham = canhBao?.quality_unassessed_count ?? 0
+  const soBoQua = canhBao?.quality_reviewed_skip_count ?? 0
 
   return (
     <div className="lop-phu" onClick={(e) => e.target === e.currentTarget && onHuy()}>
@@ -34,7 +39,7 @@ export default function ExportWarningModal({ canhBao, dinhDang, onHuy, onDongY }
         </p>
 
         <h3>Chất lượng bản đang xuất</h3>
-        {soTran === 0 && soCanDoc === 0 ? (
+        {soTran === 0 && soCanDoc === 0 && soRaSoat === 0 && soChuaCham === 0 ? (
           <p className="ghi-chu on">Không có vùng nào cần xem lại.</p>
         ) : (
           <ul className="tom-tat-xuat">
@@ -49,6 +54,19 @@ export default function ExportWarningModal({ canhBao, dinhDang, onHuy, onDongY }
                 <b>{soCanDoc}</b> vùng <b>chưa đọc được chữ gốc</b> — những bong bóng này sẽ
                 <b> trống</b> trong file xuất ra.
               </li>
+            )}
+            {soRaSoat > 0 && (
+              <li className="canh-bao">
+                <b>{soRaSoat}</b> vùng được đánh dấu <b>cần rà soát</b>
+              </li>
+            )}
+            {soChuaCham > 0 && (
+              <li className="canh-bao">
+                <b>{soChuaCham}</b> vùng <b>chưa đánh giá được</b> — chưa chấm khác với chấm sạch
+              </li>
+            )}
+            {soBoQua > 0 && (
+              <li className="ghi-chu"><b>{soBoQua}</b> vùng bạn đã chủ động bỏ qua</li>
             )}
             <li className="ghi-chu">
               Muốn sửa thì mở từng trang ở màn sửa tay rồi quay lại đây.

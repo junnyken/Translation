@@ -147,3 +147,20 @@ export const xacNhanXuat = (jobId, daTick) =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ user_acknowledged: daTick }),
   }).then(doc)
+
+// ---------- E12: cổng chất lượng từng vùng ----------
+
+/** Đánh giá chất lượng từng vùng của một trang (kèm câu lý do tiếng Việt). */
+export const layChatLuongTrang = (pageId) => fetch(`${BASE}/pages/${pageId}/quality`).then(doc)
+
+export const layTomTatChatLuong = (projectId) =>
+  fetch(`${BASE}/projects/${projectId}/quality-summary`).then(doc)
+
+/** Ghi quyết định của NGƯỜI cho một vùng: `keep` giữ để dịch, `skip` bỏ qua.
+ *  `skip` KHÔNG xoá dữ liệu — chỉ ghi lại quyết định. */
+export const ghiQuyetDinhVung = (regionId, decision) =>
+  fetch(`${BASE}/regions/${regionId}/quality-review`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ decision }),
+  }).then(doc)

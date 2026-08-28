@@ -156,3 +156,49 @@ class InvalidPageTransition(ValueError):
 def assert_transition(current: PageStatus, target: PageStatus) -> None:
     if not can_transition(current, target):
         raise InvalidPageTransition(f"Page không thể chuyển {current.value} -> {target.value}")
+
+
+# ---------------- E12: cổng chất lượng từng vùng ----------------
+
+
+class RegionRelevance(str, Enum):
+    """Vùng này có khả năng là gì. **Cố ý không có `irrelevant`**: máy không được kết luận một
+    vùng là rác rồi tự bỏ — nó chỉ được nói "có thể là", rồi đẩy cho người xem."""
+
+    likely_translatable = "likely_translatable"
+    possible_sfx = "possible_sfx"
+    possible_number_or_decoration = "possible_number_or_decoration"
+    uncertain = "uncertain"
+
+
+class ReviewStatus(str, Enum):
+    """Ai quyết định vùng này. `reviewed_skip` CHỈ do người bấm, không bao giờ do luật."""
+
+    not_required = "not_required"
+    needs_review = "needs_review"
+    reviewed_keep = "reviewed_keep"
+    reviewed_skip = "reviewed_skip"
+
+
+class OverallBand(str, Enum):
+    """Mức chung. `blocked` nghĩa là **không đánh giá được** (thiếu đầu vào), KHÔNG phải "dịch sai"."""
+
+    clear = "clear"
+    attention = "attention"
+    blocked = "blocked"
+
+
+class ConfidenceState(str, Enum):
+    """Trạng thái điểm tin cậy. `unavailable` khác hẳn `low`: manga-ocr không trả điểm nào cả,
+    và hiện "0%" cho trường hợp đó là bịa ra một con số không hề tồn tại."""
+
+    available = "available"
+    low = "low"
+    unavailable = "unavailable"
+
+
+class TranslationState(str, Enum):
+    present = "present"
+    missing = "missing"
+    fallback_used = "fallback_used"
+    not_attempted = "not_attempted"

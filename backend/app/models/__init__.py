@@ -18,12 +18,18 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
 from app.models.enums import (
     BatchItemStatus,
+    ConfidenceState,
+    OverallBand,
+    RegionRelevance,
+    ReviewStatus,
+    TranslationState,
     BatchPipeline,
     BatchStatus,
     ExportFormat,
@@ -356,4 +362,56 @@ class ExportComplianceLog(TimestampMixin, Base):
     user_acknowledged: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     acknowledged_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+
+
+class RegionQualityAssessment(TimestampMixin, Base):
+    """Đánh giá chất lượng của MỘT vùng chữ (E12) — bảng cộng thêm, không sửa gì của M1–M10.
+
+    Đây chỉ là **lớp giải thích**: nó không đổi `raw_text` của M3, không đổi `translated_text`
+    của M5, không xoá `TextRegion` của M2. Việc duy nhất nó làm là biến những dấu hiệu đã có
+    sẵn trong DB (điểm tin cậy, trạng thái OCR, trạng thái dịch, hình học khung, kết quả căn
+    chữ) thành lý do đọc được, để người vận hành biết nên nhìn vào vùng nào.
+
+    Mỗi vùng giữ đúng MỘT đánh giá hiện hành (`unique(region_id)`), ghi đè khi chấm lại.
+    Không làm bảng lịch sử: cần so sánh giữa các phiên bản luật là việc của mini-spec khác.
+    """
+
+    __tablename__ = "region_quality_assessment"
+    __table_args__ = (
+        Index("ix_rqa_review_band", "review_status", "overall_band"),
+        Index("ix_rqa_relevance", "relevance"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    region_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("text_region.id", ondelete="CASCADE"),
+        nullable=False, unique=True,
+    )
+    #: Phiên bản bộ luật đã chấm. Bắt buộc để biết một đánh giá cũ được sinh bởi luật nào.
+    assessment_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    relevance: Mapped[RegionRelevance] = mapped_column(
+        _enum(RegionRelevance, "region_relevance"), nullable=False
+    )
+    review_status: Mapped[ReviewStatus] = mapped_column(
+        _enum(ReviewStatus, "review_status"), nullable=False, default=ReviewStatus.not_required
+    )
+    overall_band: Mapped[OverallBand] = mapped_column(
+        _enum(OverallBand, "overall_band"), nullable=False, default=OverallBand.clear
+    )
+    detector_confidence_state: Mapped[ConfidenceState] = mapped_column(
+        _enum(ConfidenceState, "confidence_state"), nullable=False
+    )
+    ocr_confidence_state: Mapped[ConfidenceState] = mapped_column(
+        _enum(ConfidenceState, "confidence_state"), nullable=False
+    )
+    translation_state: Mapped[TranslationState] = mapped_column(
+        _enum(TranslationState, "translation_state"), nullable=False
+    )
+    #: Danh sách mã lý do — CHỈ nhận giá trị trong bảng trắng của mã, không phải chữ tự do.
+    reason_codes: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    #: Số liệu thô làm bằng chứng (độ dài chữ, tỉ lệ khung, engine…). Không chứa khoá bí mật.
+    evidence_snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    assessed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )

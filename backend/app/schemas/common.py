@@ -3,11 +3,17 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.enums import (
     BatchItemStatus,
+    ConfidenceState,
+    OverallBand,
+    RegionRelevance,
+    ReviewStatus,
+    TranslationState,
     BatchPipeline,
     BatchStatus,
     ExportFormat,
@@ -380,12 +386,22 @@ class ExportWarningsRead(BaseModel):
 
     `acknowledged` cho giao diện biết chapter này đã xác nhận lần nào chưa — cảnh báo chỉ hiện
     **một lần**, hiện lại mỗi lần xuất là kiểu cảnh báo mà ai cũng bấm cho qua.
+
+    Ba số của E12 nằm RIÊNG, không gộp vào hai số cũ: "cần rà soát" là chuyện chất lượng, còn
+    xác nhận bản quyền là chuyện pháp lý — trộn vào nhau sẽ khiến người dùng tưởng tick một ô
+    là xong cả hai.
     """
 
     overflow_warning_count: int
     needs_manual_count: int
     acknowledged: bool
     acknowledged_at: datetime | None
+    #: E12 — vùng máy đề nghị xem lại trước khi xuất.
+    quality_needs_review_count: int = 0
+    #: E12 — vùng CHƯA đánh giá được. Không bao giờ gộp vào "rõ ràng".
+    quality_unassessed_count: int = 0
+    #: E12 — vùng người dùng đã chủ động bỏ qua.
+    quality_reviewed_skip_count: int = 0
 
 
 class AcknowledgeRequest(BaseModel):
@@ -405,3 +421,59 @@ class AcknowledgeRead(BaseModel):
     needs_manual_count: int
     user_acknowledged: bool
     acknowledged_at: datetime | None
+
+
+# ---------- E12: cổng chất lượng từng vùng ----------
+class LyDoRead(BaseModel):
+    """Một dấu hiệu: mã để đếm, câu để đọc. Không bao giờ chỉ có mã."""
+
+    ma: str
+    nhan: str
+
+
+class RegionQualityRead(ORMModel):
+    region_id: uuid.UUID
+    reading_order: int | None = None
+    assessment_version: str
+    relevance: RegionRelevance
+    review_status: ReviewStatus
+    overall_band: OverallBand
+    detector_confidence_state: ConfidenceState
+    ocr_confidence_state: ConfidenceState
+    translation_state: TranslationState
+    ly_do: list[LyDoRead] = []
+    evidence_snapshot: dict = {}
+    assessed_at: datetime
+
+
+class QualitySummary(BaseModel):
+    """Đếm theo nhóm. `chua_danh_gia` KHÔNG được gộp vào `ro_rang` — chưa chấm khác với chấm sạch."""
+
+    tong_vung: int
+    ro_rang: int
+    can_ra_soat: int
+    chua_danh_gia: int
+    da_bo_qua: int
+    vung_tran_khung: int
+    theo_phan_loai: dict[str, int]
+
+
+class PageQualityRead(BaseModel):
+    page_id: uuid.UUID
+    assessment_version: str | None
+    summary: QualitySummary
+    regions: list[RegionQualityRead]
+
+
+class QualityReviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: CHỈ nhận hai quyết định của người. Máy khách không được tự đặt mức, mã lý do hay bằng chứng.
+    decision: Literal["keep", "skip"]
+
+
+class QualityReviewRead(BaseModel):
+    region_id: uuid.UUID
+    review_status: ReviewStatus
+    relevance: RegionRelevance
+    overall_band: OverallBand

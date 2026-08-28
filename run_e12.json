@@ -1,0 +1,62 @@
+{
+  "lùi về dịch nhanh được nêu đúng lý do": {
+    "dat": true,
+    "chi_tiet": "['translation_fallback_used']"
+  },
+  "mất bản dịch được nêu đúng lý do": {
+    "dat": true,
+    "chi_tiet": "['translation_missing', 'layout_overflow_warning']"
+  },
+  "chữ tràn khung được nêu đúng lý do": {
+    "dat": true,
+    "chi_tiet": ""
+  },
+  "cả hai vùng đều bị đẩy cho người xem": {
+    "dat": true,
+    "chi_tiet": ""
+  },
+  "số trên API khớp số đếm thẳng từ DB": {
+    "dat": true,
+    "chi_tiet": "API=4 DB=4"
+  },
+  "hộp thoại xuất nhận đủ số của E12": {
+    "dat": true,
+    "chi_tiet": "{'overflow_warning_count': 1, 'needs_manual_count': 2, 'acknowledged': True, 'acknowledged_at': '2026-08-28T16:30:23.592881Z', 'quality_needs_review_count': 4, 'quality_unassessed_count': 7, 'quality_reviewed_skip_count': 0}"
+  },
+  "ghi được quyết định bỏ qua": {
+    "dat": true,
+    "chi_tiet": ""
+  },
+  "ghi được quyết định giữ lại": {
+    "dat": true,
+    "chi_tiet": ""
+  },
+  "bỏ qua KHÔNG xoá dữ liệu": {
+    "dat": true,
+    "chi_tiet": "vùng=1 ocr=1"
+  },
+  "quyết định sống qua khởi động lại": {
+    "dat": true,
+    "chi_tiet": ""
+  },
+  "chấm lại KHÔNG xoá quyết định của người": {
+    "dat": true,
+    "chi_tiet": "reviewed_skip"
+  },
+  "sửa được bản dịch": {
+    "dat": true,
+    "chi_tiet": "pending"
+  },
+  "việc căn lại chạy xong": {
+    "dat": true,
+    "chi_tiet": "None"
+  },
+  "vùng vừa sửa được chấm lại": {
+    "dat": true,
+    "chi_tiet": "['ocr_confidence_unavailable', 'ocr_empty', 'ocr_needs_manual', 'layout_overflow_warning']"
+  },
+  "vùng KHÔNG liên quan giữ nguyên đánh giá": {
+    "dat": true,
+    "chi_tiet": ""
+  }
+}

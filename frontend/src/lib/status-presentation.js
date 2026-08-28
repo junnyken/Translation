@@ -106,6 +106,9 @@ export const VUNG = {
 const BANG = {
   trang: TRANG, viec: VIEC, me: ME, muc_me: MUC_ME,
   canh_chu: CANH_CHU, doc_chu: DOC_CHU, dich: DICH, vung: VUNG,
+  get phan_loai_vung() { return PHAN_LOAI_VUNG },
+  get quyet_dinh_vung() { return QUYET_DINH_VUNG },
+  get muc_chat_luong() { return MUC_CHAT_LUONG },
 }
 
 /** Mọi bảng gộp lại — dùng cho test canh đủ enum. */
@@ -164,4 +167,42 @@ export const NGON_NGU = { en: 'Tiếng Anh', ja: 'Tiếng Nhật (manga)', zh: '
 export const CACH_DICH = {
   google_fast: 'Dịch nhanh (miễn phí)',
   llm_context: 'Dịch theo ngữ cảnh (AI)',
+}
+
+// ---------- E12: cổng chất lượng từng vùng ----------
+
+/** Vùng này có khả năng là gì. Cố ý dùng chữ "có thể" — máy không kết luận thay người. */
+export const PHAN_LOAI_VUNG = {
+  likely_translatable: B('Có khả năng là chữ cần dịch', 'ok', 'tich',
+    'Bằng chứng sạch: đọc được chữ, có bản dịch, chữ vừa khung.'),
+  possible_sfx: B('Có thể là hiệu ứng âm thanh', 'canh', 'canh',
+    'Chữ rất ngắn hoặc cách điệu. Vẫn có thể cần dịch — bạn quyết định.'),
+  possible_number_or_decoration: B('Có thể là số hoặc trang trí', 'canh', 'canh',
+    'Chỉ có số/ký hiệu. Có thể là số trang, mà cũng có thể là chữ trong tranh.'),
+  uncertain: B('Chưa chắc', 'canh', 'canh',
+    'Có dấu hiệu cần nhìn lại trước khi xuất.'),
+}
+
+/** Ai đã quyết định vùng này. `reviewed_skip` CHỈ do người bấm. */
+export const QUYET_DINH_VUNG = {
+  not_required: B('Không cần rà soát', 'ok', 'tich', 'Không có dấu hiệu bất thường.'),
+  needs_review: B('Cần rà soát', 'canh', 'canh', 'Nên xem lại trước khi xuất.', 'Mở để rà soát'),
+  reviewed_keep: B('Đã giữ để dịch', 'ok', 'tich', 'Bạn đã xem và quyết định giữ vùng này.'),
+  reviewed_skip: B('Đã bỏ qua thủ công', 'trung', 'tam-dung',
+    'Bạn đã chủ động bỏ qua. Dữ liệu vẫn còn nguyên, không bị xoá.'),
+}
+
+/** Mức chung. `blocked` = KHÔNG đánh giá được, không phải "dịch sai". */
+export const MUC_CHAT_LUONG = {
+  clear: B('Rõ ràng', 'ok', 'tich', 'Không có dấu hiệu cần xem lại.'),
+  attention: B('Cần chú ý', 'canh', 'canh', 'Có dấu hiệu nên nhìn lại.'),
+  blocked: B('Chưa đánh giá được', 'trung', 'dong-ho',
+    'Thiếu dữ liệu để đánh giá — không có nghĩa là bản dịch sai.'),
+}
+
+/** Điểm tin cậy: "không có điểm" KHÁC "điểm thấp". Không bao giờ hiện 0%. */
+export const TINH_TRANG_DIEM = {
+  available: 'Có điểm tin cậy',
+  low: 'Điểm tin cậy thấp',
+  unavailable: 'Engine OCR không cung cấp điểm tin cậy',
 }

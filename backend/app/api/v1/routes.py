@@ -20,6 +20,7 @@ from app.core.db import get_session
 from app.models import (
     BatchItem,
     BatchRun,
+    RegionQualityAssessment,
     ExportJob,
     Job,
     OCRResult,
@@ -33,6 +34,8 @@ from app.models.enums import (
     BatchItemStatus,
     BatchPipeline,
     BatchStatus,
+    OverallBand,
+    ReviewStatus,
     ExportFormat,
     FitStatus,
     JobStatus,
@@ -64,6 +67,12 @@ from app.schemas.common import (
     BatchResumeAccepted,
     AcknowledgeRead,
     AcknowledgeRequest,
+    LyDoRead,
+    PageQualityRead,
+    QualityReviewRead,
+    QualityReviewRequest,
+    QualitySummary,
+    RegionQualityRead,
     BatchResumeRequest,
     BatchRunList,
     BatchRunRead,
@@ -1066,11 +1075,15 @@ async def get_export_warnings(
     from app.services.compliance import ComplianceGate
 
     cb = await ComplianceGate().get_export_warnings(session, project_id)
+    cl = await get_project_quality_summary(project_id, session)
     return ExportWarningsRead(
         overflow_warning_count=cb.overflow_warning_count,
         needs_manual_count=cb.needs_manual_count,
         acknowledged=cb.acknowledged,
         acknowledged_at=cb.acknowledged_at,
+        quality_needs_review_count=cl.can_ra_soat,
+        quality_unassessed_count=cl.chua_danh_gia,
+        quality_reviewed_skip_count=cl.da_bo_qua,
     )
 
 
@@ -1110,6 +1123,149 @@ async def acknowledge_export(
         user_acknowledged=body.user_acknowledged,
     )
     return AcknowledgeRead.model_validate(ban_ghi, from_attributes=True)
+
+
+# ============================ E12: cổng chất lượng từng vùng ============================
+
+
+def _doc_danh_gia(dg, reading_order=None) -> RegionQualityRead:
+    """Kèm CÂU tiếng Việt cho mỗi mã lý do — mã trần không nói được gì với người dùng."""
+    from app.services.quality.reasons import nhan_ly_do
+
+    return RegionQualityRead(
+        region_id=dg.region_id,
+        reading_order=reading_order,
+        assessment_version=dg.assessment_version,
+        relevance=dg.relevance,
+        review_status=dg.review_status,
+        overall_band=dg.overall_band,
+        detector_confidence_state=dg.detector_confidence_state,
+        ocr_confidence_state=dg.ocr_confidence_state,
+        translation_state=dg.translation_state,
+        ly_do=[LyDoRead(ma=m, nhan=nhan_ly_do(m)) for m in (dg.reason_codes or [])],
+        evidence_snapshot=dg.evidence_snapshot or {},
+        assessed_at=dg.assessed_at,
+    )
+
+
+def _gop_tom_tat(cap: list[tuple], so_tran: int) -> QualitySummary:
+    """Đếm theo nhóm. Vùng CHƯA có đánh giá được đếm riêng, tuyệt đối không gộp vào 'rõ ràng'."""
+    ro = ra_soat = chua = bo_qua = 0
+    theo_loai: dict[str, int] = {}
+    for _, dg in cap:
+        if dg is None:
+            chua += 1
+            continue
+        theo_loai[dg.relevance.value] = theo_loai.get(dg.relevance.value, 0) + 1
+        if dg.review_status is ReviewStatus.reviewed_skip:
+            bo_qua += 1
+        elif dg.overall_band is OverallBand.blocked:
+            chua += 1
+        elif dg.review_status is ReviewStatus.needs_review:
+            ra_soat += 1
+        else:
+            ro += 1
+    return QualitySummary(
+        tong_vung=len(cap), ro_rang=ro, can_ra_soat=ra_soat, chua_danh_gia=chua,
+        da_bo_qua=bo_qua, vung_tran_khung=so_tran, theo_phan_loai=theo_loai,
+    )
+
+
+async def _cap_vung_danh_gia(session: AsyncSession, page_ids: list[uuid.UUID]) -> list[tuple]:
+    if not page_ids:
+        return []
+    rows = (await session.execute(
+        select(TextRegion, RegionQualityAssessment)
+        .outerjoin(RegionQualityAssessment,
+                   RegionQualityAssessment.region_id == TextRegion.id)
+        .where(TextRegion.page_id.in_(page_ids))
+        .order_by(TextRegion.reading_order.nulls_last(), TextRegion.bbox_y)
+    )).all()
+    return [(r[0], r[1]) for r in rows]
+
+
+@router.get("/pages/{page_id}/quality", response_model=PageQualityRead, tags=["quality"])
+async def get_page_quality(
+    page_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> PageQualityRead:
+    """Đánh giá chất lượng từng vùng của một trang, sắp theo thứ tự đọc.
+
+    Vùng chưa được chấm **không** biến mất khỏi danh sách và **không** bị coi là sạch — nó nằm
+    trong `chua_danh_gia`.
+    """
+    await _get_page_or_404(session, page_id)
+    cap = await _cap_vung_danh_gia(session, [page_id])
+    so_tran = (await session.execute(
+        select(func.count()).select_from(TypesetResult)
+        .join(TextRegion, TextRegion.id == TypesetResult.region_id)
+        .where(TextRegion.page_id == page_id,
+               TypesetResult.fit_status == FitStatus.overflow_warning)
+    )).scalar() or 0
+    phien_ban = next((dg.assessment_version for _, dg in cap if dg is not None), None)
+    return PageQualityRead(
+        page_id=page_id,
+        assessment_version=phien_ban,
+        summary=_gop_tom_tat(cap, int(so_tran)),
+        regions=[_doc_danh_gia(dg, v.reading_order) for v, dg in cap if dg is not None],
+    )
+
+
+@router.get(
+    "/projects/{project_id}/quality-summary", response_model=QualitySummary, tags=["quality"]
+)
+async def get_project_quality_summary(
+    project_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> QualitySummary:
+    """Tổng hợp cho cả chapter — dùng ở màn chapter và ở hộp thoại xuất."""
+    await _get_project_or_404(session, project_id)
+    page_ids = list((await session.execute(
+        select(Page.id).where(Page.project_id == project_id))).scalars())
+    cap = await _cap_vung_danh_gia(session, page_ids)
+    so_tran = 0
+    if page_ids:
+        so_tran = (await session.execute(
+            select(func.count()).select_from(TypesetResult)
+            .join(TextRegion, TextRegion.id == TypesetResult.region_id)
+            .where(TextRegion.page_id.in_(page_ids),
+                   TypesetResult.fit_status == FitStatus.overflow_warning)
+        )).scalar() or 0
+    return _gop_tom_tat(cap, int(so_tran))
+
+
+@router.post(
+    "/regions/{region_id}/quality-review", response_model=QualityReviewRead, tags=["quality"]
+)
+async def set_quality_review(
+    region_id: uuid.UUID,
+    body: QualityReviewRequest,
+    session: AsyncSession = Depends(get_session),
+) -> QualityReviewRead:
+    """Ghi quyết định của NGƯỜI: giữ vùng này để dịch, hay bỏ qua nó.
+
+    "Bỏ qua" ở đây là quyết định có chủ ý của người dùng, **không** phải xoá: khung chữ, chữ gốc,
+    bản dịch và kết quả căn chữ đều giữ nguyên trong cơ sở dữ liệu.
+
+    Máy khách chỉ được gửi `keep`/`skip` — không được tự đặt mức, mã lý do hay bằng chứng.
+    """
+    vung = await session.get(TextRegion, region_id)
+    if vung is None:
+        raise HTTPException(status_code=404, detail="Vùng không tồn tại")
+    dg = (await session.execute(
+        select(RegionQualityAssessment)
+        .where(RegionQualityAssessment.region_id == region_id))).scalars().first()
+    if dg is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Vùng này chưa được đánh giá chất lượng — chạy lại bước căn chữ trước.",
+        )
+    dg.review_status = (ReviewStatus.reviewed_keep if body.decision == "keep"
+                        else ReviewStatus.reviewed_skip)
+    await session.commit()
+    await session.refresh(dg)
+    return QualityReviewRead(
+        region_id=region_id, review_status=dg.review_status,
+        relevance=dg.relevance, overall_band=dg.overall_band,
+    )
 
 
 @router.get("/batch-config", response_model=BatchConfigRead, tags=["batch"])

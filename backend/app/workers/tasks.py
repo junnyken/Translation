@@ -466,6 +466,25 @@ def bao_ket_thuc_buoc(page_id: uuid.UUID | None, job_id: uuid.UUID, outcome: str
         logger.exception("không cập nhật được mẻ cho trang %s", page_id)
 
 
+def cham_chat_luong(page_id: uuid.UUID | None, trigger: str) -> None:
+    """Chấm chất lượng từng vùng của trang (E12) sau khi đã căn chữ xong.
+
+    Chạy TRONG worker chứ không trong request HTTP, và chỉ là luật thuần — không gọi mô hình,
+    không gọi mạng, nên không tốn token và không làm chậm pipeline.
+
+    Chấm hỏng thì KHÔNG được kéo theo việc căn chữ: trang vẫn giữ nguyên kết quả, chỉ là chưa
+    có đánh giá. Bảng tổng hợp sẽ nói "chưa đánh giá" thay vì báo 0 cảnh báo.
+    """
+    if page_id is None:
+        return
+    try:
+        from app.services.quality.gate import QualityGateService
+
+        QualityGateService().assess_page(page_id, trigger=trigger)
+    except Exception:  # noqa: BLE001
+        logger.exception("không chấm được chất lượng cho trang %s", page_id)
+
+
 def _mark_job_failed(job_id: uuid.UUID, reason: str) -> None:
     """Ghi job thất bại bằng session mới. KHÔNG đụng Page.status — page giữ trạng thái cũ."""
     with sync_session() as session:
@@ -1203,6 +1222,8 @@ def _run_typeset(job_id: uuid.UUID) -> dict:
         job.error_log = None
         session.commit()
 
+    cham_chat_luong(page_id, "typeset")
+
     logger.info(
         "typeset job %s: %d vùng (vừa %d, tràn %d, chưa có chữ %d), font=%s, "
         "xoá %d kết quả cũ, preview=%s, %.1fs",
@@ -1367,6 +1388,8 @@ def _run_refit(job_id: uuid.UUID, region_id: uuid.UUID, font_size_override: floa
         ", cỡ do người dùng ghim" if font_size_override is not None else "",
         font_family, preview_rel, elapsed,
     )
+    cham_chat_luong(page_id, "refit")
+
     return {
         "status": "done",
         "job_id": str(job_id),

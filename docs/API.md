@@ -523,6 +523,56 @@ overflow_warning_count, needs_manual_count, user_acknowledged, acknowledged_at}`
   lưu), nhưng `acknowledged_at` để `null` và chapter **không** được coi là đã xác nhận.
 - Việc xuất không tồn tại → `404`.
 
+## 35. `GET /api/v1/pages/{page_id}/quality` → 200 *(E12)*
+
+Đánh giá chất lượng từng vùng của một trang, sắp theo thứ tự đọc.
+
+```json
+{ "page_id": "…", "assessment_version": "e12-rules-v1",
+  "summary": { "tong_vung": 4, "ro_rang": 2, "can_ra_soat": 2, "chua_danh_gia": 0,
+               "da_bo_qua": 0, "vung_tran_khung": 0,
+               "theo_phan_loai": { "likely_translatable": 2, "uncertain": 2 } },
+  "regions": [ { "region_id": "…", "reading_order": 3,
+                 "relevance": "uncertain", "review_status": "needs_review",
+                 "overall_band": "attention",
+                 "detector_confidence_state": "available",
+                 "ocr_confidence_state": "unavailable",
+                 "translation_state": "missing",
+                 "ly_do": [ { "ma": "ocr_empty",
+                              "nhan": "OCR không đọc được nội dung nào." } ],
+                 "evidence_snapshot": { "so_ky_tu_goc": 0, "ty_le_dien_tich": 0.00566 },
+                 "assessed_at": "…" } ] }
+```
+
+- Mỗi lý do luôn có **cả mã lẫn câu tiếng Việt** — mã để đếm, câu để đọc.
+- `chua_danh_gia` đếm riêng, **không** gộp vào `ro_rang`: chưa chấm khác với chấm sạch.
+- `ocr_confidence_state: "unavailable"` nghĩa là engine **không cung cấp** điểm (manga-ocr),
+  **không** phải điểm 0.
+- Trang không tồn tại → `404`.
+
+## 36. `GET /api/v1/projects/{project_id}/quality-summary` → 200 *(E12)*
+
+Cùng cấu trúc `summary` của §35, gộp cho cả chapter. Dùng ở màn chapter và hộp thoại xuất.
+Project không tồn tại → `404`.
+
+## 37. `POST /api/v1/regions/{region_id}/quality-review` → 200 *(E12)*
+
+```json
+{ "decision": "keep" }     // hoặc "skip"
+```
+→ `200 { region_id, review_status, relevance, overall_band }`
+
+- Chỉ nhận đúng hai giá trị. Gửi kèm `overall_band`/`reason_codes`/`evidence` → **422**:
+  mức và lý do là kết luận của bộ luật, máy khách không được tự đặt.
+- `skip` là **quyết định**, không phải xoá: `TextRegion`, `OCRResult`, `TranslationResult`,
+  `TypesetResult` giữ nguyên. Có test canh đúng điều này.
+- Vùng chưa được chấm → **409** kèm hướng dẫn chạy lại bước căn chữ (không tự tạo đánh giá rỗng).
+
+`GET /projects/{id}/export-warnings` (§33) **thêm 3 trường**, giữ nguyên các trường cũ:
+`quality_needs_review_count`, `quality_unassessed_count`, `quality_reviewed_skip_count`.
+Ba số này để **riêng** khỏi phần bản quyền của M10 — trộn vào nhau sẽ khiến người dùng tưởng
+tick một ô là xong cả hai chuyện.
+
 ## Bảng enum (chốt ở M1, M2–M10 không đổi âm thầm)
 
 | Enum | Giá trị |
@@ -544,6 +594,11 @@ overflow_warning_count, needs_manual_count, user_acknowledged, acknowledged_at}`
 | `batch_pipeline` *(M9)* | full_pipeline, retry_failed |
 | `batch_status` *(M9)* | queued, running, completed, partial_failed, blocked_quota, failed, cancelled |
 | `batch_item_status` *(M9)* | pending, running, completed, failed, blocked_quota, skipped |
+| `region_relevance` *(E12)* | likely_translatable, possible_sfx, possible_number_or_decoration, uncertain |
+| `review_status` *(E12)* | not_required, needs_review, reviewed_keep, reviewed_skip |
+| `overall_band` *(E12)* | clear, attention, blocked |
+| `confidence_state` *(E12)* | available, low, unavailable |
+| `translation_state` *(E12)* | present, missing, fallback_used, not_attempted |
 
 ## Endpoint sẽ thêm ở mini-spec sau (chưa tồn tại)
 

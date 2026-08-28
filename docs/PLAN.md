@@ -17,6 +17,7 @@ Quy tắc: **tuần tự**, mini-spec sau chỉ mở khi mini-spec trước đã
 | **M8** | Xuất PNG/CBZ + lưu/mở project | `ExportJob`, `ChapterExporter` | Export dùng bản cũ sau khi đã sửa tay | ✅ **XONG** (`v0.8-M8`) — rủi ro dự đoán KHÔNG xảy ra; lộ ra lỗi khác: retry-translate chết từ M6 |
 | **M9** | Chạy cả chapter theo mẻ ✅ xong | `BatchOrchestrator`, `GeminiProjectRateGate`, `RetryPolicy` | Vượt hạn mức nhà cung cấp; báo mẻ xong khi còn trang chưa chạy; thử lại vô hạn | Đã gộp watchdog việc chết vì worker bị giết (hỏi broker, không đoán theo đồng hồ). **Bỏ** `KeyRotationManager`: M5 đã đo — xoay khoá cùng project Gemini không tăng hạn mức |
 | **M10** | Khai báo mục đích + nhắc trách nhiệm trước khi xuất ✅ xong | `ComplianceGate`, `ExportComplianceLog` | Chặn cứng chức năng khiến người dùng đi đường vòng; cảnh báo lải nhải thì ai cũng bấm cho qua | Cảnh báo hiện **một lần/chapter**, máy chủ **ghi nhận** chứ không cấm; số liệu do máy chủ đếm lại, không nhận từ trình duyệt |
+| **E12** | Cổng chất lượng vùng ✅ xong | `RegionQualityAssessor`, `RegionQualityAssessment` | Tự xoá vùng nghi ngờ; dùng LLM tự chấm chính nó; điểm số giả vờ chính xác | Luật thuần, 18 mã lý do có bảng trắng; quyết định bỏ qua là của NGƯỜI và không xoá dữ liệu |
 
 ## Điều kiện tiên quyết cần chuẩn bị trước (không phải code)
 
@@ -40,11 +41,21 @@ bóng thoại, OCR đúng 3/3, canh chữ 5/5 vừa khung. Còn thiếu **manga 
 4. Cập nhật `ARCH.md` / `API.md` / `FEATURES.md` / `TEST_LOG.md`.
 5. Viết `docs/REPORT_M<n>.md` → chốt xong mới mở mini-spec kế.
 
-## Phác thảo E12 (mini-spec kế tiếp)
+## Phác thảo E13/E14 (tuỳ bằng chứng thật)
 
-- **Cổng chất lượng vùng**: phân loại minh bạch vùng nào có khả năng là thoại / tiếng động / số
-  trang / nhiễu, gắn mã lý do, đẩy vùng đáng ngờ vào màn sửa tay.
-- **Không** tự xoá vùng, **không** tự chấm điểm bản dịch bằng LLM — chỉ phân loại và định tuyến.
+- **E13 — Thống nhất thuật ngữ & giọng nhân vật**: khoá danh sách thuật ngữ do người duyệt, giữ
+  mạch xưng hô giữa các trang. **Không** để LLM tự sửa lại bản dịch.
+- **E14 — Căn chữ theo hình bong bóng**: bbox chữ nhật không biết bong bóng là elip. Cần bằng
+  chứng lỗi thật từ trang truyện trước khi làm.
+
+<details>
+<summary>Phác thảo E12 (đã hoàn thành)</summary>
+
+- Cổng chất lượng vùng: 18 mã lý do, 4 nhóm phân loại, đẩy vùng đáng ngờ vào màn sửa tay.
+- **Không** xoá vùng, **không** dùng LLM chấm bản dịch, **không** có điểm 0–100.
+- Giới hạn đã ghi: luật độ dài không bắt được tiếng động dài như `SPLASH`.
+
+</details>
 
 <details>
 <summary>Phác thảo E11 (đã hoàn thành)</summary>

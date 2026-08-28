@@ -1297,3 +1297,94 @@ trạng thái lạ bị hiện là *"Trạng thái chưa được hỗ trợ"* k
 - **Chưa đo bằng trình đọc màn hình thật** (NVDA/VoiceOver) — mới kiểm nhãn liên kết, vòng focus
   và thao tác bàn phím.
 - Màn sửa tay (M7) giữ nguyên cách làm việc; E11 chỉ thêm vỏ điều hướng quanh nó.
+
+## E12 — Cổng chất lượng từng vùng
+
+> Số liệu do `scripts/do_run_e12.py` (Run B/C/D) và một script Chromium in ra. Run A đo trực tiếp
+> trên **trang truyện thật** đã chạy hết pipeline từ M9 (Pepper&Carrot, CC BY-SA).
+> E12 **không** gọi mô hình nào: bộ chấm là luật thuần, không chạm mạng.
+
+### 1. Test tự động
+
+| Nhóm | Số test | Kết quả |
+|---|---|---|
+| Backend M1–M10 + E11 + E12 | **633** | pass (E12 thêm 54) |
+| Riêng E12 backend (`test_quality_unit.py` + `test_quality_integration.py`) | 41 + 13 | pass |
+| Frontend (`vitest`) | **66** | pass (E12 thêm 9) |
+
+Test đơn vị chạy **bảng-lái qua đủ 18 mã lý do**, cộng thêm các mệnh đề mà spec coi là ranh giới:
+không mã nào ngoài bảng trắng, số/chữ ngắn/chữ hoa không bao giờ bị tự bỏ, "không có điểm tin cậy"
+không bị hiểu thành "điểm thấp", và độ dài tính theo **ký tự hiển thị** chứ không theo byte
+(`Đừng` = 4 ký tự / 7 byte; `こんにちは` = 5 ký tự / 15 byte).
+
+### 2. Run A — trang truyện thật (bắt buộc)
+
+Trang `57dab44d` của chapter Run A, 4 vùng, chấm bằng `e12-rules-v1`:
+
+| Vùng | Chữ gốc | Kết quả chấm | Lý do máy đưa ra |
+|---|---|---|---|
+| 1 | `ha... perfect.` | `likely_translatable` · rõ ràng | — |
+| 2 | `NO! Don't even think about it.` | `likely_translatable` · rõ ràng | — |
+| 3 | *(rỗng)* | `uncertain` · **cần rà soát** | OCR không đọc được nội dung · bước đọc chữ tự đánh dấu cần kiểm tra tay · engine không cung cấp điểm tin cậy |
+| 4 | `SPLASH / 18` | `uncertain` · **cần rà soát** | Khung chữ có điểm nhận diện thấp (0,384) |
+
+Không vùng nào bị xoá; bằng chứng số kèm theo từng vùng (`so_ky_tu_goc`, `ty_le_do_dai`,
+`ty_le_dien_tich`, điểm tin cậy).
+
+### 3. Run B — bơm lỗi có kiểm soát (bắt buộc)
+
+| Bơm vào | Máy nói ra |
+|---|---|
+| Đặt bản dịch thành `fallback_used` | *"Đã lùi về đường dịch nhanh vì dịch theo ngữ cảnh lỗi."* |
+| Xoá bản dịch của một vùng | *"Chưa có bản dịch cho vùng này."* |
+| Đặt căn chữ thành tràn khung | *"Chữ dịch chưa vừa khung."* |
+| — | Cả hai vùng đều chuyển sang **cần rà soát** |
+
+Số trên API **khớp chính xác** số đếm thẳng bằng SQL (4 = 4), và hộp thoại xuất nhận đủ ba số mới.
+Đáng chú ý: `quality_unassessed_count = 7` — đó là các vùng đã căn chữ **từ trước khi có E12**,
+và chúng được đếm là **chưa đánh giá** chứ không bị coi là sạch.
+
+### 4. Run C — quyết định của người dùng (bắt buộc)
+
+| Kiểm | Kết quả |
+|---|---|
+| Ghi "bỏ qua" và "giữ để dịch" | 200, trạng thái đổi đúng |
+| Dữ liệu sau khi bỏ qua | `TextRegion` còn, `OCRResult` còn — **không xoá gì** |
+| Khởi động lại API | quyết định vẫn còn |
+| Chấm lại | quyết định của người **được giữ** |
+
+### 5. Run D — sửa tay xong thì chấm lại (bắt buộc)
+
+Sửa bản dịch một vùng thành câu 301 ký tự → căn lại → vùng đó được chấm lại và xuất hiện lý do
+*"Chữ dịch chưa vừa khung"*. **Vùng không liên quan giữ nguyên đánh giá cũ** — chấm lại có phạm vi,
+không quét lại cả chapter.
+
+### 6. Kiểm trên Chromium (10/10 đạt)
+
+Màn chapter có bảng "Vùng cần rà soát" đếm riêng ô *chưa đánh giá được*; màn sửa tay có hộp
+"Đánh giá chất lượng" với lý do bằng **câu tiếng Việt** (không lộ mã), hai nút quyết định của
+người dùng, và dòng nói rõ *"khung chữ, chữ gốc và bản dịch vẫn được giữ"*. Bấm "Bỏ qua vùng này"
+thì nhãn đổi thành **Đã bỏ qua thủ công**. Console 0 lỗi.
+
+Guardrail về câu chữ: không màn nào dùng "bản dịch chuẩn" / "đạt chất lượng" / "dịch đúng hoàn
+toàn" — E12 là kết quả của một bộ luật, không phải lời bảo đảm dịch đúng nghĩa.
+
+### 7. Một chỗ tôi sửa TEST chứ không sửa luật
+
+Test đầu tiên của tôi khẳng định `SPLASH` phải bị gắn "có thể là hiệu ứng âm thanh". Nó **đỏ**:
+`SPLASH` dài 6 ký tự, còn ngưỡng "chữ ngắn" của spec là ≤5.
+
+Nới ngưỡng lên 6 cho test xanh chính là sửa luật cho vừa test. Sự thật đo được: luật độ dài
+**không** bắt được mọi tiếng động — nhưng trên trang thật, vùng `SPLASH` **vẫn** được đẩy cho
+người xem, vì một lý do khác: điểm nhận diện khung chỉ 0,384. Tôi giữ ngưỡng ≤5, sửa test cho
+đúng sự thật, và thêm một test dựng lại **đúng ca thật** đó.
+
+### 8. Giới hạn của lần làm này
+
+- **Luật độ dài không nhận ra tiếng động dài** (`SPLASH`, `CRASH!!`). Chúng chỉ được đẩy đi rà
+  soát khi có dấu hiệu khác. Nhận ra tiếng động theo nghĩa là việc của mô hình, không phải của luật.
+- **Không xử lý chữ dọc / chữ xoay / bong bóng hình elip** — thuộc mini-spec khác.
+- **Vùng "bỏ qua" vẫn được vẽ vào ảnh xem thử và file xuất.** E12 chỉ ghi quyết định; đổi cách vẽ
+  là sửa hợp đồng render của M6/M8, spec cho phép hoãn và tôi hoãn.
+- **Chưa có endpoint chấm lại thủ công** — chấm lại đi kèm bước căn chữ. Thêm nó cần một loại
+  `Job` mới, mà `ALTER TYPE` trên enum Postgres không an toàn trong một giao dịch.
