@@ -17,11 +17,11 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 | M5 | Dịch 2 đường: `google_fast` (miễn phí) và `llm_context` (giữ mạch văn cả trang) + reading order | **LIVE** (đo trên ảnh tổng hợp thoại tiếng Anh; manga thật + tiếng Nhật chưa đo — xem TEST_LOG) |
 | M6 | Tự tính cỡ chữ + xuống dòng cho vừa bubble (đo font-metrics thật) | **LIVE** (đo trên ảnh tổng hợp; manga thật chưa đo — xem TEST_LOG) |
 | M7 | Màn sửa tay: sửa bản dịch, kéo lại khung, đổi font/size | **LIVE** (thao tác thật trên trình duyệt; xem TEST_LOG) |
-| M8 | Xuất chapter PNG/CBZ + lưu/mở lại project | CHƯA |
+| M8 | Xuất chapter PNG/CBZ + lưu/mở lại project | **LIVE** (xuất thật 4 trang; chưa mở bằng app đọc truyện thật) |
 | M9 | Chạy cả chapter theo hàng đợi + xoay API key khi hết quota | CHƯA |
 | M10 | Khai báo mục đích sử dụng + nhắc trách nhiệm bản quyền khi export | Một phần: field `intended_use` đã **LIVE** từ M1; modal nhắc + gate export CHƯA |
 
-## Những gì dùng được ngay hôm nay (sau M7)
+## Những gì dùng được ngay hôm nay (sau M8)
 
 - Tạo project dịch (chọn ngôn ngữ nguồn, mục đích sử dụng) qua API/Swagger.
 - Upload từng trang ảnh: file được lưu thật, trang vào hàng đợi và **worker tự động nhận diện khung chữ**.
@@ -65,16 +65,29 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 - **Không giấu cảnh báo**: mỗi vùng hiện nhãn bằng chữ (“Tràn khung”, “Cần đọc lại”,
   “Khung kém tin cậy”) và có ô bật/tắt để tô cảnh báo lên ảnh.
 - **Biết chỗ nào người sửa, chỗ nào máy làm**: mỗi vùng ghi rõ “máy dịch / đã sửa tay”.
+- **Xuất cả chapter thành file giao được**: chọn **CBZ** (1 file, mở bằng app đọc truyện tranh),
+  **ZIP**, hoặc **PNG** từng trang. Bấm xuất rồi tải về ngay trên màn hình.
+- **Xem trước cảnh báo trước khi xuất**: sẽ xuất mấy trang, bỏ qua mấy trang chưa chèn chữ xong,
+  còn mấy vùng chữ tràn khung — để bạn chọn xuất luôn hay sửa tay trước.
+- **Trang chưa chèn chữ xong thì bỏ qua**, không xuất ảnh trắng không chữ; số trang bỏ qua được nói rõ.
+- **Xuất lại bao nhiêu lần cũng được**, file cũ tự bị dọn, không đầy ổ đĩa. Dữ liệu gốc giữ nguyên
+  nên sửa tiếp rồi xuất lại thoải mái.
 
 ## Những gì **chưa** dùng được (nói thẳng để không hiểu nhầm)
 
-- **Chưa xuất được chapter** ra PNG/CBZ để đọc hay giao khách (M8).
 - **Chưa có đăng nhập**: ai mở được đường link là sửa được, và hệ thống chỉ ghi “có người sửa”
   chứ không ghi **ai** sửa.
 - **Chưa lùi lại được**: sửa là đè lên bản cũ, không có lịch sử phiên bản. Dữ liệu gốc (khung chữ,
   chữ OCR, bản dịch máy) thì vẫn giữ để đối chiếu.
 - **Chưa sửa được nhiều vùng cùng lúc.**
 - **Chưa kéo khung được bằng bàn phím** — thao tác kéo khung hiện chỉ dùng chuột được.
+- **File CBZ chưa được mở thử bằng app đọc truyện thật** (Tachiyomi/Perfect Viewer) — mới kiểm bằng
+  công cụ giải nén, đúng cấu trúc và đúng thứ tự trang.
+- **Xuất bằng bản dịch miễn phí có thể ra chữ chưa dịch**: nếu bước đọc chữ dính hai từ vào nhau
+  (`IT IS` → `ITIS`), bản miễn phí sẽ để nguyên tiếng Anh. Hệ thống **chưa cảnh báo** điều này trước
+  khi xuất — muốn chắc thì dịch lại bằng bản có ngữ cảnh rồi hãy xuất.
+- **Nếu máy chủ hết bộ nhớ giữa chừng**, việc đang chạy sẽ treo mãi ở trạng thái “đang chạy” mà
+  không báo lỗi — phải nhìn log mới biết.
 - Chưa có giao diện người dùng — mới chỉ có Swagger để thao tác tay; chưa có ảnh vẽ khung để nhìn bằng mắt (M7).
 - **Chưa đo trên trang manga scan thật**: số liệu nhận diện (M2), độ chính xác đọc chữ (M3),
   xoá chữ (M4), chất lượng dịch (M5) và canh chữ (M6) hiện chỉ đo trên ảnh tổng hợp do repo tự sinh —

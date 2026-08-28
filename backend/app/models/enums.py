@@ -70,6 +70,14 @@ class FitStatus(str, Enum):
     overflow_warning = "overflow_warning"
 
 
+class ExportFormat(str, Enum):
+    """Định dạng xuất chapter. `cbz` thực chất là ZIP đổi đuôi — ứng dụng đọc truyện hiểu được."""
+
+    png_single = "png_single"
+    cbz = "cbz"
+    zip = "zip"
+
+
 class JobType(str, Enum):
     detect = "detect"
     ocr = "ocr"

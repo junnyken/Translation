@@ -96,3 +96,22 @@ button.chinh { background: var(--chinh); color: #fff; border-color: var(--chinh)
 
 .danh-sach ul { list-style: none; padding: 0; margin: 0; }
 .danh-sach li { display: flex; gap: 10px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--vien); }
+
+/* ---- M8: xuất chapter ---- */
+.bo-cuc-project { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 16px; align-items: start; }
+@media (max-width: 1100px) { .bo-cuc-project { grid-template-columns: 1fr; } }
+.bang-xuat { background: var(--the); border: 1px solid var(--vien); border-radius: 10px; padding: 12px; }
+.tom-tat-xuat { list-style: none; padding: 0; margin: 8px 0 14px; font-size: 13.5px; }
+.tom-tat-xuat li { padding: 5px 0; border-bottom: 1px solid var(--vien); }
+.tom-tat-xuat li:last-child { border-bottom: none; }
+.tom-tat-xuat .canh-bao { color: var(--canh); }
+.tom-tat-xuat .on { color: var(--ok); }
+.ket-qua-xuat { margin-top: 14px; border-top: 1px solid var(--vien); padding-top: 12px; }
+.thanh-tien { height: 8px; background: #f2f4f7; border-radius: 999px; overflow: hidden; }
+.thanh-tien-trong { height: 100%; background: var(--chinh); transition: width .25s; }
+.nut-tai {
+  display: inline-block; margin-top: 6px; padding: 8px 14px; border-radius: 7px;
+  background: var(--ok); color: #fff; text-decoration: none; font-size: 14px;
+}
+.bang-tin.canh-bao-o { background: #fffaeb; color: var(--canh); border-color: #fedf89; }
+.bang-xuat code { background: #f2f4f7; padding: 1px 5px; border-radius: 4px; word-break: break-all; }

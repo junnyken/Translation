@@ -34,6 +34,31 @@ export const docLaiVung = (regionId) =>
 export const canhLaiVung = (regionId) =>
   fetch(`${BASE}/regions/${regionId}/re-fit`, { method: 'POST' }).then(doc)
 
+export const xemTruocXuat = (projectId) =>
+  fetch(`${BASE}/projects/${projectId}/export-preview`).then(doc)
+
+export const xuatChapter = (projectId, format) =>
+  fetch(`${BASE}/projects/${projectId}/export`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ format }),
+  }).then(doc)
+
+export const layJobXuat = (id) => fetch(`${BASE}/export-jobs/${id}`).then(doc)
+export const duongDanTaiVe = (id) => `${BASE}/export-jobs/${id}/download`
+
+/** Chờ việc xuất chapter xong. Trả job cuối; ném lỗi nếu `failed`. */
+export async function choXuatXong(jobId, { soLanToiDa = 240, nhipMs = 1000, onTien } = {}) {
+  for (let i = 0; i < soLanToiDa; i++) {
+    const job = await layJobXuat(jobId)
+    onTien?.(job)
+    if (job.status === 'done') return job
+    if (job.status === 'failed') throw new Error(job.error_log || 'Xuất chapter bị lỗi')
+    await new Promise((r) => setTimeout(r, nhipMs))
+  }
+  throw new Error('Xuất chapter quá lâu, chưa xong')
+}
+
 /** Chờ job chạy xong. Trả job cuối cùng; ném lỗi nếu job `failed`. */
 export async function choJobXong(jobId, { soLanToiDa = 60, nhipMs = 700 } = {}) {
   for (let i = 0; i < soLanToiDa; i++) {

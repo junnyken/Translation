@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from celery.exceptions import SoftTimeLimitExceeded
@@ -20,6 +21,7 @@ from sqlalchemy import delete, func, select
 from app.core.config import get_settings
 from app.core.db_sync import sync_session
 from app.models import (
+    ExportJob,
     Job,
     OCRResult,
     Page,
@@ -29,6 +31,7 @@ from app.models import (
     TypesetResult,
 )
 from app.models.enums import (
+    ExportFormat,
     FitStatus,
     JobStatus,
     JobType,
@@ -728,6 +731,7 @@ def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dic
             PageStatus.inpainted,
             PageStatus.inpaint_needs_review,
             PageStatus.translated,
+            PageStatus.typeset_done,  # dịch lại trang ĐÃ canh chữ (M6 auto-chain đưa mọi trang tới đây)
         ):
             job.status = JobStatus.failed
             job.error_log = (
@@ -1491,3 +1495,232 @@ def run_region_retranslate_job(self, job_id: str, region_id: str, engine: str | 
         logger.exception("dịch lại vùng %s thất bại", jid)
         _mark_job_failed(jid, reason)
         return {"status": "failed", "job_id": str(jid), "error": reason}
+
+
+# ============================ M8: Xuất chapter ============================
+
+#: Trang chỉ được xuất khi đã canh chữ xong — xuất bản chưa qua canh là giao ảnh chưa có chữ.
+TRANG_XUAT_DUOC = (PageStatus.typeset_done, PageStatus.ready_for_export)
+
+
+def dem_vung_tran_khung(session, page_ids: list[uuid.UUID]) -> int:
+    """Đếm số vùng còn `overflow_warning` trong cả chapter, TẠI THỜI ĐIỂM xuất."""
+    if not page_ids:
+        return 0
+    return session.execute(
+        select(func.count())
+        .select_from(TypesetResult)
+        .join(TextRegion, TextRegion.id == TypesetResult.region_id)
+        .where(TextRegion.page_id.in_(page_ids), TypesetResult.fit_status == FitStatus.overflow_warning)
+    ).scalar() or 0
+
+
+def thong_ke_xuat(session, project_id: uuid.UUID) -> dict:
+    """Xem trước trước khi xuất: bao nhiêu trang xuất được, bao nhiêu vùng còn tràn khung."""
+    tat_ca = list(
+        session.execute(
+            select(Page).where(Page.project_id == project_id).order_by(Page.order)
+        ).scalars()
+    )
+    xuat_duoc = [p for p in tat_ca if p.status in TRANG_XUAT_DUOC]
+    return {
+        "page_count": len(xuat_duoc),
+        "total_page_count": len(tat_ca),
+        "skipped_page_count": len(tat_ca) - len(xuat_duoc),
+        "overflow_warning_count": dem_vung_tran_khung(session, [p.id for p in xuat_duoc]),
+    }
+
+
+def _thu_thap_trang(session, project_id: uuid.UUID):
+    """Gom dữ liệu vẽ cho từng trang xuất được, theo ĐÚNG `Page.order`."""
+    from app.services.export.chapter import TrangCanXuat
+    from app.services.interfaces import BBox
+    from app.services.storage import get_storage
+    from app.services.typeset.preview import RegionDraw
+
+    storage = get_storage()
+    trang_list = []
+    bo_qua: list[str] = []
+
+    for page in session.execute(
+        select(Page).where(Page.project_id == project_id).order_by(Page.order)
+    ).scalars():
+        if page.status not in TRANG_XUAT_DUOC:
+            bo_qua.append(f"trang {page.order} ({page.status.value})")
+            continue
+        if not page.clean_image_path:
+            bo_qua.append(f"trang {page.order} (thiếu ảnh clean)")
+            continue
+
+        rows = session.execute(
+            select(TextRegion, TypesetResult)
+            .join(TypesetResult, TypesetResult.region_id == TextRegion.id)
+            .where(TextRegion.page_id == page.id)
+            .order_by(TextRegion.reading_order.nulls_last(), TextRegion.created_at)
+        ).all()
+        trang_list.append(
+            TrangCanXuat(
+                page_id=str(page.id),
+                order=page.order,
+                clean_image_abs=storage.abs_path(page.clean_image_path),
+                regions=[
+                    RegionDraw(
+                        bbox=BBox(x=r.bbox_x, y=r.bbox_y, w=r.bbox_w, h=r.bbox_h),
+                        wrapped_text=ts.wrapped_text or "",
+                        font_family=ts.font_family or settings.default_font_family,
+                        font_size=ts.font_size,
+                        padding_ratio=(
+                            ts.padding_ratio
+                            if ts.padding_ratio is not None
+                            else settings.typeset_padding_ratio
+                        ),
+                        # Ảnh GIAO CHO NGƯỜI ĐỌC: không vẽ khung đỏ cảnh báo lên đó.
+                        overflow=False,
+                    )
+                    for r, ts in rows
+                ],
+            )
+        )
+    return trang_list, bo_qua
+
+
+def _run_export(job_id: uuid.UUID) -> dict:
+    started = time.perf_counter()
+    from pathlib import Path as _Path
+
+    from app.services.export.chapter import ChapterExporter
+    from app.services.export.naming import ten_file_export
+    from app.services.export.paths import export_relative_dir
+    from app.services.storage import get_storage
+    from app.services.typeset.preview import PagePreviewRenderer
+
+    with sync_session() as session:
+        job = session.get(ExportJob, job_id)
+        if job is None:
+            logger.warning("ExportJob %s không tồn tại", job_id)
+            return {"status": "job_not_found", "job_id": str(job_id)}
+
+        project = session.get(Project, job.project_id)
+        if project is None:
+            job.status = JobStatus.failed
+            job.error_log = "project_not_found"
+            session.commit()
+            return {"status": "failed", "job_id": str(job_id), "error": job.error_log}
+
+        project_id, project_name, dinh_dang = project.id, project.name, job.format
+        trang_list, bo_qua = _thu_thap_trang(session, project_id)
+        so_tran = dem_vung_tran_khung(session, [uuid.UUID(t.page_id) for t in trang_list])
+
+        if not trang_list:
+            job.status = JobStatus.failed
+            job.error_log = (
+                "no_page_ready: không có trang nào đã canh chữ xong để xuất"
+                + (f" (bỏ qua: {', '.join(bo_qua)})" if bo_qua else "")
+            )
+            session.commit()
+            return {"status": "failed", "job_id": str(job_id), "error": job.error_log}
+
+        job.status = JobStatus.running
+        job.overflow_warning_count = so_tran
+        session.commit()
+
+    storage = get_storage()
+    _typesetter, resolver = build_typesetter()
+    exporter = ChapterExporter(
+        storage_root=settings.storage_local_root,
+        renderer=PagePreviewRenderer(
+            font_resolver=resolver,
+            line_spacing_ratio=settings.typeset_line_spacing_ratio,
+            text_color=settings.typeset_text_color,
+            stroke_color=settings.typeset_stroke_color,
+            stroke_width=settings.typeset_stroke_width,
+        ),
+    )
+    thu_muc = _Path(storage.abs_path(export_relative_dir(project_id)))
+
+    if dinh_dang is ExportFormat.png_single:
+        duong_dan, da_xoa = exporter.export_png_single(thu_muc, trang_list)
+    else:
+        duoi = "cbz" if dinh_dang is ExportFormat.cbz else "zip"
+        ten = ten_file_export(project_name, duoi)
+        duong_dan, da_xoa = (
+            exporter.export_cbz(thu_muc, trang_list, ten)
+            if dinh_dang is ExportFormat.cbz
+            else exporter.export_zip(thu_muc, trang_list, ten)
+        )
+
+    output_rel = storage.to_relative(duong_dan)
+    elapsed = time.perf_counter() - started
+
+    with sync_session() as session:
+        job = session.get(ExportJob, job_id)
+        job.status = JobStatus.done
+        job.output_path = output_rel
+        job.page_count = len(trang_list)
+        job.overflow_warning_count = so_tran
+        # Xuất vẫn THÀNH CÔNG khi có trang bị bỏ qua / vùng tràn khung — nhưng phải ghi lại,
+        # không để người dùng tưởng đã xuất đủ cả chapter.
+        canh_bao = []
+        if bo_qua:
+            canh_bao.append(f"skipped_pages: bỏ qua {len(bo_qua)} trang chưa canh chữ ({', '.join(bo_qua)})")
+        if so_tran:
+            canh_bao.append(f"overflow_warning: {so_tran} vùng còn tràn khung")
+        job.error_log = " | ".join(canh_bao)[:4000] if canh_bao else None
+
+        moc = datetime.now(timezone.utc)
+        for trang in trang_list:
+            page = session.get(Page, uuid.UUID(trang.page_id))
+            if page is not None:
+                page.exported_at = moc
+        session.commit()
+
+    logger.info(
+        "export job %s: %d trang -> %s (%s), %d vùng tràn khung, bỏ qua %d trang, "
+        "xoá %d thứ cũ, %.1fs",
+        job_id, len(trang_list), output_rel, dinh_dang.value, so_tran, len(bo_qua),
+        len(da_xoa), elapsed,
+    )
+    return {
+        "status": "done",
+        "job_id": str(job_id),
+        "project_id": str(project_id),
+        "format": dinh_dang.value,
+        "output_path": output_rel,
+        "page_count": len(trang_list),
+        "skipped_pages": bo_qua,
+        "overflow_warning_count": so_tran,
+        "replaced_old_files": da_xoa,
+        "elapsed_seconds": round(elapsed, 2),
+    }
+
+
+@celery_app.task(
+    bind=True,
+    name="export.run_export_job",
+    soft_time_limit=settings.export_timeout_seconds,
+    time_limit=settings.export_timeout_seconds + 30,
+)
+def run_export_job(self, job_id: str) -> dict:
+    """Xuất cả chapter ra PNG/CBZ/ZIP. Lỗi/timeout: ExportJob=failed + error_log rõ nguyên nhân."""
+    jid = uuid.UUID(str(job_id))
+    try:
+        return _run_export(jid)
+    except SoftTimeLimitExceeded:
+        reason = f"timeout: vượt {settings.export_timeout_seconds}s"
+        logger.error("export job %s %s", jid, reason)
+        _danh_dau_export_that_bai(jid, reason)
+        return {"status": "failed", "job_id": str(jid), "error": reason}
+    except Exception as exc:  # noqa: BLE001
+        reason = f"{type(exc).__name__}: {exc}"
+        logger.exception("export job %s thất bại", jid)
+        _danh_dau_export_that_bai(jid, reason)
+        return {"status": "failed", "job_id": str(jid), "error": reason}
+
+
+def _danh_dau_export_that_bai(job_id: uuid.UUID, reason: str) -> None:
+    with sync_session() as session:
+        job = session.get(ExportJob, job_id)
+        if job is not None:
+            job.status = JobStatus.failed
+            job.error_log = reason[:4000]
+            session.commit()

@@ -14,8 +14,8 @@ Quy tắc: **tuần tự**, mini-spec sau chỉ mở khi mini-spec trước đã
 | **M5** | Dịch 2 đường + thứ tự đọc | `GoogleTranslateEngine`, `LLMContextTranslator`, `ReadingOrderResolver` (**không** tạo bảng `APIKeyPool` — key ở `.env`, xem ARCH §8) | Lệch dòng khi ghép bản dịch về region; đốt token | ✅ **XONG** (`v0.5-M5`) — còn treo: đo trên manga thật + trang JP |
 | **M6** | Tự canh cỡ chữ vừa bubble | `FitToBoxTypesetter(ITypesetter)` + `FontResolver` + `PagePreviewRenderer` | Đo font-metrics sai (tiếng Việt có dấu) → tràn khung | ✅ **XONG** (`v0.6-M6`) — còn treo: Run B (font comic thật) không khả thi, Run C (manga thật) chưa chạy |
 | **M7** | Màn sửa tay | `PATCH /regions/{id}` + Page Detail UI (React) | Sửa 1 region đụng region khác; re-fit sai phạm vi | ✅ **XONG** (`v0.7-M7`) — lộ ra 2 lỗi thật (khung vẽ lệch, chữ tràn ra ngoài trang) đã sửa |
-| **M8** | Xuất PNG/CBZ + lưu/mở project ⏭ kế tiếp | `ExportJob`, `ChapterExporter` | Export dùng bản cũ sau khi đã sửa tay | Chưa |
-| **M9** | Chạy cả chapter + xoay API key | `KeyRotationManager`, `BatchOrchestrator` | Vượt rate-limit provider; hết sạch key mà vẫn báo thành công | Chưa |
+| **M8** | Xuất PNG/CBZ + lưu/mở project | `ExportJob`, `ChapterExporter` | Export dùng bản cũ sau khi đã sửa tay | ✅ **XONG** (`v0.8-M8`) — rủi ro dự đoán KHÔNG xảy ra; lộ ra lỗi khác: retry-translate chết từ M6 |
+| **M9** | Chạy cả chapter + xoay API key ⏭ kế tiếp | `KeyRotationManager`, `BatchOrchestrator` | Vượt rate-limit provider; hết sạch key mà vẫn báo thành công | Chưa — nên gộp thêm: watchdog job chết vì OOM, cảnh báo chất lượng dịch trước khi xuất |
 | **M10** | Guardrail bản quyền | modal nhắc + gate `intended_use` | Over-scope thành hệ kiểm duyệt nội dung | Field đã có từ M1 |
 
 ## Điều kiện tiên quyết cần chuẩn bị trước (không phải code)

@@ -99,6 +99,10 @@ class Settings(BaseSettings):
     # ---- M7: sửa tay từng vùng ----
     #: Canh lại 1 vùng nhanh hơn cả trang nhiều (đo thật ~0,5s/trang) nên timeout ngắn hơn.
     refit_timeout_seconds: int = 180
+    # ---- M8: xuất chapter ----
+    #: Timeout RIÊNG — nay là bảy timeout độc lập (có test canh). Đo thật rồi chỉnh, đừng copy
+    #: số của job khác: xuất chapter là nhiều trang nhân lên, không phải một trang.
+    export_timeout_seconds: int = 900
 
     # ---- M4: inpaint (LaMa) ----
     inpaint_weights_path: str = "/models/lama-manga-dynamic.onnx"

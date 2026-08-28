@@ -304,7 +304,56 @@ thế ngữ cảnh cả trang.
 Cả ba endpoint trên trả `{ "job_id": "…", "page_id": "…", "status": "queued" }`, `404` nếu vùng
 không tồn tại, và **không bao giờ chạy đồng bộ trong request**.
 
-## 21. `GET /api/v1/jobs/{job_id}` → 200
+## 21. `GET /api/v1/projects/{project_id}/export-preview` → 200 *(M8)*
+
+Xem trước **trước khi** xuất, để quyết định xuất luôn hay quay lại sửa tay.
+
+```json
+{ "page_count": 4, "total_page_count": 5, "skipped_page_count": 1, "overflow_warning_count": 2 }
+```
+- `skipped_page_count`: trang chưa canh chữ xong sẽ **bị bỏ qua**, không xuất ảnh chưa có chữ.
+- `overflow_warning_count`: vùng còn tràn khung. **Không chặn** xuất, nhưng phải hiện rõ ở đây.
+
+## 22. `POST /api/v1/projects/{project_id}/export` → 202 *(M8)*
+
+```json
+{ "format": "cbz" }
+```
+`format`: `cbz` (1 file, ứng dụng đọc truyện mở được) · `zip` (giống cbz, đuôi `.zip`) ·
+`png_single` (mỗi trang 1 ảnh trong một thư mục).
+
+```json
+{ "job_id": "…", "project_id": "…", "status": "queued" }
+```
+Chỉ enqueue — render nhiều trang là việc của worker. `404` nếu project không tồn tại,
+`422` nếu `format` lạ hoặc body có trường lạ.
+
+## 23. `GET /api/v1/export-jobs/{job_id}` → 200 *(M8)*
+
+```json
+{ "id": "…", "project_id": "…", "format": "cbz", "status": "done",
+  "output_path": "exports/<project_id>/truyen_hay_chapter.cbz",
+  "page_count": 4, "overflow_warning_count": 2,
+  "error_log": "overflow_warning: 2 vùng còn tràn khung",
+  "created_at": "…", "updated_at": "…" }
+```
+`status` đi `queued → running → done | failed`.
+
+**`status=done` mà `error_log` khác `null` nghĩa là xuất được NHƯNG có cảnh báo** — đọc kỹ trước khi
+giao file. Hai loại cảnh báo: `skipped_pages` (bỏ qua trang chưa canh chữ) và `overflow_warning`.
+Không trang nào xuất được ⇒ `failed` với `no_page_ready`.
+
+## 24. `GET /api/v1/export-jobs/{job_id}/download` → 200 *(M8)*
+
+Tải file đã xuất. **Chỉ phục vụ file có sẵn** — không bao giờ tự render ở đây.
+
+| Lỗi | Mã |
+|---|---|
+| job không tồn tại | 404 |
+| chưa xuất xong, hoặc file không còn trên đĩa | 404 |
+| `format=png_single` (nhiều file trong 1 thư mục, không tải một lần được) | 409 kèm hướng dẫn dùng `cbz`/`zip` |
+
+## 25. `GET /api/v1/jobs/{job_id}` → 200
 
 ```json
 { "id": "…", "type": "detect", "page_id": "…", "status": "queued",
@@ -342,6 +391,7 @@ và mọi dòng của trang mang `status=fallback_used` — thành công **có d
 | `translation_status` | pending, ok, fallback_used |
 | `fit_status` | pending, fit_ok, overflow_warning |
 | `job_type` | detect, ocr, inpaint, translate, typeset, export |
+| `export_format` | png_single, cbz, zip |
 | `job_status` | queued, running, done, failed |
 
 ## Endpoint sẽ thêm ở mini-spec sau (chưa tồn tại)

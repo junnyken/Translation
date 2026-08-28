@@ -7,6 +7,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.enums import (
+    ExportFormat,
     IntendedUse,
     FitStatus,
     OCREngine,
@@ -241,3 +242,46 @@ class PageDetail(BaseModel):
     min_font_size: int
     max_font_size: int
     regions: list[RegionDetail]
+
+
+# ---------- M8: xuất chapter ----------
+class ExportRequest(BaseModel):
+    """Xin xuất chapter. `format` bắt buộc — không đoán thay người dùng."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    format: ExportFormat
+
+
+class ExportPreview(BaseModel):
+    """Xem trước TRƯỚC khi xuất — để người dùng quyết định xuất luôn hay sửa tay tiếp."""
+
+    #: Số trang thật sự sẽ được xuất (chỉ tính trang đã canh chữ xong).
+    page_count: int
+    total_page_count: int
+    #: Trang chưa canh chữ xong sẽ bị BỎ QUA, không xuất ảnh chưa có chữ.
+    skipped_page_count: int
+    #: Số vùng còn tràn khung. Không chặn xuất, nhưng phải hiện rõ.
+    overflow_warning_count: int
+
+
+class ExportJobRead(ORMModel):
+    id: uuid.UUID
+    project_id: uuid.UUID
+    format: ExportFormat
+    status: JobStatus
+    #: Đường dẫn file `.cbz`/`.zip`, hoặc THƯ MỤC khi format là `png_single`. NULL khi chưa xong.
+    output_path: str | None
+    page_count: int
+    overflow_warning_count: int
+    #: Khi `status=done` mà trường này khác NULL: xuất được nhưng CÓ cảnh báo
+    #: (bỏ qua trang chưa canh chữ, hoặc còn vùng tràn khung).
+    error_log: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ExportJobAccepted(BaseModel):
+    job_id: uuid.UUID
+    project_id: uuid.UUID
+    status: JobStatus

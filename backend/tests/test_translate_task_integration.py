@@ -311,3 +311,34 @@ async def test_retry_translate_khi_chua_xoa_chu_tra_409(client, sample_page_imag
     )
     r = await client.post(f"/api/v1/pages/{up.json()['page_id']}/retry-translate")
     assert r.status_code == 409
+
+
+async def test_dich_lai_duoc_ca_trang_sau_khi_da_canh_chu(
+    client, sample_page_image, fake_detector, fake_ocr_engine, fake_inpainter,
+    fake_translator, no_broker_for_chained_ocr,
+):
+    """Từ M6, pipeline tự nối chuỗi nên MỌI trang đều kết thúc ở `typeset_done`.
+
+    Lỗi thật do M8 phát hiện: danh sách điều kiện của M5 viết trước khi `typeset_done` trở thành
+    trạng thái cuối, nên endpoint dịch lại cả trang trả 409 vĩnh viễn — không trang nào dịch lại được.
+    """
+    from app.models.enums import PageStatus
+    from app.workers.tasks import run_typeset_job
+
+    page_id = await _page_ready_to_translate(
+        client, sample_page_image, fake_detector, fake_ocr_engine, fake_inpainter
+    )
+    fake_translator(prefix="VI:")
+    run_translate_job(_job_id(page_id, JobType.translate))
+    run_typeset_job(_job_id(page_id, JobType.typeset))
+
+    with sync_session() as s:
+        assert s.get(Page, uuid.UUID(page_id)).status is PageStatus.typeset_done
+
+    r = await client.post(f"/api/v1/pages/{page_id}/retry-translate?engine=google_fast")
+    assert r.status_code == 202, f"trang đã canh chữ phải dịch lại được, nhận: {r.text}"
+
+    fake_translator(prefix="MOI:")
+    ket_qua = run_translate_job(_job_id(page_id, JobType.translate))
+    assert ket_qua["status"] == "done"
+    assert all(row.translated_text.startswith("MOI:") for row, _t in _rows(page_id))

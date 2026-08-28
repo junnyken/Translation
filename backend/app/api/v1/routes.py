@@ -18,6 +18,7 @@ from sqlalchemy.orm import selectinload
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.models import (
+    ExportJob,
     Job,
     OCRResult,
     Page,
@@ -26,7 +27,14 @@ from app.models import (
     TranslationResult,
     TypesetResult,
 )
-from app.models.enums import FitStatus, JobStatus, JobType, PageStatus, TranslationEngine
+from app.models.enums import (
+    ExportFormat,
+    FitStatus,
+    JobStatus,
+    JobType,
+    PageStatus,
+    TranslationEngine,
+)
 from app.schemas.common import (
     JobRead,
     OCRResultRead,
@@ -38,6 +46,10 @@ from app.schemas.common import (
     RegionPatch,
     RegionPatchAccepted,
     JobAccepted,
+    ExportJobAccepted,
+    ExportJobRead,
+    ExportPreview,
+    ExportRequest,
     PageAccepted,
     PageRead,
     ProjectCreate,
@@ -54,9 +66,11 @@ from app.services.dispatch import (
     dispatch_refit_job,
     dispatch_region_reocr_job,
     dispatch_region_retranslate_job,
+    dispatch_export_job,
 )
 from app.services.storage import UnsupportedImage, get_storage, sniff_image
 # CHỈ import module quy ước đường dẫn — KHÔNG kéo theo Pillow vào tiến trình API.
+from app.services.export.paths import export_relative_dir
 from app.services.typeset.paths import preview_relative_path
 # Whitelist font của M6 — UI chỉ được chọn trong danh sách này, không tự chế font mới.
 from app.services.typeset.registry import FONT_REGISTRY
@@ -362,10 +376,13 @@ async def retry_translate(
     Không truyền `engine` thì dùng mặc định trong cấu hình. Chỉ enqueue, không dịch trong request.
     """
     page = await _get_page_or_404(session, page_id)
+    # `typeset_done` PHẢI nằm trong danh sách: từ M6 pipeline tự nối chuỗi nên mọi trang đều kết
+    # thúc ở trạng thái này — thiếu nó thì không trang nào dịch lại được nữa (lỗi thật, M8 phát hiện).
     if page.status not in (
         PageStatus.inpainted,
         PageStatus.inpaint_needs_review,
         PageStatus.translated,
+        PageStatus.typeset_done,
     ):
         raise HTTPException(
             status_code=409,
@@ -714,6 +731,151 @@ async def retranslate_region(
         job.error_log = reason
         await session.commit()
     return JobAccepted(job_id=job.id, page_id=region.page_id, status=job.status)
+
+
+# ============================ M8: xuất chapter ============================
+
+
+async def _get_project_or_404(session: AsyncSession, project_id: uuid.UUID) -> Project:
+    project = await session.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project không tồn tại")
+    return project
+
+
+def _thong_ke_xuat_stmt(project_id: uuid.UUID):
+    return select(Page).where(Page.project_id == project_id).order_by(Page.order)
+
+
+@router.get(
+    "/projects/{project_id}/export-preview", response_model=ExportPreview, tags=["export"]
+)
+async def export_preview(
+    project_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> ExportPreview:
+    """Xem trước TRƯỚC khi xuất: sẽ xuất mấy trang, bỏ qua mấy trang, còn mấy vùng tràn khung.
+
+    Vùng tràn khung **không chặn** việc xuất — nhưng phải hiện rõ ở đây để người dùng chọn:
+    xuất luôn, hay quay lại sửa tay (M7) trước.
+    """
+    await _get_project_or_404(session, project_id)
+    pages = list((await session.execute(_thong_ke_xuat_stmt(project_id))).scalars())
+    xuat_duoc = [p for p in pages if p.status in (PageStatus.typeset_done, PageStatus.ready_for_export)]
+
+    so_tran = 0
+    if xuat_duoc:
+        so_tran = (
+            await session.execute(
+                select(func.count())
+                .select_from(TypesetResult)
+                .join(TextRegion, TextRegion.id == TypesetResult.region_id)
+                .where(
+                    TextRegion.page_id.in_([p.id for p in xuat_duoc]),
+                    TypesetResult.fit_status == FitStatus.overflow_warning,
+                )
+            )
+        ).scalar() or 0
+
+    return ExportPreview(
+        page_count=len(xuat_duoc),
+        total_page_count=len(pages),
+        skipped_page_count=len(pages) - len(xuat_duoc),
+        overflow_warning_count=so_tran,
+    )
+
+
+@router.post(
+    "/projects/{project_id}/export",
+    response_model=ExportJobAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["export"],
+)
+async def create_export(
+    project_id: uuid.UUID,
+    body: ExportRequest,
+    session: AsyncSession = Depends(get_session),
+) -> ExportJobAccepted:
+    """Xếp việc xuất chapter. Chỉ enqueue — render nhiều trang là việc của worker.
+
+    Trang chưa canh chữ xong sẽ bị **bỏ qua** (không xuất ảnh chưa có chữ); số trang bỏ qua ghi
+    vào `error_log` của job. Không trang nào xuất được ⇒ job `failed` với lý do rõ.
+    """
+    await _get_project_or_404(session, project_id)
+
+    job = ExportJob(project_id=project_id, format=body.format, status=JobStatus.queued)
+    session.add(job)
+    await session.commit()
+    await session.refresh(job)
+
+    sent, reason = dispatch_export_job(job.id)
+    if not sent:
+        job.error_log = reason
+        await session.commit()
+
+    return ExportJobAccepted(job_id=job.id, project_id=project_id, status=job.status)
+
+
+@router.get("/export-jobs/{job_id}", response_model=ExportJobRead, tags=["export"])
+async def get_export_job(
+    job_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> ExportJob:
+    """Theo dõi tiến trình xuất. `status` đi `queued → running → done | failed`.
+
+    `status=done` mà `error_log` khác NULL nghĩa là **xuất được nhưng có cảnh báo** —
+    đọc kỹ trước khi giao file cho người khác.
+    """
+    job = await session.get(ExportJob, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Export job không tồn tại")
+    return job
+
+
+@router.get(
+    "/export-jobs/{job_id}/download",
+    tags=["export"],
+    response_class=FileResponse,
+    responses={
+        200: {"content": {"application/octet-stream": {}}},
+        404: {"description": "Chưa xuất xong hoặc file không còn"},
+    },
+)
+async def download_export(
+    job_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> FileResponse:
+    """Tải file đã xuất. **Chỉ phục vụ file có sẵn** — không bao giờ tự render ở đây.
+
+    Với `png_single`, kết quả là một THƯ MỤC nhiều file nên không tải một lần được:
+    trả `409` kèm hướng dẫn, thay vì trả file sai hoặc dựng ZIP ngầm.
+    """
+    job = await session.get(ExportJob, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Export job không tồn tại")
+    if job.status is not JobStatus.done or not job.output_path:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Chưa có file để tải — job đang ở '{job.status.value}'",
+        )
+    if job.format is ExportFormat.png_single:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Định dạng png_single xuất ra nhiều file trong một thư mục nên không tải một lần "
+                f"được. Thư mục: '{job.output_path}'. Muốn tải một file thì chọn format cbz hoặc zip."
+            ),
+        )
+
+    storage = get_storage()
+    if not storage.exists(job.output_path):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Đường dẫn có trong DB nhưng file không còn: {job.output_path}",
+        )
+    return FileResponse(
+        storage.abs_path(job.output_path),
+        media_type="application/octet-stream",
+        filename=job.output_path.rsplit("/", 1)[-1],
+        headers={"Cache-Control": "no-cache, must-revalidate"},
+    )
 
 
 @router.get("/jobs/{job_id}", response_model=JobRead, tags=["jobs"])

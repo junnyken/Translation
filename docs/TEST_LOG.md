@@ -759,3 +759,138 @@ gọn trong khung của chính nó. Kèm test bất biến so từng pixel ngoà
   chưa kiểm khả năng dùng bằng bàn phím cho thao tác kéo khung.
 - **Dịch lại 1 vùng lẻ thì `llm_context` mất ngữ cảnh cả trang** — đánh đổi có ý thức của việc sửa
   từng vùng, đã ghi trong mô tả endpoint.
+
+---
+
+## M8 — Xuất chapter (PNG / CBZ / ZIP)
+
+**Ngày:** 2026-08-28 · **Môi trường:** workspace `trieunt-c`, Docker, Python 3.12.3,
+Postgres 16-alpine, Redis 7-alpine, worker Celery, frontend Vite/React.
+
+### 1. Audit Before Build — 6 mục, có bằng chứng
+
+| # | Mục | Kết quả |
+|---|---|---|
+| 1 | Bảng `ExportJob` đề xuất | Đủ field, **không thiếu cột nào** phải migrate thêm. `status` **dùng lại enum `job_status`** của M1 thay vì tạo enum trùng nghĩa |
+| 2 | `Page.order` | Có sẵn (`Integer`, `NOT NULL`), lại có sẵn index `ix_page_project_order` ⇒ sắp trang khi xuất không phải quét bảng |
+| 3 | Dùng lại `PagePreviewRenderer` của M6 | **Chưa dùng lại được ngay**: `render()` chỉ ghi thẳng ra file, trong khi spec yêu cầu PNG binary trong RAM ⇒ tách `draw()` (trả ảnh) + `render()` (= `draw()` rồi ghi file). Không nhân bản logic vẽ |
+| 4 | Thư mục `exports/`, quyền ghi worker / đọc API | Worker tạo `exports/_audit/p.txt` → **API đọc lại đúng nội dung**; đĩa còn **66 GB** |
+| 5 | Thư viện CBZ/ZIP | `zipfile` là **builtin** (Python 3.12.3), có `ZIP_DEFLATED` ⇒ **không thêm phụ thuộc nào** |
+| 6 | Gap | Không có `ExportJob`, không có enum `export_format`, không có logic xuất ⇒ đúng phạm vi M8 |
+
+**Về "Project save/load" ở tiêu đề spec:** toàn bộ state (project, page, region, OCR, bản dịch,
+kết quả canh chữ, cờ sửa tay) **đã nằm trong Postgres từ M1** — không có gì giữ trong RAM hay file
+tạm để mất. Mở lại project bằng `GET /projects/{id}` là tiếp tục làm việc được ngay; M7 đã dùng đúng
+đường đó. Vì vậy **không xây thêm cơ chế save/load nào** — đó sẽ là bảng thứ hai lưu cùng một sự thật.
+
+**Migration `0002_m8`** — dính đúng 2 bẫy mà M1 đã ghi lại, đã xử lý trước khi chạy:
+- Alembic sinh `sa.Enum(..., name='job_status')` cho cột `status`, nhưng type này **M1 đã tạo rồi**
+  ⇒ phải `postgresql.ENUM(..., create_type=False)`, không thì lỗi *"type already exists"*.
+- `downgrade` không tự xoá enum ⇒ thêm `DROP TYPE IF EXISTS export_format`. **Không** drop
+  `job_status` vì bảng `job` của M1 vẫn dùng.
+- Đã chạy thật **upgrade → downgrade → upgrade** sạch cả 3 lượt.
+
+### 2. Test tự động
+
+```
+$ cd backend && ../.venv/bin/python -m pytest
+421 passed, 6 skipped in 113.40s
+```
+
+| Nhóm | File | Số test |
+|---|---|---|
+| Unit — đặt tên file, đánh số trang, đóng gói CBZ/ZIP/PNG | `tests/test_export_unit.py` | 21 |
+| Integration — xuất thật trên DB + storage, 4 endpoint | `tests/test_export_integration.py` | 27 |
+| Guardrail kiến trúc (M1→M8) | `tests/test_no_ai_logic.py` | 38 (+6 của M8) |
+| Dịch lại trang đã canh chữ (lỗi §4 phát hiện) | `tests/test_translate_task_integration.py` | 14 (+1) |
+| Kế thừa M1–M7 | các file trước | 321 |
+
+Bài test đáng chú ý của M8:
+- `test_danh_so_0_o_dau_de_sap_dung_thu_tu` — `010.png` phải đứng sau `002.png`. Ứng dụng đọc truyện
+  sắp trang **theo tên file**; thiếu số 0 đầu là `10.png` chen lên trước `2.png`.
+- `test_export_dung_lai_renderer_cua_m6_khong_viet_lai` — quét mã: `chapter.py` **không được** chứa
+  `ImageDraw`/`multiline_text`/`getlength`. Hai đường vẽ khác nhau ⇒ ảnh xuất lệch ảnh xem thử.
+- `test_khong_export_trang_chua_canh_chu` — chốt danh sách trạng thái được xuất.
+- `test_bo_qua_trang_chua_canh_chu_va_noi_ro` — bỏ qua trang chưa xong nhưng **ghi vào `error_log`**.
+- `test_con_vung_tran_khung_van_xuat_nhung_ghi_lai` — tràn khung **không chặn** xuất, nhưng phải đếm đúng.
+- `test_xuat_lai_khong_tich_tu_file_rac` + `test_doi_dinh_dang_thi_don_file_cu` — chạy lại 3 lần,
+  đổi định dạng, thư mục vẫn đúng 1 kết quả, không sót `.tmp`.
+- `test_xuat_khong_xoa_du_lieu_goc` — đếm `TextRegion`/`TranslationResult`/`TypesetResult` trước-sau.
+- `test_ten_file_export_khong_co_ky_tu_gay_loi_he_tep` — tên project chứa `/ \ : * ? " < > |`.
+- `test_bay_task_co_bay_timeout_rieng` — nay là **bảy** timeout độc lập.
+
+### 3. Live verification — xuất chapter thật
+
+Chapter thật 4 trang trong project `26db0621` (2 trang cũ từ M6/M7 + 2 trang mới chạy nguyên
+pipeline detect → OCR → xoá chữ → dịch → canh chữ).
+
+| Bước | Kết quả |
+|---|---|
+| `GET /export-preview` | `4/4 trang, bỏ qua 0, còn 1 vùng tràn khung` |
+| `POST /export {format:cbz}` | `202` + job id, **không** render trong request |
+| Worker | `4 trang -> …/m3_live_ocr_en_chapter.cbz, 2 vùng tràn khung, bỏ qua 0 trang, xoá 1 thứ cũ, **1,0s**` |
+| `GET /export-jobs/{id}` | `done`, `page_count=4`, `error_log = "overflow_warning: 2 vùng còn tràn khung"` |
+| `GET /export-jobs/{id}/download` | `200`, `content-disposition: attachment; filename="m3_live_ocr_en_chapter.cbz"`, `cache-control: no-cache` |
+| Mở file tải về | ZIP hợp lệ (`testzip() = None`), đúng `001.png…004.png`, **sắp theo tên = đúng thứ tự trang**, mỗi ảnh mở được (PNG 1200×1700 và 1400×2000) |
+| Thư mục `exports/` sau 2 lần xuất | **đúng 1 file**, không có `.tmp` |
+| Tên file | `m3_live_ocr_en_chapter.cbz` — bỏ dấu, không ký tự lạ |
+
+**Thời gian: 1,0 s cho 4 trang** (≈0,25 s/trang) — rẻ hơn nhiều so với detect (40–61 s/ảnh) hay
+xoá chữ (45–117 s/ảnh) vì xuất **không nạp model nào**, chỉ vẽ lại chữ. `EXPORT_TIMEOUT_SECONDS=900`
+vì vậy rất rộng rãi; con số này chỉ có ý nghĩa khi chapter lên hàng trăm trang.
+
+### 4. Lỗi thật do live verification phát hiện
+
+**Lỗi A — không trang nào dịch lại được nữa (lỗi của M5/M6, đã sửa).**
+Định xuất bản `llm_context` để so sánh thì `POST /pages/{id}/retry-translate` trả **409**:
+*"Page đang ở 'typeset_done' — cần xoá chữ xong trước khi dịch"*.
+Danh sách điều kiện của M5 viết khi `typeset_done` chưa phải trạng thái tự động; từ M6 pipeline nối
+chuỗi nên **mọi trang đều kết thúc ở `typeset_done`** ⇒ endpoint dịch lại cả trang chết hẳn, im lặng,
+suốt từ M6 tới giờ. M7 chỉ mở đường dịch lại **từng vùng** nên che mất triệu chứng.
+Sửa: thêm `typeset_done` vào danh sách cho phép (state machine đã cho `typeset_done → translated`),
+kèm test canh.
+
+**Lỗi B — không phải lỗi phần mềm, nhưng phải ghi: worker bị OOM giết, job kẹt `running` mãi.**
+Khi chạy xoá chữ trang thứ 4, worker bị **SIGKILL (signal 9)**:
+`WorkerLostError: Worker exited prematurely: signal 9`. Job giữ nguyên `status=running` **vĩnh viễn**,
+`error_log` rỗng — không ai đánh dấu `failed`, pipeline đứng im mà nhìn vào không biết vì sao.
+Chạy lại tay thì thành công (116,8 s). Máy có 62 GB RAM, container **không đặt giới hạn**.
+⇒ Đây là lỗ hổng **thật** của hạ tầng M2–M6, ngoài phạm vi M8: cần watchdog phát hiện job `running`
+quá lâu mà worker đã chết. Ghi vào phần còn treo.
+
+### 5. Chất lượng bản dịch trong file giao đi — phát hiện lớn nhất của M8
+
+File CBZ đầu tiên xuất ra **có chữ tiếng Anh chưa dịch**. Truy nguyên: không phải lỗi xuất — xuất
+đang phản ánh trung thực thứ pipeline tạo ra.
+
+| Chữ gốc OCR đọc | `google_fast` (mặc định, miễn phí) | `llm_context` (Gemini) |
+|---|---|---|
+| `ITIS` / `TOO LATE` | **`CNTT`** / `QUÁ TRỄ` | **Muộn quá rồi.** |
+| `THE SUN` / `ISUP` | `MẶT TRỜI` / **`ISUP`** | **Mặt trời lên rồi.** |
+| `HOLDON` / `TIGHT` | **`HOLDON`** / `CHẮC CHẮN` | **Bám chắc vào.** |
+| `ISEE` / `THE END` | **`ISEE`** / `KẾT THÚC` | **Tôi thấy đích rồi.** |
+| `WE MUST` / `GO` | `CHÚNG TÔI PHẢI ĐI` (tràn khung) | **Chúng ta phải đi thôi.** |
+
+OCR dính chữ (`IT IS`→`ITIS`, `I SEE`→`ISEE`) là chuyện thường. `google_fast` dịch **từng dòng rời**
+nên gặp token lạ là bỏ nguyên tiếng Anh — thậm chí đoán bậy: `ITIS` bị Google hiểu là **viết tắt** và
+dịch thành `CNTT` (Công Nghệ Thông Tin). `llm_context` nhìn cả trang nên **tự sửa lỗi OCR**, đúng như
+đã chứng minh ở M5 với `IAM` → "Ta ở đây."
+
+**Giá của việc sửa: 386 token cho 2 trang** (184 + 202).
+
+⇒ Mặc định `google_fast` vẫn đúng cho nguyên tắc "không tự tiêu tiền người dùng", nhưng
+**cần cảnh báo trước khi giao file**: xuất bằng bản miễn phí có thể ra chữ chưa dịch. Đây là việc của
+mini-spec sau, không mở rộng M8 giữa chừng.
+
+### 6. Giới hạn của lần đo này
+
+- **Run C vẫn treo** — vẫn là ảnh tổng hợp. Riêng lần này ảnh mẫu còn có nhược điểm mới: chữ nguồn vẽ
+  bằng font mặc định của Pillow nên rất nhỏ, khiến bbox nhận diện chỉ **~50×34 px** (so với ~190×85 ở
+  fixture cũ) ⇒ chữ dịch trong ảnh xuất ra trông rất nhỏ. **Không phải lỗi xuất** — M6 canh đúng vào
+  bbox nó nhận được.
+- **Chưa mở file CBZ bằng ứng dụng đọc truyện thật** (Tachiyomi/Perfect Viewer) — mới kiểm bằng
+  `zipfile` + Pillow: đúng cấu trúc ZIP, đúng thứ tự tên, mỗi ảnh mở được. Đủ để tin nhưng chưa phải
+  bằng chứng cuối cùng.
+- **Chưa đo trên chapter lớn** (hàng trăm trang) — mọi con số thời gian đều từ 4 trang.
+- **Chỉ 3/6 và 4/6 bubble được nhận diện** trên 2 trang mới ⇒ tỷ lệ nhận diện của M2 trên ảnh tổng
+  hợp kiểu này còn thấp, củng cố thêm lý do phải có ảnh manga thật.

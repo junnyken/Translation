@@ -33,6 +33,7 @@ from app.core.db import get_session  # noqa: E402
 from app.main import app  # noqa: E402
 
 TABLES = (
+    "export_job",
     "job",
     "typeset_result",
     "translation_result",
@@ -222,6 +223,9 @@ def no_broker_for_chained_ocr(monkeypatch):
         "app.api.v1.routes.dispatch_region_retranslate_job",
         lambda job_id, region_id, engine=None: (True, None),
     )
+    # M8 — xuất chapter
+    monkeypatch.setattr(tasks.run_export_job, "delay", lambda job_id: sent.append(job_id))
+    monkeypatch.setattr("app.api.v1.routes.dispatch_export_job", lambda job_id: (True, None))
     return sent
 
 

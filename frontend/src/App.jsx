@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import * as api from './api.js'
 import BboxOverlay from './components/BboxOverlay.jsx'
+import ExportPanel from './components/ExportPanel.jsx'
 import RegionPanel from './components/RegionPanel.jsx'
 import StatusBadge from './components/StatusBadge.jsx'
 
@@ -119,18 +120,27 @@ export default function App() {
       {thongBao && <div className="bang-tin">{thongBao}</div>}
 
       {project && !pageId && (
-        <section className="danh-sach">
-          <h2>{project.name}</h2>
-          <p className="ghi-chu">Chọn một trang để sửa:</p>
-          <ul>
-            {(project.pages ?? []).map((p) => (
-              <li key={p.id}>
-                <a href={`#page=${p.id}`}>Trang {p.order ?? '?'} — {p.id.slice(0, 8)}</a>
-                <StatusBadge trangThai={p.status} />
-              </li>
-            ))}
-          </ul>
-        </section>
+        <div className="bo-cuc-project">
+          <section className="danh-sach">
+            <h2>{project.name}</h2>
+            <p className="ghi-chu">Chọn một trang để sửa:</p>
+            <ul>
+              {(project.pages ?? []).map((p) => (
+                <li key={p.id}>
+                  <a href={`#page=${p.id}`}>Trang {p.order ?? '?'} — {p.id.slice(0, 8)}</a>
+                  <StatusBadge trangThai={p.status} />
+                </li>
+              ))}
+            </ul>
+          </section>
+          <ExportPanel projectId={projectId} tenProject={project.name} />
+        </div>
+      )}
+
+      {chiTiet && chiTiet.page?.project_id && (
+        <p className="ghi-chu">
+          <a href={`#project=${chiTiet.page.project_id}`}>← Về danh sách trang &amp; xuất chapter</a>
+        </p>
       )}
 
       {chiTiet && (

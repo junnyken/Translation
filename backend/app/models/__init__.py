@@ -22,6 +22,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
 from app.models.enums import (
+    ExportFormat,
     FitStatus,
     IntendedUse,
     JobStatus,
@@ -89,6 +90,9 @@ class Page(TimestampMixin, Base):
     # NULL cho tới khi M4 (inpaint) chạy thật — không đặt giá trị giả.
     clean_image_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     order: Mapped[int] = mapped_column(Integer, nullable=False)
+    #: Lần cuối trang này được xuất thành công (M8). NULL = chưa từng xuất — dùng để đối chiếu
+    #: xem file đang cầm có cũ hơn lần sửa tay gần nhất không.
+    exported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[PageStatus] = mapped_column(
         _enum(PageStatus, "page_status"), nullable=False, default=PageStatus.queued
     )
@@ -212,3 +216,27 @@ __all__ = [
     "TypesetResult",
     "Job",
 ]
+
+
+class ExportJob(TimestampMixin, Base):
+    """Một lần xuất chapter (M8). Tách khỏi bảng `Job` vì gắn với PROJECT, không gắn với 1 page."""
+
+    __tablename__ = "export_job"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("project.id", ondelete="CASCADE"), nullable=False
+    )
+    format: Mapped[ExportFormat] = mapped_column(
+        _enum(ExportFormat, "export_format"), nullable=False
+    )
+    #: Dùng chung enum `job_status` của M1 — trạng thái y hệt, không tạo enum trùng nghĩa.
+    status: Mapped[JobStatus] = mapped_column(
+        _enum(JobStatus, "job_status"), nullable=False, default=JobStatus.queued
+    )
+    #: File .cbz/.zip, hoặc THƯ MỤC khi format là png_single. NULL cho tới khi xuất xong.
+    output_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    page_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    #: Số vùng còn tràn khung TẠI THỜI ĐIỂM xuất — không chặn xuất, nhưng phải ghi lại.
+    overflow_warning_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error_log: Mapped[str | None] = mapped_column(Text, nullable=True)

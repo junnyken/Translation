@@ -39,6 +39,10 @@ detect → OCR → xoá chữ → dịch → canh chữ (~2-3 phút trên CPU) �
 Xem bằng API: `GET /pages/{id}/regions` (khung chữ) · `/ocr` (chữ gốc) · `/translation` (bản dịch) ·
 `/typeset` (cỡ chữ + cảnh báo tràn khung) · `/clean-image`, `/typeset-preview` (ảnh).
 
+Xong thì **xuất cả chapter**: mở `http://localhost:5174/#project=<project_id>` → xem trước cảnh báo →
+chọn CBZ/ZIP/PNG → tải về. Hoặc qua API: `POST /projects/{id}/export` → `GET /export-jobs/{id}` →
+`GET /export-jobs/{id}/download`.
+
 Image `worker` nặng ~4,5GB (torch CPU + manga-ocr + PaddleOCR); image `api` giữ 1,06GB vì
 **không** chứa thư viện AI. Lần chạy đầu worker tải model OCR (~460MB) vào volume `model_cache`.
 
@@ -50,7 +54,7 @@ Cổng mặc định (đổi trong `.env`): API `8010`, màn sửa tay `5174`, P
 docker compose up -d db
 cd backend
 python3 -m venv ../.venv && ../.venv/bin/pip install -r requirements-dev.txt
-../.venv/bin/python -m pytest          # 366 test: unit + integration + migration + guardrail
+../.venv/bin/python -m pytest          # 421 test: unit + integration + migration + guardrail
 MTE_RUN_MODEL_TESTS=1 ../.venv/bin/python -m pytest tests/test_detect_real_model.py  # ONNX thật (~40-60s/ảnh)
 # Engine OCR thật phải chạy trong container worker:
 docker compose exec worker sh -c "MTE_RUN_OCR_TESTS=1 python -m pytest tests/test_ocr_real_engine.py -q"

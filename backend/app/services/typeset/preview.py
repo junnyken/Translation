@@ -50,11 +50,12 @@ class PagePreviewRenderer:
         self.stroke_width = int(stroke_width)
         self.mark_overflow = mark_overflow
 
-    def render(self, clean_image_path: str, regions: list[RegionDraw], target_path: str) -> str:
-        """Copy ảnh clean sang canvas mới rồi vẽ chữ. Trả đường dẫn tuyệt đối đã ghi.
+    def draw(self, clean_image_path: str, regions: list[RegionDraw]) -> Image.Image:
+        """Vẽ chữ lên bản sao của ảnh clean và trả về **ảnh trong bộ nhớ**, không ghi file.
 
-        Ghi ra file tạm rồi `os.replace` — đổi chỗ nguyên tử, nên preview cũ chỉ bị thay khi
-        ảnh mới đã ghi xong. Không bao giờ để lộ preview vẽ dở.
+        Tách riêng khỏi `render()` để M8 xuất chapter dùng lại ĐÚNG logic vẽ này mà không cần
+        file trung gian — hai đường vẽ khác nhau là mầm mống sai lệch giữa ảnh xem thử và
+        ảnh xuất ra.
         """
         with Image.open(clean_image_path) as goc:
             canvas = goc.convert("RGB").copy()
@@ -107,6 +108,15 @@ class PagePreviewRenderer:
                     outline="red", width=2,
                 )
 
+        return canvas
+
+    def render(self, clean_image_path: str, regions: list[RegionDraw], target_path: str) -> str:
+        """Vẽ rồi ghi ra file. Trả đường dẫn tuyệt đối đã ghi.
+
+        Ghi ra file tạm rồi `os.replace` — đổi chỗ nguyên tử, nên ảnh cũ chỉ bị thay khi ảnh mới
+        đã ghi xong. Không bao giờ để lộ ảnh vẽ dở.
+        """
+        canvas = self.draw(clean_image_path, regions)
         target = Path(target_path)
         target.parent.mkdir(parents=True, exist_ok=True)
         tam = target.with_suffix(".tmp.png")

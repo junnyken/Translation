@@ -89,6 +89,7 @@ def test_celery_da_dang_ky_dung_task_detect_cua_m2():
         "typeset.run_refit_job",
         "ocr.run_region_reocr_job",
         "translate.run_region_retranslate_job",
+        "export.run_export_job",
     }, user_tasks
 
 
@@ -455,3 +456,68 @@ def test_sau_task_co_sau_timeout_rieng():
 
     assert run_refit_job.soft_time_limit is not None
     assert run_refit_job.soft_time_limit != run_typeset_job.soft_time_limit
+
+
+# ---------------- M8: xuất chapter ----------------
+
+
+def test_duong_dan_export_doc_duoc_ma_khong_keo_pillow():
+    """API cần biết chỗ đặt file để phục vụ tải về — vẫn không được nạp engine render."""
+    import subprocess
+    import sys
+
+    code = (
+        "import sys; from app.services.export.paths import export_relative_dir;"
+        " assert 'PIL' not in sys.modules, 'import export.paths đã kéo theo Pillow';"
+        " print('ok')"
+    )
+    r = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, cwd=str(APP_DIR.parent)
+    )
+    assert r.returncode == 0, r.stderr
+
+
+def test_endpoint_tai_ve_chi_phuc_vu_file_khong_tu_render():
+    routes = (APP_DIR / "api" / "v1" / "routes.py").read_text()
+    than = routes[routes.index("async def download_export") :]
+    than = than[: than.index("@router.get")]
+    for cam in ("ChapterExporter", "PagePreviewRenderer", "zipfile", "ImageDraw", "run_export_job"):
+        assert cam not in than, f"endpoint tải về không được đụng tới {cam}"
+
+
+def test_khong_export_trang_chua_canh_chu():
+    """Chỉ trang `typeset_done`/`ready_for_export` mới được xuất — xuất trang chưa canh chữ là
+    giao cho người đọc ảnh trắng không có chữ."""
+    from app.models.enums import PageStatus
+    from app.workers.tasks import TRANG_XUAT_DUOC
+
+    assert set(TRANG_XUAT_DUOC) == {PageStatus.typeset_done, PageStatus.ready_for_export}
+    for xau in (PageStatus.queued, PageStatus.detected, PageStatus.ocr_done,
+                PageStatus.inpainted, PageStatus.translated):
+        assert xau not in TRANG_XUAT_DUOC
+
+
+def test_export_dung_lai_renderer_cua_m6_khong_viet_lai():
+    """Hai đường vẽ khác nhau ⇒ ảnh xuất ra lệch với ảnh xem thử. Phải dùng chung `draw()`."""
+    chapter = (APP_DIR / "services" / "export" / "chapter.py").read_text()
+    assert "self.renderer.draw(" in chapter
+    for cam in ("ImageDraw", "multiline_text", "getlength", "FontResolver"):
+        assert cam not in chapter, f"export tự vẽ lấy bằng {cam} thay vì dùng renderer của M6"
+
+
+def test_bay_task_co_bay_timeout_rieng():
+    from app.workers.tasks import run_export_job, run_refit_job, run_typeset_job
+
+    assert run_export_job.soft_time_limit is not None
+    assert run_export_job.soft_time_limit not in (
+        run_typeset_job.soft_time_limit,
+        run_refit_job.soft_time_limit,
+    ), "export phải có timeout riêng, không copy của job khác"
+
+
+def test_ten_file_export_khong_co_ky_tu_gay_loi_he_tep():
+    from app.services.export.naming import ten_file_export
+
+    ten = ten_file_export('Truyện /' + chr(92) + ':*?"<>| Hay', "cbz")
+    for ky_tu in '/' + chr(92) + ':*?"<>|':
+        assert ky_tu not in ten
