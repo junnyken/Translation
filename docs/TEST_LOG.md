@@ -894,3 +894,109 @@ mini-spec sau, không mở rộng M8 giữa chừng.
 - **Chưa đo trên chapter lớn** (hàng trăm trang) — mọi con số thời gian đều từ 4 trang.
 - **Chỉ 3/6 và 4/6 bubble được nhận diện** trên 2 trang mới ⇒ tỷ lệ nhận diện của M2 trên ảnh tổng
   hợp kiểu này còn thấp, củng cố thêm lý do phải có ảnh manga thật.
+
+---
+
+## Run C — đo trên TRUYỆN TRANH THẬT (không còn là ảnh tự vẽ)
+
+**Ngày:** 2026-08-28 · **Môi trường:** máy nhà (Docker), pipeline đầy đủ M2→M8.
+**Chạy bằng:** `scripts/do_run_c.py` — kịch bản lặp lại được, không chép số bằng tay.
+
+### 0. Ảnh dùng để đo
+
+**Pepper&Carrot** tập 1, tác giả **David Revoy** — https://www.peppercarrot.com — **CC BY-SA 4.0**.
+
+Chọn bộ này thay vì một trang manga chép từ dịch vụ đọc truyện vì hai lý do đều quan trọng:
+truyện **vẽ tay thật** (nền màu, chuyển sắc, bong bóng thật) khác hẳn ảnh tổng hợp nền phẳng mà
+M2–M8 vẫn dùng; và **giấy phép rõ ràng** nên số đo ghi vào đây công bố được và tái lập được.
+
+Đo ở **1600×2259** — đúng cỡ các dịch vụ đọc truyện phục vụ, không phải cỡ in 2481×3503.
+
+### 1. Kết quả từng trang
+
+**Trang E01P02** — 4 vùng nhận diện, **150 s**:
+
+| # | Khung | Tin cậy | OCR đọc được | Bản dịch (`llm_context`) | Canh chữ |
+|---|---|---|---|---|---|
+| 1 | 96×64 | 0,87 | `ha...\nperfect.` | Ha... hoàn hảo. | `fit_ok` cỡ 21 |
+| 2 | 196×100 | 0,93 | `NO!\nDon't even think\nabout it.` | **KHÔNG! Đừng hòng nghĩ đến chuyện đó.** | `fit_ok` cỡ 23 |
+| 3 | 104×197 | 0,63 | *(rỗng)* | — | `pending` |
+| 4 | 603×177 | 0,38 | `SPLASH\n18` | **BÕM!** | `fit_ok` cỡ 40 |
+
+**Trang E01P03** — 3 vùng, **99 s**:
+
+| # | Khung | Tin cậy | OCR đọc được | Bản dịch | Canh chữ |
+|---|---|---|---|---|---|
+| 1 | 106×35 | 0,82 | `Happy?!` | Vui vẻ á?! | `fit_ok` cỡ 24 |
+| 2 | 507×56 | 0,46 | *(rỗng)* | — | `pending` |
+| 3 | 147×46 | 0,58 | `WWW.PEPPERCARROT.COM\n05/2014` | WWW.PEPPERCARROT.COM | `fit_ok` cỡ 18 |
+
+### 2. Đối chiếu với tiêu chí đã treo từ M2
+
+| Tiêu chí | Kết quả trên ảnh thật |
+|---|---|
+| **M2: nhận đúng ≥90% bong bóng có chữ** | **3/3 bong bóng thoại thật đều tìm ra (100%)** — đếm tay trên ảnh gốc |
+| Nhận nhầm | **2 vùng nhận nhầm** (cây chổi, vệt sáng) — nhưng **cả hai đều có độ tin cậy thấp** (0,46 và 0,63) và OCR trả rỗng nên **tự gắn `needs_manual` + `pending`**, không lọt vào bản dịch |
+| **M3: ≥80% OCR đúng nghĩa** | **3/3 câu thoại đọc CHÍNH XÁC từng chữ**, kể cả dấu nháy `Don't` và dấu chấm lửng `ha...` |
+| **M4: ≥90% vùng xoá sạch** | **5/5 vùng xoá sạch**, và quan trọng hơn: **hình bong bóng giữ nguyên vẹn** trên nền vẽ tay (xem §4) |
+| **M6: chữ vừa khung** | **5/5 `fit_ok`, 0 tràn khung** |
+
+### 3. PHÁT HIỆN LỚN NHẤT — bộ nhớ xoá chữ tỉ lệ với diện tích trang
+
+Trang thật **làm chết worker** ngay lần chạy đầu: `WorkerLostError: signal 9 (SIGKILL)`.
+
+Đo thật mức RAM đỉnh của LaMa:
+
+| Cỡ ảnh | Triệu điểm ảnh | RAM đỉnh | Kết quả |
+|---|---|---|---|
+| 1400×2000 (fixture cũ) | 2,8 | 4.481 MB | chạy được |
+| **1600×2259 (trang thật, cỡ đọc)** | **3,6** | **5.415 MB** | **bị hệ điều hành giết** |
+| 2481×3503 (cỡ in) | 8,7 | ~14 GB (suy ra) | không khả thi |
+
+⇒ **~1,6 GB RAM cho mỗi triệu điểm ảnh.** Ảnh tổng hợp của M2–M8 chỉ 1200×1700 (2,0 triệu điểm)
+nên **suốt 7 mini-spec không có gì làm lộ ra giới hạn này**. Đây đúng là thứ Run C sinh ra để tìm.
+
+**Đã sửa: xoá chữ theo CỤM bong bóng thay vì cả trang.** Bộ nhớ khi đó tỉ lệ với ô cắt, không
+với trang. Các vùng gần nhau được gộp làm một cụm để chỗ giao không bị vẽ đè hai lượt.
+
+Đo lại trên đúng ảnh vừa làm chết worker (1600×2259, 4 bong bóng):
+
+| Cách làm | RAM đỉnh | Thời gian |
+|---|---|---|
+| Cả trang (cách cũ) | 5.415 MB | 72 s |
+| **Theo cụm (cách mới)** | **1.109 MB** | **19 s** |
+
+**Giảm 5 lần bộ nhớ, nhanh gấp 3,8 lần.** Trang ≤ `INPAINT_WHOLE_PAGE_MAX_MPX` (mặc định 2,5
+triệu điểm) vẫn chạy cả trang như M4 đã kiểm chứng — đường cũ không bị đụng tới.
+
+### 4. Nhìn bằng mắt — thứ ảnh nền phẳng không kiểm được
+
+Phóng to bong bóng `NO! Don't even think about it.` trên nền tranh vẽ tay:
+
+- Chữ **xoá sạch hoàn toàn**, không còn vệt mờ nào.
+- **Đường viền bong bóng còn nguyên vẹn** — LaMa không ăn lem vào nét vẽ. Đây là điều đáng lo
+  nhất trước khi đo (fixture cũ chỉ có nền trắng phẳng nên không chứng minh được gì).
+- Chữ Việt chèn vào nằm gọn trong bong bóng.
+
+Trang E01P03 (nền trời đêm nhiều sao, chuyển sắc) cũng cho kết quả tương tự.
+
+### 5. Chất lượng dịch — `llm_context` hơn hẳn, đúng như M8 đã cảnh báo
+
+| Chữ gốc | `google_fast` (miễn phí) | `llm_context` |
+|---|---|---|
+| `NO! Don't even think about it.` | *"KHÔNG! thậm chí không nghĩ về nó."* — **mất hẳn nghĩa cấm đoán** | **"KHÔNG! Đừng hòng nghĩ đến chuyện đó."** |
+| `SPLASH` (từ tượng thanh) | *"TUYỆT VỜI"* — **dịch sai hoàn toàn** | **"BÕM!"** — nhận đúng là tiếng động, và **bỏ luôn số `18`** vốn là hình vẽ lọt vào khung |
+
+Đây là bằng chứng thứ hai, trên ảnh thật, cho kết luận ở `REPORT_M8 §8`.
+
+### 6. Còn treo sau Run C
+
+- **Chưa đo trên manga Nhật thật** (chữ dọc, đọc phải→trái). Pepper&Carrot là truyện phương Tây,
+  chữ ngang — nên Run C này **chưa** kiểm được đường `ja` và giới hạn "không hỗ trợ chữ dọc"
+  đã ghi ở `REPORT_M6 §10`.
+- **Nhận nhầm 2/7 vùng** (~29%). Không lọt vào bản dịch nhờ ngưỡng tin cậy, nhưng vẫn tạo ra
+  vùng thừa mà người biên tập phải bỏ qua bằng tay.
+- **Dòng ghi công của tác giả bị coi là chữ cần dịch** (`WWW.PEPPERCARROT.COM 05/2014`). Về
+  nguyên tắc không nên đụng vào; cần một luật loại trừ vùng ở rìa trang.
+- **Cỡ in (8,7 triệu điểm ảnh) chưa đo** — theo tỉ lệ thì cần ~14 GB nếu chạy cả trang; với cách
+  cắt cụm thì không còn phụ thuộc cỡ trang nữa, nhưng phải đo mới được nói chắc.

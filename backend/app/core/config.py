@@ -115,6 +115,11 @@ class Settings(BaseSettings):
     #: Kiểm chứng khách quan: OCR lại đúng vùng đã xoá, còn chữ -> inpaint_needs_review.
     inpaint_verify_by_ocr: bool = True
     inpaint_intra_op_threads: int = 0
+    #: Trang bao nhiêu TRIỆU ĐIỂM ẢNH trở xuống thì xoá chữ cả trang một lượt; lớn hơn thì chia
+    #: theo cụm bong bóng. Đo thật: LaMa cần ~1,6 GB RAM cho mỗi triệu điểm ảnh, nên trang truyện
+    #: thật ở cỡ đọc (3,6 triệu điểm) chạy cả trang là bị hệ điều hành giết.
+    inpaint_whole_page_max_mpx: float = 2.5
+    inpaint_tile_margin: int = 96
     #: Constraint 10 của M4: KHÔNG lặng lẽ lùi về cv2.inpaint khi LaMa lỗi.
     #: Muốn cho phép fallback thì phải bật tường minh ở đây.
     inpaint_allow_opencv_fallback: bool = False

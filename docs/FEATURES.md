@@ -89,9 +89,11 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 - **Nếu máy chủ hết bộ nhớ giữa chừng**, việc đang chạy sẽ treo mãi ở trạng thái “đang chạy” mà
   không báo lỗi — phải nhìn log mới biết.
 - Chưa có giao diện người dùng — mới chỉ có Swagger để thao tác tay; chưa có ảnh vẽ khung để nhìn bằng mắt (M7).
-- **Chưa đo trên trang manga scan thật**: số liệu nhận diện (M2), độ chính xác đọc chữ (M3),
-  xoá chữ (M4), chất lượng dịch (M5) và canh chữ (M6) hiện chỉ đo trên ảnh tổng hợp do repo tự sinh —
-  chưa nghiệm thu cuối cùng.
+- **Đã đo trên truyện tranh thật** (Pepper&Carrot, giấy phép mở): tìm đúng 3/3 bong bóng thoại,
+  đọc chữ đúng 3/3, chèn chữ vừa khung 5/5. **Nhưng chưa thử manga Nhật** (chữ dọc, đọc phải→trái).
+- **Nhận nhầm khoảng 2/7 vùng** trên ảnh thật (cây chổi, vệt sáng bị tưởng là chữ). Không lọt vào
+  bản dịch vì độ tin cậy thấp, nhưng người biên tập vẫn phải bỏ qua bằng tay.
+- **Dòng ghi công của tác giả bị coi là chữ cần dịch** — cần luật loại trừ vùng ở rìa trang.
 - **Chữ chỉ nằm ngang**: chưa hỗ trợ chữ dọc, chữ xoay nghiêng hay chữ tượng thanh (SFX) cách điệu.
 - **Bong bóng dẹt có thể bị chạm mép**: hệ thống tính theo khung chữ nhật bao quanh bong bóng, nên với
   bong bóng rất dẹt chữ vẫn có thể chạm mép cong. Chưa gặp trên ảnh mẫu, cần thử ảnh thật.

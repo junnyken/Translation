@@ -1,0 +1,60 @@
+{
+  "project_id": "031d5431-91b6-4fdd-9ddf-d4496fe22450",
+  "nguon": "en",
+  "trang": [
+    {
+      "so_vung": 3,
+      "vung": [
+        {
+          "thu_tu": 1,
+          "khung": {
+            "x": 508,
+            "y": 919,
+            "w": 106,
+            "h": 35
+          },
+          "do_tin_cay": 0.818,
+          "chu_goc": "Happy?!",
+          "trang_thai_ocr": "ok",
+          "ban_dich": "Vui vẻ á?!",
+          "co_chu": 24.0,
+          "vua_khung": "fit_ok"
+        },
+        {
+          "thu_tu": 2,
+          "khung": {
+            "x": 121,
+            "y": 1660,
+            "w": 507,
+            "h": 56
+          },
+          "do_tin_cay": 0.465,
+          "chu_goc": "",
+          "trang_thai_ocr": "needs_manual",
+          "ban_dich": null,
+          "co_chu": null,
+          "vua_khung": "pending"
+        },
+        {
+          "thu_tu": 3,
+          "khung": {
+            "x": 1066,
+            "y": 1798,
+            "w": 147,
+            "h": 46
+          },
+          "do_tin_cay": 0.583,
+          "chu_goc": "WWW.PEPPERCARROT.COM\n05/2014",
+          "trang_thai_ocr": "ok",
+          "ban_dich": "WWW.PEPPERCARROT.COM",
+          "co_chu": 18.0,
+          "vua_khung": "fit_ok"
+        }
+      ],
+      "page_id": "7330116c-405b-4c59-b847-6756ec02f3e2",
+      "tep": "pc_E01P03_1600.png",
+      "trang_thai": "typeset_done",
+      "giay": 99.2
+    }
+  ]
+}

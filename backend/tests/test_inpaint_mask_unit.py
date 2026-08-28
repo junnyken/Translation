@@ -78,3 +78,64 @@ class TestBuildMask:
     def test_mask_coverage_tinh_dung_ty_le(self):
         m = build_mask(100, 100, [BBox(0, 0, 50, 100)])
         assert mask_coverage(m) == pytest.approx(0.5)
+
+
+# ---------------- Gom cụm để xoá chữ theo ô (sinh ra từ Run C) ----------------
+
+
+class TestGomCum:
+    """Bộ nhớ LaMa tỉ lệ THUẬN với diện tích ảnh — đo thật ~1,6 GB / triệu điểm ảnh.
+
+    Trang truyện thật ở cỡ đọc (1600x2259 ≈ 3,6 triệu điểm) chạy cả trang thì bị hệ điều hành
+    giết bằng SIGKILL. Ảnh tổng hợp của M2–M8 chỉ 1200x1700 (2,0 triệu điểm) nên không bao giờ
+    lộ ra. Cắt theo cụm làm bộ nhớ tỉ lệ với Ô CẮT chứ không với trang.
+    """
+
+    def test_moi_vung_ra_mot_o_da_noi_le(self):
+        from app.services.inpaint.lama import gom_cum
+
+        o = gom_cum([BBox(x=500, y=500, w=100, h=50)], 2000, 2000, le=96)
+        assert o == [(404, 404, 696, 646)]
+
+    def test_hai_vung_xa_nhau_thi_hai_o_rieng(self):
+        from app.services.inpaint.lama import gom_cum
+
+        o = gom_cum(
+            [BBox(x=100, y=100, w=80, h=40), BBox(x=1500, y=1500, w=80, h=40)],
+            2000, 2000, le=50,
+        )
+        assert len(o) == 2
+
+    def test_hai_vung_sat_nhau_thi_gop_lam_mot(self):
+        """Chạy model hai lần trên vùng giao nhau sẽ vẽ đè hai lượt, dễ lộ đường nối."""
+        from app.services.inpaint.lama import gom_cum
+
+        o = gom_cum(
+            [BBox(x=500, y=500, w=100, h=50), BBox(x=560, y=520, w=100, h=50)],
+            2000, 2000, le=96,
+        )
+        assert len(o) == 1
+        assert o[0][0] <= 404 and o[0][2] >= 756
+
+    def test_o_luon_nam_trong_anh(self):
+        from app.services.inpaint.lama import gom_cum
+
+        o = gom_cum([BBox(x=5, y=5, w=50, h=30)], 300, 200, le=200)
+        assert o == [(0, 0, 255, 200)]
+
+    def test_khong_co_vung_nao_thi_khong_co_o(self):
+        from app.services.inpaint.lama import gom_cum
+
+        assert gom_cum([], 100, 100, le=10) == []
+
+    def test_dien_tich_o_nho_hon_han_ca_trang(self):
+        """Đây chính là điều khiến việc cắt ô có ý nghĩa — phải đo, không nói suông."""
+        from app.services.inpaint.lama import gom_cum
+
+        rong, cao = 1600, 2259
+        vung = [BBox(x=200 + i * 300, y=300 + i * 400, w=200, h=100) for i in range(4)]
+        o = gom_cum(vung, rong, cao, le=96)
+        dien_tich_o = sum((x1 - x0) * (y1 - y0) for x0, y0, x1, y1 in o)
+        assert dien_tich_o < rong * cao * 0.25, (
+            f"ô chiếm {dien_tich_o / (rong * cao):.0%} trang — cắt ô không còn tiết kiệm được gì"
+        )

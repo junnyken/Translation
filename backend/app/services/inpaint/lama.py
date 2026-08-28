@@ -32,6 +32,46 @@ class InpaintFailed(RuntimeError):
     pass
 
 
+def gom_cum(masks: list, rong: int, cao: int, le: int) -> list[tuple[int, int, int, int]]:
+    """Gom các vùng gần nhau thành từng CỤM, trả các ô cắt (x0, y0, x1, y1) đã nới lề.
+
+    Vì sao phải cắt ô thay vì chạy cả trang: bộ nhớ LaMa tỉ lệ THUẬN với diện tích ảnh —
+    đo thật **~1,6 GB cho mỗi triệu điểm ảnh**. Trang truyện thật ở cỡ đọc (1600x2259 ≈ 3,6
+    triệu điểm) cần ~5,8 GB và bị hệ điều hành giết; ở cỡ in (2481x3503) cần ~14 GB.
+    Cắt theo cụm thì bộ nhớ tỉ lệ với ô cắt chứ không với trang.
+
+    Lề (`le`) là phần ảnh xung quanh để model có ngữ cảnh mà vẽ lại cho khớp nền.
+    """
+    o = []
+    for m in masks:
+        x0 = max(0, int(m.x) - le)
+        y0 = max(0, int(m.y) - le)
+        x1 = min(rong, int(m.x + m.w) + le)
+        y1 = min(cao, int(m.y + m.h) + le)
+        if x1 > x0 and y1 > y0:
+            o.append([x0, y0, x1, y1])
+    if not o:
+        return []
+
+    # Gộp các ô chồng nhau cho tới khi không gộp được nữa: hai bong bóng sát nhau mà chạy
+    # model hai lần thì vùng giao bị vẽ đè hai lượt, dễ lộ đường nối.
+    doi = True
+    while doi:
+        doi = False
+        ket = []
+        for c in o:
+            for k in ket:
+                if not (c[2] <= k[0] or c[0] >= k[2] or c[3] <= k[1] or c[1] >= k[3]):
+                    k[0], k[1] = min(k[0], c[0]), min(k[1], c[1])
+                    k[2], k[3] = max(k[2], c[2]), max(k[3], c[3])
+                    doi = True
+                    break
+            else:
+                ket.append(list(c))
+        o = ket
+    return [tuple(c) for c in o]
+
+
 def _pad_to_multiple(arr: np.ndarray, multiple: int = _SIZE_MULTIPLE) -> tuple[np.ndarray, int, int]:
     """Pad mép phải/dưới cho chia hết `multiple`. Trả (mảng đã pad, pad_h, pad_w)."""
     h, w = arr.shape[-2], arr.shape[-1]
@@ -54,12 +94,19 @@ class LamaInpainter:
         dilate_ratio: float = 0.08,
         clean_suffix: str = "_clean",
         intra_op_threads: int = 0,
+        whole_page_max_mpx: float = 2.5,
+        tile_margin: int = 96,
     ) -> None:
         self.weights_path = weights_path
         self.device = device
         self.dilate_ratio = dilate_ratio
         self.clean_suffix = clean_suffix
         self.intra_op_threads = intra_op_threads
+        #: Trang bao nhiêu triệu điểm ảnh trở xuống thì chạy CẢ TRANG một lượt (đường đã kiểm
+        #: chứng ở M4). Lớn hơn thì chạy theo cụm, vì bộ nhớ LaMa ~1,6 GB / triệu điểm ảnh.
+        self.whole_page_max_mpx = whole_page_max_mpx
+        #: Lề ảnh giữ quanh mỗi cụm để model có ngữ cảnh vẽ lại cho khớp nền.
+        self.tile_margin = tile_margin
         self._session = None
         self._lock = threading.Lock()
 
@@ -103,6 +150,29 @@ class LamaInpainter:
         return target
 
     # ---------- API công khai ----------
+    def _chay_model(self, rgb: np.ndarray, mask: np.ndarray) -> np.ndarray:
+        """Chạy LaMa trên một mảng ảnh HWC (0..1) + mask HW, trả ảnh dự đoán HWC cùng cỡ."""
+        cao, rong = mask.shape
+        chw = rgb.transpose(2, 0, 1)[None]  # 1,3,H,W
+        mask_in = mask[None, None]  # 1,1,H,W
+
+        padded_img, pad_h, pad_w = _pad_to_multiple(chw)
+        padded_mask, _, _ = _pad_to_multiple(mask_in)
+
+        session = self._get_session()
+        in_names = [i.name for i in session.get_inputs()]
+        outputs = session.run(None, {in_names[0]: padded_img.astype(np.float32),
+                                     in_names[1]: padded_mask.astype(np.float32)})
+        pred = outputs[0]
+        if pred.ndim != 4:
+            raise InpaintFailed(f"Output LaMa có shape lạ: {pred.shape}")
+
+        pred = pred[0, :, : padded_img.shape[2] - pad_h, : padded_img.shape[3] - pad_w]
+        pred_hwc = np.clip(pred.transpose(1, 2, 0), 0.0, 1.0)
+        if pred_hwc.shape[:2] != (cao, rong):
+            raise InpaintFailed(f"LaMa trả ảnh {pred_hwc.shape[:2]} khác đầu vào {(cao, rong)}")
+        return pred_hwc
+
     def inpaint(self, image_path: str, masks: list[BBox]) -> str:
         """Xoá chữ trong các vùng mask, trả ĐƯỜNG DẪN ẢNH CLEAN (file mới).
 
@@ -123,27 +193,24 @@ class LamaInpainter:
         if mask.max() <= 0:
             raise InvalidMask("Mask rỗng sau khi dựng — không có gì để xoá")
 
-        chw = rgb.transpose(2, 0, 1)[None]  # 1,3,H,W
-        mask_in = mask[None, None]  # 1,1,H,W
-
-        padded_img, pad_h, pad_w = _pad_to_multiple(chw)
-        padded_mask, _, _ = _pad_to_multiple(mask_in)
-
-        session = self._get_session()
-        in_names = [i.name for i in session.get_inputs()]
-        outputs = session.run(None, {in_names[0]: padded_img.astype(np.float32),
-                                     in_names[1]: padded_mask.astype(np.float32)})
-        pred = outputs[0]
-        if pred.ndim != 4:
-            raise InpaintFailed(f"Output LaMa có shape lạ: {pred.shape}")
-
-        # bỏ phần pad, về đúng kích thước ảnh gốc
-        pred = pred[0, :, : padded_img.shape[2] - pad_h, : padded_img.shape[3] - pad_w]
-        pred_hwc = np.clip(pred.transpose(1, 2, 0), 0.0, 1.0)
-        if pred_hwc.shape[:2] != (height, width):
-            raise InpaintFailed(
-                f"LaMa trả ảnh {pred_hwc.shape[:2]} khác ảnh gốc {(height, width)}"
+        trieu_diem = (width * height) / 1e6
+        if trieu_diem <= self.whole_page_max_mpx:
+            # Trang nhỏ: chạy cả trang một lượt như M4 đã kiểm chứng.
+            pred_hwc = self._chay_model(rgb, mask)
+        else:
+            # Trang lớn: chạy theo từng cụm bong bóng, nếu không sẽ hết bộ nhớ.
+            pred_hwc = rgb.copy()
+            cum = gom_cum(masks, width, height, self.tile_margin)
+            logger.info(
+                "Ảnh %dx%d (%.1f triệu điểm) vượt ngưỡng %.1f -> xoá chữ theo %d cụm",
+                width, height, trieu_diem, self.whole_page_max_mpx, len(cum),
             )
+            for x0, y0, x1, y1 in cum:
+                o_anh = rgb[y0:y1, x0:x1]
+                o_mask = mask[y0:y1, x0:x1]
+                if o_mask.max() <= 0:
+                    continue
+                pred_hwc[y0:y1, x0:x1] = self._chay_model(o_anh, o_mask)
 
         # Chỉ thay pixel TRONG mask; ngoài mask giữ nguyên từng pixel của ảnh gốc
         # (tránh model làm mờ cả trang).

@@ -458,6 +458,8 @@ def get_inpainter():
             device=settings.inpaint_device,
             dilate_ratio=settings.inpaint_dilate_ratio,
             intra_op_threads=settings.inpaint_intra_op_threads,
+            whole_page_max_mpx=settings.inpaint_whole_page_max_mpx,
+            tile_margin=settings.inpaint_tile_margin,
         )
     return _inpainter
 

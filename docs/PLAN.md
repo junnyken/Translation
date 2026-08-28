@@ -22,15 +22,15 @@ Quy tắc: **tuần tự**, mini-spec sau chỉ mở khi mini-spec trước đã
 
 | Cần | Dùng cho | Tình trạng |
 |---|---|---|
-| 3–5 trang **manga scan thật** (nhiều bubble / ít bubble / có SFX rời) | Đo tỷ lệ nhận diện M2, độ chính xác OCR M3 | **Chưa có — cần bạn cung cấp** |
+| 3–5 trang truyện tranh thật | Đo tỷ lệ nhận diện M2, độ chính xác OCR M3 | ✅ **Đã có** — Pepper&Carrot (CC BY-SA 4.0), Run C đã chạy, xem `TEST_LOG § Run C`. **Vẫn thiếu manga Nhật thật** (chữ dọc, đọc phải→trái) |
 | Model weight comic-text-detector | M2 | ✅ Đã tải (ONNX 91MB, xem ARCH.md §5) |
 | Model weight LaMa | M4 | ✅ Đã tải (ONNX 197MB, MIT/Apache — xem ARCH.md §7) |
 | API key dịch (Gemini/GPT) + key dự phòng | M5, M9 | ✅ Đã có (`GEMINI_API_KEYS` trong `.env`) — lưu ý quota tính theo **project**, không theo key |
 | File font cho M6 | M6 | ✅ **Đã có** — nhưng **không phải 3 font spec chỉ định**: HL Comic2 chỉ 38/134 ký tự Việt (font mã TCVN3 đời 2004), Anime Ace "Limited European Characters" + phải mua license, MTO Comic không tồn tại. Đã thay bằng **Bangers · Shantell Sans · Mansalva · Sigmar One** (SIL OFL, đo thật 134/134) trong `fonts/` — xem `docs/FONTS.md` |
 | Credential Supabase (DB + Storage) nếu muốn dùng Supabase managed | Toàn Phase | Chưa có (đang chạy Postgres local) |
 
-Còn thiếu **ảnh manga thật** — nút thắt chung của M2/M3/M4/M5, mọi số liệu hiện tại đều đo trên ảnh
-tổng hợp. Font cho M6 đã giải quyết xong (xem `docs/FONTS.md`).
+Run C **đã chạy** trên truyện tranh thật có giấy phép rõ (xem `TEST_LOG § Run C`): nhận diện 3/3 bong
+bóng thoại, OCR đúng 3/3, canh chữ 5/5 vừa khung. Còn thiếu **manga Nhật thật** để kiểm đường chữ dọc.
 
 ## Cách chạy mỗi mini-spec (áp cho M2 trở đi)
 
