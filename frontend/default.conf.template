@@ -1,0 +1,13 @@
+# Mẫu cấu hình nginx. Image nginx chính thức chạy envsubst trên mọi file trong
+# /etc/nginx/templates/ (script 20-envsubst-on-templates.sh) rồi đổ ra /etc/nginx/conf.d/.
+#
+# VÌ SAO PHẢI ĐỌC ${PORT} THAY VÌ NƯỚNG CỨNG: nền tảng hosting có bước "Dockerfile Patching"
+# và tự đặt cổng cho container. Website API chạy được vì script khởi động của nó dùng
+# ${PORT:-8000}; còn nginx nướng cứng cổng thì dựng xong, health-gate báo 2xx, nhưng bước
+# chuyển traffic cuối cùng vẫn treo rồi báo lỗi.
+server {
+  listen ${PORT};
+  root /usr/share/nginx/html;
+  # SPA: mọi đường dẫn không phải file đều trả index.html, nếu không thì F5 sẽ ra 404.
+  location / { try_files $uri $uri/ /index.html; }
+}
