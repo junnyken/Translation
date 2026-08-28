@@ -70,6 +70,39 @@ class FitStatus(str, Enum):
     overflow_warning = "overflow_warning"
 
 
+class BatchPipeline(str, Enum):
+    """M9 chỉ hỗ trợ đúng 2 ý định, không thêm chế độ mơ hồ."""
+
+    full_pipeline = "full_pipeline"
+    retry_failed = "retry_failed"
+
+
+class BatchStatus(str, Enum):
+    """Trạng thái gộp của cả mẻ — SUY RA từ các mục con, không bao giờ tự đặt.
+
+    `completed` chỉ khi MỌI mục đã xong. Còn mục nào chưa xong mà báo `completed` là báo láo.
+    """
+
+    queued = "queued"
+    running = "running"
+    completed = "completed"
+    partial_failed = "partial_failed"
+    blocked_quota = "blocked_quota"
+    failed = "failed"
+    cancelled = "cancelled"
+
+
+class BatchItemStatus(str, Enum):
+    pending = "pending"
+    running = "running"
+    completed = "completed"
+    failed = "failed"
+    #: Hết quota nhà cung cấp — KHÁC failed: chờ quota hồi là chạy lại được.
+    blocked_quota = "blocked_quota"
+    #: Bỏ qua có chủ đích (trang đã xong từ trước, hoặc đang chạy dở nên không đụng vào).
+    skipped = "skipped"
+
+
 class ExportFormat(str, Enum):
     """Định dạng xuất chapter. `cbz` thực chất là ZIP đổi đuôi — ứng dụng đọc truyện hiểu được."""
 

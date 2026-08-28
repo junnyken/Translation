@@ -1000,3 +1000,157 @@ Trang E01P03 (nền trời đêm nhiều sao, chuyển sắc) cũng cho kết qu
   nguyên tắc không nên đụng vào; cần một luật loại trừ vùng ở rìa trang.
 - **Cỡ in (8,7 triệu điểm ảnh) chưa đo** — theo tỉ lệ thì cần ~14 GB nếu chạy cả trang; với cách
   cắt cụm thì không còn phụ thuộc cỡ trang nữa, nhưng phải đo mới được nói chắc.
+
+## M9 — Chạy cả chapter theo mẻ (batch)
+
+> Mọi con số dưới đây do `scripts/do_run_m9.py` in ra, không chép tay. Chạy lại được:
+> `.venv/bin/python scripts/do_run_m9.py A test_fixtures/external/*_1600.png`.
+> Ảnh đo: **Pepper&Carrot** ep.1 trang 1–3 (CC BY-SA 4.0, David Revoy) — truyện tranh **thật**,
+> không phải ảnh tổng hợp. Cấu hình lúc đo: `BATCH_MAX_CONCURRENT_PAGES=1`,
+> `BATCH_MAX_RETRIES=3`, `BATCH_RETRY_BACKOFF_BASE_SECONDS=10` (số dev, cố ý để lớn hơn mặc định
+> 2s cho đủ thời gian quan sát), `LLM_PROJECT_RPM=10`, tự-nối bước **tắt** để mẻ là thứ duy nhất
+> điều phối.
+
+### 1. Test tự động
+
+| Nhóm | Số test | Kết quả |
+|---|---|---|
+| Toàn bộ M1–M9 | **546** | pass, 0 fail |
+| Riêng M9 (`test_batch_unit.py` + `test_batch_integration.py`) | 90 | pass |
+| Guardrail (`test_no_ai_logic.py`) | 47 | pass |
+
+Guardrail của M9 canh những thứ mà "code chạy được" không phát hiện ra:
+
+- không có `APIKeyPool`/xoay khoá cùng project ở bất kỳ file nào,
+- bộ điều phối không nhắc tới bất kỳ engine nào của M2–M8 (không sao chép logic pipeline),
+- mẻ không nhắc tới `ExportJob`/`run_export_job` (không tự xuất chapter),
+- `gate.py` không chứa chuỗi nào liên quan khoá, bắt buộc có băm,
+- Celery **không** đặt `rate_limit` ở bất kỳ đâu (nó chỉ giới hạn từng worker, không toàn cục),
+- mỗi task pipeline báo kết quả về mẻ ở **cả 3 nhánh** (đếm bằng AST, không phải đọc chuỗi),
+- việc thao tác tay **không** báo về mẻ,
+- chỉ **một** chỗ trong toàn bộ mã được phép dựng `BatchOrchestrator`.
+
+### 2. Run A — chạy cả chapter bằng một mẻ (bắt buộc)
+
+Mẻ `bdf72fef`, project `c10032f2`, engine `google_fast`, 3 trang.
+
+| Đo | Kết quả |
+|---|---|
+| Số trang chụp lúc tạo mẻ | 3 (đúng `Page.order` 1-2-3) |
+| Trang tải lên **sau** khi tạo mẻ có lọt vào không | **không** |
+| Tổng thời gian | **143,2s** cho 3 trang (4 bước/trang = 12 việc) |
+| Trang 1 xong | 102,8s |
+| Trang 2 xong | +26,3s |
+| Trang 3 xong | +14,1s |
+| Trạng thái mẻ | `completed` 3/3, 0 hỏng, 0 bị chặn |
+
+Trang đầu chậm gấp 4–7 lần hai trang sau vì worker phải **nạp mô hình lần đầu** (PaddleOCR + LaMa
++ font). Đây là lý do chạy cả mẻ rẻ hơn chạy từng trang rời: chi phí nạp mô hình trả **một lần**.
+
+Bằng chứng không tạo kết quả trùng — đếm sau khi mẻ xong:
+
+| Trang | Trạng thái | Vùng | Có bản dịch | Đã canh chữ | MD5 ảnh xem thử |
+|---|---|---|---|---|---|
+| 1 | `typeset_done` | 2 | 2 | 2 | `9230ed1d…` |
+| 2 | `typeset_done` | 4 | 3 | 3 | `b71a5e05…` |
+| 3 | `typeset_done` | 3 | 2 | 2 | `1bc802db…` |
+
+Số vùng khớp **chính xác** với Run C đo rời từng trang trước đó (trang 2: 4 vùng, trang 3: 3 vùng)
+⇒ chạy theo mẻ cho kết quả y hệt chạy lẻ, không nhân bản bản ghi.
+
+### 3. Run B — lỗi tạm thời rồi thành công (bắt buộc)
+
+Cách gây lỗi: chặn **thật** ở tầng mạng trong container worker (`/etc/hosts` trỏ
+`clients5.google.com` và `translate.googleapis.com` về `127.0.0.1`) — không mock hàm dịch, nên
+đường đi của lỗi giống hệt lúc mạng thật hỏng.
+
+| Mốc | Kết quả |
+|---|---|
+| 0,0s | mẻ chạy, dò khung xong từ trước |
+| 28,7s | dịch **hỏng** — phân loại `transient_network`, thử lại lần 1, hẹn chờ **6,9s** |
+| 28,7s | bỏ chặn mạng |
+| 38,8s | trang `completed`, mẻ `completed` 1/1 |
+
+- Đúng **1** lần thử lại, không thử lại vô hạn.
+- Thời gian chờ 6,9s nằm trong dải `[5s, 10s]` của mốc lùi dần 10s (nhiễu một nửa).
+- Bước **canh chữ ngay sau đó được đẩy với thời gian chờ 0s** — không bị phạt oan.
+- MD5 ảnh xem thử `9230ed1d…` **trùng khít** Run A cùng trang ⇒ thử lại không tạo ra kết quả khác
+  hay bản ghi thừa.
+
+### 4. Run C — cổng hạn mức chặn, không có lời gọi nào ra nhà cung cấp (bắt buộc)
+
+Mẻ `8c26ad61`, engine `llm_context`, cổng bị **giữ đầy liên tục** suốt mẻ.
+
+| Mốc | Kết quả |
+|---|---|
+| 25,5s / 32,6s / 50,9s | 3 lần thử lại, đều bị chặn **tại cổng** — `transient_rate_limit` |
+| 73,2s | mục `blocked_quota`, mẻ `blocked_quota` (0 xong, 0 hỏng, **1 bị chặn**) |
+| thả cổng + `POST /resume` | `resumed_count=1` |
+| +5,1s | mẻ `completed` |
+
+- **Không một lời gọi nào ra `generativelanguage.googleapis.com`** trong cả 4 lần: lỗi được ném ra
+  *trước* khi tạo HTTP request, thông điệp ghi rõ `cổng nhịp chặn (rate_limited), còn 0 lượt`.
+- Mẻ **không** báo `completed` trong lúc còn trang bị chặn.
+- Sau khi hạn mức hồi, chính mẻ đó chạy lại được — không phải tạo mẻ mới.
+- Bản dịch sau khi qua cổng là **LLM thật** (đây cũng là Run D không bắt buộc, 1 trang):
+  `NO! Don't even think about it.` → **"KHÔNG! Đừng hòng nghĩ đến chuyện đó."**,
+  `SPLASH` → **"BÕM!"** — khớp với kết luận chất lượng ở `REPORT_M8 §8`.
+
+Hai biến thể phụ, đều có ích:
+
+| Biến thể | Cấu hình | Kết quả |
+|---|---|---|
+| C1 | `LLM_FALLBACK_TO_GOOGLE=true` (mặc định) | cổng chặn ⇒ **lùi về `google_fast`**, mọi dòng mang nhãn `fallback_used`, 0 lời gọi ra Gemini. Đường lùi của M5 vẫn nguyên vẹn. |
+| C2 | chỉ làm đầy cổng **một lần** | lần thử thứ 4 **lọt qua** sau khi cửa sổ 60s trượt hết ⇒ cổng là bộ **giữ nhịp**, không phải khoá chặn vĩnh viễn. Đúng ý muốn, nhưng đây là lý do Run C phải giữ cổng đầy liên tục mới đo được trạng thái `blocked_quota`. |
+
+### 5. Run E — worker chết giữa mẻ rồi chạy tiếp (bắt buộc)
+
+Mẻ `f0b024ac`, 3 trang. Giết worker (`docker compose kill worker`) đúng lúc trang 2 đang chạy.
+
+| Mốc | Kết quả |
+|---|---|
+| lúc giết | mẻ `running` 1/3 — trang 1 xong, trang 2 `running`, trang 3 `pending` |
+| worker sống lại | mẻ vẫn 1/3, trang 2 kẹt `running` (việc chạy nó đã biến mất) |
+| `POST /resume` | `resumed_count=1` — thu hồi mục mồ côi, `error_code=stale_reclaimed` |
+| +46,4s | trang 2 xong |
+| +60,5s | trang 3 xong, mẻ `completed` 3/3 |
+
+| Kiểm | Kết quả |
+|---|---|
+| Ảnh chụp danh sách trang trước/sau sự cố | **không đổi** |
+| MD5 ảnh xem thử 3 trang so với Run A | **giống hệt** (`9230ed1d…`, `b71a5e05…`, `1bc802db…`) |
+| Số vùng / bản dịch | không nhân bản |
+
+### 6. Hồi quy sống — chạy 1 trang lẻ khi KHÔNG có mẻ nào
+
+Tải 1 trang lên project trắng với cấu hình mặc định (tự-nối bật): `queued → detecting(4s) →
+detected(40s) → ocr_done(56s) → typeset_done(72s)`, và `GET /projects/{id}/batch-runs` trả **0 mẻ**.
+Đường đi cũ của M2–M6 không bị M9 đụng vào.
+
+### 7. Sáu lỗi thật do M9 làm lộ ra (đều đã sửa, đều có test đỏ trước khi xanh)
+
+| # | Lỗi | Vì sao nguy hiểm | Cách phát hiện |
+|---|---|---|---|
+| 1 | `run_detect_job` chỉ báo kết quả về mẻ ở nhánh **thành công** | Dò khung là bước đầu và hay hỏng nhất. Hỏng ⇒ mục nằm lại `running` tới mốc thu hồi **2400s**: 40 phút giao diện hiện "đang chạy" trong khi không còn gì chạy | đọc mã + test đếm nhánh bằng AST |
+| 2 | Cấu hình thử lại **không có tác dụng** ở worker | Tầng API dựng `RetryPolicy` từ `.env`, tầng worker dựng bằng tay và quên truyền — mà mọi quyết định thử lại đều ở worker. Đặt lùi dần 30s, **đo được 0,6s** | Run B |
+| 3 | `next_delay_seconds` viết ra nhưng **không chỗ nào gọi** | Thử lại gọi lại ngay lập tức — đúng thứ tệ nhất ngay sau khi nhà cung cấp báo "quá nhịp" | đọc mã trước khi chạy Run B |
+| 4 | Bước **kế tiếp** bị phạt chờ oan | Log thật `đẩy bước typeset …, chờ 3.7s` — canh chữ không liên quan gì tới lỗi mạng lúc dịch, nhưng lấy thẳng `retry_count` làm căn cứ nên mọi bước sau đều bị phạt | log Run B |
+| 5 | Nhiễu toàn phần cho ra **0,2s** | "Có lùi dần" trên giấy nhưng thực tế chờ như không chờ. Đổi sang nhiễu **một nửa**: luôn chờ ít nhất nửa mốc | log Run B |
+| 6 | Bấm "chạy lại" ngay sau sự cố **không cứu được gì** | Thu hồi mục mồ côi chỉ dựa vào đồng hồ (2400s), nên `resumed_count=0` và mẻ treo ở 2/3. Sửa: **hỏi broker** xem việc còn sống thật không | Run E |
+
+Ngoài ra hai lỗi khác đã được phát hiện và sửa **trước** khi đo (ghi lại vì cùng một họ):
+mục bị đánh `skipped` khi trang đang chạy dở (mẻ báo "3/3 hoàn thành" trong khi còn trang kẹt),
+và mẻ đứng im khi vòng đẩy việc chỉ toàn mục bị bỏ qua.
+
+### 8. Giới hạn của lần đo này
+
+- **Chỉ 1 worker, `--concurrency=1`.** Cổng nhịp Redis có test 40 luồng tranh nhau ở mức đơn vị,
+  nhưng **chưa** đo với nhiều container worker thật. Trước khi tuyên bố "giữ đúng hạn mức toàn
+  cục" ở môi trường nhiều máy thì phải đo lại với Redis dùng chung.
+- **Hạn mức thật của nhà cung cấp chưa đo.** `LLM_PROJECT_RPM=10` là số dev đặt ra, không phải số
+  Google công bố cho project này.
+- **Chưa đo mẻ dài** (10+ trang, chạy hàng giờ) — mới đo tối đa 3 trang.
+- Thời gian chờ lùi dần lúc đo dùng `BATCH_RETRY_BACKOFF_BASE_SECONDS=10` cho dễ quan sát; mặc
+  định đã trả về **2s**.
+- **Giao diện chưa bấm thật trên trình duyệt.** Bảng "Chạy cả chapter" đã dựng và build sạch,
+  các endpoint nó gọi đều đã đo ở trên, nhưng chưa có phiên thao tác tay như M7.

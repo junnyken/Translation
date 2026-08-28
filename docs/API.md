@@ -375,6 +375,118 @@ và mọi dòng của trang mang `status=fallback_used` — thành công **có d
 `Page.status` sau khi xoá chữ: `inpainted` (OCR lại vùng đã xoá không còn chữ) hoặc
 `inpaint_needs_review` (còn đọc ra chữ ⇒ xoá chưa sạch, cần xem lại).
 
+## 26. `POST /api/v1/projects/{project_id}/batch-runs` → 202 *(M9)*
+
+Chạy **cả chapter** bằng một mẻ theo dõi được.
+
+```json
+{ "requested_pipeline": "full_pipeline", "translation_engine": "google_fast" }
+```
+→ `202 { "batch_run_id": "…", "status": "queued", "total_pages": 3 }`
+
+- Danh sách trang được **chụp lại ngay lúc tạo** theo `Page.order`. Trang tải lên sau đó **không**
+  lẫn vào mẻ đang chạy — tổng số trang không nhảy giữa chừng.
+- `translation_engine` cũng được **chốt lúc tạo**; đổi cấu hình giữa chừng không làm các trang
+  trong cùng một mẻ dịch bằng hai engine khác nhau.
+- Mỗi trang tiếp tục **từ đúng bước nó đang đứng** (`queued`→detect, `detected`→ocr,
+  `ocr_done`→inpaint, `inpainted`/`inpaint_needs_review`→translate, `translated`→typeset).
+  Trang đã `typeset_done`/`ready_for_export` được đánh `skipped`, **không** chạy lại (chạy lại là
+  xoá mất kết quả đã có).
+- `requested_pipeline=retry_failed`: chỉ lấy các trang **chưa** xong.
+
+| Lỗi | Mã |
+|---|---|
+| project không tồn tại | 404 |
+| project chưa có trang nào (`no_page`) | 422 |
+| `retry_failed` mà mọi trang đã xong (`no_page_to_retry`) | 422 |
+| chọn `llm_context` khi chưa cấu hình khoá dịch (`llm_not_configured`) | 422 — chặn **trước** khi xếp việc |
+
+## 27. `GET /api/v1/batch-runs/{batch_run_id}` → 200 *(M9)*
+
+```json
+{ "id": "…", "project_id": "…", "requested_pipeline": "full_pipeline",
+  "translation_engine": "google_fast", "status": "running",
+  "total_pages": 3, "completed_pages": 1, "failed_pages": 0, "blocked_pages": 0,
+  "started_at": "…", "finished_at": null, "error_summary": null, "created_at": "…", "updated_at": "…" }
+```
+
+`status` **luôn được suy ra từ các `BatchItem`**, không bao giờ đặt tay:
+
+| Tình trạng các mục | `status` |
+|---|---|
+| còn mục `pending`/`running` | `running` (kể cả khi đã có mục hỏng) |
+| tất cả xong/bỏ qua | `completed` |
+| có xong + có hỏng | `partial_failed` |
+| phần chưa xong đều kẹt quota | `blocked_quota` |
+| hỏng sạch | `failed` |
+| bị dừng tay | `cancelled` |
+
+Không tồn tại → `404`.
+
+## 28. `GET /api/v1/batch-runs/{batch_run_id}/items` → 200 *(M9)*
+
+`?status=&limit=&cursor=` — lọc theo trạng thái mục, sắp theo `page_order` đã chụp lúc tạo mẻ.
+
+```json
+{ "items": [ { "id": "…", "page_id": "…", "page_order": 1, "status": "completed",
+               "current_job_id": "…", "retry_count": 0, "error_code": null,
+               "error_message": null, "started_at": "…", "finished_at": "…" } ],
+  "next_cursor": null }
+```
+
+`error_message` **đã lọc** thứ trông giống khoá bí mật (`AIza…`, `Bearer …`) và cắt còn 2000 ký tự.
+`error_code` là loại lỗi đã phân: `quota_exhausted`, `transient_rate_limit`, `transient_provider`,
+`transient_network`, `transient_broker`, `permanent_input`, `permanent_config`, `permanent_model`,
+`unknown`, `stale_reclaimed`, `stale_page`, `da_xong`, `dang_chay`, `cancelled`.
+
+## 29. `POST /api/v1/batch-runs/{batch_run_id}/resume` → 202 *(M9)*
+
+```json
+{ "item_ids": ["…"] }        // bỏ trống = chạy lại MỌI mục failed/blocked_quota
+```
+→ `202 { "batch_run_id": "…", "resumed_count": 2, "status": "running" }`
+
+- **Chỉ** nhận mục `failed`/`blocked_quota`. Mục đã `completed` giữ nguyên kết quả, không bị chạy lại.
+- Chọn nhầm mục `completed` hoặc mục của mẻ khác → **422**, không im lặng bỏ qua (im lặng bỏ qua
+  khiến người dùng tưởng đã chạy lại).
+- Gọi không kèm `item_ids` còn **thu hồi** các mục kẹt `running` quá lâu vì worker chết.
+
+| Lỗi | Mã |
+|---|---|
+| mẻ không tồn tại | 404 |
+| `item_not_in_batch` / `item_not_resumable` | 422 |
+
+## 30. `POST /api/v1/batch-runs/{batch_run_id}/cancel` → 202 *(M9)*
+
+Trả về **cả đối tượng mẻ** (dạng như §27) với `status="cancelled"` — rộng hơn hợp đồng tối thiểu
+`{batch_run_id, status}` của mini-spec, không thiếu trường nào.
+
+Dừng **đẩy việc mới**; việc đang chạy **được chạy nốt** — cắt ngang giữa chừng dễ để lại kết quả
+dở dang. Mục còn `pending` chuyển `skipped` với `error_code=cancelled`.
+
+Không tồn tại → `404`.
+
+## 31. `GET /api/v1/batch-config` → 200 *(M9 — thêm ngoài hợp đồng mini-spec)*
+
+```json
+{ "llm_configured": false, "llm_project_rpm": 10, "batch_max_concurrent_pages": 1,
+  "batch_max_retries": 3, "batch_retry_backoff_base_seconds": 2.0,
+  "batch_retry_backoff_max_seconds": 120.0 }
+```
+
+Vì sao cần: §4D của mini-spec buộc giao diện phải **tắt lựa chọn LLM kèm lý do rõ** khi chưa cấu
+hình. Không có endpoint này thì giao diện phải đoán — hoặc để người dùng bấm rồi nhận 422.
+`llm_configured` **chỉ là true/false**; không có khoá, không có tên khoá, không có độ dài khoá.
+
+## 32. `GET /api/v1/projects/{project_id}/batch-runs` → 200 *(M9 — thêm ngoài hợp đồng mini-spec)*
+
+`?limit=` (mặc định 10) → `{ "runs": [ …như §27…, mới nhất trước ] }`
+
+Vì sao cần: không có nó thì giao diện phải tự nhớ mã mẻ trong trình duyệt — tải lại trang là mất
+dấu mẻ đang chạy và người vận hành không còn cách nào nhìn thấy tiến độ.
+
+Project không tồn tại → `404`.
+
 ## Bảng enum (chốt ở M1, M2–M10 không đổi âm thầm)
 
 | Enum | Giá trị |
@@ -393,8 +505,16 @@ và mọi dòng của trang mang `status=fallback_used` — thành công **có d
 | `job_type` | detect, ocr, inpaint, translate, typeset, export |
 | `export_format` | png_single, cbz, zip |
 | `job_status` | queued, running, done, failed |
+| `batch_pipeline` *(M9)* | full_pipeline, retry_failed |
+| `batch_status` *(M9)* | queued, running, completed, partial_failed, blocked_quota, failed, cancelled |
+| `batch_item_status` *(M9)* | pending, running, completed, failed, blocked_quota, skipped |
 
 ## Endpoint sẽ thêm ở mini-spec sau (chưa tồn tại)
 
-`POST /projects/{id}/export`, `GET /export-jobs/{id}` (M8) ·
-`POST /projects/{id}/run-batch`, `GET /projects/{id}/batch-status` (M9).
+M8 và M9 đã xong — xem §21–24 (xuất chapter) và §26–32 (chạy cả mẻ).
+
+Tên endpoint mẻ **khác** phác thảo cũ (`run-batch` / `batch-status`): mẻ là một **tài nguyên** có
+mã riêng, chạy lại và dừng được, nên đặt theo lối tài nguyên `batch-runs/{id}` thay vì hai động từ
+rời. Lý do đầy đủ: `docs/REPORT_M9.md` §Design Choice.
+
+M10 — cổng khai báo phạm vi sử dụng / bản quyền: chưa có endpoint nào.

@@ -15,6 +15,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
@@ -22,6 +23,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
 from app.models.enums import (
+    BatchItemStatus,
+    BatchPipeline,
+    BatchStatus,
     ExportFormat,
     FitStatus,
     IntendedUse,
@@ -240,3 +244,76 @@ class ExportJob(TimestampMixin, Base):
     #: Số vùng còn tràn khung TẠI THỜI ĐIỂM xuất — không chặn xuất, nhưng phải ghi lại.
     overflow_warning_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_log: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class BatchRun(TimestampMixin, Base):
+    """Một mẻ chạy cả project (M9).
+
+    `status` ở đây là **kết quả suy ra** từ các `BatchItem`, không bao giờ được đặt tay để
+    "cho đẹp". Còn một trang chưa xong mà báo `completed` là báo láo — đúng thứ evidence-first cấm.
+    """
+
+    __tablename__ = "batch_run"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("project.id", ondelete="CASCADE"), nullable=False
+    )
+    requested_pipeline: Mapped[BatchPipeline] = mapped_column(
+        _enum(BatchPipeline, "batch_pipeline"), nullable=False
+    )
+    #: Chốt lựa chọn engine dịch NGAY LÚC TẠO mẻ; NULL khi mẻ không cần bước dịch.
+    translation_engine: Mapped[TranslationEngine | None] = mapped_column(
+        _enum(TranslationEngine, "translation_engine"), nullable=True
+    )
+    status: Mapped[BatchStatus] = mapped_column(
+        _enum(BatchStatus, "batch_status"), nullable=False, default=BatchStatus.queued
+    )
+    total_pages: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    #: Bộ đếm để hiển thị nhanh — LUÔN phải đối chiếu lại từ BatchItem, không tin một mình nó.
+    completed_pages: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failed_pages: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    blocked_pages: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Tóm tắt lỗi đã lọc — TUYỆT ĐỐI không ghi API key hay nội dung nhạy cảm vào đây.
+    error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    items: Mapped[list["BatchItem"]] = relationship(
+        back_populates="batch_run", cascade="all, delete-orphan"
+    )
+
+
+class BatchItem(TimestampMixin, Base):
+    """Một trang trong mẻ. `page_order` là ẢNH CHỤP lúc tạo mẻ — trang thêm sau không lọt vào."""
+
+    __tablename__ = "batch_item"
+    __table_args__ = (
+        UniqueConstraint("batch_run_id", "page_id", name="uq_batch_item_run_page"),
+        Index("ix_batch_item_run_status_order", "batch_run_id", "status", "page_order"),
+        Index("ix_batch_item_current_job", "current_job_id"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    batch_run_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("batch_run.id", ondelete="CASCADE"), nullable=False
+    )
+    page_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("page.id", ondelete="CASCADE"), nullable=False
+    )
+    #: Chụp lại `Page.order` lúc tạo mẻ; sắp lại trang về sau KHÔNG làm đổi thứ tự của mẻ cũ.
+    page_order: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[BatchItemStatus] = mapped_column(
+        _enum(BatchItemStatus, "batch_item_status"), nullable=False, default=BatchItemStatus.pending
+    )
+    current_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("job.id", ondelete="SET NULL"), nullable=True
+    )
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    #: Mã lỗi đã phân loại: quota_exhausted, provider_429, provider_5xx, timeout, permanent_*…
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    batch_run: Mapped["BatchRun"] = relationship(back_populates="items")

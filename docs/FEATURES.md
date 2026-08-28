@@ -18,10 +18,10 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 | M6 | Tự tính cỡ chữ + xuống dòng cho vừa bubble (đo font-metrics thật) | **LIVE** (đo trên ảnh tổng hợp; manga thật chưa đo — xem TEST_LOG) |
 | M7 | Màn sửa tay: sửa bản dịch, kéo lại khung, đổi font/size | **LIVE** (thao tác thật trên trình duyệt; xem TEST_LOG) |
 | M8 | Xuất chapter PNG/CBZ + lưu/mở lại project | **LIVE** (xuất thật 4 trang; chưa mở bằng app đọc truyện thật) |
-| M9 | Chạy cả chapter theo hàng đợi + xoay API key khi hết quota | CHƯA |
+| M9 | Chạy **cả chapter bằng một mẻ**: tiến độ thật, thử lại lỗi tạm thời, cổng hạn mức, chạy lại trang hỏng | **LIVE** (4 Run bắt buộc trên truyện thật; giao diện chưa bấm tay — xem TEST_LOG §M9) |
 | M10 | Khai báo mục đích sử dụng + nhắc trách nhiệm bản quyền khi export | Một phần: field `intended_use` đã **LIVE** từ M1; modal nhắc + gate export CHƯA |
 
-## Những gì dùng được ngay hôm nay (sau M8)
+## Những gì dùng được ngay hôm nay (sau M9)
 
 - Tạo project dịch (chọn ngôn ngữ nguồn, mục đích sử dụng) qua API/Swagger.
 - Upload từng trang ảnh: file được lưu thật, trang vào hàng đợi và **worker tự động nhận diện khung chữ**.
@@ -100,5 +100,26 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 - **Đường dịch tiếng Nhật (phải→trái) chưa chạy thật đầu-cuối** — mới verify bằng test tự động.
 - Nhiều API key **không** làm tăng hạn mức nếu các key thuộc cùng một project Google
   (Gemini tính giới hạn theo project, không theo key).
-- Chưa tự chạy lại khi quá giờ (chỉ ghi `detection_failed`, phải bấm chạy lại) — auto-retry thuộc M9.
+- Tự thử lại **chỉ** với lỗi tạm thời (mạng, quá nhịp, 5xx) và **có trần** 3 lần. Lỗi vĩnh viễn
+  (thiếu font, thiếu model, mất ảnh) hỏng ngay — thử lại chỉ tốn thời gian.
+- Chưa tự thử lại khi **chất lượng** kém (đọc sai, dịch sai, xoá chữ chưa sạch) — đó không phải
+  lỗi hạ tầng, vẫn phải sửa tay ở màn sửa.
 - Chưa lưu ảnh lên Supabase Storage (đang lưu trên ổ đĩa của server).
+
+## Chạy cả chapter (M9)
+
+- Một nút **Chạy cả chapter**: chọn cách dịch (nhanh & miễn phí, hoặc theo ngữ cảnh), hệ thống
+  chạy lần lượt mọi trang qua đủ các bước.
+- **Danh sách trang được chụp lại ngay lúc bấm** — trang tải lên sau đó không lẫn vào mẻ đang chạy,
+  nên tổng số trang không nhảy lung tung giữa chừng.
+- Mỗi trang **tiếp tục từ đúng bước nó đang dừng**; trang đã xong được bỏ qua chứ không làm lại.
+- Tiến độ nói thật: bao nhiêu trang xong / hỏng / bị chặn vì hết lượt gọi, đang làm tới trang nào.
+  **Không bao giờ hiện 100% khi còn trang chưa xong.**
+- Lỗi tạm thời (mạng chập chờn, nhà cung cấp quá tải) tự thử lại, có chờ giãn dần, tối đa 3 lần.
+- Hết lượt gọi ⇒ báo rõ **"bị chặn vì hạn mức"** chứ không báo hỏng, và **không** gọi thêm lần nào
+  ra nhà cung cấp. Hạn mức hồi thì bấm **Chạy lại** là chạy tiếp đúng những trang đó.
+- Máy chủ bị khởi động lại giữa chừng vẫn cứu được: bấm Chạy lại là mẻ đi tiếp, không làm lại
+  trang đã xong và không tạo file trùng.
+- **Dừng mẻ**: không đẩy thêm trang mới, trang đang chạy vẫn chạy nốt cho khỏi dở dang.
+- Mẻ **không tự xuất chapter** — xuất vẫn là việc bạn chủ động bấm, để không phát hành nhầm bản
+  còn tràn khung.

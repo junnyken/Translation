@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +18,8 @@ from sqlalchemy.orm import selectinload
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.models import (
+    BatchItem,
+    BatchRun,
     ExportJob,
     Job,
     OCRResult,
@@ -28,6 +30,9 @@ from app.models import (
     TypesetResult,
 )
 from app.models.enums import (
+    BatchItemStatus,
+    BatchPipeline,
+    BatchStatus,
     ExportFormat,
     FitStatus,
     JobStatus,
@@ -50,6 +55,15 @@ from app.schemas.common import (
     ExportJobRead,
     ExportPreview,
     ExportRequest,
+    BatchAccepted,
+    BatchConfigRead,
+    BatchCreate,
+    BatchItemRead,
+    BatchItemsPage,
+    BatchResumeAccepted,
+    BatchResumeRequest,
+    BatchRunList,
+    BatchRunRead,
     PageAccepted,
     PageRead,
     ProjectCreate,
@@ -876,6 +890,193 @@ async def download_export(
         filename=job.output_path.rsplit("/", 1)[-1],
         headers={"Cache-Control": "no-cache, must-revalidate"},
     )
+
+
+# ============================ M9: chạy cả mẻ ============================
+
+
+def _dieu_phoi():
+    """Dựng bộ điều phối theo cấu hình. Import trễ để API không kéo theo tầng worker.
+
+    Dùng **chung một hàm dựng** với worker: dựng bằng tay ở hai nơi là cách mà cấu hình thử lại
+    đã có lần chỉ có tác dụng ở một nửa hệ thống (xem `services/batch/factory.py`).
+    """
+    from app.services.batch.factory import tao_dieu_phoi
+
+    return tao_dieu_phoi(get_settings())
+
+
+@router.post(
+    "/projects/{project_id}/batch-runs",
+    response_model=BatchAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["batch"],
+)
+async def create_batch_run(
+    project_id: uuid.UUID,
+    body: BatchCreate,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+) -> BatchAccepted:
+    """Chạy cả project qua pipeline bằng MỘT mẻ theo dõi được.
+
+    Danh sách trang được **chụp lại ngay lúc tạo** theo `Page.order` — trang tải lên sau đó
+    không lẫn vào mẻ đang chạy, nên tổng số trang không nhảy lung tung giữa chừng.
+
+    Mỗi trang tiếp tục **từ đúng bước nó đang đứng**, không chạy lại từ đầu: trang đã canh chữ
+    xong được đánh `skipped` chứ không bị làm lại (làm lại là xoá mất kết quả đã có).
+    """
+    await _get_project_or_404(session, project_id)
+
+    engine = body.translation_engine
+    if engine is TranslationEngine.llm_context and not settings.llm_configured:
+        # Báo NGAY chứ không xếp việc rồi mới hỏng ở trang thứ nhất.
+        raise HTTPException(
+            status_code=422,
+            detail="llm_not_configured: chưa cấu hình khoá dịch, không dùng được llm_context",
+        )
+
+    from app.services.batch.orchestrator import BatchInvalid
+
+    try:
+        me_id = _dieu_phoi().create_full_pipeline_run(
+            project_id, engine.value if engine else None, body.requested_pipeline
+        )
+    except BatchInvalid as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    me = await session.get(BatchRun, me_id)
+    await session.refresh(me)
+    return BatchAccepted(batch_run_id=me.id, status=me.status, total_pages=me.total_pages)
+
+
+@router.get("/batch-runs/{batch_run_id}", response_model=BatchRunRead, tags=["batch"])
+async def get_batch_run(
+    batch_run_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> BatchRun:
+    """Tiến độ mẻ. `status` được **suy ra từ các mục con**, không bao giờ đặt tay.
+
+    Còn một trang chưa xong thì `status` vẫn là `running` — không có chuyện báo `completed`
+    trong khi vẫn còn việc.
+    """
+    me = await session.get(BatchRun, batch_run_id)
+    if me is None:
+        raise HTTPException(status_code=404, detail="Batch run không tồn tại")
+    return me
+
+
+@router.get("/batch-runs/{batch_run_id}/items", response_model=BatchItemsPage, tags=["batch"])
+async def list_batch_items(
+    batch_run_id: uuid.UUID,
+    status_filter: BatchItemStatus | None = Query(default=None, alias="status"),
+    limit: int = Query(default=100, ge=1, le=500),
+    cursor: int = Query(default=0, ge=0),
+    session: AsyncSession = Depends(get_session),
+) -> BatchItemsPage:
+    """Từng trang trong mẻ, sắp theo `page_order` đã chụp lúc tạo."""
+    if await session.get(BatchRun, batch_run_id) is None:
+        raise HTTPException(status_code=404, detail="Batch run không tồn tại")
+    stmt = select(BatchItem).where(BatchItem.batch_run_id == batch_run_id)
+    if status_filter is not None:
+        stmt = stmt.where(BatchItem.status == status_filter)
+    rows = list(
+        (await session.execute(
+            stmt.order_by(BatchItem.page_order).offset(cursor).limit(limit + 1)
+        )).scalars()
+    )
+    con_nua = len(rows) > limit
+    return BatchItemsPage(
+        items=[BatchItemRead.model_validate(r) for r in rows[:limit]],
+        next_cursor=(cursor + limit) if con_nua else None,
+    )
+
+
+@router.post(
+    "/batch-runs/{batch_run_id}/resume",
+    response_model=BatchResumeAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["batch"],
+)
+async def resume_batch_run(
+    batch_run_id: uuid.UUID,
+    body: BatchResumeRequest,
+    session: AsyncSession = Depends(get_session),
+) -> BatchResumeAccepted:
+    """Chạy lại các trang `failed`/`blocked_quota`. **Không đụng** trang đã xong.
+
+    Chọn nhầm một mục đã `completed` sẽ bị từ chối 422 chứ không âm thầm bỏ qua — im lặng bỏ
+    qua khiến người dùng tưởng đã chạy lại.
+    """
+    from app.services.batch.orchestrator import BatchInvalid
+
+    try:
+        dem = _dieu_phoi().resume_failed(batch_run_id, body.item_ids)
+    except BatchInvalid as exc:
+        ma = 404 if "batch_not_found" in str(exc) else 422
+        raise HTTPException(status_code=ma, detail=str(exc)) from exc
+
+    me = await session.get(BatchRun, batch_run_id)
+    await session.refresh(me)
+    return BatchResumeAccepted(batch_run_id=batch_run_id, resumed_count=dem, status=me.status)
+
+
+@router.post(
+    "/batch-runs/{batch_run_id}/cancel",
+    response_model=BatchRunRead,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["batch"],
+)
+async def cancel_batch_run(
+    batch_run_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> BatchRun:
+    """Dừng đẩy việc mới. Việc **đang chạy vẫn chạy nốt** — cắt ngang dễ để lại dữ liệu dở dang."""
+    from app.services.batch.orchestrator import BatchInvalid
+
+    try:
+        _dieu_phoi().cancel(batch_run_id)
+    except BatchInvalid as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    me = await session.get(BatchRun, batch_run_id)
+    await session.refresh(me)
+    return me
+
+
+@router.get("/batch-config", response_model=BatchConfigRead, tags=["batch"])
+async def get_batch_config(settings: Settings = Depends(get_settings)) -> BatchConfigRead:
+    """Cho giao diện biết chạy mẻ được cấu hình thế nào — **không có khoá bí mật nào ở đây**.
+
+    `llm_configured` chỉ là true/false: giao diện cần biết có bật được lựa chọn dịch bằng LLM
+    hay không, và nếu không thì nói rõ lý do ngay lúc chọn, thay vì để người dùng bấm rồi nhận 422.
+    """
+    return BatchConfigRead(
+        llm_configured=settings.llm_configured,
+        llm_project_rpm=settings.llm_project_rpm,
+        batch_max_concurrent_pages=settings.batch_max_concurrent_pages,
+        batch_max_retries=settings.batch_max_retries,
+        batch_retry_backoff_base_seconds=settings.batch_retry_backoff_base_seconds,
+        batch_retry_backoff_max_seconds=settings.batch_retry_backoff_max_seconds,
+    )
+
+
+@router.get("/projects/{project_id}/batch-runs", response_model=BatchRunList, tags=["batch"])
+async def list_batch_runs(
+    project_id: uuid.UUID,
+    limit: int = Query(default=10, ge=1, le=50),
+    session: AsyncSession = Depends(get_session),
+) -> BatchRunList:
+    """Các mẻ của project, mới nhất trước.
+
+    Không có endpoint này thì giao diện phải tự nhớ mã mẻ trong trình duyệt — tải lại trang là
+    mất dấu mẻ đang chạy, và người vận hành không còn cách nào nhìn thấy tiến độ.
+    """
+    await _get_project_or_404(session, project_id)
+    rows = list(
+        (await session.execute(
+            select(BatchRun).where(BatchRun.project_id == project_id)
+            .order_by(BatchRun.created_at.desc()).limit(limit)
+        )).scalars()
+    )
+    return BatchRunList(runs=[BatchRunRead.model_validate(r) for r in rows])
 
 
 @router.get("/jobs/{job_id}", response_model=JobRead, tags=["jobs"])

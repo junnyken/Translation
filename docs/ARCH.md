@@ -2,7 +2,7 @@
 
 > Trạng thái: **M8 hoàn tất** — pipeline chạy trọn từ ảnh gốc tới file CBZ giao được
 > (M1 contract · M2 khung chữ · M3 đọc chữ · M4 xoá chữ · M5 dịch · M6 canh chữ · M7 sửa tay ·
-> M8 xuất chapter). Chưa chạy hàng loạt nhiều chapter — M9.
+> M8 xuất chapter, M9 chạy cả chapter theo mẻ).
 
 ## 1. Bức tranh tổng thể
 
@@ -47,7 +47,7 @@ Quy tắc kiến trúc **giữ nguyên xuyên suốt Phase** (M1 chốt, M2–M1
 | Sửa tay (M7) | React 18 + Vite | Chỉ là bên tiêu thụ API; không đụng DB/Redis; chạy service riêng |
 | Xuất chapter (M8) | `zipfile` builtin + renderer M6 | **Không thêm phụ thuộc**; không nạp model; chạy trong worker |
 
-## 3. Data model (7 bảng, chốt ở M1)
+## 3. Data model (7 bảng chốt ở M1 + `ExportJob` ở M8 + `BatchRun`/`BatchItem` ở M9)
 
 ```
 Project 1─n Page 1─n TextRegion 1─1 OCRResult
@@ -67,8 +67,10 @@ Project 1─n Page 1─n TextRegion 1─1 OCRResult
 - 3 bảng kết quả (`OCRResult`, `TranslationResult`, `TypesetResult`) đều `unique(region_id)`
   → rerun job là **idempotent theo region**, không sinh bản ghi trùng.
 - `Job`: `type(detect|ocr|inpaint|translate|typeset|export)` khai báo đủ enum cho cả Phase từ M1;
-  `retry_count` là placeholder của M9.
-- **Chưa tạo** `APIKeyPool` (M5/M9) và `ExportJob` (M8) — đúng nguyên tắc chỉ tạo đủ cho mini-spec hiện tại.
+  `retry_count` có từ M1 và **M9 mới dùng tới** — chính sách thử lại thống nhất nằm ở §10.
+- **Không tạo `APIKeyPool`** — ở M5 vì key chỉ nằm trong `.env`, và ở M9 vì đã đo được rằng xoay key
+  trong cùng một project Gemini **không** tăng hạn mức (§8, §10). `ExportJob` thêm ở M8,
+  `BatchRun`/`BatchItem` thêm ở M9 — đúng nguyên tắc chỉ tạo đủ cho mini-spec hiện tại.
 
 ## 4. Interface engine (contract cho M2–M6)
 
@@ -321,6 +323,88 @@ quota giữa nhiều worker. Có 3 guardrail test quét toàn bộ file được
 Nếu model không trả về dòng nào đó, dòng ấy giữ `status=pending` (enum `TranslationStatus` chốt ở M1
 không có `needs_manual`) — nghĩa là "chưa có bản dịch", không phải "đã xong".
 
+## 10. Chạy cả mẻ (M9)
+
+### Vì sao mẻ nằm trong Postgres chứ không trong Celery
+
+Trạng thái mẻ nằm ở **2 bảng `batch_run` + `batch_item`**, không nằm trong result backend của Celery
+và cũng không nằm trong bộ nhớ tiến trình. Lý do: worker bị khởi động lại (hoặc bị hệ điều hành giết
+vì hết bộ nhớ — đã gặp thật ở M4) thì mọi thứ giữ trong bộ nhớ biến mất, còn tiến độ mẻ thì **phải**
+đọc lại được. Redis ở M9 chỉ giữ **một** thứ: cửa sổ đếm nhịp gọi provider, sống 60 giây.
+
+```
+BatchRun 1─n BatchItem ──> Page          (ảnh chụp lúc tạo mẻ)
+                      └──> Job.current_job_id  (việc đang/vừa chạy)
+```
+
+- `BatchItem` có `unique(batch_run_id, page_id)` — một trang không thể vào cùng mẻ hai lần.
+- `page_order` là **ảnh chụp** `Page.order` lúc tạo mẻ; sắp lại trang về sau không làm đổi thứ tự
+  của mẻ cũ, nên nhìn lại một mẻ đã chạy vẫn thấy đúng thứ tự lúc đó.
+- `batch_run.completed_pages/failed_pages/blocked_pages` chỉ là **bộ đếm cho nhanh**; mỗi lần gộp
+  đều đếm lại từ `batch_item`. Không có đường nào ghi thẳng vào bộ đếm.
+
+### Không có task nào ngồi chờ
+
+Bộ điều phối **không** dùng một task Celery giữ worker rồi hỏi vòng vòng cho tới khi các trang xong.
+Với `--concurrency=1` thì task chờ ấy chiếm đúng cái worker duy nhất và mẻ khoá chết chính nó.
+Thay vào đó: xếp việc rồi thoát; khi một bước kết thúc, task của bước đó gọi
+`BatchOrchestrator.on_page_terminal(...)` — đẩy trang đi bước kế, hoặc kết thúc mục và đẩy trang sau.
+
+Chỗ báo về nằm ở **một hàm duy nhất** `bao_ket_thuc_buoc()` trong `workers/tasks.py`; task của M2–M6
+không biết gì về mẻ. Có guardrail test đếm bằng AST: mỗi task pipeline phải báo về ở **cả ba nhánh**
+(xong / hết giờ / lỗi), còn việc thao tác tay (canh lại chữ, đọc lại vùng, dịch lại vùng) thì
+**không được** báo về — chúng không bao giờ là bước của mẻ.
+
+### Cổng nhịp gọi Gemini: Redis, không phải `rate_limit` của Celery
+
+`Task.rate_limit` của Celery giới hạn theo **từng worker instance**. Hai worker cùng đặt 10 lượt/phút
+là 20 lượt/phút đập vào nhà cung cấp — đúng thứ cần tránh. M9 dùng **cửa sổ trượt nguyên tử bằng Lua
+trong Redis** (`services/batch/gate.py`): toàn bộ phép kiểm-rồi-ghi nằm trong một lệnh, nên 40 luồng
+tranh nhau vẫn chỉ 5 lượt lọt qua (có test canh đúng con số này).
+
+- Khoá Redis là **băm SHA-256 rút gọn** của định danh project provider — không bao giờ chứa API key.
+- `LLM_PROJECT_RPM<=0` ⇒ tắt cổng.
+- **Redis hỏng ⇒ cổng TỪ CHỐI**, không mở toang. Mở toang khi cổng hỏng là đập thẳng vào quota.
+- Mất trạng thái cổng sau khi Redis khởi động lại chỉ nới thêm vài lượt gọi, **không** làm sai tiến
+  độ mẻ — tiến độ luôn đọc từ `batch_item`.
+
+### Thử lại: chỉ lỗi tạm thời, và có trần
+
+`TransientErrorClassifier` chia lỗi làm 3 nhóm chứ không phải 2:
+
+| Nhóm | Ví dụ | Xử lý |
+|---|---|---|
+| tạm thời | 429 quá nhịp, 408, 5xx, DNS/socket, mất kết nối Redis | thử lại tối đa `BATCH_MAX_RETRIES` lần |
+| **hết quota** | 429 kèm `quota_exceeded`/`resource_exhausted`/`billing` | `blocked_quota`, **không** thử lại |
+| vĩnh viễn | 400/401/403, thiếu font, thiếu model weight, mất ảnh gốc | hỏng ngay, **zero** retry |
+
+Hết quota được tách riêng vì nó không thuộc nhóm nào: thử lại ngay thì vẫn hỏng (nên không phải
+"tạm thời"), mà quota hồi là chạy được (nên không phải "vĩnh viễn"). Gemini trả **cùng mã 429** cho
+cả quá-nhịp lẫn hết-quota, nên phải đọc thân phản hồi mới phân biệt được.
+
+Lùi dần: `min(base × 2^n, cap)` rồi nhân nhiễu toàn phần. Nhiễu **tất định theo khoá** khi test
+truyền `khoa_nhieu` — nhờ vậy test khẳng định được nhiễu có thật mà vẫn lặp lại y hệt.
+
+Cấu hình (`.env.example`): `BATCH_MAX_CONCURRENT_PAGES=1`, `BATCH_MAX_RETRIES=3`,
+`BATCH_RETRY_BACKOFF_BASE_SECONDS=2`, `BATCH_RETRY_BACKOFF_MAX_SECONDS=120`, `BATCH_RETRY_JITTER=true`,
+`LLM_PROJECT_RPM=10`, `LLM_QUOTA_MODE=redis_sliding_window`, `BATCH_STALE_ITEM_SECONDS=2400`.
+**Đây là số dev.** Hạn mức thật của nhà cung cấp phải đo rồi ghi vào `TEST_LOG.md` trước khi chốt cho
+chạy thật — xem `docs/REPORT_M9.md` §Remaining Limits.
+
+### Mục mồ côi: cái bẫy làm mẻ đứng im mà không ai biết
+
+Worker chết giữa chừng ⇒ task biến mất nhưng `batch_item` vẫn nằm ở `running` **vĩnh viễn**, và
+`resume` thì chỉ nhận `failed`/`blocked_quota` nên bấm "chạy lại" cũng không cứu được.
+`thu_hoi_muc_mo_coi()` đưa mục `running` quá `BATCH_STALE_ITEM_SECONDS` về `pending`, và đánh hỏng
+**có ghi lý do** những trang kẹt ở trạng thái tạm (`detecting`) quá lâu — thà báo hỏng còn hơn để mẻ
+treo. `resume` không kèm danh sách mục sẽ tự chạy bước thu hồi này trước.
+
+### Mẻ không tự xuất chapter
+
+Xuất là hành động **có chủ ý** của người vận hành ở M8: tự xuất sau khi dịch xong có thể phát hành
+bản còn `overflow_warning`. Giao diện chỉ dẫn người dùng sang bảng xuất sau khi mẻ xong. Có guardrail
+test cấm `orchestrator.py`/`dispatch.py` nhắc tới `ExportJob`/`run_export_job`.
+
 ## 9. Giới hạn đã biết (cố ý để lại)
 
 - **Supabase Storage chưa có adapter.** M1 chạy `STORAGE_BACKEND=local` (đã verify thật).
@@ -330,7 +414,7 @@ không có `needs_manual`) — nghĩa là "chưa có bản dịch", không phả
   Nếu broker chết, job đứng ở `queued` kèm `error_log=enqueue_failed:…` (không giả vờ đã gửi).
 - **NỢ KỸ THUẬT (tracked):** `SupabaseStorageAdapter` chưa viết — cần khi có credential Supabase.
   Nên làm trước M4 vì M4 bắt đầu sinh thêm ảnh clean. Hiện `STORAGE_BACKEND=supabase` fail có thông báo rõ.
-- **Chưa có typeset** — M6.
-- **M2 chưa xử lý** ảnh xoay/nghiêng, scan chất lượng kém; chưa auto-retry khi timeout (thuộc M9);
+- ~~Chưa có typeset~~ → **đã xong ở M6**.
+- **M2 chưa xử lý** ảnh xoay/nghiêng, scan chất lượng kém; auto-retry khi timeout **đã có ở M9** (chỉ cho lỗi tạm thời, có trần — §10);
   chưa có UI vẽ overlay box (thuộc M7).
 - **Chưa có auth/user management** — nếu cần multi-user phải là mini-spec riêng, không nhét vào MTE.

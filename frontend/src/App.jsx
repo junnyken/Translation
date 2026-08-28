@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import * as api from './api.js'
+import BatchPanel from './components/BatchPanel.jsx'
 import BboxOverlay from './components/BboxOverlay.jsx'
 import ExportPanel from './components/ExportPanel.jsx'
 import NewProjectPanel from './components/NewProjectPanel.jsx'
@@ -175,7 +176,10 @@ export default function App() {
               ))}
             </ul>
           </section>
-          <ExportPanel projectId={projectId} tenProject={project.name} />
+          <div className="cot-phai">
+            <BatchPanel projectId={projectId} soTrang={(project.pages ?? []).length} />
+            <ExportPanel projectId={projectId} tenProject={project.name} />
+          </div>
         </div>
       )}
 

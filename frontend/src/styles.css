@@ -121,3 +121,14 @@ button.chinh { background: var(--chinh); color: #fff; border-color: var(--chinh)
 .bang-tao input[type="file"] { width: 100%; padding: 8px; background: #fcfcfd; }
 .bang-tao input[type="text"], .bang-tao .nhan input { width: 100%; }
 .bang-tao h2 { margin-bottom: 4px; }
+
+/* ---- M9: bảng chạy cả chapter ---- */
+.bang-me { background: var(--the); border: 1px solid var(--vien); border-radius: 10px; padding: 12px; margin-bottom: 16px; }
+.bang-me .do { color: var(--loi); }
+.bang-me .vang { color: var(--canh); }
+.bang-muc { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
+.bang-muc th { text-align: left; color: var(--mo); font-weight: 600; padding: 4px 6px; border-bottom: 1px solid var(--vien); }
+.bang-muc td { padding: 5px 6px; border-bottom: 1px solid var(--vien); vertical-align: top; }
+.bang-muc tr:last-child td { border-bottom: none; }
+/* Lỗi dài phải xuống dòng chứ không đẩy giãn bảng ra ngoài màn hình. */
+.bang-muc .o-loi { color: var(--mo); max-width: 260px; overflow-wrap: anywhere; }

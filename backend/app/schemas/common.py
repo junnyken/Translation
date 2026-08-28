@@ -7,6 +7,9 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.enums import (
+    BatchItemStatus,
+    BatchPipeline,
+    BatchStatus,
     ExportFormat,
     IntendedUse,
     FitStatus,
@@ -285,3 +288,87 @@ class ExportJobAccepted(BaseModel):
     job_id: uuid.UUID
     project_id: uuid.UUID
     status: JobStatus
+
+
+# ---------- M9: chạy cả mẻ ----------
+class BatchCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    requested_pipeline: BatchPipeline = BatchPipeline.full_pipeline
+    #: Chốt engine dịch NGAY LÚC TẠO mẻ. NULL = dùng mặc định trong cấu hình.
+    translation_engine: TranslationEngine | None = None
+
+
+class BatchAccepted(BaseModel):
+    batch_run_id: uuid.UUID
+    status: BatchStatus
+    total_pages: int
+
+
+class BatchRunRead(ORMModel):
+    id: uuid.UUID
+    project_id: uuid.UUID
+    requested_pipeline: BatchPipeline
+    translation_engine: TranslationEngine | None
+    #: SUY RA từ các mục con — `completed` chỉ khi mọi trang đã xong.
+    status: BatchStatus
+    total_pages: int
+    completed_pages: int
+    failed_pages: int
+    blocked_pages: int
+    started_at: datetime | None
+    finished_at: datetime | None
+    #: Đã lọc bỏ thứ giống khoá bí mật trước khi lưu.
+    error_summary: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class BatchItemRead(ORMModel):
+    id: uuid.UUID
+    page_id: uuid.UUID
+    page_order: int
+    status: BatchItemStatus
+    current_job_id: uuid.UUID | None
+    retry_count: int
+    error_code: str | None
+    error_message: str | None
+    started_at: datetime | None
+    finished_at: datetime | None
+
+
+class BatchItemsPage(BaseModel):
+    items: list[BatchItemRead]
+    next_cursor: int | None
+
+
+class BatchResumeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: Bỏ trống = chạy lại MỌI mục failed/blocked_quota của mẻ.
+    item_ids: list[uuid.UUID] | None = None
+
+
+class BatchResumeAccepted(BaseModel):
+    batch_run_id: uuid.UUID
+    resumed_count: int
+    status: BatchStatus
+
+
+class BatchConfigRead(BaseModel):
+    """Cấu hình mẻ cho giao diện — CHỈ true/false và các con số, **không bao giờ** có khoá.
+
+    Có cái này thì giao diện mới nói được lý do thật ("chưa cấu hình khoá dịch") thay vì hiện
+    một lựa chọn rồi để người dùng bấm vào và nhận 422.
+    """
+
+    llm_configured: bool
+    llm_project_rpm: int
+    batch_max_concurrent_pages: int
+    batch_max_retries: int
+    batch_retry_backoff_base_seconds: float
+    batch_retry_backoff_max_seconds: float
+
+
+class BatchRunList(BaseModel):
+    runs: list[BatchRunRead]

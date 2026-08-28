@@ -228,16 +228,24 @@ def run_detect_job(self, job_id: str) -> dict:
         with sync_session() as session:
             job = session.get(Job, jid)
             page_id = job.page_id if job is not None else None
-        return _run_detect(jid)
+        kq = _run_detect(jid)
+        bao_ket_thuc_buoc(
+            _page_cua_job(jid), jid,
+            "completed" if kq.get("status") == "done" else "failed",
+            kq.get("error"),
+        )
+        return kq
     except SoftTimeLimitExceeded:
         reason = f"timeout: vượt {_SOFT_LIMIT}s"
         logger.error("detect job %s %s", jid, reason)
         _mark_failed(jid, page_id, reason)
+        bao_ket_thuc_buoc(page_id or _page_cua_job(jid), jid, "failed", reason)
         return {"status": "failed", "job_id": str(jid), "error": reason}
     except Exception as exc:  # noqa: BLE001 - ghi lại mọi lỗi, không nuốt im lặng
         reason = f"{type(exc).__name__}: {exc}"
         logger.exception("detect job %s thất bại", jid)
         _mark_failed(jid, page_id, reason)
+        bao_ket_thuc_buoc(page_id or _page_cua_job(jid), jid, "failed", reason)
         return {"status": "failed", "job_id": str(jid), "error": reason}
 
 
@@ -413,17 +421,49 @@ def run_ocr_job(self, job_id: str) -> dict:
     """
     jid = uuid.UUID(str(job_id))
     try:
-        return _run_ocr(jid)
+        kq = _run_ocr(jid)
+        bao_ket_thuc_buoc(
+            _page_cua_job(jid), jid,
+            "completed" if kq.get("status") == "done" else "failed",
+            kq.get("error"),
+        )
+        return kq
     except SoftTimeLimitExceeded:
         reason = f"timeout: vượt {_OCR_SOFT_LIMIT}s"
         logger.error("ocr job %s %s", jid, reason)
         _mark_job_failed(jid, reason)
+        bao_ket_thuc_buoc(_page_cua_job(jid), jid, "failed", reason)
         return {"status": "failed", "job_id": str(jid), "error": reason}
     except Exception as exc:  # noqa: BLE001
         reason = f"{type(exc).__name__}: {exc}"
         logger.exception("ocr job %s thất bại", jid)
         _mark_job_failed(jid, reason)
+        bao_ket_thuc_buoc(_page_cua_job(jid), jid, "failed", reason)
         return {"status": "failed", "job_id": str(jid), "error": reason}
+
+
+def _page_cua_job(job_id: uuid.UUID) -> uuid.UUID | None:
+    with sync_session() as session:
+        job = session.get(Job, job_id)
+        return job.page_id if job else None
+
+
+def bao_ket_thuc_buoc(page_id: uuid.UUID | None, job_id: uuid.UUID, outcome: str,
+                      mo_ta_loi: str | None = None) -> None:
+    """Báo cho bộ điều phối mẻ (M9) biết một bước vừa kết thúc.
+
+    Gọi ở CHỖ DUY NHẤT này thay vì rải logic mẻ vào từng task — task của M2–M6 không cần biết
+    gì về mẻ. Trang chạy lẻ (không thuộc mẻ nào) thì hàm này không làm gì.
+    """
+    if page_id is None or not settings.batch_enabled:
+        return
+    try:
+        from app.services.batch.factory import tao_dieu_phoi
+
+        tao_dieu_phoi(settings).on_page_terminal(page_id, job_id, outcome, mo_ta_loi)
+    except Exception:  # noqa: BLE001
+        # Mẻ hỏng KHÔNG được kéo theo việc của trang — trang vẫn phải xong.
+        logger.exception("không cập nhật được mẻ cho trang %s", page_id)
 
 
 def _mark_job_failed(job_id: uuid.UUID, reason: str) -> None:
@@ -650,16 +690,24 @@ def run_inpaint_job(self, job_id: str) -> dict:
     """
     jid = uuid.UUID(str(job_id))
     try:
-        return _run_inpaint(jid)
+        kq = _run_inpaint(jid)
+        bao_ket_thuc_buoc(
+            _page_cua_job(jid), jid,
+            "completed" if kq.get("status") == "done" else "failed",
+            kq.get("error"),
+        )
+        return kq
     except SoftTimeLimitExceeded:
         reason = f"timeout: vượt {settings.inpaint_timeout_seconds}s"
         logger.error("inpaint job %s %s", jid, reason)
         _mark_job_failed(jid, reason)
+        bao_ket_thuc_buoc(_page_cua_job(jid), jid, "failed", reason)
         return {"status": "failed", "job_id": str(jid), "error": reason}
     except Exception as exc:  # noqa: BLE001
         reason = f"{type(exc).__name__}: {exc}"
         logger.exception("inpaint job %s thất bại", jid)
         _mark_job_failed(jid, reason)
+        bao_ket_thuc_buoc(_page_cua_job(jid), jid, "failed", reason)
         return {"status": "failed", "job_id": str(jid), "error": reason}
 
 
@@ -702,6 +750,27 @@ def build_translator(engine: str):
             thinking_budget=settings.llm_thinking_budget,
         )
     return get_translator(engine)
+
+
+def _cong_nhip(engine_name: str) -> None:
+    """Giữ nhịp gọi Gemini theo hạn mức của PROJECT, chung cho mọi worker (M9).
+
+    Không dùng `rate_limit` của Celery vì nó giới hạn theo từng worker instance — hai worker
+    cùng đặt 10 lượt/phút thành 20 lượt/phút đập vào nhà cung cấp.
+    Bị chặn thì ném lỗi 429 và **không gọi provider** — đó là toàn bộ mục đích của cổng.
+    """
+    if engine_name != TranslationEngine.llm_context.value or settings.llm_project_rpm <= 0:
+        return
+    from app.services.batch.gate import GeminiProjectRateGate
+    from app.services.translate.engines import TranslationFailed
+
+    cong = GeminiProjectRateGate(settings.redis_url, rpm=settings.llm_project_rpm)
+    ket = cong.acquire(cong.khoa_project(settings.llm_model_name, "gemini"))
+    if not ket.cho_phep:
+        raise TranslationFailed(
+            f"HTTP 429: rate limit — cổng nhịp chặn ({ket.ly_do}), "
+            f"còn {ket.con_lai} lượt, thử lại sau ~{ket.cho_giay:.0f}s"
+        )
 
 
 def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dict:
@@ -791,6 +860,10 @@ def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dic
     fallback_reason: str | None = None
     translator = build_translator(engine_name)
     try:
+        # Cổng nhịp chỉ áp cho đường TỐN TIỀN (`google_fast` miễn phí nên không qua cổng).
+        # Đặt TRONG khối try có chủ đích: bị chặn thì đi đúng đường lùi-về-google của M5 và
+        # được dán nhãn `fallback_used`, thay vì làm hỏng cả job. Đặt ngoài try là mất đường lùi.
+        _cong_nhip(engine_name)
         translated = translator.translate(texts, source_lang, target_lang)
     except (QuotaExhausted, TranslationFailed) as exc:
         if engine_name != TranslationEngine.llm_context.value or not settings.llm_fallback_to_google:
@@ -886,16 +959,24 @@ def run_translate_job(self, job_id: str, engine: str | None = None) -> dict:
     """
     jid = uuid.UUID(str(job_id))
     try:
-        return _run_translate(jid, engine)
+        kq = _run_translate(jid, engine)
+        bao_ket_thuc_buoc(
+            _page_cua_job(jid), jid,
+            "completed" if kq.get("status") == "done" else "failed",
+            kq.get("error"),
+        )
+        return kq
     except SoftTimeLimitExceeded:
         reason = f"timeout: vượt {settings.translate_timeout_seconds}s"
         logger.error("translate job %s %s", jid, reason)
         _mark_job_failed(jid, reason)
+        bao_ket_thuc_buoc(_page_cua_job(jid), jid, "failed", reason)
         return {"status": "failed", "job_id": str(jid), "error": reason}
     except Exception as exc:  # noqa: BLE001
         reason = f"{type(exc).__name__}: {exc}"
         logger.exception("translate job %s thất bại", jid)
         _mark_job_failed(jid, reason)
+        bao_ket_thuc_buoc(_page_cua_job(jid), jid, "failed", reason)
         return {"status": "failed", "job_id": str(jid), "error": reason}
 
 
@@ -1157,16 +1238,24 @@ def run_typeset_job(self, job_id: str) -> dict:
     """
     jid = uuid.UUID(str(job_id))
     try:
-        return _run_typeset(jid)
+        kq = _run_typeset(jid)
+        bao_ket_thuc_buoc(
+            _page_cua_job(jid), jid,
+            "completed" if kq.get("status") == "done" else "failed",
+            kq.get("error"),
+        )
+        return kq
     except SoftTimeLimitExceeded:
         reason = f"timeout: vượt {settings.typeset_timeout_seconds}s"
         logger.error("typeset job %s %s", jid, reason)
         _mark_job_failed(jid, reason)
+        bao_ket_thuc_buoc(_page_cua_job(jid), jid, "failed", reason)
         return {"status": "failed", "job_id": str(jid), "error": reason}
     except Exception as exc:  # noqa: BLE001
         reason = f"{type(exc).__name__}: {exc}"
         logger.exception("typeset job %s thất bại", jid)
         _mark_job_failed(jid, reason)
+        bao_ket_thuc_buoc(_page_cua_job(jid), jid, "failed", reason)
         return {"status": "failed", "job_id": str(jid), "error": reason}
 
 

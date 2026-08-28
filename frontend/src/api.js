@@ -89,3 +89,32 @@ export async function choJobXong(jobId, { soLanToiDa = 60, nhipMs = 700 } = {}) 
   }
   throw new Error('Việc chạy nền quá lâu, chưa xong')
 }
+
+// ---------- M9: chạy cả chapter theo mẻ ----------
+
+/** Cấu hình mẻ (chỉ true/false + các con số, không có khoá bí mật). */
+export const layCauHinhMe = () => fetch(`${BASE}/batch-config`).then(doc)
+
+export const layDanhSachMe = (projectId) =>
+  fetch(`${BASE}/projects/${projectId}/batch-runs`).then(doc)
+
+export const taoMe = (projectId, { engine, pipeline = 'full_pipeline' }) =>
+  fetch(`${BASE}/projects/${projectId}/batch-runs`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ requested_pipeline: pipeline, translation_engine: engine }),
+  }).then(doc)
+
+export const layMe = (id) => fetch(`${BASE}/batch-runs/${id}`).then(doc)
+
+export const layMucCuaMe = (id) => fetch(`${BASE}/batch-runs/${id}/items?limit=500`).then(doc)
+
+/** Chạy lại các trang hỏng/bị chặn. `itemIds` bỏ trống = chạy lại tất cả. */
+export const chayLaiMe = (id, itemIds = null) =>
+  fetch(`${BASE}/batch-runs/${id}/resume`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(itemIds ? { item_ids: itemIds } : {}),
+  }).then(doc)
+
+export const huyMe = (id) => fetch(`${BASE}/batch-runs/${id}/cancel`, { method: 'POST' }).then(doc)

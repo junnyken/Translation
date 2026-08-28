@@ -521,3 +521,133 @@ def test_ten_file_export_khong_co_ky_tu_gay_loi_he_tep():
     ten = ten_file_export('Truyện /' + chr(92) + ':*?"<>| Hay', "cbz")
     for ky_tu in '/' + chr(92) + ':*?"<>|':
         assert ky_tu not in ten
+
+
+# ---------------- M9: chạy cả mẻ ----------------
+
+
+def test_khong_tao_apikeypool():
+    """M5 đã ĐO và chứng minh: xoay key trong cùng project Gemini KHÔNG tăng quota.
+
+    Thêm bảng xoay key chỉ tạo ảo giác là hệ thống đang xoay xở, trong khi hạn mức không đổi.
+    Hết quota thì phải báo `blocked_quota` cho đúng sự thật.
+    """
+    for f in APP_DIR.rglob("*.py"):
+        noi_dung = f.read_text()
+        assert "APIKeyPool" not in noi_dung, f"{f.name} có APIKeyPool — xem REPORT_M5 §3"
+        assert "round_robin_key" not in noi_dung
+
+
+def test_dieu_phoi_me_khong_sao_chep_logic_pipeline():
+    """Bộ điều phối chỉ xếp việc. Sao chép logic vào đây là hai đường xử lý sẽ lệch nhau."""
+    orch = (APP_DIR / "services" / "batch" / "orchestrator.py").read_text()
+    for cam in ("LamaInpainter", "FitToBoxTypesetter", "get_translator", "CTDDetector",
+                "PagePreviewRenderer", "ImageDraw", "onnxruntime"):
+        assert cam not in orch, f"orchestrator không được đụng tới {cam}"
+
+
+def test_me_khong_tu_xuat_chapter():
+    """Tự xuất sau khi dịch xong có thể phát hành bản còn tràn khung — mất quyền quyết định
+    của người vận hành. Xuất là hành động có chủ ý ở M8."""
+    for ten in ("orchestrator.py", "dispatch.py"):
+        noi_dung = (APP_DIR / "services" / "batch" / ten).read_text()
+        assert "run_export_job" not in noi_dung
+        assert "ExportJob" not in noi_dung
+
+
+def test_cong_nhip_khong_bao_gio_luu_api_key():
+    gate = (APP_DIR / "services" / "batch" / "gate.py").read_text()
+    # Khoá đi vào Redis và có thể lộ ra log -> phải băm.
+    assert "hashlib" in gate and "sha256" in gate
+    assert "gemini_api_key" not in gate.lower()
+
+
+def test_khong_dung_rate_limit_cua_celery_lam_cong_toan_cuc():
+    """`rate_limit` của Celery giới hạn theo TỪNG worker instance, không toàn hệ thống.
+
+    Hai worker cùng đặt 10 lượt/phút thành 20 lượt/phút đập vào nhà cung cấp.
+    """
+    from app.workers.celery_app import celery_app
+
+    assert celery_app.conf.get("task_default_rate_limit") in (None, "")
+    tasks_src = (APP_DIR / "workers" / "tasks.py").read_text()
+    assert "rate_limit=" not in tasks_src
+
+
+def test_thong_diep_loi_cua_me_duoc_loc_khoa_bi_mat():
+    orch = (APP_DIR / "services" / "batch" / "orchestrator.py").read_text()
+    assert "_lam_sach" in orch
+    assert "AIza" in orch, "phải có luật lọc chuỗi giống API key"
+
+
+def _than_ham(ten: str):
+    """Lấy đúng thân một hàm bằng AST — cắt theo số ký tự sẽ lọt/thiếu nhánh."""
+    import ast
+
+    cay = ast.parse((APP_DIR / "workers" / "tasks.py").read_text())
+    for nut in ast.walk(cay):
+        if isinstance(nut, ast.FunctionDef) and nut.name == ten:
+            return nut
+    raise AssertionError(f"không thấy hàm {ten}")
+
+
+def _dem_bao_ve_me(ten: str) -> int:
+    import ast
+
+    return sum(
+        1
+        for n in ast.walk(_than_ham(ten))
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Name)
+        and n.func.id == "bao_ket_thuc_buoc"
+    )
+
+
+def test_moi_task_pipeline_deu_bao_ket_qua_ve_me():
+    """Phải báo về ở CẢ BA nhánh: xong, hết giờ, và lỗi.
+
+    Lỗi thật đã gặp: `run_detect_job` chỉ báo về ở nhánh thành công. Trang hỏng lúc dò khung
+    (bước ĐẦU TIÊN của mẻ, cũng là bước hay hỏng nhất) để lại mục ở `running` cho tới khi
+    bộ thu hồi mồ côi chạm mốc 2400s — nhìn vào giao diện thì mẻ như đang chạy, thật ra đứng im.
+    """
+    for ten in ("run_detect_job", "run_ocr_job", "run_inpaint_job",
+                "run_translate_job", "run_typeset_job"):
+        assert _dem_bao_ve_me(ten) >= 3, (
+            f"{ten} chỉ báo về mẻ ở {_dem_bao_ve_me(ten)} nhánh — phải đủ xong/hết giờ/lỗi"
+        )
+
+
+def test_viec_thao_tac_tay_khong_bao_ve_me():
+    """Mẻ chỉ đẩy 5 bước pipeline. Việc sửa tay (canh lại chữ, đọc lại vùng, dịch lại vùng)
+    không bao giờ là bước của mẻ, nên báo về chỉ có thể đánh hỏng NHẦM một mục đang chạy."""
+    for ten in ("run_refit_job", "run_region_reocr_job", "run_region_retranslate_job"):
+        assert _dem_bao_ve_me(ten) == 0, f"{ten} không được báo về mẻ"
+
+
+def test_chi_mot_cho_dung_bo_dieu_phoi_me():
+    """Lỗi thật do Run B tìm ra: worker dựng `BatchOrchestrator` bằng tay và QUÊN `retry_policy`.
+
+    Mọi quyết định thử lại đều xảy ra ở worker, nên `BATCH_MAX_RETRIES` và `BATCH_RETRY_BACKOFF_*`
+    trong `.env` khi đó **không có tác dụng gì** — đặt lùi dần 30s mà đo được 0,6s.
+    Dựng ở hai nơi là cách chắc chắn để hai nơi lệch nhau, nên chỉ được dựng ở đúng một chỗ.
+    """
+    noi_dung = [
+        (f, f.read_text()) for f in APP_DIR.rglob("*.py")
+        if "BatchOrchestrator(" in f.read_text()
+    ]
+    ten = sorted(f.name for f, _ in noi_dung)
+    assert ten == ["factory.py"], f"chỉ `factory.py` được dựng bộ điều phối, đang thấy {ten}"
+
+
+def test_bo_dieu_phoi_doc_du_cau_hinh_thu_lai():
+    from app.core.config import get_settings
+    from app.services.batch.factory import tao_dieu_phoi
+
+    s = get_settings()
+    dp = tao_dieu_phoi(s)
+    assert dp.retry_policy.max_retries == s.batch_max_retries
+    assert dp.retry_policy.backoff_base_seconds == s.batch_retry_backoff_base_seconds
+    assert dp.retry_policy.backoff_max_seconds == s.batch_retry_backoff_max_seconds
+    assert dp.retry_policy.jitter == s.batch_retry_jitter
+    assert dp.max_concurrent_pages == s.batch_max_concurrent_pages
+    assert dp.stale_item_seconds == s.batch_stale_item_seconds

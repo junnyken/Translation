@@ -15,7 +15,7 @@ Quy tắc: **tuần tự**, mini-spec sau chỉ mở khi mini-spec trước đã
 | **M6** | Tự canh cỡ chữ vừa bubble | `FitToBoxTypesetter(ITypesetter)` + `FontResolver` + `PagePreviewRenderer` | Đo font-metrics sai (tiếng Việt có dấu) → tràn khung | ✅ **XONG** (`v0.6-M6`) — còn treo: Run B (font comic thật) không khả thi, Run C (manga thật) chưa chạy |
 | **M7** | Màn sửa tay | `PATCH /regions/{id}` + Page Detail UI (React) | Sửa 1 region đụng region khác; re-fit sai phạm vi | ✅ **XONG** (`v0.7-M7`) — lộ ra 2 lỗi thật (khung vẽ lệch, chữ tràn ra ngoài trang) đã sửa |
 | **M8** | Xuất PNG/CBZ + lưu/mở project | `ExportJob`, `ChapterExporter` | Export dùng bản cũ sau khi đã sửa tay | ✅ **XONG** (`v0.8-M8`) — rủi ro dự đoán KHÔNG xảy ra; lộ ra lỗi khác: retry-translate chết từ M6 |
-| **M9** | Chạy cả chapter + xoay API key ⏭ kế tiếp | `KeyRotationManager`, `BatchOrchestrator` | Vượt rate-limit provider; hết sạch key mà vẫn báo thành công | Chưa — nên gộp thêm: watchdog job chết vì OOM, cảnh báo chất lượng dịch trước khi xuất |
+| **M9** | Chạy cả chapter theo mẻ ✅ xong | `BatchOrchestrator`, `GeminiProjectRateGate`, `RetryPolicy` | Vượt hạn mức nhà cung cấp; báo mẻ xong khi còn trang chưa chạy; thử lại vô hạn | Đã gộp watchdog việc chết vì worker bị giết (hỏi broker, không đoán theo đồng hồ). **Bỏ** `KeyRotationManager`: M5 đã đo — xoay khoá cùng project Gemini không tăng hạn mức |
 | **M10** | Guardrail bản quyền | modal nhắc + gate `intended_use` | Over-scope thành hệ kiểm duyệt nội dung | Field đã có từ M1 |
 
 ## Điều kiện tiên quyết cần chuẩn bị trước (không phải code)
@@ -40,7 +40,15 @@ bóng thoại, OCR đúng 3/3, canh chữ 5/5 vừa khung. Còn thiếu **manga 
 4. Cập nhật `ARCH.md` / `API.md` / `FEATURES.md` / `TEST_LOG.md`.
 5. Viết `docs/REPORT_M<n>.md` → chốt xong mới mở mini-spec kế.
 
-## Phác thảo M6 (mini-spec kế tiếp)
+## Phác thảo M10 (mini-spec kế tiếp)
+
+- **Cổng khai báo phạm vi sử dụng & bản quyền** trước khi xuất: nhắc trách nhiệm, không mặc định
+  chia sẻ/công khai. Field `intended_use` đã có sẵn từ M1 nên không phải migrate thêm cột.
+- Không nhét vào M9: mẻ là chuyện điều phối, còn đây là chuyện tuân thủ — trộn vào nhau thì cả hai
+  cùng khó kiểm.
+
+<details>
+<summary>Phác thảo M6 (đã hoàn thành)</summary>
 
 - `FitToBoxTypesetter(ITypesetter)` — chèn bản dịch của M5 vào ảnh clean của M4, tự tính cỡ chữ +
   ngắt dòng cho vừa `TextRegion.bbox`.
@@ -50,6 +58,8 @@ bóng thoại, OCR đúng 3/3, canh chữ 5/5 vừa khung. Còn thiếu **manga 
   (enum đã chốt ở M1), **không tự cắt chữ**, không tự tràn ra ngoài bubble.
 - Font: đã có sẵn trong `fonts/` (4 font OFL, đủ 134 ký tự Việt, có test canh). **Bangers không có chữ thường**;
   cần đậm/nghiêng thì dùng Shantell Sans. Chi tiết + bẫy: `docs/FONTS.md`.
+
+</details>
 
 <details>
 <summary>Phác thảo M5 (đã hoàn thành)</summary>

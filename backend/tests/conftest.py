@@ -21,6 +21,9 @@ os.environ["DATABASE_URL"] = TEST_DB_URL
 _STORAGE_ROOT = tempfile.mkdtemp(prefix="translation-test-storage-")
 os.environ["STORAGE_LOCAL_ROOT"] = _STORAGE_ROOT
 os.environ["STORAGE_BACKEND"] = "local"
+# M9: tắt cổng nhịp trong test — test dùng translator giả, không gọi nhà cung cấp thật, nên
+# cổng chỉ làm test phụ thuộc vào Redis. Cổng có bộ test riêng ở `test_batch_unit.py`.
+os.environ.setdefault("LLM_PROJECT_RPM", "0")
 # M6: font nằm trong `backend/fonts/` (phải nằm TRONG backend/ để nền tảng hosting
 # build được — nó chỉ nhận thư mục con `backend` hoặc `frontend` làm gốc build).
 os.environ.setdefault("FONT_DIR", str(Path(__file__).resolve().parents[1] / "fonts"))
@@ -34,6 +37,8 @@ from app.core.db import get_session  # noqa: E402
 from app.main import app  # noqa: E402
 
 TABLES = (
+    "batch_item",
+    "batch_run",
     "export_job",
     "job",
     "typeset_result",

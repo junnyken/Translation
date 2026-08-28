@@ -103,6 +103,22 @@ class Settings(BaseSettings):
     #: Timeout RIÊNG — nay là bảy timeout độc lập (có test canh). Đo thật rồi chỉnh, đừng copy
     #: số của job khác: xuất chapter là nhiều trang nhân lên, không phải một trang.
     export_timeout_seconds: int = 900
+    # ---- M9: chạy cả mẻ ----
+    batch_enabled: bool = True
+    #: Số trang chạy song song trong một mẻ. Để 1 vì worker hiện chạy concurrency=1 và bước
+    #: xoá chữ đã ngốn ~1,1GB RAM; nâng lên phải đo lại RAM trước.
+    batch_max_concurrent_pages: int = 1
+    batch_max_retries: int = 3
+    batch_retry_backoff_base_seconds: float = 2.0
+    batch_retry_backoff_max_seconds: float = 120.0
+    batch_retry_jitter: bool = True
+    #: Hạn mức gọi Gemini theo PROJECT (lượt/phút). <=0 = tắt cổng.
+    #: Đây là số dev; phải đo hạn mức thật của nhà cung cấp rồi mới chốt cho chạy thật.
+    llm_project_rpm: int = 10
+    llm_quota_mode: str = "redis_sliding_window"
+    #: Mục của mẻ ở trạng thái `running` lâu hơn ngần này coi như mồ côi (worker đã chết) và
+    #: được xếp lại. Phải LỚN HƠN bước chậm nhất — xoá chữ đo được 72s/trang, timeout 1800s.
+    batch_stale_item_seconds: float = 2400.0
 
     # ---- M4: inpaint (LaMa) ----
     inpaint_weights_path: str = "/models/lama-manga-dynamic.onnx"
@@ -138,6 +154,15 @@ class Settings(BaseSettings):
     @property
     def cors_allow_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]
+
+    @property
+    def llm_configured(self) -> bool:
+        """Đã cấu hình khoá dịch chưa — CHỈ trả true/false.
+
+        Tầng API dùng cái này thay vì đọc danh sách khoá: mã phục vụ HTTP không có lý do gì
+        chạm tới khoá bí mật, và có guardrail quét mã canh đúng điều đó.
+        """
+        return bool(self.gemini_api_key_list)
 
     @property
     def gemini_api_key_list(self) -> list[str]:
