@@ -10,7 +10,7 @@ from app.services.interfaces import BBox
 from app.services.typeset.fitter import FIT_OK, OVERFLOW_WARNING, PENDING, FitToBoxTypesetter
 from app.services.typeset.fonts import FontResolver
 
-FONT_DIR = os.environ.get("FONT_DIR") or str(Path(__file__).resolve().parents[2] / "fonts")
+FONT_DIR = os.environ.get("FONT_DIR") or str(Path(__file__).resolve().parents[1] / "fonts")
 MIN, MAX = 10, 28
 
 

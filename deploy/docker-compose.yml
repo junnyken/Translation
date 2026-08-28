@@ -65,7 +65,7 @@ services:
       - storage_data:/data/storage
       - ../models:/models:ro
       # M6: font chèn chữ. Chỉ worker cần — API không nạp engine render.
-      - ../fonts:/fonts:ro
+      - ../backend/fonts:/fonts:ro
       - model_cache:/model-cache
     # M2/M3: worker tiêu thụ Job(type=detect) và Job(type=ocr) bằng comic-text-detector (ONNX, CPU).
     command: celery -A app.workers.celery_app.celery_app worker -l info -Q celery --concurrency=1

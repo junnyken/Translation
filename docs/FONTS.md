@@ -25,9 +25,9 @@ rồi render thật bằng Pillow để chắc ra nét mực.
 do hoạ sĩ **Nguyễn Hùng Lân** (tác giả *Dũng Sĩ Hesman*) phát hành miễn phí. Nhưng **nguồn chính chủ đã
 chết**: `hunglan.com/share/hlcomicuni.rar` nay trả về trang parked (`/lander`), và `hunglan.netfirms.com`
 ghi trong metadata font cũng không còn. Chỉ còn mirror bên thứ ba **không nêu giấy phép** ⇒ không đưa vào repo.
-Nếu sau này lấy được bản Unicode chính chủ + rõ giấy phép, thả vào `fonts/HLComic/` là test §5 tự kiểm.
+Nếu sau này lấy được bản Unicode chính chủ + rõ giấy phép, thả vào `backend/fonts/HLComic/` là test §5 tự kiểm.
 
-## 3. Bộ font đã chọn (nằm trong `fonts/`)
+## 3. Bộ font đã chọn (nằm trong `backend/fonts/`)
 
 Tất cả **SIL Open Font License 1.1** — dùng thương mại được, nhúng vào sản phẩm được, kèm `OFL.txt`.
 
@@ -38,7 +38,7 @@ Tất cả **SIL Open Font License 1.1** — dùng thương mại được, nhú
 | **Mansalva** | Thoại viết tay, tự nhiên, mềm hơn Bangers | 1 nét | 134/134 |
 | **Sigmar One** | **Tiếng động (SFX)** — nét dày, hét to | 1 nét | 134/134 |
 
-Xem mặt chữ thật: `fonts/mau-chu.png` (render từ chính 4 font này, không phải ảnh quảng cáo).
+Xem mặt chữ thật: `backend/fonts/mau-chu.png` (render từ chính 4 font này, không phải ảnh quảng cáo).
 
 **Shantell Sans là font duy nhất** trong nhóm hợp truyện tranh có đủ ma trận đậm/nghiêng và có tiếng Việt —
 nên nó gánh vai nhấn mạnh mà Bangers (chỉ 1 nét) không làm được.
@@ -57,13 +57,13 @@ chữ ký/thư pháp — nên lựa chọn cho truyện tranh tiếng Việt **h
 
 `backend/tests/test_fonts_vietnamese.py` — 16 test:
 
-- Mọi `fonts/*/*.ttf` phải phủ **đủ 134** ký tự có dấu + đủ ASCII in được. Thiếu ⇒ **đỏ**, kèm danh sách
+- Mọi `backend/fonts/*/*.ttf` phải phủ **đủ 134** ký tự có dấu + đủ ASCII in được. Thiếu ⇒ **đỏ**, kèm danh sách
   ký tự thiếu.
 - Mọi thư mục font phải kèm file license và license phải là **OFL**.
 - Render thật bằng Pillow, phải ra nét mực (không phải trang trắng).
 - Canh chính danh sách 134 ký tự, để sai danh sách không làm mọi test kia thành vô nghĩa.
 
-⇒ Ai thả nhầm một font kiểu HL Comic2 vào `fonts/` sẽ bị chặn ngay, không đợi tới lúc thấy ô vuông trên ảnh.
+⇒ Ai thả nhầm một font kiểu HL Comic2 vào `backend/fonts/` sẽ bị chặn ngay, không đợi tới lúc thấy ô vuông trên ảnh.
 
 ## 6. Ghi chú kỹ thuật cho M6
 
@@ -78,3 +78,10 @@ chữ ký/thư pháp — nên lựa chọn cho truyện tranh tiếng Việt **h
   nhưng nghĩa là **không dùng Bangers để phân biệt hoa/thường**. Cần chữ thường thì dùng Shantell Sans/Mansalva.
 - Đo font-metrics phải dùng **`font.getbbox()` / `getlength()` trên chuỗi tiếng Việt thật**, không suy từ
   số ký tự: dấu mũ + dấu thanh chồng lên nhau làm chiều cao dòng khác hẳn tiếng Anh — đây là rủi ro số 1 của M6.
+
+## 7. Vì sao font nằm trong `backend/` chứ không ở gốc repo
+
+Nền tảng hosting **chỉ nhận `backend` hoặc `frontend` làm thư mục gốc để build**, và ngữ cảnh build
+là chính thư mục đó — Dockerfile ở `backend/` không với ra ngoài được. Font là tài sản chỉ worker
+dùng, nên để trong `backend/fonts/` là đúng chỗ và build được. Đây là lý do vận hành, không phải
+sở thích sắp xếp.

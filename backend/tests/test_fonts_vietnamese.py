@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-FONTS_DIR = Path(__file__).resolve().parents[2] / "fonts"
+FONTS_DIR = Path(__file__).resolve().parents[1] / "fonts"
 
 # 134 ký tự có dấu của tiếng Việt (không tính a/e/i/o/u/y trần vốn thuộc ASCII).
 _BASES = {

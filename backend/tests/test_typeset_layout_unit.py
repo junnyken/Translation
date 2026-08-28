@@ -9,7 +9,7 @@ import pytest
 from app.services.typeset.fonts import FontNotFound, FontResolver, MissingGlyph, normalize_for_layout
 from app.services.typeset.layout import TextLayoutEngine
 
-FONT_DIR = os.environ.get("FONT_DIR") or str(Path(__file__).resolve().parents[2] / "fonts")
+FONT_DIR = os.environ.get("FONT_DIR") or str(Path(__file__).resolve().parents[1] / "fonts")
 
 
 @pytest.fixture

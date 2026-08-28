@@ -21,8 +21,9 @@ os.environ["DATABASE_URL"] = TEST_DB_URL
 _STORAGE_ROOT = tempfile.mkdtemp(prefix="translation-test-storage-")
 os.environ["STORAGE_LOCAL_ROOT"] = _STORAGE_ROOT
 os.environ["STORAGE_BACKEND"] = "local"
-# M6: font nằm trong repo (`fonts/`), không phải /fonts của container.
-os.environ.setdefault("FONT_DIR", str(Path(__file__).resolve().parents[2] / "fonts"))
+# M6: font nằm trong `backend/fonts/` (phải nằm TRONG backend/ để nền tảng hosting
+# build được — nó chỉ nhận thư mục con `backend` hoặc `frontend` làm gốc build).
+os.environ.setdefault("FONT_DIR", str(Path(__file__).resolve().parents[1] / "fonts"))
 
 import sqlalchemy as sa  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
