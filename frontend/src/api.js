@@ -1,6 +1,10 @@
-// Khi chạy máy nhà: rỗng -> gọi đường dẫn tương đối, vite proxy sang API.
-// Khi chạy thật: giao diện và API ở hai tên miền khác nhau nên phải nhúng địa chỉ đầy đủ lúc build.
-const BASE = `${import.meta.env.VITE_API_BASE ?? ''}/api/v1`
+// Địa chỉ API, theo thứ tự ưu tiên:
+//   1. `window.__API_BASE__` — sinh lúc CHẠY (config.js), cách dùng khi deploy
+//   2. `VITE_API_BASE` — nhúng lúc build
+//   3. rỗng — gọi đường dẫn tương đối, đúng khi chạy máy nhà (vite proxy sang API)
+export const API_BASE =
+  (typeof window !== 'undefined' && window.__API_BASE__) || import.meta.env.VITE_API_BASE || ''
+const BASE = `${API_BASE}/api/v1`
 
 async function doc(res) {
   if (!res.ok) {

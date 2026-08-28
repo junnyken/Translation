@@ -7,6 +7,8 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Sinh lúc chạy bởi docker-entrypoint.sh; khi chạy máy nhà thì không có file này (404, vô hại). -->
+    <script src="/config.js"></script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

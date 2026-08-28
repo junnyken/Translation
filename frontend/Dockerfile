@@ -22,6 +22,8 @@ RUN npm run build
 # ---------- prod: nginx phục vụ file tĩnh. Stage CUỐI, hosting sẽ build stage này ----------
 FROM nginx:1.27-alpine AS prod
 COPY --from=build /app/dist /usr/share/nginx/html
+COPY docker-entrypoint.sh /docker-entrypoint-app.sh
+RUN chmod +x /docker-entrypoint-app.sh
 # SPA: mọi đường dẫn không phải file đều trả index.html, nếu không thì F5 sẽ ra 404.
 RUN printf 'server {\n\
   listen 80;\n\
@@ -29,3 +31,5 @@ RUN printf 'server {\n\
   location / { try_files $uri $uri/ /index.html; }\n\
 }\n' > /etc/nginx/conf.d/default.conf
 EXPOSE 80
+# Ghi đè entrypoint mặc định của nginx để sinh config.js từ biến môi trường trước khi chạy.
+ENTRYPOINT ["/docker-entrypoint-app.sh"]
