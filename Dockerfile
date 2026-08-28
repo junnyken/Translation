@@ -45,4 +45,9 @@ ENV HF_HOME=/model-cache/hf \
     CTD_WEIGHTS_PATH=/models/comic-text-detector.onnx \
     INPAINT_WEIGHTS_PATH=/models/lama-manga-dynamic.onnx
 
-CMD ["celery", "-A", "app.workers.celery_app.celery_app", "worker", "-l", "info", "-Q", "celery", "--concurrency=1"]
+COPY deploy-start.sh /usr/local/bin/deploy-start.sh
+RUN chmod +x /usr/local/bin/deploy-start.sh
+
+EXPOSE 8000
+# Mặc định chạy CẢ API lẫn worker trong một container — xem lý do trong deploy-start.sh.
+CMD ["/usr/local/bin/deploy-start.sh"]
