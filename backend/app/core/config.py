@@ -139,12 +139,34 @@ class Settings(BaseSettings):
         """Tách chuỗi key thành list. Không log, không trả ra API."""
         return [k.strip() for k in self.gemini_api_keys.split(",") if k.strip()]
 
+    @staticmethod
+    def _doi_driver(url: str, driver: str) -> str:
+        """Ép URL Postgres về đúng driver cần dùng, dù URL vào ở dạng nào.
+
+        Nền tảng hosting tiêm `DATABASE_URL` dạng `postgresql://user:pass@host/db` — KHÔNG có
+        driver. SQLAlchemy gặp dạng đó sẽ mặc định `psycopg2`, mà repo này cài `psycopg` (v3)
+        và `asyncpg`, nên nổ `ModuleNotFoundError: No module named 'psycopg2'` lúc khởi động.
+        Cũng nhận cả `postgres://` (kiểu Heroku cũ) mà SQLAlchemy không còn hiểu.
+        """
+        for tien_to in ("postgresql+asyncpg://", "postgresql+psycopg://", "postgresql+psycopg2://"):
+            if url.startswith(tien_to):
+                return f"postgresql+{driver}://" + url[len(tien_to):]
+        for tien_to in ("postgresql://", "postgres://"):
+            if url.startswith(tien_to):
+                return f"postgresql+{driver}://" + url[len(tien_to):]
+        return url
+
+    @property
+    def async_database_url(self) -> str:
+        """URL cho engine bất đồng bộ của API."""
+        return self._doi_driver(self.database_url, "asyncpg")
+
     @property
     def sync_database_url(self) -> str:
-        """URL driver đồng bộ cho Alembic (suy ra từ database_url nếu không khai báo riêng)."""
+        """URL driver đồng bộ cho Alembic + worker (suy ra từ database_url nếu không khai riêng)."""
         if self.alembic_database_url:
-            return self.alembic_database_url
-        return self.database_url.replace("+asyncpg", "+psycopg")
+            return self._doi_driver(self.alembic_database_url, "psycopg")
+        return self._doi_driver(self.database_url, "psycopg")
 
     @property
     def max_upload_bytes(self) -> int:
