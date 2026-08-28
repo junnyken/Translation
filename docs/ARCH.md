@@ -456,6 +456,62 @@ Mini-spec cấm, và lý do đứng vững: nó không giúp gì cho việc tuâ
 ảnh của chính người dùng. Guardrail test quét **phần mã** (bỏ chú thích và chuỗi tài liệu, bằng
 `tokenize`) — soi cả lời văn thì chính đoạn giải thích "không làm watermark" cũng làm test đỏ.
 
+## 12. Kiến trúc giao diện (E11)
+
+E11 **không đụng vào backend**: không đổi API, schema, enum, Celery hay mô hình AI. Toàn bộ thay
+đổi nằm trong `frontend/`.
+
+```
+frontend/src/
+  styles/tokens.css      màu · khoảng cách · bo góc · vòng focus — MỘT nguồn duy nhất
+  lib/
+    status-presentation.js   dịch trạng thái backend -> chữ hiển thị (có test đối chiếu API.md)
+    chapter-progress.js      suy dòng thời gian pipeline từ trạng thái trang thật
+  components/ui/         Button · Field · StatusBadge · EmptyState · Dropzone ·
+                         ProgressStage · Dialog · Alert · Icon
+  components/chapter/    ChapterCreateForm · ChapterRecentList · ChapterProgress ·
+                         ChapterSummary · ReviewToolbar
+  components/            RegionPanel · BboxOverlay (M7) · ExportPanel (M8) ·
+                         BatchPanel (M9) · ExportWarningModal (M10) — giữ nguyên, dùng lại
+```
+
+### Một chỗ duy nhất dịch trạng thái ra chữ
+
+`lib/status-presentation.js` phủ **8 họ enum** (trang, việc, mẻ, mục mẻ, căn chữ, đọc chữ, dịch,
+vùng). Rải chuỗi trạng thái khắp component là cách chắc chắn để sớm muộn có một màn gọi `pending`
+là "xong" — nên chỗ này được canh bằng test **đối chiếu từng giá trị enum trong `API.md`**:
+
+- backend thêm trạng thái mà quên cập nhật giao diện ⇒ **test đỏ**;
+- trạng thái lạ lọt tới trình duyệt ⇒ hiện *"Trạng thái chưa được hỗ trợ"* kèm mã thô, **không**
+  đoán là thành công;
+- `typeset_done` mà còn vùng tràn khung / chưa đọc được chữ ⇒ **hạ xuống mức cảnh báo**, đổi nhãn
+  thành *"Đã căn chữ, còn vùng cần sửa"*. Đây là triết lý evidence-first của M1–M10 kéo dài tới
+  tầng hiển thị.
+
+Màu **không bao giờ** là nguồn thông tin duy nhất: mỗi trạng thái luôn có nhãn chữ + icon.
+
+### Không có thanh phần trăm giả
+
+Backend không đo phần trăm cho một trang, nên giao diện cũng không bịa ra. Dòng thời gian hiện
+**số trang đã qua từng bước** (`3/3 trang`) — con số đếm được thật.
+
+### Vùng kéo-thả vẫn là `<input type="file">`
+
+Vùng thả chỉ là lớp vỏ; input thật vẫn nằm đó (ẩn) và mở được bằng Enter/Space. Tự vẽ vùng thả rồi
+bỏ input là đánh đổi độ tin cậy và khả năng tiếp cận lấy vẻ đẹp.
+
+### Giao diện phải kiên nhẫn bằng máy chủ
+
+Worker chạy **một việc một lúc**. Khi đang có chapter khác chạy thì việc của người dùng phải xếp
+hàng — đo thật ở E11: căn lại chữ mất **108 giây**. Giao diện cũ bỏ cuộc ở giây 42 rồi báo *"quá
+lâu, chưa xong"*, khiến người dùng tưởng hỏng. Nay chờ tới 10 phút, hiện **"đang chờ tới lượt"**,
+và nếu hết kiên nhẫn thì nói *"vẫn đang chạy"* — không nói là hỏng.
+
+### Khoảng trống còn lại
+
+Chưa có `GET /projects` để liệt kê chapter, nên danh sách "gần đây" nằm trong bộ nhớ trình duyệt
+và giao diện **nói rõ điều đó**. Không tự thêm endpoint ở E11 — xem `REPORT_E11.md §7`.
+
 ## 9. Giới hạn đã biết (cố ý để lại)
 
 - **Supabase Storage chưa có adapter.** M1 chạy `STORAGE_BACKEND=local` (đã verify thật).

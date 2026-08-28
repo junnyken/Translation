@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import StatusBadge from './StatusBadge.jsx'
+import StatusBadge from './ui/StatusBadge.jsx'
 
 /** Bảng sửa 1 vùng: bản dịch, font, cỡ chữ + các nút chạy lại từng bước. */
 export default function RegionPanel({ region, fontFamilies, coMin, coMax, dangBan, onLuu, onDichLai, onDocLai, onCanhLai }) {
@@ -32,10 +32,13 @@ export default function RegionPanel({ region, fontFamilies, coMin, coMax, dangBa
       <div className="hang-tieu-de">
         <h3>Vùng {region.reading_order ?? '?'}</h3>
         <div className="nhom-nhan">
-          <StatusBadge trangThai={region.fit_status} />
-          {region.ocr_status === 'needs_manual' && <StatusBadge trangThai="needs_manual" />}
-          {region.status === 'low_confidence' && <StatusBadge trangThai="low_confidence" />}
-          {region.translation_status === 'fallback_used' && <StatusBadge trangThai="fallback_used" />}
+          <StatusBadge loai="canh_chu" trangThai={region.fit_status} />
+          {region.ocr_status === 'needs_manual'
+            && <StatusBadge loai="doc_chu" trangThai="needs_manual" />}
+          {region.status === 'low_confidence'
+            && <StatusBadge loai="vung" trangThai="low_confidence" />}
+          {region.translation_status === 'fallback_used'
+            && <StatusBadge loai="dich" trangThai="fallback_used" />}
         </div>
       </div>
 

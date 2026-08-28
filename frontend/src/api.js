@@ -79,15 +79,30 @@ export async function choXuatXong(jobId, { soLanToiDa = 240, nhipMs = 1000, onTi
   throw new Error('Xuất chapter quá lâu, chưa xong')
 }
 
-/** Chờ job chạy xong. Trả job cuối cùng; ném lỗi nếu job `failed`. */
-export async function choJobXong(jobId, { soLanToiDa = 60, nhipMs = 700 } = {}) {
+/** Chờ job chạy xong. Trả job cuối; ném lỗi nếu job `failed`.
+ *
+ * Kiên nhẫn tới 10 phút chứ không phải 42 giây như trước: worker chạy MỘT việc một lúc, nên khi
+ * đang có mẻ hoặc chapter khác chạy thì việc của bạn phải xếp hàng. Đo thật ở E11: căn lại chữ
+ * mất **108 giây** vì đứng sau một chapter 3 trang — giao diện cũ bỏ cuộc ở giây 42 rồi báo
+ * "quá lâu, chưa xong", trong khi việc vẫn chạy và xong bình thường ngay sau đó.
+ *
+ * `onTien` để giao diện nói được đang chờ tới lượt hay đang chạy, thay vì đứng im.
+ */
+export async function choJobXong(jobId, { soLanToiDa = 600, nhipMs = 1000, onTien } = {}) {
   for (let i = 0; i < soLanToiDa; i++) {
     const job = await layJob(jobId)
+    onTien?.(job)
     if (job.status === 'done') return job
     if (job.status === 'failed') throw new Error(job.error_log || 'Việc chạy nền bị lỗi')
     await new Promise((r) => setTimeout(r, nhipMs))
   }
-  throw new Error('Việc chạy nền quá lâu, chưa xong')
+  // Hết kiên nhẫn KHÔNG có nghĩa là hỏng — nói đúng như vậy.
+  const e = new Error(
+    'Việc vẫn đang chạy sau 10 phút. Máy chủ xử lý từng việc một nên có thể đang bận; '
+    + 'bạn tải lại trang sau ít phút để xem kết quả.',
+  )
+  e.vanDangChay = true
+  throw e
 }
 
 // ---------- M9: chạy cả chapter theo mẻ ----------

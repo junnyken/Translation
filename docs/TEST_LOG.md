@@ -1236,3 +1236,64 @@ phẩm, nhưng ghi lại vì nó cho thấy **chờ mà không kiểm tra mã tr
 - **Chưa đo trường hợp chapter hoàn toàn sạch** (0 tràn khung, 0 chưa đọc được) trên hệ thật —
   mới kiểm bằng test tích hợp.
 - `user_acknowledged=false` mới kiểm bằng test, chưa bấm "Để sau" trên giao diện thật.
+
+## E11 — Làm lại giao diện & luồng thao tác
+
+> Số liệu do hai script in ra, chạy lại được:
+> `scripts/soi_giao_dien.py --nhan truoc|sau` (đo tràn ngang, điểm dừng tab, lỗi console, chụp ảnh)
+> và `scripts/kiem_e11.py` (chạy đúng thao tác người dùng trên Chromium thật).
+> E11 **không** đụng vào backend: không đổi API, schema, enum, Celery hay mô hình AI.
+
+### 1. Audit trước khi sửa — đo, không phán bằng mắt
+
+| Mục | Bằng chứng |
+|---|---|
+| Stack | React 18.3.1 · Vite 6.0.7 · CSS thuần · điều hướng bằng `#hash` · **không có** thư viện icon, không có bộ khung giao diện, **không có bộ chạy test** |
+| Enum backend | 17 enum trong `API.md`; giao diện cần diễn giải **8 họ trạng thái** |
+| 360×800 | **TRÀN NGANG** — rộng cuộn 398 > khung nhìn 360; thủ phạm: `div.hang` + ô nhập |
+| 768 / 1280 / 1600 | không tràn |
+| Điểm dừng tab ở trang chủ | **6** |
+| Console | **4 lỗi** mỗi lần mở trang (thiếu `favicon`, và `config.js` không có ở môi trường máy nhà) |
+| Danh sách chapter | **Không có endpoint liệt kê project** — danh sách "gần đây" lấy từ bộ nhớ trình duyệt |
+| Copy hứa thời gian | Giao diện cũ ghi **"mỗi trang mất khoảng 3–6 phút"** — con số này **không có trong bất kỳ phép đo nào**; đo thật ở M9/M10 là ~40–100 giây/trang |
+
+### 2. Sau khi làm lại
+
+| Đo | Trước | Sau |
+|---|---|---|
+| Tràn ngang 360px | **có** | **không** |
+| Tràn ngang 768 / 1280 / 1600 | không | không |
+| Lỗi console | **4** | **0** |
+| Điểm dừng tab (trang chủ) | 6 | 11 |
+| Ô chọn tệp | `<input type=file>` gốc của trình duyệt | vùng kéo-thả, **vẫn giữ input thật ẩn** cho bàn phím và trình đọc màn hình |
+| Chữ hứa thời gian | "3–6 phút/trang" (bịa) | "Xử lý chạy nền. Bạn có thể rời trang và mở lại chapter để xem tiến độ." |
+
+### 3. Test tự động
+
+| Nhóm | Số test | Kết quả |
+|---|---|---|
+| Frontend (`vitest`) | **57** | pass |
+| Backend M1–M10 (hồi quy) | **579** | pass — không sửa một kỳ vọng cũ nào |
+
+Trong đó lưới an toàn quan trọng nhất: test **đối chiếu từng giá trị enum trong `API.md`** với bảng
+diễn giải của giao diện. Backend thêm trạng thái mà quên cập nhật giao diện thì test đỏ ngay, và
+trạng thái lạ bị hiện là *"Trạng thái chưa được hỗ trợ"* kèm mã thô chứ **không** bị đoán là thành công.
+
+### 4. Lỗi thật tìm được khi chạy trên trình duyệt
+
+| # | Lỗi | Đo được | Vì sao đáng sửa |
+|---|---|---|---|
+| 1 | **Giao diện bỏ cuộc sớm hơn máy chủ rất nhiều** (lỗi có từ M7) | Việc căn lại chữ mất **108 giây** vì đứng sau một chapter 3 trang; giao diện chỉ chờ **42 giây** (60 lượt × 700ms) rồi báo *"Việc chạy nền quá lâu, chưa xong"* | Người dùng tưởng hỏng và sửa lại lần nữa, trong khi việc vẫn chạy và xong bình thường ngay sau đó. Nay chờ tới 10 phút, hiện rõ **"đang chờ tới lượt"**, và nếu hết kiên nhẫn thì nói *"vẫn đang chạy"* chứ không nói là hỏng |
+| 2 | Tràn ngang ở 360px | rộng cuộn 398 > 360 | Điện thoại phải cuộn ngang mới thấy hết form |
+| 3 | Console 404 mỗi lần mở trang | 4 lỗi/lần | Console nhiễu là console không ai còn đọc — che mất lỗi thật |
+| 4 | Chữ hứa "3–6 phút/trang" | đo thật 40–100 giây/trang | Hứa sai về sản phẩm của chính mình |
+
+### 5. Giới hạn của lần làm này
+
+- **Không có chế độ tối, không có bộ nhận diện thương hiệu đầy đủ** — ngoài phạm vi E11.
+- **Chưa có endpoint liệt kê chapter**: danh sách "gần đây" vẫn nằm trong bộ nhớ trình duyệt, mở
+  máy khác là không thấy. Giao diện **nói rõ điều đó** thay vì giả vờ là danh sách đầy đủ.
+  Ghi thành khoảng trống ở `REPORT_E11.md`, không lén thêm API trong E11.
+- **Chưa đo bằng trình đọc màn hình thật** (NVDA/VoiceOver) — mới kiểm nhãn liên kết, vòng focus
+  và thao tác bàn phím.
+- Màn sửa tay (M7) giữ nguyên cách làm việc; E11 chỉ thêm vỏ điều hướng quanh nó.

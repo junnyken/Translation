@@ -73,7 +73,7 @@ Test dùng **Postgres thật** (DB `translation_test`), không mock.
 | [docs/FEATURES.md](docs/FEATURES.md) | Tính năng theo mini-spec, trạng thái thật |
 | [docs/PLAN.md](docs/PLAN.md) | Kế hoạch xây dựng M1 → M10 |
 | [docs/TEST_LOG.md](docs/TEST_LOG.md) | Nhật ký test, số liệu thật |
-| [M1](docs/REPORT_M1.md) · [M2](docs/REPORT_M2.md) · [M3](docs/REPORT_M3.md) · [M4](docs/REPORT_M4.md) · [M5](docs/REPORT_M5.md) · [M6](docs/REPORT_M6.md) · [M7](docs/REPORT_M7.md) · [M8](docs/REPORT_M8.md) · [M9](docs/REPORT_M9.md) · [M10](docs/REPORT_M10.md) | Báo cáo bàn giao từng mini-spec |
+| [M1](docs/REPORT_M1.md) · [M2](docs/REPORT_M2.md) · [M3](docs/REPORT_M3.md) · [M4](docs/REPORT_M4.md) · [M5](docs/REPORT_M5.md) · [M6](docs/REPORT_M6.md) · [M7](docs/REPORT_M7.md) · [M8](docs/REPORT_M8.md) · [M9](docs/REPORT_M9.md) · [M10](docs/REPORT_M10.md) · [E11](docs/REPORT_E11.md) | Báo cáo bàn giao từng mini-spec |
 
 ## Bản quyền nội dung
 

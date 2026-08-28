@@ -82,7 +82,13 @@ export default function ExportPanel({ projectId, tenProject }) {
             nhưng nên sửa tay trước cho đẹp
           </li>
         )}
-        {xemTruoc.skipped_page_count === 0 && xemTruoc.overflow_warning_count === 0 && (
+        {(canhBao?.needs_manual_count ?? 0) > 0 && (
+          <li className="canh-bao">
+            <b>{canhBao.needs_manual_count}</b> bong bóng sẽ <b>trống</b> vì chưa đọc được chữ gốc
+          </li>
+        )}
+        {xemTruoc.skipped_page_count === 0 && xemTruoc.overflow_warning_count === 0
+          && (canhBao?.needs_manual_count ?? 0) === 0 && (
           <li className="on">Không có cảnh báo nào.</li>
         )}
       </ul>

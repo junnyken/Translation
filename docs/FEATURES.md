@@ -20,8 +20,9 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 | M8 | Xuất chapter PNG/CBZ + lưu/mở lại project | **LIVE** (xuất thật 4 trang; chưa mở bằng app đọc truyện thật) |
 | M9 | Chạy **cả chapter bằng một mẻ**: tiến độ thật, thử lại lỗi tạm thời, cổng hạn mức, chạy lại trang hỏng | **LIVE** (4 Run bắt buộc trên truyện thật; giao diện chưa bấm tay — xem TEST_LOG §M9) |
 | M10 | Khai báo mục đích sử dụng (bắt buộc, không mặc định) + nhắc trách nhiệm bản quyền & chất lượng trước khi xuất | **LIVE** (chạy thật đầu-cuối; giao diện chưa bấm tay — xem TEST_LOG §M10) |
+| E11 | Làm lại giao diện: bố cục, bộ màu, vùng kéo-thả, dòng thời gian pipeline, diễn giải trạng thái trung thực, dùng được bằng bàn phím và trên điện thoại | **LIVE** (kiểm thật trên Chromium ở 4 kích thước — xem TEST_LOG §E11) |
 
-## Những gì dùng được ngay hôm nay (sau M10)
+## Những gì dùng được ngay hôm nay (sau E11)
 
 - Tạo project dịch (chọn ngôn ngữ nguồn, mục đích sử dụng) qua API/Swagger.
 - Upload từng trang ảnh: file được lưu thật, trang vào hàng đợi và **worker tự động nhận diện khung chữ**.
@@ -105,6 +106,25 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 - Chưa tự thử lại khi **chất lượng** kém (đọc sai, dịch sai, xoá chữ chưa sạch) — đó không phải
   lỗi hạ tầng, vẫn phải sửa tay ở màn sửa.
 - Chưa lưu ảnh lên Supabase Storage (đang lưu trên ổ đĩa của server).
+
+## Giao diện & luồng thao tác (E11)
+
+- **Trang chủ nói rõ tool làm gì**: tiêu đề, mô tả một câu, và form tạo chapter chia **3 bước
+  đánh số** (thông tin → chọn trang → bắt đầu).
+- **Chọn ảnh bằng cách kéo-thả hoặc bấm**, kèm danh sách trang có số thứ tự, dung lượng và nút bỏ
+  từng trang. Dùng được **hoàn toàn bằng bàn phím** (Enter/Space mở hộp chọn tệp).
+- **Nút bị mờ luôn nói vì sao** ngay bên dưới: "Cần đặt tên cho chapter", "Cần chọn ít nhất một
+  ảnh PNG hoặc JPG"…
+- **Dòng thời gian xử lý** cho cả chapter: tải lên → nhận diện → đọc chữ → xoá chữ → dịch → căn
+  chữ, mỗi bước ghi rõ **bao nhiêu/bao nhiêu trang** đã qua. Không có thanh phần trăm giả.
+- **Mọi trạng thái có nhãn tiếng Việt + icon**, không chỉ dựa vào màu. Trạng thái mà giao diện
+  chưa biết thì hiện "Trạng thái chưa được hỗ trợ" chứ không bị coi là đã xong.
+- **Căn chữ xong mà còn vùng lỗi thì KHÔNG gọi là hoàn tất** — hiện "Đã căn chữ, còn vùng cần sửa"
+  kèm số vùng, và nút "Mở để rà soát" được ưu tiên hơn nút xuất.
+- **Chờ việc chạy nền một cách trung thực**: nói rõ "đang chờ tới lượt — máy chủ đang bận việc
+  khác", và nếu quá lâu thì nói "vẫn đang chạy" chứ không báo hỏng.
+- **Dùng được trên điện thoại** (360px) tới màn rộng (1600px), không phải cuộn ngang.
+- Khi sửa tay có **đường dẫn phân cấp** và nút chuyển **trang trước / trang sau**.
 
 ## Khai báo mục đích & nhắc trách nhiệm (M10)
 

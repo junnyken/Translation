@@ -40,6 +40,22 @@ bóng thoại, OCR đúng 3/3, canh chữ 5/5 vừa khung. Còn thiếu **manga 
 4. Cập nhật `ARCH.md` / `API.md` / `FEATURES.md` / `TEST_LOG.md`.
 5. Viết `docs/REPORT_M<n>.md` → chốt xong mới mở mini-spec kế.
 
+## Phác thảo E12 (mini-spec kế tiếp)
+
+- **Cổng chất lượng vùng**: phân loại minh bạch vùng nào có khả năng là thoại / tiếng động / số
+  trang / nhiễu, gắn mã lý do, đẩy vùng đáng ngờ vào màn sửa tay.
+- **Không** tự xoá vùng, **không** tự chấm điểm bản dịch bằng LLM — chỉ phân loại và định tuyến.
+
+<details>
+<summary>Phác thảo E11 (đã hoàn thành)</summary>
+
+- Làm lại bề mặt sản phẩm, **không đụng backend**: token màu, bộ component dùng chung, vùng
+  kéo-thả, dòng thời gian pipeline, bảng dịch trạng thái tập trung có test canh.
+- Lỗi thật tìm được: giao diện chỉ chờ 42 giây trong khi việc thật mất 108 giây khi worker bận.
+- Khoảng trống chưa lấp: chưa có endpoint liệt kê chapter — xem `REPORT_E11.md §7`.
+
+</details>
+
 ## Phác thảo M11 (nếu thật sự cần)
 
 - **Nhiều người dùng & phân quyền**: hiện `edited_by_user` chỉ nói "có người sửa", không nói "ai".

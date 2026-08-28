@@ -1,0 +1,71 @@
+/* Design token — MỘT nguồn duy nhất cho màu, khoảng cách, bo góc, đổ bóng (E11).
+ *
+ * Trước E11 mỗi chỗ tự đặt màu và khoảng cách, nên cùng một ý ("đây là cảnh báo") lại hiện ra
+ * ba kiểu khác nhau. Từ đây mọi component đọc token, không viết mã màu trực tiếp.
+ *
+ * Cố ý KHÔNG làm dark mode / đổi theme trong E11 — ngoài phạm vi mini-spec.
+ */
+:root {
+  /* --- Màu chính: tím indigo đậm. CTA cũ quá nhạt nên trông như nút đã bị khoá. --- */
+  --mau-chinh: #4f46e5;
+  --mau-chinh-dam: #4338ca;
+  --mau-chinh-nhat: #eef2ff;
+  --mau-chinh-vien: #c7d2fe;
+
+  /* --- Nền và bề mặt --- */
+  --nen: #f8fafc;          /* canvas: xám rất nhạt, không để trắng trống toàn màn */
+  --the: #ffffff;          /* surface */
+  --the-mo: #f1f5f9;
+  --vien: #e2e8f0;
+  --vien-dam: #cbd5e1;
+
+  /* --- Chữ --- */
+  --chu: #0f172a;          /* slate gần đen, tương phản cao */
+  --mo: #64748b;           /* chữ phụ, vẫn đủ đọc */
+  --mo-nhat: #94a3b8;
+
+  /* --- Màu ngữ nghĩa. LUÔN đi kèm nhãn chữ + icon: màu không bao giờ là
+         nguồn thông tin duy nhất (có người không phân biệt được màu). --- */
+  --ok: #047857;
+  --ok-nen: #ecfdf5;
+  --ok-vien: #a7f3d0;
+  --canh: #b45309;
+  --canh-nen: #fffbeb;
+  --canh-vien: #fde68a;
+  --loi: #b91c1c;
+  --loi-nen: #fef2f2;
+  --loi-vien: #fecaca;
+  --tin: #1d4ed8;
+  --tin-nen: #eff6ff;
+  --tin-vien: #bfdbfe;
+
+  /* --- Bo góc: thống nhất thẻ/nút/ô nhập --- */
+  --bo-nho: 8px;
+  --bo: 12px;
+  --bo-lon: 14px;
+
+  /* --- Đổ bóng: nhẹ, chỉ để tách lớp --- */
+  --bong: 0 1px 2px rgba(15, 23, 42, .06), 0 1px 3px rgba(15, 23, 42, .04);
+  --bong-noi: 0 8px 24px rgba(15, 23, 42, .10);
+  --bong-hop-thoai: 0 20px 48px rgba(15, 23, 42, .28);
+
+  /* --- Khoảng cách theo khổ màn (16 / 24 / 32) --- */
+  --le: 16px;
+  --khoang: 16px;
+
+  --rong-toi-da: 1240px;
+}
+
+@media (min-width: 768px) {
+  :root { --le: 24px; --khoang: 20px; }
+}
+@media (min-width: 1280px) {
+  :root { --le: 32px; --khoang: 24px; }
+}
+
+/* Vòng focus dùng chung — bàn phím phải luôn nhìn thấy mình đang ở đâu. */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--mau-chinh);
+  outline-offset: 2px;
+  border-radius: var(--bo-nho);
+}
