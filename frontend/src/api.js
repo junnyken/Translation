@@ -1,4 +1,6 @@
-const BASE = '/api/v1'
+// Khi chạy máy nhà: rỗng -> gọi đường dẫn tương đối, vite proxy sang API.
+// Khi chạy thật: giao diện và API ở hai tên miền khác nhau nên phải nhúng địa chỉ đầy đủ lúc build.
+const BASE = `${import.meta.env.VITE_API_BASE ?? ''}/api/v1`
 
 async function doc(res) {
   if (!res.ok) {

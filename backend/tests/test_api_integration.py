@@ -153,4 +153,9 @@ async def test_openapi_co_dung_6_endpoint_cua_m1(client):
         ("/api/v1/jobs/{job_id}", "get"),
     }
     assert expected <= paths
-    assert all(p.startswith("/api/v1/") for p, _ in paths), paths
+    # Mọi endpoint NGHIỆP VỤ phải nằm dưới /api/v1 để còn đánh phiên bản được.
+    # Ngoại lệ duy nhất: `/healthz` — endpoint vận hành cho nền tảng hosting thăm dò,
+    # không có phiên bản vì nó không thuộc hợp đồng API.
+    NGOAI_LE = {"/healthz"}
+    la = {p for p, _ in paths if not p.startswith("/api/v1/")} - NGOAI_LE
+    assert not la, f"endpoint nằm ngoài /api/v1: {la}"

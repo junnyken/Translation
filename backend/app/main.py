@@ -1,7 +1,9 @@
 """Entrypoint FastAPI của Translation (Phase MTE)."""
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.routes import router as v1_router
+from app.core.config import get_settings
 
 app = FastAPI(
     title="Translation — Manga Translation Extension (MTE)",
@@ -13,4 +15,25 @@ app = FastAPI(
     docs_url="/docs",
     openapi_url="/openapi.json",
 )
+
+# Chạy thật thì giao diện (M7/M8) và API nằm ở HAI tên miền khác nhau, nên trình duyệt coi là
+# gọi chéo nguồn và sẽ chặn nếu thiếu CORS. Mặc định để RỖNG = không cho phép nguồn nào —
+# phải khai báo tường minh trong `.env`, không mở sẵn `*` cho cả internet.
+_settings = get_settings()
+if _settings.cors_allow_origin_list:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_settings.cors_allow_origin_list,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
+        allow_headers=["Content-Type"],
+    )
+
+
+@app.get("/healthz", tags=["ops"])
+async def healthz() -> dict:
+    """Kiểm tra sống — nền tảng hosting dùng để biết container đã sẵn sàng chưa."""
+    return {"status": "ok"}
+
+
 app.include_router(v1_router)

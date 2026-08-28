@@ -162,7 +162,7 @@ export default function App() {
 
             {chiTiet.preview_url ? (
               <BboxOverlay
-                src={`${chiTiet.preview_url}?v=${phienBanAnh}`}
+                src={`${import.meta.env.VITE_API_BASE ?? ''}${chiTiet.preview_url}?v=${phienBanAnh}`}
                 regions={chiTiet.regions}
                 dangChon={dangChon}
                 onChon={setDangChon}

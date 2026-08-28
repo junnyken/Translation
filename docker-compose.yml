@@ -30,7 +30,7 @@ services:
   api:
     build:
       context: ./backend
-      target: base
+      target: api
     env_file: .env
     depends_on:
       db:
@@ -68,7 +68,9 @@ services:
 
   # M7 — màn sửa tay. Chỉ là consumer của API, không đụng DB/Redis.
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      target: dev
     depends_on:
       - api
     environment:

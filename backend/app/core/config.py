@@ -124,8 +124,15 @@ class Settings(BaseSettings):
     #: -> phải tắt oneDNN thì PaddleOCR mới chạy. Xem docs/TEST_LOG.md § M3.
     ocr_paddle_enable_mkldnn: bool = False
 
+    #: Danh sách tên miền được phép gọi API, ngăn cách bằng dấu phẩy.
+    #: RỖNG = không cho phép gọi chéo nguồn. Cố ý không mặc định `*`.
+    cors_allow_origins: str = ""
     app_env: str = "dev"
     log_level: str = "INFO"
+
+    @property
+    def cors_allow_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]
 
     @property
     def gemini_api_key_list(self) -> list[str]:

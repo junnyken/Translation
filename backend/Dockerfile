@@ -38,3 +38,11 @@ RUN pip install --no-cache-dir --timeout 300 --retries 10 -r requirements-worker
 # Model tải lúc chạy (manga-ocr ~440MB từ HuggingFace, PaddleOCR ~20MB) -> cache vào volume
 ENV HF_HOME=/model-cache/hf \
     PADDLE_PDX_CACHE_HOME=/model-cache/paddle
+
+# ---------- stage api: NHẸ, không có thư viện AI. Đây là stage CUỐI CÙNG có chủ đích ----------
+# `docker build` không có --target sẽ build stage cuối. Nền tảng hosting build thư mục `backend/`
+# nên phải là stage nhẹ này (1,06 GB), KHÔNG phải stage worker (4,47 GB).
+FROM base AS api
+
+# Chạy migration rồi mới phục vụ. Không dùng --reload khi chạy thật.
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]
