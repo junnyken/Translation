@@ -37,6 +37,9 @@ from app.core.db import get_session  # noqa: E402
 from app.main import app  # noqa: E402
 
 TABLES = (
+    "consistency_review_task",
+    "character_voice_profile",
+    "glossary_entry",
     "region_quality_assessment",
     "export_compliance_log",
     "batch_item",

@@ -142,3 +142,15 @@ bóng thoại, OCR đúng 3/3, canh chữ 5/5 vừa khung. Còn thiếu **manga 
 </details>
 </details>
 </details>
+
+## E13 — Thuật ngữ & rà soát nhất quán (2026-08-29)
+
+✅ **Backend xong** (`697 test pass`): 3 bảng, 13 endpoint, quét theo luật tất định, áp/từ chối có
+chốt chặn bản-đã-đổi. Run A + Run B chạy thật trên Pepper&Carrot — tự tìm ra đúng lỗi `SPLASH` →
+"TUYỆT VỜI" mà M8 Run C từng phát hiện bằng tay.
+
+❌ **Còn thiếu: giao diện (D1–D5)** — hiện chỉ dùng được qua API/Swagger. Vì vậy Run C (hồ sơ giọng)
+và Run D (cảnh báo lúc xuất) chưa chạy được. Đây là việc kế tiếp trước khi sang E14.
+
+Bài học kỹ thuật đáng nhớ nhất: **`UNIQUE` thường của Postgres KHÔNG chống được trùng khi cột có
+NULL** — phải dùng `UNIQUE NULLS NOT DISTINCT`. Đo thật, xem `TEST_LOG § E13.2`.

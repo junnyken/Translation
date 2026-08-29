@@ -1388,3 +1388,135 @@ người xem, vì một lý do khác: điểm nhận diện khung chỉ 0,384. T
   là sửa hợp đồng render của M6/M8, spec cho phép hoãn và tôi hoãn.
 - **Chưa có endpoint chấm lại thủ công** — chấm lại đi kèm bước căn chữ. Thêm nó cần một loại
   `Job` mới, mà `ALTER TYPE` trên enum Postgres không an toàn trong một giao dịch.
+
+---
+
+## E13 — Thuật ngữ, giọng nhân vật & rà soát nhất quán
+
+**Ngày:** 2026-08-29 · **Môi trường:** workspace `trieunt-c`, Docker, Python 3.12.3,
+Postgres **16.15**, Redis 7-alpine, worker Celery.
+
+### 1. Audit Before Build — 10 mục
+
+| # | Mục | Kết quả |
+|---|---|---|
+| 1 | E11/E12 đã đóng | `REPORT_E11.md`, `REPORT_E12.md` có; bảng `region_quality_assessment` đang chạy; `ReviewStatus` = `not_required`/`needs_review`/`reviewed_keep`/`reviewed_skip` |
+| 2 | Hợp đồng dịch M5 | model `gemini-3.1-flash-lite` (đúng dòng 3.x), engine mặc định `google_fast` |
+| 3 | Đường sửa tay M7 | `PATCH /regions/{id}` trả `pending` + `refit_job_id`; `fit_at_size()` là chỗ giữ cỡ chữ đã ghim |
+| 4 | E12 `reviewed_skip` | có, và là **quyết định của người** — E13 loại vùng này khỏi quét |
+| 5 | Dữ liệu thật | 3 trang Pepper&Carrot (CC BY-SA, David Revoy) còn trong `test_fixtures/external/` |
+| 6 | **NULL trong ràng buộc duy nhất** | **Đo thật, xem §2** |
+| 7 | Chuẩn hoá Unicode | M6 đã có `normalize_for_layout` (NFC) cho việc vẽ; E13 dựng bộ chuẩn hoá **riêng** cho việc so khớp, không đụng văn bản đã lưu |
+| 8 | Thành phần giao diện E11 | `Alert`, `Button`, `Dialog`, `Dropzone`, `EmptyState`, `Field`, `Icon`, `ProgressStage`, `StatusBadge` + nhóm `chapter/` — dùng lại, không dựng bộ sửa thứ hai |
+| 9 | Gợi ý bằng LLM | để **TẮT** mặc định (`E13_LLM_SUGGESTIONS_ENABLED=false`) |
+| 10 | Gap | không có gì về glossary trong toàn bộ mã nguồn ⇒ đúng phạm vi E13 |
+
+### 2. Đo thật: `UNIQUE` thường **không** chống được trùng khi có NULL
+
+Spec cảnh báo đừng tin vào ràng buộc duy nhất khi khoá ngoại để trống. Kiểm chứng trên chính DB:
+
+```
+create table thu (a int, b int, unique (a, b));
+insert into thu values (1, null);   -- OK
+insert into thu values (1, null);   -- OK  ← LỌT, có 2 dòng giống hệt
+
+create table thu2 (a int, b int, unique nulls not distinct (a, b));
+insert into thu2 values (1, null);  -- OK
+insert into thu2 values (1, null);  -- ERROR: duplicate key ← đúng
+```
+
+Postgres coi **mỗi NULL là một giá trị khác nhau**, nên `UNIQUE` thường vô dụng ở đây —
+`ConsistencyReviewTask` có hai khoá ngoại tuỳ chọn (`glossary_entry_id`, `voice_profile_id`) và
+việc do luật sinh ra luôn để trống một trong hai. Dùng `UNIQUE NULLS NOT DISTINCT` (Postgres 15+;
+bản đang chạy là 16.15). Xác nhận trong DB thật sau khi migrate:
+
+```
+uq_consistency_task_idem | UNIQUE NULLS NOT DISTINCT
+                           (region_id, task_type, glossary_entry_id, voice_profile_id, snapshot_hash)
+```
+
+Đây là thứ khiến **quét lại không đẻ ra việc trùng**.
+
+### 3. Test tự động
+
+```
+$ cd backend && ../.venv/bin/python -m pytest
+697 passed, 6 skipped in 204.13s
+```
+
+| Nhóm | File | Số test |
+|---|---|---|
+| Unit — so khớp theo ngôn ngữ | `tests/test_consistency_matching_unit.py` | 25 |
+| Integration — thuật ngữ, quét, áp dụng, API | `tests/test_consistency_integration.py` | 37 |
+| Guardrail kiến trúc (M1→E13) | `tests/test_no_ai_logic.py` | +8 của E13 |
+| Kế thừa M1–M10, E11, E12 | các file trước | 627 |
+
+Bài test đáng chú ý:
+- `test_giu_hanh_vi_cua_dau_nhay_va_gach_noi` — `\b` của Python coi `'` và `-` là ranh giới nên
+  dùng thẳng sẽ khớp sai; test canh `Don't` ≠ `Dont`, `well-known` ≠ `wellknown`.
+- `test_giu_nguyen_dau_tieng_viet` — bỏ dấu để so sẽ khiến `ma` khớp cả `mà`/`má`/`mã` và sinh
+  hàng loạt cảnh báo sai.
+- `test_thuat_ngu_dai_thang_thuat_ngu_ngan` — `魔法薬` phải thắng `魔法`, nếu không một chỗ bị
+  đếm thành hai.
+- `test_ban_dich_doi_roi_thi_tu_choi_ap_de` — **chốt chặn quan trọng nhất**: áp bản cũ sẽ xoá mất
+  phần người khác vừa sửa.
+- `test_khong_ghi_de_quyet_dinh_cua_nguoi` — quét lại KHÔNG mở lại việc người đã từ chối.
+- `test_khong_tu_nghi_ra_tu_dong_nghia_de_cam` — chỉ biến thể **người dùng tự khai** mới bị gắn cờ.
+- `test_bo_quet_khong_goi_mang` — quét theo luật chạy offline hoàn toàn, không token.
+- `test_khong_co_diem_chat_luong_0_100` — kiểm **tên trường** thật; bản đầu của test này bắt nhầm
+  chính dòng chú thích giải thích luật.
+
+### 4. Live verification — Run A (bắt buộc)
+
+Chạy trên chapter chứa **3 trang Pepper&Carrot thật** (CC BY-SA), qua đường thật
+HTTP → Redis → worker.
+
+**Thuật ngữ đã tạo** (đều bắt đầu ở *nháp*):
+
+| Nguồn | Tiếng Việt đã chốt | Loại | Ghi chú |
+|---|---|---|---|
+| `SPLASH` | `TÕM` | general_term | Từ tượng thanh — dịch thành tiếng động. Cấm: `TUYỆT VỜI` |
+| `Pepper` | `Pepper` | character_name | Giữ nguyên tên |
+| `perfect` | `hoàn hảo` | general_term | |
+
+**Quét khi chưa duyệt:** `open_count = 0`, `approved_glossary_count = 0` — đúng: thuật ngữ nháp
+không tham gia quét.
+
+**Sau khi duyệt cả 3 rồi quét lại:**
+
+```
+open_count = 2   approved_glossary_count = 3
+by_type = {"glossary_missing": 1, "prohibited_variant": 1}
+```
+
+Cả hai đều trỏ vào **cùng một vùng thật** — vùng mà Run C của M8 đã phát hiện dịch sai:
+
+| Loại việc | Bản dịch hiện tại | Lý do (nguyên văn hệ thống sinh ra) |
+|---|---|---|
+| `glossary_missing` | `TUYỆT VỜI\n18` | *Chữ gốc có "SPLASH" — thuật ngữ này đã được chốt là "TÕM", nhưng bản dịch hiện tại chưa dùng.* |
+| `prohibited_variant` | `TUYỆT VỜI\n18` | *Bản dịch đang dùng "TUYỆT VỜI" — bạn đã ghi đây là cách dịch không dùng cho thuật ngữ "TÕM".* |
+
+`perfect` → `hoàn hảo` **không** bị gắn cờ vì bản dịch đã dùng đúng thuật ngữ — đúng như mong đợi.
+
+### 5. Live verification — Run B (bắt buộc)
+
+| # | Thao tác | Kết quả |
+|---|---|---|
+| 1 | Áp bản **tự sửa** `TÕM!\n18` | HTTP **202**, kèm `refit_job_id` (canh lại chạy nền, đúng hợp đồng M7) |
+| 2 | Việc thứ hai trên **cùng vùng** | tự chuyển `stale` — nó tính trên bản dịch trước đó nên không còn dùng được |
+| 3 | Cố áp việc đã cũ | **422** `task_not_open: việc đang ở 'stale'` — không áp đè |
+| 4 | Quét lại | **0 việc mở** — sửa xong thì không còn cảnh báo, không báo nhầm |
+| 5 | Bản dịch cuối | `TÕM!\n18`, `edited_by_user = true` |
+| 6 | **Chữ gốc OCR** | `SPLASH\n18` — **nguyên vẹn**, không bị đụng tới |
+
+Tổng kết: `open=0 · accepted=1 · stale=1`. Đúng một vùng được sửa, đúng một việc canh lại được xếp.
+
+### 6. Giới hạn của lần đo này
+
+- **Run C (hồ sơ giọng nhân vật) và Run D (cảnh báo lúc xuất) chưa chạy** — phần giao diện của
+  E13 (D1–D5) chưa dựng, nên chưa kiểm được luồng người dùng thật.
+- **Gợi ý bằng LLM chưa bật và chưa thử** (`E13_LLM_SUGGESTIONS_ENABLED=false`). Đường luật tất
+  định chạy độc lập, không cần LLM.
+- Luật "giọng nhân vật" ở v1 **cố ý chưa sinh việc tự động**: hồ sơ giọng chỉ là ngữ cảnh biên
+  tập hiển thị lúc rà soát. Máy không tự phán một câu có đúng giọng nhân vật hay không.
+- Vẫn chỉ đo trên **một** chapter; chưa thử trên chapter dài nhiều chục trang.

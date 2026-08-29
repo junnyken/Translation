@@ -19,6 +19,9 @@ from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.models import (
     BatchItem,
+    CharacterVoiceProfile,
+    ConsistencyReviewTask,
+    GlossaryEntry,
     BatchRun,
     RegionQualityAssessment,
     ExportJob,
@@ -32,6 +35,11 @@ from app.models import (
 )
 from app.models.enums import (
     BatchItemStatus,
+    ConsistencyTaskStatus,
+    ConsistencyTaskType,
+    GlossaryStatus,
+    TermType,
+    VoiceProfileStatus,
     BatchPipeline,
     BatchStatus,
     OverallBand,
@@ -76,6 +84,19 @@ from app.schemas.common import (
     BatchResumeRequest,
     BatchRunList,
     BatchRunRead,
+    ConsistencyScanRequest,
+    ConsistencySummary,
+    ConsistencyTaskRead,
+    ConsistencyTasksPage,
+    GlossaryEntryCreate,
+    GlossaryEntryRead,
+    GlossaryEntryUpdate,
+    TaskAcceptAccepted,
+    TaskAcceptRequest,
+    TaskRejectRequest,
+    VoiceProfileCreate,
+    VoiceProfileRead,
+    VoiceProfileUpdate,
     PageAccepted,
     PageRead,
     ProjectCreate,
@@ -93,6 +114,7 @@ from app.services.dispatch import (
     dispatch_region_reocr_job,
     dispatch_region_retranslate_job,
     dispatch_export_job,
+    dispatch_consistency_scan_job,
 )
 from app.services.storage import UnsupportedImage, get_storage, sniff_image
 # CHỈ import module quy ước đường dẫn — KHÔNG kéo theo Pillow vào tiến trình API.
@@ -1304,6 +1326,398 @@ async def list_batch_runs(
         )).scalars()
     )
     return BatchRunList(runs=[BatchRunRead.model_validate(r) for r in rows])
+
+
+# ============================ E13: thuật ngữ & rà soát nhất quán ============================
+
+
+def _dich_vu_glossary(session):
+    from app.services.consistency.glossary import GlossaryService
+
+    return GlossaryService(session)
+
+
+async def _thuoc_project_hoac_404(session, doi_tuong, project_id: uuid.UUID, ten: str):
+    """Chặn truy cập chéo chapter: id của chapter khác thì coi như không tồn tại."""
+    if doi_tuong is None or doi_tuong.project_id != project_id:
+        raise HTTPException(status_code=404, detail=f"Không tìm thấy {ten} trong chapter này")
+    return doi_tuong
+
+
+@router.get(
+    "/projects/{project_id}/glossary", response_model=list[GlossaryEntryRead], tags=["glossary"]
+)
+async def list_glossary(
+    project_id: uuid.UUID,
+    status_filter: GlossaryStatus | None = Query(default=None, alias="status"),
+    term_type: TermType | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> list[GlossaryEntry]:
+    """Thuật ngữ đã chốt của **riêng chapter này**.
+
+    Cố ý không dùng chung giữa các chapter: cách dịch hợp ở truyện này có thể sai hẳn ở truyện
+    khác, mỗi bộ có thế giới riêng.
+    """
+    await _get_project_or_404(session, project_id)
+    stmt = select(GlossaryEntry).where(GlossaryEntry.project_id == project_id)
+    if status_filter is not None:
+        stmt = stmt.where(GlossaryEntry.status == status_filter)
+    if term_type is not None:
+        stmt = stmt.where(GlossaryEntry.term_type == term_type)
+    return list((await session.execute(stmt.order_by(GlossaryEntry.source_term))).scalars())
+
+
+@router.post(
+    "/projects/{project_id}/glossary",
+    response_model=GlossaryEntryRead,
+    status_code=status.HTTP_201_CREATED,
+    tags=["glossary"],
+)
+async def create_glossary_entry(
+    project_id: uuid.UUID, body: GlossaryEntryCreate, session: AsyncSession = Depends(get_session)
+) -> GlossaryEntry:
+    """Thêm một thuật ngữ. Luôn bắt đầu ở **nháp** — phải duyệt rồi mới được đem đi quét."""
+    from app.core.db_sync import sync_session
+    from app.services.consistency.glossary import GlossaryInvalid
+
+    await _get_project_or_404(session, project_id)
+    try:
+        with sync_session() as s:
+            entry = _dich_vu_glossary(s).create_entry(project_id, body.model_dump())
+            entry_id = entry.id
+    except GlossaryInvalid as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return await session.get(GlossaryEntry, entry_id)
+
+
+@router.patch("/glossary/{entry_id}", response_model=GlossaryEntryRead, tags=["glossary"])
+async def update_glossary_entry(
+    entry_id: uuid.UUID, body: GlossaryEntryUpdate, session: AsyncSession = Depends(get_session)
+) -> GlossaryEntry:
+    """Sửa thuật ngữ. **Sửa nội dung của thuật ngữ đã duyệt sẽ đưa nó về nháp.**
+
+    Không làm vậy thì một luật cả chapter đang dùng có thể bị đổi nghĩa âm thầm, và mọi việc rà
+    soát tạo ra từ luật cũ thành vô nghĩa mà không ai biết.
+    """
+    from app.core.db_sync import sync_session
+    from app.services.consistency.glossary import GlossaryInvalid
+
+    try:
+        with sync_session() as s:
+            _dich_vu_glossary(s).update_entry(
+                entry_id, body.model_dump(exclude_unset=True)
+            )
+    except GlossaryInvalid as exc:
+        ma = 404 if "not_found" in str(exc) else 422
+        raise HTTPException(status_code=ma, detail=str(exc)) from exc
+    await session.commit()
+    return await session.get(GlossaryEntry, entry_id)
+
+
+@router.post("/glossary/{entry_id}/approve", response_model=GlossaryEntryRead, tags=["glossary"])
+async def approve_glossary_entry(
+    entry_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> GlossaryEntry:
+    """Duyệt thuật ngữ — từ đây nó mới tham gia quét."""
+    from app.core.db_sync import sync_session
+    from app.services.consistency.glossary import GlossaryInvalid
+
+    try:
+        with sync_session() as s:
+            _dich_vu_glossary(s).approve_entry(entry_id)
+    except GlossaryInvalid as exc:
+        ma = 404 if "not_found" in str(exc) else 422
+        raise HTTPException(status_code=ma, detail=str(exc)) from exc
+    await session.commit()
+    return await session.get(GlossaryEntry, entry_id)
+
+
+@router.post("/glossary/{entry_id}/archive", response_model=GlossaryEntryRead, tags=["glossary"])
+async def archive_glossary_entry(
+    entry_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> GlossaryEntry:
+    """Cất thuật ngữ đi. **Không xoá** — các việc rà soát đã tạo từ nó vẫn còn để đối chiếu."""
+    from app.core.db_sync import sync_session
+    from app.services.consistency.glossary import GlossaryInvalid
+
+    try:
+        with sync_session() as s:
+            _dich_vu_glossary(s).archive_entry(entry_id)
+    except GlossaryInvalid as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    await session.commit()
+    return await session.get(GlossaryEntry, entry_id)
+
+
+# ---------------- hồ sơ giọng nhân vật ----------------
+
+
+@router.get(
+    "/projects/{project_id}/voice-profiles", response_model=list[VoiceProfileRead], tags=["glossary"]
+)
+async def list_voice_profiles(
+    project_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> list[CharacterVoiceProfile]:
+    await _get_project_or_404(session, project_id)
+    return list(
+        (await session.execute(
+            select(CharacterVoiceProfile)
+            .where(CharacterVoiceProfile.project_id == project_id)
+            .order_by(CharacterVoiceProfile.character_name)
+        )).scalars()
+    )
+
+
+@router.post(
+    "/projects/{project_id}/voice-profiles",
+    response_model=VoiceProfileRead,
+    status_code=status.HTTP_201_CREATED,
+    tags=["glossary"],
+)
+async def create_voice_profile(
+    project_id: uuid.UUID, body: VoiceProfileCreate, session: AsyncSession = Depends(get_session)
+) -> CharacterVoiceProfile:
+    """Hồ sơ giọng nhân vật — là **hướng dẫn biên tập của bạn**, không phải suy luận của máy.
+
+    E13 không tự đoán tính cách nhân vật và không dùng hồ sơ này để tự sửa lời thoại.
+    """
+    from app.core.db_sync import sync_session
+    from app.services.consistency.glossary import GlossaryInvalid, VoiceProfileService
+
+    await _get_project_or_404(session, project_id)
+    try:
+        with sync_session() as s:
+            hs = VoiceProfileService(s).create(project_id, body.model_dump())
+            hs_id = hs.id
+    except GlossaryInvalid as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return await session.get(CharacterVoiceProfile, hs_id)
+
+
+@router.patch("/voice-profiles/{profile_id}", response_model=VoiceProfileRead, tags=["glossary"])
+async def update_voice_profile(
+    profile_id: uuid.UUID, body: VoiceProfileUpdate, session: AsyncSession = Depends(get_session)
+) -> CharacterVoiceProfile:
+    from app.core.db_sync import sync_session
+    from app.services.consistency.glossary import GlossaryInvalid, VoiceProfileService
+
+    try:
+        with sync_session() as s:
+            VoiceProfileService(s).update(profile_id, body.model_dump(exclude_unset=True))
+    except GlossaryInvalid as exc:
+        ma = 404 if "not_found" in str(exc) else 422
+        raise HTTPException(status_code=ma, detail=str(exc)) from exc
+    await session.commit()
+    return await session.get(CharacterVoiceProfile, profile_id)
+
+
+@router.post(
+    "/voice-profiles/{profile_id}/activate", response_model=VoiceProfileRead, tags=["glossary"]
+)
+async def activate_voice_profile(
+    profile_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> CharacterVoiceProfile:
+    return await _doi_trang_thai_ho_so(profile_id, VoiceProfileStatus.active, session)
+
+
+@router.post(
+    "/voice-profiles/{profile_id}/archive", response_model=VoiceProfileRead, tags=["glossary"]
+)
+async def archive_voice_profile(
+    profile_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> CharacterVoiceProfile:
+    return await _doi_trang_thai_ho_so(profile_id, VoiceProfileStatus.archived, session)
+
+
+async def _doi_trang_thai_ho_so(profile_id, trang_thai, session):
+    from app.core.db_sync import sync_session
+    from app.services.consistency.glossary import GlossaryInvalid, VoiceProfileService
+
+    try:
+        with sync_session() as s:
+            VoiceProfileService(s).set_status(profile_id, trang_thai)
+    except GlossaryInvalid as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    await session.commit()
+    return await session.get(CharacterVoiceProfile, profile_id)
+
+
+# ---------------- quét & rà soát ----------------
+
+
+@router.post(
+    "/projects/{project_id}/consistency-scans",
+    response_model=JobAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["consistency"],
+)
+async def create_consistency_scan(
+    project_id: uuid.UUID,
+    body: ConsistencyScanRequest,
+    session: AsyncSession = Depends(get_session),
+) -> JobAccepted:
+    """Quét cả chapter tìm chỗ dùng thuật ngữ chưa nhất quán.
+
+    Chỉ **tạo việc cần rà soát**, tuyệt đối không sửa bản dịch. Vùng bạn đã bấm "bỏ qua" ở bước
+    rà soát chất lượng sẽ không bị quét lại.
+    """
+    await _get_project_or_404(session, project_id)
+    trang = (await session.execute(select(Page).where(Page.project_id == project_id).limit(1))).first()
+    if trang is None:
+        raise HTTPException(status_code=422, detail="no_page: chapter chưa có trang nào")
+
+    job = Job(type=JobType.typeset, page_id=trang[0].id, status=JobStatus.queued)
+    session.add(job)
+    await session.commit()
+    await session.refresh(job)
+
+    sent, ly_do = dispatch_consistency_scan_job(job.id, project_id)
+    if not sent:
+        job.error_log = ly_do
+        await session.commit()
+    return JobAccepted(job_id=job.id, page_id=job.page_id, status=job.status)
+
+
+@router.get(
+    "/projects/{project_id}/consistency-summary",
+    response_model=ConsistencySummary,
+    tags=["consistency"],
+)
+async def consistency_summary(
+    project_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> ConsistencySummary:
+    """Đếm việc cần rà soát. **Không có điểm chất lượng** — máy không đo được bản dịch hay dở."""
+    await _get_project_or_404(session, project_id)
+    rows = (await session.execute(
+        select(ConsistencyReviewTask.status, ConsistencyReviewTask.task_type)
+        .where(ConsistencyReviewTask.project_id == project_id)
+    )).all()
+
+    dem = {tt: 0 for tt in ConsistencyTaskStatus}
+    theo_loai: dict[str, int] = {}
+    for tt, loai in rows:
+        dem[tt] += 1
+        if tt is ConsistencyTaskStatus.open:
+            theo_loai[loai.value] = theo_loai.get(loai.value, 0) + 1
+
+    so_tn = (await session.execute(
+        select(func.count()).select_from(GlossaryEntry).where(
+            GlossaryEntry.project_id == project_id, GlossaryEntry.status == GlossaryStatus.approved
+        )
+    )).scalar() or 0
+    so_hs = (await session.execute(
+        select(func.count()).select_from(CharacterVoiceProfile).where(
+            CharacterVoiceProfile.project_id == project_id,
+            CharacterVoiceProfile.status == VoiceProfileStatus.active,
+        )
+    )).scalar() or 0
+
+    return ConsistencySummary(
+        open_count=dem[ConsistencyTaskStatus.open],
+        accepted_count=dem[ConsistencyTaskStatus.accepted],
+        rejected_count=dem[ConsistencyTaskStatus.rejected],
+        stale_count=dem[ConsistencyTaskStatus.stale],
+        resolved_no_change_count=dem[ConsistencyTaskStatus.resolved_no_change],
+        by_type=theo_loai,
+        approved_glossary_count=so_tn,
+        active_voice_profile_count=so_hs,
+    )
+
+
+@router.get(
+    "/projects/{project_id}/consistency-tasks",
+    response_model=ConsistencyTasksPage,
+    tags=["consistency"],
+)
+async def list_consistency_tasks(
+    project_id: uuid.UUID,
+    status_filter: ConsistencyTaskStatus | None = Query(default=None, alias="status"),
+    task_type: ConsistencyTaskType | None = None,
+    page_id: uuid.UUID | None = None,
+    limit: int = Query(default=50, ge=1, le=200),
+    cursor: int = Query(default=0, ge=0),
+    session: AsyncSession = Depends(get_session),
+) -> ConsistencyTasksPage:
+    """Danh sách việc cần rà soát, kèm bằng chứng để hiểu vì sao nó được tạo."""
+    await _get_project_or_404(session, project_id)
+    stmt = select(ConsistencyReviewTask).where(ConsistencyReviewTask.project_id == project_id)
+    if status_filter is not None:
+        stmt = stmt.where(ConsistencyReviewTask.status == status_filter)
+    if task_type is not None:
+        stmt = stmt.where(ConsistencyReviewTask.task_type == task_type)
+    if page_id is not None:
+        stmt = stmt.join(TextRegion, TextRegion.id == ConsistencyReviewTask.region_id).where(
+            TextRegion.page_id == page_id
+        )
+    rows = list((await session.execute(
+        stmt.order_by(ConsistencyReviewTask.created_at).offset(cursor).limit(limit + 1)
+    )).scalars())
+    con_nua = len(rows) > limit
+    return ConsistencyTasksPage(
+        items=[ConsistencyTaskRead.model_validate(r) for r in rows[:limit]],
+        next_cursor=(cursor + limit) if con_nua else None,
+    )
+
+
+@router.post(
+    "/consistency-tasks/{task_id}/accept",
+    response_model=TaskAcceptAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["consistency"],
+)
+async def accept_consistency_task(
+    task_id: uuid.UUID, body: TaskAcceptRequest, session: AsyncSession = Depends(get_session)
+) -> TaskAcceptAccepted:
+    """Áp đề xuất (hoặc bản bạn tự sửa) vào **đúng một vùng**, rồi canh chữ lại vùng đó.
+
+    Bản dịch đã đổi kể từ lần quét ⇒ trả **409**, không áp đè — áp bản cũ sẽ xoá mất phần vừa sửa.
+    Cỡ chữ bạn đã ghim ở bước sửa tay được giữ nguyên; chữ mới không vừa thì báo tràn khung.
+    """
+    from app.core.db_sync import sync_session
+    from app.services.consistency.apply import (
+        ConsistencyApplyService,
+        TaskInvalid,
+        TaskNotFound,
+        TaskStale,
+    )
+
+    try:
+        with sync_session() as s:
+            kq = ConsistencyApplyService(s).accept_task(task_id, body.edited_text)
+    except TaskNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except TaskStale as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except TaskInvalid as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return TaskAcceptAccepted(
+        task_id=kq.task_id, region_id=kq.region_id, page_id=kq.page_id,
+        refit_job_id=kq.refit_job_id, applied_text=kq.applied_text,
+    )
+
+
+@router.post(
+    "/consistency-tasks/{task_id}/reject",
+    response_model=ConsistencyTaskRead,
+    tags=["consistency"],
+)
+async def reject_consistency_task(
+    task_id: uuid.UUID, body: TaskRejectRequest, session: AsyncSession = Depends(get_session)
+) -> ConsistencyReviewTask:
+    """Giữ bản hiện tại. **Không** đụng vào bản dịch, ảnh hay bố cục."""
+    from app.core.db_sync import sync_session
+    from app.services.consistency.apply import ConsistencyApplyService, TaskInvalid, TaskNotFound
+
+    try:
+        with sync_session() as s:
+            ConsistencyApplyService(s).reject_task(task_id, body.resolution)
+    except TaskNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except TaskInvalid as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    await session.commit()
+    return await session.get(ConsistencyReviewTask, task_id)
 
 
 @router.get("/jobs/{job_id}", response_model=JobRead, tags=["jobs"])

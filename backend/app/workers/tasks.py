@@ -1838,3 +1838,72 @@ def _danh_dau_export_that_bai(job_id: uuid.UUID, reason: str) -> None:
             job.status = JobStatus.failed
             job.error_log = reason[:4000]
             session.commit()
+
+
+# ============================ E13: rà soát nhất quán ============================
+
+
+def _run_consistency_scan(job_id: uuid.UUID, project_id: uuid.UUID) -> dict:
+    """Quét theo luật tất định. KHÔNG gọi mạng, KHÔNG sửa bản dịch."""
+    started = time.perf_counter()
+    from app.services.consistency.scanner import ConsistencyScanner
+
+    with sync_session() as session:
+        job = session.get(Job, job_id)
+        if job is None:
+            logger.warning("Job %s không tồn tại", job_id)
+            return {"status": "job_not_found", "job_id": str(job_id)}
+        job.status = JobStatus.running
+        session.commit()
+
+    with sync_session() as session:
+        tom_tat = ConsistencyScanner(session).scan_project(project_id)
+
+    elapsed = time.perf_counter() - started
+    with sync_session() as session:
+        job = session.get(Job, job_id)
+        job.status = JobStatus.done
+        job.error_log = None
+        session.commit()
+
+    logger.info(
+        "quét nhất quán %s: xét %d vùng (bỏ qua %d), tạo mới %d, giữ %d, đánh dấu cũ %d, %.1fs",
+        project_id, tom_tat.so_vung_xet, tom_tat.so_vung_bo_qua,
+        tom_tat.tao_moi, tom_tat.giu_nguyen, tom_tat.danh_dau_cu, elapsed,
+    )
+    return {
+        "status": "done",
+        "job_id": str(job_id),
+        "project_id": str(project_id),
+        "version": tom_tat.version,
+        "regions_scanned": tom_tat.so_vung_xet,
+        "regions_skipped": tom_tat.so_vung_bo_qua,
+        "tasks_created": tom_tat.tao_moi,
+        "tasks_unchanged": tom_tat.giu_nguyen,
+        "tasks_marked_stale": tom_tat.danh_dau_cu,
+        "by_type": tom_tat.theo_loai,
+        "elapsed_seconds": round(elapsed, 2),
+    }
+
+
+@celery_app.task(
+    bind=True,
+    name="consistency.run_consistency_scan_job",
+    soft_time_limit=settings.consistency_scan_timeout_seconds,
+    time_limit=settings.consistency_scan_timeout_seconds + 30,
+)
+def run_consistency_scan_job(self, job_id: str, project_id: str) -> dict:
+    """Quét nhất quán cả chapter theo luật. Không gọi LLM, không sửa gì."""
+    jid = uuid.UUID(str(job_id))
+    try:
+        return _run_consistency_scan(jid, uuid.UUID(str(project_id)))
+    except SoftTimeLimitExceeded:
+        reason = f"timeout: vượt {settings.consistency_scan_timeout_seconds}s"
+        logger.error("quét nhất quán %s %s", jid, reason)
+        _mark_job_failed(jid, reason)
+        return {"status": "failed", "job_id": str(jid), "error": reason}
+    except Exception as exc:  # noqa: BLE001
+        reason = f"{type(exc).__name__}: {exc}"
+        logger.exception("quét nhất quán %s thất bại", jid)
+        _mark_job_failed(jid, reason)
+        return {"status": "failed", "job_id": str(jid), "error": reason}

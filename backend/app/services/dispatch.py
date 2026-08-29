@@ -129,3 +129,16 @@ def dispatch_export_job(job_id: uuid.UUID) -> tuple[bool, str | None]:
         reason = f"enqueue_failed: {type(exc).__name__}: {exc}"
         logger.error("Không đẩy được job export %s: %s", job_id, reason)
         return False, reason
+
+
+def dispatch_consistency_scan_job(job_id: uuid.UUID, project_id: uuid.UUID) -> tuple[bool, str | None]:
+    """Trả (đã_gửi, lý_do_lỗi). Broker chết thì nói thật, không giả vờ đã gửi."""
+    try:
+        from app.workers.tasks import run_consistency_scan_job
+
+        run_consistency_scan_job.delay(str(job_id), str(project_id))
+        return True, None
+    except Exception as exc:  # noqa: BLE001
+        reason = f"enqueue_failed: {type(exc).__name__}: {exc}"
+        logger.error("Không đẩy được job quét nhất quán %s: %s", job_id, reason)
+        return False, reason

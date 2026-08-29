@@ -202,3 +202,70 @@ class TranslationState(str, Enum):
     missing = "missing"
     fallback_used = "fallback_used"
     not_attempted = "not_attempted"
+
+
+# ---------------- E13: thuật ngữ, giọng nhân vật, rà soát nhất quán ----------------
+
+
+class TermType(str, Enum):
+    """Loại thuật ngữ. Cố ý HẸP — enum quá rộng thì không phân loại được gì."""
+
+    character_name = "character_name"
+    place = "place"
+    organization = "organization"
+    item = "item"
+    skill = "skill"
+    title_rank = "title_rank"
+    honorific = "honorific"
+    catchphrase = "catchphrase"
+    general_term = "general_term"
+
+
+class GlossaryStatus(str, Enum):
+    """CHỈ `approved` mới được đem đi quét. Sửa nội dung đã duyệt phải quay về `draft`."""
+
+    draft = "draft"
+    approved = "approved"
+    rejected = "rejected"
+    archived = "archived"
+
+
+class SpeechRegister(str, Enum):
+    """Giọng nhân vật — là HƯỚNG DẪN biên tập do người đặt, không phải suy luận của máy."""
+
+    neutral = "neutral"
+    formal = "formal"
+    casual = "casual"
+    childlike = "childlike"
+    rough = "rough"
+    archaic = "archaic"
+    comic = "comic"
+
+
+class VoiceProfileStatus(str, Enum):
+    draft = "draft"
+    active = "active"
+    archived = "archived"
+
+
+class ConsistencyTaskType(str, Enum):
+    """Nguồn gốc của việc cần rà soát — luôn nói rõ vì sao nó được tạo ra."""
+
+    #: Nguồn có thuật ngữ đã duyệt nhưng bản dịch không dùng thuật ngữ đó.
+    glossary_missing = "glossary_missing"
+    #: Bản dịch dùng một biến thể khác với thuật ngữ đã duyệt.
+    glossary_variant = "glossary_variant"
+    #: Bản dịch dùng đúng biến thể mà người dùng đã ghi là CẤM.
+    prohibited_variant = "prohibited_variant"
+    voice_consistency_suspect = "voice_consistency_suspect"
+    #: Do LLM gợi ý — vẫn phải người duyệt, không bao giờ tự áp.
+    llm_suggestion = "llm_suggestion"
+
+
+class ConsistencyTaskStatus(str, Enum):
+    open = "open"
+    accepted = "accepted"
+    rejected = "rejected"
+    #: Bản dịch đã đổi sau khi tạo việc ⇒ đề xuất cũ không còn dùng được.
+    stale = "stale"
+    resolved_no_change = "resolved_no_change"

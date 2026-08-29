@@ -119,6 +119,13 @@ class Settings(BaseSettings):
     #: Mục của mẻ ở trạng thái `running` lâu hơn ngần này coi như mồ côi (worker đã chết) và
     #: được xếp lại. Phải LỚN HƠN bước chậm nhất — xoá chữ đo được 72s/trang, timeout 1800s.
     batch_stale_item_seconds: float = 2400.0
+    # ---- E13: rà soát nhất quán thuật ngữ ----
+    #: Quét theo luật, không gọi mạng — nhanh, nhưng chapter dài vẫn cần timeout riêng.
+    consistency_scan_timeout_seconds: int = 600
+    #: Gợi ý bằng LLM là TÙY CHỌN và mặc định TẮT. Bật lên mới tốn token.
+    e13_llm_suggestions_enabled: bool = False
+    #: Trần số vùng gửi cho LLM một lần — chặn yêu cầu quá lớn thay vì âm thầm cắt bớt.
+    e13_llm_max_regions: int = 5
 
     # ---- M4: inpaint (LaMa) ----
     inpaint_weights_path: str = "/models/lama-manga-dynamic.onnx"

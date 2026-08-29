@@ -90,6 +90,7 @@ def test_celery_da_dang_ky_dung_task_detect_cua_m2():
         "ocr.run_region_reocr_job",
         "translate.run_region_retranslate_job",
         "export.run_export_job",
+        "consistency.run_consistency_scan_job",
     }, user_tasks
 
 
@@ -727,3 +728,78 @@ def test_nhat_ky_tuan_thu_chi_luu_so_lieu():
     cot = {c.name for c in ExportComplianceLog.__table__.columns}
     for cam in ("output_path", "content", "text", "image", "file"):
         assert not any(cam in c for c in cot), f"cột {cam} — đang lưu nội dung export"
+
+
+# ---------------- E13: thuật ngữ & rà soát nhất quán ----------------
+
+
+def test_bo_quet_khong_goi_mang():
+    """Quét theo luật phải chạy offline hoàn toàn — không token, không phụ thuộc nhà cung cấp."""
+    for ten in ("scanner.py", "matching.py", "glossary.py", "apply.py"):
+        noi_dung = (APP_DIR / "services" / "consistency" / ten).read_text()
+        for cam in ("urllib", "requests", "httpx", "socket", "generativelanguage",
+                    "get_translator", "gemini"):
+            assert cam not in noi_dung.lower(), f"{ten} có dấu vết gọi mạng: {cam}"
+
+
+def test_quet_khong_bao_gio_sua_ban_dich_hay_anh():
+    """Bộ quét chỉ TẠO VIỆC. Sửa gì ở đây là phá nguyên tắc 'người quyết định' của E13."""
+    scanner = (APP_DIR / "services" / "consistency" / "scanner.py").read_text()
+    for cam in ("translated_text =", "raw_text =", "wrapped_text =", "clean_image_path =",
+                "TypesetResult(", "edited_by_user"):
+        assert cam not in scanner, f"scanner không được đụng tới {cam}"
+
+
+def test_khong_co_diem_chat_luong_0_100():
+    """Máy không đo được bản dịch hay dở — chấm điểm là tạo cảm giác chính xác giả.
+
+    Kiểm TÊN TRƯỜNG thật chứ không quét văn xuôi: bản đầu của test này bắt nhầm chính dòng
+    chú thích giải thích luật ("**không** có điểm chất lượng 0–100").
+    """
+    from app.models import ConsistencyReviewTask
+    from app.schemas.common import ConsistencySummary, ConsistencyTaskRead
+
+    ten_truong = (
+        set(ConsistencySummary.model_fields)
+        | set(ConsistencyTaskRead.model_fields)
+        | {c.name for c in ConsistencyReviewTask.__table__.columns}
+    )
+    xau = [t for t in ten_truong if "score" in t or "rating" in t or "grade" in t]
+    assert not xau, f"E13 không được có trường chấm điểm: {xau}"
+
+
+def test_chi_thuat_ngu_da_duyet_tham_gia_quet():
+    scanner = (APP_DIR / "services" / "consistency" / "scanner.py").read_text()
+    assert "list_approved" in scanner
+    glossary = (APP_DIR / "services" / "consistency" / "glossary.py").read_text()
+    than = glossary[glossary.index("def list_approved") :]
+    assert "GlossaryStatus.approved" in than[:600]
+
+
+def test_khong_co_nut_ap_dung_toan_chapter():
+    """E13 v1 cố ý KHÔNG có thao tác hàng loạt — mỗi chỗ cần người quyết riêng."""
+    routes = (APP_DIR / "api" / "v1" / "routes.py").read_text()
+    for cam in ("apply_all", "accept_all", "bulk_apply", "apply-all"):
+        assert cam not in routes, f"có thao tác hàng loạt: {cam}"
+
+
+def test_client_khong_dat_duoc_trang_thai_hay_bang_chung():
+    """Người dùng chỉ được chọn accept/reject — không được tự ghi bằng chứng hay trạng thái."""
+    from app.schemas.common import TaskAcceptRequest, TaskRejectRequest
+
+    assert set(TaskAcceptRequest.model_fields) == {"edited_text"}
+    assert set(TaskRejectRequest.model_fields) == {"resolution"}
+
+
+def test_goi_y_bang_llm_mac_dinh_tat():
+    """Bật lên mới tốn token — không bao giờ tự tiêu tiền của người dùng."""
+    from app.core.config import Settings
+
+    assert Settings().e13_llm_suggestions_enabled is False
+
+
+def test_muoi_task_co_muoi_timeout_rieng():
+    from app.workers.tasks import run_consistency_scan_job, run_export_job
+
+    assert run_consistency_scan_job.soft_time_limit is not None
+    assert run_consistency_scan_job.soft_time_limit != run_export_job.soft_time_limit

@@ -25,6 +25,12 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.db import Base
 from app.models.enums import (
     BatchItemStatus,
+    ConsistencyTaskStatus,
+    ConsistencyTaskType,
+    GlossaryStatus,
+    SpeechRegister,
+    TermType,
+    VoiceProfileStatus,
     ConfidenceState,
     OverallBand,
     RegionRelevance,
@@ -415,3 +421,131 @@ class RegionQualityAssessment(TimestampMixin, Base):
     assessed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class GlossaryEntry(TimestampMixin, Base):
+    """Thuật ngữ đã chốt cho MỘT project (E13).
+
+    Cố ý theo từng project: cách dịch chấp nhận được ở truyện này không được tự lan sang truyện
+    khác — mỗi bộ truyện có thế giới riêng.
+
+    `definition` là BẮT BUỘC: một cặp chữ trần trụi không đủ để giữ bản dịch nhất quán, người
+    duyệt sau này cần biết thuật ngữ đó nghĩa là gì mới quyết được từng chỗ.
+    """
+
+    __tablename__ = "glossary_entry"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id", "source_lang", "source_term_key", name="uq_glossary_project_term"
+        ),
+        Index("ix_glossary_project_status", "project_id", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("project.id", ondelete="CASCADE"), nullable=False
+    )
+    source_lang: Mapped[SourceLang] = mapped_column(_enum(SourceLang, "source_lang"), nullable=False)
+    target_lang: Mapped[TargetLang] = mapped_column(_enum(TargetLang, "target_lang"), nullable=False)
+    #: Nguyên văn người dùng nhập — hiển thị lại đúng như họ gõ.
+    source_term: Mapped[str] = mapped_column(Text, nullable=False)
+    #: Dạng đã chuẩn hoá, CHỈ dùng để so khớp và chống trùng. Không bao giờ hiển thị.
+    source_term_key: Mapped[str] = mapped_column(Text, nullable=False)
+    target_term: Mapped[str] = mapped_column(Text, nullable=False)
+    term_type: Mapped[TermType] = mapped_column(_enum(TermType, "term_type"), nullable=False)
+    definition: Mapped[str] = mapped_column(Text, nullable=False)
+    usage_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Các biến thể người dùng tự khai là CẤM. Chỉ để cảnh báo — không bao giờ tự thay chữ.
+    prohibited_variants: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    status: Mapped[GlossaryStatus] = mapped_column(
+        _enum(GlossaryStatus, "glossary_status"), nullable=False, default=GlossaryStatus.draft
+    )
+
+
+class CharacterVoiceProfile(TimestampMixin, Base):
+    """Hướng dẫn giọng cho một nhân vật (E13).
+
+    Đây là **chỉ dẫn biên tập của người dùng**, không phải kết luận của máy — nên cố ý KHÔNG có
+    trường "độ tin cậy". Máy không được suy ra tính cách nhân vật rồi tự sửa lời thoại.
+    """
+
+    __tablename__ = "character_voice_profile"
+    __table_args__ = (
+        UniqueConstraint("project_id", "character_name_key", name="uq_voice_project_name"),
+        Index("ix_voice_project_status", "project_id", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("project.id", ondelete="CASCADE"), nullable=False
+    )
+    character_name: Mapped[str] = mapped_column(Text, nullable=False)
+    character_name_key: Mapped[str] = mapped_column(Text, nullable=False)
+    aliases: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    speech_register: Mapped[SpeechRegister] = mapped_column(
+        _enum(SpeechRegister, "speech_register"), nullable=False, default=SpeechRegister.neutral
+    )
+    #: Ví dụ "xưng ta, gọi ngươi" — do NGƯỜI đặt, không phải máy đoán.
+    vietnamese_pronoun_guidance: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tone_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[VoiceProfileStatus] = mapped_column(
+        _enum(VoiceProfileStatus, "voice_profile_status"),
+        nullable=False,
+        default=VoiceProfileStatus.draft,
+    )
+
+
+class ConsistencyReviewTask(TimestampMixin, Base):
+    """Một việc cần người rà soát (E13) — KHÔNG BAO GIỜ tự áp dụng.
+
+    `snapshot_hash` chốt bản dịch tại thời điểm tạo việc. Bản dịch đổi sau đó ⇒ việc thành
+    `stale` và không được áp nữa; áp một đề xuất dựa trên bản dịch cũ là ghi đè mất công người
+    khác vừa sửa.
+    """
+
+    __tablename__ = "consistency_review_task"
+    __table_args__ = (
+        # Postgres coi mỗi NULL là một giá trị KHÁC NHAU, nên `UNIQUE` thường vẫn cho chèn trùng
+        # khi khoá ngoại để trống (đã kiểm chứng trên PG 16.15). `NULLS NOT DISTINCT` mới chặn
+        # đúng — đây là điều kiện để quét lại không đẻ ra việc trùng.
+        UniqueConstraint(
+            "region_id", "task_type", "glossary_entry_id", "voice_profile_id", "snapshot_hash",
+            name="uq_consistency_task_idem",
+            postgresql_nulls_not_distinct=True,
+        ),
+        Index("ix_consistency_project_status_type", "project_id", "status", "task_type"),
+        Index("ix_consistency_region", "region_id"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("project.id", ondelete="CASCADE"), nullable=False
+    )
+    region_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("text_region.id", ondelete="CASCADE"), nullable=False
+    )
+    glossary_entry_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("glossary_entry.id", ondelete="CASCADE"), nullable=True
+    )
+    voice_profile_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("character_voice_profile.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    task_type: Mapped[ConsistencyTaskType] = mapped_column(
+        _enum(ConsistencyTaskType, "consistency_task_type"), nullable=False
+    )
+    status: Mapped[ConsistencyTaskStatus] = mapped_column(
+        _enum(ConsistencyTaskStatus, "consistency_task_status"),
+        nullable=False,
+        default=ConsistencyTaskStatus.open,
+    )
+    #: Bản dịch tại thời điểm tạo việc — để phát hiện việc đã cũ.
+    current_text_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
+    snapshot_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    #: Đề xuất — chỉ là đề xuất, không bao giờ được ghi thẳng vào bản dịch.
+    proposed_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Bằng chứng vì sao có việc này: thuật ngữ đã duyệt, đoạn khớp, biến thể đang dùng, lý do.
+    #: TUYỆT ĐỐI không chứa khoá bí mật hay phản hồi thô của nhà cung cấp.
+    evidence: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -9,6 +9,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.enums import (
     BatchItemStatus,
+    ConsistencyTaskStatus,
+    ConsistencyTaskType,
+    GlossaryStatus,
+    SpeechRegister,
+    TermType,
+    VoiceProfileStatus,
     ConfidenceState,
     OverallBand,
     RegionRelevance,
@@ -477,3 +483,146 @@ class QualityReviewRead(BaseModel):
     review_status: ReviewStatus
     relevance: RegionRelevance
     overall_band: OverallBand
+
+
+# ---------- E13: thuật ngữ, giọng nhân vật, rà soát nhất quán ----------
+class GlossaryEntryCreate(BaseModel):
+    """`definition` bắt buộc: một cặp chữ trần trụi không đủ để giữ bản dịch nhất quán."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_term: str = Field(min_length=1, max_length=500)
+    target_term: str = Field(min_length=1, max_length=500)
+    term_type: TermType
+    definition: str = Field(min_length=1, max_length=2000)
+    usage_note: str | None = Field(default=None, max_length=2000)
+    #: Chỉ để CẢNH BÁO — hệ thống không bao giờ tự thay chữ theo danh sách này.
+    prohibited_variants: list[str] = Field(default_factory=list, max_length=20)
+
+
+class GlossaryEntryUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_term: str | None = Field(default=None, min_length=1, max_length=500)
+    target_term: str | None = Field(default=None, min_length=1, max_length=500)
+    term_type: TermType | None = None
+    definition: str | None = Field(default=None, min_length=1, max_length=2000)
+    usage_note: str | None = Field(default=None, max_length=2000)
+    prohibited_variants: list[str] | None = Field(default=None, max_length=20)
+
+
+class GlossaryEntryRead(ORMModel):
+    id: uuid.UUID
+    project_id: uuid.UUID
+    source_lang: SourceLang
+    target_lang: TargetLang
+    source_term: str
+    target_term: str
+    term_type: TermType
+    definition: str
+    usage_note: str | None
+    prohibited_variants: list[str]
+    #: CHỈ `approved` mới được đem đi quét. Sửa nội dung đã duyệt sẽ quay về `draft`.
+    status: GlossaryStatus
+    created_at: datetime
+    updated_at: datetime
+
+
+class VoiceProfileCreate(BaseModel):
+    """Hướng dẫn biên tập do NGƯỜI đặt — không phải suy luận của máy."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    character_name: str = Field(min_length=1, max_length=200)
+    aliases: list[str] = Field(default_factory=list, max_length=20)
+    speech_register: SpeechRegister = SpeechRegister.neutral
+    vietnamese_pronoun_guidance: str | None = Field(default=None, max_length=1000)
+    tone_note: str | None = Field(default=None, max_length=1000)
+
+
+class VoiceProfileUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    character_name: str | None = Field(default=None, min_length=1, max_length=200)
+    aliases: list[str] | None = Field(default=None, max_length=20)
+    speech_register: SpeechRegister | None = None
+    vietnamese_pronoun_guidance: str | None = Field(default=None, max_length=1000)
+    tone_note: str | None = Field(default=None, max_length=1000)
+
+
+class VoiceProfileRead(ORMModel):
+    id: uuid.UUID
+    project_id: uuid.UUID
+    character_name: str
+    aliases: list[str]
+    speech_register: SpeechRegister
+    vietnamese_pronoun_guidance: str | None
+    tone_note: str | None
+    status: VoiceProfileStatus
+    created_at: datetime
+    updated_at: datetime
+
+
+class ConsistencyScanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: v1 chỉ có chế độ quét theo luật — không có chế độ nào gọi LLM ở đây.
+    mode: Literal["rules"] = "rules"
+
+
+class ConsistencySummary(BaseModel):
+    """Chỉ đếm việc cần rà soát. **Không** có điểm chất lượng 0–100 — máy không đo được điều đó."""
+
+    open_count: int
+    accepted_count: int
+    rejected_count: int
+    stale_count: int
+    resolved_no_change_count: int
+    by_type: dict[str, int]
+    approved_glossary_count: int
+    active_voice_profile_count: int
+
+
+class ConsistencyTaskRead(ORMModel):
+    id: uuid.UUID
+    project_id: uuid.UUID
+    region_id: uuid.UUID
+    glossary_entry_id: uuid.UUID | None
+    voice_profile_id: uuid.UUID | None
+    task_type: ConsistencyTaskType
+    status: ConsistencyTaskStatus
+    #: Bản dịch tại lúc tạo việc — khác bản hiện tại nghĩa là việc đã cũ.
+    current_text_snapshot: str | None
+    proposed_text: str | None
+    #: Vì sao có việc này: thuật ngữ đã duyệt, đoạn khớp, bản dịch hiện tại, lý do bằng tiếng Việt.
+    evidence: dict
+    created_at: datetime
+    resolved_at: datetime | None
+
+
+class ConsistencyTasksPage(BaseModel):
+    items: list[ConsistencyTaskRead]
+    next_cursor: int | None
+
+
+class TaskAcceptRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: Bỏ trống = dùng bản đề xuất. Có = dùng bản người dùng tự sửa.
+    edited_text: str | None = Field(default=None, max_length=5000)
+
+
+class TaskAcceptAccepted(BaseModel):
+    """Giống hợp đồng của M7: canh lại chạy nền nên trạng thái vừa khung chưa biết ngay."""
+
+    task_id: uuid.UUID
+    region_id: uuid.UUID
+    page_id: uuid.UUID
+    refit_job_id: uuid.UUID | None
+    applied_text: str
+
+
+class TaskRejectRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    resolution: Literal["keep_current", "not_applicable"]

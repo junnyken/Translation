@@ -578,3 +578,45 @@ giữ quyết định cũ trong khi nội dung đã đổi là để họ tin v�
 - **M2 chưa xử lý** ảnh xoay/nghiêng, scan chất lượng kém; auto-retry khi timeout **đã có ở M9** (chỉ cho lỗi tạm thời, có trần — §10);
   chưa có UI vẽ overlay box (thuộc M7).
 - **Chưa có auth/user management** — nếu cần multi-user phải là mini-spec riêng, không nhét vào MTE.
+
+## E13. Thuật ngữ & rà soát nhất quán
+
+Lớp này **do người điều khiển**, không phải máy tự viết lại bản dịch. Nó chốt cách dịch cho cả
+chapter rồi chỉ ra chỗ chưa theo — mỗi chỗ một việc riêng, kèm bằng chứng, người quyết định.
+
+### Vì sao dùng luật tất định thay vì hỏi máy
+
+Luật kiểu *"thuật ngữ đã chốt là X mà chỗ này không có X"* thì rẻ, chạy lại ra đúng kết quả cũ, và
+giải thích được. Quan trọng hơn: nó **thành thật về giới hạn**. Máy không biết câu nào dịch hay
+hơn; nó chỉ biết chỗ nào không theo quy ước bạn đã chốt. Vì vậy E13 không chấm điểm chất lượng và
+không có nút "áp dụng cho cả chapter".
+
+### So khớp theo từng ngôn ngữ
+
+| Ngôn ngữ | Luật | Bẫy đã tránh |
+|---|---|---|
+| Anh | ranh giới từ, không phân biệt hoa thường | `\b` của Python coi `'` và `-` là ranh giới ⇒ dùng thẳng sẽ khớp `Don't` với `Dont`. Phải tự dựng ranh giới |
+| Nhật / Trung | chuỗi con, **ưu tiên thuật ngữ dài trước** | không có luật dài-trước thì `魔法薬` bị đếm thành hai lần `魔法` |
+| Tiếng Việt (bản dịch) | không phân biệt hoa thường, **giữ nguyên dấu** | bỏ dấu để so sẽ khiến `ma` khớp cả `mà`, `má`, `mã` — sinh hàng loạt cảnh báo sai |
+
+Mọi phép so đều chuẩn hoá **NFC trong bộ nhớ** và **không bao giờ ghi lại** — cùng bài học NFC mà
+M6 đã trả giá ở khâu vẽ chữ.
+
+### Vân tay bản dịch — chốt chặn quan trọng nhất
+
+Mỗi việc lưu `snapshot_hash` của bản dịch tại lúc tạo. Áp một đề xuất khi bản dịch đã đổi là **xoá
+mất phần người khác vừa sửa ở M7**, nên việc đó chuyển `stale` và bị chặn. Đây cũng là thứ khiến
+quét lại không đẻ ra việc trùng.
+
+### Bẫy Postgres: NULL trong ràng buộc duy nhất
+
+`ConsistencyReviewTask` có hai khoá ngoại tuỳ chọn, và việc do luật sinh ra luôn để trống một
+trong hai. Postgres coi **mỗi NULL là một giá trị khác nhau**, nên `UNIQUE` thường vẫn cho chèn
+trùng — đã đo thật, xem `TEST_LOG § E13.2`. Phải dùng `UNIQUE NULLS NOT DISTINCT` (Postgres 15+).
+
+### Ranh giới với các bước khác
+
+- **Không đụng** `OCRResult.raw_text` (M3), ảnh gốc/clean (M4), ảnh xem thử (M6).
+- **Tôn trọng** quyết định "bỏ qua" của E12 — vùng đó không bị quét lại.
+- Áp xong dùng lại **đúng đường canh chữ của M7**, chỉ cho một vùng, giữ nguyên cỡ chữ đã ghim.
+- Gợi ý bằng LLM là **tuỳ chọn, mặc định tắt**; bật lên mới tốn token, và vẫn phải người duyệt.
