@@ -14,3 +14,7 @@ models/
 test_fixtures/external/
 frontend/node_modules/
 frontend/dist/
+
+# Ảnh manga có bản quyền dùng để đo — không đưa vào git
+test_fixtures/den_trang/*
+!test_fixtures/den_trang/DAT_FILE_O_DAY.md

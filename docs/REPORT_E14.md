@@ -89,9 +89,12 @@ trình duyệt thật và đếm số đa giác. Đã sửa để **chỉ** bỏ
 
 ## 7. Remaining Limits / Follow-ups
 
-- **Chưa đo trên truyện đen trắng** — bong bóng trắng trên nền tối là ca phổ biến nhất của manga,
-  và cũng là ca E14 v1 nhắm tới. Bộ ảnh đang có là Pepper&Carrot (bong bóng bạc hà trên tranh
-  màu). Đây là khoảng trống bằng chứng lớn nhất còn lại.
+- **Chưa đo trên truyện đen trắng thật** — đây là khoảng trống bằng chứng lớn nhất còn lại.
+  Đo trên bản **dẫn xuất** (chuyển trang màu sang xám) cho thấy tỉ lệ nhận hình tụt **5/9 → 3/9**,
+  và với bản tương phản cao thì còn **1/9** vì vùng sáng của tranh dính liền vào bong bóng
+  (`TEST_LOG § E14.9`). Quan trọng: **0 lần sinh hình sai** ở mọi biến thể — E14 tụt về dự phòng
+  chứ không đặt chữ sai chỗ. Ở ảnh xám, điều kiện bão hoà `S ≤ 60` đúng với mọi điểm ảnh nên chỉ
+  còn độ sáng gánh việc phân biệt; ngưỡng cho manga đen trắng gần như chắc chắn phải khác.
 - **Đa giác còn thô**: đúng bong bóng nhưng có khía lẹm vào, và ở một bong bóng thì cái đuôi cũng
   bị tính vào. Lẹm vào là *an toàn* (vùng nhỏ hơn lòng thật); cái đuôi thì bước tìm ô nội tiếp
   loại ra. E14 v1 cho **vị trí đặt chữ an toàn hơn**, không phải **nhận diện bong bóng chính xác**.

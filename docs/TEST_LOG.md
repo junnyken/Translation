@@ -1744,3 +1744,26 @@ cỡ chữ và trạng thái y hệt M6**. Khoá lại bằng `test_khung_du_pho
 - Run C (sửa bbox tay rồi tính lại) mới có **test integration**, chưa bấm tay trên trình duyệt.
 - Lớp phủ vùng an toàn trên giao diện đã dựng và build sạch, nhưng **chưa xem trên trình duyệt
   thật** với dữ liệu thật.
+
+
+### 9. Đo trước rủi ro của ảnh đen trắng (dẫn xuất — KHÔNG phải manga thật)
+
+Chưa có trang manga đen trắng nào có bản quyền rõ trong kho, nên chưa thể coi đây là bằng chứng
+về manga thật. Nhưng có một rủi ro **đo được ngay**: ở ảnh xám thì **mọi** điểm ảnh đều thoả điều
+kiện bão hoà `S ≤ 60`, tức một nửa bộ lọc mất tác dụng và chỉ còn độ sáng gánh việc phân biệt.
+
+Chạy lại cả 9 vùng trên 3 biến thể dẫn xuất từ chính trang màu thật:
+
+| Biến thể | Nhận được hình | Chọn nhầm |
+|---|---|---|
+| Màu (gốc) | **5/9** | 0 |
+| Xám | **3/9** | 0 |
+| Xám + tương phản cao | **1/9** | 0 |
+| Xám + chấm tram (screentone) | **3/9** | 0 |
+
+Lý do tụt: ở bản tương phản cao, **8/9 vùng** báo `shape_candidate_touches_roi_boundary` — vùng
+sáng của tranh bị đẩy lên trắng và **dính liền vào bong bóng**, nên hình bị coi là cắt dở.
+
+Điều đáng giá: tụt là tụt về **dự phòng**, **0 lần sinh hình sai** ở cả 4 biến thể. Tức là ở ảnh
+đen trắng, E14 v1 nhiều khả năng **giúp ít hơn** chứ không **hại**. Vẫn phải đo trên trang thật
+mới biết con số thật.
