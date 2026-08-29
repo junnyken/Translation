@@ -13,7 +13,7 @@ duyệt/sửa/bỏ qua **từng chỗ một**.
 Không có nút "áp dụng cho cả chapter", không chấm điểm chất lượng, không để máy tự phán bản dịch
 nào hay hơn.
 
-**3 bảng mới**, 1 migration, **697 test pass** (+70 so với E12).
+**3 bảng mới**, 1 migration, **697 test backend + 91 test giao diện pass** (+70 backend, +18 giao diện so với E12). Giao diện D1–D5 đã dựng và **đã kiểm bằng Chromium thật** (Run C/D, 17/17 đạt).
 
 ## 2. Audit Before Build
 
@@ -109,19 +109,38 @@ trên cùng vùng tự thành `stale`, cố áp nó bị chặn **422**, quét l
 | Từ chối không đổi gì | ✅ |
 | Vùng E12 đã bỏ qua vẫn bị loại; chữ tượng thanh/số không tự bị bỏ | ✅ |
 | M1–M10/E11/E12 vẫn pass | ✅ 697 pass, không nới lỏng kỳ vọng cũ |
-| **Giao diện (D1–D5)** | ❌ **chưa dựng** |
-| **Cảnh báo lúc xuất tách riêng (D5)** | ❌ **chưa dựng** |
+| **Giao diện (D1–D5)** | ✅ đã dựng, Run C 9/9 đạt trên Chromium thật |
+| **Cảnh báo lúc xuất tách riêng (D5)** | ✅ Run D 8/8 — ba khối tách bạch, vẫn xuất được |
+| Xem hồ sơ giọng **không** đụng vào bản dịch | ✅ băm md5 toàn bộ bản dịch giống hệt trước–sau |
 | Gợi ý bằng LLM | ⚠️ để tắt mặc định, chưa thử |
 
-## 9. Remaining Limits / Follow-ups
+## 9. Giao diện D1–D5 và ba lỗi nó làm lộ ra
 
-- **Giao diện E13 chưa dựng** — hiện chỉ dùng được qua API/Swagger. Đây là phần còn thiếu lớn nhất:
-  D1 bảng "Nhất quán", D2 quản lý thuật ngữ, D3 hồ sơ giọng, D4 hàng đợi rà soát, D5 khối cảnh báo
-  trong hộp thoại xuất. Run C và Run D vì vậy chưa chạy được.
+Giao diện dựng xong ở lần làm thứ hai: bảng "Nhất quán" (D1), quản lý thuật ngữ (D2), hồ sơ giọng
+(D3), hàng đợi rà soát (D4), khối cảnh báo riêng trong hộp thoại xuất (D5). Số liệu đầy đủ ở
+`TEST_LOG § E13.6–9`.
+
+Cả **ba** lỗi tìm được đều là mã chạy đúng nhưng **hiển thị sai** — không test đơn vị nào bắt
+được, chỉ lộ ra khi nhìn màn hình thật:
+
+1. `GIONG_NOI` là bảng chuỗi, mã mới lại đọc `.nhan` trên chuỗi ⇒ in thẳng mã `casual` ra cho
+   người dùng đọc.
+2. Tiêu đề cột ẩn (`position: absolute`) không bị khung cuộn cắt vì khung thiếu `position:
+   relative` ⇒ **cả trang trôi ngang 23px ở 360px**, đo bằng `window.scrollX`.
+3. Khối "Vì sao các chỗ này được nêu" mượn lưới của E12, nơi con số đứng cuối dòng ⇒ ở E13 con số
+   đứng đầu nên bị CSS đẩy sang phải, vỡ cột.
+
+Sau khi sửa: 0 tràn ngang ở cả 4 kích thước, 0 lỗi console, 29 điểm dừng tab (không đổi so với
+trước khi thêm E13).
+
+## 10. Remaining Limits / Follow-ups
+
 - **Gợi ý bằng LLM chưa bật** (`E13_LLM_SUGGESTIONS_ENABLED=false`). Đường luật chạy độc lập.
 - **Luật giọng nhân vật v1 chưa sinh việc tự động** — hồ sơ giọng mới là ngữ cảnh hiển thị.
 - Chỉ đo trên **một** chapter 3 trang; chưa thử chapter dài vài chục trang.
+- Run C/D mới chạy trên **Chromium**; chưa thử Firefox/Safari, và chưa kiểm bằng trình đọc màn
+  hình thật.
 - Không có bộ nhớ thuật ngữ dùng chung giữa các chapter, không tự nhận diện nhân vật đang nói,
   không đo được đúng-sai về nghĩa. Đúng phạm vi đã chốt.
 
-**Mini-spec kế tiếp:** hoàn thiện giao diện E13 (D1–D5) rồi chạy Run C/D, trước khi sang E14.
+**Mini-spec kế tiếp:** E14.

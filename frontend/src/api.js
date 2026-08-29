@@ -164,3 +164,71 @@ export const ghiQuyetDinhVung = (regionId, decision) =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ decision }),
   }).then(doc)
+
+// ---------- E13: thuật ngữ & rà soát nhất quán ----------
+
+export const layThuatNgu = (projectId, loc = '') =>
+  fetch(`${BASE}/projects/${projectId}/glossary${loc}`).then(doc)
+
+export const themThuatNgu = (projectId, du_lieu) =>
+  fetch(`${BASE}/projects/${projectId}/glossary`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(du_lieu),
+  }).then(doc)
+
+export const suaThuatNgu = (entryId, du_lieu) =>
+  fetch(`${BASE}/glossary/${entryId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(du_lieu),
+  }).then(doc)
+
+export const duyetThuatNgu = (entryId) =>
+  fetch(`${BASE}/glossary/${entryId}/approve`, { method: 'POST' }).then(doc)
+
+export const catThuatNgu = (entryId) =>
+  fetch(`${BASE}/glossary/${entryId}/archive`, { method: 'POST' }).then(doc)
+
+export const layHoSoGiong = (projectId) =>
+  fetch(`${BASE}/projects/${projectId}/voice-profiles`).then(doc)
+
+export const themHoSoGiong = (projectId, du_lieu) =>
+  fetch(`${BASE}/projects/${projectId}/voice-profiles`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(du_lieu),
+  }).then(doc)
+
+export const batHoSoGiong = (profileId) =>
+  fetch(`${BASE}/voice-profiles/${profileId}/activate`, { method: 'POST' }).then(doc)
+
+export const catHoSoGiong = (profileId) =>
+  fetch(`${BASE}/voice-profiles/${profileId}/archive`, { method: 'POST' }).then(doc)
+
+export const quetNhatQuan = (projectId) =>
+  fetch(`${BASE}/projects/${projectId}/consistency-scans`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode: 'rules' }),
+  }).then(doc)
+
+export const tomTatNhatQuan = (projectId) =>
+  fetch(`${BASE}/projects/${projectId}/consistency-summary`).then(doc)
+
+export const layViecNhatQuan = (projectId, loc = '') =>
+  fetch(`${BASE}/projects/${projectId}/consistency-tasks${loc}`).then(doc)
+
+export const apViecNhatQuan = (taskId, edited_text) =>
+  fetch(`${BASE}/consistency-tasks/${taskId}/accept`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ edited_text: edited_text ?? null }),
+  }).then(doc)
+
+export const boQuaViecNhatQuan = (taskId, resolution) =>
+  fetch(`${BASE}/consistency-tasks/${taskId}/reject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ resolution }),
+  }).then(doc)

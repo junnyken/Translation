@@ -10,6 +10,10 @@ import ChapterProgress from './components/chapter/ChapterProgress.jsx'
 import QualityPanel from './components/chapter/QualityPanel.jsx'
 import ChapterRecentList from './components/chapter/ChapterRecentList.jsx'
 import ChapterSummary from './components/chapter/ChapterSummary.jsx'
+import ConsistencyPanel from './components/consistency/ConsistencyPanel.jsx'
+import ConsistencyReviewQueue from './components/consistency/ConsistencyReviewQueue.jsx'
+import GlossaryManager from './components/consistency/GlossaryManager.jsx'
+import VoiceProfileManager from './components/consistency/VoiceProfileManager.jsx'
 import ReviewToolbar from './components/chapter/ReviewToolbar.jsx'
 import Alert from './components/ui/Alert.jsx'
 import Button from './components/ui/Button.jsx'
@@ -52,6 +56,13 @@ export default function App() {
   // Đổi mỗi lần vẽ lại preview để trình duyệt không dùng ảnh cũ trong bộ nhớ đệm.
   const [phienBanAnh, setPhienBanAnh] = useState(0)
   const [ganDay, setGanDay] = useState(docChapterDaLuu)
+  // E13 — thuật ngữ & rà soát nhất quán
+  const [thuatNgu, setThuatNgu] = useState([])
+  const [hoSoGiong, setHoSoGiong] = useState([])
+  const [tomTatNQ, setTomTatNQ] = useState(null)
+  const [viecNQ, setViecNQ] = useState([])
+  const [dangQuet, setDangQuet] = useState(false)
+  const [moHangDoi, setMoHangDoi] = useState(false)
 
   useEffect(() => {
     const doi = () => setDiaChi(docDiaChi())
@@ -78,6 +89,23 @@ export default function App() {
     else setChiTiet(null)
   }, [pageId, napTrang])
 
+  /** Nạp dữ liệu E13. Lỗi ở đây KHÔNG được chặn cả màn hình — rà soát nhất quán là lớp thêm,
+   *  thiếu nó thì các bước dịch/căn chữ/xuất vẫn phải dùng được bình thường. */
+  const napNhatQuan = useCallback(async (id) => {
+    try {
+      const [tn, hs, tt, vc] = await Promise.all([
+        api.layThuatNgu(id),
+        api.layHoSoGiong(id),
+        api.tomTatNhatQuan(id),
+        api.layViecNhatQuan(id, '?status=open'),
+      ])
+      setThuatNgu(tn)
+      setHoSoGiong(hs)
+      setTomTatNQ(tt)
+      setViecNQ(vc.items || [])
+    } catch { /* chưa có gì thì thôi */ }
+  }, [])
+
   const napProject = useCallback(async (id) => {
     const p = await api.layProject(id)
     setProject(p)
@@ -87,8 +115,9 @@ export default function App() {
       setCanhBao(await api.layCanhBaoXuat(id))
       setChatLuongChapter(await api.layTomTatChatLuong(id))
     } catch { /* chapter chưa có gì để cảnh báo thì thôi, không phải lỗi chặn */ }
+    await napNhatQuan(id)
     return p
-  }, [])
+  }, [napNhatQuan])
 
   // Trang chi tiết cũng cần biết mình thuộc chapter nào (để có breadcrumb + điều hướng trang).
   const idChapter = projectId || chiTiet?.page?.project_id || ''
@@ -96,6 +125,61 @@ export default function App() {
     if (!idChapter) return setProject(null)
     napProject(idChapter).catch((e) => setLoi(e.message))
   }, [idChapter, napProject])
+
+  // ---------- E13: thao tác thuật ngữ & rà soát ----------
+
+  /** Bọc một thao tác E13: khoá giao diện, nạp lại, và ĐỂ LỖI HIỆN RA thay vì nuốt.
+   *  Ném lại lỗi để form trong hộp thoại hiện được lỗi ngay tại chỗ nhập. */
+  const chayNQ = async (viec, thongBaoXong) => {
+    setDangBan(true)
+    setLoi(null)
+    try {
+      const kq = await viec()
+      await napNhatQuan(idChapter)
+      if (thongBaoXong) setThongBao(thongBaoXong)
+      return kq
+    } catch (e) {
+      setLoi(e.message)
+      throw e
+    } finally {
+      setDangBan(false)
+    }
+  }
+
+  const quetNhatQuan = async () => {
+    setDangQuet(true)
+    setLoi(null)
+    setThongBao('Đang rà soát nhất quán…')
+    try {
+      const { job_id } = await api.quetNhatQuan(idChapter)
+      await api.choJobXong(job_id)
+      await napNhatQuan(idChapter)
+      setThongBao('Đã rà soát xong.')
+    } catch (e) {
+      setLoi(e.message)
+    } finally {
+      setDangQuet(false)
+    }
+  }
+
+  /** Áp một đề xuất. Sau khi áp, vùng đó được căn chữ lại — phải CHỜ việc đó xong rồi mới
+   *  nạp lại, nếu không người dùng thấy trạng thái cũ và tưởng chưa ăn. */
+  const apViec = async (taskId, ban) => {
+    setDangBan(true)
+    setLoi(null)
+    setThongBao('Đang áp dụng và căn chữ lại…')
+    try {
+      const kq = await api.apViecNhatQuan(taskId, ban)
+      if (kq.refit_job_id) await api.choJobXong(kq.refit_job_id)
+      await napNhatQuan(idChapter)
+      if (pageId) await napTrang(pageId)
+      setThongBao('Đã áp dụng và căn chữ lại vùng đó.')
+    } catch (e) {
+      setLoi(e.message)
+    } finally {
+      setDangBan(false)
+    }
+  }
 
   const mo = () => {
     const id = nhap.trim()
@@ -246,6 +330,36 @@ export default function App() {
               onXuat={() => document.getElementById('bang-xuat')?.scrollIntoView({ block: 'start' })}
             />
 
+            {moHangDoi && (
+              <ConsistencyReviewQueue
+                viec={viecNQ}
+                hoSoGiong={hoSoGiong}
+                dangBan={dangBan}
+                onAp={apViec}
+                onGiuNguyen={(id) =>
+                  chayNQ(() => api.boQuaViecNhatQuan(id, 'keep_current'), 'Đã giữ bản hiện tại.')}
+                onBoQua={(id) =>
+                  chayNQ(() => api.boQuaViecNhatQuan(id, 'not_applicable'), 'Đã bỏ qua gợi ý này.')}
+              />
+            )}
+
+            <GlossaryManager
+              danhSach={thuatNgu}
+              dangBan={dangBan}
+              onThem={(d) => chayNQ(() => api.themThuatNgu(project.id, d), 'Đã thêm thuật ngữ (đang ở nháp).')}
+              onSua={(id, d) => chayNQ(() => api.suaThuatNgu(id, d), 'Đã lưu thuật ngữ.')}
+              onDuyet={(id) => chayNQ(() => api.duyetThuatNgu(id), 'Đã duyệt — thuật ngữ này sẽ tham gia rà soát.')}
+              onCat={(id) => chayNQ(() => api.catThuatNgu(id), 'Đã cất thuật ngữ đi.')}
+            />
+
+            <VoiceProfileManager
+              danhSach={hoSoGiong}
+              dangBan={dangBan}
+              onThem={(d) => chayNQ(() => api.themHoSoGiong(project.id, d), 'Đã thêm hồ sơ nhân vật.')}
+              onBat={(id) => chayNQ(() => api.batHoSoGiong(id), 'Đã bật hồ sơ.')}
+              onCat={(id) => chayNQ(() => api.catHoSoGiong(id), 'Đã cất hồ sơ đi.')}
+            />
+
             <div className="luoi-2-cot">
               <ChapterProgress
                 project={project} canhBao={canhBao}
@@ -253,8 +367,32 @@ export default function App() {
               />
               <div className="cot-phai">
                 <QualityPanel tomTat={chatLuongChapter} trangDau={dsTrang[0]?.id} />
+                <ConsistencyPanel
+                  tomTat={tomTatNQ}
+                  dangQuet={dangQuet}
+                  onQuet={quetNhatQuan}
+                  onMoHangDoi={() => {
+                    setMoHangDoi(true)
+                    setTimeout(
+                      () => document.getElementById('tieu-de-hang-doi')
+                        ?.scrollIntoView({ block: 'start' }),
+                      0,
+                    )
+                  }}
+                />
                 <BatchPanel projectId={project.id} soTrang={dsTrang.length} />
-                <ExportPanel projectId={project.id} tenProject={project.name} />
+                <ExportPanel
+                  projectId={project.id} tenProject={project.name}
+                  nhatQuan={tomTatNQ}
+                  onRaSoat={() => {
+                    setMoHangDoi(true)
+                    setTimeout(
+                      () => document.getElementById('tieu-de-hang-doi')
+                        ?.scrollIntoView({ block: 'start' }),
+                      0,
+                    )
+                  }}
+                />
               </div>
             </div>
           </>

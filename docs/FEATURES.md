@@ -19,7 +19,7 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 | M7 | Màn sửa tay: sửa bản dịch, kéo lại khung, đổi font/size | **LIVE** (thao tác thật trên trình duyệt; xem TEST_LOG) |
 | M8 | Xuất chapter PNG/CBZ + lưu/mở lại project | **LIVE** (xuất thật 4 trang; chưa mở bằng app đọc truyện thật) |
 | M9 | Chạy **cả chapter bằng một mẻ**: tiến độ thật, thử lại lỗi tạm thời, cổng hạn mức, chạy lại trang hỏng | **LIVE** (4 Run bắt buộc trên truyện thật; giao diện chưa bấm tay — xem TEST_LOG §M9) |
-| E13 | Chốt cách dịch thuật ngữ cho cả chapter + rà soát chỗ chưa nhất quán | **LIVE (chưa có giao diện)** — dùng qua API; xem TEST_LOG |
+| E13 | Chốt cách dịch thuật ngữ cho cả chapter, ghi hồ sơ giọng nhân vật, rà soát từng chỗ chưa theo thuật ngữ đã chốt — máy chỉ ra chỗ kèm lý do, **không tự sửa** | **LIVE** (Run A–D trên truyện thật + Chromium 17/17 — xem TEST_LOG §E13) |
 | M10 | Khai báo mục đích sử dụng (bắt buộc, không mặc định) + nhắc trách nhiệm bản quyền & chất lượng trước khi xuất | **LIVE** (chạy thật đầu-cuối; giao diện chưa bấm tay — xem TEST_LOG §M10) |
 | E11 | Làm lại giao diện: bố cục, bộ màu, vùng kéo-thả, dòng thời gian pipeline, diễn giải trạng thái trung thực, dùng được bằng bàn phím và trên điện thoại | **LIVE** (kiểm thật trên Chromium ở 4 kích thước — xem TEST_LOG §E11) |
 | E12 | Chỉ ra vùng nào cần rà soát trước khi xuất, kèm lý do đọc được — không tự xoá vùng nào | **LIVE** (Run A–D 15/15 trên trang thật + Chromium 10/10 — xem TEST_LOG §E12) |

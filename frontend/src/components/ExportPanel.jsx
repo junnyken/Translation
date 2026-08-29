@@ -9,7 +9,7 @@ const DINH_DANG = [
 ]
 
 /** Bảng xuất chapter: xem trước cảnh báo → chọn định dạng → theo dõi → tải về. */
-export default function ExportPanel({ projectId, tenProject }) {
+export default function ExportPanel({ projectId, tenProject, nhatQuan, onRaSoat }) {
   const [xemTruoc, setXemTruoc] = useState(null)
   const [canhBao, setCanhBao] = useState(null)
   const [hienCanhBao, setHienCanhBao] = useState(false)
@@ -117,9 +117,11 @@ export default function ExportPanel({ projectId, tenProject }) {
       {hienCanhBao && (
         <ExportWarningModal
           canhBao={canhBao}
+          nhatQuan={nhatQuan}
           dinhDang={dinhDang}
           onHuy={() => setHienCanhBao(false)}
           onDongY={() => xuat(true)}
+          onRaSoat={onRaSoat && (() => { setHienCanhBao(false); onRaSoat() })}
         />
       )}
       {khongCoGiDeXuat && (

@@ -109,6 +109,11 @@ const BANG = {
   get phan_loai_vung() { return PHAN_LOAI_VUNG },
   get quyet_dinh_vung() { return QUYET_DINH_VUNG },
   get muc_chat_luong() { return MUC_CHAT_LUONG },
+  // E13 — dùng getter vì các bảng này khai báo ở cuối tệp.
+  get thuat_ngu() { return TT_THUAT_NGU },
+  get ho_so_giong() { return TT_HO_SO_GIONG },
+  get loai_viec_nhat_quan() { return LOAI_VIEC_NHAT_QUAN },
+  get viec_nhat_quan() { return TT_VIEC_NHAT_QUAN },
 }
 
 /** Mọi bảng gộp lại — dùng cho test canh đủ enum. */
@@ -205,4 +210,70 @@ export const TINH_TRANG_DIEM = {
   available: 'Có điểm tin cậy',
   low: 'Điểm tin cậy thấp',
   unavailable: 'Engine OCR không cung cấp điểm tin cậy',
+}
+
+// ---------- E13: thuật ngữ & rà soát nhất quán ----------
+
+/** Loại thuật ngữ. Cố ý hẹp — nhóm quá rộng thì phân loại xong cũng không dùng được vào đâu. */
+export const LOAI_THUAT_NGU = {
+  character_name: 'Tên nhân vật',
+  place: 'Địa danh',
+  organization: 'Tổ chức',
+  item: 'Vật phẩm',
+  skill: 'Chiêu thức / phép',
+  title_rank: 'Chức danh / cấp bậc',
+  honorific: 'Cách xưng hô',
+  catchphrase: 'Câu cửa miệng',
+  general_term: 'Từ ngữ chung',
+}
+
+/** Vòng đời thuật ngữ. CHỈ "đã duyệt" mới được đem đi quét. */
+export const TT_THUAT_NGU = {
+  draft: B('Nháp', 'trung', 'dong-ho',
+    'Chưa duyệt nên chưa tham gia rà soát.', 'Duyệt để bắt đầu dùng'),
+  approved: B('Đã duyệt', 'ok', 'tich', 'Đang được dùng khi rà soát cả chapter.'),
+  rejected: B('Đã bỏ', 'trung', 'tam-dung', 'Không dùng tới.'),
+  archived: B('Đã cất đi', 'trung', 'tam-dung',
+    'Không tham gia rà soát nữa. Các việc đã tạo từ nó vẫn còn để đối chiếu.'),
+}
+
+/** Hồ sơ giọng nhân vật — là hướng dẫn của BẠN, không phải suy luận của máy. */
+export const TT_HO_SO_GIONG = {
+  draft: B('Nháp', 'trung', 'dong-ho', 'Chưa bật.'),
+  active: B('Đang dùng', 'ok', 'tich', 'Hiện lên khi bạn rà soát các vùng thoại.'),
+  archived: B('Đã cất đi', 'trung', 'tam-dung', 'Không hiện nữa.'),
+}
+
+export const GIONG_NOI = {
+  neutral: 'Trung tính',
+  formal: 'Trang trọng',
+  casual: 'Thân mật',
+  childlike: 'Trẻ con',
+  rough: 'Cộc cằn',
+  archaic: 'Cổ phong',
+  comic: 'Hài hước',
+}
+
+/** Vì sao có việc này. Mỗi loại nói rõ máy dựa vào đâu — không có loại nào là "máy thấy sai". */
+export const LOAI_VIEC_NHAT_QUAN = {
+  glossary_missing: B('Chưa dùng thuật ngữ đã chốt', 'canh', 'canh',
+    'Chữ gốc có thuật ngữ này, nhưng bản dịch chưa dùng cách dịch bạn đã chốt.'),
+  glossary_variant: B('Dùng cách dịch khác', 'canh', 'canh',
+    'Bản dịch dùng một biến thể khác với cách đã chốt.'),
+  prohibited_variant: B('Dùng cách dịch bạn đã cấm', 'loi', 'canh',
+    'Bản dịch đang dùng đúng cách dịch mà bạn ghi là không dùng.'),
+  voice_consistency_suspect: B('Có thể lệch giọng nhân vật', 'canh', 'canh',
+    'Cần bạn xem lại — máy không tự kết luận về giọng.'),
+  llm_suggestion: B('Gợi ý của AI', 'tin', 'canh',
+    'Do AI đề xuất. Bạn phải duyệt trước khi áp — AI không tự sửa.'),
+}
+
+/** Trạng thái việc rà soát. `stale` KHÔNG phải lỗi — chỉ là đề xuất đã lỗi thời. */
+export const TT_VIEC_NHAT_QUAN = {
+  open: B('Cần xem', 'canh', 'canh', 'Chưa xử lý.', 'Mở để rà soát'),
+  accepted: B('Đã áp dụng', 'ok', 'tich', 'Bạn đã đồng ý và bản dịch đã được sửa.'),
+  rejected: B('Không áp dụng', 'trung', 'tam-dung', 'Bạn đã xem và quyết định không dùng.'),
+  resolved_no_change: B('Giữ bản hiện tại', 'trung', 'tich', 'Bạn đã xem và giữ nguyên bản dịch.'),
+  stale: B('Đề xuất đã cũ', 'trung', 'dong-ho',
+    'Bản dịch đã đổi từ lần quét nên đề xuất này không còn dùng được.', 'Quét lại'),
 }

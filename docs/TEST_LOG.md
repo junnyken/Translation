@@ -1511,12 +1511,98 @@ Cả hai đều trỏ vào **cùng một vùng thật** — vùng mà Run C củ
 
 Tổng kết: `open=0 · accepted=1 · stale=1`. Đúng một vùng được sửa, đúng một việc canh lại được xếp.
 
-### 6. Giới hạn của lần đo này
+### 6. Giao diện E13 (D1–D5) — dựng ở lần làm thứ hai
 
-- **Run C (hồ sơ giọng nhân vật) và Run D (cảnh báo lúc xuất) chưa chạy** — phần giao diện của
-  E13 (D1–D5) chưa dựng, nên chưa kiểm được luồng người dùng thật.
+`ConsistencyPanel` (D1), `GlossaryManager` (D2), `VoiceProfileManager` (D3),
+`ConsistencyReviewQueue` (D4), khối cảnh báo trong `ExportWarningModal` (D5).
+
+**Test giao diện: 91 pass** (`vitest run`, +18 của E13, `src/components/consistency/consistency.test.jsx`).
+Những test đáng kể — đều canh **câu chữ có thể lừa người dùng**, không canh màu sắc hay bố cục:
+
+| Test | Chặn điều gì |
+|---|---|
+| `chưa duyệt thuật ngữ nào thì KHÔNG được trình bày như "đã ổn"` | 0 việc lúc chưa có thuật ngữ nào là **chưa đo**, không phải "đạt" |
+| `hết việc thì nói rõ "không còn chỗ lệch thuật ngữ", KHÔNG nói "dịch đúng"` | không nhận vơ đã kiểm được nghĩa |
+| `gợi ý đã cũ thì KHÔNG cho áp dụng` | nút áp dụng biến mất hẳn khi việc `stale` |
+| `bắt buộc nhập giải nghĩa` | không cho lưu cặp chữ trần trụi |
+| `cảnh báo rõ khi sửa mục đã duyệt` | sửa mục đã duyệt ⇒ quay về nháp, phải nói trước |
+| `KHÔNG hiện thanh "độ tin cậy của AI"` | hồ sơ giọng là hướng dẫn của người, không phải suy luận máy |
+| `hồ sơ giọng KHÔNG được tự chèn vào ô bản dịch` | ngữ cảnh chỉ để đọc |
+| `đếm việc nhất quán TÁCH RIÊNG khỏi tràn khung và bản quyền` | ba khối khác bản chất, tick một ô không xử lý cả ba |
+| `gợi ý đã từ chối KHÔNG bị tính là việc còn tồn` | quyết định của người không bị đếm ngược lại thành nợ |
+| `nhãn tiếng Việt, không phải mã enum` | bắt được đúng lỗi ở mục 8 dưới đây |
+
+### 7. Live verification — Run C (hồ sơ giọng nhân vật)
+
+Chạy bằng **Chromium thật** trên chính hệ thống đang chạy (`scripts/do_run_e13_ui.py`), click
+thật từ đầu: tạo hồ sơ → bật → thêm thuật ngữ → duyệt → quét → mở hàng đợi.
+
+Thuật ngữ mới dùng cho lần đo: `Happy` → `Vui chưa` (Carrot **trêu** Pepper, là câu hỏi "vui
+chưa?", không phải cảm thán "vui mừng"). Bản dịch máy đang để `Vui mừng?!`.
+
+| # | Đo gì | Kết quả |
+|---|---|---|
+| C1 | Tạo hồ sơ `Pepper` qua giao diện | ✅ |
+| C1b | Hồ sơ mới ở trạng thái **Nháp** | ✅ chưa bật thì không có hiệu lực |
+| C1c | Bật lên thành **Đang dùng** | ✅ |
+| C2 | Không có chữ "độ tin cậy" ở bất kỳ đâu trên màn hình | ✅ |
+| C3 | Hàng đợi hiện đúng việc kèm thuật ngữ đã chốt | ✅ |
+| C4 | Hồ sơ giọng hiện **trong** hàng đợi kèm nhãn tiếng Việt (`Pepper · Thân mật`) | ✅ |
+| C5 | Có câu nói thẳng "**không** tự sửa lời thoại theo" hồ sơ | ✅ |
+| C6 | Ô sửa nạp **bản dịch hiện tại** (`Vui mừng?!`), không phải bản máy tự viết | ✅ |
+| C7 | **Toàn bộ bản dịch trong CSDL y nguyên trước–sau** (băm md5 từng dòng + cờ `edited_by_user`) | ✅ |
+| — | Lỗi console | **0** |
+
+C7 là chốt chặn thật của Run C: chỉ *xem* hồ sơ giọng và mở hàng đợi thì **không** được đụng vào
+một ký tự nào của bản dịch.
+
+### 8. Live verification — Run D (cảnh báo lúc xuất)
+
+Hộp thoại xuất phải để **ba** loại cảnh báo ở ba khối tách biệt, vì chúng khác bản chất: bố cục
+(tràn khung) · chất lượng (E12) · nhất quán thuật ngữ (E13) · và pháp lý (bản quyền).
+
+| # | Đo gì | Kết quả |
+|---|---|---|
+| D1 | Có khối riêng "Nhất quán thuật ngữ" | ✅ |
+| D2 | Tách khỏi khối "Chất lượng bản đang xuất" | ✅ |
+| D3 | Tách khỏi đoạn trách nhiệm bản quyền | ✅ |
+| D4 | Đếm đúng: `1 chỗ chưa rà soát` + `1 gợi ý đã cũ` | ✅ |
+| D5 | **Vẫn xuất được**, nhãn nút nói thẳng: `Xuất dù còn 1 chỗ cần rà soát (CBZ)` | ✅ |
+| D6/D7 | Chưa tick ⇒ nút khoá; tick rồi ⇒ mở | ✅ |
+| D8 | Bấm "Để sau" ⇒ **không** có việc xuất nào chạy ngầm (đếm `export_job` trước/sau) | ✅ |
+
+Điều kiện đầu phải dựng lại bằng tay: chapter này **đã xác nhận bản quyền từ lần xuất 28/08**, mà
+hộp thoại cố ý chỉ hiện **một lần cho mỗi chapter** — không xoá dấu xác nhận thì Run D không có gì
+để quan sát. `don_dep()` trong script làm việc đó và nói rõ lý do.
+
+### 9. Ba lỗi thật lộ ra ở khâu dựng giao diện
+
+**a) Nhãn giọng nói ra thành mã máy.** `GIONG_NOI` là bảng **chuỗi**, nhưng khối ngữ cảnh mới
+viết `GIONG_NOI[ma]?.nhan ?? ma` — `.nhan` trên một chuỗi là `undefined` nên rơi xuống nhánh dự
+phòng và in thẳng `casual` ra màn hình. Không có gì đổ vỡ, chỉ là người dùng đọc phải chữ máy.
+Đã sửa, và test giờ canh cả hai đầu: **phải** thấy `Thân mật`, **không** được thấy `casual`.
+
+**b) Trang trôi ngang 23px trên điện thoại 360px.** Tiêu đề cột ẩn cho trình đọc màn hình
+(`.an-nhin`) là `position: absolute`, mà phần tử absolute **chỉ bị cắt bởi khung cuộn có định
+vị**. `.bang-cuon` thiếu `position: relative` nên nó đứng ở mép phải của bảng rộng 560px và kéo
+cả trang. Đo được bằng `window.scrollX = 23` sau khi `scrollTo(500, 0)`; ẩn `.bang-cuon` đi thì
+về đúng 360. Sau khi sửa: **không tràn ngang ở cả 4 kích thước** (360/768/1280/1600), 0 lỗi
+console, 29 điểm dừng tab.
+
+**c) Mượn nhầm lưới của E12.** Khối "Vì sao các chỗ này được nêu" dùng lại `.ds-phan-loai`, mà
+CSS ở đó có `li b { margin-left: auto }` vì bên E12 con số đứng **cuối** dòng. Ở E13 con số đứng
+**đầu**, nên nó bị đẩy sang phải và cả dòng vỡ cột. Đã tách `.ds-vi-sao` riêng.
+
+Cả ba đều chỉ lộ ra khi **nhìn vào màn hình thật** — không test đơn vị nào bắt được, vì cả ba đều
+là mã chạy đúng mà hiển thị sai.
+
+### 10. Giới hạn của lần đo này
+
 - **Gợi ý bằng LLM chưa bật và chưa thử** (`E13_LLM_SUGGESTIONS_ENABLED=false`). Đường luật tất
   định chạy độc lập, không cần LLM.
 - Luật "giọng nhân vật" ở v1 **cố ý chưa sinh việc tự động**: hồ sơ giọng chỉ là ngữ cảnh biên
   tập hiển thị lúc rà soát. Máy không tự phán một câu có đúng giọng nhân vật hay không.
 - Vẫn chỉ đo trên **một** chapter; chưa thử trên chapter dài nhiều chục trang.
+- Run C/D chạy trên **Chromium**; chưa thử Firefox/Safari.
+- Chưa đo với **bàn phím và trình đọc màn hình thật** cho các thành phần mới — mới chỉ đếm điểm
+  dừng tab (29, không đổi so với trước khi thêm E13).

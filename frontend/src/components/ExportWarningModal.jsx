@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react'
  * vòng. Nhưng cũng không im lặng cho qua — phải tự tick thì nút xuất mới sáng, và việc tick được
  * ghi lại kèm đúng những con số đang hiện trên màn hình này.
  */
-export default function ExportWarningModal({ canhBao, dinhDang, onHuy, onDongY }) {
+export default function ExportWarningModal({ canhBao, nhatQuan, dinhDang, onHuy, onDongY, onRaSoat }) {
   const [daTick, setDaTick] = useState(false)
   const hopRef = useRef(null)
 
@@ -25,6 +25,12 @@ export default function ExportWarningModal({ canhBao, dinhDang, onHuy, onDongY }
   const soRaSoat = canhBao?.quality_needs_review_count ?? 0
   const soChuaCham = canhBao?.quality_unassessed_count ?? 0
   const soBoQua = canhBao?.quality_reviewed_skip_count ?? 0
+  // E13 để RIÊNG một khối nữa: "chưa nhất quán thuật ngữ" là chuyện khác hẳn với "chữ tràn
+  // khung" (bố cục) và với "trách nhiệm bản quyền" (pháp lý). Gộp lại thì tick một ô xong người
+  // dùng tưởng đã xử lý cả ba.
+  const soNQMo = nhatQuan?.open_count ?? 0
+  const soNQCu = nhatQuan?.stale_count ?? 0
+  const soNQBo = (nhatQuan?.rejected_count ?? 0) + (nhatQuan?.resolved_no_change_count ?? 0)
 
   return (
     <div className="lop-phu" onClick={(e) => e.target === e.currentTarget && onHuy()}>
@@ -74,6 +80,35 @@ export default function ExportWarningModal({ canhBao, dinhDang, onHuy, onDongY }
           </ul>
         )}
 
+        {(soNQMo > 0 || soNQCu > 0 || soNQBo > 0) && (
+          <>
+            <h3>Nhất quán thuật ngữ</h3>
+            <ul className="tom-tat-xuat">
+              {soNQMo > 0 && (
+                <li className="canh-bao">
+                  <b>{soNQMo}</b> chỗ <b>chưa rà soát</b> theo thuật ngữ bạn đã chốt
+                </li>
+              )}
+              {soNQCu > 0 && (
+                <li className="canh-bao">
+                  <b>{soNQCu}</b> gợi ý <b>đã cũ</b> vì bản dịch đổi sau lần rà soát — cần rà soát lại
+                </li>
+              )}
+              {soNQBo > 0 && (
+                <li className="ghi-chu">
+                  <b>{soNQBo}</b> gợi ý bạn đã xem và quyết định không dùng — không tính là việc còn tồn
+                </li>
+              )}
+            </ul>
+            {onRaSoat && soNQMo > 0 && (
+              <p className="ghi-chu">
+                <button className="lien-ket" onClick={onRaSoat}>Rà soát trước khi xuất</button>
+                {' '}— hoặc cứ xuất, file vẫn tải về được.
+              </p>
+            )}
+          </>
+        )}
+
         <label className="o-tick">
           <input type="checkbox" checked={daTick} onChange={(e) => setDaTick(e.target.checked)} />
           <span>Tôi đã đọc và chấp nhận trách nhiệm về bản quyền nội dung gốc.</span>
@@ -82,7 +117,9 @@ export default function ExportWarningModal({ canhBao, dinhDang, onHuy, onDongY }
         <div className="hang nut">
           <button onClick={onHuy}>Để sau</button>
           <button className="chinh" disabled={!daTick} onClick={() => onDongY(true)}>
-            Xuất chapter ({dinhDang.toUpperCase()})
+            {soNQMo > 0
+              ? `Xuất dù còn ${soNQMo} chỗ cần rà soát (${dinhDang.toUpperCase()})`
+              : `Xuất chapter (${dinhDang.toUpperCase()})`}
           </button>
         </div>
         {!daTick && (

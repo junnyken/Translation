@@ -15,6 +15,8 @@ const DUONG = {
   'mui-ten-phai': <><path d="M5 12h14" /><path d="m12 5 7 7-7 7" /></>,
   'mui-ten-trai': <><path d="M19 12H5" /><path d="m12 19-7-7 7-7" /></>,
   tai_ve: <><path d="M12 4v12" /><path d="m6 12 6 6 6-6" /><path d="M4 20h16" /></>,
+  cong: <><path d="M12 5v14" /><path d="M5 12h14" /></>,
+  but: <><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></>,
 }
 
 export default function Icon({ ten, co = 16, className = '' }) {

@@ -145,12 +145,18 @@ bóng thoại, OCR đúng 3/3, canh chữ 5/5 vừa khung. Còn thiếu **manga 
 
 ## E13 — Thuật ngữ & rà soát nhất quán (2026-08-29)
 
-✅ **Backend xong** (`697 test pass`): 3 bảng, 13 endpoint, quét theo luật tất định, áp/từ chối có
-chốt chặn bản-đã-đổi. Run A + Run B chạy thật trên Pepper&Carrot — tự tìm ra đúng lỗi `SPLASH` →
-"TUYỆT VỜI" mà M8 Run C từng phát hiện bằng tay.
+✅ **Xong cả backend lẫn giao diện** (`697 test backend + 91 test giao diện`): 3 bảng, 13 endpoint,
+quét theo luật tất định, áp/từ chối có chốt chặn bản-đã-đổi; giao diện D1–D5 (bảng nhất quán, quản
+lý thuật ngữ, hồ sơ giọng, hàng đợi rà soát, khối cảnh báo riêng lúc xuất).
 
-❌ **Còn thiếu: giao diện (D1–D5)** — hiện chỉ dùng được qua API/Swagger. Vì vậy Run C (hồ sơ giọng)
-và Run D (cảnh báo lúc xuất) chưa chạy được. Đây là việc kế tiếp trước khi sang E14.
+Run A + Run B chạy thật trên Pepper&Carrot — tự tìm ra đúng lỗi `SPLASH` → "TUYỆT VỜI" mà M8 Run C
+từng phát hiện bằng tay. Run C + Run D bấm thật trên Chromium: **17/17 đạt**, 0 lỗi console, và
+bản dịch trong CSDL **y nguyên** sau khi chỉ xem hồ sơ giọng.
 
-Bài học kỹ thuật đáng nhớ nhất: **`UNIQUE` thường của Postgres KHÔNG chống được trùng khi cột có
-NULL** — phải dùng `UNIQUE NULLS NOT DISTINCT`. Đo thật, xem `TEST_LOG § E13.2`.
+Hai bài học kỹ thuật đáng nhớ:
+
+- **`UNIQUE` thường của Postgres KHÔNG chống được trùng khi cột có NULL** — phải dùng
+  `UNIQUE NULLS NOT DISTINCT`. Đo thật, xem `TEST_LOG § E13.2`.
+- **Phần tử `position: absolute` chỉ bị cắt bởi khung cuộn CÓ ĐỊNH VỊ.** Một tiêu đề cột ẩn cho
+  trình đọc màn hình đủ để kéo cả trang trôi ngang 23px trên điện thoại mà mắt gần như không thấy
+  — chỉ `window.scrollX` mới nói ra. Xem `TEST_LOG § E13.9`.
