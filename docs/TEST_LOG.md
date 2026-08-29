@@ -1767,3 +1767,50 @@ sáng của tranh bị đẩy lên trắng và **dính liền vào bong bóng**,
 Điều đáng giá: tụt là tụt về **dự phòng**, **0 lần sinh hình sai** ở cả 4 biến thể. Tức là ở ảnh
 đen trắng, E14 v1 nhiều khả năng **giúp ít hơn** chứ không **hại**. Vẫn phải đo trên trang thật
 mới biết con số thật.
+
+
+---
+
+## E15 — Hướng chữ, thoại dọc & SFX cách điệu (mới audit, CHƯA build)
+
+### 1. Audit Before Build — bằng chứng đo được
+
+| # | Mục audit | Kết quả đo |
+|---|---|---|
+| 1 | Bộ nhận diện có cho hình học dòng chữ không | **KHÔNG.** Adapter chỉ giải mã bbox; hai nhánh `seg`/`det` chưa bao giờ được đọc (đã chứng minh ở `§E14.1`). ⇒ nguồn bằng chứng mạnh nhất mà spec trông đợi **không tồn tại** |
+| 2 | OCR có cho bố cục dòng không | PaddleOCR **có** trả `rec_polys`/`dt_polys` (`ocr/engines.py:153-157`) nhưng chỉ dùng để sắp thứ tự dòng rồi **vứt đi** — `OCRResult` chỉ lưu `raw_text`, `ocr_engine`, `confidence`, `status`. manga-ocr chỉ trả chuỗi. ⇒ muốn dùng phải **lưu thêm**, tức là migration |
+| 3 | Ảnh mẫu tiếng Nhật dọc có license rõ | **KHÔNG CÓ.** Kho chỉ có Pepper&Carrot (tiếng Anh, chữ ngang) |
+| 4 | Pillow có RAQM không | **KHÔNG** (`features.check("raqm") = False`, harfbuzz/fribidi cũng False). `direction="ttb"` ném `KeyError` **rõ ràng**, không im lặng ⇒ Phương án A bị chặn trừ khi cài thêm |
+| 5 | Vẽ chữ dọc theo từng grapheme có được không | **ĐƯỢC.** `regex` 2026.7.19 đã có sẵn (`\X` tách grapheme). Vẽ thử `"Chào bạn nhé, đừng đi!"` theo cột: **dấu tiếng Việt nguyên vẹn**, không tách rời — đã nhìn tận mắt |
+| 7 | Quy ước góc của `minAreaRect` | **Đúng là cái bẫy spec cảnh báo.** Đo trên hình biết trước đáp án: hình 0° cho `angle = 90.0` (w/h đảo), hình 90° **cũng** cho `angle = 90.0`. ⇒ góc thô **không phân biệt được 0° với 90°**; bắt buộc phải chuẩn hoá bằng w/h |
+| 8 | M7 có điều khiển xoay chữ không | Không có ⇒ ghi đè hướng bằng tay **ngoài phạm vi**, đúng như spec chốt |
+
+### 2. Đo: xoá chữ xong thì còn dấu vết hướng chữ không?
+
+Spec cho phép dùng "dấu vết cấu trúc còn lại trong ảnh clean". Đo thật số điểm ảnh tối trong
+từng vùng, trước và sau khi xoá chữ:
+
+| Vùng | Điểm tối ở ảnh gốc | Ở ảnh clean |
+|---|---|---|
+| 195×99 (thoại) | 1 499 | **0** |
+| 173×100 (thoại) | … | **4** |
+| 103×196 (không phải bong bóng) | 617 | 667 |
+| 602×176 (SFX trên tranh) | 51 163 | 87 078 |
+
+Với **thoại trong bong bóng** — đúng thứ E15 cần đoán hướng — chữ bị xoá **sạch** (còn 0–4 điểm).
+Đó chính là việc M4 phải làm. ⇒ **Không thể** đo hướng chữ trên ảnh clean; muốn có bằng chứng
+hình học thì phải đọc **ảnh gốc** (chữ còn nguyên). Đây là điểm spec chưa lường tới.
+
+(Hai vùng còn lại tăng điểm tối vì chúng nằm trên tranh chứ không trong bong bóng, nên phép xoá
+gần như không đụng tới — không mâu thuẫn với kết luận trên.)
+
+### 3. Điều kiện dừng của spec — đối chiếu
+
+Spec: *"Nếu không có ảnh mẫu chữ dọc hợp pháp, không có bằng chứng hình học tin cậy từ
+CTD/OCR, hoặc không có renderer giữ được dấu tiếng Việt → chỉ làm phần routing và ghi rõ
+**vertical rendering blocked**. Không được ship một renderer dọc giả để đánh dấu E15 xong."*
+
+Đối chiếu: **không có ảnh mẫu hợp pháp** (mục 3) và **không có hình học từ CTD** (mục 1).
+Renderer thì ngược lại — **làm được** (mục 5). Nên theo đúng chữ của spec, E15 v1 phải là
+**routing + bằng chứng**, còn phần dựng chữ dọc chỉ được gắn nhãn thử nghiệm/chưa sẵn sàng cho
+tới khi có ảnh mẫu thật để chạy Run B.
