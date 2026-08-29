@@ -28,6 +28,10 @@ export default function ExportWarningModal({ canhBao, nhatQuan, dinhDang, onHuy,
   // E13 để RIÊNG một khối nữa: "chưa nhất quán thuật ngữ" là chuyện khác hẳn với "chữ tràn
   // khung" (bố cục) và với "trách nhiệm bản quyền" (pháp lý). Gộp lại thì tick một ô xong người
   // dùng tưởng đã xử lý cả ba.
+  // E14 để RIÊNG khối thứ tư: "không xác định được lòng bong bóng" là chuyện BỐ CỤC, khác với
+  // "chữ không vừa khung" (tràn), khác chất lượng E12 và khác trách nhiệm bản quyền.
+  const soDuPhong = canhBao?.shape_fallback_count ?? 0
+  const soHinhCanXem = canhBao?.shape_needs_review_count ?? 0
   const soNQMo = nhatQuan?.open_count ?? 0
   const soNQCu = nhatQuan?.stale_count ?? 0
   const soNQBo = (nhatQuan?.rejected_count ?? 0) + (nhatQuan?.resolved_no_change_count ?? 0)
@@ -109,6 +113,25 @@ export default function ExportWarningModal({ canhBao, nhatQuan, dinhDang, onHuy,
           </>
         )}
 
+        {(soDuPhong > 0 || soHinhCanXem > 0) && (
+          <>
+            <h3>Bố cục trong bong bóng</h3>
+            <ul className="tom-tat-xuat">
+              {soDuPhong > 0 && (
+                <li className="ghi-chu">
+                  <b>{soDuPhong}</b> vùng được căn theo <b>khung chữ nhật dự phòng</b> — xuất
+                  vẫn được, chỉ là nên liếc lại vị trí chữ trong bong bóng
+                </li>
+              )}
+              {soHinhCanXem > 0 && (
+                <li className="canh-bao">
+                  <b>{soHinhCanXem}</b> vùng <b>chưa xác định được vùng an toàn</b>
+                </li>
+              )}
+            </ul>
+          </>
+        )}
+
         <label className="o-tick">
           <input type="checkbox" checked={daTick} onChange={(e) => setDaTick(e.target.checked)} />
           <span>Tôi đã đọc và chấp nhận trách nhiệm về bản quyền nội dung gốc.</span>
@@ -119,7 +142,9 @@ export default function ExportWarningModal({ canhBao, nhatQuan, dinhDang, onHuy,
           <button className="chinh" disabled={!daTick} onClick={() => onDongY(true)}>
             {soNQMo > 0
               ? `Xuất dù còn ${soNQMo} chỗ cần rà soát (${dinhDang.toUpperCase()})`
-              : `Xuất chapter (${dinhDang.toUpperCase()})`}
+              : soHinhCanXem > 0
+                ? `Xuất dù còn cảnh báo bố cục (${dinhDang.toUpperCase()})`
+                : `Xuất chapter (${dinhDang.toUpperCase()})`}
           </button>
         </div>
         {!daTick && (

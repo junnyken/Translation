@@ -114,6 +114,8 @@ const BANG = {
   get ho_so_giong() { return TT_HO_SO_GIONG },
   get loai_viec_nhat_quan() { return LOAI_VIEC_NHAT_QUAN },
   get viec_nhat_quan() { return TT_VIEC_NHAT_QUAN },
+  get vung_an_toan() { return TT_VUNG_AN_TOAN },
+  get nguon_vung_an_toan() { return NGUON_VUNG_AN_TOAN },
 }
 
 /** Mọi bảng gộp lại — dùng cho test canh đủ enum. */
@@ -276,4 +278,41 @@ export const TT_VIEC_NHAT_QUAN = {
   resolved_no_change: B('Giữ bản hiện tại', 'trung', 'tich', 'Bạn đã xem và giữ nguyên bản dịch.'),
   stale: B('Đề xuất đã cũ', 'trung', 'dong-ho',
     'Bản dịch đã đổi từ lần quét nên đề xuất này không còn dùng được.', 'Quét lại'),
+}
+
+
+/** E14 — nguồn gốc vùng an toàn. Cố ý KHÔNG dùng chữ "đã xác định chính xác": đây là suy ra
+ *  từ vùng sáng trong ảnh, không phải bộ nhận diện bong bóng. */
+export const NGUON_VUNG_AN_TOAN = {
+  shape_derived: B('Đã nhận diện vùng an toàn', 'ok', 'tich',
+    'Suy ra từ vùng sáng của bong bóng trong ảnh đã xoá chữ.'),
+  fallback_rectangle: B('Đang dùng khung chữ nhật dự phòng', 'canh', 'canh',
+    'Không đủ bằng chứng về hình bong bóng nên căn theo khung chữ nhật như trước.'),
+  manual_override: B('Do người đặt', 'tin', 'but', 'Hình do người chỉnh tay.'),
+}
+
+export const TT_VUNG_AN_TOAN = {
+  ready: B('Đã nhận diện', 'ok', 'tich', 'Có hình bong bóng dùng được.'),
+  fallback_rectangle: B('Khung dự phòng', 'canh', 'canh',
+    'Vẫn căn chữ được, nhưng nên nhìn lại vị trí chữ.'),
+  needs_review: B('Cần kiểm tra', 'canh', 'canh',
+    'Vùng an toàn quá nhỏ hoặc không tin được — nên chỉnh khung tay.'),
+  failed: B('Không tính được', 'loi', 'canh', 'Đầu vào hỏng hoặc không đọc được ảnh.'),
+}
+
+/** Vì sao ra kết quả đó — dịch mã lý do sang tiếng người. */
+export const LY_DO_VUNG_AN_TOAN = {
+  shape_candidate_found: 'Tìm được hình bong bóng quanh chữ',
+  shape_candidate_too_small: 'Vùng sáng tìm được nhỏ hơn cả khung chữ',
+  shape_candidate_not_centered: 'Không có vùng sáng nào bao quanh chữ',
+  shape_candidate_touches_roi_boundary: 'Bong bóng bị cắt ở mép vùng tìm kiếm',
+  shape_candidate_multiple_ambiguous: 'Có nhiều vùng sáng lồng nhau, không rõ cái nào',
+  shape_candidate_fills_roi: 'Vùng sáng chiếm gần hết chỗ tìm — nhiều khả năng là nền trang',
+  shape_low_contrast: 'Chỗ này không có vùng sáng nào',
+  shape_invalid_geometry: 'Khung chữ hoặc ảnh không hợp lệ',
+  shape_erosion_eliminated_area: 'Chừa lề vào thì không còn chỗ đặt chữ',
+  fallback_no_reliable_shape: 'Không đủ chắc về hình bong bóng nên dùng khung dự phòng',
+  safe_area_smaller_than_minimum: 'Vùng còn lại nhỏ hơn mức tối thiểu',
+  manual_bbox_changed: 'Khung chữ vừa được chỉnh tay',
+  render_footprint_outside_safe_area: 'Chữ vẽ ra vượt khỏi vùng an toàn',
 }

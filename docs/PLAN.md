@@ -160,3 +160,24 @@ Hai bài học kỹ thuật đáng nhớ:
 - **Phần tử `position: absolute` chỉ bị cắt bởi khung cuộn CÓ ĐỊNH VỊ.** Một tiêu đề cột ẩn cho
   trình đọc màn hình đủ để kéo cả trang trôi ngang 23px trên điện thoại mà mắt gần như không thấy
   — chỉ `window.scrollX` mới nói ra. Xem `TEST_LOG § E13.9`.
+
+
+## E14 — Vùng an toàn theo hình bong bóng (2026-08-29)
+
+✅ **Xong backend + giao diện** (`743 test backend + 95 test giao diện`): bảng `region_safe_area`,
+bộ trích hình bong bóng, lớp chọn ô đặt chữ, 3 endpoint, lớp phủ trong màn sửa tay, khối cảnh báo
+riêng lúc xuất.
+
+Đo thật trên 9 vùng Pepper&Carrot: 5/5 bong bóng nhận được hình, 4/4 vùng không phải bong bóng
+lùi về dự phòng, **0 lần chọn nhầm**, 5/5 khối chữ nằm trọn trong đa giác. Cỡ chữ tăng ở 3/5 vùng.
+
+Ba bài học đáng nhớ:
+
+- **Ngưỡng chặt + lấp lỗ theo từng ứng viên.** Nới ngưỡng để cứu lỗ do LaMa vá sẽ làm bong bóng
+  dính vào nền sáng; lấp lỗ trên cả vùng tìm kiếm thì nuốt luôn mảng tối bị nền sáng bao quanh.
+- **Nhân hình thái phải bám bbox, không bám ROI.** Bám ROI thì mỗi lần nới ROI là một thuật toán
+  khác, kết quả nhảy không đơn điệu (2 → 1 → 3).
+- **Đường dự phòng phải giống HỆT hành vi cũ.** Lệch lề làm cỡ chữ đổi ở ngay chỗ E14 không nhận
+  ra hình gì — thay đổi không ai xin và không giải thích được.
+
+⚠️ **Khoảng trống lớn nhất còn lại:** chưa đo trên truyện **đen trắng** (bong bóng trắng nền tối).

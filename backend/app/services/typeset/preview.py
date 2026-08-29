@@ -31,6 +31,10 @@ class RegionDraw:
     font_size: float | None
     padding_ratio: float
     overflow: bool = False
+    #: E14: ô đặt chữ nằm gọn trong lòng bong bóng, toạ độ ảnh gốc (x, y, w, h).
+    #: Có thì chữ được căn giữa trong ô NÀY và cũng bị cắt gọn trong nó; không có thì giữ nguyên
+    #: hành vi M6 (bbox trừ padding). Một đường vẽ duy nhất cho cả xem thử lẫn xuất file.
+    place_rect: tuple[float, float, float, float] | None = None
 
 
 class PagePreviewRenderer:
@@ -67,12 +71,19 @@ class PagePreviewRenderer:
             font = self.font_resolver.resolve(region.font_family, int(region.font_size))
             spacing = int(round(region.font_size * self.line_spacing_ratio))
 
-            pad_x = region.bbox.w * region.padding_ratio
-            pad_y = region.bbox.h * region.padding_ratio
-            trai = region.bbox.x + pad_x
-            tren = region.bbox.y + pad_y
-            rong = max(region.bbox.w - 2 * pad_x, 1.0)
-            cao = max(region.bbox.h - 2 * pad_y, 1.0)
+            if region.place_rect is not None:
+                # Vùng an toàn của E14 đã thụt vào sẵn nên KHÔNG trừ padding lần nữa —
+                # trừ hai lần là chữ tự nhiên bé lại mà không ai giải thích được vì sao.
+                trai, tren, rong, cao = region.place_rect
+                rong = max(rong, 1.0)
+                cao = max(cao, 1.0)
+            else:
+                pad_x = region.bbox.w * region.padding_ratio
+                pad_y = region.bbox.h * region.padding_ratio
+                trai = region.bbox.x + pad_x
+                tren = region.bbox.y + pad_y
+                rong = max(region.bbox.w - 2 * pad_x, 1.0)
+                cao = max(region.bbox.h - 2 * pad_y, 1.0)
 
             left, top, right, bottom = draw.multiline_textbbox(
                 (0, 0), region.wrapped_text, font=font, spacing=spacing,
@@ -90,16 +101,22 @@ class PagePreviewRenderer:
             # đè lên bubble khác hay chạy dọc suốt trang.
             # (Bản đầu chỉ kẹp ĐIỂM BẮT ĐẦU vào biên ảnh — chữ vẫn tràn ra ngoài; lỗi này chỉ lộ
             #  khi mở màn sửa tay của M7 và ghim một cỡ chữ lớn.)
-            o_rong = max(int(round(region.bbox.w)), 1)
-            o_cao = max(int(round(region.bbox.h)), 1)
+            # Ô cắt = đúng vùng được phép chiếm. Với E14 đó là ô trong lòng bong bóng, nên chữ
+            # tràn cũng không thể leo ra ngoài viền bong bóng.
+            cat_x = trai if region.place_rect is not None else region.bbox.x
+            cat_y = tren if region.place_rect is not None else region.bbox.y
+            cat_w = rong if region.place_rect is not None else region.bbox.w
+            cat_h = cao if region.place_rect is not None else region.bbox.h
+            o_rong = max(int(round(cat_w)), 1)
+            o_cao = max(int(round(cat_h)), 1)
             o = Image.new("RGBA", (o_rong, o_cao), (0, 0, 0, 0))
             ImageDraw.Draw(o).multiline_text(
-                (x - region.bbox.x, y - region.bbox.y),
+                (x - cat_x, y - cat_y),
                 region.wrapped_text, font=font, fill=self.text_color,
                 spacing=spacing, align="center",
                 stroke_width=self.stroke_width, stroke_fill=self.stroke_color,
             )
-            canvas.paste(o, (int(round(region.bbox.x)), int(round(region.bbox.y))), o)
+            canvas.paste(o, (int(round(cat_x)), int(round(cat_y))), o)
             if region.overflow and self.mark_overflow:
                 # Vùng tràn phải NHÌN THẤY được trên preview, không để chữ đẹp che mất cảnh báo.
                 draw.rectangle(

@@ -613,3 +613,17 @@ mặc định; thiếu hoặc sai giá trị → `422`. Không có endpoint nào
 khai báo sửa được thì bằng chứng vô nghĩa.
 
 M11 (nếu cần) — auth & nhiều người dùng: chưa có endpoint nào.
+
+
+## E14 — vùng an toàn theo hình bong bóng
+
+| Method | Path | Ghi chú |
+|---|---|---|
+| GET | `/api/v1/regions/{region_id}/safe-area` | Hình học + mã lý do + ô đặt chữ. **404 nếu chưa tính** — không trả hình rỗng để khỏi bị đọc nhầm thành "vừa khít" |
+| GET | `/api/v1/pages/{page_id}/safe-area-summary` | Đếm theo trạng thái; `not_computed_count` để RIÊNG |
+| POST | `/api/v1/pages/{page_id}/retry-safe-area` | 202 — xoá bản cũ rồi xếp lại việc căn chữ (bước này tự tính lại vùng nào thiếu) |
+
+`export-warnings` thêm hai số **tách riêng** khỏi tràn khung và khỏi chất lượng E12:
+`shape_fallback_count`, `shape_needs_review_count`.
+
+Tầng HTTP **không** chạm xử lý ảnh: ô đặt chữ được worker tính sẵn và lưu vào bản ghi.

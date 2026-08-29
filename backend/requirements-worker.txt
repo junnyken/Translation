@@ -6,3 +6,8 @@ manga-ocr==0.1.16
 paddleocr==3.7.0
 # paddleocr KHÔNG tự kéo framework -> phải khai tường minh, nếu không sẽ lỗi lúc chạy
 paddlepaddle==3.3.1
+
+# E14 dùng THẲNG cv2 (ngưỡng sáng, đường viền, khoảng cách tới biên). Trước đây nó chỉ
+# đến gián tiếp qua paddleocr — nâng cấp paddleocr một phát là mất, và E14 hỏng im lặng
+# vì mọi `import cv2` đều nằm trong hàm.
+opencv-contrib-python==4.10.0.84

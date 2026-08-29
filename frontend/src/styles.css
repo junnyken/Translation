@@ -453,3 +453,20 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   min-width: 24px; text-align: center; padding: 1px 6px; border-radius: 6px;
   background: var(--the-mo); font-variant-numeric: tabular-nums;
 }
+
+/* ---------- E14: vùng an toàn của bong bóng ---------- */
+
+/* Lớp thông tin, KHÔNG nhận chuột — khung chữ bên dưới vẫn kéo được như trước. */
+.lop-vung-an-toan {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  pointer-events: none;
+}
+/* Hình đã nhận diện: nét liền. Dự phòng: nét đứt — nhìn là biết ngay máy có chắc hay không,
+   không phải đọc chú thích mới hiểu. */
+.at-suy-ra polygon { fill: rgba(37, 99, 235, .10); stroke: #2563eb; stroke-width: 2; }
+.at-du-phong rect  { fill: none; stroke: #b45309; stroke-width: 2; stroke-dasharray: 8 6; }
+.at-suy-ra .at-o-dat-chu { fill: none; stroke: #2563eb; stroke-width: 2; stroke-dasharray: 4 4; }
+.the-hinh-bong-bong {
+  border: 1px solid var(--vien); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px;
+  font-size: 13px;
+}

@@ -11,7 +11,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 from fastapi.responses import FileResponse
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -19,6 +19,7 @@ from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.models import (
     BatchItem,
+    RegionSafeArea,
     CharacterVoiceProfile,
     ConsistencyReviewTask,
     GlossaryEntry,
@@ -35,6 +36,7 @@ from app.models import (
 )
 from app.models.enums import (
     BatchItemStatus,
+    SafeAreaStatus,
     ConsistencyTaskStatus,
     ConsistencyTaskType,
     GlossaryStatus,
@@ -52,6 +54,8 @@ from app.models.enums import (
     TranslationEngine,
 )
 from app.schemas.common import (
+    PageSafeAreaSummary,
+    SafeAreaRead,
     JobRead,
     OCRResultRead,
     TranslationResultRead,
@@ -1098,11 +1102,23 @@ async def get_export_warnings(
 
     cb = await ComplianceGate().get_export_warnings(session, project_id)
     cl = await get_project_quality_summary(project_id, session)
+    # E14: đếm theo BỐ CỤC, tách hẳn khỏi tràn khung (chữ không vừa) và khỏi chất lượng E12.
+    # Một vùng vẫn có thể vừa khít bên trong khung dự phòng mà vẫn nên xem lại bằng mắt.
+    bo_cuc = dict((await session.execute(
+        select(RegionSafeArea.status, func.count())
+        .join(TextRegion, TextRegion.id == RegionSafeArea.region_id)
+        .join(Page, Page.id == TextRegion.page_id)
+        .where(Page.project_id == project_id)
+        .group_by(RegionSafeArea.status)
+    )).all())
     return ExportWarningsRead(
         overflow_warning_count=cb.overflow_warning_count,
         needs_manual_count=cb.needs_manual_count,
         acknowledged=cb.acknowledged,
         acknowledged_at=cb.acknowledged_at,
+        shape_fallback_count=int(bo_cuc.get(SafeAreaStatus.fallback_rectangle, 0)),
+        shape_needs_review_count=int(bo_cuc.get(SafeAreaStatus.needs_review, 0))
+        + int(bo_cuc.get(SafeAreaStatus.failed, 0)),
         quality_needs_review_count=cl.can_ra_soat,
         quality_unassessed_count=cl.chua_danh_gia,
         quality_reviewed_skip_count=cl.da_bo_qua,
@@ -1732,3 +1748,121 @@ async def get_job(job_id: uuid.UUID, session: AsyncSession = Depends(get_session
 async def health(session: AsyncSession = Depends(get_session)) -> Response:
     await session.execute(select(1))
     return Response(status_code=200, content='{"status":"ok"}', media_type="application/json")
+
+
+# ---------------------------------------------------------------------------
+# E14 — vùng đặt chữ an toàn theo hình bong bóng
+# ---------------------------------------------------------------------------
+
+
+def _doc_vung_an_toan(ban: RegionSafeArea) -> SafeAreaRead:
+    return SafeAreaRead(
+        region_id=ban.region_id,
+        algorithm_version=ban.algorithm_version,
+        source=ban.source.value,
+        status=ban.status.value,
+        geometry_type=ban.geometry_type.value,
+        geometry=ban.geometry_json or {},
+        roi={"x": ban.roi_x, "y": ban.roi_y, "w": ban.roi_w, "h": ban.roi_h},
+        safe_area_pixels=ban.safe_area_pixels,
+        bbox_coverage_ratio=ban.bbox_coverage_ratio,
+        reason_codes=list(ban.reason_codes or []),
+        config_summary=dict(ban.config_snapshot or {}),
+        place_rect=ban.place_rect_json,
+    )
+
+
+@router.get("/regions/{region_id}/safe-area", response_model=SafeAreaRead, tags=["safe-area"])
+async def get_region_safe_area(
+    region_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> SafeAreaRead:
+    """Hình học vùng an toàn của một vùng chữ.
+
+    Chưa tính bao giờ ⇒ **404**, không trả hình rỗng: `geometry=[]` mà đọc thành "vừa khít" là
+    đúng kiểu lỗi im lặng E14 sinh ra để chặn.
+    """
+    ban = await session.scalar(
+        select(RegionSafeArea).where(RegionSafeArea.region_id == region_id)
+    )
+    if ban is None:
+        raise HTTPException(
+            status_code=404,
+            detail="safe_area_not_computed: vùng này chưa được tính vùng an toàn",
+        )
+    return _doc_vung_an_toan(ban)
+
+
+@router.get(
+    "/pages/{page_id}/safe-area-summary",
+    response_model=PageSafeAreaSummary,
+    tags=["safe-area"],
+)
+async def get_page_safe_area_summary(
+    page_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> PageSafeAreaSummary:
+    """Đếm theo trạng thái. `not_computed` để RIÊNG — chưa tính khác hẳn tính rồi không ra hình."""
+    page = await session.get(Page, page_id)
+    if page is None:
+        raise HTTPException(status_code=404, detail="page_not_found")
+
+    tong = await session.scalar(
+        select(func.count()).select_from(TextRegion).where(TextRegion.page_id == page_id)
+    ) or 0
+    rows = (await session.execute(
+        select(RegionSafeArea.status, func.count())
+        .join(TextRegion, TextRegion.id == RegionSafeArea.region_id)
+        .where(TextRegion.page_id == page_id)
+        .group_by(RegionSafeArea.status)
+    )).all()
+    dem = {tt.value: 0 for tt in SafeAreaStatus}
+    for tt, n in rows:
+        dem[tt.value] = int(n)
+    da_tinh = sum(dem.values())
+    return PageSafeAreaSummary(
+        page_id=page_id,
+        total_regions=int(tong),
+        shape_derived_count=dem[SafeAreaStatus.ready.value],
+        fallback_rectangle_count=dem[SafeAreaStatus.fallback_rectangle.value],
+        needs_review_count=dem[SafeAreaStatus.needs_review.value],
+        failed_count=dem[SafeAreaStatus.failed.value],
+        not_computed_count=max(int(tong) - da_tinh, 0),
+    )
+
+
+@router.post("/pages/{page_id}/retry-safe-area", status_code=202, tags=["safe-area"])
+async def retry_page_safe_area(
+    page_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> dict:
+    """Tính lại vùng an toàn cho cả trang rồi căn chữ lại.
+
+    Cố ý **không** thêm loại việc mới: bước căn chữ tự tính lại vùng nào chưa có hình dùng
+    được, nên "tính lại" chính là chạy lại bước căn chữ. API chỉ xếp việc, mọi xử lý ảnh ở worker.
+    """
+    page = await session.get(Page, page_id)
+    if page is None:
+        raise HTTPException(status_code=404, detail="page_not_found")
+    if not page.clean_image_path:
+        raise HTTPException(
+            status_code=422,
+            detail="no_clean_image: chưa xoá chữ xong nên chưa có ảnh để tìm hình bong bóng",
+        )
+
+    await session.execute(
+        delete(RegionSafeArea).where(
+            RegionSafeArea.region_id.in_(
+                select(TextRegion.id).where(TextRegion.page_id == page_id)
+            )
+        )
+    )
+    job = Job(type=JobType.typeset, page_id=page_id, status=JobStatus.queued)
+    session.add(job)
+    await session.commit()
+    await session.refresh(job)
+
+    sent, reason = dispatch_typeset_job(job.id)
+    return {
+        "job_id": str(job.id),
+        "page_id": str(page_id),
+        "status": "queued" if sent else "queue_unavailable",
+        "detail": reason,
+    }

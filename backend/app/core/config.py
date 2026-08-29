@@ -127,6 +127,34 @@ class Settings(BaseSettings):
     #: Trần số vùng gửi cho LLM một lần — chặn yêu cầu quá lớn thay vì âm thầm cắt bớt.
     e13_llm_max_regions: int = 5
 
+    # ---- E14: vùng an toàn theo hình bong bóng ----
+    #: Bật/tắt cả tính năng. Tắt ⇒ mọi vùng dùng khung chữ nhật như M6, không có bản ghi nào.
+    e14_safe_area_enabled: bool = True
+    #: Nới ROI quanh bbox CHỮ để tìm bong bóng. Đo thật trên Pepper&Carrot: bong bóng lớn hơn
+    #: bbox chữ rất nhiều — để 1,2 thì 3/5 bong bóng thật bị cắt và bị loại oan (TEST_LOG §E14.2).
+    e14_roi_expand_ratio: float = 4.0
+    e14_roi_expand_max_px: int = 1400
+    #: Ngưỡng "sáng và nhạt màu". Nới lỏng hơn thì bong bóng DÍNH vào nền sáng của tranh —
+    #: đo được: thành phần phình to gấp 4–7 lần bbox (TEST_LOG §E14.2, lần thử 3).
+    e14_brightness_threshold: int = 200
+    e14_saturation_threshold: int = 60
+    #: Nhân hình thái và lề ăn vào bám theo CẠNH NGẮN CỦA BBOX, không theo ROI: ROI đổi mà nhân
+    #: đổi theo thì mỗi lần nới ROI là một thuật toán khác, kết quả nhảy không đơn điệu.
+    e14_morph_kernel_ratio: float = 0.06
+    e14_erosion_margin_ratio: float = 0.06
+    e14_erosion_margin_min_px: int = 3
+    e14_erosion_margin_max_px: int = 40
+    #: Ứng viên nhỏ hơn bbox chữ thì không thể là lòng bong bóng chứa chữ đó.
+    e14_min_bbox_coverage_ratio: float = 0.8
+    #: Chiếm gần hết ROI ⇒ nhiều khả năng là nền trang chứ không phải bong bóng.
+    e14_max_roi_coverage_ratio: float = 0.75
+    #: Chạm biên ROI bao nhiêu phần chu vi thì coi là hình bị cắt dở. Tiếp xúc nhỏ không tính.
+    e14_max_roi_touch_ratio: float = 0.02
+    e14_max_polygon_vertices: int = 64
+    e14_safe_area_min_pixels: int = 400
+    e14_safe_area_min_width_px: int = 24
+    e14_safe_area_min_height_px: int = 16
+
     # ---- M4: inpaint (LaMa) ----
     inpaint_weights_path: str = "/models/lama-manga-dynamic.onnx"
     inpaint_device: str = "cpu"

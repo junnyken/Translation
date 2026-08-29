@@ -232,3 +232,25 @@ export const boQuaViecNhatQuan = (taskId, resolution) =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ resolution }),
   }).then(doc)
+
+
+// ---------- E14: vùng an toàn của bong bóng ----------
+
+/** Vùng an toàn của từng vùng chữ trên một trang, gom thành `{region_id: bản ghi}`.
+ *
+ * Vùng chưa tính trả 404 — đó KHÔNG phải lỗi, chỉ là chưa có, nên bỏ qua. Nhưng chỉ bỏ qua
+ * ĐÚNG 404: mọi lỗi khác phải ném ra, nếu không thì hỏng đường mạng cũng hiện y như "chưa tính"
+ * và không ai biết. (Bản đầu bắt hết mọi lỗi — và nuốt luôn một `ReferenceError` của chính nó.)
+ */
+export async function layVungAnToan(regionIds) {
+  const cap = await Promise.all(regionIds.map(async (id) => {
+    const res = await fetch(`${BASE}/regions/${id}/safe-area`)
+    if (res.status === 404) return [id, null]
+    return [id, await doc(res)]
+  }))
+  return Object.fromEntries(cap.filter(([, v]) => v))
+}
+
+export const tomTatVungAnToan = (pageId) => fetch(`${BASE}/pages/${pageId}/safe-area-summary`).then(doc)
+export const tinhLaiVungAnToan = (pageId) =>
+  fetch(`${BASE}/pages/${pageId}/retry-safe-area`, { method: 'POST' }).then(doc)

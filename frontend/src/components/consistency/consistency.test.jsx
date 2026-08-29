@@ -239,3 +239,36 @@ describe('ngữ cảnh giọng nhân vật trong lúc rà soát', () => {
       .toHaveValue('Tôi uống lọ thuốc ma thuật')
   })
 })
+
+describe('cảnh báo bố cục bong bóng (E14)', () => {
+  const cb = (kw = {}) => ({
+    overflow_warning_count: 0, needs_manual_count: 0, quality_needs_review_count: 0,
+    quality_unassessed_count: 0, quality_reviewed_skip_count: 0, acknowledged: false, ...kw,
+  })
+
+  it('đếm bố cục nằm ở khối RIÊNG, không trộn vào tràn khung', () => {
+    render(<ExportWarningModal canhBao={cb({ shape_fallback_count: 3, overflow_warning_count: 1 })}
+                               dinhDang="cbz" onHuy={vi.fn()} onDongY={vi.fn()} />)
+    expect(screen.getByRole('heading', { name: /Bố cục trong bong bóng/ })).toBeInTheDocument()
+    expect(screen.getByText(/khung chữ nhật dự phòng/)).toBeInTheDocument()
+    expect(screen.getByText(/tràn ra ngoài khung/)).toBeInTheDocument()
+  })
+
+  it('vùng dùng khung dự phòng KHÔNG bị gọi là lỗi, vẫn xuất được', () => {
+    render(<ExportWarningModal canhBao={cb({ shape_fallback_count: 3 })}
+                               dinhDang="cbz" onHuy={vi.fn()} onDongY={vi.fn()} />)
+    expect(document.body.textContent).not.toMatch(/lỗi bố cục|hỏng|thất bại/i)
+    expect(screen.getByRole('button', { name: /Xuất chapter \(CBZ\)/ })).toBeInTheDocument()
+  })
+
+  it('còn vùng chưa xác định được thì nhãn nút nói thẳng ra', () => {
+    render(<ExportWarningModal canhBao={cb({ shape_needs_review_count: 2 })}
+                               dinhDang="cbz" onHuy={vi.fn()} onDongY={vi.fn()} />)
+    expect(screen.getByRole('button', { name: /Xuất dù còn cảnh báo bố cục/ })).toBeInTheDocument()
+  })
+
+  it('không có cảnh báo bố cục thì không hiện khối thừa', () => {
+    render(<ExportWarningModal canhBao={cb()} dinhDang="cbz" onHuy={vi.fn()} onDongY={vi.fn()} />)
+    expect(screen.queryByRole('heading', { name: /Bố cục trong bong bóng/ })).not.toBeInTheDocument()
+  })
+})

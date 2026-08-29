@@ -22,7 +22,12 @@ FORBIDDEN = (
 
 APP_DIR = Path(__file__).resolve().parent.parent / "app"
 #: Chỉ các thư mục này được phép chạm runtime model (M2: detect, M3: ocr, M4: inpaint).
-ALLOWED_MODEL_DIRS = ("services/detect", "services/ocr", "services/inpaint", "workers")
+#: E14 thêm `services/safearea`: nó dùng cv2 cho HÌNH HỌC ảnh (ngưỡng sáng, đường viền, khoảng
+#: cách tới biên) — không nạp model, không gọi mạng. Mọi `import cv2` ở đó đều nằm TRONG hàm,
+#: và test đo `sys.modules` vẫn chứng minh tiến trình API không nạp cv2 thật.
+ALLOWED_MODEL_DIRS = (
+    "services/detect", "services/ocr", "services/inpaint", "services/safearea", "workers",
+)
 
 
 def _imports(py: Path) -> list[tuple[int, str]]:
@@ -803,3 +808,83 @@ def test_muoi_task_co_muoi_timeout_rieng():
 
     assert run_consistency_scan_job.soft_time_limit is not None
     assert run_consistency_scan_job.soft_time_limit != run_export_job.soft_time_limit
+
+
+# ---------- E14: vùng an toàn theo hình bong bóng ----------
+
+
+def test_api_khong_import_bo_trich_hinh_e14():
+    """Tầng HTTP chỉ được ĐỌC bản ghi vùng an toàn, không được tự chạy xử lý ảnh."""
+    routes = (APP_DIR / "api" / "v1" / "routes.py").read_text()
+    for cam in ("BubbleSafeAreaExtractor", "SafeAreaService", "o_dat_chu"):
+        assert cam not in routes, f"routes.py gọi thẳng {cam} — xử lý ảnh phải ở worker"
+
+
+def test_e14_khong_sua_bbox_cua_bo_nhan_dien():
+    """Bbox của M2 là bằng chứng. E14 chỉ được THÊM vùng an toàn, không ghi đè lịch sử đó."""
+    thu_muc = APP_DIR / "services" / "safearea"
+    for py in thu_muc.rglob("*.py"):
+        noi_dung = py.read_text()
+        for cam in ("bbox_x =", "bbox_y =", "bbox_w =", "bbox_h ="):
+            assert cam not in noi_dung, f"{py.name} đang gán vào bbox của TextRegion"
+
+
+def test_e14_khong_goi_ctd_text_mask_la_bubble_mask():
+    """Mask của CTD là mask CHỮ. Gọi nó là 'mask bong bóng' là nói sai về bằng chứng."""
+    thu_muc = APP_DIR / "services" / "safearea"
+    for py in thu_muc.rglob("*.py"):
+        noi_dung = py.read_text().lower()
+        assert "ctd" not in noi_dung, f"{py.name} nhắc tới CTD — E14 không dùng output detector"
+
+
+def test_e14_ready_phai_co_hinh_that():
+    """`ready` là lời khẳng định mạnh nhất về hình bong bóng — không được rỗng ruột."""
+    import pytest
+
+    from app.models.enums import SafeAreaGeometryType, SafeAreaSource, SafeAreaStatus
+    from app.services.safearea.decision import ReasonCode, SafeAreaDecision
+
+    with pytest.raises(ValueError):
+        SafeAreaDecision(
+            source=SafeAreaSource.shape_derived, status=SafeAreaStatus.ready,
+            geometry_type=SafeAreaGeometryType.polygon, geometry={"polygon": []},
+            roi=(0, 0, 10, 10), reason_codes=[ReasonCode.SHAPE_CANDIDATE_FOUND],
+            safe_area_pixels=100,
+        )
+    with pytest.raises(ValueError):
+        SafeAreaDecision(
+            source=SafeAreaSource.fallback_rectangle, status=SafeAreaStatus.ready,
+            geometry_type=SafeAreaGeometryType.polygon,
+            geometry={"polygon": [[0, 0], [1, 0], [1, 1]]},
+            roi=(0, 0, 10, 10), reason_codes=[ReasonCode.SHAPE_CANDIDATE_FOUND],
+            safe_area_pixels=100,
+        )
+
+
+def test_e14_du_phong_luon_co_hinh_hoc():
+    """Dự phòng phải LƯU hẳn khung chữ nhật — 'không có hình' đọc nhầm thành 'vừa khít'."""
+    from app.core.config import get_settings
+    from app.services.interfaces import BBox
+    from app.services.safearea.config import SafeAreaConfig
+    from app.services.safearea.extractor import khung_du_phong
+
+    cfg = SafeAreaConfig.from_settings(get_settings())
+    qd = khung_du_phong(BBox(x=10, y=10, w=200, h=100), cfg, [])
+    assert qd.geometry["rect"]["w"] > 0 and qd.geometry["rect"]["h"] > 0
+    assert "fallback_no_reliable_shape" in qd.reason_codes
+
+
+def test_e14_ma_ly_do_nam_trong_danh_sach_dong():
+    """Mã lý do được giao diện dịch ra tiếng Việt, nên không được đẻ mã tuỳ hứng."""
+    import pytest
+
+    from app.models.enums import SafeAreaGeometryType, SafeAreaSource, SafeAreaStatus
+    from app.services.safearea.decision import SafeAreaDecision
+
+    with pytest.raises(ValueError):
+        SafeAreaDecision(
+            source=SafeAreaSource.fallback_rectangle, status=SafeAreaStatus.fallback_rectangle,
+            geometry_type=SafeAreaGeometryType.rect,
+            geometry={"rect": {"x": 0, "y": 0, "w": 5, "h": 5}},
+            roi=(0, 0, 10, 10), reason_codes=["ly_do_tu_bia"],
+        )

@@ -50,6 +50,10 @@ export default function App() {
   const [chiTiet, setChiTiet] = useState(null)
   const [dangChon, setDangChon] = useState(null)
   const [hienCanhBaoAnh, setHienCanhBaoAnh] = useState(true)
+  // E14: mặc định TẮT. Lớp phủ hình học là công cụ soi lỗi bố cục, không phải thứ cần thấy
+  // mỗi lần mở trang — bật lên khi nghi chữ đặt lệch trong bong bóng.
+  const [hienVungAnToan, setHienVungAnToan] = useState(false)
+  const [vungAnToan, setVungAnToan] = useState({})
   const [dangBan, setDangBan] = useState(false)
   const [loi, setLoi] = useState(null)
   const [thongBao, setThongBao] = useState(null)
@@ -252,6 +256,17 @@ export default function App() {
       return { job_id: kq.refit_job_id }
     })
 
+  // Nạp cho cả trang khi mở, không đợi bật lớp phủ: "hình bong bóng" là một dữ kiện RIÊNG mà
+  // người sửa cần thấy ngay ở bảng bên phải, còn công tắc chỉ để bật/tắt phần vẽ đè lên ảnh.
+  useEffect(() => {
+    if (!chiTiet?.regions?.length) return
+    let huy = false
+    api.layVungAnToan(chiTiet.regions.map((r) => r.id))
+      .then((d) => { if (!huy) setVungAnToan(d) })
+      .catch(() => { if (!huy) setVungAnToan({}) })
+    return () => { huy = true }
+  }, [chiTiet?.page?.id, phienBanAnh])
+
   const vungDangChon = chiTiet?.regions.find((r) => r.id === dangChon) ?? null
   const soTran = chiTiet?.regions.filter((r) => r.fit_status === 'overflow_warning').length ?? 0
   const soCanXem = chiTiet?.regions.filter(
@@ -415,6 +430,13 @@ export default function App() {
                     />
                     <span>Hiện cảnh báo trên ảnh</span>
                   </label>
+                  <label className="o-tick nho">
+                    <input
+                      type="checkbox" checked={hienVungAnToan}
+                      onChange={(e) => setHienVungAnToan(e.target.checked)}
+                    />
+                    <span>Hiện vùng an toàn của bong bóng</span>
+                  </label>
                   <span className="ghi-chu">
                     {soTran} vùng tràn khung · {soCanXem} vùng cần xem lại ·{' '}
                     {chiTiet.regions.length} vùng
@@ -429,6 +451,8 @@ export default function App() {
                     onChon={setDangChon}
                     onLuuBbox={luuBbox}
                     hienCanhBao={hienCanhBaoAnh}
+                    vungAnToan={vungAnToan}
+                    hienVungAnToan={hienVungAnToan}
                   />
                 ) : (
                   <Alert sac="tin" tieuDe="Chưa có ảnh xem thử">
@@ -467,6 +491,7 @@ export default function App() {
                   <RegionPanel
                     key={vungDangChon.id}
                     region={vungDangChon}
+                    vungAnToan={vungAnToan[vungDangChon.id]}
                     fontFamilies={chiTiet.font_families}
                     coMin={chiTiet.min_font_size}
                     coMax={chiTiet.max_font_size}

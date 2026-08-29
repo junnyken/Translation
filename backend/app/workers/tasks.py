@@ -466,6 +466,33 @@ def bao_ket_thuc_buoc(page_id: uuid.UUID | None, job_id: uuid.UUID, outcome: str
         logger.exception("không cập nhật được mẻ cho trang %s", page_id)
 
 
+def tinh_vung_an_toan(page_id: uuid.UUID | None, trigger: str) -> dict | None:
+    """Tính vùng đặt chữ an toàn cho cả trang (E14), chạy ngay sau khi xoá chữ xong.
+
+    Cố ý KHÔNG thêm task Celery mới: enum `job_type` chưa từng được thêm giá trị trong suốt
+    M1–E13, và có test guardrail chốt đúng danh sách task. Chạy đồng bộ ở cuối bước xoá chữ là
+    đủ sớm — bước căn chữ còn ở tận sau bước dịch.
+
+    Tính hỏng thì KHÔNG được kéo theo bước xoá chữ: trang vẫn xong, chỉ là chưa có vùng an toàn,
+    và bước căn chữ sẽ lùi về khung chữ nhật của M6.
+    """
+    if page_id is None or not settings.e14_safe_area_enabled:
+        return None
+    try:
+        from app.services.safearea.config import SafeAreaConfig
+        from app.services.safearea.service import SafeAreaService
+
+        dv = SafeAreaService(settings.storage_local_root, SafeAreaConfig.from_settings(settings))
+        with sync_session() as session:
+            dem = dv.compute_page(session, page_id)
+            session.commit()
+        logger.info("vùng an toàn (%s) trang %s: %s", trigger, page_id, dem)
+        return dem
+    except Exception:  # noqa: BLE001
+        logger.exception("không tính được vùng an toàn cho trang %s", page_id)
+        return None
+
+
 def cham_chat_luong(page_id: uuid.UUID | None, trigger: str) -> None:
     """Chấm chất lượng từng vùng của trang (E12) sau khi đã căn chữ xong.
 
@@ -673,6 +700,9 @@ def _run_inpaint(job_id: uuid.UUID) -> dict:
         job.status = JobStatus.done
         job.error_log = None
         session.commit()
+
+    # Vùng an toàn phải có TRƯỚC bước căn chữ, vì nó là đầu vào bố cục của bước đó.
+    tinh_vung_an_toan(page_id, "inpaint")
 
     translate_job_id = (
         enqueue_translate_after_inpaint(page_id) if settings.translate_auto_chain else None
@@ -1023,8 +1053,11 @@ def enqueue_typeset_after_translate(page_id: uuid.UUID) -> uuid.UUID | None:
     return job_id
 
 
-def build_typesetter():
-    """Dựng typesetter + resolver từ config. Import TRỄ để API không kéo theo Pillow/font."""
+def build_typesetter(padding_ratio: float | None = None):
+    """Dựng typesetter + resolver từ config. Import TRỄ để API không kéo theo Pillow/font.
+
+    `padding_ratio` chỉ được truyền vào ở đường E14, nơi vùng đặt chữ đã thụt vào từ trước.
+    """
     from app.services.typeset.fitter import FitToBoxTypesetter
     from app.services.typeset.fonts import FontResolver
 
@@ -1037,7 +1070,8 @@ def build_typesetter():
         font_resolver=resolver,
         min_font_size=settings.typeset_min_font_size,
         max_font_size=settings.typeset_max_font_size,
-        padding_ratio=settings.typeset_padding_ratio,
+        padding_ratio=(settings.typeset_padding_ratio if padding_ratio is None
+                       else float(padding_ratio)),
         line_spacing_ratio=settings.typeset_line_spacing_ratio,
         stroke_width=settings.typeset_stroke_width,
     )
@@ -1071,6 +1105,12 @@ def render_page_preview(page_id: uuid.UUID, resolver=None) -> str:
                 .order_by(TextRegion.reading_order.nulls_last(), TextRegion.created_at)
             ).all()
         )
+        from app.services.safearea.apply import nap_o_dat_chu
+        from app.services.storage import get_storage as _lay_kho
+
+        o_dat = nap_o_dat_chu(
+            session, [r.id for r, _ts in rows], _lay_kho().abs_path(clean_rel)
+        )
         ve = [
             RegionDraw(
                 bbox=BBox(x=r.bbox_x, y=r.bbox_y, w=r.bbox_w, h=r.bbox_h),
@@ -1079,6 +1119,7 @@ def render_page_preview(page_id: uuid.UUID, resolver=None) -> str:
                 font_size=ts.font_size,
                 padding_ratio=ts.padding_ratio if ts.padding_ratio is not None else settings.typeset_padding_ratio,
                 overflow=ts.fit_status is FitStatus.overflow_warning,
+                place_rect=o_dat.get(r.id),
             )
             for r, ts in rows
         ]
@@ -1167,11 +1208,35 @@ def _run_typeset(job_id: uuid.UUID) -> dict:
             session.commit()
             return {"status": "failed", "job_id": str(job_id), "error": job.error_log}
 
+        from app.services.safearea.apply import nap_o_dat_chu
+        from app.services.storage import get_storage as _lay_kho
+
+        clean_abs = _lay_kho().abs_path(clean_rel)
+        o_dat = nap_o_dat_chu(session, [r.id for r in regions], clean_abs)
+        # Tự chữa lành: vùng nào chưa có hình dùng được (chưa tính bao giờ, hoặc ảnh clean đã
+        # đổi sau lần tính) thì tính lại NGAY tại đây. Nhờ vậy "tính lại vùng an toàn" chỉ là
+        # chạy lại bước căn chữ — không phải thêm một loại việc mới vào enum.
+        thieu = [r.id for r in regions if r.id not in o_dat]
+        if thieu and settings.e14_safe_area_enabled:
+            try:
+                from app.services.safearea.config import SafeAreaConfig
+                from app.services.safearea.service import SafeAreaService
+
+                dv = SafeAreaService(
+                    settings.storage_local_root, SafeAreaConfig.from_settings(settings)
+                )
+                for rid in thieu:
+                    dv.compute_region(session, rid)
+                session.commit()
+                o_dat = nap_o_dat_chu(session, [r.id for r in regions], clean_abs)
+            except Exception:  # noqa: BLE001
+                logger.exception("không tính lại được vùng an toàn cho trang %s", page_id)
         specs = [
             (
                 r.id,
                 BBox(x=r.bbox_x, y=r.bbox_y, w=r.bbox_w, h=r.bbox_h),
                 translations[r.id].translated_text or "",
+                o_dat.get(r.id),
             )
             for r in regions
         ]
@@ -1180,10 +1245,17 @@ def _run_typeset(job_id: uuid.UUID) -> dict:
 
     # ---- tính toán NGOÀI transaction: nạp font + đo chữ là việc nặng ----
     typesetter, resolver = build_typesetter()
+    # Vùng an toàn của E14 ĐÃ thụt vào sẵn (bước ăn mòn), nên canh chữ trong đó phải dùng
+    # padding = 0. Trừ lề hai lần thì chữ tự nhiên bé lại mà không ai giải thích được vì sao.
+    typesetter_an_toan = build_typesetter(padding_ratio=0.0)[0]
     font_family = settings.default_font_family
-    ket_qua: list[tuple[uuid.UUID, BBox, dict]] = [
-        (region_id, bbox, typesetter.fit(text, bbox, font_family)) for region_id, bbox, text in specs
-    ]
+    ket_qua: list[tuple[uuid.UUID, BBox, dict]] = []
+    for region_id, bbox, text, o in specs:
+        if o is None:
+            ket_qua.append((region_id, bbox, typesetter.fit(text, bbox, font_family)))
+            continue
+        khung = BBox(x=o[0], y=o[1], w=o[2], h=o[3])
+        ket_qua.append((region_id, bbox, typesetter_an_toan.fit(text, khung, font_family)))
 
     with sync_session() as session:
         region_ids = [rid for rid, _b, _f in ket_qua]
@@ -1650,6 +1722,7 @@ def _thu_thap_trang(session, project_id: uuid.UUID):
     from app.services.export.chapter import TrangCanXuat
     from app.services.interfaces import BBox
     from app.services.storage import get_storage
+    from app.services.safearea.apply import nap_o_dat_chu
     from app.services.typeset.preview import RegionDraw
 
     storage = get_storage()
@@ -1672,6 +1745,10 @@ def _thu_thap_trang(session, project_id: uuid.UUID):
             .where(TextRegion.page_id == page.id)
             .order_by(TextRegion.reading_order.nulls_last(), TextRegion.created_at)
         ).all()
+        # ĐÚNG hàm mà ảnh xem thử dùng: người xem thấy sao thì file tải về phải y như vậy.
+        o_dat_xuat = nap_o_dat_chu(
+            session, [r.id for r, _ts in rows], storage.abs_path(page.clean_image_path)
+        )
         trang_list.append(
             TrangCanXuat(
                 page_id=str(page.id),
@@ -1690,6 +1767,7 @@ def _thu_thap_trang(session, project_id: uuid.UUID):
                         ),
                         # Ảnh GIAO CHO NGƯỜI ĐỌC: không vẽ khung đỏ cảnh báo lên đó.
                         overflow=False,
+                        place_rect=o_dat_xuat.get(r.id),
                     )
                     for r, ts in rows
                 ],

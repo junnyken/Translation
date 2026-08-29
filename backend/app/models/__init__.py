@@ -24,6 +24,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
 from app.models.enums import (
+    SafeAreaGeometryType,
+    SafeAreaSource,
+    SafeAreaStatus,
     BatchItemStatus,
     ConsistencyTaskStatus,
     ConsistencyTaskType,
@@ -549,3 +552,52 @@ class ConsistencyReviewTask(TimestampMixin, Base):
     #: TUYỆT ĐỐI không chứa khoá bí mật hay phản hồi thô của nhà cung cấp.
     evidence: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class RegionSafeArea(TimestampMixin, Base):
+    """Vùng đặt chữ an toàn của một bong bóng (E14).
+
+    Đây là dữ liệu **thêm vào**, không thay `TextRegion.bbox`: bbox là bằng chứng của bộ nhận
+    diện M2 và còn dùng để đối chiếu, nên không được sửa lịch sử đó. Mỗi vùng chữ giữ đúng
+    **một** bản hiện hành; muốn dựng lại bản cũ thì đã có `algorithm_version` + `config_snapshot`.
+    """
+
+    __tablename__ = "region_safe_area"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    region_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("text_region.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    algorithm_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    source: Mapped[SafeAreaSource] = mapped_column(
+        _enum(SafeAreaSource, "safe_area_source"), nullable=False
+    )
+    status: Mapped[SafeAreaStatus] = mapped_column(
+        _enum(SafeAreaStatus, "safe_area_status"), nullable=False
+    )
+
+    roi_x: Mapped[int] = mapped_column(Integer, nullable=False)
+    roi_y: Mapped[int] = mapped_column(Integer, nullable=False)
+    roi_w: Mapped[int] = mapped_column(Integer, nullable=False)
+    roi_h: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    geometry_type: Mapped[SafeAreaGeometryType] = mapped_column(
+        _enum(SafeAreaGeometryType, "safe_area_geometry_type"), nullable=False
+    )
+    #: Đỉnh đa giác hoặc hình chữ nhật, TOẠ ĐỘ ẢNH GỐC. Không bao giờ để rỗng — kể cả khi
+    #: dự phòng, vì "không có hình" mà đọc thành "vừa khít" là đúng kiểu lỗi im lặng dự án này
+    #: đang săn.
+    geometry_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    safe_area_pixels: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    bbox_coverage_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    reason_codes: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    config_snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    #: Ô chữ nhật THỰC SỰ dùng để đặt chữ, nằm gọn trong hình trên. Tính MỘT lần ở worker rồi
+    #: lưu lại: bước căn chữ, ảnh xem thử, file xuất và lớp phủ trên giao diện đều đọc đúng ô
+    #: này. Tính lại ở mỗi nơi là bốn cơ hội để lệch nhau.
+    place_rect_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    #: Ảnh clean lúc tính. Ảnh clean đổi (chạy lại xoá chữ) ⇒ hình cũ hết hiệu lực.
+    clean_image_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)

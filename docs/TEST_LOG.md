@@ -1606,3 +1606,141 @@ là mã chạy đúng mà hiển thị sai.
 - Run C/D chạy trên **Chromium**; chưa thử Firefox/Safari.
 - Chưa đo với **bàn phím và trình đọc màn hình thật** cho các thành phần mới — mới chỉ đếm điểm
   dừng tab (29, không đổi so với trước khi thêm E13).
+
+
+---
+
+## E14 — Vùng an toàn theo hình bong bóng (đang làm)
+
+### 1. Audit Before Build — bằng chứng đo được
+
+Spec E14 đặt một **cổng chặn**: nếu thăm dò trên trang thật cho thấy heuristic chọn nhầm vùng
+trắng, phải dừng lại và báo `E14 blocked` chứ không được deploy. Dưới đây là số đo thật.
+
+| # | Mục audit | Kết quả |
+|---|---|---|
+| 1 | Adapter CTD đưa ra gì | **Chỉ bbox + confidence + chỉ số lớp.** `ctd.py:161-162` chỉ lấy `outputs[0]`; hai nhánh `seg`/`det` của model **chưa bao giờ được giải mã** (`REPORT_M2.md:121` khai đúng). Guardrail "đừng nhầm text mask thành bubble mask" vì vậy là hiển nhiên — không có mask nào để mà nhầm |
+| 2 | Ảnh clean của M4 | Kích thước **giống hệt** ảnh gốc (1600×2213 / 1600×2259, đo cả 3 trang) ⇒ toạ độ bbox dùng thẳng được. **Nhưng** mảng LaMa vá vào có độ bão hoà khác lòng bong bóng — đo được: nó rơi khỏi ngưỡng và tạo **lỗ thủng ngay giữa** vùng an toàn |
+| 3 | Bộ vẽ chuẩn | `PagePreviewRenderer.draw()` là **một đường duy nhất**; M8 gọi lại đúng hàm đó (`export/chapter.py:44`). Không có hai bộ vẽ |
+| 4 | Thư viện trong worker | cv2 **4.10.0**, Pillow 11.0.0, numpy 2.2.1; đủ `findContours`, `distanceTransform`, `morphologyEx`, `connectedComponentsWithStats`, `approxPolyDP`, `erode`. API **không nạp** cv2/torch (test guardrail đo ở mức `sys.modules`) |
+| 4b | **Cực tính `distanceTransform`** — đo chứ không đoán | Ô vuông 11×11 giá trị 255 trên nền 0: tâm = **6.0**, sát mép = **1.0**, ngoài ô = **0.0**; đảo mask thì tâm = **0.0**. ⇒ vùng cần đo phải mang giá trị **khác 0**, biên là 0 |
+| 5 | **Thăm dò trên 9 vùng thật** | xem §2 |
+| 6 | Bất biến theo độ phân giải | Chạy lại toàn bộ 9 vùng ở **0.5× / 0.75× / 1× / 1.5×**: **9/9 ra cùng quyết định ở cả 4 mức**. Tham số tỉ lệ theo kích thước bbox nên không có magic number pixel |
+| 7 | `manual_override` | **Ngoài phạm vi v1** — không dựng trình sửa đa giác; M7 đã có sửa bbox tay làm đường lui |
+| 10 | Khoảng trống đã xác nhận | `fitter.py:56-60` `content_rect()` chỉ trừ padding theo tỉ lệ của **bbox chữ nhật** — không hề biết biên cong của bong bóng |
+
+### 2. Thăm dò trên trang Pepper&Carrot thật (mục audit 5)
+
+9 vùng thật từ 3 trang đã chạy hết pipeline (`scripts/tham_do/e14_tham_do.py` — **mã thăm dò,
+không phải mã sản xuất**; không import `app.*`, không ghi CSDL).
+
+**Kết quả cuối:** 5 bong bóng thật → `shape_derived` (**5/5**); 4 vùng không phải bong bóng
+(chữ trên tranh, dòng bản quyền, 2 vùng OCR rỗng) → `fallback` (**4/4**). **0 lần chọn nhầm.**
+
+Bốn lần chạy hỏng trước đó đều là **tham số của tôi sai, không phải phương pháp sai** — và mỗi
+lần đều phải nhìn ảnh gỡ lỗi mới biết:
+
+| Lần | Kết quả | Nguyên nhân thật |
+|---|---|---|
+| 1 | 0/9 | ROI nới theo bbox **chữ** nên nhỏ hơn bong bóng; và phép thử tâm đọc **một pixel** — rơi trúng vệt chữ sót |
+| 2 | 1/9 | Vẫn chạm biên ROI. Đổi sang xét cả **đĩa quanh tâm** thay vì 1 điểm |
+| 3 | 2/9 | Nới ngưỡng sáng để cứu lỗ thủng ⇒ bong bóng **dính vào nền sáng** (thành phần to gấp 4–7 lần bbox, chạm biên 15–31%) — đúng cái bẫy "chọn vùng trắng lớn nhất" mà spec cảnh báo |
+| 4 | 2/9 | Lấp lỗ trên **toàn ROI** ⇒ vùng tối bị nền sáng bao quanh cũng bị nuốt (tỉ lệ so với bbox vọt lên 10.7) |
+| 5 | **5/9** | Lấp lỗ **theo từng ứng viên**, chọn đường viền **khít nhất chứa tâm** (không phải to nhất), và tách nhân hình thái ra khỏi ROI |
+
+Khiếm khuyết cấu trúc tìm được ở lần 5: **nhân hình thái đang tỉ lệ theo ROI**, mà ROI lại tỉ lệ
+theo bbox — nên nới ROI là vô tình đổi luôn thuật toán, kết quả nhảy 2 → 1 → 3 không đơn điệu.
+Sau khi cho nhân bám theo bbox, dãy trở nên đơn điệu và đọc được: 2 → 4 → 4 → 5.
+
+**Tham số v1 chọn theo bằng chứng này** (chưa phải giá trị cuối, sẽ đưa hết vào `.env`):
+
+| Tham số | Giá trị | Vì sao |
+|---|---|---|
+| ROI nới | 4.0× bbox, trần 1400px | bong bóng lớn hơn bbox **chữ** rất nhiều; nhỏ hơn thì bị cắt và bị loại oan |
+| Ngưỡng sáng / bão hoà | V ≥ 200, S ≤ 60 | nới lỏng hơn thì dính nền sáng (đo ở lần 3) |
+| Nhân đóng/mở | 6% cạnh ngắn bbox | bám bbox, không bám ROI |
+| Lề ăn vào | 6% cạnh ngắn bbox, tối thiểu 3px | |
+| Loại nếu chạm biên ROI | > 2% chu vi ROI | tiếp xúc nhỏ không có nghĩa là hình bị cắt |
+
+### 3. Điều phải nói thẳng về chất lượng đa giác
+
+Nhìn tận mắt cả 5 đa giác được chấp nhận: **đúng bong bóng, không cái nào chọn nhầm** — nhưng
+hình **còn thô**: có khía lẹm vào, và ở một bong bóng thì cái **đuôi** cũng bị tính vào vùng an
+toàn. Lẹm vào là **an toàn** (vùng nhỏ hơn lòng bong bóng thật), còn cái đuôi thì phải để bước
+tìm hình chữ nhật nội tiếp loại ra.
+
+⇒ **E14 KHÔNG bị chặn.** Nhưng đây là bằng chứng để đặt kỳ vọng đúng: v1 cho *vị trí đặt chữ
+an toàn hơn*, chứ không phải *nhận diện bong bóng chính xác*.
+
+
+### 4. Test tự động
+
+| Nhóm | Tệp | Số |
+|---|---|---|
+| Đơn vị — hình học, chọn ứng viên, ô nội tiếp | `tests/test_safe_area_unit.py` | 23 |
+| Integration — CSDL thật + ảnh thật, API, ảnh xem thử ↔ file xuất | `tests/test_safe_area_integration.py` | 20 |
+| Chốt chặn kiến trúc | `tests/test_no_ai_logic.py` | +6 |
+| **Tổng backend** | | **743 pass** (M1–E13 không xước) |
+| Giao diện | `vitest run` | **95 pass** (+4 của E14) |
+
+Những test đáng kể — mỗi cái ứng với một cách hệ thống có thể **nói dối**:
+
+- `test_khong_chon_nen_trang_lon_khong_chua_tam_bbox` — cái bẫy "vơ lấy vùng trắng lớn nhất".
+- `test_kiem_ca_o_chu_chu_khong_phai_moi_diem_neo` — điểm neo nằm trong mà cả khối chữ vẫn thò
+  ra ngoài; đúng kiểu lỗi M6 từng mắc.
+- `test_anh_clean_doi_thi_hinh_cu_khong_duoc_dung_lai` — vẽ theo hình của một bong bóng **không
+  còn ở đó** là lỗi im lặng tệ nhất mà E14 có thể gây ra.
+- `test_e14_ready_phai_co_hinh_that` — `ready` rỗng ruột bị chặn ngay ở tầng kiểu dữ liệu.
+- `test_api_chua_tinh_thi_404_chu_khong_tra_hinh_rong` — `geometry=[]` mà đọc thành "vừa khít".
+- `test_khung_du_phong_cho_dung_vung_chu_nhu_M6` — xem §5, đây là test sinh ra từ một lệch thật.
+- `test_e14_khong_goi_ctd_text_mask_la_bubble_mask` — canh cả **cách dùng từ**: mask của bộ nhận
+  diện là mask CHỮ, gọi nó là mask bong bóng là nói sai về bằng chứng.
+
+### 5. Live verification — Run A (bắt buộc)
+
+Chạy trên **9 vùng thật** của 3 trang Pepper&Carrot (CC BY-SA), qua đúng dịch vụ sản xuất.
+
+| Vùng | bbox | Ô đặt chữ | Nguồn | Cỡ chữ M6 → E14 | Chữ nằm trọn trong bong bóng |
+|---|---|---|---|---|---|
+| …và điều cuối cùng | 167×66 | 91×111 | shape_derived | 19 → **25** | ✅ |
+| …mmm có lẽ là không | 174×101 | 111×113 | shape_derived | 25 → **27** | ✅ |
+| ha… hoàn hảo. | 96×64 | 69×65 | shape_derived | 21 → 21 | ✅ |
+| KHÔNG! thậm chí… | 196×100 | 159×87 | shape_derived | 21 → 20 | ✅ |
+| Vui mừng?! | 106×35 | 117×51 | shape_derived | 21 → **29** | ✅ |
+| TÕM! 18 (SFX trên tranh) | 603×177 | — | fallback | 40 → 40 | — |
+| WWW.PEPPERCARROT.COM | 147×46 | — | fallback | 14 → 14 | — |
+| 2 vùng OCR rỗng | | — | fallback | — | — |
+
+- **5/5 vùng shape_derived có toàn bộ dấu chân chữ nằm trong đa giác bong bóng** (tiêu chí đòi
+  ≥90%). Đo bằng điểm ảnh: dựng mặt nạ đa giác rồi kiểm cả ô chữ, không phải mỗi điểm neo.
+- **0 lần chọn nhầm** trên 4 vùng không phải bong bóng (chữ trên tranh, dòng bản quyền, 2 vùng
+  OCR rỗng) — tất cả đều lùi về khung dự phòng kèm lý do đọc được.
+- Trái với lo ngại ban đầu, cỡ chữ **tăng** ở 3/5 vùng: vùng an toàn thường **rộng hơn** bbox
+  trừ lề, vì bbox chỉ ôm lấy chữ chứ không ôm lấy bong bóng.
+- Nhìn ảnh trước/sau: chữ giờ nằm giữa **lòng bong bóng**, không còn lệch sang một bên như khi
+  căn theo khung chữ nhật.
+
+### 6. Live verification — Run B (fallback trung thực)
+
+4 ca khó trong bộ trên: chữ tượng thanh nằm trên tranh (`TÕM!`), dòng địa chỉ web trên nền
+tranh, và 2 vùng bộ nhận diện bắt được nhưng OCR không ra chữ. **Không ca nào bị gán hình giả**;
+mã lý do lần lượt là `shape_candidate_not_centered` (không có vùng sáng nào bao quanh chữ) và
+`shape_candidate_touches_roi_boundary` (hình bị cắt ở mép vùng tìm kiếm).
+
+### 7. Một lệch thật do đo mới thấy — và cách sửa
+
+Đường **dự phòng** ban đầu dùng lề ăn-vào của E14, nên cỡ chữ của dòng bản quyền nhảy **14 → 16**
+— tức là E14 đổi bố cục ở ngay chỗ nó **không nhận ra hình gì cả**. Không ai xin thay đổi đó và
+không có cách nào giải thích cho người dùng.
+
+Đã sửa: khung dự phòng lấy đúng `typeset_padding_ratio` của M6. Đo lại: **2/2 vùng dự phòng cho
+cỡ chữ và trạng thái y hệt M6**. Khoá lại bằng `test_khung_du_phong_cho_dung_vung_chu_nhu_M6`.
+
+### 8. Giới hạn của lần đo này
+
+- Mới đo trên **Pepper&Carrot** — bong bóng màu bạc hà trên tranh màu. **Chưa đo trên truyện đen
+  trắng** (bong bóng trắng trên nền tối), là ca phổ biến nhất của manga.
+- Chưa đo bong bóng tối, bong bóng gradient, chữ dọc, SFX cong.
+- Run C (sửa bbox tay rồi tính lại) mới có **test integration**, chưa bấm tay trên trình duyệt.
+- Lớp phủ vùng an toàn trên giao diện đã dựng và build sạch, nhưng **chưa xem trên trình duyệt
+  thật** với dữ liệu thật.

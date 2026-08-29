@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
+import { LY_DO_VUNG_AN_TOAN, NGUON_VUNG_AN_TOAN } from '../lib/status-presentation.js'
 import StatusBadge from './ui/StatusBadge.jsx'
 
 /** Bảng sửa 1 vùng: bản dịch, font, cỡ chữ + các nút chạy lại từng bước. */
-export default function RegionPanel({ region, fontFamilies, coMin, coMax, dangBan, onLuu, onDichLai, onDocLai, onCanhLai }) {
+export default function RegionPanel({ region, vungAnToan, fontFamilies, coMin, coMax, dangBan, onLuu, onDichLai, onDocLai, onCanhLai }) {
   const [text, setText] = useState(region.translated_text ?? '')
   const [font, setFont] = useState(region.font_family ?? fontFamilies[0])
   const [ghimCo, setGhimCo] = useState(false)
@@ -29,6 +30,21 @@ export default function RegionPanel({ region, fontFamilies, coMin, coMax, dangBa
 
   return (
     <div className="bang-sua">
+    {vungAnToan && (
+      <div className="the-hinh-bong-bong">
+        <b>{NGUON_VUNG_AN_TOAN[vungAnToan.source]?.nhan ?? vungAnToan.source}</b>
+        <p className="ghi-chu">
+          {(vungAnToan.reason_codes ?? [])
+            .map((m) => LY_DO_VUNG_AN_TOAN[m] ?? m)
+            .join(' · ')}
+        </p>
+        <p className="ghi-chu">
+          Đây là <b>chuyện bố cục</b>, tách khỏi việc chữ có vừa khung hay không. Một vùng vẫn
+          có thể vừa khít trong khung dự phòng mà vị trí trong bong bóng vẫn nên xem lại.
+        </p>
+      </div>
+    )}
+
       <div className="hang-tieu-de">
         <h3>Vùng {region.reading_order ?? '?'}</h3>
         <div className="nhom-nhan">

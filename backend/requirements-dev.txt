@@ -4,3 +4,6 @@ pytest-asyncio==0.25.0
 httpx==0.28.1
 # Kiểm tra độ phủ ký tự tiếng Việt của font bundle (test canh M6) — chỉ dùng lúc test.
 fonttools==4.63.0
+
+# Test hình học của E14 phải CHẠY THẬT chứ không skip: bản headless đủ dùng và nhẹ.
+opencv-python-headless==4.10.0.84

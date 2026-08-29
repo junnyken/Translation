@@ -269,3 +269,28 @@ class ConsistencyTaskStatus(str, Enum):
     #: Bản dịch đã đổi sau khi tạo việc ⇒ đề xuất cũ không còn dùng được.
     stale = "stale"
     resolved_no_change = "resolved_no_change"
+
+
+class SafeAreaSource(str, Enum):
+    """Vùng an toàn này từ đâu ra — người dùng phải phân biệt được suy ra và dự phòng."""
+
+    #: Suy ra từ hình dạng sáng của bong bóng trong ảnh đã xoá chữ.
+    shape_derived = "shape_derived"
+    #: Không đủ bằng chứng về hình dạng ⇒ lùi về khung chữ nhật thụt vào của M6.
+    fallback_rectangle = "fallback_rectangle"
+    #: Dành sẵn cho tương lai. E14 v1 KHÔNG dựng trình sửa đa giác nên không bao giờ sinh ra.
+    manual_override = "manual_override"
+
+
+class SafeAreaStatus(str, Enum):
+    """`ready` chỉ được dùng khi thật sự có hình dạng — không bao giờ nhận vơ."""
+
+    ready = "ready"
+    fallback_rectangle = "fallback_rectangle"
+    needs_review = "needs_review"
+    failed = "failed"
+
+
+class SafeAreaGeometryType(str, Enum):
+    rect = "rect"
+    polygon = "polygon"

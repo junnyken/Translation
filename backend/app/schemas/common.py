@@ -402,6 +402,12 @@ class ExportWarningsRead(BaseModel):
     needs_manual_count: int
     acknowledged: bool
     acknowledged_at: datetime | None
+    #: E14 — bố cục: vùng đang căn theo khung chữ nhật dự phòng vì không xác định được hình
+    #: bong bóng. KHÔNG gộp vào số tràn khung: tràn khung là chữ không vừa, còn đây là
+    #: "không biết lòng bong bóng ở đâu" — hai chuyện khác nhau.
+    shape_fallback_count: int = 0
+    #: E14 — vùng chưa xác định được vùng an toàn và cần người xem.
+    shape_needs_review_count: int = 0
     #: E12 — vùng máy đề nghị xem lại trước khi xuất.
     quality_needs_review_count: int = 0
     #: E12 — vùng CHƯA đánh giá được. Không bao giờ gộp vào "rõ ràng".
@@ -626,3 +632,36 @@ class TaskRejectRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     resolution: Literal["keep_current", "not_applicable"]
+
+
+class SafeAreaRead(BaseModel):
+    """Vùng đặt chữ an toàn của một vùng chữ (E14).
+
+    KHÔNG bao giờ trả về điểm ảnh của ảnh gốc/ảnh sạch qua đây — chỉ hình học và lý do.
+    """
+
+    region_id: uuid.UUID
+    algorithm_version: str
+    source: str
+    status: str
+    geometry_type: str
+    geometry: dict
+    roi: dict
+    safe_area_pixels: int | None = None
+    bbox_coverage_ratio: float | None = None
+    reason_codes: list[str] = Field(default_factory=list)
+    config_summary: dict = Field(default_factory=dict)
+    #: Ô chữ nhật thực sự dùng để đặt chữ, nằm gọn trong hình trên. Giao diện vẽ đúng ô này
+    #: thay vì tự suy ra — suy ra ở hai nơi là hai kết quả khác nhau.
+    place_rect: dict | None = None
+
+
+class PageSafeAreaSummary(BaseModel):
+    page_id: uuid.UUID
+    total_regions: int
+    shape_derived_count: int
+    fallback_rectangle_count: int
+    needs_review_count: int
+    failed_count: int
+    #: Vùng chưa từng được tính — khác hẳn "đã tính và không ra hình".
+    not_computed_count: int
