@@ -24,6 +24,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
 from app.models.enums import (
+    OrientationSource,
+    OrientationStatus,
+    TextOrientation,
     SafeAreaGeometryType,
     SafeAreaSource,
     SafeAreaStatus,
@@ -157,6 +160,11 @@ class OCRResult(TimestampMixin, Base):
         unique=True,  # 1 region <-> 1 OCRResult => rerun job idempotent (M3)
     )
     raw_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Đường bao từng dòng chữ do engine trả về, TOẠ ĐỘ ẢNH GỐC. `None` nghĩa là engine không
+    #: cung cấp (manga-ocr chỉ trả chuỗi) — khác hẳn `[]` nghĩa là có hỏi nhưng không có dòng nào.
+    #: Đây là bằng chứng hình học DUY NHẤT hệ thống có về hướng của chữ: bộ nhận diện chỉ cho
+    #: khung chữ nhật, còn ảnh đã xoá chữ thì không còn chữ để đo (đo thật: còn 0–4 điểm ảnh).
+    line_polygons: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     ocr_engine: Mapped[OCREngine | None] = mapped_column(_enum(OCREngine, "ocr_engine"), nullable=True)
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     status: Mapped[OCRStatus] = mapped_column(
@@ -601,3 +609,36 @@ class RegionSafeArea(TimestampMixin, Base):
     place_rect_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     #: Ảnh clean lúc tính. Ảnh clean đổi (chạy lại xoá chữ) ⇒ hình cũ hết hiệu lực.
     clean_image_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class RegionTextOrientation(TimestampMixin, Base):
+    """Hướng chữ của một vùng + bằng chứng dẫn tới kết luận đó (E15).
+
+    Chỉ để **căn chữ và điều hướng rà soát**. Không bao giờ sửa chữ OCR, không đảo thứ tự đọc,
+    không xoay ảnh — những thứ đó thuộc hợp đồng của M3/M5 và ảnh gốc là bằng chứng.
+    """
+
+    __tablename__ = "region_text_orientation"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    region_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("text_region.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    algorithm_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    orientation: Mapped[TextOrientation] = mapped_column(
+        _enum(TextOrientation, "text_orientation"), nullable=False
+    )
+    source: Mapped[OrientationSource] = mapped_column(
+        _enum(OrientationSource, "orientation_source"), nullable=False
+    )
+    status: Mapped[OrientationStatus] = mapped_column(
+        _enum(OrientationStatus, "orientation_status"), nullable=False
+    )
+    #: Chỉ có nghĩa với `rotated_horizontal`, và v1 **không** dùng nó để xoay chữ.
+    rotation_degrees: Mapped[float | None] = mapped_column(Float, nullable=True)
+    line_count_estimate: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reason_codes: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    evidence_snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)

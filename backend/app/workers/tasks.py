@@ -343,13 +343,21 @@ def _run_ocr(job_id: uuid.UUID) -> dict:
     errors: list[str] = []
     for region_id, x, y, w, h, is_low in region_specs:
         try:
-            text, confidence = engine.recognize(image_path, BBox(x=x, y=y, w=w, h=h))
+            # Engine nào cung cấp được đường bao từng dòng thì lấy luôn — đó là bằng chứng
+            # hình học duy nhất về hướng chữ, và nó chỉ tồn tại ở ĐÂY: sau bước xoá chữ thì
+            # trong bong bóng không còn chữ để đo nữa. Engine không có thì `None`, không bịa.
+            co_layout = getattr(engine, "recognize_with_layout", None)
+            if co_layout is not None:
+                text, confidence, polys = co_layout(image_path, BBox(x=x, y=y, w=w, h=h))
+            else:
+                text, confidence = engine.recognize(image_path, BBox(x=x, y=y, w=w, h=h))
+                polys = None
         except Exception as exc:  # noqa: BLE001 - 1 vùng hỏng không được giết cả trang
             logger.warning("OCR region %s lỗi: %s", region_id, exc)
             errors.append(f"{type(exc).__name__}: {exc}")
-            results.append((region_id, None, None, OCRStatus.needs_manual))
+            results.append((region_id, None, None, OCRStatus.needs_manual, None))
             continue
-        results.append((region_id, text, confidence, _classify_ocr(text, confidence)))
+        results.append((region_id, text, confidence, _classify_ocr(text, confidence), polys))
 
     # MỌI region đều ném lỗi => engine hỏng, KHÔNG phải "trang này không có chữ".
     # Báo job failed thay vì ghi 100% needs_manual rồi tự nhận ocr_done (che mất sự cố).
@@ -366,11 +374,12 @@ def _run_ocr(job_id: uuid.UUID) -> dict:
         deleted = session.execute(
             delete(OCRResult).where(OCRResult.region_id.in_(region_ids))
         ).rowcount
-        for region_id, text, confidence, status in results:
+        for region_id, text, confidence, status, polys in results:
             session.add(
                 OCRResult(
                     region_id=region_id,
                     raw_text=text,
+                    line_polygons=polys,
                     ocr_engine=engine.engine_enum,
                     confidence=confidence,
                     status=status,
@@ -490,6 +499,36 @@ def tinh_vung_an_toan(page_id: uuid.UUID | None, trigger: str) -> dict | None:
         return dem
     except Exception:  # noqa: BLE001
         logger.exception("không tính được vùng an toàn cho trang %s", page_id)
+        return None
+
+
+def nhan_biet_huong_chu(page_id: uuid.UUID | None, trigger: str) -> dict | None:
+    """Nhận biết hướng chữ cho cả trang (E15), chạy ngay sau khi có vùng an toàn.
+
+    Phải chạy TRƯỚC bước căn chữ vì hướng chữ là đầu vào bố cục. Cũng như E14: chạy đồng bộ
+    ở đây thay vì thêm một loại việc mới vào enum — enum `job_type` chưa từng được thêm giá
+    trị suốt M1–E14 và có test chốt đúng danh sách task.
+
+    Hỏng thì KHÔNG kéo theo bước trước: trang vẫn xong, chỉ là chưa có nhãn hướng chữ.
+    """
+    if page_id is None or not settings.e15_orientation_enabled:
+        return None
+    try:
+        from app.services.orientation.analyzer import OrientationConfig
+        from app.services.orientation.service import OrientationService
+
+        dv = OrientationService(OrientationConfig(
+            angle_tolerance_deg=settings.e15_angle_tolerance_deg,
+            min_agreement_ratio=settings.e15_min_agreement_ratio,
+            vertical_render_enabled=settings.e15_vertical_render_enabled,
+        ))
+        with sync_session() as session:
+            dem = dv.analyze_page(session, page_id)
+            session.commit()
+        logger.info("hướng chữ (%s) trang %s: %s", trigger, page_id, dem)
+        return dem
+    except Exception:  # noqa: BLE001
+        logger.exception("không nhận biết được hướng chữ cho trang %s", page_id)
         return None
 
 
@@ -703,6 +742,9 @@ def _run_inpaint(job_id: uuid.UUID) -> dict:
 
     # Vùng an toàn phải có TRƯỚC bước căn chữ, vì nó là đầu vào bố cục của bước đó.
     tinh_vung_an_toan(page_id, "inpaint")
+    # Hướng chữ cũng vậy, và nó cần đường bao dòng của OCR (đã có từ bước trước) cộng với
+    # vùng an toàn vừa tính xong.
+    nhan_biet_huong_chu(page_id, "inpaint")
 
     translate_job_id = (
         enqueue_translate_after_inpaint(page_id) if settings.translate_auto_chain else None
@@ -1524,7 +1566,14 @@ def _run_region_reocr(job_id: uuid.UUID, region_id: uuid.UUID) -> dict:
         session.commit()
 
     engine = get_ocr_engine_cached(source_lang)
-    text, confidence = engine.recognize(image_path, bbox)
+    # Đọc lại một vùng cũng phải lấy đường bao dòng, nếu không thì vùng vừa sửa tay sẽ mất
+    # bằng chứng hướng chữ trong khi các vùng khác vẫn còn — lệch nhau không ai giải thích được.
+    co_layout = getattr(engine, "recognize_with_layout", None)
+    if co_layout is not None:
+        text, confidence, polys = co_layout(image_path, bbox)
+    else:
+        text, confidence = engine.recognize(image_path, bbox)
+        polys = None
     trang_thai = _classify_ocr(text, confidence)
 
     with sync_session() as session:
@@ -1533,6 +1582,7 @@ def _run_region_reocr(job_id: uuid.UUID, region_id: uuid.UUID) -> dict:
             OCRResult(
                 region_id=region_id,
                 raw_text=text,
+                line_polygons=polys,
                 ocr_engine=getattr(engine, "engine_enum", None),
                 confidence=confidence,
                 status=trang_thai,

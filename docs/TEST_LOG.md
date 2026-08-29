@@ -1814,3 +1814,36 @@ CTD/OCR, hoặc không có renderer giữ được dấu tiếng Việt → ch�
 Renderer thì ngược lại — **làm được** (mục 5). Nên theo đúng chữ của spec, E15 v1 phải là
 **routing + bằng chứng**, còn phần dựng chữ dọc chỉ được gắn nhãn thử nghiệm/chưa sẵn sàng cho
 tới khi có ảnh mẫu thật để chạy Run B.
+
+
+### 4. Đã build ở lần này (backend)
+
+| Nhóm | Tệp | Số |
+|---|---|---|
+| Đơn vị — chuẩn hoá góc + bộ nhận biết hướng | `tests/test_orientation_unit.py` | 27 |
+| Chốt chặn kiến trúc | `tests/test_no_ai_logic.py` | +6 |
+| **Tổng backend** | | **779 pass** (M1–E14 không xước) |
+
+Test đáng kể nhất — mỗi cái ứng với một cách hệ thống có thể **nói dối**:
+
+- `test_goc_tho_KHONG_phan_biet_duoc_0_va_90_nhung_da_chuan_hoa_thi_duoc` — khoá lại **cả tiền
+  đề**: nếu một bản OpenCV sau này đổi quy ước, test sẽ đỏ và bắt đọc lại phần audit này.
+- `test_TI_LE_KHUNG_KHONG_BAO_GIO_TU_QUYET` — khung cao gấp 5 lần bề rộng vẫn không được tự
+  thành chữ dọc. `PHEW!` viết thưa theo chiều dọc vẫn là chữ ngang cách điệu.
+- `test_ti_le_khung_khong_lat_nguoc_duoc_bang_chung_hinh_hoc` — khung rất cao **nhưng** các dòng
+  nằm ngang ⇒ vẫn là chữ ngang.
+- `test_dong_dung_dung_thi_ra_chu_doc_nhung_CHUA_dung_duoc` — nhận ra hướng ≠ dựng được chữ.
+- `test_cac_dong_cai_nhau_thi_noi_thang_la_mau_thuan` — không bỏ phiếu đa số cho xong.
+- `test_khong_the_tao_chu_doc_ready_ma_khong_co_bang_chung` — ràng buộc nằm ở **tầng kiểu dữ
+  liệu**, không phải ở chỗ gọi hàm, nên không lách được.
+- `test_e15_khong_sua_chu_ocr_hay_ban_dich` — canh cả `[::-1]` và `reversed(`: đảo chuỗi theo
+  hướng là phá bằng chứng của M3/M5.
+- `test_e15_khong_dung_goc_tho_cua_minAreaRect` — mọi chỗ đọc `minAreaRect` phải đi qua bộ
+  chuẩn hoá.
+
+### 5. Chưa làm
+
+- **Giao diện chưa dựng** (nhãn hướng chữ, bộ lọc, khối cảnh báo lúc xuất).
+- **Test integration chưa viết.**
+- **Run A–D chưa chạy** — cần ảnh mẫu thật, đặc biệt là ảnh chữ dọc có license rõ.
+- **Bộ dựng chữ dọc cố ý chưa dựng** — xem `REPORT_E15.md` §3.

@@ -119,8 +119,8 @@ class PaddleOCREngine(_BaseOCREngine):
         logger.info("Nạp PaddleOCR %s", kwargs)
         return PaddleOCR(**kwargs)
 
-    @staticmethod
-    def _parse(result) -> tuple[str, float | None]:
+    @classmethod
+    def _parse(cls, result) -> tuple[str, float | None]:
         """Gom các dòng của 1 vùng crop thành 1 chuỗi + confidence trung bình.
 
         PaddleOCR đổi format output giữa các phiên bản (list lồng cũ vs dict mới) nên đọc cả 2
@@ -130,21 +130,29 @@ class PaddleOCREngine(_BaseOCREngine):
         đảo ngược) → sắp lại theo toạ độ trên→dưới, trái→phải. Chỉ sắp thứ tự dòng,
         TUYỆT ĐỐI không sửa ký tự nào trong text (việc sửa lỗi OCR là của bước dịch M5).
         """
-        lines: list[tuple[float, float, str, float | None]] = []
+        return cls._parse_with_polys(result)[:2]
+
+    @staticmethod
+    def _doc_dong(result) -> list[tuple[float, float, str, float | None, list]]:
+        """Đọc từng dòng + đường bao từ output của PaddleOCR (cả dạng cũ lẫn dạng mới)."""
+        lines: list[tuple[float, float, str, float | None, list]] = []
 
         def _take(text, score, poly=None):
             if text is None:
                 return
             y, x = 0.0, 0.0
+            pts: list[list[float]] = []
             if poly is not None:
-                pts = [(float(px), float(py)) for px, py in (list(pt) for pt in poly)]
+                pts = [[float(px), float(py)] for px, py in (list(pt) for pt in poly)]
                 if pts:
                     y = min(py for _, py in pts)
                     x = min(px for px, _ in pts)
-            lines.append((y, x, str(text), float(score) if score is not None else None))
+            lines.append(
+                (y, x, str(text), float(score) if score is not None else None, pts)
+            )
 
         if not result:
-            return "", None
+            return []
 
         for page in result:
             if isinstance(page, dict):  # PaddleOCR >= 3.x
@@ -166,13 +174,23 @@ class PaddleOCREngine(_BaseOCREngine):
                     else:
                         _take(payload, None, poly)
 
-        lines.sort(key=lambda item: (item[0], item[1]))
-        texts = [t for _, _, t, _ in lines if t]
-        scores = [sc for _, _, _, sc in lines if sc is not None]
-        confidence = sum(scores) / len(scores) if scores else None
-        return "\n".join(texts).strip(), confidence
+        return lines
 
     def recognize(self, image_path: str, bbox: BBox) -> tuple[str, float | None]:
+        text, conf, _poly = self.recognize_with_layout(image_path, bbox)
+        return text, conf
+
+    def recognize_with_layout(
+        self, image_path: str, bbox: BBox
+    ) -> tuple[str, float | None, list[list[list[float]]]]:
+        """Như `recognize` nhưng trả THÊM đường bao từng dòng chữ, toạ độ **ảnh gốc**.
+
+        Đường bao này engine vốn đã tính để sắp thứ tự dòng, trước nay dùng xong rồi vứt. Giữ
+        lại vì nó là **bằng chứng hình học duy nhất** hệ thống có về hướng của chữ: bộ nhận
+        diện chỉ cho khung chữ nhật, còn ảnh đã xoá chữ thì không còn chữ để mà đo.
+
+        `recognize()` giữ nguyên chữ ký cũ — hợp đồng M1 không được đổi.
+        """
         import numpy as np
 
         with Image.open(image_path) as im:
@@ -180,7 +198,21 @@ class PaddleOCREngine(_BaseOCREngine):
         model = self._get_model()
         predict = getattr(model, "predict", None) or model.ocr
         result = predict(np.asarray(crop))
-        return self._parse(result)
+        text, conf, polys = self._parse_with_polys(result)
+        # Đổi về toạ độ ảnh gốc để bên dùng khỏi phải nhớ cộng offset — quên cộng là lệch cả trang.
+        doi = [[[px + bbox.x, py + bbox.y] for px, py in poly] for poly in polys]
+        return text, conf, doi
+
+    @classmethod
+    def _parse_with_polys(cls, result):
+        """Bản đầy đủ của `_parse`: trả thêm đường bao, đã sắp cùng thứ tự với các dòng chữ."""
+        lines = cls._doc_dong(result)
+        lines.sort(key=lambda item: (item[0], item[1]))
+        texts = [t for _, _, t, _, _ in lines if t]
+        scores = [sc for _, _, _, sc, _ in lines if sc is not None]
+        polys = [pl for _, _, t, _, pl in lines if t and pl]
+        conf = sum(scores) / len(scores) if scores else None
+        return "\n".join(texts).strip(), conf, polys
 
 
 def get_ocr_engine(

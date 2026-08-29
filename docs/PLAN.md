@@ -181,3 +181,23 @@ Ba bài học đáng nhớ:
   ra hình gì — thay đổi không ai xin và không giải thích được.
 
 ⚠️ **Khoảng trống lớn nhất còn lại:** chưa đo trên truyện **đen trắng** (bong bóng trắng nền tối).
+
+
+## E15 — Hướng chữ & SFX cách điệu (2026-08-29)
+
+✅ **Backend xong** (`779 test`): giữ lại đường bao dòng của OCR, bộ chuẩn hoá góc, bộ nhận biết
+hướng có bằng chứng, bảng `region_text_orientation`, 3 endpoint, đếm riêng lúc xuất.
+
+❌ **Chưa dựng giao diện**, chưa chạy Run A–D.
+
+⛔ **Dựng chữ dọc cố ý để TẮT** — spec có điều kiện dừng, và thực tế thiếu 2/3 điều kiện: không
+có ảnh mẫu chữ dọc hợp pháp, và bộ nhận diện không cho hình học dòng chữ.
+
+Ba bài học:
+
+- **Đường bao dòng của OCR là bằng chứng hình học DUY NHẤT về hướng chữ** — và nó chỉ tồn tại ở
+  bước OCR. Sau khi xoá chữ, thoại trong bong bóng còn 0–4 điểm ảnh tối.
+- **Góc thô của `minAreaRect` không phân biệt được 0° với 90°** (cùng cho `angle=90.0`, chỉ khác
+  `w`/`h`). Đo trên hình biết trước đáp án, không đoán.
+- **Nhận ra hướng ≠ dựng được chữ theo hướng đó.** Trạng thái `unavailable` sinh ra chính để nói
+  điều này thay vì im lặng căn ngang.

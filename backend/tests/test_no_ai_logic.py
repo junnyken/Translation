@@ -25,8 +25,11 @@ APP_DIR = Path(__file__).resolve().parent.parent / "app"
 #: E14 thêm `services/safearea`: nó dùng cv2 cho HÌNH HỌC ảnh (ngưỡng sáng, đường viền, khoảng
 #: cách tới biên) — không nạp model, không gọi mạng. Mọi `import cv2` ở đó đều nằm TRONG hàm,
 #: và test đo `sys.modules` vẫn chứng minh tiến trình API không nạp cv2 thật.
+#: E15 thêm `services/orientation` với cùng lý do như `safearea`: chỉ dùng cv2 để đo HÌNH HỌC
+#: (góc của đường bao dòng chữ), không nạp model, không gọi mạng; mọi `import cv2` nằm trong hàm.
 ALLOWED_MODEL_DIRS = (
-    "services/detect", "services/ocr", "services/inpaint", "services/safearea", "workers",
+    "services/detect", "services/ocr", "services/inpaint", "services/safearea",
+    "services/orientation", "workers",
 )
 
 
@@ -888,3 +891,68 @@ def test_e14_ma_ly_do_nam_trong_danh_sach_dong():
             geometry={"rect": {"x": 0, "y": 0, "w": 5, "h": 5}},
             roi=(0, 0, 10, 10), reason_codes=["ly_do_tu_bia"],
         )
+
+
+# ---------- E15: hướng chữ ----------
+
+
+def test_api_khong_import_bo_phan_tich_huong_chu():
+    routes = (APP_DIR / "api" / "v1" / "routes.py").read_text()
+    for cam in ("RegionOrientationAnalyzer", "OrientationService", "chuan_hoa_goc"):
+        assert cam not in routes, f"routes.py gọi thẳng {cam} — xử lý ảnh phải ở worker"
+
+
+def test_e15_khong_sua_chu_ocr_hay_ban_dich():
+    """Hướng chữ chỉ để CĂN CHỮ. Đảo ký tự/đảo dòng theo hướng là phá bằng chứng của M3/M5."""
+    thu_muc = APP_DIR / "services" / "orientation"
+    for py in thu_muc.rglob("*.py"):
+        noi_dung = py.read_text()
+        for cam in ("raw_text =", "translated_text =", "[::-1]", "reversed("):
+            assert cam not in noi_dung, f"{py.name} đang sửa/đảo chữ — E15 không được đụng vào"
+
+
+def test_e15_khong_dung_goc_tho_cua_minAreaRect():
+    """Góc thô không phân biệt được 0° với 90° (đo thật) — mọi chỗ đọc góc phải qua bộ chuẩn hoá."""
+    thu_muc = APP_DIR / "services" / "orientation"
+    for py in thu_muc.rglob("*.py"):
+        if py.name == "angle.py":
+            continue
+        noi_dung = py.read_text()
+        if "minAreaRect" in noi_dung:
+            assert "chuan_hoa_goc" in noi_dung, (
+                f"{py.name} đọc minAreaRect mà không chuẩn hoá góc"
+            )
+
+
+def test_e15_ti_le_khung_khong_bao_gio_tu_quyet_huong():
+    """Chữ 'PHEW!' viết thưa theo chiều dọc vẫn là chữ ngang cách điệu."""
+    from app.services.orientation.analyzer import OrientationConfig, RegionOrientationAnalyzer
+    from app.models.enums import TextOrientation
+
+    bd = RegionOrientationAnalyzer(OrientationConfig())
+    for w, h in ((20, 400), (400, 20), (10, 10)):
+        d = bd.analyze(bbox_w=w, bbox_h=h, line_polygons=None)
+        assert d.orientation is TextOrientation.unknown
+
+
+def test_e15_khong_tu_bo_qua_vung_nao():
+    """SFX/chữ dọc/chữ nghiêng đều phải được GIỮ và đưa người xem, không bao giờ tự loại."""
+    thu_muc = APP_DIR / "services" / "orientation"
+    for py in thu_muc.rglob("*.py"):
+        noi_dung = py.read_text()
+        assert "reviewed_skip" not in noi_dung, f"{py.name} tự đánh dấu bỏ qua"
+
+
+def test_e15_chua_dung_duoc_chu_doc_thi_khong_duoc_bao_ready():
+    from app.services.orientation.analyzer import OrientationConfig, RegionOrientationAnalyzer
+    from app.models.enums import OrientationStatus, TextOrientation
+    import numpy as np
+    import pytest as _pt
+
+    cv2 = _pt.importorskip("cv2")
+    doc = [cv2.boxPoints(((250.0, 250.0), (240.0, 40.0), 90.0)).tolist() for _ in range(3)]
+    d = RegionOrientationAnalyzer(
+        OrientationConfig(vertical_render_enabled=False)
+    ).analyze(bbox_w=60, bbox_h=300, line_polygons=doc)
+    assert d.orientation is TextOrientation.vertical_ttb
+    assert d.status is not OrientationStatus.ready

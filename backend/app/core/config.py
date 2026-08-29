@@ -155,6 +155,15 @@ class Settings(BaseSettings):
     e14_safe_area_min_width_px: int = 24
     e14_safe_area_min_height_px: int = 16
 
+    # ---- E15: hướng chữ ----
+    e15_orientation_enabled: bool = True
+    #: Lệch bao nhiêu độ so với 0/90 thì vẫn coi là ngang/dọc.
+    e15_angle_tolerance_deg: float = 12.0
+    e15_min_agreement_ratio: float = 0.75
+    #: Dựng chữ Việt theo cột. Mặc định TẮT và **phải giữ TẮT** cho tới khi chạy được Run B
+    #: trên ảnh chữ dọc có license rõ. Nhận ra hướng ≠ dựng được chữ theo hướng đó.
+    e15_vertical_render_enabled: bool = False
+
     # ---- M4: inpaint (LaMa) ----
     inpaint_weights_path: str = "/models/lama-manga-dynamic.onnx"
     inpaint_device: str = "cpu"

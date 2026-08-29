@@ -627,3 +627,21 @@ M11 (nếu cần) — auth & nhiều người dùng: chưa có endpoint nào.
 `shape_fallback_count`, `shape_needs_review_count`.
 
 Tầng HTTP **không** chạm xử lý ảnh: ô đặt chữ được worker tính sẵn và lưu vào bản ghi.
+
+
+## E15 — hướng chữ
+
+| Method | Path | Ghi chú |
+|---|---|---|
+| GET | `/api/v1/regions/{region_id}/orientation` | Hướng + nguồn + mã lý do + bằng chứng. **404 nếu chưa phân tích** |
+| GET | `/api/v1/pages/{page_id}/orientation-summary` | Đếm theo hướng; `not_analyzed_count` để RIÊNG |
+| POST | `/api/v1/pages/{page_id}/retry-orientation` | 202 — xoá kết quả cũ rồi xếp lại việc căn chữ |
+
+`export-warnings` thêm ba số, **tách riêng** khỏi tràn khung, bố cục E14, chất lượng E12 và
+nhất quán E13: `orientation_vertical_rendered_count`, `orientation_review_count`,
+`orientation_unknown_count`.
+
+`OCRResult` thêm `line_polygons` (JSONB, toạ độ ảnh gốc): `null` = engine không cung cấp,
+`[]` = có hỏi nhưng không có dòng nào. Hai thứ đó **khác nhau** và không được gộp.
+
+**Không** có endpoint nào cho phép người dùng tự đặt hướng chữ — ngoài phạm vi E15 v1.

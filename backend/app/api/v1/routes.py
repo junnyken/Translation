@@ -20,6 +20,7 @@ from app.core.db import get_session
 from app.models import (
     BatchItem,
     RegionSafeArea,
+    RegionTextOrientation,
     CharacterVoiceProfile,
     ConsistencyReviewTask,
     GlossaryEntry,
@@ -36,7 +37,9 @@ from app.models import (
 )
 from app.models.enums import (
     BatchItemStatus,
+    OrientationStatus,
     SafeAreaStatus,
+    TextOrientation,
     ConsistencyTaskStatus,
     ConsistencyTaskType,
     GlossaryStatus,
@@ -54,6 +57,8 @@ from app.models.enums import (
     TranslationEngine,
 )
 from app.schemas.common import (
+    OrientationRead,
+    PageOrientationSummary,
     PageSafeAreaSummary,
     SafeAreaRead,
     JobRead,
@@ -1111,6 +1116,24 @@ async def get_export_warnings(
         .where(Page.project_id == project_id)
         .group_by(RegionSafeArea.status)
     )).all())
+    # E15: đếm theo HƯỚNG CHỮ, khối thứ năm và tách khỏi cả bốn khối trước.
+    huong = dict((await session.execute(
+        select(RegionTextOrientation.orientation, func.count())
+        .join(TextRegion, TextRegion.id == RegionTextOrientation.region_id)
+        .join(Page, Page.id == TextRegion.page_id)
+        .where(Page.project_id == project_id)
+        .group_by(RegionTextOrientation.orientation)
+    )).all())
+    doc_xong = int(await session.scalar(
+        select(func.count()).select_from(RegionTextOrientation)
+        .join(TextRegion, TextRegion.id == RegionTextOrientation.region_id)
+        .join(Page, Page.id == TextRegion.page_id)
+        .where(Page.project_id == project_id,
+               RegionTextOrientation.orientation == TextOrientation.vertical_ttb,
+               RegionTextOrientation.status == OrientationStatus.ready)
+    ) or 0)
+    doc_tong = int(huong.get(TextOrientation.vertical_ttb, 0))
+
     return ExportWarningsRead(
         overflow_warning_count=cb.overflow_warning_count,
         needs_manual_count=cb.needs_manual_count,
@@ -1119,6 +1142,10 @@ async def get_export_warnings(
         shape_fallback_count=int(bo_cuc.get(SafeAreaStatus.fallback_rectangle, 0)),
         shape_needs_review_count=int(bo_cuc.get(SafeAreaStatus.needs_review, 0))
         + int(bo_cuc.get(SafeAreaStatus.failed, 0)),
+        orientation_vertical_rendered_count=doc_xong,
+        orientation_review_count=(doc_tong - doc_xong)
+        + int(huong.get(TextOrientation.rotated_horizontal, 0)),
+        orientation_unknown_count=int(huong.get(TextOrientation.unknown, 0)),
         quality_needs_review_count=cl.can_ra_soat,
         quality_unassessed_count=cl.chua_danh_gia,
         quality_reviewed_skip_count=cl.da_bo_qua,
@@ -1866,3 +1893,110 @@ async def retry_page_safe_area(
         "status": "queued" if sent else "queue_unavailable",
         "detail": reason,
     }
+
+
+# ---------------------------------------------------------------------------
+# E15 — hướng chữ
+# ---------------------------------------------------------------------------
+
+
+@router.get("/regions/{region_id}/orientation", response_model=OrientationRead,
+            tags=["orientation"])
+async def get_region_orientation(
+    region_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> OrientationRead:
+    """Chưa phân tích ⇒ **404**. Không trả `unknown` giả để khỏi bị đọc thành 'đã kiểm rồi'."""
+    ban = await session.scalar(
+        select(RegionTextOrientation).where(RegionTextOrientation.region_id == region_id)
+    )
+    if ban is None:
+        raise HTTPException(
+            status_code=404,
+            detail="orientation_not_analyzed: vùng này chưa được nhận biết hướng chữ",
+        )
+    return OrientationRead(
+        region_id=ban.region_id,
+        algorithm_version=ban.algorithm_version,
+        orientation=ban.orientation.value,
+        source=ban.source.value,
+        status=ban.status.value,
+        rotation_degrees=ban.rotation_degrees,
+        line_count_estimate=ban.line_count_estimate,
+        reason_codes=list(ban.reason_codes or []),
+        evidence_summary=dict(ban.evidence_snapshot or {}),
+    )
+
+
+@router.get("/pages/{page_id}/orientation-summary", response_model=PageOrientationSummary,
+            tags=["orientation"])
+async def get_page_orientation_summary(
+    page_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> PageOrientationSummary:
+    page = await session.get(Page, page_id)
+    if page is None:
+        raise HTTPException(status_code=404, detail="page_not_found")
+
+    tong = await session.scalar(
+        select(func.count()).select_from(TextRegion).where(TextRegion.page_id == page_id)
+    ) or 0
+    rows = (await session.execute(
+        select(RegionTextOrientation.orientation, RegionTextOrientation.status, func.count())
+        .join(TextRegion, TextRegion.id == RegionTextOrientation.region_id)
+        .where(TextRegion.page_id == page_id)
+        .group_by(RegionTextOrientation.orientation, RegionTextOrientation.status)
+    )).all()
+
+    d = {"ngang": 0, "doc_xong": 0, "doc_can_xem": 0, "nghieng": 0, "chua_biet": 0, "chua_dung": 0}
+    da_pt = 0
+    for huong, tt, n in rows:
+        n = int(n)
+        da_pt += n
+        if huong is TextOrientation.horizontal_ltr:
+            d["ngang"] += n
+        elif huong is TextOrientation.vertical_ttb:
+            if tt is OrientationStatus.ready:
+                d["doc_xong"] += n
+            else:
+                d["doc_can_xem"] += n
+                if tt is OrientationStatus.unavailable:
+                    d["chua_dung"] += n
+        elif huong is TextOrientation.rotated_horizontal:
+            d["nghieng"] += n
+        else:
+            d["chua_biet"] += n
+
+    return PageOrientationSummary(
+        page_id=page_id,
+        total_regions=int(tong),
+        horizontal_count=d["ngang"],
+        vertical_ready_count=d["doc_xong"],
+        vertical_review_count=d["doc_can_xem"],
+        rotated_review_count=d["nghieng"],
+        unknown_count=d["chua_biet"],
+        unavailable_count=d["chua_dung"],
+        not_analyzed_count=max(int(tong) - da_pt, 0),
+    )
+
+
+@router.post("/pages/{page_id}/retry-orientation", status_code=202, tags=["orientation"])
+async def retry_page_orientation(
+    page_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> dict:
+    """Xoá kết quả cũ rồi xếp lại việc căn chữ — bước đó tự nhận biết lại hướng còn thiếu."""
+    page = await session.get(Page, page_id)
+    if page is None:
+        raise HTTPException(status_code=404, detail="page_not_found")
+    await session.execute(
+        delete(RegionTextOrientation).where(
+            RegionTextOrientation.region_id.in_(
+                select(TextRegion.id).where(TextRegion.page_id == page_id)
+            )
+        )
+    )
+    job = Job(type=JobType.typeset, page_id=page_id, status=JobStatus.queued)
+    session.add(job)
+    await session.commit()
+    await session.refresh(job)
+    sent, reason = dispatch_typeset_job(job.id)
+    return {"job_id": str(job.id), "page_id": str(page_id),
+            "status": "queued" if sent else "queue_unavailable", "detail": reason}

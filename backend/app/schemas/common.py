@@ -408,6 +408,11 @@ class ExportWarningsRead(BaseModel):
     shape_fallback_count: int = 0
     #: E14 — vùng chưa xác định được vùng an toàn và cần người xem.
     shape_needs_review_count: int = 0
+    #: E15 — hướng chữ. TÁCH RIÊNG khỏi bố cục bong bóng (E14) và khỏi tràn khung: một vùng
+    #: có thể vừa khít, đúng bong bóng, mà chữ vẫn đang bị căn sai hướng.
+    orientation_vertical_rendered_count: int = 0
+    orientation_review_count: int = 0
+    orientation_unknown_count: int = 0
     #: E12 — vùng máy đề nghị xem lại trước khi xuất.
     quality_needs_review_count: int = 0
     #: E12 — vùng CHƯA đánh giá được. Không bao giờ gộp vào "rõ ràng".
@@ -665,3 +670,29 @@ class PageSafeAreaSummary(BaseModel):
     failed_count: int
     #: Vùng chưa từng được tính — khác hẳn "đã tính và không ra hình".
     not_computed_count: int
+
+
+class OrientationRead(BaseModel):
+    """Hướng chữ của một vùng + bằng chứng. Không trả điểm ảnh, không trả chữ OCR."""
+
+    region_id: uuid.UUID
+    algorithm_version: str
+    orientation: str
+    source: str
+    status: str
+    rotation_degrees: float | None = None
+    line_count_estimate: int | None = None
+    reason_codes: list[str] = Field(default_factory=list)
+    evidence_summary: dict = Field(default_factory=dict)
+
+
+class PageOrientationSummary(BaseModel):
+    page_id: uuid.UUID
+    total_regions: int
+    horizontal_count: int
+    vertical_ready_count: int
+    vertical_review_count: int
+    rotated_review_count: int
+    unknown_count: int
+    unavailable_count: int
+    not_analyzed_count: int

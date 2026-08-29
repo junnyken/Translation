@@ -294,3 +294,32 @@ class SafeAreaStatus(str, Enum):
 class SafeAreaGeometryType(str, Enum):
     rect = "rect"
     polygon = "polygon"
+
+
+class TextOrientation(str, Enum):
+    """Hướng chữ để CĂN CHỮ và điều hướng rà soát — không phải phán quyết về ngôn ngữ nguồn."""
+
+    horizontal_ltr = "horizontal_ltr"
+    #: Chữ Việt xếp theo cột từ trên xuống. KHÔNG khẳng định tái tạo được tategaki của tiếng Nhật.
+    vertical_ttb = "vertical_ttb"
+    #: Chữ nghiêng/cách điệu. v1 chỉ điều hướng rà soát, tuyệt đối không tự xoay chữ.
+    rotated_horizontal = "rotated_horizontal"
+    #: Không đủ bằng chứng. Đây là câu trả lời TRUNG THỰC, không phải lỗi.
+    unknown = "unknown"
+
+
+class OrientationSource(str, Enum):
+    ctd_geometry = "ctd_geometry"
+    ocr_layout = "ocr_layout"
+    image_heuristic = "image_heuristic"
+    #: Để dành. E15 v1 không có chỗ nào cho người tự đặt hướng.
+    manual_reserved = "manual_reserved"
+    fallback_unknown = "fallback_unknown"
+
+
+class OrientationStatus(str, Enum):
+    ready = "ready"
+    needs_review = "needs_review"
+    #: Nhận ra hướng rồi nhưng KHÔNG dựng được chữ theo hướng đó (thiếu renderer/glyph).
+    unavailable = "unavailable"
+    failed = "failed"
