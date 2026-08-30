@@ -386,3 +386,31 @@ preview      98.060 byte  ->  404
 
 Một bài học phụ: **MCP từ chối redeploy cùng mã** (`NO_CHANGE`), nhưng nút "Triển khai lại" trên
 giao diện thì không kiểm — hai đường có hành vi khác nhau.
+
+
+## P3b — Lưu trữ hiện vật bền (2026-08-31) ⛔ **BLOCKED**
+
+Audit xong, **không viết mã**. Lý do dừng: **VibeHost không có cơ chế volume bền** — không có
+trên giao diện (chỉ có "Tạo database" và "Sao lưu"), không có công cụ MCP, và khoá không có
+phạm vi lưu trữ. Theo §5.2(5) thì đây là điều kiện dừng.
+
+Audit vẫn thu hẹp phạm vi đáng kể cho lần sau:
+
+- **Đã có** lớp trừu tượng `IObjectStorage` — không cần dựng mới.
+- **Không có** drift "ghi ở A đọc ở B": mọi nơi đọc chung `settings.storage_local_root`.
+  Trên host biến môi trường ghi đè mặc định `/data/storage` thành `/app/storage` — đó là lựa
+  chọn có chủ đích, không phải lỗi cấu hình.
+- **M8 xuất dựng lại từ ảnh clean + TypesetResult, KHÔNG đọc preview**
+  (`renderer.draw(clean_image_abs, regions)`) ⇒ cổng chặn xuất hẹp hơn spec giả định.
+- `LocalObjectStorage._abs()` không kiểm traversal: `root / "/etc/passwd"` cho ra `/etc/passwd`.
+  Chưa khai thác được (mọi lời gọi lấy giá trị từ CSDL) nhưng phải đóng khi làm tiếp.
+- **Mã đã chừa sẵn lối thoát từ M1**: `storage_backend: Literal["local","supabase"]` +
+  `SupabaseStorageNotConfigured`. Nếu nền tảng không có volume thì đây là đường đi.
+
+⚠️ **Đính chính báo cáo P3a của chính tôi:** tôi từng viết chapter 28/08 "cũng bị orphan". Đo lại
+thì nó có `clean_image_path: null` — chưa từng có ảnh clean để mất, nên 404 là đúng. Chỉ có
+**một** orphan được chứng minh, không phải hai.
+
+**Việc kế tiếp (một việc):** hỏi Vibe Host xem gói Pro có cấp volume bền gắn vào đường tuỳ ý
+không. Câu trả lời quyết định mini-spec sau là "gắn volume 1 GB" (rẻ) hay "dựng adapter lưu trữ
+đối tượng sau IObjectStorage" (đắt hơn nhiều).
