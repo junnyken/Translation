@@ -1,7 +1,8 @@
-# SECURITY.md — Ranh giới truy cập của Translation (local-only)
+# SECURITY.md — Ranh giới truy cập của Translation
 
 Tài liệu này mô tả **ai được đọc API Translation trên máy bạn**, tầng nào chịu trách nhiệm, và
-cách thêm một origin mới cho đúng. Chốt ở mini-spec **E1a** (2026-08-30).
+cách thêm một origin mới cho đúng. Chốt ở mini-spec **E1a** (2026-08-30); §9 bổ sung
+bản hosted trên VibeHost (2026-08-31).
 
 > ⚠️ **CORS không phải xác thực.** Nó chỉ ngăn *trang web trong trình duyệt* đọc phản hồi.
 > Bất cứ chương trình nào chạy trên máy bạn (curl, script, app khác) vẫn gọi thẳng được API —
@@ -194,3 +195,32 @@ nếu không là đo nhầm mã cũ. (Bài học từ E15 — xem `REPORT_E15.md
   TLS/auth/origin.
 - **Phần siết ở đây áp cho máy chủ dev local.** Không được đọc thành "đã an toàn cho production".
 - Bất kỳ tiến trình nào **trên chính máy bạn** vẫn gọi được API — CORS không ngăn điều đó.
+
+
+---
+
+## 9. Bản hosted trên VibeHost (đo 2026-08-31)
+
+Khác với máy dev: giao diện và API nằm ở **hai tên miền**, nên đây là chéo nguồn **theo thiết kế**.
+
+| Thành phần | Tên miền |
+|---|---|
+| Giao diện | `https://translation.cmc-1.vibenode.matbao.ai` |
+| API | `https://translation-api.cmc-1.vibenode.matbao.ai` |
+
+`CORS_ALLOW_ORIGINS` trên `translation-api` khai **đúng một** origin giao diện. Đo thật (curl +
+Chromium): origin giao diện được ACAO khớp chính xác; `evil.example`, `localhost:5174`, `null`, và
+tên miền **giống thật** `…matbao.ai.evil.example` đều **không có ACAO**. Không wildcard, không
+credentials.
+
+⚠️ `https://translation.cmc-1.vibenode.matbao.ai/api/v1/health` trả **HTML** là **đúng thiết kế** —
+nginx phục vụ SPA cho mọi đường lạ, API nằm ở tên miền riêng. Kiểm sức khoẻ phải gọi thẳng tên
+miền API.
+
+### Hai việc cần xử lý (chưa sửa)
+
+1. **`GEMINI_API_KEYS` đang để `isSecret: false`** trên `translation-api` ⇒ giá trị có thể hiện
+   trong dashboard. Nên chuyển sang biến bí mật.
+2. **Ảnh trang lưu trên đĩa container** (`STORAGE_BACKEND=local`, `/data/storage`). Chưa xác minh
+   VibeHost có volume bền cho đường này. Nếu không có, redeploy sẽ xoá ảnh trong khi Postgres
+   managed vẫn giữ bản ghi ⇒ chapter cũ hỏng ảnh.

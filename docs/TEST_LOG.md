@@ -2298,3 +2298,86 @@ Lỗi chặn trong trình duyệt là `TypeError: Failed to fetch` — đúng bi
 Chưa bấm tay biểu tượng tiện ích trên thanh công cụ: môi trường không có display server
 (`$DISPLAY` rỗng, không Xvfb) và không API nào dispatch được cú bấm vào chrome UI. Đã kiểm phần
 kiểm được: `getPanelBehavior()` → `{openPanelOnActionClick: true}`.
+
+
+---
+
+# Deploy 001 — Push GitHub + VibeHost (2026-08-30/31)
+
+Chi tiết đầy đủ: `docs/REPORT_DEPLOY_001.md`.
+
+## D001.1 — Hồi quy trước phát hành
+
+```
+backend  : 785 thu thập, exit 0
+frontend : 226 pass
+extension: 282 pass
+build    : vite build ✓ 2.17s
+lint     : KHÔNG phải cổng phát hành (repo chưa có ruleset)
+```
+
+## D001.2 — Push
+
+```
+7ca8af6..45c0af2  main -> main   (103 object, 167.44 KiB)
+git ls-remote origin main -> 45c0af26b913cd83ea43446218552126cca3bf54
+tag: CHƯA đẩy (v1.5-E15-closed, v1.6-E1a-cors-hardening còn local)
+```
+
+## D001.3 — Deploy
+
+```
+translation-api  v20 -> v21   31/08 00:12   job cmtg2exdn0ede0i5f56kswhpp  succeeded
+translation-web  v12 -> v13   31/08 00:13   job cmtg2i0oh0efm0i5fajnvxnii  succeeded
+push KHÔNG tự deploy -> redeploy thủ công
+rollback sẵn: api->20, web->12
+```
+
+## D001.4 — Bằng chứng phiên bản (không có build SHA ⇒ dùng tính năng)
+
+```
+/api/v1/khong-he-co-route-nay            -> {"detail":"Not Found"}
+/api/v1/pages/{uuid}/orientation-summary -> {"detail":"page_not_found"}            <- E15 CÓ
+/api/v1/regions/{uuid}/orientation       -> {"detail":"orientation_not_analyzed…"} <- E15 CÓ
+
+bundle web /assets/index-CGGZ4XNz.js (238.952 byte) chứa:
+  "Chữ dọc — đã căn theo cột" · "Chưa xác định hướng chữ" · "Hiện lưới cột chữ"
+  · "Chữ nghiêng/cách điệu" · "orientation-summary"
+```
+
+## D001.5 — Smoke Chromium thật: 11/11 ĐẠT
+
+`scripts/do_smoke_hosted.py` — website lạ ở cổng 9999 gọi API hosted.
+
+```
+H1 HTTPS                                    ĐẠT
+H2 __API_BASE__ trỏ đúng API hosted         ĐẠT
+H3 giao diện E11 hiện form tạo chapter      ĐẠT
+H4 giao diện ĐỌC ĐƯỢC API chéo nguồn        ĐẠT  200 {"status":"ok"}
+H5 website lạ đọc /api/v1/health            CHẶN (TypeError: Failed to fetch)
+H5 website lạ đọc /healthz                  CHẶN
+H6 không tràn ngang 360/768/1280/1600       4/4 ĐẠT
+Z1 lỗi JS console                           0
+```
+
+## D001.6 — Ma trận CORS hosted (trước == sau deploy)
+
+| Origin | ACAO |
+|---|---|
+| `https://translation.cmc-1.vibenode.matbao.ai` | khớp chính xác |
+| `https://evil.example` | *(không có)* |
+| `http://localhost:5174` | *(không có)* |
+| `null` | *(không có)* |
+| `…matbao.ai.evil.example` (giống tên miền thật) | *(không có)* |
+
+`ACAO: *` → 0 · `Allow-Credentials` → 0.
+
+## D001.7 — Worker: `starting` KHÔNG phải bằng chứng
+
+```
+{"worker":{"trang_thai":"starting","so_lan_chet":0,"luc":"2026-08-30T17:12:14Z"}}
+```
+
+`backend/deploy-start.sh` ở `ROLE=all` ghi `starting` **một lần** lúc khởi động, chỉ ghi lại khi
+worker chết (`restarting`) — **không bao giờ** ghi `running`. Nên trạng thái này chỉ chứng minh
+"đã bật, chưa sập", KHÔNG chứng minh worker đang tiêu thụ việc. Cần Pilot mới biết.

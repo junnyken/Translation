@@ -334,3 +334,26 @@ Ba điều đáng nhớ:
 dev local**, không được đọc thành "an toàn cho production". Chi tiết: `docs/SECURITY.md`.
 
 ⚠️ **Còn treo:** chưa bấm tay biểu tượng tiện ích (môi trường không có display server).
+
+
+## Deploy 001 — lên GitHub + VibeHost (2026-08-30/31)
+
+✅ Đẩy `7ca8af6..45c0af2` lên GitHub và triển khai: `translation-api` **v20→v21**,
+`translation-web` **v12→v13**. Trước đó bản hosted chạy mã từ 29/08 15:49 — cũ hơn E1, E15 phần 2,
+phần đóng E15 và E1a.
+
+Smoke sau deploy **11/11 trên Chromium thật**; CORS hosted chặt y như trước deploy
+(không wildcard, không phản chiếu, không credentials).
+
+Ba điều đáng nhớ:
+
+- **Push KHÔNG tự deploy.** VibeHost lấy nguồn từ GitHub nhưng phải bấm redeploy thủ công —
+  `lastDeployedAt` không đổi sau khi push.
+- **Không có service worker riêng.** Worker chạy chung trong `translation-api` (`ROLE=all`).
+  Và `worker.trang_thai = "starting"` **không** chứng minh worker đang chạy: script chỉ ghi trạng
+  thái đó một lần lúc khởi động, không bao giờ ghi `running`.
+- **Không có build SHA để đối chiếu phiên bản.** Phải chứng minh gián tiếp: phân biệt route
+  tồn tại/không tồn tại bằng **thân 404**, và tìm chuỗi giao diện E15 trong bundle đã build.
+
+⚠️ **Còn treo:** tag `v1.5-E15-closed` + `v1.6-E1a-cors-hardening` chưa đẩy; Pilot/UAT chưa chạy;
+`GEMINI_API_KEYS` trên host đang để `isSecret: false`; chưa xác minh volume lưu ảnh trên host.
