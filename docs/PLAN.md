@@ -306,3 +306,31 @@ Ba bài học:
 > **Run C là pass RỖNG.** 3/3 assertion đạt nhưng dữ liệu thật có **0** vùng chữ nghiêng trên
 > n=9 — chúng chỉ chứng minh "không vùng nào vi phạm", **không** chứng minh đường xử lý chữ
 > nghiêng đã được test thành công. Không được đọc thành "rotated text đã test xong".
+
+
+## E1a — Siết CORS API local & proxy Vite (2026-08-30)
+
+✅ **CLOSED.** Trước E1a, **bất kỳ website nào** đang mở cũng đọc được `GET /api/v1/projects/{id}`
+của Translation local: Vite 6.0.7 mặc định `server.cors: true` ⇒ gắn `ACAO: *` vào mọi phản hồi,
+kể cả phản hồi proxy `/api` xuống backend.
+
+Nay **chặn mặc định**: máy chủ dev không phát header CORS nào trừ khi có origin khai tường minh.
+Giao diện web không ảnh hưởng (nó gọi API **cùng nguồn**). Tiện ích E1 lùi về **chỉ-mở-link** ở
+cấu hình mặc định.
+
+Đo thật trên Chromium **17/17, hai lần** (mặc định và đã-khai-origin): website lạ ở cổng 9999 và
+`localhost.evil.example` (ánh xạ loopback) đều **không đọc được** API — kể cả sau khi khởi động
+lại container.
+
+Ba điều đáng nhớ:
+
+- **Giao diện web chưa bao giờ cần CORS.** Cùng nguồn thì trình duyệt không chạy phép kiểm. Nên
+  danh sách trắng **rỗng** mới là câu nói đúng sự thật, chứ không phải "khai sẵn origin giao diện".
+- **`worker: khong_ro` không nói worker khoẻ hay chết** — nó nghĩa là *API không biết*. Đo sức
+  khoẻ worker phải bằng `celery inspect ping` + throughput job.
+- **`/healthz` ở cổng giao diện trả trang SPA kèm `text/html`** — 200 không phải bằng chứng API sống.
+
+⚠️ **CORS không phải xác thực.** Vẫn chưa có auth/multi-user/TLS; phần siết này áp cho **máy chủ
+dev local**, không được đọc thành "an toàn cho production". Chi tiết: `docs/SECURITY.md`.
+
+⚠️ **Còn treo:** chưa bấm tay biểu tượng tiện ích (môi trường không có display server).

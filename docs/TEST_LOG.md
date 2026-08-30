@@ -2184,3 +2184,117 @@ Z1  lỗi JS console                               -> 0
    ocr_result.line_polygons 9/106 — tất cả sinh SAU khi restart worker      ✓
 4. vertical_ttb + ready trong CSDL = 0                                      ✓
 ```
+
+
+---
+
+# E1a — Siết CORS API local & proxy Vite (2026-08-30)
+
+## E1a.1 — Tách bạch bằng chứng từ quan sát terminal
+
+Người dùng chạy compose ở `/home/coder/workspace` và nhận `no such file or directory`, nhưng API
+vẫn trả `ok`. Đo lại từng tầng riêng:
+
+```
+compose THẬT   : /home/coder/workspace/projects/Translation/deploy/docker-compose.yml
+đường gõ nhầm  : /home/coder/workspace/deploy/docker-compose.yml  -> KHÔNG tồn tại
+container      : 5/5 Up (api, frontend, worker, db healthy, redis healthy)
+API /healthz   : HTTP 200 · content-type: application/json · server: uvicorn
+                 {"status":"ok","worker":{"trang_thai":"khong_ro"}}
+worker ping    : pong — 1 node online
+worker việc    : 158 job `done` trong 3 giờ gần nhất, mới nhất 13:16:50
+/tmp/trang-thai-worker.json trong container api -> KHÔNG tồn tại
+```
+
+⇒ Lỗi compose là lỗi **đường dẫn**, không phải Docker/API chết.
+⇒ `worker: khong_ro` chỉ nghĩa **API không biết** (tệp trạng thái chỉ có khi `ROLE=all`), không
+nói worker khoẻ hay chết. Sức khoẻ worker đo riêng bằng ping + throughput job.
+
+**Đính chính:** thân JSON thật không dấu (`trang_thai`/`khong_ro`); bản chép tay có thêm dấu.
+
+## E1a.2 — Header TRƯỚC khi sửa (Origin thật, curl)
+
+```
+Origin: http://localhost:5174        -> :8010/api/v1/health   200  ACAO=(không có)
+Origin: http://localhost:5174        -> :5174/api/v1/health   200  ACAO=*
+Origin: https://evil.example         -> :5174/api/v1/health   200  ACAO=*
+Origin: http://localhost.evil.example-> :5174/api/v1/health   200  ACAO=*
+Origin: chrome-extension://gppdc…    -> :5174/api/v1/health   200  ACAO=*
+Origin: null                         -> :5174/api/v1/health   200  ACAO=*
+Origin: https://evil.example         -> :5174/api/v1/projects/{id}  200  ACAO=*   << DỮ LIỆU THẬT
+Origin: https://evil.example         -> :5174/api/v1/pages/{id}/preview  404  ACAO=*
+Origin: https://evil.example         -> :5174/healthz  200  ACAO=*  content-type: text/html
+```
+
+Nguồn wildcard: **một tầng duy nhất** — Vite 6.0.7 mặc định `server.cors: true`.
+FastAPI vốn đã chặn (middleware chỉ gắn khi `CORS_ALLOW_ORIGINS` khác rỗng). nginx prod không có
+`add_header` CORS nào.
+
+## E1a.3 — Header SAU khi sửa
+
+**Mặc định (danh sách rỗng):** mọi origin trên đều `ACAO=(KHÔNG CÓ)`, kể cả trên endpoint dữ
+liệu thật. Giao diện web vẫn chạy: `curl :5174/api/v1/health` → `{"status":"ok"}`, trang chủ 200.
+
+**Khi khai `DEV_SERVER_CORS_ALLOW_ORIGINS=chrome-extension://gppdcagfjgnekmdfbiplpfeahillicgi`:**
+
+```
+chrome-extension://gppdc…(khớp)  ACAO=chrome-extension://gppdc…  Vary=Origin  ACAC=0
+chrome-extension://aaaa…(ID khác) ACAO=(KHÔNG CÓ)
+https://evil.example              ACAO=(KHÔNG CÓ)
+http://localhost.evil.example     ACAO=(KHÔNG CÓ)
+http://127.0.0.1.nip.io           ACAO=(KHÔNG CÓ)
+null · file://                    ACAO=(KHÔNG CÓ)
+
+OPTIONS từ origin khớp -> 204 · ACAO đúng origin · Vary: Origin
+                          Allow-Methods: GET,POST,PATCH,OPTIONS · Allow-Headers: Content-Type
+OPTIONS từ origin lạ   -> 405 · KHÔNG header CORS nào
+```
+
+## E1a.4 — Bộ test
+
+| Bộ | Lệnh | Kết quả |
+|---|---|---|
+| Backend | `cd backend && ../.venv/bin/python -m pytest -q` | **785 thu thập, exit 0** |
+| Frontend | `cd frontend && npx vitest run` | **226 pass / 9 tệp** (+68) |
+| Extension | `cd extension && npx vitest run` | **282 pass / 7 tệp** |
+| Build | `cd frontend && npx vite build` | ✅ 1.98s · 232.01 kB |
+
+## E1a.5 — Chromium thật (`scripts/do_run_e1a.py`) — 17/17, chạy HAI lần
+
+Website lạ thật ở cổng 9999; `localhost.evil.example` ánh xạ về loopback bằng
+`--host-resolver-rules` ⇒ origin thật trong trình duyệt.
+
+```
+                                        mặc định        đã khai origin tiện ích
+L1  giao diện gọi API cùng nguồn        200 ok          200 ok
+L2  giao diện đọc chapter thật          200, 411 byte   200
+L4  website lạ đọc /api/v1/health       CHẶN            CHẶN
+L5  website lạ đọc dữ liệu chapter      CHẶN            CHẶN
+L6  website lạ đọc API trực tiếp :8010  CHẶN            CHẶN
+L8  localhost.evil.example đọc API      CHẶN            CHẶN
+L9  getPanelBehavior()                  openPanelOnActionClick: true
+L10 manifest quyền                      ['storage','sidePanel'], host_permissions []
+L11 "Tạo chapter mới"                   http://127.0.0.1:5174/
+L12 hành vi E1                          CHỈ-MỞ-LINK     ĐỌC METADATA THẬT
+L13 tắt máy chủ                         báo chưa kết nối kèm 3 lý do
+L13b câu danh sách rỗng                 chỉ về ứng dụng, không khẳng định "không có chapter"
+L14 sau restart: giao diện              200
+L15 sau restart: website lạ             VẪN CHẶN
+Z1  ngoại lệ JS                         0
+```
+
+Lỗi chặn trong trình duyệt là `TypeError: Failed to fetch` — đúng biểu hiện của CORS deny.
+
+## E1a.6 — Hai lỗi của chính bộ đo (không phải lỗi sản phẩm)
+
+1. **`socketserver.TCPServer` đơn luồng**: một `BrokenPipeError` làm kẹt cả máy chủ thử, khiến
+   trang `localhost.evil.example` timeout. → `ThreadingTCPServer` + nuốt broken pipe.
+2. **Tiêu đề render HOA do CSS `text-transform`**: `inner_text` trả `"CHAPTER ĐÃ GHIM"`, nên
+   `split("Chapter đã ghim")` không bao giờ khớp và phép kiểm L13 báo hỏng oan. Panel vốn hiển
+   thị **đúng** — đã dump toàn bộ text để xác nhận trước khi sửa phép kiểm.
+
+## E1a.7 — Còn treo
+
+Chưa bấm tay biểu tượng tiện ích trên thanh công cụ: môi trường không có display server
+(`$DISPLAY` rỗng, không Xvfb) và không API nào dispatch được cú bấm vào chrome UI. Đã kiểm phần
+kiểm được: `getPanelBehavior()` → `{openPanelOnActionClick: true}`.

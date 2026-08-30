@@ -751,3 +751,18 @@ nạp module lúc khởi động và không nạp lại. Container worker chạy
 
 ⇒ **Mọi mini-spec đụng vào worker phải `docker compose -f deploy/docker-compose.yml restart worker`
 trước khi đo.** Không làm là đo nhầm mã cũ rồi kết luận sai về chính thứ mình vừa viết.
+
+
+## E1a. Ranh giới truy cập (CORS) — xem `docs/SECURITY.md`
+
+Từ 2026-08-30, quy tắc origin của Translation nằm ở **`docs/SECURITY.md`** (nguồn sự thật duy
+nhất). Tóm tắt để khỏi phải mở tệp khác:
+
+- **Chặn mặc định.** Không tầng nào được phát `Access-Control-Allow-Origin: *`.
+- **Hai tầng, hai biến, cố ý không gộp:** `DEV_SERVER_CORS_ALLOW_ORIGINS` (máy chủ dev Vite,
+  `frontend/vite.config.js`) và `CORS_ALLOW_ORIGINS` (API FastAPI lúc chạy thật,
+  `backend/app/main.py`). Gộp lại thì một origin khai cho prod sẽ vô tình mở trên máy dev.
+- **Giao diện web không cần CORS** — nó gọi `/api` cùng nguồn qua proxy của Vite.
+- **Tiện ích E1 mặc định chỉ-mở-link.** Muốn nó đọc trạng thái thì tự khai đúng
+  `chrome-extension://<id>` của bản cài trên máy mình. Không bao giờ `chrome-extension://*`.
+- **CORS không phải xác thực** — không có auth/multi-user/TLS.

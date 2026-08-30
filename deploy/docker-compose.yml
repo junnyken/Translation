@@ -80,6 +80,11 @@ services:
     environment:
       # Trong mạng docker thì gọi thẳng service `api`, không qua cổng máy host.
       VITE_API_TARGET: http://api:8000
+      # E1a — danh sách trắng CORS của MÁY CHỦ DEV. RỖNG = chặn mọi origin chéo nguồn.
+      # Giao diện web không cần mục nào ở đây (nó gọi API cùng nguồn qua proxy `/api`).
+      # Lấy từ biến môi trường của shell, KHÔNG dùng `env_file: ../.env` để khỏi bơm
+      # GEMINI_API_KEYS vào container giao diện. Xem `docs/SECURITY.md`.
+      DEV_SERVER_CORS_ALLOW_ORIGINS: ${DEV_SERVER_CORS_ALLOW_ORIGINS:-}
     volumes:
       - ../frontend:/app
       - /app/node_modules
