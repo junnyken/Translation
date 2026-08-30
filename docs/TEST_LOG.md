@@ -2095,3 +2095,92 @@ Z1  lỗi JS trong console                  -> 0
 - `vertical_ttb + needs_review|unavailable|failed` **tuyệt đối không** mang sắc thái thành công.
 - Bộ lọc "Cần kiểm tra" **có** bắt vùng chưa phân tích (`null`).
 - Lưới cột chữ chỉ hiện khi `status === 'ready'`.
+
+
+## E15.14 — Số đo tại thời điểm ĐÓNG E15 (2026-08-30)
+
+Chạy **lại từ đầu**, không chép số của lượt trước. Chapter mới:
+`a4e76707-80a0-4dbf-bae6-aa67de639e54` (2 trang Pepper&Carrot, 6 vùng).
+
+### Bộ test tự động
+
+| Bộ | Lệnh | Kết quả |
+|---|---|---|
+| Backend | `cd backend && ../.venv/bin/python -m pytest -q` | **785 thu thập, exit 0**, 0 fail |
+| Frontend | `cd frontend && npx vitest run` | **158 pass / 8 tệp**, 0 fail |
+| Extension | `cd extension && npx vitest run` | **282 pass / 7 tệp**, 0 fail |
+
+### Build / lint
+
+```
+cd frontend && npx vite build     -> ✓ built in 2.98s, 57 modules
+                                     dist/assets/index-DIkt_6FW.js  232.01 kB (gzip 73.87 kB)
+
+ruff check backend scripts        -> 167 phát hiện, NHƯNG repo KHÔNG có cấu hình lint
+                                     (không backend/pyproject.toml, không ruff.toml)
+   phân bố: backend/tests 157 · backend/app 136 · backend/alembic 11
+            do_run_m9 7 · do_run_e15 7 · do_run_e12 5 · do_run_e15_ui 2 · kiem_e11 2
+```
+
+⇒ Lint **không phải cổng đã cấu hình** của repo. Hai script E15 mới ngang mức các script đo anh
+em. Không sửa trong phase này (mở rộng scope).
+
+### Run A–D lượt đóng phase — 16/16 ĐẠT
+
+```
+Run A  A1 đường bao dòng THẬT sinh ra          -> 6 vùng
+       A2 hướng chữ được tính                   -> 6 vùng
+       A3 nhận đúng chữ ngang                    -> 5 vùng
+       A4 vùng ngang bị gọi nhầm thành dọc       -> 0
+       A5 trang tới typeset_done                 -> ['typeset_done', 'typeset_done']
+       A6 orientation-summary đúng khuôn         -> 200
+
+Run B  BLOCKED — 4 vật cản, B1/B2 đạt
+       B2 vertical_ttb + ready trong CSDL        -> 0
+
+Run C  C1 mọi vùng có phán quyết                 -> 6/6
+       C2 vùng nghiêng thiếu mã rà-soát-tay      -> 0
+       C3 vùng nghiêng thiếu góc chuẩn hoá       -> 0
+       tần suất TOÀN BỘ dữ liệu: horizontal_ltr=17 · unknown=4 · rotated_horizontal=0
+
+Run D  D1 export-warnings                        -> 200
+       D2 khối hướng chữ tách riêng
+          {"orientation_vertical_rendered_count": 0,
+           "orientation_review_count": 0,
+           "orientation_unknown_count": 1}
+       D3 PATCH /regions/{id} (M7)                -> 200
+       D4 POST /projects/{id}/export cbz (M8)     -> 202
+```
+
+⚠️ **Run C vẫn là pass RỖNG** — `rotated_horizontal=0` trên toàn bộ dữ liệu. C2/C3 đúng nhưng
+không chứng minh đường xử lý chữ nghiêng chạy đúng.
+
+### Chromium — 14/14 ĐẠT
+
+Trang `6ff9fb4f` (4 vùng: 3 ngang + 1 chưa rõ), giao diện thật ở `localhost:5174`:
+
+```
+U2  'Chữ ngang' giao diện = 3, CSDL = 3          KHỚP
+U3  'Chưa xác định hướng' = 1, CSDL = 1          KHỚP
+U4  huy hiệu tách biệt mỗi vùng                  >= 2
+U6  nhãn hỏng / 'chưa được hỗ trợ' lọt ra        -> []
+U8  lọc 'Chữ dọc'                                -> 4 vùng còn 0
+U10 lọc 'Cần kiểm tra hướng chữ'                 -> 1 (đúng kỳ vọng)
+U12 khối giải thích                              -> tiếng Việt, không lộ mã máy
+U13 vùng dọc ready = 0 -> công tắc lưới cột chữ  VẮNG MẶT
+Z1  lỗi JS console                               -> 0
+```
+
+⇒ Tài liệu **không trái** state UI/DB: cả ba nguồn (CSDL, API, màn hình) cùng nói `vertical=0`.
+
+### Audit 4 assertion trước khi đóng — đo lại, đều còn đúng
+
+```
+1. PIL.features.check("raqm")   worker=False · api=False · dev=True         ✓
+2. MangaOCR.recognize_with_layout = False; recognize trả (text, None)       ✓
+   vertical_ttb chỉ tới được qua ocr_line_geometry_vertical (analyzer:155)  ✓
+3. worker đã nạp mã E15: region_text_orientation có dữ liệu thật
+   (7 horizontal_ltr/ready + 2 unknown/needs_review trước lượt đóng),
+   ocr_result.line_polygons 9/106 — tất cả sinh SAU khi restart worker      ✓
+4. vertical_ttb + ready trong CSDL = 0                                      ✓
+```

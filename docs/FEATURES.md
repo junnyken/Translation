@@ -112,6 +112,57 @@ Chưa phát hành lên Chrome Web Store.
   đọc được trạng thái — nó nói thẳng điều đó thay vì hiện danh sách rỗng. Bản docker dev
   (`127.0.0.1:5174`) thì đọc được ngay, không cần cấu hình gì.
 
+## E15 — hai tầng kết luận (chốt 2026-08-30)
+
+### E15-A — Orientation routing & UI: **CLOSED**
+
+- Giao diện trạng thái/điều hướng hướng chữ hoàn chỉnh, dùng lại `StatusBadge` của E11 + khối
+  giải thích theo khuôn E14.
+- Huy hiệu hướng chữ **tách riêng** khỏi fit status (M6), quality (E12), consistency (E13) và
+  safe-area (E14) — không gộp thành một icon.
+- Có bộ lọc theo hướng chữ và bảng dịch mã lý do → diễn giải tiếng Việt (15 mã, khớp 1:1 với
+  `LyDo.TAT_CA` của backend).
+- Trạng thái "chưa kiểm / chưa xác định" hiển thị **riêng**, không bị gộp thành thành công.
+- Run A (chữ ngang không hồi quy) và Run D (sửa tay + cảnh báo xuất) đạt.
+- Đo giao diện trên Chromium đạt, số hiển thị **khớp CSDL**.
+- Bộ hồi quy giữ xanh theo số đo thực tế tại thời điểm đóng (xem `TEST_LOG § E15.14`).
+
+### E15-B — Dựng chữ dọc tiếng Việt: **BLOCKED (giới hạn bằng chứng ở tầng cấu trúc)**
+
+Đây **không** phải chuyện thiếu ảnh mẫu. Chặn nằm ở tầng bằng chứng/hình học:
+
+- `MangaOCREngine.recognize()` hiện chỉ trả `(text, None)`. Lớp này **không có**
+  `recognize_with_layout`, nên hợp đồng OCR cho tiếng Nhật không mang theo hình học dòng chữ,
+  metadata hướng chữ hay đa giác dòng nào.
+- `analyzer` chỉ tới được `vertical_ttb` qua mã `ocr_line_geometry_vertical`. Không có nguồn đó
+  thì **không có đường nào** đặt được `vertical_ttb + ready` — kể cả với ảnh tiếng Nhật hoàn hảo.
+- Adapter CTD đang triển khai **không có** đường ghi kết quả hình học nào đã được kiểm chứng để
+  thay thế nguồn trên.
+
+**Phát hiện về môi trường:**
+
+- RAQM trong worker: `False`.
+- RAQM trong virtualenv của máy dev: `True`.
+
+⇒ **Bất kỳ bộ dựng chữ dọc nào chỉ được kiểm trong virtualenv của máy dev đều KHÔNG có giá trị**
+đối với đường dựng chữ thật đang chạy trong worker.
+
+### Bảng năng lực
+
+| Năng lực | Trạng thái |
+|---|---|
+| Thoại ngang (horizontal dialogue) | **Supported** |
+| Nhận biết & điều hướng hướng chữ + giao diện | **Supported** |
+| Điều hướng/rà soát SFX | **Supported**, nhưng mẫu thật hiện quá nhỏ để khẳng định rộng (n=9, `rotated_horizontal=0`) |
+| Nhận biết/điều hướng chữ dọc có đủ bằng chứng | **Partial / chỉ để rà soát** |
+| Dựng chữ dọc tiếng Việt | **Blocked** về mặt cấu trúc |
+| Dựng chữ nghiêng/cách điệu | **Không hỗ trợ**; chỉ rà soát |
+| E16 đặt chữ xoay | **Chưa được duyệt**; chưa đủ bằng chứng thật |
+
+> **Run C là pass RỖNG.** 3/3 assertion đạt nhưng dữ liệu thật có **0** vùng chữ nghiêng trên
+> n=9 — chúng chỉ chứng minh "không vùng nào vi phạm", **không** chứng minh đường xử lý chữ
+> nghiêng đã được test thành công. Không được đọc thành "rotated text đã test xong".
+
 ## Những gì **chưa** dùng được (nói thẳng để không hiểu nhầm)
 
 - **Chưa có đăng nhập**: ai mở được đường link là sửa được, và hệ thống chỉ ghi “có người sửa”

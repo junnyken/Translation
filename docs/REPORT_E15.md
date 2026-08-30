@@ -2,7 +2,7 @@
 
 **Project:** Translation · **Phase:** E · **Ngày:** 2026-08-29
 **Nền:** M1–M10 · E11–E14 (`6547d6c`)
-**Trạng thái:** ✅ **ĐÓNG phần routing + giao diện** (2026-08-30) · ⛔ **dựng chữ dọc: BLOCKED**, xem §7
+**Trạng thái:** **E15-A CLOSED** (orientation routing & UI) · **E15-B BLOCKED** (dựng chữ dọc tiếng Việt — giới hạn bằng chứng ở tầng cấu trúc). Chốt 2026-08-30, xem §11.
 
 ## 1. Summary
 
@@ -253,3 +253,107 @@ Bấm thật trên `http://localhost:5174/#page=98e5c3bc…` (4 vùng: 3 ngang +
 4. **Chưa có chỗ cho người tự đặt hướng chữ** — đúng phạm vi đã chốt, không tự thêm.
 5. **Bẫy vận hành đã ghi lại:** worker không nạp lại mã Python khi tệp đổi. Mọi mini-spec đụng
    vào worker phải `docker compose restart worker` trước khi đo, nếu không sẽ đo nhầm mã cũ.
+
+
+---
+
+# §11 — Chốt E15 theo hai tầng kết luận (2026-08-30)
+
+Lượt đo đóng phase chạy **lại từ đầu trên chapter mới** `a4e76707-80a0-4dbf-bae6-aa67de639e54`
+(2 trang Pepper&Carrot, 6 vùng), **không** chép lại số của lượt trước.
+
+## 11.1 E15-A — Orientation routing & UI: **CLOSED**
+
+```
+E15-A — Orientation routing & UI: CLOSED
+
+- Giao diện trạng thái/điều hướng hướng chữ hoàn chỉnh, dùng lại StatusBadge E11 + khối
+  giải thích theo khuôn E14.
+- Huy hiệu hướng chữ tách riêng khỏi fit status (M6), quality (E12), consistency (E13),
+  safe-area (E14).
+- Có bộ lọc hướng chữ và bảng dịch 15 mã lý do → diễn giải tiếng Việt, khớp 1:1 LyDo.TAT_CA.
+- Trạng thái "chưa kiểm / chưa xác định" hiển thị riêng, KHÔNG gộp thành success.
+- Run A chữ ngang không hồi quy: 6/6 đạt.
+- Run D sửa tay + cảnh báo xuất: 4/4 đạt.
+- Chromium UI: 14/14 đạt, số hiển thị khớp CSDL (3 ngang / 1 chưa rõ).
+- Bộ hồi quy tại thời điểm đóng: 785 backend · 158 frontend · 282 extension — tất cả xanh.
+```
+
+## 11.2 E15-B — Dựng chữ dọc tiếng Việt: **BLOCKED (structural evidence limitation)**
+
+```
+E15-B — Vertical Vietnamese rendering: BLOCKED (structural evidence limitation)
+
+Chặn nằm ở tầng bằng chứng/hình học, KHÔNG chỉ vì thiếu ảnh mẫu.
+
+MangaOCREngine.recognize() hiện chỉ trả (text, None). Lớp này không có
+recognize_with_layout, nên hợp đồng OCR cho tiếng Nhật không mang theo hình học dòng
+chữ, metadata hướng chữ hay đa giác dòng nào. Mà analyzer chỉ tới được vertical_ttb qua
+mã ocr_line_geometry_vertical — không có nguồn đó thì không có đường nào đặt được
+vertical_ttb + ready, kể cả với ảnh tiếng Nhật hoàn hảo.
+
+Adapter CTD đang triển khai không có đường ghi kết quả hình học nào đã được kiểm chứng
+để thay thế nguồn trên.
+
+Environment finding:
+- Worker RAQM status: False.
+- Developer virtualenv RAQM status: True.
+
+Bất kỳ bộ dựng chữ dọc nào chỉ được kiểm trong virtualenv của máy dev đều KHÔNG có giá
+trị đối với đường dựng chữ thật đang chạy trong worker.
+```
+
+Bằng chứng đo lại tại thời điểm đóng:
+
+```
+MangaOCR.recognize_with_layout : False
+Paddle.recognize_with_layout   : True
+MangaOCR.recognize trả         : return (text or "").strip(), None
+
+grep OCR_LINE_GEOMETRY_VERTICAL: chỉ 1 chỗ gán trong analyzer.py:155
+                                 + 1 chốt chặn ở decision.py:64
+
+PIL.features.check("raqm"): worker=False · api=False · máy dev=True
+
+select count(*) from region_text_orientation
+  where orientation='vertical_ttb' and status='ready';   ->  0
+```
+
+## 11.3 Bảng năng lực
+
+| Năng lực | Trạng thái |
+|---|---|
+| Thoại ngang (horizontal dialogue) | **Supported** |
+| Nhận biết & điều hướng hướng chữ + giao diện | **Supported** |
+| Điều hướng/rà soát SFX | **Supported**, nhưng mẫu thật hiện quá nhỏ để khẳng định rộng |
+| Nhận biết/điều hướng chữ dọc có đủ bằng chứng | **Partial / chỉ để rà soát** |
+| Dựng chữ dọc tiếng Việt | **Blocked** về mặt cấu trúc |
+| Dựng chữ nghiêng/cách điệu | **Không hỗ trợ**; chỉ rà soát |
+| E16 đặt chữ xoay | **Chưa được duyệt**; chưa đủ bằng chứng thật |
+
+## 11.4 Run C là **pass RỖNG** — nói rõ để không bị đọc sai
+
+3/3 assertion đạt, nhưng trên **toàn bộ** dữ liệu đã phân tích:
+
+```
+horizontal_ltr = 17
+unknown        =  4
+rotated_horizontal = 0        ← KHÔNG có mẫu nào
+```
+
+C2 ("mọi vùng nghiêng đều ghi rõ chỉ-rà-soát-thủ-công") và C3 ("mọi vùng nghiêng đều kèm góc
+chuẩn hoá") vì thế là **đúng nhưng rỗng**: chúng chỉ chứng minh *không vùng nào vi phạm*,
+**không** chứng minh đường xử lý chữ nghiêng đã được test thành công.
+
+⇒ **Không được đọc Run C thành "rotated text đã test thành công". Không đủ bằng chứng mở E16.**
+
+## 11.5 Lint / build tại thời điểm đóng
+
+- `vite build` (frontend): ✅ xanh — 57 module, `dist/assets/index-*.js` 232.01 kB.
+- **Repo không có cấu hình lint** (`backend/pyproject.toml` không tồn tại, không có
+  `ruff.toml`/`setup.cfg`). Chạy `ruff` với luật mặc định cho **167** phát hiện, rải đều toàn
+  codebase (`backend/tests` 157, `backend/app` 136, `backend/alembic` 11, các script đo cũ
+  `do_run_m9` 7 / `do_run_e12` 5 / `kiem_e11` 2). Hai script E15 mới có 7 + 2 — **ngang mức các
+  script anh em**, không phải nợ do E15 phần 2 tạo ra.
+- Cố ý **không** sửa 167 phát hiện đó trong phase này: đó là mở rộng scope, và Phase 1 cấm.
+  Nếu muốn bật lint làm cổng thật thì đó là một mini-spec riêng (chọn ruleset, sửa nền, thêm CI).
