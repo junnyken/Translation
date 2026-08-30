@@ -693,3 +693,61 @@ trạng thái thay vì hiện danh sách rỗng.
 ⚠️ Ghi nhận (ngoài phạm vi E1, cố ý không sửa): vì Vite dev server gắn `ACAO: *` cho mọi phản hồi
 proxy, **bất kỳ website nào** đang mở cũng đọc được API Translation local qua cổng 5173/5174 khi
 máy chủ dev đang chạy. Tính chất này có sẵn từ trước E1.
+
+
+## E15b. Giao diện hướng chữ + vì sao chữ dọc vẫn chưa dựng được (2026-08-30)
+
+### E15b.1 Đường đi của một phán quyết hướng chữ ra tới màn hình
+
+```
+PaddleOCR ──line_polygons──► OCRResult.line_polygons  (chỉ tồn tại ở bước OCR)
+                                     │
+                          OrientationAnalyzer  ──► RegionTextOrientation
+                                     │                (orientation, status, reason_codes)
+              GET /regions/{id}/orientation ──► api.layHuongChu()
+              GET /pages/{id}/orientation-summary ──► api.tomTatHuongChu()
+                                     │
+        nhanHuongChu(orientation, status, reason_codes)  ← nguồn sự thật DUY NHẤT của nhãn
+                                     │
+        StatusBadge (E11, prop `dienGiai`) · OrientationBox · OrientationSummaryCard
+```
+
+**Nhãn phụ thuộc CẢ hướng lẫn trạng thái**, nên không tra được bằng `dienGiaiTrangThai(loai, tt)`
+như các bảng khác. "Chữ dọc + `ready`" nghĩa là hệ thống đã dựng chữ theo cột thật; "chữ dọc +
+`unavailable`" nghĩa là mới nhận ra chứ chưa dựng được. Gộp hai thứ đó vào một nhãn là đúng kiểu
+nói quá mà cả E15 sinh ra để chống — nên `StatusBadge` được thêm prop `dienGiai` thay vì đẻ ra
+một huy hiệu thứ hai.
+
+**404 ≠ `unknown`.** Backend cố ý trả 404 cho vùng chưa phân tích. `api.layHuongChu()` dịch 404
+thành `null` và **chỉ** 404 — mọi lỗi khác vẫn ném ra, nếu không thì "API chết" hiện y hệt "chưa
+kiểm". Bộ lọc "Cần kiểm tra hướng chữ" **có** bắt các vùng `null`.
+
+### E15b.2 Vì sao chữ dọc vẫn BLOCKED — bốn vật cản đo được
+
+| # | Vật cản | Số đo (2026-08-30) |
+|---|---|---|
+| 1 | Dữ liệu | không có ảnh chữ dọc tiếng Nhật license rõ |
+| 2 | **Kiến trúc** | `MangaOCREngine.recognize()` → `(text, None)`, không đường bao dòng |
+| 3 | Môi trường | `PIL.features.check("raqm")` trong worker = `False` |
+| 4 | Glyph | 0 font có kana/kanji trên máy |
+
+Vật cản 2 quyết định nhất và ít ai ngờ: `analyzer` chỉ tới được `vertical_ttb` qua
+`ocr_line_geometry_vertical`. Tiếng Nhật — thứ tiếng có nhiều chữ dọc nhất — lại dùng engine
+**không** trả hình học dòng. ⇒ **Có ảnh hoàn hảo cũng không mở khoá được.** Muốn làm thật cần một
+mini-spec riêng cho nguồn hình học tiếng Nhật (ví dụ chạy PaddleOCR `lang='japan'` song song chỉ
+để lấy đường bao dòng, còn nội dung vẫn do manga-ocr đọc).
+
+Vật cản 3 là cái bẫy nguy hiểm nhất cho người làm tiếp: **libraqm có trên máy dev (`True`) nhưng
+không có trong worker (`False`)**. Ai dựng Option A (Pillow `direction="ttb"`) trên máy dev sẽ
+thấy chữ dọc vẽ ra đẹp, merge, rồi nó ném `KeyError` im lặng ở nơi thật sự chạy. Option B (vẽ theo
+grapheme) là đường duy nhất còn lại — `regex` đã có sẵn trong worker.
+
+### E15b.3 Bẫy vận hành: worker không nạp lại mã
+
+`deploy/docker-compose.yml` mount `../backend:/app`, nên **tệp** trên đĩa luôn mới. Nhưng Celery
+nạp module lúc khởi động và không nạp lại. Container worker chạy 44 giờ = khởi động trước khi E15
+được commit ⇒ mã E15 **chưa từng được thực thi** dù đã nằm đó cả ngày, và bảng
+`region_text_orientation` rỗng sạch.
+
+⇒ **Mọi mini-spec đụng vào worker phải `docker compose -f deploy/docker-compose.yml restart worker`
+trước khi đo.** Không làm là đo nhầm mã cũ rồi kết luận sai về chính thứ mình vừa viết.

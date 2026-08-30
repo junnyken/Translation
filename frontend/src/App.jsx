@@ -5,6 +5,8 @@ import BboxOverlay from './components/BboxOverlay.jsx'
 import ExportPanel from './components/ExportPanel.jsx'
 import RegionPanel from './components/RegionPanel.jsx'
 import RegionQualityBox from './components/RegionQualityBox.jsx'
+import OrientationBox from './components/OrientationBox.jsx'
+import OrientationSummaryCard from './components/OrientationSummaryCard.jsx'
 import ChapterCreateForm from './components/chapter/ChapterCreateForm.jsx'
 import ChapterProgress from './components/chapter/ChapterProgress.jsx'
 import QualityPanel from './components/chapter/QualityPanel.jsx'
@@ -19,6 +21,7 @@ import Alert from './components/ui/Alert.jsx'
 import Button from './components/ui/Button.jsx'
 import StatusBadge from './components/ui/StatusBadge.jsx'
 import { tinhTienDoChapter } from './lib/chapter-progress.js'
+import { LOC_HUONG_CHU, nhanHuongChu } from './lib/status-presentation.js'
 import { MUC_DICH } from './lib/status-presentation.js'
 
 /** Lấy id trang/chapter từ địa chỉ (#page=… hoặc #project=…) để chia sẻ link được.
@@ -54,6 +57,12 @@ export default function App() {
   // mỗi lần mở trang — bật lên khi nghi chữ đặt lệch trong bong bóng.
   const [hienVungAnToan, setHienVungAnToan] = useState(false)
   const [vungAnToan, setVungAnToan] = useState({})
+  // E15 — hướng chữ. `huongChu[regionId] === null` nghĩa là CHƯA kiểm (backend trả 404),
+  // khác hẳn `{orientation:'unknown'}` nghĩa là đã kiểm mà không đủ bằng chứng.
+  const [huongChu, setHuongChu] = useState({})
+  const [tomTatHuong, setTomTatHuong] = useState(null)
+  const [locHuong, setLocHuong] = useState('tat_ca')
+  const [hienLuoiCot, setHienLuoiCot] = useState(false)
   const [dangBan, setDangBan] = useState(false)
   const [loi, setLoi] = useState(null)
   const [thongBao, setThongBao] = useState(null)
@@ -267,6 +276,20 @@ export default function App() {
     return () => { huy = true }
   }, [chiTiet?.page?.id, phienBanAnh])
 
+  // Nạp hướng chữ cho cả trang cùng lúc với vùng an toàn: người sửa cần thấy ngay, không phải
+  // bật công tắc mới có.
+  useEffect(() => {
+    if (!chiTiet?.regions?.length) return
+    let huy = false
+    api.layHuongChu(chiTiet.regions.map((r) => r.id))
+      .then((d) => { if (!huy) setHuongChu(d) })
+      .catch(() => { if (!huy) setHuongChu({}) })
+    api.tomTatHuongChu(chiTiet.page.id)
+      .then((d) => { if (!huy) setTomTatHuong(d) })
+      .catch(() => { if (!huy) setTomTatHuong(null) })
+    return () => { huy = true }
+  }, [chiTiet?.page?.id, phienBanAnh])
+
   const vungDangChon = chiTiet?.regions.find((r) => r.id === dangChon) ?? null
   const soTran = chiTiet?.regions.filter((r) => r.fit_status === 'overflow_warning').length ?? 0
   const soCanXem = chiTiet?.regions.filter(
@@ -462,20 +485,66 @@ export default function App() {
               </section>
 
               <aside className="cot-sua">
+                <OrientationSummaryCard
+                  tomTat={tomTatHuong}
+                  dangBan={dangBan}
+                  onChayLai={() => chay('chạy lại nhận biết hướng chữ',
+                    () => api.chayLaiHuongChu(chiTiet.page.id))}
+                />
+
+                <div className="loc-huong-chu" role="group" aria-label="Lọc vùng theo hướng chữ">
+                  {LOC_HUONG_CHU.map((l) => {
+                    const so = chiTiet.regions.filter((r) => l.hop(huongChu[r.id])).length
+                    return (
+                      <button
+                        key={l.ma}
+                        type="button"
+                        className={`the-loc ${locHuong === l.ma ? 'dang-chon' : ''}`}
+                        aria-pressed={locHuong === l.ma}
+                        onClick={() => setLocHuong(l.ma)}
+                      >
+                        {l.nhan} <span className="so">{so}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+
                 <div className="danh-sach-vung">
-                  {chiTiet.regions.map((r) => (
-                    <button
-                      key={r.id}
-                      className={`the-vung ${dangChon === r.id ? 'dang-chon' : ''}`}
-                      onClick={() => setDangChon(r.id)}
-                    >
-                      <b>{r.reading_order ?? '?'}</b>
-                      <span className="tom-tat">
-                        {r.translated_text || <i>chưa có bản dịch</i>}
-                      </span>
-                      <StatusBadge loai="canh_chu" trangThai={r.fit_status} />
-                    </button>
-                  ))}
+                  {(() => {
+                    const loc = LOC_HUONG_CHU.find((l) => l.ma === locHuong) ?? LOC_HUONG_CHU[0]
+                    const ds = chiTiet.regions.filter((r) => loc.hop(huongChu[r.id]))
+                    if (!ds.length) {
+                      return (
+                        <p className="ghi-chu">
+                          Không có vùng nào khớp bộ lọc &ldquo;{loc.nhan}&rdquo;.
+                        </p>
+                      )
+                    }
+                    return ds.map((r) => {
+                      const h = huongChu[r.id]
+                      return (
+                        <button
+                          key={r.id}
+                          className={`the-vung ${dangChon === r.id ? 'dang-chon' : ''}`}
+                          onClick={() => setDangChon(r.id)}
+                        >
+                          <b>{r.reading_order ?? '?'}</b>
+                          <span className="tom-tat">
+                            {r.translated_text || <i>chưa có bản dịch</i>}
+                          </span>
+                          <span className="nhom-nhan">
+                            <StatusBadge loai="canh_chu" trangThai={r.fit_status} />
+                            {/* Huy hiệu hướng chữ đứng RIÊNG, không gộp vào huy hiệu căn chữ. */}
+                            {h && (
+                              <StatusBadge
+                                dienGiai={nhanHuongChu(h.orientation, h.status, h.reason_codes)}
+                              />
+                            )}
+                          </span>
+                        </button>
+                      )
+                    })
+                  })()}
                 </div>
 
                 {vungDangChon && (
@@ -484,6 +553,14 @@ export default function App() {
                       .find((d) => d.region_id === vungDangChon.id)}
                     dangBan={dangBan}
                     onQuyetDinh={(qd) => quyetDinhVung(vungDangChon.id, qd)}
+                  />
+                )}
+
+                {vungDangChon && (
+                  <OrientationBox
+                    huongChu={huongChu[vungDangChon.id]}
+                    hienLuoi={hienLuoiCot}
+                    onDoiLuoi={setHienLuoiCot}
                   />
                 )}
 

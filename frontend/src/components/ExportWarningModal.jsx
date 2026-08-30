@@ -32,6 +32,12 @@ export default function ExportWarningModal({ canhBao, nhatQuan, dinhDang, onHuy,
   // "chữ không vừa khung" (tràn), khác chất lượng E12 và khác trách nhiệm bản quyền.
   const soDuPhong = canhBao?.shape_fallback_count ?? 0
   const soHinhCanXem = canhBao?.shape_needs_review_count ?? 0
+  // E15 để RIÊNG khối thứ NĂM: "chưa dựng được chữ dọc" là chuyện HƯỚNG CHỮ. Nó khác
+  // "chữ tràn khung" (dài quá), khác "chưa xác định lòng bong bóng" (đặt ở đâu), khác chất
+  // lượng E12 và khác trách nhiệm bản quyền. Gộp vào là mất đúng thông tin người dùng cần.
+  const soDocDaDung = canhBao?.orientation_vertical_rendered_count ?? 0
+  const soHuongCanXem = canhBao?.orientation_review_count ?? 0
+  const soHuongChuaRo = canhBao?.orientation_unknown_count ?? 0
   const soNQMo = nhatQuan?.open_count ?? 0
   const soNQCu = nhatQuan?.stale_count ?? 0
   const soNQBo = (nhatQuan?.rejected_count ?? 0) + (nhatQuan?.resolved_no_change_count ?? 0)
@@ -126,6 +132,32 @@ export default function ExportWarningModal({ canhBao, nhatQuan, dinhDang, onHuy,
               {soHinhCanXem > 0 && (
                 <li className="canh-bao">
                   <b>{soHinhCanXem}</b> vùng <b>chưa xác định được vùng an toàn</b>
+                </li>
+              )}
+            </ul>
+          </>
+        )}
+
+        {(soHuongCanXem > 0 || soHuongChuaRo > 0 || soDocDaDung > 0) && (
+          <>
+            <h3>Hướng chữ</h3>
+            <ul className="tom-tat-xuat">
+              {soDocDaDung > 0 && (
+                <li className="on">
+                  <b>{soDocDaDung}</b> vùng chữ dọc đã được <b>căn theo cột</b>.
+                </li>
+              )}
+              {soHuongCanXem > 0 && (
+                <li className="canh-bao">
+                  <b>{soHuongCanXem}</b> vùng <b>cần kiểm tra hướng chữ</b> — gồm chữ dọc chưa
+                  dựng được và chữ nghiêng/cách điệu. Những vùng này vẫn đang được
+                  <b> căn ngang</b> trong file xuất ra.
+                </li>
+              )}
+              {soHuongChuaRo > 0 && (
+                <li className="canh-bao">
+                  <b>{soHuongChuaRo}</b> vùng <b>chưa xác định được hướng chữ</b> — không đủ
+                  bằng chứng để kết luận, nên đang căn ngang theo mặc định.
                 </li>
               )}
             </ul>

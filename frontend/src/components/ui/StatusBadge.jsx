@@ -5,8 +5,10 @@ import Icon from './Icon.jsx'
  *
  * Màu là lớp cuối cùng chứ không phải lớp duy nhất — bỏ màu đi vẫn phải đọc được trạng thái.
  */
-export default function StatusBadge({ loai, trangThai, boiCanh, hienMoTa = false }) {
-  const d = dienGiaiTrangThai(loai, trangThai, boiCanh)
+export default function StatusBadge({ loai, trangThai, boiCanh, hienMoTa = false, dienGiai }) {
+  // `dienGiai` cho phép các bảng không tra được bằng (loai, trangThai) — như hướng chữ của E15,
+  // vốn phụ thuộc CẢ hướng lẫn trạng thái — dùng lại đúng component này thay vì đẻ huy hiệu mới.
+  const d = dienGiai ?? dienGiaiTrangThai(loai, trangThai, boiCanh)
   return (
     <span className={`the-tt the-tt-${d.sac}`} title={d.mo_ta}>
       <Icon ten={d.icon} co={13} />

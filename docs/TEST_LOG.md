@@ -1954,3 +1954,144 @@ không báo sai "đã kết nối" — nhưng nó báo sai "không kết nối" 
 - **Chưa đo trên Chrome bản người dùng thật** (mới đo Chrome for Testing).
 - **Chưa đo trên bản dựng prod (nginx)** — chế độ chỉ-mở-link ở prod suy ra từ việc đọc
   `default.conf.template` (không có `location /api`), chưa dựng prod lên để bấm.
+
+
+---
+
+# E15 phần 2 — Giao diện hướng chữ + Run A–D (2026-08-30)
+
+## E15.6 — Audit: worker chạy mã CŨ hơn E15
+
+Trước khi đo được gì, phải tìm ra vì sao bảng `region_text_orientation` rỗng sạch:
+
+```
+select count(*) from region_text_orientation;              ->  0
+select count(*) from ocr_result where line_polygons is not null;  ->  0 / 97
+docker ps --format '{{.Names}}\t{{.RunningFor}}'
+  translation-worker-1    44 hours ago        <-- khởi động TRƯỚC khi E15 được commit
+```
+
+Thư mục `backend/` được mount làm volume nên tệp trên đĩa là mã mới, nhưng **Celery nạp module
+lúc khởi động và không nạp lại**. ⇒ Toàn bộ mã E15 chưa từng chạy một lần nào.
+
+Sau `docker compose restart worker`, chạy lại pipeline một chapter: `line_polygons` và
+`region_text_orientation` có dữ liệu ngay.
+
+**Bài học:** mọi mini-spec đụng vào worker phải khởi động lại worker **trước khi đo**, nếu không
+là đo nhầm mã cũ và kết luận sai về chính thứ mình vừa viết.
+
+## E15.7 — libraqm: worker ≠ máy dev
+
+```
+PIL.features.check("raqm")
+  translation-worker-1  -> False        (Pillow 11.0.0, freetype2=True, regex 2026.7.19)
+  translation-api-1     -> False
+  .venv trên máy dev    -> True         ← KHÁC
+```
+
+Vẽ thật bằng font trong `/fonts` (5 font: Bangers, Mansalva, ShantellSans, SigmarOne):
+
+```
+worker : draw.text(..., direction="ttb")
+         -> KeyError: 'setting text direction, language or font features is not supported
+                       without libraqm'          (cả "Đường" lẫn "カタカナ")
+máy dev: draw.text(..., direction="ttb")  -> VẼ ĐƯỢC   (cả hai)
+```
+
+⇒ Option A (Pillow + libraqm) **không dùng được ở nơi cần dùng**. Một bộ dựng chữ dọc viết và
+thử trên máy dev sẽ xanh hết, rồi hỏng im lặng trong worker.
+
+Không có font nào trên máy (host lẫn worker) có glyph kana/kanji: `find / -iname "*CJK*"` → rỗng,
+`/usr/share/fonts/truetype/` chỉ có `dejavu`.
+
+## E15.8 — Run A: chữ ngang không hồi quy (6/6 ĐẠT)
+
+Chapter `79b07f20-5afd-4e85-a816-7697240191b6`, 3 trang Pepper&Carrot, 9 vùng.
+
+```
+A1 chạy lại pipeline sinh đường bao dòng THẬT        -> 6 vùng
+A2 hướng chữ được tính                                -> 6 vùng (rồi 9 sau khi thêm trang 3)
+A3 nhận đúng chữ ngang                                -> 5 vùng ngang
+A4 vùng ngang bị gọi nhầm thành chữ dọc               -> 0
+A5 trang vẫn tới typeset_done                         -> ['typeset_done', 'typeset_done']
+A6 GET /pages/{id}/orientation-summary                -> 200, đúng khuôn
+```
+
+Mã lý do THẬT xuất hiện trên dữ liệu này:
+`ctd_geometry_unavailable`, `bbox_aspect_horizontal_signal`, `ocr_line_geometry_horizontal`,
+`orientation_unknown`, `ocr_layout_unavailable`, `safe_area_fallback_rectangle`.
+
+## E15.9 — Run B: BỊ CHẶN (4 vật cản độc lập)
+
+| # | Loại | Số đo |
+|---|---|---|
+| 1 | Dữ liệu | không có ảnh chữ dọc tiếng Nhật license rõ trong kho |
+| 2 | **Kiến trúc** | `MangaOCREngine.recognize()` trả `(text, None)` — không đường bao dòng |
+| 3 | Môi trường | libraqm trong worker = False |
+| 4 | Glyph | 0 font có kana/kanji |
+
+Vật cản 2 là cái quyết định: `analyzer` chỉ tới được `vertical_ttb` qua
+`ocr_line_geometry_vertical`, mà nguồn đó không tồn tại cho tiếng Nhật. **Có ảnh cũng không mở
+khoá được Run B** — đây là giới hạn cấu trúc, không phải thiếu dữ liệu.
+
+Chốt chặn: `where orientation='vertical_ttb' and status='ready'` → **0 dòng**.
+
+## E15.10 — Run C: 3/3 ĐẠT nhưng RỖNG
+
+```
+C1 mọi vùng đều có phán quyết hướng chữ    -> 9/9
+C2 vùng nghiêng thiếu mã 'chỉ rà soát tay' -> 0
+C3 vùng nghiêng thiếu góc chuẩn hoá        -> 0
+
+tần suất trên TOÀN BỘ dữ liệu đã phân tích:
+    horizontal_ltr = 7
+    unknown        = 2
+    rotated_horizontal = 0
+```
+
+⚠️ Spec đòi tối thiểu 5 ví dụ SFX; thực tế **0**. C2/C3 vì thế là **đúng nhưng rỗng** — chúng
+chỉ chứng minh "không có vùng nào vi phạm", không chứng minh đường xử lý chữ nghiêng chạy đúng.
+n=9 quá nhỏ để nói gì về tần suất. **Không đủ căn cứ mở E16.**
+
+## E15.11 — Run D: 4/4 ĐẠT
+
+```
+D1 GET /projects/{id}/export-warnings              -> 200
+D2 khối hướng chữ tách riêng
+   {"orientation_vertical_rendered_count": 0,
+    "orientation_review_count": 0,
+    "orientation_unknown_count": 2}
+D3 PATCH /regions/{id} (sửa tay M7)                -> 200
+D4 POST /projects/{id}/export {"format":"cbz"}     -> 202
+```
+
+Hai lỗi của chính script đo (không phải lỗi sản phẩm), đã sửa: gọi `/exports` thay vì `/export`
+(404), rồi `format:"png"` thay vì giá trị enum thật `png_single|cbz|zip` (422).
+
+## E15.12 — Giao diện trên Chromium (14/14 ĐẠT)
+
+Trang `98e5c3bc` — CSDL: 4 vùng, 3 ngang, 1 chưa rõ.
+
+```
+U2  số 'Chữ ngang' trên giao diện        = 3, CSDL = 3        KHỚP
+U3  số 'Chưa xác định hướng'             = 1, CSDL = 1        KHỚP
+U4  huy hiệu tách biệt trên mỗi vùng     >= 2 (căn chữ + hướng chữ)
+U6  nhãn hỏng / 'chưa được hỗ trợ' lọt ra giao diện           -> []
+U7  bộ lọc                                -> đủ 5 mục
+U8  lọc 'Chữ dọc'                         -> 4 vùng còn 0
+U9  lọc rỗng                              -> nói rõ, không để bảng trắng
+U10 lọc 'Cần kiểm tra hướng chữ'          -> 1 vùng (đúng kỳ vọng)
+U12 khối giải thích                       -> tiếng Việt, không lộ mã máy
+U13 không có vùng dọc ready               -> công tắc lưới cột chữ VẮNG MẶT
+Z1  lỗi JS trong console                  -> 0
+```
+
+## E15.13 — Test tự động
+
+`frontend`: **158 pass** (+63 của E15: 8 tệp). Trong đó có test canh:
+
+- Bảng dịch **đủ 15 mã lý do**, khớp 1:1 với `LyDo.TAT_CA` của backend — không thiếu, không thừa.
+- Mọi tổ hợp (4 hướng × 4 trạng thái) đều có nhãn đọc được, **không** lọt `undefined`.
+- `vertical_ttb + needs_review|unavailable|failed` **tuyệt đối không** mang sắc thái thành công.
+- Bộ lọc "Cần kiểm tra" **có** bắt vùng chưa phân tích (`null`).
+- Lưới cột chữ chỉ hiện khi `status === 'ready'`.

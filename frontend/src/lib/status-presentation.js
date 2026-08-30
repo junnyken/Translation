@@ -316,3 +316,129 @@ export const LY_DO_VUNG_AN_TOAN = {
   manual_bbox_changed: 'Khung chữ vừa được chỉnh tay',
   render_footprint_outside_safe_area: 'Chữ vẽ ra vượt khỏi vùng an toàn',
 }
+
+// ---------------------------------------------------------------------------
+// E15 — hướng chữ
+// ---------------------------------------------------------------------------
+
+/** Nhãn theo `orientation` ĐƠN THUẦN. Nhãn thật còn phụ thuộc `status` — dùng `nhanHuongChu()`. */
+export const HUONG_CHU = {
+  horizontal_ltr: B('Chữ ngang', 'ok', 'tich', 'Chữ xếp theo hàng ngang như bình thường.'),
+  vertical_ttb: B('Chữ dọc', 'tin', 'tich', 'Chữ xếp theo cột từ trên xuống.'),
+  rotated_horizontal: B('Chữ nghiêng/cách điệu', 'canh', 'canh',
+    'Chữ nằm nghiêng hoặc là hiệu ứng âm thanh được vẽ cách điệu.'),
+  unknown: B('Chưa xác định hướng chữ', 'canh', 'canh',
+    'Không đủ bằng chứng để nói hướng chữ. Đây là câu trả lời trung thực, không phải lỗi.'),
+}
+
+export const TT_HUONG_CHU = {
+  ready: B('Đã căn theo hướng đó', 'ok', 'tich', 'Chữ đã được dựng đúng hướng nhận ra.'),
+  needs_review: B('Cần kiểm tra thủ công', 'canh', 'canh', 'Nên tự nhìn lại vùng này.'),
+  unavailable: B('Chưa dựng được', 'canh', 'canh',
+    'Nhận ra hướng rồi nhưng hệ thống chưa dựng được chữ theo hướng đó.'),
+  failed: B('Không tính được', 'loi', 'canh', 'Bước nhận biết hướng chữ lỗi.'),
+}
+
+/** Nguồn bằng chứng. */
+export const NGUON_HUONG_CHU = {
+  ctd_geometry: 'Hình học từ bộ nhận diện khung',
+  ocr_layout: 'Đường bao dòng chữ của bước đọc chữ',
+  image_heuristic: 'Suy từ hình ảnh',
+  manual_reserved: 'Do người đặt',
+  fallback_unknown: 'Không có nguồn bằng chứng nào',
+}
+
+/** 15 mã lý do — khớp 1:1 với `LyDo.TAT_CA` ở backend
+ *  (`backend/app/services/orientation/decision.py`). Có test canh không thiếu, không thừa. */
+export const LY_DO_HUONG_CHU = {
+  ocr_line_geometry_vertical: 'Các dòng chữ đọc được xếp theo chiều dọc',
+  ocr_line_geometry_horizontal: 'Các dòng chữ đọc được xếp theo chiều ngang',
+  ocr_layout_unavailable: 'Bước đọc chữ không trả về hình dạng dòng nào',
+  ctd_geometry_unavailable: 'Bộ nhận diện khung chỉ cho khung chữ nhật, không cho hình dạng dòng',
+  roi_rotated_text_evidence: 'Ảnh cho thấy các dòng chữ nằm nghiêng',
+  bbox_aspect_vertical_signal: 'Khung chữ cao hơn rộng — chỉ là tín hiệu, không đủ để kết luận',
+  bbox_aspect_horizontal_signal: 'Khung chữ rộng hơn cao — chỉ là tín hiệu, không đủ để kết luận',
+  possible_sfx_from_quality_gate: 'Cổng chất lượng đánh dấu đây có thể là hiệu ứng âm thanh',
+  safe_area_fallback_rectangle: 'Đang dùng khung chữ nhật dự phòng nên hình dạng kém tin cậy',
+  vertical_renderer_unavailable:
+    'Hệ thống chưa có bộ dựng chữ dọc — nhận ra hướng nhưng chưa dựng được',
+  vertical_font_glyph_unavailable: 'Font đang dùng không có đủ ký tự để dựng chữ dọc',
+  vertical_layout_overflow: 'Xếp theo cột thì chữ tràn ra ngoài khung',
+  rotated_text_manual_review_only:
+    'Bản này KHÔNG tự xoay chữ — cần đặt thủ công bằng công cụ sẵn có ở màn sửa tay',
+  orientation_evidence_conflict: 'Các dòng chữ cho dấu hiệu mâu thuẫn nhau',
+  orientation_unknown: 'Không đủ bằng chứng để kết luận hướng chữ',
+}
+
+/**
+ * Nhãn hiển thị cho một vùng — phụ thuộc CẢ hướng lẫn trạng thái.
+ *
+ * Vì sao không dùng thẳng `dienGiaiTrangThai`: "chữ dọc" mà `ready` là hệ thống đã dựng chữ theo
+ * cột thật; "chữ dọc" mà `unavailable` là mới nhận ra chứ chưa dựng được. Gộp hai thứ đó vào một
+ * nhãn là đúng kiểu nói quá mà E15 sinh ra để chống.
+ *
+ * Hướng/trạng thái LẠ không bao giờ rơi vào nhánh thành công — hiện rõ mã thô để còn lần ra.
+ */
+export function nhanHuongChu(huong, trang_thai, ma_ly_do = []) {
+  const ly_do = Array.isArray(ma_ly_do) ? ma_ly_do : []
+
+  if (ly_do.includes('orientation_evidence_conflict')) {
+    return B('Dấu hiệu hướng chữ mâu thuẫn', 'canh', 'canh',
+      'Các dòng chữ trong vùng này cho dấu hiệu ngược nhau — không bỏ phiếu đa số cho xong.')
+  }
+
+  const goc = HUONG_CHU[huong]
+  if (!goc) {
+    return {
+      nhan: 'Hướng chữ chưa được hỗ trợ',
+      sac: 'canh',
+      icon: 'canh',
+      mo_ta: `Giao diện chưa biết hướng "${huong}". Đừng coi đây là đã xong.`,
+      tho: huong,
+    }
+  }
+  if (!TT_HUONG_CHU[trang_thai]) {
+    return {
+      nhan: `${goc.nhan} — trạng thái chưa được hỗ trợ`,
+      sac: 'canh',
+      icon: 'canh',
+      mo_ta: `Giao diện chưa biết trạng thái "${trang_thai}". Đừng coi đây là đã xong.`,
+      tho: trang_thai,
+    }
+  }
+
+  if (huong === 'horizontal_ltr') return goc
+
+  if (huong === 'vertical_ttb') {
+    return trang_thai === 'ready'
+      ? B('Chữ dọc — đã căn theo cột', 'ok', 'tich',
+        'Chữ đã được dựng theo cột từ trên xuống.')
+      : B('Chữ dọc — cần kiểm tra thủ công', 'canh', 'canh',
+        'Nhận ra là chữ dọc nhưng hệ thống chưa dựng được theo cột. Cần tự xem lại.')
+  }
+
+  if (huong === 'rotated_horizontal') {
+    return B('Chữ nghiêng/cách điệu — cần đặt thủ công', 'canh', 'canh',
+      'Bản này không tự xoay chữ. Dùng công cụ sẵn có ở màn sửa tay để đặt lại.')
+  }
+
+  return goc
+}
+
+/** Bộ lọc vùng theo hướng chữ (E15 §D1). Mỗi mục là một vị từ trên bản ghi hướng chữ. */
+export const LOC_HUONG_CHU = [
+  { ma: 'tat_ca', nhan: 'Tất cả', hop: () => true },
+  { ma: 'doc', nhan: 'Chữ dọc', hop: (o) => o?.orientation === 'vertical_ttb' },
+  {
+    ma: 'nghieng',
+    nhan: 'Chữ nghiêng/cách điệu',
+    hop: (o) => o?.orientation === 'rotated_horizontal',
+  },
+  { ma: 'chua_biet', nhan: 'Chưa xác định', hop: (o) => o?.orientation === 'unknown' },
+  {
+    ma: 'can_kiem',
+    nhan: 'Cần kiểm tra hướng chữ',
+    // Vùng CHƯA phân tích cũng vào đây: "chưa kiểm" khác hẳn "kiểm rồi và không sao".
+    hop: (o) => !o || (o.status !== 'ready'),
+  },
+]

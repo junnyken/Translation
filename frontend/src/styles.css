@@ -470,3 +470,61 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   border: 1px solid var(--vien); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px;
   font-size: 13px;
 }
+
+/* ---------- E15: hướng chữ ---------- */
+.the-huong-chu {
+  border: 1px solid var(--vien); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px;
+  font-size: 13px;
+}
+.the-huong-chu .hang-tieu-de {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  flex-wrap: wrap; margin-bottom: 6px;
+}
+.the-huong-chu .bang-bang-chung {
+  display: grid; grid-template-columns: auto 1fr; gap: 2px 10px;
+  margin: 6px 0; font-size: 12.5px;
+}
+.the-huong-chu .bang-bang-chung dt { color: var(--mo); }
+.the-huong-chu .bang-bang-chung dd { margin: 0; }
+.the-huong-chu .ds-ly-do {
+  margin: 6px 0 0; padding-left: 18px; font-size: 12.5px; color: var(--mo);
+}
+.the-huong-chu .ds-ly-do li { margin-bottom: 2px; }
+.ghi-chu.nhan-manh { color: var(--canh-dam, #b45309); font-weight: 500; }
+
+/* Thẻ tổng hợp */
+.the-tom-tat-huong {
+  border: 1px solid var(--vien); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px;
+}
+.the-tom-tat-huong .hang-tieu-de {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  flex-wrap: wrap; margin-bottom: 8px;
+}
+.the-tom-tat-huong h3 { margin: 0; }
+.ds-so-lieu {
+  list-style: none; margin: 0 0 8px; padding: 0;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 6px;
+}
+.ds-so-lieu .so-lieu {
+  border: 1px solid var(--vien); border-radius: 6px; padding: 6px 8px;
+  display: flex; flex-direction: column; gap: 1px;
+}
+.ds-so-lieu .so-lieu b { font-size: 17px; line-height: 1.1; }
+.ds-so-lieu .so-lieu span { font-size: 11.5px; color: var(--mo); }
+.ds-so-lieu .so-lieu-canh { border-color: #fde68a; background: #fffbeb; }
+.ds-so-lieu .so-lieu-ok { border-color: #a7f3d0; background: #ecfdf5; }
+
+/* Bộ lọc */
+.loc-huong-chu {
+  display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px;
+}
+.the-loc {
+  border: 1px solid var(--vien); background: var(--the); border-radius: 999px;
+  padding: 4px 10px; font: inherit; font-size: 12.5px; cursor: pointer; color: var(--chu);
+}
+.the-loc:hover { border-color: #cbd5e1; }
+.the-loc.dang-chon {
+  background: var(--mau-chinh); border-color: var(--mau-chinh); color: #fff;
+}
+.the-loc .so { opacity: .75; margin-left: 3px; }
+.the-vung .nhom-nhan { display: flex; flex-wrap: wrap; gap: 4px; }

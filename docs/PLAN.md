@@ -228,3 +228,29 @@ web app (Vite proxy `/api` và tự thêm `ACAO: *`); chỉ bị chặn khi gọ
 
 ⚠️ **Còn treo:** hành vi bấm biểu tượng để mở Side Panel chưa bấm được trong Chromium headless —
 cần một lượt bấm tay để xác nhận.
+
+
+## E15 phần 2 — Giao diện hướng chữ + Run A–D (2026-08-30)
+
+✅ **Đóng phần routing + giao diện** (`158 test giao diện`, +63): nhãn hướng chữ đứng riêng cạnh
+nhãn căn chữ/chất lượng/nhất quán/vùng an toàn, bộ lọc 5 mục, khối giải thích dịch đủ 15 mã lý do,
+thẻ tổng hợp có ô riêng cho "chưa kiểm", khối cảnh báo xuất tách riêng.
+
+Run A/C/D đạt 10/10 trên chapter thật; giao diện 14/14 bấm thật trên Chromium, số trên màn hình
+**khớp đúng** số trong CSDL.
+
+⛔ **Run B: BLOCKED.** Bốn vật cản độc lập, và cái đáng nhớ nhất **không phải** chuyện thiếu ảnh:
+`MangaOCREngine.recognize()` trả `(text, None)` — không có đường bao dòng, mà đó là đường DUY NHẤT
+tới được `vertical_ttb`. **Có ảnh tiếng Nhật hoàn hảo cũng không mở khoá được Run B.**
+
+Ba bài học:
+
+- **Worker không nạp lại mã Python khi tệp đổi.** Container chạy 44 giờ = khởi động trước khi E15
+  được commit ⇒ toàn bộ mã E15 **chưa từng chạy một lần nào**, dù tệp đã nằm trên đĩa qua volume.
+  Bảng rỗng sạch không phải vì luật sai, mà vì luật chưa bao giờ được gọi.
+- **libraqm có trên máy dev, KHÔNG có trong worker.** Option A dựng chữ dọc sẽ xanh hết trên máy
+  dev rồi hỏng im lặng ở nơi thật sự chạy. Đo ở máy dev là đo sai chỗ.
+- **Test "đúng nhưng rỗng" phải được gọi tên.** Run C đạt 3/3 với **0 vùng chữ nghiêng** trong dữ
+  liệu — nó chỉ chứng minh không ai vi phạm, không chứng minh đường xử lý chạy đúng.
+
+⚠️ **Chưa đủ căn cứ mở E16** — tần suất chữ nghiêng đo được là 0/9, mẫu quá nhỏ.

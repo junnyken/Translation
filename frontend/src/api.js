@@ -254,3 +254,28 @@ export async function layVungAnToan(regionIds) {
 export const tomTatVungAnToan = (pageId) => fetch(`${BASE}/pages/${pageId}/safe-area-summary`).then(doc)
 export const tinhLaiVungAnToan = (pageId) =>
   fetch(`${BASE}/pages/${pageId}/retry-safe-area`, { method: 'POST' }).then(doc)
+
+// ---------- E15: hướng chữ ----------
+
+/** Lấy hướng chữ của nhiều vùng cùng lúc.
+ *
+ * Backend cố ý trả **404** cho vùng chưa phân tích thay vì `unknown` giả — nên ở đây 404 được
+ * dịch thành `null` ("chưa kiểm"), khác hẳn `orientation: 'unknown'` ("kiểm rồi, không đủ
+ * bằng chứng"). Giao diện phải nói được hai thứ đó khác nhau.
+ */
+export async function layHuongChu(regionIds) {
+  const cap = await Promise.all(regionIds.map(async (id) => {
+    const res = await fetch(`${BASE}/regions/${id}/orientation`)
+    if (res.status === 404) return [id, null]
+    // Chỉ nuốt ĐÚNG 404. Nuốt cả lỗi mạng thì "API chết" hiện y hệt "chưa kiểm" — đúng cái bẫy
+    // mà `layVungAnToan` của E14 đã dính một lần rồi.
+    return [id, await doc(res)]
+  }))
+  return Object.fromEntries(cap)
+}
+
+export const tomTatHuongChu = (pageId) =>
+  fetch(`${BASE}/pages/${pageId}/orientation-summary`).then(doc)
+
+export const chayLaiHuongChu = (pageId) =>
+  fetch(`${BASE}/pages/${pageId}/retry-orientation`, { method: 'POST' }).then(doc)
