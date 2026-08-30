@@ -224,3 +224,16 @@ miền API.
 2. **Ảnh trang lưu trên đĩa container** (`STORAGE_BACKEND=local`, `/data/storage`). Chưa xác minh
    VibeHost có volume bền cho đường này. Nếu không có, redeploy sẽ xoá ảnh trong khi Postgres
    managed vẫn giữ bản ghi ⇒ chapter cũ hỏng ảnh.
+
+
+### 9.1 Hai việc còn treo trên bản hosted (đo 2026-08-31)
+
+1. **`GEMINI_API_KEYS` vẫn là biến thường** (`isSecret: false`). Không chuyển sang Secret được nếu
+   không nhập lại giá trị: `list_env` cố ý không trả giá trị, còn `set_env` bắt buộc có `value`.
+   ⇒ **Chủ dự án phải tự nhập lại vào ô Secret trên dashboard.** Giá trị chưa từng bị đọc hay ghi
+   ra bất cứ đâu. Rủi ro hiện được chấp nhận có ghi chép.
+
+2. **Ảnh trên host KHÔNG bền — đã chứng minh.** Đường lưu thật là `/app/storage` (lớp ghi của
+   container). Sau một lần triển khai lại, ảnh gốc/clean/preview mất sạch trong khi Postgres
+   managed vẫn giữ bản ghi ⇒ chapter hiện `typeset_done` mà mọi ảnh đều 404.
+   Xem `REPORT_P3a_HOSTED_READINESS.md` §7.4. **Phải gắn volume bền trước khi dùng thật.**

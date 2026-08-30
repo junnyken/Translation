@@ -2381,3 +2381,76 @@ Z1 lỗi JS console                           0
 `backend/deploy-start.sh` ở `ROLE=all` ghi `starting` **một lần** lúc khởi động, chỉ ghi lại khi
 worker chết (`restarting`) — **không bao giờ** ghi `running`. Nên trạng thái này chỉ chứng minh
 "đã bật, chưa sập", KHÔNG chứng minh worker đang tiêu thụ việc. Cần Pilot mới biết.
+
+
+---
+
+# P3a — Sẵn sàng Pilot/UAT trên VibeHost (2026-08-31) — **BLOCKED**
+
+Chi tiết: `docs/REPORT_P3a_HOSTED_READINESS.md`.
+
+## P3a.1 — Worker hosted: chứng minh bằng việc thật, không bằng telemetry
+
+Một trang smoke **tự vẽ** (1200×1700, 2 bong bóng, không dùng tranh có bản quyền) tải qua **đúng
+giao diện E11 hosted**:
+
+```
+  3.3s -> detecting     141.5s -> ocr_done      156.7s -> typeset_done
+ 90.6s -> detected      151.6s -> inpainted
+```
+
+```
+inpaint  : 11.4s · 2 vùng · "còn chữ ở 0 vùng" · KHÔNG OOM/SIGKILL/restart
+translate: 0.7s  · engine=google_fast · fallback=False · token=***
+typeset  : 0.28s · fit_ok=2 · overflow_warning=0 · font=Bangers
+E14      : fallback_rectangle=2 · shape_derived=0
+E15      : horizontal_ltr=2 · tt_ready=2      <- mã E15 chạy thật trên host
+celery   : "Connected to redis://:**@vays-db-…" + "celery@70d910a961c2 ready."
+```
+
+`worker.trang_thai` vẫn kẹt `starting` — **không dùng làm bằng chứng**, đúng như thiết kế phép đo.
+
+## P3a.2 — **Lưu trữ hosted là TẠM** ⛔
+
+MCP VibeHost từ chối redeploy cùng mã:
+
+```
+redeploy_project(translation-api) -> NO_CHANGE: Không có thay đổi mới so với phiên bản hiện tại
+```
+
+Chủ dự án bấm "Triển khai lại" trên giao diện → **v22** (cùng mã `45c0af2`). Đo ngay sau đó:
+
+| | Trước v22 | Sau v22 |
+|---|---|---|
+| `clean-image` | 200 · image/png · **69.486 byte** | **404** |
+| `typeset-preview` | 200 · image/png · **98.060 byte** | **404** |
+| CSDL `status` | `typeset_done` | **`typeset_done`** |
+| `image_path` / `clean_image_path` | có | **vẫn có** |
+
+```
+{"detail":"Đường dẫn ảnh clean có trong DB nhưng file không còn:
+           projects/7bb1b714…/pages/4b955242…_clean.png"}
+```
+
+Đường lưu thật là **`/app/storage`** (log: `preview typeset -> /app/storage/previews/…`), không
+phải `/data/storage` như mặc định `config.py`. Đó là **lớp ghi của container**.
+
+Chapter cũ `ddc7019b…` (28/08) cũng vậy: bản ghi còn, ảnh đã mất từ lâu.
+
+⇒ **Điều kiện no-go §8.3.** Không chạy Pilot/UAT 10–20 trang.
+
+## P3a.3 — CORS hosted sau mọi thao tác: không đổi
+
+| Origin | ACAO |
+|---|---|
+| `https://translation.cmc-1.vibenode.matbao.ai` | khớp chính xác |
+| `https://evil.example` · `http://localhost:5174` · `null` | *(không có)* |
+
+Wildcard 0 · Credentials 0.
+
+## P3a.4 — Hai ghi nhận phụ (P3)
+
+- Route `clean-image` nói đúng **"có trong DB nhưng file không còn"**; route `typeset-preview`
+  lại trả **"bước căn chữ chưa chạy xong"** — sai nguyên nhân, vì typeset đã chạy xong thật.
+  Hai route không nhất quán về cách nói thật khi tệp biến mất.
+- Log có `SecurityWarning: running the worker with superuser privileges` — celery chạy bằng root.

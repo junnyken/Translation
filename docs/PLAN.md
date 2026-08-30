@@ -357,3 +357,32 @@ Ba điều đáng nhớ:
 
 ⚠️ **Còn treo:** tag `v1.5-E15-closed` + `v1.6-E1a-cors-hardening` chưa đẩy; Pilot/UAT chưa chạy;
 `GEMINI_API_KEYS` trên host đang để `isSecret: false`; chưa xác minh volume lưu ảnh trên host.
+
+
+## P3a — Sẵn sàng Pilot/UAT trên VibeHost (2026-08-31) ⛔ **BLOCKED**
+
+Chạy **một** trang smoke tự vẽ qua giao diện hosted để kiểm điều kiện vận hành trước Pilot/UAT.
+
+**Tin tốt:** pipeline hosted chạy trọn trong **157 giây**, không OOM. Worker chứng minh được là
+tiêu thụ việc thật (log celery + 5 lần chuyển trạng thái + hiện vật ảnh), **không** dựa vào
+`worker.trang_thai` (trường đó kẹt `starting` vĩnh viễn). LaMa gom cụm xong trong **11,4s** trên
+host 4 GB. E15 chạy thật trên host (`horizontal_ltr=2, tt_ready=2`).
+
+**Tin chặn:** sau một lần **Triển khai lại** (v22, cùng mã), **toàn bộ ảnh biến mất** trong khi
+Postgres managed vẫn giữ bản ghi `typeset_done`:
+
+```
+clean-image  69.486 byte  ->  404 "Đường dẫn ảnh clean có trong DB nhưng file không còn"
+preview      98.060 byte  ->  404
+```
+
+Đường lưu thật là **`/app/storage`** — lớp ghi của container, không phải volume bền.
+
+⇒ Chapter rơi vào trạng thái **nói dối**: giao diện đọc CSDL thấy `typeset_done` nên trình bày như
+đã xong, còn ảnh thì 404. Chapter cũ `ddc7019b…` (28/08) đã ở tình trạng đó từ lâu mà không ai biết.
+
+**KHÔNG chạy Pilot/UAT 10–20 trang.** Mini-spec kế tiếp phải là **gắn volume bền cho
+`/app/storage`** — chạy pilot trên lưu trữ tạm là cách chắc chắn nhất để mất công và mất lòng tin.
+
+Một bài học phụ: **MCP từ chối redeploy cùng mã** (`NO_CHANGE`), nhưng nút "Triển khai lại" trên
+giao diện thì không kiểm — hai đường có hành vi khác nhau.
