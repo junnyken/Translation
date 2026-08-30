@@ -620,3 +620,76 @@ trùng — đã đo thật, xem `TEST_LOG § E13.2`. Phải dùng `UNIQUE NULLS 
 - **Tôn trọng** quyết định "bỏ qua" của E12 — vùng đó không bị quét lại.
 - Áp xong dùng lại **đúng đường canh chữ của M7**, chỉ cho một vùng, giữ nguyên cỡ chữ đã ghim.
 - Gợi ý bằng LLM là **tuỳ chọn, mặc định tắt**; bật lên mới tốn token, và vẫn phải người duyệt.
+
+
+## E1. Tiện ích Chrome — cổng mở nhanh (2026-08-30)
+
+### E1.1 Chỗ đứng trong kiến trúc
+
+```
+Chrome ──► Side Panel (chrome-extension://…)
+              │
+              ├─ tabs.create  ──►  Web app  (http://127.0.0.1:5174)  ──proxy /api──►  API
+              │                      #project= / #page= / trang chủ
+              └─ fetch (chỉ ĐỌC) ──► <base>/api/v1/health
+                                     <base>/api/v1/projects/{id}
+```
+
+Tiện ích là **consumer thuần**, giống hệt vai trò của giao diện M7: không đụng CSDL, không đụng
+Redis, không đụng Celery, không có endpoint riêng. Nó **không** phải một tầng mới trong pipeline.
+
+Ranh giới cứng: tiện ích **không có** content script và **không có** `host_permissions`, nên nó
+không có đường nào chạm vào trang web người dùng đang xem. Đây là sự thật về sản phẩm, không phải
+giới hạn tạm thời — E2 (nhập ảnh theo URL) và E3 (phủ bản dịch lên trang) mỗi cái cần audit
+SSRF / nguồn / bản quyền / consent riêng.
+
+### E1.2 Bảng buộc route — đường THẬT, không phải đường đặt ra cho đẹp
+
+Giao diện Translation **không có router**: `frontend/src/App.jsx` chọn màn bằng hash.
+
+| Tiện ích cần | Đường thật | Ghi chú |
+|---|---|---|
+| Tạo chapter | `<base>/` | form tạo nằm ở trang chủ |
+| Tiến độ chapter | `<base>/#project=<uuid>` | |
+| Rà soát tay (M7) | `<base>/#page=<uuid>` | |
+| Xuất (M8) | `<base>/#project=<uuid>` | **không có route riêng** — `ExportPanel` nằm trong màn chapter |
+| Sống chưa | `GET /api/v1/health` | có kiểm CSDL |
+| Chi tiết chapter | `GET /api/v1/projects/{id}` | `ProjectDetail` |
+
+**Không** có endpoint liệt kê project (`GET /api/v1/projects` → 405). Nên tiện ích không tự dò ra
+chapter; người dùng ghim bằng mã. Nếu sau này muốn bỏ bước ghim tay thì cần một mini-spec backend
+riêng thêm `GET /api/v1/projects` chỉ-đọc có phân trang — **không** được bịa `/api/v1/extension/*`.
+
+### E1.3 Ba lớp kiểm trước khi một chuỗi được dùng
+
+Chuỗi do người dùng gõ đi qua ba cổng trước khi tới `fetch` hoặc `tabs.create`:
+
+1. `kiemDiaChiLocal()` — phân tích bằng `new URL()` rồi soi từng phần (giao thức / tên máy / tài
+   khoản / cổng / đường dẫn / query). **Không** so tiền tố. Trả về địa chỉ **đã chuẩn hoá**, và
+   mọi lượt gọi về sau dùng chuỗi trả về đó ⇒ không có khe hở "bộ kiểm đọc một đằng, bộ gọi đọc
+   một nẻo".
+2. `chuanHoaMa()` — mã chapter/trang phải khớp mẫu UUID, hạ về chữ thường.
+3. `chotChanGhi()` — ném lỗi nếu có khoá ngoài khuôn được đưa vào `chrome.storage.local`.
+
+### E1.4 Vì sao service worker không được nhớ gì
+
+MV3 chạy service worker theo sự kiện; Chrome tắt nó sau một lúc rảnh rồi dựng lại từ đầu. Nên
+`src/service-worker.js` **chỉ** nối dây sự kiện: không cache chapter, không đếm job, không hẹn giờ.
+Chỗ nhớ duy nhất là `chrome.storage.local` (địa chỉ local + tối đa 5 mã chapter đã ghim). Trạng
+thái backend **luôn** được hỏi lại khi panel mở — có test canh không có `let`/`var` ở mức tệp
+trong service worker.
+
+### E1.5 CORS — đo được, không suy đoán
+
+| Đường đi | `Access-Control-Allow-Origin` | Tiện ích đọc được? |
+|---|---|---|
+| Thẳng vào API `:8010` | không có (`CORS_ALLOW_ORIGINS` rỗng) | ❌ |
+| Qua giao diện dev `:5174` hoặc `:5173` | `*` (Vite dev server tự thêm) | ✅ ngay, không cần cấu hình |
+| Qua giao diện prod (nginx) | — nginx **không** proxy `/api` | ❌ → chế độ chỉ-mở-link |
+
+E1 **không** đụng vào cấu hình CORS của backend. Ở bản prod, tiện ích nói thẳng là chưa đọc được
+trạng thái thay vì hiện danh sách rỗng.
+
+⚠️ Ghi nhận (ngoài phạm vi E1, cố ý không sửa): vì Vite dev server gắn `ACAO: *` cho mọi phản hồi
+proxy, **bất kỳ website nào** đang mở cũng đọc được API Translation local qua cổng 5173/5174 khi
+máy chủ dev đang chạy. Tính chất này có sẵn từ trước E1.

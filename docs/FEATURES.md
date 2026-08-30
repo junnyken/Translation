@@ -22,6 +22,7 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 | E13 | Chốt cách dịch thuật ngữ cho cả chapter, ghi hồ sơ giọng nhân vật, rà soát từng chỗ chưa theo thuật ngữ đã chốt — máy chỉ ra chỗ kèm lý do, **không tự sửa** | **LIVE** (Run A–D trên truyện thật + Chromium 17/17 — xem TEST_LOG §E13) |
 | E14 | Tìm **lòng bong bóng thật** rồi căn chữ vào đó thay vì vào khung chữ nhật; không chắc thì nói thẳng là đang dùng khung dự phòng | **LIVE** (5/5 bong bóng thật, 0 chọn nhầm, 5/5 chữ nằm trọn trong bong bóng — xem TEST_LOG §E14) |
 | E15 | Nhận biết **hướng chữ** (ngang/dọc/nghiêng/chưa rõ) kèm bằng chứng và đưa vùng khó vào rà soát thay vì lặng lẽ căn ngang | **LIVE phần nhận biết** — giao diện chưa dựng, **dựng chữ dọc cố ý để TẮT** (chưa có ảnh mẫu hợp pháp); xem REPORT_E15 |
+| E1 | **Tiện ích Chrome** mở nhanh Translation từ trình duyệt: nút tạo chapter, xem trạng thái chapter đã ghim, nhảy thẳng vào màn rà soát/xuất — **không** đọc trang web bạn đang xem, **không** xin quyền website nào | **LIVE** (nạp thật vào Chromium 151, 41/41 mục đo — xem REPORT_E1) |
 | M10 | Khai báo mục đích sử dụng (bắt buộc, không mặc định) + nhắc trách nhiệm bản quyền & chất lượng trước khi xuất | **LIVE** (chạy thật đầu-cuối; giao diện chưa bấm tay — xem TEST_LOG §M10) |
 | E11 | Làm lại giao diện: bố cục, bộ màu, vùng kéo-thả, dòng thời gian pipeline, diễn giải trạng thái trung thực, dùng được bằng bàn phím và trên điện thoại | **LIVE** (kiểm thật trên Chromium ở 4 kích thước — xem TEST_LOG §E11) |
 | E12 | Chỉ ra vùng nào cần rà soát trước khi xuất, kèm lý do đọc được — không tự xoá vùng nào | **LIVE** (Run A–D 15/15 trên trang thật + Chromium 10/10 — xem TEST_LOG §E12) |
@@ -77,6 +78,39 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 - **Trang chưa chèn chữ xong thì bỏ qua**, không xuất ảnh trắng không chữ; số trang bỏ qua được nói rõ.
 - **Xuất lại bao nhiêu lần cũng được**, file cũ tự bị dọn, không đầy ổ đĩa. Dữ liệu gốc giữ nguyên
   nên sửa tiếp rồi xuất lại thoải mái.
+
+## Tiện ích Chrome — mở nhanh từ trình duyệt (E1)
+
+Nạp thủ công từ thư mục `extension/` (`chrome://extensions` → Developer mode → Load unpacked).
+Chưa phát hành lên Chrome Web Store.
+
+**Làm được:**
+
+- Bấm biểu tượng → Side Panel mở cạnh tab, không che web app.
+- Nhập địa chỉ Translation local (chỉ `localhost` / `127.0.0.1` kèm cổng) và kiểm kết nối.
+- **Tạo chapter mới** / **Mở Translation** → mở đúng màn của web app.
+- Ghim tối đa **5 chapter** bằng mã, xem tên + trạng thái + số trang xuất được.
+- **Xem tiến độ** / **Mở rà soát** (M7) / **Xuất** (M8) → nhảy đúng màn, không đi vòng qua M10.
+- Xoá dữ liệu tiện ích — chỉ xoá trong trình duyệt, chapter và ảnh trong app **không** bị đụng.
+
+**Cố ý KHÔNG làm** (đây là sự thật về sản phẩm, không phải thiếu sót tạm thời):
+
+| Không làm | Vì sao |
+|---|---|
+| Đọc nội dung trang web đang xem | Không content script, `host_permissions` rỗng |
+| Tải ảnh từ URL | Thuộc E2 — cần audit SSRF/nguồn/bản quyền riêng |
+| Phủ bản dịch lên trang truyện | Thuộc E3 — cần content script + quyền từng site |
+| Tải ảnh lên thẳng từ tiện ích | Upload vẫn đi qua form của web app |
+| Nhớ API key / ảnh / chữ OCR / bản dịch | Xem `extension/PRIVACY.md` |
+| Nối tới server LAN hoặc từ xa | Chỉ loopback |
+
+**Hai giới hạn cần biết:**
+
+- **Không tự thấy chapter.** Backend chưa có API liệt kê project (`GET /api/v1/projects` → 405),
+  nên phải ghim bằng mã chép từ địa chỉ web app.
+- **Bản dựng prod (nginx) chỉ mở link được.** nginx không chuyển tiếp `/api`, nên tiện ích không
+  đọc được trạng thái — nó nói thẳng điều đó thay vì hiện danh sách rỗng. Bản docker dev
+  (`127.0.0.1:5174`) thì đọc được ngay, không cần cấu hình gì.
 
 ## Những gì **chưa** dùng được (nói thẳng để không hiểu nhầm)
 

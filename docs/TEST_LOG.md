@@ -1847,3 +1847,110 @@ Test đáng kể nhất — mỗi cái ứng với một cách hệ thống có 
 - **Test integration chưa viết.**
 - **Run A–D chưa chạy** — cần ảnh mẫu thật, đặc biệt là ảnh chữ dọc có license rõ.
 - **Bộ dựng chữ dọc cố ý chưa dựng** — xem `REPORT_E15.md` §3.
+
+
+---
+
+# E1 — Tiện ích Chrome mở nhanh (2026-08-30)
+
+Chromium: **Google Chrome for Testing 151.0.7922.34**, nạp unpacked từ `extension/`,
+`--headless=new`. ID tiện ích lúc đo: `gppdcagfjgnekmdfbiplpfeahillicgi`.
+
+## E1.1 — Audit trước khi dựng (số đo thô)
+
+```
+GET /api/v1/projects                        -> 405 Method Not Allowed   (không có API liệt kê)
+curl -H "Origin: chrome-extension://<id>" http://127.0.0.1:8010/api/v1/health
+    -> 200, KHÔNG có access-control-allow-origin        (server: uvicorn)
+curl -H "Origin: chrome-extension://<id>" http://127.0.0.1:5174/api/v1/health
+    -> 200, access-control-allow-origin: *              (server: uvicorn, qua proxy Vite)
+curl -H "Origin: chrome-extension://<id>" http://127.0.0.1:5174/healthz
+    -> 200, access-control-allow-origin: *  NHƯNG thân là HTML của SPA, không phải JSON
+```
+
+Dòng cuối là cái bẫy: **200 OK không phải bằng chứng máy chủ API còn sống.**
+
+Chuẩn hoá URL (Node 22, cùng bộ phân tích WHATWG với trình duyệt):
+
+```
+http://2130706433:8010      -> hostname = 127.0.0.1
+http://0x7f000001:8010      -> hostname = 127.0.0.1
+http://0177.0.0.1:8010      -> hostname = 127.0.0.1
+http://127.1:8010           -> hostname = 127.0.0.1
+http://[::1]:8010           -> hostname = [::1]                (bị từ chối)
+http://localhost%2eevil.example:8010 -> hostname = localhost.evil.example   (bị từ chối)
+```
+
+⇒ Bốn dạng đầu **không phải** đường lách — chúng thật sự là loopback. Chỗ an toàn nằm ở việc hàm
+trả về địa chỉ **đã chuẩn hoá** và mọi lượt gọi về sau dùng chuỗi đó, không dùng lại chuỗi người
+dùng gõ.
+
+## E1.2 — Test tự động
+
+`cd extension && npm test` → **282 pass / 7 tệp**.
+
+## E1.3 — Run A/B/C/D (`scripts/do_run_e1.py`) — 21/21 ĐẠT
+
+Chạy với `.env` **sạch** (không có `CORS_ALLOW_ORIGINS`).
+
+| Mục | Kết quả |
+|---|---|
+| A1–A3 màn đầu: ô nhập, câu nói rõ phạm vi, gợi ý cổng **đo được** (5174) | ĐẠT |
+| A4 `http://evil.example:5174` bị từ chối và **không** ghi vào kho | ĐẠT |
+| A5–A7 địa chỉ hợp lệ được lưu, kết nối được, mở được web app | ĐẠT |
+| B1–B2 "Tạo chapter mới" → `http://127.0.0.1:5174/`, form tạo chapter hiện ra | ĐẠT |
+| C1–C2 kho chỉ có khoá đã khai báo; không key/ảnh/OCR/đường dẫn/cookie | ĐẠT |
+| C3 cài đặt sống sót qua lượt mở lại panel | ĐẠT |
+| C4–C6 hộp xác nhận nói rõ backend không bị xoá; xoá xong kho sạch; backend vẫn sống | ĐẠT |
+| D1–D5 manifest sạch; mở trang ngoài: không tiêm gì, kho không ghi địa chỉ trang | ĐẠT |
+| Z1 0 lỗi JS trong console | ĐẠT |
+
+## E1.4 — Nhánh đọc được dữ liệu (`scripts/do_run_e1_ket_noi.py`) — 20/20 ĐẠT
+
+Chapter thật `67094721-c9e4-4231-896d-83b555205a42` (3 trang, đều `typeset_done`).
+
+```
+K3  tên thật từ máy chủ:        "E11 kiem ban phim"
+K4  số trang thật:              "3 trang · 3 trang xuất được"
+K8  Mở rà soát  -> http://127.0.0.1:5174/#page=194bcdf2-c30a-4dbe-8f29-b90fe6bd6f5d
+K9  Xem tiến độ -> http://127.0.0.1:5174/#project=67094721-c9e4-4231-896d-83b555205a42
+K10 Xuất        -> CÙNG #project= ở trên, KHÔNG có chữ "export" trong địa chỉ
+K12 mã bịa 00000000-… -> 404 -> "Không tìm thấy chapter", KHÔNG ghim mục ma
+```
+
+Kho sau khi ghim 2 chapter thật:
+
+```json
+{"caiDatV1": {"lastConnectionCheckAt":"…","lastOpenedPageId":"194bcdf2-…",
+  "lastOpenedProjectId":"67094721-…","preferredLaunchSurface":"side_panel",
+  "schemaVersion":1,"translationBaseUrl":"http://127.0.0.1:5174"},
+ "chapterGhimV1":[{"cachedAt":"…","projectId":"c10032f2-…", …}]}
+```
+
+Đúng 2 khoá, mỗi mục ghim đúng 5 trường trong khuôn, đều có `cachedAt`; **không** có
+`source_lang` / `intended_use` / `image_path` / OCR / key.
+
+## E1.5 — Ba lỗi thật do lượt bấm thật tìm ra
+
+**1. Nút chính không bấm được.** `nut()` luôn đặt `type="button"`. Nút "Lưu & kiểm tra kết nối"
+nằm trong `<form>` nên **chưa bao giờ** gửi form — màn đầu vô dụng nếu người dùng bấm chuột.
+Test đơn vị không bắt được vì nó `dispatchEvent(submit)` thẳng vào `<form>`, đi vòng qua đúng cái
+nút hỏng. → sửa: `type = gui_form ? 'submit' : 'button'` + test khoá `expect(b.type).toBe('submit')`.
+
+**2. Kiểm kết nối gọi nhầm máy chủ.** Gọi `<base>/healthz` trong khi `<base>` là địa chỉ **giao
+diện**. Vite trả trang SPA kèm 200 + `ACAO: *`. May là bộ đọc JSON vẫn từ chối (`du_lieu_la`) nên
+không báo sai "đã kết nối" — nhưng nó báo sai "không kết nối" khi mọi thứ đều ổn. → sửa: gọi
+`/api/v1/health` + test khoá endpoint không được chứa `/healthz`.
+
+**3. Nhấp nháy "Chưa kết nối" trước khi kiểm xong.** Trạng thái kết nối chỉ có true/false, mặc
+định `false`, nên panel khẳng định một thất bại **chưa hề đo được**. → sửa: ba trạng thái
+(`null` = đang kiểm) + 5 test khoá.
+
+## E1.6 — Chưa làm
+
+- **Bấm biểu tượng để mở Side Panel** chưa bấm được trong headless — trang panel được mở thẳng
+  bằng địa chỉ `chrome-extension://…`. `sidePanel.setPanelBehavior` chạy không lỗi nhưng hành vi
+  bấm biểu tượng **cần một lượt bấm tay**.
+- **Chưa đo trên Chrome bản người dùng thật** (mới đo Chrome for Testing).
+- **Chưa đo trên bản dựng prod (nginx)** — chế độ chỉ-mở-link ở prod suy ra từ việc đọc
+  `default.conf.template` (không có `location /api`), chưa dựng prod lên để bấm.

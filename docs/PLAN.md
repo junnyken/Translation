@@ -201,3 +201,30 @@ Ba bài học:
   `w`/`h`). Đo trên hình biết trước đáp án, không đoán.
 - **Nhận ra hướng ≠ dựng được chữ theo hướng đó.** Trạng thái `unavailable` sinh ra chính để nói
   điều này thay vì im lặng căn ngang.
+
+
+## E1 — Tiện ích Chrome mở nhanh (2026-08-30)
+
+✅ **Xong và đã đo thật** (`282 test đơn vị/thành phần + 41 mục bấm thật trên Chromium 151`):
+tiện ích Manifest V3, 2 quyền (`storage`, `sidePanel`), `host_permissions` **rỗng**, không content
+script, **không có bước build**, **không thêm/sửa một endpoint backend nào**.
+
+Audit trước khi dựng làm hẹp phạm vi ở 4 chỗ; chi tiết `extension/README.md` §1.
+
+Ba bài học đáng nhớ — cả ba chỉ lộ ra ở **lượt bấm thật**, không lượt test đơn vị nào bắt được:
+
+- **Nút trong `<form>` mà để `type="button"` thì không bao giờ gửi form.** Màn đầu của tiện ích
+  hoàn toàn vô dụng với người bấm chuột; test đơn vị `dispatchEvent(submit)` thẳng vào form nên
+  đi vòng qua đúng cái nút hỏng.
+- **`/healthz` ở cổng giao diện trả về trang HTML kèm 200 + `ACAO: *`.** Máy chủ dev của Vite trả
+  SPA cho mọi đường lạ, nên một bộ kiểm chỉ nhìn mã 200 sẽ báo "đã kết nối" trong khi API đã chết.
+  Phải gọi `/api/v1/*` — đường duy nhất thật sự đi xuống backend.
+- **Trạng thái kết nối phải có BA giá trị.** Chỉ true/false thì panel nhấp nháy "Chưa kết nối"
+  trong lúc đang kiểm — khẳng định một thất bại chưa hề đo được, đúng loại nói quá mà M1–M10 cấm.
+
+Còn một chỗ đo sai ở lượt đầu và đã sửa lại trong tài liệu: **CORS không chặn** khi đi qua địa chỉ
+web app (Vite proxy `/api` và tự thêm `ACAO: *`); chỉ bị chặn khi gọi thẳng API. Bản dựng prod
+(nginx) thì ngược lại — không proxy `/api` nên tiện ích lùi về chế độ chỉ-mở-link.
+
+⚠️ **Còn treo:** hành vi bấm biểu tượng để mở Side Panel chưa bấm được trong Chromium headless —
+cần một lượt bấm tay để xác nhận.

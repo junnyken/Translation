@@ -645,3 +645,28 @@ nhất quán E13: `orientation_vertical_rendered_count`, `orientation_review_cou
 `[]` = có hỏi nhưng không có dòng nào. Hai thứ đó **khác nhau** và không được gộp.
 
 **Không** có endpoint nào cho phép người dùng tự đặt hướng chữ — ngoài phạm vi E15 v1.
+
+
+---
+
+## E1 — Tiện ích Chrome: KHÔNG có endpoint mới
+
+E1 **không thêm, không sửa, không bỏ** một endpoint nào. Nó chỉ tiêu thụ hai đường đã có:
+
+| Dùng để | Endpoint | Ghi chú |
+|---|---|---|
+| Kiểm máy chủ sống chưa | `GET /api/v1/health` | đã có sẵn, `include_in_schema=False`, có kiểm CSDL |
+| Lấy chi tiết + tiến độ chapter | `GET /api/v1/projects/{project_id}` | `ProjectDetail` |
+
+Tiện ích **chỉ đọc**: không `POST`, không `PATCH`, không upload. Mọi lượt ghi vẫn đi qua giao diện
+web app như cũ, nên các cổng chặn của M10 (khai báo mục đích) và M8 (điều kiện xuất) không có
+đường nào bị đi vòng.
+
+**Không dùng `/healthz`.** Đo ngày 2026-08-30: `/healthz` ở cổng **giao diện** trả về trang HTML
+của SPA kèm `200` và `Access-Control-Allow-Origin: *` — tức "200 OK" ngay cả khi API đã chết. Chỉ
+các đường `/api/v1/*` mới thật sự đi xuống backend qua proxy.
+
+**Không có `/api/v1/extension/*`.** Backend hiện **không** có endpoint liệt kê project
+(`GET /api/v1/projects` → 405 Method Not Allowed). Tiện ích chấp nhận giới hạn đó (người dùng ghim
+chapter bằng mã) thay vì đẻ ra một mặt API riêng cho tiện ích. Nếu muốn bỏ bước ghim tay thì đó là
+một mini-spec backend riêng: `GET /api/v1/projects` chỉ-đọc, có phân trang.

@@ -1,0 +1,14 @@
+{
+  "name": "translation-companion-extension",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Chrome Extension MV3 mở nhanh Translation local (E1). Không có bước build.",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "jsdom": "^30.0.1",
+    "vitest": "^2.1.9"
+  }
+}
