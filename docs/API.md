@@ -699,3 +699,31 @@ các đường `/api/v1/*` mới thật sự đi xuống backend qua proxy.
 (`GET /api/v1/projects` → 405 Method Not Allowed). Tiện ích chấp nhận giới hạn đó (người dùng ghim
 chapter bằng mã) thay vì đẻ ra một mặt API riêng cho tiện ích. Nếu muốn bỏ bước ghim tay thì đó là
 một mini-spec backend riêng: `GET /api/v1/projects` chỉ-đọc, có phân trang.
+
+## P3h — `GET /healthz` thêm `rss_mb` (2026-08-31)
+
+**Không** endpoint mới, **không** đổi schema nào đã chốt, **không** đụng `/api/v1/*`. Chỉ thêm
+**một** trường vào endpoint ops đã có (`include_in_schema` theo cấu hình cũ, ngoài prefix `/api/v1`
+vì nền tảng hosting thăm dò đường này).
+
+```json
+{
+  "status": "ok",
+  "worker": { "trang_thai": "starting", "so_lan_chet": 0, "ma_thoat_gan_nhat": null, "luc": "2026-08-31T…Z" },
+  "rss_mb": 412.7
+}
+```
+
+| Trường | Ý nghĩa |
+|---|---|
+| `rss_mb` | Bộ nhớ thường trú của **tiến trình API**, MB, làm tròn 1 chữ số |
+| `rss_mb: null` | **Không đo được** — KHÁC `0` (`0` nghĩa là đo được và bằng không). Không được gộp hai thứ này khi vẽ biểu đồ hay đặt cảnh báo |
+| `worker.so_lan_chet` | Số lần worker chết kể từ khi container khởi động (do `deploy-start.sh` ghi) |
+| `worker.ma_thoat_gan_nhat` | Mã thoát lần chết gần nhất. **`137` = bị SIGKILL, gần như luôn là hết bộ nhớ** |
+
+⚠️ **`rss_mb` KHÔNG phải bộ nhớ của worker.** Trên host `ROLE=all`, celery chạy ở một **tiến
+trình nền riêng** — và đó mới là tiến trình bị OOM giết. Muốn biết worker có đang phình không thì
+đọc `worker.so_lan_chet` / `ma_thoat_gan_nhat`, không đọc `rss_mb`. Xem `docs/ARCH.md` §8d.
+
+⚠️ Nhắc lại cảnh báo của E1 ở trên và **vẫn còn đúng**: `/healthz` gọi qua **cổng giao diện** trả
+trang SPA kèm `200` — chỉ gọi thẳng vào host của API mới có ý nghĩa.

@@ -2662,3 +2662,68 @@ trên host để LaMa sinh ra ảnh clean **6.763.787 byte**, rồi đo lại:
   sự cho **giải TOAST một phần**.
 - `stat()` trên hiện vật 6,76 MB tốn **3,1 ms** — bằng đúng `stat()` trên hiện vật 14 KB. ⇒ tách
   `size_bytes` ra cột riêng đúng là cần: nó không hề chạm cột `data`.
+
+# ==================== P3h — Chặn OOM worker (2026-08-31) ====================
+
+```
+867 passed, 6 skipped      (nền trước P3h: 856)      exit 0
+```
+Chạy lại lúc viết báo cáo (31/08 ~19:0x): **đúng 867/6**. Ruff trên các tệp đã sửa: **20 → 19**.
+
+## P3h.1 — Ba test của van xả: khẳng định đúng thứ dễ làm sai nhất
+
+| Test | Khẳng định |
+|---|---|
+| `test_vuot_nguong_thi_nha_dung_thu_khong_can` | nhả `detector`, **giữ** `inpainter` + `ocr`. "Nhả model của chính bước đang chạy" là cách hỏng tệ nhất — nó biến một cơ chế cứu mạng thành một cơ chế tự bắn vào chân |
+| `test_duoi_nguong_thi_giu_nguyen_cache` | chưa căng thì **không** được nhả. Van xả mà nổ suốt thì mỗi trang phải nạp lại LaMa ~197 MB + CTD ~91 MB — mất tốc độ vô ích |
+| `test_khong_doc_duoc_thi_tra_None_chu_khong_phai_0` | `None` = *không đo được*, `0` = *đo được và bằng 0*. Gộp hai thứ đó là cách nhanh nhất để có một biểu đồ nói dối |
+| `test_nguong_0_thi_khong_bao_gio_nha` | `nguong_mb <= 0` ⇒ tắt hẳn cơ chế (máy dev + test) |
+| `test_nha_khong_no_khi_chua_nap_model_nao` | gọi van xả lúc chưa nạp model nào thì không nổ, trả `[]` |
+
+## P3h.2 — Đo đỉnh bộ nhớ khi trộn (`tracemalloc`, cùng seed)
+
+| Cỡ trang | Một biểu thức | Theo dải 256 dòng | Giảm | Giống từng byte |
+|---|---|---|---|---|
+| 1200×1660 (đúng cỡ trang pilot) | **71,7 MB** | **14,6 MB** | **80 %** | ✅ |
+| 1400×2000 (cỡ trang M4) | **100,8 MB** | **18,5 MB** | **82 %** | ✅ |
+
+Dòng thứ hai là điểm đo thêm lúc viết báo cáo, và nó nói cái mà một dòng không nói được: **cách cũ
+leo theo diện tích trang, cách mới gần như đứng yên.** Một phép đo đơn lẻ không phân biệt được
+"nhỏ hơn" với "không phụ thuộc cỡ".
+
+## P3h.3 — ⚠️ Hai test phần trộn KHÔNG gọi mã sản xuất (pass yếu)
+
+Phải ghi ra, vì đọc lướt thì hai test này trông như đã khoá phần trộn:
+
+| Test | Nó thật sự chứng minh gì |
+|---|---|
+| `test_ket_qua_giong_het_cach_lam_mot_biểu_thuc` | **chép lại** vòng lặp trộn vào trong test rồi so với công thức cũ. Vòng lặp thật nằm **inline trong `LamaInpainter.inpaint()`** (`lama.py:238`), test **không gọi tới**. ⇒ chứng minh *thuật toán* tương đương, **không** chứng minh *mã đang chạy* làm đúng thuật toán đó |
+| `test_ngoai_mask_giu_nguyen_anh_goc` | **không đụng đường theo dải một chút nào** — tính bản một-biểu-thức rồi assert trên chính nó. Với P3h đây là **pass rỗng**, đúng nghĩa đã dùng cho Run C của E15 |
+
+**Cách đóng:** tách `_tron_theo_dai(rgb, pred, mask)` trong `lama.py` để mã sản xuất và test gọi
+**cùng một hàm**. Chưa làm ⇒ **không được ghi "đã test xong phần trộn"**.
+
+*Bài học chung: test so hai bản cài đặt chỉ có giá trị khi MỘT trong hai bản là bản đang chạy thật.*
+
+## P3h.4 — Live Verification trên host: ⛔ KHÔNG CHẠY ĐƯỢC (31/08 ~19:00–19:10)
+
+| Kiểm | Kết quả |
+|---|---|
+| `GET translation-api…/healthz` | không phản hồi trong **45 s** |
+| `GET translation…/` (web tĩnh, 0,6 CPU, không dính AI) | không phản hồi trong **45 s** |
+| TCP `203.171.31.200:443` | **kết nối được** |
+| Bắt tay TLS | **không hoàn tất** — treo sau `Client hello` |
+| Dashboard VibeHost | cả hai website báo **`online`** (api v27 · web v13) |
+| `get_runtime_logs` (api + web) | `available: false — wings_error` |
+| Đối chứng lối ra internet | `google.com` **200** · `factory.matbao.ai` **307** |
+
+Hai website khác nhau, cùng node `cmc-1`, chết cùng lúc, kèm `wings_error` ⇒ **tầng nền tảng**.
+`status: online` trên dashboard **không phải bằng chứng đang phục vụ** — thêm một lần nữa.
+
+⇒ **Chưa** có: RSS thật trên host · pilot 6 trang chạy lại · xác nhận hết `exit 137`.
+
+## P3h.5 — Một lỗi của chính tôi trong lúc sửa
+
+Phép thay chuỗi thêm dòng `import` **không đặt assert** ⇒ âm thầm không khớp ⇒ 20 test đỏ với
+thông báo **lạc đề** (`ValueError` về UUID). *Mọi phép thay chuỗi phải có assert "đã thay được",
+nếu không thì lần hỏng đầu tiên hiện ra ở rất xa chỗ gây lỗi.*

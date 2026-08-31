@@ -163,12 +163,11 @@ Chưa phát hành lên Chrome Web Store.
 > n=9 — chúng chỉ chứng minh "không vùng nào vi phạm", **không** chứng minh đường xử lý chữ
 > nghiêng đã được test thành công. Không được đọc thành "rotated text đã test xong".
 
-## Lưu trữ ảnh: vì sao ảnh vẫn "biến mất" sau mỗi lần cập nhật (P3c + P3d)
+## Lưu trữ ảnh: ảnh KHÔNG còn biến mất sau mỗi lần cập nhật (P3c → P3g)
 
-Nói thẳng trước: **chưa sửa được.** Ảnh gốc, ảnh đã xoá chữ và ảnh xem thử vẫn mất sạch mỗi lần
-hệ thống được cập nhật lên máy chủ, trong khi dữ liệu chữ nghĩa trong cơ sở dữ liệu thì còn
-nguyên. Hậu quả người dùng thấy: một trang ghi là "đã canh chữ xong" nhưng bấm xem ảnh thì báo
-không còn.
+Trước đây ảnh gốc, ảnh đã xoá chữ và ảnh xem thử **mất sạch mỗi lần hệ thống được cập nhật**,
+trong khi dữ liệu chữ nghĩa thì còn nguyên — nên một trang ghi là "đã canh chữ xong" mà bấm xem
+ảnh thì báo không còn. **Đã sửa xong và đã bật trên máy chủ** (31/08).
 
 Đã dò ra nguyên nhân (P3c): nền tảng đang chạy **không cấp được ổ đĩa bền** để gắn vào chỗ chứa
 ảnh. Đây là giới hạn của nền tảng, không phải lỗi cấu hình.
@@ -177,12 +176,13 @@ không còn.
 duy nhất trên nền tảng này sống sót qua mỗi lần cập nhật. Gói dịch vụ 20 GB, hiện dùng 1,26 GB,
 đủ chỗ cho khoảng **1.400 trang** nữa.
 
-⚠️ **Nhưng chưa bật trên máy chủ.** Mã đã sẵn sàng và đã kiểm; còn một bước đổi cấu hình rồi cập
-nhật lại hệ thống thì ảnh mới thật sự thôi biến mất. Trước khi bước đó xong, mọi thứ vẫn y như cũ.
+✅ **Đã bật trên máy chủ và đã thử đúng cách chắc chắn nhất:** tải một trang lên, chạy hết, rồi
+**cập nhật lại hệ thống** — thao tác vốn xoá sạch ảnh — xong mở lại thì ảnh **vẫn còn**.
 
-Và một điều phải nói trước: bật lên chỉ cứu được **ảnh từ đó trở đi**. Những trang đã mất ảnh thì
-**không dựng lại được** — ảnh gốc đã không còn. Sẽ cần một lần dọn riêng để các trang đó thôi khai
-là "đã xong".
+Nhưng chỉ cứu được **ảnh từ đó trở đi**. Những trang đã mất ảnh thì **không dựng lại được** vì ảnh
+gốc đã không còn. Đã dọn riêng một lượt (P3f): **5 trang** cũ bị ảnh hưởng, nay được đưa về đúng
+trạng thái thật (lùi về "đã đọc chữ xong", bỏ khai báo ảnh không tồn tại) — tức chúng **thôi nói
+dối là đã xong**. Bản dịch và chữ đã đọc của những trang đó vẫn còn nguyên.
 
 Kèm theo, hai thứ đã tốt lên ngay:
 
@@ -200,6 +200,29 @@ phần lớn là thời gian truyền qua mạng chứ không phải thời gian
 (việc lấy chỉ tốn khoảng **0,005 giây**). Xem lại một ảnh đã xem rồi thì gần như tức thì vì máy
 chủ chỉ trả lời "chưa đổi".
 
+## Vì sao chạy nhiều trang liên tiếp lại làm hệ thống "đứng hình" (P3h)
+
+Chạy thử **6 trang liên tiếp** trên máy chủ ngày 31/08: bộ phận xử lý ảnh bị hệ điều hành **giết
+vì hết bộ nhớ**, hệ thống chậm dần từ vài mili-giây lên hàng chục giây rồi im hẳn. Một trang thì
+không sao — đúng sáu trang liên tiếp mới lộ.
+
+**Nguyên nhân đã tìm ra, không phải "máy yếu":** phần xoá chữ xử lý từng cụm bong bóng một, mỗi
+cụm một kích thước khác nhau, và thư viện AI **giữ lại một vùng nhớ riêng cho mỗi kích thước mới
+mà không bao giờ trả lại**. Càng nhiều bong bóng, càng nhiều trang thì càng phình, tới lúc bị giết.
+
+Đã sửa: tắt cơ chế giữ nhớ đó cho phần xoá chữ (giữ nguyên cho phần nhận diện khung chữ vì ở đó
+nó vô hại và còn nhanh hơn), ghép ảnh theo từng dải ngang thay vì cả trang một lúc (**giảm 80 %
+bộ nhớ đỉnh, ảnh ra giống nhau từng điểm ảnh**), và thêm chỗ **nhìn thấy mức bộ nhớ** — trước đây
+hệ thống không có một chỉ số bộ nhớ nào, nên không ai thấy gì cho tới lúc nó chết.
+
+⚠️ **Chưa cập nhật lên máy chủ, nên chưa dùng được.** Bản sửa mới xong và mới kiểm trên máy phát
+triển. Tính tới **31/08 19:10, máy chủ đang không phản hồi** (cả trang web lẫn phần xử lý, kể cả
+trang tĩnh không dính AI) — đây là sự cố ở tầng nhà cung cấp máy chủ, không phải hệ thống lại hết
+bộ nhớ lần nữa. Chừng nào máy chủ chưa sống lại và chưa chạy lại đúng bài thử 6 trang thì
+**không được coi là đã chữa xong**.
+
+Trong lúc đó, **chạy cả chapter nhiều trang trên máy chủ vẫn là việc nên tránh.**
+
 ## Những gì **chưa** dùng được (nói thẳng để không hiểu nhầm)
 
 - **Chưa có đăng nhập**: ai mở được đường link là sửa được, và hệ thống chỉ ghi “có người sửa”
@@ -213,8 +236,10 @@ chủ chỉ trả lời "chưa đổi".
 - **Xuất bằng bản dịch miễn phí có thể ra chữ chưa dịch**: nếu bước đọc chữ dính hai từ vào nhau
   (`IT IS` → `ITIS`), bản miễn phí sẽ để nguyên tiếng Anh. Hệ thống **chưa cảnh báo** điều này trước
   khi xuất — muốn chắc thì dịch lại bằng bản có ngữ cảnh rồi hãy xuất.
-- **Nếu máy chủ hết bộ nhớ giữa chừng**, việc đang chạy sẽ treo mãi ở trạng thái “đang chạy” mà
-  không báo lỗi — phải nhìn log mới biết.
+- **Nếu máy chủ hết bộ nhớ giữa chừng**, việc đang chạy vẫn treo mãi ở trạng thái “đang chạy” mà
+  không báo lỗi. P3h **chưa sửa điều này** — nó chỉ làm cho việc hết bộ nhớ **ít xảy ra hơn** và
+  **nhìn thấy được** (số lần bộ phận xử lý bị giết nay hiện ở đường kiểm tra sức khoẻ). Trang bị
+  kẹt vẫn phải xử bằng tay.
 - Chưa có giao diện người dùng — mới chỉ có Swagger để thao tác tay; chưa có ảnh vẽ khung để nhìn bằng mắt (M7).
 - **Đã đo trên truyện tranh thật** (Pepper&Carrot, giấy phép mở): tìm đúng 3/3 bong bóng thoại,
   đọc chữ đúng 3/3, chèn chữ vừa khung 5/5. **Nhưng chưa thử manga Nhật** (chữ dọc, đọc phải→trái).
@@ -231,7 +256,8 @@ chủ chỉ trả lời "chưa đổi".
   (thiếu font, thiếu model, mất ảnh) hỏng ngay — thử lại chỉ tốn thời gian.
 - Chưa tự thử lại khi **chất lượng** kém (đọc sai, dịch sai, xoá chữ chưa sạch) — đó không phải
   lỗi hạ tầng, vẫn phải sửa tay ở màn sửa.
-- Chưa lưu ảnh lên Supabase Storage (đang lưu trên ổ đĩa của server).
+- Chưa lưu ảnh lên Supabase Storage. Ảnh **không** còn nằm trên ổ đĩa máy chủ nữa mà nằm trong
+  cơ sở dữ liệu (P3e) — đó là nơi duy nhất trên nền tảng này sống sót qua mỗi lần cập nhật.
 
 ## Chỉ ra chỗ cần rà soát (E12)
 

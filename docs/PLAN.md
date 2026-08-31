@@ -606,3 +606,52 @@ Hai lỗi của chính tôi, đều bị bắt: (1) `open_read` che `UnsafeObjec
 hàm *hỏi han* được phép nuốt lỗi, hàm *ra lệnh* thì không; (2) phép đo độ trễ đầu tiên dùng `curl`
 mỗi lượt một tiến trình nên bắt tay TLS lại từ đầu, chi phí đó át phần việc máy chủ tới mức ra
 **số âm** — phép đo không tách được chi phí thiết lập kết nối thì không đo cái nó tưởng nó đo.
+
+
+## P3h — Chặn OOM worker: tắt arena ONNX cho LaMa, trộn theo dải, đo được RAM (2026-08-31) ⚠️ **XONG Ở MÁY DEV — CHƯA DEPLOY**
+
+Sự cố THẬT trong Pilot 6 trang (Phase 3D): worker bị **OOM killer giết** (`exit 137`), API tụt từ
+3,4 ms xuống 10–42 s rồi tắt tiếng; 8 lượt thăm dò chỉ 3 lượt thành công; log runtime nền tảng
+cũng mất (`wings_error`).
+
+**Nguyên nhân gốc:** LaMa là model **dynamic shape** và ta chạy nó theo từng cụm bong bóng — mỗi
+cụm một kích thước. Session lại dùng `SessionOptions()` mặc định, tức **CPU memory arena BẬT**:
+arena cấp một khối cho MỖI shape mới và **không trả lại**. Càng nhiều cụm/nhiều trang càng phình.
+Nó giải thích đúng hình dạng sự cố mà "thiếu RAM" không giải thích được: **một** trang ở P3a chạy
+trọn 157 s không sao, **sáu** trang thì chết.
+
+Sửa ba việc: (1) `enable_cpu_mem_arena=False` cho LaMa, **giữ BẬT cho CTD** vì CTD letterbox về
+một kích thước cố định nên chỉ có một shape — phân biệt có lý do, không phải tắt bừa; (2) trộn ảnh
+theo dải 256 dòng thay vì một biểu thức cho cả trang; (3) `app/workers/bo_nho.py` đọc RSS từ
+`/proc/self/statm`, ghi mốc ở ranh giới các bước, kèm **van xả** nhả model không cần cho bước đang
+chạy khi vượt ngưỡng — và `/healthz` trả thêm `rss_mb`.
+
+Đo lại hôm nay bằng `tracemalloc` (tái lập được, giống nhau **từng byte**):
+
+| Cỡ trang | Một biểu thức | Theo dải | Giảm |
+|---|---|---|---|
+| 1200×1660 (cỡ trang pilot) | 71,7 MB | 14,6 MB | 80 % |
+| 1400×2000 | 100,8 MB | 18,5 MB | 82 % |
+
+Test **867 passed / 6 skipped** (nền 856), chạy lại hôm nay đúng con số đó.
+
+⛔ **Live Verification CHƯA CHẠY ĐƯỢC.** Lúc viết (31/08 ~19:00) host không phản hồi: `/healthz`
+và cả **web tĩnh** đều treo >45 s, TCP 443 kết nối được nhưng **bắt tay TLS không hoàn tất**,
+dashboard vẫn báo `online`, `get_runtime_logs` trả `wings_error`. Hai website khác nhau cùng node
+chết cùng lúc ⇒ tầng nền tảng, không phải container mình OOM thêm lần nữa.
+
+Ba điều đáng nhớ:
+
+- **`rss_mb` của `/healthz` là RSS tiến trình API, KHÔNG phải worker.** `ROLE=all` chạy celery ở
+  tiến trình nền riêng, và **celery mới là thứ bị giết**. RSS worker hiện chỉ vào log — thứ đang
+  không lấy được và không sống sót qua deploy. Lỗ hổng quan sát **chưa đóng hẳn**.
+- **Hai test phần trộn theo dải chép lại thuật toán vào trong test** thay vì gọi mã sản xuất
+  (vòng lặp thật nằm inline trong `LamaInpainter.inpaint()`), nên chúng chứng minh *thuật toán*
+  đúng chứ không chứng minh *mã đang chạy* đúng. Cần tách `_tron_theo_dai()`.
+- **Không cần đặt biến môi trường nào khi deploy** — host không có `INPAINT_CPU_MEM_ARENA` /
+  `WORKER_RSS_SOFT_LIMIT_MB` nên cả hai lấy mặc định trong mã. Đổi lại, muốn tắt bản sửa để đối
+  chứng thì phải thêm biến.
+
+⚠️ **Còn treo:** chưa push `64c006a`; chưa deploy; chưa chạy lại pilot 6 trang; ngưỡng 2200 MB
+chưa có số đo nào chống lưng; van xả chưa từng nổ trong một lượt chạy thật; chưa đo lại tốc độ
+inpaint sau khi tắt arena. Chi tiết: `docs/REPORT_P3h_WORKER_MEMORY.md`.

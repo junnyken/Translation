@@ -640,6 +640,54 @@ thứ hai: cột không nén nên Postgres giải TOAST được **một phần*
 **Đo thật trên host** (kết nối dùng lại, mốc nền `/healthz` = 3,4 ms p50): `stat()`+ETag ≈ 3,4 ms;
 đọc+phát nguyên hiện vật ≈ 6,2 ms; đọc một đoạn 8KB ≈ 5,2 ms. Không phải chỗ nghẽn.
 
+## 8d. Bộ nhớ worker — vì sao arena ONNX bị TẮT cho LaMa mà vẫn BẬT cho CTD (P3h)
+
+Pilot 6 trang trên host làm worker bị **OOM killer giết** (`exit 137`). Nguyên nhân không phải
+"thiếu RAM" mà là một tương tác cụ thể giữa hai lựa chọn đã có từ M4:
+
+```
+LaMa = model DYNAMIC SHAPE  ×  chạy theo TỪNG CỤM bong bóng (mỗi cụm một kích thước)
+                             ×  SessionOptions() mặc định = CPU memory arena BẬT
+⇒ arena cấp một khối cho MỖI shape mới và KHÔNG trả lại ⇒ phình theo số cụm/số trang
+```
+
+Đây là lý do **một** trang (P3a) chạy trọn 157 s không sao, còn **sáu** trang thì chết — hình dạng
+mà giả thuyết "thiếu RAM" không giải thích được.
+
+| Engine | `enable_cpu_mem_arena` | Vì sao |
+|---|---|---|
+| **LaMa** (`inpaint_cpu_mem_arena`) | **False** | dynamic shape + chạy theo cụm ⇒ nhiều shape ⇒ arena phình không trả lại |
+| **CTD** (`ctd_cpu_mem_arena`) | **True** | letterbox về **một** kích thước cố định ⇒ **một** shape ⇒ arena vô hại và còn nhanh hơn |
+
+Phân biệt này là **có bằng chứng**, không phải "tắt cho an toàn". Tắt bừa cả hai là trả tiền tốc
+độ của CTD để mua một thứ CTD không cần.
+
+**Trộn ảnh theo dải.** Bước cuối của inpaint ghép ảnh gốc với ảnh model theo mask. Viết một dòng
+`rgb*(1-m) + pred*m` thì numpy dựng 5–6 mảng `float32` **cỡ nguyên trang** cùng lúc. Nay lặp theo
+dải `_DAI_TRON = 256` dòng, ghi tại chỗ bằng `out=`. Đo `tracemalloc`: 1200×1660 đỉnh
+**71,7 → 14,6 MB**; 1400×2000 đỉnh **100,8 → 18,5 MB** — kết quả **giống nhau từng byte**. Điểm
+quan trọng không phải "nhỏ hơn 80 %" mà là **đỉnh thôi phụ thuộc cỡ trang**.
+
+**Van xả, không phải chế độ thường trực.** `app/workers/bo_nho.py`:
+
+```
+rss_mb()                 đọc /proc/self/statm — không thêm psutil chỉ để lấy một con số
+ghi_moc(nhan)            mốc RSS ở ranh giới detect / ocr / inpaint
+ep_giai_phong_neu_cang() CHỈ nhả model khi RSS > worker_rss_soft_limit_mb (mặc định 2200, 0 = tắt)
+```
+
+Đường chạy bình thường **giữ nguyên cache** — nhả rồi nạp lại là LaMa ~197 MB + CTD ~91 MB mỗi
+lượt. Mỗi bước khai đúng thứ nó cần, và **inpaint giữ lại OCR** vì `inpaint_verify_by_ocr` cần
+ngay sau đó.
+
+⚠️ **Ranh giới quan sát — đọc kỹ chỗ này.** `/healthz` trả `rss_mb` của **tiến trình API**, không
+phải của worker. Trên host `ROLE=all`: uvicorn ở tiền cảnh, celery `--pool=solo` ở **tiến trình
+nền riêng** — và **celery mới là thứ bị OOM giết**. RSS của worker hiện chỉ đi vào **log**, thứ
+không sống sót qua deploy (P3f) và đang không lấy được từ nền tảng (`wings_error`). Thứ thật sự
+tố giác cái chết vẫn là `worker.so_lan_chet` + `ma_thoat_gan_nhat = 137` trong `WORKER_STATE_FILE`
+— có từ trước P3h. **Đường đóng rẻ nhất (chưa làm):** cho worker tự ghi RSS vào chính tệp trạng
+thái đó, rồi `/healthz` trả cả hai.
+
 ## 9. Giới hạn đã biết (cố ý để lại)
 
 - **Supabase Storage chưa có adapter.** M1 chạy `STORAGE_BACKEND=local` (đã verify thật).
