@@ -660,3 +660,36 @@ Ba điều đáng nhớ:
 ⚠️ **Còn treo:** chưa push `64c006a`; chưa deploy; chưa chạy lại pilot 6 trang; ngưỡng 2200 MB
 chưa có số đo nào chống lưng; van xả chưa từng nổ trong một lượt chạy thật; chưa đo lại tốc độ
 inpaint sau khi tắt arena. Chi tiết: `docs/REPORT_P3h_WORKER_MEMORY.md`.
+
+
+## E17 — Gợi ý thuật ngữ & xưng hô rút từ chính chapter (2026-08-31) 📋 **THIẾT KẾ, CHỜ DUYỆT**
+
+Yêu cầu của chủ dự án: *"nhập tên bộ truyện để lấy tên + xưng hô nhân vật, chứ ngồi nhập từng cái
+rất phiền"*. Màn Thuật ngữ / Giọng nhân vật hiện là hai form trống, người dùng phải tự nhớ và gõ
+lại nguyên văn từng danh xưng trước khi rà soát chạy được lần đầu.
+
+**Không làm đúng câu chữ của yêu cầu, và đây là lý do:** hỏi model "truyện X có nhân vật nào" thì
+nó **luôn trả lời**, kể cả khi không biết — truyện ít tiếng tăm hoặc trùng tên sẽ ra một dàn nhân
+vật nghe rất thật; nó cũng không biết chapter NÀY có ai. Mà thuật ngữ đã duyệt là **luật** dùng để
+quét cả chapter, nên duyệt nhầm một tên không tồn tại làm mọi lượt rà soát sau đó báo sai. Vướng
+nguyên tắc số 3 (`CLAUDE.md`: evidence-first).
+
+**Đảo chiều:** chữ đã nằm sẵn trong `ocr_result.raw_text`. Máy tìm ứng viên + đếm + trích dẫn
+(việc máy làm được); người quyết cách dịch và xưng hô (việc chỉ người làm được). Tầng 3 — nhập tên
+bộ truyện — để sau, và nếu làm thì bắt buộc có **cổng đối chiếu**: chỉ hiện tên thật sự xuất hiện
+trong chapter này. Cổng đó là thứ biến trí nhớ không kiểm chứng được thành gợi ý kiểm chứng được.
+
+Ba điều đáng nhớ trong bản thiết kế:
+
+- **Bẫy TOÀN CHỮ HOA của tiếng Anh:** chữ lồng trong truyện tranh hay viết hoa hết, lúc đó tín
+  hiệu "viết hoa giữa câu" chết sạch và luật ngây thơ sẽ trả về **mọi từ** trong chapter. Phải đo
+  tỉ lệ chữ hoa rồi chuyển luật — và ngưỡng phải đo trên fixture thật, không lấy theo cảm tính.
+- **Không có nút "Duyệt tất cả".** `target_term` và `definition` là quyết định biên tập; máy điền
+  vào đó là quay lại đúng cái bẫy trên. Máy chỉ điền sẵn *thuật ngữ gốc* + *loại* + *trích dẫn*.
+- **Ba trạng thái rỗng không được gộp:** "chưa đọc chữ" ≠ "đã tìm, không có" ≠ "đều đã có trong
+  glossary" — cùng một bài học với `worker: khong_ro` của E1a.
+
+Không bảng mới, không migration, không gọi LLM ở tầng 1+2. ET 8,0 h (chia E17a 5 h + E17b 3 h).
+
+⚠️ **Chưa được viết mã.** `CLAUDE.md` cấm mở mini-spec khi mini-spec trước chưa audit pass, mà
+P3h thì chưa verify được trên host. Chi tiết + 3 câu hỏi chờ chốt: `docs/SPEC_E17_TERM_CANDIDATES.md`.
