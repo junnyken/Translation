@@ -6,10 +6,11 @@ có một chỉ số bộ nhớ nào.
 """
 from __future__ import annotations
 
+import tracemalloc
+
 import numpy as np
 import pytest
-
-from app.services.inpaint.lama import _DAI_TRON
+from app.services.inpaint.lama import _DAI_TRON, _tron_theo_dai
 from app.workers import bo_nho
 
 
@@ -62,38 +63,101 @@ class TestVanXa:
 
 
 class TestTronTheoDai:
-    """Khẳng định quan trọng nhất: tối ưu bộ nhớ KHÔNG được đổi lấy một pixel nào."""
+    """Gọi ĐÚNG hàm mà đường chạy thật dùng (`_tron_theo_dai`).
 
-    @pytest.mark.parametrize("h,w", [(1660, 1200), (300, 200), (_DAI_TRON, 64), (_DAI_TRON + 1, 64)])
-    def test_ket_qua_giong_het_cach_lam_mot_biểu_thuc(self, h, w):
-        rng = np.random.default_rng(11)
+    Bản đầu của bộ test này **chép lại vòng lặp vào trong test** rồi so với công thức cũ — nó
+    chứng minh *thuật toán* tương đương chứ không chứng minh *mã đang chạy* làm đúng thuật toán
+    đó: sửa bản sao mà quên sửa bản thật thì test vẫn xanh. Nay `lama.py` tách hàm ra và cả hai
+    bên gọi chung một chỗ.
+    """
+
+    @staticmethod
+    def _mot_bieu_thuc(rgb, pred, mask):
+        """Mốc đối chiếu — chép ĐÚNG mã cũ trước P3h (`lama.py` ở commit `ac5460c`).
+
+        Kể cả việc **gán tên cho mảng trung gian**: chỉ vì có biến `blended` giữ tham chiếu mà
+        mảng đó còn sống trong lúc numpy dựng mảng tiếp theo — đo được đỉnh 100,8 MB thay vì
+        67,2 MB nếu viết liền một biểu thức (1400x2000). Chép mốc đối chiếu "cho gần đúng" là
+        cách âm thầm làm phép so sánh dễ hơn thực tế.
+        """
+        m3 = mask[:, :, None]
+        blended = rgb * (1.0 - m3) + pred * m3
+        return (blended * 255.0).round().astype(np.uint8)
+
+    @staticmethod
+    def _du_lieu(h, w, seed=11):
+        rng = np.random.default_rng(seed)
         rgb = rng.random((h, w, 3), dtype=np.float32)
         pred = rng.random((h, w, 3), dtype=np.float32)
         mask = (rng.random((h, w)) > 0.7).astype(np.float32)
+        return rgb, pred, mask
 
-        m3 = mask[:, :, None]
-        mong_doi = ((rgb * (1.0 - m3) + pred * m3) * 255.0).round().astype(np.uint8)
+    @staticmethod
+    def _dinh_mb(fn, *args):
+        """Đỉnh cấp phát của riêng `fn` (đầu vào đã cấp phát trước khi bật đo)."""
+        tracemalloc.start()
+        tracemalloc.reset_peak()
+        ket = fn(*args)
+        _, dinh = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        return ket, dinh / 1e6
 
-        thuc_te = np.empty((h, w, 3), dtype=np.uint8)
-        for y0 in range(0, h, _DAI_TRON):
-            y1 = min(y0 + _DAI_TRON, h)
-            m = mask[y0:y1, :, None]
-            dai = rgb[y0:y1] * (1.0 - m)
-            dai += pred[y0:y1] * m
-            np.multiply(dai, 255.0, out=dai)
-            np.round(dai, out=dai)
-            thuc_te[y0:y1] = dai.astype(np.uint8)
+    @pytest.mark.parametrize("h,w", [(1660, 1200), (300, 200), (_DAI_TRON, 64), (_DAI_TRON + 1, 64)])
+    def test_ket_qua_giong_het_cach_lam_mot_bieu_thuc(self, h, w):
+        """Khẳng định quan trọng nhất: tối ưu bộ nhớ KHÔNG được đổi lấy một pixel nào."""
+        rgb, pred, mask = self._du_lieu(h, w)
+        mong_doi = self._mot_bieu_thuc(rgb, pred, mask)
 
+        thuc_te = _tron_theo_dai(rgb, pred, mask)
+
+        assert thuc_te.shape == (h, w, 3) and thuc_te.dtype == np.uint8
         assert np.array_equal(thuc_te, mong_doi), "trộn theo dải làm đổi pixel"
 
     def test_ngoai_mask_giu_nguyen_anh_goc(self):
-        """Bất biến của M4: pixel ngoài mask không được đụng tới."""
+        """Bất biến của M4: pixel ngoài mask không được đụng tới — đo trên chính hàm sản xuất."""
         h = w = 64
         rgb = np.full((h, w, 3), 0.25, dtype=np.float32)
         pred = np.full((h, w, 3), 0.99, dtype=np.float32)
         mask = np.zeros((h, w), dtype=np.float32)
         mask[:10, :10] = 1.0
-        m3 = mask[:, :, None]
-        ket = ((rgb * (1.0 - m3) + pred * m3) * 255.0).round().astype(np.uint8)
-        assert (ket[20:, 20:] == round(0.25 * 255)).all()
-        assert (ket[:10, :10] == round(0.99 * 255)).all()
+
+        ket = _tron_theo_dai(rgb, pred, mask)
+
+        assert (ket[20:, 20:] == round(0.25 * 255)).all(), "pixel ngoài mask bị đổi"
+        assert (ket[:10, :10] == round(0.99 * 255)).all(), "pixel trong mask không được thay"
+
+    def test_re_hon_han_cach_viet_mot_bieu_thuc(self):
+        """Không có phép đo này thì 'tiết kiệm bộ nhớ' chỉ là một khẳng định trong docstring."""
+        rgb, pred, mask = self._du_lieu(2000, 1400)
+
+        _, dinh_cu = self._dinh_mb(self._mot_bieu_thuc, rgb, pred, mask)
+        if dinh_cu < 10.0:
+            pytest.skip(f"tracemalloc không theo dõi cấp phát của numpy ở môi trường này ({dinh_cu:.1f} MB)")
+        _, dinh_moi = self._dinh_mb(_tron_theo_dai, rgb, pred, mask)
+
+        assert dinh_moi < dinh_cu * 0.4, f"đỉnh {dinh_moi:.1f} MB không rẻ hơn hẳn {dinh_cu:.1f} MB"
+
+    def test_dinh_bo_nho_KHONG_leo_theo_chieu_cao_trang(self):
+        """Điểm đáng giá không phải 'nhỏ hơn' mà là 'không phụ thuộc cỡ trang'.
+
+        Gấp đôi chiều cao: cách cũ tốn gấp đôi; cách mới chỉ tăng đúng phần ảnh KẾT QUẢ
+        (`h*w*3` byte uint8), còn vùng đệm trung gian đứng yên theo `_DAI_TRON`.
+        """
+        rgb1, pred1, mask1 = self._du_lieu(800, 1400)
+        rgb2, pred2, mask2 = self._du_lieu(1600, 1400)
+
+        _, dinh_cu_thap = self._dinh_mb(self._mot_bieu_thuc, rgb1, pred1, mask1)
+        if dinh_cu_thap < 10.0:
+            pytest.skip(f"tracemalloc không theo dõi cấp phát của numpy ở môi trường này ({dinh_cu_thap:.1f} MB)")
+        _, dinh_cu_cao = self._dinh_mb(self._mot_bieu_thuc, rgb2, pred2, mask2)
+        _, dinh_moi_thap = self._dinh_mb(_tron_theo_dai, rgb1, pred1, mask1)
+        _, dinh_moi_cao = self._dinh_mb(_tron_theo_dai, rgb2, pred2, mask2)
+
+        # Đối chứng: cách cũ PHẢI leo gần gấp đôi — nếu không thì phép đo này không đo cái nó tưởng.
+        assert dinh_cu_cao > dinh_cu_thap * 1.8, (
+            f"mốc đối chiếu không leo như dự kiến ({dinh_cu_thap:.1f} -> {dinh_cu_cao:.1f} MB) "
+            "— phép đo đang không đo cái nó tưởng nó đang đo"
+        )
+        assert dinh_moi_cao < dinh_moi_thap * 1.5, (
+            f"đỉnh vẫn leo theo chiều cao trang ({dinh_moi_thap:.1f} -> {dinh_moi_cao:.1f} MB)"
+        )

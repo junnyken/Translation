@@ -76,6 +76,38 @@ def gom_cum(masks: list, rong: int, cao: int, le: int) -> list[tuple[int, int, i
     return [tuple(c) for c in o]
 
 
+def _tron_theo_dai(rgb: np.ndarray, pred: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """Ghép ảnh gốc với ảnh model theo mask — làm THEO TỪNG DẢI `_DAI_TRON` dòng.
+
+    Chỉ thay pixel TRONG mask; ngoài mask giữ nguyên từng pixel của ảnh gốc (tránh model làm mờ
+    cả trang) — bất biến này có từ M4.
+
+    Vì sao không viết một dòng `rgb * (1 - m3) + pred * m3`: numpy sẽ dựng 5-6 mảng float32 **cỡ
+    nguyên trang** cùng lúc. Đo bằng `tracemalloc`: 1200x1660 đỉnh 71,7 MB so với 14,6 MB khi làm
+    theo dải; 1400x2000 đỉnh 100,8 MB so với 18,5 MB — kết quả giống nhau TỪNG BYTE. Điều đáng giá
+    không phải "giảm 80%" mà là **vùng đệm trung gian thôi leo theo cỡ trang**: gấp đôi chiều cao
+    thì cách cũ tốn gấp 2,00 lần còn cách này chỉ 1,25 lần — phần tăng đúng bằng ảnh KẾT QUẢ
+    (`h*w*3` byte uint8), thứ không tránh được.
+
+    Tách thành hàm riêng (P3h hậu kiểm) để test gọi **đúng mã đang chạy**. Trước đó vòng lặp nằm
+    inline trong `inpaint()` còn test chép lại thuật toán vào trong test — nó chứng minh thuật toán
+    tương đương chứ không chứng minh mã sản xuất làm đúng thuật toán đó.
+
+    `rgb`, `pred`: HWC float32 trong [0,1]. `mask`: HW float32, 1 = xoá. Trả HWC uint8.
+    """
+    height, width = mask.shape
+    out_arr = np.empty((height, width, 3), dtype=np.uint8)
+    for y0 in range(0, height, _DAI_TRON):
+        y1 = min(y0 + _DAI_TRON, height)
+        m = mask[y0:y1, :, None]
+        dai = rgb[y0:y1] * (1.0 - m)
+        dai += pred[y0:y1] * m
+        np.multiply(dai, 255.0, out=dai)
+        np.round(dai, out=dai)
+        out_arr[y0:y1] = dai.astype(np.uint8)
+    return out_arr
+
+
 def _pad_to_multiple(arr: np.ndarray, multiple: int = _SIZE_MULTIPLE) -> tuple[np.ndarray, int, int]:
     """Pad mép phải/dưới cho chia hết `multiple`. Trả (mảng đã pad, pad_h, pad_w)."""
     h, w = arr.shape[-2], arr.shape[-1]
@@ -227,23 +259,9 @@ class LamaInpainter:
                     continue
                 pred_hwc[y0:y1, x0:x1] = self._chay_model(o_anh, o_mask)
 
-        # Chỉ thay pixel TRONG mask; ngoài mask giữ nguyên từng pixel của ảnh gốc
-        # (tránh model làm mờ cả trang).
-        #
-        # Trộn theo TỪNG DẢI ngang thay vì một biểu thức cho cả trang. Viết một dòng
-        # `rgb * (1 - mask3) + pred * mask3` thì numpy dựng 5-6 mảng float32 cỡ nguyên trang
-        # cùng lúc. Đo trên đúng cỡ trang pilot (1200x1660): đỉnh cấp phát 71,7 MB so với
-        # 14,6 MB khi làm theo dải — giảm 80%, và kết quả giống nhau TỪNG BYTE.
-        out_arr = np.empty((height, width, 3), dtype=np.uint8)
-        for y0 in range(0, height, _DAI_TRON):
-            y1 = min(y0 + _DAI_TRON, height)
-            m = mask[y0:y1, :, None]
-            dai = rgb[y0:y1] * (1.0 - m)
-            dai += pred_hwc[y0:y1] * m
-            np.multiply(dai, 255.0, out=dai)
-            np.round(dai, out=dai)
-            out_arr[y0:y1] = dai.astype(np.uint8)
-        out = Image.fromarray(out_arr, mode="RGB")
+        # Chỉ thay pixel TRONG mask, và làm theo dải để đỉnh bộ nhớ không leo theo cỡ trang
+        # — lý do đầy đủ nằm trong docstring của `_tron_theo_dai`.
+        out = Image.fromarray(_tron_theo_dai(rgb, pred_hwc, mask), mode="RGB")
 
         target = self.clean_path_for(image_path)
         target.parent.mkdir(parents=True, exist_ok=True)

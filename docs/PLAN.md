@@ -633,7 +633,8 @@ chạy khi vượt ngưỡng — và `/healthz` trả thêm `rss_mb`.
 | 1200×1660 (cỡ trang pilot) | 71,7 MB | 14,6 MB | 80 % |
 | 1400×2000 | 100,8 MB | 18,5 MB | 82 % |
 
-Test **867 passed / 6 skipped** (nền 856), chạy lại hôm nay đúng con số đó.
+Test **867 passed / 6 skipped** (nền 856), chạy lại hôm nay đúng con số đó; sau lượt hậu kiểm
+tách `_tron_theo_dai()`: **869 passed / 6 skipped, exit 0**.
 
 ⛔ **Live Verification CHƯA CHẠY ĐƯỢC.** Lúc viết (31/08 ~19:00) host không phản hồi: `/healthz`
 và cả **web tĩnh** đều treo >45 s, TCP 443 kết nối được nhưng **bắt tay TLS không hoàn tất**,
@@ -647,7 +648,11 @@ Ba điều đáng nhớ:
   không lấy được và không sống sót qua deploy. Lỗ hổng quan sát **chưa đóng hẳn**.
 - **Hai test phần trộn theo dải chép lại thuật toán vào trong test** thay vì gọi mã sản xuất
   (vòng lặp thật nằm inline trong `LamaInpainter.inpaint()`), nên chúng chứng minh *thuật toán*
-  đúng chứ không chứng minh *mã đang chạy* đúng. Cần tách `_tron_theo_dai()`.
+  đúng chứ không chứng minh *mã đang chạy* đúng. ✅ **Đã đóng cùng ngày:** tách `_tron_theo_dai()`,
+  hai bên gọi chung, thêm 2 test **đo đỉnh bộ nhớ** — trong đó một test có **assert đối chứng**
+  bắt mốc cũ phải leo theo chiều cao trang, để phép đo không thể xanh nhầm. Bẫy bắt được lúc đóng:
+  mốc đối chiếu chép "cho gọn" (bỏ biến trung gian `blended`) làm mốc **dễ hơn thực tế 1,5 lần** —
+  trong numpy một cái tên biến là một mảng chưa được giải phóng.
 - **Không cần đặt biến môi trường nào khi deploy** — host không có `INPAINT_CPU_MEM_ARENA` /
   `WORKER_RSS_SOFT_LIMIT_MB` nên cả hai lấy mặc định trong mã. Đổi lại, muốn tắt bản sửa để đối
   chứng thì phải thêm biến.

@@ -662,7 +662,10 @@ mà giả thuyết "thiếu RAM" không giải thích được.
 Phân biệt này là **có bằng chứng**, không phải "tắt cho an toàn". Tắt bừa cả hai là trả tiền tốc
 độ của CTD để mua một thứ CTD không cần.
 
-**Trộn ảnh theo dải.** Bước cuối của inpaint ghép ảnh gốc với ảnh model theo mask. Viết một dòng
+**Trộn ảnh theo dải** — `_tron_theo_dai(rgb, pred, mask)` trong `lama.py`, và **đường chạy thật
+lẫn test gọi chung đúng hàm đó** (tách ra ở lượt hậu kiểm P3h; trước đó vòng lặp nằm inline trong
+`inpaint()` nên test chỉ so được với một bản chép lại của chính nó). Bước cuối của inpaint ghép
+ảnh gốc với ảnh model theo mask. Viết một dòng
 `rgb*(1-m) + pred*m` thì numpy dựng 5–6 mảng `float32` **cỡ nguyên trang** cùng lúc. Nay lặp theo
 dải `_DAI_TRON = 256` dòng, ghi tại chỗ bằng `out=`. Đo `tracemalloc`: 1200×1660 đỉnh
 **71,7 → 14,6 MB**; 1400×2000 đỉnh **100,8 → 18,5 MB** — kết quả **giống nhau từng byte**. Điểm

@@ -81,12 +81,12 @@ Không đọc được thì trả **`None`**, **không** trả `0`: *"đo đư�
 | Tệp | Việc |
 |---|---|
 | `app/workers/bo_nho.py` | **Mới** — `rss_mb()`, `ghi_moc()`, `giai_phong_model()`, `ep_giai_phong_neu_cang()` |
-| `app/services/inpaint/lama.py` | `cpu_mem_arena` (mặc định **False**) + vòng trộn theo dải `_DAI_TRON` |
+| `app/services/inpaint/lama.py` | `cpu_mem_arena` (mặc định **False**) + `_tron_theo_dai()` — hàm trộn theo dải `_DAI_TRON`, **mã sản xuất và test gọi chung** |
 | `app/services/detect/ctd.py` | `cpu_mem_arena` (mặc định **True**) + ghi `arena=` vào log nạp model |
 | `app/core/config.py` | `inpaint_cpu_mem_arena=False`, `ctd_cpu_mem_arena=True`, `worker_rss_soft_limit_mb=2200` |
 | `app/workers/tasks.py` | Truyền cờ arena vào 2 engine; gọi van xả + `ghi_moc` ở ranh giới detect/ocr/inpaint |
 | `app/main.py` | `/healthz` trả thêm `rss_mb` |
-| `tests/test_bo_nho_unit.py` | **Mới** — 11 test (xem §5.3 về giới hạn của 2 trong số đó) |
+| `tests/test_bo_nho_unit.py` | **Mới** — 13 test (2 đo RSS + 4 van xả + 4 tương đương từng byte + 2 đo đỉnh bộ nhớ + 1 bất biến M4) |
 
 ## 5. New API/DB/State · Tests
 
@@ -107,19 +107,21 @@ Không đọc được thì trả **`None`**, **không** trả `0`: *"đo đư�
 
 `tracemalloc`, cùng seed, so **cách cũ** với **cách mới**:
 
-| Cỡ trang | Một biểu thức | Theo dải | Giảm | Giống từng byte |
+| Cỡ trang | Cách cũ (đúng mã trước P3h, có biến `blended`) | Theo dải | Giảm | Giống từng byte |
 |---|---|---|---|---|
 | 1200×1660 (đúng cỡ trang pilot) | **71,7 MB** | **14,6 MB** | **80 %** | ✅ |
 | 1400×2000 (cỡ trang M4 đã đo) | **100,8 MB** | **18,5 MB** | **82 %** | ✅ |
 
-Con số 1200×1660 **tái lập đúng** số đã ghi trong commit. Dòng 1400×2000 là điểm đo thêm của lần
-viết báo cáo này, và nó nói một điều mà một dòng không nói được: **cách cũ leo theo diện tích
-trang, cách mới gần như đứng yên.**
+Con số 1200×1660 **tái lập đúng** số đã ghi trong commit; dòng 1400×2000 là điểm đo thêm của lần
+viết báo cáo này. Hai dòng này **chưa** đủ để nói "cách mới không phụ thuộc cỡ trang" — chúng khác
+nhau cả chiều rộng lẫn chiều cao. Phép so có kiểm soát (cùng chiều rộng, gấp đôi chiều cao) nằm ở
+**§5.5**, và cột "cách cũ" ở đây phải chép đúng mã cũ **kể cả biến trung gian** — lý do ở §5.5.
 
 ### 5.3 Bộ test — và hai chỗ nó **chưa** chứng minh được điều nó có vẻ chứng minh
 
 ```
-867 passed, 6 skipped      (nền trước P3h: 856)      exit 0
+867 passed, 6 skipped      (nền trước P3h: 856)      exit 0     <- tại commit 64c006a
+869 passed, 6 skipped                                exit 0     <- sau lượt hậu kiểm §5.5
 ```
 **Chạy lại trong lúc viết báo cáo này** (`../.venv/bin/python -m pytest -q`, 31/08 ~19:0x) —
 đúng **867 passed / 6 skipped**, khớp con số ghi trong commit. Ruff trên các tệp đã sửa:
@@ -145,9 +147,9 @@ thứ không cần, giữ đúng thứ đang dùng**:
    bản một-biểu-thức rồi assert trên chính nó. Với P3h đây là một **pass rỗng**, đúng nghĩa đã
    dùng cho Run C của E15.
 
-**Cách đóng:** tách vòng trộn thành `_tron_theo_dai(rgb, pred, mask) -> np.ndarray` trong
-`lama.py`, cho **cả** mã sản xuất **và** test gọi cùng một hàm. Việc nhỏ, nhưng chưa làm thì
-không được ghi "đã test xong phần trộn". Đã ghi vào §7.
+✅ **Đã đóng ngay sau khi phát hiện** (cùng ngày, commit tiếp theo): tách
+`_tron_theo_dai(rgb, pred, mask) -> np.ndarray` ra khỏi `inpaint()`; **đường chạy thật và toàn bộ
+7 test của phần trộn nay gọi chung một hàm**. Số đo và một cái bẫy bắt được trong lúc đóng: §5.5.
 
 ### 5.4 Một lỗi của chính tôi trong lúc sửa
 
@@ -157,6 +159,49 @@ tìm sai chỗ.
 
 *Bài học: mọi phép thay chuỗi trong tệp phải có assert "đã thay được", nếu không thì lần hỏng đầu
 tiên sẽ hiện ra ở một nơi rất xa chỗ gây lỗi.*
+
+### 5.5 Đóng điểm yếu ở §5.3 — và cái bẫy trong chính phép đo đối chiếu
+
+Tách `_tron_theo_dai()` ra hàm module-level; `inpaint()` gọi nó, test gọi nó. Bộ test phần trộn
+thành **7 test**, toàn bộ suite **869 passed / 6 skipped, exit 0** (ruff trên 2 tệp đụng tới:
+sạch; tổng trên 7 tệp P3h vẫn **19**, không thêm nợ). Trong 7 test có **2 test đo bộ nhớ thật** — vì không có phép đo thì "tiết kiệm bộ nhớ"
+mãi mãi chỉ là một câu trong docstring:
+
+| Test | Khẳng định |
+|---|---|
+| `test_re_hon_han_cach_viet_mot_bieu_thuc` | đỉnh cách mới **< 40 %** cách cũ trên trang 1400×2000 (đo được: **18 %**) |
+| `test_dinh_bo_nho_KHONG_leo_theo_chieu_cao_trang` | gấp đôi chiều cao: cách cũ **phải** leo > 1,8× (đối chứng), cách mới **< 1,5×** |
+
+Test thứ hai mới là cái đúng trọng tâm: điều đáng giá không phải "nhỏ hơn" mà là **không phụ thuộc
+cỡ trang**. Nó kèm một **assert đối chứng** bắt buộc mốc cũ phải leo — nếu mốc cũ cũng đứng yên
+thì phép đo đang không đo cái nó tưởng, và test phải đỏ chứ không được xanh nhầm.
+
+Đo trên máy dev (`tracemalloc`, cùng seed, giống nhau **từng byte** ở cả bốn cỡ):
+
+| Cỡ trang | Cách cũ | Theo dải | Tỉ lệ |
+|---|---|---|---|
+| 1400×**800** | 40,3 MB | 13,4 MB | 0,33 |
+| 1400×**1600** | 80,6 MB | 16,8 MB | 0,21 |
+| 1200×1660 | 71,7 MB | 14,6 MB | 0,20 |
+| 1400×2000 | 100,8 MB | 18,5 MB | 0,18 |
+
+Hai dòng đầu là cặp đối chứng chiều cao: **cách cũ 2,00× · cách mới 1,25×** (phần tăng của cách
+mới đúng bằng ảnh kết quả `h*w*3` uint8, còn vùng đệm trung gian đứng yên theo `_DAI_TRON`).
+
+⚠️ **Cái bẫy: mốc đối chiếu ban đầu tôi viết KHÔNG khớp mã cũ.** Tôi viết gọn thành một biểu thức
+liền, còn mã cũ có gán tên `blended` cho mảng trung gian. Chỉ khác một cái **tên biến** — nhưng
+tên đó giữ tham chiếu nên mảng 33,6 MB còn sống trong lúc numpy dựng mảng tiếp theo:
+
+```
+1400x2000, cách cũ:  có biến `blended`  ->  100,8 MB
+                     viết liền một biểu thức ->  67,2 MB
+```
+
+Tức bản "gọn" của tôi đã âm thầm làm mốc đối chiếu **dễ hơn thực tế 1,5 lần**. Đã chép lại đúng
+mã cũ (kèm ghi chú trong docstring của test).
+
+*Bài học: mốc đối chiếu phải chép NGUYÊN mã cũ, kể cả những chi tiết trông như phong cách viết.
+Trong numpy, một cái tên biến là một tham chiếu, và một tham chiếu là một mảng chưa được giải phóng.*
 
 ## 6. Live Verification — ⛔ **CHƯA CHẠY ĐƯỢC**
 
@@ -220,7 +265,8 @@ chứng thì phải thêm biến, không có sẵn.
    thật.
 4. ⚠️ **Van xả chưa từng nổ trong một lượt chạy thật** — mọi test đều `monkeypatch` `rss_mb`.
    Nhánh nhả model thật (nhả rồi nạp lại LaMa giữa chừng) chưa chạy lần nào ngoài đời.
-5. ⚠️ **Hai test phần trộn theo dải chưa gọi mã sản xuất** (§5.3). Cần tách `_tron_theo_dai()`.
+5. ✅ ~~Hai test phần trộn theo dải chưa gọi mã sản xuất~~ — **đã đóng** trong ngày: tách
+   `_tron_theo_dai()`, mã sản xuất và test gọi chung, thêm 2 test đo đỉnh bộ nhớ (§5.5).
 6. **Chưa đo lại tốc độ inpaint sau khi tắt arena.** Arena tắt thường **chậm hơn** đôi chút — đổi
    tốc độ lấy sống sót là đổi có chủ đích, nhưng cái giá đó **chưa được đo**. Mốc M4 cũ:
    54,3 s/ảnh 1400×2000 trên CPU.

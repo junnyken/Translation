@@ -2666,9 +2666,11 @@ trên host để LaMa sinh ra ảnh clean **6.763.787 byte**, rồi đo lại:
 # ==================== P3h — Chặn OOM worker (2026-08-31) ====================
 
 ```
-867 passed, 6 skipped      (nền trước P3h: 856)      exit 0
+867 passed, 6 skipped      (nền trước P3h: 856)      exit 0     <- tại commit 64c006a
+869 passed, 6 skipped                                exit 0     <- sau lượt hậu kiểm (P3h.3/P3h.6)
 ```
-Chạy lại lúc viết báo cáo (31/08 ~19:0x): **đúng 867/6**. Ruff trên các tệp đã sửa: **20 → 19**.
+Chạy lại lúc viết báo cáo (31/08 ~19:0x): **đúng 867/6**. Ruff trên các tệp đã sửa: **20 → 19**
+(lượt hậu kiểm thêm 2 test, không thêm nợ lint: vẫn **19**).
 
 ## P3h.1 — Ba test của van xả: khẳng định đúng thứ dễ làm sai nhất
 
@@ -2691,7 +2693,7 @@ Dòng thứ hai là điểm đo thêm lúc viết báo cáo, và nó nói cái m
 leo theo diện tích trang, cách mới gần như đứng yên.** Một phép đo đơn lẻ không phân biệt được
 "nhỏ hơn" với "không phụ thuộc cỡ".
 
-## P3h.3 — ⚠️ Hai test phần trộn KHÔNG gọi mã sản xuất (pass yếu)
+## P3h.3 — ⚠️ Hai test phần trộn KHÔNG gọi mã sản xuất (pass yếu) — **đã đóng**
 
 Phải ghi ra, vì đọc lướt thì hai test này trông như đã khoá phần trộn:
 
@@ -2700,10 +2702,45 @@ Phải ghi ra, vì đọc lướt thì hai test này trông như đã khoá ph�
 | `test_ket_qua_giong_het_cach_lam_mot_biểu_thuc` | **chép lại** vòng lặp trộn vào trong test rồi so với công thức cũ. Vòng lặp thật nằm **inline trong `LamaInpainter.inpaint()`** (`lama.py:238`), test **không gọi tới**. ⇒ chứng minh *thuật toán* tương đương, **không** chứng minh *mã đang chạy* làm đúng thuật toán đó |
 | `test_ngoai_mask_giu_nguyen_anh_goc` | **không đụng đường theo dải một chút nào** — tính bản một-biểu-thức rồi assert trên chính nó. Với P3h đây là **pass rỗng**, đúng nghĩa đã dùng cho Run C của E15 |
 
-**Cách đóng:** tách `_tron_theo_dai(rgb, pred, mask)` trong `lama.py` để mã sản xuất và test gọi
-**cùng một hàm**. Chưa làm ⇒ **không được ghi "đã test xong phần trộn"**.
+✅ **ĐÃ ĐÓNG cùng ngày.** Tách `_tron_theo_dai(rgb, pred, mask)` trong `lama.py`; `inpaint()` và
+test **gọi chung một hàm**. Bộ test phần trộn: **7 test** (4 tương đương từng byte · 2 đo đỉnh bộ
+nhớ · 1 bất biến M4 — nay chạy trên chính hàm sản xuất).
 
 *Bài học chung: test so hai bản cài đặt chỉ có giá trị khi MỘT trong hai bản là bản đang chạy thật.*
+
+## P3h.6 — Hai test ĐO bộ nhớ (thay cho một câu trong docstring)
+
+| Test | Khẳng định | Đo được |
+|---|---|---|
+| `test_re_hon_han_cach_viet_mot_bieu_thuc` | đỉnh cách mới **< 40 %** cách cũ (1400×2000) | **18 %** |
+| `test_dinh_bo_nho_KHONG_leo_theo_chieu_cao_trang` | gấp đôi chiều cao ⇒ cách mới **< 1,5×**, và **đối chứng** bắt mốc cũ phải leo **> 1,8×** | mới **1,25×** · cũ **2,00×** |
+
+Cái thứ hai mới đúng trọng tâm: điều đáng giá không phải "nhỏ hơn" mà là **không phụ thuộc cỡ
+trang**. Assert đối chứng có mặt để nếu mốc cũ cũng đứng yên thì test phải **đỏ** — một phép đo
+không phân biệt được hai giả thuyết thì không phải phép đo.
+
+| Cỡ trang | Cách cũ | Theo dải | Tỉ lệ | Giống từng byte |
+|---|---|---|---|---|
+| 1400×800 | 40,3 MB | 13,4 MB | 0,33 | ✅ |
+| 1400×1600 | 80,6 MB | 16,8 MB | 0,21 | ✅ |
+| 1200×1660 | 71,7 MB | 14,6 MB | 0,20 | ✅ |
+| 1400×2000 | 100,8 MB | 18,5 MB | 0,18 | ✅ |
+
+### Mốc đối chiếu đầu tiên tôi viết đã SAI — và nó sai theo hướng có lợi cho mình
+
+Tôi chép mã cũ "cho gọn" thành một biểu thức liền, trong khi mã cũ có gán tên `blended` cho mảng
+trung gian. Chỉ khác một **tên biến**, nhưng tên đó giữ tham chiếu nên mảng 33,6 MB còn sống trong
+lúc numpy dựng mảng kế tiếp:
+
+```
+1400x2000, cách cũ:  có biến `blended`         -> 100,8 MB
+                     viết liền một biểu thức   ->  67,2 MB
+```
+
+⇒ bản "gọn" làm mốc đối chiếu **dễ hơn thực tế 1,5 lần**. Đã sửa để chép đúng mã cũ.
+
+*Bài học: mốc đối chiếu phải chép NGUYÊN mã cũ, kể cả chi tiết trông như phong cách viết. Trong
+numpy, một cái tên biến là một tham chiếu, và một tham chiếu là một mảng chưa được giải phóng.*
 
 ## P3h.4 — Live Verification trên host: ⛔ KHÔNG CHẠY ĐƯỢC (31/08 ~19:00–19:10)
 
