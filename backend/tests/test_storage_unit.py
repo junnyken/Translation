@@ -240,3 +240,94 @@ class TestRiengPostgres:
         kho.save("p_1/a_clean.png", b"x")
         kho.save("pX1/b.png", b"y")            # khớp `p_1/%` nếu quên thoát `_`
         assert kho.list_prefix("p_1") == ["p_1/a_clean.png"]
+
+
+class TestDocTheoDoan:
+    """`read_range` + luồng lười — chạy trên CẢ HAI backend."""
+
+    def test_doc_dung_doan_giua(self, kho):
+        kho.save("a.bin", b"0123456789")
+        assert kho.read_range("a.bin", 3, 4) == b"3456"
+
+    def test_doc_tu_dau_va_toi_cuoi(self, kho):
+        kho.save("a.bin", b"0123456789")
+        assert kho.read_range("a.bin", 0, 3) == b"012"
+        assert kho.read_range("a.bin", 7, 99) == b"789", "xin quá cuối phải trả ít hơn, không ném"
+
+    def test_doan_rong_va_ngoai_tep(self, kho):
+        kho.save("a.bin", b"0123456789")
+        assert kho.read_range("a.bin", 0, 0) == b""
+        assert kho.read_range("a.bin", 5, -1) == b""
+        assert kho.read_range("a.bin", 99, 10) == b""
+
+    def test_luong_tua_duoc_ca_hai_chieu(self, kho):
+        kho.save("a.bin", bytes(range(256)))
+        with kho.open_read("a.bin") as fh:
+            assert fh.seekable()
+            fh.seek(10)
+            assert fh.read(4) == bytes([10, 11, 12, 13])
+            fh.seek(-2, 2)                      # từ cuối
+            assert fh.read() == bytes([254, 255])
+            fh.seek(0)
+            assert len(fh.read()) == 256
+
+    def test_luong_doc_ra_dung_nguyen_van_khi_lon_hon_mot_khoi(self, kho):
+        """Nhiều khối phải ghép lại đúng thứ tự — lỗi off-by-one ở đây rất dễ lọt."""
+        du_lieu = bytes((i * 7 + 3) % 256 for i in range(700_000))
+        kho.save("to.bin", du_lieu)
+        with kho.open_read("to.bin") as fh:
+            assert fh.read() == du_lieu
+
+    def test_PIL_mo_duoc_anh_qua_luong(self, kho, sample_page_image):
+        """PIL tua tới lui trong header — luồng chỉ-đọc-tiếp sẽ làm hỏng mọi chỗ dùng ảnh."""
+        from PIL import Image
+
+        kho.save("anh.png", sample_page_image)
+        with kho.open_read("anh.png") as fh, Image.open(fh) as im:
+            im.load()
+            assert im.format == "PNG"
+
+    def test_doc_dau_tep_KHONG_keo_ca_hien_vat_ve(self):
+        """Lời hứa của P3g: RAM tỉ lệ với KHỐI ĐANG ĐỌC, không phải với kích thước hiện vật.
+
+        Đo bằng cách đếm byte thật sự kéo về từ CSDL khi chỉ đọc 100 byte đầu của một hiện vật
+        2MB. Không có phép đếm này thì "đọc lười" chỉ là một lời khẳng định trong docstring.
+        """
+        kho = _kho_postgres()
+        du_lieu = bytes((i * 13 + 7) % 256 for i in range(2_000_000))
+        kho.save("to.bin", du_lieu)
+
+        da_keo = {"byte": 0, "so_luot": 0}
+        that = kho.read_range
+
+        def dem(path, offset, length):
+            khoi = that(path, offset, length)
+            da_keo["byte"] += len(khoi)
+            da_keo["so_luot"] += 1
+            return khoi
+
+        kho.read_range = dem
+        with kho.open_read("to.bin") as fh:
+            assert fh.read(100) == du_lieu[:100]
+
+        assert da_keo["byte"] <= 512 * 1024, (
+            f"đọc 100 byte đầu mà kéo về {da_keo['byte']} byte — vẫn đang nạp cả hiện vật"
+        )
+        assert da_keo["so_luot"] <= 2
+
+    def test_doc_het_tep_thi_chia_thanh_nhieu_luot(self):
+        """Mặt kia của cùng một lời hứa: đọc hết 2MB phải là NHIỀU lượt, không phải một cú
+        `SELECT data` khổng lồ."""
+        kho = _kho_postgres()
+        kho.save("to.bin", b"z" * 2_000_000)
+        so_luot = {"n": 0}
+        that = kho.read_range
+
+        def dem(path, offset, length):
+            so_luot["n"] += 1
+            return that(path, offset, length)
+
+        kho.read_range = dem
+        with kho.open_read("to.bin") as fh:
+            assert len(fh.read()) == 2_000_000
+        assert so_luot["n"] >= 4, "đọc hết 2MB mà chỉ 1 lượt ⇒ vẫn kéo nguyên khối"

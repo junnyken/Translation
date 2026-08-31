@@ -27,6 +27,7 @@ còn là viết một lớp mới, không phải sờ lại từng chỗ gọi.
 """
 from __future__ import annotations
 
+import io
 import os
 import shutil
 import stat as _stat
@@ -46,6 +47,11 @@ _MAGIC = {
     b"\xff\xd8\xff": ("image/jpeg", ".jpg"),
     b"\x89PNG\r\n\x1a\n": ("image/png", ".png"),
 }
+
+
+#: Khối đọc mặc định. 256KB: đủ lớn để một ảnh 3-4MB chỉ tốn ~15 lượt đi CSDL, đủ nhỏ để RAM
+#: mỗi lượt phục vụ không phụ thuộc kích thước hiện vật.
+_KHOI_DOC = 256 * 1024
 
 
 class UnsupportedImage(ValueError):
@@ -119,6 +125,54 @@ def workspace(prefix: str = "translation-ws-") -> Iterator[Path]:
         shutil.rmtree(d, ignore_errors=True)
 
 
+class LuongHienVatLuoi(io.RawIOBase):
+    """Luồng đọc **lười** trên một hiện vật: chỉ kéo về đúng đoạn được yêu cầu.
+
+    Sinh ra để bỏ một cái giá mà P3e đã nhận có chủ đích: `open_read()` của backend CSDL nạp cả
+    hiện vật vào RAM. Với gói CBZ vài chục MB và mấy người tải cùng lúc thì đó là một đường dẫn
+    thẳng tới OOM.
+
+    Vì sao phải **tua được** chứ không chỉ đọc tuần tự: PIL (`Image.open`) tua tới lui trong
+    header ảnh. Một luồng chỉ-đọc-tiếp sẽ làm hỏng mọi chỗ dùng PIL.
+    """
+
+    def __init__(self, doc_doan, tong: int) -> None:
+        self._doc_doan = doc_doan
+        self._tong = tong
+        self._vi_tri = 0
+
+    def readable(self) -> bool:
+        return True
+
+    def seekable(self) -> bool:
+        return True
+
+    def tell(self) -> int:
+        return self._vi_tri
+
+    def seek(self, offset: int, whence: int = io.SEEK_SET) -> int:
+        if whence == io.SEEK_SET:
+            moi = offset
+        elif whence == io.SEEK_CUR:
+            moi = self._vi_tri + offset
+        elif whence == io.SEEK_END:
+            moi = self._tong + offset
+        else:
+            raise ValueError(f"whence không hợp lệ: {whence}")
+        self._vi_tri = max(0, moi)
+        return self._vi_tri
+
+    def readinto(self, b) -> int:
+        con = self._tong - self._vi_tri
+        if con <= 0:
+            return 0
+        n = min(len(b), con)
+        du_lieu = self._doc_doan(self._vi_tri, n)
+        b[: len(du_lieu)] = du_lieu
+        self._vi_tri += len(du_lieu)
+        return len(du_lieu)
+
+
 class IObjectStorage(Protocol):
     def save_page_image(self, project_id: uuid.UUID, page_id: uuid.UUID, data: bytes, ext: str) -> str:
         """Lưu ảnh gốc, trả về path tương đối đã lưu."""
@@ -136,7 +190,14 @@ class IObjectStorage(Protocol):
         ...
 
     def open_read(self, path: str) -> BinaryIO:
-        """Luồng đọc. Bên gọi phải đóng (dùng `with`)."""
+        """Luồng đọc **tua được**, đọc lười. Bên gọi phải đóng (dùng `with`)."""
+        ...
+
+    def read_range(self, path: str, offset: int, length: int) -> bytes:
+        """Đọc đúng một đoạn. Nền của HTTP `Range` và của luồng lười.
+
+        Quá cuối tệp thì trả về ít byte hơn (hoặc rỗng) chứ không ném.
+        """
         ...
 
     def exists(self, path: str) -> bool:
@@ -221,7 +282,15 @@ class LocalObjectStorage:
         return self._abs(path).read_bytes()
 
     def open_read(self, path: str) -> BinaryIO:
+        # Tệp trên đĩa vốn đã lười và tua được — không cần bọc thêm gì.
         return self._abs(path).open("rb")
+
+    def read_range(self, path: str, offset: int, length: int) -> bytes:
+        if length <= 0:
+            return b""
+        with self._abs(path).open("rb") as fh:
+            fh.seek(max(0, offset))
+            return fh.read(length)
 
     def exists(self, path: str) -> bool:
         try:
@@ -362,17 +431,46 @@ class PostgresObjectStorage:
             raise FileNotFoundError(f"Không có hiện vật {sach!r} trong kho")
         return bytes(data)
 
-    def open_read(self, path: str) -> BinaryIO:
-        """Nạp cả hiện vật vào RAM rồi trả `BytesIO`.
+    def read_range(self, path: str, offset: int, length: int) -> bytes:
+        """Đọc đúng một đoạn bằng `substr()` phía máy chủ — KHÔNG kéo cả hiện vật về.
 
-        Có chủ đích, không phải cẩu thả. PIL (`Image.open`) đòi luồng **tua được** — đọc theo
-        khối lười thì phải tự hiện thực `seek`, và với hiện vật vài MB thì công đó không đáng.
-        Cái giá đã biết và đã ghi vào báo cáo: mỗi lượt phục vụ giữ trong RAM đúng một hiện vật.
-        Trần `STORAGE_PG_MAX_ARTIFACT_MB` là thứ giữ cho con số đó không trôi.
+        Đây là chỗ `SET STORAGE EXTERNAL` (migration 0010) trả công: cột không bị nén nên
+        Postgres giải TOAST được **một phần**, thay vì phải bung cả hiện vật ra mới cắt được
+        đoạn cần.
         """
-        import io  # noqa: PLC0415
+        if length <= 0:
+            return b""
+        sach = chuan_hoa_path(path)
+        from app.models import ArtifactBlob  # noqa: PLC0415
 
-        return io.BytesIO(self.read(path))
+        with self._phien() as s:
+            # substr của Postgres đánh số từ 1.
+            doan = s.scalar(
+                select(func.substr(ArtifactBlob.data, max(0, offset) + 1, length)).where(
+                    ArtifactBlob.path == sach
+                )
+            )
+        if doan is None:
+            raise FileNotFoundError(f"Không có hiện vật {sach!r} trong kho")
+        return bytes(doan)
+
+    def open_read(self, path: str) -> BinaryIO:
+        """Luồng LƯỜI: chỉ hỏi kích thước trước, byte thì kéo về theo từng khối khi được đọc.
+
+        P3e từng nạp cả hiện vật vào RAM ở đây — có chủ đích, nhưng đó là một cái giá thật (gói
+        CBZ vài chục MB × nhiều người tải cùng lúc). Nay đọc lười, nên RAM tỉ lệ với **khối
+        đang đọc**, không phải với kích thước hiện vật.
+        """
+        # Kiểm path TRƯỚC khi hỏi `stat()`: `stat()` cố ý nuốt `UnsafeObjectPath` và trả None
+        # (nó là một câu hỏi, không phải một lệnh). Nếu để nó nuốt ở đây thì một path nguy hiểm
+        # sẽ hiện ra thành "không tìm thấy" — che mất tín hiệu bảo mật. Test bắt đúng ca này.
+        sach = chuan_hoa_path(path)
+        st = self.stat(sach)
+        if st is None:
+            raise FileNotFoundError(f"Không có hiện vật {sach!r} trong kho")
+        raw = LuongHienVatLuoi(lambda off, n: self.read_range(sach, off, n), st.size)
+        # Bọc BufferedReader để `.read(n)` nhỏ lẻ (PIL hay làm) không thành N lượt đi CSDL.
+        return io.BufferedReader(raw, buffer_size=_KHOI_DOC)
 
     def exists(self, path: str) -> bool:
         try:

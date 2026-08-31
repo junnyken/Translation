@@ -363,10 +363,16 @@ async def retry_ocr(
 # kho — tức là yêu cầu kho lưu trữ PHẢI là một hệ tệp cục bộ. Nay chúng đọc qua luồng
 # `open_read()`, nên kho có thể là Postgres hay S3 mà route không đổi một dòng nào.
 #
-# Đổi sang `StreamingResponse` thì mất ETag/Content-Length mà Starlette tự sinh, nên phải tự
-# dựng lại. Bỏ qua chuyện này là một hồi quy băng thông thật: ảnh xem thử đặt
-# `no-cache, must-revalidate`, nghĩa là trình duyệt hỏi lại server MỖI lượt xem — không có ETag
-# thì mỗi lượt hỏi lại là tải nguyên ~3MB thay vì một cái 304 rỗng.
+# Đổi sang `StreamingResponse` thì mất ETag/Content-Length/Range mà Starlette tự sinh, nên phải
+# tự dựng lại cả ba:
+#
+#  - ETag/304 — ảnh xem thử đặt `no-cache, must-revalidate`, tức trình duyệt hỏi lại server MỖI
+#    lượt xem. Không có ETag thì mỗi lượt hỏi lại là tải nguyên ~3MB thay vì một cái 304 rỗng.
+#  - Range/206 — đứt mạng giữa chừng khi tải gói CBZ thì tải tiếp được, không phải tải lại từ
+#    đầu. P3d đã nhận mất tính năng này; P3g trả lại.
+#
+# Cả hai đều chỉ cần `stat()` + `read_range()`, tức kho nào cũng cấp được — không lôi lại giả
+# định "kho phải là hệ tệp".
 
 
 def _the_phien_ban(st: ObjectStat) -> str:
@@ -375,12 +381,70 @@ def _the_phien_ban(st: ObjectStat) -> str:
 
 
 def _doc_theo_khoi(fh, kich_thuoc: int = 64 * 1024):
-    """Đọc luồng theo khối. Duyệt thẳng file object sẽ cắt theo dấu xuống dòng — sai với nhị phân."""
+    """Đọc luồng theo khối. Duyệt thẳng file object sẽ cắt theo dấu xuống dòng — sai với nhị phân.
+
+    Đây là generator ĐỒNG BỘ. Starlette tự chạy generator đồng bộ trong threadpool, nên các lượt
+    đi CSDL bên trong (kho `postgres` đọc lười) không chặn event loop.
+    """
     try:
         while khoi := fh.read(kich_thuoc):
             yield khoi
     finally:
         fh.close()
+
+
+#: Range hợp lệ về cú pháp nhưng không thoả mãn được ⇒ 416.
+_RANGE_KHONG_THOA = object()
+
+
+def _pha_range(header: str | None, tong: int):
+    """Đọc header `Range`. Trả `None` = phục vụ nguyên tệp · `(dau, cuoi)` bao gồm cả hai đầu ·
+    `_RANGE_KHONG_THOA` = 416.
+
+    Cú pháp hỏng thì **bỏ qua header và trả nguyên tệp** — RFC 9110 cho phép, và đó là hành vi an
+    toàn hơn so với ném lỗi vào mặt người dùng vì một header họ không tự gõ.
+    """
+    if not header:
+        return None
+    header = header.strip()
+    if not header.startswith("bytes="):
+        return None
+    spec = header[len("bytes=") :].strip()
+    if "," in spec:
+        # Đa đoạn là hợp lệ nhưng cần multipart/byteranges. Chưa ai cần ⇒ trả nguyên tệp,
+        # vẫn đúng chuẩn.
+        return None
+    dau_s, co_gach, cuoi_s = spec.partition("-")
+    if not co_gach:
+        return None
+    try:
+        if dau_s == "":
+            if cuoi_s == "":
+                return None
+            n_cuoi = int(cuoi_s)
+            if n_cuoi <= 0:
+                return _RANGE_KHONG_THOA
+            dau = max(0, tong - n_cuoi)
+            cuoi = tong - 1
+        else:
+            dau = int(dau_s)
+            cuoi = int(cuoi_s) if cuoi_s else tong - 1
+    except ValueError:
+        return None
+    if tong == 0 or dau >= tong or dau > cuoi or dau < 0:
+        return _RANGE_KHONG_THOA
+    return dau, min(cuoi, tong - 1)
+
+
+def _doc_mot_doan(storage: IObjectStorage, rel: str, dau: int, cuoi: int, kich_thuoc: int = 64 * 1024):
+    """Phát một đoạn theo khối — đoạn dài cũng không nằm trọn trong RAM."""
+    vi_tri = dau
+    while vi_tri <= cuoi:
+        khoi = storage.read_range(rel, vi_tri, min(kich_thuoc, cuoi - vi_tri + 1))
+        if not khoi:
+            break
+        yield khoi
+        vi_tri += len(khoi)
 
 
 async def _phuc_vu_hien_vat(
@@ -400,14 +464,40 @@ async def _phuc_vu_hien_vat(
         # Chỉ xảy ra khi hiện vật biến mất giữa lúc kiểm và lúc phục vụ.
         raise HTTPException(status_code=404, detail="Hiện vật không còn trên kho lưu trữ")
     etag = _the_phien_ban(st)
-    headers: dict[str, str] = {"ETag": etag}
+    headers: dict[str, str] = {"ETag": etag, "Accept-Ranges": "bytes"}
     if cache_control:
         headers["Cache-Control"] = cache_control
-    if request.headers.get("if-none-match") == etag:
-        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
-    headers["Content-Length"] = str(st.size)
     if filename:
         headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
+
+    # `If-Range` không khớp nghĩa là hiện vật đã đổi kể từ lúc client tải dở ⇒ phải trả NGUYÊN
+    # tệp. Nối tiếp một đoạn của bản cũ vào phần đã tải sẽ tạo ra một tệp lai không của ai cả.
+    if_range = request.headers.get("if-range")
+    doan = None if (if_range is not None and if_range != etag) else _pha_range(
+        request.headers.get("range"), st.size
+    )
+
+    if doan is _RANGE_KHONG_THOA:
+        return Response(
+            status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
+            headers={**headers, "Content-Range": f"bytes */{st.size}"},
+        )
+
+    if doan is not None:
+        dau, cuoi = doan
+        headers["Content-Range"] = f"bytes {dau}-{cuoi}/{st.size}"
+        headers["Content-Length"] = str(cuoi - dau + 1)
+        return StreamingResponse(
+            _doc_mot_doan(storage, rel, dau, cuoi),
+            status_code=status.HTTP_206_PARTIAL_CONTENT,
+            media_type=media_type,
+            headers=headers,
+        )
+
+    headers["Content-Length"] = str(st.size)
     luong = await run_in_threadpool(storage.open_read, rel)
     return StreamingResponse(
         _doc_theo_khoi(luong), media_type=media_type, headers=headers
