@@ -18,61 +18,71 @@ from app.models.enums import SafeAreaStatus
 from app.services.interfaces import BBox
 from app.services.safearea.config import SafeAreaConfig
 from app.services.safearea.extractor import VERSION, BubbleSafeAreaExtractor
+from app.services.storage import IObjectStorage, workspace
 
 logger = logging.getLogger(__name__)
 
 
-def dau_van_tay_anh(duong_dan: str) -> str | None:
-    """Vân tay ảnh clean: kích thước + thời điểm sửa.
+def van_tay_hien_vat(storage: IObjectStorage, rel: str | None) -> str | None:
+    """Vân tay ảnh clean: kích thước + thời điểm ghi, lấy qua `stat()` của kho.
 
     Đủ để biết ảnh đã bị thay (chạy lại xoá chữ) mà không phải băm cả tệp 4MB cho mỗi vùng.
     Ảnh đổi ⇒ hình cũ hết hiệu lực, không được dùng lại im lặng.
+
+    P3c: trước đây hàm này gọi `Path(duong_dan).stat()` — chỉ chạy được trên hệ tệp cục bộ.
+    Nay đi qua `storage.stat()`, nên kho nào cũng cấp được cặp số này.
     """
-    try:
-        st = Path(duong_dan).stat()
-    except OSError:
+    if not rel:
         return None
-    return hashlib.sha256(f"{st.st_size}:{int(st.st_mtime)}".encode()).hexdigest()[:32]
+    st = storage.stat(rel)
+    if st is None:
+        return None
+    return hashlib.sha256(f"{st.size}:{st.mtime}".encode()).hexdigest()[:32]
 
 
 class SafeAreaService:
-    def __init__(self, storage_root: str, config: SafeAreaConfig) -> None:
-        self.storage_root = Path(storage_root)
+    def __init__(self, storage: IObjectStorage, config: SafeAreaConfig) -> None:
+        self.storage = storage
         self.config = config
         self.extractor = BubbleSafeAreaExtractor()
 
-    def _duong_dan_clean(self, page: Page) -> str | None:
-        if not page.clean_image_path:
+    def _rel_clean(self, page: Page | None) -> str | None:
+        """Path TƯƠNG ĐỐI của ảnh clean — bộ trích hình sẽ nhận bản đã vật chất hoá."""
+        if page is None or not page.clean_image_path:
             return None
-        return str(self.storage_root / page.clean_image_path)
+        rel = page.clean_image_path
+        return rel if self.storage.exists(rel) else None
 
     def compute_page(self, session: Session, page_id: uuid.UUID) -> dict:
         """Tính cho mọi vùng của một trang. Trả bản tóm tắt để ghi log, không ném lỗi ra ngoài."""
         page = session.get(Page, page_id)
         if page is None:
             return {"tong": 0, "bo_qua": "khong_co_trang"}
-        clean = self._duong_dan_clean(page)
-        if not clean or not Path(clean).exists():
+        rel = self._rel_clean(page)
+        if not rel:
             # Chưa có ảnh sạch thì KHÔNG bịa vùng an toàn — để trống, bước căn chữ dùng M6.
             return {"tong": 0, "bo_qua": "chua_co_anh_clean"}
 
         from PIL import Image
 
-        with Image.open(clean) as im:
-            size = im.size
-        van_tay = dau_van_tay_anh(clean)
-
+        van_tay = van_tay_hien_vat(self.storage, rel)
         vung = list(session.scalars(
             select(TextRegion).where(TextRegion.page_id == page_id).order_by(TextRegion.id)
         ))
         dem = {"tong": len(vung), "shape_derived": 0, "fallback_rectangle": 0,
                "needs_review": 0, "failed": 0}
-        for r in vung:
-            qd = self.extractor.extract(
-                clean, BBox(x=r.bbox_x, y=r.bbox_y, w=r.bbox_w, h=r.bbox_h), size, self.config
-            )
-            self._ghi(session, r.id, qd, van_tay)
-            dem[qd.status.value] = dem.get(qd.status.value, 0) + 1
+        # Vật chất hoá MỘT lần cho cả trang: bộ trích hình dùng OpenCV nên cần đường dẫn thật,
+        # nhưng chép lại ảnh cho từng vùng thì với kho từ xa là N lượt tải cho một trang.
+        with workspace() as ws:
+            clean = str(self.storage.fetch_to(rel, ws / Path(rel).name))
+            with Image.open(clean) as im:
+                size = im.size
+            for r in vung:
+                qd = self.extractor.extract(
+                    clean, BBox(x=r.bbox_x, y=r.bbox_y, w=r.bbox_w, h=r.bbox_h), size, self.config
+                )
+                self._ghi(session, r.id, qd, van_tay)
+                dem[qd.status.value] = dem.get(qd.status.value, 0) + 1
         session.flush()
         return dem
 
@@ -81,17 +91,19 @@ class SafeAreaService:
         if r is None:
             return None
         page = session.get(Page, r.page_id)
-        clean = self._duong_dan_clean(page) if page else None
-        if not clean or not Path(clean).exists():
+        rel = self._rel_clean(page)
+        if not rel:
             return None
         from PIL import Image
 
-        with Image.open(clean) as im:
-            size = im.size
-        qd = self.extractor.extract(
-            clean, BBox(x=r.bbox_x, y=r.bbox_y, w=r.bbox_w, h=r.bbox_h), size, self.config
-        )
-        ban = self._ghi(session, region_id, qd, dau_van_tay_anh(clean))
+        with workspace() as ws:
+            clean = str(self.storage.fetch_to(rel, ws / Path(rel).name))
+            with Image.open(clean) as im:
+                size = im.size
+            qd = self.extractor.extract(
+                clean, BBox(x=r.bbox_x, y=r.bbox_y, w=r.bbox_w, h=r.bbox_h), size, self.config
+            )
+        ban = self._ghi(session, region_id, qd, van_tay_hien_vat(self.storage, rel))
         session.flush()
         return ban
 
@@ -124,15 +136,18 @@ class SafeAreaService:
         return ban
 
 
-def vung_an_toan_dung_duoc(ban: RegionSafeArea | None, clean_image_abs: str | None) -> dict | None:
+def vung_an_toan_dung_duoc(ban: RegionSafeArea | None, van_tay_hien_tai: str | None) -> dict | None:
     """Hình học còn dùng được không — hay đã cũ so với ảnh clean hiện tại.
 
     Ảnh clean đã đổi mà vẫn vẽ theo hình cũ là lỗi im lặng tệ nhất của E14: chữ nằm đúng chỗ
     của một bong bóng KHÔNG CÒN Ở ĐÓ. Thà lùi về hành vi M6.
+
+    P3c: nhận **vân tay đã tính sẵn** thay vì đường dẫn ảnh. Trước đây hàm tự `stat()` lại tệp
+    cho MỖI vùng — với kho từ xa thì một trang 30 vùng là 30 lượt hỏi kho cho cùng một tệp.
     """
     if ban is None or ban.status is SafeAreaStatus.failed:
         return None
-    if clean_image_abs and ban.clean_image_fingerprint:
-        if dau_van_tay_anh(clean_image_abs) != ban.clean_image_fingerprint:
+    if van_tay_hien_tai and ban.clean_image_fingerprint:
+        if van_tay_hien_tai != ban.clean_image_fingerprint:
             return None
     return ban.geometry_json

@@ -1,6 +1,7 @@
 """Unit — đặt tên file xuất + đóng gói CBZ/ZIP (M8). Không DB, không Celery."""
 from __future__ import annotations
 
+import io
 import zipfile
 from pathlib import Path
 
@@ -8,6 +9,7 @@ import pytest
 from PIL import Image
 
 from app.services.export.chapter import ChapterExporter, TrangCanXuat
+from app.services.storage import LocalObjectStorage
 from app.services.export.naming import slugify, ten_file_export
 from app.services.export.paths import export_relative_dir
 
@@ -25,14 +27,21 @@ class _RendererGia:
 
 
 @pytest.fixture
-def anh_clean(tmp_path) -> str:
-    p = tmp_path / "clean.png"
-    Image.new("RGB", (120, 160), "white").save(p)
-    return str(p)
+def kho(tmp_path) -> LocalObjectStorage:
+    """Kho thật, gốc riêng cho từng test — bộ xuất P3c nhận kho chứ không nhận thư mục."""
+    return LocalObjectStorage(str(tmp_path / "kho"))
+
+
+@pytest.fixture
+def anh_clean(kho) -> str:
+    """Trả PATH TƯƠNG ĐỐI trong kho (P3c), không còn là đường dẫn tuyệt đối."""
+    bo = io.BytesIO()
+    Image.new("RGB", (120, 160), "white").save(bo, format="PNG")
+    return kho.save("clean/clean.png", bo.getvalue())
 
 
 def _trang(anh_clean: str, order: int) -> TrangCanXuat:
-    return TrangCanXuat(page_id=f"p{order}", order=order, clean_image_abs=anh_clean, regions=[])
+    return TrangCanXuat(page_id=f"p{order}", order=order, clean_image_rel=anh_clean, regions=[])
 
 
 class TestDatTen:
@@ -82,12 +91,12 @@ class TestDanhSoTrang:
 
 class TestDongGoi:
     @pytest.fixture
-    def exporter(self, tmp_path):
-        return ChapterExporter(storage_root=str(tmp_path), renderer=_RendererGia())
+    def exporter(self, kho):
+        return ChapterExporter(storage=kho, renderer=_RendererGia())
 
     def test_cbz_chua_dung_so_trang_dung_thu_tu(self, exporter, tmp_path, anh_clean):
         trang = [_trang(anh_clean, i) for i in (1, 2, 3)]
-        duong_dan, _ = exporter.export_cbz(tmp_path / "out", trang, "test_chapter.cbz")
+        duong_dan = exporter.export_cbz(tmp_path / "out", trang, "test_chapter.cbz")
         assert duong_dan.endswith("test_chapter.cbz")
         with zipfile.ZipFile(duong_dan) as goi:
             assert goi.namelist() == ["001.png", "002.png", "003.png"]
@@ -96,36 +105,39 @@ class TestDongGoi:
     def test_moi_anh_trong_goi_mo_duoc(self, exporter, tmp_path, anh_clean):
         import io
 
-        duong_dan, _ = exporter.export_cbz(tmp_path / "out", [_trang(anh_clean, 1)], "c.cbz")
+        duong_dan = exporter.export_cbz(tmp_path / "out", [_trang(anh_clean, 1)], "c.cbz")
         with zipfile.ZipFile(duong_dan) as goi:
             with Image.open(io.BytesIO(goi.read("001.png"))) as im:
                 assert im.size == (120, 160)
                 assert im.format == "PNG"
 
     def test_zip_giu_duoi_zip(self, exporter, tmp_path, anh_clean):
-        duong_dan, _ = exporter.export_zip(tmp_path / "out", [_trang(anh_clean, 1)], "c.zip")
+        duong_dan = exporter.export_zip(tmp_path / "out", [_trang(anh_clean, 1)], "c.zip")
         assert duong_dan.endswith(".zip") and zipfile.is_zipfile(duong_dan)
 
     def test_png_single_ra_dung_so_file(self, exporter, tmp_path, anh_clean):
         trang = [_trang(anh_clean, i) for i in (1, 2, 3)]
-        thu_muc, _ = exporter.export_png_single(tmp_path / "out", trang)
+        thu_muc = exporter.export_png_single(tmp_path / "out", trang)
         files = sorted(p.name for p in Path(thu_muc).iterdir())
         assert files == ["001.png", "002.png", "003.png"]
         for f in Path(thu_muc).iterdir():
             with Image.open(f) as im:
                 assert im.size == (120, 160)
 
-    def test_xuat_lai_khong_tich_tu_file_rac(self, exporter, tmp_path, anh_clean):
-        dich = tmp_path / "out"
-        exporter.export_cbz(dich, [_trang(anh_clean, i) for i in (1, 2, 3)], "cu.cbz")
-        exporter.export_cbz(dich, [_trang(anh_clean, 1)], "moi.cbz")
-        assert sorted(p.name for p in dich.iterdir()) == ["moi.cbz"], "file cũ chưa bị xoá"
+    # P3c: việc dọn bản xuất cũ đã CHUYỂN từ bộ xuất sang kho (`delete_prefix`), vì kho mới là
+    # thứ biết mình đang giữ những gì. Hai test dưới giữ nguyên bảo đảm đó, chỉ đổi chỗ kiểm.
+    def test_kho_don_sach_ban_xuat_cu(self, kho):
+        kho.save("exports/p1/cu.cbz", b"x")
+        kho.save("exports/p1/png/001.png", b"y")
+        da_xoa = kho.delete_prefix("exports/p1")
+        assert da_xoa == ["exports/p1/cu.cbz", "exports/p1/png/001.png"]
+        assert kho.list_prefix("exports/p1") == [], "còn sót bản xuất cũ"
 
-    def test_doi_dinh_dang_thi_don_ket_qua_cu(self, exporter, tmp_path, anh_clean):
-        dich = tmp_path / "out"
-        exporter.export_png_single(dich, [_trang(anh_clean, 1)])
-        exporter.export_cbz(dich, [_trang(anh_clean, 1)], "c.cbz")
-        assert sorted(p.name for p in dich.iterdir()) == ["c.cbz"]
+    def test_don_ban_cu_khong_dung_toi_project_khac(self, kho):
+        kho.save("exports/p1/cu.cbz", b"x")
+        kho.save("exports/p2/giu.cbz", b"z")
+        kho.delete_prefix("exports/p1")
+        assert kho.list_prefix("exports/p2") == ["exports/p2/giu.cbz"]
 
     def test_khong_de_lai_file_tam(self, exporter, tmp_path, anh_clean):
         dich = tmp_path / "out"
@@ -136,9 +148,9 @@ class TestDongGoi:
         du_lieu = exporter.render_page_bytes(_trang(anh_clean, 1))
         assert du_lieu.startswith(b"\x89PNG\r\n\x1a\n"), "không phải PNG thật"
 
-    def test_moi_trang_chi_ve_dung_mot_lan(self, tmp_path, anh_clean):
+    def test_moi_trang_chi_ve_dung_mot_lan(self, tmp_path, kho, anh_clean):
         ve = _RendererGia()
-        ChapterExporter(str(tmp_path), ve).export_cbz(
+        ChapterExporter(kho, ve).export_cbz(
             tmp_path / "out", [_trang(anh_clean, i) for i in (1, 2, 3)], "c.cbz"
         )
         assert ve.so_lan_ve == 3

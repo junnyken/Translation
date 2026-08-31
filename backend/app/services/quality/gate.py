@@ -124,7 +124,9 @@ class QualityGateService:
 
             from app.services.storage import get_storage
 
-            with Image.open(get_storage().abs_path(page.image_path)) as im:
+            # Đọc qua luồng, không qua đường dẫn tuyệt đối: PIL chỉ cần header để biết kích
+            # thước, và kho lưu trữ không nhất thiết là hệ tệp (P3c).
+            with get_storage().open_read(page.image_path) as fh, Image.open(fh) as im:
                 return im.size
         except Exception as exc:  # noqa: BLE001
             # Mất ảnh gốc là chuyện CÓ THẬT trên bản chạy thật (container thay là mất tệp).

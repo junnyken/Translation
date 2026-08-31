@@ -12,7 +12,8 @@ import logging
 import time
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
+from contextlib import contextmanager
+from pathlib import Path, PurePosixPath
 
 from celery.exceptions import SoftTimeLimitExceeded
 from PIL import Image
@@ -42,6 +43,8 @@ from app.models.enums import (
     TranslationStatus,
     assert_transition,
 )
+from app.services.safearea.service import van_tay_hien_vat
+from app.services.storage import get_storage, workspace
 from app.services.typeset.paths import preview_relative_path
 from app.workers.celery_app import celery_app
 
@@ -108,12 +111,17 @@ def reset_ocr_engines() -> None:
     _ocr_engines.clear()
 
 
-def resolve_image_path(image_path: str) -> str:
-    """Ghép path tương đối trong DB với gốc storage (M1 lưu path tương đối)."""
-    p = Path(image_path)
-    if p.is_absolute():
-        return str(p)
-    return str(Path(settings.storage_local_root) / p)
+@contextmanager
+def anh_cuc_bo(rel: str):
+    """Vật chất hoá một hiện vật ra đường dẫn cục bộ cho engine bên thứ ba dùng.
+
+    P3c: thay cho `resolve_image_path()` cũ (ghép gốc kho + path tương đối). Các engine
+    (comic-text-detector, manga-ocr, PaddleOCR, LaMa) đều nhận **đường dẫn tệp**, nên phải có
+    một tệp thật ở đâu đó — nhưng chỗ đó KHÔNG được là lòng kho, nếu không kho buộc phải là hệ
+    tệp cục bộ mãi mãi. Chép ra thư mục tạm, dọn ngay khi xong.
+    """
+    with workspace() as ws:
+        yield str(get_storage().fetch_to(rel, ws / PurePosixPath(rel).name))
 
 
 def _mark_failed(job_id: uuid.UUID, page_id: uuid.UUID | None, reason: str) -> None:
@@ -148,7 +156,7 @@ def _run_detect(job_id: uuid.UUID) -> dict:
             return {"status": "page_not_found", "job_id": str(job_id)}
 
         page_id = page.id
-        image_path = resolve_image_path(page.image_path)
+        image_rel = page.image_path
 
         job.status = JobStatus.running
         if page.status is not PageStatus.detecting:
@@ -157,7 +165,8 @@ def _run_detect(job_id: uuid.UUID) -> dict:
         session.commit()
 
     detector = get_detector()
-    regions = detector.detect_regions(image_path)
+    with anh_cuc_bo(image_rel) as image_path:
+        regions = detector.detect_regions(image_path)
     elapsed = time.perf_counter() - started
 
     from app.services.detect.geometry import mark_overlap_suspects
@@ -312,7 +321,7 @@ def _run_ocr(job_id: uuid.UUID) -> dict:
         project = session.get(Project, page.project_id)
         page_id = page.id
         source_lang = project.source_lang.value
-        image_path = resolve_image_path(page.image_path)
+        image_rel = page.image_path
 
         # Lấy TẤT CẢ region, kể cả low_confidence: detect yếu không đồng nghĩa OCR sẽ hỏng.
         regions = list(
@@ -341,23 +350,26 @@ def _run_ocr(job_id: uuid.UUID) -> dict:
 
     results = []
     errors: list[str] = []
-    for region_id, x, y, w, h, is_low in region_specs:
-        try:
-            # Engine nào cung cấp được đường bao từng dòng thì lấy luôn — đó là bằng chứng
-            # hình học duy nhất về hướng chữ, và nó chỉ tồn tại ở ĐÂY: sau bước xoá chữ thì
-            # trong bong bóng không còn chữ để đo nữa. Engine không có thì `None`, không bịa.
-            co_layout = getattr(engine, "recognize_with_layout", None)
-            if co_layout is not None:
-                text, confidence, polys = co_layout(image_path, BBox(x=x, y=y, w=w, h=h))
-            else:
-                text, confidence = engine.recognize(image_path, BBox(x=x, y=y, w=w, h=h))
-                polys = None
-        except Exception as exc:  # noqa: BLE001 - 1 vùng hỏng không được giết cả trang
-            logger.warning("OCR region %s lỗi: %s", region_id, exc)
-            errors.append(f"{type(exc).__name__}: {exc}")
-            results.append((region_id, None, None, OCRStatus.needs_manual, None))
-            continue
-        results.append((region_id, text, confidence, _classify_ocr(text, confidence), polys))
+    # Một lượt vật chất hoá cho CẢ trang: mỗi vùng một lượt tải thì với kho từ xa là
+    # 30 lượt tải cùng một ảnh cho một trang 30 vùng.
+    with anh_cuc_bo(image_rel) as image_path:
+        for region_id, x, y, w, h, is_low in region_specs:
+            try:
+                # Engine nào cung cấp được đường bao từng dòng thì lấy luôn — đó là bằng chứng
+                # hình học duy nhất về hướng chữ, và nó chỉ tồn tại ở ĐÂY: sau bước xoá chữ thì
+                # trong bong bóng không còn chữ để đo nữa. Engine không có thì `None`, không bịa.
+                co_layout = getattr(engine, "recognize_with_layout", None)
+                if co_layout is not None:
+                    text, confidence, polys = co_layout(image_path, BBox(x=x, y=y, w=w, h=h))
+                else:
+                    text, confidence = engine.recognize(image_path, BBox(x=x, y=y, w=w, h=h))
+                    polys = None
+            except Exception as exc:  # noqa: BLE001 - 1 vùng hỏng không được giết cả trang
+                logger.warning("OCR region %s lỗi: %s", region_id, exc)
+                errors.append(f"{type(exc).__name__}: {exc}")
+                results.append((region_id, None, None, OCRStatus.needs_manual, None))
+                continue
+            results.append((region_id, text, confidence, _classify_ocr(text, confidence), polys))
 
     # MỌI region đều ném lỗi => engine hỏng, KHÔNG phải "trang này không có chữ".
     # Báo job failed thay vì ghi 100% needs_manual rồi tự nhận ocr_done (che mất sự cố).
@@ -491,7 +503,7 @@ def tinh_vung_an_toan(page_id: uuid.UUID | None, trigger: str) -> dict | None:
         from app.services.safearea.config import SafeAreaConfig
         from app.services.safearea.service import SafeAreaService
 
-        dv = SafeAreaService(settings.storage_local_root, SafeAreaConfig.from_settings(settings))
+        dv = SafeAreaService(get_storage(), SafeAreaConfig.from_settings(settings))
         with sync_session() as session:
             dem = dv.compute_page(session, page_id)
             session.commit()
@@ -647,7 +659,6 @@ def _verify_text_removed(clean_abs_path: str, dilated: list, source_lang: str) -
 def _run_inpaint(job_id: uuid.UUID) -> dict:
     started = time.perf_counter()
     from app.services.interfaces import BBox
-    from app.services.storage import get_storage
 
     with sync_session() as session:
         job = session.get(Job, job_id)
@@ -709,7 +720,6 @@ def _run_inpaint(job_id: uuid.UUID) -> dict:
         session.commit()
 
     storage = get_storage()
-    image_abs = resolve_image_path(image_rel)
 
     # Idempotent guard: xoá ảnh clean cũ trước khi ghi mới, không để file rác.
     deleted_old = False
@@ -717,15 +727,22 @@ def _run_inpaint(job_id: uuid.UUID) -> dict:
         deleted_old = storage.delete(old_clean_rel)
 
     inpainter = get_inpainter()
-    clean_abs = inpainter.inpaint(image_abs, boxes)
-    clean_rel = storage.to_relative(clean_abs)
-
     leftovers: list[str] = []
-    if settings.inpaint_verify_by_ocr:
-        with Image.open(image_abs) as im:
-            width, height = im.size
-        dilated = inpainter.dilated_masks(width, height, boxes)
-        leftovers = _verify_text_removed(clean_abs, dilated, source_lang)
+    # LaMa đọc ảnh gốc rồi tự ghi ảnh clean CẠNH nó — nên cho nó làm việc đó trong thư mục tạm,
+    # xong mới đưa kết quả vào kho. Path tương đối của ảnh clean vẫn suy ra từ ảnh gốc nên
+    # KHÔNG đổi so với trước P3c (`projects/<pid>/pages/<page_id>_clean.png`) — không cần migrate
+    # dữ liệu cũ.
+    with workspace() as ws:
+        image_abs = str(storage.fetch_to(image_rel, ws / PurePosixPath(image_rel).name))
+        clean_abs = inpainter.inpaint(image_abs, boxes)
+        clean_rel = str(PurePosixPath(image_rel).parent / PurePosixPath(clean_abs).name)
+        storage.save_file(clean_rel, Path(clean_abs))
+
+        if settings.inpaint_verify_by_ocr:
+            with Image.open(image_abs) as im:
+                width, height = im.size
+            dilated = inpainter.dilated_masks(width, height, boxes)
+            leftovers = _verify_text_removed(clean_abs, dilated, source_lang)
 
     elapsed = time.perf_counter() - started
     target_status = PageStatus.inpaint_needs_review if leftovers else PageStatus.inpainted
@@ -1128,7 +1145,6 @@ def render_page_preview(page_id: uuid.UUID, resolver=None) -> str:
     bảo đảm ảnh khớp DB.
     """
     from app.services.interfaces import BBox
-    from app.services.storage import get_storage
     from app.services.typeset.preview import PagePreviewRenderer, RegionDraw
 
     if resolver is None:
@@ -1151,7 +1167,7 @@ def render_page_preview(page_id: uuid.UUID, resolver=None) -> str:
         from app.services.storage import get_storage as _lay_kho
 
         o_dat = nap_o_dat_chu(
-            session, [r.id for r, _ts in rows], _lay_kho().abs_path(clean_rel)
+            session, [r.id for r, _ts in rows], van_tay_hien_vat(_lay_kho(), clean_rel)
         )
         ve = [
             RegionDraw(
@@ -1168,17 +1184,24 @@ def render_page_preview(page_id: uuid.UUID, resolver=None) -> str:
 
     storage = get_storage()
     preview_rel = preview_relative_path(page_id)
-    PagePreviewRenderer(
-        font_resolver=resolver,
-        line_spacing_ratio=settings.typeset_line_spacing_ratio,
-        text_color=settings.typeset_text_color,
-        stroke_color=settings.typeset_stroke_color,
-        stroke_width=settings.typeset_stroke_width,
-    ).render(
-        clean_image_path=storage.abs_path(clean_rel),
-        regions=ve,
-        target_path=storage.abs_path(preview_rel),
-    )
+    # Bộ vẽ M6 đọc/ghi bằng đường dẫn thật, nên cả ảnh vào lẫn ảnh ra đều đi qua thư mục tạm;
+    # ảnh xem thử chỉ vào kho khi đã vẽ XONG (P3c: `save_file` là một lượt đổi chỗ nguyên tử,
+    # nên không còn cửa sổ nào người dùng thấy ảnh vẽ dở).
+    with workspace() as ws:
+        clean_abs = str(storage.fetch_to(clean_rel, ws / PurePosixPath(clean_rel).name))
+        dich = ws / "typeset.png"
+        PagePreviewRenderer(
+            font_resolver=resolver,
+            line_spacing_ratio=settings.typeset_line_spacing_ratio,
+            text_color=settings.typeset_text_color,
+            stroke_color=settings.typeset_stroke_color,
+            stroke_width=settings.typeset_stroke_width,
+        ).render(
+            clean_image_path=clean_abs,
+            regions=ve,
+            target_path=str(dich),
+        )
+        storage.save_file(preview_rel, dich)
     return preview_rel
 
 
@@ -1253,8 +1276,8 @@ def _run_typeset(job_id: uuid.UUID) -> dict:
         from app.services.safearea.apply import nap_o_dat_chu
         from app.services.storage import get_storage as _lay_kho
 
-        clean_abs = _lay_kho().abs_path(clean_rel)
-        o_dat = nap_o_dat_chu(session, [r.id for r in regions], clean_abs)
+        van_tay_clean = van_tay_hien_vat(_lay_kho(), clean_rel)
+        o_dat = nap_o_dat_chu(session, [r.id for r in regions], van_tay_clean)
         # Tự chữa lành: vùng nào chưa có hình dùng được (chưa tính bao giờ, hoặc ảnh clean đã
         # đổi sau lần tính) thì tính lại NGAY tại đây. Nhờ vậy "tính lại vùng an toàn" chỉ là
         # chạy lại bước căn chữ — không phải thêm một loại việc mới vào enum.
@@ -1264,13 +1287,11 @@ def _run_typeset(job_id: uuid.UUID) -> dict:
                 from app.services.safearea.config import SafeAreaConfig
                 from app.services.safearea.service import SafeAreaService
 
-                dv = SafeAreaService(
-                    settings.storage_local_root, SafeAreaConfig.from_settings(settings)
-                )
+                dv = SafeAreaService(get_storage(), SafeAreaConfig.from_settings(settings))
                 for rid in thieu:
                     dv.compute_region(session, rid)
                 session.commit()
-                o_dat = nap_o_dat_chu(session, [r.id for r in regions], clean_abs)
+                o_dat = nap_o_dat_chu(session, [r.id for r in regions], van_tay_clean)
             except Exception:  # noqa: BLE001
                 logger.exception("không tính lại được vùng an toàn cho trang %s", page_id)
         specs = [
@@ -1560,7 +1581,7 @@ def _run_region_reocr(job_id: uuid.UUID, region_id: uuid.UUID) -> dict:
             return {"status": "failed", "job_id": str(job_id), "error": job.error_log}
         region, page, project = ctx
         bbox = BBox(x=region.bbox_x, y=region.bbox_y, w=region.bbox_w, h=region.bbox_h)
-        image_path = resolve_image_path(page.image_path)
+        image_rel = page.image_path
         source_lang = project.source_lang.value
         job.status = JobStatus.running
         session.commit()
@@ -1569,11 +1590,12 @@ def _run_region_reocr(job_id: uuid.UUID, region_id: uuid.UUID) -> dict:
     # Đọc lại một vùng cũng phải lấy đường bao dòng, nếu không thì vùng vừa sửa tay sẽ mất
     # bằng chứng hướng chữ trong khi các vùng khác vẫn còn — lệch nhau không ai giải thích được.
     co_layout = getattr(engine, "recognize_with_layout", None)
-    if co_layout is not None:
-        text, confidence, polys = co_layout(image_path, bbox)
-    else:
-        text, confidence = engine.recognize(image_path, bbox)
-        polys = None
+    with anh_cuc_bo(image_rel) as image_path:
+        if co_layout is not None:
+            text, confidence, polys = co_layout(image_path, bbox)
+        else:
+            text, confidence = engine.recognize(image_path, bbox)
+            polys = None
     trang_thai = _classify_ocr(text, confidence)
 
     with sync_session() as session:
@@ -1771,7 +1793,6 @@ def _thu_thap_trang(session, project_id: uuid.UUID):
     """Gom dữ liệu vẽ cho từng trang xuất được, theo ĐÚNG `Page.order`."""
     from app.services.export.chapter import TrangCanXuat
     from app.services.interfaces import BBox
-    from app.services.storage import get_storage
     from app.services.safearea.apply import nap_o_dat_chu
     from app.services.typeset.preview import RegionDraw
 
@@ -1797,13 +1818,13 @@ def _thu_thap_trang(session, project_id: uuid.UUID):
         ).all()
         # ĐÚNG hàm mà ảnh xem thử dùng: người xem thấy sao thì file tải về phải y như vậy.
         o_dat_xuat = nap_o_dat_chu(
-            session, [r.id for r, _ts in rows], storage.abs_path(page.clean_image_path)
+            session, [r.id for r, _ts in rows], van_tay_hien_vat(storage, page.clean_image_path)
         )
         trang_list.append(
             TrangCanXuat(
                 page_id=str(page.id),
                 order=page.order,
-                clean_image_abs=storage.abs_path(page.clean_image_path),
+                clean_image_rel=page.clean_image_path,
                 regions=[
                     RegionDraw(
                         bbox=BBox(x=r.bbox_x, y=r.bbox_y, w=r.bbox_w, h=r.bbox_h),
@@ -1833,7 +1854,6 @@ def _run_export(job_id: uuid.UUID) -> dict:
     from app.services.export.chapter import ChapterExporter
     from app.services.export.naming import ten_file_export
     from app.services.export.paths import export_relative_dir
-    from app.services.storage import get_storage
     from app.services.typeset.preview import PagePreviewRenderer
 
     with sync_session() as session:
@@ -1869,7 +1889,7 @@ def _run_export(job_id: uuid.UUID) -> dict:
     storage = get_storage()
     _typesetter, resolver = build_typesetter()
     exporter = ChapterExporter(
-        storage_root=settings.storage_local_root,
+        storage=storage,
         renderer=PagePreviewRenderer(
             font_resolver=resolver,
             line_spacing_ratio=settings.typeset_line_spacing_ratio,
@@ -1878,20 +1898,28 @@ def _run_export(job_id: uuid.UUID) -> dict:
             stroke_width=settings.typeset_stroke_width,
         ),
     )
-    thu_muc = _Path(storage.abs_path(export_relative_dir(project_id)))
+    thu_muc_kho = export_relative_dir(project_id)
+    # Dọn bản xuất cũ Ở KHO, trước khi ghi bản mới. Trước P3c việc này do bộ xuất tự làm bằng
+    # cách quét thư mục thật — nay kho là thứ duy nhất biết mình đang giữ những gì.
+    da_xoa = storage.delete_prefix(thu_muc_kho)
 
-    if dinh_dang is ExportFormat.png_single:
-        duong_dan, da_xoa = exporter.export_png_single(thu_muc, trang_list)
-    else:
-        duoi = "cbz" if dinh_dang is ExportFormat.cbz else "zip"
-        ten = ten_file_export(project_name, duoi)
-        duong_dan, da_xoa = (
-            exporter.export_cbz(thu_muc, trang_list, ten)
-            if dinh_dang is ExportFormat.cbz
-            else exporter.export_zip(thu_muc, trang_list, ten)
-        )
-
-    output_rel = storage.to_relative(duong_dan)
+    # Bộ xuất vẽ ra thư mục tạm; chỉ những gì vẽ XONG mới được đưa vào kho.
+    with workspace() as ws:
+        if dinh_dang is ExportFormat.png_single:
+            duong_dan = exporter.export_png_single(ws, trang_list)
+            output_rel = f"{thu_muc_kho}/png"
+            for tep in sorted(_Path(duong_dan).iterdir()):
+                if tep.is_file():
+                    storage.save_file(f"{output_rel}/{tep.name}", tep)
+        else:
+            duoi = "cbz" if dinh_dang is ExportFormat.cbz else "zip"
+            ten = ten_file_export(project_name, duoi)
+            duong_dan = (
+                exporter.export_cbz(ws, trang_list, ten)
+                if dinh_dang is ExportFormat.cbz
+                else exporter.export_zip(ws, trang_list, ten)
+            )
+            output_rel = storage.save_file(f"{thu_muc_kho}/{ten}", _Path(duong_dan))
     elapsed = time.perf_counter() - started
 
     with sync_session() as session:

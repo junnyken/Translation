@@ -38,7 +38,7 @@ Quy tắc kiến trúc **giữ nguyên xuyên suốt Phase** (M1 chốt, M2–M1
 | Migration | Alembic (driver sync `psycopg`) | Đã test 2 chiều `upgrade head` / `downgrade base` |
 | DB | Postgres 16 (local) hoặc Supabase managed | Đổi bằng `DATABASE_URL`, không sửa code |
 | Queue | Redis + Celery | M1 chỉ ghi record `Job`; task Celery thật bắt đầu ở M2 |
-| Storage | Volume local (`LocalObjectStorage`) | Adapter Supabase Storage **chưa implement** — xem §6 (nợ kỹ thuật) |
+| Storage | Volume local (`LocalObjectStorage`) sau `IObjectStorage` | **P3d**: bỏ `abs_path()` khỏi hợp đồng đọc/ghi ⇒ đổi sang Postgres/S3 chỉ là viết một lớp mới. Adapter Supabase vẫn **chưa implement** — xem §6 |
 | Detector (M2) | comic-text-detector qua ONNX Runtime (CPU) | Chỉ chạy trong worker; tiến trình API không nạp model |
 | OCR (M3) | manga-ocr (`ja`) · PaddleOCR (`zh`/`en`) | Cùng worker; **image worker tách khỏi image api** (multi-stage) |
 | Inpaint (M4) | LaMa bản finetune manga, qua ONNX Runtime (CPU) | Cùng worker; sinh ảnh clean thành **file mới**, không đụng ảnh gốc |
@@ -565,6 +565,46 @@ Chấm lại giữ nguyên `reviewed_keep`/`reviewed_skip`, **trừ khi bằng c
 `evidence_snapshot`). Chấm lại mà xoá mất quyết định của người là xoá công họ đã bỏ ra; ngược lại,
 giữ quyết định cũ trong khi nội dung đã đổi là để họ tin vào một kết luận không còn đúng.
 
+## 8b. Ranh giới lưu trữ hiện vật (P3d)
+
+Bối cảnh: P3c chứng minh VibeHost **không cấp được volume bền**, nên hiện vật ghi ra hệ tệp
+container mất sạch mỗi lần triển khai lại. Lối thoát chỉ còn CSDL hoặc kho đối tượng ngoài — và
+cả hai đều bị chặn bởi cùng một thứ, nên P3d gỡ thứ đó ra.
+
+**Thứ bị gỡ:** `abs_path()`. Trước P3d nó là hợp đồng đọc/ghi — bên gọi xin đường dẫn tuyệt đối
+rồi tự mở tệp, hoặc đưa đường dẫn cho engine tự ghi vào. Hợp đồng ấy trói hệ thống vào hệ tệp
+cục bộ: không kho đối tượng nào phục vụ được kiểu gọi đó.
+
+**Thay bằng** (`app/services/storage.py`):
+
+| Nhóm | Hàm | Ghi chú |
+|---|---|---|
+| Đọc | `read` · `open_read` · `exists` · `stat` | `stat` trả `(size, mtime)` — đủ cho vân tay E14 và ETag HTTP |
+| Ghi | `save` · `save_file` · `save_page_image` | **nguyên tử**: ghi tệp tạm rồi `os.replace` |
+| Liệt kê/xoá | `list_prefix` · `delete_prefix` · `delete` | kho là thứ duy nhất biết mình đang giữ gì |
+| Vật chất hoá | `workspace()` + `fetch_to()` | ranh giới cho engine bên thứ ba |
+
+**Ranh giới vật chất hoá** là điểm mấu chốt. Các engine (comic-text-detector, manga-ocr,
+PaddleOCR, LaMa, bộ vẽ M6, bộ xuất M8) đều nhận **đường dẫn tệp** — nên phải có tệp thật ở đâu
+đó. Chỗ đó **không được là lòng kho**; nếu là lòng kho thì kho buộc phải là hệ tệp mãi mãi. Nên:
+chép hiện vật ra thư mục tạm → engine làm việc ở đó → `save_file()` kết quả ngược vào kho →
+dọn thư mục tạm. Chép thêm vài MB rẻ hơn nhiều so với một lượt chạy model.
+
+Hệ quả kèm theo (không phải mục tiêu, nhưng có thật):
+
+- **Đóng lỗ hổng path traversal.** `_abs()` cũ ghép thẳng `root / rel` và không kiểm gì:
+  `root / "/etc/passwd"` cho ra `/etc/passwd` (path tuyệt đối **nuốt** luôn root). Nay
+  `chuan_hoa_path()` chặn path tuyệt đối, `..`, và path rỗng; `_abs()` chặn thêm symlink trỏ
+  ra ngoài. Chưa từng khai thác được (mọi lời gọi lấy giá trị từ CSDL) nhưng vẫn là lỗ thật.
+- **Ghi nguyên tử ở mọi đường ghi**, không chỉ đường xuất. Trước đây ảnh clean/preview ghi
+  bằng `write_bytes` — hỏng giữa chừng để lại tệp cụt trông như hiện vật hợp lệ.
+- **Vân tay E14 rẻ đi.** `vung_an_toan_dung_duoc()` trước đây tự `stat()` lại tệp cho **mỗi**
+  vùng; một trang 30 vùng là 30 lượt hỏi kho cho cùng một tệp. Nay nhận vân tay tính sẵn.
+
+**Đường ghi ảnh clean không đổi path.** LaMa vẫn tự đặt tên ảnh clean cạnh ảnh gốc, nhưng nay
+làm việc đó trong thư mục tạm; path tương đối lưu vào CSDL vẫn là
+`projects/<pid>/pages/<page_id>_clean.png` ⇒ **không cần migrate dữ liệu cũ**.
+
 ## 9. Giới hạn đã biết (cố ý để lại)
 
 - **Supabase Storage chưa có adapter.** M1 chạy `STORAGE_BACKEND=local` (đã verify thật).
@@ -572,8 +612,12 @@ giữ quyết định cũ trong khi nội dung đã đổi là để họ tin v�
   Nối Supabase Storage cần credential thật → làm khi có key (ưu tiên trước M4 vì M4 sinh thêm ảnh clean).
 - ~~Chưa dispatch Celery task~~ → **đã xong ở M2**: upload page enqueue `detect.run_detect_job`.
   Nếu broker chết, job đứng ở `queued` kèm `error_log=enqueue_failed:…` (không giả vờ đã gửi).
-- **NỢ KỸ THUẬT (tracked):** `SupabaseStorageAdapter` chưa viết — cần khi có credential Supabase.
-  Nên làm trước M4 vì M4 bắt đầu sinh thêm ảnh clean. Hiện `STORAGE_BACKEND=supabase` fail có thông báo rõ.
+- **NỢ KỸ THUẬT (tracked):** chưa có adapter kho bền nào ngoài `local`. Sau P3c/P3d, chỗ trống
+  này là **một lớp duy nhất** hiện thực `IObjectStorage` (Postgres bytea hoặc S3/Supabase) — mọi
+  chỗ gọi đã sẵn sàng, không phải sờ lại. Chọn phương án nào còn chờ **hạn mức lưu trữ của gói
+  VibeHost** (`whoami` không trả trường hạn mức) — xem `REPORT_P3c_STORAGE_CAPABILITY_PROBE.md` §5.
+- **Hiện vật trên host vẫn KHÔNG bền** cho tới khi adapter đó có mặt. P3d dọn đường, không sửa
+  được điều này — nói rõ để không ai đọc nhầm.
 - ~~Chưa có typeset~~ → **đã xong ở M6**.
 - **M2 chưa xử lý** ảnh xoay/nghiêng, scan chất lượng kém; auto-retry khi timeout **đã có ở M9** (chỉ cho lỗi tạm thời, có trần — §10);
   chưa có UI vẽ overlay box (thuộc M7).

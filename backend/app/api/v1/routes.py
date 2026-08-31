@@ -9,8 +9,18 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
+from fastapi.responses import StreamingResponse
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -125,7 +135,13 @@ from app.services.dispatch import (
     dispatch_export_job,
     dispatch_consistency_scan_job,
 )
-from app.services.storage import UnsupportedImage, get_storage, sniff_image
+from app.services.storage import (
+    IObjectStorage,
+    ObjectStat,
+    UnsupportedImage,
+    get_storage,
+    sniff_image,
+)
 # CHỈ import module quy ước đường dẫn — KHÔNG kéo theo Pillow vào tiến trình API.
 from app.services.export.paths import export_relative_dir
 from app.services.typeset.paths import preview_relative_path
@@ -337,15 +353,68 @@ async def retry_ocr(
     return PageAccepted(page_id=page.id, status=page.status, job_id=job.id)
 
 
+
+# ============================ phục vụ hiện vật (P3c) ============================
+#
+# Trước P3c, ba endpoint dưới đây trả thẳng một `FileResponse` dựng từ đường dẫn tuyệt đối của
+# kho — tức là yêu cầu kho lưu trữ PHẢI là một hệ tệp cục bộ. Nay chúng đọc qua luồng
+# `open_read()`, nên kho có thể là Postgres hay S3 mà route không đổi một dòng nào.
+#
+# Đổi sang `StreamingResponse` thì mất ETag/Content-Length mà Starlette tự sinh, nên phải tự
+# dựng lại. Bỏ qua chuyện này là một hồi quy băng thông thật: ảnh xem thử đặt
+# `no-cache, must-revalidate`, nghĩa là trình duyệt hỏi lại server MỖI lượt xem — không có ETag
+# thì mỗi lượt hỏi lại là tải nguyên ~3MB thay vì một cái 304 rỗng.
+
+
+def _the_phien_ban(st: ObjectStat) -> str:
+    """ETag từ (kích thước, mtime) — đúng cặp số mà `stat()` của mọi backend đều cấp được."""
+    return f'"{st.size:x}-{st.mtime:x}"'
+
+
+def _doc_theo_khoi(fh, kich_thuoc: int = 64 * 1024):
+    """Đọc luồng theo khối. Duyệt thẳng file object sẽ cắt theo dấu xuống dòng — sai với nhị phân."""
+    try:
+        while khoi := fh.read(kich_thuoc):
+            yield khoi
+    finally:
+        fh.close()
+
+
+def _phuc_vu_hien_vat(
+    storage: IObjectStorage,
+    rel: str,
+    media_type: str,
+    request: Request,
+    *,
+    filename: str | None = None,
+    cache_control: str | None = None,
+) -> Response:
+    st = storage.stat(rel)
+    if st is None:
+        # Chỉ xảy ra khi hiện vật biến mất giữa lúc kiểm và lúc phục vụ.
+        raise HTTPException(status_code=404, detail="Hiện vật không còn trên kho lưu trữ")
+    etag = _the_phien_ban(st)
+    headers: dict[str, str] = {"ETag": etag}
+    if cache_control:
+        headers["Cache-Control"] = cache_control
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
+    headers["Content-Length"] = str(st.size)
+    if filename:
+        headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return StreamingResponse(
+        _doc_theo_khoi(storage.open_read(rel)), media_type=media_type, headers=headers
+    )
+
+
 @router.get(
     "/pages/{page_id}/clean-image",
     tags=["pages"],
-    response_class=FileResponse,
     responses={200: {"content": {"image/png": {}}}, 404: {"description": "Chưa có ảnh clean"}},
 )
 async def get_clean_image(
-    page_id: uuid.UUID, session: AsyncSession = Depends(get_session)
-) -> FileResponse:
+    page_id: uuid.UUID, request: Request, session: AsyncSession = Depends(get_session)
+) -> Response:
     """Ảnh đã xoá chữ gốc (M4). Ảnh GỐC không bao giờ bị thay — đây là file riêng."""
     page = await _get_page_or_404(session, page_id)
     if not page.clean_image_path:
@@ -359,7 +428,7 @@ async def get_clean_image(
             status_code=404,
             detail=f"Đường dẫn ảnh clean có trong DB nhưng file không còn: {page.clean_image_path}",
         )
-    return FileResponse(storage.abs_path(page.clean_image_path), media_type="image/png")
+    return _phuc_vu_hien_vat(storage, page.clean_image_path, "image/png", request)
 
 
 @router.post(
@@ -482,12 +551,11 @@ async def list_page_typeset(
 @router.get(
     "/pages/{page_id}/typeset-preview",
     tags=["pages"],
-    response_class=FileResponse,
     responses={200: {"content": {"image/png": {}}}, 404: {"description": "Chưa render preview"}},
 )
 async def get_typeset_preview(
-    page_id: uuid.UUID, session: AsyncSession = Depends(get_session)
-) -> FileResponse:
+    page_id: uuid.UUID, request: Request, session: AsyncSession = Depends(get_session)
+) -> Response:
     """Ảnh xem thử: ảnh clean của M4 + chữ dịch đã canh (M6).
 
     CHỈ phục vụ file đã render sẵn — endpoint này không bao giờ tự render (việc nặng thuộc
@@ -503,10 +571,8 @@ async def get_typeset_preview(
         )
     # `no-cache` = trình duyệt PHẢI hỏi lại server trước khi dùng bản đã lưu. Đường dẫn preview
     # cố định theo page nên thiếu header này thì sau khi sửa tay (M7) người dùng vẫn thấy ảnh cũ.
-    return FileResponse(
-        storage.abs_path(rel),
-        media_type="image/png",
-        headers={"Cache-Control": "no-cache, must-revalidate"},
+    return _phuc_vu_hien_vat(
+        storage, rel, "image/png", request, cache_control="no-cache, must-revalidate"
     )
 
 
@@ -890,15 +956,14 @@ async def get_export_job(
 @router.get(
     "/export-jobs/{job_id}/download",
     tags=["export"],
-    response_class=FileResponse,
     responses={
         200: {"content": {"application/octet-stream": {}}},
         404: {"description": "Chưa xuất xong hoặc file không còn"},
     },
 )
 async def download_export(
-    job_id: uuid.UUID, session: AsyncSession = Depends(get_session)
-) -> FileResponse:
+    job_id: uuid.UUID, request: Request, session: AsyncSession = Depends(get_session)
+) -> Response:
     """Tải file đã xuất. **Chỉ phục vụ file có sẵn** — không bao giờ tự render ở đây.
 
     Với `png_single`, kết quả là một THƯ MỤC nhiều file nên không tải một lần được:
@@ -927,11 +992,13 @@ async def download_export(
             status_code=404,
             detail=f"Đường dẫn có trong DB nhưng file không còn: {job.output_path}",
         )
-    return FileResponse(
-        storage.abs_path(job.output_path),
-        media_type="application/octet-stream",
+    return _phuc_vu_hien_vat(
+        storage,
+        job.output_path,
+        "application/octet-stream",
+        request,
         filename=job.output_path.rsplit("/", 1)[-1],
-        headers={"Cache-Control": "no-cache, must-revalidate"},
+        cache_control="no-cache, must-revalidate",
     )
 
 

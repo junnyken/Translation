@@ -163,6 +163,30 @@ Chưa phát hành lên Chrome Web Store.
 > n=9 — chúng chỉ chứng minh "không vùng nào vi phạm", **không** chứng minh đường xử lý chữ
 > nghiêng đã được test thành công. Không được đọc thành "rotated text đã test xong".
 
+## Lưu trữ ảnh: vì sao ảnh vẫn "biến mất" sau mỗi lần cập nhật (P3c + P3d)
+
+Nói thẳng trước: **chưa sửa được.** Ảnh gốc, ảnh đã xoá chữ và ảnh xem thử vẫn mất sạch mỗi lần
+hệ thống được cập nhật lên máy chủ, trong khi dữ liệu chữ nghĩa trong cơ sở dữ liệu thì còn
+nguyên. Hậu quả người dùng thấy: một trang ghi là "đã canh chữ xong" nhưng bấm xem ảnh thì báo
+không còn.
+
+Đã dò ra nguyên nhân (P3c): nền tảng đang chạy **không cấp được ổ đĩa bền** để gắn vào chỗ chứa
+ảnh. Đây là giới hạn của nền tảng, không phải lỗi cấu hình.
+
+Đã làm được gì (P3d): dọn xong toàn bộ phần việc để **chuyển kho ảnh sang nơi khác** — cơ sở dữ
+liệu, hoặc dịch vụ lưu trữ ngoài. Trước đây việc chuyển này đụng tới 18 chỗ trong mã; nay chỉ còn
+là viết **một** lớp mới. Chưa chọn nơi nào vì còn chờ biết hạn mức lưu trữ của gói dịch vụ.
+
+Kèm theo, hai thứ đã tốt lên ngay:
+
+- **Xem ảnh đỡ tốn dữ liệu.** Mỗi lần mở lại ảnh xem thử, trình duyệt hỏi lại máy chủ; trước đây
+  lần nào cũng tải nguyên ảnh ~3MB, nay nếu ảnh chưa đổi thì máy chủ chỉ trả lời "chưa đổi".
+- **Không còn ảnh ghi dở.** Nếu quá trình ghi ảnh hỏng giữa chừng, bản cũ được giữ nguyên thay vì
+  để lại một tệp cụt trông như ảnh thật.
+
+Một đánh đổi: tải gói CBZ lớn mà đứt mạng giữa chừng thì phải tải lại từ đầu (trước đây tải tiếp
+được).
+
 ## Những gì **chưa** dùng được (nói thẳng để không hiểu nhầm)
 
 - **Chưa có đăng nhập**: ai mở được đường link là sửa được, và hệ thống chỉ ghi “có người sửa”

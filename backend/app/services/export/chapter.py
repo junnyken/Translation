@@ -8,10 +8,11 @@ from __future__ import annotations
 import io
 import logging
 import os
-import shutil
 import zipfile
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+
+from app.services.storage import IObjectStorage, workspace
 
 logger = logging.getLogger(__name__)
 
@@ -29,19 +30,33 @@ class TrangCanXuat:
 
     page_id: str
     order: int
-    clean_image_abs: str
+    clean_image_rel: str
     regions: list  # list[RegionDraw] — kiểu của M6, không import ở đây để khỏi vòng lặp import
 
 
 class ChapterExporter:
-    def __init__(self, storage_root: str, renderer) -> None:
-        self.storage_root = Path(storage_root)
+    """Ghi kết quả xuất vào một thư mục CỤC BỘ do bên gọi cấp (thường là `workspace()`).
+
+    P3c: trước đây bộ xuất nhận gốc kho rồi ghi thẳng vào lòng kho qua đường dẫn tuyệt đối. Nay
+    nó không biết kho nằm ở đâu — chỉ vẽ ra thư mục được đưa cho, và bên gọi `save_file()` kết
+    quả vào kho. Dọn bản xuất cũ cũng chuyển về kho (`delete_prefix`).
+    """
+
+    def __init__(self, storage: IObjectStorage, renderer) -> None:
+        self.storage = storage
         self.renderer = renderer
 
     # ---------- vẽ ----------
     def render_page_bytes(self, trang: TrangCanXuat) -> bytes:
-        """Trả PNG binary **trong RAM**, không ghi file trung gian."""
-        canvas = self.renderer.draw(trang.clean_image_abs, trang.regions)
+        """Trả PNG binary **trong RAM**, không ghi file trung gian.
+
+        Ảnh clean được vật chất hoá ra thư mục tạm vì bộ vẽ của M6 nhận đường dẫn thật.
+        """
+        with workspace() as ws:
+            clean = self.storage.fetch_to(
+                trang.clean_image_rel, ws / PurePosixPath(trang.clean_image_rel).name
+            )
+            canvas = self.renderer.draw(str(clean), trang.regions)
         bo_dem = io.BytesIO()
         canvas.save(bo_dem, format="PNG")
         return bo_dem.getvalue()
@@ -56,34 +71,18 @@ class ChapterExporter:
         do_rong = max(len(str(so_trang)), 3)
         return f"{trang.order:0{do_rong}d}.png"
 
-    # ---------- dọn trước khi ghi ----------
-    def _don_ket_qua_cu(self, thu_muc: Path) -> list[str]:
-        """Xoá sạch kết quả xuất cũ. Trả danh sách thứ đã xoá (để ghi log, không đoán)."""
-        da_xoa: list[str] = []
-        if not thu_muc.is_dir():
-            return da_xoa
-        for muc in sorted(thu_muc.iterdir()):
-            if muc.is_dir():
-                shutil.rmtree(muc)
-            else:
-                muc.unlink()
-            da_xoa.append(muc.name)
-        return da_xoa
-
     # ---------- 3 định dạng ----------
-    def export_png_single(self, thu_muc_dich: Path, trang_list: list[TrangCanXuat]) -> tuple[str, list[str]]:
-        """Mỗi trang 1 file PNG trong `<thư mục>/png/`. Trả (đường dẫn thư mục, đã xoá gì)."""
-        da_xoa = self._don_ket_qua_cu(thu_muc_dich)
+    def export_png_single(self, thu_muc_dich: Path, trang_list: list[TrangCanXuat]) -> str:
+        """Mỗi trang 1 file PNG trong `<thư mục>/png/`. Trả đường dẫn thư mục vừa ghi."""
         dich = thu_muc_dich / "png"
         dich.mkdir(parents=True, exist_ok=True)
         for trang in trang_list:
             (dich / self.ten_trang(trang, len(trang_list))).write_bytes(self.render_page_bytes(trang))
-        return str(dich), da_xoa
+        return str(dich)
 
     def _export_goi(
         self, thu_muc_dich: Path, trang_list: list[TrangCanXuat], ten_file: str
-    ) -> tuple[str, list[str]]:
-        da_xoa = self._don_ket_qua_cu(thu_muc_dich)
+    ) -> str:
         thu_muc_dich.mkdir(parents=True, exist_ok=True)
         dich = thu_muc_dich / ten_file
         tam = dich.with_suffix(dich.suffix + ".tmp")
@@ -92,7 +91,7 @@ class ChapterExporter:
                 goi.writestr(self.ten_trang(trang, len(trang_list)), self.render_page_bytes(trang))
         # Đổi chỗ nguyên tử: file chỉ xuất hiện khi đã ghi xong, không bao giờ lộ gói dở dang.
         os.replace(tam, dich)
-        return str(dich), da_xoa
+        return str(dich)
 
     def export_cbz(self, thu_muc_dich: Path, trang_list: list[TrangCanXuat], ten_file: str):
         return self._export_goi(thu_muc_dich, trang_list, ten_file)

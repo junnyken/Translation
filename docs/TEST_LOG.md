@@ -2454,3 +2454,60 @@ Wildcard 0 · Credentials 0.
   lại trả **"bước căn chữ chưa chạy xong"** — sai nguyên nhân, vì typeset đã chạy xong thật.
   Hai route không nhất quán về cách nói thật khi tệp biến mất.
 - Log có `SecurityWarning: running the worker with superuser privileges` — celery chạy bằng root.
+
+# ==================== P3d — Bỏ `abs_path()` làm hợp đồng đọc/ghi (2026-08-31) ====================
+
+## P3d.1 — Bộ test sau refactor
+
+```
+801 passed, 6 skipped in 295.38s
+```
+
+Nền trước P3d: **779 passed**. Chênh **+22** là tệp mới `tests/test_storage_unit.py`.
+**0 test bị xoá.** Hai unit test của bộ xuất (`test_xuat_lai_khong_tich_tu_file_rac`,
+`test_doi_dinh_dang_thi_don_ket_qua_cu`) được **chuyển chỗ kiểm** chứ không bỏ: việc dọn bản
+xuất cũ đã đi từ bộ xuất sang kho, nên bảo đảm đó nay kiểm ở `delete_prefix`.
+
+## P3d.2 — Test mới: `tests/test_storage_unit.py` (22 test)
+
+Hai nhóm dưới đây trước P3d **không có test nào**:
+
+| Nhóm | Kiểm gì |
+|---|---|
+| `TestChanPathNguyHiem` (6) | path tuyệt đối / `..` / rỗng bị từ chối; `exists`/`stat`/`delete` trả "không có" thay vì ném; tệp **ngoài** kho không bị ghi đè |
+| `TestGhiDocXoa` (7) | ghi–đọc nguyên văn; không sót tệp `.ghi-do-*`; **lỗi giữa chừng thì bản cũ còn nguyên**; `stat` đổi khi nội dung đổi; xoá idempotent |
+| `TestLietKeVaDonTheoTienTo` (3) | liệt kê đệ quy có thứ tự; **`exports/p1` không xoá lan sang `exports/p10`**; không để lại thư mục rỗng |
+| `TestVatChatHoa` (3) | `fetch_to` chép ra **ngoài** kho; `workspace()` được dọn **kể cả khi lỗi**; ghi ngược vào kho từ tệp cục bộ |
+
+Ca đáng chú ý nhất — **`test_don_ban_cu_khong_dung_toi_hang_xom`**: `exports/p1` là tiền tố
+**chuỗi** của `exports/p10`. Một hiện thực `delete_prefix` dựa trên `startswith` sẽ xoá nhầm
+bản xuất của project khác mà không ai biết. Test này chặn đúng lỗi đó.
+
+Và **`test_khong_ghi_duoc_ra_ngoai_goc_that`**: dựng một tệp thật ngoài kho, gọi
+`save("../moi-nhu.txt", …)`, rồi khẳng định nội dung tệp đó **không đổi**. Trước P3d phép ghi
+này thành công.
+
+## P3d.3 — Lint: không thêm nợ
+
+Đo trên **đúng bộ 9 tệp đã sửa**, so bản HEAD với bản sau sửa:
+
+| | ruff |
+|---|---|
+| Trước (HEAD) | 100 lỗi |
+| Sau P3d | **95 lỗi** |
+
+Toàn repo 270 lỗi — có sẵn từ trước, P3d không đụng tới và cũng không làm tăng.
+
+## P3d.4 — Một lỗi thật do refactor, bắt được bằng test
+
+`anh_cuc_bo()` đặt ở scope module nhưng `get_storage` khi đó **chỉ được import cục bộ trong vài
+hàm** ⇒ `NameError: name 'get_storage' is not defined`. Hệ quả: **mọi job detect thất bại**, và
+vì detect là đầu chuỗi nên OCR/inpaint/typeset/export đổ theo — 40+ integration test đỏ.
+
+Đáng ghi lại hai điều:
+
+- Lỗi **không** lộ ra ở `import app.workers.tasks` (import sạch), cũng không ở 411 unit test.
+  Chỉ integration test chạm tới đường chạy thật mới thấy.
+- Job nuốt lỗi vào `error_log` rồi trả `{"status": "failed"}`, nên traceback **không** hiện ở
+  log pytest. Phải in `repr(result)` ra mới thấy nguyên nhân. Đây là cái giá của việc bắt hết
+  ngoại lệ ở tầng task — đúng cho vận hành, nhưng làm chẩn đoán chậm hơn một nhịp.

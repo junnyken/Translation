@@ -22,7 +22,8 @@ from app.models.enums import (
 )
 from app.models import OCRResult, TranslationResult
 from app.services.safearea.config import SafeAreaConfig
-from app.services.safearea.service import SafeAreaService, dau_van_tay_anh
+from app.services.safearea.service import SafeAreaService, van_tay_hien_vat
+from app.services.storage import LocalObjectStorage, get_storage
 
 
 def _anh_bong_bong(w=800, h=600) -> bytes:
@@ -70,7 +71,18 @@ def trang_co_bong_bong(sample_page_image, no_broker_for_chained_ocr):
 
 def _dv() -> SafeAreaService:
     st = get_settings()
-    return SafeAreaService(st.storage_local_root, SafeAreaConfig.from_settings(st))
+    return SafeAreaService(get_storage(), SafeAreaConfig.from_settings(st))
+
+
+def _van_tay(duong: str) -> str | None:
+    """Vân tay của ảnh clean từ đường dẫn tuyệt đối mà fixture trả về.
+
+    P3c: `nap_o_dat_chu()` nay nhận vân tay chứ không nhận đường dẫn — vì kho lưu trữ không
+    nhất thiết là hệ tệp. Test vẫn ghi tệp thẳng (backend local) nên phải quy ngược về path
+    tương đối để hỏi kho.
+    """
+    rel = str(Path(duong).relative_to(get_settings().storage_local_root))
+    return van_tay_hien_vat(get_storage(), rel)
 
 
 def _ban(region_id) -> RegionSafeArea | None:
@@ -164,26 +176,27 @@ def test_anh_clean_doi_thi_hinh_cu_khong_duoc_dung_lai(trang_co_bong_bong):
     with sync_session() as s:
         _dv().compute_page(s, page_id); s.commit()
     with sync_session() as s:
-        assert nap_o_dat_chu(s, vung, duong)
+        assert nap_o_dat_chu(s, vung, _van_tay(duong))
 
     time.sleep(1.1)
     anh = np.full((600, 800, 3), (40, 60, 40), np.uint8)   # xoá sạch bong bóng
     Path(duong).write_bytes(cv2.imencode(".png", anh)[1].tobytes())
 
     with sync_session() as s:
-        assert nap_o_dat_chu(s, vung, duong) == {}
+        assert nap_o_dat_chu(s, vung, _van_tay(duong)) == {}
 
 
 def test_van_tay_doi_theo_noi_dung_anh(tmp_path):
     import time
 
-    p = tmp_path / "a.png"
-    p.write_bytes(b"x" * 100)
-    a = dau_van_tay_anh(str(p))
+    kho = LocalObjectStorage(str(tmp_path))
+    kho.save("a.png", b"x" * 100)
+    a = van_tay_hien_vat(kho, "a.png")
     time.sleep(1.1)
-    p.write_bytes(b"y" * 200)
-    assert dau_van_tay_anh(str(p)) != a
-    assert dau_van_tay_anh(str(tmp_path / "khong-co.png")) is None
+    kho.save("a.png", b"y" * 200)
+    assert van_tay_hien_vat(kho, "a.png") != a
+    assert van_tay_hien_vat(kho, "khong-co.png") is None
+    assert van_tay_hien_vat(kho, None) is None
 
 
 # ---------------- tính lại một vùng ----------------
@@ -323,7 +336,7 @@ def test_xem_thu_va_xuat_file_ra_dung_mot_anh(trang_co_bong_bong):
                 sa.select(TextRegion).where(TextRegion.page_id == page_id)
                 .order_by(TextRegion.reading_order)
             ).scalars())
-            o_dat = nap_o_dat_chu(s, [r.id for r in rows], duong)
+            o_dat = nap_o_dat_chu(s, [r.id for r in rows], _van_tay(duong))
             ds = [
                 RegionDraw(
                     bbox=BBox(x=r.bbox_x, y=r.bbox_y, w=r.bbox_w, h=r.bbox_h),
@@ -346,7 +359,7 @@ def test_o_dat_chu_luu_san_chu_khong_tinh_lai_o_moi_noi(trang_co_bong_bong):
     with sync_session() as s:
         _dv().compute_page(s, page_id); s.commit()
     with sync_session() as s:
-        o = nap_o_dat_chu(s, vung, duong)
+        o = nap_o_dat_chu(s, vung, _van_tay(duong))
     b = _ban(vung[0])
     assert o[vung[0]] == (b.place_rect_json["x"], b.place_rect_json["y"],
                           b.place_rect_json["w"], b.place_rect_json["h"])

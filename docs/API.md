@@ -132,9 +132,26 @@ Trả **file ảnh** đã xoá chữ gốc (`image/png`, binary).
 | page không tồn tại | 404 |
 | chưa chạy xoá chữ (chưa có `clean_image_path`) | 404 kèm lý do rõ |
 | DB có đường dẫn nhưng file đã mất | 404 kèm đường dẫn để truy vết |
+| `If-None-Match` khớp ETag | **304** (không gửi lại thân) |
 
 > Ảnh **gốc không bao giờ bị thay** — ảnh clean là file riêng (`<tên gốc>_clean.png`).
 > `GET /pages/{id}` vẫn trả `image_path` (gốc) và `clean_image_path` (clean) tách bạch.
+
+**Phục vụ hiện vật (P3d).** Ba endpoint trả tệp (`clean-image`, `typeset-preview`,
+`export-jobs/{id}/download`) nay đọc qua **luồng** thay vì mở tệp theo đường dẫn tuyệt đối, để
+kho lưu trữ có thể không phải là hệ tệp. Kèm theo:
+
+- `ETag` dựng từ `(kích thước, thời điểm ghi)` của hiện vật;
+- gửi lại `If-None-Match` khớp ⇒ **`304 Not Modified`** (thân rỗng);
+- `Content-Length` vẫn có ở mọi lượt trả 200.
+
+Đây **không phải** tính năng thêm mà là giữ nguyên hành vi cũ: `typeset-preview` đặt
+`Cache-Control: no-cache, must-revalidate`, tức trình duyệt hỏi lại server mỗi lượt xem —
+không có ETag thì mỗi lượt hỏi lại là tải nguyên ~3MB thay vì một cái 304 rỗng.
+
+⚠️ **Mất hỗ trợ `Range`** (tải tiếp đoạn giữa chừng) so với trước, vì `FileResponse` của
+Starlette tự làm việc đó còn luồng thì không. Ảnh hưởng thật: tải lại từ đầu nếu đứt mạng giữa
+chừng khi tải gói CBZ lớn. Chưa làm lại vì chưa ai gặp; ghi ra để không ai tưởng là lỗi.
 
 ## 10. `POST /api/v1/pages/{page_id}/retry-inpaint` → 202 *(M4)*
 
@@ -209,6 +226,7 @@ Vùng `overflow_warning` được vẽ **khung đỏ** để cảnh báo nhìn t
 |---|---|
 | page không tồn tại | 404 |
 | chưa render preview (typeset chưa chạy xong) | 404 |
+| `If-None-Match` khớp ETag | **304** (không gửi lại thân) |
 
 Endpoint này **chỉ phục vụ file đã render sẵn** — không bao giờ tự render (việc nặng thuộc worker,
 và tiến trình API không nạp engine render).
@@ -352,6 +370,7 @@ Tải file đã xuất. **Chỉ phục vụ file có sẵn** — không bao gi�
 | job không tồn tại | 404 |
 | chưa xuất xong, hoặc file không còn trên đĩa | 404 |
 | `format=png_single` (nhiều file trong 1 thư mục, không tải một lần được) | 409 kèm hướng dẫn dùng `cbz`/`zip` |
+| `If-None-Match` khớp ETag | **304** (không gửi lại thân) |
 
 ## 25. `GET /api/v1/jobs/{job_id}` → 200
 

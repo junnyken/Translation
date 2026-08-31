@@ -449,3 +449,40 @@ refactor rồi chốt cũng kịp.
 **Việc kế tiếp:** một câu hỏi cho support (không phải mini-spec) — (a) bảng điều khiển/support có
 đĩa bền nào không lộ ra ở API không, và (b) **hạn mức lưu trữ của gói là bao nhiêu** (`whoami`
 không trả trường hạn mức, `canUpgrade: false`) — phương án A phụ thuộc con số (b).
+
+
+## P3d — Bỏ `abs_path()` làm hợp đồng đọc/ghi (2026-08-31) ✅ **XONG (chưa deploy)**
+
+Làm **phần việc chung** mà P3c chỉ ra: Postgres (A) và kho đối tượng ngoài (B) đều bị chặn bởi
+cùng một thứ, nên gỡ thứ đó trước, chốt A/B sau.
+
+`abs_path()` **không còn tồn tại**. Viết adapter Postgres/S3 nay là viết **một lớp duy nhất**
+hiện thực `IObjectStorage`, không phải sờ lại từng chỗ gọi.
+
+**Phạm vi thật lớn hơn P3c ước lượng: 18 chỗ, không phải 7.** Chỗ bỏ sót là
+`resolve_image_path()` — một hàm THỨ HAI làm đúng việc của `abs_path()` nhưng mang tên khác, nên
+không lọt phép đếm theo tên. ⇒ đếm theo *hành vi*, đừng đếm theo *tên hàm*.
+
+**Thiết kế:** ranh giới vật chất hoá — `kho → fetch_to() → thư mục tạm → engine → save_file() → kho`.
+Engine bên thứ ba bắt buộc cần đường dẫn thật, nhưng chỗ đó **không được là lòng kho**; nếu là
+lòng kho thì kho buộc phải là hệ tệp mãi mãi. Đã cân nhắc và loại phương án zero-copy cho backend
+local vì nó giữ nguyên đúng cái bẫy cũ.
+
+Được thêm (không phải mục tiêu, nhưng có thật):
+- **Đóng lỗ path traversal**: `root / "/etc/passwd"` trước đây cho ra `/etc/passwd` — path tuyệt
+  đối NUỐT luôn root. Có test dựng tệp thật ngoài kho rồi khẳng định nó không bị ghi đè.
+- **Ghi nguyên tử ở mọi đường ghi** (trước chỉ có đường xuất).
+- **Vân tay E14 rẻ đi**: trang 30 vùng từ 30 lượt `stat()` xuống còn 1.
+- ETag/304 cho 3 endpoint trả tệp — **giữ nguyên** hành vi cũ chứ không phải thêm tính năng
+  (`must-revalidate` mà không có ETag = tải lại nguyên ~3MB mỗi lượt xem).
+
+**Đánh đổi đã nhận:** mất hỗ trợ `Range` (tải tiếp đoạn giữa chừng) ở 3 endpoint đó.
+
+Test: **801 passed, 6 skipped** (nền 779) — +22 tệp mới `test_storage_unit.py`, **0 test bị xoá**.
+Path ảnh clean **không đổi** ⇒ không migration.
+
+⚠️ **P3d KHÔNG làm hiện vật bền** — nó dọn đường, không lát đường. Trên host ảnh vẫn mất sạch mỗi
+lần triển khai lại. **Chưa deploy** (chưa có gì để deploy làm đổi thực trạng).
+
+**Việc kế tiếp:** vẫn là câu hỏi cho support ở P3c — hạn mức lưu trữ của gói — rồi viết đúng một
+lớp adapter (A hoặc B) và deploy cùng nó.
