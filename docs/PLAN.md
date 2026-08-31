@@ -548,3 +548,26 @@ Test: **831 passed** (nền 823). Test gắt nhất là *chế độ chỉ-đế
 sửa dữ liệu mà lỡ ghi lúc người ta tưởng nó chỉ đếm thì tệ hơn không có công cụ.
 
 **Việc kế tiếp:** chạy `RECONCILE_LEGACY=report` trên host để xem thiệt hại thật, rồi mới `apply`.
+
+### P3e + P3f — kết quả CHẠY THẬT trên host (2026-08-31)
+
+Đã deploy và đo trên `translation-api` (vibehost1 / `trieunt1@`), `STORAGE_BACKEND=postgres`.
+
+**Hiện vật đã bền — đo được:** tải một trang PNG thật lên, pipeline chạy hết tới `typeset_done`
+(detect ra 2 vùng conf 0,774 / 0,573 — khớp 2 bong bóng đã vẽ, không phải trạng thái nhảy suông),
+rồi **redeploy 3 lần**. Sau mỗi lần, `clean-image` và `typeset-preview` vẫn trả **200** với đúng
+số byte (14.319 / 16.652), PNG thật 1200×1700; `If-None-Match` trả **304 / 0 byte**.
+
+**Đối chứng đắt giá nhất** đến từ chính lượt quét đối chiếu: cùng một lần quét, cùng một máy —
+**5 trang tạo TRƯỚC P3e mất hiện vật, trang tạo SAU P3e thì không.** Dữ liệu thật tự phân đôi
+đúng theo ranh giới P3e; không bộ test nào dựng ra được đối chứng như vậy.
+
+**Đã dọn 5 trang mồ côi:** tất cả về `status=ocr_done` + `clean_image_path=None`. Bản dịch và OCR
+còn nguyên. `RECONCILE_LEGACY` đã đặt lại `off`.
+
+**Hai lỗi bắt được nhờ chạy thật:**
+1. Chế độ chỉ-đếm **đếm một trang hai lần** (báo 10, thật ra 5) vì nó dựa vào tác dụng phụ của
+   chế độ ghi. Đã sửa + test hồi quy. *Chế độ khô mà dựa vào tác dụng phụ của chế độ ướt thì sẽ
+   nói dối đúng lúc người ta cần tin nó nhất.*
+2. **Nhật ký chạy không sống sót qua deploy** — không có log của chính lượt sửa. Việc cần dấu vết
+   kiểm toán phải ghi vào CSDL, không trông vào log.

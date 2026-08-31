@@ -101,11 +101,39 @@ ra **cùng** con số.
 Bài học: **chế độ khô (dry-run) mà dựa vào tác dụng phụ của chế độ ướt thì sẽ nói dối** — và nó
 nói dối đúng lúc người ta cần tin nó nhất.
 
-⚠️ **Chưa chạy `apply`.**
+### Chế độ `apply` — đã chạy, kết quả kiểm bằng DỮ LIỆU chứ không bằng log
+
+Cả 5 trang nay ở đúng trạng thái mong muốn (đo qua API, từng trang một):
+
+```
+1e3cfe17  status=ocr_done  clean=None
+a8613fe9  status=ocr_done  clean=None
+891aec15  status=ocr_done  clean=None
+4b955242  status=ocr_done  clean=None
+460fe90a  status=ocr_done  clean=None
+```
+
+Bản dịch và kết quả OCR **còn nguyên** — chỉ lời khai về ảnh bị rút. Chạy lại bước xoá chữ là
+dùng lại được ngay.
+
+⚠️ **Một khoảng trống trong bằng chứng, nói thẳng:** tôi **không có log** của chính lượt sửa đó.
+Nhật ký chạy **không sống sót qua một lần triển khai lại** — lượt `apply` tôi đọc được (04:13:22)
+đã báo `0/0/0`, tức lúc nó chạy thì 5 trang **đã được sửa từ trước** bởi một lượt khởi động mà
+log đã bị lần deploy sau ghi đè.
+
+Nên bằng chứng ở đây là **trạng thái dữ liệu**, không phải nhật ký. Với việc này thì dữ liệu là
+bằng chứng mạnh hơn — nhưng phải nói rõ để không ai tưởng tôi đọc được log của lượt sửa.
+
+**Bài học vận hành:** nhật ký chạy trên nền tảng này là *phù du*. Việc gì cần dấu vết kiểm toán
+thì phải ghi vào CSDL, không được trông vào log.
 
 ## Remaining Limits
 
-- **Chưa chạy `apply` trên host.** Số liệu thiệt hại thật đã có: **5 trang**.
+- ~~Chưa chạy `apply`~~ → **đã chạy, đã kiểm bằng dữ liệu**: 5 trang về `ocr_done` + `clean=None`.
+- **Không có nhật ký của chính lượt sửa** (log không sống sót qua deploy). Việc cần dấu vết kiểm
+  toán về sau phải ghi vào CSDL chứ không trông vào log.
+- `RECONCILE_LEGACY` đã đặt lại **`off`** — không để một thao tác ghi hàng loạt ở trạng thái đã
+  lên nòng.
 - Không hồi sinh được ảnh đã mất — P3f chỉ làm bản ghi thôi nói dối, không tạo lại dữ liệu.
 - Quét toàn bảng, không phân trang. Ở quy mô hiện tại (vài chục trang) không đáng bận; vài chục
   nghìn trang thì phải làm theo lô.
