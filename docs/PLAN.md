@@ -414,3 +414,38 @@ thì nó có `clean_image_path: null` — chưa từng có ảnh clean để m�
 **Việc kế tiếp (một việc):** hỏi Vibe Host xem gói Pro có cấp volume bền gắn vào đường tuỳ ý
 không. Câu trả lời quyết định mini-spec sau là "gắn volume 1 GB" (rẻ) hay "dựng adapter lưu trữ
 đối tượng sau IObjectStorage" (đắt hơn nhiều).
+
+
+## P3c — Dò năng lực lưu trữ VibeHost (2026-08-31) ✅ **HOÀN TẤT**
+
+Chỉ đọc, không sửa gì. Trả lời dứt khoát câu hỏi khiến P3b dừng.
+
+**Vibe Host Pro KHÔNG cấp được volume bền.** Và đây không phải chuyện thiếu quyền của một khoá —
+nền tảng không có khái niệm đó trong mô hình tài nguyên. Bốn trục bằng chứng:
+
+1. **Cả 4 tài khoản** (3 tài khoản thật sau 4 cổng MCP) có **đúng cùng** bộ phạm vi
+   `read, deploy, runtime:write, env:write` — không khoá nào có phạm vi lưu trữ.
+2. **`appdata = 0` trên cả 4** — 12 dịch vụ đang chạy, không cái nào từng cấp phát 1 byte. Hạng
+   mục có trong sổ kế toán nhưng không có đường đổ dữ liệu vào (làm yếu hẳn manh mối P3b nêu).
+3. **Mô hình tài nguyên không có chiều đĩa** — `get_resources` chỉ trả CPU/RAM (min/max/free),
+   `set_resources` chỉ nhận `cpu`+`ram`. Không có nút để vặn, chứ không phải bị khoá tay.
+4. **Không công cụ ghi nào nhận khai báo volume, kể cả `create_project`.** Sinh ra đã không có
+   thì sau không gắn thêm được. Không có `create_stack`, `list_stacks` trả `[]` ⇒ lối thoát
+   docker-compose (compose tự khai báo volume) **không với tới được** từ API.
+
+**Phát hiện đổi hướng việc kế tiếp:** nền tảng **có** lưu trữ bền — nhưng là **cơ sở dữ liệu**,
+không phải đĩa (`postgresql` primary + `redis`, và `databases`/`backups` là hạng mục riêng trong
+sổ lưu trữ). Chính lỗi orphan đã chứng minh CSDL sống sót qua deploy.
+
+⚠️ **Bẫy đã ghi lại:** workspace có 4 cổng MCP trỏ 3 tài khoản khác nhau. Translation nằm ở
+**`vibehost1`** (`trieunt1@`). P3b không ghi cổng nào — lần sau phải ghi.
+
+**Khung quyết định đã đổi.** P3b đóng khung "CÓ thì rẻ / KHÔNG thì đắt". Trả lời là KHÔNG, còn
+lại A (Postgres làm kho hiện vật) và B (kho đối tượng ngoài) — nhưng **cả hai gánh chung phần
+việc nặng giống hệt nhau: `abs_path()` phải thôi làm hợp đồng đọc/ghi** (3 chỗ ghi, 3 chỗ đọc,
++ `SafeAreaService` nhận thẳng root). ⇒ **Chọn A hay B không phải thứ chặn việc** — làm xong
+refactor rồi chốt cũng kịp.
+
+**Việc kế tiếp:** một câu hỏi cho support (không phải mini-spec) — (a) bảng điều khiển/support có
+đĩa bền nào không lộ ra ở API không, và (b) **hạn mức lưu trữ của gói là bao nhiêu** (`whoami`
+không trả trường hạn mức, `canUpgrade: false`) — phương án A phụ thuộc con số (b).
