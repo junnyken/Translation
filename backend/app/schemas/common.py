@@ -13,6 +13,7 @@ from app.models.enums import (
     ConsistencyTaskType,
     GlossaryStatus,
     SpeechRegister,
+    TermSuggestionStatus,
     TermType,
     VoiceProfileStatus,
     ConfidenceState,
@@ -696,3 +697,83 @@ class PageOrientationSummary(BaseModel):
     unknown_count: int
     unavailable_count: int
     not_analyzed_count: int
+
+
+# ---------- E17: ứng viên thuật ngữ & tín hiệu xưng hô ----------
+class TrichDanRead(BaseModel):
+    """Câu THẬT trong `raw_text`. Không phải chuỗi dựng lại — người dùng đối chiếu được."""
+
+    page_order: int
+    region_id: uuid.UUID
+    text: str
+
+
+class TermCandidateRead(BaseModel):
+    source_term: str
+    term_key: str
+    #: Số lần xuất hiện trong toàn chapter — đếm được, không ước lượng.
+    count: int
+    pages: list[int]
+    quotes: list[TrichDanRead]
+    #: GỢI Ý loại để điền sẵn form. Người dùng đổi thoải mái.
+    type_guess: TermType
+    #: Vì sao nó được nêu ra. Hiện thẳng cho người đọc, không giấu trong log.
+    reasons: list[str]
+
+
+class TermCandidatesResponse(BaseModel):
+    """Ba trạng thái rỗng KHÔNG được gộp — xem `trang_thai`."""
+
+    ung_vien: list[TermCandidateRead]
+    so_vung_da_quet: int
+    so_vung_co_chu: int
+    #: `chua_doc_chu` (chưa chạy bước đọc chữ) · `khong_thay` (đã tìm, không có) ·
+    #: `deu_da_co` (tìm được nhưng đều đã nằm trong danh sách thuật ngữ) · `co_ung_vien`.
+    trang_thai: Literal["chua_doc_chu", "khong_thay", "deu_da_co", "co_ung_vien"]
+    so_bi_loc_vi_da_co: int
+    #: Luật nào đã dùng cho ngôn ngữ này (vd tiếng Anh toàn chữ hoa thì đổi luật).
+    ghi_chu_ngon_ngu: str | None = None
+    #: Vùng có chữ nhưng máy tự khai đọc CHƯA CHẮC — không dùng để gợi ý, và nói ra chứ không giấu.
+    so_vung_khong_chac: int = 0
+
+
+class VoiceSignalRead(BaseModel):
+    ma: str
+    nhan: str
+    goi_y_xung_ho: str
+    speech_register_goi_y: SpeechRegister
+    count: int
+    #: Tên đi kèm tín hiệu, chỉ có với hậu tố kính ngữ gắn vào tên.
+    ten_lien_quan: list[str]
+    quotes: list[TrichDanRead]
+
+
+class VoiceSignalsResponse(BaseModel):
+    tin_hieu: list[VoiceSignalRead]
+    so_vung_da_quet: int
+    so_vung_co_chu: int
+    trang_thai: Literal["chua_doc_chu", "khong_thay", "co_tin_hieu"]
+    so_vung_khong_chac: int = 0
+
+
+class TermSuggestionCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: Tên bộ truyện, nguyên văn người dùng gõ.
+    series_name: str = Field(min_length=1, max_length=300)
+
+
+class TermSuggestionRunRead(ORMModel):
+    id: uuid.UUID
+    project_id: uuid.UUID
+    series_name: str
+    status: TermSuggestionStatus
+    model_name: str | None
+    #: `None` = chưa chạy xong. `[]` = chạy xong và không mục nào qua được cổng đối chiếu.
+    suggestions: list[dict] | None
+    #: Số mục model trả về mà KHÔNG khớp danh sách đã hỏi ⇒ bị loại. `> 0` nghĩa là model có bịa.
+    dropped_count: int
+    asked_count: int
+    error_log: str | None
+    created_at: datetime
+    updated_at: datetime

@@ -42,6 +42,7 @@ from app.models import (
     OCRResult,
     Page,
     Project,
+    TermSuggestionRun,
     TextRegion,
     TranslationResult,
     TypesetResult,
@@ -68,6 +69,10 @@ from app.models.enums import (
     TranslationEngine,
 )
 from app.schemas.common import (
+    TermCandidatesResponse,
+    TermSuggestionCreate,
+    TermSuggestionRunRead,
+    VoiceSignalsResponse,
     OrientationRead,
     PageOrientationSummary,
     PageSafeAreaSummary,
@@ -2166,3 +2171,157 @@ async def retry_page_orientation(
     sent, reason = dispatch_typeset_job(job.id)
     return {"job_id": str(job.id), "page_id": str(page_id),
             "status": "queued" if sent else "queue_unavailable", "detail": reason}
+
+
+# ============================ E17: gợi ý thuật ngữ & xưng hô từ chính chapter ============================
+
+
+@router.get(
+    "/projects/{project_id}/term-candidates",
+    response_model=TermCandidatesResponse,
+    tags=["glossary"],
+)
+async def term_candidates(
+    project_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> TermCandidatesResponse:
+    """Danh xưng lặp lại trong **chính chapter này**, kèm bằng chứng.
+
+    Chỉ đọc — không tạo thuật ngữ nào. Máy tìm ra *có những gì*; bạn vẫn là người quyết *dịch
+    thành gì*. Mỗi ứng viên kèm số lần xuất hiện, trang, và trích nguyên văn câu chứa nó.
+
+    `200` chứ không `202` vì đây là xử lý chuỗi trên dữ liệu có sẵn, **không gọi AI**.
+    """
+    from app.core.db_sync import sync_session
+    from app.services.consistency.ungvien import rut_ung_vien
+
+    await _get_project_or_404(session, project_id)
+
+    def _chay():
+        with sync_session() as s:
+            return rut_ung_vien(s, project_id)
+
+    # Bộ này quét toàn bộ chữ của chapter -> chạy trong threadpool để không chặn event loop.
+    ket = await run_in_threadpool(_chay)
+    return TermCandidatesResponse(
+        ung_vien=[
+            {
+                "source_term": uv.term,
+                "term_key": uv.term_key,
+                "count": uv.count,
+                "pages": sorted(uv.pages),
+                "quotes": [
+                    {"page_order": q.page_order, "region_id": q.region_id, "text": q.text}
+                    for q in uv.quotes
+                ],
+                "type_guess": uv.type_guess,
+                "reasons": sorted(uv.reasons),
+            }
+            for uv in ket.ung_vien
+        ],
+        so_vung_da_quet=ket.so_vung_da_quet,
+        so_vung_co_chu=ket.so_vung_co_chu,
+        trang_thai=ket.trang_thai,
+        so_bi_loc_vi_da_co=ket.so_bi_loc_vi_da_co,
+        ghi_chu_ngon_ngu=ket.ghi_chu_ngon_ngu,
+        so_vung_khong_chac=ket.so_vung_khong_chac,
+    )
+
+
+@router.get(
+    "/projects/{project_id}/voice-signals",
+    response_model=VoiceSignalsResponse,
+    tags=["glossary"],
+)
+async def voice_signals(
+    project_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> VoiceSignalsResponse:
+    """Tín hiệu xưng hô **có thật trong bản gốc** (hậu tố kính ngữ, đại từ nhân xưng).
+
+    Giới hạn phải nói trước: hệ thống chưa gán lời thoại cho nhân vật, nên đây là *"trong chapter
+    có tín hiệu này"*, KHÔNG phải *"nhân vật X xưng thế này với Y"*. Máy không suy ra tính cách
+    nhân vật và không sửa lời thoại theo bất cứ gợi ý nào ở đây.
+    """
+    from app.core.db_sync import sync_session
+    from app.services.consistency.ungvien import rut_tin_hieu_xung_ho
+
+    await _get_project_or_404(session, project_id)
+
+    def _chay():
+        with sync_session() as s:
+            return rut_tin_hieu_xung_ho(s, project_id)
+
+    ket = await run_in_threadpool(_chay)
+    return VoiceSignalsResponse(
+        tin_hieu=[
+            {
+                "ma": t.ma,
+                "nhan": t.nhan,
+                "goi_y_xung_ho": t.goi_y_xung_ho,
+                "speech_register_goi_y": t.speech_register_goi_y,
+                "count": t.count,
+                "ten_lien_quan": sorted(t.ten_lien_quan),
+                "quotes": [
+                    {"page_order": q.page_order, "region_id": q.region_id, "text": q.text}
+                    for q in t.quotes
+                ],
+            }
+            for t in ket.tin_hieu
+        ],
+        so_vung_da_quet=ket.so_vung_da_quet,
+        so_vung_co_chu=ket.so_vung_co_chu,
+        trang_thai=ket.trang_thai,
+        so_vung_khong_chac=ket.so_vung_khong_chac,
+    )
+
+
+@router.post(
+    "/projects/{project_id}/term-suggestions",
+    response_model=TermSuggestionRunRead,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["glossary"],
+)
+async def create_term_suggestion(
+    project_id: uuid.UUID,
+    body: TermSuggestionCreate,
+    session: AsyncSession = Depends(get_session),
+) -> TermSuggestionRun:
+    """E17 tầng 3 — hỏi mô hình cách dịch cho các danh xưng CÓ THẬT trong chapter.
+
+    `202` vì có gọi AI (nguyên tắc số 4: không chạy AI đồng bộ trong HTTP request).
+
+    Câu hỏi gửi đi **không phải** *"truyện này có nhân vật nào"* — model sẽ luôn trả lời kể cả
+    khi không biết. Nó là *"đây là những danh xưng trích từ chính chapter này, người ta thường
+    dịch chúng thế nào"*. Mọi dòng trả về đều bị đối chiếu ngược với danh sách đã hỏi; nhắc sai
+    thì loại thẳng và đếm vào `dropped_count`.
+
+    Kết quả **không tự thành thuật ngữ** — nó nằm dưới nhãn `goi_y_mo_hinh_chua_duyet` cho tới
+    khi bạn tự tay nhận.
+    """
+    from app.services.dispatch import dispatch_term_suggestion_job
+
+    await _get_project_or_404(session, project_id)
+    run = TermSuggestionRun(project_id=project_id, series_name=body.series_name.strip())
+    session.add(run)
+    await session.commit()
+    await session.refresh(run)
+
+    sent, ly_do = dispatch_term_suggestion_job(run.id)
+    if not sent:
+        run.error_log = ly_do
+        await session.commit()
+        await session.refresh(run)
+    return run
+
+
+@router.get(
+    "/term-suggestion-runs/{run_id}", response_model=TermSuggestionRunRead, tags=["glossary"]
+)
+async def get_term_suggestion(
+    run_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> TermSuggestionRun:
+    """Kết quả một lượt hỏi. `suggestions = null` là **chưa xong**, `[]` là **xong mà không còn
+    mục nào qua được cổng đối chiếu** — hai chuyện khác nhau."""
+    run = await session.get(TermSuggestionRun, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="term_suggestion_run_not_found")
+    return run

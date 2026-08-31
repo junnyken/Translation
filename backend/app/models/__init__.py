@@ -37,6 +37,7 @@ from app.models.enums import (
     ConsistencyTaskType,
     GlossaryStatus,
     SpeechRegister,
+    TermSuggestionStatus,
     TermType,
     VoiceProfileStatus,
     ConfidenceState,
@@ -678,3 +679,40 @@ class ArtifactBlob(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+
+class TermSuggestionRun(TimestampMixin, Base):
+    """Một lượt xin gợi ý cách dịch danh xưng theo tên bộ truyện (E17 tầng 3).
+
+    Vì sao có bảng riêng chứ không mượn `Job`: `Job.page_id` là NOT NULL còn việc này gắn với cả
+    chapter; và quan trọng hơn, **kết quả phải lưu lại được để đối chất**. Đây là chỗ duy nhất
+    trong hệ thống hỏi mô hình một câu mà câu trả lời không đến từ dữ liệu của người dùng, nên
+    phải ghi lại: đã hỏi gì (`series_name`), model nào, nó trả về bao nhiêu mục, và **cổng đối
+    chiếu đã loại bao nhiêu mục** (`dropped_count`).
+
+    `dropped_count > 0` là bằng chứng sống rằng model có bịa — giữ con số đó, đừng làm tròn nó đi.
+    """
+
+    __tablename__ = "term_suggestion_run"
+    __table_args__ = (Index("ix_term_suggestion_project", "project_id", "created_at"),)
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("project.id", ondelete="CASCADE"), nullable=False
+    )
+    #: Nguyên văn người dùng gõ. Không chuẩn hoá, không đoán lại — để đối chất khi kết quả lạ.
+    series_name: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[TermSuggestionStatus] = mapped_column(
+        _enum(TermSuggestionStatus, "term_suggestion_status"),
+        nullable=False,
+        default=TermSuggestionStatus.queued,
+    )
+    model_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    #: Danh sách gợi ý ĐÃ QUA cổng đối chiếu. NULL = chưa chạy xong; [] = chạy xong và không còn
+    #: mục nào sống sót. Hai thứ đó khác nhau và không được gộp.
+    suggestions: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    #: Số mục model trả về nhưng KHÔNG có trong chữ của chapter ⇒ bị loại thẳng.
+    dropped_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    #: Số ứng viên đã gửi đi hỏi — để biết tỉ lệ model trả lời được.
+    asked_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error_log: Mapped[str | None] = mapped_column(Text, nullable=True)

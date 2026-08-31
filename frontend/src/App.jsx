@@ -388,6 +388,9 @@ export default function App() {
               onSua={(id, d) => chayNQ(() => api.suaThuatNgu(id, d), 'Đã lưu thuật ngữ.')}
               onDuyet={(id) => chayNQ(() => api.duyetThuatNgu(id), 'Đã duyệt — thuật ngữ này sẽ tham gia rà soát.')}
               onCat={(id) => chayNQ(() => api.catThuatNgu(id), 'Đã cất thuật ngữ đi.')}
+              onTimUngVien={() => api.layUngVienThuatNgu(project.id)}
+              onXinGoiY={(ten) => api.xinGoiYTheoTenTruyen(project.id, ten)}
+              onDocGoiY={(runId) => api.layKetQuaGoiY(runId)}
             />
 
             <VoiceProfileManager
@@ -396,6 +399,7 @@ export default function App() {
               onThem={(d) => chayNQ(() => api.themHoSoGiong(project.id, d), 'Đã thêm hồ sơ nhân vật.')}
               onBat={(id) => chayNQ(() => api.batHoSoGiong(id), 'Đã bật hồ sơ.')}
               onCat={(id) => chayNQ(() => api.catHoSoGiong(id), 'Đã cất hồ sơ đi.')}
+              onTimTinHieu={() => api.layTinHieuXungHo(project.id)}
             />
 
             <div className="luoi-2-cot">

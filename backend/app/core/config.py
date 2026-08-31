@@ -136,6 +136,10 @@ class Settings(BaseSettings):
     # ---- E13: rà soát nhất quán thuật ngữ ----
     #: Quét theo luật, không gọi mạng — nhanh, nhưng chapter dài vẫn cần timeout riêng.
     consistency_scan_timeout_seconds: int = 600
+    #: E17 tầng 3 — một lượt hỏi mô hình cho tối đa 30 danh xưng. Ngắn hơn hẳn dịch cả
+    #: trang vì prompt nhỏ; quá ngưỡng này gần như luôn là nhà cung cấp treo chứ không
+    #: phải việc nặng.
+    term_suggestion_timeout_seconds: int = 120
     #: Gợi ý bằng LLM là TÙY CHỌN và mặc định TẮT. Bật lên mới tốn token.
     e13_llm_suggestions_enabled: bool = False
     #: Trần số vùng gửi cho LLM một lần — chặn yêu cầu quá lớn thay vì âm thầm cắt bớt.

@@ -323,3 +323,17 @@ class OrientationStatus(str, Enum):
     #: Nhận ra hướng rồi nhưng KHÔNG dựng được chữ theo hướng đó (thiếu renderer/glyph).
     unavailable = "unavailable"
     failed = "failed"
+
+
+class TermSuggestionStatus(str, Enum):
+    """Vòng đời một lượt xin gợi ý phiên âm theo tên bộ truyện (E17 tầng 3).
+
+    Tách khỏi `JobStatus` vì lượt này gắn với PROJECT chứ không gắn với một trang, và vì nó có
+    một trạng thái mà job thường không có: `done` kèm **0 gợi ý** — model trả lời rồi nhưng cổng
+    đối chiếu loại sạch. Đó là kết quả HỢP LỆ, không phải lỗi.
+    """
+
+    queued = "queued"
+    running = "running"
+    done = "done"
+    failed = "failed"

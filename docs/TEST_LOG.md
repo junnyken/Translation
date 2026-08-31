@@ -2764,3 +2764,70 @@ Hai website khác nhau, cùng node `cmc-1`, chết cùng lúc, kèm `wings_error
 Phép thay chuỗi thêm dòng `import` **không đặt assert** ⇒ âm thầm không khớp ⇒ 20 test đỏ với
 thông báo **lạc đề** (`ValueError` về UUID). *Mọi phép thay chuỗi phải có assert "đã thay được",
 nếu không thì lần hỏng đầu tiên hiện ra ở rất xa chỗ gây lỗi.*
+
+# ==================== E17 — gợi ý thuật ngữ & xưng hô (2026-09-01) ====================
+
+```
+backend   913 passed, 6 skipped     exit 0     (nền trước E17: 869)
+          +44 test: 28 unit (tests/test_e17_ungvien_unit.py) + 16 integration
+frontend  44 passed  (bộ consistency: 29 cũ + 15 mới)
+```
+Ruff trên các tệp MỚI của E17: **sạch**. Migration `0011_e17` chạy lên/xuống được (bộ test dựng
+lại schema từ đầu mỗi lượt).
+
+## E17.1 — Ba lỗi THẬT bắt được trong lúc viết test
+
+| Lỗi | Nếu không bắt được thì sao |
+|---|---|
+| **`OCRStatus.done` không tồn tại** (enum thật: `pending·ok·needs_manual`) | `AttributeError` ngay lượt gọi API đầu tiên |
+| **Đếm hai lần**: `ペッパーさん` khớp CẢ luật hậu tố lẫn luật katakana | Con số "xuất hiện 4 lần" hiện cho người dùng trong khi sự thật là 2 — mà đó đúng là con số họ dựa vào để duyệt |
+| **Luật tiếng Anh vứt bằng chứng thật**: bỏ hẳn từ đứng đầu câu | "Pepper" xuất hiện 2 lần chỉ đếm được 1 ⇒ rơi dưới ngưỡng lặp ⇒ **biến mất khỏi danh sách** |
+
+Lỗi thứ hai cùng họ với bẫy của P3f: *đếm số lần MÃ CHẠM VÀO sự vật thay vì đếm sự vật.* Sửa bằng
+khử trùng theo `(vùng, vị trí)`, kèm hai test khoá:
+
+- `test_hai_luat_cung_bat_mot_cho_thi_KHONG_dem_hai_lan` — 1 lần, và **vẫn giữ cả hai lý do**.
+- `test_cung_mot_vung_xuat_hien_hai_lan_thi_dem_hai` — mặt kia, chống sửa quá tay thành khử trùng
+  theo *từ* thay vì theo *vị trí*.
+
+Lỗi thứ ba đẻ ra một cặp test đối nhau, và cặp này mới là phần đáng đọc:
+
+```
+"I met Pepper today. Pepper was tired."   -> Pepper: 2 lần   (đã chứng minh ở giữa câu)
+"Pepper was tired. Pepper slept."         -> KHÔNG có gì     (chưa từng có bằng chứng)
+```
+
+## E17.2 — Test khoá LỜI HỨA, không phải khoá "chạy được"
+
+| Test | Khoá điều gì |
+|---|---|
+| `test_KHONG_ghi_mot_dong_nao_vao_CSDL` | gọi cả 2 endpoint ⇒ `glossary_entry` + `character_voice_profile` vẫn **0 hàng** |
+| `test_LOAI_dong_nhac_lai_mot_ten_KHONG_co_trong_danh_sach` | model trả "Naruto Uzumaki" cho chapter Pepper&Carrot ⇒ **loại + đếm vào `dropped_count`** |
+| `test_cong_doi_chieu_loai_muc_bia_va_khong_tao_thuat_ngu` | cùng ca đó chạy qua worker thật; `glossary_entry` vẫn 0 hàng |
+| `test_khong_co_ung_vien_thi_KHONG_goi_mo_hinh` | `build_translator` bị thay bằng hàm **ném lỗi** — gọi tới là đỏ |
+| `test_model_noi_khong_biet_thi_khong_tinh_la_bia` | `?` là câu trả lời trung thực, không phải bịa |
+| `test_mo_hinh_hong_thi_ghi_that_chu_khong_tra_goi_y_rong` | 429 ⇒ `failed` + `suggestions = null`, **không** trả `[]` như thể đã hỏi xong |
+| `test_toan_chu_hoa_KHONG_duoc_tra_ve_moi_tu` | bẫy TOÀN CHỮ HOA của tiếng Anh |
+| `test_chu_doc_chua_chac_thi_bi_bo_va_DEM_ra` | vùng `needs_manual` bị bỏ **nhưng có đếm và báo ra** |
+| `test_ten_CHI_dung_dau_cau_thi_KHONG_tim_ra_duoc` | khoá đúng một GIỚI HẠN, để lần sau không ai tưởng là lỗi ngẫu nhiên |
+| 3 test + 3 test giao diện cho trạng thái rỗng | "chưa đọc chữ" ≠ "không thấy" ≠ "đều đã có" |
+
+Frontend có thêm `KHÔNG có nút duyệt hàng loạt` — quét cả DOM tìm nút "duyệt tất cả/thêm tất cả".
+Nút đó mà xuất hiện thì toàn bộ ranh giới "máy tìm, người quyết" sụp trong một cú bấm.
+
+## E17.3 — Hai lỗi của CHÍNH TEST, không phải của mã
+
+Ghi ra để lần sau đọc lại không tưởng mã từng sai:
+
+1. Test khẳng định `"PEPPER" in kho` trong khi khoá tiếng Anh **đã hạ chữ thường** (`pepper`).
+2. Hàm dựng dữ liệu đặt `region_id` **trùng nhau giữa hai lần gọi** ⇒ bộ khử trùng coi hai vùng
+   khác nhau là một, và test đếm ra 1 thay vì 2. Vùng thật là UUID nên không dính.
+
+*Bài học: fixture đặt id trùng là một cách âm thầm làm test nói dối — và nó nói dối theo hướng
+tố cáo mã sản xuất, tốn đúng số thời gian của một lỗi thật.*
+
+## E17.4 — Chưa có: bằng chứng loại "chạy thật"
+
+⛔ Host `cmc-1` vẫn chết nên **chưa** chạy trên chapter thật, **chưa** đo độ trễ, và **chưa từng
+gọi mô hình thật** cho tầng 3 (mới kiểm bằng mô hình giả). Ba việc bắt buộc trước khi coi E17 là
+đóng nằm ở `REPORT_E17_TERM_CANDIDATES.md` §7.

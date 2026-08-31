@@ -200,6 +200,61 @@ phần lớn là thời gian truyền qua mạng chứ không phải thời gian
 (việc lấy chỉ tốn khoảng **0,005 giây**). Xem lại một ảnh đã xem rồi thì gần như tức thì vì máy
 chủ chỉ trả lời "chưa đổi".
 
+## Khỏi phải ngồi gõ tay từng thuật ngữ (E17)
+
+Trước đây màn **Thuật ngữ của chapter** và **Giọng nhân vật** là hai ô trống: bạn phải tự nhớ
+trong chapter có tên nhân vật nào, rồi gõ lại đúng nguyên văn từng cái. Với chapter 20 trang thì
+đó là vài chục lượt gõ trước khi rà soát chạy được lần đầu.
+
+Nay có nút **“Tìm trong chapter”**: máy đọc lại chữ đã nhận được rồi liệt kê những danh xưng lặp
+lại, kèm **số lần xuất hiện, số trang, và câu trích nguyên văn**. Bấm một mục là mở luôn form
+thêm thuật ngữ đã điền sẵn phần máy biết.
+
+**Máy làm nửa việc, bạn giữ nửa còn lại:**
+
+| Việc | Ai làm |
+|---|---|
+| Tìm ra trong chapter có danh xưng nào, ở đâu, bao nhiêu lần | **Máy** |
+| Quyết dịch nó thành gì, xưng hô thế nào | **Bạn** |
+
+Vì thế **cố ý không có nút “Duyệt tất cả”** — cách dịch là quyết định biên tập, máy điền vào đó
+là chỗ bắt đầu của mọi sai lầm.
+
+**Tìm cách xưng hô:** ở màn Giọng nhân vật có nút **“Tìm tín hiệu xưng hô”**. Máy chỉ ra những
+tín hiệu **có thật trong bản gốc** — hậu tố kính ngữ tiếng Nhật (様, さん, ちゃん), đại từ nhân
+xưng (俺, 僕, 私), chức danh tiếng Anh (Sir, Lord) — kèm câu gốc chứa nó, và gợi ý cách xưng hô
+tiếng Việt tương ứng. Hệ thống **chưa biết ai nói câu nào**, nên đây là “trong chapter có tín
+hiệu này”, không phải “nhân vật X xưng thế này với Y”.
+
+**Nhập tên bộ truyện để được gợi ý cách dịch:** có, nhưng nó hoạt động khác cách bạn nghĩ, và
+khác vì một lý do quan trọng. Hệ thống **không hỏi** mô hình “truyện này có nhân vật nào” — hỏi
+thế thì mô hình **luôn trả lời, kể cả khi nó không biết**, và bạn sẽ nhận một dàn nhân vật nghe
+rất thật nhưng không có trong chapter của bạn. Thay vào đó nó đưa mô hình **đúng danh sách danh
+xưng vừa tìm được trong chapter bạn** và hỏi cách dịch quen thuộc. Mục nào mô hình trả về mà
+chapter không có sẽ **bị loại thẳng**, và số mục bị loại được hiện ra cho bạn thấy.
+
+Mọi gợi ý của mô hình đều mang nhãn **“gợi ý · chưa duyệt”** và không bao giờ tự thành thuật ngữ.
+
+**Ba câu trả lời khác nhau khi không có gì hiện ra** — đọc kỹ, chúng không giống nhau:
+
+| Máy nói | Nghĩa là |
+|---|---|
+| “Chưa đọc được chữ trong chapter” | Bước đọc chữ chưa xong. **Chưa kết luận được gì cả** |
+| “Đã tìm, không thấy danh xưng nào lặp lại” | Đã quét thật, chapter không có |
+| “Mọi danh xưng tìm được đều đã có trong danh sách” | Không còn gì mới để thêm |
+
+⚠️ **Chưa cập nhật lên máy chủ.** Phần này mới xong trên máy phát triển, và **chưa từng chạy thử
+với chữ của một chapter thật** — mới kiểm bằng dữ liệu dựng sẵn. Riêng phần gợi ý theo tên bộ
+truyện thì **chưa từng gọi mô hình thật lần nào**.
+
+Vài giới hạn nói trước cho khỏi bất ngờ:
+
+- **Tiếng Trung nhiễu hơn hẳn** tiếng Nhật/Anh, vì không có khoảng trắng và không có chữ hoa.
+- **Tên chỉ từng đứng đầu câu** (trong truyện tiếng Anh chữ thường) sẽ không tìm ra — đầu câu thì
+  từ nào cũng viết hoa, không phân biệt được với danh từ thường.
+- **Chữ đọc sai thì gợi ý sai.** Những vùng máy tự khai đọc chưa chắc chắn bị bỏ qua, và số vùng
+  bị bỏ được hiện ra chứ không giấu.
+
 ## Vì sao chạy nhiều trang liên tiếp lại làm hệ thống "đứng hình" (P3h)
 
 Chạy thử **6 trang liên tiếp** trên máy chủ ngày 31/08: bộ phận xử lý ảnh bị hệ điều hành **giết

@@ -662,7 +662,7 @@ chưa có số đo nào chống lưng; van xả chưa từng nổ trong một l�
 inpaint sau khi tắt arena. Chi tiết: `docs/REPORT_P3h_WORKER_MEMORY.md`.
 
 
-## E17 — Gợi ý thuật ngữ & xưng hô rút từ chính chapter (2026-08-31) 📋 **THIẾT KẾ, CHỜ DUYỆT**
+## E17 — Gợi ý thuật ngữ & xưng hô rút từ chính chapter (2026-09-01) ✅ **DỰNG XONG, CHƯA DEPLOY**
 
 Yêu cầu của chủ dự án: *"nhập tên bộ truyện để lấy tên + xưng hô nhân vật, chứ ngồi nhập từng cái
 rất phiền"*. Màn Thuật ngữ / Giọng nhân vật hiện là hai form trống, người dùng phải tự nhớ và gõ
@@ -689,7 +689,18 @@ Ba điều đáng nhớ trong bản thiết kế:
 - **Ba trạng thái rỗng không được gộp:** "chưa đọc chữ" ≠ "đã tìm, không có" ≠ "đều đã có trong
   glossary" — cùng một bài học với `worker: khong_ro` của E1a.
 
-Không bảng mới, không migration, không gọi LLM ở tầng 1+2. ET 8,0 h (chia E17a 5 h + E17b 3 h).
+Tầng 1+2: không bảng mới, không migration, không gọi LLM. Tầng 3 (chốt làm luôn) thì có cả
+ba: bảng `term_suggestion_run`, migration `0011_e17`, và một lượt gọi mô hình chạy nền.
+ET dự kiến 8,0 h.
 
-⚠️ **Chưa được viết mã.** `CLAUDE.md` cấm mở mini-spec khi mini-spec trước chưa audit pass, mà
-P3h thì chưa verify được trên host. Chi tiết + 3 câu hỏi chờ chốt: `docs/SPEC_E17_TERM_CANDIDATES.md`.
+**Chủ dự án chốt: làm trọn gói, kèm cả tầng 3.** Việc chạy trước khi P3h đóng là quyết định của
+chủ dự án khi được hỏi — ghi ra để nó không thành một quy ước bị bỏ qua trong im lặng.
+
+Đã dựng đủ ba tầng: 2 endpoint chỉ-đọc (`200`) + 1 job nền cho tầng 3 (`202`, nguyên tắc số 4),
+bảng `term_suggestion_run` (migration `0011_e17`), bảng ứng viên + tìm tín hiệu xưng hô trên giao
+diện. **Ba lỗi thật bắt được nhờ test:** `OCRStatus.done` không tồn tại · đếm hai lần khi hai luật
+cùng bắt một chỗ (cùng họ với bẫy P3f) · luật tiếng Anh vứt mất bằng chứng của từ đứng đầu câu.
+
+⛔ **Chưa deploy, chưa chạy trên chapter thật, và tầng 3 chưa từng gọi mô hình thật.** Ba việc bắt
+buộc trước khi đóng: `docs/REPORT_E17_TERM_CANDIDATES.md` §7. Thiết kế gốc:
+`docs/SPEC_E17_TERM_CANDIDATES.md`.

@@ -2076,3 +2076,108 @@ def run_consistency_scan_job(self, job_id: str, project_id: str) -> dict:
         logger.exception("quét nhất quán %s thất bại", jid)
         _mark_job_failed(jid, reason)
         return {"status": "failed", "job_id": str(jid), "error": reason}
+
+
+# ==================================================================== E17 tầng 3
+
+
+def _run_term_suggestion(run_id: uuid.UUID) -> dict:
+    """Hỏi mô hình cách dịch cho các danh xưng CÓ THẬT trong chapter, rồi đối chiếu lại.
+
+    Không ghi một dòng nào vào `glossary_entry`: kết quả nằm trong `term_suggestion_run` dưới
+    nhãn `goi_y_mo_hinh_chua_duyet` cho tới khi người dùng tự tay nhận.
+    """
+    from app.models import TermSuggestionRun
+    from app.models.enums import TermSuggestionStatus
+    from app.services.consistency.goi_y_ten import TRAN_HOI, dung_prompt, phan_tich_va_doi_chieu
+    from app.services.consistency.ungvien import rut_ung_vien
+    from app.services.translate.engines import QuotaExhausted, TranslationFailed
+
+    started = time.perf_counter()
+    with sync_session() as session:
+        run = session.get(TermSuggestionRun, run_id)
+        if run is None:
+            return {"status": "failed", "run_id": str(run_id), "error": "run_not_found"}
+        run.status = TermSuggestionStatus.running
+        project_id = run.project_id
+        series_name = run.series_name
+        session.commit()
+
+        ket = rut_ung_vien(session, project_id)
+        terms = [uv.term for uv in ket.ung_vien][:TRAN_HOI]
+        lang = session.get(Project, project_id).source_lang.value
+
+        if not terms:
+            # Không có danh xưng nào để hỏi thì KHÔNG gọi mô hình — hỏi suông vẫn tốn tiền, và
+            # câu trả lời cho một danh sách rỗng chắc chắn là bịa.
+            run.status = TermSuggestionStatus.done
+            run.suggestions = []
+            run.asked_count = 0
+            run.error_log = f"khong_co_ung_vien:{ket.trang_thai}"
+            session.commit()
+            return {"status": "done", "run_id": str(run_id), "asked": 0, "kept": 0,
+                    "reason": ket.trang_thai}
+
+    prompt = dung_prompt(series_name, terms, lang)
+    try:
+        _cong_nhip(TranslationEngine.llm_context.value)
+        translator = build_translator(TranslationEngine.llm_context.value)
+        text, usage = translator.goi_prompt_tho(prompt)
+    except (QuotaExhausted, TranslationFailed) as exc:
+        with sync_session() as session:
+            run = session.get(TermSuggestionRun, run_id)
+            run.status = TermSuggestionStatus.failed
+            run.error_log = f"{type(exc).__name__}: {exc}"
+            run.asked_count = len(terms)
+            session.commit()
+        return {"status": "failed", "run_id": str(run_id), "error": str(exc)}
+
+    goi_y, bi_loai = phan_tich_va_doi_chieu(text, terms)
+
+    with sync_session() as session:
+        run = session.get(TermSuggestionRun, run_id)
+        run.status = TermSuggestionStatus.done
+        run.suggestions = [g.to_json() for g in goi_y]
+        run.asked_count = len(terms)
+        run.dropped_count = bi_loai
+        run.model_name = settings.llm_model_name
+        session.commit()
+
+    elapsed = time.perf_counter() - started
+    if bi_loai:
+        # Con số này là bằng chứng model có bịa trong lượt đó — ghi ra, không nuốt.
+        logger.warning("E17 tầng 3: loại %s mục không khớp danh sách đã hỏi (run %s)", bi_loai, run_id)
+    logger.info(
+        "E17 tầng 3 xong run=%s hỏi=%s giữ=%s loại=%s token=%s trong %.1fs",
+        run_id, len(terms), len(goi_y), bi_loai, usage.get("totalTokenCount"), elapsed,
+    )
+    return {"status": "done", "run_id": str(run_id), "asked": len(terms),
+            "kept": len(goi_y), "dropped": bi_loai, "elapsed_seconds": round(elapsed, 2)}
+
+
+@celery_app.task(
+    bind=True,
+    name="consistency.run_term_suggestion_job",
+    soft_time_limit=settings.term_suggestion_timeout_seconds,
+    time_limit=settings.term_suggestion_timeout_seconds + 30,
+)
+def run_term_suggestion_job(self, run_id: str) -> dict:
+    """E17 tầng 3. Hỏi mô hình, đối chiếu, LƯU dưới nhãn chưa duyệt — không tự tạo thuật ngữ."""
+    from app.models import TermSuggestionRun
+    from app.models.enums import TermSuggestionStatus
+
+    rid = uuid.UUID(str(run_id))
+    try:
+        return _run_term_suggestion(rid)
+    except SoftTimeLimitExceeded:
+        reason = f"timeout: vượt {settings.term_suggestion_timeout_seconds}s"
+    except Exception as exc:  # noqa: BLE001
+        reason = f"{type(exc).__name__}: {exc}"
+        logger.exception("E17 tầng 3 run %s thất bại", rid)
+    with sync_session() as session:
+        run = session.get(TermSuggestionRun, rid)
+        if run is not None:
+            run.status = TermSuggestionStatus.failed
+            run.error_log = reason
+            session.commit()
+    return {"status": "failed", "run_id": str(rid), "error": reason}

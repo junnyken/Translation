@@ -1,12 +1,14 @@
 # Spec E17 — Gợi ý thuật ngữ & xưng hô rút từ CHÍNH chapter
 
-**Ngày:** 2026-08-31 · **Trạng thái:** 📋 **BẢN THIẾT KẾ — CHỜ CHỦ DỰ ÁN DUYỆT, CHƯA VIẾT MÃ**
+**Ngày:** 2026-08-31 · **Trạng thái:** ✅ **ĐÃ DUYỆT VÀ ĐÃ DỰNG** (01/09) — xem
+`docs/REPORT_E17_TERM_CANDIDATES.md`
 **Xuất phát:** yêu cầu của chủ dự án — *"nhập tên bộ truyện để lấy tên + xưng hô nhân vật, chứ
 ngồi nhập từng cái rất phiền"* · **Đụng tới:** E13 (thuật ngữ & rà soát nhất quán)
 
 > ⚠️ **Cổng chặn theo `CLAUDE.md`:** *"Không mở mini-spec sau khi mini-spec trước chưa audit
 > pass."* P3h **chưa** verify được trên host (host `cmc-1` đang chết). Nên tài liệu này dừng ở
 > mức **thiết kế**; viết mã chỉ bắt đầu sau khi P3h đóng hoặc chủ dự án quyết định đảo ưu tiên.
+> **Chủ dự án đã chọn vế sau vào 01/09** — xem §12. P3h vẫn còn nợ nguyên phần verify trên host.
 
 ## 1. Vấn đề thật
 
@@ -45,11 +47,13 @@ phụ trợ **có cổng đối chiếu** (§7).
 |---|---|---|
 | **Tầng 1** | Rút **ứng viên thuật ngữ** từ `raw_text` của chapter, kèm bằng chứng | ✅ |
 | **Tầng 2** | Rút **tín hiệu xưng hô** (hậu tố kính ngữ, đại từ nhân xưng) từ bản gốc | ✅ |
-| **Tầng 3** | Nhập tên bộ truyện → gợi ý phiên âm, **chỉ hiện tên có thật trong chapter** | ⛔ để sau (§7) |
+| **Tầng 3** | Nhập tên bộ truyện → gợi ý phiên âm, **chỉ hiện tên có thật trong chapter** | ~~⛔ để sau~~ → ✅ **chủ dự án chốt làm luôn** (§12) |
 | — | Tự dịch tên, tự điền `target_term`, tự duyệt, tự sửa lời thoại | ⛔ **không bao giờ** |
 
-**Không gọi LLM.** Toàn bộ E17 là luật tất định trên chuỗi — cùng đầu vào cho ra cùng đầu ra,
-chạy offline, giải thích được cho người dùng. Đây cũng là lựa chọn E13 đã lấy (`scanner.py`).
+**Tầng 1+2 không gọi LLM** — luật tất định trên chuỗi, cùng đầu vào cho ra cùng đầu ra, chạy
+offline, giải thích được cho người dùng. Đây cũng là lựa chọn E13 đã lấy (`scanner.py`). Riêng
+tầng 3 có gọi mô hình nên chạy ở job nền (`202`) và đi qua cổng đối chiếu ở §7 — và **tầng 1+2
+không phụ thuộc nó**: mô hình chết thì bảng danh xưng vẫn dùng bình thường.
 
 ## 4. Thiết kế — Tầng 1: ứng viên thuật ngữ
 
@@ -234,9 +238,15 @@ Test cuối cùng là cái gắt nhất: nó khoá lời hứa "máy không tự
    khác thì không tìm ra được.
 5. Trần 50 ứng viên/lượt là con số **chọn**, chưa phải con số **đo**; chỉnh sau khi chạy thật.
 
-## 12. Chờ chủ dự án chốt
+## 12. Chủ dự án đã chốt (2026-09-01)
 
-1. Làm **E17a trước** (`ja`+`en`, 5 h) hay làm trọn gói 8 h?
-2. Có cần tầng 3 (tên bộ truyện) không, hay tầng 1+2 đã đủ giảm phiền?
-3. E17 **xếp trước hay sau** việc đóng P3h trên host? (Theo `CLAUDE.md` thì P3h phải audit pass
-   trước; đảo thứ tự là quyết định của chủ dự án, không phải của tôi.)
+| Câu hỏi | Quyết định |
+|---|---|
+| E17a trước hay trọn gói? | **Trọn gói** (cả `zh` và phần xưng hô) |
+| Có làm tầng 3 không? | **Có** — kèm cổng đối chiếu như §7 |
+| Trước hay sau khi đóng P3h? | **Làm trước.** `CLAUDE.md` yêu cầu P3h audit pass trước, nhưng P3h đang kẹt vì host chết; đảo thứ tự là quyết định của chủ dự án, và P3h vẫn còn nợ nguyên phần verify |
+
+Kết quả dựng: `docs/REPORT_E17_TERM_CANDIDATES.md`. Một điểm của bản thiết kế này **đã sai và đã
+sửa khi chạm mã thật**: §4.2 nói bỏ hẳn từ đứng đầu câu ở tiếng Anh — làm thế thì một cái tên
+xuất hiện 2 lần chỉ đếm được 1 rồi rơi khỏi ngưỡng lặp. Luật cuối cùng là hai lượt (xem báo cáo
+§3.3).

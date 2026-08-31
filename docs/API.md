@@ -727,3 +727,83 @@ trình nền riêng** — và đó mới là tiến trình bị OOM giết. Mu�
 
 ⚠️ Nhắc lại cảnh báo của E1 ở trên và **vẫn còn đúng**: `/healthz` gọi qua **cổng giao diện** trả
 trang SPA kèm `200` — chỉ gọi thẳng vào host của API mới có ý nghĩa.
+
+## E17 — gợi ý thuật ngữ & xưng hô (2026-09-01)
+
+Bốn endpoint. Hai cái đầu **chỉ đọc và không gọi AI** nên `200`; cái thứ ba có gọi mô hình nên
+`202` theo nguyên tắc số 4.
+
+### `GET /api/v1/projects/{project_id}/term-candidates` → 200
+
+```json
+{ "ung_vien": [
+    { "source_term": "ペッパー", "term_key": "ペッパー", "count": 7, "pages": [1, 2, 5],
+      "quotes": [{ "page_order": 1, "region_id": "…", "text": "ペッパーさん、待って!" }],
+      "type_guess": "character_name",
+      "reasons": ["chuỗi katakana", "đứng trước hậu tố さん"] } ],
+  "so_vung_da_quet": 42, "so_vung_co_chu": 38, "so_vung_khong_chac": 2,
+  "trang_thai": "co_ung_vien", "so_bi_loc_vi_da_co": 3,
+  "ghi_chu_ngon_ngu": null }
+```
+
+| Trường | Ý nghĩa |
+|---|---|
+| `count` | Số lần **xuất hiện**, không phải số lần khớp luật (xem `ARCH.md` §E17.4) |
+| `quotes` | **Nguyên văn** trong `raw_text`, tối đa 3 — không phải chuỗi dựng lại |
+| `type_guess` | GỢI Ý để điền sẵn ô "Loại". `character_name` chỉ khi có bằng chứng danh xưng |
+| `so_vung_khong_chac` | Vùng OCR `needs_manual` bị bỏ — nói ra chứ không giấu |
+| `ghi_chu_ngon_ngu` | Với `en`: tỉ lệ chữ hoa và luật đang dùng. Với `zh`: cảnh báo nhiễu cao |
+
+**`trang_thai` có 4 giá trị và KHÔNG được gộp:**
+
+| Giá trị | Nghĩa |
+|---|---|
+| `chua_doc_chu` | Chưa chạy bước đọc chữ (hoặc chữ đọc được đều chưa chắc). **Chưa kết luận được gì** |
+| `khong_thay` | Đã quét, không có danh xưng nào |
+| `deu_da_co` | Tìm được nhưng đều đã nằm trong `glossary_entry` |
+| `co_ung_vien` | Có ứng viên mới |
+
+### `GET /api/v1/projects/{project_id}/voice-signals` → 200
+
+Tín hiệu xưng hô **có thật trong bản gốc**. `ten_lien_quan` chỉ có với hậu tố kính ngữ gắn vào
+tên; đại từ nhân xưng thì rỗng — hệ thống **chưa biết ai nói câu nào**.
+
+```json
+{ "tin_hieu": [
+    { "ma": "ja_sama", "nhan": "hậu tố 様/さま", "goi_y_xung_ho": "ngài / đại nhân",
+      "speech_register_goi_y": "formal", "count": 4, "ten_lien_quan": ["ペッパー"],
+      "quotes": [{ "page_order": 1, "region_id": "…", "text": "ペッパー様、お待ちください" }] } ],
+  "so_vung_da_quet": 42, "so_vung_co_chu": 38, "so_vung_khong_chac": 0,
+  "trang_thai": "co_tin_hieu" }
+```
+
+`trang_thai`: `chua_doc_chu` · `khong_thay` · `co_tin_hieu`.
+
+### `POST /api/v1/projects/{project_id}/term-suggestions` → 202
+
+Body: `{ "series_name": "Pepper&Carrot" }`. Trả về `TermSuggestionRun` ở trạng thái `queued`.
+
+**Câu hỏi gửi cho mô hình không phải "truyện này có nhân vật nào"** — nó là "đây là danh xưng
+trích từ chính chapter này, người ta thường dịch thế nào". Mọi dòng trả về bị đối chiếu ngược với
+danh sách đã hỏi; nhắc sai thì loại thẳng.
+
+### `GET /api/v1/term-suggestion-runs/{run_id}` → 200
+
+```json
+{ "id": "…", "project_id": "…", "series_name": "Pepper&Carrot", "status": "done",
+  "model_name": "gemini-3.1-flash-lite",
+  "suggestions": [ { "source_term": "Pepper", "target_term": "Pepper",
+                     "term_type": "character_name", "note": "cô phù thuỷ nhỏ",
+                     "nguon": "goi_y_mo_hinh_chua_duyet" } ],
+  "asked_count": 12, "dropped_count": 2, "error_log": null }
+```
+
+| Trường | Ý nghĩa |
+|---|---|
+| `suggestions: null` | **Chưa chạy xong** |
+| `suggestions: []` | Chạy xong, **không mục nào qua được cổng đối chiếu**. Khác hẳn `null` |
+| `dropped_count` | Số mục model đưa ra mà chapter **không có** ⇒ bị loại. `> 0` nghĩa là model có bịa |
+| `nguon` | Luôn là `goi_y_mo_hinh_chua_duyet` — giao diện phải hiện nhãn này |
+
+⚠️ **Không endpoint nào của E17 tạo thuật ngữ hay hồ sơ nhân vật.** Muốn lưu thì vẫn đi qua
+`POST /projects/{id}/glossary` và `POST /projects/{id}/voice-profiles` như cũ.

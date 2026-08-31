@@ -895,3 +895,83 @@ nhất). Tóm tắt để khỏi phải mở tệp khác:
 - **Tiện ích E1 mặc định chỉ-mở-link.** Muốn nó đọc trạng thái thì tự khai đúng
   `chrome-extension://<id>` của bản cài trên máy mình. Không bao giờ `chrome-extension://*`.
 - **CORS không phải xác thực** — không có auth/multi-user/TLS.
+
+## E17. Gợi ý thuật ngữ & xưng hô rút từ CHÍNH chapter (2026-09-01)
+
+### E17.1 Vì sao câu hỏi bị đảo chiều
+
+Yêu cầu gốc là "nhập tên bộ truyện → AI lấy dàn nhân vật". Không làm thế, vì ba lý do đo được:
+model **luôn trả lời** kể cả khi không biết; nó **không biết chapter NÀY có ai**; và thuật ngữ đã
+duyệt là **luật** để quét cả chapter, nên một tên bịa được duyệt sẽ làm mọi lượt rà soát sau đó
+báo sai — hỏng đúng thứ E13 sinh ra để bảo vệ.
+
+```
+KHÔNG hỏi:  "truyện X có những nhân vật nào?"                   -> không kiểm chứng được
+MÀ hỏi:     "đây là danh xưng CÓ THẬT trong chapter này của X —
+             người ta thường dịch chúng thế nào?"                -> kiểm chứng được
+```
+
+### E17.2 Ba tầng, và tầng dưới không phụ thuộc tầng trên
+
+| Tầng | Làm gì | Gọi LLM? |
+|---|---|---|
+| 1 | Rút **ứng viên thuật ngữ** từ `ocr_result.raw_text` | không |
+| 2 | Rút **tín hiệu xưng hô** có thật trong bản gốc | không |
+| 3 | Hỏi mô hình cách dịch cho đúng danh sách tầng 1 | có ⇒ job nền, `202` |
+
+Mô hình chết thì tầng 1+2 vẫn chạy bình thường, và giao diện nói thẳng điều đó.
+
+### E17.3 Luật theo ngôn ngữ — và cái bẫy TOÀN CHỮ HOA của tiếng Anh
+
+Tín hiệu mạnh nhất ở cả ba thứ tiếng là **danh xưng đứng cạnh tên**: `ja` hậu tố kính ngữ
+(さん/様/ちゃん…), `en` chức danh đứng trước (Sir/Lord/Master…), `zh` hậu tố xưng danh
+(大人/前辈/师父…). Chỉ những ứng viên có bằng chứng loại này mới được đoán `type_guess =
+character_name`.
+
+**Bẫy:** chữ lồng truyện tranh tiếng Anh rất hay viết hoa toàn bộ. Lúc đó tín hiệu "viết hoa =
+tên riêng" **chết hoàn toàn**, và luật ngây thơ trả về *mọi từ* trong chapter. Nên hệ thống đo tỉ
+lệ chữ hoa của chính chapter (`NGUONG_CHU_HOA = 0.70`) rồi đổi sang luật tần suất + danh sách
+chặn, và **nói ra trên giao diện** nó đang dùng luật nào.
+
+**Đầu câu — chỗ tinh tế nhất.** Từ viết hoa đầu câu viết hoa vì ngữ pháp ⇒ tự nó không phải bằng
+chứng. Nhưng nếu từ đó đã được chứng minh ở chỗ khác thì những lần nó đứng đầu câu **vẫn là những
+lần xuất hiện thật**. Hiện thực bằng hai lượt:
+
+```
+"I met Pepper today. Pepper was tired."   -> Pepper: 2 lần   (lượt 1 chứng minh, lượt 2 đếm thêm)
+"Pepper was tired. Pepper slept."         -> không có gì     (chưa từng có bằng chứng)
+```
+
+### E17.4 Đếm theo LẦN XUẤT HIỆN, không theo lần khớp luật
+
+`ペッパーさん` khớp cả luật hậu tố lẫn luật katakana. Cộng theo số lần khớp luật thì con số hiện
+cho người dùng bị thổi gấp đôi — và đó chính là con số họ dựa vào để duyệt. `UngVien.vi_tri` giữ
+`(vùng, đầu, cuối)` của từng lần đã đếm; lý do đầy đủ nằm ở đó. Cùng loại bẫy với chế độ chỉ-đếm
+của P3f.
+
+### E17.5 Cổng đối chiếu của tầng 3
+
+```
+danh sách ứng viên (tầng 1)  ──►  prompt: "điền cách dịch cho ĐÚNG danh sách này"
+                                          │
+                     model trả lời ───────┤
+                                          ▼
+                        mỗi dòng phải nhắc lại NGUYÊN VĂN thuật ngữ đã hỏi
+                              khớp ──► giữ, nhãn `goi_y_mo_hinh_chua_duyet`
+                            không ──► LOẠI + dropped_count += 1
+```
+
+`dropped_count > 0` là **bằng chứng model có bịa** trong lượt đó — lưu vào CSDL, không chỉ log.
+Prompt có chừa đường cho model nói **"không biết"** (`?`), và câu đó **không** tính là bịa: ép
+model đoán là tự tạo ra dữ liệu giả.
+
+### E17.6 Ranh giới cứng
+
+- Tầng 1+2 **không ghi một dòng nào** vào `glossary_entry` / `character_voice_profile`.
+- Tầng 3 lưu ở bảng riêng `term_suggestion_run` (project-level; không mượn `Job` vì `Job.page_id`
+  là NOT NULL), **không** tạo thuật ngữ.
+- Giao diện **không có nút "Duyệt tất cả"** — `target_term`/`definition` là quyết định biên tập.
+- Không có ứng viên nào ⇒ **không gọi mô hình**: hỏi suông vẫn tốn tiền, và câu trả lời cho một
+  danh sách rỗng chắc chắn là bịa.
+- Vùng OCR `needs_manual` **bị bỏ nhưng có đếm và báo ra** — rút thuật ngữ từ chữ đọc sai đẻ ra
+  danh sách rác mà người dùng không có cách nào biết.

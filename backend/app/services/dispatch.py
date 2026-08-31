@@ -142,3 +142,16 @@ def dispatch_consistency_scan_job(job_id: uuid.UUID, project_id: uuid.UUID) -> t
         reason = f"enqueue_failed: {type(exc).__name__}: {exc}"
         logger.error("Không đẩy được job quét nhất quán %s: %s", job_id, reason)
         return False, reason
+
+
+def dispatch_term_suggestion_job(run_id: uuid.UUID) -> tuple[bool, str | None]:
+    """Trả (đã_gửi, lý_do_lỗi). Broker chết thì nói thật — lượt hỏi đứng ở `queued`, không giả vờ."""
+    try:
+        from app.workers.tasks import run_term_suggestion_job
+
+        run_term_suggestion_job.delay(str(run_id))
+        return True, None
+    except Exception as exc:  # noqa: BLE001
+        reason = f"enqueue_failed: {type(exc).__name__}: {exc}"
+        logger.error("Không đẩy được lượt gợi ý thuật ngữ %s: %s", run_id, reason)
+        return False, reason

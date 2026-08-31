@@ -5,6 +5,7 @@ import Dialog from '../ui/Dialog.jsx'
 import EmptyState from '../ui/EmptyState.jsx'
 import { Input, Select, Field } from '../ui/Field.jsx'
 import StatusBadge from '../ui/StatusBadge.jsx'
+import TermCandidatePanel from './TermCandidatePanel.jsx'
 import { LOAI_THUAT_NGU } from '../../lib/status-presentation.js'
 
 const RONG = {
@@ -18,11 +19,17 @@ const RONG = {
  * này cần biết thuật ngữ đó nghĩa là gì mới quyết được từng chỗ. Và thuật ngữ chỉ thuộc chapter
  * này — cách dịch hợp ở truyện này có thể sai hẳn ở truyện khác.
  */
-export default function GlossaryManager({ danhSach, dangBan, onThem, onDuyet, onCat, onSua }) {
+export default function GlossaryManager({
+  danhSach, dangBan, onThem, onDuyet, onCat, onSua,
+  onTimUngVien, onXinGoiY, onDocGoiY,
+}) {
   const [moForm, setMoForm] = useState(false)
   const [form, setForm] = useState(RONG)
   const [loiForm, setLoiForm] = useState(null)
   const [dangSua, setDangSua] = useState(null)
+  // Bằng chứng của ứng viên đang mở form — hiện ngay trong form để quyết được mà không phải
+  // nhớ lại bảng phía trên.
+  const [bangChung, setBangChung] = useState(null)
 
   const dat = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
 
@@ -52,6 +59,22 @@ export default function GlossaryManager({ danhSach, dangBan, onThem, onDuyet, on
     }
   }
 
+  /** Mở form đã điền sẵn phần MÁY biết. Hai ô quyết định vẫn để trống cho người. */
+  const moTuUngVien = (uv, goiY) => {
+    setDangSua(null)
+    setForm({
+      ...RONG,
+      source_term: uv.source_term,
+      term_type: goiY?.term_type || uv.type_guess,
+      // Gợi ý của mô hình (nếu có) chỉ là bản nháp để sửa — KHÔNG phải quyết định của bạn.
+      target_term: goiY?.target_term || '',
+      definition: goiY?.note || '',
+    })
+    setBangChung({ ...uv, goiY })
+    setLoiForm(null)
+    setMoForm(true)
+  }
+
   const moSua = (m) => {
     setDangSua(m.id)
     setForm({
@@ -60,6 +83,7 @@ export default function GlossaryManager({ danhSach, dangBan, onThem, onDuyet, on
       prohibited_variants: (m.prohibited_variants || []).join(', '),
     })
     setLoiForm(null)
+    setBangChung(null)
     setMoForm(true)
   }
 
@@ -81,10 +105,22 @@ export default function GlossaryManager({ danhSach, dangBan, onThem, onDuyet, on
           khi rà soát)
         </span>
         <Button kieu="chinh" icon="cong" disabled={dangBan}
-                onClick={() => { setDangSua(null); setForm(RONG); setLoiForm(null); setMoForm(true) }}>
+                onClick={() => {
+            setDangSua(null); setForm(RONG); setLoiForm(null); setBangChung(null); setMoForm(true)
+          }}>
           Thêm thuật ngữ
         </Button>
       </div>
+
+      {onTimUngVien && (
+        <TermCandidatePanel
+          dangBan={dangBan}
+          onTim={onTimUngVien}
+          onChon={moTuUngVien}
+          onXinGoiY={onXinGoiY}
+          onDocGoiY={onDocGoiY}
+        />
+      )}
 
       {danhSach.length === 0 ? (
         <EmptyState
@@ -149,6 +185,20 @@ export default function GlossaryManager({ danhSach, dangBan, onThem, onDuyet, on
             </Alert>
           )}
           {loiForm && <Alert sac="loi" tieuDe="Chưa lưu được">{loiForm}</Alert>}
+
+          {bangChung && (
+            <Alert sac="tin" tieuDe={`Tìm thấy ${bangChung.count} lần trong chapter`}>
+              {bangChung.quotes.map((q) => (
+                <div key={q.region_id} className="ghi-chu">“{q.text}” (trang {q.page_order})</div>
+              ))}
+              {bangChung.goiY && (
+                <div className="ghi-chu">
+                  Phần tiếng Việt điền sẵn là <b>gợi ý của mô hình, chưa được duyệt</b> — sửa lại
+                  cho đúng ý bạn trước khi lưu.
+                </div>
+              )}
+            </Alert>
+          )}
 
           <Input nhan="Thuật ngữ gốc" batBuoc value={form.source_term} onChange={dat('source_term')}
                  moTa="Đúng như xuất hiện trong chữ gốc, ví dụ: magic potion" />

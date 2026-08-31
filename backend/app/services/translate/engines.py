@@ -244,6 +244,15 @@ class LLMContextTranslator:
                 raise
         raise QuotaExhausted(f"Đã thử hết {attempts} key, tất cả đều hết quota. Lỗi cuối: {last_error}")
 
+    def goi_prompt_tho(self, prompt: str) -> tuple[str, dict]:
+        """Gửi một prompt tuỳ ý, trả (văn bản, usageMetadata).
+
+        Mở ra cho E17 tầng 3 dùng lại phần hạ tầng đã kiểm của lớp này — xoay key khi hết nhịp,
+        tắt "thinking", đọc usage — mà không phải chép lại. Đây là **đường duy nhất** ngoài
+        `translate()` được phép gọi mô hình, để mọi lượt gọi đều đi qua cùng một chỗ đếm token.
+        """
+        return self._call_api(prompt)
+
     def translate(self, texts: list[str], source_lang: str, target_lang: str) -> list[str]:
         if not texts:
             return []

@@ -206,6 +206,28 @@ export const batHoSoGiong = (profileId) =>
 export const catHoSoGiong = (profileId) =>
   fetch(`${BASE}/voice-profiles/${profileId}/archive`, { method: 'POST' }).then(doc)
 
+// ---------- E17: gợi ý thuật ngữ & xưng hô rút từ chính chapter ----------
+
+/** Danh xưng lặp lại trong chapter, kèm bằng chứng. Chỉ đọc — không tạo thuật ngữ nào. */
+export const layUngVienThuatNgu = (projectId) =>
+  fetch(`${BASE}/projects/${projectId}/term-candidates`).then(doc)
+
+/** Tín hiệu xưng hô CÓ THẬT trong bản gốc (hậu tố kính ngữ, đại từ nhân xưng). */
+export const layTinHieuXungHo = (projectId) =>
+  fetch(`${BASE}/projects/${projectId}/voice-signals`).then(doc)
+
+/** Tầng 3 — hỏi mô hình cách dịch cho danh xưng đã tìm được. Trả 202 + lượt hỏi để theo dõi. */
+export const xinGoiYTheoTenTruyen = (projectId, series_name) =>
+  fetch(`${BASE}/projects/${projectId}/term-suggestions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ series_name }),
+  }).then(doc)
+
+/** `suggestions === null` là CHƯA XONG; `[]` là xong mà không mục nào qua cổng đối chiếu. */
+export const layKetQuaGoiY = (runId) =>
+  fetch(`${BASE}/term-suggestion-runs/${runId}`).then(doc)
+
 export const quetNhatQuan = (projectId) =>
   fetch(`${BASE}/projects/${projectId}/consistency-scans`, {
     method: 'POST',
