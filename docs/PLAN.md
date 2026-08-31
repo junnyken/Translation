@@ -524,3 +524,27 @@ Rollback = đặt lại `local` + redeploy, không mất gì.
 hiện vật **từ nay** bền, **không** hồi sinh được ảnh đã mất. Ba lựa chọn: để nguyên / dọn cho
 `clean_image_path=NULL` + lùi status (§B2 `reconcile_legacy` của P3b) / xoá chapter cũ nạp lại từ
 ảnh gốc. Đây là quyết định về **dữ liệu**, không phải kỹ thuật.
+
+
+## P3f — Đối chiếu bản ghi ↔ hiện vật (2026-08-31) ✅ **XONG — chưa chạy chế độ sửa**
+
+P3e làm hiện vật từ nay bền nhưng **không hồi sinh được ảnh đã mất**, nên trang cũ vẫn khai "đã
+canh chữ xong" mà bấm vào thì 404 — đúng thứ `CLAUDE.md §3` cấm. **Bản ghi là lời khai; hiện vật
+là bằng chứng. Mất bằng chứng thì rút lời khai.**
+
+Không xoá bản dịch (chúng ở trong CSDL, còn nguyên và vẫn đúng) — chỉ rút lời khai về ảnh, và lùi
+`status` tới **mốc gần nhất còn bằng chứng**: còn OCR ⇒ `ocr_done`, còn vùng ⇒ `detected`, chưa
+gì ⇒ `queued`. Mất riêng ảnh xem thử ⇒ `translated`. Cố ý không qua `assert_transition` vì đây là
+sửa chữa, không phải một bước pipeline.
+
+**Bẫy đã tránh:** `png_single` lưu `output_path` là một THƯ MỤC, mà `exists()` luôn False với thư
+mục ở cả hai backend ⇒ hỏi mỗi `exists()` là kết oan mọi lần xuất PNG. Phải hỏi thêm `list_prefix`.
+
+Chạy trên host bằng biến `RECONCILE_LEGACY` (`off|report|apply`) trong `deploy-start.sh`, vì nền
+tảng không cho chạy lệnh trong container. Lỗi ở đây **không chặn khởi động** (khác migration).
+Không làm thành endpoint HTTP: hệ thống chưa có auth.
+
+Test: **831 passed** (nền 823). Test gắt nhất là *chế độ chỉ-đếm không ghi một chữ nào* — công cụ
+sửa dữ liệu mà lỡ ghi lúc người ta tưởng nó chỉ đếm thì tệ hơn không có công cụ.
+
+**Việc kế tiếp:** chạy `RECONCILE_LEGACY=report` trên host để xem thiệt hại thật, rồi mới `apply`.

@@ -2561,3 +2561,22 @@ Có, nghĩa là còn một đường ghi lén chưa đi qua kho.
 2. **Test xoá tài nguyên dùng chung.** Hai test `rmtree` thư mục kho của cả phiên; với
    pytest-randomly thì đó là quả mìn cho test chạy sau. Thêm fixture `autouse` dựng lại thư mục
    sau mỗi test.
+
+# ==================== P3f — Đối chiếu bản ghi ↔ hiện vật (2026-08-31) ====================
+
+```
+831 passed, 6 skipped      (nền trước P3f: 823)
+```
+
+`tests/test_reconcile_integration.py` — 8 test. Hai cái quan trọng nhất **không** kiểm việc sửa:
+
+| Test | Vì sao nó là cái gắt nhất |
+|---|---|
+| `test_che_do_chi_dem_KHONG_ghi_mot_chu_nao` | Công cụ sửa dữ liệu mà lỡ ghi trong lúc người ta tưởng nó chỉ đang đếm thì **tệ hơn hẳn** việc không có công cụ nào |
+| `test_khong_dung_toi_trang_con_du_hien_vat` | Trang lành lặn phải được để yên — sửa nhầm là hỏng thứ đang tốt |
+
+Còn lại: lùi đúng mốc theo bằng chứng còn lại (3 ca), mất riêng ảnh xem thử thì **không** xoá lây
+ảnh clean, lần xuất mất file bị hạ `failed`, và idempotent (chạy lần hai ra toàn số 0).
+
+`test_png_single_la_THU_MUC_khong_bi_ket_oan` — `exists()` luôn False với thư mục ở cả hai
+backend, nên nếu chỉ hỏi `exists()` thì **mọi** lần xuất `png_single` bị kết oan là đã mất file.

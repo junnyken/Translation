@@ -35,6 +35,27 @@ ghi_trang_thai() {
 if [ "$ROLE" = "all" ] || [ "$ROLE" = "api" ]; then
   echo "[khoi-dong] chạy migration…"
   alembic upgrade head || { echo "[khoi-dong] MIGRATION HỎNG — dừng"; exit 1; }
+
+  # P3f — đối chiếu bản ghi với hiện vật thật. Nền tảng không cho chạy lệnh trong container,
+  # nên đây là đường duy nhất để gọi nó trên bản chạy thật: bật bằng biến môi trường.
+  #   off (mặc định) · report = chỉ đếm và ghi log · apply = sửa thật
+  # KHÁC migration ở một điểm quan trọng: lỗi ở đây KHÔNG được chặn khởi động. Migration hỏng
+  # thì schema sai, chạy tiếp là hỏng dữ liệu; còn đối chiếu hỏng thì chỉ là chưa dọn được —
+  # không đáng để hạ cả website.
+  case "${RECONCILE_LEGACY:-off}" in
+    report)
+      echo "[khoi-dong] đối chiếu hiện vật — CHỈ ĐẾM, không ghi gì…"
+      python -m app.scripts.doi_chieu_hien_vat \
+        || echo "[khoi-dong] đối chiếu lỗi — bỏ qua, KHÔNG chặn khởi động"
+      ;;
+    apply)
+      echo "[khoi-dong] đối chiếu hiện vật — SỬA THẬT…"
+      python -m app.scripts.doi_chieu_hien_vat --ap-dung \
+        || echo "[khoi-dong] đối chiếu lỗi — bỏ qua, KHÔNG chặn khởi động"
+      ;;
+    off) : ;;
+    *) echo "[khoi-dong] RECONCILE_LEGACY='${RECONCILE_LEGACY}' không hợp lệ (off|report|apply) — bỏ qua" ;;
+  esac
 fi
 
 case "$ROLE" in
