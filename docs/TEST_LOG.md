@@ -2580,3 +2580,85 @@ Còn lại: lùi đúng mốc theo bằng chứng còn lại (3 ca), mất riên
 
 `test_png_single_la_THU_MUC_khong_bi_ket_oan` — `exists()` luôn False với thư mục ở cả hai
 backend, nên nếu chỉ hỏi `exists()` thì **mọi** lần xuất `png_single` bị kết oan là đã mất file.
+
+# ==================== P3g — Range + đọc lười + đo độ trễ (2026-08-31) ====================
+
+```
+856 passed, 6 skipped      (nền trước P3g: 832)
+```
+Ruff trên 2 tệp đã sửa: **84 → 83**.
+
+## P3g.1 — Hai test đo BYTE THẬT SỰ kéo về từ CSDL
+
+Không có phép đếm này thì "đọc lười" chỉ là một khẳng định trong docstring:
+
+| Test | Khẳng định |
+|---|---|
+| `test_doc_dau_tep_KHONG_keo_ca_hien_vat_ve` | đọc **100 byte đầu** của hiện vật **2MB** ⇒ tổng byte kéo về **≤ 512KB**, **≤ 2 lượt** |
+| `test_doc_het_tep_thi_chia_thanh_nhieu_luot` | đọc hết 2MB ⇒ **≥ 4 lượt** (không phải một cú `SELECT data` khổng lồ) |
+
+Hai cái này là một cặp: cái đầu chống "vẫn nạp cả hiện vật", cái sau chống việc lách bằng cách
+đọc một phát rồi cache.
+
+## P3g.2 — Hợp đồng `read_range` chạy trên CẢ HAI backend (+8 test ×2)
+
+Đoạn giữa · từ đầu · tới hết · xin quá cuối (trả ít hơn, không ném) · đoạn rỗng · tua hai chiều ·
+ghép nhiều khối ra đúng nguyên văn · **PIL mở được ảnh qua luồng** (ca này chặn đúng lỗi "luồng
+không tua được").
+
+## P3g.3 — Hành vi HTTP (10 test, `tests/test_range_integration.py`)
+
+Test có ý nghĩa nhất là `test_noi_hai_doan_lai_ra_dung_tep_goc` — vì đó mới đúng là thứ người
+dùng cần: tải dở rồi tải tiếp, ghép lại phải khớp. Các test còn lại kiểm 206/416/`If-Range`/304
+và **cú pháp hỏng thì trả nguyên tệp chứ không nổ**.
+
+## P3g.4 — Một hồi quy do chính tôi tạo, test hợp đồng bắt được
+
+`open_read()` mới gọi `stat()` trước, mà `stat()` **cố ý nuốt** `UnsafeObjectPath` và trả `None`.
+Hệ quả: path nguy hiểm hiện ra thành "không tìm thấy" — **che mất tín hiệu bảo mật**. Bắt bởi
+`TestChanPathNguyHiem::test_moi_thao_tac_deu_tu_choi_chu_khong_chi_rieng_ham_kiem[postgres]`.
+
+Bài học: một hàm "hỏi han" được phép nuốt lỗi (`exists`/`stat` trả về "không có"), nhưng hàm
+"ra lệnh" (`open_read`) thì **không** — và đừng để hàm ra lệnh mượn hàm hỏi han làm cửa vào.
+
+## P3g.5 — Đo độ trễ trên host: phép đo đầu SAI
+
+Bản đầu dùng `curl` mỗi lượt một tiến trình ⇒ **bắt tay TLS lại từ đầu mỗi lượt**. Chi phí đó
+(~130–220 ms) át hẳn phần việc máy chủ, đến mức hiệu số so với mốc nền ra **số âm** (−51,9 ms).
+
+Đo lại bằng **một kết nối dùng lại**, bỏ 5 lượt khởi động nguội, n=40:
+
+| Mục | p50 | p95 | min |
+|---|---|---|---|
+| MỐC NỀN `/healthz` | 3,4 ms | 4,0 | 3,0 |
+| `clean-image` 304 (chỉ `stat`) | 6,8 ms | 13,6 | 6,2 |
+| `clean-image` Range 8KB | 8,6 ms | 10,1 | 7,5 |
+| `clean-image` đầy đủ (14 KB) | 9,6 ms | 14,4 | 8,2 |
+| `typeset-preview` đầy đủ (16 KB) | 9,8 ms | 12,0 | 8,1 |
+
+Trừ mốc nền: `stat()`+ETag ≈ **3,4 ms** · đọc+phát nguyên hiện vật ≈ **6,2 ms** · đoạn 8KB ≈ **5,2 ms**.
+
+Bài học: **một phép đo không tách được chi phí thiết lập kết nối thì không đo cái nó tưởng nó đang
+đo.** Dấu hiệu nhận ra ở đây rất rõ — kết quả ra số âm.
+
+## P3g.6 — Đo trên hiện vật KÍCH THƯỚC THẬT (6,76 MB), n=25
+
+14 KB không đại diện cho một trang truyện. Đẩy một trang 1400×2000 có nhiễu qua pipeline thật
+trên host để LaMa sinh ra ảnh clean **6.763.787 byte**, rồi đo lại:
+
+| Mục | p50 | p95 |
+|---|---|---|
+| MỐC NỀN `/healthz` | 3,7 ms | 8,3 |
+| 304 (chỉ `stat`) | 6,8 ms | 7,4 |
+| Range 8 KB (đầu tệp) | 8,6 ms | 19,0 |
+| **Range 64 KB (GIỮA tệp, offset 3.000.000)** | **9,2 ms** | 10,7 |
+| Đầy đủ 6,76 MB | 114,7 ms | 151,3 |
+
+**Đây mới là phép đo chứng minh được thiết kế:**
+
+- Đọc 64 KB ở **giữa** hiện vật 6,76 MB tốn **5,5 ms** trên mốc nền — gần y hệt đọc 8 KB ở
+  **đầu** (4,8 ms), và bằng **1/20** chi phí đọc nguyên tệp (111 ms). Nếu Postgres phải bung cả
+  hiện vật ra mới cắt được, đoạn giữa đã phải tốn cỡ 111 ms. ⇒ `SET STORAGE EXTERNAL` (P3e) thật
+  sự cho **giải TOAST một phần**.
+- `stat()` trên hiện vật 6,76 MB tốn **3,1 ms** — bằng đúng `stat()` trên hiện vật 14 KB. ⇒ tách
+  `size_bytes` ra cột riêng đúng là cần: nó không hề chạm cột `data`.

@@ -571,3 +571,38 @@ còn nguyên. `RECONCILE_LEGACY` đã đặt lại `off`.
    nói dối đúng lúc người ta cần tin nó nhất.*
 2. **Nhật ký chạy không sống sót qua deploy** — không có log của chính lượt sửa. Việc cần dấu vết
    kiểm toán phải ghi vào CSDL, không trông vào log.
+
+
+## P3g — Trả lại `Range` + bỏ nạp cả hiện vật vào RAM + đo độ trễ (2026-08-31) ✅ **XONG, ĐÃ DEPLOY**
+
+Đóng ba khoản nợ P3d/P3e đã nhận có chủ đích. Hai cái đầu hoá ra là **một** bài toán: có
+`read_range()` thì có luôn cả `Range` lẫn luồng lười.
+
+Backend CSDL đọc bằng `substr()` phía máy chủ; `open_read()` trả luồng **tua được** (PIL tua tới
+lui trong header ảnh nên luồng chỉ-đọc-tiếp sẽ làm hỏng mọi chỗ dùng ảnh). RAM nay tỉ lệ với
+**khối đang đọc** (256KB), không phải với kích thước hiện vật.
+
+HTTP: `Accept-Ranges`, 206, 416 kèm kích thước thật, `If-Range` (lệch thì trả NGUYÊN tệp — nối
+đoạn của bản cũ vào phần đã tải sẽ tạo một tệp lai không của ai cả), cú pháp hỏng thì bỏ qua
+header theo RFC 9110 thay vì nổ.
+
+Test: **856 passed** (nền 832). Hai test **đếm byte thật sự kéo về từ CSDL** — không có phép đếm
+đó thì "đọc lười" chỉ là một khẳng định trong docstring.
+
+**Đo thật trên host, hiện vật 6,76 MB** (kết nối dùng lại; mốc nền `/healthz` 3,7 ms):
+
+```
+stat() + ETag                      ≈   3,1 ms
+Range 8KB (đầu tệp)                ≈   4,8 ms
+Range 64KB (GIỮA tệp)              ≈   5,5 ms   <- bằng 1/20 đọc nguyên tệp
+đọc + phát NGUYÊN hiện vật         ≈ 111,0 ms   (≈61 MB/s, nghẽn ở băng thông)
+```
+
+Đọc **giữa** tệp rẻ ngang đọc **đầu** tệp ⇒ `SET STORAGE EXTERNAL` (P3e) thật sự cho giải TOAST
+một phần. Và `stat()` trên 6,76 MB tốn đúng bằng trên 14 KB ⇒ tách `size_bytes` ra cột riêng là
+cần thật. **CSDL không phải chỗ nghẽn.**
+
+Hai lỗi của chính tôi, đều bị bắt: (1) `open_read` che `UnsafeObjectPath` thành "không tìm thấy" —
+hàm *hỏi han* được phép nuốt lỗi, hàm *ra lệnh* thì không; (2) phép đo độ trễ đầu tiên dùng `curl`
+mỗi lượt một tiến trình nên bắt tay TLS lại từ đầu, chi phí đó át phần việc máy chủ tới mức ra
+**số âm** — phép đo không tách được chi phí thiết lập kết nối thì không đo cái nó tưởng nó đo.

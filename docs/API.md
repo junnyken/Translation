@@ -149,9 +149,19 @@ kho lưu trữ có thể không phải là hệ tệp. Kèm theo:
 `Cache-Control: no-cache, must-revalidate`, tức trình duyệt hỏi lại server mỗi lượt xem —
 không có ETag thì mỗi lượt hỏi lại là tải nguyên ~3MB thay vì một cái 304 rỗng.
 
-⚠️ **Mất hỗ trợ `Range`** (tải tiếp đoạn giữa chừng) so với trước, vì `FileResponse` của
-Starlette tự làm việc đó còn luồng thì không. Ảnh hưởng thật: tải lại từ đầu nếu đứt mạng giữa
-chừng khi tải gói CBZ lớn. Chưa làm lại vì chưa ai gặp; ghi ra để không ai tưởng là lỗi.
+**`Range` (P3g)** — đã có lại, và không cần kho phải là hệ tệp:
+
+| Yêu cầu | Trả về |
+|---|---|
+| (mọi lượt 200) | `Accept-Ranges: bytes` |
+| `Range: bytes=10-19` | **206** + `Content-Range: bytes 10-19/<size>` |
+| `Range: bytes=<n>-` · `bytes=-<n>` | **206** (tới hết tệp · n byte cuối) |
+| Xin quá cuối tệp | **416** + `Content-Range: bytes */<size>` |
+| Cú pháp hỏng, hoặc đa đoạn `a-b, c-d` | **200** nguyên tệp (RFC 9110 cho bỏ qua header) |
+| `If-Range` **lệch** ETag | **200** nguyên tệp — hiện vật đã đổi, nối đoạn của bản cũ vào phần đã tải sẽ tạo một tệp lai không của ai cả |
+| `If-None-Match` khớp | **304**, kể cả khi có `Range` |
+
+Đoạn dài cũng phát theo khối, không nằm trọn trong RAM.
 
 ## 10. `POST /api/v1/pages/{page_id}/retry-inpaint` → 202 *(M4)*
 

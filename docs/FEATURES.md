@@ -191,8 +191,14 @@ Kèm theo, hai thứ đã tốt lên ngay:
 - **Không còn ảnh ghi dở.** Nếu quá trình ghi ảnh hỏng giữa chừng, bản cũ được giữ nguyên thay vì
   để lại một tệp cụt trông như ảnh thật.
 
-Một đánh đổi: tải gói CBZ lớn mà đứt mạng giữa chừng thì phải tải lại từ đầu (trước đây tải tiếp
-được).
+~~Một đánh đổi: tải gói CBZ lớn mà đứt mạng giữa chừng thì phải tải lại từ đầu.~~ → **đã sửa**:
+tải tiếp được như cũ. Đã thử thật trên máy chủ: tải một nửa, tải nốt nửa sau, ghép lại ra đúng
+từng byte của tệp gốc và mở được thành ảnh.
+
+Tốc độ thì đã đo trên máy chủ thật với một trang cỡ 6,7 MB: mở ảnh mất khoảng **0,11 giây**, mà
+phần lớn là thời gian truyền qua mạng chứ không phải thời gian lấy ảnh ra khỏi cơ sở dữ liệu
+(việc lấy chỉ tốn khoảng **0,005 giây**). Xem lại một ảnh đã xem rồi thì gần như tức thì vì máy
+chủ chỉ trả lời "chưa đổi".
 
 ## Những gì **chưa** dùng được (nói thẳng để không hiểu nhầm)
 

@@ -629,8 +629,16 @@ hiện vật không tồn tại — ai đang xem đúng lúc đó thì thấy 40
 mỗi lời gọi là một lượt đi mạng nội bộ. Không viết bản async riêng: nhân đôi đường đọc là nhân
 đôi số chỗ có thể lệch nhau.
 
-**`open_read()` nạp cả hiện vật vào RAM** — có chủ đích, vì PIL đòi luồng tua được. Trần
-`STORAGE_PG_MAX_ARTIFACT_MB` (96 MB) chặn ở **đường ghi** để con số đó không trôi.
+**`open_read()` là luồng LƯỜI** (P3g): `LuongHienVatLuoi` hiện thực `seek/tell/readinto` trên
+`read_range()`, bọc `BufferedReader` khối 256KB. RAM tỉ lệ với **khối đang đọc**, không phải với
+kích thước hiện vật. Phải tua được vì PIL tua tới lui trong header ảnh — luồng chỉ-đọc-tiếp sẽ
+làm hỏng mọi chỗ dùng ảnh.
+
+**`read_range()`** dùng `substr()` phía máy chủ. Đây là chỗ `SET STORAGE EXTERNAL` trả công lần
+thứ hai: cột không nén nên Postgres giải TOAST được **một phần**. Nó cũng là nền của HTTP `Range`.
+
+**Đo thật trên host** (kết nối dùng lại, mốc nền `/healthz` = 3,4 ms p50): `stat()`+ETag ≈ 3,4 ms;
+đọc+phát nguyên hiện vật ≈ 6,2 ms; đọc một đoạn 8KB ≈ 5,2 ms. Không phải chỗ nghẽn.
 
 ## 9. Giới hạn đã biết (cố ý để lại)
 
