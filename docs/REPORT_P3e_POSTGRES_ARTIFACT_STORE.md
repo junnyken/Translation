@@ -141,12 +141,39 @@ của project khác**, im lặng.
 
 ---
 
-## Live Verification
+## Live Verification — ✅ **ĐÃ CHẠY THẬT TRÊN HOST 2026-08-31**
 
-⛔ **CHƯA CÓ. Chưa deploy, chưa chạy trên host.**
+Đặt `STORAGE_BACKEND=postgres` trên `translation-api` (vibehost1 / `trieunt1@`) rồi deploy.
+Migration `0010_p3e` chạy lúc khởi động, thành công.
 
-Bằng chứng hiện có là bộ test chạy trên máy phát triển với Postgres thật (823 passed) — **không
-phải** bằng chứng chạy thật trên VibeHost. Không được đọc nhầm hai thứ này thành một.
+### Kịch bản đo
+
+1. Tải một trang PNG thật (1200×1700, 2 bong bóng) lên host qua API.
+2. Pipeline tự chạy hết chuỗi tới `typeset_done` — tức worker **đọc được ảnh gốc từ CSDL** và
+   ghi ảnh clean + ảnh xem thử ngược vào đó. Detect ra **2 vùng** (conf 0,774 và 0,573), khớp
+   đúng 2 bong bóng đã vẽ — không phải trạng thái nhảy suông.
+3. **Redeploy** — đây chính là thao tác xoá sạch lớp ghi container (P3a đã đo).
+4. Đọc lại hiện vật.
+
+### Kết quả sau khi đĩa bị xoá
+
+| Đo | Kết quả |
+|---|---|
+| `GET /pages/{id}/clean-image` | **200** · 14.319 byte · PNG thật **1200×1700** |
+| `GET /pages/{id}/typeset-preview` | **200** · PNG thật **1200×1700** |
+| `If-None-Match` khớp ETag | **304**, tải về **0 byte** |
+
+### Bằng chứng đối chứng, đắt giá hơn cả phép đo trên
+
+Lượt đối chiếu tự chạy lúc khởi động (03:59:17) quét **toàn bộ** trang trên host và kết luận:
+**5 trang cũ mất ảnh clean · trang vừa tải lên thì KHÔNG**. Cùng một lần quét, cùng một máy, cùng
+một thời điểm — trang tạo trước P3e mất hiện vật, trang tạo sau P3e thì không.
+
+Đó là đối chứng mà một bộ test không dựng ra được: chính dữ liệu thật của hệ thống phân đôi theo
+đúng ranh giới P3e.
+
+⚠️ Bộ test trên máy dev (832 passed) và phép đo trên host là **hai loại bằng chứng khác nhau**;
+đoạn này là loại thứ hai.
 
 ### Deploy cần đúng 3 bước
 
@@ -178,8 +205,9 @@ Chưa làm cái nào — đây là quyết định về **dữ liệu của ngư
 
 ## Remaining Limits
 
-- **Chưa deploy** ⇒ trên host hiện vật vẫn mất mỗi lần triển khai lại. P3e chưa thay đổi gì ngoài repo.
-- **Hàng dữ liệu cũ vẫn orphan** — xem 3 lựa chọn ở trên.
+- ~~Chưa deploy~~ → **đã deploy và đã đo trên host** (xem Live Verification).
+- **Hàng dữ liệu cũ vẫn orphan**: đo thật được **5 trang** mất ảnh clean, **0** lần xuất mất file.
+  Chủ dự án đã chọn phương án 2 (dọn cho trung thực) ⇒ làm ở **P3f**.
 - **Một hiện vật/lượt phục vụ nằm trong RAM** (trần 96 MB). Đủ cho pilot 1–2 người dùng; không
   phải thiết kế cho tải cao.
 - **Mất hỗ trợ `Range`** ở 3 endpoint trả tệp (thừa kế từ P3d).
@@ -194,7 +222,8 @@ Chưa làm cái nào — đây là quyết định về **dữ liệu của ngư
 
 ```
 Mã              : 5 tệp app + 1 migration + 2 tệp test
-DB              : +1 bảng (artifact_blob), migration 0010_p3e — CHƯA áp lên host
-Cấu hình VibeHost: CHƯA đổi (cần STORAGE_BACKEND=postgres)
-Deploy          : KHÔNG
+DB              : +1 bảng (artifact_blob), migration 0010_p3e — ĐÃ áp trên host
+Cấu hình VibeHost: STORAGE_BACKEND=postgres — ĐÃ đặt
+Deploy          : ĐÃ deploy (da5dc2f), đã đo thật, ĐẠT
+Rollback        : đặt lại STORAGE_BACKEND=local + redeploy; bảng artifact_blob để nguyên
 ```

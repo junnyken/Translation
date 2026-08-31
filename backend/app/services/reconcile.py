@@ -17,6 +17,7 @@ Hai chế độ, và mặc định là chế độ KHÔNG ghi gì:
 from __future__ import annotations
 
 import logging
+import uuid
 from dataclasses import dataclass, field
 
 from sqlalchemy import select
@@ -94,12 +95,21 @@ def doi_chieu_hien_vat(
     Idempotent: chạy lần hai trên dữ liệu đã dọn sẽ trả về toàn số 0.
     """
     kq = KetQuaDoiChieu(da_ghi=ap_dung)
+    # Trang đã bị xử ở bước 1 thì bước 2 KHÔNG được đếm lại.
+    #
+    # Vì sao cần biến này thay vì chỉ nhìn `clean_image_path is None`: ở chế độ chỉ-đếm ta không
+    # ghi gì, nên `clean_image_path` VẪN còn giá trị cũ — và cùng một trang sẽ bị đếm hai lần,
+    # một lần "mất ảnh clean", một lần "mất ảnh xem thử". Báo cáo khi đó nói 10 trong khi thiệt
+    # hại thật là 5. Một công cụ chỉ-đếm mà không dự đoán đúng việc chế độ sửa sẽ làm thì vô dụng
+    # đúng ở lúc người ta cần tin nó nhất. (Lỗi thật, bắt được trên bản chạy thật 31/08.)
+    da_xu_ly: set[uuid.UUID] = set()
 
     # ---- 1. trang khai có ảnh clean mà kho không có ----
     for page in session.scalars(select(Page).where(Page.clean_image_path.is_not(None))):
         if storage.exists(page.clean_image_path):
             continue
         kq.trang_mat_anh_clean += 1
+        da_xu_ly.add(page.id)
         moi = _muc_lui_khi_mat_anh_clean(session, page)
         kq.chi_tiet.append(
             f"page {page.id}: mất ảnh clean ({page.clean_image_path}) · "
@@ -114,7 +124,7 @@ def doi_chieu_hien_vat(
 
     # ---- 2. trang khai đã canh chữ mà không có ảnh xem thử (ảnh clean thì vẫn còn) ----
     for page in session.scalars(select(Page).where(Page.status.in_(_DOI_HOI_PREVIEW))):
-        if page.clean_image_path is None:
+        if page.id in da_xu_ly or page.clean_image_path is None:
             continue  # đã xử ở bước 1
         if storage.exists(preview_relative_path(page.id)):
             continue

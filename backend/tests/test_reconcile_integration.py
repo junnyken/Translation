@@ -160,3 +160,24 @@ async def test_chay_lan_hai_khong_con_gi_de_sua(project_id):
     with sync_session() as s:
         lai = doi_chieu_hien_vat(s, get_storage(), ap_dung=True)
     assert lai.tong == 0
+
+
+async def test_che_do_chi_dem_KHONG_dem_mot_trang_hai_lan(project_id):
+    """Lỗi thật bắt được trên bản chạy thật 31/08.
+
+    Trang `typeset_done` mất ảnh clean thì cũng mất luôn ảnh xem thử. Ở chế độ sửa, bước 1 đặt
+    `clean_image_path=None` nên bước 2 bỏ qua trang đó. Ở chế độ chỉ-đếm thì không ghi gì, nên
+    nếu chỉ dựa vào `clean_image_path is None` thì cùng một trang bị đếm HAI lần — báo cáo nói
+    10 trong khi thiệt hại thật là 5.
+    """
+    pid = await project_id()
+    _trang(pid, status=PageStatus.typeset_done, clean_rel="mat/tieu.png")
+
+    with sync_session() as s:
+        dem = doi_chieu_hien_vat(s, get_storage(), ap_dung=False)
+    with sync_session() as s:
+        sua = doi_chieu_hien_vat(s, get_storage(), ap_dung=True)
+
+    assert dem.trang_mat_anh_clean == sua.trang_mat_anh_clean
+    assert dem.trang_mat_preview == sua.trang_mat_preview
+    assert dem.tong == sua.tong, "chế độ chỉ-đếm không dự đoán đúng việc chế độ sửa làm"

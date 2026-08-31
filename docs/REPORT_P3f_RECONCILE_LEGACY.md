@@ -77,14 +77,35 @@ ta tưởng nó chỉ đang đếm thì tệ hơn hẳn việc không có công 
 
 Cùng hạng: `test_khong_dung_toi_trang_con_du_hien_vat` — trang lành lặn phải được để yên.
 
-## Live Verification
+## Live Verification — chế độ `report` đã chạy thật trên host
 
-Công cụ **đã lên host** cùng lần deploy này, nhưng **chưa chạy chế độ `apply`** — còn phải chạy
-`report` trước để nhìn thiệt hại, rồi mới quyết.
+`RECONCILE_LEGACY=report` + deploy. Log khởi động 2026-08-31 03:59:17:
+
+```
+đối chiếu hiện vật (chỉ đếm): 5 trang mất ảnh clean, 5 trang mất ảnh xem thử, 0 lần xuất mất file
+```
+
+**Thiệt hại thật: 5 trang.** Toàn bộ đều `typeset_done -> ocr_done` (còn kết quả OCR trong CSDL).
+Không có lần xuất nào mất file.
+
+### Chế độ `report` đã đếm sai — và tự nó lộ ra
+
+Năm ID trang xuất hiện ở **cả hai** danh sách. Nguyên nhân: bước 2 bỏ qua trang đã xử ở bước 1
+bằng cách nhìn `clean_image_path is None` — nhưng chế độ chỉ-đếm **không ghi gì**, nên cột đó
+vẫn còn giá trị cũ và cùng một trang bị đếm hai lần. Báo cáo nói 10 trong khi thiệt hại thật là 5.
+
+Đã sửa bằng một tập `da_xu_ly` (không dựa vào tác dụng phụ của việc ghi), kèm test hồi quy
+`test_che_do_chi_dem_KHONG_dem_mot_trang_hai_lan` — khẳng định chế độ chỉ-đếm và chế độ sửa cho
+ra **cùng** con số.
+
+Bài học: **chế độ khô (dry-run) mà dựa vào tác dụng phụ của chế độ ướt thì sẽ nói dối** — và nó
+nói dối đúng lúc người ta cần tin nó nhất.
+
+⚠️ **Chưa chạy `apply`.**
 
 ## Remaining Limits
 
-- **Chưa chạy `apply` trên host.** Số liệu thiệt hại thật chưa có.
+- **Chưa chạy `apply` trên host.** Số liệu thiệt hại thật đã có: **5 trang**.
 - Không hồi sinh được ảnh đã mất — P3f chỉ làm bản ghi thôi nói dối, không tạo lại dữ liệu.
 - Quét toàn bảng, không phân trang. Ở quy mô hiện tại (vài chục trang) không đáng bận; vài chục
   nghìn trang thì phải làm theo lô.
