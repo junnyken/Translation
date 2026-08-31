@@ -173,9 +173,16 @@ không còn.
 Đã dò ra nguyên nhân (P3c): nền tảng đang chạy **không cấp được ổ đĩa bền** để gắn vào chỗ chứa
 ảnh. Đây là giới hạn của nền tảng, không phải lỗi cấu hình.
 
-Đã làm được gì (P3d): dọn xong toàn bộ phần việc để **chuyển kho ảnh sang nơi khác** — cơ sở dữ
-liệu, hoặc dịch vụ lưu trữ ngoài. Trước đây việc chuyển này đụng tới 18 chỗ trong mã; nay chỉ còn
-là viết **một** lớp mới. Chưa chọn nơi nào vì còn chờ biết hạn mức lưu trữ của gói dịch vụ.
+Đã làm được gì (P3d + P3e): **đã viết xong kho ảnh mới, đặt ảnh vào thẳng cơ sở dữ liệu** — nơi
+duy nhất trên nền tảng này sống sót qua mỗi lần cập nhật. Gói dịch vụ 20 GB, hiện dùng 1,26 GB,
+đủ chỗ cho khoảng **1.400 trang** nữa.
+
+⚠️ **Nhưng chưa bật trên máy chủ.** Mã đã sẵn sàng và đã kiểm; còn một bước đổi cấu hình rồi cập
+nhật lại hệ thống thì ảnh mới thật sự thôi biến mất. Trước khi bước đó xong, mọi thứ vẫn y như cũ.
+
+Và một điều phải nói trước: bật lên chỉ cứu được **ảnh từ đó trở đi**. Những trang đã mất ảnh thì
+**không dựng lại được** — ảnh gốc đã không còn. Sẽ cần một lần dọn riêng để các trang đó thôi khai
+là "đã xong".
 
 Kèm theo, hai thứ đã tốt lên ngay:
 

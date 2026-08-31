@@ -1,8 +1,12 @@
-"""Unit — lớp lưu trữ hiện vật sau P3c. Không DB, không Celery.
+"""Lớp lưu trữ hiện vật (P3d + P3e).
 
-Hai thứ được kiểm ở đây mà trước P3c KHÔNG có test nào:
+Bộ test này chạy **cùng một hợp đồng trên CẢ HAI backend** (`local` và `postgres`) qua fixture
+`kho` được parametrize. Đó là điểm mấu chốt: nếu chỉ test riêng từng lớp thì "thay backend được"
+mãi mãi là một lời hứa. Chạy chung một bộ khẳng định mới là bằng chứng.
+
+Những gì trước P3d KHÔNG có test nào:
   1. chặn path thoát khỏi gốc kho (`_abs()` cũ ghép thẳng `root / rel`, không kiểm gì);
-  2. ghi nguyên tử — không bao giờ để lại tệp ghi dở khi lỗi giữa chừng.
+  2. ghi nguyên tử — không để lại tệp ghi dở khi lỗi giữa chừng.
 """
 from __future__ import annotations
 
@@ -10,16 +14,37 @@ from pathlib import Path
 
 import pytest
 
+import sqlalchemy as sa
+
+from app.core.db_sync import sync_session
+from app.models import ArtifactBlob
 from app.services.storage import (
+    ArtifactTooLarge,
     LocalObjectStorage,
+    PostgresObjectStorage,
     UnsafeObjectPath,
     chuan_hoa_path,
     workspace,
 )
 
 
+def _kho_postgres(max_bytes: int = 0) -> PostgresObjectStorage:
+    with sync_session() as s:
+        s.execute(sa.delete(ArtifactBlob))
+        s.commit()
+    return PostgresObjectStorage(max_bytes=max_bytes)
+
+
+@pytest.fixture(params=["local", "postgres"])
+def kho(request, tmp_path):
+    """CÙNG hợp đồng, hai hiện thực. Test nào dùng fixture này là test nào chạy hai lượt."""
+    if request.param == "local":
+        return LocalObjectStorage(str(tmp_path / "kho"))
+    return _kho_postgres()
+
+
 @pytest.fixture
-def kho(tmp_path) -> LocalObjectStorage:
+def kho_local(tmp_path) -> LocalObjectStorage:
     return LocalObjectStorage(str(tmp_path / "kho"))
 
 
@@ -81,7 +106,8 @@ class TestGhiDocXoa:
             assert fh.read(4) == b"0123"
             assert fh.read() == b"456789"
 
-    def test_ghi_de_khong_de_lai_tep_ghi_do(self, kho, tmp_path):
+    def test_ghi_de_khong_de_lai_tep_ghi_do(self, kho_local, tmp_path):
+        kho = kho_local
         kho.save("a.png", b"cu")
         kho.save("a.png", b"moi hon nhieu")
         assert kho.read("a.png") == b"moi hon nhieu"
@@ -130,7 +156,8 @@ class TestLietKeVaDonTheoTienTo:
         assert da_xoa == ["exports/p1/a.cbz"]
         assert kho.list_prefix("exports/p10") == ["exports/p10/giu.cbz"], "xoá lan sang project khác"
 
-    def test_don_xong_khong_de_lai_thu_muc_rong(self, kho, tmp_path):
+    def test_don_xong_khong_de_lai_thu_muc_rong(self, kho_local, tmp_path):
+        kho = kho_local
         kho.save("exports/p1/png/001.png", b"x")
         kho.delete_prefix("exports/p1")
         assert not (tmp_path / "kho" / "exports" / "p1" / "png").exists()
@@ -160,3 +187,56 @@ class TestVatChatHoa:
             rel = kho.save_file("previews/p1/typeset.png", tep)
         assert rel == "previews/p1/typeset.png"
         assert kho.read(rel) == b"engine vua ghi"
+
+
+class TestRiengPostgres:
+    """Những gì chỉ backend CSDL mới có."""
+
+    def test_tran_kich_thuoc_chan_o_duong_GHI(self):
+        """Chặn lúc ghi, không để phát hiện lúc đọc — lúc đó đã muộn và đã tốn CSDL."""
+        kho = _kho_postgres(max_bytes=1024)
+        kho.save("vua-du.bin", b"x" * 1024)
+        with pytest.raises(ArtifactTooLarge):
+            kho.save("qua-to.bin", b"x" * 1025)
+        assert kho.exists("qua-du.bin") is False
+        assert kho.exists("qua-to.bin") is False, "hiện vật quá trần vẫn lọt vào kho"
+
+    def test_ghi_de_la_upsert_khong_de_lai_hang_trung(self):
+        kho = _kho_postgres()
+        kho.save("a.png", b"cu")
+        kho.save("a.png", b"moi")
+        with sync_session() as s:
+            n = s.scalar(
+                sa.select(sa.func.count()).select_from(ArtifactBlob).where(
+                    ArtifactBlob.path == "a.png"
+                )
+            )
+        assert n == 1, "ghi đè đẻ ra hàng thứ hai"
+        assert kho.read("a.png") == b"moi"
+
+    def test_stat_khong_keo_ca_hien_vat_len(self):
+        """`size_bytes` là cột riêng đúng để `stat()` khỏi phải đọc cột `data`."""
+        kho = _kho_postgres()
+        kho.save("to.bin", b"y" * 300_000)
+        st = kho.stat("to.bin")
+        assert st.size == 300_000
+        with sync_session() as s:
+            luu = s.scalar(sa.select(ArtifactBlob.size_bytes).where(ArtifactBlob.path == "to.bin"))
+        assert luu == 300_000, "size_bytes lệch với nội dung thật"
+
+    def test_moc_phien_ban_du_min_de_phan_biet_hai_lan_ghi_lien_tiep(self):
+        """Vân tay E14 = (size, mtime). Hai lượt ghi cùng cỡ trong cùng một giây mà mtime không
+        đổi thì E14 sẽ dùng lại hình bong bóng của ảnh CŨ. Micro giây loại hẳn ca đó."""
+        kho = _kho_postgres()
+        kho.save("a.png", b"x" * 100)
+        m1 = kho.stat("a.png").mtime
+        kho.save("a.png", b"y" * 100)          # CÙNG kích thước, ngay lập tức
+        m2 = kho.stat("a.png").mtime
+        assert m1 != m2, "hai lần ghi liên tiếp cùng cỡ cho ra cùng mốc phiên bản"
+
+    def test_ten_co_dau_gach_duoi_khong_bi_LIKE_hieu_nham(self):
+        """`_` là ký tự đại diện của LIKE, mà tên thật của hệ thống có `_` (`…_clean.png`)."""
+        kho = _kho_postgres()
+        kho.save("p_1/a_clean.png", b"x")
+        kho.save("pX1/b.png", b"y")            # khớp `p_1/%` nếu quên thoát `_`
+        assert kho.list_prefix("p_1") == ["p_1/a_clean.png"]

@@ -21,6 +21,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import StreamingResponse
+from starlette.concurrency import run_in_threadpool
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -234,7 +235,9 @@ async def upload_page(
     await session.flush()  # lấy page.id, chưa commit
 
     storage = get_storage()
-    page.image_path = storage.save_page_image(project.id, page.id, data, ext)
+    page.image_path = await run_in_threadpool(
+        storage.save_page_image, project.id, page.id, data, ext
+    )
 
     job = Job(type=JobType.detect, page_id=page.id, status=JobStatus.queued)
     session.add(job)
@@ -380,7 +383,7 @@ def _doc_theo_khoi(fh, kich_thuoc: int = 64 * 1024):
         fh.close()
 
 
-def _phuc_vu_hien_vat(
+async def _phuc_vu_hien_vat(
     storage: IObjectStorage,
     rel: str,
     media_type: str,
@@ -389,7 +392,10 @@ def _phuc_vu_hien_vat(
     filename: str | None = None,
     cache_control: str | None = None,
 ) -> Response:
-    st = storage.stat(rel)
+    # P3e: kho có thể là CSDL, tức mỗi lời gọi dưới đây là một lượt đi CSDL đồng bộ. Gọi thẳng
+    # trong hàm async sẽ CHẶN event loop — mọi request khác đứng chờ theo. `run_in_threadpool`
+    # đẩy chúng sang luồng phụ. Với backend `local` thì đây chỉ là vài syscall, không đáng kể.
+    st = await run_in_threadpool(storage.stat, rel)
     if st is None:
         # Chỉ xảy ra khi hiện vật biến mất giữa lúc kiểm và lúc phục vụ.
         raise HTTPException(status_code=404, detail="Hiện vật không còn trên kho lưu trữ")
@@ -402,8 +408,9 @@ def _phuc_vu_hien_vat(
     headers["Content-Length"] = str(st.size)
     if filename:
         headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    luong = await run_in_threadpool(storage.open_read, rel)
     return StreamingResponse(
-        _doc_theo_khoi(storage.open_read(rel)), media_type=media_type, headers=headers
+        _doc_theo_khoi(luong), media_type=media_type, headers=headers
     )
 
 
@@ -423,12 +430,12 @@ async def get_clean_image(
             detail="Page chưa có ảnh clean — bước xoá chữ (inpaint) chưa chạy xong",
         )
     storage = get_storage()
-    if not storage.exists(page.clean_image_path):
+    if not await run_in_threadpool(storage.exists, page.clean_image_path):
         raise HTTPException(
             status_code=404,
             detail=f"Đường dẫn ảnh clean có trong DB nhưng file không còn: {page.clean_image_path}",
         )
-    return _phuc_vu_hien_vat(storage, page.clean_image_path, "image/png", request)
+    return await _phuc_vu_hien_vat(storage, page.clean_image_path, "image/png", request)
 
 
 @router.post(
@@ -564,14 +571,14 @@ async def get_typeset_preview(
     await _get_page_or_404(session, page_id)
     storage = get_storage()
     rel = preview_relative_path(page_id)
-    if not storage.exists(rel):
+    if not await run_in_threadpool(storage.exists, rel):
         raise HTTPException(
             status_code=404,
             detail="Page chưa có ảnh preview — bước canh chữ (typeset) chưa chạy xong",
         )
     # `no-cache` = trình duyệt PHẢI hỏi lại server trước khi dùng bản đã lưu. Đường dẫn preview
     # cố định theo page nên thiếu header này thì sau khi sửa tay (M7) người dùng vẫn thấy ảnh cũ.
-    return _phuc_vu_hien_vat(
+    return await _phuc_vu_hien_vat(
         storage, rel, "image/png", request, cache_control="no-cache, must-revalidate"
     )
 
@@ -669,7 +676,9 @@ async def get_page_detail(
         page=page,
         # Chỉ trả URL khi file CÓ THẬT — không đưa link chết cho UI.
         preview_url=(
-            f"/api/v1/pages/{page_id}/typeset-preview" if storage.exists(preview_rel) else None
+            f"/api/v1/pages/{page_id}/typeset-preview"
+            if await run_in_threadpool(storage.exists, preview_rel)
+            else None
         ),
         font_families=sorted(FONT_REGISTRY),
         min_font_size=settings.typeset_min_font_size,
@@ -987,12 +996,12 @@ async def download_export(
         )
 
     storage = get_storage()
-    if not storage.exists(job.output_path):
+    if not await run_in_threadpool(storage.exists, job.output_path):
         raise HTTPException(
             status_code=404,
             detail=f"Đường dẫn có trong DB nhưng file không còn: {job.output_path}",
         )
-    return _phuc_vu_hien_vat(
+    return await _phuc_vu_hien_vat(
         storage,
         job.output_path,
         "application/octet-stream",

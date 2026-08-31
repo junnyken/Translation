@@ -18,8 +18,14 @@ class Settings(BaseSettings):
     celery_result_backend: str = "redis://redis:6379/1"
 
     # Storage
-    storage_backend: Literal["local", "supabase"] = "local"
+    #: `postgres` = hiện vật nằm trong CSDL (P3e). Chọn nó khi nền tảng KHÔNG cấp volume bền —
+    #: đúng trường hợp VibeHost, xem docs/REPORT_P3c_STORAGE_CAPABILITY_PROBE.md.
+    #: `local` chỉ bền khi có volume thật gắn vào `storage_local_root`.
+    storage_backend: Literal["local", "postgres", "supabase"] = "local"
     storage_local_root: str = "/data/storage"
+    #: Trần một hiện vật khi lưu trong CSDL. Chặn sớm để không nhét cả gói CBZ khổng lồ vào một
+    #: hàng bytea rồi phát hiện lúc đọc. 0 = không giới hạn.
+    storage_pg_max_artifact_mb: int = 96
     supabase_url: str = ""
     supabase_service_key: str = ""
     supabase_bucket: str = "manga-pages"

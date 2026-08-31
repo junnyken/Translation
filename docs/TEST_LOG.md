@@ -2511,3 +2511,53 @@ vì detect là đầu chuỗi nên OCR/inpaint/typeset/export đổ theo — 40+
 - Job nuốt lỗi vào `error_log` rồi trả `{"status": "failed"}`, nên traceback **không** hiện ở
   log pytest. Phải in `repr(result)` ra mới thấy nguyên nhân. Đây là cái giá của việc bắt hết
   ngoại lệ ở tầng task — đúng cho vận hành, nhưng làm chẩn đoán chậm hơn một nhịp.
+
+# ==================== P3e — Kho hiện vật trong Postgres (2026-08-31) ====================
+
+## P3e.1 — Bộ test
+
+```
+823 passed, 6 skipped in 293.06s      (nền trước P3e: 801)
+```
+
+## P3e.2 — Cùng MỘT hợp đồng chạy trên CẢ HAI backend
+
+`tests/test_storage_unit.py` đổi fixture `kho` thành parametrize `["local", "postgres"]` ⇒ **19
+test hợp đồng chạy hai lượt** (40 test thay vì 22).
+
+Đây là điểm mấu chốt của cả P3d+P3e: test riêng từng lớp thì "thay backend được" mãi mãi chỉ là
+lời hứa. Chạy chung một bộ khẳng định mới là bằng chứng.
+
+Tách riêng đúng những gì thật sự đặc thù:
+- `kho_local` — kiểm tệp `.ghi-do-*` và thư mục rỗng (chỉ có nghĩa với hệ tệp)
+- `TestRiengPostgres` (5) — trần kích thước, upsert không đẻ hàng trùng, `stat()` không kéo cột
+  `data`, mốc phiên bản phân biệt được hai lượt ghi liên tiếp cùng cỡ, và `_` không bị LIKE hiểu nhầm
+
+## P3e.3 — Test trả lời đúng câu hỏi khiến P3a/P3b bị chặn
+
+`tests/test_storage_durability_integration.py` (4 test). Mô phỏng một lượt triển khai lại bằng
+`shutil.rmtree(storage_root)` — đúng điều nền tảng làm với lớp ghi container (P3a đo trực tiếp).
+
+| Test | Khẳng định | Kết quả |
+|---|---|---|
+| `..._postgres_song_sot_...` | xoá sạch đĩa xong, `GET /clean-image` vẫn **200** + đúng byte | ✅ |
+| `..._local_mat_hien_vat_...` | cùng kịch bản, `local` trả **404** trong khi DB vẫn khai có ảnh | ✅ |
+| `..._ETag_304_tren_kho_CSDL` | `If-None-Match` khớp ⇒ **304**, thân rỗng | ✅ |
+| `..._doi_noi_dung_thi_ETag_doi_theo` | ghi đè cùng cỡ ⇒ ETag vẫn đổi | ✅ |
+
+**Vì sao phải có test đối chứng (`local` mất):** không có nó thì không ai biết test đầu đang kiểm
+gì thật. Và nó **khẳng định điều sai đang xảy ra trên host** — ngày nào nó bắt đầu đỏ, nghĩa là
+nền tảng đã cấp được volume bền và có thể xét quay về `local`.
+
+Thêm một khẳng định phụ trong test đầu: backend `postgres` **không ghi một byte MỚI nào ra đĩa**.
+Có, nghĩa là còn một đường ghi lén chưa đi qua kho.
+
+## P3e.4 — Hai lỗi bắt được trong lúc viết test
+
+1. **Assert quá rộng.** Bản đầu của khẳng định "không ghi ra đĩa" soi **cả** thư mục kho dùng
+   chung cả phiên, nên bắt phải tệp do test khác để lại ⇒ đỏ khi chạy cả bộ, xanh khi chạy riêng.
+   Sửa: chụp ảnh thư mục trước/sau, chỉ so tệp **mới**. Bài học: khẳng định trên tài nguyên dùng
+   chung phải là *delta*, không phải *trạng thái tuyệt đối*.
+2. **Test xoá tài nguyên dùng chung.** Hai test `rmtree` thư mục kho của cả phiên; với
+   pytest-randomly thì đó là quả mìn cho test chạy sau. Thêm fixture `autouse` dựng lại thư mục
+   sau mỗi test.

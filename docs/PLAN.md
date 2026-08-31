@@ -486,3 +486,41 @@ lần triển khai lại. **Chưa deploy** (chưa có gì để deploy làm đ�
 
 **Việc kế tiếp:** vẫn là câu hỏi cho support ở P3c — hạn mức lưu trữ của gói — rồi viết đúng một
 lớp adapter (A hoặc B) và deploy cùng nó.
+
+
+## P3e — Kho hiện vật trong Postgres (2026-08-31) ✅ **XONG — chưa deploy**
+
+Mảnh cuối khiến trang "đã canh chữ xong" mà bấm vào thì 404. P3c dò ra nền tảng không có volume
+bền; P3d gỡ `abs_path()`; P3e **viết lớp kho** đặt hiện vật vào bảng `artifact_blob`.
+
+**Chốt A (Postgres), không phải B.** Chủ dự án cung cấp con số P3c còn thiếu: **hạn mức 20 GB**.
+Đang dùng 1,26 GB ⇒ còn ~18,7 GB ≈ **~1.400 trang**. Pilot 20 trang cần ~786 MB (đã tính hệ số
+×3). B (S3/Supabase) đổi lấy nhà cung cấp mới + bộ khoá mới + chi phí chưa đo, để giải một bài
+toán dung lượng **không tồn tại** ở quy mô này.
+
+Nói thẳng: nhét ảnh vào CSDL bình thường là ý tồi — ở đây nó là lựa chọn *khả thi duy nhất còn
+lại*. Nhờ P3d, đổi sang B về sau chỉ là viết thêm một lớp. **Ngưỡng nên xét đổi: quá ~10 GB hiện
+vật, hoặc khi cần CDN.**
+
+Bốn quyết định nhỏ, mỗi cái chữa một lỗi cụ thể: `SET STORAGE EXTERNAL` (PNG/ZIP đã nén, đừng nén
+lại) · `size_bytes` tách khỏi `data` (`stat()` chạy ở mọi lượt phục vụ HTTP để dựng ETag) · index
+`text_pattern_ops` (LIKE tiền tố không dùng được index dưới collation mặc định) · thoát `_`/`%`
+khi dựng mẫu LIKE (tên thật **có** `_`: `…_clean.png`, quên thoát là xoá nhầm project khác).
+
+Tầng HTTP async gọi kho đồng bộ qua `run_in_threadpool` — gọi thẳng sẽ chặn event loop.
+
+Test: **823 passed** (nền 801). Hai thứ đáng kể:
+- Fixture `kho` **parametrize 2 backend** ⇒ 19 test hợp đồng chạy hai lượt. Không làm vậy thì
+  "thay backend được" mãi mãi chỉ là lời hứa.
+- `test_storage_durability_integration.py` mô phỏng redeploy bằng cách **xoá sạch hệ tệp**, theo
+  **cặp**: `postgres` sống sót (200, đúng byte) / `local` mất (404 trong khi DB vẫn khai có ảnh).
+  Cái thứ hai khẳng định *điều sai đang xảy ra trên host*; ngày nào nó đỏ là nền tảng đã có volume.
+
+⚠️ **CHƯA DEPLOY.** Deploy cần đúng 3 bước: push (xong) → đặt `STORAGE_BACKEND=postgres` trên
+`translation-api` → redeploy (migration `0010_p3e` tự chạy lúc khởi động, hỏng là dừng hẳn).
+Rollback = đặt lại `local` + redeploy, không mất gì.
+
+**Còn một quyết định phải hỏi chủ dự án:** hàng dữ liệu cũ vẫn trỏ tới hiện vật đã mất. P3e làm
+hiện vật **từ nay** bền, **không** hồi sinh được ảnh đã mất. Ba lựa chọn: để nguyên / dọn cho
+`clean_image_path=NULL` + lùi status (§B2 `reconcile_legacy` của P3b) / xoá chapter cũ nạp lại từ
+ảnh gốc. Đây là quyết định về **dữ liệu**, không phải kỹ thuật.

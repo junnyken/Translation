@@ -37,6 +37,8 @@ from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 from typing import BinaryIO, NamedTuple, Protocol
 
+from sqlalchemy import delete as sa_delete, func, select
+
 from app.core.config import Settings, get_settings
 
 # Magic bytes để xác nhận file thật sự là ảnh (không tin content-type client gửi).
@@ -57,8 +59,15 @@ class UnsafeObjectPath(ValueError):
 class ObjectStat(NamedTuple):
     """Siêu dữ liệu tối thiểu mà MỌI backend đều cấp được.
 
-    `mtime` là epoch giây. Backend không có mtime thật (kho đối tượng) thì dùng thời điểm ghi
-    bản hiện hành — điều kho vân tay E14 cần chỉ là "đổi khi nội dung đổi".
+    `mtime` là **mốc phiên bản**, không phải một mốc thời gian để hiển thị: hai người dùng duy
+    nhất của nó (vân tay E14 và ETag HTTP) chỉ hỏi "có khác lần trước không". Độ phân giải tuỳ
+    backend — `local` dùng giây (đó là thứ `stat()` của hệ tệp cho), `postgres` dùng micro giây
+    (chính xác hơn, và rẻ như nhau).
+
+    Vì sao độ phân giải đáng bận tâm: vân tay là `(size, mtime)`. Ghi đè trong CÙNG một giây mà
+    kích thước không đổi ⇒ vân tay không đổi ⇒ E14 dùng lại hình bong bóng cũ cho một ảnh clean
+    đã khác. Với `local` đây là rủi ro có thật nhưng nhỏ (LaMa chạy lâu hơn 1 giây); với
+    `postgres` thì micro giây loại hẳn nó.
     """
 
     size: int
@@ -274,6 +283,171 @@ class LocalObjectStorage:
         return da_xoa
 
 
+class ArtifactTooLarge(ValueError):
+    """Hiện vật vượt trần cấu hình — chặn ở đường GHI, không để phát hiện lúc đọc."""
+
+
+def _mau_like_tien_to(prefix: str) -> str:
+    """Đổi tiền tố thư mục thành mẫu LIKE, thoát ký tự đặc biệt của LIKE.
+
+    Phải thoát `%` và `_`: `_` là ký tự đại diện MỘT ký tự bất kỳ, mà tên hiện vật của hệ thống
+    này có `_` thật (`<page_id>_clean.png`).
+    """
+    an = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"{an}/%"
+
+
+class PostgresObjectStorage:
+    """Hiện vật nằm trong bảng `artifact_blob` của chính CSDL ứng dụng.
+
+    Lý do tồn tại: P3c chứng minh VibeHost không cấp được volume bền, nên hệ tệp container không
+    giữ được gì qua một lượt triển khai lại. CSDL là nguyên thể bền duy nhất nền tảng cấp.
+
+    **Luôn dùng session ĐỒNG BỘ.** Worker Celery vốn đồng bộ; còn tầng HTTP async thì gọi lớp
+    này qua `run_in_threadpool` (xem `routes.py`) thay vì để lớp kho phải có hai bản sync/async.
+    Một lớp, một đường đọc — ít chỗ sai hơn hẳn.
+    """
+
+    def __init__(self, session_factory=None, max_bytes: int = 0) -> None:
+        if session_factory is None:
+            from app.core.db_sync import sync_session as session_factory  # noqa: PLC0415
+        self._phien = session_factory
+        self.max_bytes = max_bytes
+
+    # ---------- ghi ----------
+    def save(self, path: str, data: bytes) -> str:
+        sach = chuan_hoa_path(path)
+        if self.max_bytes and len(data) > self.max_bytes:
+            raise ArtifactTooLarge(
+                f"Hiện vật {sach!r} nặng {len(data) / 1e6:.1f} MB, vượt trần "
+                f"{self.max_bytes / 1e6:.0f} MB (STORAGE_PG_MAX_ARTIFACT_MB)"
+            )
+        from sqlalchemy.dialects.postgresql import insert  # noqa: PLC0415
+
+        from app.models import ArtifactBlob  # noqa: PLC0415
+
+        with self._phien() as s:
+            # Upsert: ghi đè là chuyện thường (chạy lại xoá chữ, vẽ lại ảnh xem thử) và phải
+            # NGUYÊN TỬ — một câu lệnh, không "xoá rồi chèn" để lộ khoảng trống ở giữa.
+            lenh = insert(ArtifactBlob).values(
+                path=sach, data=data, size_bytes=len(data)
+            )
+            s.execute(
+                lenh.on_conflict_do_update(
+                    index_elements=[ArtifactBlob.path],
+                    set_={
+                        "data": lenh.excluded.data,
+                        "size_bytes": lenh.excluded.size_bytes,
+                        "updated_at": func.now(),
+                    },
+                )
+            )
+            s.commit()
+        return sach
+
+    def save_file(self, path: str, source: Path) -> str:
+        return self.save(path, Path(source).read_bytes())
+
+    def save_page_image(self, project_id: uuid.UUID, page_id: uuid.UUID, data: bytes, ext: str) -> str:
+        return self.save(f"projects/{project_id}/pages/{page_id}{ext}", data)
+
+    # ---------- đọc ----------
+    def read(self, path: str) -> bytes:
+        sach = chuan_hoa_path(path)
+        from app.models import ArtifactBlob  # noqa: PLC0415
+
+        with self._phien() as s:
+            data = s.scalar(select(ArtifactBlob.data).where(ArtifactBlob.path == sach))
+        if data is None:
+            raise FileNotFoundError(f"Không có hiện vật {sach!r} trong kho")
+        return bytes(data)
+
+    def open_read(self, path: str) -> BinaryIO:
+        """Nạp cả hiện vật vào RAM rồi trả `BytesIO`.
+
+        Có chủ đích, không phải cẩu thả. PIL (`Image.open`) đòi luồng **tua được** — đọc theo
+        khối lười thì phải tự hiện thực `seek`, và với hiện vật vài MB thì công đó không đáng.
+        Cái giá đã biết và đã ghi vào báo cáo: mỗi lượt phục vụ giữ trong RAM đúng một hiện vật.
+        Trần `STORAGE_PG_MAX_ARTIFACT_MB` là thứ giữ cho con số đó không trôi.
+        """
+        import io  # noqa: PLC0415
+
+        return io.BytesIO(self.read(path))
+
+    def exists(self, path: str) -> bool:
+        try:
+            sach = chuan_hoa_path(path)
+        except UnsafeObjectPath:
+            return False
+        from app.models import ArtifactBlob  # noqa: PLC0415
+
+        with self._phien() as s:
+            return s.scalar(select(1).where(ArtifactBlob.path == sach)) is not None
+
+    def stat(self, path: str) -> ObjectStat | None:
+        try:
+            sach = chuan_hoa_path(path)
+        except UnsafeObjectPath:
+            return None
+        from app.models import ArtifactBlob  # noqa: PLC0415
+
+        with self._phien() as s:
+            # KHÔNG chọn cột `data`: hỏi kích thước mà kéo cả 3MB lên là tự bắn vào chân.
+            hang = s.execute(
+                select(ArtifactBlob.size_bytes, ArtifactBlob.updated_at).where(
+                    ArtifactBlob.path == sach
+                )
+            ).first()
+        if hang is None:
+            return None
+        return ObjectStat(size=int(hang[0]), mtime=int(hang[1].timestamp() * 1_000_000))
+
+    def fetch_to(self, path: str, dest: Path) -> Path:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(self.read(path))
+        return dest
+
+    # ---------- xoá / liệt kê ----------
+    def delete(self, path: str) -> bool:
+        try:
+            sach = chuan_hoa_path(path)
+        except UnsafeObjectPath:
+            return False
+        from app.models import ArtifactBlob  # noqa: PLC0415
+
+        with self._phien() as s:
+            n = s.execute(sa_delete(ArtifactBlob).where(ArtifactBlob.path == sach)).rowcount
+            s.commit()
+        return bool(n)
+
+    def list_prefix(self, prefix: str) -> list[str]:
+        try:
+            sach = chuan_hoa_path(prefix)
+        except UnsafeObjectPath:
+            return []
+        from app.models import ArtifactBlob  # noqa: PLC0415
+
+        with self._phien() as s:
+            return sorted(
+                s.scalars(
+                    select(ArtifactBlob.path).where(
+                        ArtifactBlob.path.like(_mau_like_tien_to(sach), escape="\\")
+                    )
+                )
+            )
+
+    def delete_prefix(self, prefix: str) -> list[str]:
+        da_xoa = self.list_prefix(prefix)
+        if not da_xoa:
+            return []
+        from app.models import ArtifactBlob  # noqa: PLC0415
+
+        with self._phien() as s:
+            s.execute(sa_delete(ArtifactBlob).where(ArtifactBlob.path.in_(da_xoa)))
+            s.commit()
+        return da_xoa
+
+
 class SupabaseStorageNotConfigured(RuntimeError):
     pass
 
@@ -282,6 +456,10 @@ def build_storage(settings: Settings | None = None) -> IObjectStorage:
     settings = settings or get_settings()
     if settings.storage_backend == "local":
         return LocalObjectStorage(settings.storage_local_root)
+    if settings.storage_backend == "postgres":
+        return PostgresObjectStorage(
+            max_bytes=settings.storage_pg_max_artifact_mb * 1024 * 1024
+        )
     raise SupabaseStorageNotConfigured(
         "STORAGE_BACKEND=supabase: adapter Supabase Storage chưa được implement ở M1 "
         "(xem docs/ARCH.md § Storage). Dùng STORAGE_BACKEND=local hoặc bổ sung adapter trước."

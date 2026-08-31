@@ -38,7 +38,7 @@ Quy tắc kiến trúc **giữ nguyên xuyên suốt Phase** (M1 chốt, M2–M1
 | Migration | Alembic (driver sync `psycopg`) | Đã test 2 chiều `upgrade head` / `downgrade base` |
 | DB | Postgres 16 (local) hoặc Supabase managed | Đổi bằng `DATABASE_URL`, không sửa code |
 | Queue | Redis + Celery | M1 chỉ ghi record `Job`; task Celery thật bắt đầu ở M2 |
-| Storage | Volume local (`LocalObjectStorage`) sau `IObjectStorage` | **P3d**: bỏ `abs_path()` khỏi hợp đồng đọc/ghi ⇒ đổi sang Postgres/S3 chỉ là viết một lớp mới. Adapter Supabase vẫn **chưa implement** — xem §6 |
+| Storage | `IObjectStorage`: `local` (thư mục) hoặc **`postgres`** (bảng `artifact_blob`) | **P3e**: chạy thật phải là `postgres` — VibeHost không cấp volume bền (P3c) nên `local` KHÔNG giữ được gì qua redeploy. Adapter Supabase vẫn chưa implement |
 | Detector (M2) | comic-text-detector qua ONNX Runtime (CPU) | Chỉ chạy trong worker; tiến trình API không nạp model |
 | OCR (M3) | manga-ocr (`ja`) · PaddleOCR (`zh`/`en`) | Cùng worker; **image worker tách khỏi image api** (multi-stage) |
 | Inpaint (M4) | LaMa bản finetune manga, qua ONNX Runtime (CPU) | Cùng worker; sinh ảnh clean thành **file mới**, không đụng ảnh gốc |
@@ -605,6 +605,33 @@ Hệ quả kèm theo (không phải mục tiêu, nhưng có thật):
 làm việc đó trong thư mục tạm; path tương đối lưu vào CSDL vẫn là
 `projects/<pid>/pages/<page_id>_clean.png` ⇒ **không cần migrate dữ liệu cũ**.
 
+## 8c. Kho hiện vật trong Postgres (P3e)
+
+`artifact_blob (path TEXT PK, data BYTEA, size_bytes BIGINT, created_at, updated_at)`.
+
+`path` **giữ nguyên chuỗi** của backend `local` ⇒ `page.clean_image_path` và
+`export_job.output_path` không phải migrate khi đổi backend.
+
+Bốn quyết định nhỏ, mỗi cái chữa một lỗi cụ thể:
+
+| | Vì sao |
+|---|---|
+| `SET STORAGE EXTERNAL` trên `data` | PNG/ZIP đã nén sẵn; để mặc định thì Postgres nén lại lần nữa — tốn CPU, không giảm byte |
+| `size_bytes` tách khỏi `data` | `stat()` bị gọi ở **mọi** lượt phục vụ HTTP (dựng ETag); không tách thì mỗi lượt kéo cả 3 MB lên chỉ để đếm |
+| Index `text_pattern_ops` | `LIKE 'tiền tố/%'` không dùng được index dưới collation mặc định |
+| Thoát `_`/`%` khi dựng mẫu LIKE | `_` là ký tự đại diện của LIKE, mà tên thật có `_` (`…_clean.png`) — quên thoát là `delete_prefix` xoá nhầm project khác |
+
+**Ghi đè = upsert một câu lệnh** (`ON CONFLICT DO UPDATE`). "Xoá rồi chèn" có một khoảnh khắc
+hiện vật không tồn tại — ai đang xem đúng lúc đó thì thấy 404.
+
+**Sync/async:** kho là đồng bộ (worker Celery vốn đồng bộ); tầng HTTP async gọi nó qua
+`run_in_threadpool`. Gọi thẳng sẽ chặn event loop — với `local` không ai nhận ra, với CSDL thì
+mỗi lời gọi là một lượt đi mạng nội bộ. Không viết bản async riêng: nhân đôi đường đọc là nhân
+đôi số chỗ có thể lệch nhau.
+
+**`open_read()` nạp cả hiện vật vào RAM** — có chủ đích, vì PIL đòi luồng tua được. Trần
+`STORAGE_PG_MAX_ARTIFACT_MB` (96 MB) chặn ở **đường ghi** để con số đó không trôi.
+
 ## 9. Giới hạn đã biết (cố ý để lại)
 
 - **Supabase Storage chưa có adapter.** M1 chạy `STORAGE_BACKEND=local` (đã verify thật).
@@ -612,12 +639,11 @@ làm việc đó trong thư mục tạm; path tương đối lưu vào CSDL vẫ
   Nối Supabase Storage cần credential thật → làm khi có key (ưu tiên trước M4 vì M4 sinh thêm ảnh clean).
 - ~~Chưa dispatch Celery task~~ → **đã xong ở M2**: upload page enqueue `detect.run_detect_job`.
   Nếu broker chết, job đứng ở `queued` kèm `error_log=enqueue_failed:…` (không giả vờ đã gửi).
-- **NỢ KỸ THUẬT (tracked):** chưa có adapter kho bền nào ngoài `local`. Sau P3c/P3d, chỗ trống
-  này là **một lớp duy nhất** hiện thực `IObjectStorage` (Postgres bytea hoặc S3/Supabase) — mọi
-  chỗ gọi đã sẵn sàng, không phải sờ lại. Chọn phương án nào còn chờ **hạn mức lưu trữ của gói
-  VibeHost** (`whoami` không trả trường hạn mức) — xem `REPORT_P3c_STORAGE_CAPABILITY_PROBE.md` §5.
-- **Hiện vật trên host vẫn KHÔNG bền** cho tới khi adapter đó có mặt. P3d dọn đường, không sửa
-  được điều này — nói rõ để không ai đọc nhầm.
+- ~~Chưa có adapter kho bền~~ → **đã xong ở P3e**: `PostgresObjectStorage`. Hạn mức gói là
+  **20 GB** (chủ dự án xác nhận), còn ~18,7 GB ≈ **~1.400 trang** ⇒ chọn Postgres, không cần nhà
+  cung cấp ngoài. Ngưỡng nên xét đổi sang S3/Supabase: **quá ~10 GB hiện vật**, hoặc cần CDN.
+- **Hiện vật trên host vẫn KHÔNG bền cho tới khi `STORAGE_BACKEND=postgres` được đặt và deploy.**
+  Mã đã sẵn sàng; cấu hình host thì chưa đổi. Đừng đọc "P3e xong" thành "host đã hết lỗi".
 - ~~Chưa có typeset~~ → **đã xong ở M6**.
 - **M2 chưa xử lý** ảnh xoay/nghiêng, scan chất lượng kém; auto-retry khi timeout **đã có ở M9** (chỉ cho lỗi tạm thời, có trần — §10);
   chưa có UI vẽ overlay box (thuộc M7).

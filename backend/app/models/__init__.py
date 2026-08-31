@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     DateTime,
     Enum as SAEnum,
@@ -13,6 +14,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -642,3 +644,37 @@ class RegionTextOrientation(TimestampMixin, Base):
     line_count_estimate: Mapped[int | None] = mapped_column(Integer, nullable=True)
     reason_codes: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     evidence_snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+
+
+class ArtifactBlob(Base):
+    """Hiện vật nhị phân — ảnh gốc, ảnh clean, ảnh xem thử, file xuất — lưu THẲNG trong CSDL.
+
+    P3e. Vì sao lại nhét ảnh vào CSDL, một việc bình thường là ý tồi:
+
+    P3c đã dò và chứng minh VibeHost **không cấp được volume bền** (không có trong mô hình tài
+    nguyên, không công cụ nào nhận khai báo volume, `appdata = 0` trên cả 12 dịch vụ). Hệ tệp
+    container thì bị xoá sạch mỗi lần triển khai lại. CSDL là **nguyên thể bền duy nhất** nền
+    tảng cấp — và nó đã tự chứng minh điều đó theo cách khó chịu nhất: sau mỗi lần redeploy,
+    hàng `page` còn nguyên trong khi tệp ảnh biến mất, đẻ ra trang "đã canh chữ xong" mà bấm
+    vào thì 404.
+
+    Nói cách khác: đây **không phải** lựa chọn kiến trúc đẹp, mà là lựa chọn *khả thi* duy nhất
+    còn lại. Đổi sang S3/Supabase sau này chỉ là viết thêm một lớp `IObjectStorage` — P3d đã dọn
+    xong đường cho việc đó.
+
+    `path` là khoá chính và **giữ nguyên chuỗi** mà backend `local` vẫn dùng
+    (`projects/<pid>/pages/<page_id>.png`) ⇒ đổi backend không phải migrate dữ liệu bảng khác.
+    """
+
+    __tablename__ = "artifact_blob"
+
+    path: Mapped[str] = mapped_column(Text, primary_key=True)
+    data: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    #: Lưu tách khỏi `data` để `stat()` không phải kéo cả hiện vật lên chỉ để biết nó nặng bao nhiêu.
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
