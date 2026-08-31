@@ -55,6 +55,7 @@ class CTDDetector:
         nms_iou: float = 0.45,
         input_size: int = 1024,
         intra_op_threads: int = 0,
+        cpu_mem_arena: bool = True,
     ) -> None:
         self.weights_path = weights_path
         self.device = device
@@ -66,6 +67,7 @@ class CTDDetector:
         self.nms_iou = nms_iou
         self.input_size = input_size
         self.intra_op_threads = intra_op_threads
+        self.cpu_mem_arena = cpu_mem_arena
         self._session = None
         self._lock = threading.Lock()
 
@@ -90,7 +92,13 @@ class CTDDetector:
                     opts = ort.SessionOptions()
                     if self.intra_op_threads > 0:
                         opts.intra_op_num_threads = self.intra_op_threads
-                    logger.info("Nạp CTD ONNX từ %s (device=%s)", self.weights_path, self.device)
+                    # CTD letterbox về một kích thước cố định ⇒ một shape duy nhất ⇒ arena
+                    # không phình. Khác hẳn LaMa (dynamic shape) — xem lama.py.
+                    opts.enable_cpu_mem_arena = self.cpu_mem_arena
+                    logger.info(
+                        "Nạp CTD ONNX từ %s (device=%s, arena=%s)",
+                        self.weights_path, self.device, self.cpu_mem_arena,
+                    )
                     self._session = ort.InferenceSession(
                         self.weights_path, sess_options=opts, providers=self._providers()
                     )

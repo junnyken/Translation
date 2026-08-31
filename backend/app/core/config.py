@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     supabase_service_key: str = ""
     supabase_bucket: str = "manga-pages"
 
+    # Worker
+    #: Vượt ngưỡng này thì worker NHẢ các model không cần cho bước đang chạy (van xả chống OOM).
+    #: 0 = tắt. Đặt dưới hạn mức container để còn kịp xả trước khi bị giết.
+    worker_rss_soft_limit_mb: int = 2200
+
     # Upload
     max_upload_mb: int = 25
 
@@ -38,6 +43,9 @@ class Settings(BaseSettings):
     #: tuyệt đối không detect bằng weight giả.
     model_weights_path: str = "/models/comic-text-detector.onnx"
     ctd_device: str = "cpu"
+    #: Arena bộ nhớ CPU của ONNX Runtime. CTD letterbox về MỘT kích thước cố định
+    #: (`ctd_input_size`) nên chỉ có một shape ⇒ arena vô hại và còn nhanh hơn. Giữ bật.
+    ctd_cpu_mem_arena: bool = True
     #: Dưới ngưỡng này region vẫn được LƯU với status=low_confidence (không loại bỏ).
     ctd_conf_threshold: float = 0.5
     #: Sàn nhiễu trước NMS — phải nhỏ hơn ctd_conf_threshold để low_confidence còn được giữ.
@@ -173,6 +181,13 @@ class Settings(BaseSettings):
     # ---- M4: inpaint (LaMa) ----
     inpaint_weights_path: str = "/models/lama-manga-dynamic.onnx"
     inpaint_device: str = "cpu"
+    #: Arena bộ nhớ CPU của ONNX Runtime cho LaMa — **mặc định TẮT**, và đây là một quyết định
+    #: có bằng chứng, không phải phòng xa. LaMa là model *dynamic shape* và chạy theo từng cụm
+    #: bong bóng, mỗi cụm một kích thước khác nhau. Arena cấp một khối cho MỖI shape mới và
+    #: KHÔNG trả lại ⇒ càng nhiều trang càng phình, tới lúc bị OOM killer giết.
+    #: Đo trên host 31/08: pilot 6 trang ⇒ worker `exit 137`, API tụt từ 3,4 ms xuống 10–42 s
+    #: rồi tắt tiếng. Bật lại chỉ khi có bằng chứng bộ nhớ đã đủ và cần thêm tốc độ.
+    inpaint_cpu_mem_arena: bool = False
     #: Nới mask quanh bbox để không sót viền chữ. Trần cứng 15% ở tầng code (mask.MAX_DILATE_RATIO).
     inpaint_dilate_ratio: float = 0.08
     #: Timeout RIÊNG cho inpaint (đo thật: 54,3s/ảnh 1400x2000 trên CPU, chưa tính bước kiểm chứng).

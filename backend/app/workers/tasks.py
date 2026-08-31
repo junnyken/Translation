@@ -46,6 +46,7 @@ from app.models.enums import (
 from app.services.safearea.service import van_tay_hien_vat
 from app.services.storage import get_storage, workspace
 from app.services.typeset.paths import preview_relative_path
+from app.workers.bo_nho import ep_giai_phong_neu_cang, ghi_moc
 from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -78,6 +79,7 @@ def get_detector():
             nms_iou=settings.ctd_nms_iou,
             input_size=settings.ctd_input_size,
             intra_op_threads=settings.ctd_intra_op_threads,
+            cpu_mem_arena=settings.ctd_cpu_mem_arena,
         )
     return _detector
 
@@ -164,6 +166,9 @@ def _run_detect(job_id: uuid.UUID) -> dict:
             page.status = PageStatus.detecting
         session.commit()
 
+    # Van xả chống OOM: bước này chỉ cần detector, nên nếu bộ nhớ đã căng thì nhả LaMa/OCR ra.
+    ep_giai_phong_neu_cang({"detector"}, settings.worker_rss_soft_limit_mb)
+    ghi_moc("detect: trước")
     detector = get_detector()
     with anh_cuc_bo(image_rel) as image_path:
         regions = detector.detect_regions(image_path)
@@ -345,6 +350,8 @@ def _run_ocr(job_id: uuid.UUID) -> dict:
             session.commit()
         return {"status": "failed", "job_id": str(job_id), "error": "no_region"}
 
+    ep_giai_phong_neu_cang({"ocr"}, settings.worker_rss_soft_limit_mb)
+    ghi_moc("ocr: trước")
     engine = get_ocr_engine_cached(source_lang)
     from app.services.interfaces import BBox
 
@@ -595,6 +602,7 @@ def get_inpainter():
             device=settings.inpaint_device,
             dilate_ratio=settings.inpaint_dilate_ratio,
             intra_op_threads=settings.inpaint_intra_op_threads,
+            cpu_mem_arena=settings.inpaint_cpu_mem_arena,
             whole_page_max_mpx=settings.inpaint_whole_page_max_mpx,
             tile_margin=settings.inpaint_tile_margin,
         )
@@ -726,6 +734,10 @@ def _run_inpaint(job_id: uuid.UUID) -> dict:
     if old_clean_rel:
         deleted_old = storage.delete(old_clean_rel)
 
+    # Bước nặng nhất. Giữ lại OCR vì `inpaint_verify_by_ocr` cần nó ngay sau đó — nhả rồi nạp
+    # lại trong cùng một job là tự chuốc lấy cái giá vô ích.
+    ep_giai_phong_neu_cang({"inpainter", "ocr"}, settings.worker_rss_soft_limit_mb)
+    ghi_moc("inpaint: trước")
     inpainter = get_inpainter()
     leftovers: list[str] = []
     # LaMa đọc ảnh gốc rồi tự ghi ảnh clean CẠNH nó — nên cho nó làm việc đó trong thư mục tạm,
@@ -744,6 +756,7 @@ def _run_inpaint(job_id: uuid.UUID) -> dict:
             dilated = inpainter.dilated_masks(width, height, boxes)
             leftovers = _verify_text_removed(clean_abs, dilated, source_lang)
 
+    ghi_moc("inpaint: sau")
     elapsed = time.perf_counter() - started
     target_status = PageStatus.inpaint_needs_review if leftovers else PageStatus.inpainted
 

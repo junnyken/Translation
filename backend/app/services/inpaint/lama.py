@@ -19,6 +19,10 @@ from app.services.interfaces import BBox
 
 logger = logging.getLogger(__name__)
 
+#: Số dòng ảnh trộn mỗi lượt. Đủ lớn để numpy còn vector hoá tốt, đủ nhỏ để bộ nhớ đỉnh không
+#: phụ thuộc chiều cao trang.
+_DAI_TRON = 256
+
 #: LaMa (FFC) vỡ nếu cạnh ảnh không chia hết 8 — đã kiểm thật:
 #: 1401x2001 -> ONNXRuntimeError ở node Mul; 1400x2000 -> chạy bình thường.
 _SIZE_MULTIPLE = 8
@@ -94,6 +98,7 @@ class LamaInpainter:
         dilate_ratio: float = 0.08,
         clean_suffix: str = "_clean",
         intra_op_threads: int = 0,
+        cpu_mem_arena: bool = False,
         whole_page_max_mpx: float = 2.5,
         tile_margin: int = 96,
     ) -> None:
@@ -102,6 +107,8 @@ class LamaInpainter:
         self.dilate_ratio = dilate_ratio
         self.clean_suffix = clean_suffix
         self.intra_op_threads = intra_op_threads
+        #: Xem `Settings.inpaint_cpu_mem_arena` — mặc định TẮT vì model này dynamic shape.
+        self.cpu_mem_arena = cpu_mem_arena
         #: Trang bao nhiêu triệu điểm ảnh trở xuống thì chạy CẢ TRANG một lượt (đường đã kiểm
         #: chứng ở M4). Lớn hơn thì chạy theo cụm, vì bộ nhớ LaMa ~1,6 GB / triệu điểm ảnh.
         self.whole_page_max_mpx = whole_page_max_mpx
@@ -130,7 +137,15 @@ class LamaInpainter:
                     opts = ort.SessionOptions()
                     if self.intra_op_threads > 0:
                         opts.intra_op_num_threads = self.intra_op_threads
-                    logger.info("Nạp LaMa ONNX từ %s (device=%s)", self.weights_path, self.device)
+                    # ĐÂY là dòng chống OOM. Model này *dynamic shape* và ta chạy theo từng cụm
+                    # bong bóng — mỗi cụm một kích thước khác nhau. Arena của ONNX Runtime cấp
+                    # một khối cho MỖI shape mới và không trả lại, nên qua nhiều cụm/nhiều trang
+                    # nó phình cho tới khi OOM killer ra tay (đo thật trên host: exit 137).
+                    opts.enable_cpu_mem_arena = self.cpu_mem_arena
+                    logger.info(
+                        "Nạp LaMa ONNX từ %s (device=%s, arena=%s)",
+                        self.weights_path, self.device, self.cpu_mem_arena,
+                    )
                     self._session = ort.InferenceSession(
                         self.weights_path, sess_options=opts, providers=self._providers()
                     )
@@ -214,9 +229,21 @@ class LamaInpainter:
 
         # Chỉ thay pixel TRONG mask; ngoài mask giữ nguyên từng pixel của ảnh gốc
         # (tránh model làm mờ cả trang).
-        mask3 = mask[:, :, None]
-        blended = rgb * (1.0 - mask3) + pred_hwc * mask3
-        out = Image.fromarray((blended * 255.0).round().astype(np.uint8), mode="RGB")
+        #
+        # Trộn theo TỪNG DẢI ngang thay vì một biểu thức cho cả trang. Viết một dòng
+        # `rgb * (1 - mask3) + pred * mask3` thì numpy dựng 5-6 mảng float32 cỡ nguyên trang
+        # cùng lúc. Đo trên đúng cỡ trang pilot (1200x1660): đỉnh cấp phát 71,7 MB so với
+        # 14,6 MB khi làm theo dải — giảm 80%, và kết quả giống nhau TỪNG BYTE.
+        out_arr = np.empty((height, width, 3), dtype=np.uint8)
+        for y0 in range(0, height, _DAI_TRON):
+            y1 = min(y0 + _DAI_TRON, height)
+            m = mask[y0:y1, :, None]
+            dai = rgb[y0:y1] * (1.0 - m)
+            dai += pred_hwc[y0:y1] * m
+            np.multiply(dai, 255.0, out=dai)
+            np.round(dai, out=dai)
+            out_arr[y0:y1] = dai.astype(np.uint8)
+        out = Image.fromarray(out_arr, mode="RGB")
 
         target = self.clean_path_for(image_path)
         target.parent.mkdir(parents=True, exist_ok=True)

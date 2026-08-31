@@ -55,6 +55,8 @@ async def healthz() -> dict:
     import json
     from pathlib import Path as _Path
 
+    from app.workers.bo_nho import rss_mb
+
     ket_qua: dict = {"status": "ok"}
     duong_dan = _Path(os.environ.get("WORKER_STATE_FILE", "/tmp/trang-thai-worker.json"))
     try:
@@ -62,6 +64,10 @@ async def healthz() -> dict:
     except Exception:
         # Chạy ở máy nhà thì worker là container riêng, không có file này — không phải lỗi.
         ket_qua["worker"] = {"trang_thai": "khong_ro"}
+    # RSS của tiến trình API. Trước P3h endpoint này không có MỘT chỉ số bộ nhớ nào, nên lần
+    # worker bị OOM killer giết (exit 137) không ai thấy gì tới lúc nó chết. `null` nghĩa là
+    # không đo được — khác với 0, và không được gộp hai thứ đó làm một.
+    ket_qua["rss_mb"] = rss_mb()
     return ket_qua
 
 
