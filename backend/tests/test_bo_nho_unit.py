@@ -161,3 +161,32 @@ class TestTronTheoDai:
         assert dinh_moi_cao < dinh_moi_thap * 1.5, (
             f"đỉnh vẫn leo theo chiều cao trang ({dinh_moi_thap:.1f} -> {dinh_moi_cao:.1f} MB)"
         )
+
+
+class TestNguongDoDuoc:
+    """Ngưỡng van xả phải nhỏ hơn mức RSS ĐÃ ĐO lúc worker chết, nếu không van vô dụng."""
+
+    #: Số đo thật từ log host 2026-09-03, ngay trước khi worker bị SIGKILL.
+    RSS_LUC_CHET_MB = 1914.6
+    #: LaMa chiếm thêm chừng này khi nạp (đo: 104,5 -> 1214,8 MB trên worker sạch).
+    LAMA_MB = 1110.0
+
+    def test_nguong_mac_dinh_mo_van_truoc_khi_nap_LaMa(self):
+        from app.core.config import Settings
+
+        nguong = Settings().worker_rss_soft_limit_mb
+        assert 0 < nguong < self.RSS_LUC_CHET_MB, (
+            f"ngưỡng {nguong} MB không nhỏ hơn {self.RSS_LUC_CHET_MB} MB đã đo lúc chết "
+            "⇒ van xả sẽ không mở đúng lúc nó sinh ra để cứu"
+        )
+
+    def test_sau_khi_xa_thi_con_du_cho_cho_LaMa(self):
+        """Kể cả ở sát ngưỡng, nạp thêm LaMa vẫn phải nằm dưới trần container 4096 MB."""
+        from app.core.config import Settings
+
+        nguong = Settings().worker_rss_soft_limit_mb
+        dinh_du_kien = nguong + self.LAMA_MB
+        assert dinh_du_kien < 4096 * 0.8, (
+            f"ở sát ngưỡng {nguong} MB mà nạp LaMa (+{self.LAMA_MB} MB) thì đỉnh "
+            f"{dinh_du_kien:.0f} MB — quá sát trần 4096 MB, không còn biên cho API và phân mảnh"
+        )

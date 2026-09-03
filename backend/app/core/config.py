@@ -32,8 +32,21 @@ class Settings(BaseSettings):
 
     # Worker
     #: Vượt ngưỡng này thì worker NHẢ các model không cần cho bước đang chạy (van xả chống OOM).
-    #: 0 = tắt. Đặt dưới hạn mức container để còn kịp xả trước khi bị giết.
-    worker_rss_soft_limit_mb: int = 2200
+    #: 0 = tắt.
+    #:
+    #: Con số này ĐO ĐƯỢC, không phải chọn cho tròn. Pilot 6 trang trên host 03/09 ghi lại:
+    #:
+    #:     ocr: trước      RSS 1914,7 MB     (detector + PaddleOCR cùng thường trú)
+    #:     inpaint: trước  RSS 1914,6 MB
+    #:     [worker] BỊ GIẾT (SIGKILL/137)    <- nạp LaMa ~1,2 GB đè lên 1,9 GB
+    #:
+    #: Suy ra: detector ~1,1 GB · PaddleOCR ~0,7 GB · LaMa ~1,2 GB.
+    #:
+    #: Ngưỡng CŨ là 2200 — cao hơn 1914 nên van KHÔNG mở, và worker chết đúng ở chỗ nó sinh ra
+    #: để cứu. Bài học: ngưỡng phải tính theo **model sắp nạp**, không phải theo trần container.
+    #: 1500 mở đúng lúc RSS 1914 (nhả detector, còn ~0,8 GB, cộng LaMa ~2,0 GB — an toàn) mà
+    #: không mở oan lúc chỉ có detector (1203 MB + LaMa vẫn vừa).
+    worker_rss_soft_limit_mb: int = 1500
 
     # Upload
     max_upload_mb: int = 25
