@@ -2897,3 +2897,41 @@ kiểm việc **không đụng vào cái không được đụng**:
 Còn lại: lý do phải **đọc được** (kiểm có cả `"hết bộ nhớ"` lẫn `"KHÔNG mất"` — một mã lỗi trần
 trụi thoả mãn người viết log, không thoả mãn người đang bị kẹt), trang kẹt `detecting` được lùi về
 `queued`, idempotent, endpoint `404` đúng và sắp mới-nhất-trước.
+
+# ========== P3k + P3l — ba việc tồn đọng sau pilot (2026-09-03) ==========
+
+```
+backend : 937 passed, 6 skipped   (nền: 927)
+frontend: 250 passed              (nền: 245)
+```
+
+## Cấu hình broker (`test_broker_config_unit.py`, 4 test)
+
+Khoá ràng buộc giữa **hai tệp không ai nhắc ai**: `visibility_timeout` (celery_app) và trần thời
+lượng task (config + tasks.py). Nâng một trần task vượt `visibility_timeout` ⇒ Redis giao lại
+task **trong khi nó vẫn chạy** ⇒ chạy trùng trên cùng một trang.
+
+- phải đặt **tường minh** (sống nhờ mặc định thư viện là con số không ai chọn, không ai kiểm)
+- phải **lớn hơn** trần cứng lớn nhất (930s)
+- phải còn **biên ≥50%** — hết trần mềm rồi còn phải dọn dẹp, ghi CSDL, nhả model
+- `acks_late` phải còn bật, nếu không thì mất luôn việc giao lại
+
+## Giao diện "Vì sao?" (`lydodung.test.jsx`, 5 test)
+
+| Test | Khẳng định |
+|---|---|
+| KHÔNG hỏi máy chủ cho tới khi bấm | không thêm gánh vào vòng poll 5 giây |
+| bấm rồi nói rõ BƯỚC NÀO + LÝ DO | không chỉ "có gì đó hỏng" |
+| không có job hỏng ⇒ nói thẳng "đang chờ tới lượt" | im lặng cũng là một câu trả lời tồi |
+| hỏi máy chủ hỏng ⇒ nói ra | **không** giả vờ là "không có gì hỏng" |
+| bấm nhiều lần chỉ hỏi một lần | |
+
+## E17 (`test_e17_ungvien_unit.py`, +6 test)
+
+Dương tính giả: `"of"` sau "King" từng thành `character_name`. Test dùng **`"amongst"`** — một từ
+chưa từng có trong danh sách chặn — để chứng minh luật bắt theo **cấu trúc** (chữ thường) chứ
+không theo danh sách từ. Kèm test giữ dương tính thật (`Sir Pepper` vẫn ra `Pepper`).
+
+`TestCoTinhKHONGBatTenODauCau` ghim một đánh đổi **có chủ ý** theo hai chiều: `Cayenne` (tên thật,
+một lần, đầu câu) không lọt vào — nhưng `Wonderful`/`Terrible` cũng không. Nới một chiều là hỏng
+chiều kia.

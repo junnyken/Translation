@@ -191,3 +191,61 @@ class TestCongDoiChieuTang3:
     def test_phan_hoi_rac_khong_lam_no(self, rac):
         goi_y, loai = phan_tich_va_doi_chieu(rac, ["Pepper"])
         assert goi_y == [] and loai == 0
+
+
+class TestSauDanhXungKhongNhanBua:
+    """P3l — luật "sau danh xưng ⇒ tên nhân vật" từng nhận BẤT KỲ từ nào theo sau.
+
+    Kiểm chứng live E17 trên host 2026-09-03 cho ra ứng viên `"of"` gắn nhãn `character_name`,
+    lý do *"đứng sau danh xưng king"* — luật bắn vào "King **of** Chaosah".
+    """
+
+    def _ten(self, kho):
+        """Khoá của kho là term_key viết thường — cái cần kiểm là `source_term` nguyên văn."""
+        return {v.term for v in kho.values()}
+
+    def test_gioi_tu_sau_danh_xung_KHONG_thanh_ten_nhan_vat(self):
+        kq = _rut(_rut_en, _dong("The King of Chaosah is angry. The King of Chaosah waits."), False)
+        assert "of" not in self._ten(kq), "giới từ sau danh xưng bị nhận làm tên nhân vật"
+
+    def test_van_bat_dung_ten_that_sau_danh_xung(self):
+        """Sửa dương tính giả mà làm mất luôn dương tính thật thì còn tệ hơn."""
+        kq = _rut(_rut_en, _dong("Sir Pepper arrived. Sir Pepper left again."), False)
+        ten = self._ten(kq)
+        assert "Pepper" in ten
+        muc = kq["pepper"]
+        assert muc.type_guess is TermType.character_name
+        assert any("danh xưng" in r for r in muc.reasons)
+
+    def test_chan_theo_CAU_TRUC_chu_khong_theo_danh_sach_tu(self):
+        """Một giới từ chưa từng có trong `_CHAN_EN` vẫn phải bị loại, nhờ luật viết-thường.
+
+        Nếu chỉ vá bằng danh sách từ thì "amongst" sẽ lọt — và lần sau là một từ khác nữa.
+        """
+        kq = _rut(_rut_en, _dong("The King amongst them ruled. The King amongst them ruled."), False)
+        assert "amongst" not in self._ten(kq)
+
+    def test_toan_hoa_thi_dua_vao_tu_pho_thong_chu_khong_dua_vao_viet_hoa(self):
+        """Cả đoạn viết hoa thì tín hiệu viết hoa chết; không được vì thế mà nhận bừa."""
+        kq = _rut(_rut_en, _dong("THE KING OF CHAOSAH IS ANGRY. THE KING OF CHAOSAH WAITS."), True)
+        assert "OF" not in self._ten(kq)
+
+
+class TestCoTinhKHONGBatTenODauCau:
+    """Ghim một đánh đổi CÓ CHỦ Ý, để lần sau không ai "sửa" nó thành máy đẻ dương tính giả.
+
+    Kiểm chứng live cũng cho thấy `Cayenne` (tên nhân vật, xuất hiện đúng một lần, ở ĐẦU câu)
+    không được liệt kê. Đó **không phải lỗi**: một từ viết hoa ở đầu câu viết hoa vì ngữ pháp, nên
+    tự nó không phải bằng chứng. Nới luật này ra sẽ biến mọi câu mở đầu thành ứng viên.
+
+    Cái giá đã biết và chấp nhận: tên chỉ xuất hiện một lần và luôn ở đầu câu thì bị bỏ sót.
+    """
+
+    def test_tu_dau_cau_xuat_hien_MOT_lan_thi_khong_thanh_ung_vien(self):
+        kq = _rut(_rut_en, _dong("Cayenne is right. Everyone agreed with that."), False)
+        assert "Cayenne" not in {v.term for v in kq.values()}
+
+    def test_nhung_cau_mo_dau_binh_thuong_cung_khong_lot_vao(self):
+        """Mặt kia của cùng đánh đổi — đây mới là thứ luật này bảo vệ."""
+        kq = _rut(_rut_en, _dong("Wonderful day. Terrible night. Wonderful day again."), False)
+        assert not {"Wonderful", "Terrible"} & {v.term for v in kq.values()}

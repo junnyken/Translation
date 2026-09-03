@@ -183,10 +183,34 @@ _CHAN_JA = {
 _TITLE_EN = ("sir", "lord", "lady", "master", "mr", "mrs", "ms", "miss", "dr", "captain",
              "king", "queen", "prince", "princess", "father", "mother", "uncle", "aunt")
 _TU_EN = re.compile(r"[A-Za-z][A-Za-z'\-]*")
+
+
+def _theo_sau_danh_xung_hop_le(w: str, toan_hoa: bool) -> bool:
+    """Từ đứng sau một danh xưng có đủ tư cách làm TÊN không.
+
+    Luật "sau danh xưng ⇒ tên nhân vật" là bằng chứng mạnh, nhưng bản đầu nhận **bất kỳ** từ nào
+    theo sau. Kiểm chứng live E17 trên host 03/09 cho ra ứng viên `"of"` được gắn nhãn
+    `character_name` với lý do *"đứng sau danh xưng king"* — luật bắn vào "King **of** Chaosah".
+
+    Sửa bằng thuộc tính CẤU TRÚC của một cái tên, không phải bằng cách nhét "of" vào danh sách
+    chặn: vá theo từng từ là trò đuổi bắt không hồi kết, và lần sau sẽ là "the", "and", "my"…
+
+      - Chữ thường ⇒ không phải tên riêng. Đây là tín hiệu mạnh nhất và bắt trọn cả lớp giới từ.
+      - Trừ khi cả đoạn viết hoa hết (`toan_hoa`) — lúc đó viết hoa không chứng minh được gì nữa,
+        nên chỉ còn dựa vào "không phải từ phổ thông", đúng như nhánh `toan_hoa` ở dưới vẫn làm.
+    """
+    if w.lower() in _CHAN_EN:
+        return False
+    if toan_hoa:
+        return len(w) >= 3
+    return w[0].isupper()
 _CAU_EN = re.compile(r"[.!?…]+\s*")
 
 #: Từ tiếng Anh phổ thông — dùng ở nhánh TOÀN CHỮ HOA, khi tín hiệu viết hoa đã chết.
 _CHAN_EN = {
+    # Giới từ/liên từ hay đứng ngay sau một danh xưng ("King of…", "Lady and…"). Chúng bị chặn
+    # thêm một lớp nữa ở `_theo_sau_danh_xung_hop_le`; để đây cho cả các nhánh luật khác.
+    "of", "in", "on", "at", "to", "by", "as", "or", "if", "an", "a", "is", "be", "do", "my",
     "the", "and", "you", "your", "yours", "that", "this", "these", "those", "with", "from",
     "have", "has", "had", "will", "would", "could", "should", "what", "when", "where", "why",
     "how", "who", "whom", "not", "but", "for", "are", "was", "were", "been", "being", "its",
@@ -285,7 +309,7 @@ def _rut_en(dong: list[DongChu], kho: dict[str, UngVien], toan_hoa: bool) -> Non
             w = m.group(0)
             truoc = tu[i - 1].group(0).lower().rstrip(".") if i > 0 else ""
 
-            if truoc in _TITLE_EN:
+            if truoc in _TITLE_EN and _theo_sau_danh_xung_hop_le(w, toan_hoa):
                 _them(kho, w, "en", d, f"đứng sau danh xưng {truoc}",
                       TermType.character_name, m.span())
                 continue

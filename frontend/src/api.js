@@ -301,3 +301,25 @@ export const tomTatHuongChu = (pageId) =>
 
 export const chayLaiHuongChu = (pageId) =>
   fetch(`${BASE}/pages/${pageId}/retry-orientation`, { method: 'POST' }).then(doc)
+
+// ---------- P3j: vì sao trang này đứng im ----------
+
+/** Lịch sử job của một trang, mới nhất trước.
+ *
+ * Gọi KHI NGƯỜI DÙNG HỎI, không đưa vào vòng poll: màn chapter đã hỏi lại 7 endpoint mỗi 5 giây,
+ * thêm một lượt cho mỗi trang nữa là nhân số request lên theo số trang để phục vụ một câu hỏi mà
+ * phần lớn thời gian không ai đặt.
+ */
+export function layJobCuaTrang(pageId) {
+  return fetch(`${BASE}/pages/${pageId}/jobs`).then(doc)
+}
+
+/** Job hỏng gần nhất của một trang, hoặc `null` nếu không có.
+ *
+ * Trả về nguyên bản ghi chứ không chỉ chuỗi lý do — bên gọi còn cần `type` để nói cho người dùng
+ * biết BƯỚC NÀO hỏng, không chỉ "có gì đó hỏng".
+ */
+export async function layLyDoDung(pageId) {
+  const js = await layJobCuaTrang(pageId)
+  return js.find((j) => j.status === 'failed') ?? null
+}

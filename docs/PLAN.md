@@ -793,3 +793,52 @@ Nhưng lộ **hai khiếm khuyết** (chưa sửa, ghi vào tồn đọng):
   king"* — luật "chữ sau danh xưng = tên nhân vật" bắn nhầm vào "King **of** …"
 - **Bỏ sót**: `Cayenne` là tên nhân vật có thật trong chữ gốc (*"Cayenne is right…"*) nhưng không
   được liệt kê
+
+
+## P3k + P3l — Ba việc tồn đọng sau pilot (2026-09-03) ✅ **XONG**
+
+### 1. `visibility_timeout` — đặt tường minh, khoá bằng test
+
+**Đo trước, đặt sau.** Tải đúng một trang khi hàng đợi trống để `created_at → updated_at` là thời
+lượng chạy thật, không lẫn thời gian xếp hàng:
+
+```
+detect 49,8s · ocr 38,1s · inpaint 11,4s · translate 1,4s · typeset 1,3s
+```
+
+Nhưng một phép đo không làm được cơ sở — trang lớn hơn sẽ lâu hơn. Căn cứ đúng là **trần cứng hệ
+thống tự đặt cho từng task**: lớn nhất **930s** (translate/export = 900+30).
+
+⇒ Kết luận **khác dự đoán ban đầu**: mặc định Redis 3600s **đã an toàn** (3600 > 930), chỉ chậm.
+Hạ xuống dưới 930s sẽ khiến broker giao lại **trong khi task vẫn chạy** ⇒ chạy trùng. Và với
+`--pool=solo`, task kẹt trong mã native ONNX thì `soft_time_limit` cũng không cắt được — **hai
+lượt inpaint cùng lúc chính là thứ đã gây OOM**.
+
+Giá trị thật không nằm ở việc hạ số, mà ở chỗ **đặt tường minh** (1800s) và **khoá ràng buộc bằng
+test**: `test_visibility_timeout_phai_lon_hon_tran_task` sẽ chặn ngay nếu ai đó nâng một timeout
+task vượt qua nó. Hai tham số này nằm ở hai tệp khác nhau và không ai nhắc ai.
+
+### 2. Giao diện nói được "vì sao trang này đứng im"
+
+Nút **"Vì sao?"** cho từng trang, gọi `GET /pages/{id}/jobs` **khi bấm**, không đưa vào vòng poll
+— màn chapter đã hỏi lại 7 endpoint mỗi 5 giây, thêm một lượt cho mỗi trang là nhân request theo
+số trang để phục vụ một câu hỏi phần lớn thời gian không ai đặt.
+
+Nói rõ **bước nào** hỏng chứ không chỉ "có gì đó hỏng". Ba nhánh đều có test: có job hỏng · không
+có job hỏng (nói thẳng "đang chờ tới lượt") · hỏi máy chủ hỏng (**không** giả vờ là "không có gì").
+
+### 3. E17 — sửa dương tính giả, và GHIM lại chỗ bỏ sót có chủ ý
+
+**Dương tính giả đã sửa.** Luật *"sau danh xưng ⇒ tên nhân vật"* nhận **bất kỳ** từ nào theo sau,
+nên "King **of** Chaosah" đẻ ra ứng viên `"of"` gắn nhãn `character_name`. Sửa bằng thuộc tính
+**cấu trúc** (chữ thường ⇒ không phải tên riêng), **không** bằng cách nhét "of" vào danh sách chặn
+— vá theo từng từ là trò đuổi bắt không hồi kết. Có test dùng `"amongst"` (một từ chưa từng có
+trong danh sách chặn) để chứng minh luật bắt theo lớp chứ không theo từ.
+
+**Chỗ "bỏ sót" thì KHÔNG sửa — và tôi rút lại việc gọi nó là khiếm khuyết.** `Cayenne` xuất hiện
+đúng một lần, ở **đầu câu**. Một từ viết hoa đầu câu viết hoa vì ngữ pháp, nên tự nó không phải
+bằng chứng; nới luật ra sẽ biến mọi câu mở đầu thành ứng viên. Đây là **đánh đổi có chủ ý**, và
+tôi ghim nó bằng test hai chiều: `Cayenne` không lọt vào, mà `Wonderful`/`Terrible` cũng không —
+để lần sau không ai "sửa" nó thành máy đẻ dương tính giả.
+
+**937 backend + 250 frontend passed.**
