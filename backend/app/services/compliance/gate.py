@@ -16,8 +16,21 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import ExportComplianceLog, OCRResult, Page, TextRegion, TypesetResult
-from app.models.enums import FitStatus, IntendedUse, OCRStatus, PageStatus
+from app.models import (
+    ExportComplianceLog,
+    GlossaryEntry,
+    OCRResult,
+    Page,
+    TextRegion,
+    TypesetResult,
+)
+from app.models.enums import (
+    FitStatus,
+    GlossaryStatus,
+    IntendedUse,
+    OCRStatus,
+    PageStatus,
+)
 
 
 @dataclass(frozen=True)
@@ -29,6 +42,9 @@ class ExportWarnings:
     #: Đã từng xác nhận cho chapter này chưa — để cảnh báo chỉ hiện **một lần**, không lải nhải.
     acknowledged: bool
     acknowledged_at: datetime | None
+    #: E13 — số thuật ngữ ĐÃ DUYỆT. 0 là cảnh báo thật: chưa chốt thuật ngữ thì tên riêng bị
+    #: dịch nghĩa đen ("Pepper" -> "Hạt tiêu", đo được ở pilot 03/09).
+    glossary_approved_count: int = 0
 
 
 #: Trang đã chèn chữ xong — chỉ những trang này mới được xuất, nên cũng chỉ đếm cảnh báo ở đây.
@@ -79,6 +95,14 @@ class ComplianceGate:
                        OCRResult.status == OCRStatus.needs_manual)
             )).scalar() or 0
 
+        # E13 — đếm thuật ngữ ĐÃ DUYỆT (chỉ mục đã duyệt mới được dùng khi rà soát).
+        so_thuat_ngu = (await session.execute(
+            select(func.count()).select_from(GlossaryEntry).where(
+                GlossaryEntry.project_id == project_id,
+                GlossaryEntry.status == GlossaryStatus.approved,
+            )
+        )).scalar() or 0
+
         gan_nhat = (await session.execute(
             select(ExportComplianceLog)
             .where(ExportComplianceLog.project_id == project_id,
@@ -92,6 +116,7 @@ class ComplianceGate:
             needs_manual_count=int(so_can_doc_lai),
             acknowledged=gan_nhat is not None,
             acknowledged_at=gan_nhat.acknowledged_at if gan_nhat else None,
+            glossary_approved_count=int(so_thuat_ngu),
         )
 
     async def log_export_acknowledgement(

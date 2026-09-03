@@ -1320,6 +1320,7 @@ async def get_export_warnings(
         quality_needs_review_count=cl.can_ra_soat,
         quality_unassessed_count=cl.chua_danh_gia,
         quality_reviewed_skip_count=cl.da_bo_qua,
+        glossary_approved_count=cb.glossary_approved_count,
     )
 
 

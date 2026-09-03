@@ -38,6 +38,10 @@ export default function ExportWarningModal({ canhBao, nhatQuan, dinhDang, onHuy,
   const soDocDaDung = canhBao?.orientation_vertical_rendered_count ?? 0
   const soHuongCanXem = canhBao?.orientation_review_count ?? 0
   const soHuongChuaRo = canhBao?.orientation_unknown_count ?? 0
+  // Số thuật ngữ ĐÃ DUYỆT. 0 là một cảnh báo THẬT, không phải "không có gì để báo":
+  // chưa chốt thuật ngữ nào thì tên riêng bị dịch nghĩa đen. Đo được ở pilot 03/09 —
+  // nhân vật "Pepper" ra thành "Hạt tiêu" (tên gia vị).
+  const soThuatNgu = canhBao?.glossary_approved_count ?? 0
   const soNQMo = nhatQuan?.open_count ?? 0
   const soNQCu = nhatQuan?.stale_count ?? 0
   const soNQBo = (nhatQuan?.rejected_count ?? 0) + (nhatQuan?.resolved_no_change_count ?? 0)
@@ -90,10 +94,18 @@ export default function ExportWarningModal({ canhBao, nhatQuan, dinhDang, onHuy,
           </ul>
         )}
 
-        {(soNQMo > 0 || soNQCu > 0 || soNQBo > 0) && (
+        {(soNQMo > 0 || soNQCu > 0 || soNQBo > 0 || soThuatNgu === 0) && (
           <>
             <h3>Nhất quán thuật ngữ</h3>
             <ul className="tom-tat-xuat">
+              {soThuatNgu === 0 && (
+                <li className="canh-bao">
+                  <b>Chưa chốt thuật ngữ nào</b> cho chapter này — tên nhân vật, vật phẩm,
+                  chiêu thức có thể đang bị dịch <b>theo nghĩa đen</b>. Ví dụ một nhân vật
+                  tên <i>Pepper</i> sẽ thành <i>“Hạt tiêu”</i>. Nên liếc qua vài bong bóng
+                  có tên riêng trước khi mang file đi.
+                </li>
+              )}
               {soNQMo > 0 && (
                 <li className="canh-bao">
                   <b>{soNQMo}</b> chỗ <b>chưa rà soát</b> theo thuật ngữ bạn đã chốt

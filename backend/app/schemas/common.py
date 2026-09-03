@@ -420,6 +420,13 @@ class ExportWarningsRead(BaseModel):
     quality_unassessed_count: int = 0
     #: E12 — vùng người dùng đã chủ động bỏ qua.
     quality_reviewed_skip_count: int = 0
+    #: E13 — số thuật ngữ ĐÃ DUYỆT của chapter. Bằng 0 là một cảnh báo thật, không phải
+    #: "không có gì để báo": khi chưa chốt thuật ngữ nào thì tên riêng bị dịch NGHĨA ĐEN.
+    #: Đo được ở pilot 03/09: nhân vật "Pepper" ra thành "Hạt tiêu" (tên gia vị).
+    #:
+    #: Trước đây nhóm E13 im lặng đúng lúc rủi ro cao nhất, vì nó chỉ hiện khi CÓ việc rà soát —
+    #: mà không có thuật ngữ thì không sinh việc nào. Nay đếm thẳng số thuật ngữ đã duyệt.
+    glossary_approved_count: int = 0
 
 
 class AcknowledgeRequest(BaseModel):

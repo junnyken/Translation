@@ -223,3 +223,41 @@ async def test_nhat_ky_tuan_thu_khong_chua_noi_dung_export(client, chapter):
         "id", "project_id", "export_job_id", "intended_use", "overflow_warning_count",
         "needs_manual_count", "user_acknowledged", "acknowledged_at", "created_at", "updated_at",
     }
+
+
+class TestCanhBaoThieuThuatNgu:
+    """P3i — chưa chốt thuật ngữ nào thì tên riêng bị dịch NGHĨA ĐEN.
+
+    Đo được ở pilot hosted 2026-09-03: nhân vật *Pepper* ra thành "Hạt tiêu" (tên gia vị).
+
+    Trước đây khối E13 chỉ hiện khi CÓ việc rà soát — mà không có thuật ngữ thì không sinh việc
+    nào. Tức hệ thống im lặng đúng lúc rủi ro cao nhất. Nay đếm thẳng số thuật ngữ đã duyệt.
+    """
+
+    async def test_chapter_chua_co_thuat_ngu_thi_dem_bang_0(self, client, session):
+        r = await client.post("/api/v1/projects", json={
+            "name": "P3i chưa có thuật ngữ", "source_lang": "en", "target_lang": "vi",
+            "intended_use": "personal"})
+        pid = r.json()["id"]
+        cb = await client.get(f"/api/v1/projects/{pid}/export-warnings")
+        assert cb.status_code == 200
+        assert cb.json()["glossary_approved_count"] == 0
+
+    async def test_chi_dem_thuat_ngu_DA_DUYET(self, client, session):
+        """Bản nháp không được tính: chỉ mục đã duyệt mới thực sự được dùng khi rà soát."""
+        r = await client.post("/api/v1/projects", json={
+            "name": "P3i có thuật ngữ", "source_lang": "en", "target_lang": "vi",
+            "intended_use": "personal"})
+        pid = r.json()["id"]
+
+        t1 = await client.post(f"/api/v1/projects/{pid}/glossary", json={
+            "source_term": "Pepper", "target_term": "Pepper", "term_type": "character_name",
+            "definition": "Tên nhân vật chính — GIỮ NGUYÊN, không dịch thành tên gia vị."})
+        assert t1.status_code in (200, 201), t1.text
+
+        cb = await client.get(f"/api/v1/projects/{pid}/export-warnings")
+        assert cb.json()["glossary_approved_count"] == 0, "bản nháp bị tính là đã duyệt"
+
+        await client.post(f"/api/v1/glossary/{t1.json()['id']}/approve")
+        cb2 = await client.get(f"/api/v1/projects/{pid}/export-warnings")
+        assert cb2.json()["glossary_approved_count"] == 1
