@@ -94,11 +94,54 @@ endpoint trả đúng thứ tự mới-nhất-trước.
 
 ## Live Verification
 
-⛔ **Chưa deploy lúc viết báo cáo này.** Bằng chứng hiện có là 927 test trên máy phát triển với
-Postgres thật — **không phải** bằng chứng chạy thật trên VibeHost.
+✅ **ĐÃ DEPLOY VÀ KIỂM CHỨNG TRÊN HOST 2026-09-03.**
 
-Cách kiểm chứng thật sau khi deploy: đọc log worker lúc khởi động (`dọn job mồ côi: …`), và gọi
-`GET /pages/{id}/jobs` trên đúng trang 1 chapter 002 — trang đang kẹt từ pilot.
+- Log worker lúc khởi động: `dọn job mồ côi: không có gì để dọn` — đúng, lúc đó không job nào đang
+  chạy. Quét chạy được, không chặn worker.
+- `GET /pages/{id}/jobs` trả **8 job** cho trang 1 chapter 003 và **10 job** cho trang 1 chapter
+  002, sắp **mới nhất trước** đúng thứ tự.
+- Chính lượt kiểm chứng này làm lộ ra sai sót phân tích ở mục Đính chính bên dưới — đó là lý do
+  phải kiểm chứng thật chứ không dừng ở test.
+
+## ⚠️ Đính chính sau khi kiểm chứng live — P1-2 tôi đã phân tích THIẾU
+
+Báo cáo pilot viết *"không có cơ chế chạy lại"*. **Sai.**
+
+`celery_app.py:21` đặt `task_acks_late=True` ⇒ task chỉ được ack **khi xong**, worker chết giữa
+chừng thì **broker giao lại**. Nhưng `visibility_timeout` **không được đặt** ⇒ Redis dùng mặc định
+**3600 giây**. Nên việc giao lại có thật, chỉ là **chờ một giờ**.
+
+**Bằng chứng trên host:** trang 1 chapter 002 (trang từng kẹt trong pilot) có
+`inpaint failed: precondition_failed: page đang ở 'typeset_done', cần 'ocr_done'`. Đó là job bị
+OOM giết, được giao lại về sau, và **cổng tiền điều kiện đã đúng khi từ chối làm lại** việc mà
+mẻ chạy tay đã hoàn thành. Đây là suy luận mạnh từ bằng chứng, **không phải quan sát trực tiếp**
+thời điểm giao lại.
+
+⇒ Bản chất vấn đề khác với điều đã báo:
+
+| Đã báo | Thực tế |
+|---|---|
+| Không có cơ chế chạy lại | **Có** — nhưng chờ ~1 giờ |
+| Trang kẹt vĩnh viễn | Kẹt tới khi broker giao lại, hoặc tới khi người dùng tự bấm |
+
+**Giá trị thật của P3j** vì vậy không phải "thêm khôi phục vốn không có", mà là **làm thất bại
+hiện ra NGAY và ĐỌC ĐƯỢC** thay vì im lặng một tiếng. Việc quét lúc khởi động vẫn cần: nó đóng
+khoảng trống giữa lúc worker chết và lúc broker giao lại.
+
+**Không xung đột với việc giao lại:** quét đánh dấu job `failed`; khi task được giao lại, nó tự
+kiểm tiền điều kiện theo **trạng thái trang** rồi hoặc làm thật (khôi phục đúng nghĩa) hoặc từ
+chối vì trang đã đi tiếp. Cả hai nhánh đều nhất quán.
+
+### Câu hỏi mở, cố ý KHÔNG tự quyết
+
+`visibility_timeout` chưa được đặt. Chỉnh nó là một đánh đổi thật, không phải một con số cho đẹp:
+
+- **Hạ xuống** ⇒ khôi phục nhanh hơn, nhưng nếu thấp hơn thời lượng task dài nhất thì broker sẽ
+  giao lại **trong khi task vẫn đang chạy** ⇒ chạy trùng. Bước inpaint đo được **15,8 giây** ở
+  ảnh nhỏ, nhưng trang 2 MPx chia 3 cụm còn lâu hơn — chưa đo trần trên.
+- **Giữ nguyên 1 giờ** ⇒ an toàn khỏi chạy trùng, nhưng khôi phục chậm tới mức vô hình.
+
+Phải **đo thời lượng task dài nhất trước**, rồi mới đặt. Không đoán.
 
 ## Remaining Limits
 

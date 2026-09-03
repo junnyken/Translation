@@ -736,7 +736,7 @@ sai (test bằng profile trắng thay vì mở lại phiên; và đo chính th�
 tiết ở §5.1 của báo cáo pilot.
 
 
-## P3j — Khôi phục job mồ côi khi worker chết (2026-09-03) ✅ **XONG**
+## P3j — Khôi phục job mồ côi khi worker chết (2026-09-03) ✅ **XONG, ĐÃ DEPLOY + KIỂM CHỨNG**
 
 Đóng **P1 duy nhất còn mở** của pilot. Worker chết ⇒ job đang chạy biến mất, trang kẹt vĩnh viễn,
 không tự chạy lại, **không có tín hiệu lý do**, và không có endpoint nào để tra.
@@ -760,8 +760,23 @@ API mới: `GET /pages/{page_id}/jobs`. Test: **927 passed** (nền 917) — b�
 việc **không đụng vào cái không được đụng** (job đã xong là lịch sử, trạng thái ổn định không lùi,
 không tự chạy lại, chế độ chỉ-đếm không ghi).
 
-⛔ **Chưa deploy lúc ghi dòng này.** Giao diện cũng chưa gọi endpoint mới — người vận hành vẫn
-phải tra bằng API. Đó là việc kế tiếp gần nhất.
+✅ **Đã deploy + kiểm chứng**: log worker ghi `dọn job mồ côi: không có gì để dọn`; endpoint trả
+8 và 10 job cho hai trang pilot, đúng thứ tự mới-nhất-trước.
+
+⚠️ **Chính lượt kiểm chứng làm lộ một sai sót phân tích của tôi.** Tôi từng viết "không có cơ chế
+chạy lại" — **sai**. `task_acks_late=True` nên broker **có** giao lại khi worker chết; nhưng
+`visibility_timeout` không đặt ⇒ Redis mặc định **1 giờ**. Bằng chứng: trang từng kẹt có
+`inpaint failed: precondition_failed` — job bị OOM giết, giao lại về sau, cổng tiền điều kiện đã
+đúng khi từ chối làm lại.
+
+⇒ Vấn đề thật là **thất bại im lặng suốt khoảng chờ**, không phải thiếu khôi phục. Giá trị P3j vì
+vậy là *làm thất bại hiện ra ngay và đọc được*.
+
+**Còn mở, cố ý không tự quyết:** `visibility_timeout` chưa chỉnh. Hạ xuống thì khôi phục nhanh
+nhưng nếu thấp hơn thời lượng task dài nhất sẽ gây **chạy trùng**; giữ 1 giờ thì khôi phục chậm
+tới mức vô hình. **Phải đo trần thời lượng inpaint trước rồi mới đặt.**
+
+Giao diện vẫn chưa gọi endpoint mới — người vận hành còn phải tra bằng API. Việc kế tiếp gần nhất.
 
 ### Kiểm chứng live E17 (2026-09-03)
 

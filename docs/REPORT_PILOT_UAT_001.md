@@ -216,12 +216,23 @@ RSS + van xả nhả model · `/healthz` trả `rss_mb`.
 **không mở** — nó chết đúng ở chỗ nó sinh ra để cứu. Đã hạ về **1500 MB** theo số đo, kèm 2 test
 neo con số. *Ngưỡng phải tính theo model sắp nạp, không theo trần container.*
 
-### P1-2 — Job đang chạy bị mất khi worker chết, **không có cơ chế chạy lại** · **CHƯA SỬA**
+### P1-2 — Worker chết ⇒ thất bại **im lặng một tiếng** · **ĐÃ SỬA ở P3j**
 
-Trang 1 chapter 002 kẹt vĩnh viễn ở `ocr_done`. Đường **tự nối tiếp sau upload** không thử lại;
-đường **"Chạy cả chapter"** thì có (*"lỗi tạm thời thử lại tối đa 3 lần"*).
-**Không có endpoint liệt kê job** ⇒ người vận hành không tra được *lý do* trang dừng — giao diện
-chỉ hiện "5/6 trang" và nhãn trạng thái, không nói job đã chết.
+Trang 1 chapter 002 đứng im ở `ocr_done`, giao diện chỉ hiện "5/6 trang" mà không nói vì sao.
+
+⚠️ **Đính chính mô tả ban đầu của tôi.** Tôi từng viết *"không có cơ chế chạy lại"* — **sai**.
+`task_acks_late=True` nên broker **có** giao lại task khi worker chết; nhưng `visibility_timeout`
+không được đặt ⇒ Redis mặc định **1 giờ**. Bằng chứng: trang đó có
+`inpaint failed: precondition_failed: page đang ở 'typeset_done', cần 'ocr_done'` — job bị OOM
+giết, giao lại về sau, và cổng tiền điều kiện **đã đúng** khi từ chối làm lại.
+
+⇒ Vấn đề thật không phải *thiếu khôi phục*, mà là **thất bại không có tín hiệu đọc được trong
+suốt khoảng chờ đó**, và không có endpoint nào để tra.
+
+**Đã sửa ở P3j** (đã deploy + kiểm chứng): quét job mồ côi lúc worker khởi động, đánh dấu hỏng kèm
+lý do viết cho người đọc, và mở `GET /pages/{id}/jobs`.
+**Còn mở:** `visibility_timeout` chưa chỉnh — phải đo thời lượng task dài nhất trước, vì đặt thấp
+hơn nó sẽ gây **chạy trùng**.
 
 ### P2-1 — Cổng xuất im lặng khi chưa chốt thuật ngữ · **ĐÃ SỬA** (`6e3ffa8`)
 
