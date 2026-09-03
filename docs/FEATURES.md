@@ -388,3 +388,15 @@ Trong lúc đó, **chạy cả chapter nhiều trang trên máy chủ vẫn là 
 - **Dừng mẻ**: không đẩy thêm trang mới, trang đang chạy vẫn chạy nốt cho khỏi dở dang.
 - Mẻ **không tự xuất chapter** — xuất vẫn là việc bạn chủ động bấm, để không phát hành nhầm bản
   còn tràn khung.
+
+## Nhắc thuật ngữ trước khi mang file đi (P3i)
+
+Trước đây, nếu bạn chưa khai thuật ngữ nào thì màn hình trước khi tải file **không nói gì cả** —
+và tên riêng có thể đã bị dịch theo nghĩa đen từ lâu mà bạn không biết. Chạy thử thật trên máy chủ
+ngày 03/09 bắt được đúng chuyện đó: một nhân vật tên **Pepper** biến thành **"Hạt tiêu"**.
+
+Nay màn hình đó nói thẳng: *"Chưa chốt thuật ngữ nào cho chapter này — tên nhân vật, vật phẩm,
+chiêu thức có thể đang bị dịch theo nghĩa đen"*, kèm luôn ví dụ để bạn nhận ra vấn đề mà không
+phải đọc tài liệu.
+
+Nó **không chặn** bạn xuất file — chỉ nói cho bạn biết trước khi mang đi.

@@ -691,6 +691,25 @@ tố giác cái chết vẫn là `worker.so_lan_chet` + `ma_thoat_gan_nhat = 137
 — có từ trước P3h. **Đường đóng rẻ nhất (chưa làm):** cho worker tự ghi RSS vào chính tệp trạng
 thái đó, rồi `/healthz` trả cả hai.
 
+## 8d. Cổng cảnh báo trước khi xuất — vì sao "không có việc" ≠ "không có rủi ro" (P3i)
+
+Cổng xuất gom cảnh báo thành các **nhóm tách bạch** (E12 chất lượng · E13 nhất quán · E14 bố cục ·
+E15 hướng chữ · M10 pháp lý). Gộp lại thì người dùng tick một ô rồi tưởng đã xử lý hết.
+
+Nhưng kiến trúc ấy có một lỗ mà pilot hosted 03/09 lộ ra: mỗi nhóm chỉ hiện khi **đếm được việc**.
+Nhóm E13 đếm *việc rà soát nhất quán* — mà việc đó chỉ sinh ra khi **đã có thuật ngữ được duyệt**.
+Chapter chưa khai thuật ngữ nào ⇒ 0 việc ⇒ **nhóm biến mất**. Kết quả đo được: nhân vật *Pepper*
+bị dịch thành "Hạt tiêu" và cổng xuất im lặng hoàn toàn.
+
+⇒ Nguyên tắc rút ra, áp cho mọi nhóm cảnh báo về sau:
+
+> **Đếm việc còn tồn không đủ. Phải đếm cả điều kiện tiền đề.** Khi tiền đề chưa có, "0 việc" là
+> tin xấu chứ không phải tin tốt — và đó chính là lúc phải nói to nhất.
+
+Hiện thực: `export-warnings` trả thêm `glossary_approved_count`, và giao diện hiện cảnh báo khi
+bằng **0**. Chỉ đếm mục **đã duyệt** — bản nháp không được dùng khi rà soát nên đếm vào sẽ tắt
+cảnh báo trong khi rủi ro còn nguyên.
+
 ## 9. Giới hạn đã biết (cố ý để lại)
 
 - **Supabase Storage chưa có adapter.** M1 chạy `STORAGE_BACKEND=local` (đã verify thật).

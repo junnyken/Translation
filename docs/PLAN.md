@@ -704,3 +704,33 @@ cùng bắt một chỗ (cùng họ với bẫy P3f) · luật tiếng Anh vứt
 ⛔ **Chưa deploy, chưa chạy trên chapter thật, và tầng 3 chưa từng gọi mô hình thật.** Ba việc bắt
 buộc trước khi đóng: `docs/REPORT_E17_TERM_CANDIDATES.md` §7. Thiết kế gốc:
 `docs/SPEC_E17_TERM_CANDIDATES.md`.
+
+
+## P3i — Cảnh báo thiếu thuật ngữ ở cổng xuất (2026-09-03) ✅ **XONG, ĐÃ DEPLOY**
+
+Sinh ra **từ bằng chứng pilot**, không phải từ ý tưởng: chạy thật 6 trang Pepper&Carrot trên host
+cho ra nhân vật *Pepper* → **"Hạt tiêu"** (tên gia vị), mà cổng xuất **không hé một lời**.
+
+Gốc rễ: khối "Nhất quán thuật ngữ" chỉ render khi có việc rà soát — mà không có thuật ngữ thì
+không sinh việc nào. **Hệ thống im lặng đúng lúc rủi ro cao nhất.**
+
+Sửa: `export-warnings` trả thêm `glossary_approved_count` (chỉ đếm mục **đã duyệt**, vì chỉ mục đã
+duyệt mới được dùng khi rà soát); giao diện hiện khối cảnh báo khi bằng 0, **nêu hậu quả kèm ví dụ
+có thật** thay vì chỉ nói "chưa có gì".
+
+917 backend + 245 frontend passed. Đã deploy cả API lẫn web, kiểm chứng live: cổng xuất hiện đủ
+**5 nhóm có nhãn riêng**.
+
+### Pilot/UAT hosted 6 trang — xem `docs/REPORT_PILOT_UAT_001.md`
+
+Kết quả: **dùng được cho pilot hosted giới hạn**, sau khi sửa một P1 mà chính pilot phát hiện.
+6/6 trang · 31/31 vùng đủ OCR+dịch+canh chữ · 12/12 hiện vật mở thật · **parity xuất↔xem thử 3/3
+trang trùng từng byte** sau khi đã sửa tay · CBZ CRC toàn vẹn · M10 cưỡng chế thật.
+
+**P1 còn mở duy nhất — cũng là mini-spec kế tiếp được đề xuất:** worker chết ⇒ job đang chạy biến
+mất, trang kẹt vĩnh viễn, **không tự chạy lại và không có tín hiệu lý do** (không có endpoint liệt
+kê job). Sửa OOM chỉ giảm *tần suất*, không giảm *hậu quả*.
+
+⚠️ **Đính chính trong báo cáo:** tôi từng báo 3 phát hiện UX, **2 trong đó sai** — cả hai do tôi đo
+sai (test bằng profile trắng thay vì mở lại phiên; và đo chính thời gian mình tự ngồi chờ). Chi
+tiết ở §5.1 của báo cáo pilot.

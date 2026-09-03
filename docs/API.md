@@ -522,7 +522,8 @@ Những gì người dùng **phải nhìn thấy trước** khi mang file đi.
 
 ```json
 { "overflow_warning_count": 1, "needs_manual_count": 2,
-  "acknowledged": true, "acknowledged_at": "2026-08-28T16:30:23.592881Z" }
+  "acknowledged": true, "acknowledged_at": "2026-08-28T16:30:23.592881Z",
+  "glossary_approved_count": 0 }
 ```
 
 - Chỉ đếm trên các trang **sẽ được xuất** (`typeset_done`/`ready_for_export`). Vùng lỗi ở trang
@@ -532,6 +533,13 @@ Những gì người dùng **phải nhìn thấy trước** khi mang file đi.
 - `needs_manual_count`: vùng **chưa đọc được chữ gốc** ⇒ bong bóng đó sẽ **trống** trong file xuất.
 - `acknowledged`: chapter này đã xác nhận trách nhiệm bản quyền lần nào chưa — để giao diện hiện
   nhắc **một lần**, không lải nhải mỗi lần xuất.
+- `glossary_approved_count` *(P3i)*: số thuật ngữ **đã duyệt** của chapter. **Bằng 0 là một cảnh
+  báo thật**, không phải "không có gì để báo": chưa chốt thuật ngữ nào thì tên riêng bị dịch
+  **nghĩa đen**. Chỉ đếm mục **đã duyệt** — bản nháp không được dùng khi rà soát nên không tính.
+
+  Vì sao thêm: pilot hosted 03/09 đo được nhân vật *Pepper* ra thành **"Hạt tiêu"** (tên gia vị),
+  mà cổng xuất **im lặng** — khối cảnh báo E13 cũ chỉ hiện khi **có việc rà soát**, mà không có
+  thuật ngữ thì không sinh việc nào. Hệ thống im lặng đúng lúc rủi ro cao nhất.
 
 Project không tồn tại → `404`.
 

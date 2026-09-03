@@ -2831,3 +2831,49 @@ tố cáo mã sản xuất, tốn đúng số thời gian của một lỗi th�
 ⛔ Host `cmc-1` vẫn chết nên **chưa** chạy trên chapter thật, **chưa** đo độ trễ, và **chưa từng
 gọi mô hình thật** cho tầng 3 (mới kiểm bằng mô hình giả). Ba việc bắt buộc trước khi coi E17 là
 đóng nằm ở `REPORT_E17_TERM_CANDIDATES.md` §7.
+
+# ========== P3i — cảnh báo thiếu thuật ngữ ở cổng xuất (2026-09-03) ==========
+
+```
+backend : 917 passed, 6 skipped
+frontend: 245 passed (11 tệp)
+build   : vite build sạch
+```
+*Lint không phải cổng phát hành đã cấu hình.*
+
+## P3i.1 — Backend (2 test, `test_compliance_integration.py`)
+
+| Test | Khẳng định |
+|---|---|
+| `test_chapter_chua_co_thuat_ngu_thi_dem_bang_0` | chapter mới ⇒ `glossary_approved_count == 0` |
+| `test_chi_dem_thuat_ngu_DA_DUYET` | thêm thuật ngữ (nháp) ⇒ vẫn 0; **duyệt** ⇒ 1 |
+
+Test thứ hai là cái đáng giá: chỉ mục **đã duyệt** mới thực sự được dùng khi rà soát, nên đếm cả
+bản nháp sẽ khiến cảnh báo tắt trong khi rủi ro còn nguyên.
+
+## P3i.2 — Frontend (4 test, `export-thuatngu.test.jsx`)
+
+- chapter trống thuật ngữ ⇒ khối "Nhất quán thuật ngữ" **vẫn phải hiện** (trước đây nó biến mất)
+- cảnh báo phải nêu **hậu quả** (`nghĩa đen`) chứ không chỉ nói "chưa có gì"
+- phải có **ví dụ thật** (`Pepper` → `Hạt tiêu`) để người dùng nhận ra vấn đề
+- đã có thuật ngữ duyệt ⇒ **không lải nhải** cảnh báo này nữa
+- thuật ngữ trống **không được nuốt mất** các cảnh báo cũ (tràn khung vẫn hiện)
+
+## P3i.3 — Kiểm chứng trên host
+
+Cổng xuất giờ hiện **5 nhóm có nhãn riêng**: `CHẤT LƯỢNG BẢN ĐANG XUẤT` · **`NHẤT QUÁN THUẬT NGỮ`**
+· `BỐ CỤC TRONG BONG BÓNG` · `HƯỚNG CHỮ` · checkbox M10.
+
+⚠️ Hai bẫy trong chính phép kiểm của tôi, ghi lại để lần sau khỏi mất thời gian:
+1. Modal **không mở** ở chapter đã xuất — đúng thiết kế (`acknowledged` ⇒ nhắc **một lần**). Phải
+   kiểm trên chapter chưa xác nhận.
+2. Tiêu đề nhóm bị CSS viết hoa (`NHẤT QUÁN THUẬT NGỮ`) nên phép tìm phân biệt hoa/thường **trượt**
+   — suýt kết luận nhầm là thiếu nhãn nhóm.
+
+## P3i.4 — §9.2 Responsive (Chromium thật, trang pilot thật)
+
+| Kích thước | Tràn ngang | Điều khiển | Lỗi console |
+|---|---|---|---|
+| 360×800 · 768×1024 · 1280×900 · 1600×1100 | **0px** cả 4 | dùng được | **0** cả 4 |
+
+Lớp phủ M7: **9 khung, 0 khung lệch ra ngoài ảnh** ở cả 360px và 1280px (ảnh 290×400 → 694×959).
