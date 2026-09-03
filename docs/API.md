@@ -815,3 +815,19 @@ danh sách đã hỏi; nhắc sai thì loại thẳng.
 
 ⚠️ **Không endpoint nào của E17 tạo thuật ngữ hay hồ sơ nhân vật.** Muốn lưu thì vẫn đi qua
 `POST /projects/{id}/glossary` và `POST /projects/{id}/voice-profiles` như cũ.
+
+## `GET /api/v1/pages/{page_id}/jobs` → 200 *(P3j)*
+
+Lịch sử job của một trang, **mới nhất trước**.
+
+```json
+[{ "id": "…", "type": "inpaint", "page_id": "…", "status": "failed",
+   "retry_count": 0, "error_log": "worker_died: tiến trình xử lý bị dừng giữa chừng…",
+   "created_at": "…", "updated_at": "…" }]
+```
+
+Vì sao cần: trước P3j chỉ tra được job **theo id**, mà id chỉ có ngay lúc bấm. Trang đứng im vì
+worker chết giữa chừng nhìn từ giao diện **y hệt** trang đang chạy chậm — không có đường nào biết
+lý do. `error_log` của job hỏng là chỗ chứa lý do đọc được.
+
+Trang không tồn tại → `404`.

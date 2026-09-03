@@ -451,7 +451,7 @@ refactor rồi chốt cũng kịp.
 không trả trường hạn mức, `canUpgrade: false`) — phương án A phụ thuộc con số (b).
 
 
-## P3d — Bỏ `abs_path()` làm hợp đồng đọc/ghi (2026-08-31) ✅ **XONG (chưa deploy)**
+## P3d — Bỏ `abs_path()` làm hợp đồng đọc/ghi (2026-08-31) ✅ **XONG, ĐÃ DEPLOY**
 
 Làm **phần việc chung** mà P3c chỉ ra: Postgres (A) và kho đối tượng ngoài (B) đều bị chặn bởi
 cùng một thứ, nên gỡ thứ đó trước, chốt A/B sau.
@@ -488,7 +488,7 @@ lần triển khai lại. **Chưa deploy** (chưa có gì để deploy làm đ�
 lớp adapter (A hoặc B) và deploy cùng nó.
 
 
-## P3e — Kho hiện vật trong Postgres (2026-08-31) ✅ **XONG — chưa deploy**
+## P3e — Kho hiện vật trong Postgres (2026-08-31) ✅ **XONG, ĐÃ DEPLOY + đo thật**
 
 Mảnh cuối khiến trang "đã canh chữ xong" mà bấm vào thì 404. P3c dò ra nền tảng không có volume
 bền; P3d gỡ `abs_path()`; P3e **viết lớp kho** đặt hiện vật vào bảng `artifact_blob`.
@@ -526,7 +526,7 @@ hiện vật **từ nay** bền, **không** hồi sinh được ảnh đã mất
 ảnh gốc. Đây là quyết định về **dữ liệu**, không phải kỹ thuật.
 
 
-## P3f — Đối chiếu bản ghi ↔ hiện vật (2026-08-31) ✅ **XONG — chưa chạy chế độ sửa**
+## P3f — Đối chiếu bản ghi ↔ hiện vật (2026-08-31) ✅ **XONG, ĐÃ CHẠY chế độ sửa (5 trang)**
 
 P3e làm hiện vật từ nay bền nhưng **không hồi sinh được ảnh đã mất**, nên trang cũ vẫn khai "đã
 canh chữ xong" mà bấm vào thì 404 — đúng thứ `CLAUDE.md §3` cấm. **Bản ghi là lời khai; hiện vật
@@ -608,7 +608,7 @@ mỗi lượt một tiến trình nên bắt tay TLS lại từ đầu, chi phí
 **số âm** — phép đo không tách được chi phí thiết lập kết nối thì không đo cái nó tưởng nó đo.
 
 
-## P3h — Chặn OOM worker: tắt arena ONNX cho LaMa, trộn theo dải, đo được RAM (2026-08-31) ⚠️ **XONG Ở MÁY DEV — CHƯA DEPLOY**
+## P3h — Chặn OOM worker: tắt arena ONNX cho LaMa, trộn theo dải, đo được RAM (2026-08-31) ✅ **ĐÃ DEPLOY + KIỂM CHỨNG**
 
 Sự cố THẬT trong Pilot 6 trang (Phase 3D): worker bị **OOM killer giết** (`exit 137`), API tụt từ
 3,4 ms xuống 10–42 s rồi tắt tiếng; 8 lượt thăm dò chỉ 3 lượt thành công; log runtime nền tảng
@@ -662,7 +662,7 @@ chưa có số đo nào chống lưng; van xả chưa từng nổ trong một l�
 inpaint sau khi tắt arena. Chi tiết: `docs/REPORT_P3h_WORKER_MEMORY.md`.
 
 
-## E17 — Gợi ý thuật ngữ & xưng hô rút từ chính chapter (2026-09-01) ✅ **DỰNG XONG, CHƯA DEPLOY**
+## E17 — Gợi ý thuật ngữ & xưng hô rút từ chính chapter (2026-09-01) ✅ **ĐÃ DEPLOY + KIỂM CHỨNG LIVE**
 
 Yêu cầu của chủ dự án: *"nhập tên bộ truyện để lấy tên + xưng hô nhân vật, chứ ngồi nhập từng cái
 rất phiền"*. Màn Thuật ngữ / Giọng nhân vật hiện là hai form trống, người dùng phải tự nhớ và gõ
@@ -734,3 +734,47 @@ kê job). Sửa OOM chỉ giảm *tần suất*, không giảm *hậu quả*.
 ⚠️ **Đính chính trong báo cáo:** tôi từng báo 3 phát hiện UX, **2 trong đó sai** — cả hai do tôi đo
 sai (test bằng profile trắng thay vì mở lại phiên; và đo chính thời gian mình tự ngồi chờ). Chi
 tiết ở §5.1 của báo cáo pilot.
+
+
+## P3j — Khôi phục job mồ côi khi worker chết (2026-09-03) ✅ **XONG**
+
+Đóng **P1 duy nhất còn mở** của pilot. Worker chết ⇒ job đang chạy biến mất, trang kẹt vĩnh viễn,
+không tự chạy lại, **không có tín hiệu lý do**, và không có endpoint nào để tra.
+
+**Audit đổi hẳn phạm vi.** Ba câu hỏi trả lời từ mã, không đoán:
+- `--pool=solo`, **một tiến trình, một container** ⇒ lúc worker khởi động, mọi job `running` đều
+  là mồ côi của tiến trình vừa chết. Không có worker thứ hai để giết nhầm.
+- Quét `tasks.py`: **chỉ `detecting`** là trạng thái TẠM. Các mốc khác chỉ đặt **khi xong** nên
+  vẫn trung thực dù job chết ⇒ **phần lớn trạng thái page KHÔNG cần lùi**. Lùi bừa `ocr_done` về
+  `queued` là xoá công việc đã hoàn thành thật.
+- Chưa dùng celery signal nào ⇒ `worker_ready` là chỗ sạch.
+
+**Chỉ đánh dấu hỏng, KHÔNG tự chạy lại** — tự chạy lại một job vừa làm chết worker vì hết bộ nhớ
+là giết nó lần nữa, thành vòng lặp. Lý do viết cho NGƯỜI đọc, đủ ba phần: chuyện gì xảy ra · dữ
+liệu còn nguyên · làm gì tiếp.
+
+Ràng buộc "chỉ một worker" ghi thành **cờ** `worker_sweep_orphan_jobs_on_start`, không ghi thành
+lời hứa trong tài liệu. Dọn dẹp hỏng **không chặn** worker nhận việc.
+
+API mới: `GET /pages/{page_id}/jobs`. Test: **927 passed** (nền 917) — bốn test đáng kể nhất kiểm
+việc **không đụng vào cái không được đụng** (job đã xong là lịch sử, trạng thái ổn định không lùi,
+không tự chạy lại, chế độ chỉ-đếm không ghi).
+
+⛔ **Chưa deploy lúc ghi dòng này.** Giao diện cũng chưa gọi endpoint mới — người vận hành vẫn
+phải tra bằng API. Đó là việc kế tiếp gần nhất.
+
+### Kiểm chứng live E17 (2026-09-03)
+
+E17 **chạy đúng trên host** — thử trên đúng chapter pilot, nó rút được chính cái tên đã hỏng:
+
+| Thuật ngữ | Lần | Trang | Lý do |
+|---|---|---|---|
+| Chaosah | 4 | 1,2,3 | viết hoa giữa câu |
+| King | 3 | 3,4 | viết hoa giữa câu |
+| **Pepper** | 3 | 1,2,6 | viết hoa giữa câu, đứng đầu câu |
+
+Nhưng lộ **hai khiếm khuyết** (chưa sửa, ghi vào tồn đọng):
+- **Dương tính giả**: ứng viên `"of"` bị đoán là `character_name`, lý do *"đứng sau danh xưng
+  king"* — luật "chữ sau danh xưng = tên nhân vật" bắn nhầm vào "King **of** …"
+- **Bỏ sót**: `Cayenne` là tên nhân vật có thật trong chữ gốc (*"Cayenne is right…"*) nhưng không
+  được liệt kê

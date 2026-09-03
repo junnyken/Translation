@@ -47,6 +47,13 @@ class Settings(BaseSettings):
     #: 1500 mở đúng lúc RSS 1914 (nhả detector, còn ~0,8 GB, cộng LaMa ~2,0 GB — an toàn) mà
     #: không mở oan lúc chỉ có detector (1203 MB + LaMa vẫn vừa).
     worker_rss_soft_limit_mb: int = 1500
+    #: P3j — lúc worker khởi động, đánh dấu mọi job đang `running` là hỏng (chúng là mồ côi của
+    #: tiến trình vừa chết) và lùi trang khỏi trạng thái tạm.
+    #:
+    #: ĐÚNG ĐẮN CỦA CỜ NÀY PHỤ THUỘC TOPOLOGY: hiện chỉ có MỘT worker (`--pool=solo`, một
+    #: container), nên không có worker thứ hai để giết nhầm. Ngày nào chạy nhiều worker thì
+    #: **phải tắt cờ này trước**, rồi mới đổi sang cơ chế job-có-chủ (id worker + nhịp tim).
+    worker_sweep_orphan_jobs_on_start: bool = True
 
     # Upload
     max_upload_mb: int = 25

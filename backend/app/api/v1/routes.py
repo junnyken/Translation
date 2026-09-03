@@ -309,6 +309,26 @@ async def retry_detect(
     return PageAccepted(page_id=page.id, status=page.status, job_id=job.id)
 
 
+@router.get("/pages/{page_id}/jobs", response_model=list[JobRead], tags=["pages"])
+async def list_page_jobs(
+    page_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> list[Job]:
+    """Lịch sử job của một trang, MỚI NHẤT trước (P3j).
+
+    Vì sao cần: trước P3j chỉ tra được job theo id, mà id thì chỉ có ngay lúc bấm. Trang đứng im
+    vì worker chết giữa chừng nhìn từ giao diện **y hệt** trang đang chạy chậm — người vận hành
+    không có đường nào biết lý do. Đây là đường đó.
+
+    `error_log` của job hỏng là chỗ chứa lý do đọc được (vd `worker_died: …`).
+    """
+    await _get_page_or_404(session, page_id)
+    return list(
+        (await session.execute(
+            select(Job).where(Job.page_id == page_id).order_by(Job.created_at.desc())
+        )).scalars()
+    )
+
+
 @router.get("/pages/{page_id}/ocr", response_model=list[OCRResultRead], tags=["pages"])
 async def list_page_ocr(
     page_id: uuid.UUID, session: AsyncSession = Depends(get_session)

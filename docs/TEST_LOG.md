@@ -2877,3 +2877,23 @@ Cổng xuất giờ hiện **5 nhóm có nhãn riêng**: `CHẤT LƯỢNG BẢN 
 | 360×800 · 768×1024 · 1280×900 · 1600×1100 | **0px** cả 4 | dùng được | **0** cả 4 |
 
 Lớp phủ M7: **9 khung, 0 khung lệch ra ngoài ảnh** ở cả 360px và 1280px (ảnh 290×400 → 694×959).
+
+# ========== P3j — khôi phục job mồ côi (2026-09-03) ==========
+
+```
+927 passed, 6 skipped   (nền trước P3j: 917)
+```
+
+`tests/test_hoi_phuc_integration.py` — 10 test. Bốn cái đáng kể nhất **không** kiểm việc dọn, mà
+kiểm việc **không đụng vào cái không được đụng**:
+
+| Test | Khẳng định |
+|---|---|
+| `test_KHONG_dung_toi_job_da_xong` | job `done`/`failed` là **lịch sử**; kiểm cả việc không ghi đè `error_log` cũ |
+| `test_KHONG_lui_trang_o_trang_thai_ON_DINH` | `ocr_done` là mốc đã xong thật — lùi bừa là xoá công việc đã hoàn thành |
+| `test_KHONG_tu_chay_lai` | không tự xếp lại việc, không đẻ job mới |
+| `test_che_do_chi_dem_KHONG_ghi_gi` | cùng bài học P3f: chế độ khô không dựa vào tác dụng phụ của chế độ ướt |
+
+Còn lại: lý do phải **đọc được** (kiểm có cả `"hết bộ nhớ"` lẫn `"KHÔNG mất"` — một mã lỗi trần
+trụi thoả mãn người viết log, không thoả mãn người đang bị kẹt), trang kẹt `detecting` được lùi về
+`queued`, idempotent, endpoint `404` đúng và sắp mới-nhất-trước.
