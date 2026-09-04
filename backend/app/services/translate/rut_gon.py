@@ -49,6 +49,8 @@ def dung_prompt(muc: list[MucRutGon], source_lang: str) -> str:
         "Quy tắc bắt buộc:\n"
         f"- Trả về ĐÚNG {len(muc)} dòng, đánh số 1..{len(muc)} theo đúng thứ tự đầu vào.\n"
         "- Mỗi dòng KHÔNG vượt quá số ký tự ghi trong ngoặc vuông của mục đó.\n"
+        "- Nhưng hãy **dùng gần hết** số ký tự cho phép. Rút ngắn hơn mức cần là bỏ đi thông "
+        "tin mà lẽ ra vẫn còn chỗ để giữ.\n"
         "- Giữ ĐÚNG Ý và giọng điệu nhân vật. Được bỏ từ đệm, gộp câu, dùng từ ngắn hơn; "
         "KHÔNG được bỏ mất thông tin chính (tên riêng, con số, câu hỏi vẫn phải là câu hỏi).\n"
         "- Thoại truyện tranh vốn ngắn gọn — viết như người Việt nói, không viết văn.\n"

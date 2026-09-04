@@ -179,8 +179,13 @@ class Settings(BaseSettings):
     e18_rut_gon_timeout_seconds: int = 180
     #: Cỡ chữ dùng làm mốc đo sức chứa, tính theo vị trí giữa min và max.
     #: 0 = lấy cỡ nhỏ nhất (sức chứa lớn nhất, chữ bé nhất) · 1 = lấy cỡ lớn nhất.
-    #: 0,5 cho ra cỡ ~19 với dải 10-28: đủ đọc mà không ép bản dịch ngắn tới mức mất nghĩa.
-    e18_co_chu_muc_tieu_ty_le: float = 0.5
+    #:
+    #: 0,35 trên dải THẬT của bản chạy (10-40) cho ra cỡ 20. Ban đầu để 0,5 và đo được hậu quả
+    #: ngay ở lượt kiểm chứng đầu tiên: dải 10-40 thành cỡ 25, một bong bóng 120×53px chỉ còn
+    #: sức chứa **22 ký tự**, và model buộc phải bỏ luôn "cô gái tôi từng thích" — mất thông
+    #: tin, không còn là rút gọn. Đòi chữ to là đòi bản dịch ngắn; hai thứ đó đánh đổi nhau và
+    #: con số này là chỗ chọn điểm đánh đổi.
+    e18_co_chu_muc_tieu_ty_le: float = 0.35
     #: Gợi ý bằng LLM là TÙY CHỌN và mặc định TẮT. Bật lên mới tốn token.
     e13_llm_suggestions_enabled: bool = False
     #: Trần số vùng gửi cho LLM một lần — chặn yêu cầu quá lớn thay vì âm thầm cắt bớt.
