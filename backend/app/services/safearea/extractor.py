@@ -15,12 +15,16 @@ Ba điều đã trả giá để học, đừng đảo lại (bằng chứng: `d
 """
 from __future__ import annotations
 
+import logging
+
 from app.models.enums import SafeAreaGeometryType, SafeAreaSource, SafeAreaStatus
 from app.services.interfaces import BBox
 from app.services.safearea.config import SafeAreaConfig
 from app.services.safearea.decision import ReasonCode, SafeAreaDecision
 
 VERSION = "e14-bubble-safe-area-v1"
+
+logger = logging.getLogger(__name__)
 
 
 def _le_thut_vao(bbox: BBox, cfg: SafeAreaConfig) -> int:
