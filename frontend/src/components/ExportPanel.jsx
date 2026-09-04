@@ -16,6 +16,7 @@ export default function ExportPanel({ projectId, tenProject, nhatQuan, onRaSoat 
   const [dinhDang, setDinhDang] = useState('cbz')
   const [job, setJob] = useState(null)
   const [dangChay, setDangChay] = useState(false)
+  const [dangTai, setDangTai] = useState(false)
   const [loi, setLoi] = useState(null)
 
   const nap = useCallback(() => {
@@ -87,7 +88,14 @@ export default function ExportPanel({ projectId, tenProject, nhatQuan, onRaSoat 
             <b>{canhBao.needs_manual_count}</b> bong bóng sẽ <b>trống</b> vì chưa đọc được chữ gốc
           </li>
         )}
+        {(xemTruoc.font_missing_count ?? 0) > 0 && (
+          <li className="canh-bao">
+            <b>{xemTruoc.font_missing_count}</b> bong bóng sẽ <b>trống</b> vì font không có ký tự
+            trong bản dịch — sửa lại chữ ở vùng đó rồi căn lại
+          </li>
+        )}
         {xemTruoc.skipped_page_count === 0 && xemTruoc.overflow_warning_count === 0
+          && (xemTruoc.font_missing_count ?? 0) === 0
           && (canhBao?.needs_manual_count ?? 0) === 0 && (
           <li className="on">Không có cảnh báo nào.</li>
         )}
@@ -149,7 +157,23 @@ export default function ExportPanel({ projectId, tenProject, nhatQuan, onRaSoat 
           )}
 
           {job.status === 'done' && job.format !== 'png_single' && (
-            <a className="nut-tai" href={api.duongDanTaiVe(job.id)}>Tải file về</a>
+            // Nút, KHÔNG phải thẻ <a href>: trình duyệt tự tải link thì không gắn được mã
+            // phiên, và từ slice B đường tải trả 401 — nút "Tải file về" bấm vào không ra gì.
+            <button
+              type="button" className="nut-tai" disabled={dangTai}
+              onClick={async () => {
+                setDangTai(true); setLoi(null)
+                try {
+                  await api.taiFileXuatVe(job.id)
+                } catch (e) {
+                  setLoi(`Không tải được file: ${e.message}`)
+                } finally {
+                  setDangTai(false)
+                }
+              }}
+            >
+              {dangTai ? 'Đang tải…' : 'Tải file về'}
+            </button>
           )}
           {job.status === 'done' && job.format === 'png_single' && (
             <p className="ghi-chu">

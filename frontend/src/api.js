@@ -204,6 +204,49 @@ export const xuatChapter = (projectId, format) =>
 export const layJobXuat = (id) => fetch(`${BASE}/export-jobs/${id}`).then(doc)
 export const duongDanTaiVe = (id) => `${BASE}/export-jobs/${id}/download`
 
+// ---------- Ảnh và file: hai đường KHÔNG mang được mã phiên ----------
+//
+// `<img src>` và `<a href>` do trình duyệt tự tải, và **không có cách nào** gắn header
+// `Authorization` vào chúng. Từ slice B mọi endpoint `/api/v1` đòi mã phiên, nên ảnh trang và
+// file xuất cùng trả 401: màn sửa tay không có ảnh để nhìn, nút tải file không tải được gì.
+//
+// Đo trên bản chạy 04/09: `GET /pages/{id}/typeset-preview` không kèm mã ⇒ **401**; kèm mã ⇒
+// 200, 2,1MB PNG. Y hệt với `/export-jobs/{id}/download`.
+//
+// Cách sửa: tự tải bằng `fetch` (có mã phiên) rồi biến thành `blob:` URL cho trình duyệt dùng.
+// KHÔNG nhét mã phiên vào query string — nó sẽ nằm lại trong lịch sử duyệt, log máy chủ và
+// header `Referer`, tức là biến một mã còn hiệu lực 14 ngày thành thứ đọc trộm được.
+
+/** Tải một tài nguyên có khoá về thành `blob:` URL. Nhớ `URL.revokeObjectURL` khi thôi dùng. */
+export async function taiVeBlobUrl(url) {
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`${res.status}: không tải được ${url}`)
+  return URL.createObjectURL(await res.blob())
+}
+
+/** Tải file xuất về máy. Trả tên file đã lưu.
+ *
+ * Tên file lấy từ `Content-Disposition` của máy chủ; không có thì mới tự đặt — đặt bừa một cái
+ * tên đẹp rồi ghi đè tên thật là làm người dùng mất dấu file của chính họ.
+ */
+export async function taiFileXuatVe(jobId) {
+  const res = await fetch(`${BASE}/export-jobs/${jobId}/download`)
+  if (!res.ok) throw new Error(`${res.status}: không tải được file xuất`)
+  const cd = res.headers.get('Content-Disposition') || ''
+  const khop = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(cd)
+  const ten = khop ? decodeURIComponent(khop[1]) : `chapter-${jobId}.cbz`
+  const url = URL.createObjectURL(await res.blob())
+  const a = document.createElement('a')
+  a.href = url
+  a.download = ten
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  // Thu hồi ngay là có trình duyệt huỷ luôn lượt tải đang chạy — chờ một nhịp.
+  setTimeout(() => URL.revokeObjectURL(url), 60000)
+  return ten
+}
+
 /** Chờ việc xuất chapter xong. Trả job cuối; ném lỗi nếu `failed`. */
 export async function choXuatXong(jobId, { soLanToiDa = 240, nhipMs = 1000, onTien } = {}) {
   for (let i = 0; i < soLanToiDa; i++) {

@@ -78,6 +78,10 @@ export default function App() {
   const [thongBao, setThongBao] = useState(null)
   // Đổi mỗi lần vẽ lại preview để trình duyệt không dùng ảnh cũ trong bộ nhớ đệm.
   const [phienBanAnh, setPhienBanAnh] = useState(0)
+  // Ảnh trang phải tự tải bằng `fetch` (có mã phiên) rồi dựng `blob:` URL — `<img src>` không
+  // gắn được header `Authorization`, nên từ slice B nó nhận 401 và màn sửa tay trắng trơn.
+  const [anhBlob, setAnhBlob] = useState(null)
+  const [loiAnh, setLoiAnh] = useState(null)
   const [ganDay, setGanDay] = useState(docChapterDaLuu)
   // E13 — thuật ngữ & rà soát nhất quán
   const [thuatNgu, setThuatNgu] = useState([])
@@ -321,6 +325,27 @@ export default function App() {
     return () => { huy = true }
   }, [])
 
+  // Nạp ảnh preview mỗi khi đổi trang hoặc sau khi căn lại chữ. Thu hồi blob cũ để không rò
+  // bộ nhớ: mỗi ảnh là 2MB, xem 30 trang là 60MB nằm lại trong tab.
+  const duongDanAnh = chiTiet?.preview_url
+  useEffect(() => {
+    if (!duongDanAnh) { setAnhBlob(null); return undefined }
+    let huy = false
+    let url = null
+    setLoiAnh(null)
+    api.taiVeBlobUrl(`${api.API_BASE}${duongDanAnh}?v=${phienBanAnh}`)
+      .then((u) => {
+        if (huy) { URL.revokeObjectURL(u); return }
+        url = u
+        setAnhBlob(u)
+      })
+      .catch((e) => { if (!huy) setLoiAnh(e.message) })
+    return () => {
+      huy = true
+      if (url) URL.revokeObjectURL(url)
+    }
+  }, [duongDanAnh, phienBanAnh])
+
   const oTrangChu = !projectId && !pageId
 
   if (nguoiDung === undefined) {
@@ -531,9 +556,14 @@ export default function App() {
                   </span>
                 </div>
 
-                {chiTiet.preview_url ? (
+                {loiAnh && (
+                  <Alert sac="loi" tieuDe="Không tải được ảnh trang">
+                    {loiAnh}
+                  </Alert>
+                )}
+                {chiTiet.preview_url && anhBlob ? (
                   <BboxOverlay
-                    src={`${api.API_BASE}${chiTiet.preview_url}?v=${phienBanAnh}`}
+                    src={anhBlob}
                     regions={chiTiet.regions}
                     dangChon={dangChon}
                     onChon={setDangChon}
@@ -542,11 +572,15 @@ export default function App() {
                     vungAnToan={vungAnToan}
                     hienVungAnToan={hienVungAnToan}
                   />
-                ) : (
+                ) : chiTiet.preview_url && !loiAnh ? (
+                  // "Đang tải" KHÁC "chưa có": ảnh 2MB tải mất một nhịp, và báo "chưa có ảnh"
+                  // lúc đó là nói sai — người dùng sẽ đi chạy lại một bước vốn đã xong.
+                  <p className="ghi-chu">Đang tải ảnh trang…</p>
+                ) : !chiTiet.preview_url ? (
                   <Alert sac="tin" tieuDe="Chưa có ảnh xem thử">
                     Trang này cần chạy xong bước căn chữ mới có ảnh để xem.
                   </Alert>
-                )}
+                ) : null}
               </section>
 
               <aside className="cot-sua">
