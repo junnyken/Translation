@@ -36,11 +36,23 @@ describe('vì sao trang đứng im', () => {
     expect(screen.getByText(/worker_died/)).toBeInTheDocument()
   })
 
-  it('không có bước nào hỏng thì nói THẲNG là đang chờ, không im lặng', async () => {
+  it('trang CHƯA xong: nói thẳng là đang chờ, không im lặng', async () => {
     vi.spyOn(api, 'layLyDoDung').mockResolvedValue(null)
     render(<ChapterProgress project={project()} onNapLai={vi.fn()} />)
     await userEvent.click(screen.getByRole('button', { name: /Vì sao/ }))
     await waitFor(() => expect(screen.getByText(/đang chờ tới lượt/)).toBeInTheDocument())
+  })
+
+  it('trang ĐÃ XONG thì KHÔNG được bảo là "đang chờ tới lượt"', async () => {
+    // Bắt được khi kiểm chứng live: trang typeset_done vẫn báo "đang chờ tới lượt" — nó không
+    // chờ gì cả, và câu đó khiến người dùng ngồi đợi một thứ không bao giờ tới.
+    vi.spyOn(api, 'layLyDoDung').mockResolvedValue(null)
+    render(<ChapterProgress
+      project={project({ pages: [{ id: 'pg1', order: 1, status: 'typeset_done' }] })}
+      onNapLai={vi.fn()} />)
+    await userEvent.click(screen.getByRole('button', { name: /Vì sao/ }))
+    await waitFor(() => expect(screen.getByText(/đã xong/)).toBeInTheDocument())
+    expect(screen.queryByText(/đang chờ tới lượt/)).not.toBeInTheDocument()
   })
 
   it('hỏi máy chủ hỏng thì nói ra, KHÔNG giả vờ là "không có gì hỏng"', async () => {

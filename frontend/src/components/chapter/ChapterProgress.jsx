@@ -57,7 +57,7 @@ export default function ChapterProgress({ project, canhBao, onNapLai }) {
             {t.status === 'detection_failed' && (
               <span className="ghi-chu">Mở trang để chạy lại bước nhận diện.</span>
             )}
-            <LyDoDung pageId={t.id} />
+            <LyDoDung pageId={t.id} trangThai={t.status} />
           </li>
         ))}
       </ul>
@@ -73,6 +73,8 @@ export default function ChapterProgress({ project, canhBao, onNapLai }) {
 }
 
 
+const XONG = ['typeset_done', 'ready_for_export']
+
 const TEN_BUOC = {
   detect: 'nhận diện khung chữ', ocr: 'đọc chữ gốc', inpaint: 'xoá chữ gốc',
   translate: 'dịch', typeset: 'căn chữ', refit: 'căn lại chữ',
@@ -84,7 +86,7 @@ const TEN_BUOC = {
  * trạng thái, không một chữ nào về lý do. Người vận hành chỉ còn cách đoán, hoặc mở log máy chủ —
  * thứ mà họ không có quyền và cũng không nên cần.
  */
-function LyDoDung({ pageId }) {
+function LyDoDung({ pageId, trangThai }) {
   const [mo, setMo] = useState(false)
   const [job, setJob] = useState(undefined)   // undefined = chưa hỏi · null = hỏi rồi, không có
   const [loi, setLoi] = useState(null)
@@ -109,7 +111,15 @@ function LyDoDung({ pageId }) {
   if (loi) return <span className="ghi-chu">Không hỏi được máy chủ: {loi}</span>
   if (job === undefined) return <span className="ghi-chu">Đang hỏi…</span>
   if (job === null) {
-    return <span className="ghi-chu">Không có bước nào hỏng — trang này đang chờ tới lượt.</span>
+    // Nói đúng tình trạng THẬT. Trang đã xong mà báo "đang chờ tới lượt" là một câu nói dối nhỏ
+    // — và nó khiến người dùng ngồi đợi một thứ không bao giờ tới.
+    return (
+      <span className="ghi-chu">
+        {XONG.includes(trangThai)
+          ? 'Không có bước nào hỏng — trang này đã xong.'
+          : 'Không có bước nào hỏng — trang này đang chờ tới lượt.'}
+      </span>
+    )
   }
   return (
     <span className="canh-bao">
