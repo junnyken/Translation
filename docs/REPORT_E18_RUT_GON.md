@@ -115,7 +115,56 @@ Cả hai đều là hệ quả trực tiếp của A1 — bản sửa trước l
 
 ## Live Verification
 
-*(chưa điền — cần chạy trên bản chạy thật)*
+Chạy thật trên bản chạy, **có gọi Gemini thật**. Trang dựng đúng kiểu manga đen trắng: bong bóng
+nhỏ, bên trong là câu tiếng Nhật thật, để cả pipeline chạy bằng đường thật.
+
+### Tái hiện được hiện tượng gốc bằng số
+
+```
+OCR đọc được : 昔好きだった女の子が子供の頃の冒険の話をしてたって聞いたんだ   (29 ký tự)
+dịch (google_fast) : 125 ký tự tiếng Việt        ← nở gấp 4,3 lần
+ô đặt chữ (sau A1) : 120×53 px
+căn chữ            : overflow_warning, cỡ 10 (cỡ nhỏ nhất)
+```
+
+### Lượt 1 — ĐẠT về cơ chế, HỎNG về chất lượng
+
+```
+rút gọn job 259b2fa5: 1 vùng tràn, rút gọn 1, bỏ qua 0 vùng đã sửa tay
+                      · sau khi căn lại: vừa 1, tràn 0 · 1,5s
+```
+
+125 ký tự → **28**, tràn → vừa khung cỡ 21. Nhưng bản rút gọn là *"Nghe bồ kể hồi nhỏ đi
+phượt."* — **đánh rơi "cô gái tôi từng thích"**. Đó là mất thông tin, không còn là rút gọn.
+
+Đo ra thì model không sai, **cấu hình sai**: sức chứa giao cho nó chỉ **22 ký tự**. Không câu
+tiếng Việt nào giữ đủ ý trong 22 ký tự.
+
+Vì sao 22: tỉ lệ cỡ chữ mục tiêu để 0,5, và tôi tính nó trên dải **10–28** của mặc định lúc phát
+triển — trong khi bản chạy thật để **`TYPESET_MAX_FONT_SIZE=40`**. Điểm giữa thành **cỡ 25** thay
+vì 19, sức chứa co lại theo.
+
+**Đây là loại sai chỉ lộ ra khi chạy thật**: test xanh, cơ chế đúng, con số sai vì môi trường
+thật khác môi trường phát triển ở đúng một biến.
+
+### Lượt 2 — sau khi hạ tỉ lệ 0,5 → 0,35 và sửa prompt
+
+Dịch lại vùng đó cho về đúng bản 125 ký tự ban đầu, rồi rút gọn lần nữa trên bản đã chỉnh:
+
+| | Bản rút gọn | Độ dài | Căn chữ |
+|---|---|---|---|
+| **Lượt 1** | *"Nghe bồ kể hồi nhỏ đi phượt."* | 28 | vừa, cỡ 21 |
+| **Lượt 2** | *"Nghe nói cô gái tôi thích kể về cuộc phiêu lưu hồi nhỏ."* | **55** | vừa, cỡ 15 |
+
+Lượt 2 **giữ lại được cả "cô gái tôi thích" lẫn "cuộc phiêu lưu hồi nhỏ"** — đúng hai mẩu thông
+tin lượt 1 đánh rơi — mà vẫn vừa khung. Đổi lại chữ nhỏ hơn (15 thay vì 21), và đó là đánh đổi
+đúng: chữ to hơn mà mất nghĩa thì to để làm gì.
+
+### Chưa kiểm chứng
+
+Chưa chạy trên **đúng trang manga của người dùng** (chapter thuộc tài khoản của họ). Trang dựng
+thử tái hiện đúng cơ chế nhưng chỉ có **một** bong bóng; trang thật có 8 vùng, và mỗi vùng một
+sức chứa khác nhau trong cùng một lượt gọi mô hình.
 
 ## Remaining Limits
 
