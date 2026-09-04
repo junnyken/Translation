@@ -182,13 +182,32 @@ Không ghi chữ mà thực tế không vẽ được — đúng thiết kế.
 `PATCH /regions/{id}` với `坂本さん` ⇒ refit job `failed` sau **0,011 giây**, lý do ghi nguyên văn
 vào `error_log`. Người dùng yêu cầu đúng vùng đó, nên nuốt lỗi rồi trả "xong" là nói dối.
 
-### Chưa kiểm chứng
+### Giao diện — đã bấm tay bằng trình duyệt thật
 
-**Giao diện chưa bấm tay trên trình duyệt.** Mã đã có trong bundle đang phục vụ (kiểm bằng cách
-tải chính file `assets/index-eS9Y4abs.js` về và tìm chuỗi: `failed-jobs`, `font_missing_count`,
-`font_missing_glyph`, `Chưa chèn được chữ`, `có bước đã hỏng` — đủ cả), và 7 test giao diện xanh,
-nhưng **nhìn thấy tận mắt thì chưa**. Chapter kiểm chứng đã được nhả về "chưa có chủ" để nhận về
-và mở xem.
+Chromium (Playwright) mở thẳng vào bản đang chạy, đăng nhập thật, ảnh chụp lưu lại:
+
+| Thấy gì | Ở đâu |
+|---|---|
+| *"**1 bong bóng sẽ trống** vì font không có ký tự trong bản dịch (thường là chữ Nhật còn sót) — sửa lại chữ ở vùng đó rồi căn lại"* | thẻ tóm tắt chapter |
+| Bước **Căn chữ vào bong bóng** mang icon cảnh báo thay vì dấu tick | dòng thời gian pipeline |
+| *"Bước **căn chữ** hỏng: MissingGlyph: font thiếu glyph cho '坂本さん'…"* — **hiện sẵn, không phải bấm** | thẻ tiến độ, dòng của Trang 1 |
+| *"Không còn việc nào đang chạy — có bước đã hỏng, xem lý do ở từng trang bên trên"*, và **không còn** chữ "đang cập nhật…" | cuối thẻ tiến độ |
+| Vùng 2 vẽ **khung đỏ gạch chéo** trên ảnh; vùng 1 có chữ Việt `CẬU ỔN CHỨ? TỚ VỀ ĐÂY.` nằm trong bong bóng | màn sửa tay |
+| Nhãn *"⚠ Chưa chèn được chữ"* cạnh vùng 2 | danh sách vùng |
+| *"**1 bong bóng sẽ trống hoàn toàn** — font không có ký tự nào đó trong bản dịch…"* | hộp thoại trước khi tải file |
+
+Lớp `khung thieu-font` đọc thẳng từ DOM: `['khung dang-chon', 'khung thieu-font']`. Console không
+có lỗi nào.
+
+### Bấm tay lôi ra HAI lỗi mà 304 test không bắt được
+
+1. **Bảng xuất vẫn nói "Không có cảnh báo nào"** trong khi cùng màn hình đó đang báo "1 bong bóng
+   sẽ trống" — nó chỉ đếm tràn khung và vùng chưa đọc được chữ. Đúng loại nói dối mà F1 sinh ra
+   để diệt, và F1 tự chừa lại một chỗ. Đã sửa.
+2. **Ảnh trang và file xuất trả 401 từ khi bật đăng nhập (slice B)** — nặng hơn hẳn, và không
+   thuộc F1. Xem `REPORT_B1C_ANH_VA_FILE.md`.
+
+Không có bước "bấm tay" thì cả hai lỗi này đều đã lên bản chạy và nằm đó.
 
 ## Remaining Limits
 
