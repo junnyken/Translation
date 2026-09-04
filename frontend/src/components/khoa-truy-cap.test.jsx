@@ -25,8 +25,15 @@ describe('lưu và đọc khoá', () => {
 })
 
 describe('nhận biết lỗi thiếu khoá', () => {
-  it('401 là lỗi thiếu khoá', () => {
+  it('401 là lỗi thiếu khoá — dạng Error', () => {
     expect(api.laLoiThieuKhoa(new Error('401: Thiếu hoặc sai khoá truy cập.'))).toBe(true)
+  })
+
+  it('401 là lỗi thiếu khoá — dạng CHUỖI (đúng thứ App truyền vào)', () => {
+    // App lưu lỗi bằng `setLoi(e.message)` nên biến `loi` là một CHUỖI. Bản đầu của hàm này chỉ
+    // đọc `e.message` ⇒ luôn trả false ⇒ ô nhập khoá KHÔNG BAO GIỜ hiện. Test cũ vẫn xanh vì nó
+    // truyền `new Error(...)` — sai hình dạng so với mã thật, nên nó che mất đúng lỗi này.
+    expect(api.laLoiThieuKhoa('401: Thiếu hoặc sai khoá truy cập.')).toBe(true)
   })
 
   it('các lỗi khác KHÔNG bị nhầm thành thiếu khoá', () => {

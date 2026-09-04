@@ -42,9 +42,15 @@ function fetch(url, opts = {}) {
  */
 export const kiemKhoa = () => layCauHinhMe()   // một hiện thực duy nhất, xem bên dưới
 
-/** Máy chủ có đang đòi khoá không — dùng để giao diện biết lúc nào cần hỏi người dùng. */
+/** Máy chủ có đang đòi khoá không — dùng để giao diện biết lúc nào cần hỏi người dùng.
+ *
+ * Nhận CẢ `Error` LẪN chuỗi. Bản đầu chỉ đọc `e.message`, mà App lưu lỗi bằng `setLoi(e.message)`
+ * — tức truyền vào một CHUỖI. Hàm luôn trả `false`, ô nhập khoá không bao giờ hiện, và test thì
+ * vẫn xanh vì nó truyền `new Error(...)` chứ không truyền đúng thứ mã thật truyền.
+ */
 export function laLoiThieuKhoa(e) {
-  return typeof e?.message === 'string' && e.message.startsWith('401')
+  const s = typeof e === 'string' ? e : e?.message
+  return typeof s === 'string' && s.startsWith('401')
 }
 
 async function doc(res) {
