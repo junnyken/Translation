@@ -676,6 +676,8 @@ export default function App() {
                     onCanhLai={(id) => chay('căn lại chữ', () => api.canhLaiVung(id))}
                     onDocLai={(id) => chay('đọc lại chữ gốc', () => api.docLaiVung(id))}
                     onDichLai={(id) => chay('dịch lại', () => api.dichLaiVung(id))}
+                    onTinhLaiVungAnToan={() => chay('tính lại bố cục cả trang',
+                      () => api.tinhLaiVungAnToan(chiTiet.page.id))}
                   />
                 )}
               </aside>

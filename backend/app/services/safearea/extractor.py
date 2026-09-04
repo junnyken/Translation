@@ -63,6 +63,71 @@ def khung_du_phong(bbox: BBox, cfg: SafeAreaConfig, ly_do: list[str]) -> SafeAre
     )
 
 
+def khung_du_phong_co_noi(
+    bbox: BBox,
+    cfg: SafeAreaConfig,
+    ly_do: list[str],
+    mat_na_trong,
+    roi: tuple[int, int, int, int],
+) -> SafeAreaDecision:
+    """Khung dự phòng, nhưng **nới ra chỗ trống** trước khi chịu thua (A1).
+
+    Chỉ đổi HÌNH HỌC, không đổi kết luận: vẫn là `fallback_rectangle` với đủ lý do vì sao không
+    dựng được hình bong bóng. Nói "đã tìm được bong bóng" chỉ vì nới được một cái khung rộng hơn
+    là tự phong cho mình một mức chắc chắn mình không có.
+
+    Nới thất bại (ô ban đầu đã dính mực, hoặc không rộng thêm được bao nhiêu) ⇒ trả đúng khung
+    dự phòng cũ, không có gì đổi.
+    """
+    goc = khung_du_phong(bbox, cfg, ly_do)
+    if not cfg.grow_enabled or mat_na_trong is None:
+        return goc
+
+    from app.services.safearea.grow import gioi_han_no, no_khung_ra_cho_trong
+
+    r = goc.geometry["rect"]
+    rx, ry, _rw, _rh = roi
+    # Mặt nạ nằm trong hệ toạ độ ROI; khung thì ở hệ toạ độ ảnh gốc.
+    o_bat_dau = (r["x"] - rx, r["y"] - ry, r["w"], r["h"])
+    gh = gioi_han_no(bbox.x - rx, bbox.y - ry, bbox.w, bbox.h,
+                     (0, 0, mat_na_trong.shape[1], mat_na_trong.shape[0]),
+                     cfg.grow_max_ratio, cfg.grow_max_px)
+    kq = no_khung_ra_cho_trong(mat_na_trong, o_bat_dau, gioi_han=gh, buoc=cfg.grow_step_px)
+    if kq is None or kq.he_so_dien_tich < 1.0 + cfg.grow_min_gain_ratio:
+        return goc
+
+    # Chừa lề bên trong khung vừa nới: nới dừng ở NÉT MỰC, nên mép khung đang chạm sát viền
+    # bong bóng. Không thụt vào thì chữ dính viền.
+    le = _le_thut_vao(bbox, cfg)
+    x = kq.x + rx + le
+    y = kq.y + ry + le
+    w = kq.w - 2 * le
+    h = kq.h - 2 * le
+    if w < cfg.safe_area_min_width_px or h < cfg.safe_area_min_height_px:
+        return goc
+    if w * h <= r["w"] * r["h"]:
+        return goc
+
+    ly_do_moi = list(goc.reason_codes)
+    if ReasonCode.FALLBACK_GROWN_TO_FREE_SPACE not in ly_do_moi:
+        ly_do_moi.append(ReasonCode.FALLBACK_GROWN_TO_FREE_SPACE)
+    # Khung đã nới thì không còn "nhỏ hơn mức tối thiểu" nữa — bỏ mã đó đi, giữ lại là nói sai
+    # về khung ĐANG dùng.
+    ly_do_moi = [m for m in ly_do_moi if m != ReasonCode.SAFE_AREA_SMALLER_THAN_MINIMUM]
+
+    dien_tich = int(w * h)
+    return SafeAreaDecision(
+        source=SafeAreaSource.fallback_rectangle,
+        status=SafeAreaStatus.fallback_rectangle,
+        geometry_type=SafeAreaGeometryType.rect,
+        geometry={"rect": {"x": float(x), "y": float(y), "w": float(w), "h": float(h)}},
+        roi=roi,
+        reason_codes=ly_do_moi,
+        safe_area_pixels=dien_tich,
+        bbox_coverage_ratio=round(dien_tich / max(bbox.w * bbox.h, 1.0), 4),
+    )
+
+
 def tinh_roi(bbox: BBox, image_w: int, image_h: int, cfg: SafeAreaConfig) -> tuple[int, int, int, int]:
     ex = min(bbox.w * cfg.roi_expand_ratio, cfg.roi_expand_max_px)
     ey = min(bbox.h * cfg.roi_expand_ratio, cfg.roi_expand_max_px)
@@ -127,7 +192,15 @@ class BubbleSafeAreaExtractor:
         sang = ((hsv[:, :, 2] >= config.brightness_threshold)
                 & (hsv[:, :, 1] <= config.saturation_threshold)).astype(np.uint8) * 255
         if not sang.any():
+            # Không có điểm sáng nào thì cũng không có chỗ trống nào để nới vào.
             return khung_du_phong(region_bbox, config, [ReasonCode.SHAPE_LOW_CONTRAST])
+
+        # Từ đây trở xuống đã có mặt nạ chỗ-trống, nên mọi đường lùi về khung dự phòng đều
+        # được thử nới ra trước (A1).
+        trong = sang > 0
+
+        def du_phong(ly_do: list[str]) -> SafeAreaDecision:
+            return khung_du_phong_co_noi(region_bbox, config, ly_do, trong, (rx, ry, rw, rh))
 
         canh_ngan = min(region_bbox.w, region_bbox.h)
         k = int(max(3, round(canh_ngan * config.morph_kernel_ratio)) // 2 * 2 + 1)
@@ -140,7 +213,7 @@ class BubbleSafeAreaExtractor:
         cy = float(region_bbox.y + region_bbox.h / 2 - ry)
         chua_tam = [c for c in vien if cv2.pointPolygonTest(c, (cx, cy), False) >= 0]
         if not chua_tam:
-            return khung_du_phong(region_bbox, config, [ReasonCode.SHAPE_CANDIDATE_NOT_CENTERED])
+            return du_phong([ReasonCode.SHAPE_CANDIDATE_NOT_CENTERED])
 
         ly_do: list[str] = []
         if len(chua_tam) > 1:
@@ -169,11 +242,11 @@ class BubbleSafeAreaExtractor:
             ly_do.append(ReasonCode.SHAPE_EROSION_ELIMINATED_AREA)
 
         if ly_do:
-            return khung_du_phong(region_bbox, config, ly_do)
+            return du_phong(ly_do)
 
         cnt, _ = cv2.findContours(mask_an, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not cnt:
-            return khung_du_phong(region_bbox, config, [ReasonCode.SHAPE_EROSION_ELIMINATED_AREA])
+            return du_phong([ReasonCode.SHAPE_EROSION_ELIMINATED_AREA])
         c2 = max(cnt, key=cv2.contourArea)
         eps = 0.005 * cv2.arcLength(c2, True)
         xap_xi = cv2.approxPolyDP(c2, eps, True)
@@ -182,12 +255,12 @@ class BubbleSafeAreaExtractor:
             eps *= 1.5
             xap_xi = cv2.approxPolyDP(c2, eps, True)
         if len(xap_xi) < 3 or len(xap_xi) > config.max_polygon_vertices:
-            return khung_du_phong(region_bbox, config, [ReasonCode.SHAPE_INVALID_GEOMETRY])
+            return du_phong([ReasonCode.SHAPE_INVALID_GEOMETRY])
 
         x, y, w, h = cv2.boundingRect(mask_an)
         if (w < config.safe_area_min_width_px or h < config.safe_area_min_height_px
                 or con_lai < config.safe_area_min_pixels):
-            return khung_du_phong(region_bbox, config, [ReasonCode.SAFE_AREA_SMALLER_THAN_MINIMUM])
+            return du_phong([ReasonCode.SAFE_AREA_SMALLER_THAN_MINIMUM])
 
         diem = [[float(p[0][0] + rx), float(p[0][1] + ry)] for p in xap_xi]
         return SafeAreaDecision(

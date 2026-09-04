@@ -25,6 +25,14 @@ class SafeAreaConfig:
     #: kết quả y hệt M6. Dùng lề ăn-vào của E14 ở đây sẽ làm cỡ chữ đổi ở cả những vùng E14
     #: không hề nhận diện được gì: một thay đổi không ai xin và không ai giải thích được.
     fallback_padding_ratio: float
+    #: A1 — nới khung dự phòng ra chỗ trống. Xem `grow.py`.
+    grow_enabled: bool = True
+    grow_max_ratio: float = 1.5
+    grow_max_px: int = 400
+    grow_step_px: int = 2
+    #: Nới mà diện tích không hơn được ngần này thì coi như không nới — đổi hình học vì vài
+    #: pixel chỉ làm bố cục nhảy lung tung giữa các lần chạy mà chẳng ai được lợi.
+    grow_min_gain_ratio: float = 0.15
 
     @classmethod
     def from_settings(cls, settings) -> "SafeAreaConfig":
@@ -45,6 +53,11 @@ class SafeAreaConfig:
             safe_area_min_width_px=settings.e14_safe_area_min_width_px,
             safe_area_min_height_px=settings.e14_safe_area_min_height_px,
             fallback_padding_ratio=settings.typeset_padding_ratio,
+            grow_enabled=settings.e14_grow_enabled,
+            grow_max_ratio=settings.e14_grow_max_ratio,
+            grow_max_px=settings.e14_grow_max_px,
+            grow_step_px=settings.e14_grow_step_px,
+            grow_min_gain_ratio=settings.e14_grow_min_gain_ratio,
         )
 
     def snapshot(self) -> dict:

@@ -317,6 +317,8 @@ export const LY_DO_VUNG_AN_TOAN = {
   shape_invalid_geometry: 'Khung chữ hoặc ảnh không hợp lệ',
   shape_erosion_eliminated_area: 'Chừa lề vào thì không còn chỗ đặt chữ',
   fallback_no_reliable_shape: 'Không đủ chắc về hình bong bóng nên dùng khung dự phòng',
+  fallback_grown_to_free_space:
+    'Đã nới khung ra tới khi chạm nét vẽ, để chữ có đủ chỗ trong bong bóng',
   safe_area_smaller_than_minimum: 'Vùng còn lại nhỏ hơn mức tối thiểu',
   manual_bbox_changed: 'Khung chữ vừa được chỉnh tay',
   render_footprint_outside_safe_area: 'Chữ vẽ ra vượt khỏi vùng an toàn',

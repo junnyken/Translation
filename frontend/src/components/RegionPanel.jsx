@@ -3,7 +3,10 @@ import { LY_DO_VUNG_AN_TOAN, NGUON_VUNG_AN_TOAN } from '../lib/status-presentati
 import StatusBadge from './ui/StatusBadge.jsx'
 
 /** Bảng sửa 1 vùng: bản dịch, font, cỡ chữ + các nút chạy lại từng bước. */
-export default function RegionPanel({ region, vungAnToan, fontFamilies, coMin, coMax, dangBan, onLuu, onDichLai, onDocLai, onCanhLai }) {
+export default function RegionPanel({
+  region, vungAnToan, fontFamilies, coMin, coMax, dangBan,
+  onLuu, onDichLai, onDocLai, onCanhLai, onTinhLaiVungAnToan,
+}) {
   const [text, setText] = useState(region.translated_text ?? '')
   const [font, setFont] = useState(region.font_family ?? fontFamilies[0])
   const [ghimCo, setGhimCo] = useState(false)
@@ -42,6 +45,15 @@ export default function RegionPanel({ region, vungAnToan, fontFamilies, coMin, c
           Đây là <b>chuyện bố cục</b>, tách khỏi việc chữ có vừa khung hay không. Một vùng vẫn
           có thể vừa khít trong khung dự phòng mà vị trí trong bong bóng vẫn nên xem lại.
         </p>
+        {onTinhLaiVungAnToan && (
+          // A1: bố cục của một trang CHỈ được tính lúc xoá chữ. Không có nút này thì bản sửa
+          // hình học nào cũng chỉ ăn vào trang tải lên MỚI, còn chapter đang làm dở thì không
+          // có đường nào chạm tới — người dùng phải xoá đi tải lại từ đầu.
+          <button type="button" className="nut nut-phu" disabled={dangBan}
+                  onClick={onTinhLaiVungAnToan}>
+            {dangBan ? 'Đang tính lại…' : 'Tính lại bố cục cả trang'}
+          </button>
+        )}
       </div>
     )}
 

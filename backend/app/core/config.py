@@ -203,6 +203,19 @@ class Settings(BaseSettings):
     e14_safe_area_min_width_px: int = 24
     e14_safe_area_min_height_px: int = 16
 
+    # --- A1: nới khung dự phòng ra chỗ trống quanh chữ ---
+    #
+    # Vì sao cần: ngưỡng sáng của E14 không tách được bong bóng TRẮNG trên trang cũng TRẮNG
+    # (manga đen trắng) — đo thật 04/09: 0/8 vùng dựng được hình. Khung dự phòng khi đó là cột
+    # chữ Nhật cao-hẹp, chữ Việt viết ngang nhét vào là tràn. Nới ra tới khi chạm nét mực thì
+    # lấy được gần trọn lòng bong bóng mà không cần tách được nó.
+    e14_grow_enabled: bool = True
+    #: Mỗi phía nới thêm tối đa ngần này lần cạnh bbox (1.5 = khung có thể rộng gấp ~4 lần).
+    e14_grow_max_ratio: float = 1.5
+    e14_grow_max_px: int = 400
+    e14_grow_step_px: int = 2
+    e14_grow_min_gain_ratio: float = 0.15
+
     # ---- E15: hướng chữ ----
     e15_orientation_enabled: bool = True
     #: Lệch bao nhiêu độ so với 0/90 thì vẫn coi là ngang/dọc.

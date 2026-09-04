@@ -1136,3 +1136,58 @@ dối bằng hoạt hình.
 
 Nút "Vì sao?" vẫn còn cho trường hợp trang đứng im mà **không** có job hỏng nào (worker chết
 giữa chừng, việc treo ở `running`): lúc đó không có gì để hiện sẵn, phải hỏi mới biết.
+
+## A1. Nới khung ra chỗ trống — khi không tách được bong bóng khỏi nền (2026-09-04)
+
+### A1.1 Vì sao E14 bó tay trên manga đen trắng
+
+E14 tìm bong bóng bằng **ngưỡng sáng**: vùng sáng + ít bão hoà, rồi chọn đường viền khít nhất
+chứa tâm bbox. Cách đó đúng với truyện màu — bong bóng trắng nổi hẳn trên nền vẽ có màu.
+
+Manga đen trắng phá vỡ tiền đề đó: bong bóng trắng nằm trên **trang cũng trắng**. Vùng sáng loang
+ra hết cả ROI, nên ứng viên chứa tâm hoặc chạm biên ROI hoặc chiếm gần hết ROI — cả hai đều bị
+loại đúng theo luật, và đúng ra phải bị loại: đó **thật sự** không phải hình bong bóng.
+
+Đo trên trang thật của người dùng (04/09): `shape_derived: 0/8`.
+
+### A1.2 Vấn đề nằm ở khung dự phòng, không nằm ở phép tách
+
+Rơi về dự phòng thì khung chữ = **bbox của bộ nhận diện, thụt vào**. Với manga chữ dọc, bbox đó
+là **cột chữ Nhật**: cao và rất hẹp. Chữ Việt viết ngang nhét vào cột hẹp thì mỗi dòng 2–3 ký
+tự, và tràn khung ngay cả ở cỡ chữ nhỏ nhất — trong khi lòng bong bóng còn trống mênh mông ngay
+bên cạnh.
+
+### A1.3 Không tách bong bóng nữa, chỉ nới cho tới khi chạm mực
+
+Viền bong bóng **là nét mực**. Nên bỏ hẳn việc phải tách bong bóng khỏi nền: nới khung ra bốn
+phía chừng nào **dải mới còn sạch hoàn toàn**, phép nới tự dừng ở mép trong của viền. Cả hai
+phía đều trắng cũng không sao — cái ngăn chúng là nét mực, không phải độ sáng.
+
+Hệ quả đáng giá: vùng chữ **ngoài** bong bóng (tiếng động, chữ trên nền vẽ) thì nét vẽ chặn ngay,
+khung gần như không nới được. Không cần luật riêng cho trường hợp đó.
+
+### A1.4 Ranh giới: nới khung KHÔNG phải là nhận ra bong bóng
+
+`source` vẫn là `fallback_rectangle`, mọi lý do vì sao E14 bó tay được giữ nguyên, chỉ thêm mã
+`fallback_grown_to_free_space`. Một cái khung rộng hơn không phải bằng chứng về hình bong bóng —
+và E14 tồn tại chính là để không nhận vơ mức chắc chắn mình không có.
+
+### A1.5 Hai con số phải chọn đúng, đã trả giá để biết
+
+**Thứ tự nới**: một thứ tự cố định làm ô bị khoá ở dạng cao-hẹp (44×280 → 166×352). Thử **ba**
+thứ tự rồi lấy ô lớn nhất — đúng bài học `layout.py` đã học một lần.
+
+**Thước đo giới hạn**: chặn theo cạnh **DÀI** của bbox, không phải cạnh tương ứng. Cột chữ rộng
+44px mà chặn ngang theo 44 thì khung không bao giờ vượt 176px. Bong bóng gần vuông, khung chữ
+bên trong có thể rất dẹt — cạnh dài mới nói lên "bong bóng này to cỡ nào".
+
+Đo cuối: ô đặt chữ 36×230 → **232×320**, cỡ chữ **10 → 28**, ngắt dòng từ 15 mẩu vụn còn 5 dòng.
+
+### A1.6 Bố cục chỉ được tính lúc xoá chữ — nên phải có nút tính lại
+
+`retry-safe-area` có từ E14 nhưng chưa nút nào gọi. Không có nút thì mọi bản sửa hình học chỉ ăn
+vào trang **tải lên mới**; trang đang làm dở không có đường nào chạm tới. Nay nút "Tính lại bố
+cục cả trang" nằm ngay thẻ hình bong bóng ở màn sửa tay.
+
+Cố ý **không** tự tính lại hàng loạt cho mọi trang cũ: đổi bố cục của một trang người dùng đã sửa
+tay xong là phá việc của họ mà không ai xin phép.

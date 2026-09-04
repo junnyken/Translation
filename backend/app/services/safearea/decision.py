@@ -19,6 +19,8 @@ class ReasonCode:
     SHAPE_INVALID_GEOMETRY = "shape_invalid_geometry"
     SHAPE_EROSION_ELIMINATED_AREA = "shape_erosion_eliminated_area"
     FALLBACK_NO_RELIABLE_SHAPE = "fallback_no_reliable_shape"
+    #: A1 — không dựng được hình bong bóng, nhưng đã nới khung ra tới khi chạm nét vẽ.
+    FALLBACK_GROWN_TO_FREE_SPACE = "fallback_grown_to_free_space"
     SAFE_AREA_SMALLER_THAN_MINIMUM = "safe_area_smaller_than_minimum"
     MANUAL_BBOX_CHANGED = "manual_bbox_changed"
     RENDER_FOOTPRINT_OUTSIDE_SAFE_AREA = "render_footprint_outside_safe_area"
@@ -28,6 +30,7 @@ class ReasonCode:
         SHAPE_CANDIDATE_TOUCHES_ROI_BOUNDARY, SHAPE_CANDIDATE_MULTIPLE_AMBIGUOUS,
         SHAPE_CANDIDATE_FILLS_ROI, SHAPE_LOW_CONTRAST, SHAPE_INVALID_GEOMETRY,
         SHAPE_EROSION_ELIMINATED_AREA, FALLBACK_NO_RELIABLE_SHAPE,
+        FALLBACK_GROWN_TO_FREE_SPACE,
         SAFE_AREA_SMALLER_THAN_MINIMUM, MANUAL_BBOX_CHANGED,
         RENDER_FOOTPRINT_OUTSIDE_SAFE_AREA,
     })

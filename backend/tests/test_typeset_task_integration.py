@@ -10,7 +10,9 @@ import sqlalchemy as sa
 from PIL import Image
 
 from app.core.db_sync import sync_session
-from app.models import Job, Page, TextRegion, TranslationResult, TypesetResult
+from app.models import (
+    Job, Page, RegionSafeArea, TextRegion, TranslationResult, TypesetResult,
+)
 from app.models.enums import FitStatus, JobStatus, JobType, OCREngine, PageStatus
 from app.services.detect.ctd import DetectedRegion
 from app.services.interfaces import BBox
@@ -350,17 +352,28 @@ async def test_chu_khong_bao_gio_ve_ra_ngoai_khung(full_pipeline, storage_root):
 
     page = _page(page_id)
     with sync_session() as s:
-        khung = [
-            (r.bbox_x, r.bbox_y, r.bbox_w, r.bbox_h)
-            for r in s.execute(
-                sa.select(TextRegion).where(TextRegion.page_id == uuid.UUID(page_id))
-            ).scalars()
-        ]
+        # VÙNG ĐƯỢC PHÉP VẼ = bbox chữ **hợp với** ô đặt chữ của E14.
+        #
+        # Trước A1 hai thứ này luôn trùng nhau (ô đặt chữ là bbox thụt vào), nên chỉ bôi bbox là
+        # đủ. Từ A1, khi không dựng được hình bong bóng thì ô đặt chữ được NỚI RA khỏi bbox tới
+        # khi chạm nét mực — chữ nằm ngoài bbox mà vẫn trong lòng bong bóng là ĐÚNG, đó chính là
+        # bản sửa. Cái phải canh vẫn nguyên giá trị: chữ không được rơi ra chỗ có hình vẽ.
+        khung = []
+        for r in s.execute(
+            sa.select(TextRegion).where(TextRegion.page_id == uuid.UUID(page_id))
+        ).scalars():
+            khung.append((r.bbox_x, r.bbox_y, r.bbox_w, r.bbox_h))
+            vat = s.execute(
+                sa.select(RegionSafeArea).where(RegionSafeArea.region_id == r.id)
+            ).scalars().first()
+            o = vat.place_rect_json if vat else None
+            if o:
+                khung.append((o["x"], o["y"], o["w"], o["h"]))
 
     with Image.open(Path(storage_root) / page.clean_image_path) as clean, \
          Image.open(Path(storage_root) / preview_relative_path(uuid.UUID(page_id))) as pv:
         sach, xem = clean.convert("RGB").copy(), pv.convert("RGB").copy()
-    # Bôi trắng mọi bbox trên CẢ HAI ảnh; phần còn lại phải giống hệt nhau.
+    # Bôi trắng mọi vùng được phép trên CẢ HAI ảnh; phần còn lại phải giống hệt nhau.
     from PIL import ImageDraw as _Draw
     for anh in (sach, xem):
         d = _Draw.Draw(anh)
@@ -368,7 +381,7 @@ async def test_chu_khong_bao_gio_ve_ra_ngoai_khung(full_pipeline, storage_root):
             # nới 3px cho viền cảnh báo màu đỏ mà renderer cố ý vẽ quanh vùng tràn
             d.rectangle([x - 3, y - 3, x + w + 3, y + h + 3], fill="white")
     assert list(sach.getdata()) == list(xem.getdata()), \
-        "có pixel chữ nằm NGOÀI bbox — chữ đã tràn ra ngoài khung"
+        "có pixel chữ nằm NGOÀI cả bbox lẫn ô đặt chữ — chữ đã rơi ra chỗ có hình vẽ"
 
 
 class TestFontThieuGlyph:
