@@ -164,9 +164,42 @@ Lượt 2 **giữ lại được cả "cô gái tôi thích" lẫn "cuộc phiê
 tin lượt 1 đánh rơi — mà vẫn vừa khung. Đổi lại chữ nhỏ hơn (15 thay vì 21), và đó là đánh đổi
 đúng: chữ to hơn mà mất nghĩa thì to để làm gì.
 
+### Lượt 3 — chạy trên ĐÚNG trang manga của người dùng (8 vùng)
+
+Người dùng đưa tài khoản để chạy trực tiếp. Chapter `433g`, trang 8 vùng, 2 vùng tràn.
+
+**Lượt đầu — cơ chế đạt, nội dung HỎNG.** 8/8 vừa khung, tràn 0. Nhưng:
+
+| Vùng | Trước | Sau |
+|---|---|---|
+| 5 | *"Bạn không nghĩ vậy sao?"* (23) | **`?`** — đúng một dấu hỏi |
+| 6 | *"…cô gái tôi từng thích **Kazudake** đã kể…"* (105) | *"Cậu nghe bồ cũ kể chuyện xưa chưa?"* (34) |
+
+Vùng 5 bị **xoá sạch**. Vùng 6 **đánh rơi tên riêng** và đổi nghĩa. Bộ lọc nhận cả hai vì luật
+chỉ có *"ngắn hơn bản cũ và không rỗng"* — quá lỏng. Cả hai vùng đã được khôi phục nguyên văn
+bằng `re-translate`.
+
+**Ba chốt CHẶN thêm vào** (prompt đã dặn giữ tên riêng và model vẫn bỏ — **dặn suông không phải
+chốt chặn**): phải còn ít nhất một chữ cái · phải dùng ≥35% **sức chứa** · không được đánh rơi
+tên riêng có trong bản cũ.
+
+**Lượt cuối, sau cả A1 lẫn ba chốt:**
+
+| Vùng | Kết quả |
+|---|---|
+| 5 | *"Bạn không nghĩ vậy sao?"* → ***"Thế à?"*** — **vừa khung** |
+| 6 | **giữ nguyên** — chốt tên riêng chặn, vùng này tiếp tục báo tràn |
+
+**Tràn của cả trang: 3 → 2 (A1) → 1 (E18).** Kiểm chéo trên ảnh xem thử: điểm mực trong bong
+bóng vùng 5 đi từ 2 (ảnh clean) lên 191 — chữ có được vẽ thật.
+
+Vùng 6 là ca E18 **không giải quyết được và không nên giả vờ giải quyết**: 105 ký tự vào một ô
+61×90 nghĩa là phải nén 8 lần, và mọi bản nén tới mức đó đều rơi mất `Kazudake`. Giữ nguyên chữ
+kèm cảnh báo tràn là câu trả lời đúng.
+
 ### Chưa kiểm chứng
 
-Chưa chạy trên **đúng trang manga của người dùng** (chapter thuộc tài khoản của họ). Trang dựng
+Chưa nhìn tận mắt ảnh xem thử cuối cùng trên trình duyệt (chapter thuộc tài khoản của họ). Trang dựng
 thử tái hiện đúng cơ chế nhưng chỉ có **một** bong bóng; trang thật có 8 vùng, và mỗi vùng một
 sức chứa khác nhau trong cùng một lượt gọi mô hình.
 
