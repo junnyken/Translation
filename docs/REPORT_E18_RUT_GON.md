@@ -30,9 +30,13 @@ Vấn đề gốc: bước dịch **không hề biết bong bóng to bao nhiêu*
 qua đúng `FontResolver` của M6, rồi nhân số dòng. Không có bảng bề rộng đoán sẵn, không có hằng
 số ma thuật — đổi font là con số tự đổi theo.
 
-**Cỡ chữ mục tiêu** lấy giữa dải min–max (`E18_CO_CHU_MUC_TIEU_TY_LE`, mặc định 0,5 ⇒ cỡ 19 với
-dải 10–28). Không lấy cỡ nhỏ nhất: "vừa khung ở cỡ 10" là vừa một thứ không ai đọc nổi. Không
-lấy cỡ lớn nhất: ép bản dịch ngắn tới mức mất nghĩa.
+**Cỡ chữ mục tiêu** lấy theo `E18_CO_CHU_MUC_TIEU_TY_LE` — vị trí giữa dải min–max. Không lấy
+cỡ nhỏ nhất: "vừa khung ở cỡ 10" là vừa một thứ không ai đọc nổi. Không lấy cỡ lớn nhất: ép bản
+dịch ngắn tới mức mất nghĩa.
+
+Mặc định **0,35** (⇒ cỡ 20 trên dải thật 10–40 của bản chạy). Con số này ban đầu để 0,5 và phải
+hạ xuống sau lượt kiểm chứng đầu tiên — xem *Live Verification*, đó là chỗ đắt giá nhất của cả
+mini-spec này.
 
 ### Sức chứa là ƯỚC LƯỢNG, và nói thẳng ra như vậy
 
