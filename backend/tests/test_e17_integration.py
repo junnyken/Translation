@@ -256,3 +256,59 @@ class TestTang3:
             assert run.status is TermSuggestionStatus.failed
             assert "429" in run.error_log
             assert run.suggestions is None, "hỏng thì để null, KHÔNG trả [] như thể đã hỏi xong"
+
+
+class TestDoiChieuTenChinhThuc:
+    """E17 tầng 3b — endpoint đối chiếu danh xưng chapter với CSDL AniList.
+
+    Nguyên tắc: **chapter quyết định cần gì, CSDL chỉ trả lời viết thế nào.**
+    """
+
+    async def test_project_khong_ton_tai_tra_404(self, client):
+        import uuid as _u
+        r = await client.post(f"/api/v1/projects/{_u.uuid4()}/term-official-names",
+                              json={"ten_bo_truyen": "Naruto"})
+        assert r.status_code == 404
+
+    async def test_thieu_ten_bo_truyen_thi_422_chu_khong_doan_ho(self, client):
+        """Đoán hộ tên bộ truyện là đối chiếu chapter này với nhân vật của một bộ khác."""
+        pr = await client.post("/api/v1/projects", json={
+            "name": "t3b", "source_lang": "ja", "target_lang": "vi", "intended_use": "personal"})
+        r = await client.post(f"/api/v1/projects/{pr.json()['id']}/term-official-names", json={})
+        assert r.status_code == 422
+
+    async def test_AniList_hong_thi_van_200_va_NOI_RA_ly_do(self, client, monkeypatch):
+        """Nguồn ngoài sập không được kéo theo cả lượt rà soát — nhưng cũng không được im lặng."""
+        import urllib.request
+
+        def sap(*a, **k):
+            raise OSError("mạng đứt")
+        monkeypatch.setattr(urllib.request, "urlopen", sap)
+
+        pr = await client.post("/api/v1/projects", json={
+            "name": "t3b hỏng", "source_lang": "ja", "target_lang": "vi",
+            "intended_use": "personal"})
+        r = await client.post(f"/api/v1/projects/{pr.json()['id']}/term-official-names",
+                              json={"ten_bo_truyen": "Naruto"})
+        assert r.status_code == 200
+        d = r.json()
+        assert d["khong_dung_duoc"], "hỏng mà không nói lý do"
+        assert d["khop"] == []
+
+    async def test_chapter_KHONG_co_danh_xung_thi_khong_hoi_CSDL_lam_gi(self, client, monkeypatch):
+        """Không có gì để đối chiếu thì đừng làm phiền nguồn ngoài."""
+        import urllib.request
+        goi = {"n": 0}
+
+        def dem(*a, **k):
+            goi["n"] += 1
+            raise OSError("không nên tới đây")
+        monkeypatch.setattr(urllib.request, "urlopen", dem)
+
+        pr = await client.post("/api/v1/projects", json={
+            "name": "t3b rỗng", "source_lang": "ja", "target_lang": "vi",
+            "intended_use": "personal"})
+        r = await client.post(f"/api/v1/projects/{pr.json()['id']}/term-official-names",
+                              json={"ten_bo_truyen": "Naruto"})
+        assert r.status_code == 200
+        assert r.json()["khop"] == []

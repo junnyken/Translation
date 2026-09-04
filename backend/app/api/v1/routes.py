@@ -77,6 +77,8 @@ from app.schemas.common import (
     PageOrientationSummary,
     PageSafeAreaSummary,
     SafeAreaRead,
+    DoiChieuTenRequest,
+    DoiChieuTenResponse,
     JobRead,
     OCRResultRead,
     TranslationResultRead,
@@ -2195,6 +2197,64 @@ async def retry_page_orientation(
 
 
 # ============================ E17: gợi ý thuật ngữ & xưng hô từ chính chapter ============================
+
+
+@router.post(
+    "/projects/{project_id}/term-official-names",
+    response_model=DoiChieuTenResponse,
+    tags=["glossary"],
+)
+async def term_official_names(
+    project_id: uuid.UUID,
+    payload: DoiChieuTenRequest,
+    session: AsyncSession = Depends(get_session),
+) -> DoiChieuTenResponse:
+    """Đối chiếu danh xưng CỦA CHAPTER với CSDL nhân vật AniList (E17 tầng 3b).
+
+    **Chapter quyết định cần gì, CSDL chỉ trả lời viết thế nào.** Danh sách đem đi hỏi là danh
+    xưng rút từ chính chapter (tầng 1); mọi nhân vật CSDL trả về mà không khớp danh sách đó đều
+    bị loại và đếm vào `bo_qua`.
+
+    Vì sao không lấy thẳng danh sách từ CSDL: đo 2026-09-04 thấy One Piece có **500** nhân vật
+    trong CSDL còn một chapter thật có **3** danh xưng. Đổ 500 mục vào glossary là làm mọi lượt
+    rà soát nhất quán ngập cảnh báo vô nghĩa.
+
+    `200` chứ không `202`: đây là một lượt tra CSDL, **không gọi AI** — khác tầng 3a.
+    """
+    from app.core.db_sync import sync_session
+    from app.services.consistency.anilist import tra_ten_chinh_thuc
+    from app.services.consistency.ungvien import rut_ung_vien
+
+    await _get_project_or_404(session, project_id)
+
+    def _chay():
+        with sync_session() as s:
+            uv = rut_ung_vien(s, project_id)
+        danh_xung = [c.term for c in uv.ung_vien]
+        if not danh_xung:
+            # Không có gì để đối chiếu thì đừng làm phiền nguồn ngoài — và đừng để người dùng
+            # tưởng đã đối chiếu xong khi thật ra chưa hỏi ai.
+            from app.services.consistency.anilist import KetQuaDoiChieu
+
+            return KetQuaDoiChieu(
+                khong_dung_duoc="Chapter chưa có danh xưng nào để đối chiếu — chạy 'Tìm trong "
+                                "chapter' trước."
+            )
+        return tra_ten_chinh_thuc(danh_xung, payload.ten_bo_truyen)
+
+    kq = await run_in_threadpool(_chay)
+    return DoiChieuTenResponse(
+        tim_thay_bo_truyen=kq.tim_thay_bo_truyen,
+        khop=[
+            {
+                "danh_xung": k.danh_xung, "ten_day_du": k.ten_day_du,
+                "ten_goc": k.ten_goc, "ten_khac": k.ten_khac, "ly_do": k.ly_do,
+            }
+            for k in kq.khop
+        ],
+        bo_qua=kq.bo_qua,
+        khong_dung_duoc=kq.khong_dung_duoc,
+    )
 
 
 @router.get(

@@ -842,3 +842,39 @@ tôi ghim nó bằng test hai chiều: `Cayenne` không lọt vào, mà `Wonderf
 để lần sau không ai "sửa" nó thành máy đẻ dương tính giả.
 
 **937 backend + 250 frontend passed.**
+
+
+## E17b — Đối chiếu danh xưng với CSDL nhân vật AniList (2026-09-04) ✅ **XONG**
+
+Tầng 3b của E17: lấy danh xưng **của chính chapter** đi tra CSDL để biết cách viết chính thức.
+
+**Đo API thật trước rồi mới thiết kế** — và số đo lật ngược ý tưởng ban đầu:
+
+| | |
+|---|---|
+| One Piece / Chainsaw Man (MANGA) | **500** nhân vật |
+| Một chapter thật | **3** danh xưng |
+| "Naruto" MANGA / ANIME | **2** / **500** |
+| Mô tả nhân vật | chiều cao, gia đình — **không chữ nào về xưng hô** |
+
+⇒ **Không lấy danh sách từ CSDL, mà lấy danh sách của chapter đi hỏi CSDL.** Lệch 150 lần thì đổ
+cả CSDL vào glossary là làm mọi lượt rà soát ngập cảnh báo vô nghĩa. Và vì CSDL **không có dữ liệu
+xưng hô**, tầng 2 (đọc kính ngữ/đại từ có thật trong bản gốc) vẫn là nguồn duy nhất cho giọng
+nhân vật — AniList không thay được và không được giả vờ thay được.
+
+Cổng đối chiếu y hệt tầng 3a: nhân vật CSDL không khớp chapter ⇒ **loại thẳng**, đếm vào `bo_qua`
+và **hiện cho người dùng đọc** — đó chính là bằng chứng cho lập luận trên (One Piece: khớp 3, bỏ
+qua 22).
+
+Ba chi tiết kỹ thuật đáng ghi:
+- **`User-Agent` là bắt buộc** — AniList sau Cloudflare trả **403** cho UA mặc định của urllib.
+  Bắt được ngay lần chạy thật đầu vì phần xử lý lỗi trả lý do thật thay vì sập.
+- **`urllib` chứ không `httpx`** — theo tiền lệ engine dịch; `httpx` chỉ là phụ thuộc gián tiếp,
+  không khai trong `requirements.txt`.
+- **Tách phần quyết định khỏi phần gọi mạng** — `doi_chieu()` thuần tính toán nên test được đúng/
+  sai mà không phụ thuộc dịch vụ ngoài.
+
+Giao diện: **một ô "Tên bộ truyện", hai nút**. Bản đầu tôi thêm ô riêng ⇒ hai ô cùng nhãn trên một
+màn, và bộ test cũ bắt ngay (`Found multiple elements`). Đó là lỗi UX thật, không chỉ lỗi test.
+
+backend exit 0 · frontend **265 passed** (nền 259).

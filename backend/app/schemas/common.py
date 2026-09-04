@@ -784,3 +784,36 @@ class TermSuggestionRunRead(ORMModel):
     error_log: str | None
     created_at: datetime
     updated_at: datetime
+
+
+# ---------- E17 tầng 3b: đối chiếu CSDL nhân vật ngoài (AniList) ----------
+class TenChinhThucRead(BaseModel):
+    """Một danh xưng CỦA CHAPTER đã tìm thấy bản ghi tương ứng trong CSDL ngoài."""
+
+    #: Giữ NGUYÊN cách chapter viết. Không bao giờ thay bằng dạng của CSDL — thay là sửa dữ liệu
+    #: của người dùng bằng dữ liệu của người khác.
+    danh_xung: str
+    ten_day_du: str | None = None
+    ten_goc: str | None = None
+    ten_khac: list[str] = Field(default_factory=list)
+    #: Khớp nhờ đâu — hiện thẳng cho người dùng đọc, giống mọi tầng khác của E17.
+    ly_do: str
+
+
+class DoiChieuTenRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: Tên bộ truyện để tra CSDL. Người dùng tự khai — hệ thống KHÔNG đoán hộ, vì đoán sai sẽ
+    #: đối chiếu danh xưng của chapter này với nhân vật của một bộ hoàn toàn khác.
+    ten_bo_truyen: str = Field(min_length=1, max_length=200)
+
+
+class DoiChieuTenResponse(BaseModel):
+    tim_thay_bo_truyen: str | None = None
+    khop: list[TenChinhThucRead] = Field(default_factory=list)
+    #: Số nhân vật CSDL trả về nhưng KHÔNG có trong chapter ⇒ bị loại. Giữ lại để người dùng thấy
+    #: CSDL rộng hơn chapter bao nhiêu — đó chính là lý do không đổ thẳng CSDL vào glossary.
+    bo_qua: int = 0
+    #: Vì sao không có kết quả. `null` = chạy bình thường. "Không tìm thấy truyện" và "AniList
+    #: đang hỏng" là HAI chuyện khác nhau và luôn được nói tách bạch.
+    khong_dung_duoc: str | None = None

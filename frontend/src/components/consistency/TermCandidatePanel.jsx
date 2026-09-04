@@ -30,7 +30,9 @@ const SO_LAN_HOI_TOI_DA = 30
  * thuật ngữ" đã điền sẵn phần máy biết (thuật ngữ gốc, loại, trích dẫn) — hai ô quyết định
  * (cách dịch, giải nghĩa) vẫn để trống cho bạn. Vì thế cố ý **không có nút "Duyệt tất cả"**.
  */
-export default function TermCandidatePanel({ dangBan, onTim, onChon, onXinGoiY, onDocGoiY }) {
+export default function TermCandidatePanel({
+  dangBan, onTim, onChon, onXinGoiY, onDocGoiY, onDoiChieuTen,
+}) {
   const [duLieu, setDuLieu] = useState(null)
   const [dangTim, setDangTim] = useState(false)
   const [loi, setLoi] = useState(null)
@@ -40,7 +42,26 @@ export default function TermCandidatePanel({ dangBan, onTim, onChon, onXinGoiY, 
   const [dangHoi, setDangHoi] = useState(false)
   const dongHo = useRef(null)
 
+  // Tầng 3b — tra CSDL nhân vật. Giữ state RIÊNG với tầng 3a: hai nguồn khác nhau về bản chất
+  // (một cái hỏi mô hình, một cái tra CSDL), gộp trạng thái sẽ khiến kết quả của nguồn này ghi
+  // đè lên nguồn kia và người dùng không biết mình đang đọc cái nào.
+  const [ketQuaTra, setKetQuaTra] = useState(null)
+  const [dangTra, setDangTra] = useState(false)
+
   useEffect(() => () => clearInterval(dongHo.current), [])
+
+  const traCuu = async () => {
+    if (!tenTruyen.trim() || !onDoiChieuTen) return
+    setDangTra(true); setKetQuaTra(null)
+    try {
+      setKetQuaTra(await onDoiChieuTen(tenTruyen.trim()))
+    } catch (e) {
+      // Hỏng ở tầng mạng cũng phải hiện ra, đừng để ô kết quả trống trông như "không có gì".
+      setKetQuaTra({ khong_dung_duoc: e.message })
+    } finally {
+      setDangTra(false)
+    }
+  }
 
   const tim = async () => {
     setLoi(null)
@@ -178,6 +199,58 @@ export default function TermCandidatePanel({ dangBan, onTim, onChon, onXinGoiY, 
               {dangHoi ? 'Đang hỏi…' : 'Xin gợi ý'}
             </Button>
           </div>
+
+
+          <h3 className="tieu-de-nho">Tra cách viết chính thức trong cơ sở dữ liệu</h3>
+          <p className="ghi-chu">
+            Dùng <b>chính tên bộ truyện đã nhập ở trên</b>, lấy <b>đúng những danh xưng ở bảng</b>{' '}
+            đi tra CSDL nhân vật (AniList) để biết cách viết chính thức và tên gốc. Khác với gợi ý
+            của mô hình ở trên: đây là <b>tra một CSDL có thật</b>, không phải hỏi máy đoán.
+            Nhân vật nào CSDL có mà chapter không có sẽ bị <b>loại thẳng</b> — CSDL một bộ có thể
+            tới 500 nhân vật trong khi chapter này chỉ có vài cái tên.
+          </p>
+          <div className="hang-cong-cu">
+            <Button icon="quay" dangChay={dangTra}
+                    disabled={dangBan || !onDoiChieuTen || !tenTruyen.trim()}
+                    lyDoKhoa={!tenTruyen.trim() ? 'Nhập tên bộ truyện ở ô trên trước' : undefined}
+                    onClick={traCuu}>
+              {dangTra ? 'Đang tra…' : 'Tra CSDL nhân vật'}
+            </Button>
+          </div>
+
+          {ketQuaTra?.khong_dung_duoc && (
+            <Alert sac="canh" tieuDe="Không tra được">
+              {ketQuaTra.khong_dung_duoc} Bảng danh xưng ở trên <b>vẫn dùng bình thường</b> — nó
+              không phụ thuộc vào nguồn ngoài.
+            </Alert>
+          )}
+
+          {ketQuaTra && !ketQuaTra.khong_dung_duoc && (
+            <Alert sac={ketQuaTra.khop?.length ? 'tin' : 'canh'}
+                   tieuDe={ketQuaTra.khop?.length
+                     ? `${ketQuaTra.khop.length} danh xưng khớp CSDL`
+                     : 'Không danh xưng nào của chapter khớp CSDL'}>
+              {ketQuaTra.khop?.length ? (
+                <ul className="tom-tat-xuat">
+                  {ketQuaTra.khop.map((k) => (
+                    <li key={k.danh_xung}>
+                      <b>{k.danh_xung}</b> → {k.ten_day_du || '—'}
+                      {k.ten_goc && <> · <i>{k.ten_goc}</i></>}
+                      <span className="ghi-chu"> ({k.ly_do})</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <>Có thể chapter này không có tên nhân vật, hoặc CSDL ghi khác cách chapter viết.
+                Cứ thêm tay như bình thường.</>
+              )}
+              {ketQuaTra.bo_qua > 0 && (
+                <div className="ghi-chu">
+                  Đã loại <b>{ketQuaTra.bo_qua}</b> nhân vật CSDL có mà chapter này không có.
+                </div>
+              )}
+            </Alert>
+          )}
 
           {luot?.status === 'failed' && (
             <Alert sac="loi" tieuDe="Không hỏi được">

@@ -392,6 +392,7 @@ export default function App() {
               onCat={(id) => chayNQ(() => api.catThuatNgu(id), 'Đã cất thuật ngữ đi.')}
               onTimUngVien={() => api.layUngVienThuatNgu(project.id)}
               onXinGoiY={(ten) => api.xinGoiYTheoTenTruyen(project.id, ten)}
+              onDoiChieuTen={(ten) => api.doiChieuTenChinhThuc(project.id, ten)}
               onDocGoiY={(runId) => api.layKetQuaGoiY(runId)}
             />
 

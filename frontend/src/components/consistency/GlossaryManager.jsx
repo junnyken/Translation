@@ -21,7 +21,7 @@ const RONG = {
  */
 export default function GlossaryManager({
   danhSach, dangBan, onThem, onDuyet, onCat, onSua,
-  onTimUngVien, onXinGoiY, onDocGoiY,
+  onTimUngVien, onXinGoiY, onDocGoiY, onDoiChieuTen,
 }) {
   const [moForm, setMoForm] = useState(false)
   const [form, setForm] = useState(RONG)
@@ -119,6 +119,7 @@ export default function GlossaryManager({
           onChon={moTuUngVien}
           onXinGoiY={onXinGoiY}
           onDocGoiY={onDocGoiY}
+          onDoiChieuTen={onDoiChieuTen}
         />
       )}
 

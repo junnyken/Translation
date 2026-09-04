@@ -2985,3 +2985,23 @@ frontend: 258 passed             (nền: 251)
 Lưu/đọc/xoá khoá · **các lỗi khác KHÔNG bị nhầm thành "thiếu khoá"** (nhầm 404/500 sẽ bắt người
 dùng nhập lại một khoá vốn đang đúng) · có khoá thì mọi lời gọi mang `X-API-Key` · không có khoá
 thì **không gửi header rỗng**.
+
+# ========== E17b — đối chiếu CSDL nhân vật AniList (2026-09-04) ==========
+
+```
+backend : exit 0   (+14 unit +4 endpoint)
+frontend: 265 passed (nền 259)   (+6)
+```
+
+Nhóm test đáng kể nhất **không** kiểm việc khớp, mà kiểm việc **không khớp bừa và không nói dối**:
+
+| Test | Khẳng định |
+|---|---|
+| `test_nhan_vat_KHONG_co_trong_chapter_bi_loai_thang` | cổng đối chiếu hoạt động, và `bo_qua` được **đếm** chứ không nuốt |
+| `test_ten_qua_ngan_khong_duoc_dung_lam_manh_ghep` | tách `D` từ `Monkey D Luffy` rồi khớp mọi chữ `D` là nhận bừa |
+| `test_KHONG_thay_danh_xung_cua_chapter_bang_dang_cua_CSDL` | thay là sửa dữ liệu người dùng bằng dữ liệu người khác |
+| `test_moi_danh_xung_chi_khop_MOT_lan` + `test_thu_tu_ket_qua_theo_CHAPTER` | kết quả phải **tất định**, không phụ thuộc thứ tự CSDL trả |
+| 3 test `TestNoiThatKhiHong` | *"không tìm thấy truyện"*, *"không kết nối được"*, *"bị giới hạn nhịp"* phải là **ba câu khác nhau** |
+
+`doi_chieu()` tách khỏi phần gọi mạng nên 11/14 test chạy **không chạm internet** — đúng/sai không
+phụ thuộc một dịch vụ ngoài có thể sập bất cứ lúc nào.

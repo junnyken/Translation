@@ -264,6 +264,19 @@ export const layTinHieuXungHo = (projectId) =>
   fetch(`${BASE}/projects/${projectId}/voice-signals`).then(doc)
 
 /** Tầng 3 — hỏi mô hình cách dịch cho danh xưng đã tìm được. Trả 202 + lượt hỏi để theo dõi. */
+/** E17 tầng 3b — đối chiếu danh xưng CỦA CHAPTER với CSDL nhân vật AniList.
+ *
+ * Khác tầng 3a ở chỗ căn bản: 3a hỏi MÔ HÌNH (luôn trả lời kể cả khi không biết), 3b tra một
+ * CSDL có thật. Nhưng cả hai chịu chung một cổng: thứ trả về không khớp danh xưng của chapter
+ * thì bị loại.
+ */
+export const doiChieuTenChinhThuc = (projectId, ten_bo_truyen) =>
+  fetch(`${BASE}/projects/${projectId}/term-official-names`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ten_bo_truyen }),
+  }).then(doc)
+
 export const xinGoiYTheoTenTruyen = (projectId, series_name) =>
   fetch(`${BASE}/projects/${projectId}/term-suggestions`, {
     method: 'POST',

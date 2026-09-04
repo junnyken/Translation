@@ -831,3 +831,31 @@ worker chết giữa chừng nhìn từ giao diện **y hệt** trang đang ch�
 lý do. `error_log` của job hỏng là chỗ chứa lý do đọc được.
 
 Trang không tồn tại → `404`.
+
+## `POST /api/v1/projects/{project_id}/term-official-names` → 200 *(E17b)*
+
+Đối chiếu danh xưng **của chapter** với CSDL nhân vật AniList.
+
+```json
+{ "ten_bo_truyen": "One Piece" }
+```
+→
+```json
+{ "tim_thay_bo_truyen": "ONE PIECE",
+  "khop": [{ "danh_xung": "Nami", "ten_day_du": "Nami", "ten_goc": "ナミ",
+             "ten_khac": [], "ly_do": "khớp tên đầy đủ trong CSDL AniList" }],
+  "bo_qua": 22, "khong_dung_duoc": null }
+```
+
+- **Chapter quyết định cần gì, CSDL chỉ trả lời viết thế nào.** Danh sách đem đi hỏi là danh xưng
+  rút từ chính chapter (tầng 1). Nhân vật nào CSDL có mà chapter không có ⇒ **loại thẳng**, đếm
+  vào `bo_qua`. Đo thật: One Piece khớp 3 / bỏ qua 22.
+- `danh_xung` giữ **nguyên cách chapter viết**, không thay bằng dạng của CSDL.
+- `khong_dung_duoc` phân biệt ba loại hỏng — *"không có bộ truyện nào tên X"*, *"không kết nối
+  được"*, *"đang giới hạn số lượt hỏi, thử lại sau một phút"*. Gộp lại là nói dối, vì người dùng
+  sẽ đi sửa sai chỗ.
+- `200` chứ không `202`: một lượt tra CSDL, **không gọi AI** (khác `term-suggestions`).
+- Chưa có danh xưng nào ⇒ trả `khong_dung_duoc` và **không** làm phiền nguồn ngoài.
+
+Project không tồn tại → `404`. Thiếu `ten_bo_truyen` → `422` (hệ thống **không đoán hộ**: đoán sai
+là đối chiếu chapter này với nhân vật của một bộ hoàn toàn khác).
