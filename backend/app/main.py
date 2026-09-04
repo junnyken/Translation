@@ -4,7 +4,10 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from fastapi import Depends
+
 from app.api.v1.routes import router as v1_router
+from app.core.bao_ve import canh_bao_neu_khong_khoa, cong_khoa
 from app.core.config import get_settings
 
 app = FastAPI(
@@ -28,7 +31,9 @@ if _settings.cors_allow_origin_list:
         allow_origins=_settings.cors_allow_origin_list,
         allow_credentials=False,
         allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
-        allow_headers=["Content-Type"],
+        # `X-API-Key` phải nằm trong danh sách này, nếu không trình duyệt sẽ chặn ngay ở
+        # preflight và giao diện không bao giờ gửi được khoá đi.
+        allow_headers=["Content-Type", "X-API-Key"],
     )
 
 
@@ -84,4 +89,8 @@ async def healthz() -> dict:
     return ket_qua
 
 
-app.include_router(v1_router)
+# Gắn cổng khoá ở tầng ROUTER, không gắn từng endpoint: 62 đường dẫn thì kiểu gì cũng
+# quên một cái, và cái bị quên sẽ là cái không ai ngờ tới.
+app.include_router(v1_router, dependencies=[Depends(cong_khoa)])
+
+canh_bao_neu_khong_khoa()

@@ -331,7 +331,9 @@ export default function App() {
       </header>
 
       <main className="than-trang">
-        {loi && <Alert sac="loi" tieuDe="Có lỗi" onDong={() => setLoi(null)}>{loi}</Alert>}
+        {loi && api.laLoiThieuKhoa(loi)
+          ? <HopNhapKhoa onXong={() => { setLoi(null); napProject(projectId || nhap) }} />
+          : loi && <Alert sac="loi" tieuDe="Có lỗi" onDong={() => setLoi(null)}>{loi}</Alert>}
         {thongBao && <Alert sac="tin" onDong={() => setThongBao(null)}>{thongBao}</Alert>}
 
         {oTrangChu && (
@@ -589,5 +591,54 @@ export default function App() {
         )}
       </main>
     </div>
+  )
+}
+
+
+/** Hỏi khoá truy cập khi máy chủ trả 401.
+ *
+ * Chỉ hiện KHI CẦN: máy chủ chưa bật khoá thì người dùng không bao giờ thấy ô này. Bắt người ta
+ * nhập khoá cho một hệ thống không đòi khoá là bắt họ làm một việc vô nghĩa.
+ */
+function HopNhapKhoa({ onXong }) {
+  const [khoa, setKhoa] = useState(api.docKhoa())
+  const [dangThu, setDangThu] = useState(false)
+  const [sai, setSai] = useState(false)
+
+  async function luu(e) {
+    e.preventDefault()
+    if (!khoa.trim()) return
+    setDangThu(true); setSai(false)
+    api.luuKhoa(khoa)
+    try {
+      // Thử một lời gọi THẬT trước khi báo thành công. Lưu rồi nói "xong" mà khoá sai thì người
+      // dùng chỉ gặp lại đúng màn này ở thao tác kế tiếp, và không hiểu vì sao.
+      await api.kiemKhoa()
+      onXong()
+    } catch {
+      api.xoaKhoa(); setSai(true)
+    } finally {
+      setDangThu(false)
+    }
+  }
+
+  return (
+    <Alert sac="canh" tieuDe="Cần khoá truy cập">
+      <p>
+        Hệ thống này đang bật khoá chung. Nhập khoá để tiếp tục — khoá được nhớ lại trên
+        trình duyệt này, không phải nhập lại mỗi lần.
+      </p>
+      <form onSubmit={luu} className="hang-cong-cu">
+        <input
+          type="password" value={khoa} autoFocus
+          onChange={(e) => setKhoa(e.target.value)}
+          placeholder="Dán khoá truy cập…" aria-label="Khoá truy cập"
+        />
+        <Button kieu="chinh" type="submit" disabled={dangThu || !khoa.trim()}>
+          {dangThu ? 'Đang kiểm…' : 'Lưu khoá'}
+        </Button>
+      </form>
+      {sai && <p className="canh-bao">Khoá không đúng. Hỏi lại người quản trị hệ thống.</p>}
+    </Alert>
   )
 }

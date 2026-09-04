@@ -59,6 +59,12 @@ class Settings(BaseSettings):
     #: vào sẽ đá nhau. Hai người ghi một tệp là cách chắc chắn để mất dữ liệu của cả hai.
     worker_rss_file: str = "/tmp/rss-worker.json"
 
+    # Bảo vệ truy cập (slice A)
+    #: Khoá CHUNG cho cả hệ thống. Rỗng = cổng TẮT (máy phát triển, và để triển khai theo thứ tự
+    #: an toàn: đẩy mã trước, deploy giao diện biết gửi khoá, RỒI mới đặt biến này).
+    #: Đây KHÔNG phải hệ thống tài khoản — xem `app/core/bao_ve.py`.
+    api_access_key: str = ""
+
     # Upload
     max_upload_mb: int = 25
 

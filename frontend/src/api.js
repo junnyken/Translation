@@ -6,6 +6,47 @@ export const API_BASE =
   (typeof window !== 'undefined' && window.__API_BASE__) || import.meta.env.VITE_API_BASE || ''
 const BASE = `${API_BASE}/api/v1`
 
+// ---------- Khoá truy cập (auth slice A) ----------
+//
+// Máy chủ có thể bật một khoá chung; khi bật, MỌI lời gọi `/api/v1` thiếu khoá sẽ bị 401.
+//
+// Đặt khoá vào bằng cách bọc `fetch` NGAY TẠI ĐÂY, rồi mọi lời gọi trong tệp này tự động mang
+// theo — thay vì sửa ~40 chỗ gọi và chắc chắn quên một chỗ. Hàm cục bộ tên `fetch` che hàm toàn
+// cục trong phạm vi module, nên các dòng bên dưới không phải đổi một chữ nào.
+//
+// Khoá nằm ở localStorage: đây là công cụ cá nhân, không có phiên đăng nhập. Nó KHÔNG phải hệ
+// thống tài khoản — ai cầm khoá là làm được mọi thứ.
+const KHOA_LUU = 'translation:khoa-truy-cap'
+
+export function docKhoa() {
+  try { return localStorage.getItem(KHOA_LUU) || '' } catch { return '' }
+}
+export function luuKhoa(khoa) {
+  try { localStorage.setItem(KHOA_LUU, khoa.trim()) } catch { /* trình duyệt chặn thì thôi */ }
+}
+export function xoaKhoa() {
+  try { localStorage.removeItem(KHOA_LUU) } catch { /* bỏ qua */ }
+}
+
+/** `fetch` có gắn khoá. Che hàm toàn cục CÓ CHỦ Ý — xem ghi chú ở trên. */
+function fetch(url, opts = {}) {
+  const khoa = docKhoa()
+  const headers = khoa ? { ...(opts.headers || {}), 'X-API-Key': khoa } : opts.headers
+  return globalThis.fetch(url, { ...opts, headers })
+}
+
+/** Thử một lời gọi THẬT để biết khoá có dùng được không.
+ *
+ * Dùng `batch-config`: là GET, không tham số, không đổi gì, và nằm sau cổng khoá — đúng ba tính
+ * chất cần có để kiểm khoá mà không gây tác dụng phụ nào.
+ */
+export const kiemKhoa = () => layCauHinhMe()   // một hiện thực duy nhất, xem bên dưới
+
+/** Máy chủ có đang đòi khoá không — dùng để giao diện biết lúc nào cần hỏi người dùng. */
+export function laLoiThieuKhoa(e) {
+  return typeof e?.message === 'string' && e.message.startsWith('401')
+}
+
 async function doc(res) {
   if (!res.ok) {
     let chiTiet = res.statusText

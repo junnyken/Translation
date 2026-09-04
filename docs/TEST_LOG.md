@@ -2961,3 +2961,27 @@ cổng 5433 — chúng migrate và xoá dữ liệu của nhau. Dọn hết ti�
 **Bài học vận hành:** bộ test này dùng **một** CSDL dùng chung, nên **không được chạy hai lượt
 cùng lúc**. Triệu chứng khi vi phạm rất dễ đánh lừa: lỗi ở những tệp không liên quan, và "ERROR at
 setup" thay vì assert hỏng.
+
+# ========== A1 — cổng khoá truy cập (2026-09-04) ==========
+
+```
+backend : exit 0, toàn bộ xanh   (+11 test mới)
+frontend: 258 passed             (nền: 251)
+```
+
+Đo trước khi làm, trên bản chạy thật: **65 thao tác API, 100% không cần xác thực, 31 ghi/xoá**.
+
+## Bốn test đáng kể nhất — không kiểm việc CHẶN, mà kiểm việc chặn CHO ĐÚNG CHỖ
+
+| Test | Vì sao |
+|---|---|
+| `test_moi_endpoint_v1_deu_co_cong` | quét **toàn bộ** route `/api/v1` — gắn cổng ở tầng router là để không sót, và đây là bằng chứng |
+| `test_co_dang_kiem_that_chu_khong_phai_danh_sach_rong` | chống chính test trên tự lừa mình: "không có gì thiếu" trên danh sách rỗng thì luôn xanh |
+| `test_thieu_khoa_va_khoa_sai_bao_Y_HET_nhau` | nói ra khác biệt là xác nhận cho người dò biết họ đã đoán đúng định dạng |
+| `TestDuongSONG_phai_mo` | `/` và `/healthz` phải mở — khoá lại là tự làm hỏng deploy của chính mình |
+
+## Frontend (7 test)
+
+Lưu/đọc/xoá khoá · **các lỗi khác KHÔNG bị nhầm thành "thiếu khoá"** (nhầm 404/500 sẽ bắt người
+dùng nhập lại một khoá vốn đang đúng) · có khoá thì mọi lời gọi mang `X-API-Key` · không có khoá
+thì **không gửi header rỗng**.
