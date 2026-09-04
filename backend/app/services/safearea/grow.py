@@ -110,8 +110,16 @@ def no_khung_ra_cho_trong(
     Thử cả ba thứ tự ở `_CACH_NO` rồi lấy ô lớn nhất; hoà nhau thì lấy cách đứng trước, nên kết
     quả vẫn tất định.
 
-    Trả `None` khi chính ô ban đầu đã dính mực — lúc đó nới thêm là vô nghĩa, và im lặng nới
-    ra từ một chỗ đã sai sẽ giấu mất chuyện ô ban đầu có vấn đề.
+    **Ô ban đầu luôn được coi là chỗ trống**, dù trong đó có mực hay không. Bản đầu của hàm này
+    đòi ô ban đầu phải sạch tuyệt đối rồi mới nới — nghe có lý, và SAI với thực tế: ô ban đầu
+    chính là chỗ chữ gốc vừa bị xoá, mà bước xoá chữ hầu như luôn để sót nét (log của trang thật
+    04/09: `còn chữ ở 8/8 vùng`). Hậu quả đo được: trên đúng trang manga cần sửa, phép nới **từ
+    chối chạy ở cả 8 vùng** và bản sửa thành vô dụng.
+
+    Mực còn sót trong ô ban đầu không phải lý do để không nới: chữ dịch đằng nào cũng được vẽ đè
+    lên đúng chỗ đó. Cái phải sạch là **dải nới thêm** — và điều đó vẫn giữ nguyên.
+
+    Trả `None` khi ô ban đầu rỗng hoặc nằm ngoài mặt nạ.
     """
     h_mask, w_mask = mat_na_trong.shape[:2]
     gx, gy, gw, gh = gioi_han
@@ -123,8 +131,11 @@ def no_khung_ra_cho_trong(
     x1, y1 = min(x + w, gx1), min(y + h, gy1)
     if x1 - x0 < 1 or y1 - y0 < 1:
         return None
-    if not mat_na_trong[y0:y1, x0:x1].all():
-        return None
+
+    # Coi ô ban đầu là chỗ trống — xem ghi chú ở docstring. Chép mặt nạ chứ không sửa tại chỗ:
+    # bên gọi còn dùng lại nó cho vùng khác của cùng một trang.
+    mat_na_trong = mat_na_trong.copy()
+    mat_na_trong[y0:y1, x0:x1] = True
 
     dt_dau = (x1 - x0) * (y1 - y0)
     buoc = max(int(buoc), 1)

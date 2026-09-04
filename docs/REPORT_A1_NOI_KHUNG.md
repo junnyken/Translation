@@ -133,9 +133,33 @@ Ba điều đáng chú ý trong đúng ba dòng lý do đó:
 Tải ảnh xem thử của máy chủ về nhìn tận mắt: chữ nằm **trong lòng bong bóng**, không chạm viền,
 không rơi xuống mảng hình vẽ bên dưới.
 
+### Bản đầu KHÔNG ăn trên trang manga thật — và vì sao
+
+Người dùng chạy lại một trang manga thật ngay sau khi deploy. Kết quả **y hệt lúc chưa sửa**:
+
+```
+vùng an toàn: {'tong': 8, 'shape_derived': 0, 'fallback_rectangle': 4, 'needs_review': 4}
+typeset:      8 vùng (vừa 5, tràn 3)
+```
+
+Phép nới **không chạy ở một vùng nào**. Nguyên nhân nằm trong chính một luật tôi tự đặt: *"ô ban
+đầu dính mực thì trả `None`, vì nới ra từ một chỗ đã sai là giấu mất chuyện ô đó có vấn đề"*.
+
+Luật đó nghe có lý và **sai với thực tế**: ô ban đầu chính là chỗ **chữ gốc vừa bị xoá**, mà
+bước xoá chữ hầu như luôn để sót nét — log của đúng trang đó ghi `còn chữ ở 8/8 vùng`. Nên phép
+nới tự từ chối chạy đúng ở nơi cần nó nhất.
+
+Dựng lại đúng tình huống để chắc chắn chứ không đoán: cùng một trang thử, chỉ thêm vài nét chữ
+còn sót trong khung ⇒ ô đặt chữ đứng nguyên **36×230**, không có mã `fallback_grown_to_free_space`.
+Sửa xong (coi ô ban đầu luôn là chỗ trống) ⇒ **234×272**.
+
+Mực còn sót trong ô ban đầu không phải lý do để không nới: **chữ dịch đằng nào cũng vẽ đè lên
+đúng chỗ đó**. Cái phải sạch là **dải nới thêm**, và điều đó giữ nguyên — có test riêng canh việc
+nới lỏng ở ô ban đầu không kéo theo nới lỏng ở dải nới thêm.
+
 ### Chưa kiểm chứng
 
-**Chưa chạy trên đúng trang manga của người dùng** — chapter đó thuộc tài khoản của họ. Trang
+**Chưa chạy lại trên trang manga của người dùng sau bản sửa thứ hai** — chapter đó thuộc tài khoản của họ. Trang
 dựng thử tái hiện đúng hình dạng gây lỗi (bong bóng trắng trên nền trắng + cột chữ dọc), nhưng
 manga thật còn có lưới tone, nét vẽ đè lên bong bóng, bong bóng chồng nhau — những thứ trang
 dựng thử không có.

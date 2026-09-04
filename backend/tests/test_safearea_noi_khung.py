@@ -66,10 +66,33 @@ class TestNoKhungThuanHinhHoc:
         # toàn bộ ô kết quả phải nằm trong chỗ trống
         assert m[kq.y:kq.y + kq.h, kq.x:kq.x + kq.w].all()
 
-    def test_o_ban_dau_dinh_muc_thi_tra_None(self):
-        """Nới ra từ một ô vốn đã sai là giấu mất chuyện ô đó có vấn đề."""
+    def test_MUC_CON_SOT_trong_o_ban_dau_KHONG_chan_phep_noi(self):
+        """Luật cũ của chính bộ này SAI với thực tế — sửa sau khi đo trên trang thật.
+
+        Bản đầu đòi ô ban đầu phải sạch tuyệt đối rồi mới nới. Nghe có lý, nhưng ô ban đầu chính
+        là chỗ chữ gốc vừa bị xoá, mà bước xoá chữ hầu như luôn để sót nét: log trang manga thật
+        04/09 ghi `còn chữ ở 8/8 vùng`. Kết quả là phép nới **từ chối chạy ở cả 8 vùng** và bản
+        sửa thành vô dụng đúng trên trang cần nó nhất.
+        """
         m = trang_manga()
-        assert no_khung_ra_cho_trong(m, (55, 55, 30, 30), gioi_han=(0, 0, 400, 400)) is None
+        m[200:206, 190:196] = False      # nét chữ còn sót nằm giữa ô ban đầu
+        kq = no_khung_ra_cho_trong(m, (185, 100, 30, 200), gioi_han=(0, 0, 400, 400))
+        assert kq is not None, "mực còn sót trong ô ban đầu không được chặn phép nới"
+        assert kq.w > 200
+
+    def test_van_KHONG_lan_qua_muc_o_dai_noi_them(self):
+        """Nới lỏng ở ô ban đầu KHÔNG được kéo theo nới lỏng ở dải nới thêm."""
+        m = trang_manga()
+        m[200:206, 190:196] = False
+        kq = no_khung_ra_cho_trong(m, (185, 100, 30, 200), gioi_han=(0, 0, 400, 400))
+        # ngoài đúng vết mực cố ý đặt trong ô ban đầu, mọi điểm khác phải là chỗ trống
+        vung = m[kq.y:kq.y + kq.h, kq.x:kq.x + kq.w].copy()
+        vung[200 - kq.y:206 - kq.y, 190 - kq.x:196 - kq.x] = True
+        assert vung.all(), "đã nới lấn qua nét mực ở dải nới thêm"
+
+    def test_o_ban_dau_rong_thi_tra_None(self):
+        m = trang_manga()
+        assert no_khung_ra_cho_trong(m, (55, 55, 0, 0), gioi_han=(0, 0, 400, 400)) is None
 
     def test_khong_no_qua_gioi_han(self):
         m = np.ones((400, 400), dtype=bool)   # trống hoàn toàn, không gì chặn
