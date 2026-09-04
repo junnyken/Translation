@@ -106,7 +106,39 @@ rơi ra chỗ có hình vẽ. Đã sửa test theo đúng nghĩa đó, không ph
 
 ## Live Verification
 
-*(chưa điền — cần chạy lại trên bản chạy thật)*
+Chạy thật trên bản chạy (`translation-api` bản 43, `translation-web` bản 23), tài khoản thật,
+một trang dựng đúng kiểu manga đen trắng: bong bóng trắng viền mực trên trang cũng trắng, chữ
+xếp **dọc** thành cột hẹp, kèm một mảng hình vẽ phía dưới.
+
+Pipeline chạy hết bằng đường thật (detect 49,3s → OCR → xoá chữ → dịch → căn chữ). Kết quả đọc
+thẳng từ API của máy chủ:
+
+```
+bbox bộ nhận diện tìm được : 32×340        ← đúng cột chữ dọc, y như trang của người dùng
+ô đặt chữ sau khi nới      : 234×374       ← gấp 8,06 lần diện tích
+lý do                      : ['shape_candidate_touches_roi_boundary',
+                              'fallback_no_reliable_shape',
+                              'fallback_grown_to_free_space']
+căn chữ                    : fit_ok · cỡ 40 (cỡ lớn nhất)
+```
+
+Ba điều đáng chú ý trong đúng ba dòng lý do đó:
+
+1. `shape_candidate_touches_roi_boundary` — **đây chính là cách E14 chết trên manga đen trắng**,
+   đo được trên máy chủ chứ không phải suy luận: vùng sáng loang hết ROI vì cả trang đều trắng.
+2. Lý do gốc **được giữ nguyên** bên cạnh mã mới. Nới khung không xoá mất bằng chứng vì sao
+   không dựng được hình.
+3. `fallback_grown_to_free_space` — bản sửa đã chạy trên đường thật, không chỉ trong test.
+
+Tải ảnh xem thử của máy chủ về nhìn tận mắt: chữ nằm **trong lòng bong bóng**, không chạm viền,
+không rơi xuống mảng hình vẽ bên dưới.
+
+### Chưa kiểm chứng
+
+**Chưa chạy trên đúng trang manga của người dùng** — chapter đó thuộc tài khoản của họ. Trang
+dựng thử tái hiện đúng hình dạng gây lỗi (bong bóng trắng trên nền trắng + cột chữ dọc), nhưng
+manga thật còn có lưới tone, nét vẽ đè lên bong bóng, bong bóng chồng nhau — những thứ trang
+dựng thử không có.
 
 ## Remaining Limits
 
