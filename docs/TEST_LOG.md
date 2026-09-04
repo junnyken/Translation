@@ -3087,8 +3087,8 @@ xanh sẽ đánh mất điều cần chứng minh, nên bộ mới khẳng đị
 # ========== F1 — font thiếu glyph & lỗi tự hiện (2026-09-04) ==========
 
 ```
-backend : (điền sau khi lượt đầy đủ chạy xong)
-frontend: 294 passed             (nền: 288)
+backend : exit 0 — 1026 passed, 6 skipped, 0 failed   (+37 test mới)
+frontend: 295 passed                                  (nền: 288)
 ```
 
 Bối cảnh: **bug thật trên bản chạy**, không phải test tự nghĩ ra. Log worker cho thấy bước căn
