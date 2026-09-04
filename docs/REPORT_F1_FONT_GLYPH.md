@@ -128,12 +128,67 @@ mình vừa sửa.
 
 ## Live Verification
 
-*(chưa điền — cần chạy lại chapter thật trên bản chạy sau khi deploy)*
+**Chạy thật trên bản chạy 2026-09-04, không phải máy phát triển.** `translation-api` bản 42
+(migration `0013_f1` chạy lúc khởi động — `deploy-start.sh` cho container **thoát hẳn** nếu
+migration hỏng, container `online` nên nó đã chạy được), `translation-web` bản 21.
 
-Việc phải làm để điền mục này:
-1. Deploy `translation-api` (migration `0013_f1` chạy lúc khởi động) và `translation-web`.
-2. Mở lại chapter `test 2`, bấm căn lại chữ, xác nhận 8 vùng có chữ và ảnh preview có chữ Việt.
-3. Thử một trang **còn kana thật** để xác nhận vùng đó bị đánh dấu bỏ trống mà trang vẫn xong.
+Chapter kiểm chứng: `F1 — kiểm chứng font thiếu glyph`, 1 trang thật (Pepper&Carrot E01P01),
+đi hết pipeline thật trên máy chủ (detect 49,3s → OCR → xoá chữ → dịch → căn chữ), rồi **cố ý**
+đặt hai bản dịch để chạm đúng hai nhánh của F1.
+
+### Nhánh 1 — dấu câu toàn rộng (đúng thứ đã gây sự cố)
+
+Đặt bản dịch vùng 1 = `Cậu ổn chứ？　Tớ về đây．` (dấu `？`, khoảng trắng `　`, dấu `．` — toàn rộng).
+
+```
+GET /pages/{id}/typeset
+  fit_ok   cỡ=23.0   chữ='Cậu ổn chứ?\nTớ về đây.'
+```
+
+Dấu câu đã gấp về nửa rộng, chữ căn được ở cỡ 23. **Trước F1 chính chuỗi này giết cả trang.**
+
+### Nhánh 2 — chữ Nhật thật, một vùng hỏng KHÔNG giết cả trang
+
+Đặt bản dịch vùng 2 = `坂本さん` (kanji + kana — font không thể vẽ, và cố ý không gấp).
+
+Log worker của lượt căn lại cả trang:
+
+```
+typeset job 2b749c5c: 1/2 vùng KHÔNG chèn được chữ vì font thiếu glyph — '坂本さん'
+typeset job 2b749c5c: 2 vùng (vừa 1, tràn 0, chưa có chữ 0, thiếu glyph 1) … 0,6s
+Task typeset.run_typeset_job succeeded: {'status': 'done', 'fit_ok': 1, 'font_missing_glyph': 1}
+```
+
+Job **`done`**, trang vẫn `typeset_done`, vùng vẽ được vẫn có chữ. Vùng hỏng:
+
+```
+  font_missing_glyph   cỡ=None   chữ=None
+```
+
+Không ghi chữ mà thực tế không vẽ được — đúng thiết kế.
+
+### Vùng hỏng có kêu lên ở mọi chỗ người dùng nhìn vào không
+
+| Đường | Kết quả thật |
+|---|---|
+| `GET /projects/{id}/export-warnings` | `font_missing_count = 1`, `overflow = 0` — **đếm riêng**, không lẫn |
+| `GET /projects/{id}/export-preview` | `{…, "overflow_warning_count":0, "font_missing_count":1}` |
+| `GET /pages/{id}/quality` | `layout_font_missing_glyph → "Chưa chèn được chữ: font không có ký tự trong bản dịch."` |
+| Log chấm chất lượng | `2 vùng, 1 cần rà soát` (trước khi sửa: `0 cần rà soát`) |
+| `GET /projects/{id}/failed-jobs` *(endpoint mới)* | trả job hỏng kèm lý do đọc được |
+
+### Đường sửa tay MỘT vùng vẫn ném lỗi — đúng như đã thiết kế
+
+`PATCH /regions/{id}` với `坂本さん` ⇒ refit job `failed` sau **0,011 giây**, lý do ghi nguyên văn
+vào `error_log`. Người dùng yêu cầu đúng vùng đó, nên nuốt lỗi rồi trả "xong" là nói dối.
+
+### Chưa kiểm chứng
+
+**Giao diện chưa bấm tay trên trình duyệt.** Mã đã có trong bundle đang phục vụ (kiểm bằng cách
+tải chính file `assets/index-eS9Y4abs.js` về và tìm chuỗi: `failed-jobs`, `font_missing_count`,
+`font_missing_glyph`, `Chưa chèn được chữ`, `có bước đã hỏng` — đủ cả), và 7 test giao diện xanh,
+nhưng **nhìn thấy tận mắt thì chưa**. Chapter kiểm chứng đã được nhả về "chưa có chủ" để nhận về
+và mở xem.
 
 ## Remaining Limits
 
