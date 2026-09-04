@@ -290,3 +290,46 @@ class TestTrangThaiTrang:
         from app.models import Page
         with sync_session() as s:
             assert s.get(Page, uuid.UUID(page_id)).status is PageStatus.typeset_done
+
+
+class TestDichLaiPhaiCanLai:
+    """Dịch lại MỘT vùng mà không căn chữ lại thì trạng thái để lại là của bản dịch cũ.
+
+    Đo được 05/09 trên trang thật của người dùng: dịch lại 2 vùng xong, trang báo **0/8 tràn**
+    trong khi chạy lại bước căn chữ ra **2/8 tràn**. Con số đã hết hạn hiện ra y như con số
+    thật, không dấu hiệu nào phân biệt.
+    """
+
+    async def test_dich_lai_vung_thi_tu_xep_viec_can_lai_chu(
+        self, client, trang_tran, monkeypatch
+    ):
+        from app.models.enums import TranslationEngine
+
+        _pid, page_id = await trang_tran()
+        with sync_session() as s:
+            rid = s.execute(sa.select(TextRegion.id).where(
+                TextRegion.page_id == uuid.UUID(page_id))).scalars().one()
+
+        da_xep: list[tuple] = []
+        monkeypatch.setattr(tasks.run_refit_job, "delay",
+                            lambda job_id, region_id: da_xep.append((job_id, region_id)))
+
+        class Dich:
+            engine_enum = TranslationEngine.google_fast
+            model_name = "gia-lap"
+            usage = None
+
+            def translate(self, texts, source_lang, target_lang):
+                return ["Ngắn thôi."]
+
+        monkeypatch.setattr(tasks, "build_translator", lambda engine: Dich())
+
+        with sync_session() as s:
+            job = Job(type=JobType.translate, page_id=uuid.UUID(page_id), status=JobStatus.queued)
+            s.add(job)
+            s.commit()
+            jid = job.id
+        kq = tasks._run_region_retranslate(jid, rid, None)
+
+        assert kq["refit_job_id"], "dịch lại xong phải xếp việc căn lại chữ"
+        assert da_xep and da_xep[0][1] == str(rid)

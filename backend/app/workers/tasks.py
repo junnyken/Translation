@@ -1104,6 +1104,36 @@ def run_translate_job(self, job_id: str, engine: str | None = None) -> dict:
 # ============================ M6: Canh chữ vào bubble ============================
 
 
+def enqueue_refit_after_retranslate(region_id: uuid.UUID) -> uuid.UUID | None:
+    """Nối chuỗi: dịch lại MỘT vùng → tự xếp việc căn lại chữ cho vùng đó.
+
+    Song song với `enqueue_typeset_after_translate` của đường cả trang. Không có nó thì bản dịch
+    mới nằm trong CSDL còn ảnh và trạng thái vẫn là của bản cũ.
+    """
+    from app.models import TextRegion
+
+    with sync_session() as session:
+        vung = session.get(TextRegion, region_id)
+        if vung is None:
+            return None
+        job = Job(type=JobType.typeset, page_id=vung.page_id, status=JobStatus.queued)
+        session.add(job)
+        session.commit()
+        job_id = job.id
+
+    try:
+        run_refit_job.delay(str(job_id), str(region_id))
+    except Exception as exc:  # noqa: BLE001
+        reason = f"enqueue_failed: {type(exc).__name__}: {exc}"
+        logger.error("Không đẩy được job căn lại chữ %s: %s", job_id, reason)
+        with sync_session() as session:
+            job = session.get(Job, job_id)
+            if job is not None:
+                job.error_log = reason
+                session.commit()
+    return job_id
+
+
 def enqueue_typeset_after_translate(page_id: uuid.UUID) -> uuid.UUID | None:
     """Nối chuỗi: dịch xong → tự xếp việc canh chữ."""
     with sync_session() as session:
@@ -1774,12 +1804,22 @@ def _run_region_retranslate(job_id: uuid.UUID, region_id: uuid.UUID, engine_over
         job.error_log = f"fallback_used: {fallback_reason}"[:4000] if fallback_reason else None
         session.commit()
 
+    # Dịch lại xong PHẢI căn chữ lại — nếu không, kết quả căn chữ và ảnh xem thử vẫn là của
+    # BẢN DỊCH CŨ, mà trạng thái "vừa khung / tràn khung" thì hiện ra như thật.
+    #
+    # Đo được 05/09 trên trang thật: dịch lại 2 vùng xong, trang báo "0/8 tràn" trong khi chạy
+    # lại bước căn chữ ra "2/8 tràn". Người dùng nhìn vào một con số đã hết hạn mà không có dấu
+    # hiệu nào cho biết. Bước dịch cả trang đã nối chuỗi sang căn chữ từ M6; đường sửa tay MỘT
+    # vùng thì chưa, và đó là chỗ hở.
+    refit_job_id = enqueue_refit_after_retranslate(region_id) if settings.typeset_auto_chain else None
+
     elapsed = time.perf_counter() - started
     logger.info("dịch lại vùng %s: %r engine=%s, %.2fs", region_id, text[:40], used_engine, elapsed)
     return {
         "status": "done", "job_id": str(job_id), "region_id": str(region_id),
         "translated_text": text, "engine": used_engine, "fallback": bool(fallback_reason),
         "token_cost": usage.total_tokens if usage else None,
+        "refit_job_id": str(refit_job_id) if refit_job_id else None,
         "elapsed_seconds": round(elapsed, 2),
     }
 
