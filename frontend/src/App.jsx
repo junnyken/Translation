@@ -554,6 +554,18 @@ export default function App() {
                     {soTran} vùng tràn khung · {soCanXem} vùng cần xem lại ·{' '}
                     {chiTiet.regions.length} vùng
                   </span>
+                  {soTran > 0 && (
+                    // E18 — chỉ hiện khi THẬT SỰ có vùng tràn. Rút gọn là làm mất chữ của bản
+                    // dịch đầy đủ, nên không bày ra như một việc nên làm thường xuyên.
+                    <button
+                      type="button" className="nut nut-phu" disabled={dangBan}
+                      title="Dịch lại ngắn hơn cho vừa bong bóng, rồi căn chữ lại"
+                      onClick={() => chay('rút gọn bản dịch cho vừa khung',
+                        () => api.rutGonChoVuaKhung(chiTiet.page.id))}
+                    >
+                      Rút gọn cho vừa khung ({soTran})
+                    </button>
+                  )}
                 </div>
 
                 {loiAnh && (

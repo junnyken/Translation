@@ -1191,3 +1191,53 @@ cục cả trang" nằm ngay thẻ hình bong bóng ở màn sửa tay.
 
 Cố ý **không** tự tính lại hàng loạt cho mọi trang cũ: đổi bố cục của một trang người dùng đã sửa
 tay xong là phá việc của họ mà không ai xin phép.
+
+## E18. Sức chứa bong bóng — vì sao bước dịch phải biết chỗ trống có bao nhiêu (2026-09-05)
+
+### E18.1 Giới hạn mà A1 không chạm tới được
+
+A1 nới khung ra hết lòng bong bóng, và trên trang thật đưa số vùng tràn từ 3 xuống 2. Hai vùng
+còn lại tràn vì lý do khác hẳn: khung đã trùm gần hết bong bóng, mà bản dịch vẫn dài hơn chỗ
+chứa — 105 ký tự tiếng Việt trong một bong bóng vẽ vừa ~30 ký tự tiếng Nhật.
+
+Tiếng Nhật viết cực gọn: một kanji thay cho cả một từ tiếng Việt. Bong bóng được hoạ sĩ vẽ vừa
+đúng lượng chữ Nhật, nên bản dịch dài gấp hai ba lần là **chuyện thường**, không phải sự cố.
+
+Tới đó không cách xếp chữ nào cứu được nữa. Chỗ duy nhất còn sửa được là chính bản dịch.
+
+### E18.2 Chỗ hổng trong kiến trúc: dịch xong rồi mới đi tìm chỗ nhét
+
+Pipeline hiện tại là một chiều: detect → OCR → xoá chữ → **dịch** → căn chữ. Bước dịch không hề
+biết bong bóng to bao nhiêu; bước căn chữ biết thì đã muộn, nó chỉ còn cách báo tràn.
+
+E18 nối chỗ hổng đó bằng một con số: **sức chứa** — khung này chứa được bao nhiêu ký tự tiếng
+Việt ở một cỡ chữ đọc được.
+
+### E18.3 Sức chứa đo bằng chính font sẽ vẽ, và là ƯỚC LƯỢNG
+
+Đo bề rộng trung bình thật của một mẫu chữ Việt có dấu qua đúng `FontResolver` của M6 — không
+bảng tra đoán sẵn, đổi font là số tự đổi.
+
+Nhưng bề rộng từng ký tự khác nhau và chỗ ngắt dòng phụ thuộc dấu cách, nên **không con số nào
+đúng tuyệt đối**. Vì vậy sức chứa không bao giờ được dùng làm lời khẳng định: sau khi dịch lại
+vẫn chạy `fit()` thật, và vẫn tràn thì vẫn báo tràn. M6 giữ nguyên vị trí bên duy nhất có thẩm
+quyền nói "vừa khung".
+
+### E18.4 Vì sao rút gọn là NÚT BẤM chứ không phải mặc định
+
+Rút gọn là **làm mất chữ** của bản dịch đầy đủ. Máy tự quyết định bỏ bớt lời thoại của người
+khác là việc không ai xin — cùng một ranh giới với E12 (máy chỉ ra chỗ, không tự sửa) và E13
+(gợi ý thuật ngữ phải người duyệt).
+
+Thêm hai lý do kỹ thuật: đường `google_fast` không nhận chỉ dẫn độ dài (Google Translate chỉ
+dịch, không nghe lời), và chỉ hỏi mô hình về đúng những vùng tràn thì cả trang 8 vùng chỉ tốn
+token cho 2.
+
+### E18.5 Ranh giới với chữ người dùng đã gõ
+
+Vùng có `edited_by_user` **không bị đụng tới**, và số vùng bị bỏ qua được trả về chứ không im
+lặng. Bản dịch người dùng tự gõ không có chỗ nào lưu lại để hoàn tác — đè lên nó là mất hẳn.
+
+Tương tự, model trả rác / viết dài thêm / thiếu dòng đều dẫn tới **giữ nguyên bản cũ**; model
+hỏng hẳn thì job `failed` và không vùng nào bị đổi. Một trang nửa cũ nửa mới là thứ không ai lần
+ra được về sau.

@@ -470,6 +470,10 @@ export const tomTatVungAnToan = (pageId) => fetch(`${BASE}/pages/${pageId}/safe-
 export const tinhLaiVungAnToan = (pageId) =>
   fetch(`${BASE}/pages/${pageId}/retry-safe-area`, { method: 'POST' }).then(doc)
 
+/** E18 — dịch lại NGẮN HƠN những vùng đang tràn khung, rồi căn chữ lại. */
+export const rutGonChoVuaKhung = (pageId) =>
+  fetch(`${BASE}/pages/${pageId}/fit-translation`, { method: 'POST' }).then(doc)
+
 // ---------- E15: hướng chữ ----------
 
 /** Lấy hướng chữ của nhiều vùng cùng lúc.

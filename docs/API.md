@@ -844,6 +844,34 @@ lý do. `error_log` của job hỏng là chỗ chứa lý do đọc được.
 
 Trang không tồn tại → `404`.
 
+## `POST /api/v1/pages/{page_id}/fit-translation` → 202 *(E18)*
+
+Dịch lại **ngắn hơn** những vùng đang tràn khung, rồi căn chữ lại cả trang.
+
+```json
+{ "job_id": "…", "page_id": "…", "so_vung_tran": 2, "status": "queued", "detail": null }
+```
+
+Job xong trả thêm: `so_vung_rut_gon` · `bo_qua_sua_tay` (id các vùng **người dùng đã sửa tay**,
+cố ý không đụng tới) · `con_tran` / `vua_khung` sau khi căn lại · `suc_chua_nho_nhat` /
+`suc_chua_lon_nhat` · `token_cost`.
+
+Vì sao cần: bong bóng manga vẽ vừa đúng lượng chữ **tiếng Nhật**, mà bản dịch tiếng Việt dài gấp
+hai ba lần. Đo trên trang thật 04/09: một bong bóng chứa ~30 ký tự Nhật nhận về bản dịch **105
+ký tự**, tràn khung kể cả sau khi đã nới khung hết cỡ (A1). Tới đó không cách xếp chữ nào cứu
+được — chỗ duy nhất còn sửa được là chính bản dịch.
+
+**Phải bấm tay, không tự chạy.** Rút gọn là làm mất chữ của bản dịch đầy đủ; máy tự quyết định
+bỏ bớt lời thoại của người khác là việc không ai xin.
+
+| Lỗi | Mã |
+|---|---|
+| Trang không tồn tại / không thuộc tài khoản | `404` |
+| Trang **không có vùng nào tràn** | `422 khong_co_vung_tran` — hỏi suông vẫn tốn token |
+
+Chỉ chạy trên đường LLM (cần `GEMINI_API_KEYS`). Model hỏng/hết quota ⇒ job `failed` và **không
+vùng nào bị đổi**.
+
 ## `GET /api/v1/projects/{project_id}/failed-jobs` → 200 *(F1)*
 
 Việc **hỏng mới nhất của mỗi trang** trong chapter — một lời gọi cho cả chapter.

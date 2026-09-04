@@ -99,9 +99,12 @@ def test_celery_da_dang_ky_dung_task_detect_cua_m2():
         "translate.run_region_retranslate_job",
         "export.run_export_job",
         "consistency.run_consistency_scan_job",
-        # E17 tầng 3 — lượt duy nhất hỏi mô hình ngoài bước dịch. Khai ở đây có chủ đích: chốt
-        # này tồn tại để không ai thêm được một việc chạy nền trong im lặng.
+        # E17 tầng 3 — hỏi mô hình ngoài bước dịch. Khai ở đây có chủ đích: chốt này tồn tại
+        # để không ai thêm được một việc chạy nền trong im lặng.
         "consistency.run_term_suggestion_job",
+        # E18 — rút gọn bản dịch cho vừa bong bóng. Cũng hỏi mô hình, nên cũng phải khai.
+        # KHÔNG tự chạy: chỉ khởi động khi người dùng bấm nút, vì rút gọn là làm mất chữ.
+        "translate.run_rut_gon_job",
     }, user_tasks
 
 

@@ -25,6 +25,7 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 | E1 | **Tiện ích Chrome** mở nhanh Translation từ trình duyệt: nút tạo chapter, xem trạng thái chapter đã ghim, nhảy thẳng vào màn rà soát/xuất — **không** đọc trang web bạn đang xem, **không** xin quyền website nào | **LIVE** (nạp thật vào Chromium 151, 41/41 mục đo — xem REPORT_E1) |
 | M10 | Khai báo mục đích sử dụng (bắt buộc, không mặc định) + nhắc trách nhiệm bản quyền & chất lượng trước khi xuất | **LIVE** (chạy thật đầu-cuối; giao diện chưa bấm tay — xem TEST_LOG §M10) |
 | E11 | Làm lại giao diện: bố cục, bộ màu, vùng kéo-thả, dòng thời gian pipeline, diễn giải trạng thái trung thực, dùng được bằng bàn phím và trên điện thoại | **LIVE** (kiểm thật trên Chromium ở 4 kích thước — xem TEST_LOG §E11) |
+| A1+E18 | Chữ Việt vừa bong bóng manga: nới khung tới khi chạm nét vẽ, và dịch lại ngắn hơn cho vừa khi bản dịch dài hơn chỗ chứa | **LIVE một phần** (A1 đo trên trang thật: tràn 3→2; E18 test xong, chưa chạy thật) |
 | F1 | Dấu câu kiểu Nhật trong bản dịch không còn làm hỏng cả trang; vùng font không vẽ được thì đánh dấu riêng thay vì giết cả trang; việc hỏng tự hiện lý do | **BUILT** (test tự động xanh; chưa chạy lại chapter thật trên bản chạy) |
 | E12 | Chỉ ra vùng nào cần rà soát trước khi xuất, kèm lý do đọc được — không tự xoá vùng nào | **LIVE** (Run A–D 15/15 trên trang thật + Chromium 10/10 — xem TEST_LOG §E12) |
 
@@ -401,6 +402,27 @@ chiêu thức có thể đang bị dịch theo nghĩa đen"*, kèm luôn ví d�
 phải đọc tài liệu.
 
 Nó **không chặn** bạn xuất file — chỉ nói cho bạn biết trước khi mang đi.
+
+## Chữ Việt vừa bong bóng manga (A1 + E18)
+
+Trang manga tiếng Nhật đầu tiên chạy thật cho ra kết quả không dùng được: chữ Việt bị nhét vào
+những **cột dọc hẹp**, mỗi dòng 2–3 ký tự, có vùng bị **cắt cụt** ("NÓ SI / ỰC R / PHẢI / HÔNG").
+Không job nào hỏng — hỏng ở hình học và ở độ dài câu.
+
+- **Nới khung ra tới khi chạm nét vẽ (A1).** Bong bóng trắng nằm trên trang cũng trắng thì phép
+  tách theo độ sáng bó tay (0/8 vùng dựng được hình). Nay không cần tách nữa: cứ nới khung tới
+  khi chạm nét mực — viền bong bóng chính là nét mực. Đo trên trang dựng thử: ô đặt chữ
+  36×230 → **232×320**, cỡ chữ **10 → 28**, ngắt dòng từ 15 mẩu vụn còn 5 dòng đọc được. Trên
+  trang thật: **tràn 3 → 2 vùng**, và vùng bị cắt cụt trở lại đọc được trọn câu.
+- **Dịch lại ngắn hơn cho vừa (E18).** Bong bóng vẽ vừa ~30 ký tự tiếng Nhật mà bản dịch tiếng
+  Việt về 105 ký tự thì không cách xếp chữ nào cứu được. Nút **"Rút gọn cho vừa khung"** đo sức
+  chứa thật của từng bong bóng rồi nhờ mô hình viết lại gọn hơn theo **chữ gốc** — không phải
+  cắt cụt câu tiếng Việt. Vùng bạn đã sửa tay **không bị đụng tới**.
+- **Nút "Tính lại bố cục cả trang"** để áp bố cục mới cho trang đã chạy từ trước, khỏi phải tải
+  ảnh lên lại từ đầu.
+
+Vẫn còn: hướng chữ dọc chưa dựng được (E15 BLOCKED) — chữ Việt đọc ngang trong bong bóng vốn
+dành cho chữ dọc; và bong bóng quá nhỏ so với câu thoại thì rút gọn cũng không cứu nổi.
 
 ## Một dấu chấm kiểu Nhật không còn giết cả trang (F1)
 

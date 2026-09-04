@@ -2219,3 +2219,168 @@ def run_term_suggestion_job(self, run_id: str) -> dict:
             run.error_log = reason
             session.commit()
     return {"status": "failed", "run_id": str(rid), "error": reason}
+
+
+def _run_rut_gon(job_id: uuid.UUID) -> dict:
+    """Dịch lại NGẮN HƠN những vùng đang tràn khung, rồi căn chữ lại cả trang (E18).
+
+    Vì sao là một bước RIÊNG chứ không nhét vào bước dịch: bước dịch chạy trước khi có bố cục
+    ở đường `google_fast` (engine đó không nhận chỉ dẫn độ dài), và rút gọn là **làm mất chữ**
+    của bản dịch đầy đủ — thứ phải do người dùng chủ động bấm chứ không tự xảy ra.
+    """
+    started = time.perf_counter()
+    from app.services.safearea.apply import nap_o_dat_chu
+    from app.services.storage import get_storage as _lay_kho
+    from app.services.translate.rut_gon import MucRutGon, dung_prompt, phan_tich
+    from app.services.typeset.suc_chua import co_chu_muc_tieu, suc_chua_khung
+
+    with sync_session() as session:
+        job = session.get(Job, job_id)
+        if job is None:
+            return {"status": "job_not_found", "job_id": str(job_id)}
+        page = session.get(Page, job.page_id)
+        if page is None:
+            job.status = JobStatus.failed
+            job.error_log = "page_not_found"
+            session.commit()
+            return {"status": "failed", "job_id": str(job_id), "error": job.error_log}
+        page_id = page.id
+        project = session.get(Project, page.project_id)
+        source_lang = project.source_lang.value
+
+        # Chỉ những vùng ĐANG TRÀN. Vùng vừa khung mà đem rút gọn là làm mất chữ vô cớ.
+        hang = list(session.execute(
+            select(TextRegion, TypesetResult, TranslationResult, OCRResult)
+            .join(TypesetResult, TypesetResult.region_id == TextRegion.id)
+            .join(TranslationResult, TranslationResult.region_id == TextRegion.id)
+            .outerjoin(OCRResult, OCRResult.region_id == TextRegion.id)
+            .where(TextRegion.page_id == page_id,
+                   TypesetResult.fit_status == FitStatus.overflow_warning)
+            .order_by(TextRegion.reading_order.nulls_last(), TextRegion.created_at)
+        ).all())
+
+        van_tay = van_tay_hien_vat(_lay_kho(), page.clean_image_path)
+        o_dat = nap_o_dat_chu(session, [r.id for r, _t, _d, _o in hang], van_tay)
+
+        # Vùng người dùng đã sửa tay: KHÔNG đụng tới. Đè lên chữ người ta tự gõ là việc không
+        # ai xin, và bản gốc của họ không có chỗ nào lưu để lấy lại.
+        bo_qua_sua_tay = [str(r.id) for r, _t, d, _o in hang if d.edited_by_user]
+
+        typesetter, _resolver = build_typesetter()
+        co_chu = co_chu_muc_tieu(
+            settings.typeset_min_font_size, settings.typeset_max_font_size,
+            settings.e18_co_chu_muc_tieu_ty_le,
+        )
+        muc: list[MucRutGon] = []
+        vung_id: list[uuid.UUID] = []
+        for r, _t, d, o in hang:
+            if d.edited_by_user or not (d.translated_text or "").strip():
+                continue
+            khung = o_dat.get(r.id) or (r.bbox_x, r.bbox_y, r.bbox_w, r.bbox_h)
+            sc = suc_chua_khung(
+                khung[2], khung[3], typesetter.font_resolver,
+                settings.default_font_family, co_chu, settings.typeset_line_spacing_ratio,
+            )
+            muc.append(MucRutGon(
+                chu_goc=(o.raw_text if o is not None else "") or "",
+                ban_dich=d.translated_text,
+                suc_chua=sc.so_ky_tu,
+            ))
+            vung_id.append(r.id)
+
+        if not muc:
+            job.status = JobStatus.done
+            job.error_log = None
+            session.commit()
+            return {"status": "done", "job_id": str(job_id), "page_id": str(page_id),
+                    "so_vung_tran": len(hang), "so_vung_rut_gon": 0,
+                    "bo_qua_sua_tay": bo_qua_sua_tay,
+                    "ly_do": "khong_co_vung_nao_rut_gon_duoc"}
+
+        job.status = JobStatus.running
+        session.commit()
+
+    # ---- gọi mô hình NGOÀI transaction ----
+    _cong_nhip(TranslationEngine.llm_context.value)
+    translator = build_translator(TranslationEngine.llm_context.value)
+    text, usage = translator.goi_prompt_tho(dung_prompt(muc, source_lang))
+    moi = phan_tich(text, muc)
+
+    with sync_session() as session:
+        da_doi = 0
+        for rid, cu, ban_moi in zip(vung_id, muc, moi):
+            if ban_moi is None:
+                continue
+            row = session.execute(
+                select(TranslationResult).where(TranslationResult.region_id == rid)
+            ).scalars().first()
+            if row is None or row.edited_by_user:
+                continue
+            row.translated_text = ban_moi
+            da_doi += 1
+        session.commit()
+
+    # Căn chữ lại NGAY: rút gọn mà không căn lại thì người dùng vẫn thấy nguyên cảnh báo tràn,
+    # và không có cách nào biết việc vừa rồi có ăn thua hay không.
+    with sync_session() as session:
+        viec = Job(type=JobType.typeset, page_id=page_id, status=JobStatus.queued)
+        session.add(viec)
+        session.commit()
+        session.refresh(viec)
+        typeset_job_id = viec.id
+    kq_typeset = _run_typeset(typeset_job_id)
+
+    elapsed = time.perf_counter() - started
+    with sync_session() as session:
+        job = session.get(Job, job_id)
+        job.status = JobStatus.done
+        job.error_log = None
+        session.commit()
+
+    logger.info(
+        "rút gọn job %s: %d vùng tràn, rút gọn %d, bỏ qua %d vùng đã sửa tay · "
+        "sau khi căn lại: vừa %s, tràn %s · %.1fs",
+        job_id, len(muc), da_doi, len(bo_qua_sua_tay),
+        kq_typeset.get("fit_ok"), kq_typeset.get("overflow_warning"), elapsed,
+    )
+    return {
+        "status": "done",
+        "job_id": str(job_id),
+        "page_id": str(page_id),
+        "so_vung_tran": len(muc) + len(bo_qua_sua_tay),
+        "so_vung_rut_gon": da_doi,
+        "bo_qua_sua_tay": bo_qua_sua_tay,
+        "suc_chua_nho_nhat": min(m.suc_chua for m in muc),
+        "suc_chua_lon_nhat": max(m.suc_chua for m in muc),
+        "con_tran": kq_typeset.get("overflow_warning"),
+        "vua_khung": kq_typeset.get("fit_ok"),
+        "token_cost": (usage or {}).get("totalTokenCount"),
+        "elapsed_seconds": round(elapsed, 2),
+    }
+
+
+@celery_app.task(
+    bind=True,
+    name="translate.run_rut_gon_job",
+    soft_time_limit=settings.e18_rut_gon_timeout_seconds,
+    time_limit=settings.e18_rut_gon_timeout_seconds + 30,
+)
+def run_rut_gon_job(self, job_id: str) -> dict:
+    """Rút gọn bản dịch cho vừa bong bóng, rồi căn chữ lại (E18).
+
+    Lỗi mô hình / hết quota: job=failed + error_log, **bản dịch cũ giữ nguyên**. Rút gọn hỏng
+    thì thà không đổi gì còn hơn để lại một trang nửa cũ nửa mới không ai lần ra được.
+    """
+    jid = uuid.UUID(str(job_id))
+    try:
+        return _run_rut_gon(jid)
+    except SoftTimeLimitExceeded:
+        reason = f"timeout: vượt {settings.e18_rut_gon_timeout_seconds}s"
+        logger.error("rút gọn job %s %s", jid, reason)
+        _mark_job_failed(jid, reason)
+        return {"status": "failed", "job_id": str(jid), "error": reason}
+    except Exception as exc:  # noqa: BLE001
+        reason = f"{type(exc).__name__}: {exc}"
+        logger.exception("rút gọn job %s thất bại", jid)
+        _mark_job_failed(jid, reason)
+        return {"status": "failed", "job_id": str(jid), "error": reason}

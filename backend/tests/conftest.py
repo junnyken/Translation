@@ -329,6 +329,9 @@ def no_broker_for_chained_ocr(monkeypatch):
     )
     monkeypatch.setattr(tasks.run_typeset_job, "delay", lambda job_id: sent.append(job_id))
     monkeypatch.setattr("app.api.v1.routes.dispatch_typeset_job", lambda job_id: (True, None))
+    # E18 — rút gọn bản dịch cho vừa bong bóng
+    monkeypatch.setattr(tasks.run_rut_gon_job, "delay", lambda job_id: sent.append(job_id))
+    monkeypatch.setattr("app.api.v1.routes.dispatch_rut_gon_job", lambda job_id: (True, None))
     # M7 — sửa tay từng vùng
     monkeypatch.setattr(
         tasks.run_refit_job, "delay", lambda job_id, region_id, font_size=None: sent.append(job_id)

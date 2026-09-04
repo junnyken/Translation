@@ -3157,3 +3157,48 @@ hỏi cái hàm mình vừa sửa xem nó có sai không.
 Chạy **hai lượt pytest cùng lúc trên một CSDL** làm cả hai treo ở `downgrade base`: lượt này đợi
 khoá của lượt kia. Lần này chạy lượt riêng bằng `TEST_DATABASE_URL=…/translation_test_f1` — 102
 test unit chạy xong trong vài giây sau khi tách DB, trong khi lượt dùng chung đứng im 4 phút.
+
+# ========== A1 + E18 — chữ Việt vừa bong bóng manga (2026-09-04/05) ==========
+
+```
+backend : (điền sau khi lượt đầy đủ chạy xong)   (+19 test A1, +30 test E18)
+frontend: 304 passed
+```
+
+## A1 — nới khung: hai lần tự lừa mình, sửa được nhờ ĐO
+
+**Lần 1 — luật nghe có lý mà sai với thực tế.** Bản đầu đòi *"ô ban đầu phải sạch tuyệt đối rồi
+mới nới, vì nới ra từ một chỗ đã sai là giấu mất vấn đề"*. Deploy xong, người dùng chạy lại
+trang manga thật: kết quả **y hệt lúc chưa sửa**, phép nới không chạy ở một vùng nào.
+
+Ô ban đầu chính là chỗ chữ gốc **vừa bị xoá**, mà bước xoá chữ hầu như luôn để sót nét — log
+trang đó ghi `còn chữ ở 8/8 vùng`. Test cũ mã hoá đúng cái luật sai kia nên nó vẫn xanh.
+
+Dựng lại để chắc chứ không đoán: cùng trang thử, chỉ thêm vài nét sót trong khung ⇒ ô đặt chữ
+đứng nguyên **36×230**. Sau khi sửa ⇒ **234×272**.
+
+**Lần 2 — chặn nới theo cạnh tương ứng.** Cột chữ dọc rộng 44px, chặn 1,5 lần bề rộng ⇒ khung
+không bao giờ vượt 176px, trong khi lòng bong bóng rộng gấp đôi. Có test riêng canh đúng bẫy này.
+
+## E18 — bộ test tự lừa mình HAI LẦN, cả hai đều do A1 gây ra
+
+1. **Bong bóng của fixture quá to.** `sample_page_image` có bong bóng 470×280 — từ A1, khung nới
+   tới cả lòng bong bóng nên bản dịch dài mấy cũng vừa, tiền đề "đang tràn" **không bao giờ
+   đúng**. Phải dựng trang riêng có bong bóng 140×100, đúng cỡ bong bóng manga thật.
+2. **Ảnh clean của fixture trắng tinh.** `fake_inpainter` ghi ra ảnh **không một nét mực nào** —
+   mà không có mực thì không có gì chặn phép nới, khung phình tới kịch trần. Bộ test khi đó đang
+   đo một thế giới không tồn tại. Phải vẽ viền bong bóng vào ảnh clean.
+
+Bài học chung: **một bản sửa có thể làm sai lệch tiền đề của bộ test viết sau nó.** Cả hai lần
+đều lộ ra ở đúng dòng `assert` tiền đề — nếu fixture không có dòng đó thì E18 đã "xanh" trên một
+trang không hề tràn.
+
+## Test đáng kể nhất của E18
+
+| Test | Khẳng định |
+|---|---|
+| `test_uoc_luong_doi_chieu_voi_phep_CAN_CHU_THAT` | Chỗ dễ tự lừa nhất cả mini-spec: cắt câu về đúng sức chứa rồi hỏi `fit()` thật — phải `fit_ok` trên cả 4 cỡ khung. Một con số sức chứa đẹp mà chữ vẫn tràn thì vô dụng |
+| `test_KHONG_dung_toi_vung_nguoi_dung_da_sua_tay` | Bản dịch người dùng tự gõ không lưu ở đâu để hoàn tác — đè lên là mất hẳn |
+| `test_model_hong_thi_job_failed_va_ban_dich_KHONG_doi` | Thà không đổi gì còn hơn để lại trang nửa cũ nửa mới |
+| `test_model_viet_DAI_HON_thi_khong_nhan` | Model viết dài thêm thì rút gọn không còn nghĩa gì |
+| `test_KHONG_loai_chi_vi_lech_suc_chua_vai_ky_tu` | Sức chứa là ƯỚC LƯỢNG; loại ở đó là vứt đi một bản dịch ngắn hơn hẳn chỉ vì lệch con số ước lượng |

@@ -170,6 +170,17 @@ class Settings(BaseSettings):
     #: trang vì prompt nhỏ; quá ngưỡng này gần như luôn là nhà cung cấp treo chứ không
     #: phải việc nặng.
     term_suggestion_timeout_seconds: int = 120
+
+    # --- E18: dịch lại NGẮN HƠN cho vừa bong bóng ---
+    #
+    # Bong bóng manga vẽ vừa lượng chữ tiếng Nhật; bản dịch tiếng Việt dài gấp 2-3 lần là
+    # chuyện thường, và lúc đó không cách xếp chữ nào cứu được. Đo trên trang thật 04/09: bong
+    # bóng ~30 ký tự Nhật nhận bản dịch 105 ký tự, tràn kể cả sau khi đã nới khung hết cỡ.
+    e18_rut_gon_timeout_seconds: int = 180
+    #: Cỡ chữ dùng làm mốc đo sức chứa, tính theo vị trí giữa min và max.
+    #: 0 = lấy cỡ nhỏ nhất (sức chứa lớn nhất, chữ bé nhất) · 1 = lấy cỡ lớn nhất.
+    #: 0,5 cho ra cỡ ~19 với dải 10-28: đủ đọc mà không ép bản dịch ngắn tới mức mất nghĩa.
+    e18_co_chu_muc_tieu_ty_le: float = 0.5
     #: Gợi ý bằng LLM là TÙY CHỌN và mặc định TẮT. Bật lên mới tốn token.
     e13_llm_suggestions_enabled: bool = False
     #: Trần số vùng gửi cho LLM một lần — chặn yêu cầu quá lớn thay vì âm thầm cắt bớt.

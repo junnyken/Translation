@@ -64,6 +64,19 @@ def dispatch_translate_job(job_id: uuid.UUID, engine: str | None = None) -> tupl
         return False, reason
 
 
+def dispatch_rut_gon_job(job_id: uuid.UUID) -> tuple[bool, str | None]:
+    """E18 — rút gọn bản dịch cho vừa bong bóng. Trả (đã_gửi, lý_do_lỗi)."""
+    try:
+        from app.workers.tasks import run_rut_gon_job
+
+        run_rut_gon_job.delay(str(job_id))
+        return True, None
+    except Exception as exc:  # noqa: BLE001
+        reason = f"enqueue_failed: {type(exc).__name__}: {exc}"
+        logger.error("Không đẩy được job rút gọn %s: %s", job_id, reason)
+        return False, reason
+
+
 def dispatch_typeset_job(job_id: uuid.UUID) -> tuple[bool, str | None]:
     """Trả (đã_gửi, lý_do_lỗi). Broker chết thì nói thật, không giả vờ đã gửi."""
     try:

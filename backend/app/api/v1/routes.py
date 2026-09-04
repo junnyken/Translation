@@ -139,6 +139,7 @@ from app.schemas.common import (
     RegionRead,
 )
 from app.services.dispatch import (
+    dispatch_rut_gon_job,
     dispatch_detect_job,
     dispatch_inpaint_job,
     dispatch_ocr_job,
@@ -482,6 +483,50 @@ async def list_project_failed_jobs(
     for job in rows:
         moi_nhat.setdefault(job.page_id, job)
     return list(moi_nhat.values())
+
+
+@router.post("/pages/{page_id}/fit-translation", status_code=202, tags=["translate"])
+async def rut_gon_cho_vua_khung(
+    page_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
+) -> dict:
+    """Dịch lại **ngắn hơn** những vùng đang tràn khung, rồi căn chữ lại (E18).
+
+    Vì sao phải bấm tay chứ không tự chạy: rút gọn là **làm mất chữ** của bản dịch đầy đủ. Máy
+    tự quyết định bỏ bớt lời thoại của người khác là việc không ai xin.
+
+    Vùng người dùng **đã sửa tay** không bị đụng tới, và số vùng bị bỏ qua được trả về để nói rõ.
+    """
+    page = await session.get(Page, page_id)
+    if page is None:
+        raise HTTPException(status_code=404, detail="page_not_found")
+    await bao_dam_quyen(session, nguoi, page)
+
+    so_tran = int(await session.scalar(
+        select(func.count()).select_from(TypesetResult)
+        .join(TextRegion, TextRegion.id == TypesetResult.region_id)
+        .where(TextRegion.page_id == page_id,
+               TypesetResult.fit_status == FitStatus.overflow_warning)
+    ) or 0)
+    if so_tran == 0:
+        # Không có gì tràn thì KHÔNG gọi mô hình: hỏi suông vẫn tốn token, và bản dịch đang
+        # vừa khung mà đem rút gọn là làm mất chữ vô cớ.
+        raise HTTPException(
+            status_code=422,
+            detail="khong_co_vung_tran: trang này không có vùng nào tràn khung để rút gọn",
+        )
+
+    job = Job(type=JobType.translate, page_id=page_id, status=JobStatus.queued)
+    session.add(job)
+    await session.commit()
+    await session.refresh(job)
+
+    sent, reason = dispatch_rut_gon_job(job.id)
+    if not sent:
+        job.error_log = reason
+        await session.commit()
+    return {"job_id": str(job.id), "page_id": str(page_id), "so_vung_tran": so_tran,
+            "status": job.status.value, "detail": reason}
 
 
 @router.get("/pages/{page_id}/ocr", response_model=list[OCRResultRead], tags=["pages"])
