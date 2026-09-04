@@ -64,10 +64,23 @@ async def healthz() -> dict:
     except Exception:
         # Chạy ở máy nhà thì worker là container riêng, không có file này — không phải lỗi.
         ket_qua["worker"] = {"trang_thai": "khong_ro"}
-    # RSS của tiến trình API. Trước P3h endpoint này không có MỘT chỉ số bộ nhớ nào, nên lần
-    # worker bị OOM killer giết (exit 137) không ai thấy gì tới lúc nó chết. `null` nghĩa là
-    # không đo được — khác với 0, và không được gộp hai thứ đó làm một.
-    ket_qua["rss_mb"] = rss_mb()
+    # HAI con số của HAI tiến trình, dán nhãn tách bạch.
+    #
+    # `rss_api_mb` là bộ nhớ của tiến trình đang phục vụ HTTP này. `worker.rss_mb` là của tiến
+    # trình worker — thứ thật sự bị OOM killer giết. Trước P3m chỉ có một trường `rss_mb` (của
+    # API) và ai nhìn cũng tưởng đó là số của worker: đúng về kỹ thuật, sai về câu hỏi.
+    #
+    # Giữ luôn `rss_mb` cũ trỏ vào số của API để không phá thứ đang đọc nó (API.md §healthz).
+    ket_qua["rss_api_mb"] = ket_qua["rss_mb"] = rss_mb()
+    try:
+        moc = json.loads(_Path(os.environ.get("WORKER_RSS_FILE", "/tmp/rss-worker.json")).read_text())
+        # Kèm `luc` để bên đọc tự đánh giá số này CŨ tới đâu — worker chết thì tệp đứng lại,
+        # và một con số đứng yên trông y hệt một con số bình thường nếu không có mốc thời gian.
+        ket_qua["worker"] = {**ket_qua["worker"], "rss_mb": moc.get("rss_mb"),
+                             "rss_moc": moc.get("moc"), "rss_luc": moc.get("luc")}
+    except Exception:
+        # Worker chưa chạy bước nặng nào thì chưa có tệp — không phải lỗi, và KHÔNG bịa số 0.
+        ket_qua["worker"] = {**ket_qua["worker"], "rss_mb": None}
     return ket_qua
 
 

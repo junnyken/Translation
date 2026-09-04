@@ -2935,3 +2935,29 @@ không theo danh sách từ. Kèm test giữ dương tính thật (`Sir Pepper` 
 `TestCoTinhKHONGBatTenODauCau` ghim một đánh đổi **có chủ ý** theo hai chiều: `Cayenne` (tên thật,
 một lần, đầu câu) không lọt vào — nhưng `Wonderful`/`Terrible` cũng không. Nới một chiều là hỏng
 chiều kia.
+
+# ========== P3m — worker tự báo RSS của chính nó (2026-09-04) ==========
+
+`/healthz` chạy trong tiến trình **API**, còn thứ bị OOM killer giết là tiến trình **worker**.
+Trước P3m endpoint chỉ có một trường `rss_mb` (của API) và ai nhìn cũng tưởng đó là số của
+worker — **đúng về kỹ thuật, sai về câu hỏi người ta đang hỏi**.
+
+Nay: worker tự ghi RSS ra tệp riêng (`WORKER_RSS_FILE`, ghi nguyên tử temp+replace), `/healthz`
+đọc lên thành `worker.rss_mb` kèm `rss_luc`. Giữ `rss_mb` cũ trỏ vào số của API để không phá thứ
+đang đọc nó, và thêm `rss_api_mb` đặt tên cho đúng.
+
+3 test: đọc lại được kèm mốc thời gian · ghi hỏng **không làm chết job** · không đo được thì
+**không ghi** (không bịa số 0).
+
+## ⚠️ Một báo động giả do chính phép đo của tôi
+
+Lượt chạy sau P3m báo **"11 failed, 8 errors"**, tưởng như P3m phá vỡ thứ gì. Chạy riêng từng tệp
+thì **xanh**. Chạy `-x` thì đi tới **hơn 91% không một lỗi nào** rồi bị `timeout` cắt.
+
+Nguyên nhân: tôi để **ba lượt pytest chạy song song**, tất cả dùng chung một Postgres test ở
+cổng 5433 — chúng migrate và xoá dữ liệu của nhau. Dọn hết tiến trình lạc rồi chạy đúng một lượt:
+**exit 0, toàn bộ xanh.**
+
+**Bài học vận hành:** bộ test này dùng **một** CSDL dùng chung, nên **không được chạy hai lượt
+cùng lúc**. Triệu chứng khi vi phạm rất dễ đánh lừa: lỗi ở những tệp không liên quan, và "ERROR at
+setup" thay vì assert hỏng.

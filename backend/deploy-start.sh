@@ -17,6 +17,9 @@ set -uo pipefail
 ROLE="${ROLE:-all}"
 PORT="${PORT:-8000}"
 TRANG_THAI_WORKER="${WORKER_STATE_FILE:-/tmp/trang-thai-worker.json}"
+# P3m — worker tự ghi RSS của nó ra đây; /healthz đọc lên. Tệp RIÊNG với tệp trạng thái
+# ở trên: tệp kia do shell này ghi, hai người ghi chung một tệp là mất dữ liệu của cả hai.
+export WORKER_RSS_FILE="${WORKER_RSS_FILE:-/tmp/rss-worker.json}"
 
 lenh_worker() {
   # --pool=solo: một tiến trình duy nhất, không fork. Xử lý mỗi lần một việc nên không mất gì,

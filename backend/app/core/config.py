@@ -54,6 +54,10 @@ class Settings(BaseSettings):
     #: container), nên không có worker thứ hai để giết nhầm. Ngày nào chạy nhiều worker thì
     #: **phải tắt cờ này trước**, rồi mới đổi sang cơ chế job-có-chủ (id worker + nhịp tim).
     worker_sweep_orphan_jobs_on_start: bool = True
+    #: P3m — worker ghi RSS của CHÍNH NÓ ra đây để `/healthz` đọc được từ ngoài.
+    #: Không dùng chung tệp trạng thái của `deploy-start.sh`: tệp đó do shell ghi, worker ghi đè
+    #: vào sẽ đá nhau. Hai người ghi một tệp là cách chắc chắn để mất dữ liệu của cả hai.
+    worker_rss_file: str = "/tmp/rss-worker.json"
 
     # Upload
     max_upload_mb: int = 25

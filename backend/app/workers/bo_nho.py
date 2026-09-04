@@ -44,11 +44,43 @@ def rss_mb() -> float | None:
 
 
 def ghi_moc(nhan: str) -> float | None:
-    """Ghi một mốc RSS vào log. Gọi ở ranh giới các bước nặng."""
+    """Ghi một mốc RSS vào log **và ra tệp** để `/healthz` đọc được. Gọi ở ranh giới bước nặng.
+
+    Vì sao phải ra tệp: `/healthz` chạy trong tiến trình **API**, còn thứ bị OOM giết là tiến
+    trình **worker**. Hai tiến trình riêng, `/proc/self` của API không nói gì về worker. Trước
+    P3m, `/healthz` báo `rss_mb` của API và ai nhìn cũng tưởng đó là số của worker — một con số
+    đúng về kỹ thuật nhưng trả lời sai câu hỏi người ta đang hỏi.
+    """
     r = rss_mb()
     if r is not None:
         logger.info("bộ nhớ [%s]: RSS %.1f MB", nhan, r)
+        _ghi_ra_tep(r, nhan)
     return r
+
+
+def _ghi_ra_tep(rss: float, nhan: str) -> None:
+    """Ghi nguyên tử (temp + replace). Hỏng thì bỏ qua — đo đạc không được làm chết job."""
+    import json
+    import os
+    import tempfile
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    from app.core.config import get_settings
+
+    try:
+        dich = Path(get_settings().worker_rss_file)
+        noi_dung = json.dumps({
+            "rss_mb": rss,
+            "moc": nhan,
+            "luc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        })
+        fd, tam = tempfile.mkstemp(dir=str(dich.parent), prefix=".rss-", suffix=".tmp")
+        with os.fdopen(fd, "w") as fh:
+            fh.write(noi_dung)
+        os.replace(tam, dich)
+    except Exception:  # noqa: BLE001
+        logger.debug("không ghi được mốc RSS ra tệp", exc_info=True)
 
 
 def giai_phong_model(giu: set[str]) -> list[str]:
