@@ -115,22 +115,33 @@ def khung_du_phong_co_noi(
     y = kq.y + ry + le
     w = kq.w - 2 * le
     h = kq.h - 2 * le
-    if w < cfg.safe_area_min_width_px or h < cfg.safe_area_min_height_px:
-        return goc
     if w * h <= r["w"] * r["h"]:
         return goc
+
+    # Khung nới ra vẫn nhỏ hơn mức tối thiểu thì VẪN DÙNG, chỉ giữ nguyên cảnh báo.
+    #
+    # Bản đầu loại thẳng khi dưới mức tối thiểu — và rơi về khung dự phòng, thứ còn NHỎ HƠN cái
+    # vừa loại. Đo trên trang thật 05/09, vùng 24×53: nới được 29×59, chừa lề còn 23×53, thiếu
+    # đúng MỘT pixel so với `safe_area_min_width_px=24` ⇒ vứt bỏ để quay về 19×43.
+    #
+    # Mức tối thiểu sinh ra để **đánh dấu vùng quá nhỏ cho người xem**, không phải để ép hệ
+    # thống chọn cái nhỏ hơn nữa. Nên: luôn lấy khung lớn hơn, và giữ nguyên `needs_review` +
+    # mã lý do nếu nó vẫn dưới mức.
+    du_nho = w < cfg.safe_area_min_width_px or h < cfg.safe_area_min_height_px
 
     ly_do_moi = list(goc.reason_codes)
     if ReasonCode.FALLBACK_GROWN_TO_FREE_SPACE not in ly_do_moi:
         ly_do_moi.append(ReasonCode.FALLBACK_GROWN_TO_FREE_SPACE)
-    # Khung đã nới thì không còn "nhỏ hơn mức tối thiểu" nữa — bỏ mã đó đi, giữ lại là nói sai
-    # về khung ĐANG dùng.
-    ly_do_moi = [m for m in ly_do_moi if m != ReasonCode.SAFE_AREA_SMALLER_THAN_MINIMUM]
+    if not du_nho:
+        # Nới xong hết nhỏ thì bỏ mã đó đi — giữ lại là nói sai về khung ĐANG dùng.
+        ly_do_moi = [m for m in ly_do_moi if m != ReasonCode.SAFE_AREA_SMALLER_THAN_MINIMUM]
+    elif ReasonCode.SAFE_AREA_SMALLER_THAN_MINIMUM not in ly_do_moi:
+        ly_do_moi.append(ReasonCode.SAFE_AREA_SMALLER_THAN_MINIMUM)
 
     dien_tich = int(w * h)
     return SafeAreaDecision(
         source=SafeAreaSource.fallback_rectangle,
-        status=SafeAreaStatus.fallback_rectangle,
+        status=SafeAreaStatus.needs_review if du_nho else SafeAreaStatus.fallback_rectangle,
         geometry_type=SafeAreaGeometryType.rect,
         geometry={"rect": {"x": float(x), "y": float(y), "w": float(w), "h": float(h)}},
         roi=roi,

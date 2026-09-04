@@ -180,6 +180,25 @@ class TestKhungDuPhongCoNoi:
         assert ReasonCode.FALLBACK_GROWN_TO_FREE_SPACE not in kq.reason_codes
         assert kq.geometry == khung_du_phong(bbox, cfg(), []).geometry
 
+    def test_khung_noi_ra_van_duoi_muc_toi_thieu_thi_VAN_DUNG(self):
+        """Đo trên trang thật 05/09: vùng 24×53 nới được 29×59, chừa lề còn 23×53 — thiếu ĐÚNG
+        MỘT pixel so với mức tối thiểu 24, và bản đầu vứt bỏ để quay về khung 19×43.
+
+        Trả về một khung NHỎ HƠN cái vừa loại là vô lý. Mức tối thiểu sinh ra để đánh dấu vùng
+        quá nhỏ cho người xem, không phải để ép hệ thống chọn cái nhỏ hơn nữa.
+        """
+        m = np.zeros((200, 200), dtype=bool)
+        m[40:105, 90:117] = True                      # chỗ trống hẹp: nới ra tối đa 27px ngang
+        bbox = BBox(x=95.0, y=50.0, w=17.0, h=45.0)
+        cu = khung_du_phong(bbox, cfg(), [])
+        moi = khung_du_phong_co_noi(bbox, cfg(), [], m, (0, 0, 200, 200))
+
+        assert moi.geometry["rect"]["w"] > cu.geometry["rect"]["w"], "phải lấy khung LỚN hơn"
+        assert moi.geometry["rect"]["w"] < 24, "tiền đề: vẫn dưới mức tối thiểu"
+        assert ReasonCode.FALLBACK_GROWN_TO_FREE_SPACE in moi.reason_codes
+        assert ReasonCode.SAFE_AREA_SMALLER_THAN_MINIMUM in moi.reason_codes, "vẫn phải cảnh báo"
+        assert moi.status.value == "needs_review", "vùng quá nhỏ vẫn phải đẩy cho người xem"
+
     def test_khong_co_mat_na_thi_tra_khung_cu(self):
         kq = khung_du_phong_co_noi(self.BBOX, cfg(), [], None, (0, 0, 400, 400))
         assert kq.geometry == khung_du_phong(self.BBOX, cfg(), []).geometry
