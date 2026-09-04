@@ -17,6 +17,8 @@ import ConsistencyReviewQueue from './components/consistency/ConsistencyReviewQu
 import GlossaryManager from './components/consistency/GlossaryManager.jsx'
 import VoiceProfileManager from './components/consistency/VoiceProfileManager.jsx'
 import ReviewToolbar from './components/chapter/ReviewToolbar.jsx'
+import ManDangNhap from './components/auth/ManDangNhap.jsx'
+import BangChuaCoChu from './components/auth/BangChuaCoChu.jsx'
 import Alert from './components/ui/Alert.jsx'
 import Button from './components/ui/Button.jsx'
 import StatusBadge from './components/ui/StatusBadge.jsx'
@@ -44,6 +46,13 @@ function luuChapter(id, ten) {
 }
 
 export default function App() {
+  // Auth slice B — ba trạng thái, KHÔNG phải hai:
+  //   undefined = đang hỏi máy chủ xem mã phiên trong máy còn dùng được không
+  //   null      = chưa đăng nhập
+  //   object    = đã đăng nhập
+  // Gộp "đang hỏi" vào "chưa đăng nhập" sẽ nháy màn đăng nhập một cái mỗi lần tải lại trang,
+  // kể cả khi phiên còn tốt.
+  const [nguoiDung, setNguoiDung] = useState(undefined)
   const [{ pageId, projectId }, setDiaChi] = useState(docDiaChi)
   const [nhap, setNhap] = useState(projectId || pageId)
   const [project, setProject] = useState(null)
@@ -299,7 +308,31 @@ export default function App() {
   const tienDo = tinhTienDoChapter(dsTrang, {
     soTran: canhBao?.overflow_warning_count, soCanDocLai: canhBao?.needs_manual_count,
   })
+  useEffect(() => {
+    let huy = false
+    if (!api.docMaPhien()) { setNguoiDung(null); return undefined }
+    api.toiLaAi()
+      .then((n) => { if (!huy) setNguoiDung(n) })
+      // Mã phiên còn trong máy nhưng máy chủ không nhận (hết hạn, bị thu hồi, đổi máy chủ) —
+      // dọn luôn, để lần sau không phải chờ một lượt gọi thất bại nữa.
+      .catch(() => { if (!huy) { api.xoaMaPhien(); setNguoiDung(null) } })
+    return () => { huy = true }
+  }, [])
+
   const oTrangChu = !projectId && !pageId
+
+  if (nguoiDung === undefined) {
+    return <div className="app"><main className="than-trang"><p>Đang kiểm phiên đăng nhập…</p></main></div>
+  }
+  if (nguoiDung === null) {
+    return (
+      <div className="app">
+        <main className="than-trang">
+          <ManDangNhap onXong={setNguoiDung} />
+        </main>
+      </div>
+    )
+  }
 
   return (
     <div className="app">
@@ -317,6 +350,13 @@ export default function App() {
           <a href="#" className="nut nut-phu" onClick={() => {
             document.getElementById('nut-tao')?.scrollIntoView({ block: 'center' })
           }}>Tạo chapter</a>
+          <span className="tai-khoan">
+            <span title={nguoiDung.email}>{nguoiDung.ten_hien || nguoiDung.email}</span>
+            <button type="button" className="nut-chu" onClick={async () => {
+              await api.dangXuat()
+              setNguoiDung(null)
+            }}>Đăng xuất</button>
+          </span>
         </nav>
 
         <div className="o-tim">
@@ -331,8 +371,15 @@ export default function App() {
       </header>
 
       <main className="than-trang">
-        {loi && api.laLoiThieuKhoa(loi)
-          ? <HopNhapKhoa onXong={() => { setLoi(null); napProject(projectId || nhap) }} />
+        {/* Sau slice B, 401 ở đây nghĩa là PHIÊN HẾT HẠN giữa chừng, không phải thiếu khoá
+            chung nữa. Hiện ô nhập khoá lúc này là chỉ sai đường cho người dùng. */}
+        {loi && api.laLoiChuaDangNhap(loi)
+          ? <Alert sac="canh" tieuDe="Phiên đăng nhập đã hết hạn">
+              <p>Đăng nhập lại để tiếp tục. Việc đang làm dở không mất — nó nằm trên máy chủ.</p>
+              <Button kieu="chinh" onClick={() => { api.xoaMaPhien(); setNguoiDung(null) }}>
+                Đăng nhập lại
+              </Button>
+            </Alert>
           : loi && <Alert sac="loi" tieuDe="Có lỗi" onDong={() => setLoi(null)}>{loi}</Alert>}
         {thongBao && <Alert sac="tin" onDong={() => setThongBao(null)}>{thongBao}</Alert>}
 
@@ -357,6 +404,11 @@ export default function App() {
 
         {project && !pageId && (
           <>
+            <BangChuaCoChu
+              project={project}
+              onNhanXong={(moi) => setProject((cu) => ({ ...cu, ...moi }))}
+            />
+
             <div className="tieu-de-man">
               <h1>{project.name}</h1>
               <p>
@@ -596,50 +648,3 @@ export default function App() {
 }
 
 
-/** Hỏi khoá truy cập khi máy chủ trả 401.
- *
- * Chỉ hiện KHI CẦN: máy chủ chưa bật khoá thì người dùng không bao giờ thấy ô này. Bắt người ta
- * nhập khoá cho một hệ thống không đòi khoá là bắt họ làm một việc vô nghĩa.
- */
-function HopNhapKhoa({ onXong }) {
-  const [khoa, setKhoa] = useState(api.docKhoa())
-  const [dangThu, setDangThu] = useState(false)
-  const [sai, setSai] = useState(false)
-
-  async function luu(e) {
-    e.preventDefault()
-    if (!khoa.trim()) return
-    setDangThu(true); setSai(false)
-    api.luuKhoa(khoa)
-    try {
-      // Thử một lời gọi THẬT trước khi báo thành công. Lưu rồi nói "xong" mà khoá sai thì người
-      // dùng chỉ gặp lại đúng màn này ở thao tác kế tiếp, và không hiểu vì sao.
-      await api.kiemKhoa()
-      onXong()
-    } catch {
-      api.xoaKhoa(); setSai(true)
-    } finally {
-      setDangThu(false)
-    }
-  }
-
-  return (
-    <Alert sac="canh" tieuDe="Cần khoá truy cập">
-      <p>
-        Hệ thống này đang bật khoá chung. Nhập khoá để tiếp tục — khoá được nhớ lại trên
-        trình duyệt này, không phải nhập lại mỗi lần.
-      </p>
-      <form onSubmit={luu} className="hang-cong-cu">
-        <input
-          type="password" value={khoa} autoFocus
-          onChange={(e) => setKhoa(e.target.value)}
-          placeholder="Dán khoá truy cập…" aria-label="Khoá truy cập"
-        />
-        <Button kieu="chinh" type="submit" disabled={dangThu || !khoa.trim()}>
-          {dangThu ? 'Đang kiểm…' : 'Lưu khoá'}
-        </Button>
-      </form>
-      {sai && <p className="canh-bao">Khoá không đúng. Hỏi lại người quản trị hệ thống.</p>}
-    </Alert>
-  )
-}

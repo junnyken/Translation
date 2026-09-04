@@ -28,12 +28,82 @@ export function xoaKhoa() {
   try { localStorage.removeItem(KHOA_LUU) } catch { /* bỏ qua */ }
 }
 
-/** `fetch` có gắn khoá. Che hàm toàn cục CÓ CHỦ Ý — xem ghi chú ở trên. */
+// ---------- Phiên đăng nhập (auth slice B) ----------
+//
+// Slice A là MỘT khoá chung cho cả hệ thống: ai cầm khoá là đọc/xoá được chapter của mọi
+// người. Slice B thay nó ở đường vào dữ liệu — mỗi người một tài khoản, mỗi chapter có chủ.
+//
+// Khoá chung KHÔNG biến mất, nhưng từ nay chỉ còn đúng một việc: gác cổng **đăng ký**, để
+// người lạ trên internet không tự tạo tài khoản trên hạ tầng của mình.
+const PHIEN_LUU = 'translation:ma-phien'
+
+export function docMaPhien() {
+  try { return localStorage.getItem(PHIEN_LUU) || '' } catch { return '' }
+}
+export function luuMaPhien(ma) {
+  try { localStorage.setItem(PHIEN_LUU, ma) } catch { /* trình duyệt chặn thì thôi */ }
+}
+export function xoaMaPhien() {
+  try { localStorage.removeItem(PHIEN_LUU) } catch { /* bỏ qua */ }
+}
+
+/** `fetch` có gắn mã phiên và khoá. Che hàm toàn cục CÓ CHỦ Ý — xem ghi chú ở trên. */
 function fetch(url, opts = {}) {
+  const headers = { ...(opts.headers || {}) }
   const khoa = docKhoa()
-  const headers = khoa ? { ...(opts.headers || {}), 'X-API-Key': khoa } : opts.headers
+  if (khoa) headers['X-API-Key'] = khoa
+  const ma = docMaPhien()
+  if (ma) headers.Authorization = `Bearer ${ma}`
   return globalThis.fetch(url, { ...opts, headers })
 }
+
+/** Chưa đăng nhập (hoặc phiên hết hạn) — giao diện phải hiện màn đăng nhập.
+ *
+ * Nhận CẢ `Error` LẪN chuỗi, cùng lý do đã ghi ở `laLoiThieuKhoa`: App lưu lỗi bằng
+ * `setLoi(e.message)`, tức truyền vào một CHUỖI.
+ */
+export function laLoiChuaDangNhap(e) {
+  const s = typeof e === 'string' ? e : e?.message
+  return typeof s === 'string' && s.startsWith('401')
+}
+
+export const coTaiKhoanChua = () =>
+  fetch(`${BASE}/auth/co-tai-khoan-chua`).then(doc)
+
+export const toiLaAi = () => fetch(`${BASE}/auth/me`).then(doc)
+
+export async function dangNhap(email, matKhau) {
+  const kq = await fetch(`${BASE}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, mat_khau: matKhau }),
+  }).then(doc)
+  luuMaPhien(kq.ma_phien)
+  return kq.nguoi_dung
+}
+
+/** Tạo tài khoản. Đòi khoá chung (`X-API-Key`) — `fetch` ở trên tự gắn nếu đã lưu. */
+export const dangKy = (email, tenHien, matKhau) =>
+  fetch(`${BASE}/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, ten_hien: tenHien, mat_khau: matKhau }),
+  }).then(doc)
+
+export async function dangXuat() {
+  // Gọi máy chủ TRƯỚC rồi mới xoá mã: xoá trước thì lời gọi thu hồi mất mã để gửi đi, và
+  // phiên vẫn còn hiệu lực trên máy chủ tới lúc hết hạn.
+  try {
+    await fetch(`${BASE}/auth/logout`, { method: 'POST' })
+  } finally {
+    xoaMaPhien()
+  }
+}
+
+export const layDanhSachChapter = () => fetch(`${BASE}/projects`).then(doc)
+
+export const nhanChapter = (projectId) =>
+  fetch(`${BASE}/projects/${projectId}/claim`, { method: 'POST' }).then(doc)
 
 /** Thử một lời gọi THẬT để biết khoá có dùng được không.
  *

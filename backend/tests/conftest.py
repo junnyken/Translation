@@ -109,14 +109,119 @@ async def session(engine) -> AsyncIterator[AsyncSession]:
         await conn.execute(sa.text(f"TRUNCATE {', '.join(TABLES)} RESTART IDENTITY CASCADE"))
 
 
+# ── Tài khoản dùng cho test (Auth slice B) ────────────────────────────────────────────────
+# Tạo MỘT LẦN cho cả lượt chạy, không phải mỗi test: mỗi lần băm scrypt tốn ~83ms, nhân với
+# ~700 test là thêm cả phút vào mỗi lần chạy mà chẳng kiểm thêm được gì.
+#
+# `nguoi_dung` và `phien` KHÔNG nằm trong TABLES nên không bị TRUNCATE giữa các test. An toàn:
+# TRUNCATE ... CASCADE chỉ lan sang bảng THAM CHIẾU tới bảng bị xoá, mà `nguoi_dung` không
+# tham chiếu `project` (chiều ngược lại).
+EMAIL_A = "a@test.local"
+EMAIL_B = "b@test.local"
+MAT_KHAU_TEST = "mat-khau-test-1234"
+
+
+#: Băm scrypt MỘT lần cho cả lượt chạy (~83ms). Dùng chung cho cả hai tài khoản test —
+#: test không kiểm sức mạnh mật khẩu ở đây, chỉ cần đăng nhập được.
+_BAM_TEST: list[str] = []
+
+
+def _tao_tai_khoan_test() -> dict[str, tuple[str, str]]:
+    """Trả `{email: (user_id, mã phiên thô)}`. Dùng driver đồng bộ cho đơn giản.
+
+    **Idempotent và tự dựng lại**: `test_migration.py` chạy `downgrade base` trên chính CSDL
+    test, tức là nó XOÁ bảng `nguoi_dung`. Nếu fixture này chỉ chạy một lần cho cả lượt thì mọi
+    test xếp sau test đó sẽ mất tài khoản và nhận 401 — đúng triệu chứng đã đo được: cả
+    `test_range_integration` lẫn `test_typeset_task_integration` xanh khi chạy riêng, đỏ khi
+    chạy chung.
+    """
+    from app.core import phien as ph
+    from app.core.mat_khau import bam
+
+    eng = sa.create_engine(_sync_url(TEST_DB_URL))
+    ket_qua: dict[str, tuple[str, str]] = {}
+    if not _BAM_TEST:
+        _BAM_TEST.append(bam(MAT_KHAU_TEST))
+    bam_chung = _BAM_TEST[0]
+    with eng.begin() as conn:
+        for email in (EMAIL_A, EMAIL_B):
+            uid = conn.execute(
+                sa.text("SELECT id FROM nguoi_dung WHERE email = :e"), {"e": email}
+            ).scalar()
+            if uid is None:
+                uid = uuid.uuid4()
+                conn.execute(
+                    sa.text(
+                        "INSERT INTO nguoi_dung (id, email, ten_hien, mat_khau_bam,"
+                        " dang_hoat_dong, la_quan_tri) VALUES"
+                        " (:id, :e, :t, :b, true, false)"
+                    ),
+                    {"id": uid, "e": email, "t": email.split("@")[0], "b": bam_chung},
+                )
+            ma_tho = ph.sinh_ma()
+            conn.execute(
+                sa.text(
+                    "INSERT INTO phien (id, nguoi_dung_id, ma_bam, het_han)"
+                    " VALUES (:id, :u, :h, :x)"
+                ),
+                {"id": uuid.uuid4(), "u": uid, "h": ph.bam_ma(ma_tho), "x": ph.han_moi()},
+            )
+            ket_qua[email] = (str(uid), ma_tho)
+    eng.dispose()
+    return ket_qua
+
+
 @pytest.fixture
-async def client(session) -> AsyncIterator[AsyncClient]:
+def tai_khoan_test(migrated_database) -> dict[str, tuple[str, str]]:
+    """Cố ý KHÔNG dùng `scope="session"` — xem giải thích ở `_tao_tai_khoan_test`."""
+    return _tao_tai_khoan_test()
+
+
+@pytest.fixture
+def nguoi_a(tai_khoan_test) -> tuple[str, str]:
+    """`(user_id, mã phiên)` của tài khoản A — chủ mặc định của mọi thứ test tạo ra."""
+    return tai_khoan_test[EMAIL_A]
+
+
+@pytest.fixture
+def nguoi_b(tai_khoan_test) -> tuple[str, str]:
+    """Tài khoản thứ hai — dùng để chứng minh A không đụng được vào dữ liệu của B và ngược lại."""
+    return tai_khoan_test[EMAIL_B]
+
+
+def _client(session, headers: dict[str, str]) -> AsyncClient:
     async def _override() -> AsyncIterator[AsyncSession]:
         yield session
 
     app.dependency_overrides[get_session] = _override
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
+    return AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test", headers=headers
+    )
+
+
+@pytest.fixture
+async def client(session, nguoi_a) -> AsyncIterator[AsyncClient]:
+    """Máy khách ĐÃ đăng nhập bằng tài khoản A.
+
+    Mặc định là "đã đăng nhập" để hàng trăm test có sẵn không phải sửa. Test nào cần chứng
+    minh cổng đăng nhập hoạt động thì dùng `client_chua_dang_nhap`.
+    """
+    async with _client(session, {"Authorization": f"Bearer {nguoi_a[1]}"}) as c:
+        yield c
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+async def client_b(session, nguoi_b) -> AsyncIterator[AsyncClient]:
+    """Máy khách đăng nhập bằng tài khoản B — người lạ với dữ liệu của A."""
+    async with _client(session, {"Authorization": f"Bearer {nguoi_b[1]}"}) as c:
+        yield c
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+async def client_chua_dang_nhap(session) -> AsyncIterator[AsyncClient]:
+    async with _client(session, {}) as c:
         yield c
     app.dependency_overrides.clear()
 

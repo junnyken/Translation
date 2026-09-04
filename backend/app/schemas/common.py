@@ -63,6 +63,42 @@ class ProjectRead(ORMModel):
     status: ProjectStatus
     created_at: datetime
     updated_at: datetime
+    #: NULL = chapter tạo trước slice B, chưa có chủ. Giao diện phải hiện nhãn riêng cho nó
+    #: chứ không im lặng coi như của người đang xem.
+    chu_so_huu_id: uuid.UUID | None = None
+
+
+class NguoiDungRead(ORMModel):
+    """Thông tin tài khoản trả ra API. **Không** có `mat_khau_bam` — kể cả đã băm."""
+
+    id: uuid.UUID
+    email: str
+    ten_hien: str
+    la_quan_tri: bool
+    created_at: datetime
+
+
+class DangKyRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    ten_hien: str = Field(default="", max_length=120)
+    mat_khau: str = Field(min_length=1, max_length=1024)
+
+
+class DangNhapRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    mat_khau: str = Field(min_length=1, max_length=1024)
+
+
+class DangNhapResponse(BaseModel):
+    """`ma_phien` chỉ xuất hiện đúng ở đây — trong CSDL chỉ có bản băm của nó."""
+
+    ma_phien: str
+    het_han: datetime
+    nguoi_dung: NguoiDungRead
+
+
+class NhanChapterResponse(BaseModel):
+    so_chapter_da_nhan: int
 
 
 class PageSummary(ORMModel):

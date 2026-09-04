@@ -28,8 +28,15 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
+from app.core.quyen import (
+    LOI_KHONG_THAY,
+    bao_dam_quyen,
+    duoc_dung_project,
+    nguoi_dung_hien_tai,
+)
 from app.models import (
     BatchItem,
+    NguoiDung,
     RegionSafeArea,
     RegionTextOrientation,
     CharacterVoiceProfile,
@@ -159,27 +166,58 @@ from app.services.typeset.registry import FONT_REGISTRY
 router = APIRouter(prefix="/api/v1")
 
 
-async def _get_project_or_404(session: AsyncSession, project_id: uuid.UUID) -> Project:
+async def _get_project_or_404(
+    session: AsyncSession, project_id: uuid.UUID, nguoi: NguoiDung
+) -> Project:
+    """Lấy chapter, ném 404 nếu không có **hoặc không phải của `nguoi`**.
+
+    `nguoi` là tham số BẮT BUỘC có chủ đích: đây là điểm nghẽn mà 18 endpoint đi qua, và nếu
+    nó có giá trị mặc định thì một chỗ gọi quên truyền sẽ lặng lẽ bỏ qua kiểm quyền.
+    """
     project = await session.get(Project, project_id)
-    if project is None:
-        raise HTTPException(status_code=404, detail="Project không tồn tại")
+    if project is None or not duoc_dung_project(nguoi, project):
+        # Cùng một câu cho "không có" và "không phải của bạn" — xem app/core/quyen.py.
+        raise HTTPException(status_code=404, detail=LOI_KHONG_THAY)
     return project
 
 
-async def _get_page_or_404(session: AsyncSession, page_id: uuid.UUID) -> Page:
+async def _bao_dam_quyen_theo_id(
+    session: AsyncSession, nguoi: NguoiDung, loai: type, ban_ghi_id: uuid.UUID
+) -> None:
+    """Kiểm quyền cho các endpoint uỷ quyền việc SỬA cho dịch vụ đồng bộ rồi mới trả bản ghi.
+
+    Ở những chỗ đó, kiểm quyền sau khi gọi dịch vụ là **đã muộn**: dữ liệu bị sửa xong rồi mới
+    trả 404, tức là người lạ vẫn duyệt/lưu trữ/từ chối được mục của người khác — chỉ là không
+    nhìn thấy kết quả.
+    """
+    ban_ghi = await session.get(loai, ban_ghi_id)
+    if ban_ghi is None:
+        raise HTTPException(status_code=404, detail=LOI_KHONG_THAY)
+    await bao_dam_quyen(session, nguoi, ban_ghi)
+
+
+async def _get_page_or_404(
+    session: AsyncSession, page_id: uuid.UUID, nguoi: NguoiDung
+) -> Page:
+    """Lấy trang, ném 404 nếu không có hoặc chapter chứa nó không phải của `nguoi`."""
     page = await session.get(Page, page_id)
     if page is None:
-        raise HTTPException(status_code=404, detail="Page không tồn tại")
+        raise HTTPException(status_code=404, detail=LOI_KHONG_THAY)
+    await bao_dam_quyen(session, nguoi, page)
+    await bao_dam_quyen(session, nguoi, page)
     return page
 
 
 @router.post("/projects", response_model=ProjectRead, status_code=status.HTTP_201_CREATED, tags=["projects"])
-async def create_project(payload: ProjectCreate, session: AsyncSession = Depends(get_session)) -> Project:
+async def create_project(payload: ProjectCreate, session: AsyncSession = Depends(get_session), nguoi: NguoiDung = Depends(nguoi_dung_hien_tai)) -> Project:
     project = Project(
         name=payload.name,
         source_lang=payload.source_lang,
         target_lang=payload.target_lang,
         intended_use=payload.intended_use,
+        # Chapter tạo từ slice B trở đi LUÔN có chủ ngay từ đầu — không có đường nào sinh
+        # thêm chapter vô chủ nữa.
+        chu_so_huu_id=nguoi.id,
     )
     session.add(project)
     await session.commit()
@@ -187,12 +225,61 @@ async def create_project(payload: ProjectCreate, session: AsyncSession = Depends
     return project
 
 
+@router.get("/projects", response_model=list[ProjectRead], tags=["projects"])
+async def list_projects(
+    session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
+) -> list[Project]:
+    """Chapter của tôi + chapter chưa có chủ.
+
+    Endpoint này **mới có ở slice B**. Trước đó giao diện tự nhớ id chapter trong máy, nên
+    người dùng mới đăng nhập trên máy khác sẽ không thấy gì cả.
+
+    Chapter chưa có chủ (`chu_so_huu_id IS NULL`, tạo trước slice B) cũng hiện ra, để chúng
+    không biến mất khỏi tầm nhìn. Giao diện phải gắn nhãn phân biệt.
+    """
+    return list(
+        (await session.execute(
+            select(Project)
+            .where(
+                (Project.chu_so_huu_id == nguoi.id) | (Project.chu_so_huu_id.is_(None))
+            )
+            .order_by(Project.created_at.desc())
+        )).scalars()
+    )
+
+
+@router.post(
+    "/projects/{project_id}/claim", response_model=ProjectRead, tags=["projects"]
+)
+async def claim_project(
+    project_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
+) -> Project:
+    """Nhận một chapter chưa có chủ về mình.
+
+    Chỉ nhận được chapter **đang không có chủ**. Chapter đã có chủ thì `_get_project_or_404`
+    đã chặn từ trước — không có đường nào cướp chapter của người khác.
+    """
+    project = await _get_project_or_404(session, project_id, nguoi)
+    if project.chu_so_huu_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Chapter này đã có chủ rồi.",
+        )
+    project.chu_so_huu_id = nguoi.id
+    await session.commit()
+    await session.refresh(project)
+    return project
+
+
 @router.get("/projects/{project_id}", response_model=ProjectDetail, tags=["projects"])
-async def get_project(project_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> Project:
+async def get_project(project_id: uuid.UUID, session: AsyncSession = Depends(get_session), nguoi: NguoiDung = Depends(nguoi_dung_hien_tai)) -> Project:
     stmt = select(Project).where(Project.id == project_id).options(selectinload(Project.pages))
     project = (await session.execute(stmt)).scalar_one_or_none()
-    if project is None:
-        raise HTTPException(status_code=404, detail="Project không tồn tại")
+    if project is None or not duoc_dung_project(nguoi, project):
+        raise HTTPException(status_code=404, detail=LOI_KHONG_THAY)
     return project
 
 
@@ -207,12 +294,13 @@ async def upload_page(
     file: UploadFile = File(..., description="Ảnh trang manga (JPEG/PNG/WEBP)"),
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> PageAccepted:
     """Nhận ảnh trang, lưu file, tạo Page(status=queued) + Job(type=detect, status=queued).
 
     M1 chỉ ghi record Job vào hàng đợi (chưa dispatch worker thật — bắt đầu ở M2).
     """
-    project = await _get_project_or_404(session, project_id)
+    project = await _get_project_or_404(session, project_id, nguoi)
 
     data = await file.read()
     if not data:
@@ -262,16 +350,17 @@ async def upload_page(
 
 
 @router.get("/pages/{page_id}", response_model=PageRead, tags=["pages"])
-async def get_page(page_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> Page:
-    return await _get_page_or_404(session, page_id)
+async def get_page(page_id: uuid.UUID, session: AsyncSession = Depends(get_session), nguoi: NguoiDung = Depends(nguoi_dung_hien_tai)) -> Page:
+    return await _get_page_or_404(session, page_id, nguoi)
 
 
 @router.get("/pages/{page_id}/regions", response_model=list[RegionRead], tags=["pages"])
 async def list_page_regions(
-    page_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    page_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> list[RegionRead]:
     """Trả [] cho tới khi M2 (detect) chạy thật — không bịa region."""
-    await _get_page_or_404(session, page_id)
+    await _get_page_or_404(session, page_id, nguoi)
     stmt = (
         select(TextRegion)
         .where(TextRegion.page_id == page_id)
@@ -288,13 +377,14 @@ async def list_page_regions(
     tags=["pages"],
 )
 async def retry_detect(
-    page_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    page_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> PageAccepted:
     """Xếp lại việc detect cho 1 page (dùng sau khi detection_failed hoặc muốn chạy lại).
 
     Vẫn chỉ enqueue — không chạy detect trong request.
     """
-    page = await _get_page_or_404(session, page_id)
+    page = await _get_page_or_404(session, page_id, nguoi)
     if page.status is PageStatus.detecting:
         raise HTTPException(status_code=409, detail="Page đang detect, không xếp thêm việc trùng")
 
@@ -313,7 +403,8 @@ async def retry_detect(
 
 @router.get("/pages/{page_id}/jobs", response_model=list[JobRead], tags=["pages"])
 async def list_page_jobs(
-    page_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    page_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> list[Job]:
     """Lịch sử job của một trang, MỚI NHẤT trước (P3j).
 
@@ -323,7 +414,7 @@ async def list_page_jobs(
 
     `error_log` của job hỏng là chỗ chứa lý do đọc được (vd `worker_died: …`).
     """
-    await _get_page_or_404(session, page_id)
+    await _get_page_or_404(session, page_id, nguoi)
     return list(
         (await session.execute(
             select(Job).where(Job.page_id == page_id).order_by(Job.created_at.desc())
@@ -333,14 +424,15 @@ async def list_page_jobs(
 
 @router.get("/pages/{page_id}/ocr", response_model=list[OCRResultRead], tags=["pages"])
 async def list_page_ocr(
-    page_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    page_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> list[OCRResult]:
     """Kết quả OCR theo từng region của page (M3).
 
     Trả `[]` khi job OCR chưa chạy — không bịa text. `confidence = null` là BÌNH THƯỜNG
     với engine manga-ocr (thư viện không cung cấp điểm tin cậy), không phải lỗi.
     """
-    await _get_page_or_404(session, page_id)
+    await _get_page_or_404(session, page_id, nguoi)
     stmt = (
         select(OCRResult)
         .join(TextRegion, TextRegion.id == OCRResult.region_id)
@@ -357,10 +449,11 @@ async def list_page_ocr(
     tags=["pages"],
 )
 async def retry_ocr(
-    page_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    page_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> PageAccepted:
     """Xếp lại việc OCR cho 1 page. Chỉ enqueue — không chạy OCR trong request."""
-    page = await _get_page_or_404(session, page_id)
+    page = await _get_page_or_404(session, page_id, nguoi)
     region_count = await session.scalar(
         select(func.count(TextRegion.id)).where(TextRegion.page_id == page_id)
     )
@@ -537,10 +630,11 @@ async def _phuc_vu_hien_vat(
     responses={200: {"content": {"image/png": {}}}, 404: {"description": "Chưa có ảnh clean"}},
 )
 async def get_clean_image(
-    page_id: uuid.UUID, request: Request, session: AsyncSession = Depends(get_session)
+    page_id: uuid.UUID, request: Request, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> Response:
     """Ảnh đã xoá chữ gốc (M4). Ảnh GỐC không bao giờ bị thay — đây là file riêng."""
-    page = await _get_page_or_404(session, page_id)
+    page = await _get_page_or_404(session, page_id, nguoi)
     if not page.clean_image_path:
         raise HTTPException(
             status_code=404,
@@ -562,10 +656,11 @@ async def get_clean_image(
     tags=["pages"],
 )
 async def retry_inpaint(
-    page_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    page_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> PageAccepted:
     """Xếp lại việc xoá chữ cho 1 page. Chỉ enqueue — không chạy inpaint trong request."""
-    page = await _get_page_or_404(session, page_id)
+    page = await _get_page_or_404(session, page_id, nguoi)
     if page.status not in (
         PageStatus.ocr_done,
         PageStatus.inpainted,
@@ -593,14 +688,15 @@ async def retry_inpaint(
     "/pages/{page_id}/translation", response_model=list[TranslationResultRead], tags=["pages"]
 )
 async def list_page_translation(
-    page_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    page_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> list[TranslationResult]:
     """Bản dịch theo từng vùng chữ, sắp theo ĐÚNG thứ tự đọc (M5).
 
     Trả `[]` khi chưa dịch — không bịa bản dịch. `status`: `ok` · `fallback_used`
     (LLM lỗi nên đã lùi về Google) · `pending` (model không trả dòng này, cần xem lại).
     """
-    await _get_page_or_404(session, page_id)
+    await _get_page_or_404(session, page_id, nguoi)
     stmt = (
         select(TranslationResult)
         .join(TextRegion, TextRegion.id == TranslationResult.region_id)
@@ -620,12 +716,13 @@ async def retry_translate(
     page_id: uuid.UUID,
     engine: TranslationEngine | None = None,
     session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> PageAccepted:
     """Xếp lại việc dịch. `engine` (tuỳ chọn): `google_fast` (miễn phí) hoặc `llm_context` (tốn token).
 
     Không truyền `engine` thì dùng mặc định trong cấu hình. Chỉ enqueue, không dịch trong request.
     """
-    page = await _get_page_or_404(session, page_id)
+    page = await _get_page_or_404(session, page_id, nguoi)
     # `typeset_done` PHẢI nằm trong danh sách: từ M6 pipeline tự nối chuỗi nên mọi trang đều kết
     # thúc ở trạng thái này — thiếu nó thì không trang nào dịch lại được nữa (lỗi thật, M8 phát hiện).
     if page.status not in (
@@ -654,7 +751,8 @@ async def retry_translate(
 
 @router.get("/pages/{page_id}/typeset", response_model=list[TypesetResultRead], tags=["pages"])
 async def list_page_typeset(
-    page_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    page_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> list[TypesetResult]:
     """Kết quả canh chữ theo từng vùng, sắp theo ĐÚNG thứ tự đọc (M6).
 
@@ -662,7 +760,7 @@ async def list_page_typeset(
     cỡ nhỏ nhất — M7 sẽ sửa tay) · `pending` (vùng chưa có bản dịch nên chưa có gì để canh).
     Cảnh báo tràn khung PHẢI đọc được ở đây, không bị ảnh preview đẹp che mất.
     """
-    await _get_page_or_404(session, page_id)
+    await _get_page_or_404(session, page_id, nguoi)
     stmt = (
         select(TypesetResult)
         .join(TextRegion, TextRegion.id == TypesetResult.region_id)
@@ -678,14 +776,15 @@ async def list_page_typeset(
     responses={200: {"content": {"image/png": {}}}, 404: {"description": "Chưa render preview"}},
 )
 async def get_typeset_preview(
-    page_id: uuid.UUID, request: Request, session: AsyncSession = Depends(get_session)
+    page_id: uuid.UUID, request: Request, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> Response:
     """Ảnh xem thử: ảnh clean của M4 + chữ dịch đã canh (M6).
 
     CHỈ phục vụ file đã render sẵn — endpoint này không bao giờ tự render (việc nặng thuộc
     worker). Ảnh gốc và ảnh clean không hề bị đụng tới; đây là file thứ ba.
     """
-    await _get_page_or_404(session, page_id)
+    await _get_page_or_404(session, page_id, nguoi)
     storage = get_storage()
     rel = preview_relative_path(page_id)
     if not await run_in_threadpool(storage.exists, rel):
@@ -707,10 +806,11 @@ async def get_typeset_preview(
     tags=["pages"],
 )
 async def retry_typeset(
-    page_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    page_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> PageAccepted:
     """Xếp lại việc canh chữ. Chỉ enqueue, không render trong request."""
-    page = await _get_page_or_404(session, page_id)
+    page = await _get_page_or_404(session, page_id, nguoi)
     if page.status not in (PageStatus.translated, PageStatus.typeset_done):
         raise HTTPException(
             status_code=409,
@@ -733,10 +833,16 @@ async def retry_typeset(
 # ============================ M7: sửa tay từng vùng ============================
 
 
-async def _get_region_or_404(session: AsyncSession, region_id: uuid.UUID) -> TextRegion:
+async def _get_region_or_404(
+    session: AsyncSession, region_id: uuid.UUID, nguoi: NguoiDung
+) -> TextRegion:
+    """Lấy vùng chữ, ném 404 nếu không có hoặc chapter chứa nó không phải của `nguoi`."""
     region = await session.get(TextRegion, region_id)
     if region is None:
-        raise HTTPException(status_code=404, detail=f"Không tìm thấy vùng chữ {region_id}")
+        # Bỏ `{region_id}` khỏi thông báo: lặp lại id người ta gửi lên không thêm thông tin gì
+        # cho chủ sở hữu, mà lại giúp người dò phân biệt các nhánh lỗi.
+        raise HTTPException(status_code=404, detail=LOI_KHONG_THAY)
+    await bao_dam_quyen(session, nguoi, region)
     return region
 
 
@@ -745,6 +851,7 @@ async def get_page_detail(
     page_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> PageDetail:
     """Gom TẤT CẢ dữ liệu của 1 trang cho màn sửa tay (M7) — 1 lần gọi thay vì 5 lần.
 
@@ -752,7 +859,7 @@ async def get_page_detail(
     `ocr_status` (`needs_manual`), `fit_status` (`overflow_warning`), cùng cờ `edited_by_user`
     của cả bản dịch lẫn kết quả canh chữ để biết chỗ nào người sửa, chỗ nào máy làm.
     """
-    page = await _get_page_or_404(session, page_id)
+    page = await _get_page_or_404(session, page_id, nguoi)
 
     stmt = (
         select(TextRegion, OCRResult, TranslationResult, TypesetResult)
@@ -814,6 +921,7 @@ async def patch_region(
     region_id: uuid.UUID,
     patch: RegionPatch,
     session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> RegionPatchAccepted:
     """Sửa tay 1 vùng: bản dịch / khung chữ / font / cỡ chữ, rồi **canh lại đúng vùng đó**.
 
@@ -827,7 +935,7 @@ async def patch_region(
     if not patch.co_thay_doi():
         raise HTTPException(status_code=422, detail="Không có trường nào để sửa")
 
-    region = await _get_region_or_404(session, region_id)
+    region = await _get_region_or_404(session, region_id, nguoi)
     da_sua: list[str] = []
 
     if patch.bbox is not None:
@@ -909,9 +1017,10 @@ async def refit_region(
     region_id: uuid.UUID,
     font_size: float | None = None,
     session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> JobAccepted:
     """Canh lại chữ cho 1 vùng mà KHÔNG sửa gì (dùng khi đổi cấu hình font/padding)."""
-    region = await _get_region_or_404(session, region_id)
+    region = await _get_region_or_404(session, region_id, nguoi)
     job = Job(type=JobType.typeset, page_id=region.page_id, status=JobStatus.queued)
     session.add(job)
     await session.commit()
@@ -931,14 +1040,15 @@ async def refit_region(
     tags=["regions"],
 )
 async def reocr_region(
-    region_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    region_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> JobAccepted:
     """Đọc lại chữ gốc của 1 vùng từ **ảnh gốc** (ảnh clean đã bị xoá chữ nên không dùng được).
 
     KHÔNG tự dịch lại và không tự canh lại — người dùng chủ động bấm tiếp, để không âm thầm
     ghi đè bản dịch mà họ có thể đã sửa tay.
     """
-    region = await _get_region_or_404(session, region_id)
+    region = await _get_region_or_404(session, region_id, nguoi)
     job = Job(type=JobType.ocr, page_id=region.page_id, status=JobStatus.queued)
     session.add(job)
     await session.commit()
@@ -961,13 +1071,14 @@ async def retranslate_region(
     region_id: uuid.UUID,
     engine: TranslationEngine | None = None,
     session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> JobAccepted:
     """Dịch lại 1 vùng từ chữ gốc hiện tại. **Ghi đè bản dịch**, kể cả bản đã sửa tay.
 
     Lưu ý: dịch lại một dòng lẻ thì `llm_context` mất lợi thế ngữ cảnh cả trang.
     KHÔNG tự canh chữ lại — bấm "canh lại" hoặc sửa tiếp thì mới canh.
     """
-    region = await _get_region_or_404(session, region_id)
+    region = await _get_region_or_404(session, region_id, nguoi)
     job = Job(type=JobType.translate, page_id=region.page_id, status=JobStatus.queued)
     session.add(job)
     await session.commit()
@@ -985,11 +1096,6 @@ async def retranslate_region(
 # ============================ M8: xuất chapter ============================
 
 
-async def _get_project_or_404(session: AsyncSession, project_id: uuid.UUID) -> Project:
-    project = await session.get(Project, project_id)
-    if project is None:
-        raise HTTPException(status_code=404, detail="Project không tồn tại")
-    return project
 
 
 def _thong_ke_xuat_stmt(project_id: uuid.UUID):
@@ -1000,14 +1106,15 @@ def _thong_ke_xuat_stmt(project_id: uuid.UUID):
     "/projects/{project_id}/export-preview", response_model=ExportPreview, tags=["export"]
 )
 async def export_preview(
-    project_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    project_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> ExportPreview:
     """Xem trước TRƯỚC khi xuất: sẽ xuất mấy trang, bỏ qua mấy trang, còn mấy vùng tràn khung.
 
     Vùng tràn khung **không chặn** việc xuất — nhưng phải hiện rõ ở đây để người dùng chọn:
     xuất luôn, hay quay lại sửa tay (M7) trước.
     """
-    await _get_project_or_404(session, project_id)
+    await _get_project_or_404(session, project_id, nguoi)
     pages = list((await session.execute(_thong_ke_xuat_stmt(project_id))).scalars())
     xuat_duoc = [p for p in pages if p.status in (PageStatus.typeset_done, PageStatus.ready_for_export)]
 
@@ -1043,13 +1150,14 @@ async def create_export(
     project_id: uuid.UUID,
     body: ExportRequest,
     session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> ExportJobAccepted:
     """Xếp việc xuất chapter. Chỉ enqueue — render nhiều trang là việc của worker.
 
     Trang chưa canh chữ xong sẽ bị **bỏ qua** (không xuất ảnh chưa có chữ); số trang bỏ qua ghi
     vào `error_log` của job. Không trang nào xuất được ⇒ job `failed` với lý do rõ.
     """
-    await _get_project_or_404(session, project_id)
+    await _get_project_or_404(session, project_id, nguoi)
 
     job = ExportJob(project_id=project_id, format=body.format, status=JobStatus.queued)
     session.add(job)
@@ -1066,7 +1174,8 @@ async def create_export(
 
 @router.get("/export-jobs/{job_id}", response_model=ExportJobRead, tags=["export"])
 async def get_export_job(
-    job_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    job_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> ExportJob:
     """Theo dõi tiến trình xuất. `status` đi `queued → running → done | failed`.
 
@@ -1076,6 +1185,7 @@ async def get_export_job(
     job = await session.get(ExportJob, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Export job không tồn tại")
+    await bao_dam_quyen(session, nguoi, job)
     return job
 
 
@@ -1088,7 +1198,8 @@ async def get_export_job(
     },
 )
 async def download_export(
-    job_id: uuid.UUID, request: Request, session: AsyncSession = Depends(get_session)
+    job_id: uuid.UUID, request: Request, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> Response:
     """Tải file đã xuất. **Chỉ phục vụ file có sẵn** — không bao giờ tự render ở đây.
 
@@ -1098,6 +1209,7 @@ async def download_export(
     job = await session.get(ExportJob, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Export job không tồn tại")
+    await bao_dam_quyen(session, nguoi, job)
     if job.status is not JobStatus.done or not job.output_path:
         raise HTTPException(
             status_code=404,
@@ -1153,6 +1265,7 @@ async def create_batch_run(
     body: BatchCreate,
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> BatchAccepted:
     """Chạy cả project qua pipeline bằng MỘT mẻ theo dõi được.
 
@@ -1162,7 +1275,7 @@ async def create_batch_run(
     Mỗi trang tiếp tục **từ đúng bước nó đang đứng**, không chạy lại từ đầu: trang đã canh chữ
     xong được đánh `skipped` chứ không bị làm lại (làm lại là xoá mất kết quả đã có).
     """
-    await _get_project_or_404(session, project_id)
+    await _get_project_or_404(session, project_id, nguoi)
 
     engine = body.translation_engine
     if engine is TranslationEngine.llm_context and not settings.llm_configured:
@@ -1188,7 +1301,8 @@ async def create_batch_run(
 
 @router.get("/batch-runs/{batch_run_id}", response_model=BatchRunRead, tags=["batch"])
 async def get_batch_run(
-    batch_run_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    batch_run_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> BatchRun:
     """Tiến độ mẻ. `status` được **suy ra từ các mục con**, không bao giờ đặt tay.
 
@@ -1198,6 +1312,7 @@ async def get_batch_run(
     me = await session.get(BatchRun, batch_run_id)
     if me is None:
         raise HTTPException(status_code=404, detail="Batch run không tồn tại")
+    await bao_dam_quyen(session, nguoi, me)
     return me
 
 
@@ -1208,10 +1323,13 @@ async def list_batch_items(
     limit: int = Query(default=100, ge=1, le=500),
     cursor: int = Query(default=0, ge=0),
     session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> BatchItemsPage:
     """Từng trang trong mẻ, sắp theo `page_order` đã chụp lúc tạo."""
-    if await session.get(BatchRun, batch_run_id) is None:
-        raise HTTPException(status_code=404, detail="Batch run không tồn tại")
+    me = await session.get(BatchRun, batch_run_id)
+    if me is None:
+        raise HTTPException(status_code=404, detail=LOI_KHONG_THAY)
+    await bao_dam_quyen(session, nguoi, me)
     stmt = select(BatchItem).where(BatchItem.batch_run_id == batch_run_id)
     if status_filter is not None:
         stmt = stmt.where(BatchItem.status == status_filter)
@@ -1237,12 +1355,14 @@ async def resume_batch_run(
     batch_run_id: uuid.UUID,
     body: BatchResumeRequest,
     session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> BatchResumeAccepted:
     """Chạy lại các trang `failed`/`blocked_quota`. **Không đụng** trang đã xong.
 
     Chọn nhầm một mục đã `completed` sẽ bị từ chối 422 chứ không âm thầm bỏ qua — im lặng bỏ
     qua khiến người dùng tưởng đã chạy lại.
     """
+    await _bao_dam_quyen_theo_id(session, nguoi, BatchRun, batch_run_id)
     from app.services.batch.orchestrator import BatchInvalid
 
     try:
@@ -1263,9 +1383,11 @@ async def resume_batch_run(
     tags=["batch"],
 )
 async def cancel_batch_run(
-    batch_run_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    batch_run_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> BatchRun:
     """Dừng đẩy việc mới. Việc **đang chạy vẫn chạy nốt** — cắt ngang dễ để lại dữ liệu dở dang."""
+    await _bao_dam_quyen_theo_id(session, nguoi, BatchRun, batch_run_id)
     from app.services.batch.orchestrator import BatchInvalid
 
     try:
@@ -1286,7 +1408,8 @@ async def cancel_batch_run(
     tags=["compliance"],
 )
 async def get_export_warnings(
-    project_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    project_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> ExportWarningsRead:
     """Những gì người dùng phải nhìn thấy TRƯỚC khi mang file đi.
 
@@ -1295,11 +1418,14 @@ async def get_export_warnings(
 
     `acknowledged` để giao diện biết đã xác nhận cho chapter này chưa — cảnh báo hiện **một lần**.
     """
-    await _get_project_or_404(session, project_id)
+    await _get_project_or_404(session, project_id, nguoi)
     from app.services.compliance import ComplianceGate
 
     cb = await ComplianceGate().get_export_warnings(session, project_id)
-    cl = await get_project_quality_summary(project_id, session)
+    # Gọi THẲNG hàm của endpoint khác, không qua FastAPI — nên phải tự truyền `nguoi`.
+    # Bỏ qua thì `nguoi` vào hàm dưới dạng object `Depends` chưa được giải, và kiểm quyền
+    # bên trong nổ AttributeError thay vì trả 404.
+    cl = await get_project_quality_summary(project_id, session, nguoi)
     # E14: đếm theo BỐ CỤC, tách hẳn khỏi tràn khung (chữ không vừa) và khỏi chất lượng E12.
     # Một vùng vẫn có thể vừa khít bên trong khung dự phòng mà vẫn nên xem lại bằng mắt.
     bo_cuc = dict((await session.execute(
@@ -1353,6 +1479,7 @@ async def acknowledge_export(
     job_id: uuid.UUID,
     body: AcknowledgeRequest,
     session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> AcknowledgeRead:
     """Ghi lại việc người dùng đã đọc cảnh báo bản quyền cho lần xuất này.
 
@@ -1366,6 +1493,7 @@ async def acknowledge_export(
     job = await session.get(ExportJob, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Việc xuất không tồn tại")
+    await bao_dam_quyen(session, nguoi, job)
     project = await session.get(Project, job.project_id)
 
     from app.services.compliance import ComplianceGate
@@ -1445,14 +1573,15 @@ async def _cap_vung_danh_gia(session: AsyncSession, page_ids: list[uuid.UUID]) -
 
 @router.get("/pages/{page_id}/quality", response_model=PageQualityRead, tags=["quality"])
 async def get_page_quality(
-    page_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    page_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> PageQualityRead:
     """Đánh giá chất lượng từng vùng của một trang, sắp theo thứ tự đọc.
 
     Vùng chưa được chấm **không** biến mất khỏi danh sách và **không** bị coi là sạch — nó nằm
     trong `chua_danh_gia`.
     """
-    await _get_page_or_404(session, page_id)
+    await _get_page_or_404(session, page_id, nguoi)
     cap = await _cap_vung_danh_gia(session, [page_id])
     so_tran = (await session.execute(
         select(func.count()).select_from(TypesetResult)
@@ -1473,10 +1602,11 @@ async def get_page_quality(
     "/projects/{project_id}/quality-summary", response_model=QualitySummary, tags=["quality"]
 )
 async def get_project_quality_summary(
-    project_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    project_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> QualitySummary:
     """Tổng hợp cho cả chapter — dùng ở màn chapter và ở hộp thoại xuất."""
-    await _get_project_or_404(session, project_id)
+    await _get_project_or_404(session, project_id, nguoi)
     page_ids = list((await session.execute(
         select(Page.id).where(Page.project_id == project_id))).scalars())
     cap = await _cap_vung_danh_gia(session, page_ids)
@@ -1498,6 +1628,7 @@ async def set_quality_review(
     region_id: uuid.UUID,
     body: QualityReviewRequest,
     session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> QualityReviewRead:
     """Ghi quyết định của NGƯỜI: giữ vùng này để dịch, hay bỏ qua nó.
 
@@ -1509,6 +1640,7 @@ async def set_quality_review(
     vung = await session.get(TextRegion, region_id)
     if vung is None:
         raise HTTPException(status_code=404, detail="Vùng không tồn tại")
+    await bao_dam_quyen(session, nguoi, vung)
     dg = (await session.execute(
         select(RegionQualityAssessment)
         .where(RegionQualityAssessment.region_id == region_id))).scalars().first()
@@ -1528,7 +1660,7 @@ async def set_quality_review(
 
 
 @router.get("/batch-config", response_model=BatchConfigRead, tags=["batch"])
-async def get_batch_config(settings: Settings = Depends(get_settings)) -> BatchConfigRead:
+async def get_batch_config(settings: Settings = Depends(get_settings), nguoi: NguoiDung = Depends(nguoi_dung_hien_tai)) -> BatchConfigRead:
     """Cho giao diện biết chạy mẻ được cấu hình thế nào — **không có khoá bí mật nào ở đây**.
 
     `llm_configured` chỉ là true/false: giao diện cần biết có bật được lựa chọn dịch bằng LLM
@@ -1549,13 +1681,14 @@ async def list_batch_runs(
     project_id: uuid.UUID,
     limit: int = Query(default=10, ge=1, le=50),
     session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> BatchRunList:
     """Các mẻ của project, mới nhất trước.
 
     Không có endpoint này thì giao diện phải tự nhớ mã mẻ trong trình duyệt — tải lại trang là
     mất dấu mẻ đang chạy, và người vận hành không còn cách nào nhìn thấy tiến độ.
     """
-    await _get_project_or_404(session, project_id)
+    await _get_project_or_404(session, project_id, nguoi)
     rows = list(
         (await session.execute(
             select(BatchRun).where(BatchRun.project_id == project_id)
@@ -1589,13 +1722,14 @@ async def list_glossary(
     status_filter: GlossaryStatus | None = Query(default=None, alias="status"),
     term_type: TermType | None = None,
     session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> list[GlossaryEntry]:
     """Thuật ngữ đã chốt của **riêng chapter này**.
 
     Cố ý không dùng chung giữa các chapter: cách dịch hợp ở truyện này có thể sai hẳn ở truyện
     khác, mỗi bộ có thế giới riêng.
     """
-    await _get_project_or_404(session, project_id)
+    await _get_project_or_404(session, project_id, nguoi)
     stmt = select(GlossaryEntry).where(GlossaryEntry.project_id == project_id)
     if status_filter is not None:
         stmt = stmt.where(GlossaryEntry.status == status_filter)
@@ -1611,13 +1745,14 @@ async def list_glossary(
     tags=["glossary"],
 )
 async def create_glossary_entry(
-    project_id: uuid.UUID, body: GlossaryEntryCreate, session: AsyncSession = Depends(get_session)
+    project_id: uuid.UUID, body: GlossaryEntryCreate, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> GlossaryEntry:
     """Thêm một thuật ngữ. Luôn bắt đầu ở **nháp** — phải duyệt rồi mới được đem đi quét."""
     from app.core.db_sync import sync_session
     from app.services.consistency.glossary import GlossaryInvalid
 
-    await _get_project_or_404(session, project_id)
+    await _get_project_or_404(session, project_id, nguoi)
     try:
         with sync_session() as s:
             entry = _dich_vu_glossary(s).create_entry(project_id, body.model_dump())
@@ -1629,13 +1764,15 @@ async def create_glossary_entry(
 
 @router.patch("/glossary/{entry_id}", response_model=GlossaryEntryRead, tags=["glossary"])
 async def update_glossary_entry(
-    entry_id: uuid.UUID, body: GlossaryEntryUpdate, session: AsyncSession = Depends(get_session)
+    entry_id: uuid.UUID, body: GlossaryEntryUpdate, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> GlossaryEntry:
     """Sửa thuật ngữ. **Sửa nội dung của thuật ngữ đã duyệt sẽ đưa nó về nháp.**
 
     Không làm vậy thì một luật cả chapter đang dùng có thể bị đổi nghĩa âm thầm, và mọi việc rà
     soát tạo ra từ luật cũ thành vô nghĩa mà không ai biết.
     """
+    await _bao_dam_quyen_theo_id(session, nguoi, GlossaryEntry, entry_id)
     from app.core.db_sync import sync_session
     from app.services.consistency.glossary import GlossaryInvalid
 
@@ -1653,9 +1790,11 @@ async def update_glossary_entry(
 
 @router.post("/glossary/{entry_id}/approve", response_model=GlossaryEntryRead, tags=["glossary"])
 async def approve_glossary_entry(
-    entry_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    entry_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> GlossaryEntry:
     """Duyệt thuật ngữ — từ đây nó mới tham gia quét."""
+    await _bao_dam_quyen_theo_id(session, nguoi, GlossaryEntry, entry_id)
     from app.core.db_sync import sync_session
     from app.services.consistency.glossary import GlossaryInvalid
 
@@ -1671,9 +1810,11 @@ async def approve_glossary_entry(
 
 @router.post("/glossary/{entry_id}/archive", response_model=GlossaryEntryRead, tags=["glossary"])
 async def archive_glossary_entry(
-    entry_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    entry_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> GlossaryEntry:
     """Cất thuật ngữ đi. **Không xoá** — các việc rà soát đã tạo từ nó vẫn còn để đối chiếu."""
+    await _bao_dam_quyen_theo_id(session, nguoi, GlossaryEntry, entry_id)
     from app.core.db_sync import sync_session
     from app.services.consistency.glossary import GlossaryInvalid
 
@@ -1693,9 +1834,10 @@ async def archive_glossary_entry(
     "/projects/{project_id}/voice-profiles", response_model=list[VoiceProfileRead], tags=["glossary"]
 )
 async def list_voice_profiles(
-    project_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    project_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> list[CharacterVoiceProfile]:
-    await _get_project_or_404(session, project_id)
+    await _get_project_or_404(session, project_id, nguoi)
     return list(
         (await session.execute(
             select(CharacterVoiceProfile)
@@ -1712,7 +1854,8 @@ async def list_voice_profiles(
     tags=["glossary"],
 )
 async def create_voice_profile(
-    project_id: uuid.UUID, body: VoiceProfileCreate, session: AsyncSession = Depends(get_session)
+    project_id: uuid.UUID, body: VoiceProfileCreate, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> CharacterVoiceProfile:
     """Hồ sơ giọng nhân vật — là **hướng dẫn biên tập của bạn**, không phải suy luận của máy.
 
@@ -1721,7 +1864,7 @@ async def create_voice_profile(
     from app.core.db_sync import sync_session
     from app.services.consistency.glossary import GlossaryInvalid, VoiceProfileService
 
-    await _get_project_or_404(session, project_id)
+    await _get_project_or_404(session, project_id, nguoi)
     try:
         with sync_session() as s:
             hs = VoiceProfileService(s).create(project_id, body.model_dump())
@@ -1733,8 +1876,10 @@ async def create_voice_profile(
 
 @router.patch("/voice-profiles/{profile_id}", response_model=VoiceProfileRead, tags=["glossary"])
 async def update_voice_profile(
-    profile_id: uuid.UUID, body: VoiceProfileUpdate, session: AsyncSession = Depends(get_session)
+    profile_id: uuid.UUID, body: VoiceProfileUpdate, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> CharacterVoiceProfile:
+    await _bao_dam_quyen_theo_id(session, nguoi, CharacterVoiceProfile, profile_id)
     from app.core.db_sync import sync_session
     from app.services.consistency.glossary import GlossaryInvalid, VoiceProfileService
 
@@ -1752,8 +1897,10 @@ async def update_voice_profile(
     "/voice-profiles/{profile_id}/activate", response_model=VoiceProfileRead, tags=["glossary"]
 )
 async def activate_voice_profile(
-    profile_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    profile_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> CharacterVoiceProfile:
+    await _bao_dam_quyen_theo_id(session, nguoi, CharacterVoiceProfile, profile_id)
     return await _doi_trang_thai_ho_so(profile_id, VoiceProfileStatus.active, session)
 
 
@@ -1761,8 +1908,10 @@ async def activate_voice_profile(
     "/voice-profiles/{profile_id}/archive", response_model=VoiceProfileRead, tags=["glossary"]
 )
 async def archive_voice_profile(
-    profile_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    profile_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> CharacterVoiceProfile:
+    await _bao_dam_quyen_theo_id(session, nguoi, CharacterVoiceProfile, profile_id)
     return await _doi_trang_thai_ho_so(profile_id, VoiceProfileStatus.archived, session)
 
 
@@ -1792,13 +1941,14 @@ async def create_consistency_scan(
     project_id: uuid.UUID,
     body: ConsistencyScanRequest,
     session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> JobAccepted:
     """Quét cả chapter tìm chỗ dùng thuật ngữ chưa nhất quán.
 
     Chỉ **tạo việc cần rà soát**, tuyệt đối không sửa bản dịch. Vùng bạn đã bấm "bỏ qua" ở bước
     rà soát chất lượng sẽ không bị quét lại.
     """
-    await _get_project_or_404(session, project_id)
+    await _get_project_or_404(session, project_id, nguoi)
     trang = (await session.execute(select(Page).where(Page.project_id == project_id).limit(1))).first()
     if trang is None:
         raise HTTPException(status_code=422, detail="no_page: chapter chưa có trang nào")
@@ -1821,10 +1971,11 @@ async def create_consistency_scan(
     tags=["consistency"],
 )
 async def consistency_summary(
-    project_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    project_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> ConsistencySummary:
     """Đếm việc cần rà soát. **Không có điểm chất lượng** — máy không đo được bản dịch hay dở."""
-    await _get_project_or_404(session, project_id)
+    await _get_project_or_404(session, project_id, nguoi)
     rows = (await session.execute(
         select(ConsistencyReviewTask.status, ConsistencyReviewTask.task_type)
         .where(ConsistencyReviewTask.project_id == project_id)
@@ -1874,9 +2025,10 @@ async def list_consistency_tasks(
     limit: int = Query(default=50, ge=1, le=200),
     cursor: int = Query(default=0, ge=0),
     session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> ConsistencyTasksPage:
     """Danh sách việc cần rà soát, kèm bằng chứng để hiểu vì sao nó được tạo."""
-    await _get_project_or_404(session, project_id)
+    await _get_project_or_404(session, project_id, nguoi)
     stmt = select(ConsistencyReviewTask).where(ConsistencyReviewTask.project_id == project_id)
     if status_filter is not None:
         stmt = stmt.where(ConsistencyReviewTask.status == status_filter)
@@ -1903,13 +2055,15 @@ async def list_consistency_tasks(
     tags=["consistency"],
 )
 async def accept_consistency_task(
-    task_id: uuid.UUID, body: TaskAcceptRequest, session: AsyncSession = Depends(get_session)
+    task_id: uuid.UUID, body: TaskAcceptRequest, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> TaskAcceptAccepted:
     """Áp đề xuất (hoặc bản bạn tự sửa) vào **đúng một vùng**, rồi canh chữ lại vùng đó.
 
     Bản dịch đã đổi kể từ lần quét ⇒ trả **409**, không áp đè — áp bản cũ sẽ xoá mất phần vừa sửa.
     Cỡ chữ bạn đã ghim ở bước sửa tay được giữ nguyên; chữ mới không vừa thì báo tràn khung.
     """
+    await _bao_dam_quyen_theo_id(session, nguoi, ConsistencyReviewTask, task_id)
     from app.core.db_sync import sync_session
     from app.services.consistency.apply import (
         ConsistencyApplyService,
@@ -1940,9 +2094,11 @@ async def accept_consistency_task(
     tags=["consistency"],
 )
 async def reject_consistency_task(
-    task_id: uuid.UUID, body: TaskRejectRequest, session: AsyncSession = Depends(get_session)
+    task_id: uuid.UUID, body: TaskRejectRequest, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> ConsistencyReviewTask:
     """Giữ bản hiện tại. **Không** đụng vào bản dịch, ảnh hay bố cục."""
+    await _bao_dam_quyen_theo_id(session, nguoi, ConsistencyReviewTask, task_id)
     from app.core.db_sync import sync_session
     from app.services.consistency.apply import ConsistencyApplyService, TaskInvalid, TaskNotFound
 
@@ -1958,15 +2114,16 @@ async def reject_consistency_task(
 
 
 @router.get("/jobs/{job_id}", response_model=JobRead, tags=["jobs"])
-async def get_job(job_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> Job:
+async def get_job(job_id: uuid.UUID, session: AsyncSession = Depends(get_session), nguoi: NguoiDung = Depends(nguoi_dung_hien_tai)) -> Job:
     job = await session.get(Job, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job không tồn tại")
+    await bao_dam_quyen(session, nguoi, job)
     return job
 
 
 @router.get("/health", include_in_schema=False)
-async def health(session: AsyncSession = Depends(get_session)) -> Response:
+async def health(session: AsyncSession = Depends(get_session), nguoi: NguoiDung = Depends(nguoi_dung_hien_tai)) -> Response:
     await session.execute(select(1))
     return Response(status_code=200, content='{"status":"ok"}', media_type="application/json")
 
@@ -1995,13 +2152,17 @@ def _doc_vung_an_toan(ban: RegionSafeArea) -> SafeAreaRead:
 
 @router.get("/regions/{region_id}/safe-area", response_model=SafeAreaRead, tags=["safe-area"])
 async def get_region_safe_area(
-    region_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    region_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> SafeAreaRead:
     """Hình học vùng an toàn của một vùng chữ.
 
     Chưa tính bao giờ ⇒ **404**, không trả hình rỗng: `geometry=[]` mà đọc thành "vừa khít" là
     đúng kiểu lỗi im lặng E14 sinh ra để chặn.
     """
+    # Lấy vùng TRƯỚC: câu truy vấn dưới đi thẳng vào bảng con theo `region_id`, không chạm
+    # vào `text_region` nên tự nó không có gì để kiểm quyền.
+    await _get_region_or_404(session, region_id, nguoi)
     ban = await session.scalar(
         select(RegionSafeArea).where(RegionSafeArea.region_id == region_id)
     )
@@ -2019,12 +2180,14 @@ async def get_region_safe_area(
     tags=["safe-area"],
 )
 async def get_page_safe_area_summary(
-    page_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    page_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> PageSafeAreaSummary:
     """Đếm theo trạng thái. `not_computed` để RIÊNG — chưa tính khác hẳn tính rồi không ra hình."""
     page = await session.get(Page, page_id)
     if page is None:
         raise HTTPException(status_code=404, detail="page_not_found")
+    await bao_dam_quyen(session, nguoi, page)
 
     tong = await session.scalar(
         select(func.count()).select_from(TextRegion).where(TextRegion.page_id == page_id)
@@ -2052,7 +2215,8 @@ async def get_page_safe_area_summary(
 
 @router.post("/pages/{page_id}/retry-safe-area", status_code=202, tags=["safe-area"])
 async def retry_page_safe_area(
-    page_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    page_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> dict:
     """Tính lại vùng an toàn cho cả trang rồi căn chữ lại.
 
@@ -2062,6 +2226,7 @@ async def retry_page_safe_area(
     page = await session.get(Page, page_id)
     if page is None:
         raise HTTPException(status_code=404, detail="page_not_found")
+    await bao_dam_quyen(session, nguoi, page)
     if not page.clean_image_path:
         raise HTTPException(
             status_code=422,
@@ -2097,9 +2262,11 @@ async def retry_page_safe_area(
 @router.get("/regions/{region_id}/orientation", response_model=OrientationRead,
             tags=["orientation"])
 async def get_region_orientation(
-    region_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    region_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> OrientationRead:
     """Chưa phân tích ⇒ **404**. Không trả `unknown` giả để khỏi bị đọc thành 'đã kiểm rồi'."""
+    await _get_region_or_404(session, region_id, nguoi)
     ban = await session.scalar(
         select(RegionTextOrientation).where(RegionTextOrientation.region_id == region_id)
     )
@@ -2124,11 +2291,13 @@ async def get_region_orientation(
 @router.get("/pages/{page_id}/orientation-summary", response_model=PageOrientationSummary,
             tags=["orientation"])
 async def get_page_orientation_summary(
-    page_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    page_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> PageOrientationSummary:
     page = await session.get(Page, page_id)
     if page is None:
         raise HTTPException(status_code=404, detail="page_not_found")
+    await bao_dam_quyen(session, nguoi, page)
 
     tong = await session.scalar(
         select(func.count()).select_from(TextRegion).where(TextRegion.page_id == page_id)
@@ -2174,12 +2343,14 @@ async def get_page_orientation_summary(
 
 @router.post("/pages/{page_id}/retry-orientation", status_code=202, tags=["orientation"])
 async def retry_page_orientation(
-    page_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    page_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> dict:
     """Xoá kết quả cũ rồi xếp lại việc căn chữ — bước đó tự nhận biết lại hướng còn thiếu."""
     page = await session.get(Page, page_id)
     if page is None:
         raise HTTPException(status_code=404, detail="page_not_found")
+    await bao_dam_quyen(session, nguoi, page)
     await session.execute(
         delete(RegionTextOrientation).where(
             RegionTextOrientation.region_id.in_(
@@ -2208,6 +2379,7 @@ async def term_official_names(
     project_id: uuid.UUID,
     payload: DoiChieuTenRequest,
     session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> DoiChieuTenResponse:
     """Đối chiếu danh xưng CỦA CHAPTER với CSDL nhân vật AniList (E17 tầng 3b).
 
@@ -2225,7 +2397,7 @@ async def term_official_names(
     from app.services.consistency.anilist import tra_ten_chinh_thuc
     from app.services.consistency.ungvien import rut_ung_vien
 
-    await _get_project_or_404(session, project_id)
+    await _get_project_or_404(session, project_id, nguoi)
 
     def _chay():
         with sync_session() as s:
@@ -2263,7 +2435,8 @@ async def term_official_names(
     tags=["glossary"],
 )
 async def term_candidates(
-    project_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    project_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> TermCandidatesResponse:
     """Danh xưng lặp lại trong **chính chapter này**, kèm bằng chứng.
 
@@ -2275,7 +2448,7 @@ async def term_candidates(
     from app.core.db_sync import sync_session
     from app.services.consistency.ungvien import rut_ung_vien
 
-    await _get_project_or_404(session, project_id)
+    await _get_project_or_404(session, project_id, nguoi)
 
     def _chay():
         with sync_session() as s:
@@ -2314,7 +2487,8 @@ async def term_candidates(
     tags=["glossary"],
 )
 async def voice_signals(
-    project_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    project_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> VoiceSignalsResponse:
     """Tín hiệu xưng hô **có thật trong bản gốc** (hậu tố kính ngữ, đại từ nhân xưng).
 
@@ -2325,7 +2499,7 @@ async def voice_signals(
     from app.core.db_sync import sync_session
     from app.services.consistency.ungvien import rut_tin_hieu_xung_ho
 
-    await _get_project_or_404(session, project_id)
+    await _get_project_or_404(session, project_id, nguoi)
 
     def _chay():
         with sync_session() as s:
@@ -2365,6 +2539,7 @@ async def create_term_suggestion(
     project_id: uuid.UUID,
     body: TermSuggestionCreate,
     session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> TermSuggestionRun:
     """E17 tầng 3 — hỏi mô hình cách dịch cho các danh xưng CÓ THẬT trong chapter.
 
@@ -2380,7 +2555,7 @@ async def create_term_suggestion(
     """
     from app.services.dispatch import dispatch_term_suggestion_job
 
-    await _get_project_or_404(session, project_id)
+    await _get_project_or_404(session, project_id, nguoi)
     run = TermSuggestionRun(project_id=project_id, series_name=body.series_name.strip())
     session.add(run)
     await session.commit()
@@ -2398,11 +2573,13 @@ async def create_term_suggestion(
     "/term-suggestion-runs/{run_id}", response_model=TermSuggestionRunRead, tags=["glossary"]
 )
 async def get_term_suggestion(
-    run_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+    run_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> TermSuggestionRun:
     """Kết quả một lượt hỏi. `suggestions = null` là **chưa xong**, `[]` là **xong mà không còn
     mục nào qua được cổng đối chiếu** — hai chuyện khác nhau."""
     run = await session.get(TermSuggestionRun, run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="term_suggestion_run_not_found")
+    await bao_dam_quyen(session, nguoi, run)
     return run

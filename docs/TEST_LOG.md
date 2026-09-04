@@ -3005,3 +3005,81 @@ Nhóm test đáng kể nhất **không** kiểm việc khớp, mà kiểm việc
 
 `doi_chieu()` tách khỏi phần gọi mạng nên 11/14 test chạy **không chạm internet** — đúng/sai không
 phụ thuộc một dịch vụ ngoài có thể sập bất cứ lúc nào.
+
+# ========== B1 — tài khoản thật, chapter có chủ (2026-09-04) ==========
+
+```
+backend : exit 0   982 test  (+5 dò quyền, +6 cổng khoá viết lại)
+frontend: 283 passed (nền 265)   (+18)
+```
+
+## Test đáng kể nhất: dò chéo tài khoản, tự sinh từ bảng route
+
+`tests/test_quyen_cheo_tai_khoan.py` không liệt kê tay endpoint nào cả — nó đọc `app.openapi()`
+rồi tự dựng phép thử. Endpoint thêm về sau **tự động bị dò**, không ai phải nhớ cập nhật gì.
+
+Nhưng điều quan trọng hơn là cách nó **tự chứng minh mình không rỗng nghĩa**. Một test dò quyền
+kiểu ngây thơ sẽ gửi id bịa, nhận `404`, rồi báo xanh — mà chẳng chứng minh được gì. Nên mỗi
+đường dẫn được gọi **hai lần**, bằng A (chủ thật) và bằng B:
+
+| Kết quả | Kết luận |
+|---|---|
+| A 2xx, B không 2xx | **chứng minh được** |
+| A 4xx nghiệp vụ (409/422), B 404 | **chứng minh được** — A vào tới thân hàm, B bị chặn trước |
+| B 2xx | **LỖ HỔNG** ⇒ đỏ |
+| A cũng không vào được | **rỗng nghĩa** ⇒ đỏ, không cho lẫn vào phần xanh |
+
+Kết quả cuối: **63 endpoint chứng minh được, 0 rỗng nghĩa, 0 lỗ hổng.**
+
+## Bốn lượt siết, mỗi lượt đóng một kiểu "xanh giả"
+
+Lượt đầu chỉ chứng minh được 44/63. 19 cái còn lại xanh mà vô nghĩa — và nếu chỉ nhìn màu test
+thì đã tưởng xong từ lượt một.
+
+| Lượt | Chứng minh | Rỗng nghĩa | Nguyên nhân đã tìm ra |
+|---|---|---|---|
+| 1 | 44 | 19 | — |
+| 2 | 58 | 5 | Gửi `{}` làm thân request ⇒ **FastAPI trả 422 TRƯỚC khi handler chạy**, nên kiểm quyền chưa từng được gọi. Sinh thân hợp khuôn từ chính OpenAPI |
+| 3 | 62 | 1 | Ba đường phục vụ file (ảnh clean, preview, file xuất) — A cũng 404 vì kho trống. Phải tạo hiện vật **thật**; và `POST /pages` nhận multipart chứ không phải JSON |
+| 4 | **63** | **0** | `Literal["rules"]` của Pydantic ra `const` chứ không phải `enum` ⇒ bộ sinh gửi `null` ⇒ 422 |
+
+Điều kiện cuối cùng đã siết thành `assert not rong_nghia`: thêm endpoint mà phép dò không chạm
+tới được ⇒ **đỏ**, và người thêm phải chọn dựng thêm dữ liệu hoặc ghi vào `MIEN_TRU` **kèm lý do**.
+
+## Ba lỗi thật do chính bộ test lôi ra
+
+1. **`_get_project_or_404` được định nghĩa HAI lần**, nội dung giống hệt (dòng 162 và 988).
+   Python lấy bản sau. Gắn kiểm quyền nhầm bản thì kiểm **không chạy chút nào** mà không có
+   dấu hiệu gì. Đã gộp còn một.
+2. **`get_export_warnings` gọi thẳng hàm của endpoint khác.** Khi gọi trực tiếp chứ không qua
+   FastAPI, tham số `Depends` **không được giải** — nó vào hàm dưới dạng object thô và kiểm
+   quyền nổ `AttributeError` thay vì trả 404.
+3. **`test_migration.py` chạy `downgrade base` trên chính CSDL test**, tức là **xoá bảng
+   `nguoi_dung`**. Tài khoản test tạo một lần cho cả lượt chạy nên mọi test xếp sau nó nhận 401.
+   Triệu chứng: `test_range_integration` và `test_typeset_task_integration` **xanh khi chạy
+   riêng, đỏ khi chạy chung** — đúng kiểu lỗi dễ đổ nhầm cho "chạy song song trên chung Postgres".
+   Sửa bằng fixture tự dựng lại tài khoản khi thiếu (băm scrypt vẫn chỉ chạy một lần).
+
+## Bốn test của cổng khoá slice A phải viết lại — và vì sao không chỉ "sửa cho xanh"
+
+Slice B cố ý thay hợp đồng của slice A, nên 4 test cũ đỏ là **đúng**. Nhưng đổi chúng theo cho
+xanh sẽ đánh mất điều cần chứng minh, nên bộ mới khẳng định slice B **mạnh hơn** chứ không phải
+đổi ngang:
+
+| Test | Khẳng định |
+|---|---|
+| `test_CHI_CO_KHOA_CHUNG_thi_KHONG_doc_duoc_du_lieu` | cầm khoá chung không còn đọc được gì (trước đây đọc được mọi thứ) |
+| `test_CHI_CO_KHOA_CHUNG_thi_KHONG_ghi_duoc` | và cũng không ghi được |
+| `test_cong_khoa_tat_van_KHONG_mo_du_lieu_cho_nguoi_chua_dang_nhap` | tắt khoá chung ≠ mở toang |
+| `test_dang_ky_van_duoc_khoa_chung_gac` | khoá chung vẫn giữ đúng nhiệm vụ còn lại |
+| `test_moi_endpoint_v1_deu_doi_dang_nhap` | cổng router giờ là đăng nhập, kèm `MIEN_TRU` 4 mục **mỗi mục có lý do** |
+
+## Giao diện
+
+14 test mới. Ba cái đáng kể:
+
+| Test | Khẳng định |
+|---|---|
+| `401 dạng CHUỖI cũng nhận ra` | đúng cái bẫy đã làm hỏng `laLoiThieuKhoa` ở slice A: App lưu lỗi bằng `setLoi(e.message)` nên biến `loi` là **chuỗi**, không phải `Error` |
+| `đăng nhập sai thì KHÔNG lưu mã phiên rác vào máy` | lưu trước rồi mới thử là để lại rác cho lần mở sau |
+| `máy chủ không phản hồi thì VẪN xoá mã ở máy` | không thì người dùng kẹt vĩnh viễn ở màn "đã đăng nhập" mà mọi lời gọi đều 401 |

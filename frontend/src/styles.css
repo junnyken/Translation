@@ -528,3 +528,49 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 }
 .the-loc .so { opacity: .75; margin-left: 3px; }
 .the-vung .nhom-nhan { display: flex; flex-wrap: wrap; gap: 4px; }
+
+/* ---------- Auth slice B: đăng nhập & tài khoản ---------- */
+
+.man-dang-nhap {
+  max-width: 380px;
+  margin: 48px auto;
+}
+.man-dang-nhap h1 { margin: 0 0 16px; font-size: 22px; }
+
+.khung-dang-nhap {
+  display: grid;
+  gap: 6px;
+  margin: 16px 0;
+}
+.khung-dang-nhap label { font-size: 13px; font-weight: 500; }
+/* Ô nhập tràn hết chiều ngang khung: dùng chiều rộng cố định sẽ tràn ngang trên màn hẹp. */
+.khung-dang-nhap input { width: 100%; box-sizing: border-box; }
+.khung-dang-nhap button { margin-top: 10px; }
+.khung-dang-nhap .ghi-chu { margin: 0 0 4px; }
+
+/* Ai đang đăng nhập — luôn thấy được, để không thao tác nhầm tài khoản. */
+.tai-khoan {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--mo);
+  /* Email dài không được đẩy vỡ thanh điều hướng. */
+  max-width: 30ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Nút trông như đường dẫn. Dùng <button> chứ không <a href="#">: nó KHÔNG điều hướng đi đâu,
+   và <a> không có href thì trình đọc màn hình bỏ qua, bàn phím không tới được. */
+.nut-chu {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--chinh, #2563eb);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}

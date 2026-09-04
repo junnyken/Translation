@@ -400,3 +400,35 @@ chiêu thức có thể đang bị dịch theo nghĩa đen"*, kèm luôn ví d�
 phải đọc tài liệu.
 
 Nó **không chặn** bạn xuất file — chỉ nói cho bạn biết trước khi mang đi.
+
+## Cho người khác cùng dùng, mà không ai đụng vào chapter của ai (B1)
+
+Trước đây hệ thống chỉ có **một khoá chung**. Đưa khoá cho người khác nghĩa là đưa luôn quyền
+đọc, sửa và **xoá** mọi chapter — kể cả của bạn. Nên thực tế là không đưa được cho ai.
+
+Giờ mỗi người một tài khoản riêng:
+
+- **Đăng nhập bằng email + mật khẩu.** Nhớ trong 14 ngày, không phải gõ lại mỗi lần.
+- **Chapter bạn tạo là của bạn.** Người khác đăng nhập vào cùng hệ thống sẽ không thấy nó, và
+  cũng không mở được kể cả khi có đường dẫn đầy đủ.
+- **Đăng xuất là mất hiệu lực ngay**, kể cả trên máy khác.
+
+### Tạo tài khoản cho người khác
+
+Tự đăng ký thì cần **khoá chung của hệ thống** — hỏi người quản trị. Chủ ý là vậy: không có nó
+thì ai mở được địa chỉ web cũng tự tạo tài khoản và dùng hạ tầng của bạn.
+
+Tài khoản **đầu tiên** của hệ thống là tài khoản quản trị.
+
+### Chapter làm từ trước thì sao
+
+Chapter tạo trước bản này **không thuộc về ai cả** — lúc đó chưa có tài khoản nào để ghi vào.
+Chúng không bị giấu đi và cũng không bị gán bừa cho ai: mọi người đăng nhập đều thấy, kèm nhãn
+*chưa có chủ*, và bấm **nhận** là về mình. Nhận rồi thì người khác không mở được nữa.
+
+### Những gì bản này CHƯA có
+
+- **Đổi mật khẩu và quên mật khẩu.** Quên là phải nhờ người quản trị sửa thẳng trong CSDL.
+- **Chia sẻ một chapter cho hai người cùng làm.** Mỗi chapter đúng một chủ.
+- **Khoá tài khoản từ giao diện.** Phải sửa tay trong CSDL.
+- **Chặn dò mật khẩu.** Mỗi lần thử tốn 83ms nên dò rất chậm, nhưng chưa có khoá tạm sau N lần sai.

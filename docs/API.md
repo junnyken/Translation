@@ -859,3 +859,88 @@ Trang không tồn tại → `404`.
 
 Project không tồn tại → `404`. Thiếu `ten_bo_truyen` → `422` (hệ thống **không đoán hộ**: đoán sai
 là đối chiếu chapter này với nhân vật của một bộ hoàn toàn khác).
+
+## B1 — tài khoản & phiên đăng nhập (2026-09-04)
+
+### Thay đổi PHÁ VỠ tương thích
+
+Từ bản này, **mọi** đường `/api/v1` (trừ `/auth/*` dưới đây) đòi header:
+
+```
+Authorization: Bearer <mã phiên>
+```
+
+Thiếu ⇒ `401`. **Khoá chung `X-API-Key` không còn mở được dữ liệu** — nó chỉ còn gác
+`POST /auth/register`. Máy khách cũ chỉ gửi `X-API-Key` sẽ nhận `401` ở mọi endpoint.
+
+Ngoài ra, "không tìm thấy" và "không phải của bạn" trả **cùng một** `404` với cùng câu chữ:
+
+```json
+{"detail": "Không tìm thấy, hoặc không thuộc về tài khoản của bạn."}
+```
+
+Phân biệt hai trường hợp là xác nhận cho người dò biết id nào có thật.
+
+### `POST /api/v1/auth/register` → 201
+
+Đòi `X-API-Key`. Người **đầu tiên** đăng ký trở thành quản trị.
+
+```json
+{"email": "ban@vidu.com", "ten_hien": "Tên hiển thị", "mat_khau": "ít nhất 8 ký tự"}
+```
+
+Trả `NguoiDungRead` — **không bao giờ** có `mat_khau_bam`, kể cả đã băm.
+`400` nếu email đã tồn tại hoặc mật khẩu ngắn hơn 8 ký tự.
+
+### `POST /api/v1/auth/login` → 200
+
+```json
+{"email": "ban@vidu.com", "mat_khau": "…"}
+```
+
+```json
+{
+  "ma_phien": "chuỗi ngẫu nhiên 256 bit",
+  "het_han": "2026-09-18T00:00:00Z",
+  "nguoi_dung": {"id": "…", "email": "…", "ten_hien": "…", "la_quan_tri": false}
+}
+```
+
+`ma_phien` **chỉ xuất hiện đúng ở đây** — trong CSDL chỉ có bản băm của nó. Mất là phải đăng
+nhập lại, không có cách lấy lại.
+
+`401` cho **cả ba** trường hợp email không tồn tại / sai mật khẩu / tài khoản bị khoá, với cùng
+một câu: `"Email hoặc mật khẩu không đúng."`
+
+### `POST /api/v1/auth/logout` → 204
+
+Thu hồi phiên trong header. **Luôn trả 204**, kể cả mã sai hoặc thiếu — trả lỗi không giúp gì
+cho người dùng (họ muốn đăng xuất, và họ đã đăng xuất) mà lại cho người dò biết mã nào có thật.
+
+### `GET /api/v1/auth/me` → 200
+
+Trả `NguoiDungRead` của phiên hiện tại. `401` nếu phiên hỏng/hết hạn. Giao diện gọi lúc mở app
+để biết mã lưu trong máy còn dùng được không.
+
+### `GET /api/v1/auth/co-tai-khoan-chua` → 200
+
+```json
+{"da_co": true}
+```
+
+Không đòi đăng nhập. Chỉ `true`/`false` — **không** trả số lượng hay danh sách email.
+
+### `GET /api/v1/projects` → 200 *(mới)*
+
+Chapter của tôi **+ chapter chưa có chủ**. Trước B1 endpoint này không tồn tại: giao diện tự nhớ
+id trong máy, nên đăng nhập trên máy khác sẽ không thấy gì.
+
+`ProjectRead` có thêm `chu_so_huu_id`; `null` = chưa có chủ (chapter tạo trước B1). Giao diện
+phải gắn nhãn phân biệt, không im lặng coi như của người đang xem.
+
+### `POST /api/v1/projects/{project_id}/claim` → 200
+
+Nhận một chapter **chưa có chủ** về mình.
+
+- `409` nếu chapter đã có chủ (kể cả chính bạn).
+- `404` nếu chapter của người khác — không có đường nào cướp chapter đang có chủ.

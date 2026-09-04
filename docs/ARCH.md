@@ -994,3 +994,79 @@ model đoán là tự tạo ra dữ liệu giả.
   danh sách rỗng chắc chắn là bịa.
 - Vùng OCR `needs_manual` **bị bỏ nhưng có đếm và báo ra** — rút thuật ngữ từ chữ đọc sai đẻ ra
   danh sách rác mà người dùng không có cách nào biết.
+
+## B1. Ai được đụng vào cái gì — tài khoản & chủ sở hữu chapter (2026-09-04)
+
+### B1.1 Hai lớp, và ranh giới giữa chúng
+
+Hệ thống có **hai** cơ chế chặn, làm hai việc khác nhau. Lẫn hai thứ này là nguồn hiểu nhầm
+nguy hiểm nhất ở đây:
+
+| | Slice A — khoá chung | Slice B — tài khoản |
+|---|---|---|
+| Là gì | Một chuỗi bí mật cho cả hệ thống | Email + mật khẩu riêng từng người |
+| Header | `X-API-Key` | `Authorization: Bearer <mã phiên>` |
+| Trả lời được câu hỏi | "Người này có phải người lạ không?" | "Người này **là ai**?" |
+| Sau slice B còn gác gì | **Chỉ** `/auth/register` | Toàn bộ `/api/v1` còn lại |
+
+Trước slice B, khoá chung gác toàn bộ dữ liệu — nghĩa là ai cầm khoá cũng đọc/xoá được chapter
+của mọi người. Sau slice B, **khoá chung không mở được dữ liệu nữa**.
+
+Vì sao đã đăng nhập thì không cần khoá chung: nếu bắt gửi cả hai, muốn cho ai dùng cũng phải
+phát cho họ khoá chung — mà cầm khoá chung là tạo được tài khoản cho người khác.
+
+### B1.2 Đường đi ngược từ một bản ghi về chủ của nó
+
+Chỉ 16/65 endpoint nhận thẳng `project_id`. **43 endpoint tới chapter bằng đường gián tiếp** —
+qua `page_id`, `region_id`, `job_id`, hoặc id của bảng con. Rải kiểm quyền thủ công ở từng chỗ
+là cách chắc chắn để sót một cái, và cái bị sót sẽ là cái không ai ngờ.
+
+Nên có **một** bộ giải quyền, đi ngược chuỗi cha bằng bảng tra (`app/core/quyen.py`, `_CHA`):
+
+```
+OCRResult ─┐
+Translation ─┼─ region_id ─→ TextRegion ─ page_id ─→ Page ─┐
+TypesetResult ┘                                            │
+Job, BatchItem ──────────── page_id ─→ Page ───────────────┼─ project_id ─→ Project.chu_so_huu_id
+ExportJob, BatchRun, GlossaryEntry, VoiceProfile, … ───────┘
+```
+
+Bảng `_CHA` là **danh sách trắng**: bảng nào chưa khai trong đó sẽ bị `project_id_cua` ném
+`TypeError` thẳng, chứ không lọt qua im lặng. Thêm bảng mới mà quên khai ⇒ nổ ngay, không âm
+thầm bỏ kiểm quyền.
+
+### B1.3 Ba mức "không được vào", và vì sao đều trông giống nhau
+
+| Tình huống | Mã trả về |
+|---|---|
+| Không gửi mã phiên / mã sai / mã hết hạn | `401` |
+| Có phiên, nhưng chapter không tồn tại | `404` |
+| Có phiên, chapter tồn tại nhưng **của người khác** | `404` — *cùng câu chữ với dòng trên* |
+
+Hai dòng cuối cố ý không phân biệt. Trả `403` cho dòng cuối là xác nhận "id này có thật", và
+người dò sẽ quét id để lập danh sách chapter tồn tại.
+
+Cùng logic đó áp cho đăng nhập: "email không tồn tại", "sai mật khẩu" và "tài khoản bị khoá" trả
+**y hệt** nhau — và khi email không tồn tại, hệ thống vẫn **băm một mật khẩu giả** để không lộ
+qua chênh lệch thời gian (1ms so với 83ms là đủ để dò ra danh sách email có thật).
+
+### B1.4 Chapter chưa có chủ
+
+Chapter tạo trước slice B có `chu_so_huu_id = NULL`. Lúc migration chạy thì **chưa có tài khoản
+nào tồn tại** để gán, nên gán bừa là đoán mò và giấu đi là làm mất việc của người dùng.
+
+Quy ước: `NULL` = "chưa có chủ" — mọi tài khoản đăng nhập đều thấy, kèm nhãn phân biệt, và nhận
+về được. Nhận rồi thì người khác mất quyền ngay và không cướp lại được.
+
+Từ slice B trở đi **không còn đường nào sinh chapter vô chủ**: `create_project` luôn đặt chủ.
+
+### B1.5 Vì sao mã phiên trong CSDL chứ không phải JWT
+
+JWT không thu hồi được. Bấm "đăng xuất" mà token vẫn sống tới lúc hết hạn là hành vi sai. Mã
+phiên đục tra trong CSDL thì xoá một dòng là mất hiệu lực tức thì; giá phải trả là một truy vấn
+mỗi request, mà đằng nào mỗi request cũng đã mở một phiên CSDL rồi.
+
+**Mật khẩu băm scrypt (83ms), mã phiên băm SHA-256 — không mâu thuẫn.** scrypt cố tình chậm để
+chống dò thứ *người nghĩ ra* (ít entropy). Mã phiên là 256 bit ngẫu nhiên từ máy: không có gì để
+đoán, nên scrypt ở đó chỉ tốn 83ms mỗi request mà không mua thêm chút an toàn nào. Nhưng vẫn
+**phải băm** trước khi lưu — kẻ đọc trộm được CSDL sẽ mạo danh được ngay mà không cần mật khẩu.

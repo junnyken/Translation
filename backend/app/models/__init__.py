@@ -82,6 +82,60 @@ class TimestampMixin:
     )
 
 
+class NguoiDung(TimestampMixin, Base):
+    """Tài khoản thật (Auth slice B).
+
+    Slice A chỉ có **một khoá chung**: ai cầm khoá là làm được mọi thứ với chapter của mọi
+    người. Bảng này là thứ cho phép nói "chapter này của ai".
+
+    `email` lưu **đã hạ chữ thường** — nếu không, `An@x.com` và `an@x.com` thành hai tài khoản
+    khác nhau và người dùng sẽ không hiểu vì sao mật khẩu đúng mà không vào được.
+
+    `mat_khau_bam` chứa cả tham số scrypt (xem `app.core.mat_khau`), nên đổi độ khó về sau
+    không khoá người cũ ra ngoài.
+    """
+
+    __tablename__ = "nguoi_dung"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    email: Mapped[str] = mapped_column(String(320), nullable=False, unique=True, index=True)
+    ten_hien: Mapped[str] = mapped_column(String(120), nullable=False)
+    mat_khau_bam: Mapped[str] = mapped_column(String(255), nullable=False)
+    #: Khoá tài khoản mà không xoá dữ liệu của họ. Xoá người dùng sẽ kéo theo chapter (FK), nên
+    #: "nghỉ việc" phải là tắt cờ này chứ không phải DELETE.
+    dang_hoat_dong: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    #: Người đầu tiên đăng ký thành quản trị: có quyền nhận các chapter cũ chưa có chủ.
+    la_quan_tri: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    phien: Mapped[list["Phien"]] = relationship(
+        back_populates="nguoi_dung", cascade="all, delete-orphan"
+    )
+
+
+class Phien(TimestampMixin, Base):
+    """Một lần đăng nhập còn hiệu lực.
+
+    Lưu **băm** của mã phiên chứ không lưu mã thô: người đọc trộm được CSDL sẽ không mạo danh
+    được ai (xem `app.core.phien` giải thích vì sao băm ở đây dùng SHA-256 chứ không scrypt).
+
+    Có bảng này (thay vì JWT) để **thu hồi được**: đăng xuất là xoá một dòng, hiệu lực tức thì.
+    """
+
+    __tablename__ = "phien"
+    __table_args__ = (Index("ix_phien_nguoi_dung", "nguoi_dung_id"),)
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    nguoi_dung_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("nguoi_dung.id", ondelete="CASCADE"), nullable=False
+    )
+    ma_bam: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    het_han: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    #: Để người dùng nhìn thấy "thiết bị nào đang đăng nhập". NULL = chưa từng dùng lại sau khi tạo.
+    dung_lan_cuoi: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    nguoi_dung: Mapped[NguoiDung] = relationship(back_populates="phien")
+
+
 class Project(TimestampMixin, Base):
     __tablename__ = "project"
 
@@ -96,6 +150,14 @@ class Project(TimestampMixin, Base):
     )
     status: Mapped[ProjectStatus] = mapped_column(
         _enum(ProjectStatus, "project_status"), nullable=False, default=ProjectStatus.active
+    )
+    #: Chủ của chapter. **Cho phép NULL** có chủ đích: chapter tạo trước slice B không có chủ,
+    #: và gán bừa cho một tài khoản nào đó là đoán mò. NULL = "chưa có chủ", ai đăng nhập cũng
+    #: thấy và quản trị có thể nhận về (xem `docs/REPORT_B1.md`).
+    #: `ondelete=SET NULL`: xoá tài khoản KHÔNG được kéo theo chapter — mất việc của người khác.
+    chu_so_huu_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("nguoi_dung.id", ondelete="SET NULL"), nullable=True,
+        index=True,
     )
 
     pages: Mapped[list["Page"]] = relationship(
@@ -237,6 +299,8 @@ class Job(TimestampMixin, Base):
 
 
 __all__ = [
+    "NguoiDung",
+    "Phien",
     "Base",
     "Project",
     "Page",

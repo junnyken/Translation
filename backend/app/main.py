@@ -7,7 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi import Depends
 
 from app.api.v1.routes import router as v1_router
-from app.core.bao_ve import canh_bao_neu_khong_khoa, cong_khoa
+from app.core.bao_ve import canh_bao_neu_khong_khoa
+from app.core.quyen import nguoi_dung_hien_tai
+from app.api.v1.xac_thuc_routes import router as xac_thuc_router
 from app.core.config import get_settings
 
 app = FastAPI(
@@ -33,7 +35,8 @@ if _settings.cors_allow_origin_list:
         allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
         # `X-API-Key` phải nằm trong danh sách này, nếu không trình duyệt sẽ chặn ngay ở
         # preflight và giao diện không bao giờ gửi được khoá đi.
-        allow_headers=["Content-Type", "X-API-Key"],
+        # `Authorization` cho mã phiên (slice B), `X-API-Key` cho khoá chung lúc đăng ký (slice A).
+        allow_headers=["Content-Type", "X-API-Key", "Authorization"],
     )
 
 
@@ -89,8 +92,16 @@ async def healthz() -> dict:
     return ket_qua
 
 
-# Gắn cổng khoá ở tầng ROUTER, không gắn từng endpoint: 62 đường dẫn thì kiểu gì cũng
+# Router tài khoản KHÔNG đòi đăng nhập (đăng nhập thì lấy đâu ra phiên mà gửi). Riêng
+# `/auth/register` tự đòi khoá chung bên trong, để người lạ không tự tạo tài khoản.
+app.include_router(xac_thuc_router, prefix="/api/v1")
+
+# Gắn cổng ĐĂNG NHẬP ở tầng ROUTER, không gắn từng endpoint: 65 đường dẫn thì kiểu gì cũng
 # quên một cái, và cái bị quên sẽ là cái không ai ngờ tới.
-app.include_router(v1_router, dependencies=[Depends(cong_khoa)])
+#
+# Đây là chỗ slice B thay slice A: trước là một khoá chung (ai cầm khoá làm được mọi thứ với
+# chapter của mọi người), giờ là tài khoản riêng + chapter có chủ. Khoá chung KHÔNG còn mở
+# được dữ liệu nữa — nó chỉ còn gác cổng đăng ký.
+app.include_router(v1_router, dependencies=[Depends(nguoi_dung_hien_tai)])
 
 canh_bao_neu_khong_khoa()
