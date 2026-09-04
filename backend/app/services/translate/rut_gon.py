@@ -26,6 +26,51 @@ from dataclasses import dataclass
 #: `số. <bản dịch ngắn>` — cùng khuôn với các prompt khác của hệ thống.
 _DONG = re.compile(r"^(\d{1,3})\s*[.)\]-]\s*(.*)$")
 
+#: Từ bắt đầu bằng chữ HOA nằm giữa câu — cách nhận tên riêng đủ dùng mà không cần từ điển.
+#: Chỉ xét từ không đứng ngay sau dấu kết câu, để không nhặt nhầm chữ đầu câu.
+_TU = re.compile(r"[^\W\d_]+", re.UNICODE)
+
+#: Bản rút gọn phải dùng ít nhất ngần này phần SỨC CHỨA. Dưới mức đó là model bỏ đi thông tin
+#: trong khi vẫn còn chỗ để giữ — không còn là rút gọn mà là xoá.
+#:
+#: Đo trên trang thật 04/05: "Bạn không nghĩ vậy sao?" (23 ký tự) bị trả về đúng **một dấu
+#: hỏi**, và bộ lọc cũ nhận vì nó "ngắn hơn bản cũ và không rỗng".
+#:
+#: Neo vào SỨC CHỨA chứ không vào độ dài bản cũ: bong bóng tí hon thì rút từ 200 ký tự xuống 25
+#: là đúng việc phải làm, phạt nó là làm E18 vô dụng đúng ở ca cần nhất. Cái sai không nằm ở
+#: "ngắn hơn bản cũ bao nhiêu" mà ở "còn chỗ mà không dùng".
+TY_LE_SUC_CHUA_NHO_NHAT = 0.35
+#: …và dù tỉ lệ có đạt, dưới ngần này ký tự thì cũng không còn là một câu thoại.
+DAI_NGAN_NHAT = 4
+
+
+#: Từ tiếng Việt hay bị viết hoa giữa câu mà KHÔNG phải tên riêng — chủ yếu là đại từ xưng hô
+#: và liên từ đầu mệnh đề. Thiếu danh sách này thì "Tôi" bị coi là tên riêng, và mọi bản rút gọn
+#: đổi cách xưng hô đều bị loại oan.
+#:
+#: Danh sách ngắn có chủ đích: nó chỉ cần đủ để không phạt nhầm, còn sót vài từ thì hậu quả là
+#: giữ nguyên bản dịch cũ — an toàn. Ngược lại, nhét cả từ điển vào đây mới là chỗ nguy hiểm.
+_KHONG_PHAI_TEN = frozenset({
+    "tôi", "tớ", "mình", "cậu", "bạn", "anh", "chị", "em", "ông", "bà", "cô", "chú", "bác",
+    "họ", "nó", "ta", "chúng", "và", "nhưng", "vì", "nếu", "thì", "mà", "rồi", "còn", "vậy",
+})
+
+
+def ten_rieng(text: str) -> set[str]:
+    """Tên riêng đoán được trong một câu: từ viết hoa KHÔNG đứng đầu câu.
+
+    Không dùng từ điển, không gọi mạng — chỉ cần đủ để **bắt lỗi bỏ mất tên riêng**, việc mà
+    prompt đã dặn model nhưng model vẫn làm (đo trên trang thật: "Kazudake" biến mất khỏi bản
+    rút gọn). Dặn suông không phải là chốt chặn; chỗ này mới là.
+    """
+    ket: set[str] = set()
+    for cau in re.split(r"[.!?…]+", text or ""):
+        tu = _TU.findall(cau)
+        for t in tu[1:]:                       # bỏ từ đầu câu — viết hoa là chuyện đương nhiên
+            if t[:1].isupper() and t.lower() not in _KHONG_PHAI_TEN:
+                ket.add(t.lower())
+    return ket
+
 
 @dataclass(frozen=True)
 class MucRutGon:
@@ -37,11 +82,17 @@ class MucRutGon:
 
 
 def dung_prompt(muc: list[MucRutGon], source_lang: str) -> str:
-    danh_sach = "\n".join(
-        f"{i + 1}. [tối đa {m.suc_chua} ký tự] gốc: {m.chu_goc or '(không đọc được)'}\n"
-        f"   bản dịch hiện tại ({len(m.ban_dich)} ký tự): {m.ban_dich}"
-        for i, m in enumerate(muc)
-    )
+    def _mot_muc(i: int, m: MucRutGon) -> str:
+        dong = (
+            f"{i + 1}. [tối đa {m.suc_chua} ký tự] gốc: {m.chu_goc or '(không đọc được)'}\n"
+            f"   bản dịch hiện tại ({len(m.ban_dich)} ký tự): {m.ban_dich}"
+        )
+        ten = sorted(ten_rieng(m.ban_dich))
+        if ten:
+            dong += f"\n   PHẢI GIỮ NGUYÊN tên riêng: {', '.join(ten)}"
+        return dong
+
+    danh_sach = "\n".join(_mot_muc(i, m) for i, m in enumerate(muc))
     return (
         "Bạn là biên tập viên truyện tranh tiếng Việt.\n\n"
         "Những câu thoại dưới đây **dài hơn bong bóng chứa được**, nên đang bị tràn ra ngoài "
@@ -63,12 +114,20 @@ def dung_prompt(muc: list[MucRutGon], source_lang: str) -> str:
 def phan_tich(text: str, muc: list[MucRutGon]) -> list[str | None]:
     """Tách phản hồi thành đúng `len(muc)` phần tử. `None` = KHÔNG dùng được, giữ bản cũ.
 
-    Bị loại khi: thiếu dòng · dòng rỗng · **dài hơn bản dịch hiện tại** (model viết dài thêm thì
-    rút gọn không còn nghĩa gì).
+    Bị loại khi:
+
+    - thiếu dòng · dòng rỗng · **dài hơn bản dịch hiện tại** (viết dài thêm thì rút gọn vô nghĩa)
+    - **không còn chữ cái nào** — đo trên trang thật: một câu 23 ký tự bị trả về đúng `?`
+    - **dùng chưa tới 35% sức chứa, hoặc dưới 4 ký tự** — còn chỗ mà không dùng thì là xoá,
+      không phải rút gọn
+    - **đánh rơi tên riêng** có trong bản cũ (`Kazudake` biến mất khỏi bản rút gọn ở trang thật)
 
     Cố ý KHÔNG loại dòng chỉ vì vượt quá sức chứa vài ký tự: sức chứa là ước lượng, còn bên có
     thẩm quyền nói vừa hay không là `fit()` chạy ngay sau đó. Loại ở đây là vứt đi một bản dịch
     ngắn hơn hẳn chỉ vì lệch con số ước lượng.
+
+    Bị loại nghĩa là **giữ nguyên bản cũ** — vùng đó tiếp tục báo tràn. Một cảnh báo tràn thành
+    thật tốt hơn một câu thoại bị xoá mất mà không ai biết.
     """
     thu: dict[int, str] = {}
     for raw in (text or "").splitlines():
@@ -87,6 +146,12 @@ def phan_tich(text: str, muc: list[MucRutGon]) -> list[str | None]:
         moi = thu.get(i, "")
         if not moi or len(moi) >= len(cu.ban_dich):
             ket.append(None)
+        elif not _TU.search(moi):
+            ket.append(None)                                   # chỉ còn dấu câu
+        elif len(moi) < max(DAI_NGAN_NHAT, TY_LE_SUC_CHUA_NHO_NHAT * cu.suc_chua):
+            ket.append(None)                                   # xoá chứ không phải rút gọn
+        elif ten_rieng(cu.ban_dich) - ten_rieng(moi):
+            ket.append(None)                                   # đánh rơi tên riêng
         else:
             ket.append(moi)
     return ket

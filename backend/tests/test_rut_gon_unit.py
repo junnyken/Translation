@@ -123,6 +123,59 @@ class TestPhanTich:
     def test_phan_hoi_rac_thi_khong_doi_gi(self):
         assert phan_tich("xin lỗi tôi không hiểu yêu cầu", self.MUC) == [None, None]
 
+    def test_chi_con_dau_cau_thi_LOAI(self):
+        """Đo trên trang thật 04/05: câu 23 ký tự bị trả về đúng một dấu `?`.
+
+        Bộ lọc cũ nhận, vì nó "ngắn hơn bản cũ và không rỗng". Đó không phải rút gọn — đó là
+        xoá mất một câu thoại, và người dùng chỉ biết khi mở trang ra nhìn.
+        """
+        assert phan_tich("1. ?\n2. Cậu nghĩ sao?", self.MUC)[0] is None
+
+    def test_dung_chua_toi_35_phan_tram_SUC_CHUA_thi_LOAI(self):
+        """Còn chỗ mà không dùng thì là xoá, không phải rút gọn."""
+        assert phan_tich("1. Ừ.\n2. Cậu nghĩ sao?", self.MUC)[0] is None
+
+    def test_bong_bong_TI_HON_van_duoc_rut_that_manh(self):
+        """Mốc neo vào SỨC CHỨA, không vào độ dài bản cũ — nếu không thì phạt oan đúng ca cần nhất.
+
+        Bong bóng chứa 12 ký tự mà bản dịch 200 ký tự: rút xuống 12 ký tự là việc phải làm.
+        """
+        dai = "nghe nói rằng chuyện đó cũng bình thường thôi mà " * 4
+        muc = [MucRutGon(chu_goc="a", ban_dich=dai, suc_chua=12)]
+        assert phan_tich("1. Nghe nói vậy", muc) == ["Nghe nói vậy"]
+
+    def test_van_nhan_ban_rut_gon_MANH_nhung_con_la_cau(self):
+        """Chống sửa quá tay: rút gọn thật sự vẫn phải được nhận."""
+        kq = phan_tich("1. Mỗi người mỗi khác!\n2. Cậu nghĩ sao?", self.MUC)
+        assert kq[0] == "Mỗi người mỗi khác!"
+
+    def test_danh_roi_TEN_RIENG_thi_LOAI(self):
+        """Đo trên trang thật: "Kazudake" biến mất khỏi bản rút gọn dù prompt đã dặn giữ.
+
+        Dặn suông không phải chốt chặn.
+        """
+        muc = [MucRutGon(chu_goc="a", ban_dich="Tôi nghe Kazudake kể chuyện hồi bé của cô ấy",
+                         suc_chua=20)]
+        assert phan_tich("1. Nghe bồ cũ kể chuyện xưa", muc) == [None]
+        assert phan_tich("1. Nghe Kazudake kể chuyện xưa", muc) == ["Nghe Kazudake kể chuyện xưa"]
+
+    def test_ten_rieng_khong_nham_chu_dau_cau(self):
+        from app.services.translate.rut_gon import ten_rieng
+
+        assert ten_rieng("Cậu ổn chứ? Tôi về đây.") == set()
+        assert "kazudake" in ten_rieng("Tôi nghe Kazudake kể chuyện.")
+
+    def test_ten_rieng_khong_nham_DAI_TU_viet_hoa_giua_cau(self):
+        """Bẫy bắt được lúc chạy test: "Tôi" giữa câu bị coi là tên riêng, và mọi bản rút gọn
+        đổi cách xưng hô đều bị loại oan."""
+        from app.services.translate.rut_gon import ten_rieng
+
+        assert ten_rieng("Hôm qua Tôi gặp Cậu ở đó, Nhưng Anh không thấy") == set()
+
+    def test_prompt_liet_ke_ten_rieng_phai_giu(self):
+        muc = [MucRutGon(chu_goc="a", ban_dich="Tôi nghe Kazudake kể chuyện", suc_chua=20)]
+        assert "PHẢI GIỮ NGUYÊN tên riêng: kazudake" in dung_prompt(muc, "ja")
+
     def test_KHONG_loai_chi_vi_lech_suc_chua_vai_ky_tu(self):
         """Sức chứa là ƯỚC LƯỢNG; `fit()` chạy ngay sau mới là bên có thẩm quyền.
 
