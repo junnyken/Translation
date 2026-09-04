@@ -93,6 +93,14 @@ def khung_du_phong_co_noi(
                      (0, 0, mat_na_trong.shape[1], mat_na_trong.shape[0]),
                      cfg.grow_max_ratio, cfg.grow_max_px)
     kq = no_khung_ra_cho_trong(mat_na_trong, o_bat_dau, gioi_han=gh, buoc=cfg.grow_step_px)
+    # Một dòng log cho MỖI lượt nới: không có nó thì "vì sao vùng này không nới được" chỉ trả
+    # lời được bằng cách dựng lại y hệt môi trường ở máy khác — và đúng chuyện đó đã xảy ra
+    # 05/09: cùng ảnh, cùng cấu hình, máy phát triển nới được còn bản chạy thì không.
+    logger.info(
+        "nới khung vùng %.0fx%.0f tại (%.0f,%.0f): ô đầu %.0fx%.0f · giới hạn %sx%s · kết quả %s",
+        bbox.w, bbox.h, bbox.x, bbox.y, o_bat_dau[2], o_bat_dau[3], gh[2], gh[3],
+        f"{kq.w}x{kq.h} (hệ số {kq.he_so_dien_tich})" if kq else "KHÔNG NỚI ĐƯỢC (ô đầu hỏng)",
+    )
     if kq is None or kq.he_so_dien_tich < 1.0 + cfg.grow_min_gain_ratio:
         return goc
 
