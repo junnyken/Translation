@@ -35,6 +35,13 @@ describe('dòng thời gian pipeline của chapter', () => {
     expect(buoc(kq, 'typeset').tinh_trang).toBe('canh_bao')
   })
 
+  it('bong bóng bị bỏ trống vì font thiếu glyph CŨNG là cảnh báo (F1)', () => {
+    // Trước F1 chỉ nhìn số tràn khung và số chưa đọc được chữ, nên một trang mất chữ thật vẫn
+    // được báo là "xong" — đúng kiểu nói quá mà E11 sinh ra để chống.
+    const kq = tinhTienDoChapter(trang('typeset_done'), { soThieuFont: 1 })
+    expect(buoc(kq, 'typeset').tinh_trang).toBe('canh_bao')
+  })
+
   it('trang hỏng lúc nhận diện được đếm riêng, không lẫn vào số đã xong', () => {
     const kq = tinhTienDoChapter(trang('detection_failed', 'typeset_done'))
     expect(kq.so_hong).toBe(1)

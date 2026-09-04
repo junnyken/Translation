@@ -38,7 +38,8 @@ export function hangCuaTrang(trang_thai) {
 
 /**
  * @param {{status: string}[]} trang danh sách trang của chapter
- * @param {{soTran?: number, soCanDocLai?: number}} canhBao số vùng còn lỗi (M10)
+ * @param {{soTran?: number, soCanDocLai?: number, soThieuFont?: number}} canhBao số vùng
+ *   còn lỗi (M10; `soThieuFont` là bong bóng bị bỏ trống vì font thiếu glyph — F1)
  */
 export function tinhTienDoChapter(trang = [], canhBao = {}) {
   const tong = trang.length
@@ -58,7 +59,8 @@ export function tinhTienDoChapter(trang = [], canhBao = {}) {
 
     // Bước cuối: căn chữ xong nhưng còn vùng lỗi thì KHÔNG được gọi là xong xuôi.
     if (b.ma === 'typeset' && tinh_trang === 'xong'
-        && ((canhBao.soTran ?? 0) > 0 || (canhBao.soCanDocLai ?? 0) > 0)) {
+        && ((canhBao.soTran ?? 0) > 0 || (canhBao.soCanDocLai ?? 0) > 0
+            || (canhBao.soThieuFont ?? 0) > 0)) {
       tinh_trang = 'canh_bao'
     }
 

@@ -308,6 +308,7 @@ export default function App() {
   const dsTrang = project?.pages ?? []
   const tienDo = tinhTienDoChapter(dsTrang, {
     soTran: canhBao?.overflow_warning_count, soCanDocLai: canhBao?.needs_manual_count,
+    soThieuFont: canhBao?.font_missing_count,
   })
   useEffect(() => {
     let huy = false

@@ -3083,3 +3083,77 @@ xanh sẽ đánh mất điều cần chứng minh, nên bộ mới khẳng đị
 | `401 dạng CHUỖI cũng nhận ra` | đúng cái bẫy đã làm hỏng `laLoiThieuKhoa` ở slice A: App lưu lỗi bằng `setLoi(e.message)` nên biến `loi` là **chuỗi**, không phải `Error` |
 | `đăng nhập sai thì KHÔNG lưu mã phiên rác vào máy` | lưu trước rồi mới thử là để lại rác cho lần mở sau |
 | `máy chủ không phản hồi thì VẪN xoá mã ở máy` | không thì người dùng kẹt vĩnh viễn ở màn "đã đăng nhập" mà mọi lời gọi đều 401 |
+
+# ========== F1 — font thiếu glyph & lỗi tự hiện (2026-09-04) ==========
+
+```
+backend : (điền sau khi lượt đầy đủ chạy xong)
+frontend: 294 passed             (nền: 288)
+```
+
+Bối cảnh: **bug thật trên bản chạy**, không phải test tự nghĩ ra. Log worker cho thấy bước căn
+chữ chết sau **0,034 giây** vì `MissingGlyph: font thiếu glyph cho '．'`.
+
+## Đo trước khi viết một dòng test
+
+Chạy chính phép kiểm sentinel của `fonts.py` trên **cả 7 font** trong whitelist:
+
+| | Ký tự |
+|---|---|
+| **Thiếu ở cả 7 font** | `．，！？：；（）「」『』。、・〜～－ー‥` |
+| **Có đủ ở cả 7 font** | `. , ! ? : ; ( ) " ' - ~ · — – … “ ” ‘ ’` |
+
+Nhờ vậy bảng gấp dấu câu không có ký tự đích nào là phỏng đoán — mọi đích đều đã đo là vẽ được.
+
+## Backend (37 test mới)
+
+`test_typeset_dau_cau_toan_rong.py` — 32 test:
+
+| Nhóm | Khẳng định |
+|---|---|
+| Gấp từng ký tự | 23 cặp `nguồn → đích`, kể cả `‥`→`..` (KHÔNG gộp thành `…` ba chấm) |
+| Không lấn sân | kana/kanji và `ー` **không** bị đổi · dải katakana nửa rộng `ｱｲｳ` (U+FF61+) **không** bị gấp — gấp là ra chữ Latin bậy |
+| Không mất việc cũ | vẫn đưa NFD về NFC (`ĐỪNG` không ra `ĐUNG`) |
+| Tái hiện sự cố | chính chuỗi `Sakamoto－san．` phải căn được, và `坂本さん` **vẫn phải** ném lỗi |
+
+`test_typeset_task_integration.py` — 5 test mới (chạy DB thật + render thật):
+
+| Test | Khẳng định |
+|---|---|
+| `test_mot_vung_hong_thi_cac_vung_khac_van_can_xong` | job `done`, 1 vùng `font_missing_glyph`, 1 vùng căn được, trang sang `typeset_done` |
+| `test_vung_hong_KHONG_bi_ghi_thanh_pending` | `wrapped_text` và `font_size` phải là `NULL` — không ghi chữ mà thực tế không vẽ được |
+| `test_ca_trang_hong_thi_van_bao_hong_va_GIU_nguyen_trang_thai` | mọi vùng hỏng ⇒ job `failed`, trang **giữ** `translated` |
+| `test_dau_cau_toan_rong_KHONG_con_lam_hong_gi` | `？` `．` trong bản dịch ⇒ 0 vùng hỏng, `wrapped_text` sạch |
+| `test_vung_hong_vao_danh_sach_can_ra_soat` | mã `layout_font_missing_glyph` có mặt ở `/pages/{id}/quality` |
+
+## Ba test CŨ phải sửa — và vì sao không chỉ "sửa cho xanh"
+
+| Test | Vì sao đỏ | Xử lý |
+|---|---|---|
+| `test_nhat_ky_tuan_thu_khong_chua_noi_dung_export` | ghim **đúng tập cột** của bảng tuân thủ | Thêm `font_missing_count` vào danh sách — cột mới ở bảng này phải là quyết định có ý thức, nên giữ nguyên kiểu ghim cứng |
+| `test_xem_truoc_dem_dung_so_trang` + 1 test nữa | so **nguyên body** của `export-preview` | Thêm field mới vào body kỳ vọng, và bổ sung một khẳng định mới: tràn khung **không** được đếm lẫn vào bong bóng trống |
+| `status-presentation.test.js` | danh sách enum `canh_chu` lấy thẳng từ `docs/API.md` | Thêm `font_missing_glyph` — đây chính là tấm lưới bắt "backend thêm trạng thái mà giao diện không biết", nó đỏ là nó đang làm đúng việc |
+
+## Một test tự nó đã sai — bắt được nhờ viết trước khi tin
+
+Bản đầu của `test_truoc_khi_gap_font_that_su_thieu_glyph` chứng minh "font thiếu glyph" bằng cách
+gọi `assert_can_render` — và **đỏ**, vì chính hàm đó nay đã gấp dấu câu trước khi kiểm. Test đang
+hỏi cái hàm mình vừa sửa xem nó có sai không.
+
+Đã đổi sang đọc thẳng bảng `cmap` của file font bằng `fontTools`: hỏi **font**, không hỏi code.
+
+## Giao diện (6 test mới)
+
+| Test | Khẳng định |
+|---|---|
+| `hiện BƯỚC nào hỏng và LÝ DO mà không cần bấm gì` | lý do hỏng không còn nằm sau một cái nút |
+| `trang có việc hỏng thì KHÔNG được coi là "đang cập nhật…"` | đúng cái đã lấy mất 10 phút của người dùng thật |
+| `không có việc nào hỏng thì giữ nguyên hành vi cũ` | chống sửa quá tay: trang đang chạy thật vẫn phải quay và vẫn có nút "Vì sao?" |
+| `hỏi danh sách việc hỏng mà lỗi thì màn tiến độ vẫn chạy` | lớp giải thích hỏng không được kéo sập màn chính |
+| 2 test đếm bong bóng trống | **không** gộp vào số vùng tràn khung |
+
+## Bài học vận hành (lặp lại lần thứ hai)
+
+Chạy **hai lượt pytest cùng lúc trên một CSDL** làm cả hai treo ở `downgrade base`: lượt này đợi
+khoá của lượt kia. Lần này chạy lượt riêng bằng `TEST_DATABASE_URL=…/translation_test_f1` — 102
+test unit chạy xong trong vài giây sau khi tách DB, trong khi lượt dùng chung đứng im 4 phút.

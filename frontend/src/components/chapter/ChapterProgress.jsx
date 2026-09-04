@@ -22,6 +22,7 @@ export default function ChapterProgress({ project, canhBao, onNapLai }) {
   const trang = project?.pages ?? []
   const tien_do = tinhTienDoChapter(trang, {
     soTran: canhBao?.overflow_warning_count, soCanDocLai: canhBao?.needs_manual_count,
+    soThieuFont: canhBao?.font_missing_count,
   })
   // Một trang có việc hỏng thì KHÔNG còn "đang chạy" nữa, dù trạng thái trang chưa tới đích.
   //
