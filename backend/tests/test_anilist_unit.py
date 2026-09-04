@@ -116,3 +116,25 @@ class TestNoiThatKhiHong:
         monkeypatch.setattr(urllib.request, "urlopen", qua_nhip)
         kq = anilist.tra_ten_chinh_thuc(["Nami"], "One Piece", timeout=1)
         assert "thử lại sau" in kq.khong_dung_duoc
+
+    def test_404_la_KHONG_CO_TRUYEN_chu_khong_phai_loi_ky_thuat(self, monkeypatch):
+        """AniList báo "không tìm thấy" bằng HTTP 404, KHÔNG phải bằng `Media: null`.
+
+        Đo trên host 2026-09-04 với "Pepper and Carrot":
+            {"errors":[{"message":"Not Found.","status":404}],"data":{"Media":null}}
+
+        Bản đầu rơi vào nhánh lỗi chung và hiện "AniList trả lỗi 404" — câu kỹ thuật không nói
+        cho người dùng biết phải làm gì.
+        """
+        import urllib.error
+        import urllib.request
+
+        from app.services.consistency import anilist
+
+        def khong_thay(*a, **k):
+            raise urllib.error.HTTPError("u", 404, "Not Found", {}, None)
+
+        monkeypatch.setattr(urllib.request, "urlopen", khong_thay)
+        kq = anilist.tra_ten_chinh_thuc(["Nami"], "Bộ Không Có Thật", timeout=1)
+        assert "không có bộ truyện nào" in kq.khong_dung_duoc
+        assert "404" not in kq.khong_dung_duoc, "vẫn phun mã lỗi kỹ thuật ra cho người dùng"

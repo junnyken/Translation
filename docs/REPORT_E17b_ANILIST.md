@@ -50,9 +50,20 @@ Ba loại hỏng được phân biệt và nói khác nhau:
 
 ```
 429            -> "đang giới hạn số lượt hỏi, thử lại sau một phút"   (chờ được)
+404            -> "AniList không có bộ truyện nào tên '...'"
 mạng/timeout   -> "không kết nối được tới AniList"
-Media = null   -> "AniList không có bộ truyện nào tên '...'"
 ```
+
+⚠️ **Sửa sau khi kiểm chứng trên host.** Bản đầu giả định AniList báo "không tìm thấy" bằng
+`Media: null`. Sai — nó báo bằng **HTTP 404**:
+
+```
+"Pepper and Carrot"  ->  404  {"errors":[{"message":"Not Found."}],"data":{"Media":null}}
+```
+
+Nên nhánh 404 rơi vào lỗi chung và hiện *"AniList trả lỗi 404"* — một câu kỹ thuật không nói cho
+người dùng biết phải làm gì. Chỉ lộ ra khi gọi thật với một bộ truyện **không có trong CSDL**;
+mọi bộ tôi thử lúc phát triển (Naruto, One Piece) đều có nên nhánh này chưa bao giờ chạy.
 
 Gộp chúng lại là nói dối: người dùng sẽ đi sửa sai chỗ.
 

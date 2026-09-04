@@ -177,11 +177,18 @@ def hoi_anilist(ten_bo_truyen: str, timeout: float = 10.0,
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             goi = json.loads(resp.read())
     except urllib.error.HTTPError as e:
-        # 429 = vượt giới hạn nhịp (AniList cho 90 lượt/phút). Nói rõ để người dùng biết là chờ
-        # được, khác hẳn "không tìm thấy truyện".
-        ly_do = ("AniList đang giới hạn số lượt hỏi, thử lại sau một phút"
-                 if e.code == 429 else f"AniList trả lỗi {e.code}")
-        return None, [], ly_do
+        if e.code == 429:
+            # Vượt giới hạn nhịp (AniList cho 90 lượt/phút). Nói rõ là CHỜ ĐƯỢC — rất khác
+            # "không có truyện này", vì hai câu dẫn người dùng đi sửa hai chỗ khác nhau.
+            return None, [], "AniList đang giới hạn số lượt hỏi, thử lại sau một phút"
+        if e.code == 404:
+            # AniList báo "không tìm thấy" bằng HTTP 404 chứ KHÔNG phải bằng `Media: null` như
+            # tưởng ban đầu — đo được trên host 2026-09-04:
+            #     {"errors":[{"message":"Not Found.","status":404}],"data":{"Media":null}}
+            # Bản đầu rơi vào nhánh lỗi chung và hiện "AniList trả lỗi 404" — một câu kỹ thuật
+            # không giúp người dùng biết phải làm gì.
+            return None, [], f"AniList không có bộ truyện nào tên {ten_bo_truyen!r}"
+        return None, [], f"AniList trả lỗi {e.code}"
     except Exception as e:  # noqa: BLE001 — gồm cả timeout, DNS, mạng đứt
         logger.warning("hỏi AniList hỏng: %s", e)
         return None, [], "không kết nối được tới AniList"
