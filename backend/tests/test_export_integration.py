@@ -98,7 +98,7 @@ async def test_xem_truoc_dem_dung_so_trang(client, chapter):
     body = r.json()
     assert body == {
         "page_count": 3, "total_page_count": 3,
-        "skipped_page_count": 0, "overflow_warning_count": 0,
+        "skipped_page_count": 0, "overflow_warning_count": 0, "font_missing_count": 0,
     }
 
 
@@ -114,6 +114,26 @@ async def test_xem_truoc_dem_dung_vung_tran_khung(client, chapter):
         s.commit()
     body = (await client.get(f"/api/v1/projects/{project_id}/export-preview")).json()
     assert body["overflow_warning_count"] == 1
+    assert body["font_missing_count"] == 0, "tràn khung KHÔNG được đếm lẫn vào bong bóng trống"
+
+
+async def test_xem_truoc_dem_rieng_vung_font_khong_ve_duoc(client, chapter):
+    """F1 — vùng bị bỏ trống vì font thiếu glyph phải đếm RIÊNG, không lẫn vào số tràn khung."""
+    project_id, page_ids = await chapter(so_trang=1)
+    with sync_session() as s:
+        ts = s.execute(
+            sa.select(TypesetResult)
+            .join(TextRegion, TextRegion.id == TypesetResult.region_id)
+            .where(TextRegion.page_id == uuid.UUID(page_ids[0]))
+        ).scalars().first()
+        ts.fit_status = FitStatus.font_missing_glyph
+        s.commit()
+    body = (await client.get(f"/api/v1/projects/{project_id}/export-preview")).json()
+    assert body["font_missing_count"] == 1
+    assert body["overflow_warning_count"] == 0
+
+    cb = (await client.get(f"/api/v1/projects/{project_id}/export-warnings")).json()
+    assert cb["font_missing_count"] == 1
 
 
 async def test_xem_truoc_bao_ro_trang_chua_canh_chu(client, chapter, sample_page_image):
@@ -125,7 +145,7 @@ async def test_xem_truoc_bao_ro_trang_chua_canh_chu(client, chapter, sample_page
     body = (await client.get(f"/api/v1/projects/{project_id}/export-preview")).json()
     assert body == {
         "page_count": 2, "total_page_count": 3,
-        "skipped_page_count": 1, "overflow_warning_count": 0,
+        "skipped_page_count": 1, "overflow_warning_count": 0, "font_missing_count": 0,
     }
 
 

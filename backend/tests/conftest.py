@@ -124,6 +124,7 @@ MAT_KHAU_TEST = "mat-khau-test-1234"
 #: Băm scrypt MỘT lần cho cả lượt chạy (~83ms). Dùng chung cho cả hai tài khoản test —
 #: test không kiểm sức mạnh mật khẩu ở đây, chỉ cần đăng nhập được.
 _BAM_TEST: list[str] = []
+_ENGINE_TEST: list = []
 
 
 def _tao_tai_khoan_test() -> dict[str, tuple[str, str]]:
@@ -138,7 +139,12 @@ def _tao_tai_khoan_test() -> dict[str, tuple[str, str]]:
     from app.core import phien as ph
     from app.core.mat_khau import bam
 
-    eng = sa.create_engine(_sync_url(TEST_DB_URL))
+    # Dùng CHUNG một engine cho cả lượt chạy. Tạo engine mới mỗi test (~980 test) mở ra ngần
+    # ấy pool kết nối, và Postgres có trần `max_connections` — hết trần thì các test khác đỏ ở
+    # những chỗ chẳng liên quan gì tới tài khoản.
+    if not _ENGINE_TEST:
+        _ENGINE_TEST.append(sa.create_engine(_sync_url(TEST_DB_URL), pool_size=2, max_overflow=2))
+    eng = _ENGINE_TEST[0]
     ket_qua: dict[str, tuple[str, str]] = {}
     if not _BAM_TEST:
         _BAM_TEST.append(bam(MAT_KHAU_TEST))
@@ -167,7 +173,6 @@ def _tao_tai_khoan_test() -> dict[str, tuple[str, str]]:
                 {"id": uuid.uuid4(), "u": uid, "h": ph.bam_ma(ma_tho), "x": ph.han_moi()},
             )
             ket_qua[email] = (str(uid), ma_tho)
-    eng.dispose()
     return ket_qua
 
 

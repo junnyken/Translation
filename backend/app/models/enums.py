@@ -68,6 +68,13 @@ class FitStatus(str, Enum):
     pending = "pending"
     fit_ok = "fit_ok"
     overflow_warning = "overflow_warning"
+    #: Font không có glyph cho một ký tự trong bản dịch (chữ Nhật còn sót, ký hiệu lạ) nên
+    #: vùng này **chưa chèn được chữ** — bong bóng để trống.
+    #:
+    #: Tách khỏi `pending` có chủ đích: `pending` là "không có chữ để chèn" (bản dịch rỗng),
+    #: còn đây là "có chữ mà chèn không được". Gộp hai thứ lại thì một vùng mất chữ trông y hệt
+    #: một vùng vốn dĩ trống, và người dùng xuất file mà không biết mình mất gì.
+    font_missing_glyph = "font_missing_glyph"
 
 
 class BatchPipeline(str, Enum):

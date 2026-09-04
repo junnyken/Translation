@@ -274,6 +274,38 @@ async def claim_project(
     return project
 
 
+@router.post(
+    "/projects/{project_id}/release", response_model=ProjectRead, tags=["projects"]
+)
+async def release_project(
+    project_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
+) -> Project:
+    """Nhả chapter về "chưa có chủ" — đường NGƯỢC của `claim`.
+
+    Vì sao cần: có `claim` mà không có đường ngược lại là một cái bẫy một chiều. Nhận nhầm một
+    chapter là nó khoá cứng vào tài khoản đó vĩnh viễn, và người khác **không có cách nào** lấy
+    lại kể cả khi đó là việc của họ — vì `_get_project_or_404` đã chặn từ trước. Đo được ngay
+    trong lượt kiểm chứng B1: một tài khoản thử nhận nhầm chapter thật, và không có đường nào
+    trả lại ngoài sửa tay trong CSDL.
+
+    Nhả xong thì chapter về đúng trạng thái của chapter cũ: ai đăng nhập cũng thấy và nhận được.
+    Đây KHÔNG phải chuyển chủ cho một người cụ thể — chuyển chủ cần biết tên người nhận, tức là
+    cần một danh bạ người dùng, và đó là chuyện khác.
+    """
+    project = await _get_project_or_404(session, project_id, nguoi)
+    if project.chu_so_huu_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Chapter này vốn đã chưa có chủ.",
+        )
+    project.chu_so_huu_id = None
+    await session.commit()
+    await session.refresh(project)
+    return project
+
+
 @router.get("/projects/{project_id}", response_model=ProjectDetail, tags=["projects"])
 async def get_project(project_id: uuid.UUID, session: AsyncSession = Depends(get_session), nguoi: NguoiDung = Depends(nguoi_dung_hien_tai)) -> Project:
     stmt = select(Project).where(Project.id == project_id).options(selectinload(Project.pages))
@@ -420,6 +452,36 @@ async def list_page_jobs(
             select(Job).where(Job.page_id == page_id).order_by(Job.created_at.desc())
         )).scalars()
     )
+
+
+@router.get(
+    "/projects/{project_id}/failed-jobs", response_model=list[JobRead], tags=["projects"]
+)
+async def list_project_failed_jobs(
+    project_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
+) -> list[Job]:
+    """Việc HỎNG mới nhất của mỗi trang trong chapter — một lời gọi cho cả chapter (F1).
+
+    Vì sao cần thêm, khi đã có `/pages/{id}/jobs`: đường cũ hỏi TỪNG trang, nên màn tiến độ chỉ
+    dám hỏi khi người dùng bấm "Vì sao?". Hậu quả đo được 04/09: bước căn chữ chết sau 34 mili
+    giây, màn hình vẫn quay "đang cập nhật…" và người dùng ngồi đợi 10 phút một việc đã chết,
+    vì không ai nghĩ tới chuyện phải bấm mới biết.
+
+    Chỉ trả **job hỏng mới nhất của mỗi trang**: một trang chạy lại 5 lần rồi hỏng 5 lần thì thứ
+    người dùng cần là lý do lần cuối, không phải cả tập lịch sử.
+    """
+    await _get_project_or_404(session, project_id, nguoi)
+    rows = list((await session.execute(
+        select(Job)
+        .join(Page, Page.id == Job.page_id)
+        .where(Page.project_id == project_id, Job.status == JobStatus.failed)
+        .order_by(Job.page_id, Job.created_at.desc())
+    )).scalars())
+    moi_nhat: dict[uuid.UUID, Job] = {}
+    for job in rows:
+        moi_nhat.setdefault(job.page_id, job)
+    return list(moi_nhat.values())
 
 
 @router.get("/pages/{page_id}/ocr", response_model=list[OCRResultRead], tags=["pages"])
@@ -1118,25 +1180,30 @@ async def export_preview(
     pages = list((await session.execute(_thong_ke_xuat_stmt(project_id))).scalars())
     xuat_duoc = [p for p in pages if p.status in (PageStatus.typeset_done, PageStatus.ready_for_export)]
 
-    so_tran = 0
+    so_tran = so_thieu_glyph = 0
     if xuat_duoc:
-        so_tran = (
-            await session.execute(
-                select(func.count())
-                .select_from(TypesetResult)
-                .join(TextRegion, TextRegion.id == TypesetResult.region_id)
-                .where(
-                    TextRegion.page_id.in_([p.id for p in xuat_duoc]),
-                    TypesetResult.fit_status == FitStatus.overflow_warning,
+        async def _dem(trang_thai: FitStatus) -> int:
+            return (
+                await session.execute(
+                    select(func.count())
+                    .select_from(TypesetResult)
+                    .join(TextRegion, TextRegion.id == TypesetResult.region_id)
+                    .where(
+                        TextRegion.page_id.in_([p.id for p in xuat_duoc]),
+                        TypesetResult.fit_status == trang_thai,
+                    )
                 )
-            )
-        ).scalar() or 0
+            ).scalar() or 0
+
+        so_tran = await _dem(FitStatus.overflow_warning)
+        so_thieu_glyph = await _dem(FitStatus.font_missing_glyph)
 
     return ExportPreview(
         page_count=len(xuat_duoc),
         total_page_count=len(pages),
         skipped_page_count=len(pages) - len(xuat_duoc),
         overflow_warning_count=so_tran,
+        font_missing_count=so_thieu_glyph,
     )
 
 
@@ -1456,6 +1523,7 @@ async def get_export_warnings(
     return ExportWarningsRead(
         overflow_warning_count=cb.overflow_warning_count,
         needs_manual_count=cb.needs_manual_count,
+        font_missing_count=cb.font_missing_count,
         acknowledged=cb.acknowledged,
         acknowledged_at=cb.acknowledged_at,
         shape_fallback_count=int(bo_cuc.get(SafeAreaStatus.fallback_rectangle, 0)),
@@ -1507,6 +1575,7 @@ async def acknowledge_export(
         intended_use=project.intended_use,
         overflow_warning_count=cb.overflow_warning_count,
         needs_manual_count=cb.needs_manual_count,
+        font_missing_count=cb.font_missing_count,
         user_acknowledged=body.user_acknowledged,
     )
     return AcknowledgeRead.model_validate(ban_ghi, from_attributes=True)

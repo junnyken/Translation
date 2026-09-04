@@ -1221,6 +1221,8 @@ def render_page_preview(page_id: uuid.UUID, resolver=None) -> str:
 def _run_typeset(job_id: uuid.UUID) -> dict:
     started = time.perf_counter()
     from app.services.interfaces import BBox
+    from app.services.typeset.fitter import FONT_MISSING_GLYPH
+    from app.services.typeset.fonts import MissingGlyph
 
     with sync_session() as session:
         job = session.get(Job, job_id)
@@ -1326,19 +1328,44 @@ def _run_typeset(job_id: uuid.UUID) -> dict:
     typesetter_an_toan = build_typesetter(padding_ratio=0.0)[0]
     font_family = settings.default_font_family
     ket_qua: list[tuple[uuid.UUID, BBox, dict]] = []
+    #: Vùng font không vẽ được — giữ lại để báo cáo, KHÔNG nuốt im lặng.
+    thieu_glyph: list[tuple[uuid.UUID, str]] = []
     for region_id, bbox, text, o in specs:
         if o is None:
-            ket_qua.append((region_id, bbox, typesetter.fit(text, bbox, font_family)))
-            continue
-        khung = BBox(x=o[0], y=o[1], w=o[2], h=o[3])
-        ket_qua.append((region_id, bbox, typesetter_an_toan.fit(text, khung, font_family)))
+            khung, ts = bbox, typesetter
+        else:
+            khung, ts = BBox(x=o[0], y=o[1], w=o[2], h=o[3]), typesetter_an_toan
+        try:
+            ket_qua.append((region_id, bbox, ts.fit(text, khung, font_family)))
+        except MissingGlyph as exc:
+            # MỘT vùng font không vẽ được KHÔNG được giết cả trang.
+            #
+            # Đo thật 04/09: một dấu `．` trong 8 vùng làm hỏng nguyên trang — 7 vùng còn lại
+            # dịch đúng, căn được, nhưng người dùng không nhận được gì cả và ngồi đợi một việc
+            # đã chết sau 34 mili-giây. Bản sửa dấu câu (`_DAU_CAU_TOAN_RONG`) chặn đúng nguyên
+            # nhân hay gặp nhất, nhưng chữ Nhật còn sót thì font thiếu glyph là thiếu THẬT.
+            #
+            # Vùng hỏng được ghi trạng thái riêng `font_missing_glyph` (không phải `pending`)
+            # để nó đếm được, hiện được, và chặn ở cổng xuất file.
+            thieu_glyph.append((region_id, str(exc)))
+            ket_qua.append(
+                (region_id, bbox,
+                 {"font_size": None, "wrapped_text": None, "fit_status": FONT_MISSING_GLYPH}),
+            )
+
+    # Cả trang không vùng nào căn được thì đừng công bố một trang trắng và gọi đó là "đã căn
+    # chữ": để job hỏng như cũ, trang giữ nguyên `translated`, không đụng vào preview.
+    if thieu_glyph and len(thieu_glyph) == len(specs):
+        raise MissingGlyph(
+            f"toàn bộ {len(specs)} vùng của trang không chèn được chữ — {thieu_glyph[0][1]}"
+        )
 
     with sync_session() as session:
         region_ids = [rid for rid, _b, _f in ket_qua]
         deleted = session.execute(
             delete(TypesetResult).where(TypesetResult.region_id.in_(region_ids))
         ).rowcount
-        dem = {"fit_ok": 0, "overflow_warning": 0, "pending": 0}
+        dem = {"fit_ok": 0, "overflow_warning": 0, "pending": 0, "font_missing_glyph": 0}
         for region_id, _bbox, fit in ket_qua:
             dem[fit["fit_status"]] = dem.get(fit["fit_status"], 0) + 1
             session.add(
@@ -1372,11 +1399,18 @@ def _run_typeset(job_id: uuid.UUID) -> dict:
 
     cham_chat_luong(page_id, "typeset")
 
+    if thieu_glyph:
+        # Cảnh báo, KHÔNG phải thông tin phụ: trang được công bố là "đã căn chữ" trong khi có
+        # bong bóng bị bỏ trống, nên chỗ này phải để lại dấu vết đọc được trong log.
+        logger.warning(
+            "typeset job %s: %d/%d vùng KHÔNG chèn được chữ vì font thiếu glyph — %s",
+            job_id, len(thieu_glyph), len(ket_qua), thieu_glyph[0][1],
+        )
     logger.info(
-        "typeset job %s: %d vùng (vừa %d, tràn %d, chưa có chữ %d), font=%s, "
+        "typeset job %s: %d vùng (vừa %d, tràn %d, chưa có chữ %d, thiếu glyph %d), font=%s, "
         "xoá %d kết quả cũ, preview=%s, %.1fs",
         job_id, len(ket_qua), dem["fit_ok"], dem["overflow_warning"], dem["pending"],
-        font_family, deleted, preview_rel, elapsed,
+        dem["font_missing_glyph"], font_family, deleted, preview_rel, elapsed,
     )
     return {
         "status": "done",
@@ -1386,6 +1420,10 @@ def _run_typeset(job_id: uuid.UUID) -> dict:
         "fit_ok": dem["fit_ok"],
         "overflow_warning": dem["overflow_warning"],
         "pending": dem["pending"],
+        "font_missing_glyph": dem["font_missing_glyph"],
+        # Lý do của vùng ĐẦU TIÊN hỏng — đủ để biết thiếu ký tự gì mà không đổ cả trang log
+        # vào một trường. Chi tiết từng vùng nằm ở `fit_status` trong DB.
+        "font_missing_reason": thieu_glyph[0][1] if thieu_glyph else None,
         "font_family": font_family,
         "preview_path": preview_rel,
         "replaced_results": deleted,

@@ -77,6 +77,11 @@ export const CANH_CHU = {
   fit_ok: B('Vừa khung', 'ok', 'tich', 'Chữ dịch nằm gọn trong bong bóng.'),
   overflow_warning: B('Chữ chưa vừa khung', 'loi', 'canh',
     'Chữ dịch tràn ra ngoài bong bóng — xuất vẫn được nhưng sẽ lộ.', 'Mở để rà soát'),
+  // F1 — KHÔNG gộp với `pending`: `pending` là "không có chữ để chèn", còn đây là "có chữ mà
+  // chèn không được". Gộp lại thì một bong bóng MẤT CHỮ trông y hệt một bong bóng vốn dĩ trống.
+  font_missing_glyph: B('Chưa chèn được chữ', 'loi', 'canh',
+    'Font không có ký tự nào đó trong bản dịch (thường là chữ Nhật còn sót) nên bong bóng đang '
+    + 'để trống. Sửa lại chữ ở vùng này rồi căn lại.', 'Sửa chữ rồi căn lại'),
 }
 
 /** Kết quả đọc chữ của một vùng (`ocr_status` — M3). */

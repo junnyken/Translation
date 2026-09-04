@@ -116,11 +116,15 @@ export default function BboxOverlay({
       {tyLe !== null && regions.map((r) => {
         const b = keo?.regionId === r.id && tam ? tam : r.bbox
         const tran = r.fit_status === 'overflow_warning'
+        // F1 — vùng máy không chèn được chữ vì font thiếu ký tự. Phải nhìn thấy được: trên ảnh
+        // nó là một bong bóng trắng, không có dấu hiệu nào cho biết chữ đã mất.
+        const thieuFont = r.fit_status === 'font_missing_glyph'
         const canXem = r.ocr_status === 'needs_manual' || r.status === 'low_confidence'
         const lop = [
           'khung',
           dangChon === r.id ? 'dang-chon' : '',
           hienCanhBao && tran ? 'tran' : '',
+          hienCanhBao && thieuFont ? 'thieu-font' : '',
           hienCanhBao && canXem ? 'can-xem' : '',
         ].join(' ')
         return (

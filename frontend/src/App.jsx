@@ -19,6 +19,7 @@ import VoiceProfileManager from './components/consistency/VoiceProfileManager.js
 import ReviewToolbar from './components/chapter/ReviewToolbar.jsx'
 import ManDangNhap from './components/auth/ManDangNhap.jsx'
 import BangChuaCoChu from './components/auth/BangChuaCoChu.jsx'
+import QuanTriNguoiDung from './components/auth/QuanTriNguoiDung.jsx'
 import Alert from './components/ui/Alert.jsx'
 import Button from './components/ui/Button.jsx'
 import StatusBadge from './components/ui/StatusBadge.jsx'
@@ -385,6 +386,10 @@ export default function App() {
 
         {oTrangChu && (
           <>
+            {/* Danh bạ tài khoản chỉ hiện với quản trị. Máy chủ cũng chặn (404 với người
+                thường), nhưng hiện một mục chắc chắn báo lỗi là thiết kế tồi. */}
+            {nguoiDung.la_quan_tri && <QuanTriNguoiDung toi={nguoiDung} />}
+
             <div className="tieu-de-man">
               <h1>Dịch truyện tranh</h1>
               <p>

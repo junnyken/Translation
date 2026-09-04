@@ -222,7 +222,12 @@ Kết quả canh chữ theo từng vùng, **sắp theo đúng thứ tự đọc*
 
 - `fit_status`: `fit_ok` · `overflow_warning` (không vừa dù đã xuống `TYPESET_MIN_FONT_SIZE` —
   **hệ thống không co chữ nhỏ hơn min**, để M7 sửa tay) · `pending` (vùng chưa có bản dịch nên
-  chưa có gì để canh; `font_size` = `null`).
+  chưa có gì để canh; `font_size` = `null`) · `font_missing_glyph` *(F1)* (font **không có glyph**
+  cho một ký tự trong bản dịch — thường là chữ Nhật còn sót; vùng bị **bỏ trống**, `font_size` và
+  `wrapped_text` = `null`).
+- `font_missing_glyph` **không** phải `pending`: `pending` là "không có chữ để chèn", còn đây là
+  "có chữ mà chèn không được". Gộp hai thứ thì một bong bóng **mất chữ** trông y hệt một bong
+  bóng vốn dĩ trống.
 - Cảnh báo tràn khung **phải đọc được ở đây** — không bị ảnh preview đẹp che mất.
 - `wrapped_text` là văn bản đã chèn ký tự xuống dòng; **nội dung bản dịch không bị sửa**.
 - `edited_by_user` dành cho M7, kết quả tự động của M6 luôn `false`.
@@ -337,10 +342,13 @@ không tồn tại, và **không bao giờ chạy đồng bộ trong request**.
 Xem trước **trước khi** xuất, để quyết định xuất luôn hay quay lại sửa tay.
 
 ```json
-{ "page_count": 4, "total_page_count": 5, "skipped_page_count": 1, "overflow_warning_count": 2 }
+{ "page_count": 4, "total_page_count": 5, "skipped_page_count": 1, "overflow_warning_count": 2,
+  "font_missing_count": 0 }
 ```
 - `skipped_page_count`: trang chưa canh chữ xong sẽ **bị bỏ qua**, không xuất ảnh chưa có chữ.
 - `overflow_warning_count`: vùng còn tràn khung. **Không chặn** xuất, nhưng phải hiện rõ ở đây.
+- `font_missing_count` *(F1)*: vùng bị **bỏ trống** vì font thiếu glyph. Nặng hơn tràn khung —
+  tràn khung là chữ lộ ra ngoài, còn đây là bong bóng không có chữ nào.
 
 ## 22. `POST /api/v1/projects/{project_id}/export` → 202 *(M8)*
 
@@ -521,7 +529,7 @@ Project không tồn tại → `404`.
 Những gì người dùng **phải nhìn thấy trước** khi mang file đi.
 
 ```json
-{ "overflow_warning_count": 1, "needs_manual_count": 2,
+{ "overflow_warning_count": 1, "needs_manual_count": 2, "font_missing_count": 0,
   "acknowledged": true, "acknowledged_at": "2026-08-28T16:30:23.592881Z",
   "glossary_approved_count": 0 }
 ```
@@ -531,6 +539,9 @@ Những gì người dùng **phải nhìn thấy trước** khi mang file đi.
   báo thật.
 - `overflow_warning_count`: chữ dịch **tràn ra ngoài** bong bóng.
 - `needs_manual_count`: vùng **chưa đọc được chữ gốc** ⇒ bong bóng đó sẽ **trống** trong file xuất.
+- `font_missing_count` *(F1)*: vùng **đã dịch xong** nhưng font không vẽ được một ký tự trong bản
+  dịch ⇒ bong bóng cũng **trống**. Tách khỏi `needs_manual_count` vì cách sửa khác hẳn: cái kia
+  phải đọc lại chữ gốc, cái này chỉ cần sửa lại chữ dịch rồi căn lại.
 - `acknowledged`: chapter này đã xác nhận trách nhiệm bản quyền lần nào chưa — để giao diện hiện
   nhắc **một lần**, không lải nhải mỗi lần xuất.
 - `glossary_approved_count` *(P3i)*: số thuật ngữ **đã duyệt** của chapter. **Bằng 0 là một cảnh
@@ -549,7 +560,8 @@ Project không tồn tại → `404`.
 { "user_acknowledged": true }
 ```
 → `200` bản ghi tuân thủ: `{id, project_id, export_job_id, intended_use,
-overflow_warning_count, needs_manual_count, user_acknowledged, acknowledged_at}`
+overflow_warning_count, needs_manual_count, font_missing_count, user_acknowledged,
+acknowledged_at}`
 
 - **Không chặn xuất.** Đây là công cụ cá nhân; chặn cứng chỉ khiến người ta đi đường vòng mà
   chẳng bảo vệ được ai. Cổng chặn nằm ở **giao diện** (nút xuất mờ tới khi tick); máy chủ **ghi
@@ -624,7 +636,7 @@ tick một ô là xong cả hai chuyện.
 | `ocr_status` | pending, ok, needs_manual |
 | `translation_engine` | google_fast, llm_context |
 | `translation_status` | pending, ok, fallback_used |
-| `fit_status` | pending, fit_ok, overflow_warning |
+| `fit_status` | pending, fit_ok, overflow_warning, font_missing_glyph *(F1)* |
 | `job_type` | detect, ocr, inpaint, translate, typeset, export |
 | `export_format` | png_single, cbz, zip |
 | `job_status` | queued, running, done, failed |
@@ -832,6 +844,26 @@ lý do. `error_log` của job hỏng là chỗ chứa lý do đọc được.
 
 Trang không tồn tại → `404`.
 
+## `GET /api/v1/projects/{project_id}/failed-jobs` → 200 *(F1)*
+
+Việc **hỏng mới nhất của mỗi trang** trong chapter — một lời gọi cho cả chapter.
+
+```json
+[{ "id": "…", "type": "typeset", "page_id": "…", "status": "failed", "retry_count": 0,
+   "error_log": "MissingGlyph: font thiếu glyph cho '．' — sẽ render ra ô vuông…",
+   "created_at": "…", "updated_at": "…" }]
+```
+
+Vì sao thêm khi đã có `/pages/{id}/jobs`: đường cũ hỏi **từng trang**, nên màn tiến độ chỉ dám
+hỏi khi người dùng bấm "Vì sao?". Đo được 04/09: bước căn chữ chết sau **0,034 giây**, màn hình
+vẫn quay *"đang cập nhật…"* và người dùng ngồi đợi **10 phút** một việc đã chết — vì không ai
+nghĩ tới chuyện phải bấm mới biết.
+
+Một trang chạy lại 5 lần rồi hỏng 5 lần chỉ trả **lần cuối**: thứ người dùng cần là lý do hiện
+tại, không phải cả tập lịch sử.
+
+Chapter không tồn tại (hoặc không thuộc tài khoản) → `404`.
+
 ## `POST /api/v1/projects/{project_id}/term-official-names` → 200 *(E17b)*
 
 Đối chiếu danh xưng **của chapter** với CSDL nhân vật AniList.
@@ -944,3 +976,52 @@ Nhận một chapter **chưa có chủ** về mình.
 
 - `409` nếu chapter đã có chủ (kể cả chính bạn).
 - `404` nếu chapter của người khác — không có đường nào cướp chapter đang có chủ.
+
+## B1a — nhả chapter & quản trị tài khoản (2026-09-04)
+
+### `POST /api/v1/projects/{project_id}/release` → 200
+
+Đường **ngược** của `claim`: chủ nhả chapter về *chưa có chủ*.
+
+Vì sao cần: có `claim` mà không có đường ngược lại là bẫy một chiều — nhận nhầm một chapter là
+nó khoá cứng vào tài khoản đó, và người khác **không có cách nào** lấy lại vì
+`_get_project_or_404` đã chặn từ trước. Gặp thật trong lượt kiểm chứng B1 trên bản chạy thật.
+
+- `409` nếu chapter vốn đã chưa có chủ.
+- `404` nếu không phải chapter của bạn — không nhả hộ chapter người khác được (nhả hộ rồi nhận
+  lại chính là cướp gián tiếp).
+
+Đây **không** phải chuyển chủ cho một người cụ thể: chuyển chủ cần biết tên người nhận, tức là
+cần một danh bạ người dùng mở cho mọi người — chuyện khác.
+
+### `GET /api/v1/auth/users` → 200 *(chỉ quản trị)*
+
+Danh bạ tài khoản. Không phải quản trị ⇒ **404**, không phải 403 — 403 xác nhận hệ thống có
+phần quản trị để mà nhắm vào.
+
+Trả `NguoiDungRead`, **không bao giờ** có `mat_khau_bam` kể cả cho quản trị.
+
+### `PATCH /api/v1/auth/users/{nguoi_id}` → 200 *(chỉ quản trị)*
+
+```json
+{"dang_hoat_dong": false}
+```
+
+Chỉ nhận đúng trường này (`extra="forbid"`): quản trị khoá được người khác nhưng **không sửa
+được email hay mật khẩu của họ** — tức không hoá trang thành họ.
+
+**Khoá thì cắt luôn mọi phiên đang mở** của tài khoản đó. Khoá mà để phiên cũ sống tiếp là khoá
+trên giấy: người đó vẫn thao tác bình thường tới khi phiên hết hạn, tối đa 14 ngày.
+
+- `409` nếu tự khoá chính mình — quản trị duy nhất tự khoá là không còn ai mở lại được.
+- `404` nếu không tìm thấy, hoặc người gọi không phải quản trị.
+
+### `DELETE /api/v1/auth/users/{nguoi_id}` → 204 *(chỉ quản trị)*
+
+Xoá hẳn tài khoản. **Chapter của họ KHÔNG bị xoá theo** — khoá ngoại là `ON DELETE SET NULL` nên
+chapter về *chưa có chủ* và người khác nhận được. Xoá kèm chapter là xoá việc của người khác chỉ
+vì gỡ một tài khoản.
+
+Muốn giữ nguyên chủ sở hữu thì dùng `PATCH` (khoá) chứ đừng xoá.
+
+`409` nếu tự xoá chính mình.

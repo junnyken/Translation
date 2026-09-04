@@ -262,6 +262,13 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 }
 .khung.dang-chon { border-color: var(--mau-chinh); background: rgba(79, 70, 229, .18); box-shadow: 0 0 0 2px rgba(79, 70, 229, .25); }
 .khung.tran { border-color: var(--loi); background: rgba(185, 28, 28, .12); }
+/* F1 — bong bóng RỖNG vì font thiếu glyph. Gạch chéo chứ không chỉ đổi màu: trên ảnh nó không
+   có chữ nào, nên nếu chỉ tô màu thì nhìn y hệt một vùng bình thường chưa được chọn. */
+.khung.thieu-font {
+  border-color: var(--loi); border-style: dashed;
+  background:
+    repeating-linear-gradient(45deg, rgba(185, 28, 28, .18) 0 6px, rgba(185, 28, 28, .05) 6px 12px);
+}
 .khung.can-xem { border-style: dashed; border-color: var(--canh); }
 .so-thu-tu {
   position: absolute; top: -10px; left: -10px; min-width: 20px; height: 20px; padding: 0 5px;
@@ -574,3 +581,14 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   cursor: pointer;
   text-decoration: underline;
 }
+
+/* Danh bạ tài khoản (chỉ quản trị) */
+.quan-tri { margin: 0 0 28px; }
+.quan-tri h2 { font-size: 16px; margin: 0 0 10px; }
+.bang-tai-khoan { width: 100%; border-collapse: collapse; font-size: 13px; }
+.bang-tai-khoan th, .bang-tai-khoan td {
+  text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--vien, #e5e7eb);
+}
+.bang-tai-khoan th { font-weight: 600; color: var(--mo); }
+/* Email dài không được làm vỡ bảng trên màn hẹp — cho cả bảng cuộn ngang trong khung riêng. */
+.quan-tri { overflow-x: auto; }

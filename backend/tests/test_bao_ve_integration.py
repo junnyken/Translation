@@ -133,16 +133,53 @@ class TestKhongSotDuongNao:
                 if getattr(r, "path", "").startswith("/api/v1")
                 and getattr(r, "methods", None)]
 
+    @staticmethod
+    def _ten_phu_thuoc(dep, sau=0):
+        """Tên MỌI phụ thuộc, kể cả lồng nhau.
+
+        Bản đầu chỉ nhìn phụ thuộc trực tiếp, và báo đỏ nhầm ba endpoint quản trị: chúng phụ
+        thuộc `quan_tri_hien_tai`, mà `quan_tri_hien_tai` mới phụ thuộc `nguoi_dung_hien_tai`.
+        Chúng được bảo vệ đúng (đo được: 401 khi chưa đăng nhập), chỉ là test soi nông quá.
+
+        Đi đệ quy còn CHẶT HƠN bản cũ: một endpoint bọc cổng đăng nhập vào lớp giữa nào đó vẫn
+        được tính là có cổng, thay vì phải viết ngoại lệ cho nó.
+        """
+        if sau > 8:
+            return set()
+        ten = set()
+        for d in dep.dependencies or []:
+            ten.add(getattr(d.call, "__name__", ""))
+            ten |= TestKhongSotDuongNao._ten_phu_thuoc(d, sau + 1)
+        return ten
+
     def test_moi_endpoint_v1_deu_doi_dang_nhap(self):
         """Slice B: cổng ở tầng router giờ là ĐĂNG NHẬP, không phải khoá chung."""
         thieu = []
         for r in self._duong_v1():
             if r.path in MIEN_TRU_DANG_NHAP:
                 continue
-            ten = [getattr(d.call, "__name__", "") for d in (r.dependant.dependencies or [])]
-            if "nguoi_dung_hien_tai" not in ten:
+            if "nguoi_dung_hien_tai" not in self._ten_phu_thuoc(r.dependant):
                 thieu.append(f"{sorted(r.methods)} {r.path}")
         assert not thieu, f"{len(thieu)} endpoint KHÔNG đòi đăng nhập: {thieu[:5]}"
+
+    async def test_endpoint_quan_tri_that_su_tra_401_khi_chua_dang_nhap(
+        self, client_chua_dang_nhap
+    ):
+        """Kiểm bằng lời gọi THẬT, không chỉ soi cây phụ thuộc.
+
+        Soi cấu trúc trả lời được "có gắn cổng không"; chỉ lời gọi thật mới trả lời được "cổng
+        có chặn không". Test trên đã một lần báo sai vì soi nông — nên phải có cả hai.
+        """
+        gia = "00000000-0000-0000-0000-000000000001"
+        for method, duong in (
+            ("GET", "/api/v1/auth/users"),
+            ("PATCH", f"/api/v1/auth/users/{gia}"),
+            ("DELETE", f"/api/v1/auth/users/{gia}"),
+        ):
+            r = await client_chua_dang_nhap.request(
+                method, duong, json={"dang_hoat_dong": False}
+            )
+            assert r.status_code == 401, f"{method} {duong} -> {r.status_code}"
 
     def test_dang_ky_van_duoc_khoa_chung_gac(self):
         """Nếu không, ai mở được địa chỉ cũng tự tạo tài khoản trên hạ tầng của mình."""

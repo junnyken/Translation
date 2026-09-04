@@ -369,3 +369,87 @@ async def test_chu_khong_bao_gio_ve_ra_ngoai_khung(full_pipeline, storage_root):
             d.rectangle([x - 3, y - 3, x + w + 3, y + h + 3], fill="white")
     assert list(sach.getdata()) == list(xem.getdata()), \
         "có pixel chữ nằm NGOÀI bbox — chữ đã tràn ra ngoài khung"
+
+
+class TestFontThieuGlyph:
+    """F1 — một vùng font không vẽ được KHÔNG được giết cả trang.
+
+    Sự cố thật 04/09: một dấu `．` ở một vùng làm hỏng nguyên trang 8 vùng. 7 vùng kia dịch
+    đúng, căn được, mà người dùng không nhận được gì cả.
+    """
+
+    @staticmethod
+    def _dat_ban_dich(page_id: str, theo_thu_tu: list[str]) -> None:
+        with sync_session() as s:
+            rows = list(s.execute(
+                sa.select(TranslationResult)
+                .join(TextRegion, TextRegion.id == TranslationResult.region_id)
+                .where(TextRegion.page_id == uuid.UUID(page_id))
+                .order_by(TextRegion.reading_order)
+            ).scalars())
+            for row, chu in zip(rows, theo_thu_tu):
+                row.translated_text = chu
+            s.commit()
+
+    async def test_mot_vung_hong_thi_cac_vung_khac_van_can_xong(self, full_pipeline):
+        page_id = await full_pipeline()
+        # Vùng 2 còn chữ Nhật thật — font truyện tranh không có glyph, không cách nào vẽ.
+        self._dat_ban_dich(page_id, ["Chào buổi sáng.", "坂本さん"])
+
+        kq = run_typeset_job(_job_id(page_id, JobType.typeset))
+
+        assert kq["status"] == "done", "một vùng hỏng không được làm hỏng cả job"
+        assert kq["font_missing_glyph"] == 1
+        assert kq["fit_ok"] + kq["overflow_warning"] == 1
+        assert "font thiếu glyph" in kq["font_missing_reason"]
+
+        trang_thai = [r.fit_status for r, _t in _typeset_rows(page_id)]
+        assert FitStatus.font_missing_glyph in trang_thai
+        assert _page(page_id).status is PageStatus.typeset_done
+
+    async def test_vung_hong_KHONG_bi_ghi_thanh_pending(self, full_pipeline):
+        """`pending` = "không có chữ để chèn". Vùng này CÓ chữ mà chèn không được — khác hẳn."""
+        page_id = await full_pipeline()
+        self._dat_ban_dich(page_id, ["Chào buổi sáng.", "坂本さん"])
+        run_typeset_job(_job_id(page_id, JobType.typeset))
+
+        hong = [r for r, _t in _typeset_rows(page_id)
+                if r.fit_status is FitStatus.font_missing_glyph]
+        assert len(hong) == 1
+        assert hong[0].fit_status is not FitStatus.pending
+        assert hong[0].wrapped_text is None, "không được ghi chữ mà thực tế không vẽ được"
+        assert hong[0].font_size is None
+
+    async def test_ca_trang_hong_thi_van_bao_hong_va_GIU_nguyen_trang_thai(self, full_pipeline):
+        """Công bố một trang trắng rồi gọi là "đã căn chữ" còn tệ hơn báo lỗi."""
+        page_id = await full_pipeline()
+        self._dat_ban_dich(page_id, ["坂本さん", "こんにちは"])
+
+        kq = run_typeset_job(_job_id(page_id, JobType.typeset))
+
+        assert kq["status"] == "failed"
+        assert "toàn bộ 2 vùng" in kq["error"]
+        assert _page(page_id).status is PageStatus.translated, "không được nhảy sang typeset_done"
+
+    async def test_dau_cau_toan_rong_KHONG_con_lam_hong_gi(self, full_pipeline):
+        """Chính là chuỗi đã gây sự cố: dấu chấm toàn rộng của tiếng Nhật."""
+        page_id = await full_pipeline()
+        self._dat_ban_dich(page_id, ["Cậu ổn chứ？", "Tớ về đây．"])
+
+        kq = run_typeset_job(_job_id(page_id, JobType.typeset))
+
+        assert kq["status"] == "done"
+        assert kq["font_missing_glyph"] == 0
+        chu = [r.wrapped_text for r, _t in _typeset_rows(page_id)]
+        assert all("．" not in (c or "") and "？" not in (c or "") for c in chu)
+        assert any("Tớ về đây." in (c or "") for c in chu)
+
+    async def test_vung_hong_vao_danh_sach_can_ra_soat(self, full_pipeline, client):
+        """Bong bóng trống mà không ai nhắc thì người dùng xuất file rồi mới biết mình mất chữ."""
+        page_id = await full_pipeline()
+        self._dat_ban_dich(page_id, ["Chào buổi sáng.", "坂本さん"])
+        run_typeset_job(_job_id(page_id, JobType.typeset))
+
+        body = (await client.get(f"/api/v1/pages/{page_id}/quality")).json()
+        ma = [m["ma"] for v in body["regions"] for m in v["ly_do"]]
+        assert "layout_font_missing_glyph" in ma

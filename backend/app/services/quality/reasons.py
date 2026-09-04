@@ -6,7 +6,8 @@ nữa. Thêm mã mới phải sửa đúng ở đây, và test sẽ bắt nếu 
 """
 from __future__ import annotations
 
-#: 18 mã đã chốt ở spec E12 v1. KHÔNG tự thêm mã ngoài danh sách này.
+#: 18 mã chốt ở spec E12 v1 + 1 mã của F1 (bong bóng rỗng vì font thiếu glyph).
+#: KHÔNG sinh mã ở nơi khác — thêm mã mới phải khai ở đúng bảng này.
 MA_LY_DO: dict[str, str] = {
     # --- tín hiệu từ bước nhận diện khung (M2) ---
     "detector_low_confidence": "Khung chữ có điểm nhận diện thấp.",
@@ -31,6 +32,8 @@ MA_LY_DO: dict[str, str] = {
     "large_region_suspect": "Khung rất lớn so với trang.",
     # --- tín hiệu từ bước căn chữ (M6) ---
     "layout_overflow_warning": "Chữ dịch chưa vừa khung.",
+    # F1 — nặng hơn tràn khung: bong bóng này đang RỖNG.
+    "layout_font_missing_glyph": "Chưa chèn được chữ: font không có ký tự trong bản dịch.",
     # --- không đánh giá được ---
     "assessment_input_missing": "Thiếu dữ liệu để đánh giá vùng này.",
 }

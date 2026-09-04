@@ -10,6 +10,7 @@ import userEvent from '@testing-library/user-event'
 import * as api from '../../api.js'
 import ManDangNhap from './ManDangNhap.jsx'
 import BangChuaCoChu from './BangChuaCoChu.jsx'
+import QuanTriNguoiDung from './QuanTriNguoiDung.jsx'
 
 beforeEach(() => { localStorage.clear(); vi.restoreAllMocks() })
 
@@ -184,11 +185,34 @@ describe('đăng xuất', () => {
 })
 
 describe('chapter chưa có chủ', () => {
-  it('có chủ rồi thì KHÔNG hiện bảng nhận — không làm người dùng hoang mang vô cớ', () => {
-    const { container } = render(
-      <BangChuaCoChu project={{ id: 'p1', chu_so_huu_id: 'u1' }} onNhanXong={() => {}} />
+  it('có chủ rồi thì KHÔNG mời nhận nữa, mà cho đường NHẢ', () => {
+    // Có `claim` mà không có đường ngược lại là bẫy một chiều: nhận nhầm một cái là chapter
+    // khoá cứng vào tài khoản đó. Đã gặp thật trong lượt kiểm chứng B1 trên bản chạy thật.
+    render(<BangChuaCoChu project={{ id: 'p1', chu_so_huu_id: 'u1' }} onNhanXong={() => {}} />)
+    expect(screen.queryByRole('button', { name: 'Nhận chapter này' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Nhả về chưa có chủ/ })).toBeInTheDocument()
+  })
+
+  it('nhả phải HỎI LẠI trước — nó làm chapter hiện ra với mọi người', async () => {
+    const hoi = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const goi = vi.spyOn(globalThis, 'fetch')
+    render(<BangChuaCoChu project={{ id: 'p1', chu_so_huu_id: 'u1' }} onNhanXong={() => {}} />)
+    await userEvent.click(screen.getByRole('button', { name: /Nhả về chưa có chủ/ }))
+    expect(hoi).toHaveBeenCalled()
+    expect(goi).not.toHaveBeenCalled()
+  })
+
+  it('đồng ý thì nhả thật, và báo lên cho App', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      () => dapUng({ id: 'p1', chu_so_huu_id: null })
     )
-    expect(container).toBeEmptyDOMElement()
+    const xong = vi.fn()
+    render(<BangChuaCoChu project={{ id: 'p1', chu_so_huu_id: 'u1' }} onNhanXong={xong} />)
+    await userEvent.click(screen.getByRole('button', { name: /Nhả về chưa có chủ/ }))
+    await waitFor(() => expect(xong).toHaveBeenCalledWith(
+      expect.objectContaining({ chu_so_huu_id: null })
+    ))
   })
 
   it('chưa có chủ thì NÓI RA là mọi người đều mở được, không chỉ mời nhận suông', async () => {
@@ -216,5 +240,39 @@ describe('chapter chưa có chủ', () => {
     render(<BangChuaCoChu project={{ id: 'p1', chu_so_huu_id: null }} onNhanXong={() => {}} />)
     await userEvent.click(screen.getByRole('button', { name: 'Nhận chapter này' }))
     expect(await screen.findByText('Chapter này đã có chủ rồi.')).toBeInTheDocument()
+  })
+})
+
+
+describe('quản trị tài khoản', () => {
+  const DS = [
+    { id: 'u1', email: 'toi@x.test', ten_hien: 'Tôi', la_quan_tri: true, dang_hoat_dong: true },
+    { id: 'u2', email: 'ban@x.test', ten_hien: 'Bạn', la_quan_tri: false, dang_hoat_dong: true },
+  ]
+
+  it('KHÔNG hiện nút khoá/xoá cho chính mình', async () => {
+    // Máy chủ cũng chặn, nhưng hiện một cái nút chắc chắn báo lỗi là thiết kế tồi.
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => dapUng(DS))
+    render(<QuanTriNguoiDung toi={{ id: 'u1' }} />)
+    const hang = (await screen.findByText('toi@x.test')).closest('tr')
+    expect(hang.querySelector('button')).toBeNull()
+    expect(hang).toHaveTextContent('(bạn)')
+  })
+
+  it('xoá phải HỎI LẠI, và nói rõ chapter KHÔNG bị xoá theo', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => dapUng(DS))
+    const hoi = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    render(<QuanTriNguoiDung toi={{ id: 'u1' }} />)
+    await screen.findByText('ban@x.test')
+    await userEvent.click(screen.getByRole('button', { name: 'Xoá' }))
+    expect(hoi.mock.calls[0][0]).toMatch(/KHÔNG bị xoá/)
+  })
+
+  it('nói rõ khoá khác xoá ở chỗ nào — hai việc dễ nhầm nhau', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => dapUng(DS))
+    render(<QuanTriNguoiDung toi={{ id: 'u1' }} />)
+    await screen.findByText('ban@x.test')
+    expect(screen.getByText(/giữ nguyên chapter của họ/)).toBeInTheDocument()
+    expect(screen.getByText(/chưa có chủ/)).toBeInTheDocument()
   })
 })

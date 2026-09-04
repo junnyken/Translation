@@ -20,6 +20,9 @@ export default function ExportWarningModal({ canhBao, nhatQuan, dinhDang, onHuy,
 
   const soTran = canhBao?.overflow_warning_count ?? 0
   const soCanDoc = canhBao?.needs_manual_count ?? 0
+  // F1 — vùng máy KHÔNG chèn được chữ vì font thiếu ký tự. Đây là mất chữ THẬT, nặng hơn tràn
+  // khung, nên nó đứng ĐẦU danh sách chứ không nằm lẫn phía dưới.
+  const soThieuFont = canhBao?.font_missing_count ?? 0
   // Số của E12 để RIÊNG: chất lượng là một chuyện, trách nhiệm bản quyền là chuyện khác —
   // trộn vào nhau sẽ khiến người dùng tưởng tick một ô là xong cả hai.
   const soRaSoat = canhBao?.quality_needs_review_count ?? 0
@@ -59,10 +62,18 @@ export default function ExportWarningModal({ canhBao, nhatQuan, dinhDang, onHuy,
         </p>
 
         <h3>Chất lượng bản đang xuất</h3>
-        {soTran === 0 && soCanDoc === 0 && soRaSoat === 0 && soChuaCham === 0 ? (
+        {soTran === 0 && soCanDoc === 0 && soRaSoat === 0 && soChuaCham === 0
+          && soThieuFont === 0 ? (
           <p className="ghi-chu on">Không có vùng nào cần xem lại.</p>
         ) : (
           <ul className="tom-tat-xuat">
+            {soThieuFont > 0 && (
+              <li className="canh-bao">
+                <b>{soThieuFont}</b> bong bóng sẽ <b>trống hoàn toàn</b> — font không có ký tự
+                nào đó trong bản dịch (thường là chữ Nhật còn sót lại), nên máy không chèn chữ
+                vào. Mở vùng đó, sửa lại chữ rồi bấm căn lại là xong.
+              </li>
+            )}
             {soTran > 0 && (
               <li className="canh-bao">
                 <b>{soTran}</b> vùng chữ <b>tràn ra ngoài khung</b> — chữ dịch dài hơn chỗ trống

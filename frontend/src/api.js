@@ -102,6 +102,26 @@ export async function dangXuat() {
 
 export const layDanhSachChapter = () => fetch(`${BASE}/projects`).then(doc)
 
+export const nhaChapter = (projectId) =>
+  fetch(`${BASE}/projects/${projectId}/release`, { method: 'POST' }).then(doc)
+
+export const layDanhSachNguoiDung = () => fetch(`${BASE}/auth/users`).then(doc)
+
+export const doiTrangThaiNguoiDung = (id, dangHoatDong) =>
+  fetch(`${BASE}/auth/users/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dang_hoat_dong: dangHoatDong }),
+  }).then(doc)
+
+export async function xoaNguoiDung(id) {
+  const res = await fetch(`${BASE}/auth/users/${id}`, { method: 'DELETE' })
+  // 204 không có thân — gọi `doc()` sẽ ném lỗi phân tích JSON và biến việc xoá thành công
+  // thành một thông báo lỗi.
+  if (!res.ok) return doc(res)
+  return null
+}
+
 export const nhanChapter = (projectId) =>
   fetch(`${BASE}/projects/${projectId}/claim`, { method: 'POST' }).then(doc)
 
@@ -443,6 +463,10 @@ export const chayLaiHuongChu = (pageId) =>
 export function layJobCuaTrang(pageId) {
   return fetch(`${BASE}/pages/${pageId}/jobs`).then(doc)
 }
+
+/** Việc hỏng mới nhất của MỌI trang trong chapter — một lời gọi, không hỏi từng trang (F1). */
+export const layViecHongCuaChapter = (projectId) =>
+  fetch(`${BASE}/projects/${projectId}/failed-jobs`).then(doc)
 
 /** Job hỏng gần nhất của một trang, hoặc `null` nếu không có.
  *

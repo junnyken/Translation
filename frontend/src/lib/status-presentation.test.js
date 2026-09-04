@@ -9,7 +9,7 @@ const ENUM_BACKEND = {
   viec: ['queued', 'running', 'done', 'failed'],
   me: ['queued', 'running', 'completed', 'partial_failed', 'blocked_quota', 'failed', 'cancelled'],
   muc_me: ['pending', 'running', 'completed', 'failed', 'blocked_quota', 'skipped'],
-  canh_chu: ['pending', 'fit_ok', 'overflow_warning'],
+  canh_chu: ['pending', 'fit_ok', 'overflow_warning', 'font_missing_glyph'],
   doc_chu: ['pending', 'ok', 'needs_manual'],
   dich: ['pending', 'ok', 'fallback_used'],
   vung: ['pending', 'low_confidence', 'confirmed'],

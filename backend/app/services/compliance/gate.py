@@ -39,6 +39,9 @@ class ExportWarnings:
 
     overflow_warning_count: int
     needs_manual_count: int
+    #: F1 — vùng bị BỎ TRỐNG vì font không có glyph cho chữ trong đó. Không gộp vào số tràn
+    #: khung: tràn khung là chữ lộ ra ngoài, còn đây là bong bóng rỗng — mất chữ thật.
+    font_missing_count: int
     #: Đã từng xác nhận cho chapter này chưa — để cảnh báo chỉ hiện **một lần**, không lải nhải.
     acknowledged: bool
     acknowledged_at: datetime | None
@@ -80,13 +83,19 @@ class ComplianceGate:
             )).scalars()
         )
 
-        so_tran = so_can_doc_lai = 0
+        so_tran = so_can_doc_lai = so_thieu_glyph = 0
         if trang:
             so_tran = (await session.execute(
                 select(func.count()).select_from(TypesetResult)
                 .join(TextRegion, TextRegion.id == TypesetResult.region_id)
                 .where(TextRegion.page_id.in_(trang),
                        TypesetResult.fit_status == FitStatus.overflow_warning)
+            )).scalar() or 0
+            so_thieu_glyph = (await session.execute(
+                select(func.count()).select_from(TypesetResult)
+                .join(TextRegion, TextRegion.id == TypesetResult.region_id)
+                .where(TextRegion.page_id.in_(trang),
+                       TypesetResult.fit_status == FitStatus.font_missing_glyph)
             )).scalar() or 0
             so_can_doc_lai = (await session.execute(
                 select(func.count()).select_from(OCRResult)
@@ -114,6 +123,7 @@ class ComplianceGate:
         return ExportWarnings(
             overflow_warning_count=int(so_tran),
             needs_manual_count=int(so_can_doc_lai),
+            font_missing_count=int(so_thieu_glyph),
             acknowledged=gan_nhat is not None,
             acknowledged_at=gan_nhat.acknowledged_at if gan_nhat else None,
             glossary_approved_count=int(so_thuat_ngu),
@@ -128,6 +138,7 @@ class ComplianceGate:
         overflow_warning_count: int,
         needs_manual_count: int,
         user_acknowledged: bool,
+        font_missing_count: int = 0,
     ) -> ExportComplianceLog:
         """Ghi lại **đúng những con số người dùng đã nhìn thấy** lúc bấm xác nhận.
 
@@ -139,6 +150,7 @@ class ComplianceGate:
             intended_use=intended_use,
             overflow_warning_count=overflow_warning_count,
             needs_manual_count=needs_manual_count,
+            font_missing_count=font_missing_count,
             user_acknowledged=user_acknowledged,
             # Chưa tick thì KHÔNG có mốc xác nhận — để trống chứ không điền giờ hiện tại cho đẹp.
             acknowledged_at=datetime.now(timezone.utc) if user_acknowledged else None,

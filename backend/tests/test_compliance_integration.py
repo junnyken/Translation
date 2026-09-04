@@ -221,8 +221,9 @@ async def test_nhat_ky_tuan_thu_khong_chua_noi_dung_export(client, chapter):
         assert cam not in cot, f"bảng tuân thủ có cột {cam} — đang lưu nội dung export"
     assert cot == {
         "id", "project_id", "export_job_id", "intended_use", "overflow_warning_count",
-        "needs_manual_count", "user_acknowledged", "acknowledged_at", "created_at", "updated_at",
-    }
+        "needs_manual_count", "font_missing_count", "user_acknowledged", "acknowledged_at",
+        "created_at", "updated_at",
+    }, "thêm/bớt cột ở bảng tuân thủ phải là quyết định có ý thức, không lọt qua im lặng"
 
 
 class TestCanhBaoThieuThuatNgu:

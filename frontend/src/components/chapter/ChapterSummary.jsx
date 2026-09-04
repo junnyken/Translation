@@ -9,7 +9,10 @@ import Button from '../ui/Button.jsx'
 export default function ChapterSummary({ tienDo, canhBao, trangDau, onXuat }) {
   const soTran = canhBao?.overflow_warning_count ?? 0
   const soCanDoc = canhBao?.needs_manual_count ?? 0
-  const co_canh_bao = soTran > 0 || soCanDoc > 0
+  // F1 — vùng máy KHÔNG chèn được chữ vì font thiếu ký tự. Đếm riêng: hai số trên là "chữ có
+  // mà chưa đẹp / chưa đọc được", còn số này là bong bóng chắc chắn trống.
+  const soThieuFont = canhBao?.font_missing_count ?? 0
+  const co_canh_bao = soTran > 0 || soCanDoc > 0 || soThieuFont > 0
 
   if (!tienDo.san_sang_ra_soat) {
     return (
@@ -32,6 +35,12 @@ export default function ChapterSummary({ tienDo, canhBao, trangDau, onXuat }) {
             {soCanDoc > 0 && (
               <li><b>{soCanDoc}</b> bong bóng sẽ <b>trống</b> vì chưa đọc được chữ gốc</li>
             )}
+            {soThieuFont > 0 && (
+              <li>
+                <b>{soThieuFont}</b> bong bóng sẽ <b>trống</b> vì font không có ký tự trong bản
+                dịch (thường là chữ Nhật còn sót) — sửa lại chữ ở vùng đó rồi căn lại
+              </li>
+            )}
           </ul>
           Xuất vẫn được, nhưng nên rà soát trước.
         </Alert>
@@ -47,7 +56,7 @@ export default function ChapterSummary({ tienDo, canhBao, trangDau, onXuat }) {
           </Button>
         )}
         <Button kieu="phu" onClick={onXuat}>
-          Xuất chapter{co_canh_bao ? ` (còn ${soTran + soCanDoc} vùng cần sửa)` : ''}
+          Xuất chapter{co_canh_bao ? ` (còn ${soTran + soCanDoc + soThieuFont} vùng cần sửa)` : ''}
         </Button>
       </div>
     </div>

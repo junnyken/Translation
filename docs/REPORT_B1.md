@@ -163,13 +163,105 @@ cướp lại được; chapter tạo mới luôn có chủ.
 
 ## Live Verification
 
-*(điền sau khi deploy)*
+Đo trên `translation-api.cmc-1.vibenode.matbao.ai` sau khi deploy, 2026-09-04.
+
+### Điều quan trọng nhất: khoá chung không còn mở được dữ liệu
+
+| Gửi gì | Kết quả |
+|---|---|
+| Chỉ `X-API-Key` (khoá chung, đúng) | **401** |
+| Không gửi gì | **401** |
+| `Authorization: Bearer <mã phiên>` | 200 |
+
+Trước slice B, dòng đầu là "làm được mọi thứ".
+
+### Cách ly giữa hai tài khoản, trên dữ liệu thật
+
+| Thao tác | A (chủ) | B (người lạ) |
+|---|---|---|
+| `GET /projects/{id}` | 200 | **404** |
+| `POST /projects/{id}/glossary` — **cùng một thân request** | **201** | **404** |
+| `POST /projects/{id}/consistency-scans` | 202 | **404** |
+
+Dòng giữa là bằng chứng chặt nhất: cùng thân request, khác nhau **chỉ ở người gửi**. Lượt thử
+đầu tiên của tôi gửi sai khuôn nên **cả A lẫn B đều 422** — đúng kiểu phép dò rỗng nghĩa mà bộ
+test được thiết kế để bắt; phải làm lại với thân đúng khuôn mới có kết luận.
+
+### Dữ liệu cũ không mất
+
+**25/25 chapter** có sẵn trên bản chạy thật hiện ra đầy đủ, gắn nhãn *chưa có chủ*.
+
+### Nhận chapter, và đăng xuất
+
+| Kiểm | Kết quả |
+|---|---|
+| B nhận một chapter vô chủ | 200 |
+| A mở lại chapter đó | **404** |
+| A "cướp lại" bằng `claim` | **404** |
+| Đăng xuất B | 204 |
+| Dùng lại mã phiên vừa đăng xuất | **401** — hiệu lực tức thì, không đợi hết hạn |
+
+### Trên trình duyệt thật (Chromium)
+
+| Bước | Kết quả |
+|---|---|
+| Mở trang chưa đăng nhập | Màn đăng nhập; **không lộ** ô tìm chapter |
+| Sai mật khẩu | Hiện *"Email hoặc mật khẩu không đúng."* |
+| Đúng mật khẩu | Vào ứng dụng, thanh tài khoản hiện tên |
+| **Tải lại trang** | Vẫn ở trong ứng dụng — không nháy màn đăng nhập |
+| Mở chapter vô chủ | Hiện nhãn *"Chapter này chưa có chủ"* + nút nhận |
+| Đăng xuất | Về màn đăng nhập |
+
+Không có lỗi console ngoài đúng một 401 — chính là lượt đăng nhập sai ở bước 2.
+
+## B1a — hai lỗ hổng vận hành lộ ra từ chính lượt kiểm chứng
+
+Kiểm chứng trên bản thật làm lộ hai chỗ B1 thiếu, và cả hai đều được phát hiện theo cách khó
+chịu nhất: **tôi tự mắc phải chúng.**
+
+### 1. `claim` là đường một chiều
+
+Tài khoản thử B nhận nhầm một chapter **thật** của người dùng. Không có đường nào trả lại: `claim`
+có mà `release` không, và `_get_project_or_404` đã chặn mọi người khác từ trước. Cách duy nhất là
+sửa tay trong CSDL — mà CSDL trên VibeHost không với tới được từ máy phát triển.
+
+⇒ Thêm `POST /projects/{id}/release`: chủ nhả chapter về *chưa có chủ*.
+
+### 2. Phát tài khoản ra được, không thu lại được
+
+`la_quan_tri` có trong bảng từ B1 nhưng **chưa endpoint nào dùng tới**. Muốn khoá hay gỡ một
+người phải sửa tay trong CSDL. "Cho người khác dùng" mà không thu hồi được thì mới xong một nửa.
+
+⇒ Thêm `GET/PATCH/DELETE /auth/users` cho quản trị. Hai điểm thiết kế đáng nói:
+
+- **Khoá thì cắt luôn phiên đang mở.** Khoá mà để phiên cũ sống tiếp là khoá trên giấy: người đó
+  vẫn thao tác bình thường tới khi phiên hết hạn — tối đa 14 ngày.
+- **Xoá tài khoản KHÔNG xoá chapter của họ** (`ON DELETE SET NULL`) — chapter về *chưa có chủ*.
+  Xoá kèm là xoá việc của người khác chỉ vì gỡ một tài khoản.
+
+### 3. Phép dò tự phá dữ liệu của chính nó
+
+Thêm `/release` xong, phép dò chéo **tụt từ 63 chứng minh được xuống 4**, kèm 18 "lỗ hổng". Không
+phải lỗ hổng thật: phép dò gọi `/release` dưới danh nghĩa A, nhả luôn chapter thành vô chủ, nên
+mọi lượt kiểm sau đó B truy cập được là **đúng**.
+
+Sửa bằng cách đặt lại chủ sở hữu sau **mỗi** lượt, nên phép dò miễn nhiễm với mọi endpoint đổi
+quyền sở hữu trong tương lai. Kết quả: **64/64 chứng minh được, 0 rỗng nghĩa, 0 lỗ hổng.**
+
+### 4. Test cấu trúc soi nông, báo đỏ nhầm
+
+`test_moi_endpoint_v1_deu_doi_dang_nhap` chỉ nhìn **phụ thuộc trực tiếp**, nên báo ba endpoint
+quản trị "không đòi đăng nhập" — trong khi lời gọi thật cho **401**, tức chúng được bảo vệ đúng
+(chúng phụ thuộc `quan_tri_hien_tai`, mà cái đó mới phụ thuộc `nguoi_dung_hien_tai`).
+
+Đã sửa thành đi **đệ quy** cả cây phụ thuộc, và thêm một test gọi **thật** bên cạnh: soi cấu trúc
+trả lời được "có gắn cổng không", chỉ lời gọi thật mới trả lời được "cổng có chặn không".
 
 ## Remaining Limits
 
-1. **Chưa có đổi mật khẩu, quên mật khẩu, hay quản lý người dùng.** Quản trị muốn khoá một tài
-   khoản phải sửa cột `dang_hoat_dong` bằng tay trong CSDL. `la_quan_tri` đã có trong bảng nhưng
-   **chưa endpoint nào dùng tới** — nó là chỗ để cắm vào, không phải tính năng đang chạy.
+1. **Chưa có đổi mật khẩu và quên mật khẩu.** Quản trị phát mật khẩu cho người mới, và người đó
+   **không đổi được**. Đây là hạn chế nặng nhất còn lại của slice B.
+   *(Quản lý người dùng thì đã có ở B1a — xem mục trên.)*
 2. **Chưa có chia sẻ chapter giữa các tài khoản.** Một chapter đúng một chủ. Muốn hai người cùng
    làm một chapter thì phải có bảng thành viên — chưa dựng.
 3. **`phien` chỉ được dọn khi có ai gọi `don_phien_het_han`, mà hiện chưa ai gọi.** Không sai về

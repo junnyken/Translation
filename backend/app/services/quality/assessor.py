@@ -200,6 +200,11 @@ class RegionQualityAssessor:
         if typeset is not None and typeset.fit_status is FitStatus.overflow_warning:
             ly_do.append("layout_overflow_warning")
             bang_chung["co_chu"] = typeset.font_size
+        # F1 — vùng bị bỏ trống vì font thiếu glyph. Phải vào danh sách cần rà soát: nhìn trên
+        # ảnh nó là một bong bóng trắng, không có dấu hiệu nào cho biết đã mất chữ.
+        if typeset is not None and typeset.fit_status is FitStatus.font_missing_glyph:
+            ly_do.append("layout_font_missing_glyph")
+            bang_chung["co_chu"] = None
 
         return self._chot(ly_do, bang_chung, tt_khung, tt_ocr, tt_dich, chu_goc)
 

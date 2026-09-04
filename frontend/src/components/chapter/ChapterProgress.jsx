@@ -15,17 +15,45 @@ const CHUA_XONG = (t) => !['typeset_done', 'ready_for_export', 'detection_failed
  */
 export default function ChapterProgress({ project, canhBao, onNapLai }) {
   const [dem, setDem] = useState(0)
+  // Việc HỎNG của từng trang, khoá theo page_id. Hỏi một lời gọi cho cả chapter mỗi nhịp — chứ
+  // không đợi người dùng bấm "Vì sao?" mới biết là có thứ đã chết (F1).
+  const [viecHong, setViecHong] = useState({})
   const hen = useRef(null)
   const trang = project?.pages ?? []
   const tien_do = tinhTienDoChapter(trang, {
     soTran: canhBao?.overflow_warning_count, soCanDocLai: canhBao?.needs_manual_count,
   })
-  const con_chay = trang.some((t) => CHUA_XONG(t.status))
+  // Một trang có việc hỏng thì KHÔNG còn "đang chạy" nữa, dù trạng thái trang chưa tới đích.
+  //
+  // Đây là chỗ đã làm mất 10 phút của người dùng thật 04/09: bước căn chữ chết sau 34 mili giây,
+  // trang đứng ở `translated`, mà `translated` không nằm trong danh sách "đã xong" nên màn hình
+  // cứ quay "đang cập nhật…" mãi. Quay vòng vô hạn quanh một cái xác là nói dối bằng hoạt hình.
+  const con_chay = trang.some((t) => CHUA_XONG(t.status) && !viecHong[t.id])
 
   const nhip = useCallback(async () => {
     await onNapLai()
+    if (project?.id) {
+      try {
+        const js = await api.layViecHongCuaChapter(project.id)
+        setViecHong(Object.fromEntries(js.map((j) => [j.page_id, j])))
+      } catch {
+        // Không hỏi được danh sách việc hỏng thì im lặng bỏ qua vòng này: đây là lớp giải
+        // thích thêm, làm hỏng luôn màn tiến độ vì nó là đánh đổi sai.
+      }
+    }
     setDem((n) => n + 1)
-  }, [onNapLai])
+  }, [onNapLai, project?.id])
+
+  // Hỏi NGAY lần đầu, không đợi hết 4 giây: trang mở ra mà việc đã hỏng từ trước thì phải thấy
+  // ngay, không phải chờ một nhịp.
+  useEffect(() => {
+    if (!project?.id) return undefined
+    let huy = false
+    api.layViecHongCuaChapter(project.id)
+      .then((js) => { if (!huy) setViecHong(Object.fromEntries(js.map((j) => [j.page_id, j]))) })
+      .catch(() => {})
+    return () => { huy = true }
+  }, [project?.id])
 
   useEffect(() => {
     if (!con_chay) return undefined
@@ -57,14 +85,18 @@ export default function ChapterProgress({ project, canhBao, onNapLai }) {
             {t.status === 'detection_failed' && (
               <span className="ghi-chu">Mở trang để chạy lại bước nhận diện.</span>
             )}
-            <LyDoDung pageId={t.id} trangThai={t.status} />
+            {viecHong[t.id]
+              ? <LoiCuaTrang job={viecHong[t.id]} />
+              : <LyDoDung pageId={t.id} trangThai={t.status} />}
           </li>
         ))}
       </ul>
 
       {!con_chay && (
         <p className="ghi-chu">
-          Không còn việc nào đang chạy.{' '}
+          {Object.keys(viecHong).length > 0
+            ? 'Không còn việc nào đang chạy — có bước đã hỏng, xem lý do ở từng trang bên trên.'
+            : 'Không còn việc nào đang chạy.'}{' '}
           <Button kieu="ghost" onClick={nhip}>Kiểm tra lại</Button>
         </p>
       )}
@@ -86,6 +118,21 @@ const TEN_BUOC = {
  * trạng thái, không một chữ nào về lý do. Người vận hành chỉ còn cách đoán, hoặc mở log máy chủ —
  * thứ mà họ không có quyền và cũng không nên cần.
  */
+/** Lỗi ĐÃ BIẾT của một trang — hiện thẳng, không bắt bấm mới cho xem.
+ *
+ * `LyDoDung` bên dưới vẫn giữ nguyên cho trường hợp trang đứng im mà KHÔNG có job hỏng nào
+ * (worker chết giữa chừng, việc còn treo ở `running`): lúc đó không có gì để hiện sẵn, phải
+ * hỏi máy chủ mới biết.
+ */
+function LoiCuaTrang({ job }) {
+  return (
+    <span className="canh-bao">
+      Bước <b>{TEN_BUOC[job.type] ?? job.type}</b> hỏng: {job.error_log || 'không ghi lý do'}
+    </span>
+  )
+}
+
+
 function LyDoDung({ pageId, trangThai }) {
   const [mo, setMo] = useState(false)
   const [job, setJob] = useState(undefined)   // undefined = chưa hỏi · null = hỏi rồi, không có

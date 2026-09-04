@@ -441,6 +441,10 @@ class ExportComplianceLog(TimestampMixin, Base):
     #: thấy đúng những con số này.
     overflow_warning_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     needs_manual_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    #: Số vùng bị BỎ TRỐNG vì font không có glyph. Ghi cùng chỗ với hai con số trên vì nó cũng
+    #: là thứ người dùng nhìn thấy trước khi bấm xuất — và là cảnh báo nặng nhất trong ba:
+    #: tràn khung thì chữ vẫn còn, còn đây là bong bóng rỗng.
+    font_missing_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     #: Đã tick "Đã đọc và chấp nhận trách nhiệm bản quyền" hay chưa. Ghi cả `false` cũng có ý
     #: nghĩa: có người mở cảnh báo ra rồi bỏ đi.
     user_acknowledged: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

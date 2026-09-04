@@ -1070,3 +1070,69 @@ mỗi request, mà đằng nào mỗi request cũng đã mở một phiên CSDL 
 chống dò thứ *người nghĩ ra* (ít entropy). Mã phiên là 256 bit ngẫu nhiên từ máy: không có gì để
 đoán, nên scrypt ở đó chỉ tốn 83ms mỗi request mà không mua thêm chút an toàn nào. Nhưng vẫn
 **phải băm** trước khi lưu — kẻ đọc trộm được CSDL sẽ mạo danh được ngay mà không cần mật khẩu.
+
+## F1. Font thiếu glyph — vì sao một dấu chấm giết được cả trang (2026-09-04)
+
+### F1.1 Chuyện đã xảy ra
+
+Chapter thật trên bản chạy: 8 vùng, detect 49,5s → OCR 39,4s → xoá chữ 13,1s → dịch 9,6s, tất cả
+đạt. Bước căn chữ **thất bại sau 0,034 giây**:
+
+```
+MissingGlyph: font thiếu glyph cho '．' — sẽ render ra ô vuông
+```
+
+`．` là U+FF0E, dấu chấm **toàn rộng** của tiếng Nhật, khác `.` (U+002E). Engine dịch
+(`google_fast`) đổi chữ sang tiếng Việt nhưng **bê nguyên dấu câu kiểu Nhật** sang. Đo lại cả 7
+font trong whitelist: không font nào có glyph cho `．，！？：；（）「」『』。、・〜～－‥`, và font nào
+cũng có đủ `. , ! ? : ; ( ) " ' - ~ · — … “ ”`.
+
+Ba khuyết tật độc lập cùng lộ ra trong một sự cố, và cả ba đều đã sửa.
+
+### F1.2 Gấp dấu câu — ranh giới "xếp chữ" và "dịch hộ"
+
+`normalize_for_layout()` gấp dấu câu toàn rộng/CJK về dạng nửa rộng **trước khi đo và vẽ**. Bản
+dịch trong `TranslationResult` không bị đụng tới; thứ đi qua đây là chuỗi đem vẽ (`wrapped_text`).
+
+Đây không phải sửa nội dung: `．` và `.` là cặp tương đương tương thích của Unicode, chỉ khác bề
+rộng ô chữ — thứ chỉ có nghĩa khi xếp chữ **dọc** kiểu Nhật.
+
+Bảng viết **tường minh** thay vì gọi thẳng NFKC: NFKC còn đổi `㎏`→`kg`, `①`→`1`, chữ ghép… rộng
+hơn hẳn thứ cần và khó test cho hết.
+
+Ranh giới cứng: `ー` (U+30FC, dấu kéo dài âm của kana) **không** nằm trong bảng. Nó là một phần
+của *từ* tiếng Nhật chứ không phải dấu câu; đổi nó thành `—` là dịch hộ người dùng. Kana/kanji
+còn sót cũng vậy — vùng đó phải kêu lên, và F1.3 lo phần kêu.
+
+### F1.3 Một vùng hỏng không được giết cả trang
+
+Trước F1, vòng lặp căn chữ gọi `fit()` cho từng vùng và **không ai bắt** `MissingGlyph`. Một ký
+tự sai kiểu ở vùng thứ 8 xoá sạch công của 7 vùng kia: job hỏng, trang giữ `translated`, người
+dùng không nhận được gì.
+
+Từ F1, vùng không vẽ được nhận `fit_status = font_missing_glyph` và **các vùng khác vẫn đi tiếp**.
+
+Vì sao là trạng thái RIÊNG chứ không dùng lại `pending`: `pending` nghĩa là "không có chữ để
+chèn". Vùng này **có chữ**, dịch xong hẳn hoi, nhưng chèn không được. Gộp hai thứ lại thì một
+bong bóng **mất chữ** trông y hệt một bong bóng vốn dĩ trống — và người dùng mang file đi mà
+không biết mình mất gì. Trạng thái riêng thì đếm được, hiện được, và chặn được ở cổng xuất.
+
+Trường hợp **mọi** vùng đều hỏng thì job vẫn báo hỏng như cũ: công bố một trang trắng rồi gọi nó
+là "đã căn chữ" còn tệ hơn báo lỗi.
+
+Đường sửa tay một vùng (`re-fit`) **cố ý giữ nguyên hành vi cũ** — ném lỗi. Người dùng đang yêu
+cầu đúng vùng đó; nuốt lỗi rồi trả về "xong" là nói dối thẳng vào mặt người hỏi.
+
+### F1.4 Lỗi phải tự hiện ra
+
+Cơ chế báo lý do có từ P3j, nhưng nằm sau nút "Vì sao?" — phải bấm mới biết. Trang đứng ở
+`translated`, mà `translated` không thuộc nhóm "đã xong", nên màn tiến độ quay *"đang cập nhật…"*
+vô hạn. Người dùng đợi **10 phút** một việc đã chết sau 34 mili giây.
+
+Sửa: thêm `GET /projects/{id}/failed-jobs` (một lời gọi cho cả chapter, chỉ trả job hỏng **mới
+nhất của mỗi trang**), màn tiến độ hỏi ngay lúc mở và mỗi nhịp, hiện thẳng "bước nào hỏng + lý
+do". Trang đã có việc hỏng thì **thôi tính là đang chạy** — vòng quay quanh một cái xác là nói
+dối bằng hoạt hình.
+
+Nút "Vì sao?" vẫn còn cho trường hợp trang đứng im mà **không** có job hỏng nào (worker chết
+giữa chừng, việc treo ở `running`): lúc đó không có gì để hiện sẵn, phải hỏi mới biết.

@@ -25,6 +25,7 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 | E1 | **Tiện ích Chrome** mở nhanh Translation từ trình duyệt: nút tạo chapter, xem trạng thái chapter đã ghim, nhảy thẳng vào màn rà soát/xuất — **không** đọc trang web bạn đang xem, **không** xin quyền website nào | **LIVE** (nạp thật vào Chromium 151, 41/41 mục đo — xem REPORT_E1) |
 | M10 | Khai báo mục đích sử dụng (bắt buộc, không mặc định) + nhắc trách nhiệm bản quyền & chất lượng trước khi xuất | **LIVE** (chạy thật đầu-cuối; giao diện chưa bấm tay — xem TEST_LOG §M10) |
 | E11 | Làm lại giao diện: bố cục, bộ màu, vùng kéo-thả, dòng thời gian pipeline, diễn giải trạng thái trung thực, dùng được bằng bàn phím và trên điện thoại | **LIVE** (kiểm thật trên Chromium ở 4 kích thước — xem TEST_LOG §E11) |
+| F1 | Dấu câu kiểu Nhật trong bản dịch không còn làm hỏng cả trang; vùng font không vẽ được thì đánh dấu riêng thay vì giết cả trang; việc hỏng tự hiện lý do | **BUILT** (test tự động xanh; chưa chạy lại chapter thật trên bản chạy) |
 | E12 | Chỉ ra vùng nào cần rà soát trước khi xuất, kèm lý do đọc được — không tự xoá vùng nào | **LIVE** (Run A–D 15/15 trên trang thật + Chromium 10/10 — xem TEST_LOG §E12) |
 
 ## Những gì dùng được ngay hôm nay (sau E12)
@@ -401,6 +402,24 @@ phải đọc tài liệu.
 
 Nó **không chặn** bạn xuất file — chỉ nói cho bạn biết trước khi mang đi.
 
+## Một dấu chấm kiểu Nhật không còn giết cả trang (F1)
+
+Đo trên bản chạy thật 04/09, chapter "test 2": 8 vùng, dịch xong hết, rồi bước căn chữ **chết sau
+0,034 giây** vì bản dịch còn dấu `．` (dấu chấm toàn rộng của tiếng Nhật, U+FF0E) mà không font
+truyện tranh nào có glyph. Màn hình vẫn quay *"đang cập nhật…"*, người dùng đợi **10 phút** một
+việc đã chết. Ba chỗ đã sửa:
+
+- **Gấp dấu câu kiểu Nhật về dạng thường trước khi đo và vẽ** (`．`→`.`, `。`→`.`, `、`→`,`,
+  `！？：；（）「」〜　`…). Bản dịch trong CSDL **giữ nguyên**; chỉ chuỗi đem đi vẽ được gấp. Chữ Nhật
+  thật (kana/kanji) **không** bị đụng tới — đổi nó thành ký tự Latin gần giống là dịch hộ.
+- **Một vùng font không vẽ được KHÔNG còn giết cả trang.** Vùng đó nhận trạng thái riêng
+  `font_missing_glyph`, các vùng còn lại vẫn căn xong. Vùng hỏng được **đếm riêng**, hiện gạch
+  chéo đỏ trên ảnh, vào danh sách cần rà soát, và **cảnh báo ở cổng xuất file** — vì bong bóng đó
+  đang trống. Cả trang không vùng nào vẽ được thì vẫn báo hỏng như cũ, không công bố trang trắng.
+- **Việc hỏng tự hiện ra** ở màn tiến độ (bước nào hỏng + lý do), không còn nằm sau nút "Vì sao?"
+  phải bấm mới biết. Trang có việc hỏng thì **thôi quay** — quay vòng quanh một cái xác là nói
+  dối bằng hoạt hình.
+
 ## Cho người khác cùng dùng, mà không ai đụng vào chapter của ai (B1)
 
 Trước đây hệ thống chỉ có **một khoá chung**. Đưa khoá cho người khác nghĩa là đưa luôn quyền
@@ -426,9 +445,29 @@ Chapter tạo trước bản này **không thuộc về ai cả** — lúc đó 
 Chúng không bị giấu đi và cũng không bị gán bừa cho ai: mọi người đăng nhập đều thấy, kèm nhãn
 *chưa có chủ*, và bấm **nhận** là về mình. Nhận rồi thì người khác không mở được nữa.
 
+### Nhận nhầm chapter thì nhả ra được
+
+Chapter của bạn có nút **Nhả về chưa có chủ**. Nhả xong thì mọi người đăng nhập lại thấy nó và
+nhận được — dùng khi bạn nhận nhầm, hoặc muốn giao lại việc cho người khác.
+
+Không có nút này thì nhận nhầm một cái là chapter khoá cứng vào tài khoản đó vĩnh viễn. (Đúng
+chuyện đã xảy ra lúc chạy thử bản này.)
+
+### Quản trị: khoá hoặc gỡ tài khoản
+
+Tài khoản quản trị thấy thêm bảng **Tài khoản** ở trang chủ.
+
+- **Khoá** — người đó không vào được nữa, **kể cả đang mở sẵn trên máy họ**. Chapter của họ giữ
+  nguyên chủ. Đây là cách đúng để cho ai đó nghỉ.
+- **Xoá** — gỡ hẳn tài khoản. **Chapter của họ không bị xoá theo**, chúng trở về *chưa có chủ* và
+  người khác nhận được.
+
+Không tự khoá hay tự xoá chính mình được — quản trị duy nhất tự khoá là không còn ai mở lại được.
+
 ### Những gì bản này CHƯA có
 
-- **Đổi mật khẩu và quên mật khẩu.** Quên là phải nhờ người quản trị sửa thẳng trong CSDL.
-- **Chia sẻ một chapter cho hai người cùng làm.** Mỗi chapter đúng một chủ.
-- **Khoá tài khoản từ giao diện.** Phải sửa tay trong CSDL.
+- **Đổi mật khẩu và quên mật khẩu.** Quản trị phát mật khẩu cho người mới, và người đó không đổi
+  được. Đây là thiếu sót nặng nhất còn lại.
+- **Chia sẻ một chapter cho hai người cùng làm.** Mỗi chapter đúng một chủ. Muốn giao việc thì
+  nhả ra cho người kia nhận.
 - **Chặn dò mật khẩu.** Mỗi lần thử tốn 83ms nên dò rất chậm, nhưng chưa có khoá tạm sau N lần sai.

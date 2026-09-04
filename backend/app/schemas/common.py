@@ -97,6 +97,15 @@ class DangNhapResponse(BaseModel):
     nguoi_dung: NguoiDungRead
 
 
+class DoiTrangThaiRequest(BaseModel):
+    """Khoá / mở khoá tài khoản. Chỉ đúng một trường — quản trị KHÔNG sửa được email, tên hiển
+    thị hay mật khẩu của người khác qua đây."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    dang_hoat_dong: bool
+
+
 class NhanChapterResponse(BaseModel):
     so_chapter_da_nhan: int
 
@@ -315,6 +324,9 @@ class ExportPreview(BaseModel):
     skipped_page_count: int
     #: Số vùng còn tràn khung. Không chặn xuất, nhưng phải hiện rõ.
     overflow_warning_count: int
+    #: F1 — số vùng BỎ TRỐNG vì font không có glyph cho chữ trong đó. Nặng hơn tràn khung:
+    #: tràn khung là chữ lộ ra ngoài bong bóng, còn đây là bong bóng không có chữ nào.
+    font_missing_count: int = 0
 
 
 class ExportJobRead(ORMModel):
@@ -437,6 +449,9 @@ class ExportWarningsRead(BaseModel):
 
     overflow_warning_count: int
     needs_manual_count: int
+    #: F1 — vùng bị bỏ trống vì font thiếu glyph. RIÊNG một số, không cộng vào tràn khung:
+    #: người dùng cần biết mình sắp xuất ra bong bóng rỗng chứ không phải chữ hơi lệch.
+    font_missing_count: int = 0
     acknowledged: bool
     acknowledged_at: datetime | None
     #: E14 — bố cục: vùng đang căn theo khung chữ nhật dự phòng vì không xác định được hình
@@ -480,6 +495,7 @@ class AcknowledgeRead(BaseModel):
     intended_use: IntendedUse
     overflow_warning_count: int
     needs_manual_count: int
+    font_missing_count: int = 0
     user_acknowledged: bool
     acknowledged_at: datetime | None
 

@@ -14,6 +14,10 @@ from app.services.typeset.layout import TextLayoutEngine
 FIT_OK = "fit_ok"
 OVERFLOW_WARNING = "overflow_warning"
 PENDING = "pending"
+#: `fit()` KHÔNG bao giờ tự trả trạng thái này — nó vẫn ném `MissingGlyph`, vì canh chữ cho một
+#: vùng mà nuốt lỗi font là đúng thứ sinh ra ô vuông. Trạng thái này do **người gọi** ghi xuống
+#: khi quyết định cho cả trang đi tiếp mà bỏ lại vùng hỏng (xem `_run_typeset`).
+FONT_MISSING_GLYPH = "font_missing_glyph"
 
 
 @dataclass(frozen=True)

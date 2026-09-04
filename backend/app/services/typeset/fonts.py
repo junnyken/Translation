@@ -31,14 +31,49 @@ from app.services.typeset.registry import FONT_REGISTRY, FontSpec
 _SENTINEL = ""
 
 
+#: Dấu câu toàn rộng (fullwidth) / CJK → dạng nửa rộng tương đương.
+#:
+#: Vì sao cần: engine dịch trả chữ tiếng Việt nhưng **giữ nguyên dấu câu kiểu Nhật**. Đo thật
+#: 04/09 trên bản chạy: một dấu `．` (U+FF0E, không phải `.`) trong bản dịch làm hỏng nguyên
+#: trang — không font truyện tranh nào trong whitelist có glyph cho nó (đo cả 7 font: thiếu
+#: sạch `．，！？：；（）「」『』。、・〜～－‥`, và có đủ mọi ký tự đích ở bảng dưới).
+#:
+#: Đây KHÔNG phải sửa nội dung: `．` và `.` là cặp tương đương tương thích của Unicode (NFKC),
+#: chỉ khác bề rộng ô chữ — thứ chỉ có nghĩa khi xếp chữ dọc kiểu Nhật, không có nghĩa trong
+#: một câu tiếng Việt. Bảng viết TƯỜNG MINH thay vì gọi thẳng NFKC vì NFKC còn đổi nhiều thứ
+#: khác (㎏→kg, ①→1, chữ ghép…) — rộng hơn hẳn thứ ta muốn và khó test cho hết.
+#:
+#: `ー` (U+30FC, dấu kéo dài âm của kana) CỐ Ý không nằm đây: nó là một phần của TỪ tiếng Nhật
+#: chứ không phải dấu câu, đổi nó thành `—` là dịch hộ. Vùng còn sót chữ Nhật thật thì để
+#: `MissingGlyph` báo ra và người dùng sửa tay — xem `assert_can_render`.
+_DAU_CAU_TOAN_RONG: dict[int, str] = {
+    **{ma: chr(ma - 0xFEE0) for ma in range(0xFF01, 0xFF5F)},  # ！ → ! … ～ → ~
+    0x3000: " ",   # khoảng trắng toàn rộng
+    0x3002: ".",   # 。
+    0x3001: ",",   # 、
+    0x30FB: "·",   # ・
+    0x300C: '"',   # 「
+    0x300D: '"',   # 」
+    0x300E: '"',   # 『
+    0x300F: '"',   # 』
+    0x301C: "~",   # 〜 (sóng, NFKC không đụng tới)
+    0x2025: "..",  # ‥ hai chấm — KHÔNG gộp thành `…` ba chấm
+}
+
+
 def normalize_for_layout(text: str) -> str:
-    """Đưa về NFC **chỉ để đo/vẽ** — không bao giờ ghi ngược lại `TranslationResult`.
+    """Đưa về NFC + gấp dấu câu toàn rộng, **chỉ để đo/vẽ**.
+
+    Không bao giờ ghi ngược lại `TranslationResult`: bản dịch trong CSDL giữ nguyên chữ engine
+    trả về, thứ đi qua đây chỉ là chuỗi đem đo và đem vẽ (`wrapped_text`).
 
     Đo thật trong worker (Pillow không có raqm): chuỗi NFD render sai hẳn — `ĐỪNG` ra `ĐUNG`,
     `LẠI` ra `LAỊ` — mà `getlength()` vẫn trả **đúng con số của NFC**, nên sai không lộ ra qua
     phép đo. NFC và NFD là cùng một văn bản theo chuẩn Unicode nên đây không phải sửa nội dung.
+
+    Phần gấp dấu câu: xem `_DAU_CAU_TOAN_RONG`.
     """
-    return unicodedata.normalize("NFC", text or "")
+    return unicodedata.normalize("NFC", text or "").translate(_DAU_CAU_TOAN_RONG)
 
 
 class FontResolver:

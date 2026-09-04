@@ -195,6 +195,11 @@ MIEN_TRU = {
     "/api/v1/auth/me": "trả về chính người gọi",
     "/api/v1/auth/register": "tự gác bằng khoá chung",
     "/api/v1/auth/co-tai-khoan-chua": "chỉ trả true/false",
+    # Quản trị người dùng KHÔNG gắn với chapter nào nên dò chéo chủ sở hữu ở đây vô nghĩa.
+    # Nhưng chúng có cổng riêng (chỉ quản trị) và được kiểm ở `test_quan_tri_nguoi_dung.py` —
+    # miễn trừ ở đây KHÔNG có nghĩa là không kiểm.
+    "/api/v1/auth/users": "danh bạ tài khoản, không thuộc chapter nào; kiểm ở test_quan_tri_nguoi_dung",
+    "/api/v1/auth/users/{nguoi_id}": "khoá/xoá tài khoản; kiểm ở test_quan_tri_nguoi_dung",
 }
 
 
@@ -295,6 +300,18 @@ async def test_khong_endpoint_nao_lo_du_lieu_sang_tai_khoan_khac(
             than = _than_request(method, mau, ids)
             tra_a = await client.request(method, duong, json=than)
             tra_b = await client_b.request(method, duong, json=than)
+        # Đặt lại chủ sở hữu sau MỖI lượt. Không có dòng này, chỉ cần một endpoint đổi
+        # quyền sở hữu (`/release` nhả chapter, `/claim` nhận chapter) là mọi lượt kiểm phía
+        # sau mất hết ý nghĩa — và tệ hơn, chúng sẽ hiện ra như một loạt "lỗ hổng" giả.
+        #
+        # Đo được thật: thêm `/release` xong, phép dò tụt từ 63 chứng minh được xuống 4, kèm
+        # 18 "lỗ hổng" mà thực ra là B truy cập một chapter đã bị chính phép dò nhả ra.
+        await session.execute(
+            text("UPDATE project SET chu_so_huu_id = :u WHERE id = :p"),
+            {"u": uuid.UUID(nguoi_a[0]), "p": uuid.UUID(ids["project_id"])},
+        )
+        await session.commit()
+
         nhan = f"{method} {mau} (A {tra_a.status_code} / B {tra_b.status_code})"
         if 200 <= tra_b.status_code < 300:
             lo_hong.append(f"{method} {mau} → B nhận {tra_b.status_code}")
