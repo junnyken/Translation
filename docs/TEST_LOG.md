@@ -3335,3 +3335,72 @@ là "chỗ trống" ⇒ viền bong bóng nằm trong ô bị xoá khỏi mặt 
 Đã thử một bản sửa (chỉ xoá vệt mực **nằm trọn** trong ô, giữ vệt kéo dài ra ngoài — để phân biệt
 nét chữ mình vừa xoá với viền bong bóng). **Đo A/B trên 6 ca: không đổi kết quả ở ca nào.** Đã bỏ
 đi thay vì giữ một lượt quét connected-components mỗi vùng để đổi lấy con số 0.
+
+# ========== A2 — cắt khung chữ về trong lòng bong bóng (2026-09-05) ==========
+
+```
+backend : 1107 passed, 6 skipped, 0 failed  (+16)
+frontend: 308 passed (nền 306)   (+2)
+```
+
+## Test quan trọng nhất: ghi lại hành vi CŨ bằng số
+
+```python
+def test_TAT_thi_khung_van_de_len_net_ve(self):
+    """Ghi lại hành vi CŨ bằng số, để bản sửa có mốc so sánh thật."""
+    _, _, muc = chay(False, self.BBOX)
+    assert muc > 0, "ca dựng không tái hiện được lỗi — test dưới sẽ rỗng nghĩa"
+```
+
+Không có test này thì `test_BAT_thi_khung_khong_con_de_len_net_ve` xanh kể cả khi ca dựng chưa
+bao giờ tái hiện được lỗi — đúng kiểu xanh giả đã gặp ở phép dò quyền B1.
+
+Thước đo dùng xuyên suốt là **số điểm mực nằm trong khung** — trả lời trực tiếp câu hỏi "khung có
+lọt trong bong bóng không", chứ không phải một tỉ lệ gián tiếp nào.
+
+| Ca | Điểm mực trong khung |
+|---|---|
+| A2 tắt (hành vi cũ) | **400** |
+| A2 bật | **0** |
+
+## Bốn test chống tác dụng phụ
+
+| Test | Khẳng định |
+|---|---|
+| `test_CHI_THU_NHO_khong_bao_gio_no_them` | A2 là phép **giao**, không thể làm khung to ra |
+| `test_khung_von_da_nam_gon_thi_KHONG_bi_dong_toi` | vùng đang đúng phải y nguyên — bật A2 là sửa ca hỏng, không phải xáo trộn cả trang |
+| `test_chu_tren_NEN_VE_thi_A2_dung_ngoai` | không có bong bóng ⇒ tô loang rò ⇒ trần diện tích loại ⇒ giữ nguyên hành vi A1 |
+| `test_mac_dinh_la_TAT` | đổi hình học mà bật mặc định trước khi đo trên trang thật là đúng thứ kế hoạch cấm |
+
+## Tại sao không sửa trong `grow.py`
+
+Đã thử ở phiên trước (chỉ xoá vệt mực nằm trọn trong ô, giữ vệt kéo dài ra ngoài). **Đo A/B trên
+6 ca: không đổi kết quả ca nào**, đã bỏ. Lý do: khung đã chồm ra ngoài thì phần chồm nằm ở vùng
+trắng thật, phép nới đi tiếp là **đúng luật** — sai nằm ở điểm xuất phát, không nằm ở phép nới.
+
+## Còn nợ
+
+Cả ba ảnh đo được đều là ảnh **dựng**. Chưa có trang manga in thật có lưới chấm (screentone),
+thứ có thể làm mặt nạ mực vỡ vụn và tô loang rò lung tung. A2 ở trạng thái **tắt** cho tới khi
+đo được ba con số ở `PLAN_A2` §7 trên trang thật.
+
+# ========== Bảng xuất đóng băng con số (2026-09-05) ==========
+
+Người dùng: trang hiện badge *"Đã căn chữ, cần rà soát"* (0 vùng tràn) mà bảng xuất vẫn ghi
+*"0 / 2 trang sẽ được xuất"* và nút bị khoá.
+
+**API không sai.** Đo song song trạng thái trang và `export-preview` trên bản chạy:
+
+```
+trạng thái=[detecting,queued]        bảng xuất=0/2 bỏ qua 2
+trạng thái=[ocr_done,ocr_done]       bảng xuất=0/2 bỏ qua 2
+trạng thái=[typeset_done,typeset_done] bảng xuất=2/2 bỏ qua 0   ← đúng
+```
+
+Lỗi ở giao diện: `ChapterProgress` nạp lại chapter mỗi 4 giây nên badge đổi đúng, nhưng `nap()`
+của `ExportPanel` chỉ phụ thuộc `projectId` — mà `projectId` không đổi, nên `useEffect` **không
+chạy lại lần nào**. Con số đứng im tới khi tải lại cả trang.
+
+Test được tự kiểm bằng cách bỏ bản sửa ra: đỏ đúng chỗ
+(`'0 / 2 trang sẽ được xuất' không khớp 2/2`). Kèm một test ngược chiều: trạng thái **không** đổi
+thì không được gọi lại API, để nhịp 4 giây của `ChapterProgress` không biến thành 2 request/4 giây.
