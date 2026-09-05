@@ -25,6 +25,19 @@ class SafeAreaConfig:
     #: kết quả y hệt M6. Dùng lề ăn-vào của E14 ở đây sẽ làm cỡ chữ đổi ở cả những vùng E14
     #: không hề nhận diện được gì: một thay đổi không ai xin và không ai giải thích được.
     fallback_padding_ratio: float
+    #: A2 — cắt khung về trong lòng bong bóng. Xem `long_bong_bong.py`.
+    #:
+    #: **Mặc định TẮT.** Đây là thay đổi hình học, tức đổi thứ người dùng nhìn thấy, và cả ba
+    #: ảnh đã đo được đều là ảnh DỰNG — chưa có trang manga in thật có lưới chấm (screentone),
+    #: thứ có thể làm mặt nạ mực vỡ vụn. Bật khi đã đo trên trang thật, theo ba con số ở
+    #: `docs/PLAN_A2_CAT_KHUNG_VE_TRONG_BONG_BONG.md` §7.
+    cat_ve_bong_bong_enabled: bool = False
+    #: Vùng tô loang lớn hơn ngần này so với ROI ⇒ coi là đã rò ra nền vẽ. Đo trên
+    #: `test_fixtures/`: trong bong bóng 4-6% trang, rò ra 75-82% — chọn ngưỡng ở giữa.
+    cat_tran_ti_le_roi: float = 0.60
+    #: Và lớn hơn ngần này lần diện tích bbox chữ ⇒ nhiều khả năng đã rò sang panel bên cạnh.
+    cat_tran_boi_bbox: float = 40.0
+
     #: A1 — nới khung dự phòng ra chỗ trống. Xem `grow.py`.
     grow_enabled: bool = True
     grow_max_ratio: float = 1.5
@@ -58,6 +71,9 @@ class SafeAreaConfig:
             grow_max_px=settings.e14_grow_max_px,
             grow_step_px=settings.e14_grow_step_px,
             grow_min_gain_ratio=settings.e14_grow_min_gain_ratio,
+            cat_ve_bong_bong_enabled=settings.a2_cat_ve_bong_bong_enabled,
+            cat_tran_ti_le_roi=settings.a2_cat_tran_ti_le_roi,
+            cat_tran_boi_bbox=settings.a2_cat_tran_boi_bbox,
         )
 
     def snapshot(self) -> dict:

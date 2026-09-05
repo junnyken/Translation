@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import logging
 
+from dataclasses import replace
+
 from app.models.enums import SafeAreaGeometryType, SafeAreaSource, SafeAreaStatus
 from app.services.interfaces import BBox
 from app.services.safearea.config import SafeAreaConfig
@@ -67,6 +69,73 @@ def khung_du_phong(bbox: BBox, cfg: SafeAreaConfig, ly_do: list[str]) -> SafeAre
     )
 
 
+def _dem_muc(mat_na_trong, o) -> int:
+    """Số điểm MỰC nằm trong khung — thước đo trực tiếp của 'khung có lọt trong bong bóng không'.
+
+    Con số này là tiêu chí nghiệm thu số 2 của A2 (`docs/PLAN_A2_*.md` §7), nên nó phải xuất
+    hiện trong log chứ không chỉ trong đầu người viết.
+    """
+    import numpy as np
+
+    x0, y0, x1, y1 = o
+    h, w = mat_na_trong.shape[:2]
+    x0, y0 = max(int(x0), 0), max(int(y0), 0)
+    x1, y1 = min(int(x1), w), min(int(y1), h)
+    if x1 <= x0 or y1 <= y0:
+        return 0
+    return int((~np.asarray(mat_na_trong[y0:y1, x0:x1], dtype=bool)).sum())
+
+
+def _cat_ve_bong_bong(kq, bbox, cfg, ly_do_goc, mat_na_trong, goc_roi):
+    """Giao khung đã nới với lòng bong bóng. Trả `(khung, [lý do thêm])`.
+
+    Không tìm được bong bóng đủ tin ⇒ trả nguyên khung cũ. Đây là bước **chỉ có thể thu nhỏ**.
+    """
+    if not cfg.cat_ve_bong_bong_enabled or mat_na_trong is None:
+        return kq, []
+
+    from app.services.safearea.long_bong_bong import du_tin_lam_bong_bong, long_bong_bong
+
+    rx, ry = goc_roi
+    tam = (int(bbox.x + bbox.w / 2) - rx, int(bbox.y + bbox.h / 2) - ry)
+    loang, ly_do = long_bong_bong(mat_na_trong, tam)
+    if loang is None:
+        logger.info("A2 vùng tại (%.0f,%.0f): không tô loang được — %s", bbox.x, bbox.y, ly_do)
+        return kq, ly_do
+
+    h_m, w_m = mat_na_trong.shape[:2]
+    loai = du_tin_lam_bong_bong(
+        loang, dien_tich_roi=w_m * h_m, bbox_wh=(bbox.w, bbox.h),
+        tran_ti_le_roi=cfg.cat_tran_ti_le_roi, tran_boi_bbox=cfg.cat_tran_boi_bbox,
+    )
+    if loai:
+        logger.info(
+            "A2 vùng tại (%.0f,%.0f): tô loang %d điểm (%.0f%% ROI) — LOẠI vì %s",
+            bbox.x, bbox.y, loang.so_diem, 100 * loang.so_diem / max(w_m * h_m, 1), loai,
+        )
+        return kq, loai
+
+    bx, by, bw, bh = loang.rect
+    nx0, ny0 = max(kq.x, bx), max(kq.y, by)
+    nx1, ny1 = min(kq.x + kq.w, bx + bw), min(kq.y + kq.h, by + bh)
+    if nx1 - nx0 < 1 or ny1 - ny0 < 1:
+        # Giao rỗng: khung nới và lòng bong bóng không chồng nhau chút nào. Cắt thành số âm là
+        # vô nghĩa, nên giữ khung cũ và nói ra.
+        logger.info("A2 vùng tại (%.0f,%.0f): giao RỖNG với lòng bong bóng, giữ khung cũ",
+                    bbox.x, bbox.y)
+        return kq, [ReasonCode.SHAPE_INVALID_GEOMETRY]
+
+    truoc = _dem_muc(mat_na_trong, (kq.x, kq.y, kq.x + kq.w, kq.y + kq.h))
+    sau = _dem_muc(mat_na_trong, (nx0, ny0, nx1, ny1))
+    logger.info(
+        "A2 vùng tại (%.0f,%.0f): lòng bb %dx%d tại (%d,%d)%s · khung %dx%d -> %dx%d "
+        "· điểm mực trong khung %d -> %d",
+        bbox.x, bbox.y, bw, bh, bx, by, " (đã dời tâm)" if loang.da_doi_tam else "",
+        kq.w, kq.h, nx1 - nx0, ny1 - ny0, truoc, sau,
+    )
+    return replace(kq, x=nx0, y=ny0, w=nx1 - nx0, h=ny1 - ny0), []
+
+
 def khung_du_phong_co_noi(
     bbox: BBox,
     cfg: SafeAreaConfig,
@@ -107,6 +176,18 @@ def khung_du_phong_co_noi(
     )
     if kq is None or kq.he_so_dien_tich < 1.0 + cfg.grow_min_gain_ratio:
         return goc
+
+    # A2 — cắt khung vừa nới về trong LÒNG BONG BÓNG.
+    #
+    # A1 chỉ nới ra, không bao giờ thu vào, và nó coi cả ô ban đầu là chỗ trống. Nên khung nào
+    # xuất phát đã chồm qua viền bong bóng thì không gì kéo nó về: đo được trên mặt nạ dựng,
+    # khung bao trùm bong bóng 120×120 nở ra kín cả ảnh 200×200.
+    #
+    # Bước này KHÔNG nới thêm, chỉ giao với lòng bong bóng — nên nó không thể làm khung to ra,
+    # chỉ có thể kéo khung về đúng chỗ.
+    kq, ly_do_cat = _cat_ve_bong_bong(kq, bbox, cfg, ly_do, mat_na_trong, (rx, ry))
+    if ly_do_cat:
+        ly_do = [*ly_do, *[m for m in ly_do_cat if m not in ly_do]]
 
     # Chừa lề bên trong khung vừa nới: nới dừng ở NÉT MỰC, nên mép khung đang chạm sát viền
     # bong bóng. Không thụt vào thì chữ dính viền.

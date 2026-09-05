@@ -232,6 +232,13 @@ class Settings(BaseSettings):
     e14_grow_step_px: int = 2
     e14_grow_min_gain_ratio: float = 0.15
 
+    # ---- A2: cắt khung chữ về trong lòng bong bóng ----
+    #: MẶC ĐỊNH TẮT. Đổi hình học là đổi thứ người dùng nhìn thấy, và số đo hiện có chỉ đến từ
+    #: ảnh DỰNG — chưa có trang manga in thật có lưới chấm. Bật sau khi đo trên trang thật.
+    a2_cat_ve_bong_bong_enabled: bool = False
+    a2_cat_tran_ti_le_roi: float = 0.60
+    a2_cat_tran_boi_bbox: float = 40.0
+
     # ---- E15: hướng chữ ----
     e15_orientation_enabled: bool = True
     #: Lệch bao nhiêu độ so với 0/90 thì vẫn coi là ngang/dọc.
