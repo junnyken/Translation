@@ -60,14 +60,16 @@ export default function ExportPanel({ projectId, tenProject, nhatQuan, onRaSoat 
   }
 
   if (!xemTruoc) {
-    return <section className="bang-xuat">{loi ? <div className="bang-loi">Lỗi: {loi}</div> : <p className="ghi-chu">Đang xem trước…</p>}</section>
+    // `id` PHẢI có ở CẢ hai nhánh return: nút "Xuất chapter" ở bảng tóm tắt cuộn tới đúng id
+    // này. Thiếu ở nhánh đang tải thì bấm lúc chưa nạp xong sẽ không đi đâu cả.
+    return <section id="bang-xuat" className="bang-xuat">{loi ? <div className="bang-loi">Lỗi: {loi}</div> : <p className="ghi-chu">Đang xem trước…</p>}</section>
   }
 
   const khongCoGiDeXuat = xemTruoc.page_count === 0
   const chon = DINH_DANG.find((d) => d.ma === dinhDang)
 
   return (
-    <section className="bang-xuat">
+    <section id="bang-xuat" className="bang-xuat">
       <h2>Xuất chapter{tenProject ? ` — ${tenProject}` : ''}</h2>
 
       <ul className="tom-tat-xuat">
