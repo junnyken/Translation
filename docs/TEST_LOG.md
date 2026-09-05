@@ -3260,3 +3260,16 @@ trang không hề tràn.
 | `test_model_hong_thi_job_failed_va_ban_dich_KHONG_doi` | Thà không đổi gì còn hơn để lại trang nửa cũ nửa mới |
 | `test_model_viet_DAI_HON_thi_khong_nhan` | Model viết dài thêm thì rút gọn không còn nghĩa gì |
 | `test_KHONG_loai_chi_vi_lech_suc_chua_vai_ky_tu` | Sức chứa là ƯỚC LƯỢNG; loại ở đó là vứt đi một bản dịch ngắn hơn hẳn chỉ vì lệch con số ước lượng |
+
+
+# ========== B1b — phong quản trị (2026-09-05) ==========
+
+```
+backend : 1091 passed, 6 skipped, 0 failed  (5 phút 50)
+frontend: 304 passed
+```
+
+Lỗi đáng kể test bắt được: `test_phong_quan_tri_KHONG_dong_thoi_khoa_nguoi_ta`. Bản đầu gán
+thẳng `muc_tieu.dang_hoat_dong = payload.dang_hoat_dong`, mà trường không gửi mặc định là `None`
+— nên **chỉ phong quản trị thôi cũng khoá luôn tài khoản đó**. Giao diện có test cùng họ
+(`phong quản trị chỉ gửi ĐÚNG trường đó`): gửi kèm trường khác sẽ ghi đè giá trị hiện tại của nó.

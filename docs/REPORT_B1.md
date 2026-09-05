@@ -257,6 +257,47 @@ quản trị "không đòi đăng nhập" — trong khi lời gọi thật cho *
 Đã sửa thành đi **đệ quy** cả cây phụ thuộc, và thêm một test gọi **thật** bên cạnh: soi cấu trúc
 trả lời được "có gắn cổng không", chỉ lời gọi thật mới trả lời được "cổng có chặn không".
 
+## B1b — quản trị phong được quản trị (2026-09-05)
+
+### Vì sao phải thêm
+
+Đo trên bản chạy thật: **tài khoản THỬ của tôi chiếm mất suất "người đầu tiên"** nên nó thành
+quản trị, còn tài khoản thật của chủ hệ thống (`thientrieu753@gmail.com`) thì không. B1a không
+có đường nào sửa việc đó ngoài can thiệp thẳng vào CSDL — mà CSDL trên VibeHost không với tới
+được từ máy phát triển.
+
+Rộng hơn tình huống cụ thể này: **mất tài khoản quản trị duy nhất là không ai quản lý được người
+dùng nữa, vĩnh viễn.**
+
+`PATCH /auth/users/{id}` nay nhận thêm `la_quan_tri`. Vẫn cố ý **không** nhận
+`email`/`ten_hien`/`mat_khau`: quản trị được phép chặn người khác, không được phép **hoá trang
+thành họ**.
+
+### Một lỗi test bắt được
+
+Bản đầu gán thẳng `muc_tieu.dang_hoat_dong = payload.dang_hoat_dong`. Trường không gửi mặc định
+là `None`, nên **chỉ phong quản trị thôi cũng khoá luôn tài khoản đó**. Giao diện mắc đúng lỗi
+cùng họ nếu gửi cả hai trường — nên nó chỉ gửi đúng trường đang đổi, và có test riêng cho việc đó.
+
+### Live Verification — dọn dẹp bằng chính tính năng vừa dựng
+
+| Bước | Kết quả |
+|---|---|
+| Phong quản trị cho tài khoản thật | 200 |
+| Xoá 2 tài khoản thử | 204 × 2 |
+| **Chapter nhìn thấy được: 28 → 31** | **không mất cái nào** — 3 chapter của tài khoản bị xoá trở về *chưa có chủ* |
+| Tài khoản thử tự xoá chính nó | **409** — chốt an toàn hoạt động |
+
+Dòng thứ ba là bằng chứng sống cho lựa chọn `ON DELETE SET NULL`, đo trên **dữ liệu thật**: xoá
+tài khoản làm số chapter nhìn thấy **tăng** chứ không giảm. Nếu khoá ngoại để `CASCADE` thì ba
+chapter đó đã bị xoá vĩnh viễn cùng một tài khoản dùng thử.
+
+### Còn lại cho chủ hệ thống
+
+`kiem-thu-a@test.local` vẫn còn: nó **không tự xoá được chính nó** (đúng thiết kế). Chủ hệ thống
+xoá nó từ bảng **Tài khoản** — thao tác này cũng chính là lượt kiểm chứng cuối của B1a/B1b bằng
+tay người dùng thật.
+
 ## Remaining Limits
 
 1. **Chưa có đổi mật khẩu và quên mật khẩu.** Quản trị phát mật khẩu cho người mới, và người đó
