@@ -3273,3 +3273,65 @@ Lỗi đáng kể test bắt được: `test_phong_quan_tri_KHONG_dong_thoi_khoa
 thẳng `muc_tieu.dang_hoat_dong = payload.dang_hoat_dong`, mà trường không gửi mặc định là `None`
 — nên **chỉ phong quản trị thôi cũng khoá luôn tài khoản đó**. Giao diện có test cùng họ
 (`phong quản trị chỉ gửi ĐÚNG trường đó`): gửi kèm trường khác sẽ ghi đè giá trị hiện tại của nó.
+
+# ========== Nút "Xuất chapter" chết im lặng (2026-09-05) ==========
+
+```
+frontend: 306 passed (nền 304)   (+2)
+```
+
+Người dùng báo *"nhấn xuất chapter không được"*. Dựng lại bằng **trình duyệt thật**: bấm nút,
+không lỗi, không cảnh báo, **không một lời gọi API nào**.
+
+```js
+onXuat={() => document.getElementById('bang-xuat')?.scrollIntoView(...)}
+```
+
+`ExportPanel` khai `className="bang-xuat"` — **class, không phải id**. Grep cả `src/` lẫn
+`index.html`: id đó không tồn tại ở đâu. `getElementById` trả `null`, `?.` nuốt gọn.
+
+Có **hai** nút cùng nhãn "Xuất chapter": cái `nut-phu` ở bảng tóm tắt (chết) và cái `chinh`
+trong bảng xuất (chạy tốt). Luồng xuất qua API đo lại vẫn nguyên vẹn — nên lỗi này **chỉ**
+nằm ở một nút, và người dùng bấm đúng cái chết.
+
+## Vì sao 304 test không bắt được
+
+`scrollIntoView` **không tồn tại trong jsdom**. Test nào mock nó cũng xanh, bất kể id đúng hay
+sai. Nên phải kiểm ở **tầng mã nguồn**: quét mọi `getElementById(...)` và đòi id đó có thật.
+
+## Test mới suýt xanh giả — hai lượt tự kiểm
+
+Bỏ bản sửa ra để xem test có đỏ không:
+
+| Lượt | Kết quả | Nguyên nhân |
+|---|---|---|
+| 1 | chỉ **1/2** test đỏ | phép quét gồm **cả file test**, mà file test chứa sẵn chuỗi `id="bang-xuat"` trong biểu thức kiểm ⇒ **tự thoả mãn chính mình** |
+| 2 | **2/2** đỏ | loại file test khỏi phạm vi quét |
+
+Bài học lặp lại: một test "quét mã nguồn" phải loại chính nó ra khỏi phạm vi quét, nếu không nó
+sẽ báo xanh cho lỗi mà nó sinh ra để bắt.
+
+## Live Verification (trình duyệt thật)
+
+| Bước | Kết quả |
+|---|---|
+| Bấm nút ở bảng tóm tắt | `scrollY 0 → 2340`, bảng xuất **hiện trên màn** |
+| Bấm nút xuất trong bảng | hộp xác nhận hiện |
+| Tick + Đồng ý | `POST /export-jobs/…`, job chạy, **hiện nút tải file** |
+
+## Điều tra lỗi 2 (khung lệch bong bóng) — KHÔNG sửa được, không ship mã chết
+
+Vùng người dùng chỉ ra là vùng **duy nhất có hệ số nới = 1,0** trên trang đó. Dựng lại bằng mặt nạ:
+
+| Khung gốc | Kết quả |
+|---|---|
+| nằm gọn trong bong bóng | nở đẹp, vẫn trong bong bóng ✓ |
+| đã chồm qua viền | **vẫn tràn ra ngoài** |
+| bao trùm cả bong bóng | **nở ra kín cả ảnh** (30×30 → 0,0 200×200) |
+
+Cơ chế: `no_khung_ra_cho_trong` **chỉ nới ra, không bao giờ thu vào**, và cố ý đánh dấu ô ban đầu
+là "chỗ trống" ⇒ viền bong bóng nằm trong ô bị xoá khỏi mặt nạ, không còn gì chặn.
+
+Đã thử một bản sửa (chỉ xoá vệt mực **nằm trọn** trong ô, giữ vệt kéo dài ra ngoài — để phân biệt
+nét chữ mình vừa xoá với viền bong bóng). **Đo A/B trên 6 ca: không đổi kết quả ở ca nào.** Đã bỏ
+đi thay vì giữ một lượt quét connected-components mỗi vùng để đổi lấy con số 0.
