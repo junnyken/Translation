@@ -98,12 +98,22 @@ class DangNhapResponse(BaseModel):
 
 
 class DoiTrangThaiRequest(BaseModel):
-    """Khoá / mở khoá tài khoản. Chỉ đúng một trường — quản trị KHÔNG sửa được email, tên hiển
-    thị hay mật khẩu của người khác qua đây."""
+    """Khoá/mở khoá và phong/thu quyền quản trị.
+
+    Cố ý KHÔNG có `email`, `ten_hien`, `mat_khau`: quản trị được phép chặn người khác, nhưng
+    không được phép **hoá trang thành họ**. Đổi email hay mật khẩu của người khác là làm đúng
+    việc đó.
+
+    Cả hai trường đều tuỳ chọn — gửi cái nào thì đổi cái đó.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    dang_hoat_dong: bool
+    dang_hoat_dong: bool | None = None
+    #: Phong/thu quyền quản trị. Cần có, nếu không thì quản trị đầu tiên là quản trị **duy nhất
+    #: mãi mãi**: mất tài khoản đó là không ai quản lý được người dùng nữa, và không có đường
+    #: nào sửa ngoài can thiệp thẳng vào CSDL.
+    la_quan_tri: bool | None = None
 
 
 class NhanChapterResponse(BaseModel):
@@ -213,7 +223,8 @@ class TypesetResultRead(ORMModel):
     font_size: float | None
     wrapped_text: str | None
     padding_ratio: float | None
-    #: `fit_ok` · `overflow_warning` (không vừa dù đã xuống cỡ nhỏ nhất) · `pending` (chưa có chữ).
+    #: `fit_ok` · `overflow_warning` (không vừa dù đã xuống cỡ nhỏ nhất) · `pending` (chưa có chữ)
+    #: · `font_missing_glyph` (F1 — CÓ chữ nhưng font không vẽ được, bong bóng bị bỏ trống).
     fit_status: FitStatus
     edited_by_user: bool
 

@@ -3158,6 +3158,64 @@ Chạy **hai lượt pytest cùng lúc trên một CSDL** làm cả hai treo ở
 khoá của lượt kia. Lần này chạy lượt riêng bằng `TEST_DATABASE_URL=…/translation_test_f1` — 102
 test unit chạy xong trong vài giây sau khi tách DB, trong khi lượt dùng chung đứng im 4 phút.
 
+# ========== B1a — nhả chapter, quản trị tài khoản (2026-09-04) ==========
+
+```
+backend : 998 test  (+16)
+frontend: 298 passed (nền 283)   (+15)
+```
+
+## Ba lỗi trong chính bộ test, do endpoint mới lôi ra
+
+### 1. Phép dò chéo TỰ PHÁ dữ liệu của nó
+
+Thêm `/release` xong, phép dò tụt từ **63 chứng minh được xuống 4**, kèm **18 "lỗ hổng"**.
+
+Không phải lỗ hổng thật: phép dò gọi `/release` dưới danh nghĩa A, nhả luôn chapter thành vô
+chủ, nên mọi lượt kiểm sau đó B truy cập được là **đúng**. Nếu tin ngay con số đó thì đã đi sửa
+một lỗ hổng không tồn tại; nếu ngược lại, một người vội có thể nới điều kiện test cho xanh và
+chôn luôn phép dò.
+
+Sửa: đặt lại chủ sở hữu sau **mỗi** lượt ⇒ miễn nhiễm với mọi endpoint đổi quyền sở hữu về sau.
+Kết quả **64/64 chứng minh được, 0 rỗng nghĩa, 0 lỗ hổng**.
+
+### 2. Test cấu trúc soi nông, báo đỏ nhầm
+
+`test_moi_endpoint_v1_deu_doi_dang_nhap` chỉ nhìn **phụ thuộc trực tiếp** nên báo ba endpoint
+quản trị "không đòi đăng nhập". Lời gọi thật cho **401** — chúng được bảo vệ đúng, chỉ là bọc
+qua `quan_tri_hien_tai`.
+
+Sửa thành đi **đệ quy** cả cây (chặt hơn bản cũ: cổng nằm ở lớp giữa cũng được tính, không phải
+viết ngoại lệ), **và** thêm một test gọi thật bên cạnh:
+
+> Soi cấu trúc trả lời được *"có gắn cổng không"*. Chỉ lời gọi thật trả lời được *"cổng có chặn
+> không"*. Test này đã một lần báo sai vì soi nông — nên phải có cả hai.
+
+### 3. Một engine SQLAlchemy mỗi test
+
+Fixture tài khoản tạo `sa.create_engine` mỗi lần chạy — nhân với ~1000 test là chạm trần
+`max_connections` của Postgres, làm đỏ những test chẳng liên quan (`test_storage_unit[postgres]`,
+`test_region_edit_integration`). Dùng chung một engine ở cấp module.
+
+## Quy tắc vận hành đã ghi lại
+
+Trong lúc gỡ mục 3, có lúc **5 tiến trình pytest chạy chồng nhau** trên cùng một Postgres. Bộ
+test đứng ở 98% vô hạn — chờ khoá `TRUNCATE` mà lượt kia đang giữ. Triệu chứng giống hệt lỗi mã.
+
+> **Chỉ chạy đúng một lượt pytest tại một thời điểm.** Trước khi chạy:
+> `pgrep -f "python -m pytest"` phải rỗng.
+
+## Test đáng kể của B1a
+
+| Test | Khẳng định |
+|---|---|
+| `test_xoa_tai_khoan_thi_chapter_cua_ho_VE_VO_CHU_chu_khong_bi_xoa` | `ON DELETE SET NULL` — xoá kèm chapter là xoá việc của người khác chỉ vì gỡ một tài khoản |
+| `test_khoa_tai_khoan_thi_PHIEN_DANG_MO_mat_hieu_luc_NGAY` | khoá mà để phiên cũ sống tiếp là khoá trên giấy (tối đa 14 ngày) |
+| `test_khong_nha_ho_chapter_cua_nguoi_khac` | nhả hộ rồi nhận lại chính là cướp gián tiếp |
+| `test_phong_quan_tri_KHONG_dong_thoi_khoa_nguoi_ta` | bắt đúng lỗi gán thẳng `= payload.dang_hoat_dong`: chỉ phong quản trị cũng **khoá luôn** tài khoản đó, vì trường không gửi mặc định là `None` |
+| `test_khong_tu_thu_quyen_quan_tri_cua_minh` + `test_khong_tu_khoa_chinh_minh` | quản trị duy nhất tự hạ mình là không còn ai sửa lại được |
+| `phong quản trị chỉ gửi ĐÚNG trường đó` (FE) | gửi kèm trường khác sẽ ghi đè giá trị hiện tại — phong quản trị mà khoá luôn người ta |
+
 # ========== A1 + E18 — chữ Việt vừa bong bóng manga (2026-09-04/05) ==========
 
 ```

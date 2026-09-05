@@ -484,7 +484,12 @@ Tài khoản quản trị thấy thêm bảng **Tài khoản** ở trang chủ.
 - **Xoá** — gỡ hẳn tài khoản. **Chapter của họ không bị xoá theo**, chúng trở về *chưa có chủ* và
   người khác nhận được.
 
-Không tự khoá hay tự xoá chính mình được — quản trị duy nhất tự khoá là không còn ai mở lại được.
+- **Phong quản trị** — cho người khác quyền quản lý tài khoản.
+
+Không tự khoá, tự xoá hay tự thu quyền của chính mình được.
+
+> **Nên có ít nhất hai quản trị.** Mất tài khoản quản trị duy nhất là không ai quản lý được
+> người dùng nữa, và không sửa được nếu không can thiệp thẳng vào cơ sở dữ liệu.
 
 ### Những gì bản này CHƯA có
 

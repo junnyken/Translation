@@ -163,20 +163,34 @@ async def doi_trang_thai_nguoi_dung(
     session: AsyncSession = Depends(get_session),
     quan_tri: NguoiDung = Depends(quan_tri_hien_tai),
 ) -> NguoiDung:
-    """Khoá / mở khoá một tài khoản. Khoá là cách đúng để cho ai đó nghỉ — **không** phải xoá:
-    xoá sẽ làm mọi chapter của họ thành vô chủ."""
+    """Khoá/mở khoá, và phong/thu quyền quản trị.
+
+    Khoá là cách đúng để cho ai đó nghỉ — **không** phải xoá: xoá sẽ làm mọi chapter của họ
+    thành vô chủ.
+
+    Không đụng được vào chính mình (409): tự khoá hoặc tự thu quyền của mình là tự đẩy mình ra
+    ngoài, và nếu đây là quản trị duy nhất thì không còn ai sửa lại được.
+    """
     if nguoi_id == quan_tri.id:
-        # Tự khoá mình là tự đẩy mình ra ngoài, và nếu đây là quản trị duy nhất thì không còn
-        # ai mở lại được nữa.
+        # Tự khoá hoặc tự thu quyền của mình là tự đẩy mình ra ngoài, và nếu đây là quản trị
+        # duy nhất thì không còn ai sửa lại được.
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Không tự khoá tài khoản của chính mình được.",
+            detail="Không tự khoá hay tự thu quyền của chính mình được.",
         )
     muc_tieu = await session.get(NguoiDung, nguoi_id)
     if muc_tieu is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy.")
-    muc_tieu.dang_hoat_dong = payload.dang_hoat_dong
-    if not payload.dang_hoat_dong:
+    if payload.dang_hoat_dong is None and payload.la_quan_tri is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Không có gì để đổi.",
+        )
+    if payload.la_quan_tri is not None:
+        muc_tieu.la_quan_tri = payload.la_quan_tri
+    if payload.dang_hoat_dong is not None:
+        muc_tieu.dang_hoat_dong = payload.dang_hoat_dong
+    if payload.dang_hoat_dong is False:
         # Khoá tài khoản mà để phiên cũ sống tiếp là khoá trên giấy: người đó vẫn thao tác bình
         # thường cho tới khi phiên hết hạn (tối đa 14 ngày).
         await session.execute(delete(Phien).where(Phien.nguoi_dung_id == nguoi_id))

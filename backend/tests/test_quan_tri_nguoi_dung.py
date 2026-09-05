@@ -127,6 +127,41 @@ class TestQuanTriNguoiDung:
         assert r.status_code == 404
         assert (await session.get(NguoiDung, uuid.UUID(nguoi_b[0]))).dang_hoat_dong is True
 
+    async def test_phong_quan_tri_cho_nguoi_khac(self, session, client, client_b, nguoi_a, nguoi_b):
+        """Không có đường này thì quản trị đầu tiên là quản trị DUY NHẤT mãi mãi — mất tài
+        khoản đó là không ai quản lý được người dùng nữa."""
+        await _dat_quan_tri(session, uuid.UUID(nguoi_a[0]))
+        assert (await client_b.get("/api/v1/auth/users")).status_code == 404
+
+        r = await client.patch(f"/api/v1/auth/users/{nguoi_b[0]}", json={"la_quan_tri": True})
+        assert r.status_code == 200, r.text
+        assert r.json()["la_quan_tri"] is True
+        assert (await client_b.get("/api/v1/auth/users")).status_code == 200
+
+    async def test_phong_quan_tri_KHONG_dong_thoi_khoa_nguoi_ta(
+        self, session, client, nguoi_a, nguoi_b
+    ):
+        """Gửi mỗi `la_quan_tri` thì `dang_hoat_dong` phải giữ nguyên.
+
+        Bản đầu gán thẳng `muc_tieu.dang_hoat_dong = payload.dang_hoat_dong`, nên chỉ phong
+        quản trị thôi cũng **khoá luôn** tài khoản đó — vì trường không gửi mặc định là None.
+        """
+        await _dat_quan_tri(session, uuid.UUID(nguoi_a[0]))
+        r = await client.patch(f"/api/v1/auth/users/{nguoi_b[0]}", json={"la_quan_tri": True})
+        assert r.status_code == 200
+        assert (await session.get(NguoiDung, uuid.UUID(nguoi_b[0]))).dang_hoat_dong is True
+
+    async def test_khong_tu_thu_quyen_quan_tri_cua_minh(self, session, client, nguoi_a):
+        await _dat_quan_tri(session, uuid.UUID(nguoi_a[0]))
+        r = await client.patch(f"/api/v1/auth/users/{nguoi_a[0]}", json={"la_quan_tri": False})
+        assert r.status_code == 409
+
+    async def test_than_request_rong_thi_422_chu_khong_gia_vo_thanh_cong(
+        self, session, client, nguoi_a, nguoi_b
+    ):
+        await _dat_quan_tri(session, uuid.UUID(nguoi_a[0]))
+        assert (await client.patch(f"/api/v1/auth/users/{nguoi_b[0]}", json={})).status_code == 422
+
     async def test_quan_tri_KHONG_doi_duoc_email_hay_mat_khau_nguoi_khac(
         self, session, client, nguoi_a, nguoi_b
     ):

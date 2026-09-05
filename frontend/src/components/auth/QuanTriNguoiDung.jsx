@@ -56,10 +56,17 @@ export default function QuanTriNguoiDung({ toi }) {
                     <>
                       <Button
                         kieu="phu" disabled={dangLam === n.id}
-                        onClick={() => lam(n.id, () =>
-                          api.doiTrangThaiNguoiDung(n.id, n.dang_hoat_dong === false))}
+                        onClick={() => lam(n.id, () => api.doiTrangThaiNguoiDung(
+                          n.id, { dang_hoat_dong: n.dang_hoat_dong === false }))}
                       >
                         {n.dang_hoat_dong === false ? 'Mở khoá' : 'Khoá'}
+                      </Button>
+                      <Button
+                        kieu="phu" disabled={dangLam === n.id}
+                        onClick={() => lam(n.id, () => api.doiTrangThaiNguoiDung(
+                          n.id, { la_quan_tri: !n.la_quan_tri }))}
+                      >
+                        {n.la_quan_tri ? 'Thu quyền quản trị' : 'Phong quản trị'}
                       </Button>
                       <Button
                         kieu="phu" disabled={dangLam === n.id}
@@ -85,6 +92,8 @@ export default function QuanTriNguoiDung({ toi }) {
       <p className="ghi-chu">
         <b>Khoá</b> giữ nguyên chapter của họ và cắt phiên đang mở ngay lập tức.
         {' '}<b>Xoá</b> làm chapter của họ thành <i>chưa có chủ</i>.
+        {' '}Nên có <b>ít nhất hai quản trị</b>: mất tài khoản quản trị duy nhất là không ai
+        quản lý được người dùng nữa.
       </p>
     </section>
   )

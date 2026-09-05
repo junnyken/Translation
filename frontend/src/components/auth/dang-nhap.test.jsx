@@ -268,6 +268,33 @@ describe('quản trị tài khoản', () => {
     expect(hoi.mock.calls[0][0]).toMatch(/KHÔNG bị xoá/)
   })
 
+  it('phong quản trị chỉ gửi ĐÚNG trường đó, không kèm dang_hoat_dong', async () => {
+    // Gửi kèm trường khác sẽ ghi đè giá trị hiện tại của nó — phong quản trị mà khoá luôn
+    // người ta.
+    const goi = vi.spyOn(globalThis, 'fetch').mockImplementation(() => dapUng(DS))
+    render(<QuanTriNguoiDung toi={{ id: 'u1' }} />)
+    await screen.findByText('ban@x.test')
+    await userEvent.click(screen.getByRole('button', { name: 'Phong quản trị' }))
+    const patch = goi.mock.calls.find((c) => c[1]?.method === 'PATCH')
+    expect(JSON.parse(patch[1].body)).toEqual({ la_quan_tri: true })
+  })
+
+  it('khoá chỉ gửi dang_hoat_dong, không kèm la_quan_tri', async () => {
+    const goi = vi.spyOn(globalThis, 'fetch').mockImplementation(() => dapUng(DS))
+    render(<QuanTriNguoiDung toi={{ id: 'u1' }} />)
+    await screen.findByText('ban@x.test')
+    await userEvent.click(screen.getByRole('button', { name: 'Khoá' }))
+    const patch = goi.mock.calls.find((c) => c[1]?.method === 'PATCH')
+    expect(JSON.parse(patch[1].body)).toEqual({ dang_hoat_dong: false })
+  })
+
+  it('nhắc nên có ít nhất hai quản trị', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => dapUng(DS))
+    render(<QuanTriNguoiDung toi={{ id: 'u1' }} />)
+    await screen.findByText('ban@x.test')
+    expect(screen.getByText(/ít nhất hai quản trị/)).toBeInTheDocument()
+  })
+
   it('nói rõ khoá khác xoá ở chỗ nào — hai việc dễ nhầm nhau', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(() => dapUng(DS))
     render(<QuanTriNguoiDung toi={{ id: 'u1' }} />)

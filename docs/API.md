@@ -1032,16 +1032,24 @@ Trả `NguoiDungRead`, **không bao giờ** có `mat_khau_bam` kể cả cho qu�
 ### `PATCH /api/v1/auth/users/{nguoi_id}` → 200 *(chỉ quản trị)*
 
 ```json
-{"dang_hoat_dong": false}
+{"dang_hoat_dong": false, "la_quan_tri": true}
 ```
 
-Chỉ nhận đúng trường này (`extra="forbid"`): quản trị khoá được người khác nhưng **không sửa
-được email hay mật khẩu của họ** — tức không hoá trang thành họ.
+Cả hai trường đều **tuỳ chọn** — gửi cái nào đổi cái đó. Gửi thân rỗng ⇒ `422`, không giả vờ
+thành công.
+
+Chỉ nhận đúng hai trường này (`extra="forbid"`). Cố ý **không** có `email`, `ten_hien`,
+`mat_khau`: quản trị được phép chặn người khác, nhưng không được phép **hoá trang thành họ**.
+
+`la_quan_tri` là bắt buộc phải có, nếu không thì quản trị đầu tiên là quản trị **duy nhất mãi
+mãi** — mất tài khoản đó là không ai quản lý được người dùng nữa, và không sửa được ngoài can
+thiệp thẳng vào CSDL. (Đúng tình huống đã xảy ra khi kiểm chứng B1: một tài khoản **thử** chiếm
+mất suất "người đầu tiên", còn tài khoản thật của chủ hệ thống thì không phải quản trị.)
 
 **Khoá thì cắt luôn mọi phiên đang mở** của tài khoản đó. Khoá mà để phiên cũ sống tiếp là khoá
 trên giấy: người đó vẫn thao tác bình thường tới khi phiên hết hạn, tối đa 14 ngày.
 
-- `409` nếu tự khoá chính mình — quản trị duy nhất tự khoá là không còn ai mở lại được.
+- `409` nếu tự khoá hoặc tự thu quyền của chính mình.
 - `404` nếu không tìm thấy, hoặc người gọi không phải quản trị.
 
 ### `DELETE /api/v1/auth/users/{nguoi_id}` → 204 *(chỉ quản trị)*

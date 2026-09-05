@@ -107,11 +107,13 @@ export const nhaChapter = (projectId) =>
 
 export const layDanhSachNguoiDung = () => fetch(`${BASE}/auth/users`).then(doc)
 
-export const doiTrangThaiNguoiDung = (id, dangHoatDong) =>
+/** Đổi trạng thái tài khoản. Chỉ gửi trường thật sự muốn đổi —
+ *  gửi kèm trường khác sẽ ghi đè giá trị hiện tại của nó. */
+export const doiTrangThaiNguoiDung = (id, thayDoi) =>
   fetch(`${BASE}/auth/users/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ dang_hoat_dong: dangHoatDong }),
+    body: JSON.stringify(thayDoi),
   }).then(doc)
 
 export async function xoaNguoiDung(id) {
