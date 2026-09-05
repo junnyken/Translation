@@ -511,6 +511,10 @@ export default function App() {
                 <BatchPanel projectId={project.id} soTrang={dsTrang.length} />
                 <ExportPanel
                   projectId={project.id} tenProject={project.name}
+                  // Chữ ký trạng thái mọi trang: đổi khi pipeline chạy xong một trang, và đó
+                  // là tín hiệu để bảng xuất nạp lại con số. Không có nó thì bảng đứng im
+                  // trong khi badge trang đã đổi — xem ghi chú trong ExportPanel.
+                  chuKyTrang={dsTrang.map((t) => t.status).join(',')}
                   nhatQuan={tomTatNQ}
                   onRaSoat={() => {
                     setMoHangDoi(true)

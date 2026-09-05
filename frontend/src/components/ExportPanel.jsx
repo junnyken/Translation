@@ -9,7 +9,9 @@ const DINH_DANG = [
 ]
 
 /** Bảng xuất chapter: xem trước cảnh báo → chọn định dạng → theo dõi → tải về. */
-export default function ExportPanel({ projectId, tenProject, nhatQuan, onRaSoat }) {
+export default function ExportPanel({
+  projectId, tenProject, nhatQuan, onRaSoat, chuKyTrang,
+}) {
   const [xemTruoc, setXemTruoc] = useState(null)
   const [canhBao, setCanhBao] = useState(null)
   const [hienCanhBao, setHienCanhBao] = useState(false)
@@ -19,11 +21,20 @@ export default function ExportPanel({ projectId, tenProject, nhatQuan, onRaSoat 
   const [dangTai, setDangTai] = useState(false)
   const [loi, setLoi] = useState(null)
 
+  // `chuKyTrang` là chuỗi trạng thái của mọi trang, do App truyền xuống. Nó nằm trong danh
+  // sách phụ thuộc CÓ CHỦ Ý: `ChapterProgress` nạp lại chapter mỗi 4 giây khi còn trang đang
+  // chạy, nên `project.pages` cập nhật — nhưng bảng này chỉ phụ thuộc `projectId` nên con số
+  // của nó ĐÓNG BĂNG ở lần nạp đầu.
+  //
+  // Hậu quả đo được trên bản chạy 05/09: người dùng mở chapter lúc pipeline còn chạy, bảng ghi
+  // "0 / 2 trang sẽ được xuất" và nút xuất bị khoá; pipeline xong, badge trang đổi thành "Đã
+  // căn chữ" — mà bảng xuất vẫn 0/2 và nút vẫn khoá cho tới khi tải lại cả trang. API thì
+  // không sai: đo cùng lúc, `export-preview` trả đúng 2/2.
   const nap = useCallback(() => {
     setLoi(null)
     api.xemTruocXuat(projectId).then(setXemTruoc).catch((e) => setLoi(e.message))
     api.layCanhBaoXuat(projectId).then(setCanhBao).catch((e) => setLoi(e.message))
-  }, [projectId])
+  }, [projectId, chuKyTrang])
 
   useEffect(() => { nap() }, [nap])
 
