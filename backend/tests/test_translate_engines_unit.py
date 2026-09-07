@@ -54,6 +54,10 @@ class TestPrompt:
         """Không tự sửa raw_text (constraint 5) — nhờ LLM sửa theo ngữ cảnh."""
         assert "OCR" in LLMContextTranslator(["k"]).build_prompt(["A"], "ja", "vi")
 
+    def test_yeu_cau_bam_sat_nghia_goc(self):
+        prompt = LLMContextTranslator(["k"]).build_prompt(["A"], "ja", "vi")
+        assert "không đổi Ý" in prompt or "không đổi ý" in prompt.lower()
+
 
 class TestParseResponse:
     def test_tach_dung_so_dong(self):

@@ -88,19 +88,29 @@
           position: 'absolute',
           left: `${o.left}px`, top: `${o.top}px`,
           width: `${o.width}px`, height: `${o.height}px`,
-          // Nền đục để che chữ gốc: chế độ này KHÔNG xoá chữ khỏi ảnh, không che thì hai lớp
-          // chữ chồng lên nhau và không đọc được lớp nào.
-          background: 'rgba(255,255,255,.94)', color: '#000',
+          // Nền đục HẾT CỠ để che chữ gốc: chế độ này KHÔNG xoá chữ khỏi ảnh, còn hở dù chỉ vài
+          // % cũng lộ chữ Nhật mờ mờ chồng sau chữ Việt (thấy trên trang thật 07/09, để ở .94).
+          background: 'rgba(255,255,255,1)', color: '#000',
           border: v.kem_tin_cay ? '1px dashed #e0a800' : '1px solid rgba(0,0,0,.15)',
           borderRadius: '6px',
           font: `${coChu(o, v.ban_dich.length)}px/1.2 system-ui,sans-serif`,
           padding: '2px 3px', boxSizing: 'border-box',
           display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center',
           // Chữ Việt dài hơn chữ Nhật và chế độ này KHÔNG chạy bước căn chữ, nên không có bảo
-          // đảm nào là chữ vừa ô. Cho cuộn trong ô còn hơn cắt mất chữ.
+          // đảm nào là chữ vừa ô. Cuộn là LƯỚI AN TOÀN cuối cùng — vòng co chữ dưới đây mới là
+          // thứ chính, chạy trước khi cần tới cuộn.
           overflow: 'auto', overflowWrap: 'anywhere', pointerEvents: 'auto',
         })
         lop.appendChild(hop)
+
+        // `coChu()` chỉ ước lượng bằng diện tích/số ký tự, không đo chữ thật — không có gì bảo
+        // đảm nó vừa khung. Đo THẬT bằng scrollHeight/scrollWidth sau khi đã nằm trong DOM (trước
+        // đó trình duyệt chưa layout, đọc số lúc đó là rác), rồi co dần tới khi vừa hoặc chạm sàn.
+        let px = coChu(o, v.ban_dich.length)
+        while (px > 8 && (hop.scrollHeight > hop.clientHeight + 1 || hop.scrollWidth > hop.clientWidth + 1)) {
+          px -= 1
+          hop.style.fontSize = `${px}px`
+        }
       }
     }
 

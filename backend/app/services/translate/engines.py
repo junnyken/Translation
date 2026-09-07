@@ -171,6 +171,8 @@ class LLMContextTranslator:
             "Yêu cầu bắt buộc:\n"
             f"- Trả về ĐÚNG {len(texts)} dòng, đánh số 1..{len(texts)} như đầu vào.\n"
             "- Dịch theo mạch văn của cả trang, không dịch rời rạc từng dòng.\n"
+            "- Bám sát nghĩa gốc: không bỏ sót ý, không suy diễn thêm nội dung không có trong câu "
+            "gốc. Chỉ được đổi CÁCH DIỄN ĐẠT cho tự nhiên bằng tiếng Việt, không đổi Ý.\n"
             "- Giữ giọng điệu nhân vật; câu thoại ngắn gọn tự nhiên như truyện tranh tiếng Việt.\n"
             "- Đầu vào là chữ do OCR đọc nên có thể sai chính tả; tự suy luận và sửa khi dịch.\n"
             "- Không thêm giải thích, không thêm dòng nào ngoài danh sách đã đánh số.\n\n"
