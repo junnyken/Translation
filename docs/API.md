@@ -1061,3 +1061,59 @@ vì gỡ một tài khoản.
 Muốn giữ nguyên chủ sở hữu thì dùng `PATCH` (khoá) chứ đừng xoá.
 
 `409` nếu tự xoá chính mình.
+
+## E19 — tiện ích đọc truyện: endpoint gộp (2026-09-05..07)
+
+Dùng riêng cho `extension-doc-truyen/` (khác `extension/` của E1). Cả hai đòi `Authorization:
+Bearer <mã phiên>` như mọi endpoint khác từ B1 — tiện ích không được gọi API trần.
+
+### `POST /api/v1/doc-truyen/trang` → 202
+
+Nhận thẳng file ảnh (`multipart/form-data`, field `file`), tự tạo/tái dùng chapter ẩn
+`"Đọc nhanh (tiện ích)"` của tài khoản gọi API (`che_do_pipeline=chi_chu`,
+`intended_use=personal` — xem `ARCH.md §E19.4` vì sao đây không phải né cổng M10), xếp việc nhận
+diện rồi trả `page_id` ngay. **Không lọc trùng ảnh** — bấm dịch hai lần cùng ảnh chạy hai lần;
+việc nhớ "ảnh này dịch rồi" thuộc về tiện ích (khoá bằng URL ảnh).
+
+Response 202:
+```json
+{ "page_id": "…", "trang_thai": "queued", "xong": false,
+  "tien_do": { "buoc": null, "dang_chay": false, "so_viec_cho_truoc": null } }
+```
+
+| Lỗi | Mã |
+|---|---|
+| Chưa đăng nhập / phiên hết hạn | `401` |
+| File rỗng | `422` |
+| Ảnh vượt `MAX_UPLOAD_MB` | `413` |
+| Định dạng ảnh không nhận ra (`sniff_image`) | `422` |
+
+### `GET /api/v1/doc-truyen/trang/{page_id}` → 200
+
+Trả **vùng đã có kể cả khi trang chưa dịch xong hết** — dịch xong bong bóng nào tiện ích phủ được
+bong bóng đó, không phải đợi cả trang. Gọi lặp lại (poll) tới khi `xong: true`.
+
+```json
+{
+  "page_id": "…", "trang_thai": "translated", "xong": true,
+  "tien_do": { "buoc": "translate", "dang_chay": true, "so_viec_cho_truoc": 0 },
+  "vung": [
+    { "region_id": "…", "x": 120, "y": 40, "w": 300, "h": 220,
+      "thu_tu_doc": 1, "chu_goc": "うむ…", "ban_dich": "Hmm…", "kem_tin_cay": false }
+  ],
+  "loi": null
+}
+```
+
+- `x/y/w/h` theo **pixel ảnh gốc** đã gửi lên — tiện ích tự quy đổi sang pixel hiển thị bằng
+  `naturalWidth` vs `clientWidth` (máy chủ không biết trang web co ảnh bao nhiêu).
+- `chu_goc`/`ban_dich` là `null` khi bước tương ứng chưa chạy tới — khác chuỗi rỗng (đã chạy mà
+  không có chữ).
+- `xong` bám theo `translated`/`typeset_done`/`ready_for_export` — **không đợi `typeset_done`**,
+  chế độ `chi_chu` không bao giờ tới trạng thái đó (xem `ARCH.md §E19.3`).
+- `loi`: lấy nguyên văn `error_log` của job hỏng gần nhất trên trang này, `null` nếu không hỏng.
+
+| Lỗi | Mã |
+|---|---|
+| Chưa đăng nhập / phiên hết hạn | `401` |
+| Trang không tồn tại, hoặc chapter chứa nó không phải của tài khoản gọi | `404` |

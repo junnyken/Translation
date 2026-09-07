@@ -28,6 +28,7 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 | A1+E18 | Chữ Việt vừa bong bóng manga: nới khung tới khi chạm nét vẽ, và dịch lại ngắn hơn cho vừa khi bản dịch dài hơn chỗ chứa | **LIVE một phần** (A1 đo trên trang thật: tràn 3→2; E18 test xong, chưa chạy thật) |
 | F1 | Dấu câu kiểu Nhật trong bản dịch không còn làm hỏng cả trang; vùng font không vẽ được thì đánh dấu riêng thay vì giết cả trang; việc hỏng tự hiện lý do | **BUILT** (test tự động xanh; chưa chạy lại chapter thật trên bản chạy) |
 | E12 | Chỉ ra vùng nào cần rà soát trước khi xuất, kèm lý do đọc được — không tự xoá vùng nào | **LIVE** (Run A–D 15/15 trên trang thật + Chromium 10/10 — xem TEST_LOG §E12) |
+| E19 | Tiện ích riêng "Dịch truyện đang đọc": bấm một cái, phủ chữ dịch lên bong bóng của **bất kỳ trang web nào** đang mở — không chỉnh sửa, không xuất file | **LIVE** (nạp thật vào Chrome, sửa qua 3 lượt trên `reddit.com/r/translator` tới khi lớp phủ khớp đúng bong bóng — xem ARCH.md §E19.5, REPORT_E19_0) |
 
 ## Những gì dùng được ngay hôm nay (sau E12)
 
@@ -460,6 +461,40 @@ Tự đăng ký thì cần **khoá chung của hệ thống** — hỏi người
 thì ai mở được địa chỉ web cũng tự tạo tài khoản và dùng hạ tầng của bạn.
 
 Tài khoản **đầu tiên** của hệ thống là tài khoản quản trị.
+
+## Tiện ích "Dịch truyện đang đọc" — phủ chữ lên bất kỳ trang nào (E19)
+
+Khác hẳn E1: tiện ích **này** đọc trang bạn đang xem, tải ảnh, và phủ nội dung lên trang — ba
+điều E1 hứa **không bao giờ làm**. Nên đây là tiện ích riêng (`extension-doc-truyen/`), cài và
+gỡ độc lập với E1, có `PRIVACY.md` riêng nói đúng ba điều đó. Cài cái này không đổi hành vi E1.
+
+**Làm được:**
+
+- Mở bất kỳ trang truyện nào, bấm biểu tượng tiện ích → tự dò ảnh trang truyện đang xem lớn nhất
+  trên màn hình (loại banner, icon, ảnh thu nhỏ trong danh sách, ảnh nền mờ trang trí của lightbox).
+- Gửi ảnh đó tới **máy chủ Translation của chính bạn** (tự nhập địa chỉ + đăng nhập trong tiện
+  ích, dùng đúng mã phiên như bản web — không có đường tắt qua khoá chung).
+- Sau ~45 giây (chủ yếu chờ bước nhận diện, đo `docs/REPORT_E19_0_DO_COND_CHAN.md`): phủ một lớp
+  chữ Việt trong suốt lên đúng từng bong bóng, **giữ nguyên ảnh gốc** (không xoá chữ Nhật, không
+  chỉnh sửa được như bản web) — nền hộp dịch đục hoàn toàn nên không chồng hai lớp chữ.
+- Chữ tự co cỡ vừa khung bong bóng; dịch dài hơn khung mấy cũng chỉ cuộn trong ô, không tràn ra
+  ngoài hay bị cắt mất.
+- Bấm lại đúng trang đã dịch thì phủ lại ngay (nhớ theo URL ảnh), không tốn lại 45 giây.
+- Lớp phủ tự bám theo khi cuộn trang / đổi cỡ cửa sổ.
+
+**Cố ý KHÔNG làm:**
+
+| Không làm | Vì sao |
+|---|---|
+| Xoá chữ gốc khỏi ảnh | Thuộc pipeline đầy đủ (LaMa) — tốn CPU nhất và không cần cho việc phủ chữ |
+| Căn chữ vào lòng bong bóng như bản web (M6/E14) | Chế độ `chi_chu` cố ý bỏ bước này để nhanh hơn (xem ARCH.md §E19.3); đổi lại là tự co cỡ chữ + cuộn trong ô |
+| Tự động dịch cả chapter | Mỗi lần một trang, do người bấm — không âm thầm quét cả site |
+| Hỗ trợ trang vẽ bằng canvas / chống sao chép | Không có `<img>` để lấy — nói thẳng "không tìm thấy trang truyện", không âm thầm thất bại |
+| Xuất file | Không có màn xuất trong tiện ích — cổng M10 vì vậy không áp dụng ở đây |
+
+**Giới hạn đã biết:** máy chủ xử lý **một trang một lúc** (hàng đợi chung với mọi tài khoản khác),
+nên cách dùng đúng là bấm dịch trang kế **trong lúc đang đọc trang hiện tại**, không phải bấm rồi
+ngồi chờ.
 
 ### Chapter làm từ trước thì sao
 

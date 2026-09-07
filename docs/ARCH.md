@@ -1241,3 +1241,81 @@ lặng. Bản dịch người dùng tự gõ không có chỗ nào lưu lại đ
 Tương tự, model trả rác / viết dài thêm / thiếu dòng đều dẫn tới **giữ nguyên bản cũ**; model
 hỏng hẳn thì job `failed` và không vùng nào bị đổi. Một trang nửa cũ nửa mới là thứ không ai lần
 ra được về sau.
+
+## E19. Tiện ích "Dịch truyện đang đọc" — phủ chữ lên bất kỳ trang nào (2026-09-05..07)
+
+### E19.1 Vì sao là tiện ích RIÊNG, không phải bản nâng cấp E1
+
+`extension/PRIVACY.md` (E1) hứa nguyên văn: không đọc trang đang xem, không tự tải ảnh, không
+phủ bản dịch lên trang. E19 cần cả ba — sửa E1 mà giữ PRIVACY.md cũ là biến tài liệu đúng thành
+tài liệu nói dối; sửa cả hai thì người cài E1 *vì đúng những lời hứa đó* bị đổi bản chất dưới
+chân. Nên: tiện ích riêng (`extension-doc-truyen/`), PRIVACY.md riêng, E1 giữ nguyên không đụng.
+
+### E19.2 Cổng chặn đã đo, và tại sao hình dung ban đầu không sống được
+
+Giả thuyết ban đầu — bỏ bước xoá chữ để mô hình nằm lại bộ nhớ, trang sau nhanh hơn một bậc — đo
+ra **SAI** (`docs/REPORT_E19_0_DO_COND_CHAN.md`): nạp mô hình chỉ tốn 0,3–0,5s, chi phí thật nằm
+ở suy luận CTD (~40–50s, CPU-bound, không nóng lên). Hình dung sống được: **bấm để xếp hàng, đọc
+tiếp, lát sau chữ hiện ra** — không phải "bấm là hiện chữ ngay".
+
+### E19.3 Chế độ pipeline `chi_chu` — nối dây, không viết lại logic
+
+Thêm `ChePipeline.chi_chu` vào `Project`: sau OCR xếp thẳng sang dịch, **bỏ qua xoá chữ (LaMa) và
+căn chữ**. Đã kiểm trước khi làm: `_run_translate` chỉ đọc `TextRegion`/`OCRResult` từ CSDL,
+không chạm ảnh clean hay kho lưu trữ — hai bước bị bỏ chỉ đang được nối chuỗi theo thói quen của
+pipeline gốc (M2→M6), không phải phụ thuộc thật. `PageStatus.translated` là **đích cuối** của chế
+độ này; nó không bao giờ tới `typeset_done`.
+
+### E19.4 Endpoint gộp — vì sao không bắt tiện ích tự nối 4 lời gọi
+
+`POST /api/v1/doc-truyen/trang` nhận thẳng file ảnh, tự tạo (hoặc tái dùng) một chapter ẩn tên
+`"Đọc nhanh (tiện ích)"` cho từng tài khoản (`_chapter_doc_nhanh`), set `che_do_pipeline=chi_chu`
+và `intended_use=personal` **ngay từ đầu** — đây là khai báo trung thực nhất cho đúng việc tiện
+ích làm (dịch trang đang tự đọc), và **không phải đường vòng né cổng M10**: `Project` này vẫn đi
+qua đúng constraint `intended_use NOT NULL` như mọi chapter, chỉ khác là được điền hộ thay vì hỏi
+qua UI vì tiện ích không có màn tạo chapter. Cổng nhắc-trách-nhiệm của M10 nằm ở bước **xuất
+file** — tiện ích này không bao giờ xuất, nên cổng đó không áp dụng, không phải bị né.
+
+`GET /api/v1/doc-truyen/trang/{page_id}` trả **vùng đã có kể cả khi chưa xong hết trang** — dịch
+xong bong bóng nào tiện ích phủ được bong bóng đó, không đợi cả trang. `started_at` (E19-3 kế
+hoạch, đã có trên `Job` từ trước) phân biệt "đang chờ" với "đang chạy": không có nó, người dùng
+không biết mình còn chờ 5 giây hay 5 phút sau N việc xếp trước.
+
+### E19.5 Chọn ảnh + quy đổi toạ độ — hai module thuần, test không cần trình duyệt
+
+`chonTrangTruyen` (thuần, `src/lib/chon-anh.js`) loại ảnh theo cạnh/diện tích tối thiểu, tỉ lệ dẹt
+(banner), bị thu nhỏ nhiều (thumbnail), ngoài khung nhìn, rồi chấm điểm phần còn lại theo **diện
+tích đang hiện trong khung nhìn** — không phải theo pixel thật. `quyDoi` (thuần, `src/lib/toa-do.js`)
+đổi toạ độ vùng từ pixel ảnh gốc sang pixel hiển thị bằng tỉ lệ `clientWidth/naturalWidth`.
+
+**Sự cố thật trên `reddit.com/r/translator` (07/09), sửa qua 3 lượt:**
+
+1. Lớp phủ dùng `absolute` + toạ độ tài liệu, gắn vào `<body>` — rơi lệch trên trang có lightbox vì
+   `absolute` neo theo tổ tiên **đã định vị** gần nhất, không phải theo tài liệu; cộng thêm
+   `scrollY` của trang nền (không cuộn) càng lệch thêm. Sửa: `fixed` + toạ độ khung nhìn (đúng thứ
+   `getBoundingClientRect()` trả sẵn), gắn vào `<html>`.
+2. Bảng debug (in thẳng 3 số đo vào thông báo: khung ảnh, khung lớp phủ, kích thước thật — vì ảnh
+   chụp màn hình cho thấy "sai" mà không cho biết sai ở đâu) lộ ra: `chonTrangTruyen` chọn nhầm
+   **ảnh nền mờ phóng to** của lightbox — cùng `src` với ảnh thật (750×750) nhưng hiển thị
+   2304×1134, chiếm khung nhìn nhiều hơn bản rõ nên thắng phép chấm điểm. Hai bản cùng src nên
+   không phân biệt được bằng kích thước — chỉ CSS `filter: blur(...)` (đọc cả tổ tiên, tối đa 4
+   cấp) mới lộ ra bản nào là trang trí.
+3. Nền hộp dịch để hở 6% (`rgba(255,255,255,.94)`) — chữ Nhật gốc mờ lộ ra sau chữ Việt vì chế độ
+   này không xoá chữ khỏi ảnh. Đặt về đục hoàn toàn (`1`).
+
+### E19.6 Cỡ chữ: ước lượng trước, đo thật sau
+
+`coChu()` (thuần) ước lượng cỡ chữ ban đầu bằng `sqrt(diện_tích / số_ký_tự)`, không đo chữ thật —
+không có gì bảo đảm khớp khung vì không chạy bước căn chữ của bản web (E19 cố ý bỏ, xem E19.3).
+Content script co dần font-size **sau khi hộp đã vào DOM**, đo thật bằng `scrollHeight`/
+`scrollWidth`, dừng khi vừa khung hoặc chạm sàn 8px. Cuộn trong ô (`overflow:auto`) là lưới an
+toàn cuối cùng, không phải cách chính.
+
+### E19.7 Giới hạn cố ý để lại
+
+- Chỉ dò được `<img>` thật — trang vẽ bằng canvas hoặc chống sao chép thì nói thẳng "không hỗ trợ",
+  không âm thầm thất bại.
+- Không lọc trùng theo nội dung ảnh ở máy chủ — tiện ích tự nhớ theo URL ảnh (`Map` trong bộ nhớ
+  trang), bấm lại đúng ảnh đó thì phủ lại ngay, không tốn 45 giây lần hai.
+- `<all_urls>` là quyền rộng nhất Chrome cấp — chỉ tiêm code bằng
+  `chrome.scripting.executeScript` **đúng lần bấm**, không có `content_scripts` khai sẵn.

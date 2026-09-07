@@ -3404,3 +3404,77 @@ chạy lại lần nào**. Con số đứng im tới khi tải lại cả trang.
 Test được tự kiểm bằng cách bỏ bản sửa ra: đỏ đúng chỗ
 (`'0 / 2 trang sẽ được xuất' không khớp 2/2`). Kèm một test ngược chiều: trạng thái **không** đổi
 thì không được gọi lại API, để nhịp 4 giây của `ChapterProgress` không biến thành 2 request/4 giây.
+
+# ========== E19 — Tiện ích "Dịch truyện đang đọc" (2026-09-05..07) ==========
+
+**Môi trường:** workspace `trieunt-c`, Postgres 16-alpine (`translation-db-1`), Redis 7-alpine.
+Backend chạy thật tại `translation-api.cmc-1.vibenode.matbao.ai`. Tiện ích nạp unpacked trong
+Chrome **thật** trên máy người dùng (không phải Chromium trong workspace) — khác mọi mini-spec
+trước, không dùng browser tool tự động được vì cần tài khoản/trang thật của người dùng.
+
+## 1. Backend — chế độ `chi_chu` + endpoint gộp
+
+```
+$ cd backend && ../.venv/bin/python -m pytest tests/test_e19_che_do_chi_chu.py \
+    tests/test_translate_engines_unit.py -q
+...........................................                              [100%]
+43 passed
+```
+
+`test_e19_che_do_chi_chu.py` (12 test): xác nhận đường đi `chi_chu` bỏ đúng bước xoá chữ + căn
+chữ, `PageStatus.translated` là đích cuối (không chờ `typeset_done`). Không khẳng định gì về tốc
+độ — số đo tốc độ nằm ở `REPORT_E19_0_DO_COND_CHAN.md`.
+
+`test_translate_engines_unit.py` (31 test, +1 so với trước E19): thêm
+`test_yeu_cau_bam_sat_nghia_goc` canh prompt `LLMContextTranslator` có yêu cầu bám sát nghĩa gốc
+(thêm 07/09 sau phản hồi người dùng, áp dụng toàn hệ thống chứ không riêng E19).
+
+`test_quyen_cheo_tai_khoan.py` — 2 test đặt tên riêng cho endpoint gộp:
+- `test_moi_nguoi_gui_anh_vao_chapter_CUA_MINH`: endpoint không nhận id nào nên phép dò chéo
+  tự sinh (openapi) không kiểm được nó bằng cách thông thường — viết tay: hai tài khoản bấm dịch,
+  xác nhận ảnh rơi vào chapter khác nhau và không đọc chéo được trang của nhau (404).
+- `test_bam_dich_nhieu_lan_KHONG_sinh_nhieu_chapter`: bấm dịch 3 lần chỉ sinh **đúng 1** chapter
+  ẩn `"Đọc nhanh (tiện ích)"`, không phải 3 — tránh lặp lại bài học B1 (phép dò tự sinh phải tự
+  chứng minh có nghĩa; ở đây nghĩa là phải kiểm luôn tác dụng phụ chứ không chỉ đường happy path).
+- Cả hai endpoint cũng nằm trong bộ dò quyền chéo tự sinh từ `app.openapi()` như mọi endpoint
+  khác (xem `project_translation_auth_slice_b.md`), dù không kiểm được ca "id do người khác đưa"
+  vì endpoint tự chọn chapter chứ không nhận id.
+
+## 2. Tiện ích — 3 lượt sửa trên trang thật, không phải trang dựng
+
+Đo trên `reddit.com/r/translator/comments/14x5ea0/...#lightbox` (07/09), người dùng chụp lại từng
+lượt:
+
+| Lượt | Triệu chứng | Nguyên nhân xác nhận | Sửa |
+|---|---|---|---|
+| v0.1.1→v0.1.3 | Lớp phủ rơi góc dưới-trái, ngoài hẳn ảnh | `absolute`+toạ độ tài liệu neo sai hệ quy chiếu (lightbox có tổ tiên đã định vị) | `fixed`+toạ độ khung nhìn |
+| v0.1.3→v0.1.4 | Vẫn lệch sau lượt 1, **đoán sai 2 lần liền** | Không biết sai ở đâu — ảnh chụp chỉ cho thấy "sai" | Thêm bảng debug in 3 số đo (khung ảnh / khung lớp phủ / kích thước thật) vào thông báo |
+| v0.1.4 | Số đo: `ảnh` = `lớp phủ` **khớp tuyệt đối** (`-192,-94 2304×1134`), nhưng `ảnh thật` 750×750 | Không phải lỗi vẽ — chọn NHẦM `<img>` nền mờ phóng to của lightbox (cùng `src`, khác kích thước hiển thị) | Loại ứng viên có `filter:blur` (đọc cả tổ tiên) trong `chonTrangTruyen` |
+| v0.1.4→v0.1.5 | Vị trí đúng rồi, nhưng chữ Nhật gốc mờ lộ sau chữ Việt | Nền hộp dịch chỉ đục 94% | Đặt `rgba(255,255,255,1)` |
+
+Kèm test hồi quy tái tạo đúng số đo thật của lượt 3 (`tests/chon-anh.test.js`, ảnh 750×750 phóng
+lên 2304×1134 phải bị loại dù chiếm khung nhìn nhiều hơn ảnh 830×830 hiển thị vừa khung):
+
+```
+$ cd extension-doc-truyen && npm test
+ ✓ tests/cau-hinh.test.js (5 tests)
+ ✓ tests/chon-anh.test.js (10 tests)
+ ✓ tests/toa-do.test.js (7 tests)
+ 22 passed
+```
+
+**Bài học:** ảnh chụp màn hình cho biết "sai" nhưng không cho biết "sai ở đâu" — hai lượt sửa đầu
+đoán sai nguyên nhân vì chỉ có ảnh chụp. Chỉ sau khi in số đo thẳng vào thông báo (chấp nhận giao
+diện xấu hơn để đổi lấy chẩn đoán được) mới tìm ra đúng nguyên nhân trong 1 lượt.
+
+## 3. Còn nợ
+
+- Chưa đo trên trang **không phải lightbox** (đọc truyện cuộn dọc bình thường) sau bản sửa v0.1.5
+  — cơ chế chọn nhầm ảnh nền mờ đặc trưng cho lightbox, trang thường có thể không gặp lại, nhưng
+  chưa xác nhận.
+- Chưa có test end-to-end thật cho chính 2 endpoint HTTP (`POST`/`GET /doc-truyen/trang`) ở mức
+  hợp đồng request/response đầy đủ (mã lỗi 413/422 theo từng nhánh) — chỉ có test quyền chéo và
+  test pipeline mode. Việc test viết tay ở trên chỉ phủ đúng phần quyền + tác dụng phụ, không phủ
+  toàn bộ hợp đồng API.
+- Cỡ chữ tự co (§ARCH E19.6) đo bằng `scrollHeight`/`scrollWidth` trong trình duyệt thật — không
+  test tự động được (module không thuần), chỉ xác nhận bằng mắt qua ảnh chụp của người dùng.
