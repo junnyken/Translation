@@ -14,6 +14,10 @@ const bao = (chu, loai) => {
   h.hidden = false
 }
 
+// Hiện phiên bản ngay đầu trang: người dùng tải gói .zip về máy nên bản đang chạy có thể cũ
+// hơn bản mới nhất, và không có cách nào biết ngoài việc nhìn số này.
+document.getElementById('phien-ban').textContent = `v${chrome.runtime.getManifest().version}`
+
 async function ve() {
   const { diaChi, email } = await docCauHinh()
   $('dia-chi').value = diaChi
