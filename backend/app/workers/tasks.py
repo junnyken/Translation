@@ -32,6 +32,7 @@ from app.models import (
     TypesetResult,
 )
 from app.models.enums import (
+    ChePipeline,
     ExportFormat,
     FitStatus,
     JobStatus,
@@ -160,7 +161,7 @@ def _run_detect(job_id: uuid.UUID) -> dict:
         page_id = page.id
         image_rel = page.image_path
 
-        job.status = JobStatus.running
+        danh_dau_dang_chay(job)
         if page.status is not PageStatus.detecting:
             assert_transition(page.status, PageStatus.detecting)
             page.status = PageStatus.detecting
@@ -266,6 +267,34 @@ def run_detect_job(self, job_id: str) -> dict:
 # ============================ M3: OCR ============================
 
 
+def _che_do_pipeline(page_id: uuid.UUID) -> ChePipeline:
+    """Chế độ của chapter chứa trang này. Không tra được ⇒ `day_du` (giữ hành vi cũ)."""
+    with sync_session() as session:
+        page = session.get(Page, page_id)
+        if page is None:
+            return ChePipeline.day_du
+        project = session.get(Project, page.project_id)
+        return project.che_do_pipeline if project else ChePipeline.day_du
+
+
+def danh_dau_dang_chay(job) -> None:
+    """Đánh dấu việc bắt đầu chạy — đặt CẢ `status` lẫn `started_at`.
+
+    Có hàm riêng vì `status = running` xuất hiện ở **10 chỗ** trong tệp này. Sửa tay từng chỗ là
+    kiểu chắc chắn sót một, và chỗ sót sẽ là việc không ai đoán được — nó chỉ lộ ra khi người
+    dùng nhìn thấy "đang xếp hàng" trong lúc việc đã chạy xong từ lâu.
+
+    `test_started_at_unit.py` quét mã nguồn và ĐỎ nếu còn chỗ nào đặt `status` mà không qua đây.
+    """
+    from datetime import datetime, timezone
+
+    # KHÔNG gọi lại chính mình. Dòng này từng bị phép thay hàng loạt biến thành
+    # `danh_dau_dang_chay(job)` ⇒ đệ quy vô hạn, và bộ test nhận diện đỏ với
+    # `RecursionError: maximum recursion depth exceeded`. Giữ nguyên phép gán trực tiếp.
+    job.status = JobStatus.running
+    job.started_at = datetime.now(timezone.utc)
+
+
 def enqueue_ocr_after_detect(page_id: uuid.UUID) -> uuid.UUID | None:
     """Nối chuỗi: detect xong → tự xếp việc OCR cho page (pipeline tự chảy).
 
@@ -339,7 +368,7 @@ def _run_ocr(job_id: uuid.UUID) -> dict:
             for r in regions
         ]
 
-        job.status = JobStatus.running
+        danh_dau_dang_chay(job)
         session.commit()
 
     if not region_specs:
@@ -415,7 +444,18 @@ def _run_ocr(job_id: uuid.UUID) -> dict:
         job.error_log = None
         session.commit()
 
-    inpaint_job_id = enqueue_inpaint_after_ocr(page_id) if settings.inpaint_auto_chain else None
+    # E19 — rẽ nhánh theo chế độ của chapter.
+    #
+    # Chế độ `chi_chu` (tiện ích đọc truyện) đi THẲNG từ đọc chữ sang dịch, bỏ hẳn xoá chữ và
+    # căn chữ. Làm được vì `_run_translate` chỉ đọc `TextRegion` + `OCRResult` từ CSDL — nó
+    # KHÔNG chạm ảnh clean hay kho lưu trữ. Hai bước kia chỉ đang nối chuỗi theo thói quen.
+    inpaint_job_id = translate_job_id = None
+    if _che_do_pipeline(page_id) is ChePipeline.chi_chu:
+        translate_job_id = (
+            enqueue_translate_after_ocr(page_id) if settings.translate_auto_chain else None
+        )
+    elif settings.inpaint_auto_chain:
+        inpaint_job_id = enqueue_inpaint_after_ocr(page_id)
 
     needs_manual = sum(1 for r in results if r[3] is OCRStatus.needs_manual)
     logger.info(
@@ -432,6 +472,7 @@ def _run_ocr(job_id: uuid.UUID) -> dict:
         "replaced_results": deleted,
         "elapsed_seconds": round(elapsed, 2),
         "inpaint_job_id": str(inpaint_job_id) if inpaint_job_id else None,
+        "translate_job_id": str(translate_job_id) if translate_job_id else None,
     }
 
 
@@ -724,7 +765,7 @@ def _run_inpaint(job_id: uuid.UUID) -> dict:
             return {"status": "failed", "job_id": str(job_id), "error": job.error_log}
 
         boxes = [BBox(x=r.bbox_x, y=r.bbox_y, w=r.bbox_w, h=r.bbox_h) for r in regions]
-        job.status = JobStatus.running
+        danh_dau_dang_chay(job)
         session.commit()
 
     storage = get_storage()
@@ -835,6 +876,16 @@ def run_inpaint_job(self, job_id: str) -> dict:
 # ============================ M5: Dịch ============================
 
 
+def enqueue_translate_after_ocr(page_id: uuid.UUID) -> uuid.UUID | None:
+    """Nối chuỗi cho chế độ `chi_chu` (E19): đọc chữ xong → xếp thẳng việc dịch.
+
+    Bỏ qua xoá chữ và căn chữ. Cùng thân với `enqueue_translate_after_inpaint`; tách tên riêng
+    để log và `docs/API.md` nói được **vì sao** việc dịch xuất hiện ở đây, thay vì để người đọc
+    log tự đoán tại sao có việc dịch mà không có việc xoá chữ trước đó.
+    """
+    return enqueue_translate_after_inpaint(page_id)
+
+
 def enqueue_translate_after_inpaint(page_id: uuid.UUID) -> uuid.UUID | None:
     """Nối chuỗi: xoá chữ xong → tự xếp việc dịch."""
     with sync_session() as session:
@@ -919,16 +970,24 @@ def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dic
         source_lang = project.source_lang.value
         target_lang = project.target_lang.value
 
-        if page.status not in (
+        chi_chu = project is not None and project.che_do_pipeline is ChePipeline.chi_chu
+        cho_phep = [
             PageStatus.inpainted,
             PageStatus.inpaint_needs_review,
             PageStatus.translated,
             PageStatus.typeset_done,  # dịch lại trang ĐÃ canh chữ (M6 auto-chain đưa mọi trang tới đây)
-        ):
+        ]
+        # E19 — chế độ `chi_chu` không chạy xoá chữ, nên trang tới đây từ thẳng `ocr_done`.
+        # Chỉ nới ở chế độ đó: ở chế độ đầy đủ, dịch khi chưa xoá chữ vẫn là sai thứ tự.
+        if chi_chu:
+            cho_phep.append(PageStatus.ocr_done)
+
+        if page.status not in cho_phep:
             job.status = JobStatus.failed
             job.error_log = (
                 f"precondition_failed: page đang ở '{page.status.value}', "
-                "cần 'inpainted' (chạy xoá chữ trước khi dịch)"
+                + ("cần 'ocr_done' (chạy đọc chữ trước khi dịch)" if chi_chu
+                   else "cần 'inpainted' (chạy xoá chữ trước khi dịch)")
             )
             session.commit()
             return {"status": "failed", "job_id": str(job_id), "error": job.error_log}
@@ -971,7 +1030,7 @@ def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dic
             (r.id, (ocr_map[r.id].raw_text or ""), position)
             for position, r in enumerate(ordered, start=1)
         ]
-        job.status = JobStatus.running
+        danh_dau_dang_chay(job)
         session.commit()
 
     engine_name = engine_override or settings.translate_default_engine
@@ -1040,8 +1099,12 @@ def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dic
         job.error_log = f"fallback_used: {fallback_reason}"[:4000] if fallback_reason else None
         session.commit()
 
+    # E19 — chế độ `chi_chu` dừng ở đây: tiện ích PHỦ chữ lên ảnh gốc nên không cần căn chữ
+    # vào bong bóng. Chạy tiếp là đốt thời gian cho một kết quả không ai xem.
     typeset_job_id = (
-        enqueue_typeset_after_translate(page_id) if settings.typeset_auto_chain else None
+        enqueue_typeset_after_translate(page_id)
+        if settings.typeset_auto_chain and _che_do_pipeline(page_id) is not ChePipeline.chi_chu
+        else None
     )
 
     logger.info(
@@ -1348,7 +1411,7 @@ def _run_typeset(job_id: uuid.UUID) -> dict:
             )
             for r in regions
         ]
-        job.status = JobStatus.running
+        danh_dau_dang_chay(job)
         session.commit()
 
     # ---- tính toán NGOÀI transaction: nạp font + đo chữ là việc nặng ----
@@ -1564,7 +1627,7 @@ def _run_refit(job_id: uuid.UUID, region_id: uuid.UUID, font_size_override: floa
         page_id = page.id
         bbox = BBox(x=region.bbox_x, y=region.bbox_y, w=region.bbox_w, h=region.bbox_h)
         text = translation.translated_text or ""
-        job.status = JobStatus.running
+        danh_dau_dang_chay(job)
         session.commit()
 
     typesetter, resolver = build_typesetter()
@@ -1664,7 +1727,7 @@ def _run_region_reocr(job_id: uuid.UUID, region_id: uuid.UUID) -> dict:
         bbox = BBox(x=region.bbox_x, y=region.bbox_y, w=region.bbox_w, h=region.bbox_h)
         image_rel = page.image_path
         source_lang = project.source_lang.value
-        job.status = JobStatus.running
+        danh_dau_dang_chay(job)
         session.commit()
 
     engine = get_ocr_engine_cached(source_lang)
@@ -1762,7 +1825,7 @@ def _run_region_retranslate(job_id: uuid.UUID, region_id: uuid.UUID, engine_over
         raw_text = ocr.raw_text
         source_lang = project.source_lang.value
         target_lang = project.target_lang.value
-        job.status = JobStatus.running
+        danh_dau_dang_chay(job)
         session.commit()
 
     engine_name = engine_override or settings.translate_default_engine
@@ -1973,7 +2036,7 @@ def _run_export(job_id: uuid.UUID) -> dict:
             session.commit()
             return {"status": "failed", "job_id": str(job_id), "error": job.error_log}
 
-        job.status = JobStatus.running
+        danh_dau_dang_chay(job)
         job.overflow_warning_count = so_tran
         session.commit()
 
@@ -2100,7 +2163,7 @@ def _run_consistency_scan(job_id: uuid.UUID, project_id: uuid.UUID) -> dict:
         if job is None:
             logger.warning("Job %s không tồn tại", job_id)
             return {"status": "job_not_found", "job_id": str(job_id)}
-        job.status = JobStatus.running
+        danh_dau_dang_chay(job)
         session.commit()
 
     with sync_session() as session:
@@ -2337,7 +2400,7 @@ def _run_rut_gon(job_id: uuid.UUID) -> dict:
                     "bo_qua_sua_tay": bo_qua_sua_tay,
                     "ly_do": "khong_co_vung_nao_rut_gon_duoc"}
 
-        job.status = JobStatus.running
+        danh_dau_dang_chay(job)
         session.commit()
 
     # ---- gọi mô hình NGOÀI transaction ----

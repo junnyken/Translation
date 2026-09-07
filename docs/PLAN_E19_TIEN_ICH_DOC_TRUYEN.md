@@ -41,14 +41,23 @@ bị giết — đang nhả sạch mô hình sau mỗi trang. Nó làm đúng vi
 LaMa (xoá chữ) chính là thứ đẩy RSS từ ~1000 MB lên ~1820 MB và làm van xả bật. Hướng **phủ chữ**
 không cần LaMa.
 
-**Giả thuyết cần kiểm trước tiên:** bỏ bước xoá chữ ⇒ RSS đỉnh còn quanh 1000–1100 MB ⇒ van xả
-không bật ⇒ bộ nhận diện và OCR **nằm lại trong bộ nhớ** ⇒ trang thứ hai trở đi không phải nạp lại.
+> ⚠️ **Đoạn dưới đây đã được ĐO và nó SAI.** Giữ nguyên để thấy lập luận sai ở đâu; kết quả thật
+> ở `docs/REPORT_E19_0_DO_COND_CHAN.md`.
+>
+> ~~**Giả thuyết:** bỏ bước xoá chữ ⇒ van xả không bật ⇒ bộ nhận diện và OCR nằm lại trong bộ
+> nhớ ⇒ thời gian mỗi trang giảm **khoảng một bậc**.~~
 
-Nếu đúng, thời gian mỗi trang không giảm 2 lần mà giảm **khoảng một bậc**. Nếu sai — bộ nhận diện
-vẫn 49,5s vì bản thân phép suy luận chậm chứ không phải do nạp — thì **cả ý tưởng tiện ích phải
-xem lại**, vì 50 giây một trang thì không ai bấm dịch lần thứ hai.
+**Đo ra:** nạp mô hình chỉ tốn **0,3–0,5 giây**, không phải 45 giây. Toàn bộ chi phí nằm ở phép
+suy luận (~40–50s) và nó **không nóng lên**. Việc nạp lại mô hình *có* xảy ra như tôi đọc từ log,
+nhưng nó gần như không tốn gì — tôi gán sai chi phí cho một hiện tượng có thật.
 
-**Đây là việc đầu tiên phải làm, và nó là cổng chặn.** Không dựng tiện ích trước khi biết câu trả lời.
+Bỏ bước xoá chữ **vẫn đáng làm**: cắt 6–17s mỗi trang và hạ RSS đỉnh ~800 MB. Nhưng nó **không**
+đổi được bậc thời gian, và nút thắt là **CPU** chứ không phải RAM.
+
+⇒ Hình dung *"bấm là hiện chữ ngay"* **không sống được**. Hình dung thay thế, người dùng đã chọn
+đi tiếp: **"bấm để xếp hàng, đọc tiếp, lát sau chữ hiện ra"** — dịch trước vài trang kế trong lúc
+người đọc đang xem trang hiện tại. Với ~45s/trang và người đọc 1–2 phút/trang thì **kịp**, miễn là
+bắt đầu sớm hơn một hai trang.
 
 ## 3. Vì sao KHÔNG dùng lại tiện ích E1
 

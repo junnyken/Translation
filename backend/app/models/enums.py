@@ -134,6 +134,22 @@ class JobStatus(str, Enum):
     failed = "failed"
 
 
+class ChePipeline(str, Enum):
+    """Chapter này chạy hết pipeline hay chỉ tới bước dịch (E19).
+
+    `chi_chu` sinh ra cho tiện ích đọc truyện: nó **phủ** chữ dịch lên ảnh gốc trên trang web,
+    nên không cần xoá chữ gốc lẫn căn chữ vào bong bóng — hai bước đắt nhất và cũng là hai bước
+    duy nhất cần mô hình LaMa 1,5 GB.
+
+    Đo 05/09: bỏ hai bước đó cắt 6-17s mỗi trang và hạ RSS đỉnh khoảng 800 MB. Nó **không** làm
+    trang nhanh lên một bậc — bước nhận diện vẫn ~40-50s và đó mới là chỗ tốn thời gian
+    (`docs/REPORT_E19_0_DO_COND_CHAN.md`).
+    """
+
+    day_du = "day_du"
+    chi_chu = "chi_chu"
+
+
 #: State machine của Page — chỉ khai báo các bước hợp lệ, không "nhảy cóc".
 #: M2-M6 mỗi mini-spec dùng đúng nhánh của mình, không tự thêm cạnh mới nếu không ghi trong báo cáo.
 PAGE_STATUS_TRANSITIONS: dict[PageStatus, tuple[PageStatus, ...]] = {
@@ -141,7 +157,12 @@ PAGE_STATUS_TRANSITIONS: dict[PageStatus, tuple[PageStatus, ...]] = {
     PageStatus.detecting: (PageStatus.detected, PageStatus.detection_failed),
     PageStatus.detected: (PageStatus.ocr_done, PageStatus.detecting),
     PageStatus.detection_failed: (PageStatus.detecting,),
-    PageStatus.ocr_done: (PageStatus.inpainted, PageStatus.inpaint_needs_review),
+    # `ocr_done -> translated` thêm ở E19 cho chế độ `chi_chu`: chapter của tiện ích đọc truyện
+    # bỏ hẳn bước xoá chữ, nên nó đi thẳng từ đọc chữ sang dịch. Cạnh này KHÔNG dùng ở chế độ
+    # đầy đủ — ở đó vẫn bắt buộc qua xoá chữ, vì căn chữ cần ảnh đã sạch.
+    PageStatus.ocr_done: (
+        PageStatus.inpainted, PageStatus.inpaint_needs_review, PageStatus.translated,
+    ),
     # inpainted -> inpaint_needs_review: chạy lại inpaint ra kết quả tệ hơn (thêm ở M4)
     PageStatus.inpainted: (PageStatus.translated, PageStatus.inpaint_needs_review),
     PageStatus.inpaint_needs_review: (PageStatus.inpainted, PageStatus.translated),

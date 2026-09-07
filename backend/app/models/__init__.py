@@ -26,6 +26,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
 from app.models.enums import (
+    ChePipeline,
     OrientationSource,
     OrientationStatus,
     TextOrientation,
@@ -150,6 +151,12 @@ class Project(TimestampMixin, Base):
     )
     status: Mapped[ProjectStatus] = mapped_column(
         _enum(ProjectStatus, "project_status"), nullable=False, default=ProjectStatus.active
+    )
+    #: E19 — chapter của tiện ích đọc truyện chạy `chi_chu`: dừng sau bước dịch, không xoá chữ,
+    #: không căn chữ. Mặc định `day_du` nên chapter cũ và chapter tạo từ giao diện web không đổi.
+    che_do_pipeline: Mapped[ChePipeline] = mapped_column(
+        _enum(ChePipeline, "che_pipeline"), nullable=False, default=ChePipeline.day_du,
+        server_default=ChePipeline.day_du.value,
     )
     #: Chủ của chapter. **Cho phép NULL** có chủ đích: chapter tạo trước slice B không có chủ,
     #: và gán bừa cho một tài khoản nào đó là đoán mò. NULL = "chưa có chủ", ai đăng nhập cũng
@@ -292,6 +299,12 @@ class Job(TimestampMixin, Base):
     status: Mapped[JobStatus] = mapped_column(
         _enum(JobStatus, "job_status"), nullable=False, default=JobStatus.queued
     )
+    #: Lúc worker THỰC SỰ bắt đầu chạy việc này (E19-3). Khác `created_at` — đó là lúc xếp hàng.
+    #:
+    #: Không có nó thì từ API **không phân biệt được "đang xếp hàng" với "đang chạy"**. Đo 05/09:
+    #: cộng thời gian job theo `created_at` ra 106s cho một trang mà công thật chỉ ~57s — phần
+    #: chênh là nằm chờ. Người bấm dịch rồi ngồi đợi cần biết mình đang đợi cái gì.
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_log: Mapped[str | None] = mapped_column(Text, nullable=True)
 

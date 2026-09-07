@@ -189,6 +189,11 @@ class JobRead(ORMModel):
     retry_count: int
     error_log: str | None
     created_at: datetime
+    #: E19-3 — lúc worker THỰC SỰ bắt đầu chạy. `created_at` là lúc XẾP HÀNG, hai thứ khác nhau.
+    #:
+    #: NULL = còn nằm chờ. Không có trường này thì máy khách phải đoán, và đoán sai: cộng thời
+    #: gian job theo `created_at` ra 106s cho một trang mà công thật chỉ ~57s (đo 05/09).
+    started_at: datetime | None = None
     updated_at: datetime
 
 
