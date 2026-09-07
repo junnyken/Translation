@@ -180,7 +180,18 @@
     const them = tra?.ma === 401
       ? '\n\nPhiên đăng nhập đã hết. Mở Tuỳ chọn của tiện ích để đăng nhập lại.'
       : ''
-    xong(`Không dịch được.\n${tra?.loi || 'không rõ lý do'}${them}`, 12)
+    // "Failed to fetch" không kèm mã lỗi HTTP nào — không phân biệt được "mạng chập chờn" với
+    // "trang cố ý chặn tải ảnh" (URL ký hạn dùng ngắn, hoặc <img src> là `blob:` chỉ sống được
+    // trong đúng tab đang mở nó, service worker ở ngữ cảnh khác tải lại chắc chắn hỏng). Nhiều
+    // trang manga (vd MangaPlus) còn chặn cả chuột phải lẫn phím tắt mở DevTools nên người dùng
+    // không tự soi được — in thẳng vào đây thay vì bắt đi tìm cách khác.
+    const do_do = [
+      `thẻ: <${anh.el.tagName.toLowerCase()}>`,
+      `src: ${String(anh.src).slice(0, 60)}${anh.src.length > 60 ? '…' : ''}`,
+      `ảnh thật: ${anh.el.naturalWidth}x${anh.el.naturalHeight}`,
+      `số <img>: ${document.images.length} · số <canvas>: ${document.getElementsByTagName('canvas').length}`,
+    ].join('\n')
+    xong(`Không dịch được.\n${tra?.loi || 'không rõ lý do'}${them}\n\n${do_do}`, 20)
     return
   }
 
