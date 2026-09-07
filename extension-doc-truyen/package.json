@@ -1,7 +1,7 @@
 {
   "name": "translation-doc-truyen-extension",
   "private": true,
-  "version": "0.1.3",
+  "version": "0.1.4",
   "type": "module",
   "description": "Chrome Extension MV3: phủ chữ dịch lên trang truyện đang đọc (E19). Không có bước build.",
   "scripts": {

@@ -81,4 +81,19 @@ describe('chọn trang truyện', () => {
     const kq = chon([anh({ src: 'trang-doi.png', naturalWidth: 1800, naturalHeight: 1300, clientWidth: 1800, clientHeight: 1300 })])
     expect(kq.anh.src).toBe('trang-doi.png')
   })
+
+  it('KHÔNG chọn ảnh nền mờ của lightbox dù nó chiếm khung nhìn nhiều hơn ảnh thật', () => {
+    // Số đo thật trên reddit.com/r/translator 07/09: nền mờ dùng CHÍNH src của ảnh đang xem,
+    // phóng to phủ khung, nên "chiếm khung nhìn" của nó thắng ảnh thật 750x750 hiển thị vừa khung.
+    const kq = chon([
+      anh({
+        src: 'trang.png', mo: true,
+        naturalWidth: 750, naturalHeight: 750, clientWidth: 2304, clientHeight: 1134,
+        top: -94, bottom: 1040,
+      }),
+      anh({ src: 'trang.png', naturalWidth: 750, naturalHeight: 750, clientWidth: 830, clientHeight: 830, bottom: 830 }),
+    ])
+    expect(kq.anh.mo).toBeFalsy()
+    expect(kq.bi_loai.find((b) => b.ly_do.some((l) => l.includes('mờ')))).toBeTruthy()
+  })
 })

@@ -20,7 +20,7 @@ export const TI_LE_TOI_THIEU = 0.45
 
 /**
  * @param {Array<{src:string,naturalWidth:number,naturalHeight:number,
- *                clientWidth:number,clientHeight:number,top:number,bottom:number}>} anh
+ *                clientWidth:number,clientHeight:number,top:number,bottom:number,mo?:boolean}>} anh
  * @param {{caoKhungNhin:number}} ngu_canh
  */
 export function chonTrangTruyen(anh, { caoKhungNhin }) {
@@ -40,6 +40,11 @@ export function chonTrangTruyen(anh, { caoKhungNhin }) {
     if (a.clientWidth && w / a.clientWidth > 3) ly_do.push('bị thu nhỏ nhiều — nhiều khả năng là ảnh thu nhỏ')
     // Hoàn toàn nằm ngoài khung nhìn ⇒ không phải trang người dùng đang đọc.
     if (a.bottom <= 0 || a.top >= caoKhungNhin) ly_do.push('ngoài khung nhìn')
+    // Lightbox hay dựng nền bằng CHÍNH ảnh đang xem, phóng to + làm mờ để lấp khung. Cùng `src`
+    // nên không phân biệt được bằng kích thước thật — chỉ CSS filter mới lộ ra nó không phải nội
+    // dung mà là trang trí. Đo được trên trang thật 07/09: bản nền mờ 2304x1134, chiếm khung nhìn
+    // NHIỀU hơn bản rõ 750x750 phóng vừa khung, nên phần "chấm điểm" bên dưới bị nó thắng.
+    if (a.mo) ly_do.push('có hiệu ứng mờ — nhiều khả năng là ảnh nền trang trí của lightbox')
 
     if (ly_do.length) bi_loai.push({ src: a.src, ly_do })
     else ung_vien.push(a)

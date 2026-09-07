@@ -117,10 +117,17 @@
 
   const mo_ta = [...document.images].map((el) => {
     const r = el.getBoundingClientRect()
+    // `filter` áp lên chính thẻ HOẶC một tổ tiên (lightbox hay bọc ảnh nền trong một lớp riêng
+    // rồi mờ cả lớp đó, không mờ thẳng trên <img>). Leo lên vài cấp cho chắc, không chỉ đọc trên el.
+    let mo = false
+    for (let n = el, dem = 0; n instanceof Element && dem < 4; n = n.parentElement, dem++) {
+      const f = getComputedStyle(n).filter
+      if (f && f !== 'none') { mo = true; break }
+    }
     return {
       el, src: el.currentSrc || el.src,
       naturalWidth: el.naturalWidth, naturalHeight: el.naturalHeight,
-      clientWidth: r.width, clientHeight: r.height, top: r.top, bottom: r.bottom,
+      clientWidth: r.width, clientHeight: r.height, top: r.top, bottom: r.bottom, mo,
     }
   })
   const chon = chonTrangTruyen(mo_ta, { caoKhungNhin: window.innerHeight })
