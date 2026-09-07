@@ -85,3 +85,55 @@ bỏ sau lần thử thứ hai.
 Nếu vẫn muốn làm, làm theo hình dung khác: **bấm để xếp hàng, đọc tiếp, lát sau chữ hiện ra** —
 và tiện ích phải nói rõ đang xếp hàng thứ mấy. Việc đó lại cần `started_at` cho job (E19-3), thứ
 hiện chưa có.
+
+---
+
+# Kiểm chứng trên bản chạy thật (2026-09-07)
+
+Sau khi deploy E19-1/2/3, gửi một trang qua đúng đường tiện ích
+(`POST /api/v1/doc-truyen/trang`).
+
+## Chuỗi việc rẽ đúng — log của chính worker nói
+
+```
+detect     succeeded in 49.17s  → ocr_job_id: ff1060e5…
+ocr        succeeded in 28.38s  → inpaint_job_id: None   ← bỏ xoá chữ
+                                   translate_job_id: ffcdb8a8…
+translate  succeeded in  0.90s  → typeset_job_id: None   ← bỏ căn chữ
+```
+
+Và tra `GET /pages/{id}/jobs`: đúng **ba** việc chạy (`detect`, `ocr`, `translate`), cả ba đều có
+`started_at`. Không có việc xoá chữ, không có việc căn chữ.
+
+Trang dừng ở `translated` và endpoint trả `xong: true` — đúng đích của chế độ chỉ-chữ, không chờ
+`typeset_done` (thứ không bao giờ tới).
+
+## Con số thật, và nó KHÔNG đẹp như tôi ước
+
+| Bước | Thời gian |
+|---|---|
+| Nhận diện | **49,2s** |
+| OCR | **28,4s** (nguội — lượt nóng đo trước đó là 6,7s) |
+| Dịch | 0,9s |
+| **Tổng công thật** | **78,5s** |
+| Tường (gồm cả xếp hàng sau 4 việc) | 165s |
+
+So với đường đầy đủ đo hôm trước (nhận diện 49,5 + OCR 6,7 + xoá chữ 6,3 + dịch 0,5 + căn chữ
+0,1 = **63,1s** khi mọi thứ đã nóng): chế độ chỉ-chữ cắt được **6,4s** — đúng khoảng "6–17s" đã
+dự đoán, **không hơn**.
+
+Ước lượng thật cho tiện ích, lấy lượt OCR nóng: **~57 giây một trang**, chứ không phải 45 giây
+như tôi đã nói. Con số 45 kia lấy từ OCR nóng cộng bước nhận diện đã lượng tử hoá — mà lượng tử
+hoá thì **chưa triển khai**, nó mới chỉ được đo ở máy phát triển.
+
+## Điều này đổi gì cho hình dung "bấm rồi đọc tiếp"
+
+Vẫn sống, nhưng biên hẹp hơn tôi nói. Với ~57s/trang và người đọc 1–2 phút/trang, tiện ích phải
+bắt đầu dịch **sớm hơn ít nhất một trang** mới kịp — và nếu hàng đợi có sẵn việc khác thì không
+kịp. `so_viec_cho_truoc` trong phản hồi chính là để người dùng thấy điều đó thay vì ngồi đoán:
+lượt đo này bắt đầu với `chờ sau 4` và mất 165 giây tường.
+
+## Còn nợ
+
+Chưa thử tiện ích trên **trang truyện thật**. Toàn bộ số trên đo bằng ảnh dựng gửi qua `curl`;
+phần chọn ảnh và lớp phủ mới chỉ có test đơn vị, chưa lần nào chạm một trang web thật.
