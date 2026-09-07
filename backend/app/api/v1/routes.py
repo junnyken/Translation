@@ -13,6 +13,7 @@ from fastapi import (
     APIRouter,
     Depends,
     File,
+    Form,
     HTTPException,
     Query,
     Request,
@@ -224,27 +225,32 @@ async def _get_page_or_404(
 # bản web: vẫn qua cổng đăng nhập ở tầng router, vẫn dùng đúng pipeline, và chapter tạo ra vẫn
 # mang `intended_use` do người dùng khai như mọi chapter khác.
 
-#: Tên chapter dùng chung cho mọi trang tiện ích gửi lên. Một chapter cho mỗi tài khoản, KHÔNG
-#: phải mỗi lần bấm một chapter mới — bấm dịch 200 trang mà sinh 200 chapter thì danh sách
-#: chapter của người dùng thành bãi rác trong một buổi đọc.
+#: Tên chapter dùng chung cho mọi trang tiện ích gửi lên. Một chapter cho mỗi (tài khoản, ngôn
+#: ngữ nguồn) — KHÔNG phải mỗi lần bấm một chapter mới (bấm dịch 200 trang mà sinh 200 chapter thì
+#: danh sách chapter của người dùng thành bãi rác), và KHÔNG dồn mọi ngôn ngữ vào một chapter
+#: (source_lang chốt lúc tạo, đổi được lẫn lộn ja/en trong cùng chapter là dữ liệu sai).
 TEN_CHAPTER_DOC_NHANH = "Đọc nhanh (tiện ích)"
 
 
-async def _chapter_doc_nhanh(session: AsyncSession, nguoi: NguoiDung) -> Project:
-    """Lấy chapter `chi_chu` của người này, chưa có thì tạo."""
+async def _chapter_doc_nhanh(
+    session: AsyncSession, nguoi: NguoiDung, source_lang: SourceLang
+) -> Project:
+    """Lấy chapter `chi_chu` đúng ngôn ngữ nguồn của người này, chưa có thì tạo."""
+    ten = f"{TEN_CHAPTER_DOC_NHANH} — {source_lang.value}"
     co = (await session.execute(
         select(Project).where(
             Project.chu_so_huu_id == nguoi.id,
-            Project.name == TEN_CHAPTER_DOC_NHANH,
+            Project.name == ten,
             Project.che_do_pipeline == ChePipeline.chi_chu,
+            Project.source_lang == source_lang,
         ).limit(1)
     )).scalars().first()
     if co is not None:
         return co
 
     project = Project(
-        name=TEN_CHAPTER_DOC_NHANH,
-        source_lang=SourceLang.ja,
+        name=ten,
+        source_lang=source_lang,
         target_lang=TargetLang.vi,
         # Khai `personal`: tiện ích dịch truyện người dùng đang tự đọc. Đây là mặc định trung
         # thực nhất, và người dùng đổi được ở bản web như mọi chapter khác.
@@ -295,6 +301,9 @@ async def _tien_do_trang(session: AsyncSession, page_id: uuid.UUID) -> TienDoDoc
 )
 async def doc_truyen_gui_trang(
     file: UploadFile = File(..., description="Ảnh trang truyện lấy từ trang web"),
+    source_lang: SourceLang = Form(
+        SourceLang.ja, description="Ngôn ngữ chữ TRÊN ẢNH — quyết định chọn engine OCR nào"
+    ),
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
     nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
@@ -307,8 +316,14 @@ async def doc_truyen_gui_trang(
     Ảnh **không** được lọc trùng ở đây: bấm dịch hai lần cùng một ảnh sẽ chạy hai lần. Việc nhớ
     "ảnh này dịch rồi" thuộc về tiện ích, nơi có sẵn URL ảnh làm khoá — máy chủ muốn làm việc đó
     phải thêm cột vân tay và một lượt băm mỗi lần tải lên.
+
+    `source_lang` mặc định `ja` để không đổi hành vi cũ, nhưng **sai ngôn ngữ là ra chữ vô nghĩa**
+    chứ không phải lỗi rõ ràng: chọn `ja` cho trang chữ Latin (vd bản tiếng Anh chính thức trên
+    MangaPlus) khiến manga-ocr đọc bậy chữ Latin thành "chữ Nhật", rồi bước dịch dịch tiếp cái bậy
+    đó — sai chồng sai mà không endpoint nào báo lỗi được, vì cả hai bước đều "chạy xong bình
+    thường". Tiện ích phải để người dùng tự chọn đúng ngôn ngữ của trang đang đọc.
     """
-    project = await _chapter_doc_nhanh(session, nguoi)
+    project = await _chapter_doc_nhanh(session, nguoi, source_lang)
 
     data = await file.read()
     if not data:

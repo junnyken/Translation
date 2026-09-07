@@ -1269,12 +1269,19 @@ pipeline gốc (M2→M6), không phải phụ thuộc thật. `PageStatus.transl
 ### E19.4 Endpoint gộp — vì sao không bắt tiện ích tự nối 4 lời gọi
 
 `POST /api/v1/doc-truyen/trang` nhận thẳng file ảnh, tự tạo (hoặc tái dùng) một chapter ẩn tên
-`"Đọc nhanh (tiện ích)"` cho từng tài khoản (`_chapter_doc_nhanh`), set `che_do_pipeline=chi_chu`
-và `intended_use=personal` **ngay từ đầu** — đây là khai báo trung thực nhất cho đúng việc tiện
-ích làm (dịch trang đang tự đọc), và **không phải đường vòng né cổng M10**: `Project` này vẫn đi
-qua đúng constraint `intended_use NOT NULL` như mọi chapter, chỉ khác là được điền hộ thay vì hỏi
-qua UI vì tiện ích không có màn tạo chapter. Cổng nhắc-trách-nhiệm của M10 nằm ở bước **xuất
-file** — tiện ích này không bao giờ xuất, nên cổng đó không áp dụng, không phải bị né.
+`"Đọc nhanh (tiện ích) — {source_lang}"` cho từng (tài khoản, ngôn ngữ nguồn) (`_chapter_doc_nhanh`),
+set `che_do_pipeline=chi_chu` và `intended_use=personal` **ngay từ đầu** — đây là khai báo trung
+thực nhất cho đúng việc tiện ích làm (dịch trang đang tự đọc), và **không phải đường vòng né cổng
+M10**: `Project` này vẫn đi qua đúng constraint `intended_use NOT NULL` như mọi chapter, chỉ khác
+là được điền hộ thay vì hỏi qua UI vì tiện ích không có màn tạo chapter. Cổng nhắc-trách-nhiệm của
+M10 nằm ở bước **xuất file** — tiện ích này không bao giờ xuất, nên cổng đó không áp dụng, không
+phải bị né.
+
+**Một chapter riêng cho mỗi ngôn ngữ nguồn, không dồn chung** (thêm 07/09, sau sự cố MangaPlus ở
+§E19.6b): `source_lang` chốt lúc tạo `Project` và quyết định chọn engine OCR (manga-ocr cho `ja`,
+PaddleOCR cho `zh`/`en` — hợp đồng M3). Bấm dịch cùng tài khoản nhưng khác ngôn ngữ trang mà dồn
+vào một chapter thì sẽ có trang chạy sai engine kể cả khi người dùng đã chọn đúng lần đó — vì
+chapter nhớ `source_lang` cố định từ lần tạo đầu tiên, không phải theo từng trang.
 
 `GET /api/v1/doc-truyen/trang/{page_id}` trả **vùng đã có kể cả khi chưa xong hết trang** — dịch
 xong bong bóng nào tiện ích phủ được bong bóng đó, không đợi cả trang. `started_at` (E19-3 kế
@@ -1332,6 +1339,26 @@ vẽ `<img>` lên `<canvas>` cùng tài liệu (không nhiễm bẩn vì `blob:`
 `Blob` → base64, gửi kèm byte thay vì chỉ gửi URL. Canvas lỗi (ảnh `https://` cross-origin không
 CORS — trường hợp phổ biến hơn) thì rơi về đường cũ: gửi URL để service worker tự tải bằng
 `host_permissions`. Không đoán trước loại ảnh nào đi đường nào — thử rồi mới biết.
+
+### E19.6c Chữ trên ảnh không phải luôn là tiếng Nhật — thêm ô chọn `source_lang` (2026-09-07)
+
+Sửa xong §E19.6b, dịch được trang MangaPlus — nhưng **ra chữ vô nghĩa** ("2010BSTACLE
+SISGHTANDTHEEANEMAN..."). Nguyên nhân khác hẳn: trang này là **bản tiếng Anh chính thức** của
+MangaPlus (chữ Latin, không phải tiếng Nhật), mà `_chapter_doc_nhanh` trước đó **hardcode
+`source_lang=SourceLang.ja`** — mọi trang tiện ích gửi lên đều bị ép chạy qua `manga-ocr` (huấn
+luyện cho tiếng Nhật). manga-ocr đọc chữ Latin ra chuỗi rác gần giống chữ (không phải lỗi rõ ràng
+kiểu crash), bước dịch dịch tiếp chuỗi rác đó — sai chồng sai mà cả hai bước đều "chạy xong bình
+thường", không có tín hiệu lỗi nào để tự phát hiện.
+
+**Đây không phải lỗi hiếm** — E19 chủ đích "bất kỳ trang nào" (§E19 mở đầu), và rất nhiều manga
+đọc online là bản dịch tiếng Anh/Trung chính thức chứ không phải bản gốc tiếng Nhật. Hardcode một
+ngôn ngữ nguồn duy nhất mâu thuẫn thẳng với chính mục tiêu đó.
+
+**Sửa:** thêm `source_lang` (`ja`/`zh`/`en`, mặc định `ja` — giữ hành vi cũ cho ai chưa biết tới
+tuỳ chọn này) vào form-data của `POST /doc-truyen/trang`, và một ô chọn trong trang Tuỳ chọn của
+tiện ích ("Ngôn ngữ chữ TRÊN trang truyện đang đọc" — cố ý ghi rõ đây là chữ trên ảnh, không phải
+ngôn ngữ muốn đọc, để không lặp lại đúng cách hiểu nhầm vừa gặp). Đổi lưu ngay, không cần đăng
+nhập lại — đây là thuộc tính của trang đang đọc, không phải của tài khoản.
 
 ### E19.7 Giới hạn cố ý để lại
 

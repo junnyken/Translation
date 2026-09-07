@@ -450,5 +450,22 @@ async def test_bam_dich_nhieu_lan_KHONG_sinh_nhieu_chapter(client, sample_page_i
     ra = [await client.post("/api/v1/doc-truyen/trang", files=tep) for _ in range(3)]
     assert all(r.status_code == 202 for r in ra)
     ds = (await client.get("/api/v1/projects")).json()
-    doc_nhanh = [p for p in ds if p["name"] == "Đọc nhanh (tiện ích)"]
+    doc_nhanh = [p for p in ds if p["name"] == "Đọc nhanh (tiện ích) — ja"]
     assert len(doc_nhanh) == 1, f"sinh {len(doc_nhanh)} chapter cho 3 lần bấm"
+
+
+async def test_nguon_ngu_khac_nhau_TACH_chapter_rieng(client, sample_page_image):
+    """Trộn ja/en vào chung một chapter là dữ liệu sai — source_lang chốt lúc tạo chapter."""
+    tep = {"file": ("a.png", sample_page_image, "image/png")}
+    await client.post("/api/v1/doc-truyen/trang", files=tep, data={"source_lang": "ja"})
+    await client.post("/api/v1/doc-truyen/trang", files=tep, data={"source_lang": "en"})
+    ds = (await client.get("/api/v1/projects")).json()
+    ten = {p["name"] for p in ds}
+    assert "Đọc nhanh (tiện ích) — ja" in ten
+    assert "Đọc nhanh (tiện ích) — en" in ten
+
+
+async def test_source_lang_sai_thi_422(client, sample_page_image):
+    tep = {"file": ("a.png", sample_page_image, "image/png")}
+    ra = await client.post("/api/v1/doc-truyen/trang", files=tep, data={"source_lang": "fr"})
+    assert ra.status_code == 422

@@ -4,7 +4,7 @@
  * máy chủ cấp mới nằm lại trong `chrome.storage.local`. Mã phiên thu hồi được (đăng xuất là
  * mất hiệu lực ngay), mật khẩu thì không.
  */
-import { dangNhap, dangXuat, docCauHinh, toiLaAi } from '../lib/api.js'
+import { dangNhap, dangXuat, docCauHinh, luuCauHinh, toiLaAi } from '../lib/api.js'
 
 const $ = (id) => document.getElementById(id)
 const bao = (chu, loai) => {
@@ -19,9 +19,10 @@ const bao = (chu, loai) => {
 document.getElementById('phien-ban').textContent = `v${chrome.runtime.getManifest().version}`
 
 async function ve() {
-  const { diaChi, email } = await docCauHinh()
+  const { diaChi, email, ngonNgu } = await docCauHinh()
   $('dia-chi').value = diaChi
   $('email').value = email
+  $('ngon-ngu').value = ngonNgu
   try {
     const nguoi = await toiLaAi()
     $('email-hien').textContent = nguoi.email
@@ -44,6 +45,12 @@ $('dang-nhap').addEventListener('submit', async (e) => {
   } catch (err) {
     bao(String(err?.message || err), 'loi')
   }
+})
+
+// Lưu ngay khi đổi — không cần nút riêng, không cần đăng nhập lại: đây là chữ TRÊN ẢNH, đổi
+// tuỳ theo trang đang đọc, không phải một phần của tài khoản.
+$('ngon-ngu').addEventListener('change', async (e) => {
+  await luuCauHinh({ ngonNgu: e.target.value })
 })
 
 $('nut-thoat').addEventListener('click', async () => {

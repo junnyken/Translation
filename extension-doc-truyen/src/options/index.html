@@ -27,6 +27,19 @@
     <button id="nut-thoat">Đăng xuất</button>
   </div>
 
+  <label for="ngon-ngu">Ngôn ngữ chữ TRÊN trang truyện đang đọc</label>
+  <select id="ngon-ngu">
+    <option value="ja">Tiếng Nhật</option>
+    <option value="zh">Tiếng Trung</option>
+    <option value="en">Tiếng Anh</option>
+  </select>
+  <p class="ghi-chu">
+    Chọn <b>đúng chữ trên ảnh</b>, không phải ngôn ngữ bạn muốn đọc — chọn sai thì máy đọc chữ ra
+    rác mà không báo lỗi gì (vd trang <b>tiếng Anh</b> chính thức của MangaPlus phải chọn
+    <b>Tiếng Anh</b>, không phải Tiếng Nhật dù truyện gốc là truyện Nhật). Đổi lúc nào cũng được,
+    áp dụng cho lần bấm dịch kế tiếp.
+  </p>
+
   <form id="dang-nhap">
     <label for="dia-chi">Địa chỉ máy chủ Translation</label>
     <input id="dia-chi" type="url" required placeholder="https://translation-api...matbao.ai" />

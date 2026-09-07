@@ -5,7 +5,13 @@
  * bản web.
  */
 
-export const KHOA_LUU = { dia_chi: 'diaChi', ma_phien: 'maPhien', email: 'email' }
+export const KHOA_LUU = {
+  dia_chi: 'diaChi', ma_phien: 'maPhien', email: 'email',
+  //: Ngôn ngữ CHỮ TRÊN ẢNH (không phải ngôn ngữ đích) — quyết định chọn engine OCR. `ja` là mặc
+  //: định trung thực nhất với hành vi trước khi có lựa chọn này, không phải "loại phổ biến nhất".
+  ngon_ngu: 'ngonNgu',
+}
+export const NGON_NGU_MAC_DINH = 'ja'
 
 export async function docCauHinh() {
   const d = await chrome.storage.local.get(Object.values(KHOA_LUU))
@@ -13,14 +19,17 @@ export async function docCauHinh() {
     diaChi: (d[KHOA_LUU.dia_chi] || '').replace(/\/+$/, ''),
     maPhien: d[KHOA_LUU.ma_phien] || '',
     email: d[KHOA_LUU.email] || '',
+    ngonNgu: d[KHOA_LUU.ngon_ngu] || NGON_NGU_MAC_DINH,
   }
 }
 
 export async function luuCauHinh(c) {
+  const hien = await docCauHinh()
   await chrome.storage.local.set({
-    [KHOA_LUU.dia_chi]: c.diaChi ?? '',
-    [KHOA_LUU.ma_phien]: c.maPhien ?? '',
-    [KHOA_LUU.email]: c.email ?? '',
+    [KHOA_LUU.dia_chi]: c.diaChi ?? hien.diaChi,
+    [KHOA_LUU.ma_phien]: c.maPhien ?? hien.maPhien,
+    [KHOA_LUU.email]: c.email ?? hien.email,
+    [KHOA_LUU.ngon_ngu]: c.ngonNgu ?? hien.ngonNgu,
   })
 }
 
@@ -74,10 +83,15 @@ export async function dangXuat() {
 }
 
 /** Gửi BYTE ảnh lên. Nhận `Blob` chứ không nhận URL: máy chủ không với tới trang truyện được,
- *  và cũng không nên với tới. */
-export async function guiTrang(blob) {
+ *  và cũng không nên với tới.
+ *
+ * `ngonNgu` là chữ TRÊN ẢNH (chọn ở trang Tuỳ chọn), không phải ngôn ngữ đích — chọn sai không
+ * báo lỗi gì, chỉ ra chữ vô nghĩa (đo được 07/09 trên MangaPlus bản tiếng Anh với mặc định `ja`).
+ */
+export async function guiTrang(blob, ngonNgu) {
   const form = new FormData()
   form.append('file', blob, 'trang.png')
+  form.append('source_lang', ngonNgu || NGON_NGU_MAC_DINH)
   return goi('/doc-truyen/trang', { method: 'POST', body: form })
 }
 
