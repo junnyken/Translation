@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Dịch truyện đang đọc",
+  "version": "0.1.0",
+  "description": "Bấm một cái để phủ chữ dịch tiếng Việt lên trang truyện bạn đang đọc. Gửi ảnh tới máy chủ Translation của chính bạn.",
+  "minimum_chrome_version": "114",
+  "permissions": ["storage", "scripting", "activeTab"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "src/service-worker.js",
+    "type": "module"
+  },
+  "options_page": "src/options/index.html",
+  "action": {
+    "default_title": "Dịch trang truyện này"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["src/lib/chon-anh.js", "src/lib/toa-do.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

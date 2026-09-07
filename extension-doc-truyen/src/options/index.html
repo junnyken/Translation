@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <title>Dịch truyện đang đọc — Tuỳ chọn</title>
+  <style>
+    body { font: 14px/1.5 system-ui, sans-serif; max-width: 520px; margin: 32px auto; padding: 0 16px; }
+    h1 { font-size: 19px; margin: 0 0 4px; }
+    label { display: block; font-weight: 500; margin: 14px 0 4px; }
+    input { width: 100%; box-sizing: border-box; padding: 7px 9px; }
+    button { margin-top: 14px; padding: 7px 14px; }
+    .ghi-chu { color: #666; font-size: 12.5px; }
+    .hop { padding: 10px 12px; border-radius: 6px; margin-top: 14px; }
+    .loi { background: #fdecea; border: 1px solid #f5c6cb; }
+    .ok  { background: #e8f5e9; border: 1px solid #c8e6c9; }
+  </style>
+</head>
+<body>
+  <h1>Dịch truyện đang đọc</h1>
+  <p class="ghi-chu">
+    Tiện ích gửi ảnh trang truyện tới máy chủ Translation <b>của bạn</b> để dịch. Nó không gửi đi
+    đâu khác.
+  </p>
+
+  <div id="da-dang-nhap" hidden>
+    <div class="hop ok">Đang đăng nhập bằng <b id="email-hien"></b></div>
+    <button id="nut-thoat">Đăng xuất</button>
+  </div>
+
+  <form id="dang-nhap">
+    <label for="dia-chi">Địa chỉ máy chủ Translation</label>
+    <input id="dia-chi" type="url" required placeholder="https://translation-api...matbao.ai" />
+
+    <label for="email">Email</label>
+    <input id="email" type="email" required autocomplete="username" />
+
+    <label for="mat-khau">Mật khẩu</label>
+    <input id="mat-khau" type="password" required autocomplete="current-password" />
+
+    <button type="submit">Đăng nhập</button>
+    <p class="ghi-chu">
+      Chưa có tài khoản thì tạo ở giao diện web của Translation — việc đó cần khoá chung của hệ
+      thống, và tiện ích cố ý không giữ khoá đó.
+    </p>
+  </form>
+
+  <div id="bao" class="hop" hidden></div>
+  <script type="module" src="./index.js"></script>
+</body>
+</html>
