@@ -9,8 +9,11 @@ tiện ích này cố ý làm ngược ba lời hứa của cái kia, nên nó p
 
 1. `chrome://extensions` → bật **Chế độ dành cho nhà phát triển** → **Tải tiện ích đã giải nén** →
    chọn thư mục này. Không có bước build.
-2. Mở **Chi tiết → Tuỳ chọn của tiện ích**, nhập địa chỉ máy chủ Translation và đăng nhập.
-3. Mở trang truyện, bấm biểu tượng tiện ích.
+2. Mở trang truyện, bấm biểu tượng tiện ích. Chưa cấu hình thì nó **tự mở trang cài đặt** —
+   nhập địa chỉ máy chủ Translation và đăng nhập ở đó.
+
+   *(Mở tay: `chrome://extensions` → **Chi tiết** → kéo xuống **Tuỳ chọn tiện ích**. Chỗ này bị
+   Chrome giấu khá sâu, nên tiện ích tự mở giúp thay vì bắt đi tìm.)*
 
 ## Biết trước cho khỏi thất vọng
 

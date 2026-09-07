@@ -84,3 +84,20 @@ export async function guiTrang(blob) {
 export async function layTrang(pageId) {
   return goi(`/doc-truyen/trang/${pageId}`)
 }
+
+
+/** Thiếu cấu hình thì thiếu cái gì — trả câu nói cho người dùng, hoặc `null` nếu đủ.
+ *
+ * Tách khỏi phần gọi Chrome API để test được bằng số. Câu chữ ở đây quan trọng hơn nó trông:
+ * bản đầu chỉ nói "Chưa đặt địa chỉ máy chủ Translation." — đúng nhưng vô dụng, vì nó không
+ * đưa người dùng tới chỗ sửa được, và người dùng thật đã không tìm ra trang tuỳ chọn.
+ */
+export function lyDoThieuCauHinh({ diaChi, maPhien }) {
+  if (!diaChi) {
+    return 'Chưa đặt địa chỉ máy chủ Translation. Đã mở trang cài đặt — nhập địa chỉ rồi đăng nhập.'
+  }
+  if (!maPhien) {
+    return 'Chưa đăng nhập. Đã mở trang cài đặt — đăng nhập rồi bấm dịch lại.'
+  }
+  return null
+}
