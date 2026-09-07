@@ -23,7 +23,11 @@
     'box-shadow:0 4px 16px rgba(0,0,0,.35)', 'white-space:pre-wrap',
   ].join(';')
   document.body.appendChild(bang)
-  const noi = (t) => { bang.textContent = t }
+  const V = chrome.runtime.getManifest().version
+  // Gắn phiên bản vào MỌI thông báo: người dùng tải gói .zip về máy nên bản đang chạy có thể cũ
+  // hơn bản vừa sửa, và hai lượt thử vừa rồi không có cách nào phân biệt "bản sửa không ăn thua"
+  // với "bản sửa chưa tới máy".
+  const noi = (t) => { bang.textContent = `[v${V}] ${t}` }
   const xong = (t, giay = 6) => { noi(t); setTimeout(() => bang.remove(), giay * 1000) }
 
   function vePhu(el, vung) {
@@ -166,5 +170,18 @@
   window[CO].daDich.set(anh.src, tra.vung)
   vePhu(anh.el, tra.vung)
   const co_chu = tra.vung.filter((v) => v.ban_dich).length
-  xong(`Xong: ${co_chu}/${tra.vung.length} bong bóng có bản dịch.`, 5)
+
+  // Kèm SỐ ĐO vị trí. Hai lượt sửa vừa rồi đều đoán sai nguyên nhân lớp phủ lệch, vì ảnh chụp
+  // màn hình cho thấy "sai" nhưng không cho biết sai ở đâu. Ba con số dưới đây phân biệt được:
+  //   - khung ảnh ≈ chỗ ảnh đang hiện  ⇒ chọn đúng phần tử, lỗi ở phép đặt lớp phủ
+  //   - khung ảnh ≠ chỗ ảnh đang hiện  ⇒ vẽ nhầm phần tử (hai <img> cùng src, bản nền vs bản lightbox)
+  const r = anh.el.getBoundingClientRect()
+  const lop_r = document.getElementById('translation-lop-phu')?.getBoundingClientRect()
+  const so_do = [
+    `ảnh: ${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)}`,
+    `lớp phủ: ${lop_r ? `${Math.round(lop_r.left)},${Math.round(lop_r.top)} ${Math.round(lop_r.width)}x${Math.round(lop_r.height)}` : 'KHÔNG CÓ'}`,
+    `ảnh thật: ${anh.el.naturalWidth}x${anh.el.naturalHeight}`,
+    `số <img> đủ lớn: ${1 + chon.bi_loai.length} xét, chọn 1`,
+  ].join('\n')
+  xong(`Xong: ${co_chu}/${tra.vung.length} bong bóng có bản dịch.\n\n${so_do}`, 40)
 })()
