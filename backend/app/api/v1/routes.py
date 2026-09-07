@@ -55,6 +55,12 @@ from app.models import (
     TypesetResult,
 )
 from app.models.enums import (
+    OCRStatus,
+    ChePipeline,
+    IntendedUse,
+    RegionStatus,
+    SourceLang,
+    TargetLang,
     BatchItemStatus,
     OrientationStatus,
     SafeAreaStatus,
@@ -76,6 +82,9 @@ from app.models.enums import (
     TranslationEngine,
 )
 from app.schemas.common import (
+    TienDoDocTruyen,
+    TrangDocTruyen,
+    VungDocTruyen,
     TermCandidatesResponse,
     TermSuggestionCreate,
     TermSuggestionRunRead,
@@ -207,6 +216,187 @@ async def _get_page_or_404(
     await bao_dam_quyen(session, nguoi, page)
     await bao_dam_quyen(session, nguoi, page)
     return page
+
+
+# ---------------- E19: tiện ích đọc truyện ----------------
+#
+# Hai endpoint này là toàn bộ những gì tiện ích cần. Chúng KHÔNG phải đường vòng né các cổng của
+# bản web: vẫn qua cổng đăng nhập ở tầng router, vẫn dùng đúng pipeline, và chapter tạo ra vẫn
+# mang `intended_use` do người dùng khai như mọi chapter khác.
+
+#: Tên chapter dùng chung cho mọi trang tiện ích gửi lên. Một chapter cho mỗi tài khoản, KHÔNG
+#: phải mỗi lần bấm một chapter mới — bấm dịch 200 trang mà sinh 200 chapter thì danh sách
+#: chapter của người dùng thành bãi rác trong một buổi đọc.
+TEN_CHAPTER_DOC_NHANH = "Đọc nhanh (tiện ích)"
+
+
+async def _chapter_doc_nhanh(session: AsyncSession, nguoi: NguoiDung) -> Project:
+    """Lấy chapter `chi_chu` của người này, chưa có thì tạo."""
+    co = (await session.execute(
+        select(Project).where(
+            Project.chu_so_huu_id == nguoi.id,
+            Project.name == TEN_CHAPTER_DOC_NHANH,
+            Project.che_do_pipeline == ChePipeline.chi_chu,
+        ).limit(1)
+    )).scalars().first()
+    if co is not None:
+        return co
+
+    project = Project(
+        name=TEN_CHAPTER_DOC_NHANH,
+        source_lang=SourceLang.ja,
+        target_lang=TargetLang.vi,
+        # Khai `personal`: tiện ích dịch truyện người dùng đang tự đọc. Đây là mặc định trung
+        # thực nhất, và người dùng đổi được ở bản web như mọi chapter khác.
+        intended_use=IntendedUse.personal,
+        che_do_pipeline=ChePipeline.chi_chu,
+        chu_so_huu_id=nguoi.id,
+    )
+    session.add(project)
+    await session.commit()
+    await session.refresh(project)
+    return project
+
+
+async def _tien_do_trang(session: AsyncSession, page_id: uuid.UUID) -> TienDoDocTruyen:
+    """Việc của trang này đang chạy hay đang chờ, và chờ sau bao nhiêu việc khác.
+
+    `started_at` (E19-3) là thứ phân biệt hai trạng thái đó. Không có nó thì chỉ nói được
+    "chưa xong", và người dùng không biết mình chờ 5 giây hay 5 phút.
+    """
+    viec = (await session.execute(
+        select(Job).where(Job.page_id == page_id, Job.status.in_((JobStatus.queued, JobStatus.running)))
+        .order_by(Job.created_at)
+        .limit(1)
+    )).scalars().first()
+    if viec is None:
+        return TienDoDocTruyen()
+
+    dang_chay = viec.started_at is not None
+    truoc = None
+    if not dang_chay:
+        # Hàng đợi worker là hàng đợi CHUNG cho mọi chapter của mọi người, nên đếm trên toàn bộ
+        # việc chưa chạy — đếm riêng chapter này sẽ ra một con số đẹp mà sai.
+        truoc = int((await session.execute(
+            select(func.count()).select_from(Job).where(
+                Job.status == JobStatus.queued,
+                Job.started_at.is_(None),
+                Job.created_at < viec.created_at,
+            )
+        )).scalar() or 0)
+    return TienDoDocTruyen(buoc=viec.type.value, dang_chay=dang_chay, so_viec_cho_truoc=truoc)
+
+
+@router.post(
+    "/doc-truyen/trang",
+    response_model=TrangDocTruyen,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["doc-truyen"],
+)
+async def doc_truyen_gui_trang(
+    file: UploadFile = File(..., description="Ảnh trang truyện lấy từ trang web"),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
+) -> TrangDocTruyen:
+    """Nhận một ảnh trang truyện, xếp việc, trả về `page_id` để tra sau.
+
+    **Trả 202, không phải kết quả.** Một trang tốn khoảng 45 giây (đo 05/09, chủ yếu ở bước nhận
+    diện) nên giữ kết nối chờ là sai — tiện ích lấy `page_id` rồi hỏi lại.
+
+    Ảnh **không** được lọc trùng ở đây: bấm dịch hai lần cùng một ảnh sẽ chạy hai lần. Việc nhớ
+    "ảnh này dịch rồi" thuộc về tiện ích, nơi có sẵn URL ảnh làm khoá — máy chủ muốn làm việc đó
+    phải thêm cột vân tay và một lượt băm mỗi lần tải lên.
+    """
+    project = await _chapter_doc_nhanh(session, nguoi)
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=422, detail="File rỗng")
+    if len(data) > settings.max_upload_bytes:
+        raise HTTPException(status_code=413, detail=f"Ảnh vượt quá {settings.max_upload_mb}MB")
+    try:
+        _mime, ext = sniff_image(data)
+    except UnsupportedImage as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    next_order = (await session.scalar(
+        select(func.coalesce(func.max(Page.order), 0) + 1).where(Page.project_id == project.id)
+    )) or 1
+    page = Page(project_id=project.id, image_path="", order=next_order, status=PageStatus.queued)
+    session.add(page)
+    await session.flush()
+
+    storage = get_storage()
+    page.image_path = await run_in_threadpool(
+        storage.save_page_image, project.id, page.id, data, ext
+    )
+    job = Job(type=JobType.detect, page_id=page.id, status=JobStatus.queued)
+    session.add(job)
+    await session.commit()
+    await session.refresh(page)
+
+    sent, ly_do = dispatch_detect_job(job.id)
+    if not sent:
+        job.error_log = ly_do
+        await session.commit()
+
+    return TrangDocTruyen(
+        page_id=page.id, trang_thai=page.status, xong=False,
+        tien_do=await _tien_do_trang(session, page.id),
+    )
+
+
+@router.get("/doc-truyen/trang/{page_id}", response_model=TrangDocTruyen, tags=["doc-truyen"])
+async def doc_truyen_lay_trang(
+    page_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
+) -> TrangDocTruyen:
+    """Kết quả của một trang: đang tới đâu, và các bong bóng đã dịch được.
+
+    Trả về **vùng đã có** kể cả khi chưa xong hết — dịch xong bong bóng nào thì tiện ích phủ
+    được bong bóng đó, không phải chờ cả trang.
+    """
+    page = await _get_page_or_404(session, page_id, nguoi)
+
+    rows = (await session.execute(
+        select(TextRegion, OCRResult, TranslationResult)
+        .outerjoin(OCRResult, OCRResult.region_id == TextRegion.id)
+        .outerjoin(TranslationResult, TranslationResult.region_id == TextRegion.id)
+        .where(TextRegion.page_id == page_id)
+        .order_by(TextRegion.reading_order.nulls_last(), TextRegion.created_at)
+    )).all()
+
+    vung = [
+        VungDocTruyen(
+            region_id=r.id, x=r.bbox_x, y=r.bbox_y, w=r.bbox_w, h=r.bbox_h,
+            thu_tu_doc=r.reading_order,
+            chu_goc=o.raw_text if o is not None else None,
+            ban_dich=t.translated_text if t is not None else None,
+            kem_tin_cay=(
+                r.status is RegionStatus.low_confidence
+                or (o is not None and o.status is OCRStatus.needs_manual)
+            ),
+        )
+        for r, o, t in rows
+    ]
+
+    hong = (await session.execute(
+        select(Job.error_log).where(Job.page_id == page_id, Job.status == JobStatus.failed)
+        .order_by(Job.created_at.desc()).limit(1)
+    )).scalars().first()
+
+    return TrangDocTruyen(
+        page_id=page.id,
+        trang_thai=page.status,
+        # `translated` là ĐÍCH của chế độ chỉ-chữ — không chờ `typeset_done`, nó không bao giờ tới.
+        xong=page.status in (PageStatus.translated, PageStatus.typeset_done,
+                             PageStatus.ready_for_export),
+        tien_do=await _tien_do_trang(session, page.id),
+        vung=vung,
+        loi=hong,
+    )
 
 
 @router.post("/projects", response_model=ProjectRead, status_code=status.HTTP_201_CREATED, tags=["projects"])

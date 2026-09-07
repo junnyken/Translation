@@ -189,6 +189,9 @@ def _duong_dan_that(mau: str, ids: dict[str, str]) -> str | None:
 MIEN_TRU = {
     "/api/v1/projects": "tạo chapter mới / liệt kê chapter CỦA MÌNH — không nhận id của ai",
     "/api/v1/batch-config": "hằng số cấu hình, không có dữ liệu người dùng",
+    # Không nhận id nào; luôn ghi vào chapter "Đọc nhanh" CỦA CHÍNH người gọi. Miễn trừ ở đây
+    # KHÔNG phải tin lời — `test_moi_nguoi_gui_anh_vao_chapter_CUA_MINH` chứng minh bằng dữ liệu.
+    "/api/v1/doc-truyen/trang": "tải ảnh vào chapter của chính người gọi; kiểm ở test riêng",
     "/api/v1/health": "trạng thái hệ thống",
     "/api/v1/auth/login": "chưa đăng nhập thì mới gọi",
     "/api/v1/auth/logout": "chỉ thu hồi phiên của chính người gọi",
@@ -290,9 +293,10 @@ async def test_khong_endpoint_nao_lo_du_lieu_sang_tai_khoan_khac(
         if duong is None:
             khong_dung_duoc.append(f"{method} {mau}")
             continue
-        if mau.endswith("/pages") and method == "POST":
-            # Endpoint duy nhất nhận multipart. Gửi JSON vào đây thì cả A lẫn B đều 422 và
-            # phép dò rỗng nghĩa — mà đây lại là đường GHI dữ liệu vào chapter người khác.
+        if method == "POST" and mau in ("/api/v1/projects/{project_id}/pages",
+                                        "/api/v1/doc-truyen/trang"):
+            # Hai endpoint nhận multipart. Gửi JSON vào đây thì cả A lẫn B đều 422 và phép dò
+            # rỗng nghĩa — mà đây lại là đường GHI dữ liệu.
             tep = {"file": ("a.png", b"\x89PNG\r\n\x1a\n" + b"0" * 64, "image/png")}
             tra_a = await client.post(duong, files=tep)
             tra_b = await client_b.post(duong, files=tep)
@@ -406,3 +410,45 @@ async def test_chapter_tao_moi_luon_co_chu(session, client, client_b):
     assert tra.status_code == 201, tra.text
     assert tra.json()["chu_so_huu_id"] is not None
     assert (await client_b.get(f"/api/v1/projects/{tra.json()['id']}")).status_code == 404
+
+
+async def test_moi_nguoi_gui_anh_vao_chapter_CUA_MINH(session, client, client_b, sample_page_image):
+    """`POST /doc-truyen/trang` không nhận id nào, nên phép dò chéo không kiểm được nó.
+
+    Nhưng "không kiểm được" khác "không cần kiểm": endpoint này TỰ CHỌN chapter, và nếu nó chọn
+    nhầm thì ảnh của người này rơi vào chapter người kia — hỏng nặng hơn mọi lỗ hổng đọc.
+    """
+    tep = {"file": ("a.png", sample_page_image, "image/png")}
+    ra_a = await client.post("/api/v1/doc-truyen/trang", files=tep)
+    ra_b = await client_b.post("/api/v1/doc-truyen/trang", files=tep)
+    assert ra_a.status_code == 202, ra_a.text
+    assert ra_b.status_code == 202, ra_b.text
+
+    pid_a, pid_b = ra_a.json()["page_id"], ra_b.json()["page_id"]
+    assert pid_a != pid_b
+
+    # Mỗi người chỉ đọc được trang của mình.
+    assert (await client.get(f"/api/v1/doc-truyen/trang/{pid_a}")).status_code == 200
+    assert (await client_b.get(f"/api/v1/doc-truyen/trang/{pid_a}")).status_code == 404
+    assert (await client.get(f"/api/v1/doc-truyen/trang/{pid_b}")).status_code == 404
+
+    # Và hai trang nằm ở HAI chapter khác nhau, mỗi chapter đúng một chủ.
+    from app.models import Page, Project
+    import uuid as _u
+    chu = []
+    for pid in (pid_a, pid_b):
+        trang = await session.get(Page, _u.UUID(pid))
+        chu.append((await session.get(Project, trang.project_id)).chu_so_huu_id)
+    assert chu[0] != chu[1], "hai người dùng chung một chapter"
+
+
+async def test_bam_dich_nhieu_lan_KHONG_sinh_nhieu_chapter(client, sample_page_image):
+    """Bấm dịch 200 trang mà sinh 200 chapter thì danh sách chapter thành bãi rác trong một buổi."""
+    from app.models import Page, Project
+    import uuid as _u
+    tep = {"file": ("a.png", sample_page_image, "image/png")}
+    ra = [await client.post("/api/v1/doc-truyen/trang", files=tep) for _ in range(3)]
+    assert all(r.status_code == 202 for r in ra)
+    ds = (await client.get("/api/v1/projects")).json()
+    doc_nhanh = [p for p in ds if p["name"] == "Đọc nhanh (tiện ích)"]
+    assert len(doc_nhanh) == 1, f"sinh {len(doc_nhanh)} chapter cho 3 lần bấm"

@@ -308,6 +308,51 @@ class RegionDetail(ORMModel):
     typeset_edited_by_user: bool = False
 
 
+# ---------- E19: tiện ích đọc truyện ----------
+class VungDocTruyen(BaseModel):
+    """Một bong bóng: ở đâu trên ảnh, chữ gốc là gì, dịch ra sao.
+
+    Toạ độ theo **pixel của ảnh gốc** đã gửi lên. Tiện ích phải tự quy đổi sang kích thước hiển
+    thị (`naturalWidth` vs `clientWidth`) — máy chủ không biết trang web đang co ảnh bao nhiêu.
+    """
+
+    region_id: uuid.UUID
+    x: float
+    y: float
+    w: float
+    h: float
+    #: Thứ tự đọc do M3 suy ra. `null` = chưa suy được, tiện ích cứ giữ nguyên thứ tự trả về.
+    thu_tu_doc: int | None = None
+    #: `null` = chưa đọc được chữ. KHÁC chuỗi rỗng (đọc rồi mà không có chữ nào).
+    chu_goc: str | None = None
+    ban_dich: str | None = None
+    #: Vùng máy tự thấy không chắc — tiện ích nên hiện nhạt hơn thay vì im lặng như nhau.
+    kem_tin_cay: bool = False
+
+
+class TienDoDocTruyen(BaseModel):
+    """Đang ở đâu — và **đang chờ hay đang chạy**, hai chuyện khác nhau.
+
+    Không tách được hai thứ này thì thanh tiến độ nói dối: người dùng thấy "đang xử lý" trong
+    lúc việc còn nằm chờ sau 6 trang khác.
+    """
+
+    buoc: str | None = None
+    dang_chay: bool = False
+    #: Số việc đang xếp trước việc này. 0 = tới lượt rồi. `null` = không còn việc nào.
+    so_viec_cho_truoc: int | None = None
+
+
+class TrangDocTruyen(BaseModel):
+    page_id: uuid.UUID
+    trang_thai: PageStatus
+    xong: bool
+    tien_do: TienDoDocTruyen
+    vung: list[VungDocTruyen] = []
+    #: Lý do hỏng, lấy nguyên văn từ job. `null` = không hỏng.
+    loi: str | None = None
+
+
 class PageDetail(BaseModel):
     """Toàn bộ dữ liệu 1 trang cho màn sửa tay (M7) — gọi 1 lần thay vì 5 lần."""
 

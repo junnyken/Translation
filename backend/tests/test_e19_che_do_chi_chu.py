@@ -158,3 +158,85 @@ class TestStartedAt:
         assert con == [], f"{len(con)} chỗ đặt running bằng tay — dùng danh_dau_dang_chay()"
         assert "def danh_dau_dang_chay(" in ma
         assert ma.count("danh_dau_dang_chay(job)") >= 10, "quá ít chỗ gọi — có phải đã bị gỡ?"
+
+
+class TestEndpointTienIch:
+    """E19-2 — hai endpoint tiện ích dùng."""
+
+    async def test_gui_anh_tra_202_va_page_id_chu_khong_cho_ket_qua(
+        self, client, sample_page_image
+    ):
+        """Một trang tốn ~45s (đo 05/09) nên giữ kết nối chờ là sai."""
+        tra = await client.post(
+            "/api/v1/doc-truyen/trang",
+            files={"file": ("a.png", sample_page_image, "image/png")},
+        )
+        assert tra.status_code == 202, tra.text
+        d = tra.json()
+        assert d["page_id"] and d["xong"] is False
+
+    async def test_chapter_doc_nhanh_chay_che_do_chi_chu(self, session, client, sample_page_image):
+        """Nếu nó chạy `day_du` thì mỗi trang tốn thêm 6-17s cho một ảnh không ai xem."""
+        from app.models import Page, Project
+
+        tra = await client.post(
+            "/api/v1/doc-truyen/trang",
+            files={"file": ("a.png", sample_page_image, "image/png")},
+        )
+        trang = await session.get(Page, uuid.UUID(tra.json()["page_id"]))
+        prj = await session.get(Project, trang.project_id)
+        assert prj.che_do_pipeline is ChePipeline.chi_chu
+
+    async def test_tra_ve_bong_bong_kem_chu_goc_va_ban_dich(
+        self, client, sample_page_image, fake_detector, fake_ocr_engine, fake_translator
+    ):
+        _, page_id = await _den_ocr_xong(
+            client, sample_page_image, fake_detector, fake_ocr_engine, ChePipeline.chi_chu
+        )
+        run_translate_job(_job_id(page_id, JobType.translate))
+
+        d = (await client.get(f"/api/v1/doc-truyen/trang/{page_id}")).json()
+        assert d["xong"] is True, "chế độ chỉ-chữ phải XONG ở `translated`, không đợi `typeset_done`"
+        assert len(d["vung"]) == 2
+        for v in d["vung"]:
+            assert v["chu_goc"], "thiếu chữ gốc"
+            assert v["ban_dich"], "thiếu bản dịch"
+            # Toạ độ phải theo pixel ảnh gốc — tiện ích tự quy đổi sang cỡ hiển thị.
+            assert all(k in v for k in ("x", "y", "w", "h"))
+
+    async def test_tra_vung_DA_CO_ke_ca_khi_chua_xong_het(
+        self, client, sample_page_image, fake_detector, fake_ocr_engine
+    ):
+        """Dịch xong bong bóng nào thì phủ được bong bóng đó — không bắt chờ cả trang."""
+        _, page_id = await _den_ocr_xong(
+            client, sample_page_image, fake_detector, fake_ocr_engine, ChePipeline.chi_chu
+        )
+        d = (await client.get(f"/api/v1/doc-truyen/trang/{page_id}")).json()
+        assert d["xong"] is False
+        assert len(d["vung"]) == 2, "đã có khung chữ mà không trả ra"
+        assert all(v["chu_goc"] for v in d["vung"])
+        assert all(v["ban_dich"] is None for v in d["vung"]), "chưa dịch mà đã có bản dịch"
+
+    async def test_noi_ro_DANG_CHO_hay_DANG_CHAY(self, session, client, sample_page_image):
+        """Không tách được hai thứ này thì thanh tiến độ nói dối: người dùng thấy 'đang xử lý'
+        trong lúc việc còn nằm chờ sau 6 trang khác."""
+        tra = await client.post(
+            "/api/v1/doc-truyen/trang",
+            files={"file": ("a.png", sample_page_image, "image/png")},
+        )
+        page_id = tra.json()["page_id"]
+        d = (await client.get(f"/api/v1/doc-truyen/trang/{page_id}")).json()
+        assert d["tien_do"]["dang_chay"] is False
+        assert d["tien_do"]["so_viec_cho_truoc"] is not None, "không nói được đang chờ sau bao nhiêu"
+
+        # Việc bắt đầu chạy ⇒ phải đổi sang `dang_chay`, và không còn đếm hàng chờ nữa.
+        from app.workers.tasks import danh_dau_dang_chay
+        with sync_session() as sy:
+            viec = sy.execute(
+                sa.select(Job).where(Job.page_id == uuid.UUID(page_id))
+            ).scalars().first()
+            danh_dau_dang_chay(viec)
+            sy.commit()
+        d2 = (await client.get(f"/api/v1/doc-truyen/trang/{page_id}")).json()
+        assert d2["tien_do"]["dang_chay"] is True
+        assert d2["tien_do"]["so_viec_cho_truoc"] is None
