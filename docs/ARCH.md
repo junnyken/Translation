@@ -1311,6 +1311,28 @@ Content script co dần font-size **sau khi hộp đã vào DOM**, đo thật b�
 `scrollWidth`, dừng khi vừa khung hoặc chạm sàn 8px. Cuộn trong ô (`overflow:auto`) là lưới an
 toàn cuối cùng, không phải cách chính.
 
+### E19.6b Sự cố thật trên MangaPlus — `blob:` chỉ sống trong đúng tài liệu tạo ra nó (2026-09-07)
+
+Đo được sau khi phát hành v0.1.5: trên `mangaplus.shueisha.co.jp/viewer/...`, mọi lượt bấm dịch
+đều báo lỗi mạng trần trụi **"Failed to fetch"**, không kèm mã HTTP nào. Người dùng bị chặn cả
+chuột phải lẫn phím tắt mở DevTools (F12/Ctrl+Shift+I) nên không tự soi DOM được — thêm bảng
+chẩn đoán (v0.1.6, cùng cách đã dùng cho lỗi lớp phủ §E19.5) in thẳng `src` của ảnh đã chọn vào
+thông báo lỗi, lộ ra: `blob:https://mangaplus.shueisha.co.jp/1844e8f7-...`.
+
+**Nguyên nhân:** MangaPlus tự giải mã ảnh trang truyện bằng JS của chính trang, rồi phát qua
+`<img src="blob:...">` thay vì URL ảnh tĩnh thường. `blob:` URL chỉ dereference được từ ĐÚNG
+NGỮ CẢNH THỰC THI đã tạo ra nó (document của trang) — service worker của tiện ích là một tiến
+trình khác dù cùng origin, nên `fetch()` một `blob:` như vậy **luôn** hỏng. Đây không phải lỗi
+cấu hình hay thiếu quyền — không `host_permissions` nào sửa được.
+
+**Sửa:** đảo ngược đúng phần lý luận ở đầu `service-worker.js` (giả định gốc: mọi ảnh nên tải ở
+service worker để tránh nhiễm bẩn canvas — đúng cho ảnh `https://` không CORS, nhưng SAI cho
+`blob:`/`data:` do chính trang tạo). Content script giờ **thử đọc bằng canvas tại chỗ trước**:
+vẽ `<img>` lên `<canvas>` cùng tài liệu (không nhiễm bẩn vì `blob:` cùng gốc với trang), xuất
+`Blob` → base64, gửi kèm byte thay vì chỉ gửi URL. Canvas lỗi (ảnh `https://` cross-origin không
+CORS — trường hợp phổ biến hơn) thì rơi về đường cũ: gửi URL để service worker tự tải bằng
+`host_permissions`. Không đoán trước loại ảnh nào đi đường nào — thử rồi mới biết.
+
 ### E19.7 Giới hạn cố ý để lại
 
 - Chỉ dò được `<img>` thật — trang vẽ bằng canvas hoặc chống sao chép thì nói thẳng "không hỗ trợ",

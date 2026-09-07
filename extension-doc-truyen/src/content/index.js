@@ -166,9 +166,43 @@
 
   noi(`Đang dịch trang này…\n(${chon.ly_do})`)
 
+  // Đọc ẢNH THẬT bằng canvas ngay tại đây trước khi nhờ service worker tải lại bằng URL.
+  //
+  // Bắt buộc phải thử ở ĐÂY: `blob:`/`data:` mà trang tự tạo (MangaPlus tự giải mã ảnh rồi phát
+  // qua `blob:` — đo được 07/09) chỉ sống trong đúng tài liệu đã tạo ra nó. Service worker là một
+  // ngữ cảnh THỰC THI khác (kể cả cùng origin), `fetch()` một `blob:` từ đó luôn ném lỗi mạng
+  // trần trụi "Failed to fetch" — không phải lỗi cấu hình, không có cách nào sửa bằng quyền hay
+  // header. Canvas ở ĐÚNG tài liệu đang hiển thị ảnh thì không bị coi là khác nguồn, nên đọc được.
+  //
+  // Ảnh https bình thường (đa số trang) thì NGƯỢC LẠI: rất nhiều máy chủ không gắn CORS header,
+  // vẽ lên canvas ở đây sẽ "nhiễm bẩn" (`SecurityError` khi xuất byte) — đó là lý do bản đầu cố ý
+  // tránh canvas, dồn hết việc tải xuống service worker. Nên thử canvas TRƯỚC, hỏng thì rơi về
+  // đường cũ (gửi URL, để service worker tự tải bằng `host_permissions`) — không đoán trước loại
+  // ảnh nào đi đường nào.
+  let anh_base64 = null
+  let anh_mime = null
+  try {
+    const canvas = document.createElement('canvas')
+    canvas.width = anh.el.naturalWidth
+    canvas.height = anh.el.naturalHeight
+    canvas.getContext('2d').drawImage(anh.el, 0, 0)
+    const blob = await new Promise((resolve, reject) => {
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('canvas rỗng'))), 'image/png')
+    })
+    const bytes = new Uint8Array(await blob.arrayBuffer())
+    let nhi_phan = ''
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+      nhi_phan += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+    }
+    anh_base64 = btoa(nhi_phan)
+    anh_mime = blob.type || 'image/png'
+  } catch {
+    // Nhiễm bẩn (ảnh cross-origin không CORS) hoặc lỗi khác — rơi về gửi URL cho service worker.
+  }
+
   let tra
   try {
-    tra = await chrome.runtime.sendMessage({ viec: 'dich-anh', url: anh.src })
+    tra = await chrome.runtime.sendMessage({ viec: 'dich-anh', url: anh.src, anh_base64, anh_mime })
   } catch (e) {
     window[CO].dangChay = false
     xong(`Không gọi được tiện ích nền: ${e}`, 10)

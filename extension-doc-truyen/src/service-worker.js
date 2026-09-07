@@ -1,10 +1,14 @@
 /** Service worker (E19-4).
  *
- * Làm ĐÚNG hai việc content script không làm được:
+ * Làm ĐÚNG hai việc content script không tự làm trọn được:
  *
- * 1. **Tải byte ảnh.** Content script đọc ảnh qua canvas sẽ dính `SecurityError` — ảnh khác
- *    nguồn làm nhiễm bẩn canvas và `toDataURL` bị chặn. Service worker có `host_permissions`
- *    nên `fetch` thẳng được, không qua CORS.
+ * 1. **Tải byte ảnh — khi content script chưa tự đọc được.** Ảnh `https://` bình thường phần lớn
+ *    KHÔNG gắn CORS header, nên đọc qua canvas ở content script sẽ dính `SecurityError` (nhiễm
+ *    bẩn); service worker có `host_permissions` nên `fetch()` thẳng được, không qua CORS. NGƯỢC
+ *    LẠI với `blob:`/`data:` do chính trang tạo ra (đo được 07/09 trên MangaPlus: trang tự giải
+ *    mã ảnh rồi phát qua `blob:`) — canvas ở content script đọc được (cùng tài liệu, không nhiễm
+ *    bẩn), còn `fetch()` một `blob:` từ NGỮ CẢNH KHÁC (service worker) luôn hỏng, không cách nào
+ *    sửa bằng quyền hay header. Content script thử canvas trước, hỏng mới rơi về gửi URL cho đây.
  * 2. **Giữ vòng hỏi lại.** Một trang tốn ~45 giây; content script chết theo trang khi người
  *    dùng chuyển tab hoặc trang tự làm mới.
  *
@@ -29,9 +33,19 @@ async function taiAnh(url) {
   return blob
 }
 
-async function dichMotTrang(url, bao) {
+/** Giải base64 content script đã đọc sẵn bằng canvas — dùng khi `url` là `blob:`/`data:` của
+ *  trang (MangaPlus và tương tự): service worker `fetch()` một `blob:` do TÀI LIỆU KHÁC tạo ra
+ *  luôn hỏng ("Failed to fetch" trần trụi), vì blob URL chỉ sống trong đúng ngữ cảnh đã tạo nó. */
+function base64ThanhBlob(b64, mime) {
+  const nhi_phan = atob(b64)
+  const bytes = new Uint8Array(nhi_phan.length)
+  for (let i = 0; i < nhi_phan.length; i++) bytes[i] = nhi_phan.charCodeAt(i)
+  return new Blob([bytes], { type: mime || 'image/png' })
+}
+
+async function dichMotTrang(url, anhBase64, anhMime, bao) {
   bao({ giai_doan: 'dang-tai-anh' })
-  const blob = await taiAnh(url)
+  const blob = anhBase64 ? base64ThanhBlob(anhBase64, anhMime) : await taiAnh(url)
 
   bao({ giai_doan: 'dang-gui' })
   const { page_id } = await guiTrang(blob)
@@ -75,7 +89,7 @@ chrome.runtime.onMessage.addListener((tin, gui_tu, traLoi) => {
   thieuCauHinh()
     .then((thieu) => {
       if (thieu) return traLoi({ ok: false, ma: 0, loi: thieu, da_mo_cai_dat: true })
-      return dichMotTrang(tin.url, bao)
+      return dichMotTrang(tin.url, tin.anh_base64, tin.anh_mime, bao)
         .then((d) => traLoi({ ok: true, vung: d.vung }))
     })
     .catch((e) => {
