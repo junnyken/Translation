@@ -30,17 +30,44 @@
     document.getElementById('translation-lop-phu')?.remove()
     const lop = document.createElement('div')
     lop.id = 'translation-lop-phu'
-    lop.style.cssText = 'position:absolute;z-index:2147483646;pointer-events:none'
-    document.body.appendChild(lop)
+    // `fixed` + toạ độ KHUNG NHÌN, gắn vào <html> chứ không vào <body>.
+    //
+    // Bản đầu dùng `absolute` + toạ độ tài liệu (cộng `window.scrollX/scrollY`) và gắn vào
+    // `document.body`. Hỏng trên trang thật đầu tiên thử (07/09) — lớp phủ rơi xuống góc dưới
+    // bên trái, ngoài hẳn ảnh. Hai lỗi chồng nhau, cả hai đều không test đơn vị nào bắt được:
+    //
+    // 1. `absolute` neo theo TỔ TIÊN ĐÃ ĐỊNH VỊ gần nhất, không phải theo tài liệu. Trang đó là
+    //    lightbox nên ảnh nằm trong hộp đã định vị ⇒ phép tính toạ độ tài liệu rơi vào hệ quy
+    //    chiếu khác.
+    // 2. Cộng độ cuộn trong lightbox là sai hẳn: ảnh nằm trong hộp cố định, trang nền không
+    //    cuộn, nên phần cộng thêm đẩy lớp phủ lệch đúng bằng độ cuộn.
+    //
+    // `getBoundingClientRect()` vốn đã trả toạ độ khung nhìn, nên `fixed` dùng thẳng được, không
+    // phải cộng trừ gì. Gắn vào `documentElement` để không dính `transform` của <body>.
+    lop.style.cssText = 'position:fixed;z-index:2147483646;pointer-events:none'
+    document.documentElement.appendChild(lop)
+
+    // Khai báo TRƯỚC `ve`, vì `ve` gọi `dung`. `const` không được nâng lên đầu phạm vi: để
+    // `dung` ở dưới thì nó chỉ chạy đúng nhờ thứ tự gọi may mắn, và một lần đổi thứ tự là ném
+    // "Cannot access before initialization" ngay lúc bấm — không phải lúc nạp, nên mắt thường
+    // không thấy. Đúng bẫy này đã cắn một lần ở giao diện web (BangChuaCoChu.jsx).
+    const ro = new ResizeObserver(() => ve())
+    const dung = () => {
+      ro.disconnect()
+      window.removeEventListener('scroll', goiVe, true)
+      window.removeEventListener('resize', goiVe)
+      lop.remove()
+    }
+    const goiVe = () => ve()
 
     const ve = () => {
-      if (!el.isConnected || !sanSangQuyDoi(el)) { lop.remove(); return }
+      if (!el.isConnected || !sanSangQuyDoi(el)) { dung(); return }
       const r = el.getBoundingClientRect()
       lop.innerHTML = ''
-      // Toạ độ TÀI LIỆU (cộng scroll) nên lớp phủ trôi theo trang khi cuộn, không phải vẽ lại
-      // ở mỗi khung hình.
+      if (r.width < 1 || r.height < 1) { lop.style.display = 'none'; return }
+      lop.style.display = ''
       Object.assign(lop.style, {
-        left: `${r.left + window.scrollX}px`, top: `${r.top + window.scrollY}px`,
+        left: `${r.left}px`, top: `${r.top}px`,
         width: `${r.width}px`, height: `${r.height}px`,
       })
 
@@ -73,9 +100,14 @@
       }
     }
 
+    // Toạ độ khung nhìn đổi mỗi khi cuộn, nên PHẢI vẽ lại khi cuộn — đây là cái giá của
+    // `fixed`, và là cái giá đúng: đổi lại nó không phụ thuộc tổ tiên nào cả.
+    //
+    // `capture: true` để bắt cả cuộn BÊN TRONG một hộp con (lightbox cuộn nội bộ, trang nền
+    // đứng yên) — nghe ở `window` không có capture sẽ bỏ sót đúng ca đó.
     ve()
-    // Đổi cỡ cửa sổ / trang tự co ảnh ⇒ vẽ lại, nếu không lớp phủ lệch khỏi bong bóng.
-    new ResizeObserver(ve).observe(el)
+    ro.observe(el)
+    window.addEventListener('scroll', ve, { passive: true, capture: true })
     window.addEventListener('resize', ve, { passive: true })
   }
 
