@@ -12,6 +12,10 @@ models/
 *.onnx
 *.pt
 test_fixtures/external/
+# `test_fixtures/external/` phía trên có `/` ở giữa nên neo đúng gốc repo, KHÔNG lan xuống
+# `backend/test_fixtures/external/` (E20a — dataset benchmark OCR, dựng bằng
+# scripts/ocr_benchmark_generate_dataset.py). Khai riêng dòng dưới cho đúng.
+backend/test_fixtures/external/
 frontend/node_modules/
 frontend/dist/
 
