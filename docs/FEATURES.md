@@ -470,8 +470,12 @@ gỡ độc lập với E1, có `PRIVACY.md` riêng nói đúng ba điều đó.
 
 **Làm được:**
 
-- Mở bất kỳ trang truyện nào, bấm biểu tượng tiện ích → tự dò ảnh trang truyện đang xem lớn nhất
-  trên màn hình (loại banner, icon, ảnh thu nhỏ trong danh sách, ảnh nền mờ trang trí của lightbox).
+- Mở bất kỳ trang truyện nào, bấm biểu tượng tiện ích → hiện **popup**: chọn ngôn ngữ chữ trên
+  trang (Nhật/Trung/Anh — sai ngôn ngữ thì OCR đọc ra chữ vô nghĩa, không báo lỗi gì) rồi bấm
+  "Dịch trang này". Đổi ngôn ngữ ngay tại popup, không cần mở trang Tuỳ chọn riêng.
+- Tự dò ảnh trang truyện đang xem lớn nhất trên màn hình (loại banner, icon, ảnh thu nhỏ trong
+  danh sách, ảnh nền mờ trang trí của lightbox) — kể cả ảnh trang tự giải mã thành `blob:` cục bộ
+  (đọc bằng canvas ngay tại trang, không qua service worker).
 - Gửi ảnh đó tới **máy chủ Translation của chính bạn** (tự nhập địa chỉ + đăng nhập trong tiện
   ích, dùng đúng mã phiên như bản web — không có đường tắt qua khoá chung).
 - Sau ~45 giây (chủ yếu chờ bước nhận diện, đo `docs/REPORT_E19_0_DO_COND_CHAN.md`): phủ một lớp

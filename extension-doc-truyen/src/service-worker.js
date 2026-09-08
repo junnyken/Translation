@@ -101,16 +101,7 @@ chrome.runtime.onMessage.addListener((tin, gui_tu, traLoi) => {
   return true // giữ kênh mở cho phản hồi bất đồng bộ
 })
 
-chrome.action.onClicked.addListener(async (tab) => {
-  // Tiêm khi bấm chứ không tiêm sẵn vào mọi trang: `<all_urls>` đã là quyền rộng nhất Chrome
-  // cấp, không cần chạy mã ở mọi tab người dùng mở.
-  try {
-    await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      files: ['src/content/index.js'],
-    })
-  } catch (e) {
-    // Trang nội bộ của Chrome (chrome://, cửa hàng tiện ích) không cho tiêm — nói ra thay vì im.
-    console.warn('Không chạy được trên trang này:', e)
-  }
-})
+// KHÔNG có `chrome.action.onClicked` ở đây: manifest khai `action.default_popup`, nên Chrome
+// không bao giờ gửi sự kiện đó nữa (có popup thì bấm icon luôn mở popup, không phát `onClicked`).
+// Việc tiêm content script khi bấm "Dịch trang này" nằm trong `src/popup/index.js` — đứng ở đây
+// sẽ là mã chết, không lỗi gì cả nên rất dễ tưởng nhầm là vẫn còn chạy.

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Dịch truyện đang đọc",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Bấm một cái để phủ chữ dịch tiếng Việt lên trang truyện bạn đang đọc. Gửi ảnh tới máy chủ Translation của chính bạn.",
   "minimum_chrome_version": "114",
   "permissions": [
@@ -18,7 +18,8 @@
   },
   "options_page": "src/options/index.html",
   "action": {
-    "default_title": "Dịch trang truyện này"
+    "default_title": "Dịch trang truyện này",
+    "default_popup": "src/popup/index.html"
   },
   "web_accessible_resources": [
     {

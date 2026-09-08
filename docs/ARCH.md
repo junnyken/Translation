@@ -1360,6 +1360,29 @@ tiện ích ("Ngôn ngữ chữ TRÊN trang truyện đang đọc" — cố ý g
 ngôn ngữ muốn đọc, để không lặp lại đúng cách hiểu nhầm vừa gặp). Đổi lưu ngay, không cần đăng
 nhập lại — đây là thuộc tính của trang đang đọc, không phải của tài khoản.
 
+### E19.6d Popup khi bấm icon, và bẫy thư mục unpacked đổi ID (2026-09-08)
+
+Hai phản hồi liền sau §E19.6c: (1) bấm icon không thấy ô chọn ngôn ngữ đâu — phải mở riêng trang
+Tuỳ chọn mới đổi được, và (2) bấm icon có lúc không phản ứng gì (Chrome hiện "Không có quyền truy
+cập cần thiết" trong menu mảnh ghép tiện ích).
+
+**Nguyên nhân (2) hoá ra là do quy trình phát hành, không phải lỗi mã nguồn:** gói tải về trước
+đó đặt tên kèm số phiên bản (`dich-truyen-dang-doc-v0.1.X.zip`). Trình giải nén không thấy một
+thư mục gốc chung bên trong zip nên tự tạo thư mục MỚI **trùng tên zip** — khác tên zip là khác
+đường dẫn, mà ID của tiện ích "Tải đã giải nén" tính theo đúng đường dẫn đó. Mỗi bản là một thư
+mục mới ⇒ một ID mới ⇒ Chrome coi là **cài đặt hoàn toàn mới**: mất quyền site đã cấp, mất phiên
+đăng nhập, phải làm lại từ đầu mỗi lần cập nhật — đúng những gì hai phiên trước đã phải lặp lại.
+Sửa: bỏ số phiên bản khỏi tên gói (`dich-truyen-dang-doc.zip`, cố định), và README nói rõ phải
+giải nén **đè vào đúng thư mục cũ** rồi bấm Tải lại trên `chrome://extensions`, không tạo thư mục
+mới.
+
+**Sửa (1):** thêm `action.default_popup` (`src/popup/index.html`) vào manifest — Chrome quy định
+có `default_popup` thì **không bao giờ gửi `chrome.action.onClicked` nữa**, nên toàn bộ việc tiêm
+content script (trước đây nằm trong service worker) phải dời hẳn vào script của popup, không phải
+thêm — để lại ở service worker sẽ là mã chết, không báo lỗi gì nên rất dễ tưởng nhầm vẫn còn chạy.
+Popup gọn: một ô chọn ngôn ngữ (đọc/ghi cùng khoá `chrome.storage.local` với trang Tuỳ chọn, đổi
+là lưu ngay) + nút "Dịch trang này" + link mở trang Tuỳ chọn đầy đủ (địa chỉ máy chủ, đăng nhập).
+
 ### E19.7 Giới hạn cố ý để lại
 
 - Chỉ dò được `<img>` thật — trang vẽ bằng canvas hoặc chống sao chép thì nói thẳng "không hỗ trợ",

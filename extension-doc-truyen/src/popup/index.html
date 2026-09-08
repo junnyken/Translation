@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <title>Dịch truyện đang đọc</title>
+  <style>
+    body { font: 13px/1.45 system-ui, sans-serif; width: 240px; margin: 0; padding: 12px; }
+    h1 { font-size: 14px; margin: 0 0 8px; }
+    label { display: block; font-weight: 500; margin: 0 0 4px; }
+    select { width: 100%; box-sizing: border-box; padding: 6px 8px; margin-bottom: 8px; }
+    button { width: 100%; padding: 8px; font-size: 13px; cursor: pointer; }
+    button:disabled { cursor: default; opacity: .6; }
+    .ghi-chu { color: #666; font-size: 11.5px; margin: 6px 0 10px; }
+    .hop { padding: 8px 10px; border-radius: 6px; margin-top: 10px; font-size: 12px; }
+    .loi { background: #fdecea; border: 1px solid #f5c6cb; }
+    .canh-bao { background: #fff8e1; border: 1px solid #ffe0a3; }
+    .lien-ket { display: block; text-align: center; margin-top: 10px; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>Dịch truyện đang đọc</h1>
+
+  <label for="ngon-ngu">Ngôn ngữ chữ TRÊN trang</label>
+  <select id="ngon-ngu">
+    <option value="ja">Tiếng Nhật</option>
+    <option value="zh">Tiếng Trung</option>
+    <option value="en">Tiếng Anh</option>
+  </select>
+  <p class="ghi-chu">Chữ trên ảnh, không phải ngôn ngữ bạn muốn đọc. Đổi lúc nào cũng được.</p>
+
+  <button id="nut-dich">Dịch trang này</button>
+
+  <div id="bao" class="hop" hidden></div>
+  <a href="#" id="mo-cai-dat" class="lien-ket">Địa chỉ máy chủ &amp; đăng nhập…</a>
+  <script type="module" src="./index.js"></script>
+</body>
+</html>
