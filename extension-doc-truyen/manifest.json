@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Dịch truyện đang đọc",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "Bấm một cái để phủ chữ dịch tiếng Việt lên trang truyện bạn đang đọc. Gửi ảnh tới máy chủ Translation của chính bạn.",
   "minimum_chrome_version": "114",
   "permissions": [

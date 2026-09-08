@@ -5,7 +5,7 @@
  * ngoài khung nhìn.
  */
 import { describe, expect, it } from 'vitest'
-import { chonTrangTruyen } from '../src/lib/chon-anh.js'
+import { chonTrangKeTiep, chonTrangTruyen } from '../src/lib/chon-anh.js'
 
 const anh = (o) => ({
   src: 'x', naturalWidth: 900, naturalHeight: 1300,
@@ -95,5 +95,48 @@ describe('chọn trang truyện', () => {
     ])
     expect(kq.anh.mo).toBeFalsy()
     expect(kq.bi_loai.find((b) => b.ly_do.some((l) => l.includes('mờ')))).toBeTruthy()
+  })
+})
+
+describe('chọn trang KẾ TIẾP để xếp hàng trước', () => {
+  const ke = (ds, cao = 900, boQuaSrc = 'dang-doc.png') =>
+    chonTrangKeTiep(ds, { caoKhungNhin: cao, boQuaSrc })
+
+  it('có trang đã nạp sẵn ngay dưới khung nhìn thì chọn nó', () => {
+    const kq = ke([
+      anh({ src: 'dang-doc.png', top: 0, bottom: 900 }),
+      anh({ src: 'ke-tiep.png', top: 900, bottom: 2200 }),
+    ])
+    expect(kq.anh.src).toBe('ke-tiep.png')
+  })
+
+  it('không có trang nào nạp sẵn phía dưới thì trả null, không đoán bừa', () => {
+    const kq = ke([anh({ src: 'dang-doc.png', top: 0, bottom: 900 })])
+    expect(kq.anh).toBeNull()
+  })
+
+  it('nhiều trang đã nạp sẵn thì lấy trang GẦN khung nhìn nhất, không phải xa nhất', () => {
+    const kq = ke([
+      anh({ src: 'dang-doc.png', top: 0, bottom: 900 }),
+      anh({ src: 'ke-tiep.png', top: 900, bottom: 2200 }),
+      anh({ src: 'xa-hon.png', top: 2200, bottom: 3500 }),
+    ])
+    expect(kq.anh.src).toBe('ke-tiep.png')
+  })
+
+  it('không xếp lại đúng trang đang đọc dù nó thoả điều kiện vị trí', () => {
+    const kq = ke([anh({ src: 'dang-doc.png', top: 900, bottom: 2200 })], 900, 'dang-doc.png')
+    expect(kq.anh).toBeNull()
+  })
+
+  it('bỏ qua ứng viên không đạt chất lượng (vd banner) dù đúng vị trí', () => {
+    const kq = ke([
+      anh({ src: 'dang-doc.png', top: 0, bottom: 900 }),
+      anh({
+        src: 'banner-duoi.jpg', top: 900, bottom: 1200,
+        naturalWidth: 1600, naturalHeight: 300, clientHeight: 300,
+      }),
+    ])
+    expect(kq.anh).toBeNull()
   })
 })

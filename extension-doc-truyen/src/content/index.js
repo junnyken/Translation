@@ -9,10 +9,12 @@
 ;(async () => {
   const CO = '__translation_doc_truyen__'
   if (window[CO]?.dangChay) return
-  window[CO] = window[CO] || { daDich: new Map() }
+  // `dangXepHang`: src đang được xếp hàng trước (§ dưới) — chặn xếp trùng khi bấm dịch liên tiếp
+  // nhiều trang trước khi lượt xếp hàng của trang trước kịp xong.
+  window[CO] = window[CO] || { daDich: new Map(), dangXepHang: new Set() }
   window[CO].dangChay = true
 
-  const { chonTrangTruyen } = await import(chrome.runtime.getURL('src/lib/chon-anh.js'))
+  const { chonTrangKeTiep, chonTrangTruyen } = await import(chrome.runtime.getURL('src/lib/chon-anh.js'))
   const { coChu, quyDoi, sanSangQuyDoi } = await import(chrome.runtime.getURL('src/lib/toa-do.js'))
 
   const bang = document.createElement('div')
@@ -125,21 +127,93 @@
     window.addEventListener('resize', ve, { passive: true })
   }
 
-  const mo_ta = [...document.images].map((el) => {
-    const r = el.getBoundingClientRect()
-    // `filter` áp lên chính thẻ HOẶC một tổ tiên (lightbox hay bọc ảnh nền trong một lớp riêng
-    // rồi mờ cả lớp đó, không mờ thẳng trên <img>). Leo lên vài cấp cho chắc, không chỉ đọc trên el.
-    let mo = false
-    for (let n = el, dem = 0; n instanceof Element && dem < 4; n = n.parentElement, dem++) {
-      const f = getComputedStyle(n).filter
-      if (f && f !== 'none') { mo = true; break }
+  // Đọc ẢNH THẬT bằng canvas ngay tại đây trước khi nhờ service worker tải lại bằng URL.
+  //
+  // Bắt buộc phải thử ở ĐÂY: `blob:`/`data:` mà trang tự tạo (MangaPlus tự giải mã ảnh rồi phát
+  // qua `blob:` — đo được 07/09) chỉ sống trong đúng tài liệu đã tạo ra nó. Service worker là một
+  // ngữ cảnh THỰC THI khác (kể cả cùng origin), `fetch()` một `blob:` từ đó luôn ném lỗi mạng
+  // trần trụi "Failed to fetch" — không phải lỗi cấu hình, không có cách nào sửa bằng quyền hay
+  // header. Canvas ở ĐÚNG tài liệu đang hiển thị ảnh thì không bị coi là khác nguồn, nên đọc được.
+  //
+  // Ảnh https bình thường (đa số trang) thì NGƯỢC LẠI: rất nhiều máy chủ không gắn CORS header,
+  // vẽ lên canvas ở đây sẽ "nhiễm bẩn" (`SecurityError` khi xuất byte) — đó là lý do bản đầu cố ý
+  // tránh canvas, dồn hết việc tải xuống service worker. Nên thử canvas TRƯỚC, hỏng thì rơi về
+  // đường cũ (gửi URL, để service worker tự tải bằng `host_permissions`) — không đoán trước loại
+  // ảnh nào đi đường nào.
+  async function docByteAnh(el) {
+    try {
+      const canvas = document.createElement('canvas')
+      canvas.width = el.naturalWidth
+      canvas.height = el.naturalHeight
+      canvas.getContext('2d').drawImage(el, 0, 0)
+      const blob = await new Promise((resolve, reject) => {
+        canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('canvas rỗng'))), 'image/png')
+      })
+      const bytes = new Uint8Array(await blob.arrayBuffer())
+      let nhi_phan = ''
+      for (let i = 0; i < bytes.length; i += 0x8000) {
+        nhi_phan += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+      }
+      return { anh_base64: btoa(nhi_phan), anh_mime: blob.type || 'image/png' }
+    } catch {
+      // Nhiễm bẩn (ảnh cross-origin không CORS) hoặc lỗi khác — rơi về gửi URL cho service worker.
+      return { anh_base64: null, anh_mime: null }
     }
-    return {
-      el, src: el.currentSrc || el.src,
-      naturalWidth: el.naturalWidth, naturalHeight: el.naturalHeight,
-      clientWidth: r.width, clientHeight: r.height, top: r.top, bottom: r.bottom, mo,
-    }
-  })
+  }
+
+  /**
+   * Xếp hàng dịch trước TỐI ĐA MỘT trang kế tiếp — trong lúc người dùng còn đang đọc trang hiện
+   * tại, không phải quét cả chapter (cố ý loại ở `PLAN_E19` §8, xem `docs/ARCH.md` §E19.6f).
+   *
+   * Chạy NỀN, không chờ, không báo lỗi ra thông báo chính: đây là việc làm trước cho êm, người
+   * dùng không đang đứng chờ nó như trang họ vừa bấm. Chỉ nạp được trên trang cuộn dọc liên tục
+   * giữ sẵn vài trang kế cận trong DOM (đo trên MangaPlus: 22-36 `<img>` cùng lúc) — trang kiểu
+   * "bấm Tiếp" mới nạp ảnh mới thì `chonTrangKeTiep` trả `null`, không có gì để xếp hàng.
+   */
+  function xepHangTrangKeTiep(mo_ta_hien_tai, boQuaSrc) {
+    const ke = chonTrangKeTiep(mo_ta_hien_tai, { caoKhungNhin: window.innerHeight, boQuaSrc })
+    if (!ke.anh) return
+    const src = ke.anh.src
+    if (window[CO].daDich.has(src) || window[CO].dangXepHang.has(src)) return
+    window[CO].dangXepHang.add(src)
+    ;(async () => {
+      try {
+        const { anh_base64, anh_mime } = await docByteAnh(ke.anh.el)
+        const tra_ke = await chrome.runtime.sendMessage({
+          viec: 'dich-anh', url: src, anh_base64, anh_mime,
+        })
+        if (tra_ke?.ok) window[CO].daDich.set(src, tra_ke.vung)
+      } catch {
+        // Im lặng có chủ đích — bấm dịch lại trang đó sau này sẽ chạy như bình thường (không
+        // cache), không phải lỗi cần người dùng xử lý ngay.
+      } finally {
+        window[CO].dangXepHang.delete(src)
+      }
+    })()
+  }
+
+  // Tách hàm vì cần gọi LẠI sau khi chờ dịch xong (~45s) để xếp hàng trước trang kế tiếp — dùng
+  // mô tả chụp từ ĐẦU quy trình lúc đó đã cũ 45 giây, đúng loại "phần tử có thể đã chết giữa
+  // chừng" vừa gặp ở chính ảnh đang dịch (§E19.6e).
+  function layMoTa() {
+    return [...document.images].map((el) => {
+      const r = el.getBoundingClientRect()
+      // `filter` áp lên chính thẻ HOẶC một tổ tiên (lightbox hay bọc ảnh nền trong một lớp riêng
+      // rồi mờ cả lớp đó, không mờ thẳng trên <img>). Leo lên vài cấp cho chắc, không chỉ đọc trên el.
+      let mo = false
+      for (let n = el, dem = 0; n instanceof Element && dem < 4; n = n.parentElement, dem++) {
+        const f = getComputedStyle(n).filter
+        if (f && f !== 'none') { mo = true; break }
+      }
+      return {
+        el, src: el.currentSrc || el.src,
+        naturalWidth: el.naturalWidth, naturalHeight: el.naturalHeight,
+        clientWidth: r.width, clientHeight: r.height, top: r.top, bottom: r.bottom, mo,
+      }
+    })
+  }
+
+  const mo_ta = layMoTa()
   const chon = chonTrangTruyen(mo_ta, { caoKhungNhin: window.innerHeight })
   if (!chon.anh) {
     window[CO].dangChay = false
@@ -161,44 +235,13 @@
     vePhu(anh.el, da_co)
     window[CO].dangChay = false
     xong('Đã phủ lại bản dịch có sẵn.', 3)
+    xepHangTrangKeTiep(layMoTa(), anh.src)
     return
   }
 
   noi(`Đang dịch trang này…\n(${chon.ly_do})`)
 
-  // Đọc ẢNH THẬT bằng canvas ngay tại đây trước khi nhờ service worker tải lại bằng URL.
-  //
-  // Bắt buộc phải thử ở ĐÂY: `blob:`/`data:` mà trang tự tạo (MangaPlus tự giải mã ảnh rồi phát
-  // qua `blob:` — đo được 07/09) chỉ sống trong đúng tài liệu đã tạo ra nó. Service worker là một
-  // ngữ cảnh THỰC THI khác (kể cả cùng origin), `fetch()` một `blob:` từ đó luôn ném lỗi mạng
-  // trần trụi "Failed to fetch" — không phải lỗi cấu hình, không có cách nào sửa bằng quyền hay
-  // header. Canvas ở ĐÚNG tài liệu đang hiển thị ảnh thì không bị coi là khác nguồn, nên đọc được.
-  //
-  // Ảnh https bình thường (đa số trang) thì NGƯỢC LẠI: rất nhiều máy chủ không gắn CORS header,
-  // vẽ lên canvas ở đây sẽ "nhiễm bẩn" (`SecurityError` khi xuất byte) — đó là lý do bản đầu cố ý
-  // tránh canvas, dồn hết việc tải xuống service worker. Nên thử canvas TRƯỚC, hỏng thì rơi về
-  // đường cũ (gửi URL, để service worker tự tải bằng `host_permissions`) — không đoán trước loại
-  // ảnh nào đi đường nào.
-  let anh_base64 = null
-  let anh_mime = null
-  try {
-    const canvas = document.createElement('canvas')
-    canvas.width = anh.el.naturalWidth
-    canvas.height = anh.el.naturalHeight
-    canvas.getContext('2d').drawImage(anh.el, 0, 0)
-    const blob = await new Promise((resolve, reject) => {
-      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('canvas rỗng'))), 'image/png')
-    })
-    const bytes = new Uint8Array(await blob.arrayBuffer())
-    let nhi_phan = ''
-    for (let i = 0; i < bytes.length; i += 0x8000) {
-      nhi_phan += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
-    }
-    anh_base64 = btoa(nhi_phan)
-    anh_mime = blob.type || 'image/png'
-  } catch {
-    // Nhiễm bẩn (ảnh cross-origin không CORS) hoặc lỗi khác — rơi về gửi URL cho service worker.
-  }
+  const { anh_base64, anh_mime } = await docByteAnh(anh.el)
 
   let tra
   try {
@@ -231,6 +274,10 @@
 
   window[CO].daDich.set(anh.src, tra.vung)
   vePhu(anh.el, tra.vung)
+  // Chụp lại DOM MỚI (không dùng `mo_ta` cũ 45 giây) — độc lập với việc lớp phủ trang hiện tại
+  // có vẽ được hay không: dù trang này chết giữa chừng, vị trí đọc thật của người dùng bây giờ
+  // vẫn đáng để xếp hàng trước, không phụ thuộc kết quả vẽ lớp phủ.
+  xepHangTrangKeTiep(layMoTa(), anh.src)
   const co_chu = tra.vung.filter((v) => v.ban_dich).length
 
   // Kèm SỐ ĐO vị trí. Hai lượt sửa vừa rồi đều đoán sai nguyên nhân lớp phủ lệch, vì ảnh chụp

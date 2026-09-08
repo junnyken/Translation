@@ -28,12 +28,16 @@ không phải chờ mạng (đo trong `docs/REPORT_E19_0_DO_COND_CHAN.md`). Các
 chạy một việc một lúc.
 
 Nên cách dùng đúng là: bấm dịch trang kế **trong lúc đang đọc trang hiện tại**, không phải bấm rồi
-ngồi nhìn.
+ngồi nhìn. Từ v0.1.11 tiện ích **tự làm việc đó hộ**: mỗi lần dịch xong một trang, nó âm thầm xếp
+hàng dịch trước đúng 1 trang kế tiếp (nếu trang đó đã nạp sẵn trong DOM — đúng kiểu trang cuộn dọc
+liên tục như MangaPlus). Vẫn phải bấm cho mỗi trang muốn xem, nhưng thường sẽ hiện gần như ngay
+lập tức thay vì chờ lại 45 giây. **Không** tự động dịch cả chapter hay cả truyện — cố ý, xem
+`docs/ARCH.md` §E19.6f vì sao.
 
 ## Chạy test
 
 ```bash
-npm test        # 22 test cho hai module thuần: chọn ảnh và quy đổi toạ độ
+npm test        # 27 test cho hai module thuần: chọn ảnh và quy đổi toạ độ
 ```
 
 Chỉ phần logic thuần có test. Phần vẽ lớp phủ và service worker chỉ sống trong trình duyệt thật —

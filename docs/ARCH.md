@@ -1405,6 +1405,36 @@ mất một trong hai thì thay thông báo "Xong" bằng lý do + hướng xử
 — báo trước là ảnh `blob:` đổi địa chỉ mỗi lần tạo nên khó dùng lại bản dịch vừa xong, phải chờ
 lại từ đầu). Im lặng "thành công" khi màn hình trống là vi phạm evidence-first (`CLAUDE.md` #3).
 
+### E19.6f Xếp hàng trước 1 trang theo nhịp đọc (2026-09-08)
+
+Phản hồi sau khi các lỗi trên đã sửa: 45 giây/trang "không đáp ứng được", đề nghị tự động dịch
+**toàn bộ chapter/toàn bộ truyện**. Từ chối thẳng hướng đó — hai lý do, cả hai đều đã đứng trong
+`PLAN_E19` §8 từ lúc lập kế hoạch, không phải phát sinh mới:
+
+1. **Không nhanh hơn.** Máy chủ chạy đúng 1 việc/lúc (CPU-bound, không phải hàng đợi mạng — đo
+   `REPORT_E19_0`). Xếp 20 trang thì trang thứ 20 vẫn đợi ~15 phút; tổng thời gian không đổi, chỉ
+   dời chỗ chờ.
+2. **Ranh giới bản quyền.** MangaPlus là app đọc chính thức có DRM chủ đích (mã hoá ảnh thành
+   `blob:`, chặn chuột phải + DevTools — xem §E19.6b). Tự động quét-dịch cả chapter/cả truyện mà
+   không cần người bấm từng trang là hành vi của **công cụ tải hàng loạt nội dung có bản quyền**,
+   khác hẳn "phụ đề khi tự đọc".
+
+**Hướng đã chọn — xếp hàng trước ĐÚNG MỘT trang, gắn liền với mỗi lần bấm của người dùng, không
+chạy nền độc lập.** Mỗi lần dịch xong một trang (dù lấy từ cache hay dịch mới), tự tìm trang KẾ
+TIẾP đã có sẵn trong DOM (`chonTrangKeTiep`, dùng lại đúng bộ lọc chất lượng của `chonTrangTruyen`
+qua `loaiDoChatLuong` dùng chung — tách hàm để hai nơi không lệch luật) và âm thầm gửi dịch trong
+nền, không vẽ, không thông báo. Lần người dùng cuộn tới và bấm dịch trang đó, bản dịch đã có sẵn
+trong `daDich` — hiện ngay, không chờ 45 giây nữa.
+
+Vẫn cần bấm cho MỖI trang (không tự vẽ lớp phủ khi chưa ai bấm — giữ đúng nguyên tắc "chỉ đọc
+trang khi bạn bấm" của `PRIVACY.md`), chỉ là độ chờ giữa các lần bấm gần như biến mất nếu đọc đúng
+nhịp. Đây là hiện thực hoá đúng cách dùng đã ghi sẵn ở README từ đầu ("bấm dịch trang kế trong lúc
+đang đọc trang hiện tại") — trước đây người dùng phải TỰ nhớ bấm trước, giờ tiện ích tự làm hộ.
+
+**Chỉ hoạt động trên trang cuộn dọc liên tục** giữ sẵn vài trang kế cận trong DOM (đo trên
+MangaPlus: 22-36 `<img>` cùng lúc). Trang kiểu "bấm Tiếp" mới nạp ảnh mới thì `chonTrangKeTiep`
+trả `null` — không có gì để xếp hàng, không đoán bừa.
+
 ### E19.7 Giới hạn cố ý để lại
 
 - Chỉ dò được `<img>` thật — trang vẽ bằng canvas hoặc chống sao chép thì nói thẳng "không hỗ trợ",

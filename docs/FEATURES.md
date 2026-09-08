@@ -484,6 +484,9 @@ gỡ độc lập với E1, có `PRIVACY.md` riêng nói đúng ba điều đó.
 - Chữ tự co cỡ vừa khung bong bóng; dịch dài hơn khung mấy cũng chỉ cuộn trong ô, không tràn ra
   ngoài hay bị cắt mất.
 - Bấm lại đúng trang đã dịch thì phủ lại ngay (nhớ theo URL ảnh), không tốn lại 45 giây.
+- **Tự xếp hàng trước đúng 1 trang kế tiếp** trong lúc bạn đang đọc trang hiện tại (nếu trang đó
+  đã nạp sẵn trong DOM — trang cuộn dọc liên tục như MangaPlus). Vẫn phải bấm cho mỗi trang, nhưng
+  thường hiện gần như ngay khi bấm thay vì chờ lại 45 giây.
 - Lớp phủ tự bám theo khi cuộn trang / đổi cỡ cửa sổ.
 
 **Cố ý KHÔNG làm:**
