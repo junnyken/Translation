@@ -3469,12 +3469,33 @@ diện xấu hơn để đổi lấy chẩn đoán được) mới tìm ra đún
 
 ## 3. Còn nợ
 
-- Chưa đo trên trang **không phải lightbox** (đọc truyện cuộn dọc bình thường) sau bản sửa v0.1.5
-  — cơ chế chọn nhầm ảnh nền mờ đặc trưng cho lightbox, trang thường có thể không gặp lại, nhưng
-  chưa xác nhận.
+- ~~Chưa đo trên trang không phải lightbox~~ — đã đo 08/09 trên MangaPlus (đọc cuộn dọc bình
+  thường, không lightbox): vị trí lớp phủ khớp đúng bong bóng, xác nhận §E19.5 không phụ thuộc
+  cấu trúc lightbox.
 - Chưa có test end-to-end thật cho chính 2 endpoint HTTP (`POST`/`GET /doc-truyen/trang`) ở mức
   hợp đồng request/response đầy đủ (mã lỗi 413/422 theo từng nhánh) — chỉ có test quyền chéo và
   test pipeline mode. Việc test viết tay ở trên chỉ phủ đúng phần quyền + tác dụng phụ, không phủ
   toàn bộ hợp đồng API.
 - Cỡ chữ tự co (§ARCH E19.6) đo bằng `scrollHeight`/`scrollWidth` trong trình duyệt thật — không
   test tự động được (module không thuần), chỉ xác nhận bằng mắt qua ảnh chụp của người dùng.
+- **Mới:** `engine=llm_context` (§E19.6g) chưa chạy thật trên trang MangaPlus lỗi ban đầu để xác
+  nhận có thật sự sửa được các dòng dịch sai/thiếu hay không — mới verify được đường dây (test
+  `test_engine_da_chon_THAT_SU_duoc_dung_khi_dich`: `.delay()` nhận đúng `engine`), chưa verify
+  CHẤT LƯỢNG đầu ra thật trên đúng trang từng lỗi.
+
+## 4. E19 — `engine` chọn được cho tiện ích (2026-09-08)
+
+```
+$ cd backend && ../.venv/bin/python -m pytest tests/test_e19_che_do_chi_chu.py -q
+................                                                          [100%]
+16 passed
+```
+
+4 test mới: mặc định không ghi cột (`None`), chọn `llm_context` ghi đúng cột, chưa cấu hình
+`GEMINI_API_KEYS` thì `422` ngay lúc gửi ảnh (không đợi tới bước dịch mới hỏng), và **engine đã
+chọn THẬT SỰ được gửi tới `run_translate_job.delay()`** — test đầu viết sai (tự gọi lại
+`run_translate_job` bằng tay, bỏ qua tham số `.delay()` đã nhận) xanh **giả**; sửa bằng cách đè
+`.delay` để bắt tham số thật thay vì tự đoán theo trí nhớ.
+
+Migration `0015_e19b` (thêm `Page.translate_engine_override`, tái dùng enum `translation_engine`
+có sẵn từ 0003_m9): chạy thật `up → down → up` trên `translation-db-1`, sạch cả hai chiều.

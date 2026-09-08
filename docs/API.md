@@ -1069,18 +1069,24 @@ Bearer <mã phiên>` như mọi endpoint khác từ B1 — tiện ích không đ
 
 ### `POST /api/v1/doc-truyen/trang` → 202
 
-Nhận thẳng file ảnh (`multipart/form-data`, field `file`) + field text `source_lang` (`ja` | `zh`
-| `en`, **mặc định `ja`**), tự tạo/tái dùng chapter ẩn `"Đọc nhanh (tiện ích) — {source_lang}"` của
-tài khoản gọi API (`che_do_pipeline=chi_chu`, `intended_use=personal` — xem `ARCH.md §E19.4` vì
-sao đây không phải né cổng M10), xếp việc nhận diện rồi trả `page_id` ngay. **Không lọc trùng
-ảnh** — bấm dịch hai lần cùng ảnh chạy hai lần; việc nhớ "ảnh này dịch rồi" thuộc về tiện ích
-(khoá bằng URL ảnh).
+Nhận thẳng file ảnh (`multipart/form-data`, field `file`) + 2 field text:
 
-**`source_lang` là ĐÚNG ngôn ngữ CHỮ TRÊN ẢNH, không phải ngôn ngữ đích.** Chọn sai không báo lỗi
-gì — cả OCR lẫn dịch đều "chạy xong bình thường", chỉ là chạy sai engine (đo được 07/09: đưa trang
-tiếng Anh của MangaPlus vào với `source_lang=ja` mặc định ⇒ manga-ocr đọc chữ Latin ra rác, bước
-dịch dịch tiếp rác đó). Mỗi giá trị `source_lang` là **một chapter riêng** (không dùng chung một
-chapter cho nhiều ngôn ngữ — `source_lang` chốt lúc tạo chapter, đổi giữa chừng là dữ liệu sai).
+- `source_lang` (`ja` | `zh` | `en`, **mặc định `ja`**) — ngôn ngữ CHỮ TRÊN ẢNH, quyết định engine
+  OCR. Chọn sai không báo lỗi gì — cả OCR lẫn dịch đều "chạy xong bình thường", chỉ là chạy sai
+  engine (đo được 07/09: đưa trang tiếng Anh của MangaPlus vào với `source_lang=ja` mặc định ⇒
+  manga-ocr đọc chữ Latin ra rác, bước dịch dịch tiếp rác đó). Mỗi giá trị là **một chapter
+  riêng** — `source_lang` chốt lúc tạo chapter, đổi giữa chừng là dữ liệu sai.
+- `engine` (`google_fast` | `llm_context`, **mặc định `google_fast`**) — engine DỊCH cho đúng
+  trang này. `google_fast` miễn phí nhưng dịch RỜI RẠC từng dòng, không tự sửa được lỗi OCR đọc
+  dính/sai (đo 08/09: vài dòng ra nguyên tiếng Anh hoặc dịch sai nghĩa trên font chữ hoa cách
+  điệu). `llm_context` (Gemini) giữ mạch văn cả trang + được yêu cầu tự suy luận sửa lỗi OCR khi
+  dịch, tốn token — `422 llm_not_configured` nếu chưa cấu hình `GEMINI_API_KEYS`. Lưu vào
+  `Page.translate_engine_override` (`NULL` khi mặc định), chỉ chế độ `chi_chu` đọc cột này.
+
+Tự tạo/tái dùng chapter ẩn `"Đọc nhanh (tiện ích) — {source_lang}"` của tài khoản gọi API
+(`che_do_pipeline=chi_chu`, `intended_use=personal` — xem `ARCH.md §E19.4` vì sao đây không phải
+né cổng M10), xếp việc nhận diện rồi trả `page_id` ngay. **Không lọc trùng ảnh** — bấm dịch hai
+lần cùng ảnh chạy hai lần; việc nhớ "ảnh này dịch rồi" thuộc về tiện ích (khoá bằng URL ảnh).
 
 Response 202:
 ```json
@@ -1093,6 +1099,7 @@ Response 202:
 | Chưa đăng nhập / phiên hết hạn | `401` |
 | File rỗng | `422` |
 | `source_lang` không thuộc `ja`/`zh`/`en` | `422` |
+| `engine=llm_context` mà chưa cấu hình `GEMINI_API_KEYS` | `422 llm_not_configured` |
 | Ảnh vượt `MAX_UPLOAD_MB` | `413` |
 | Định dạng ảnh không nhận ra (`sniff_image`) | `422` |
 

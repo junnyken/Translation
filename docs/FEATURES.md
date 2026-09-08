@@ -471,8 +471,9 @@ gỡ độc lập với E1, có `PRIVACY.md` riêng nói đúng ba điều đó.
 **Làm được:**
 
 - Mở bất kỳ trang truyện nào, bấm biểu tượng tiện ích → hiện **popup**: chọn ngôn ngữ chữ trên
-  trang (Nhật/Trung/Anh — sai ngôn ngữ thì OCR đọc ra chữ vô nghĩa, không báo lỗi gì) rồi bấm
-  "Dịch trang này". Đổi ngôn ngữ ngay tại popup, không cần mở trang Tuỳ chọn riêng.
+  trang (Nhật/Trung/Anh — sai ngôn ngữ thì OCR đọc ra chữ vô nghĩa, không báo lỗi gì) và chọn
+  **chất lượng dịch** (miễn phí, rời rạc từng dòng / Gemini, giữ mạch văn + tự sửa lỗi đọc chữ
+  nhưng tốn token) rồi bấm "Dịch trang này". Đổi ngay tại popup, không cần mở trang Tuỳ chọn.
 - Tự dò ảnh trang truyện đang xem lớn nhất trên màn hình (loại banner, icon, ảnh thu nhỏ trong
   danh sách, ảnh nền mờ trang trí của lightbox) — kể cả ảnh trang tự giải mã thành `blob:` cục bộ
   (đọc bằng canvas ngay tại trang, không qua service worker).

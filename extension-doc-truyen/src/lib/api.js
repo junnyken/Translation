@@ -10,8 +10,12 @@ export const KHOA_LUU = {
   //: Ngôn ngữ CHỮ TRÊN ẢNH (không phải ngôn ngữ đích) — quyết định chọn engine OCR. `ja` là mặc
   //: định trung thực nhất với hành vi trước khi có lựa chọn này, không phải "loại phổ biến nhất".
   ngon_ngu: 'ngonNgu',
+  //: Engine dịch. `google_fast` là mặc định trung thực với hành vi trước khi có lựa chọn này —
+  //: không tự tốn token Gemini khi người dùng chưa từng bật (đúng chủ ý M5).
+  engine: 'engine',
 }
 export const NGON_NGU_MAC_DINH = 'ja'
+export const ENGINE_MAC_DINH = 'google_fast'
 
 export async function docCauHinh() {
   const d = await chrome.storage.local.get(Object.values(KHOA_LUU))
@@ -20,6 +24,7 @@ export async function docCauHinh() {
     maPhien: d[KHOA_LUU.ma_phien] || '',
     email: d[KHOA_LUU.email] || '',
     ngonNgu: d[KHOA_LUU.ngon_ngu] || NGON_NGU_MAC_DINH,
+    engine: d[KHOA_LUU.engine] || ENGINE_MAC_DINH,
   }
 }
 
@@ -30,6 +35,7 @@ export async function luuCauHinh(c) {
     [KHOA_LUU.ma_phien]: c.maPhien ?? hien.maPhien,
     [KHOA_LUU.email]: c.email ?? hien.email,
     [KHOA_LUU.ngon_ngu]: c.ngonNgu ?? hien.ngonNgu,
+    [KHOA_LUU.engine]: c.engine ?? hien.engine,
   })
 }
 
@@ -85,13 +91,18 @@ export async function dangXuat() {
 /** Gửi BYTE ảnh lên. Nhận `Blob` chứ không nhận URL: máy chủ không với tới trang truyện được,
  *  và cũng không nên với tới.
  *
- * `ngonNgu` là chữ TRÊN ẢNH (chọn ở trang Tuỳ chọn), không phải ngôn ngữ đích — chọn sai không
- * báo lỗi gì, chỉ ra chữ vô nghĩa (đo được 07/09 trên MangaPlus bản tiếng Anh với mặc định `ja`).
+ * `ngonNgu` là chữ TRÊN ẢNH (chọn ở trang Tuỳ chọn/popup), không phải ngôn ngữ đích — chọn sai
+ * không báo lỗi gì, chỉ ra chữ vô nghĩa (đo được 07/09 trên MangaPlus bản tiếng Anh với `ja`).
+ *
+ * `engine`: `google_fast` (mặc định, miễn phí, dịch rời rạc) hoặc `llm_context` (Gemini, tốn
+ * token — người dùng tự bật ở popup). Bản miễn phí không tự sửa được lỗi đọc chữ dính/sai trên
+ * font cách điệu (đo 08/09 trên MangaPlus: vài dòng ra nguyên tiếng Anh hoặc dịch sai nghĩa).
  */
-export async function guiTrang(blob, ngonNgu) {
+export async function guiTrang(blob, ngonNgu, engine) {
   const form = new FormData()
   form.append('file', blob, 'trang.png')
   form.append('source_lang', ngonNgu || NGON_NGU_MAC_DINH)
+  form.append('engine', engine || ENGINE_MAC_DINH)
   return goi('/doc-truyen/trang', { method: 'POST', body: form })
 }
 

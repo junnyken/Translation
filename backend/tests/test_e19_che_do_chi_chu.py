@@ -18,7 +18,7 @@ import sqlalchemy as sa
 
 from app.core.db_sync import sync_session
 from app.models import Job, Page, Project
-from app.models.enums import ChePipeline, JobStatus, JobType, PageStatus
+from app.models.enums import ChePipeline, JobStatus, JobType, PageStatus, TranslationEngine
 from app.workers.tasks import run_detect_job, run_ocr_job, run_translate_job
 
 from tests.test_translate_task_integration import _job_id, _region
@@ -240,3 +240,77 @@ class TestEndpointTienIch:
         d2 = (await client.get(f"/api/v1/doc-truyen/trang/{page_id}")).json()
         assert d2["tien_do"]["dang_chay"] is True
         assert d2["tien_do"]["so_viec_cho_truoc"] is None
+
+    async def test_engine_mac_dinh_khong_ghi_gi_vao_cot(self, session, client, sample_page_image):
+        """Không gửi `engine` ⇒ mặc định `google_fast` ⇒ cột override để trống (`None`), dùng
+        đúng mặc định hệ thống — không phải một giá trị `google_fast` tường minh khác biệt."""
+        tra = await client.post(
+            "/api/v1/doc-truyen/trang",
+            files={"file": ("a.png", sample_page_image, "image/png")},
+        )
+        trang = await session.get(Page, uuid.UUID(tra.json()["page_id"]))
+        assert trang.translate_engine_override is None
+
+    async def test_chon_llm_context_luu_dung_cot(self, session, client, sample_page_image, monkeypatch):
+        from app.core.config import get_settings
+        s = get_settings()
+        monkeypatch.setattr(s, "gemini_api_keys", "khoa-gia")
+
+        tra = await client.post(
+            "/api/v1/doc-truyen/trang",
+            files={"file": ("a.png", sample_page_image, "image/png")},
+            data={"engine": "llm_context"},
+        )
+        assert tra.status_code == 202, tra.text
+        trang = await session.get(Page, uuid.UUID(tra.json()["page_id"]))
+        assert trang.translate_engine_override is TranslationEngine.llm_context
+
+    async def test_llm_context_chua_cau_hinh_thi_tu_choi_ngay(self, client, sample_page_image, monkeypatch):
+        """Báo ngay ở lúc gửi ảnh — không xếp việc rồi mới hỏng ở bước dịch 45 giây sau."""
+        from app.core.config import get_settings
+        s = get_settings()
+        monkeypatch.setattr(s, "gemini_api_keys", "")
+
+        tra = await client.post(
+            "/api/v1/doc-truyen/trang",
+            files={"file": ("a.png", sample_page_image, "image/png")},
+            data={"engine": "llm_context"},
+        )
+        assert tra.status_code == 422
+        assert "llm_not_configured" in tra.text
+
+    async def test_engine_da_chon_THAT_SU_duoc_dung_khi_dich(
+        self, client, sample_page_image, fake_detector, fake_ocr_engine, monkeypatch
+    ):
+        """Không chỉ lưu vào cột cho có — phải đi tới ĐÚNG lời gọi xếp việc dịch với engine đó.
+
+        Autouse fixture `no_broker_for_chained_ocr` (tests/conftest.py) đã chặn
+        `run_translate_job.delay` để khỏi treo test trên broker thật — nó GHI LẠI job_id nhưng
+        BỎ QUA tham số `engine`. Đè lại đúng chỗ đó để bắt được engine thật đã gửi, thay vì tự
+        gọi `run_translate_job` tay (làm vậy là bỏ qua đúng thứ cần kiểm: `.delay()` được gọi
+        với ĐÚNG engine chưa).
+        """
+        from app.workers import tasks
+        from app.core.config import get_settings
+
+        s = get_settings()
+        monkeypatch.setattr(s, "gemini_api_keys", "khoa-gia")
+        goi: list[tuple[str, str | None]] = []
+        monkeypatch.setattr(
+            tasks.run_translate_job, "delay",
+            lambda job_id, engine=None: goi.append((job_id, engine)),
+        )
+
+        tra = await client.post(
+            "/api/v1/doc-truyen/trang",
+            files={"file": ("a.png", sample_page_image, "image/png")},
+            data={"engine": "llm_context"},
+        )
+        page_id = tra.json()["page_id"]
+        fake_detector(regions=[_region(100, 100)])
+        run_detect_job(_job_id(page_id, JobType.detect))
+        fake_ocr_engine(per_call=lambda i, b: ("HELLO", 0.95))
+        run_ocr_job(_job_id(page_id, JobType.ocr))
+
+        assert goi, "chưa từng gọi run_translate_job.delay"
+        assert goi[-1][1] == "llm_context"

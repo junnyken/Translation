@@ -28,6 +28,16 @@
   </select>
   <p class="ghi-chu">Chữ trên ảnh, không phải ngôn ngữ bạn muốn đọc. Đổi lúc nào cũng được.</p>
 
+  <label for="engine">Chất lượng dịch</label>
+  <select id="engine">
+    <option value="google_fast">Miễn phí (nhanh, dịch rời rạc)</option>
+    <option value="llm_context">Gemini (tốn token, giữ mạch văn + tự sửa lỗi đọc chữ)</option>
+  </select>
+  <p class="ghi-chu">
+    Bản miễn phí không tự sửa được khi chữ đọc dính/sai (font hoa, cách điệu) — dịch dài hơn
+    một dòng thoại tiếng Anh cách điệu thì thử Gemini.
+  </p>
+
   <button id="nut-dich">Dịch trang này</button>
 
   <div id="bao" class="hop" hidden></div>

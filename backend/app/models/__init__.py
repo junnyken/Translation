@@ -190,6 +190,11 @@ class Page(TimestampMixin, Base):
     status: Mapped[PageStatus] = mapped_column(
         _enum(PageStatus, "page_status"), nullable=False, default=PageStatus.queued
     )
+    #: NULL = dùng mặc định hệ thống (`google_fast`). Chỉ chế độ `chi_chu` (E19) đọc cột này —
+    #: pipeline đầy đủ luôn để NULL, engine chọn qua BatchRun/tham số retry như trước (M9/M5).
+    translate_engine_override: Mapped[TranslationEngine | None] = mapped_column(
+        _enum(TranslationEngine, "translation_engine"), nullable=True
+    )
 
     project: Mapped[Project] = relationship(back_populates="pages")
     regions: Mapped[list["TextRegion"]] = relationship(

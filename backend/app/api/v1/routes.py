@@ -304,6 +304,11 @@ async def doc_truyen_gui_trang(
     source_lang: SourceLang = Form(
         SourceLang.ja, description="Ngôn ngữ chữ TRÊN ẢNH — quyết định chọn engine OCR nào"
     ),
+    engine: TranslationEngine = Form(
+        TranslationEngine.google_fast,
+        description="google_fast (miễn phí, dịch rời rạc) hoặc llm_context (Gemini, giữ mạch văn "
+        "+ tự sửa lỗi OCR, tốn token)",
+    ),
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
     nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
@@ -322,7 +327,20 @@ async def doc_truyen_gui_trang(
     MangaPlus) khiến manga-ocr đọc bậy chữ Latin thành "chữ Nhật", rồi bước dịch dịch tiếp cái bậy
     đó — sai chồng sai mà không endpoint nào báo lỗi được, vì cả hai bước đều "chạy xong bình
     thường". Tiện ích phải để người dùng tự chọn đúng ngôn ngữ của trang đang đọc.
+
+    `engine` mặc định `google_fast` để không tự tốn token khi chưa được phép (M5). Đo được 08/09
+    trên MangaPlus: bản miễn phí dịch RỜI RẠC từng dòng, không tự sửa được lỗi OCR đọc dính chữ
+    trên font chữ hoa/nghiêng cách điệu — vài dòng ra nguyên tiếng Anh, vài dòng dịch sai nghĩa.
+    `llm_context` giữ mạch văn cả trang và được yêu cầu tự suy luận sửa lỗi OCR khi dịch, nhưng
+    tốn token Gemini mỗi trang — tiện ích để người dùng tự bật, không âm thầm đổi mặc định toàn hệ
+    thống (đổi mặc định sẽ ảnh hưởng mọi luồng khác, không chỉ E19).
     """
+    if engine is TranslationEngine.llm_context and not settings.llm_configured:
+        raise HTTPException(
+            status_code=422,
+            detail="llm_not_configured: chưa cấu hình khoá dịch, không dùng được llm_context",
+        )
+
     project = await _chapter_doc_nhanh(session, nguoi, source_lang)
 
     data = await file.read()
@@ -338,7 +356,12 @@ async def doc_truyen_gui_trang(
     next_order = (await session.scalar(
         select(func.coalesce(func.max(Page.order), 0) + 1).where(Page.project_id == project.id)
     )) or 1
-    page = Page(project_id=project.id, image_path="", order=next_order, status=PageStatus.queued)
+    page = Page(
+        project_id=project.id, image_path="", order=next_order, status=PageStatus.queued,
+        # `None` khi mặc định (google_fast) để hàng dài dữ liệu khớp mọi trang cũ trước cột này
+        # tồn tại — cả hai đều đọc ra "dùng mặc định hệ thống" ở `_run_ocr`, không khác nhau.
+        translate_engine_override=engine if engine is not TranslationEngine.google_fast else None,
+    )
     session.add(page)
     await session.flush()
 

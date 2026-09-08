@@ -1435,6 +1435,39 @@ nhịp. Đây là hiện thực hoá đúng cách dùng đã ghi sẵn ở READM
 MangaPlus: 22-36 `<img>` cùng lúc). Trang kiểu "bấm Tiếp" mới nạp ảnh mới thì `chonTrangKeTiep`
 trả `null` — không có gì để xếp hàng, không đoán bừa.
 
+### E19.6g Bản dịch miễn phí không sửa được lỗi đọc chữ — thêm `engine` chọn được (2026-09-08)
+
+Test lại trên MangaPlus sau khi các lỗi kỹ thuật đã sửa (§E19.6b–f): vẫn còn 3-8/12-17 bong bóng
+dịch sai/thiếu — vài dòng **ra nguyên tiếng Anh** (không dịch), vài dòng dịch thành câu **vô
+nghĩa** không liên quan gốc.
+
+**Không phải bug — là giới hạn đã biết của engine đang dùng.** `_run_translate` không nhận tham
+số engine từ đường tự động (chỉ nhận từ tham số retry thủ công/BatchRun — M5/M9), nên MỌI trang
+tiện ích gửi lên đều rơi vào `settings.translate_default_engine` = `google_fast`: dịch **RỜI
+RẠC từng dòng**, không có ngữ cảnh, và **không tự sửa được lỗi OCR đọc dính/sai** (điều này đã ghi
+sẵn ở `FEATURES.md` "Xuất bằng bản dịch miễn phí có thể ra chữ chưa dịch" — chỉ là E19 lần đầu chạm
+phải trên dữ liệu thật). `llm_context` (Gemini) đã có sẵn khả năng đúng thứ cần — prompt yêu cầu
+"tự suy luận và sửa khi dịch" chữ OCR sai chính tả (`build_prompt`, chốt từ M5) — nhưng E19 chưa
+từng dùng tới.
+
+**Không đổi mặc định toàn hệ thống.** Đổi `settings.translate_default_engine` sẽ khiến MỌI luồng
+khác (pipeline đầy đủ, M9 batch không chỉ định engine) tự tốn token Gemini — vi phạm thẳng nguyên
+tắc M5 "người dùng phải kiểm soát được khi nào tốn token". Thay vào đó, thêm đường ĐI THẲNG cho
+riêng E19: `Page.translate_engine_override` (cột mới, nullable, migration `0015_e19b`, tái dùng
+enum Postgres `translation_engine` đã có từ 0003_m9 — `create_type=False`) ghi lựa chọn của người
+dùng khi gửi ảnh; `_run_ocr` đọc cột này qua `_page_engine_override()` và truyền cho
+`enqueue_translate_after_ocr(page_id, engine)` → `run_translate_job.delay(job_id, engine)`. Mọi
+lời gọi từ pipeline đầy đủ giữ nguyên `engine=None` — không đụng cột này, hành vi cũ y nguyên.
+
+Popup thêm ô chọn "Chất lượng dịch" (mặc định `google_fast`, giữ hành vi cũ cho ai chưa từng chọn)
+cạnh ô ngôn ngữ — người dùng tự quyết định đánh đổi tốc độ/miễn phí lấy độ chính xác, không bị
+âm thầm đổi hộ. Gỡ ô ngôn ngữ khỏi trang Tuỳ chọn (chuyển hẳn sang popup cùng ô engine) — hai nơi
+cùng sửa một cấu hình là nguồn lệch, giữ đúng MỘT chỗ.
+
+Test bắt được lỗi thật khi viết: gọi `run_translate_job` tay (bỏ qua tham số `engine` đã enqueue)
+làm bài test đầu tiên xanh **giả** — `.delay()` bị chặn broker thật trong test (autouse fixture),
+phải đè lại đúng `.delay` để bắt tham số THẬT đã gửi, không tự gọi lại hàm theo trí nhớ.
+
 ### E19.7 Giới hạn cố ý để lại
 
 - Chỉ dò được `<img>` thật — trang vẽ bằng canvas hoặc chống sao chép thì nói thẳng "không hỗ trợ",

@@ -19,12 +19,17 @@ const bao = (chu, loai) => {
 }
 
 async function ve() {
-  const { ngonNgu } = await docCauHinh()
+  const { ngonNgu, engine } = await docCauHinh()
   $('ngon-ngu').value = ngonNgu
+  $('engine').value = engine
 }
 
 $('ngon-ngu').addEventListener('change', async (e) => {
   await luuCauHinh({ ngonNgu: e.target.value })
+})
+
+$('engine').addEventListener('change', async (e) => {
+  await luuCauHinh({ engine: e.target.value })
 })
 
 $('mo-cai-dat').addEventListener('click', (e) => {

@@ -48,8 +48,8 @@ async function dichMotTrang(url, anhBase64, anhMime, bao) {
   const blob = anhBase64 ? base64ThanhBlob(anhBase64, anhMime) : await taiAnh(url)
 
   bao({ giai_doan: 'dang-gui' })
-  const { ngonNgu } = await docCauHinh()
-  const { page_id } = await guiTrang(blob, ngonNgu)
+  const { ngonNgu, engine } = await docCauHinh()
+  const { page_id } = await guiTrang(blob, ngonNgu, engine)
 
   const han = Date.now() + TRAN_CHO_MS
   for (;;) {

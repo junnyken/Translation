@@ -277,6 +277,15 @@ def _che_do_pipeline(page_id: uuid.UUID) -> ChePipeline:
         return project.che_do_pipeline if project else ChePipeline.day_du
 
 
+def _page_engine_override(page_id: uuid.UUID) -> str | None:
+    """Engine dịch người dùng tự chọn cho ĐÚNG trang này (E19) — `None` = dùng mặc định hệ
+    thống. Chỉ `Page.translate_engine_override` (chi_chu/E19) đọc qua đây; pipeline đầy đủ chọn
+    engine qua tham số retry/BatchRun như cũ, không đụng cột này."""
+    with sync_session() as session:
+        page = session.get(Page, page_id)
+        return page.translate_engine_override.value if page and page.translate_engine_override else None
+
+
 def danh_dau_dang_chay(job) -> None:
     """Đánh dấu việc bắt đầu chạy — đặt CẢ `status` lẫn `started_at`.
 
@@ -452,7 +461,8 @@ def _run_ocr(job_id: uuid.UUID) -> dict:
     inpaint_job_id = translate_job_id = None
     if _che_do_pipeline(page_id) is ChePipeline.chi_chu:
         translate_job_id = (
-            enqueue_translate_after_ocr(page_id) if settings.translate_auto_chain else None
+            enqueue_translate_after_ocr(page_id, _page_engine_override(page_id))
+            if settings.translate_auto_chain else None
         )
     elif settings.inpaint_auto_chain:
         inpaint_job_id = enqueue_inpaint_after_ocr(page_id)
@@ -876,18 +886,25 @@ def run_inpaint_job(self, job_id: str) -> dict:
 # ============================ M5: Dịch ============================
 
 
-def enqueue_translate_after_ocr(page_id: uuid.UUID) -> uuid.UUID | None:
+def enqueue_translate_after_ocr(page_id: uuid.UUID, engine: str | None = None) -> uuid.UUID | None:
     """Nối chuỗi cho chế độ `chi_chu` (E19): đọc chữ xong → xếp thẳng việc dịch.
 
     Bỏ qua xoá chữ và căn chữ. Cùng thân với `enqueue_translate_after_inpaint`; tách tên riêng
     để log và `docs/API.md` nói được **vì sao** việc dịch xuất hiện ở đây, thay vì để người đọc
     log tự đoán tại sao có việc dịch mà không có việc xoá chữ trước đó.
+
+    `engine`: đọc từ `Page.translate_engine_override` (người dùng tiện ích tự chọn) — `None` thì
+    `run_translate_job` tự lùi về `settings.translate_default_engine` như mọi trang khác.
     """
-    return enqueue_translate_after_inpaint(page_id)
+    return enqueue_translate_after_inpaint(page_id, engine)
 
 
-def enqueue_translate_after_inpaint(page_id: uuid.UUID) -> uuid.UUID | None:
-    """Nối chuỗi: xoá chữ xong → tự xếp việc dịch."""
+def enqueue_translate_after_inpaint(page_id: uuid.UUID, engine: str | None = None) -> uuid.UUID | None:
+    """Nối chuỗi: xoá chữ xong → tự xếp việc dịch.
+
+    `engine=None` ở MỌI lời gọi từ pipeline đầy đủ (không đụng `Page.translate_engine_override`,
+    cột đó chỉ chế độ `chi_chu`/E19 dùng) — giữ nguyên hành vi cũ: dùng mặc định hệ thống.
+    """
     with sync_session() as session:
         job = Job(type=JobType.translate, page_id=page_id, status=JobStatus.queued)
         session.add(job)
@@ -895,7 +912,7 @@ def enqueue_translate_after_inpaint(page_id: uuid.UUID) -> uuid.UUID | None:
         job_id = job.id
 
     try:
-        run_translate_job.delay(str(job_id))
+        run_translate_job.delay(str(job_id), engine)
     except Exception as exc:  # noqa: BLE001
         reason = f"enqueue_failed: {type(exc).__name__}: {exc}"
         logger.error("Không đẩy được job translate %s: %s", job_id, reason)
