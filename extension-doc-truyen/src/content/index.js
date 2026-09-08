@@ -238,12 +238,31 @@
   //   - khung ảnh ≈ chỗ ảnh đang hiện  ⇒ chọn đúng phần tử, lỗi ở phép đặt lớp phủ
   //   - khung ảnh ≠ chỗ ảnh đang hiện  ⇒ vẽ nhầm phần tử (hai <img> cùng src, bản nền vs bản lightbox)
   const r = anh.el.getBoundingClientRect()
-  const lop_r = document.getElementById('translation-lop-phu')?.getBoundingClientRect()
+  const lop = document.getElementById('translation-lop-phu')
+  const lop_r = lop?.getBoundingClientRect()
   const so_do = [
     `ảnh: ${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)}`,
     `lớp phủ: ${lop_r ? `${Math.round(lop_r.left)},${Math.round(lop_r.top)} ${Math.round(lop_r.width)}x${Math.round(lop_r.height)}` : 'KHÔNG CÓ'}`,
     `ảnh thật: ${anh.el.naturalWidth}x${anh.el.naturalHeight}`,
     `số <img> đủ lớn: ${1 + chon.bi_loai.length} xét, chọn 1`,
   ].join('\n')
+
+  // `vePhu` tự gỡ lớp phủ ngay khi phát hiện `el.isConnected === false` (xem hàm `dung` bên
+  // trên) — đúng để không vẽ rác lên một phần tử đã chết, nhưng "Xong: X/Y" phía dưới vẫn nói
+  // như thể mọi thứ ổn trong khi màn hình KHÔNG hiện gì cả. Đo được 08/09 trên MangaPlus: sau
+  // ~45s chờ dịch, `<img>` gốc đã bị chính trang gỡ/thay (SPA tự vẽ lại), lớp phủ vừa tạo xong
+  // đã tự huỷ. Phải nói ĐÚNG "không vẽ được" thay vì "xong" — im lặng thất bại còn tệ hơn báo lỗi.
+  if (!anh.el.isConnected || !lop) {
+    xong(
+      `Dịch xong (${co_chu}/${tra.vung.length} bong bóng có bản dịch) NHƯNG không vẽ được lên `
+      + `trang: ảnh đã biến mất khỏi trang trong lúc chờ (trang tự vẽ lại/đổi ảnh khi bạn cuộn `
+      + `hoặc trang tự làm mới nội dung). Cuộn về đúng trang rồi bấm dịch lại — với ảnh dạng `
+      + `\`blob:\` (MangaPlus và tương tự), ảnh mới sẽ có địa chỉ khác nên có thể phải chờ lại `
+      + `từ đầu, không dùng lại được bản dịch vừa xong.\n\n${so_do}`,
+      20,
+    )
+    return
+  }
+
   xong(`Xong: ${co_chu}/${tra.vung.length} bong bóng có bản dịch.\n\n${so_do}`, 40)
 })()

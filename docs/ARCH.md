@@ -1383,6 +1383,28 @@ thêm — để lại ở service worker sẽ là mã chết, không báo lỗi 
 Popup gọn: một ô chọn ngôn ngữ (đọc/ghi cùng khoá `chrome.storage.local` với trang Tuỳ chọn, đổi
 là lưu ngay) + nút "Dịch trang này" + link mở trang Tuỳ chọn đầy đủ (địa chỉ máy chủ, đăng nhập).
 
+### E19.6e "Xong" mà không hiện gì — `<img>` gốc chết trong lúc chờ 45 giây (2026-09-08)
+
+Test lại trên MangaPlus với `source_lang=en`: bảng debug báo `ảnh: 0,0 0x0` và `lớp phủ: KHÔNG
+CÓ`, nhưng thông báo cuối vẫn nói **"Xong: 11/17 bong bóng có bản dịch"**. Người dùng không thấy
+gì trên trang — đúng, vì `vePhu()` đã tự gỡ lớp phủ (nhánh `!el.isConnected` trong `ve()`, xem
+§E19.5) ngay khi phát hiện phần tử `<img>` đã chết, nhưng đường xử lý chính không hề biết việc gỡ
+đó đã xảy ra, cứ báo "Xong" như không có gì.
+
+**Nguyên nhân:** một trang tốn ~45 giây (đo `REPORT_E19_0`), và trong lúc đó chính trang web (SPA)
+tự vẽ lại/gỡ node `<img>` gốc — có thể do cuộn, có thể do trang tự làm mới nội dung. `anh.el` được
+chụp lại từ đầu quy trình; 45 giây sau nó có thể không còn nằm trong tài liệu nữa. Đây là hệ quả
+tất yếu của "bấm để xếp hàng, đọc tiếp" (§E19.2) — độ trễ dài là đánh đổi đã chọn, và đổi lại là
+tham chiếu phần tử có thể chết giữa chừng trên trang càng động.
+
+**Không tự chọn lại phần tử khác để vẽ bù** — thử re-run `chonTrangTruyen` ngay trước khi vẽ có
+vẻ là sửa tận gốc, nhưng nếu người dùng đã cuộn sang trang khác trong lúc chờ, phần tử chọn lại
+sẽ là TRANG KHÁC — vẽ nhầm bản dịch lên nhầm trang còn tệ hơn không vẽ gì. **Sửa bằng cách nói
+đúng sự thật**: kiểm `anh.el.isConnected` và sự tồn tại của lớp phủ ngay sau khi gọi `vePhu()`;
+mất một trong hai thì thay thông báo "Xong" bằng lý do + hướng xử lý (cuộn về đúng trang, bấm lại
+— báo trước là ảnh `blob:` đổi địa chỉ mỗi lần tạo nên khó dùng lại bản dịch vừa xong, phải chờ
+lại từ đầu). Im lặng "thành công" khi màn hình trống là vi phạm evidence-first (`CLAUDE.md` #3).
+
 ### E19.7 Giới hạn cố ý để lại
 
 - Chỉ dò được `<img>` thật — trang vẽ bằng canvas hoặc chống sao chép thì nói thẳng "không hỗ trợ",
