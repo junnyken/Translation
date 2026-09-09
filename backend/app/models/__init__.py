@@ -247,6 +247,10 @@ class OCRResult(TimestampMixin, Base):
     status: Mapped[OCRStatus] = mapped_column(
         _enum(OCRStatus, "ocr_status"), nullable=False, default=OCRStatus.pending
     )
+    #: E21 — người dùng tự gõ đè `raw_text` (vd chữ mảnh/nền bận mà PaddleOCR đọc sai, đo được ở
+    #: REPORT_E20a/E20b: không path OCR nào tự sửa được). `True` thì chạy lại OCR (`re-ocr`)
+    #: KHÔNG được âm thầm ghi đè — đúng ranh giới đã có với TranslationResult.edited_by_user.
+    edited_by_user: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
 class TranslationResult(TimestampMixin, Base):

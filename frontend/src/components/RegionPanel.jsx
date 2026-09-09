@@ -1,31 +1,39 @@
 import { useEffect, useState } from 'react'
 import { LY_DO_VUNG_AN_TOAN, NGUON_VUNG_AN_TOAN } from '../lib/status-presentation.js'
 import StatusBadge from './ui/StatusBadge.jsx'
+import ZoomCropModal from './ZoomCropModal.jsx'
 
-/** Bảng sửa 1 vùng: bản dịch, font, cỡ chữ + các nút chạy lại từng bước. */
+/** Bảng sửa 1 vùng: chữ gốc, bản dịch, font, cỡ chữ + các nút chạy lại từng bước. */
 export default function RegionPanel({
-  region, vungAnToan, fontFamilies, coMin, coMax, dangBan,
+  pageId, region, vungAnToan, fontFamilies, coMin, coMax, dangBan,
   onLuu, onDichLai, onDocLai, onCanhLai, onTinhLaiVungAnToan,
 }) {
   const [text, setText] = useState(region.translated_text ?? '')
+  const [chuGoc, setChuGoc] = useState(region.raw_text ?? '')
   const [font, setFont] = useState(region.font_family ?? fontFamilies[0])
   const [ghimCo, setGhimCo] = useState(false)
   const [co, setCo] = useState(region.font_size ?? coMax)
+  const [dangPhongTo, setDangPhongTo] = useState(false)
 
   // Đổi vùng đang chọn (hoặc dữ liệu mới về từ server) thì nạp lại form.
   useEffect(() => {
     setText(region.translated_text ?? '')
+    setChuGoc(region.raw_text ?? '')
     setFont(region.font_family ?? fontFamilies[0])
     setCo(region.font_size ?? coMax)
     setGhimCo(false)
-  }, [region.id, region.translated_text, region.font_family, region.font_size, fontFamilies, coMax])
+  }, [region.id, region.translated_text, region.raw_text, region.font_family, region.font_size,
+      fontFamilies, coMax])
 
   const daDoi =
-    text !== (region.translated_text ?? '') || font !== (region.font_family ?? fontFamilies[0]) || ghimCo
+    text !== (region.translated_text ?? '')
+    || chuGoc !== (region.raw_text ?? '')
+    || font !== (region.font_family ?? fontFamilies[0]) || ghimCo
 
   const luu = () => {
     const thayDoi = {}
     if (text !== (region.translated_text ?? '')) thayDoi.translated_text = text
+    if (chuGoc !== (region.raw_text ?? '')) thayDoi.raw_text = chuGoc
     if (font !== (region.font_family ?? fontFamilies[0])) thayDoi.font_family = font
     if (ghimCo) thayDoi.font_size = Number(co)
     if (Object.keys(thayDoi).length) onLuu(region.id, thayDoi)
@@ -71,15 +79,37 @@ export default function RegionPanel({
       </div>
 
       <div className="dong-lich-su">
+        Chữ gốc: <b>{region.ocr_edited_by_user ? 'đã sửa tay' : 'máy đọc'}</b>
+        {' · '}
         Bản dịch: <b>{region.translation_edited_by_user ? 'đã sửa tay' : 'máy dịch'}</b>
         {' · '}
         Canh chữ: <b>{region.typeset_edited_by_user ? 'đã sửa tay' : 'máy canh'}</b>
       </div>
 
-      <label className="nhan">
-        Chữ gốc đọc được (không sửa ở đây)
-        <div className="chu-goc">{region.raw_text || <i>chưa đọc được chữ nào</i>}</div>
-      </label>
+      <div className="nhan">
+        <div className="hang-nhan-nut">
+          <label htmlFor={`chu-goc-${region.id}`}>Chữ gốc đọc được</label>
+          <button type="button" className="lien-ket" disabled={dangBan}
+                  onClick={() => setDangPhongTo(true)}>
+            Phóng to đối chiếu
+          </button>
+        </div>
+        <textarea
+          id={`chu-goc-${region.id}`}
+          rows={3}
+          value={chuGoc}
+          onChange={(e) => setChuGoc(e.target.value)}
+          disabled={dangBan}
+          placeholder="Chưa đọc được chữ nào…"
+        />
+        <p className="ghi-chu">
+          Sửa chữ này <b>không</b> tự dịch lại — bấm "Dịch lại" bên dưới sau khi lưu.
+        </p>
+      </div>
+
+      {dangPhongTo && (
+        <ZoomCropModal pageId={pageId} bbox={region.bbox} onClose={() => setDangPhongTo(false)} />
+      )}
 
       <label className="nhan">
         Bản dịch tiếng Việt

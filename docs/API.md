@@ -163,6 +163,23 @@ không có ETag thì mỗi lượt hỏi lại là tải nguyên ~3MB thay vì m
 
 Đoạn dài cũng phát theo khối, không nằm trọn trong RAM.
 
+## 9b. `GET /api/v1/pages/{page_id}/original-image` → 200 *(E21)*
+
+Trả **file ảnh GỐC lúc upload** — chưa xoá chữ, chưa chèn gì. Cùng cơ chế phục vụ hiện vật/ETag/
+`Range` như mục 9 ở trên (`_phuc_vu_hien_vat` dùng chung).
+
+Khác `clean-image`: **luôn có ngay sau upload**, không cần đợi M4 chạy xong — vì đây chính là
+ảnh CHƯA qua bước nào cả. `Content-Type` suy từ đuôi file thật (`image/png`/`image/jpeg`/
+`image/webp`, theo `sniff_image` lúc upload), không hardcode `image/png` như hai endpoint kia.
+
+Dùng để **phóng to đối chiếu** khi nghi ngờ `raw_text` (M3) đọc sai — `typeset-preview`/
+`clean-image` đều đã xoá chữ gốc nên không đối chiếu được (xem `ARCH.md §E21`).
+
+| Lỗi | Mã |
+|---|---|
+| page không tồn tại | 404 |
+| DB có đường dẫn nhưng file đã mất | 404 kèm đường dẫn để truy vết |
+
 ## 10. `POST /api/v1/pages/{page_id}/retry-inpaint` → 202 *(M4)*
 
 Xếp lại việc xoá chữ. Chỉ enqueue.
@@ -276,6 +293,7 @@ Gom **tất cả** dữ liệu của 1 trang cho màn sửa tay — 1 lần gọ
   "regions": [ { "id": "…", "bbox": {"x":240,"y":164,"w":192,"h":85},
      "confidence": 0.91, "overlap_suspect": false, "reading_order": 1, "status": "ok",
      "raw_text": "GOOD MORNING", "ocr_confidence": null, "ocr_status": "ok",
+     "ocr_edited_by_user": false,
      "translated_text": "Chào buổi sáng.", "translation_status": "ok",
      "translation_edited_by_user": false,
      "font_family": "Bangers", "font_size": 30.0, "wrapped_text": "Chào buổi\nsáng.",
@@ -286,15 +304,16 @@ Gom **tất cả** dữ liệu của 1 trang cho màn sửa tay — 1 lần gọ
 - `font_families` lấy từ whitelist của M6; giao diện **chỉ được chọn trong danh sách này**.
 - Mọi cảnh báo đều lộ ra và không bị ẩn: `status` (`low_confidence`), `ocr_status`
   (`needs_manual`), `translation_status` (`fallback_used`), `fit_status` (`overflow_warning`).
-- Hai cờ `*_edited_by_user` cho biết chỗ nào người sửa, chỗ nào máy làm.
+- Ba cờ `*_edited_by_user` (`ocr_`, `translation_`, `typeset_`) cho biết chỗ nào người sửa, chỗ
+  nào máy làm — `ocr_edited_by_user` mới thêm ở E21 (xem mục 17b).
 
 ## 17. `PATCH /api/v1/regions/{region_id}` → 200 *(M7)*
 
 Sửa tay 1 vùng rồi **canh lại đúng vùng đó** (không tính lại cả trang).
 
 ```json
-{ "translated_text": "Chào cậu nhé!", "bbox": {"x":240,"y":164,"w":192,"h":85},
-  "font_family": "Mansalva", "font_size": 16 }
+{ "translated_text": "Chào cậu nhé!", "raw_text": "Hey there!",
+  "bbox": {"x":240,"y":164,"w":192,"h":85}, "font_family": "Mansalva", "font_size": 16 }
 ```
 Trường nào bỏ trống thì giữ nguyên trường đó. Body rỗng → `422`.
 
@@ -307,8 +326,13 @@ Trường nào bỏ trống thì giữ nguyên trường đó. Body rỗng → `
   nội dung vừa sửa, báo `fit_ok` lúc này là nói sai. Theo dõi `refit_job_id` để biết khi nào xong.
 - **`font_size` = ghim cỡ chữ**: canh lại dùng **đúng** cỡ đó thay vì tự dò. Cỡ đó tràn khung thì
   vẫn giữ cỡ nhưng gắn `overflow_warning` — không giả vờ vừa. Bỏ trống = quay lại tự dò như M6.
-- Ghi `edited_by_user=true` lên bản dịch và/hoặc kết quả canh chữ tương ứng.
-- **Không đụng** `raw_text` của M3 và không đụng ảnh gốc/ảnh clean.
+- Ghi `edited_by_user=true` lên `OCRResult`/`TranslationResult`/`TypesetResult` tương ứng với
+  từng trường đã sửa — ba cờ **độc lập**, sửa `raw_text` không đụng cờ của bản dịch.
+- `raw_text` (**E21**): gõ đè chữ OCR đọc sai. **Không tự dịch lại** — bản dịch cũ (dựa trên chữ
+  gốc sai) vẫn còn nguyên tới khi gọi `POST /regions/{id}/re-translate`. Xem `docs/ARCH.md §E21`
+  vì sao (đo được ở `REPORT_E20a`/`REPORT_E20b`: không path OCR tự động nào tự sửa được chữ mảnh
+  trên nền tranh phức tạp).
+- **Không đụng** ảnh gốc/ảnh clean.
 
 | Lỗi | Mã |
 |---|---|
@@ -316,6 +340,7 @@ Trường nào bỏ trống thì giữ nguyên trường đó. Body rỗng → `
 | không có trường nào để sửa / bbox rộng-cao ≤ 0 / trường lạ | 422 |
 | `font_family` ngoài whitelist (`font_not_found`) | 422 |
 | sửa bản dịch khi vùng chưa từng được dịch | 409 |
+| sửa `raw_text` khi vùng chưa từng OCR (`ocr_result` rỗng) | 409 |
 
 ## 18. `POST /api/v1/regions/{region_id}/re-fit` → 202 *(M7)*
 
@@ -327,6 +352,11 @@ Query `font_size` (tuỳ chọn) để ghim cỡ.
 Đọc lại chữ gốc của 1 vùng từ **ảnh gốc** (ảnh clean đã bị xoá chữ nên không dùng được).
 **Không** tự dịch lại và **không** tự canh lại — vì cả hai đều ghi đè, có thể xoá mất phần người
 dùng vừa sửa tay.
+
+**Ghi đè cả `raw_text` đã gõ tay** (E21) — xoá bản ghi `OCRResult` cũ, tạo mới hoàn toàn nên
+`ocr_edited_by_user` tự về `false`. Đây là hành động NGƯỜI DÙNG BẤM RÕ RÀNG (không phải tự động),
+cùng nguyên tắc với `re-translate` bên dưới: hành động tường minh trên một vùng được phép ghi đè
+kể cả phần đã sửa tay khác — chỉ các lượt CHẠY HÀNG LOẠT/TỰ ĐỘNG mới phải tôn trọng `edited_by_user`.
 
 ## 20. `POST /api/v1/regions/{region_id}/re-translate` → 202 *(M7)*
 

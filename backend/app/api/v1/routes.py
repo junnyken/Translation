@@ -7,6 +7,7 @@ Nguyên tắc bắt buộc:
 """
 from __future__ import annotations
 
+import mimetypes
 import uuid
 
 from fastapi import (
@@ -984,6 +985,32 @@ async def get_clean_image(
     return await _phuc_vu_hien_vat(storage, page.clean_image_path, "image/png", request)
 
 
+@router.get(
+    "/pages/{page_id}/original-image",
+    tags=["pages"],
+    responses={200: {"content": {"image/*": {}}}, 404: {"description": "Không còn file"}},
+)
+async def get_original_image(
+    page_id: uuid.UUID, request: Request, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
+) -> Response:
+    """Ảnh GỐC lúc upload — CHƯA xoá chữ, CHƯA chèn gì (E21).
+
+    `typeset-preview`/`clean-image` đều đã xoá chữ gốc (M4) nên không dùng đối chiếu OCR được.
+    Màn rà soát (M7) cần ảnh này để phóng to một vùng, so trực tiếp với `raw_text` khi người dùng
+    quyết định có cần gõ đè hay không (xem `PATCH /regions/{id}` §`raw_text`, E21).
+    """
+    page = await _get_page_or_404(session, page_id, nguoi)
+    storage = get_storage()
+    if not await run_in_threadpool(storage.exists, page.image_path):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Đường dẫn ảnh gốc có trong DB nhưng file không còn: {page.image_path}",
+        )
+    mime, _ = mimetypes.guess_type(page.image_path)
+    return await _phuc_vu_hien_vat(storage, page.image_path, mime or "application/octet-stream", request)
+
+
 @router.post(
     "/pages/{page_id}/retry-inpaint",
     response_model=PageAccepted,
@@ -1217,6 +1244,7 @@ async def get_page_detail(
             raw_text=ocr.raw_text if ocr else None,
             ocr_confidence=ocr.confidence if ocr else None,
             ocr_status=ocr.status if ocr else None,
+            ocr_edited_by_user=bool(ocr.edited_by_user) if ocr else False,
             translated_text=tr.translated_text if tr else None,
             translation_status=tr.status if tr else None,
             translation_edited_by_user=bool(tr.edited_by_user) if tr else False,
@@ -1258,14 +1286,20 @@ async def patch_region(
     session: AsyncSession = Depends(get_session),
     nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> RegionPatchAccepted:
-    """Sửa tay 1 vùng: bản dịch / khung chữ / font / cỡ chữ, rồi **canh lại đúng vùng đó**.
+    """Sửa tay 1 vùng: chữ gốc / bản dịch / khung chữ / font / cỡ chữ, rồi **canh lại đúng vùng đó**.
 
-    Ghi thẳng phần sửa vào DB, đánh dấu `edited_by_user=true`, rồi xếp việc canh chữ chạy nền
-    (không canh trong request). Vì bản canh cũ đã không còn đúng với nội dung mới, `fit_status`
-    trả về là **`pending`** — không trả trạng thái cũ để khỏi báo nhầm là "vẫn vừa khung".
+    Ghi thẳng phần sửa vào DB, đánh dấu `edited_by_user=true` (riêng cho `OCRResult` và
+    `TranslationResult` — hai cờ độc lập), rồi xếp việc canh chữ chạy nền (không canh trong
+    request). Vì bản canh cũ đã không còn đúng với nội dung mới, `fit_status` trả về là
+    **`pending`** — không trả trạng thái cũ để khỏi báo nhầm là "vẫn vừa khung".
 
     `font_size` = **ghim cỡ chữ**: canh lại sẽ dùng đúng cỡ đó. Bỏ trống = tự dò cỡ như M6.
-    Dữ liệu gốc (bbox của M2 thì có sửa, còn chữ OCR của M3) **không bị đụng tới**.
+
+    `raw_text` (E21): gõ đè chữ OCR đọc SAI — đo được ở `REPORT_E20a`/`REPORT_E20b`, chữ mảnh
+    trên nền tranh phức tạp không path OCR tự động nào (kể cả Tesseract, kể cả 4 kiểu tiền xử lý
+    ảnh) tự sửa được. Sửa `raw_text` **KHÔNG tự dịch lại** — bản dịch cũ (dựa trên chữ gốc sai)
+    vẫn còn nguyên tới khi bấm "Dịch lại" (`POST /regions/{id}/re-translate`), để không âm thầm
+    tốn token dịch lại khi người dùng chỉ đang sửa từng chữ một.
     """
     if not patch.co_thay_doi():
         raise HTTPException(status_code=422, detail="Không có trường nào để sửa")
@@ -1292,6 +1326,19 @@ async def patch_region(
         row.translated_text = patch.translated_text or None
         row.edited_by_user = True
         da_sua.append("translated_text")
+
+    if patch.raw_text is not None:
+        ocr_row = (
+            await session.execute(select(OCRResult).where(OCRResult.region_id == region_id))
+        ).scalars().first()
+        if ocr_row is None:
+            raise HTTPException(
+                status_code=409,
+                detail="Vùng này chưa đọc chữ (OCR) — chạy bước đọc chữ (M3) trước",
+            )
+        ocr_row.raw_text = patch.raw_text or None
+        ocr_row.edited_by_user = True
+        da_sua.append("raw_text")
 
     typeset = (
         await session.execute(select(TypesetResult).where(TypesetResult.region_id == region_id))

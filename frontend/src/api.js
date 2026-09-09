@@ -177,6 +177,13 @@ export const layProject = (id) => fetch(`${BASE}/projects/${id}`).then(doc)
 export const layChiTietTrang = (id) => fetch(`${BASE}/pages/${id}/detail`).then(doc)
 export const layJob = (id) => fetch(`${BASE}/jobs/${id}`).then(doc)
 
+// ---------- E21: ảnh gốc chưa xoá chữ, để đối chiếu khi gõ lại raw_text ----------
+//
+// `typeset-preview`/`clean-image` đều đã xoá chữ gốc (M4) — không dùng để đối chiếu OCR được.
+// Đường dẫn TRẦN (không tự tải): nơi gọi tự quyết định tải lúc nào (chỉ khi bấm "Phóng to"),
+// đúng chỗ đã ghi ở đầu file — `<img src>` không mang được mã phiên, phải qua `taiVeBlobUrl`.
+export const duongDanAnhGoc = (pageId) => `${BASE}/pages/${pageId}/original-image`
+
 export const suaVung = (regionId, thayDoi) =>
   fetch(`${BASE}/regions/${regionId}`, {
     method: 'PATCH',

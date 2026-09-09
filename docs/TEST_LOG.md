@@ -3499,3 +3499,73 @@ chọn THẬT SỰ được gửi tới `run_translate_job.delay()`** — test �
 
 Migration `0015_e19b` (thêm `Page.translate_engine_override`, tái dùng enum `translation_engine`
 có sẵn từ 0003_m9): chạy thật `up → down → up` trên `translation-db-1`, sạch cả hai chiều.
+
+# ========== E21 — gõ đè raw_text + phóng to đối chiếu ảnh gốc (2026-09-09) ==========
+
+Migration `0016_e21` (thêm `OCRResult.edited_by_user`, `server_default=false`): chạy thật
+`up → down → up` qua container `api` (auto-migrate lúc khởi động), sạch cả hai chiều — log
+`alembic.runtime.migration` xác nhận cả downgrade `0016_e21 -> 0015_e19b` lẫn upgrade ngược lại
+trong đúng một lượt (bị kích hoạt bởi `git stash`/`git stash pop` khi cô lập nguyên nhân một test
+hỏng, xem ngay dưới).
+
+## Backend — toàn bộ suite, không chỉ riêng E21
+
+```
+$ cd backend && ../.venv/bin/python -m pytest -q
+1176 passed (bao gồm 6 test mới của E21)
+```
+
+**Một lượt đỏ giữa chừng, đã sửa đúng chỗ.** Lượt chạy đầu tiên trên toàn suite ra đỏ ở
+`test_quyen_cheo_tai_khoan.py::test_khong_endpoint_nao_lo_du_lieu_sang_tai_khoan_khac` — endpoint
+mới `GET /pages/{id}/original-image` rơi vào đúng bẫy "rỗng nghĩa" đã ghi ở đầu file đó: A (chủ
+thật) cũng nhận 404 nên phép dò không so sánh được gì với B. Nguyên nhân: fixture dùng chung của
+file test đặt `Page.image_path = "a/1.png"` **chỉ ở tầng CSDL**, chưa từng ghi byte thật lên kho
+— khác `clean_image_path`/preview đã có `kho.save(...)` sẵn. Sửa bằng cách thêm đúng một dòng
+`kho.save(page.image_path, anh)` vào fixture (`_dung_du_lieu`) — không ghi vào `MIEN_TRU`, vì
+endpoint này CÓ gắn với chủ trang, dò chéo ở đây có ý nghĩa thật.
+
+**Xác nhận đây là lỗi CỦA E21, không phải nhiễu môi trường**, bằng `git stash`: cùng một test,
+trên code trước E21 (`c6cac49`) → xanh; sau khi `stash pop` khôi phục thay đổi mà CHƯA sửa fixture
+→ đỏ đúng lỗi đó. Log stderr có kèm hàng loạt `Connection to Redis lost: Retry (N/20)` do host
+không resolve được hostname `redis` (chỉ có trong mạng docker) — đây là NHIỄU không liên quan tới
+lý do test đỏ thật (chỉ xuất hiện vì fixture dựng `BatchRun` gọi thử broker), đã xác minh bằng
+cách đọc thẳng `AssertionError` thật trong traceback thay vì đoán theo dòng lỗi ồn ào nhất.
+
+Test mới (`tests/test_region_edit_integration.py`):
+- `test_sua_raw_text_ghi_dung_va_danh_dau_da_sua` — PATCH ghi đúng `raw_text` +
+  `edited_by_user=true`, **không** đụng `translated_text`.
+- `test_sua_raw_text_vung_chua_ocr_bao_loi_ro` — 409 khi vùng chưa từng OCR.
+- `test_detail_tra_dung_co_ocr_edited_by_user` — `GET .../detail` phản ánh đúng cờ trước/sau sửa.
+- `test_re_ocr_reset_edited_by_user_ve_false` — đọc lại chữ gốc TỰ ĐỘNG (từ ảnh) phải xoá cờ
+  "người tự gõ", không được để lại dấu vết sai của lượt sửa tay trước đó.
+
+Test mới (`tests/test_inpaint_task_integration.py`):
+- `test_endpoint_original_image` — trả ĐÚNG byte đã upload, có ngay từ đầu (không cần đợi M4).
+- `test_original_image_page_khong_ton_tai_tra_404`.
+
+## Frontend
+
+```
+$ cd frontend && npm test
+315 passed (20 test file, bao gồm 7 test mới của RegionPanel.test.jsx)
+```
+
+**Bẫy accessible-name khi test `<button>` lồng trong `<label>`.** Bản đầu đặt nút "Phóng to đối
+chiếu" ngay trong cùng `<label>` bọc ô chữ gốc — Testing Library tính tên hỗ trợ tiếp cận của nút
+đó thành CẢ đoạn text của label (gộp cả nội dung ô textarea lẫn câu ghi chú bên dưới), nên
+`getByRole('button', {name: 'Phóng to đối chiếu'})` không tìm thấy gì. Sửa bằng cách tách nút ra
+khỏi `<label>` (đưa `<label>` chỉ bọc đúng chữ, gắn `htmlFor`/`id` tường minh với textarea) — vừa
+sửa được test, vừa là cấu trúc HTML đúng hơn (nút lồng trong label vốn không chuẩn).
+
+`ZoomCropModal` test giả lập canvas 2D (`HTMLCanvasElement.prototype.getContext`) và
+`Image.prototype.decode`/`naturalWidth/Height` vì jsdom không có canvas thật — xác nhận modal mở
+đúng, gọi đúng `api.duongDanAnhGoc(pageId)`, đóng được, và báo lỗi rõ khi tải ảnh gốc hỏng.
+
+## Còn nợ
+
+**Chưa live-verify trên trình duyệt thật.** Công cụ chrome-devtools MCP mất kết nối
+(`Protocol error (Target.setDiscoverTargets): Target closed`) suốt phiên làm E21, thử lại nhiều
+lần không phục hồi — lỗi hạ tầng của môi trường làm việc, không phải lỗi code. 1176 test backend
++ 315 test frontend xanh KHÔNG thay thế được việc bấm thật trên UI (test tự động không phát hiện
+được lỗi bố cục CSS, ví dụ modal chèn sai vị trí trên màn hình thật). Cần một lượt kiểm tay trước
+khi nâng trạng thái E21 từ **BUILT** lên **LIVE** ở `FEATURES.md`.

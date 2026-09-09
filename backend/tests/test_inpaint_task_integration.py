@@ -250,6 +250,22 @@ async def test_endpoint_clean_image(
     assert len(after.content) > 100
 
 
+async def test_endpoint_original_image(client, sample_page_image, fake_detector, fake_ocr_engine):
+    """E21: ảnh GỐC chưa xoá chữ — khác `clean-image`, phải có NGAY sau upload, không cần đợi
+    inpaint (đây chính là điểm khác biệt: dùng để đối chiếu OCR TRƯỚC khi bước xoá chữ chạy)."""
+    page_id = await _page_through_ocr(client, sample_page_image, fake_detector, fake_ocr_engine)
+
+    r = await client.get(f"/api/v1/pages/{page_id}/original-image")
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"] == "image/png"
+    assert r.content == sample_page_image  # ĐÚNG BYTE đã upload, không qua xử lý nào
+
+
+async def test_original_image_page_khong_ton_tai_tra_404(client):
+    r = await client.get(f"/api/v1/pages/{uuid.uuid4()}/original-image")
+    assert r.status_code == 404
+
+
 async def test_retry_inpaint_khi_page_chua_san_sang_tra_409(client, sample_page_image):
     proj = await client.post(
         "/api/v1/projects", json={"name": "M4", "source_lang": "en", "intended_use": "study"}

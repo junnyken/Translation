@@ -682,6 +682,7 @@ export default function App() {
                 {vungDangChon && (
                   <RegionPanel
                     key={vungDangChon.id}
+                    pageId={chiTiet.page.id}
                     region={vungDangChon}
                     vungAnToan={vungAnToan[vungDangChon.id]}
                     fontFamilies={chiTiet.font_families}

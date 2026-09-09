@@ -29,6 +29,7 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 | F1 | Dấu câu kiểu Nhật trong bản dịch không còn làm hỏng cả trang; vùng font không vẽ được thì đánh dấu riêng thay vì giết cả trang; việc hỏng tự hiện lý do | **BUILT** (test tự động xanh; chưa chạy lại chapter thật trên bản chạy) |
 | E12 | Chỉ ra vùng nào cần rà soát trước khi xuất, kèm lý do đọc được — không tự xoá vùng nào | **LIVE** (Run A–D 15/15 trên trang thật + Chromium 10/10 — xem TEST_LOG §E12) |
 | E19 | Tiện ích riêng "Dịch truyện đang đọc": bấm một cái, phủ chữ dịch lên bong bóng của **bất kỳ trang web nào** đang mở — không chỉnh sửa, không xuất file | **LIVE** (nạp thật vào Chrome, sửa qua 3 lượt trên `reddit.com/r/translator` tới khi lớp phủ khớp đúng bong bóng — xem ARCH.md §E19.5, REPORT_E19_0) |
+| E21 | Màn sửa tay (M7): gõ đè `raw_text` khi OCR đọc sai (đo được ở E20a/E20b: không path OCR tự động nào tự sửa được) + phóng to đối chiếu ảnh gốc chưa xoá chữ | **BUILT** (1176 test backend + 315 test frontend xanh; chưa live-verify trên trình duyệt thật — công cụ trình duyệt lỗi hạ tầng lúc làm, xem ARCH.md §E21.6) |
 
 ## Những gì dùng được ngay hôm nay (sau E12)
 
@@ -67,10 +68,15 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 - **Ảnh gốc và ảnh sạch vẫn nguyên vẹn** — ảnh xem thử là file thứ ba, tách riêng.
 - **Có màn hình để sửa tay** (giao diện đầu tiên của dự án, mở ở cổng 5174): nhìn thấy trang truyện
   đã chèn chữ, các khung chữ vẽ chồng lên ảnh, và bảng sửa cho từng vùng.
-  - Sửa **bản dịch**, đổi **kiểu chữ**, **ghim cỡ chữ** nếu không ưng cỡ máy tự chọn.
+  - Sửa **bản dịch**, **chữ gốc (OCR)**, đổi **kiểu chữ**, **ghim cỡ chữ** nếu không ưng cỡ máy
+    tự chọn. Gõ đè chữ gốc (E21) dùng khi máy đọc sai (thường ở font mảnh/nền tranh phức tạp,
+    xem `ARCH.md §E21`) — **không** tự dịch lại, phải bấm "Dịch lại" riêng sau khi sửa.
+  - **Phóng to đối chiếu ảnh gốc chưa xoá chữ** (E21) ngay cạnh ô chữ gốc — khung đỏ chỉ đúng
+    vùng máy đang đọc, để so trước khi quyết định có cần gõ lại không.
   - **Kéo và co giãn khung chữ** ngay trên ảnh bằng chuột.
   - Bấm lưu là hệ thống **canh lại đúng vùng đó** rồi vẽ lại ảnh — không tính lại cả trang.
-  - Có nút **đọc lại chữ gốc** và **dịch lại** cho riêng từng vùng.
+  - Có nút **đọc lại chữ gốc** (ghi đè cả phần vừa gõ tay — đúng hành động tường minh) và
+    **dịch lại** cho riêng từng vùng.
 - **Không giấu cảnh báo**: mỗi vùng hiện nhãn bằng chữ (“Tràn khung”, “Cần đọc lại”,
   “Khung kém tin cậy”) và có ô bật/tắt để tô cảnh báo lên ảnh.
 - **Biết chỗ nào người sửa, chỗ nào máy làm**: mỗi vùng ghi rõ “máy dịch / đã sửa tay”.

@@ -330,6 +330,80 @@ async def test_sua_tay_khong_dung_chu_goc_ocr(client, trang_da_canh_chu):
     assert sau == truoc == "HELLO"
 
 
+# ---------------- E21: gõ đè raw_text khi OCR đọc sai ----------------
+
+
+async def test_sua_raw_text_ghi_dung_va_danh_dau_da_sua(client, trang_da_canh_chu):
+    """REPORT_E20a/E20b: chữ mảnh trên nền bận không path OCR nào tự sửa được — lối thoát duy
+    nhất là người dùng tự gõ đè. Sửa raw_text KHÔNG được đụng translated_text (chưa ai bảo dịch
+    lại) — bản dịch cũ dựa trên chữ sai vẫn còn nguyên tới khi bấm "Dịch lại" tay."""
+    page_id = await trang_da_canh_chu()
+    vung = _regions(page_id)[0]
+    with sync_session() as s:
+        dich_truoc = s.execute(
+            sa.select(TranslationResult).where(TranslationResult.region_id == vung.id)
+        ).scalars().one().translated_text
+
+    r = await client.patch(f"/api/v1/regions/{vung.id}", json={"raw_text": "HELLO THERE"})
+    assert r.status_code == 200, r.text
+    assert r.json()["edited_fields"] == ["raw_text"]
+
+    with sync_session() as s:
+        ocr = s.execute(
+            sa.select(OCRResult).where(OCRResult.region_id == vung.id)
+        ).scalars().one()
+        assert ocr.raw_text == "HELLO THERE"
+        assert ocr.edited_by_user is True
+        dich_sau = s.execute(
+            sa.select(TranslationResult).where(TranslationResult.region_id == vung.id)
+        ).scalars().one().translated_text
+    assert dich_sau == dich_truoc  # KHÔNG tự dịch lại
+
+
+async def test_sua_raw_text_vung_chua_ocr_bao_loi_ro(client, trang_da_canh_chu):
+    page_id = await trang_da_canh_chu()
+    vung = _regions(page_id)[0]
+    with sync_session() as s:
+        s.execute(sa.delete(OCRResult).where(OCRResult.region_id == vung.id))
+        s.commit()
+    r = await client.patch(f"/api/v1/regions/{vung.id}", json={"raw_text": "abc"})
+    assert r.status_code == 409
+    assert "chưa đọc chữ" in r.json()["detail"]
+
+
+async def test_detail_tra_dung_co_ocr_edited_by_user(client, trang_da_canh_chu):
+    page_id = await trang_da_canh_chu()
+    vung = _regions(page_id)[0]
+
+    truoc = await client.get(f"/api/v1/pages/{page_id}/detail")
+    assert truoc.json()["regions"][0]["ocr_edited_by_user"] is False
+
+    await client.patch(f"/api/v1/regions/{vung.id}", json={"raw_text": "sửa tay"})
+    sau = await client.get(f"/api/v1/pages/{page_id}/detail")
+    vung_sau = next(r for r in sau.json()["regions"] if r["id"] == str(vung.id))
+    assert vung_sau["ocr_edited_by_user"] is True
+    assert vung_sau["raw_text"] == "sửa tay"
+
+
+async def test_re_ocr_reset_edited_by_user_ve_false(client, trang_da_canh_chu, fake_ocr_engine):
+    """Đọc lại chữ gốc từ ảnh (máy đọc) phải xoá cờ 'người tự gõ' — nếu không, dữ liệu sẽ nói dối
+    là 'người sửa' trong khi thực ra máy vừa ghi đè lại theo `_run_region_reocr` (xoá-tạo-mới)."""
+    page_id = await trang_da_canh_chu()
+    vung = _regions(page_id)[0]
+    await client.patch(f"/api/v1/regions/{vung.id}", json={"raw_text": "gõ tay"})
+
+    fake_ocr_engine(results=("MÁY ĐỌC LẠI", 0.9), engine_enum=OCREngine.manga_ocr)
+    r = await client.post(f"/api/v1/regions/{vung.id}/re-ocr")
+    run_region_reocr_job(r.json()["job_id"], str(vung.id))
+
+    with sync_session() as s:
+        ocr = s.execute(
+            sa.select(OCRResult).where(OCRResult.region_id == vung.id)
+        ).scalars().one()
+        assert ocr.raw_text == "MÁY ĐỌC LẠI"
+        assert ocr.edited_by_user is False
+
+
 async def test_canh_lai_vung_chua_co_ban_dich_thi_bao_loi_ro(client, trang_da_canh_chu):
     page_id = await trang_da_canh_chu()
     vung = _regions(page_id)[0]

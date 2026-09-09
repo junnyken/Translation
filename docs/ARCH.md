@@ -1476,3 +1476,66 @@ phải đè lại đúng `.delay` để bắt tham số THẬT đã gửi, khôn
   trang), bấm lại đúng ảnh đó thì phủ lại ngay, không tốn 45 giây lần hai.
 - `<all_urls>` là quyền rộng nhất Chrome cấp — chỉ tiêm code bằng
   `chrome.scripting.executeScript` **đúng lần bấm**, không có `content_scripts` khai sẵn.
+
+## E21. Gõ đè `raw_text` + phóng to đối chiếu ảnh gốc (2026-09-09)
+
+### E21.1 Vì sao mở mini-spec này
+
+`REPORT_E20a.md`/`REPORT_E20b.md` đo được bằng benchmark thật: chữ mảnh (nghiêng) đặt trên nền
+tranh phức tạp làm bước dò vùng chữ NỘI BỘ của PaddleOCR vẽ hụt biên — **không path OCR tự động
+nào sửa được** (thử cả PaddleOCR + 4 kiểu tiền xử lý ảnh, cả Tesseract 4 chế độ PSM, đều 0/10
+trên nhóm mục tiêu). Theo đúng "Decision gate sau E20" đã chốt trước: không path nào thắng rõ ⇒
+không đổi engine ⇒ chuyển hướng sang cải thiện UX rà soát tay (M7).
+
+### E21.2 Hai việc, một nguyên nhân
+
+1. **`raw_text` giờ sửa được.** Trước E21, `PATCH /regions/{id}` cố tình khoá cứng `raw_text`
+   ("không đụng tới") vì mọi lỗi đọc chữ trước đây coi là bug cần re-OCR sửa, không phải chuyện
+   máy không bao giờ đọc đúng được. E20 đổi giả định đó bằng bằng chứng số: có lớp lỗi (chữ mảnh
+   + nền bận) **không engine nào tự sửa**, buộc phải có lối thoát tay.
+2. **Ảnh gốc giờ phục vụ được ra ngoài** (`GET /pages/{id}/original-image`, §API.md mục 9b).
+   Trước đó KHÔNG có endpoint nào trả `page.image_path` — màn M7 chỉ vẽ khung trên
+   `typeset-preview`, đã xoá chữ gốc. Không có ảnh gốc thì "gõ đè raw_text" là gõ mù: người dùng
+   không có gì để đối chiếu ngoài trí nhớ.
+
+Hai việc này PHẢI đi cùng nhau — sửa `raw_text` mà không có ảnh gốc để soi thì chỉ là đoán mò
+kiểu khác, không hơn máy đọc sai bao nhiêu.
+
+### E21.3 Vì sao KHÔNG tự dịch lại khi sửa `raw_text`
+
+Cùng ranh giới đã có với mọi thao tác M7 khác (E12: máy chỉ ra chỗ không tự sửa; E13: gợi ý phải
+người duyệt): sửa `raw_text` chỉ ghi `OCRResult.raw_text` + `edited_by_user=true`, KHÔNG dispatch
+việc dịch. Hai lý do:
+
+- **Chi phí**: `llm_context` tốn token mỗi lần gọi. Người dùng có thể đang gõ lại NHIỀU vùng liền
+  nhau trước khi sẵn sàng dịch — tự dịch sau mỗi lần gõ là đốt token cho những bản dịch sẽ bị vứt.
+- **Ghi đè không xin phép**: `TranslationResult` của vùng đó có thể đã được sửa tay riêng
+  (`translation_edited_by_user=true`) — tự động dịch lại sẽ âm thầm xoá phần đó.
+
+Người dùng tự bấm "Dịch lại" (endpoint đã có từ M7, không đổi) sau khi ưng ý với `raw_text` mới.
+
+### E21.4 `edited_by_user` giờ có BA cờ độc lập, không phải một
+
+`OCRResult.edited_by_user` (mới) đứng riêng với `TranslationResult.edited_by_user` và
+`TypesetResult.edited_by_user` đã có từ trước — sửa raw_text không đụng cờ dịch, sửa dịch không
+đụng cờ OCR. `_run_region_reocr` (đọc lại chữ gốc TỰ ĐỘNG từ ảnh) xoá-và-tạo-mới `OCRResult` nên
+cờ tự về `false` — máy đọc lại thì đúng là "máy đọc", không còn là "người sửa" nữa, kể cả khi kết
+quả MỚI trùng khớp ngẫu nhiên với bản người vừa gõ.
+
+### E21.5 Phóng to — vẽ bằng canvas, không dùng CSS crop
+
+`ZoomCropModal` tải riêng `original-image` (chỉ khi bấm "Phóng to", không tải sẵn cho mọi vùng —
+phần lớn thời gian không cần) rồi `drawImage` đúng vùng `bbox` (nới thêm lề ~40% mỗi chiều, tối
+thiểu 24px, để thấy bối cảnh quanh chữ) lên canvas phóng tới cạnh dài ~900px,
+`imageSmoothingEnabled=false` để giữ nét răng cưa thật thay vì làm mờ chữ vốn đã nhỏ. Khung đỏ
+đánh dấu đúng bbox máy đang đọc, phân biệt với phần lề vừa nới thêm.
+
+### E21.6 Giới hạn đã biết
+
+- **Chưa live-verify trên trình duyệt thật** — công cụ chrome-devtools MCP mất kết nối suốt
+  session làm E21 (lỗi hạ tầng, không phải lỗi code). Đã xác nhận: 1176/1176 test backend +
+  315/315 test frontend (bao gồm test mới cho `ZoomCropModal`/`RegionPanel`) đều xanh, nhưng
+  chưa có ai bấm thật trên UI. Cần một lượt kiểm tay trước khi coi tính năng là **LIVE** theo
+  đúng quy ước phân loại của `FEATURES.md`.
+- Ảnh gốc phục vụ ra ngoài KHÔNG kiểm tra kích thước — trang gốc lớn (hiếm, nhưng có thể) thì
+  modal phóng to tải nguyên ảnh, không có bước nén/resize server-side.

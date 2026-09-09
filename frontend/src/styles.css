@@ -297,10 +297,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   font-family: inherit; color: var(--chu); background: var(--the);
   border: 1px solid var(--vien-dam); border-radius: var(--bo-nho);
 }
-.chu-goc {
-  background: var(--the-mo); border: 1px solid var(--vien); border-radius: var(--bo-nho);
-  padding: 8px 10px; font-size: 13px; white-space: pre-wrap; margin: 4px 0 12px;
-}
+.hang-nhan-nut { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.hang-nhan-nut .lien-ket { font-size: 12.5px; white-space: nowrap; }
 .hang-co { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
 .hang-co input[type="number"] { width: 90px; }
 
@@ -353,6 +351,14 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .o-tick.nho { margin: 0; font-size: 13px; }
 .o-tick input { margin-top: 3px; }
 .hop-thoai .hang.nut { justify-content: flex-end; }
+
+/* ---- E21: phóng to vùng chữ trên ảnh gốc ---- */
+.hop-thoai-rong { max-width: min(94vw, 980px); }
+.khung-anh-phong-to {
+  display: flex; justify-content: center; margin: 12px 0;
+  background: var(--nen-mo, #111); border-radius: var(--bo); padding: 10px; overflow: auto;
+}
+.khung-anh-phong-to canvas { max-width: 100%; image-rendering: pixelated; }
 
 /* Danh sách cảnh báo trong khối thông báo — dùng thẻ danh sách thật, không ghép <br/>:
    chuỗi trộn <b> và <br/> bị ngắt dòng lung tung, đọc ra thành "2" một dòng. */

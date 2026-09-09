@@ -142,6 +142,7 @@ async def _dung_du_lieu(session, chu_so_huu_id: uuid.UUID) -> dict[str, str]:
 
     kho = get_storage()
     anh = b"\x89PNG\r\n\x1a\n" + b"0" * 64
+    kho.save(page.image_path, anh)  # E21: /original-image phục vụ ĐÚNG path này
     duong_clean = f"{project.id}/{page.id}/clean.png"
     kho.save(duong_clean, anh)
     page.clean_image_path = duong_clean

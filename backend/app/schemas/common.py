@@ -205,6 +205,8 @@ class OCRResultRead(ORMModel):
     #: NULL khi engine không cung cấp confidence thật (manga-ocr) — KHÔNG phải bug.
     confidence: float | None
     status: OCRStatus
+    #: E21 — `raw_text` là người tự gõ đè, không phải máy đọc. `re-ocr` reset về `False`.
+    edited_by_user: bool = False
 
 
 # ---------- TranslationResult (M5) ----------
@@ -254,6 +256,10 @@ class RegionPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     translated_text: str | None = None
+    #: E21 — gõ đè chữ OCR đọc được khi máy đọc sai (đo được ở REPORT_E20a/E20b: chữ mảnh trên
+    #: nền tranh phức tạp không path OCR nào tự sửa được). KHÔNG tự dịch lại — người dùng bấm
+    #: "Dịch lại" (endpoint riêng) sau khi sửa, để không âm thầm ghi đè bản dịch đã sửa tay khác.
+    raw_text: str | None = None
     bbox: BBoxIn | None = None
     font_family: str | None = None
     font_size: float | None = Field(default=None, gt=0)
@@ -261,7 +267,7 @@ class RegionPatch(BaseModel):
     def co_thay_doi(self) -> bool:
         return any(
             v is not None
-            for v in (self.translated_text, self.bbox, self.font_family, self.font_size)
+            for v in (self.translated_text, self.raw_text, self.bbox, self.font_family, self.font_size)
         )
 
 
@@ -298,6 +304,8 @@ class RegionDetail(ORMModel):
     raw_text: str | None = None
     ocr_confidence: float | None = None
     ocr_status: OCRStatus | None = None
+    #: E21 — `raw_text` là người tự gõ đè, không phải máy đọc.
+    ocr_edited_by_user: bool = False
     translated_text: str | None = None
     translation_status: TranslationStatus | None = None
     translation_edited_by_user: bool = False
