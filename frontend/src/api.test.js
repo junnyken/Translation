@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { choJobXong } from './api.js'
+import { choJobXong, layLyDoDung } from './api.js'
 
 afterEach(() => vi.restoreAllMocks())
 
@@ -43,5 +43,35 @@ describe('chờ việc chạy nền', () => {
     expect(e.vanDangChay).toBe(true)
     expect(e.message).toContain('vẫn đang chạy')
     expect(e.message).not.toMatch(/hỏng|thất bại/i)
+  })
+})
+
+/** E22 — lý do trang đứng im giờ có HAI nguồn, và thứ tự giữa chúng là một quyết định. */
+describe('lý do trang đứng im', () => {
+  const traVeDanhSach = (js) =>
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => js })))
+
+  it('job đã hỏng được ưu tiên hơn suy luận theo nhịp tim', async () => {
+    // Lý do ĐÃ CHỐT trong CSDL đáng tin hơn một suy luận "chắc là worker chết" theo nhịp tim.
+    traVeDanhSach([
+      { id: 'a', type: 'ocr', status: 'running', processing_state: 'worker_interrupted' },
+      { id: 'b', type: 'inpaint', status: 'failed', error_log: 'thiếu font' },
+    ])
+    expect((await layLyDoDung('pg1')).id).toBe('b')
+  })
+
+  it('không có job hỏng thì mới lấy job bị worker bỏ dở', async () => {
+    traVeDanhSach([
+      { id: 'a', type: 'detect', status: 'done', processing_state: 'done' },
+      { id: 'b', type: 'ocr', status: 'running', processing_state: 'worker_interrupted' },
+    ])
+    expect((await layLyDoDung('pg1')).id).toBe('b')
+  })
+
+  it('việc đang chạy BÌNH THƯỜNG không bị coi là lý do đứng im', async () => {
+    // `running` + nhịp tim còn mới = máy đang làm thật. Báo đó là "lý do đứng im" thì lại thành
+    // doạ người dùng về một thứ đang chạy đúng.
+    traVeDanhSach([{ id: 'a', type: 'ocr', status: 'running', processing_state: 'running' }])
+    expect(await layLyDoDung('pg1')).toBeNull()
   })
 })

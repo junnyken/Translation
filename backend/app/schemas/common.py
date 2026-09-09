@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.enums import (
     BatchItemStatus,
@@ -195,6 +195,34 @@ class JobRead(ORMModel):
     #: gian job theo `created_at` ra 106s cho một trang mà công thật chỉ ~57s (đo 05/09).
     started_at: datetime | None = None
     updated_at: datetime
+    #: E22 (thu hẹp) — nhịp tim gần nhất; `NULL` cho job tạo trước E22 hoặc chưa từng chạy.
+    heartbeat_at: datetime | None = None
+    #: E22 — chỉ khác `NULL` khi `hoi_phuc.don_job_mo_coi()` đánh dấu job này hỏng vì worker chết
+    #: giữa chừng. Xem `app/workers/trang_thai_worker.py` cho từ vựng đầy đủ.
+    error_class: str | None = None
+    #: E22 — bằng chứng thô đi kèm `error_class` (vd `"SIGKILL(137)"`).
+    exit_signal: str | None = None
+    #: E22 — suy luận LÚC ĐỌC, KHÔNG phải cột DB (xem `app/services/job_status.py`). Một trong
+    #: `queued|running|worker_interrupted|done|failed`. `worker_interrupted` nghĩa là: `status`
+    #: DB vẫn ghi `running`, nhưng đã lâu hơn hẳn trần thời gian thật của loại việc này mà không
+    #: có nhịp tim mới — rất có thể worker đã chết và đang chờ tới lượt quét mồ côi ở lần khởi
+    #: động tiếp theo, KHÔNG phải "đang xử lý bình thường".
+    #:
+    #: Giá trị khởi tạo ("running") chỉ là placeholder cho pydantic — LUÔN bị `_suy_ra_processing_state`
+    #: ghi đè ở dưới, dù `JobRead` được dựng từ ORM object (`GET /jobs/{id}`,
+    #: `GET /pages/{id}/jobs`) hay dựng tay. Đặt tính toán ở ĐÂY (thay vì ở từng route) để không
+    #: có endpoint nào lỡ quên gọi và trả nhầm "running" cho một job thật ra đã `failed`.
+    processing_state: str = "running"
+
+    @model_validator(mode="after")
+    def _suy_ra_processing_state(self) -> "JobRead":
+        from app.services.job_status import suy_ra_trang_thai_hien_thi
+
+        self.processing_state = suy_ra_trang_thai_hien_thi(
+            status=self.status, loai=self.type,
+            heartbeat_at=self.heartbeat_at, started_at=self.started_at,
+        )
+        return self
 
 
 # ---------- OCRResult (M3) ----------

@@ -424,9 +424,31 @@ Tải file đã xuất. **Chỉ phục vụ file có sẵn** — không bao gi�
 
 ```json
 { "id": "…", "type": "detect", "page_id": "…", "status": "queued",
-  "retry_count": 0, "error_log": null, "created_at": "…", "updated_at": "…" }
+  "retry_count": 0, "error_log": null, "created_at": "…", "updated_at": "…",
+  "heartbeat_at": null, "error_class": null, "exit_signal": null,
+  "processing_state": "queued" }
 ```
-Dùng chung cho mọi loại job xuyên suốt Phase. Không tồn tại → `404`.
+Dùng chung cho mọi loại job xuyên suốt Phase (và cho `GET /pages/{id}/jobs`,
+`GET /projects/{id}/failed-jobs` — cùng schema `JobRead`). Không tồn tại → `404`.
+
+**E22 (thu hẹp theo audit — xem `REPORT_E22.md`)** — 4 field mới, chỉ có ý nghĩa cho job
+`detect`/`ocr`/`inpaint` (topology hiện tại chỉ có **một** worker, `--pool=solo`):
+- `heartbeat_at`: đặt CÙNG lúc `started_at` khi job bắt đầu chạy (`danh_dau_dang_chay()`). `NULL`
+  cho job tạo trước E22 hoặc chưa từng chạy.
+- `error_class`/`exit_signal`: CHỈ khác `NULL` khi `app/workers/hoi_phuc.py` (P3j — dọn job mồ côi
+  lúc worker khởi động lại) đánh dấu job này hỏng vì worker chết giữa chừng. Giá trị
+  `error_class`: `worker_lost` (worker chết, mã thoát khác 137 hoặc không rõ) hoặc
+  `resource_limit_suspected` (mã thoát 137/SIGKILL — **NGHI NGỜ** hết bộ nhớ, KHÔNG phải bằng
+  chứng nền tảng xác nhận; cố ý không có `resource_limit_confirmed` vì hệ thống chưa có nguồn nào
+  xác nhận được điều đó). Job hỏng vì lý do khác (timeout, lỗi input…) vẫn chỉ dùng `error_log` tự
+  do như trước — không đổi hành vi cũ.
+- `processing_state`: suy luận **LÚC ĐỌC**, KHÔNG phải cột DB (xem `app/services/job_status.py`).
+  Một trong `queued|running|worker_interrupted|done|failed`. `worker_interrupted` nghĩa là:
+  `status` DB vẫn ghi `running`, nhưng đã lâu hơn hẳn trần thời gian thật của loại việc đó
+  (`*_timeout_seconds` + 20s đệm) mà không có nhịp tim mới — rất có thể worker đã chết và đang chờ
+  tới lượt quét mồ côi ở lần khởi động lại kế tiếp (thường vài chục giây), KHÔNG phải "đang xử lý
+  bình thường". Frontend map field này qua bảng `TT_XU_LY` riêng (`status-presentation.js`) —
+  **không** gộp vào bảng `VIEC`/`job_status` vì đó không phải giá trị DB thật.
 Job detect/ocr/inpaint/translate/typeset: `status` đi `queued → running → done | failed`; khi `failed`, `error_log` ghi
 nguyên nhân (`timeout: vượt Ns`, `FileNotFoundError: …`, `enqueue_failed: …`, `no_region: …`,
 `precondition_failed: …`, `missing_ocr: …`).

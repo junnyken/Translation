@@ -317,6 +317,33 @@ class Job(TimestampMixin, Base):
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_log: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    #: E22 (thu hẹp theo audit) — nhịp tim, đặt CÙNG lúc với `started_at` trong `danh_dau_dang_chay()`.
+    #:
+    #: KHÔNG phải cơ chế lease/watchdog đầy đủ như bản nháp E22 gốc đề xuất — audit cho thấy
+    #: `hoi_phuc.py` (dọn job mồ côi lúc worker khởi động lại) đã xử lý đúng trường hợp thật vì
+    #: topology chỉ có ĐÚNG một worker (`--pool=solo`). Cột này chỉ phục vụ MỘT việc: cho phép suy
+    #: luận LÚC ĐỌC (`app/services/job_status.py`) rằng một job đứng `running` quá lâu (vượt hẳn
+    #: `*_timeout_seconds` của chính loại việc đó) nhiều khả năng là worker đã chết nhưng CHƯA tới
+    #: lượt quét mồ côi — thay vì im lặng hiện "đang xử lý" trong cửa sổ đó. Không có watchdog nào
+    #: đọc/ghi cột này ngoài đường đọc kể trên; DB `status` vẫn chỉ do `hoi_phuc.py` sửa.
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    #: E22 — phân loại nguyên nhân khi job bị `hoi_phuc.don_job_mo_coi()` đánh dấu hỏng vì worker
+    #: chết giữa chừng. Từ vựng có kiểm soát (xem `app/workers/trang_thai_worker.py`):
+    #: `worker_lost` (worker chết, không rõ mã thoát hoặc mã khác 137) hoặc
+    #: `resource_limit_suspected` (mã thoát 137/SIGKILL — NGHI NGỜ hết bộ nhớ, chưa phải bằng
+    #: chứng nền tảng xác nhận — cố ý không có giá trị `resource_limit_confirmed` vì hệ thống
+    #: hiện chưa có nguồn nào xác nhận được điều đó). `NULL` = job không hỏng vì worker chết
+    #: (thất bại thường vẫn chỉ dùng `error_log` tự do như trước, không đổi hành vi cũ).
+    #: Cột kiểu String tự do (không phải PG enum) — chỉ có 1 nơi ghi giá trị, thêm enum kiểu CSDL
+    #: cho một danh sách còn có thể đổi là phí một lần `DROP TYPE` khi migrate xuống.
+    error_class: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    #: E22 — mã thoát/tín hiệu thật đọc được từ `trang-thai-worker.json` lúc quét mồ côi (vd
+    #: `"SIGKILL(137)"`, `"exit(1)"`). Bằng chứng thô đi kèm `error_class` ở trên, không tự diễn
+    #: giải thêm — người đọc log tự đối chiếu.
+    exit_signal: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
     page: Mapped[Page] = relationship(back_populates="jobs")
 
 

@@ -1539,3 +1539,86 @@ thiểu 24px, để thấy bối cảnh quanh chữ) lên canvas phóng tới c�
   chụp màn hình bằng mắt.
 - Ảnh gốc phục vụ ra ngoài KHÔNG kiểm tra kích thước — trang gốc lớn (hiếm, nhưng có thể) thì
   modal phóng to tải nguyên ảnh, không có bước nén/resize server-side.
+
+## E22. Worker Memory/OOM — bản THU HẸP theo audit, không phải bản nháp gốc (2026-09-09)
+
+### E22.1 Vì sao mở mini-spec này
+
+Test B&W tiếng Nhật (`manga_ocr`) trên production lộ ra 1 sự kiện worker bị `SIGKILL` (exit 137)
+lúc 07:17, trước khi test đó chạy lúc 07:39 — worker tự phục hồi sau 10s. Người dùng đưa ra bản
+nháp mini-spec E22 đầy đủ (JobAttempt + lease/heartbeat + Redis capacity-gate + watchdog định kỳ +
+retry policy tự động), lấy mẫu từ một playbook hạ tầng tổng quát.
+
+### E22.2 Audit tìm ra bản nháp gốc phần lớn ĐÃ THỪA
+
+Ba phát hiện đổi hướng thiết kế:
+
+1. **`deploy-start.sh` chạy celery với `--pool=solo`** — một tiến trình, không fork. Hai job AI
+   nặng **không thể** chồng lên nhau về mặt cấu trúc trong topology hiện tại. Phần "Redis
+   capacity-gate chặn concurrency" của bản nháp gốc bảo vệ một kịch bản không xảy ra được.
+2. **`app/workers/hoi_phuc.py` (P3j, có từ trước E22) đã xử lý đúng phần lõi**: `worker_ready`
+   signal tự gọi `don_job_mo_coi()` mỗi lần worker khởi động lại, đánh dấu mọi `Job.status=running`
+   thành `failed` kèm lý do đọc được, lùi `Page.status` khỏi trạng thái tạm — **không tự chạy lại**
+   (chủ ý, tránh vòng lặp OOM→retry→OOM). File tự ghi rõ điều kiện đúng của nó: "chỉ đúng khi có
+   ĐÚNG một worker" — đúng topology E22 tự cấm thay đổi (guardrail #3 của bản nháp: không tách
+   API/worker trong E22).
+3. **`Job` đã là "1 lần attempt", không phải "logical work"**: mỗi lần chạy lại một stage, code
+   tạo `Job` MỚI (không update `Job` cũ); mọi `OCRResult`/`TranslationResult`/`TypesetResult` đều
+   xoá-rồi-tạo-mới. Theo đúng điều kiện A2 mà bản nháp gốc tự cho phép ("chỉ chọn bảng `JobAttempt`
+   riêng nếu `Job` hiện tại KHÔNG đại diện 1 attempt") → audit tự loại bỏ nhu cầu bảng mới.
+
+Người dùng chọn hướng **thu hẹp theo bằng chứng**: không build capacity-gate/`JobAttempt`/watchdog
+định kỳ (code đầu cơ cho kịch bản nhiều-worker không xảy ra trong E22) — chỉ sửa 2 khoảng trống
+THẬT còn lại.
+
+### E22.3 Hai việc thật sự làm
+
+1. **Cửa sổ ngắn "nói dối"**: giữa lúc worker chết và lúc `don_job_mo_coi()` chạy xong (~10-40s:
+   `sleep 10` + Celery/Redis kết nối lại), `Job.status` vẫn ghi `running` dù worker đã chết. Thêm
+   `Job.heartbeat_at` (đặt cùng lúc `started_at` trong `danh_dau_dang_chay()` — điểm gọi DUY NHẤT,
+   10 nơi dùng chung) + suy luận LÚC ĐỌC (`app/services/job_status.py`,
+   `suy_ra_trang_thai_hien_thi()`): nếu `running` lâu hơn hẳn `*_timeout_seconds` (trần Celery
+   `soft_time_limit` thật của chính loại job đó) + 20s đệm mà không có nhịp tim mới → trả
+   `processing_state="worker_interrupted"` thay vì `"running"` mù quáng. KHÔNG đổi `Job.status`
+   trong DB — đó vẫn là việc riêng của `hoi_phuc.py`. `JobRead` tự tính field này qua
+   `model_validator(mode="after")` nên MỌI endpoint trả `JobRead` (kể cả list `GET
+   /pages/{id}/jobs`) đều nhất quán, không cần sửa từng route.
+2. **Lý do job hỏng vì worker chết là MỘT câu cứng cho mọi trường hợp** — vi phạm chính guardrail
+   #2 của bản nháp gốc ("không được khẳng định exit 137 = OOM khi chưa có bằng chứng"): dòng log
+   cũ của `deploy-start.sh` viết thẳng "gần như chắc chắn là container hết bộ nhớ". Sửa: (a) bớt
+   khẳng định trong dòng log, chỉ còn "nghi ngờ… CHƯA có xác nhận từ nền tảng"; (b)
+   `app/workers/trang_thai_worker.py` đọc lại đúng `ma_thoat_gan_nhat` mà `deploy-start.sh` ĐÃ ghi
+   sẵn vào `WORKER_STATE_FILE` (không cần deploy-start.sh ghi thêm gì mới) rồi phân loại: mã 137 →
+   `resource_limit_suspected` (NGHI NGỜ, không phải `_confirmed`), mã khác/không rõ →
+   `worker_lost`; (c) `hoi_phuc.don_job_mo_coi()` ghi 2 field mới `Job.error_class`/`Job.exit_signal`
+   từ kết quả đó — chỉ ĐÚNG một nơi ghi, không đụng tới cách các lỗi khác (timeout, input hỏng…)
+   ghi `error_log` tự do như cũ.
+
+### E22.4 Cố tình KHÔNG làm (và vì sao)
+
+- **Không** có bảng `JobAttempt`, `lease_token`, `worker_identity` — audit chứng minh `Job` hiện
+  tại đã đóng đúng vai trò "1 attempt", thêm bảng là trùng lặp không ai đọc.
+- **Không** có `HeavyWorkCapacityGate` (Redis Lua atomic, tái dùng được pattern của
+  `app/services/batch/gate.py` — M9 Gemini rate gate) — `--pool=solo` đã đảm bảo concurrency=1 về
+  mặt cấu trúc; gate chỉ có giá trị NẾU sau này tách nhiều worker (đúng điều `hoi_phuc.py` đã tự
+  ghi từ trước là điều kiện phải làm lại).
+- **Không** có `StaleAttemptWatchdog` chạy định kỳ (Celery beat) — suy luận LÚC ĐỌC
+  (`job_status.py`) đủ cho mục đích hiển thị trung thực mà không cần thêm một tiến trình nền mới;
+  và `hoi_phuc.py` (chạy lúc `worker_ready`) đã là cơ chế "quét + sửa" thật cho DB.
+- **Không** có retry tự động cho `worker_lost`/`resource_limit_suspected` — giữ nguyên chủ ý gốc
+  của `hoi_phuc.py`: tự chạy lại một job vừa (nghi ngờ) làm chết worker vì hết bộ nhớ là cách
+  nhanh nhất giết nó lần nữa, có bằng chứng thật (07:17) chứ không phải giả định.
+
+### E22.5 Giới hạn đã biết
+
+- Ngưỡng "gián đoạn" (`*_timeout_seconds` + 20s) suy từ cấu hình Celery thật, nhưng CHƯA đo bằng
+  live fault-injection thật trên production (worker-kill có chủ đích) — chỉ có bằng chứng quan sát
+  được từ sự kiện 07:17 xảy ra tự nhiên.
+- `processing_state="worker_interrupted"` nối vào ĐÚNG MỘT màn: panel "Vì sao?" của
+  `ChapterProgress` — chỗ duy nhất trước đây nói sai hẳn ("không có bước nào hỏng — đang chờ tới
+  lượt" trong khi worker đã chết). Các màn tiến độ khác vẫn đọc `Page.status` như cũ: chúng chỉ
+  nói chung về bước đang chạy nên không sai, chỉ là chưa chi tiết tới mức phân biệt được worker
+  gián đoạn.
+- Nếu sau này topology đổi (nhiều worker, tách API/worker), điều kiện an toàn của `hoi_phuc.py`
+  KHÔNG còn đúng nữa — phải quay lại làm đúng phần capacity-gate/lease đã audit ở đây trước khi
+  đổi topology, không phải sau.

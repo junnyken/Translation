@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import * as api from '../../api.js'
 import { tinhTienDoChapter } from '../../lib/chapter-progress.js'
-import { MUC_DICH, NGON_NGU } from '../../lib/status-presentation.js'
+import { MUC_DICH, NGON_NGU, dienGiaiTrangThai } from '../../lib/status-presentation.js'
 import Button from '../ui/Button.jsx'
 import ProgressStage from '../ui/ProgressStage.jsx'
 import StatusBadge from '../ui/StatusBadge.jsx'
@@ -166,6 +166,17 @@ function LyDoDung({ pageId, trangThai }) {
         {XONG.includes(trangThai)
           ? 'Không có bước nào hỏng — trang này đã xong.'
           : 'Không có bước nào hỏng — trang này đang chờ tới lượt.'}
+      </span>
+    )
+  }
+  // E22 — việc còn treo `running` nhưng máy chủ đánh giá worker đã gián đoạn. TRƯỚC E22 nhánh này
+  // rơi vào `job === null` ở trên và trả về đúng câu nói dối tệ nhất của màn này: "không có bước
+  // nào hỏng — đang chờ tới lượt", trong khi thật ra chẳng chờ ai cả, worker đã chết.
+  if (job.processing_state === 'worker_interrupted') {
+    const d = dienGiaiTrangThai('tt_xu_ly', 'worker_interrupted')
+    return (
+      <span className="canh-bao">
+        Bước <b>{TEN_BUOC[job.type] ?? job.type}</b>: {d.nhan}. {d.mo_ta}
       </span>
     )
   }

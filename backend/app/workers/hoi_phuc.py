@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Job, Page
 from app.models.enums import JobStatus, PageStatus
+from app.workers.trang_thai_worker import doc_va_phan_loai
 
 logger = logging.getLogger(__name__)
 
@@ -69,12 +70,18 @@ def don_job_mo_coi(session: Session, *, ap_dung: bool = True) -> KetQuaDon:
     kq = KetQuaDon()
 
     mo_coi = list(session.scalars(select(Job).where(Job.status == JobStatus.running)))
+    # E22 (thu hẹp) — phân loại MỘT LẦN cho cả lượt quét: mọi job mồ côi tìm thấy trong CÙNG một
+    # lần khởi động lại đều do CÙNG một lần worker chết gây ra (đúng 1 worker tại 1 thời điểm),
+    # nên dùng chung 1 bằng chứng mã thoát là đủ — không cần đọc lại tệp cho từng job.
+    loi_class, loi_tin_hieu = doc_va_phan_loai() if (ap_dung and mo_coi) else (None, None)
     for job in mo_coi:
         kq.job_da_danh_dau += 1
         kq.chi_tiet.append(f"job {job.id} ({job.type.value}) trang {job.page_id}: running -> failed")
         if ap_dung:
             job.status = JobStatus.failed
             job.error_log = LY_DO[:4000]
+            job.error_class = loi_class
+            job.exit_signal = loi_tin_hieu
 
     # Lùi trang khỏi trạng thái tạm. Làm RIÊNG khỏi vòng trên: một trang có thể không có job
     # `running` nào mà vẫn kẹt (worker chết trước khi kịp ghi job), nên quét theo trang mới đủ.

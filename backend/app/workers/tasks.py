@@ -301,7 +301,11 @@ def danh_dau_dang_chay(job) -> None:
     # `danh_dau_dang_chay(job)` ⇒ đệ quy vô hạn, và bộ test nhận diện đỏ với
     # `RecursionError: maximum recursion depth exceeded`. Giữ nguyên phép gán trực tiếp.
     job.status = JobStatus.running
-    job.started_at = datetime.now(timezone.utc)
+    luc = datetime.now(timezone.utc)
+    job.started_at = luc
+    # E22 (thu hẹp) — nhịp tim ban đầu = lúc bắt đầu. Đặt tại đúng 1 chỗ này (10 nơi gọi hàm) để
+    # `app/services/job_status.py` có mốc suy luận "đứng running quá lâu" mà không sửa 10 nơi.
+    job.heartbeat_at = luc
 
 
 def enqueue_ocr_after_detect(page_id: uuid.UUID) -> uuid.UUID | None:

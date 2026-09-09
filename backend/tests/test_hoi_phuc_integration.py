@@ -104,6 +104,46 @@ class TestDonJobMoCoi:
             assert don_job_mo_coi(s, ap_dung=True).tong == 0
 
 
+class TestPhanLoaiLoiKhiDonMoCoi:
+    """E22 (thu hẹp theo audit) — job mồ côi giờ có `error_class`/`exit_signal` có bằng chứng,
+    thay vì chỉ một `error_log` cứng như nhau cho mọi nguyên nhân."""
+
+    async def test_ma_thoat_137_gan_nhan_nghi_ngo_het_bo_nho(self, du_lieu, tmp_path, monkeypatch):
+        p = tmp_path / "trang-thai.json"
+        p.write_text(
+            '{"trang_thai":"restarting","so_lan_chet":1,"ma_thoat_gan_nhat":137,'
+            '"luc":"2026-09-09T07:17:29Z"}'
+        )
+        monkeypatch.setenv("WORKER_STATE_FILE", str(p))
+        with sync_session() as s:
+            don_job_mo_coi(s, ap_dung=True)
+        with sync_session() as s:
+            job = s.get(Job, du_lieu["job_id"])
+            assert job.error_class == "resource_limit_suspected"
+            assert job.exit_signal == "SIGKILL(137)"
+
+    async def test_khong_co_tep_trang_thai_van_gan_worker_lost(
+        self, du_lieu, tmp_path, monkeypatch,
+    ):
+        monkeypatch.setenv("WORKER_STATE_FILE", str(tmp_path / "khong-ton-tai.json"))
+        with sync_session() as s:
+            don_job_mo_coi(s, ap_dung=True)
+        with sync_session() as s:
+            job = s.get(Job, du_lieu["job_id"])
+            assert job.error_class == "worker_lost"
+            assert job.exit_signal is None
+
+    async def test_che_do_chi_dem_KHONG_ghi_error_class(self, du_lieu, tmp_path, monkeypatch):
+        p = tmp_path / "trang-thai.json"
+        p.write_text('{"ma_thoat_gan_nhat":137}')
+        monkeypatch.setenv("WORKER_STATE_FILE", str(p))
+        with sync_session() as s:
+            don_job_mo_coi(s, ap_dung=False)
+        with sync_session() as s:
+            job = s.get(Job, du_lieu["job_id"])
+            assert job.error_class is None, "chế độ chỉ-đếm không được ghi gì"
+
+
 class TestEndpointLietKeJob:
     async def test_tra_lich_su_job_kem_ly_do(self, client, du_lieu):
         with sync_session() as s:

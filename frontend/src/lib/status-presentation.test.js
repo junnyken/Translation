@@ -7,6 +7,9 @@ const ENUM_BACKEND = {
   trang: ['queued', 'detecting', 'detected', 'detection_failed', 'ocr_done', 'inpainted',
           'inpaint_needs_review', 'translated', 'typeset_done', 'ready_for_export'],
   viec: ['queued', 'running', 'done', 'failed'],
+  // E22 (thu hẹp) — `processing_state` suy ra LÚC ĐỌC, KHÔNG phải cột `job_status` DB (đó vẫn ở
+  // trên, đúng 4 giá trị). Bảng riêng để không phá bài test khoá `viec` đúng 4 giá trị thật.
+  tt_xu_ly: ['queued', 'running', 'worker_interrupted', 'done', 'failed'],
   me: ['queued', 'running', 'completed', 'partial_failed', 'blocked_quota', 'failed', 'cancelled'],
   muc_me: ['pending', 'running', 'completed', 'failed', 'blocked_quota', 'skipped'],
   canh_chu: ['pending', 'fit_ok', 'overflow_warning', 'font_missing_glyph'],

@@ -524,12 +524,19 @@ export function layJobCuaTrang(pageId) {
 export const layViecHongCuaChapter = (projectId) =>
   fetch(`${BASE}/projects/${projectId}/failed-jobs`).then(doc)
 
-/** Job hỏng gần nhất của một trang, hoặc `null` nếu không có.
+/** Job giải thích được vì sao trang đứng im, hoặc `null` nếu không có gì để nói.
  *
  * Trả về nguyên bản ghi chứ không chỉ chuỗi lý do — bên gọi còn cần `type` để nói cho người dùng
  * biết BƯỚC NÀO hỏng, không chỉ "có gì đó hỏng".
+ *
+ * Ưu tiên job đã `failed` (lý do CHẮC CHẮN, đã ghi vào CSDL). Không có mới xét tới job còn treo
+ * `running` mà máy chủ đánh giá là `worker_interrupted` (E22) — worker nhiều khả năng đã chết
+ * giữa chừng nhưng chưa tới lượt dọn dẹp. Thứ tự này quan trọng: một lý do đã chốt luôn đáng tin
+ * hơn một suy luận theo nhịp tim.
  */
 export async function layLyDoDung(pageId) {
   const js = await layJobCuaTrang(pageId)
-  return js.find((j) => j.status === 'failed') ?? null
+  return js.find((j) => j.status === 'failed')
+    ?? js.find((j) => j.processing_state === 'worker_interrupted')
+    ?? null
 }

@@ -78,9 +78,11 @@ case "$ROLE" in
         lenh_worker
         MA=$?
         SO_LAN_CHET=$((SO_LAN_CHET + 1))
-        # 137 = bị SIGKILL, gần như luôn là hết bộ nhớ. Nói thẳng ra thay vì để người đọc đoán.
+        # 137 = bị SIGKILL. E22: KHÔNG khẳng định "hết bộ nhớ" ở đây — nền tảng chưa xác nhận
+        # nguyên nhân, và `app/workers/trang_thai_worker.py` đọc lại đúng mã này để job mồ côi
+        # được gắn nhãn "nghi ngờ" (resource_limit_suspected), không phải "chắc chắn".
         if [ "$MA" -eq 137 ]; then
-          echo "[worker] BỊ GIẾT (SIGKILL/137) — gần như chắc chắn là container hết bộ nhớ." >&2
+          echo "[worker] BỊ GIẾT (SIGKILL/137) — nghi ngờ hết bộ nhớ, CHƯA có xác nhận từ nền tảng." >&2
         fi
         echo "[worker] đã thoát (mã $MA), lần chết thứ $SO_LAN_CHET — bật lại sau 10s" >&2
         ghi_trang_thai restarting "$SO_LAN_CHET" "$MA"

@@ -39,12 +39,36 @@ export const TRANG = {
     'Trang này đã sẵn sàng để đưa vào file xuất.'),
 }
 
-/** Trạng thái VIỆC (`job_status`) — dùng cho cả việc xuất chapter. */
+/** Trạng thái VIỆC (`job_status` — cột thật trong DB, đúng 4 giá trị). */
 export const VIEC = {
   queued: B('Đang chờ', 'trung', 'dong-ho', 'Đã xếp hàng, chưa chạy.'),
   running: B('Đang chạy', 'tin', 'quay', 'Máy đang xử lý.'),
   done: B('Xong', 'ok', 'tich', 'Đã chạy xong.'),
   failed: B('Thất bại', 'loi', 'canh', 'Việc này lỗi.', 'Xem chi tiết lỗi'),
+}
+
+/** E22 (thu hẹp theo audit) — `processing_state` của một Job, suy ra LÚC ĐỌC
+ *  (`GET /jobs/{id}`, xem `app/services/job_status.py` ở backend), KHÔNG phải cột DB.
+ *
+ *  Bảng RIÊNG với `VIEC` cố ý: `VIEC` khoá cứng đúng 4 giá trị thật của `job_status` (test
+ *  `không thừa giá trị lạ ở "viec"` canh việc này) — nhét thêm giá trị suy luận vào đó sẽ làm
+ *  bài test mất tác dụng ngăn giao diện tự bịa trạng thái DB không có thật.
+ *
+ *  `worker_interrupted`: DB vẫn ghi `running`, nhưng đã lâu hơn hẳn trần thời gian thật của
+ *  loại việc này mà không có nhịp tim mới — rất có thể worker đã chết và đang chờ tới lượt dọn
+ *  dẹp ở lần khởi động lại kế tiếp (`app/workers/hoi_phuc.py`). Cố ý KHÔNG dùng chữ "lỗi" hay
+ *  "thất bại": còn chưa chắc, và việc CHƯA MẤT — worker khởi động lại sẽ tự đánh dấu đúng rồi
+ *  cho chạy lại được, không cần thao tác gì trong lúc chờ.
+ */
+export const TT_XU_LY = {
+  queued: VIEC.queued,
+  running: VIEC.running,
+  worker_interrupted: B('Worker gián đoạn — đang đánh giá khôi phục', 'canh', 'canh',
+    'Việc này đứng im lâu hơn bình thường và chưa thấy tín hiệu máy đang xử lý. Có thể worker '
+    + 'vừa bị dừng giữa chừng — hệ thống sẽ tự cập nhật đúng trạng thái khi worker khởi động lại '
+    + '(thường trong vài chục giây). Chưa cần thao tác gì.'),
+  done: VIEC.done,
+  failed: VIEC.failed,
 }
 
 /** Trạng thái MẺ (`batch_status` — M9). */
@@ -109,7 +133,7 @@ export const VUNG = {
 }
 
 const BANG = {
-  trang: TRANG, viec: VIEC, me: ME, muc_me: MUC_ME,
+  trang: TRANG, viec: VIEC, tt_xu_ly: TT_XU_LY, me: ME, muc_me: MUC_ME,
   canh_chu: CANH_CHU, doc_chu: DOC_CHU, dich: DICH, vung: VUNG,
   get phan_loai_vung() { return PHAN_LOAI_VUNG },
   get quyet_dinh_vung() { return QUYET_DINH_VUNG },

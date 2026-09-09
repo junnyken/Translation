@@ -3603,3 +3603,67 @@ bóng thoại, khớp với phép đo pixel độc lập.
   không để lại dấu vết trong dữ liệu dùng chung.
 
 `FEATURES.md`: E21 nâng từ **BUILT** lên **LIVE**. Chi tiết đầy đủ ở `docs/REPORT_E21-LV.md`.
+
+# ========== E22 — worker memory/OOM, bản THU HẸP theo audit (2026-09-09) ==========
+
+Migration `0017_e22` (thêm `job.heartbeat_at`, `job.error_class`, `job.exit_signal` — cả 3 đều
+`NULL` được nên không cần `server_default`, khác bài học 0014/0016): chạy thật qua container
+`worker` (`docker compose run --rm worker alembic upgrade head`), sạch, không lỗi.
+
+## Backend — toàn bộ suite
+
+```
+$ cd backend && ../.venv/bin/python -m pytest -q
+1189 passed · 6 skipped · 0 failed   (1195 thu thập được = 1176 nền E21 + 19 mới của E22)
+```
+
+`pytest.ini` đặt `addopts = -q` nên lượt chạy KHÔNG in dòng tổng kết — con số trên đối chiếu từ
+`--collect-only` (1195) với số dấu chấm/`s` thật đếm trong log lượt chạy đầy đủ, exit code 0, 0 ký
+tự `F`/`E`. 6 test skip là skip sẵn có từ trước E22, không phải test mới bị bỏ qua.
+
+Test mới:
+- `tests/test_e22_job_status_unit.py` (7) — suy luận `processing_state` LÚC ĐỌC. Đáng chú ý:
+  `test_job_cu_truoc_e22_chua_tung_co_heartbeat_khong_bi_bao_gian_doan` khoá lại nguyên tắc
+  evidence-first: `heartbeat_at IS NULL` (job có từ trước migration) là THIẾU DỮ LIỆU, không phải
+  bằng chứng worker chết — không được suy diễn thành "gián đoạn".
+  `test_moi_job_type_da_biet_deu_co_nguong_rieng` sẽ đỏ nếu sau này thêm `JobType` mới mà quên
+  cập nhật bảng ngưỡng (rơi vào mặc định 900s là báo trễ, im lặng).
+- `tests/test_e22_trang_thai_worker_unit.py` (8) — phân loại mã thoát.
+  `test_137_la_nghi_ngo_het_bo_nho_KHONG_phai_chac_chan` assert thẳng rằng chuỗi trả về **không**
+  chứa `confirmed`: đây là ranh giới trung thực của cả mini-spec, không phải chi tiết phụ.
+- `tests/test_e22_heartbeat_integration.py` (1) — `danh_dau_dang_chay()` đặt `heartbeat_at` đúng
+  bằng `started_at` (một mốc thời gian dùng cho cả hai, không phải hai lệnh `now()` riêng lệch nhau).
+- `tests/test_hoi_phuc_integration.py` (+3) — dọn job mồ côi ghi `error_class`/`exit_signal` theo
+  mã thoát thật đọc từ `WORKER_STATE_FILE`; không có tệp vẫn gắn `worker_lost`; chế độ chỉ-đếm
+  (`ap_dung=False`) KHÔNG ghi gì.
+
+## Frontend
+
+```
+$ cd frontend && npm test -- --run
+322 passed (20 file)     — 315 nền E21 + 7 mới của E22
+```
+
+**Một lượt đỏ giữa chừng, và nó đỏ ĐÚNG.** Lượt đầu thêm `worker_interrupted` thẳng vào bảng
+`VIEC` ⇒ `status-presentation.test.js > không thừa giá trị lạ ở "viec"` đỏ ngay. Bài test đó khoá
+`VIEC` đúng 4 giá trị THẬT của cột `job_status` (danh sách lấy từ `docs/API.md`) để không màn nào
+tự bịa trạng thái DB không tồn tại — nhét giá trị suy luận vào đó là làm hỏng chính tấm lưới an
+toàn của E11. Sửa đúng chỗ: tách bảng `TT_XU_LY` riêng cho `processing_state` (5 giá trị, tái
+dùng 4 mục của `VIEC` + `worker_interrupted`), thêm khoá `tt_xu_ly` vào `ENUM_BACKEND` của bài
+test để nó cũng được canh đủ/không thừa như mọi bảng khác. 2 test mới sinh ra từ đúng việc này.
+
+Test mới cho màn thật (nối `processing_state` vào panel "Vì sao?" của `ChapterProgress`):
+- `src/components/chapter/lydodung.test.jsx` (+2) — worker gián đoạn thì panel hiện "Worker gián
+  đoạn", vẫn nói rõ BƯỚC NÀO, và **không** còn "đang chờ tới lượt"/"không có bước nào hỏng"; cũng
+  không dùng chữ "thất bại" (việc chưa mất, worker khởi động lại là tự đánh dấu đúng).
+- `src/api.test.js` (+3) — `layLyDoDung()` ưu tiên job đã `failed` (lý do đã chốt trong CSDL) hơn
+  suy luận theo nhịp tim; không có job hỏng mới lấy job `worker_interrupted`; job đang chạy BÌNH
+  THƯỜNG không bị coi là lý do đứng im (báo thế là doạ người dùng về thứ đang chạy đúng).
+
+## Chưa làm
+
+Không dựng fault-injection giết worker thật trên production — bằng chứng dùng cho audit là sự kiện
+SIGKILL có thật lúc 07:17 xảy ra tự nhiên, và cơ chế cốt lõi (`hoi_phuc.py`) vốn đã có từ trước
+E22 chứ không phải thứ mini-spec này mới dựng lên. Panel "Vì sao?" sau khi deploy chỉ kiểm được
+nhánh bình thường (không có worker chết đúng lúc đang xem) — nhánh `worker_interrupted` được canh
+bằng test tự động, chưa bắt được tận mắt trên production.

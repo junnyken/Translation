@@ -63,6 +63,33 @@ describe('vì sao trang đứng im', () => {
     expect(screen.queryByText(/đang chờ tới lượt/)).not.toBeInTheDocument()
   })
 
+  it('worker gián đoạn: KHÔNG được nói "đang chờ tới lượt" (E22)', async () => {
+    // Đây là câu nói dối tệ nhất của màn này TRƯỚC E22: worker đã chết giữa chừng, việc còn treo
+    // `running` nên không có job `failed` nào để tìm ⇒ rơi vào nhánh null và báo "không có bước
+    // nào hỏng — đang chờ tới lượt". Thật ra chẳng chờ ai cả.
+    vi.spyOn(api, 'layLyDoDung').mockResolvedValue({
+      type: 'inpaint', status: 'running', processing_state: 'worker_interrupted',
+      error_log: null,
+    })
+    render(<ChapterProgress project={project()} onNapLai={vi.fn()} />)
+    await userEvent.click(screen.getByRole('button', { name: /Vì sao/ }))
+    await waitFor(() => expect(screen.getByText(/Worker gián đoạn/)).toBeInTheDocument())
+    expect(screen.getByText(/xoá chữ gốc/)).toBeInTheDocument()   // vẫn nói rõ BƯỚC NÀO
+    expect(screen.queryByText(/đang chờ tới lượt/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/không có bước nào hỏng/i)).not.toBeInTheDocument()
+  })
+
+  it('worker gián đoạn: nói rõ CHƯA CẦN làm gì, không doạ người dùng là đã mất việc', async () => {
+    vi.spyOn(api, 'layLyDoDung').mockResolvedValue({
+      type: 'ocr', status: 'running', processing_state: 'worker_interrupted', error_log: null,
+    })
+    render(<ChapterProgress project={project()} onNapLai={vi.fn()} />)
+    await userEvent.click(screen.getByRole('button', { name: /Vì sao/ }))
+    await waitFor(() => expect(screen.getByText(/Chưa cần thao tác gì/)).toBeInTheDocument())
+    // Không dùng chữ "lỗi"/"thất bại": còn chưa chắc, và việc CHƯA MẤT.
+    expect(screen.queryByText(/thất bại/i)).not.toBeInTheDocument()
+  })
+
   it('chỉ hỏi MỘT lần dù bấm nhiều lần', async () => {
     const spy = vi.spyOn(api, 'layLyDoDung').mockResolvedValue(null)
     render(<ChapterProgress project={project()} onNapLai={vi.fn()} />)
