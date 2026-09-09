@@ -21,12 +21,14 @@ truyện tranh". Xem §7.
 **36/36 test tự động qua** (`test_ocr_benchmark_unit.py`, không phụ thuộc dataset gitignore).
 Không đụng DB, không đụng `OCRResult` production, không nối vào Celery.
 
-**Cập nhật 08/09 (§10):** đo thêm 2 thí nghiệm không cần ảnh MangaPlus thật. Độ phân giải thấp
-(tới 20px) cũng KHÔNG đủ giải thích lỗi thật. Nhưng **chữ mảnh (nghiêng) đặt trên nền tranh phức
-tạp thì hỏng 0/10**, đúng một mẫu hình: mất ký tự ở HAI ĐẦU, giữa luôn đúng — dấu hiệu bước dò
-vùng chữ NỘI BỘ của PaddleOCR (không phải M2) vẽ hụt biên trên nền bận. Đây là giả thuyết đáng
-tin nhất hiện có, và gợi ý hướng sửa rẻ hơn nhiều so với đổi engine: nới lề quanh bbox trước khi
-OCR. Xem §10 để biết chi tiết đầy đủ.
+**Cập nhật 08/09 (§10):** đo thêm 3 thí nghiệm không cần ảnh MangaPlus thật. Độ phân giải thấp
+(tới 20px) KHÔNG đủ giải thích lỗi thật. **Chữ mảnh (nghiêng) đặt trên nền tranh phức tạp thì
+hỏng 0/10**, đúng một mẫu hình: mất ký tự ở HAI ĐẦU, giữa luôn đúng — dấu hiệu bước dò vùng chữ
+NỘI BỘ của PaddleOCR (không phải M2) hỏng trên nền bận, và chữ đậm (Bangers) hoàn toàn miễn
+nhiễm trong khi chữ mảnh hỏng 100%. Đã thử "nới lề quanh bbox" như một sửa rẻ — **bác bỏ**, kết
+quả gần như không đổi. Không có sửa rẻ nào tìm được; E20b (đổi engine/tiền xử lý) vẫn cần thiết,
+nhưng giờ có mục tiêu đo chính xác hơn nhiều: "chữ mảnh trên nền bận", không phải "chữ hoa cách
+điệu" như giả thuyết gốc. Xem §10 để biết chi tiết đầy đủ.
 
 ## 2. Audit Before Build
 
@@ -231,11 +233,25 @@ không phải lỗi ở cách cắt ảnh của thí nghiệm.
 
 **⇒ Giả thuyết đáng tin nhất bây giờ:** MangaPlus không chỉ có font đặc thù — nó còn có **chữ
 mảnh + nền nghệ thuật phức tạp cùng lúc**, và tổ hợp đó (không phải riêng font, không phải riêng
-độ phân giải) mới là thứ đánh gục bước dò nội bộ của PaddleOCR. Việc còn thiếu để xác nhận 100%
-là ảnh MangaPlus thật (chưa có, xem §9), nhưng hướng sửa khả dĩ đã rõ hơn nhiều so với lúc mở
-E20a: **nới thêm lề quanh bbox trước khi đưa vào OCR** (cho bước dò nội bộ nhiều "khoảng thở" hơn
-ở nền phức tạp) là ứng viên rẻ, đáng thử TRƯỚC KHI đổi engine (Tesseract, E20b) — vì đây là lỗi ở
-bước DÒ VÙNG, một tham số crop có thể sửa được mà không cần thay engine nào cả.
+độ phân giải) mới là thứ đánh gục bước dò nội bộ của PaddleOCR.
+
+### 10.3 Đã THỬ và BÁC BỎ: nới lề quanh bbox không sửa được
+
+§10.2 đề xuất "nới lề" là ứng viên rẻ. **Đã đo, sai.** Cắt lại đúng 10 mẫu chữ nghiêng đó với lề
+**60px thay vì 14px** (gấp hơn 4 lần) — kết quả **gần như y hệt** (0/10 vẫn 0/10, mất đúng những
+ký tự đó ở hai đầu). Tệ hơn: lề rộng hơn còn kéo lẫn **chữ THẬT khác có sẵn trên tranh
+Pepper&Carrot** (số "18" viết trên cán chổi, chữ tượng thanh "SHH SHH") vào phần đọc được, ghép
+thêm vào cuối kết quả. ⇒ **Không phải bbox cắt hụt lề** — margin không phải biến số quyết định.
+Nguyên nhân nằm sâu hơn: nhiều khả năng là độ tương phản/độ phức tạp ngay TẠI VỊ TRÍ từng ký tự
+biên (không phải toàn khung), nơi bước dò nội bộ chấm điểm "có phải chữ không" theo từng vùng nhỏ
+và các ký tự ở rìa (vốn ít điểm ảnh "yên tĩnh" xung quanh hơn ký tự ở giữa) bị rớt ngưỡng — không
+phải chuyện có bao nhiêu margin quanh CẢ khung.
+
+**Kết luận thật cho E20b:** không có "sửa rẻ" nào tìm được trong E20a. Muốn hết lỗi này thật sự
+cần hoặc (a) đổi engine (Tesseract, đã lên kế hoạch ở E20b) đo lại ĐÚNG điều kiện "chữ mảnh + nền
+bận" này — không phải "chữ hoa cách điệu" như giả thuyết gốc — hoặc (b) tiền xử lý ảnh (tăng
+tương phản chữ/nền TRƯỚC OCR, không phải nới crop) — cũng đã có trong scope E20b. Không có phát
+hiện nào ở đây cho phép bỏ qua E20b.
 
 **Giới hạn khác:**
 - Benchmark chỉ tiếng Anh (đúng phạm vi tái hiện lỗi MangaPlus) — chưa có bộ tương tự cho `ja`/`zh`.
