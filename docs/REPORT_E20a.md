@@ -21,6 +21,13 @@ truyện tranh". Xem §7.
 **36/36 test tự động qua** (`test_ocr_benchmark_unit.py`, không phụ thuộc dataset gitignore).
 Không đụng DB, không đụng `OCRResult` production, không nối vào Celery.
 
+**Cập nhật 08/09 (§10):** đo thêm 2 thí nghiệm không cần ảnh MangaPlus thật. Độ phân giải thấp
+(tới 20px) cũng KHÔNG đủ giải thích lỗi thật. Nhưng **chữ mảnh (nghiêng) đặt trên nền tranh phức
+tạp thì hỏng 0/10**, đúng một mẫu hình: mất ký tự ở HAI ĐẦU, giữa luôn đúng — dấu hiệu bước dò
+vùng chữ NỘI BỘ của PaddleOCR (không phải M2) vẽ hụt biên trên nền bận. Đây là giả thuyết đáng
+tin nhất hiện có, và gợi ý hướng sửa rẻ hơn nhiều so với đổi engine: nới lề quanh bbox trước khi
+OCR. Xem §10 để biết chi tiết đầy đủ.
+
 ## 2. Audit Before Build
 
 | Mục | Kết quả audit |
@@ -171,6 +178,64 @@ nhân trên ĐÚNG ảnh/crop thật đã gây lỗi (giữ private/gitignore, n
 MangaPlus có bản quyền) — so sánh độ phân giải bbox thật vs benchmark tự tạo, và kiểm bbox từ M2
 có cắt đúng bong bóng không. Việc này rẻ hơn nhiều so với chạy hết E20b (nhiều path Tesseract +
 tiền xử lý) rồi mới phát hiện ra vấn đề nằm ở chỗ khác.
+
+## 10. Phụ lục 08/09 — hai thí nghiệm thêm, không cần ảnh MangaPlus thật
+
+Sau khi §9 nêu 3 giả thuyết còn lại, đo được 2/3 mà KHÔNG cần ảnh thật (script mới, không commit
+dữ liệu sinh ra — cùng quy ước gitignore).
+
+### 10.1 Độ phân giải thấp — `scripts/ocr_benchmark_resolution_test.py`
+
+Lấy lại 20 mẫu `uppercase_tight`/`italic_stylized`, thu nhỏ còn 60%/35%/20% kích thước gốc (mô
+phỏng bong bóng nhỏ trong 1 trang đầy đủ — ảnh MangaPlus đo thật trong tiện ích chỉ 784×1145px
+**cả trang**).
+
+| Tỉ lệ | Cao chữ TB | Exact match | CER TB |
+|---|---|---|---|
+| 100% (đối chứng) | 100px | 19/20 (95%) | 0,14% |
+| 60% | 60px | 20/20 (100%) | 0% |
+| 35% | 35px | 19/20 (95%) | 0,16% |
+| **20%** | **20px** | **15/20 (75%)** | **1,26%** |
+
+Ngay cả ở 20px — nhỏ hơn phần lớn bong bóng thật — 5 ca "sai" đều là lỗi vặt (thiếu dấu chấm
+cuối, 1 ký tự W→M, mất khoảng trắng giữa từ). **Không có ca nào giống kiểu đọc bậy hoàn toàn** đã
+thấy trên MangaPlus thật. ⇒ **Giả thuyết độ phân giải KHÔNG đủ giải thích**, kể cả ở mức cực đoan.
+
+### 10.2 Nền tranh phức tạp — `scripts/ocr_benchmark_busy_bg_test.py`
+
+Đặt lại đúng 20 câu đó (10 Bangers hoa/10 ShantellSans nghiêng) **trực tiếp lên nền tranh thật**
+cắt từ Pepper&Carrot (gỗ, kệ chai lọ, bầu trời sao, ánh sáng, mây, sàn gỗ — 6 nền xen kẽ), có viền
+đen giữ đọc được, KHÔNG còn bong bóng trắng sạch phía sau.
+
+| Nhóm | Exact match | CER TB |
+|---|---|---|
+| `uppercase_tight` (Bangers, đậm) | **10/10 (100%)** | 0% |
+| `italic_stylized` (ShantellSans, mảnh) | **0/10 (0%)** | 20,9% |
+
+**Mẫu hình lỗi giống hệt nhau ở cả 10 ca chữ nghiêng** — mất vài ký tự ĐẦU và vài ký tự CUỐI,
+đoạn giữa luôn đúng nguyên văn:
+
+```
+THẬT: "Maybe this wasn't such a good idea..."
+ĐỌC : "ybe this wasn't such a good ide"        ← mất "Ma" đầu, mất "a..." cuối
+
+THẬT: "Why does it always rain when I need it not to?"
+ĐỌC : "es it always rain when I need i"        ← mất "Why do" đầu, mất "t not to?" cuối
+```
+
+Đây **không phải đọc sai ký tự nhìn thấy được** (đoạn giữa hoàn hảo) — mà là bước **dò vùng chữ
+NỘI BỘ của chính PaddleOCR** (`PP-OCRv6_medium_det`, chạy TRONG `recognize()`, khác với M2 comic-
+text-detector ở tầng trên) vẽ hụt biên khi nền phức tạp, và nét càng MẢNH (chữ nghiêng) càng dễ
+lẫn vào nền ở hai đầu chữ hơn nét ĐẬM (Bangers) — cùng cách crop, cùng câu, chỉ khác nền, nên
+không phải lỗi ở cách cắt ảnh của thí nghiệm.
+
+**⇒ Giả thuyết đáng tin nhất bây giờ:** MangaPlus không chỉ có font đặc thù — nó còn có **chữ
+mảnh + nền nghệ thuật phức tạp cùng lúc**, và tổ hợp đó (không phải riêng font, không phải riêng
+độ phân giải) mới là thứ đánh gục bước dò nội bộ của PaddleOCR. Việc còn thiếu để xác nhận 100%
+là ảnh MangaPlus thật (chưa có, xem §9), nhưng hướng sửa khả dĩ đã rõ hơn nhiều so với lúc mở
+E20a: **nới thêm lề quanh bbox trước khi đưa vào OCR** (cho bước dò nội bộ nhiều "khoảng thở" hơn
+ở nền phức tạp) là ứng viên rẻ, đáng thử TRƯỚC KHI đổi engine (Tesseract, E20b) — vì đây là lỗi ở
+bước DÒ VÙNG, một tham số crop có thể sửa được mà không cần thay engine nào cả.
 
 **Giới hạn khác:**
 - Benchmark chỉ tiếng Anh (đúng phạm vi tái hiện lỗi MangaPlus) — chưa có bộ tương tự cho `ja`/`zh`.
