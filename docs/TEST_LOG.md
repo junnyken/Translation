@@ -3563,9 +3563,43 @@ sửa được test, vừa là cấu trúc HTML đúng hơn (nút lồng trong l
 
 ## Còn nợ
 
-**Chưa live-verify trên trình duyệt thật.** Công cụ chrome-devtools MCP mất kết nối
-(`Protocol error (Target.setDiscoverTargets): Target closed`) suốt phiên làm E21, thử lại nhiều
-lần không phục hồi — lỗi hạ tầng của môi trường làm việc, không phải lỗi code. 1176 test backend
-+ 315 test frontend xanh KHÔNG thay thế được việc bấm thật trên UI (test tự động không phát hiện
-được lỗi bố cục CSS, ví dụ modal chèn sai vị trí trên màn hình thật). Cần một lượt kiểm tay trước
-khi nâng trạng thái E21 từ **BUILT** lên **LIVE** ở `FEATURES.md`.
+~~Chưa live-verify trên trình duyệt thật~~ — **đã xong, xem "E21-LV" bên dưới.**
+
+---
+
+## E21-LV — Live Verification & Closeout (2026-09-09)
+
+**Tìm ra nguyên nhân thật của "chrome-devtools MCP mất kết nối"**: không phải lỗi hạ tầng vĩnh
+viễn như ghi ở trên lúc làm E21 — Playwright launch Chromium trực tiếp lộ ra lỗi thật:
+`chrome-headless-shell: error while loading shared libraries: libnspr4.so: cannot open shared
+object file`. Sửa bằng `python -m playwright install-deps chromium` (cần sudo, có sẵn
+passwordless trong workspace này). Sau khi sửa, cả Playwright lẫn (khả năng cao) chrome-devtools
+MCP đều dùng được — chi tiết ở `REPORT_E21-LV.md §2`.
+
+`scripts/do_run_e21_lv.py` (mới) chạy 13 tiêu chí của kế hoạch E21-LV trên Chromium thật, dữ
+liệu thật (project fixture "Test E2E Pepper Carrot", trang `e3b458c7…`, vùng `30234117…`):
+
+- Khung đỏ được kiểm bằng cách tính lại ĐỘC LẬP công thức `ZoomCropModal.jsx` (bbox + nới lề +
+  tỉ lệ phóng, `Math.round` kiểu JS) từ kích thước ảnh gốc đo thật, rồi lấy mẫu
+  `canvas.getImageData` thật ở đúng toạ độ tính ra — không so màu tuyệt đối (nét đè lên ảnh gốc,
+  alpha .85) mà so "đỏ trội" tại 12 điểm dọc 4 cạnh, yêu cầu ≥80% khớp.
+  **12/12 khớp** cả lúc mở, sau 600ms, và sau khi resize viewport 2 lần.
+- Sửa `raw_text` qua UI thật → Lưu → đợi job thật chạy xong (polling thật, không giả lập) →
+  refresh trình duyệt thật → giá trị mới vẫn còn. Đối chiếu trực tiếp Postgres: `translated_text`
+  không đổi, số job `type='translate'` cho trang đó không đổi (1 → 1) — sửa `raw_text` không kéo
+  theo dịch lại, đúng như E21 đã thiết kế.
+- Không tràn ngang ở 375/768/1440px, kể cả lúc modal đang mở (6/6). Không lỗi JS console suốt
+  phiên (gắn listener `console`/`pageerror` toàn bộ, không chỉ lúc mở modal).
+
+**25/25 kiểm đạt.** Ảnh chụp bằng chứng ở `docs/evidence/E21-LV/` — `02_modal_mo_desktop.png`
+đối chiếu mắt xác nhận khung đỏ áp sát đúng câu "...mmm probably not strong enough." trên bong
+bóng thoại, khớp với phép đo pixel độc lập.
+
+**Chuẩn bị môi trường kiểm** (ghi lại vì có tác động ngoài scope UI thuần tuý):
+- Đặt lại mật khẩu tài khoản fixture `test-e2e@local.test` bằng đúng hàm băm `scrypt` của server
+  (không đoán, không bỏ qua xác thực) — mật khẩu mới giữ lại cho các script kiểm UI thật sau này.
+- Bước "sửa raw_text" ghi thật vào Postgres của project fixture dùng chung nhiều mini-spec trước
+  — sau khi xác nhận đạt, đã **phục hồi `raw_text`/`edited_by_user` về giá trị trước khi kiểm**,
+  không để lại dấu vết trong dữ liệu dùng chung.
+
+`FEATURES.md`: E21 nâng từ **BUILT** lên **LIVE**. Chi tiết đầy đủ ở `docs/REPORT_E21-LV.md`.

@@ -1532,10 +1532,10 @@ thiểu 24px, để thấy bối cảnh quanh chữ) lên canvas phóng tới c�
 
 ### E21.6 Giới hạn đã biết
 
-- **Chưa live-verify trên trình duyệt thật** — công cụ chrome-devtools MCP mất kết nối suốt
-  session làm E21 (lỗi hạ tầng, không phải lỗi code). Đã xác nhận: 1176/1176 test backend +
-  315/315 test frontend (bao gồm test mới cho `ZoomCropModal`/`RegionPanel`) đều xanh, nhưng
-  chưa có ai bấm thật trên UI. Cần một lượt kiểm tay trước khi coi tính năng là **LIVE** theo
-  đúng quy ước phân loại của `FEATURES.md`.
+- **Live-verify trên trình duyệt thật: xong ở E21-LV** (2026-09-09, 25/25 đạt, xem
+  `docs/REPORT_E21-LV.md`). "Target closed" ban đầu hoá ra là thiếu `libnspr4.so` cho Chromium
+  headless (`playwright install-deps chromium` sửa được), không phải lỗi hạ tầng vĩnh viễn.
+  Khung đỏ được xác nhận đúng vị trí bằng cách lấy mẫu pixel canvas thật, không chỉ nhìn ảnh
+  chụp màn hình bằng mắt.
 - Ảnh gốc phục vụ ra ngoài KHÔNG kiểm tra kích thước — trang gốc lớn (hiếm, nhưng có thể) thì
   modal phóng to tải nguyên ảnh, không có bước nén/resize server-side.

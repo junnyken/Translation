@@ -113,15 +113,13 @@ Frontend: 315 passed
 
 ## 7. Live Verification
 
-**Chưa chạy được** — công cụ trình duyệt (chrome-devtools MCP) báo lỗi
-`Protocol error (Target.setDiscoverTargets): Target closed` mọi lần thử, không phục hồi trong
-suốt phiên làm việc. Đây là lỗi hạ tầng môi trường, không phải lỗi ở code hay ở cách gọi.
+**Chạy xong ở E21-LV (2026-09-09), 25/25 đạt** — xem `docs/REPORT_E21-LV.md` cho báo cáo đầy đủ.
 
-Đã bù bằng cách khác trong khả năng: chạy backend qua Docker thật (`docker compose run api`, có
-log xác nhận migration + endpoint hoạt động qua `curl` thủ công ở các mini-spec trước đó cùng
-ngày), và bộ test frontend giả lập DOM/canvas đầy đủ. Nhưng **không có gì thay thế được việc bấm
-thật trên UI** — test tự động không bắt được lỗi bố cục CSS thật (vd modal chồng lấn, canvas vẽ
-lệch trên trình duyệt thật khác jsdom).
+Nguyên nhân thật của "Target closed" tìm ra được: thiếu thư viện hệ thống `libnspr4.so` cho
+Chromium headless (`playwright install-deps chromium` sửa dứt điểm) — không phải giới hạn hạ
+tầng vĩnh viễn như đoán trước đó. Sau khi sửa, Playwright bấm thật trên Chromium thật, đọc dữ
+liệu thật từ Postgres, lấy mẫu pixel canvas thật để kiểm khung đỏ đúng vị trí — không phải nhìn
+ảnh chụp màn hình bằng mắt.
 
 ## 8. Success Criteria
 
@@ -136,7 +134,8 @@ lệch trên trình duyệt thật khác jsdom).
 
 ## 9. Remaining Limits
 
-- **Chưa live-verify UI** (xem §7) — `FEATURES.md` xếp E21 ở mức **BUILT**, chưa **LIVE**.
+- **Live-verify UI đã xong** (xem §7, `docs/REPORT_E21-LV.md`) — `FEATURES.md` nâng E21 lên
+  **LIVE**.
 - Ảnh gốc phục vụ nguyên khổ, không nén/resize server-side — trang gốc rất lớn (hiếm) sẽ tải
   nguyên qua modal phóng to.
 - Chưa đo trên ĐÚNG ảnh MangaPlus thật gây ra toàn bộ chuỗi E20/E21 — vẫn đang chờ người dùng

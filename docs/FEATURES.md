@@ -29,7 +29,7 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 | F1 | Dấu câu kiểu Nhật trong bản dịch không còn làm hỏng cả trang; vùng font không vẽ được thì đánh dấu riêng thay vì giết cả trang; việc hỏng tự hiện lý do | **BUILT** (test tự động xanh; chưa chạy lại chapter thật trên bản chạy) |
 | E12 | Chỉ ra vùng nào cần rà soát trước khi xuất, kèm lý do đọc được — không tự xoá vùng nào | **LIVE** (Run A–D 15/15 trên trang thật + Chromium 10/10 — xem TEST_LOG §E12) |
 | E19 | Tiện ích riêng "Dịch truyện đang đọc": bấm một cái, phủ chữ dịch lên bong bóng của **bất kỳ trang web nào** đang mở — không chỉnh sửa, không xuất file | **LIVE** (nạp thật vào Chrome, sửa qua 3 lượt trên `reddit.com/r/translator` tới khi lớp phủ khớp đúng bong bóng — xem ARCH.md §E19.5, REPORT_E19_0) |
-| E21 | Màn sửa tay (M7): gõ đè `raw_text` khi OCR đọc sai (đo được ở E20a/E20b: không path OCR tự động nào tự sửa được) + phóng to đối chiếu ảnh gốc chưa xoá chữ | **BUILT** (1176 test backend + 315 test frontend xanh; chưa live-verify trên trình duyệt thật — công cụ trình duyệt lỗi hạ tầng lúc làm, xem ARCH.md §E21.6) |
+| E21 | Màn sửa tay (M7): gõ đè `raw_text` khi OCR đọc sai (đo được ở E20a/E20b: không path OCR tự động nào tự sửa được) + phóng to đối chiếu ảnh gốc chưa xoá chữ | **LIVE** (1176 test backend + 315 test frontend xanh; live-verify trên Chromium thật ở E21-LV 2026-09-09, 25/25 đạt kể cả khung đỏ đo bằng pixel canvas thật, xem `REPORT_E21-LV.md`) |
 
 ## Những gì dùng được ngay hôm nay (sau E12)
 
