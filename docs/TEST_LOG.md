@@ -3760,8 +3760,31 @@ Kiểm được:
 `not_required` (máy chấm là sạch) không có ô nào nhận. Đã sửa thành 5 ô phủ kín và thêm test khoá
 tính phủ kín để lần sau thêm giá trị mới vào `ReviewStatus` mà quên ô lọc thì đỏ ngay.
 
+## Smoke test sau deploy — production, 3/3 đạt (2026-09-10)
+
+Deploy đúng thứ tự frontend trước: `translation-web` v32→33, rồi `translation-api` v57→58. Chạy
+trên chapter test của chính tôi (`5597b5d2…`), không đụng dữ liệu thật.
+
+1. **Sửa `raw_text` không sinh việc canh lại thừa** — job `typeset` của trang giữ nguyên 2, tổng
+   job giữ nguyên 7, `fit_status` giữ `fit_ok` (không bị hạ xuống `pending`). Giao diện hiện đúng
+   câu của nhánh mới: "Đã lưu. Không cần căn lại chữ vì bản dịch không đổi."
+2. **Hộp thoại chặn mất dữ liệu** — gõ dở rồi bấm sang vùng khác: hộp thoại hiện, vẫn ở Vùng 1,
+   chữ còn nguyên, "1 / 2" không đổi. "Bỏ thay đổi" mới chuyển.
+3. **Bộ lọc phủ kín** — `Tất cả 2` = `0 + 0 + Không cần rà soát 2 + 0`.
+
+Dọn sau khi đo: `re-ocr` vùng 1 ⇒ `raw_text` về chữ máy đọc, `ocr_edited_by_user=false` cả hai
+vùng.
+
+**Bẫy gặp phải: lượt kiểm đầu tiên tưởng deploy hỏng, hoá ra là cache trình duyệt.** Giao diện mới
+không hiện dù trang nạp xong. Phân biệt bằng cách tải `index.html` với `cache:'no-store'` rồi so
+tên bundle: HTML mới trỏ `index-L--Qw3pV.js` còn tab đang chạy `index-BBBiktgW.js` từ hôm trước.
+Kết luận "deploy hỏng" ở bước đó là sai — chi tiết ở `REPORT_E21b.md §11.3`.
+
 ## Chưa làm
 
-Chưa deploy — lát cắt này đổi hợp đồng API (`refit_job_id` thành nullable) nên cần duyệt riêng.
 `App.jsx` vẫn không có unit test nào (tình trạng có từ trước E21b): phần wiring hộp thoại/điều
-hướng/lọc dựa hoàn toàn vào lượt kiểm trình duyệt ở trên.
+hướng/lọc dựa hoàn toàn vào lượt kiểm trình duyệt ở trên và smoke test production.
+
+Chưa có cơ chế báo "có bản mới, tải lại đi" cho tab đang mở — nên sau mỗi lần đổi hợp đồng API,
+tab cũ vẫn chạy frontend cũ trên backend mới cho tới khi người dùng tự tải lại
+(`REPORT_E21b.md §11.3`).

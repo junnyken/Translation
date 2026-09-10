@@ -1697,7 +1697,7 @@ trình duyệt**, không bộ test nào bắt được — nay đã có test can
   (`RegionPanel` báo cờ + đưa hàm lưu ra) thì có test.
 - Hộp thoại chặn khi ĐỔI VÙNG và khi đóng tab/tải lại. Chưa chặn đường đổi TRANG hoặc đổi bộ lọc
   làm vùng đang mở rơi khỏi danh sách — hai đường đó hiếm hơn và cần thêm test riêng.
-- Chưa deploy: đây là lát cắt có đổi hợp đồng API (`refit_job_id` thành nullable), cần duyệt riêng.
+- **Đã deploy 2026-09-10** (web v32→33, api v57→58), 3/3 smoke test đạt — xem `REPORT_E21b.md §11`.
   **Thứ tự deploy là FRONTEND TRƯỚC**, không phải backend-first: frontend mới chịu được cả hai đời
   backend (backend cũ luôn trả job id thật nên guard `null` không bao giờ chạm), còn backend mới
   đứng trước frontend cũ thì frontend cũ gọi `/jobs/null` mỗi lần người dùng sửa chữ gốc. Lý luận

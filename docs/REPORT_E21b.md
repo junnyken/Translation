@@ -2,7 +2,7 @@
 
 **Project:** Translation · **Phase:** E — Hosted Reliability Hardening (OCR Quality Recovery)
 **Ngày:** 2026-09-10 · **Nền:** `e5dec68` (sau E22 + phụ lục E20b)
-**Trạng thái:** PARTIAL — build xong, test xanh, kiểm trình duyệt trên stack local; **chưa deploy**.
+**Trạng thái:** **CLOSED** — đã deploy lên production 2026-09-10, 3/3 smoke test đạt (xem §11).
 
 ## 1. Summary
 
@@ -161,8 +161,15 @@ Chưa đạt (cố ý ngoài phạm vi đã chọn): phím tắt, boundary prove
 
 ## 11. Commit / Deploy State
 
-- Commit `fe838fa`, đã push lên `origin/main` (`e5dec68..fe838fa`). **Chưa deploy.**
-- Deploy cần duyệt riêng vì có **đổi hợp đồng API**: `refit_job_id` giờ có thể `null`.
+- Commit `fe838fa` (mã) + `3b111a2` (sửa thứ tự deploy ở §11.1), đã push lên `origin/main`.
+- **ĐÃ DEPLOY 2026-09-10**, đúng thứ tự frontend trước:
+
+| Dịch vụ | Version trước (rollback target) | Version sau | Thời gian build |
+|---|---|---|---|
+| `translation-web` (frontend) | **32** | 33 | 33s |
+| `translation-api` (backend) | **57** | 58 | 4m38s |
+
+Không có migration ⇒ rollback là quay lại đúng hai version trên, **không phải đụng CSDL**.
 
 ### 11.1 Thứ tự deploy — FRONTEND TRƯỚC (sửa lại bản đầu của báo cáo này)
 
@@ -182,7 +189,60 @@ Triệu chứng nếu làm sai thứ tự: mỗi lần người dùng sửa ch�
 tải job (404 `/jobs/null`) dù phần sửa **đã được ghi thành công** — dữ liệu không mất, nhưng người
 dùng thấy một thông báo lỗi sai và không biết là đã lưu hay chưa.
 
-- Không có migration ⇒ rollback là quay lại commit trước, không cần đụng CSDL.
-- Kiểm tra sau deploy nên chạy đúng ba điểm: (1) sửa `raw_text` ⇒ không sinh job typeset mới;
-  (2) sửa dở rồi đổi vùng ⇒ hộp thoại chặn, không mất chữ; (3) hàng lọc rà soát có ô "Không cần rà
-  soát" và tổng các ô con khớp ô "Tất cả".
+### 11.2 Smoke test sau deploy — 3/3 ĐẠT (production, Chromium thật)
+
+Chạy trên chapter test của chính tôi (`5597b5d2…`, 2 vùng), **không đụng dữ liệu thật của người
+dùng**. Dấu vết đã dọn sau khi đo (xem cuối mục).
+
+**1. Sửa `raw_text` không sinh việc canh lại thừa** — sửa qua đúng đường người dùng (bấm Lưu trên
+giao diện), đo bằng API trước/sau:
+
+| Chỉ số | Trước | Sau |
+|---|---|---|
+| Job `typeset` của trang | 2 | **2** |
+| Tổng job của trang | 7 | **7** |
+| `fit_status` vùng 1 | `fit_ok` | **`fit_ok`** |
+| `raw_text` | chữ cũ | đã ghi bản mới ✅ |
+| `ocr_edited_by_user` | `false` | `true` ✅ (đúng: người vừa sửa thật) |
+
+Giao diện hiện đúng câu của nhánh mới: *"Đã lưu. Không cần căn lại chữ vì bản dịch không đổi."*
+
+**2. Hộp thoại chặn mất dữ liệu** — gõ dở chữ gốc rồi bấm sang vùng khác: hộp thoại *"Vùng này còn
+thay đổi chưa lưu"* hiện ra với đủ ba lựa chọn, vẫn ở Vùng 1, chữ còn nguyên, chỉ số điều hướng
+vẫn "1 / 2". Chọn "Bỏ thay đổi" mới chuyển sang Vùng 2 và bỏ phần gõ dở.
+
+**3. Bộ lọc rà soát phủ kín** — 5 ô, và tổng các ô con khớp đúng ô "Tất cả":
+`Tất cả 2` = `Cần rà soát 0` + `Đã quyết 0` + `Không cần rà soát 2` + `Chưa đánh giá 0`.
+
+**Dọn sau khi đo:** chạy "Đọc lại chữ gốc" (`re-ocr`) cho vùng 1 ⇒ `raw_text` về đúng chữ máy đọc
+và `ocr_edited_by_user` về `false` cho cả hai vùng, `fit_status` vẫn `fit_ok`. Dùng re-OCR thay vì
+gõ đè lại chuỗi vì gõ đè sẽ để `ocr_edited_by_user=true`, tức để lại lời khai sai rằng có người gõ
+tay chính chữ của máy.
+
+### 11.3 Bẫy gặp phải khi kiểm — cache trình duyệt, KHÔNG phải deploy hỏng
+
+Lượt kiểm đầu tiên sau deploy: giao diện mới **không xuất hiện** (không có hàng lọc rà soát, không
+có nút Trước/Sau) dù trang đã nạp xong và hiển thị đủ 2 vùng. Dừng ở đó mà kết luận "deploy hỏng"
+là sai.
+
+Cách phân biệt dứt điểm: tải `index.html` mới với `cache: 'no-store'` rồi so tên bundle.
+
+| Nguồn | Bundle |
+|---|---|
+| `index.html` mới tải | `assets/index-L--Qw3pV.js` |
+| Tab đang chạy | `index-BBBiktgW.js` (cache từ hôm trước) |
+
+Bundle mới chứa đủ ba chuỗi đặc trưng (`Worker gián đoạn` của E22, `Không cần rà soát` và
+`còn thay đổi chưa lưu` của E21b) ⇒ deploy đúng, chỉ là tab cũ giữ bundle cũ. Nạp lại bỏ qua cache
+là hiện đủ.
+
+**Hệ quả cho người dùng thật — không nên gọi là vô hại.** Ai đang mở sẵn tab từ trước lúc deploy
+thì vẫn chạy frontend cũ trên backend mới, tức **đúng tổ hợp vỡ ở §11.1**. Cụ thể: sửa chữ gốc OCR
+rồi bấm Lưu ⇒ phần sửa **đã ghi thành công** nhưng giao diện báo lỗi tải job (`/jobs/null`), người
+dùng không biết đã lưu hay chưa và nhiều khả năng sẽ bấm lại. Dữ liệu không mất, nhưng đây là một
+thông báo sai — hết ngay khi họ tải lại trang.
+
+Deploy frontend trước (như đã làm) **không** loại bỏ được cửa sổ này, vì tab đang mở không tự nạp
+lại bundle mới. Muốn triệt để thì cần cơ chế báo "có bản mới, tải lại đi" ở phía giao diện — chưa
+có, và là việc riêng ngoài phạm vi E21b. Ghi lại ở đây để lần sau đổi hợp đồng API thì biết trước
+mà tính.
