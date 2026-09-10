@@ -3667,3 +3667,35 @@ SIGKILL có thật lúc 07:17 xảy ra tự nhiên, và cơ chế cốt lõi (`h
 E22 chứ không phải thứ mini-spec này mới dựng lên. Panel "Vì sao?" sau khi deploy chỉ kiểm được
 nhánh bình thường (không có worker chết đúng lúc đang xem) — nhánh `worker_interrupted` được canh
 bằng test tự động, chưa bắt được tận mắt trên production.
+
+# ========== E20b phụ lục — tham số detection PaddleOCR (2026-09-09, sau E22) ==========
+
+Lượt đo bổ sung sau khi rà lại thấy 9 path gốc của E20b chỉ đổi **pixel đầu vào**, chưa từng đụng
+tham số bộ detect của chính PaddleOCR — trong khi `REPORT_E20a.md §10` chốt nguyên nhân gốc nằm
+đúng ở bước detect đó.
+
+```
+$ docker compose -f deploy/docker-compose.yml run --rm -e PYTHONPATH=/app worker \
+    python scripts/ocr_benchmark_e20b_det_params_run.py
+
+cấu hình            chữ MẢNH (mục tiêu)    chữ ĐẬM (đối chứng)    p50 ms
+det_baseline      0/10 (0.0%) cer=0.231  9/10 (90.0%) cer=0.003      772
+det_nhay          0/10 (0.0%) cer=0.228  9/10 (90.0%) cer=0.007      658
+det_rat_nhay      0/10 (0.0%) cer=0.226  8/10 (80.0%) cer=0.014      730
+det_no_khung      0/10 (0.0%) cer=0.228  9/10 (90.0%) cer=0.007      701
+```
+
+**Đối chứng tái hiện đúng từng con số của `REPORT_E20b.md §7`** (`det_baseline` = 0/10 CER=0,231
+và 9/10 CER=0,003, khớp `paddleocr+khong_doi`) — đây là điều làm phép so có giá trị: harness gọi
+engine đúng như lượt gốc, nên khác biệt (nếu có) là do tham số chứ không do cách chạy. Không có
+cấu hình nào cứu được dù một mẫu; cấu hình mạnh tay nhất còn kéo nhóm đối chứng từ 9/10 xuống
+8/10 (CER xấu đi gần 5 lần).
+
+Không thêm test tự động: cùng lý do đã ghi ở `REPORT_E20b.md §6` — giá trị nằm ở SỐ ĐO, và
+`paddle_tuned.py` chỉ là subclass ghi đè `build_kwargs()` (sai tên tham số thì PaddleOCR ném lỗi
+ngay lúc nạp, đã tự kiểm bằng chính 4 lượt chạy thật đều nạp được).
+
+**Không đụng code production:** `PaddleOCREngine` giữ nguyên tuyệt đối (kế thừa, không thêm cả
+tham số tuỳ chọn mặc định `None`); Tesseract/PaddleOCR tuned chỉ sống trong container `--rm`.
+`text_det_limit_side_len` bị loại khỏi thí nghiệm sau khi đo thật kích thước crop (mọi crop ≤600px
+< mặc định ~960 ⇒ không có phép thu nhỏ để mà chặn) — loại theo số đo, không theo cảm tính.

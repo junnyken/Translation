@@ -130,3 +130,81 @@ evidence") không đạt — 0/10 không đổi qua mọi path, không có ứng
 - Chưa thử tổ hợp tiền xử lý (vd tăng tương phản + phóng to cùng lúc) — cố ý, đúng constraint #1
   của E20b ("không chaining ngẫu nhiên nhiều filter").
 - Chưa thử Vision LLM — cố ý ngoài phạm vi E20 (xem §9.2).
+- ~~Chưa đụng tham số detection nội bộ của PaddleOCR~~ — **đã đo, xem §11 (phụ lục).**
+
+## 11. Phụ lục — tham số DETECTION của PaddleOCR (bổ sung 2026-09-09, sau E22)
+
+### 11.1 Vì sao mở phụ lục dù E20b đã đóng
+
+9 path ở §7 đều chỉ đổi **pixel đầu vào** rồi đưa cho PaddleOCR **mặc định**. Không path nào đụng
+vào **cách bộ detect của chính PaddleOCR diễn giải bản đồ xác suất** — trong khi `REPORT_E20a.md
+§10` chốt nguyên nhân gốc nằm đúng ở bước detect nội bộ đó. Đây là cần gạt khác hẳn, và là cần
+gạt nhắm thẳng nhất vào nguyên nhân đã xác nhận. Bỏ sót nó thì kết luận "không path nào thắng"
+vẫn còn một lỗ hổng đọc được.
+
+Rà lại `PaddleOCREngine.build_kwargs()`: chỉ đặt `lang`, `device`, `use_textline_orientation`,
+`enable_mkldnn` và 2 cờ tắt xoay/unwarp — **chưa từng truyền một tham số detection nào**, tức các
+ngưỡng đều để nguyên mặc định thư viện từ M3 tới nay.
+
+### 11.2 Cách đo
+
+Cùng 20 mẫu, cùng manifest, cùng `OCRMetricsCalculator` của §7 — **pixel giữ nguyên, không tiền
+xử lý gì**, để biến số duy nhất so với baseline là tham số detect. Tên tham số theo PaddleOCR
+**3.7.0** (`text_det_*`, không phải `det_db_*` của bản 2.x — kiểm bằng `inspect.signature` trong
+chính container worker). Không sửa một dòng nào của `PaddleOCREngine` production: kế thừa rồi ghi
+đè `build_kwargs()` trong `app/services/ocr_benchmark/paddle_tuned.py`.
+
+Cấu hình **chốt trước khi chạy** (`CauHinhDetect` khai báo `frozen=True` để không sửa được tại chỗ
+sau khi thấy kết quả xấu — cùng kỷ luật chống p-hacking ở §3):
+
+| Cấu hình | Tham số | Giả thuyết nhắm vào |
+|---|---|---|
+| `det_baseline` | (không truyền gì) | ĐỐI CHỨNG — phải tái hiện đúng số §7 |
+| `det_nhay` | `thresh=0.2, box_thresh=0.4, unclip=2.0` | Hạ ngưỡng để bắt nét mảnh đang bị bỏ sót |
+| `det_rat_nhay` | `thresh=0.15, box_thresh=0.3, unclip=2.5` | Đẩy tới đầu mút khuyến nghị |
+| `det_no_khung` | `unclip=2.0` (giữ nguyên ngưỡng) | CÔ LẬP giả thuyết "khung cắt mất chữ đầu/cuối" |
+
+`text_det_limit_side_len` **cố ý không đo**: đo kích thước thật thấy mọi crop có cạnh dài ≤600px,
+nhỏ hơn hẳn mặc định (~960) ⇒ không có phép thu nhỏ nào xảy ra ⇒ nâng ngưỡng đó là một phép đo
+rỗng. Loại theo số đo, không theo cảm tính.
+
+### 11.3 Kết quả
+
+| Cấu hình | Chữ MẢNH (mục tiêu) | Chữ ĐẬM (đối chứng) | Tổng | p50 |
+|---|---|---|---|---|
+| `det_baseline` | 0/10 (0%) CER=0,231 | 9/10 (90%) CER=0,003 | 9/20 · WER=0,231 | 772ms |
+| `det_nhay` | 0/10 (0%) CER=0,228 | 9/10 (90%) CER=0,007 | 9/20 · WER=0,224 | 658ms |
+| `det_rat_nhay` | 0/10 (0%) CER=0,226 | **8/10 (80%)** CER=0,014 | **8/20** · WER=0,254 | 730ms |
+| `det_no_khung` | 0/10 (0%) CER=0,228 | 9/10 (90%) CER=0,007 | 9/20 · WER=0,224 | 701ms |
+
+**Đối chứng tái hiện chính xác:** `det_baseline` ra đúng 0/10 · CER=0,231 và 9/10 · CER=0,003 —
+khớp từng con số với `paddleocr+khong_doi` ở §7. Nhờ vậy phép so ở đây mới có giá trị: harness
+gọi engine đúng như lượt gốc, khác biệt (nếu có) là do tham số chứ không do cách chạy.
+
+**Không cấu hình nào cứu được một mẫu nào.** Cả 3 cấu hình tune đều **0/10** trên nhóm mục tiêu.
+CER nhích từ 0,231 xuống 0,226–0,228 — thay đổi ở mức nhiễu, không mẫu nào vượt ngưỡng thành
+đọc đúng. Hạ ngưỡng detect **không** làm nét mảnh trên nền bận được phát hiện thêm.
+
+**Cấu hình mạnh tay nhất lại làm hại nhóm đối chứng**, đúng khuôn mẫu đã thấy ở §7 với tiền xử lý:
+`det_rat_nhay` kéo nhóm chữ đậm từ 9/10 xuống 8/10 và CER xấu đi gần 5 lần (0,003 → 0,014). Hạ
+ngưỡng bắt thêm nhiễu chứ không bắt thêm chữ.
+
+### 11.4 Kết luận phụ lục
+
+Kết luận §9 **không đổi, và giờ chắc hơn**: cần gạt cuối cùng chưa thử — cũng là cần gạt nhắm
+thẳng nhất vào nguyên nhân gốc — cũng thất bại. Đã đóng vòng "sửa tự động bằng tham số/tiền xử lý"
+cho đúng ca lỗi này: **5 phép tiền xử lý + 4 chế độ Tesseract + 3 cấu hình tham số detect = 12
+đường, cả 12 đều 0/10 trên nhóm mục tiêu.**
+
+Vẫn **không build E20c**. Hướng đi khả dĩ còn lại vẫn đúng như §9: rà soát tay (E21 đã làm) hoặc
+Vision LLM (cần mini-spec riêng đo cost/latency/quota trước).
+
+### 11.5 Giới hạn của chính phụ lục này
+
+- Chỉ dò 3 điểm trong không gian tham số, không quét lưới đầy đủ — cố ý (chống p-hacking), nhưng
+  nghĩa là **không loại trừ tuyệt đối** một tổ hợp hiếm nào đó có tác dụng. Điều loại trừ được:
+  các giá trị nằm trong khoảng mà tài liệu/cộng đồng khuyến nghị cho ca "chữ mảnh/mờ" đều vô hiệu.
+- Vẫn đo trên crop, không phải trang nguyên, nên **không đo được giai đoạn phát hiện vùng** (IoU,
+  recall/precision) như bản nháp spec đề nghị — muốn đo đúng giai đoạn đó cần ground-truth box
+  cho trang nguyên, chưa dựng.
+- Vẫn là dữ liệu tự dựng (2 font, tiếng Anh), chưa phải ảnh MangaPlus thật — giới hạn §10 giữ nguyên.
