@@ -531,6 +531,21 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .loc-huong-chu {
   display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px;
 }
+/* E21b — hai hàng lọc ĐỘC LẬP (hướng chữ · trạng thái rà soát) dùng chung kiểu thẻ `.the-loc`,
+   nhưng tách hàng để không ai tưởng chúng loại trừ nhau. */
+.loc-ra-soat {
+  display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px;
+}
+.dieu-huong-vung {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin-bottom: 8px;
+}
+.dieu-huong-vung button {
+  border: 1px solid var(--vien); background: var(--the); border-radius: 6px;
+  padding: 4px 10px; font: inherit; font-size: 12.5px; cursor: pointer; color: var(--chu);
+}
+.dieu-huong-vung button:hover:not(:disabled) { border-color: #cbd5e1; }
+.dieu-huong-vung button:disabled { opacity: .45; cursor: not-allowed; }
 .the-loc {
   border: 1px solid var(--vien); background: var(--the); border-radius: 999px;
   padding: 4px 10px; font: inherit; font-size: 12.5px; cursor: pointer; color: var(--chu);

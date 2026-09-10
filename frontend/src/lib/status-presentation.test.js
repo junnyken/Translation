@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { TAT_CA_BANG, dienGiaiTrangThai } from './status-presentation.js'
+import { LOC_RA_SOAT, TAT_CA_BANG, dienGiaiTrangThai } from './status-presentation.js'
 
 /** Danh sách enum LẤY THẲNG từ docs/API.md — sửa backend mà quên cập nhật giao diện thì test đỏ.
  *  Đây là tấm lưới an toàn quan trọng nhất của E11: không màn nào được tự bịa chữ cho trạng thái. */
@@ -76,5 +76,36 @@ describe('không nói quá về trạng thái', () => {
   it('trạng thái tạm dừng vì hạn mức KHÔNG phải là hỏng', () => {
     expect(dienGiaiTrangThai('me', 'blocked_quota').sac).toBe('canh')
     expect(dienGiaiTrangThai('me', 'blocked_quota').nhan).not.toMatch(/hỏng|thất bại/i)
+  })
+})
+
+/** E21b — bộ lọc theo trạng thái rà soát phải PHỦ KÍN miền giá trị.
+ *
+ * Bản đầu thiếu đúng `not_required`: giao diện hiện "Tất cả 2" mà cả ba ô còn lại đều 0, hai vùng
+ * biến mất không rõ đi đâu. Lỗi đó chỉ lộ ra khi bấm thật trên trình duyệt — test này để lần sau
+ * thêm giá trị mới vào `ReviewStatus` mà quên thêm ô lọc thì ĐỎ ngay, khỏi phải bắt bằng mắt.
+ */
+describe('lọc theo trạng thái rà soát (E21b)', () => {
+  // Khớp `ReviewStatus` ở backend (`app/models/enums.py`) + `null` = chưa có bản đánh giá nào.
+  const MOI_TRANG_THAI = ['needs_review', 'not_required', 'reviewed_keep', 'reviewed_skip', null]
+  const oCon = () => LOC_RA_SOAT.filter((l) => l.ma !== 'tat_ca')
+
+  it('mỗi trạng thái rơi vào ĐÚNG MỘT ô lọc — không sót, không trùng', () => {
+    for (const tt of MOI_TRANG_THAI) {
+      const khop = oCon().filter((l) => l.hop(tt))
+      expect(khop.map((l) => l.ma), `trạng thái ${tt} khớp sai số ô`).toHaveLength(1)
+    }
+  })
+
+  it('ô "Tất cả" nhận mọi trạng thái', () => {
+    const tatCa = LOC_RA_SOAT.find((l) => l.ma === 'tat_ca')
+    for (const tt of MOI_TRANG_THAI) expect(tatCa.hop(tt)).toBe(true)
+  })
+
+  it('không gộp "chưa đánh giá" chung với "không cần rà soát"', () => {
+    // Chưa chấm khác hẳn chấm rồi thấy sạch — gộp lại là nói quá về thứ chưa biết.
+    const chuaDanhGia = LOC_RA_SOAT.find((l) => l.ma === 'chua_danh_gia')
+    expect(chuaDanhGia.hop(null)).toBe(true)
+    expect(chuaDanhGia.hop('not_required')).toBe(false)
   })
 })

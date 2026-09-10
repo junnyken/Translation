@@ -122,3 +122,75 @@ describe('phóng to đối chiếu ảnh gốc (E21)', () => {
     expect(await screen.findByText(/Không tải được ảnh gốc/)).toBeInTheDocument()
   })
 })
+
+/** E21b — bảng sửa phải BÁO LÊN khi còn thay đổi chưa lưu, và đưa được hàm lưu ra ngoài.
+ *
+ * App gắn `key={region.id}` cho bảng này nên đổi vùng là REMOUNT: trước E21b chữ đang gõ dở biến
+ * mất im lặng, không một lời hỏi. Hai móc dưới đây là toàn bộ cơ chế để App chặn được điều đó,
+ * nên chúng phải được canh chặt hơn phần giao diện của hộp thoại.
+ */
+describe('báo thay đổi chưa lưu (E21b)', () => {
+  const dung = (kw = {}) => ({
+    pageId: 'p1', region: vungGoc(), ...dungChung,
+    onLuu: vi.fn(), onDichLai: vi.fn(), onDocLai: vi.fn(), onCanhLai: vi.fn(), ...kw,
+  })
+
+  it('chưa gõ gì thì báo KHÔNG có thay đổi', () => {
+    const bao = vi.fn()
+    render(<RegionPanel {...dung({ onDoiTrangThaiSua: bao })} />)
+    expect(bao).toHaveBeenCalledWith(false)
+    expect(bao).not.toHaveBeenCalledWith(true)
+  })
+
+  it('gõ vào ô chữ gốc thì báo CÓ thay đổi chưa lưu', async () => {
+    const bao = vi.fn()
+    render(<RegionPanel {...dung({ onDoiTrangThaiSua: bao })} />)
+
+    await userEvent.type(screen.getByPlaceholderText('Chưa đọc được chữ nào…'), 'X')
+
+    await waitFor(() => expect(bao).toHaveBeenCalledWith(true))
+  })
+
+  it('gõ vào ô BẢN DỊCH cũng báo — không chỉ riêng ô chữ gốc', async () => {
+    const bao = vi.fn()
+    render(<RegionPanel {...dung({ onDoiTrangThaiSua: bao })} />)
+
+    await userEvent.type(screen.getByDisplayValue('Xin chào'), '!')
+
+    await waitFor(() => expect(bao).toHaveBeenCalledWith(true))
+  })
+
+  it('gỡ bảng thì báo hết thay đổi — App không được giữ cờ cũ của vùng đã đóng', async () => {
+    const bao = vi.fn()
+    const { unmount } = render(<RegionPanel {...dung({ onDoiTrangThaiSua: bao })} />)
+    await userEvent.type(screen.getByPlaceholderText('Chưa đọc được chữ nào…'), 'X')
+    await waitFor(() => expect(bao).toHaveBeenCalledWith(true))
+
+    bao.mockClear()
+    unmount()
+
+    expect(bao).toHaveBeenCalledWith(false)
+  })
+
+  it('App gọi được hàm lưu qua `dieuKhien`, và lưu ĐÚNG thứ vừa gõ', async () => {
+    const onLuu = vi.fn()
+    const dieuKhien = { current: null }
+    render(<RegionPanel {...dung({ onLuu, dieuKhien })} />)
+
+    await userEvent.type(screen.getByPlaceholderText('Chưa đọc được chữ nào…'), ' THERE')
+    // Đây là đường mà nút "Lưu rồi chuyển" trong hộp thoại xác nhận của App đi.
+    dieuKhien.current.luu()
+
+    expect(onLuu).toHaveBeenCalledWith('r1', { raw_text: 'HELLO THERE' })
+  })
+
+  it('`dieuKhien` mang theo cờ thay đổi để App khỏi tự đoán', async () => {
+    const dieuKhien = { current: null }
+    render(<RegionPanel {...dung({ dieuKhien })} />)
+    expect(dieuKhien.current.daDoi).toBe(false)
+
+    await userEvent.type(screen.getByPlaceholderText('Chưa đọc được chữ nào…'), 'X')
+
+    await waitFor(() => expect(dieuKhien.current.daDoi).toBe(true))
+  })
+})

@@ -309,12 +309,19 @@ class JobAccepted(BaseModel):
 
 class RegionPatchAccepted(BaseModel):
     """Sửa xong là ghi ngay, nhưng canh chữ lại chạy nền — nên `fit_status` trả về là
-    `pending`, KHÔNG phải trạng thái cũ (bản canh cũ đã không còn đúng với nội dung mới)."""
+    `pending`, KHÔNG phải trạng thái cũ (bản canh cũ đã không còn đúng với nội dung mới).
+
+    E21b: **trừ khi lượt sửa đó không đụng gì tới bản vẽ** (chỉ sửa `raw_text` — chữ gốc OCR).
+    Lúc đó không có việc canh lại nào được xếp, `refit_job_id` là `null`, và `fit_status` trả về
+    là trạng thái THẬT đang có chứ không hạ xuống `pending`.
+    """
 
     region_id: uuid.UUID
     page_id: uuid.UUID
     fit_status: FitStatus
-    refit_job_id: uuid.UUID
+    #: `None` = lượt sửa này không cần canh lại (xem docstring). Máy khách phải kiểm tra trước khi
+    #: đem đi hỏi `/jobs/{id}` — hỏi với `null` là 404.
+    refit_job_id: uuid.UUID | None = None
     edited_fields: list[str]
     edited_by_user: bool
 

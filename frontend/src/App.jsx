@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import * as api from './api.js'
 import BatchPanel from './components/BatchPanel.jsx'
 import BboxOverlay from './components/BboxOverlay.jsx'
@@ -22,9 +22,10 @@ import BangChuaCoChu from './components/auth/BangChuaCoChu.jsx'
 import QuanTriNguoiDung from './components/auth/QuanTriNguoiDung.jsx'
 import Alert from './components/ui/Alert.jsx'
 import Button from './components/ui/Button.jsx'
+import Dialog from './components/ui/Dialog.jsx'
 import StatusBadge from './components/ui/StatusBadge.jsx'
 import { tinhTienDoChapter } from './lib/chapter-progress.js'
-import { LOC_HUONG_CHU, nhanHuongChu } from './lib/status-presentation.js'
+import { LOC_HUONG_CHU, LOC_RA_SOAT, nhanHuongChu } from './lib/status-presentation.js'
 import { MUC_DICH } from './lib/status-presentation.js'
 
 /** Lấy id trang/chapter từ địa chỉ (#page=… hoặc #project=…) để chia sẻ link được.
@@ -72,6 +73,15 @@ export default function App() {
   const [huongChu, setHuongChu] = useState({})
   const [tomTatHuong, setTomTatHuong] = useState(null)
   const [locHuong, setLocHuong] = useState('tat_ca')
+  // E21b — lọc theo trạng thái rà soát (E12), ĐỘC LẬP với bộ lọc hướng chữ ở trên: hai câu hỏi
+  // khác nhau ("vùng này chữ dọc hay ngang" vs "tôi đã soi vùng này chưa"), gộp làm một sẽ không
+  // trả lời được câu nào cho ra hồn.
+  const [locRaSoat, setLocRaSoat] = useState('tat_ca')
+  // E21b — còn thay đổi chưa lưu ở bảng sửa vùng? Trước đây đổi vùng là mất chữ đang gõ, im lặng.
+  const [coThayDoiChuaLuu, setCoThayDoiChuaLuu] = useState(false)
+  //: Vùng người dùng ĐANG muốn chuyển sang, đang bị hộp thoại xác nhận giữ lại. `null` = không có.
+  const [vungChoChuyen, setVungChoChuyen] = useState(null)
+  const dieuKhienVung = useRef(null)
   const [hienLuoiCot, setHienLuoiCot] = useState(false)
   const [dangBan, setDangBan] = useState(false)
   const [loi, setLoi] = useState(null)
@@ -228,6 +238,14 @@ export default function App() {
     setThongBao(`Đang ${moTa}…`)
     try {
       const { job_id } = await viec()
+      // E21b — máy chủ trả `null` khi lượt sửa đó không cần canh lại chữ (sửa mỗi chữ gốc OCR:
+      // chữ được vẽ là bản dịch, không đổi). Hỏi `/jobs/null` là 404, mà chờ một việc không tồn
+      // tại còn tệ hơn: người dùng ngồi nhìn "đang căn lại chữ" cho một việc chưa từng được xếp.
+      if (!job_id) {
+        await napTrang(pageId)
+        setThongBao('Đã lưu. Không cần căn lại chữ vì bản dịch không đổi.')
+        return
+      }
       await api.choJobXong(job_id, {
         onTien: (job) => setThongBao(
           job.status === 'queued'
@@ -305,6 +323,59 @@ export default function App() {
   }, [chiTiet?.page?.id, phienBanAnh])
 
   const vungDangChon = chiTiet?.regions.find((r) => r.id === dangChon) ?? null
+
+  // ---------------- E21b: không để mất chữ đang gõ dở ----------------
+  //
+  // `RegionPanel` được gắn `key={region.id}` nên đổi vùng là remount ⇒ state form bị vứt. Trước
+  // E21b không có gì chặn: người dùng gõ lại nguyên câu chữ gốc OCR, bấm nhầm sang vùng khác, và
+  // mất sạch mà không một lời cảnh báo. Đây là lỗi trong đúng luồng mà E21 sinh ra để phục vụ.
+  const baoTrangThaiSua = useCallback((daDoi) => setCoThayDoiChuaLuu(daDoi), [])
+
+  /** Chọn vùng khác — chặn lại nếu còn thay đổi chưa lưu. */
+  const chonVung = (id) => {
+    if (id === dangChon) return
+    if (coThayDoiChuaLuu) {
+      setVungChoChuyen(id)   // giữ lại, hỏi trước
+      return
+    }
+    setDangChon(id)
+  }
+
+  const chuyenTiep = (id) => {
+    setVungChoChuyen(null)
+    setCoThayDoiChuaLuu(false)
+    setDangChon(id)
+  }
+
+  /** Lưu rồi mới chuyển. Lấy hàm lưu mới nhất mà `RegionPanel` để lại trong `dieuKhienVung`. */
+  const luuRoiChuyen = () => {
+    const id = vungChoChuyen
+    dieuKhienVung.current?.luu()
+    chuyenTiep(id)
+  }
+
+  // Chặn cả đường đóng tab / tải lại trang / bấm nút Back — `key` remount chỉ là một trong nhiều
+  // cách làm mất chữ.
+  useEffect(() => {
+    if (!coThayDoiChuaLuu) return undefined
+    const canh = (e) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', canh)
+    return () => window.removeEventListener('beforeunload', canh)
+  }, [coThayDoiChuaLuu])
+
+  /** Trạng thái rà soát (E12) của một vùng — `null` = chưa có bản đánh giá nào. */
+  const trangThaiRaSoat = (regionId) =>
+    (chatLuongTrang?.regions ?? []).find((d) => d.region_id === regionId)?.review_status ?? null
+
+  // Danh sách sau CẢ hai bộ lọc — dùng chung cho danh sách bấm và nút Trước/Sau, để hai thứ đó
+  // không bao giờ đi trên hai tập vùng khác nhau.
+  const locHuongHienTai = LOC_HUONG_CHU.find((l) => l.ma === locHuong) ?? LOC_HUONG_CHU[0]
+  const locRaSoatHienTai = LOC_RA_SOAT.find((l) => l.ma === locRaSoat) ?? LOC_RA_SOAT[0]
+  const dsVungLoc = (chiTiet?.regions ?? []).filter(
+    (r) => locHuongHienTai.hop(huongChu[r.id]) && locRaSoatHienTai.hop(trangThaiRaSoat(r.id)),
+  )
+  const viTriDangChon = dsVungLoc.findIndex((r) => r.id === dangChon)
+
   const soTran = chiTiet?.regions.filter((r) => r.fit_status === 'overflow_warning').length ?? 0
   const soCanXem = chiTiet?.regions.filter(
     (r) => r.ocr_status === 'needs_manual' || r.status === 'low_confidence',
@@ -624,14 +695,56 @@ export default function App() {
                   })}
                 </div>
 
+                <div className="loc-ra-soat" role="group" aria-label="Lọc vùng theo trạng thái rà soát">
+                  {LOC_RA_SOAT.map((l) => {
+                    const so = chiTiet.regions.filter(
+                      (r) => l.hop(trangThaiRaSoat(r.id)),
+                    ).length
+                    return (
+                      <button
+                        key={l.ma}
+                        type="button"
+                        className={`the-loc ${locRaSoat === l.ma ? 'dang-chon' : ''}`}
+                        aria-pressed={locRaSoat === l.ma}
+                        onClick={() => setLocRaSoat(l.ma)}
+                      >
+                        {l.nhan} <span className="so">{so}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {/* E21b — đi lần lượt qua đúng tập vùng đang lọc, khỏi phải rê chuột tìm thẻ. */}
+                <div className="dieu-huong-vung" role="group" aria-label="Chuyển vùng">
+                  <button
+                    type="button"
+                    onClick={() => chonVung(dsVungLoc[viTriDangChon - 1].id)}
+                    disabled={viTriDangChon <= 0}
+                  >
+                    ← Vùng trước
+                  </button>
+                  <span className="ghi-chu" aria-live="polite">
+                    {viTriDangChon >= 0
+                      ? `${viTriDangChon + 1} / ${dsVungLoc.length}`
+                      : `${dsVungLoc.length} vùng`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => chonVung(dsVungLoc[viTriDangChon + 1].id)}
+                    disabled={viTriDangChon < 0 || viTriDangChon >= dsVungLoc.length - 1}
+                  >
+                    Vùng sau →
+                  </button>
+                </div>
+
                 <div className="danh-sach-vung">
                   {(() => {
-                    const loc = LOC_HUONG_CHU.find((l) => l.ma === locHuong) ?? LOC_HUONG_CHU[0]
-                    const ds = chiTiet.regions.filter((r) => loc.hop(huongChu[r.id]))
+                    const ds = dsVungLoc
                     if (!ds.length) {
                       return (
                         <p className="ghi-chu">
-                          Không có vùng nào khớp bộ lọc &ldquo;{loc.nhan}&rdquo;.
+                          Không có vùng nào khớp bộ lọc &ldquo;{locHuongHienTai.nhan}&rdquo; +
+                          &ldquo;{locRaSoatHienTai.nhan}&rdquo;.
                         </p>
                       )
                     }
@@ -641,7 +754,7 @@ export default function App() {
                         <button
                           key={r.id}
                           className={`the-vung ${dangChon === r.id ? 'dang-chon' : ''}`}
-                          onClick={() => setDangChon(r.id)}
+                          onClick={() => chonVung(r.id)}
                         >
                           <b>{r.reading_order ?? '?'}</b>
                           <span className="tom-tat">
@@ -689,6 +802,8 @@ export default function App() {
                     coMin={chiTiet.min_font_size}
                     coMax={chiTiet.max_font_size}
                     dangBan={dangBan}
+                    onDoiTrangThaiSua={baoTrangThaiSua}
+                    dieuKhien={dieuKhienVung}
                     onLuu={luuVung}
                     onCanhLai={(id) => chay('căn lại chữ', () => api.canhLaiVung(id))}
                     onDocLai={(id) => chay('đọc lại chữ gốc', () => api.docLaiVung(id))}
@@ -702,6 +817,31 @@ export default function App() {
           </>
         )}
       </main>
+
+      {/* E21b — chặn đúng khoảnh khắc chữ đang gõ dở sắp biến mất. KHÔNG tự lưu hộ: lưu ngầm một
+          thứ người dùng chưa xác nhận cũng là một kiểu mất kiểm soát. */}
+      {vungChoChuyen && (
+        <Dialog
+          tieuDe="Vùng này còn thay đổi chưa lưu"
+          onDong={() => setVungChoChuyen(null)}
+          chan={[
+            <button key="luu" className="chinh" onClick={luuRoiChuyen}>
+              Lưu rồi chuyển
+            </button>,
+            <button key="bo" onClick={() => chuyenTiep(vungChoChuyen)}>
+              Bỏ thay đổi
+            </button>,
+            <button key="olai" onClick={() => setVungChoChuyen(null)}>
+              Ở lại vùng này
+            </button>,
+          ]}
+        >
+          <p>
+            Bạn vừa sửa vùng đang mở nhưng chưa bấm Lưu. Chuyển sang vùng khác bây giờ là mất
+            phần vừa gõ.
+          </p>
+        </Dialog>
+      )}
     </div>
   )
 }

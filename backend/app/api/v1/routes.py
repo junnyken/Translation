@@ -1293,6 +1293,11 @@ async def patch_region(
     request). Vì bản canh cũ đã không còn đúng với nội dung mới, `fit_status` trả về là
     **`pending`** — không trả trạng thái cũ để khỏi báo nhầm là "vẫn vừa khung".
 
+    **E21b — chỉ canh lại khi cần:** lượt sửa chỉ đụng `raw_text` KHÔNG xếp việc canh chữ nào
+    (`refit_job_id=null`) và giữ nguyên `fit_status` thật. Chữ được vẽ vào bong bóng là
+    `translated_text`; sửa chữ gốc OCR không đổi bản vẽ, nên canh lại chỉ tổ chiếm suất của
+    worker `--pool=solo` và hạ nhầm `fit_ok` xuống `pending`.
+
     `font_size` = **ghim cỡ chữ**: canh lại sẽ dùng đúng cỡ đó. Bỏ trống = tự dò cỡ như M6.
 
     `raw_text` (E21): gõ đè chữ OCR đọc SAI — đo được ở `REPORT_E20a`/`REPORT_E20b`, chữ mảnh
@@ -1364,10 +1369,38 @@ async def patch_region(
     if patch.font_size is not None:
         da_sua.append("font_size")
 
-    if typeset is not None:
+    # E21b — chỉ canh lại khi có thứ THẬT SỰ đổi bản vẽ.
+    #
+    # `raw_text` là chữ GỐC OCR đọc được; chữ được VẼ vào bong bóng là `translated_text`. Sửa chữ
+    # gốc không làm bản vẽ khác đi một pixel nào, nên canh lại là việc thừa — và không hề rẻ:
+    # worker chạy `--pool=solo`, mỗi lúc đúng một việc (`REPORT_E22`), nên mỗi lượt canh thừa
+    # chiếm mất suất của việc thật đang xếp hàng. Nó còn hạ `fit_status` đang `fit_ok` xuống
+    # `pending` và gắn `edited_by_user` lên tầng typeset dù người dùng không đụng tầng đó.
+    #
+    # E21 thêm `raw_text` vào endpoint này nhưng không sửa phần đuôi, nên tác dụng phụ đó lọt
+    # qua: test E21 chỉ khoá "không tự DỊCH lại", chưa bao giờ soi job typeset.
+    CAN_CANH_LAI = {"bbox", "translated_text", "font_family", "font_size"}
+    can_canh_lai = bool(set(da_sua) & CAN_CANH_LAI)
+
+    if typeset is not None and can_canh_lai:
         # Bản canh cũ không còn đúng với nội dung mới -> nói thật là "chưa canh", không giữ fit_ok.
         typeset.fit_status = FitStatus.pending
         typeset.edited_by_user = True
+
+    if not can_canh_lai:
+        # Vẫn phải commit: phần sửa (raw_text) nằm trong session này, trước đây được commit ké
+        # theo job bên dưới.
+        await session.commit()
+        return RegionPatchAccepted(
+            region_id=region_id,
+            page_id=region.page_id,
+            # Trả trạng thái canh chữ THẬT đang có, không hạ xuống `pending` — không có gì để canh
+            # lại thì bản canh cũ vẫn còn đúng nguyên.
+            fit_status=typeset.fit_status if typeset is not None else FitStatus.pending,
+            refit_job_id=None,
+            edited_fields=da_sua,
+            edited_by_user=True,
+        )
 
     job = Job(type=JobType.typeset, page_id=region.page_id, status=JobStatus.queued)
     session.add(job)

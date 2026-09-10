@@ -456,6 +456,32 @@ export function nhanHuongChu(huong, trang_thai, ma_ly_do = []) {
   return goc
 }
 
+/** E21b — lọc vùng theo TRẠNG THÁI RÀ SOÁT (`review_status` của E12), độc lập với bộ lọc hướng
+ *  chữ bên dưới: "vùng này chữ dọc hay ngang" và "tôi đã soi vùng này chưa" là hai câu hỏi khác
+ *  nhau, gộp làm một thì không trả lời được câu nào cho ra hồn.
+ *
+ *  Tái dùng nguyên hệ E12, KHÔNG dựng trạng thái review thứ hai: `needs_review`/`not_required` do
+ *  máy chấm, `reviewed_keep`/`reviewed_skip` CHỈ do người bấm (`enums.py:ReviewStatus`).
+ *
+ *  `null` = chưa có bản đánh giá nào; nó có ô RIÊNG chứ không bị nhét chung với "không cần rà
+ *  soát" — chưa chấm khác hẳn chấm rồi thấy sạch (đúng nguyên tắc của `QualitySummary`).
+ *
+ *  Các ô con phải PHỦ KÍN miền giá trị: thiếu một giá trị là người dùng thấy "Tất cả 2" mà mọi ô
+ *  còn lại đều 0, không hiểu hai vùng kia đi đâu. Bản đầu thiếu đúng `not_required` và lỗi đó lộ
+ *  ra khi bấm thật trên trình duyệt, không phải khi chạy test — nên có `test` canh lại bên dưới.
+ */
+export const LOC_RA_SOAT = [
+  { ma: 'tat_ca', nhan: 'Tất cả', hop: () => true },
+  { ma: 'can_ra_soat', nhan: 'Cần rà soát', hop: (tt) => tt === 'needs_review' },
+  {
+    ma: 'da_quyet',
+    nhan: 'Đã quyết',
+    hop: (tt) => tt === 'reviewed_keep' || tt === 'reviewed_skip',
+  },
+  { ma: 'khong_can', nhan: 'Không cần rà soát', hop: (tt) => tt === 'not_required' },
+  { ma: 'chua_danh_gia', nhan: 'Chưa đánh giá', hop: (tt) => tt == null },
+]
+
 /** Bộ lọc vùng theo hướng chữ (E15 §D1). Mỗi mục là một vị từ trên bản ghi hướng chữ. */
 export const LOC_HUONG_CHU = [
   { ma: 'tat_ca', nhan: 'Tất cả', hop: () => true },

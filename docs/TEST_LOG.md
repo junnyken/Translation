@@ -3699,3 +3699,69 @@ ngay lúc nạp, đã tự kiểm bằng chính 4 lượt chạy thật đều n
 tham số tuỳ chọn mặc định `None`); Tesseract/PaddleOCR tuned chỉ sống trong container `--rm`.
 `text_det_limit_side_len` bị loại khỏi thí nghiệm sau khi đo thật kích thước crop (mọi crop ≤600px
 < mặc định ~960 ⇒ không có phép thu nhỏ để mà chặn) — loại theo số đo, không theo cảm tính.
+
+# ========== E21b — chặn mất chữ đang gõ + bỏ việc canh lại thừa (2026-09-10) ==========
+
+Không có migration. Hai thay đổi có rủi ro hồi quy: điều kiện xếp việc canh lại ở
+`PATCH /regions/{id}`, và `refit_job_id` thành nullable trong `RegionPatchAccepted`.
+
+## Backend — toàn bộ suite
+
+```
+$ cd backend && ../.venv/bin/python -m pytest -q
+1193 passed · 6 skipped · 0 failed   (1199 thu thập = 1195 nền E22 + 4 mới của E21b)
+```
+
+`pytest.ini` đặt `addopts = -q` nên không in dòng tổng kết; số trên đối chiếu `--collect-only`
+(1199) với số dấu chấm/`s` đếm trong log lượt chạy đầy đủ, `EXIT:0`, 0 ký tự `F`/`E`.
+
+**Một báo động giả đáng ghi lại:** lệnh chạy nền báo "failed with exit code 1", nhưng mã 1 đó đến
+từ `grep -c` ở cuối chuỗi lệnh — `grep -c` trả 1 khi đếm được **0** kết quả, tức là 0 lỗi. Bản
+thân pytest trả `EXIT:0`. Đọc mã thoát của lệnh cuối trong chuỗi mà tưởng là mã của cả chuỗi là
+cách dễ nhất để tự doạ mình bằng một lượt test hoàn toàn xanh.
+
+4 test mới (`tests/test_region_edit_integration.py`):
+- `test_sua_raw_text_KHONG_xep_viec_canh_lai` — `refit_job_id is None`, số job typeset không tăng,
+  `fit_status` giữ nguyên (không hạ xuống `pending`), `TypesetResult.edited_by_user` không bị bật,
+  và `raw_text` vẫn được ghi thật (trước đây nó commit ké theo job nên đây là chỗ dễ vỡ nhất).
+- `test_sua_thu_doi_ban_ve_VAN_xep_viec_canh_lai[translated_text|bbox]` — chốt ranh giới từ phía
+  ngược lại: hai trường này vẫn phải canh lại như cũ.
+- `test_sua_raw_text_KEM_ban_dich_thi_VAN_canh_lai` — ca gộp: điều kiện là "có trường nào đổi bản
+  vẽ không", không phải "có `raw_text` không".
+
+## Frontend
+
+```
+$ cd frontend && npm test -- --run
+331 passed (20 file)     — 322 nền E22 + 9 mới của E21b
+```
+
+- `RegionPanel.test.jsx` (+6) — cơ chế chống mất dữ liệu: báo cờ `daDoi` lên App khi gõ vào ô chữ
+  gốc VÀ ô bản dịch, báo `false` khi gỡ bảng, và App gọi được `dieuKhien.current.luu()` để lưu
+  ĐÚNG thứ vừa gõ (đường mà nút "Lưu rồi chuyển" đi).
+- `status-presentation.test.js` (+3) — bộ lọc trạng thái rà soát phủ kín miền giá trị: mỗi trạng
+  thái rơi vào đúng MỘT ô, và "chưa đánh giá" không bị gộp với "không cần rà soát".
+
+## Live verification — Chromium thật, stack local (KHÔNG phải production)
+
+Trang fixture `e3b458c7…` ("Test E2E Pepper Carrot", 2 vùng) có sẵn trong DB local. Đặt lại mật
+khẩu tài khoản fixture `test-e2e@local.test` **chỉ trên DB local** bằng đúng hàm băm scrypt của
+server (`app/core/mat_khau.py:bam`) — không đoán, không bỏ qua xác thực.
+
+Kiểm được:
+- Gõ dở chữ gốc rồi bấm sang vùng khác ⇒ hộp thoại chặn lại; chữ **còn nguyên** trong ô, vẫn ở
+  Vùng 1, chỉ số điều hướng vẫn "1 / 2".
+- "Ở lại vùng này" ⇒ hộp thoại đóng, chữ còn nguyên. "Bỏ thay đổi" ⇒ mới chuyển sang Vùng 2 và
+  ô chữ gốc trở về giá trị thật của vùng đó.
+- Trước/Sau: ở 2/2 thì nút "Sau" tắt, bấm "Trước" về 1/2 và nút "Trước" tắt — đúng cả hai biên.
+- Console: 0 lỗi JS (chỉ còn một ghi chú accessibility có sẵn từ trước về `id`/`name` của form).
+
+**Lỗi bắt được nhờ bấm thật, test không bắt:** hàng lọc hiện "Tất cả 2" mà cả ba ô con đều 0 —
+`not_required` (máy chấm là sạch) không có ô nào nhận. Đã sửa thành 5 ô phủ kín và thêm test khoá
+tính phủ kín để lần sau thêm giá trị mới vào `ReviewStatus` mà quên ô lọc thì đỏ ngay.
+
+## Chưa làm
+
+Chưa deploy — lát cắt này đổi hợp đồng API (`refit_job_id` thành nullable) nên cần duyệt riêng.
+`App.jsx` vẫn không có unit test nào (tình trạng có từ trước E21b): phần wiring hộp thoại/điều
+hướng/lọc dựa hoàn toàn vào lượt kiểm trình duyệt ở trên.

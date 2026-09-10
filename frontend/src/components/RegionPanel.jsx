@@ -7,6 +7,12 @@ import ZoomCropModal from './ZoomCropModal.jsx'
 export default function RegionPanel({
   pageId, region, vungAnToan, fontFamilies, coMin, coMax, dangBan,
   onLuu, onDichLai, onDocLai, onCanhLai, onTinhLaiVungAnToan,
+  // E21b — báo "đang có thay đổi chưa lưu" lên App, và đưa hàm lưu ra ngoài qua `dieuKhien`.
+  //
+  // Vì sao cần: App gắn `key={region.id}` cho bảng này nên đổi vùng là REMOUNT — trước E21b chữ
+  // đang gõ dở biến mất im lặng, không một lời hỏi. App phải biết còn thay đổi chưa lưu để chặn
+  // lại, và phải gọi được `luu()` nếu người dùng chọn "Lưu" trong hộp thoại xác nhận.
+  onDoiTrangThaiSua, dieuKhien,
 }) {
   const [text, setText] = useState(region.translated_text ?? '')
   const [chuGoc, setChuGoc] = useState(region.raw_text ?? '')
@@ -38,6 +44,20 @@ export default function RegionPanel({
     if (ghimCo) thayDoi.font_size = Number(co)
     if (Object.keys(thayDoi).length) onLuu(region.id, thayDoi)
   }
+
+  // E21b — đẩy trạng thái "chưa lưu" lên App để nó chặn việc đổi vùng làm mất chữ đang gõ.
+  useEffect(() => {
+    onDoiTrangThaiSua?.(daDoi)
+    // Gỡ bảng (đổi vùng / đóng) thì App không còn gì chưa lưu để giữ nữa.
+    return () => onDoiTrangThaiSua?.(false)
+  }, [daDoi, onDoiTrangThaiSua])
+
+  // Giữ hàm `luu` mới nhất cho App gọi từ hộp thoại xác nhận. KHÔNG dùng mảng phụ thuộc: `luu`
+  // đóng gói state của lần render này, cần cập nhật sau MỌI lần render thì App mới lưu đúng thứ
+  // người dùng vừa gõ.
+  useEffect(() => {
+    if (dieuKhien) dieuKhien.current = { daDoi, luu }
+  })
 
   return (
     <div className="bang-sua">

@@ -371,6 +371,99 @@ async def test_sua_raw_text_vung_chua_ocr_bao_loi_ro(client, trang_da_canh_chu):
     assert "chưa đọc chữ" in r.json()["detail"]
 
 
+# ---------------- E21b: chỉ canh lại khi lượt sửa thật sự đổi bản vẽ ----------------
+
+
+def _dem_job_typeset(page_id: str) -> int:
+    with sync_session() as s:
+        return len(s.execute(
+            sa.select(Job).where(
+                Job.page_id == uuid.UUID(page_id), Job.type == JobType.typeset,
+            )
+        ).scalars().all())
+
+
+def _typeset_cua(region_id) -> TypesetResult:
+    with sync_session() as s:
+        return s.execute(
+            sa.select(TypesetResult).where(TypesetResult.region_id == region_id)
+        ).scalars().one()
+
+
+async def test_sua_raw_text_KHONG_xep_viec_canh_lai(client, trang_da_canh_chu):
+    """Chữ được VẼ vào bong bóng là bản dịch, không phải chữ gốc OCR — nên sửa `raw_text` không
+    làm bản vẽ khác đi một pixel nào.
+
+    Trước E21b, mỗi lượt sửa chữ gốc vẫn xếp một việc canh lại: chiếm mất một suất của worker
+    `--pool=solo` (mỗi lúc đúng một việc, `REPORT_E22`) cho một việc vẽ lại y hệt cái đang có, và
+    hạ `fit_status` đang `fit_ok` xuống `pending` không vì lý do gì. Test E21 cũ chỉ khoá "không
+    tự DỊCH lại" nên tác dụng phụ này lọt qua.
+    """
+    page_id = await trang_da_canh_chu()
+    vung = _regions(page_id)[0]
+    truoc = _typeset_cua(vung.id)
+    fit_truoc, sua_tay_truoc = truoc.fit_status, truoc.edited_by_user
+    so_job_truoc = _dem_job_typeset(page_id)
+
+    r = await client.patch(f"/api/v1/regions/{vung.id}", json={"raw_text": "HELLO THERE"})
+    assert r.status_code == 200, r.text
+    js = r.json()
+
+    assert js["refit_job_id"] is None, "vẫn xếp việc canh lại cho một lượt sửa không đổi bản vẽ"
+    assert _dem_job_typeset(page_id) == so_job_truoc, "đã tạo thêm job typeset"
+
+    sau = _typeset_cua(vung.id)
+    assert sau.fit_status is fit_truoc, "hạ nhầm trạng thái canh chữ dù không canh lại"
+    assert js["fit_status"] == fit_truoc.value, "API trả `pending` dù không có gì để canh"
+    assert sau.edited_by_user is sua_tay_truoc, \
+        "gắn nhầm 'người sửa' lên tầng typeset — người dùng chỉ sửa chữ gốc OCR"
+
+    # Phần sửa vẫn phải được ghi thật (trước đây nó được commit ké theo job).
+    with sync_session() as s:
+        assert s.execute(
+            sa.select(OCRResult).where(OCRResult.region_id == vung.id)
+        ).scalars().one().raw_text == "HELLO THERE"
+
+
+@pytest.mark.parametrize("truong,gia_tri", [
+    ("translated_text", "Xin chào"),
+    ("bbox", {"x": 10.0, "y": 12.0, "w": 150.0, "h": 60.0}),
+])
+async def test_sua_thu_doi_ban_ve_VAN_xep_viec_canh_lai(
+    client, trang_da_canh_chu, truong, gia_tri,
+):
+    """Chốt ranh giới từ phía ngược lại: E21b chỉ được bỏ việc canh lại cho ĐÚNG trường hợp
+    `raw_text`. Bản dịch và khung chữ vẫn phải canh lại như cũ, nếu không thì bản vẽ trên trang
+    sẽ lệch hẳn với dữ liệu."""
+    page_id = await trang_da_canh_chu()
+    vung = _regions(page_id)[0]
+    so_job_truoc = _dem_job_typeset(page_id)
+
+    r = await client.patch(f"/api/v1/regions/{vung.id}", json={truong: gia_tri})
+    assert r.status_code == 200, r.text
+    js = r.json()
+
+    assert js["refit_job_id"] is not None, f"sửa {truong} mà không xếp việc canh lại"
+    assert _dem_job_typeset(page_id) == so_job_truoc + 1
+    assert js["fit_status"] == FitStatus.pending.value
+
+
+async def test_sua_raw_text_KEM_ban_dich_thi_VAN_canh_lai(client, trang_da_canh_chu):
+    """Lượt sửa gộp: có `raw_text` nhưng cũng có `translated_text` ⇒ vẫn phải canh lại. Điều kiện
+    là 'có trường nào đổi bản vẽ không', không phải 'có raw_text không'."""
+    page_id = await trang_da_canh_chu()
+    vung = _regions(page_id)[0]
+    so_job_truoc = _dem_job_typeset(page_id)
+
+    r = await client.patch(
+        f"/api/v1/regions/{vung.id}",
+        json={"raw_text": "SOURCE", "translated_text": "Bản dịch mới"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["refit_job_id"] is not None
+    assert _dem_job_typeset(page_id) == so_job_truoc + 1
+
+
 async def test_detail_tra_dung_co_ocr_edited_by_user(client, trang_da_canh_chu):
     page_id = await trang_da_canh_chu()
     vung = _regions(page_id)[0]

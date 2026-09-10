@@ -321,9 +321,22 @@ Trường nào bỏ trống thì giữ nguyên trường đó. Body rỗng → `
 { "region_id": "…", "page_id": "…", "fit_status": "pending",
   "refit_job_id": "…", "edited_fields": ["translated_text"], "edited_by_user": true }
 ```
+`refit_job_id` là `null` khi lượt sửa không cần canh lại (xem gạch đầu dòng E21b bên dưới):
+```json
+{ "region_id": "…", "page_id": "…", "fit_status": "fit_ok",
+  "refit_job_id": null, "edited_fields": ["raw_text"], "edited_by_user": true }
+```
 
-- **`fit_status` luôn trả `pending`**, không phải trạng thái cũ: bản canh cũ đã không còn đúng với
-  nội dung vừa sửa, báo `fit_ok` lúc này là nói sai. Theo dõi `refit_job_id` để biết khi nào xong.
+- **`fit_status` trả `pending`** khi có canh lại, không phải trạng thái cũ: bản canh cũ đã không
+  còn đúng với nội dung vừa sửa, báo `fit_ok` lúc này là nói sai. Theo dõi `refit_job_id` để biết
+  khi nào xong.
+- **E21b — lượt sửa CHỈ đụng `raw_text` thì KHÔNG xếp việc canh lại**: `refit_job_id` trả `null`
+  và `fit_status` giữ nguyên giá trị THẬT đang có. Chữ được vẽ vào bong bóng là `translated_text`;
+  sửa chữ gốc OCR không đổi bản vẽ một pixel nào, nên canh lại chỉ tổ chiếm suất của worker
+  (`--pool=solo`, mỗi lúc đúng một việc — `REPORT_E22`) và hạ nhầm `fit_ok` xuống `pending`.
+  Canh lại vẫn chạy như cũ khi lượt sửa có `bbox`/`translated_text`/`font_family`/`font_size`,
+  kể cả khi gộp chung với `raw_text`.
+  **Máy khách phải kiểm `refit_job_id` khác `null` trước khi đem đi hỏi `/jobs/{id}`.**
 - **`font_size` = ghim cỡ chữ**: canh lại dùng **đúng** cỡ đó thay vì tự dò. Cỡ đó tràn khung thì
   vẫn giữ cỡ nhưng gắn `overflow_warning` — không giả vờ vừa. Bỏ trống = quay lại tự dò như M6.
 - Ghi `edited_by_user=true` lên `OCRResult`/`TranslationResult`/`TypesetResult` tương ứng với

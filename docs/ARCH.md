@@ -1622,3 +1622,79 @@ THẬT còn lại.
 - Nếu sau này topology đổi (nhiều worker, tách API/worker), điều kiện an toàn của `hoi_phuc.py`
   KHÔNG còn đúng nữa — phải quay lại làm đúng phần capacity-gate/lease đã audit ở đây trước khi
   đổi topology, không phải sau.
+
+## E21b. Rà soát tay: chặn mất chữ đang gõ + bỏ việc canh lại thừa (2026-09-10)
+
+### E21b.1 Audit bác bỏ phần lớn đề bài
+
+Bản nháp E21b đề nghị dựng hàng đợi review với `review_state`/`reviewed_at`, xếp ưu tiên theo
+điểm tin cậy OCR, và khung boundary riêng cho người rà soát. Audit trước khi build bác bỏ hai phần
+ba:
+
+1. **Trạng thái review tường minh ĐÃ CÓ ĐỦ từ E12.** `ReviewStatus` với đúng 4 giá trị
+   `not_required/needs_review/reviewed_keep/reviewed_skip` (`enums.py`), lưu ở bảng
+   `region_quality_assessment`, endpoint `POST /regions/{id}/quality-review`, UI đã có hai nút
+   "Giữ để dịch"/"Bỏ qua vùng này". Dựng thêm `review_state` là tạo nguồn sự thật thứ hai cho
+   cùng một khái niệm.
+2. **Xếp ưu tiên theo confidence là bất khả thi cho tiếng Nhật.** `manga_ocr` trả `None` và code
+   ghi thẳng "không bịa số" (`engines.py`); chỉ PaddleOCR (en/zh) có số thật. Dùng confidence làm
+   khoá sắp xếp chung sẽ im lặng vô hiệu với đúng nguồn truyện mà E20/E21 sinh ra để phục vụ.
+
+Còn lại hai khoảng trống THẬT, và cả hai đều là lỗi chứ không phải thiếu tính năng.
+
+### E21b.2 Lỗi 1 — chữ đang gõ dở mất im lặng
+
+`App` gắn `key={region.id}` cho `RegionPanel`, nên đổi vùng là **remount** ⇒ state form bị vứt.
+`RegionPanel` có sẵn cờ `daDoi` nhưng chỉ dùng để bật/tắt nút Lưu; không có `beforeunload`, không
+có confirm. Người dùng gõ lại nguyên câu chữ gốc OCR (đúng việc mà E21 sinh ra để phục vụ), bấm
+nhầm sang vùng khác, mất sạch.
+
+Cách chữa giữ nguyên kiến trúc: `RegionPanel` báo cờ `daDoi` lên App qua `onDoiTrangThaiSua`, và
+để lại hàm `luu` mới nhất trong ref `dieuKhien` (cập nhật sau MỌI lần render, không dùng mảng phụ
+thuộc — nếu không App sẽ lưu bản state cũ). App chặn ở `chonVung()` và hỏi ba lựa chọn: *Lưu rồi
+chuyển · Bỏ thay đổi · Ở lại vùng này*. **Không tự lưu hộ** — lưu ngầm thứ người dùng chưa xác
+nhận cũng là một kiểu mất kiểm soát.
+
+### E21b.3 Lỗi 2 — sửa chữ gốc kéo theo một việc canh lại vô ích
+
+`PATCH /regions/{id}` xếp `Job(type=typeset)` ở cuối **không điều kiện**, kể cả lượt chỉ sửa
+`raw_text`; kèm đó đặt `fit_status=pending` và `edited_by_user=True` lên tầng typeset. Nhưng chữ
+được VẼ là `translated_text` — sửa chữ gốc OCR không đổi bản vẽ. E21 thêm `raw_text` vào endpoint
+này mà không sửa phần đuôi; test E21 chỉ khoá "không tự DỊCH lại" nên tác dụng phụ lọt qua.
+
+Giá của nó không nhỏ: worker chạy `--pool=solo` (mỗi lúc đúng một việc, xem §E22), nên mỗi lượt
+canh thừa chiếm mất suất của việc thật đang xếp hàng.
+
+Điều kiện mới: canh lại khi và chỉ khi lượt sửa đụng `bbox`/`translated_text`/`font_family`/
+`font_size`. Ca gộp (`raw_text` + `translated_text`) vẫn canh lại — điều kiện là "có trường nào
+đổi bản vẽ không", không phải "có `raw_text` không".
+
+### E21b.4 Điều hướng và lọc — tái dùng, không dựng mới
+
+Nút Trước/Sau đi qua đúng tập vùng đang lọc (một biến `dsVungLoc` dùng chung cho cả danh sách lẫn
+điều hướng, để hai thứ không bao giờ đi trên hai tập khác nhau). Bộ lọc trạng thái rà soát
+(`LOC_RA_SOAT`) đọc thẳng `review_status` của E12, đứng **riêng hàng** với bộ lọc hướng chữ của
+E15: "vùng này chữ dọc hay ngang" và "tôi đã soi vùng này chưa" là hai câu hỏi khác nhau.
+
+Các ô lọc phải **phủ kín** miền giá trị. Bản đầu thiếu `not_required` ⇒ giao diện hiện "Tất cả 2"
+mà mọi ô con đều 0, hai vùng biến mất không rõ đi đâu. Lỗi này **chỉ lộ ra khi bấm thật trên
+trình duyệt**, không bộ test nào bắt được — nay đã có test canh tính phủ kín.
+
+### E21b.5 Cố tình KHÔNG làm
+
+- **Không** thêm `review_state`/`reviewed_at`/`reviewed_by` — trùng `ReviewStatus` của E12.
+- **Không** xếp ưu tiên theo điểm tin cậy — `manga_ocr` không có số, xem §E21b.1.
+- **Không** thêm phím tắt: chưa có phím tắt nào trong toàn bộ ứng dụng, thêm một hệ phím tắt là
+  một lát cắt riêng cần audit xung đột trình duyệt/trợ năng đàng hoàng.
+- **Không** đụng tới việc sửa bbox: nó ghi đè thẳng toạ độ detector và không có cột nào giữ nguồn
+  gốc. Tách provenance cần migration + quyết định về hành vi pipeline, không nhét vào lát cắt sửa
+  lỗi này.
+
+### E21b.6 Giới hạn đã biết
+
+- `App.jsx` **không có unit test nào** (trước và sau E21b) — phần wiring hộp thoại/điều hướng/lọc
+  được kiểm bằng trình duyệt thật trên stack local, không phải bằng test tự động. Cơ chế cốt lõi
+  (`RegionPanel` báo cờ + đưa hàm lưu ra) thì có test.
+- Hộp thoại chặn khi ĐỔI VÙNG và khi đóng tab/tải lại. Chưa chặn đường đổi TRANG hoặc đổi bộ lọc
+  làm vùng đang mở rơi khỏi danh sách — hai đường đó hiếm hơn và cần thêm test riêng.
+- Chưa deploy: đây là lát cắt có đổi hợp đồng API (`refit_job_id` thành nullable), cần duyệt riêng.
