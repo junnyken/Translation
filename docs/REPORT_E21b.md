@@ -161,8 +161,28 @@ Chưa đạt (cố ý ngoài phạm vi đã chọn): phím tắt, boundary prove
 
 ## 11. Commit / Deploy State
 
-- **Chưa commit, chưa push, chưa deploy** tại thời điểm viết báo cáo.
-- Deploy cần duyệt riêng vì có **đổi hợp đồng API** (`refit_job_id` nullable): backend phải lên
-  trước hoặc cùng lúc frontend, nếu không frontend cũ sẽ hỏi `/jobs/null` khi người dùng sửa
-  `raw_text`.
+- Commit `fe838fa`, đã push lên `origin/main` (`e5dec68..fe838fa`). **Chưa deploy.**
+- Deploy cần duyệt riêng vì có **đổi hợp đồng API**: `refit_job_id` giờ có thể `null`.
+
+### 11.1 Thứ tự deploy — FRONTEND TRƯỚC (sửa lại bản đầu của báo cáo này)
+
+Bản đầu của mục này viết "backend phải lên trước hoặc cùng lúc frontend". **Sai, và sai đúng
+chiều nguy hiểm.** Suy lại từ mã thật:
+
+| Tổ hợp | Điều gì xảy ra | Kết luận |
+|---|---|---|
+| FE mới + BE **cũ** | BE cũ luôn trả `refit_job_id` thật ⇒ guard `if (!job_id)` không bao giờ chạm ⇒ chờ job như cũ | **An toàn** |
+| FE **cũ** + BE mới | BE mới có thể trả `null` ⇒ `chay()` bản cũ không có guard ⇒ gọi `/jobs/null` | **VỠ** |
+
+Tổ hợp vỡ là **backend mới đứng trước frontend cũ** — tức "backend-first" chính là thứ tự tạo ra
+cửa sổ vỡ, không phải thứ tự an toàn. Thứ tự đúng: **deploy frontend trước, rồi backend** (hoặc cả
+hai cùng lúc). Frontend mới chịu được cả hai đời backend nên lên trước là vô hại.
+
+Triệu chứng nếu làm sai thứ tự: mỗi lần người dùng sửa chữ gốc OCR rồi bấm Lưu, giao diện báo lỗi
+tải job (404 `/jobs/null`) dù phần sửa **đã được ghi thành công** — dữ liệu không mất, nhưng người
+dùng thấy một thông báo lỗi sai và không biết là đã lưu hay chưa.
+
 - Không có migration ⇒ rollback là quay lại commit trước, không cần đụng CSDL.
+- Kiểm tra sau deploy nên chạy đúng ba điểm: (1) sửa `raw_text` ⇒ không sinh job typeset mới;
+  (2) sửa dở rồi đổi vùng ⇒ hộp thoại chặn, không mất chữ; (3) hàng lọc rà soát có ô "Không cần rà
+  soát" và tổng các ô con khớp ô "Tất cả".
