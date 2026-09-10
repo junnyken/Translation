@@ -3788,3 +3788,103 @@ hướng/lọc dựa hoàn toàn vào lượt kiểm trình duyệt ở trên v�
 Chưa có cơ chế báo "có bản mới, tải lại đi" cho tab đang mở — nên sau mỗi lần đổi hợp đồng API,
 tab cũ vẫn chạy frontend cũ trên backend mới cho tới khi người dùng tự tải lại
 (`REPORT_E21b.md §11.3`).
+
+# ========== E25 — truy tìm chỗ tối ưu thời gian, KHÔNG SHIP GÌ (2026-09-10) ==========
+
+Không có test tự động nào ở E25: nó là một cuộc **đo lường**, không phải một tính năng. Không đổi
+code production, không migration, không deploy. Ghi vào đây vì bốn kết quả âm này có giá trị chặn
+người sau đi lại đường cũ. Số đầy đủ: `docs/REPORT_E25.md`.
+
+## Bàn thử — điều kiện phải đúng nếu không mọi số đều vô nghĩa
+
+Container local **không giới hạn CPU**, đã kiểm tường minh trước khi tin bất kỳ số nào:
+
+```
+NanoCpus=0  CpuQuota=0  CpuPeriod=0  CpusetCpus=""
+/sys/fs/cgroup/cpu.max  ->  "max 100000"
+os.cpu_count()=12  affinity=12
+```
+
+Nên `taskset -c 0-2` (mô phỏng quota production 2,6 CPU) là ràng buộc duy nhất. **Nếu container
+có quota thì đường cong theo số core sẽ phẳng vì quota, chứ không vì model — và nhìn bảng kết quả
+thì hai nguyên nhân đó giống nhau y hệt.** Đây là confound phải loại trước, không phải sau.
+
+Dải nhiễu FP32 cùng một cấu hình: 38,7 / 42,0 / 42,0 / 46,7 / 50,1s ⇒ **~30%**. Mọi "cải thiện"
+dưới mức này là nhiễu.
+
+## Kết quả — cả bốn giả thuyết đều ĐỎ
+
+| Phép đo | Kết quả | Kết luận |
+|---|---|---|
+| `intra_op_num_threads` = 0 / 4 / 2 (ghim 3 core, lượt ấm) | 46,7s / 119,6s / 164,9s | Hiện trạng nhanh nhất. Đặt tường minh **chậm hơn 2,5–3,5×** |
+| `input_size` 1024 → 896 | `INVALID_ARGUMENT: Got: 896 Expected: 1024` | Graph ONNX shape **tĩnh**, tham số chỉ có 1 giá trị hợp lệ |
+| Đếm số lần nạp model / 6 trang | CTD 1 · Paddle 1 · LaMa 1 · nhả 1 | **Không** có thrash; RSS phẳng ~1219MB |
+| `quantize_dynamic` QInt8 | `NOT_IMPLEMENTED: ConvInteger(10)` | Tạo được model, **nạp không được** |
+| Đường cong 2/3/4/6/8/12 core (lượt ấm) | 53,0 / 70,5 / 45,0 / 51,3 / **76,6** / 44,4s | **Không có xu hướng**; 6× core = 1,19×; 8 core chậm nhất bảng |
+
+Kiểm chứng H1 không bị confound: nhánh `if intra_op_threads > 0` trong `ctd.py:92-103` chỉ gán
+đúng một thứ (`opts.intra_op_num_threads`), không đổi `execution_mode` hay mức tối ưu graph.
+Cơ chế của hiệu ứng 2,5–3,5× thì **không giải thích được** — có số đo sạch nhưng không có lời
+giải, nên KHÔNG ngoại suy sang `intra_op=1`.
+
+## Chi phí thật từng bước — và một số cũ của tôi bị bác
+
+6 trang thật (1200×1660, 7–9 vùng/trang), tuần tự qua pipeline: **134s/trang ⇒ 24 trang ≈ 54 phút**.
+
+| Bước | TB/trang | Tỉ lệ |
+|---|---|---|
+| Nhận diện khung | 61,7s | 46% |
+| Xoá chữ (LaMa) | 50,7s | 38% |
+| Đọc chữ | 14,7s | 11% |
+| Dịch | 4,2s | 3% |
+| Căn chữ | 2,7s | 2% |
+
+**Tôi đã báo sai trước đó:** xoá chữ "~12% (10,7s)" — đo trên **một trang tổng hợp chỉ 2 vùng chữ**.
+LaMa chạy theo từng cụm chữ nên mẫu đó không đại diện. Cùng lỗi này có trong `PLAN_E19` ("cắt
+6–17s"), đã thêm đính chính có ngày tại chỗ.
+
+## Bẫy đo gặp phải — thứ tự redirect
+
+Lần đầu đếm số lần nạp model tôi viết `docker logs ... 2>&1 > /tmp/w.log`. Thứ tự đó đẩy **stderr
+ra terminal** rồi mới đưa stdout vào file — mà log Celery đi qua stderr, nên file gần như rỗng và
+mọi `grep -c` trả **0**. Tin con số đó thì đã "chứng minh" không có nạp lại model **từ một file
+trống**. Thứ tự đúng: `> file 2>&1`.
+
+## Chưa làm
+
+- Đường cong theo core chỉ đo **bước nhận diện (46%)**. Xoá chữ (38%) **chưa đo scaling**; cơ sở để
+  giả định nó giống là `inpaint/lama.py:170-182` dùng đúng cùng đường ONNX Runtime với cùng mặc
+  định `intra_op_threads=0` — tương đồng **cấu trúc**, không phải số đo.
+- Phép đo quá nhiễu để loại hiệu ứng **nhỏ** (1,3–1,5×); chỉ đủ loại hiệu ứng **lớn** (3×).
+- Điểm 8 core chậm bất thường chưa có lời giải; nghi tải khác trên máy chủ dùng chung — biến không
+  kiểm soát được.
+- Mọi số đo trên **trang tiếng Anh** (PaddleOCR). Chapter tiếng Nhật dùng `manga_ocr` với chi phí
+  nạp model lớn hơn (~19s theo log 09-09) nên cơ cấu thời gian có thể khác.
+- Chưa chạy thật 24 trang; con số 54 phút là ngoại suy tuyến tính từ 6 trang.
+
+## Phép đo song song hoá — THẤT BẠI, ghi lại vì lỗi nằm trong script đo của tôi
+
+Đường cong phẳng theo core là dấu hiệu nên song song hoá ở tầng **task**. Đo thử (cùng 3 core cho
+mọi nhánh) ra kết quả **không dùng được**:
+
+```
+song_song=1  tường=175,4s / 2 lượt ⇒  87,7s   [0] 45,9-129,3s        RSS 1117MB
+song_song=2  tường=510,0s / 4 lượt ⇒ 127,5s   [0] 102-406s · [1] 102-406s
+song_song=3  tường=257,5s / 6 lượt ⇒  42,9s   [0] … · [2] …   RSS_tổng 2236MB
+```
+
+**Lỗi 1 — script đo tính số từ giả định.** Nhánh n=3 chỉ có `[0]` và `[2]` báo về (`RSS_tổng` =
+2×1118, không phải 3×1118): một tiến trình con đã chết. Script vẫn chia cho `so_tien_trinh *
+SO_LUOT` = 6 **theo giả định** trong khi chỉ 4 lượt chạy thật ⇒ in ra "42,9s/trang", trông y hệt
+một cú thắng gấp 2, và **hoàn toàn không có thật** (số thật 257,5/4 = 64,4s). `p.join()` không
+kiểm `p.exitcode`, `ket_qua` chỉ được lấp một phần. Script bị giữ ở scratchpad, **không** đưa vào
+repo cho tới khi đếm lượt thật.
+
+**Lỗi 2 — bàn thử quá nhiễu, độc lập với lỗi 1.** Cùng tiến trình, cùng trang, lượt dao động
+45,9-129,3s (n=1) và 102-406s (n=2) — biên độ 4×, lớn hơn hiệu ứng cần đo. Máy chủ dùng chung đang
+tải việc khác (37/62GB). Bằng chứng nội tại là nhiễu: thông lượng n=2 *tệ hơn* n=1 nhưng n=3 lại
+*tốt hơn* n=1 — không có mô hình vật lý nào cho hình dạng đó.
+
+⇒ **Song song hoá tầng task: CHƯA ĐO.** Không được kết luận theo cả hai chiều. Số duy nhất rút ra
+được (vì không phụ thuộc thời gian): **RSS ~1117MB mỗi tiến trình**, ổn định qua cả ba nhánh ⇒
+2 worker ≈ 2,2GB nhét được vào 4096MB; 3 worker ≈ 3,4GB thì sát trần khi cộng tiến trình API.

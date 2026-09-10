@@ -54,6 +54,13 @@ nhưng nó gần như không tốn gì — tôi gán sai chi phí cho một hi�
 Bỏ bước xoá chữ **vẫn đáng làm**: cắt 6–17s mỗi trang và hạ RSS đỉnh ~800 MB. Nhưng nó **không**
 đổi được bậc thời gian, và nút thắt là **CPU** chứ không phải RAM.
 
+> **Đính chính 2026-09-10 (E25):** con số "6–17s" nói **thấp hơn thực tế ~8 lần** cho nội dung
+> thật. Nó đo trên trang có rất ít vùng chữ; LaMa chạy theo **từng cụm chữ**, nên trên trang truyện
+> thật 7–9 vùng bước xoá chữ tốn **~51s/trang (38% tổng thời gian)**. Câu "không đổi được bậc thời
+> gian" vì vậy cũng sai theo: chế độ `chi_chu` cắt ~53s/trang, tức **~40%**. Số đo:
+> `REPORT_E25.md §2.1`. Phần "nút thắt là CPU" thì đúng — và E25 đo thêm được rằng thêm CPU cũng
+> **không** cứu được (§2.7).
+
 ⇒ Hình dung *"bấm là hiện chữ ngay"* **không sống được**. Hình dung thay thế, người dùng đã chọn
 đi tiếp: **"bấm để xếp hàng, đọc tiếp, lát sau chữ hiện ra"** — dịch trước vài trang kế trong lúc
 người đọc đang xem trang hiện tại. Với ~45s/trang và người đọc 1–2 phút/trang thì **kịp**, miễn là
