@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import * as api from './api.js'
+import BangBanMoi from './components/BangBanMoi.jsx'
 import BatchPanel from './components/BatchPanel.jsx'
 import BboxOverlay from './components/BboxOverlay.jsx'
 import ExportPanel from './components/ExportPanel.jsx'
@@ -47,7 +48,7 @@ function luuChapter(id, ten) {
   } catch { /* trình duyệt chặn lưu thì bỏ qua, không phải lỗi */ }
 }
 
-export default function App() {
+export default function App({ urlBundle } = {}) {
   // Auth slice B — ba trạng thái, KHÔNG phải hai:
   //   undefined = đang hỏi máy chủ xem mã phiên trong máy còn dùng được không
   //   null      = chưa đăng nhập
@@ -423,8 +424,11 @@ export default function App() {
     return <div className="app"><main className="than-trang"><p>Đang kiểm phiên đăng nhập…</p></main></div>
   }
   if (nguoiDung === null) {
+    // Banner cũng hiện ở màn đăng nhập: đăng nhập KHÔNG nạp lại bundle, nên tab cũ vẫn cũ sau khi
+    // vào. Báo ở đây để người dùng tải lại TRƯỚC khi làm việc, tốt hơn hẳn tải lại sau khi đã gõ.
     return (
       <div className="app">
+        <BangBanMoi urlBundle={urlBundle} />
         <main className="than-trang">
           <ManDangNhap onXong={setNguoiDung} />
         </main>
@@ -434,6 +438,9 @@ export default function App() {
 
   return (
     <div className="app">
+      {/* Tab mở sẵn từ trước lúc deploy chạy frontend cũ trên backend mới ⇒ báo lỗi SAI dù đã lưu
+          (REPORT_E21b §11.3). Đặt trên cùng vì nó giải thích những lỗi giả mà người dùng sắp thấy. */}
+      <BangBanMoi urlBundle={urlBundle} />
       <header className="dau-trang">
         <a className="hieu" href="#">
           <span className="hieu-dau">T</span>

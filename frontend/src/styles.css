@@ -613,3 +613,13 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .bang-tai-khoan th { font-weight: 600; color: var(--mo); }
 /* Email dài không được làm vỡ bảng trên màn hẹp — cho cả bảng cuộn ngang trong khung riêng. */
 .quan-tri { overflow-x: auto; }
+
+/* Banner "có bản mới, tải lại đi" — tab chạy bundle cũ (REPORT_E21b §11.3).
+   Dính đỉnh vì nó giải thích những thông báo lỗi GIẢ mà người dùng sắp gặp; cuộn mất nó thì họ
+   đọc lỗi giả mà không có ngữ cảnh. Không tự tải lại trang: chữ đang gõ dở phải được giữ. */
+.bang-ban-moi {
+  position: sticky; top: 0; z-index: 30;
+  padding: 8px 12px 0;
+  background: var(--nen, #fff);
+}
+.bang-ban-moi-nut { margin-top: 8px; }
