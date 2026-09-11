@@ -684,3 +684,80 @@ async def test_khong_hoi_duoc_broker_thi_van_cho_mot_khoang_an_toan(du_an, monke
         m.started_at = datetime.now(timezone.utc) - timedelta(seconds=120)
         s.commit()
     assert dp.thu_hoi_muc_mo_coi(me_id, hoi_broker=True) == 1
+
+
+class TestDanhThucMeSauSuCo:
+    """E23 — sau khi worker khởi động lại, mẻ phải tự chạy tiếp thay vì đứng im.
+
+    Đo thật HAI LẦN trong lượt 24 trang: quét job mồ côi dọn đúng phần của nó, nhưng mẻ vẫn đứng
+    im — không job nào trong hàng đợi, các mục `pending` không bao giờ tới lượt. Vì `dispatch_next`
+    chỉ chạy khi một trang tới trạng thái cuối, mà sau sự cố thì không còn trang nào đang chạy để
+    mà kết thúc. Người dùng phải tự bấm "Chạy lại" (`resumed_count: 2`, rồi `resumed_count: 1`).
+    """
+
+    async def test_day_tiep_muc_pending_cua_me_con_do(self, du_an):
+        pid, _ = await du_an(so_trang=3)
+        day = DayViecGia()
+        dp = BatchOrchestrator(max_concurrent_pages=1, dispatcher=day)
+        me_id = dp.create_full_pipeline_run(pid, "google_fast")
+        truoc = len(day.da_day)
+
+        # Giả lập sự cố: mục đang chạy bị quét đánh hỏng, không còn gì đang chạy.
+        with sync_session() as s:
+            m = s.execute(
+                sa.select(BatchItem).where(
+                    BatchItem.batch_run_id == me_id,
+                    BatchItem.status == BatchItemStatus.running,
+                )
+            ).scalars().one()
+            m.status = BatchItemStatus.failed
+            m.error_code = "worker_lost"
+            s.commit()
+
+        assert dp.danh_thuc_me_dang_do() == 1, "phải tìm thấy đúng 1 mẻ còn dở"
+        assert len(day.da_day) > truoc, "mẻ vẫn đứng im — không đẩy thêm việc nào"
+
+    async def test_KHONG_xep_lai_muc_da_HONG(self, du_an):
+        """Ranh giới quan trọng nhất: trang vừa giết worker KHÔNG được tự chạy lại.
+
+        Xếp lại một job vừa làm chết worker vì hết bộ nhớ là cách nhanh nhất để giết nó lần nữa —
+        nguyên tắc ghi ở đầu `workers/hoi_phuc.py`. Hàm này chỉ đẩy mục `pending`.
+        """
+        pid, pages = await du_an(so_trang=1)
+        day = DayViecGia()
+        dp = BatchOrchestrator(max_concurrent_pages=1, dispatcher=day)
+        me_id = dp.create_full_pipeline_run(pid, "google_fast")
+
+        with sync_session() as s:
+            m = s.execute(
+                sa.select(BatchItem).where(BatchItem.batch_run_id == me_id)
+            ).scalars().one()
+            m.status = BatchItemStatus.failed
+            m.error_code = "worker_lost"
+            s.commit()
+
+        so_truoc = len(day.da_day)
+        assert dp.danh_thuc_me_dang_do() == 0, "mẻ không còn mục `pending` nào ⇒ không đánh thức"
+        assert len(day.da_day) == so_truoc, "ĐÃ xếp lại một mục HỎNG — vi phạm 'không tự chạy lại'"
+
+    async def test_bo_qua_me_da_ket_thuc(self, du_an):
+        """Mẻ đã huỷ/đã xong mà bị đẩy tiếp thì nó sống lại từ cõi chết."""
+        pid, _ = await du_an(so_trang=2)
+        dp = BatchOrchestrator(max_concurrent_pages=1, dispatcher=DayViecGia())
+        me_id = dp.create_full_pipeline_run(pid, "google_fast")
+        with sync_session() as s:
+            s.get(BatchRun, me_id).status = BatchStatus.cancelled
+            s.commit()
+        assert dp.danh_thuc_me_dang_do() == 0
+
+    async def test_mot_me_hong_KHONG_chan_cac_me_con_lai(self, du_an, monkeypatch):
+        """Worker phải nhận việc được dù một mẻ nào đó hỏng khi đánh thức."""
+        pid, _ = await du_an(so_trang=2)
+        dp = BatchOrchestrator(max_concurrent_pages=1, dispatcher=DayViecGia())
+        dp.create_full_pipeline_run(pid, "google_fast")
+
+        def no(*_a, **_k):
+            raise RuntimeError("mẻ này hỏng")
+
+        monkeypatch.setattr(dp, "dispatch_next", no)
+        dp.danh_thuc_me_dang_do()  # không được ném ra ngoài

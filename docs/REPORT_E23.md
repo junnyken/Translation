@@ -2,7 +2,7 @@
 
 **Project:** Translation · **Phase:** E — Hosted Reliability & Performance
 **Ngày:** 2026-09-10 · **Nền:** `faec936` (sau E25 đóng)
-**Trạng thái:** **6 bản sửa** đã làm và kiểm live · lượt 24 trang **ĐÃ XONG 24/24** · 1 bản sửa **bị bác bỏ có lý do** · 1 "lỗi" hoá
+**Trạng thái:** **7 bản sửa** đã làm và kiểm live · lượt 24 trang **ĐÃ XONG 24/24** · 1 bản sửa **bị bác bỏ có lý do** · 1 "lỗi" hoá
 ra **không phải lỗi production**
 
 ## 1. Summary
@@ -26,7 +26,7 @@ và E22 dưới một lượt dài thật.
 | Một trang giết worker **4 lần**; cụm gộp thành cả trang ⇒ tiết kiệm bằng 0 | **LỖI THẬT, đã sửa + kiểm live** — §4d |
 | Cờ `inpaint_needs_review` bật 29% số trang, **cả 11 vùng chỉ 1 ký tự** ⇒ báo động giả | **LỖI THẬT, đã sửa** — §4e |
 | 25 job detect cho 24 trang | Lỗi thật nhưng **KHÔNG sửa** — cân không đáng, §5 |
-| Mẻ không tự chạy tiếp sau sự cố (phải bấm "Chạy lại") | Giới hạn còn lại, có đường thoát — §4c.4 |
+| Mẻ không tự chạy tiếp sau sự cố | **ĐÃ SỬA + kiểm live** — §4c.5-4c.6 |
 | **Câu hỏi khởi đầu: 24 trang ≈ 54 phút?** | **ĐÚNG** — trung vị 107,3s/trang × 24 × 1,25 = 53,6 phút, khớp E25. Nhưng p90 ⇒ ~99 phút. §4f |
 | **RSS đỉnh 3604MB = 91% ngân sách production** | Số quan trọng nhất; lật lại quyết định giữ 4096MB ở E25. §6 |
 
@@ -303,7 +303,60 @@ dọn job mồ côi (ĐÃ SỬA): 0 job -> failed, 0 trang lùi khỏi trạng t
 `0 job` (chúng đã `failed` từ lượt quét trước) nhưng **1 mục mẻ** được cứu — chính cảnh bản đầu bỏ
 sót. Mục mẻ sau đó: `failed | worker_lost`.
 
-### 4c.4 Giới hạn còn lại — mẻ KHÔNG tự chạy tiếp sau sự cố
+### 4c.5 ĐÃ SỬA — mẻ nay tự chạy tiếp sau sự cố
+
+`danh_thuc_me_dang_do()` chạy ở `worker_ready`, **sau** lượt quét job mồ côi (thứ tự bắt buộc: quét
+mới là thứ đưa mục mẻ mồ côi từ `running` về `failed`, giải phóng chỗ chạy — gọi trước thì
+`dispatch_next` thấy chỗ vẫn bị chiếm).
+
+**Ranh giới giữ nguyên:** chỉ đẩy mục `pending` — trang **CHƯA từng chạy**. Job vừa giết worker đã
+bị quét đánh `failed` nên **không** bị xếp lại. Nguyên tắc "Không tự chạy lại" ở đầu `hoi_phuc.py`
+vẫn nguyên vẹn, và vì thế cũng không có vòng lặp: mỗi trang được thử đúng một lần cho mỗi lần
+worker sống lại. `test_KHONG_xep_lai_muc_da_HONG` chốt ranh giới này.
+
+### 4c.6 Live verification — và một lỗi PHƯƠNG PHÁP THỬ của tôi
+
+**Lần thử đầu sai cách.** Tôi dùng `docker kill` lên container và kết luận `restart: unless-stopped`
+không hoạt động (`Exited (137)`, không tự bật lại). Sai: Docker coi `docker kill` là **người dùng
+chủ động dừng** nên không áp restart policy. Log tôi tưởng là "sau cú giết" thật ra là của lần
+khởi động trước đó.
+
+**Lần thứ hai cũng sai.** `kill -9 1` từ **bên trong** container bị kernel bỏ qua — PID 1 của một
+PID namespace được bảo vệ khỏi tín hiệu do chính tiến trình trong namespace đó gửi.
+
+**Mô phỏng đúng** là giết từ **ngoài** namespace, như OOM killer của kernel:
+`kill -9 $(docker inspect <ct> --format '{{.State.Pid}}')`.
+
+Kết quả với cách đúng — mẻ 3 trang, giết giữa lúc trang 2 đang chạy:
+
+```
+RestartCount 0 -> 1                                    ← Docker TỰ bật lại
+04:56:55  dọn job mồ côi (ĐÃ SỬA): 1 job -> failed, 1 trang lùi khỏi trạng thái tạm, 0 mục mẻ -> failed
+04:56:55  đánh thức mẻ ad0d389f… sau khi worker khởi động lại: đẩy 0 việc
+04:56:55  celery@… ready
+04:56:55  Task detect.run_detect_job[81fd54dd…] received
+```
+
+Và mẻ **tự về đích, không một thao tác tay nào**:
+
+| Trang | Trạng thái cuối | Mục mẻ |
+|---|---|---|
+| 1 | `typeset_done` | `completed` |
+| 2 (trang bị giết) | `typeset_done` | `skipped / da_xong` |
+| 3 | `ocr_done` → chạy tiếp | `running` |
+
+**Nhưng phải nói rõ phần nào THẬT SỰ được kiểm live.** Hàm đánh thức đẩy **0 việc**, vì chỗ chạy
+duy nhất (`batch_max_concurrent_pages = 1`) đã bị chiếm bởi job mà **broker giao lại** — đường
+`acks_late` + pool solo hoạt động đúng như tài liệu. Nên trong lượt này đường cứu là **broker**,
+không phải hàm của tôi. Phần "đánh thức rồi đẩy được việc" chỉ có **4 unit test** đứng sau, chưa có
+bằng chứng live; muốn kiểm nó cần dựng đúng cảnh 0 job đang chạy + còn mục `pending`.
+
+`0 mục mẻ -> failed` cũng là **hành vi đúng**, không phải lỗi: trang 2 có **hai** job detect cách
+nhau 1,5 giây (đúng race trùng ở §5 mà tôi cố ý không sửa) — mục mẻ trỏ vào job của **mẻ**, còn job
+bị giết là job do **upload** sinh. Điều kiện "mục `running` mà job đã kết thúc" vì thế không nổ, và
+không được nổ.
+
+### 4c.4 Giới hạn còn lại — mẻ KHÔNG tự chạy tiếp sau sự cố (ĐÃ SỬA ở §4c.5)
 
 Giải phóng chỗ chạy **chưa đủ**: `dispatch_next` chỉ được gọi khi một trang tới trạng thái cuối,
 mà lúc này không còn job nào chạy nên **không có gì kích hoạt nó**. Đo thật: sau lượt quét, 5 phút

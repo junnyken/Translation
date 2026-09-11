@@ -114,6 +114,48 @@ class BatchOrchestrator:
         self.dispatch_next(me_id)
         return me_id
 
+    # ---------------- đánh thức sau sự cố ----------------
+    def danh_thuc_me_dang_do(self) -> int:
+        """Đẩy tiếp các mẻ còn dở sau khi worker khởi động lại. Trả số mẻ đã đánh thức.
+
+        ## Vì sao cần
+
+        Đo thật **hai lần** ở E23 (2026-09-10): sau khi worker bị giết và bật lại, quét job mồ côi
+        dọn đúng phần của nó, nhưng mẻ vẫn **đứng im** — không job nào trong hàng đợi, các mục
+        `pending` không bao giờ tới lượt. Vì `dispatch_next` chỉ được gọi khi một trang tới trạng
+        thái cuối, mà lúc đó **không còn trang nào đang chạy để mà kết thúc**. Người dùng phải tự
+        bấm "Chạy lại" (đo được: `resumed_count: 2`, rồi lần sau `resumed_count: 1`).
+
+        ## Ranh giới quan trọng: KHÁC hẳn "tự chạy lại"
+
+        Hàm này chỉ đẩy các mục đang `pending` — tức **những trang CHƯA từng chạy**. Job vừa làm
+        chết worker đã bị `don_job_mo_coi` đánh `failed` (không phải `pending`), nên nó **không**
+        được xếp lại. Nguyên tắc "Không tự chạy lại" ở đầu `workers/hoi_phuc.py` — *tự chạy lại một
+        job vừa làm chết worker vì hết bộ nhớ là cách nhanh nhất để giết nó lần nữa* — vẫn nguyên
+        vẹn. Quyết định chạy lại trang HỎNG vẫn thuộc về người dùng.
+
+        Vì thế cũng không có vòng lặp: mỗi trang được thử đúng một lần cho mỗi lần worker sống lại;
+        trang nào giết worker thì lần sau đã nằm ở `failed` và bị bỏ qua.
+        """
+        with sync_session() as session:
+            me_ids = list(session.scalars(
+                select(BatchRun.id)
+                .join(BatchItem, BatchItem.batch_run_id == BatchRun.id)
+                .where(
+                    BatchRun.status.in_((BatchStatus.queued, BatchStatus.running)),
+                    BatchItem.status == BatchItemStatus.pending,
+                )
+                .distinct()
+            ))
+        for me_id in me_ids:
+            try:
+                so = self.dispatch_next(me_id)
+                logger.info("đánh thức mẻ %s sau khi worker khởi động lại: đẩy %d việc", me_id, so)
+            except Exception:  # noqa: BLE001
+                # Một mẻ hỏng KHÔNG được chặn các mẻ còn lại, và càng không được chặn worker.
+                logger.exception("không đánh thức được mẻ %s", me_id)
+        return len(me_ids)
+
     # ---------------- đẩy việc ----------------
     def dispatch_next(self, batch_run_id: uuid.UUID, _con_lai: int = 50) -> int:
         """Đẩy thêm việc cho tới khi chạm giới hạn số trang chạy song song. Trả số việc vừa đẩy.

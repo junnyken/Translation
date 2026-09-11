@@ -63,3 +63,23 @@ def _don_job_mo_coi_luc_khoi_dong(**_):
         import logging
 
         logging.getLogger(__name__).exception("dọn job mồ côi lỗi — bỏ qua, worker vẫn nhận việc")
+
+    # E23 — dọn xong CHƯA đủ: mẻ vẫn đứng im. `dispatch_next` chỉ chạy khi một trang tới trạng
+    # thái cuối, mà sau sự cố thì không còn trang nào đang chạy để mà kết thúc. Đo được hai lần:
+    # mẻ nằm im với các mục `pending` cho tới khi người dùng tự bấm "Chạy lại".
+    #
+    # PHẢI chạy SAU lượt quét: quét mới là thứ đưa mục mẻ mồ côi từ `running` về `failed`, giải
+    # phóng chỗ chạy. Gọi trước thì `dispatch_next` thấy chỗ vẫn bị chiếm và không đẩy được gì.
+    #
+    # Chỉ đẩy mục `pending` (trang CHƯA từng chạy) — job vừa giết worker đã nằm ở `failed` nên
+    # KHÔNG bị xếp lại. Nguyên tắc "Không tự chạy lại" của `hoi_phuc.py` vẫn nguyên vẹn.
+    if not settings.batch_enabled or not settings.batch_danh_thuc_khi_worker_khoi_dong:
+        return
+    try:
+        from app.services.batch.factory import tao_dieu_phoi
+
+        tao_dieu_phoi(settings).danh_thuc_me_dang_do()
+    except Exception:  # noqa: BLE001
+        import logging
+
+        logging.getLogger(__name__).exception("đánh thức mẻ lỗi — bỏ qua, worker vẫn nhận việc")

@@ -54,6 +54,14 @@ class Settings(BaseSettings):
     #: container), nên không có worker thứ hai để giết nhầm. Ngày nào chạy nhiều worker thì
     #: **phải tắt cờ này trước**, rồi mới đổi sang cơ chế job-có-chủ (id worker + nhịp tim).
     worker_sweep_orphan_jobs_on_start: bool = True
+    #: E23 — sau khi quét job mồ côi, đẩy tiếp các mẻ còn dở. Dọn xong CHƯA đủ: `dispatch_next`
+    #: chỉ chạy khi một trang tới trạng thái cuối, mà sau sự cố thì không còn trang nào đang chạy
+    #: để mà kết thúc ⇒ mẻ nằm im với các mục `pending` cho tới khi người dùng tự bấm "Chạy lại"
+    #: (đo được hai lần trong lượt 24 trang).
+    #:
+    #: Chỉ đẩy mục `pending` — trang CHƯA từng chạy. Job vừa giết worker đã bị quét đánh `failed`
+    #: nên KHÔNG bị xếp lại; quyết định chạy lại trang HỎNG vẫn thuộc về người dùng.
+    batch_danh_thuc_khi_worker_khoi_dong: bool = True
     #: P3m — worker ghi RSS của CHÍNH NÓ ra đây để `/healthz` đọc được từ ngoài.
     #: Không dùng chung tệp trạng thái của `deploy-start.sh`: tệp đó do shell ghi, worker ghi đè
     #: vào sẽ đá nhau. Hai người ghi một tệp là cách chắc chắn để mất dữ liệu của cả hai.

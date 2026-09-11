@@ -4219,3 +4219,54 @@ memory.max   10 GiB      =>  chỗ thật còn ≈ 3,9 GiB   vs   đỉnh pipeli
 
 Biên ~200MB, bộ nhớ phía IDE dao động liên tục — chính là lý do lượt trước bị giết 3 lần. Cần host
 có ≥6 GiB trống mới đo sạch được.
+
+## Bổ sung E23 (5) — mẻ tự chạy tiếp sau sự cố, và HAI lỗi phương pháp thử của tôi
+
+Mục cuối của E23 ("mẻ không tự chạy tiếp, phải bấm Chạy lại") nay đã sửa.
+`danh_thuc_me_dang_do()` chạy ở `worker_ready`, **sau** lượt quét mồ côi (thứ tự bắt buộc: quét mới
+là thứ giải phóng chỗ chạy).
+
+**Ranh giới giữ nguyên:** chỉ đẩy mục `pending` — trang CHƯA từng chạy. Job vừa giết worker nằm ở
+`failed` nên không bị xếp lại; nguyên tắc "Không tự chạy lại" của `hoi_phuc.py` nguyên vẹn.
+`test_KHONG_xep_lai_muc_da_HONG` chốt ranh giới.
+
+### HAI lỗi phương pháp thử — cùng một bài học
+
+1. **`docker kill` KHÔNG kích hoạt restart policy.** Tôi dùng nó rồi kết luận
+   `restart: unless-stopped` hỏng (`Exited (137)`, không bật lại). Sai: Docker coi đó là người
+   dùng chủ động dừng. Log tôi tưởng "sau cú giết" thật ra là của lần khởi động trước.
+2. **`kill -9 1` từ BÊN TRONG container bị kernel bỏ qua.** PID 1 của một PID namespace được bảo
+   vệ khỏi tín hiệu do chính tiến trình trong namespace đó gửi.
+
+**Mô phỏng đúng OOM killer** là giết từ NGOÀI namespace:
+`kill -9 $(docker inspect <ct> --format '{{.State.Pid}}')`
+
+Bài học chung: *mô phỏng một chế độ hỏng mà không kiểm rằng mình đã thật sự gây ra nó thì phép thử
+đo một thứ khác.* Cả hai lần đầu đều "chạy xong" và đều cho kết luận sai.
+
+### Kết quả với cách đúng (mẻ 3 trang, giết giữa lúc trang 2 chạy)
+
+```
+RestartCount 0 -> 1                                       <- Docker TỰ bật lại
+dọn job mồ côi (ĐÃ SỬA): 1 job -> failed, 1 trang lùi…, 0 mục mẻ -> failed
+đánh thức mẻ ad0d389f… sau khi worker khởi động lại: đẩy 0 việc
+Task detect.run_detect_job[81fd54dd…] received
+```
+
+Mẻ **tự về đích, không một thao tác tay nào**: trang 1 `typeset_done`/`completed`, trang 2 (trang
+bị giết) `typeset_done`/`skipped`, trang 3 chạy tiếp.
+
+### Nhưng phần nào THẬT SỰ được kiểm live
+
+Hàm đánh thức đẩy **0 việc** — chỗ chạy duy nhất (`batch_max_concurrent_pages=1`) đã bị chiếm bởi
+job mà **broker giao lại** (`acks_late` + pool solo, đúng như tài liệu). Nên lượt này đường cứu là
+**broker**, không phải hàm của tôi. Phần "đánh thức rồi đẩy được việc" chỉ có **4 unit test** đứng
+sau; muốn kiểm live cần dựng cảnh 0 job đang chạy + còn mục `pending`.
+
+`0 mục mẻ -> failed` cũng ĐÚNG, không phải lỗi: trang 2 có **hai** job detect cách nhau 1,5 giây
+(race trùng ở §5, cố ý không sửa) — mục mẻ trỏ vào job của MẺ, còn job bị giết là của UPLOAD.
+
+```
+$ pytest tests/test_batch_integration.py -q    45 passed
+$ pytest -q -p no:randomly                     1248 đạt · 6 bỏ qua · 0 ĐỎ
+```
