@@ -4270,3 +4270,62 @@ sau; muốn kiểm live cần dựng cảnh 0 job đang chạy + còn mục `pen
 $ pytest tests/test_batch_integration.py -q    45 passed
 $ pytest -q -p no:randomly                     1248 đạt · 6 bỏ qua · 0 ĐỎ
 ```
+
+# ========== E23 + E24 LIVE — deploy production (2026-09-11) ==========
+
+Thứ tự deploy: **frontend trước, backend sau** — đúng ràng buộc đã tự sửa ở `REPORT_E21b §11.1`
+(FE mới chịu được BE cũ; FE cũ + BE mới là tổ hợp vỡ).
+
+```
+translation-web  v33 -> v34   deploy succeeded, 11/11 chặng
+translation-api  v58 -> v59   deploy succeeded, 11/11 chặng
+```
+
+## Bằng chứng code MỚI thật sự đang chạy (không tin "deploy succeeded")
+
+**Commit được build** — lấy từ log build của cả hai project:
+
+```
+[Source] nạp source (git_url) @ 44fcb854      (khớp HEAD local 44fcb85)
+```
+
+**Bundle frontend đã đổi** (kiểm bằng `Cache-Control: no-cache`, đúng cách đã dùng để phân biệt
+cache trình duyệt với deploy hỏng ở E21b §11.3):
+
+| | Bundle |
+|---|---|
+| E21b (trước) | `index-L--Qw3pV.js` |
+| nay | `index-0VIGJVIg.js` |
+
+**Và code E23/E24 có mặt TRONG bundle đó** — tải thẳng bundle production rồi tìm chuỗi:
+
+```
+✓ "Có bản mới của giao diện"        (E24 banner)
+✓ "Tải lại ngay"                    (E24 nút)
+✓ "no-store"                        (E24 — thiếu nó là cơ chế tự vô hiệu hoá)
+✓ "hết mọi bước"                    (E23 ô đếm mẻ)
+✓ "đứng ở 0 gần hết lượt chạy"      (E23 chú thích)
+```
+
+**Backend sống và quét mồ côi đã chạy:**
+
+```
+/healthz            -> 200 · status ok · RSS API 88,8 MB
+GET /api/v1/projects -> 401  (cổng auth hoạt động)
+runtime log 06:21:57 -> celery@ecb525562575 ready.
+runtime log 06:21:57 -> dọn job mồ côi: không có gì để dọn
+```
+
+## Một chỗ dễ đọc sai trong /healthz, không phải sự cố
+
+`worker: "starting"` **không bao giờ đổi thành "running"** với `ROLE=all`. Đọc
+`deploy-start.sh:74` thấy rõ: nhánh `all` ghi `starting` đúng một lần rồi vào vòng `while true`;
+chỉ có nhánh `ROLE=worker` mới ghi `running`. Nên `starting` + `số lần chết 0` CHÍNH LÀ trạng thái
+khoẻ bình thường của production. Bằng chứng sống thật là dòng `celery@… ready` ở trên.
+
+`rss_mb: null` cũng bình thường khi chưa có job nào chạy — worker tự ghi RSS ở mỗi mốc job.
+
+## Nợ tài liệu đã trả
+
+`FEATURES.md`: E22 `BUILT` → `LIVE` (đã deploy từ 09-10 mà bảng chưa cập nhật), và thêm hai dòng
+E23, E24 — trước đó không có dòng nào.

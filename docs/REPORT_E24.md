@@ -2,7 +2,8 @@
 
 **Project:** Translation · **Phase:** E — Hosted Reliability & Performance
 **Ngày:** 2026-09-10 · **Nền:** `faec936` (sau E25 đóng)
-**Trạng thái:** code + test xong · **live-verified ĐẠT** (§6) · **CHƯA deploy**
+**Trạng thái:** **LIVE** (deploy 2026-09-11, web v33→34 rồi api v58→59, build từ commit `44fcb854`)
+· code + test xong · **live-verified ĐẠT** (§6)
 
 ## 1. Summary
 

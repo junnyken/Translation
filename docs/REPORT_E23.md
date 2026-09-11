@@ -2,7 +2,8 @@
 
 **Project:** Translation · **Phase:** E — Hosted Reliability & Performance
 **Ngày:** 2026-09-10 · **Nền:** `faec936` (sau E25 đóng)
-**Trạng thái:** **7 bản sửa** đã làm và kiểm live · lượt 24 trang **ĐÃ XONG 24/24** · 1 bản sửa **bị bác bỏ có lý do** · 1 "lỗi" hoá
+**Trạng thái:** **LIVE** (deploy 2026-09-11, web v33→34 rồi api v58→59, build từ commit `44fcb854`)
+· **7 bản sửa** đã làm và kiểm live · lượt 24 trang **ĐÃ XONG 24/24** · 1 bản sửa **bị bác bỏ có lý do** · 1 "lỗi" hoá
 ra **không phải lỗi production**
 
 ## 1. Summary
