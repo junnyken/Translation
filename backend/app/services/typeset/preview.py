@@ -12,6 +12,8 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
+from app.services.typeset.xoay import goc_pil, nen_xoay
+
 from app.services.interfaces import BBox
 from app.services.typeset.fonts import FontResolver
 from app.services.typeset.paths import preview_relative_path
@@ -35,6 +37,9 @@ class RegionDraw:
     #: Có thì chữ được căn giữa trong ô NÀY và cũng bị cắt gọn trong nó; không có thì giữ nguyên
     #: hành vi M6 (bbox trừ padding). Một đường vẽ duy nhất cho cả xem thử lẫn xuất file.
     place_rect: tuple[float, float, float, float] | None = None
+    #: E16: hướng-đường [0,180) từ `RegionTextOrientation.rotation_degrees`. **KHÔNG** phải góc
+    #: xoay — xem `typeset/xoay.py`. `None` hoặc gần nằm ngang thì vẽ y như trước.
+    rotation_degrees: float | None = None
 
 
 class PagePreviewRenderer:
@@ -110,12 +115,19 @@ class PagePreviewRenderer:
             o_rong = max(int(round(cat_w)), 1)
             o_cao = max(int(round(cat_h)), 1)
             o = Image.new("RGBA", (o_rong, o_cao), (0, 0, 0, 0))
-            ImageDraw.Draw(o).multiline_text(
-                (x - cat_x, y - cat_y),
-                region.wrapped_text, font=font, fill=self.text_color,
-                spacing=spacing, align="center",
-                stroke_width=self.stroke_width, stroke_fill=self.stroke_color,
-            )
+            if nen_xoay(region.rotation_degrees):
+                # E16 — chữ nghiêng. Vẽ vào lớp RIÊNG rồi xoay, xong dán vào chính ô cắt ở trên,
+                # nên bất biến "chữ không thoát khỏi khung của nó" vẫn giữ nguyên.
+                self._ve_xoay(
+                    o, region, font, spacing, (o_rong, o_cao), (khoi_rong, khoi_cao), (left, top),
+                )
+            else:
+                ImageDraw.Draw(o).multiline_text(
+                    (x - cat_x, y - cat_y),
+                    region.wrapped_text, font=font, fill=self.text_color,
+                    spacing=spacing, align="center",
+                    stroke_width=self.stroke_width, stroke_fill=self.stroke_color,
+                )
             canvas.paste(o, (int(round(cat_x)), int(round(cat_y))), o)
             if region.overflow and self.mark_overflow:
                 # Vùng tràn phải NHÌN THẤY được trên preview, không để chữ đẹp che mất cảnh báo.
@@ -126,6 +138,57 @@ class PagePreviewRenderer:
                 )
 
         return canvas
+
+    def _ve_xoay(self, o, region, font, spacing, o_size, khoi, offset) -> None:
+        """E16 — vẽ chữ nghiêng vào ô `o` (đã đúng cỡ ô cắt), không để tràn ra ngoài.
+
+        Vì sao phải THU NHỎ cỡ chữ: hộp bao của chữ sau khi xoay LỚN HƠN chữ ngang —
+        `w·|cosθ| + h·|sinθ|` theo chiều ngang. Cỡ chữ đã được bộ fit tính cho khung ngang, nên
+        xoay nguyên cỡ đó là bị ô cắt gọt mất góc. Thu nhỏ theo đúng tỉ lệ hình học thì chữ nghiêng
+        mà vẫn nằm gọn.
+
+        Thu nhỏ bằng cách **vẽ lại ở cỡ font nhỏ hơn**, KHÔNG phải co ảnh bitmap — co bitmap làm
+        nét chữ nhoè, mà đây là bước cuối cùng người dùng nhìn thấy.
+        """
+        import math
+
+        o_rong, o_cao = o_size
+        khoi_rong, khoi_cao = khoi
+        goc = goc_pil(region.rotation_degrees)
+        rad = math.radians(goc)
+        c, sn = abs(math.cos(rad)), abs(math.sin(rad))
+
+        # Hộp bao sau khi xoay, tính từ khối chữ hiện tại.
+        bao_rong = khoi_rong * c + khoi_cao * sn
+        bao_cao = khoi_rong * sn + khoi_cao * c
+        ti_le = min(1.0, o_rong / max(bao_rong, 1e-6), o_cao / max(bao_cao, 1e-6))
+
+        ve_font, ve_spacing = font, spacing
+        if ti_le < 1.0 and region.font_size:
+            co_moi = max(1, int(region.font_size * ti_le))
+            ve_font = self.font_resolver.resolve(region.font_family, co_moi)
+            ve_spacing = int(round(co_moi * self.line_spacing_ratio))
+
+        # Đo lại ở cỡ thật sẽ vẽ, rồi dựng lớp vừa khít khối chữ.
+        l2, t2, r2, b2 = ImageDraw.Draw(Image.new("L", (1, 1))).multiline_textbbox(
+            (0, 0), region.wrapped_text, font=ve_font, spacing=ve_spacing,
+            stroke_width=self.stroke_width, align="center",
+        )
+        lop_rong, lop_cao = max(int(round(r2 - l2)), 1), max(int(round(b2 - t2)), 1)
+        lop = Image.new("RGBA", (lop_rong, lop_cao), (0, 0, 0, 0))
+        ImageDraw.Draw(lop).multiline_text(
+            (-l2, -t2), region.wrapped_text, font=ve_font, fill=self.text_color,
+            spacing=ve_spacing, align="center",
+            stroke_width=self.stroke_width, stroke_fill=self.stroke_color,
+        )
+
+        # `expand=True` để không tự cắt góc lúc xoay; BICUBIC cho mép chữ đỡ răng cưa.
+        da_xoay = lop.rotate(goc, resample=Image.Resampling.BICUBIC, expand=True)
+        dan_x = int(round((o_rong - da_xoay.width) / 2))
+        dan_y = int(round((o_cao - da_xoay.height) / 2))
+        o.alpha_composite(da_xoay, (max(dan_x, 0), max(dan_y, 0))) if (
+            dan_x >= 0 and dan_y >= 0
+        ) else o.paste(da_xoay, (dan_x, dan_y), da_xoay)
 
     def render(self, clean_image_path: str, regions: list[RegionDraw], target_path: str) -> str:
         """Vẽ rồi ghi ra file. Trả đường dẫn tuyệt đối đã ghi.

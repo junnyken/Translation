@@ -4329,3 +4329,80 @@ khoẻ bình thường của production. Bằng chứng sống thật là dòng 
 
 `FEATURES.md`: E22 `BUILT` → `LIVE` (đã deploy từ 09-10 mà bảng chưa cập nhật), và thêm hai dòng
 E23, E24 — trước đó không có dòng nào.
+
+# ========== E16 — đặt chữ nghiêng (2026-09-11) ==========
+
+```
+$ pytest tests/test_e16_xoay_chu_unit.py -q      37 passed
+$ pytest tests/test_e16_ve_chu_xoay_unit.py -q   20 passed
+$ pytest -q -p no:randomly                     1325 đạt · 6 bỏ qua · 0 ĐỎ
+$ cd frontend && npm test -- --run              361 đạt
+```
+
+## Cổng chặn của E15 đã mở — nhưng chỉ một nửa
+
+`REPORT_E15 §11.4` chặn E16 vì Run C có **0 mẫu nghiêng** ("pass RỖNG"). Lượt 24 trang của E23 cho
+**11 mẫu thật**, nên nửa nghiêng kiểm được. Nửa dọc thì không: chặn nằm ở hợp đồng OCR
+(`MangaOCREngine.recognize()` trả `(text, None)`, không có `recognize_with_layout`), và 3 mẫu
+`vertical_ttb` hiện có đều là **dương tính giả** — `?!` (36×45), `?!` (37×48), `SXXX` (37×76), gắn
+cờ vì tỉ lệ khung chứ không vì chữ dọc thật.
+
+## Hai chỗ có thể sai âm thầm, cả hai đều ĐO
+
+**1. `rotation_degrees` KHÔNG phải góc xoay.** Nó là hướng cạnh dài quy về [0,180) — một đường
+**vô hướng**. 8/11 góc thật nằm 149-167°, xoay thẳng theo là chữ **gần như lộn ngược**. Quy về
+(−90,90] thì không bao giờ lộn.
+
+**2. Chiều xoay ngược dấu.** Đo bằng cách xoay ảnh một góc biết trước rồi cho `chuan_hoa_goc` đo
+lại:
+
+```
+ảnh +15° -> chuan_hoa_goc 165.0° -> goc_xoay_chu -15.0°
+ảnh -15° -> chuan_hoa_goc  15.0° -> goc_xoay_chu +15.0°
+ảnh +40° -> chuan_hoa_goc 140.0° -> goc_xoay_chu -40.0°
+ảnh -40° -> chuan_hoa_goc  40.0° -> goc_xoay_chu +40.0°
+```
+
+⇒ góc cho PIL = **−goc_xoay_chu**. Có test vòng kín qua cv2.
+
+## Ngưỡng của tôi sai, và test guard ĐÃ CHE MẤT
+
+Tôi đặt `NGUONG_XOAY_DO = 8.0` trong khi E15 dùng `e15_angle_tolerance_deg = 12.0` ⇒ cửa sổ 8-12°
+mà E15 gọi là NGANG nhưng E16 lại xoay. Test chéo lẽ ra bắt được, nhưng nó tra
+`orientation_horizontal_tolerance_deg` — **một tên không tồn tại** — nên `getattr` trả None và test
+tự `skip`. **Một guard bị skip là một guard không canh gì.** Đã sửa cả hai.
+
+## Live verification — phải so với NÉT VẼ GỐC
+
+Trang thật `0d47b661` (14 vùng, 3 nghiêng). Pixel đổi đúng ở ba vùng đó và chỉ ở đó (2585 / 2724 /
+1921; tổng cả trang 6918).
+
+**Nhưng con số không đủ.** Ảnh clean đã xoá chữ nên không còn gì để so chiều xoay — phải lấy **ảnh
+GỐC** nơi chữ SFX còn nguyên:
+
+| Góc | Chữ gốc | E16 vẽ ra |
+|---|---|---|
+| 126,9° | `Clang` chúc mạnh xuống phải | `KÊU VANG` chúc xuống phải — khớp |
+| 162,2° | `Cling` nghiêng nhẹ | `BÁM VÀO` nghiêng nhẹ cùng chiều |
+| 166,0° | `Clong` gần ngang | `TIẾNG KÊU` gần ngang |
+
+3/3 khớp nét vẽ. Đoán dấu thì cả ba nghiêng ngược.
+
+## Một lỗi đo của tôi
+
+Lượt kiểm đầu tôi đo góc mực từng vùng, ra **giống hệt nhau** giữa có-xoay và không-xoay (90,0° vs
+90,0°), và suýt kết luận "chưa xoay gì". Phép đo đó vô dụng ở đây: vùng nhỏ (85×97) và chữ là khối
+2 dòng gần **vuông** (`Bám\nvào`) nên `minAreaRect` cho góc vô nghĩa. Với tính năng THỊ GIÁC thì
+đếm pixel khác + xem ảnh mới là phép đúng.
+
+## Chưa làm
+
+- **Nửa dọc**: không sửa được bằng code trong phạm vi E16; cần `recognize_with_layout` cho
+  `MangaOCREngine` (đổi hợp đồng OCR).
+- **Chiều đọc trên/dưới không có trong dữ liệu**: quy ước "gần nằm ngang nhất" sẽ sai với chữ thật
+  sự đọc ngược. Cần lưu đa giác dòng chữ **có thứ tự** từ OCR.
+- **Chưa có mẫu thoại nghiêng nào** — cả 11 mẫu đều là SFX hoặc bảng chữ.
+- **Chưa deploy**: đây là thay đổi NHÌN THẤY ĐƯỢC ở đầu ra cuối, nên cần một lượt kiểm trên
+  production trước.
+- Chữ nghiêng nhỏ hơn chữ ngang (hộp bao sau khi xoay lớn hơn, phải thu nhỏ cho khỏi bị gọt) —
+  đánh đổi có chủ đích, không phải lỗi.

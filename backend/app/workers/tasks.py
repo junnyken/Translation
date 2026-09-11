@@ -1308,12 +1308,15 @@ def render_page_preview(page_id: uuid.UUID, resolver=None) -> str:
                 .order_by(TextRegion.reading_order.nulls_last(), TextRegion.created_at)
             ).all()
         )
+        from app.services.orientation.apply import nap_goc_nghieng
         from app.services.safearea.apply import nap_o_dat_chu
         from app.services.storage import get_storage as _lay_kho
 
-        o_dat = nap_o_dat_chu(
-            session, [r.id for r, _ts in rows], van_tay_hien_vat(_lay_kho(), clean_rel)
-        )
+        ids = [r.id for r, _ts in rows]
+        o_dat = nap_o_dat_chu(session, ids, van_tay_hien_vat(_lay_kho(), clean_rel))
+        # E16 — góc nghiêng. Tắt cờ thì dict rỗng ⇒ `RegionDraw.rotation_degrees` là None ⇒ vẽ y
+        # như trước, không có nhánh nào đổi hành vi.
+        goc = nap_goc_nghieng(session, ids) if settings.e16_xoay_chu_nghieng else {}
         ve = [
             RegionDraw(
                 bbox=BBox(x=r.bbox_x, y=r.bbox_y, w=r.bbox_w, h=r.bbox_h),
@@ -1323,6 +1326,7 @@ def render_page_preview(page_id: uuid.UUID, resolver=None) -> str:
                 padding_ratio=ts.padding_ratio if ts.padding_ratio is not None else settings.typeset_padding_ratio,
                 overflow=ts.fit_status is FitStatus.overflow_warning,
                 place_rect=o_dat.get(r.id),
+                rotation_degrees=goc.get(r.id),
             )
             for r, ts in rows
         ]

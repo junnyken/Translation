@@ -251,6 +251,18 @@ class Settings(BaseSettings):
     e15_orientation_enabled: bool = True
     #: Lệch bao nhiêu độ so với 0/90 thì vẫn coi là ngang/dọc.
     e15_angle_tolerance_deg: float = 12.0
+    #: E16 — xoay chữ theo góc nghiêng đã đo, cho các vùng `rotated_horizontal`.
+    #:
+    #: E15 cố ý KHÔNG xoay ("v1 chỉ điều hướng rà soát"), vì lúc đó Run C có **0 mẫu nghiêng** nên
+    #: không có gì để kiểm. Lượt 24 trang của E23 cho **11 mẫu thật** (toàn SFX: Clang, CRACK!!,
+    #: Shklak!, PHRoooOwwoww!!!), nên nay kiểm được.
+    #:
+    #: Hai chỗ đã ĐO để không sai âm thầm: `rotation_degrees` là hướng-đường [0,180) vô hướng nên
+    #: phải quy về (-90,90] (8/11 góc thật nằm 149-167°, xoay thẳng là chữ lộn ngược); và chiều
+    #: xoay của PIL ngược dấu với con số đó (đo bằng vòng kín qua cv2). Xem `typeset/xoay.py`.
+    #:
+    #: Tắt cờ này thì bước căn chữ vẽ y như trước — không có nhánh nào đổi hành vi.
+    e16_xoay_chu_nghieng: bool = True
     e15_min_agreement_ratio: float = 0.75
     #: Dựng chữ Việt theo cột. Mặc định TẮT và **phải giữ TẮT** cho tới khi chạy được Run B
     #: trên ảnh chữ dọc có license rõ. Nhận ra hướng ≠ dựng được chữ theo hướng đó.
