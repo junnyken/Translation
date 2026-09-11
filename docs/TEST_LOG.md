@@ -4166,3 +4166,56 @@ $ pytest -q -p no:randomly                           1244 đạt · 6 bỏ qua �
   tự, nên không có ca dương tính thật để kiểm. Chỉ có unit test.
 - Bằng chứng mới vào log + kết quả job, **chưa vào CSDL** ⇒ giao diện vẫn chưa chỉ được vùng nào
   cần soi. Nối vào `RegionQualityAssessment` (E12) là slice riêng.
+
+## Bổ sung E23 (4) — câu hỏi KHỞI ĐẦU đã trả lời được, không cần chạy lại
+
+Thời gian **tường** của lượt 24 trang không dùng được (3 cú OOM kill + bão thử lại), nhưng thời
+gian **máy làm việc** nằm sẵn trong bảng `job`.
+
+### Phải lọc bão thử lại trước — và nó định lượng cái giá của các lỗi đã sửa
+
+| Bước | 1 lần | 2 lần | 3-4 lần | 8 lần | 16 lần |
+|---|---|---|---|---|---|
+| detect | 23 | 1 | | | |
+| ocr | 21 | 3 | | | |
+| inpaint | 21 | 1 | 2 | | |
+| translate | 20 | 2 | | 2 | |
+| typeset | 9 | 11 | 3 | | **1** |
+
+Tổng gộp 75,7 phút, phần lớn là làm lại vô ích.
+
+### Và phải dùng TRUNG VỊ
+
+Lọc còn trang chạy đúng một lần rồi tính trung bình vẫn lệch: `ocr` có một job **595,7 giây** trong
+khi min là **3,0 giây** — ngoại lệ đó kéo trung bình từ 13,9 lên 60,6.
+
+| Bước | Trung vị | p90 | E25 (6 trang) |
+|---|---|---|---|
+| inpaint | 44,2s | 96,0s | 50,7s |
+| detect | 41,7s | 51,8s | 61,7s |
+| ocr | 13,9s | 37,6s | 14,7s |
+| dịch | 4,6s | 8,5s | 4,2s |
+| căn chữ | 2,9s | 4,1s | 2,7s |
+| **tổng/trang** | **107,3s** | **198,0s** | 134,0s |
+
+### Kết quả
+
+```
+107,3s × 24 = 42,9 phút (local)  ×1,25 (hệ số production)  =>  53,6 phút
+E25 ngoại suy độc lập từ 6 trang  =>  53,6 phút
+```
+
+Hai phép đo khác nhau, hai bộ dữ liệu khác nhau, **cùng một con số**. 54 phút đứng vững.
+
+Nhưng p90 ⇒ 198s/trang ⇒ ~79 phút local ⇒ **~99 phút production**. 54 phút là TRUNG VỊ, không phải
+bảo đảm. Hứa "khoảng một tiếng" thì đúng; hứa "54 phút" là hứa quá.
+
+### Vì sao KHÔNG chạy lại một lượt sạch (đo, không phỏng đoán)
+
+```
+memory.stat  anon 6,07 GiB (không thu hồi được) · file/cache 2,40 GiB
+memory.max   10 GiB      =>  chỗ thật còn ≈ 3,9 GiB   vs   đỉnh pipeline 3,71 GB
+```
+
+Biên ~200MB, bộ nhớ phía IDE dao động liên tục — chính là lý do lượt trước bị giết 3 lần. Cần host
+có ≥6 GiB trống mới đo sạch được.

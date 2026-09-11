@@ -27,6 +27,7 @@ và E22 dưới một lượt dài thật.
 | Cờ `inpaint_needs_review` bật 29% số trang, **cả 11 vùng chỉ 1 ký tự** ⇒ báo động giả | **LỖI THẬT, đã sửa** — §4e |
 | 25 job detect cho 24 trang | Lỗi thật nhưng **KHÔNG sửa** — cân không đáng, §5 |
 | Mẻ không tự chạy tiếp sau sự cố (phải bấm "Chạy lại") | Giới hạn còn lại, có đường thoát — §4c.4 |
+| **Câu hỏi khởi đầu: 24 trang ≈ 54 phút?** | **ĐÚNG** — trung vị 107,3s/trang × 24 × 1,25 = 53,6 phút, khớp E25. Nhưng p90 ⇒ ~99 phút. §4f |
 | **RSS đỉnh 3604MB = 91% ngân sách production** | Số quan trọng nhất; lật lại quyết định giữ 4096MB ở E25. §6 |
 
 ## 2. Bàn thử — và một chỗ không dựng được
@@ -543,6 +544,77 @@ Hiệu quả trên chính dữ liệu đã đo: **11/11 vùng oan bị lọc ⇒
   cần soi**. Nối vào lớp đánh giá `RegionQualityAssessment` (E12) là slice riêng: nó cần quyết định
   bước xoá chữ có được ghi vào lớp giải thích của E12 hay không.
 
+## 4f. Câu hỏi KHỞI ĐẦU của E23, nay đã trả lời được
+
+`REPORT_E25 §6` ghi "24 trang ≈ 54 phút" là ngoại suy tuyến tính từ 6 trang. E23 sinh ra để kiểm
+con số đó, nhưng §10 phải ghi "thời gian của lượt này **không dùng được**" vì có 3 cú OOM kill,
+nhiều lần bấm resume, và các quãng mẻ đứng im.
+
+**Thời gian TƯỜNG thì hỏng, nhưng thời gian MÁY LÀM VIỆC nằm sẵn trong bảng `job`.**
+
+### 4f.1 Phải lọc bão thử lại trước
+
+Đếm số lần mỗi trang chạy mỗi bước cho thấy tổng gộp bị thổi phồng — và nó định lượng luôn cái giá
+của chính các lỗi đã sửa ở §4b-4e:
+
+| Bước | 1 lần | 2 lần | 3-4 lần | 8 lần | 16 lần |
+|---|---|---|---|---|---|
+| detect | 23 | 1 | | | |
+| ocr | 21 | 3 | | | |
+| inpaint | 21 | 1 | 2 | | |
+| translate | 20 | 2 | | 2 | |
+| typeset | 9 | 11 | 3 | | **1** |
+
+Một trang chạy typeset **16 lần** (đúng trang thiếu `_clean.png`, §4b), hai trang translate 8 lần,
+hai trang inpaint 4 lần (§4d). Tổng gộp thời gian job: **75,7 phút** — trong đó phần lớn là làm
+lại vô ích.
+
+### 4f.2 Và phải dùng TRUNG VỊ, không dùng trung bình
+
+Lọc còn các trang chạy **đúng một lần** mỗi bước rồi tính trung bình vẫn lệch: bước `ocr` có một
+job **595,7 giây** trong khi min là **3,0 giây**. Một ngoại lệ như vậy kéo trung bình từ 13,9 lên
+60,6. Dữ liệu lệch thế này thì trung vị mới là con số đại diện.
+
+| Bước | Trung vị | p90 | E25 (6 trang) |
+|---|---|---|---|
+| inpaint | 44,2s | 96,0s | 50,7s |
+| detect | 41,7s | 51,8s | 61,7s |
+| ocr | 13,9s | 37,6s | 14,7s |
+| dịch | 4,6s | 8,5s | 4,2s |
+| căn chữ | 2,9s | 4,1s | 2,7s |
+| **tổng/trang** | **107,3s** | **198,0s** | 134,0s |
+
+### 4f.3 Trả lời: ~54 phút là ĐÚNG, và đó là TRUNG VỊ chứ không phải bảo đảm
+
+```
+local  : 107,3s × 24 = 42,9 phút
+× 1,25 (hệ số production, §7: local nhanh hơn vì detect 36-41s so với 50,6s)
+production ≈ 53,6 phút
+```
+
+`REPORT_E25` ngoại suy độc lập từ 6 trang ra **53,6 phút**. Hai phép đo khác nhau, trên hai bộ dữ
+liệu khác nhau, ra cùng một con số. Con số 54 phút **đứng vững**.
+
+Nhưng phải nói thêm phần mà ngoại suy cũ không nói: **p90 cho 198s/trang ⇒ ~79 phút local ⇒ ~99
+phút production**. Tức 54 phút là trường hợp điển hình, còn một chapter nhiều trang nặng có thể
+gần **100 phút**. Hứa "khoảng một tiếng" là đúng; hứa "54 phút" là hứa quá.
+
+### 4f.4 Vì sao KHÔNG chạy lại một lượt sạch
+
+Bàn thử không đủ chỗ, và đo được chứ không phỏng đoán:
+
+```
+/sys/fs/cgroup/memory.stat   anon 6,07 GiB (không thu hồi được) · file/cache 2,40 GiB
+/sys/fs/cgroup/memory.max    10 GiB
+⇒ chỗ thật còn ≈ 3,9 GiB   vs   đỉnh pipeline 3,71 GB
+```
+
+Biên ~200MB, mà bộ nhớ phía IDE (pyrefly ~1,1GB, node ~1,1GB) dao động liên tục — đó chính là lý
+do lượt trước bị giết 3 lần. Chạy lại 50 phút để nhiều khả năng lấy thêm một con số hỏng nữa là
+đốt thời gian. Trả lời bằng dữ liệu đã có thì vừa rẻ hơn vừa không kém tin cậy hơn.
+
+Muốn một lượt sạch thì cần host có **≥6 GiB trống**, không phải bàn thử này.
+
 ## 5. Lỗi 7 — job detect trùng: ĐÃ THỬ SỬA HAI CÁCH, BÁC BỎ CẢ HAI
 
 **Hiện tượng:** 25 job detect cho 24 trang. Một trang (`0bc631f8`) chạy detect hai lần.
@@ -664,9 +736,12 @@ vẫn phải chạy đủ trước khi đóng E23.
 
 ## 10. Remaining Limits
 
-- **Lượt chạy chưa xong** khi viết. Chưa có tổng thời gian thật cho 24 trang, tức câu hỏi khởi
-  đầu ("54 phút là đúng không") **vẫn chưa trả lời được**. Và một trang kẹt `detecting` nghĩa là
-  tổng thời gian của lượt này **không dùng được** làm số tham chiếu.
+- ~~Câu hỏi khởi đầu chưa trả lời được~~ — **ĐÃ TRẢ LỜI ở §4f**: trung vị 107,3s/trang, ×24×1,25
+  = 53,6 phút trên production, khớp với ngoại suy độc lập của E25. Thời gian **tường** của lượt
+  chạy vẫn không dùng được (3 cú OOM kill + bão thử lại), nhưng thời gian **máy làm việc** thì lấy
+  được từ bảng `job`.
+- Chưa chạy được một lượt **sạch** để đo trực tiếp: bàn thử chỉ còn ~3,9 GiB trống (anon 6,07 GiB
+  trên trần 10 GiB) so với đỉnh pipeline 3,71 GB — biên ~200MB. Cần host có ≥6 GiB trống (§4f.4).
 - **Bản sửa pool chưa được kiểm live.** Khởi động lại worker để áp `--pool=solo` sẽ kích hoạt
   `worker_ready` và quét mồ côi — vừa áp bản sửa vừa chứng minh nó — nhưng làm giữa lượt chạy sẽ
   phá nốt phép đo. Để sau khi E23 dừng.
