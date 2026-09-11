@@ -154,51 +154,53 @@ def test_dilated_masks_khop_voi_mask_da_dung(tmp_path):
     assert boxes[0].h == pytest.approx(44.0)
 
 
-class TestNganSachBoNho:
+class TestTranOCat:
     """E23 — tự báo hỏng thay vì để hệ điều hành giết worker.
 
-    Đo thật (2026-09-10, lượt 24 trang): trang E13P07 1200x2144 = 2,57 Mpx có **11 vùng chữ trải
-    khắp trang** (hộp bao chung 1039x2077 = 84% diện tích). Cơ chế gộp ô chồng nhau thu 11 vùng
-    thành **ĐÚNG MỘT cụm** cỡ gần cả trang ⇒ chạy theo cụm tiết kiệm **bằng 0**, vẫn cần ~4 GB, và
-    worker bị giết **4/4 lần**. Mỗi cú giết làm mọi việc đang chạy thành mồ côi.
+    Đo `VmHWM` (đỉnh thật) trên đường chạy theo cụm, container 4096MB (worker ~3850MB):
+
+        0,80 Mpx -> 1697 MB (44%) · 1,40 -> 2076 (54%) · 2,00 -> 3367 (87%)
+        2,57 Mpx -> 3368 MB (87%) · 2,60 -> 3710 (96%) · 3,20 -> BỊ GIẾT
+
+    Đường cong **có bậc**: 2,00 và 2,57 gần như bằng nhau, rồi 2,60 nhảy +342 MB. Nên dùng TRẦN
+    DIỆN TÍCH đo được, không dùng công thức GB/Mpx (tỉ lệ chạy từ 1,28 đến 2,07 tuỳ cỡ).
     """
 
     @staticmethod
     def _may(tmp_path, **kw):
         return LamaInpainter(weights_path=str(tmp_path / "w.onnx"), **kw)
 
-    def test_ca_trang_vuot_ngan_sach_thi_bao_hong_TRUOC_khi_chay(self, tmp_path, monkeypatch):
-        """Phải hỏng TRƯỚC khi gọi model — gọi rồi mới hỏng là đã hết bộ nhớ rồi."""
+    def test_o_qua_lon_thi_bao_hong_TRUOC_khi_chay(self, tmp_path, monkeypatch):
+        """Phải hỏng TRƯỚC khi gọi model — gọi rồi mới hỏng là đã tốn bộ nhớ rồi."""
         p = _make_image(tmp_path, size=(2000, 2000))  # 4 Mpx
-        d = self._may(tmp_path, whole_page_max_mpx=10.0, gb_per_mpx=1.28, mem_budget_gb=3.85)
+        d = self._may(tmp_path, whole_page_max_mpx=10.0, max_crop_mpx=2.6)
         goi = []
         monkeypatch.setattr(d, "_get_session", lambda: goi.append(1) or _FakeSession())
 
         with pytest.raises(InpaintFailed) as e:
             d.inpaint(str(p), [BBox(x=10, y=10, w=50, h=50)])
-        assert "memory_budget_exceeded" in str(e.value)
+        assert "crop_too_large" in str(e.value)
         assert goi == [], "đã gọi tới model — nghĩa là kiểm SAU khi tốn bộ nhớ, vô nghĩa"
 
     def test_cau_loi_noi_du_de_nguoi_dung_xu_ly_duoc(self, tmp_path):
         p = _make_image(tmp_path, size=(2000, 2000))
-        d = self._may(tmp_path, whole_page_max_mpx=10.0, gb_per_mpx=1.28, mem_budget_gb=3.85)
+        d = self._may(tmp_path, whole_page_max_mpx=10.0, max_crop_mpx=2.6)
         with pytest.raises(InpaintFailed) as e:
             d.inpaint(str(p), [BBox(x=10, y=10, w=50, h=50)])
         chu = str(e.value)
         assert "2000x2000" in chu, "phải nói cỡ trang"
-        assert "3.85" in chu or "3,85" in chu, "phải nói ngân sách"
+        assert "2.60" in chu or "2.6" in chu, "phải nói trần là bao nhiêu"
         assert "hạ độ phân giải" in chu, "phải nói cách xử lý, không chỉ nói 'hỏng'"
 
     def test_TRANG_THAT_cua_E23_KHONG_bi_chan(self, tmp_path, monkeypatch):
-        """Trang 1200x2144 của E23: 1 cụm phủ cả trang, nhưng ĐO THẬT là vừa ngân sách.
+        """Trang 1200x2144 = 2,57 Mpx: 1 cụm phủ cả trang, nhưng ĐO THẬT là 3368 MB — vừa.
 
-        `VmHWM` đỉnh = **3367,8 MB** so với ngân sách ~3950 MB ⇒ nó CHẠY ĐƯỢC, và chặn nó là chặn
-        oan. Test này tồn tại vì bản đầu của tôi dùng hệ số 1,6 GB/Mpx (đo ở M4 cho đường chạy CẢ
-        TRANG) và **đã** chặn đúng trang này — dự đoán 4,1 GB cho một trang thật sự cần 3,37 GB.
-        Hệ số đúng cho đường cụm là 1,28, đo lại ở E23.
+        Test này tồn tại vì bản đầu của tôi dùng công thức 1,6 GB/Mpx và **đã** chặn đúng trang
+        này (dự đoán 4,1 GB cho một trang thật sự cần 3,37 GB). Chặn oan là hỏng đúng thứ mình
+        sinh ra để cứu.
         """
-        p = _make_image(tmp_path, size=(1200, 2144))  # 2,57 Mpx
-        d = self._may(tmp_path, whole_page_max_mpx=2.5, gb_per_mpx=1.28, mem_budget_gb=3.85)
+        p = _make_image(tmp_path, size=(1200, 2144))
+        d = self._may(tmp_path, whole_page_max_mpx=2.5, max_crop_mpx=2.6)
         monkeypatch.setattr(d, "_get_session", lambda: _FakeSession())
         vung = [BBox(x=100, y=40 + i * 190, w=1000, h=180) for i in range(11)]
         assert Path(d.inpaint(str(p), vung)).is_file(), "chặn oan một trang đo được là vừa"
@@ -206,36 +208,31 @@ class TestNganSachBoNho:
     def test_CUM_gop_thanh_ca_trang_O_CO_LON_thi_bi_chan(self, tmp_path, monkeypatch):
         """Cỡ đọc 1600x2259 (3,6 Mpx): gộp thành 1 cụm cả trang ⇒ vượt thật, phải chặn.
 
-        `lama.py` đã ghi cỡ này "cần ~5,8 GB và bị hệ điều hành giết". Kiểm ô cắt LỚN NHẤT chứ
-        không kiểm cỡ trang: nếu chỉ tin "đã chuyển sang cụm là an toàn" thì cảnh này lọt lưới.
+        Kiểm ô cắt LỚN NHẤT chứ không kiểm cỡ trang: nếu chỉ tin "đã chuyển sang cụm là an toàn"
+        thì cảnh này lọt lưới — và 3,2 Mpx đã BỊ GIẾT trong phép đo.
         """
-        p = _make_image(tmp_path, size=(1600, 2259))  # 3,61 Mpx
-        d = self._may(tmp_path, whole_page_max_mpx=2.5, gb_per_mpx=1.28, mem_budget_gb=3.85)
+        p = _make_image(tmp_path, size=(1600, 2259))
+        d = self._may(tmp_path, whole_page_max_mpx=2.5, max_crop_mpx=2.6)
         goi = []
         monkeypatch.setattr(d, "_get_session", lambda: goi.append(1) or _FakeSession())
         vung = [BBox(x=120, y=40 + i * 200, w=1360, h=180) for i in range(11)]
 
         with pytest.raises(InpaintFailed) as e:
             d.inpaint(str(p), vung)
-        assert "memory_budget_exceeded" in str(e.value)
+        assert "crop_too_large" in str(e.value)
         assert "cụm lớn nhất" in str(e.value), "phải nói rõ chặn vì CỤM, không phải vì cỡ trang"
-        assert goi == [], "đã gọi model rồi mới chặn thì đã tốn bộ nhớ, vô nghĩa"
+        assert goi == []
 
     def test_CUM_nho_thi_KHONG_bi_chan(self, tmp_path, monkeypatch):
-        """Cảnh mà chiến lược cụm sinh ra để phục vụ: trang lớn nhưng chữ gom một góc.
-
-        Chặn oan ở đây là phá đúng thứ đường cụm được dựng để làm.
-        """
+        """Cảnh mà chiến lược cụm sinh ra để phục vụ: trang lớn nhưng chữ gom một góc."""
         p = _make_image(tmp_path, size=(1200, 2144))
-        d = self._may(tmp_path, whole_page_max_mpx=2.5, gb_per_mpx=1.28, mem_budget_gb=3.85)
+        d = self._may(tmp_path, whole_page_max_mpx=2.5, max_crop_mpx=2.6)
         monkeypatch.setattr(d, "_get_session", lambda: _FakeSession())
+        assert Path(d.inpaint(str(p), [BBox(x=50, y=50, w=200, h=150)])).is_file()
 
-        ra = d.inpaint(str(p), [BBox(x=50, y=50, w=200, h=150)])
-        assert Path(ra).is_file(), "cụm nhỏ phải chạy được bình thường"
-
-    def test_dat_ngan_sach_0_la_TAT_phep_kiem(self, tmp_path, monkeypatch):
+    def test_dat_tran_0_la_TAT_phep_kiem(self, tmp_path, monkeypatch):
         """Phải có đường tắt tường minh: bàn thử khác có thể có nhiều RAM hơn production."""
         p = _make_image(tmp_path, size=(2000, 2000))
-        d = self._may(tmp_path, whole_page_max_mpx=10.0, gb_per_mpx=1.28, mem_budget_gb=0)
+        d = self._may(tmp_path, whole_page_max_mpx=10.0, max_crop_mpx=0)
         monkeypatch.setattr(d, "_get_session", lambda: _FakeSession())
         assert Path(d.inpaint(str(p), [BBox(x=10, y=10, w=50, h=50)])).is_file()

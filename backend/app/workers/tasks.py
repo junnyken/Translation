@@ -660,8 +660,7 @@ def get_inpainter():
             cpu_mem_arena=settings.inpaint_cpu_mem_arena,
             whole_page_max_mpx=settings.inpaint_whole_page_max_mpx,
             tile_margin=settings.inpaint_tile_margin,
-            gb_per_mpx=settings.inpaint_gb_per_mpx,
-            mem_budget_gb=settings.inpaint_mem_budget_gb,
+            max_crop_mpx=settings.inpaint_max_crop_mpx,
         )
     return _inpainter
 

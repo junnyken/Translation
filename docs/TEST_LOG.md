@@ -4067,3 +4067,49 @@ chặn.
   chỉnh thì không trang nào trong chapter này bị chặn. Chỉ có unit test cho chiều đó.
 - Hệ số 1,28 GB/Mpx là **n=1**. Nó đủ cho một phép canh chặn-thảm-hoạ, **không** đủ làm cổng lọc
   tinh. Muốn dùng chặt hơn thì phải đo nhiều cỡ trang.
+
+## Bổ sung E23 (2) — đo n=6, và bỏ cách tiếp cận "hệ số GB/Mpx"
+
+Hai giới hạn còn lại của bản sửa thứ 5 có **cùng một gốc**: quan hệ bộ nhớ ↔ diện tích mới đo một
+điểm. Đo cả đường cong bằng `VmHWM`, **mỗi cỡ một tiến trình riêng** (đo nhiều cỡ trong cùng tiến
+trình thì VmHWM là đỉnh cộng dồn, không tách được):
+
+| Ô cắt (Mpx) | Đỉnh (MB) | % ngân sách 3850MB | GB/Mpx |
+|---|---|---|---|
+| 0,80 | 1697 | 44% | **2,07** |
+| 1,40 | 2076 | 54% | 1,45 |
+| 2,00 | 3367 | 87% | 1,64 |
+| 2,57 | 3368 | 87% | **1,28** |
+| 2,60 | 3710 | **96%** | 1,39 |
+| 3,20 | BỊ GIẾT (`oom_kill` 111→112) | — | — |
+
+**Đường cong CÓ BẬC**: 2,00 → 2,57 chỉ **+1 MB**, rồi 2,57 → 2,60 nhảy **+342 MB**. Tỉ lệ GB/Mpx
+chạy 1,28–2,07. Không hệ số tuyến tính nào mô tả được.
+
+⇒ Sai của tôi ở **cách tiếp cận**, không ở con số. Và 1,28 đã commit là tỉ lệ **thấp nhất** loạt ⇒
+nó **cho lọt** trang làm chết worker — ngược hẳn chiều tôi lo lúc đầu. Đã thay bằng một tham số đo
+trực tiếp: `inpaint_max_crop_mpx = 2.6`.
+
+**Lần đầu 2,6 và 3,2 đều "BỊ GIẾT"; đo lại lúc máy rảnh (6,8/10 GiB) thì 2,6 chạy xong.** Cú giết
+đầu là do áp lực bộ nhớ của workspace, không phải nhu cầu của trang — phải đo lại khi máy rảnh mới
+tách được hai nguyên nhân.
+
+### Một giải pháp bị bác bỏ TRƯỚC khi viết code
+
+Tách cụm quá lớn tại dải ngang không có mask (ô cắt bị chặn trên theo thiết kế, không đổi chất
+lượng vì chỗ tách không có gì để xoá). Đo trên đúng trang sinh ra vấn đề:
+
+```
+cụm sau khi gộp : [(0, 0, 1200, 2144)]  => 1 cụm phủ cả trang
+số dải ngang KHÔNG có mask : 3
+trong đó đủ rộng để tách (>=192px, giữ lề 96 hai bên) : 0
+```
+
+Không dải nào đủ rộng — 11 vùng chữ cách nhau ~10px sau khi nở mask.
+
+### Live verification — CẢ HAI CHIỀU
+
+| Chiều | Bằng chứng |
+|---|---|
+| Chặn đúng cỡ thật sự giết worker | ô 3,14 Mpx ⇒ `crop_too_large: … vượt trần 2.60 …`; `oom_kill` giữ nguyên 112, worker sống |
+| KHÔNG chặn oan cỡ thật sự chạy được | trang E13P07 (2,57 Mpx) **chạy xong thật** trong lượt 24/24 |

@@ -403,11 +403,68 @@ KẾT QUẢ: CHẶN ĐÚNG, worker không bị giết
 **Chưa live-verify được chiều "không chặn oan" trên production**, vì sau khi hiệu chỉnh thì
 **không trang nào trong chapter này bị chặn** — chỉ có unit test cho chiều đó.
 
-### 4d.7 Ý nghĩa cho production
+### 4d.7 ĐO LẠI n=6 — và cách tiếp cận "hệ số GB/Mpx" SAI TỪ GỐC
 
-Trang lớn nhất của một chapter bình thường cần **3367 MB = 85%** ngân sách worker (~3950 MB).
-Không OOM, nhưng khoảng an toàn chỉ còn 15%. Trang cỡ đọc (1600x2259) thì **vượt thật** — và giờ
-sẽ được báo hỏng tử tế thay vì kéo sập worker.
+Hai giới hạn còn lại của bản sửa này ("chưa live-verify chiều không-chặn-oan" và "hệ số n=1") có
+**cùng một gốc**: quan hệ bộ nhớ ↔ diện tích mới chỉ đo một điểm. Đo cả đường cong (`VmHWM`, mỗi cỡ
+một tiến trình riêng để đỉnh không cộng dồn):
+
+| Ô cắt (Mpx) | Đỉnh (MB) | % ngân sách 3850MB | GB/Mpx |
+|---|---|---|---|
+| 0,80 | 1697 | 44% | **2,07** |
+| 1,40 | 2076 | 54% | 1,45 |
+| 2,00 | 3367 | 87% | 1,64 |
+| 2,57 | 3368 | 87% | **1,28** |
+| 2,60 | 3710 | **96%** | 1,39 |
+| 3,20 | **BỊ GIẾT** (`oom_kill` 111→112) | — | — |
+
+**Đường cong CÓ BẬC, không trơn.** Từ 2,00 → 2,57 gần như phẳng (**+1 MB**), rồi 2,57 → 2,60 nhảy
+**+342 MB** chỉ vì thêm 0,03 Mpx. Tỉ lệ GB/Mpx chạy từ **1,28 đến 2,07** tuỳ cỡ. Không hệ số tuyến
+tính nào — có hay không có hằng số chặn — mô tả được hình dạng này.
+
+⇒ **Sai của tôi không nằm ở con số mà ở cách tiếp cận.** Và tệ hơn: 1,28 tôi đã commit là tỉ lệ
+**THẤP NHẤT** trong cả loạt, nên nó đánh giá thấp nhu cầu ở mọi cỡ khác và sẽ **cho lọt** đúng
+những trang làm chết worker — chiều sai nguy hiểm, ngược hẳn với chiều tôi lo lúc đầu.
+
+Đã thay công thức bằng **một tham số đo trực tiếp**: `inpaint_max_crop_mpx = 2.6` (ô lớn nhất đo
+được là chạy xong). Một số đo trung thực hơn một công thức bịa.
+
+### 4d.8 Một giải pháp nữa đã bị BÁC BỎ trước khi viết code
+
+Hướng hấp dẫn nhất là **tách cụm quá lớn tại dải ngang không có mask** — làm vậy thì ô cắt bị chặn
+trên *theo thiết kế*, không cần dự đoán gì, và không đổi chất lượng vì chỗ tách không có gì để xoá.
+Đo trên đúng trang E13P07 trước khi viết:
+
+```
+cụm sau khi gộp : [(0, 0, 1200, 2144)]  => 1 cụm phủ cả trang
+số dải ngang KHÔNG có mask : 3
+trong đó đủ rộng để tách (>=192px, giữ lề 96 hai bên) : 0
+```
+
+**Không dải nào đủ rộng.** 11 vùng chữ cách nhau ~10px sau khi nở mask — quá dày. Hướng này không
+dùng được cho chính trang sinh ra nó.
+
+### 4d.9 Live verification — CẢ HAI CHIỀU
+
+| Chiều | Bằng chứng |
+|---|---|
+| **Chặn đúng** cỡ thật sự giết worker | Ô 3,14 Mpx ⇒ `crop_too_large: … vượt trần 2.60 …`, `oom_kill` giữ nguyên 112, worker sống |
+| **Không chặn oan** cỡ thật sự chạy được | Trang E13P07 (2,57 Mpx) **chạy xong thật** trong lượt 24/24 của chapter — mạnh hơn unit test |
+
+### 4d.10 Ý nghĩa cho production
+
+Trang lớn nhất của một chapter bình thường cần **3368 MB = 87%** ngân sách worker (~3850 MB), và
+chỉ cần lớn hơn 0,03 Mpx nữa là lên **96%**. Trang cỡ đọc (1600x2259 hoặc 3,2 Mpx) thì **vượt
+thật** — nay được báo hỏng tử tế thay vì kéo sập worker.
+
+**Khuyến nghị: nới RAM worker 4096 → 5376MB.** `get_resources` xác nhận gói CÒN chỗ
+(`maxRamMB: 5376`, `freeRamMB: 5376`), không tốn thêm tiền, không đổi code, không rủi ro chất
+lượng. Nó đưa đỉnh 3710 MB từ **96% xuống ~71%** ngân sách, và cho phép nâng `inpaint_max_crop_mpx`
+để nhận cả trang cỡ đọc.
+
+Điều này **đảo lại quyết định ở E25 §2.6** (giữ 4096MB). Quyết định đó không sai lúc đó — nó dựa
+trên lượt 6 trang với RSS phẳng ~1219MB. Nhưng 6 trang ấy **chưa bao giờ chạm bước xoá chữ hàng
+loạt**, nơi đỉnh thật là 3710MB. Dữ liệu mới, kết luận mới.
 
 ## 5. Lỗi 6 — job detect trùng: ĐÃ THỬ SỬA HAI CÁCH, BÁC BỎ CẢ HAI
 

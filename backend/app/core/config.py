@@ -271,25 +271,29 @@ class Settings(BaseSettings):
     #: thật ở cỡ đọc (3,6 triệu điểm) chạy cả trang là bị hệ điều hành giết.
     inpaint_whole_page_max_mpx: float = 2.5
     inpaint_tile_margin: int = 96
-    #: E23 — hai số dưới đây để bước xoá chữ TỰ BÁO HỎNG thay vì để hệ điều hành giết worker.
+    #: E23 — trần DIỆN TÍCH ô cắt (triệu điểm ảnh) mà bước xoá chữ dám chạy. Vượt thì tự báo
+    #: hỏng, thay vì để hệ điều hành giết worker và làm mồ côi mọi việc đang chạy.
     #:
-    #: Vì sao cần: chạy theo cụm CHỈ tiết kiệm được khi các cụm nhỏ. Đo thật ở E23 (2026-09-10),
-    #: trang E13P07 (1200x2144 = 2,57 Mpx) có 11 vùng chữ trải khắp trang — hộp bao chung
-    #: 1039x2077 = 2,16 Mpx = 84% diện tích. Cơ chế gộp ô chồng nhau (vốn để tránh lộ đường nối)
-    #: thu 11 vùng thành ĐÚNG MỘT cụm cỡ gần cả trang ⇒ chạy theo cụm không tiết kiệm gì, vẫn cần
-    #: ~3,5-4,1 GB. Kết quả: worker bị giết 4/4 lần, mọi việc đang chạy thành mồ côi, và mỗi lần
-    #: bấm chạy lại là giết worker thêm một lần.
+    #: Vì sao là TRẦN DIỆN TÍCH chứ không phải công thức "x GB mỗi triệu điểm": đo `VmHWM` (đỉnh
+    #: thật) trên chính đường chạy theo cụm, container 4096MB (worker được ~3850MB):
     #:
-    #: `gb_per_mpx` ĐO LẠI ở E23 cho ĐÚNG đường chạy theo cụm, bằng `VmHWM` (đỉnh thật):
-    #: trang 1200x2144, 1 cụm phủ cả trang (2,57 Mpx) -> đỉnh **3367,8 MB** ⇒ **1,28 GB/Mpx**.
-    #: Con số 1,6 ghi ở `lama.py` được đo ở M4 cho đường chạy CẢ TRANG — dùng nó cho đường cụm là
-    #: **cao hơn thực tế 1,25 lần**, và cao hơn nghĩa là CHẶN OAN trang vốn chạy được. n=1, nên
-    #: đây là hệ số cho một phép canh chặn-thảm-hoạ, KHÔNG phải cổng lọc tinh.
-    inpaint_gb_per_mpx: float = 1.28
-    #: Ngân sách suy ra từ số ĐO ĐƯỢC, không phải chọn bừa: container production 4096MB
-    #: (`get_resources`) chạy `ROLE=all` nên chứa cả uvicorn (~104MB lúc rảnh) lẫn worker
-    #: ⇒ worker còn ~3950MB. Để 0 hoặc số âm là TẮT phép kiểm.
-    inpaint_mem_budget_gb: float = 3.85
+    #:     ô cắt 0,80 Mpx -> đỉnh 1697 MB   (44% ngân sách)
+    #:     ô cắt 1,40 Mpx -> đỉnh 2076 MB   (54%)
+    #:     ô cắt 2,00 Mpx -> đỉnh 3367 MB   (87%)
+    #:     ô cắt 2,57 Mpx -> đỉnh 3368 MB   (87%)   <- gần như KHÔNG tăng so với 2,00
+    #:     ô cắt 2,60 Mpx -> đỉnh 3710 MB   (96%)   <- nhảy +342 MB chỉ vì thêm 0,03 Mpx
+    #:     ô cắt 3,20 Mpx -> BỊ GIẾT (oom_kill của cgroup tăng 111 -> 112)
+    #:
+    #: Đường cong CÓ BẬC, không trơn. Tỉ lệ GB/Mpx chạy từ 1,28 đến 2,07 tuỳ cỡ, nên **không**
+    #: hệ số tuyến tính nào — có hay không có hằng số chặn — mô tả được nó. Bản đầu của E23 dùng
+    #: 1,28 GB/Mpx, và 1,28 là tỉ lệ THẤP NHẤT trong cả loạt ⇒ nó đánh giá thấp nhu cầu ở mọi cỡ
+    #: khác và sẽ cho lọt đúng những trang làm chết worker. Một tham số đo trực tiếp trung thực
+    #: hơn hẳn một công thức bịa.
+    #:
+    #: 2,6 là ô lớn nhất ĐO ĐƯỢC là chạy xong — nhưng ở 96% ngân sách, tức gần như không còn biên
+    #: an toàn. Nới RAM 4096 -> 5376MB (gói CÒN chỗ, `get_resources` xác nhận) đưa 96% về ~71%.
+    #: 0 hoặc số âm = TẮT phép kiểm.
+    inpaint_max_crop_mpx: float = 2.6
     #: Constraint 10 của M4: KHÔNG lặng lẽ lùi về cv2.inpaint khi LaMa lỗi.
     #: Muốn cho phép fallback thì phải bật tường minh ở đây.
     inpaint_allow_opencv_fallback: bool = False
