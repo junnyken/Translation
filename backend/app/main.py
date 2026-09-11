@@ -66,6 +66,19 @@ async def healthz() -> dict:
     from app.workers.bo_nho import rss_mb
 
     ket_qua: dict = {"status": "ok"}
+
+    # D — `llm_context` có dùng được không. CHỈ true/false, không có mảnh khoá nào ở đây (cùng
+    # hợp đồng với `/batch-config`, chỉ khác là endpoint này KHÔNG đòi đăng nhập).
+    #
+    # Vì sao cần: trước đây muốn biết production đã cấu hình khoá Gemini chưa thì phải đăng nhập
+    # rồi gọi `/batch-config`. Nên câu hỏi "bật dịch theo ngữ cảnh được chưa" không ai trả lời
+    # được từ ngoài, kể cả khi đang dò sự cố. Biến môi trường CÓ TÊN không có nghĩa là nó có giá
+    # trị — đây là chỗ nói ra sự khác nhau đó.
+    #
+    # Đặt sau `status` và trước phần worker: thêm trường là thay đổi CỘNG THÊM, không đụng
+    # trường nào đang có (API.md §healthz).
+    ket_qua["llm_configured"] = get_settings().llm_configured
+
     duong_dan = _Path(os.environ.get("WORKER_STATE_FILE", "/tmp/trang-thai-worker.json"))
     try:
         ket_qua["worker"] = json.loads(duong_dan.read_text())

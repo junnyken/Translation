@@ -4494,3 +4494,159 @@ pytest -q -p no:randomly                           1368 đạt · 6 bỏ qua · 
 - **Chưa deploy.**
 - **D (bật `llm_context`) chưa làm** — chờ người dùng xác nhận production có khoá Gemini chưa và
   chấp nhận tốn token (`google_fast` miễn phí).
+
+# ========== D — dịch theo ngữ cảnh: ĐO thay vì hỏi rồi chờ (2026-09-11) ==========
+
+Tôi đã treo D bằng hai câu hỏi cho người dùng. Cả hai đều **đo được**, nên tôi đo.
+
+## Chất lượng — trang EN thật `0d47b661`, đúng đường production (có A và C)
+
+```
+14 vùng · gửi đi dịch 11 · giữ nguyên 3 (SFX: Cling/Clang/Clong) · KHÁC NHAU 11/11
+```
+
+| Gốc | google_fast | llm_context |
+|---|---|---|
+| `Luughing Fotlons` (OCR sai) | để nguyên rác | **Thuốc Cười** |
+| `"Bright-Side" Potions` | *Độc dược "Bright-Side"* | **Thuốc "Lạc Quan"** |
+| `Mega-Hairgrowth` vùng #2 | *cực mạnh* | *Siêu Tốc* |
+| `Mega-Hairgrowth` vùng #3 | *siêu lớn* ⇒ **LỆCH** | *Siêu Tốc* ⇒ **khớp** |
+
+Ca `Luughing Fotlons` chính là **Lỗi #1** tôi đã xếp vào "giới hạn của bộ đọc chữ". Sai — prompt
+`llm_context` có sẵn dòng *"chữ do OCR đọc nên có thể sai chính tả; tự suy luận và sửa khi dịch"*
+và nó chạy thật.
+
+Cột nhất quán là lợi ích **chỉ ngữ cảnh cả trang mới cho được**: google không biết hai vùng đó
+cùng một trang nên dịch cùng một cụm thành hai kiểu.
+
+## Tiếng Nhật — giọng nhân vật
+
+```
+私はコモナの市場に 行かねばならぬ   google: 'Tôi phải đi chợ ở Komona.'
+                                  llm   : 'Ta phải đến chợ Komona ngay.'
+その通り。\nそうあるべきじゃ。      google: 'đúng rồi.\nĐó là cách nó nên được.'
+                                  llm   : 'Đúng vậy. Phải làm thế mới được.'
+```
+
+`ならぬ`/`のだ`/`じゃ` là văn cổ giọng bề trên. Google cho *"Tôi"* — không sai nghĩa nhưng mất giọng.
+
+CHỮ GHI LẠI, không phải trang trong CSDL — local không có project tiếng Nhật nào. Nói rõ để không
+ai đọc nhầm thành lượt chạy end-to-end.
+
+## Một chỗ tôi viết SAI trong REPORT_E26 §3.3, đo lại mới ra
+
+Tôi quy ca `Thuốc cười siêu mọc tóc` cho việc "4 nhãn nằm chung một vùng" rồi dừng. Đo lại:
+
+```
+'笑い薬\n超毛生え薬…'  (CÓ xuống dòng)  -> 'thuốc cười\nthuốc mọc tóc siêu tốc\n…'   ĐÚNG
+'笑い薬超毛生え薬'      (KHÔNG dấu tách) -> 'Thuốc cười siêu mọc tóc'                 SAI  <- tái hiện
+'笑い薬 超毛生え薬'     (dấu cách)       -> 'Thuốc cười siêu mọc tóc'                 VẪN SAI
+'笑い薬超毛生え薬'      llm_context      -> 'Thuốc cười, thuốc mọc tóc siêu tốc.'     ĐÚNG
+```
+
+Cơ chế thật: OCR đọc **dính, không dấu tách**, google nuốt chuỗi kanji liền thành một từ ghép.
+**A không cứu được, thêm dấu cách cũng không** — đã thử cả hai. Chỉ D cứu được.
+
+## Chi phí — đo, không ước lượng
+
+```
+trang EN 14 vùng (gửi 11)  553 token
+4 dòng tiếng Nhật           315 token
+google_fast                 không có token
+```
+
+⇒ chapter 24 trang ≈ 13 000 token. KHÔNG quy ra tiền: đơn giá `gemini-3.1-flash-lite` là thứ tôi
+không kiểm chứng được ở đây, bịa con số đô la còn tệ hơn không đưa.
+
+## Câu hỏi "production có khoá chưa" KHÔNG còn chặn — vì đo được ca xấu nhất
+
+```
+get_translator('llm_context', api_keys=[])  -> dựng được, KHÔNG ném
+    .translate([...])                       -> QuotaExhausted('… GEMINI_API_KEYS rỗng')
+_run_translate except (QuotaExhausted, TranslationFailed) -> lùi google_fast + fallback_used
+```
+
+Hai mệnh đề này mong manh và kéo ngược chiều nhau: `build_translator` gọi **NGOÀI** khối try
+(`tasks.py:1094`) nên ném lúc dựng là mất hẳn đường lùi; và lỗi phải **đúng loại** `QuotaExhausted`.
+
+Test cũ `test_llm_loi_thi_lui_ve_google_va_danh_dau_fallback` chỉ canh bằng **translator giả tự
+ném** — xanh mà không canh được đường thật. Bổ sung `test_d_khoa_rong_van_co_duong_lui_unit.py`
+(7 test), trong đó có một test **đọc thẳng mã nguồn** khối except để ai đổi nó là đỏ.
+
+⇒ Khoá rỗng thì tệ nhất là **đúng hành vi hôm nay, có dán nhãn**. Không ca nào hỏng thêm.
+
+## `/healthz` nay trả `llm_configured`
+
+Trước: muốn biết production bật được LLM chưa thì phải đăng nhập gọi `/batch-config`. Bảng biến
+môi trường của nền tảng hosting chỉ liệt kê **tên** biến — `GEMINI_API_KEYS` có tên ở đó nhưng
+**đó không phải bằng chứng nó có giá trị**.
+
+Test soi rò rỉ suýt RỖNG NGHĨA: nó đặt khoá giả rồi kiểm thân phản hồi không chứa khoá — nhưng sẽ
+xanh y hệt nếu khoá giả **chưa bao giờ được nạp**. Đúng kiểu test-tự-bỏ-qua đã dính ở E16. Thêm
+`assert llm_configured is True` trước phần soi để nó không thể rỗng nghĩa.
+
+## CỐ Ý không đổi `TRANSLATE_DEFAULT_ENGINE` trên production
+
+Không phải vì rủi ro kỹ thuật — mà vì nó tiêu quota/tiền của người dùng cho **mọi trang của mọi
+người**. Đó là quyết định của họ.
+
+Và hoá ra **không cần đổi**: `BatchPanel.jsx:146` đã có sẵn ô chọn bộ dịch, mục `llm_context` tự
+bật theo `llm_configured`. Chọn được theo từng mẻ — không ai bị ép tốn token.
+
+## Bổ sung E26 — bằng chứng END-TO-END cho B và C (2026-09-11)
+
+§9 bản đầu ghi *"B và C mới có unit test"*. Đã chạy thật `_run_translate` + `_run_typeset` trên
+trang `0d47b661` (14 vùng). Tìm ra thêm một giới hạn unit test không thấy được.
+
+### A và C — dữ liệu ra
+
+```
+756e89d8  'Tôi cần phải đi đến / chợ ở Komona.'  ->  'Tôi cần đi chợ ở / Komona.'
+4b8c6563  '... chỉ kể tên thôi / một vài!'       ->  '... chỉ kể tên một / vài!'
+cd115254  '…thực sự của Hỗn loạn…'               ->  '…thực sự của Chaosah…'
+5ea82bf8  'Bám / vào'                            ->  'Cling'
+34a57f8b  'Kêu / vang'                           ->  'Clang'
+7ed91cf0  'tiếng kêu'                            ->  'Clong'
+```
+
+### B — tôi suýt kết luận SAI vì đo nhầm thứ
+
+Đếm dòng `TypesetResult` thấy **14/14** và suýt kết luận "B không chạy". Đo nhầm: B lọc ở danh
+sách **vẽ lên ảnh** (`ve`), không đụng dòng dữ liệu — đúng thiết kế *"không xoá, chỉ không vẽ"*.
+Dòng `TypesetResult` còn nguyên là ĐÚNG.
+
+Đo đúng chỗ:
+
+```
+typeset trang 0d47b661…: bỏ qua 1 vùng BAO (chứa trọn >=2 vùng khác): ['b8b24333']
+```
+
+### So ảnh bật/tắt cờ trên cùng trang
+
+Dựng ảnh đối chứng bằng `E26_BO_QUA_VUNG_BAO=false`, rồi bật lại về mặc định:
+
+- **Tắt**: cả khối `LUUGHING FOTLONS / THUỐC MỌC TÓC CỰC MẠNH…` đè lên mọi thứ, không đọc được gì.
+- **Bật**: khối rác biến mất, các nhãn con đọc được.
+
+### GIỚI HẠN MỚI mà chỉ ẢNH mới lộ
+
+Ảnh "sau" **vẫn còn một cặp chồng**: `ĐỘC DƯỢC KHÓI..` (`e8e30ad4`) và `THUỐC KHÓI...`
+(`6aaf8a55`) là cùng một câu gốc vẽ hai lần. B không bắt vì thua CẢ HAI điều kiện:
+
+```
+e8e30ad4 chứa 6aaf8a55 ~68.6%  < ngưỡng 0.9
+chỉ 1 vùng con                 < tối thiểu 2
+```
+
+Nới ngưỡng / hạ tối thiểu xuống 1 thì bỏ oan bong bóng thật (ca
+`test_chua_TRON_mot_vung_thoi_cung_KHONG_du`). ⇒ **cố ý chưa vá**, cần dấu hiệu khác (vd trùng nội
+dung sau khi dịch) và phải có bằng chứng riêng.
+
+**B giảm hẳn chồng chữ nhưng KHÔNG xoá hết.** Đừng đọc thành "đã xử lý xong chồng lấn".
+
+### Toàn bộ test
+
+```
+pytest -q -p no:randomly                 exit=0 · 1379 đạt · 6 bỏ qua · 0 ĐỎ
++ test khoá-rác thêm sau lượt đó          12/12 đạt  ⇒ tổng 1380 đạt · 6 bỏ qua
+```

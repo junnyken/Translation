@@ -591,6 +591,11 @@ vẽ nó lên ảnh.
 Điều kiện "ít nhất hai vùng" là để **không bỏ oan** một bong bóng lớn hợp lệ chỉ vì nó chồng nhẹ
 một vùng khác. Mất một câu thoại tệ hơn nhiều so với vẽ trùng một câu.
 
+**Chưa hết hẳn.** Trên trang đã kiểm bằng ảnh thật, khối chữ rác lớn nhất biến mất, nhưng vẫn còn
+**một cặp nhãn nhỏ vẽ đè lên nhau** — hai vùng chỉ trùm nhau khoảng hai phần ba nên chưa đủ điều
+kiện để bỏ. Nới điều kiện ra thì sẽ bắt đầu bỏ nhầm bong bóng thật, nên tạm để vậy. Gặp chỗ chữ
+chồng, bạn sửa tay được trong màn hình rà soát.
+
 ### Tiếng động giữ nguyên, không dịch thành từ
 
 `Clang` từng thành *"Kêu vang"*, `Cling` thành *"Bám vào"*, `Clong` thành *"tiếng kêu"* — dịch đúng
@@ -608,3 +613,44 @@ Nay những vùng hệ thống đã đánh dấu *"có thể là tiếng động
   hợp đều đúng là tiếng động), nhưng khả năng đó có thật.
 
 Nếu bạn gặp một câu ngắn không được dịch, dùng nút **dịch lại vùng** — nó sẽ dịch bình thường.
+
+### Dịch kỹ hơn theo ngữ cảnh cả trang (D)
+
+Trong bảng chạy cả mẻ có ô **Cách dịch**. Hai lựa chọn:
+
+| | **Dịch nhanh (miễn phí)** — mặc định | **Dịch theo ngữ cảnh** |
+|---|---|---|
+| Chi phí | miễn phí | tốn token, **đo được ~550 token/trang** |
+| Cách dịch | từng dòng, rời nhau | đọc **cả trang** rồi mới dịch |
+
+Đo thật trên một trang 14 vùng, **11/11 câu ra khác nhau**. Bốn việc `llm_context` làm được mà
+`google_fast` không:
+
+- **Tự sửa lỗi đọc chữ.** Máy đọc nhầm `Laughing Potions` thành `Luughing Fotlons`; bản thường để
+  nguyên cụm rác đó, bản ngữ cảnh suy ra đúng và dịch **Thuốc Cười**.
+- **Không bỏ sót tiếng Anh.** `"Bright-Side" Potions` → bản thường giữ nguyên `"Bright-Side"`, bản
+  ngữ cảnh dịch **Thuốc "Lạc Quan"**.
+- **Dịch cùng một thứ giống nhau ở mọi chỗ trong trang.** `Mega-Hairgrowth` xuất hiện hai lần, bản
+  thường cho *"mọc tóc cực mạnh"* ở chỗ này và *"mọc tóc siêu lớn"* ở chỗ kia; bản ngữ cảnh dùng
+  **một cách gọi duy nhất**.
+- **Giữ giọng nhân vật.** Bà phù thuỷ nói văn cổ bề trên; bản thường cho *"Tôi phải đi chợ"*, bản
+  ngữ cảnh cho ***"Ta** phải đến chợ Komona ngay."*
+
+Nó cũng gỡ được ca tiếng Nhật khó nhất: máy đọc dính hai nhãn thành `笑い薬超毛生え薬`, bản thường ra
+*"Thuốc cười siêu mọc tóc"* (một thứ không có thật), bản ngữ cảnh tách đúng thành **"Thuốc cười,
+thuốc mọc tóc siêu tốc."**
+
+**Cần gì để dùng:** một khoá Gemini đặt trong cấu hình máy chủ. Chưa có thì mục đó hiện thành
+**"Dịch theo ngữ cảnh — chưa cấu hình khoá dịch"** và không bấm được. Đó là cố ý: thà nói trước
+còn hơn để bạn bấm rồi mới báo lỗi.
+
+Chọn mục này xong, bảng còn cho biết **giới hạn lượt gọi mỗi phút** của cả dự án — vượt thì mẻ
+nằm chờ chứ không đập thêm vào nhà cung cấp.
+
+**Không có khoá cũng không hỏng gì.** Nếu hệ thống lỡ chạy bộ dịch ngữ cảnh mà khoá rỗng hoặc hết
+lượt, nó **tự quay về bản thường** và đánh dấu *"đã dùng bản dự phòng"* — trang vẫn dịch xong, chứ
+không đứng lại hay trả về trang trắng.
+
+**Một chỗ nó KHÔNG giúp:** nó đọc ngữ cảnh trong **một trang**, không phải cả chapter. Muốn một
+nhân vật hay thuật ngữ được gọi giống nhau **xuyên suốt nhiều trang** thì vẫn phải dùng bảng
+thuật ngữ.

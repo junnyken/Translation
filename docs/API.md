@@ -813,6 +813,30 @@ trình nền riêng** — và đó mới là tiến trình bị OOM giết. Mu�
 ⚠️ Nhắc lại cảnh báo của E1 ở trên và **vẫn còn đúng**: `/healthz` gọi qua **cổng giao diện** trả
 trang SPA kèm `200` — chỉ gọi thẳng vào host của API mới có ý nghĩa.
 
+## D — `GET /healthz` thêm `llm_configured` (2026-09-11)
+
+Lại **chỉ thêm một trường**, không đụng trường nào đang có, không endpoint mới.
+
+```json
+{ "status": "ok", "llm_configured": true, "worker": { … }, "rss_mb": 93.4 }
+```
+
+| Trường | Ý nghĩa |
+|---|---|
+| `llm_configured` | `GEMINI_API_KEYS` có **ít nhất một khoá không rỗng** hay không ⇒ chọn được engine `llm_context` |
+
+**Vì sao đặt ở đây chứ không chỉ ở `/batch-config`.** `/batch-config` đòi đăng nhập, nên câu hỏi
+*"production bật dịch theo ngữ cảnh được chưa"* không ai trả lời được từ ngoài — kể cả lúc đang dò
+sự cố. Và **biến môi trường CÓ TÊN không có nghĩa là nó có giá trị**: bảng quản trị của nền tảng
+hosting liệt kê tên biến chứ không nói biến rỗng hay không. Trường này nói đúng sự khác nhau đó.
+
+**Chỉ `true`/`false`, không bao giờ là mảnh khoá.** Endpoint này mở (nền tảng hosting thăm dò
+được), nên có test soi toàn bộ thân phản hồi để chắc không lộ cả khoá lẫn tiền tố `AIza`.
+
+`false` **không** làm hỏng gì: engine mặc định vẫn `google_fast`, và nếu ai đó chọn `llm_context`
+khi khoá rỗng thì job **lùi về `google_fast` và dán nhãn `fallback_used`**, chứ không đỏ — tính
+chất này có test riêng (`test_d_khoa_rong_van_co_duong_lui_unit.py`).
+
 ## E17 — gợi ý thuật ngữ & xưng hô (2026-09-01)
 
 Bốn endpoint. Hai cái đầu **chỉ đọc và không gọi AI** nên `200`; cái thứ ba có gọi mô hình nên
