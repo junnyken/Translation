@@ -457,7 +457,14 @@ Trang lớn nhất của một chapter bình thường cần **3368 MB = 87%** n
 chỉ cần lớn hơn 0,03 Mpx nữa là lên **96%**. Trang cỡ đọc (1600x2259 hoặc 3,2 Mpx) thì **vượt
 thật** — nay được báo hỏng tử tế thay vì kéo sập worker.
 
-**Khuyến nghị: nới RAM worker 4096 → 5376MB.** `get_resources` xác nhận gói CÒN chỗ
+**QUYẾT ĐỊNH 2026-09-11 (người dùng): GIỮ 4096MB.** Đề nghị nới RAM bị từ chối, nên
+`inpaint_max_crop_mpx = 2.6` **chính là lớp bảo vệ duy nhất** cho cảnh này: trang vượt trần sẽ được
+báo hỏng tử tế thay vì kéo sập worker. Hệ quả phải chấp nhận: **trang cỡ đọc (≥2,6 Mpx) không xử lý
+được** — người dùng phải hạ độ phân giải trước khi tải lên. Nâng trần mà không nới RAM là mở lại
+đúng đường làm chết worker.
+
+Nội dung đề nghị đã bị từ chối, giữ lại để lần sau có dữ liệu mới thì mở lại:
+**nới RAM worker 4096 → 5376MB.** `get_resources` xác nhận gói CÒN chỗ
 (`maxRamMB: 5376`, `freeRamMB: 5376`), không tốn thêm tiền, không đổi code, không rủi ro chất
 lượng. Nó đưa đỉnh 3710 MB từ **96% xuống ~71%** ngân sách, và cho phép nâng `inpaint_max_crop_mpx`
 để nhận cả trang cỡ đọc.

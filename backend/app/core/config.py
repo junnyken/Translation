@@ -290,8 +290,10 @@ class Settings(BaseSettings):
     #: khác và sẽ cho lọt đúng những trang làm chết worker. Một tham số đo trực tiếp trung thực
     #: hơn hẳn một công thức bịa.
     #:
-    #: 2,6 là ô lớn nhất ĐO ĐƯỢC là chạy xong — nhưng ở 96% ngân sách, tức gần như không còn biên
-    #: an toàn. Nới RAM 4096 -> 5376MB (gói CÒN chỗ, `get_resources` xác nhận) đưa 96% về ~71%.
+    #: 2,6 là ô lớn nhất ĐO ĐƯỢC là chạy xong — ở 96% ngân sách, tức gần như không còn biên an
+    #: toàn. Đã đề nghị nới RAM 4096 -> 5376MB (gói CÒN chỗ) để đưa 96% về ~71%; **người dùng chốt
+    #: GIỮ 4096MB (2026-09-11)**. Vậy trần này CHÍNH LÀ lớp bảo vệ duy nhất — đổi nó lên mà không
+    #: nới RAM là mở lại đúng đường làm chết worker.
     #: 0 hoặc số âm = TẮT phép kiểm.
     inpaint_max_crop_mpx: float = 2.6
     #: Constraint 10 của M4: KHÔNG lặng lẽ lùi về cv2.inpaint khi LaMa lỗi.
