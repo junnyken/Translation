@@ -263,6 +263,25 @@ class Settings(BaseSettings):
     #:
     #: Tắt cờ này thì bước căn chữ vẽ y như trước — không có nhánh nào đổi hành vi.
     e16_xoay_chu_nghieng: bool = True
+    #: E26-B — KHÔNG chèn chữ lên vùng BAO (vùng chứa trọn >=2 vùng khác).
+    #:
+    #: Đo thật trên `en_E12P01` (2026-09-11): một vùng 285x228 chứa trọn hai vùng nhỏ và lặp lại
+    #: nội dung của chúng ⇒ cùng một câu bị vẽ hai lần chồng nhau. Chính vùng bao đọc sai nhiều
+    #: nhất (`Luughing Fotlons`) vì nó gộp năm nhãn vào một khối.
+    #:
+    #: KHÔNG xoá dữ liệu, KHÔNG bỏ cờ rà soát — chỉ bước VẼ bỏ qua. Đúng nguyên tắc của M2
+    #: (`mark_overlap_suspects`: "chỉ gắn cờ, không merge/xóa box nào") và E12 ("máy không được
+    #: kết luận một vùng là rác rồi tự bỏ").
+    e26_bo_qua_vung_bao: bool = True
+    #: E26-C — vùng E12 đánh `possible_sfx` thì giữ nguyên chữ gốc, không dịch thành từ.
+    #:
+    #: Đo thật: `Clang` -> "Kêu vang", `Cling` -> "Bám vào", `Clong` -> "tiếng kêu". Dịch đúng từ
+    #: điển nhưng sai thể loại — đó là tiếng động, truyện tranh Việt thường giữ nguyên.
+    #:
+    #: CHỈ dựa vào cờ của E12 (bắt được 3/6 ca thật), KHÔNG tự suy thêm bằng luật chữ-ngắn /
+    #: nghiêng / ngoài-bong-bóng: một dương tính giả sẽ để THOẠI THẬT không được dịch, tức mất cả
+    #: câu — tệ hơn hẳn một SFX dịch sai. Nên cơ chế này cải thiện 3/6 và không phá ca nào.
+    e26_giu_nguyen_sfx: bool = True
     e15_min_agreement_ratio: float = 0.75
     #: Dựng chữ Việt theo cột. Mặc định TẮT và **phải giữ TẮT** cho tới khi chạy được Run B
     #: trên ảnh chữ dọc có license rõ. Nhận ra hướng ≠ dựng được chữ theo hướng đó.

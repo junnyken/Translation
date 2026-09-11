@@ -987,6 +987,7 @@ def _cong_nhip(engine_name: str) -> None:
 def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dict:
     started = time.perf_counter()
     from app.services.translate.engines import QuotaExhausted, TranslationFailed
+    from app.services.translate.gop_dong import gop_dong_de_dich
     from app.services.translate.reading_order import calculate_reading_order
 
     with sync_session() as session:
@@ -1065,15 +1066,28 @@ def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dic
         for position, region in enumerate(ordered, start=1):
             region.reading_order = position
 
+        # E26-A: gộp dòng bị bong bóng ngắt TRƯỚC khi gửi dịch. `raw_text` trong CSDL giữ
+        # NGUYÊN — E21 cho người dùng gõ đè nó, đổi ở đây là phá hợp đồng đó. Bước căn chữ tự
+        # ngắt dòng lại theo khung nên gộp ở đây không mất gì.
         ordered_specs = [
-            (r.id, (ocr_map[r.id].raw_text or ""), position)
+            (r.id, gop_dong_de_dich(ocr_map[r.id].raw_text or ""), position)
             for position, r in enumerate(ordered, start=1)
         ]
+        # E26-C — vùng E12 đánh `possible_sfx` thì GIỮ NGUYÊN chữ gốc, không gửi đi dịch.
+        # `Cling` -> "Bám vào" là dịch đúng từ điển nhưng sai thể loại: đó là tiếng kim loại,
+        # không phải động từ. Chỉ dựa vào cờ của E12, KHÔNG tự suy thêm — xem `translate/sfx.py`.
+        giu_nguyen: set = set()
+        if settings.e26_giu_nguyen_sfx:
+            from app.services.translate.sfx import nap_vung_giu_nguyen
+
+            giu_nguyen = nap_vung_giu_nguyen(session, [r.id for r in ordered])
         danh_dau_dang_chay(job)
         session.commit()
 
     engine_name = engine_override or settings.translate_default_engine
-    texts = [text for _rid, text, _pos in ordered_specs]
+    # Chỉ gửi đi dịch những vùng KHÔNG giữ nguyên; vùng SFX được ghép lại đúng chỗ sau đó.
+    chi_so_dich = [i for i, (rid, _t, _p) in enumerate(ordered_specs) if rid not in giu_nguyen]
+    texts = [ordered_specs[i][1] for i in chi_so_dich]
 
     used_engine = engine_name
     fallback_reason: str | None = None
@@ -1093,6 +1107,18 @@ def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dic
         used_engine = TranslationEngine.google_fast.value
         translator = build_translator(used_engine)
         translated = translator.translate(texts, source_lang, target_lang)
+
+    # Ghép về đúng thứ tự ban đầu: vùng giữ nguyên lấy lại CHỮ GỐC, vùng còn lại lấy bản dịch.
+    # Làm ở đây thay vì lúc ghi CSDL để phần bên dưới không phải biết gì về SFX.
+    if giu_nguyen:
+        _ban_dich = dict(zip(chi_so_dich, translated, strict=False))
+        translated = [
+            _ban_dich.get(i, ordered_specs[i][1]) for i in range(len(ordered_specs))
+        ]
+        logger.info(
+            "dịch trang %s: giữ nguyên %d vùng possible_sfx (không gửi đi dịch)",
+            page_id, len(giu_nguyen),
+        )
 
     usage = getattr(translator, "usage", None)
     elapsed = time.perf_counter() - started
@@ -1314,6 +1340,21 @@ def render_page_preview(page_id: uuid.UUID, resolver=None) -> str:
 
         ids = [r.id for r, _ts in rows]
         o_dat = nap_o_dat_chu(session, ids, van_tay_hien_vat(_lay_kho(), clean_rel))
+        # E26-B — vùng BAO chứa trọn >=2 vùng khác thì KHÔNG vẽ chữ lên nó: nội dung của nó lặp
+        # lại các vùng con, vẽ cả hai là cùng một câu bị vẽ hai lần chồng nhau. KHÔNG xoá dữ liệu
+        # và KHÔNG bỏ cờ rà soát — đúng nguyên tắc E12 "máy không tự kết luận vùng nào là rác".
+        bo_qua_bao: set = set()
+        if settings.e26_bo_qua_vung_bao:
+            from app.services.typeset.vung_bao import tim_vung_bao
+
+            bo_qua_bao = tim_vung_bao({
+                r.id: BBox(x=r.bbox_x, y=r.bbox_y, w=r.bbox_w, h=r.bbox_h) for r, _ts in rows
+            })
+            if bo_qua_bao:
+                logger.info(
+                    "typeset trang %s: bỏ qua %d vùng BAO (chứa trọn >=2 vùng khác): %s",
+                    page_id, len(bo_qua_bao), [str(i)[:8] for i in bo_qua_bao],
+                )
         # E16 — góc nghiêng. Tắt cờ thì dict rỗng ⇒ `RegionDraw.rotation_degrees` là None ⇒ vẽ y
         # như trước, không có nhánh nào đổi hành vi.
         goc = nap_goc_nghieng(session, ids) if settings.e16_xoay_chu_nghieng else {}
@@ -1329,6 +1370,7 @@ def render_page_preview(page_id: uuid.UUID, resolver=None) -> str:
                 rotation_degrees=goc.get(r.id),
             )
             for r, ts in rows
+            if r.id not in bo_qua_bao
         ]
 
     storage = get_storage()
@@ -1884,6 +1926,7 @@ def _run_region_retranslate(job_id: uuid.UUID, region_id: uuid.UUID, engine_over
     """
     started = time.perf_counter()
     from app.services.translate.engines import QuotaExhausted, TranslationFailed
+    from app.services.translate.gop_dong import gop_dong_de_dich
 
     with sync_session() as session:
         job = session.get(Job, job_id)
@@ -1908,7 +1951,14 @@ def _run_region_retranslate(job_id: uuid.UUID, region_id: uuid.UUID, engine_over
             session.commit()
             return {"status": "failed", "job_id": str(job_id), "error": job.error_log}
 
-        raw_text = ocr.raw_text
+        # E26-A: gộp dòng như đường dịch cả trang. Hai đường phải xử lý giống nhau, nếu không
+        # bấm "dịch lại vùng" sẽ cho kết quả khác lượt dịch tự động trên cùng chữ đó.
+        raw_text = gop_dong_de_dich(ocr.raw_text or "")
+
+        # E26-C CỐ Ý KHÔNG áp ở đây: đường này là do người bấm, nên nó là CỬA THOÁT cho lớp dương
+        # tính giả của `possible_sfx` (gán thuần theo độ dài <=5 ký tự, nên `NO!` cũng trúng — xem
+        # `docs/REPORT_E26.md` §4.3). Bịt lại cho "đối xứng" với `_run_translate` là làm thoại ngắn
+        # hết đường dịch. Việc gộp dòng thì PHẢI đối xứng, việc giữ nguyên SFX thì KHÔNG.
         source_lang = project.source_lang.value
         target_lang = project.target_lang.value
         danh_dau_dang_chay(job)

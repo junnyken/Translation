@@ -325,8 +325,13 @@ async def test_dich_lai_duoc_ca_trang_sau_khi_da_canh_chu(
     from app.models.enums import PageStatus
     from app.workers.tasks import run_typeset_job
 
+    # Chữ DÀI có chủ đích: `run_typeset_job` chạy bộ chấm E12, và E12 gắn `possible_sfx` cho mọi
+    # chữ <= 5 ký tự (`assessor.py:186`). Với E26-C thì vùng `possible_sfx` được GIỮ NGUYÊN chữ
+    # gốc, nên chữ mặc định "TRAI"/"PHAI" (4 ký tự) sẽ không mang tiền tố và assertion dưới đỏ.
+    # Dùng chữ dài giữ được assertion mạnh (MỌI vùng phải dịch lại) thay vì nới nó ra.
     page_id = await _page_ready_to_translate(
-        client, sample_page_image, fake_detector, fake_ocr_engine, fake_inpainter
+        client, sample_page_image, fake_detector, fake_ocr_engine, fake_inpainter,
+        ocr_texts=["Câu thoại bên trái", "Câu thoại bên phải"],
     )
     fake_translator(prefix="VI:")
     run_translate_job(_job_id(page_id, JobType.translate))

@@ -4426,3 +4426,71 @@ nhiều lần thì người dùng học cách phớt lờ nó, kể cả lần �
 **Chưa kiểm thị giác trên production**, và nói rõ vì sao: làm vậy cần tải một chapter test lên
 production. Bằng chứng hiện có là cùng commit đó đã kiểm thị giác trên 3 vùng thật ở local, và log
 build xác nhận production chạy đúng commit ấy.
+
+# ========== E26 — sửa chất lượng dịch A+B+C (2026-09-11) ==========
+
+Nguồn: lượt kiểm dịch EN/JA × màu/trắng đen, so với bản `vi` **do người dịch** của Pepper&Carrot.
+Ba lỗi đáng sửa ngay. Báo cáo đầy đủ: `docs/REPORT_E26.md`.
+
+## Audit lật ngược giả định của tôi: 3/4 hạ tầng ĐÃ CÓ SẴN
+
+| Hạ tầng | Trước E26 |
+|---|---|
+| Dịch theo ngữ cảnh cả trang | **ĐÃ CÓ** — `llm_context`, prompt viết đúng yêu cầu |
+| Cờ vùng chồng lấn | **ĐÃ CÓ và gắn ĐÚNG** — `overlap_suspect` trên đúng 4 vùng lỗi |
+| Phân loại SFX | **ĐÃ CÓ** — `RegionRelevance.possible_sfx` |
+| Gộp dòng trước khi dịch | **KHÔNG CÓ** |
+
+Nên #2 không phải "không phát hiện được" mà là **"đã gắn cờ nhưng không ai dùng cờ đó"**.
+
+## A — đo TRƯỚC/SAU trên chữ THẬT, 6/7 tốt lên
+
+```
+to name just\na few!            TRƯỚC 'chỉ kể tên thôi\nmột vài!'     SAU 'chỉ kể tên một vài!'
+私はコモナの市場に\n行かねばならぬ   TRƯỚC 'Tôi đang ở chợ ở Komona\nphải đi'  <- SAI NGHĨA
+                                SAU   'Tôi phải đi chợ ở Komona.'
+私がいない間に\nすべて片付けるのだ   TRƯỚC 'trong khi tôi đi vắng\nDọn dẹp mọi thứ'  <- ĐẢO THỨ TỰ
+                                SAU   'Dọn dẹp mọi thứ khi tôi đi vắng.'
+"A-true-witch-of-Chaosah..."   TRƯỚC '...của Hỗn loạn...'  <- dịch cả TÊN RIÊNG
+                                SAU   '...Chaosah...'
+Exactly.\nAs well it should be. TRƯỚC = SAU (KHÔNG đổi)   <- luật ranh giới câu chạy đúng
+```
+
+Ca cuối **không đổi** mới là bằng chứng quan trọng: nó chứng minh luật không gộp bừa.
+7/14 vùng của trang đo là nhiều dòng ⇒ lỗi này ảnh hưởng một nửa số thoại.
+
+## Một test ĐỎ, và vì sao tôi sửa fixture chứ không nới assertion
+
+`test_dich_lai_duoc_ca_trang_sau_khi_da_canh_chu` đỏ sau E26-C. Truy ra: fixture dùng `"TRAI"` /
+`"PHAI"` (4 ký tự) ⇒ bộ chấm E12 gắn `possible_sfx` ⇒ E26-C giữ nguyên ⇒ không mang tiền tố.
+
+Mục đích thật của test là *"trang đã canh chữ phải dịch lại được"*; độ dài chữ chỉ là chi tiết tình
+cờ. Nên đổi fixture sang chữ dài thực tế, **giữ nguyên assertion mạnh** (MỌI vùng phải dịch lại).
+
+Test này đồng thời là bằng chứng lớp dương tính giả của C là **thật**: `TRAI`/`PHAI` là từ có nghĩa.
+
+## C — kiểm an toàn trên TOÀN BỘ dữ liệu thật trước khi bật
+
+13 chữ bị E12 gắn `possible_sfx` trên cả 24 trang:
+`CC · Pam · 音全。 · Bam · SXXX · Boom · Grrrr · Grrr! · Poof! · Cling · Clong · Pfff! · Clang`
+⇒ **13/13 là tiếng động hoặc nhiễu OCR, 0 ca là thoại.**
+
+Nhưng `possible_sfx` gán **thuần theo độ dài** (`so_ky_tu_goc <= 5`) — comment ở `assessor.py:183`
+tự viết *"`NO!` là thoại"*. Rủi ro dương tính giả có thật, đo được 0/13, tắt bằng
+`e26_giu_nguyen_sfx=false`. Và nó **bỏ sót 3/6** SFX (`Shhshh`, `Shklak!`, `CRACK!!\nKLING!!`).
+
+## Kết quả
+
+```
+pytest tests/test_e26_*.py -q                        43 đạt
+pytest tests/test_translate_task_integration.py -q   14 đạt
+pytest -q -p no:randomly                           1368 đạt · 6 bỏ qua · 0 ĐỎ
+```
+
+## Chưa làm
+
+- **Chưa chạy lại cả 4 tổ hợp qua pipeline thật** sau khi sửa. A đo trên chữ thật ở tầng service;
+  B và C mới có unit test, chưa có bằng chứng end-to-end.
+- **Chưa deploy.**
+- **D (bật `llm_context`) chưa làm** — chờ người dùng xác nhận production có khoá Gemini chưa và
+  chấp nhận tốn token (`google_fast` miễn phí).

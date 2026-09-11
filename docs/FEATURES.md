@@ -551,3 +551,60 @@ Không tự khoá, tự xoá hay tự thu quyền của chính mình được.
 - **Chia sẻ một chapter cho hai người cùng làm.** Mỗi chapter đúng một chủ. Muốn giao việc thì
   nhả ra cho người kia nhận.
 - **Chặn dò mật khẩu.** Mỗi lần thử tốn 83ms nên dò rất chậm, nhưng chưa có khoá tạm sau N lần sai.
+
+## Bản dịch sát nghĩa hơn ở ba chỗ hay sai nhất (E26)
+
+Sau một lượt đối chiếu bản dịch máy với bản tiếng Việt **do người dịch** của cùng bộ truyện, ba lỗi
+lặp lại nhiều nhất đã được sửa.
+
+### Câu bị ngắt giữa dòng nay được dịch nguyên câu
+
+Chữ trong bong bóng phải ngắt dòng cho vừa khung — nhưng chỗ ngắt đó **không phải chỗ hết câu**.
+Trước đây mỗi dòng được đem đi dịch riêng, nên một câu bị chặt làm hai và ra nghĩa khác:
+
+| Gốc | Trước | Nay |
+|---|---|---|
+| `I need to go to the` / `market in Komona.` | *Tôi cần phải đi đến / chợ ở Komona.* | *Tôi cần đi chợ ở Komona.* |
+| `私はコモナの市場に` / `行かねばならぬ` | *Tôi đang ở chợ ở Komona / phải đi* | *Tôi phải đi chợ ở Komona.* |
+| `... to name just` / `a few!` | *... chỉ kể tên thôi / một vài!* | *... chỉ kể tên một vài!* |
+
+Nặng nhất là tiếng Nhật: chỗ ngắt dòng làm **đảo thứ tự mệnh đề**, ra một nghĩa khác hẳn.
+
+Trên trang đo được, **7/14 vùng là nhiều dòng** — nên việc này ảnh hưởng khoảng một nửa số thoại.
+
+Dòng **thật sự** hết câu (kết thúc bằng `.` `!` `?` `:` `;` `…`) vẫn được giữ tách, để hai câu rời
+không bị dính thành một.
+
+**Chữ bạn thấy trong phần sửa OCR không đổi.** Việc gộp chỉ xảy ra trên đường gửi đi dịch, còn chữ
+gốc trong cơ sở dữ liệu giữ y nguyên — nếu không thì bạn sẽ thấy chữ khác cái mình đã gõ.
+
+### Không còn chèn hai lần một câu lên cùng một chỗ
+
+Đôi khi bộ nhận diện cho ra một vùng lớn **trùm hẳn** lên vài vùng nhỏ và đọc lại đúng nội dung của
+chúng. Chèn chữ cho cả vùng lớn lẫn vùng nhỏ thì cùng một câu bị vẽ hai lần chồng nhau, đọc không
+ra chữ nào.
+
+Nay bước chèn chữ **bỏ qua vùng trùm** khi nó chứa trọn ít nhất hai vùng khác nhỏ hơn hẳn. Vùng đó
+**không bị xoá**: dòng dữ liệu và kết quả đọc chữ vẫn còn, bạn vẫn xem và sửa được — chỉ là không
+vẽ nó lên ảnh.
+
+Điều kiện "ít nhất hai vùng" là để **không bỏ oan** một bong bóng lớn hợp lệ chỉ vì nó chồng nhẹ
+một vùng khác. Mất một câu thoại tệ hơn nhiều so với vẽ trùng một câu.
+
+### Tiếng động giữ nguyên, không dịch thành từ
+
+`Clang` từng thành *"Kêu vang"*, `Cling` thành *"Bám vào"*, `Clong` thành *"tiếng kêu"* — dịch đúng
+từ điển nhưng **sai thể loại**: đó là tiếng kim loại chạm nhau, không phải động từ. Tiếng động
+trong truyện tranh Việt thường để nguyên.
+
+Nay những vùng hệ thống đã đánh dấu *"có thể là tiếng động"* được **giữ nguyên chữ gốc**.
+
+**Nói thẳng hai giới hạn:**
+
+- Cơ chế này **bắt được khoảng một nửa** số tiếng động. `Shhshh`, `Shklak!`, `CRACK!! KLING!!` vẫn
+  bị dịch như trước, vì hệ thống không đánh dấu chúng là tiếng động.
+- Dấu hiệu nhận biết hiện dựa vào **độ dài chữ**, nên một câu thoại rất ngắn (`NO!`, `Yes!`) có thể
+  bị giữ nguyên không dịch. Trên 24 trang đã chạy thật thì **chưa xảy ra lần nào** (13/13 trường
+  hợp đều đúng là tiếng động), nhưng khả năng đó có thật.
+
+Nếu bạn gặp một câu ngắn không được dịch, dùng nút **dịch lại vùng** — nó sẽ dịch bình thường.
