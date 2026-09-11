@@ -4650,3 +4650,52 @@ dung sau khi dịch) và phải có bằng chứng riêng.
 pytest -q -p no:randomly                 exit=0 · 1379 đạt · 6 bỏ qua · 0 ĐỎ
 + test khoá-rác thêm sau lượt đó          12/12 đạt  ⇒ tổng 1380 đạt · 6 bỏ qua
 ```
+
+## E26 A+B+C + D — LIVE trên production (2026-09-11)
+
+```
+translation-api  v60 -> v61   11/11 chặng, status=online
+build từ commit  1656eb1a     (KHỚP HEAD)
+celery ready     09:35:40
+dọn job mồ côi   'không có gì để dọn'
+lọc log 'ERROR'  0 dòng
+translation-web  v34          KHÔNG deploy — lý do dưới
+```
+
+### Bằng chứng code MỚI đang chạy, không phải dòng "deploy succeeded"
+
+`/healthz` trả **`"llm_configured": true`** — trường này CHỈ tồn tại trong commit vừa deploy. Nó là
+tín hiệu tự chứng: có trường ⇒ ảnh mới; thiếu trường ⇒ ảnh cũ. Trước deploy, cùng endpoint đó trả
+`{"status":"ok","worker":{…},"rss_api_mb":81.9}` — **không có** trường này.
+
+Tôi dùng chính nó làm điều kiện chờ deploy, thay vì tin `state: succeeded`.
+
+### Và nó trả lời luôn câu hỏi treo suốt E26
+
+**`llm_configured: true` ⇒ production ĐÃ cấu hình khoá Gemini.** Mục "Dịch theo ngữ cảnh" trong ô
+**Cách dịch** bấm được ngay, không cần deploy thêm hay đổi cấu hình gì.
+
+Đây đúng là thứ trước hôm nay không ai biết được nếu không đăng nhập — và là lý do trường này đáng
+thêm vào.
+
+### Cờ E26/E16 trên production đều BẬT (theo mặc định)
+
+Bảng biến môi trường của `translation-api` **không có** `E26_BO_QUA_VUNG_BAO`, `E26_GIU_NGUYEN_SFX`
+hay `E16_XOAY_CHU_NGHIENG` ⇒ dùng mặc định trong `config.py`, tức cả ba đều `True`.
+`LLM_PROJECT_RPM` cũng không có ⇒ mặc định 10 lượt/phút.
+
+`TRANSLATE_DEFAULT_ENGINE` **có** trong bảng nhưng bảng chỉ liệt kê TÊN, không trả giá trị — nên
+tôi **không biết** engine mặc định của production là gì và **không đoán**. Ô chọn theo từng mẻ là
+đường chắc chắn.
+
+### Cố ý KHÔNG deploy frontend — lần thứ hai
+
+`git diff --name-only 69b475b..HEAD -- frontend/` ra **rỗng**: E26 và D không đụng một dòng frontend
+nào. Rebuild vừa vô ích vừa đổi hash bundle ⇒ E24 bắn banner "có bản mới, tải lại đi" cho **mọi tab
+đang mở** một cách vô cớ. Một cờ báo sai nhiều lần thì người dùng học cách phớt lờ nó, kể cả lần
+đúng (`REPORT_E24 §3`).
+
+### Chưa kiểm thị giác TRÊN production
+
+Bằng chứng thị giác của B (so ảnh bật/tắt cờ) là ở **local**, trên trang thật. Kiểm trên production
+đòi tải một chapter test lên đó. Log build xác nhận production chạy đúng commit ấy.

@@ -2,8 +2,9 @@
 
 **Project:** Translation · **Phase:** E · **Ngày:** 2026-09-11
 **Nền:** `69b475b` (sau E16 LIVE)
-**Trạng thái:** **A + B + C xong**, có bằng chứng end-to-end trên trang thật (§7b) ·
-**D đã ĐO và thắng rõ** (§7), bật được ngay trên giao diện theo từng mẻ · **chưa deploy**
+**Trạng thái:** **LIVE** — `translation-api` v61, build từ `1656eb1a` (khớp HEAD), 11/11 chặng.
+A+B+C có bằng chứng end-to-end (§7b) · D đã ĐO và thắng rõ (§7) · production **ĐÃ có khoá Gemini**
+(`/healthz` trả `llm_configured: true`) nên "Dịch theo ngữ cảnh" bấm được ngay.
 
 ## 1. Summary
 
@@ -360,11 +361,14 @@ $ pytest -q -p no:randomly                           1368 đạt · 6 bỏ qua �
   đen) thì chưa.
 - **B giảm chồng chữ nhưng KHÔNG xoá hết** (§7b): cặp `e8e30ad4`/`6aaf8a55` vẫn vẽ trùng vì chứa
   nhau 68.6% (< 0.9) và chỉ 1 vùng con (< 2). Cố ý chưa vá — nới ngưỡng là bỏ oan bong bóng thật.
-- **Chưa deploy** — kể cả `/healthz` thêm `llm_configured`, nên **vẫn chưa ai biết production có
-  khoá Gemini hay không**. Đó là lý do §7.5 (khoá rỗng vẫn lùi được) là bằng chứng phải có, chứ
-  không phải phần trang trí.
-- **Chưa tự đổi `TRANSLATE_DEFAULT_ENGINE` trên production** — cố ý, §7.6. Nhưng người dùng chọn
-  `llm_context` theo từng mẻ ngay trên giao diện được, nên D **không bị chặn** bởi việc này.
+- ~~Chưa deploy~~ → **ĐÃ LIVE** `translation-api` v61, build từ `1656eb1a`. `/healthz` trả
+  `llm_configured: true` ⇒ production **có** khoá Gemini, "Dịch theo ngữ cảnh" dùng được ngay.
+  §7.5 (khoá rỗng vẫn lùi được) vẫn là bằng chứng phải có: nó canh ca khoá bị gỡ/hết hạn sau này.
+- **Chưa tự đổi `TRANSLATE_DEFAULT_ENGINE` trên production** — cố ý, §7.6. Và **tôi không biết giá
+  trị hiện tại của nó**: bảng biến môi trường chỉ liệt kê TÊN, không trả giá trị. Không đoán. Ô
+  chọn theo từng mẻ là đường chắc chắn, nên D không bị chặn bởi việc này.
+- **Chưa kiểm thị giác TRÊN production.** Bằng chứng ảnh của B là ở local; kiểm trên production đòi
+  tải một chapter test lên đó.
 - C bỏ sót 3/6 SFX (§4.3) và có lớp dương tính giả lý thuyết với thoại ≤5 ký tự.
 - B không giúp được ca gộp-ngược của tiếng Nhật — nhưng **D thì có** (§3.3, §7.3).
 - Chưa quy chi phí ra tiền (§7.4): có số token đo được, không có đơn giá kiểm chứng được.
