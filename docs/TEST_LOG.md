@@ -4406,3 +4406,23 @@ Lượt kiểm đầu tôi đo góc mực từng vùng, ra **giống hệt nhau*
   production trước.
 - Chữ nghiêng nhỏ hơn chữ ngang (hộp bao sau khi xoay lớn hơn, phải thu nhỏ cho khỏi bị gọt) —
   đánh đổi có chủ đích, không phải lỗi.
+
+## E16 nửa nghiêng — LIVE (2026-09-11)
+
+```
+translation-api  v59 -> v60   11/11 chặng
+build từ commit  36d02767     (khớp HEAD)
+/healthz         200 · ok · RSS 93,4 MB
+celery ready     07:12:49
+translation-web  v34          KHÔNG deploy — xem lý do dưới
+```
+
+**Cố ý KHÔNG deploy frontend.** `git diff --name-only 44fcb854..HEAD -- frontend/` ra **rỗng** — nó
+không đổi một dòng nào. Rebuild vừa vô ích, vừa có thể đổi hash bundle ⇒ E24 (vừa lên cùng ngày)
+sẽ hiện banner "có bản mới, tải lại đi" cho **mọi tab đang mở** một cách vô cớ. Một cờ báo sai
+nhiều lần thì người dùng học cách phớt lờ nó, kể cả lần đúng — đúng lập luận đã viết trong
+`REPORT_E24 §3`.
+
+**Chưa kiểm thị giác trên production**, và nói rõ vì sao: làm vậy cần tải một chapter test lên
+production. Bằng chứng hiện có là cùng commit đó đã kiểm thị giác trên 3 vùng thật ở local, và log
+build xác nhận production chạy đúng commit ấy.

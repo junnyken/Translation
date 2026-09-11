@@ -170,7 +170,7 @@ Chưa phát hành lên Chrome Web Store.
 | Nhận biết/điều hướng chữ dọc có đủ bằng chứng | **Partial / chỉ để rà soát** |
 | Dựng chữ dọc tiếng Việt | **Blocked** về mặt cấu trúc |
 | Dựng chữ nghiêng/cách điệu | **Không hỗ trợ**; chỉ rà soát |
-| E16 đặt chữ xoay | **Nửa NGHIÊNG: xong + kiểm live** (11 mẫu thật của E23 mở được cổng chặn mà E15 đặt ra — xem `REPORT_E16.md`). **Nửa DỌC: vẫn BỊ CHẶN** ở tầng hợp đồng OCR (`MangaOCREngine` không trả hình học dòng chữ), và 3 mẫu `vertical_ttb` hiện có đều là dương tính giả |
+| E16 đặt chữ xoay | **Nửa NGHIÊNG: LIVE** (deploy 2026-09-11, api v59→v60, commit `36d02767`) (11 mẫu thật của E23 mở được cổng chặn mà E15 đặt ra — xem `REPORT_E16.md`). **Nửa DỌC: vẫn BỊ CHẶN** ở tầng hợp đồng OCR (`MangaOCREngine` không trả hình học dòng chữ), và 3 mẫu `vertical_ttb` hiện có đều là dương tính giả |
 
 > **Run C là pass RỖNG.** 3/3 assertion đạt nhưng dữ liệu thật có **0** vùng chữ nghiêng trên
 > n=9 — chúng chỉ chứng minh "không vùng nào vi phạm", **không** chứng minh đường xử lý chữ

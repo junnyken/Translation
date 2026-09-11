@@ -2,7 +2,8 @@
 
 **Project:** Translation · **Phase:** E · **Ngày:** 2026-09-11
 **Nền:** `48a8255` (sau E23/E24 LIVE)
-**Trạng thái:** **nửa NGHIÊNG xong + kiểm live** · **nửa DỌC vẫn BỊ CHẶN, không sửa được bằng code**
+**Trạng thái:** **nửa NGHIÊNG LIVE** (deploy 2026-09-11, api v59→v60, build từ commit `36d02767`)
+· **nửa DỌC vẫn BỊ CHẶN, không sửa được bằng code**
 
 ## 1. Summary
 
@@ -186,8 +187,13 @@ một tính năng thị giác.
   chữ thật sự đọc ngược. Muốn chắc thì phải lưu đa giác dòng chữ có thứ tự.
 - **Chưa kiểm trên chữ nghiêng THOẠI**, chỉ trên SFX: cả 11 mẫu thật đều là SFX (`Clang`, `CRACK!!`,
   `Shklak!`, `PHRoooOwwoww!!!`) hoặc bảng chữ (`APPROVED FOR`). Chưa có mẫu thoại nghiêng nào.
-- **Chưa deploy.** Cần một lượt kiểm trên production trước, vì đây là thay đổi **nhìn thấy được**
-  ở đầu ra cuối cùng.
+- **Đã deploy** (api v59→v60, commit `36d02767`), nhưng **chưa kiểm thị giác TRÊN production**:
+  làm vậy cần tải một chapter test lên production, tức thêm dữ liệu test vào đó. Bằng chứng hiện
+  có: cùng commit đó đã kiểm thị giác trên 3 vùng thật ở máy local (§8), và log build xác nhận
+  production đang chạy đúng commit ấy.
+- **Không deploy frontend** (giữ v34): nó không đổi một dòng nào từ commit trước. Rebuild vừa vô
+  ích vừa có thể đổi hash bundle ⇒ E24 sẽ hiện banner "có bản mới, tải lại đi" cho mọi tab đang mở
+  một cách vô cớ, mà cờ báo sai nhiều lần thì người dùng phớt lờ luôn cả lần đúng.
 - Chữ nghiêng nhỏ hơn chữ ngang (§6) — đánh đổi, không phải lỗi.
 - Cờ rà soát của E15 **không** bị xoá: vùng nghiêng vẫn mang `needs_review` +
   `rotated_text_manual_review_only`. Người dùng vẫn được nhắc soi lại.
