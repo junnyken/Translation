@@ -265,6 +265,22 @@ class Settings(BaseSettings):
     inpaint_auto_chain: bool = True
     #: Kiểm chứng khách quan: OCR lại đúng vùng đã xoá, còn chữ -> inpaint_needs_review.
     inpaint_verify_by_ocr: bool = True
+    #: Cần ÍT NHẤT bao nhiêu ký tự chữ/số đọc lại được thì mới coi là "chưa xoá sạch".
+    #:
+    #: Vì sao không phải 1: đo cả 24 trang của lượt E23 — 168 vùng, 11 vùng bị gắn cờ, và **cả 11
+    #: đều chỉ ra ĐÚNG MỘT ký tự**: 'O' x4, 'X' x2, 'G', '1', 'C', 'è', và một '中' trên trang
+    #: TIẾNG ANH. Đó là hình OCR bịa ra từ nét cong/góc còn lại trên nền đã xoá (viền bong bóng,
+    #: khung panel), không phải chữ chưa xoá. Chữ thật còn sót trong bong bóng là một từ hoặc mảnh
+    #: từ, không phải một ký tự đơn.
+    #:
+    #: Hậu quả của ngưỡng 1: **7/24 trang (29%) bị gắn cờ cần rà soát** mà gần như toàn báo động
+    #: giả. Cờ báo sai nhiều thì người dùng học cách phớt lờ nó, và lần thật sự cần thì cũng bỏ
+    #: qua — hỏng luôn cả cơ chế.
+    #:
+    #: Đánh đổi đã cân: có thể BỎ SÓT một ký tự đơn còn sót thật. Thiệt hại đó nhỏ (một nét lạc
+    #: trên nền, và bước căn chữ sẽ vẽ chữ dịch đè lên chính vùng đó), nhỏ hơn hẳn cái giá của
+    #: việc làm người dùng mất niềm tin vào cờ rà soát. Đặt 1 để quay lại hành vi cũ.
+    inpaint_verify_min_chars: int = 2
     inpaint_intra_op_threads: int = 0
     #: Trang bao nhiêu TRIỆU ĐIỂM ẢNH trở xuống thì xoá chữ cả trang một lượt; lớn hơn thì chia
     #: theo cụm bong bóng. Đo thật: LaMa cần ~1,6 GB RAM cho mỗi triệu điểm ảnh, nên trang truyện

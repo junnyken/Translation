@@ -5,6 +5,7 @@ from app.services.ocr.engines import (
     PaddleOCREngine,
     UnsupportedSourceLang,
     get_ocr_engine,
+    dem_ky_tu_co_nghia,
     has_meaningful_text,
 )
 
@@ -17,5 +18,6 @@ __all__ = [
     "OCREngineUnavailable",
     "UnsupportedSourceLang",
     "get_ocr_engine",
+    "dem_ky_tu_co_nghia",
     "has_meaningful_text",
 ]

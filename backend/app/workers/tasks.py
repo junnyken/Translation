@@ -705,18 +705,30 @@ def _verify_text_removed(clean_abs_path: str, dilated: list, source_lang: str) -
 
     Trả danh sách text còn đọc được. Rỗng = xoá sạch. Không dựa vào cảm nhận "nhìn thấy artifact".
     """
-    from app.services.ocr.engines import has_meaningful_text
+    from app.services.ocr.engines import dem_ky_tu_co_nghia
 
     engine = get_ocr_engine_cached(source_lang)
+    toi_thieu = max(1, settings.inpaint_verify_min_chars)
     leftovers: list[str] = []
-    for bbox in dilated:
+    for thu_tu, bbox in enumerate(dilated, 1):
         try:
             text, _confidence = engine.recognize(clean_abs_path, bbox)
         except Exception as exc:  # noqa: BLE001 - lỗi kiểm chứng không được giết job inpaint
             logger.warning("Kiểm chứng OCR trên vùng %s lỗi: %s", bbox, exc)
             continue
-        if has_meaningful_text(text):
-            leftovers.append(text.strip())
+        so_ky_tu = dem_ky_tu_co_nghia(text)
+        if so_ky_tu >= toi_thieu:
+            # Ghi LẠI CHỮ, không chỉ đếm. Trước E23 chỗ này chỉ dùng `len(leftovers)`, nên cờ
+            # "cần rà soát" nói có vấn đề mà không đưa nổi một bằng chứng nào — người dùng phải
+            # tự soi cả 8-11 vùng để tìm vùng đáng ngờ.
+            leftovers.append(f"vùng {thu_tu}: {text.strip()[:60]!r}")
+        elif so_ky_tu:
+            # Dưới ngưỡng: KHÔNG gắn cờ, nhưng vẫn để lại dấu vết. Nếu ngưỡng đặt sai thì đây là
+            # chỗ duy nhất nhìn ra được.
+            logger.info(
+                "kiểm chứng xoá chữ: vùng %d đọc được %r (%d ký tự) — dưới ngưỡng %d, BỎ QUA",
+                thu_tu, text.strip()[:40], so_ky_tu, toi_thieu,
+            )
     return leftovers
 
 
@@ -837,8 +849,11 @@ def _run_inpaint(job_id: uuid.UUID) -> dict:
     )
 
     logger.info(
-        "inpaint job %s: %d vùng, %s, còn chữ ở %d vùng, xoá ảnh clean cũ=%s, %.1fs",
-        job_id, len(boxes), target_status.value, len(leftovers), deleted_old, elapsed,
+        "inpaint job %s: %d vùng, %s, còn chữ ở %d vùng%s, xoá ảnh clean cũ=%s, %.1fs",
+        job_id, len(boxes), target_status.value, len(leftovers),
+        # Đếm thôi thì không ai truy được vì sao trang bị gắn cờ. Ghi luôn chữ tìm được.
+        f" ({'; '.join(leftovers)})" if leftovers else "",
+        deleted_old, elapsed,
     )
     return {
         "status": "done",
@@ -848,6 +863,8 @@ def _run_inpaint(job_id: uuid.UUID) -> dict:
         "clean_image_path": clean_rel,
         "page_status": target_status.value,
         "regions_with_text_left": len(leftovers),
+        #: E23 — trả cả BẰNG CHỨNG, không chỉ số đếm.
+        "text_left_evidence": leftovers,
         "replaced_old_clean_image": deleted_old,
         "elapsed_seconds": round(elapsed, 2),
         "translate_job_id": str(translate_job_id) if translate_job_id else None,

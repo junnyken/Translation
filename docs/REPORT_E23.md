@@ -2,7 +2,7 @@
 
 **Project:** Translation · **Phase:** E — Hosted Reliability & Performance
 **Ngày:** 2026-09-10 · **Nền:** `faec936` (sau E25 đóng)
-**Trạng thái:** **5 bản sửa** đã làm và kiểm live · lượt 24 trang **ĐÃ XONG 24/24** · 1 bản sửa **bị bác bỏ có lý do** · 1 "lỗi" hoá
+**Trạng thái:** **6 bản sửa** đã làm và kiểm live · lượt 24 trang **ĐÃ XONG 24/24** · 1 bản sửa **bị bác bỏ có lý do** · 1 "lỗi" hoá
 ra **không phải lỗi production**
 
 ## 1. Summary
@@ -24,6 +24,7 @@ và E22 dưới một lượt dài thật.
 | Trang kẹt vĩnh viễn khi thiếu `_clean.png`, mọi nút bấm vô ích | **LỖI NẶNG NHẤT, đã sửa** — §4b |
 | Mục mẻ kẹt `running` ⇒ mẻ đứng im 40 phút | **LỖI THẬT, đã sửa + kiểm live** — §4c |
 | Một trang giết worker **4 lần**; cụm gộp thành cả trang ⇒ tiết kiệm bằng 0 | **LỖI THẬT, đã sửa + kiểm live** — §4d |
+| Cờ `inpaint_needs_review` bật 29% số trang, **cả 11 vùng chỉ 1 ký tự** ⇒ báo động giả | **LỖI THẬT, đã sửa** — §4e |
 | 25 job detect cho 24 trang | Lỗi thật nhưng **KHÔNG sửa** — cân không đáng, §5 |
 | Mẻ không tự chạy tiếp sau sự cố (phải bấm "Chạy lại") | Giới hạn còn lại, có đường thoát — §4c.4 |
 | **RSS đỉnh 3604MB = 91% ngân sách production** | Số quan trọng nhất; lật lại quyết định giữ 4096MB ở E25. §6 |
@@ -473,7 +474,76 @@ lượng. Nó đưa đỉnh 3710 MB từ **96% xuống ~71%** ngân sách, và c
 trên lượt 6 trang với RSS phẳng ~1219MB. Nhưng 6 trang ấy **chưa bao giờ chạm bước xoá chữ hàng
 loạt**, nơi đỉnh thật là 3710MB. Dữ liệu mới, kết luận mới.
 
-## 5. Lỗi 6 — job detect trùng: ĐÃ THỬ SỬA HAI CÁCH, BÁC BỎ CẢ HAI
+## 4e. Lỗi 6 — cờ "cần rà soát" bật cho 29% số trang, gần như toàn báo động giả
+
+Trong lượt 24 trang tôi ghi lại "7/23 trang ra `inpaint_needs_review` (~30%) — chưa soi vì sao".
+Nay đã soi.
+
+### 4e.1 Con số 30% là SỐ HỌC, không phải độ nhạy sai
+
+Đếm trên log: **74 vùng chữ, 6 vùng bị gắn cờ = 8,1% mỗi VÙNG**, nhưng **4/9 trang = 44% mỗi
+TRANG**. Một vùng hỏng là cả trang bị cờ, mỗi trang ~8 vùng ⇒ 1 − 0,92⁸ ≈ 49%. Tỉ lệ đáng quan tâm
+là con số mỗi vùng, không phải mỗi trang.
+
+### 4e.2 Nhưng bằng chứng cho thấy nó là báo động giả
+
+Quét lại **toàn bộ 24 trang giao ra cuối cùng** (168 vùng) bằng đúng phép kiểm chứng đang chạy:
+
+```
+24 trang · 168 vùng · 11 vùng bị gắn cờ · 7 trang (29%) -> inpaint_needs_review
+```
+
+Và **cả 11 vùng đều đọc ra ĐÚNG MỘT ký tự**:
+
+| Ký tự | Số lần |
+|---|---|
+| `O` | 4 |
+| `X` | 2 |
+| `G` · `1` · `C` · `è` · `中` | mỗi loại 1 |
+
+Toàn `O`, `X`, `C`, `G`, `1` — đúng những hình OCR bịa ra từ nét cong/góc còn lại trên nền đã xoá
+(viền bong bóng, khung panel). Có cả một **`中` trên trang TIẾNG ANH**. Chữ thật còn sót trong bong
+bóng là một từ hoặc mảnh từ, không phải một ký tự đơn.
+
+⇒ Tiêu chí `has_meaningful_text` (**≥1 ký tự**) quá lỏng cho mục đích này.
+
+### 4e.3 Và cờ đó KHÔNG đưa ra bằng chứng nào
+
+`_verify_text_removed` trả về **danh sách chữ đọc được**, nhưng `_run_inpaint` **chỉ dùng `len()`**
+— chữ tìm được và vùng nào đều không lưu ở đâu, kể cả log lẫn kết quả job. Người dùng nhận được
+"trang này cần rà soát" rồi phải tự soi cả 8-11 vùng để đoán vùng nào.
+
+Đi ngược đúng nguyên tắc của chính dự án (`Button.jsx`): *"Nút mờ mà không nói vì sao là chỗ người
+dùng đứng lại lâu nhất: họ không biết còn thiếu gì."*
+
+### 4e.4 Bản sửa
+
+**Siết ngưỡng CỤC BỘ**: `inpaint_verify_min_chars = 2`. Thêm `dem_ky_tu_co_nghia()` **riêng**,
+**không** đụng `has_meaningful_text` — hàm đó còn dùng cho `needs_manual` của bước OCR, nơi một ký
+tự đọc được VẪN là chữ thật. Hai câu hỏi khác nhau thì hai hàm khác nhau.
+
+**Ghi lại bằng chứng**: `leftovers` nay mang `vùng N: '<chữ>'`, vào cả dòng log kết thúc lẫn kết
+quả job (`text_left_evidence`). Vùng đọc được chữ nhưng **dưới** ngưỡng cũng được log ở mức info —
+nếu ngưỡng đặt sai thì đó là chỗ duy nhất nhìn ra.
+
+**Đánh đổi đã ghi thành test, không giấu:** ngưỡng 2 **bỏ sót chữ thật dài một ký tự** — "Ừ" là
+một từ tiếng Việt hoàn chỉnh, và truyện tranh hay có tiếng thốt một chữ.
+`test_DIEM_MU_da_biet_chu_that_MOT_ky_tu_bi_bo_sot` chốt điểm mù này lại. Vì sao vẫn chấp nhận:
+bỏ sót nghĩa là một nét chữ đơn có thể còn lại — mà bước căn chữ vẽ chữ dịch đè lên **chính vùng
+đó** nên gần như luôn bị che; còn gắn cờ oan 29% số trang thì dạy người dùng phớt lờ cờ, hỏng luôn
+cả những lần đúng.
+
+Hiệu quả trên chính dữ liệu đã đo: **11/11 vùng oan bị lọc ⇒ 7 trang gắn cờ về 0**.
+
+### 4e.5 Chưa làm
+
+- **Chưa live-verify chiều "vẫn bắt được chữ thật"** trên production: trong 24 trang không có vùng
+  nào sót ≥2 ký tự, nên không có ca dương tính thật để kiểm. Chỉ có unit test.
+- Bằng chứng mới vào **log và kết quả job**, chưa vào CSDL ⇒ **giao diện vẫn chưa chỉ được vùng nào
+  cần soi**. Nối vào lớp đánh giá `RegionQualityAssessment` (E12) là slice riêng: nó cần quyết định
+  bước xoá chữ có được ghi vào lớp giải thích của E12 hay không.
+
+## 5. Lỗi 7 — job detect trùng: ĐÃ THỬ SỬA HAI CÁCH, BÁC BỎ CẢ HAI
 
 **Hiện tượng:** 25 job detect cho 24 trang. Một trang (`0bc631f8`) chạy detect hai lần.
 

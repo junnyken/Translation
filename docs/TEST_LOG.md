@@ -4113,3 +4113,56 @@ Không dải nào đủ rộng — 11 vùng chữ cách nhau ~10px sau khi nở 
 |---|---|
 | Chặn đúng cỡ thật sự giết worker | ô 3,14 Mpx ⇒ `crop_too_large: … vượt trần 2.60 …`; `oom_kill` giữ nguyên 112, worker sống |
 | KHÔNG chặn oan cỡ thật sự chạy được | trang E13P07 (2,57 Mpx) **chạy xong thật** trong lượt 24/24 |
+
+## Bổ sung E23 (3) — cờ "cần rà soát" bật 29% số trang, gần như toàn báo động giả
+
+Mục "chưa soi" còn lại của E23 (7/23 trang ra `inpaint_needs_review`) nay đã soi.
+
+### Con số 30% là SỐ HỌC, không phải độ nhạy sai
+
+Đếm trên log: **74 vùng, 6 vùng gắn cờ = 8,1% mỗi VÙNG** nhưng **4/9 trang = 44% mỗi TRANG**. Một
+vùng hỏng là cả trang bị cờ, mỗi trang ~8 vùng ⇒ 1−0,92⁸ ≈ 49%.
+
+### Nhưng bằng chứng cho thấy là báo động giả
+
+Quét lại **cả 24 trang giao ra cuối cùng** (168 vùng) bằng đúng phép kiểm chứng đang chạy:
+
+```
+24 trang · 168 vùng · 11 vùng gắn cờ · 7 trang (29%) -> inpaint_needs_review
+```
+
+**Cả 11 vùng đều đọc ra ĐÚNG MỘT ký tự:** `O` x4 · `X` x2 · `G` · `1` · `C` · `è` · và một **`中`
+trên trang TIẾNG ANH**. Toàn hình OCR bịa ra từ nét cong/góc còn lại trên nền đã xoá.
+
+### Và cờ đó KHÔNG kèm bằng chứng nào
+
+`_verify_text_removed` trả về danh sách chữ, nhưng `_run_inpaint` **chỉ dùng `len()`** — chữ tìm
+được và vùng nào không lưu ở đâu cả. Người dùng nhận "cần rà soát" rồi tự soi 8-11 vùng.
+
+### Bản sửa
+
+- `inpaint_verify_min_chars = 2`, dùng hàm **riêng** `dem_ky_tu_co_nghia()`. **KHÔNG** đụng
+  `has_meaningful_text` — nó còn dùng cho `needs_manual` của OCR, nơi 1 ký tự VẪN là chữ thật.
+- `leftovers` nay mang `vùng N: '<chữ>'`, vào cả log lẫn kết quả job (`text_left_evidence`). Vùng
+  đọc được chữ nhưng DƯỚI ngưỡng cũng log ở mức info — nếu ngưỡng sai thì đó là chỗ duy nhất thấy.
+- Hiệu quả trên chính dữ liệu đã đo: **11/11 vùng oan bị lọc ⇒ 7 trang gắn cờ về 0**.
+
+### Test bắt được một điểm mù, và tôi giữ nó lại thay vì xoá
+
+Ca `'Ừ'` làm test đỏ: đó là **một từ tiếng Việt hoàn chỉnh dài một ký tự**, và ngưỡng 2 bỏ sót nó.
+Không phải lỗi test — là tính chất thật của bản sửa. Đã chuyển thành
+`test_DIEM_MU_da_biet_chu_that_MOT_ky_tu_bi_bo_sot` để chốt điểm mù lại, kèm lý do chấp nhận:
+bỏ sót thì một nét đơn còn lại mà bước căn chữ vẽ đè lên chính vùng đó nên gần như luôn bị che;
+còn gắn cờ oan 29% thì dạy người dùng phớt lờ cờ, hỏng luôn cả những lần đúng.
+
+```
+$ pytest tests/test_e23_kiem_chung_xoa_chu.py -q     28 passed
+$ pytest -q -p no:randomly                           1244 đạt · 6 bỏ qua · 0 ĐỎ
+```
+
+### Chưa làm
+
+- **Chưa live-verify chiều "vẫn bắt được chữ thật"**: trong 24 trang không có vùng nào sót ≥2 ký
+  tự, nên không có ca dương tính thật để kiểm. Chỉ có unit test.
+- Bằng chứng mới vào log + kết quả job, **chưa vào CSDL** ⇒ giao diện vẫn chưa chỉ được vùng nào
+  cần soi. Nối vào `RegionQualityAssessment` (E12) là slice riêng.

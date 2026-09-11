@@ -29,6 +29,20 @@ def has_meaningful_text(text: str) -> bool:
     return bool(_MEANINGFUL.search(text or ""))
 
 
+def dem_ky_tu_co_nghia(text: str) -> int:
+    """Đếm ký tự chữ/số thật. Dùng khi "có hay không" là ngưỡng quá lỏng.
+
+    Sinh ra ở E23: phép kiểm chứng xoá chữ dùng `has_meaningful_text` (>=1 ký tự) và gắn cờ
+    `inpaint_needs_review` cho 7/24 trang — mà **cả 11 vùng bị gắn cờ đều chỉ ra ĐÚNG MỘT ký tự**
+    ('O' x4, 'X' x2, 'G', '1', 'C', 'è', và một '中' trên trang tiếng Anh). Đó là hình mà OCR bịa
+    ra từ nét cong/góc còn lại trên nền đã xoá, không phải chữ chưa xoá.
+
+    KHÔNG đổi `has_meaningful_text`: nó còn dùng cho `needs_manual` của bước OCR, nơi một ký tự
+    đơn VẪN là chữ đọc được thật. Hai câu hỏi khác nhau thì hai hàm khác nhau.
+    """
+    return len(_MEANINGFUL.findall(text or ""))
+
+
 class UnsupportedSourceLang(ValueError):
     """source_lang không nằm trong 3 giá trị đã chốt — KHÔNG fallback âm thầm sang engine khác."""
 
