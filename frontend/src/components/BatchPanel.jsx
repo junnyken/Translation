@@ -194,11 +194,23 @@ export default function BatchPanel({ projectId, soTrang }) {
             <div className="thanh-tien-trong" style={{ width: `${phanTram}%` }} />
           </div>
           <p className="ghi-chu">
-            <b>{me.completed_pages}</b>/{me.total_pages} trang xong
+            <b>{me.completed_pages}</b>/{me.total_pages} trang xong <b>hết mọi bước</b>
             {me.failed_pages > 0 && <> · <b className="do">{me.failed_pages} hỏng</b></>}
             {me.blocked_pages > 0 && <> · <b className="vang">{me.blocked_pages} hết lượt gọi</b></>}
             {dangLam && <> · đang làm trang {dangLam.page_order}</>}
           </p>
+          {/* E23 (lượt 24 trang thật): hàng đợi là FIFO nên pipeline chạy gần như theo từng BƯỚC
+              qua tất cả các trang, không xong hẳn từng trang. Đo được: 22/24 trang đã qua đọc chữ
+              mà ô này vẫn là 0 — nhìn y như máy đứng. Con số 0 KHÔNG sai (chưa trang nào xong hết
+              mọi bước), nên không bịa phần trăm khác; chỉ nói rõ nó đếm gì và chỉ sang chỗ có
+              tiến độ theo bước. */}
+          {dangChayMe && me.completed_pages === 0 && me.total_pages > 1 && (
+            <p className="ghi-chu">
+              Ô này chỉ đếm trang đã qua <b>hết</b> các bước, nên nó đứng ở 0 gần hết lượt chạy —
+              các trang đang chạy dở không được tính. Tiến độ theo từng bước xem ở
+              {' '}<b>Tiến trình chapter</b> phía trên.
+            </p>
+          )}
 
           <div className="hang nut">
             {soCanChayLai > 0 && (

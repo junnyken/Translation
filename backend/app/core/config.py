@@ -271,6 +271,25 @@ class Settings(BaseSettings):
     #: thật ở cỡ đọc (3,6 triệu điểm) chạy cả trang là bị hệ điều hành giết.
     inpaint_whole_page_max_mpx: float = 2.5
     inpaint_tile_margin: int = 96
+    #: E23 — hai số dưới đây để bước xoá chữ TỰ BÁO HỎNG thay vì để hệ điều hành giết worker.
+    #:
+    #: Vì sao cần: chạy theo cụm CHỈ tiết kiệm được khi các cụm nhỏ. Đo thật ở E23 (2026-09-10),
+    #: trang E13P07 (1200x2144 = 2,57 Mpx) có 11 vùng chữ trải khắp trang — hộp bao chung
+    #: 1039x2077 = 2,16 Mpx = 84% diện tích. Cơ chế gộp ô chồng nhau (vốn để tránh lộ đường nối)
+    #: thu 11 vùng thành ĐÚNG MỘT cụm cỡ gần cả trang ⇒ chạy theo cụm không tiết kiệm gì, vẫn cần
+    #: ~3,5-4,1 GB. Kết quả: worker bị giết 4/4 lần, mọi việc đang chạy thành mồ côi, và mỗi lần
+    #: bấm chạy lại là giết worker thêm một lần.
+    #:
+    #: `gb_per_mpx` ĐO LẠI ở E23 cho ĐÚNG đường chạy theo cụm, bằng `VmHWM` (đỉnh thật):
+    #: trang 1200x2144, 1 cụm phủ cả trang (2,57 Mpx) -> đỉnh **3367,8 MB** ⇒ **1,28 GB/Mpx**.
+    #: Con số 1,6 ghi ở `lama.py` được đo ở M4 cho đường chạy CẢ TRANG — dùng nó cho đường cụm là
+    #: **cao hơn thực tế 1,25 lần**, và cao hơn nghĩa là CHẶN OAN trang vốn chạy được. n=1, nên
+    #: đây là hệ số cho một phép canh chặn-thảm-hoạ, KHÔNG phải cổng lọc tinh.
+    inpaint_gb_per_mpx: float = 1.28
+    #: Ngân sách suy ra từ số ĐO ĐƯỢC, không phải chọn bừa: container production 4096MB
+    #: (`get_resources`) chạy `ROLE=all` nên chứa cả uvicorn (~104MB lúc rảnh) lẫn worker
+    #: ⇒ worker còn ~3950MB. Để 0 hoặc số âm là TẮT phép kiểm.
+    inpaint_mem_budget_gb: float = 3.85
     #: Constraint 10 của M4: KHÔNG lặng lẽ lùi về cv2.inpaint khi LaMa lỗi.
     #: Muốn cho phép fallback thì phải bật tường minh ở đây.
     inpaint_allow_opencv_fallback: bool = False

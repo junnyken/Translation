@@ -3888,3 +3888,182 @@ tải việc khác (37/62GB). Bằng chứng nội tại là nhiễu: thông lư
 ⇒ **Song song hoá tầng task: CHƯA ĐO.** Không được kết luận theo cả hai chiều. Số duy nhất rút ra
 được (vì không phụ thuộc thời gian): **RSS ~1117MB mỗi tiến trình**, ổn định qua cả ba nhánh ⇒
 2 worker ≈ 2,2GB nhét được vào 4096MB; 3 worker ≈ 3,4GB thì sát trần khi cộng tiến trình API.
+
+# ========== E24 — báo tab đang chạy bundle cũ (2026-09-10) ==========
+
+Lỗi nền: `REPORT_E21b §11.3` — tab mở sẵn từ trước lúc deploy chạy **frontend cũ trên backend
+mới**; lưu chữ gốc OCR **thành công** nhưng giao diện báo lỗi `/jobs/null`. Sẽ tái diễn ở **mọi**
+lần deploy đổi hợp đồng API. Chi tiết: `docs/REPORT_E24.md`.
+
+## Frontend
+
+```
+$ cd frontend && npm test -- --run
+361 passed (23 file)      (331 nền E21b + 25 của E24 + 5 của E23)
+$ npm run build           ✓ built — dist/assets/index-<hash>.js
+```
+
+- `lib/phien-ban-moi.test.js` — 16 test. Quan trọng nhất: **`LUÔN tải index.html với cache
+  no-store`**. Mất tuỳ chọn đó thì trình duyệt trả bản đã cache, phép so luôn nói "không có bản
+  mới", và cơ chế **tự vô hiệu hoá mà không có lỗi nào nổ ra** để ai đó phát hiện.
+- `components/BangBanMoi.test.jsx` — 9 test, gồm: **KHÔNG tự tải lại trang** (tự tải lại sẽ xoá
+  đúng thứ E21b vừa dựng để bảo vệ — chữ đang gõ dở), kiểm lại lúc tab được xem lại, bỏ qua
+  `visibilitychange` khi tab đang ẩn, dừng hỏi sau khi đã biết là cũ, dọn nhịp khi unmount.
+
+## Kiểm trên hiện vật THẬT do Vite sinh (không phải fixture tự viết)
+
+Unit test không bắt được sai giả định về hình dạng output, nên chạy hàm thuần trên `dist/index.html`
+thật:
+
+| Đầu vào | Kết quả | Mong đợi |
+|---|---|---|
+| bundle mới `index-FQWWfZ_R.js` | `false` | `false` ✓ |
+| bundle cũ `index-BBBiktgW.js` (hash **thật** từ §11.3) | `true` | `true` ✓ |
+| URL tuyệt đối của bundle mới | `false` | `false` ✓ |
+
+Phát hiện phụ: `index.html` còn trỏ tới `config.js` **không có hash**.
+
+## Live verification — MỚI XONG BƯỚC 1/2
+
+Bước 1 ĐẠT: build v1 (`index-Bn23K2FI.js`), phục vụ tĩnh cổng 8099, mở bằng Chromium thật ⇒ đang
+chạy đúng bundle đó, **không** có `.bang-ban-moi`, màn đăng nhập hiện đúng.
+
+Bước 2 CHƯA XONG: đã dựng đúng cảnh (build v2 `index-CEmON4Vx.js` — đổi hash bằng biến env
+`VITE_API_BASE` để **không phải sửa tệp nguồn nào** — rồi triển khai vào thư mục đang phục vụ; xác
+nhận `index.html` trả v2 trong khi tab vẫn chạy v1). Nhưng `Runtime.evaluate` và
+`Accessibility.getFullAXTree` đều **timeout** vì máy đang chạy E23 (load average 17,27 trên 12
+core, Celery ăn 762% CPU). **E24 CHƯA được live-verified, chưa deploy.**
+
+# ========== E23 — chạy thật 24 trang: 4 lỗi được sửa, 1 bị bác bỏ (2026-09-10) ==========
+
+Số đầy đủ ở `docs/REPORT_E23.md`. Đây là lượt chạy tìm ra nhiều lỗi nhất từ trước tới nay, và lý do
+là nó **chạy đủ lâu để worker bị giết ba lần**.
+
+## Bàn thử — hai chỗ KHÔNG dựng được, phải nói trước
+
+1. **Không bó được RAM container.** DinD từ chối `mem_limit`: `cannot enter cgroupv2 ... threaded
+   mode`, container không start nổi. ⇒ lượt này **không** quan sát được hồi phục sau OOM đúng
+   ngưỡng production.
+2. **Trần cgroup 10 GiB của cả workspace** mới là thứ giết worker (`memory.current` 8,7 GiB,
+   `oom_kill 99`), không phải giới hạn container. `free -m` báo RAM host 64GB nên **không thấy**
+   trần này — chỗ dễ chẩn đoán sai nhất. ⇒ các cú giết **không đại diện production**, và tổng thời
+   gian lượt chạy **vô giá trị**.
+
+## Kết quả test
+
+```
+$ cd backend && pytest tests/test_hoi_phuc_integration.py -q          20 passed  (12 nền + 8 mới)
+$ pytest tests/test_e23_typeset_mat_anh_clean.py -q                    6 passed
+$ pytest tests/test_worker_pool_config_unit.py -q                      4 passed
+$ pytest <typeset + reconcile>                                       104 passed
+$ pytest tests/test_batch_integration.py -q                           41 passed  (sau khi revert §5)
+$ cd frontend && npm test -- --run                                   361 passed
+```
+
+## Bốn lỗi đã sửa, kèm cách chứng minh
+
+| # | Lỗi | Chứng minh |
+|---|---|---|
+| 1 | Bàn thử dùng pool khác production ⇒ SIGKILL không kích hoạt quét mồ côi | Live: `dọn job mồ côi (ĐÃ SỬA): 3 job -> failed, 1 trang lùi khỏi trạng thái tạm` |
+| 2 | Trang kẹt vĩnh viễn khi thiếu `_clean.png` (12 job typeset hỏng, mọi nút bấm vô ích) | 6 test + `doi_chieu_hien_vat` in đúng `translated -> ocr_done` |
+| 3 | `BatchItem` kẹt `running` ⇒ mẻ đứng im 40 phút | Live: `0 job -> failed, … 1 mục mẻ -> failed` |
+| 4 | `completed_pages` đứng 0 gần hết lượt chạy ⇒ nhìn như treo | 5 test; đo được 22/24 trang đã qua OCR mà ô vẫn `0/24` |
+
+## Ba test guard đáng ghi lại vì chúng bắt lỗi của CHÍNH bản sửa
+
+1. **`test_pool_celery_phai_khop_production` bắt lỗi parser của nó.** Bản đầu lọc theo từng dòng,
+   mà `deploy-start.sh` viết lệnh celery trên ba dòng và `--pool=solo` nằm ở dòng thứ hai — dòng đó
+   có chữ "celery" (trong `-Q celery`) nhưng **không** có chữ "worker". Test báo production dùng
+   `prefork`, sai.
+2. **`test_pool_solo_o_local_phai_kem_co_che_bat_lai` đã được KIỂM NGƯỢC.** Tạm bỏ dòng `restart`
+   ⇒ test ĐỎ; khôi phục ⇒ xanh. Một test guard không đỏ được thì không chứng minh gì.
+3. **Bản sửa #3 đầu tiên bỏ sót đúng cảnh đang có.** Nó lọc theo "job vừa bị đánh mồ côi trong lượt
+   NÀY", nên mục kẹt từ lượt quét **trước** (job đã `failed`) không được cứu. Đã mở rộng thành
+   "mục `running` mà job đã tới trạng thái cuối", kèm test riêng.
+
+## Một tiền đề test của tôi sai
+
+Dựng `Job(page_id=None)` để mô phỏng job mồ côi ⇒ CSDL từ chối, `job.page_id` là **NOT NULL**. Cảnh
+"job không có trang" **không thể tồn tại** — schema đã chặn sẵn. Cảnh có thật là job bị xoá mất
+trong lúc task còn chờ trong hàng đợi.
+
+## Bẫy quy trình: hai lượt pytest cùng lúc
+
+Tôi chạy suite đầy đủ ở nền rồi chạy tiếp một lượt test khác — đúng thứ
+`feedback_pytest_mot_luot_mot_luc` đã ghi là gây đỏ giả và treo. Cả hai treo. Phải dừng cả hai rồi
+chạy **một lượt duy nhất**.
+
+## Chưa làm
+
+- Lượt 24 trang **chưa xong** khi ghi mục này ⇒ **chưa có tổng thời gian thật**, tức câu hỏi khởi
+  đầu ("54 phút đúng không") vẫn chưa trả lời được. Và một trang từng kẹt nghĩa là tổng thời gian
+  của lượt này không dùng làm số tham chiếu được.
+- Mẻ **không tự chạy tiếp** sau sự cố — phải bấm "Chạy lại". Đã kiểm đường thoát bằng lệnh thật:
+  `POST /batch-runs/{id}/resume` ⇒ `resumed_count: 2`, 20s sau `inpaint | running | 1`.
+- 7/23 trang ra `inpaint_needs_review` (~30%) — chưa soi vì sao.
+- Job detect trùng (25 job cho 24 trang): **cố ý không sửa**, hai cách đều bị bác bỏ có bằng chứng.
+
+## Bổ sung E23 — lượt chạy ĐÃ XONG 24/24, và bản sửa thứ 5
+
+```
+$ cd backend && pytest -q -p no:randomly      1216 đạt · 6 bỏ qua · 0 ĐỎ  (exit 0)
+$ cd frontend && npm test -- --run             361 đạt
+```
+
+**Lượt 24 trang hoàn tất: 24/24 `typeset_done`.** Nhưng tổng thời gian **không dùng được** làm số
+tham chiếu: worker bị OOM killer của workspace giết 3 lần, và tôi bấm "Chạy lại" nhiều lần giữa
+chừng.
+
+### Bản sửa thứ 5 — một trang giết worker 4 lần
+
+Trang E13P07 (1200x2144 = 2,57 Mpx, **lớn nhất** bộ) có 4 job inpaint đều `failed / worker_lost`.
+Code đã có cơ chế "quá 2,5 Mpx thì xoá chữ theo cụm", và log xác nhận nó chạy — nhưng in
+**"1 cụm"**. Đo trực tiếp: `số cụm: 1 · cụm lớn nhất: 2.57 Mpx` = **đúng bằng cả trang**. Trang có
+11 vùng chữ trải khắp (hộp bao chung = 84% diện tích) nên cơ chế gộp ô chồng nhau thu tất cả thành
+một cụm cỡ trang ⇒ **tiết kiệm bằng 0**.
+
+Bản sửa: `_kiem_ngan_sach_bo_nho()` chạy TRƯỚC khi gọi model, kiểm **ô cắt lớn nhất** (không kiểm
+cỡ trang), ném `InpaintFailed` kèm câu lỗi nói cách xử lý. Không đổi chất lượng đầu ra — chỉ chặn
+đúng những lượt trước đây kết thúc bằng SIGKILL.
+
+Live verification (cấu hình production, code thật trong container):
+
+```
+cấu hình thật: gb_per_mpx=1.28 · ngân sách=3.85 GB
+trang 1600x2259 = 3,61 Mpx  ->  CHẶN ĐÚNG, worker không bị giết
+  memory_budget_exceeded: … cần khoảng 4.5 GB (cụm lớn nhất trong 1 cụm: 3.51 triệu điểm
+  x 1.28 GB/triệu điểm) nhưng ngân sách chỉ 3.85 GB. Đã DỪNG trước khi chạy…
+```
+
+### HAI lỗi suy luận của tôi trên đường sửa nó — cả hai đều đáng ghi
+
+**1. Dùng RSS-sau làm bằng chứng, mà nó không phải đỉnh.** Log in
+`bộ nhớ [inpaint: sau]: RSS 1628.1 MB` và tôi đã định kết luận "trang chỉ cần 1,5 GB, chẩn đoán
+của tôi sai". RSS *sau* là con số đã giải phóng mảng tạm. Đo lại bằng **`VmHWM`** (đỉnh thật):
+**3367,8 MB** — gấp **2,07 lần**. Tin RSS-sau thì đã kết luận ngược hoàn toàn.
+
+**2. Trình bày một lượt chạy làm bằng chứng cho code chưa tồn tại.** Tôi báo bản sửa đã kiểm live
+vì lượt inpaint sau đó thành công. Mốc thời gian nói khác:
+
+```
+job inpaint thành công : 11:41:59Z
+lama.py sửa lúc        : 11:42:43Z   <- SAU khi job chạy 44 giây
+worker khởi động lúc   : 11:44:35Z   <- SAU cả hai
+```
+
+Lượt đó chạy trên code **cũ**. "Sửa xong rồi thấy nó chạy đúng" **chưa phải** bằng chứng — phải
+kiểm tiến trình đang chạy có nạp đúng code đó chưa.
+
+**3. Và hệ số của tôi sai theo chiều CÓ HẠI.** Bản đầu dùng `gb_per_mpx = 1,6` (số ghi trong
+`lama.py`, nhưng đo ở M4 cho đường chạy **CẢ TRANG**). Với 1,6 thì E13P07 được dự đoán cần 4,11 GB
+> ngân sách 3,85 ⇒ **bị chặn**, trong khi đo thật nó cần 3,37 GB và **chạy được**. Phép canh sẽ
+chặn oan đúng trang nó sinh ra để cứu. Đã hiệu chỉnh về **1,28 GB/Mpx** (n=1) và **thay test đã mã
+hoá niềm tin sai**: nay có test canh E13P07 **KHÔNG** bị chặn, và test canh trang cỡ đọc **bị**
+chặn.
+
+### Chưa làm (bổ sung)
+
+- Chiều "không chặn oan" của phép canh **chưa live-verify được trên production**: sau khi hiệu
+  chỉnh thì không trang nào trong chapter này bị chặn. Chỉ có unit test cho chiều đó.
+- Hệ số 1,28 GB/Mpx là **n=1**. Nó đủ cho một phép canh chặn-thảm-hoạ, **không** đủ làm cổng lọc
+  tinh. Muốn dùng chặt hơn thì phải đo nhiều cỡ trang.

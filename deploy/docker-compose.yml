@@ -68,7 +68,25 @@ services:
       - ../backend/fonts:/fonts:ro
       - model_cache:/model-cache
     # M2/M3: worker tiêu thụ Job(type=detect) và Job(type=ocr) bằng comic-text-detector (ONNX, CPU).
-    command: celery -A app.workers.celery_app.celery_app worker -l info -Q celery --concurrency=1
+    # --pool=solo PHẢI khớp `deploy-start.sh` của production. Trước đây chỗ này dùng
+    # `--concurrency=1` (pool prefork, CÓ tiến trình con) và điều đó làm bàn thử KHÔNG tái hiện
+    # được chế độ hỏng quan trọng nhất:
+    #   prefork: OOM giết tiến trình CON, tiến trình chính sống ⇒ `worker_ready` KHÔNG chạy lại
+    #            ⇒ quét job mồ côi KHÔNG chạy ⇒ job nằm `running` và trang nằm `detecting` mãi.
+    #   solo   : OOM giết CẢ worker ⇒ vòng bật lại trong deploy-start.sh khởi động lại
+    #            ⇒ `worker_ready` chạy ⇒ quét mồ côi gắn nhãn resource_limit_suspected.
+    # Đo thật ở E23 (24 trang, 2026-09-10): SIGKILL trên bàn thử prefork để lại một job kẹt
+    # `running` 20+ phút — một lỗi CHỈ CÓ ở local. Bàn thử lệch production ở đúng chỗ này thì
+    # mọi kết luận độ tin cậy rút từ nó đều vô giá trị.
+    # `test_pool_celery_phai_khop_production` khoá ràng buộc này lại.
+    #
+    # `restart` bên dưới là PHẦN KHÔNG THỂ THIẾU của lựa chọn `solo`, không phải tuỳ chọn thêm:
+    # solo nghĩa là SIGKILL giết cả tiến trình chính, nên thiếu cơ chế bật lại thì container chết
+    # hẳn — tệ hơn prefork (prefork còn sinh tiến trình con thay thế). Production có vòng
+    # `while true` trong `deploy-start.sh`; ở local thì Docker làm việc đó.
+    # Đúng chuỗi này mới tái hiện production: SIGKILL → bật lại → `worker_ready` → quét mồ côi.
+    restart: unless-stopped
+    command: celery -A app.workers.celery_app.celery_app worker -l info -Q celery --pool=solo
 
   # M7 — màn sửa tay. Chỉ là consumer của API, không đụng DB/Redis.
   frontend:

@@ -1,0 +1,26 @@
+# Override cho E23 — tái hiện ràng buộc BỘ NHỚ của production ở máy local.
+#
+# Vì sao cần: container local mặc định KHÔNG giới hạn bộ nhớ (`Memory=0`), còn production bị bó
+# 4096MB. Thứ dễ vỡ nhất khi chạy 24 trang liên tục là bộ nhớ — chạy local trần thì bỏ sót đúng
+# rủi ro cần kiểm, và sẽ "đạt" một cách vô nghĩa.
+#
+# Vì sao 3950MB chứ không phải 4096MB: production dùng `ROLE=all` — MỘT container 4096MB chứa CẢ
+# uvicorn (API) lẫn Celery worker. Local thì hai container tách. API lúc rảnh đo được ~104MB, nên
+# ngân sách thật của worker ở production là ~3950MB, không phải 4096MB.
+#
+# Chiều sai của phép đo này là CÓ CHỦ Ý: bó ngặt hơn production một chút ⇒ nếu worker sống sót thì
+# production gần như chắc chắn sống sót. Nếu nó bị OOM ở đây thì kết luận là **chưa dứt khoát**
+# (có thể do tôi bó ngặt), phải đo lại đúng 4096MB trước khi kết luận production hỏng.
+#
+# Chạy:
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.e23-mem.yml up -d worker
+#
+# Bị OOM thì kernel gửi SIGKILL (mã thoát 137) — đúng cảnh E22 dựng để xử lý, nên lượt chạy này
+# cũng là phép kiểm thật cho E22 (heartbeat + quét job mồ côi) dưới một lượt dài.
+
+services:
+  worker:
+    mem_limit: 3950m
+    # Không đặt memswap_limit riêng: để nó bằng mem_limit ⇒ KHÔNG có swap.
+    # Cho swap thì OOM sẽ biến thành "chậm kinh khủng", che mất đúng thứ cần thấy.
+    memswap_limit: 3950m

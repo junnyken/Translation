@@ -133,6 +133,8 @@ class LamaInpainter:
         cpu_mem_arena: bool = False,
         whole_page_max_mpx: float = 2.5,
         tile_margin: int = 96,
+        gb_per_mpx: float = 1.28,
+        mem_budget_gb: float = 3.85,
     ) -> None:
         self.weights_path = weights_path
         self.device = device
@@ -144,6 +146,10 @@ class LamaInpainter:
         #: Trang bao nhiêu triệu điểm ảnh trở xuống thì chạy CẢ TRANG một lượt (đường đã kiểm
         #: chứng ở M4). Lớn hơn thì chạy theo cụm, vì bộ nhớ LaMa ~1,6 GB / triệu điểm ảnh.
         self.whole_page_max_mpx = whole_page_max_mpx
+        #: E23 — hai số này để tự báo hỏng thay vì để hệ điều hành giết worker. Xem
+        #: `_kiem_ngan_sach_bo_nho` và `Settings.inpaint_mem_budget_gb`.
+        self.gb_per_mpx = gb_per_mpx
+        self.mem_budget_gb = mem_budget_gb
         #: Lề ảnh giữ quanh mỗi cụm để model có ngữ cảnh vẽ lại cho khớp nền.
         self.tile_margin = tile_margin
         self._session = None
@@ -220,6 +226,32 @@ class LamaInpainter:
             raise InpaintFailed(f"LaMa trả ảnh {pred_hwc.shape[:2]} khác đầu vào {(cao, rong)}")
         return pred_hwc
 
+    def _kiem_ngan_sach_bo_nho(
+        self, mpx_o_cat: float, rong: int, cao: int, mo_ta_o: str
+    ) -> None:
+        """Ném `InpaintFailed` nếu ô cắt sắp chạy được dự đoán là vượt ngân sách bộ nhớ.
+
+        Vì sao thà tự báo hỏng: đo thật ở E23 (2026-09-10) — trang 1200x2144 làm worker bị hệ điều
+        hành giết **4/4 lần**. Mỗi cú giết làm **mọi** việc đang chạy thành mồ côi, và mỗi lần bấm
+        chạy lại là giết worker thêm một lần. Một trang hỏng kèm lý do đọc được thì chỉ mất một
+        trang; để OS giết worker thì mất cả mẻ và người dùng không hiểu vì sao.
+
+        Phép kiểm này **không đổi chất lượng đầu ra một chút nào**: nó chỉ chặn đúng những lượt
+        chạy mà trước đây kết thúc bằng SIGKILL, chứ không sửa gì ở những lượt chạy được.
+        """
+        if self.mem_budget_gb <= 0 or self.gb_per_mpx <= 0:
+            return  # tắt tường minh
+        can_gb = mpx_o_cat * self.gb_per_mpx
+        if can_gb <= self.mem_budget_gb:
+            return
+        raise InpaintFailed(
+            f"memory_budget_exceeded: xoá chữ trang {rong}x{cao} cần khoảng {can_gb:.1f} GB "
+            f"({mo_ta_o}: {mpx_o_cat:.2f} triệu điểm x {self.gb_per_mpx} GB/triệu điểm) nhưng "
+            f"ngân sách chỉ {self.mem_budget_gb:.2f} GB. Đã DỪNG trước khi chạy để không làm chết "
+            "worker và mất các việc đang chạy khác. Cách xử lý: hạ độ phân giải trang, hoặc tăng "
+            "RAM cho worker."
+        )
+
     def inpaint(self, image_path: str, masks: list[BBox]) -> str:
         """Xoá chữ trong các vùng mask, trả ĐƯỜNG DẪN ẢNH CLEAN (file mới).
 
@@ -243,6 +275,7 @@ class LamaInpainter:
         trieu_diem = (width * height) / 1e6
         if trieu_diem <= self.whole_page_max_mpx:
             # Trang nhỏ: chạy cả trang một lượt như M4 đã kiểm chứng.
+            self._kiem_ngan_sach_bo_nho(trieu_diem, width, height, "cả trang")
             pred_hwc = self._chay_model(rgb, mask)
         else:
             # Trang lớn: chạy theo từng cụm bong bóng, nếu không sẽ hết bộ nhớ.
@@ -252,6 +285,14 @@ class LamaInpainter:
                 "Ảnh %dx%d (%.1f triệu điểm) vượt ngưỡng %.1f -> xoá chữ theo %d cụm",
                 width, height, trieu_diem, self.whole_page_max_mpx, len(cum),
             )
+            # Kiểm ô cắt LỚN NHẤT, không kiểm cỡ trang: bộ nhớ do ô thật sự đưa vào model quyết
+            # định. Chạy theo cụm CHỈ tiết kiệm được khi cụm nhỏ — E23 đo được cảnh 11 vùng chữ
+            # trải khắp trang bị gộp thành một cụm cỡ gần cả trang, tiết kiệm bằng 0.
+            if cum:
+                o_lon = max((x1 - x0) * (y1 - y0) for x0, y0, x1, y1 in cum)
+                self._kiem_ngan_sach_bo_nho(
+                    o_lon / 1e6, width, height, f"cụm lớn nhất trong {len(cum)} cụm"
+                )
             for x0, y0, x1, y1 in cum:
                 o_anh = rgb[y0:y1, x0:x1]
                 o_mask = mask[y0:y1, x0:x1]

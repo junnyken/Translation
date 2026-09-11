@@ -87,6 +87,36 @@ def _muc_lui_khi_mat_anh_clean(session: Session, page: Page) -> PageStatus:
     return PageStatus.detected if co_vung is not None else PageStatus.queued
 
 
+def sua_mot_trang_mat_anh_clean(
+    session: Session, storage: IObjectStorage, page: Page
+) -> PageStatus | None:
+    """Sửa NGAY một trang khai có ảnh clean mà kho không có. Trả trạng thái mới, `None` nếu ảnh còn.
+
+    Vì sao cần bản một-trang bên cạnh `doi_chieu_hien_vat` (quét toàn bộ): đo thật ở E23 (lượt 24
+    trang, 2026-09-10) cho thấy một cú SIGKILL vào bước xoá chữ để lại trang mang trạng thái như
+    thể bước đó đã xong, nhưng `_clean.png` **không tồn tại**. Bước căn chữ sau đó hỏng
+    `FileNotFoundError` — **12 lần cho cùng một trang** — và bị phân loại `permanent_model`.
+
+    Quét job mồ côi KHÔNG bắt được cảnh này: nó khôi phục trạng thái *job/trang*, không khôi phục
+    *hiện vật*. Còn `doi_chieu_hien_vat` thì bắt được (đã kiểm) nhưng phải có người chạy tay —
+    `RECONCILE_LEGACY` mặc định `off`. Người dùng thật vì vậy **không có đường nào tự thoát**: bấm
+    "Chạy lại trang hỏng" cũng hỏng tiếp vì tệp vẫn thiếu.
+
+    Hàm này để bước căn chữ tự dọn ngay tại chỗ hỏng, dùng **cùng một** logic chọn mốc lùi
+    (`_muc_lui_khi_mat_anh_clean`) với công cụ quét toàn bộ — không đẻ ra luật lùi thứ hai.
+
+    KHÔNG commit: người gọi quyết định thời điểm ghi.
+    """
+    if not page.clean_image_path or storage.exists(page.clean_image_path):
+        return None
+    moi = _muc_lui_khi_mat_anh_clean(session, page)
+    page.clean_image_path = None
+    # Cố ý KHÔNG đi qua `assert_transition` — giống nhánh sửa chữa của `doi_chieu_hien_vat`:
+    # đây là sửa chữa, không phải một bước của pipeline, và máy trạng thái không có đường lùi.
+    page.status = moi
+    return moi
+
+
 def doi_chieu_hien_vat(
     session: Session, storage: IObjectStorage, *, ap_dung: bool
 ) -> KetQuaDoiChieu:

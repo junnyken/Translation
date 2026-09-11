@@ -660,6 +660,8 @@ def get_inpainter():
             cpu_mem_arena=settings.inpaint_cpu_mem_arena,
             whole_page_max_mpx=settings.inpaint_whole_page_max_mpx,
             tile_margin=settings.inpaint_tile_margin,
+            gb_per_mpx=settings.inpaint_gb_per_mpx,
+            mem_budget_gb=settings.inpaint_mem_budget_gb,
         )
     return _inpainter
 
@@ -1545,6 +1547,44 @@ def _run_typeset(job_id: uuid.UUID) -> dict:
     }
 
 
+def _lui_neu_mat_anh_clean(job_id: uuid.UUID) -> str | None:
+    """Trang khai đã xoá chữ mà `_clean.png` không có trong kho ⇒ lùi trang lại. Trả câu lỗi.
+
+    `None` = không phải cảnh này, cứ căn chữ bình thường.
+
+    Vì sao kiểm TRƯỚC khi làm việc chứ không bắt ở `except`: bắt theo `FileNotFoundError` là dựa
+    vào kiểu/chuỗi của một lỗi phát sinh sâu trong bước vẽ — giòn, và không phân biệt được "mất
+    ảnh clean" với "mất font". Kiểm trước thì điều kiện tường minh và test được.
+
+    Vì sao phải lùi trang: đo thật ở E23 (2026-09-10) — SIGKILL vào bước xoá chữ để lại trang mang
+    trạng thái như thể đã xong nhưng tệp không tồn tại. Bước căn chữ hỏng **12 lần cho cùng một
+    trang**, bị phân loại `permanent_model`, và giữ trang ở `translated` theo đúng thiết kế cũ
+    ("hỏng thì giữ nguyên để chạy lại được"). Thiết kế đó đúng cho lỗi chạy-lại-được (thiếu font,
+    hết giờ) nhưng **sai** ở đây: chạy lại bao nhiêu lần cũng hỏng vì tệp vẫn thiếu, nên người
+    dùng không có đường tự thoát.
+    """
+    from app.services.reconcile import sua_mot_trang_mat_anh_clean
+    from app.services.storage import get_storage
+
+    with sync_session() as session:
+        job = session.get(Job, job_id)
+        page = session.get(Page, job.page_id) if job is not None and job.page_id else None
+        if page is None:
+            return None
+        moi = sua_mot_trang_mat_anh_clean(session, get_storage(), page)
+        if moi is None:
+            return None
+        session.commit()
+        logger.warning(
+            "typeset job %s: thiếu ảnh đã xoá chữ của trang %s — lùi trang về %s để chạy lại "
+            "bước xoá chữ", job_id, page.id, moi.value,
+        )
+        return (
+            "missing_clean_image: thiếu ảnh đã xoá chữ (bước xoá chữ bị dừng giữa chừng). "
+            f"Đã lùi trang về '{moi.value}' — chạy lại trang này sẽ xoá chữ lại rồi căn chữ."
+        )
+
+
 @celery_app.task(
     bind=True,
     name="typeset.run_typeset_job",
@@ -1558,6 +1598,11 @@ def run_typeset_job(self, job_id: str) -> dict:
     preview dở dang (ảnh chỉ được đổi chỗ nguyên tử sau khi vẽ xong).
     """
     jid = uuid.UUID(str(job_id))
+    thieu = _lui_neu_mat_anh_clean(jid)
+    if thieu is not None:
+        _mark_job_failed(jid, thieu)
+        bao_ket_thuc_buoc(_page_cua_job(jid), jid, "failed", thieu)
+        return {"status": "failed", "job_id": str(jid), "error": thieu}
     try:
         kq = _run_typeset(jid)
         bao_ket_thuc_buoc(
