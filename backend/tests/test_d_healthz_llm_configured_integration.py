@@ -59,3 +59,26 @@ async def test_cac_truong_cu_con_nguyen(client):
     body = (await client.get("/healthz")).json()
     for truong in ("status", "worker", "rss_mb", "rss_api_mb"):
         assert truong in body, f"mất trường cũ `{truong}` — phá hợp đồng API.md §healthz"
+
+
+async def test_healthz_noi_ro_engine_dich_dang_dung(client):
+    """Bảng biến môi trường của nền tảng hosting KHÔNG trả giá trị, chỉ trả tên biến.
+
+    Nên sau khi đổi `TRANSLATE_DEFAULT_ENGINE` thì không có cách nào kiểm chứng nó đã có hiệu lực.
+    Và "đã đổi trên bảng quản trị" KHÁC "container đang chạy đọc được giá trị mới" — thay đổi chỉ
+    áp ở lượt deploy kế tiếp. Trường này nói đúng thứ tiến trình ĐANG dùng.
+    """
+    body = (await client.get("/healthz")).json()
+    assert body["translate_default_engine"] in ("google_fast", "llm_context")
+
+
+async def test_healthz_engine_doi_theo_cau_hinh(client, monkeypatch):
+    """Chốt chặn test-rỗng-nghĩa: phải chứng minh trường này ĐỌC cấu hình, không phải hằng số."""
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    monkeypatch.setenv("TRANSLATE_DEFAULT_ENGINE", "llm_context")
+    try:
+        assert (await client.get("/healthz")).json()["translate_default_engine"] == "llm_context"
+    finally:
+        get_settings.cache_clear()

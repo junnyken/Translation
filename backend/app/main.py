@@ -77,7 +77,17 @@ async def healthz() -> dict:
     #
     # Đặt sau `status` và trước phần worker: thêm trường là thay đổi CỘNG THÊM, không đụng
     # trường nào đang có (API.md §healthz).
-    ket_qua["llm_configured"] = get_settings().llm_configured
+    _s = get_settings()
+    ket_qua["llm_configured"] = _s.llm_configured
+
+    # Engine dịch MẶC ĐỊNH đang có hiệu lực. Không phải bí mật — chỉ là `google_fast` hoặc
+    # `llm_context`.
+    #
+    # Vì sao cần: bảng biến môi trường của nền tảng hosting **không trả giá trị**, chỉ trả tên
+    # biến. Nên sau khi đổi `TRANSLATE_DEFAULT_ENGINE`, KHÔNG có cách nào kiểm chứng nó đã có hiệu
+    # lực — và "đã đổi trên bảng quản trị" khác "container đang chạy đọc được giá trị mới", vì
+    # thay đổi chỉ áp ở lượt deploy kế tiếp. Trường này nói đúng thứ tiến trình ĐANG dùng.
+    ket_qua["translate_default_engine"] = _s.translate_default_engine
 
     duong_dan = _Path(os.environ.get("WORKER_STATE_FILE", "/tmp/trang-thai-worker.json"))
     try:

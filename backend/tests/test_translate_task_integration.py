@@ -190,7 +190,7 @@ async def test_dong_model_khong_tra_thi_de_pending_khong_bia(
         def translate(self, texts, source_lang, target_lang):
             return ["CÓ DỊCH", ""]  # model bỏ sót dòng 2
 
-    monkeypatch.setattr(tasks, "build_translator", lambda engine: _Half())
+    monkeypatch.setattr(tasks, "build_translator", lambda engine, boi_canh="": _Half())
     result = run_translate_job(_job_id(page_id, JobType.translate))
 
     assert result["empty_lines"] == 1
@@ -226,7 +226,7 @@ async def test_loi_giua_chung_thi_page_giu_nguyen_inpainted(
     )
     from app.workers import tasks
 
-    def _boom(engine):
+    def _boom(engine, boi_canh=""):
         raise RuntimeError("API dịch lăn ra chết")
 
     monkeypatch.setattr(tasks, "build_translator", _boom)

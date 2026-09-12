@@ -668,3 +668,29 @@ không đứng lại hay trả về trang trắng.
 **Một chỗ nó KHÔNG giúp:** nó đọc ngữ cảnh trong **một trang**, không phải cả chapter. Muốn một
 nhân vật hay thuật ngữ được gọi giống nhau **xuyên suốt nhiều trang** thì vẫn phải dùng bảng
 thuật ngữ.
+
+### Dịch nhất quán xuyên suốt cả bộ truyện (E31)
+
+Bản dịch theo ngữ cảnh đọc **cả một trang** cùng lúc, nên trong trang đó nó gọi tên nhân vật và
+thuật ngữ giống nhau. Nhưng nó **không thấy trang khác** — nên `Air Dragon` có thể thành *"Rồng
+Gió"* ở trang này và *"Rồng Không Khí"* ở trang sau.
+
+Từ 12-09, mỗi lượt dịch được kèm theo **bảng thuật ngữ và hồ sơ giọng nhân vật bạn đã chốt**. Máy
+bắt buộc dùng đúng cách dịch đó, và giữ đúng cách xưng hô của từng nhân vật.
+
+**Chỉ những mục bạn đã duyệt được dùng.** Gợi ý máy tự sinh mà bạn chưa duyệt thì **không** được
+đưa vào — nếu không, một gợi ý sai sẽ được máy tự xác nhận rồi lặp lại trên cả chapter.
+
+Chưa chốt thuật ngữ nào thì mọi thứ chạy y như trước, không có gì đổi.
+
+Việc này áp cho **cả** lượt dịch tự động **và** nút *dịch lại vùng* — hai đường phải giống nhau,
+nếu không bấm dịch lại sẽ ra cách gọi tên khác.
+
+### Câu thoại ngắn tiếng Nhật không còn bị bỏ sót (E29)
+
+Trước đây câu rất ngắn bị coi là tiếng động và giữ nguyên. Ngưỡng "rất ngắn" đó tính theo **chữ
+Latin**, nơi 5 chữ cái mới là một từ như *just*. Trong tiếng Nhật, 5 ký tự là **cả một mệnh đề** —
+nên `それでも、` ("Dù vậy,") và `ちなみに、` ("Nhân tiện,") bị bỏ không dịch.
+
+Nay ngưỡng tính riêng cho từng hệ chữ. Tiếng động thật như `ドン` vẫn được giữ nguyên, còn câu
+thoại thì được dịch.

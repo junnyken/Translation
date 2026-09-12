@@ -40,6 +40,24 @@ class NguongLuat:
     ocr_confidence_low: float = 0.60
     #: Chữ ngắn hơn/bằng ngần này coi là ngắn — có thể là tiếng động. KHÔNG phải lý do để bỏ.
     short_text_max_chars: int = 5
+
+    #: Ngưỡng RIÊNG cho chữ Nhật/Trung. Hiệu chỉnh 5 ký tự là theo chữ LATIN, nơi 5 chữ cái mới là
+    #: một từ (`just`, `nice`). Trong tiếng Nhật, 5 ký tự là **cả một mệnh đề**.
+    #:
+    #: Đo thật (2026-09-12, 3 trang Pepper&Carrot bản tiếng Nhật) — hai vùng THOẠI THẬT bị gắn
+    #: `possible_sfx` rồi E26-C giữ nguyên, người đọc mất hẳn hai câu:
+    #:
+    #:     それでも、   (5 ký tự) = "Dù vậy,"      -> KHÔNG được dịch
+    #:     ちなみに、   (5 ký tự) = "Nhân tiện,"   -> KHÔNG được dịch
+    #:
+    #: Đây đúng là lớp dương tính giả đã ghi ở `REPORT_E26 §4.3` là "có thật nhưng chưa xảy ra" —
+    #: với tiếng Nhật nó xảy ra NGAY.
+    #:
+    #: Vì sao hạ xuống 2 chứ không bỏ hẳn luật: độ dài trong tiếng Nhật gần như **không mang tín
+    #: hiệu** (`それでも、` là thoại, `音全。` là nhiễu OCR, cùng 3–5 ký tự). Nên chọn sai về phía
+    #: **cứ dịch**: mất cả câu thoại tệ hơn hẳn một SFX dịch ra lạ một từ — cùng lập luận đã chốt
+    #: ở `translate/sfx.py`.
+    short_text_max_chars_cjk: int = 2
     #: Bản dịch dài gấp hơn ngần này lần chữ gốc thì đáng nhìn lại.
     length_ratio_max: float = 3.0
     #: …và ngắn hơn ngần này lần thì cũng vậy.
@@ -75,6 +93,10 @@ def do_dai_hien_thi(text: str | None) -> int:
 
 
 _CHI_SO_KY_HIEU = re.compile(r"^[\W\d_]+$", re.UNICODE)
+
+#: Kana + kanji. Dùng để chọn ngưỡng "chữ rất ngắn" theo hệ chữ — 5 ký tự Latin là một TỪ, còn
+#: 5 ký tự Nhật là cả một MỆNH ĐỀ.
+_LA_CJK = re.compile(r"[぀-ヿ一-鿿]")
 
 
 class RegionQualityAssessor:
@@ -183,7 +205,7 @@ class RegionQualityAssessor:
         # `NO!` là thoại, `18` có thể là số trang mà cũng có thể là hình vẽ trong truyện.
         if chu_goc and _CHI_SO_KY_HIEU.match(chu_goc):
             ly_do.append("numeric_or_symbol_only")
-        if chu_goc and so_ky_tu_goc <= self.nguong.short_text_max_chars:
+        if chu_goc and so_ky_tu_goc <= self._nguong_ngan(chu_goc):
             ly_do.append("short_stylized_text")
         if self._nghi_bi_ngat_dong(chu_goc, vung_ke_ben_truoc):
             ly_do.append("hyphenated_fragment_suspect")
@@ -209,6 +231,21 @@ class RegionQualityAssessor:
         return self._chot(ly_do, bang_chung, tt_khung, tt_ocr, tt_dich, chu_goc)
 
     # ------------------------------------------------------------------
+    def _nguong_ngan(self, chu_goc: str) -> int:
+        """Ngưỡng "chữ rất ngắn" theo HỆ CHỮ, không phải một con số chung.
+
+        Quá nửa ký tự là kana/kanji thì dùng ngưỡng CJK — xem chú thích ở `short_text_max_chars_cjk`
+        để biết vì sao, kèm hai ca thoại thật đã bị mất trên dữ liệu đo được.
+        """
+        if not chu_goc:
+            return self.nguong.short_text_max_chars
+        so_cjk = len(_LA_CJK.findall(chu_goc))
+        return (
+            self.nguong.short_text_max_chars_cjk
+            if so_cjk * 2 >= len(chu_goc)
+            else self.nguong.short_text_max_chars
+        )
+
     def _nghi_bi_ngat_dong(self, chu_goc: str, vung_truoc) -> bool:
         """Từ bị ngắt dòng qua hai vùng: vùng trước kết thúc bằng gạch nối, vùng này viết tiếp.
 

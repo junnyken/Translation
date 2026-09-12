@@ -837,6 +837,23 @@ hosting liệt kê tên biến chứ không nói biến rỗng hay không. Trư�
 khi khoá rỗng thì job **lùi về `google_fast` và dán nhãn `fallback_used`**, chứ không đỏ — tính
 chất này có test riêng (`test_d_khoa_rong_van_co_duong_lui_unit.py`).
 
+## E30 — `GET /healthz` thêm `translate_default_engine` (2026-09-12)
+
+```json
+{ "status": "ok", "llm_configured": true, "translate_default_engine": "llm_context", … }
+```
+
+| Trường | Ý nghĩa |
+|---|---|
+| `translate_default_engine` | Engine dịch mặc định **tiến trình đang chạy thật sự đọc được** — `google_fast` hoặc `llm_context` |
+
+**Vì sao cần, dù đã có bảng cấu hình.** Bảng biến môi trường của nền tảng hosting **không trả giá
+trị**, chỉ trả tên biến. Nên sau khi đổi `TRANSLATE_DEFAULT_ENGINE` thì không ai kiểm chứng được nó
+đã có hiệu lực. Và **"đã đổi trên bảng" KHÁC "container đang chạy đọc được giá trị mới"** — thay
+đổi chỉ áp ở lượt deploy kế tiếp. Trường này trả lời đúng câu đó.
+
+Không phải bí mật: chỉ là một trong hai tên engine.
+
 ## E17 — gợi ý thuật ngữ & xưng hô (2026-09-01)
 
 Bốn endpoint. Hai cái đầu **chỉ đọc và không gọi AI** nên `200`; cái thứ ba có gọi mô hình nên

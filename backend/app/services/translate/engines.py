@@ -133,6 +133,7 @@ class LLMContextTranslator:
         max_output_tokens: int = 8192,
         thinking_budget: int | None = 0,
         page_label: str = "page.jpg",
+        boi_canh: str = "",
     ) -> None:
         self._api_keys = [k.strip() for k in api_keys if k and k.strip()]
         self.model_name = model_name
@@ -143,6 +144,9 @@ class LLMContextTranslator:
         #: trang mà chất lượng dịch không hơn (đo thật: 938 vs 0 thought-token, xem TEST_LOG § M5).
         self.thinking_budget = thinking_budget
         self.page_label = page_label
+        #: E31 — thuật ngữ + giọng nhân vật ĐÃ CHỐT của project (`translate/boi_canh.py`).
+        #: Rỗng thì prompt không đổi một ký tự nào so với trước E31.
+        self.boi_canh = (boi_canh or "").strip()
         self._index = 0
         self._lock = threading.Lock()
         self.usage = UsageStats(model_name=model_name)
@@ -164,7 +168,30 @@ class LLMContextTranslator:
 
     # ---------- prompt ----------
     def build_prompt(self, texts: list[str], source_lang: str, target_lang: str) -> str:
-        numbered = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(texts))
+        # E30 — DÀN PHẲNG dấu xuống dòng trước khi đánh số.
+        #
+        # Prompt này dùng giao thức "một dòng một mục" (`1. …`, `2. …`). Một mục có `\n` bên trong
+        # sẽ trải ra nhiều dòng, và `parse_response` chỉ nhận chữ nằm trên dòng CÓ SỐ ⇒ phần còn
+        # lại bị bỏ im lặng.
+        #
+        # Đo thật (2026-09-12, trang `29ab3d86`):
+        #
+        #     vào  "Whoo!\nI think it'll be a teeny tiny bit more complicated than I thought!"
+        #     ra   "Whoo!"                                      <- MẤT CẢ CÂU
+        #     vào  "Pfff!\n.. and I thought it'd be easier with an Air Dragon!"
+        #     ra   "Phụt!"                                      <- MẤT CẢ CÂU
+        #
+        # `google_fast` dịch đủ cả hai phần, nên đây là chỗ `llm_context` TỆ HƠN hẳn — và tệ theo
+        # kiểu im lặng, ảnh vẫn ra, chỉ thiếu chữ.
+        #
+        # Vì sao dàn phẳng là đúng chứ không phải đổi giao thức: E26-A đã gộp hết dấu xuống dòng
+        # do bong bóng ngắt, nên `\n` còn lại là **ranh giới câu thật**. Nối bằng dấu cách thì mô
+        # hình vẫn thấy đủ hai câu và tự chấm câu lại — đúng việc prompt đã yêu cầu nó làm. Còn
+        # `google_fast` thì vẫn cần giữ `\n` (nó dịch từng câu theo dòng), nên chỉ dàn phẳng ở
+        # ĐÂY, không sửa dữ liệu vào.
+        numbered = "\n".join(
+            f"{i + 1}. {' '.join((t or '').splitlines()).strip()}" for i, t in enumerate(texts)
+        )
         return (
             "Bạn là người dịch truyện tranh chuyên nghiệp. Dịch các dòng thoại dưới đây "
             f"từ {source_lang} sang {target_lang}.\n"
@@ -176,7 +203,10 @@ class LLMContextTranslator:
             "- Giữ giọng điệu nhân vật; câu thoại ngắn gọn tự nhiên như truyện tranh tiếng Việt.\n"
             "- Đầu vào là chữ do OCR đọc nên có thể sai chính tả; tự suy luận và sửa khi dịch.\n"
             "- Không thêm giải thích, không thêm dòng nào ngoài danh sách đã đánh số.\n\n"
-            f"### {self.page_label}\n{numbered}"
+            # E31 — bối cảnh đặt TRƯỚC danh sách chữ, sau phần yêu cầu. Đặt sau danh sách thì mô
+            # hình đã đọc xong chữ mới thấy thuật ngữ, và nó không quay lại sửa.
+            + (f"\n{self.boi_canh}\n" if self.boi_canh else "")
+            + f"\n### {self.page_label}\n{numbered}"
         )
 
     @staticmethod
@@ -185,6 +215,20 @@ class LLMContextTranslator:
 
         Thiếu dòng -> điền chuỗi rỗng (để caller đánh dấu cần xem lại), thừa -> cắt bớt.
         KHÔNG bịa nội dung cho dòng thiếu.
+
+        E30 — CỐ Ý giữ nguyên việc bỏ dòng không có số, và đây là lý do.
+
+        Lỗi mất chữ đo được ở trang `29ab3d86` (`"Whoo!\\nI think…"` → chỉ còn `"Whoo!"`) có nguyên
+        nhân ở **`build_prompt`**, không ở đây: mục có `\\n` trải ra nhiều dòng nên prompt vỡ giao
+        thức "một dòng một mục". Vá ở `build_prompt` là vá đúng nguyên nhân.
+
+        Tôi đã thử sửa thêm chỗ này cho "nối dòng tiếp theo vào mục trước" — và nó **phá**
+        `test_bo_qua_heading_va_dong_thua`: mô hình thêm một dòng tán gẫu ở cuối thì dòng đó lọt
+        vào bong bóng cuối cùng. Hai yêu cầu kéo ngược chiều nhau, và không phân biệt được bằng
+        vị trí dòng.
+
+        Chọn giữ hành vi cũ vì nguyên nhân thật đã được vá ở chỗ khác — thêm hành vi phỏng đoán ở
+        đây là đổi một lỗi đã hết lấy một lỗi mới.
         """
         result: dict[int, str] = {}
         for raw_line in (text or "").splitlines():

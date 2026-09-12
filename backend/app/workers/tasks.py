@@ -946,8 +946,13 @@ def enqueue_translate_after_inpaint(page_id: uuid.UUID, engine: str | None = Non
     return job_id
 
 
-def build_translator(engine: str):
-    """Tạo translator theo tên engine. Import trễ; key chỉ đọc từ settings (.env)."""
+def build_translator(engine: str, boi_canh: str = ""):
+    """Tạo translator theo tên engine. Import trễ; key chỉ đọc từ settings (.env).
+
+    `boi_canh` (E31) là khối thuật ngữ + giọng nhân vật ĐÃ CHỐT của project. Chỉ `llm_context`
+    dùng được; `google_fast` không có chỗ nhận ngữ cảnh nên bỏ qua — không phải thiếu sót, đó là
+    giới hạn của chính engine đó.
+    """
     from app.services.translate.engines import get_translator
 
     if engine == TranslationEngine.llm_context.value:
@@ -959,6 +964,7 @@ def build_translator(engine: str):
             temperature=settings.llm_temperature,
             max_output_tokens=settings.llm_max_output_tokens,
             thinking_budget=settings.llm_thinking_budget,
+            boi_canh=boi_canh,
         )
     return get_translator(engine)
 
@@ -1081,6 +1087,14 @@ def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dic
             from app.services.translate.sfx import nap_vung_giu_nguyen
 
             giu_nguyen = nap_vung_giu_nguyen(session, [r.id for r in ordered])
+
+        # E31 — thuật ngữ + giọng nhân vật ĐÃ CHỐT của project, để `llm_context` nhất quán
+        # XUYÊN TRANG. Nó vốn chỉ thấy một trang, nên `Air Dragon` có thể ra `Rồng Gió` ở trang
+        # này và `Rồng Không Khí` ở trang sau — bảng thuật ngữ là chỗ duy nhất giữ được quyết
+        # định đó. Nạp trong transaction vì cần session; chuỗi rỗng ⇒ prompt y như trước E31.
+        from app.services.translate.boi_canh import nap_boi_canh_du_an
+
+        boi_canh = nap_boi_canh_du_an(session, page.project_id)
         danh_dau_dang_chay(job)
         session.commit()
 
@@ -1091,7 +1105,7 @@ def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dic
 
     used_engine = engine_name
     fallback_reason: str | None = None
-    translator = build_translator(engine_name)
+    translator = build_translator(engine_name, boi_canh)
     try:
         # Cổng nhịp chỉ áp cho đường TỐN TIỀN (`google_fast` miễn phí nên không qua cổng).
         # Đặt TRONG khối try có chủ đích: bị chặn thì đi đúng đường lùi-về-google của M5 và
@@ -1975,6 +1989,13 @@ def _run_region_retranslate(job_id: uuid.UUID, region_id: uuid.UUID, engine_over
         # bấm "dịch lại vùng" sẽ cho kết quả khác lượt dịch tự động trên cùng chữ đó.
         raw_text = gop_dong_de_dich(ocr.raw_text or "")
 
+        # E31 — bối cảnh PHẢI giống đường dịch cả trang. Hai đường dùng prompt khác nhau thì bấm
+        # "dịch lại vùng" sẽ ra cách gọi tên khác lượt tự động, đúng thứ bảng thuật ngữ sinh ra để
+        # tránh. Cùng lập luận đã chốt cho E26-A ngay bên dưới.
+        from app.services.translate.boi_canh import nap_boi_canh_du_an
+
+        boi_canh_vung = nap_boi_canh_du_an(session, project.id)
+
         # E26-C CỐ Ý KHÔNG áp ở đây: đường này là do người bấm, nên nó là CỬA THOÁT cho lớp dương
         # tính giả của `possible_sfx` (gán thuần theo độ dài <=5 ký tự, nên `NO!` cũng trúng — xem
         # `docs/REPORT_E26.md` §4.3). Bịt lại cho "đối xứng" với `_run_translate` là làm thoại ngắn
@@ -1986,7 +2007,7 @@ def _run_region_retranslate(job_id: uuid.UUID, region_id: uuid.UUID, engine_over
 
     engine_name = engine_override or settings.translate_default_engine
     used_engine, fallback_reason = engine_name, None
-    translator = build_translator(engine_name)
+    translator = build_translator(engine_name, boi_canh_vung)
     try:
         dich = translator.translate([raw_text], source_lang, target_lang)
     except (QuotaExhausted, TranslationFailed) as exc:

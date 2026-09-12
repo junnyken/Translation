@@ -4943,3 +4943,98 @@ npx vitest run   363 đạt / 23 tệp · 0 đỏ   (65 test riêng cho Orientat
 ```
 
 Chưa deploy.
+
+# ========== E29–E31 — đo CẢ tiếng Anh lẫn tiếng Nhật rồi mới chọn engine (2026-09-12) ==========
+
+Người dùng yêu cầu: *"test cả tiếng anh luôn chứ không phải tiếng nhật không, từ đó chọn phép đo
+thật chọn nào tốt nhất"*. Lượt đo đó tìm ra **ba lỗi**, trong đó một lỗi làm **mất chữ**.
+
+## E30 — `llm_context` LÀM MẤT CẢ CÂU (nặng nhất)
+
+Trang `29ab3d86`, tiếng Anh:
+
+```
+vào      "Whoo!\nI think it'll be a teeny tiny bit more complicated than I thought!"
+google   "Ối! / Tôi nghĩ nó sẽ phức tạp hơn tôi nghĩ một chút!"        ✓ đủ
+llm CŨ   "Whoo!"                                                       ✗ MẤT CẢ CÂU
+llm MỚI  "Hự! Có vẻ mọi chuyện rắc rối hơn mình tưởng một chút rồi!"   ✓
+
+vào      "Pfff!\n.. and I thought it'd be easier with an Air Dragon!"
+llm CŨ   "Phụt!"                                                       ✗ MẤT CẢ CÂU
+llm MỚI  "Phì! ...cứ tưởng có Rồng Gió thì mọi chuyện sẽ dễ dàng hơn chứ!"  ✓
+```
+
+Đây là chỗ `llm_context` **tệ hơn hẳn** `google_fast`, và tệ theo kiểu **im lặng**: job xanh, ảnh
+vẫn ra, chỉ thiếu chữ.
+
+**Gốc:** prompt dùng giao thức "một dòng một mục" (`1. …`), mà `build_prompt` ghép
+`f"{i+1}. {t}"` — mục có `\n` bên trong **trải ra nhiều dòng**, phá giao thức. Vá: dàn phẳng `\n`
+thành dấu cách **chỉ trong prompt của LLM**. `google_fast` vẫn cần `\n` (nó dịch từng câu theo
+dòng) nên không đụng dữ liệu vào.
+
+### Một chỗ tôi SỬA QUÁ TAY và đã hoàn lại
+
+Tôi còn sửa `parse_response` cho "nối dòng không có số vào mục trước". Nó **phá**
+`test_bo_qua_heading_va_dong_thua`: mô hình thêm dòng tán gẫu ở cuối thì dòng đó lọt vào bong bóng
+cuối. Hai yêu cầu kéo ngược chiều nhau và **không phân biệt được bằng vị trí dòng**.
+
+Đọc lại nguyên nhân đã đo: chữ mất vì **prompt vỡ**, không vì bộ đọc bỏ dòng. Nên hoàn lại phần
+sửa bộ đọc, đo lại — **bản vá prompt một mình là đủ**. Thêm hành vi phỏng đoán ở đó là đổi một lỗi
+đã hết lấy một lỗi mới.
+
+## E29 — ngưỡng "chữ rất ngắn" SAI với tiếng Nhật
+
+Lượt chạy 3 trang tiếng Nhật thật: **hai câu thoại không được dịch chút nào**.
+
+```
+それでも、  (5 ký tự) = "Dù vậy,"      -> giữ nguyên
+ちなみに、  (5 ký tự) = "Nhân tiện,"   -> giữ nguyên
+```
+
+Cả hai bị `short_stylized_text` bắt (`so_ky_tu_goc <= 5`) ⇒ `possible_sfx` ⇒ E26-C giữ nguyên.
+Đây **đúng** lớp dương tính giả đã ghi ở `REPORT_E26 §4.3` là *"có thật nhưng chưa xảy ra"* — với
+tiếng Nhật nó xảy ra **ngay lượt đầu**.
+
+Vá: `short_text_max_chars_cjk = 2`, chọn theo hệ chữ chiếm đa số. Cùng một lỗi hiệu chỉnh đã gặp ở
+E26-B2 sáng nay — ngưỡng tính theo chữ Latin không dùng được cho CJK.
+
+**Vì sao 2 mà không bỏ hẳn luật:** trong tiếng Nhật độ dài gần như **không mang tín hiệu**
+(`それでも、` thoại, `音全。` nhiễu OCR, cùng 3–5 ký tự). Chọn sai về phía **cứ dịch**.
+
+## E31 — nối thuật ngữ + giọng nhân vật vào prompt
+
+`llm_context` nhất quán trong MỘT trang nhưng **không thấy trang khác** — giới hạn đã ghi ở
+`REPORT_E26 §9`. Đo thật: `Air Dragon` ra `Rồng Gió` ở trang này, **không gì bảo đảm** trang sau
+không ra `Rồng Không Khí`.
+
+Lại đúng khuôn đã gặp cả ngày: **E13/E17 đã dựng sẵn hai bảng, chưa ai cắm dây.**
+
+Hai luật:
+- **Chỉ nạp mục đã chốt** (`approved` / `active`). Bản `draft` là gợi ý máy chưa ai duyệt — đưa vào
+  prompt là để mô hình tự xác nhận phỏng đoán của chính nó, biến một gợi ý sai thành cái sai lặp
+  trên cả chapter. Nguyên tắc E13: *"máy chỉ ra chỗ, KHÔNG tự sửa"*.
+- **Chưa chốt gì thì prompt không đổi một ký tự** — có test canh bất biến này.
+
+Áp cho **cả hai** đường dịch (cả trang + dịch lại vùng): hai đường khác prompt thì bấm "dịch lại
+vùng" ra cách gọi tên khác, đúng thứ bảng thuật ngữ sinh ra để tránh.
+
+## Kết luận về engine — đo cả hai ngôn ngữ
+
+| | `google_fast` | `llm_context` |
+|---|---|---|
+| `Air Dragon!` | **để nguyên tiếng Anh** | `Rồng Gió` |
+| `Whoo! I think…` | *"tôi nghĩ… tôi nghĩ"* lặp | `mình tưởng` — tự nhiên |
+| `は、はぁ．．．` | `Hà, Hà. ．． ．．` | **`H-hả...`** (nói lắp ra nói lắp) |
+| `ダメ！…` | `Bạn không nên…` | `Cậu không được làm thế đâu` |
+| `Luughing Fotlons` (OCR sai) | để nguyên rác | **`Thuốc Cười`** |
+| Chi phí | miễn phí | **295–325 token/trang** |
+
+⇒ **`llm_context`**, nhưng **chỉ sau khi E30 được deploy** — trước đó nó làm mất chữ.
+
+## Tôi vi phạm quy tắc "một lượt pytest một lúc" LẦN THỨ BA hôm nay
+
+Lượt tổng đầu báo 4 đỏ. Ba trong số đó (`test_safe_area_integration.py`) là **đỏ giả**: chạy riêng
+thì 20/20 xanh. Nguyên nhân: tôi chạy `test_e30_*` và `test_e31_*` **trong lúc** lượt tổng đang
+chạy, và test migration của lượt sau xoá bảng của lượt trước.
+
+Cái đỏ thứ tư (`test_bo_qua_heading_va_dong_thua`) là **thật** — chính là ca "sửa quá tay" ở trên.

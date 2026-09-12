@@ -217,7 +217,7 @@ class TestTang3:
                     {"totalTokenCount": 42},
                 )
 
-        monkeypatch.setattr(tasks, "build_translator", lambda engine: ModelGia())
+        monkeypatch.setattr(tasks, "build_translator", lambda engine, boi_canh="": ModelGia())
         monkeypatch.setattr(tasks, "_cong_nhip", lambda engine: None)
 
         pid = await chapter_e17(["I met Pepper today", "We saw Pepper again"])
@@ -243,7 +243,7 @@ class TestTang3:
             def goi_prompt_tho(self, prompt):
                 raise TranslationFailed("HTTP 429: hết nhịp")
 
-        monkeypatch.setattr(tasks, "build_translator", lambda engine: ModelHong())
+        monkeypatch.setattr(tasks, "build_translator", lambda engine, boi_canh="": ModelHong())
         monkeypatch.setattr(tasks, "_cong_nhip", lambda engine: None)
 
         pid = await chapter_e17(["I met Pepper today", "We saw Pepper again"])

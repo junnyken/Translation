@@ -445,8 +445,17 @@ def fake_translator(monkeypatch):
                     raise QuotaExhausted("hết quota giả lập")
                 return [f"{prefix}{t}" for t in texts]
 
-        def _build(engine_name):
+        # Chữ ký PHẢI khớp `tasks.build_translator(engine, boi_canh="")`.
+        #
+        # E31 thêm tham số `boi_canh` và fixture này không đổi theo ⇒ mọi job dịch nổ
+        # `TypeError: _build() takes 1 positional argument but 2 were given`, rồi trang kẹt ở
+        # `inpainted`, rồi auto-chain không tạo job typeset, rồi 115 test đỏ dây chuyền. Một
+        # tham số lệch ở fixture đủ làm cả bộ test trông như vỡ hệ thống.
+        #
+        # Giữ `boi_canh` trên bản giả để test nào cần còn kiểm được prompt có nhận bối cảnh.
+        def _build(engine_name, boi_canh=""):
             fake = _Fake(engine_name)
+            fake.boi_canh = boi_canh
             made.append(fake)
             return fake
 
