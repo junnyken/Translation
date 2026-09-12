@@ -5038,3 +5038,48 @@ thì 20/20 xanh. Nguyên nhân: tôi chạy `test_e30_*` và `test_e31_*` **tron
 chạy, và test migration của lượt sau xoá bảng của lượt trước.
 
 Cái đỏ thứ tư (`test_bo_qua_heading_va_dong_thua`) là **thật** — chính là ca "sửa quá tay" ở trên.
+
+## E27–E31 + E28 — LIVE trên production (2026-09-12)
+
+```
+translation-web  v34 -> v35   11/11 chặng (deploy TRƯỚC — REPORT_E21b §11.1)
+translation-api  v62 -> v63   11/11 chặng, online
+build từ commit  e2af61d4     (KHỚP HEAD)
+celery ready     07:47:47
+```
+
+### Bằng chứng code MỚI đang chạy — cả hai tầng
+
+**Backend** — `/healthz` trả:
+
+```json
+{"status":"ok","llm_configured":true,"translate_default_engine":"llm_context", …}
+```
+
+`translate_default_engine` CHỈ có trong commit vừa deploy ⇒ tín hiệu tự chứng. Và giá trị
+`llm_context` xác nhận biến người dùng đổi trên bảng cấu hình **đã thật sự có hiệu lực** — thứ
+trước hôm nay không ai kiểm được, vì bảng chỉ trả TÊN biến.
+
+**Frontend** — bundle đổi `index-0VIGJVIg.js` → `index-BQBs_1Us.js`, tải thẳng bundle production
+rồi soi chuỗi:
+
+```
+CO    : "đặt nghiêng theo đúng góc này"      <- câu ĐÚNG của E28
+KHONG : "chưa tự xoay chữ"                   <- câu SAI đã biến mất
+CO    : "Căn cứ kỹ thuật"                    <- khối chẩn đoán đã thu gọn
+CO    : "Có bản mới của giao diện"           <- E24 không hồi quy
+CO    : "Dịch theo ngữ cảnh"                 <- ô chọn engine còn nguyên
+```
+
+Đây là lần đầu deploy frontend kể từ E23/E24, và có lý do thật: E28 đổi mã frontend. Hai lượt
+trước tôi cố ý KHÔNG deploy vì `git diff -- frontend/` ra rỗng.
+
+### Thứ tự deploy
+
+Frontend TRƯỚC, backend SAU — đúng ràng buộc `REPORT_E21b §11.1` (FE mới chịu được BE cũ; FE cũ +
+BE mới là tổ hợp vỡ).
+
+### Chưa kiểm
+
+Chưa chạy một chapter thật TRÊN production sau lượt deploy này. Bằng chứng hiện có: bộ test
+1466 đạt/0 đỏ, ảnh so sánh ở local, và log build xác nhận production chạy đúng commit.

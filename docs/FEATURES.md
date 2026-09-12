@@ -40,6 +40,11 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 | E26+D | Ba lỗi dịch hay gặp nhất: câu bị ngắt giữa dòng nay dịch nguyên câu, không chèn hai lần một câu lên cùng chỗ, tiếng động giữ nguyên — và bật được **dịch theo ngữ cảnh cả trang** | **LIVE** (deploy 2026-09-11, api v60→v61, build `1656eb1a`; frontend KHÔNG deploy vì không đổi dòng nào). Production **đã có khoá Gemini** (`/healthz` → `llm_configured: true`) ⇒ ô **Cách dịch → "Dịch theo ngữ cảnh"** bấm được ngay. Giới hạn: chống chèn trùng **giảm hẳn nhưng chưa hết**; chưa kiểm thị giác trên production — xem `REPORT_E26.md` |
 | E26-B2 | Nhận thêm kiểu chèn trùng thứ hai: **vùng lớn đọc lại nguyên văn chữ của vùng nhỏ** nằm trong nó (dấu hiệu nội dung, không chỉ hình học) | **BUILT, chưa deploy** (2026-09-12). Đo trước khi viết: 34 trang/220 vùng → 8 cặp, **0 báo oan**, bắt THÊM 4 vùng trên 3 trang; ảnh xác nhận khối chữ rác biến mất. Có ngưỡng riêng cho chữ Nhật/Trung (`超毛生え薬` chỉ 5 ký tự nhưng là cả một từ) — con số đó **suy ra, chưa đo trên dữ liệu Nhật thật** |
 | — | **Chữ chồng do ô đặt chữ tự nới tràn trên nền phẳng** — và `fit_ok` báo sai cho chữ không vừa khung | ⚠️ **ĐÃ TRUY RA GỐC, CHƯA SỬA**: `392e16e2` khung `173x27` → ô đặt chữ `497x156`; hai ô chồng nhau vì A1 **không coi vùng chữ khác là vật cản**. Cần mini-spec riêng — xem TEST_LOG 12-09 |
+| E27 | Ô đặt chữ không còn trùm lên khung chữ của vùng khác — hết chồng chữ trên nền phẳng, và nhãn "Vừa khung" mới có nghĩa | **BUILT, chờ deploy** (12-09). Đo trên trang thật: ô `497x156` → `497x65`, ảnh xác nhận 3 nhãn thuốc tách bạch hoàn toàn |
+| E28 | Màn rà soát bớt "kỹ thuật": chip cảnh báo vô nghĩa thành trung tính, thu gọn chẩn đoán, và **sửa câu nói SAI** rằng máy chưa tự xoay chữ | **BUILT, chờ deploy** (12-09). 363 test frontend xanh |
+| E29 | Câu thoại ngắn tiếng Nhật không còn bị bỏ không dịch (`それでも、`, `ちなみに、`) | **BUILT, chờ deploy** (12-09). Ngưỡng "chữ ngắn" tính riêng cho từng hệ chữ |
+| E30 | **Vá MẤT CHỮ**: `llm_context` từng trả về `"Whoo!"` thay cho cả câu khi vùng có dấu xuống dòng | **BUILT, chờ deploy** (12-09) — **bản vá gấp nhất**; đo trên trang `29ab3d86` |
+| E31 | Dịch nhất quán **xuyên trang**: nối bảng thuật ngữ + hồ sơ giọng nhân vật đã chốt vào prompt | **BUILT, chờ deploy** (12-09). Chỉ nạp mục người dùng đã duyệt |
 
 ## Những gì dùng được ngay hôm nay (sau E12)
 
@@ -694,3 +699,125 @@ nên `それでも、` ("Dù vậy,") và `ちなみに、` ("Nhân tiện,") b�
 
 Nay ngưỡng tính riêng cho từng hệ chữ. Tiếng động thật như `ドン` vẫn được giữ nguyên, còn câu
 thoại thì được dịch.
+
+---
+
+# Dành cho người hỗ trợ: gặp lỗi thì trả lời thế nào
+
+Phần này viết để trả lời trực tiếp cho người dùng. Mỗi mục nói **hiện tượng họ thấy**, **có phải
+lỗi không**, và **làm gì**.
+
+## "Chữ dịch đè lên nhau, không đọc được"
+
+**Có thật, và đã giảm hẳn qua ba đợt sửa.** Ba nguyên nhân khác nhau:
+
+1. **Máy đọc gộp nhiều bong bóng thành một khối** rồi vẽ cả khối lẫn từng bong bóng → cùng một câu
+   vẽ hai lần. Đã xử lý: bỏ qua khối gộp khi vẽ, dữ liệu vẫn còn nguyên để bạn xem.
+2. **Vùng lớn đọc lại nguyên văn chữ của vùng nhỏ** nằm trong nó. Đã xử lý từ 12-09.
+3. **Chỗ đặt chữ tự nới quá rộng trên nền phẳng** (trời, tường trắng) nên hai bong bóng cạnh nhau
+   lấn vào nhau. Đã xử lý từ 12-09.
+
+**Nếu vẫn gặp:** sửa tay trong màn rà soát — kéo lại khung hoặc đổi cỡ chữ. Chụp ảnh lại giúp đội
+phát triển, vì mỗi kiểu chồng chữ là một nguyên nhân khác nhau.
+
+## "Có câu không được dịch, vẫn là chữ gốc"
+
+**Đây có thể là cố ý.** Tiếng động trong truyện (`Clang`, `ドン`) được **giữ nguyên** vì dịch
+nghĩa ra sẽ sai thể loại — `Cling` không phải "Bám vào".
+
+Nhưng câu thoại **ngắn** cũng từng bị giữ nhầm. Với tiếng Nhật đã sửa từ 12-09 (`それでも、`,
+`ちなみに、` nay được dịch). Với tiếng Anh, câu rất ngắn như `NO!` vẫn có thể bị giữ.
+
+**Làm gì:** bấm **dịch lại vùng** — đường đó cố ý không áp luật giữ tiếng động, nên sẽ dịch bình
+thường.
+
+## "Trang bị lỗi, báo worker gián đoạn"
+
+**Bước xoá chữ gốc là bước ngốn bộ nhớ nhất**, và nó có thể làm tiến trình xử lý bị dừng. Hệ thống
+nói thẳng `worker_died` kèm câu *"Dữ liệu của bạn KHÔNG mất"*.
+
+**Làm gì:** bấm chạy lại trang đó. Không cần tải ảnh lên lại. Nếu một trang hỏng nhiều lần liên
+tiếp thì ảnh đó có vùng chữ quá lớn — cắt nhỏ ảnh hoặc bỏ qua trang đó.
+
+## "Mọi vùng đều báo Chưa xác định hướng chữ"
+
+**Không phải lỗi.** Với truyện Nhật, hệ thống **luôn** trả lời như vậy vì bộ đọc chữ tiếng Nhật
+không cung cấp hình dạng dòng. Chữ vẫn được căn ngang bình thường, và **tiếng Việt vốn viết ngang**
+nên đó là kết quả đúng.
+
+Từ 12-09 nhãn này hiện màu xám trung tính thay vì màu cảnh báo, để không gây hiểu nhầm.
+
+## "Máy đọc sai chữ gốc"
+
+**Có thật và đo được** — `Laughing Potions` từng đọc thành `Luughing Fotlons`, chữ Nhật bị nhân đôi
+ký tự.
+
+**Hai cách xử lý:**
+- Dùng **Dịch theo ngữ cảnh**: nó tự suy ra chữ đúng trong phần lớn trường hợp (`Luughing Fotlons`
+  → `Thuốc Cười`).
+- Gõ đè chữ gốc trong màn sửa tay, rồi dịch lại.
+
+## "Chạy cả chapter mất bao lâu"
+
+**Khoảng một tiếng cho 24 trang.** Đo thật: trung vị 107 giây/trang, nhưng trang chậm thì lâu hơn
+nhiều — nên đừng tính theo 54 phút.
+
+Ô đếm "trang xong" **đứng ở 0 khá lâu** là bình thường: trang đầu phải chạy hết mọi bước mới nhảy số.
+
+## "Nên chọn Dịch nhanh hay Dịch theo ngữ cảnh"
+
+**Dịch theo ngữ cảnh**, nếu đã cấu hình khoá. Đo thật trên cả tiếng Anh và tiếng Nhật:
+
+| Gốc | Dịch nhanh | Dịch theo ngữ cảnh |
+|---|---|---|
+| `Air Dragon!` | để nguyên tiếng Anh | `Rồng Gió` |
+| `は、はぁ．．．` | `Hà, Hà. ．． ．．` | `H-hả...` |
+| `ダメ！…` | `Bạn không nên…` | `Cậu không được làm thế đâu` |
+| `Luughing Fotlons` | để nguyên rác | `Thuốc Cười` |
+
+Giá: khoảng **300 token mỗi trang**, tức ~7.000 token cho một chapter 24 trang.
+
+## Kiểm hệ thống đang chạy gì (không cần đăng nhập)
+
+```
+https://translation-api.cmc-1.vibenode.matbao.ai/healthz
+```
+
+- `llm_configured: true` → chọn được **Dịch theo ngữ cảnh**
+- `translate_default_engine` → engine mặc định **tiến trình đang chạy thật sự đọc được**
+
+Trường thứ hai quan trọng: đổi biến trên bảng cấu hình **chỉ có hiệu lực sau khi deploy lại**, nên
+"đã đổi trên bảng" không đồng nghĩa "đang chạy".
+
+---
+
+# Kế hoạch tiếp theo
+
+Xếp theo giá trị đo được, không theo độ khó.
+
+## 1. Cho mô hình xem chính trang truyện — bước nhảy lớn nhất còn lại
+
+Hiện mô hình **chỉ nhận chữ do máy đọc**, không thấy hình. Nên nó không biết ai đang nói, và phải
+đoán khi chữ bị đọc sai. Đo được lỗi đọc thật: `どなどは` là rác, `足りなかったかかも` nhân đôi ký tự.
+
+Có hình thì mô hình tự sửa được và biết nhân vật nào đang thoại.
+
+**Cần đo trước khi bật:** một ảnh tốn nhiều token hơn chữ rất nhiều, nên phải đo chi phí thật rồi
+mới quyết — không bật mặc định.
+
+## 2. Gộp nhiều chapter — thứ DUY NHẤT còn thiếu trong luồng tự động
+
+Bốn phần còn lại đã có: tải nhiều ảnh một lúc, tự nhận diện sau khi tải lên, năm bước nối tự động,
+và chạy cả chapter một mẻ.
+
+## 3. Đổi sang model lớn hơn — để dành
+
+Chỉ là một biến cấu hình (`LLM_MODEL_NAME`, đang dùng bản nhẹ). Rẻ nhất để thử nhưng lợi ích ít
+chắc chắn nhất, nên **chỉ dùng khi 1 và 2 vẫn chưa đủ**.
+
+## Đã cân nhắc và quyết định BỎ
+
+**Dựng chữ dọc kiểu tiếng Nhật.** Ba vật cản kỹ thuật còn nguyên (thiếu libraqm, không font nào có
+chữ kanji, bộ đọc không trả hình dạng dòng) — nhưng cả ba **chỉ cản việc vẽ chữ Nhật**, mà hệ thống
+luôn vẽ **tiếng Việt**, và tiếng Việt viết ngang. Bỏ mục này tiết kiệm nhiều công nhất trong cả
+danh sách.
