@@ -623,3 +623,27 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   background: var(--nen, #fff);
 }
 .bang-ban-moi-nut { margin-top: 8px; }
+
+/* Khối "căn cứ kỹ thuật" thu gọn (E28).
+ *
+ * Chẩn đoán dành cho người dò lỗi, không phải nội dung chính. Trước đây nó luôn mở nên trên trang
+ * tiếng Nhật — nơi MỌI vùng đều ra `unknown` — cùng một bảng căn cứ lặp lại ở mọi vùng và đẩy bản
+ * dịch xuống dưới màn hình. Thu lại, KHÔNG xoá: vẫn tra được khi cần. */
+.chi-tiet-ky-thuat { margin-top: 8px; }
+.chi-tiet-ky-thuat > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--mo);
+  padding: 4px 0;
+  list-style: none;
+  user-select: none;
+}
+.chi-tiet-ky-thuat > summary::-webkit-details-marker { display: none; }
+.chi-tiet-ky-thuat > summary::before { content: '▸ '; color: var(--mo-nhat); }
+.chi-tiet-ky-thuat[open] > summary::before { content: '▾ '; }
+.chi-tiet-ky-thuat > summary:hover { color: var(--chu); }
+.chi-tiet-ky-thuat > summary:focus-visible {
+  outline: 2px solid var(--mau-chinh);
+  outline-offset: 2px;
+  border-radius: var(--bo-nho);
+}

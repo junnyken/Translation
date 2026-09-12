@@ -41,6 +41,17 @@ export default function OrientationBox({ huongChu, hienLuoi, onDoiLuoi }) {
 
       <p className="ghi-chu">{d.mo_ta}</p>
 
+      {/* Bằng chứng là thứ để TRA KHI CẦN, không phải thứ chiếm mặt tiền.
+       *
+       * Trên trang tiếng Nhật, mọi vùng đều ra `unknown` (đo được: `MangaOCREngine.recognize()`
+       * không trả đường bao dòng), nên bảng căn cứ + danh sách lý do lặp lại y hệt nhau ở MỌI
+       * vùng và đẩy bản dịch — thứ người ta thật sự cần nhìn — xuống dưới màn hình.
+       *
+       * Thu vào `<details>` khi KHÔNG có kết luận gì đáng chú ý; còn khi hệ thống thật sự nhận ra
+       * chữ dọc hoặc chữ nghiêng thì mở sẵn, vì lúc đó bằng chứng mới có ích. Không XOÁ gì —
+       * đúng nguyên tắc "nói ra căn cứ" của E15. */}
+      <details className="chi-tiet-ky-thuat" open={la_doc_san_sang || la_nghieng}>
+        <summary>Căn cứ kỹ thuật</summary>
       <dl className="bang-bang-chung">
         <dt>Căn cứ</dt>
         <dd>{NGUON_HUONG_CHU[huongChu.source] ?? huongChu.source}</dd>
@@ -65,11 +76,12 @@ export default function OrientationBox({ huongChu, hienLuoi, onDoiLuoi }) {
           ))}
         </ul>
       )}
+      </details>
 
       {la_nghieng && (
-        <p className="ghi-chu nhan-manh">
-          Bản này <b>chưa tự xoay chữ</b>. Cần đặt thủ công bằng công cụ sẵn có ở màn sửa tay
-          (kéo lại khung, đổi cỡ chữ).
+        <p className="ghi-chu">
+          Chữ dịch đã được <b>đặt nghiêng theo đúng góc này</b>, và tự thu nhỏ cho nằm gọn trong
+          bong bóng. Thấy chưa ưng thì chỉnh tay được ở phần sửa bên dưới.
         </p>
       )}
 

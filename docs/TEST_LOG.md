@@ -4888,3 +4888,58 @@ pytest -q -p no:randomly   exit=0 · 1415 đạt · 6 bỏ qua · 0 ĐỎ   (git
 ```
 
 Chưa deploy E27.
+
+# ========== E28 — bớt "kỹ thuật" ở màn rà soát (2026-09-12) ==========
+
+Người dùng: *"trong nó kỹ thuật thuần DEV quá, nó không được đẹp"*. Audit trước khi sửa: **không
+phải thiếu CSS** — E11 đã có sẵn hệ token màu/bo góc/đổ bóng. Vấn đề là **chẩn đoán dành cho người
+dò lỗi đang chiếm mặt tiền**, đẩy bản dịch xuống dưới màn hình.
+
+## 1. Màu của chip MÂU THUẪN với chữ của chính nó
+
+```
+unknown: B('Chưa xác định hướng chữ', 'canh', ...   <- sắc CẢNH BÁO (hổ phách)
+         mô tả: "Đây là câu trả lời trung thực, KHÔNG PHẢI LỖI"
+```
+
+Màu nói "có việc cần xử lý", chữ nói "không phải lỗi" — và người đọc tin **màu** trước.
+
+Nặng hơn: đo được `MangaOCREngine.recognize()` trả `(text, None)` nên trang **tiếng Nhật luôn
+luôn** ra `unknown` ⇒ **mọi vùng của mọi trang Nhật** đều nổi một chip cảnh báo mang đúng **0**
+thông tin hành động. Một cờ báo động luôn bật thì người dùng học cách phớt lờ nó, kể cả lần nó thật
+sự cần chú ý — đúng lập luận đã viết ở `REPORT_E24 §3`.
+
+⇒ Đổi sang sắc `trung` (xám nhạt, đã có sẵn trong token).
+
+## 2. Giao diện đang NÓI SAI về một tính năng đã ship
+
+`OrientationBox.jsx:71` viết:
+
+> *"Bản này **chưa tự xoay chữ**. Cần đặt thủ công bằng công cụ sẵn có ở màn sửa tay."*
+
+Nhưng **E16 đã LIVE từ api v60** — hệ thống xoay chữ tự động, và `_ve_xoay` còn tự thu nhỏ cho nằm
+gọn trong bong bóng. Giao diện đang bảo người dùng làm tay một việc máy đã làm.
+
+**Và có một test canh cho lời sai đó đứng yên:**
+
+```
+expect(screen.getByText(/chưa tự xoay chữ/i)).toBeInTheDocument()
+```
+
+Test đúng lúc viết, nhưng khi E16 ship thì không ai cập nhật — nên nó biến thành cái khoá giữ một
+câu đã sai. Đây là lý do test giao diện phải canh **hành vi thật**, không canh câu chữ của bản cũ.
+
+## 3. Thu gọn bằng chứng, KHÔNG xoá
+
+Bảng "Căn cứ / Số dòng đo được / Góc nghiêng" + danh sách lý do vào `<details>`:
+
+- **mở sẵn** khi thật sự nhận ra chữ dọc hoặc chữ nghiêng (lúc đó bằng chứng có ích),
+- **thu lại** khi `unknown` (lúc đó nó lặp y hệt ở mọi vùng).
+
+Không xoá gì — giữ đúng nguyên tắc "nói ra căn cứ" của E15.
+
+```
+npx vitest run   363 đạt / 23 tệp · 0 đỏ   (65 test riêng cho OrientationBox)
+```
+
+Chưa deploy.

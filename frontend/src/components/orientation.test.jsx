@@ -191,13 +191,38 @@ describe('OrientationBox', () => {
     expect(onDoiLuoi).toHaveBeenCalledWith(true)
   })
 
-  it('chữ nghiêng nói THẲNG là bản này chưa tự xoay + kèm góc', () => {
+  it('chữ nghiêng nói đúng là ĐÃ tự xoay + kèm góc', () => {
+    // Test này trước đây khoá câu "bản này CHƯA tự xoay chữ". Câu đó đúng lúc viết, nhưng **E16
+    // đã ship và LIVE từ api v60** — hệ thống xoay chữ tự động rồi. Không ai cập nhật, nên giao
+    // diện đi bảo người dùng làm tay một việc máy đã làm, và test thì canh cho lời sai đó đứng
+    // yên. Đây là lý do test giao diện phải canh HÀNH VI THẬT, không canh câu chữ của bản cũ.
     render(<OrientationBox huongChu={{
       orientation: 'rotated_horizontal', status: 'needs_review', source: 'image_heuristic',
       reason_codes: ['rotated_text_manual_review_only'], rotation_degrees: 27.5,
     }} />)
-    expect(screen.getByText(/chưa tự xoay chữ/i)).toBeInTheDocument()
+    expect(screen.getByText(/đặt nghiêng theo đúng góc này/i)).toBeInTheDocument()
+    expect(screen.queryByText(/chưa tự xoay chữ/i)).not.toBeInTheDocument()
     expect(screen.getByText('27.5°')).toBeInTheDocument()
+  })
+
+  it('chữ nghiêng thì MỞ SẴN căn cứ kỹ thuật (lúc đó bằng chứng mới có ích)', () => {
+    render(<OrientationBox huongChu={{
+      orientation: 'rotated_horizontal', status: 'needs_review', source: 'image_heuristic',
+      reason_codes: [], rotation_degrees: 27.5,
+    }} />)
+    expect(screen.getByText('Căn cứ kỹ thuật').closest('details')).toHaveAttribute('open')
+  })
+
+  it('hướng KHÔNG rõ thì THU GỌN căn cứ kỹ thuật, nhưng KHÔNG xoá', () => {
+    // Trang tiếng Nhật ra `unknown` ở MỌI vùng, nên bảng căn cứ lặp y hệt khắp nơi và đẩy bản
+    // dịch xuống dưới màn hình. Thu lại — vẫn tra được, không mất bằng chứng.
+    render(<OrientationBox huongChu={{
+      orientation: 'unknown', status: 'needs_review', source: 'fallback_rectangle',
+      reason_codes: ['no_line_geometry'],
+    }} />)
+    const d = screen.getByText('Căn cứ kỹ thuật').closest('details')
+    expect(d).not.toHaveAttribute('open')
+    expect(d).toContainElement(screen.getByText(/fallback|khung chữ nhật|dự phòng/i))
   })
 
   it('KHÔNG có nhãn "unknown label" nào lọt ra giao diện', () => {

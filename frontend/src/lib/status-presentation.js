@@ -358,8 +358,18 @@ export const HUONG_CHU = {
   vertical_ttb: B('Chữ dọc', 'tin', 'tich', 'Chữ xếp theo cột từ trên xuống.'),
   rotated_horizontal: B('Chữ nghiêng/cách điệu', 'canh', 'canh',
     'Chữ nằm nghiêng hoặc là hiệu ứng âm thanh được vẽ cách điệu.'),
-  unknown: B('Chưa xác định hướng chữ', 'canh', 'canh',
-    'Không đủ bằng chứng để nói hướng chữ. Đây là câu trả lời trung thực, không phải lỗi.'),
+  // Sắc TRUNG TÍNH, không phải cảnh báo.
+  //
+  // Chính mô tả bên dưới đã viết "không phải lỗi", nhưng sắc `canh` lại tô nó màu hổ phách như
+  // một việc cần xử lý — **màu mâu thuẫn với chữ**, và người đọc tin màu trước.
+  //
+  // Nặng hơn: đo được (2026-09-12) `MangaOCREngine.recognize()` trả `(text, None)` — không có
+  // đường bao dòng — nên trang TIẾNG NHẬT **luôn luôn** ra `unknown`. Tức mọi vùng của mọi trang
+  // Nhật đều nổi một chip cảnh báo mang đúng 0 thông tin hành động. Một cờ báo động luôn bật thì
+  // người dùng học cách phớt lờ nó, kể cả lần nó thật sự cần chú ý.
+  unknown: B('Chưa xác định hướng chữ', 'trung', 'dong-ho',
+    'Không đủ bằng chứng để nói hướng chữ. Đây là câu trả lời trung thực, không phải lỗi — '
+    + 'chữ vẫn được căn ngang như bình thường.'),
 }
 
 export const TT_HUONG_CHU = {
