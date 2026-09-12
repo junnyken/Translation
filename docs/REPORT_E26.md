@@ -359,8 +359,14 @@ $ pytest -q -p no:randomly                           1368 đạt · 6 bỏ qua �
 - **Chưa chạy lại cả 4 tổ hợp qua pipeline thật** sau khi sửa. A, B, C đã có bằng chứng
   end-to-end trên **một** trang EN thật (§7b); ba tổ hợp còn lại (JA màu, JA trắng đen, EN trắng
   đen) thì chưa.
-- **B giảm chồng chữ nhưng KHÔNG xoá hết** (§7b): cặp `e8e30ad4`/`6aaf8a55` vẫn vẽ trùng vì chứa
-  nhau 68.6% (< 0.9) và chỉ 1 vùng con (< 2). Cố ý chưa vá — nới ngưỡng là bỏ oan bong bóng thật.
+- ~~B giảm chồng chữ nhưng KHÔNG xoá hết~~ → **ĐÃ VÁ bằng E26-B2** (2026-09-12): thêm dấu hiệu
+  **nội dung** (chữ gốc vùng nhỏ nằm nguyên trong chữ gốc vùng lớn) cạnh dấu hiệu hình học. Đo
+  trước khi viết: 34 trang/220 vùng → 8 cặp, **0 báo oan**; bắt THÊM 4 vùng trên 3 trang. Ảnh xác
+  nhận khối `ĐỘC DƯỢC / "BRIGHT-SIDE" / ĐỘC DƯỢC KHÓI..` biến mất. Xem TEST_LOG §E26-B2.
+- **Phần chồng chữ CÒN LẠI không phải lỗi vẽ trùng** — đã truy ra gốc: ô đặt chữ của A1 tự nới
+  tràn trên nền phẳng (`392e16e2`: khung `173x27` → ô `497x156`) và **không coi vùng chữ khác là
+  vật cản**, nên hai ô chồng nhau. Kéo theo lỗi nặng hơn: font 40 trong khung cao 27px vẫn được
+  báo **`fit_ok`** — một bảo đảm SAI, trái nguyên tắc 3 của `CLAUDE.md`. Cần mini-spec riêng.
 - ~~Chưa deploy~~ → **ĐÃ LIVE** `translation-api` v61, build từ `1656eb1a`. `/healthz` trả
   `llm_configured: true` ⇒ production **có** khoá Gemini, "Dịch theo ngữ cảnh" dùng được ngay.
   §7.5 (khoá rỗng vẫn lùi được) vẫn là bằng chứng phải có: nó canh ca khoá bị gỡ/hết hạn sau này.

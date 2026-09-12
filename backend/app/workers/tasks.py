@@ -1350,9 +1350,29 @@ def render_page_preview(page_id: uuid.UUID, resolver=None) -> str:
             bo_qua_bao = tim_vung_bao({
                 r.id: BBox(x=r.bbox_x, y=r.bbox_y, w=r.bbox_w, h=r.bbox_h) for r, _ts in rows
             })
+            # E26-B2 — thêm dấu hiệu NỘI DUNG: vùng lớn lặp lại nguyên văn chữ của vùng nhỏ mà
+            # nó chồng lên. Bắt đúng ca mà hình học bỏ sót (chồng 69%, chỉ 1 vùng con) — xem
+            # `vung_bao.py`. Dùng chữ GỐC chứ không dùng bản dịch: cùng một câu ở hai vùng có thể
+            # dịch ra hai kiểu khác nhau, so bản dịch là mất tín hiệu.
+            from app.services.typeset.vung_bao import tim_vung_lap_noi_dung
+
+            _chu_goc = {
+                o.region_id: (o.raw_text or "")
+                for o in session.scalars(select(OCRResult).where(OCRResult.region_id.in_(ids)))
+            }
+            bo_qua_lap = tim_vung_lap_noi_dung(
+                {r.id: BBox(x=r.bbox_x, y=r.bbox_y, w=r.bbox_w, h=r.bbox_h) for r, _ts in rows},
+                _chu_goc,
+            )
+            if bo_qua_lap:
+                logger.info(
+                    "typeset trang %s: bỏ qua %d vùng LẶP NỘI DUNG: %s",
+                    page_id, len(bo_qua_lap), [str(i)[:8] for i in bo_qua_lap],
+                )
+            bo_qua_bao |= bo_qua_lap
             if bo_qua_bao:
                 logger.info(
-                    "typeset trang %s: bỏ qua %d vùng BAO (chứa trọn >=2 vùng khác): %s",
+                    "typeset trang %s: tổng %d vùng KHÔNG vẽ chữ: %s",
                     page_id, len(bo_qua_bao), [str(i)[:8] for i in bo_qua_bao],
                 )
         # E16 — góc nghiêng. Tắt cờ thì dict rỗng ⇒ `RegionDraw.rotation_degrees` là None ⇒ vẽ y

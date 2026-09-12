@@ -38,6 +38,8 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 | E17 | Gợi ý thuật ngữ & xưng hô rút từ chính chapter, đối chiếu CSDL nhân vật AniList (E17b) | **Mã ĐÃ ở production** (đi kèm các lượt deploy sau; `/term-candidates` trả 401 ⇒ route sống) nhưng **CHƯA kiểm thật trên host lần nào** — dòng trạng thái trong `REPORT_E17_TERM_CANDIDATES.md` viết 01-09 đã CŨ |
 | E25 | Truy tìm chỗ tối ưu thời gian inference | **KHÔNG SHIP GÌ** — 4 giả thuyết đều bị **bác bỏ bằng số đo**, cần gạt còn lại bị chặn ở tầng nền tảng. Báo cáo của một cuộc truy tìm ra kết quả âm (`REPORT_E25.md`) |
 | E26+D | Ba lỗi dịch hay gặp nhất: câu bị ngắt giữa dòng nay dịch nguyên câu, không chèn hai lần một câu lên cùng chỗ, tiếng động giữ nguyên — và bật được **dịch theo ngữ cảnh cả trang** | **LIVE** (deploy 2026-09-11, api v60→v61, build `1656eb1a`; frontend KHÔNG deploy vì không đổi dòng nào). Production **đã có khoá Gemini** (`/healthz` → `llm_configured: true`) ⇒ ô **Cách dịch → "Dịch theo ngữ cảnh"** bấm được ngay. Giới hạn: chống chèn trùng **giảm hẳn nhưng chưa hết**; chưa kiểm thị giác trên production — xem `REPORT_E26.md` |
+| E26-B2 | Nhận thêm kiểu chèn trùng thứ hai: **vùng lớn đọc lại nguyên văn chữ của vùng nhỏ** nằm trong nó (dấu hiệu nội dung, không chỉ hình học) | **BUILT, chưa deploy** (2026-09-12). Đo trước khi viết: 34 trang/220 vùng → 8 cặp, **0 báo oan**, bắt THÊM 4 vùng trên 3 trang; ảnh xác nhận khối chữ rác biến mất. Có ngưỡng riêng cho chữ Nhật/Trung (`超毛生え薬` chỉ 5 ký tự nhưng là cả một từ) — con số đó **suy ra, chưa đo trên dữ liệu Nhật thật** |
+| — | **Chữ chồng do ô đặt chữ tự nới tràn trên nền phẳng** — và `fit_ok` báo sai cho chữ không vừa khung | ⚠️ **ĐÃ TRUY RA GỐC, CHƯA SỬA**: `392e16e2` khung `173x27` → ô đặt chữ `497x156`; hai ô chồng nhau vì A1 **không coi vùng chữ khác là vật cản**. Cần mini-spec riêng — xem TEST_LOG 12-09 |
 
 ## Những gì dùng được ngay hôm nay (sau E12)
 
@@ -595,10 +597,18 @@ vẽ nó lên ảnh.
 Điều kiện "ít nhất hai vùng" là để **không bỏ oan** một bong bóng lớn hợp lệ chỉ vì nó chồng nhẹ
 một vùng khác. Mất một câu thoại tệ hơn nhiều so với vẽ trùng một câu.
 
-**Chưa hết hẳn.** Trên trang đã kiểm bằng ảnh thật, khối chữ rác lớn nhất biến mất, nhưng vẫn còn
-**một cặp nhãn nhỏ vẽ đè lên nhau** — hai vùng chỉ trùm nhau khoảng hai phần ba nên chưa đủ điều
-kiện để bỏ. Nới điều kiện ra thì sẽ bắt đầu bỏ nhầm bong bóng thật, nên tạm để vậy. Gặp chỗ chữ
-chồng, bạn sửa tay được trong màn hình rà soát.
+Từ 12-09, hệ thống còn nhận ra một kiểu trùng thứ hai mà cách trên không thấy: **vùng lớn đọc
+lại đúng nguyên văn chữ của một vùng nhỏ** nằm trong nó. Đo trên 34 trang thật: bắt đúng 8 cặp,
+**không bỏ oan cặp nào**, và bắt thêm được 4 vùng mà cách cũ bỏ sót.
+
+Nó **không bao giờ bỏ hết mọi bản** của một câu: chỉ vùng lớn hơn hẳn bị bỏ, nên bản gọn nhất luôn
+được giữ.
+
+**Còn một kiểu chữ chồng khác, và nguyên nhân đã tìm ra.** Trên nền phẳng (trời, tường trắng),
+chỗ đặt chữ tự nới ra tới khi chạm nét vẽ — nhưng nền phẳng thì không có gì cản, nên nó nới quá
+rộng và **chỗ đặt chữ của hai bong bóng cạnh nhau chồng lên nhau**. Kéo theo việc hệ thống báo
+"vừa khung" cho chữ thật ra không vừa. Đây là việc khác, cần sửa riêng — gặp chỗ chữ chồng, bạn
+sửa tay được trong màn hình rà soát.
 
 ### Tiếng động giữ nguyên, không dịch thành từ
 

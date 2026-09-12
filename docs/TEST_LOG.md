@@ -4699,3 +4699,132 @@ nào. Rebuild vừa vô ích vừa đổi hash bundle ⇒ E24 bắn banner "có 
 
 Bằng chứng thị giác của B (so ảnh bật/tắt cờ) là ở **local**, trên trang thật. Kiểm trên production
 đòi tải một chapter test lên đó. Log build xác nhận production chạy đúng commit ấy.
+
+# ========== E26-B2 + truy ra gốc chồng chữ (2026-09-12) ==========
+
+Xuất phát: người dùng chạy thật truyện Nhật trên production, và §7b của E26 còn nợ một cặp chồng
+chữ mà luật hình học cố ý không đụng tới. Lần này truy tới gốc.
+
+## E26-B2 — thêm dấu hiệu NỘI DUNG cho luật chống vẽ trùng
+
+Hình học không nới được (hạ 0.9 hay hạ "≥2 vùng con" là bỏ oan bong bóng thật), nên dùng dấu
+hiệu khác: **chữ GỐC của vùng nhỏ nằm nguyên trong chữ gốc của vùng lớn**.
+
+**Đo trước khi viết mã** — 34 trang, 220 vùng, **8 cặp, 0 báo oan**:
+
+```
+0d47b661  e8e30ad4 lặp 6aaf8a55      <- ca trong ảnh, hình học BỎ SÓT (chồng 69%, 1 vùng con)
+0d47b661  b8b24333 lặp 3 vùng        <- hình học đã bắt
+cc1fffc9  9b1850ee lặp 29ccbe1f
+cc1fffc9  6787e037 lặp 73bce606      <- chữ Y HỆT nhau
+6f0e8e0c  f483f70d lặp 79b0a30b      <- chữ Y HỆT nhau
+29ab3d86  65ea2827 lặp 0b346c76
+```
+
+Chạy **đúng hàm sản xuất** trên cả 34 trang: hình học bỏ 2 vùng, nội dung bỏ **THÊM 4** vùng trên
+3 trang. Ảnh sau khi bật: khối `ĐỘC DƯỢC / "BRIGHT-SIDE" / ĐỘC DƯỢC KHÓI..` **biến mất**.
+
+### Kiểm an toàn TRƯỚC khi bật: chữ thêm có chỗ khác không
+
+Hai ca mới mang **thêm** chữ ngoài phần lặp. Tra dữ liệu thật:
+
+```
+29ab3d86  65ea2827 = 'Pfff!' + thoại   ->  'Pfff!' CÓ vùng riêng 617c502e  ⇒ không mất gì
+cc1fffc9  9b1850ee = 'so nice here!' + ...  ->  CÓ 6787e037 và 73bce606   ⇒ không mất gì
+```
+
+### Bất biến: không bao giờ mất HẾT chữ
+
+Chỉ bỏ vùng có diện tích **lớn hơn hẳn**. Quan hệ "bỏ" vì thế luôn đi từ lớn xuống nhỏ ⇒ vùng nhỏ
+nhất trong mọi chuỗi không bao giờ bị bỏ, và hai vùng bằng diện tích không loại được nhau. Có test
+riêng (`test_hai_vung_BANG_dien_tich_cung_chu_thi_KHONG_bo_cai_nao`,
+`test_chuoi_LONG_NHAU_ba_cap_van_con_lai_vung_nho_nhat`).
+
+### Ngưỡng 6 ký tự SAI với chữ Nhật — test bắt được, thiết kế thì không
+
+`超毛生え薬` chỉ **5 ký tự** nhưng là cả một danh từ ghép; 5 chữ cái Latin mới là `just`/`nice`.
+Dùng chung ngưỡng 6 thì luật này **gần như không bao giờ chạy trên truyện Nhật** — đúng loại truyện
+đang dùng thật. Thêm `DO_DAI_TOI_THIEU_CJK = 3`, chọn theo hệ chữ chiếm đa số.
+
+⚠️ Con số 3 là **suy ra từ mật độ thông tin, chưa đo trên dữ liệu Nhật thật** (CSDL chưa có project
+tiếng Nhật). Ba ràng buộc còn lại — chồng ≥50%, diện tích nhỏ hơn hẳn, chữ lồng nguyên văn — mới là
+phần chịu lực.
+
+### Vì sao dùng chữ GỐC chứ không dùng bản dịch
+
+Đo thật: `Smoke Potions..` ra *"Độc dược khói.."* ở vùng lớn và *"Thuốc khói..."* ở vùng nhỏ.
+Chuẩn hoá xong vẫn không lồng nhau ⇒ so bản dịch là **mất tín hiệu**.
+
+## GỐC của phần chồng chữ còn lại — KHÔNG phải lỗi vẽ trùng
+
+Ảnh sau B2 vẫn còn `THUỐC CƯỜI` đè `THUỐC MỌC TÓC SIÊU LỚN` — hai nhãn **nội dung khác nhau**, nên
+không luật chống-trùng nào bắt. Truy số đo:
+
+```
+392e16e2  khung 466,25 173x27  ->  ô đặt chữ 399,3   497x156     (5,8x cao, bắt đầu TRÊN khung)
+473212d5  khung 391,69 274x32  ->  ô đặt chữ 379,33  636x130     (4x cao)
+6aaf8a55  khung 452,211 215x29 ->  ô đặt chữ 435,171 234x96
+tất cả: source = fallback_rectangle   ROI rộng 1200px = CẢ TRANG
+font 40.0 (= TYPESET_MAX_FONT_SIZE) trong khung cao 27px  ->  fit_status = fit_ok
+```
+
+**Ô đặt chữ của hai vùng CHỒNG LÊN NHAU** (y 3–159 và y 33–163). Đó là nguyên nhân thật.
+
+Cơ chế: A1 nới khung **tới khi chạm nét vẽ** — chủ đích, và đo được là giảm tràn 3→2. Nhưng nền
+chỗ này là **trời phẳng**, không có nét vẽ nào cản, nên nó nới tràn cả trang. Và **A1 không coi các
+vùng chữ khác là vật cản**.
+
+Hệ quả thứ hai, nặng hơn: bộ căn chữ thấy ô rộng nên chọn cỡ tối đa rồi báo **`fit_ok`** cho chữ
+cao 40 trong khung cao 27. Đó là một lời **bảo đảm sai** — vi phạm nguyên tắc 3 của `CLAUDE.md`
+(thiếu bằng chứng thì phải `overflow_warning`, không được nói "ổn").
+
+⇒ **Chưa sửa trong lượt này.** Sửa đúng là cho A1 coi ô đặt chữ của vùng khác là vật cản, và đó là
+một mini-spec riêng có bằng chứng riêng, không nhét vào E26. Ghi ra đây để không ai đọc ảnh rồi
+tưởng B2 còn hở.
+
+## E15/E16 chữ dọc — đề nghị BỎ, kèm số đo
+
+```
+raqm: False          libraqm vẫn vắng trong worker
+0 font có kana+kanji  (đo bằng so với ô .notdef, KHÔNG dùng getbbox trần)
+MangaOCREngine.recognize() -> (text, None)   không có đường bao dòng
+paddleocr: CÓ cài     (nên cách gỡ mà E15 §9 đề xuất là khả thi)
+```
+
+Nhưng **đầu ra là tiếng Việt, mà tiếng Việt viết ngang**. Ảnh người dùng gửi chứng minh: bong bóng
+cao hẹp của bản Nhật, chữ Việt xuống dòng thành cột hẹp, đọc tốt. Ba vật cản còn lại **chỉ cản việc
+vẽ chữ NHẬT** — việc hệ thống không bao giờ làm.
+
+⇒ Nhãn "Chưa xác định hướng chữ" trên trang Nhật là **nhãn thừa, không phải lỗi cần sửa**. Bỏ mục
+này tiết kiệm nhiều công nhất trong cả danh sách còn lại.
+
+## Một phép đo của tôi SAI, và cách bắt được
+
+Lượt đầu tôi đếm font có glyph kanji bằng `font.getmask('日本語').getbbox()` và ra **4 font** —
+gồm ShantellSans, Bangers (font Latin thuần). Nó đếm **ô .notdef** (ô vuông rỗng) thành glyph. So
+với bbox của `.notdef` thì ra đúng **0**. Cùng loại bẫy với `file --mime-type` không tồn tại mà vẫn
+cho ra "kết luận".
+
+## Tôi đẩy một test ĐỎ lên git và deploy nó — cổng chặn key bắt được (2026-09-12)
+
+`test_khong_co_api_key_nao_bi_commit_vao_git` **ĐỎ** ở lượt chạy toàn bộ hôm nay:
+
+```
+Có API key bị commit vào git: ['backend/tests/test_d_healthz_llm_configured_integration.py: AIzaSyFA…']
+```
+
+Chuỗi đó là khoá **GIẢ** tôi viết trong chính test soi rò rỉ của mình. Nhưng cổng chặn **không thể
+phân biệt thật/giả**, và nó chỉ có giá trị khi tuyệt đối. Nên nó đúng, tôi sai.
+
+### Vì sao lượt chạy trước báo xanh — đây mới là phần đáng nhớ
+
+Lượt `1379 đạt · 0 đỏ` chạy lúc file còn **chưa được `git add`**. `_tracked_files()` chỉ liệt kê
+tệp **đã vào git**, nên nó không thấy. Tôi `git add` + commit (`1656eb1`) + push + **deploy** mà
+KHÔNG chạy lại toàn bộ.
+
+⇒ **Thêm một tệp vào git có thể làm ĐỎ một test mà lượt chạy trước đó không thể phát hiện.** Với
+mọi test soi phạm vi "những gì đã vào git", thứ tự đúng là: `git add` **rồi mới** chạy test, không
+phải ngược lại.
+
+Bản sửa: ghép chuỗi lúc chạy (`"AIza" + "Sy" + "K" * 33`) nên không literal nào trong mã nguồn khớp
+mẫu, còn khoá lúc chạy vẫn đúng định dạng để phép soi rò rỉ giữ nguyên ý nghĩa.

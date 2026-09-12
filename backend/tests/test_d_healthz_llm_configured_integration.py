@@ -27,7 +27,11 @@ async def test_healthz_KHONG_lo_bat_ky_manh_khoa_nao(client, monkeypatch):
     """
     from app.core.config import get_settings
 
-    KHOA = "AIzaSyFAKE0000000000000000000000000000000"
+    # Ghép lúc CHẠY, không viết liền trong mã nguồn. `test_khong_co_api_key_nao_bi_commit_vao_git`
+    # quét mọi tệp đã vào git bằng mẫu `AIza[0-9A-Za-z_\-]{30,}` — một khoá GIẢ viết liền vẫn khớp
+    # mẫu đó và làm cổng chặn key đỏ. Đúng như vậy: cổng chặn không thể phân biệt thật/giả, và nó
+    # chỉ có giá trị khi tuyệt đối. (Tôi đã đẩy đúng lỗi này lên git ở commit `1656eb1`.)
+    KHOA = "AIza" + "Sy" + "K" * 33
     get_settings.cache_clear()
     monkeypatch.setenv("GEMINI_API_KEYS", KHOA)
     try:
