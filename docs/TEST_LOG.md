@@ -4828,3 +4828,63 @@ phải ngược lại.
 
 Bản sửa: ghép chuỗi lúc chạy (`"AIza" + "Sy" + "K" * 33`) nên không literal nào trong mã nguồn khớp
 mẫu, còn khoá lúc chạy vẫn đúng định dạng để phép soi rò rỉ giữ nguyên ý nghĩa.
+
+# ========== E27 — ô đặt chữ không trùm khung chữ vùng khác (2026-09-12) ==========
+
+## Đính chính: bộ căn chữ KHÔNG báo sai
+
+Hôm trước tôi viết *"`fit_ok` là một bảo đảm sai"*. **Không đúng.** `fitter.py` kiểm
+`w <= rect.width and h <= rect.height` — trung thực với cái `rect` nó nhận. Vấn đề là
+`tasks.py:1531` đưa cho nó **`place_rect`** chứ không phải khung chữ:
+
+```
+392e16e2   khung chữ 173x27   ->  fitter nhận ô 497x156   ->  fit_ok (ĐÚNG với ô đó)
+```
+
+Ô rộng gấp 16 lần khung thật, nên chữ vừa ô mà vẫn đè vùng khác. Bộ căn chữ bị đưa **sai đầu
+vào**, không phải nói dối. Vá đầu vào là hết cả hai triệu chứng.
+
+## Gốc
+
+A1 nới ô đặt chữ **tới khi chạm nét vẽ**. Nền chỗ này là **trời phẳng** ⇒ không nét nào cản ⇒ nới
+tràn. Và A1 **không coi vùng chữ khác là vật cản**.
+
+## Bản vá — cắt bớt, KHÔNG bỏ nới
+
+Nối vào `nap_o_dat_chu` vì docstring của nó đã chốt: *"một chỗ duy nhất trả ra ô đặt chữ"*, mọi
+đường (canh chữ / ảnh xem thử / file xuất) đều đi qua. Vá chỗ khác là sớm muộn ba đường lệch nhau.
+
+Đo trên trang thật sau khi vá:
+
+```
+392e16e2   (399,3,497,156)  ->  (399,3,497,65)     cắt ĐÁY,  khung y25–52 còn trọn
+473212d5   (379,33,636,130) ->  (379,54,636,104)   cắt ĐỈNH, khung y69–101 còn trọn
+```
+
+Ảnh xác nhận: `THUỐC CƯỜI` / `THUỐC MỌC TÓC SIÊU LỚN` / `THUỐC KHÓI...` **tách bạch hoàn toàn**,
+hết đè nhau.
+
+## Một giả định của tôi SAI, số đo bắt được
+
+Tôi viết luật với giả định *"ô đặt chữ bao trọn khung chữ của chính nó"*. Chạy thật thì:
+
+```
+e8e30ad4   ô x 423–660   khung chữ x 421–671     <- ô HẸP HƠN khung
+```
+
+Với bong bóng THẬT, vùng an toàn là **lòng bong bóng đã ăn mòn** nên nhỏ hơn khung chữ. Giữ giả
+định đó thì E27 **không chạm tới phần lớn bong bóng thật**, chỉ chạy đúng mấy ca dự phòng nới
+tràn. Đổi sang giữ phần **giao** của ô với khung chữ.
+
+## Vì sao chọn "cắt" chứ không phải "bỏ nới"
+
+Bỏ nới là mất luôn cái A1 đem lại (đo được: tràn 3→2). Nên chỉ cắt đủ để hết trùm, **không bao giờ
+cắt vào phần giao với khung chữ của chính mình**, và chọn nhát cắt **mất ít diện tích nhất**. Vật
+cản đè lên chính khung chữ mình (hai vùng nhận diện chồng nhau) thì **giữ nguyên** — đó là việc của
+E26-B/B2 ở bước vẽ, không phải việc cắt ô.
+
+```
+pytest -q -p no:randomly   exit=0 · 1415 đạt · 6 bỏ qua · 0 ĐỎ   (git add TRƯỚC khi chạy)
+```
+
+Chưa deploy E27.
