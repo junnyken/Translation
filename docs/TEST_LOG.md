@@ -5249,3 +5249,61 @@ sau khi lọc ký tự lạ. Số thì luôn duy nhất và luôn sắp đúng. 
 
 Bẫy: revision id của migration trước là `0017_e22`, **không phải** tên tệp
 `0017_e22_job_heartbeat_error_evidence`. Ghi sai thì `alembic` không tìm được chuỗi.
+
+## E33b — vá rủi ro IDOR ở tầng CẤU TRÚC, không chỉ thêm test cho E33 (2026-09-14)
+
+E33 đã có 7 test riêng chặn IDOR. Nhưng chúng chỉ che **endpoint đó**. Rủi ro thật là: endpoint
+**sau này** nhận id trong thân request sẽ lọt y như vậy, vì phép dò tự sinh không với tới.
+
+### Lần vá thứ nhất — SAI, và tôi chứng minh nó sai
+
+Tôi nghĩ chỗ mù nằm ở `_gia_tri_mau`: `if kieu == "array": return []` ⇒ mọi mảng nhận `[]` ⇒ id của
+A không bao giờ vào thân. Vá: mảng uuid nhận id thật của A.
+
+Rồi **tạm bỏ phép kiểm quyền của E33 để xem phép dò có đỏ không** — nó **vẫn xanh**. Bản vá vô giá
+trị, và lý do là cấu trúc:
+
+```
+phép dò cũ :  B  ->  /projects/{id-của-A}/export   { }                   -> chặn ngay ở URL
+lỗ thật    :  B  ->  /projects/{id-của-B}/export   {"gop": [id-của-A]}   -> URL HỢP LỆ
+```
+
+Phép dò cũ **luôn** đặt id của A lên URL, nên B bị chặn trước khi body được nhìn tới. Hình dạng của
+lỗ này — **URL hợp lệ của chính B + id lạ trong body** — phép dò đó không diễn đạt được. Nếu tôi chỉ
+đọc mã rồi tin bản vá đầu là đủ thì đã báo "đã che" cho một phép dò không che gì.
+
+### Lần vá thứ hai — phép dò RIÊNG, và đã chứng minh nó đỏ đúng lúc
+
+`tests/test_quyen_id_trong_than_request.py`: tự sinh từ `app.openapi()`, tìm mọi endpoint
+`POST/PATCH/PUT` có `{project_id}` trên URL **và** trường mang id chapter trong thân, rồi gọi bằng
+B với chapter **của chính B** trên URL.
+
+**Chống rỗng nghĩa — hai lượt cho mỗi endpoint:**
+
+```
+body chứa id của A      -> phải KHÔNG 2xx   (2xx = LỖ HỔNG)
+body chứa id của B      -> phải 2xx         (không 2xx = rỗng nghĩa, bị chặn vì lý do KHÁC)
+```
+
+Không có lượt thứ hai thì một endpoint hỏng vì bất kỳ lý do gì cũng làm test xanh.
+
+**Và phép chống-rỗng-nghĩa đã bắt lỗi ngay lần chạy đầu:** cả hai lượt trả 422 vì `format` là enum
+qua `$ref`, mà hàm dựng body của tôi không giải `$ref` nên gửi chuỗi rác. Nếu chỉ có
+`assert not lo_hong` thì test đã xanh và tôi tưởng mình đã che được.
+
+**Phép thử quyết định** — tạm bỏ phép kiểm quyền của E33:
+
+```
+LỖ HỔNG id trong thân request:
+  POST /api/v1/projects/{project_id}/export [gop_project_ids]: id của A trong thân ⇒ HTTP 202
+```
+
+Nó **tự tìm ra endpoint, tự dựng body, tự phát hiện lỗ**. Hoàn lại phép kiểm ⇒ 18/18 xanh.
+
+### Giới hạn, nói rõ
+
+Dò trường theo **TÊN** (`project_id`, `project_ids`, `chapter_id`, `chapter_ids`) vì OpenAPI không
+nói field này trỏ tới bảng nào. Đặt tên khác hẳn (vd `nguon`) thì phép dò không thấy. Đó là giới
+hạn của schema, không phải lựa chọn — và ghi ra đây để ai thêm endpoint còn biết.
+
+Chỉ dò endpoint có `{project_id}` trên URL, vì cần một tài nguyên hợp lệ của B để dựng URL.

@@ -207,19 +207,21 @@ MIEN_TRU = {
 }
 
 
-def _gia_tri_mau(schema: dict, goc: dict, ids: dict[str, str], sau: int = 0):
+def _gia_tri_mau(
+    schema: dict, goc: dict, ids: dict[str, str], sau: int = 0, ten_truong: str = ""
+):
     """Sinh một giá trị hợp khuôn từ schema OpenAPI. Không cần đúng nghiệp vụ, chỉ cần **qua
     được tầng kiểm khuôn của FastAPI** — vì trước khi qua được đó thì kiểm quyền chưa chạy."""
     if sau > 6 or not isinstance(schema, dict):
         return None
     if "$ref" in schema:
         ten = schema["$ref"].rsplit("/", 1)[-1]
-        return _gia_tri_mau(goc["components"]["schemas"].get(ten, {}), goc, ids, sau + 1)
+        return _gia_tri_mau(goc["components"]["schemas"].get(ten, {}), goc, ids, sau + 1, ten_truong)
     for khoa in ("anyOf", "oneOf", "allOf"):
         if khoa in schema:
             for nhanh in schema[khoa]:
                 if nhanh.get("type") != "null":
-                    return _gia_tri_mau(nhanh, goc, ids, sau + 1)
+                    return _gia_tri_mau(nhanh, goc, ids, sau + 1, ten_truong)
     if "const" in schema:
         # `Literal["rules"]` của Pydantic ra `const` chứ không phải `enum`. Không hiểu nó thì
         # gửi `null` và bị 422 trước khi chạm tới kiểm quyền.
@@ -234,11 +236,23 @@ def _gia_tri_mau(schema: dict, goc: dict, ids: dict[str, str], sau: int = 0):
         # phép dò lại rỗng nghĩa. Điền hết trường tuỳ chọn để chạm được tới thân hàm.
         chon = bat_buoc or list(thuoc_tinh)
         return {
-            ten: _gia_tri_mau(con, goc, ids, sau + 1)
+            ten: _gia_tri_mau(con, goc, ids, sau + 1, ten)
             for ten, con in thuoc_tinh.items()
             if ten in chon
         }
     if kieu == "array":
+        # MẢNG UUID phải chứa id THẬT của A, không được để rỗng.
+        #
+        # Đây đúng lỗ mà E33 lọt qua: `gop_project_ids` là `list[UUID]`, và phép dò điền `[]` cho
+        # mọi mảng ⇒ nó không bao giờ đặt id của A vào thân request ⇒ không bao giờ thử đường
+        # "B gộp chapter của A". Endpoint có thể lên production kèm lỗ IDOR mà bộ test vẫn xanh.
+        #
+        # Phép dò này soi id trên URL rất tốt, nhưng id nằm trong THÂN REQUEST thì nó mù. Mảng
+        # rỗng là chỗ mù đó.
+        muc = schema.get("items", {})
+        gia_tri = _gia_tri_mau(muc, goc, ids, sau + 1, ten_truong)
+        if isinstance(gia_tri, str) and gia_tri in ids.values():
+            return [gia_tri]
         return []
     if kieu == "integer":
         return 1
@@ -248,7 +262,10 @@ def _gia_tri_mau(schema: dict, goc: dict, ids: dict[str, str], sau: int = 0):
         return True
     if kieu == "string":
         if schema.get("format") == "uuid":
-            return ids["region_id"]
+            # `region_id` là mặc định vì phần lớn thân request nói về vùng. Nhưng endpoint nào
+            # nhận id CHAPTER (E33 `gop_project_ids`) thì phải nhận đúng id chapter của A —
+            # gửi id vùng vào đó chỉ ra 404 vì "không có chapter này", tức phép dò rỗng nghĩa.
+            return ids["project_id"] if "project" in (ten_truong or "") else ids["region_id"]
         if schema.get("format") == "date-time":
             return datetime.now(timezone.utc).isoformat()
         # Chuỗi phải DUY NHẤT: dùng chung một giá trị thì lần POST tạo bản ghi rồi lần PATCH
