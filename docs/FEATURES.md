@@ -50,6 +50,7 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 | E39 | **Trang bạt tài trợ không còn đẻ ra danh xưng rác** — `David`/`Alex`/`Christian` (toàn tên người tài trợ ở trang 12) từng chôn mất ứng viên thật `AXE` | **LIVE** (api v67 + web v36, 14-09). Đo 211 vùng thật: 726 ứng viên → **25**, và 25 cái còn lại đúng là thuật ngữ truyện. Hai chapter không có trang bạt: **không đổi gì**. Trần đầu (20 từ) loại oan một lời thoại thật — phép đo bắt được trước khi deploy |
 | E40 | **File xuất mở được**: nói thẳng Windows/macOS không mở sẵn `.cbz`, thêm một cú bấm "Xuất lại bằng ZIP" | **LIVE** (web v36, 14-09). Không endpoint mới — `ExportFormat.zip` có từ M8, đây là lỗi **chỉ đường** |
 | E41 | **Hạ trần bộ nhớ xoá chữ 2,6 → 1,6 Mpx** sau khi worker production bị SIGKILL/137 hai lần | Người dùng chốt **không nâng RAM** nên trần là lớp bảo vệ duy nhất. Đo lại: ở 2,6 Mpx đỉnh 3710–3912 MB = **96–102% ngân sách** ⇒ không vừa. Ở 1,6: **62%**, mất thêm đúng **1 trang trên 38**. Phải hạ **cả hai** trần — hạ một cái thì trang cỡ đọc 2,16 Mpx hỏng hết |
+| E42 | **Không đẩy job trùng nữa** — một trang từng bị dịch 2 lần (lãng phí 959 token) và căn chữ 4 lần cho đúng cùng một nội dung | Đo hai bộ dữ liệu: production (E35) và 38 trang DB dev (`typeset 2,92 · translate 1,68 · inpaint 1,42 · ocr 1,13 · detect 1,11` job/trang — `detect` là bước duy nhất có trạng thái "đang chạy" và trùng ít nhất). Chắn chỉ đặt ở đường **tự động**; 15 đường người dùng bấm và đường refit theo vùng **không** bị chắn |
 
 ## Những gì dùng được ngay hôm nay (sau E12)
 

@@ -1839,3 +1839,65 @@ Hai tham số này **không độc lập**: `whole_page_max_mpx` quyết định
 quyết định *cho qua hay không* — và đường cả trang tự nộp số lớn nhất có thể. Nên bất biến phải
 được canh bằng test đọc `Settings()` thật, cộng một phép canh nữa qua HTTP trên `/healthz`, vì đây
 là lớp bảo vệ duy nhất.
+
+
+## E42. Job trùng — vì sao `Page.status` không đủ để biết "đã đẩy chưa" (2026-09-14)
+
+### E42.1 Nguyên nhân, và xếp hạng chính là bằng chứng
+
+`buoc_cho_trang` suy bước kế tiếp **từ `Page.status`**. Nhưng `PageStatus` chỉ có **một** trạng
+thái đang-chạy: `detecting`. Bốn bước còn lại không có, nên:
+
+```
+OCR xong -> Page.status = ocr_done, commit
+  auto-chain đẩy inpaint                       tasks.py
+  mẻ tick, đọc thấy ocr_done -> đẩy inpaint    orchestrator.py
+  status VẪN ocr_done tới khi inpaint XONG  -> mọi tick đẩy thêm một cái
+```
+
+Đo trên 38 trang (DB dev) — và thứ tự xếp hạng **chính là phép kiểm chứng cho nguyên nhân**:
+
+| bước | job/trang | có trạng thái đang-chạy? |
+|---|---|---|
+| typeset | 2,92 | không |
+| translate | 1,68 | không |
+| inpaint | 1,42 | không |
+| ocr | 1,13 | không |
+| **detect** | **1,11** | **có** (`detecting`) |
+
+`detect` là bước duy nhất có trạng thái đang-chạy và nó trùng **ít nhất**. Production (E35, trang
+`a744aede`) khớp: `translate` 2 job (935 + **959 token lãng phí**), `typeset` 4 job, `inpaint` 2.
+
+### E42.2 Chắn đặt Ở ĐÂU quan trọng hơn luật chắn
+
+Có **22 chỗ tạo `Job`**, và một luật toàn cục theo (trang, loại) sẽ chặn oan:
+
+- `enqueue_refit_after_retranslate` tạo một job `typeset` cho **mỗi vùng** (gọi `run_refit_job`,
+  khác `run_typeset_job`). Dịch lại 16 vùng ⇒ 16 job, **đúng thiết kế**. Đó là trang "16 job" thấy
+  trong số đo — nên `typeset 2,92` **không** phải toàn bộ là lãng phí.
+- **15 đường trong `routes.py`** do người dùng bấm. Bấm "chạy lại" mà không có gì xảy ra thì tệ
+  hơn hẳn một job trùng.
+
+Nên chắn chỉ đặt ở các đường **tự động**: `day_viec_buoc` (mẻ) và ba hàm nối chuỗi
+`enqueue_ocr_after_detect` · `enqueue_inpaint_after_ocr` · `enqueue_translate_after_inpaint`.
+`enqueue_typeset_after_translate` **không** chắn: typeset chỉ 1,7s, và chắn nó có thể bị một job
+refit đang bay làm kẹt trang ở `translated`.
+
+### E42.3 Ngưỡng mồ côi: dùng lại số đã có, không bịa số mới
+
+`job_chua_ket_thuc` coi là còn sống khi: `queued`, hoặc `running` mà chưa quá
+`nguong_qua_han_giay(loai)` — hàm E22 đã suy từ `*_timeout_seconds` đã cấu hình cộng 20s. Quá
+ngưỡng thì cho đẩy lại, vì nếu không thì **một lần worker chết sẽ chặn trang đó vĩnh viễn**.
+
+**Sửa một hiểu sai của chính tôi:** lúc đề xuất việc này (tên cũ "E36") tôi viết rằng
+`Job.heartbeat_at` phân biệt được "đang chạy với nhịp tim còn mới" với "mồ côi". **Sai.**
+`heartbeat_at` chỉ được ghi **một lần** lúc job bắt đầu (`danh_dau_dang_chay`, `tasks.py:308`),
+nên nó tương đương `started_at`. Phép nhận mồ côi phải dựa vào **ngưỡng thời gian theo loại job**,
+không dựa vào độ mới của nhịp tim.
+
+### E42.4 Giới hạn bản chất: giảm trùng, KHÔNG loại tuyệt đối
+
+Chắn đọc rồi ghi mà không khoá. Hai tiến trình đẩy đúng cùng thời điểm vẫn có thể không thấy job
+của nhau. Muốn tuyệt đối cần khoá ở tầng CSDL (`SELECT ... FOR UPDATE` hoặc ràng buộc duy nhất
+một-phần trên `(page_id, type)` khi `status in (queued, running)`) — **chưa làm**, vì ràng buộc đó
+cần migration và sẽ đụng cả 22 chỗ tạo job, kể cả các đường theo vùng được phép trùng.

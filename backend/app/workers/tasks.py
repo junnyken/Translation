@@ -21,6 +21,7 @@ from sqlalchemy import delete, func, select
 
 from app.core.config import get_settings
 from app.core.db_sync import sync_session
+from app.services.job_status import job_chua_ket_thuc
 from app.models import (
     ExportJob,
     Job,
@@ -314,6 +315,13 @@ def enqueue_ocr_after_detect(page_id: uuid.UUID) -> uuid.UUID | None:
     Không để lỗi enqueue làm hỏng kết quả detect đã ghi — ghi rõ error_log rồi đi tiếp.
     """
     with sync_session() as session:
+        dang_co = job_chua_ket_thuc(session, page_id, JobType.ocr)
+        if dang_co is not None:
+            # E42 — đã có job cùng loại còn sống cho trang này. Trả job ĐANG CÓ thay vì tạo mới:
+            # chuỗi vẫn có việc để chờ, mà không đẻ thêm một lượt ocr nữa.
+            logger.info("E42: trang %s đã có job ocr %s (%s) — không đẩy trùng",
+                        page_id, dang_co.id, dang_co.status.value)
+            return dang_co.id
         job = Job(type=JobType.ocr, page_id=page_id, status=JobStatus.queued)
         session.add(job)
         session.commit()
@@ -674,6 +682,13 @@ def reset_inpainter() -> None:
 def enqueue_inpaint_after_ocr(page_id: uuid.UUID) -> uuid.UUID | None:
     """Nối chuỗi: OCR xong → tự xếp việc xoá chữ gốc (pipeline tự chảy)."""
     with sync_session() as session:
+        dang_co = job_chua_ket_thuc(session, page_id, JobType.inpaint)
+        if dang_co is not None:
+            # E42 — đã có job cùng loại còn sống cho trang này. Trả job ĐANG CÓ thay vì tạo mới:
+            # chuỗi vẫn có việc để chờ, mà không đẻ thêm một lượt inpaint nữa.
+            logger.info("E42: trang %s đã có job inpaint %s (%s) — không đẩy trùng",
+                        page_id, dang_co.id, dang_co.status.value)
+            return dang_co.id
         job = Job(type=JobType.inpaint, page_id=page_id, status=JobStatus.queued)
         session.add(job)
         session.commit()
@@ -928,6 +943,13 @@ def enqueue_translate_after_inpaint(page_id: uuid.UUID, engine: str | None = Non
     cột đó chỉ chế độ `chi_chu`/E19 dùng) — giữ nguyên hành vi cũ: dùng mặc định hệ thống.
     """
     with sync_session() as session:
+        dang_co = job_chua_ket_thuc(session, page_id, JobType.translate)
+        if dang_co is not None:
+            # E42 — đây là bước ĐẮT NHẤT khi trùng: đo trên production, một lượt dịch trùng tốn
+            # thêm 959 token cho đúng cùng một trang (E35 §3, trang a744aede).
+            logger.info("E42: trang %s đã có job translate %s (%s) — không đẩy trùng",
+                        page_id, dang_co.id, dang_co.status.value)
+            return dang_co.id
         job = Job(type=JobType.translate, page_id=page_id, status=JobStatus.queued)
         session.add(job)
         session.commit()

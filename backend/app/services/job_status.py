@@ -69,3 +69,70 @@ def suy_ra_trang_thai_hien_thi(
     if (now - heartbeat_at).total_seconds() > nguong_qua_han_giay(loai):
         return TRANG_THAI_WORKER_GIAN_DOAN
     return JobStatus.running.value
+
+
+def job_chua_ket_thuc(session, page_id, loai: JobType, bay_gio: datetime | None = None):
+    """E42 — job CÙNG LOẠI cho CÙNG TRANG còn đang sống. Trả `Job` hoặc `None`.
+
+    ## Vì sao cần
+
+    `PageStatus` chỉ có **một** trạng thái đang-chạy (`detecting`), nên `buoc_cho_trang` không
+    phân biệt được "bước kế tiếp đã được đẩy rồi" với "chưa đẩy". Hậu quả đo được:
+
+        OCR xong -> Page.status = ocr_done, commit
+          auto-chain đẩy inpaint                       tasks.py
+          mẻ tick, đọc thấy ocr_done -> đẩy inpaint    orchestrator.py
+          status VẪN ocr_done tới khi inpaint XONG -> mọi tick đẩy thêm một cái
+
+    Số đo trên 38 trang (DB dev) — và **xếp hạng chính là bằng chứng cho nguyên nhân**:
+
+        typeset 2,92 · translate 1,68 · inpaint 1,42 · ocr 1,13 · detect 1,11 job/trang
+                                                                  ^^^^^^^^^^
+                                     detect là bước DUY NHẤT có trạng thái đang-chạy, và nó
+                                     trùng ÍT NHẤT.
+
+    Production (E35, trang `a744aede`): translate 2 job, token 935 + **959 lãng phí**; typeset
+    4 job, mỗi lần "xoá 21 kết quả cũ" rồi ghi lại y hệt; inpaint 2 job.
+
+    ## Ngưỡng mồ côi: KHÔNG bịa số mới
+
+    Dùng đúng `nguong_qua_han_giay(loai)` mà E22 đã suy ra từ `*_timeout_seconds` đã cấu hình.
+    Một job `running` quá ngưỡng đó thì gần như chắc chắn worker đã chết mà chưa tới lượt quét mồ
+    côi — lúc đó **phải cho đẩy lại**, nếu không một lần worker chết sẽ chặn trang đó vĩnh viễn.
+
+    Lưu ý về `heartbeat_at`: nó **không phải nhịp tim định kỳ**, chỉ được ghi MỘT LẦN lúc job bắt
+    đầu (`danh_dau_dang_chay`). Nên nó tương đương `started_at`, và phép nhận mồ côi ở đây dựa
+    vào NGƯỠNG THỜI GIAN theo loại job, không dựa vào "nhịp tim còn mới".
+
+    ## Chỉ dùng ở các đường TỰ ĐỘNG
+
+    KHÔNG phải luật toàn cục. Có 22 chỗ tạo `Job`, trong đó nhiều chỗ theo **vùng**
+    (`page_id=region.page_id`) — `enqueue_refit_after_retranslate` tạo một job `typeset` cho MỖI
+    vùng và đó là đúng thiết kế (dịch lại 16 vùng ⇒ 16 job). Chắn theo (trang, loại) ở những chỗ
+    đó sẽ chặn oan. Và 15 đường trong `routes.py` là do người dùng bấm — bấm "chạy lại" mà không
+    có gì xảy ra thì tệ hơn hẳn một job trùng.
+    """
+    from sqlalchemy import select
+
+    from app.models import Job
+
+    now = bay_gio or datetime.now(timezone.utc)
+    hang = session.execute(
+        select(Job)
+        .where(Job.page_id == page_id, Job.type == loai,
+               Job.status.in_((JobStatus.queued, JobStatus.running)))
+        .order_by(Job.created_at.desc())
+    ).scalars().all()
+
+    for job in hang:
+        if job.status is JobStatus.queued:
+            # Chưa ai nhặt: chắc chắn còn sống. Đẩy thêm là trùng thật.
+            return job
+        moc = job.heartbeat_at or job.started_at
+        if moc is None:
+            # `running` mà không có mốc nào (job trước E22) — không đủ bằng chứng để gọi là mồ
+            # côi, nên coi là còn sống. Thà bỏ một lượt đẩy còn hơn đẩy trùng.
+            return job
+        if (now - moc).total_seconds() <= nguong_qua_han_giay(loai):
+            return job
+    return None

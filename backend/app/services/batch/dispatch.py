@@ -9,6 +9,7 @@ import logging
 import uuid
 
 from app.core.db_sync import sync_session
+from app.services.job_status import job_chua_ket_thuc
 from app.models import BatchRun, Job, Page
 from app.models.enums import JobStatus, JobType
 
@@ -46,6 +47,15 @@ def day_viec_buoc(
             # Engine dịch được CHỐT lúc tạo mẻ, không đọc lại cấu hình lúc chạy — nếu không,
             # đổi cấu hình giữa chừng sẽ khiến các trang trong cùng một mẻ dịch bằng hai engine.
             engine = me.translation_engine.value if me and me.translation_engine else None
+        # E42 — mẻ là nguồn job trùng CHÍNH: `buoc_cho_trang` suy bước kế tiếp từ `Page.status`,
+        # mà bốn trong năm bước không có trạng thái đang-chạy, nên mọi tick trong lúc bước đó còn
+        # bay đều đẩy thêm một job. Bỏ một tick ở đây là TỰ LÀNH: tick sau, nếu job kia đã xong
+        # thì `Page.status` đã đổi; nếu chưa xong thì vẫn đúng là không nên đẩy thêm.
+        dang_co = job_chua_ket_thuc(session, page_id, loai_job)
+        if dang_co is not None:
+            logger.info("mẻ %s: bước %s cho trang %s ĐÃ có job %s (%s) — không đẩy trùng",
+                        batch_run_id, buoc, page_id, dang_co.id, dang_co.status.value)
+            return dang_co.id
         job = Job(type=loai_job, page_id=page_id, status=JobStatus.queued)
         session.add(job)
         session.commit()

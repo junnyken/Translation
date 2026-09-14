@@ -5560,3 +5560,55 @@ Ba test canh đúng chỗ đó, và chúng đọc `Settings()` chứ không truy
 
 Cộng `test_healthz_khai_hai_tran_bo_nho_inpaint`: bất biến còn được canh một lần nữa **từ ngoài
 qua HTTP**, vì đó là lớp bảo vệ duy nhất và nó phải nói ra được.
+
+---
+
+## E42 — job trùng, và ranh giới suýt làm tôi sửa sai (14-09)
+
+### Hai bộ dữ liệu độc lập nói cùng một chuyện
+
+Production (E35, trang `a744aede`): `translate` 2 job (token 935 + **959 lãng phí**), `typeset`
+4 job, `inpaint` 2 job. DB dev, 38 trang:
+
+```
+typeset 2,92 · translate 1,68 · inpaint 1,42 · ocr 1,13 · detect 1,11 job/trang
+```
+
+**Xếp hạng đó chính là phép kiểm chứng cho nguyên nhân.** `detect` là bước DUY NHẤT có trạng thái
+đang-chạy (`detecting`) và nó trùng **ít nhất**. Bốn bước còn lại đều cao hơn. Nếu nguyên nhân là
+thứ khác thì không có lý gì thứ tự lại khớp đúng như vậy.
+
+### Ranh giới suýt sửa sai: `typeset 2,92` KHÔNG phải toàn bộ là lãng phí
+
+`enqueue_refit_after_retranslate` tạo một job `typeset` cho **mỗi vùng** (gọi `run_refit_job`,
+khác `run_typeset_job`). Dịch lại 16 vùng ⇒ 16 job, **đúng thiết kế** — và đó chính là trang "16
+job" trong số đo. Một luật chắn toàn cục theo (trang, loại) sẽ làm vùng thứ hai **không được căn
+lại chữ**: bản dịch mới nằm trong CSDL mà ảnh vẫn của bản cũ, đúng thứ hàm đó sinh ra để tránh.
+
+Có test canh đúng ranh giới này: `test_refit_hai_VUNG_khac_nhau_van_ra_HAI_job`.
+
+### Phép chống rỗng nghĩa làm thành TEST THƯỜNG TRÚ
+
+Lần đầu tôi định chứng minh bằng cách sửa mã rồi chạy lại bằng tay (như đã làm cho E39). Làm thành
+test thì phép chứng minh còn sống mãi — ai bỏ chắn đi mà bộ test vẫn xanh thì chính test này đỏ:
+
+| test | canh gì |
+|---|---|
+| `test_TAT_chan_thi_ra_HAI_job` | tắt chắn ⇒ phải ra **2** job. Nếu vẫn 1 thì test kia xanh vì lý do khác |
+| `test_TAT_chan_thi_me_cung_day_trung` | cùng việc đó cho đường của mẻ |
+| `test_BAT_chan_thi_me_chi_day_MOT_lan` | bật chắn ⇒ đúng 1 |
+| `test_job_mo_coi_thi_VAN_day_lai_duoc` | chống rỗng nghĩa **chiều ngược**: chắn không được thành khoá vĩnh viễn |
+
+### Một lỗi trong test của tôi, và nó KHÔNG phải lỗi mã sản phẩm
+
+Hai test đường-mẻ đỏ lượt đầu với `Connection to Redis lost: Retry (0/20)`. Nguyên nhân: fixture
+`no_broker_for_chained_ocr` của conftest chỉ chặn `.delay`, còn `day_viec_buoc` đẩy bằng
+`apply_async`. Đã thêm fixture `khong_goi_broker` chặn `apply_async`. Nếu tin "đỏ = mã sai" thì đã
+đi sửa sai chỗ.
+
+### Sửa một hiểu sai của chính tôi về `heartbeat_at`
+
+Lúc đề xuất việc này tôi viết rằng `Job.heartbeat_at` phân biệt được "đang chạy với nhịp tim còn
+mới" với "mồ côi". **Sai** — nó chỉ được ghi MỘT LẦN lúc job bắt đầu (`tasks.py:308`), nên tương
+đương `started_at`. Phép nhận mồ côi dùng `nguong_qua_han_giay(loai)` của E22 (suy từ
+`*_timeout_seconds` đã cấu hình + 20s), **không bịa ngưỡng mới**.
