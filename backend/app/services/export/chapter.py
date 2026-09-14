@@ -32,6 +32,12 @@ class TrangCanXuat:
     order: int
     clean_image_rel: str
     regions: list  # list[RegionDraw] — kiểu của M6, không import ở đây để khỏi vòng lặp import
+    #: E33 — thư mục chapter khi GỘP nhiều chapter (`01_chuong_mot`). Rỗng ⇒ tên phẳng như trước.
+    #:
+    #: Bắt buộc phải có: `ten_trang` đặt tên theo `order`, mà mỗi chapter đều có `order=1`. Gộp mà
+    #: không có tiền tố thì trang 1 của chapter sau **ghi đè** trang 1 của chapter trước, và
+    #: `zipfile` KHÔNG báo lỗi — mất trang mà không ai biết.
+    tien_to: str = ""
 
 
 class ChapterExporter:
@@ -69,7 +75,10 @@ class ChapterExporter:
         `10.png` sẽ đứng trước `2.png`.
         """
         do_rong = max(len(str(so_trang)), 3)
-        return f"{trang.order:0{do_rong}d}.png"
+        ten = f"{trang.order:0{do_rong}d}.png"
+        # E33 — có tiền tố thì trang nằm trong thư mục chapter. Ứng dụng đọc CBZ sắp theo đường
+        # dẫn đầy đủ, nên thứ tự chapter cũng nằm trong tên.
+        return f"{trang.tien_to}/{ten}" if trang.tien_to else ten
 
     # ---------- 3 định dạng ----------
     def export_png_single(self, thu_muc_dich: Path, trang_list: list[TrangCanXuat]) -> str:
@@ -77,7 +86,11 @@ class ChapterExporter:
         dich = thu_muc_dich / "png"
         dich.mkdir(parents=True, exist_ok=True)
         for trang in trang_list:
-            (dich / self.ten_trang(trang, len(trang_list))).write_bytes(self.render_page_bytes(trang))
+            ra = dich / self.ten_trang(trang, len(trang_list))
+            # E33 — tên có thể mang thư mục chapter (`01_chuong_mot/001.png`), nên phải tạo
+            # thư mục cha. Thiếu dòng này thì xuất PNG khi gộp sẽ nổ `FileNotFoundError`.
+            ra.parent.mkdir(parents=True, exist_ok=True)
+            ra.write_bytes(self.render_page_bytes(trang))
         return str(dich)
 
     def _export_goi(

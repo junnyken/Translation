@@ -2228,7 +2228,31 @@ def _run_export(job_id: uuid.UUID) -> dict:
             return {"status": "failed", "job_id": str(job_id), "error": job.error_log}
 
         project_id, project_name, dinh_dang = project.id, project.name, job.format
-        trang_list, bo_qua = _thu_thap_trang(session, project_id)
+
+        # E33 — gộp nhiều chapter. Quyền đã kiểm TỪNG chapter ở `create_export`; ở đây chỉ gom
+        # trang theo ĐÚNG thứ tự đã lưu, và gắn tiền tố chapter vào tên trang để hai chapter cùng
+        # có "trang 1" không ghi đè nhau trong archive.
+        gop_ids = [uuid.UUID(str(i)) for i in (job.gop_project_ids or [])]
+        if len(gop_ids) > 1:
+            from dataclasses import replace as dc_replace
+
+            from app.services.export.gop_chapter import tien_to_chapter
+
+            trang_list, bo_qua = [], []
+            for vi_tri, pid_con in enumerate(gop_ids, start=1):
+                pr_con = session.get(Project, pid_con)
+                if pr_con is None:
+                    # Chapter bị xoá SAU khi xếp việc. Nói ra, không lặng lẽ xuất thiếu.
+                    bo_qua.append(f"chapter {vi_tri} (đã bị xoá)")
+                    continue
+                ds, bq = _thu_thap_trang(session, pid_con)
+                # `TrangCanXuat` là dataclass FROZEN — phải dựng bản mới, không gán thuộc tính.
+                tt = tien_to_chapter(vi_tri, pr_con.name, len(gop_ids))
+                trang_list.extend(dc_replace(t_, tien_to=tt) for t_ in ds)
+                bo_qua.extend(f"[{pr_con.name}] {x}" for x in bq)
+            project_name = f"{project_name}_va_{len(gop_ids) - 1}_chapter_khac"
+        else:
+            trang_list, bo_qua = _thu_thap_trang(session, project_id)
         so_tran = dem_vung_tran_khung(session, [uuid.UUID(t.page_id) for t in trang_list])
 
         if not trang_list:

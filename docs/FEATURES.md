@@ -844,3 +844,26 @@ hay ít chữ. Một chapter 24 trang tốn thêm khoảng **28.000 token** — 
 
 **Một phương án rẻ hơn chưa làm:** chỉ gửi ảnh cho những trang **có vùng bị đánh dấu cần rà soát**
 — vì lợi ích của ảnh tập trung đúng vào các trang máy đọc kém, chứ không rải đều.
+
+### Gộp nhiều chapter vào một file (E33)
+
+Trước đây mỗi lần xuất chỉ ra **một** chapter. Nay chọn được nhiều chapter và tải về **một file duy
+nhất**, xếp theo đúng thứ tự bạn chọn.
+
+File ra có cấu trúc thư mục theo chapter:
+
+```
+01_chuong_mot/001.png  002.png  003.png
+02_chuong_hai/001.png  002.png
+```
+
+Số thứ tự nằm ở đầu tên vì ứng dụng đọc truyện **sắp trang theo tên file** — không có số thì chương
+10 sẽ đứng trước chương 2.
+
+**Chỉ gộp được chapter của chính bạn.** Chapter của người khác thì hệ thống báo không tìm thấy, y
+như mọi chỗ khác. Và nếu một chapter trong danh sách không tồn tại, **cả lượt xuất bị từ chối** —
+thà báo lỗi còn hơn lặng lẽ xuất thiếu một chương mà bạn tưởng đã có.
+
+**Chọn trùng một chapter hai lần** thì nó chỉ vào file một lần, ở vị trí bạn chọn đầu tiên.
+
+**Tối đa 50 chapter một lần.** Nhiều hơn thì file quá lớn và lượt xuất chạy quá lâu.

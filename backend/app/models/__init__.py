@@ -380,6 +380,16 @@ class ExportJob(TimestampMixin, Base):
     #: File .cbz/.zip, hoặc THƯ MỤC khi format là png_single. NULL cho tới khi xuất xong.
     output_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     page_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    #: E33 — GỘP NHIỀU CHAPTER vào một file. Danh sách id chapter theo ĐÚNG thứ tự người dùng
+    #: chọn, KỂ CẢ `project_id` ở trên. `NULL`/rỗng ⇒ xuất một chapter như trước E33.
+    #:
+    #: Vì sao không đổi `project_id` thành nhiều: cột đó là chỗ nghẽn kiểm quyền và là khoá ngoại
+    #: mà mọi đường đọc hiện có đang dùng. Giữ nó làm chapter CHÍNH, thêm cột danh sách bên cạnh —
+    #: không phá hợp đồng nào đang có (CLAUDE.md nguyên tắc 6).
+    #:
+    #: Lưu THỨ TỰ chứ không phải tập hợp: gộp chapter 3 rồi chapter 1 ra file khác hẳn gộp 1 rồi
+    #: 3, và thứ tự đó là quyết định của người dùng.
+    gop_project_ids: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     #: Số vùng còn tràn khung TẠI THỜI ĐIỂM xuất — không chặn xuất, nhưng phải ghi lại.
     overflow_warning_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_log: Mapped[str | None] = mapped_column(Text, nullable=True)

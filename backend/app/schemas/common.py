@@ -416,6 +416,17 @@ class ExportRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     format: ExportFormat
+    #: E33 — gộp nhiều chapter vào MỘT file, theo ĐÚNG thứ tự trong danh sách này.
+    #:
+    #: Bỏ trống ⇒ xuất một chapter như trước E33. Chapter trên URL luôn được tính, kể cả khi
+    #: không có trong danh sách.
+    #:
+    #: ⚠️ MỌI id trong đây đều bị kiểm quyền riêng. Gộp chapter của người khác vào file của mình
+    #: là lỗ IDOR, nên không có đường nào bỏ qua phép kiểm đó — xem `create_export`.
+    #:
+    #: Trần 50: gộp nhiều hơn thì file quá lớn và lượt xuất chạy quá lâu, mà không ai đọc một
+    #: file 50 chapter trong một lần.
+    gop_project_ids: list[uuid.UUID] | None = Field(default=None, max_length=50)
 
 
 class ExportPreview(BaseModel):

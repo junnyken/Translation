@@ -5171,3 +5171,81 @@ Sửa 6 bản giả rồi xanh lại. So với lần trước: 20 phút chạy +
 - Chưa chạy end-to-end qua pipeline với cờ bật.
 - Chưa làm phương án rẻ hơn: chỉ gửi ảnh cho trang **có vùng bị E12 gắn cần rà soát** hoặc OCR
   điểm tin cậy thấp — vì lợi ích của ảnh tập trung đúng vào những trang đó.
+
+# ========== E33 — gộp nhiều chapter vào một file xuất (2026-09-14) ==========
+
+Thứ **duy nhất** thật sự thiếu trong luồng tự động (kiểm kê 12-09). Bốn phần còn lại đã có từ
+trước: tải nhiều ảnh, tự nhận diện sau khi tải, năm bước nối nhau, chạy cả chapter một mẻ.
+
+## Rủi ro lớn nhất KHÔNG phải chức năng, mà là IDOR
+
+Mỗi chapter có **chủ riêng** (auth slice B). `create_export` trước E33 chỉ kiểm chapter trên URL.
+Thêm một danh sách id vào **thân request** mà không kiểm từng cái là mở đường cho bất kỳ ai gộp
+chapter của người khác vào file của mình rồi tải về.
+
+Và **phép dò quyền tự sinh không bắt được ca này**: `test_quyen_cheo_tai_khoan.py` thử từng endpoint
+với id của A trên **URL**, còn ở đây id lạ nằm trong **thân request**.
+
+Nên có `test_e33_gop_quyen_integration.py` (7 test) canh riêng:
+
+```
+B gộp chapter của A  -> 404   ✓
+A gộp chapter của B  -> 404   ✓   (kiểm CẢ HAI chiều — lỗ một chiều vẫn là lỗ)
+id không tồn tại     -> 404   ✓   (từ chối CẢ lượt, không lặng lẽ xuất thiếu)
+gộp chapter của mình -> 202   ✓   (chiều thuận phải chạy, nếu không test trên rỗng nghĩa)
+```
+
+## Hai chỗ mất dữ liệu ÂM THẦM, và một giả định của tôi SAI
+
+**Tên trùng trong archive.** Mỗi chapter đều có trang `order=1`. `ten_trang()` đặt tên theo
+`trang.order`, nên gộp mà không có tiền tố thì trang 1 của chapter sau **ghi đè** trang 1 của
+chapter trước — `zipfile` **không báo lỗi**, nó tạo hai entry cùng tên mà phần lớn ứng dụng đọc
+truyện chỉ thấy một. Mất trang mà không ai biết.
+
+**Thứ tự phải nằm trong TÊN**, không chỉ trong thứ tự ghi vào archive: ứng dụng đọc CBZ sắp trang
+theo **tên file**. Test canh bằng `sorted(ten) == ten`.
+
+### Giả định sai của tôi, và số đo bắt được
+
+Tôi viết worker gán `t_.ten_file = ...`, giả định `TrangCanXuat` có trường đó. Đọc mã thì **không
+có** — tên trang do `ChapterExporter.ten_trang()` tính từ `trang.order`. Và dataclass đó
+`frozen=True` nên gán thuộc tính sẽ **nổ** chứ không âm thầm.
+
+Sửa đúng chỗ: thêm trường `tien_to` vào `TrangCanXuat`, cho `ten_trang` ghép `tiền tố/số trang`, và
+worker dựng bản mới bằng `dataclasses.replace`.
+
+Kéo theo một lỗi nữa: `export_png_single` ghi thẳng `dich / ten_trang(...)`, mà tên nay có `/` ⇒
+`FileNotFoundError` vì thư mục con chưa tồn tại. Thêm `mkdir(parents=True)`.
+
+### Và tôi đã bỏ một hàm mình vừa viết
+
+`gop_chapter.ten_trong_archive()` ghép tên đầy đủ — nhưng `ten_trang` của bộ xuất **đã là** chỗ duy
+nhất quyết định tên trang (nó còn tự tính độ rộng chữ số theo tổng số trang). Hai chỗ đặt tên là
+sớm muộn hai chỗ lệch nhau. Bỏ hàm đó, và **viết lại test để đi qua đúng đường sản xuất** — test tự
+ghép chuỗi là test một hàm không ai gọi.
+
+## Thiết kế
+
+**Không đổi `project_id` thành nhiều.** Cột đó là chỗ nghẽn kiểm quyền và là khoá ngoại mà mọi
+đường đọc hiện có đang dùng. Giữ nó làm chapter CHÍNH, thêm `gop_project_ids` (JSONB, nullable) bên
+cạnh — không phá hợp đồng nào (CLAUDE.md nguyên tắc 6).
+
+**Lưu THỨ TỰ chứ không phải tập hợp.** Gộp 3 rồi 1 ra file khác hẳn gộp 1 rồi 3.
+
+**Bỏ trùng nhưng giữ thứ tự lần xuất hiện đầu** — chọn trùng là nhầm tay; để nguyên thì trang bị
+xuất hai lần với hai tiền tố khác nhau.
+
+**Đánh SỐ chapter, không dùng tên làm thư mục.** Tên do người dùng đặt, có thể trùng, có thể rỗng
+sau khi lọc ký tự lạ. Số thì luôn duy nhất và luôn sắp đúng. Tên vẫn đi **sau** số để còn nhận ra.
+
+**Chapter bị xoá sau khi xếp việc** ⇒ ghi vào `bo_qua`, không lặng lẽ xuất thiếu.
+
+**Trần 50 chapter** — gộp nhiều hơn thì file quá lớn và lượt xuất chạy quá lâu.
+
+## Migration
+
+`0018_e33` thêm **một** cột nullable, chạy được **cả hai chiều** (đã kiểm `upgrade` → `downgrade`
+→ `upgrade` trên CSDL thật). Không enum mới nên không cần `DROP TYPE` như `0001_m1`.
+
+Bẫy: revision id của migration trước là `0017_e22`, **không phải** tên tệp
+`0017_e22_job_heartbeat_error_evidence`. Ghi sai thì `alembic` không tìm được chuỗi.

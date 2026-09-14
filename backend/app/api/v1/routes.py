@@ -1579,7 +1579,25 @@ async def create_export(
     """
     await _get_project_or_404(session, project_id, nguoi)
 
-    job = ExportJob(project_id=project_id, format=body.format, status=JobStatus.queued)
+    # E33 — GỘP NHIỀU CHAPTER. Kiểm quyền TỪNG chapter, không có đường nào bỏ qua.
+    #
+    # Đây là chỗ dễ thành lỗ IDOR nhất của tính năng này: không kiểm thì ai cũng gộp được chapter
+    # của người khác vào file của mình rồi tải về. `_get_project_or_404` trả 404 cho cả "không có"
+    # lẫn "không phải của bạn" (xem `app/core/quyen.py`), nên vòng lặp này vừa kiểm quyền vừa kiểm
+    # tồn tại — và một id lạ làm CẢ lượt xuất bị từ chối, chứ không lặng lẽ bỏ qua id đó.
+    gop_ids = None
+    if body.gop_project_ids:
+        from app.services.export.gop_chapter import kiem_thu_tu
+
+        gop_ids = kiem_thu_tu(body.gop_project_ids, project_id)
+        for pid_khac in gop_ids:
+            if pid_khac != project_id:
+                await _get_project_or_404(session, pid_khac, nguoi)
+
+    job = ExportJob(
+        project_id=project_id, format=body.format, status=JobStatus.queued,
+        gop_project_ids=[str(i) for i in gop_ids] if gop_ids else None,
+    )
     session.add(job)
     await session.commit()
     await session.refresh(job)

@@ -837,6 +837,30 @@ hosting liệt kê tên biến chứ không nói biến rỗng hay không. Trư�
 khi khoá rỗng thì job **lùi về `google_fast` và dán nhãn `fallback_used`**, chứ không đỏ — tính
 chất này có test riêng (`test_d_khoa_rong_van_co_duong_lui_unit.py`).
 
+## E33 — `POST /projects/{id}/export` nhận `gop_project_ids` (2026-09-14)
+
+```json
+{ "format": "cbz", "gop_project_ids": ["<id-1>", "<id-2>", "<id-3>"] }
+```
+
+| Trường | Ý nghĩa |
+|---|---|
+| `gop_project_ids` | Danh sách chapter gộp vào MỘT file, theo **đúng thứ tự** trong danh sách. Bỏ trống ⇒ xuất một chapter như trước E33. Trần **50**. |
+
+**Chapter trên URL luôn được tính**, kể cả khi không có trong danh sách — nó là chapter *chính*
+(chỗ nghẽn kiểm quyền).
+
+⚠️ **MỌI id trong danh sách bị kiểm quyền RIÊNG.** Gộp chapter của người khác vào file của mình là
+lỗ IDOR, nên không có đường nào bỏ qua phép kiểm đó. Một id lạ hoặc không thuộc bạn ⇒ **404 cho cả
+lượt xuất**, không lặng lẽ bỏ qua id đó rồi xuất thiếu.
+
+**Thứ tự được lưu, không bị sắp lại.** Gộp chapter 3 rồi 1 ra file khác hẳn gộp 1 rồi 3. Id trùng
+bị bỏ nhưng giữ vị trí lần xuất hiện đầu.
+
+**Cấu trúc file ra:** `01_ten_chapter/001.png`, `02_ten_khac/001.png`… Số thứ tự chapter nằm trong
+tên vì ứng dụng đọc CBZ sắp trang theo **tên file**, và vì hai chapter đều có trang 1 — không có
+tiền tố thì trang này ghi đè trang kia.
+
 ## E30 — `GET /healthz` thêm `translate_default_engine` (2026-09-12)
 
 ```json
