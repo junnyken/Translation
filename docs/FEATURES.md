@@ -45,6 +45,7 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 | E29 | Câu thoại ngắn tiếng Nhật không còn bị bỏ không dịch (`それでも、`, `ちなみに、`) | **BUILT, chờ deploy** (12-09). Ngưỡng "chữ ngắn" tính riêng cho từng hệ chữ |
 | E30 | **Vá MẤT CHỮ**: `llm_context` từng trả về `"Whoo!"` thay cho cả câu khi vùng có dấu xuống dòng | **BUILT, chờ deploy** (12-09) — **bản vá gấp nhất**; đo trên trang `29ab3d86` |
 | E31 | Dịch nhất quán **xuyên trang**: nối bảng thuật ngữ + hồ sơ giọng nhân vật đã chốt vào prompt | **BUILT, chờ deploy** (12-09). Chỉ nạp mục người dùng đã duyệt |
+| E32 | **Cho mô hình xem chính trang truyện** khi dịch — sửa được chữ OCR đọc rác và biết câu nào của nhân vật nào | **BUILT, TẮT mặc định** (14-09). Đo thật: chi phí ảnh gần như CỐ ĐỊNH **+1166 token/trang** (EN ×3,0 · JA ×5,7) ⇒ một chapter 24 trang tốn thêm ~28.000 token. Bật hay không là **quyết định chi phí của người dùng** — xem TEST_LOG 14-09 |
 
 ## Những gì dùng được ngay hôm nay (sau E12)
 
@@ -821,3 +822,25 @@ chắc chắn nhất, nên **chỉ dùng khi 1 và 2 vẫn chưa đủ**.
 chữ kanji, bộ đọc không trả hình dạng dòng) — nhưng cả ba **chỉ cản việc vẽ chữ Nhật**, mà hệ thống
 luôn vẽ **tiếng Việt**, và tiếng Việt viết ngang. Bỏ mục này tiết kiệm nhiều công nhất trong cả
 danh sách.
+
+### Cho mô hình xem chính trang truyện (E32) — có, nhưng đang TẮT
+
+Bình thường mô hình dịch **chỉ đọc chữ mà máy đọc ra được**, không thấy hình. Nên khi máy đọc sai,
+nó phải đoán; và nó không biết câu nào là của nhân vật nào.
+
+Bật tính năng này thì mô hình **xem cả trang truyện**. Đo thật trên hai trang:
+
+| | Không xem ảnh | Có xem ảnh |
+|---|---|---|
+| Máy đọc rác `どなどは` | *"Chẳng hạn như..."* — đoán sai | **"Đổ ào ào."** — nhận ra đó là tiếng động vẽ trong tranh |
+| `Yeah, I know:` | *"Ừ, tôi biết mà:"* | **"Vâng, con biết:"** — biết người nói là học việc |
+| `I need to go...` | *"Tôi cần..."* | **"Ta cần..."** — biết người nói là bà phù thuỷ |
+
+**Vì sao đang tắt:** chi phí. Ảnh tốn gần như **cố định +1166 token mỗi trang**, bất kể trang nhiều
+hay ít chữ. Một chapter 24 trang tốn thêm khoảng **28.000 token** — gấp 4–5 lần so với chỉ gửi chữ.
+
+Đây là **quyết định chi phí của bạn**, không phải quyết định kỹ thuật. Muốn bật thì đặt
+`E32_KEM_ANH_TRANG=true` rồi deploy lại.
+
+**Một phương án rẻ hơn chưa làm:** chỉ gửi ảnh cho những trang **có vùng bị đánh dấu cần rà soát**
+— vì lợi ích của ảnh tập trung đúng vào các trang máy đọc kém, chứ không rải đều.

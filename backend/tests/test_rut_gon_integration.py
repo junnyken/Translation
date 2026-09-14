@@ -150,7 +150,7 @@ def _model_gia(monkeypatch, tra_ve, ghi_prompt=None):
             if ghi_prompt is not None:
                 ghi_prompt.append(prompt)
             return tra_ve, {"totalTokenCount": 30}
-    monkeypatch.setattr(tasks, "build_translator", lambda engine, boi_canh="": Model())
+    monkeypatch.setattr(tasks, "build_translator", lambda engine, boi_canh="", anh_trang=None: Model())
     monkeypatch.setattr(tasks, "_cong_nhip", lambda engine: None)
 
 
@@ -235,7 +235,7 @@ class TestRutGon:
             def goi_prompt_tho(self, prompt):
                 raise TranslationFailed("hết quota giả lập")
 
-        monkeypatch.setattr(tasks, "build_translator", lambda engine, boi_canh="": ModelHong())
+        monkeypatch.setattr(tasks, "build_translator", lambda engine, boi_canh="", anh_trang=None: ModelHong())
         monkeypatch.setattr(tasks, "_cong_nhip", lambda engine: None)
 
         r = await client.post(f"/api/v1/pages/{page_id}/fit-translation")
@@ -322,7 +322,7 @@ class TestDichLaiPhaiCanLai:
             def translate(self, texts, source_lang, target_lang):
                 return ["Ngắn thôi."]
 
-        monkeypatch.setattr(tasks, "build_translator", lambda engine, boi_canh="": Dich())
+        monkeypatch.setattr(tasks, "build_translator", lambda engine, boi_canh="", anh_trang=None: Dich())
 
         with sync_session() as s:
             job = Job(type=JobType.translate, page_id=uuid.UUID(page_id), status=JobStatus.queued)

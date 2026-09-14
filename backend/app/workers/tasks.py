@@ -946,12 +946,19 @@ def enqueue_translate_after_inpaint(page_id: uuid.UUID, engine: str | None = Non
     return job_id
 
 
-def build_translator(engine: str, boi_canh: str = ""):
+def build_translator(engine: str, boi_canh: str = "", anh_trang: tuple | None = None):
     """Tạo translator theo tên engine. Import trễ; key chỉ đọc từ settings (.env).
 
     `boi_canh` (E31) là khối thuật ngữ + giọng nhân vật ĐÃ CHỐT của project. Chỉ `llm_context`
     dùng được; `google_fast` không có chỗ nhận ngữ cảnh nên bỏ qua — không phải thiếu sót, đó là
     giới hạn của chính engine đó.
+
+    `anh_trang` (E32) là `(bytes, mime)` của ảnh trang đã thu nhỏ, hoặc `None`.
+
+    ⚠️ Đổi chữ ký hàm này ĐÃ TỪNG gây 115 test đỏ dây chuyền (12-09): 6 bản giả trong test giữ
+    chữ ký cũ ⇒ mọi job dịch nổ `TypeError` ⇒ trang kẹt `inpainted` ⇒ không có job typeset ⇒ test
+    gọi job với id rỗng. Thêm tham số ở đây thì PHẢI sửa mọi bản giả cùng lượt —
+    `test_chu_ky_ban_gia_khop_ham_that_unit.py` canh việc đó.
     """
     from app.services.translate.engines import get_translator
 
@@ -965,6 +972,10 @@ def build_translator(engine: str, boi_canh: str = ""):
             max_output_tokens=settings.llm_max_output_tokens,
             thinking_budget=settings.llm_thinking_budget,
             boi_canh=boi_canh,
+            # E32 — `(bytes, mime)` hoặc None. Truyền tuple thay vì hai tham số rời để lần sau
+            # thêm thứ gì nữa cũng không phải đổi chữ ký hàm này lần thứ ba.
+            anh_trang=anh_trang[0] if anh_trang else None,
+            anh_mime=anh_trang[1] if anh_trang else "image/jpeg",
         )
     return get_translator(engine)
 
@@ -1095,6 +1106,22 @@ def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dic
         from app.services.translate.boi_canh import nap_boi_canh_du_an
 
         boi_canh = nap_boi_canh_du_an(session, page.project_id)
+
+        # E32 — ảnh trang gửi kèm cho mô hình. TẮT mặc định (`e32_kem_anh_trang=False`) vì một ảnh
+        # tốn nhiều token hơn chữ rất nhiều, và `llm_context` chỉ-chữ đo được ~300 token/trang.
+        #
+        # Dùng ảnh GỐC chứ không dùng ảnh đã xoá chữ: mục đích là để mô hình ĐỌC LẠI chữ gốc khi
+        # OCR đọc sai, mà ảnh clean thì đã xoá hết chữ đi rồi.
+        anh_kem = None
+        if settings.e32_kem_anh_trang and engine_override != TranslationEngine.google_fast.value:
+            from app.services.translate.anh_kem import chuan_bi_anh
+
+            try:
+                anh_kem = chuan_bi_anh(
+                    get_storage().read(page.image_path), settings.e32_anh_max_px
+                )
+            except Exception:  # noqa: BLE001 — ảnh là phần THÊM, không được làm mất lượt dịch
+                logger.exception("E32: không đọc được ảnh trang %s — dịch bằng chữ như cũ", page_id)
         danh_dau_dang_chay(job)
         session.commit()
 
@@ -1105,7 +1132,7 @@ def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dic
 
     used_engine = engine_name
     fallback_reason: str | None = None
-    translator = build_translator(engine_name, boi_canh)
+    translator = build_translator(engine_name, boi_canh, anh_kem)
     try:
         # Cổng nhịp chỉ áp cho đường TỐN TIỀN (`google_fast` miễn phí nên không qua cổng).
         # Đặt TRONG khối try có chủ đích: bị chặn thì đi đúng đường lùi-về-google của M5 và

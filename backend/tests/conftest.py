@@ -453,9 +453,10 @@ def fake_translator(monkeypatch):
         # tham số lệch ở fixture đủ làm cả bộ test trông như vỡ hệ thống.
         #
         # Giữ `boi_canh` trên bản giả để test nào cần còn kiểm được prompt có nhận bối cảnh.
-        def _build(engine_name, boi_canh=""):
+        def _build(engine_name, boi_canh="", anh_trang=None):
             fake = _Fake(engine_name)
             fake.boi_canh = boi_canh
+            fake.anh_trang = anh_trang
             made.append(fake)
             return fake
 

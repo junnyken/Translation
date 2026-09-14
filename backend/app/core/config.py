@@ -118,6 +118,23 @@ class Settings(BaseSettings):
     llm_thinking_budget: int = 0
     llm_temperature: float = 0.3
     llm_max_output_tokens: int = 8192
+
+    #: E32 — gửi kèm ẢNH TRANG cho mô hình dịch (`llm_context`).
+    #:
+    #: TẮT mặc định, và đó là quyết định có chủ đích: một ảnh tốn nhiều token hơn chữ RẤT nhiều,
+    #: còn `llm_context` chỉ tốn ~300 token/trang khi chỉ gửi chữ (đo 12-09). Bật mặc định là tự
+    #: nhân hoá đơn của người dùng trước khi ai kịp xem số.
+    #:
+    #: Vì sao đáng làm: mô hình hiện chỉ nhận **chữ do OCR đọc**, nên nó phải đoán khi chữ đọc sai
+    #: và không biết ai đang nói. Lỗi đọc đo được là thật: `どなどは` là rác, `足りなかったかかも`
+    #: nhân đôi ký tự, `Laughing Potions` thành `Luughing Fotlons`.
+    e32_kem_anh_trang: bool = False
+
+    #: Cạnh dài nhất của ảnh gửi kèm, tính bằng pixel. Trang gốc 1200x1660 mà Gemini tính tiền
+    #: theo ô 768x768, nên thu nhỏ là cách trực tiếp nhất để chặn chi phí. 1024 giữ được chữ trong
+    #: bong bóng còn đọc được — nhỏ hơn nữa thì mô hình không đọc nổi chữ gốc, tức mất đúng cái lợi
+    #: mà việc gửi ảnh mang lại.
+    e32_anh_max_px: int = 1024
     #: LLM lỗi/hết quota -> tự lùi về google_fast, ghi status=fallback_used (không trả bản rỗng).
     llm_fallback_to_google: bool = True
     #: Timeout RIÊNG cho dịch, không dùng chung với detect/OCR/inpaint.

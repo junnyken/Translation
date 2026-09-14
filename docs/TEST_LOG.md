@@ -5083,3 +5083,91 @@ BE mới là tổ hợp vỡ).
 
 Chưa chạy một chapter thật TRÊN production sau lượt deploy này. Bằng chứng hiện có: bộ test
 1466 đạt/0 đỏ, ảnh so sánh ở local, và log build xác nhận production chạy đúng commit.
+
+# ========== E32 — gửi kèm ẢNH TRANG cho mô hình dịch (2026-09-14) ==========
+
+Việc #1 trong kế hoạch. Dựng **TẮT mặc định** và đo chi phí trước khi bàn tới việc bật.
+
+## Chi phí — đo trên hai trang thật
+
+```
+trang EN 0d47b661 · 14 vùng · ảnh 615 KB -> gửi 174 KB
+  KHÔNG ảnh   token=581    (prompt=383  ra=198)
+  CÓ ảnh      token=1754   (prompt=1549 ra=205)      x3.0
+
+trang JA 4579a443 · 3 vùng · ảnh 432 KB -> gửi 113 KB
+  KHÔNG ảnh   token=247    (prompt=215  ra=32)
+  CÓ ảnh      token=1412   (prompt=1381 ra=31)       x5.7
+```
+
+**Chi phí ảnh gần như CỐ ĐỊNH: +1166 và +1165 token.** Nên tỉ lệ tăng phụ thuộc vào trang có bao
+nhiêu chữ — trang ít chữ bị đội giá nặng hơn nhiều. Đây là con số quan trọng nhất của E32, và nó
+giải thích vì sao không bật mặc định: một chapter 24 trang tốn thêm **~28 000 token**.
+
+## Chất lượng — hai loại lợi ích khác nhau
+
+### 1. Sửa được chữ OCR đọc RÁC (bằng chứng mạnh nhất)
+
+```
+GỐC 'どなどは'   <- OCR đọc rác hoàn toàn
+KHÔNG ảnh:  "Chẳng hạn như..."    <- đoán thành などは, sai
+CÓ ảnh   :  "Đổ ào ào."           <- nhận ra đó là SFX ぱらぱら vẽ trong tranh
+```
+
+Đây là khác biệt **LOẠI**, không phải khác biệt câu chữ. **Lặp 3 lượt, bên có ảnh ra `Đổ ào ào.`
+mỗi lần** — ổn định, không phải nhiễu temperature. (Bên không ảnh đo 1 lượt.)
+
+### 2. Biết AI đang nói ⇒ đại từ đúng
+
+```
+#7   'Yeah, I know:'          KHÔNG ảnh "Ừ, tôi biết mà:"   CÓ ảnh "Vâng, con biết:"
+#12  'I need to go to the…'   KHÔNG ảnh "Tôi cần…"          CÓ ảnh "Ta cần…"
+```
+
+Học việc gọi "con", phù thuỷ già gọi "ta" — thông tin chỉ có trong tranh.
+
+### Một chỗ tôi KHÔNG kết luận
+
+Vùng #14 trang EN: bên không-ảnh ra *"trước khi tôi về"* (sai nghĩa, gốc là *"while I'm gone"*),
+bên có-ảnh ra *"khi ta đi vắng"* (đúng). Trông như ảnh sửa lỗi nghĩa — **nhưng lượt đo E30 hôm 12-09
+bên không-ảnh đã từng ra đúng**. Với `temperature=0.3` thì một lượt không tách được tín hiệu khỏi
+nhiễu, nên **không tính ca này là bằng chứng**. Chỉ §1 (lặp 3 lượt, khác biệt loại) và §2 (thông tin
+chỉ ảnh có) mới tính.
+
+## Quyết định thiết kế
+
+**Ảnh đứng TRƯỚC chữ** trong `parts` — Gemini neo câu trả lời vào phần đầu; đảo lại thì ảnh dễ bị
+coi là phần phụ.
+
+**Dùng ảnh GỐC, không dùng ảnh đã xoá chữ.** Mục đích là để mô hình ĐỌC LẠI chữ gốc khi OCR sai, mà
+ảnh clean thì đã xoá hết chữ.
+
+**Thu nhỏ về 1024 px cạnh dài.** Gemini tính tiền theo ô 768×768; trang gốc 1200×1660 chiếm nhiều ô.
+Không thu nhỏ hơn nữa vì mô hình phải còn ĐỌC ĐƯỢC chữ trong bong bóng — nhỏ quá là mất đúng cái lợi
+mà ảnh mang lại. Đo được: 615 KB → 174 KB.
+
+**Prompt chỉ nói về ảnh KHI CÓ ảnh**, và nói rõ *"ảnh là để HIỂU ĐÚNG, không phải để thêm nội dung"*
+— không chặn thì mô hình dễ tự thêm thoại nó thấy trong tranh mà không có trong danh sách.
+
+**Ảnh hỏng thì trả `None`, không nổ.** Gửi ảnh là phần THÊM; ảnh hỏng không được làm mất cả lượt
+dịch.
+
+## Phép chắn chữ ký ĐÃ CHỨNG MINH giá trị ngay lần đầu
+
+`build_translator` thêm tham số thứ ba (`anh_trang`) — đúng loại thay đổi đã gây 115 test đỏ dây
+chuyền hôm 12-09. Lần này `test_chu_ky_ban_gia_khop_ham_that_unit.py` **đỏ trong 2 giây**, in thẳng
+ra chỗ lệch:
+
+```
+thật=['engine', 'boi_canh', 'anh_trang']   giả=['engine_name', 'boi_canh']
+```
+
+Sửa 6 bản giả rồi xanh lại. So với lần trước: 20 phút chạy + 115 đỏ + một lượt truy nguyên nhân.
+
+## Còn lại
+
+- **TẮT mặc định** (`e32_kem_anh_trang=false`). Bật là quyết định chi phí của người dùng.
+- Mới đo **2 trang, 1 lượt mỗi phía** cho phần chất lượng (trừ ca §1 lặp 3 lượt).
+- Chưa chạy end-to-end qua pipeline với cờ bật.
+- Chưa làm phương án rẻ hơn: chỉ gửi ảnh cho trang **có vùng bị E12 gắn cần rà soát** hoặc OCR
+  điểm tin cậy thấp — vì lợi ích của ảnh tập trung đúng vào những trang đó.

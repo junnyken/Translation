@@ -134,6 +134,8 @@ class LLMContextTranslator:
         thinking_budget: int | None = 0,
         page_label: str = "page.jpg",
         boi_canh: str = "",
+        anh_trang: bytes | None = None,
+        anh_mime: str = "image/jpeg",
     ) -> None:
         self._api_keys = [k.strip() for k in api_keys if k and k.strip()]
         self.model_name = model_name
@@ -147,6 +149,9 @@ class LLMContextTranslator:
         #: E31 — thuật ngữ + giọng nhân vật ĐÃ CHỐT của project (`translate/boi_canh.py`).
         #: Rỗng thì prompt không đổi một ký tự nào so với trước E31.
         self.boi_canh = (boi_canh or "").strip()
+        #: E32 — ảnh trang gửi kèm. `None` ⇒ thân request giống HỆT trước E32.
+        self.anh_trang = anh_trang or None
+        self.anh_mime = anh_mime
         self._index = 0
         self._lock = threading.Lock()
         self.usage = UsageStats(model_name=model_name)
@@ -202,7 +207,16 @@ class LLMContextTranslator:
             "gốc. Chỉ được đổi CÁCH DIỄN ĐẠT cho tự nhiên bằng tiếng Việt, không đổi Ý.\n"
             "- Giữ giọng điệu nhân vật; câu thoại ngắn gọn tự nhiên như truyện tranh tiếng Việt.\n"
             "- Đầu vào là chữ do OCR đọc nên có thể sai chính tả; tự suy luận và sửa khi dịch.\n"
-            "- Không thêm giải thích, không thêm dòng nào ngoài danh sách đã đánh số.\n\n"
+            "- Không thêm giải thích, không thêm dòng nào ngoài danh sách đã đánh số.\n"
+            # E32 — chỉ thêm dòng này KHI có ảnh. Không có ảnh mà vẫn bảo mô hình "xem trang" là
+            # mời nó bịa ra thứ nó không thấy.
+            + (
+                "- Kèm theo là ẢNH của chính trang truyện. Dùng ảnh để: (a) sửa chữ bị đọc sai, "
+                "(b) biết câu nào là của nhân vật nào, (c) nhận ra tiếng động vẽ cách điệu. "
+                "Ảnh là để HIỂU ĐÚNG, không phải để thêm nội dung không có trong danh sách.\n"
+                if self.anh_trang else ""
+            )
+            + "\n"
             # E31 — bối cảnh đặt TRƯỚC danh sách chữ, sau phần yêu cầu. Đặt sau danh sách thì mô
             # hình đã đọc xong chữ mới thấy thuật ngữ, và nó không quay lại sửa.
             + (f"\n{self.boi_canh}\n" if self.boi_canh else "")
@@ -253,9 +267,26 @@ class LLMContextTranslator:
         return cfg
 
     def _call_api(self, prompt: str) -> tuple[str, dict]:
+        # E32 — ẢNH đứng TRƯỚC chữ trong `parts`.
+        #
+        # Thứ tự này là khuyến nghị của Gemini cho câu hỏi về một ảnh: mô hình đọc ảnh rồi mới đọc
+        # yêu cầu, nên nó neo câu trả lời vào ảnh. Đảo lại thì ảnh dễ thành phần phụ bị bỏ qua.
+        #
+        # `anh_trang is None` ⇒ `parts` chỉ có phần chữ, tức thân request giống HỆT trước E32.
+        parts: list[dict] = []
+        if self.anh_trang:
+            import base64
+
+            parts.append({
+                "inlineData": {
+                    "mimeType": self.anh_mime,
+                    "data": base64.b64encode(self.anh_trang).decode("ascii"),
+                }
+            })
+        parts.append({"text": prompt})
         body = json.dumps(
             {
-                "contents": [{"parts": [{"text": prompt}]}],
+                "contents": [{"parts": parts}],
                 "generationConfig": self._generation_config(),
             }
         ).encode("utf-8")
