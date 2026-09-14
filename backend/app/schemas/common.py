@@ -909,6 +909,8 @@ class TermCandidatesResponse(BaseModel):
     ghi_chu_ngon_ngu: str | None = None
     #: Vùng có chữ nhưng máy tự khai đọc CHƯA CHẮC — không dùng để gợi ý, và nói ra chứ không giấu.
     so_vung_khong_chac: int = 0
+    #: E39 — khối chữ bị bỏ vì là danh sách/trang bạt chứ không phải lời thoại (chỉ với `en`).
+    so_vung_liet_ke: int = 0
 
 
 class VoiceSignalRead(BaseModel):
@@ -928,6 +930,8 @@ class VoiceSignalsResponse(BaseModel):
     so_vung_co_chu: int
     trang_thai: Literal["chua_doc_chu", "khong_thay", "co_tin_hieu"]
     so_vung_khong_chac: int = 0
+    #: E39 — xem `TermCandidatesResponse.so_vung_liet_ke`.
+    so_vung_liet_ke: int = 0
 
 
 class TermSuggestionCreate(BaseModel):

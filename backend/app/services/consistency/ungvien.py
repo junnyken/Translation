@@ -43,6 +43,36 @@ SO_TRICH_DAN = 3
 #: MỌI từ trong chapter. Ngưỡng này là con số chọn, phải đo lại trên fixture thật rồi mới chốt.
 NGUONG_CHU_HOA = 0.70
 
+#: Trần độ dài một trích dẫn hiện cho người dùng. Trích dẫn tồn tại để người ta TIN con số, chứ
+#: không phải để đọc lại cả trang: vùng chữ trang bạt của ep39 dài 1389 ký tự, hiện nguyên nó 3
+#: lần cho mỗi ứng viên là màn hình dài hàng chục nghìn ký tự — và người dùng KHÔNG tìm nổi chỗ
+#: nào chứa danh xưng đang xét. Cắt một cửa sổ quanh đúng chỗ khớp thì bằng chứng mạnh hơn.
+DO_DAI_TRICH_DAN = 160
+
+#: Số từ tối thiểu để một khối chữ được ĐEM RA XÉT có phải danh sách hay không. Dưới ngưỡng thì
+#: không xét: một bong bóng ngắn ("AXE!") không có từ nối là chuyện bình thường, và bỏ oan lời
+#: thoại thật thì người dùng mất đúng thứ họ cần.
+#:
+#: Con số này ĐÃ ĐO, không phải chọn. Trên 211 vùng `OCRStatus.ok` tiếng Anh THẬT (3 chapter,
+#: DB dev, 14-09):
+#:
+#:     vùng >= 20 từ:             10 / 211  (4,8%)
+#:     số từ của nhóm được GIỮ:   22, 23, 24, 26
+#:     số từ của nhóm bị BỎ:      146, 194, 402, 498, 503, 723
+#:
+#: Khoảng trống **26 -> 146 từ rỗng hoàn toàn**. Mọi trần trong khoảng đó cho ra CÙNG 6 vùng bị
+#: bỏ (đã thử 20/40/60/80/100/120/146). Chọn 100 vì nó vẫn bỏ đúng 6 khối trang bạt mà cách lời
+#: thoại dài nhất đo được (26 từ) một khoảng **3,8 lần**. Trần 20 cho kết quả y hệt trên dữ liệu
+#: này nhưng không có lề đó — và lề chính là thứ bảo vệ chapter CHƯA đo.
+#:
+#: Bong bóng thoại 100 từ không tồn tại trong mẫu; các khối bị bỏ là 146-723 từ (danh sách tên
+#: nối bằng ★). Đây là lý do trần đặt theo SỐ TỪ chứ không theo độ dài ký tự.
+SO_TU_TOI_THIEU_XET_LIET_KE = 100
+
+#: Tỉ lệ từ nối mà DƯỚI nó thì khối chữ coi như không phải lời người nói. Xem `la_khoi_liet_ke`
+#: để biết số đo đã chọn ngưỡng này.
+TI_LE_TU_NOI_TOI_THIEU = 0.15
+
 
 class ChuaDocChu(Exception):
     """Chapter chưa có chữ nào đọc được — KHÁC với 'đã tìm mà không thấy gì'."""
@@ -92,6 +122,9 @@ class KetQuaUngVien:
     ghi_chu_ngon_ngu: str | None = None
     #: Vùng có chữ nhưng máy tự khai đọc chưa chắc (`needs_manual`) — KHÔNG dùng để gợi ý.
     so_vung_khong_chac: int = 0
+    #: E39 — khối chữ bị bỏ vì là danh sách/trang bạt, không phải lời thoại. Nói ra chứ không
+    #: giấu: người dùng phải biết máy đã KHÔNG đọc chỗ nào.
+    so_vung_liet_ke: int = 0
 
 
 @dataclass
@@ -113,6 +146,8 @@ class KetQuaXungHo:
     so_vung_co_chu: int
     trang_thai: str
     so_vung_khong_chac: int = 0
+    #: E39 — xem `KetQuaUngVien.so_vung_liet_ke`.
+    so_vung_liet_ke: int = 0
 
 
 # ---------------------------------------------------------------- đọc chữ của chapter
@@ -243,6 +278,72 @@ def _ratio_chu_hoa(texts: list[str]) -> float:
     return (hoa / tong) if tong else 0.0
 
 
+def la_khoi_liet_ke(text: str) -> bool:
+    """Khối chữ này là DANH SÁCH (trang bạt, danh sách tài trợ) chứ không phải lời người nói?
+
+    Vì sao cần: ep39 bản tiếng Anh có trang 12 là trang bạt liệt kê hàng nghìn tên người tài
+    trợ. Luật "viết hoa giữa câu" bắn vào đó và trả về `David` 8 lần, `Alex` 7, `Christian` 7,
+    `Michael` 7, `Paul` 6 — toàn bộ đều ở trang 12, không một lần nào trong truyện. Ứng viên
+    THẬT duy nhất (`AXE`, 7 lần, trang 3/5/6/7) bị chôn giữa chúng.
+
+    Số đo trên **211 vùng `OCRStatus.ok` tiếng Anh THẬT** (3 chapter, DB dev, 14-09) — không
+    phải trên mẫu dựng tay. Chỉ xét nhóm mà luật thật sự chạm tới (>= 100 từ):
+
+        nhóm                                   tỉ lệ từ nối
+        6 khối trang bạt (146-723 từ)          0,0% - 5,7%
+        ------------------------------ ngưỡng 15% ------
+        4 vùng >= 20 từ được giữ (22-26 từ)    19,2% - 54,2%
+        trong đó lời thoại thật                50,0% - 54,2%
+
+    Tín hiệu viết hoa CHẾT ở đây (cả hai loại ~100%), đúng lý do nhánh `toan_hoa` phải tồn tại.
+    Thứ tách được chúng là **từ nối**: người nói thì có `and/you/the/that`, danh sách tên thì
+    không. Lề của ngưỡng 15%: **9,3 điểm (2,6 lần)** so với khối nhiễu cao nhất đo được.
+
+    **Bằng chứng mạnh nhất — chạy lại trên chapter thật** (`04e7b2c1`, 163 vùng có chữ), lấy
+    ứng viên chốt (>= 2 lần) như `rut_ung_vien` làm:
+
+        không lọc  -> 726 ứng viên, top: Alex(23) Michael(14) Alexander(13) Daniel(12)
+        có lọc     ->  25 ứng viên, top: Potions(9) Chaosah(7) Pepper(6) Carrot(5) King(3)
+
+    726 -> 25, và thứ còn lại đúng là thuật ngữ của truyện. Trên hai chapter KHÔNG có trang bạt:
+    **không đổi một ứng viên nào** — đó là phép chứng minh luật này không chạm vào chapter bình
+    thường, thứ mà đo trên một chapter duy nhất không bao giờ nói được.
+
+    Chỉ dùng cho `en`: `_CHAN_EN` là từ nối tiếng Anh. Tiếng Nhật/Trung chưa có tương đương nên
+    KHÔNG gọi hàm này — thà không lọc còn hơn lọc bằng ngưỡng vay từ ngôn ngữ khác (bài học
+    ngưỡng Latin áp cho CJK, đã gặp hai lần).
+    """
+    tu = [m.group(0) for m in _TU_EN.finditer(text)]
+    if len(tu) < SO_TU_TOI_THIEU_XET_LIET_KE:
+        return False
+    noi = sum(1 for w in tu if w.lower() in _CHAN_EN)
+    return (noi / len(tu)) < TI_LE_TU_NOI_TOI_THIEU
+
+
+def _cat_trich_dan(text: str, span: tuple[int, int] | None = None) -> str:
+    """Cửa sổ `DO_DAI_TRICH_DAN` ký tự quanh chỗ khớp, cắt ở khoảng trắng, đánh dấu bằng `…`.
+
+    Vẫn là chữ NGUYÊN VĂN, chỉ hẹp lại — dấu `…` nói thẳng là đã cắt. Ràng buộc: không bao giờ
+    cắt vào trong đoạn `span`, vì chỗ khớp chính là thứ người dùng cần thấy.
+    """
+    if len(text) <= DO_DAI_TRICH_DAN:
+        return text
+    dau, cuoi = span if span and span[0] >= 0 else (0, 0)
+    giua = (dau + cuoi) // 2
+    d = max(0, giua - DO_DAI_TRICH_DAN // 2)
+    c = min(len(text), d + DO_DAI_TRICH_DAN)
+    d = max(0, c - DO_DAI_TRICH_DAN)
+    if d > 0:
+        k = text.find(" ", d)
+        if k != -1 and k + 1 <= dau:
+            d = k + 1
+    if c < len(text):
+        k = text.rfind(" ", d, c)
+        if k != -1 and k >= cuoi:
+            c = k
+    return ("…" if d > 0 else "") + text[d:c].strip() + ("…" if c < len(text) else "")
+
+
 def _them(kho: dict[str, UngVien], term: str, lang: str, dong: DongChu, ly_do: str,
           loai: TermType | None = None, span: tuple[int, int] | None = None) -> None:
     """Ghi nhận MỘT lần xuất hiện. `span` là vị trí trong `dong.text` — bắt buộc để không đếm
@@ -268,8 +369,10 @@ def _them(kho: dict[str, UngVien], term: str, lang: str, dong: DongChu, ly_do: s
     if loai is not None:
         # Bằng chứng gắn với danh xưng (kính ngữ, chức danh) thắng phỏng đoán chung chung.
         uv.type_guess = loai
-    if len(uv.quotes) < SO_TRICH_DAN and all(q.text != dong.text for q in uv.quotes):
-        uv.quotes.append(TrichDan(dong.page_order, dong.region_id, dong.text))
+    if len(uv.quotes) < SO_TRICH_DAN:
+        doan = _cat_trich_dan(dong.text, span)
+        if all(q.text != doan for q in uv.quotes):
+            uv.quotes.append(TrichDan(dong.page_order, dong.region_id, doan))
 
 
 def _rut_ja(dong: list[DongChu], kho: dict[str, UngVien]) -> None:
@@ -374,6 +477,16 @@ def rut_ung_vien(session: Session, project_id: uuid.UUID) -> KetQuaUngVien:
     if not dong:
         return KetQuaUngVien([], so_vung, 0, "chua_doc_chu", so_vung_khong_chac=khong_chac)
 
+    # E39 — bỏ khối liệt kê TRƯỚC mọi luật, kể cả trước `_ratio_chu_hoa`: trang bạt toàn tên
+    # viết hoa làm lệch chính con số dùng để chọn luật cho tiếng Anh.
+    # Lọc SAU nhánh `chua_doc_chu` là có chủ đích: nếu mọi vùng đều là danh sách thì đó là
+    # "đã đọc mà không có gì dùng được" (`khong_thay`), không phải "chưa đọc chữ".
+    so_liet_ke = 0
+    if lang == "en":
+        giu = [d for d in dong if not la_khoi_liet_ke(d.text)]
+        so_liet_ke = len(dong) - len(giu)
+        dong = giu
+
     kho: dict[str, UngVien] = {}
     ghi_chu = None
     if lang == "ja":
@@ -419,7 +532,8 @@ def rut_ung_vien(session: Session, project_id: uuid.UUID) -> KetQuaUngVien:
     else:
         trang_thai = "khong_thay"
 
-    return KetQuaUngVien(cat, so_vung, len(dong), trang_thai, so_bi_loc, ghi_chu, khong_chac)
+    return KetQuaUngVien(cat, so_vung, len(dong), trang_thai, so_bi_loc, ghi_chu, khong_chac,
+                         so_liet_ke)
 
 
 # ---------------------------------------------------------------- tầng 2: xưng hô
@@ -473,6 +587,11 @@ def rut_tin_hieu_xung_ho(session: Session, project_id: uuid.UUID) -> KetQuaXungH
         return KetQuaXungHo([], so_vung, 0, "chua_doc_chu", khong_chac)
 
     lang = du_an.source_lang.value if isinstance(du_an.source_lang, SourceLang) else str(du_an.source_lang)
+    so_liet_ke = 0
+    if lang == "en":  # E39 — cùng lý do như `rut_ung_vien`
+        giu = [d for d in dong if not la_khoi_liet_ke(d.text)]
+        so_liet_ke = len(dong) - len(giu)
+        dong = giu
     luat = _TIN_HIEU.get(lang, [])
     gom: dict[str, TinHieuXungHo] = {}
     cd_theo_ma: dict[str, set[str]] = defaultdict(set)
@@ -490,10 +609,12 @@ def rut_tin_hieu_xung_ho(session: Session, project_id: uuid.UUID) -> KetQuaXungH
                 # Nhóm 1 chỉ tồn tại ở các mẫu "tên + hậu tố" -> mới có tên để gắn.
                 if m.re.groups >= 2 and m.group(1):
                     th.ten_lien_quan.add(m.group(1))
-                if len(th.quotes) < SO_TRICH_DAN and d.text not in cd_theo_ma[ma]:
-                    cd_theo_ma[ma].add(d.text)
-                    th.quotes.append(TrichDan(d.page_order, d.region_id, d.text))
+                if len(th.quotes) < SO_TRICH_DAN:
+                    doan = _cat_trich_dan(d.text, m.span())
+                    if doan not in cd_theo_ma[ma]:
+                        cd_theo_ma[ma].add(doan)
+                        th.quotes.append(TrichDan(d.page_order, d.region_id, doan))
 
     tin_hieu = sorted(gom.values(), key=lambda t: (-t.count, t.ma))
     return KetQuaXungHo(tin_hieu, so_vung, len(dong),
-                        "co_tin_hieu" if tin_hieu else "khong_thay", khong_chac)
+                        "co_tin_hieu" if tin_hieu else "khong_thay", khong_chac, so_liet_ke)

@@ -199,3 +199,31 @@ describe('E17 tầng 2 — tín hiệu xưng hô', () => {
     expect(screen.getByText(/chưa kết luận được/)).toBeInTheDocument()
   })
 })
+
+describe('E39 — trang bạt không được đẻ ra danh xưng rác', () => {
+  it('nói ra đã bỏ bao nhiêu khối chữ, và vì sao', async () => {
+    render(<TermCandidatePanel
+      onTim={vi.fn().mockResolvedValue(ketQua({ so_vung_liet_ke: 2 }))} onChon={vi.fn()} />)
+    await userEvent.click(nut('Tìm trong chapter'))
+
+    expect(await screen.findByText(/Bỏ qua 2 khối chữ không phải lời thoại/)).toBeInTheDocument()
+    expect(screen.getByText(/không rút danh xưng từ đó/)).toBeInTheDocument()
+  })
+
+  it('không bỏ khối nào thì không hiện lời cảnh báo trống', async () => {
+    render(<TermCandidatePanel
+      onTim={vi.fn().mockResolvedValue(ketQua({ so_vung_liet_ke: 0 }))} onChon={vi.fn()} />)
+    await userEvent.click(nut('Tìm trong chapter'))
+
+    await screen.findByText('Pepper')
+    expect(screen.queryByText(/không phải lời thoại/)).toBeNull()
+  })
+
+  it('bảng xưng hô cũng khai số khối đã bỏ', async () => {
+    render(<VoiceProfileManager projectId="p1" danhSach={[]} onTao={vi.fn()} onSua={vi.fn()}
+      onTimTinHieu={vi.fn().mockResolvedValue(tinHieu({ so_vung_liet_ke: 1 }))} />)
+    await userEvent.click(nut('Tìm tín hiệu xưng hô'))
+
+    expect(await screen.findByText(/Bỏ qua 1 khối chữ không phải lời thoại/)).toBeInTheDocument()
+  })
+})

@@ -892,6 +892,7 @@ Bốn endpoint. Hai cái đầu **chỉ đọc và không gọi AI** nên `200`;
       "type_guess": "character_name",
       "reasons": ["chuỗi katakana", "đứng trước hậu tố さん"] } ],
   "so_vung_da_quet": 42, "so_vung_co_chu": 38, "so_vung_khong_chac": 2,
+  "so_vung_liet_ke": 1,
   "trang_thai": "co_ung_vien", "so_bi_loc_vi_da_co": 3,
   "ghi_chu_ngon_ngu": null }
 ```
@@ -899,9 +900,10 @@ Bốn endpoint. Hai cái đầu **chỉ đọc và không gọi AI** nên `200`;
 | Trường | Ý nghĩa |
 |---|---|
 | `count` | Số lần **xuất hiện**, không phải số lần khớp luật (xem `ARCH.md` §E17.4) |
-| `quotes` | **Nguyên văn** trong `raw_text`, tối đa 3 — không phải chuỗi dựng lại |
+| `quotes` | **Nguyên văn** trong `raw_text`, tối đa 3 — không phải chuỗi dựng lại. **E39**: cắt còn ≤160 ký tự quanh đúng chỗ khớp, chỗ cắt đánh dấu `…` |
 | `type_guess` | GỢI Ý để điền sẵn ô "Loại". `character_name` chỉ khi có bằng chứng danh xưng |
 | `so_vung_khong_chac` | Vùng OCR `needs_manual` bị bỏ — nói ra chứ không giấu |
+| `so_vung_liet_ke` | **E39** — khối chữ bị bỏ vì là danh sách/trang bạt chứ không phải lời thoại. Chỉ khác 0 với `en` (xem `ARCH.md` §E39) |
 | `ghi_chu_ngon_ngu` | Với `en`: tỉ lệ chữ hoa và luật đang dùng. Với `zh`: cảnh báo nhiễu cao |
 
 **`trang_thai` có 4 giá trị và KHÔNG được gộp:**
@@ -924,7 +926,7 @@ tên; đại từ nhân xưng thì rỗng — hệ thống **chưa biết ai nó
       "speech_register_goi_y": "formal", "count": 4, "ten_lien_quan": ["ペッパー"],
       "quotes": [{ "page_order": 1, "region_id": "…", "text": "ペッパー様、お待ちください" }] } ],
   "so_vung_da_quet": 42, "so_vung_co_chu": 38, "so_vung_khong_chac": 0,
-  "trang_thai": "co_tin_hieu" }
+  "so_vung_liet_ke": 0, "trang_thai": "co_tin_hieu" }
 ```
 
 `trang_thai`: `chua_doc_chu` · `khong_thay` · `co_tin_hieu`.

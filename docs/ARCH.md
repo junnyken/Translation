@@ -984,6 +984,85 @@ danh sách ứng viên (tầng 1)  ──►  prompt: "điền cách dịch cho 
 Prompt có chừa đường cho model nói **"không biết"** (`?`), và câu đó **không** tính là bịa: ép
 model đoán là tự tạo ra dữ liệu giả.
 
+### E17.7 (E39) Nguồn chữ phải là LỜI NGƯỜI NÓI, không phải mọi chữ trên trang
+
+Lượt chạy thật 14-09 (ep39 bản EN) phơi ra một giả định chưa ai viết ra: E17 coi **mọi** vùng
+chữ đọc được là nguồn danh xưng. Trang 12 của chapter đó là trang bạt liệt kê người tài trợ, và
+luật "viết hoa giữa câu" bắn vào đó trả về `David` 8 lần, `Alex` 7, `Christian` 7, `Michael` 7,
+`Paul` 6 — **không một lần nào trong truyện**. Ứng viên thật duy nhất (`AXE`, 7 lần, trang
+3/5/6/7) nằm lẫn giữa chúng.
+
+Đây KHÔNG phải lỗi của luật viết hoa. Nó là lỗi của **nguồn**: tên ê-kíp và tên người tài trợ
+đúng là tên riêng viết hoa — luật chạy đúng trên dữ liệu sai loại.
+
+**Phép phân biệt: tỉ lệ từ nối.** Người nói thì có `and/you/the/that`; danh sách tên thì không.
+Tín hiệu *viết hoa* thì **chết** ở đây — cả hai loại đều ~100%, đúng lý do nhánh `toan_hoa` của
+E17.3 phải tồn tại.
+
+Bản đầu chốt ngưỡng trên **n = 3 lời thoại** của một chapter. Cỡ mẫu đó quá nhỏ để đổi logic
+production, nên đã đo lại trên **211 vùng `OCRStatus.ok` tiếng Anh thật** (3 chapter, DB dev,
+14-09):
+
+| nhóm (chỉ xét vùng ≥ 100 từ) | tỉ lệ từ nối |
+|---|---|
+| 6 khối trang bạt (146–723 từ) | **0,0 – 5,7%** |
+| — ngưỡng **15%** — | lề 9,3 điểm (2,6×) |
+| 4 vùng ≥ 20 từ được giữ (22–26 từ) | **19,2 – 54,2%** |
+| trong đó lời thoại thật | 50,0 – 54,2% |
+
+**Phân bố số từ mới là phát hiện quan trọng nhất:**
+
+```
+vùng >= 20 từ:        10 / 211  (4,8%)
+nhóm được GIỮ:        22, 23, 24, 26 từ
+nhóm bị BỎ:           146, 194, 402, 498, 503, 723 từ
+                      ^^^^ khoảng trống 26 -> 146 RỖNG HOÀN TOÀN
+```
+
+Mọi trần trong 20..146 cho ra **cùng 6 vùng** bị bỏ. Nên trần chốt ở **100 từ**, không phải 20:
+cùng kết quả trên dữ liệu đã đo, nhưng có lề **3,8×** so với lời thoại dài nhất từng thấy. Lề đó
+bảo vệ chapter CHƯA đo — và nó không phải lý thuyết: một mẫu lời thoại-đọc-danh-sách 21 từ, 0%
+từ nối (`"POTIONS, HERBS, CAULDRON, MANDRAKE ROOT…"`) **bị loại oan ở trần 20** và được giữ ở
+trần 100. Có test canh đúng ca đó.
+
+**Bằng chứng mạnh nhất — chạy lại trên chapter thật** (`04e7b2c1`, 163 vùng có chữ), lấy ứng viên
+chốt (≥2 lần) như `rut_ung_vien` làm:
+
+| | ứng viên | top |
+|---|---|---|
+| không lọc | **726** | Alex(23), Michael(14), Alexander(13), Daniel(12) |
+| có lọc | **25** | Potions(9), Chaosah(7), Pepper(6), Carrot(5), King(3) |
+
+726 → 25, và thứ còn lại đúng là thuật ngữ của truyện. Trên hai chapter **không** có trang bạt:
+không đổi một ứng viên nào. Đó là phép chứng minh luật không chạm vào chapter bình thường — thứ
+mà đo trên một chapter duy nhất không bao giờ nói được.
+
+**Hai ràng buộc đặt về phía an toàn:**
+
+1. **Chỉ xét khối ≥ 100 từ** (con số đo, xem trên). Bong bóng ngắn (`"AXE!"`) không có từ nối là
+   chuyện bình thường. Trần theo *số từ*, không theo độ dài ký tự.
+2. **Chỉ dùng cho `en`.** `_CHAN_EN` là từ nối tiếng Anh; chữ Nhật/Trung cho tỉ lệ 0% nên mọi
+   vùng đủ dài sẽ bị bỏ sạch. Thà không lọc còn hơn lọc bằng ngưỡng vay từ ngôn ngữ khác —
+   ngưỡng Latin áp cho CJK đã sai hai lần (`vung_bao`, `assessor`).
+
+Lọc **sau** nhánh `chua_doc_chu` là có chủ đích: mọi vùng đều là danh sách thì đó là "đã đọc mà
+không có gì dùng được" (`khong_thay`), không phải "chưa đọc chữ" — cùng một phân biệt ba-trạng-thái
+mà E17 dựng ra để bảo vệ.
+
+Số khối bị bỏ được **đếm và trả ra** (`so_vung_liet_ke`), không biến mất lặng lẽ: người dùng phải
+biết máy đã KHÔNG đọc chỗ nào.
+
+### E17.8 (E39) Trích dẫn là để TIN, không phải để đọc lại cả trang
+
+Vùng chữ trang bạt dài 1389 ký tự. E17 in **nguyên** nó làm trích dẫn, ba lần cho mỗi ứng viên —
+màn hình dài hàng chục nghìn ký tự và người dùng *không tìm nổi* chỗ nào chứa danh xưng đang xét,
+nên bằng chứng mạnh hoá ra lại vô dụng.
+
+`_cat_trich_dan` cắt cửa sổ 160 ký tự **quanh đúng chỗ khớp** (`span` đã có sẵn từ E17.4 để khử
+đếm trùng — không phải thêm dữ liệu mới), cắt ở khoảng trắng, đánh dấu `…`. Ràng buộc bất biến:
+**không bao giờ cắt vào trong `span`**, vì chỗ khớp chính là thứ cần thấy. Có test canh tính chất
+đó trên nhiều vị trí, không chỉ một ca.
+
 ### E17.6 Ranh giới cứng
 
 - Tầng 1+2 **không ghi một dòng nào** vào `glossary_entry` / `character_voice_profile`.

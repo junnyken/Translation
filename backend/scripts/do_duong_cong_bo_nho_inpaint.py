@@ -81,7 +81,11 @@ def main() -> None:
         device="cpu",
         whole_page_max_mpx=s.inpaint_whole_page_max_mpx,
         tile_margin=s.inpaint_tile_margin,
-        mem_budget_gb=0,  # TẮT phép canh: đang đo nhu cầu THẬT, không phải kiểm phép canh
+        # TẮT phép canh: đang đo nhu cầu THẬT, không phải kiểm phép canh.
+        # E23 đổi phép canh từ hệ số `mem_budget_gb` sang TRẦN DIỆN TÍCH `max_crop_mpx`, nên
+        # tệp này mục đi và ném TypeError suốt (phát hiện 14-09 khi cần đo lại cho E41).
+        # `max_crop_mpx <= 0` = tắt, xem `_kiem_tran_o_cat`.
+        max_crop_mpx=0,
     )
 
     truoc = vmhwm_mb()

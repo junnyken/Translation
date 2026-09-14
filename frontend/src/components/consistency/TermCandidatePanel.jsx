@@ -141,6 +141,14 @@ export default function TermCandidatePanel({
         </Alert>
       )}
 
+      {duLieu?.so_vung_liet_ke > 0 && (
+        <Alert sac="tin" tieuDe={`Bỏ qua ${duLieu.so_vung_liet_ke} khối chữ không phải lời thoại`}>
+          Trang bạt, danh sách người tài trợ, dòng ghi công… không phải lời nhân vật, nên máy
+          <b> không rút danh xưng từ đó</b>. Dấu hiệu để nhận ra: khối chữ dài mà gần như không có
+          từ nối (<i>and, you, the, that</i>) — người nói thì có, danh sách tên thì không.
+        </Alert>
+      )}
+
       {duLieu?.ghi_chu_ngon_ngu && (
         <p className="ghi-chu">Cách tìm cho ngôn ngữ này: {duLieu.ghi_chu_ngon_ngu}.</p>
       )}

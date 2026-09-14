@@ -2154,13 +2154,41 @@ def thong_ke_xuat(session, project_id: uuid.UUID) -> dict:
             select(Page).where(Page.project_id == project_id).order_by(Page.order)
         ).scalars()
     )
-    xuat_duoc = [p for p in tat_ca if p.status in TRANG_XUAT_DUOC]
+    # E38 — đếm CẢ trang không có chữ, nếu không thì con số xem trước nói một chuyện mà file
+    # xuất ra lại chứa chuyện khác.
+    xuat_duoc = [
+        p for p in tat_ca
+        if p.status in TRANG_XUAT_DUOC or trang_khong_co_chu(session, p)
+    ]
     return {
         "page_count": len(xuat_duoc),
         "total_page_count": len(tat_ca),
         "skipped_page_count": len(tat_ca) - len(xuat_duoc),
         "overflow_warning_count": dem_vung_tran_khung(session, [p.id for p in xuat_duoc]),
     }
+
+
+def trang_khong_co_chu(session, page: Page) -> bool:
+    """E38 — trang này đã đọc xong và **không có chữ nào để dịch**.
+
+    Phân biệt với "đọc chữ hỏng" là điều làm bản sửa này an toàn:
+
+        detect NỔ        -> PageStatus.detection_failed   (tasks.py:140)
+        detect CHẠY XONG -> PageStatus.detected           (tasks.py:206), kể cả 0 vùng
+
+    Nên `detected` + 0 vùng nghĩa là **máy đã xem trang và xác nhận không có chữ**, không phải
+    "chưa xem" hay "xem hỏng". Với trang như thế, **ảnh gốc CHÍNH LÀ kết quả hoàn thiện**: không
+    có chữ để xoá, không có chữ để chèn.
+
+    Đo thật ở E35 (2026-09-14): trang `E39P02` của `ep39_The-Tavern` toàn tranh, không một bong
+    bóng thoại. Pipeline xếp nó `no_region` -> giao diện báo **"Hỏng"** -> cổng xuất bỏ nó ra
+    ⇒ **truyện xuất ra THIẾU TRANG**. Đó là mất dữ liệu ở đầu ra, không phải chuyện thẩm mỹ.
+    """
+    if page.status is not PageStatus.detected:
+        return False
+    return not session.scalar(
+        select(TextRegion.id).where(TextRegion.page_id == page.id).limit(1)
+    )
 
 
 def _thu_thap_trang(session, project_id: uuid.UUID):
@@ -2178,6 +2206,18 @@ def _thu_thap_trang(session, project_id: uuid.UUID):
         select(Page).where(Page.project_id == project_id).order_by(Page.order)
     ).scalars():
         if page.status not in TRANG_XUAT_DUOC:
+            # E38 — trang KHÔNG CÓ CHỮ vẫn phải vào file xuất, dùng ảnh GỐC.
+            #
+            # Nó không có ảnh clean (bước xoá chữ chưa từng chạy, vì không có gì để xoá) và không
+            # có vùng nào để vẽ. Ảnh gốc chính là trang hoàn thiện.
+            if trang_khong_co_chu(session, page):
+                trang_list.append(
+                    TrangCanXuat(
+                        page_id=str(page.id), order=page.order,
+                        clean_image_rel=page.image_path, regions=[],
+                    )
+                )
+                continue
             bo_qua.append(f"trang {page.order} ({page.status.value})")
             continue
         if not page.clean_image_path:

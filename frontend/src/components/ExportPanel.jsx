@@ -3,8 +3,18 @@ import * as api from '../api.js'
 import ExportWarningModal from './ExportWarningModal.jsx'
 
 const DINH_DANG = [
-  { ma: 'cbz', ten: 'CBZ — 1 file cho cả chapter', goiY: 'Đọc bằng ứng dụng truyện tranh (Tachiyomi, Perfect Viewer…)' },
-  { ma: 'zip', ten: 'ZIP — 1 file nén thường', goiY: 'Giống CBZ nhưng đuôi .zip, mở bằng phần mềm giải nén nào cũng được' },
+  {
+    ma: 'cbz',
+    ten: 'CBZ — cho ứng dụng đọc truyện',
+    goiY: 'Đọc bằng Tachiyomi, Perfect Viewer, YACReader… Windows và macOS KHÔNG mở sẵn đuôi .cbz — '
+      + 'bấm đúp sẽ không ra gì.',
+  },
+  {
+    ma: 'zip',
+    ten: 'ZIP — mở được ngay trên mọi máy',
+    goiY: 'Cùng nội dung với CBZ, chỉ khác đuôi .zip. Bấm đúp là xem được ảnh từng trang, không cần '
+      + 'cài thêm gì.',
+  },
   { ma: 'png_single', ten: 'PNG — mỗi trang một ảnh', goiY: 'Lưu thành nhiều ảnh rời trên máy chủ; không tải một lần được' },
 ]
 
@@ -44,13 +54,13 @@ export default function ExportPanel({
     xuat(false)
   }
 
-  const xuat = async (vuaTick) => {
+  const xuat = async (vuaTick, dinhDangDung = dinhDang) => {
     setHienCanhBao(false)
     setDangChay(true)
     setLoi(null)
     setJob(null)
     try {
-      const { job_id } = await api.xuatChapter(projectId, dinhDang)
+      const { job_id } = await api.xuatChapter(projectId, dinhDangDung)
       // Ghi lại việc đã đọc cảnh báo NGAY khi có mã việc xuất, trước lúc tải file về.
       // Không để việc ghi nhận làm hỏng lần xuất: file vẫn phải ra.
       if (vuaTick) {
@@ -187,6 +197,21 @@ export default function ExportPanel({
             >
               {dangTai ? 'Đang tải…' : 'Tải file về'}
             </button>
+          )}
+          {job.status === 'done' && job.format === 'cbz' && (
+            <div className="bang-tin">
+              <p>
+                File <code>.cbz</code> thực chất là <b>file nén</b>. Máy không mở được thì đổi đuôi
+                <code> .cbz</code> thành <code>.zip</code> rồi giải nén như thường, hoặc xuất lại
+                bằng định dạng ZIP — cùng ảnh, cùng thứ tự trang.
+              </p>
+              <button
+                type="button" disabled={dangChay}
+                onClick={() => { setDinhDang('zip'); xuat(false, 'zip') }}
+              >
+                {dangChay ? 'Đang xuất…' : 'Xuất lại bằng ZIP'}
+              </button>
+            </div>
           )}
           {job.status === 'done' && job.format === 'png_single' && (
             <p className="ghi-chu">

@@ -312,3 +312,69 @@ class TestDoiChieuTenChinhThuc:
                               json={"ten_bo_truyen": "Naruto"})
         assert r.status_code == 200
         assert r.json()["khop"] == []
+
+
+class TestE39KhoiLietKeKhongDeRaUngVien:
+    """E39 — trang bạt đi qua ĐÚNG đường HTTP mà giao diện gọi, không phải gọi hàm lẻ.
+
+    Bài học đã ghi: nhánh mới phải chạy thật. Test đơn vị chứng minh `la_khoi_liet_ke` đúng;
+    chỉ bộ này chứng minh nó đã được NỐI vào `rut_ung_vien` và trồi lên tới JSON.
+    """
+
+    #: Hình dạng một trang bạt: tên nối bằng ★, không một từ nối nào.
+    TRANG_BAT = " ★ ".join(
+        f"{t} {chr(65 + i % 26)}." for i, t in enumerate(
+            ["Zarniwoop", "Slartibartfast", "Prosser", "Kwaltz", "Hurtenflurst",
+             "Poodoo", "Vroomfondel", "Majikthise", "Garkbit", "Hotblack"] * 6
+        )
+    )
+    THOAI = [
+        "THE AXE RICOCHETED, AND THE NOISE DISTRACTED THOSE CURSED CREATURES!",
+        '.. AND YOU SEE, WHEN YOU SCREAMED "AHHHHHH!!!!", WELL, THAT\'S WHEN I THREW MY AXE!',
+    ]
+
+    async def test_ten_trong_trang_bat_khong_thanh_ung_vien(self, client, chapter_e17):
+        pid = await chapter_e17([*self.THOAI, self.TRANG_BAT], lang="en")
+        d = (await client.get(f"/api/v1/projects/{pid}/term-candidates")).json()
+
+        assert d["so_vung_liet_ke"] == 1, (
+            f"phải đếm và NÓI RA đúng 1 khối bị bỏ, nhận {d['so_vung_liet_ke']}"
+        )
+        tu = {u["source_term"].lower() for u in d["ung_vien"]}
+        for ten in ("zarniwoop", "slartibartfast", "garkbit"):
+            assert ten not in tu, f"{ten} là tên trong trang bạt, không phải danh xưng truyện"
+
+    async def test_danh_xung_that_van_con(self, client, chapter_e17):
+        """Chống rỗng nghĩa: lọc mà lọc sạch cả truyện thì tệ hơn không lọc."""
+        pid = await chapter_e17([*self.THOAI, self.TRANG_BAT], lang="en")
+        d = (await client.get(f"/api/v1/projects/{pid}/term-candidates")).json()
+        assert d["trang_thai"] == "co_ung_vien", d["trang_thai"]
+        assert "axe" in {u["source_term"].lower() for u in d["ung_vien"]}, (
+            "AXE xuất hiện ở 2 lời thoại thật — mất nó nghĩa là lọc quá tay"
+        )
+
+    async def test_khong_con_trich_dan_dai_ca_trang(self, client, chapter_e17):
+        """Ngay cả khi khối dài lọt lưới, trích dẫn vẫn phải ngắn để đọc được."""
+        from app.services.consistency.ungvien import DO_DAI_TRICH_DAN
+        pid = await chapter_e17([*self.THOAI, self.TRANG_BAT], lang="en")
+        d = (await client.get(f"/api/v1/projects/{pid}/term-candidates")).json()
+        assert d["ung_vien"], "rỗng thì test này không chứng minh gì"
+        for u in d["ung_vien"]:
+            for q in u["quotes"]:
+                assert len(q["text"]) <= DO_DAI_TRICH_DAN + 2, (
+                    f"{u['source_term']}: trích dẫn dài {len(q['text'])} ký tự"
+                )
+
+    async def test_moi_vung_deu_la_danh_sach_thi_la_khong_thay_chu_khong_phai_chua_doc(
+            self, client, chapter_e17):
+        """Phân biệt phải giữ: "đã đọc mà không có gì dùng được" KHÁC "chưa đọc chữ"."""
+        pid = await chapter_e17([self.TRANG_BAT], lang="en")
+        d = (await client.get(f"/api/v1/projects/{pid}/term-candidates")).json()
+        assert d["trang_thai"] == "khong_thay", d["trang_thai"]
+        assert d["so_vung_da_quet"] == 1, "vẫn phải khai là đã quét 1 vùng"
+        assert d["so_vung_liet_ke"] == 1
+
+    async def test_tin_hieu_xung_ho_cung_bo_trang_bat(self, client, chapter_e17):
+        pid = await chapter_e17([*self.THOAI, self.TRANG_BAT], lang="en")
+        d = (await client.get(f"/api/v1/projects/{pid}/voice-signals")).json()
+        assert d["so_vung_liet_ke"] == 1

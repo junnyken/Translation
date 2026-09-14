@@ -5411,3 +5411,83 @@ của luật. Muốn tiết kiệm thì cần một tín hiệu chất lượng 
 15 test, trong đó bốn ca quan trọng nhất: **1/10 vùng bị cờ ⇒ KHÔNG gửi** (chống bão hoà),
 **3/10 ⇒ gửi**, **ca `どなどは` 33% vẫn được giữ**, và **vùng bị cả hai cờ chỉ đếm MỘT lần** (đếm
 đôi thì 2/9 thành 4/9 và bật oan).
+
+---
+
+## E38 · E39 · E40 — ba lỗi do lượt chạy thật E35 phơi ra (14-09)
+
+Cả ba đều KHÔNG tìm ra được bằng test: mã chạy đúng như viết, chỉ là giả định nền sai. Chúng chỉ
+lộ ra khi một chapter THẬT có trang không phải truyện (trang trắng, trang bạt) và khi người dùng
+thật tải file về máy thật.
+
+### E38 — trang không có chữ bị loại khỏi file xuất (13 test)
+
+Phân biệt an toàn phải giữ, và nó CÓ THẬT trong mã:
+
+```
+detect NỔ        -> PageStatus.detection_failed     (tasks.py:140)
+detect CHẠY XONG -> PageStatus.detected, kể cả 0 vùng (tasks.py:206)
+```
+
+Nên `detected` + 0 vùng nghĩa là **máy đã xem và xác nhận không có chữ** ⇒ ảnh gốc chính là trang
+hoàn thiện. Ca canh quan trọng nhất: `detection_failed` **vẫn phải bị bỏ** — nếu gộp hai trạng
+thái này thì một trang detect lỗi sẽ lặng lẽ ra file ở dạng chưa dịch.
+
+Sửa ở **hai** chỗ, và đó là phần dễ làm sai: `_thu_thap_trang` (nội dung file) *và* `thong_ke_xuat`
+(con số xem trước). Chỉ sửa một chỗ thì con số nói một chuyện mà file chứa chuyện khác — tệ hơn
+thiếu trang, vì người dùng không có cách nào biết. Có test canh đúng sự khớp đó.
+
+### E39 — trang bạt đẻ ra danh xưng rác (17 test đơn vị + 5 test nối + 3 test giao diện)
+
+**Bản đầu của tôi có lỗi thật, và chính phép đo bắt được nó trước khi deploy.** Trần đầu tiên là
+20 từ, chốt trên **n = 3 lời thoại** của một chapter. Người dùng chặn lại và bắt viết mini-spec
+với mục "rủi ro sai" — viết ra mới thấy chưa đo bong bóng ≥20 từ nào. Đo lại trên **211 vùng
+`OCRStatus.ok` tiếng Anh thật** (3 chapter, DB dev):
+
+```
+vùng >= 20 từ:   10 / 211 (4,8%)
+nhóm được GIỮ:   22, 23, 24, 26 từ     (từ nối 19,2 - 54,2%)
+nhóm bị BỎ:      146 ... 723 từ        (từ nối  0,0 -  5,7%)
+                 ^^^ khoảng trống 26 -> 146 RỖNG HOÀN TOÀN
+```
+
+Trần nâng **20 → 100**. Đã thử 20/40/60/80/100/120/146 — đều bỏ đúng 6 vùng, nên 100 không mất gì
+mà có lề 3,8× so với lời thoại dài nhất.
+
+**Ca test quan trọng nhất của cả E39** — `test_loi_thoai_cut_lun_dai_KHONG_bi_loai_oan`: một lời
+thoại đọc-danh-sách 21 từ, 0% từ nối. Đã CHỨNG MINH nó không rỗng nghĩa bằng cách chạy lại với
+trần 20:
+
+```
+tran  20: loi thoai cut lun -> BI LOAI OAN (test DO)  | trang bat -> bo
+tran 100: loi thoai cut lun -> duoc giu  (test XANH)  | trang bat -> bo
+```
+
+Test còn tự canh tiền đề của chính nó (`>20 từ` và `<15% từ nối`) — nếu mẫu trôi thành vô hại thì
+nó đỏ chứ không xanh giả.
+
+Bốn phép canh khác:
+
+- **Chống rỗng nghĩa ×2:** mẫu THẬT phải đẻ ra `david`/`alex` khi không lọc, và khối liệt kê phải
+  đẻ ra ≥10 ứng viên. Không có chúng thì mọi test lọc đều có thể xanh vì mẫu vô hại.
+- **Lọc không được quá tay:** `AXE` (2 lời thoại thật) phải CÒN.
+- **Trần có lề hai phía:** `trần ≥ 3× lời thoại dài nhất đo được` **và** `trần < khối liệt kê nhỏ
+  nhất đo được` — hai bất đẳng thức chốt trần vào giữa hai số đo, không phải một con số rời.
+- **Tính chất, không phải một ca:** `_cat_trich_dan` thử **≥10 vị trí khác nhau** của cùng khối
+  dài; mỗi lần phải giữ chỗ khớp và không vượt 162 ký tự.
+
+Giới hạn ghi thẳng vào tên test (`test_dong_ghi_cong_ngan_khong_bi_bo__gioi_han_da_biet`): dòng
+ghi công 30 từ không bị xét vì dưới trần 100. Chấp nhận được — trên 211 vùng thật, khối cỡ đó có
+19,2–54,2% từ nối và là chữ thật cần giữ; còn thiệt hại đo được đến từ khối 146–723 từ.
+
+Về dữ liệu mẫu: dòng ghi công của bộ truyện là **thật** (attribution mà CC-BY yêu cầu công bố).
+Khối danh sách lớn dựng tổng hợp — giữ nguyên tính chất cấu trúc đã đo nhưng không chép hàng trăm
+tên người thật vào repo.
+
+### E40 — file `.cbz` tải về không mở được (4 test giao diện)
+
+Backend đã có `zip` từ M8, nên đây là lỗi **chỉ đường**, không phải thiếu tính năng. Ca canh quan
+trọng nhất là một bẫy React có thật: nút "Xuất lại bằng ZIP" nếu dựa vào `setDinhDang` rồi gọi
+`xuat()` thì state chưa kịp đổi ở lượt vẽ đó ⇒ **gửi lại đúng `cbz` vừa xuất**, người dùng bấm mà
+không có gì khác. Test bắt đúng chỗ đó bằng cách ghi lại định dạng ĐÃ GỬI LÊN mạng
+(`expect(daGui).toEqual(['cbz', 'zip'])`), không so trên chữ hiện ra màn hình.

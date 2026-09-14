@@ -107,6 +107,12 @@ export default function VoiceProfileManager({
 
           {loiTim && <Alert sac="loi" tieuDe="Không tìm được">{loiTim}</Alert>}
 
+          {tinHieu?.so_vung_liet_ke > 0 && (
+            <Alert sac="tin" tieuDe={`Bỏ qua ${tinHieu.so_vung_liet_ke} khối chữ không phải lời thoại`}>
+              Trang bạt và danh sách tên không phải lời nhân vật nên không dùng để đo xưng hô.
+            </Alert>
+          )}
+
           {tinHieu?.trang_thai === 'chua_doc_chu' && (
             <Alert sac="canh" tieuDe="Chưa đọc được chữ trong chapter">
               Chạy xong bước đọc chữ rồi tìm lại. Lúc này <b>chưa kết luận được</b> chapter có hay

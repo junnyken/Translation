@@ -17,7 +17,7 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 | M5 | Dịch 2 đường: `google_fast` (miễn phí) và `llm_context` (giữ mạch văn cả trang) + reading order | **LIVE** (đo trên ảnh tổng hợp thoại tiếng Anh; manga thật + tiếng Nhật chưa đo — xem TEST_LOG) |
 | M6 | Tự tính cỡ chữ + xuống dòng cho vừa bubble (đo font-metrics thật) | **LIVE** (đo trên ảnh tổng hợp; manga thật chưa đo — xem TEST_LOG) |
 | M7 | Màn sửa tay: sửa bản dịch, kéo lại khung, đổi font/size | **LIVE** (thao tác thật trên trình duyệt; xem TEST_LOG) |
-| M8 | Xuất chapter PNG/CBZ + lưu/mở lại project | **LIVE** (xuất thật 4 trang; chưa mở bằng app đọc truyện thật) |
+| M8 | Xuất chapter PNG/CBZ/ZIP + lưu/mở lại project | **LIVE** (xuất thật 10/12 trang ep39 EN 14-09). Người dùng tải `.cbz` về **không mở được trên Windows** → E40 nói thẳng điều đó và thêm một cú bấm "Xuất lại bằng ZIP". Vẫn **chưa mở bằng app đọc truyện thật lần nào** |
 | M9 | Chạy **cả chapter bằng một mẻ**: tiến độ thật, thử lại lỗi tạm thời, cổng hạn mức, chạy lại trang hỏng | **LIVE** (4 Run bắt buộc trên truyện thật; giao diện chưa bấm tay — xem TEST_LOG §M9) |
 | E13 | Chốt cách dịch thuật ngữ cho cả chapter, ghi hồ sơ giọng nhân vật, rà soát từng chỗ chưa theo thuật ngữ đã chốt — máy chỉ ra chỗ kèm lý do, **không tự sửa** | **LIVE** (Run A–D trên truyện thật + Chromium 17/17 — xem TEST_LOG §E13) |
 | E14 | Tìm **lòng bong bóng thật** rồi căn chữ vào đó thay vì vào khung chữ nhật; không chắc thì nói thẳng là đang dùng khung dự phòng | **LIVE** (5/5 bong bóng thật, 0 chọn nhầm, 5/5 chữ nằm trọn trong bong bóng — xem TEST_LOG §E14) |
@@ -35,7 +35,7 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 | E23 | Chạy thật một chapter **24 trang** để kiểm con số "54 phút" của E25 — và nó tìm ra 7 lỗi mà lượt 6 trang không thể tìm, vì nó chạy đủ lâu để worker bị giết 3 lần: bàn thử dùng pool khác production nên SIGKILL không kích hoạt quét job mồ côi; trang kẹt vĩnh viễn khi thiếu ảnh đã xoá chữ (12 job typeset hỏng, mọi nút bấm vô ích); mục mẻ kẹt `running` làm mẻ đứng im 40 phút; ô đếm "trang xong" đứng 0 gần hết lượt chạy nên nhìn như treo; một trang giết worker 4 lần vì cụm gộp phình thành cả trang; cờ "cần rà soát" bật oan 29% số trang (cả 11 vùng chỉ đọc ra MỘT ký tự nhiễu); mẻ không tự chạy tiếp sau sự cố | **LIVE** (deploy 2026-09-11, web v33→34 rồi api v58→59, build từ commit `44fcb854` — xem `REPORT_E23.md`; backend 1248 passed/6 skipped/0 failed + 361 test frontend xanh; 5/7 bản sửa kiểm live trên bàn thử, 1 lỗi **cố ý không sửa** với bằng chứng bác bỏ cả hai cách thử, và câu hỏi khởi đầu đã trả lời: trung vị 107,3s/trang ⇒ ~54 phút, nhưng p90 ⇒ ~99 phút nên hứa "khoảng một tiếng" mới đúng) |
 | E24 | Tab mở sẵn từ trước lúc deploy chạy frontend CŨ trên backend MỚI — lưu chữ gốc OCR **thành công** mà giao diện báo lỗi `/jobs/null`, người dùng không biết đã lưu hay chưa. Nay có banner "có bản mới — tải lại đi", phát hiện bằng cách tự hỏi "bundle tôi đang chạy có còn được `index.html` tham chiếu không" | **LIVE** (deploy 2026-09-11 cùng E23; live-verified bằng Chromium thật: build A không banner, deploy build B vào thư mục đang phục vụ ⇒ banner hiện kèm nút "Tải lại ngay" và tab VẪN ở bundle A — bằng chứng nó không tự tải lại, vì tự tải lại sẽ xoá chữ đang gõ dở mà E21b vừa dựng để bảo vệ. Giới hạn bản chất: **không cứu được tab đang chạy bundle cũ hiện tại** — bundle cũ không chứa mã này; chỉ có tác dụng từ lần deploy SAU) |
 | E16 | Đặt **chữ nghiêng** theo đúng góc E15 đo được, thay vì luôn căn ngang | **LIVE nửa NGHIÊNG** (deploy 2026-09-11, api v59→v60, build `36d02767`) · ⛔ **nửa DỌC vẫn BỊ CHẶN** — xem `REPORT_E16.md`. Chưa có mẫu thoại nghiêng thật nào: cả 11 mẫu đo được đều là SFX hoặc bảng chữ |
-| E17 | Gợi ý thuật ngữ & xưng hô rút từ chính chapter, đối chiếu CSDL nhân vật AniList (E17b) | **Mã ĐÃ ở production** (đi kèm các lượt deploy sau; `/term-candidates` trả 401 ⇒ route sống) nhưng **CHƯA kiểm thật trên host lần nào** — dòng trạng thái trong `REPORT_E17_TERM_CANDIDATES.md` viết 01-09 đã CŨ |
+| E17 | Gợi ý thuật ngữ & xưng hô rút từ chính chapter, đối chiếu CSDL nhân vật AniList (E17b) | **ĐÃ kiểm thật 14-09** trên ep39 EN: quét 132/135 vùng, chạy được. Nhưng lượt chạy đó phơi ra lỗi E39 (trang bạt tài trợ đẻ ra `David`/`Alex`/`Christian`… toàn là tên ê-kíp) → **đã sửa, chờ deploy**. Tầng 3 (AniList) vẫn CHƯA kiểm thật |
 | E25 | Truy tìm chỗ tối ưu thời gian inference | **KHÔNG SHIP GÌ** — 4 giả thuyết đều bị **bác bỏ bằng số đo**, cần gạt còn lại bị chặn ở tầng nền tảng. Báo cáo của một cuộc truy tìm ra kết quả âm (`REPORT_E25.md`) |
 | E26+D | Ba lỗi dịch hay gặp nhất: câu bị ngắt giữa dòng nay dịch nguyên câu, không chèn hai lần một câu lên cùng chỗ, tiếng động giữ nguyên — và bật được **dịch theo ngữ cảnh cả trang** | **LIVE** (deploy 2026-09-11, api v60→v61, build `1656eb1a`; frontend KHÔNG deploy vì không đổi dòng nào). Production **đã có khoá Gemini** (`/healthz` → `llm_configured: true`) ⇒ ô **Cách dịch → "Dịch theo ngữ cảnh"** bấm được ngay. Giới hạn: chống chèn trùng **giảm hẳn nhưng chưa hết**; chưa kiểm thị giác trên production — xem `REPORT_E26.md` |
 | E26-B2 | Nhận thêm kiểu chèn trùng thứ hai: **vùng lớn đọc lại nguyên văn chữ của vùng nhỏ** nằm trong nó (dấu hiệu nội dung, không chỉ hình học) | **BUILT, chưa deploy** (2026-09-12). Đo trước khi viết: 34 trang/220 vùng → 8 cặp, **0 báo oan**, bắt THÊM 4 vùng trên 3 trang; ảnh xác nhận khối chữ rác biến mất. Có ngưỡng riêng cho chữ Nhật/Trung (`超毛生え薬` chỉ 5 ký tự nhưng là cả một từ) — con số đó **suy ra, chưa đo trên dữ liệu Nhật thật** |
@@ -244,6 +244,32 @@ thêm thuật ngữ đã điền sẵn phần máy biết.
 
 Vì thế **cố ý không có nút “Duyệt tất cả”** — cách dịch là quyết định biên tập, máy điền vào đó
 là chỗ bắt đầu của mọi sai lầm.
+
+**Cái gì KHÔNG được tính là danh xưng (E39):** chạy thật ep39 bản tiếng Anh cho thấy trang bạt
+liệt kê người tài trợ làm ngập cả danh sách — `David` 8 lần, `Alex` 7, `Christian` 7, toàn bộ đều
+ở trang đó và không một lần nào trong truyện; ứng viên thật duy nhất (`AXE`, 7 lần, trang 3/5/6/7)
+bị chôn giữa chúng. Nay máy nhận ra khối chữ nào là **danh sách chứ không phải lời người nói** và
+bỏ qua, rồi **nói ra đã bỏ bao nhiêu khối** chứ không lặng lẽ giấu.
+
+Dấu hiệu dùng để nhận ra là **tỉ lệ từ nối**: người nói thì có *and / you / the / that*, danh sách
+tên thì không. Tín hiệu “viết hoa” vô dụng ở đây — cả hai đều ~100%.
+
+Số đo trên **211 vùng chữ tiếng Anh thật** (3 chapter): khối trang bạt **0–5,7%** từ nối, lời
+thoại **19,2–54,2%**. Và quan trọng hơn, số từ của hai loại cách nhau một khoảng trống rỗng hoàn
+toàn: lời thoại dài nhất **26 từ**, khối trang bạt nhỏ nhất **146 từ**. Nên máy chỉ xét khối **từ
+100 từ trở lên** — một bong bóng thoại 100 từ không tồn tại.
+
+Kết quả đo lại trên một chapter thật có trang bạt: **726 ứng viên xuống còn 25**, và 25 cái còn
+lại đúng là thuật ngữ của truyện (Chaosah, Pepper, Carrot, Potions, King). Trên hai chapter không
+có trang bạt: **không đổi một mục nào** — luật không chạm vào chapter bình thường.
+
+Trích dẫn cũng được **cắt còn một câu ngắn quanh đúng chỗ có danh xưng** (trước đây in nguyên cả
+vùng chữ 1389 ký tự, ba lần cho mỗi mục — không ai tìm nổi chỗ nào chứa cái tên đang xét).
+
+Giới hạn còn lại, nói thẳng: luật **chỉ chạy cho tiếng Anh** (dựa vào từ nối tiếng Anh), và dòng
+ghi công ngắn (dưới 100 từ) **vẫn lọt**. Chọn về phía đó vì bỏ oan một lời thoại thật tệ hơn —
+mà chuyện đó có thật: bản đầu đặt trần 20 từ và nó loại oan một câu thoại kiểu nhân vật đọc danh
+sách (21 từ, không từ nối nào). Phép đo bắt được trước khi đưa lên máy chủ.
 
 **Tìm cách xưng hô:** ở màn Giọng nhân vật có nút **“Tìm tín hiệu xưng hô”**. Máy chỉ ra những
 tín hiệu **có thật trong bản gốc** — hậu tố kính ngữ tiếng Nhật (様, さん, ちゃん), đại từ nhân

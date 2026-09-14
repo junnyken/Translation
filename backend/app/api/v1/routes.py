@@ -2918,6 +2918,7 @@ async def term_candidates(
         so_bi_loc_vi_da_co=ket.so_bi_loc_vi_da_co,
         ghi_chu_ngon_ngu=ket.ghi_chu_ngon_ngu,
         so_vung_khong_chac=ket.so_vung_khong_chac,
+        so_vung_liet_ke=ket.so_vung_liet_ke,
     )
 
 
@@ -2966,6 +2967,7 @@ async def voice_signals(
         so_vung_co_chu=ket.so_vung_co_chu,
         trang_thai=ket.trang_thai,
         so_vung_khong_chac=ket.so_vung_khong_chac,
+        so_vung_liet_ke=ket.so_vung_liet_ke,
     )
 
 
