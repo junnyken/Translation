@@ -878,6 +878,29 @@ trị**, chỉ trả tên biến. Nên sau khi đổi `TRANSLATE_DEFAULT_ENGINE`
 
 Không phải bí mật: chỉ là một trong hai tên engine.
 
+## E41 — `GET /healthz` thêm `inpaint_tran_mpx` (2026-09-14)
+
+```json
+{ "status": "ok", …, "inpaint_tran_mpx": { "ca_trang": 1.6, "o_cat": 1.6 } }
+```
+
+| Trường | Ý nghĩa |
+|---|---|
+| `inpaint_tran_mpx.ca_trang` | Trang từ bao nhiêu triệu điểm trở xuống thì xoá chữ **cả trang** một lượt |
+| `inpaint_tran_mpx.o_cat` | Trần diện tích một **ô cắt** mà bước xoá chữ dám chạy |
+
+**Vì sao cần.** Hai số này là **lớp bảo vệ duy nhất** chống worker bị SIGKILL/137 — người dùng
+chốt KHÔNG nâng RAM (14-09), nên không còn lớp nào khác. Cùng lý do như `translate_default_engine`:
+bảng biến môi trường chỉ trả tên biến, nên sau khi hạ trần thì không có cách nào kiểm chứng
+container đang chạy đọc được số mới. Đây cũng là **tín hiệu tự chứng** cho chính lượt deploy đó.
+
+**Bất biến phải giữ: `ca_trang` ≤ `o_cat`.** Đường xoá cả trang cũng đi qua phép kiểm trần và nộp
+diện tích **CẢ TRANG** (`lama.py:275`). Nếu trần trang lớn hơn trần ô thì **mọi trang nằm giữa hai
+số bị từ chối thẳng** thay vì được chia cụm — trang truyện cỡ đọc 1200×1800 (2,16 Mpx) hỏng hết.
+Có test canh cả bất biến này lẫn ca cấu hình lệch.
+
+Không phải bí mật: chỉ là hai con số vận hành.
+
 ## E17 — gợi ý thuật ngữ & xưng hô (2026-09-01)
 
 Bốn endpoint. Hai cái đầu **chỉ đọc và không gọi AI** nên `200`; cái thứ ba có gọi mô hình nên

@@ -355,7 +355,13 @@ class Settings(BaseSettings):
     #: Trang bao nhiêu TRIỆU ĐIỂM ẢNH trở xuống thì xoá chữ cả trang một lượt; lớn hơn thì chia
     #: theo cụm bong bóng. Đo thật: LaMa cần ~1,6 GB RAM cho mỗi triệu điểm ảnh, nên trang truyện
     #: thật ở cỡ đọc (3,6 triệu điểm) chạy cả trang là bị hệ điều hành giết.
-    inpaint_whole_page_max_mpx: float = 2.5
+    #:
+    #: **E41 — BẤT BIẾN: trần này KHÔNG được lớn hơn `inpaint_max_crop_mpx`.** Đường xoá cả
+    #: trang cũng đi qua `_kiem_tran_o_cat`, và nó nộp DIỆN TÍCH CẢ TRANG (`lama.py:275`). Nếu
+    #: trần trang > trần ô thì mọi trang nằm giữa hai số bị **từ chối thẳng** thay vì được chia
+    #: cụm — trang truyện cỡ đọc 1200x1800 (2,16 Mpx) sẽ hỏng hết. Hạ trần ô mà quên trần trang
+    #: là đúng cách làm chết tính năng, nên có test canh bất biến này.
+    inpaint_whole_page_max_mpx: float = 1.6
     inpaint_tile_margin: int = 96
     #: E23 — trần DIỆN TÍCH ô cắt (triệu điểm ảnh) mà bước xoá chữ dám chạy. Vượt thì tự báo
     #: hỏng, thay vì để hệ điều hành giết worker và làm mồ côi mọi việc đang chạy.
@@ -380,8 +386,46 @@ class Settings(BaseSettings):
     #: toàn. Đã đề nghị nới RAM 4096 -> 5376MB (gói CÒN chỗ) để đưa 96% về ~71%; **người dùng chốt
     #: GIỮ 4096MB (2026-09-11)**. Vậy trần này CHÍNH LÀ lớp bảo vệ duy nhất — đổi nó lên mà không
     #: nới RAM là mở lại đúng đường làm chết worker.
+    #:
+    #: ## E41 (2026-09-14) — 96% KHÔNG đủ, hạ 2,6 -> 1,6
+    #:
+    #: Worker production bị SIGKILL/137 **hai lần** (`/healthz`: `so_lan_chet: 2`, đỉnh RSS
+    #: 1479 MB ở mốc `inpaint: trước`, log container 07:37:41Z `Killed ... celery`). Trần 2,6 đã
+    #: chặn đúng một ô 3,43 Mpx lúc 06:50, nhưng cái chết lúc 07:37 là việc **đã qua được trần**.
+    #: Người dùng chốt lại: KHÔNG nâng RAM (2026-09-14) -> chỉ còn đường hạ trần.
+    #:
+    #: Đo lại đường cong (máy đo của E23 đã MỤC từ lúc E23 đổi sang trần diện tích — ném
+    #: TypeError, nên từ đó tới nay chưa ai đo lại được lần nào; đã sửa):
+    #:
+    #:     ô cắt   E23 (cgroup 4096)   đo lại 14-09   lệch
+    #:     1,4 Mpx      2076 MB           2401 MB     +15,7%
+    #:     1,6 Mpx        --              2295 MB
+    #:     1,8 Mpx        --              2951 MB
+    #:     2,0 Mpx      3367 MB           2985 MB     -11,3%
+    #:     2,6 Mpx      3710 MB           3912 MB      +5,4%
+    #:
+    #: Lệch +16% / -11% / +5% ⇒ **nhiễu ±15% của allocator, KHÔNG phải độ lệch môi trường**, nên
+    #: không quy được số máy này về thang kia. Phải lấy giá trị XẤU NHẤT của cả hai loạt. Đường
+    #: cong cũng KHÔNG đơn điệu (1,6 tốn ít hơn 1,4) nên không nội suy được — đúng như E23 ghi.
+    #:
+    #: Điều hai máy đo nói GIỐNG nhau: ở 2,6 Mpx đỉnh là 3710-3912 MB, tức 96-102% ngân sách
+    #: worker (~3850 MB) — cộng API ~115 MB thường trú cùng container thì KHÔNG vừa. Đó là xác
+    #: nhận độc lập cho cái chết 137.
+    #:
+    #: Giá phải trả, đo trên 38 trang thật qua chính `gom_cum` (không phải chặn trên):
+    #:
+    #:     ô cắt lớn nhất thật:  2,70 Mpx (trang bạt) · 1,96 Mpx · rồi TỤT xuống <= 1,06 Mpx
+    #:     trần 1,4 / 1,6 / 1,8 -> 2/38 trang bị từ chối (5%)
+    #:     trần 2,0 / 2,6       -> 1/38 trang bị từ chối (3%)
+    #:
+    #: Khoảng 1,06 -> 1,96 RỖNG, nên mọi trần trong khoảng đó từ chối ĐÚNG cùng một tập trang.
+    #: Chọn **1,6**: xấu nhất trong vùng cho phép là 2401 MB = **62% ngân sách** (thay vì 96-102%),
+    #: cách mức thường thấy của trang thật (1,06) một khoảng 1,5x, và chỉ mất thêm ĐÚNG MỘT trang
+    #: trên 38 so với trần cũ. Trần 1,8 không mua thêm được trang nào mà đỉnh nhảy lên 2951 MB
+    #: (77%), nên 1,8 là lựa chọn kém hơn hẳn.
+    #:
     #: 0 hoặc số âm = TẮT phép kiểm.
-    inpaint_max_crop_mpx: float = 2.6
+    inpaint_max_crop_mpx: float = 1.6
     #: Constraint 10 của M4: KHÔNG lặng lẽ lùi về cv2.inpaint khi LaMa lỗi.
     #: Muốn cho phép fallback thì phải bật tường minh ở đây.
     inpaint_allow_opencv_fallback: bool = False

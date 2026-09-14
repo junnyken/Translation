@@ -5491,3 +5491,72 @@ trọng nhất là một bẫy React có thật: nút "Xuất lại bằng ZIP" 
 `xuat()` thì state chưa kịp đổi ở lượt vẽ đó ⇒ **gửi lại đúng `cbz` vừa xuất**, người dùng bấm mà
 không có gì khác. Test bắt đúng chỗ đó bằng cách ghi lại định dạng ĐÃ GỬI LÊN mạng
 (`expect(daGui).toEqual(['cbz', 'zip'])`), không so trên chữ hiện ra màn hình.
+
+
+---
+
+## E41 — hạ trần bộ nhớ xoá chữ, và cái bẫy gần như làm chết tính năng (14-09)
+
+Người dùng chốt **hướng B** (hạ trần) và **không nâng RAM**. Làm B đúng thì trần mới phải ĐO, vì
+trần 2,6 hiện tại cũng từng được đo mà vẫn để worker chết.
+
+### Máy đo của E23 đã mục — không ai đo lại được từ lúc đó
+
+`scripts/do_duong_cong_bo_nho_inpaint.py` ném `TypeError: LamaInpainter.__init__() got an
+unexpected keyword argument 'mem_budget_gb'` — E23 đổi phép canh từ hệ số GB/Mpx sang trần diện
+tích mà không sửa script. Nghĩa là **từ E23 tới 14-09 chưa ai đo lại đường cong đó lần nào.** Đã
+sửa (`max_crop_mpx=0` để tắt phép canh).
+
+### Đo lại trên hai máy đo độc lập
+
+| ô cắt | E23 (cgroup 4096) | đo lại 14-09 (không giới hạn) | lệch |
+|---|---|---|---|
+| 1,4 Mpx | 2076 MB | **2401 MB** | +15,7% |
+| 1,6 Mpx | — | **2295 MB** | — |
+| 1,8 Mpx | — | **2951 MB** | — |
+| 2,0 Mpx | 3367 MB | **2985 MB** | **−11,3%** |
+| 2,6 Mpx | 3710 MB | **3912 MB** | +5,4% |
+
++16% / −11% / +5% ⇒ đó là **nhiễu ±15% của allocator**, không phải độ lệch môi trường, nên KHÔNG
+quy được thang này về thang kia — phải lấy giá trị xấu nhất của cả hai loạt. Đường cong cũng không
+đơn điệu (1,6 tốn ít hơn 1,4), đúng như E23 đã ghi, nên không nội suy.
+
+Điều hai máy đo nói **giống nhau**: ở 2,6 Mpx đỉnh là 3710–3912 MB = **96–102% ngân sách worker**
+(~3850 MB). Cộng API ~115 MB thường trú cùng container thì không vừa — xác nhận độc lập cho cái
+chết SIGKILL/137.
+
+### Giá phải trả: đo bằng `gom_cum` thật, không bằng chặn trên
+
+Lượt đầu tôi dùng **chặn trên** (bbox trùm mọi vùng của trang) và nó nói trần 1,6 có thể từ chối
+**14/38 trang (37%)** — con số đó làm tôi gần như chọn sai. Chạy `gom_cum` thật:
+
+```
+ô cắt lớn nhất thật:  2,70 Mpx (trang bạt) · 1,96 Mpx · rồi TỤT xuống <= 1,06 Mpx
+trần 1,4 / 1,6 / 1,8 -> 2/38 trang bị từ chối (5%)
+trần 2,0 / 2,6       -> 1/38 trang bị từ chối (3%)
+```
+
+Chặn trên **sai gấp 7 lần** so với thực tế (37% vs 5%), vì nó giả định mọi vùng gộp một cụm trong
+khi `gom_cum` tách chúng ra. **Chốt trần bằng chặn trên là chốt bằng con số sai.**
+
+Khoảng 1,06 → 1,96 rỗng ⇒ mọi trần trong đó từ chối đúng cùng một tập trang. Chọn **1,6**: xấu
+nhất trong vùng cho phép là 2401 MB = **62% ngân sách**, mất thêm **đúng một trang trên 38**.
+Trần 1,8 không mua thêm trang nào mà đỉnh nhảy lên 2951 MB (77%) — kém hơn hẳn.
+
+### Cái bẫy: hạ một trần thì làm chết tính năng
+
+Đường xoá **cả trang** cũng đi qua `_kiem_tran_o_cat`, và nó nộp **diện tích cả trang**
+(`lama.py:275`). Nên nếu chỉ hạ `inpaint_max_crop_mpx` xuống 1,6 mà để
+`inpaint_whole_page_max_mpx` ở 2,5 thì **mọi trang giữa 1,6 và 2,5 bị từ chối thẳng** thay vì
+được chia cụm — trang truyện cỡ đọc 1200×1800 (2,16 Mpx) hỏng hết. Phải hạ **cả hai**.
+
+Ba test canh đúng chỗ đó, và chúng đọc `Settings()` chứ không truyền số cứng:
+
+| test | canh gì |
+|---|---|
+| `test_tran_ca_trang_KHONG_duoc_lon_hon_tran_o_cat` | bất biến `ca_trang <= o_cat` trên cấu hình THẬT |
+| `test_trang_truyen_co_doc_binh_thuong_van_chay_voi_cau_hinh_THAT` | 1200×1800 phải chạy — ai hạ một trần thì test này ĐỎ |
+| `test_cau_hinh_LECH_thi_chan_oan__chong_rong_nghia` | với cấu hình lệch, **cùng trang đó** bị chặn ⇒ hai test trên không rỗng nghĩa |
+
+Cộng `test_healthz_khai_hai_tran_bo_nho_inpaint`: bất biến còn được canh một lần nữa **từ ngoài
+qua HTTP**, vì đó là lớp bảo vệ duy nhất và nó phải nói ra được.

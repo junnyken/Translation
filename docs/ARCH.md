@@ -1781,3 +1781,61 @@ trình duyệt**, không bộ test nào bắt được — nay đã có test can
   backend (backend cũ luôn trả job id thật nên guard `null` không bao giờ chạm), còn backend mới
   đứng trước frontend cũ thì frontend cũ gọi `/jobs/null` mỗi lần người dùng sửa chữ gốc. Lý luận
   đầy đủ ở `REPORT_E21b.md §11.1` — bản đầu của chính báo cáo đó ghi ngược, đã sửa.
+
+## E41. Hai trần bộ nhớ của bước xoá chữ phải đi CÙNG NHAU (2026-09-14)
+
+E22 dựng cơ chế theo dõi worker chết; E23 dựng trần diện tích ô cắt. E41 là lượt đầu tiên **cơ
+chế của E22 bắt được một cái chết mà trần của E23 không chặn nổi**:
+
+```
+/healthz: so_lan_chet 2 · ma_thoat_gan_nhat 137 · rss 1479 MB ở mốc "inpaint: trước"
+log:      07:37:41Z  Killed  celery ... --pool=solo
+```
+
+Trần 2,6 Mpx đã từ chối đúng một ô 3,43 Mpx lúc 06:50 — nó làm đúng việc. Cái chết lúc 07:37 là
+một việc **đã qua được trần**. Người dùng chốt **không nâng RAM**, nên trần là lớp bảo vệ duy nhất.
+
+### E41.1 Vì sao 96% không phải "an toàn"
+
+E23 chọn 2,6 vì đó là ô lớn nhất *đo được là chạy xong*, ở 96% ngân sách worker. Đo lại 14-09 trên
+máy đo thứ hai cho **3912 MB = 102%**. Hai loạt số lệch +16% / −11% / +5% ⇒ đó là **nhiễu ±15% của
+allocator**, không phải độ lệch môi trường có hướng. Hệ quả:
+
+- **Không quy được thang máy này về thang máy kia** — phải lấy giá trị xấu nhất của cả hai loạt.
+- **Một phép đo "chạy xong" ở 96% không chứng minh được gì** khi nhiễu là ±15%: cùng ô đó ở lượt
+  chạy khác sẽ vượt. Trần phải đặt theo *biên*, không theo *ca lớn nhất từng chạy xong*.
+
+Đó là chỗ E23 sai — không sai ở phép đo, sai ở việc coi "đo được một lần là chạy xong" là bằng
+chứng đủ cho một trần.
+
+### E41.2 Chặn trên sai gấp 7 lần — phải chạy đúng hàm mà đường thật chạy
+
+Ước giá phải trả bằng **bbox trùm mọi vùng chữ** của trang cho ra `14/38 trang (37%)` bị từ chối ở
+trần 1,6. Chạy đúng `gom_cum` — hàm mà đường thật gọi — cho ra `2/38 (5%)`.
+
+Chặn trên giả định mọi vùng gộp một cụm; `gom_cum` tách chúng. Với 37% thì kết luận đúng sẽ là
+"1,6 quá đắt". **Ước lượng thay cho hàm thật là ước lượng sai, và nó đủ sai để đảo chiều quyết
+định.**
+
+Phân bố cụm thật (38 trang): `2,70 · 1,96 · rồi tụt xuống <= 1,06 Mpx`. Khoảng **1,06 → 1,96 rỗng**
+⇒ mọi trần trong đó từ chối đúng cùng một tập trang, nên chọn điểm có nhiều lề bộ nhớ nhất trong
+khoảng đó.
+
+### E41.3 BẤT BIẾN: `whole_page_max_mpx` ≤ `max_crop_mpx`
+
+Đây là chỗ suýt làm chết tính năng. Đường xoá **cả trang** cũng qua `_kiem_tran_o_cat`, và nó nộp
+**diện tích cả trang**:
+
+```
+trang <= whole_page_max_mpx  ->  cả trang  ->  _kiem_tran_o_cat(DIỆN TÍCH TRANG)   lama.py:275
+trang >  whole_page_max_mpx  ->  chia cụm  ->  _kiem_tran_o_cat(ô lớn nhất)        lama.py:290
+```
+
+Hạ `max_crop_mpx` xuống 1,6 mà để `whole_page_max_mpx` ở 2,5 ⇒ **mọi trang giữa 1,6 và 2,5 bị từ
+chối thẳng** thay vì được chia cụm. Trang truyện cỡ đọc 1200×1800 (2,16 Mpx) nằm gọn trong khoảng
+đó, tức gần như toàn bộ truyện hỏng.
+
+Hai tham số này **không độc lập**: `whole_page_max_mpx` quyết định *đường nào*, `max_crop_mpx`
+quyết định *cho qua hay không* — và đường cả trang tự nộp số lớn nhất có thể. Nên bất biến phải
+được canh bằng test đọc `Settings()` thật, cộng một phép canh nữa qua HTTP trên `/healthz`, vì đây
+là lớp bảo vệ duy nhất.

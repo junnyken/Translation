@@ -236,3 +236,96 @@ class TestTranOCat:
         d = self._may(tmp_path, whole_page_max_mpx=10.0, max_crop_mpx=0)
         monkeypatch.setattr(d, "_get_session", lambda: _FakeSession())
         assert Path(d.inpaint(str(p), [BBox(x=10, y=10, w=50, h=50)])).is_file()
+
+
+class TestE41HaTranBoNho:
+    """E41 — worker production bị SIGKILL/137 hai lần, hạ CẢ HAI trần về 1,6 Mpx.
+
+    Bằng chứng: `/healthz` khai `so_lan_chet: 2`, `ma_thoat_gan_nhat: 137`, đỉnh RSS 1479 MB ở
+    mốc `inpaint: trước`; log container `07:37:41Z Killed ... celery`. Trần 2,6 đã chặn đúng một
+    ô 3,43 Mpx lúc 06:50 — nhưng cái chết lúc 07:37 là việc **đã qua được trần**.
+
+    Đo lại đường cong trên hai máy đo độc lập: ở 2,6 Mpx đỉnh là 3710-3912 MB, tức 96-102% ngân
+    sách worker (~3850 MB). Không vừa. Người dùng chốt KHÔNG nâng RAM ⇒ chỉ còn hạ trần.
+
+    Giá phải trả, đo qua chính `gom_cum` trên 38 trang thật: ô cắt lớn nhất là 2,70 · 1,96 · rồi
+    tụt xuống <= 1,06 Mpx. Khoảng 1,06 -> 1,96 RỖNG, nên trần 1,6 từ chối đúng 2/38 trang — thêm
+    ĐÚNG MỘT trang so với trần 2,6, mà đỉnh bộ nhớ xuống 62% ngân sách.
+    """
+
+    @staticmethod
+    def _may(tmp_path, **kw):
+        return LamaInpainter(weights_path=str(tmp_path / "w.onnx"), **kw)
+
+    def test_tran_ca_trang_KHONG_duoc_lon_hon_tran_o_cat(self):
+        """BẤT BIẾN quan trọng nhất của E41, và là cái bẫy tôi gần như sập vào.
+
+        Đường xoá cả trang cũng đi qua `_kiem_tran_o_cat`, và nó nộp **diện tích cả trang**
+        (`lama.py:275`). Nên nếu trần trang > trần ô, mọi trang nằm GIỮA hai số bị từ chối thẳng
+        thay vì được chia cụm. Hạ trần ô mà quên trần trang = làm chết tính năng cho trang
+        truyện cỡ đọc bình thường.
+        """
+        from app.core.config import Settings
+        s = Settings()
+        assert s.inpaint_whole_page_max_mpx <= s.inpaint_max_crop_mpx, (
+            f"trần cả trang {s.inpaint_whole_page_max_mpx} > trần ô cắt "
+            f"{s.inpaint_max_crop_mpx} ⇒ trang giữa hai số bị từ chối oan"
+        )
+
+    def test_trang_truyen_co_doc_binh_thuong_van_chay_voi_cau_hinh_THAT(
+            self, tmp_path, monkeypatch):
+        """1200x1800 = 2,16 Mpx — cỡ đọc bình thường. Phải chạy được, dùng ĐÚNG cấu hình thật.
+
+        Test này đọc `Settings()` chứ không truyền số cứng: nó là phép canh cho chính lượt hạ
+        trần. Ai hạ `inpaint_max_crop_mpx` mà quên `inpaint_whole_page_max_mpx` thì nó ĐỎ.
+        """
+        from app.core.config import Settings
+        s = Settings()
+        p = _make_image(tmp_path, size=(1200, 1800))
+        d = self._may(tmp_path, whole_page_max_mpx=s.inpaint_whole_page_max_mpx,
+                      max_crop_mpx=s.inpaint_max_crop_mpx)
+        monkeypatch.setattr(d, "_get_session", lambda: _FakeSession())
+        # Chữ gom vào một góc — cảnh bình thường nhất của truyện tranh.
+        vung = [BBox(x=80, y=120 + i * 160, w=420, h=120) for i in range(3)]
+        assert Path(d.inpaint(str(p), vung)).is_file(), (
+            "trang cỡ đọc bình thường bị chặn ⇒ hạ trần đã làm chết tính năng"
+        )
+
+    def test_cau_hinh_LECH_thi_chan_oan__chong_rong_nghia(self, tmp_path, monkeypatch):
+        """Chứng minh hai test trên KHÔNG rỗng nghĩa: với cấu hình lệch, cùng trang đó bị chặn."""
+        p = _make_image(tmp_path, size=(1200, 1800))  # 2,16 Mpx
+        d = self._may(tmp_path, whole_page_max_mpx=2.5, max_crop_mpx=1.6)  # trần trang > trần ô
+        goi = []
+        monkeypatch.setattr(d, "_get_session", lambda: goi.append(1) or _FakeSession())
+        with pytest.raises(InpaintFailed) as e:
+            d.inpaint(str(p), [BBox(x=80, y=120, w=420, h=120)])
+        assert "cả trang" in str(e.value), (
+            "phải chặn trên đường CẢ TRANG — nếu không thì bất biến ở trên vô nghĩa"
+        )
+        assert goi == []
+
+    def test_o_2_6_mpx_nay_BI_CHAN_voi_cau_hinh_that(self, tmp_path, monkeypatch):
+        """Ô 2,6 Mpx từng được cho qua ở 96% ngân sách. Nay phải bị chặn."""
+        from app.core.config import Settings
+        s = Settings()
+        p = _make_image(tmp_path, size=(1600, 2259))  # 3,6 Mpx -> đường cụm
+        d = self._may(tmp_path, whole_page_max_mpx=s.inpaint_whole_page_max_mpx,
+                      max_crop_mpx=s.inpaint_max_crop_mpx)
+        goi = []
+        monkeypatch.setattr(d, "_get_session", lambda: goi.append(1) or _FakeSession())
+        vung = [BBox(x=120, y=40 + i * 200, w=1360, h=180) for i in range(11)]
+        with pytest.raises(InpaintFailed) as e:
+            d.inpaint(str(p), vung)
+        assert "crop_too_large" in str(e.value)
+        assert goi == [], "phải chặn TRƯỚC khi gọi model"
+
+    def test_cum_nho_hon_tran_moi_van_chay(self, tmp_path, monkeypatch):
+        """Mức thường thấy của trang thật là <= 1,06 Mpx — phải nằm gọn dưới trần 1,6."""
+        from app.core.config import Settings
+        s = Settings()
+        p = _make_image(tmp_path, size=(1600, 2259))
+        d = self._may(tmp_path, whole_page_max_mpx=s.inpaint_whole_page_max_mpx,
+                      max_crop_mpx=s.inpaint_max_crop_mpx)
+        monkeypatch.setattr(d, "_get_session", lambda: _FakeSession())
+        vung = [BBox(x=100, y=100 + i * 150, w=700, h=120) for i in range(4)]
+        assert Path(d.inpaint(str(p), vung)).is_file()

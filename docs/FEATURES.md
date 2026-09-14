@@ -46,6 +46,10 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 | E30 | **Vá MẤT CHỮ**: `llm_context` từng trả về `"Whoo!"` thay cho cả câu khi vùng có dấu xuống dòng | **BUILT, chờ deploy** (12-09) — **bản vá gấp nhất**; đo trên trang `29ab3d86` |
 | E31 | Dịch nhất quán **xuyên trang**: nối bảng thuật ngữ + hồ sơ giọng nhân vật đã chốt vào prompt | **BUILT, chờ deploy** (12-09). Chỉ nạp mục người dùng đã duyệt |
 | E32 | **Cho mô hình xem chính trang truyện** khi dịch — sửa được chữ OCR đọc rác và biết câu nào của nhân vật nào | **BUILT, TẮT mặc định** (14-09). Đo thật: chi phí ảnh gần như CỐ ĐỊNH **+1166 token/trang** (EN ×3,0 · JA ×5,7) ⇒ một chapter 24 trang tốn thêm ~28.000 token. Bật hay không là **quyết định chi phí của người dùng** — xem TEST_LOG 14-09 |
+| E38 | **Trang không có chữ nay NẰM TRONG file xuất** — trang tranh thuần trước đây bị xếp "Hỏng" và bị loại, nên chapter xuất ra **thiếu trang** | **LIVE** (api v67, 14-09). Dùng lại phân biệt đã có: `detected` + 0 vùng = máy đã xem và xác nhận không có chữ; `detection_failed` vẫn bị loại. Sửa cả nội dung file **và** con số xem trước |
+| E39 | **Trang bạt tài trợ không còn đẻ ra danh xưng rác** — `David`/`Alex`/`Christian` (toàn tên người tài trợ ở trang 12) từng chôn mất ứng viên thật `AXE` | **LIVE** (api v67 + web v36, 14-09). Đo 211 vùng thật: 726 ứng viên → **25**, và 25 cái còn lại đúng là thuật ngữ truyện. Hai chapter không có trang bạt: **không đổi gì**. Trần đầu (20 từ) loại oan một lời thoại thật — phép đo bắt được trước khi deploy |
+| E40 | **File xuất mở được**: nói thẳng Windows/macOS không mở sẵn `.cbz`, thêm một cú bấm "Xuất lại bằng ZIP" | **LIVE** (web v36, 14-09). Không endpoint mới — `ExportFormat.zip` có từ M8, đây là lỗi **chỉ đường** |
+| E41 | **Hạ trần bộ nhớ xoá chữ 2,6 → 1,6 Mpx** sau khi worker production bị SIGKILL/137 hai lần | Người dùng chốt **không nâng RAM** nên trần là lớp bảo vệ duy nhất. Đo lại: ở 2,6 Mpx đỉnh 3710–3912 MB = **96–102% ngân sách** ⇒ không vừa. Ở 1,6: **62%**, mất thêm đúng **1 trang trên 38**. Phải hạ **cả hai** trần — hạ một cái thì trang cỡ đọc 2,16 Mpx hỏng hết |
 
 ## Những gì dùng được ngay hôm nay (sau E12)
 

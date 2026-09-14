@@ -89,6 +89,18 @@ async def healthz() -> dict:
     # thay đổi chỉ áp ở lượt deploy kế tiếp. Trường này nói đúng thứ tiến trình ĐANG dùng.
     ket_qua["translate_default_engine"] = _s.translate_default_engine
 
+    # E41 — hai trần bộ nhớ của bước xoá chữ. Không phải bí mật, chỉ là hai con số vận hành.
+    #
+    # Vì sao cần: worker bị SIGKILL/137 hai lần vì vượt RAM, và lớp bảo vệ duy nhất là hai trần
+    # này (người dùng chốt KHÔNG nâng RAM). Nhưng bảng biến môi trường của nền tảng không trả
+    # GIÁ TRỊ, chỉ trả tên biến — nên sau khi hạ trần thì không có cách nào kiểm chứng container
+    # đang chạy thật sự đọc được số mới. Trường này nói đúng thứ tiến trình ĐANG dùng, và cũng
+    # là tín hiệu tự chứng cho lượt deploy hạ trần.
+    ket_qua["inpaint_tran_mpx"] = {
+        "ca_trang": _s.inpaint_whole_page_max_mpx,
+        "o_cat": _s.inpaint_max_crop_mpx,
+    }
+
     duong_dan = _Path(os.environ.get("WORKER_STATE_FILE", "/tmp/trang-thai-worker.json"))
     try:
         ket_qua["worker"] = json.loads(duong_dan.read_text())

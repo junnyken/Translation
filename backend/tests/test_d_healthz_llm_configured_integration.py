@@ -82,3 +82,21 @@ async def test_healthz_engine_doi_theo_cau_hinh(client, monkeypatch):
         assert (await client.get("/healthz")).json()["translate_default_engine"] == "llm_context"
     finally:
         get_settings.cache_clear()
+
+
+async def test_healthz_khai_hai_tran_bo_nho_inpaint(client):
+    """E41 — hai trần bộ nhớ phải NÓI RA được từ ngoài.
+
+    Vì sao: đó là lớp bảo vệ duy nhất chống SIGKILL/137 (người dùng chốt không nâng RAM), mà
+    bảng biến môi trường của nền tảng chỉ trả TÊN biến chứ không trả giá trị. Không có trường
+    này thì sau khi hạ trần không có cách nào kiểm chứng container đang chạy đọc được số mới.
+    Đây cũng là tín hiệu tự chứng cho lượt deploy đó.
+    """
+    r = await client.get("/healthz")
+    assert r.status_code == 200
+    tran = r.json()["inpaint_tran_mpx"]
+    assert set(tran) == {"ca_trang", "o_cat"}, tran
+    assert tran["ca_trang"] <= tran["o_cat"], (
+        "trần cả trang lớn hơn trần ô cắt ⇒ trang giữa hai số bị từ chối oan (xem E41)"
+    )
+    assert 0 < tran["o_cat"] <= 2.6, f"trần ô cắt {tran['o_cat']} ngoài khoảng đã đo"
