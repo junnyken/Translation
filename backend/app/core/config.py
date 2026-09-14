@@ -128,13 +128,27 @@ class Settings(BaseSettings):
     #: Vì sao đáng làm: mô hình hiện chỉ nhận **chữ do OCR đọc**, nên nó phải đoán khi chữ đọc sai
     #: và không biết ai đang nói. Lỗi đọc đo được là thật: `どなどは` là rác, `足りなかったかかも`
     #: nhân đôi ký tự, `Laughing Potions` thành `Luughing Fotlons`.
-    e32_kem_anh_trang: bool = False
+    #: BẬT từ 14-09 — nhưng chỉ bật được VÌ có E34 đứng sau. Trước E34, bật cờ này là gửi ảnh cho
+    #: MỌI trang: 24 trang từ 9.600 lên 37.584 token. Với E34 (`e34_chi_trang_can_anh=True`) thì đo
+    #: được chỉ 5/24 trang cần ảnh ⇒ 15.430 token, tiết kiệm 22.154 so với gửi hết.
+    #:
+    #: Đặt `False` để tắt hẳn việc gửi ảnh.
+    e32_kem_anh_trang: bool = True
 
     #: Cạnh dài nhất của ảnh gửi kèm, tính bằng pixel. Trang gốc 1200x1660 mà Gemini tính tiền
     #: theo ô 768x768, nên thu nhỏ là cách trực tiếp nhất để chặn chi phí. 1024 giữ được chữ trong
     #: bong bóng còn đọc được — nhỏ hơn nữa thì mô hình không đọc nổi chữ gốc, tức mất đúng cái lợi
     #: mà việc gửi ảnh mang lại.
     e32_anh_max_px: int = 1024
+
+    #: E34 — bật `e32_kem_anh_trang` thì CHỈ gửi ảnh cho trang có dấu hiệu cần, không gửi mọi
+    #: trang. Đây là mặc định có chủ đích: đo được ảnh tốn cố định +1166 token/trang, mà lợi ích
+    #: chỉ dồn vào trang bộ đọc chữ làm kém. Trả token cho trang đã đọc sạch là trả cho thứ không
+    #: đổi gì.
+    #:
+    #: Đặt `False` để gửi ảnh cho MỌI trang — chỉ nên dùng khi đang đo đối chứng, vì nó nhân chi
+    #: phí lên khoảng 4 lần (24 trang: 9.600 -> 37.584 token).
+    e34_chi_trang_can_anh: bool = True
     #: LLM lỗi/hết quota -> tự lùi về google_fast, ghi status=fallback_used (không trả bản rỗng).
     llm_fallback_to_google: bool = True
     #: Timeout RIÊNG cho dịch, không dùng chung với detect/OCR/inpaint.

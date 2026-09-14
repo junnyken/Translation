@@ -5307,3 +5307,107 @@ nói field này trỏ tới bảng nào. Đặt tên khác hẳn (vd `nguon`) th
 hạn của schema, không phải lựa chọn — và ghi ra đây để ai thêm endpoint còn biết.
 
 Chỉ dò endpoint có `{project_id}` trên URL, vì cần một tài nguyên hợp lệ của B để dựng URL.
+
+# ========== E34 — chỉ gửi ảnh cho trang cần (2026-09-14) ==========
+
+Người dùng đưa spec kèm ước tính. **Ba chỗ trong spec cần chỉnh, và tôi đo trước khi làm.**
+
+## Chỉnh 1 — con số ảnh trong spec sai gấp 4,5 lần
+
+Spec ghi 258 token/ảnh. Đó là giá **một ô ảnh** của Gemini, nhưng ảnh 1024px chiếm **nhiều ô**. Đo
+thật ở E32: `prompt` 383→1549 (EN) và 215→1381 (JA) ⇒ **+1166 token/trang**.
+
+Điều đó làm phương án chọn lọc **có giá trị hơn** ước tính, không kém:
+
+```
+24 trang chỉ chữ          9.600 token
+24 trang ảnh MỌI trang   37.584 token
+24 trang chọn lọc 5/24   15.430 token
+```
+
+## Chỉnh 2 — hai cờ trong spec không tồn tại
+
+```
+inpaint_needs_review   CÓ (PageStatus)
+low_confidence         CÓ (RegionStatus)
+needs_manual           CÓ — nhưng là OCRStatus, không phải RegionStatus
+ocr_needs_review       KHÔNG TỒN TẠI
+```
+
+## Chỉnh 3 — KHÔNG dò chuỗi rác bằng danh sách cứng
+
+Spec liệt `どなどは`, `Luughing Fotlons`, `ITIS`. Đó là mấy mẫu tình cờ gặp, không phải luật — và
+spec còn ghi `たりなかたかも` trong khi chuỗi thật là `足りなかったかかも`. Danh sách cứng bỏ sót mọi
+ca khác và không bao giờ tự phát hiện ca mới: mã trông như có tác dụng mà không ai đo được.
+
+Thay bằng ba cờ **pipeline tự ghi ra**. Người dùng đồng ý thứ tự: dựng trên cờ có thật → ĐO → chỉ
+thêm luật mới khi số đo cho biết cờ hiện có bỏ sót bao nhiêu.
+
+## Lần dựng thứ nhất — luật của spec TỰ BÃO HOÀ
+
+Luật "trang bật nếu **có một** vùng bị cờ" cho:
+
+```
+24 trang tiếng Anh   13/24 = 54%   tiết kiệm 34%
+3 trang tiếng Nhật    3/3  = 100%  tiết kiệm 0%
+```
+
+Và nó bão hoà **theo toán học**, không phải tình cờ:
+
+```
+en:  27/220 vùng = 12%  ·  ~9 vùng/trang  ->  1-(0.88^9) ≈ 68%   (đo 54%)
+ja:   8/16  vùng = 50%  ·  ~5 vùng/trang  ->  gần 100%           (đo 100%)
+```
+
+Chọn lọc mà bật 54% thì gần bằng gửi hết.
+
+## Lần dựng thứ hai — ngưỡng TỈ LỆ, neo vào ca đã chứng minh
+
+Đo phân bố thật rồi mới chọn:
+
+| Luật | EN (34 trang) | JA (4 trang) |
+|---|---|---|
+| ≥1 vùng bị cờ | 17 = 50% | 4 = 100% |
+| chỉ `needs_manual` | 7 = 21% | **0 = 0%** |
+| tỉ lệ ≥30% | 9 = 26% | 4 = 100% |
+| tỉ lệ ≥50% | 3 = 9% | 2 = 50% |
+
+`needs_manual` đơn lẻ cho 21% — gần ước tính của người dùng — nhưng **0% cho tiếng Nhật**, tức
+**bỏ mất** trang `どなどは`, ca DUY NHẤT chứng minh được ảnh có tác dụng.
+
+Trang đó có tỉ lệ **33%**. Nên ngưỡng ≥50% (trông chặt chẽ hơn) sẽ **loại bỏ chính lý do làm E32**.
+Chọn **0.3**, neo vào ca đó.
+
+Kết quả sau khi đổi sang tỉ lệ:
+
+```
+24 trang tiếng Anh   5/24 = 21%   tiết kiệm 22.154 token (59%)
+6 trang tiếng Anh    1/6  = 17%   tiết kiệm  5.830 token (62%)
+3 trang (mẻ nhỏ)     0/3  =  0%   tiết kiệm  3.498 token (74%)
+trang どなどは        vẫn được bắt (ti_le_dang_ngo_33%)     ✓
+```
+
+**5/24 đúng bằng ước tính 5/24 của người dùng** — nhưng tiết kiệm 22.154 token thay vì 4.902, vì
+nền token thật lớn hơn 4,5 lần.
+
+## GIỚI HẠN ĐO ĐƯỢC: tiếng Nhật không tiết kiệm được gì
+
+```
+ja / manga_ocr    16 vùng    0 vùng có điểm tin cậy     8 low_confidence
+en / paddle_ocr  220 vùng  218 vùng có điểm tin cậy    27 low_confidence
+```
+
+`manga-ocr` **không trả điểm tin cậy cho vùng nào** (0/16). Nên với tiếng Nhật `low_confidence`
+không đến từ điểm tin cậy — nó là cờ suy từ tiêu chí dự phòng. **Một cờ suy từ phép đo không tồn
+tại thì không mang thông tin về chất lượng đọc chữ.**
+
+Tỉ lệ vùng bị cờ ở 4 trang Nhật: 33%, 33%, 50%, 63%. **Mọi** ngưỡng còn giữ ca 33% cũng bật cho ba
+trang kia. Nên E34 **không tiết kiệm cho tiếng Nhật**, và đó là giới hạn của dữ liệu chứ không phải
+của luật. Muốn tiết kiệm thì cần một tín hiệu chất lượng đọc chữ THẬT — ví dụ chạy PaddleOCR
+`lang='japan'` song song chỉ để lấy điểm tin cậy. Việc đó cần bằng chứng riêng.
+
+## Test canh đúng chỗ dễ sai
+
+15 test, trong đó bốn ca quan trọng nhất: **1/10 vùng bị cờ ⇒ KHÔNG gửi** (chống bão hoà),
+**3/10 ⇒ gửi**, **ca `どなどは` 33% vẫn được giữ**, và **vùng bị cả hai cờ chỉ đếm MỘT lần** (đếm
+đôi thì 2/9 thành 4/9 và bật oan).

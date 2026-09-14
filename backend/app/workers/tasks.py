@@ -1107,8 +1107,9 @@ def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dic
 
         boi_canh = nap_boi_canh_du_an(session, page.project_id)
 
-        # E32 — ảnh trang gửi kèm cho mô hình. TẮT mặc định (`e32_kem_anh_trang=False`) vì một ảnh
-        # tốn nhiều token hơn chữ rất nhiều, và `llm_context` chỉ-chữ đo được ~300 token/trang.
+        # E32 — ảnh trang gửi kèm cho mô hình. BẬT từ 14-09, nhưng chỉ bật được VÌ có E34 lọc bên
+        # dưới: một ảnh tốn cố định +1166 token, nên gửi cho mọi trang là 24 trang từ 9.600 lên
+        # 37.584 token. Với E34 thì đo được 5/24 trang cần ⇒ 15.430 token.
         #
         # Dùng ảnh GỐC chứ không dùng ảnh đã xoá chữ: mục đích là để mô hình ĐỌC LẠI chữ gốc khi
         # OCR đọc sai, mà ảnh clean thì đã xoá hết chữ đi rồi.
@@ -1116,12 +1117,27 @@ def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dic
         if settings.e32_kem_anh_trang and engine_override != TranslationEngine.google_fast.value:
             from app.services.translate.anh_kem import chuan_bi_anh
 
-            try:
-                anh_kem = chuan_bi_anh(
-                    get_storage().read(page.image_path), settings.e32_anh_max_px
-                )
-            except Exception:  # noqa: BLE001 — ảnh là phần THÊM, không được làm mất lượt dịch
-                logger.exception("E32: không đọc được ảnh trang %s — dịch bằng chữ như cũ", page_id)
+            # E34 — chỉ gửi ảnh cho trang CÓ DẤU HIỆU cần. Ảnh tốn cố định +1166 token/trang mà
+            # lợi ích chỉ dồn vào trang bộ đọc chữ làm kém; trả token cho trang đã đọc sạch là
+            # trả cho thứ không đổi gì.
+            nen_gui, ly_do_anh = True, "moi_trang"
+            if settings.e34_chi_trang_can_anh:
+                from app.services.translate.chon_trang_gui_anh import can_gui_anh
+
+                nen_gui, ly_do_anh = can_gui_anh(session, page_id)
+            logger.info(
+                "E32/E34 trang %s: %s ảnh (%s)",
+                page_id, "GỬI" if nen_gui else "không gửi", ly_do_anh,
+            )
+            if nen_gui:
+                try:
+                    anh_kem = chuan_bi_anh(
+                        get_storage().read(page.image_path), settings.e32_anh_max_px
+                    )
+                except Exception:  # noqa: BLE001 — ảnh là phần THÊM, không làm mất lượt dịch
+                    logger.exception(
+                        "E32: không đọc được ảnh trang %s — dịch bằng chữ như cũ", page_id
+                    )
         danh_dau_dang_chay(job)
         session.commit()
 
