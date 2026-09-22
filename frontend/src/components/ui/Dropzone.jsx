@@ -71,8 +71,17 @@ export default function Dropzone({
         onDrop={(e) => { e.preventDefault(); setDangKeo(false); them(e.dataTransfer.files) }}
       >
         <Icon ten="tai-len" co={26} />
-        <b>Kéo ảnh vào đây hoặc bấm để chọn</b>
-        <span>Hỗ trợ PNG, JPG. Có thể chọn nhiều trang một lúc.</span>
+        {/* Dòng chữ này phải nói ĐÚNG thứ ô file thật sự nhận. Lúc thêm ĐX-2 nó vẫn ghi mỗi
+            "PNG, JPG" trong khi `accept` đã có `.zip,.cbz` — người dùng đọc dòng đó thì không
+            bao giờ biết là thả được cả gói. Test jsdom soi `accept` nên không thấy; chỉ bấm
+            tay trên trình duyệt thật mới lộ ra. */}
+        <b>{chapNhanGoi ? 'Kéo ảnh hoặc gói truyện vào đây, hoặc bấm để chọn'
+                        : 'Kéo ảnh vào đây hoặc bấm để chọn'}</b>
+        <span>
+          {chapNhanGoi
+            ? 'Hỗ trợ PNG, JPG và cả gói .zip / .cbz (một gói = cả chapter).'
+            : 'Hỗ trợ PNG, JPG. Có thể chọn nhiều trang một lúc.'}
+        </span>
       </div>
 
       {/* Input THẬT, chỉ ẩn khỏi mắt — vẫn nằm trong cây tiếp cận của trình duyệt. */}
@@ -93,8 +102,34 @@ export default function Dropzone({
 
       {files.length > 0 && (
         <>
+          {/* Đếm và nói theo ĐÚNG thứ người dùng vừa chọn.
+              Bắt được khi bấm tay trên Chromium: một gói `.cbz` chứa 3 trang bị đếm là
+              "1 trang", kèm câu "thứ tự dưới đây chính là thứ tự trang trong chapter" — sai,
+              vì với gói thì thứ tự nằm BÊN TRONG gói chứ không phải thứ tự trong danh sách này.
+              Số file thì đếm đúng; chữ "trang" mới là chỗ nói sai. */}
           <p className="ghi-chu">
-            <b>{files.length}</b> trang · thứ tự dưới đây <b>chính là thứ tự trang</b> trong chapter.
+            {(() => {
+              const soGoi = files.filter((f) => DUOI_GOI.test(f.name || '')).length
+              const soAnh = files.length - soGoi
+              if (soGoi === 0) {
+                return (
+                  <>
+                    <b>{soAnh}</b> trang · thứ tự dưới đây{' '}
+                    <b>chính là thứ tự trang</b> trong chapter.
+                  </>
+                )
+              }
+              const phan = [
+                soGoi > 0 && `${soGoi} gói`,
+                soAnh > 0 && `${soAnh} ảnh lẻ`,
+              ].filter(Boolean).join(' + ')
+              return (
+                <>
+                  <b>{phan}</b> · số trang thật biết được sau khi mở gói. Trang trong gói được
+                  xếp theo <b>tên tệp</b> bên trong nó, không theo thứ tự danh sách này.
+                </>
+              )
+            })()}
           </p>
           <ol className="ds-file">
             {files.map((f, i) => (

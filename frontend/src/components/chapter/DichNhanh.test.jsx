@@ -94,6 +94,39 @@ describe('màn Dịch nhanh', () => {
     expect(container.querySelector('input[type=file]').accept).toMatch(/\.cbz/)
   })
 
+  it('CHỮ HIỂN THỊ ở vùng thả cũng phải nói là nhận gói, không chỉ thuộc tính accept', () => {
+    // Lỗi thật, bắt được khi bấm tay trên Chromium: `accept` đã có `.zip,.cbz` nhưng dòng chữ
+    // vẫn ghi mỗi "Hỗ trợ PNG, JPG" — người dùng đọc dòng đó thì không bao giờ biết thả được
+    // cả gói. Bài trên soi thuộc tính nên xanh, và lỗi vẫn lọt.
+    // Nhắm ĐÚNG dòng trợ giúp của vùng thả. Bắt trống `/\.cbz/` sẽ khớp cả thẻ <code> ở phần
+    // mô tả đầu màn ⇒ "found multiple elements", và bài test hỏng vì lý do chẳng liên quan.
+    render(<DichNhanh />)
+    expect(screen.getByText(/Hỗ trợ.*\.cbz/i)).toBeInTheDocument()
+  })
+
+  it('chọn một GÓI thì không được đếm thành "1 trang"', async () => {
+    // Lỗi thật, bắt được khi bấm tay: gói .cbz chứa 3 trang bị đếm "1 trang", kèm câu "thứ tự
+    // dưới đây chính là thứ tự trang trong chapter" — sai, vì thứ tự nằm BÊN TRONG gói.
+    const u = userEvent.setup()
+    const { container } = render(<DichNhanh />)
+    await u.upload(container.querySelector('input[type=file]'), [goi('ch.cbz')])
+
+    expect(screen.getByText(/1 gói/)).toBeInTheDocument()
+    expect(screen.queryByText(/^1$/)).not.toBeNull()   // số thứ tự trong danh sách vẫn còn
+    expect(screen.getByText(/số trang thật biết được sau khi mở gói/i)).toBeInTheDocument()
+  })
+
+  it('chỉ chọn ảnh lẻ thì vẫn đếm theo TRANG như cũ (không hồi quy)', async () => {
+    const u = userEvent.setup()
+    const { container } = render(<DichNhanh />)
+    await u.upload(container.querySelector('input[type=file]'), [anh('a.png'), anh('b.png')])
+
+    expect(screen.getByText(/chính là thứ tự trang/i)).toBeInTheDocument()
+    // Nhắm đúng mẫu "N gói" của DÒNG ĐẾM. Bắt trống `/gói/` sẽ khớp cả câu mô tả đầu màn và
+    // dòng trợ giúp vùng thả ⇒ hỏng vì lý do chẳng liên quan tới thứ đang canh.
+    expect(screen.queryByText(/\d+\s*gói/)).toBeNull()
+  })
+
   it('gói đi đường GÓI, ảnh lẻ đi đường ảnh — và engine đi kèm cả hai', async () => {
     const u = userEvent.setup()
     vi.spyOn(api, 'taoProject').mockResolvedValue({ id: 'proj-1' })
