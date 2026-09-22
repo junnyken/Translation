@@ -279,9 +279,11 @@ def _che_do_pipeline(page_id: uuid.UUID) -> ChePipeline:
 
 
 def _page_engine_override(page_id: uuid.UUID) -> str | None:
-    """Engine dịch người dùng tự chọn cho ĐÚNG trang này (E19) — `None` = dùng mặc định hệ
-    thống. Chỉ `Page.translate_engine_override` (chi_chu/E19) đọc qua đây; pipeline đầy đủ chọn
-    engine qua tham số retry/BatchRun như cũ, không đụng cột này."""
+    """Engine dịch người dùng tự chọn cho ĐÚNG trang này — `None` = dùng mặc định hệ thống.
+
+    Đây là đường đọc của nhánh `chi_chu`/E19. Pipeline đầy đủ đọc CÙNG cột đó nhưng ở
+    `enqueue_translate_after_inpaint` (ĐX-3, 22-09) — trước đó nó bỏ qua cột này, nên lựa chọn
+    engine của chapter thường không có tác dụng gì mà cũng không báo lỗi."""
     with sync_session() as session:
         page = session.get(Page, page_id)
         return page.translate_engine_override.value if page and page.translate_engine_override else None
@@ -939,10 +941,24 @@ def enqueue_translate_after_ocr(page_id: uuid.UUID, engine: str | None = None) -
 def enqueue_translate_after_inpaint(page_id: uuid.UUID, engine: str | None = None) -> uuid.UUID | None:
     """Nối chuỗi: xoá chữ xong → tự xếp việc dịch.
 
-    `engine=None` ở MỌI lời gọi từ pipeline đầy đủ (không đụng `Page.translate_engine_override`,
-    cột đó chỉ chế độ `chi_chu`/E19 dùng) — giữ nguyên hành vi cũ: dùng mặc định hệ thống.
+    `engine=None` nghĩa là "lời gọi không chỉ định gì", KHÔNG phải "dùng mặc định hệ thống ngay".
+    Khi đó hàm đọc `Page.translate_engine_override` — engine người dùng đã chọn lúc upload
+    (ĐX-3) hoặc lúc tạo chapter bằng tiện ích (E19). Cột rỗng mới lùi về
+    `settings.translate_default_engine`.
+
+    ⚠️ **Trước ĐX-3, đoạn này cố ý KHÔNG đọc cột đó** — chỉ nhánh `chi_chu`/E19 đọc, còn pipeline
+    đầy đủ luôn truyền thẳng `None`. Hậu quả: cột có chỗ GHI mà không có chỗ ĐỌC, nên mọi lựa
+    chọn engine cho chapter chạy pipeline đầy đủ đều rơi vào hư không mà không báo lỗi gì.
+    Đây đúng là kiểu hỏng "hai đầu không gặp nhau" — đừng khôi phục hành vi cũ.
+
+    Tương thích ngược: trang cũ có `translate_engine_override IS NULL` ⇒ vẫn lùi về mặc định hệ
+    thống y như trước, không đổi một hành vi nào.
     """
     with sync_session() as session:
+        if engine is None:
+            page = session.get(Page, page_id)
+            if page is not None and page.translate_engine_override is not None:
+                engine = page.translate_engine_override.value
         dang_co = job_chua_ket_thuc(session, page_id, JobType.translate)
         if dang_co is not None:
             # E42 — đây là bước ĐẮT NHẤT khi trùng: đo trên production, một lượt dịch trùng tốn

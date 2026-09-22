@@ -10,10 +10,20 @@ import Button from './Button.jsx'
  */
 const LOAI_HO_TRO = ['image/png', 'image/jpeg', 'image/webp']
 
-export function locFileHopLe(files) {
+/** ĐX-2 — gói `.zip`/`.cbz` nhận diện bằng ĐUÔI FILE, không bằng `f.type`.
+ *
+ * Lý do: trình duyệt báo MIME của `.cbz` rất tuỳ hệ điều hành — có máy trả
+ * `application/x-zip-compressed`, có máy trả chuỗi RỖNG. Lọc theo `f.type` sẽ im lặng vứt đúng
+ * cái gói người dùng vừa thả vào, và họ không hiểu vì sao. Phía máy chủ vẫn xét chữ ký đầu file
+ * nên đuôi file sai cũng không lọt được.
+ */
+const DUOI_GOI = /\.(zip|cbz)$/i
+
+export function locFileHopLe(files, chapNhanGoi = false) {
   const nhan = [], loai = []
   for (const f of files) {
-    (LOAI_HO_TRO.includes(f.type) ? nhan : loai).push(f)
+    const duoc = LOAI_HO_TRO.includes(f.type) || (chapNhanGoi && DUOI_GOI.test(f.name || ''))
+    ;(duoc ? nhan : loai).push(f)
   }
   return { nhan, loai }
 }
@@ -24,15 +34,18 @@ export function coChuoi(so) {
   return `${(so / 1024 / 1024).toFixed(1)} MB`
 }
 
-export default function Dropzone({ files, onDoi, tatCa = false, id = 'vung-tha' }) {
+export default function Dropzone({
+  files, onDoi, tatCa = false, id = 'vung-tha', chapNhanGoi = false,
+}) {
   const oFile = useRef(null)
   const [dangKeo, setDangKeo] = useState(false)
   const [loi, setLoi] = useState(null)
 
   const them = (danhSach) => {
-    const { nhan, loai } = locFileHopLe(Array.from(danhSach || []))
+    const { nhan, loai } = locFileHopLe(Array.from(danhSach || []), chapNhanGoi)
+    const mong = chapNhanGoi ? 'ảnh PNG/JPG/WebP hoặc gói ZIP/CBZ' : 'ảnh PNG/JPG/WebP'
     setLoi(loai.length
-      ? `Bỏ qua ${loai.length} tệp không phải ảnh PNG/JPG/WebP: ${loai.map((f) => f.name).join(', ')}`
+      ? `Bỏ qua ${loai.length} tệp không phải ${mong}: ${loai.map((f) => f.name).join(', ')}`
       : null)
     if (nhan.length) onDoi([...files, ...nhan])
   }
@@ -67,7 +80,9 @@ export default function Dropzone({ files, onDoi, tatCa = false, id = 'vung-tha' 
         ref={oFile}
         type="file"
         className="o-file-an"
-        accept="image/png,image/jpeg,image/webp"
+        accept={chapNhanGoi
+          ? 'image/png,image/jpeg,image/webp,.zip,.cbz'
+          : 'image/png,image/jpeg,image/webp'}
         multiple
         tabIndex={-1}
         disabled={tatCa}

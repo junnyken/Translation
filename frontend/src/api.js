@@ -166,12 +166,39 @@ export const taoProject = (thongTin) =>
     body: JSON.stringify(thongTin),
   }).then(doc)
 
-/** Tải 1 trang lên. Trả {page_id, job_id, status}. */
-export const taiTrangLen = (projectId, file) => {
+/** Tải 1 trang lên. Trả {page_id, job_id, status}.
+ *
+ * `engine` (ĐX-3) là lựa chọn engine dịch của người dùng cho đúng trang này —
+ * `'google_fast'` (miễn phí) hoặc `'llm_context'` (tốn token). Bỏ trống = mặc định hệ thống.
+ * Gửi đi thì backend ghi vào `Page.translate_engine_override`, và pipeline đầy đủ đọc lại
+ * đúng cột đó khi tới bước dịch.
+ */
+export const taiTrangLen = (projectId, file, engine = null) => {
   const form = new FormData()
   form.append('file', file)
+  if (engine) form.append('engine', engine)
   return fetch(`${BASE}/projects/${projectId}/pages`, { method: 'POST', body: form }).then(doc)
 }
+
+/** ĐX-2 — tải CẢ GÓI `.zip`/`.cbz` lên. Trả {project_id, so_trang, bo_qua, trang:[…]}.
+ *
+ * `trang` đã sắp theo thứ tự đọc tự nhiên (`p2` trước `p10`) và mỗi mục mang `ten_trong_goi`
+ * để đối chiếu — sắp sai thứ tự là hỏng im lặng, file vẫn xuất ra bình thường.
+ * `bo_qua` là số mục trong gói không phải ảnh (metadata, gói lồng gói) đã bị bỏ qua.
+ */
+export const taiGoiLen = (projectId, file, engine = null) => {
+  const form = new FormData()
+  form.append('file', file)
+  if (engine) form.append('engine', engine)
+  return fetch(`${BASE}/projects/${projectId}/pages/archive`, {
+    method: 'POST',
+    body: form,
+  }).then(doc)
+}
+
+/** Phần mở rộng backend nhận làm GÓI (ĐX-2) — phân biệt với ảnh lẻ ở màn Dịch nhanh. */
+export const LA_GOI = /\.(zip|cbz)$/i
+export const laGoiNen = (file) => LA_GOI.test(file?.name || '')
 
 export const layProject = (id) => fetch(`${BASE}/projects/${id}`).then(doc)
 export const layChiTietTrang = (id) => fetch(`${BASE}/pages/${id}/detail`).then(doc)

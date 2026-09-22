@@ -5612,3 +5612,95 @@ Lúc đề xuất việc này tôi viết rằng `Job.heartbeat_at` phân biệt
 mới" với "mồ côi". **Sai** — nó chỉ được ghi MỘT LẦN lúc job bắt đầu (`tasks.py:308`), nên tương
 đương `started_at`. Phép nhận mồ côi dùng `nguong_qua_han_giay(loai)` của E22 (suy từ
 `*_timeout_seconds` đã cấu hình + 20s), **không bịa ngưỡng mới**.
+
+---
+
+## 2026-09-22 — ĐX-1 / ĐX-2 / ĐX-3 (từ benchmark Ichigo, hướng A)
+
+Ba việc sinh ra từ `REPORT_ICHIGO_BLACKBOX_BENCHMARK.md` §8. Không đụng chất lượng dịch —
+thuần lớp nhận việc và lớp điều phối.
+
+### Con số
+
+| Bộ | Số bài | Kết quả |
+|---|---|---|
+| `test_dx2_goi_nen_unit.py` (thuần) | 23 | xanh |
+| `test_dx2_dx3_upload_goi_integration.py` | 15 | xanh |
+| `test_dx3_engine_pipeline_day_du.py` | 4 | xanh |
+| `DichNhanh.test.jsx` | 16 | xanh |
+| Toàn bộ frontend | 386 (25 file) | xanh |
+| `test_quyen_cheo_tai_khoan.py` sau khi sửa | 9 | xanh |
+
+### Lỗi THẬT mà việc này lôi ra: cột có chỗ ghi, không có chỗ đọc
+
+`Page.translate_engine_override` có từ E19. Nhưng `enqueue_translate_after_inpaint` **cố ý**
+truyền `engine=None` — chỉ nhánh `chi_chu` đọc cột đó. Nghĩa là nếu chỉ làm phần giao diện cho
+ĐX-3, người dùng chọn engine xong thì lựa chọn **rơi vào hư không, không báo lỗi gì**, và mọi
+bài test kiểu "đã lưu vào cột chưa" vẫn xanh.
+
+Phát hiện được vì trước khi viết đã đi đọc đường ĐỌC chứ không chỉ đường GHI. Xem
+[[feedback_tinh_nang_chet_vi_hai_dau_khong_gap]].
+
+### Đối chứng âm — test có bắt được lỗi không
+
+Gỡ tạm bản vá, chạy lại `test_dx3_engine_pipeline_day_du.py`:
+
+- `test_engine_nguoi_dung_chon_di_TOI_lenh_xep_viec_dich` → **ĐỎ**, nhận `None`
+- `test_chon_google_fast_cung_di_toi_noi` → **ĐỎ**, nhận `None`
+- `test_khong_chon_gi_thi_van_truyen_None_nhu_cu` → xanh (đúng: kiểm tương thích ngược)
+- `test_job_dich_that_su_duoc_tao` → xanh (đúng: đối chứng âm cho ba bài trên không xanh rỗng)
+
+Khôi phục ⇒ 4/4 xanh. Không có bước này thì 4 bài xanh kia không chứng minh được gì.
+
+### Bẫy generator suýt lọt
+
+Viết `doc_goi_anh` thành generator thì **mọi phép kiểm trần không chạy cho tới lần `next()` đầu
+tiên** — route sẽ bắt lỗi sai chỗ, có khi đã ghi vài trang vào CSDL rồi mới nổ. Tách phần sinh ra
+`_sinh_trang`, giữ thân hàm chính là hàm thường. Có test thường trú canh đúng chuyện này:
+`test_loi_no_ngay_luc_goi_chu_khong_doi_toi_luc_lap` — nó **không** bọc `list()`, và sẽ đỏ ngay
+nếu ai đó biến hàm này thành generator lần nữa.
+
+### Một con số BỊA suýt lên giao diện
+
+Bản viết đầu lấy số mục bị bỏ qua bằng `getattr(trang_iter, "so_muc_bo_qua", 0)` trên một
+generator **không hề có thuộc tính đó** ⇒ luôn ra `0`. Người dùng sẽ thấy "bỏ qua 0 mục" trong
+khi gói có 3 file bị bỏ. Sửa bằng lớp `GoiAnh` mang số mục **đếm thật**, kèm test riêng
+(`TestDemMucBoQua`). Xem [[feedback_absolute_no_fake_data]].
+
+### Bộ test sẵn có bắt lỗi của tôi
+
+`test_quyen_cheo_tai_khoan.py` đỏ với endpoint mới:
+`rỗng nghĩa: POST /api/v1/projects/{project_id}/pages/archive (A 422 / B 422)`.
+
+Phép dò khoá cứng một file PNG cho mọi endpoint multipart ⇒ đường nhận gói ZIP trả 422 cho **cả
+hai** tài khoản ⇒ không chứng minh được gì về quyền. Đã thay bằng bảng `_MULTIPART` tra thân
+request hợp lệ theo từng endpoint. Sau khi sửa endpoint mới vào nhóm **chứng minh được**.
+
+### Mã thoát giả trong chính lượt này
+
+Lượt chạy toàn bộ backend đầu tiên in `exited with code 0` **trong khi có 4 bài đỏ** — mã thoát
+đo được là của `tail` ở cuối chuỗi ống, không phải của `pytest`. Ba trong bốn bài đỏ
+(`TestCongNhip`) chỉ vì **thiếu Redis** cổng 6380, không phải hồi quy.
+Xem [[feedback_do_ma_thoat_giua_chuoi_lenh]].
+
+### Kiểm bản ĐÃ BUILD
+
+`npx vite build` xanh. Kiểm chuỗi thật trong `dist/assets/index-*.js`: `"Dịch nhanh"`,
+`"pages/archive"`, `"Tự tải về khi xong"`, `"hệ thống không chọn hộ"`, `".cbz"` — đều có mặt.
+Test chạy `src`, người dùng chạy bundle.
+
+### Chưa làm (không được coi là đã xong)
+
+Chưa chạy thật một chapter nào qua đường mới (chưa dựng worker + model weight), chưa bấm tay trên
+Chromium, chưa thử `.cbz` do phần mềm đọc truyện thật tạo ra, chưa đo bộ nhớ thật khi nhận gói
+lớn. Nhãn trong `FEATURES.md` để **BUILT**, không phải LIVE.
+
+### Chốt số — lượt chạy toàn bộ
+
+**Backend: 1618 passed · 6 skipped · 0 failed · 0 error**, `PYTEST_EXIT=0` (Postgres + Redis đều
+chạy). **Frontend: 386 passed** (25 file).
+
+Cách lấy con số backend, vì nó không lấy thẳng được: lượt chạy chạy hết 100% và thoát 0 nhưng
+**file log không có dòng `N passed in …s`** (mất lúc đệm stdout bị cắt). Tin mỗi `exit 0` rồi viết
+đại một con số là bịa. Số trên đếm từ **chính ký tự tiến trình của lượt chạy đó**: 1618 dấu `.`,
+6 chữ `s`, **0 chữ `F`, 0 chữ `E`** — hai đường đo độc lập (đếm ký tự ↔ mã thoát) cùng một kết quả.

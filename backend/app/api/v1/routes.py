@@ -142,9 +142,11 @@ from app.schemas.common import (
     VoiceProfileCreate,
     VoiceProfileRead,
     VoiceProfileUpdate,
+    ArchiveAccepted,
     PageAccepted,
     PageRead,
     ProjectCreate,
+    TrangTrongGoiAccepted,
     ProjectDetail,
     ProjectRead,
     RegionRead,
@@ -161,6 +163,12 @@ from app.services.dispatch import (
     dispatch_region_retranslate_job,
     dispatch_export_job,
     dispatch_consistency_scan_job,
+)
+from app.services.archive import (
+    ArchiveEmpty,
+    ArchiveError,
+    ArchiveTooLarge,
+    doc_goi_anh,
 )
 from app.services.storage import (
     IObjectStorage,
@@ -554,6 +562,11 @@ async def get_project(project_id: uuid.UUID, session: AsyncSession = Depends(get
 async def upload_page(
     project_id: uuid.UUID,
     file: UploadFile = File(..., description="Ảnh trang manga (JPEG/PNG/WEBP)"),
+    engine: TranslationEngine | None = Form(
+        None,
+        description="ĐX-3 — engine dịch cho ĐÚNG trang này: google_fast (miễn phí) hoặc "
+        "llm_context (Gemini, giữ mạch văn, TỐN token). Bỏ trống = mặc định hệ thống.",
+    ),
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
     nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
@@ -561,7 +574,21 @@ async def upload_page(
     """Nhận ảnh trang, lưu file, tạo Page(status=queued) + Job(type=detect, status=queued).
 
     M1 chỉ ghi record Job vào hàng đợi (chưa dispatch worker thật — bắt đầu ở M2).
+
+    `engine` (ĐX-3) ghi vào `Page.translate_engine_override`, và
+    `enqueue_translate_after_inpaint` đọc lại đúng cột đó khi tới lượt dịch. **Hai đầu phải đi
+    cùng nhau** — trước ĐX-3 chỉ có đầu ghi, đầu đọc của pipeline đầy đủ cố ý bỏ qua cột này nên
+    lựa chọn của người dùng rơi vào hư không mà không báo lỗi.
+
+    Bỏ trống `engine` ⇒ cột để NULL ⇒ lùi về `settings.translate_default_engine` y như trước.
+    Không bao giờ tự chọn `llm_context` hộ người dùng: engine đó tốn token thật (M5).
     """
+    if engine is TranslationEngine.llm_context and not settings.llm_configured:
+        raise HTTPException(
+            status_code=422,
+            detail="llm_not_configured: chưa cấu hình khoá dịch, không dùng được llm_context",
+        )
+
     project = await _get_project_or_404(session, project_id, nguoi)
 
     data = await file.read()
@@ -587,6 +614,7 @@ async def upload_page(
         image_path="",  # gán sau khi biết page.id để đặt tên file theo id
         order=next_order,
         status=PageStatus.queued,
+        translate_engine_override=engine,
     )
     session.add(page)
     await session.flush()  # lấy page.id, chưa commit
@@ -609,6 +637,152 @@ async def upload_page(
         await session.commit()
 
     return PageAccepted(page_id=page.id, status=page.status, job_id=job.id)
+
+
+@router.post(
+    "/projects/{project_id}/pages/archive",
+    response_model=ArchiveAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["pages"],
+)
+async def upload_archive(
+    project_id: uuid.UUID,
+    file: UploadFile = File(..., description="Gói ZIP/CBZ chứa các trang ảnh"),
+    engine: TranslationEngine | None = Form(
+        None,
+        description="ĐX-3 — engine dịch áp cho MỌI trang trong gói. Bỏ trống = mặc định hệ thống.",
+    ),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
+) -> ArchiveAccepted:
+    """ĐX-2 — nhận **cả chapter trong một gói** ZIP/CBZ thay vì tải từng trang một.
+
+    Vì sao đáng làm: một chapter 24 trang trước đây là 24 lượt thao tác. Đây là khoảng cách thao
+    tác lớn nhất đo được khi so với công cụ cùng loại (xem `REPORT_ICHIGO_BLACKBOX_BENCHMARK.md`
+    §7 G2), và nó không đụng gì tới chất lượng dịch — thuần tuý là lớp nhận việc.
+
+    **Thứ tự trang sắp bằng khoá tự nhiên** (`p2` trước `p10`), không theo thứ tự lưu trong gói.
+    Sắp sai là hỏng im lặng: file vẫn xuất ra bình thường, chỉ nội dung lộn trang. Phản hồi trả
+    kèm `ten_trong_goi` của từng trang để đối chiếu được ngay.
+
+    Mọi phép chặn gói độc (bom giải nén, đường dẫn thoát thư mục, quá nhiều mục, gói lồng gói)
+    nằm ở `app/services/archive.py` và chạy **xong hết trước khi** chạm vào CSDL.
+
+    **Chưa nhận PDF.** Không phải bỏ sót: repo hiện không có thư viện đọc PDF nào, và thêm một
+    phụ thuộc vào ảnh `api` — ảnh cố tình giữ mỏng (~1GB, không chứa thư viện AI) — là một quyết
+    định riêng cần cân nhắc, không phải việc lặng lẽ kèm vào đây. Gửi PDF sẽ nhận `422` nói đúng
+    lý do đó chứ không phải một lỗi khó hiểu.
+    """
+    if engine is TranslationEngine.llm_context and not settings.llm_configured:
+        raise HTTPException(
+            status_code=422,
+            detail="llm_not_configured: chưa cấu hình khoá dịch, không dùng được llm_context",
+        )
+
+    project = await _get_project_or_404(session, project_id, nguoi)
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=422, detail="File rỗng")
+    if data.startswith(b"%PDF"):
+        raise HTTPException(
+            status_code=422,
+            detail="pdf_chua_ho_tro: hiện chỉ nhận gói ZIP/CBZ. Xuất PDF ra ảnh rồi nén lại giúp.",
+        )
+    if len(data) > settings.archive_max_total_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Gói vượt quá {settings.archive_max_total_mb}MB",
+        )
+
+    def _mo_goi():
+        return doc_goi_anh(
+            data,
+            max_pages=settings.archive_max_pages,
+            max_total_bytes=settings.archive_max_total_bytes,
+            # Trần MỖI trang dùng chung với ảnh lẻ: một trang trong gói không có lý do gì được
+            # phép to hơn chính trang đó tải lên riêng.
+            max_page_bytes=settings.max_upload_bytes,
+        )
+
+    try:
+        trang_iter = await run_in_threadpool(_mo_goi)
+    except ArchiveTooLarge as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except ArchiveError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    next_order = (
+        await session.scalar(
+            select(func.coalesce(func.max(Page.order), 0) + 1).where(Page.project_id == project.id)
+        )
+    ) or 1
+
+    storage = get_storage()
+    da_nhan: list[TrangTrongGoiAccepted] = []
+    jobs: list[uuid.UUID] = []
+    try:
+        while True:
+            # Lấy từng trang một: giữ đúng MỘT ảnh trong bộ nhớ thay vì cả gói đã bung.
+            # `next(it, None)` chạy trong threadpool vì đọc zip là việc chặn.
+            muc = await run_in_threadpool(next, trang_iter, None)
+            if muc is None:
+                break
+
+            page = Page(
+                project_id=project.id,
+                image_path="",
+                order=next_order,
+                status=PageStatus.queued,
+                translate_engine_override=engine,
+            )
+            session.add(page)
+            await session.flush()
+
+            page.image_path = await run_in_threadpool(
+                storage.save_page_image, project.id, page.id, muc.data, muc.ext
+            )
+            job = Job(type=JobType.detect, page_id=page.id, status=JobStatus.queued)
+            session.add(job)
+            await session.flush()
+
+            da_nhan.append(
+                TrangTrongGoiAccepted(
+                    page_id=page.id, job_id=job.id, order=next_order, ten_trong_goi=muc.ten
+                )
+            )
+            jobs.append(job.id)
+            next_order += 1
+    except ArchiveEmpty as exc:
+        # Gói mở được nhưng không có ảnh nào. Lùi sạch — thà báo lỗi còn hơn để lại một chapter
+        # rỗng trông như đã nhận việc.
+        await session.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ArchiveError as exc:
+        await session.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    await session.commit()
+
+    # Đẩy việc SAU khi commit: job trỏ tới trang chưa commit là job trỏ vào hư không.
+    for job_id in jobs:
+        sent, reason = dispatch_detect_job(job_id)
+        if not sent:
+            job = await session.get(Job, job_id)
+            if job is not None:
+                job.error_log = reason
+    await session.commit()
+
+    return ArchiveAccepted(
+        project_id=project.id,
+        so_trang=len(da_nhan),
+        # Chênh lệch giữa số mục ứng viên (đếm thật lúc mở gói) và số trang nhận được = số mục
+        # bị bỏ qua vì không phải ảnh. Hiện ra để "gói 20 file mà chỉ vào 18 trang" là chuyện
+        # nhìn thấy được, không phải chuyện phải đi đoán.
+        bo_qua=max(0, trang_iter.so_muc - len(da_nhan)),
+        trang=da_nhan,
+    )
 
 
 @router.get("/pages/{page_id}", response_model=PageRead, tags=["pages"])

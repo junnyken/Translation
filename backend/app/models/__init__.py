@@ -190,8 +190,14 @@ class Page(TimestampMixin, Base):
     status: Mapped[PageStatus] = mapped_column(
         _enum(PageStatus, "page_status"), nullable=False, default=PageStatus.queued
     )
-    #: NULL = dùng mặc định hệ thống (`google_fast`). Chỉ chế độ `chi_chu` (E19) đọc cột này —
-    #: pipeline đầy đủ luôn để NULL, engine chọn qua BatchRun/tham số retry như trước (M9/M5).
+    #: NULL = dùng mặc định hệ thống (`settings.translate_default_engine`).
+    #: **Từ ĐX-3 (22-09) CẢ HAI chế độ đều đọc cột này**: `chi_chu`/E19 qua
+    #: `_page_engine_override`, và pipeline đầy đủ qua `enqueue_translate_after_inpaint`.
+    #: Trước đó chỉ `chi_chu` đọc, nên lựa chọn engine cho chapter chạy pipeline đầy đủ bị bỏ
+    #: rơi im lặng — cột có chỗ ghi mà không có chỗ đọc.
+    #: Màn "Dịch nhanh" lưu đúng lựa chọn người dùng, kể cả `google_fast`, thay vì để NULL:
+    #: có thế thì đổi `translate_default_engine` của hệ thống mới không biến một lựa chọn
+    #: "miễn phí" thành engine tốn token sau lưng người ta.
     translate_engine_override: Mapped[TranslationEngine | None] = mapped_column(
         _enum(TranslationEngine, "translation_engine"), nullable=True
     )

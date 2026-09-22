@@ -1532,11 +1532,24 @@ từng dùng tới.
 **Không đổi mặc định toàn hệ thống.** Đổi `settings.translate_default_engine` sẽ khiến MỌI luồng
 khác (pipeline đầy đủ, M9 batch không chỉ định engine) tự tốn token Gemini — vi phạm thẳng nguyên
 tắc M5 "người dùng phải kiểm soát được khi nào tốn token". Thay vào đó, thêm đường ĐI THẲNG cho
-riêng E19: `Page.translate_engine_override` (cột mới, nullable, migration `0015_e19b`, tái dùng
+riêng E19 *(mở rộng cho cả pipeline đầy đủ ở ĐX-3, 22-09 — xem cuối mục này)*:
+`Page.translate_engine_override` (cột mới, nullable, migration `0015_e19b`, tái dùng
 enum Postgres `translation_engine` đã có từ 0003_m9 — `create_type=False`) ghi lựa chọn của người
 dùng khi gửi ảnh; `_run_ocr` đọc cột này qua `_page_engine_override()` và truyền cho
-`enqueue_translate_after_ocr(page_id, engine)` → `run_translate_job.delay(job_id, engine)`. Mọi
-lời gọi từ pipeline đầy đủ giữ nguyên `engine=None` — không đụng cột này, hành vi cũ y nguyên.
+`enqueue_translate_after_ocr(page_id, engine)` → `run_translate_job.delay(job_id, engine)`.
+
+**Cập nhật ĐX-3 (22-09) — pipeline đầy đủ nay ĐỌC cùng cột đó.** Bản E19 gốc để mọi lời gọi từ
+pipeline đầy đủ giữ `engine=None` và cố ý không đụng cột này. Hệ quả phát hiện lúc dựng màn
+"Dịch nhanh": cột có chỗ GHI (`POST /projects/{id}/pages`) mà đường chạy thường không có chỗ
+ĐỌC, nên người dùng chọn engine cho cả chapter thì lựa chọn đó **rơi vào hư không, không một
+thông báo lỗi nào** — đúng kiểu hỏng "hai đầu không gặp nhau". Nay
+`enqueue_translate_after_inpaint(page_id, engine=None)` đọc `Page.translate_engine_override`
+trước khi lùi về `settings.translate_default_engine`.
+
+Tương thích ngược trọn vẹn: trang cũ để `NULL` ⇒ vẫn lùi về mặc định hệ thống, không đổi hành vi
+nào. Khác biệt cố ý với đường E19: màn "Dịch nhanh" lưu **đúng** lựa chọn kể cả `google_fast`
+(E19 lưu `NULL` cho `google_fast`), để sau này đổi `translate_default_engine` không biến lựa chọn
+"miễn phí" của người dùng thành engine tốn token sau lưng họ.
 
 Popup thêm ô chọn "Chất lượng dịch" (mặc định `google_fast`, giữ hành vi cũ cho ai chưa từng chọn)
 cạnh ô ngôn ngữ — người dùng tự quyết định đánh đổi tốc độ/miễn phí lấy độ chính xác, không bị

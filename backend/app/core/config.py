@@ -76,6 +76,14 @@ class Settings(BaseSettings):
     # Upload
     max_upload_mb: int = 25
 
+    # ---- ĐX-2: nhận gói ZIP/CBZ ----
+    #: Trần SỐ TRANG mỗi gói. Chặn gói chứa hàng vạn mục rỗng làm nghẽn hàng đợi.
+    #: 200 đủ rộng cho chapter dài nhất từng chạy thật (E23 đo 24 trang), vẫn chặn được lạm dụng.
+    archive_max_pages: int = 200
+    #: Trần TỔNG dung lượng sau khi bung — lớp chặn bom giải nén. Cộng theo số khai trong header
+    #: nên không phải bung thử. Trần mỗi trang vẫn là `max_upload_mb` như ảnh lẻ.
+    archive_max_total_mb: int = 500
+
     # ---- M2: comic-text-detector ----
     #: Đường dẫn file weight ONNX. Không có file -> job detect fail rõ ràng,
     #: tuyệt đối không detect bằng weight giả.
@@ -491,6 +499,10 @@ class Settings(BaseSettings):
     @property
     def max_upload_bytes(self) -> int:
         return self.max_upload_mb * 1024 * 1024
+
+    @property
+    def archive_max_total_bytes(self) -> int:
+        return self.archive_max_total_mb * 1024 * 1024
 
 
 @lru_cache

@@ -37,6 +37,15 @@ Không tồn tại → `404`.
 
 `multipart/form-data`, field `file` = ảnh trang (JPEG/PNG/WEBP, mặc định ≤ 25MB).
 
+Field `engine` (**ĐX-3**, tuỳ chọn): `google_fast` | `llm_context`. Ghi vào
+`Page.translate_engine_override`; bỏ trống ⇒ `NULL` ⇒ dùng `settings.translate_default_engine`
+như trước. Chọn `llm_context` mà chưa cấu hình `GEMINI_API_KEYS` ⇒ `422 llm_not_configured`,
+chặn ngay lúc tải lên chứ không để hỏng ở bước dịch mấy chục giây sau.
+
+> Lựa chọn `google_fast` được lưu **tường minh**, không quy về `NULL`. Khác biệt có thật:
+> `NULL` nghĩa là "theo mặc định hệ thống", nên đổi `translate_default_engine` một ngày nào đó
+> sẽ âm thầm biến lựa chọn *miễn phí* của người dùng thành engine tốn token.
+
 Hành vi: lưu file xuống storage → tạo `Page(status=queued, order=max+1)` →
 tạo `Job(type=detect, status=queued)` → **đẩy job sang worker (M2)**. **Không** chạy detect trong request.
 
@@ -55,6 +64,42 @@ Response 202:
 
 > `job_id` là field **thêm** so với bảng contract gốc của M1 (gốc: `{page_id, status}`) —
 > thêm để client polling `GET /jobs/{id}` được ngay, không phải dò job của page. Ghi rõ ở báo cáo M1.
+
+## 3b. `POST /api/v1/projects/{project_id}/pages/archive` → 202  *(ĐX-2)*
+
+Nhận **cả chapter trong một gói** thay vì tải từng trang. `multipart/form-data`:
+field `file` = gói `.zip`/`.cbz`, field `engine` (tuỳ chọn) như mục 3 — áp cho **mọi** trang
+trong gói.
+
+**Thứ tự trang sắp bằng khoá tự nhiên** (`p2.png` trước `p10.png`), không theo thứ tự lưu trong
+gói. Sắp sai là hỏng im lặng: file vẫn xuất ra bình thường, chỉ nội dung lộn trang — nên phản hồi
+trả kèm `ten_trong_goi` của từng trang để đối chiếu được ngay.
+
+Mục **không phải ảnh** (`ComicInfo.xml`, `Thumbs.db`, gói lồng gói) bị bỏ qua lặng lẽ và đếm vào
+`bo_qua`. Rác hệ điều hành (`__MACOSX/`, dotfile) không tính là "bỏ qua" — đó không phải file của
+người dùng.
+
+Response 202:
+```json
+{ "project_id": "…uuid…", "so_trang": 3, "bo_qua": 1,
+  "trang": [ { "page_id": "…", "job_id": "…", "order": 1, "ten_trong_goi": "p1.png" } ] }
+```
+
+| Lỗi | Mã |
+|---|---|
+| project không tồn tại / không phải của mình | 404 |
+| không phải ZIP/CBZ hợp lệ, gói hỏng, gói không có ảnh nào | 422 |
+| gói chứa đường dẫn thoát thư mục (`../`, đường tuyệt đối) | 422 |
+| gửi PDF (`pdf_chua_ho_tro`) | 422 |
+| `llm_context` mà chưa cấu hình khoá | 422 |
+| quá `ARCHIVE_MAX_PAGES` trang, bung quá `ARCHIVE_MAX_TOTAL_MB`, hoặc một trang quá `MAX_UPLOAD_MB` | 413 |
+
+**Thất bại thì lùi sạch** — không để lại trang nào trong CSDL. Nhận một phần rồi báo lỗi sẽ để
+lại chapter dở dang trông như đã nhận việc.
+
+**Chưa nhận PDF** — không phải bỏ sót: repo chưa có thư viện đọc PDF, và thêm phụ thuộc vào ảnh
+`api` (cố tình giữ mỏng ~1GB, không chứa thư viện AI) là quyết định riêng cần cân nhắc. Gửi PDF
+nhận `422 pdf_chua_ho_tro` nói đúng lý do đó.
 
 ## 4. `GET /api/v1/pages/{page_id}` → 200
 
@@ -1236,7 +1281,9 @@ Nhận thẳng file ảnh (`multipart/form-data`, field `file`) + 2 field text:
   dính/sai (đo 08/09: vài dòng ra nguyên tiếng Anh hoặc dịch sai nghĩa trên font chữ hoa cách
   điệu). `llm_context` (Gemini) giữ mạch văn cả trang + được yêu cầu tự suy luận sửa lỗi OCR khi
   dịch, tốn token — `422 llm_not_configured` nếu chưa cấu hình `GEMINI_API_KEYS`. Lưu vào
-  `Page.translate_engine_override` (`NULL` khi mặc định), chỉ chế độ `chi_chu` đọc cột này.
+  `Page.translate_engine_override` (`NULL` khi mặc định). **Từ ĐX-3 (22-09) cả `chi_chu` lẫn
+  pipeline đầy đủ đều đọc cột này** — xem `POST /projects/{id}/pages` và
+  `POST /projects/{id}/pages/archive`.
 
 Tự tạo/tái dùng chapter ẩn `"Đọc nhanh (tiện ích) — {source_lang}"` của tài khoản gọi API
 (`che_do_pipeline=chi_chu`, `intended_use=personal` — xem `ARCH.md §E19.4` vì sao đây không phải

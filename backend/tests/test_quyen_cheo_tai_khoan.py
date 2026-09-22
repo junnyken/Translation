@@ -70,6 +70,44 @@ from app.models.enums import (
 pytestmark = pytest.mark.anyio
 
 
+def _anh_png() -> bytes:
+    return b"\x89PNG\r\n\x1a\n" + b"0" * 64
+
+
+def _goi_cbz() -> bytes:
+    """Gói ZIP THẬT chứa một ảnh — không phải vài byte giả.
+
+    Endpoint ĐX-2 xét chữ ký đầu file rồi mới giải nén, nên byte giả sẽ bị chặn ở tầng định
+    dạng và phép dò không bao giờ chạm tới tầng kiểm quyền.
+    """
+    import io
+    import zipfile
+
+    from PIL import Image
+
+    anh = io.BytesIO()
+    Image.new("RGB", (8, 8), "white").save(anh, format="PNG")
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("01.png", anh.getvalue())
+    return buf.getvalue()
+
+
+#: Endpoint nhận `multipart/form-data` → hàm dựng thân request HỢP LỆ cho đúng endpoint đó.
+#:
+#: Phải tra theo từng endpoint chứ không dùng chung một file: gửi PNG vào đường nhận gói ZIP
+#: cho ra 422 ở CẢ HAI tài khoản, và phép dò thành rỗng nghĩa — tức là một đường GHI dữ liệu
+#: trôi qua mà không ai chứng minh được nó có chặn tài khoản khác hay không.
+_MULTIPART = {
+    "/api/v1/projects/{project_id}/pages":
+        lambda: {"file": ("a.png", _anh_png(), "image/png")},
+    "/api/v1/doc-truyen/trang":
+        lambda: {"file": ("a.png", _anh_png(), "image/png")},
+    "/api/v1/projects/{project_id}/pages/archive":
+        lambda: {"file": ("ch.cbz", _goi_cbz(), "application/zip")},
+}
+
+
 async def _dung_du_lieu(session, chu_so_huu_id: uuid.UUID) -> dict[str, str]:
     """Dựng một chapter đầy đủ thuộc về `chu_so_huu_id`, trả bảng tra id theo tên tham số."""
     project = Project(
@@ -311,11 +349,15 @@ async def test_khong_endpoint_nao_lo_du_lieu_sang_tai_khoan_khac(
         if duong is None:
             khong_dung_duoc.append(f"{method} {mau}")
             continue
-        if method == "POST" and mau in ("/api/v1/projects/{project_id}/pages",
-                                        "/api/v1/doc-truyen/trang"):
-            # Hai endpoint nhận multipart. Gửi JSON vào đây thì cả A lẫn B đều 422 và phép dò
+        if method == "POST" and mau in _MULTIPART:
+            # Các endpoint nhận multipart. Gửi JSON vào đây thì cả A lẫn B đều 422 và phép dò
             # rỗng nghĩa — mà đây lại là đường GHI dữ liệu.
-            tep = {"file": ("a.png", b"\x89PNG\r\n\x1a\n" + b"0" * 64, "image/png")}
+            #
+            # Thân phải hợp lệ theo ĐÚNG endpoint: gửi PNG vào đường nhận gói ZIP (ĐX-2) cũng
+            # ra 422 ở cả hai tài khoản, tức là lại rỗng nghĩa. Một endpoint ghi dữ liệu mà
+            # phép dò không chạm tới được thì nó có thể mang lỗ IDOR lên production trong khi
+            # bộ test vẫn xanh — đúng kiểu lỗ E33 từng lọt.
+            tep = _MULTIPART[mau]()
             tra_a = await client.post(duong, files=tep)
             tra_b = await client_b.post(duong, files=tep)
         else:

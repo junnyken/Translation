@@ -150,6 +150,34 @@ class PageAccepted(BaseModel):
     job_id: uuid.UUID
 
 
+class TrangTrongGoiAccepted(BaseModel):
+    """Một trang đã nhận từ gói ZIP/CBZ — đủ để giao diện theo dõi tiếp."""
+
+    page_id: uuid.UUID
+    job_id: uuid.UUID
+    order: int
+    #: Tên file trong gói. Giữ lại để đối chiếu thứ tự — xem `ArchiveAccepted`.
+    ten_trong_goi: str
+
+
+class ArchiveAccepted(BaseModel):
+    """ĐX-2 — 202 Accepted cho cả một gói ZIP/CBZ.
+
+    `trang` giữ **đúng thứ tự đọc** đã sắp bằng khoá tự nhiên, không phải thứ tự trong gói.
+    `ten_trong_goi` trả kèm để người dùng đối chiếu được gói của mình đã vào theo thứ tự nào —
+    thứ tự sai là hỏng im lặng (file vẫn xuất ra bình thường, chỉ nội dung lộn trang).
+
+    `bo_qua` đếm mục đã bị bỏ qua lặng lẽ (metadata, file rác, gói lồng gói). Hiện con số này
+    ra để "gói 20 file mà chỉ vào 18 trang" là chuyện nhìn thấy được, không phải chuyện phải đi
+    đoán.
+    """
+
+    project_id: uuid.UUID
+    so_trang: int
+    bo_qua: int
+    trang: list[TrangTrongGoiAccepted]
+
+
 # ---------- TextRegion ----------
 class BBoxOut(BaseModel):
     x: float

@@ -9,6 +9,7 @@ import RegionQualityBox from './components/RegionQualityBox.jsx'
 import OrientationBox from './components/OrientationBox.jsx'
 import OrientationSummaryCard from './components/OrientationSummaryCard.jsx'
 import ChapterCreateForm from './components/chapter/ChapterCreateForm.jsx'
+import DichNhanh from './components/chapter/DichNhanh.jsx'
 import ChapterProgress from './components/chapter/ChapterProgress.jsx'
 import QualityPanel from './components/chapter/QualityPanel.jsx'
 import ChapterRecentList from './components/chapter/ChapterRecentList.jsx'
@@ -56,6 +57,8 @@ export default function App({ urlBundle } = {}) {
   // Gộp "đang hỏi" vào "chưa đăng nhập" sẽ nháy màn đăng nhập một cái mỗi lần tải lại trang,
   // kể cả khi phiên còn tốt.
   const [nguoiDung, setNguoiDung] = useState(undefined)
+  //: ĐX-1 — đang mở đường nào ở màn chính: `nhanh` (thả file là chạy) hay `day_du` (có rà soát).
+  const [duong, setDuong] = useState('nhanh')
   const [{ pageId, projectId }, setDiaChi] = useState(docDiaChi)
   const [nhap, setNhap] = useState(projectId || pageId)
   const [project, setProject] = useState(null)
@@ -497,15 +500,44 @@ export default function App({ urlBundle } = {}) {
             <div className="tieu-de-man">
               <h1>Dịch truyện tranh</h1>
               <p>
-                Tải ảnh PNG hoặc JPG. Hệ thống sẽ nhận diện chữ, dịch sang tiếng Việt và tự căn
-                vào bong bóng — rồi bạn rà soát lại trước khi xuất.
+                Tải ảnh PNG/JPG hoặc cả gói <code>.zip</code>/<code>.cbz</code>. Hệ thống nhận
+                diện chữ, dịch sang tiếng Việt và tự căn vào bong bóng.
               </p>
             </div>
+
+            {/* ĐX-1 — hai đường vào song song, không đường nào thay thế đường nào.
+                Mặc định mở đường NHANH vì phần lớn lượt dùng chỉ cần đọc; ai cần rà soát,
+                chốt thuật ngữ, sửa tay thì bấm sang đường đầy đủ — vẫn còn nguyên. */}
+            <div className="chon-duong" role="tablist" aria-label="Chọn cách làm">
+              {[
+                ['nhanh', 'Dịch nhanh', 'Thả file là chạy, xong tự tải về'],
+                ['day_du', 'Tạo chapter mới', 'Có rà soát, sửa tay, chốt thuật ngữ'],
+              ].map(([ma, nhan, phu]) => (
+                <button
+                  key={ma} role="tab" type="button"
+                  aria-selected={duong === ma}
+                  className={`nut-duong${duong === ma ? ' dang-chon' : ''}`}
+                  onClick={() => setDuong(ma)}
+                >
+                  <strong>{nhan}</strong>
+                  <span>{phu}</span>
+                </button>
+              ))}
+            </div>
+
             <div className="luoi-2-cot">
-              <ChapterCreateForm onXong={(id) => { window.location.hash = `project=${id}` }} />
+              {duong === 'nhanh'
+                ? <DichNhanh onMoChapter={(id) => { window.location.hash = `project=${id}` }} />
+                : <ChapterCreateForm onXong={(id) => { window.location.hash = `project=${id}` }} />}
               <ChapterRecentList
                 danhSach={ganDay}
-                onTaoMoi={() => document.getElementById('nut-tao')?.scrollIntoView({ block: 'center' })}
+                onTaoMoi={() => {
+                  setDuong('day_du')
+                  // Đợi React vẽ xong màn kia rồi mới cuộn — cuộn ngay thì nút chưa tồn tại.
+                  requestAnimationFrame(
+                    () => document.getElementById('nut-tao')?.scrollIntoView({ block: 'center' })
+                  )
+                }}
               />
             </div>
           </>
