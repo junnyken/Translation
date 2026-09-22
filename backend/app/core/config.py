@@ -83,6 +83,11 @@ class Settings(BaseSettings):
     #: Trần TỔNG dung lượng sau khi bung — lớp chặn bom giải nén. Cộng theo số khai trong header
     #: nên không phải bung thử. Trần mỗi trang vẫn là `max_upload_mb` như ảnh lẻ.
     archive_max_total_mb: int = 500
+    #: Cạnh DÀI của ảnh dựng ra từ mỗi trang PDF. Dựng theo cạnh cố định chứ không theo DPI của
+    #: tài liệu: cùng một mức DPI, trang khổ lớn ra ảnh to gấp nhiều lần trang khổ nhỏ, và đó
+    #: đúng là chỗ nổ bộ nhớ. 1600px là cỡ các dịch vụ đọc truyện phục vụ thật
+    #: (xem `test_fixtures/external/NGUON.md`).
+    pdf_render_max_px: int = 1600
 
     # ---- M2: comic-text-detector ----
     #: Đường dẫn file weight ONNX. Không có file -> job detect fail rõ ràng,

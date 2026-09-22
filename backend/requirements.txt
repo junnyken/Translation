@@ -12,3 +12,11 @@ redis==5.2.1
 onnxruntime==1.20.1
 numpy==2.2.1
 Pillow==11.0.0
+# ĐX-2b — dựng ảnh từng trang PDF. Wheel thuần, không cần gói hệ thống nào, ~3MB.
+# Nằm ở requirements.txt (ảnh `api`) chứ không phải requirements-worker.txt: việc dựng ảnh
+# xảy ra ngay lúc nhận file ở endpoint, trước khi có job nào được tạo.
+#
+# `paddlex` (qua paddleocr, ảnh worker) đòi `pypdfium2>=4` — khoảng MỞ, nên có thể giải ra 5.x.
+# Đã ĐO thật 22-09: bộ test ĐX-2b xanh 12/12 trên CẢ 4.30.0 LẪN 5.13.0, nên nâng cấp về sau
+# không phải chuyện đáng sợ. Ghim chính xác để ảnh dựng ra luôn giống thứ đã kiểm.
+pypdfium2==4.30.0

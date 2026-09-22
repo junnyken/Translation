@@ -170,6 +170,7 @@ from app.services.archive import (
     ArchiveTooLarge,
     doc_goi_anh,
 )
+from app.services.pdf import doc_pdf_anh, la_pdf
 from app.services.storage import (
     IObjectStorage,
     ObjectStat,
@@ -669,10 +670,13 @@ async def upload_archive(
     Mọi phép chặn gói độc (bom giải nén, đường dẫn thoát thư mục, quá nhiều mục, gói lồng gói)
     nằm ở `app/services/archive.py` và chạy **xong hết trước khi** chạm vào CSDL.
 
-    **Chưa nhận PDF.** Không phải bỏ sót: repo hiện không có thư viện đọc PDF nào, và thêm một
-    phụ thuộc vào ảnh `api` — ảnh cố tình giữ mỏng (~1GB, không chứa thư viện AI) — là một quyết
-    định riêng cần cân nhắc, không phải việc lặng lẽ kèm vào đây. Gửi PDF sẽ nhận `422` nói đúng
-    lý do đó chứ không phải một lỗi khó hiểu.
+    **PDF cũng nhận** (ĐX-2b): mỗi trang được **dựng lại thành ảnh** ở cạnh dài
+    `PDF_RENDER_MAX_PX` (mặc định 1600px), không phải trích ảnh nhúng. Lý do ở
+    `app/services/pdf.py`: trang truyện trong PDF có thể là ảnh nền cộng chữ vector, và trích
+    ảnh nhúng sẽ **mất chữ mà không báo lỗi**.
+
+    Cả ba loại đầu vào (`.zip`, `.cbz`, `.pdf`) đi chung MỘT nhánh ghi CSDL — rẽ nhánh theo chữ
+    ký đầu file, không theo đuôi tệp.
     """
     if engine is TranslationEngine.llm_context and not settings.llm_configured:
         raise HTTPException(
@@ -685,11 +689,6 @@ async def upload_archive(
     data = await file.read()
     if not data:
         raise HTTPException(status_code=422, detail="File rỗng")
-    if data.startswith(b"%PDF"):
-        raise HTTPException(
-            status_code=422,
-            detail="pdf_chua_ho_tro: hiện chỉ nhận gói ZIP/CBZ. Xuất PDF ra ảnh rồi nén lại giúp.",
-        )
     if len(data) > settings.archive_max_total_bytes:
         raise HTTPException(
             status_code=413,
@@ -697,6 +696,16 @@ async def upload_archive(
         )
 
     def _mo_goi():
+        # Rẽ theo CHỮ KÝ ĐẦU FILE, không theo đuôi tệp — đuôi do người gửi đặt.
+        # Cả hai đường trả về cùng hình dạng (`so_muc` + lặp ra `TrangTrongGoi`) nên phần bên
+        # dưới chỉ có MỘT nhánh ghi CSDL, thay vì hai nhánh gần giống nhau rồi lệch dần.
+        if la_pdf(data):
+            return doc_pdf_anh(
+                data,
+                max_pages=settings.archive_max_pages,
+                max_page_bytes=settings.max_upload_bytes,
+                max_px=settings.pdf_render_max_px,
+            )
         return doc_goi_anh(
             data,
             max_pages=settings.archive_max_pages,

@@ -13,6 +13,7 @@ from __future__ import annotations
 import io
 import zipfile
 
+import pytest
 import sqlalchemy as sa
 from PIL import Image
 
@@ -91,6 +92,32 @@ class TestNhanGoi:
         assert body["so_trang"] == 2
         assert body["bo_qua"] == 1
 
+    async def test_PDF_that_vao_dung_so_trang_dung_thu_tu(self, client, session, storage_root):
+        """ĐX-2b — PDF đi CÙNG endpoint, cùng nhánh ghi CSDL với ZIP/CBZ."""
+        import io as _io
+
+        pytest.importorskip("pypdfium2", reason="ĐX-2b cần pypdfium2")
+        anh = [Image.new("RGB", (400, 560), m) for m in ("red", "green", "blue")]
+        buf = _io.BytesIO()
+        anh[0].save(buf, format="PDF", save_all=True, append_images=anh[1:])
+
+        project_id = (await _create_project(client)).json()["id"]
+        r = await _gui_goi(client, project_id, buf.getvalue(), ten="chapter.pdf")
+        assert r.status_code == 202, r.text
+        body = r.json()
+        assert body["so_trang"] == 3
+        # PDF không có mục "không phải ảnh" nào để bỏ qua — 0 là sự thật, không phải chỗ chưa làm.
+        assert body["bo_qua"] == 0
+        assert [t["order"] for t in body["trang"]] == [1, 2, 3]
+        assert [t["ten_trong_goi"] for t in body["trang"]] == [
+            "pdf/0001.png", "pdf/0002.png", "pdf/0003.png",
+        ]
+
+        so_dong = await session.scalar(
+            sa.text("SELECT count(*) FROM page WHERE project_id = :p"), {"p": project_id}
+        )
+        assert so_dong == 3
+
     async def test_gui_goi_hai_lan_thi_order_chay_tiep_khong_dam_len_nhau(
         self, client, storage_root
     ):
@@ -122,12 +149,11 @@ class TestGoiXauKhongDeLaiRac:
         project_id = (await _create_project(client)).json()["id"]
         assert (await _gui_goi(client, project_id, _anh())).status_code == 422
 
-    async def test_pdf_tra_422_noi_dung_ly_do_that(self, client, storage_root):
-        """PDF chưa hỗ trợ — phải nói thẳng lý do, không để người dùng nhận lỗi khó hiểu."""
+    async def test_pdf_hong_tra_422(self, client, storage_root):
+        """PDF có chữ ký đúng nhưng ruột hỏng — báo lỗi rõ, không sập."""
         project_id = (await _create_project(client)).json()["id"]
         r = await _gui_goi(client, project_id, b"%PDF-1.7\n%rest", ten="chapter.pdf")
         assert r.status_code == 422
-        assert "pdf_chua_ho_tro" in r.json()["detail"]
 
     async def test_file_rong_tra_422(self, client, storage_root):
         project_id = (await _create_project(client)).json()["id"]
