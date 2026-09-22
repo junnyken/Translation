@@ -178,18 +178,61 @@ trong `dist/assets/index-*.js`: `"Dịch nhanh"`, `"pages/archive"`, `"Tự tả
 
 ---
 
-## 7. Live Verification
+## 7. Live Verification — 22-09, chạy thật MỘT PHẦN
 
-**CHƯA CÓ.** Nói thẳng phần này vì nó là phần quan trọng nhất còn thiếu:
+Chạy bằng venv (không Docker: đĩa máy còn 15G/485G = **97% đầy**, build image `worker` ~4,5GB
+trong chỗ đó là liều). Postgres + Redis qua compose; API `uvicorn` + worker `celery --pool=solo`
+chạy từ `.venv`. Fixture: **Pepper&Carrot CC BY-SA 4.0**, 3 trang, nén thành `.cbz` với tên
+**cố ý lộn xộn** (`ch01/p1.png`, `ch01/p2.png`, `ch01/p10.png` + `ComicInfo.xml` + `__MACOSX/`).
 
-- ❌ **Chưa chạy một chapter thật nào** qua đường "Dịch nhanh" — chưa dựng worker + Redis + model
-  weight để chạy đầu-cuối.
-- ❌ **Chưa bấm tay trên trình duyệt thật.** Test frontend chạy trên jsdom, không phải Chromium.
-- ❌ **Chưa thử một file `.cbz` thật** do phần mềm đọc truyện tạo ra — mọi gói trong test đều do
-  `zipfile` của Python dựng. Gói thật có thể có cấu trúc thư mục, metadata, hoặc mã hoá tên file
-  khác.
-- ❌ **Chưa đo bộ nhớ thật** khi nhận gói lớn. Trần đặt theo suy luận từ E41, **chưa đo lại**.
-- ✅ Đã kiểm bản build (§6.4) và phép dò quyền chéo tài khoản (§6.2).
+### ✅ Đã chạy thật và đạt
+
+| Việc | Bằng chứng đo được |
+|---|---|
+| Upload gói `.cbz` thật qua HTTP thật | `HTTP 202` trong **0,85 giây** cho gói 9,7MB |
+| Đếm trang / bỏ qua | `so_trang: 3`, `bo_qua: 1` — `ComicInfo.xml` tính là bỏ qua, rác `__MACOSX` **không** tính, đúng thiết kế |
+| **Thứ tự tự nhiên trên dữ liệu thật** | `p1 → p2 → p10` (không phải `p1 → p10 → p2`) |
+| Ghi CSDL | 3 dòng `page`, `order` = 1/2/3, **`translate_engine_override = google_fast` cả ba** — nửa GHI của ĐX-3 |
+| Lưu file | 3 file PNG thật trên đĩa, 9,8MB |
+| Nhận diện khung chữ chạy thật | 6 trang, **42–76 giây/trang**, 2–4 vùng chữ mỗi trang |
+| Bấm tay trên **Chromium thật** | Đăng nhập → tab "Dịch nhanh" `aria-selected=true` → chọn gói → bấm *Dịch ngay* → nút đổi "Đang dịch…", hiện **"Đã xong 0/3 trang"** (số 3 tới từ backend thật) |
+| Cổng M10 trên đường nhanh | Ô mục đích hiện `— hãy chọn —`, **không chọn sẵn** |
+| Lỗi console trình duyệt | **không có** |
+
+### ❌ Chưa chạy được — và vì sao
+
+- **Pipeline dừng ở bước OCR.** `.venv` thiếu `paddleocr` (nguồn tiếng Anh) và `torch`/`manga_ocr`
+  (tiếng Nhật). Worker báo đúng nguyên nhân thật:
+  `OCREngineFailedForEveryRegion: … Chưa cài paddleocr: No module named 'paddleocr'`, đánh dấu job
+  thất bại, **không giả vờ xong** — nguyên tắc evidence-first hoạt động đúng.
+- Do đó **chưa kiểm được**: nửa ĐỌC của ĐX-3 trên đường chạy thật (job dịch chưa bao giờ được
+  xếp), bước xuất file, và **đường tự tải về** của ĐX-1.
+- **Chưa đo bộ nhớ thật** khi nhận gói lớn. Trần 200 trang / 500MB vẫn là suy luận từ E41.
+- Chưa thử gói `.cbz` do **phần mềm đọc truyện thật** tạo ra — gói trong lượt này do `zipfile`
+  của Python nén (tuy đã cố ý dựng tên lộn xộn + metadata + rác macOS).
+
+### 🐞 Lượt bấm tay tìm ra 2 lỗi mà 386 test không bắt được
+
+Cả hai đều là **câu chữ**, và đều xanh trong jsdom vì test soi thuộc tính `accept` chứ không soi
+chữ người dùng đọc:
+
+1. Vùng thả vẫn ghi *"Hỗ trợ PNG, JPG"* trong khi đã nhận `.zip/.cbz` ⇒ người dùng không biết
+   thả được gói.
+2. Một gói chứa 3 trang bị đếm thành **"1 trang"**, kèm câu *"thứ tự dưới đây chính là thứ tự
+   trang trong chapter"* — sai với gói, vì thứ tự nằm **bên trong** gói.
+
+Đã sửa cả hai (commit `2e648b1`), thêm 3 test canh **chữ hiển thị**, kiểm lại trên Chromium:
+`"1 gói · số trang thật biết được sau khi mở gói…"`. Frontend 386 → **390 passed**.
+
+> Đây đúng là điều mà test không thay thế được. Xem thêm §6.4 (kiểm bản build) và §6.2 (phép dò
+> quyền chéo tài khoản).
+
+### ⚠️ Một quan sát ngoài phạm vi, cần xử riêng
+
+`API_ACCESS_KEY` trong `.env` **rỗng** mà `POST /auth/register` vẫn cho qua (tạo được tài khoản
+quản trị đầu tiên chỉ bằng một lời gọi, không cần khoá). Ở máy nhà thì tiện; **nếu bản triển khai
+thật cũng để trống biến này thì ai chạm được API là tự tạo được tài khoản.** Chưa kiểm cấu hình
+production — **chưa kết luận là lỗ hổng**, nhưng phải đi xác minh.
 
 ---
 

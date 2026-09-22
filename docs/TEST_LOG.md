@@ -5704,3 +5704,41 @@ Cách lấy con số backend, vì nó không lấy thẳng được: lượt ch�
 **file log không có dòng `N passed in …s`** (mất lúc đệm stdout bị cắt). Tin mỗi `exit 0` rồi viết
 đại một con số là bịa. Số trên đếm từ **chính ký tự tiến trình của lượt chạy đó**: 1618 dấu `.`,
 6 chữ `s`, **0 chữ `F`, 0 chữ `E`** — hai đường đo độc lập (đếm ký tự ↔ mã thoát) cùng một kết quả.
+
+### Lượt CHẠY THẬT 22-09 (một phần) — và 2 lỗi chỉ bấm tay mới thấy
+
+Chạy bằng `.venv`, **không Docker**: đĩa máy còn 15G/485G (**97% đầy**), build image `worker`
+~4,5GB trong chỗ đó là liều. Postgres + Redis qua compose; API `uvicorn` + worker
+`celery --pool=solo` từ venv. Fixture **Pepper&Carrot CC BY-SA 4.0**, nén `.cbz` với tên cố ý
+lộn xộn (`ch01/p1.png`, `ch01/p2.png`, `ch01/p10.png`) + `ComicInfo.xml` + `__MACOSX/`.
+
+**Đạt:** `HTTP 202` trong **0,85 giây** cho gói 9,7MB · `so_trang:3 · bo_qua:1` (metadata tính là
+bỏ qua, rác macOS không tính) · CSDL `order` = 1/2/3 theo **đúng thứ tự tự nhiên** (`p10` xuống
+cuối) · `translate_engine_override = google_fast` cả ba trang · 3 file ảnh thật trên đĩa ·
+nhận diện khung chữ chạy thật **42–76 giây/trang, 2–4 vùng chữ/trang** trên 6 trang ·
+Chromium thật: tab "Dịch nhanh" mặc định, mục đích **không chọn sẵn**, bấm *Dịch ngay* ra
+"Đã xong 0/3 trang", **0 lỗi console**.
+
+**Dừng ở OCR:** venv thiếu `paddleocr` (nguồn EN) và `torch`/`manga_ocr` (JA). Worker báo đúng
+nguyên nhân thật rồi đánh dấu job thất bại — **không giả vờ xong**. Hệ quả: nửa ĐỌC của ĐX-3,
+bước xuất, và đường tự tải về của ĐX-1 **chưa kiểm được**.
+
+**Hai lỗi mà 386 test không bắt được**, cả hai là câu chữ và đều xanh trong jsdom vì test soi
+thuộc tính `accept` chứ không soi chữ người dùng đọc:
+
+1. Vùng thả vẫn ghi "Hỗ trợ PNG, JPG" trong khi đã nhận `.zip/.cbz`.
+2. Gói chứa 3 trang bị đếm thành **"1 trang"**, kèm câu "thứ tự dưới đây chính là thứ tự trang
+   trong chapter" — sai với gói, vì thứ tự nằm BÊN TRONG gói.
+
+Sửa cả hai (`2e648b1`), thêm 3 test canh **chữ hiển thị**, kiểm lại trên Chromium ra
+"1 gói · số trang thật biết được sau khi mở gói…". Frontend 386 → **390 passed**.
+Xem [[feedback_click_through_finds_what_tests_cannot]].
+
+**Hai lỗi trong test của tôi, không phải lỗi sản phẩm:** cả hai bài mới đầu tiên đều đỏ vì
+`getByText` khớp NHIỀU phần tử (`/\.cbz/` khớp cả thẻ `<code>` ở mô tả đầu màn; `/gói/` khớp cả
+dòng trợ giúp). Nhắm hẹp lại (`/Hỗ trợ.*\.cbz/`, `/\d+\s*gói/`) là xanh. Nếu tin "đỏ = mã sai"
+thì đã đi sửa nhầm chỗ.
+
+**Quan sát ngoài phạm vi:** `API_ACCESS_KEY` trong `.env` **rỗng** mà `POST /auth/register` vẫn
+cho qua — tạo được tài khoản quản trị đầu tiên không cần khoá. Ở máy nhà thì tiện; chưa kiểm cấu
+hình production nên **chưa kết luận là lỗ hổng**, nhưng phải đi xác minh.
