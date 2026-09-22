@@ -1,0 +1,178 @@
+URL=https://apps.apple.com/app/ichigoreader-translate-manga/id1641432177
+HTTP=200
+AT=2026-09-22T07:58:35.713Z
+
+for iPhone 
+Search
+Today
+Games
+Apps
+Arcade
+Categories
+Categories
+Photo & Video
+Health & Fitness
+Productivity
+Entertainment
+Action
+Adventure
+Puzzle
+Indie
+IchigoReader - Translate Manga
+
+Translate Manga Automatically
+
+Free · In‑App Purchases
+
+20 RATINGS
+4.5
+AGE RATING
+4+
+Years
+CATEGORY
+Utilities
+DEVELOPER
+Ichigo LLC
+LANGUAGE
+EN
++ 37 More
+SIZE
+15.4
+MB
+iPhone, iPad, Mac
+
+Best-in-class manga translation and OCR quality
+Supports PDF, ZIP, and image uploads
+Uses full-context on PDFs and ZIPs for max accuracy
+
+Subscription service with a free trial—no registration required.
+
+Ratings & Reviews
+4.5
+out of 5
+20 Ratings
+App is being updated again
+10/16/2025
+Sirflak
+
+The compatibility for older apple devices declined with the new update. I’m probably going to upgrade soon. So now every page flickers 0.5 seconds right before translating, and sometimes the English OCR error pops up despite the page not being in english. I cant really complain since I'm past the 5 year mark on my iPad PRO. It’s a great service for the price.
+
+more
+Developer Response
+
+Thank you for the kind review and the bug report! We have reproduced this bug and have a fix for it that will ship in the next release. For what it's worth, the bug was present in newer hardware as well, certain websites exhibited the problem.
+
+more
+It’s better than most if not all alternatives
+11/01/2025
+Gene_was_here
+
+Glad the app is back on the App Store for the last how many months. I’ve still had the app and been using it like normal just scared to accidentally delete it and loose it forever 😅. Also I’m glad the app it self is actually useful unlike the old one where it was just the extension that was important. Haven’t used the new one that much yet, but I already bumped up my old score on the old version of the app which was a 3stars before just because of a few bugs I found. Hopefully everything is better than ever with this app and even before with it being 3 stars it was the best translator for mangas I’ve ever used and I’ve used a lot.
+
+more
+Translator works, Browser Extension issue
+Aug 2
+Bedframe9952
+
+Hello. The translations are good, but after the recent update on mobile (at least the iPad version) the pop up browser extension for settings, tools, and login has shrunk. Compressing in on itself. I can no longer click on the switch to translate.
+
+Not sure if I'm missing something?
+12/08/2025
+seselizabeth
+
+I'm on tier two upgrade and for some reason, all my longform pages only translate one to two manga panels, then the little strawberries just spin in the corner for the rest. I've sat for only over ten minutes before and it never translated. I did try multiple different mangas. I feel like this is a great app but there's something stunting it for me :/
+
+more
+Developer Response
+
+Hi! Sorry to hear you are having trouble with the app. We would love if you could use the contact email from the app menu and send links to some of the mangas / sites that you are having this experience with along with some information about the your device and iOS version. Hope we can help!
+
+more
+What’s New
+
+Fixed an issue with the extension popover size on iPad.
+
+Version 2.5
+Aug 4
+App Privacy
+
+The developer, Ichigo LLC, indicated that the app’s privacy practices may include handling of data as described below. For more information, see the developer’s privacy policy .
+
+Data Not Collected
+
+The developer does not collect any data from this app.
+
+Privacy practices may vary, for example, based on the features you use or your age. Learn More
+
+Accessibility
+
+The developer has not yet indicated which accessibility features this app supports. Learn More
+
+Information
+Seller
+Ichigo LLC
+Size
+15.4 MB
+Category
+Utilities
+Compatibility
+Requires iOS 17.0 or later. 
+Languages
+English and 37 more 
+Age Rating
+4+ 
+In-App Purchases
+Yes 
+Copyright
+© Ichigo LLC
+Developer Website
+Privacy Policy
+License Agreement
+You Might Also Like
+View
+Manga Translator
+IsManga - Translate Raw Manga
+View
+Manga Translator – Mangra
+Translate Manga and Manhwa
+View
+Cereal Translator: Screen Scan
+Game/Manga/Realtime Translate
+View
+Torii Image Translator
+AI Manga and Manhwa Translator
+View
+iTranscreen: Screen Translator
+Games, Manga & Live Captions
+View
+EasyComix: Manga Translator
+Webtoon & Manhwa Translator
+View
+Screen Translator-TapTranslate
+Translate Screen with a Tap
+View
+Manga Translator: Screen OCR
+Webtoon, Comics & Manhwa
+View
+Sumi: AI Manga Translator
+Translate raw manga in Safari
+View
+EZ Screen Translator
+Tap To Translate Screen
+United States
+Español (México)
+العربية
+Русский
+简体中文
+Français (France)
+한국어
+Português (Brazil)
+Tiếng Việt
+繁體中文 (台灣)
+
+Copyright © 2026 Apple Inc. All rights reserved.
+
+Internet Service Terms
+App Store & Privacy
+Cookie Warning
+Support

@@ -1,0 +1,143 @@
+URL=https://play.google.com/store/apps/details?id=com.ichigoreadermobile
+HTTP=200
+AT=2026-09-22T07:58:43.134Z
+
+google_logo Play
+Games
+Apps
+Books
+Kids
+search
+help_outline
+Manga Translator — Ichigo
+Ichigo LLC
+In-app purchases
+3.5
+star
+298 reviews
+10K+
+Downloads
+Install
+Share
+Add to wishlist
+chevron_right
+About this app
+arrow_forward
+Translate manga from Japanese, Korean, and Chinese to English.
+
+✔️ Highest quality text detection
+✔️ Highest quality manga translation and manga OCR
+✔️ Supports pdf, zip, and image uploads
+✔️ Kiwi Browser plugin for those who prefer web browsers
+
+The #1 automatic manga translator
+Translate manga in one tap.
+Updated on
+Sep 9, 2026
+Tools
+Data safety
+arrow_forward
+Safety starts with understanding how developers collect and share your data. Data privacy and security practices may vary based on your use, region, and age. The developer provided this information and may update it over time.
+No data shared with third parties
+Learn more about how developers declare sharing
+This app may collect these data types
+Personal info
+Data is encrypted in transit
+You can request that data be deleted
+See details
+Ratings and reviews
+arrow_forward
+Ratings and reviews are verified
+info_outline
+phone_android
+Phone
+tablet_android
+Tablet
+3.7
+287 reviews
+5
+4
+3
+2
+1
+Piyush Prakash
+more_vert
+June 16, 2026
+Amazing translations ngl, though for the app continuous translation would be preferable rather than translating only after tapping the icon. I mainly used the extension and upload feature on the website and have to say google or others don't even compare
+Did you find this helpful?
+Yes
+No
+Danielle Taylor
+more_vert
+January 7, 2025
+I broke down and paid for one month of the basic subscription. You don’t really use the app, and it just directs you to download a specific browser and then add a Chrome extension. For $6 it worked well, so I paid for a year, $60 total for the basic service, and now it is almost unusable! It either gets errors and doesn't translate at all, OR it takes 2-3 minutes or more to translate the screen, which is extremely time-consuming if you are trying to read manga or manhwa... VERY DISAPPOINTING!
+20 people found this review helpful
+Did you find this helpful?
+Yes
+No
+Ichigo LLC
+May 5, 2026
+Hi, we have recently rewritten the app and the overlay feature, which is a big advantage of the app for sites that don't support the extension. We've also added an extension for Android through Firefox. Translation speed is also better than it was! Sorry for your trouble!
+Nile
+more_vert
+November 17, 2025
+Used to be five stars, and I was elated to find a decent translating app (I even bought a tier)- I kept it for MONTHS, but now the overlay just? Doesn't work? No matter what you do, clear cache, change internet, reset phone, uninstall and reinstall, try translating things on different apps, NOTHING works. The overlay translates nothing. I'm disappointed. Sure, the website portion still works, but If I pay for something, I expect it to ALL work properly, including the overlay.
+6 people found this review helpful
+Did you find this helpful?
+Yes
+No
+See all reviews
+What’s new
+- Added a "Sign in with browser" option.
+- Improved login sessions to keep you signed in more reliably.
+- Fixed the "Manage Subscription" button.
+- Fixed a potential crash in the translation overlay.
+flag
+Flag as inappropriate
+Rated for 3+
+Learn more
+App support
+expand_more
+Similar apps
+arrow_forward
+DUNGMORI
+Dungmori
+4.5
+star
+Japanese for Beginners: Minna
+Minna Studio
+4.6
+star
+Japanese Guru
+Xamisoft
+4.2
+star
+Google Play
+
+Play Pass
+
+Play Points
+
+Gift cards
+
+Redeem
+
+Refund policy
+
+Kids & family
+
+Parent Guide
+
+Family sharing
+
+Terms of Service
+
+Privacy
+
+About Google Play
+
+Developers
+
+Google Store
+
+Vietnam (English (United States))
