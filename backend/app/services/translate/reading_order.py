@@ -25,11 +25,26 @@ class UnknownReadingDirection(ValueError):
     pass
 
 
+#: Cách nói TƯỜNG MINH "đừng ép hướng đọc, cứ suy theo ngôn ngữ nguồn".
+#:
+#: Vì sao cần, trong khi bỏ trống đã có nghĩa đó: bỏ trống chỉ biểu đạt được ở nơi cho phép biến
+#: môi trường rỗng. Nền tảng hosting đang chạy production **bắt buộc mọi biến phải có ít nhất 1
+#: ký tự**, nên `READING_DIRECTION_OVERRIDE=` không khai được ở đó. Không có lối này thì người
+#: vận hành buộc phải điền `ltr` hoặc `rtl` — và cả hai đều **ép cứng toàn hệ thống**, làm hỏng
+#: thứ tự đọc của đúng một nửa số chapter (manga Nhật đọc phải→trái, EN/CN trái→phải) mà không
+#: một thông báo lỗi nào. Đây là một lỗi im lặng có thật, chỉ lộ ra khi đem deploy lần đầu.
+KHONG_EP = "auto"
+
+
 def direction_for(source_lang: str, override: str | None = None) -> Direction:
     if override:
         value = override.strip().lower()
+        if value == KHONG_EP:
+            return DEFAULT_DIRECTION.get(source_lang, "ltr")
         if value not in ("ltr", "rtl"):
-            raise UnknownReadingDirection(f"Hướng đọc '{override}' không hợp lệ (chỉ ltr/rtl)")
+            raise UnknownReadingDirection(
+                f"Hướng đọc '{override}' không hợp lệ (chỉ ltr/rtl, hoặc '{KHONG_EP}' để tự suy)"
+            )
         return value  # type: ignore[return-value]
     return DEFAULT_DIRECTION.get(source_lang, "ltr")
 

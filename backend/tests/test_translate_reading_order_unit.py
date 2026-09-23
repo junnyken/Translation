@@ -37,6 +37,29 @@ class TestDirection:
         with pytest.raises(UnknownReadingDirection):
             direction_for("ja", override="xyz")
 
+    def test_auto_nghia_la_TU_SUY_khong_phai_ep_mot_huong(self):
+        """`auto` phải cho ra ĐÚNG kết quả của bỏ trống, với MỌI ngôn ngữ.
+
+        Vì sao cần giá trị này: nền tảng hosting của production bắt mọi biến môi trường phải có
+        ít nhất 1 ký tự, nên không khai được `READING_DIRECTION_OVERRIDE=` rỗng. Không có `auto`
+        thì người vận hành buộc phải điền `ltr` hoặc `rtl`, và cả hai đều ép cứng toàn hệ thống —
+        hỏng thứ tự đọc của đúng một nửa số chapter mà không báo lỗi gì.
+
+        Bài này so `auto` với BỎ TRỐNG chứ không so với một hằng số gõ tay: gõ tay thì sửa mặc
+        định của `ja` mà quên sửa bài test là test vẫn xanh trong khi hành vi đã lệch.
+        """
+        for lang in ("ja", "en", "zh", "fr"):
+            assert direction_for(lang, override="auto") == direction_for(lang), lang
+
+    def test_auto_khong_phan_biet_hoa_thuong_va_khoang_trang(self):
+        assert direction_for("ja", override="  AUTO  ") == "rtl"
+
+    def test_bo_trong_van_giu_nguyen_nghia_cu(self):
+        """Đối chứng tương thích ngược: thêm `auto` KHÔNG được làm hỏng đường bỏ trống."""
+        assert direction_for("ja", override="") == "rtl"
+        assert direction_for("ja", override=None) == "rtl"
+        assert direction_for("en", override="") == "ltr"
+
 
 class TestOrder:
     #: 2 hàng, mỗi hàng 2 bubble:  A B  /  C D   (toạ độ x tăng dần sang phải)
