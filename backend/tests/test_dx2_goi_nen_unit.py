@@ -17,6 +17,7 @@ import pytest
 from PIL import Image
 
 from app.services.archive import (
+    AnhCut,
     ArchiveEmpty,
     ArchiveTooLarge,
     ArchiveUnsafe,
@@ -129,6 +130,51 @@ class TestChanGoiXau:
         goi = dung_goi({"to.png": anh_png(cd=(600, 600))})
         with pytest.raises(ArchiveTooLarge):
             list(doc_goi_anh(goi, **{**TRAN, "max_page_bytes": 256}))
+
+
+class TestAnhCut:
+    """Ảnh tải dở phải bị bắt NGAY lúc nhận gói, không để 60 giây sau mới hỏng ở worker.
+
+    Đo thật trong lượt chạy 24 trang 23-09: một tệp JPEG tải dở (69.632 byte, thiếu đúng 12
+    byte) có magic bytes HỢP LỆ nên `sniff_image` cho qua, người dùng nhận `202 đã nhận`, rồi
+    worker mới nổ `OSError: image file is truncated`. Sản phẩm xử lý đúng (đánh dấu
+    `detection_failed` kèm lý do thật) — nhưng báo ngay lúc nhận thì đỡ bắt người ta chờ.
+    """
+
+    def test_jpeg_cut_bi_tu_choi_va_NEU_RO_ten_tep(self):
+        buf = io.BytesIO()
+        Image.new("RGB", (40, 40), "red").save(buf, format="JPEG")
+        cut = buf.getvalue()[:-40]           # cắt đuôi, mất EOI
+        goi = dung_goi({"01.png": anh_png(), "hong.jpg": cut})
+        # Thông điệp phải NÊU TÊN tệp hỏng: gói 24 trang mà chỉ báo "có ảnh cụt" thì người dùng
+        # không biết phải tải lại cái nào.
+        with pytest.raises(AnhCut, match="hong.jpg"):
+            list(doc_goi_anh(goi, **TRAN))
+
+    def test_png_cut_bi_tu_choi(self):
+        cut = anh_png()[:-20]                # mất chunk IEND
+        with pytest.raises(AnhCut):
+            list(doc_goi_anh(dung_goi({"hong.png": cut}), **TRAN))
+
+    def test_KHONG_loai_oan_anh_lanh(self):
+        """Đối chứng âm: nếu phép kiểm loại cả ảnh lành thì nó vô dụng."""
+        buf = io.BytesIO()
+        Image.new("RGB", (40, 40), "blue").save(buf, format="JPEG")
+        goi = dung_goi({"01.jpg": buf.getvalue(), "02.png": anh_png()})
+        assert len(list(doc_goi_anh(goi, **TRAN))) == 2
+
+    def test_jpeg_co_byte_thua_sau_EOI_van_duoc_nhan(self):
+        """JPEG thật hay có vài byte đệm sau EOI — kiểm đúng N byte cuối sẽ loại oan chúng."""
+        buf = io.BytesIO()
+        Image.new("RGB", (40, 40), "green").save(buf, format="JPEG")
+        (t,) = list(doc_goi_anh(dung_goi({"01.jpg": buf.getvalue() + b"\x00" * 8}), **TRAN))
+        assert t.ext == ".jpg"
+
+    def test_webp_khong_bi_kiem_duoi_nen_khong_loai_oan(self):
+        """WEBP là container RIFF khai độ dài ở header — không có dấu kết thúc để kiểm."""
+        buf = io.BytesIO()
+        Image.new("RGB", (40, 40), "blue").save(buf, format="WEBP")
+        assert len(list(doc_goi_anh(dung_goi({"01.webp": buf.getvalue()}), **TRAN))) == 1
 
 
 class TestKiemSom:

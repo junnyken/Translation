@@ -60,6 +60,41 @@ class ArchiveUnsafe(ArchiveError):
     """Gói chứa đường dẫn có ý đồ thoát thư mục."""
 
 
+class AnhCut(ArchiveError):
+    """Ảnh trong gói thiếu đuôi — tải dở hoặc nén hỏng."""
+
+
+#: Dấu KẾT THÚC chuẩn của từng định dạng ảnh, để bắt tệp bị cụt.
+#:
+#: Vì sao không dùng Pillow: `routes.py` ghi rõ **không kéo Pillow vào tiến trình API** (ảnh `api`
+#: cố tình giữ mỏng). Giải mã cả ảnh chỉ để biết nó có đủ đuôi là đắt gấp nhiều lần việc cần làm.
+#: So vài byte cuối thì không giải mã gì, không tốn bộ nhớ, và bắt đúng thứ cần bắt.
+#:
+#: Vì sao đáng bắt ở đây: ảnh cụt có magic bytes HỢP LỆ nên `sniff_image` cho qua, người dùng nhận
+#: `202 đã nhận`, rồi **60 giây sau** mới hỏng ở bước nhận diện. Đo thật trong lượt chạy 24 trang
+#: 23-09: một tệp tải dở (69.632 byte, thiếu 12 byte) đi lọt tới tận worker mới nổ
+#: `OSError: image file is truncated`. Sản phẩm xử lý đúng (đánh dấu `detection_failed` kèm lý do
+#: thật), nhưng báo ngay lúc nhận thì người dùng đỡ chờ một phút để nghe tin xấu.
+_DUOI_KET_THUC: dict[str, tuple[bytes, ...]] = {
+    ".jpg": (b"\xff\xd9",),                       # EOI
+    ".png": (b"IEND\xae\x42\x60\x82",),           # chunk IEND + CRC cố định
+}
+
+
+def _thieu_duoi(data: bytes, ext: str) -> bool:
+    """Tệp có thiếu dấu kết thúc của định dạng không.
+
+    WEBP không có trong bảng: nó là container RIFF khai độ dài ở header, nên kiểm đuôi không áp
+    dụng được. Không kiểm còn hơn kiểm sai rồi loại oan ảnh lành.
+    """
+    ket = _DUOI_KET_THUC.get(ext)
+    if not ket:
+        return False
+    # Ngó 32 byte cuối chứ không đúng N byte cuối: JPEG thật hay có vài byte đệm sau EOI.
+    duoi = data[-32:]
+    return not any(m in duoi for m in ket)
+
+
 @dataclass(frozen=True)
 class TrangTrongGoi:
     """Một trang đọc được từ gói.
@@ -233,6 +268,18 @@ def _sinh_trang(
                 _mime, ext = sniff_image(noi_dung)
             except UnsupportedImage:
                 continue  # metadata, gói lồng gói, file rác — bỏ qua, không phải lỗi
+
+            # Ảnh cụt thì TỪ CHỐI CẢ GÓI kèm tên tệp, không bỏ qua lặng lẽ.
+            #
+            # Bỏ qua sẽ nhận 23/24 trang và người dùng không biết mình mất trang nào — đúng loại
+            # hỏng im lặng mà E38 từng gây ra (chapter xuất ra thiếu trang). Ảnh cụt cũng khác
+            # hẳn `ComicInfo.xml`: file metadata KHÔNG PHẢI trang truyện nên bỏ qua là đúng, còn
+            # ảnh cụt LÀ một trang, chỉ là hỏng — im lặng nuốt nó là nuốt mất nội dung.
+            if _thieu_duoi(noi_dung, ext):
+                raise AnhCut(
+                    f"Ảnh {info.filename!r} bị cụt (thiếu dấu kết thúc {ext}) — nhiều khả năng "
+                    "tải dở hoặc nén hỏng. Tải lại rồi nén lại gói giúp."
+                )
             da_sinh += 1
             yield TrangTrongGoi(ten=info.filename, data=noi_dung, ext=ext)
 
