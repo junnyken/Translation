@@ -96,6 +96,66 @@ class TestKiemSom:
         assert len(list(g)) == 2
 
 
+def _pdf_chu_vector(chu: str = "HELLO", cd: tuple[int, int] = (200, 200)) -> bytes:
+    """PDF chỉ chứa **chữ vector**, KHÔNG có một ảnh nhúng nào.
+
+    Dựng tay vì repo không có thư viện tạo PDF, và thêm một phụ thuộc chỉ để dựng fixture thì
+    không đáng. PDF là định dạng văn bản nên viết tay được; phần duy nhất phải cẩn thận là bảng
+    `xref` — nó ghi VỊ TRÍ BYTE của từng object, sai một byte là tệp hỏng.
+    """
+    rong, cao = cd
+    noi_dung = f"BT /F1 48 Tf 20 {cao // 2} Td ({chu}) Tj ET".encode()
+    objs = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {rong} {cao}] /Contents 4 0 R "
+        f"/Resources << /Font << /F1 5 0 R >> >> >>".encode(),
+        b"<< /Length " + str(len(noi_dung)).encode() + b" >>\nstream\n" + noi_dung + b"\nendstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    ra = bytearray(b"%PDF-1.4\n")
+    viTri = []
+    for i, o in enumerate(objs, start=1):
+        viTri.append(len(ra))
+        ra += f"{i} 0 obj\n".encode() + o + b"\nendobj\n"
+    batDauXref = len(ra)
+    ra += f"xref\n0 {len(objs) + 1}\n".encode() + b"0000000000 65535 f \n"
+    for v in viTri:
+        ra += f"{v:010d} 00000 n \n".encode()
+    ra += f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{batDauXref}\n%%EOF\n".encode()
+    return bytes(ra)
+
+
+class TestChuVectorKhongBiMat:
+    """**Bài chứng minh quyết định thiết kế**, không phải bài kiểm cú pháp.
+
+    `pdf.py` tuyên bố: phải DỰNG LẠI cả trang chứ không trích ảnh nhúng, vì trang truyện có thể
+    là ảnh nền cộng chữ vector và trích ảnh sẽ **mất chữ mà không báo lỗi**. Mọi fixture PDF khác
+    trong file này đều do Pillow dựng — tức là ảnh thuần, KHÔNG có một nét vector nào, nên chúng
+    xanh kể cả khi ai đó đổi sang trích ảnh nhúng.
+
+    Trang ở đây chỉ có chữ vector và không có ảnh nhúng nào. Đổi sang trích ảnh ⇒ ra trang
+    TRẮNG TRƠN ⇒ bài này đỏ.
+    """
+
+    def test_chu_vector_phai_ra_MUC_that_tren_anh_dung_ra(self):
+        (t,) = list(doc_pdf_anh(_pdf_chu_vector(), **TRAN))
+        anh = Image.open(io.BytesIO(t.data)).convert("L")
+        mau = anh.getcolors(maxcolors=256 * 256) or []
+        so_diem_toi = sum(n for n, gia_tri in mau if gia_tri < 128)
+        assert so_diem_toi > 50, (
+            "Trang chỉ có chữ vector lại dựng ra gần như trắng trơn — nhiều khả năng đường dựng "
+            f"đã bị đổi thành trích ảnh nhúng, và chữ bị mất im lặng (điểm tối: {so_diem_toi})"
+        )
+
+    def test_doi_chung_am_trang_that_su_trong_thi_KHONG_co_muc(self):
+        """Chống xanh rỗng: nếu phép đếm điểm tối luôn dương thì bài trên vô nghĩa."""
+        (t,) = list(doc_pdf_anh(_pdf_chu_vector(chu=" "), **TRAN))
+        anh = Image.open(io.BytesIO(t.data)).convert("L")
+        mau = anh.getcolors(maxcolors=256 * 256) or []
+        assert sum(n for n, gia_tri in mau if gia_tri < 128) < 50
+
+
 class TestPdfRong:
     def test_pdf_khong_co_trang_nao(self):
         """PDF 0 trang phải ném rõ ràng, không im lặng trả về rỗng ⇒ "tải lên thành công 0 trang"."""

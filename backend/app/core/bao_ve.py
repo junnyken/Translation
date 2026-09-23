@@ -48,7 +48,17 @@ def canh_bao_neu_khong_khoa() -> None:
 
 
 async def cong_khoa(x_api_key: str | None = Header(default=None, alias=TEN_HEADER)) -> None:
-    """Chặn mọi request thiếu khoá đúng. Gắn ở tầng router nên không sót endpoint nào."""
+    """Chặn request thiếu khoá đúng.
+
+    **Chỉ gắn ở `POST /auth/register`** — đừng đọc câu này thành "cả API đều sau khoá chung".
+    Từ slice B, thứ gắn ở tầng router cho toàn bộ `/api/v1` là cổng **đăng nhập**
+    (`main.py`: `include_router(v1_router, dependencies=[Depends(nguoi_dung_hien_tai)])`).
+    Khoá chung nay chỉ còn một việc: chặn người lạ **tự tạo tài khoản** — đường duy nhất không
+    thể đòi đăng nhập trước, vì chưa có tài khoản thì lấy gì mà đăng nhập.
+
+    (Docstring cũ ghi "gắn ở tầng router nên không sót endpoint nào" — đúng với slice A, sai kể
+    từ slice B. Một câu sai về bảo mật nguy hiểm hơn là không có câu nào.)
+    """
     khoa = get_settings().api_access_key
     if not khoa:
         return
