@@ -90,16 +90,18 @@ Response 202:
 | project không tồn tại / không phải của mình | 404 |
 | không phải ZIP/CBZ hợp lệ, gói hỏng, gói không có ảnh nào | 422 |
 | gói chứa đường dẫn thoát thư mục (`../`, đường tuyệt đối) | 422 |
-| gửi PDF (`pdf_chua_ho_tro`) | 422 |
+| PDF hỏng / đặt mật khẩu | 422 |
 | `llm_context` mà chưa cấu hình khoá | 422 |
 | quá `ARCHIVE_MAX_PAGES` trang, bung quá `ARCHIVE_MAX_TOTAL_MB`, hoặc một trang quá `MAX_UPLOAD_MB` | 413 |
 
 **Thất bại thì lùi sạch** — không để lại trang nào trong CSDL. Nhận một phần rồi báo lỗi sẽ để
 lại chapter dở dang trông như đã nhận việc.
 
-**Chưa nhận PDF** — không phải bỏ sót: repo chưa có thư viện đọc PDF, và thêm phụ thuộc vào ảnh
-`api` (cố tình giữ mỏng ~1GB, không chứa thư viện AI) là quyết định riêng cần cân nhắc. Gửi PDF
-nhận `422 pdf_chua_ho_tro` nói đúng lý do đó.
+**PDF cũng nhận** (ĐX-2b, 22-09). Mỗi trang được **dựng lại thành ảnh** ở cạnh dài
+`PDF_RENDER_MAX_PX` (mặc định 1600px), **không** phải trích ảnh nhúng: trang truyện trong PDF có
+thể là ảnh nền cộng chữ vector, và trích ảnh nhúng sẽ **mất chữ mà không báo lỗi**. Tên trang đặt
+`pdf/0001.png`… nên thứ tự chuỗi trùng luôn thứ tự trang gốc. PDF đặt mật khẩu báo riêng và
+**không** thử đoán mật khẩu. Thư viện: `pypdfium2` (wheel thuần ~3MB, nằm ở `requirements.txt`).
 
 ## 4. `GET /api/v1/pages/{page_id}` → 200
 

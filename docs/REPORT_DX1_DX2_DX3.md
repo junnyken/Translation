@@ -9,9 +9,9 @@
 
 | ID | Việc | Trạng thái |
 |---|---|---|
-| **ĐX-1** | Đường "Dịch nhanh": một màn, thả ảnh **hoặc cả gói**, xong tự tải về | **BUILT** — test xanh, **chưa chạy thật một chapter nào** |
-| **ĐX-2** | Nhận gói `.zip`/`.cbz` làm đầu vào (PDF **chưa**) | **BUILT** — như trên |
-| **ĐX-3** | Chọn engine dịch ngay trên màn upload, hiện rõ cái nào tốn tiền | **BUILT** — như trên |
+| **ĐX-1** | Đường "Dịch nhanh": một màn, thả ảnh **hoặc cả gói**, xong tự tải về | **LIVE** — chạy trọn vẹn qua trình duyệt thật: thả `.cbz` → bấm → **230 giây** → "Dịch xong 3/3 trang", file tự tải về là ZIP hợp lệ 3 trang đúng thứ tự |
+| **ĐX-2** | Nhận gói `.zip`/`.cbz`/`.pdf` làm đầu vào | **LIVE cho ZIP/CBZ** (gói thật, đủ chuỗi tới file xuất). **PDF: BUILT** — 13 test xanh nhưng **chưa thử một PDF truyện thật nào** |
+| **ĐX-3** | Chọn engine dịch ngay trên màn upload, hiện rõ cái nào tốn tiền | **LIVE nửa GHI** (CSDL thật có `google_fast` cả 3 trang). **Nửa ĐỌC chỉ có test + đối chứng âm** — xem §7 |
 
 **Ngoài đề bài, tìm ra và sửa một lỗi có thật chưa từng lộ.** Cột `Page.translate_engine_override`
 có chỗ **GHI** từ E19 nhưng pipeline đầy đủ **cố ý không ĐỌC** (`enqueue_translate_after_inpaint`
@@ -19,9 +19,11 @@ luôn truyền `engine=None`). Nghĩa là: nếu chỉ làm phần UI như đề
 xong thì lựa chọn đó **rơi vào hư không, không một thông báo lỗi nào**, và mọi bài test kiểu "đã
 lưu vào cột chưa" vẫn xanh. Đây đúng kiểu hỏng "hai đầu không gặp nhau".
 
-> **Nhãn trung thực:** cả ba đều là **BUILT**, không phải LIVE. Chưa có worker nào chạy, chưa có
-> chapter thật nào đi hết chuỗi qua đường mới. Theo quy ước `FEATURES.md`: *"Không đánh dấu LIVE
-> nếu chưa chạy thật một lần."*
+> **Nhãn trung thực.** Bảng trên đánh nhãn theo đúng thứ đã **chứng minh được**, không theo thứ
+> đã viết xong. Ba chỗ còn thiếu bằng chứng, ghi rõ ở §7: PDF chưa thử với PDF truyện thật; nửa
+> ĐỌC của ĐX-3 chưa được lượt chạy thật phân biệt khỏi đường mặc định; và chapter dài (24 trang
+> như E23) chưa chạy qua đường nhanh. Quy ước `FEATURES.md`: *"Không đánh dấu LIVE nếu chưa chạy
+> thật một lần."*
 
 ---
 
@@ -80,8 +82,11 @@ chọn *miễn phí* của người dùng thành engine tốn token.
   nhận thêm field `engine`.
 - `app/workers/tasks.py` — `enqueue_translate_after_inpaint` **đọc** `Page.translate_engine_override`.
 - `app/schemas/common.py` — `ArchiveAccepted`, `TrangTrongGoiAccepted`.
-- `app/core/config.py` — `archive_max_pages` (200), `archive_max_total_mb` (500).
+- `app/services/pdf.py` — **mới** (ĐX-2b). Dựng ảnh từng trang PDF bằng `pypdfium2`.
+- `app/core/config.py` — `archive_max_pages` (200), `archive_max_total_mb` (500),
+  `pdf_render_max_px` (1600).
 - `app/models/__init__.py` — sửa bình luận đã sai về cột override.
+- `requirements.txt` — thêm `pypdfium2==4.30.0`.
 
 **Frontend**
 - `src/components/chapter/DichNhanh.jsx` — **mới**. Màn ĐX-1.
@@ -91,8 +96,8 @@ chọn *miễn phí* của người dùng thành engine tốn token.
 - `src/styles.css` — `.chon-duong`, `.nut-duong` (dùng token sẵn có, không chế màu mới).
 
 **Test** — `test_dx2_goi_nen_unit.py`, `test_dx2_dx3_upload_goi_integration.py`,
-`test_dx3_engine_pipeline_day_du.py`, `DichNhanh.test.jsx` (đều mới);
-`test_quyen_cheo_tai_khoan.py` (sửa, xem §6).
+`test_dx3_engine_pipeline_day_du.py`, `test_dx2b_pdf_unit.py`, `DichNhanh.test.jsx` (đều mới);
+`test_quyen_cheo_tai_khoan.py` (sửa, xem §6.2).
 
 **Tài liệu** — `ARCH.md`, `API.md`, `FEATURES.md`, `TEST_LOG.md`.
 
@@ -124,9 +129,10 @@ thống. Có test đối chứng riêng.
 | `test_dx2_goi_nen_unit.py` (thuần, không CSDL) | 23 | xanh |
 | `test_dx2_dx3_upload_goi_integration.py` | 15 | xanh |
 | `test_dx3_engine_pipeline_day_du.py` | 4 | xanh |
-| `DichNhanh.test.jsx` | 16 | xanh |
-| **Toàn bộ frontend** | **386** (25 file) | **xanh** |
-| **Toàn bộ backend** | **1618 passed · 6 skipped · 0 failed** | **xanh** (`PYTEST_EXIT=0`) |
+| `DichNhanh.test.jsx` | 20 | xanh |
+| `test_dx2b_pdf_unit.py` (ĐX-2b) | 12 | xanh |
+| **Toàn bộ frontend** | **390** (25 file) | **xanh** |
+| **Toàn bộ backend** | **1631 passed · 6 skipped · 0 failed · 0 error** | **xanh** (`PYTEST_EXIT=0`) |
 
 ### 6.1. Đối chứng âm — test có thật sự bắt được lỗi không
 
@@ -154,8 +160,8 @@ Một đường GHI dữ liệu lọt qua như vậy có thể mang lỗ IDOR l�
 
 ### 6.3. Toàn bộ backend
 
-**1618 passed · 6 skipped · 0 failed · 0 error**, `PYTEST_EXIT=0`
-(`pytest -q -p no:randomly`, Postgres + Redis đều chạy).
+**1631 passed · 6 skipped · 0 failed · 0 error**, `PYTEST_EXIT=0`
+(`pytest -q -p no:randomly`, Postgres + Redis đều chạy; lượt cuối chạy SAU khi thêm PDF).
 
 **Hai cái bẫy về ĐO ĐẠC gặp ngay trong lượt này**, ghi lại vì cả hai đều suýt cho ra một kết luận
 sai mà trông rất giống kết luận đúng:
@@ -199,17 +205,65 @@ chạy từ `.venv`. Fixture: **Pepper&Carrot CC BY-SA 4.0**, 3 trang, nén thà
 | Cổng M10 trên đường nhanh | Ô mục đích hiện `— hãy chọn —`, **không chọn sẵn** |
 | Lỗi console trình duyệt | **không có** |
 
-### ❌ Chưa chạy được — và vì sao
+### ✅ Lượt thứ hai — chạy TRỌN VẸN đầu-cuối (sau khi cài `paddleocr`)
 
-- **Pipeline dừng ở bước OCR.** `.venv` thiếu `paddleocr` (nguồn tiếng Anh) và `torch`/`manga_ocr`
-  (tiếng Nhật). Worker báo đúng nguyên nhân thật:
-  `OCREngineFailedForEveryRegion: … Chưa cài paddleocr: No module named 'paddleocr'`, đánh dấu job
-  thất bại, **không giả vờ xong** — nguyên tắc evidence-first hoạt động đúng.
-- Do đó **chưa kiểm được**: nửa ĐỌC của ĐX-3 trên đường chạy thật (job dịch chưa bao giờ được
-  xếp), bước xuất file, và **đường tự tải về** của ĐX-1.
+Chủ dự án duyệt cài `paddleocr==3.7.0` + `paddlepaddle==3.3.1` vào venv. Chạy lại đủ chuỗi:
+
+| Bước | Số đo thật (3 trang Pepper&Carrot) |
+|---|---|
+| Nhận diện khung chữ | 125,7s tổng ≈ **42s/trang** |
+| Đọc chữ (PaddleOCR, nguồn `en`) | 24,1s ≈ **8s/trang** |
+| Xoá chữ gốc (LaMa) | 58,3s ≈ **19s/trang** |
+| Dịch (`google_fast`) | 5,9s ≈ **2s/trang** |
+| Căn chữ | 6,3s ≈ **2s/trang** |
+| **Tổng qua giao diện, từ lúc bấm tới lúc file về máy** | **230 giây** |
+
+**Qua trình duyệt thật, không lỗi console:** thả `.cbz` → bấm *Dịch ngay* → *"Dịch xong 3/3 trang
+· bỏ qua 1 mục trong gói không phải ảnh"* → *"File đã tải về máy bạn."*
+
+File nhận được: `pepper_carrot_ch1_22_09_chapter.zip`, **9,7MB, ZIP hợp lệ** (`testzip()` sạch),
+3 trang `001.png`/`002.png`/`003.png` đúng thứ tự, 1600px. **Mở được thật**, không phải "chắc là ổn".
+
+**Nhìn tận mắt trang đã dịch** (thứ chỉ chạy thật mới thấy): chữ gốc bị xoá sạch không để lại
+bóng; chữ Việt **có dấu render đúng, không có ô vuông tofu** — xác nhận công đo font ở `FONTS.md`
+(134 ký tự có dấu) có tác dụng thật; chữ nằm gọn trong bong bóng, không tràn khung; tiếng động
+(`SHH`, `PLOP`) **giữ nguyên** đúng thiết kế E26. *(Mới xem 1 trang/3 khung — chưa kết luận rộng.)*
+
+### ⚠️ Nửa ĐỌC của ĐX-3 vẫn CHƯA được lượt chạy thật chứng minh
+
+Phải nói rõ chỗ này vì rất dễ tự lừa: trong lượt chạy, engine người dùng chọn là `google_fast`, mà
+`translate_default_engine` của hệ thống **cũng** là `google_fast`. Hai đường dẫn tới cùng một kết
+quả ⇒ **lượt chạy thật không phân biệt được** "pipeline đã đọc cột override" với "pipeline bỏ qua
+cột và rơi về mặc định".
+
+Nửa ĐỌC hiện **chỉ được chứng minh bằng test + đối chứng âm** (§6.1), nơi engine chọn là
+`llm_context` nên khác hẳn mặc định. Muốn chứng minh bằng lượt chạy thật thì phải có khoá Gemini
+và chạy một chapter với `llm_context`. **Chưa làm.**
+
+### ❌ Vẫn chưa kiểm được
+
+- **PDF chưa chạy thật với một PDF truyện thật** — mọi PDF trong test đều do Pillow dựng.
 - **Chưa đo bộ nhớ thật** khi nhận gói lớn. Trần 200 trang / 500MB vẫn là suy luận từ E41.
 - Chưa thử gói `.cbz` do **phần mềm đọc truyện thật** tạo ra — gói trong lượt này do `zipfile`
-  của Python nén (tuy đã cố ý dựng tên lộn xộn + metadata + rác macOS).
+  của Python nén (tuy đã cố ý dựng tên lộn xộn `p1/p2/p10` + metadata + rác macOS).
+- Chưa chạy chapter **dài** (24 trang như E23) qua đường nhanh — lượt này chỉ 3 trang.
+
+### 🔧 Ba lần hỏng trong lượt chạy — cả ba là cấu hình SAI CỦA TÔI, không phải sản phẩm
+
+1. OCR hỏng → venv thiếu `paddleocr`.
+2. Xoá chữ hỏng → tôi đặt `INPAINT_MODEL_PATH`, tên thật là `INPAINT_WEIGHTS_PATH`.
+3. Căn chữ hỏng → tôi trỏ `FONT_DIR` vào `fonts/`, font thật nằm ở **`backend/fonts/`**
+   (compose mount `../backend/fonts:/fonts`).
+
+Điều đáng ghi: **cả ba lần sản phẩm đều nêu đúng nguyên nhân thật** —
+`Chưa cài paddleocr: No module named 'paddleocr'` và
+`font_not_found: family 'Bangers' có trong whitelist nhưng thiếu file …`. Không lần nào nó giả vờ
+xong. Evidence-first đứng vững dưới lửa thật.
+
+**Và một lần tôi suýt sửa nhầm thứ không hỏng:** giao diện báo "0/3 trang" suốt 11 phút làm tôi
+nghi phép đếm của mình sai, vì trang kết thúc ở `typeset_done` chứ không phải `ready_for_export`.
+Kiểm ra: bảng hạng xếp **cả hai cùng hạng 6**, và backend cũng coi cả hai là xuất được
+(`TRANG_XUAT_DUOC`). Phép đếm đúng; "0/3" chỉ vì căn chữ đang hỏng do font.
 
 ### 🐞 Lượt bấm tay tìm ra 2 lỗi mà 386 test không bắt được
 
@@ -238,8 +292,9 @@ production — **chưa kết luận là lỗ hổng**, nhưng phải đi xác mi
 
 ## 8. Remaining Limits
 
-1. **PDF chưa nhận.** Cần thêm phụ thuộc vào ảnh `api` — quyết định riêng, chưa xin. Gửi PDF nhận
-   `422 pdf_chua_ho_tro` nói đúng lý do, không phải lỗi khó hiểu.
+1. ~~PDF chưa nhận~~ → **ĐÃ LÀM (ĐX-2b, 22-09)** sau khi chủ dự án duyệt thêm `pypdfium2`.
+   Dựng lại ảnh cả trang, 1600px cạnh dài. **Chưa chạy thật với một PDF truyện thật** — mọi PDF
+   trong test đều do Pillow dựng.
 2. **Chưa chạy thật** — xem §7. Đây là thứ chặn việc đổi nhãn `BUILT` → `LIVE`.
 3. **Màn nhanh hỏi lại máy chủ mỗi 3 giây** trong lúc chờ. Chapter 24 trang ≈ một tiếng (E23) ⇒
    khoảng 1.200 lượt hỏi cho một chapter. Chạy được, nhưng chưa phải cách hay.
@@ -269,17 +324,22 @@ production — **chưa kết luận là lỗ hổng**, nhưng phải đi xác mi
 
 | Hạng mục | Kết quả |
 |---|---|
-| Toàn bộ backend | **1618 passed · 6 skipped · 0 failed**, `PYTEST_EXIT=0` |
-| Toàn bộ frontend | **386 passed**, 25 file |
+| Toàn bộ backend | **1631 passed · 6 skipped · 0 failed · 0 error**, `PYTEST_EXIT=0` |
+| Toàn bộ frontend | **390 passed**, 25 file |
 | `vite build` | xanh; chuỗi của tính năng mới **có mặt trong `dist/`** |
 | Đối chứng âm cho bản vá ĐX-3 | đạt — gỡ vá ⇒ 2 bài đỏ đúng chữ ký lỗi |
 | Phép dò quyền chéo tài khoản | 9/9, endpoint mới vào nhóm **chứng minh được** |
 | Migration CSDL | **không có** — dùng lại cột `0015_e19b` sẵn có |
 
-**Nhãn cuối: `BUILT`, KHÔNG phải `LIVE`.** Bộ test xanh chứng minh mã làm đúng thứ nó được viết
-để làm; nó **không** chứng minh một chapter thật đi hết chuỗi qua đường mới. Chưa có lượt chạy
-thật nào (§7). Đổi nhãn sang `LIVE` chỉ sau khi dựng worker + model weight và chạy trọn một
-chapter.
+**Nhãn cuối:**
+
+- **ĐX-1 `LIVE`** — chạy trọn vẹn qua trình duyệt thật, 230 giây, file tải về mở được (§7).
+- **ĐX-2 `LIVE` cho ZIP/CBZ**; **`BUILT` cho PDF** — 13 test xanh nhưng chưa thử PDF truyện thật.
+- **ĐX-3 `LIVE` nửa GHI**; nửa ĐỌC **chỉ có test + đối chứng âm**, vì trong lượt chạy engine
+  người dùng chọn trùng với mặc định hệ thống nên không phân biệt được hai đường (§7).
+
+Bộ test xanh chứng minh mã làm đúng thứ nó được viết để làm; **lượt chạy thật** mới chứng minh
+chuỗi đi tới cùng. Lượt này có cả hai — nhưng chỉ cho 3 trang, chưa phải chapter dài 24 trang.
 
 **Quyết định của chủ dự án đã ghi vào tài liệu** (22-09): đường nhanh **không có** bước tick xác
 nhận trách nhiệm trước khi xuất — xem §8.6.

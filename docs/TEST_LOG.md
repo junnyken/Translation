@@ -5742,3 +5742,50 @@ thì đã đi sửa nhầm chỗ.
 **Quan sát ngoài phạm vi:** `API_ACCESS_KEY` trong `.env` **rỗng** mà `POST /auth/register` vẫn
 cho qua — tạo được tài khoản quản trị đầu tiên không cần khoá. Ở máy nhà thì tiện; chưa kiểm cấu
 hình production nên **chưa kết luận là lỗ hổng**, nhưng phải đi xác minh.
+
+### Lượt CHẠY THẬT ĐẦU-CUỐI 22-09 — đã đi hết chuỗi, có file mở được
+
+Sau khi chủ dự án duyệt cài `paddleocr==3.7.0` + `paddlepaddle==3.3.1` vào venv, chạy lại trọn
+vẹn qua **trình duyệt thật**: thả `.cbz` → bấm *Dịch ngay* → **230 giây** → *"Dịch xong 3/3 trang
+· bỏ qua 1 mục trong gói không phải ảnh"* → *"File đã tải về máy bạn."*, **0 lỗi console**.
+
+| Bước | Số đo thật (3 trang Pepper&Carrot, CPU) |
+|---|---|
+| Nhận diện khung chữ | 125,7s ≈ **42s/trang** |
+| Đọc chữ (PaddleOCR, `en`) | 24,1s ≈ **8s/trang** |
+| Xoá chữ gốc (LaMa) | 58,3s ≈ **19s/trang** |
+| Dịch (`google_fast`) | 5,9s ≈ **2s/trang** |
+| Căn chữ | 6,3s ≈ **2s/trang** |
+
+File nhận được: 9,7MB, `testzip()` sạch, 3 trang `001/002/003` đúng thứ tự, 1600px.
+
+**Nhìn tận mắt trang đã dịch** — thứ không test nào thay được: chữ gốc xoá sạch không để lại
+bóng; chữ Việt **có dấu render đúng, KHÔNG có ô vuông tofu** (xác nhận công đo font ở `FONTS.md`
+có tác dụng thật); chữ nằm gọn trong bong bóng; tiếng động `SHH`/`PLOP` giữ nguyên đúng E26.
+Mới xem 1 trang/3 khung nên chưa kết luận rộng.
+
+#### Nửa ĐỌC của ĐX-3 VẪN chưa được lượt chạy thật chứng minh
+
+Rất dễ tự lừa ở chỗ này: engine người dùng chọn là `google_fast`, mà `translate_default_engine`
+**cũng** là `google_fast` ⇒ hai đường ra cùng kết quả, lượt chạy **không phân biệt được** "đã đọc
+cột override" với "bỏ qua cột, rơi về mặc định". Nửa ĐỌC hiện chỉ được chứng minh bằng test +
+đối chứng âm (engine `llm_context`, khác hẳn mặc định). Muốn chứng minh bằng lượt chạy thật thì
+cần khoá Gemini. **Chưa làm.**
+
+#### Ba lần hỏng — cả ba là cấu hình sai của tôi, không phải sản phẩm
+
+1. OCR hỏng → venv thiếu `paddleocr`.
+2. Xoá chữ hỏng → tôi đặt `INPAINT_MODEL_PATH`, tên thật là **`INPAINT_WEIGHTS_PATH`**.
+3. Căn chữ hỏng → tôi trỏ `FONT_DIR` vào `fonts/`, font thật ở **`backend/fonts/`** (compose
+   mount `../backend/fonts:/fonts`). Thư mục `fonts/` ở gốc repo **không tồn tại**, dù README nói
+   font "nằm sẵn trong `fonts/`" — README sai đường dẫn.
+
+Cả ba lần sản phẩm đều nêu **đúng nguyên nhân thật** (`No module named 'paddleocr'`;
+`font_not_found: family 'Bangers' … thiếu file …`), không lần nào giả vờ xong.
+
+#### Một lần suýt sửa nhầm thứ không hỏng
+
+Giao diện báo "0/3 trang" suốt 11 phút ⇒ nghi phép đếm sai, vì trang kết thúc ở `typeset_done`
+chứ không phải `ready_for_export`. Kiểm ra: bảng `HANG` xếp **cả hai cùng hạng 6**, backend cũng
+coi cả hai là xuất được (`TRANG_XUAT_DUOC`). Phép đếm đúng; "0/3" chỉ vì căn chữ đang hỏng do
+font. Nếu tin cảm giác mà đi sửa `demTienDo` thì đã phá một thứ đang đúng.
