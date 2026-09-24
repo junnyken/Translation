@@ -122,3 +122,74 @@ Hai lỗi tự bắt được trong lúc viết script, ghi lại vì cùng họ
   mất và `VmHWM` đọc sau vòng lặp **luôn trả `None`**. Phải bám đỉnh ngay trong vòng lấy mẫu.
 - Lần chạy thứ hai sẽ **nuốt cả ảnh `_clean`** của lần trước vào mẫu đo, làm số trang phình lên
   âm thầm.
+
+---
+
+# 8. BỔ SUNG 24-09 — đã đo tranh chấp CPU (việc §6 đề xuất)
+
+Chạy dưới `taskset -c 0-2` (3 nhân, xấp xỉ 2,6 của production). Hai nhánh xen kẽ NT/SS, **5 cặp**
+tổng cộng: 2 cặp ở lượt đo đầu + 3 cặp ở lượt đo lại có thêm **1 vòng làm ấm không tính giờ**.
+
+## 8.1. Thời gian tường — KHÔNG có lợi ích
+
+| Nhánh | Các lượt (giây) | Trung bình |
+|---|---|---|
+| **Nối tiếp** (hiện trạng `--pool=solo`) | 157,8 · 182,0 · 191,5 · 205,9 · 206,5 | **188,7s** |
+| **Song song** (2 worker chuyên hoá) | 168,3 · 173,7 · 176,5 · 202,9 · 211,0 | **186,5s** |
+
+Chênh **+2,3s (+1,2%)** — dưới xa biên độ nhiễu (42,7s). Theo luật đặt trước khi chạy: **chưa đo
+được**, KHÔNG phải "không có tác dụng".
+
+**Nhưng câu hỏi cần trả lời thì đã trả lời được.** Nếu song song cho 2× thì nhánh nối tiếp phải ra
+~380s so với ~190s. Không có gì gần như vậy. ⇒ **Một cú thắng LỚN bị loại trừ dứt khoát**; chỉ
+hiệu ứng nhỏ (~vài %) là không phân giải nổi trên bàn thử này. Và hiệu ứng vài % không phải thứ
+đáng đánh đổi bằng việc xây job-có-chủ.
+
+## 8.2. Cơ chế — vì sao bằng nhau, đo được rõ
+
+Từng bước **chậm đi rất nhiều** khi chạy song song, tách bạch hoàn toàn giữa hai nhánh:
+
+| Bước | Chạy một mình | Chạy song song | Chậm đi |
+|---|---|---|---|
+| Nhận diện | 120,2 · 141,8 · 137,1s | 210,6 · 202,6 · 168,0s | **+40…55%** |
+| Xoá chữ | 70,8 · 63,6 · 69,0s | 154,2 · 134,7 · 120,1s | **+90…115%** |
+
+Đây là **bảo toàn công việc CPU**. Nối tiếp: tường = detect + inpaint. Song song: tường =
+max(detect, inpaint), nhưng chính detect đã phình lên xấp xỉ (detect + inpaint) vì phải chia CPU.
+Hai vế hội tụ về cùng một số.
+
+**Ống dẫn chỉ có lãi khi một chặng đang RẢNH CPU.** Cả hai bước ở đây là tính toán thuần, không
+chờ đĩa hay mạng, nên không có chỗ rảnh nào để tận dụng.
+
+Điều này cũng giải thích bảng §2.7 của E25 mà lúc đó chưa ai giải thích: **6× số nhân chỉ cho
+1,19×**. Workload đã bão hoà CPU thì thêm nhân không giúp, mà chia nhân cũng không giúp — cùng
+một hiện tượng nhìn từ hai phía.
+
+## 8.3. Một giả thuyết của tôi bị bác
+
+Tôi cho rằng nhiễu 24,2s ở lượt đo đầu là do **quên vòng làm ấm**, và thêm vòng ấm sẽ siết nhiễu
+lại. **Sai.** Lượt đo lại có vòng ấm mà nhiễu còn **tăng** (42,7s), vì tải máy dùng chung cao suốt
+lượt đo (loadavg 17–25). Nhiễu đến từ **máy dùng chung**, không phải từ warm-up. Đúng thứ E25 đã
+gặp.
+
+## 8.4. Kết luận cho hướng B
+
+**KHÔNG khuyến nghị xây.** Hướng A cho thấy RAM vừa (chỉ với một cách chia, biên trong dải nhiễu);
+§8 cho thấy **không có thông lượng để mà lấy**. Xây job-có-chủ (id worker + nhịp tim) là việc đụng
+thẳng vào phần E22 dựng để chống mất việc — làm việc đó để đổi lấy ~1% là lỗ rõ ràng.
+
+**E45 khép lại ở đây với kết quả âm**, cùng dạng với E25. Giá trị của nó là **đóng thêm một
+hướng** để lần sau không ai đi lại, và sửa hai hiểu sai của E25 (§3, §8.2).
+
+## 8.5. Hướng thay thế — đổi BẢN CHẤT công việc, không chia lại nó
+
+Mọi hướng đã đóng đều cố chia lại cùng một khối tính toán. Hướng chưa ai thử là **bỏ khối tính toán
+đó ra khỏi máy**: gọi AI nhận diện khung bong bóng thay vì chạy ONNX cục bộ.
+
+Nếu nhận diện thành lượt gọi mạng thì **CPU rảnh xuất hiện** — và đúng cái vừa làm hỏng §8 lại trở
+thành có lãi. Hạ tầng đã có sẵn: E32 đã gửi ảnh trang cho Gemini (`anh_kem.py`, thu nhỏ 1024px
+chặn chi phí, xoay key, hỏng thì trả `None`).
+
+**Chưa đo, chưa được tin.** Bốn ẩn số: chất lượng khung của model tổng quát so với model chuyên trị
+truyện tranh; chi phí token (nhận diện hiện tốn 0 đồng); phụ thuộc mạng (hiện chạy offline được);
+trần gọi Gemini tính theo *project*.
