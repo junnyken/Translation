@@ -227,3 +227,75 @@ Tôi viết §7.2 mà quên đúng phát hiện của chính mình hai giờ tr�
 Cách chưa thử: yêu cầu model trả khung **CHỮ** thay vì khung **BONG BÓNG** (lời nhắc hiện tại nói
 "speech balloon and text area" — chính nó mời model khoanh cả bong bóng). Đây là thay đổi **một
 dòng lời nhắc**, rẻ nhất trong mọi hướng còn lại, và **chưa ai thử**.
+
+---
+
+# 10. BỔ SUNG — ép schema + đổi lời nhắc sang khung CHỮ
+
+## 10.1. Xin JSON bằng lời nhắc là cách SAI — hỏng âm thầm
+
+Lượt thử lời nhắc đầu trượt **6/30**, toàn bộ ở **cùng một trang**, cùng vị trí ký tự 199. Đào ra:
+
+- Model **dừng giữa mảng JSON**, thiếu dấu đóng, mà vẫn báo `finishReason: STOP` — tức nó *tưởng*
+  đã trả lời xong.
+- Nó **đổi tên khoá ngay trong một câu trả lời**: mục đầu `box`, các mục sau `box_2d`.
+- Tái hiện **7/7 lần** trên đúng trang đó ⇒ **hỏng TẤT ĐỊNH theo từng trang**, không phải nhiễu.
+
+Đây là loại hỏng nguy hiểm nhất: không ngoại lệ mạng, không mã lỗi, chỉ là **dữ liệu thiếu**. Đưa
+nguyên trạng vào sản phẩm thì **một số trang sẽ im lặng mất vùng chữ**.
+
+**`responseSchema` sửa dứt điểm, và còn NHANH HƠN:**
+
+| | Lời nhắc thường | Ép schema |
+|---|---|---|
+| Thành công | 24/30 | **45/45** |
+| Thời gian (cùng trang) | 3,58s | **2,46s** |
+
+**Đính chính §5.2.** Tôi viết *"model không giữ tên khoá"* là **chi phí vĩnh viễn** của hướng LLM.
+Sai — ép schema loại bỏ hẳn cả tên khoá lẫn cấu trúc. Đây là **điều kiện bắt buộc**, không phải
+tuỳ chọn.
+
+## 10.2. Đổi lời nhắc sang khung CHỮ — giải được bài khung rộng
+
+Cả ba đo bằng schema, 15 lượt mỗi lời nhắc, **45/45 thành công**:
+
+| Lời nhắc | Giây | Khung | Phủ ≥50% | Sót hẳn | **Thừa** | **Ăn nét vẽ** | Ổn định |
+|---|---|---|---|---|---|---|---|
+| **Model cũ** | 42–70 | 27 | 27/27 | 0/27 | 1,00× | **1,0×** | tất định |
+| `BONG_BONG` (cũ) | 3,07 | 25 | 26/27 | 1/27 | 2,07× | **2,7×** | 5/5 |
+| **`CHU`** | **3,53** | 35 | 24/27 | 2/27 | **0,97×** | **1,3×** | 5/5 |
+| `CHU_TACH` | 7,41 | 30 | 23/27 | 3/27 | **0,94×** | **1,0×** | 5/5 |
+
+**Bài khung rộng đã giải.** Diện tích ăn vào nét vẽ: **2,7× → 1,3×** (`CHU`) và **1,0×**
+(`CHU_TACH`, tức ngang hệt model cũ). Lời nhắc cũ nói *"speech balloon and text area"* — chính nó
+mời model khoanh cả bong bóng.
+
+**Giá phải trả:** sót hẳn tăng từ 1/27 lên 2–3/27, và phủ ≥90% tụt mạnh (24 → 10 → 7). Phần tụt
+đó **phần lớn là ảo**: khung cũ có đệm quanh chữ, khung mới bám sát nét chữ, nên chấm "phủ ≥90%
+khung cũ" tự động phạt khung khít. Nhưng **sót hẳn tăng thật** và không giải thích bằng chỉ số
+được.
+
+**Chọn `CHU`, không chọn `CHU_TACH`:** chậm hơn gấp đôi (7,41s) để đổi lấy 0,3× diện tích, mà lại
+sót nhiều hơn (3/27).
+
+## 10.3. Trạng thái sau E46
+
+| | |
+|---|---|
+| Nhanh | ✅ 3,5s so với 42–70s |
+| Rẻ | ✅ ~1,2 xu/chapter |
+| Ổn định đầu ra | ✅ nhờ `responseSchema` (bắt buộc) |
+| Khung không ăn nét vẽ | ✅ nhờ lời nhắc khung CHỮ |
+| **Không bỏ sót** | ❌ **2/27 so với 0/27** của model cũ |
+
+Bốn trên năm đã đạt. Điểm còn lại là **sót vùng** — và đó đúng là điểm dự án không được thoả hiệp:
+sót một bong bóng nghĩa là **mất hẳn một câu thoại** trong bản giao cho người đọc.
+
+## 10.4. Chưa đo (không được coi là đã có)
+
+1. **Truyện Nhật** — chữ dọc, bong bóng không viền, chữ tượng thanh đè lên nét vẽ. Mẫu hiện tại
+   **toàn tiếng Anh, khung tranh phương Tây**.
+2. **Chất lượng đọc chữ trong khung AI** so với khung cũ.
+3. **Chạy khi mất mạng** — hiện nhận diện chạy ngoại tuyến được; đổi xong thì Gemini hỏng là cả
+   dây chuyền đứng.
+4. **Trần gọi theo project** (đã chốt ở M5: xoay key không giải quyết).
