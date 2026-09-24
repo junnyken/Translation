@@ -157,15 +157,59 @@ rồi mới kiểm. Sau khi sửa: tài khoản A `200`, tài khoản B `404` �
 
 ---
 
-## 7. Live Verification
+## 7. Live Verification — chạy thật trên production 24-09
 
-**CHƯA CÓ.** Phase 1 code xong, test xanh, nhưng **chưa deploy** nên chưa chạy thật lần nào.
+Deploy xong rồi mới đo. Tất cả số dưới đây lấy từ `translation-api/web.cmc-1.vibenode.matbao.ai`.
 
-Cần làm sau khi deploy:
-1. Chạy 1 batch 3–5 trang qua đường nhanh, cố ý để ít nhất 1 trang có cờ → xác nhận cảnh báo hiện
-   đúng số, **file vẫn tự tải về**, không lỗi console
-2. Chạy 1 trang bằng `llm_context` → xác nhận token hiện đúng ở cả màn rà soát lẫn màn tóm tắt
-3. Chạy 1 chapter hoàn toàn `google_fast` → xác nhận **không hiện gì** về token (không phải "0")
+### ✅ Trường mới có mặt và mang số thật
+
+| Phép đo | Kết quả |
+|---|---|
+| `token_cost` từng vùng (`GET /pages/{id}/detail`) | `[1416, None, None, None]` |
+| `token_cost_total` (`GET /projects/{id}/export-warnings`) | `1416` |
+| Engine thật đã chạy | `llm_context` · `gemini-3.5-flash` |
+
+**Đây là bằng chứng cho ba thứ cùng lúc:**
+
+1. Hai trường mới hoạt động, mang số thật
+2. **Phân biệt `NULL` với `0` đúng** — vùng đầu tiêu 1.416 token, **ba vùng còn lại `None` chứ
+   không phải `0`**. Đúng nghĩa: `llm_context` gộp cả trang gửi một lượt nên chi phí ghi ở một
+   vùng, ba vùng kia không tiêu riêng
+3. Tổng cộng đúng
+
+### ✅ Giao diện hiện đúng — bấm tay trên Chromium thật
+
+- **Chapter `llm_context`:** màn tóm tắt hiện *"Chapter này đã tiêu **1.416 token** cho bản dịch
+  AI. Tính cả trang không lọt vào file xuất — token đã tiêu là đã mất."* Đúng định dạng số
+  tiếng Việt (`1.416`)
+- **Chapter `google_fast`:** **không nhắc tới token ở bất kỳ đâu** — không phải "0 token". Đây là
+  trường hợp quan trọng nhất và nó đúng
+- **Cảnh báo cờ:** chapter thử có `needs_manual_count = 1`, màn tóm tắt hiện *"1 bong bóng sẽ
+  trống vì chưa đọc được chữ gốc"*
+- **0 lỗi console** ở cả hai lượt
+
+### ✅ Xác nhận lại ĐX-3 theo CHIỀU NGƯỢC
+
+Production đặt mặc định `translate_default_engine: llm_context`.
+
+- Sáng 24-09: chọn `google_fast` → chạy **`google_fast`**, 0 token (khác mặc định)
+- Lượt này: chọn `llm_context` → chạy **`llm_context`**, 1.416 token
+
+**Cả hai chiều đều đúng** — pipeline đọc thật cột `Page.translate_engine_override`, không phải
+tình cờ trùng mặc định.
+
+### ⚠️ Còn một mục CHƯA kiểm live
+
+**Dòng cảnh báo trên chính màn "Dịch nhanh"** chưa được nhìn thấy trên production. Lý do: đường
+nhanh tự tạo chapter riêng mỗi lượt, và chapter nó tạo ra phải *tình cờ* có cờ thì dòng đó mới
+hiện — hai lượt thử đầu đều sạch.
+
+Phần **dữ liệu** của đường đó đã verify live (`layCanhBaoXuat` trả `needs_manual_count: 1` thật).
+Phần **hiển thị** mới chỉ có 3 bài test tự động. Không nâng lên "đã kiểm live".
+
+### Chi phí đã tiêu để có phép đo này
+
+**1.416 token Gemini** (`gemini-3.5-flash`). Chính con số đó là bằng chứng cần tìm.
 
 ---
 
@@ -183,9 +227,22 @@ Cần làm sau khi deploy:
 
 ## 9. Commit / Deploy State
 
-- **Chưa commit** tại thời điểm viết báo cáo này
-- **Chưa push, chưa deploy**
-- Production đang chạy bản deploy 24-09 (trước P0-P1), **không** có tính năng của Mini-Spec này
+| | |
+|---|---|
+| Commit | `ab0ed15` — đã push lên `origin/main` |
+| `translation-api` | deploy **succeeded**, `healthz` 200, hai trường mới trả đúng |
+| `translation-web` | deploy **succeeded**, bundle `index-lN110W1i.js` chứa đủ chuỗi P1 |
+| Thứ tự deploy | **backend trước**, chờ `healthz` 200 rồi mới frontend |
+| Rollback | redeploy về v70 (api) / v37 (web) — bản deploy sáng 24-09 |
 
-Theo Stop Rule #3 của Mini-Spec: viết xong báo cáo là **DỪNG**. Không tự mở Phase 2 (xác minh PDF
-/ chapter 24 trang) hay Phase 3 (benchmark chất lượng dịch).
+Thay đổi API là **cộng thêm trường**, không đổi trường nào đang có ⇒ client cũ (kể cả tiện ích
+Chrome) không vỡ.
+
+Theo Stop Rule #3 của Mini-Spec: **DỪNG** sau báo cáo. Không tự mở Phase 2 (xác minh PDF / chapter
+24 trang) hay Phase 3 (benchmark chất lượng dịch).
+
+### Việc cần làm ngay, ngoài phạm vi Mini-Spec
+
+**Khoá tài khoản `kiemthu-dx3@matbao.com`.** Nó được tạo để kiểm thử, mật khẩu đã đi qua kênh chat,
+và nó đã tạo 2 chapter thật trên production (`42830a4f…` google_fast, `4c42cf17…` llm_context).
+Xoá luôn hai chapter đó nếu không cần giữ làm mẫu.
