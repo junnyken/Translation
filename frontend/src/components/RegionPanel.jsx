@@ -104,6 +104,15 @@ export default function RegionPanel({
         Bản dịch: <b>{region.translation_edited_by_user ? 'đã sửa tay' : 'máy dịch'}</b>
         {' · '}
         Canh chữ: <b>{region.typeset_edited_by_user ? 'đã sửa tay' : 'máy canh'}</b>
+        {/* P1 — chỉ hiện khi vùng này THẬT SỰ tiêu token. `null` nghĩa là engine miễn phí
+            (`google_fast`) hoặc chưa dịch; hiện "0 token" ở đó sẽ bị đọc thành "engine tốn tiền
+            mà tốn hết 0", sai hẳn nghĩa. Im lặng đúng hơn. */}
+        {region.token_cost != null && (
+          <>
+            {' · '}
+            <b>{region.token_cost.toLocaleString('vi-VN')} token</b>
+          </>
+        )}
       </div>
 
       <div className="nhan">

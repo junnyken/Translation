@@ -1431,6 +1431,9 @@ async def get_page_detail(
             translated_text=tr.translated_text if tr else None,
             translation_status=tr.status if tr else None,
             translation_edited_by_user=bool(tr.edited_by_user) if tr else False,
+            # P1 — `TranslationResult` đã nằm sẵn trong lượt join ở trên, nên thêm trường này
+            # KHÔNG tốn thêm truy vấn nào. Đọc thẳng cột đã ghi, không tính lại.
+            token_cost=tr.token_cost if tr else None,
             font_family=ts.font_family if ts else None,
             font_size=ts.font_size if ts else None,
             wrapped_text=ts.wrapped_text if ts else None,
@@ -2074,7 +2077,23 @@ async def get_export_warnings(
     ) or 0)
     doc_tong = int(huong.get(TextOrientation.vertical_ttb, 0))
 
+    # P1 — TỔNG token đã tiêu. Cộng giá trị đã ghi, không tính lại token.
+    #
+    # Đếm trên CẢ chapter, khác với mọi số ở trên (chỉ đếm trang sẽ được xuất). Có chủ đích:
+    # token đã tiêu là tiền đã mất, kể cả ở trang cuối cùng không lọt vào file xuất. Giấu phần
+    # đó đi là báo thiếu chi phí cho người trả tiền.
+    #
+    # `SUM` của Postgres trả NULL khi không có dòng nào hợp lệ — giữ nguyên NULL đó thay vì ép
+    # về 0, vì "chưa trang nào dùng engine tốn token" khác hẳn "đã dùng mà tốn 0 token".
+    tong_token = await session.scalar(
+        select(func.sum(TranslationResult.token_cost))
+        .join(TextRegion, TextRegion.id == TranslationResult.region_id)
+        .join(Page, Page.id == TextRegion.page_id)
+        .where(Page.project_id == project_id)
+    )
+
     return ExportWarningsRead(
+        token_cost_total=int(tong_token) if tong_token is not None else None,
         overflow_warning_count=cb.overflow_warning_count,
         needs_manual_count=cb.needs_manual_count,
         font_missing_count=cb.font_missing_count,

@@ -372,6 +372,12 @@ class RegionDetail(ORMModel):
     translated_text: str | None = None
     translation_status: TranslationStatus | None = None
     translation_edited_by_user: bool = False
+    #: P1 — số token ĐÃ TIÊU THẬT cho vùng này. Đọc thẳng giá trị đã ghi, **không tính lại**.
+    #:
+    #: `None` khi vùng chạy engine miễn phí (`google_fast`) hoặc chưa dịch — theo đúng nguyên tắc
+    #: của dự án: *chưa có → NULL, không điền 0 giả*. Số 0 ở đây sẽ mang nghĩa "đã dịch bằng
+    #: engine tốn tiền mà tốn hết 0 token", khác hẳn "engine này không tính token".
+    token_cost: int | None = None
     font_family: str | None = None
     font_size: float | None = None
     wrapped_text: str | None = None
@@ -608,6 +614,15 @@ class ExportWarningsRead(BaseModel):
     orientation_vertical_rendered_count: int = 0
     orientation_review_count: int = 0
     orientation_unknown_count: int = 0
+    #: P1 — TỔNG số token đã tiêu cho chapter này. Cộng từ các giá trị đã ghi, không tính lại.
+    #:
+    #: ⚠️ Số này đếm theo quy tắc KHÁC mọi số còn lại trong schema: các số kia chỉ đếm trên
+    #: **trang sẽ được xuất**, còn đây đếm **cả chapter**. Có chủ đích — token đã tiêu là tiền đã
+    #: mất, kể cả ở trang cuối cùng không lọt vào file. Giấu đi phần đó là báo thiếu chi phí.
+    #:
+    #: `None` = chưa trang nào dịch bằng engine tốn token. Khác với `0`, vốn sẽ có nghĩa "đã dùng
+    #: engine tốn tiền mà tốn hết 0 token".
+    token_cost_total: int | None = None
     #: E12 — vùng máy đề nghị xem lại trước khi xuất.
     quality_needs_review_count: int = 0
     #: E12 — vùng CHƯA đánh giá được. Không bao giờ gộp vào "rõ ràng".

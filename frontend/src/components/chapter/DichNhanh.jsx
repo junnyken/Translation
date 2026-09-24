@@ -23,6 +23,25 @@ const MO_TA_ENGINE = {
   llm_context: 'Giữ mạch văn cả trang và tự sửa lỗi đọc chữ — TỐN token AI.',
 }
 
+/** P1 — đếm số vùng chữ đáng xem lại từ cảnh báo xuất ĐÃ CÓ của backend.
+ *
+ * Dùng lại đúng `/projects/{id}/export-warnings` (E12/E14/F1) thay vì dựng phép đếm mới: dựng
+ * mới sẽ tạo **nguồn sự thật thứ hai** cho cùng một khái niệm, và hai nguồn sẽ lệch nhau.
+ *
+ * Đếm theo **VÙNG CHỮ**, không theo trang — đó là thứ backend thật sự đo được. Viết "N trang"
+ * sẽ là một con số không ai kiểm chứng được.
+ *
+ * Bốn loại gộp lại vì với người đi đường nhanh chúng dẫn tới cùng một hành động (mở màn rà
+ * soát); chi tiết từng loại đã có sẵn ở đường đầy đủ.
+ */
+export function demVungDangNgo(canhBao) {
+  if (!canhBao) return 0
+  return (canhBao.needs_manual_count ?? 0)
+    + (canhBao.quality_needs_review_count ?? 0)
+    + (canhBao.overflow_warning_count ?? 0)
+    + (canhBao.font_missing_count ?? 0)
+}
+
 /** Vì sao chưa chạy được — `null` nghĩa là chạy được. Tách riêng để test không cần dựng DOM. */
 export function lyDoChuaChayDuoc({ mucDich, files }) {
   // M10 giữ nguyên ở đây: người dùng tự khai mục đích, hệ thống KHÔNG chọn hộ. Màn này rút gọn
@@ -129,7 +148,20 @@ export default function DichNhanh({ onMoChapter }) {
         await api.choXuatXong(job.job_id)
         taiVe = await api.taiFileXuatVe(job.job_id)
       }
-      setKetQua({ projectId, ...dem, boQua, taiVe })
+
+      // P1 — hỏi cảnh báo SAU KHI file đã về máy. Thứ tự này là cố ý: quyết định Phase 0 chốt
+      // "hiện thông tin, KHÔNG chặn tải". Hỏi trước sẽ biến nó thành một bước chắn đường.
+      //
+      // Hỏng ở đây KHÔNG được làm hỏng kết quả: người dùng đã có file rồi, mất dòng cảnh báo
+      // thì tiếc, nhưng nuốt mất cả màn kết quả vì một lời gọi phụ thì tệ hơn nhiều.
+      let canhBao = null
+      try {
+        canhBao = await api.layCanhBaoXuat(projectId)
+      } catch {
+        canhBao = null
+      }
+
+      setKetQua({ projectId, ...dem, boQua, taiVe, soVungDangNgo: demVungDangNgo(canhBao) })
       setGiaiDoan('xong')
     } catch (e) {
       // Giữ lại projectId: chapter đã tạo và có thể đã dịch xong vài trang — chỉ chỗ đó cho
@@ -221,6 +253,16 @@ export default function DichNhanh({ onMoChapter }) {
             {ketQua.taiVe
               ? <p>File đã tải về máy bạn.</p>
               : <p>Chưa tải về — bật “Tự tải về khi xong”, hoặc mở chapter rồi tự xuất.</p>}
+            {/* P1 — im lặng khi sạch. Không hiện "0 vùng cần xem lại — mọi thứ ổn": đó là một
+                lời khẳng định mà phép đo hiện tại KHÔNG chứng minh được, và nói thừa một câu
+                trấn an sai còn tệ hơn không nói gì. */}
+            {ketQua.soVungDangNgo > 0 && (
+              <p>
+                <b>{ketQua.soVungDangNgo} vùng chữ</b> nên xem lại (đọc chưa chắc, tràn khung,
+                hoặc bong bóng bị bỏ trống). File vẫn đã tải về — mở chapter bên dưới nếu muốn
+                sửa trước khi dùng.
+              </p>
+            )}
             <Button kieu="ghost" onClick={() => onMoChapter?.(ketQua.projectId)}>
               Mở chapter để xem lại / sửa tay
             </Button>

@@ -13,6 +13,10 @@ export default function ChapterSummary({ tienDo, canhBao, trangDau, onXuat }) {
   // mà chưa đẹp / chưa đọc được", còn số này là bong bóng chắc chắn trống.
   const soThieuFont = canhBao?.font_missing_count ?? 0
   const co_canh_bao = soTran > 0 || soCanDoc > 0 || soThieuFont > 0
+  // P1 — tổng token đã tiêu cho CẢ chapter. `null` = chưa trang nào dùng engine tốn token
+  // (`google_fast` miễn phí), và khi đó không hiện gì: số 0 ở đây sẽ bị đọc thành "đã dùng
+  // engine tốn tiền mà tốn hết 0 token", sai hẳn nghĩa.
+  const tongToken = canhBao?.token_cost_total ?? null
 
   if (!tienDo.san_sang_ra_soat) {
     return (
@@ -48,6 +52,12 @@ export default function ChapterSummary({ tienDo, canhBao, trangDau, onXuat }) {
         <Alert sac="ok" tieuDe="Đã căn chữ xong">
           Không có vùng nào bị đánh dấu cần sửa. Nên xem qua một lượt trước khi xuất.
         </Alert>
+      )}
+      {tongToken !== null && (
+        <p className="ghi-chu">
+          Chapter này đã tiêu <b>{tongToken.toLocaleString('vi-VN')} token</b> cho bản dịch
+          AI. Tính cả trang không lọt vào file xuất — token đã tiêu là đã mất.
+        </p>
       )}
       <div className="hang nut">
         {trangDau && (

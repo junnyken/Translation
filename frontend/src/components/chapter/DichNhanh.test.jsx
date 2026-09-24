@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as api from '../../api.js'
 import DichNhanh, {
-  choChapterXong, datTenTuDong, demTienDo, lyDoChuaChayDuoc,
+  choChapterXong, datTenTuDong, demTienDo, demVungDangNgo, lyDoChuaChayDuoc,
 } from './DichNhanh.jsx'
 
 const anh = (ten) => new File(['x'], ten, { type: 'image/png' })
@@ -39,6 +39,27 @@ describe('đếm tiến độ', () => {
 
   it('chapter rỗng KHÔNG phải là đã chạy xong', () => {
     expect(demTienDo([]).chayXong).toBe(false)
+  })
+})
+
+describe('đếm vùng đáng ngờ (P1)', () => {
+  it('cộng đủ bốn loại cờ từ cảnh báo xuất ĐÃ CÓ của backend', () => {
+    expect(demVungDangNgo({
+      needs_manual_count: 2, quality_needs_review_count: 1,
+      overflow_warning_count: 3, font_missing_count: 1,
+    })).toBe(7)
+  })
+
+  it('không có cảnh báo hoặc sạch hoàn toàn thì bằng 0', () => {
+    expect(demVungDangNgo(null)).toBe(0)
+    expect(demVungDangNgo({})).toBe(0)
+    expect(demVungDangNgo({ needs_manual_count: 0, overflow_warning_count: 0 })).toBe(0)
+  })
+
+  it('bỏ qua các số KHÔNG phải cờ cần rà soát', () => {
+    // `shape_fallback_count` là "không biết lòng bong bóng ở đâu" — đã căn bằng khung dự phòng,
+    // không phải lỗi cần người sửa. Cộng vào sẽ thổi số và làm người dùng bỏ qua cảnh báo thật.
+    expect(demVungDangNgo({ needs_manual_count: 1, shape_fallback_count: 99 })).toBe(1)
   })
 })
 
@@ -166,6 +187,68 @@ describe('màn Dịch nhanh', () => {
 
     await waitFor(() => expect(screen.getByText(/Chưa tải về/i)).toBeInTheDocument())
     expect(api.xuatChapter).not.toHaveBeenCalled()
+  })
+
+  it('P1: có vùng đáng ngờ thì BÁO, nhưng KHÔNG chặn tải', async () => {
+    const u = userEvent.setup()
+    vi.spyOn(api, 'taoProject').mockResolvedValue({ id: 'p-w' })
+    vi.spyOn(api, 'taiTrangLen').mockResolvedValue({ page_id: 'pg' })
+    vi.spyOn(api, 'layProject').mockResolvedValue({ pages: [{ status: 'ready_for_export' }] })
+    vi.spyOn(api, 'xuatChapter').mockResolvedValue({ job_id: 'ex' })
+    vi.spyOn(api, 'choXuatXong').mockResolvedValue({})
+    vi.spyOn(api, 'taiFileXuatVe').mockResolvedValue('c.zip')
+    vi.spyOn(api, 'layCanhBaoXuat').mockResolvedValue({
+      needs_manual_count: 2, overflow_warning_count: 1,
+    })
+
+    const { container } = render(<DichNhanh />)
+    await u.selectOptions(screen.getByLabelText(/Mục đích sử dụng/), 'study')
+    await u.upload(container.querySelector('input[type=file]'), [anh('a.png')])
+    await u.click(screen.getByRole('button', { name: /Dịch ngay/i }))
+
+    await waitFor(() => expect(screen.getByText(/3 vùng chữ/)).toBeInTheDocument())
+    // Cốt lõi của quyết định Phase 0: cảnh báo KHÔNG được thay thế việc tải file.
+    expect(screen.getByText(/File đã tải về máy bạn/i)).toBeInTheDocument()
+    expect(api.taiFileXuatVe).toHaveBeenCalled()
+  })
+
+  it('P1: sạch hoàn toàn thì IM LẶNG, không trấn an "mọi thứ ổn"', async () => {
+    const u = userEvent.setup()
+    vi.spyOn(api, 'taoProject').mockResolvedValue({ id: 'p-c' })
+    vi.spyOn(api, 'taiTrangLen').mockResolvedValue({ page_id: 'pg' })
+    vi.spyOn(api, 'layProject').mockResolvedValue({ pages: [{ status: 'ready_for_export' }] })
+    vi.spyOn(api, 'xuatChapter').mockResolvedValue({ job_id: 'ex' })
+    vi.spyOn(api, 'choXuatXong').mockResolvedValue({})
+    vi.spyOn(api, 'taiFileXuatVe').mockResolvedValue('c.zip')
+    vi.spyOn(api, 'layCanhBaoXuat').mockResolvedValue({
+      needs_manual_count: 0, overflow_warning_count: 0, font_missing_count: 0,
+    })
+
+    const { container } = render(<DichNhanh />)
+    await u.selectOptions(screen.getByLabelText(/Mục đích sử dụng/), 'study')
+    await u.upload(container.querySelector('input[type=file]'), [anh('a.png')])
+    await u.click(screen.getByRole('button', { name: /Dịch ngay/i }))
+
+    await waitFor(() => expect(screen.getByText(/File đã tải về máy bạn/i)).toBeInTheDocument())
+    expect(screen.queryByText(/vùng chữ/)).toBeNull()
+  })
+
+  it('P1: lời gọi cảnh báo HỎNG cũng không được nuốt mất màn kết quả', async () => {
+    const u = userEvent.setup()
+    vi.spyOn(api, 'taoProject').mockResolvedValue({ id: 'p-e' })
+    vi.spyOn(api, 'taiTrangLen').mockResolvedValue({ page_id: 'pg' })
+    vi.spyOn(api, 'layProject').mockResolvedValue({ pages: [{ status: 'ready_for_export' }] })
+    vi.spyOn(api, 'xuatChapter').mockResolvedValue({ job_id: 'ex' })
+    vi.spyOn(api, 'choXuatXong').mockResolvedValue({})
+    vi.spyOn(api, 'taiFileXuatVe').mockResolvedValue('c.zip')
+    vi.spyOn(api, 'layCanhBaoXuat').mockRejectedValue(new Error('mạng hỏng'))
+
+    const { container } = render(<DichNhanh />)
+    await u.selectOptions(screen.getByLabelText(/Mục đích sử dụng/), 'study')
+    await u.upload(container.querySelector('input[type=file]'), [anh('a.png')])
+    await u.click(screen.getByRole('button', { name: /Dịch ngay/i }))
+
+    await waitFor(() => expect(screen.getByText(/File đã tải về máy bạn/i)).toBeInTheDocument())
   })
 
   it('trang hỏng thì báo THIẾU TRANG chứ không báo xong xuôi', async () => {
