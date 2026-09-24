@@ -1717,7 +1717,23 @@ async def export_preview(
     """
     await _get_project_or_404(session, project_id, nguoi)
     pages = list((await session.execute(_thong_ke_xuat_stmt(project_id))).scalars())
-    xuat_duoc = [p for p in pages if p.status in (PageStatus.typeset_done, PageStatus.ready_for_export)]
+    # E43 — xem-trước phải đếm GIỐNG file xuất thật.
+    #
+    # E38 dạy cổng xuất rằng trang `detected` + 0 vùng (tranh thuần) vẫn được xuất bằng ảnh gốc,
+    # nhưng chỉ sửa trong `tasks.py` và **bỏ sót chỗ này**. Hậu quả đo được trên production
+    # 24-09: xem-trước báo "19 trang, bỏ qua 5" trong khi file ZIP thật có ĐỦ 24 trang. Cảnh báo
+    # sai làm người dùng mất tin vào mọi cảnh báo khác.
+    #
+    # Từ E43 trang tranh thuần đi hết chuỗi tới `typeset_done` nên phép so trạng thái tự đúng
+    # với chapter MỚI. Dòng dưới lo nốt chapter CŨ đang kẹt ở `detected`.
+    co_vung = set((await session.execute(
+        select(TextRegion.page_id).where(TextRegion.page_id.in_([p.id for p in pages])).distinct()
+    )).scalars()) if pages else set()
+    xuat_duoc = [
+        p for p in pages
+        if p.status in (PageStatus.typeset_done, PageStatus.ready_for_export)
+        or (p.status is PageStatus.detected and p.id not in co_vung)
+    ]
 
     so_tran = so_thieu_glyph = 0
     if xuat_duoc:

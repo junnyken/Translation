@@ -395,12 +395,44 @@ def _run_ocr(job_id: uuid.UUID) -> dict:
         session.commit()
 
     if not region_specs:
+        # E43 — trang TRANH THUẦN không phải lỗi.
+        #
+        # `detected` + 0 vùng nghĩa là detect đã chạy xong và **xác nhận trang không có chữ**
+        # (bìa chương, trang splash). Trước E43 chỗ này đánh dấu job `failed` kèm thông điệp
+        # "chạy detect trước" — vừa SAI SỰ THẬT (detect đã xong), vừa làm trang kẹt vĩnh viễn ở
+        # `detected`. Đo thật trên production 24-09: chapter 24 trang đứng im ở 19/24, và màn
+        # "Dịch nhanh" hỏi lại tới hết trần 2 tiếng vì không bao giờ thấy đủ trang.
+        #
+        # Trang chưa detect xong thì VẪN là lỗi thật — giữ nguyên nhánh dưới.
         with sync_session() as session:
             job = session.get(Job, job_id)
-            job.status = JobStatus.failed
-            job.error_log = "no_region: page chưa có TextRegion nào (chạy detect trước)"
-            session.commit()
-        return {"status": "failed", "job_id": str(job_id), "error": "no_region"}
+            page = session.get(Page, page_id)
+            if page is not None and page.status is PageStatus.detected:
+                assert_transition(page.status, PageStatus.ocr_done)
+                page.status = PageStatus.ocr_done
+                job.status = JobStatus.done
+                job.error_log = None
+                session.commit()
+                khong_chu = True
+            else:
+                job.status = JobStatus.failed
+                job.error_log = "no_region: page chưa có TextRegion nào (chạy detect trước)"
+                session.commit()
+                khong_chu = False
+
+        if not khong_chu:
+            return {"status": "failed", "job_id": str(job_id), "error": "no_region"}
+
+        # Nối chuỗi y như đường thường: các bước sau cũng tự nhận "không có việc" và đi tiếp,
+        # nên trang về đích `typeset_done` và được đếm là đã xong ở mọi nơi.
+        if _che_do_pipeline(page_id) is ChePipeline.chi_chu:
+            tiep = (enqueue_translate_after_ocr(page_id, _page_engine_override(page_id))
+                    if settings.translate_auto_chain else None)
+        else:
+            tiep = enqueue_inpaint_after_ocr(page_id) if settings.inpaint_auto_chain else None
+        logger.info("E43: trang %s không có chữ — bỏ qua đọc chữ, nối tiếp %s", page_id, tiep)
+        return {"status": "done", "job_id": str(job_id), "page_id": str(page_id),
+                "regions": 0, "khong_co_chu": True, "next_job_id": str(tiep) if tiep else None}
 
     ep_giai_phong_neu_cang({"ocr"}, settings.worker_rss_soft_limit_mb)
     ghi_moc("ocr: trước")
@@ -789,10 +821,24 @@ def _run_inpaint(job_id: uuid.UUID) -> dict:
             ).scalars()
         )
         if not regions:
-            job.status = JobStatus.failed
-            job.error_log = "no_region: page chưa có TextRegion nào (chạy detect trước)"
+            # E43 — không có chữ thì không có gì để xoá. Đi tiếp, đừng báo lỗi.
+            #
+            # **Cố ý KHÔNG đặt `clean_image_path`.** Ảnh clean là sản phẩm của một lượt xoá chữ
+            # đã chạy; ở đây chưa từng chạy, nên để NULL mới trung thực (đúng nguyên tắc
+            # "chưa có → NULL"). Cổng xuất tự biết dùng ảnh gốc cho trang không vùng.
+            #
+            # Tuyệt đối KHÔNG trỏ `clean_image_path` sang chính `image_path` cho gọn: lượt chạy
+            # lại bước này `storage.delete(old_clean_rel)` sẽ **xoá mất ảnh GỐC**.
+            assert_transition(page.status, PageStatus.inpainted)
+            page.status = PageStatus.inpainted
+            job.status = JobStatus.done
+            job.error_log = None
             session.commit()
-            return {"status": "failed", "job_id": str(job_id), "error": "no_region"}
+            tiep = (enqueue_translate_after_inpaint(page_id)
+                    if settings.translate_auto_chain else None)
+            logger.info("E43: trang %s không có chữ — bỏ qua xoá chữ, nối tiếp %s", page_id, tiep)
+            return {"status": "done", "job_id": str(job_id), "page_id": str(page_id),
+                    "khong_co_chu": True, "next_job_id": str(tiep) if tiep else None}
 
         ocr_count = session.scalar(
             select(func.count(OCRResult.id)).where(
@@ -1093,10 +1139,18 @@ def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dic
             ).scalars()
         )
         if not regions:
-            job.status = JobStatus.failed
-            job.error_log = "no_region: page chưa có TextRegion nào"
+            # E43 — không có chữ thì không có gì để dịch. Đi tiếp, và KHÔNG tiêu token nào.
+            assert_transition(page.status, PageStatus.translated)
+            page.status = PageStatus.translated
+            job.status = JobStatus.done
+            job.error_log = None
             session.commit()
-            return {"status": "failed", "job_id": str(job_id), "error": "no_region"}
+            tiep = (enqueue_typeset_after_translate(page_id)
+                    if settings.typeset_auto_chain
+                    and _che_do_pipeline(page_id) is not ChePipeline.chi_chu else None)
+            logger.info("E43: trang %s không có chữ — bỏ qua dịch, nối tiếp %s", page_id, tiep)
+            return {"status": "done", "job_id": str(job_id), "page_id": str(page_id),
+                    "khong_co_chu": True, "next_job_id": str(tiep) if tiep else None}
 
         ocr_map = {
             row.region_id: row
@@ -1544,7 +1598,13 @@ def _run_typeset(job_id: uuid.UUID) -> dict:
             session.commit()
             return {"status": "failed", "job_id": str(job_id), "error": job.error_log}
 
-        if not clean_rel:
+        # E43 — trang TRANH THUẦN đương nhiên không có ảnh clean: bước xoá chữ chưa từng chạy vì
+        # không có gì để xoá. Đó không phải lỗi, nên cho đi qua để rơi vào nhánh "không có vùng"
+        # ngay bên dưới.
+        #
+        # Thiếu điều kiện này thì bản sửa E43 dừng ở `translated` thay vì về đích `typeset_done`
+        # — đúng lỗi bài test bắt được lúc viết.
+        if not clean_rel and not khong_co_vung(session, page_id):
             job.status = JobStatus.failed
             job.error_log = "no_clean_image: page chưa có ảnh clean của M4"
             session.commit()
@@ -1558,10 +1618,16 @@ def _run_typeset(job_id: uuid.UUID) -> dict:
             ).scalars()
         )
         if not regions:
-            job.status = JobStatus.failed
-            job.error_log = "no_region: page chưa có TextRegion nào"
+            # E43 — không có chữ thì không có gì để chèn. Đây là ĐÍCH của trang tranh thuần:
+            # `typeset_done` để mọi chỗ đếm "đã xong" nhìn thấy nó, và cổng xuất dùng ảnh gốc.
+            assert_transition(page.status, PageStatus.typeset_done)
+            page.status = PageStatus.typeset_done
+            job.status = JobStatus.done
+            job.error_log = None
             session.commit()
-            return {"status": "failed", "job_id": str(job_id), "error": "no_region"}
+            logger.info("E43: trang %s không có chữ — bỏ qua căn chữ, ĐÃ XONG", page_id)
+            return {"status": "done", "job_id": str(job_id), "page_id": str(page_id),
+                    "regions": 0, "khong_co_chu": True}
 
         translations = {
             row.region_id: row
@@ -2206,6 +2272,24 @@ def thong_ke_xuat(session, project_id: uuid.UUID) -> dict:
     }
 
 
+def khong_co_vung(session, page_id) -> bool:
+    """Trang này không có vùng chữ nào — **không xét trạng thái**.
+
+    E43 tách ra khỏi `trang_khong_co_chu` vì hai nơi cần hai nghĩa khác nhau:
+
+    - `trang_khong_co_chu` hỏi *"detect đã xác nhận trang không có chữ chưa?"* — gắn chặt với
+      `detected`, dùng ở cổng xuất để **phân biệt với `detection_failed`**.
+    - Hàm này chỉ hỏi *"có vùng nào không?"*, dùng ở **trong pipeline**, nơi trang không chữ đã đi
+      qua `ocr_done`/`inpainted`/`translated` nên không còn ở `detected` nữa.
+
+    Gộp hai câu hỏi vào một hàm sẽ khiến pipeline hoặc bỏ sót (vì trang đã rời `detected`), hoặc
+    cổng xuất nuốt mất `detection_failed`. Tách ra là để **không phải chọn giữa hai lỗi**.
+    """
+    return not session.scalar(
+        select(TextRegion.id).where(TextRegion.page_id == page_id).limit(1)
+    )
+
+
 def trang_khong_co_chu(session, page: Page) -> bool:
     """E38 — trang này đã đọc xong và **không có chữ nào để dịch**.
 
@@ -2224,9 +2308,7 @@ def trang_khong_co_chu(session, page: Page) -> bool:
     """
     if page.status is not PageStatus.detected:
         return False
-    return not session.scalar(
-        select(TextRegion.id).where(TextRegion.page_id == page.id).limit(1)
-    )
+    return khong_co_vung(session, page.id)
 
 
 def _thu_thap_trang(session, project_id: uuid.UUID):
@@ -2259,6 +2341,19 @@ def _thu_thap_trang(session, project_id: uuid.UUID):
             bo_qua.append(f"trang {page.order} ({page.status.value})")
             continue
         if not page.clean_image_path:
+            # E43 — trang TRANH THUẦN nay đi hết chuỗi tới `typeset_done`, nên nó rơi vào nhánh
+            # này chứ không còn vào nhánh E38 ở trên. Nó KHÔNG có ảnh clean (không có gì để xoá)
+            # và KHÔNG có vùng nào để vẽ ⇒ ảnh gốc chính là trang hoàn thiện.
+            #
+            # Thiếu đoạn này thì bản sửa E43 biến lỗi TREO thành lỗi MẤT TRANG — tệ hơn hẳn.
+            if khong_co_vung(session, page.id):
+                trang_list.append(
+                    TrangCanXuat(
+                        page_id=str(page.id), order=page.order,
+                        clean_image_rel=page.image_path, regions=[],
+                    )
+                )
+                continue
             bo_qua.append(f"trang {page.order} (thiếu ảnh clean)")
             continue
 
