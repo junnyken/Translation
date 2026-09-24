@@ -35,7 +35,9 @@ class DetectedRegion:
     """
 
     bbox: BBox
-    confidence: float
+    #: E46 — `None` nghia la engine KHONG tra diem tin cay (Gemini), khac han diem THAP.
+    #: Dien mot so cho gon la bia ra con so khong ton tai — xem `ConfidenceState.unavailable`.
+    confidence: float | None
     cls: int
 
 

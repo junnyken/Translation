@@ -68,9 +68,26 @@ _detector = None
 
 
 def get_detector():
-    """Tạo detector dùng chung cho worker process. Import trễ để API không nạp onnxruntime."""
+    """Tạo detector dùng chung cho worker process. Import trễ để API không nạp onnxruntime.
+
+    E46 — `DETECT_ENGINE=ai_gemini` đổi sang gọi Gemini thay vì chạy ONNX cục bộ. Mặc định vẫn là
+    `ctd`; lý do và bảng số đo ở `services/detect/ai_gemini.py` và `docs/REPORT_E46.md`.
+
+    Engine AI **không** nạp model nào nên không tốn RAM thường trú — nhưng vẫn cache ở đây để giữ
+    đúng một đường lấy detector, tránh sinh nguồn sự thật thứ hai.
+    """
     global _detector
     if _detector is None:
+        if settings.detect_engine == "ai_gemini":
+            from app.services.detect.ai_gemini import AIGeminiDetector
+
+            _detector = AIGeminiDetector(
+                api_keys=settings.gemini_api_key_list,
+                model_name=settings.detect_ai_model,
+                canh_toi_da=settings.detect_ai_canh_toi_da,
+            )
+            return _detector
+
         from app.services.detect.ctd import CTDDetector
 
         _detector = CTDDetector(
@@ -187,7 +204,12 @@ def _run_detect(job_id: uuid.UUID) -> dict:
         ).rowcount
         low_conf = 0
         for region, overlap in zip(regions, flags, strict=True):
-            is_low = region.confidence < settings.ctd_conf_threshold
+            # E46 — `None` = engine khong tra diem (Gemini). KHONG phai diem thap.
+            # So sanh thang se no TypeError; coi None la 'thap' thi gan co oan moi vung.
+            is_low = (
+                region.confidence is not None
+                and region.confidence < settings.ctd_conf_threshold
+            )
             low_conf += int(is_low)
             session.add(
                 TextRegion(

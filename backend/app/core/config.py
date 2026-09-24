@@ -102,6 +102,29 @@ class Settings(BaseSettings):
     #: Sàn nhiễu trước NMS — phải nhỏ hơn ctd_conf_threshold để low_confidence còn được giữ.
     ctd_raw_min_conf: float = 0.25
     ctd_nms_iou: float = 0.45
+    #: E46 — chon engine nhan dien: 'ctd' (ONNX cuc bo) hoac 'ai_gemini' (goi API).
+    #:
+    #: MAC DINH GIU 'ctd' co chu y. Do tren 5 trang Pepper&Carrot: ai_gemini nhanh hon
+    #: 11-19x (3,5s vs 42-70s) va re (~1,2 xu My/chapter 24 trang), NHUNG bo sot 2/27 vung
+    #: trong khi ctd sot 0/27. Sot mot bong bong = mat han mot cau thoai.
+    #:
+    #: Toan bo phep do chay tren truyen TIENG ANH, khung tranh phuong Tay. Truyen Nhat
+    #: (chu doc, bong bong khong vien, chu tuong thanh de len net ve) CHUA thu lan nao.
+    #: Bang so day du: `docs/REPORT_E46.md`.
+    detect_engine: str = "ctd"
+    #: Cạnh dài ảnh gửi cho engine AI. Gemini tính tiền theo ô 768×768 nên gửi nguyên cỡ
+    #: là đốt token vô ích; 1024 là mức E32 đã chốt (giữ được chữ còn đọc được).
+    detect_ai_canh_toi_da: int = 1024
+    #: Model cho engine nhận diện AI. **Tách riêng khỏi `llm_model_name` có chủ ý.**
+    #:
+    #: Mượn chung một thiết lập cho hai quyết định khác nhau là bẫy thật, không phải lo xa:
+    #: engine này gửi `thinkingBudget: 0`, mà bậc `pro` TỪ CHỐI giá trị đó ("Budget 0 is
+    #: invalid. This model only works in thinking mode" — đo được ở E46). Nếu ai đổi
+    #: `LLM_MODEL_NAME` sang bậc pro cho bước dịch thì MỌI lượt nhận diện trả HTTP 400.
+    #:
+    #: `gemini-3.1-flash-lite` là model ĐÃ ĐO: ổn định tuyệt đối qua 3 lượt, khung khít
+    #: nhất, rẻ nhất. Bậc pro chậm hơn 2,2× và che phủ KHÔNG tốt hơn.
+    detect_ai_model: str = "gemini-3.1-flash-lite"
     ctd_input_size: int = 1024
     ctd_intra_op_threads: int = 0
     #: 2 box chồng nhau quá tỷ lệ này (so với box nhỏ hơn) -> gắn cờ overlap_suspect.
