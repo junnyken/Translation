@@ -144,3 +144,86 @@ Cả ba đều **chưa đo**, và không được tính là đã có.
 3. **Chưa tính rủi ro vận hành**: hiện nhận diện chạy được khi mất mạng; đổi xong thì Gemini chết
    là cả dây chuyền chết. Trần gọi Gemini tính theo **project**, không theo key.
 4. **Chi phí tiền thật chưa quy đổi** — báo cáo chỉ nêu token đếm được, không đoán đơn giá.
+
+---
+
+# 9. BỔ SUNG — chi phí tiền thật, và hai phép thu khung ĐỀU THẤT BẠI
+
+## 9.1. Chi phí: tra được, và nó RẺ
+
+Đơn giá lấy từ bảng giá chính thức Gemini API; token lấy từ `usageMetadata` đã đo.
+
+| Model | $/trang | **$/chapter 24 trang** | $/1000 trang |
+|---|---|---|---|
+| `gemini-3.1-flash-lite` | 0,000489 | **0,0117** | 0,49 |
+| `gemini-3.8-flash` | 0,001453 | 0,0349 | 1,45 |
+| `gemini-3.1-pro-preview` | 0,004344 | 0,1043 | 4,34 |
+
+**Đính chính §2.** Tôi viết *"nhận diện sẽ tốn gấp ~4 lần bước dịch"* — đúng về token nhưng **gây
+hiểu nhầm về mức độ**. Quy ra tiền là **1,2 xu Mỹ một chapter**. **Chi phí KHÔNG phải lý do để
+loại hướng này.**
+
+## 9.2. Hai phép thu khung — đều KHÔNG ăn thua
+
+Mục §7.3 liệt kê *"thu khung lại"* như một hướng còn mở. **Đã thử, và thất bại cả hai lần.**
+
+| Cách | flash-lite | 3.8-flash | pro |
+|---|---|---|---|
+| Thô (nguyên bản) | 1,74× | 2,70× | 2,18× |
+| Thu theo hàng/cột sáng | 1,63× | 2,14× | 2,04× |
+| Tách theo vùng liên thông | 1,74× | 2,64× | 2,18× |
+
+**Một lỗi của tôi trong lần thử đầu:** đặt ngưỡng sáng 180 theo cảm tính. Đo ra mới biết nền ô
+tranh có **trung vị 174**, nên 33,6% nền lọt qua và **dính liền với bong bóng** — vùng liên thông
+nuốt cả hai nên không thể thu. Lấy ngưỡng từ số đo (trong bong bóng trung vị **255**; ngưỡng 235
+cho bong bóng 80,5% còn nền 2,7%) rồi chạy lại: **vẫn 1,74×**.
+
+⇒ Không phải chọn sai tham số. **Hai cách tiếp cận đều không đúng bài.**
+
+## 9.3. Chỉ số "diện tích thừa" của tôi CONFLATE hai thứ khác nhau
+
+Đây là chỗ tôi đã làm chính mình lạc hướng suốt §6 và §9.2.
+
+"Thừa 1,74×" so khung AI với khung **CHỮ** của model cũ. Nhưng AI khoanh **BONG BÓNG**, mà bong
+bóng vốn to hơn chữ trong nó. Nên một phần của 1,74× là **hợp lệ và vô hại** — xoá phần trắng trơn
+trong bong bóng không phá gì cả.
+
+Đo đúng thứ cần đo — bao nhiêu diện tích rơi vào chỗ **không phải bong bóng** (ngưỡng 235):
+
+| Khung | % không phải bong bóng | Diện tích tuyệt đối | So model cũ |
+|---|---|---|---|
+| Model cũ (khoanh chữ) | 22% | 75k px | — |
+| `gemini-3.1-flash-lite` | **23%** | 109k px | **1,5×** |
+| `gemini-3.8-flash` | 35% | 293k px | **3,9×** |
+| `gemini-3.1-pro-preview` | 23% | 160k px | 2,1× |
+
+flash-lite ở **23%**, gần như y hệt model cũ (22%) — khung của nó **không** tệ hơn về tỉ lệ, chỉ to
+hơn nên diện tích tuyệt đối gấp 1,5×. `gemini-3.8-flash` ở 35% / 3,9× thì **rõ ràng là xấu**.
+
+⇒ **§6 vẫn đúng về hướng nhưng đã NÓI QUÁ mức độ.** Rủi ro xoá lẹm nét vẽ là thật, nhưng với
+flash-lite nó ở mức **1,5× model cũ**, không phải thảm hoạ. Kiểm bằng mắt xác nhận khung có tràn
+sang vành mũ ở hai ô và nuốt mảng nền ở ô gộp — có thật, nhưng cục bộ.
+
+## 9.4. ĐÍNH CHÍNH: hướng "chia vai" ở §7.2 đã CHẾT
+
+§7.2 đề xuất *"AI khoanh vùng thô, rồi chỉ chạy nhận diện cục bộ trong các vùng đó"*. **Không chạy
+được, và lý do đã nằm sẵn trong E44.**
+
+`ctd.py:_letterbox()` thu **mọi** đầu vào về khung vuông cố định 1024×1024 trước khi vào ONNX. Nên
+chạy nhận diện trên một ô cắt nhỏ **tốn đúng bằng chạy cả trang**. Chạy trên 5 ô cắt = **5 lần**
+chi phí cả trang, tức **chậm hơn** hiện trạng chứ không nhanh hơn.
+
+Tôi viết §7.2 mà quên đúng phát hiện của chính mình hai giờ trước. Gạch bỏ.
+
+## 9.5. Còn lại gì
+
+| Hướng | Trạng thái |
+|---|---|
+| **Chế độ `chi_chu` (E19)** | **Dùng được ngay** — không xoá chữ nên độ khít không quan trọng; 42–70s → 3,8s |
+| Thay hẳn cho đường đầy đủ | **Chưa** — cần giải bài khung lẹm 1,5×, mà 2 heuristic đã thử đều trượt |
+| Chia vai AI + model cũ | **CHẾT** (§9.4) |
+| Thu khung bằng heuristic | **Đã thử 2 cách, trượt cả hai** |
+
+Cách chưa thử: yêu cầu model trả khung **CHỮ** thay vì khung **BONG BÓNG** (lời nhắc hiện tại nói
+"speech balloon and text area" — chính nó mời model khoanh cả bong bóng). Đây là thay đổi **một
+dòng lời nhắc**, rẻ nhất trong mọi hướng còn lại, và **chưa ai thử**.
