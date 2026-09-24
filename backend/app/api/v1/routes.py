@@ -976,7 +976,18 @@ async def retry_ocr(
     region_count = await session.scalar(
         select(func.count(TextRegion.id)).where(TextRegion.page_id == page_id)
     )
-    if not region_count:
+    # E43 — chốt chặn thứ NĂM, và là chốt duy nhất nằm ở tầng API.
+    #
+    # Trang TRANH THUẦN (`detected` + 0 vùng) phải chạy lại OCR được: từ E43, lượt OCR đó không
+    # đọc gì cả mà chỉ đẩy trang đi tiếp cho tới `typeset_done`. Đây chính là đường CỨU những
+    # trang đã kẹt từ trước bản vá — chặn nó là khoá luôn lối thoát.
+    #
+    # Đo thật trên production 24-09: 5 trang kẹt, cả 5 lượt `retry-ocr` trả 409 kèm thông điệp
+    # "chạy detect trước" — trong khi detect ĐÃ chạy xong. Thông điệp sai sự thật đẩy người vận
+    # hành đi chạy lại detect, việc vô ích vì detect sẽ lại cho ra đúng 0 vùng.
+    #
+    # Trang CHƯA detect xong thì vẫn phải chặn — đó mới đúng là "chạy detect trước".
+    if not region_count and page.status is not PageStatus.detected:
         raise HTTPException(
             status_code=409,
             detail="Page chưa có vùng chữ nào — chạy detect trước (POST /pages/{id}/retry-detect)",

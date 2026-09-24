@@ -152,6 +152,39 @@ class TestKhongNuotMatLoiThat:
             assert khong_co_vung(s, uuid.UUID(pg)) is False
 
 
+class TestDuongCuuTrangDaKet:
+    """`retry-ocr` là đường DUY NHẤT cứu trang đã kẹt từ trước bản vá — không được chặn nó.
+
+    Đo thật trên production 24-09: 5 trang kẹt, cả 5 lượt `retry-ocr` trả `409` kèm thông điệp
+    "chạy detect trước" trong khi detect ĐÃ xong. Thông điệp sai sự thật đẩy người vận hành đi
+    chạy lại detect — việc vô ích, vì detect sẽ lại cho ra đúng 0 vùng.
+
+    Đây là chốt chặn thứ NĂM và là chốt duy nhất ở tầng API. Phép quét lần đầu của tôi **bỏ sót**
+    nó, vì tôi chỉ quét `tasks.py` theo trí nhớ thay vì quét cả repo theo mẫu.
+    """
+
+    async def test_trang_tranh_thuan_retry_ocr_duoc(
+        self, client, sample_page_image, fake_detector, no_broker_for_chained_ocr,
+    ):
+        _pid, pg, detect_job = await _tao_trang(client, sample_page_image)
+        fake_detector(regions=[])
+        run_detect_job(detect_job)
+        assert _trang_thai(pg) is PageStatus.detected
+
+        r = await client.post(f"/api/v1/pages/{pg}/retry-ocr")
+        assert r.status_code == 202, (
+            f"đường cứu trang kẹt bị chặn: {r.status_code} {r.text[:120]}"
+        )
+
+    async def test_trang_CHUA_detect_van_bi_chan(self, client, sample_page_image):
+        """Chiều ngược: trang chưa detect xong thì 409 mới ĐÚNG — đó mới là 'chạy detect trước'."""
+        _pid, pg, _j = await _tao_trang(client, sample_page_image)
+        assert _trang_thai(pg) is PageStatus.queued        # chưa detect lần nào
+
+        r = await client.post(f"/api/v1/pages/{pg}/retry-ocr")
+        assert r.status_code == 409
+
+
 class TestXemTruocKhopFileThat:
     async def test_export_preview_dem_ca_trang_khong_chu(
         self, client, sample_page_image, fake_detector, no_broker_for_chained_ocr,
