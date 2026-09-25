@@ -862,21 +862,63 @@ def _run_inpaint(job_id: uuid.UUID) -> dict:
             return {"status": "done", "job_id": str(job_id), "page_id": str(page_id),
                     "khong_co_chu": True, "next_job_id": str(tiep) if tiep else None}
 
-        ocr_count = session.scalar(
-            select(func.count(OCRResult.id)).where(
-                OCRResult.region_id.in_([r.id for r in regions])
-            )
-        )
-        if not ocr_count or ocr_count < len(regions):
+        ket_qua_ocr = {
+            o.region_id: o
+            for o in session.execute(
+                select(OCRResult).where(OCRResult.region_id.in_([r.id for r in regions]))
+            ).scalars()
+        }
+        if len(ket_qua_ocr) < len(regions):
             job.status = JobStatus.failed
             job.error_log = (
-                f"missing_ocr: {ocr_count or 0}/{len(regions)} vùng có kết quả OCR — "
+                f"missing_ocr: {len(ket_qua_ocr)}/{len(regions)} vùng có kết quả OCR — "
                 "không xoá chữ khi chưa đọc xong (chạy lại OCR trước)"
             )
             session.commit()
             return {"status": "failed", "job_id": str(job_id), "error": job.error_log}
 
-        boxes = [BBox(x=r.bbox_x, y=r.bbox_y, w=r.bbox_w, h=r.bbox_h) for r in regions]
+        # Chỉ xoá vùng ĐỌC RA CHỮ THẬT. Khung nhận diện còn làm mask cho LaMa, nên khoanh nhầm
+        # nét vẽ là XOÁ MẤT NÉT VẼ — đã chứng minh: chạy bước này với các vùng model cũ khoanh
+        # trên một trang có hiệu ứng phát sáng thì toàn bộ ánh sáng và tia lấp lánh bị xoá sạch.
+        # Vùng không đọc ra chữ thì không có gì để dịch, nên xoá nó là phá tranh mà không đổi
+        # lại lợi ích nào. Ngưỡng và lý do: `ocr.engines.vung_dang_xoa_chu`.
+        from app.services.ocr.engines import vung_dang_xoa_chu
+
+        dang_xoa = [
+            r for r in regions
+            if settings.vung_xoa_min_conf <= 0 or vung_dang_xoa_chu(
+                ket_qua_ocr[r.id].raw_text or "",
+                ket_qua_ocr[r.id].confidence,
+                settings.vung_xoa_min_conf,
+                settings.vung_xoa_min_ky_tu,
+            )
+        ]
+        bo_qua = len(regions) - len(dang_xoa)
+
+        if not dang_xoa:
+            # Mọi vùng đều là nhiễu. Giống hệt nhánh E43 "trang không có chữ": KHÔNG đặt
+            # `clean_image_path` (chưa lượt xoá nào chạy), đi tiếp thay vì báo lỗi.
+            assert_transition(page.status, PageStatus.inpainted)
+            page.status = PageStatus.inpainted
+            job.status = JobStatus.done
+            job.error_log = None
+            session.commit()
+            tiep = (enqueue_translate_after_inpaint(page_id)
+                    if settings.translate_auto_chain else None)
+            logger.info(
+                "trang %s: cả %d vùng đều không đọc ra chữ thật — bỏ qua xoá chữ để khỏi phá "
+                "nét vẽ, nối tiếp %s", page_id, len(regions), tiep
+            )
+            return {"status": "done", "job_id": str(job_id), "page_id": str(page_id),
+                    "vung_bo_qua": bo_qua, "khong_vung_nao_co_chu": True,
+                    "next_job_id": str(tiep) if tiep else None}
+
+        boxes = [BBox(x=r.bbox_x, y=r.bbox_y, w=r.bbox_w, h=r.bbox_h) for r in dang_xoa]
+        if bo_qua:
+            logger.info(
+                "trang %s: bỏ qua %d/%d vùng không đọc ra chữ thật (giữ nét vẽ)",
+                page_id, bo_qua, len(regions)
+            )
         danh_dau_dang_chay(job)
         session.commit()
 

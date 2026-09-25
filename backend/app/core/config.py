@@ -386,6 +386,13 @@ class Settings(BaseSettings):
     #: Đánh đổi đã cân: có thể BỎ SÓT một ký tự đơn còn sót thật. Thiệt hại đó nhỏ (một nét lạc
     #: trên nền, và bước căn chữ sẽ vẽ chữ dịch đè lên chính vùng đó), nhỏ hơn hẳn cái giá của
     #: việc làm người dùng mất niềm tin vào cờ rà soát. Đặt 1 để quay lại hành vi cũ.
+    #: Ngưỡng quyết định một vùng có đáng XOÁ CHỮ không. Xem `ocr.engines.vung_dang_xoa_chu`
+    #: — có bảng số đo đứng sau: vùng nhiễu được 0,38 điểm, mọi vùng chữ thật từ 0,96 trở lên.
+    #: Đặt 0 để tắt hẳn phép lọc (quay lại hành vi cũ: xoá MỌI vùng được khoanh).
+    vung_xoa_min_conf: float = 0.5
+    #: Chỉ dùng khi engine KHÔNG trả điểm tin cậy (manga-ocr). Vùng nhiễu đo được 1 ký tự,
+    #: vùng chữ thật ngắn nhất được 3.
+    vung_xoa_min_ky_tu: int = 2
     inpaint_verify_min_chars: int = 2
     inpaint_intra_op_threads: int = 0
     #: Trang bao nhiêu TRIỆU ĐIỂM ẢNH trở xuống thì xoá chữ cả trang một lượt; lớn hơn thì chia

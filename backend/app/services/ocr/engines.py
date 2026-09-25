@@ -43,6 +43,41 @@ def dem_ky_tu_co_nghia(text: str) -> int:
     return len(_MEANINGFUL.findall(text or ""))
 
 
+def vung_dang_xoa_chu(text: str, confidence: float | None,
+                      min_conf: float, min_ky_tu: int) -> bool:
+    """Vùng này có đáng XOÁ CHỮ không?
+
+    ## Vì sao cần
+
+    Khung nhận diện còn làm **mask cho LaMa**, nên khoanh nhầm nét vẽ là **xoá mất nét vẽ**.
+    Đã chứng minh được thiệt hại: chạy bước xoá chữ với các vùng `comic-text-detector` khoanh
+    trên một trang truyện có hiệu ứng phát sáng thì **toàn bộ ánh sáng, tia lấp lánh và vật
+    phát quang bị xoá sạch**, chỉ còn nền tối phẳng.
+
+    ## Luật
+
+    Chỉ xoá vùng mà ta **sẽ vẽ chữ dịch đè lên**. Vùng không đọc ra chữ thì không có gì để dịch,
+    nên xoá nó là phá tranh mà **không đổi lại lợi ích nào**.
+
+    ## Ngưỡng lấy từ SỐ ĐO, không chọn cho tròn
+
+    Đọc toàn bộ 27 vùng `comic-text-detector` khoanh trên 5 trang Pepper&Carrot:
+
+        vùng nhiễu (nét khói vẽ)  : 1 ký tự có nghĩa, confidence 0.38
+        MỌI vùng chữ thật         : 3-76 ký tự,        confidence 0.96-1.00
+
+    ⇒ **Confidence tách bạch hơn hẳn** (0,38 so với ≥0,96 — khoảng cách rất rộng), nên khi có
+    điểm thì dùng điểm. `manga-ocr` KHÔNG trả điểm, lúc đó mới lùi về đếm ký tự — thô hơn, và
+    đó là đánh đổi có ý thức chứ không phải bỏ sót.
+    """
+    n = dem_ky_tu_co_nghia(text)
+    if n == 0:
+        return False                      # không ký tự nào: chắc chắn không có gì để dịch
+    if confidence is not None:
+        return confidence >= min_conf     # engine có trả điểm -> tin điểm
+    return n >= min_ky_tu                 # engine không trả điểm -> đếm ký tự
+
+
 class UnsupportedSourceLang(ValueError):
     """source_lang không nằm trong 3 giá trị đã chốt — KHÔNG fallback âm thầm sang engine khác."""
 

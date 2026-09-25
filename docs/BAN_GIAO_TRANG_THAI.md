@@ -106,6 +106,56 @@ trên production. Muốn lùi: **xoá biến rồi deploy** — không sửa mã
 
 ---
 
+# 3bis. Luật "chỉ xoá chữ ở vùng đọc ra chữ thật" (E47)
+
+## Vì sao có luật này — thiệt hại ĐÃ CHỨNG MINH
+
+Khung nhận diện còn làm **mask cho LaMa**. Chạy bước xoá chữ với đúng các vùng
+`comic-text-detector` khoanh trên một trang có hiệu ứng phát sáng: **toàn bộ ánh sáng, tia lấp
+lánh và vật phát quang bị xoá sạch**, chỉ còn nền tối phẳng. 5 trong 8 vùng model cũ khoanh là
+nét vẽ, không phải chữ.
+
+Trước E47, bước xoá chữ lấy **mọi vùng** được khoanh, không hỏi vùng đó có đọc ra chữ không.
+
+## Luật
+
+> **Chỉ xoá vùng mà ta sẽ vẽ chữ dịch đè lên.** Vùng không đọc ra chữ thì không có gì để dịch,
+> nên xoá nó là phá tranh mà không đổi lại lợi ích nào.
+
+Đặt ở `ocr/engines.py: vung_dang_xoa_chu()` — **một** phép quyết định, không rải rác.
+
+## Ngưỡng lấy từ số đo
+
+Đọc 27 vùng model cũ khoanh trên 5 trang:
+
+| | Ký tự có nghĩa | Độ tin cậy |
+|---|---|---|
+| Vùng nhiễu (nét khói vẽ) | 1 | **0,38** |
+| MỌI vùng chữ thật | 3 – 76 | **0,96 – 1,00** |
+
+⇒ Độ tin cậy tách bạch hơn hẳn. Có điểm thì tin điểm; `manga-ocr` **không** trả điểm nên lùi về
+đếm ký tự — thô hơn, và đó là đánh đổi có ý thức.
+
+Biến: `VUNG_XOA_MIN_CONF` (0,5) · `VUNG_XOA_MIN_KY_TU` (2). **Đặt 0 là quay lại hành vi cũ** —
+đường lùi không cần sửa mã.
+
+## Hai chiều đều phải canh
+
+Chiều dễ quên **không phải** "giữ nét vẽ" mà là chiều ngược lại: nới tay quá thì chữ gốc không
+được xoá, và bước căn chữ vẽ chữ dịch **đè lên chữ gốc** — tệ hơn trạng thái ban đầu.
+
+## CÒN THIẾU — việc nên làm tiếp
+
+Bước **dịch** vẫn dịch cả vùng nhiễu, nên vùng đó có thể bị vẽ **một ký tự rác** lên tranh. Nhỏ
+hơn hẳn thiệt hại đã chứng minh, nhưng vẫn sai.
+
+Cách làm: lọc `ordered_specs` trong `_run_translate` bằng **đúng** `vung_dang_xoa_chu` — không
+viết phép kiểm thứ hai cho cùng khái niệm. Không có bản dịch thì bước căn chữ tự không vẽ gì.
+⚠️ Hàm dịch phức tạp (có cơ chế `giu_nguyen` cho chữ tượng thanh + tính thứ tự đọc) nên phải đọc
+kỹ phần sau `ordered_specs` trước khi sửa.
+
+---
+
 # 4. Những hướng tối ưu tốc độ ĐÃ ĐÓNG — đừng mở lại
 
 Đã đo và bác bỏ. Mở lại là lặp công việc đã làm:
