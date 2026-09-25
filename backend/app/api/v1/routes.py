@@ -7,6 +7,7 @@ Nguyên tắc bắt buộc:
 """
 from __future__ import annotations
 
+import logging
 import mimetypes
 import uuid
 
@@ -30,6 +31,8 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
+from app.core.cong_han_muc import con_du_khong, giu_cho_moi_chot
+from app.core.danh_tinh_khach import DanhTinhHanMuc, danh_tinh_han_muc
 from app.core.quyen import (
     LOI_KHONG_THAY,
     bao_dam_quyen,
@@ -184,6 +187,8 @@ from app.services.typeset.paths import preview_relative_path
 # Whitelist font của M6 — UI chỉ được chọn trong danh sách này, không tự chế font mới.
 from app.services.typeset.registry import FONT_REGISTRY
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/v1")
 
 
@@ -322,6 +327,7 @@ async def doc_truyen_gui_trang(
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
     nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
+    danh_tinh: DanhTinhHanMuc = Depends(danh_tinh_han_muc),
 ) -> TrangDocTruyen:
     """Nhận một ảnh trang truyện, xếp việc, trả về `page_id` để tra sau.
 
@@ -374,6 +380,10 @@ async def doc_truyen_gui_trang(
     )
     session.add(page)
     await session.flush()
+
+    # Giữ chỗ SAU khi tệp đã qua kiểm (tệp hỏng không được mất lượt) và TRƯỚC khi ghi xuống kho
+    # (hết lượt thì không ghi tệp nào). Ném 429 ở đây ⇒ giao dịch huỷ ⇒ trang vừa flush biến mất.
+    await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=page.id)
 
     storage = get_storage()
     page.image_path = await run_in_threadpool(
@@ -571,6 +581,7 @@ async def upload_page(
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
     nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
+    danh_tinh: DanhTinhHanMuc = Depends(danh_tinh_han_muc),
 ) -> PageAccepted:
     """Nhận ảnh trang, lưu file, tạo Page(status=queued) + Job(type=detect, status=queued).
 
@@ -620,6 +631,9 @@ async def upload_page(
     session.add(page)
     await session.flush()  # lấy page.id, chưa commit
 
+    # Xem ghi chú ở `doc_truyen_gui_trang`: sau kiểm tệp, trước khi ghi kho.
+    await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=page.id)
+
     storage = get_storage()
     page.image_path = await run_in_threadpool(
         storage.save_page_image, project.id, page.id, data, ext
@@ -640,6 +654,26 @@ async def upload_page(
     return PageAccepted(page_id=page.id, status=page.status, job_id=job.id)
 
 
+async def _huy_me_goi(
+    session: AsyncSession, storage: IObjectStorage, da_luu: list[str]
+) -> None:
+    """Huỷ một mẻ gói: lùi CSDL rồi dọn các tệp đã ghi.
+
+    Thứ tự quan trọng — lùi CSDL TRƯỚC. Xoá tệp trước mà `rollback` hỏng thì còn lại dòng trỏ
+    vào tệp không tồn tại, tức giao diện hiện trang có thật nhưng bấm vào thì vỡ.
+
+    Xoá tệp hỏng thì **ghi lại**, không nuốt: §2.6 đặc tả nói rõ dọn thất bại mà không ai biết
+    thì đĩa đầy dần. Nhưng cũng KHÔNG để lỗi dọn dẹp che mất lỗi thật đang trên đường ném ra —
+    người dùng cần biết "hết hạn mức", không phải "xoá tệp tạm hỏng".
+    """
+    await session.rollback()
+    for rel in da_luu:
+        try:
+            await run_in_threadpool(storage.delete, rel)
+        except Exception:  # noqa: BLE001 — xem docstring: ghi lại, không che lỗi thật
+            logger.exception("Dọn tệp sau khi huỷ mẻ gói thất bại: %s", rel)
+
+
 @router.post(
     "/projects/{project_id}/pages/archive",
     response_model=ArchiveAccepted,
@@ -656,6 +690,7 @@ async def upload_archive(
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
     nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
+    danh_tinh: DanhTinhHanMuc = Depends(danh_tinh_han_muc),
 ) -> ArchiveAccepted:
     """ĐX-2 — nhận **cả chapter trong một gói** ZIP/CBZ thay vì tải từng trang một.
 
@@ -722,6 +757,10 @@ async def upload_archive(
     except ArchiveError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    # Chặn sớm: gói 24 trang mà còn 3 lượt thì từ chối NGAY, đừng dựng lại 24 ảnh PDF rồi mới
+    # biết. Đây chỉ là phép ĐỌC, không giữ chỗ — cổng thật là `giu_cho_moi_chot` trong vòng lặp.
+    await con_du_khong(session, danh_tinh, settings, so_trang=trang_iter.so_muc)
+
     next_order = (
         await session.scalar(
             select(func.coalesce(func.max(Page.order), 0) + 1).where(Page.project_id == project.id)
@@ -731,6 +770,9 @@ async def upload_archive(
     storage = get_storage()
     da_nhan: list[TrangTrongGoiAccepted] = []
     jobs: list[uuid.UUID] = []
+    #: Đường dẫn các tệp ĐÃ ghi xuống kho. Huỷ mẻ thì `rollback` gỡ được các dòng CSDL nhưng
+    #: KHÔNG gỡ tệp — không dọn là đĩa đầy dần trong im lặng, đúng thứ §2.5 đặc tả cấm.
+    da_luu: list[str] = []
     try:
         while True:
             # Lấy từng trang một: giữ đúng MỘT ảnh trong bộ nhớ thay vì cả gói đã bung.
@@ -749,9 +791,12 @@ async def upload_archive(
             session.add(page)
             await session.flush()
 
+            await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=page.id)
+
             page.image_path = await run_in_threadpool(
                 storage.save_page_image, project.id, page.id, muc.data, muc.ext
             )
+            da_luu.append(page.image_path)
             job = Job(type=JobType.detect, page_id=page.id, status=JobStatus.queued)
             session.add(job)
             await session.flush()
@@ -766,11 +811,16 @@ async def upload_archive(
     except ArchiveEmpty as exc:
         # Gói mở được nhưng không có ảnh nào. Lùi sạch — thà báo lỗi còn hơn để lại một chapter
         # rỗng trông như đã nhận việc.
-        await session.rollback()
+        await _huy_me_goi(session, storage, da_luu)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except ArchiveError as exc:
-        await session.rollback()
+        await _huy_me_goi(session, storage, da_luu)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except HTTPException:
+        # Hết hạn mức giữa chừng (429). Từ chối NGUYÊN mẻ — xử lý một phần âm thầm sẽ khiến
+        # người dùng nhận nửa chapter mà không có cách nào biết thiếu trang nào.
+        await _huy_me_goi(session, storage, da_luu)
+        raise
 
     await session.commit()
 

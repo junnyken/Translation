@@ -915,3 +915,12 @@ class SoCaiHanMuc(TimestampMixin, Base):
     #: Vì sao hoàn — để phân biệt "hệ thống hỏng" với các lý do khác khi xem lại.
     #: `None` khi chưa hoàn; KHÔNG điền chuỗi rỗng cho gọn.
     ly_do_hoan: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Trang mà khoản này giữ chỗ cho. Worker tra theo cột này để biết phải `tieu`/`hoan`
+    #: những dòng nào khi một trang tới trạng thái cuối.
+    #:
+    #: **CỐ Ý KHÔNG có khoá ngoại.** Trang bị xoá sau 30 phút (§2.9 đặc tả), còn sổ cái là dấu
+    #: vết hạn mức và phải sống lâu hơn trang: khoá ngoại `CASCADE` sẽ xoá luôn bằng chứng đã
+    #: tiêu lượt, `RESTRICT` thì chặn mất phép dọn. `None` cho các khoản không gắn trang nào.
+    trang_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), nullable=True, index=True
+    )

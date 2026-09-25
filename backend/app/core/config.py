@@ -85,6 +85,28 @@ class Settings(BaseSettings):
     #: Dự án đã có tiền lệ: bài test gom theo "giờ trong ngày" XANH ở máy mà ĐỎ trên server.
     mui_gio_han_muc: str = "Asia/Ho_Chi_Minh"
 
+    #: Muối băm định danh khách lạ (cookie + IP). **PHẢI đặt ở production.**
+    #:
+    #: Để rỗng thì băm vẫn chạy và hạn mức vẫn đúng, nhưng SHA-256 không muối của một địa chỉ
+    #: IPv4 là dò được toàn bộ: cả không gian 4 tỉ địa chỉ băm hết chỉ mất vài phút. Nghĩa là ai
+    #: đọc được CSDL sẽ khôi phục được IP thô — đúng thứ mà việc băm sinh ra để tránh.
+    #: Rỗng ⇒ ghi WARNING, cố ý ồn ào.
+    muoi_bam_khach: str = ""
+    #: Có tin `X-Forwarded-For` không. **Mặc định KHÔNG.**
+    #:
+    #: Header này do client gửi và sửa được tuỳ ý. Tin nó khi chưa có proxy ghi đè đồng nghĩa với
+    #: việc ai cũng tự đổi được "IP" của mình ⇒ chốt chặn theo IP thành vô dụng. Chỉ bật khi CHẮC
+    #: CHẮN mọi request đều đi qua proxy nhà mình và proxy đó GHI ĐÈ header.
+    tin_header_proxy: bool = False
+    #: Cookie nhận diện khách lạ chỉ gửi qua HTTPS.
+    #:
+    #: Mặc định bật. Đặt `False` cho máy phát triển chạy HTTP thuần — trình duyệt (và bộ test)
+    #: KHÔNG gửi lại cookie `Secure` qua `http://`, nên để bật ở môi trường HTTP sẽ khiến mỗi
+    #: request là một "khách mới" và hạn mức theo cookie không bao giờ chạm trần.
+    cookie_khach_secure: bool = True
+    #: Cookie sống bao lâu. 400 ngày là trần Chrome áp cho mọi cookie — đặt cao hơn vô nghĩa.
+    cookie_khach_song_giay: int = 400 * 24 * 3600
+
     # Bảo vệ truy cập (slice A)
     #: Khoá CHUNG cho cả hệ thống. Rỗng = cổng TẮT (máy phát triển, và để triển khai theo thứ tự
     #: an toàn: đẩy mã trước, deploy giao diện biết gửi khoá, RỒI mới đặt biến này).

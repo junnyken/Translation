@@ -37,6 +37,7 @@ dùng **chung** phần dựng câu lệnh bên dưới, nên luật chỉ đư�
 """
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from datetime import date
 
@@ -120,6 +121,58 @@ def _dong_moi(khoa: str, loai: LoaiChuThe, chu_the: str, ngay: date, so_trang: i
 
 
 # --------------------------------------------------------------------------------------------
+# Chuyển trạng thái MỘT dòng — phần luật dùng chung cho tra-theo-khoá và tra-theo-trang
+# --------------------------------------------------------------------------------------------
+def _tieu_dong(session, dong: SoCaiHanMuc, so_trang_thanh_cong: int | None) -> bool:
+    """Chốt một dòng. Đã `da_tieu` ⇒ không làm gì, trả True. Đã `da_hoan` ⇒ trả False.
+
+    Viết tách khỏi phần tra cứu để `tieu` (theo khoá) và `tieu_theo_trang` (theo trang) **không
+    có hai bản luật lệch nhau** — kiểu lệch chỉ lộ ra khi một đường được sửa còn đường kia không.
+    """
+    if dong.trang_thai is TrangThaiHanMuc.da_tieu:
+        return True
+    if dong.trang_thai is TrangThaiHanMuc.da_hoan:
+        return False  # đã hoàn thì không tiêu ngược lại được
+
+    thanh_cong = dong.so_trang if so_trang_thanh_cong is None else max(0, so_trang_thanh_cong)
+    thanh_cong = min(thanh_cong, dong.so_trang)
+    con_lai = dong.so_trang - thanh_cong
+
+    if thanh_cong == 0:
+        dong.trang_thai = TrangThaiHanMuc.da_hoan
+        dong.ly_do_hoan = "khong_trang_nao_thanh_cong"
+        return True
+
+    dong.so_trang = thanh_cong
+    dong.trang_thai = TrangThaiHanMuc.da_tieu
+    if con_lai:
+        session.add(
+            SoCaiHanMuc(
+                khoa_idempotency=f"{dong.khoa_idempotency}#hoan-mot-phan",
+                loai_chu_the=dong.loai_chu_the,
+                chu_the=dong.chu_the,
+                ngay_han_muc=dong.ngay_han_muc,
+                so_trang=con_lai,
+                trang_thai=TrangThaiHanMuc.da_hoan,
+                ly_do_hoan="mot_phan_that_bai",
+                trang_id=dong.trang_id,
+            )
+        )
+    return True
+
+
+def _hoan_dong(dong: SoCaiHanMuc, ly_do: str) -> bool:
+    """Trả lại một dòng. Đã `da_hoan` ⇒ không làm gì, trả True. Đã `da_tieu` ⇒ trả False."""
+    if dong.trang_thai is TrangThaiHanMuc.da_hoan:
+        return True
+    if dong.trang_thai is TrangThaiHanMuc.da_tieu:
+        return False
+    dong.trang_thai = TrangThaiHanMuc.da_hoan
+    dong.ly_do_hoan = ly_do[:500]
+    return True
+
+
+# --------------------------------------------------------------------------------------------
 # Bản ĐỒNG BỘ — dùng ở worker
 # --------------------------------------------------------------------------------------------
 def da_dung_dong_bo(session, loai: LoaiChuThe, chu_the: str, ngay: date) -> int:
@@ -153,37 +206,9 @@ def tieu(session, *, khoa: str, so_trang_thanh_cong: int | None = None) -> bool:
     dong = session.execute(_cau_tim_khoa(khoa)).scalar_one_or_none()
     if dong is None:
         return False
-    if dong.trang_thai is TrangThaiHanMuc.da_tieu:
-        return True
-    if dong.trang_thai is TrangThaiHanMuc.da_hoan:
-        return False  # đã hoàn thì không tiêu ngược lại được
-
-    thanh_cong = dong.so_trang if so_trang_thanh_cong is None else max(0, so_trang_thanh_cong)
-    thanh_cong = min(thanh_cong, dong.so_trang)
-    con_lai = dong.so_trang - thanh_cong
-
-    if thanh_cong == 0:
-        dong.trang_thai = TrangThaiHanMuc.da_hoan
-        dong.ly_do_hoan = "khong_trang_nao_thanh_cong"
-        session.flush()
-        return True
-
-    dong.so_trang = thanh_cong
-    dong.trang_thai = TrangThaiHanMuc.da_tieu
-    if con_lai:
-        session.add(
-            SoCaiHanMuc(
-                khoa_idempotency=f"{khoa}#hoan-mot-phan",
-                loai_chu_the=dong.loai_chu_the,
-                chu_the=dong.chu_the,
-                ngay_han_muc=dong.ngay_han_muc,
-                so_trang=con_lai,
-                trang_thai=TrangThaiHanMuc.da_hoan,
-                ly_do_hoan="mot_phan_that_bai",
-            )
-        )
+    xong = _tieu_dong(session, dong, so_trang_thanh_cong)
     session.flush()
-    return True
+    return xong
 
 
 def hoan(session, *, khoa: str, ly_do: str) -> bool:
@@ -197,14 +222,9 @@ def hoan(session, *, khoa: str, ly_do: str) -> bool:
     dong = session.execute(_cau_tim_khoa(khoa)).scalar_one_or_none()
     if dong is None:
         return False
-    if dong.trang_thai is TrangThaiHanMuc.da_hoan:
-        return True
-    if dong.trang_thai is TrangThaiHanMuc.da_tieu:
-        return False
-    dong.trang_thai = TrangThaiHanMuc.da_hoan
-    dong.ly_do_hoan = ly_do[:500]
+    xong = _hoan_dong(dong, ly_do)
     session.flush()
-    return True
+    return xong
 
 
 # --------------------------------------------------------------------------------------------
@@ -227,3 +247,97 @@ async def giu_cho_bat_dong_bo(
     await session.flush()
     moi = da_dung + so_trang
     return KetQuaGiuCho(True, moi, max(0, tran - moi))
+
+
+# --------------------------------------------------------------------------------------------
+# Theo TRANG — đơn vị worker thật sự làm việc
+# --------------------------------------------------------------------------------------------
+# Mỗi trang giữ chỗ MỘT dòng cho MỖI chốt (khách lạ có hai chốt: cookie và IP). Đơn vị "một dòng
+# một trang" làm phần worker thành chuyện tầm thường: trang xong thì `tieu` các dòng của nó,
+# trang hỏng hẳn thì `hoan` — không cần biết mẻ có bao nhiêu trang, cũng không cần ai điều phối
+# "cả mẻ đã xong chưa". Mẻ thành công một phần tự đúng, vì từng trang tự quyết phần của mình.
+
+
+def khoa_cua_trang(trang_id: uuid.UUID, loai: LoaiChuThe) -> str:
+    """Khoá idempotency của một trang ở một chốt.
+
+    Có `loai` trong khoá vì `khoa_idempotency` là DUY NHẤT toàn bảng: cùng một trang giữ chỗ ở
+    hai chốt (cookie và IP) là hai dòng, nên phải là hai khoá khác nhau.
+    """
+    return f"trang:{trang_id}#{loai.value}"
+
+
+def _cau_theo_trang(trang_id: uuid.UUID):
+    return sa.select(SoCaiHanMuc).where(SoCaiHanMuc.trang_id == trang_id)
+
+
+def _dong_trang(
+    trang_id: uuid.UUID, loai: LoaiChuThe, chu_the: str, ngay: date
+) -> SoCaiHanMuc:
+    return SoCaiHanMuc(
+        khoa_idempotency=khoa_cua_trang(trang_id, loai),
+        loai_chu_the=loai,
+        chu_the=chu_the,
+        ngay_han_muc=ngay,
+        so_trang=1,
+        trang_thai=TrangThaiHanMuc.giu_cho,
+        trang_id=trang_id,
+    )
+
+
+async def giu_cho_trang(
+    session, *, trang_id: uuid.UUID, loai: LoaiChuThe, chu_the: str, ngay: date, tran: int
+) -> KetQuaGiuCho:
+    """Giữ chỗ MỘT trang ở MỘT chốt. Bản bất đồng bộ — giữ chỗ xảy ra ở API."""
+    await session.execute(_khoa_chu_the(loai, chu_the))
+    khoa = khoa_cua_trang(trang_id, loai)
+    da_co = (await session.execute(_cau_tim_khoa(khoa))).scalar_one_or_none()
+    da_dung = await da_dung_bat_dong_bo(session, loai, chu_the, ngay)
+    xong = _quyet_dinh(da_co, da_dung, 1, tran)
+    if xong is not None:
+        return xong
+    session.add(_dong_trang(trang_id, loai, chu_the, ngay))
+    await session.flush()
+    return KetQuaGiuCho(True, da_dung + 1, max(0, tran - da_dung - 1))
+
+
+async def con_lai_bat_dong_bo(
+    session, loai: LoaiChuThe, chu_the: str, ngay: date, tran: int
+) -> int:
+    """Số trang còn dùng được hôm nay. Chỉ ĐỌC — không giữ chỗ, không khoá.
+
+    Dùng cho hai việc: hiện số lên giao diện, và chặn sớm một gói quá lớn **trước khi** ghi tệp
+    nào xuống kho. Vì không khoá nên kết quả có thể cũ ngay khi trả về; chốt chặn thật vẫn là
+    `giu_cho_trang`. Đừng dùng hàm này làm cổng duy nhất.
+    """
+    return max(0, tran - await da_dung_bat_dong_bo(session, loai, chu_the, ngay))
+
+
+def tieu_theo_trang(session, trang_id: uuid.UUID, so_trang_thanh_cong: int | None = None) -> int:
+    """Chốt mọi khoản đã giữ chỗ cho một trang. Trả về SỐ DÒNG đã chuyển sang `da_tieu`.
+
+    Trả `0` nghĩa là không có dòng nào để tiêu — hoặc trang chưa từng giữ chỗ (đường tải lên cũ,
+    trước khi có hạn mức), hoặc đã tiêu rồi. Nơi gọi **không** được coi `0` là lỗi.
+    """
+    dem = 0
+    for dong in session.execute(_cau_theo_trang(trang_id)).scalars().all():
+        truoc = dong.trang_thai
+        if _tieu_dong(session, dong, so_trang_thanh_cong) and truoc is TrangThaiHanMuc.giu_cho:
+            dem += 1
+    session.flush()
+    return dem
+
+
+def hoan_theo_trang(session, trang_id: uuid.UUID, ly_do: str) -> int:
+    """Trả lại mọi khoản đã giữ chỗ cho một trang. Trả về SỐ DÒNG vừa chuyển sang `da_hoan`.
+
+    Dòng đã `da_tieu` **không** bị đụng tới: trang đã chạy xong thì lượt đã tiêu đúng, hoàn ngược
+    là cho lượt từ hư không.
+    """
+    dem = 0
+    for dong in session.execute(_cau_theo_trang(trang_id)).scalars().all():
+        truoc = dong.trang_thai
+        if _hoan_dong(dong, ly_do) and truoc is TrangThaiHanMuc.giu_cho:
+            dem += 1
+    session.flush()
+    return dem

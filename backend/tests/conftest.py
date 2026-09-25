@@ -37,6 +37,11 @@ from app.core.db import get_session  # noqa: E402
 from app.main import app  # noqa: E402
 
 TABLES = (
+    # Sổ cái hạn mức: dọn giữa các test là BẮT BUỘC, không phải cho sạch sẽ. Hạn mức tính theo
+    # (chủ thể, ngày), mà tài khoản test dùng CHUNG một id cho cả lượt chạy và mọi test chạy
+    # trong cùng một ngày lịch ⇒ để lại thì lượt tải lên của test này ăn hạn mức của test kia,
+    # và test thứ ~11 trở đi nhận 429 ở chỗ chẳng liên quan gì tới hạn mức.
+    "so_cai_han_muc",
     "consistency_review_task",
     "character_voice_profile",
     "glossary_entry",

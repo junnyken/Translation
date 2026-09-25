@@ -108,6 +108,33 @@ class TestHanMuc:
         assert han_muc_cho(co_tai_khoan=False) == s.han_muc_khach_la
         assert han_muc_cho(co_tai_khoan=True) == s.han_muc_co_tai_khoan
 
+    def test_doc_cau_hinh_LUC_GOI_chu_khong_phai_luc_import(self):
+        """**Bài canh — bẫy đã cắn thật ngày 25-09.**
+
+        `get_settings` có `lru_cache`, nhưng cache đó xoá được và `tests/conftest.py` xoá nó.
+        Module nào chụp `settings = get_settings()` lúc import sẽ trỏ mãi vào đối tượng CŨ.
+
+        Hậu quả đo được: `han_muc_cho(True)` trả **10** trong khi cấu hình app đang là **2** —
+        cổng hạn mức vẫn chạy nhưng theo trần sai, và **không bài test nào đỏ**. Đó là kiểu hỏng
+        tệ hơn lỗi thường: bộ test mất khả năng phát hiện lỗi thật.
+
+        Gỡ `get_settings()` trong thân `han_muc_cho` ra, quay lại ảnh chụp mức module, thì bài
+        này phải đỏ.
+        """
+        from app.core.config import get_settings
+
+        cu = get_settings()
+        get_settings.cache_clear()
+        moi = get_settings()
+        try:
+            assert moi is not cu, "cache_clear không tạo đối tượng mới ⇒ bài test này vô nghĩa"
+            moi.han_muc_co_tai_khoan = 4242
+            assert han_muc_cho(co_tai_khoan=True) == 4242, (
+                "đọc cấu hình từ ảnh chụp lúc import, không phải cấu hình đang dùng"
+            )
+        finally:
+            get_settings.cache_clear()
+
     def test_tran_IP_phai_LON_HON_tran_cookie(self):
         """Bằng nhau là chặn oan văn phòng/trường học/quán cà phê dùng chung IP."""
         from app.core.config import get_settings

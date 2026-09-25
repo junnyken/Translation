@@ -60,7 +60,7 @@ LOI_CHUA_DANG_NHAP = "Chưa đăng nhập. Gửi mã phiên ở header `Authoriz
 LOI_KHONG_THAY = "Không tìm thấy, hoặc không thuộc về tài khoản của bạn."
 
 
-def _ma_tu_header(gia_tri: str | None) -> str | None:
+def ma_phien_tu_header(gia_tri: str | None) -> str | None:
     if not gia_tri or not gia_tri.startswith(TIEN_TO_BEARER):
         return None
     return gia_tri[len(TIEN_TO_BEARER):].strip() or None
@@ -71,7 +71,7 @@ async def nguoi_dung_hien_tai(
     session: AsyncSession = Depends(get_session),
 ) -> NguoiDung:
     """Dependency bắt buộc đăng nhập. Thiếu/sai/hết hạn mã phiên ⇒ 401."""
-    ma = _ma_tu_header(authorization)
+    ma = ma_phien_tu_header(authorization)
     nguoi = await tai_khoan.lay_theo_ma_phien(session, ma) if ma else None
     if nguoi is None:
         raise HTTPException(

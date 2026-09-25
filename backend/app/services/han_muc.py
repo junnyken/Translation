@@ -24,11 +24,19 @@ from zoneinfo import ZoneInfo
 
 from app.core.config import get_settings
 
-settings = get_settings()
+# ⚠️ KHÔNG chụp `settings = get_settings()` ở mức module.
+#
+# `get_settings` có `lru_cache`, nhưng cache đó **xoá được** (`cache_clear`), và bộ test xoá nó
+# ở `tests/conftest.py`. Một ảnh chụp lúc import sẽ trỏ mãi vào đối tượng Settings CŨ, trong khi
+# phần còn lại của app đã dùng đối tượng mới.
+#
+# Đo được 25-09: `han_muc_cho(True)` trả **10** trong khi cấu hình app đang là **2** — nghĩa là
+# mọi bài test hạn mức đều chạy trên trần sai mà **không bài nào đỏ**. Đó là kiểu hỏng tệ hơn lỗi
+# thường: bộ test mất khả năng phát hiện lỗi thật.
 
 
 def _mui_gio() -> ZoneInfo:
-    return ZoneInfo(settings.mui_gio_han_muc)
+    return ZoneInfo(get_settings().mui_gio_han_muc)
 
 
 def bay_gio() -> datetime:
@@ -75,4 +83,5 @@ def han_muc_cho(co_tai_khoan: bool) -> int:
 
     Đổi chính sách thì đổi biến môi trường, không phải deploy lại mã.
     """
-    return settings.han_muc_co_tai_khoan if co_tai_khoan else settings.han_muc_khach_la
+    st = get_settings()
+    return st.han_muc_co_tai_khoan if co_tai_khoan else st.han_muc_khach_la
