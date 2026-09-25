@@ -258,16 +258,16 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .lop-khung { position: absolute; inset: 0; }
 .khung {
   position: absolute; border: 2px solid var(--mo); border-radius: 3px;
-  background: rgba(100, 116, 139, .10); cursor: pointer;
+  background: var(--mo-phu); cursor: pointer;
 }
-.khung.dang-chon { border-color: var(--mau-chinh); background: rgba(79, 70, 229, .18); box-shadow: 0 0 0 2px rgba(79, 70, 229, .25); }
-.khung.tran { border-color: var(--loi); background: rgba(185, 28, 28, .12); }
+.khung.dang-chon { border-color: var(--mau-chinh); background: var(--chinh-phu); box-shadow: 0 0 0 2px var(--chinh-phu-vien); }
+.khung.tran { border-color: var(--loi); background: var(--loi-phu); }
 /* F1 — bong bóng RỖNG vì font thiếu glyph. Gạch chéo chứ không chỉ đổi màu: trên ảnh nó không
    có chữ nào, nên nếu chỉ tô màu thì nhìn y hệt một vùng bình thường chưa được chọn. */
 .khung.thieu-font {
   border-color: var(--loi); border-style: dashed;
   background:
-    repeating-linear-gradient(45deg, rgba(185, 28, 28, .18) 0 6px, rgba(185, 28, 28, .05) 6px 12px);
+    repeating-linear-gradient(45deg, var(--loi-phu-dam) 0 6px, var(--loi-phu-nhat) 6px 12px);
 }
 .khung.can-xem { border-style: dashed; border-color: var(--canh); }
 .so-thu-tu {
@@ -329,7 +329,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 
 /* ---------- Hộp thoại (M10 + dùng chung) ---------- */
 .lop-phu {
-  position: fixed; inset: 0; background: rgba(15, 23, 42, .55);
+  position: fixed; inset: 0; background: var(--nen-che);
   display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 50;
 }
 .hop-thoai {
@@ -356,7 +356,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .hop-thoai-rong { max-width: min(94vw, 980px); }
 .khung-anh-phong-to {
   display: flex; justify-content: center; margin: 12px 0;
-  background: var(--nen-mo, #111); border-radius: var(--bo); padding: 10px; overflow: auto;
+  background: var(--nen-mo); border-radius: var(--bo); padding: 10px; overflow: auto;
 }
 .khung-anh-phong-to canvas { max-width: 100%; image-rendering: pixelated; }
 
@@ -476,9 +476,9 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 }
 /* Hình đã nhận diện: nét liền. Dự phòng: nét đứt — nhìn là biết ngay máy có chắc hay không,
    không phải đọc chú thích mới hiểu. */
-.at-suy-ra polygon { fill: rgba(37, 99, 235, .10); stroke: #2563eb; stroke-width: 2; }
-.at-du-phong rect  { fill: none; stroke: #b45309; stroke-width: 2; stroke-dasharray: 8 6; }
-.at-suy-ra .at-o-dat-chu { fill: none; stroke: #2563eb; stroke-width: 2; stroke-dasharray: 4 4; }
+.at-suy-ra polygon { fill: var(--phu-suy-ra-to); stroke: var(--phu-suy-ra); stroke-width: 2; }
+.at-du-phong rect  { fill: none; stroke: var(--phu-du-phong); stroke-width: 2; stroke-dasharray: 8 6; }
+.at-suy-ra .at-o-dat-chu { fill: none; stroke: var(--phu-suy-ra); stroke-width: 2; stroke-dasharray: 4 4; }
 .the-hinh-bong-bong {
   border: 1px solid var(--vien); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px;
   font-size: 13px;
@@ -503,7 +503,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   margin: 6px 0 0; padding-left: 18px; font-size: 12.5px; color: var(--mo);
 }
 .the-huong-chu .ds-ly-do li { margin-bottom: 2px; }
-.ghi-chu.nhan-manh { color: var(--canh-dam, #b45309); font-weight: 500; }
+.ghi-chu.nhan-manh { color: var(--canh-dam); font-weight: 500; }
 
 /* Thẻ tổng hợp */
 .the-tom-tat-huong {
@@ -524,8 +524,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 }
 .ds-so-lieu .so-lieu b { font-size: 17px; line-height: 1.1; }
 .ds-so-lieu .so-lieu span { font-size: 11.5px; color: var(--mo); }
-.ds-so-lieu .so-lieu-canh { border-color: #fde68a; background: #fffbeb; }
-.ds-so-lieu .so-lieu-ok { border-color: #a7f3d0; background: #ecfdf5; }
+.ds-so-lieu .so-lieu-canh { border-color: var(--canh-vien); background: var(--canh-nen); }
+.ds-so-lieu .so-lieu-ok { border-color: var(--ok-vien); background: var(--ok-nen); }
 
 /* Bộ lọc */
 .loc-huong-chu {
@@ -544,13 +544,13 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   border: 1px solid var(--vien); background: var(--the); border-radius: 6px;
   padding: 4px 10px; font: inherit; font-size: 12.5px; cursor: pointer; color: var(--chu);
 }
-.dieu-huong-vung button:hover:not(:disabled) { border-color: #cbd5e1; }
+.dieu-huong-vung button:hover:not(:disabled) { border-color: var(--vien-dam); }
 .dieu-huong-vung button:disabled { opacity: .45; cursor: not-allowed; }
 .the-loc {
   border: 1px solid var(--vien); background: var(--the); border-radius: 999px;
   padding: 4px 10px; font: inherit; font-size: 12.5px; cursor: pointer; color: var(--chu);
 }
-.the-loc:hover { border-color: #cbd5e1; }
+.the-loc:hover { border-color: var(--vien-dam); }
 .the-loc.dang-chon {
   background: var(--mau-chinh); border-color: var(--mau-chinh); color: #fff;
 }
@@ -597,7 +597,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   background: none;
   border: 0;
   padding: 0;
-  color: var(--chinh, #2563eb);
+  color: var(--mau-chinh);
   font: inherit;
   cursor: pointer;
   text-decoration: underline;
@@ -608,7 +608,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .quan-tri h2 { font-size: 16px; margin: 0 0 10px; }
 .bang-tai-khoan { width: 100%; border-collapse: collapse; font-size: 13px; }
 .bang-tai-khoan th, .bang-tai-khoan td {
-  text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--vien, #e5e7eb);
+  text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--vien);
 }
 .bang-tai-khoan th { font-weight: 600; color: var(--mo); }
 /* Email dài không được làm vỡ bảng trên màn hẹp — cho cả bảng cuộn ngang trong khung riêng. */
@@ -620,7 +620,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .bang-ban-moi {
   position: sticky; top: 0; z-index: 30;
   padding: 8px 12px 0;
-  background: var(--nen, #fff);
+  background: var(--nen);
 }
 .bang-ban-moi-nut { margin-top: 8px; }
 

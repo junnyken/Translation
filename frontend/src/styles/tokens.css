@@ -4,50 +4,87 @@
  * ba kiểu khác nhau. Từ đây mọi component đọc token, không viết mã màu trực tiếp.
  *
  * Cố ý KHÔNG làm dark mode / đổi theme trong E11 — ngoài phạm vi mini-spec.
+ *
+ * ## 24-09 — đổi tone sang XANH MỰC TRẦM, NỀN NGÀ ẤM
+ *
+ * Tím indigo cũ (#4f46e5) rực và lạnh; công cụ này để người ta ngồi đọc và soát chữ hàng giờ nên
+ * đổi sang xanh mực đậm trên nền ngà ấm cho dịu mắt.
+ *
+ * **Mọi tỷ lệ tương phản dưới đây đều ĐO bằng công thức WCAG, không ước lượng bằng mắt.**
  */
 :root {
-  /* --- Màu chính: tím indigo đậm. CTA cũ quá nhạt nên trông như nút đã bị khoá. --- */
-  --mau-chinh: #4f46e5;
-  --mau-chinh-dam: #4338ca;
-  --mau-chinh-nhat: #eef2ff;
-  --mau-chinh-vien: #c7d2fe;
+  /* --- Màu chính: xanh mực đậm. Trắng trên nền này đạt 8,72:1 (AAA). --- */
+  --mau-chinh: #1e40af;
+  --mau-chinh-dam: #1e3a8a;
+  --mau-chinh-nhat: #eff6ff;
+  --mau-chinh-vien: #bfdbfe;
 
-  /* --- Nền và bề mặt --- */
-  --nen: #f8fafc;          /* canvas: xám rất nhạt, không để trắng trống toàn màn */
+  /* --- Nền và bề mặt: ngà ấm, không dùng trắng trống toàn màn --- */
+  --nen: #faf9f7;          /* canvas */
   --the: #ffffff;          /* surface */
-  --the-mo: #f1f5f9;
-  --vien: #e2e8f0;
-  --vien-dam: #cbd5e1;
+  --the-mo: #f5f4f1;
+  --vien: #e7e5e4;
+  --vien-dam: #d6d3d1;
 
-  /* --- Chữ --- */
-  --chu: #0f172a;          /* slate gần đen, tương phản cao */
-  --mo: #64748b;           /* chữ phụ, vẫn đủ đọc */
-  --mo-nhat: #94a3b8;
+  /* --- Chữ. Sắc nâu ấm thay vì xám lạnh, cho hợp nền ngà. --- */
+  --chu: #1c1917;          /* 16,62:1 trên nền — AAA */
+  --mo: #6f6862;           /* 5,21:1  — AA. Chữ phụ, vẫn đọc tốt */
+  --mo-nhat: #948c85;      /* 3,14:1  — xem ghi chú bên dưới */
+
+  /* ⚠️ `--mo-nhat` KHÔNG đạt 4,5:1 nên **chỉ dùng cho chữ đã giảm nhấn hoặc đường kẻ trang trí**,
+     đừng dùng cho nội dung người ta cần đọc. Bản cũ (#94a3b8) chỉ được 2,45:1; giá trị mới đưa
+     lên 3,14:1 — đạt mức AA cho chữ lớn và thành phần giao diện. */
 
   /* --- Màu ngữ nghĩa. LUÔN đi kèm nhãn chữ + icon: màu không bao giờ là
          nguồn thông tin duy nhất (có người không phân biệt được màu). --- */
-  --ok: #047857;
+  --ok: #047857;           /* 5,21:1 trên --ok-nen */
   --ok-nen: #ecfdf5;
   --ok-vien: #a7f3d0;
-  --canh: #b45309;
+  --canh: #b45309;         /* 4,84:1 trên --canh-nen */
   --canh-nen: #fffbeb;
   --canh-vien: #fde68a;
-  --loi: #b91c1c;
+  --canh-dam: #92400e;     /* dùng cho chữ cảnh báo cần nhấn mạnh hơn */
+  --loi: #b91c1c;          /* 5,91:1 trên --loi-nen */
   --loi-nen: #fef2f2;
   --loi-vien: #fecaca;
-  --tin: #1d4ed8;
-  --tin-nen: #eff6ff;
-  --tin-vien: #bfdbfe;
+
+  /* `--tin` ĐỔI TỪ XANH DƯƠNG SANG XANH NGỌC có lý do: màu chính nay đã là xanh mực, nên giữ
+     `--tin` màu xanh dương (#1d4ed8 cũ) sẽ làm khối thông tin trông y như nút hành động chính.
+     Xanh ngọc vẫn đọc ra "thông tin" mà không lẫn với màu chính. */
+  --tin: #0e7490;          /* 5,15:1 trên --tin-nen */
+  --tin-nen: #ecfeff;
+  --tin-vien: #a5f3fc;
+
+  /* --- Nền tối cho khối mã / nhật ký. Trước đây gõ cứng `#111` qua một token KHÔNG TỒN TẠI
+         (`--nen-mo`), nên nó chưa bao giờ đi theo theme. --- */
+  --nen-mo: #1c1917;
+
+  /* --- Màu lớp phủ vẽ trên ảnh trang. Tách token riêng vì chúng phải PHÂN BIỆT ĐƯỢC với nhau
+         trên nền tranh nhiều màu, không chỉ hợp tone. --- */
+  --phu-suy-ra: #0e7490;              /* vùng do hệ thống suy ra */
+  --phu-suy-ra-to: rgba(14, 116, 144, .10);
+  --phu-du-phong: #b45309;            /* vùng dùng đường dự phòng */
+
+  /* --- Lớp phủ có độ trong suốt. Phải là token RIÊNG: `rgba()` không đọc được biến màu,
+         nên nếu để giá trị thô thì đổi tone lần sau chúng lại đứng nguyên tone cũ — đúng lỗi
+         vừa xảy ra (tím #4f46e5 viết dạng `rgba(79, 70, 229, …)` lọt qua phép quét chỉ tìm hex). --- */
+  --chinh-phu: rgba(30, 64, 175, .18);
+  --chinh-phu-vien: rgba(30, 64, 175, .25);
+  --loi-phu: rgba(185, 28, 28, .12);
+  --loi-phu-dam: rgba(185, 28, 28, .18);
+  --loi-phu-nhat: rgba(185, 28, 28, .05);
+  --mo-phu: rgba(111, 104, 98, .10);
+  --nen-che: rgba(28, 25, 23, .55);      /* màn che sau hộp thoại */
 
   /* --- Bo góc: thống nhất thẻ/nút/ô nhập --- */
   --bo-nho: 8px;
   --bo: 12px;
   --bo-lon: 14px;
 
-  /* --- Đổ bóng: nhẹ, chỉ để tách lớp --- */
-  --bong: 0 1px 2px rgba(15, 23, 42, .06), 0 1px 3px rgba(15, 23, 42, .04);
-  --bong-noi: 0 8px 24px rgba(15, 23, 42, .10);
-  --bong-hop-thoai: 0 20px 48px rgba(15, 23, 42, .28);
+  /* --- Đổ bóng: nhẹ, chỉ để tách lớp. Sắc nâu ấm cho khớp nền ngà --- */
+  --bong: 0 1px 2px rgba(28, 25, 23, .06), 0 1px 3px rgba(28, 25, 23, .04);
+  --bong-noi: 0 8px 24px rgba(28, 25, 23, .10);
+  --bong-hop-thoai: 0 20px 48px rgba(28, 25, 23, .28);
 
   /* --- Khoảng cách theo khổ màn (16 / 24 / 32) --- */
   --le: 16px;
