@@ -3,12 +3,39 @@
 M2 đăng ký task thật đầu tiên: `detect.run_detect_job` (app/workers/tasks.py),
 tiêu thụ Job(type=detect) do endpoint upload page tạo ra.
 """
+import logging
+
 from celery import Celery
 from celery.signals import worker_ready
 
 from app.core.config import get_settings
 
 settings = get_settings()
+
+# --- Chặn tiếng ồn log của `httpx` -------------------------------------------------------------
+#
+# ## Hiện tượng
+#
+# Log worker bị lụt: một lượt chạy 76 dòng thì gần như toàn bộ là
+# `HTTP Request: HEAD https://huggingface.co/... "HTTP/1.1 200 OK"`. Dòng ghi tên model AI và dòng
+# của luật E47 bị đẩy ra khỏi bộ đệm — HAI LẦN liên tiếp không xác nhận được model đang chạy.
+#
+# ## Nguyên nhân THẬT — không phải cache của ta hỏng
+#
+# Chính log nói rõ `Model files already exist. Using cached files.` ⇒ **cache VẪN hit**. Tiếng ồn
+# đến từ `huggingface_hub` đi hỏi máy chủ xem tệp đã tải còn mới không, mỗi lần khởi tạo
+# PaddleOCR, cho TỪNG tệp. Nó gọi qua `httpx`, và `httpx` ghi mỗi request một dòng ở mức INFO.
+#
+# Đừng đi sửa khoá cache / TTL / logic cache trong mã ta — **không có gì sai ở đó**.
+#
+# ## Vì sao hạ `httpx` chứ không đặt `HF_HUB_OFFLINE=1`
+#
+# `HF_HUB_OFFLINE=1` sẽ chặn luôn lượt tải LẦN ĐẦU: container mới, cache rỗng ⇒ worker chết ngay
+# thay vì tải model về. Hạ log level không đổi hành vi nào, chỉ bớt dòng.
+#
+# Không đụng logger khác: mã của ta gọi Gemini bằng `urllib`, nên hạ `httpx` không giấu mất lượt
+# gọi AI nào. Giữ WARNING để lỗi mạng thật vẫn hiện.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 celery_app = Celery(
     "translation",

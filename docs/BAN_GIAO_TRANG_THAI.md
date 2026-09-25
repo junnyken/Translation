@@ -144,6 +144,45 @@ Biến: `VUNG_XOA_MIN_CONF` (0,5) · `VUNG_XOA_MIN_KY_TU` (2). **Đặt 0 là qu
 Chiều dễ quên **không phải** "giữ nét vẽ" mà là chiều ngược lại: nới tay quá thì chữ gốc không
 được xoá, và bước căn chữ vẽ chữ dịch **đè lên chữ gốc** — tệ hơn trạng thái ban đầu.
 
+## ⚠️ GIỚI HẠN LỚN — E47 KHÔNG bảo vệ được truyện tiếng Nhật
+
+**Đo ngày 25-09 trên 13 vùng `comic-text-detector` khoanh ở 3 trang tiếng Nhật: 0/13 bị bỏ qua.**
+
+manga-ocr đọc ra **4–18 ký tự có nghĩa trên MỌI vùng**, kể cả vùng đã nhìn tận mắt xác nhận là
+**hiệu ứng ánh sáng**. Có vùng còn đọc ra cả một câu hoàn chỉnh nghe rất hợp lý.
+
+### Nguyên nhân là BẢN CHẤT mô hình, không phải lỗi luật
+
+manga-ocr là mô hình **sinh** (encoder-decoder). Đưa vào một mảng ánh sáng lấp lánh, nó **không**
+trả chuỗi rỗng hay điểm tin cậy thấp — nó **bịa ra chữ Nhật nghe được**. Và nó **không trả điểm
+tin cậy**, nên luật không có tín hiệu nào để nghi ngờ.
+
+| | Engine | Trên vùng nhiễu | E47 chặn được? |
+|---|---|---|---|
+| Anh · Trung | PaddleOCR | 1 ký tự, **điểm 0,38** | ✅ |
+| **Nhật** | manga-ocr | **4–18 ký tự BỊA**, không có điểm | ❌ **KHÔNG** |
+
+⇒ **Mọi lớp lọc dựa vào kết quả OCR đều vô hiệu cho tiếng Nhật.**
+
+### Đã thử một tín hiệu thay thế — THẤT BẠI
+
+Đo mật độ nét (tỉ lệ điểm rất tối × rất sáng) trên 13 vùng đó: vùng chữ thật 0,0002–0,0900; vùng
+nghi nhiễu 0,0000–**0,1217**. **Chồng lấn hoàn toàn**, không có ngưỡng nào cắt được.
+
+Thêm nữa **chính nhãn dùng để chấm cũng không đáng tin**: một vùng được gán "chữ thật" lại đọc ra
+`どなどは` — dự án đã ghi nhận đó là **rác hoàn toàn** từ E27.
+
+### Vì sao truyện Nhật VẪN chạy tốt trên production
+
+**Không phải nhờ E47.** Nhờ **engine nhận diện AI không khoanh nhầm nét vẽ ngay từ đầu**.
+
+⚠️ Đó là **một biến môi trường**. Ai đổi `DETECT_ENGINE` về `ctd` — để gỡ lỗi, để tiết kiệm, hay
+vì Gemini hỏng — sẽ làm truyện Nhật **bị xoá lẹm tranh mà không có gì cảnh báo**. Với tiếng Nhật,
+bước khoanh khung là **lớp bảo vệ DUY NHẤT**.
+
+**Việc nên làm:** chặn tổ hợp `source_lang=ja` + `DETECT_ENGINE=ctd` ngay trong mã (cảnh báo rõ
+hoặc từ chối). Hiện rủi ro này chỉ nằm trong tài liệu, không nằm trong mã.
+
 ## CÒN THIẾU — việc nên làm tiếp
 
 Bước **dịch** vẫn dịch cả vùng nhiễu, nên vùng đó có thể bị vẽ **một ký tự rác** lên tranh. Nhỏ
