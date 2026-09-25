@@ -115,6 +115,16 @@ class Settings(BaseSettings):
     #: (chu doc, bong bong khong vien, chu tuong thanh de len net ve) CHUA thu lan nao.
     #: Bang so day du: `docs/REPORT_E46.md`.
     detect_engine: str = "ctd"
+    #: Ghi cảnh báo khi chạy `source_lang=ja` với `DETECT_ENGINE=ctd`.
+    #:
+    #: Đo 25-09 trên 13 vùng `ctd` khoanh ở 3 trang tiếng Nhật: luật E47 lọc được **0/13**.
+    #: manga-ocr là mô hình SINH — nó **bịa ra chữ Nhật nghe hợp lý** trên cả mảng ánh sáng lấp
+    #: lánh, và **không trả điểm tin cậy** nên E47 không có tín hiệu để nghi ngờ.
+    #:
+    #: CẢNH BÁO chứ KHÔNG chặn: rủi ro cao ở trang nhiều hiệu ứng ánh sáng, nhưng `ctd` +
+    #: tiếng Nhật là cấu hình dự án đã chạy suốt từ đầu và cho kết quả tốt trên trang thường.
+    #: Bản đầu viết là chặn thẳng và bộ test bắt được — 51 bài đỏ.
+    canh_bao_ctd_cho_tieng_nhat: bool = True
     #: Cạnh dài ảnh gửi cho engine AI. Gemini tính tiền theo ô 768×768 nên gửi nguyên cỡ
     #: là đốt token vô ích; 1024 là mức E32 đã chốt (giữ được chữ còn đọc được).
     detect_ai_canh_toi_da: int = 1024

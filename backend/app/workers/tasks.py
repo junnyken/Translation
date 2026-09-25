@@ -41,6 +41,7 @@ from app.models.enums import (
     OCRStatus,
     PageStatus,
     RegionStatus,
+    SourceLang,
     TranslationEngine,
     TranslationStatus,
     assert_transition,
@@ -65,6 +66,10 @@ _OCR_HARD_LIMIT = settings.ocr_timeout_seconds + 30
 
 #: Detector nạp 1 lần/process (weight ~91MB) — nạp lại mỗi ảnh sẽ rất chậm.
 _detector = None
+
+#: Cảnh báo `ja` + `ctd` chỉ ghi MỘT lần mỗi tiến trình — đây là vấn đề cấu hình, không
+#: phải vấn đề của từng trang. Lặp mỗi trang chỉ tạo tiếng ồn.
+_da_canh_bao_ja_ctd = False
 
 
 def get_detector():
@@ -179,6 +184,35 @@ def _run_detect(job_id: uuid.UUID) -> dict:
         page_id = page.id
         image_rel = page.image_path
 
+        # Rủi ro tổ hợp `ja` + `ctd` — xem `Settings.canh_bao_ctd_cho_tieng_nhat`.
+        #
+        # CẢNH BÁO, KHÔNG TỪ CHỐI. Bản đầu tôi viết là từ chối thẳng và **bộ test bắt được lỗi
+        # thiết kế**: 51 bài đỏ, vì mặc định trong mã là `ctd` và phần lớn bộ test dùng dự án
+        # tiếng Nhật — tức chặn đúng cấu hình dự án đã chạy suốt từ đầu. Bằng chứng thật:
+        # `ctd` + tiếng Nhật rủi ro **trên trang nhiều hiệu ứng ánh sáng**, không hỏng phổ quát.
+        #
+        # Báo bằng HAI đường, có chủ ý:
+        #   * `logger.error` — MỘT lần mỗi tiến trình. Đây là vấn đề CẤU HÌNH; lặp mỗi trang chỉ
+        #     tạo tiếng ồn, đúng thứ vừa phải đi dọn.
+        #   * trường `canh_bao` trong kết quả job — MỌI job. Log là thứ phù du (đã đo: Celery
+        #     tắt propagate nên cả `caplog` lẫn handler gắn thẳng đều không thấy gì dù log CÓ
+        #     được ghi); một trường trong kết quả thì tra được và kiểm được.
+        global _da_canh_bao_ja_ctd
+        rui_ro_ja_ctd = False
+        if settings.canh_bao_ctd_cho_tieng_nhat and settings.detect_engine == "ctd":
+            du_an = session.get(Project, page.project_id)
+            if du_an is not None and du_an.source_lang is SourceLang.ja:
+                rui_ro_ja_ctd = True
+                if not _da_canh_bao_ja_ctd:
+                    _da_canh_bao_ja_ctd = True
+                    logger.error(
+                        "ja_voi_ctd: đang chạy truyện tiếng Nhật với engine nhận diện 'ctd'. "
+                        "manga-ocr BỊA ra chữ trên vùng không có chữ (đo được 0/13 vùng nhiễu "
+                        "bị luật E47 lọc), nên nếu nhận diện khoanh nhầm nét vẽ thì nét vẽ sẽ "
+                        "bị XOÁ và chữ bịa được vẽ lên đó. Rủi ro cao nhất ở trang nhiều hiệu "
+                        "ứng ánh sáng. Dùng DETECT_ENGINE=ai_gemini để tránh."
+                    )
+
         danh_dau_dang_chay(job)
         if page.status is not PageStatus.detecting:
             assert_transition(page.status, PageStatus.detecting)
@@ -250,6 +284,8 @@ def _run_detect(job_id: uuid.UUID) -> dict:
         "replaced_regions": deleted,
         "elapsed_seconds": round(elapsed, 2),
         "ocr_job_id": str(ocr_job_id) if ocr_job_id else None,
+        # `None` khi không có rủi ro — không bịa ra giá trị mặc định giả.
+        "canh_bao": "ja_voi_ctd" if rui_ro_ja_ctd else None,
     }
 
 
