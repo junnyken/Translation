@@ -67,6 +67,24 @@ class Settings(BaseSettings):
     #: vào sẽ đá nhau. Hai người ghi một tệp là cách chắc chắn để mất dữ liệu của cả hai.
     worker_rss_file: str = "/tmp/rss-worker.json"
 
+    # --- Hạn mức sử dụng ---------------------------------------------------------------------
+    #: Hạn mức theo TRANG mỗi ngày. Đơn vị là trang chứ không phải chapter/tệp/lần bấm, vì chi
+    #: phí thật tính theo trang.
+    #:
+    #: 6 cho khách lạ: một trang mất ~30 giây trọn chuỗi, nên 3 trang (số ban đầu) là chưa đầy
+    #: 2 phút — khách có thể rời đi trước khi kịp thấy công cụ làm được gì. Chi phí ~0,3 xu Mỹ.
+    han_muc_khach_la: int = 6
+    han_muc_co_tai_khoan: int = 10
+    #: Trần theo IP cho khách lạ. **PHẢI lớn hơn `han_muc_khach_la`**: văn phòng, trường học,
+    #: quán cà phê dùng chung một IP — đặt bằng nhau là chặn oan hàng loạt người dùng thật.
+    #: Đây là hàng rào chống xoá cookie lấy lượt mới, KHÔNG phải định danh người dùng.
+    han_muc_ip_khach_la: int = 25
+    #: Múi giờ quyết định "hôm nay" của hạn mức.
+    #:
+    #: ⚠️ BẮT BUỘC tường minh. Container chạy **UTC**, người dùng và chính sách theo **UTC+7**.
+    #: Dự án đã có tiền lệ: bài test gom theo "giờ trong ngày" XANH ở máy mà ĐỎ trên server.
+    mui_gio_han_muc: str = "Asia/Ho_Chi_Minh"
+
     # Bảo vệ truy cập (slice A)
     #: Khoá CHUNG cho cả hệ thống. Rỗng = cổng TẮT (máy phát triển, và để triển khai theo thứ tự
     #: an toàn: đẩy mã trước, deploy giao diện biết gửi khoá, RỒI mới đặt biến này).
