@@ -18,6 +18,33 @@ class IntendedUse(str, Enum):
     other = "other"
 
 
+class LoaiChuThe(str, Enum):
+    """Hạn mức tính cho AI.
+
+    `khach_cookie` và `khach_ip` là HAI chốt độc lập cho cùng một khách lạ: cookie nhận ra trình
+    duyệt, IP chặn việc xoá cookie để lấy lượt mới. Request phải lọt qua CẢ HAI.
+    """
+
+    nguoi_dung = "nguoi_dung"
+    khach_cookie = "khach_cookie"
+    khach_ip = "khach_ip"
+
+
+class TrangThaiHanMuc(str, Enum):
+    """Vòng đời một khoản trong sổ cái.
+
+    `giu_cho` -> `da_tieu` (xử lý xong) hoặc `da_hoan` (hệ thống hỏng).
+
+    Không dùng bộ đếm đơn: nó sai khi có request song song, khi HTTP thử lại, khi worker chết
+    giữa chừng, và khi một mẻ thành công một phần — mà worker của dự án ĐÃ bị hệ điều hành giết
+    3 lần. Sổ cái cho phép truy vết từng lần trừ/hoàn và làm mọi thao tác idempotent.
+    """
+
+    giu_cho = "giu_cho"
+    da_tieu = "da_tieu"
+    da_hoan = "da_hoan"
+
+
 class ProjectStatus(str, Enum):
     active = "active"
     archived = "archived"

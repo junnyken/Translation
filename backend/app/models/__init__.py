@@ -3,11 +3,12 @@ TranslationResult, TypesetResult, Job). Không tạo thêm bảng ngoài danh s�
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    Date,
     DateTime,
     Enum as SAEnum,
     Float,
@@ -27,6 +28,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.db import Base
 from app.models.enums import (
     ChePipeline,
+    LoaiChuThe,
+    TrangThaiHanMuc,
     OrientationSource,
     OrientationStatus,
     TextOrientation,
@@ -849,3 +852,66 @@ class TermSuggestionRun(TimestampMixin, Base):
     #: Số ứng viên đã gửi đi hỏi — để biết tỉ lệ model trả lời được.
     asked_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_log: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class SoCaiHanMuc(TimestampMixin, Base):
+    """Sổ cái hạn mức — mỗi dòng là một lần GIỮ CHỖ, và sau đó tiêu hoặc hoàn.
+
+    ## Vì sao sổ cái chứ không phải bộ đếm
+
+    Một cột `da_dung` cộng dồn sẽ sai ở bốn tình huống, và cả bốn đều có thật ở đây:
+
+    * **hai request song song** cùng đọc "còn 6" rồi cùng trừ ⇒ tiêu quá hạn mức;
+    * **HTTP thử lại** ⇒ trừ hai lần cho một lượt;
+    * **worker chết giữa chừng** ⇒ lượt đã trừ mà việc không chạy. Worker của dự án **đã bị hệ
+      điều hành giết 3 lần**, đây không phải tình huống giả định;
+    * **mẻ thành công một phần** ⇒ không biết tiêu mấy trang, hoàn mấy trang.
+
+    Sổ cái giữ lại *từng* khoản nên truy được, sửa được, và làm mọi thao tác **idempotent**.
+
+    ## `khoa_idempotency` là thứ giữ cho mọi thứ đúng
+
+    Cùng một khoá thì chỉ tạo được **một** dòng. Nhờ đó HTTP thử lại, task chạy lại, hay lượt dọn
+    job mồ côi gọi hoàn lần thứ hai đều **không** trừ/hoàn thêm.
+
+    ## `chu_the` KHÔNG lưu IP thô
+
+    Với `nguoi_dung` thì đây là id tài khoản. Với `khach_cookie`/`khach_ip` thì đây là **giá trị
+    đã băm có muối** — lưu IP thô là giữ dữ liệu cá nhân không cần thiết, mà hạn mức chỉ cần biết
+    "có phải cùng một người không", không cần biết người đó ở đâu.
+
+    ## `ngay_han_muc` là NGÀY VIỆT NAM
+
+    Không phải ngày UTC. Xem `services/han_muc.py` — container chạy UTC nên lấy ngày theo giờ máy
+    sẽ lệch 7 tiếng và người dùng bị chặn oan cả buổi sáng.
+    """
+
+    __tablename__ = "so_cai_han_muc"
+    __table_args__ = (
+        # Một khoá chỉ tạo được một dòng — nền tảng của tính idempotent.
+        UniqueConstraint("khoa_idempotency", name="uq_so_cai_han_muc_khoa"),
+        # Truy vấn nóng: "chủ thể này đã dùng bao nhiêu trang hôm nay".
+        Index(
+            "ix_so_cai_han_muc_tra_cuu",
+            "loai_chu_the", "chu_the", "ngay_han_muc", "trang_thai",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    #: Khoá chống trùng, do nơi gọi sinh ra theo mẻ/request.
+    khoa_idempotency: Mapped[str] = mapped_column(String(128), nullable=False)
+    loai_chu_the: Mapped[LoaiChuThe] = mapped_column(
+        _enum(LoaiChuThe, "loai_chu_the"), nullable=False
+    )
+    #: id tài khoản, hoặc giá trị ĐÃ BĂM cho khách lạ. Xem docstring lớp.
+    chu_the: Mapped[str] = mapped_column(String(128), nullable=False)
+    #: Ngày theo giờ Việt Nam — KHÔNG phải ngày UTC.
+    ngay_han_muc: Mapped[date] = mapped_column(Date, nullable=False)
+    #: Số TRANG của khoản này. Đơn vị là trang vì chi phí thật tính theo trang.
+    so_trang: Mapped[int] = mapped_column(Integer, nullable=False)
+    trang_thai: Mapped[TrangThaiHanMuc] = mapped_column(
+        _enum(TrangThaiHanMuc, "trang_thai_han_muc"), nullable=False
+    )
+    #: Vì sao hoàn — để phân biệt "hệ thống hỏng" với các lý do khác khi xem lại.
+    #: `None` khi chưa hoàn; KHÔNG điền chuỗi rỗng cho gọn.
+    ly_do_hoan: Mapped[str | None] = mapped_column(Text, nullable=True)
