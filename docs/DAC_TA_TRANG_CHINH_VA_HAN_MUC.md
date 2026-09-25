@@ -230,6 +230,42 @@ Làm xong phải chứng minh được, không phải tự nhận:
 
 ---
 
+# 6bis. ĐỐI CHIẾU VỚI MÃ THẬT — bốn giả định thường gặp là SAI
+
+Kiểm ngày 25-09 bằng cách quét mã, không suy đoán. Ai viết kế hoạch từ tài liệu này mà giả định
+"tái dùng cơ chế sẵn có" sẽ vấp đúng bốn chỗ dưới đây.
+
+| Giả định thường gặp | Sự thật trong mã |
+|---|---|
+| "Dùng scheduler **hiện có** (Celery beat…)" | **KHÔNG có lịch chạy định kỳ nào.** Quét `celery_app.py`, `deploy-start.sh`, `deploy/docker-compose.yml` — trống |
+| "Dùng mã lỗi `429` theo quy ước sẵn" | `429` **chưa dùng ở đâu** trong `api/v1/`. Đây là mẫu MỚI |
+| "Đừng thêm Pillow vào API container" | **Pillow đã có sẵn** (`requirements.txt`) và bước căn chữ đang dùng |
+| "Khoá chống hai worker cùng dọn" | Chỉ có **MỘT** worker, chạy `--pool=solo`. Không sai, nhưng là lo xa |
+
+## Chỗ CHẶN thật: chưa có lịch chạy định kỳ
+
+Toàn bộ phần dọn tệp 30 phút cần một cơ chế chạy nền theo chu kỳ. **Không có cơ chế nào để tái
+dùng** — phải thêm mới (Celery beat hoặc tương đương). Đây là một đầu việc thật, không phải câu
+"dùng lại cái sẵn có".
+
+Thêm nữa nó sẽ chạy **chung tiến trình worker** đang bị bó 4096 MB, mà worker đã bị hệ điều hành
+giết 3 lần. Phép dọn phải nhẹ (xoá tệp thôi) và **không được chạy trùng lúc bước xoá chữ đang ở
+đỉnh bộ nhớ** (~2295 MB).
+
+## Kho lưu trữ có BA nền, mỗi nền xoá một kiểu
+
+`storage_backend` nhận `local` | `postgres` | `supabase`, và `storage.py` có **ba** hàm `delete`
+riêng. **Production đang dùng nền nào thì chưa biết** — cổng quản trị chỉ trả TÊN biến môi
+trường, không trả giá trị. **Phải tra trước khi viết phần dọn dẹp**, vì ngữ nghĩa xoá và cách xử
+lý lỗi khác nhau giữa ba nền.
+
+## Còn một số CHƯA CHỐT: trần kích thước tệp
+
+Tài liệu này nói "phải chặn trần kích thước tệp trước khi tính lượt" nhưng **chưa nêu số**. Đây là
+số cần chủ dự án cho, vì nó quyết định worker có chết hay không.
+
+---
+
 # 7. Đã chốt — không còn câu nào treo
 
 | Câu | Chốt (25-09) |
@@ -237,4 +273,7 @@ Làm xong phải chứng minh được, không phải tự nhận:
 | Ảnh gốc có xoá cùng sau 30 phút? | **Có, xoá luôn** — §2.9 |
 | Hạn mức khách lạ | **6 trang/ngày** — §1.5 |
 
-Đủ điều kiện bắt tay xây.
+## Còn MỘT câu chưa chốt
+
+**Trần kích thước tệp cho production.** Xem §6bis. Chưa có số này thì phần "chặn trước khi tính
+lượt" không triển khai được.
