@@ -33,7 +33,7 @@ chính**.
 
 | | Khách chưa đăng ký | Có tài khoản |
 |---|---|---|
-| Hạn mức | **3 trang/ngày** | **10 trang/ngày** |
+| Hạn mức | **6 trang/ngày** | **10 trang/ngày** |
 
 - **Đơn vị: TRANG**, không phải chapter. Chi phí thật tính theo trang.
 - **Nhận diện khách lạ: cookie + IP.** Cookie nhận ra trình duyệt; IP là chốt chặn thứ hai.
@@ -42,7 +42,7 @@ chính**.
 ## 1.2. Trần theo IP phải CAO HƠN trần theo cookie
 
 Văn phòng, trường học, quán cà phê dùng chung một IP. Đặt trần IP bằng trần cookie sẽ **chặn oan
-hàng loạt người dùng thật**. Gợi ý: cookie 3 · IP 10–15.
+hàng loạt người dùng thật**. Gợi ý: cookie 6 · IP 20–30.
 
 ## 1.3. Bốn thứ THIẾU thì tính năng tự gây hại
 
@@ -56,7 +56,7 @@ thống. **Đây là chỗ dễ quên nhất.** Worker của dự án đã bị 
 chừng là chuyện có thật, không phải giả định.
 
 **(c) Nói rõ CÒN BAO NHIÊU và BAO GIỜ CÓ LẠI.**
-Hiện `0/3` mà không nói "có lại lúc 0h" thì người ta tưởng hỏng.
+Hiện `0/6` mà không nói "có lại lúc 0h" thì người ta tưởng hỏng.
 
 **(d) Chặn trần KÍCH THƯỚC TỆP trước khi tính lượt.**
 Không có thì một tệp rất lớn vừa đốt băng thông vừa có thể làm chết worker.
@@ -68,15 +68,16 @@ Không có thì một tệp rất lớn vừa đốt băng thông vừa có th�
 Bài test gom theo "giờ trong ngày" sẽ **xanh ở máy mà ĐỎ trên server**. Mốc reset phải ép múi giờ
 tường minh, và **chính bài test cũng phải ép `TZ`** chứ không dựa vào giờ máy.
 
-## 1.5. Con số 3 nên đổi được bằng biến môi trường
+## 1.5. ĐÃ CHỐT — khách lạ 6 trang/ngày
 
-3 trang/ngày là **rất ít để cảm nhận sản phẩm**: một trang mất ~30 giây trọn chuỗi, nên khách lạ
-dùng hết hạn mức trong chưa đầy 2 phút và có thể rời đi trước khi thấy công cụ làm được gì.
+Chủ dự án chốt (25-09): nới từ 3 lên **5–6**. Lấy **6** làm số khởi điểm vì truyện tranh thường
+đọc theo cặp trang, 6 là 3 cặp trọn vẹn; và đầu rộng tay hơn thì chi phí chênh lệch không đáng kể.
 
-Chi phí thật chỉ **~0,14 xu Mỹ cho 3 trang**, nên nếu mục tiêu là *mời người ta đăng ký* thì con
-số rộng tay hơn gần như không tốn thêm gì.
+Lý do nới: một trang mất ~30 giây trọn chuỗi, nên 3 trang là chưa đầy 2 phút — khách lạ có thể rời
+đi trước khi kịp thấy công cụ làm được gì. Chi phí thật chỉ **~0,3 xu Mỹ cho 6 trang**.
 
-⇒ **Đừng viết số cứng vào mã.** `HAN_MUC_KHACH_LA` · `HAN_MUC_CO_TAI_KHOAN`.
+⇒ **Vẫn đừng viết số cứng vào mã.** `HAN_MUC_KHACH_LA` (6) · `HAN_MUC_CO_TAI_KHOAN` (10).
+Còn phải tinh chỉnh theo hành vi thật, mà đổi biến môi trường thì không cần deploy lại mã.
 
 ---
 
@@ -123,14 +124,27 @@ lượt vẫn đã dùng. Khác hẳn §1.3(b) — ở đó là **hệ thống h
 
 Phải nói rõ luật này trên giao diện, vì nó dễ gây bức xúc nếu người dùng chỉ phát hiện sau khi mất.
 
-## 2.9. Câu hỏi CHƯA CHỐT — cần chủ dự án quyết
+## 2.9. ĐÃ CHỐT — xoá luôn cả ảnh gốc
 
-**Ảnh GỐC người dùng tải lên có xoá cùng không?**
+Chủ dự án chốt (25-09): **xoá cả ảnh gốc người dùng tải lên**, không giữ lại.
 
-- Xoá cùng: nhẹ đĩa nhất, nhưng người dùng **không chạy lại được** nếu kết quả chưa ưng.
-- Giữ lâu hơn: chạy lại được, nhưng tốn đĩa — mà đĩa chính là thứ luật này sinh ra để cứu.
+### Hệ quả phải nói rõ với người dùng
 
-Tôi **không tự quyết** vì nó đổi trải nghiệm rõ rệt theo cả hai chiều.
+Sau 30 phút, **toàn bộ chapter biến mất** — ảnh gốc, ảnh đã xoá chữ, bản dịch, tệp xuất. Người
+dùng **không chạy lại được** và **không sửa lại được**. Muốn làm lại thì phải tải lên từ đầu và
+**tốn thêm hạn mức**.
+
+Điều này vô hiệu hoá các tính năng sửa tay sau 30 phút: sửa chữ OCR đọc sai, chỉnh khung vùng,
+chạy lại từng bước. Trong 30 phút thì vẫn dùng bình thường.
+
+⇒ Câu cảnh báo trên giao diện phải nói đúng mức đó, **không** nói mơ hồ kiểu "tệp sẽ được dọn".
+
+### Điều này KHÔNG làm hỏng luật hoàn lượt
+
+Xử lý hỏng giữa chừng ⇒ trang **chưa xong** ⇒ đồng hồ 30 phút **chưa bắt đầu** ⇒ ảnh gốc **vẫn
+còn**. Nên lượt được hoàn ở §1.3(b) vẫn dùng lại được. Hai luật không đá nhau — nhưng **chỉ đúng
+khi đồng hồ đếm từ lúc XONG** như §2.3 đã chốt. Đổi sang đếm từ lúc tải lên là phá luôn cả điều
+này.
 
 ---
 
@@ -216,8 +230,11 @@ Làm xong phải chứng minh được, không phải tự nhận:
 
 ---
 
-# 7. Hai câu cần chủ dự án chốt trước khi xây
+# 7. Đã chốt — không còn câu nào treo
 
-1. **Ảnh gốc có xoá cùng sau 30 phút không?** (§2.9)
-2. **Giữ đúng 3 trang cho khách lạ, hay nới lên 5–6?** (§1.5) — chi phí chênh lệch không đáng kể,
-   nhưng ảnh hưởng rõ tới việc người ta có kịp thấy sản phẩm làm được gì hay không.
+| Câu | Chốt (25-09) |
+|---|---|
+| Ảnh gốc có xoá cùng sau 30 phút? | **Có, xoá luôn** — §2.9 |
+| Hạn mức khách lạ | **6 trang/ngày** — §1.5 |
+
+Đủ điều kiện bắt tay xây.
