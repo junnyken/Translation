@@ -169,6 +169,14 @@ class Project(TimestampMixin, Base):
         PGUUID(as_uuid=True), ForeignKey("nguoi_dung.id", ondelete="SET NULL"), nullable=True,
         index=True,
     )
+    #: E49 — chapter của KHÁCH LẠ (chưa đăng nhập). Giá trị là mã cookie **đã băm**, không
+    #: phải cookie thô: sổ cái chỉ cần biết "có phải cùng một người không".
+    #:
+    #: ⚠️ Cột này đổi nghĩa của `chu_so_huu_id IS NULL`. Trước E49, "không có chủ" nghĩa là
+    #: chapter cũ từ trước slice B và **mọi tài khoản đăng nhập đều dùng được**. Nếu chapter của
+    #: khách cũng để `chu_so_huu_id = NULL` mà không có cột này, thì mọi người đăng nhập sẽ
+    #: đọc được truyện của mọi khách lạ. Luật phân biệt nằm ở `core/quyen.duoc_dung_project`.
+    chu_khach: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
 
     pages: Mapped[list["Page"]] = relationship(
         back_populates="project", cascade="all, delete-orphan", order_by="Page.order"

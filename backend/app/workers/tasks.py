@@ -21,6 +21,7 @@ from sqlalchemy import delete, func, select
 
 from app.core.config import get_settings
 from app.core.db_sync import sync_session
+from app.services.quyet_toan_han_muc import quyet_toan_khi_ket_thuc_buoc
 from app.services.job_status import job_chua_ket_thuc
 from app.models import (
     ExportJob,
@@ -637,7 +638,17 @@ def bao_ket_thuc_buoc(page_id: uuid.UUID | None, job_id: uuid.UUID, outcome: str
 
     Gọi ở CHỖ DUY NHẤT này thay vì rải logic mẻ vào từng task — task của M2–M6 không cần biết
     gì về mẻ. Trang chạy lẻ (không thuộc mẻ nào) thì hàm này không làm gì.
+
+    E49 — cũng là chỗ **quyết toán hạn mức**. Đặt ở đây vì đây là điểm nghẽn duy nhất chạy sau
+    MỌI bước: thêm bước mới vào pipeline cũng không quên chốt lượt. Gắn vào từng chỗ đặt
+    `page.status = ...` thì có 12 chỗ, và sót một chỗ là người dùng mất lượt vĩnh viễn mà không
+    có triệu chứng nào ngoài con số hạn mức sai.
+
+    ⚠️ Quyết toán chạy **TRƯỚC** cổng `batch_enabled`: hạn mức áp cho cả trang tải lẻ, mà trang
+    tải lẻ không thuộc mẻ nào. Để sau cổng đó thì mọi trang lẻ giữ chỗ mãi mãi.
     """
+    quyet_toan_khi_ket_thuc_buoc(page_id)
+
     if page_id is None or not settings.batch_enabled:
         return
     try:

@@ -6,6 +6,9 @@ Nguyên tắc:
 - Response **luôn** qua Pydantic schema (không trả SQLAlchemy object).
 - Lỗi validate → `422` theo format mặc định FastAPI (không tự chế error format).
 - Endpoint kích hoạt bước AI → `202 Accepted` + `job_id`, không trả kết quả trực tiếp.
+- **Mọi đường đòi đăng nhập**, trừ `/auth/*` và hai đường ở §E49 dưới đây. Cổng gắn ở **tầng
+  router** chứ không từng endpoint, nên mặc định là ĐÓNG.
+- **Hạn mức (E49):** ba đường tải lên trả `429` khi hết lượt — xem §E49.
 
 ## 1. `POST /api/v1/projects` → 201
 
@@ -1336,3 +1339,55 @@ bong bóng đó, không phải đợi cả trang. Gọi lặp lại (poll) tới
 |---|---|
 | Chưa đăng nhập / phiên hết hạn | `401` |
 | Trang không tồn tại, hoặc chapter chứa nó không phải của tài khoản gọi | `404` |
+
+---
+
+# E49 — Hạn mức sử dụng và đường cho khách lạ
+
+## E49.1. Lỗi `429 Too Many Requests` — mẫu MỚI
+
+Trả ở **ba** đường tải lên: `POST /projects/{id}/pages`, `POST /projects/{id}/pages/archive`,
+`POST /doc-truyen/trang`.
+
+```json
+{"detail": {
+  "loi": "vuot_han_muc",
+  "can": 1,
+  "con_lai": 0,
+  "tran": 6,
+  "co_tai_khoan": false,
+  "chot": "khach_ip",
+  "reset_luc": "2026-09-26T00:00:00+07:00",
+  "reset_sau_giay": 12345
+}}
+```
+
+| Trường | Nghĩa |
+|---|---|
+| `can` | Số trang lượt gọi này cần |
+| `con_lai` | Còn dùng được bao nhiêu trang hôm nay |
+| `tran` | Trần của chốt đang chặn |
+| `chot` | `nguoi_dung` · `khach_cookie` · `khach_ip` |
+| `reset_luc` | Mốc làm mới, **có sẵn phần bù `+07:00`** — client không phải tự tính |
+| `reset_sau_giay` | Còn bao nhiêu giây, để đếm ngược |
+
+Header kèm theo: `Retry-After` (giây), và `Set-Cookie: ma_khach=…` khi khách chưa có cookie.
+
+⚠️ `chot: "khach_ip"` nghĩa là bị chặn vì **dùng chung địa chỉ mạng** (văn phòng, trường học,
+quán cà phê), **không** phải vì chính người này dùng nhiều. Giao diện phải nói đúng điều đó —
+người chưa dùng lượt nào mà bị chặn sẽ không hiểu nổi nếu chỉ thấy "bạn đã hết lượt".
+
+**Hạn mức KHÔNG bị trừ** khi tệp bị từ chối vì định dạng (`422`) hoặc kích thước (`413`).
+
+## E49.2. Hai đường KHÔNG đòi đăng nhập
+
+| Đường | Ghi chú |
+|---|---|
+| `POST /api/v1/doc-truyen/trang` | Khách lạ gửi được. Trả `Set-Cookie: ma_khach` ở lượt đầu |
+| `GET /api/v1/doc-truyen/trang/{page_id}` | Chỉ đọc được trang của **chính mình** (theo cookie) |
+
+Đây là danh sách đóng, khoá bằng `tests/test_e49f_khach_la_tai_len.py::test_CHI_hai_duong_nay_mo_cho_khach`.
+Mọi đường khác vẫn `401` khi chưa đăng nhập.
+
+Khách lạ phải **giữ cookie `ma_khach`** thì mới đọc lại được kết quả của mình. Xoá cookie là mất
+đường vào những trang đã gửi (và vẫn bị chốt IP tính hạn mức).

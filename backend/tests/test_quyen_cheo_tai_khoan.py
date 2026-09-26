@@ -413,8 +413,20 @@ async def test_khong_endpoint_nao_lo_du_lieu_sang_tai_khoan_khac(
     )
 
 
+#: E49 — đường MỞ cho khách lạ, kèm mã trạng thái phải trả khi người lạ hỏi tài nguyên của
+#: NGƯỜI KHÁC. Cố ý ghi mã mong đợi chứ không chỉ bỏ qua: bỏ qua thì đường này thành điểm mù,
+#: và cái ta thật sự sợ ở đây là `200` (rò rỉ dữ liệu), không phải `404`.
+MO_CHO_KHACH = {
+    "/api/v1/doc-truyen/trang/{page_id}": 404,
+}
+
+
 async def test_moi_endpoint_deu_doi_dang_nhap(session, client_chua_dang_nhap, client, nguoi_a):
-    """Không đăng nhập ⇒ 401 ở mọi đường dẫn, trừ danh sách miễn trừ có giải thích."""
+    """Không đăng nhập ⇒ 401 ở mọi đường dẫn, trừ danh sách miễn trừ có giải thích.
+
+    E49 mở hai đường cho khách lạ. Chúng KHÔNG được bỏ qua ở đây — chỉ đổi mã mong đợi sang
+    `404`: mở cho khách vào **không** có nghĩa là cho khách đọc dữ liệu của người khác.
+    """
     ids = await _dung_du_lieu(session, uuid.UUID(nguoi_a[0]))
     lot: list[str] = []
     for method, mau in _duong_dan_can_do():
@@ -422,9 +434,10 @@ async def test_moi_endpoint_deu_doi_dang_nhap(session, client_chua_dang_nhap, cl
         if duong is None:
             continue
         tra = await client_chua_dang_nhap.request(method, duong, json={})
-        if tra.status_code != 401:
-            lot.append(f"{method} {mau} → {tra.status_code}")
-    assert not lot, "Endpoint không đòi đăng nhập:\n" + "\n".join(lot)
+        mong_doi = MO_CHO_KHACH.get(mau, 401)
+        if tra.status_code != mong_doi:
+            lot.append(f"{method} {mau} → {tra.status_code} (mong đợi {mong_doi})")
+    assert not lot, "Endpoint trả sai mã khi chưa đăng nhập:\n" + "\n".join(lot)
 
 
 async def test_chapter_chua_co_chu_thi_ai_dang_nhap_cung_thay(session, client, client_b):

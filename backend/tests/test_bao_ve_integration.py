@@ -122,6 +122,21 @@ MIEN_TRU_DANG_NHAP = {
     "/api/v1/auth/logout",           # thu hồi phiên; mã sai vẫn trả 204, không lộ gì
     "/api/v1/auth/register",         # tự gác bằng khoá chung
     "/api/v1/auth/co-tai-khoan-chua",  # chỉ trả true/false
+    # ---- E49: đường cho KHÁCH LẠ (2026-09-25) ----
+    #
+    # Hai đường này nằm trên `router_khach`, mount KHÔNG kèm cổng đăng nhập. Đây là ngoại lệ
+    # có chủ đích, không phải sót: nguyên tắc §4.1 đặc tả là "thả tệp là chạy, không bắt khai
+    # báo gì trước".
+    #
+    # Đổi lại, khách lạ bị chặn bằng HẠN MỨC (cookie + IP) thay vì bằng đăng nhập, và dữ liệu
+    # vẫn tách theo `project.chu_khach` — `test_e49f` chứng minh cả ba chiều: khách không đọc
+    # được của khách khác, người đăng nhập không đọc được của khách, và ngược lại.
+    #
+    # ⚠️ Thêm mục vào đây là mở một đường ra cả internet. `test_e49f::
+    # test_CHI_hai_duong_nay_mo_cho_khach` khoá chặt danh sách bên phía mã nguồn, nên mở thêm
+    # đường phải sửa ĐỦ HAI chỗ — cố ý làm cho khó, để không ai mở nhầm trong lúc sửa việc khác.
+    "/api/v1/doc-truyen/trang",
+    "/api/v1/doc-truyen/trang/{page_id}",
 }
 
 

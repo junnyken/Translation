@@ -36,14 +36,14 @@ import hashlib
 import hmac
 import logging
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from fastapi import Depends, Header, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
-from app.core.quyen import ma_phien_tu_header
+from app.core.quyen import NguoiGoi, ma_phien_tu_header
 from app.models.enums import LoaiChuThe
 from app.services import tai_khoan
 from app.services.han_muc import han_muc_cho
@@ -77,6 +77,16 @@ class DanhTinhHanMuc:
     co_tai_khoan: bool
     chot: tuple[Chot, ...]
     cookie_moi: str | None = None
+    #: Ai đang gọi, dùng cho phân quyền dữ liệu.
+    #:
+    #: Gộp chung vào ĐÂY thay vì một dependency thứ hai là có chủ đích: hai dependency riêng có
+    #: thể **bất đồng** — tính hạn mức cho khách trong khi đọc dữ liệu với tư cách người đăng
+    #: nhập, hoặc ngược lại. Một nguồn thì không có cửa đó.
+    #:
+    #: Mặc định là `NguoiGoi()` rỗng — người gọi không có tài khoản và không có mã khách, tức
+    #: **không thấy gì**. Hỏng kiểu fail-closed: chỗ nào quên gán thì mất quyền, không phải được
+    #: quyền.
+    nguoi_goi: NguoiGoi = field(default_factory=NguoiGoi)
 
     @property
     def tran_hien(self) -> int:
@@ -191,9 +201,17 @@ async def danh_tinh_han_muc(
         return DanhTinhHanMuc(
             co_tai_khoan=True,
             chot=(Chot(LoaiChuThe.nguoi_dung, str(nguoi.id), han_muc_cho(True)),),
+            nguoi_goi=NguoiGoi(nguoi=nguoi),
         )
 
     chot, cookie_moi = chot_cho_khach(request, settings)
     if cookie_moi:
         dat_cookie_khach(response, cookie_moi, settings)
-    return DanhTinhHanMuc(co_tai_khoan=False, chot=chot, cookie_moi=cookie_moi)
+    return DanhTinhHanMuc(
+        co_tai_khoan=False,
+        chot=chot,
+        cookie_moi=cookie_moi,
+        # Mã khách = chốt cookie đã băm. Cố ý KHÔNG dùng chốt IP làm danh tính dữ liệu: cả văn
+        # phòng dùng chung một IP, lấy nó làm chủ sở hữu là cho người này đọc truyện người kia.
+        nguoi_goi=NguoiGoi(khach=chot[0].chu_the),
+    )

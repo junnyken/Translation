@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi import Depends
 
 from app.api.v1.routes import router as v1_router
+from app.api.v1.routes import router_khach as v1_router_khach
 from app.core.bao_ve import canh_bao_neu_khong_khoa
 from app.core.quyen import nguoi_dung_hien_tai
 from app.api.v1.xac_thuc_routes import router as xac_thuc_router
@@ -138,5 +139,15 @@ app.include_router(xac_thuc_router, prefix="/api/v1")
 # chapter của mọi người), giờ là tài khoản riêng + chapter có chủ. Khoá chung KHÔNG còn mở
 # được dữ liệu nữa — nó chỉ còn gác cổng đăng ký.
 app.include_router(v1_router, dependencies=[Depends(nguoi_dung_hien_tai)])
+
+# E49 — router KHÁCH LẠ: cố ý KHÔNG có `Depends(nguoi_dung_hien_tai)`.
+#
+# Đây là chỗ duy nhất trong hệ thống mở cho người chưa đăng nhập ngoài `/auth/*`, nên nó phải
+# đứng tách ra và nhìn thấy được ngay. Mặc định vẫn là ĐÓNG: endpoint nào không được chuyển
+# sang `router_khach` thì vẫn nằm sau cổng đăng nhập ở trên.
+#
+# Đổi lại, khách lạ bị chặn bằng HẠN MỨC (cookie + IP) chứ không phải bằng đăng nhập —
+# xem `core/cong_han_muc.py`.
+app.include_router(v1_router_khach)
 
 canh_bao_neu_khong_khoa()

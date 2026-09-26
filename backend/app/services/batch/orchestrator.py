@@ -32,6 +32,7 @@ from app.services.batch.errors import (
 )
 from app.services.batch.dispatch import viec_dang_song
 from app.services.batch.rollup import TRANG_DA_XONG, buoc_cho_trang, gop_trang_thai_me
+from app.services.quyet_toan_han_muc import hoan_vi_he_thong_hong
 
 logger = logging.getLogger(__name__)
 
@@ -327,11 +328,16 @@ class BatchOrchestrator:
                     muc.error_code = loai.value
                     muc.error_message = _lam_sach(mo_ta_loi)
                     muc.finished_at = datetime.now(timezone.utc)
+                    # E49 — hết quota nhà cung cấp là lỗi của MÌNH, không phải của người dùng.
+                    hoan_vi_he_thong_hong(session, page_id, f"me_chan_quota:{loai.value}")
                 else:
                     muc.status = BatchItemStatus.failed
                     muc.error_code = loai.value
                     muc.error_message = _lam_sach(mo_ta_loi)
                     muc.finished_at = datetime.now(timezone.utc)
+                    # E49 — tới đây là đã HẾT lượt thử lại, tức trang hỏng hẳn. Đúng một trong
+                    # ba trường hợp §1.3(b) đặc tả bắt phải hoàn.
+                    hoan_vi_he_thong_hong(session, page_id, f"me_het_luot_thu_lai:{loai.value}")
             muc.current_job_id = job_id
             session.commit()
 

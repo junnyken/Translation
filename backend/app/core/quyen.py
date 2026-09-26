@@ -25,6 +25,7 @@ bừa cho một tài khoản đều là làm mất việc của người dùng.
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -127,13 +128,56 @@ async def project_id_cua(session: AsyncSession, ban_ghi: object) -> uuid.UUID | 
     return None
 
 
-def duoc_dung_project(nguoi: NguoiDung, project: Project) -> bool:
-    """Chapter chưa có chủ thì ai đăng nhập cũng dùng được (xem docstring module)."""
-    return project.chu_so_huu_id is None or project.chu_so_huu_id == nguoi.id
+@dataclass(frozen=True)
+class NguoiGoi:
+    """Ai đang gọi — **một** kiểu cho cả người đăng nhập lẫn khách lạ.
+
+    Cố ý gộp thành một kiểu thay vì hai đường kiểm quyền song song: hai đường thì luật phân
+    quyền có hai bản, và một ngày nào đó chỉ một bản được sửa.
+
+    `khach` là mã cookie **đã băm**, không phải cookie thô.
+    """
+
+    nguoi: NguoiDung | None = None
+    khach: str | None = None
+
+    @property
+    def la_khach(self) -> bool:
+        return self.nguoi is None
+
+    @staticmethod
+    def cua(ai: "NguoiDung | NguoiGoi") -> "NguoiGoi":
+        """Nhận cả `NguoiDung` lẫn `NguoiGoi` — để 18 chỗ gọi `bao_dam_quyen` không phải sửa."""
+        return ai if isinstance(ai, NguoiGoi) else NguoiGoi(nguoi=ai)
 
 
-async def bao_dam_quyen(session: AsyncSession, nguoi: NguoiDung, ban_ghi: object) -> None:
-    """Ném 404 nếu `nguoi` không được đụng vào `ban_ghi`. Không phải chủ ⇒ như không tồn tại."""
+def duoc_dung_project(ai: "NguoiDung | NguoiGoi", project: Project) -> bool:
+    """Luật phân quyền chapter — viết MỘT lần, dùng cho cả hai loại người gọi.
+
+    Ba nhánh, và nhánh giữa là nhánh dễ quên nhất:
+
+    1. **Khách lạ** chỉ thấy chapter mang đúng mã khách của mình. Khách chưa có mã (`None`)
+       không thấy gì — kể cả các chapter `chu_khach IS NULL`.
+    2. **Người đăng nhập KHÔNG thấy chapter của khách.** Thiếu nhánh này thì chapter khách
+       (`chu_so_huu_id IS NULL`) rơi vào nhóm "chưa có chủ" ở nhánh 3, và **mọi tài khoản đăng
+       nhập đọc được truyện của mọi khách lạ**. Đây là rò rỉ dữ liệu, không phải chuyện tiện lợi.
+    3. Người đăng nhập thấy chapter của mình, và chapter **cũ chưa có chủ** (từ trước slice B).
+    """
+    goi = NguoiGoi.cua(ai)
+    if goi.la_khach:
+        return goi.khach is not None and project.chu_khach == goi.khach
+    if project.chu_khach is not None:
+        return False
+    return project.chu_so_huu_id is None or project.chu_so_huu_id == goi.nguoi.id
+
+
+async def bao_dam_quyen(
+    session: AsyncSession, nguoi: "NguoiDung | NguoiGoi", ban_ghi: object
+) -> None:
+    """Ném 404 nếu `nguoi` không được đụng vào `ban_ghi`. Không phải chủ ⇒ như không tồn tại.
+
+    Nhận cả `NguoiDung` lẫn `NguoiGoi`, nên 18 chỗ gọi sẵn có không phải sửa gì.
+    """
     pid = await project_id_cua(session, ban_ghi)
     project = await session.get(Project, pid) if pid is not None else None
     if project is None or not duoc_dung_project(nguoi, project):

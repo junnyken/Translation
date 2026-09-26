@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session
 
 from app.models import BatchItem, Job, Page
 from app.models.enums import BatchItemStatus, JobStatus, PageStatus
+from app.services.quyet_toan_han_muc import hoan_vi_he_thong_hong
 from app.workers.trang_thai_worker import doc_va_phan_loai
 
 logger = logging.getLogger(__name__)
@@ -57,6 +58,9 @@ class KetQuaDon:
     trang_da_lui: int = 0
     #: E23 — mục mẻ trỏ vào job mồ côi, phải đánh hỏng nếu không mẻ đứng im 40 phút.
     muc_me_da_danh_dau: int = 0
+    #: E49 — số lượt hạn mức đã trả lại. Đếm riêng vì nó là con số người dùng CẢM THẤY: worker
+    #: chết mà không hoàn thì họ mất lượt vì lỗi của mình.
+    luot_da_hoan: int = 0
     chi_tiet: list[str] = field(default_factory=list)
 
     @property
@@ -85,6 +89,12 @@ def don_job_mo_coi(session: Session, *, ap_dung: bool = True) -> KetQuaDon:
             job.error_log = LY_DO[:4000]
             job.error_class = loi_class
             job.exit_signal = loi_tin_hieu
+            # E49 — worker chết giữa chừng là lỗi HỆ THỐNG, nên trả lại lượt. Đây là trường hợp
+            # rõ ràng nhất trong ba trường hợp §1.3(b) đặc tả nêu.
+            #
+            # Dòng đã `da_tieu` KHÔNG bị đụng: trang chạy xong rồi mới chết thì lượt đã tiêu
+            # đúng, hoàn ngược là cho lượt từ hư không.
+            kq.luot_da_hoan += hoan_vi_he_thong_hong(session, job.page_id, "worker_chet")
 
     # E23 — mục MẺ trỏ tới job vừa bị đánh hỏng cũng phải nói thật, nếu không mẻ ĐỨNG IM.
     #

@@ -35,6 +35,7 @@ from app.core.cong_han_muc import con_du_khong, giu_cho_moi_chot
 from app.core.danh_tinh_khach import DanhTinhHanMuc, danh_tinh_han_muc
 from app.core.quyen import (
     LOI_KHONG_THAY,
+    NguoiGoi,
     bao_dam_quyen,
     duoc_dung_project,
     nguoi_dung_hien_tai,
@@ -191,9 +192,20 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1")
 
+#: E49 — router CHO KHÁCH LẠ. Mọi đường trên đây **không** đòi đăng nhập.
+#:
+#: Vì sao tách router thay vì gỡ `Depends(nguoi_dung_hien_tai)` ở từng endpoint: cổng đăng nhập
+#: gắn ở tầng router chính là thứ giữ cho 73 đường còn lại mặc định ĐÓNG. Gỡ nó ra rồi gắn lại
+#: từng chỗ thì sớm muộn cũng quên một đường, và đường bị quên sẽ là đường không ai ngờ tới.
+#:
+#: Ở đây thì ngược lại: mặc định vẫn đóng, và mở là việc phải làm TƯỜNG MINH bằng cách chuyển
+#: endpoint sang router này. `test_e49f` khoá chặt danh sách — thêm một đường vào đây mà không
+#: sửa bài test thì bộ test ĐỎ.
+router_khach = APIRouter(prefix="/api/v1")
+
 
 async def _get_project_or_404(
-    session: AsyncSession, project_id: uuid.UUID, nguoi: NguoiDung
+    session: AsyncSession, project_id: uuid.UUID, nguoi: "NguoiDung | NguoiGoi"
 ) -> Project:
     """Lấy chapter, ném 404 nếu không có **hoặc không phải của `nguoi`**.
 
@@ -223,13 +235,12 @@ async def _bao_dam_quyen_theo_id(
 
 
 async def _get_page_or_404(
-    session: AsyncSession, page_id: uuid.UUID, nguoi: NguoiDung
+    session: AsyncSession, page_id: uuid.UUID, nguoi: "NguoiDung | NguoiGoi"
 ) -> Page:
     """Lấy trang, ném 404 nếu không có hoặc chapter chứa nó không phải của `nguoi`."""
     page = await session.get(Page, page_id)
     if page is None:
         raise HTTPException(status_code=404, detail=LOI_KHONG_THAY)
-    await bao_dam_quyen(session, nguoi, page)
     await bao_dam_quyen(session, nguoi, page)
     return page
 
@@ -248,13 +259,23 @@ TEN_CHAPTER_DOC_NHANH = "Đọc nhanh (tiện ích)"
 
 
 async def _chapter_doc_nhanh(
-    session: AsyncSession, nguoi: NguoiDung, source_lang: SourceLang
+    session: AsyncSession, goi: NguoiGoi, source_lang: SourceLang
 ) -> Project:
-    """Lấy chapter `chi_chu` đúng ngôn ngữ nguồn của người này, chưa có thì tạo."""
+    """Lấy chapter `chi_chu` đúng ngôn ngữ nguồn của người gọi, chưa có thì tạo.
+
+    E49 — nhận cả khách lạ. Điều kiện tìm phải **đối xứng** với luật ở `duoc_dung_project`:
+    người đăng nhập tìm kèm `chu_khach IS NULL`, nếu không một chapter của khách trùng tên sẽ
+    bị nhận nhầm là của họ.
+    """
     ten = f"{TEN_CHAPTER_DOC_NHANH} — {source_lang.value}"
+    chu = (
+        (Project.chu_khach == goi.khach,)
+        if goi.la_khach
+        else (Project.chu_so_huu_id == goi.nguoi.id, Project.chu_khach.is_(None))
+    )
     co = (await session.execute(
         select(Project).where(
-            Project.chu_so_huu_id == nguoi.id,
+            *chu,
             Project.name == ten,
             Project.che_do_pipeline == ChePipeline.chi_chu,
             Project.source_lang == source_lang,
@@ -271,7 +292,8 @@ async def _chapter_doc_nhanh(
         # thực nhất, và người dùng đổi được ở bản web như mọi chapter khác.
         intended_use=IntendedUse.personal,
         che_do_pipeline=ChePipeline.chi_chu,
-        chu_so_huu_id=nguoi.id,
+        chu_so_huu_id=None if goi.la_khach else goi.nguoi.id,
+        chu_khach=goi.khach if goi.la_khach else None,
     )
     session.add(project)
     await session.commit()
@@ -308,7 +330,7 @@ async def _tien_do_trang(session: AsyncSession, page_id: uuid.UUID) -> TienDoDoc
     return TienDoDocTruyen(buoc=viec.type.value, dang_chay=dang_chay, so_viec_cho_truoc=truoc)
 
 
-@router.post(
+@router_khach.post(
     "/doc-truyen/trang",
     response_model=TrangDocTruyen,
     status_code=status.HTTP_202_ACCEPTED,
@@ -326,7 +348,6 @@ async def doc_truyen_gui_trang(
     ),
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
-    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
     danh_tinh: DanhTinhHanMuc = Depends(danh_tinh_han_muc),
 ) -> TrangDocTruyen:
     """Nhận một ảnh trang truyện, xếp việc, trả về `page_id` để tra sau.
@@ -357,7 +378,7 @@ async def doc_truyen_gui_trang(
             detail="llm_not_configured: chưa cấu hình khoá dịch, không dùng được llm_context",
         )
 
-    project = await _chapter_doc_nhanh(session, nguoi, source_lang)
+    project = await _chapter_doc_nhanh(session, danh_tinh.nguoi_goi, source_lang)
 
     data = await file.read()
     if not data:
@@ -405,18 +426,20 @@ async def doc_truyen_gui_trang(
     )
 
 
-@router.get("/doc-truyen/trang/{page_id}", response_model=TrangDocTruyen, tags=["doc-truyen"])
+@router_khach.get(
+    "/doc-truyen/trang/{page_id}", response_model=TrangDocTruyen, tags=["doc-truyen"]
+)
 async def doc_truyen_lay_trang(
     page_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
+    danh_tinh: DanhTinhHanMuc = Depends(danh_tinh_han_muc),
 ) -> TrangDocTruyen:
     """Kết quả của một trang: đang tới đâu, và các bong bóng đã dịch được.
 
     Trả về **vùng đã có** kể cả khi chưa xong hết — dịch xong bong bóng nào thì tiện ích phủ
     được bong bóng đó, không phải chờ cả trang.
     """
-    page = await _get_page_or_404(session, page_id, nguoi)
+    page = await _get_page_or_404(session, page_id, danh_tinh.nguoi_goi)
 
     rows = (await session.execute(
         select(TextRegion, OCRResult, TranslationResult)

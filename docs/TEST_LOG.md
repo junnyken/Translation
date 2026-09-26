@@ -5789,3 +5789,52 @@ Giao diện báo "0/3 trang" suốt 11 phút ⇒ nghi phép đếm sai, vì tran
 chứ không phải `ready_for_export`. Kiểm ra: bảng `HANG` xếp **cả hai cùng hạng 6**, backend cũng
 coi cả hai là xuất được (`TRANG_XUAT_DUOC`). Phép đếm đúng; "0/3" chỉ vì căn chữ đang hỏng do
 font. Nếu tin cảm giác mà đi sửa `demTienDo` thì đã phá một thứ đang đúng.
+
+---
+
+## 2026-09-25 — E49 Hạn mức sử dụng (sổ cái · cổng chặn · quyết toán · khách lạ)
+
+### Bốn đối chứng âm — phần đáng tin nhất của lượt này
+
+Bài test xanh chỉ chứng minh "mã hiện tại không làm nó đỏ". Đối chứng âm chứng minh bài test
+**có thật sự canh** thứ nó nói là canh. Bốn lượt dưới đây đều đã chạy: dựng lại lỗi ⇒ bài canh
+đỏ ⇒ khôi phục ⇒ xanh lại.
+
+| Dựng lại lỗi gì | Bài nào đỏ | Ý nghĩa |
+|---|---|---|
+| Bỏ `pg_advisory_xact_lock` | `test_hai_request_song_song_KHONG_tieu_qua_han_muc` | Hai luồng THẬT cùng xin 4 trên trần 6 đều lọt ⇒ tiêu 8 |
+| Chụp `get_settings()` lúc import | `test_doc_cau_hinh_LUC_GOI…` + `test_het_han_muc_thi_API_tu_choi_429` | Cổng chạy theo trần SAI |
+| Đẩy quyết toán xuống sau cổng `batch_enabled` | `test_trang_le_KHONG_thuoc_me_van_duoc_chot` | Trang tải lẻ giữ chỗ vĩnh viễn |
+| Gỡ nhánh 2 của `duoc_dung_project` | `test_NGUOI_DANG_NHAP_khong_doc_duoc_truyen_cua_khach` | Trả **200 OK** — rò rỉ dữ liệu thật |
+
+### Một lỗi TÔI tự gây ra, và vì sao nó đáng ghi
+
+`services/han_muc.py` chụp `settings = get_settings()` ở mức module. `get_settings` có
+`@lru_cache` nên tôi kết luận "chắc chắn cùng một đối tượng" và **loại bỏ giả thuyết này sớm**.
+
+Sự thật: cache đó xoá được, và `tests/conftest.py` gọi `cache_clear()`. Đo được
+`han_muc_cho(True)` trả **10** trong khi cấu hình app đang là **2** — cổng vẫn chạy, chỉ là theo
+trần sai, và **không bài test nào đỏ**.
+
+Tôi đi đoán ba chỗ khác trước khi chịu **in `id()` ra mà so**. Bài học: nghi cấu hình sai thì so
+danh tính đối tượng TRƯỚC, đừng suy luận từ việc có `lru_cache` hay không.
+
+### Một bẫy của môi trường test, KHÔNG phải của production
+
+`caplog` bắt được **0** bản ghi dù mã thật có gọi `log.warning`. Nguyên nhân **không** phải
+`propagate`: `alembic/env.py` gọi `fileConfig(...)`, mà `logging.config.fileConfig` mặc định
+`disable_existing_loggers=True` ⇒ đặt `disabled = True` cho mọi logger `app.*`. `Logger.handle`
+kiểm `self.disabled` **trước** khi gọi handler nên gắn handler riêng cũng vô ích.
+
+⚠️ Production **không** bị: `deploy/docker-compose.yml` và `deploy-start.sh` chạy
+`alembic upgrade head` ở **tiến trình riêng** rồi mới khởi động `uvicorn`.
+
+### Chưa chạy thật lần nào
+
+Toàn bộ số liệu trên là bộ test trên máy (Postgres thật, HTTP thật qua ASGI) — **không** phải
+bản đã deploy. Không lượt nào gọi Gemini thật: bộ test thay `urllib.request.urlopen` bằng hàm
+giả, nên lượt chạy này **không tốn đồng nào**.
+
+Rủi ro số một khi lên thật, và bộ test **không thể** bắt được: `request.client` có thể trả IP
+của Traefik thay vì IP người dùng ⇒ mọi khách chung một chốt IP ⇒ chặn oan hàng loạt. Xem
+`REPORT_E49.md` §8.

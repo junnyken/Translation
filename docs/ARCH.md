@@ -1914,3 +1914,86 @@ Chắn đọc rồi ghi mà không khoá. Hai tiến trình đẩy đúng cùng 
 của nhau. Muốn tuyệt đối cần khoá ở tầng CSDL (`SELECT ... FOR UPDATE` hoặc ràng buộc duy nhất
 một-phần trên `(page_id, type)` khi `status in (queued, running)`) — **chưa làm**, vì ràng buộc đó
 cần migration và sẽ đụng cả 22 chỗ tạo job, kể cả các đường theo vùng được phép trùng.
+
+---
+
+## E49. Hạn mức sử dụng — sổ cái, hai chốt, và một điểm nghẽn quyết toán (2026-09-25)
+
+### Vì sao KHÔNG phải một cột `da_dung`
+
+Bộ đếm cộng dồn sai ở bốn tình huống, và cả bốn đều đã xảy ra thật trong dự án này:
+
+* hai request song song cùng đọc "còn 6" rồi cùng trừ ⇒ tiêu quá hạn mức;
+* HTTP thử lại ⇒ trừ hai lần cho một lượt;
+* worker chết giữa chừng ⇒ lượt đã trừ mà việc không chạy (**worker đã bị hệ điều hành giết 3
+  lần** — E23);
+* mẻ thành công một phần ⇒ không biết tiêu mấy trang, hoàn mấy trang.
+
+`so_cai_han_muc` giữ **từng khoản**: mỗi trang một dòng cho mỗi chốt, đi theo
+`giu_cho → da_tieu | da_hoan`. Phần "đã dùng" là `SUM(so_trang)` của `giu_cho` **và** `da_tieu`
+— `giu_cho` phải được tính, nếu không hai mẻ đang chạy dở sẽ cùng thấy hạn mức còn nguyên.
+
+### Ba bảo đảm
+
+1. **Song song:** `pg_advisory_xact_lock(hashtextextended('<loai>:<chu_the>'))` — khoá theo
+   *chủ thể*, nên hai request của cùng một người xếp hàng còn người khác không bị ảnh hưởng.
+   Khoá tự nhả khi giao dịch kết thúc, kể cả khi giao dịch đổ ⇒ không có đường nào bỏ quên khoá.
+   *Không* dùng `SELECT ... FOR UPDATE`: người mới chưa có dòng nào để mà khoá.
+2. **Idempotent:** `khoa_idempotency` (= `trang:<page_id>#<loai_chot>`) **duy nhất** ở tầng CSDL.
+   Không dựa vào "kiểm trước khi ghi" — đó chính là thứ hỏng ở mục 1.
+3. **Một phần:** hạ dòng giữ chỗ xuống phần thành công, ghi thêm dòng `da_hoan` cho phần còn
+   lại. `da_hoan` không tính vào phần đã dùng nên phép cộng ra đúng.
+
+### Hai chốt cho khách lạ, và vì sao trần phải LỆCH nhau
+
+Cookie nhận ra trình duyệt — nhưng xoá cookie là một cú bấm, nên cookie một mình thì hạn mức chỉ
+là gợi ý. IP là chốt thứ hai.
+
+Ngược lại IP một mình cũng không được: văn phòng, trường học, quán cà phê dùng chung một IP. Nên
+**trần IP phải cao hơn trần cookie** (25 so với 6), và request phải lọt qua **cả hai**. Có một
+bài test khoá bất biến `tran_ip > tran_cookie` lại — đặt bằng nhau là chặn oan hàng loạt người
+dùng thật.
+
+Cả hai chốt lưu giá trị **đã băm HMAC-SHA256 có muối**, không lưu IP thô. Muối rỗng thì băm gần
+như vô nghĩa (cả không gian IPv4 dựng bảng tra chỉ mất vài phút) nên nó ghi WARNING, không im
+lặng chạy tiếp.
+
+`X-Forwarded-For` **mặc định không tin**: header do client gửi, tin nó khi chưa có proxy ghi đè
+nghĩa là ai cũng tự đổi được "IP" của mình ⇒ chốt IP biến mất mà không ai thấy.
+
+### Quyết toán đặt ở ĐÚNG MỘT chỗ
+
+`workers/tasks.bao_ket_thuc_buoc` chạy ở cuối **mọi** bước, cả thành công lẫn hỏng (17 chỗ gọi).
+Gắn quyết toán vào đó nghĩa là thêm bước mới vào pipeline cũng không quên chốt lượt.
+
+Cách làm hỏng đã cố ý tránh: gắn vào từng chỗ đặt `page.status = ...`. Có **12** chỗ như vậy, và
+sót một chỗ là người dùng mất lượt vĩnh viễn mà không có triệu chứng nào ngoài con số sai.
+
+⚠️ Quyết toán chạy **trước** cổng `batch_enabled` trong hàm đó, vì hạn mức áp cho cả trang tải
+lẻ — đúng đường khách lạ dùng — mà trang lẻ không thuộc mẻ nào.
+
+### Khách lạ: router riêng, KHÔNG gỡ cổng chung
+
+Cổng đăng nhập gắn ở tầng router (`main.py`) chính là thứ giữ cho 73 đường còn lại **mặc định
+đóng**. Gỡ nó ra rồi gắn lại từng endpoint thì sớm muộn cũng quên một đường — và đường bị quên
+sẽ là đường không ai ngờ tới.
+
+Nên thay vì gỡ: thêm `router_khach` mount **không** kèm cổng, và chuyển đúng hai endpoint sang.
+Mặc định vẫn đóng; mở là việc phải làm tường minh, và có bài test khoá chặt danh sách.
+
+### `chu_so_huu_id IS NULL` ĐÃ ĐỔI NGHĨA — đọc trước khi sửa phân quyền
+
+Trước E49, `chu_so_huu_id IS NULL` nghĩa là *"chapter cũ từ trước B1, mọi tài khoản đăng nhập
+đều dùng được"*. Chapter của khách lạ cũng có `chu_so_huu_id IS NULL`.
+
+Không phân biệt hai thứ đó thì **mọi người đăng nhập đọc được truyện của mọi khách lạ** — đối
+chứng âm đã đo: gỡ nhánh phân biệt ra thì request đó trả **200 OK**.
+
+Luật nay nằm trọn trong `core/quyen.duoc_dung_project`, ba nhánh:
+
+1. khách lạ chỉ thấy chapter mang đúng `chu_khach` của mình;
+2. **người đăng nhập KHÔNG thấy chapter có `chu_khach`** ← nhánh dễ quên nhất;
+3. người đăng nhập thấy chapter của mình, và chapter cũ có **cả hai cột NULL**.
+
+Hàm nhận cả `NguoiDung` lẫn `NguoiGoi` nên 18 chỗ gọi `bao_dam_quyen` không phải sửa — và quan
+trọng hơn, luật chỉ có **một bản**, không phải hai đường kiểm quyền song song.
