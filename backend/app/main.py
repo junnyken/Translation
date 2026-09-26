@@ -1,7 +1,7 @@
 """Entrypoint FastAPI của Translation (Phase MTE)."""
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from fastapi import Depends
@@ -53,8 +53,60 @@ async def root() -> dict:
     }
 
 
+def _chan_doan_nhan_dien_khach(request: Request) -> dict:
+    """E51b — làm cho rủi ro số MỘT của hạn mức trở thành thứ ĐO ĐƯỢC bằng một lượt curl.
+
+    ## Rủi ro đang nói tới
+
+    Chốt hạn mức theo IP dùng `request.client.host`. Sau một reverse proxy, giá trị đó rất có thể
+    là IP của **proxy**, không phải của người dùng ⇒ **mọi khách lạ chung một chốt IP** ⇒ khách
+    thứ 26 trong ngày bị chặn oan, và không ai hiểu vì sao.
+    Bộ test **không thể** bắt được điều này: bàn thử không có proxy.
+
+    ## Vì sao KHÔNG in IP ra
+
+    Endpoint này công khai. Trả IP thô là rò rỉ dữ liệu cá nhân của chính người đang gọi, mà câu
+    hỏi thật chỉ cần một bit: **IP máy chủ thấy có phải địa chỉ nội bộ không?**
+
+    `ip_la_noi_bo = true` ⇒ đó là proxy, KHÔNG phải người dùng ⇒ chốt IP đang vô dụng ⇒ phải bật
+    `TIN_HEADER_PROXY` (và chỉ khi chắc chắn proxy GHI ĐÈ header, xem `core/danh_tinh_khach.py`).
+    """
+    import ipaddress
+
+    from app.core.config import get_settings as _lay
+
+    st = _lay()
+    ip = request.client.host if request.client else None
+    noi_bo: bool | None = None
+    if ip:
+        try:
+            dia_chi = ipaddress.ip_address(ip)
+            noi_bo = dia_chi.is_private or dia_chi.is_loopback or dia_chi.is_link_local
+        except ValueError:
+            noi_bo = None  # không phân tích được ⇒ NÓI KHÔNG BIẾT, đừng đoán
+
+    return {
+        # `None` = không xác định được IP người gọi. Lúc đó chốt IP biến mất hoàn toàn và chỉ còn
+        # cookie — xoá cookie là vượt được hạn mức.
+        "ip_la_noi_bo": noi_bo,
+        "co_ip": ip is not None,
+        # Có proxy nào đặt header này chưa. Cần biết TRƯỚC khi bật `TIN_HEADER_PROXY`: bật mà
+        # không có header thì chốt IP lùi về `request.client` y như cũ.
+        "co_x_forwarded_for": "x-forwarded-for" in request.headers,
+        "so_muc_x_forwarded_for": len(
+            [x for x in request.headers.get("x-forwarded-for", "").split(",") if x.strip()]
+        ),
+        "tin_header_proxy": st.tin_header_proxy,
+        # Muối rỗng ⇒ băm gần như vô nghĩa (cả không gian IPv4 dò hết chỉ mất vài phút).
+        "muoi_bam_khach_da_dat": bool(st.muoi_bam_khach),
+        "cookie_khach_secure": st.cookie_khach_secure,
+        "bat_lich_don_tep": st.bat_lich_don_tep,
+        "tu_xoa_cho_tai_khoan": st.tu_xoa_cho_tai_khoan,
+    }
+
+
 @app.get("/healthz", tags=["ops"])
-async def healthz() -> dict:
+async def healthz(request: Request) -> dict:
     """Kiểm tra sống — nền tảng hosting dùng để biết container đã sẵn sàng chưa.
 
     Khi API và worker chạy chung một container (`ROLE=all` lúc deploy), endpoint này còn báo
@@ -66,7 +118,7 @@ async def healthz() -> dict:
 
     from app.workers.bo_nho import rss_mb
 
-    ket_qua: dict = {"status": "ok"}
+    ket_qua: dict = {"status": "ok", "nhan_dien_khach": _chan_doan_nhan_dien_khach(request)}
 
     # D — `llm_context` có dùng được không. CHỈ true/false, không có mảnh khoá nào ở đây (cùng
     # hợp đồng với `/batch-config`, chỉ khác là endpoint này KHÔNG đòi đăng nhập).

@@ -162,3 +162,47 @@ gửi thân **hợp lệ**. Ai mở thêm endpoint POST cho khách phải làm �
    là thứ giữ cho nó có trần.
 2. Mỗi trang tốn thêm ~6–17s so với `chi_chu` (đo 05/09).
 3. Chưa đo lần nào: một trang đi hết chế độ `day_du` từ đầu đến cuối **qua đường của khách lạ**.
+
+---
+
+## 8. E51b — làm cho RỦI RO SỐ MỘT trở thành thứ đo được (26-09)
+
+### Vấn đề
+
+Chốt hạn mức theo IP dùng `request.client.host`. Sau reverse proxy, giá trị đó rất có thể là IP
+của **proxy** ⇒ **mọi khách lạ chung một chốt IP** ⇒ khách thứ 26 trong ngày bị chặn oan, và không
+ai hiểu vì sao.
+
+**Bộ test không thể bắt được**: bàn thử không có proxy. Cách duy nhất là để bản chạy thật tự nói ra.
+
+### Đã thêm: khối `nhan_dien_khach` trong `/healthz`
+
+```json
+{"nhan_dien_khach": {
+  "ip_la_noi_bo": true, "co_ip": true,
+  "co_x_forwarded_for": false, "so_muc_x_forwarded_for": 0,
+  "tin_header_proxy": false, "muoi_bam_khach_da_dat": false,
+  "cookie_khach_secure": true, "bat_lich_don_tep": false,
+  "tu_xoa_cho_tai_khoan": true
+}}
+```
+
+**Cách đọc, một lượt curl là xong:**
+
+| Thấy gì | Nghĩa là | Phải làm gì |
+|---|---|---|
+| `ip_la_noi_bo: true` | `request.client` là **proxy**, không phải người dùng ⇒ chốt IP đang vô dụng | Bật `TIN_HEADER_PROXY=true` — **chỉ khi** `co_x_forwarded_for: true` |
+| `ip_la_noi_bo: false` | Đúng IP người dùng ⇒ chốt IP chạy đúng | Không làm gì |
+| `co_ip: false` | Không xác định được IP ⇒ chốt IP **biến mất**, chỉ còn cookie | Sửa cấu hình proxy |
+| `muoi_bam_khach_da_dat: false` | Băm không muối ⇒ gần như không băm | Đặt `MUOI_BAM_KHACH` |
+
+`so_muc_x_forwarded_for` cho biết có **mấy lớp** proxy — cần biết trước khi quyết lấy mục trái nhất.
+
+### KHÔNG in IP thô
+
+Endpoint này công khai. Trả IP thô là rò rỉ dữ liệu cá nhân của chính người đang gọi, mà câu hỏi
+thật chỉ cần **một bit**: IP máy chủ thấy có phải địa chỉ nội bộ không. Có bài test khoá lại
+(`test_KHONG_tra_IP_tho`), quét mọi giá trị trong khối xem có thứ nào trông như một địa chỉ IP.
+
+Bốn cờ cấu hình cũng có mặt ở đây vì `list_env` của nền tảng **chỉ trả TÊN biến, không trả giá
+trị** — nên không có cách nào khác để biết bản chạy thật đang dùng cấu hình gì.
