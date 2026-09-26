@@ -2060,3 +2060,61 @@ mục đó có thể chỉ-đọc trên nền tảng hosting ⇒ worker chết l
 
 `-B` có mặt sẵn dù cờ `bat_lich_don_tep` mặc định tắt, nên bật tính năng là đổi **biến môi
 trường**, không phải sửa lệnh khởi động rồi deploy lại.
+
+---
+
+## E51. Khách lạ nhận ảnh đã dịch — và cờ `xong` phải theo CHẾ ĐỘ (2026-09-26)
+
+### Lỗ mà E49/E50 để lại
+
+Chapter của khách chạy `ChePipeline.chi_chu`: bỏ hẳn bước xoá chữ và căn chữ, dừng ở `translated`,
+chỉ trả **toạ độ + chữ dịch** cho tiện ích phủ lên ảnh gốc trên trang web.
+
+Nghĩa là khách **không có tệp nào**. §3 đặc tả (tự động tải về) chẳng có gì để tải, và luật 30
+phút của E50 chỉ xoá ảnh gốc với mấy dòng chữ. Cả hai tính năng đứng trên một tiền đề không có.
+
+### Chọn tham số hoá, không tách endpoint mới
+
+`POST /doc-truyen/trang` nhận thêm `che_do` (`chi_chu` mặc định | `day_du`). Mặc định cố ý giữ
+nguyên: tiện ích E19 đang chạy thật và không gửi trường này — đổi mặc định là bắt nó chạy thêm hai
+bước đắt nhất, hai bước duy nhất cần mô hình LaMa 1,5 GB, cho một thứ nó không dùng tới.
+
+Hai chế độ sinh **hai chapter riêng** cho cùng một người. Để chung một chapter thì trang phủ-chữ
+và trang đã-căn-chữ lẫn vào nhau, mà hai loại có đích khác nhau nên cổng xuất không biết trang nào
+xuất được.
+
+### Cờ `xong` KHÔNG được là một danh sách trạng thái cứng
+
+Đây là chỗ bản trước E51 sai, và sai im lặng:
+
+| Chế độ | `translated` nghĩa là |
+|---|---|
+| `chi_chu` | **ĐÍCH** — không bao giờ tới `typeset_done`, chờ nó là chờ mãi |
+| `day_du` | **GIỮA ĐƯỜNG** — chưa căn chữ, chưa có ảnh nào |
+
+Danh sách cứng `(translated, typeset_done, ready_for_export)` làm chế độ đầy đủ **báo xong sớm một
+bước**, và client đi lấy một ảnh chưa tồn tại. Nay cờ này suy từ `che_do_pipeline` của chapter.
+
+`anh_da_dich` để `null` khi chưa có, **không** trả một đường dẫn sẽ 404: client không phân biệt
+được "chưa xong" với "hỏng" nếu cả hai đều là 404.
+
+### Bề mặt cho khách lạ: 7 đường, và vì sao an toàn
+
+`router_khach` nay có 7 đường. An toàn **không** dựa vào cổng đăng nhập mà dựa vào
+`bao_dam_quyen`, nay nhận cả `NguoiGoi`: `ExportJob` có mặt trong bảng `_CHA` của `core/quyen.py`
+nên nó lần được về chapter, và chapter của khách mang `chu_khach` riêng.
+
+Danh sách bị khoá ở **ba** nơi (`test_e49f`, `MIEN_TRU_DANG_NHAP` của `test_bao_ve_integration`,
+`MO_CHO_KHACH` của `test_quyen_cheo_tai_khoan`) — mở thêm một đường phải sửa đủ cả ba.
+
+### Một ĐIỂM MÙ phải biết về bộ dò quyền tự sinh
+
+`test_quyen_cheo_tai_khoan::test_moi_endpoint_deu_doi_dang_nhap` gửi `json={}` cho mọi đường. Với
+endpoint POST có thân bắt buộc, FastAPI kiểm thân **trước** khi vào hàm ⇒ trả `422` và **không bao
+giờ tới phép kiểm quyền**.
+
+Trước E51 điều đó không lộ ra, vì cổng đăng nhập ở tầng router chạy trước cả phép kiểm thân. Mở
+endpoint cho khách là mất lớp đó, và đường `POST /projects/{id}/export` thành điểm mù.
+
+⇒ Phần chứng minh thật nằm ở `test_e51::test_khach_KHONG_xuat_duoc_chapter_cua_nguoi_khac`, chỗ
+gửi thân **hợp lệ**. Ai mở thêm endpoint POST cho khách phải làm đúng như vậy.

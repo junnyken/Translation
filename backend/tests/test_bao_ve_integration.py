@@ -141,6 +141,18 @@ MIEN_TRU_DANG_NHAP = {
     # của chính mình thì đúng là cái vòng luẩn quẩn mà §4.1 đặc tả cấm. Chỉ đọc, không nhận id
     # nào, luôn trả số của CHÍNH người gọi.
     "/api/v1/han-muc",
+    # ---- E51: ảnh đã dịch + gói tải về cho khách (2026-09-26) ----
+    # Khách lạ phải LẤY ĐƯỢC kết quả, nếu không thì cả tính năng chỉ là chạy cho vui. Gói nhiều
+    # trang thành MỘT tệp là yêu cầu §3.3 đặc tả: 24 tệp rời là 24 lần bị trình duyệt hỏi và gần
+    # như chắc chắn bị chặn.
+    #
+    # An toàn KHÔNG dựa vào cổng đăng nhập mà dựa vào `bao_dam_quyen` — `ExportJob` lần được về
+    # chapter, và chapter của khách mang `chu_khach` riêng. `test_e51` chứng minh khách A không
+    # lấy được ảnh lẫn tệp xuất của khách B, và người đăng nhập cũng không.
+    "/api/v1/doc-truyen/trang/{page_id}/anh",
+    "/api/v1/projects/{project_id}/export",
+    "/api/v1/export-jobs/{job_id}",
+    "/api/v1/export-jobs/{job_id}/download",
 }
 
 

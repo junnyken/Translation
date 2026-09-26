@@ -421,6 +421,16 @@ async def test_khong_endpoint_nao_lo_du_lieu_sang_tai_khoan_khac(
 #: và cái ta thật sự sợ ở đây là `200` (rò rỉ dữ liệu), không phải `404`.
 MO_CHO_KHACH = {
     "/api/v1/doc-truyen/trang/{page_id}": 404,
+    # E51 — mở cho khách, nhưng hỏi tài nguyên của NGƯỜI KHÁC vẫn phải 404. Giữ mã mong đợi ở
+    # đây thay vì bỏ qua: cái ta sợ là `200` (rò rỉ), không phải `404`.
+    "/api/v1/doc-truyen/trang/{page_id}/anh": 404,
+    # 422 chứ không 404: bài này gửi `json={}`, mà FastAPI kiểm THÂN request TRƯỚC khi vào hàm
+    # nên không bao giờ tới phép kiểm quyền. Ghi đúng mã thực tế thay vì ghi mã mong muốn — nhưng
+    # điều đó làm đường này thành ĐIỂM MÙ ở đây, nên phần chứng minh thật nằm ở
+    # `test_e51::test_khach_KHONG_xuat_duoc_chapter_cua_nguoi_khac`, chỗ gửi thân HỢP LỆ.
+    "/api/v1/projects/{project_id}/export": 422,
+    "/api/v1/export-jobs/{job_id}": 404,
+    "/api/v1/export-jobs/{job_id}/download": 404,
 }
 
 

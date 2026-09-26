@@ -1386,6 +1386,15 @@ người chưa dùng lượt nào mà bị chặn sẽ không hiểu nổi nếu
 | `GET /api/v1/han-muc` | Còn bao nhiêu lượt, bao giờ có lại — xem §E49.3 |
 | `POST /api/v1/doc-truyen/trang` | Khách lạ gửi được. Trả `Set-Cookie: ma_khach` ở lượt đầu |
 | `GET /api/v1/doc-truyen/trang/{page_id}` | Chỉ đọc được trang của **chính mình** (theo cookie) |
+| `GET /api/v1/doc-truyen/trang/{page_id}/anh` | Ảnh ĐÃ DỊCH (chỉ chế độ `day_du`) — xem §E51 |
+| `POST /api/v1/projects/{project_id}/export` | Gói nhiều trang thành MỘT tệp |
+| `GET /api/v1/export-jobs/{job_id}` | Trạng thái lượt xuất |
+| `GET /api/v1/export-jobs/{job_id}/download` | Tải tệp đã gói |
+
+Bốn đường cuối mở cho khách vì **khách phải lấy được kết quả** — không có chúng thì cả tính năng
+chỉ là chạy cho vui, và §3 (tự động tải về) chẳng có gì để tải. An toàn **không** dựa vào cổng
+đăng nhập mà dựa vào `bao_dam_quyen`: `ExportJob` lần được về chapter, và chapter của khách mang
+`chu_khach` riêng ⇒ hỏi của người khác là `404`.
 
 Đây là danh sách đóng, khoá bằng `tests/test_e49f_khach_la_tai_len.py::test_CHI_hai_duong_nay_mo_cho_khach`.
 Mọi đường khác vẫn `401` khi chưa đăng nhập.
@@ -1426,3 +1435,69 @@ nhận `429` — tệ hơn hẳn nói thật ngay từ đầu. Khi `con_lai = 0`
 
 `tran` cố ý **không** phải trần IP: trần IP là hàng rào chống lạm dụng dùng chung, hiện nó lên
 chỉ làm người dùng bối rối vì con số không khớp thứ họ thật sự được dùng.
+
+---
+
+# E51 — Khách lạ nhận ảnh đã dịch
+
+## E51.1. `POST /api/v1/doc-truyen/trang` — thêm trường `che_do`
+
+| `che_do` | Chạy gì | Kết quả |
+|---|---|---|
+| `chi_chu` *(mặc định)* | nhận diện → đọc chữ → dịch | **Toạ độ + chữ dịch**. Client tự phủ lên ảnh gốc. KHÔNG có tệp nào |
+| `day_du` | thêm **xoá chữ gốc** (LaMa) + **căn chữ Việt vào bong bóng** | **Ảnh đã dịch**, tải về được |
+
+Mặc định cố ý giữ `chi_chu`: tiện ích Chrome (E19) đang chạy thật và không gửi trường này. Đổi
+mặc định là bắt nó chạy thêm hai bước đắt nhất — hai bước duy nhất cần mô hình LaMa 1,5 GB — cho
+một thứ nó không dùng tới.
+
+Hai chế độ sinh **hai chapter riêng** cho cùng một người ("Đọc nhanh (tiện ích) — ja" và "Dịch
+nhanh — ja"). Để chung thì trang phủ-chữ và trang đã-căn-chữ lẫn vào nhau, mà hai loại có đích
+khác nhau nên cổng xuất không biết trang nào xuất được.
+
+## E51.2. `GET /api/v1/doc-truyen/trang/{page_id}` — hai trường mới
+
+```json
+{
+  "page_id": "...", "trang_thai": "typeset_done", "xong": true,
+  "che_do": "day_du",
+  "anh_da_dich": "/api/v1/doc-truyen/trang/.../anh",
+  "tien_do": {...}, "vung": [...], "loi": null
+}
+```
+
+⚠️ **`xong` phụ thuộc `che_do`, không phải một danh sách trạng thái cứng.**
+
+| `che_do` | `xong` = true khi |
+|---|---|
+| `chi_chu` | `translated` · `typeset_done` · `ready_for_export` |
+| `day_du` | **chỉ** `typeset_done` · `ready_for_export` |
+
+`translated` là **đích** của `chi_chu` (nó không bao giờ tới `typeset_done`, chờ là chờ mãi) nhưng
+là **giữa đường** của `day_du` — lúc đó chưa căn chữ, chưa có ảnh nào. Client đừng tự suy `xong`
+từ `trang_thai`; đọc đúng trường `xong`.
+
+`anh_da_dich` là `null` khi chưa có, **không** phải một đường dẫn sẽ trả 404: client không có cách
+nào phân biệt "chưa xong" với "hỏng" nếu cả hai đều là 404. Chế độ `chi_chu` **luôn** `null`.
+
+## E51.3. `GET /api/v1/doc-truyen/trang/{page_id}/anh` → 200 `image/png`
+
+Ảnh đã xoá chữ gốc + chữ Việt đã căn vào bong bóng. CHỈ phục vụ tệp đã render sẵn, **không bao
+giờ tự render** — việc nặng thuộc worker.
+
+| Lỗi | Mã | Khi nào |
+|---|---|---|
+| Chưa căn chữ xong | `404` | Thân lỗi nói rõ "chưa chạy xong" + bảo hỏi lại `GET .../{page_id}` |
+| Chapter chạy `chi_chu` | `404` | Thân lỗi nêu đúng lý do là **chế độ**, không phải "chưa xong" |
+| Trang của người khác | `404` | Không phân biệt với "không tồn tại" |
+
+Hai lý do 404 đầu cố ý **nói khác nhau**: "không có ảnh vì chế độ" khác hẳn "chưa xong" — nói gộp
+thì người dùng chờ vô ích.
+
+## E51.4. Nhiều trang thì gói thành MỘT tệp
+
+Dùng lại đường xuất có sẵn: `POST /projects/{id}/export` (`format`: `cbz` | `zip`) →
+`GET /export-jobs/{job_id}` → `GET /export-jobs/{job_id}/download`.
+
+§3.3 đặc tả: tải 24 tệp rời là 24 lần bị trình duyệt hỏi, gần như chắc chắn bị chặn. Một tệp nén
+là một lần.

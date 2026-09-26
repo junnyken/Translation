@@ -73,9 +73,15 @@ class TestDanhSachDuongMo:
             if m not in ("HEAD", "OPTIONS")
         )
         assert thuc_te == [
+            # Luồng dịch: gửi trang → hỏi tiến độ → lấy ảnh đã dịch
             ("/api/v1/doc-truyen/trang", "POST"),
             ("/api/v1/doc-truyen/trang/{page_id}", "GET"),
+            ("/api/v1/doc-truyen/trang/{page_id}/anh", "GET"),
+            # Gói nhiều trang thành MỘT tệp (§3.3): 24 tệp rời là 24 lần bị trình duyệt hỏi
+            ("/api/v1/export-jobs/{job_id}", "GET"),
+            ("/api/v1/export-jobs/{job_id}/download", "GET"),
             ("/api/v1/han-muc", "GET"),
+            ("/api/v1/projects/{project_id}/export", "POST"),
         ], f"danh sách đường mở cho khách đã đổi: {thuc_te}"
 
     async def test_duong_khac_VAN_doi_dang_nhap(self, client_chua_dang_nhap):

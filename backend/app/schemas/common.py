@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.enums import (
     BatchItemStatus,
+    ChePipeline,
     ConsistencyTaskStatus,
     ConsistencyTaskType,
     GlossaryStatus,
@@ -423,7 +424,17 @@ class TienDoDocTruyen(BaseModel):
 class TrangDocTruyen(BaseModel):
     page_id: uuid.UUID
     trang_thai: PageStatus
+    #: E51 — `xong` phụ thuộc CHẾ ĐỘ của chapter, không phải một danh sách trạng thái cứng.
+    #: `chi_chu` về đích ở `translated`; `day_du` còn phải qua bước căn chữ nữa.
     xong: bool
+    #: Chapter này chạy chế độ nào. `null` chỉ xảy ra khi chapter đã bị xoá mất giữa lúc hỏi.
+    che_do: ChePipeline | None = None
+    #: Đường lấy ảnh ĐÃ DỊCH (chế độ `day_du`). `null` = chưa có.
+    #:
+    #: Cố ý để `null` thay vì đưa ra một đường dẫn sẽ trả 404: client không có cách nào phân biệt
+    #: "chưa xong" với "hỏng" nếu cả hai đều là một đường dẫn 404. Chế độ `chi_chu` LUÔN `null` —
+    #: nó không sinh ảnh nào.
+    anh_da_dich: str | None = None
     tien_do: TienDoDocTruyen
     vung: list[VungDocTruyen] = []
     #: Lý do hỏng, lấy nguyên văn từ job. `null` = không hỏng.

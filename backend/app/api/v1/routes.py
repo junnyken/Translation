@@ -260,10 +260,20 @@ async def _get_page_or_404(
 #: danh sách chapter của người dùng thành bãi rác), và KHÔNG dồn mọi ngôn ngữ vào một chapter
 #: (source_lang chốt lúc tạo, đổi được lẫn lộn ja/en trong cùng chapter là dữ liệu sai).
 TEN_CHAPTER_DOC_NHANH = "Đọc nhanh (tiện ích)"
+#: E51 — chapter của luồng TRANG CHỦ (pipeline đầy đủ: xoá chữ + căn chữ ⇒ có ảnh tải về được).
+#: Tên KHÁC hẳn tên của tiện ích: hai luồng sinh ra hai chapter riêng cho cùng một người, và để
+#: chung tên thì danh sách chapter có hai dòng giống nhau mà nội dung khác nhau.
+TEN_CHAPTER_DICH_NHANH = "Dịch nhanh"
+
+
+def _ten_chapter_nhanh(che_do: ChePipeline, source_lang: SourceLang) -> str:
+    goc = TEN_CHAPTER_DOC_NHANH if che_do is ChePipeline.chi_chu else TEN_CHAPTER_DICH_NHANH
+    return f"{goc} — {source_lang.value}"
 
 
 async def _chapter_doc_nhanh(
-    session: AsyncSession, goi: NguoiGoi, source_lang: SourceLang
+    session: AsyncSession, goi: NguoiGoi, source_lang: SourceLang,
+    che_do: ChePipeline = ChePipeline.chi_chu,
 ) -> Project:
     """Lấy chapter `chi_chu` đúng ngôn ngữ nguồn của người gọi, chưa có thì tạo.
 
@@ -271,7 +281,7 @@ async def _chapter_doc_nhanh(
     người đăng nhập tìm kèm `chu_khach IS NULL`, nếu không một chapter của khách trùng tên sẽ
     bị nhận nhầm là của họ.
     """
-    ten = f"{TEN_CHAPTER_DOC_NHANH} — {source_lang.value}"
+    ten = _ten_chapter_nhanh(che_do, source_lang)
     chu = (
         (Project.chu_khach == goi.khach,)
         if goi.la_khach
@@ -281,7 +291,7 @@ async def _chapter_doc_nhanh(
         select(Project).where(
             *chu,
             Project.name == ten,
-            Project.che_do_pipeline == ChePipeline.chi_chu,
+            Project.che_do_pipeline == che_do,
             Project.source_lang == source_lang,
         ).limit(1)
     )).scalars().first()
@@ -295,7 +305,7 @@ async def _chapter_doc_nhanh(
         # Khai `personal`: tiện ích dịch truyện người dùng đang tự đọc. Đây là mặc định trung
         # thực nhất, và người dùng đổi được ở bản web như mọi chapter khác.
         intended_use=IntendedUse.personal,
-        che_do_pipeline=ChePipeline.chi_chu,
+        che_do_pipeline=che_do,
         chu_so_huu_id=None if goi.la_khach else goi.nguoi.id,
         chu_khach=goi.khach if goi.la_khach else None,
     )
@@ -390,6 +400,12 @@ async def doc_truyen_gui_trang(
         description="google_fast (miễn phí, dịch rời rạc) hoặc llm_context (Gemini, giữ mạch văn "
         "+ tự sửa lỗi OCR, tốn token)",
     ),
+    che_do: ChePipeline = Form(
+        ChePipeline.chi_chu,
+        description="chi_chu = chỉ trả toạ độ + chữ dịch để tiện ích PHỦ lên ảnh gốc trên trang "
+        "web (mặc định, giữ nguyên hành vi E19). day_du = chạy hết pipeline (xoá chữ gốc + căn "
+        "chữ Việt vào bong bóng) ⇒ có ẢNH ĐÃ DỊCH tải về được — đây là chế độ của trang chủ.",
+    ),
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
     danh_tinh: DanhTinhHanMuc = Depends(danh_tinh_han_muc),
@@ -422,7 +438,7 @@ async def doc_truyen_gui_trang(
             detail="llm_not_configured: chưa cấu hình khoá dịch, không dùng được llm_context",
         )
 
-    project = await _chapter_doc_nhanh(session, danh_tinh.nguoi_goi, source_lang)
+    project = await _chapter_doc_nhanh(session, danh_tinh.nguoi_goi, source_lang, che_do)
 
     data = await file.read()
     if not data:
@@ -512,15 +528,85 @@ async def doc_truyen_lay_trang(
         .order_by(Job.created_at.desc()).limit(1)
     )).scalars().first()
 
+    project = await session.get(Project, page.project_id)
+    chi_chu = project is not None and project.che_do_pipeline is ChePipeline.chi_chu
+
+    # `xong` phải theo CHẾ ĐỘ của chapter, không phải một danh sách cứng.
+    #
+    # `translated` là ĐÍCH của chế độ chỉ-chữ — nó không bao giờ tới `typeset_done`, nên chờ
+    # trạng thái đó là chờ mãi. Nhưng với chế độ ĐẦY ĐỦ thì `translated` mới là giữa đường: lúc
+    # đó **chưa căn chữ**, chưa có ảnh nào để tải. Gộp cả ba trạng thái vào một danh sách cứng
+    # (như bản trước E51) khiến chế độ đầy đủ báo "xong" sớm một bước, và client đi lấy một ảnh
+    # chưa tồn tại.
+    if chi_chu:
+        xong = page.status in (PageStatus.translated, PageStatus.typeset_done,
+                              PageStatus.ready_for_export)
+    else:
+        xong = page.status in (PageStatus.typeset_done, PageStatus.ready_for_export)
+
     return TrangDocTruyen(
         page_id=page.id,
         trang_thai=page.status,
-        # `translated` là ĐÍCH của chế độ chỉ-chữ — không chờ `typeset_done`, nó không bao giờ tới.
-        xong=page.status in (PageStatus.translated, PageStatus.typeset_done,
-                             PageStatus.ready_for_export),
+        xong=xong,
+        che_do=project.che_do_pipeline if project is not None else None,
+        # Đường lấy ảnh đã dịch. `None` khi chưa có — CHƯA CHẠY thì để null, không đưa ra một
+        # đường dẫn sẽ trả 404.
+        anh_da_dich=(
+            None if chi_chu or not xong
+            else f"/api/v1/doc-truyen/trang/{page.id}/anh"
+        ),
         tien_do=await _tien_do_trang(session, page.id),
         vung=vung,
         loi=hong,
+    )
+
+
+@router_khach.get(
+    "/doc-truyen/trang/{page_id}/anh",
+    tags=["doc-truyen"],
+    responses={
+        200: {"content": {"image/png": {}}},
+        404: {"description": "Chưa có ảnh đã dịch, hoặc trang không thuộc về người gọi"},
+    },
+)
+async def doc_truyen_lay_anh(
+    page_id: uuid.UUID,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    danh_tinh: DanhTinhHanMuc = Depends(danh_tinh_han_muc),
+) -> Response:
+    """Ảnh ĐÃ DỊCH của một trang: ảnh đã xoá chữ gốc + chữ Việt đã căn vào bong bóng.
+
+    **Khách lạ lấy được** — đây là thứ luồng trang chủ trả về, và không có nó thì phần tự động
+    tải về (§3 đặc tả) chẳng có gì để tải.
+
+    CHỈ phục vụ tệp đã render sẵn, **không bao giờ tự render**: việc nặng thuộc worker. Ảnh gốc
+    không hề bị đụng tới; đây là tệp thứ ba bên cạnh ảnh gốc và ảnh đã xoá chữ.
+
+    Chỉ có ở chế độ `day_du`. Chapter chạy `chi_chu` không sinh ảnh nào — hỏi ở đây sẽ nhận 404
+    kèm lý do đọc được, chứ không phải một tệp rỗng.
+    """
+    page = await _get_page_or_404(session, page_id, danh_tinh.nguoi_goi)
+    project = await session.get(Project, page.project_id)
+    if project is not None and project.che_do_pipeline is ChePipeline.chi_chu:
+        raise HTTPException(
+            status_code=404,
+            detail="Chapter này chạy chế độ 'chi_chu' (chỉ trả chữ dịch để phủ lên ảnh gốc) nên "
+            "KHÔNG sinh ảnh đã dịch. Gửi lại trang với che_do=day_du nếu cần ảnh tải về.",
+        )
+
+    storage = get_storage()
+    rel = preview_relative_path(page_id)
+    if not await run_in_threadpool(storage.exists, rel):
+        raise HTTPException(
+            status_code=404,
+            detail="Chưa có ảnh đã dịch — bước căn chữ chưa chạy xong. Hỏi lại "
+            "GET /doc-truyen/trang/{page_id} tới khi `xong` = true.",
+        )
+    # `no-cache`: đường dẫn cố định theo trang, nên thiếu header này thì sau khi sửa tay người
+    # dùng vẫn thấy ảnh cũ.
+    return await _phuc_vu_hien_vat(
+        storage, rel, "image/png", request, cache_control="no-cache, must-revalidate"
     )
 
 
@@ -1890,7 +1976,13 @@ async def export_preview(
     )
 
 
-@router.post(
+# E51 — MỞ CHO KHÁCH LẠ. Đây là đường duy nhất để lấy NHIỀU trang trong MỘT tệp, mà §3.3 đặc tả
+# nói rõ: tải 24 tệp rời là 24 lần bị trình duyệt hỏi, gần như chắc chắn bị chặn.
+#
+# An toàn không dựa vào cổng đăng nhập mà dựa vào `bao_dam_quyen`, nay nhận cả `NguoiGoi`:
+# `ExportJob` có mặt trong bảng `_CHA` của `core/quyen.py` nên nó lần được về chapter, và chapter
+# của khách mang `chu_khach` riêng. Khách hỏi job của người khác ⇒ 404.
+@router_khach.post(
     "/projects/{project_id}/export",
     response_model=ExportJobAccepted,
     status_code=status.HTTP_202_ACCEPTED,
@@ -1900,14 +1992,14 @@ async def create_export(
     project_id: uuid.UUID,
     body: ExportRequest,
     session: AsyncSession = Depends(get_session),
-    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
+    danh_tinh: DanhTinhHanMuc = Depends(danh_tinh_han_muc),
 ) -> ExportJobAccepted:
     """Xếp việc xuất chapter. Chỉ enqueue — render nhiều trang là việc của worker.
 
     Trang chưa canh chữ xong sẽ bị **bỏ qua** (không xuất ảnh chưa có chữ); số trang bỏ qua ghi
     vào `error_log` của job. Không trang nào xuất được ⇒ job `failed` với lý do rõ.
     """
-    await _get_project_or_404(session, project_id, nguoi)
+    await _get_project_or_404(session, project_id, danh_tinh.nguoi_goi)
 
     # E33 — GỘP NHIỀU CHAPTER. Kiểm quyền TỪNG chapter, không có đường nào bỏ qua.
     #
@@ -1922,7 +2014,7 @@ async def create_export(
         gop_ids = kiem_thu_tu(body.gop_project_ids, project_id)
         for pid_khac in gop_ids:
             if pid_khac != project_id:
-                await _get_project_or_404(session, pid_khac, nguoi)
+                await _get_project_or_404(session, pid_khac, danh_tinh.nguoi_goi)
 
     job = ExportJob(
         project_id=project_id, format=body.format, status=JobStatus.queued,
@@ -1940,10 +2032,10 @@ async def create_export(
     return ExportJobAccepted(job_id=job.id, project_id=project_id, status=job.status)
 
 
-@router.get("/export-jobs/{job_id}", response_model=ExportJobRead, tags=["export"])
+@router_khach.get("/export-jobs/{job_id}", response_model=ExportJobRead, tags=["export"])
 async def get_export_job(
     job_id: uuid.UUID, session: AsyncSession = Depends(get_session),
-    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
+    danh_tinh: DanhTinhHanMuc = Depends(danh_tinh_han_muc),
 ) -> ExportJob:
     """Theo dõi tiến trình xuất. `status` đi `queued → running → done | failed`.
 
@@ -1953,11 +2045,11 @@ async def get_export_job(
     job = await session.get(ExportJob, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Export job không tồn tại")
-    await bao_dam_quyen(session, nguoi, job)
+    await bao_dam_quyen(session, danh_tinh.nguoi_goi, job)
     return job
 
 
-@router.get(
+@router_khach.get(
     "/export-jobs/{job_id}/download",
     tags=["export"],
     responses={
@@ -1967,7 +2059,7 @@ async def get_export_job(
 )
 async def download_export(
     job_id: uuid.UUID, request: Request, session: AsyncSession = Depends(get_session),
-    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
+    danh_tinh: DanhTinhHanMuc = Depends(danh_tinh_han_muc),
 ) -> Response:
     """Tải file đã xuất. **Chỉ phục vụ file có sẵn** — không bao giờ tự render ở đây.
 
@@ -1977,7 +2069,7 @@ async def download_export(
     job = await session.get(ExportJob, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Export job không tồn tại")
-    await bao_dam_quyen(session, nguoi, job)
+    await bao_dam_quyen(session, danh_tinh.nguoi_goi, job)
     if job.status is not JobStatus.done or not job.output_path:
         raise HTTPException(
             status_code=404,

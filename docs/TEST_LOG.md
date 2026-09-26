@@ -5899,3 +5899,59 @@ nữa là **đừng viết vòng `while pgrep`**, dùng thông báo của tác v
 
 Lịch dọn **mặc định TẮT**, và **không được bật** trước khi có phần tự động tải về — đặc tả §3 nói
 thẳng: làm luật 30 phút mà không có tự tải về là bày ra một cái bẫy.
+
+---
+
+## 2026-09-26 — E51 Khách lạ nhận ảnh đã dịch
+
+### Lỗ mà E49/E50 để lại, và không đặc tả nào nói ra
+
+E49 mở đường tải lên cho khách, E50 làm luật 30 phút. Cả hai đứng trên một tiền đề mà **không ai
+kiểm**: rằng khách có tệp để mất.
+
+Đo bằng cách đọc mã: chapter của khách chạy `chi_chu`, **bỏ hẳn** bước xoá chữ và căn chữ, dừng ở
+`translated`, chỉ trả toạ độ + chữ dịch. ⇒ Khách **không có tệp nào**, nên §3 (tự động tải về)
+chẳng có gì để tải và luật 30 phút chỉ xoá ảnh gốc với mấy dòng chữ.
+
+Dạng lỗi "hai đầu không gặp nhau": mỗi phần đúng theo đặc tả của nó, nối lại thì thiếu một khúc.
+
+### Lỗi sẽ phát sinh NGAY khi mở chế độ đầy đủ
+
+Cờ `xong` trước đây là danh sách trạng thái **cứng** `(translated, typeset_done,
+ready_for_export)`. Với `chi_chu` thì đúng — `translated` là đích. Với `day_du` thì `translated`
+mới là **giữa đường**: chưa căn chữ, chưa có ảnh nào.
+
+⇒ Chế độ đầy đủ **báo xong sớm một bước**, client đi lấy một ảnh chưa tồn tại. Đối chứng âm: dựng
+lại danh sách cứng ⇒ `test_che_do_day_du_KHONG_bao_xong_o_translated` đỏ (`assert True is False`).
+
+### Một ĐIỂM MÙ của bộ dò quyền tự sinh
+
+`test_quyen_cheo_tai_khoan::test_moi_endpoint_deu_doi_dang_nhap` gửi `json={}` cho mọi đường. Với
+endpoint POST có thân bắt buộc, FastAPI kiểm thân **TRƯỚC** khi vào hàm ⇒ trả `422` và **không bao
+giờ tới phép kiểm quyền**.
+
+Trước E51 điều đó không lộ ra: cổng đăng nhập ở tầng router chạy trước cả phép kiểm thân, nên mọi
+đường đều trả 401. Mở endpoint cho khách là mất lớp đó, và `POST /projects/{id}/export` thành điểm
+mù — bài test xanh mà chẳng chứng minh gì.
+
+Cách xử lý: ghi đúng mã `422` vào `MO_CHO_KHACH` **kèm lý do**, rồi chuyển phần chứng minh thật
+sang `test_e51::test_khach_KHONG_xuat_duoc_chapter_cua_nguoi_khac` — chỗ gửi thân **hợp lệ**. Bỏ
+qua đường đó (thay vì ghi mã) sẽ giấu luôn điểm mù.
+
+### Ba ổ khoá cho danh sách đường mở
+
+Mở một đường cho khách là mở nó ra cả internet, nên nó phải đắt. Ba nơi cùng phải sửa:
+
+| Nơi | Cách canh |
+|---|---|
+| `test_e49f::test_CHI_nhung_duong_nay_mo_cho_khach` | Liệt kê chính xác `router_khach.routes` |
+| `test_bao_ve_integration::MIEN_TRU_DANG_NHAP` | Soi **cây phụ thuộc**, đệ quy |
+| `test_quyen_cheo_tai_khoan::MO_CHO_KHACH` | Gọi thật, so mã trả về |
+
+### Chưa chạy thật lần nào
+
+Rủi ro mới của E51: chế độ `day_du` cho khách nghĩa là **lưu lượng ẩn danh kích hoạt LaMa**. Đo ở
+E45: đỉnh RSS bước xoá chữ ~2239 MB trên trần 3950 MB. Worker `--pool=solo` nên một việc một lúc ⇒
+rủi ro OOM **không** tăng, nhưng hàng đợi dài ra. Hạn mức là thứ giữ cho nó có trần.
+
+**Chưa đo lần nào:** một trang đi hết chế độ `day_du` từ đầu đến cuối qua đường của khách lạ.
