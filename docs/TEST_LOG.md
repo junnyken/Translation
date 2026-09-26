@@ -5838,3 +5838,64 @@ giả, nên lượt chạy này **không tốn đồng nào**.
 Rủi ro số một khi lên thật, và bộ test **không thể** bắt được: `request.client` có thể trả IP
 của Traefik thay vì IP người dùng ⇒ mọi khách chung một chốt IP ⇒ chặn oan hàng loạt. Xem
 `REPORT_E49.md` §8.
+
+---
+
+## 2026-09-26 — E50 Vòng đời tệp (chapter tự xoá sau khi xong)
+
+### Một "chỗ chặn" của đặc tả hoá ra không có thật
+
+Đặc tả §6bis ghi: *"Kho lưu trữ có BA nền, mỗi nền xoá một kiểu. Production đang dùng nền nào thì
+CHƯA BIẾT. Phải tra trước khi viết phần dọn dẹp."*
+
+Đọc mã thì cả hai vế đều không đứng vững:
+
+* `supabase` **chưa implement dòng nào** — `build_storage` ném `SupabaseStorageNotConfigured`
+  thẳng, nên production **không thể** đang chạy nền đó. Còn **hai** nền, không phải ba.
+* Cả hai nền còn lại đều hiện thực `IObjectStorage.delete_prefix()` cùng hợp đồng ⇒ phần dọn viết
+  trên interface là xong, **không cần biết** production dùng nền nào.
+
+⇒ Không phải mọi câu "bị chặn" trong tài liệu đều còn đúng. Tra mã trước khi chấp nhận một chỗ
+chặn — nó có thể đã tự tan từ lâu.
+
+### Nhưng chỗ đặc tả KHÔNG nhắc mới là chỗ dễ sai
+
+Hiện vật nằm ở **ba** tiền tố, và `previews/` đánh theo **TRANG** chứ không theo chapter:
+
+| Tiền tố | Đánh theo |
+|---|---|
+| `projects/{project_id}/` | chapter |
+| `exports/{project_id}` | chapter |
+| `previews/{page_id}/` | **trang** |
+
+`delete_prefix("projects/{id}")` rồi coi là xong sẽ bỏ sót `previews/` **vĩnh viễn**. Đối chứng
+âm: bỏ tiền tố đó ra ⇒ `test_xoa_DU_CA_BA_tien_to` đỏ.
+
+### Bốn bài canh, và cái chúng khoá lại
+
+| Bài | Khoá cái gì |
+|---|---|
+| `test_KHONG_xoa_chapter_con_viec_dang_chay` | Xoá tệp giữa lúc worker đang đọc = lỗi không tái hiện được |
+| `test_xoa_DU_CA_BA_tien_to` | Tiền tố `previews/` dễ sót nhất |
+| `test_het_han_KHONG_hoan_luot_han_muc` | Thêm khoá ngoại vào `so_cai_han_muc.trang_id` thì bài này đỏ |
+| `test_goi_lai_KHONG_doi_moc` | Dời mốc mỗi lần chạy lại một bước ⇒ chapter không bao giờ hết hạn |
+
+### Một bẫy của chính tôi lúc đo: `pgrep` khớp chính shell đang gõ
+
+`pgrep -f pytest` khớp **cả shell Bash đang chạy lệnh đó**, vì chuỗi mẫu nằm trong dòng lệnh của
+shell. Hai hậu quả đều đã xảy ra trong lượt này:
+
+* báo "CÓ PYTEST ĐANG CHẠY" trong khi không có lượt nào — suýt hoãn một việc vì con số sai;
+* `while pgrep -f "python -m pytest"; do sleep; done` **tự khớp chính nó** ⇒ 4 shell treo vĩnh
+  viễn, phải đi giết tay.
+
+Thu hẹp mẫu không cứu được. Đúng cách: `pgrep -af pytest | grep -v "/bin/bash -c"` — và tốt hơn
+nữa là **đừng viết vòng `while pgrep`**, dùng thông báo của tác vụ nền.
+
+⚠️ Ngay cả phép lọc đó cũng cho tôi **một âm tính giả** trong lượt này (pytest đang chạy mà báo
+đã xong). Kết luận thẳng: phép dò tiến trình tự viết không đáng tin làm cổng; chờ thông báo thật.
+
+### Chưa chạy thật lần nào
+
+Lịch dọn **mặc định TẮT**, và **không được bật** trước khi có phần tự động tải về — đặc tả §3 nói
+thẳng: làm luật 30 phút mà không có tự tải về là bày ra một cái bẫy.

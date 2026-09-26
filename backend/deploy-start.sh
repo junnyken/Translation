@@ -25,8 +25,18 @@ lenh_worker() {
   # --pool=solo: một tiến trình duy nhất, không fork. Xử lý mỗi lần một việc nên không mất gì,
   #   mà bớt được một bản sao toàn bộ thư viện AI trong bộ nhớ.
   # --without-gossip/mingle/heartbeat: chỉ có MỘT worker, không cần dò tìm worker khác.
+  # -B: beat NHÚNG trong chính worker. Topology là đúng MỘT worker `--pool=solo`, nên không
+  #   cần (và không nên) dựng thêm một container beat — đó là thêm một tiến trình Python cùng
+  #   toàn bộ thư viện AI trên một máy chủ đã bó 4096 MB.
+  #   Lịch dọn tệp chỉ được ĐĂNG KÝ khi `BAT_LICH_DON_TEP=true`; mặc định tắt nên beat chạy
+  #   không lịch nào và gần như không tốn gì. Nhờ vậy bật tính năng là đổi BIẾN MÔI TRƯỜNG,
+  #   không phải sửa lệnh khởi động rồi deploy lại.
+  #   ⚠️ Ngày nào chạy nhiều worker, PHẢI tách beat ra trước — nếu không mỗi worker tự chạy lịch
+  #   của riêng nó và các lượt dọn chạy chồng lên nhau.
+  # --schedule: để trong /tmp. Mặc định beat ghi tệp lịch vào THƯ MỤC LÀM VIỆC, mà thư mục đó
+  #   có thể chỉ-đọc trên nền tảng hosting ⇒ worker chết lúc khởi động vì một tệp phụ trợ.
   celery -A app.workers.celery_app.celery_app worker \
-    -l info -Q celery --pool=solo \
+    -l info -Q celery --pool=solo -B --schedule=/tmp/celerybeat-schedule \
     --without-gossip --without-mingle --without-heartbeat
 }
 

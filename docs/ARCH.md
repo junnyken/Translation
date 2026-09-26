@@ -1998,3 +1998,65 @@ Luật nay nằm trọn trong `core/quyen.duoc_dung_project`, ba nhánh:
 
 Hàm nhận cả `NguoiDung` lẫn `NguoiGoi` nên 18 chỗ gọi `bao_dam_quyen` không phải sửa — và quan
 trọng hơn, luật chỉ có **một bản**, không phải hai đường kiểm quyền song song.
+
+---
+
+## E50. Vòng đời tệp — đồng hồ bắt đầu ở đâu, và ba tiền tố dễ sót (2026-09-26)
+
+### Đồng hồ bắt đầu khi CẢ CHAPTER xong
+
+Một chapter 24 trang mất 30–40 phút để chạy. Đếm 30 phút từ lúc **tải lên** thì tệp hết hạn
+**trước khi dịch xong** — người dùng chờ nửa tiếng rồi nhận về con số 0. Đếm theo **từng trang**
+thì trang 1 hết hạn trong khi trang 24 còn đang chạy.
+
+Nên mốc nằm ở `Project.het_han_luc`, và "cả chapter xong" định nghĩa bằng **không còn job nào
+`queued`/`running`** trỏ vào trang của nó.
+
+Cố ý KHÔNG định nghĩa bằng `page.status`: một trang kẹt ở `detection_failed` sẽ không bao giờ đạt
+trạng thái cuối, và chapter đó giữ tệp mãi mãi.
+
+Mốc lưu **tuyệt đối**, không lưu "xong lúc nào" rồi cộng ở chỗ đọc — cộng ở chỗ đọc nghĩa là đổi
+cấu hình sẽ dời hạn của cả những chapter đã xong từ trước.
+
+Đặt mốc **idempotent** (đã có thì không dời — dời mỗi lần chạy lại một bước thì chapter không bao
+giờ hết hạn), và chapter quay lại trạng thái đang chạy thì mốc bị **xoá**.
+
+### Ba tiền tố, không phải một
+
+| Tiền tố | Đánh theo | Chứa |
+|---|---|---|
+| `projects/{project_id}/` | chapter | ảnh gốc + ảnh đã xoá chữ |
+| `exports/{project_id}` | chapter | tệp xuất |
+| `previews/{page_id}/` | **TRANG** | ảnh xem thử đã căn chữ |
+
+`delete_prefix("projects/{id}")` rồi coi là xong sẽ bỏ sót `previews/` vĩnh viễn. Và vì nó đánh
+theo trang, phải lấy danh sách `page_id` **TRƯỚC** khi xoá chapter.
+
+### Xoá tệp TRƯỚC, xoá dòng SAU
+
+Xoá dòng trước rồi xoá tệp hỏng ⇒ mất luôn đường tìm lại tệp mồ côi (không còn `page_id` để dựng
+tiền tố `previews/`). Xoá tệp trước mà xoá dòng hỏng ⇒ dòng trỏ vào tệp không còn: xấu, nhưng
+**thấy được**, và lượt dọn sau dọn nốt. Chọn cái hỏng nhìn thấy được.
+
+### Hết hạn KHÔNG hoàn lượt — nhờ một quyết định từ E49
+
+`so_cai_han_muc.trang_id` **cố ý không có khoá ngoại**, nên xoá chapter không kéo theo sổ cái.
+Thêm `ondelete="CASCADE"` vào cột đó là xoá luôn bằng chứng đã tiêu lượt ⇒ người dùng được lượt
+từ hư không.
+
+### Lịch chạy: beat NHÚNG (`-B`), và ràng buộc kèm theo
+
+Dự án trước E50 **không có lịch chạy định kỳ nào**. Đây là cơ chế mới.
+
+Chọn beat nhúng trong chính worker vì topology là đúng **một** worker `--pool=solo` trên máy chủ
+bó 4096 MB (worker đã bị hệ điều hành giết 3 lần). Thêm một container beat là thêm một tiến trình
+Python cùng toàn bộ thư viện AI.
+
+⚠️ **Ràng buộc:** ngày nào chạy nhiều worker thì phải **tách beat ra TRƯỚC**, nếu không mỗi worker
+tự chạy lịch của riêng nó và các lượt dọn chạy chồng lên nhau.
+
+`--schedule=/tmp/celerybeat-schedule`: mặc định beat ghi tệp lịch vào **thư mục làm việc**, mà thư
+mục đó có thể chỉ-đọc trên nền tảng hosting ⇒ worker chết lúc khởi động vì một tệp phụ trợ.
+
+`-B` có mặt sẵn dù cờ `bat_lich_don_tep` mặc định tắt, nên bật tính năng là đổi **biến môi
+trường**, không phải sửa lệnh khởi động rồi deploy lại.

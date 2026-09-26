@@ -21,6 +21,7 @@ from sqlalchemy import delete, func, select
 
 from app.core.config import get_settings
 from app.core.db_sync import sync_session
+from app.services.don_tep_het_han import danh_dau_het_han_cho_trang, don_chapter_het_han
 from app.services.quyet_toan_han_muc import quyet_toan_khi_ket_thuc_buoc
 from app.services.job_status import job_chua_ket_thuc
 from app.models import (
@@ -648,6 +649,9 @@ def bao_ket_thuc_buoc(page_id: uuid.UUID | None, job_id: uuid.UUID, outcome: str
     tải lẻ không thuộc mẻ nào. Để sau cổng đó thì mọi trang lẻ giữ chỗ mãi mãi.
     """
     quyet_toan_khi_ket_thuc_buoc(page_id)
+    # E50 — đặt mốc tự xoá khi CẢ chapter đã xong. Cùng lý do đặt ở đây như quyết toán: đây là
+    # điểm nghẽn duy nhất chạy sau mọi bước. Hàm tự bỏ qua nếu chapter còn việc chạy dở.
+    danh_dau_het_han_cho_trang(page_id)
 
     if page_id is None or not settings.batch_enabled:
         return
@@ -3015,3 +3019,39 @@ def run_rut_gon_job(self, job_id: str) -> dict:
         logger.exception("rút gọn job %s thất bại", jid)
         _mark_job_failed(jid, reason)
         return {"status": "failed", "job_id": str(jid), "error": reason}
+
+
+# --------------------------------------------------------------------------------------------
+# E50 — lượt dọn tệp hết hạn, chạy theo LỊCH (Celery beat)
+# --------------------------------------------------------------------------------------------
+@celery_app.task(name="vong_doi.don_tep_het_han")
+def don_tep_het_han_task() -> dict:
+    """Xoá các chapter đã quá hạn giữ. Chạy định kỳ, xem `celery_app.beat_schedule`.
+
+    ## Vì sao KHÔNG có `bind=True` + `autoretry`
+
+    Thử lại một lượt dọn thất bại là vô ích: lượt kế tiếp (sau `don_tep_moi_giay`) sẽ làm đúng
+    việc đó với dữ liệu mới hơn. Thêm thử lại chỉ làm hai lượt dọn chạy chồng nhau trên một
+    tiến trình worker **đã bị hệ điều hành giết 3 lần**.
+
+    ## Vì sao nuốt lỗi ở đây là ĐÚNG, nhưng phải ghi lại
+
+    Lượt dọn nổ mà kéo theo worker thì mọi việc dịch của mọi người dừng theo — đổi một tính năng
+    phụ lấy cả hệ thống là món hời tồi. Nhưng §2.6 đặc tả nói rõ: dọn thất bại mà không ai biết
+    thì đĩa đầy dần. Nên nuốt ở mức task, **ghi ERROR**, và trả con số đếm được ra kết quả.
+    """
+    if not settings.bat_lich_don_tep:
+        return {"status": "tat", "ly_do": "bat_lich_don_tep=False"}
+    try:
+        with sync_session() as session:
+            kq = don_chapter_het_han(session, ap_dung=True)
+        return {
+            "status": "done",
+            "chapter_da_xoa": kq.chapter_da_xoa,
+            "tep_da_xoa": kq.tep_da_xoa,
+            "tep_that_bai": kq.tep_that_bai,
+            "chapter_bo_qua_dang_chay": kq.chapter_bo_qua_dang_chay,
+        }
+    except Exception as exc:  # noqa: BLE001 — xem docstring
+        logger.exception("lượt dọn tệp hết hạn hỏng")
+        return {"status": "failed", "error": f"{type(exc).__name__}: {exc}"}

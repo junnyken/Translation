@@ -105,6 +105,13 @@ def test_celery_da_dang_ky_dung_task_detect_cua_m2():
         # E18 — rút gọn bản dịch cho vừa bong bóng. Cũng hỏi mô hình, nên cũng phải khai.
         # KHÔNG tự chạy: chỉ khởi động khi người dùng bấm nút, vì rút gọn là làm mất chữ.
         "translate.run_rut_gon_job",
+        # E50 — task ĐẦU TIÊN chạy theo LỊCH, không phải do người dùng bấm. Và nó XOÁ DỮ LIỆU
+        # KHÔNG HOÀN TÁC ĐƯỢC (ảnh gốc + bản dịch + tệp xuất của cả chapter).
+        #
+        # Đúng loại thứ mà chốt này sinh ra để chặn: một việc chạy nền thêm vào trong im lặng.
+        # Hai lớp bảo vệ khác: `bat_lich_don_tep` mặc định TẮT nên lịch không được đăng ký, và
+        # bản thân task kiểm lại cờ đó trước khi làm gì.
+        "vong_doi.don_tep_het_han",
     }, user_tasks
 
 

@@ -70,6 +70,39 @@ celery_app.conf.update(
     broker_transport_options={"visibility_timeout": 1800},
 )
 
+# --- E50: lịch chạy định kỳ ---------------------------------------------------------------
+#
+# Dự án TRƯỚC ĐÂY KHÔNG có lịch chạy định kỳ nào — quét cả `celery_app.py`, `deploy-start.sh` và
+# compose đều trống. Đây là cơ chế MỚI, không phải tái dùng cái sẵn có.
+#
+# ## Vì sao beat nhúng (`-B`) chứ không dựng tiến trình riêng
+#
+# Topology hiện tại là **đúng một** worker `--pool=solo` trên một máy chủ đã bó 4096 MB, mà
+# worker đã bị hệ điều hành giết 3 lần. Dựng thêm một container beat là thêm một tiến trình Python
+# nữa cùng toàn bộ thư viện — trả giá bộ nhớ thật để lấy một thứ chưa cần.
+#
+# Đánh đổi đã biết: tài liệu Celery khuyên không dùng beat nhúng ở production vì nó không chịu
+# được nhiều worker. Với đúng một worker thì ràng buộc đó không áp. Ngày nào chạy nhiều worker,
+# phải tách beat ra TRƯỚC — nếu không mỗi worker sẽ tự chạy lịch của riêng nó và lượt dọn chạy
+# chồng lên nhau.
+#
+# ## Vì sao lịch đăng ký CÓ ĐIỀU KIỆN
+#
+# `bat_lich_don_tep` mặc định TẮT. Đây là hành vi **xoá dữ liệu không hoàn tác được**, nên nó
+# phải bật tường minh sau khi đã quan sát mốc `het_han_luc` được ghi đúng trên bản chạy thật.
+# Đăng ký lịch rồi để task tự kiểm cờ cũng được, nhưng như vậy beat vẫn đánh thức worker mỗi
+# 5 phút để chạy một hàm trả về ngay — tiếng ồn vô ích trên tiến trình đang bó bộ nhớ.
+if settings.bat_lich_don_tep:
+    celery_app.conf.beat_schedule = {
+        "don-tep-het-han": {
+            "task": "vong_doi.don_tep_het_han",
+            "schedule": float(settings.don_tep_moi_giay),
+            # `expires` ngắn hơn chu kỳ: worker bận lâu thì bỏ hẳn lượt cũ thay vì dồn một hàng
+            # dài lượt dọn rồi chạy liên tiếp đúng lúc worker đang yếu.
+            "options": {"expires": float(settings.don_tep_moi_giay) - 10},
+        }
+    }
+
 
 @worker_ready.connect
 def _don_job_mo_coi_luc_khoi_dong(**_):

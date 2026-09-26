@@ -107,6 +107,27 @@ class Settings(BaseSettings):
     #: Cookie sống bao lâu. 400 ngày là trần Chrome áp cho mọi cookie — đặt cao hơn vô nghĩa.
     cookie_khach_song_giay: int = 400 * 24 * 3600
 
+    # --- E50: vòng đời tệp -------------------------------------------------------------------
+    #: Giữ kết quả bao lâu (PHÚT) **kể từ lúc cả chapter xong**, không phải từ lúc tải lên.
+    #: Một chapter 24 trang mất 30–40 phút để chạy; đếm từ lúc tải lên thì tệp hết hạn trước khi
+    #: dịch xong và người dùng chờ nửa tiếng để nhận về con số 0.
+    giu_ket_qua_phut: int = 30
+    #: Có áp luật tự xoá cho chapter của **tài khoản đã đăng ký** không.
+    #:
+    #: `True` = đúng đặc tả §2.1 (không phân biệt khách hay tài khoản). Đặt `False` thì chỉ
+    #: chapter của KHÁCH LẠ bị dọn, còn chapter của người đã đăng ký giữ nguyên.
+    #:
+    #: ⚠️ Đây là công tắc của một hành vi **XOÁ DỮ LIỆU KHÔNG HOÀN TÁC ĐƯỢC**. Đọc kỹ §2.9 đặc
+    #: tả trước khi bật ở production: sau 30 phút, ảnh gốc + ảnh đã xoá chữ + bản dịch + tệp xuất
+    #: đều biến mất, người dùng không chạy lại và không sửa lại được.
+    tu_xoa_cho_tai_khoan: bool = True
+    #: Bao lâu chạy một lượt dọn (GIÂY). Lượt dọn chạy CHUNG tiến trình worker đang bó 4096 MB,
+    #: mà worker đã bị hệ điều hành giết 3 lần ⇒ để thưa và giữ cho phép dọn thật nhẹ.
+    don_tep_moi_giay: int = 300
+    #: Tắt hẳn lịch dọn. Có mặt để triển khai theo thứ tự an toàn: đẩy mã trước, quan sát mốc
+    #: `het_han_luc` được ghi có đúng không, RỒI mới bật xoá thật.
+    bat_lich_don_tep: bool = False
+
     # Bảo vệ truy cập (slice A)
     #: Khoá CHUNG cho cả hệ thống. Rỗng = cổng TẮT (máy phát triển, và để triển khai theo thứ tự
     #: an toàn: đẩy mã trước, deploy giao diện biết gửi khoá, RỒI mới đặt biến này).

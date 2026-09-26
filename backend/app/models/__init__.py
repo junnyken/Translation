@@ -177,6 +177,19 @@ class Project(TimestampMixin, Base):
     #: khách cũng để `chu_so_huu_id = NULL` mà không có cột này, thì mọi người đăng nhập sẽ
     #: đọc được truyện của mọi khách lạ. Luật phân biệt nằm ở `core/quyen.duoc_dung_project`.
     chu_khach: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    #: E50 — mốc chapter này tự xoá. `None` = chưa tới lúc đếm (còn trang đang chạy dở, hoặc
+    #: chưa trang nào xong).
+    #:
+    #: ⚠️ Đếm từ lúc **cả chapter XONG**, không phải lúc tải lên. Một chapter 24 trang mất 30–40
+    #: phút để chạy; đếm từ lúc tải lên thì tệp hết hạn TRƯỚC khi dịch xong — người dùng chờ nửa
+    #: tiếng rồi nhận về con số 0. Cũng không đếm theo từng trang: trang 1 sẽ hết hạn trong khi
+    #: trang 24 còn đang chạy.
+    #:
+    #: Lưu MỐC TUYỆT ĐỐI chứ không lưu "đã xong lúc nào" rồi cộng ở chỗ đọc: cộng ở chỗ đọc
+    #: nghĩa là đổi cấu hình sẽ dời hạn của cả những chapter đã xong từ trước.
+    het_han_luc: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
 
     pages: Mapped[list["Page"]] = relationship(
         back_populates="project", cascade="all, delete-orphan", order_by="Page.order"

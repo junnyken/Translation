@@ -86,7 +86,9 @@ services:
     # `while true` trong `deploy-start.sh`; ở local thì Docker làm việc đó.
     # Đúng chuỗi này mới tái hiện production: SIGKILL → bật lại → `worker_ready` → quét mồ côi.
     restart: unless-stopped
-    command: celery -A app.workers.celery_app.celery_app worker -l info -Q celery --pool=solo
+    # -B + --schedule: khớp ĐÚNG production (xem deploy-start.sh). Lệch ở đây nghĩa là bàn
+    # thử không tái hiện được lịch chạy định kỳ.
+    command: celery -A app.workers.celery_app.celery_app worker -l info -Q celery --pool=solo -B --schedule=/tmp/celerybeat-schedule
 
   # M7 — màn sửa tay. Chỉ là consumer của API, không đụng DB/Redis.
   frontend:
