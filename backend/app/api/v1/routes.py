@@ -33,6 +33,8 @@ from app.core.config import Settings, get_settings
 from app.core.db import get_session
 from app.core.cong_han_muc import con_du_khong, giu_cho_moi_chot
 from app.core.danh_tinh_khach import DanhTinhHanMuc, danh_tinh_han_muc
+from app.services.han_muc import bay_gio, moc_reset_ke_tiep, ngay_han_muc
+from app.services.so_cai_han_muc import da_dung_bat_dong_bo
 from app.core.quyen import (
     LOI_KHONG_THAY,
     NguoiGoi,
@@ -88,6 +90,8 @@ from app.models.enums import (
     TranslationEngine,
 )
 from app.schemas.common import (
+    ChotHanMucRead,
+    HanMucRead,
     TienDoDocTruyen,
     TrangDocTruyen,
     VungDocTruyen,
@@ -328,6 +332,46 @@ async def _tien_do_trang(session: AsyncSession, page_id: uuid.UUID) -> TienDoDoc
             )
         )).scalar() or 0)
     return TienDoDocTruyen(buoc=viec.type.value, dang_chay=dang_chay, so_viec_cho_truoc=truoc)
+
+
+@router_khach.get("/han-muc", response_model=HanMucRead, tags=["han-muc"])
+async def xem_han_muc(
+    session: AsyncSession = Depends(get_session),
+    danh_tinh: DanhTinhHanMuc = Depends(danh_tinh_han_muc),
+) -> HanMucRead:
+    """Hạn mức hôm nay của người đang gọi. **Khách lạ gọi được** — họ cần biết trước khi thả tệp.
+
+    Đặc tả §1.3(c): thiếu endpoint này thì cách duy nhất để biết hạn mức là **bị từ chối**, và
+    "hiện 0/6 mà không nói bao giờ có lại" chính là thứ làm người dùng tưởng hệ thống hỏng rồi
+    bấm lại liên tục.
+
+    `con_lai` là **nhỏ nhất** trong các chốt, không phải của chốt cookie: khách ở văn phòng đã
+    chạm trần IP thì con số phải nói đúng `0`, dù chốt cookie của họ còn nguyên. Trả số lớn hơn
+    thực tế là mời người ta thả 6 trang lên rồi nhận 429.
+
+    Gọi endpoint này **không** tốn lượt và **không** giữ chỗ — chỉ đọc.
+    """
+    ngay = ngay_han_muc()
+    chi_tiet: list[ChotHanMucRead] = []
+    for chot in danh_tinh.chot:
+        da = await da_dung_bat_dong_bo(session, chot.loai, chot.chu_the, ngay)
+        chi_tiet.append(ChotHanMucRead(
+            loai=chot.loai.value, da_dung=da, con_lai=max(0, chot.tran - da), tran=chot.tran
+        ))
+
+    reset = moc_reset_ke_tiep()
+    chinh = chi_tiet[0] if chi_tiet else None
+    return HanMucRead(
+        co_tai_khoan=danh_tinh.co_tai_khoan,
+        tran=danh_tinh.tran_hien,
+        # `da_dung` lấy của chốt CHÍNH: đó là con số "tôi đã dùng bao nhiêu", trong khi phần đã
+        # dùng của chốt IP là của cả mạng dùng chung — trộn hai thứ đó vào một ô là nói sai.
+        da_dung=chinh.da_dung if chinh else 0,
+        con_lai=min((c.con_lai for c in chi_tiet), default=0),
+        reset_luc=reset,
+        reset_sau_giay=max(0, int((reset - bay_gio()).total_seconds())),
+        chot=chi_tiet,
+    )
 
 
 @router_khach.post(

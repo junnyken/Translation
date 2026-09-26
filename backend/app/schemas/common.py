@@ -1031,3 +1031,40 @@ class DoiChieuTenResponse(BaseModel):
     #: Vì sao không có kết quả. `null` = chạy bình thường. "Không tìm thấy truyện" và "AniList
     #: đang hỏng" là HAI chuyện khác nhau và luôn được nói tách bạch.
     khong_dung_duoc: str | None = None
+
+
+class ChotHanMucRead(BaseModel):
+    """Một cổng hạn mức và tình trạng của nó.
+
+    Hiện **từng** chốt chứ không chỉ con số nhỏ nhất: người bị chặn bởi chốt IP cần biết mình bị
+    chặn vì **dùng chung địa chỉ mạng**, không phải vì chính mình dùng nhiều. Gộp thành một số
+    thì không có cách nào nói điều đó ra.
+    """
+
+    loai: str
+    da_dung: int
+    con_lai: int
+    tran: int
+
+
+class HanMucRead(BaseModel):
+    """Hạn mức hôm nay của người đang gọi.
+
+    Đặc tả §1.3(c): hiện `0/6` mà không nói "có lại lúc 0h" thì người dùng tưởng hệ thống hỏng.
+    Nên `reset_luc` và `reset_sau_giay` là **bắt buộc**, không phải tuỳ chọn.
+    """
+
+    co_tai_khoan: bool
+    #: Trần ĐEM HIỆN — của chốt chính (tài khoản, hoặc cookie). KHÔNG phải trần IP: trần IP là
+    #: hàng rào chống lạm dụng dùng chung, hiện nó lên chỉ làm người dùng bối rối vì con số không
+    #: khớp thứ họ thật sự được dùng.
+    tran: int
+    da_dung: int
+    #: Phần còn lại THẬT SỰ dùng được = nhỏ nhất trong các chốt. Khách ở văn phòng đã chạm trần
+    #: IP thì con số này phải nói đúng `0`, dù chốt cookie của họ còn nguyên.
+    con_lai: int
+    #: Mốc làm mới, có sẵn phần bù `+07:00` — giao diện đếm ngược lấy thẳng, không tự tính.
+    reset_luc: datetime
+    reset_sau_giay: int
+    #: Chi tiết từng chốt, để giao diện giải thích đúng lý do khi `con_lai = 0`.
+    chot: list[ChotHanMucRead] = []

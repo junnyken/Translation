@@ -54,7 +54,7 @@ async def _khach_gui(client, **data):
 
 
 class TestDanhSachDuongMo:
-    async def test_CHI_hai_duong_nay_mo_cho_khach(self):
+    async def test_CHI_nhung_duong_nay_mo_cho_khach(self):
         """**Bài canh cấu trúc.** Khoá chặt danh sách đường không đòi đăng nhập.
 
         Cổng đăng nhập gắn ở tầng router chính là thứ giữ cho 73 đường còn lại mặc định ĐÓNG.
@@ -75,10 +75,11 @@ class TestDanhSachDuongMo:
         assert thuc_te == [
             ("/api/v1/doc-truyen/trang", "POST"),
             ("/api/v1/doc-truyen/trang/{page_id}", "GET"),
+            ("/api/v1/han-muc", "GET"),
         ], f"danh sách đường mở cho khách đã đổi: {thuc_te}"
 
     async def test_duong_khac_VAN_doi_dang_nhap(self, client_chua_dang_nhap):
-        """Đối chứng: mở hai đường KHÔNG được làm sổng các đường còn lại."""
+        """Đối chứng: mở đường cho khách KHÔNG được làm sổng các đường còn lại."""
         r = await client_chua_dang_nhap.get("/api/v1/projects")
         assert r.status_code == 401, f"đường /projects đã sổng: {r.status_code}"
 

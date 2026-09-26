@@ -163,8 +163,8 @@ Kèm header `Retry-After`, và `Set-Cookie` khi khách chưa có cookie. Trườ
 nhiều — không nói ra thì người ở văn phòng không hiểu nổi vì sao mình bị chặn khi chưa dùng lượt
 nào.
 
-**Hai endpoint không còn đòi đăng nhập:** `POST /api/v1/doc-truyen/trang` và
-`GET /api/v1/doc-truyen/trang/{page_id}`.
+**Ba endpoint không còn đòi đăng nhập:** `POST /api/v1/doc-truyen/trang`,
+`GET /api/v1/doc-truyen/trang/{page_id}` và `GET /api/v1/han-muc`.
 
 ### DB
 

@@ -231,6 +231,9 @@ MIEN_TRU = {
     # Không nhận id nào; luôn ghi vào chapter "Đọc nhanh" CỦA CHÍNH người gọi. Miễn trừ ở đây
     # KHÔNG phải tin lời — `test_moi_nguoi_gui_anh_vao_chapter_CUA_MINH` chứng minh bằng dữ liệu.
     "/api/v1/doc-truyen/trang": "tải ảnh vào chapter của chính người gọi; kiểm ở test riêng",
+    # Không nhận id nào; luôn trả hạn mức của CHÍNH người gọi. Cổng đăng nhập của nó được
+    # kiểm ở `test_bao_ve_integration` (soi cây phụ thuộc, phủ cả các mục MIEN_TRU ở đây).
+    "/api/v1/han-muc": "trả hạn mức của chính người gọi, không nhận id",
     "/api/v1/health": "trạng thái hệ thống",
     "/api/v1/auth/login": "chưa đăng nhập thì mới gọi",
     "/api/v1/auth/logout": "chỉ thu hồi phiên của chính người gọi",
@@ -424,7 +427,8 @@ MO_CHO_KHACH = {
 async def test_moi_endpoint_deu_doi_dang_nhap(session, client_chua_dang_nhap, client, nguoi_a):
     """Không đăng nhập ⇒ 401 ở mọi đường dẫn, trừ danh sách miễn trừ có giải thích.
 
-    E49 mở hai đường cho khách lạ. Chúng KHÔNG được bỏ qua ở đây — chỉ đổi mã mong đợi sang
+    E49 mở ba đường cho khách lạ. `GET /doc-truyen/trang/{page_id}` KHÔNG được bỏ qua ở đây —
+    chỉ đổi mã mong đợi sang
     `404`: mở cho khách vào **không** có nghĩa là cho khách đọc dữ liệu của người khác.
     """
     ids = await _dung_du_lieu(session, uuid.UUID(nguoi_a[0]))

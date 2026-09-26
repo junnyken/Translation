@@ -1379,10 +1379,11 @@ người chưa dùng lượt nào mà bị chặn sẽ không hiểu nổi nếu
 
 **Hạn mức KHÔNG bị trừ** khi tệp bị từ chối vì định dạng (`422`) hoặc kích thước (`413`).
 
-## E49.2. Hai đường KHÔNG đòi đăng nhập
+## E49.2. Ba đường KHÔNG đòi đăng nhập
 
 | Đường | Ghi chú |
 |---|---|
+| `GET /api/v1/han-muc` | Còn bao nhiêu lượt, bao giờ có lại — xem §E49.3 |
 | `POST /api/v1/doc-truyen/trang` | Khách lạ gửi được. Trả `Set-Cookie: ma_khach` ở lượt đầu |
 | `GET /api/v1/doc-truyen/trang/{page_id}` | Chỉ đọc được trang của **chính mình** (theo cookie) |
 
@@ -1391,3 +1392,37 @@ Mọi đường khác vẫn `401` khi chưa đăng nhập.
 
 Khách lạ phải **giữ cookie `ma_khach`** thì mới đọc lại được kết quả của mình. Xoá cookie là mất
 đường vào những trang đã gửi (và vẫn bị chốt IP tính hạn mức).
+
+## E49.3. `GET /api/v1/han-muc` → 200
+
+Hạn mức hôm nay của **người đang gọi**. Không nhận tham số, không tốn lượt, không giữ chỗ.
+
+```json
+{
+  "co_tai_khoan": false,
+  "tran": 6,
+  "da_dung": 2,
+  "con_lai": 0,
+  "reset_luc": "2026-09-27T00:00:00+07:00",
+  "reset_sau_giay": 34567,
+  "chot": [
+    {"loai": "khach_cookie", "da_dung": 2, "con_lai": 4, "tran": 6},
+    {"loai": "khach_ip",     "da_dung": 25, "con_lai": 0, "tran": 25}
+  ]
+}
+```
+
+| Trường | Nghĩa |
+|---|---|
+| `tran` · `da_dung` | Của **chốt chính** (tài khoản, hoặc cookie) — con số "tôi được dùng / tôi đã dùng" |
+| `con_lai` | **Nhỏ nhất** trong các chốt — phần THẬT SỰ còn gửi được |
+| `chot[]` | Chi tiết từng cổng, để giao diện giải thích đúng lý do khi `con_lai = 0` |
+
+⚠️ `con_lai` **không** bằng `tran - da_dung`. Ví dụ ở trên: chốt cookie còn 4 nhưng chốt IP đã
+hết, nên thật sự còn **0**. Lấy `tran - da_dung` mà hiện lên là mời người dùng thả 4 trang rồi
+nhận `429` — tệ hơn hẳn nói thật ngay từ đầu. Khi `con_lai = 0` mà `chot` cho thấy chốt chặn là
+`khach_ip`, giao diện phải nói rõ **"địa chỉ mạng này đã dùng hết lượt chung"**, không phải "bạn
+đã hết lượt".
+
+`tran` cố ý **không** phải trần IP: trần IP là hàng rào chống lạm dụng dùng chung, hiện nó lên
+chỉ làm người dùng bối rối vì con số không khớp thứ họ thật sự được dùng.

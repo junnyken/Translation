@@ -124,7 +124,7 @@ MIEN_TRU_DANG_NHAP = {
     "/api/v1/auth/co-tai-khoan-chua",  # chỉ trả true/false
     # ---- E49: đường cho KHÁCH LẠ (2026-09-25) ----
     #
-    # Hai đường này nằm trên `router_khach`, mount KHÔNG kèm cổng đăng nhập. Đây là ngoại lệ
+    # Các đường này nằm trên `router_khach`, mount KHÔNG kèm cổng đăng nhập. Đây là ngoại lệ
     # có chủ đích, không phải sót: nguyên tắc §4.1 đặc tả là "thả tệp là chạy, không bắt khai
     # báo gì trước".
     #
@@ -137,6 +137,10 @@ MIEN_TRU_DANG_NHAP = {
     # đường phải sửa ĐỦ HAI chỗ — cố ý làm cho khó, để không ai mở nhầm trong lúc sửa việc khác.
     "/api/v1/doc-truyen/trang",
     "/api/v1/doc-truyen/trang/{page_id}",
+    # Khách lạ phải biết còn bao nhiêu lượt TRƯỚC khi thả tệp — bắt đăng nhập để xem hạn mức
+    # của chính mình thì đúng là cái vòng luẩn quẩn mà §4.1 đặc tả cấm. Chỉ đọc, không nhận id
+    # nào, luôn trả số của CHÍNH người gọi.
+    "/api/v1/han-muc",
 }
 
 

@@ -1978,7 +1978,8 @@ Cổng đăng nhập gắn ở tầng router (`main.py`) chính là thứ giữ 
 đóng**. Gỡ nó ra rồi gắn lại từng endpoint thì sớm muộn cũng quên một đường — và đường bị quên
 sẽ là đường không ai ngờ tới.
 
-Nên thay vì gỡ: thêm `router_khach` mount **không** kèm cổng, và chuyển đúng hai endpoint sang.
+Nên thay vì gỡ: thêm `router_khach` mount **không** kèm cổng, và chuyển đúng những endpoint
+cần mở sang đó (hiện là ba).
 Mặc định vẫn đóng; mở là việc phải làm tường minh, và có bài test khoá chặt danh sách.
 
 ### `chu_so_huu_id IS NULL` ĐÃ ĐỔI NGHĨA — đọc trước khi sửa phân quyền
