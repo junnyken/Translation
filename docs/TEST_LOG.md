@@ -6017,3 +6017,33 @@ không kiểm được.
 Frontend 411 bài xanh và build ra bundle thật (CSS 24,63→26,95 kB — kiểm được style đã vào bundle
 chứ không chỉ vào `src`). Nhưng jsdom **không** trả lời được: lượt tải tự động có bị chặn hay không,
 cookie khách có đi qua CORS thật hay không, ảnh cross-origin có hiện hay không.
+
+### Bấm tay trên Chrome thật (27-09) — và nó bắt đúng lỗi mà 1836 test + curl đều bỏ qua
+
+Mở `https://translation.vibe1.tinhgon.xyz` **trước** khi bản vá CORS lên. Chrome ghi:
+
+```
+blocked by CORS policy: The value of the 'Access-Control-Allow-Credentials' header in the
+response is '' which must be 'true' when the request's credentials mode is 'include'.
+```
+
+Cùng lúc đó `curl /han-muc` trả **200** bình thường — và tôi đã dựa vào lượt curl đó để nói hạn
+mức "đã LIVE". **Câu đó sai.** Nó LIVE cho curl, bị chặn hoàn toàn với người dùng thật.
+
+Sau bản vá, request thật của Chrome:
+
+```
+cookie: ma_khach=ek6t0aM5AM1uZjJjDWpJb4JQoBYDAfI7
+sec-fetch-site: same-site
+→ 200  access-control-allow-credentials: true  ·  vary: Origin
+```
+
+`sec-fetch-site: same-site` **xác nhận bằng số đo** một điều trước đó chỉ là suy luận: hai hostname
+cùng site dưới `tinhgon.xyz` nên cookie `SameSite=Lax` đi qua được. Khác site thì `Lax` sẽ chặn và
+phải đổi `SameSite=None`.
+
+Đo được trên màn: **"6 / 6 trang còn lại"**, **"Có lại sau 19 giờ 52 phút (0h00 giờ Việt Nam)"**,
+câu 30 phút nói đủ mức hậu quả, nút Dịch `disabled` kèm lý do đọc được, **console sạch**.
+
+Một chi tiết đáng giữ: giao diện **hiện lỗi ra** kèm nút "Thử lại" thay vì im lặng hiện `0/0`. Nếu
+nó nuốt lỗi thì lượt kiểm này sẽ xanh giả và lỗi CORS lên production mà không ai biết.

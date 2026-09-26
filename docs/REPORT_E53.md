@@ -164,9 +164,7 @@ chạy** — gộp hai thứ đó làm thanh tiến độ nói dối.
 
 ## 8. Remaining Limits
 
-* **Chưa bấm tay trên trình duyệt thật.** Toàn bộ §7 là jsdom. Những thứ **chỉ trình duyệt thật
-  trả lời được**: lượt tải tự động có bị chặn hay không, cookie khách có đi qua CORS thật hay
-  không, ảnh cross-origin có hiện hay không.
+* **Đã bấm tay trên Chrome thật — xem §9.** Còn ba thứ chưa kiểm được, nêu ở đó.
 * **Chưa chạy một trang thật đầu-cuối qua trang chủ.** `translate_default_engine` trên production
   là `llm_context` ⇒ tốn token Gemini thật, nên chưa chạy khi chưa được phép.
 * **Lưu lựa chọn tự-tải-về (§3.4) chưa làm.** Khách lạ lưu ở trình duyệt thì không cần backend;
@@ -174,3 +172,62 @@ chạy** — gộp hai thứ đó làm thanh tiến độ nói dối.
 * Trang chủ **chỉ nhận ảnh rời**, chưa nhận gói ZIP/CBZ (`Dropzone` có cờ `chapNhanGoi` nhưng
   đường `POST /doc-truyen/trang` nhận một ảnh mỗi lượt).
 * Chưa có màn tài khoản (§4.4).
+
+---
+
+## 9. Live Verification — Chrome thật, 27-09
+
+Trên `https://translation.vibe1.tinhgon.xyz` (bundle `index-CNLunwH7.js`, CSS `index-DSgn-SMb.css`
+— **trùng hash bản build cục bộ**, nên style đã tới người dùng chứ không chỉ nằm trong `src`).
+
+### Lỗi CORS lộ ra ĐÚNG như dự đoán, trước khi bản vá lên
+
+Lần mở đầu (API còn `allow_credentials=False`), Chrome ghi:
+
+```
+Access to fetch at '…/api/v1/han-muc' from origin 'https://translation.vibe1.tinhgon.xyz'
+has been blocked by CORS policy: The value of the 'Access-Control-Allow-Credentials' header
+in the response is '' which must be 'true' when the request's credentials mode is 'include'.
+```
+
+Đây là bằng chứng bằng số đo cho điều §3.1 nói: **`curl` không thay được trình duyệt.** Cùng lúc
+đó `curl /han-muc` trả 200 bình thường, và tôi đã dựa vào nó để nói hạn mức "đã LIVE" — câu đó sai.
+
+Giao diện **hiện lỗi ra** kèm nút "Thử lại" thay vì im lặng hiện `0/0`. Nếu nó nuốt lỗi thì tôi
+không bao giờ thấy.
+
+### Sau bản vá — chuỗi khách lạ chạy đầu-cuối
+
+Request thật của Chrome tới `/api/v1/han-muc`:
+
+```
+cookie: ma_khach=ek6t0aM5AM1uZjJjDWpJb4JQoBYDAfI7
+origin: https://translation.vibe1.tinhgon.xyz
+sec-fetch-site: same-site
+→ 200
+   access-control-allow-credentials: true
+   access-control-allow-origin: https://translation.vibe1.tinhgon.xyz
+   vary: Origin
+```
+
+`sec-fetch-site: same-site` cũng **xác nhận bằng số đo** một điều trước đó chỉ là suy luận: hai
+hostname (`translation.` và `translation-api.`) cùng site dưới `tinhgon.xyz`, nên cookie
+`SameSite=Lax` đi qua được. Nếu chúng khác site thì `Lax` sẽ chặn và phải đổi sang `SameSite=None`.
+
+### Đo được trên màn
+
+| Thứ | Giá trị đọc từ cây trợ năng |
+|---|---|
+| Hạn mức | **"6 / 6 trang còn lại"** |
+| Mốc reset | **"Có lại sau 19 giờ 52 phút (0h00 giờ Việt Nam)"** |
+| Luật 30 phút | *"ảnh gốc, bản dịch và tệp đã gói đều bị xoá: không chạy lại được, không sửa lại được. Muốn làm lại phải tải lên từ đầu và tốn thêm lượt."* |
+| Thời gian mỗi trang | *"Mỗi trang mất khoảng 30 giây. Máy không treo — cứ để tab mở."* |
+| Nút Dịch khi chưa chọn tệp | `disabled` kèm **lý do đọc được**: "Chọn ít nhất một trang" |
+| Console | **sạch** (0 lỗi, 0 cảnh báo) |
+
+### CÒN BA THỨ CHƯA KIỂM ĐƯỢC
+
+1. **Một trang chạy thật đầu-cuối qua trang chủ.** `translate_default_engine` trên production là
+   `llm_context` ⇒ tốn token Gemini thật. Chưa chạy khi chưa được phép.
+2. **Lượt tải tự động có bị chặn hay không.** Cần một trang đã xong mới thử được (phụ thuộc mục 1).
+3. **Ảnh khác nguồn có hiện hay không.** Cũng phụ thuộc mục 1.
