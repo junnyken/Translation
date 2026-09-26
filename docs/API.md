@@ -1536,3 +1536,34 @@ có 10, rồi lặp vô hạn. Trần đặt ở `SO_TAI_KHOAN_MOI_MOI_IP_MOT_NG
 
 **Không** có xác minh email — trần theo IP chặn được việc tạo hàng loạt, **không** chặn được email
 giả. Muốn chặn cần hạ tầng gửi thư, chưa có.
+
+---
+
+# E53 — Hai thay đổi hợp đồng cho trang chủ (27-09)
+
+## E53.1. `TrangDocTruyen` thêm `project_id`
+
+```json
+{"page_id": "...", "project_id": "...", "trang_thai": "typeset_done", "xong": true,
+ "che_do": "day_du", "anh_da_dich": "/api/v1/doc-truyen/trang/.../anh", "tien_do": {…}}
+```
+
+Khách lạ cần nó để xin **gói nhiều trang thành MỘT tệp** (`POST /projects/{id}/export`, §3.3).
+Thiếu trường này thì khách chỉ có `page_id`, mà mọi endpoint trả chapter đều đòi đăng nhập ⇒ đường
+xuất đã mở ở E51 nhưng **không dùng được**.
+
+## E53.2. CORS nay cho phép CREDENTIALS
+
+`allow_credentials=True`. **Bắt buộc**: khách lạ được nhận diện bằng **cookie**, mà giao diện và
+API ở hai tên miền khác nhau — `fetch` mặc định `same-origin` nên **không gửi cookie sang**.
+
+⇒ Client gọi API **phải** dùng `credentials: 'include'`. Thiếu nó thì:
+
+* mỗi request là một "khách mới" ⇒ chốt cookie không bao giờ cộng dồn;
+* khách **không đọc lại được trang của chính mình** (404).
+
+Lỗi này **không lộ ra khi thử bằng `curl`** (ở đó cookie được gửi tay). Chỉ trình duyệt thật mới
+thấy.
+
+An toàn không dựa vào cờ này mà dựa vào: `allow_origins` là danh sách **tường minh** (không phải
+`*`), và cookie khách đặt `SameSite=Lax`.

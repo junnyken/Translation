@@ -1,0 +1,382 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+
+import * as api from '../../api'
+import { chuDemNguoc, conLaiMs, mocHetHanGiuTep } from '../../lib/dem-nguoc'
+import Alert from '../ui/Alert'
+import Button from '../ui/Button'
+import Dropzone from '../ui/Dropzone'
+import Icon from '../ui/Icon'
+import TheHanMuc from './TheHanMuc'
+
+/** Ngôn ngữ chữ TRÊN ẢNH. Sai ngôn ngữ ra chữ vô nghĩa chứ không phải lỗi rõ ràng, nên phải để
+ *  người dùng tự chọn — không đoán hộ. */
+const NGON_NGU = [
+  { ma: 'ja', nhan: 'Tiếng Nhật' },
+  { ma: 'en', nhan: 'Tiếng Anh' },
+  { ma: 'zh', nhan: 'Tiếng Trung' },
+]
+
+const GIU_PHUT = 30
+
+/** Tên bước cho người đọc. Máy chủ trả tên máy (`detect`, `ocr`…) ở `tien_do.buoc`. */
+const TEN_BUOC = {
+  detect: 'Tìm khung chữ',
+  ocr: 'Đọc chữ gốc',
+  inpaint: 'Xoá chữ gốc',
+  translate: 'Dịch',
+  typeset: 'Căn chữ vào bong bóng',
+}
+
+/** Một dòng tiến độ của một trang.
+ *
+ * Dùng ĐÚNG ba trường máy chủ trả, và phân biệt **đang chờ** với **đang chạy**: gộp hai thứ đó
+ * làm thanh tiến độ nói dối — người dùng thấy "đang xử lý" trong khi việc còn nằm sau 6 trang
+ * khác. `so_viec_cho_truoc` là con số duy nhất giải thích được vì sao phải đợi.
+ */
+function TienDoTrang({ tienDo }) {
+  const ten = TEN_BUOC[tienDo?.buoc] || 'Đang chuẩn bị'
+  if (!tienDo?.dang_chay && tienDo?.so_viec_cho_truoc > 0) {
+    return (
+      <span className="nhan-cho">
+        <Icon ten="dong-ho" co={14} /> Đang chờ — còn {tienDo.so_viec_cho_truoc} việc trước
+      </span>
+    )
+  }
+  return (
+    <span className="nhan-chay">
+      <Icon ten="quay" co={14} /> {ten}…
+    </span>
+  )
+}
+
+/** Trang chủ: thả tệp là chạy.
+ *
+ * ## Nguyên tắc §4.1 đặc tả
+ *
+ * Không bắt khai báo gì trước. Đăng ký là thứ người dùng chọn khi muốn nhiều hơn, không phải cổng
+ * chặn ở cửa — nên trang này chạy được khi CHƯA đăng nhập.
+ *
+ * ## Bốn thứ phải nói TRƯỚC khi người dùng bắt đầu (§4.2)
+ *
+ * 1. còn bao nhiêu lượt, bao giờ có lại — `TheHanMuc`;
+ * 2. **tệp chỉ giữ 30 phút**, và nói đúng mức hậu quả §2.9;
+ * 3. hỗ trợ ngôn ngữ/định dạng nào;
+ * 4. một trang mất **~30 giây** — thiếu câu này người dùng tưởng máy treo.
+ *
+ * ## Tự động tải về: NỖ LỰC TỐT NHẤT, và nói thẳng là như vậy
+ *
+ * Trình duyệt thường chặn lượt tải không do người bấm, và **JavaScript không có cách nào biết nó
+ * đã bị chặn** — không có sự kiện, không có ngoại lệ. Nên ở đây không giả vờ dò được: nút tải
+ * thủ công **luôn** hiện, kèm câu nói rõ "nếu tệp không tự tải về thì bấm đây". Im lặng coi như
+ * xong là đúng thứ §3.2 cấm.
+ */
+export default function TrangChu({ onMoDangNhap }) {
+  const [files, setFiles] = useState([])
+  const [ngonNgu, setNgonNgu] = useState('ja')
+  const [dangChay, setDangChay] = useState(false)
+  const [trang, setTrang] = useState([])          // [{page_id, ten, xong, buoc, loi}]
+  const [projectId, setProjectId] = useState(null)
+  const [loiChung, setLoiChung] = useState(null)
+  const [xongLuc, setXongLuc] = useState(null)
+  const [daThuTuTai, setDaThuTuTai] = useState(false)
+  const [dangTai, setDangTai] = useState(false)
+  const [tenTepDaTai, setTenTepDaTai] = useState(null)
+
+  const [hanMuc, setHanMuc] = useState(null)
+  const [dangTaiHanMuc, setDangTaiHanMuc] = useState(true)
+  const [loiHanMuc, setLoiHanMuc] = useState(null)
+
+  const huy = useRef(false)
+  useEffect(() => () => { huy.current = true }, [])
+
+  const napHanMuc = useCallback(async () => {
+    setDangTaiHanMuc(true)
+    setLoiHanMuc(null)
+    try {
+      const hm = await api.layHanMuc()
+      if (!huy.current) setHanMuc(hm)
+    } catch (e) {
+      if (!huy.current) setLoiHanMuc(e)
+    } finally {
+      if (!huy.current) setDangTaiHanMuc(false)
+    }
+  }, [])
+
+  useEffect(() => { napHanMuc() }, [napHanMuc])
+
+  const conLai = hanMuc?.con_lai ?? null
+  const thieuLuot = conLai !== null && files.length > conLai
+
+  async function batDau() {
+    setDangChay(true)
+    setLoiChung(null)
+    setXongLuc(null)
+    setDaThuTuTai(false)
+    setTenTepDaTai(null)
+
+    const dsTrang = files.map((f) => ({ ten: f.name, page_id: null, xong: false, tienDo: null, loi: null }))
+    setTrang(dsTrang)
+
+    let pid = null
+    const idTrang = []
+    for (let i = 0; i < files.length; i++) {
+      try {
+        const ra = await api.guiTrangDichNhanh(files[i], { sourceLang: ngonNgu, cheDo: 'day_du' })
+        idTrang.push(ra.page_id)
+        if (!huy.current) {
+          setTrang((cu) => cu.map((t, j) => (j === i ? { ...t, page_id: ra.page_id } : t)))
+        }
+      } catch (e) {
+        // 429 = hết hạn mức. Máy chủ đã gửi đủ thông tin để nói câu tử tế; `doc()` đính nó vào
+        // `e.chiTiet`. Dừng NGUYÊN mẻ chứ không gửi tiếp: gửi tiếp chỉ nhận thêm 429.
+        if (!huy.current) {
+          setLoiChung(e)
+          setTrang((cu) => cu.map((t, j) => (j >= i ? { ...t, loi: 'chưa gửi được' } : t)))
+        }
+        break
+      }
+    }
+
+    if (!idTrang.length) {
+      if (!huy.current) { setDangChay(false); napHanMuc() }
+      return
+    }
+
+    // Hỏi tiến độ tới khi mọi trang `xong`. Đọc trường `xong` của máy chủ, KHÔNG tự suy từ
+    // `trang_thai`: `translated` là đích của chế độ chỉ-chữ nhưng là giữa đường của chế độ đầy đủ.
+    const conCho = new Set(idTrang)
+    for (let vong = 0; vong < 900 && conCho.size && !huy.current; vong++) {
+      for (const id of Array.from(conCho)) {
+        try {
+          const ra = await api.layTrangDichNhanh(id)
+          if (huy.current) return
+          setTrang((cu) => cu.map((t) => (t.page_id === id
+            ? { ...t, xong: ra.xong, tienDo: ra.tien_do ?? null, loi: ra.loi ?? null }
+            : t)))
+          if (!pid && ra.project_id) pid = ra.project_id
+          if (ra.xong || ra.loi) conCho.delete(id)
+        } catch (e) {
+          if (!huy.current) {
+            setTrang((cu) => cu.map((t) => (t.page_id === id ? { ...t, loi: String(e.message || e) } : t)))
+          }
+          conCho.delete(id)
+        }
+      }
+      if (conCho.size) await new Promise((r) => setTimeout(r, 2000))
+    }
+
+    if (!huy.current) {
+      setProjectId(pid)
+      setXongLuc(new Date().toISOString())
+      setDangChay(false)
+      napHanMuc()
+    }
+  }
+
+  const trangXong = trang.filter((t) => t.xong && t.page_id)
+
+  /** Tải kết quả về. `tuDong = true` là lượt thử KHÔNG do người bấm — có thể bị chặn im lặng. */
+  const taiKetQua = useCallback(async (tuDong = false) => {
+    if (!trangXong.length) return
+    setDangTai(true)
+    try {
+      if (trangXong.length === 1) {
+        // Một trang thì tải thẳng ảnh — không cần gói, và gói một tệp là thêm một lượt chờ worker.
+        //
+        // PHẢI đi qua `blob:`: thuộc tính `download` của <a> bị trình duyệt **bỏ qua** khi href
+        // trỏ sang nguồn khác, và API nằm ở tên miền khác giao diện. Gán href thẳng vào URL API
+        // thì trình duyệt MỞ ảnh thay vì lưu về — trông như "không tải được" mà không có lỗi nào.
+        const ten = `${trangXong[0].ten.replace(/\.[^.]+$/, '')}-da-dich.png`
+        const blobUrl = await api.taiVeBlobUrl(api.urlAnhDaDich(trangXong[0].page_id))
+        const a = document.createElement('a')
+        a.href = blobUrl
+        a.download = ten
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        // Thu hồi ngay là có trình duyệt huỷ luôn lượt tải đang chạy — chờ một nhịp, giống
+        // `taiFileXuatVe` đã làm.
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000)
+        setTenTepDaTai(ten)
+      } else if (projectId) {
+        // §3.3 — nhiều trang thì MỘT tệp nén. Tải 24 tệp rời là 24 lần bị trình duyệt hỏi.
+        const job = await api.xuatChapterDichNhanh(projectId, 'cbz')
+        await api.choXuatXong(job.job_id)
+        const ten = await api.taiFileXuatVe(job.job_id)
+        setTenTepDaTai(ten)
+      }
+    } catch (e) {
+      if (!huy.current) setLoiChung(e)
+    } finally {
+      if (!huy.current) { setDangTai(false); if (tuDong) setDaThuTuTai(true) }
+    }
+  }, [trangXong, projectId])
+
+  // Thử tải tự động MỘT lần khi vừa xong. Không lặp lại: bấm tải nhiều lần là đúng thứ làm trình
+  // duyệt chặn hẳn về sau.
+  useEffect(() => {
+    if (xongLuc && trangXong.length && !daThuTuTai) taiKetQua(true)
+  }, [xongLuc, trangXong.length, daThuTuTai, taiKetQua])
+
+  const mocHetHan = mocHetHanGiuTep(xongLuc, GIU_PHUT)
+  const daHetHan = mocHetHan && conLaiMs(mocHetHan) <= 0
+
+  return (
+    <main className="trang-chu">
+      <header className="trang-chu-dau">
+        <h1>Dịch truyện tranh sang tiếng Việt</h1>
+        <p className="dan">
+          Thả ảnh trang truyện vào đây là chạy — không cần đăng ký trước.
+        </p>
+      </header>
+
+      <TheHanMuc
+        hanMuc={hanMuc} dangTai={dangTaiHanMuc} loi={loiHanMuc} onTaiLai={napHanMuc}
+      />
+
+      {!hanMuc?.co_tai_khoan && onMoDangNhap && (
+        <p className="ghi-chu">
+          <button type="button" className="nut-chu" onClick={onMoDangNhap}>
+            Đăng nhập hoặc tạo tài khoản
+          </button>
+          {' '}để được nhiều lượt hơn mỗi ngày.
+        </p>
+      )}
+
+      <section className="can-biet" aria-labelledby="tieu-de-can-biet">
+        <h2 id="tieu-de-can-biet" className="nho">Cần biết trước khi bắt đầu</h2>
+        <ul>
+          <li>
+            <Icon ten="dong-ho" co={14} /> Mỗi trang mất <strong>khoảng 30 giây</strong>. Máy
+            không treo — cứ để tab mở.
+          </li>
+          <li>
+            <strong>Kết quả chỉ giữ {GIU_PHUT} phút</strong> kể từ lúc dịch xong. Sau đó
+            {' '}<strong>ảnh gốc, bản dịch và tệp đã gói đều bị xoá</strong>: không chạy lại được,
+            không sửa lại được. Muốn làm lại phải tải lên từ đầu và tốn thêm lượt.
+          </li>
+          <li>Nhận ảnh <strong>PNG, JPG, WebP</strong>. Mỗi tệp tối đa 25 MB.</li>
+          <li>Dịch được chữ <strong>Nhật, Anh, Trung</strong> → tiếng Việt.</li>
+        </ul>
+      </section>
+
+      <section className="vung-gui" aria-labelledby="tieu-de-gui">
+        <h2 id="tieu-de-gui" className="nho">Chọn trang truyện</h2>
+
+        <Dropzone files={files} onDoi={setFiles} id="tha-trang-chu" />
+
+        <div className="hang-chon">
+          <label htmlFor="chon-ngon-ngu">Chữ trên ảnh là tiếng gì?</label>
+          <select
+            id="chon-ngon-ngu" value={ngonNgu} onChange={(e) => setNgonNgu(e.target.value)}
+            disabled={dangChay}
+          >
+            {NGON_NGU.map((n) => <option key={n.ma} value={n.ma}>{n.nhan}</option>)}
+          </select>
+          <p className="ghi-chu">
+            Chọn sai thì chữ dịch ra vô nghĩa mà không có báo lỗi nào — nên chọn đúng tiếng của
+            trang bạn đang đọc.
+          </p>
+        </div>
+
+        {thieuLuot && (
+          <Alert sac="canh" tieuDe="Nhiều hơn số lượt còn lại">
+            Bạn chọn {files.length} trang nhưng chỉ còn {conLai} lượt. Bỏ bớt trang, hoặc đợi tới
+            0h00 giờ Việt Nam.
+          </Alert>
+        )}
+
+        <Button
+          kieu="chinh" onClick={batDau} dangChay={dangChay}
+          lyDoKhoa={
+            !files.length ? 'Chọn ít nhất một trang'
+              : thieuLuot ? 'Nhiều hơn số lượt còn lại'
+                : conLai === 0 ? 'Hết lượt hôm nay'
+                  : undefined
+          }
+        >
+          {dangChay ? 'Đang dịch…' : `Dịch ${files.length || ''} trang`.trim()}
+        </Button>
+      </section>
+
+      {loiChung && (
+        <Alert sac="loi" tieuDe={loiChung.ma === 429 ? 'Hết lượt' : 'Không chạy được'}>
+          {String(loiChung.message || loiChung).replace(/^\d+:\s*/, '')}
+          {loiChung.chiTiet?.reset_luc && (
+            <> Có lại sau <strong>{chuDemNguoc(loiChung.chiTiet.reset_luc)}</strong>.</>
+          )}
+        </Alert>
+      )}
+
+      {trang.length > 0 && (
+        <section className="tien-do-trang" aria-labelledby="tieu-de-tien-do" aria-live="polite">
+          <h2 id="tieu-de-tien-do" className="nho">
+            Tiến độ — xong {trangXong.length}/{trang.length} trang
+          </h2>
+          <ol className="ds-trang">
+            {trang.map((t, i) => (
+              <li key={t.page_id || i}>
+                <span className="ten-trang">{t.ten}</span>
+                {t.loi
+                  ? <span className="nhan-loi"><Icon ten="canh" co={14} /> {t.loi}</span>
+                  : t.xong
+                    ? <span className="nhan-xong"><Icon ten="tich" co={14} /> Xong</span>
+                    : <TienDoTrang tienDo={t.tienDo} />}
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+
+      {xongLuc && trangXong.length > 0 && (
+        <section className="ket-qua" aria-labelledby="tieu-de-ket-qua">
+          <h2 id="tieu-de-ket-qua" className="nho">Kết quả</h2>
+
+          {daHetHan ? (
+            <Alert sac="loi" tieuDe={`Đã quá ${GIU_PHUT} phút — tệp không còn nữa`}>
+              Ảnh gốc, bản dịch và tệp đã gói đều đã bị xoá. Muốn có lại thì phải tải lên từ đầu
+              và tốn thêm lượt.
+            </Alert>
+          ) : (
+            <Alert sac="canh" tieuDe="Tải về trước khi hết giờ">
+              Còn <strong>{chuDemNguoc(mocHetHan)}</strong> trước khi toàn bộ kết quả bị xoá —
+              ảnh gốc, bản dịch, tệp đã gói. Xoá rồi thì không chạy lại và không sửa lại được.
+            </Alert>
+          )}
+
+          {/* Nút thủ công LUÔN hiện, kèm câu nói rõ. Trình duyệt thường chặn lượt tải không do
+              người bấm, và JavaScript không có cách nào biết nó đã bị chặn — nên không giả vờ dò
+              được, chỉ nói thật. */}
+          <div className="hang-tai-ve">
+            <Button kieu="chinh" onClick={() => taiKetQua(false)} dangChay={dangTai} icon="tai-len">
+              {trangXong.length > 1 ? 'Tải cả gói về' : 'Tải ảnh đã dịch về'}
+            </Button>
+            {daThuTuTai && !tenTepDaTai && (
+              <p className="ghi-chu">
+                Đã thử tải tự động. <strong>Nếu không thấy tệp nào</strong>, trình duyệt đã chặn
+                lượt tải không do bạn bấm — bấm nút trên là được.
+              </p>
+            )}
+            {tenTepDaTai && (
+              <p className="ghi-chu">
+                <Icon ten="tich" co={14} /> Đã lưu <strong>{tenTepDaTai}</strong>. Không thấy thì
+                xem lại thư mục Tải về của trình duyệt.
+              </p>
+            )}
+          </div>
+
+          {!daHetHan && (
+            <ul className="ds-anh">
+              {trangXong.map((t) => (
+                <li key={t.page_id}>
+                  <img src={api.urlAnhDaDich(t.page_id)} alt={`Trang đã dịch: ${t.ten}`} loading="lazy" />
+                  <span className="ghi-chu">{t.ten}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+    </main>
+  )
+}

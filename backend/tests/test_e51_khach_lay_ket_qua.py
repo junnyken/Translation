@@ -153,6 +153,38 @@ class TestCoXong:
         assert than["che_do"] == "day_du"
 
 
+class TestProjectIdChoKhach:
+    """E53 — khách PHẢI biết `project_id`, nếu không đường gói nhiều trang thành MỘT tệp vô dụng.
+
+    Đường xuất đã mở cho khách ở E51, nhưng mọi endpoint trả chapter đều đòi đăng nhập — nên nếu
+    `TrangDocTruyen` không mang `project_id` thì khách chỉ có `page_id` và **không có đường nào**
+    xin gói. §3.3 đặc tả: tải 24 tệp rời là 24 lần bị trình duyệt hỏi, gần như chắc chắn bị chặn.
+
+    Canh ở BACKEND có chủ đích: gỡ trường này ra thì chỉ giao diện vỡ, và vỡ âm thầm lúc chạy.
+    """
+
+    async def test_luot_GUI_tra_ve_project_id(
+        self, client_chua_dang_nhap, cookie_chay_duoc_tren_http
+    ):
+        than = (await _gui(client_chua_dang_nhap, "day_du")).json()
+        assert than.get("project_id"), f"thiếu project_id ⇒ khách không xin gói được: {than}"
+
+    async def test_luot_HOI_TIEN_DO_cung_tra_project_id(
+        self, client_chua_dang_nhap, cookie_chay_duoc_tren_http
+    ):
+        trang = (await _gui(client_chua_dang_nhap, "day_du")).json()["page_id"]
+        than = (await client_chua_dang_nhap.get(f"/api/v1/doc-truyen/trang/{trang}")).json()
+        assert than.get("project_id"), than
+
+    async def test_project_id_KHOP_chapter_that(
+        self, client_chua_dang_nhap, cookie_chay_duoc_tren_http
+    ):
+        """Trả một id bất kỳ cũng làm bài trên xanh — phải khớp chapter THẬT của trang."""
+        trang = (await _gui(client_chua_dang_nhap, "day_du")).json()["page_id"]
+        than = (await client_chua_dang_nhap.get(f"/api/v1/doc-truyen/trang/{trang}")).json()
+        assert str(_project_cua_trang(trang).id) == than["project_id"]
+
+
 class TestLayAnh:
     async def test_lay_duoc_anh_da_dich(self, client_chua_dang_nhap, cookie_chay_duoc_tren_http):
         trang = (await _gui(client_chua_dang_nhap, "day_du")).json()["page_id"]

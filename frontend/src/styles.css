@@ -662,3 +662,72 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   border-color: var(--mau-chinh); background: var(--mau-chinh-nhat); box-shadow: var(--bong-noi);
 }
 .nut-duong.dang-chon strong { color: var(--mau-chinh-dam); }
+
+/* ---------- E53: Trang chủ (khách lạ) ---------- */
+/* Dùng token sẵn có, không thêm màu mới: trang này phải trông cùng một hệ với phần còn lại.
+   Mọi chỗ báo trạng thái đều có NHÃN CHỮ + ICON — màu không bao giờ là nguồn duy nhất. */
+.trang-chu {
+  display: flex; flex-direction: column; gap: var(--khoang);
+  max-width: 820px; margin: 0 auto; padding: var(--khoang) 16px 48px;
+}
+.trang-chu-dau h1 { margin: 0 0 6px; font-size: 26px; line-height: 1.25; }
+.trang-chu-dau .dan { margin: 0; color: var(--mo); font-size: 15px; }
+
+/* Thẻ hạn mức — viền đổi theo mức còn lại, nhưng con số và nhãn chữ mới là thông tin chính. */
+.the-han-muc {
+  background: var(--the); border: 1px solid var(--vien); border-left-width: 4px;
+  border-radius: var(--bo); padding: 14px 16px; box-shadow: var(--bong);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.the-han-muc.vien-ok { border-left-color: var(--ok); }
+.the-han-muc.vien-canh { border-left-color: var(--canh); }
+.the-han-muc.vien-loi { border-left-color: var(--loi); }
+.the-han-muc.dang-tai { color: var(--mo); font-size: 14px; }
+.the-han-muc .so-luot { margin: 0; font-size: 15px; }
+.the-han-muc .so-luot strong { font-size: 26px; line-height: 1; }
+.the-han-muc .moc-reset { display: flex; align-items: center; gap: 6px; margin: 0; }
+.chi-tiet-chot { font-size: 13px; color: var(--mo); }
+.chi-tiet-chot summary { cursor: pointer; }
+.chi-tiet-chot ul { margin: 6px 0; padding-left: 18px; }
+
+/* "Cần biết trước khi bắt đầu" — §4.2. Đặt TRƯỚC vùng thả có chủ đích: người dùng phải biết luật
+   30 phút trước khi bỏ công chờ, không phải sau khi mất tệp. */
+.can-biet {
+  background: var(--tin-nen); border: 1px solid var(--vien); border-radius: var(--bo);
+  padding: 12px 16px;
+}
+.can-biet ul { margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+.can-biet li { font-size: 14px; line-height: 1.5; }
+
+.vung-gui { display: flex; flex-direction: column; gap: 12px; }
+.hang-chon { display: flex; flex-direction: column; gap: 4px; }
+.hang-chon select { max-width: 240px; }
+
+.tien-do-trang .ds-trang { list-style: none; margin: 8px 0 0; padding: 0; }
+.tien-do-trang .ds-trang li { justify-content: space-between; }
+.ten-trang { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nhan-cho, .nhan-chay, .nhan-xong, .nhan-loi {
+  display: inline-flex; align-items: center; gap: 5px; flex: none; font-size: 13px;
+}
+.nhan-cho { color: var(--mo); }
+.nhan-chay { color: var(--tin); }
+.nhan-xong { color: var(--ok); }
+.nhan-loi { color: var(--loi); }
+
+.ket-qua { display: flex; flex-direction: column; gap: 12px; }
+.hang-tai-ve { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.ds-anh {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px;
+}
+.ds-anh li { display: flex; flex-direction: column; gap: 4px; }
+.ds-anh img {
+  width: 100%; height: auto; border: 1px solid var(--vien); border-radius: var(--bo-nho);
+  background: var(--the-mo);
+}
+
+@media (max-width: 560px) {
+  .trang-chu { gap: 14px; padding: 14px 12px 40px; }
+  .trang-chu-dau h1 { font-size: 22px; }
+  .the-han-muc .so-luot strong { font-size: 22px; }
+}

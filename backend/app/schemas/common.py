@@ -423,6 +423,13 @@ class TienDoDocTruyen(BaseModel):
 
 class TrangDocTruyen(BaseModel):
     page_id: uuid.UUID
+    #: E53 — chapter chứa trang này. Khách lạ cần nó để xin GÓI nhiều trang thành MỘT tệp
+    #: (`POST /projects/{id}/export`, §3.3 đặc tả).
+    #:
+    #: Thiếu trường này thì khách **không có đường nào** biết chapter của mình là cái nào: họ chỉ
+    #: nhận về `page_id`, và mọi endpoint trả chapter đều đòi đăng nhập. Đường xuất đã mở cho
+    #: khách ở E51 nhưng không dùng được — đúng kiểu "hai đầu không gặp nhau".
+    project_id: uuid.UUID | None = None
     trang_thai: PageStatus
     #: E51 — `xong` phụ thuộc CHẾ ĐỘ của chapter, không phải một danh sách trạng thái cứng.
     #: `chi_chu` về đích ở `translated`; `day_du` còn phải qua bước căn chữ nữa.

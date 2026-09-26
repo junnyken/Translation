@@ -481,7 +481,8 @@ async def doc_truyen_gui_trang(
         await session.commit()
 
     return TrangDocTruyen(
-        page_id=page.id, trang_thai=page.status, xong=False,
+        page_id=page.id, project_id=project.id, trang_thai=page.status, xong=False,
+        che_do=project.che_do_pipeline,
         tien_do=await _tien_do_trang(session, page.id),
     )
 
@@ -546,6 +547,7 @@ async def doc_truyen_lay_trang(
 
     return TrangDocTruyen(
         page_id=page.id,
+        project_id=page.project_id,
         trang_thai=page.status,
         xong=xong,
         che_do=project.che_do_pipeline if project is not None else None,

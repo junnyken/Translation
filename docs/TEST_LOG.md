@@ -5955,3 +5955,65 @@ E45: đỉnh RSS bước xoá chữ ~2239 MB trên trần 3950 MB. Worker `--poo
 rủi ro OOM **không** tăng, nhưng hàng đợi dài ra. Hạn mức là thứ giữ cho nó có trần.
 
 **Chưa đo lần nào:** một trang đi hết chế độ `day_du` từ đầu đến cuối qua đường của khách lạ.
+
+---
+
+## 2026-09-27 — E52 tự đăng ký · E53 trang chủ cho khách lạ
+
+### 1833 bài test backend XANH trong lúc tính năng chết hoàn toàn
+
+Đây là bài học đáng nhất của hai mini-spec này. Sau E49→E52, backend có đủ: hạn mức, đường dịch cho
+khách, đường xuất gói, đường tự đăng ký — và **1833 bài test đều xanh**. Nhưng nối vào giao diện thì
+không chạy được gì, vì **bốn lỗi chỉ tồn tại ở ranh giới trình duyệt ↔ máy chủ**:
+
+| Lỗi | Vì sao bộ test không thể thấy |
+|---|---|
+| `allow_credentials=False` + `fetch` mặc định `same-origin` ⇒ cookie khách chưa bao giờ tới API | Test gọi ASGI trực tiếp, không có khái niệm "khác nguồn" |
+| `TrangDocTruyen` không trả `project_id` ⇒ khách không xin gói được | Backend đúng hợp đồng của chính nó; thiếu sót chỉ lộ khi CÓ NGƯỜI TIÊU THỤ |
+| `a.download` bị bỏ qua với href khác nguồn ⇒ trình duyệt MỞ ảnh thay vì lưu | Luật trình duyệt, không của máy chủ |
+| `doc()` biến thân lỗi 429 có cấu trúc thành `[object Object]` | Máy chủ gửi đúng; mất mát ở tầng đọc của client |
+
+⚠️ Lỗi thứ nhất **cũng không lộ ra khi thử bằng `curl`** — ở đó tôi gửi cookie tay. Tôi đã curl
+thành công `/han-muc` trên production và tưởng đường khách lạ chạy được. Nó chỉ chạy cho `curl`.
+
+### 22/26 bài đỏ KHÔNG phải do thay đổi của tôi
+
+Workspace mất `libGL.so.1` + `libgthread-2.0.so.0` giữa hai phiên nên `cv2` không import được. Nếu
+tin con số 26 mà đi sửa mã thì sẽ chữa một bệnh không có. Cài lại hai gói là xanh.
+
+⇒ **Đọc nguyên nhân từng nhóm đỏ trước khi sửa bất cứ gì.** 26 bài đỏ có thể là hai sự cố khác
+hẳn nhau.
+
+### Bốn bài canh CŨ đỏ vì canh LUẬT CŨ — sửa theo hướng giữ nguyên sức canh
+
+`TestCongBat` (3 bài) khẳng định "đăng ký thiếu khoá → 401". E52 đổi luật, nên chúng chạy ở trạng
+thái "chưa có tài khoản" — nơi khoá chung **vẫn** áp.
+
+`test_dang_ky_van_duoc_khoa_chung_gac` soi `dependant.dependencies` tìm `cong_khoa`. Cổng nay có
+điều kiện nên nằm trong **thân hàm** ⇒ phép soi cấu trúc không thấy nữa. Đổi sang **đo hành vi**, và
+bản mới **mạnh hơn**: bản cũ chỉ chứng minh "có gắn dependency tên `cong_khoa`" — một endpoint gắn
+đúng dependency mà thân hàm bỏ qua nó vẫn lọt.
+
+### Ba lần bài test của TÔI sai, không phải mã sai
+
+1. `ipaddress.is_private` của Python coi **cả ba dải TEST-NET** tài liệu là private ⇒ `203.0.113.9`
+   không dùng được làm "IP công cộng". Suýt đi sửa mã.
+2. `userEvent.upload` nhắm vào DIV vùng thả (`id` của Dropzone gắn ở đó) thay vì ô
+   `<input type="file">` thật.
+3. `findByText` cho một câu **cố ý hiện hai chỗ** (cảnh báo + lý do nút bị khoá) ⇒ truy vấn mơ hồ.
+   Đổi sang `findAllByText`, và thêm khẳng định mạnh hơn: nút **thật sự bị khoá**.
+
+### Bảo đảm dựa vào vòng đời dependency thì bàn thử KHÔNG thấy được
+
+"Email trùng không mất suất đăng ký" vốn đúng ở bản chạy thật nhờ `get_session` đóng phiên và tự
+lùi giao dịch. Nhưng bộ test ghi đè `get_session` bằng một **phiên sống lâu**, nên nó không bao giờ
+quan sát được phép lùi đó — hai bài canh ĐỎ, và đỏ vì bàn thử không thấy, không vì sản phẩm sai.
+
+⇒ Lùi **tường minh** tại chỗ. Bảo đảm nằm ở vòng đời của dependency là bảo đảm không đọc được và
+không kiểm được.
+
+### Chưa bấm tay trên trình duyệt thật
+
+Frontend 411 bài xanh và build ra bundle thật (CSS 24,63→26,95 kB — kiểm được style đã vào bundle
+chứ không chỉ vào `src`). Nhưng jsdom **không** trả lời được: lượt tải tự động có bị chặn hay không,
+cookie khách có đi qua CORS thật hay không, ảnh cross-origin có hiện hay không.

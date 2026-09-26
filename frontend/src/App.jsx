@@ -20,6 +20,7 @@ import GlossaryManager from './components/consistency/GlossaryManager.jsx'
 import VoiceProfileManager from './components/consistency/VoiceProfileManager.jsx'
 import ReviewToolbar from './components/chapter/ReviewToolbar.jsx'
 import ManDangNhap from './components/auth/ManDangNhap.jsx'
+import TrangChu from './components/trang-chu/TrangChu.jsx'
 import BangChuaCoChu from './components/auth/BangChuaCoChu.jsx'
 import QuanTriNguoiDung from './components/auth/QuanTriNguoiDung.jsx'
 import Alert from './components/ui/Alert.jsx'
@@ -57,6 +58,8 @@ export default function App({ urlBundle } = {}) {
   // Gộp "đang hỏi" vào "chưa đăng nhập" sẽ nháy màn đăng nhập một cái mỗi lần tải lại trang,
   // kể cả khi phiên còn tốt.
   const [nguoiDung, setNguoiDung] = useState(undefined)
+  //: Khách lạ đã bấm "Đăng nhập" chưa. `false` ⇒ hiện TRANG CHỦ (§4.1: không chặn ở cửa).
+  const [muonDangNhap, setMuonDangNhap] = useState(false)
   //: ĐX-1 — đang mở đường nào ở màn chính: `nhanh` (thả file là chạy) hay `day_du` (có rà soát).
   const [duong, setDuong] = useState('nhanh')
   const [{ pageId, projectId }, setDiaChi] = useState(docDiaChi)
@@ -422,18 +425,28 @@ export default function App({ urlBundle } = {}) {
   }, [duongDanAnh, phienBanAnh])
 
   const oTrangChu = !projectId && !pageId
+  // Khách lạ bấm "Đăng nhập" mới hiện màn đăng nhập — xem ghi chú ở nhánh `nguoiDung === null`.
 
   if (nguoiDung === undefined) {
     return <div className="app"><main className="than-trang"><p>Đang kiểm phiên đăng nhập…</p></main></div>
   }
   if (nguoiDung === null) {
-    // Banner cũng hiện ở màn đăng nhập: đăng nhập KHÔNG nạp lại bundle, nên tab cũ vẫn cũ sau khi
-    // vào. Báo ở đây để người dùng tải lại TRƯỚC khi làm việc, tốt hơn hẳn tải lại sau khi đã gõ.
+    // E53 — CHƯA ĐĂNG NHẬP thì thấy TRANG CHỦ, không phải màn đăng nhập.
+    //
+    // §4.1 đặc tả: "thả tệp là chạy, không bắt khai báo gì trước. Đăng ký là thứ người dùng chọn
+    // khi muốn nhiều hơn, không phải cổng chặn ở cửa." Bản trước E53 ném thẳng vào màn đăng nhập,
+    // tức toàn bộ hạn mức khách lạ (E49) và đường dịch cho khách (E51) không ai với tới được —
+    // backend mở mà giao diện đóng.
+    //
+    // Banner bản mới cũng hiện ở đây: đăng nhập KHÔNG nạp lại bundle, nên tab cũ vẫn cũ sau khi
+    // vào. Báo trước khi người dùng làm việc, tốt hơn hẳn báo sau khi đã gõ.
     return (
       <div className="app">
         <BangBanMoi urlBundle={urlBundle} />
         <main className="than-trang">
-          <ManDangNhap onXong={setNguoiDung} />
+          {muonDangNhap
+            ? <ManDangNhap onXong={setNguoiDung} />
+            : <TrangChu onMoDangNhap={() => setMuonDangNhap(true)} />}
         </main>
       </div>
     )

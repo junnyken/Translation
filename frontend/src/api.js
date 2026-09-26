@@ -47,14 +47,30 @@ export function xoaMaPhien() {
   try { localStorage.removeItem(PHIEN_LUU) } catch { /* bỏ qua */ }
 }
 
-/** `fetch` có gắn mã phiên và khoá. Che hàm toàn cục CÓ CHỦ Ý — xem ghi chú ở trên. */
+/** `fetch` có gắn mã phiên và khoá. Che hàm toàn cục CÓ CHỦ Ý — xem ghi chú ở trên.
+ *
+ * ## `credentials: 'include'` — vì sao BẮT BUỘC (E53)
+ *
+ * Giao diện và API nằm ở HAI tên miền khác nhau. Mặc định của `fetch` là `same-origin`, tức
+ * **không gửi cookie sang tên miền khác**. Với người đã đăng nhập thì không sao — mã phiên đi
+ * bằng header `Authorization`. Nhưng **khách lạ được nhận diện bằng COOKIE**, nên thiếu dòng này:
+ *
+ * * mỗi request là một "khách mới" ⇒ chốt cookie không bao giờ cộng dồn;
+ * * khách **không đọc lại được trang của chính mình** (`chu_khach` không khớp ⇒ 404).
+ *
+ * Nó chạy khi thử bằng `curl` vì ở đó cookie được gửi tay — đúng kiểu lỗi chỉ lộ ra trên trình
+ * duyệt thật.
+ *
+ * Đi kèm: máy chủ phải `allow_credentials=True` (xem `backend/app/main.py`). Hai đầu phải cùng
+ * bật, bật một đầu thì trình duyệt chặn và **không nói vì sao** ở chỗ dễ thấy.
+ */
 function fetch(url, opts = {}) {
   const headers = { ...(opts.headers || {}) }
   const khoa = docKhoa()
   if (khoa) headers['X-API-Key'] = khoa
   const ma = docMaPhien()
   if (ma) headers.Authorization = `Bearer ${ma}`
-  return globalThis.fetch(url, { ...opts, headers })
+  return globalThis.fetch(url, { credentials: 'include', ...opts, headers })
 }
 
 /** Chưa đăng nhập (hoặc phiên hết hạn) — giao diện phải hiện màn đăng nhập.
@@ -148,13 +164,31 @@ export function laLoiThieuKhoa(e) {
 async function doc(res) {
   if (!res.ok) {
     let chiTiet = res.statusText
+    let coCauTruc = null
     try {
       const body = await res.json()
-      chiTiet = body.detail ?? JSON.stringify(body)
+      // E53 — `detail` có thể là OBJECT, không chỉ là chuỗi.
+      //
+      // Hạn mức (429) và trần đăng ký trả một object đủ thông tin để nói câu tử tế: còn bao
+      // nhiêu, bao giờ có lại, chốt nào chặn. Bản cũ nội suy thẳng vào chuỗi nên nó thành
+      // `[object Object]` — mất sạch, và giao diện chỉ còn cách nói "đã có lỗi".
+      //
+      // Nên: giữ nguyên hình dạng thông điệp CŨ cho `detail` dạng chuỗi (không phá chỗ nào đang
+      // đọc nó), còn object thì đính vào `.chiTiet` để bên gọi dùng, và lấy `thong_diep` làm
+      // câu hiển thị nếu máy chủ có gửi.
+      if (body && typeof body.detail === 'object' && body.detail !== null) {
+        coCauTruc = body.detail
+        chiTiet = body.detail.thong_diep ?? body.detail.loi ?? JSON.stringify(body.detail)
+      } else {
+        chiTiet = body.detail ?? JSON.stringify(body)
+      }
     } catch {
       /* body không phải JSON — giữ statusText */
     }
-    throw new Error(`${res.status}: ${chiTiet}`)
+    const loi = new Error(`${res.status}: ${chiTiet}`)
+    loi.ma = res.status
+    loi.chiTiet = coCauTruc
+    throw loi
   }
   return res.json()
 }
@@ -567,3 +601,59 @@ export async function layLyDoDung(pageId) {
     ?? js.find((j) => j.processing_state === 'worker_interrupted')
     ?? null
 }
+
+// ── E53: trang chủ — hạn mức, dịch nhanh, ảnh đã dịch ─────────────────────────────────────
+
+/** Hạn mức hôm nay của người đang gọi. **Khách lạ gọi được** — không cần đăng nhập.
+ *
+ * ⚠️ `con_lai` KHÔNG bằng `tran - da_dung`: nó là NHỎ NHẤT trong các chốt. Khách ở văn phòng đã
+ * chạm trần IP thì `con_lai = 0` dù chốt cookie còn nguyên. Hiện `tran - da_dung` lên là mời
+ * người ta thả tệp rồi nhận 429.
+ */
+export const layHanMuc = () => fetch(`${BASE}/han-muc`).then(doc)
+
+/** Chốt nào đang chặn, hoặc `null` nếu còn lượt.
+ *
+ * Cần biết để nói ĐÚNG câu: `khach_ip` nghĩa là **địa chỉ mạng dùng chung** đã hết lượt, không
+ * phải "bạn đã hết lượt" — người chưa dùng lượt nào mà bị chặn không thể tự đoán ra.
+ */
+export function chotDangChan(hanMuc) {
+  if (!hanMuc || hanMuc.con_lai > 0) return null
+  return (hanMuc.chot || []).find((c) => c.con_lai <= 0) || null
+}
+
+/** Gửi MỘT trang để dịch. `cheDo='day_du'` ⇒ có ảnh đã dịch tải về được.
+ *
+ * Mặc định của máy chủ là `chi_chu` (chỉ trả toạ độ + chữ cho tiện ích phủ lên ảnh gốc), nên
+ * trang chủ PHẢI gửi `day_du` tường minh — thiếu nó thì không có ảnh nào để tải.
+ */
+export const guiTrangDichNhanh = (file, { sourceLang = 'ja', cheDo = 'day_du' } = {}) => {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('source_lang', sourceLang)
+  form.append('che_do', cheDo)
+  return fetch(`${BASE}/doc-truyen/trang`, { method: 'POST', body: form }).then(doc)
+}
+
+/** Tiến độ + kết quả một trang.
+ *
+ * ⚠️ Đọc trường `xong`, **đừng tự suy từ `trang_thai`**: `translated` là ĐÍCH của chế độ
+ * `chi_chu` nhưng là GIỮA ĐƯỜNG của `day_du` (lúc đó chưa căn chữ, chưa có ảnh). Máy chủ đã
+ * tính đúng theo chế độ của chapter.
+ */
+export const layTrangDichNhanh = (pageId) =>
+  fetch(`${BASE}/doc-truyen/trang/${pageId}`).then(doc)
+
+/** URL ảnh ĐÃ DỊCH của một trang. Chỉ có ở chế độ `day_du`. */
+export const urlAnhDaDich = (pageId) => `${BASE}/doc-truyen/trang/${pageId}/anh`
+
+/** Xin gói cả chapter thành MỘT tệp. Trả `{job_id, …}`.
+ *
+ * §3.3 đặc tả: tải 24 tệp rời là 24 lần bị trình duyệt hỏi, gần như chắc chắn bị chặn.
+ */
+export const xuatChapterDichNhanh = (projectId, format = 'cbz') =>
+  fetch(`${BASE}/projects/${projectId}/export`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ format }),
+  }).then(doc)

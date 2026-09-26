@@ -32,7 +32,18 @@ if _settings.cors_allow_origin_list:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_settings.cors_allow_origin_list,
-        allow_credentials=False,
+        # E53 — BẬT. Khách lạ được nhận diện bằng COOKIE, mà giao diện và API ở hai tên miền khác
+        # nhau; `allow_credentials=False` nghĩa là trình duyệt không bao giờ gửi cookie đó sang.
+        # Hệ quả nếu để False: mỗi request là một "khách mới" nên chốt cookie không cộng dồn, và
+        # khách không đọc lại được trang của chính mình (404).
+        #
+        # An toàn ở đây dựa vào HAI thứ, không dựa vào cờ này:
+        #   1. `allow_origins` là danh sách TƯỜNG MINH, không phải `*` — CORS có credentials mà
+        #      dùng `*` thì trình duyệt tự từ chối, nhưng quan trọng hơn là ta không muốn nó;
+        #   2. cookie khách đặt `SameSite=Lax`, nên nó không đi theo request POST từ trang lạ.
+        #
+        # Đi kèm: giao diện phải gọi `fetch` với `credentials: 'include'`. Hai đầu phải cùng bật.
+        allow_credentials=True,
         allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
         # `X-API-Key` phải nằm trong danh sách này, nếu không trình duyệt sẽ chặn ngay ở
         # preflight và giao diện không bao giờ gửi được khoá đi.

@@ -2118,3 +2118,56 @@ endpoint cho khách là mất lớp đó, và đường `POST /projects/{id}/exp
 
 ⇒ Phần chứng minh thật nằm ở `test_e51::test_khach_KHONG_xuat_duoc_chapter_cua_nguoi_khac`, chỗ
 gửi thân **hợp lệ**. Ai mở thêm endpoint POST cho khách phải làm đúng như vậy.
+
+---
+
+## E53. Trang chủ cho khách lạ — và bốn lỗi chỉ tồn tại ở ranh giới trình duyệt ↔ máy chủ (2026-09-27)
+
+### Cổng chặn ở cửa
+
+`App.jsx` trước E53: `nguoiDung === null` ⇒ **chỉ** hiện màn đăng nhập. Nghĩa là hạn mức khách lạ
+(E49), đường dịch cho khách (E51) và đường tự đăng ký (E52) **không ai với tới được**. Backend mở,
+giao diện đóng — đúng thứ §4.1 đặc tả cấm.
+
+### Bốn lỗi mà bộ test backend KHÔNG THỂ bắt
+
+Cả bốn cùng một họ: mỗi đầu đúng theo đặc tả của nó, nối lại thì không chạy. Và cả bốn chỉ tồn tại
+ở ranh giới trình duyệt ↔ máy chủ, nên **1833 bài test backend đều xanh** trong lúc tính năng chết.
+
+| Lỗi | Vì sao test không thấy |
+|---|---|
+| `allow_credentials=False` + `fetch` mặc định `same-origin` ⇒ **cookie khách chưa bao giờ tới API** | Test gọi ASGI trực tiếp, không có khái niệm "khác nguồn". `curl` cũng không thấy vì cookie được gửi tay |
+| `TrangDocTruyen` không trả `project_id` ⇒ khách không xin gói được | Backend đúng hợp đồng của chính nó; thiếu sót chỉ lộ khi có người TIÊU THỤ |
+| `a.download` bị **bỏ qua** với href khác nguồn ⇒ trình duyệt MỞ ảnh thay vì lưu | Luật của trình duyệt, không của máy chủ |
+| `doc()` biến thân lỗi 429 có cấu trúc thành `[object Object]` | Backend gửi đúng; mất mát xảy ra ở tầng đọc của client |
+
+⇒ **Bài học kiến trúc:** một tính năng "đã có API + đã có test" vẫn có thể chết hoàn toàn. Chỉ khi
+NỐI hai đầu mới biết. Đây là lần thứ ba trong dự án gặp họ lỗi này (xem `E51` §2 và
+`feedback_tinh_nang_chet_vi_hai_dau_khong_gap`).
+
+### Đồng hồ đếm ngược nhận MỐC, không nhận SỐ GIÂY
+
+Máy chủ trả cả `reset_luc` (mốc tuyệt đối, mang `+07:00`) lẫn `reset_sau_giay`. Dùng số giây là
+dùng một **ảnh chụp**: tab để mở 20 phút thì con số đó sai 20 phút mà nhìn vẫn hợp lý. Mốc tuyệt
+đối tự đúng mãi, và không cần biết máy người dùng đang ở múi giờ nào.
+
+Mốc hết hạn giữ tệp trả `null` khi chưa xong — **không** trả "bây giờ + 30 phút". Đếm từ lúc tải
+lên là để một chapter 24 trang hết hạn trước khi dịch xong (§2.3).
+
+### "Bị chặn thì nói ra" — bản TRUNG THỰC của một yêu cầu không làm được
+
+§3.2 đặc tả đòi nói ra khi lượt tải tự động bị chặn. **JavaScript không có cách nào biết điều đó**
+— không sự kiện, không ngoại lệ, không cờ.
+
+Nên: nút thủ công **luôn** hiện; sau lượt thử tự động thì nói *"nếu không thấy tệp nào, trình duyệt
+đã chặn — bấm nút trên"*; và chỉ thử tự động **một lần** (bấm tải nhiều lần là đúng thứ làm trình
+duyệt chặn hẳn về sau).
+
+Viết mã "phát hiện bị chặn" rồi báo cáo là đã làm §3.2 sẽ là bịa một năng lực không có.
+
+### Đang CHỜ khác đang CHẠY
+
+`ProgressStage` nhận **mảng các bước** của dòng thời gian chapter; `tien_do.buoc` là một **chuỗi**
+tên bước — hai thứ khác nhau. `TienDoTrang` đọc đúng ba trường máy chủ trả và nhờ vậy phân biệt
+được **đang chờ** (`so_viec_cho_truoc > 0`) với **đang chạy**. Gộp hai thứ đó làm thanh tiến độ nói
+dối: người dùng thấy "đang xử lý" trong khi việc còn nằm sau 6 trang khác.
