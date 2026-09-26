@@ -21,6 +21,14 @@ from app.core.config import get_settings
 
 IP_TEST = "127.0.0.1"
 
+#: IP công cộng THẬT, cố ý KHÔNG dùng dải ví dụ trong tài liệu.
+#:
+#: ⚠️ `ipaddress.is_private` của Python coi **cả ba dải TEST-NET** là private:
+#: `192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`. Nên đúng những địa chỉ "an toàn để làm ví
+#: dụ" lại KHÔNG dùng được để kiểm phép phân loại công/nội bộ — đo được 27-09: bài canh đỏ vì
+#: dùng `203.0.113.9`, và nó đỏ do bài test sai chứ không do mã sai.
+IP_CONG_CONG = "8.8.8.8"
+
 
 @pytest.fixture
 def st():
@@ -66,6 +74,36 @@ class TestKhoiChanDoan:
         khoi = r.json()["nhan_dien_khach"]
         assert khoi["co_x_forwarded_for"] is True
         assert khoi["so_muc_x_forwarded_for"] == 3
+
+    async def test_co_truong_IP_HIEU_LUC_tach_khoi_IP_ket_noi(
+        self, client_chua_dang_nhap, st, monkeypatch
+    ):
+        """**Bài canh của chính phép chẩn đoán.** Bật `TIN_HEADER_PROXY` xong thì kết nối trực
+        tiếp VẪN là proxy, nên `ip_la_noi_bo` vẫn `true` — nhìn vào đó sẽ tưởng chưa sửa được gì.
+
+        `ip_hieu_luc_la_noi_bo` là trường trả lời đúng câu hỏi thật: chốt IP có đang khoá lên một
+        địa chỉ người dùng thật hay không.
+        """
+        monkeypatch.setattr(st, "tin_header_proxy", True)
+        r = await client_chua_dang_nhap.get(
+            "/healthz", headers={"x-forwarded-for": IP_CONG_CONG}
+        )
+        khoi = r.json()["nhan_dien_khach"]
+
+        assert khoi["ip_la_noi_bo"] is True, "kết nối trực tiếp trong bàn thử là loopback"
+        assert khoi["ip_hieu_luc_la_noi_bo"] is False, (
+            f"chốt IP vẫn khoá lên địa chỉ nội bộ dù đã bật tin_header_proxy: {khoi}"
+        )
+
+    async def test_khong_tin_proxy_thi_IP_hieu_luc_VAN_la_noi_bo(
+        self, client_chua_dang_nhap, st, monkeypatch
+    ):
+        """Đối chứng: cờ tắt ⇒ chốt IP khoá lên proxy, và phép chẩn đoán phải NÓI RA."""
+        monkeypatch.setattr(st, "tin_header_proxy", False)
+        khoi = (await client_chua_dang_nhap.get(
+            "/healthz", headers={"x-forwarded-for": IP_CONG_CONG}
+        )).json()["nhan_dien_khach"]
+        assert khoi["ip_hieu_luc_la_noi_bo"] is True
 
     async def test_bao_dung_4_co_cau_hinh(self, client_chua_dang_nhap, st, monkeypatch):
         """Bốn cờ này quyết định tính năng chạy đúng hay không, mà `list_env` của nền tảng chỉ trả

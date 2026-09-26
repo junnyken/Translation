@@ -1501,3 +1501,38 @@ Dùng lại đường xuất có sẵn: `POST /projects/{id}/export` (`format`: 
 
 §3.3 đặc tả: tải 24 tệp rời là 24 lần bị trình duyệt hỏi, gần như chắc chắn bị chặn. Một tệp nén
 là một lần.
+
+---
+
+# E52 — Tự đăng ký (27-09)
+
+`POST /api/v1/auth/register` — **không còn đòi `X-API-Key`**, trừ khi hệ thống chưa có tài khoản
+nào (tài khoản đầu tiên thành quản trị, nên chỗ đó vẫn phải có khoá).
+
+| Lỗi | Mã | Khi nào |
+|---|---|---|
+| Thiếu/sai khoá chung | `401` | **Chỉ** khi hệ thống chưa có tài khoản nào |
+| Email đã có / mật khẩu yếu | `400` | **Không** tiêu suất đăng ký |
+| Địa chỉ mạng đã tạo đủ số tài khoản hôm nay | `429` | Xem thân lỗi dưới |
+| Không xác định được địa chỉ mạng | `503` | Thà chặn còn hơn mở một đường không có trần |
+
+```json
+{"detail": {
+  "loi": "vuot_tran_dang_ky", "tran_moi_ngay": 3,
+  "reset_luc": "2026-09-28T00:00:00+07:00",
+  "thong_diep": "Địa chỉ mạng này đã tạo đủ số tài khoản cho phép trong hôm nay. Thử lại sau, hoặc liên hệ người quản trị."
+}}
+```
+
+Kèm header `Retry-After`.
+
+⚠️ Thông điệp cố ý nói **"địa chỉ mạng này"**, không nói "bạn": người ở văn phòng hay quán cà phê
+có thể bị chặn dù chính họ chưa tạo tài khoản nào, và không có cách nào tự đoán ra.
+
+## Vì sao có trần này
+
+Không có nó thì hạn mức trang của E49 **vô nghĩa**: khách hết 6 trang chỉ cần tạo tài khoản mới để
+có 10, rồi lặp vô hạn. Trần đặt ở `SO_TAI_KHOAN_MOI_MOI_IP_MOT_NGAY` (mặc định 3).
+
+**Không** có xác minh email — trần theo IP chặn được việc tạo hàng loạt, **không** chặn được email
+giả. Muốn chặn cần hạ tầng gửi thư, chưa có.

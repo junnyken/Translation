@@ -13,10 +13,15 @@ phát tài khoản. Nó không còn mở được dữ liệu.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.bao_ve import TEN_HEADER as TEN_HEADER_KHOA
 from app.core.bao_ve import cong_khoa
+from app.core.config import Settings, get_settings
+from app.core.danh_tinh_khach import bam, ip_cua
+from app.services.han_muc import bay_gio, moc_reset_ke_tiep, ngay_han_muc
+from app.services.han_muc_dang_ky import giu_suat_dang_ky
 from app.core.db import get_session
 from app.core.phien import han_moi
 from app.core.quyen import TIEN_TO_BEARER, nguoi_dung_hien_tai
@@ -45,12 +50,71 @@ LOI_SAI_THONG_TIN = "Email hoặc mật khẩu không đúng."
     "/register",
     response_model=NguoiDungRead,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(cong_khoa)],
 )
 async def dang_ky(
-    payload: DangKyRequest, session: AsyncSession = Depends(get_session)
+    payload: DangKyRequest,
+    request: Request,
+    x_api_key: str | None = Header(default=None, alias=TEN_HEADER_KHOA),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
 ) -> NguoiDung:
-    """Tạo tài khoản. Đòi khoá chung. Người đầu tiên đăng ký thành quản trị."""
+    """Tạo tài khoản.
+
+    ## E52 — cổng khoá chung nay CÓ ĐIỀU KIỆN, không còn chặn mọi người
+
+    Trước E52, đường này gắn `Depends(cong_khoa)` nên **người lạ không tự đăng ký được**. Điều đó
+    trái §4.1 đặc tả ("đăng ký là thứ người dùng chọn khi muốn nhiều hơn, không phải cổng chặn ở
+    cửa"): khách dùng hết 6 trang không có đường nào lên 10.
+
+    Nay:
+
+    * **chưa có tài khoản nào** ⇒ vẫn ĐÒI khoá chung. Tài khoản đầu tiên thành quản trị và nhận
+      các chapter cũ chưa có chủ, nên để người lạ chiếm chỗ đó là giao quyền quản trị cho người
+      bấm nhanh nhất;
+    * **đã có tài khoản** ⇒ mở, nhưng chặn theo địa chỉ mạng (xem dưới).
+
+    ## Vì sao PHẢI có trần theo IP
+
+    Không có nó thì hạn mức trang của E49 **vô nghĩa**: khách hết 6 trang chỉ cần tạo tài khoản
+    mới để có 10, lặp vô hạn. Mở đăng ký mà quên con số này là tự vô hiệu hoá cả E49.
+
+    Suất chỉ mất khi tài khoản **thật sự** được tạo: hàng giữ suất nằm cùng phiên với lượt tạo,
+    nên email trùng hay mật khẩu yếu ⇒ giao dịch huỷ ⇒ không mất suất. Cùng luật với "tệp hỏng
+    không mất lượt" của đường tải lên.
+    """
+    dau_tien = await tai_khoan.dem_nguoi_dung(session) == 0
+    if dau_tien:
+        await cong_khoa(x_api_key)
+    else:
+        ip = ip_cua(request, settings)
+        if ip is None:
+            # Không xác định được địa chỉ mạng ⇒ KHÔNG mở cửa tự do. Thà chặn còn hơn để đường
+            # tạo tài khoản không có trần nào — đó là đường vô hiệu hoá hạn mức.
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Chưa xác định được địa chỉ mạng của bạn nên tạm thời không mở đăng ký "
+                "tự do. Liên hệ người quản trị để được cấp tài khoản.",
+            )
+        tran = settings.so_tai_khoan_moi_moi_ip_mot_ngay
+        kq = await giu_suat_dang_ky(
+            session, ip_da_bam=bam(ip, settings), ngay=ngay_han_muc(), tran=tran
+        )
+        if not kq.thanh_cong:
+            reset = moc_reset_ke_tiep()
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                headers={"Retry-After": str(max(0, int((reset - bay_gio()).total_seconds())))},
+                detail={
+                    "loi": "vuot_tran_dang_ky",
+                    "tran_moi_ngay": tran,
+                    "reset_luc": reset.isoformat(),
+                    # Nói rõ là trần theo ĐỊA CHỈ MẠNG: người ở văn phòng/quán cà phê có thể bị
+                    # chặn dù chính họ chưa tạo tài khoản nào, và không có cách nào tự đoán ra.
+                    "thong_diep": "Địa chỉ mạng này đã tạo đủ số tài khoản cho phép trong hôm "
+                    "nay. Thử lại sau, hoặc liên hệ người quản trị.",
+                },
+            )
+
     try:
         return await tai_khoan.dang_ky(
             session,
@@ -59,6 +123,20 @@ async def dang_ky(
             mat_khau_tho=payload.mat_khau,
         )
     except ValueError as exc:
+        # Lùi TƯỜNG MINH để trả lại suất đã giữ ở trên.
+        #
+        # Về nguyên tắc `get_session` đóng phiên khi request nổ và `AsyncSession.close()` tự lùi
+        # giao dịch — nên ở bản chạy thật suất vẫn được trả lại dù không có dòng này. Nhưng:
+        #
+        # 1. Bảo đảm "lượt bị từ chối không mất suất" khi đó nằm ở **vòng đời của dependency**,
+        #    cách xa chỗ đọc mã. Ai sửa phần cấp phiên sau này sẽ phá nó mà không biết.
+        # 2. Bộ test ghi đè `get_session` bằng một phiên sống lâu, nên nó **không bao giờ quan sát
+        #    được** phép lùi kia. Đo được 27-09: hai bài canh đúng luật này ĐỎ, và đỏ vì bàn thử
+        #    không thấy được, chứ không phải vì sản phẩm sai.
+        #
+        # Lùi ngay tại đây làm bảo đảm thành thứ đọc được và kiểm được. `upload_archive` đã làm
+        # đúng như vậy ở các nhánh lỗi của nó.
+        await session.rollback()
         thong_bao = (
             "Email này đã có tài khoản."
             if str(exc) == "email_da_ton_tai"

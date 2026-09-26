@@ -107,6 +107,16 @@ class Settings(BaseSettings):
     #: Cookie sống bao lâu. 400 ngày là trần Chrome áp cho mọi cookie — đặt cao hơn vô nghĩa.
     cookie_khach_song_giay: int = 400 * 24 * 3600
 
+    #: Số TÀI KHOẢN mới được tạo từ cùng một địa chỉ mạng trong một ngày.
+    #:
+    #: ⚠️ Không có trần này thì hạn mức trang trở thành VÔ NGHĨA: khách hết 6 trang chỉ cần tạo
+    #: tài khoản mới để có 10, rồi lặp vô hạn. Mở đường tự đăng ký mà quên con số này là tự tay
+    #: vô hiệu hoá cả E49.
+    #:
+    #: 3 là con số thận trọng: đủ cho một gia đình hoặc vài người cùng phòng, mà không đủ để biến
+    #: việc tạo tài khoản thành cách lách hạn mức. Cần tinh chỉnh theo hành vi thật.
+    so_tai_khoan_moi_moi_ip_mot_ngay: int = 3
+
     # --- E50: vòng đời tệp -------------------------------------------------------------------
     #: Giữ kết quả bao lâu (PHÚT) **kể từ lúc cả chapter xong**, không phải từ lúc tải lên.
     #: Một chapter 24 trang mất 30–40 phút để chạy; đếm từ lúc tải lên thì tệp hết hạn trước khi

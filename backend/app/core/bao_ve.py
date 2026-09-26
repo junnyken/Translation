@@ -53,8 +53,21 @@ async def cong_khoa(x_api_key: str | None = Header(default=None, alias=TEN_HEADE
     **Chỉ gắn ở `POST /auth/register`** — đừng đọc câu này thành "cả API đều sau khoá chung".
     Từ slice B, thứ gắn ở tầng router cho toàn bộ `/api/v1` là cổng **đăng nhập**
     (`main.py`: `include_router(v1_router, dependencies=[Depends(nguoi_dung_hien_tai)])`).
-    Khoá chung nay chỉ còn một việc: chặn người lạ **tự tạo tài khoản** — đường duy nhất không
-    thể đòi đăng nhập trước, vì chưa có tài khoản thì lấy gì mà đăng nhập.
+    ## E52 — cổng này nay CÓ ĐIỀU KIỆN, và không còn là một dependency
+
+    Từ E52, `POST /auth/register` **không** gắn `Depends(cong_khoa)` nữa: nó gọi hàm này trong
+    THÂN hàm, và **chỉ khi hệ thống chưa có tài khoản nào**.
+
+    Lý do: gác vô điều kiện làm người lạ không tự đăng ký được, trái §4.1 đặc tả — khách dùng hết
+    hạn mức khách lạ không có đường nào lên hạn mức có tài khoản. Chỗ duy nhất còn cần khoá là
+    lượt tạo tài khoản **ĐẦU TIÊN**: nó thành quản trị và nhận các chapter cũ chưa có chủ.
+
+    Sau lượt đầu, đường đăng ký mở và được chặn bằng **trần theo địa chỉ mạng**
+    (`services/han_muc_dang_ky.py`) — thiếu trần đó thì hạn mức trang của E49 thành vô nghĩa.
+
+    ⇒ Đừng tìm `cong_khoa` trong cây phụ thuộc của endpoint để kết luận "có gác hay không";
+    phép soi đó nay luôn trả về "không". Đo hành vi thật, như
+    `test_bao_ve_integration::test_dang_ky_TAI_KHOAN_DAU_TIEN_van_duoc_khoa_chung_gac`.
 
     (Docstring cũ ghi "gắn ở tầng router nên không sót endpoint nào" — đúng với slice A, sai kể
     từ slice B. Một câu sai về bảo mật nguy hiểm hơn là không có câu nào.)

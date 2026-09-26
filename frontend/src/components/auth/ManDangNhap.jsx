@@ -86,7 +86,12 @@ export default function ManDangNhap({ onXong }) {
         />
         {dangKy && <p className="ghi-chu">Ít nhất 8 ký tự.</p>}
 
-        {dangKy && (
+        {/* E52 — ô khoá chung CHỈ hiện cho tài khoản ĐẦU TIÊN.
+            Trước E52 nó hiện với mọi lượt tạo tài khoản, và máy chủ cũng luôn đòi — nên người
+            lạ không tự đăng ký được, trái §4.1 đặc tả. Nay máy chủ chỉ đòi khoá khi hệ thống
+            chưa có tài khoản nào (người đầu tiên thành quản trị), còn lại mở và chặn theo địa
+            chỉ mạng. Giữ ô này khi đã có tài khoản là hỏi một thứ máy chủ không dùng tới. */}
+        {dangKy && daCoTaiKhoan === false && (
           <>
             <label htmlFor="o-khoa">Khoá chung của hệ thống</label>
             <input

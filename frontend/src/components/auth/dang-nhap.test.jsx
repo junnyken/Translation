@@ -121,6 +121,19 @@ describe('màn đăng nhập', () => {
     expect(screen.queryByText('Chưa có tài khoản nào')).not.toBeInTheDocument()
   })
 
+  it('E52 — đã có tài khoản thì màn TẠO MỚI không đòi khoá chung nữa', async () => {
+    // Trước E52, ô này hiện với MỌI lượt tạo tài khoản và máy chủ cũng luôn đòi, nên người lạ
+    // không tự đăng ký được — trái §4.1 đặc tả. Nay máy chủ chỉ đòi khoá cho tài khoản ĐẦU TIÊN.
+    // Giữ ô này khi đã có tài khoản là hỏi người dùng một thứ máy chủ không dùng tới, và họ sẽ
+    // tưởng mình phải đi xin khoá mới đăng ký được.
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => dapUng({ da_co: true }))
+    render(<ManDangNhap onXong={() => {}} />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Chưa có tài khoản? Tạo mới' }))
+
+    expect(screen.getByRole('button', { name: 'Tạo tài khoản' })).toBeInTheDocument()
+    expect(screen.queryByLabelText('Khoá chung của hệ thống')).not.toBeInTheDocument()
+  })
+
   it('tạo tài khoản xong thì đăng nhập luôn, không bắt gõ lại', async () => {
     const goi = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => {
       if (String(url).includes('co-tai-khoan-chua')) return dapUng({ da_co: false })

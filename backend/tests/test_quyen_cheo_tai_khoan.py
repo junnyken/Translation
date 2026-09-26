@@ -238,7 +238,9 @@ MIEN_TRU = {
     "/api/v1/auth/login": "chưa đăng nhập thì mới gọi",
     "/api/v1/auth/logout": "chỉ thu hồi phiên của chính người gọi",
     "/api/v1/auth/me": "trả về chính người gọi",
-    "/api/v1/auth/register": "tự gác bằng khoá chung",
+    # E52 — chỉ còn gác lượt tạo tài khoản ĐẦU TIÊN bằng khoá chung; sau đó mở và chặn bằng
+    # trần theo địa chỉ mạng. Không nhận id nào nên dò chéo ở đây vô nghĩa.
+    "/api/v1/auth/register": "không nhận id; tài khoản đầu tiên gác bằng khoá chung, sau đó chặn theo IP",
     "/api/v1/auth/co-tai-khoan-chua": "chỉ trả true/false",
     # Quản trị người dùng KHÔNG gắn với chapter nào nên dò chéo chủ sở hữu ở đây vô nghĩa.
     # Nhưng chúng có cổng riêng (chỉ quản trị) và được kiểm ở `test_quan_tri_nguoi_dung.py` —

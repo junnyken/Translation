@@ -74,16 +74,28 @@ def _chan_doan_nhan_dien_khach(request: Request) -> dict:
     import ipaddress
 
     from app.core.config import get_settings as _lay
+    from app.core.danh_tinh_khach import ip_cua
+
+    def _la_noi_bo(ip: str | None) -> bool | None:
+        """`None` = không phân tích được ⇒ NÓI KHÔNG BIẾT, đừng đoán."""
+        if not ip:
+            return None
+        try:
+            d = ipaddress.ip_address(ip)
+        except ValueError:
+            return None
+        return d.is_private or d.is_loopback or d.is_link_local
 
     st = _lay()
     ip = request.client.host if request.client else None
-    noi_bo: bool | None = None
-    if ip:
-        try:
-            dia_chi = ipaddress.ip_address(ip)
-            noi_bo = dia_chi.is_private or dia_chi.is_loopback or dia_chi.is_link_local
-        except ValueError:
-            noi_bo = None  # không phân tích được ⇒ NÓI KHÔNG BIẾT, đừng đoán
+    noi_bo = _la_noi_bo(ip)
+    # IP **hiệu lực**: đúng giá trị hàm hạn mức dùng làm chốt, tức đã áp `tin_header_proxy`.
+    #
+    # Phải có trường này chứ không chỉ `ip_la_noi_bo`: sau khi bật `TIN_HEADER_PROXY`, kết nối
+    # trực tiếp VẪN là proxy nên `ip_la_noi_bo` vẫn `true` — nhìn vào đó sẽ tưởng chưa sửa được
+    # gì. Đây là trường trả lời đúng câu hỏi thật: **chốt IP có đang khoá lên một địa chỉ người
+    # dùng thật hay không?**
+    hieu_luc_noi_bo = _la_noi_bo(ip_cua(request, st))
 
     return {
         # `None` = không xác định được IP người gọi. Lúc đó chốt IP biến mất hoàn toàn và chỉ còn
@@ -97,6 +109,9 @@ def _chan_doan_nhan_dien_khach(request: Request) -> dict:
             [x for x in request.headers.get("x-forwarded-for", "").split(",") if x.strip()]
         ),
         "tin_header_proxy": st.tin_header_proxy,
+        #: `false` = chốt IP đang khoá lên địa chỉ NGƯỜI DÙNG (đúng). `true` = vẫn đang khoá lên
+        #: proxy ⇒ mọi khách chung một chốt ⇒ chặn oan hàng loạt. `null` = không xác định được.
+        "ip_hieu_luc_la_noi_bo": hieu_luc_noi_bo,
         # Muối rỗng ⇒ băm gần như vô nghĩa (cả không gian IPv4 dò hết chỉ mất vài phút).
         "muoi_bam_khach_da_dat": bool(st.muoi_bam_khach),
         "cookie_khach_secure": st.cookie_khach_secure,

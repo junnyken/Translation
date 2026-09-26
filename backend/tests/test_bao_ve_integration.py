@@ -19,6 +19,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+import sqlalchemy as sa
 
 from app.core.bao_ve import TEN_HEADER
 from app.core.config import get_settings
@@ -30,6 +31,28 @@ KHOA = "khoa-thu-nghiem-dai-va-kho-doan-0123456789"
 @pytest.fixture
 def bat_cong(monkeypatch):
     monkeypatch.setattr(get_settings(), "api_access_key", KHOA)
+
+
+@pytest.fixture
+def chua_co_tai_khoan_nao(migrated_database):
+    """E52 — đưa hệ thống về trạng thái CHƯA CÓ TÀI KHOẢN.
+
+    Từ E52, khoá chung **chỉ** gác lượt tạo tài khoản ĐẦU TIÊN: đường đăng ký nay mở cho người
+    lạ (§4.1 đặc tả), và chỗ duy nhất khoá chung còn áp là nhánh bootstrap — nơi tài khoản đầu
+    tiên thành quản trị và nhận các chapter cũ chưa có chủ.
+
+    Nên các bài canh cổng khoá phải chạy ở ĐÚNG trạng thái đó. Không có fixture này thì chúng
+    kiểm một luật đã bị thay, và "đỏ" của chúng nói về đặc tả cũ chứ không về lỗ bảo mật.
+
+    `nguoi_dung` cố ý KHÔNG nằm trong danh sách TRUNCATE của conftest, nên phải tự dọn; fixture
+    `tai_khoan_test` của bài sau tự dựng lại (nó idempotent, xem docstring ở conftest).
+    """
+    from app.core.db_sync import sync_session
+
+    with sync_session() as s:
+        s.execute(sa.text("DELETE FROM phien"))
+        s.execute(sa.text("DELETE FROM nguoi_dung"))
+        s.commit()
 
 
 class TestCongTat:
@@ -50,14 +73,18 @@ class TestCongTat:
 
 
 class TestCongBat:
-    async def test_thieu_khoa_thi_khong_tao_duoc_tai_khoan(self, client_chua_dang_nhap, bat_cong):
+    async def test_thieu_khoa_thi_khong_tao_duoc_tai_khoan(
+        self, client_chua_dang_nhap, bat_cong, chua_co_tai_khoan_nao
+    ):
         """Sau slice B, khoá chung gác **đăng ký** — chứ không còn gác dữ liệu."""
         r = await client_chua_dang_nhap.post("/api/v1/auth/register", json={
             "email": "len@x.test", "ten_hien": "len", "mat_khau": "mat-khau-du-dai"})
         assert r.status_code == 401
         assert TEN_HEADER in r.headers.get("www-authenticate", "")
 
-    async def test_khoa_sai_thi_khong_tao_duoc_tai_khoan(self, client_chua_dang_nhap, bat_cong):
+    async def test_khoa_sai_thi_khong_tao_duoc_tai_khoan(
+        self, client_chua_dang_nhap, bat_cong, chua_co_tai_khoan_nao
+    ):
         r = await client_chua_dang_nhap.post(
             "/api/v1/auth/register", headers={TEN_HEADER: "sai"},
             json={"email": "len2@x.test", "ten_hien": "len", "mat_khau": "mat-khau-du-dai"})
@@ -84,7 +111,9 @@ class TestCongBat:
         )
         assert r.status_code == 401
 
-    async def test_thieu_khoa_va_khoa_sai_bao_Y_HET_nhau(self, client_chua_dang_nhap, bat_cong):
+    async def test_thieu_khoa_va_khoa_sai_bao_Y_HET_nhau(
+        self, client_chua_dang_nhap, bat_cong, chua_co_tai_khoan_nao
+    ):
         """Nói ra sự khác biệt là xác nhận cho người dò biết họ đã đoán đúng định dạng."""
         than = {"email": "x@x.test", "ten_hien": "x", "mat_khau": "mat-khau-du-dai"}
         a = await client_chua_dang_nhap.post("/api/v1/auth/register", json=than)
@@ -120,7 +149,9 @@ class TestCongBat:
 MIEN_TRU_DANG_NHAP = {
     "/api/v1/auth/login",
     "/api/v1/auth/logout",           # thu hồi phiên; mã sai vẫn trả 204, không lộ gì
-    "/api/v1/auth/register",         # tự gác bằng khoá chung
+    # E52 — tài khoản ĐẦU TIÊN gác bằng khoá chung; sau đó mở cho người lạ và chặn bằng trần
+    # theo địa chỉ mạng. Xem `test_dang_ky_TAI_KHOAN_DAU_TIEN_van_duoc_khoa_chung_gac`.
+    "/api/v1/auth/register",
     "/api/v1/auth/co-tai-khoan-chua",  # chỉ trả true/false
     # ---- E49: đường cho KHÁCH LẠ (2026-09-25) ----
     #
@@ -212,12 +243,39 @@ class TestKhongSotDuongNao:
             )
             assert r.status_code == 401, f"{method} {duong} -> {r.status_code}"
 
-    def test_dang_ky_van_duoc_khoa_chung_gac(self):
-        """Nếu không, ai mở được địa chỉ cũng tự tạo tài khoản trên hạ tầng của mình."""
-        dang_ky = [r for r in self._duong_v1() if r.path == "/api/v1/auth/register"]
-        assert dang_ky, "không tìm thấy endpoint đăng ký"
-        ten = [getattr(d.call, "__name__", "") for d in (dang_ky[0].dependant.dependencies or [])]
-        assert "cong_khoa" in ten
+    async def test_dang_ky_TAI_KHOAN_DAU_TIEN_van_duoc_khoa_chung_gac(
+        self, client_chua_dang_nhap, monkeypatch, chua_co_tai_khoan_nao
+    ):
+        """E52 — đổi từ soi CÂY PHỤ THUỘC sang đo HÀNH VI, và vì sao phải đổi.
+
+        Bản cũ tìm `cong_khoa` trong `dependant.dependencies` của endpoint. Từ E52, cổng khoá
+        **có điều kiện** nên nó được gọi trong THÂN hàm, không còn là một dependency — phép soi
+        cấu trúc kia không thấy nữa, dù luật vẫn còn nguyên.
+
+        Sửa theo hướng đo hành vi là **mạnh hơn** bản cũ: bản cũ chỉ chứng minh "có gắn
+        dependency tên `cong_khoa`", còn bản này chứng minh request THẬT bị chặn. Một endpoint
+        gắn đúng dependency mà logic bên trong bỏ qua nó vẫn lọt qua bản cũ.
+
+        Vì sao luật này còn: tài khoản đầu tiên thành **quản trị** và nhận các chapter cũ chưa có
+        chủ. Để người lạ chiếm chỗ đó là giao quyền quản trị cho người bấm nhanh nhất.
+        """
+        monkeypatch.setattr(get_settings(), "api_access_key", KHOA)
+        r = await client_chua_dang_nhap.post("/api/v1/auth/register", json={
+            "email": "nguoi-la@x.test", "ten_hien": "la", "mat_khau": "mat-khau-du-dai"})
+        assert r.status_code == 401, (
+            f"tạo được tài khoản ĐẦU TIÊN mà không cần khoá chung ⇒ ai mở được địa chỉ cũng "
+            f"thành quản trị: {r.status_code}"
+        )
+
+    async def test_dang_ky_khi_DA_CO_tai_khoan_thi_KHONG_doi_khoa_nua(
+        self, client_chua_dang_nhap, client, monkeypatch
+    ):
+        """Đối chứng của bài trên — nếu thiếu, ai đó gắn lại `cong_khoa` vô điều kiện sẽ không bị
+        bắt, và người lạ lại không tự đăng ký được (đúng lỗ §4.1 mà E52 vá)."""
+        monkeypatch.setattr(get_settings(), "api_access_key", KHOA)
+        r = await client_chua_dang_nhap.post("/api/v1/auth/register", json={
+            "email": "nguoi-la-2@x.test", "ten_hien": "la", "mat_khau": "mat-khau-du-dai"})
+        assert r.status_code == 201, f"vẫn đòi khoá chung dù đã có tài khoản: {r.text}"
 
     def test_co_dang_kiem_that_chu_khong_phai_danh_sach_rong(self):
         """Một test 'không có gì thiếu' trên danh sách rỗng luôn xanh và chẳng chứng minh gì."""

@@ -4,8 +4,8 @@
 
 Slice A (`app.core.bao_ve`) là **một khoá chung**: ai cầm khoá làm được mọi thứ. Slice B thay
 thế nó ở đường vào dữ liệu — từ đây **phải đăng nhập bằng tài khoản riêng**, khoá chung không
-còn mở được dữ liệu của ai nữa. Khoá chung chỉ còn đúng một việc: gác cổng **đăng ký**, để
-người lạ trên internet không tự tạo tài khoản.
+còn mở được dữ liệu của ai nữa. Khoá chung chỉ còn gác lượt tạo tài khoản **ĐẦU TIÊN**
+(E52) — người lạ tự đăng ký được, và bị chặn bằng trần theo địa chỉ mạng thay vì bằng khoá.
 
 Đây là bước mạnh lên, không phải đổi ngang: trước đây ai có khoá là đọc/xoá được chapter của
 mọi người.
