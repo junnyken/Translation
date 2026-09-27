@@ -41,7 +41,9 @@ a { color: var(--mau-chinh-dam); }
 }
 .hieu b { display: block; font-size: 15px; }
 .hieu small { display: block; color: var(--mo); font-size: 12px; }
-.dieu-huong { display: flex; align-items: center; gap: 8px; }
+/* `min-width: 0` là thứ bắt buộc, không phải trang trí: mặc định flex item KHÔNG co nhỏ hơn nội
+   dung của nó, nên thiếu dòng này thì mọi `max-width` bên dưới đều vô hiệu. */
+.dieu-huong { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
 .dieu-huong > a { text-decoration: none; font-size: 14px; color: var(--mo); padding: 6px 8px; }
 .dieu-huong > a.dang-o { color: var(--chu); font-weight: 600; }
 .o-tim { display: flex; gap: 8px; margin-left: auto; flex: 1 1 260px; max-width: 460px; }
@@ -584,11 +586,30 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   margin-left: auto;
   font-size: 13px;
   color: var(--mo);
-  /* Email dài không được đẩy vỡ thanh điều hướng. */
   max-width: 30ch;
+  /* Bản trước đặt `overflow: hidden; text-overflow: ellipsis` NGAY TẠI ĐÂY kèm chú thích "email dài
+     không được đẩy vỡ thanh điều hướng". Nó KHÔNG hoạt động: `text-overflow` chỉ áp cho nội dung
+     inline nằm TRỰC TIẾP trong một block, còn ở đây các con là `<button>` flex item. Nên phép chặn
+     tồn tại trên giấy suốt từ Auth slice B (5df1b0f), và đo được 27-09-2026: tên hiển thị từ **12 ký
+     tự** trở lên là nav rộng 422px trong khung 390px, nút "Đăng xuất" chỉ còn 33% và phải cuộn ngang
+     trang mới bấm được. Tức là hầu hết tên người Việt và MỌI email.
+     ⇒ chuyển phép cắt xuống đúng cái nút mang tên dài, và mở `min-width: 0` để nó co được. */
+  min-width: 0;
+  white-space: nowrap;
+}
+
+/* Nút TÊN (cái duy nhất dài không kiểm soát được) — cắt bằng dấu ba chấm.
+   Nút "Đăng xuất" cố ý KHÔNG cắt: nhãn của nó ngắn và cố định, mà một nút thoát bị cắt thành
+   "Đăng x…" thì người dùng phải đoán. */
+.tai-khoan > .nut-chu:first-child {
+  min-width: 3ch;
+  max-width: 18ch;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+@media (max-width: 560px) {
+  .tai-khoan > .nut-chu:first-child { max-width: 9ch; }
 }
 
 /* Nút trông như đường dẫn. Dùng <button> chứ không <a href="#">: nó KHÔNG điều hướng đi đâu,

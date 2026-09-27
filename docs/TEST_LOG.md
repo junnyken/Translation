@@ -6180,3 +6180,19 @@ nó đỏ ngay khi tôi không biết.
 
 Cũng trong lượt đó, bài `test_chu_Latin_co_dau…` đỏ vì tôi cộng nhẩm sai (14 chữ cái, tôi ghi 15) —
 code đúng, test sai. Đã sửa test và ghi phép cộng vào chú thích để lần sau không phải nhẩm lại.
+
+### Lỗi KHÔNG viết được bài test — và nói ra thay vì giả vờ có
+
+Header tràn ở khổ 390px (REPORT_E54 §7) không có bài test nào canh được: jsdom **không có layout**,
+`getBoundingClientRect()` luôn trả 0, nên mọi phép đo hình học đều vô nghĩa ở đó.
+
+Đáng chú ý hơn: chỗ này **đã có** một phép chặn trông như thật từ Auth slice B —
+`.tai-khoan { max-width: 30ch; overflow: hidden; text-overflow: ellipsis }` kèm chú thích *"Email dài
+không được đẩy vỡ thanh điều hướng"*. Nó **chưa bao giờ hoạt động**: `text-overflow` chỉ áp cho nội
+dung inline nằm TRỰC TIẾP trong một block, còn con của `.tai-khoan` là `<button>` flex item. Và
+thiếu `min-width: 0` thì flex item không co nhỏ hơn nội dung, nên `max-width` cũng vô hiệu.
+
+⇒ Một chú thích khẳng định đã chặn + một luật CSS không có tác dụng = **phép chặn trên giấy**, sống
+được 1 tháng. Cách duy nhất phát hiện là mở khung 390px trên Chrome thật và **đo `scrollWidth`**.
+Phép kiểm cho chỗ này nằm ở quy trình bấm tay, không nằm trong bộ test — ghi ra để không ai tưởng
+đã có bài canh.
