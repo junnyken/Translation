@@ -615,9 +615,22 @@ async def doc_truyen_gui_trang(
     )) or 1
     page = Page(
         project_id=project.id, image_path="", order=next_order, status=PageStatus.queued,
-        # `None` khi mặc định (google_fast) để hàng dài dữ liệu khớp mọi trang cũ trước cột này
-        # tồn tại — cả hai đều đọc ra "dùng mặc định hệ thống" ở `_run_ocr`, không khác nhau.
-        translate_engine_override=engine if engine is not TranslationEngine.google_fast else None,
+        # E58 — lưu THẲNG lựa chọn, kể cả `google_fast`. Trước đây `google_fast` bị mã hoá thành
+        # `None` với lý do "cả hai đều đọc ra dùng mặc định hệ thống, không khác nhau".
+        #
+        # Câu đó ĐÚNG khi mặc định hệ thống là `google_fast`, và SAI ngay khi ai đó đổi nó. Đo được
+        # trên production 28-09: `TRANSLATE_DEFAULT_ENGINE=llm_context`, nên mọi trang từ trang chủ
+        # và từ tiện ích đọc truyện **đều chạy Gemini trả tiền** — dù tiện ích gửi đúng
+        # `engine=google_fast` với chú thích của chính nó là "để không tự tốn token Gemini khi người
+        # dùng chưa từng bật". Bằng chứng: hai trang dịch qua tiện ích có
+        # `translate_engine_override = None` và `/pages/{id}/translation` trả `engine: llm_context`.
+        #
+        # Đúng cái bẫy mà docstring của `Page.translate_engine_override` đã cảnh báo bằng chữ, và
+        # hai endpoint của đường đăng nhập đã sửa theo từ ĐX-3 — chỉ endpoint này còn sót.
+        #
+        # Tương thích ngược KHÔNG đổi: trang CŨ vẫn `NULL` ⇒ vẫn lùi về mặc định hệ thống y như
+        # trước. Chỉ trang MỚI mang đúng lựa chọn của người gửi.
+        translate_engine_override=engine,
     )
     session.add(page)
     await session.flush()

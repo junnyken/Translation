@@ -105,3 +105,35 @@ export function chonTrangKeTiep(anh, { caoKhungNhin, boQuaSrc }) {
   const gan_nhat = ung_vien.reduce((a, b) => (b.top < a.top ? b : a))
   return { anh: gan_nhat, ly_do: `gần khung nhìn nhất trong ${ung_vien.length} ảnh đã nạp sẵn` }
 }
+
+/**
+ * MỌI ảnh trông giống trang truyện trên trang, xếp theo thứ tự đọc (trên → dưới) — nền của chế độ
+ * "dịch cả chapter" (E59).
+ *
+ * Khác `chonTrangTruyen` ở đúng MỘT điều: **không lọc theo khung nhìn**. Dùng lại nguyên
+ * `loaiDoChatLuong` chứ không viết luật mới — docstring đầu tệp đã chốt lý do: hai nơi có hai bảng
+ * luật là sớm muộn lệch nhau, và lúc đó "vì sao trang này bị bỏ" không trả lời được.
+ *
+ * Lọc trùng theo `src`: lightbox dựng nền bằng CHÍNH ảnh đang xem nên cùng một `src` xuất hiện hai
+ * lần. Dịch hai lần cùng một ảnh là tiêu hai lượt hạn mức cho một kết quả.
+ *
+ * @param {Array<object>} anh mô tả ảnh như `chonTrangTruyen` nhận
+ */
+export function chonMoiTrang(anh) {
+  const bi_loai = []
+  const ung_vien = []
+  const da_thay = new Set()
+
+  for (const a of anh) {
+    const ly_do = loaiDoChatLuong(a)
+    if (ly_do.length) { bi_loai.push({ src: a.src, ly_do }); continue }
+    if (da_thay.has(a.src)) { bi_loai.push({ src: a.src, ly_do: ['trùng src'] }); continue }
+    da_thay.add(a.src)
+    ung_vien.push(a)
+  }
+
+  // Thứ tự ĐỌC, không phải thứ tự trong DOM: trang web có thể đặt ảnh trong DOM theo thứ tự khác
+  // thứ tự hiển thị. Dịch xuôi theo mắt đọc để trang đầu có bản dịch trước.
+  ung_vien.sort((a, b) => a.top - b.top)
+  return { danh_sach: ung_vien, bi_loai }
+}

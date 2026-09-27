@@ -39,11 +39,18 @@ export async function luuCauHinh(c) {
   })
 }
 
-/** Lỗi mang theo mã HTTP, để bên gọi phân biệt "hết phiên" với "hỏng thật". */
+/** Lỗi mang theo mã HTTP, để bên gọi phân biệt "hết phiên" với "hỏng thật".
+ *
+ * `chiTiet` giữ nguyên `detail` khi máy chủ trả OBJECT (E59). Hạn mức 429 trả một object đủ thông
+ * tin để nói câu tử tế — trần bao nhiêu, bao giờ có lại. Bản trước chỉ giữ chuỗi nên object rơi về
+ * `res.statusText`, tức người dùng đọc đúng chữ **"Too Many Requests"** và không biết gì thêm.
+ * Cùng lỗi mà bản web đã phải vá ở E53.
+ */
 export class LoiApi extends Error {
-  constructor(ma, thongDiep) {
+  constructor(ma, thongDiep, chiTiet = null) {
     super(thongDiep)
     this.ma = ma
+    this.chiTiet = chiTiet
   }
 }
 
@@ -53,6 +60,11 @@ async function doc(res) {
   try { than = await res.json() } catch { /* không phải JSON */ }
   if (!res.ok) {
     const chi_tiet = than?.detail
+    if (chi_tiet && typeof chi_tiet === 'object') {
+      // Lấy câu người đọc được nếu máy chủ có gửi, và GIỮ nguyên object cho bên gọi dùng.
+      const cau = chi_tiet.thong_diep ?? chi_tiet.loi ?? res.statusText
+      throw new LoiApi(res.status, String(cau), chi_tiet)
+    }
     throw new LoiApi(res.status, typeof chi_tiet === 'string' ? chi_tiet : res.statusText)
   }
   return than

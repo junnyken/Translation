@@ -10,6 +10,9 @@
     select { width: 100%; box-sizing: border-box; padding: 6px 8px; margin-bottom: 8px; }
     button { width: 100%; padding: 8px; font-size: 13px; cursor: pointer; }
     button:disabled { cursor: default; opacity: .6; }
+    /* Nút phụ nhạt hơn nút chính: "Dịch cả chapter" tiêu NHIỀU lượt hạn mức, nên nó không được
+       trông như lựa chọn mặc định. Màu không phải tín hiệu duy nhất — nhãn chữ đã nói rõ. */
+    button.phu { margin-top: 6px; background: #f3f3f3; border: 1px solid #ccc; }
     .ghi-chu { color: #666; font-size: 11.5px; margin: 6px 0 10px; }
     .hop { padding: 8px 10px; border-radius: 6px; margin-top: 10px; font-size: 12px; }
     .loi { background: #fdecea; border: 1px solid #f5c6cb; }
@@ -39,6 +42,11 @@
   </p>
 
   <button id="nut-dich">Dịch trang này</button>
+  <button id="nut-dich-chapter" class="phu">Dịch cả chapter</button>
+  <p class="ghi-chu">
+    Cả chapter: bấm một lần rồi để tab mở và làm việc khác. <b>Không nhanh hơn</b> bấm từng trang —
+    máy chủ dịch một trang một lúc — chỉ là bạn không phải ngồi bấm.
+  </p>
 
   <div id="bao" class="hop" hidden></div>
   <a href="#" id="mo-cai-dat" class="lien-ket">Địa chỉ máy chủ &amp; đăng nhập…</a>

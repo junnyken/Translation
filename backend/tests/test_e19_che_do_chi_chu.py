@@ -241,15 +241,31 @@ class TestEndpointTienIch:
         assert d2["tien_do"]["dang_chay"] is True
         assert d2["tien_do"]["so_viec_cho_truoc"] is None
 
-    async def test_engine_mac_dinh_khong_ghi_gi_vao_cot(self, session, client, sample_page_image):
-        """Không gửi `engine` ⇒ mặc định `google_fast` ⇒ cột override để trống (`None`), dùng
-        đúng mặc định hệ thống — không phải một giá trị `google_fast` tường minh khác biệt."""
+    async def test_engine_mac_dinh_duoc_ghi_TUONG_MINH_vao_cot(self, session, client, sample_page_image):
+        """Không gửi `engine` ⇒ mặc định `google_fast` ⇒ cột override lưu **tường minh**
+        `google_fast`, KHÔNG để trống.
+
+        ## Bài này TRƯỚC 28-09 khẳng định điều ngược lại, và điều ngược lại là SAI
+
+        Tên cũ: `test_engine_mac_dinh_khong_ghi_gi_vao_cot`, khẳng định `override is None` với lý do
+        *"dùng đúng mặc định hệ thống — không phải một giá trị `google_fast` tường minh khác biệt"*.
+
+        Lý do đó đúng khi mặc định hệ thống **là** `google_fast`, và sai ngay khi ai đó đổi nó. Đo
+        được trên production 28-09: `TRANSLATE_DEFAULT_ENGINE=llm_context`, nên mọi trang từ trang
+        chủ và tiện ích đọc truyện đều chạy **Gemini trả tiền** — dù tiện ích gửi đúng
+        `engine=google_fast`. `/pages/{id}/translation` trả `engine: llm_context` trên cả hai trang
+        đo được.
+
+        ⇒ Bài canh cũ **bảo vệ chính cái lỗi đó**. Nó không yếu, nó khẳng định sai. Xem
+        `test_e58_engine_mien_phi_phai_mien_phi.py` cho bài canh thay thế, đo vào engine THẬT SỰ
+        chạy thay vì chỉ đo cột.
+        """
         tra = await client.post(
             "/api/v1/doc-truyen/trang",
             files={"file": ("a.png", sample_page_image, "image/png")},
         )
         trang = await session.get(Page, uuid.UUID(tra.json()["page_id"]))
-        assert trang.translate_engine_override is None
+        assert trang.translate_engine_override is TranslationEngine.google_fast
 
     async def test_chon_llm_context_luu_dung_cot(self, session, client, sample_page_image, monkeypatch):
         from app.core.config import get_settings

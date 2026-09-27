@@ -167,6 +167,12 @@ async def healthz(request: Request) -> dict:
     # lực — và "đã đổi trên bảng quản trị" khác "container đang chạy đọc được giá trị mới", vì
     # thay đổi chỉ áp ở lượt deploy kế tiếp. Trường này nói đúng thứ tiến trình ĐANG dùng.
     ket_qua["translate_default_engine"] = _s.translate_default_engine
+    # E59 — engine NHẬN DIỆN bong bóng. Không có nó thì từ ngoài KHÔNG biết được máy đang chạy
+    # ONNX cục bộ (miễn phí, ~40-50s/trang theo REPORT_E19_0) hay gọi mô hình ngoài (nhanh hơn
+    # nhiều, nhưng TỐN TIỀN mỗi trang — E46). Hai chế độ khác nhau cả về tốc độ lẫn chi phí, mà
+    # `list_env` của nền tảng chỉ trả TÊN biến chứ không trả giá trị, nên không có đường nào khác
+    # để biết. Chỉ in tên engine, không in khoá.
+    ket_qua["detect_engine"] = _s.detect_engine
 
     # E41 — hai trần bộ nhớ của bước xoá chữ. Không phải bí mật, chỉ là hai con số vận hành.
     #

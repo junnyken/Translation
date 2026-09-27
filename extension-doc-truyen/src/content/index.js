@@ -14,7 +14,7 @@
   window[CO] = window[CO] || { daDich: new Map(), dangXepHang: new Set() }
   window[CO].dangChay = true
 
-  const { chonTrangKeTiep, chonTrangTruyen } = await import(chrome.runtime.getURL('src/lib/chon-anh.js'))
+  const { chonMoiTrang, chonTrangKeTiep, chonTrangTruyen } = await import(chrome.runtime.getURL('src/lib/chon-anh.js'))
   const { coChu, quyDoi, sanSangQuyDoi } = await import(chrome.runtime.getURL('src/lib/toa-do.js'))
 
   const bang = document.createElement('div')
@@ -32,10 +32,28 @@
   const noi = (t) => { bang.textContent = `[v${V}] ${t}` }
   const xong = (t, giay = 6) => { noi(t); setTimeout(() => bang.remove(), giay * 1000) }
 
+  //: Lớp phủ nay có NHIỀU cái cùng lúc (E59 — dịch cả chapter): mỗi trang đã dịch giữ lớp của
+  //: riêng nó, để cuộn qua là thấy chữ Việt sẵn thay vì phải bấm lại từng trang.
+  //:
+  //: Trước E59 chỉ có MỘT lớp, nhận theo `id`, và dòng đầu `vePhu` xoá lớp cũ. Giữ `id` duy nhất
+  //: thì lớp thứ hai đè mất lớp thứ nhất — nên nhận theo `class` + `data-src`, và chỉ xoá lớp của
+  //: CHÍNH ảnh đang vẽ lại.
+  const LOP_CLASS = 'translation-lop-phu'
+  const timLop = (src) => document.querySelector(
+    `.${LOP_CLASS}[data-src="${CSS.escape(src)}"]`,
+  )
+
   function vePhu(el, vung) {
-    document.getElementById('translation-lop-phu')?.remove()
+    const src_khoa = el.currentSrc || el.src
+    timLop(src_khoa)?.remove()
     const lop = document.createElement('div')
-    lop.id = 'translation-lop-phu'
+    lop.className = LOP_CLASS
+    lop.dataset.src = src_khoa
+    // Giữ `id` cho ĐÚNG MỘT lớp — lớp vừa vẽ gần nhất. Phần đo ở cuối quy trình một trang đọc
+    // `#translation-lop-phu`, và nhiều thứ ngoài tiện ích (ảnh chụp lỗi, người soi DOM) cũng đã
+    // quen với id đó. Chuyển hẳn sang class sẽ làm mọi phép đo cũ im lặng trả `null`.
+    document.querySelectorAll(`#${LOP_CLASS}`).forEach((x) => x.removeAttribute('id'))
+    lop.id = LOP_CLASS
     // `fixed` + toạ độ KHUNG NHÌN, gắn vào <html> chứ không vào <body>.
     //
     // Bản đầu dùng `absolute` + toạ độ tài liệu (cộng `window.scrollX/scrollY`) và gắn vào
@@ -69,6 +87,15 @@
     const ve = () => {
       if (!el.isConnected || !sanSangQuyDoi(el)) { dung(); return }
       const r = el.getBoundingClientRect()
+      // E59 — CHỐT HIỆU NĂNG, không phải tối ưu sớm. Với một chapter 24 trang thì có 24 lớp phủ,
+      // mỗi lớp nghe `scroll` và mỗi lần cuộn đều dựng lại toàn bộ ô chữ + chạy vòng co cỡ chữ.
+      // 24 lần việc đó cho mỗi sự kiện cuộn là đủ để trang giật hẳn. Lớp nào ở xa khung nhìn thì
+      // ẩn và về ngay — chỉ 1-2 lớp quanh mắt đọc làm việc thật.
+      const LE = 800
+      if (r.bottom < -LE || r.top > window.innerHeight + LE) {
+        lop.style.display = 'none'
+        return
+      }
       lop.innerHTML = ''
       if (r.width < 1 || r.height < 1) { lop.style.display = 'none'; return }
       lop.style.display = ''
@@ -211,6 +238,171 @@
         clientWidth: r.width, clientHeight: r.height, top: r.top, bottom: r.bottom, mo,
       }
     })
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────────────────
+  // E59 — DỊCH CẢ CHAPTER
+  //
+  // Chủ dự án chốt (28-09-2026) xây hướng này, sau khi `ARCH.md §E19.6f` đã từ chối nó một lần.
+  // Hai lý do từ chối lúc đó, và trạng thái nay:
+  //
+  //  1. "Không nhanh hơn" — VẪN ĐÚNG, và đã nói lại với chủ dự án. Máy chủ chạy 1 việc/lúc,
+  //     CPU-bound, và 2,6 CPU đã là trần của gói. Xếp 24 trang thì trang cuối vẫn đợi ~18 phút.
+  //     Cái tính năng này đổi là **không phải ngồi bấm từng trang**, không phải tổng thời gian.
+  //  2. "Ranh giới bản quyền" — chủ dự án quyết định, và đã quyết.
+  //
+  // Vì (1) vẫn đúng, thông báo phải nói thẳng con số chứ không để người dùng tưởng nó nhanh.
+  // ─────────────────────────────────────────────────────────────────────────────────────────
+
+  //: Trần cứng số trang mỗi lượt. Trang cuộn vô tận (danh sách gợi ý, bình luận có ảnh) không có
+  //: điểm kết thúc tự nhiên — thiếu trần này là một lượt bấm có thể chạy cả đêm.
+  const TRAN_TRANG_MOI_LUOT = 200
+  //: Trần số lượt cuộn-để-nạp-thêm khi không thấy trang mới. Bảo vệ cùng một chuyện.
+  const TRAN_VONG_CUON = 80
+
+  async function cuonDeNapThem(soSrcHienCo) {
+    // Cuộn cho tới khi CÓ ẢNH MỚI hoặc HẾT TRANG — không phải cuộn một nhịp rồi bỏ.
+    //
+    // Bản đầu (0.1.13) cuộn đúng một nhịp `0,85 × khung nhìn` rồi trả `false` nếu chưa thấy ảnh
+    // mới, và bên gọi `break` luôn. Đo trên trang thật: khung nhìn **437px**, tài liệu **5227px**
+    // ⇒ một nhịp 371px không tới được ảnh kế tiếp, nên cả lượt quét dừng ở trang thứ 3 trong khi
+    // còn **4790px chưa xem** và tập truyện còn 2 trang. Lỗi này không test đơn vị nào bắt được:
+    // nó chỉ tồn tại khi có trang thật, nạp lười thật, và một khung nhìn thật.
+    //
+    // Nhịp tối thiểu 400px vì khung nhìn có thể rất thấp (cửa sổ nhỏ, headless) — lấy theo tỉ lệ
+    // khung nhìn một mình thì trang cao 5000px cần hàng chục nhịp.
+    const NHIP_TOI_DA = 60
+    const den_day = () => (
+      window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2
+    )
+    for (let nhip = 0; nhip < NHIP_TOI_DA; nhip++) {
+      const truoc = Math.round(window.scrollY)
+      window.scrollBy(0, Math.max(400, Math.round(window.innerHeight * 0.85)))
+      await new Promise((r) => setTimeout(r, 350))
+      if (chonMoiTrang(layMoTa()).danh_sach.length > soSrcHienCo) return true
+      // Không nhích được nữa (đã ở đáy, hoặc trang chặn cuộn) ⇒ chờ thêm một nhịp cho ảnh cuối
+      // kịp nạp RỒI mới kết luận. Kết luận ngay là bỏ sót đúng trang cuối chapter.
+      if (den_day() || Math.round(window.scrollY) === truoc) {
+        await new Promise((r) => setTimeout(r, 1500))
+        return chonMoiTrang(layMoTa()).danh_sach.length > soSrcHienCo
+      }
+    }
+    return false
+  }
+
+  async function dichCaChapter() {
+    const vi_tri_dau = window.scrollY
+    let dung_lai = false
+
+    // Nút DỪNG. Một lượt quét có thể chạy 20 phút và tiêu hạn mức — không có đường dừng thì cách
+    // duy nhất là đóng tab, và đóng tab mất luôn mọi bản dịch đã phủ.
+    const nut = document.createElement('button')
+    nut.textContent = 'Dừng'
+    Object.assign(nut.style, {
+      marginTop: '8px', padding: '4px 10px', borderRadius: '6px', border: '1px solid #666',
+      background: '#333', color: '#fff', font: '12px system-ui,sans-serif', cursor: 'pointer',
+    })
+    nut.addEventListener('click', () => { dung_lai = true; nut.disabled = true; nut.textContent = 'Đang dừng…' })
+
+    const noiBulk = (t) => { bang.textContent = `[v${V}] ${t}`; bang.appendChild(nut) }
+
+    const da_thu = new Set()
+    let xong_so = 0
+    let loi_so = 0
+    let lai_so = 0        // lấy từ bản dịch đã có sẵn
+    let ket_thuc = null   // lý do dừng sớm, nếu có
+
+    for (let vong = 0; vong < TRAN_VONG_CUON && !dung_lai && !ket_thuc; vong++) {
+      const { danh_sach } = chonMoiTrang(layMoTa())
+      const moi = danh_sach.filter((a) => !da_thu.has(a.src))
+
+      if (!moi.length) {
+        noiBulk(`Đã xong ${xong_so} trang. Đang cuộn tìm trang tiếp…`)
+        if (!(await cuonDeNapThem(danh_sach.length))) break
+        continue
+      }
+
+      for (const a of moi) {
+        if (dung_lai) { ket_thuc = 'bạn đã bấm Dừng'; break }
+        if (xong_so + lai_so >= TRAN_TRANG_MOI_LUOT) {
+          ket_thuc = `đã đạt trần ${TRAN_TRANG_MOI_LUOT} trang một lượt`
+          break
+        }
+        da_thu.add(a.src)
+
+        const co_san = window[CO].daDich.get(a.src)
+        if (co_san) {
+          if (a.el.isConnected) vePhu(a.el, co_san)
+          lai_so++
+          continue
+        }
+
+        noiBulk(
+          `Đang dịch trang ${xong_so + 1}… (máy chủ dịch một trang một lúc)\n`
+          + `Xong ${xong_so} · lỗi ${loi_so} · còn thấy ${danh_sach.length - da_thu.size} trang.\n`
+          + `Cứ để tab này mở rồi làm việc khác.`,
+        )
+
+        let tra
+        try {
+          const { anh_base64, anh_mime } = await docByteAnh(a.el)
+          tra = await chrome.runtime.sendMessage({
+            viec: 'dich-anh', url: a.src, anh_base64, anh_mime,
+          })
+        } catch (e) {
+          loi_so++
+          continue
+        }
+
+        if (!tra?.ok) {
+          // 429 và 401 là lỗi TOÀN CỤC: trang sau chắc chắn cũng hỏng như vậy. Đi tiếp là gửi
+          // thêm hàng chục request chắc chắn bị từ chối.
+          if (tra?.ma === 429) {
+            const ct = tra?.chi_tiet
+            ket_thuc = ct?.reset_luc
+              ? `hết lượt dịch hôm nay (trần ${ct.tran ?? '?'}), có lại lúc ${new Date(ct.reset_luc).toLocaleString('vi-VN')}`
+              : 'hết lượt dịch hôm nay'
+            break
+          }
+          if (tra?.ma === 401) {
+            ket_thuc = 'phiên đăng nhập đã hết — mở Tuỳ chọn của tiện ích để đăng nhập lại'
+            break
+          }
+          loi_so++
+          continue
+        }
+
+        window[CO].daDich.set(a.src, tra.vung)
+        // Ảnh có thể đã bị trang gỡ/thay trong lúc chờ (~45s) — cùng lý do §E19.6e. Bản dịch vẫn
+        // giữ trong cache, nên cuộn về bấm lại là hiện ngay.
+        if (a.el.isConnected) vePhu(a.el, tra.vung)
+        xong_so++
+      }
+    }
+
+    window[CO].dangChay = false
+    window.scrollTo({ top: vi_tri_dau, behavior: 'instant' })
+
+    const phan = [`Dịch cả chapter: xong ${xong_so} trang`]
+    if (lai_so) phan.push(`${lai_so} trang lấy lại từ bản đã dịch`)
+    if (loi_so) phan.push(`${loi_so} trang lỗi`)
+    let chu = `${phan.join(' · ')}.`
+    if (ket_thuc) chu += `\n\nDỪNG SỚM: ${ket_thuc}.`
+    if (!xong_so && !lai_so) {
+      chu += `\n\nKhông dịch được trang nào. Trang vẽ bằng canvas hoặc chống sao chép thì tiện ích `
+        + `không lấy được ảnh.`
+    }
+    bang.textContent = `[v${V}] ${chu}`
+    setTimeout(() => bang.remove(), 30000)
+  }
+
+  // Popup đặt cờ này ngay trước khi tiêm. ĐỌC LÀ XOÁ: để lại thì lần bấm "Dịch trang này" sau đó
+  // sẽ chạy nguyên cả chapter — tiêu hạn mức của người dùng cho một việc họ không yêu cầu.
+  const { __e59_bulk: bulk } = await chrome.storage.local.get('__e59_bulk')
+  if (bulk) {
+    await chrome.storage.local.remove('__e59_bulk')
+    await dichCaChapter()
+    return
   }
 
   const mo_ta = layMoTa()

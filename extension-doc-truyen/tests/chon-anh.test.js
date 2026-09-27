@@ -5,7 +5,7 @@
  * ngoài khung nhìn.
  */
 import { describe, expect, it } from 'vitest'
-import { chonTrangKeTiep, chonTrangTruyen } from '../src/lib/chon-anh.js'
+import { chonMoiTrang, chonTrangKeTiep, chonTrangTruyen } from '../src/lib/chon-anh.js'
 
 const anh = (o) => ({
   src: 'x', naturalWidth: 900, naturalHeight: 1300,
@@ -138,5 +138,60 @@ describe('chọn trang KẾ TIẾP để xếp hàng trước', () => {
       }),
     ])
     expect(kq.anh).toBeNull()
+  })
+})
+
+/** E59 — `chonMoiTrang`: nền của chế độ "dịch cả chapter".
+ *
+ * Khác `chonTrangTruyen` ở đúng một điều — không lọc theo khung nhìn. Nên bài canh nặng nhất là
+ * chứng minh nó **vẫn giữ nguyên luật chất lượng**: bỏ lọc vị trí không được kéo theo bỏ lọc banner,
+ * icon, ảnh thu nhỏ. Bỏ luôn cả hai là gửi mọi ảnh trên trang đi dịch — tiêu hạn mức vào logo.
+ */
+describe('chonMoiTrang (dịch cả chapter)', () => {
+  it('lấy CẢ ảnh ngoài khung nhìn — đó là điểm khác duy nhất', () => {
+    const ds = [
+      anh({ src: 'a.png', top: 0, bottom: 1300 }),
+      anh({ src: 'b.png', top: 2000, bottom: 3300 }),     // dưới khung nhìn
+      anh({ src: 'c.png', top: -3000, bottom: -1700 }),   // đã cuộn qua
+    ]
+    const kq = chonMoiTrang(ds)
+    expect(kq.danh_sach.map((a) => a.src)).toEqual(['c.png', 'a.png', 'b.png'])
+  })
+
+  it('VẪN loại banner, icon và ảnh thu nhỏ', () => {
+    const kq = chonMoiTrang([
+      anh({ src: 'trang.png' }),
+      anh({ src: 'banner.png', naturalWidth: 1200, naturalHeight: 200 }),
+      anh({ src: 'icon.png', naturalWidth: 64, naturalHeight: 64 }),
+      anh({ src: 'thumb.png', clientWidth: 100 }),
+      anh({ src: 'nen-mo.png', mo: true }),
+    ])
+    expect(kq.danh_sach.map((a) => a.src)).toEqual(['trang.png'])
+    expect(kq.bi_loai).toHaveLength(4)
+  })
+
+  it('lọc TRÙNG src — lightbox dựng nền bằng chính ảnh đang xem', () => {
+    // Dịch hai lần cùng một ảnh là tiêu hai lượt hạn mức cho một kết quả.
+    const kq = chonMoiTrang([
+      anh({ src: 'trang.png', top: 0, bottom: 1300 }),
+      anh({ src: 'trang.png', top: 50, bottom: 1350 }),
+    ])
+    expect(kq.danh_sach).toHaveLength(1)
+    expect(kq.bi_loai[0].ly_do).toContain('trùng src')
+  })
+
+  it('xếp theo thứ tự ĐỌC, không theo thứ tự trong DOM', () => {
+    const kq = chonMoiTrang([
+      anh({ src: 'duoi.png', top: 3000, bottom: 4300 }),
+      anh({ src: 'tren.png', top: 100, bottom: 1400 }),
+    ])
+    expect(kq.danh_sach.map((a) => a.src)).toEqual(['tren.png', 'duoi.png'])
+  })
+
+  it('không có ảnh nào đạt thì trả danh sách RỖNG, không trả null', () => {
+    // Bên gọi lặp trên `danh_sach` — trả `null` là ném TypeError giữa lúc người dùng vừa bấm.
+    const kq = chonMoiTrang([anh({ src: 'icon.png', naturalWidth: 32, naturalHeight: 32 })])
+    expect(kq.danh_sach).toEqual([])
+    expect(Array.isArray(kq.danh_sach)).toBe(true)
   })
 })

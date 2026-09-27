@@ -6293,3 +6293,35 @@ bảng số liệu không in.
 **Không nhồi thêm cho khớp.** Bỏ cột tổng, ghi rõ ví dụ dựng lại chỉ gồm ba ô đo được nên nó **nghiêm
 hơn** trang thật một chút. Một `assert` về tính nhất quán của chính dữ liệu test là thứ rẻ nhất mà bắt
 được nhiều nhất.
+
+### E58/E59 — ba cách tôi kết luận SAI về một tiện ích đang chạy tốt
+
+**1. Cuộn về đầu trang rồi bảo "không chạy".** Bộ lọc loại ảnh `'ngoài khung nhìn'` — đúng luật. Muốn
+kiểm thì phải đưa một trang truyện **vào giữa khung nhìn** trước khi tiêm.
+
+**2. Tìm biến ở sai thế giới.** `window.__translation_doc_truyen__` do content script đặt sống ở
+**isolated world**; `page.evaluate` của Playwright chạy ở **main world** nên thấy `undefined`. DOM thì
+dùng chung — nên dấu hiệu đúng để đo là **phần tử lớp phủ**, không phải biến `window`. Đo sai thế giới
+cho ra "tiện ích không chạy" trong khi nó vừa dịch xong 5 bong bóng.
+
+**3. Chẩn một triệu chứng không tồn tại.** Bulk báo "xong 3 trang" trong khi trang có 5 ảnh `ja_` và
+còn 4790px chưa cuộn tới ⇒ tôi kết luận "bỏ cuộc sau một nhịp cuộn" và đi vá. Vá xong: **vẫn 3**. Đo
+từng ảnh mới thấy `P00` là banner `1200x287` (tỉ lệ 0,24) và `P04` là dải `1200x24` — **cả hai bị loại
+ĐÚNG**, và `3` là đáp án đúng từ đầu.
+
+Bản vá vẫn giữ, nhưng vì **lý do khác**: bỏ cuộc sau một nhịp 371px trên tài liệu 5227px là logic sai,
+chỉ chưa gây hại trên trang cụ thể đó. Không được ghi nó là "đã sửa lỗi mất trang".
+⇒ Trước khi vá một con số đáng ngờ, **đo từng phần tử** thay vì so tổng số với kỳ vọng.
+
+### E58/E59 — con số trong giao diện phải đo lại được trên bản ĐANG CHẠY
+
+Popup của tiện ích viết *"~45 giây mỗi trang"*, lấy từ `REPORT_E19_0`. Nhưng đo trên production hôm
+nay: **2 trang / ~8 giây** và **3 trang / 43 giây**. `MINI_SPEC_E44` (hạ `ctd_input_size`) đã bị **huỷ**
+nên detect ONNX không hề nhanh hơn.
+
+Giải thích khả dĩ: production đặt cả `DETECT_ENGINE` lẫn `DETECT_AI_MODEL` (E46 — nhận diện bằng mô
+hình ngoài). Nhưng `list_env` của nền tảng **chỉ trả TÊN biến, không trả giá trị**, nên **chưa kết
+luận** — đã thêm `detect_engine` vào `/healthz` để biết chắc.
+
+⇒ Đã **bỏ con số 45 giây** khỏi popup và thông báo tiến độ. Giữ một số không đo lại được trên bản đang
+chạy là đúng loại lỗi cả lượt này đi sửa. Cùng họ [[feedback-tinh-nang-tat-lam-cau-tren-man-thanh-sai]].

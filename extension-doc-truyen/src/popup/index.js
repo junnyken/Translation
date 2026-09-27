@@ -38,13 +38,42 @@ $('mo-cai-dat').addEventListener('click', (e) => {
   window.close()
 })
 
+/** Tiêm content script. `bulk` bật chế độ dịch cả chapter (E59).
+ *
+ * Cờ đặt qua `chrome.storage.local` chứ không truyền tham số: `executeScript` với `files:` không
+ * nhận đối số, và content script ĐỌC LÀ XOÁ cờ — để lại thì lần bấm "Dịch trang này" sau đó sẽ
+ * chạy nguyên cả chapter, tiêu hạn mức cho một việc người dùng không yêu cầu.
+ */
+async function tiem(bulk) {
+  if (bulk) await chrome.storage.local.set({ __e59_bulk: true })
+  else await chrome.storage.local.remove('__e59_bulk')
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+  await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['src/content/index.js'] })
+}
+
+$('nut-dich-chapter').addEventListener('click', async () => {
+  const nut = $('nut-dich-chapter')
+  nut.disabled = true
+  nut.textContent = 'Đang mở…'
+  try {
+    await tiem(true)
+    window.close()
+  } catch (err) {
+    nut.disabled = false
+    nut.textContent = 'Dịch cả chapter'
+    // Cờ đã đặt nhưng không tiêm được ⇒ phải xoá, không thì lần bấm "Dịch trang này" kế tiếp sẽ
+    // vô tình chạy cả chapter.
+    await chrome.storage.local.remove('__e59_bulk')
+    bao(`Không chạy được trên trang này.\n${err?.message || err}`, 'loi')
+  }
+})
+
 $('nut-dich').addEventListener('click', async () => {
   const nut = $('nut-dich')
   nut.disabled = true
   nut.textContent = 'Đang mở…'
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['src/content/index.js'] })
+    await tiem(false)
     // Từ đây content script tự vẽ thông báo NGAY TRÊN TRANG — popup đóng lại, không cần đứng
     // canh: quá trình dịch tốn ~45s, giữ popup mở tới lúc đó chỉ tổ chặn người dùng đọc tiếp.
     window.close()

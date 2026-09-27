@@ -96,7 +96,9 @@ chrome.runtime.onMessage.addListener((tin, gui_tu, traLoi) => {
     .catch((e) => {
       // Phiên hết hạn giữa chừng cũng đưa thẳng tới chỗ đăng nhập lại.
       if (e?.ma === 401) chrome.runtime.openOptionsPage()
-      traLoi({ ok: false, ma: e?.ma ?? 0, loi: String(e?.message || e) })
+      // `chi_tiet` đi kèm để content script nói được câu tử tế cho 429 (trần, giờ reset) —
+      // thiếu nó thì chế độ dịch cả chapter chỉ báo được "hết lượt" mà không nói bao giờ có lại.
+      traLoi({ ok: false, ma: e?.ma ?? 0, loi: String(e?.message || e), chi_tiet: e?.chiTiet ?? null })
     })
   return true // giữ kênh mở cho phản hồi bất đồng bộ
 })
