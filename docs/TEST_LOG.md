@@ -6047,3 +6047,33 @@ câu 30 phút nói đủ mức hậu quả, nút Dịch `disabled` kèm lý do �
 
 Một chi tiết đáng giữ: giao diện **hiện lỗi ra** kèm nút "Thử lại" thay vì im lặng hiện `0/0`. Nếu
 nó nuốt lỗi thì lượt kiểm này sẽ xanh giả và lỗi CORS lên production mà không ai biết.
+
+### Chạy THẬT một trang qua trang chủ (27-09) — toàn bộ chuỗi E49→E53
+
+Ảnh thử 900×1280, hai bong bóng thoại chữ Anh trên nền có khối xám (để bước xoá chữ có việc thật).
+Chi phí ước tính trước khi chạy: **dưới 0,1 xu Mỹ** (`REPORT_E46` đo 1,2 xu cho cả chapter 24 trang).
+
+| Đo được | Giá trị |
+|---|---|
+| Giữa lượt | "xong 0/1 trang" · bước **"Đọc chữ gốc…"** ⇒ nhận diện tìm được vùng chữ |
+| Về đích | "xong 1/1 trang" · "Xong" |
+| Đồng hồ | "Còn 30 phút trước khi toàn bộ kết quả bị xoá" — đếm từ lúc XONG |
+| **Ảnh khác nguồn** | `naturalWidth` **900×1280** ⇒ tải được thật, cookie qua được cả request `<img>` |
+| **Tải tự động** | "Đã lưu trang-thu-e53-da-dich.png" ⇒ không bị chặn (Chrome **headless**) |
+| **Tiêu lượt** | `/han-muc` sau đó: `da_dung: 1`, `con_lai: 5`, **cả hai chốt** tăng |
+| Console | sạch |
+
+⇒ Lần đầu **toàn bộ sổ cái E49 chạy thật**: giữ chỗ → pipeline → tiêu khi tới trạng thái cuối.
+
+⚠️ Lượt tải tự động không bị chặn **trong Chrome headless**. Chính sách chặn của headless KHÁC
+trình duyệt người dùng thật, nên kết quả này **không** chứng minh nó chạy trên máy người dùng — đó
+đúng là lý do nút thủ công luôn hiện.
+
+### Một lần `wait_for` khớp NHẦM, và vì sao đáng ghi
+
+Tôi chờ chuỗi `"Kết quả"` để biết trang đã xong. Nó khớp ngay — nhưng khớp vào câu **"Kết quả chỉ
+giữ 30 phút"** ở phần dặn trước, trong khi trang còn đang ở bước đọc chữ. Suýt kết luận "đã xong"
+khi chưa xong.
+
+⇒ Mốc chờ phải là chuỗi **chỉ xuất hiện ở trạng thái đích** ("xong 1/1 trang"), không phải một từ
+cũng có trong phần mô tả tĩnh.

@@ -225,9 +225,44 @@ hostname (`translation.` và `translation-api.`) cùng site dưới `tinhgon.xyz
 | Nút Dịch khi chưa chọn tệp | `disabled` kèm **lý do đọc được**: "Chọn ít nhất một trang" |
 | Console | **sạch** (0 lỗi, 0 cảnh báo) |
 
-### CÒN BA THỨ CHƯA KIỂM ĐƯỢC
+### Chạy THẬT một trang đầu-cuối qua trang chủ (được chủ dự án cho phép)
 
-1. **Một trang chạy thật đầu-cuối qua trang chủ.** `translate_default_engine` trên production là
-   `llm_context` ⇒ tốn token Gemini thật. Chưa chạy khi chưa được phép.
-2. **Lượt tải tự động có bị chặn hay không.** Cần một trang đã xong mới thử được (phụ thuộc mục 1).
-3. **Ảnh khác nguồn có hiện hay không.** Cũng phụ thuộc mục 1.
+Ảnh thử: 900×1280, hai bong bóng thoại chữ Anh trên nền có khối xám (để bước xoá chữ có việc thật,
+không phải ảnh trắng trơn). Chọn ngôn ngữ **Tiếng Anh**, bấm "Dịch 1 trang".
+
+| Đo được | Giá trị |
+|---|---|
+| Tiến độ giữa lượt | *"Tiến độ — xong 0/1 trang"* · bước **"Đọc chữ gốc…"** ⇒ nhận diện đã tìm được vùng chữ |
+| Ô chọn ngôn ngữ lúc đang chạy | `disabled` — không cho đổi giữa dòng |
+| Về đích | *"Tiến độ — xong 1/1 trang"* · **"Xong"** |
+| Đồng hồ 30 phút | *"Còn 30 phút trước khi toàn bộ kết quả bị xoá"* — đếm từ lúc XONG, đúng §2.3 |
+| **Ảnh khác nguồn** | `naturalWidth` = **900×1280** ⇒ tải được THẬT (cookie đi qua được cả trên request `<img>`) |
+| **Lượt tải tự động** | *"Đã lưu trang-thu-e53-da-dich.png"* ⇒ **không bị chặn** trong Chrome headless |
+| Nút thủ công | Có, và **không** bị khoá |
+| Console | sạch |
+
+### Mắt xích cuối của E49 — TIÊU LƯỢT — cũng đã chạy thật
+
+Gọi lại `/han-muc` sau khi trang xong:
+
+```json
+{"tran": 6, "da_dung": 1, "con_lai": 5,
+ "chot": [{"loai":"khach_cookie","da_dung":1},{"loai":"khach_ip","da_dung":1}]}
+```
+
+Giữ chỗ lúc tải lên → pipeline chạy → **tiêu** khi tới trạng thái cuối → hạn mức phản ánh đúng, và
+**cả hai chốt** đều tăng. Đây là lần đầu toàn bộ sổ cái E49 chạy thật.
+
+### Điều PHẢI nói rõ về lượt tải tự động
+
+Nó không bị chặn **trong Chrome headless**. Chính sách chặn tải của trình duyệt headless **khác**
+trình duyệt người dùng thật, nên kết quả này **không** chứng minh nó sẽ chạy trên máy người dùng.
+Đó đúng là lý do nút thủ công luôn hiện và câu "nếu không thấy tệp nào…" luôn ở đó — xem §5.
+
+### Còn chưa kiểm: lịch dọn tệp chạy thật
+
+`BAT_LICH_DON_TEP` vẫn **TẮT**. Bộ phân loại an toàn của Claude Code từ chối bật nó (đúng — đây là
+công tắc bật xoá dữ liệu không hoàn tác được), nên cần chủ dự án tự bật.
+
+Khi bật, chapter thử ở trên là thứ đầu tiên bị dọn (mốc hết hạn = lúc xong + 30 phút). Đó cũng là
+phép kiểm E50 rẻ nhất: theo dõi `GET /doc-truyen/trang/{id}` cho tới khi nó trả 404.
