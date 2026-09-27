@@ -121,8 +121,14 @@ Có thứ đang đọc nó (`API.md §healthz`). Thêm trường mới, và đ�
 
 ## 6. Remaining Limits
 
-* **Chưa kiểm trên production.** Sẽ thấy ngay ở lượt deploy kế tiếp: `trang_thai` vẫn `starting`
-  (shell) nhưng `trang_thai_thuc` phải là `running` và `san_sang_luc` có mốc.
+* ~~Chưa kiểm trên production.~~ **ĐÃ kiểm 27-09**, đúng như dự đoán ghi trước khi deploy:
+
+  ```json
+  {"trang_thai": "starting", "san_sang_luc": "2026-09-27T09:26:31+00:00", "trang_thai_thuc": "running"}
+  ```
+
+  Shell ghi `starting` lúc 09:26:30; worker tự báo sẵn sàng lúc 09:26:31 — lệch **1 giây**, và
+  trường cũ `trang_thai` giữ đúng nghĩa "shell nghĩ gì" như §3.5 đã chốt.
 * Dấu sẵn sàng nằm ở `/tmp` nên **mất khi container khởi động lại** — đó đúng là điều muốn: dấu của
   lần chạy trước không được nói thay cho lần chạy này.
 * Worker chết **im lặng** (bị SIGKILL, shell chưa kịp ghi `restarting`) vẫn báo `running` cho tới

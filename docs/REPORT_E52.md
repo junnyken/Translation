@@ -145,4 +145,8 @@ dù chính họ chưa tạo tài khoản nào, và không có cách nào tự đ
 * **Trần 3 là số đoán**, chưa có dữ liệu hành vi thật.
 * Người dùng **đổi mạng** (nhà → 4G) thì được suất mới. Đây là hệ quả bản chất của việc chặn theo
   IP, không sửa được mà không có xác minh email.
-* Chưa chạy thật trên production lần nào.
+* ~~Chưa chạy thật trên production lần nào.~~ **ĐÃ chạy 27-09** qua đúng luồng người dùng trên
+  Chrome thật: form đăng ký **không còn ô khoá mở cổng**, `POST /auth/register` → `201`, rồi
+  `/auth/login` → `200` vào thẳng. Quan trọng nhất: `GET /auth/me` của tài khoản mới trả
+  `"la_quan_tri": false` — **mở đăng ký công khai không mở cửa quản trị**. Trần 3 tài khoản/IP/ngày
+  thì chưa chạm tới nên **chưa kiểm được** (mới tạo 1).

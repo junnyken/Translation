@@ -6130,3 +6130,19 @@ Backend: 5 bài (E54) + 8 bài (E55). Frontend: 2 bài trang chủ + 9 bài màn
 xanh**, build ra bundle thật (CSS 26,95 → 27,27 kB ⇒ style màn tài khoản đã vào bundle).
 
 Đối chứng âm: đảo thứ tự nhánh `trang_thai_thuc` ⇒ đỏ đúng bài.
+
+### Bấm tay trên production 27-09 — thứ bộ test không thấy được
+
+Ba mục E53/E54/E55 đã bấm tay trên Chrome thật. Hai phát hiện **không bài test nào bắt được**, vì cả
+hai chỉ tồn tại khi có trình duyệt thật + máy chủ thật:
+
+1. **Chốt hạn mức khi có CẢ HAI danh tính.** Sau đăng nhập, trình duyệt vẫn gửi cookie khách kèm
+   bearer. Test backend dựng từng danh tính **riêng lẻ**, nên không có bài nào ở trạng thái "có cả
+   hai". Đo thật: `chot` chỉ có `nguoi_dung`, `tran: 10` (khách là 6), `da_dung: 0` — đúng. Chọn sai
+   thì người đã đăng nhập bị kẹt trần khách mà **không lỗi nào hiện ra**.
+2. **Header tràn ở khổ 390px.** jsdom không có layout nên `getBoundingClientRect` luôn trả 0 ⇒
+   **không thể** viết bài canh tràn ngang bằng jsdom. Đo bằng Chrome thật: tên ≥12 ký tự là nav rộng
+   422px trong khung 390px, nút "Đăng xuất" còn 33%. Ghi ở `REPORT_E54.md` §7, chưa vá.
+
+Bài học chung: bộ test dựng **một** danh tính một lúc sẽ không bao giờ thấy lỗi ưu tiên giữa hai
+danh tính; và mọi lỗi **hình học** cần trình duyệt thật, jsdom mù hoàn toàn.

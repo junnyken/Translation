@@ -105,9 +105,74 @@ bundle chứ không chỉ vào `src`).
 
 ---
 
-## 6. Remaining Limits
+## 6. Live Verification — bấm tay trên production (27-09, Chrome thật)
 
-* **Chưa bấm tay** màn tài khoản trên trình duyệt thật.
+Để kiểm §4.4 phải có phiên đăng nhập, nên tôi **tạo một tài khoản thật** qua đúng luồng người dùng.
+Việc đó kiểm luôn E52 (tự đăng ký) lần đầu trên bản chạy thật.
+
+| Đo cái gì | Kết quả |
+|---|---|
+| `POST /auth/register` | `201`, rồi `POST /auth/login` `200` — vào thẳng, không cần khoá mở cổng |
+| Form đăng ký | **Không còn ô "khoá mở cổng"** — đúng thay đổi E52 |
+| `la_quan_tri` của tài khoản mới | `false` — **chốt quan trọng nhất**: mở đăng ký công khai KHÔNG mở cửa quản trị |
+| Màn tài khoản | Hiện đủ email, tên hiển thị, `10 / 10 trang còn lại (đã dùng 0)`, mốc reset `0h00` |
+| Câu chính sách trên màn tài khoản | "Hiện **không tự xoá** theo giờ. Vẫn nên tải về: đây không phải chỗ lưu trữ lâu dài…" |
+| Console | **0 thông báo** — không lỗi, không cảnh báo |
+| Đóng hộp thoại | Esc **và** bấm ra ngoài đều đóng (hộp không có nút ✕ — hai đường này là cách ra) |
+| Đăng xuất | Mã phiên cũ trả **401** — thu hồi ở **máy chủ**, không chỉ quên ở máy khách |
+
+### Hai thứ chỉ đo được khi chạy thật
+
+**1. Lời hứa "tạo tài khoản được nhiều lượt hơn" là THẬT, không phải câu tiếp thị.**
+Cùng một trình duyệt: khách `tran: 6` → đăng nhập `tran: 10`.
+
+**2. Máy chủ chọn đúng chốt khi có CẢ HAI danh tính.** Sau khi đăng nhập, trình duyệt vẫn gửi cookie
+khách kèm bearer:
+
+```
+authorization: Bearer 7_Neyosg…      cookie: ma_khach=ek6t0aM5…
+→ {"tran":10,"da_dung":0,"chot":[{"loai":"nguoi_dung",…}],"giu_ket_qua_phut":null}
+```
+
+Chỉ **một** chốt, và là `nguoi_dung`. Nếu nhánh `NguoiGoi` chọn cookie trước thì người đã đăng nhập
+bị kẹt ở trần 6 của khách — **không có lỗi nào hiện ra**, chỉ là hết lượt sớm hơn 4 trang.
+`da_dung: 0` cũng chứng minh 1 trang đã dùng lúc còn là khách **không** bị tính sang tài khoản.
+
+---
+
+## 7. Lỗi PHÁT HIỆN THÊM (chưa vá) — header tràn ở khổ điện thoại
+
+Không thuộc E54, và **có từ trước** (`5df1b0f`, Auth slice B): E54 chỉ đổi tên hiển thị từ chữ tĩnh
+thành nút, không làm rộng thêm. Nhưng nó nằm ngay trên đường vào màn tài khoản nên ghi lại.
+
+Đo ở khung `390×844`: `.dieu-huong` là `display:flex; flex-wrap:nowrap`, nút tên không có
+`max-width`/`text-overflow` ⇒ nav rộng 422px trong khung 390px.
+
+| Tên hiển thị | Trang cuộn ngang? |
+|---|---|
+| `An` (2 ký tự) | không |
+| `Nguyễn Văn A` (12) | **có** |
+| `trieunt@matbao.com` (18) | **có** |
+
+Tức là **không phải do tên thử của tôi dài** — hầu hết tên người Việt và mọi email đều tràn. Hậu quả
+đo được: nút **"Đăng xuất" hiện 34/103 px (33%)**, và chỉ tới được sau khi cuộn ngang trang (cuộn tối
+đa 48px) — người dùng không nghĩ tới việc cuộn ngang một cái header.
+
+Hộp thoại tài khoản thì **không** bị: 358px trong khung 390px, lề 16px mỗi bên, còn 227px nền trên
+và dưới để bấm đóng.
+
+Vá là CSS: cho `.tai-khoan` một `min-width: 0` + nút tên `max-width` kèm `text-overflow: ellipsis`,
+hoặc cho `.dieu-huong` `flex-wrap: wrap`. **Chưa làm** — chờ chủ dự án chốt, vì đây là màn chung của
+cả app chứ không riêng E54.
+
+---
+
+## 8. Remaining Limits
+
+* Header tràn ở khổ điện thoại (§7) — đã đo, **chưa vá**.
+* Còn **một tài khoản thử thật** trên production: `kiemthu-man-tai-khoan@matbao.com`
+  (`edaabedd-8eb5-42d2-8f0d-7b27c025db1f`). Xoá bằng `DELETE /api/v1/auth/users/{id}` với phiên quản
+  trị. Tài khoản này **không có chapter nào** nên xoá không làm chapter của ai thành vô chủ.
 * Màn tài khoản **chỉ đọc** — chưa đổi được tên hiển thị hay mật khẩu. §4.4 không đòi, nhưng người
   dùng sẽ hỏi.
 * Nếu chủ dự án bật `BAT_LICH_DON_TEP` về sau, câu trên màn **tự đổi theo** — không phải sửa mã.
