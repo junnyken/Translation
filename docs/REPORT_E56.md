@@ -201,7 +201,22 @@ Thêm 3 bài canh, gồm một bài **cấu trúc** (`closest('form')` phải kh
 `onSubmit` phải tôn trọng đúng điều kiện khoá của nút — bọc form mà quên chỗ đó là mở lại đúng lỗ
 vừa bịt: gõ lệch hai ô rồi bấm Enter là mất tài khoản. Đối chứng âm: bỏ `<form>` ⇒ **4 bài đỏ**.
 
-Bộ giao diện: **434 bài xanh**.
+### Và bước HAI của cùng vấn đề đó — cũng đã vá
+
+Bọc `<form>` xong, kiểm lại console thì cảnh báo cũ hết nhưng Chrome nêu ngay cảnh báo **kế tiếp**:
+
+> *Password forms should have (optionally hidden) username fields for accessibility*
+
+Đây **không** phải chuyện khác: không có ô tên đăng nhập thì trình quản lý mật khẩu biết đây là form
+mật khẩu nhưng **không biết của tài khoản nào**, nên vẫn không cập nhật đúng bản ghi — đúng cái hại
+mà việc bọc `<form>` định vá. Bản vá của tôi **chưa đủ**, và chỉ biết vì đọc lại console sau khi vá
+thay vì tin là đã xong.
+
+Vá: thêm `<input autocomplete="username" readOnly tabIndex={-1} aria-hidden class="an-di">` mang
+email. Ẩn khỏi mắt và khỏi bàn phím, nhưng **vẫn trong DOM** — trình quản lý mật khẩu đọc DOM, không
+đọc cây a11y. Thêm 1 bài canh.
+
+Bộ giao diện: **435 bài xanh**.
 
 ---
 

@@ -72,7 +72,7 @@ export default function ManTaiKhoan({ nguoiDung, onDong, onDoiNguoiDung }) {
         </dl>
       )}
 
-      <OMatKhau />
+      <OMatKhau email={nguoiDung.email} />
 
       <h3 className="nho">Lượt dịch hôm nay</h3>
 
@@ -179,7 +179,7 @@ function OTenHien({ nguoiDung, onXong }) {
 }
 
 /** Đổi mật khẩu. Đóng sẵn — mở ra mới hiện ô, để màn chính không thành một rừng ô nhập. */
-function OMatKhau() {
+function OMatKhau({ email }) {
   const [mo, setMo] = useState(false)
   const [cu, setCu] = useState('')
   const [moi, setMoi] = useState('')
@@ -243,6 +243,16 @@ function OMatKhau() {
        bấm Enter để gửi, thứ mọi người đều thử. */
     <form className="khoi-sua" onSubmit={(e) => { e.preventDefault(); if (!lyDoKhoa) luu() }}>
       <h3 className="nho">Đổi mật khẩu</h3>
+      {/* Ô tên đăng nhập ẩn — KHÔNG phải để hiển thị.
+          Chrome nói thẳng: "Password forms should have (optionally hidden) username fields".
+          Không có nó thì trình quản lý mật khẩu biết đây là form mật khẩu nhưng KHÔNG biết của tài
+          khoản nào, nên vẫn không cập nhật đúng bản ghi — đúng cái hại mà việc bọc <form> định vá.
+          `readOnly` để không ai sửa được, `tabIndex={-1}` + `aria-hidden` để không lọt vào luồng
+          bàn phím và không đọc lặp email (email đã hiện ngay phía trên màn này). */}
+      <input
+        type="text" name="email" value={email} readOnly autoComplete="username"
+        className="an-di" tabIndex={-1} aria-hidden="true"
+      />
       <Input
         nhan="Mật khẩu hiện tại" type="password" autoComplete="current-password" batBuoc
         value={cu} onChange={(e) => setCu(e.target.value)}

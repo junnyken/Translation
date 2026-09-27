@@ -258,6 +258,24 @@ describe('E56 — sửa tài khoản', () => {
     }
   })
 
+  it('form mật khẩu PHẢI có ô tên đăng nhập (ẩn) để trình quản lý mật khẩu cập nhật đúng tài khoản', async () => {
+    // Bước hai của cùng một vấn đề. Bọc <form> làm hết cảnh báo đầu, Chrome nêu ngay cảnh báo sau:
+    // "Password forms should have (optionally hidden) username fields". Không có ô này thì trình
+    // quản lý biết đây là form mật khẩu nhưng KHÔNG biết của tài khoản nào.
+    nhaiFetch()
+    const u = userEvent.setup()
+    render(<ManTaiKhoan nguoiDung={NGUOI} onDong={() => {}} />)
+    await u.click(await screen.findByRole('button', { name: 'Đổi mật khẩu' }))
+
+    const form = screen.getByLabelText(/Mật khẩu hiện tại/).closest('form')
+    const oTen = form.querySelector('input[autocomplete="username"]')
+    expect(oTen).not.toBeNull()
+    expect(oTen.value).toBe(NGUOI.email)
+    // Ẩn khỏi mắt và khỏi bàn phím, nhưng VẪN trong DOM — trình quản lý đọc DOM, không đọc cây a11y.
+    expect(oTen).toHaveAttribute('readonly')
+    expect(oTen.tabIndex).toBe(-1)
+  })
+
   it('bấm Enter trong ô mật khẩu là gửi, không phải không làm gì', async () => {
     const f = nhaiFetch({ traVe: { nguoi_dung: NGUOI, da_doi_mat_khau: true, so_phien_khac_da_thu_hoi: 0 } })
     const u = userEvent.setup()
