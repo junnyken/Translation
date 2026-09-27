@@ -132,6 +132,21 @@ export const doiTrangThaiNguoiDung = (id, thayDoi) =>
     body: JSON.stringify(thayDoi),
   }).then(doc)
 
+/** E56 — người dùng tự sửa tài khoản CỦA MÌNH.
+ *
+ * Khác `doiTrangThaiNguoiDung` (đường của quản trị, có `{id}`): đường này KHÔNG có id, nên về
+ * cấu trúc đã không nhắm được vào ai khác.
+ *
+ * Trả `{ nguoi_dung, da_doi_mat_khau, so_phien_khac_da_thu_hoi }` — con số cuối để giao diện nói
+ * ra hệ quả, chứ không chỉ báo "đã lưu".
+ */
+export const suaTaiKhoanCuaToi = (thayDoi) =>
+  fetch(`${BASE}/auth/me`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(thayDoi),
+  }).then(doc)
+
 export async function xoaNguoiDung(id) {
   const res = await fetch(`${BASE}/auth/users/${id}`, { method: 'DELETE' })
   // 204 không có thân — gọi `doc()` sẽ ném lỗi phân tích JSON và biến việc xoá thành công
@@ -188,6 +203,13 @@ async function doc(res) {
     const loi = new Error(`${res.status}: ${chiTiet}`)
     loi.ma = res.status
     loi.chiTiet = coCauTruc
+    // E56 — câu của máy chủ, KHÔNG có tiền tố mã trạng thái.
+    //
+    // `message` cố ý giữ nguyên hình dạng `"400: ..."` vì nhiều chỗ đang đọc nó (và
+    // `laLoiThieuKhoa` dò `startsWith('401')` trên chính chuỗi đó). Nhưng dán mã HTTP vào một ô
+    // nhập mật khẩu là bắt người dùng đọc thứ dành cho lập trình viên. Nên: thêm trường MỚI, để
+    // trường cũ nói đúng thứ nó vẫn nói.
+    loi.cauNguoiDoc = typeof chiTiet === 'string' ? chiTiet : String(chiTiet)
     throw loi
   }
   return res.json()

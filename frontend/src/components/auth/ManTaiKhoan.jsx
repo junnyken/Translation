@@ -3,10 +3,12 @@ import { useEffect, useState } from 'react'
 import * as api from '../../api'
 import { chuDemNguoc } from '../../lib/dem-nguoc'
 import Alert from '../ui/Alert'
+import Button from '../ui/Button'
 import Dialog from '../ui/Dialog'
 import Icon from '../ui/Icon'
+import { Input } from '../ui/Field'
 
-/** Màn tài khoản (§4.4 đặc tả).
+/** Màn tài khoản (§4.4 đặc tả) — xem và SỬA (E56).
  *
  * ## Nguyên tắc: hiện ĐÚNG những gì có thật
  *
@@ -22,8 +24,21 @@ import Icon from '../ui/Icon'
  * `con_lai` là **nhỏ nhất** trong các chốt, không phải `tran - da_dung`. Tự tính lại ở đây sẽ cho
  * một con số khác với con số ở trang chủ, và người dùng thấy hai số vênh nhau trên cùng một sản
  * phẩm thì không biết tin cái nào.
+ *
+ * ## E56 — vì sao ô "nhập lại mật khẩu mới" là BẮT BUỘC
+ *
+ * Hệ thống **không có hạ tầng gửi thư** (giới hạn đã ghi ở `REPORT_E52.md`), nên **không có đường
+ * lấy lại mật khẩu**. Gõ sai mật khẩu mới một lần là mất tài khoản vĩnh viễn — không phải "bất
+ * tiện", mà là mất hẳn dữ liệu. Ô nhập lại là thứ duy nhất chặn được chuyện đó, và nó so ở NGAY
+ * trình duyệt để người dùng biết trước khi bấm.
+ *
+ * ## Nói TRƯỚC hệ quả, không phải báo sau
+ *
+ * Đổi mật khẩu thu hồi mọi phiên khác (`services/tai_khoan.doi_mat_khau` giải thích vì sao). Câu
+ * cảnh báo nằm cạnh nút, **trước** khi bấm — báo sau khi đã đăng xuất điện thoại của người ta thì
+ * đã muộn.
  */
-export default function ManTaiKhoan({ nguoiDung, onDong }) {
+export default function ManTaiKhoan({ nguoiDung, onDong, onDoiNguoiDung }) {
   const [hanMuc, setHanMuc] = useState(null)
   const [loi, setLoi] = useState(null)
 
@@ -42,18 +57,22 @@ export default function ManTaiKhoan({ nguoiDung, onDong }) {
       <dl className="man-tai-khoan">
         <dt>Email</dt>
         <dd>{nguoiDung.email}</dd>
-
-        <dt>Tên hiển thị</dt>
-        {/* Bỏ trống thì máy chủ lấy phần trước @ — nói ra thay vì hiện một ô rỗng bí ẩn. */}
-        <dd>{nguoiDung.ten_hien || <span className="ghi-chu">(chưa đặt — đang dùng phần trước @)</span>}</dd>
-
-        {nguoiDung.la_quan_tri && (
-          <>
-            <dt>Quyền</dt>
-            <dd>Quản trị</dd>
-          </>
-        )}
       </dl>
+      {/* Email KHÔNG sửa được ở đây — có chủ đích, xem docstring của `SuaTaiKhoanRequest`. */}
+      <p className="ghi-chu">
+        Email là tên đăng nhập nên không đổi được ở đây. Cần đổi thì nhờ người quản trị.
+      </p>
+
+      <OTenHien nguoiDung={nguoiDung} onXong={onDoiNguoiDung} />
+
+      {nguoiDung.la_quan_tri && (
+        <dl className="man-tai-khoan">
+          <dt>Quyền</dt>
+          <dd>Quản trị</dd>
+        </dl>
+      )}
+
+      <OMatKhau />
 
       <h3 className="nho">Lượt dịch hôm nay</h3>
 
@@ -95,4 +114,170 @@ export default function ManTaiKhoan({ nguoiDung, onDong }) {
       )}
     </Dialog>
   )
+}
+
+/** Tên hiển thị — sửa tại chỗ, KHÔNG đòi mật khẩu.
+ *
+ * Đòi mật khẩu cho một thao tác vô hại là dạy người dùng gõ mật khẩu vào bất cứ ô nào hỏng ra —
+ * đó là huấn luyện cho lừa đảo, không phải bảo mật.
+ */
+function OTenHien({ nguoiDung, onXong }) {
+  const [moSua, setMoSua] = useState(false)
+  const [ten, setTen] = useState(nguoiDung.ten_hien || '')
+  const [dangLuu, setDangLuu] = useState(false)
+  const [loi, setLoi] = useState(null)
+  const [xong, setXong] = useState(false)
+
+  const luu = async () => {
+    setDangLuu(true); setLoi(null)
+    try {
+      const kq = await api.suaTaiKhoanCuaToi({ ten_hien: ten })
+      onXong?.(kq.nguoi_dung)
+      setXong(true)
+      setMoSua(false)
+    } catch (e) {
+      setLoi(e)
+    } finally {
+      setDangLuu(false)
+    }
+  }
+
+  if (!moSua) {
+    return (
+      <>
+        <dl className="man-tai-khoan">
+          <dt>Tên hiển thị</dt>
+          <dd>
+            {nguoiDung.ten_hien
+              ? nguoiDung.ten_hien
+              : <span className="ghi-chu">(chưa đặt — đang dùng phần trước @)</span>}
+            {' '}
+            <Button kieu="phu" onClick={() => { setMoSua(true); setXong(false) }}>Sửa</Button>
+          </dd>
+        </dl>
+        {xong && <Alert sac="ok" tieuDe="Đã lưu tên hiển thị" />}
+      </>
+    )
+  }
+
+  return (
+    <div className="khoi-sua">
+      <Input
+        nhan="Tên hiển thị" value={ten} onChange={(e) => setTen(e.target.value)}
+        moTa="Để trống thì hệ thống lấy phần trước @ của email."
+        maxLength={120}
+      />
+      {loi && <Alert sac="loi" tieuDe="Chưa lưu được">{thongDiep(loi)}</Alert>}
+      <div className="hang-nut">
+        <Button kieu="chinh" onClick={luu} dangChay={dangLuu}>Lưu</Button>
+        <Button onClick={() => { setMoSua(false); setTen(nguoiDung.ten_hien || ''); setLoi(null) }}>
+          Huỷ
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+/** Đổi mật khẩu. Đóng sẵn — mở ra mới hiện ô, để màn chính không thành một rừng ô nhập. */
+function OMatKhau() {
+  const [mo, setMo] = useState(false)
+  const [cu, setCu] = useState('')
+  const [moi, setMoi] = useState('')
+  const [lai, setLai] = useState('')
+  const [dangLuu, setDangLuu] = useState(false)
+  const [loi, setLoi] = useState(null)
+  const [ketQua, setKetQua] = useState(null)
+
+  const dong = () => {
+    setMo(false); setCu(''); setMoi(''); setLai(''); setLoi(null)
+  }
+
+  // Kiểm NGAY ở trình duyệt: không có đường lấy lại mật khẩu, nên gõ lệch hai ô là mất tài khoản.
+  const lechNhau = lai.length > 0 && moi !== lai
+  const quaNgan = moi.length > 0 && moi.length < 8
+  const lyDoKhoa = !cu || !moi || !lai
+    ? 'Nhập đủ ba ô.'
+    : lechNhau
+      ? 'Hai ô mật khẩu mới chưa khớp.'
+      : quaNgan
+        ? 'Mật khẩu mới phải dài ít nhất 8 ký tự.'
+        : undefined
+
+  const luu = async () => {
+    setDangLuu(true); setLoi(null)
+    try {
+      const kq = await api.suaTaiKhoanCuaToi({ mat_khau_cu: cu, mat_khau_moi: moi })
+      setKetQua(kq)
+      dong()
+    } catch (e) {
+      setLoi(e)
+    } finally {
+      setDangLuu(false)
+    }
+  }
+
+  if (!mo) {
+    return (
+      <>
+        <h3 className="nho">Mật khẩu</h3>
+        {ketQua && (
+          <Alert sac="ok" tieuDe="Đã đổi mật khẩu">
+            {ketQua.so_phien_khac_da_thu_hoi > 0
+              ? <>Đã đăng xuất <strong>{ketQua.so_phien_khac_da_thu_hoi}</strong> thiết bị khác.
+                  Máy này vẫn đang đăng nhập.</>
+              : <>Không có thiết bị nào khác đang đăng nhập. Máy này vẫn đang đăng nhập.</>}
+          </Alert>
+        )}
+        <p className="ghi-chu">
+          <Button onClick={() => { setMo(true); setKetQua(null) }}>Đổi mật khẩu</Button>
+        </p>
+      </>
+    )
+  }
+
+  return (
+    <div className="khoi-sua">
+      <h3 className="nho">Đổi mật khẩu</h3>
+      <Input
+        nhan="Mật khẩu hiện tại" type="password" autoComplete="current-password" batBuoc
+        value={cu} onChange={(e) => setCu(e.target.value)}
+      />
+      <Input
+        nhan="Mật khẩu mới" type="password" autoComplete="new-password" batBuoc
+        value={moi} onChange={(e) => setMoi(e.target.value)}
+        moTa="Ít nhất 8 ký tự."
+        loi={quaNgan ? 'Mật khẩu mới phải dài ít nhất 8 ký tự.' : undefined}
+      />
+      <Input
+        nhan="Nhập lại mật khẩu mới" type="password" autoComplete="new-password" batBuoc
+        value={lai} onChange={(e) => setLai(e.target.value)}
+        loi={lechNhau ? 'Hai ô chưa khớp.' : undefined}
+        moTa="Không có đường lấy lại mật khẩu, nên phải gõ đúng hai lần."
+      />
+
+      {/* Nói TRƯỚC khi bấm. Báo sau khi đã đăng xuất điện thoại của người ta thì đã muộn. */}
+      <Alert sac="canh" tieuDe="Các thiết bị khác sẽ bị đăng xuất">
+        Đổi mật khẩu sẽ thu hồi mọi phiên đăng nhập khác. Máy bạn đang dùng thì vẫn đăng nhập.
+      </Alert>
+
+      {loi && <Alert sac="loi" tieuDe="Chưa đổi được">{thongDiep(loi)}</Alert>}
+
+      <div className="hang-nut">
+        <Button kieu="chinh" onClick={luu} dangChay={dangLuu} lyDoKhoa={lyDoKhoa} id="nut-doi-mk">
+          Đổi mật khẩu
+        </Button>
+        <Button onClick={dong}>Huỷ</Button>
+      </div>
+    </div>
+  )
+}
+
+/** Lấy câu của MÁY CHỦ, không thay bằng câu chung.
+ *
+ * Máy chủ phân biệt "mật khẩu hiện tại không đúng" với "mật khẩu mới phải khác" — thay cả hai
+ * bằng "có lỗi xảy ra" là bắt người dùng đoán xem mình sai ở đâu.
+ */
+function thongDiep(e) {
+  if (typeof e?.cauNguoiDoc === 'string' && e.cauNguoiDoc) return e.cauNguoiDoc
+  return String(e?.message || e)
 }

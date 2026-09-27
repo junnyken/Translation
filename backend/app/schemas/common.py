@@ -98,6 +98,49 @@ class DangNhapResponse(BaseModel):
     nguoi_dung: NguoiDungRead
 
 
+class SuaTaiKhoanRequest(BaseModel):
+    """Người dùng tự sửa tài khoản CỦA MÌNH (E56).
+
+    Cố ý KHÔNG có `email`: email là danh tính đăng nhập, và hệ thống **chưa có hạ tầng gửi thư**
+    để xác minh địa chỉ mới (giới hạn đã ghi ở `REPORT_E52.md`). Cho đổi email mà không xác minh
+    là cho người ta tự gõ sai rồi mất hẳn đường vào tài khoản.
+
+    Cố ý KHÔNG có `la_quan_tri`/`dang_hoat_dong`: tự phong quyền cho mình là lỗ hổng leo thang
+    quyền. Hai trường đó chỉ nằm ở `PATCH /users/{id}` và chỉ quản trị gọi được.
+
+    Gửi cái nào thì đổi cái đó. Đổi mật khẩu phải gửi **cả hai** trường mật khẩu.
+    """
+
+    ten_hien: str | None = Field(default=None, max_length=120)
+    mat_khau_cu: str | None = Field(default=None, max_length=1024)
+    mat_khau_moi: str | None = Field(default=None, max_length=1024)
+
+    @model_validator(mode="after")
+    def _kiem_cap_mat_khau(self) -> "SuaTaiKhoanRequest":
+        co_cu, co_moi = bool(self.mat_khau_cu), bool(self.mat_khau_moi)
+        if co_cu != co_moi:
+            # Thiếu một nửa thì phải nói ra. Bỏ qua im lặng sẽ trả 200 "đã lưu" cho một lượt đổi
+            # mật khẩu KHÔNG hề xảy ra — người dùng tin là đã xoay khoá.
+            raise ValueError(
+                "Đổi mật khẩu cần cả `mat_khau_cu` và `mat_khau_moi`."
+            )
+        if self.ten_hien is None and not co_moi:
+            raise ValueError("Không có gì để đổi.")
+        return self
+
+
+class SuaTaiKhoanResponse(BaseModel):
+    """Kèm `so_phien_khac_da_thu_hoi` để giao diện nói được **hệ quả** của lượt đổi mật khẩu.
+
+    Không có số này thì màn hình chỉ báo "đã đổi" và người dùng không biết các thiết bị khác vừa
+    bị đăng xuất — họ sẽ tưởng hệ thống lỗi khi điện thoại đòi đăng nhập lại.
+    """
+
+    nguoi_dung: NguoiDungRead
+    da_doi_mat_khau: bool
+    so_phien_khac_da_thu_hoi: int
+
+
 class DoiTrangThaiRequest(BaseModel):
     """Khoá/mở khoá và phong/thu quyền quản trị.
 

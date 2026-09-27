@@ -16,7 +16,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import mat_khau as mk
@@ -84,6 +84,72 @@ async def dang_ky(
     await session.commit()
     await session.refresh(nguoi)
     return nguoi
+
+
+def _ten_hien_chuan(ten_tho: str, email: str) -> str:
+    """Cùng một luật với lúc đăng ký: rỗng ⇒ lấy phần trước @.
+
+    Nếu đường SỬA dùng luật khác đường TẠO thì xoá trắng ô tên sẽ cho ra tài khoản không có tên
+    hiển thị, trong khi tài khoản mới không bao giờ rơi vào trạng thái đó. Một luật, hai đường.
+    """
+    return ten_tho.strip() or chuan_hoa_email(email).split("@")[0]
+
+
+async def doi_ten_hien(session: AsyncSession, *, nguoi: NguoiDung, ten_hien: str) -> NguoiDung:
+    """Đổi tên hiển thị. KHÔNG đòi mật khẩu — có chủ đích.
+
+    Tên hiển thị là thứ đổi lại được trong một giây và không cho ai thêm quyền gì. Đòi mật khẩu
+    cho một thao tác vô hại là dạy người dùng gõ mật khẩu vào bất cứ ô nào hỏng — đó là huấn
+    luyện cho lừa đảo, không phải bảo mật.
+    """
+    nguoi.ten_hien = _ten_hien_chuan(ten_hien, nguoi.email)
+    await session.commit()
+    await session.refresh(nguoi)
+    return nguoi
+
+
+async def doi_mat_khau(
+    session: AsyncSession,
+    *,
+    nguoi: NguoiDung,
+    mat_khau_cu: str,
+    mat_khau_moi: str,
+    giu_ma_phien_tho: str | None = None,
+) -> tuple[str | None, int]:
+    """Đổi mật khẩu. Trả `(lý do từ chối | None, số phiên khác đã thu hồi)`.
+
+    ## Ba luật, mỗi luật vá một lỗ thật
+
+    **1. PHẢI đúng mật khẩu cũ.** Không đòi thì một phiên bị mượn (máy công cộng chưa đăng xuất,
+    mã phiên bị lấy) **chiếm hẳn** được tài khoản: kẻ kia đặt mật khẩu mới và chính chủ mất
+    đường vào. Đòi mật khẩu cũ biến "mượn được phiên" thành "vẫn không đổi được khoá".
+
+    **2. Thu hồi mọi phiên KHÁC.** Đổi mật khẩu mà để phiên cũ sống tiếp là *đổi trên giấy* —
+    đúng cùng lý do `PATCH /users/{id}` xoá phiên khi khoá tài khoản. Người ta đổi mật khẩu
+    chính vì nghi có người khác đang vào được; giữ phiên của người đó lại là phá đúng mục đích.
+
+    **3. Giữ LẠI phiên đang dùng.** Đăng xuất chính người vừa đổi là hình phạt cho hành vi đúng,
+    và họ sẽ tưởng đổi thất bại. Nên thu hồi "mọi phiên trừ phiên này".
+
+    Mật khẩu mới trùng mật khẩu cũ bị từ chối: nó làm người dùng tin mình đã xoay khoá trong khi
+    khoá y nguyên, và thao tác thu hồi phiên ở luật 2 sẽ làm họ tin tưởng sai chỗ.
+    """
+    if not mk.kiem(mat_khau_cu, nguoi.mat_khau_bam):
+        return "Mật khẩu hiện tại không đúng.", 0
+    ly_do = kiem_mat_khau_du_manh(mat_khau_moi)
+    if ly_do:
+        return ly_do, 0
+    if mat_khau_cu == mat_khau_moi:
+        return "Mật khẩu mới phải khác mật khẩu hiện tại.", 0
+
+    nguoi.mat_khau_bam = mk.bam(mat_khau_moi)
+
+    dieu_kien = [Phien.nguoi_dung_id == nguoi.id]
+    if giu_ma_phien_tho:
+        dieu_kien.append(Phien.ma_bam != ph.bam_ma(giu_ma_phien_tho))
+    kq = await session.execute(delete(Phien).where(*dieu_kien))
+    await session.commit()
+    return None, int(kq.rowcount or 0)
 
 
 async def dang_nhap(session: AsyncSession, *, email: str, mat_khau_tho: str) -> tuple[NguoiDung, str] | None:

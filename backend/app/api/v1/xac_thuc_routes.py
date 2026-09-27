@@ -24,7 +24,7 @@ from app.services.han_muc import bay_gio, moc_reset_ke_tiep, ngay_han_muc
 from app.services.han_muc_dang_ky import giu_suat_dang_ky
 from app.core.db import get_session
 from app.core.phien import han_moi
-from app.core.quyen import TIEN_TO_BEARER, nguoi_dung_hien_tai
+from app.core.quyen import TIEN_TO_BEARER, ma_phien_tu_header, nguoi_dung_hien_tai
 import uuid
 
 from sqlalchemy import delete, select
@@ -36,6 +36,8 @@ from app.schemas.common import (
     DangNhapRequest,
     DangNhapResponse,
     NguoiDungRead,
+    SuaTaiKhoanRequest,
+    SuaTaiKhoanResponse,
 )
 from app.services import tai_khoan
 
@@ -189,6 +191,59 @@ async def dang_xuat(
 async def toi_la_ai(nguoi: NguoiDung = Depends(nguoi_dung_hien_tai)) -> NguoiDung:
     """Giao diện gọi lúc mở app để biết mã phiên lưu trong máy còn dùng được không."""
     return nguoi
+
+
+@router.patch("/me", response_model=SuaTaiKhoanResponse)
+async def sua_tai_khoan_cua_toi(
+    payload: SuaTaiKhoanRequest,
+    authorization: str | None = Header(default=None),
+    session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
+) -> SuaTaiKhoanResponse:
+    """Tự sửa tài khoản của mình: tên hiển thị và/hoặc mật khẩu (E56).
+
+    ## Vì sao KHÔNG dùng `PATCH /users/{id}` có sẵn
+
+    Đường đó là của **quản trị** và cố ý không nhận `ten_hien`/`mat_khau` — docstring của
+    `DoiTrangThaiRequest` nói thẳng lý do: *"quản trị được phép chặn người khác, nhưng không được
+    phép hoá trang thành họ"*. Nhét tên/mật khẩu vào đó là phá đúng nguyên tắc ấy. Nên đây là
+    đường riêng, và nó **chỉ sửa được chính mình** — không có tham số `{id}` để nhắm vào ai khác.
+
+    ## Đổi mật khẩu thu hồi các phiên KHÁC
+
+    Trả về `so_phien_khac_da_thu_hoi` để giao diện nói ra hệ quả. Phiên đang gọi được **giữ lại**:
+    đăng xuất chính người vừa đổi mật khẩu là hình phạt cho hành vi đúng. Lý do đầy đủ ở
+    `services/tai_khoan.doi_mat_khau`.
+    """
+    so_thu_hoi = 0
+    da_doi_mk = False
+
+    if payload.mat_khau_moi:
+        ly_do, so_thu_hoi = await tai_khoan.doi_mat_khau(
+            session,
+            nguoi=nguoi,
+            mat_khau_cu=payload.mat_khau_cu or "",
+            mat_khau_moi=payload.mat_khau_moi,
+            giu_ma_phien_tho=ma_phien_tu_header(authorization),
+        )
+        if ly_do:
+            # Rollback tường minh: `doi_mat_khau` trả lý do TRƯỚC khi commit, nhưng tên hiển thị
+            # có thể đã được gán ở dưới trong một lượt gọi gửi cả hai. Đổi thứ tự (mật khẩu
+            # TRƯỚC tên) là để một lượt bị từ chối không lưu nửa vời.
+            await session.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=ly_do
+            )
+        da_doi_mk = True
+
+    if payload.ten_hien is not None:
+        nguoi = await tai_khoan.doi_ten_hien(session, nguoi=nguoi, ten_hien=payload.ten_hien)
+
+    return SuaTaiKhoanResponse(
+        nguoi_dung=NguoiDungRead.model_validate(nguoi),
+        da_doi_mat_khau=da_doi_mk,
+        so_phien_khac_da_thu_hoi=so_thu_hoi,
+    )
 
 
 @router.get("/co-tai-khoan-chua", response_model=dict)

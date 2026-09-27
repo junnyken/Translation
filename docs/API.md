@@ -1187,6 +1187,32 @@ cho người dùng (họ muốn đăng xuất, và họ đã đăng xuất) mà 
 Trả `NguoiDungRead` của phiên hiện tại. `401` nếu phiên hỏng/hết hạn. Giao diện gọi lúc mở app
 để biết mã lưu trong máy còn dùng được không.
 
+### `PATCH /api/v1/auth/me` → 200 *(E56 — tự sửa tài khoản CỦA MÌNH)*
+
+Gửi cái nào thì đổi cái đó. Đổi mật khẩu phải gửi **cả hai** trường mật khẩu.
+
+```json
+{"ten_hien": "An", "mat_khau_cu": "…", "mat_khau_moi": "…"}
+→ {"nguoi_dung": {…}, "da_doi_mat_khau": true, "so_phien_khac_da_thu_hoi": 2}
+```
+
+**Cố ý KHÔNG có `{id}`**: không có id thì về cấu trúc đã không nhắm được vào ai khác, nên không cần
+một phép kiểm quyền có thể viết sai. Đổi tên/mật khẩu của **người khác** là việc không ai làm được,
+kể cả quản trị — xem `PATCH /auth/users/{id}`.
+
+**Cố ý KHÔNG nhận** `email` (là danh tính đăng nhập, chưa có hạ tầng xác minh địa chỉ mới) và
+`la_quan_tri`/`dang_hoat_dong` (tự phong quyền cho mình).
+
+Đổi mật khẩu **thu hồi mọi phiên khác** và **giữ lại phiên đang gọi**. `so_phien_khac_da_thu_hoi`
+có để giao diện nói ra hệ quả — thiếu nó thì người dùng thấy điện thoại đòi đăng nhập lại và tưởng
+hệ thống lỗi.
+
+| Mã | Khi nào |
+|---|---|
+| `400` | sai mật khẩu hiện tại · mật khẩu mới < 8 ký tự · mật khẩu mới trùng cũ |
+| `422` | gửi nửa cặp mật khẩu · body rỗng |
+| `401` | chưa đăng nhập |
+
 ### `GET /api/v1/auth/co-tai-khoan-chua` → 200
 
 ```json

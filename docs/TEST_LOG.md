@@ -6146,3 +6146,37 @@ hai chỉ tồn tại khi có trình duyệt thật + máy chủ thật:
 
 Bài học chung: bộ test dựng **một** danh tính một lúc sẽ không bao giờ thấy lỗi ưu tiên giữa hai
 danh tính; và mọi lỗi **hình học** cần trình duyệt thật, jsdom mù hoàn toàn.
+
+### E56 — bốn đối chứng âm cho một tính năng bảo mật
+
+Tính năng đổi mật khẩu có ba chốt mà **không lượt chạy bình thường nào** sờ tới: mật khẩu cũ, thu
+hồi phiên khác, giữ phiên đang dùng. Cả ba đều "im lặng đúng" nếu viết sai, nên mỗi chốt phải có một
+lượt phá riêng:
+
+| Phá gì | Bài đỏ |
+|---|---|
+| Bỏ phép kiểm mật khẩu cũ | `test_sai_mat_khau_cu…` + `test_bi_tu_choi_thi_ten_hien…` |
+| Không thu hồi phiên nào | `test_doi_mat_khau_THU_HOI_cac_phien_khac` |
+| Thu hồi CẢ phiên đang dùng | `…THU_HOI…` + `…GIU_LAI_phien_dang_dung` |
+| Tắt phép so hai ô mật khẩu (giao diện) | `KHONG_gui_duoc_khi_hai_o_mat_khau_lech_nhau` |
+
+**Bài giao diện khẳng định vào `fetch` chứ không vào chữ đỏ.** Một câu cảnh báo cạnh một nút **vẫn
+bấm được** là trang trí; bài này đếm số lượt PATCH và đòi bằng 0.
+
+**Tài khoản riêng cho từng bài.** `nguoi_dung` KHÔNG nằm trong danh sách TRUNCATE, nên một bài đổi
+mật khẩu của tài khoản dùng chung sẽ rò trạng thái sang mọi bài xếp sau — biểu hiện đúng là "xanh
+khi chạy riêng, đỏ khi chạy chung", thứ khó truy nhất trong một bộ test.
+
+### E57 — bài test của TÔI đỏ vì lý do tôi không đoán trước
+
+`test_khong_nhom_nao_du_nguong` đỏ với `latin_90%` trong khi tôi tưởng ví dụ đó không có nhóm nào
+trội. Nguyên nhân: tôi đếm chữ cái bằng `unicodedata.category(c).startswith("L")`, mà `L*` là **mọi**
+loại chữ cái — nên `фффф` (Cyrillic) vào ô `latin`. Hệ quả thật: một trang **tiếng Nga** ra kết luận
+`en`, **tự tin và sai**.
+
+Đây là lý do viết ví dụ test bằng **số đo cụ thể** (`assert (latin, han, chu_cai_khac) == (4, 1, 5)`)
+thay vì chỉ `assert ngon_ngu is None`: khẳng định vào con số buộc tôi phải biết mình đang đếm gì, và
+nó đỏ ngay khi tôi không biết.
+
+Cũng trong lượt đó, bài `test_chu_Latin_co_dau…` đỏ vì tôi cộng nhẩm sai (14 chữ cái, tôi ghi 15) —
+code đúng, test sai. Đã sửa test và ghi phép cộng vào chú thích để lần sau không phải nhẩm lại.

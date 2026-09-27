@@ -745,3 +745,20 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   .man-tai-khoan { grid-template-columns: 1fr; gap: 2px; }
   .man-tai-khoan dd { margin-bottom: 8px; }
 }
+
+/* E56 — khối sửa (tên hiển thị / đổi mật khẩu) trong màn tài khoản.
+   Dùng lại token có sẵn, không thêm màu mới. Viền + nền nhạt để tách phần ĐANG SỬA khỏi phần chỉ
+   đọc bên trên: người dùng phải thấy rõ mình đang ở chế độ nhập, không phải đang xem. */
+.khoi-sua {
+  border: 1px solid var(--vien);
+  background: var(--the-mo);
+  border-radius: 8px;
+  padding: 12px;
+  margin: 0 0 var(--khoang);
+}
+.khoi-sua > h3 { margin-top: 0; }
+.khoi-sua > .o-nhap + .o-nhap { margin-top: 10px; }
+
+/* Nút xếp hàng, tự xuống dòng ở khổ hẹp — `nowrap` sẽ đẩy nút "Huỷ" ra ngoài màn điện thoại,
+   đúng lỗi đã đo được ở header (REPORT_E54 §7). */
+.hang-nut { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }

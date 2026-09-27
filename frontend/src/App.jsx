@@ -461,7 +461,13 @@ export default function App({ urlBundle } = {}) {
           (REPORT_E21b §11.3). Đặt trên cùng vì nó giải thích những lỗi giả mà người dùng sắp thấy. */}
       <BangBanMoi urlBundle={urlBundle} />
       {moTaiKhoan && (
-        <ManTaiKhoan nguoiDung={nguoiDung} onDong={() => setMoTaiKhoan(false)} />
+        /* E56 — `onDoiNguoiDung` để đổi tên xong là header cập nhật NGAY. Không nối lại thì
+           người dùng thấy "đã lưu" mà tên cũ còn nguyên trên đầu trang, và họ bấm lưu lần nữa. */
+        <ManTaiKhoan
+          nguoiDung={nguoiDung}
+          onDong={() => setMoTaiKhoan(false)}
+          onDoiNguoiDung={setNguoiDung}
+        />
       )}
       <header className="dau-trang">
         <a className="hieu" href="#">
