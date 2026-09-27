@@ -31,9 +31,10 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import Settings, get_settings
 from app.core.db import get_session
-from app.core.cong_han_muc import con_du_khong, giu_cho_moi_chot
+from app.core.cong_han_muc import con_du_khong, giu_cho_moi_chot, loi_vuot_han_muc
 from app.core.danh_tinh_khach import DanhTinhHanMuc, danh_tinh_han_muc
 from app.services.han_muc import bay_gio, moc_reset_ke_tiep, ngay_han_muc
+from app.services.han_muc_nhan_dang import giu_mot_luot
 from app.services.so_cai_han_muc import da_dung_bat_dong_bo
 from app.core.quyen import (
     LOI_KHONG_THAY,
@@ -44,23 +45,24 @@ from app.core.quyen import (
 )
 from app.models import (
     BatchItem,
-    NguoiDung,
-    RegionSafeArea,
-    RegionTextOrientation,
+    BatchRun,
     CharacterVoiceProfile,
     ConsistencyReviewTask,
-    GlossaryEntry,
-    BatchRun,
-    RegionQualityAssessment,
     ExportJob,
+    GlossaryEntry,
     Job,
+    NguoiDung,
     OCRResult,
     Page,
     Project,
+    RegionQualityAssessment,
+    RegionSafeArea,
+    RegionTextOrientation,
     TermSuggestionRun,
     TextRegion,
     TranslationResult,
     TypesetResult,
+    YeuCauNhanDangNgonNgu,
 )
 from app.models.enums import (
     OCRStatus,
@@ -93,6 +95,7 @@ from app.schemas.common import (
     ChotHanMucRead,
     HanMucRead,
     TienDoDocTruyen,
+    NhanDangNgonNguRead,
     TrangDocTruyen,
     VungDocTruyen,
     TermCandidatesResponse,
@@ -160,6 +163,7 @@ from app.schemas.common import (
     RegionRead,
 )
 from app.services.dispatch import (
+    dispatch_nhan_dang_ngon_ngu,
     dispatch_rut_gon_job,
     dispatch_detect_job,
     dispatch_inpaint_job,
@@ -401,6 +405,142 @@ async def xem_han_muc(
         reset_luc=reset,
         reset_sau_giay=max(0, int((reset - bay_gio()).total_seconds())),
         chot=chi_tiet,
+    )
+
+
+@router_khach.post(
+    "/nhan-dang-ngon-ngu",
+    response_model=NhanDangNgonNguRead,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["nhan-dang-ngon-ngu"],
+)
+async def nhan_dang_ngon_ngu_gui(
+    file: UploadFile = File(..., description="Một ảnh trang truyện để ĐỌC THỬ"),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    danh_tinh: DanhTinhHanMuc = Depends(danh_tinh_han_muc),
+) -> NhanDangNgonNguRead:
+    """Đọc thử một ảnh để đoán ngôn ngữ gốc. Trả `202` + `id`, hỏi lại bằng `GET`.
+
+    ## Vì sao đây là đường RIÊNG chứ không phải một `source_lang=auto`
+
+    `Project.source_lang` chọn **engine OCR** (`ja` → manga-ocr, `zh`/`en` → PaddleOCR) và còn đi
+    vào hướng đọc lẫn prompt dịch. Muốn "auto" ở đó thì phải cho cột đó nhận `NULL` và sửa ~10 chỗ
+    trong pipeline — nhiều rủi ro cho một tính năng phụ trợ.
+
+    Quan trọng hơn: phép đoán **có thể không kết luận được** (ảnh không chữ, quá ít chữ, hệ chữ
+    không hỗ trợ). Lúc đó phải **hỏi lại người dùng**, mà một `source_lang=auto` chạy ngầm trong
+    pipeline thì không có chỗ nào để hỏi — nó buộc phải chọn bừa một trong ba, hoặc để chapter kẹt.
+
+    ## Trần riêng, KHÔNG trừ hạn mức trang
+
+    Đường này trả về chữ đã đọc được nên nó **là** một dịch vụ OCR: không có trần thì thành OCR miễn
+    phí không giới hạn. Nhưng trừ vào hạn mức **trang** cũng sai: khách có 6 lượt sẽ mất 1 lượt chỉ
+    vì bấm "Tự nhận", tức tính năng càng dùng càng đắt và người ta sẽ tránh nó rồi quay lại chọn tay
+    sai. ⇒ bộ đếm riêng (`services/han_muc_nhan_dang.py`).
+
+    ## Ảnh bị xoá ngay sau khi đọc
+
+    Nó là rác tạm, không ai tải về. Xem `run_nhan_dang_ngon_ngu_job`.
+    """
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=422, detail="File rỗng")
+    if len(data) > settings.max_upload_bytes:
+        raise HTTPException(status_code=413, detail=f"Ảnh vượt quá {settings.max_upload_mb}MB")
+    try:
+        _mime, ext = sniff_image(data)
+    except UnsupportedImage as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    yc = YeuCauNhanDangNgonNgu(
+        chu_so_huu_id=danh_tinh.nguoi_goi.nguoi.id if not danh_tinh.nguoi_goi.la_khach else None,
+        chu_khach=danh_tinh.nguoi_goi.khach if danh_tinh.nguoi_goi.la_khach else None,
+        trang_thai=JobStatus.queued,
+    )
+    session.add(yc)
+    await session.flush()
+
+    # Giữ lượt SAU khi tệp đã qua kiểm (tệp hỏng không được mất lượt) và TRƯỚC khi ghi xuống kho
+    # (hết lượt thì không ghi tệp nào). Ném 429 ở đây ⇒ giao dịch huỷ ⇒ bản ghi vừa flush biến mất.
+    tran = settings.so_lan_nhan_dang_ngon_ngu_mot_ngay
+    kq, chot_chan = await giu_mot_luot(
+        session, danh_tinh=danh_tinh, ngay=ngay_han_muc(), tran=tran
+    )
+    if not kq.thanh_cong:
+        # `tran=` BẮT BUỘC ở đây: `chot.tran` là trần hạn mức TRANG, không phải trần bộ đếm này.
+        raise loi_vuot_han_muc(
+            danh_tinh=danh_tinh, settings=settings, can=1,
+            con_lai=kq.con_lai, chot=chot_chan, tran=tran,
+        )
+
+    storage = get_storage()
+    yc.duong_anh = await run_in_threadpool(storage.save, f"nhan-dang/{yc.id}{ext}", data)
+    await session.commit()
+    await session.refresh(yc)
+
+    sent, ly_do = dispatch_nhan_dang_ngon_ngu(yc.id)
+    if not sent:
+        yc.trang_thai = JobStatus.failed
+        yc.loi = ly_do
+        await session.commit()
+        await session.refresh(yc)
+
+    return _doc_nhan_dang(yc, con_lai=kq.con_lai)
+
+
+@router_khach.get(
+    "/nhan-dang-ngon-ngu/{yeu_cau_id}",
+    response_model=NhanDangNgonNguRead,
+    tags=["nhan-dang-ngon-ngu"],
+)
+async def nhan_dang_ngon_ngu_tra(
+    yeu_cau_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    danh_tinh: DanhTinhHanMuc = Depends(danh_tinh_han_muc),
+) -> NhanDangNgonNguRead:
+    """Tra kết quả. `404` nếu không có **hoặc không phải của người gọi**.
+
+    Trả `404` chứ không `403` cho lượt của người khác: `403` là xác nhận "id này tồn tại", tức là
+    một đường dò. Cùng luật với `_get_project_or_404`.
+    """
+    yc = await session.get(YeuCauNhanDangNgonNgu, yeu_cau_id)
+    if yc is None or not _cua_nguoi_goi(yc, danh_tinh):
+        raise HTTPException(status_code=404, detail="Không tìm thấy lượt nhận dạng này.")
+    return _doc_nhan_dang(yc)
+
+
+def _cua_nguoi_goi(yc: YeuCauNhanDangNgonNgu, danh_tinh: DanhTinhHanMuc) -> bool:
+    """Ba nhánh, và nhánh GIỮA là thứ chặn rò rỉ hàng loạt.
+
+    Cùng hình dạng với `quyen.duoc_dung_project`: một bản ghi có `chu_khach` thì **chỉ** khách đó
+    xem được — người đã đăng nhập cũng không. Thiếu nhánh giữa thì mọi người đăng nhập đọc được
+    lượt nhận dạng của mọi khách.
+    """
+    goi = danh_tinh.nguoi_goi
+    if goi.la_khach:
+        return goi.khach is not None and yc.chu_khach == goi.khach
+    if yc.chu_khach is not None:
+        return False
+    return yc.chu_so_huu_id == goi.nguoi.id
+
+
+def _doc_nhan_dang(
+    yc: YeuCauNhanDangNgonNgu, *, con_lai: int | None = None
+) -> NhanDangNgonNguRead:
+    """`xong` tính ở MỘT chỗ, và giao diện đọc nó thay vì tự suy từ `trang_thai`.
+
+    Tự suy ở phía giao diện là cách chắc chắn để hai bên lệch nhau khi thêm trạng thái mới.
+    """
+    return NhanDangNgonNguRead(
+        id=yc.id,
+        trang_thai=yc.trang_thai,
+        xong=yc.trang_thai in (JobStatus.done, JobStatus.failed),
+        ngon_ngu=yc.ngon_ngu,
+        ly_do=yc.ly_do,
+        bang_chung=yc.bang_chung,
+        loi=yc.loi,
+        con_lai_hom_nay=con_lai,
     )
 
 

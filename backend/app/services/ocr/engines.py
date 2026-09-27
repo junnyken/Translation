@@ -252,6 +252,26 @@ class PaddleOCREngine(_BaseOCREngine):
         doi = [[[px + bbox.x, py + bbox.y] for px, py in poly] for poly in polys]
         return text, conf, doi
 
+    def doc_toan_anh(self, image_path: str) -> list[str]:
+        """Đọc CHỮ TRÊN CẢ ẢNH, không cần bbox. Trả danh sách dòng chữ (E57).
+
+        PaddleOCR là một pipeline **dò + đọc**: nó tự tìm dòng chữ. Pipeline dịch không dùng phần
+        dò đó vì nó đã có bộ dò bong bóng riêng (comic-text-detector) tốt hơn cho truyện tranh —
+        nhưng cho việc **đoán ngôn ngữ** thì phần dò sẵn này là đủ, và nó tiết kiệm được cả một
+        model: không phải nạp comic-text-detector chỉ để lấy vài khung chữ.
+
+        Cố ý KHÔNG lọc theo confidence: chữ đọc sai vẫn nói đúng **hệ chữ**. Một dòng kanji đọc
+        nhầm chữ vẫn là kanji, và đó là toàn bộ thông tin mà phép phân loại cần.
+        """
+        import numpy as np
+
+        with Image.open(image_path) as im:
+            anh = np.asarray(im.convert("RGB"))
+        model = self._get_model()
+        predict = getattr(model, "predict", None) or model.ocr
+        lines = self._doc_dong(predict(anh))
+        return [t for _, _, t, _, _ in lines if t]
+
     @classmethod
     def _parse_with_polys(cls, result):
         """Bản đầy đủ của `_parse`: trả thêm đường bao, đã sắp cùng thứ tự với các dòng chữ."""

@@ -204,3 +204,32 @@ def phan_loai(cac_chuoi: list[str]) -> KetQuaNhanDang:
         f"khong_nhom_nao_du_nguong (han {ti_le_han:.0%}, latin {ti_le_latin:.0%})",
         bc,
     )
+
+# ── Chạy trên ảnh thật ────────────────────────────────────────────────────────────────────
+
+#: Model dùng để ĐỌC THỬ. `ch` là lựa chọn tường minh, không phải mặc định tình cờ: đó chính là
+#: model đã đo từ điển ở docstring trên. Ở PP-OCRv6 thì `ch`/`en`/`japan` nạp cùng một model, nhưng
+#: viết rõ `ch` để nếu paddleocr về sau tách chúng ra thì chỗ này còn trỏ đúng thứ đã đo.
+LANG_DOC_THU = "ch"
+
+
+def nhan_dang_tu_anh(image_path: str, *, engine=None) -> KetQuaNhanDang:
+    """Đọc thử một ảnh rồi phân loại ngôn ngữ.
+
+    `engine` để test tiêm bản giả — không có nó thì mọi bài test đều phải nạp 76MB model thật.
+
+    KHÔNG bắt ngoại lệ ở đây: engine hỏng (thiếu thư viện, hết RAM) là **lỗi thật** và phải nổi lên
+    để task ghi `failed`. Nuốt nó rồi trả "không kết luận" là biến một sự cố hạ tầng thành một câu
+    trả lời bình thường — người dùng sẽ tưởng ảnh của mình có vấn đề.
+    """
+    if engine is None:
+        from app.core.config import get_settings
+        from app.services.ocr.engines import PaddleOCREngine
+
+        st = get_settings()
+        engine = PaddleOCREngine(
+            lang=LANG_DOC_THU,
+            device=st.ocr_device,
+            enable_mkldnn=st.ocr_paddle_enable_mkldnn,
+        )
+    return phan_loai(engine.doc_toan_anh(image_path))

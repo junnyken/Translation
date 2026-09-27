@@ -804,6 +804,67 @@ class RegionTextOrientation(TimestampMixin, Base):
     evidence_snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
 
 
+class YeuCauNhanDangNgonNgu(TimestampMixin, Base):
+    """E57 — một lượt "đọc thử ảnh để đoán ngôn ngữ", CHƯA phải một chapter.
+
+    ## Vì sao là bảng riêng chứ không dùng `Job`
+
+    `Job.page_id` là `NOT NULL` có khoá ngoại tới `page`, mà lượt này xảy ra **trước khi** có
+    chapter nào — chính vì chưa biết `source_lang` để tạo chapter. Nhét vào `Job` sẽ phải cho
+    `page_id` nhận NULL, tức là làm yếu một ràng buộc đang bảo vệ toàn bộ pipeline, chỉ để tiết
+    kiệm một bảng.
+
+    ## Vì sao KHÔNG tạo Project tạm
+
+    Tạo `Project` thì phải điền `source_lang` — đúng thứ chưa biết. Điền bừa rồi sửa sau là ghi một
+    giá trị sai vào CSDL và hy vọng không ai đọc nó trong khoảng giữa.
+
+    ## Ảnh ở đây là RÁC TẠM, xoá ngay sau khi đọc xong
+
+    Nó không phải hiện vật của ai, không ai tải về, và giữ lại là giữ ảnh có bản quyền không vì mục
+    đích gì. Tiền tố kho riêng (`nhan-dang/`) để không lẫn vào cơ chế dọn tệp theo hạn (E50), thứ
+    chỉ biết `projects/`, `exports/`, `previews/`.
+    """
+
+    __tablename__ = "yeu_cau_nhan_dang_ngon_ngu"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+
+    #: Cùng hình dạng chủ sở hữu với `Project`: đăng nhập thì có `chu_so_huu_id`, khách lạ thì có
+    #: `chu_khach` (mã cookie đã băm). Cả hai NULL là không thể xảy ra — xem `NguoiGoi`.
+    chu_so_huu_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("nguoi_dung.id", ondelete="SET NULL"), nullable=True,
+        index=True,
+    )
+    chu_khach: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+
+    #: Đường ảnh tạm trong kho. Rỗng sau khi đã dọn — giữ cột để phân biệt "chưa ghi" với "đã xoá"
+    #: thì cần thêm cờ, mà chuyện đó không đáng: `trang_thai` đã nói đủ.
+    duong_anh: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+    #: Dùng lại `JobStatus` — cùng bốn trạng thái, không thêm enum mới vào một CSDL đang chạy.
+    trang_thai: Mapped[JobStatus] = mapped_column(
+        _enum(JobStatus, "job_status"), nullable=False, default=JobStatus.queued
+    )
+
+    #: `NULL` = **chưa kết luận**, và đó là một kết quả HỢP LỆ, không phải lỗi. Ảnh không có chữ,
+    #: quá ít chữ, hay hệ chữ không hỗ trợ (Hàn, Nga) đều rơi vào đây — lúc đó giao diện phải HỎI
+    #: LẠI người dùng chứ không được chọn bừa một trong ba.
+    ngon_ngu: Mapped[SourceLang | None] = mapped_column(
+        _enum(SourceLang, "source_lang"), nullable=True
+    )
+
+    #: Lý do máy đọc được (`co_11_kana`, `qua_it_chu`…) — để giao diện nói được VÌ SAO, và để đối
+    #: chiếu khi người dùng báo nhận sai.
+    ly_do: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
+    #: Số đo thô theo khối Unicode. Giao diện HIỆN con số này ra: "đọc được 42 ký tự, 11 kana".
+    #: Một kết luận không kèm số đo thì người dùng không có cách nào biết nên tin bao nhiêu.
+    bang_chung: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+    loi: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
 class ArtifactBlob(Base):
     """Hiện vật nhị phân — ảnh gốc, ảnh clean, ảnh xem thử, file xuất — lưu THẲNG trong CSDL.
 

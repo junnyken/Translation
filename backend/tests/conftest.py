@@ -42,6 +42,9 @@ TABLES = (
     # trong cùng một ngày lịch ⇒ để lại thì lượt tải lên của test này ăn hạn mức của test kia,
     # và test thứ ~11 trở đi nhận 429 ở chỗ chẳng liên quan gì tới hạn mức.
     "so_cai_han_muc",
+    # E57 — bảng MỚI phải vào đây ngay khi tạo. Bỏ sót là đúng bẫy E48: bản ghi của test
+    # trước còn lại, và bài canh "chỉ thấy lượt của mình" xanh giả vì nó đếm cả rác cũ.
+    "yeu_cau_nhan_dang_ngon_ngu",
     "consistency_review_task",
     "character_voice_profile",
     "glossary_entry",
@@ -279,6 +282,10 @@ def fake_dispatch(monkeypatch):
         return True, None
 
     monkeypatch.setattr("app.api.v1.routes.dispatch_detect_job", _fake)
+    # E57 — đường nhận dạng ngôn ngữ cũng đẩy việc qua broker. KHÔNG chặn ở đây thì mỗi bài test
+    # gọi nó sẽ ngồi thử kết nối Redis **20 lần** rồi mới bỏ: bài test đỏ vì hạ tầng, và chậm tới
+    # mức tưởng là treo. (Redis của môi trường test nằm ở cổng 6380, không phải 6379.)
+    monkeypatch.setattr("app.api.v1.routes.dispatch_nhan_dang_ngon_ngu", _fake)
     return sent
 
 

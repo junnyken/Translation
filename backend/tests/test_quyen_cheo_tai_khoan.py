@@ -44,6 +44,7 @@ from app.models import (
     TextRegion,
     TranslationResult,
     TypesetResult,
+    YeuCauNhanDangNgonNgu,
 )
 from app.models.enums import (
     BatchPipeline,
@@ -102,6 +103,10 @@ _MULTIPART = {
     "/api/v1/projects/{project_id}/pages":
         lambda: {"file": ("a.png", _anh_png(), "image/png")},
     "/api/v1/doc-truyen/trang":
+        lambda: {"file": ("a.png", _anh_png(), "image/png")},
+    # E57 — đọc thử ảnh để đoán ngôn ngữ. Gửi JSON vào đây thì cả A lẫn B đều 422 và phép dò
+    # RỖNG NGHĨA: nó không chứng minh được gì về quyền.
+    "/api/v1/nhan-dang-ngon-ngu":
         lambda: {"file": ("a.png", _anh_png(), "image/png")},
     "/api/v1/projects/{project_id}/pages/archive":
         lambda: {"file": ("ch.cbz", _goi_cbz(), "application/zip")},
@@ -195,7 +200,18 @@ async def _dung_du_lieu(session, chu_so_huu_id: uuid.UUID) -> dict[str, str]:
     task = (await session.execute(
         text("SELECT id FROM consistency_review_task LIMIT 1")
     )).scalar()
+    # E57 — một lượt nhận dạng CỦA A, để phép dò dựng được `/nhan-dang-ngon-ngu/{yeu_cau_id}`.
+    # Không có nó thì đường này rơi vào "không dựng được" và phép quét **không kiểm nó chút nào** —
+    # im lặng bỏ trống đúng endpoint trả về chữ đã đọc từ ảnh của người khác.
+    yeu_cau = YeuCauNhanDangNgonNgu(
+        chu_so_huu_id=chu_so_huu_id, duong_anh="", trang_thai=JobStatus.done,
+        ngon_ngu=SourceLang.ja, ly_do="co_9_kana", bang_chung={"kana": 9, "tong_co_nghia": 9},
+    )
+    session.add(yeu_cau)
+    await session.commit()
+
     return {
+        "yeu_cau_id": str(yeu_cau.id),
         "project_id": str(project.id),
         "page_id": str(page.id),
         "region_id": str(region.id),
@@ -231,6 +247,12 @@ MIEN_TRU = {
     # Không nhận id nào; luôn ghi vào chapter "Đọc nhanh" CỦA CHÍNH người gọi. Miễn trừ ở đây
     # KHÔNG phải tin lời — `test_moi_nguoi_gui_anh_vao_chapter_CUA_MINH` chứng minh bằng dữ liệu.
     "/api/v1/doc-truyen/trang": "tải ảnh vào chapter của chính người gọi; kiểm ở test riêng",
+    # E57 — POST không nhận id nào: nó TẠO một lượt nhận dạng MỚI thuộc về chính người gọi, nên
+    # "B nhận 202" là ĐÚNG, không phải rò rỉ. Mô hình của phép dò này ("B được 2xx = lọt") không áp
+    # được cho đường tạo mới. Phần thật sự cần canh là đường ĐỌC
+    # (`/nhan-dang-ngon-ngu/{yeu_cau_id}`), và nó **vẫn nằm trong** phép dò — `_dung_du_lieu` dựng
+    # một bản ghi của A để đường đó được kiểm thật chứ không rơi vào "không dựng được".
+    "/api/v1/nhan-dang-ngon-ngu": "tạo lượt nhận dạng MỚI của chính người gọi, không nhận id",
     # Không nhận id nào; luôn trả hạn mức của CHÍNH người gọi. Cổng đăng nhập của nó được
     # kiểm ở `test_bao_ve_integration` (soi cây phụ thuộc, phủ cả các mục MIEN_TRU ở đây).
     "/api/v1/han-muc": "trả hạn mức của chính người gọi, không nhận id",
@@ -433,6 +455,16 @@ MO_CHO_KHACH = {
     "/api/v1/projects/{project_id}/export": 422,
     "/api/v1/export-jobs/{job_id}": 404,
     "/api/v1/export-jobs/{job_id}/download": 404,
+    # E57 — mở cho khách, nhưng hỏi lượt nhận dạng của NGƯỜI KHÁC vẫn phải 404. Đây là mã mong đợi
+    # có giá trị thật: cái ta sợ là `200`, vì phản hồi của đường này chứa **chữ đọc được từ ảnh của
+    # người đó**. Giữ nó ở đây thay vì bỏ qua.
+    "/api/v1/nhan-dang-ngon-ngu/{yeu_cau_id}": 404,
+    # 422 chứ không 404: bài này gửi `json={}`, mà đường này nhận multipart nên FastAPI kiểm thân
+    # request TRƯỚC khi vào hàm. Ghi đúng mã thực tế thay vì mã mong muốn — nhưng điều đó làm đường
+    # này thành ĐIỂM MÙ ở đây, nên phần chứng minh thật nằm ở
+    # `test_e57_duong_nhan_dang::test_gui_duoc_va_tra_202_kem_id` (khách gửi được) và
+    # `…::test_nguoi_khac_KHONG_tra_duoc_va_nhan_404_chu_khong_403` (không đọc được của người khác).
+    "/api/v1/nhan-dang-ngon-ngu": 422,
 }
 
 

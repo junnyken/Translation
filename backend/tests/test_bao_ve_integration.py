@@ -184,6 +184,17 @@ MIEN_TRU_DANG_NHAP = {
     "/api/v1/projects/{project_id}/export",
     "/api/v1/export-jobs/{job_id}",
     "/api/v1/export-jobs/{job_id}/download",
+    # ---- E57: đọc thử ảnh để ĐOÁN NGÔN NGỮ (2026-09-27) ----
+    # Mở cho khách có chủ đích: khách lạ là người cần nó NHẤT (họ chưa từng chọn ngôn ngữ nên dễ
+    # chọn sai nhất, và chọn sai là ra chữ vô nghĩa mà không lỗi nào báo). Bắt đăng nhập mới được
+    # đoán giúp là dựng lại đúng cổng chặn mà E52 vừa gỡ.
+    #
+    # An toàn KHÔNG dựa vào cổng đăng nhập mà dựa vào `_cua_nguoi_goi` (ba nhánh, cùng hình dạng
+    # với `quyen.duoc_dung_project`) + một TRẦN RIÊNG. Trần là phần bắt buộc: đường này nhận ảnh
+    # và trả về chữ đọc được, nên mở nó không kèm trần là mở một OCR miễn phí không giới hạn.
+    # `test_e57_duong_nhan_dang` chứng minh cả ba chiều cách ly + trần + 429.
+    "/api/v1/nhan-dang-ngon-ngu",
+    "/api/v1/nhan-dang-ngon-ngu/{yeu_cau_id}",
 }
 
 

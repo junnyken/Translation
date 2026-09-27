@@ -81,6 +81,15 @@ class TestDanhSachDuongMo:
             ("/api/v1/export-jobs/{job_id}", "GET"),
             ("/api/v1/export-jobs/{job_id}/download", "GET"),
             ("/api/v1/han-muc", "GET"),
+            # E57 — đọc thử để đoán ngôn ngữ. MỞ CHO KHÁCH có chủ đích: khách lạ là người cần nó
+            # nhất (họ chưa từng chọn ngôn ngữ nên dễ chọn sai nhất), và bắt đăng nhập mới được
+            # đoán giúp là dựng lại đúng cổng chặn mà E52 vừa gỡ.
+            #
+            # Đường này nhận ẢNH và trả về CHỮ ĐỌC ĐƯỢC, nên nó là một dịch vụ OCR. Nó có trần
+            # riêng (`han_muc_nhan_dang.py`, mặc định 20 lượt/ngày/chốt) — thiếu trần đó thì mở nó
+            # cho cả internet là mở một OCR miễn phí không giới hạn.
+            ("/api/v1/nhan-dang-ngon-ngu", "POST"),
+            ("/api/v1/nhan-dang-ngon-ngu/{yeu_cau_id}", "GET"),
             ("/api/v1/projects/{project_id}/export", "POST"),
         ], f"danh sách đường mở cho khách đã đổi: {thuc_te}"
 

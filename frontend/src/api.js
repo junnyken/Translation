@@ -649,6 +649,24 @@ export function chotDangChan(hanMuc) {
  * Mặc định của máy chủ là `chi_chu` (chỉ trả toạ độ + chữ cho tiện ích phủ lên ảnh gốc), nên
  * trang chủ PHẢI gửi `day_du` tường minh — thiếu nó thì không có ảnh nào để tải.
  */
+/** E57 — gửi MỘT ảnh để máy đọc thử và đoán ngôn ngữ. Trả 202 + `{ id }`, hỏi lại bằng
+ * `layNhanDangNgonNgu`.
+ *
+ * Bộ đếm RIÊNG, không trừ hạn mức trang — xem `POST /nhan-dang-ngon-ngu` ở docs/API.md.
+ */
+export const guiNhanDangNgonNgu = (file) => {
+  const form = new FormData()
+  form.append('file', file)
+  return fetch(`${BASE}/nhan-dang-ngon-ngu`, { method: 'POST', body: form }).then(doc)
+}
+
+/** Kết quả một lượt đọc thử.
+ *
+ * ⚠️ Đọc trường `xong`, **đừng tự suy từ `trang_thai`**. Và `ngon_ngu === null` KHÔNG phải lỗi:
+ * nó nghĩa là máy đã đọc xong mà không đủ căn cứ — lúc đó phải để người dùng tự chọn.
+ */
+export const layNhanDangNgonNgu = (id) => fetch(`${BASE}/nhan-dang-ngon-ngu/${id}`).then(doc)
+
 export const guiTrangDichNhanh = (file, { sourceLang = 'ja', cheDo = 'day_du' } = {}) => {
   const form = new FormData()
   form.append('file', file)

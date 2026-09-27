@@ -112,6 +112,15 @@ def test_celery_da_dang_ky_dung_task_detect_cua_m2():
         # Hai lớp bảo vệ khác: `bat_lich_don_tep` mặc định TẮT nên lịch không được đăng ký, và
         # bản thân task kiểm lại cờ đó trước khi làm gì.
         "vong_doi.don_tep_het_han",
+        # E57 — đọc thử một ảnh để ĐOÁN NGÔN NGỮ. Khai ở đây vì nó chạy OCR nền, và chốt này tồn
+        # tại để không ai thêm được một việc chạy nền trong im lặng.
+        #
+        # KHÔNG gọi mô hình ngoài, KHÔNG tốn tiền: dùng đúng model PaddleOCR mà pipeline đã nạp sẵn
+        # cho `source_lang` zh/en (đo được từ điển của nó có 86/96 hiragana + 94/96 katakana, nên
+        # nó đọc được cả kana — xem `services/nhan_dang_ngon_ngu.py`).
+        #
+        # KHÔNG tự chạy theo lịch: chỉ khởi động khi người dùng bấm "Đọc thử trang đầu".
+        "ngon_ngu.run_nhan_dang_job",
     }, user_tasks
 
 

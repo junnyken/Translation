@@ -46,12 +46,23 @@ def _header_cookie(danh_tinh: DanhTinhHanMuc, settings: Settings) -> dict[str, s
 
 
 def loi_vuot_han_muc(
-    *, danh_tinh: DanhTinhHanMuc, settings: Settings, can: int, con_lai: int, chot: Chot
+    *,
+    danh_tinh: DanhTinhHanMuc,
+    settings: Settings,
+    can: int,
+    con_lai: int,
+    chot: Chot,
+    tran: int | None = None,
 ) -> HTTPException:
     """429 kèm đủ thứ người dùng cần để hiểu: cần bao nhiêu, còn bao nhiêu, bao giờ có lại.
 
     Thông báo mơ hồ kiểu "đã có lỗi" là thứ làm người dùng tưởng hệ thống hỏng rồi bấm lại liên
     tục — vừa vô ích cho họ vừa tốn tài nguyên của mình.
+
+    `tran` **phải** truyền khi bộ đếm không phải hạn mức TRANG (E57 dùng bộ đếm riêng cho lượt nhận
+    dạng ngôn ngữ). `Chot.tran` luôn là trần của hạn mức trang, nên để mặc định ở một đường khác sẽ
+    in ra một con số **đúng định dạng nhưng sai nội dung** — người dùng đọc "trần 10" cho một bộ đếm
+    có trần 20. Bài test khẳng định vào chính con số này mới lộ ra chỗ đó.
     """
     reset = moc_reset_ke_tiep()
     con_giay = max(0, int((reset - bay_gio()).total_seconds()))
@@ -63,7 +74,7 @@ def loi_vuot_han_muc(
             "loi": MA_LOI,
             "can": can,
             "con_lai": con_lai,
-            "tran": chot.tran,
+            "tran": tran if tran is not None else chot.tran,
             "co_tai_khoan": danh_tinh.co_tai_khoan,
             # Chốt nào chặn: `khach_ip` nghĩa là chặn vì DÙNG CHUNG địa chỉ mạng, không phải vì
             # chính người này dùng nhiều. Không nói ra thì người ở văn phòng/quán cà phê không

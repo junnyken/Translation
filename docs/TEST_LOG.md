@@ -6196,3 +6196,58 @@ thiếu `min-width: 0` thì flex item không co nhỏ hơn nội dung, nên `max
 được 1 tháng. Cách duy nhất phát hiện là mở khung 390px trên Chrome thật và **đo `scrollWidth`**.
 Phép kiểm cho chỗ này nằm ở quy trình bấm tay, không nằm trong bộ test — ghi ra để không ai tưởng
 đã có bài canh.
+
+### E57 — hai lỗi mà chỉ MỘT bài test chạm tới
+
+**`NameError: loi_vuot_han_muc`** — dùng hàm mà quên import. Chỉ **hai bài hạn mức** đi qua dòng đó;
+mọi bài khác đi đường thành công. Thiếu chúng thì lỗi nổ đúng lúc người dùng đầu tiên hết lượt, tức
+đúng lúc tệ nhất.
+
+**429 in ra con số ĐÚNG ĐỊNH DẠNG nhưng SAI NỘI DUNG** — `loi_vuot_han_muc` lấy `chot.tran`, mà
+`Chot.tran` luôn là trần hạn mức **trang**. Lượt vượt trần nhận dạng báo *"trần 10"* trong khi trần
+thật là 20. Lộ ra **chỉ vì** bài test khẳng định `ct["tran"] == 2`, không phải `status_code == 429`.
+
+⇒ Bài học chung cho cả hai: **khẳng định vào GIÁ TRỊ, đừng chỉ khẳng định MÃ TRẠNG THÁI.** Một phản
+hồi 429 đúng hình dạng mà sai số liệu vẫn làm người dùng đọc sai về chính hạn mức của họ — và không có
+log nào kêu.
+
+### E57 — năm đối chứng âm
+
+| Phá gì | Bài đỏ |
+|---|---|
+| Bỏ nhánh GIỮA của phép kiểm chủ sở hữu | `test_nguoi_dang_nhap_KHONG_doc_duoc_luot_cua_khach` |
+| Dùng chung bộ đếm với hạn mức trang | `test_KHONG_tru_han_muc_TRANG` |
+| Bỏ chốt chạy-lại của task | `test_task_chay_LAI…` — nổ `UnsafeObjectPath: Path hiện vật rỗng`, đúng hậu quả đã dự đoán |
+| Bỏ khoá nút Dịch khi ô còn `tu-nhan` | `KHONG_gui_duoc_khi_o_chon_con_o_tu_nhan` |
+| Không kết luận thì chọn bừa `ja` | `khong_ket_luan_thi_HOI_LAI_chu_khong_chon_bua` |
+
+**Một lượt đối chứng âm KHÔNG chạy mà tôi suýt tính là đã chạy:** heredoc Python bị lỗi cú pháp
+(`unterminated triple-quoted string`), tệp không hề đổi, và bộ test in ra "24 passed" — trông y như
+một đối chứng âm thất bại vì bài canh yếu. Thực ra là **phép phá chưa được áp**. Từ đó: sau mỗi lượt
+sửa để đối chứng, **in ra đoạn mã đã sửa** rồi mới chạy test; "vẫn xanh" chỉ có nghĩa khi biết chắc
+mã đã đổi.
+
+### E57 — Redis của môi trường test nằm ở cổng 6380
+
+Bộ test chặn broker bằng fixture `fake_dispatch` (autouse), nhưng nó chỉ chặn `dispatch_detect_job`.
+Đường mới đẩy việc qua broker thật ⇒ mỗi bài ngồi thử kết nối Redis **20 lần** rồi mới bỏ: 9 bài đỏ
+vì hạ tầng, và chậm tới mức tưởng là treo. Thêm đường mới vào `fake_dispatch` là xong. Bài học: thêm
+một `dispatch_*` mới thì phải thêm nó vào fixture đó **cùng lúc**.
+
+### E57 — "không dựng được đường dẫn" là một ĐIỂM MÙ, không phải một ngoại lệ vô hại
+
+Phép quét chéo tài khoản tự sinh đường dẫn từ OpenAPI. Endpoint nào nó không dựng được id cho thì rơi
+vào nhóm `khong_dung_duoc` — và **nó không kiểm endpoint đó chút nào**.
+
+`GET /nhan-dang-ngon-ngu/{yeu_cau_id}` rơi vào đó. Cách dễ là ghi vào `MIEN_TRU`. Nhưng đây là đường
+trả về **chữ đã đọc từ ảnh của người khác**, tức đúng loại dữ liệu phép quét tồn tại để bảo vệ.
+
+Cách đúng: **dựng một bản ghi thật của A** trong `_dung_du_lieu` và trả `yeu_cau_id`. Phép quét nay
+thật sự thử "B gọi vào lượt của A" và đòi non-2xx ⇒ **mạnh hơn trước**, không phải yếu đi.
+
+Phân biệt với `POST /nhan-dang-ngon-ngu`, được miễn trừ vì một lý do khác hẳn: nó không nhận id nào —
+tạo bản ghi mới của chính người gọi, nên "B nhận 202" là ĐÚNG. Mô hình "B được 2xx = lọt" không áp
+được cho đường tạo mới.
+
+⇒ Khi một phép quét tự sinh báo "không dựng được", hỏi **endpoint đó trả về gì** trước khi miễn trừ.
+Miễn trừ một đường ĐỌC dữ liệu người khác là gỡ đúng phần có giá trị nhất của phép quét.

@@ -795,3 +795,9 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 /* Nút xếp hàng, tự xuống dòng ở khổ hẹp — `nowrap` sẽ đẩy nút "Huỷ" ra ngoài màn điện thoại,
    đúng lỗi đã đo được ở header (REPORT_E54 §7). */
 .hang-nut { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+
+/* E57 — khối "đọc thử để đoán ngôn ngữ". Nằm dưới ô chọn, chỉ hiện khi người dùng chọn "Tự nhận".
+   Không thêm màu mới: kết quả đã dùng <Alert> có sẵn (ok / cảnh báo), và màu ở đó KHÔNG BAO GIỜ là
+   nguồn thông tin duy nhất — luôn kèm tiêu đề chữ + icon. */
+.khoi-nhan-dang { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 8px; }
+.khoi-nhan-dang .ghi-chu { margin: 0; flex: 1 1 220px; min-width: 0; }

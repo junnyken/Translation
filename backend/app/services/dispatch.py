@@ -168,3 +168,20 @@ def dispatch_term_suggestion_job(run_id: uuid.UUID) -> tuple[bool, str | None]:
         reason = f"enqueue_failed: {type(exc).__name__}: {exc}"
         logger.error("Không đẩy được lượt gợi ý thuật ngữ %s: %s", run_id, reason)
         return False, reason
+
+
+def dispatch_nhan_dang_ngon_ngu(yeu_cau_id: uuid.UUID) -> tuple[bool, str | None]:
+    """Trả (đã_gửi, lý_do_lỗi). Cùng nguyên tắc với detect/ocr: broker chết thì NÓI THẬT.
+
+    Nói thật ở đây quan trọng hơn bình thường: người dùng đang đứng chờ một câu trả lời để bấm tiếp.
+    Trả 202 rồi im lặng mãi sẽ làm họ ngồi đợi một việc chưa bao giờ được xếp hàng.
+    """
+    try:
+        from app.workers.tasks import run_nhan_dang_ngon_ngu_job
+
+        run_nhan_dang_ngon_ngu_job.delay(str(yeu_cau_id))
+        return True, None
+    except Exception as exc:  # noqa: BLE001
+        reason = f"enqueue_failed: {type(exc).__name__}: {exc}"
+        logger.error("Không đẩy được lượt nhận dạng ngôn ngữ %s: %s", yeu_cau_id, reason)
+        return False, reason

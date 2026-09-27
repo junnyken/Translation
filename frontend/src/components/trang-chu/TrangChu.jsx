@@ -10,11 +10,22 @@ import TheHanMuc from './TheHanMuc'
 
 /** Ngôn ngữ chữ TRÊN ẢNH. Sai ngôn ngữ ra chữ vô nghĩa chứ không phải lỗi rõ ràng, nên phải để
  *  người dùng tự chọn — không đoán hộ. */
+/** E57 — giá trị của ô chọn khi người dùng muốn MÁY đoán.
+ *
+ * Cố ý KHÔNG phải một `source_lang` hợp lệ: nó không bao giờ được gửi lên đường dịch. Nút "Dịch
+ * trang" bị khoá khi ô còn ở giá trị này, vì gửi nó đi là nhận 422 — và người dùng sẽ đọc một lỗi
+ * kỹ thuật cho một lựa chọn mà chính giao diện mời họ chọn.
+ */
+const TU_NHAN = 'tu-nhan'
+
 const NGON_NGU = [
+  { ma: TU_NHAN, nhan: 'Tự nhận — để máy đọc thử và đoán' },
   { ma: 'ja', nhan: 'Tiếng Nhật' },
   { ma: 'en', nhan: 'Tiếng Anh' },
   { ma: 'zh', nhan: 'Tiếng Trung' },
 ]
+
+const TEN_NGON_NGU = { ja: 'Tiếng Nhật', en: 'Tiếng Anh', zh: 'Tiếng Trung' }
 
 /** Số phút giữ kết quả lấy từ MÁY CHỦ (`han_muc.giu_ket_qua_phut`), không gõ cứng ở đây.
  *
@@ -77,6 +88,9 @@ function TienDoTrang({ tienDo }) {
 export default function TrangChu({ onMoDangNhap }) {
   const [files, setFiles] = useState([])
   const [ngonNgu, setNgonNgu] = useState('ja')
+  const [dangNhanDang, setDangNhanDang] = useState(false)
+  const [ketQuaNhanDang, setKetQuaNhanDang] = useState(null)
+  const [loiNhanDang, setLoiNhanDang] = useState(null)
   const [dangChay, setDangChay] = useState(false)
   const [trang, setTrang] = useState([])          // [{page_id, ten, xong, buoc, loi}]
   const [projectId, setProjectId] = useState(null)
@@ -113,6 +127,43 @@ export default function TrangChu({ onMoDangNhap }) {
   const giuPhut = hanMuc?.giu_ket_qua_phut ?? null
   const coTuXoa = typeof giuPhut === 'number'
   const thieuLuot = conLai !== null && files.length > conLai
+
+  /** E57 — đọc thử trang ĐẦU rồi đặt ô chọn theo kết quả.
+   *
+   * Chỉ trang đầu: một chapter cùng một ngôn ngữ, đọc thử cả mẻ là tốn công và tốn lượt vô ích.
+   *
+   * KHÔNG tự chạy khi người dùng chọn tệp: nó tốn một lượt của bộ đếm riêng, và tự tiêu lượt của
+   * người dùng cho một việc họ chưa yêu cầu là sai. Phải bấm.
+   */
+  async function nhanDangNgonNgu() {
+    if (!files.length) return
+    setDangNhanDang(true)
+    setKetQuaNhanDang(null)
+    setLoiNhanDang(null)
+    try {
+      const { id } = await api.guiNhanDangNgonNgu(files[0])
+      // Hỏi lại tới khi `xong`. Trần lượt hỏi để một việc kẹt không làm vòng lặp chạy mãi.
+      let kq = null
+      for (let i = 0; i < 40; i++) {
+        await new Promise((r) => setTimeout(r, 1500))
+        if (huy.current) return
+        kq = await api.layNhanDangNgonNgu(id)
+        if (kq.xong) break
+      }
+      if (huy.current) return
+      if (!kq?.xong) {
+        setLoiNhanDang(new Error('Đọc thử lâu hơn bình thường. Bạn chọn tay giúp nhé.'))
+        return
+      }
+      setKetQuaNhanDang(kq)
+      // Đặt ô chọn theo kết quả — người dùng vẫn sửa lại được, đó là điểm chính của cách này.
+      if (kq.ngon_ngu) setNgonNgu(kq.ngon_ngu)
+    } catch (e) {
+      setLoiNhanDang(e)
+    } finally {
+      if (!huy.current) setDangNhanDang(false)
+    }
+  }
 
   async function batDau() {
     setDangChay(true)
@@ -293,6 +344,56 @@ export default function TrangChu({ onMoDangNhap }) {
             Chọn sai thì chữ dịch ra vô nghĩa mà không có báo lỗi nào — nên chọn đúng tiếng của
             trang bạn đang đọc.
           </p>
+
+          {ngonNgu === TU_NHAN && (
+            <div className="khoi-nhan-dang">
+              <Button
+                onClick={nhanDangNgonNgu} dangChay={dangNhanDang}
+                lyDoKhoa={!files.length ? 'Chọn ít nhất một trang trước' : undefined}
+              >
+                {dangNhanDang ? 'Đang đọc thử…' : 'Đọc thử trang đầu'}
+              </Button>
+              <p className="ghi-chu">
+                Máy đọc chữ trên trang đầu rồi đoán. Không tính vào lượt dịch của bạn.
+              </p>
+            </div>
+          )}
+
+          {loiNhanDang && (
+            <Alert sac="canh" tieuDe="Chưa đọc thử được">
+              {String(loiNhanDang.cauNguoiDoc || loiNhanDang.message || loiNhanDang)
+                .replace(/^\d+:\s*/, '')}
+              {' '}Bạn chọn tay ở ô trên giúp nhé.
+            </Alert>
+          )}
+
+          {ketQuaNhanDang && (
+            ketQuaNhanDang.ngon_ngu
+              ? (
+                <Alert sac="ok" tieuDe={`Máy đoán: ${TEN_NGON_NGU[ketQuaNhanDang.ngon_ngu]}`}>
+                  {/* HIỆN SỐ ĐO, không chỉ nói "đã nhận dạng": một kết luận không kèm bằng chứng
+                      thì người dùng không có cách nào biết nên tin bao nhiêu. */}
+                  {ketQuaNhanDang.bang_chung && (
+                    <>
+                      Đọc được <strong>{ketQuaNhanDang.bang_chung.tong_co_nghia}</strong> ký tự
+                      {ketQuaNhanDang.bang_chung.kana > 0 && <> (<strong>{ketQuaNhanDang.bang_chung.kana}</strong> chữ kana của tiếng Nhật)</>}
+                      {ketQuaNhanDang.bang_chung.kana === 0 && ketQuaNhanDang.bang_chung.han > 0 && <> (<strong>{ketQuaNhanDang.bang_chung.han}</strong> chữ Hán, không có kana)</>}
+                      .{' '}
+                    </>
+                  )}
+                  Ô chọn ở trên đã đổi theo. <strong>Sai thì bạn sửa lại</strong> — máy đoán từ chữ
+                  đọc được, không phải luôn đúng.
+                </Alert>
+              )
+              : (
+                <Alert sac="canh" tieuDe="Máy không đoán được">
+                  {ketQuaNhanDang.ly_do?.startsWith('khong_doc_duoc_chu_nao')
+                    ? 'Trang này máy không đọc ra chữ nào (có thể là trang bìa, hoặc chữ quá mờ).'
+                    : 'Máy đọc được chữ nhưng không đủ để chắc chắn.'}
+                  {' '}Bạn chọn tay ở ô trên giúp nhé — chọn sai thì chữ dịch ra vô nghĩa.
+                </Alert>
+              )
+          )}
         </div>
 
         {thieuLuot && (
@@ -306,9 +407,12 @@ export default function TrangChu({ onMoDangNhap }) {
           kieu="chinh" onClick={batDau} dangChay={dangChay}
           lyDoKhoa={
             !files.length ? 'Chọn ít nhất một trang'
-              : thieuLuot ? 'Nhiều hơn số lượt còn lại'
-                : conLai === 0 ? 'Hết lượt hôm nay'
-                  : undefined
+              // Gửi `tu-nhan` lên đường dịch là nhận 422 — người dùng sẽ đọc một lỗi kỹ thuật cho
+              // một lựa chọn mà chính giao diện mời họ chọn.
+              : ngonNgu === TU_NHAN ? 'Bấm "Đọc thử trang đầu", hoặc chọn tay một ngôn ngữ'
+                : thieuLuot ? 'Nhiều hơn số lượt còn lại'
+                  : conLai === 0 ? 'Hết lượt hôm nay'
+                    : undefined
           }
         >
           {dangChay ? 'Đang dịch…' : `Dịch ${files.length || ''} trang`.trim()}

@@ -1187,6 +1187,52 @@ cho người dùng (họ muốn đăng xuất, và họ đã đăng xuất) mà 
 Trả `NguoiDungRead` của phiên hiện tại. `401` nếu phiên hỏng/hết hạn. Giao diện gọi lúc mở app
 để biết mã lưu trong máy còn dùng được không.
 
+### `POST /api/v1/nhan-dang-ngon-ngu` → 202 *(E57 — đọc thử để đoán ngôn ngữ)*
+
+`multipart/form-data`, một `file` ảnh. Trả `202` + `id`, hỏi lại bằng `GET`.
+
+```json
+{"id": "…", "trang_thai": "queued", "xong": false, "ngon_ngu": null,
+ "ly_do": null, "bang_chung": null, "con_lai_hom_nay": 19}
+```
+
+**Bộ đếm RIÊNG, không trừ hạn mức trang.** Trần `SO_LAN_NHAN_DANG_NGON_NGU_MOT_NGAY` (mặc định 20),
+đếm trên **mọi chốt** của người gọi. Trừ vào hạn mức trang sẽ làm khách 6 lượt mất 1 lượt chỉ vì bấm
+"Tự nhận" — tính năng càng dùng càng đắt, người ta tránh nó rồi quay lại chọn tay sai.
+
+**Ảnh bị xoá ngay sau khi đọc**, kể cả khi lỗi. Nó là rác tạm, không ai tải về.
+
+| Mã | Khi nào |
+|---|---|
+| `413` | ảnh vượt `MAX_UPLOAD_MB` |
+| `422` | tệp rỗng · không phải ảnh |
+| `429` | hết lượt đọc thử. `detail.tran` là trần của **bộ đếm này**, không phải trần trang |
+
+Tệp hỏng **không** mất lượt (giữ lượt sau khi kiểm tệp). Hết lượt thì **không ghi tệp nào** và bản ghi
+cũng không được tạo.
+
+### `GET /api/v1/nhan-dang-ngon-ngu/{id}` → 200
+
+```json
+{"id": "…", "trang_thai": "done", "xong": true, "ngon_ngu": "ja",
+ "ly_do": "co_11_kana",
+ "bang_chung": {"kana": 11, "han": 5, "latin": 0, "hangul": 0, "chu_cai_khac": 0,
+                "tong_co_nghia": 16, "so_vung_doc_duoc": 3, "so_vung_da_thu": 3}}
+```
+
+⚠️ **Đọc `xong`, đừng tự suy từ `trang_thai`.**
+
+⚠️ **`ngon_ngu: null` KHÔNG phải lỗi.** Nó nghĩa là *đã đọc xong và không đủ căn cứ* — ảnh không có
+chữ, quá ít chữ, hoặc hệ chữ không hỗ trợ (Hàn, Nga). Giao diện phải **hỏi lại người dùng**, không
+được chọn bừa một trong ba. Phân biệt với `trang_thai: "failed"`, nghĩa là *không đọc được* (engine
+hỏng). Trộn hai cái là làm người dùng không biết "ảnh của tôi không có chữ" khác "hệ thống đang lỗi".
+
+`bang_chung` có để giao diện **hiện số đo ra**: một kết luận không kèm bằng chứng thì người dùng không
+có cách nào biết nên tin bao nhiêu. Đây cũng là thứ duy nhất để đối chiếu khi có người báo nhận sai.
+
+`404` nếu không có **hoặc không phải của người gọi** (không dùng `403` — nó xác nhận "id này tồn tại",
+tức một đường dò).
+
 ### `PATCH /api/v1/auth/me` → 200 *(E56 — tự sửa tài khoản CỦA MÌNH)*
 
 Gửi cái nào thì đổi cái đó. Đổi mật khẩu phải gửi **cả hai** trường mật khẩu.

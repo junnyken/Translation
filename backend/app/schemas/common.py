@@ -98,6 +98,36 @@ class DangNhapResponse(BaseModel):
     nguoi_dung: NguoiDungRead
 
 
+class NhanDangNgonNguRead(BaseModel):
+    """Kết quả một lượt "đọc thử ảnh để đoán ngôn ngữ" (E57).
+
+    ## `ngon_ngu = null` KHÔNG phải lỗi
+
+    Nó nghĩa là **máy đã đọc xong và không đủ căn cứ** — ảnh không có chữ, quá ít chữ, hay hệ chữ
+    không hỗ trợ (Hàn, Nga). Giao diện phải HỎI LẠI người dùng, không được chọn bừa một trong ba.
+
+    Phân biệt với `trang_thai = "failed"`, nghĩa là **không đọc được** (engine hỏng, ảnh không mở
+    được). Trộn hai cái này là làm người dùng không biết "ảnh của tôi không có chữ" khác "hệ thống
+    đang lỗi".
+
+    ## Vì sao TRẢ CẢ `bang_chung`
+
+    Một kết luận không kèm số đo thì người dùng không có cách nào biết nên tin bao nhiêu. Giao diện
+    hiện thẳng con số: *"đọc được 42 ký tự, 11 kana ⇒ tiếng Nhật"*. Đây cũng là thứ duy nhất để đối
+    chiếu khi có người báo nhận sai.
+    """
+
+    id: uuid.UUID
+    trang_thai: JobStatus
+    xong: bool = Field(description="Đã chạy xong hay chưa — ĐỪNG tự suy từ `trang_thai`")
+    ngon_ngu: SourceLang | None = None
+    ly_do: str | None = None
+    bang_chung: dict | None = None
+    loi: str | None = None
+    #: Số lượt đọc thử còn lại hôm nay. Có để giao diện không mời người dùng bấm một nút sắp hết.
+    con_lai_hom_nay: int | None = None
+
+
 class SuaTaiKhoanRequest(BaseModel):
     """Người dùng tự sửa tài khoản CỦA MÌNH (E56).
 

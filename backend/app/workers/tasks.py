@@ -3055,3 +3055,76 @@ def don_tep_het_han_task() -> dict:
     except Exception as exc:  # noqa: BLE001 — xem docstring
         logger.exception("lượt dọn tệp hết hạn hỏng")
         return {"status": "failed", "error": f"{type(exc).__name__}: {exc}"}
+
+
+@celery_app.task(name="ngon_ngu.run_nhan_dang_job")
+def run_nhan_dang_ngon_ngu_job(yeu_cau_id: str) -> dict:
+    """E57 — đọc thử một ảnh rồi đoán ngôn ngữ, ghi kết quả + BẰNG CHỨNG vào bản ghi.
+
+    ## Ảnh bị xoá NGAY sau khi đọc, dù thành công hay thất bại
+
+    Nó là rác tạm: không ai tải về, không phải hiện vật của ai. Giữ lại là giữ ảnh có bản quyền
+    không vì mục đích gì. Dọn trong `finally` để một lượt đọc hỏng cũng không để lại tệp.
+
+    ## "Không kết luận" ghi `done`, KHÔNG ghi `failed`
+
+    `done` + `ngon_ngu = NULL` nghĩa là **máy đã đọc xong và không đủ căn cứ** — một câu trả lời
+    hợp lệ, và giao diện phải hỏi lại người dùng. `failed` nghĩa là **không đọc được** (engine
+    hỏng, ảnh không mở được). Trộn hai cái này lại là làm giao diện không phân biệt được "ảnh của
+    bạn không có chữ" với "hệ thống đang lỗi".
+    """
+    import uuid as _uuid
+
+    from app.models import YeuCauNhanDangNgonNgu
+    from app.services.nhan_dang_ngon_ngu import nhan_dang_tu_anh
+
+    yc_id = _uuid.UUID(yeu_cau_id)
+    with sync_session() as session:
+        yc = session.get(YeuCauNhanDangNgonNgu, yc_id)
+        if yc is None:
+            return {"status": "not_found", "id": yeu_cau_id}
+        if yc.trang_thai is not JobStatus.queued:
+            # Chạy lại một lượt đã xong sẽ đọc một ảnh ĐÃ BỊ XOÁ và ghi `failed` lên một kết quả
+            # đúng. Celery có thể giao lại cùng một việc (worker chết giữa lượt), nên chốt này thật.
+            return {"status": "bo_qua", "trang_thai": yc.trang_thai.value, "id": yeu_cau_id}
+        yc.trang_thai = JobStatus.running
+        duong_anh = yc.duong_anh
+        session.commit()
+
+    storage = get_storage()
+    ket: dict = {"status": "done", "id": yeu_cau_id}
+    try:
+        with anh_cuc_bo(duong_anh) as image_path:
+            kq = nhan_dang_tu_anh(image_path)
+        with sync_session() as session:
+            yc = session.get(YeuCauNhanDangNgonNgu, yc_id)
+            yc.trang_thai = JobStatus.done
+            yc.ngon_ngu = kq.ngon_ngu
+            yc.ly_do = kq.ly_do[:120]
+            yc.bang_chung = kq.bang_chung.nhu_dict()
+            session.commit()
+        ket["ngon_ngu"] = kq.ngon_ngu.value if kq.ngon_ngu else None
+        ket["ly_do"] = kq.ly_do
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("lượt nhận dạng ngôn ngữ %s hỏng", yeu_cau_id)
+        with sync_session() as session:
+            yc = session.get(YeuCauNhanDangNgonNgu, yc_id)
+            if yc is not None:
+                yc.trang_thai = JobStatus.failed
+                yc.loi = f"{type(exc).__name__}: {exc}"[:2000]
+                session.commit()
+        ket = {"status": "failed", "id": yeu_cau_id, "error": f"{type(exc).__name__}"}
+    finally:
+        if duong_anh:
+            try:
+                storage.delete(duong_anh)
+                with sync_session() as session:
+                    yc = session.get(YeuCauNhanDangNgonNgu, yc_id)
+                    if yc is not None:
+                        yc.duong_anh = ""
+                        session.commit()
+            except Exception:  # noqa: BLE001
+                # Xoá không được thì ghi log chứ KHÔNG lật kết quả đã đúng thành lỗi: người dùng
+                # vẫn cần câu trả lời. Ảnh còn sót sẽ được lượt dọn định kỳ nhặt.
+                logger.exception("không xoá được ảnh tạm của lượt nhận dạng %s", yeu_cau_id)
+    return ket

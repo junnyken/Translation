@@ -132,6 +132,22 @@ class Settings(BaseSettings):
     #: việc tạo tài khoản thành cách lách hạn mức. Cần tinh chỉnh theo hành vi thật.
     so_tai_khoan_moi_moi_ip_mot_ngay: int = 3
 
+    # --- E57: tự nhận ngôn ngữ ---------------------------------------------------------------
+    #: Số lượt "đọc thử ảnh để đoán ngôn ngữ" mỗi chủ thể mỗi ngày.
+    #:
+    #: PHẢI có trần: đường này trả về chữ đã đọc được, tức là một dịch vụ OCR. Không có trần thì nó
+    #: thành OCR miễn phí không giới hạn — đúng thứ hạn mức trang của E49 được dựng để chặn.
+    #:
+    #: Đặt CAO hơn hạn mức trang (khách 6) có chủ đích: đoán ngôn ngữ là bước phụ trợ rẻ, và nếu nó
+    #: hết trước lượt dịch thì người dùng bị ép quay lại chọn tay — tức tính năng tự vô hiệu hoá
+    #: đúng lúc cần nhất. 20 là số ĐẶT RA, chưa hiệu chỉnh trên hành vi thật.
+    so_lan_nhan_dang_ngon_ngu_mot_ngay: int = 20
+
+    #: Xoá ảnh tạm của lượt đọc thử sau bao nhiêu giờ, nếu vì lý do nào đó nó chưa được dọn ngay.
+    #: Ảnh này là RÁC: không ai tải về, không phải hiện vật của ai. Giữ lại là giữ ảnh có bản quyền
+    #: không vì mục đích gì.
+    gio_giu_anh_nhan_dang: int = 6
+
     # --- E50: vòng đời tệp -------------------------------------------------------------------
     #: Giữ kết quả bao lâu (PHÚT) **kể từ lúc cả chapter xong**, không phải từ lúc tải lên.
     #: Một chapter 24 trang mất 30–40 phút để chạy; đếm từ lúc tải lên thì tệp hết hạn trước khi
