@@ -731,3 +731,17 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   .trang-chu-dau h1 { font-size: 22px; }
   .the-han-muc .so-luot strong { font-size: 22px; }
 }
+
+/* ---------- E54: Màn tài khoản (§4.4) ---------- */
+/* `dl` hai cột: nhãn nhạt, giá trị đậm. Không thêm màu mới, không thêm thẻ trang trí — §4.4 cấm
+   bày thêm số liệu không có thật, và một màn ngắn nói thật tốt hơn một màn đầy đặn bằng số bịa. */
+.man-tai-khoan {
+  display: grid; grid-template-columns: auto 1fr; gap: 6px 16px;
+  margin: 0 0 var(--khoang);
+}
+.man-tai-khoan dt { color: var(--mo); font-size: 13px; }
+.man-tai-khoan dd { margin: 0; font-size: 14px; word-break: break-all; }
+@media (max-width: 460px) {
+  .man-tai-khoan { grid-template-columns: 1fr; gap: 2px; }
+  .man-tai-khoan dd { margin-bottom: 8px; }
+}

@@ -16,7 +16,11 @@ const NGON_NGU = [
   { ma: 'zh', nhan: 'Tiếng Trung' },
 ]
 
-const GIU_PHUT = 30
+/** Số phút giữ kết quả lấy từ MÁY CHỦ (`han_muc.giu_ket_qua_phut`), không gõ cứng ở đây.
+ *
+ * `null` nghĩa là **không tự xoá**. Gõ cứng 30 là nói sai với người dùng ngay khi lịch dọn tắt —
+ * và nó đã sai thật: E50 ship với lịch mặc định tắt trong khi màn hình vẫn hứa xoá sau 30 phút.
+ */
 
 /** Tên bước cho người đọc. Máy chủ trả tên máy (`detect`, `ocr`…) ở `tien_do.buoc`. */
 const TEN_BUOC = {
@@ -105,6 +109,9 @@ export default function TrangChu({ onMoDangNhap }) {
   useEffect(() => { napHanMuc() }, [napHanMuc])
 
   const conLai = hanMuc?.con_lai ?? null
+  //: `null`/`undefined` ⇒ KHÔNG tự xoá. Phân biệt với `0` (xoá ngay) nên dùng `?? null`, không `||`.
+  const giuPhut = hanMuc?.giu_ket_qua_phut ?? null
+  const coTuXoa = typeof giuPhut === 'number'
   const thieuLuot = conLai !== null && files.length > conLai
 
   async function batDau() {
@@ -218,8 +225,8 @@ export default function TrangChu({ onMoDangNhap }) {
     if (xongLuc && trangXong.length && !daThuTuTai) taiKetQua(true)
   }, [xongLuc, trangXong.length, daThuTuTai, taiKetQua])
 
-  const mocHetHan = mocHetHanGiuTep(xongLuc, GIU_PHUT)
-  const daHetHan = mocHetHan && conLaiMs(mocHetHan) <= 0
+  const mocHetHan = coTuXoa ? mocHetHanGiuTep(xongLuc, giuPhut) : null
+  const daHetHan = Boolean(mocHetHan) && conLaiMs(mocHetHan) <= 0
 
   return (
     <main className="trang-chu">
@@ -250,11 +257,20 @@ export default function TrangChu({ onMoDangNhap }) {
             <Icon ten="dong-ho" co={14} /> Mỗi trang mất <strong>khoảng 30 giây</strong>. Máy
             không treo — cứ để tab mở.
           </li>
-          <li>
-            <strong>Kết quả chỉ giữ {GIU_PHUT} phút</strong> kể từ lúc dịch xong. Sau đó
-            {' '}<strong>ảnh gốc, bản dịch và tệp đã gói đều bị xoá</strong>: không chạy lại được,
-            không sửa lại được. Muốn làm lại phải tải lên từ đầu và tốn thêm lượt.
-          </li>
+          {/* Câu này phải khớp CẤU HÌNH THẬT của máy chủ. Hứa xoá trong khi không xoá, hay hứa
+              giữ trong khi sẽ xoá — cả hai đều là nói sai với người dùng về dữ liệu của họ. */}
+          {coTuXoa ? (
+            <li>
+              <strong>Kết quả chỉ giữ {giuPhut} phút</strong> kể từ lúc dịch xong. Sau đó
+              {' '}<strong>ảnh gốc, bản dịch và tệp đã gói đều bị xoá</strong>: không chạy lại được,
+              không sửa lại được. Muốn làm lại phải tải lên từ đầu và tốn thêm lượt.
+            </li>
+          ) : (
+            <li>
+              Kết quả <strong>không tự xoá</strong> theo giờ. Nhưng vẫn nên tải về ngay — đây
+              không phải chỗ lưu trữ lâu dài, và chính sách có thể đổi.
+            </li>
+          )}
           <li>Nhận ảnh <strong>PNG, JPG, WebP</strong>. Mỗi tệp tối đa 25 MB.</li>
           <li>Dịch được chữ <strong>Nhật, Anh, Trung</strong> → tiếng Việt.</li>
         </ul>
@@ -332,8 +348,13 @@ export default function TrangChu({ onMoDangNhap }) {
         <section className="ket-qua" aria-labelledby="tieu-de-ket-qua">
           <h2 id="tieu-de-ket-qua" className="nho">Kết quả</h2>
 
-          {daHetHan ? (
-            <Alert sac="loi" tieuDe={`Đã quá ${GIU_PHUT} phút — tệp không còn nữa`}>
+          {!coTuXoa ? (
+            <Alert sac="tin" tieuDe="Nhớ tải về">
+              Kết quả <strong>không tự xoá</strong> theo giờ, nhưng đây không phải chỗ lưu trữ lâu
+              dài — tải về rồi hãy đóng tab.
+            </Alert>
+          ) : daHetHan ? (
+            <Alert sac="loi" tieuDe={`Đã quá ${giuPhut} phút — tệp không còn nữa`}>
               Ảnh gốc, bản dịch và tệp đã gói đều đã bị xoá. Muốn có lại thì phải tải lên từ đầu
               và tốn thêm lượt.
             </Alert>

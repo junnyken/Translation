@@ -21,6 +21,7 @@ import VoiceProfileManager from './components/consistency/VoiceProfileManager.js
 import ReviewToolbar from './components/chapter/ReviewToolbar.jsx'
 import ManDangNhap from './components/auth/ManDangNhap.jsx'
 import TrangChu from './components/trang-chu/TrangChu.jsx'
+import ManTaiKhoan from './components/auth/ManTaiKhoan.jsx'
 import BangChuaCoChu from './components/auth/BangChuaCoChu.jsx'
 import QuanTriNguoiDung from './components/auth/QuanTriNguoiDung.jsx'
 import Alert from './components/ui/Alert.jsx'
@@ -60,6 +61,8 @@ export default function App({ urlBundle } = {}) {
   const [nguoiDung, setNguoiDung] = useState(undefined)
   //: Khách lạ đã bấm "Đăng nhập" chưa. `false` ⇒ hiện TRANG CHỦ (§4.1: không chặn ở cửa).
   const [muonDangNhap, setMuonDangNhap] = useState(false)
+  //: Màn tài khoản (§4.4) đang mở hay không.
+  const [moTaiKhoan, setMoTaiKhoan] = useState(false)
   //: ĐX-1 — đang mở đường nào ở màn chính: `nhanh` (thả file là chạy) hay `day_du` (có rà soát).
   const [duong, setDuong] = useState('nhanh')
   const [{ pageId, projectId }, setDiaChi] = useState(docDiaChi)
@@ -457,6 +460,9 @@ export default function App({ urlBundle } = {}) {
       {/* Tab mở sẵn từ trước lúc deploy chạy frontend cũ trên backend mới ⇒ báo lỗi SAI dù đã lưu
           (REPORT_E21b §11.3). Đặt trên cùng vì nó giải thích những lỗi giả mà người dùng sắp thấy. */}
       <BangBanMoi urlBundle={urlBundle} />
+      {moTaiKhoan && (
+        <ManTaiKhoan nguoiDung={nguoiDung} onDong={() => setMoTaiKhoan(false)} />
+      )}
       <header className="dau-trang">
         <a className="hieu" href="#">
           <span className="hieu-dau">T</span>
@@ -472,7 +478,14 @@ export default function App({ urlBundle } = {}) {
             document.getElementById('nut-tao')?.scrollIntoView({ block: 'center' })
           }}>Tạo chapter</a>
           <span className="tai-khoan">
-            <span title={nguoiDung.email}>{nguoiDung.ten_hien || nguoiDung.email}</span>
+            {/* E54 — bấm vào tên mở màn TÀI KHOẢN (§4.4). Trước đây tên chỉ là chữ tĩnh, nên
+                người dùng không có chỗ nào xem hạn mức của mình sau khi đăng nhập. */}
+            <button
+              type="button" className="nut-chu" title={nguoiDung.email}
+              onClick={() => setMoTaiKhoan(true)}
+            >
+              {nguoiDung.ten_hien || nguoiDung.email}
+            </button>
             <button type="button" className="nut-chu" onClick={async () => {
               await api.dangXuat()
               setNguoiDung(null)

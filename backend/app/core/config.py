@@ -66,6 +66,21 @@ class Settings(BaseSettings):
     #: Không dùng chung tệp trạng thái của `deploy-start.sh`: tệp đó do shell ghi, worker ghi đè
     #: vào sẽ đá nhau. Hai người ghi một tệp là cách chắc chắn để mất dữ liệu của cả hai.
     worker_rss_file: str = "/tmp/rss-worker.json"
+    #: E55 — worker tự ghi dấu "TÔI ĐÃ SẴN SÀNG" ra đây, một lần, khi Celery báo `worker_ready`.
+    #:
+    #: Vì sao cần tệp THỨ BA thay vì ghi vào hai tệp đã có:
+    #:
+    #: * tệp trạng thái của `deploy-start.sh` do **shell** ghi — hai người ghi một tệp là mất dữ
+    #:   liệu của cả hai (lý do đã ghi ở `worker_rss_file` bên trên);
+    #: * `worker_rss_file` bị ghi ĐÈ toàn bộ mỗi lần đo RSS, nên một trường "sẵn sàng" nhét vào đó
+    #:   sẽ bị xoá ở mốc RSS kế tiếp.
+    #:
+    #: Vấn đề đang vá: nhánh `ROLE=all` của `deploy-start.sh` ghi `starting` MỘT lần rồi chỉ ghi
+    #: `restarting` khi worker chết — nên worker chạy tốt hai ngày vẫn báo `starting`. Đo được
+    #: 26-09: `trang_thai: starting` suốt **42 giờ** trong khi `rss_moc` chứng minh nó đã chạy
+    #: xong một bước xoá chữ. Shell không có cách nào biết worker đã nạp xong model, nên dấu này
+    #: phải do CHÍNH worker ghi.
+    worker_ready_file: str = "/tmp/worker-ready.json"
 
     # --- Hạn mức sử dụng ---------------------------------------------------------------------
     #: Hạn mức theo TRANG mỗi ngày. Đơn vị là trang chứ không phải chapter/tệp/lần bấm, vì chi

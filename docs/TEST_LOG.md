@@ -6077,3 +6077,56 @@ khi chưa xong.
 
 ⇒ Mốc chờ phải là chuỗi **chỉ xuất hiện ở trạng thái đích** ("xong 1/1 trang"), không phải một từ
 cũng có trong phần mô tả tĩnh.
+
+---
+
+## 2026-09-27 — E54 nói đúng chính sách giữ tệp · E55 worker `starting` vĩnh viễn
+
+### Một câu SAI trên màn, phát hiện nhờ chính quyết định của chủ dự án
+
+Chủ dự án chốt **không bật** lịch dọn. Ngay lúc đó câu trên trang chủ — *"kết quả chỉ giữ 30 phút,
+sau đó bị xoá"* — thành **sai**: tệp không hề bị xoá.
+
+Không mất dữ liệu, nhưng đó là giao diện nói sai về dữ liệu của người dùng, và làm họ gấp gáp tải về
+vì một lý do không tồn tại.
+
+⇒ Con số này **không thể** ở phía giao diện: nó phụ thuộc hai biến môi trường VÀ phụ thuộc người gọi
+là khách lạ hay đã đăng nhập. Cùng một cấu hình cho hai câu trả lời khác nhau. Bài canh
+`test_KHACH_bi_xoa_nhung_TAI_KHOAN_thi_khong` khoá đúng hàng đó.
+
+### Hai trường trong cùng một phản hồi nói NGƯỢC nhau
+
+Đo 26-09 trên production:
+
+```json
+"worker": {"trang_thai": "starting", "luc": "2026-09-25T04:35:45Z",
+           "rss_moc": "inpaint: sau", "rss_luc": "2026-09-25T09:55:23+00:00"}
+```
+
+`starting` suốt **42 giờ**, trong khi `rss_moc` chứng minh worker đã chạy xong một bước xoá chữ.
+Gốc: `deploy-start.sh` nhánh `ROLE=all` ghi `starting` một lần rồi chỉ ghi `restarting` khi chết.
+
+Cách vá **không** phải sửa shell — shell không có cách nào biết worker đã nạp xong model, nên ghi
+`running` trước khi gọi lệnh là **đoán**. Dấu sẵn sàng do CHÍNH worker ghi ở tín hiệu `worker_ready`.
+
+Và nó phải là tệp **thứ ba**: tệp của shell thì hai người ghi sẽ mất dữ liệu của cả hai; còn
+`worker_rss_file` bị ghi ĐÈ TOÀN BỘ mỗi lần đo RSS nên trường "sẵn sàng" sẽ bị xoá ở mốc kế tiếp.
+
+### Thứ tự nhánh là chỗ dễ sai nhất, và đối chứng âm chứng minh nó
+
+`restarting` phải thắng dấu sẵn sàng: shell vừa **quan sát** một lần thoát, mạnh hơn một dấu còn sót
+từ lần chạy trước. Đảo thứ tự ⇒ `test_shell_noi_restarting_thi_TIN_SHELL` **đỏ** (báo `running` cho
+một worker vừa chết).
+
+### Cảnh báo `act()` — sửa thay vì bỏ qua
+
+Bốn bài của màn tài khoản khẳng định xong trước khi `fetch` giải quyết ⇒ React cảnh báo `act()`.
+Test vẫn xanh, nhưng **cảnh báo ồn làm người ta quen bỏ qua đầu ra của bộ test** — nên đổi sang
+`findBy` cho lượt nạp settle xong. Sạch cảnh báo.
+
+### Con số
+
+Backend: 5 bài (E54) + 8 bài (E55). Frontend: 2 bài trang chủ + 9 bài màn tài khoản ⇒ **422 bài
+xanh**, build ra bundle thật (CSS 26,95 → 27,27 kB ⇒ style màn tài khoản đã vào bundle).
+
+Đối chứng âm: đảo thứ tự nhánh `trang_thai_thuc` ⇒ đỏ đúng bài.

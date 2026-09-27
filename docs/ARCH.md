@@ -2171,3 +2171,92 @@ Viết mã "phát hiện bị chặn" rồi báo cáo là đã làm §3.2 sẽ l
 tên bước — hai thứ khác nhau. `TienDoTrang` đọc đúng ba trường máy chủ trả và nhờ vậy phân biệt
 được **đang chờ** (`so_viec_cho_truoc > 0`) với **đang chạy**. Gộp hai thứ đó làm thanh tiến độ nói
 dối: người dùng thấy "đang xử lý" trong khi việc còn nằm sau 6 trang khác.
+
+---
+
+## E54. Chính sách do MÁY CHỦ nói, giao diện không gõ cứng (2026-09-27)
+
+### Lỗi đang vá: một câu sai trên màn của bản đang chạy
+
+E50 ship với `bat_lich_don_tep` mặc định **TẮT** (đúng — nó là công tắc xoá dữ liệu không hoàn tác
+được), và chủ dự án chốt 27-09 là không bật. Nhưng trang chủ vẫn hứa *"kết quả chỉ giữ 30 phút…"*.
+Tệp không hề bị xoá.
+
+Không mất dữ liệu, nhưng phá đúng nguyên tắc của dự án: nói thật về trạng thái. Và nó làm người dùng
+gấp gáp tải về vì một lý do không tồn tại.
+
+### Vì sao con số này KHÔNG thể ở phía giao diện
+
+Nó phụ thuộc **hai** biến môi trường **và** phụ thuộc người gọi:
+
+| `bat_lich_don_tep` | `tu_xoa_cho_tai_khoan` | Khách lạ | Đã đăng nhập |
+|---|---|---|---|
+| `false` | bất kỳ | không xoá | không xoá |
+| `true` | `true` | N phút | N phút |
+| `true` | `false` | N phút | **không xoá** |
+
+Giao diện không có cách nào tự suy ra hàng cuối. ⇒ `GET /han-muc` trả `giu_ket_qua_phut`, `null`
+nghĩa là không tự xoá. Thứ tự kiểm cũng quan trọng: **lịch tắt thì không ai bị xoá**, kể cả khách.
+
+### "Không tự xoá" không được nói thành "chỗ lưu trữ"
+
+Hứa giữ mãi là một câu sai khác, chỉ theo chiều ngược lại. Giao diện nói: *không tự xoá theo giờ,
+nhưng đây không phải chỗ lưu trữ lâu dài, và chính sách có thể đổi.*
+
+### Màn tài khoản: ngắn và thật hơn đầy và bịa
+
+§4.4 cấm bịa hạng thành viên hay số liệu chưa có thật. Hệ thống **không lưu** tổng số trang đã dịch,
+số chapter, ngày tham gia, chuỗi ngày liên tiếp — nên màn này không có chúng, và có một bài test
+**quét toàn bộ chữ trên màn** để chặn việc thêm vào sau này.
+
+Hạn mức lấy từ `/han-muc`, không tự tính `tran - da_dung`: `con_lai` là nhỏ nhất trong các chốt, nên
+tự tính sẽ cho một con số khác với trang chủ — hai số vênh nhau trên cùng một sản phẩm thì người dùng
+không biết tin cái nào.
+
+---
+
+## E55. Worker báo `starting` vĩnh viễn — và vì sao dấu sẵn sàng phải do worker ghi (2026-09-27)
+
+### Lỗi, đo được trên production
+
+`deploy-start.sh` nhánh `ROLE=all` ghi `ghi_trang_thai starting` **một lần**, rồi chỉ ghi
+`restarting` khi worker chết. Không có chỗ nào ghi `running`.
+
+Đo 26-09: `trang_thai: "starting"` từ 04:35, tức **42 giờ** trước lúc đo, trong khi cùng phản hồi có
+`rss_moc: "inpaint: sau"` lúc 09:55 — chứng minh worker ĐÃ chạy xong một bước xoá chữ. **Hai trường
+trong cùng một phản hồi nói ngược nhau.**
+
+Một trạng thái đứng im tệ hơn không có trạng thái: không phân biệt được "đang nạp model" (bình
+thường, mất tới cả phút) với "chạy tốt hai ngày rồi". Nó phá đúng mục tiêu E22 đặt ra, chỉ theo
+chiều ngược lại.
+
+### Ba ràng buộc dẫn tới thiết kế
+
+1. **Shell không biết sự thật.** Nó chỉ biết mình đã gọi lệnh, không biết worker đã nạp xong model.
+   Ghi `running` trước khi gọi là **đoán**, và đoán sai suốt khoảng nạp model.
+2. **Không được ghi chung tệp của shell.** Hai người ghi một tệp là mất dữ liệu của cả hai — lý do
+   này đã ghi sẵn ở `config.worker_rss_file` từ P3m.
+3. **Không nhét được vào `worker_rss_file`.** Tệp đó bị ghi **đè toàn bộ** mỗi lần đo RSS, nên một
+   trường "sẵn sàng" sẽ bị xoá ở mốc kế tiếp.
+
+⇒ Tệp **thứ ba** (`worker_ready_file`), **một** người ghi, ghi nguyên tử, do worker ghi ở tín hiệu
+`worker_ready` của Celery — chỗ duy nhất biết sự thật.
+
+Ghi **trước** lượt dọn job mồ côi: lượt dọn có thể mất vài giây, và nếu nó nổ thì dấu sẽ không bao
+giờ được ghi trong khi worker vẫn chạy.
+
+### Thứ tự ba nhánh có ý nghĩa
+
+```
+shell nói `restarting`  ⇒ tin SHELL
+có dấu sẵn sàng         ⇒ `running`
+còn lại                 ⇒ giữ nguyên thứ shell nói
+```
+
+Nhánh đầu **phải** đứng trước: shell vừa **quan sát** một lần thoát, mạnh hơn một dấu sẵn sàng còn
+sót từ lần chạy trước. Đảo thứ tự là báo `running` cho một worker vừa chết.
+
+### KHÔNG đổi nghĩa trường `trang_thai` cũ
+
+Có thứ đang đọc nó (`API.md §healthz`). Thêm trường mới, để trường cũ nói đúng thứ nó vẫn nói: shell
+nghĩ gì. Đổi nghĩa một trường đang được đọc là cách âm thầm làm hỏng người tiêu thụ.

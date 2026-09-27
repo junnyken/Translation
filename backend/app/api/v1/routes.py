@@ -344,9 +344,28 @@ async def _tien_do_trang(session: AsyncSession, page_id: uuid.UUID) -> TienDoDoc
     return TienDoDocTruyen(buoc=viec.type.value, dang_chay=dang_chay, so_viec_cho_truoc=truoc)
 
 
+def _giu_ket_qua_phut_cho(co_tai_khoan: bool, settings: Settings) -> int | None:
+    """Kết quả của NGƯỜI NÀY được giữ bao nhiêu phút. `None` = không tự xoá.
+
+    Phải tính theo người gọi, không phải trả một hằng số: `tu_xoa_cho_tai_khoan` cho phép tắt
+    luật xoá riêng cho tài khoản đã đăng ký, nên cùng một cấu hình có thể cho hai câu trả lời
+    khác nhau ở hai người.
+
+    Thứ tự kiểm quan trọng — `bat_lich_don_tep` tắt thì KHÔNG AI bị xoá, kể cả khách lạ. Đây là
+    trạng thái thật của bản chạy ngày 27-09: E50 ship với lịch mặc định tắt, trong khi giao diện
+    vẫn hứa "xoá sau 30 phút". Trường này sinh ra để câu trên màn không còn nói sai.
+    """
+    if not settings.bat_lich_don_tep:
+        return None
+    if co_tai_khoan and not settings.tu_xoa_cho_tai_khoan:
+        return None
+    return settings.giu_ket_qua_phut
+
+
 @router_khach.get("/han-muc", response_model=HanMucRead, tags=["han-muc"])
 async def xem_han_muc(
     session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
     danh_tinh: DanhTinhHanMuc = Depends(danh_tinh_han_muc),
 ) -> HanMucRead:
     """Hạn mức hôm nay của người đang gọi. **Khách lạ gọi được** — họ cần biết trước khi thả tệp.
@@ -372,6 +391,7 @@ async def xem_han_muc(
     reset = moc_reset_ke_tiep()
     chinh = chi_tiet[0] if chi_tiet else None
     return HanMucRead(
+        giu_ket_qua_phut=_giu_ket_qua_phut_cho(danh_tinh.co_tai_khoan, settings),
         co_tai_khoan=danh_tinh.co_tai_khoan,
         tran=danh_tinh.tran_hien,
         # `da_dung` lấy của chốt CHÍNH: đó là con số "tôi đã dùng bao nhiêu", trong khi phần đã

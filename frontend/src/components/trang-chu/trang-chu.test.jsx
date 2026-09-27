@@ -17,6 +17,8 @@ import TrangChu from './TrangChu'
 
 const HAN_MUC_CON = {
   co_tai_khoan: false, tran: 6, da_dung: 2, con_lai: 4,
+  // E54 — chính sách giữ tệp do MÁY CHỦ nói, giao diện không gõ cứng. `null` = không tự xoá.
+  giu_ket_qua_phut: 30,
   reset_luc: '2026-09-28T00:00:00+07:00', reset_sau_giay: 3600,
   chot: [
     { loai: 'khach_cookie', da_dung: 2, con_lai: 4, tran: 6 },
@@ -175,6 +177,30 @@ describe('trang chủ', () => {
       expect(gui).toBeTruthy()
       expect(gui[1].body.get('che_do')).toBe('day_du')
     })
+  })
+
+  it('E54 — máy chủ nói KHÔNG tự xoá thì giao diện KHÔNG hứa xoá sau 30 phút', async () => {
+    // Đây đúng trạng thái bản chạy 27-09: `BAT_LICH_DON_TEP` tắt, tệp KHÔNG bị xoá, mà màn hình
+    // vẫn hứa "chỉ giữ 30 phút". Không mất dữ liệu, nhưng là một câu SAI về dữ liệu của người dùng.
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      () => dapUng({ ...HAN_MUC_CON, giu_ket_qua_phut: null }),
+    )
+    render(<TrangChu />)
+    await screen.findByText(/Lượt dịch hôm nay/)
+
+    expect(screen.queryByText(/chỉ giữ 30 phút/)).not.toBeInTheDocument()
+    expect(screen.getByText(/không tự xoá/)).toBeInTheDocument()
+    // Vẫn phải nhắc tải về — "không tự xoá" KHÔNG đồng nghĩa "chỗ lưu trữ lâu dài".
+    expect(screen.getByText(/không phải chỗ lưu trữ lâu dài/)).toBeInTheDocument()
+  })
+
+  it('E54 — máy chủ đổi số phút thì giao diện nói theo, không gõ cứng 30', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      () => dapUng({ ...HAN_MUC_CON, giu_ket_qua_phut: 45 }),
+    )
+    render(<TrangChu />)
+    await screen.findByText(/Lượt dịch hôm nay/)
+    expect(screen.getByText(/chỉ giữ 45 phút/)).toBeInTheDocument()
   })
 
   it('xong rồi thì LUÔN có nút tải thủ công — không có cách nào dò được trình duyệt đã chặn', async () => {

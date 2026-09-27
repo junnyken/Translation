@@ -1086,3 +1086,12 @@ class HanMucRead(BaseModel):
     reset_sau_giay: int
     #: Chi tiết từng chốt, để giao diện giải thích đúng lý do khi `con_lai = 0`.
     chot: list[ChotHanMucRead] = []
+    #: E54 — kết quả được giữ bao nhiêu PHÚT sau khi xong. `null` = **không tự xoá**.
+    #:
+    #: Máy chủ phải nói con số này ra, vì giao diện không có cách nào biết: nó phụ thuộc hai biến
+    #: môi trường (`bat_lich_don_tep`, `tu_xoa_cho_tai_khoan`) VÀ phụ thuộc người gọi là khách lạ
+    #: hay đã đăng nhập.
+    #:
+    #: Gõ cứng "30 phút" vào giao diện là nói SAI với người dùng ngay khi lịch dọn tắt — và nó đã
+    #: sai thật: E50 ship với lịch mặc định TẮT trong khi màn hình vẫn hứa xoá sau 30 phút.
+    giu_ket_qua_phut: int | None = None

@@ -203,6 +203,42 @@ async def healthz(request: Request) -> dict:
     except Exception:
         # Worker chưa chạy bước nặng nào thì chưa có tệp — không phải lỗi, và KHÔNG bịa số 0.
         ket_qua["worker"] = {**ket_qua["worker"], "rss_mb": None}
+
+    # E55 — trạng thái THỰC của worker, suy từ hai nguồn có hai người ghi khác nhau.
+    #
+    # Vấn đề: nhánh `ROLE=all` của `deploy-start.sh` ghi `starting` MỘT lần rồi chỉ ghi `restarting`
+    # khi worker chết. Nên worker chạy tốt hai ngày vẫn báo `starting` — đo được 26-09: `starting`
+    # suốt 42 giờ trong khi `rss_moc` chứng minh nó đã chạy xong một bước xoá chữ. Người vận hành
+    # không phân biệt được "đang nạp model" với "chạy tốt hai ngày rồi".
+    #
+    # Shell KHÔNG có cách nào biết worker đã nạp xong model, nên dấu sẵn sàng do CHÍNH worker ghi
+    # (`worker_ready_file`). Ở đây chỉ gộp lại, KHÔNG ghi gì — giữ luật một người ghi một tệp.
+    #
+    # Ba nhánh, thứ tự có ý nghĩa:
+    #   1. shell nói `restarting` ⇒ tin shell. Nó vừa QUAN SÁT một lần thoát, đó là bằng chứng
+    #      mạnh hơn một dấu sẵn sàng cũ từ lần chạy trước;
+    #   2. có dấu sẵn sàng ⇒ `running`. Worker đã tự nói nó nhận được việc;
+    #   3. còn lại ⇒ giữ nguyên thứ shell nói.
+    #
+    # Cố ý KHÔNG sửa trường `trang_thai` cũ: có thứ đang đọc nó (API.md §healthz). Thêm trường mới
+    # và để trường cũ nói đúng thứ nó vẫn nói — shell nghĩ gì.
+    try:
+        san_sang = json.loads(
+            _Path(os.environ.get("WORKER_READY_FILE", "/tmp/worker-ready.json")).read_text()
+        ).get("san_sang_luc")
+    except Exception:
+        san_sang = None  # chưa có tệp = worker chưa báo sẵn sàng. KHÔNG đoán là đã sẵn sàng.
+
+    tt_shell = ket_qua["worker"].get("trang_thai")
+    ket_qua["worker"] = {
+        **ket_qua["worker"],
+        "san_sang_luc": san_sang,
+        "trang_thai_thuc": (
+            tt_shell if tt_shell == "restarting"
+            else "running" if san_sang
+            else tt_shell
+        ),
+    }
     return ket_qua
 
 

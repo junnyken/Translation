@@ -1567,3 +1567,50 @@ thấy.
 
 An toàn không dựa vào cờ này mà dựa vào: `allow_origins` là danh sách **tường minh** (không phải
 `*`), và cookie khách đặt `SameSite=Lax`.
+
+---
+
+# E54 · E55 — Hai trường mới (27-09)
+
+## E54.1. `GET /api/v1/han-muc` thêm `giu_ket_qua_phut`
+
+```json
+{"…": "…", "giu_ket_qua_phut": 30}
+```
+
+Số **phút** giữ kết quả sau khi dịch xong. **`null` = không tự xoá.**
+
+⚠️ Client **đừng gõ cứng 30**. Con số phụ thuộc hai biến môi trường **và** phụ thuộc người gọi:
+
+| `BAT_LICH_DON_TEP` | `TU_XOA_CHO_TAI_KHOAN` | Khách lạ | Đã đăng nhập |
+|---|---|---|---|
+| `false` | bất kỳ | `null` | `null` |
+| `true` | `true` | số phút | số phút |
+| `true` | `false` | số phút | **`null`** |
+
+Gõ cứng là nói SAI với người dùng ngay khi lịch dọn tắt — và nó đã sai thật: E50 ship với lịch mặc
+định tắt trong khi màn hình vẫn hứa xoá sau 30 phút.
+
+## E55.1. `GET /healthz` thêm `worker.trang_thai_thuc` và `worker.san_sang_luc`
+
+```json
+"worker": {
+  "trang_thai": "starting",        ← thứ SHELL nghĩ (giữ nguyên nghĩa cũ)
+  "trang_thai_thuc": "running",    ← thứ THẬT
+  "san_sang_luc": "2026-09-27T16:20:11+00:00"
+}
+```
+
+`trang_thai` cũ **không đổi nghĩa** (có thứ đang đọc nó): nó nói thứ `deploy-start.sh` nghĩ. Và
+shell nhánh `ROLE=all` ghi `starting` **một lần** rồi chỉ ghi `restarting` khi worker chết — nên
+worker chạy tốt hai ngày vẫn báo `starting` (đo được **42 giờ** ngày 26-09).
+
+`trang_thai_thuc` suy từ ba nhánh, **thứ tự có ý nghĩa**:
+
+1. shell nói `restarting` ⇒ **tin shell** (nó vừa quan sát một lần thoát — bằng chứng mạnh hơn một
+   dấu sẵn sàng còn sót từ lần chạy trước);
+2. có `san_sang_luc` ⇒ `running`;
+3. còn lại ⇒ giữ nguyên thứ shell nói.
+
+`san_sang_luc` do **chính worker** ghi ở tín hiệu `worker_ready` của Celery — shell không có cách
+nào biết worker đã nạp xong model.

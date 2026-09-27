@@ -111,6 +111,19 @@ def _don_job_mo_coi_luc_khoi_dong(**_):
     Bọc trong try/except có chủ đích: dọn dẹp hỏng thì **không được** ngăn worker nhận việc. Một
     worker chạy được mà chưa dọn còn hơn một worker không chạy.
     """
+    # E55 — ghi dấu "TÔI ĐÃ SẴN SÀNG" TRƯỚC mọi việc dọn dẹp.
+    #
+    # Đặt ở đầu có chủ đích: tín hiệu `worker_ready` nghĩa là Celery đã nạp xong và nhận được việc,
+    # còn lượt dọn job mồ côi bên dưới có thể mất vài giây. Ghi dấu sau đó sẽ báo "sẵn sàng" muộn
+    # hơn sự thật, và nếu lượt dọn nổ thì không bao giờ ghi được dấu — trong khi worker vẫn chạy.
+    try:
+        from app.workers.trang_thai_worker import ghi_dau_san_sang
+
+        luc = ghi_dau_san_sang()
+        logging.getLogger(__name__).info("worker sẵn sàng lúc %s", luc)
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).exception("không ghi được dấu sẵn sàng — worker vẫn nhận việc")
+
     if not settings.worker_sweep_orphan_jobs_on_start:
         return
     try:
