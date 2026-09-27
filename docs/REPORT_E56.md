@@ -162,9 +162,50 @@ CSS vào bundle thật: 27,27 → **27,52 kB**.
 
 ---
 
-## 7. Remaining Limits
+## 7. Live Verification — bấm tay trên production (27-09, Chrome thật)
 
-* **Chưa bấm tay trên production** — sẽ kiểm ở lượt deploy này.
+Dấu hiệu bản mới đã lên: `PATCH /api/v1/auth/me` trả **401** (đường tồn tại, đòi đăng nhập) thay vì
+**405** của bản cũ. Bundle web công khai chứa đủ các chuỗi mới (`Nhập lại mật khẩu mới`,
+`cauNguoiDoc`…), CSS `index-4S5XyKkB.css` khớp đúng bản build cục bộ.
+
+| Đo cái gì | Kết quả |
+|---|---|
+| Đổi tên hiển thị | Lưu được; **header cập nhật NGAY**, không phải tải lại trang |
+| Sai mật khẩu hiện tại | Hiện đúng câu *"Mật khẩu hiện tại không đúng."*, **không** kèm `400:`, **không** báo thành công giả, form vẫn mở để thử lại |
+| Cảnh báo thiết bị khác | Hiện **trước** khi bấm, không phải báo sau |
+| Nút khoá lúc chưa đủ ô | `disabled` ngay khi mở form |
+
+### Chứng minh phần thu hồi phiên bằng một phiên THẬT thứ hai
+
+Tạo phiên B qua `POST /auth/login` (curl), xác nhận nó sống (`/auth/me` → 200), rồi đổi mật khẩu
+**trên trình duyệt**:
+
+| Bước | Kết quả |
+|---|---|
+| Giao diện báo | *"Đã đăng xuất **1** thiết bị khác."* — đúng số phiên thật |
+| Phiên B sau khi đổi | **401** — thu hồi ở máy chủ, không phải chỉ trên màn |
+| Đăng nhập bằng mật khẩu CŨ | **401** |
+| Đăng nhập bằng mật khẩu MỚI | **200** |
+| Phiên **đang dùng** (trình duyệt) | **200** — vẫn đăng nhập, không bị đẩy ra màn đăng nhập |
+
+## 8. Lỗi console tìm được khi bấm tay — ĐÃ VÁ
+
+Chrome ghi `[DOM] Password field is not contained in a form` (3 lần). Hậu quả thật **không phải** cái
+cảnh báo: **trình quản lý mật khẩu không nhận ra đây là lượt đổi mật khẩu**, nên nó giữ nguyên mật
+khẩu CŨ đã lưu — lần đăng nhập sau nó tự điền sai và người dùng tưởng việc đổi đã thất bại.
+
+Vá: bọc cả hai khối sửa trong `<form onSubmit>` thật, nút thành `type="submit"`. Được thêm phím
+Enter để gửi — thứ mọi người đều thử.
+
+Thêm 3 bài canh, gồm một bài **cấu trúc** (`closest('form')` phải khác `null`) và một bài canh
+`onSubmit` phải tôn trọng đúng điều kiện khoá của nút — bọc form mà quên chỗ đó là mở lại đúng lỗ
+vừa bịt: gõ lệch hai ô rồi bấm Enter là mất tài khoản. Đối chứng âm: bỏ `<form>` ⇒ **4 bài đỏ**.
+
+Bộ giao diện: **434 bài xanh**.
+
+---
+
+## 9. Remaining Limits
 * Không đổi được email (§3.6) và không có đường lấy lại mật khẩu quên. Cả hai chờ hạ tầng gửi thư.
 * Không có danh sách "các thiết bị đang đăng nhập" để thu hồi từng cái. Đổi mật khẩu là cách duy
   nhất để đẩy hết. Đủ cho nhu cầu hiện tại, nhưng thô.

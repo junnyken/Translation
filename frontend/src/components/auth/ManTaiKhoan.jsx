@@ -161,7 +161,7 @@ function OTenHien({ nguoiDung, onXong }) {
   }
 
   return (
-    <div className="khoi-sua">
+    <form className="khoi-sua" onSubmit={(e) => { e.preventDefault(); luu() }}>
       <Input
         nhan="Tên hiển thị" value={ten} onChange={(e) => setTen(e.target.value)}
         moTa="Để trống thì hệ thống lấy phần trước @ của email."
@@ -169,12 +169,12 @@ function OTenHien({ nguoiDung, onXong }) {
       />
       {loi && <Alert sac="loi" tieuDe="Chưa lưu được">{thongDiep(loi)}</Alert>}
       <div className="hang-nut">
-        <Button kieu="chinh" onClick={luu} dangChay={dangLuu}>Lưu</Button>
+        <Button type="submit" kieu="chinh" dangChay={dangLuu}>Lưu</Button>
         <Button onClick={() => { setMoSua(false); setTen(nguoiDung.ten_hien || ''); setLoi(null) }}>
           Huỷ
         </Button>
       </div>
-    </div>
+    </form>
   )
 }
 
@@ -236,7 +236,12 @@ function OMatKhau() {
   }
 
   return (
-    <div className="khoi-sua">
+    /* PHẢI là <form>. Ô mật khẩu ngoài form thì Chrome ghi thẳng vào console
+       ("Password field is not contained in a form") và — quan trọng hơn — trình quản lý mật khẩu
+       KHÔNG nhận ra đây là lượt đổi mật khẩu, nên nó giữ nguyên mật khẩu cũ đã lưu. Lần đăng nhập
+       sau nó tự điền mật khẩu cũ và người dùng tưởng việc đổi đã thất bại. Bọc form cũng cho phép
+       bấm Enter để gửi, thứ mọi người đều thử. */
+    <form className="khoi-sua" onSubmit={(e) => { e.preventDefault(); if (!lyDoKhoa) luu() }}>
       <h3 className="nho">Đổi mật khẩu</h3>
       <Input
         nhan="Mật khẩu hiện tại" type="password" autoComplete="current-password" batBuoc
@@ -263,12 +268,14 @@ function OMatKhau() {
       {loi && <Alert sac="loi" tieuDe="Chưa đổi được">{thongDiep(loi)}</Alert>}
 
       <div className="hang-nut">
-        <Button kieu="chinh" onClick={luu} dangChay={dangLuu} lyDoKhoa={lyDoKhoa} id="nut-doi-mk">
+        <Button
+          type="submit" kieu="chinh" dangChay={dangLuu} lyDoKhoa={lyDoKhoa} id="nut-doi-mk"
+        >
           Đổi mật khẩu
         </Button>
         <Button onClick={dong}>Huỷ</Button>
       </div>
-    </div>
+    </form>
   )
 }
 

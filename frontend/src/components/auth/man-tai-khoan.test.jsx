@@ -243,6 +243,48 @@ describe('E56 — sửa tài khoản', () => {
     expect(screen.queryByText(/400:/)).not.toBeInTheDocument()
   })
 
+  it('ô mật khẩu PHẢI nằm trong <form>', async () => {
+    // Tìm được bằng console của Chrome trên bản chạy thật: "Password field is not contained in a
+    // form". Hậu quả thật không phải cái cảnh báo, mà là trình quản lý mật khẩu KHÔNG nhận ra đây
+    // là lượt đổi mật khẩu ⇒ nó giữ mật khẩu CŨ đã lưu, lần đăng nhập sau tự điền sai, và người
+    // dùng tưởng việc đổi đã thất bại.
+    nhaiFetch()
+    const u = userEvent.setup()
+    render(<ManTaiKhoan nguoiDung={NGUOI} onDong={() => {}} />)
+    await u.click(await screen.findByRole('button', { name: 'Đổi mật khẩu' }))
+
+    for (const nhan of [/Mật khẩu hiện tại/, /^Mật khẩu mới/, /Nhập lại mật khẩu mới/]) {
+      expect(screen.getByLabelText(nhan).closest('form')).not.toBeNull()
+    }
+  })
+
+  it('bấm Enter trong ô mật khẩu là gửi, không phải không làm gì', async () => {
+    const f = nhaiFetch({ traVe: { nguoi_dung: NGUOI, da_doi_mat_khau: true, so_phien_khac_da_thu_hoi: 0 } })
+    const u = userEvent.setup()
+    render(<ManTaiKhoan nguoiDung={NGUOI} onDong={() => {}} />)
+    await u.click(await screen.findByRole('button', { name: 'Đổi mật khẩu' }))
+    await u.type(screen.getByLabelText(/Mật khẩu hiện tại/), 'mat-khau-cu-1')
+    await u.type(screen.getByLabelText(/^Mật khẩu mới/), 'mat-khau-moi-1')
+    await u.type(screen.getByLabelText(/Nhập lại mật khẩu mới/), 'mat-khau-moi-1{Enter}')
+
+    await waitFor(() =>
+      expect(f.mock.calls.filter(([, t]) => t?.method === 'PATCH')).toHaveLength(1))
+  })
+
+  it('Enter KHÔNG gửi khi hai ô mật khẩu lệch nhau', async () => {
+    // `onSubmit` phải tôn trọng đúng điều kiện khoá của nút. Bọc form mà quên chỗ này là mở lại
+    // đúng lỗ vừa bịt: gõ lệch rồi bấm Enter là mất tài khoản.
+    const f = nhaiFetch()
+    const u = userEvent.setup()
+    render(<ManTaiKhoan nguoiDung={NGUOI} onDong={() => {}} />)
+    await u.click(await screen.findByRole('button', { name: 'Đổi mật khẩu' }))
+    await u.type(screen.getByLabelText(/Mật khẩu hiện tại/), 'mat-khau-cu-1')
+    await u.type(screen.getByLabelText(/^Mật khẩu mới/), 'mat-khau-moi-1')
+    await u.type(screen.getByLabelText(/Nhập lại mật khẩu mới/), 'mat-khau-moi-2{Enter}')
+
+    expect(f.mock.calls.filter(([, t]) => t?.method === 'PATCH')).toHaveLength(0)
+  })
+
   it('nói rõ email KHÔNG đổi được ở đây, thay vì im lặng không có ô', async () => {
     nhaiFetch()
     render(<ManTaiKhoan nguoiDung={NGUOI} onDong={() => {}} />)
