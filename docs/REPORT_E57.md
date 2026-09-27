@@ -308,5 +308,7 @@ không để người dùng đi tiếp bằng một giá trị vô nghĩa.
 * Ngưỡng ở §3.2 và trần 20 ở §5.2 là **số đặt ra**, chưa hiệu chỉnh trên dữ liệu thật.
 * Chưa chạy trên **trang manga thật** (§4) — phông cách điệu, chữ dọc, screentone đều chưa thử.
 * Tiếng Hàn và tiếng Nga: §3.3, §3.4.
-* Chưa có lượt dọn định kỳ cho ảnh tạm còn sót (khi `storage.delete` thất bại). `gio_giu_anh_nhan_dang`
-  đã có trong cấu hình nhưng **chưa ai đọc nó** — ghi ra để không ai tưởng đã có phép dọn.
+* Ảnh tạm còn sót khi `storage.delete` thất bại thì **không ai nhặt** — chỉ có `logger.exception`.
+  Biến `gio_giu_anh_nhan_dang` từng được thêm cho việc này rồi **gỡ bỏ 27-09**: nó không được đọc ở đâu,
+  và một biến cấu hình hứa một lượt dọn không tồn tại thì tệ hơn không có biến nào. Không thêm lịch xoá
+  vì chủ dự án đã chốt không bật lịch dọn tệp.

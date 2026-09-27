@@ -19,8 +19,10 @@ import pytest
 
 from app.models.enums import SourceLang
 from app.services.nhan_dang_ngon_ngu import (
+    SO_HAN_TOI_THIEU,
     SO_KANA_TOI_THIEU,
     SO_KY_TU_TOI_THIEU,
+    TI_LE_HAN_TOI_THIEU,
     dem_ky_tu,
     phan_loai,
 )
@@ -131,6 +133,103 @@ def test_chu_Latin_co_dau_van_tinh_la_Latin():
     bc = dem_ky_tu(["café naïve Ápple"])
     assert bc.chu_cai_khac == 0
     assert bc.latin == 14  # café(4) + naïve(5) + Ápple(5)
+
+
+# ── Hiệu chỉnh trên DỮ LIỆU THẬT (E57b, 27-09-2026) ───────────────────────────────────────
+#
+# Số trong các bài dưới đây là **số đo thật** từ 37 trang có nhãn
+# (`app/services/ocr_benchmark/hieu_chinh_nhan_dang.py`), không phải số dựng cho vừa. Đổi ngưỡng mà
+# không chạy lại phép đo đó thì các bài này đỏ — đúng ý muốn.
+
+
+@pytest.mark.parametrize(
+    "ten_trang,han,kana,latin",
+    [
+        # SÁU trang tiếng Nhật THẬT có tỉ lệ Hán >= 20% — tức là vượt `TI_LE_HAN_TOI_THIEU`.
+        # Ba con số là ba ô ĐO ĐƯỢC. Tổng thật của trang có thể lớn hơn tổng ba ô này một vài ký tự
+        # (trang có ít ký tự rơi vào ô `chu_cai_khac`) — không nhồi thêm cho khớp, vì phần thêm đó chỉ
+        # làm LOÃNG tỉ lệ Hán, tức bài canh dựng lại đã nghiêm hơn trang thật một chút.
+        ("E03P01", 13, 47, 4),      # trang thật: Hán 13/64 = 20,3%
+        ("E03P02", 36, 122, 0),     # trang thật: Hán 36/160 = 22,5%
+        ("E03P04", 10, 31, 0),      # trang thật: Hán 10/41 = 24,4%
+        ("E03P05", 13, 24, 0),      # trang thật: Hán 13/37 = 35,1% — cao nhất đo được
+        ("E03P06", 12, 25, 5),      # trang thật: Hán 12/42 = 28,6%
+        ("E03P07", 23, 54, 10),     # trang thật: Hán 23/89 = 25,8%
+    ],
+)
+def test_trang_Nhat_THAT_co_ti_le_Han_vuot_nguong_van_ra_ja(ten_trang, han, kana, latin):
+    """BÀI CANH NẶNG NHẤT, nay có SỐ ĐO THẬT đứng sau.
+
+    Sáu trang này là trang tiếng Nhật thật (Pepper&Carrot bản ja, CC BY-SA 4.0) và cả sáu đều có tỉ lệ
+    chữ Hán **vượt ngưỡng tiếng Trung**. Xét Hán trước kana thì cả sáu bị gán `zh` ⇒ dùng PaddleOCR
+    thay manga-ocr: chữ vẫn ra, vẫn dịch, chỉ kém hơn hẳn và **không lỗi nào hiện**.
+
+    Trước lượt hiệu chỉnh, chốt này chỉ có một ví dụ tôi tự gõ. Nay nó có sáu trang thật.
+    """
+    kq = phan_loai(["漢" * han + "あ" * kana + "a" * latin])
+    assert kq.bang_chung.han / kq.bang_chung.tong_co_nghia >= TI_LE_HAN_TOI_THIEU, (
+        f"{ten_trang}: ví dụ phải THẬT SỰ vượt ngưỡng Hán, không thì không canh được gì"
+    )
+    assert kq.ngon_ngu is SourceLang.ja
+
+
+def test_trang_ghi_cong_tieng_Trung_KHONG_bi_ket_luan_thanh_tieng_Anh():
+    """Lượt SAI DUY NHẤT trong 37 trang thật, trước khi thêm `SO_HAN_TOI_THIEU`.
+
+    `cn_…E03P08` (trang ghi công cuối chương): **121 chữ Hán** giữa **1097 chữ Latin** (tên người,
+    URL, giấy phép) ⇒ tỉ lệ Hán chỉ **9,9%**, dưới ngưỡng 20% ⇒ ra `en`.
+
+    Trang cùng số bản tiếng Nhật (109 kana / 1099 Latin) thì ĐÚNG — vì ngưỡng kana đếm số **tuyệt
+    đối**. Bài học đã thành luật: một hệ chữ có mặt hàng trăm ký tự thì nó CÓ mặt, bất kể bị bao nhiêu
+    chữ Latin làm loãng.
+    """
+    kq = phan_loai(["中" * 121 + "a" * 1097])
+    assert kq.bang_chung.han == 121
+    assert kq.bang_chung.han / kq.bang_chung.tong_co_nghia < TI_LE_HAN_TOI_THIEU, (
+        "ví dụ phải DƯỚI ngưỡng tỉ lệ, không thì nó không canh được nhánh số tuyệt đối"
+    )
+    assert kq.ngon_ngu is SourceLang.zh
+
+
+def test_trang_ghi_cong_tieng_Nhat_van_ra_ja_du_bi_Latin_ap_dao():
+    """Đối chứng cặp với bài trên: cùng một trang, bản tiếng Nhật, cùng bị Latin áp đảo."""
+    kq = phan_loai(["あ" * 109 + "漢" * 30 + "a" * 1099])
+    assert kq.bang_chung.latin > kq.bang_chung.kana * 9
+    assert kq.ngon_ngu is SourceLang.ja
+
+
+def test_trang_tieng_Anh_THAT_do_duoc_0_chu_Han():
+    """9 nhóm ảnh tiếng Anh (gồm nhóm làm nhiễu, nền rối, chữ mảnh nghiêng) đo được Hán = **0** ở tất
+    cả. Nên `SO_HAN_TOI_THIEU = 8` cách biên thật rất xa — đó là điều bài này ghim lại.
+
+    Nếu ngày nào OCR bắt đầu sinh chữ Hán rác trên chữ Latin, ngưỡng 8 là chỗ đầu tiên phải xem lại.
+    """
+    kq = phan_loai(["WHAT ARE YOU DOING HERE", "I can't believe he said that"])
+    assert kq.bang_chung.han == 0
+    assert kq.ngon_ngu is SourceLang.en
+
+
+def test_it_hon_nguong_tuyet_doi_va_duoi_ti_le_thi_KHONG_thanh_tieng_Trung():
+    """Đối chứng âm cho nhánh số tuyệt đối: 7 chữ Hán (< 8) giữa nhiều chữ Latin phải ra `en`, không
+    được vì có vài chữ Hán rác mà lật cả trang."""
+    kq = phan_loai(["漢" * 7 + "a" * 200])
+    assert kq.bang_chung.han == 7
+    assert kq.ngon_ngu is SourceLang.en
+
+
+def test_trang_THAT_it_chu_nhat_van_ket_luan_duoc():
+    """Trang thật ít chữ nhất đo được: bản Trung 10 ký tự, bản Nhật 12 ký tự. Nên
+    `SO_KY_TU_TOI_THIEU = 8` là đúng — nâng lên 15 là làm hai trang thật này thành "không kết luận"."""
+    assert phan_loai(["中" * 10]).ngon_ngu is SourceLang.zh
+    assert phan_loai(["あ" * 5 + "abcdefg"]).ngon_ngu is SourceLang.ja
+
+
+def test_moi_trang_Trung_THAT_deu_co_0_kana():
+    """11/11 trang tiếng Trung thật đo được **0 kana**, còn trang Nhật thật ít kana nhất có **3**.
+    Tín hiệu kana sạch tuyệt đối trên dữ liệu thật ⇒ `SO_KANA_TOI_THIEU = 2` nằm giữa 0 và 3."""
+    assert SO_KANA_TOI_THIEU == 2
+    assert phan_loai(["中" * 50]).ngon_ngu is SourceLang.zh          # 0 kana
+    assert phan_loai(["あいう" + "中" * 50]).ngon_ngu is SourceLang.ja  # 3 kana — trang thật ít nhất
 
 
 # ── Giới hạn ĐÃ BIẾT, ghi lại thành bài chứ không giấu ─────────────────────────────────────

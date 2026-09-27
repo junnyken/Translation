@@ -6251,3 +6251,45 @@ tạo bản ghi mới của chính người gọi, nên "B nhận 202" là ĐÚN
 
 ⇒ Khi một phép quét tự sinh báo "không dựng được", hỏi **endpoint đó trả về gì** trước khi miễn trừ.
 Miễn trừ một đường ĐỌC dữ liệu người khác là gỡ đúng phần có giá trị nhất của phép quét.
+
+### E57b — hiệu chỉnh ngưỡng: dữ liệu thật đổi đúng MỘT ngưỡng, và bắt một lỗi
+
+93 mẫu có nhãn gom thành 37 "trang" (trang là đơn vị production phân loại). **37/37 đúng** sau khi vá;
+trước khi vá **36/37**.
+
+**Thứ tự kana-trước-Hán từ suy luận thành số đo.** 6/17 trang tiếng Nhật thật có tỉ lệ chữ Hán **≥20%**
+— cao nhất 35,1%. Đảo thứ tự xét là gán cả sáu thành tiếng Trung ⇒ PaddleOCR thay manga-ocr, chữ vẫn
+ra, **không lỗi nào hiện**. Trước lượt này chốt đó chỉ có một ví dụ tôi tự gõ.
+
+**Lỗi thật:** trang ghi công bản tiếng Trung có **121 chữ Hán giữa 1097 chữ Latin** ⇒ tỉ lệ 9,9% ⇒ ra
+`en`. Trang **cùng số** bản tiếng Nhật thì đúng, **chỉ vì** ngưỡng kana đếm số **tuyệt đối**. ⇒ thêm
+`SO_HAN_TOI_THIEU = 8`, nằm giữa hai phép đo: trang Trung ít Hán nhất có 10, mọi trang Anh có 0.
+
+**Ba ngưỡng còn lại KHÔNG đổi, và số đo nói vì sao** — `SO_KY_TU_TOI_THIEU=8` (trang thật ít chữ nhất:
+10 và 12 ký tự, nâng lên 15 là phá chúng), `SO_KANA_TOI_THIEU=2` (11/11 trang Trung có 0 kana, trang
+Nhật ít nhất có 3), `TI_LE_HAN_TOI_THIEU=20%` (tiếng Anh đo được 0,0% ở cả 9 nhóm). Hiệu chỉnh nghĩa là
+**đổi cái số đo bảo đổi**, không phải vặn hết cho đẹp bảng.
+
+### E57b — bẫy lấy dữ liệu: HTTP 200 + ảnh sai tiền tố = tập dữ liệu BỊA
+
+Mã ngôn ngữ tiếng Trung của peppercarrot.com là **`cn`**, không phải `zh`. Và `/zh/webcomic/ep01…`
+trả HTTP **200** — nhưng ảnh trong đó mang tiền tố **`en_`**, tức trang **chưa dịch** và site lùi về
+bản tiếng Anh.
+
+Tin "200 = có bản dịch" là tải ảnh **tiếng Anh** về rồi dán nhãn **"tiếng Trung"**. Hậu quả không phải
+"thiếu dữ liệu" mà là **số đo bịa trông như thật**: bộ kiểm sẽ báo "nhận tiếng Trung rất tốt" trong khi
+nó đang đọc tiếng Anh. Tệ hơn hẳn việc không đo.
+
+⇒ Khi tải tập dữ liệu theo ngôn ngữ, **kiểm chính nội dung mang nhãn đó** (ở đây: tiền tố tên tệp),
+đừng kiểm mã HTTP. Cùng họ với soft-404 mà `REPORT_E23` đã ghi, nhưng nguy hiểm hơn: soft-404 cho một
+tệp HTML rõ ràng là rác, còn cái này cho một **ảnh thật, hợp lệ, sai ngôn ngữ**.
+
+### E57b — assert tự kiểm trong bài test bắt lỗi của chính tôi
+
+Bài có tham số dựng lại 6 trang thật từ ba ô đo được (`han`, `kana`, `latin`) và `assert len(chuoi) ==
+tong`. Hai dòng đỏ: 23+54+10 = 87 mà tôi ghi 89 — trang thật có vài ký tự rơi vào ô `chu_cai_khac` mà
+bảng số liệu không in.
+
+**Không nhồi thêm cho khớp.** Bỏ cột tổng, ghi rõ ví dụ dựng lại chỉ gồm ba ô đo được nên nó **nghiêm
+hơn** trang thật một chút. Một `assert` về tính nhất quán của chính dữ liệu test là thứ rẻ nhất mà bắt
+được nhiều nhất.

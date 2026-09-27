@@ -54,7 +54,26 @@ SO_KANA_TOI_THIEU = 2
 
 #: Tỉ lệ chữ Hán trong tổng số ký tự có nghĩa, để gọi là tiếng Trung. Trang tiếng Anh bị đọc lẫn
 #: vài chữ Hán không được thành tiếng Trung.
+#:
+#: **Hiệu chỉnh 27-09-2026 trên dữ liệu thật** (`ocr_benchmark/hieu_chinh_nhan_dang.py`): 9 nhóm ảnh
+#: tiếng Anh — gồm nhóm làm nhiễu, nền rối, chữ mảnh nghiêng — cho tỉ lệ Hán **0,0% ở TẤT CẢ**. Nên
+#: 20% thừa rất xa so với biên thật (0%), và đó là lý do ngưỡng này **không phải** chỗ cần siết.
 TI_LE_HAN_TOI_THIEU = 0.20
+
+#: Số chữ Hán TUYỆT ĐỐI để gọi là tiếng Trung, dùng SONG SONG với tỉ lệ ở trên (hoặc-thì).
+#:
+#: Lý do tồn tại là một lỗi ĐO ĐƯỢC, không phải đề phòng lý thuyết. Trang ghi công cuối chương bản
+#: tiếng Trung (`cn_…E03P08`) có **121 chữ Hán** nhưng nằm giữa **1097 chữ Latin** (tên người, URL,
+#: giấy phép) ⇒ tỉ lệ chỉ **9,9%**, dưới ngưỡng 20% ⇒ bị kết luận `en`. Đó là lượt sai DUY NHẤT trong
+#: 37 trang thật.
+#:
+#: Trang cùng số bản tiếng Nhật (`ja_…E03P08`: 109 kana / 1099 Latin) thì ĐÚNG — và đúng chính vì
+#: ngưỡng kana đếm số **tuyệt đối**. Bài học: một hệ chữ có mặt hàng trăm ký tự thì nó có mặt, bất kể
+#: bị bao nhiêu chữ Latin làm loãng. Tỉ lệ một mình không diễn tả được điều đó.
+#:
+#: Chọn 8: trang tiếng Trung thật ít Hán nhất có **10** chữ Hán, còn mọi trang tiếng Anh đo được có
+#: **0**. Ngưỡng nằm giữa hai con số đó, lệch về phía an toàn cho tiếng Anh.
+SO_HAN_TOI_THIEU = 8
 
 #: Tỉ lệ chữ Latin để gọi là tiếng Anh.
 TI_LE_LATIN_TOI_THIEU = 0.60
@@ -191,8 +210,14 @@ def phan_loai(cac_chuoi: list[str]) -> KetQuaNhanDang:
     ti_le_latin = bc.latin / bc.tong_co_nghia
 
     # 2) Nhiều chữ Hán mà KHÔNG có kana ⇒ tiếng Trung.
-    if ti_le_han >= TI_LE_HAN_TOI_THIEU:
-        return KetQuaNhanDang(SourceLang.zh, f"han_{ti_le_han:.0%}_khong_kana", bc)
+    #
+    # HAI điều kiện, hoặc-thì: tỉ lệ **hoặc** số tuyệt đối. Chỉ dùng tỉ lệ thì trang ghi công tiếng
+    # Trung (121 Hán giữa 1097 Latin) rơi xuống nhánh Latin — lượt sai duy nhất trong 37 trang thật,
+    # xem ghi chú ở `SO_HAN_TOI_THIEU`.
+    if ti_le_han >= TI_LE_HAN_TOI_THIEU or bc.han >= SO_HAN_TOI_THIEU:
+        return KetQuaNhanDang(
+            SourceLang.zh, f"han_{bc.han}_{ti_le_han:.0%}_khong_kana", bc
+        )
 
     # 3) Gần như toàn chữ cái Latin ⇒ tiếng Anh.
     if ti_le_latin >= TI_LE_LATIN_TOI_THIEU:

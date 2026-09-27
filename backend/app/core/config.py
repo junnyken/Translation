@@ -143,10 +143,15 @@ class Settings(BaseSettings):
     #: đúng lúc cần nhất. 20 là số ĐẶT RA, chưa hiệu chỉnh trên hành vi thật.
     so_lan_nhan_dang_ngon_ngu_mot_ngay: int = 20
 
-    #: Xoá ảnh tạm của lượt đọc thử sau bao nhiêu giờ, nếu vì lý do nào đó nó chưa được dọn ngay.
-    #: Ảnh này là RÁC: không ai tải về, không phải hiện vật của ai. Giữ lại là giữ ảnh có bản quyền
-    #: không vì mục đích gì.
-    gio_giu_anh_nhan_dang: int = 6
+    # KHÔNG có `gio_giu_anh_nhan_dang` ở đây — cố ý, và đã từng có rồi gỡ (27-09-2026).
+    #
+    # Nó được thêm cùng E57 rồi **không ai đọc**: ảnh tạm của lượt đọc thử đã bị xoá ngay trong
+    # `finally` của task. Một biến cấu hình hứa một lượt dọn không tồn tại thì tệ hơn là không có
+    # biến nào: ai đó sẽ đặt `GIO_GIU_ANH_NHAN_DANG=1` và tin rằng có phép dọn.
+    #
+    # Nếu `storage.delete` thất bại, ảnh đó **còn sót** và hiện KHÔNG có ai nhặt — lỗi được ghi
+    # `logger.exception`. Chấp nhận có chủ đích: thêm một lịch xoá dữ liệu nữa là thêm một thứ xoá
+    # không hoàn tác được, mà chủ dự án đã chốt không bật lịch dọn tệp (`bat_lich_don_tep=False`).
 
     # --- E50: vòng đời tệp -------------------------------------------------------------------
     #: Giữ kết quả bao lâu (PHÚT) **kể từ lúc cả chapter xong**, không phải từ lúc tải lên.
