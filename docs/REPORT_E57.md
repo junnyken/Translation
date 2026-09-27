@@ -263,9 +263,46 @@ thuộc chính người gọi, nên "B nhận 202" là **đúng**. Mô hình *"B
 
 ---
 
-## 9. Remaining Limits
+## 10. Live Verification — production, 27-09
 
-* **Chưa bấm tay trên production.**
+Dấu hiệu bản mới đã lên: `POST /api/v1/nhan-dang-ngon-ngu` trả **422** (thiếu tệp) thay vì **404**
+(bản cũ không có route). `con_lai_hom_nay: 19` ở lượt đầu chứng minh migration đã chạy và bộ đếm riêng
+hoạt động.
+
+### Qua API, ảnh tiếng Nhật THẬT
+
+```
+POST /nhan-dang-ngon-ngu  (ảnh おはようございます / 俺の名前は田中だ)
+→ 202 {"trang_thai":"queued","con_lai_hom_nay":19}
+GET  /nhan-dang-ngon-ngu/{id}   (~30s sau — lần đầu worker phải nạp model)
+→ {"trang_thai":"done","ngon_ngu":"ja","ly_do":"co_12_kana",
+   "bang_chung":{"kana":12,"han":5,"latin":0,"tong_co_nghia":17,"so_vung_doc_duoc":2}}
+```
+
+| Chốt | Đo được trên production |
+|---|---|
+| Khách **khác** đọc lượt đó | **404** — cách ly chạy đúng với cookie thật |
+| Ảnh **trắng** (không chữ) | `done` + `ngon_ngu: null` + `ly_do: khong_doc_duoc_chu_nao`, `loi: null` — **không** phải `failed` |
+
+### Bấm tay trên Chrome thật
+
+| Bước | Kết quả |
+|---|---|
+| Chọn "Tự nhận" | Hiện nút "Đọc thử trang đầu" + câu "Không tính vào lượt dịch" |
+| Nút "Dịch trang" lúc đó | **Bị khoá**, lý do: *"Bấm \"Đọc thử trang đầu\", hoặc chọn tay một ngôn ngữ"* |
+| Bấm đọc thử (ảnh Nhật) | *"Máy đoán: Tiếng Nhật — Đọc được 17 ký tự (12 chữ kana của tiếng Nhật). Ô chọn ở trên đã đổi theo. **Sai thì bạn sửa lại**…"* |
+| Sau đó | Ô chọn = `ja`, nút "Dịch trang" **mở ra** |
+| Ảnh trắng | *"Máy không đoán được — Trang này máy không đọc ra chữ nào… Bạn chọn tay ở ô trên giúp nhé"*; ô chọn **ở nguyên** `tu-nhan`, nút Dịch **vẫn khoá** |
+| Console | **0 thông báo** |
+
+Nhánh cuối là thứ đáng nhất: máy **không** âm thầm chọn một ngôn ngữ khi không chắc, và giao diện
+không để người dùng đi tiếp bằng một giá trị vô nghĩa.
+
+---
+
+## 11. Remaining Limits
+
+* ~~Chưa bấm tay trên production.~~ **ĐÃ kiểm** — §10.
 * Chỉ đọc thử **trang đầu**. Một chapter trộn nhiều ngôn ngữ sẽ nhận theo trang đầu — chấp nhận
   được, nhưng là một giả định chưa nói với người dùng.
 * Ngưỡng ở §3.2 và trần 20 ở §5.2 là **số đặt ra**, chưa hiệu chỉnh trên dữ liệu thật.
