@@ -601,15 +601,27 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 /* Nút TÊN (cái duy nhất dài không kiểm soát được) — cắt bằng dấu ba chấm.
    Nút "Đăng xuất" cố ý KHÔNG cắt: nhãn của nó ngắn và cố định, mà một nút thoát bị cắt thành
    "Đăng x…" thì người dùng phải đoán. */
+/* Ba ngưỡng, cả ba ĐO trên Chrome thật 27-09-2026 chứ không đặt theo cảm giác.
+   Điểm dễ sai nhất: ở khổ rộng, chữ bị cắt KHÔNG phải vì `max-width` mà vì `flex-shrink` — ô tìm
+   kiếm (`.o-tim { flex: 1 1 260px }`) giành chỗ trước. Đo được: nâng `max-width` 18ch→30ch **không
+   đổi gì** (vẫn 137px, vẫn cắt); chỉ `flex-shrink: 0` mới cho đủ 165px. Nên đừng sửa con số khi
+   triệu chứng là "cắt oan trên máy tính". */
 .tai-khoan > .nut-chu:first-child {
   min-width: 3ch;
-  max-width: 18ch;
+  max-width: 30ch;
+  flex-shrink: 0;          /* > 900px: tên đầy đủ hiện hết, ô tìm kiếm co lại nhường */
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+@media (max-width: 900px) {
+  /* Hẹp dần thì ĐỔI VAI: cho nút tên co lại, vì lúc này thứ phải bảo vệ là nút "Đăng xuất". */
+  .tai-khoan > .nut-chu:first-child { flex-shrink: 1; max-width: 18ch; }
+}
 @media (max-width: 560px) {
-  .tai-khoan > .nut-chu:first-child { max-width: 9ch; }
+  /* Đo ở khung 390px: 14ch là ngưỡng an toàn cuối, 18ch tràn lại với email 32 ký tự.
+     Lấy 12ch để còn khoảng dự phòng cho phông chữ khác. */
+  .tai-khoan > .nut-chu:first-child { max-width: 12ch; }
 }
 
 /* Nút trông như đường dẫn. Dùng <button> chứ không <a href="#">: nó KHÔNG điều hướng đi đâu,
