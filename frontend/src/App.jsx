@@ -448,7 +448,7 @@ export default function App({ urlBundle } = {}) {
         <BangBanMoi urlBundle={urlBundle} />
         <main className="than-trang">
           {muonDangNhap
-            ? <ManDangNhap onXong={setNguoiDung} />
+            ? <ManDangNhap onXong={setNguoiDung} onQuayLai={() => setMuonDangNhap(false)} />
             : <TrangChu onMoDangNhap={() => setMuonDangNhap(true)} />}
         </main>
       </div>

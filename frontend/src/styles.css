@@ -112,7 +112,12 @@ a { color: var(--mau-chinh-dam); }
 .nut-ghost:hover:not(:disabled) { background: var(--mau-chinh-nhat); }
 .nut-nguy { background: var(--loi); border-color: var(--loi); color: #fff; }
 .nut:disabled, .nut.khoa { opacity: .5; cursor: not-allowed; }
-button:not(.nut):not(.the-vung):not(.nut-bo) {
+/* Luật QUÉT CHUNG cho nút chưa khoác class nào. Ba `:not()` cho nó độ đặc hiệu 0,3,1 — cao hơn
+   BẤT KỲ luật một-class nào, nên mọi class "nút không giống nút" phải được liệt kê ở đây, chứ
+   không thể tự gỡ viền bằng `border: 0` ở luật của mình.
+   `.nut-chu` (liên kết chữ) đã viết `border: 0; padding: 0` từ lâu mà chưa bao giờ có tác dụng:
+   nó hiện ra thành viên thuốc có viền ở cả 7 chỗ dùng — thấy được khi dựng lại màn đăng nhập. */
+button:not(.nut):not(.the-vung):not(.nut-bo):not(.nut-chu):not(.nut-trong-o) {
   padding: 8px 14px; font-size: 14px; font-family: inherit; cursor: pointer;
   border-radius: var(--bo-nho); border: 1px solid var(--vien-dam);
   background: var(--the); color: var(--chu);
@@ -561,28 +566,89 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 
 /* ---------- Auth slice B: đăng nhập & tài khoản ---------- */
 
+/* ---------- Màn đăng nhập / tạo tài khoản (E62) ---------- */
+/* Bản trước là một `<form>` TRẦN giữa trang: ô nhập không mang class `.o` nên nó hiện ra đúng kiểu
+   mặc định của trình duyệt (khác hẳn mọi ô nhập khác trong app), không có thẻ, và `margin: 48px
+   auto` dán nó vào mép trên một canvas rộng 1240px trống trơn. Nay: một thẻ nổi, căn giữa cả hai
+   chiều, dùng đúng token của phần còn lại. */
 .man-dang-nhap {
-  max-width: 380px;
-  margin: 48px auto;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 14px;
+  /* Căn giữa theo phần MÀN NHÌN THẤY. Để khối cao hơn màn thì nút chính rơi xuống dưới nếp gấp —
+     đúng thứ vừa phải sửa ở trang chủ (E61). */
+  /* `min(76vh, 640px)` trần 640px làm thẻ đứng lệch hẳn lên trên ở màn cao 900px, chừa một
+     khoảng trống chết phía dưới. Trừ theo chiều cao THẬT của màn thay vì đặt một trần cứng. */
+  min-height: max(420px, calc(100vh - 160px));
+  /* `safe center` để khi thẻ CAO HƠN vùng chứa (màn thấp + form đăng ký nhiều ô) thì phần đầu
+     thẻ không bị cắt mất ở trên — trình duyệt chưa hiểu sẽ bỏ qua dòng này và giữ dòng trên. */
+  justify-content: center;
+  justify-content: safe center;
+  /* Vệt sáng mờ sau thẻ: trên nền ngà phẳng, thẻ trắng gần như tàng hình. */
+  background: radial-gradient(60% 55% at 50% 10%, var(--mau-chinh-nhat) 0%, transparent 70%);
 }
-.man-dang-nhap h1 { margin: 0 0 16px; font-size: 22px; }
 
-.khung-dang-nhap {
-  display: grid;
-  gap: 6px;
-  margin: 16px 0;
+.the-dang-nhap {
+  width: 100%; max-width: 420px; box-sizing: border-box;
+  padding: 30px 30px 26px;
+  background: var(--the); border: 1px solid var(--vien);
+  border-radius: var(--bo-lon); box-shadow: var(--bong-noi);
 }
-.khung-dang-nhap label { font-size: 13px; font-weight: 500; }
-/* Ô nhập tràn hết chiều ngang khung: dùng chiều rộng cố định sẽ tràn ngang trên màn hẹp. */
-.khung-dang-nhap input { width: 100%; box-sizing: border-box; }
-.khung-dang-nhap button { margin-top: 10px; }
-.khung-dang-nhap .ghi-chu { margin: 0 0 4px; }
+.the-dang-nhap > .bao { margin-top: 16px; }
+
+.dau-hieu-san-pham {
+  display: flex; align-items: center; gap: 9px; margin: 0 0 18px;
+  font-size: 13.5px; font-weight: 600; color: var(--mo);
+}
+.dau-hieu {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-radius: var(--bo-nho);
+  background: var(--mau-chinh-nhat); color: var(--mau-chinh);
+  border: 1px solid var(--mau-chinh-vien);
+}
+
+.man-dang-nhap h1 { margin: 0 0 6px; font-size: 24px; line-height: 1.25; }
+.dan-dang-nhap { margin: 0; font-size: 14px; color: var(--mo); }
+
+.khung-dang-nhap { display: grid; gap: 16px; margin: 22px 0 0; }
+.khung-dang-nhap .hang-o { display: grid; gap: 6px; }
+.khung-dang-nhap label { font-size: 13px; font-weight: 600; }
+/* CHỈ nút gửi mới tràn ngang. Luật cũ (`.khung-dang-nhap button`) quét cả nút "Hiện" nằm trong ô
+   mật khẩu — chọn theo thẻ trong một khung có nhiều loại nút là cái bẫy chờ sẵn. */
+.khung-dang-nhap > .nut { width: 100%; justify-content: center; margin-top: 4px; padding: 11px 16px; }
+.khung-dang-nhap .ghi-chu { margin: 2px 0 0; }
+
+/* Ô có nút nằm trong. Ô chừa chỗ bằng `padding-right` chứ không để nút đè lên chữ đang gõ. */
+.o-co-nut { position: relative; }
+.o-co-nut .o { padding-right: 58px; }
+.nut-trong-o {
+  position: absolute; top: 50%; right: 6px; transform: translateY(-50%);
+  background: none; border: 0; padding: 5px 7px; border-radius: var(--bo-nho);
+  font: inherit; font-size: 13px; color: var(--mau-chinh); cursor: pointer;
+}
+.nut-trong-o:hover { background: var(--mau-chinh-nhat); }
+
+/* Đường đổi giữa "đăng nhập" và "tạo mới" là hành động PHỤ: tách bằng một đường kẻ và cỡ chữ nhỏ,
+   để nó không tranh chỗ với nút chính ngay trên nó. */
+.doi-che {
+  margin: 20px 0 0; padding-top: 16px; border-top: 1px solid var(--vien);
+  font-size: 13.5px; text-align: center;
+}
+.chan-dang-nhap { margin: 0; font-size: 13px; color: var(--mo); text-align: center; }
+
+@media (max-width: 480px) {
+  /* Màn hẹp: bỏ căn giữa dọc. Bàn phím ảo ăn mất nửa màn, căn giữa lúc đó đẩy ô email lên khuất. */
+  .man-dang-nhap { min-height: 0; justify-content: flex-start; padding-top: 8px; }
+  .the-dang-nhap { padding: 22px 18px 20px; border-radius: var(--bo); }
+}
 
 /* Ai đang đăng nhập — luôn thấy được, để không thao tác nhầm tài khoản. */
 .tai-khoan {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  /* 14px chứ không phải 8px: từ khi `.nut-chu` gỡ được viền (luật quét chung ở §Nút), tên tài
+     khoản và "Đăng xuất" là HAI liên kết gạch chân cạnh nhau — khoảng cách cũ làm chúng đọc ra
+     như một cụm chữ duy nhất. */
+  gap: 14px;
   margin-left: auto;
   font-size: 13px;
   color: var(--mo);
