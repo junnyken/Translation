@@ -179,6 +179,47 @@ describe('trang chủ', () => {
     })
   })
 
+  it('E67 — mặc định gửi cách dịch MIỄN PHÍ, không ai bị tốn token ngoài ý muốn', async () => {
+    const goi = vi.spyOn(globalThis, 'fetch').mockImplementation((u, o) => {
+      if (String(u).includes('han-muc')) return dapUng(HAN_MUC_CON)
+      return dapUng({
+        page_id: 'p1', project_id: 'c1', trang_thai: 'typeset_done', xong: true,
+        che_do: 'day_du', tien_do: {},
+      })
+    })
+    render(<TrangChu />)
+    await screen.findByText(/Lượt dịch hôm nay/)
+    await userEvent.upload(oFile(), [new File(['a'], 'a.png', { type: 'image/png' })])
+    await userEvent.click(screen.getByRole('button', { name: /Dịch/ }))
+
+    await waitFor(() => {
+      const gui = goi.mock.calls.find(([u, o]) => String(u).includes('/doc-truyen/trang') && o?.method === 'POST')
+      expect(gui[1].body.get('engine')).toBe('google_fast')
+    })
+  })
+
+  it('E67 — chọn "Kỹ" thì engine ĐÓ phải đi tới máy chủ', async () => {
+    // Bài canh cho đúng chỗ dễ chết: một ô chọn vẽ ra rất đẹp mà không nối vào lời gọi API thì
+    // người dùng tưởng mình đã bật dịch kỹ, còn máy chủ vẫn chạy Google. Không có gì báo.
+    const goi = vi.spyOn(globalThis, 'fetch').mockImplementation((u, o) => {
+      if (String(u).includes('han-muc')) return dapUng(HAN_MUC_CON)
+      return dapUng({
+        page_id: 'p1', project_id: 'c1', trang_thai: 'typeset_done', xong: true,
+        che_do: 'day_du', tien_do: {},
+      })
+    })
+    render(<TrangChu />)
+    await screen.findByText(/Lượt dịch hôm nay/)
+    await userEvent.selectOptions(screen.getByLabelText(/Dịch bằng gì/), 'llm_context')
+    await userEvent.upload(oFile(), [new File(['a'], 'a.png', { type: 'image/png' })])
+    await userEvent.click(screen.getByRole('button', { name: /Dịch/ }))
+
+    await waitFor(() => {
+      const gui = goi.mock.calls.find(([u, o]) => String(u).includes('/doc-truyen/trang') && o?.method === 'POST')
+      expect(gui[1].body.get('engine')).toBe('llm_context')
+    })
+  })
+
   it('E54 — máy chủ nói KHÔNG tự xoá thì giao diện KHÔNG hứa xoá sau 30 phút', async () => {
     // Đây đúng trạng thái bản chạy 27-09: `BAT_LICH_DON_TEP` tắt, tệp KHÔNG bị xoá, mà màn hình
     // vẫn hứa "chỉ giữ 30 phút". Không mất dữ liệu, nhưng là một câu SAI về dữ liệu của người dùng.

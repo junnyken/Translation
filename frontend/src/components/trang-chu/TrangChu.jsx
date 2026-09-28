@@ -91,6 +91,10 @@ function TienDoTrang({ tienDo }) {
 export default function TrangChu() {
   const [files, setFiles] = useState([])
   const [ngonNgu, setNgonNgu] = useState('ja')
+  // E67 — mặc định MIỄN PHÍ. Chủ dự án chốt: người dùng tự chọn, không ai bị tính tiền ngoài ý
+  // muốn. Đây là lựa chọn của TRANG CHỦ, gửi thẳng lên máy chủ — E58 đã chốt rằng lựa chọn này
+  // phải được LƯU chứ không để `NULL` thừa hưởng mặc định hệ thống.
+  const [cachDich, setCachDich] = useState('google_fast')
   const [dangNhanDang, setDangNhanDang] = useState(false)
   const [ketQuaNhanDang, setKetQuaNhanDang] = useState(null)
   const [loiNhanDang, setLoiNhanDang] = useState(null)
@@ -182,7 +186,9 @@ export default function TrangChu() {
     const idTrang = []
     for (let i = 0; i < files.length; i++) {
       try {
-        const ra = await api.guiTrangDichNhanh(files[i], { sourceLang: ngonNgu, cheDo: 'day_du' })
+        const ra = await api.guiTrangDichNhanh(
+          files[i], { sourceLang: ngonNgu, cheDo: 'day_du', engine: cachDich },
+        )
         idTrang.push(ra.page_id)
         if (!huy.current) {
           setTrang((cu) => cu.map((t, j) => (j === i ? { ...t, page_id: ra.page_id } : t)))
@@ -324,6 +330,29 @@ export default function TrangChu() {
           <p className="ghi-chu">
             Chọn sai thì chữ dịch ra vô nghĩa mà không có báo lỗi nào — nên chọn đúng tiếng của
             trang bạn đang đọc.
+          </p>
+
+          {/* E67 — ô chọn cách dịch.
+              Trước đây trang chủ KHÔNG có ô này nên mọi lượt đều chạy `google_fast`, và người
+              dùng không có cách nào biết. Đo trên trang thật 28-09, cùng một ảnh:
+                google_fast : "Vào thời điểm đó là Mt." · "…I went there and this time it was"
+                              (tiếng Anh lọt vào bản dịch tiếng Việt) · 0/14 vùng được cảnh báo
+                llm_context : "Chờ… chờ một chút, tớ sẽ xuống ngay đây."  · 6/13 vùng TỰ BÁO là
+                              đang đoán
+              Mặc định vẫn là miễn phí: không ai bị tốn token ngoài ý muốn. */}
+          <label htmlFor="chon-cach-dich">Dịch bằng gì?</label>
+          <select
+            id="chon-cach-dich" className="o" value={cachDich}
+            onChange={(e) => setCachDich(e.target.value)}
+            disabled={dangChay}
+          >
+            <option value="google_fast">Nhanh — miễn phí</option>
+            <option value="llm_context">Kỹ — AI đọc cả trang</option>
+          </select>
+          <p className="ghi-chu">
+            {cachDich === 'google_fast'
+              ? 'Google dịch từng dòng rời nhau. Miễn phí. Chữ đọc sai thì nó dịch luôn cái sai, và có lúc ra tiếng Anh.'
+              : 'AI đọc cả trang rồi dịch nên giữ được mạch truyện, và tự đánh dấu câu nào nó phải đoán. Tốn token của hệ thống.'}
           </p>
 
           {ngonNgu === TU_NHAN && (

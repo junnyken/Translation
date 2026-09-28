@@ -667,11 +667,17 @@ export const guiNhanDangNgonNgu = (file) => {
  */
 export const layNhanDangNgonNgu = (id) => fetch(`${BASE}/nhan-dang-ngon-ngu/${id}`).then(doc)
 
-export const guiTrangDichNhanh = (file, { sourceLang = 'ja', cheDo = 'day_du' } = {}) => {
+export const guiTrangDichNhanh = (
+  file, { sourceLang = 'ja', cheDo = 'day_du', engine = null } = {},
+) => {
   const form = new FormData()
   form.append('file', file)
   form.append('source_lang', sourceLang)
   form.append('che_do', cheDo)
+  // E67 — `engine` KHÔNG mặc định ở đây. Máy chủ mặc định `google_fast` (miễn phí), và E58 đã
+  // chốt rằng lựa chọn đó phải được LƯU chứ không để `NULL` — để trang chủ không âm thầm thừa
+  // hưởng bất kỳ mặc định hệ thống nào, kể cả engine trả tiền.
+  if (engine) form.append('engine', engine)
   return fetch(`${BASE}/doc-truyen/trang`, { method: 'POST', body: form }).then(doc)
 }
 
