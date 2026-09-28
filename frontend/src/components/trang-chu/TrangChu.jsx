@@ -281,54 +281,40 @@ export default function TrangChu({ onMoDangNhap }) {
 
   return (
     <main className="trang-chu">
+      {/* Tiêu đề và hạn mức nằm CÙNG một hàng: hạn mức là thứ liếc qua, không phải thứ đọc.
+          Trước đây nó là một thẻ viền xanh to chiếm trọn bề ngang, đẩy ô thả ảnh xuống dưới. */}
       <header className="trang-chu-dau">
-        <h1>Dịch truyện tranh sang tiếng Việt</h1>
-        <p className="dan">
-          Thả ảnh trang truyện vào đây là chạy — không cần đăng ký trước.
-        </p>
+        <div className="dau-hang">
+          <div className="dau-chu">
+            <h1>Dịch truyện tranh sang tiếng Việt</h1>
+            <p className="dan">Thả ảnh trang truyện vào đây là chạy — không cần đăng ký trước.</p>
+          </div>
+          <div className="dau-han-muc">
+            <TheHanMuc
+              hanMuc={hanMuc} dangTai={dangTaiHanMuc} loi={loiHanMuc} onTaiLai={napHanMuc}
+            />
+          </div>
+        </div>
+
+        {/* Dòng đăng nhập TÁCH khỏi góc hạn mức: nhét chung làm cột phải chật cứng và vỡ chữ
+            ("Đăng nhập hoặc tạo tài khoản" / "để" / "được nhiều lượt…" rơi ba dòng). Nó cũng không
+            gấp — người dùng dịch được ngay mà không cần tài khoản. */}
+        {!hanMuc?.co_tai_khoan && onMoDangNhap && (
+          <p className="ghi-chu dong-dang-nhap">
+            {/* Không lặp lại "để được nhiều lượt hơn mỗi ngày" — khối hạn mức ngay trên đã nói
+                đúng câu đó. Cùng một câu hai lần trên một màn là thứ làm trang trông rối. */}
+            <button type="button" className="nut-chu" onClick={onMoDangNhap}>
+              Đăng nhập hoặc tạo tài khoản
+            </button>
+          </p>
+        )}
       </header>
 
-      <TheHanMuc
-        hanMuc={hanMuc} dangTai={dangTaiHanMuc} loi={loiHanMuc} onTaiLai={napHanMuc}
-      />
-
-      {!hanMuc?.co_tai_khoan && onMoDangNhap && (
-        <p className="ghi-chu">
-          <button type="button" className="nut-chu" onClick={onMoDangNhap}>
-            Đăng nhập hoặc tạo tài khoản
-          </button>
-          {' '}để được nhiều lượt hơn mỗi ngày.
-        </p>
-      )}
-
-      <section className="can-biet" aria-labelledby="tieu-de-can-biet">
-        <h2 id="tieu-de-can-biet" className="nho">Cần biết trước khi bắt đầu</h2>
-        <ul>
-          <li>
-            <Icon ten="dong-ho" co={14} /> Mỗi trang mất <strong>khoảng 30 giây</strong>. Máy
-            không treo — cứ để tab mở.
-          </li>
-          {/* Câu này phải khớp CẤU HÌNH THẬT của máy chủ. Hứa xoá trong khi không xoá, hay hứa
-              giữ trong khi sẽ xoá — cả hai đều là nói sai với người dùng về dữ liệu của họ. */}
-          {coTuXoa ? (
-            <li>
-              <strong>Kết quả chỉ giữ {giuPhut} phút</strong> kể từ lúc dịch xong. Sau đó
-              {' '}<strong>ảnh gốc, bản dịch và tệp đã gói đều bị xoá</strong>: không chạy lại được,
-              không sửa lại được. Muốn làm lại phải tải lên từ đầu và tốn thêm lượt.
-            </li>
-          ) : (
-            <li>
-              Kết quả <strong>không tự xoá</strong> theo giờ. Nhưng vẫn nên tải về ngay — đây
-              không phải chỗ lưu trữ lâu dài, và chính sách có thể đổi.
-            </li>
-          )}
-          <li>Nhận ảnh <strong>PNG, JPG, WebP</strong>. Mỗi tệp tối đa 25 MB.</li>
-          <li>Dịch được chữ <strong>Nhật, Anh, Trung</strong> → tiếng Việt.</li>
-        </ul>
-      </section>
 
       <section className="vung-gui" aria-labelledby="tieu-de-gui">
-        <h2 id="tieu-de-gui" className="nho">Chọn trang truyện</h2>
+        {/* Giữ cho trình đọc màn hình (vùng này cần có tên), ẩn khỏi mắt: ngay dưới nó ô thả
+            đã tự nói "Kéo ảnh vào đây hoặc bấm để chọn" — hiện cả hai là lặp. */}
+        <h2 id="tieu-de-gui" className="an-di">Chọn trang truyện</h2>
 
         <Dropzone files={files} onDoi={setFiles} id="tha-trang-chu" />
 
@@ -417,7 +403,52 @@ export default function TrangChu({ onMoDangNhap }) {
         >
           {dangChay ? 'Đang dịch…' : `Dịch ${files.length || ''} trang`.trim()}
         </Button>
+
+        {/* E61 — luật giữ tệp phải tới mắt người dùng TRƯỚC khi họ bỏ công chờ, không phải sau khi
+            mất tệp. Chú thích cũ của `.can-biet` chốt đúng điều đó, và việc thu khối kia vào
+            `<details>` sẽ xoá mất bảo đảm ấy.
+            Nên giữ lại đúng MỘT dòng, và CHỈ khi chính sách xoá đang bật — lúc nó không bật thì
+            câu này là chữ thừa. Nội dung đầy đủ vẫn nằm trong `<details>` bên dưới. */}
+        {coTuXoa && (
+          <p className="luu-y-giu-tep">
+            {/* Cố ý KHÔNG lặp lại đúng câu trong `<details>`: hai câu y hệt trên cùng một màn là
+                bắt người dùng đọc hai lần. Dòng này nói phần HÀNH ĐỘNG (tải về ngay), khối kia nói
+                phần HẬU QUẢ đầy đủ (mất cả ảnh gốc lẫn tệp đã gói, không chạy lại được). */}
+            <Icon ten="dong-ho" co={14} /> Nhớ tải về ngay: tệp <strong>tự xoá sau {giuPhut} phút
+            </strong> kể từ lúc dịch xong.
+          </p>
+        )}
       </section>
+
+      {/* E61 — THU GỌN, không bỏ chữ. Bốn ý này mỗi ý được thêm vì một lần hiểu nhầm có thật
+          (người dùng tưởng máy treo; tưởng tệp giữ mãi; thả nhầm định dạng; thả truyện tiếng
+          Hàn). Bỏ là quay lại đúng những lần đó. Nhưng bày cả bốn ngay màn đầu thì chúng đứng
+          CHẮN việc chính. `<details>` giữ đủ chữ mà trả lại màn đầu cho ô thả ảnh. */}
+      <details className="can-biet">
+        <summary>Cần biết trước khi bắt đầu</summary>
+        <ul>
+          <li>
+            <Icon ten="dong-ho" co={14} /> Mỗi trang mất <strong>khoảng 30 giây</strong>. Máy
+            không treo — cứ để tab mở.
+          </li>
+          {/* Câu này phải khớp CẤU HÌNH THẬT của máy chủ. Hứa xoá trong khi không xoá, hay hứa
+              giữ trong khi sẽ xoá — cả hai đều là nói sai với người dùng về dữ liệu của họ. */}
+          {coTuXoa ? (
+            <li>
+              <strong>Kết quả chỉ giữ {giuPhut} phút</strong> kể từ lúc dịch xong. Sau đó
+              {' '}<strong>ảnh gốc, bản dịch và tệp đã gói đều bị xoá</strong>: không chạy lại được,
+              không sửa lại được. Muốn làm lại phải tải lên từ đầu và tốn thêm lượt.
+            </li>
+          ) : (
+            <li>
+              Kết quả <strong>không tự xoá</strong> theo giờ. Nhưng vẫn nên tải về ngay — đây
+              không phải chỗ lưu trữ lâu dài, và chính sách có thể đổi.
+            </li>
+          )}
+          <li>Nhận ảnh <strong>PNG, JPG, WebP</strong>. Mỗi tệp tối đa 25 MB.</li>
+          <li>Dịch được chữ <strong>Nhật, Anh, Trung</strong> → tiếng Việt.</li>
+        </ul>
+      </details>
 
       {loiChung && (
         <Alert sac="loi" tieuDe={loiChung.ma === 429 ? 'Hết lượt' : 'Không chạy được'}>

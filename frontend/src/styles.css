@@ -703,38 +703,96 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   display: flex; flex-direction: column; gap: var(--khoang);
   max-width: 820px; margin: 0 auto; padding: var(--khoang) 16px 48px;
 }
+/* E61 — tiêu đề và hạn mức CÙNG một hàng. Hạn mức là thứ liếc qua chứ không phải thứ đọc, nên
+   nó không còn là thẻ viền xanh chiếm trọn bề ngang và đẩy ô thả ảnh xuống dưới màn. */
+.dau-hang {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 20px;
+}
+/* `flex: 1 1 320px` ở đây từng làm cột tiêu đề NUỐT hết bề ngang, đẩy khối hạn mức rớt xuống một
+   dòng riêng rồi căn phải giữa trang — trông như lỗi. `auto` + `min-width: 0` giữ cả hai trên cùng
+   một hàng và cho tiêu đề co lại khi chật. */
+.dau-chu { flex: 1 1 auto; min-width: 0; }
+/* CĂN TRÁI dù nằm bên phải: chữ Việt nhiều dòng căn phải đọc rất xấu (mỗi dòng bắt đầu một chỗ).
+   Vị trí bên phải do flex lo, không do `text-align`. */
+.dau-han-muc { flex: 0 0 auto; width: 300px; max-width: 100%; }
+.dau-han-muc .the-han-muc { align-items: flex-start; }
+/* Tiêu đề khối hạn mức chỉ là nhãn — không được to ngang tiêu đề trang. */
+.dau-han-muc h2 { font-size: 13px; font-weight: 600; color: var(--mo); margin: 0; }
+/* `.moc-reset` là flex nên trong cột hẹp nó bẻ "12 giờ 8 phút" thành ba dòng. Cho nó chảy như
+   chữ thường. */
+/* `.the-han-muc .moc-reset` đặt `display:flex` và có CÙNG độ đặc hiệu với `.dau-han-muc .moc-reset`
+   — nó đứng SAU trong tệp nên nó thắng, và "12 giờ 3 phút" bị bẻ thành ba cột. Thêm `.dau-hang`
+   để nâng độ đặc hiệu thay vì đẩy luật đi chỗ khác (đẩy chỗ là sớm muộn có người đẩy lại). */
+.dau-hang .dau-han-muc .moc-reset { display: block; }
+.dau-hang .dau-han-muc .moc-reset svg { vertical-align: -2px; margin-right: 4px; }
+
+.dong-dang-nhap { margin: 10px 0 0; font-size: 13px; }
 .trang-chu-dau h1 { margin: 0 0 6px; font-size: 26px; line-height: 1.25; }
 .trang-chu-dau .dan { margin: 0; color: var(--mo); font-size: 15px; }
 
-/* Thẻ hạn mức — viền đổi theo mức còn lại, nhưng con số và nhãn chữ mới là thông tin chính. */
+/* Hạn mức nay GỌN: một dòng chữ nhỏ, không khung, không con số 26px. Viền màu vẫn giữ ở cạnh trái
+   cho người liếc — nhưng nhãn chữ mới là thông tin, màu không bao giờ là nguồn duy nhất. */
 .the-han-muc {
-  background: var(--the); border: 1px solid var(--vien); border-left-width: 4px;
-  border-radius: var(--bo); padding: 14px 16px; box-shadow: var(--bong);
-  display: flex; flex-direction: column; gap: 6px;
+  border-left: 3px solid var(--vien-dam);
+  padding: 2px 0 2px 10px;
+  display: flex; flex-direction: column; gap: 2px;
+  font-size: 13px; color: var(--mo);
 }
 .the-han-muc.vien-ok { border-left-color: var(--ok); }
 .the-han-muc.vien-canh { border-left-color: var(--canh); }
 .the-han-muc.vien-loi { border-left-color: var(--loi); }
-.the-han-muc.dang-tai { color: var(--mo); font-size: 14px; }
-.the-han-muc .so-luot { margin: 0; font-size: 15px; }
-.the-han-muc .so-luot strong { font-size: 26px; line-height: 1; }
-.the-han-muc .moc-reset { display: flex; align-items: center; gap: 6px; margin: 0; }
-.chi-tiet-chot { font-size: 13px; color: var(--mo); }
+.the-han-muc.dang-tai { color: var(--mo); }
+.the-han-muc .so-luot { margin: 0; font-size: 13px; color: var(--chu); }
+.the-han-muc .so-luot strong { font-size: 17px; line-height: 1; }
+.the-han-muc .moc-reset { display: flex; align-items: center; gap: 5px; margin: 0; }
+.chi-tiet-chot { font-size: 12.5px; color: var(--mo); }
 .chi-tiet-chot summary { cursor: pointer; }
-.chi-tiet-chot ul { margin: 6px 0; padding-left: 18px; }
+.chi-tiet-chot ul { margin: 6px 0; padding-left: 18px; text-align: left; }
 
-/* "Cần biết trước khi bắt đầu" — §4.2. Đặt TRƯỚC vùng thả có chủ đích: người dùng phải biết luật
-   30 phút trước khi bỏ công chờ, không phải sau khi mất tệp. */
+/* "Cần biết trước khi bắt đầu" — nay THU GỌN. Bốn ý vẫn còn nguyên chữ bên trong; điều đổi là
+   chúng không còn đứng chắn giữa người dùng và ô thả ảnh.
+   Luật giữ tệp vẫn tới mắt người dùng TRƯỚC khi chờ — qua `.luu-y-giu-tep` ngay dưới nút, và chỉ
+   khi chính sách xoá đang bật. */
 .can-biet {
-  background: var(--tin-nen); border: 1px solid var(--vien); border-radius: var(--bo);
-  padding: 12px 16px;
+  background: var(--the); border: 1px solid var(--vien); border-radius: var(--bo);
+  padding: 10px 14px; font-size: 14px;
 }
-.can-biet ul { margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
-.can-biet li { font-size: 14px; line-height: 1.5; }
+.can-biet > summary {
+  cursor: pointer; color: var(--mo); font-weight: 600; list-style-position: outside;
+}
+.can-biet > summary:hover { color: var(--chu); }
+.can-biet ul { margin: 10px 0 2px; padding-left: 18px; display: flex; flex-direction: column; gap: 8px; }
+.can-biet li { font-size: 14px; line-height: 1.55; }
 
-.vung-gui { display: flex; flex-direction: column; gap: 12px; }
-.hang-chon { display: flex; flex-direction: column; gap: 4px; }
-.hang-chon select { max-width: 240px; }
+/* Ô thả là VIỆC CHÍNH nên nó được chỗ rộng nhất trên màn. */
+.vung-gui { display: flex; flex-direction: column; gap: 14px; }
+.vung-gui #tha-trang-chu { min-height: 220px; }
+.hang-chon {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px;
+}
+.hang-chon > label { font-size: 14px; color: var(--mo); }
+.hang-chon select { max-width: 260px; }
+/* Ghi chú và các khối cảnh báo trong hàng chọn phải XUỐNG DÒNG RIÊNG, không chen ngang hàng. */
+.hang-chon > .ghi-chu,
+.hang-chon > .bao,
+.hang-chon > .khoi-nhan-dang { flex: 1 0 100%; margin: 0; }
+
+.luu-y-giu-tep {
+  margin: 0; font-size: 13px; color: var(--canh-dam);
+  display: flex; align-items: center; gap: 6px;
+}
+/* Chật thì XUỐNG DÒNG và căn trái — căn phải trên một dòng chiếm trọn bề ngang trông như lỗi. */
+@media (max-width: 700px) {
+  .dau-hang { flex-wrap: wrap; }
+  .dau-han-muc {
+    text-align: left; flex: 1 1 100%; max-width: none;
+    border-top: 1px solid var(--vien); padding-top: 10px;
+  }
+  .dau-han-muc .the-han-muc { align-items: flex-start; }
+}
+@media (max-width: 560px) {
+  .vung-gui #tha-trang-chu { min-height: 170px; }
+}
 
 .tien-do-trang .ds-trang { list-style: none; margin: 8px 0 0; padding: 0; }
 .tien-do-trang .ds-trang li { justify-content: space-between; }
