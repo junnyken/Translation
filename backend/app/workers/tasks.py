@@ -1590,6 +1590,7 @@ def render_page_preview(page_id: uuid.UUID, resolver=None) -> str:
         if page is None or not page.clean_image_path:
             raise RuntimeError(f"no_clean_image: page {page_id} chưa có ảnh clean của M4")
         clean_rel = page.clean_image_path
+        he_so_ve_trang = float(page.he_so_ve or 1.0)
         rows = list(
             session.execute(
                 select(TextRegion, TypesetResult)
@@ -1671,6 +1672,7 @@ def render_page_preview(page_id: uuid.UUID, resolver=None) -> str:
             text_color=settings.typeset_text_color,
             stroke_color=settings.typeset_stroke_color,
             stroke_width=settings.typeset_stroke_width,
+            he_so_ve=he_so_ve_trang,
         ).render(
             clean_image_path=clean_abs,
             regions=ve,
@@ -1801,14 +1803,61 @@ def _run_typeset(job_id: uuid.UUID) -> dict:
     # padding = 0. Trừ lề hai lần thì chữ tự nhiên bé lại mà không ai giải thích được vì sao.
     typesetter_an_toan = build_typesetter(padding_ratio=0.0)[0]
     font_family = settings.default_font_family
+
+    # E65 — tách độ phân giải VẼ khỏi độ phân giải ĐỌC.
+    #
+    # Mọi bước trên (dò khung, OCR, dịch, xoá chữ) đã chạy xong trên ảnh GỐC và không bị đụng
+    # tới. Từ đây trở xuống là chuyện vẽ: đo xem trang này cần phóng bao nhiêu để từ tiếng Việt
+    # dài nhất của mỗi bong bóng vừa được ở cỡ chữ nhỏ nhất, rồi căn chữ trong khung đã nhân.
+    #
+    # Trang vốn đủ rộng nhận đúng 1.0 và đi tiếp y như trước E65.
+    from app.services.typeset.ti_le_ve import tinh_he_so_ve
+
+    # Cỡ ảnh clean để chặn theo CẠNH DÀI ảnh ra. `Image.open` chỉ đọc phần đầu tệp, và
+    # `open_read` của kho là luồng lười — không tải cả ảnh về chỉ để lấy hai con số.
+    co_anh_clean = None
+    try:
+        from PIL import Image as _Image
+
+        with get_storage().open_read(clean_rel) as _f, _Image.open(_f) as _im:
+            co_anh_clean = _im.size
+    except Exception:  # noqa: BLE001
+        # Không đọc được cỡ ảnh KHÔNG được làm hỏng lượt căn chữ: mất trần theo điểm ảnh thì
+        # vẫn còn trần tuyệt đối. Ghi lại để biết là đang chạy ở chế độ chặt hơn.
+        logger.warning("E65: không đọc được cỡ ảnh clean của trang %s", page_id)
+
+    he_so_ve = tinh_he_so_ve(
+        [
+            (
+                # Ô an toàn của E14 đã thụt lề sẵn ⇒ dùng nguyên bề rộng. Khung dự phòng thì
+                # bộ căn chữ còn trừ `typeset_padding_ratio` hai bên — phải trừ ở đây luôn,
+                # không thì hệ số tính thiếu đúng phần lề.
+                max(bbox.w * (1 - 2 * settings.typeset_padding_ratio), 1.0) if o is None
+                else max(o[2], 1.0),
+                text,
+            )
+            for _rid, bbox, text, o in specs
+        ],
+        resolver,
+        font_family=font_family,
+        co_chu_nho_nhat=settings.typeset_min_font_size,
+        co_anh=co_anh_clean,
+    )
+
+    def _phong(gia_tri: float) -> float:
+        return gia_tri * he_so_ve
     ket_qua: list[tuple[uuid.UUID, BBox, dict]] = []
     #: Vùng font không vẽ được — giữ lại để báo cáo, KHÔNG nuốt im lặng.
     thieu_glyph: list[tuple[uuid.UUID, str]] = []
     for region_id, bbox, text, o in specs:
         if o is None:
-            khung, ts = bbox, typesetter
+            khung, ts = BBox(
+                x=_phong(bbox.x), y=_phong(bbox.y), w=_phong(bbox.w), h=_phong(bbox.h),
+            ), typesetter
         else:
-            khung, ts = BBox(x=o[0], y=o[1], w=o[2], h=o[3]), typesetter_an_toan
+            khung, ts = BBox(
+                x=_phong(o[0]), y=_phong(o[1]), w=_phong(o[2]), h=_phong(o[3]),
+            ), typesetter_an_toan
         try:
             ket_qua.append((region_id, bbox, ts.fit(text, khung, font_family)))
         except MissingGlyph as exc:
@@ -1835,6 +1884,11 @@ def _run_typeset(job_id: uuid.UUID) -> dict:
         )
 
     with sync_session() as session:
+        # Ghi hệ số TRƯỚC khi vẽ, và trong cùng transaction với kết quả căn chữ: cỡ chữ vừa tính
+        # chỉ đúng khi ảnh được phóng đúng hệ số này. Hai thứ đó phải sống chết cùng nhau.
+        trang = session.get(Page, page_id)
+        if trang is not None:
+            trang.he_so_ve = he_so_ve
         region_ids = [rid for rid, _b, _f in ket_qua]
         deleted = session.execute(
             delete(TypesetResult).where(TypesetResult.region_id.in_(region_ids))
@@ -2487,6 +2541,7 @@ def _thu_thap_trang(session, project_id: uuid.UUID):
                 page_id=str(page.id),
                 order=page.order,
                 clean_image_rel=page.clean_image_path,
+                he_so_ve=float(page.he_so_ve or 1.0),
                 regions=[
                     RegionDraw(
                         bbox=BBox(x=r.bbox_x, y=r.bbox_y, w=r.bbox_w, h=r.bbox_h),

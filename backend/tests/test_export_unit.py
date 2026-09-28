@@ -20,10 +20,18 @@ class _RendererGia:
     def __init__(self):
         self.so_lan_ve = 0
 
-    def draw(self, clean_image_path, regions):
+    def draw(self, clean_image_path, regions, he_so_ve=None):
+        # E65 — bộ vẽ thật nhận hệ số phóng theo TỪNG LƯỢT vẽ (mỗi trang một hệ số). Bộ giả phải
+        # mang đúng chữ ký đó: bộ giả dễ dãi hơn bộ thật thì bài test xanh trong khi production
+        # nổ `TypeError`.
         self.so_lan_ve += 1
+        self.he_so_da_nhan = he_so_ve
         with Image.open(clean_image_path) as im:
-            return im.convert("RGB").copy()
+            im = im.convert("RGB")
+            k = float(he_so_ve or 1.0)
+            if k != 1.0:
+                return im.resize((round(im.width * k), round(im.height * k)))
+            return im.copy()
 
 
 @pytest.fixture

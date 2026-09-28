@@ -212,6 +212,12 @@ class PageRead(ORMModel):
     clean_image_path: str | None
     order: int
     status: PageStatus
+    #: E65 — hệ số phóng của ẢNH ĐÃ DỊCH so với ảnh gốc (1.0 = không phóng).
+    #:
+    #: Giao diện BẮT BUỘC dùng nó: lớp phủ khung của màn sửa tay đo tỉ lệ bằng
+    #: `clientWidth / naturalWidth` của ảnh ĐÃ DỊCH, trong khi `bbox_*` của vùng chữ là toạ độ
+    #: ảnh GỐC. Hai hệ toạ độ lệch nhau đúng hệ số này.
+    he_so_ve: float = 1.0
     created_at: datetime
     updated_at: datetime
 

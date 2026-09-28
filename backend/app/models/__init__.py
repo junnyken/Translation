@@ -207,6 +207,10 @@ class Page(TimestampMixin, Base):
     image_path: Mapped[str] = mapped_column(String(1024), nullable=False)
     # NULL cho tới khi M4 (inpaint) chạy thật — không đặt giá trị giả.
     clean_image_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    #: E65 — hệ số phóng ảnh RA. `1.0` = không phóng (mọi trang trước E65, và mọi trang vốn đã
+    #: đủ rộng). Cỡ chữ trong `typeset_result` là pixel của ảnh **đã phóng** theo hệ số này, nên
+    #: bước vẽ phải phóng đúng con số này — xem `services/typeset/ti_le_ve.py`.
+    he_so_ve: Mapped[float] = mapped_column(Float, nullable=False, server_default="1.0", default=1.0)
     order: Mapped[int] = mapped_column(Integer, nullable=False)
     #: Lần cuối trang này được xuất thành công (M8). NULL = chưa từng xuất — dùng để đối chiếu
     #: xem file đang cầm có cũ hơn lần sửa tay gần nhất không.

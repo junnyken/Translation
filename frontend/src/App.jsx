@@ -758,6 +758,7 @@ export default function App({ urlBundle } = {}) {
                 {chiTiet.preview_url && anhBlob ? (
                   <BboxOverlay
                     src={anhBlob}
+                    heSoVe={chiTiet.page?.he_so_ve || 1}
                     regions={chiTiet.regions}
                     dangChon={dangChon}
                     onChon={setDangChon}

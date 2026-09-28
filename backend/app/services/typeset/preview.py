@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from PIL import Image, ImageDraw
@@ -61,6 +61,10 @@ class PagePreviewRenderer:
         #
         # Vẫn giữ tham số: ai cần một ảnh có dấu sẵn (gửi kèm báo lỗi, in ra soi) thì bật tường minh.
         mark_overflow: bool = False,
+        # E65 — hệ số phóng ảnh RA. Bước căn chữ đã fit chữ vào khung nhân `he_so_ve`, nên
+        # `font_size` trong `RegionDraw` là pixel của ảnh ĐÃ phóng. Vẽ mà quên phóng ⇒ chữ to
+        # gấp `k` lần khung của nó. Mặc định 1.0 = y hệt hành vi trước E65.
+        he_so_ve: float = 1.0,
     ) -> None:
         self.font_resolver = font_resolver
         self.line_spacing_ratio = line_spacing_ratio
@@ -68,19 +72,51 @@ class PagePreviewRenderer:
         self.stroke_color = stroke_color
         self.stroke_width = int(stroke_width)
         self.mark_overflow = mark_overflow
+        self.he_so_ve = float(he_so_ve or 1.0)
 
-    def draw(self, clean_image_path: str, regions: list[RegionDraw]) -> Image.Image:
+    def draw(
+        self, clean_image_path: str, regions: list[RegionDraw], he_so_ve: float | None = None,
+    ) -> Image.Image:
         """Vẽ chữ lên bản sao của ảnh clean và trả về **ảnh trong bộ nhớ**, không ghi file.
 
         Tách riêng khỏi `render()` để M8 xuất chapter dùng lại ĐÚNG logic vẽ này mà không cần
         file trung gian — hai đường vẽ khác nhau là mầm mống sai lệch giữa ảnh xem thử và
         ảnh xuất ra.
         """
+        # Hệ số theo LƯỢT vẽ: xuất cả chapter dùng CHUNG một renderer cho mọi trang, mà hệ số
+        # là của từng trang. Ghim nó vào renderer thì mọi trang trong chapter bị phóng theo trang
+        # đầu tiên.
+        k = float(he_so_ve if he_so_ve is not None else self.he_so_ve)
         with Image.open(clean_image_path) as goc:
-            canvas = goc.convert("RGB").copy()
+            canvas = goc.convert("RGB")
+            if k != 1.0:
+                # LANCZOS: nét mực manga là cạnh mảnh, tương phản cao — nội suy song tuyến làm
+                # nó xám nhoè. Ảnh này chỉ đi VẼ CHỮ, không đi đọc chữ, nên phóng ở đây không
+                # đụng gì tới chất lượng OCR (đó là cả ý của E65).
+                canvas = canvas.resize(
+                    (max(round(canvas.width * k), 1), max(round(canvas.height * k), 1)),
+                    Image.LANCZOS,
+                )
+            else:
+                canvas = canvas.copy()
         draw = ImageDraw.Draw(canvas)
 
         for region in regions:
+            if k != 1.0:
+                # Nhân TOÀN BỘ hình học lên một lần, ngay tại đây. Nhân rải rác ở từng chỗ dùng
+                # là cách chắc chắn bỏ sót một chỗ — và chỗ bỏ sót sẽ là một vùng chữ lệch mà
+                # không có gì báo.
+                region = replace(
+                    region,
+                    bbox=BBox(
+                        x=region.bbox.x * k, y=region.bbox.y * k,
+                        w=region.bbox.w * k, h=region.bbox.h * k,
+                    ),
+                    place_rect=(
+                        None if region.place_rect is None
+                        else tuple(v * k for v in region.place_rect)
+                    ),
+                )
             if not region.wrapped_text or region.font_size is None:
                 continue
             font = self.font_resolver.resolve(region.font_family, int(region.font_size))

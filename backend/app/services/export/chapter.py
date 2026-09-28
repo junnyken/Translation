@@ -38,6 +38,9 @@ class TrangCanXuat:
     #: không có tiền tố thì trang 1 của chapter sau **ghi đè** trang 1 của chapter trước, và
     #: `zipfile` KHÔNG báo lỗi — mất trang mà không ai biết.
     tien_to: str = ""
+    #: E65 — hệ số phóng ảnh RA của CHÍNH trang này. Không phải hằng số của chapter: mỗi
+    #: trang có bong bóng chật hẹp khác nhau nên mỗi trang đo ra một hệ số riêng.
+    he_so_ve: float = 1.0
 
 
 class ChapterExporter:
@@ -62,7 +65,7 @@ class ChapterExporter:
             clean = self.storage.fetch_to(
                 trang.clean_image_rel, ws / PurePosixPath(trang.clean_image_rel).name
             )
-            canvas = self.renderer.draw(str(clean), trang.regions)
+            canvas = self.renderer.draw(str(clean), trang.regions, he_so_ve=trang.he_so_ve)
         bo_dem = io.BytesIO()
         canvas.save(bo_dem, format="PNG")
         return bo_dem.getvalue()

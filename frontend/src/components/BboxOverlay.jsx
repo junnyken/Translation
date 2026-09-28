@@ -10,6 +10,10 @@ const CAN_DUOI = 8 // không cho kéo khung nhỏ hơn ngần này (pixel ảnh 
  */
 export default function BboxOverlay({
   src, regions, dangChon, onChon, onLuuBbox, hienCanhBao, vungAnToan, hienVungAnToan,
+  // E65 — ảnh ĐÃ DỊCH có thể lớn hơn ảnh gốc (`page.he_so_ve`), trong khi `bbox` của vùng chữ
+  // luôn là toạ độ ảnh GỐC. Thiếu hệ số này thì mọi khung vẽ lệch đúng `k` lần — và lệch một
+  // cách IM LẶNG, vì khung vẫn hiện, chỉ là không nằm trên bong bóng.
+  heSoVe = 1,
 }) {
   const anhRef = useRef(null)
   // `null` = CHƯA đo được tỷ lệ. Không được mặc định 1: ảnh hiển thị bị thu nhỏ so với ảnh gốc,
@@ -20,6 +24,10 @@ export default function BboxOverlay({
   const [coAnh, setCoAnh] = useState(null)
   const [keo, setKeo] = useState(null)
   const [tam, setTam] = useState(null)
+
+  // Tỷ lệ từ toạ độ ẢNH GỐC sang pixel trên màn: gộp cả co giãn hiển thị lẫn hệ số phóng của
+  // E65 vào MỘT số. Nhân rải rác ở từng chỗ dùng là cách chắc chắn bỏ sót một chỗ.
+  const tyLeVe = tyLe === null ? null : tyLe * (heSoVe || 1)
 
   const doTyLe = useCallback(() => {
     const anh = anhRef.current
@@ -43,8 +51,11 @@ export default function BboxOverlay({
   useEffect(() => {
     if (!keo) return
     const diChuyen = (e) => {
-      const dx = (e.clientX - keo.batDauX) / tyLe
-      const dy = (e.clientY - keo.batDauY) / tyLe
+      // Chia cho `tyLeVe` chứ không phải `tyLe`: `keo.bbox` là toạ độ ảnh GỐC, nên quãng kéo
+      // trên màn phải đổi về đúng hệ đó — nếu không, kéo 10px trên ảnh phóng 3× sẽ ghi xuống
+      // CSDL một quãng dời gấp 3.
+      const dx = (e.clientX - keo.batDauX) / tyLeVe
+      const dy = (e.clientY - keo.batDauY) / tyLeVe
       setTam(
         keo.kieu === 'move'
           ? { ...keo.bbox, x: Math.max(0, keo.bbox.x + dx), y: Math.max(0, keo.bbox.y + dy) }
@@ -66,7 +77,7 @@ export default function BboxOverlay({
       window.removeEventListener('pointermove', diChuyen)
       window.removeEventListener('pointerup', nha)
     }
-  }, [keo, tam, tyLe, onLuuBbox])
+  }, [keo, tam, tyLeVe, onLuuBbox])
 
   const batDauKeo = (e, region, kieu) => {
     e.preventDefault()
@@ -92,7 +103,9 @@ export default function BboxOverlay({
       {hienVungAnToan && coAnh && (
         <svg
           className="lop-vung-an-toan"
-          viewBox={`0 0 ${coAnh.w} ${coAnh.h}`}
+          /* `coAnh` là cỡ thật của ảnh ĐÃ DỊCH (đã phóng), còn đỉnh đa giác và ô đặt chữ là
+             toạ độ ảnh GỐC. Nên viewBox phải khai theo cỡ ảnh GỐC — chia lại hệ số. */
+          viewBox={`0 0 ${coAnh.w / (heSoVe || 1)} ${coAnh.h / (heSoVe || 1)}`}
           preserveAspectRatio="none"
           aria-hidden="true"
         >
@@ -132,10 +145,10 @@ export default function BboxOverlay({
             key={r.id}
             className={lop}
             style={{
-              left: b.x * tyLe,
-              top: b.y * tyLe,
-              width: b.w * tyLe,
-              height: b.h * tyLe,
+              left: b.x * tyLeVe,
+              top: b.y * tyLeVe,
+              width: b.w * tyLeVe,
+              height: b.h * tyLeVe,
             }}
             onPointerDown={(e) => batDauKeo(e, r, 'move')}
             title={`Vùng ${r.reading_order ?? '?'} — kéo để dời, kéo góc dưới-phải để đổi cỡ`}
