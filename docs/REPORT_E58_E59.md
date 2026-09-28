@@ -196,8 +196,14 @@ Giải thích khả dĩ: production đặt **cả `DETECT_ENGINE` lẫn `DETECT_
 bong bóng bằng mô hình ngoài thay vì ONNX cục bộ). `list_env` của nền tảng **chỉ trả TÊN biến, không
 trả giá trị**, nên tôi **chưa kết luận** — đã thêm `detect_engine` vào `/healthz` để biết chắc.
 
-Nếu đúng là `ai_gemini` thì **mỗi trang tốn hai lượt gọi mô hình ngoài** (nhận diện + dịch), và E58
-chỉ vá được nửa dịch.
+**ĐÃ XÁC NHẬN sau khi deploy:** `detect_engine: "ai_gemini"` và `translate_default_engine:
+"llm_context"` ⇒ production chạy **cả hai bước qua Gemini**, mỗi trang **hai lượt gọi trả tiền**. E58
+chỉ vá được nửa **dịch**; nửa **nhận diện** do biến toàn hệ thống, không có đường ghi đè theo trang.
+
+Chủ dự án chốt (28-09) **giữ `ai_gemini`** — đổi tốc độ lấy tiền, có chủ đích. Kèm theo đó, popup của
+tiện ích nay **đọc `/healthz` và nói thẳng bước nào đang tốn phí**: ô "Chất lượng dịch" chỉ chọn được
+engine DỊCH, nên người chọn "Miễn phí" rất dễ tưởng cả lượt là miễn phí — và với nút "Dịch cả chapter"
+thì hiểu nhầm đó nhân lên theo số trang. Đọc không được thì **ẩn dòng đó**, không đoán bừa "miễn phí".
 
 ⇒ Đã **bỏ con số "~45 giây"** khỏi popup và khỏi thông báo tiến độ. Giữ lại một số tôi không đo lại
 được trên bản đang chạy là đúng loại lỗi cả lượt này đi sửa.
@@ -231,8 +237,10 @@ với *"bản sửa chưa tới máy"*.
   Cần một lượt để xác nhận `/pages/{id}/translation` trả `engine: google_fast`.
 * **`detect_engine` chưa đọc được** cho tới lượt deploy này lên. Nếu là `ai_gemini` thì bước nhận
   diện vẫn tốn tiền và E58 chỉ vá nửa đường.
-* **Hạn mức 10/ngày làm bulk gần như vô dụng**: một chapter thật 20-40 trang dừng ở trang thứ 10.
-  Nâng `HAN_MUC_CO_TAI_KHOAN` là quyết định của chủ dự án, chưa làm.
+* ~~Hạn mức 10/ngày làm bulk gần như vô dụng.~~ Chủ dự án chốt **60** (28-09), đã đặt
+  `HAN_MUC_CO_TAI_KHOAN=60`. ⚠️ Biến này **chưa từng có** trên production (đang chạy mặc định 10), nên
+  đây là **cấp biến mới** — trên Vibe Host `set_env` không có lệnh xoá, sau này đổi giá trị được
+  nhưng không gỡ được biến.
 * **Chưa thử trên trang có DRM** (MangaPlus: ảnh `blob:`, chặn chuột phải). `docByteAnh` đọc bằng
   canvas ngay trong tab nên *có thể* chạy, nhưng chưa có số đo.
 * **Chưa thử trên trang "bấm Tiếp"**: bulk chỉ thấy ảnh đã có trong DOM và chỉ cuộn được trong một

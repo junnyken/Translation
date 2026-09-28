@@ -22,7 +22,41 @@ async function ve() {
   const { ngonNgu, engine } = await docCauHinh()
   $('ngon-ngu').value = ngonNgu
   $('engine').value = engine
+  veMayChu()
 }
+
+/** Nói ra BƯỚC NÀO đang tốn tiền, đọc từ `/healthz` của chính máy chủ đang cấu hình.
+ *
+ * Lý do tồn tại: đo được 28-09-2026 rằng production chạy `DETECT_ENGINE=ai_gemini`, tức **bước
+ * nhận diện bong bóng cũng gọi mô hình ngoài** — mỗi trang tốn hai lượt trả tiền, không phải một.
+ * Ô "Chất lượng dịch" ở trên chỉ chọn được engine DỊCH, nên người dùng chọn "Miễn phí" rất dễ
+ * tưởng cả lượt là miễn phí. Với nút "Dịch cả chapter" thì hiểu nhầm đó nhân lên theo số trang.
+ *
+ * Hỏng thì IM LẶNG (ẩn dòng này) chứ không báo lỗi: đây là thông tin thêm, không phải thứ chặn
+ * người dùng dịch. Nhưng cũng KHÔNG đoán bừa "miễn phí" khi không đọc được.
+ */
+async function veMayChu() {
+  const o = $('may-chu')
+  try {
+    const { diaChi } = await docCauHinh()
+    if (!diaChi) return
+    const r = await fetch(`${diaChi}/healthz`, { cache: 'no-store' })
+    if (!r.ok) return
+    const d = await r.json()
+    const ton_tien = []
+    if (d.detect_engine && d.detect_engine !== 'ctd') ton_tien.push('nhận diện bong bóng')
+    if ($('engine').value === 'llm_context') ton_tien.push('dịch')
+    o.textContent = ton_tien.length
+      ? `Máy chủ: ${ton_tien.join(' và ')} đang dùng mô hình ngoài — TỐN PHÍ mỗi trang `
+        + `(detect_engine=${d.detect_engine}).`
+      : `Máy chủ: chạy hoàn toàn cục bộ, không tốn phí mỗi trang.`
+    o.hidden = false
+  } catch {
+    /* không đọc được thì thôi — không đoán bừa là miễn phí */
+  }
+}
+
+$('engine').addEventListener('change', () => veMayChu())
 
 $('ngon-ngu').addEventListener('change', async (e) => {
   await luuCauHinh({ ngonNgu: e.target.value })
