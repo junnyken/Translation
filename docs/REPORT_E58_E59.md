@@ -233,10 +233,13 @@ với *"bản sửa chưa tới máy"*.
 
 ## 7. Remaining Limits
 
-* **E58 chưa kiểm trên production**: hạn mức tài khoản thử đã cạn (10/10), reset 00:00 giờ Việt Nam.
-  Cần một lượt để xác nhận `/pages/{id}/translation` trả `engine: google_fast`.
-* **`detect_engine` chưa đọc được** cho tới lượt deploy này lên. Nếu là `ai_gemini` thì bước nhận
-  diện vẫn tốn tiền và E58 chỉ vá nửa đường.
+* ~~E58 chưa kiểm trên production.~~ **ĐÃ kiểm** (28-09, sau khi nâng hạn mức lên 60 nên có lượt để
+  chạy): gửi `engine=google_fast` ⇒ `/pages/{id}/translation` trả **`ENGINE = ['google_fast']`**, bản
+  dịch đúng nghĩa (*"Chào buổi sáng, tên tôi là Tan…"* từ おはようございます / 俺の名前は田中だ). Cùng một
+  yêu cầu, TRƯỚC bản vá cho ra `llm_context`.
+* **Bước nhận diện vẫn tốn tiền**: `detect_engine = ai_gemini` (đã xác nhận), và chủ dự án chốt giữ
+  nguyên. E58 chỉ vá nửa **dịch**. Muốn miễn phí hoàn toàn thì `DETECT_ENGINE=ctd`, đổi lại ~45s/trang.
+  Popup của tiện ích nay nói ra điều này thay vì để người dùng tự đoán.
 * ~~Hạn mức 10/ngày làm bulk gần như vô dụng.~~ Chủ dự án chốt **60** (28-09), đã đặt
   `HAN_MUC_CO_TAI_KHOAN=60`. ⚠️ Biến này **chưa từng có** trên production (đang chạy mặc định 10), nên
   đây là **cấp biến mới** — trên Vibe Host `set_env` không có lệnh xoá, sau này đổi giá trị được
