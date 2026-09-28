@@ -446,11 +446,35 @@ export default function App({ urlBundle } = {}) {
     return (
       <div className="app">
         <BangBanMoi urlBundle={urlBundle} />
-        <main className="than-trang">
-          {muonDangNhap
-            ? <ManDangNhap onXong={setNguoiDung} onQuayLai={() => setMuonDangNhap(false)} />
-            : <TrangChu onMoDangNhap={() => setMuonDangNhap(true)} />}
-        </main>
+        {/* E64 — người CHƯA đăng nhập trước đây không thấy thanh đầu trang nào: không hiệu, không
+            tên sản phẩm, không lối đăng nhập cố định. Trang mở ra là một cột chữ trôi giữa nền
+            trắng, nên nó đọc ra như một mảnh trang chứ không phải một sản phẩm. */}
+        <header className="dau-trang">
+          <div className="dau-trang-trong">
+            <a className="hieu" href="#">
+              <span className="hieu-dau">T</span>
+              <span>
+                <b>Translation</b>
+                <small>Dịch truyện tranh sang tiếng Việt</small>
+              </span>
+            </a>
+            {!muonDangNhap && (
+              <div className="dau-phai">
+                <Button kieu="phu" onClick={() => setMuonDangNhap(true)}>Đăng nhập</Button>
+              </div>
+            )}
+          </div>
+        </header>
+        {/* `TrangChu` TỰ nó là một `<main>`. Bọc nó trong `<main className="than-trang">` như bản
+            cũ là lồng hai `<main>` vào nhau — HTML không hợp lệ, và trình đọc màn hình mất mốc
+            "nội dung chính". Chỉ màn đăng nhập mới cần lớp bọc đó. */}
+        {muonDangNhap
+          ? (
+            <main className="than-trang">
+              <ManDangNhap onXong={setNguoiDung} onQuayLai={() => setMuonDangNhap(false)} />
+            </main>
+          )
+          : <TrangChu />}
       </div>
     )
   }

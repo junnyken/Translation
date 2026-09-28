@@ -85,7 +85,10 @@ function TienDoTrang({ tienDo }) {
  * thủ công **luôn** hiện, kèm câu nói rõ "nếu tệp không tự tải về thì bấm đây". Im lặng coi như
  * xong là đúng thứ §3.2 cấm.
  */
-export default function TrangChu({ onMoDangNhap }) {
+/* E64 — `onMoDangNhap` đã bỏ: lối đăng nhập nay nằm trên THANH ĐẦU TRANG (`App.jsx`), chỗ mọi
+   trang web đặt nó. Trước đây nó là một liên kết gạch chân đứng trơ giữa khoảng trắng, dưới khối
+   hạn mức, và trang này không hề có thanh đầu trang nào để neo nó vào. */
+export default function TrangChu() {
   const [files, setFiles] = useState([])
   const [ngonNgu, setNgonNgu] = useState('ja')
   const [dangNhanDang, setDangNhanDang] = useState(false)
@@ -296,18 +299,6 @@ export default function TrangChu({ onMoDangNhap }) {
           </div>
         </div>
 
-        {/* Dòng đăng nhập TÁCH khỏi góc hạn mức: nhét chung làm cột phải chật cứng và vỡ chữ
-            ("Đăng nhập hoặc tạo tài khoản" / "để" / "được nhiều lượt…" rơi ba dòng). Nó cũng không
-            gấp — người dùng dịch được ngay mà không cần tài khoản. */}
-        {!hanMuc?.co_tai_khoan && onMoDangNhap && (
-          <p className="ghi-chu dong-dang-nhap">
-            {/* Không lặp lại "để được nhiều lượt hơn mỗi ngày" — khối hạn mức ngay trên đã nói
-                đúng câu đó. Cùng một câu hai lần trên một màn là thứ làm trang trông rối. */}
-            <button type="button" className="nut-chu" onClick={onMoDangNhap}>
-              Đăng nhập hoặc tạo tài khoản
-            </button>
-          </p>
-        )}
       </header>
 
 
@@ -537,6 +528,35 @@ export default function TrangChu({ onMoDangNhap }) {
           )}
         </section>
       )}
+
+      {/* E64 — trang này trước đây KẾT THÚC ngay sau khối `<details>`, ở khoảng 3/4 chiều cao màn,
+          để lại một mảng trắng lớn bên dưới: nhìn như trang tải dở.
+
+          Ba bước dưới đây không phải chữ độn. Chúng trả lời đúng câu hỏi mà một người lần đầu vào
+          đây phải tự đoán: thả ảnh xong thì CHUYỆN GÌ xảy ra, và cuối cùng mình nhận được cái gì.
+
+          Cố ý KHÔNG nhắc lại "khoảng 30 giây mỗi trang" và "tệp giữ 30 phút" — khối `<details>`
+          ngay trên đã nói cả hai, và lặp lại là đúng thứ đang làm màn này rối. */}
+      <section className="cach-chay" aria-labelledby="tieu-de-cach-chay">
+        <h2 id="tieu-de-cach-chay">Cách hoạt động</h2>
+        <ol className="ds-buoc">
+          <li>
+            <span className="so-buoc" aria-hidden="true">01</span>
+            <b>Thả ảnh trang truyện</b>
+            <span>Chọn một hay nhiều trang cùng lúc. Không cần tài khoản.</span>
+          </li>
+          <li>
+            <span className="so-buoc" aria-hidden="true">02</span>
+            <b>Máy đọc chữ rồi dịch</b>
+            <span>Nhận ra chữ trên ảnh, dịch sang tiếng Việt, rồi căn vào đúng bong bóng.</span>
+          </li>
+          <li>
+            <span className="so-buoc" aria-hidden="true">03</span>
+            <b>Tải ảnh đã dịch về</b>
+            <span>Nhiều trang thì tải một gói. Xem trước ngay trên trang này trước khi tải.</span>
+          </li>
+        </ol>
+      </section>
     </main>
   )
 }

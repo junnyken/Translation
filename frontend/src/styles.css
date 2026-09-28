@@ -54,6 +54,10 @@ a { color: var(--mau-chinh-dam); }
 }
 .hieu b { display: block; font-size: 15px; }
 .hieu small { display: block; color: var(--mo); font-size: 12px; }
+/* Màn hẹp: bỏ dòng mô tả dưới tên sản phẩm. Nó làm khối hiệu rộng quá một dòng nên nút bên phải
+   rớt xuống dòng riêng rồi dạt sang phải — trông như lỗi. Trên trang khách nó còn là chữ thừa:
+   tiêu đề ngay bên dưới đã nói đúng câu đó. */
+@media (max-width: 480px) { .hieu small { display: none; } }
 /* `min-width: 0` là thứ bắt buộc, không phải trang trí: mặc định flex item KHÔNG co nhỏ hơn nội
    dung của nó, nên thiếu dòng này thì mọi `max-width` bên dưới đều vô hiệu. */
 .dieu-huong { display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
@@ -815,8 +819,11 @@ button:disabled { cursor: not-allowed; opacity: .55; }
    Mọi chỗ báo trạng thái đều có NHÃN CHỮ + ICON — màu không bao giờ là nguồn duy nhất. */
 .trang-chu {
   display: flex; flex-direction: column; gap: var(--khoang);
-  max-width: 820px; margin: 0 auto; padding: var(--khoang) 16px 48px;
+  /* 820 → 960: ở màn rộng, cột 820px giữa một trang 1900px đọc ra như một mảnh trang. */
+  max-width: 960px; margin: 0 auto; padding: var(--khoang) 16px 56px;
 }
+/* Mục bên phải thanh đầu trang (nút Đăng nhập cho khách). */
+.dau-phai { margin-left: auto; }
 /* E61 — tiêu đề và hạn mức CÙNG một hàng. Hạn mức là thứ liếc qua chứ không phải thứ đọc, nên
    nó không còn là thẻ viền xanh chiếm trọn bề ngang và đẩy ô thả ảnh xuống dưới màn. */
 .dau-hang {
@@ -828,7 +835,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .dau-chu { flex: 1 1 auto; min-width: 0; }
 /* CĂN TRÁI dù nằm bên phải: chữ Việt nhiều dòng căn phải đọc rất xấu (mỗi dòng bắt đầu một chỗ).
    Vị trí bên phải do flex lo, không do `text-align`. */
-.dau-han-muc { flex: 0 0 auto; width: 300px; max-width: 100%; }
+/* 300 → 340: ở 300px, "(0h00 giờ Việt Nam)" bẻ dòng để lại mỗi chữ "Nam)" đứng một mình. */
+.dau-han-muc { flex: 0 0 auto; width: 340px; max-width: 100%; }
 .dau-han-muc .the-han-muc { align-items: flex-start; }
 /* Tiêu đề khối hạn mức chỉ là nhãn — không được to ngang tiêu đề trang. */
 .dau-han-muc h2 { font-size: 13px; font-weight: 600; color: var(--mo); margin: 0; }
@@ -879,8 +887,40 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .can-biet li { font-size: 14px; line-height: 1.55; }
 
 /* Ô thả là VIỆC CHÍNH nên nó được chỗ rộng nhất trên màn. */
-.vung-gui { display: flex; flex-direction: column; gap: 14px; }
-.vung-gui #tha-trang-chu { min-height: 220px; }
+/* E64 — khu gửi thành một THẺ thật.
+   Trước đây trang khách không có lấy một thẻ nào: ô thả ảnh, ô chọn ngôn ngữ và nút bấm là ba
+   thứ rời trôi thẳng trên nền canvas. Đó là lý do chính khiến trang trông chưa dựng xong, trong
+   khi màn sau khi đăng nhập thì mọi thứ đều nằm trong thẻ. */
+.vung-gui {
+  display: flex; flex-direction: column; gap: 14px;
+  background: var(--the); border: 1px solid var(--vien);
+  border-radius: var(--bo-lon); padding: 20px; box-shadow: var(--bong);
+}
+/* 220 → 180: ô thả cao 220px mà rỗng là mảng màu lớn nhất trên màn, trong khi nó chỉ là một
+   chỗ để thả. */
+.vung-gui #tha-trang-chu { min-height: 180px; }
+/* `.vung-gui` là flex-column nên `align-items: stretch` kéo nút chính rộng hết thẻ — một nút
+   nguyên khối 900px trông như một thanh màu, không ra nút. */
+.vung-gui > .nut-chinh { align-self: flex-start; padding-left: 26px; padding-right: 26px; }
+
+/* Ba bước ở cuối trang. */
+.cach-chay { margin-top: 12px; }
+.cach-chay h2 { font-size: 15px; color: var(--mo); font-weight: 600; letter-spacing: 0; }
+.ds-buoc {
+  list-style: none; margin: 14px 0 0; padding: 0;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px;
+}
+.ds-buoc li {
+  display: flex; flex-direction: column; gap: 3px;
+  background: var(--the); border: 1px solid var(--vien);
+  border-radius: var(--bo); padding: 14px 16px;
+}
+.ds-buoc .so-buoc {
+  font-size: 12px; font-weight: 700; color: var(--mau-chinh);
+  letter-spacing: .08em; margin-bottom: 2px;
+}
+.ds-buoc b { font-size: 14px; }
+.ds-buoc span:last-child { font-size: 13px; color: var(--mo); line-height: 1.5; }
 .hang-chon {
   display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px;
 }
