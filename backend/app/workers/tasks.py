@@ -17,7 +17,7 @@ from pathlib import Path, PurePosixPath
 
 from celery.exceptions import SoftTimeLimitExceeded
 from PIL import Image
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 
 from app.core.config import get_settings
 from app.core.db_sync import sync_session
@@ -1384,6 +1384,18 @@ def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dic
             page_id, len(giu_nguyen),
         )
 
+    # E66 — vùng mà CHÍNH mô hình tự báo là đang ĐOÁN.
+    #
+    # Chỉ số mô hình trả về là vị trí trong danh sách ĐÃ GỬI ĐI (`chi_so_dich`), không phải vị
+    # trí trong `ordered_specs` — vùng SFX bị giữ nguyên nên hai danh sách lệch nhau. Ánh xạ sai
+    # ở đây là gắn cờ nhầm vùng, và cờ nhầm còn tệ hơn không có cờ.
+    _chi_so_doan = getattr(translator, "vung_khong_chac", None) or set()
+    vung_khong_chac = {
+        ordered_specs[chi_so_dich[j]][0]
+        for j in _chi_so_doan
+        if 0 <= j < len(chi_so_dich)
+    }
+
     usage = getattr(translator, "usage", None)
     elapsed = time.perf_counter() - started
 
@@ -1416,6 +1428,25 @@ def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dic
                         )
                     ),
                 )
+            )
+
+        # E66 — bật cờ "cần người xem" cho vùng mô hình tự báo là đoán.
+        #
+        # Dùng `OCRStatus.needs_manual` có sẵn thay vì thêm giá trị enum mới: thêm giá trị là một
+        # lượt `ALTER TYPE` trên production mà `CLAUDE.md` cảnh báo riêng, và nghĩa thì khớp —
+        # "chữ đọc từ ảnh này cần người kiểm". Giao diện ĐÃ tô cảnh báo theo cờ này
+        # (`BboxOverlay.jsx` đọc `ocr_status === 'needs_manual'`), nên không phải nối thêm gì.
+        #
+        # KHÔNG đụng tới bản dịch: người đọc vẫn có chữ để đọc, chỉ là vùng đó được đánh dấu.
+        if vung_khong_chac:
+            so_gan_co = session.execute(
+                update(OCRResult)
+                .where(OCRResult.region_id.in_(vung_khong_chac))
+                .values(status=OCRStatus.needs_manual)
+            ).rowcount
+            logger.info(
+                "E66: gắn cờ cần-xem cho %d/%d vùng mô hình tự báo là đoán",
+                so_gan_co, len(vung_khong_chac),
             )
 
         page = session.get(Page, page_id)

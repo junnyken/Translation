@@ -22,6 +22,13 @@ from app.models.enums import TranslationEngine
 
 logger = logging.getLogger(__name__)
 
+
+#: E66 — dấu mô hình đặt ở đầu một dòng để nói "dòng này tôi phải ĐOÁN".
+#:
+#: Chọn `[?]` vì nó không bao giờ là chữ thật trong một câu thoại tiếng Việt, và nó không đụng
+#: giao thức đánh số `1. …` của prompt.
+DAU_KHONG_CHAC = "[?]"
+
 _GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 #: Endpoint dịch công khai. `clients5` chạy được từ hạ tầng này, `translate.googleapis.com`
 #: trả 429 (xem docs/TEST_LOG.md § M5) nên để làm phương án 2.
@@ -206,14 +213,43 @@ class LLMContextTranslator:
             "- Bám sát nghĩa gốc: không bỏ sót ý, không suy diễn thêm nội dung không có trong câu "
             "gốc. Chỉ được đổi CÁCH DIỄN ĐẠT cho tự nhiên bằng tiếng Việt, không đổi Ý.\n"
             "- Giữ giọng điệu nhân vật; câu thoại ngắn gọn tự nhiên như truyện tranh tiếng Việt.\n"
-            "- Đầu vào là chữ do OCR đọc nên có thể sai chính tả; tự suy luận và sửa khi dịch.\n"
-            "- Không thêm giải thích, không thêm dòng nào ngoài danh sách đã đánh số.\n"
+            # E66 — dòng cũ ở đây là: "Đầu vào là chữ do OCR đọc nên có thể sai chính tả; tự
+            # suy luận và sửa khi dịch."
+            #
+            # Nó CHO PHÉP mô hình chế, và đo được là nó chế thật: `あの暁山です` (chữ đọc sai)
+            # thành "Đó là núi Akatsuki" — một câu đúng ngữ pháp, trôi chảy, và hoàn toàn không
+            # có trong truyện. Mô hình làm đúng lệnh; lệnh mới là chỗ sai.
+            #
+            # Không gỡ hẳn quyền sửa: lỗi đọc NHỎ (lệch một kana, mất dấu câu) thì sửa được là
+            # tốt. Chỗ phải chặn là bước nhảy từ "sửa một ký tự" sang "đoán ra một từ khác hẳn".
+            # KHÔNG nhắc tới ẢNH ở khối luôn-bật này: E32 chốt rằng nói về ảnh khi không gửi
+            # ảnh là mời mô hình bịa ra thứ nó không thấy, và có bài canh riêng cho điều đó
+            # (`test_khong_anh_thi_prompt_KHONG_noi_ve_anh`). Mệnh đề về ảnh nằm ở khối dưới.
+            "- Chữ đầu vào do máy ĐỌC TỰ ĐỘNG (OCR) nên có thể sai. Được sửa lỗi đọc NHỎ khi ngữ "
+            "cảnh làm nghĩa rõ ràng (lệch một ký tự, thiếu dấu câu). KHÔNG được đoán ra một TỪ "
+            "KHÁC HẲN chỉ để câu có nghĩa.\n"
+            f"- Dòng nào bạn phải ĐOÁN mới dịch được — chữ gốc vô nghĩa, hoặc có nhiều cách hiểu "
+            f"khác hẳn nhau — thì vẫn dịch bản khả dĩ nhất, NHƯNG đặt {DAU_KHONG_CHAC} ở ĐẦU "
+            f"dòng đó. Dấu này là tín hiệu cho người biên tập: thà báo ra còn hơn để người đọc "
+            f"tưởng một câu bịa là nội dung thật.\n"
+            f"- TÊN RIÊNG (người, địa danh): phiên âm theo cách đọc và GIỮ NGUYÊN LÀ TÊN. Không "
+            f"được thay một cái tên bằng một từ thường. Tên đọc không rõ thì giữ dạng phiên âm "
+            f"gần nhất và đánh {DAU_KHONG_CHAC} — đừng biến nó thành một danh từ chung.\n"
+            # E66 — câu này từng MÂU THUẪN với luật dấu `[?]` ở trên, và mâu thuẫn theo hướng
+            # nguy hiểm: nó bịt miệng mô hình đúng lúc nó muốn báo là đang đoán, nên nó đành nhét
+            # phần đoán vào một câu trôi chảy. (Chỗ này do một lượt phản biện của Gemini 3.1 Pro
+            # chỉ ra — tôi thêm dấu `[?]` mà quên gỡ cái khoá miệng.)
+            f"- Không thêm giải thích, không thêm dòng nào ngoài danh sách đã đánh số. Dấu "
+            f"{DAU_KHONG_CHAC} là NGOẠI LỆ DUY NHẤT của luật này — nó không phải lời giải thích, "
+            f"và nó nằm TRONG dòng đã đánh số chứ không tạo dòng mới.\n"
             # E32 — chỉ thêm dòng này KHI có ảnh. Không có ảnh mà vẫn bảo mô hình "xem trang" là
             # mời nó bịa ra thứ nó không thấy.
             + (
-                "- Kèm theo là ẢNH của chính trang truyện. Dùng ảnh để: (a) sửa chữ bị đọc sai, "
-                "(b) biết câu nào là của nhân vật nào, (c) nhận ra tiếng động vẽ cách điệu. "
-                "Ảnh là để HIỂU ĐÚNG, không phải để thêm nội dung không có trong danh sách.\n"
+                "- Kèm theo là ẢNH của chính trang truyện. Dùng ảnh để: (a) ĐỐI CHIẾU chữ đọc "
+                "được với chữ trên ảnh, (b) biết câu nào là của nhân vật nào, (c) nhận ra tiếng "
+                "động vẽ cách điệu. Ảnh là để HIỂU ĐÚNG, không phải để thêm nội dung không có "
+                f"trong danh sách. Ảnh mâu thuẫn với chữ đầu vào thì tin ẢNH và đánh "
+                f"{DAU_KHONG_CHAC}.\n"
                 if self.anh_trang else ""
             )
             + "\n"
@@ -222,6 +258,38 @@ class LLMContextTranslator:
             + (f"\n{self.boi_canh}\n" if self.boi_canh else "")
             + f"\n### {self.page_label}\n{numbered}"
         )
+
+    @staticmethod
+    def tach_dau_khong_chac(dong: list[str]) -> tuple[list[str], set[int]]:
+        """Bóc dấu `[?]` khỏi từng dòng, trả (chữ sạch, tập chỉ số dòng bị đánh dấu).
+
+        E66 — vì sao cần một dấu như thế này.
+
+        Đo trên trang thật (368×543, 28-09): chạy CÙNG một trang hai lần cho ra chữ gốc KHÁC nhau,
+        và bản dịch của cả hai đều trôi chảy, không có dấu hiệu gì cho người đọc biết chữ gốc đã
+        sai:
+
+            あの妹山です  -> "Đó là Seyama."
+            あの暁山です  -> "Đó là núi Akatsuki."
+
+        Bản dịch **không sai**: nó dịch đúng thứ nó nhận được. Cái sai là hệ thống **không có
+        cách nào nói "tôi đang đoán"**. Mô hình được bảo "tự suy luận và sửa" nên nó sửa — im
+        lặng, và ra một câu đọc rất xuôi.
+
+        Dấu bóc ở đây **không** vứt bản dịch đi: vẫn giữ bản khả dĩ nhất để người đọc có cái mà
+        đọc. Nó chỉ bật cờ để vùng đó hiện lên ở màn rà soát.
+        """
+        sach: list[str] = []
+        danh_dau: set[int] = set()
+        for i, d in enumerate(dong):
+            t = (d or "").strip()
+            # Dấu có thể đứng đầu (đúng chỉ dẫn) hoặc lọt vào giữa (mô hình gõ lệch). Bắt cả hai
+            # rồi bỏ sạch: để sót một `[?]` trong chữ là nó bị nướng vào bong bóng trên ảnh.
+            if DAU_KHONG_CHAC in t:
+                danh_dau.add(i)
+                t = t.replace(DAU_KHONG_CHAC, " ")
+            sach.append(" ".join(t.split()))
+        return sach, danh_dau
 
     @staticmethod
     def parse_response(text: str, expected: int) -> list[str]:
@@ -330,6 +398,9 @@ class LLMContextTranslator:
         """
         return self._call_api(prompt)
 
+    #: Chỉ số dòng mà mô hình tự báo là đang ĐOÁN (E66). Rỗng cho tới khi `translate` chạy.
+    vung_khong_chac: set[int] = set()
+
     def translate(self, texts: list[str], source_lang: str, target_lang: str) -> list[str]:
         if not texts:
             return []
@@ -346,7 +417,16 @@ class LLMContextTranslator:
                 "Model %s vẫn đốt %s token 'thinking' dù đã yêu cầu thinkingBudget=0",
                 self.model_name, self.usage.thought_tokens,
             )
-        return self.parse_response(text, len(texts))
+        dong = self.parse_response(text, len(texts))
+        # E66 — bóc dấu `[?]` và GHI LẠI vùng nào bị đánh, để bên gọi bật cờ "cần xem lại".
+        # Đặt trên `self` thay vì đổi kiểu trả về: `google_fast` dùng chung giao diện `translate`
+        # và không có khái niệm này. Bên gọi đọc bằng `getattr(..., set())`.
+        dong, self.vung_khong_chac = self.tach_dau_khong_chac(dong)
+        if self.vung_khong_chac:
+            logger.info(
+                "E66: %d/%d dòng mô hình tự báo là ĐOÁN", len(self.vung_khong_chac), len(dong),
+            )
+        return dong
 
 
 def get_translator(engine: str, api_keys: list[str] | None = None, **kwargs):

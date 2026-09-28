@@ -50,9 +50,20 @@ class TestPrompt:
         assert "mạch văn" in prompt
         assert "không dịch rời rạc" in prompt.lower()
 
-    def test_dan_llm_tu_sua_loi_ocr(self):
-        """Không tự sửa raw_text (constraint 5) — nhờ LLM sửa theo ngữ cảnh."""
-        assert "OCR" in LLMContextTranslator(["k"]).build_prompt(["A"], "ja", "vi")
+    def test_dan_llm_tu_sua_loi_ocr_NHO___nhung_phai_bao_khi_dang_doan(self):
+        """Không tự sửa `raw_text` (constraint 5) — vẫn nhờ LLM sửa theo ngữ cảnh.
+
+        E66 ĐỔI hợp đồng của bài này, có chủ đích. Bản cũ chỉ đòi prompt nhắc tới "OCR", và câu
+        nhắc ấy là: *"tự suy luận và sửa khi dịch"*. Đo trên trang thật 28-09: nó cho ra
+        `あの暁山です` → "Đó là núi Akatsuki" — câu trôi chảy, đúng ngữ pháp, **không có trong
+        truyện**, và không có dấu hiệu nào cho người đọc biết.
+
+        Nay: vẫn được sửa lỗi đọc NHỎ, nhưng phải đánh dấu khi phải đoán.
+        """
+        p = LLMContextTranslator(["k"]).build_prompt(["A"], "ja", "vi")
+        assert "OCR" in p
+        assert "NHỎ" in p, "gỡ hẳn quyền sửa là đổi một lỗi lấy một lỗi khác"
+        assert "tự suy luận và sửa" not in p, "câu này CHO PHÉP mô hình chế — xem docstring"
 
     def test_yeu_cau_bam_sat_nghia_goc(self):
         prompt = LLMContextTranslator(["k"]).build_prompt(["A"], "ja", "vi")
