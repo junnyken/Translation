@@ -72,7 +72,35 @@ def test_luat_cam_giai_thich_KHONG_bit_mieng_dau_bao_doan():
     """
     p = _prompt()
     assert "Không thêm giải thích" in p, "vẫn phải cấm mô hình tán gẫu"
-    assert "NGOẠI LỆ DUY NHẤT" in p, "phải nói rõ dấu báo-đoán KHÔNG bị luật kia cấm"
+    # E68 đổi CÁCH NÓI: "ngoại lệ của luật cấm giải thích" bị mô hình hiểu thành "được phép
+    # giải thích". Nay nói theo hướng ngược lại — liệt kê thứ DUY NHẤT được thêm. Bài canh bám
+    # vào hành vi (dấu vẫn được phép) chứ không bám vào một cụm chữ cụ thể.
+    assert "DUY NHẤT được thêm" in p, "phải nói rõ dấu báo-đoán vẫn được phép"
+    assert DAU_KHONG_CHAC in p
+
+
+def test_E68_cam_ky_tu_Nhat_trong_ban_dich():
+    """Đo thật 28-09 trên trang Pepper&Carrot E02P04: mô hình trả về
+
+        `"* (Chữ trên ảnh là ごくごく - Ực ực)"`
+
+    Chuỗi đó mang ký tự Nhật ⇒ `MissingGlyph` ⇒ **bong bóng để TRỐNG** (đúng lỗi F1). Nguyên nhân:
+    câu "dấu [?] là NGOẠI LỆ của luật cấm giải thích" được hiểu thành "được phép giải thích".
+    Nên phải cấm thẳng ký tự ngoài tiếng Việt, chứ không chỉ cấm khái niệm "giải thích".
+    """
+    p = _prompt()
+    assert "chỉ được chứa chữ VIỆT" in p
+    assert "bỏ trống" in p, "phải nói HẬU QUẢ, không chỉ ra lệnh"
+    assert "NGOẠI LỆ DUY NHẤT" not in p, "câu này chính là chỗ mô hình bám vào để giải thích"
+
+
+def test_E68_cam_danh_dau_tran_lan():
+    """`どうして` ("tại sao?") là tiếng Nhật sạch mà vẫn bị đánh dấu — đo được trên trang thật.
+
+    Cảnh báo gắn tràn lan thì người dùng tắt mắt với nó (bài học đã ghi ở dự án SEO: 144 thẻ/ngày
+    ⇒ người dùng tắt chuông). Một cảnh báo ai cũng bỏ qua tệ hơn không có cảnh báo.
+    """
+    assert "rõ nghĩa" in _prompt()
 
 
 def test_luat_ten_rieng_neu_dung_vi_du_THAT_da_gay_loi():

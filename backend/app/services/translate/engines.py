@@ -239,9 +239,19 @@ class LLMContextTranslator:
             # nguy hiểm: nó bịt miệng mô hình đúng lúc nó muốn báo là đang đoán, nên nó đành nhét
             # phần đoán vào một câu trôi chảy. (Chỗ này do một lượt phản biện của Gemini 3.1 Pro
             # chỉ ra — tôi thêm dấu `[?]` mà quên gỡ cái khoá miệng.)
-            f"- Không thêm giải thích, không thêm dòng nào ngoài danh sách đã đánh số. Dấu "
-            f"{DAU_KHONG_CHAC} là NGOẠI LỆ DUY NHẤT của luật này — nó không phải lời giải thích, "
-            f"và nó nằm TRONG dòng đã đánh số chứ không tạo dòng mới.\n"
+            f"- Không thêm giải thích, không thêm dòng nào ngoài danh sách đã đánh số. Thứ DUY "
+            f"NHẤT được thêm vào một dòng là đúng ba ký tự {DAU_KHONG_CHAC} ở đầu dòng — không "
+            f"chú thích trong ngoặc, không chép lại chữ gốc, không dấu sao.\n"
+            # E68 — đo thật 28-09: bảo `[?]` là "ngoại lệ của luật cấm giải thích" thì mô hình
+            # hiểu thành ĐƯỢC PHÉP giải thích, và trả về `"* (Chữ trên ảnh là ごくごく - Ực ực)"`.
+            # Câu đó mang ký tự Nhật ⇒ `MissingGlyph` ⇒ **bong bóng để trống** (lỗi F1). Nên phải
+            # cấm thẳng ký tự ngoài tiếng Việt, không chỉ cấm "giải thích".
+            "- Bản dịch chỉ được chứa chữ VIỆT, số và dấu câu. Tuyệt đối không để lại ký tự Nhật/"
+            "Trung/Hàn trong bản dịch — font không vẽ được chúng và bong bóng sẽ bị bỏ trống.\n"
+            # E68 — đo thật: `どうして` ("tại sao?") là tiếng Nhật sạch mà vẫn bị đánh dấu. Cảnh
+            # báo gắn tràn lan thì người dùng tắt mắt với nó, đúng bài học đã ghi ở dự án SEO.
+            f"- CHỈ đánh {DAU_KHONG_CHAC} khi chữ gốc thật sự không đọc ra nghĩa. Câu ngắn nhưng "
+            f"rõ nghĩa (ví dụ một câu hỏi thông thường) thì KHÔNG đánh dấu.\n"
             # E32 — chỉ thêm dòng này KHI có ảnh. Không có ảnh mà vẫn bảo mô hình "xem trang" là
             # mời nó bịa ra thứ nó không thấy.
             + (
