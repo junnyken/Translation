@@ -50,7 +50,17 @@ class PagePreviewRenderer:
         text_color: str = "black",
         stroke_color: str = "white",
         stroke_width: int = 0,
-        mark_overflow: bool = True,
+        # E60b — MẶC ĐỊNH TẮT. Trước đây mặc định `True` và không ai truyền `False`, nên khung đỏ
+        # cảnh báo tràn bị nướng vào **mọi** ảnh: cả tệp xuất lẫn ảnh mà trang chủ tải về cho người
+        # dùng (`GET /doc-truyen/trang/{id}/anh` phục vụ chính ảnh preview này).
+        #
+        # Thông tin KHÔNG mất, và đó là lý do tắt được: giao diện web đã vẽ cảnh báo tràn ở phía máy
+        # khách (`BboxOverlay.jsx` đọc `fit_status === 'overflow_warning'`), còn số vùng tràn hiện ở
+        # ba chỗ khác (`ChapterProgress`, `ChapterSummary`, `ExportPanel`). Vẽ thêm vào chính ảnh là
+        # thừa cho người rà soát, và là rác cho người đọc.
+        #
+        # Vẫn giữ tham số: ai cần một ảnh có dấu sẵn (gửi kèm báo lỗi, in ra soi) thì bật tường minh.
+        mark_overflow: bool = False,
     ) -> None:
         self.font_resolver = font_resolver
         self.line_spacing_ratio = line_spacing_ratio

@@ -148,49 +148,61 @@ def test_mot_tu_dai_khong_khoang_trang_van_cat_duoc():
 # ── Khung đỏ không được vào tệp xuất ──────────────────────────────────────────────────────
 
 
-def test_duong_XUAT_TEP_khong_ve_khung_do_con_XEM_THU_thi_co():
-    """**Bài canh cấu trúc**, soi CẢ HAI hàm dựng renderer với kỳ vọng NGƯỢC NHAU.
+def test_KHONG_anh_nao_bi_nuong_khung_do_vao():
+    """**Bài canh cấu trúc.** Mặc định của renderer phải là **KHÔNG** vẽ dấu tràn.
 
-    * `_run_export` (tệp người đọc tải về) ⇒ **phải** `mark_overflow=False`
-    * `render_page_preview` (ảnh rà soát) ⇒ **không được** tắt
+    ## Bản trước của bài này khẳng định NGƯỢC LẠI, và nó SAI
 
-    Chỉ canh một trong hai là hở: tắt luôn ở xem thử thì mất đường duy nhất để người rà soát THẤY
-    chỗ tràn — bản vá khi đó biến một lỗi hiển thị thành một lỗi im lặng, tệ hơn ban đầu.
+    Lượt E60 đầu, bài này đòi `render_page_preview` **giữ** khung đỏ, với lý do *"đó là đường duy
+    nhất người rà soát thấy chỗ tràn"*.
 
-    Đo bằng ảnh thì phải chạy cả pipeline; đọc mã thì bắt được ngay lúc ai đó thêm một đường xuất
-    mới mà quên tham số — đúng cách lỗi gốc đã lọt (tham số có sẵn từ đầu, không ai truyền).
+    Lý do đó **sai, và kiểm được là sai**: giao diện web đã vẽ cảnh báo tràn ở phía máy khách
+    (`BboxOverlay.jsx` đọc `fit_status === 'overflow_warning'`), và số vùng tràn hiện ở ba chỗ khác
+    (`ChapterProgress`, `ChapterSummary`, `ExportPanel`). Khung đỏ trong ảnh là **thừa**.
 
-    Chính bài này đã bắt lỗi của tôi lúc viết: tôi vá đúng chỗ (`_run_export`) nhưng bài canh đọc
-    nhầm `run_export_job`, nên nó đỏ dù mã đã đúng.
+    Và nó có hại thật: `GET /doc-truyen/trang/{id}/anh` — đường trang chủ dùng để **tải ảnh về cho
+    người dùng** — phục vụ chính ảnh preview đó. Nên bản vá E60 đầu (chỉ tắt ở đường xuất ZIP/CBZ)
+    **không chạm tới đường người dùng thật sự đi**. Chủ dự án chạy lại trang của họ và khung đỏ vẫn
+    còn — đó là cách phát hiện.
     """
     import inspect
 
+    from app.services.typeset.preview import PagePreviewRenderer
     from app.workers import tasks
 
-    src_xuat = inspect.getsource(tasks._run_export)
-    assert "PagePreviewRenderer(" in src_xuat, "bài canh đọc nhầm hàm — không thấy chỗ dựng renderer"
-    assert "mark_overflow=False" in src_xuat, (
-        "đường xuất tệp phải tắt dấu cảnh báo tràn — nó là dấu cho người RÀ SOÁT, "
-        "không phải hình vẽ cho người ĐỌC"
+    mac_dinh = inspect_signature_defaults(PagePreviewRenderer)
+    assert mac_dinh["mark_overflow"] is False, (
+        "mặc định phải TẮT — mặc định bật là lý do lỗi gốc lọt: tham số có sẵn, không ai truyền"
     )
 
-    src_xem = inspect.getsource(tasks.render_page_preview)
-    assert "PagePreviewRenderer(" in src_xem
-    assert "mark_overflow" not in src_xem, (
-        "ảnh xem thử PHẢI giữ khung đỏ — đó là đường duy nhất người rà soát thấy chỗ tràn"
-    )
+    for ten_ham in ("_run_export", "render_page_preview"):
+        src = inspect.getsource(getattr(tasks, ten_ham))
+        assert "PagePreviewRenderer(" in src, f"bài canh đọc nhầm hàm {ten_ham}"
+        assert "mark_overflow=True" not in src, (
+            f"{ten_ham} không được bật dấu tràn: ảnh này tới tay NGƯỜI ĐỌC"
+        )
 
 
-def test_anh_XEM_THU_van_ve_khung_do():
-    """Đối chứng cặp: tắt ở tệp xuất KHÔNG được kéo theo tắt ở ảnh xem thử.
+def test_GO_KHUNG_DO_khoi_anh_thi_GIAO_DIEN_phai_con_cho_hien_canh_bao():
+    """Đối chứng cặp — thứ khiến việc gỡ khung đỏ là AN TOÀN chứ không phải giấu lỗi.
 
-    Mất khung đỏ ở xem thử là mất luôn đường duy nhất để người rà soát THẤY chỗ tràn — bản vá khi
-    đó biến một lỗi hiển thị thành một lỗi im lặng, tệ hơn ban đầu.
+    Gỡ dấu khỏi ảnh chỉ đúng **khi** cảnh báo tràn còn hiện ở chỗ khác. Bài này canh đúng điều đó ở
+    phía giao diện: `BboxOverlay.jsx` phải còn đọc `fit_status === 'overflow_warning'` để vẽ vùng
+    tràn trên màn.
+
+    Ai xoá lớp phủ đó sẽ làm bài này đỏ, và phải quyết lại: hoặc trả cảnh báo về chỗ khác, hoặc bật
+    lại `mark_overflow`. Không có bài này thì việc gỡ dấu khỏi ảnh biến một lỗi NHÌN THẤY ĐƯỢC thành
+    một lỗi im lặng — tệ hơn ban đầu.
     """
-    from app.services.typeset.preview import PagePreviewRenderer
+    from pathlib import Path
 
-    tham_so = inspect_signature_defaults(PagePreviewRenderer)
-    assert tham_so["mark_overflow"] is True
+    goc = Path(__file__).resolve().parents[2] / "frontend" / "src" / "components" / "BboxOverlay.jsx"
+    assert goc.exists(), f"không thấy {goc} — bài canh này đọc nhầm đường dẫn"
+    src = goc.read_text(encoding="utf-8")
+    assert "overflow_warning" in src, (
+        "giao diện phải còn chỗ hiện vùng TRÀN KHUNG — nếu không thì gỡ khung đỏ khỏi ảnh là "
+        "giấu lỗi, không phải dọn rác"
+    )
 
 
 def inspect_signature_defaults(cls) -> dict:
