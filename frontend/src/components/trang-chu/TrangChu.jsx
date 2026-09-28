@@ -320,8 +320,12 @@ export default function TrangChu({ onMoDangNhap }) {
 
         <div className="hang-chon">
           <label htmlFor="chon-ngon-ngu">Chữ trên ảnh là tiếng gì?</label>
+          {/* `.o` — cùng lớp với mọi ô nhập khác trong app. Thiếu nó thì ô này hiện ra đúng
+              kiểu mặc định của trình duyệt (vuông, xám, phông khác), y như ba ô của màn đăng
+              nhập trước E62: một ô "trần" giữa một màn đã có ngôn ngữ thị giác riêng. */}
           <select
-            id="chon-ngon-ngu" value={ngonNgu} onChange={(e) => setNgonNgu(e.target.value)}
+            id="chon-ngon-ngu" className="o" value={ngonNgu}
+            onChange={(e) => setNgonNgu(e.target.value)}
             disabled={dangChay}
           >
             {NGON_NGU.map((n) => <option key={n.ma} value={n.ma}>{n.nhan}</option>)}

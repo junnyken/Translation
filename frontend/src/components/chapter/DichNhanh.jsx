@@ -175,9 +175,11 @@ export default function DichNhanh({ onMoChapter }) {
     <section className="the-lon" aria-labelledby="tieu-de-nhanh">
       <header className="the-dau">
         <h2 id="tieu-de-nhanh">Dịch nhanh</h2>
+        {/* E63 — bỏ câu "Cần sửa tay, chốt thuật ngữ… thì dùng Tạo chapter mới": tab ngay
+            phía trên thẻ này đã nói đúng câu đó ("Có rà soát, sửa tay, chốt thuật ngữ"), và
+            nhắc lại lần hai ngay dưới nó chỉ làm màn dài ra. */}
         <p>
           Thả ảnh hoặc cả gói <code>.zip</code>/<code>.cbz</code> vào đây. Xong là tự tải về.
-          Cần sửa tay, chốt thuật ngữ hay rà soát từng bong bóng thì dùng <em>Tạo chapter mới</em>.
         </p>
       </header>
 

@@ -470,6 +470,8 @@ export default function App({ urlBundle } = {}) {
         />
       )}
       <header className="dau-trang">
+        {/* E63 — ruột thanh đầu trang có khung rộng riêng để thẳng cột với `.than-trang`. */}
+        <div className="dau-trang-trong">
         <a className="hieu" href="#">
           <span className="hieu-dau">T</span>
           <span>
@@ -480,8 +482,19 @@ export default function App({ urlBundle } = {}) {
 
         <nav aria-label="Điều hướng chính" className="dieu-huong">
           <a href="#" className={oTrangChu ? 'dang-o' : ''}>Chapter</a>
-          <a href="#" className="nut nut-phu" onClick={() => {
-            document.getElementById('nut-tao')?.scrollIntoView({ block: 'center' })
+          {/* E63 — trước đây chỗ này chỉ `scrollIntoView` vào `#nut-tao`. Nút đó CHỈ tồn tại
+              trên trang chủ, ở tab "Tạo chapter mới" — nên khi đang mở một chapter thì `?.`
+              nuốt lời gọi và bấm vào đây KHÔNG có gì xảy ra, cũng không có lời giải thích nào.
+              Nay nó về trang chủ, mở đúng tab, rồi mới cuộn. */}
+          <a href="#" className="nut nut-phu" onClick={(e) => {
+            e.preventDefault()
+            setDuong('day_du')
+            window.location.hash = ''
+            // Cuộn SAU khi React vẽ xong màn mới. `hashchange` → đổi state → vẽ lại là ba nhịp,
+            // nên một `requestAnimationFrame` là chưa đủ khi đang đi từ màn chapter về.
+            setTimeout(
+              () => document.getElementById('nut-tao')?.scrollIntoView({ block: 'center' }), 80,
+            )
           }}>Tạo chapter</a>
           <span className="tai-khoan">
             {/* E54 — bấm vào tên mở màn TÀI KHOẢN (§4.4). Trước đây tên chỉ là chữ tĩnh, nên
@@ -508,6 +521,7 @@ export default function App({ urlBundle } = {}) {
           />
           <Button kieu="phu" onClick={mo}>Mở</Button>
         </div>
+        </div>
       </header>
 
       <main className="than-trang">
@@ -529,13 +543,17 @@ export default function App({ urlBundle } = {}) {
                 thường), nhưng hiện một mục chắc chắn báo lỗi là thiết kế tồi. */}
             {nguoiDung.la_quan_tri && <QuanTriNguoiDung toi={nguoiDung} />}
 
-            <div className="tieu-de-man">
-              <h1>Dịch truyện tranh</h1>
-              <p>
-                Tải ảnh PNG/JPG hoặc cả gói <code>.zip</code>/<code>.cbz</code>. Hệ thống nhận
-                diện chữ, dịch sang tiếng Việt và tự căn vào bong bóng.
-              </p>
-            </div>
+            {/* E63 — tiêu đề và cụm tab là MỘT khối mở đầu.
+
+                Câu dẫn cũ ("Tải ảnh PNG/JPG hoặc cả gói .zip/.cbz. Hệ thống nhận diện chữ…")
+                nói lại đúng thứ mà hai tab ngay bên dưới và thẻ "Dịch nhanh" ngay bên dưới nữa
+                đã nói — ba lần cùng một nội dung trên một màn. Giữ lại phần KHÔNG lặp: cái mà
+                hai tab không tự nói được, là chọn giữa chúng theo nhu cầu nào. */}
+            <div className="mo-dau-lam-viec">
+              <div>
+                <h1>Dịch truyện tranh</h1>
+                <p className="dan">Chọn đường làm việc — cả hai đều dịch được cả chapter.</p>
+              </div>
 
             {/* ĐX-1 — hai đường vào song song, không đường nào thay thế đường nào.
                 Mặc định mở đường NHANH vì phần lớn lượt dùng chỉ cần đọc; ai cần rà soát,
@@ -556,21 +574,15 @@ export default function App({ urlBundle } = {}) {
                 </button>
               ))}
             </div>
+            </div>
 
             <div className="luoi-2-cot">
               {duong === 'nhanh'
                 ? <DichNhanh onMoChapter={(id) => { window.location.hash = `project=${id}` }} />
                 : <ChapterCreateForm onXong={(id) => { window.location.hash = `project=${id}` }} />}
-              <ChapterRecentList
-                danhSach={ganDay}
-                onTaoMoi={() => {
-                  setDuong('day_du')
-                  // Đợi React vẽ xong màn kia rồi mới cuộn — cuộn ngay thì nút chưa tồn tại.
-                  requestAnimationFrame(
-                    () => document.getElementById('nut-tao')?.scrollIntoView({ block: 'center' })
-                  )
-                }}
-              />
+              {/* `onTaoMoi` đã bỏ cùng nút "Tạo chapter đầu tiên" (E63) — giữ lại một prop
+                  không ai đọc là để dành một cái bẫy cho người sửa sau. */}
+              <ChapterRecentList danhSach={ganDay} />
             </div>
           </>
         )}

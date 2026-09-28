@@ -10,16 +10,23 @@
 
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Be Vietnam Pro trước, phông hệ thống ngay sau: tải hỏng hoặc mạng chặn Google Fonts thì rơi
+     về đúng phông cũ, không rơi về serif mặc định của trình duyệt. */
+  font-family: "Be Vietnam Pro", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   background: var(--nen);
   color: var(--chu);
-  line-height: 1.5;
+  line-height: 1.55;
+  /* Be Vietnam Pro hơi dày ở cỡ chữ thân bài; làm mảnh nét cho dễ đọc khối chữ dài. */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-h1, h2, h3 { margin: 0; line-height: 1.25; letter-spacing: -.01em; }
-h1 { font-size: 1.65rem; }
-h2 { font-size: 1.12rem; }
-h3 { font-size: .98rem; }
+/* Thang cỡ chữ: khoảng cách giữa các bậc rõ hơn bản cũ (1,65 / 1,12 / 0,98 — bậc h2 và h3 gần
+   như bằng nhau nên tiêu đề khối và tiêu đề con không phân cấp được bằng mắt). */
+h1, h2, h3 { margin: 0; line-height: 1.22; letter-spacing: -.015em; font-weight: 700; }
+h1 { font-size: 1.75rem; }
+h2 { font-size: 1.2rem; }
+h3 { font-size: 1rem; font-weight: 600; letter-spacing: -.005em; }
 a { color: var(--mau-chinh-dam); }
 
 .app { min-height: 100vh; }
@@ -30,9 +37,15 @@ a { color: var(--mau-chinh-dam); }
 
 /* ---------- Đầu trang ---------- */
 .dau-trang {
-  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
-  padding: 12px var(--le); background: var(--the);
+  padding: 10px var(--le); background: var(--the);
   border-bottom: 1px solid var(--vien); position: sticky; top: 0; z-index: 20;
+}
+/* Thanh đầu trang chạy hết bề ngang màn, nhưng RUỘT của nó phải thẳng cột với `.than-trang`
+   (cùng `--rong-toi-da`). Thiếu lớp này thì ở màn rộng, hiệu và ô tìm dạt ra sát hai mép trong
+   khi nội dung nằm gọn giữa trang — nhìn như hai trang khác nhau chồng lên nhau. */
+.dau-trang-trong {
+  max-width: var(--rong-toi-da); margin: 0 auto; width: 100%;
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
 }
 .hieu { display: flex; align-items: center; gap: 10px; text-decoration: none; color: inherit; }
 .hieu-dau {
@@ -78,7 +91,10 @@ a { color: var(--mau-chinh-dam); }
   padding: 0; margin-bottom: 12px; font-size: 12.5px; font-weight: 600;
   color: var(--mau-chinh-dam); text-transform: uppercase; letter-spacing: .05em;
 }
-.hang-doi { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+/* `1fr 1fr` cứng làm hàng BA Ô bẻ thành 2 + 1: ô thứ ba đứng một mình nửa hàng, cạnh nó là một
+   khoảng trống, và vì mỗi ô có dòng mô tả dài ngắn khác nhau nên các hàng so le. `auto-fit` cho
+   ba ô nằm cùng một hàng khi đủ rộng, và tự rút về 2 rồi 1 khi hẹp. */
+.hang-doi { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; align-items: start; }
 @media (max-width: 620px) { .hang-doi { grid-template-columns: 1fr; } }
 
 /* ---------- Ô nhập ---------- */
@@ -748,19 +764,51 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 }
 
 /* ---------- ĐX-1: chọn đường vào (Dịch nhanh ↔ Tạo chapter mới) ---------- */
-.chon-duong { display: flex; gap: 10px; margin-bottom: var(--khoang); flex-wrap: wrap; }
-.nut-duong {
-  flex: 1 1 240px; display: flex; flex-direction: column; gap: 2px; text-align: left;
-  padding: 12px 16px; background: var(--the); color: var(--chu); cursor: pointer;
-  border: 1px solid var(--vien); border-radius: var(--bo-lon);
+/* E63 — hai nút này là TAB, không phải hai thẻ nội dung. Bản cũ để chúng `flex: 1 1 240px` nên
+   chúng kéo dài hết bề ngang trang và trông y hệt hai thẻ lớn bên dưới; người dùng đọc ra "hai
+   mục nội dung" chứ không đọc ra "chọn một trong hai". Nay: gom lại thành một cụm hẹp, nằm
+   trong một máng nền mờ, và cái đang chọn là cái NỔI LÊN (nền trắng + bóng) trên máng đó. */
+.chon-duong {
+  /* `display: inline-flex` KHÔNG đủ: khối cha là flex-column nên `align-items: stretch` vẫn kéo
+     máng này rộng hết bề ngang trang, để lại một mảng nền mờ trống bên phải hai tab. */
+  align-self: flex-start;
+  display: inline-flex; gap: 4px; margin-bottom: 4px; flex-wrap: wrap;
+  padding: 4px; background: var(--the-mo); border: 1px solid var(--vien);
+  border-radius: var(--bo-lon); max-width: 100%;
 }
-.nut-duong span { color: var(--mo); font-size: 0.86em; }
-.nut-duong:hover { border-color: var(--mau-chinh-vien); }
+.nut-duong {
+  flex: 0 1 auto; display: flex; flex-direction: column; gap: 1px; text-align: left;
+  padding: 8px 14px; background: transparent; color: var(--mo); cursor: pointer;
+  border: 1px solid transparent; border-radius: var(--bo-nho);
+}
+.nut-duong strong { font-size: 14px; }
+.nut-duong span { color: var(--mo); font-size: 12.5px; }
+.nut-duong:hover { background: var(--mo-phu); }
 .nut-duong:focus-visible { outline: 2px solid var(--mau-chinh); outline-offset: 2px; }
 .nut-duong.dang-chon {
-  border-color: var(--mau-chinh); background: var(--mau-chinh-nhat); box-shadow: var(--bong-noi);
+  background: var(--the); border-color: var(--vien-dam); box-shadow: var(--bong);
+  color: var(--chu);
 }
 .nut-duong.dang-chon strong { color: var(--mau-chinh-dam); }
+.nut-duong.dang-chon span { color: var(--mo); }
+/* Màn hẹp: hai tab xuống hai dòng. Lúc đó `align-self: flex-start` làm máng nền rộng đúng bằng
+   tab DÀI NHẤT, nên tab ngắn để hở một mảng nền bên phải — trông như vẽ lỗi. Cho máng rộng hết
+   khối và mỗi tab chiếm trọn một dòng. */
+@media (max-width: 560px) {
+  .chon-duong { align-self: stretch; }
+  .nut-duong { flex: 1 1 100%; }
+}
+
+/* Đầu trang chủ (đã đăng nhập): tiêu đề + cụm tab đứng cùng một khối, cách phần làm việc bên
+   dưới một nhịp rõ ràng. */
+.mo-dau-lam-viec { display: flex; flex-direction: column; gap: 14px; }
+.mo-dau-lam-viec .dan { margin: 6px 0 0; color: var(--mo); max-width: 62ch; }
+
+/* Danh sách chapter gần đây lúc TRỐNG: một dòng, không phải một thẻ cao bằng cả cột bên trái.
+   Nút "Tạo chapter đầu tiên" đã bị bỏ ở đây vì nó là cái nút THỨ BA cùng làm một việc (tab
+   "Tạo chapter mới" và mục "Tạo chapter" trên thanh đầu trang) — ba lối vào cho một việc làm
+   người dùng phải đoán xem chúng có khác nhau không. */
+.gan-day-trong { margin: 0; color: var(--mo); font-size: 13.5px; }
 
 /* ---------- E53: Trang chủ (khách lạ) ---------- */
 /* Dùng token sẵn có, không thêm màu mới: trang này phải trông cùng một hệ với phần còn lại.
