@@ -25,3 +25,10 @@ test_fixtures/den_trang/*
 extension/node_modules/
 dich-truyen-dang-doc-*.zip
 dich-truyen-dang-doc.zip
+
+# Không bao giờ commit thứ nằm dưới .secrets — chặn ở gốc repo, mọi cấp thư mục.
+# 28-09-2026: hai tệp (`gtm-service-account.json`, `meta-page-token.txt`) xuất hiện dưới
+# `docs/home/coder/.secrets/` và bị `git add -A` quét vào commit. GitHub push protection chặn
+# lại nên KHÔNG có gì lên remote — nhưng lớp chặn đó là của GitHub, không phải của repo này.
+**/.secrets/
+**/*service-account*.json

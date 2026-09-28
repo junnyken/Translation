@@ -67,12 +67,19 @@ class FitToBoxTypesetter:
         return int(round(font_size * self.line_spacing_ratio))
 
     def _do_thu(self, text: str, font_family: str, size: int, rect: ContentRect) -> tuple[str, int, int]:
+        wrapped, w, h, _cat_tu = self._do_thu_day_du(text, font_family, size, rect)
+        return wrapped, w, h
+
+    def _do_thu_day_du(
+        self, text: str, font_family: str, size: int, rect: ContentRect
+    ) -> tuple[str, int, int, bool]:
+        """Như `_do_thu` nhưng trả thêm **có phải cắt giữa từ không** (E60)."""
         font = self.font_resolver.resolve(font_family, size)
-        wrapped = self.layout.wrap_to_width(text, font, rect.width)
+        wrapped, cat_tu = self.layout.wrap_bao_cat_tu(text, font, rect.width)
         w, h = self.layout.measure_multiline(
             wrapped, font, spacing=self._spacing_for(size), stroke_width=self.stroke_width
         )
-        return wrapped, w, h
+        return wrapped, w, h, cat_tu
 
     # ---------- contract M1 ----------
     def fit(self, text: str, bbox: BBox, font_family: str) -> dict:
@@ -106,11 +113,23 @@ class FitToBoxTypesetter:
         )
 
         for size in range(self.max_font_size, self.min_font_size - 1, -1):
-            wrapped, w, h = self._do_thu(text, font_family, size, rect)
-            if w <= rect.width and h <= rect.height:
+            wrapped, w, h, cat_tu = self._do_thu_day_du(text, font_family, size, rect)
+            # E60 — CẮT GIỮA TỪ tính là CHƯA VỪA, dù số đo bề rộng nói là vừa.
+            #
+            # Cắt theo ký tự làm bề rộng luôn vừa, nên nếu chỉ nhìn `w <= rect.width` thì vòng lặp
+            # này **không bao giờ biết** khung quá hẹp: nó dừng ở cỡ chữ to, trả `FIT_OK`, và người
+            # đọc nhận `VỌN / G QUA`. Đo trên trang manga thật của chủ dự án (28-09-2026).
+            #
+            # Coi là chưa vừa ⇒ tiếp tục thu nhỏ ⇒ tới cỡ nào đó cả TỪ lọt vào bề rộng và chữ đọc
+            # được. Chữ nhỏ hơn, nhưng đọc được — đổi lại đó là đổi đúng.
+            if w <= rect.width and h <= rect.height and not cat_tu:
                 return {"font_size": float(size), "wrapped_text": wrapped, "fit_status": FIT_OK}
 
         # Tới cỡ nhỏ nhất vẫn không vừa: giữ nguyên cỡ min và nói thật là tràn.
+        #
+        # Ở ĐÂY mới chấp nhận cắt giữa từ — cắt là lựa chọn CUỐI, không phải đường đi thường. Bong
+        # bóng hẹp tới mức cỡ chữ nhỏ nhất cũng không chứa nổi một từ thì không có cách vẽ nào đúng;
+        # lúc đó vẫn phải hiện chữ, và cảnh báo tràn nói ra sự thật đó.
         wrapped, _w, _h = self._do_thu(text, font_family, self.min_font_size, rect)
         return {
             "font_size": float(self.min_font_size),

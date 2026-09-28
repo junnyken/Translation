@@ -6325,3 +6325,28 @@ luận** — đã thêm `detect_engine` vào `/healthz` để biết chắc.
 
 ⇒ Đã **bỏ con số 45 giây** khỏi popup và thông báo tiến độ. Giữ một số không đo lại được trên bản đang
 chạy là đúng loại lỗi cả lượt này đi sửa. Cùng họ [[feedback-tinh-nang-tat-lam-cau-tren-man-thanh-sai]].
+
+### E60 — lỗi tự che mắt phép đo dùng để phát hiện nó
+
+`wrap_to_width` cắt token theo **ký tự** khi token rộng hơn khung. Hệ quả phụ: bề rộng **luôn vừa**.
+Vòng dò cỡ chữ của `fit()` kiểm `w <= rect.width and h <= rect.height` — vế bề rộng **luôn đúng**, nên
+nó không bao giờ biết khung quá hẹp, chỉ thấy chiều cao sai, thu nhỏ chữ, rồi trả **`fit_ok`**.
+
+```
+khung 64x420, câu "VÒNG QUA ĐÂY ĐI"
+TRƯỚC  cỡ 38  VÒ/N/G/Q/UA/ĐÂ/Y/ĐI   fit_ok   ← hệ thống coi là THÀNH CÔNG
+SAU    cỡ 18  VÒNG/QUA/ĐÂY/ĐI       fit_ok
+```
+
+⇒ Phần lớn chữ hỏng trên trang thật **không hề được gắn cảnh báo**. Bài học: khi một nhánh dự phòng
+làm cho phép kiểm **luôn qua**, nó vô hiệu hoá luôn phép kiểm đó. Nhánh dự phòng phải **báo ra** rằng
+nó đã phải chạy, để bên gọi còn biết.
+
+### E60 — bài canh cấu trúc bắt lỗi của chính người viết nó
+
+Bài canh đọc mã đòi `_run_export` phải truyền `mark_overflow=False`. Lượt đầu nó **đỏ dù mã đã đúng**:
+tôi đọc `run_export_job` (task bao ngoài) trong khi renderer được dựng ở `_run_export`.
+
+Sửa thành soi **cả hai** hàm với kỳ vọng **ngược nhau** — `_run_export` phải tắt, `render_page_preview`
+phải KHÔNG tắt. Bản sửa mạnh hơn bản đầu: nó chặn luôn cái sai ngược lại (tắt nhầm ở ảnh xem thử, làm
+người rà soát mất đường duy nhất thấy chỗ tràn).

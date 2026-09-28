@@ -2582,6 +2582,15 @@ def _run_export(job_id: uuid.UUID) -> dict:
             text_color=settings.typeset_text_color,
             stroke_color=settings.typeset_stroke_color,
             stroke_width=settings.typeset_stroke_width,
+            # E60 — KHÔNG vẽ khung đỏ cảnh báo tràn vào TỆP NGƯỜI ĐỌC TẢI VỀ.
+            #
+            # `mark_overflow` mặc định `True` và trước đây không ai truyền `False`, nên khung đỏ —
+            # vốn là dấu cho người RÀ SOÁT trên ảnh xem thử — bị nướng thẳng vào file xuất. Chủ dự
+            # án gửi ảnh trang thật 28-09-2026: khung đỏ nằm giữa truyện.
+            #
+            # Thông tin KHÔNG mất: số vùng tràn đã được đếm vào `job.overflow_warning_count`, và
+            # ảnh xem thử vẫn vẽ khung đỏ đầy đủ để rà soát.
+            mark_overflow=False,
         ),
     )
     thu_muc_kho = export_relative_dir(project_id)

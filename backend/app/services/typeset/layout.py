@@ -18,18 +18,40 @@ class TextLayoutEngine:
     """Ngắt dòng + đo khối nhiều dòng. Không đụng DB, không render — thuần để test đơn vị."""
 
     def wrap_to_width(self, text: str, font: ImageFont.FreeTypeFont, max_width: int) -> str:
-        """Ngắt dòng theo bề rộng pixel. Ưu tiên ngắt ở khoảng trắng.
+        """Ngắt dòng theo bề rộng pixel. Giữ chữ ký cũ — trả về CHUỖI."""
+        return self.wrap_bao_cat_tu(text, font, max_width)[0]
 
-        Token dài quá khổ (URL, tên chiêu thức) được cắt theo **ký tự** để không vượt bề rộng —
-        đây là thêm ký tự xuống dòng, KHÔNG sửa nội dung text.
+    def wrap_bao_cat_tu(
+        self, text: str, font: ImageFont.FreeTypeFont, max_width: int
+    ) -> tuple[str, bool]:
+        """Như `wrap_to_width` nhưng trả thêm **có phải cắt GIỮA TỪ hay không** (E60).
+
+        ## Vì sao cần biết điều đó
+
+        Cắt theo ký tự làm bề rộng **luôn vừa**, nên phép kiểm `w <= rect.width` của bộ căn cỡ chữ
+        gần như luôn qua — bộ căn **không bao giờ nhìn thấy** rằng khung quá hẹp. Nó chỉ thấy chiều
+        cao sai, bèn thu nhỏ cỡ chữ, và cho ra chữ bé tí **vẫn vỡ từng ký tự**.
+
+        Đo trên trang manga thật (chủ dự án gửi 28-09-2026): bong bóng **dọc hẹp** kiểu Nhật làm
+        `max_width` rất nhỏ, nên từ tiếng Việt bình thường cũng rơi vào nhánh cắt ký tự —
+        `VÒNG QUA` thành `VỌN / G QUA`, `TRẮNG` thành `TRẢ / NG`. Nhánh dự phòng viết cho "URL, tên
+        chiêu thức" trở thành đường đi CHÍNH.
+
+        Với chữ Việt, cắt giữa từ là **hỏng nội dung**, không phải "hơi xấu": từ tiếng Việt ngắn và
+        có dấu, cắt ra là mất nghĩa hoàn toàn. Người đọc thà đọc chữ nhỏ còn hơn đọc `VỌN G`.
+
+        ⇒ Bên gọi dùng cờ này để coi cỡ chữ đó là **chưa vừa** và tiếp tục thu nhỏ. Chỉ khi đã tới
+        cỡ nhỏ nhất mà vẫn phải cắt thì mới chấp nhận cắt, và lúc đó gắn cảnh báo tràn.
+
         Ký tự xuống dòng có sẵn trong bản dịch được **giữ nguyên** làm ngắt cứng.
         """
         text = normalize_for_layout(text)
         if not text.strip():
-            return ""
+            return "", False
         if max_width <= 0:
-            return text
+            return text, False
 
+        da_cat_tu = False
         lines: list[str] = []
         for doan in text.split("\n"):
             if not doan.strip():
@@ -44,8 +66,9 @@ class TextLayoutEngine:
                 if dong_hien_tai:
                     lines.append(dong_hien_tai)
                     dong_hien_tai = ""
-                # Token đơn lẻ vẫn quá rộng -> cắt theo ký tự.
+                # Token đơn lẻ vẫn quá rộng -> cắt theo ký tự, và NÓI RA là đã phải cắt.
                 if font.getlength(tu) > max_width:
+                    da_cat_tu = True
                     phan = ""
                     for ky_tu in tu:
                         if phan and font.getlength(phan + ky_tu) > max_width:
@@ -58,7 +81,7 @@ class TextLayoutEngine:
                     dong_hien_tai = tu
             if dong_hien_tai:
                 lines.append(dong_hien_tai)
-        return "\n".join(lines)
+        return "\n".join(lines), da_cat_tu
 
     def measure_multiline(
         self,
