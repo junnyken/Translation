@@ -274,6 +274,9 @@ class Settings(BaseSettings):
     llm_thinking_budget: int = 0
     llm_temperature: float = 0.3
     llm_max_output_tokens: int = 8192
+    #: E71 — `llm_context` gửi đoạn dạng JSON có `id` và ÉP đầu ra theo schema (giao thức theo id
+    #: lấy từ Koharu; bằng chứng ép schema: E46 45/45 vs 24/30). Tắt ⇒ dòng đánh số như trước E71.
+    llm_dich_json: bool = True
 
     #: E32 — gửi kèm ẢNH TRANG cho mô hình dịch (`llm_context`).
     #:
@@ -460,6 +463,10 @@ class Settings(BaseSettings):
     #: (`mark_overlap_suspects`: "chỉ gắn cờ, không merge/xóa box nào") và E12 ("máy không được
     #: kết luận một vùng là rác rồi tự bỏ").
     e26_bo_qua_vung_bao: bool = True
+    #: E70 — đo màu chữ/viền của chữ GỐC từng vùng rồi vẽ chữ dịch đúng màu đó (cách đo từ Koharu,
+    #: `typeset/mau_chu.py`). Tắt ⇒ không đo, cột để NULL, mọi vùng dùng `typeset_text_color`/
+    #: `typeset_stroke_*` như trước E70.
+    e70_mau_chu_theo_vung: bool = True
     #: E26-C — vùng E12 đánh `possible_sfx` thì giữ nguyên chữ gốc, không dịch thành từ.
     #:
     #: Đo thật: `Clang` -> "Kêu vang", `Cling` -> "Bám vào", `Clong` -> "tiếng kêu". Dịch đúng từ
@@ -486,6 +493,9 @@ class Settings(BaseSettings):
     inpaint_cpu_mem_arena: bool = False
     #: Nới mask quanh bbox để không sót viền chữ. Trần cứng 15% ở tầng code (mask.MAX_DILATE_RATIO).
     inpaint_dilate_ratio: float = 0.08
+    #: E69 — vùng chữ nằm trên nền một màu (bong bóng trắng…) được tô màu nền thay vì chạy LaMa.
+    #: Ý tưởng từ Koharu; mọi vùng không chắc phẳng vẫn chạy LaMa. Xem `inpaint/to_phang.py`.
+    inpaint_flat_fill: bool = True
     #: Timeout RIÊNG cho inpaint (đo thật: 54,3s/ảnh 1400x2000 trên CPU, chưa tính bước kiểm chứng).
     inpaint_timeout_seconds: int = 600
     inpaint_auto_chain: bool = True

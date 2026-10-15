@@ -30,6 +30,34 @@ logger = logging.getLogger(__name__)
 DAU_KHONG_CHAC = "[?]"
 
 _GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
+#: E71 — schema ép đầu ra của chế độ JSON (`LLMContextTranslator(json_mode=True)`).
+#:
+#: Vì sao ÉP schema chứ không xin JSON bằng lời: E46 đo trên chính dự án này — xin bằng lời thì
+#: model dừng giữa mảng mà vẫn báo `STOP` và đổi tên khoá giữa chừng (24/30 lần đúng); ép schema
+#: 45/45. Giao thức theo `id` lấy từ Koharu (`koharu-translator/src/prompt.rs`, MIT OR Apache-2.0):
+#: ghép bản dịch về vùng bằng `id`, không bằng vị trí dòng.
+#:
+#: `doan` thay cho dấu `[?]` gõ trong chữ (E66): cờ nằm ở trường riêng thì không thể lọt vào
+#: bong bóng, và không cần luật "thứ duy nhất được thêm vào dòng là ba ký tự…".
+SCHEMA_DICH = {
+    "type": "OBJECT",
+    "properties": {
+        "translations": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "id": {"type": "INTEGER"},
+                    "text": {"type": "STRING"},
+                    "doan": {"type": "BOOLEAN"},
+                },
+                "required": ["id", "text", "doan"],
+            },
+        },
+    },
+    "required": ["translations"],
+}
 #: Endpoint dịch công khai. `clients5` chạy được từ hạ tầng này, `translate.googleapis.com`
 #: trả 429 (xem docs/TEST_LOG.md § M5) nên để làm phương án 2.
 _GOOGLE_ENDPOINTS = (
@@ -143,7 +171,11 @@ class LLMContextTranslator:
         boi_canh: str = "",
         anh_trang: bytes | None = None,
         anh_mime: str = "image/jpeg",
+        json_mode: bool = False,
     ) -> None:
+        #: E71 — True: gửi đoạn dạng JSON có `id`, ép đầu ra theo `SCHEMA_DICH`, ghép theo `id`.
+        #: False: giao thức dòng đánh số như trước E71 (giữ nguyên từng ký tự của prompt).
+        self.json_mode = json_mode
         self._api_keys = [k.strip() for k in api_keys if k and k.strip()]
         self.model_name = model_name
         self.timeout = timeout
@@ -179,6 +211,99 @@ class LLMContextTranslator:
             self.usage.key_rotations += 1
 
     # ---------- prompt ----------
+    def build_prompt_json(self, texts: list[str], source_lang: str, target_lang: str) -> str:
+        """E71 — cùng các luật nội dung với `build_prompt`, khác ở GIAO THỨC vào/ra.
+
+        Luật nội dung (bám nghĩa, OCR, tên riêng, chỉ chữ Việt, ảnh) phải giữ ĐỒNG BỘ với
+        `build_prompt`; `test_e71_dich_json.py::test_luat_noi_dung_giong_che_do_cu` canh việc đó.
+        Chỉ đổi những câu nói về định dạng và về dấu `[?]` (nay là trường `doan`).
+        """
+        doan_vao = [
+            # E30 — vẫn dàn phẳng `\n`: trong JSON nó không còn phá giao thức, nhưng E26-A đã gộp
+            # dòng do bong bóng ngắt nên `\n` còn lại là ranh giới câu, nối bằng dấu cách là đủ.
+            {"id": i + 1, "text": " ".join((t or "").splitlines()).strip()}
+            for i, t in enumerate(texts)
+        ]
+        return (
+            "Bạn là người dịch truyện tranh chuyên nghiệp. Dịch các đoạn thoại dưới đây "
+            f"từ {source_lang} sang {target_lang}.\n"
+            "Yêu cầu bắt buộc:\n"
+            f"- Đầu vào là {len(texts)} đoạn, mỗi đoạn có `id`. Trả về JSON với mảng "
+            "`translations`: MỖI `id` đầu vào xuất hiện ĐÚNG MỘT lần, không thêm id lạ. Không gộp "
+            "hai đoạn làm một, không tách một đoạn làm hai — dù hai đoạn liền nhau là một câu.\n"
+            "- Dịch theo mạch văn của cả trang, không dịch rời rạc từng dòng.\n"
+            "- Bám sát nghĩa gốc: không bỏ sót ý, không suy diễn thêm nội dung không có trong câu "
+            "gốc. Chỉ được đổi CÁCH DIỄN ĐẠT cho tự nhiên bằng tiếng Việt, không đổi Ý.\n"
+            "- Giữ giọng điệu nhân vật; câu thoại ngắn gọn tự nhiên như truyện tranh tiếng Việt.\n"
+            "- Chữ đầu vào do máy ĐỌC TỰ ĐỘNG (OCR) nên có thể sai. Được sửa lỗi đọc NHỎ khi ngữ "
+            "cảnh làm nghĩa rõ ràng (lệch một ký tự, thiếu dấu câu). KHÔNG được đoán ra một TỪ "
+            "KHÁC HẲN chỉ để câu có nghĩa.\n"
+            "- Đoạn nào bạn phải ĐOÁN mới dịch được — chữ gốc vô nghĩa, hoặc có nhiều cách hiểu "
+            "khác hẳn nhau — thì vẫn dịch bản khả dĩ nhất vào `text`, NHƯNG đặt `doan` = true. "
+            "Đây là tín hiệu cho người biên tập: thà báo ra còn hơn để người đọc tưởng một câu bịa "
+            "là nội dung thật.\n"
+            "- TÊN RIÊNG (người, địa danh): phiên âm theo cách đọc và GIỮ NGUYÊN LÀ TÊN. Không "
+            "được thay một cái tên bằng một từ thường. Tên đọc không rõ thì giữ dạng phiên âm "
+            "gần nhất và đặt `doan` = true — đừng biến nó thành một danh từ chung.\n"
+            "- `text` CHỈ chứa bản dịch: không giải thích, không chú thích trong ngoặc, không chép "
+            "lại chữ gốc, không dấu sao, không đánh số.\n"
+            # E71 — đo A/B 5+5 lượt: ở chế độ JSON mô hình hay BỎ dấu chấm cuối câu và viết thường
+            # chữ đầu ("Đó là Akiyama đấy", "ực ực") — chế độ dòng đánh số thì không. Chuỗi trong
+            # JSON trông như nhãn nên nó viết như nhãn; nói thẳng là câu thoại.
+            "- Mỗi `text` là một CÂU THOẠI hoàn chỉnh: viết hoa chữ đầu, có dấu câu kết thúc "
+            "(. ! ? …) như truyện tranh tiếng Việt.\n"
+            "- Bản dịch chỉ được chứa chữ VIỆT, số và dấu câu. Tuyệt đối không để lại ký tự Nhật/"
+            "Trung/Hàn trong bản dịch — font không vẽ được chúng và bong bóng sẽ bị bỏ trống.\n"
+            "- CHỈ đặt `doan` = true khi chữ gốc thật sự không đọc ra nghĩa. Câu ngắn nhưng rõ "
+            "nghĩa (ví dụ một câu hỏi thông thường) thì `doan` = false.\n"
+            + (
+                "- Kèm theo là ẢNH của chính trang truyện. Dùng ảnh để: (a) ĐỐI CHIẾU chữ đọc "
+                "được với chữ trên ảnh, (b) biết câu nào là của nhân vật nào, (c) nhận ra tiếng "
+                "động vẽ cách điệu. Ảnh là để HIỂU ĐÚNG, không phải để thêm nội dung không có "
+                "trong danh sách. Ảnh mâu thuẫn với chữ đầu vào thì tin ẢNH và đặt `doan` = "
+                "true.\n"
+                if self.anh_trang else ""
+            )
+            + "\n"
+            + (f"\n{self.boi_canh}\n" if self.boi_canh else "")
+            + f"\n### {self.page_label}\n{json.dumps(doan_vao, ensure_ascii=False)}"
+        )
+
+    @staticmethod
+    def parse_response_json(text: str, expected: int) -> tuple[list[str], set[int]]:
+        """E71 — đọc JSON theo `id`. Trả (bản dịch theo thứ tự vào, tập chỉ số `doan`).
+
+        - Thiếu id ⇒ chuỗi rỗng, như `parse_response`: bên gọi để vùng đó `pending`, KHÔNG bịa.
+        - id ngoài 1..N hoặc lặp ⇒ bỏ (lấy lần đầu). Koharu cũng bỏ id lặp/lạ.
+        - Không đọc được JSON ⇒ `TranslationFailed`: đường lùi `google_fast` sẵn có sẽ bắt. Với
+          schema ép thì gần như không xảy ra — nhưng xảy ra thì phải BÁO, không trả trang rỗng.
+        - `[?]` lọt vào `text` (mô hình quen tay) vẫn được bóc và tính là `doan`.
+        """
+        try:
+            data = json.loads(text or "")
+            muc = data["translations"]
+            if not isinstance(muc, list):
+                raise TypeError("translations không phải mảng")
+        except (ValueError, KeyError, TypeError) as exc:
+            raise TranslationFailed(
+                f"llm_json_invalid: không đọc được JSON bản dịch ({type(exc).__name__}): "
+                f"{(text or '')[:200]!r}"
+            ) from exc
+        theo_id: dict[int, tuple[str, bool]] = {}
+        for m in muc:
+            if not isinstance(m, dict):
+                continue
+            try:
+                i = int(m.get("id"))
+            except (TypeError, ValueError):
+                continue
+            if 1 <= i <= expected and i not in theo_id:
+                theo_id[i] = (str(m.get("text") or ""), bool(m.get("doan")))
+        dong = [theo_id.get(i + 1, ("", False))[0] for i in range(expected)]
+        doan = {i for i in range(expected) if theo_id.get(i + 1, ("", False))[1]}
+        dong, co_dau = LLMContextTranslator.tach_dau_khong_chac(dong)
+        return dong, doan | co_dau
+
     def build_prompt(self, texts: list[str], source_lang: str, target_lang: str) -> str:
         # E30 — DÀN PHẲNG dấu xuống dòng trước khi đánh số.
         #
@@ -335,16 +460,19 @@ class LLMContextTranslator:
         return [result.get(i + 1, "") for i in range(expected)]
 
     # ---------- gọi API ----------
-    def _generation_config(self) -> dict:
+    def _generation_config(self, schema: dict | None = None) -> dict:
         cfg: dict = {
             "temperature": self.temperature,
             "maxOutputTokens": self.max_output_tokens,
         }
         if self.thinking_budget is not None:
             cfg["thinkingConfig"] = {"thinkingBudget": self.thinking_budget}
+        if schema is not None:
+            cfg["responseMimeType"] = "application/json"
+            cfg["responseSchema"] = schema
         return cfg
 
-    def _call_api(self, prompt: str) -> tuple[str, dict]:
+    def _call_api(self, prompt: str, schema: dict | None = None) -> tuple[str, dict]:
         # E32 — ẢNH đứng TRƯỚC chữ trong `parts`.
         #
         # Thứ tự này là khuyến nghị của Gemini cho câu hỏi về một ảnh: mô hình đọc ảnh rồi mới đọc
@@ -365,7 +493,7 @@ class LLMContextTranslator:
         body = json.dumps(
             {
                 "contents": [{"parts": parts}],
-                "generationConfig": self._generation_config(),
+                "generationConfig": self._generation_config(schema),
             }
         ).encode("utf-8")
 
@@ -414,8 +542,12 @@ class LLMContextTranslator:
     def translate(self, texts: list[str], source_lang: str, target_lang: str) -> list[str]:
         if not texts:
             return []
-        prompt = self.build_prompt(texts, source_lang, target_lang)
-        text, usage = self._call_api(prompt)
+        if self.json_mode:
+            prompt = self.build_prompt_json(texts, source_lang, target_lang)
+            text, usage = self._call_api(prompt, SCHEMA_DICH)
+        else:
+            prompt = self.build_prompt(texts, source_lang, target_lang)
+            text, usage = self._call_api(prompt)
 
         self.usage.prompt_tokens = usage.get("promptTokenCount")
         self.usage.output_tokens = usage.get("candidatesTokenCount")
@@ -427,11 +559,14 @@ class LLMContextTranslator:
                 "Model %s vẫn đốt %s token 'thinking' dù đã yêu cầu thinkingBudget=0",
                 self.model_name, self.usage.thought_tokens,
             )
-        dong = self.parse_response(text, len(texts))
-        # E66 — bóc dấu `[?]` và GHI LẠI vùng nào bị đánh, để bên gọi bật cờ "cần xem lại".
-        # Đặt trên `self` thay vì đổi kiểu trả về: `google_fast` dùng chung giao diện `translate`
-        # và không có khái niệm này. Bên gọi đọc bằng `getattr(..., set())`.
-        dong, self.vung_khong_chac = self.tach_dau_khong_chac(dong)
+        if self.json_mode:
+            dong, self.vung_khong_chac = self.parse_response_json(text, len(texts))
+        else:
+            dong = self.parse_response(text, len(texts))
+            # E66 — bóc dấu `[?]` và GHI LẠI vùng nào bị đánh, để bên gọi bật cờ "cần xem lại".
+            # Đặt trên `self` thay vì đổi kiểu trả về: `google_fast` dùng chung giao diện
+            # `translate` và không có khái niệm này. Bên gọi đọc bằng `getattr(..., set())`.
+            dong, self.vung_khong_chac = self.tach_dau_khong_chac(dong)
         if self.vung_khong_chac:
             logger.info(
                 "E66: %d/%d dòng mô hình tự báo là ĐOÁN", len(self.vung_khong_chac), len(dong),

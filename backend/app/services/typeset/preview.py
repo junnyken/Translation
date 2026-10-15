@@ -40,6 +40,11 @@ class RegionDraw:
     #: E16: hướng-đường [0,180) từ `RegionTextOrientation.rotation_degrees`. **KHÔNG** phải góc
     #: xoay — xem `typeset/xoay.py`. `None` hoặc gần nằm ngang thì vẽ y như trước.
     rotation_degrees: float | None = None
+    #: E70 — màu đo từ chữ gốc. None = dùng màu mặc định của renderer (hành vi trước E70).
+    #: `stroke_width` là px ẢNH GỐC; bộ vẽ tự nhân hệ số vẽ cùng chỗ với hình học.
+    text_color: str | None = None
+    stroke_color: str | None = None
+    stroke_width: float | None = None
 
 
 class PagePreviewRenderer:
@@ -116,11 +121,15 @@ class PagePreviewRenderer:
                         None if region.place_rect is None
                         else tuple(v * k for v in region.place_rect)
                     ),
+                    stroke_width=(
+                        None if region.stroke_width is None else region.stroke_width * k
+                    ),
                 )
             if not region.wrapped_text or region.font_size is None:
                 continue
             font = self.font_resolver.resolve(region.font_family, int(region.font_size))
             spacing = int(round(region.font_size * self.line_spacing_ratio))
+            ao = self._ao_chu(region)
 
             if region.place_rect is not None:
                 # Vùng an toàn của E14 đã thụt vào sẵn nên KHÔNG trừ padding lần nữa —
@@ -138,7 +147,7 @@ class PagePreviewRenderer:
 
             left, top, right, bottom = draw.multiline_textbbox(
                 (0, 0), region.wrapped_text, font=font, spacing=spacing,
-                stroke_width=self.stroke_width, align="center",
+                stroke_width=ao[2], align="center",
             )
             khoi_rong, khoi_cao = right - left, bottom - top
 
@@ -166,13 +175,14 @@ class PagePreviewRenderer:
                 # nên bất biến "chữ không thoát khỏi khung của nó" vẫn giữ nguyên.
                 self._ve_xoay(
                     o, region, font, spacing, (o_rong, o_cao), (khoi_rong, khoi_cao), (left, top),
+                    ao,
                 )
             else:
                 ImageDraw.Draw(o).multiline_text(
                     (x - cat_x, y - cat_y),
-                    region.wrapped_text, font=font, fill=self.text_color,
+                    region.wrapped_text, font=font, fill=ao[0],
                     spacing=spacing, align="center",
-                    stroke_width=self.stroke_width, stroke_fill=self.stroke_color,
+                    stroke_width=ao[2], stroke_fill=ao[1],
                 )
             canvas.paste(o, (int(round(cat_x)), int(round(cat_y))), o)
             if region.overflow and self.mark_overflow:
@@ -185,7 +195,19 @@ class PagePreviewRenderer:
 
         return canvas
 
-    def _ve_xoay(self, o, region, font, spacing, o_size, khoi, offset) -> None:
+    def _ao_chu(self, region: RegionDraw) -> tuple[str, str, int]:
+        """(màu chữ, màu viền, bề dày viền) để vẽ vùng này — E70 có đo thì dùng, không thì mặc định.
+
+        Có màu chữ đo được mà không có viền ⇒ viền = 0, KHÔNG rơi về viền cấu hình: chữ gốc không
+        viền thì chữ dịch cũng không viền.
+        """
+        if region.text_color is None:
+            return self.text_color, self.stroke_color, self.stroke_width
+        if region.stroke_color is None or not region.stroke_width:
+            return region.text_color, self.stroke_color, 0
+        return region.text_color, region.stroke_color, max(int(round(region.stroke_width)), 1)
+
+    def _ve_xoay(self, o, region, font, spacing, o_size, khoi, offset, ao=None) -> None:
         """E16 — vẽ chữ nghiêng vào ô `o` (đã đúng cỡ ô cắt), không để tràn ra ngoài.
 
         Vì sao phải THU NHỎ cỡ chữ: hộp bao của chữ sau khi xoay LỚN HƠN chữ ngang —
@@ -198,6 +220,8 @@ class PagePreviewRenderer:
         """
         import math
 
+        if ao is None:
+            ao = self._ao_chu(region)
         o_rong, o_cao = o_size
         khoi_rong, khoi_cao = khoi
         goc = goc_pil(region.rotation_degrees)
@@ -218,14 +242,14 @@ class PagePreviewRenderer:
         # Đo lại ở cỡ thật sẽ vẽ, rồi dựng lớp vừa khít khối chữ.
         l2, t2, r2, b2 = ImageDraw.Draw(Image.new("L", (1, 1))).multiline_textbbox(
             (0, 0), region.wrapped_text, font=ve_font, spacing=ve_spacing,
-            stroke_width=self.stroke_width, align="center",
+            stroke_width=ao[2], align="center",
         )
         lop_rong, lop_cao = max(int(round(r2 - l2)), 1), max(int(round(b2 - t2)), 1)
         lop = Image.new("RGBA", (lop_rong, lop_cao), (0, 0, 0, 0))
         ImageDraw.Draw(lop).multiline_text(
-            (-l2, -t2), region.wrapped_text, font=ve_font, fill=self.text_color,
+            (-l2, -t2), region.wrapped_text, font=ve_font, fill=ao[0],
             spacing=ve_spacing, align="center",
-            stroke_width=self.stroke_width, stroke_fill=self.stroke_color,
+            stroke_width=ao[2], stroke_fill=ao[1],
         )
 
         # `expand=True` để không tự cắt góc lúc xoay; BICUBIC cho mép chữ đỡ răng cưa.

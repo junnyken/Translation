@@ -27,9 +27,12 @@ APP_DIR = Path(__file__).resolve().parent.parent / "app"
 #: và test đo `sys.modules` vẫn chứng minh tiến trình API không nạp cv2 thật.
 #: E15 thêm `services/orientation` với cùng lý do như `safearea`: chỉ dùng cv2 để đo HÌNH HỌC
 #: (góc của đường bao dòng chữ), không nạp model, không gọi mạng; mọi `import cv2` nằm trong hàm.
+#: E70 thêm ĐÚNG MỘT TỆP `services/typeset/mau_chu.py` (không cả thư mục `typeset`, vì phần còn lại
+#: của nó chạy cả ở đường vẽ): cv2 chỉ dùng cho thành phần liên thông + biến đổi khoảng cách để đo
+#: màu/viền chữ — không model, không mạng, mọi `import cv2` nằm trong hàm.
 ALLOWED_MODEL_DIRS = (
     "services/detect", "services/ocr", "services/inpaint", "services/safearea",
-    "services/orientation", "workers",
+    "services/orientation", "workers", "services/typeset/mau_chu.py",
 )
 
 

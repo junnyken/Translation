@@ -6350,3 +6350,15 @@ tôi đọc `run_export_job` (task bao ngoài) trong khi renderer được dựn
 Sửa thành soi **cả hai** hàm với kỳ vọng **ngược nhau** — `_run_export` phải tắt, `render_page_preview`
 phải KHÔNG tắt. Bản sửa mạnh hơn bản đầu: nó chặn luôn cái sai ngược lại (tắt nhầm ở ảnh xem thử, làm
 người rà soát mất đường duy nhất thấy chỗ tràn).
+
+## 2026-10-15 — E69 tô phẳng · E70 màu chữ · E71 dịch JSON (từ Koharu)
+
+Chi tiết và bảng số đo: `REPORT_E69_E70_E71.md`.
+
+- **E69**: CTD thật + LaMa thật trên 6 trang (Pepper&Carrot E11–E14, pc_E01P02 1600px,
+  ja_E12P01). Bản đầu tô được 3/38 vùng. Chẩn đoán: nét viền bong bóng lọt vào dải viền làm hỏng
+  phép đo độ phẳng. Bản sửa (thống kê chịu ngoại lai + chốt mép trong) tô được **8/38**. Xem bằng mắt
+  8/8 sạch. Thời gian không kết luận được: cùng bước detect đo lúc 39s, lúc 97s trên cùng máy.
+- **E70**: 13 test, có chạy trọn bước căn chữ trên Postgres thật. Chưa chạy trên trang truyện thật.
+- **E71**: A/B 5+5 lượt `gemini-3.1-flash-lite`, 7 câu tiếng Nhật. Hai chế độ cùng 0/35 câu trống và
+  0/35 sót chữ Nhật. Lượt JSON đầu bỏ dấu chấm cuối câu; thêm luật rồi đo lại thì 5/5 có dấu câu.

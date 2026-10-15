@@ -15,6 +15,7 @@ import numpy as np
 from PIL import Image
 
 from app.services.inpaint.mask import InvalidMask, build_mask, dilate_bboxes
+from app.services.inpaint.to_phang import to_phang
 from app.services.interfaces import BBox
 
 logger = logging.getLogger(__name__)
@@ -134,7 +135,10 @@ class LamaInpainter:
         whole_page_max_mpx: float = 2.5,
         tile_margin: int = 96,
         max_crop_mpx: float = 2.6,
+        flat_fill: bool = True,
     ) -> None:
+        #: E69 — tô phẳng vùng chữ nằm trên nền một màu thay vì chạy LaMa (xem `to_phang.py`).
+        self.flat_fill = flat_fill
         self.weights_path = weights_path
         self.device = device
         self.dilate_ratio = dilate_ratio
@@ -263,14 +267,31 @@ class LamaInpainter:
         with Image.open(src) as im:
             image = im.convert("RGB")
             width, height = image.size
-            rgb = np.asarray(image, dtype=np.float32) / 255.0  # HWC
+            anh_u8 = np.array(image, dtype=np.uint8)  # HWC, bản sao ghi được
 
         mask = build_mask(width, height, masks, self.dilate_ratio)  # HW, 1 = xoá
         if mask.max() <= 0:
             raise InvalidMask("Mask rỗng sau khi dựng — không có gì để xoá")
 
+        if self.flat_fill:
+            # E69 — vùng chữ trên nền một màu: tô màu nền, không cần LaMa. Mặt nạ còn lại CHỈ
+            # gồm khung chưa tô, để vùng giao với khung chưa tô vẫn do model vẽ lại.
+            khung_noi = dilate_bboxes(masks, width, height, self.dilate_ratio)
+            kq = to_phang(anh_u8, khung_noi)
+            if kq.da_to:
+                logger.info("Tô phẳng %d/%d vùng chữ, bỏ qua LaMa cho các vùng đó",
+                            len(kq.da_to), len(masks))
+                masks = [masks[i] for i in kq.con_lai]
+                mask = build_mask(width, height, [khung_noi[i] for i in kq.con_lai], 0.0) \
+                    if masks else np.zeros((height, width), dtype=np.float32)
+
+        rgb = anh_u8.astype(np.float32) / 255.0  # HWC
+        del anh_u8
+
         trieu_diem = (width * height) / 1e6
-        if trieu_diem <= self.whole_page_max_mpx:
+        if not masks:
+            pred_hwc = rgb  # mọi vùng đã tô phẳng — không nạp model
+        elif trieu_diem <= self.whole_page_max_mpx:
             # Trang nhỏ: chạy cả trang một lượt như M4 đã kiểm chứng.
             self._kiem_tran_o_cat(trieu_diem, width, height, "cả trang")
             pred_hwc = self._chay_model(rgb, mask)

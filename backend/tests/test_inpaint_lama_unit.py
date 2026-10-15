@@ -51,6 +51,9 @@ def _md5(p: Path) -> str:
 
 
 def _inpainter(**kw) -> LamaInpainter:
+    # Các test này kiểm ĐƯỜNG CHẠY MODEL trên ảnh nền phẳng nhân tạo — tắt tô phẳng (E69),
+    # nếu không vùng chữ bị tô màu nền và model không bao giờ được gọi.
+    kw.setdefault("flat_fill", False)
     return LamaInpainter(weights_path="/khong/co/that.onnx", **kw)
 
 
@@ -168,6 +171,7 @@ class TestTranOCat:
 
     @staticmethod
     def _may(tmp_path, **kw):
+        kw.setdefault("flat_fill", False)  # kiểm đường chạy model, xem `_inpainter`
         return LamaInpainter(weights_path=str(tmp_path / "w.onnx"), **kw)
 
     def test_o_qua_lon_thi_bao_hong_TRUOC_khi_chay(self, tmp_path, monkeypatch):
@@ -255,6 +259,7 @@ class TestE41HaTranBoNho:
 
     @staticmethod
     def _may(tmp_path, **kw):
+        kw.setdefault("flat_fill", False)  # kiểm đường chạy model, xem `_inpainter`
         return LamaInpainter(weights_path=str(tmp_path / "w.onnx"), **kw)
 
     def test_tran_ca_trang_KHONG_duoc_lon_hon_tran_o_cat(self):

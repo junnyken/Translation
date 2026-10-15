@@ -776,6 +776,7 @@ def get_inpainter():
             whole_page_max_mpx=settings.inpaint_whole_page_max_mpx,
             tile_margin=settings.inpaint_tile_margin,
             max_crop_mpx=settings.inpaint_max_crop_mpx,
+            flat_fill=settings.inpaint_flat_fill,
         )
     return _inpainter
 
@@ -1175,6 +1176,8 @@ def build_translator(engine: str, boi_canh: str = "", anh_trang: tuple | None = 
             # thêm thứ gì nữa cũng không phải đổi chữ ký hàm này lần thứ ba.
             anh_trang=anh_trang[0] if anh_trang else None,
             anh_mime=anh_trang[1] if anh_trang else "image/jpeg",
+            # E71 — đoạn có `id` + ép schema JSON; tắt cờ ⇒ giao thức dòng đánh số như trước.
+            json_mode=settings.llm_dich_json,
         )
     return get_translator(engine)
 
@@ -1578,6 +1581,84 @@ def enqueue_typeset_after_translate(page_id: uuid.UUID) -> uuid.UUID | None:
     return job_id
 
 
+def _do_ao_chu(anh_goc_rel: str | None, vung: list) -> dict:
+    """E70 — đo màu chữ/viền của chữ GỐC cho từng vùng. Trả {region_id: MauChu}.
+
+    Hỏng ở đâu thì vùng đó (hoặc cả trang) KHÔNG có màu đo ⇒ cột để NULL ⇒ vẽ màu mặc định như
+    trước E70. Đo màu là phần làm đẹp: không bao giờ được làm hỏng lượt căn chữ.
+    """
+    if not anh_goc_rel or not vung:
+        return {}
+    import numpy as np
+    from PIL import Image as _Image
+
+    from app.services.typeset.mau_chu import do_mau_chu
+
+    try:
+        with get_storage().open_read(anh_goc_rel) as f, _Image.open(f) as im:
+            anh = np.asarray(im.convert("RGB"))
+    except Exception:  # noqa: BLE001
+        logger.warning("E70: không đọc được ảnh gốc %s — dùng màu mặc định", anh_goc_rel)
+        return {}
+    kq = {}
+    for rid, bbox in vung:
+        try:
+            m = do_mau_chu(anh, bbox)
+        except Exception:  # noqa: BLE001
+            logger.exception("E70: đo màu vùng %s lỗi — dùng màu mặc định", rid)
+            continue
+        if m is not None:
+            kq[rid] = m
+    return kq
+
+
+def _ts_co_vien(ts, mau, he_so: float):
+    """Bản sao typesetter đo cỡ chữ CÓ tính viền đã đo (px gốc × `he_so`). Không viền ⇒ trả nguyên.
+
+    Chỉ áp khi có MÀU đo được: chưa đo thì giữ đúng typesetter cấu hình như trước E70.
+    """
+    if mau is None:
+        return ts
+    import copy
+
+    ban = copy.copy(ts)
+    ban.stroke_width = (
+        max(int(round(mau.vien * he_so)), 1) if mau.mau_vien is not None and mau.vien else 0
+    )
+    return ban
+
+
+def _cot_ao_chu(mau) -> dict:
+    """MauChu → 3 cột của `TypesetResult`. None ⇒ cả ba NULL (chưa đo)."""
+    if mau is None:
+        return {"text_color": None, "stroke_color": None, "stroke_width": None}
+    from app.services.typeset.mau_chu import hex_mau
+
+    co_vien = mau.mau_vien is not None and bool(mau.vien)
+    return {
+        "text_color": hex_mau(mau.mau),
+        "stroke_color": hex_mau(mau.mau_vien) if co_vien else None,
+        "stroke_width": float(mau.vien) if co_vien else None,
+    }
+
+
+def _ao_tu_dong(ts):
+    """Đọc ngược `TypesetResult` → MauChu (để sửa tay giữ đúng màu). Chưa đo ⇒ None."""
+    if ts is None or not ts.text_color:
+        return None
+    from app.services.typeset.mau_chu import MauChu
+
+    def _rgb(h: str) -> tuple[int, int, int]:
+        return tuple(int(h[i:i + 2], 16) for i in (1, 3, 5))
+
+    co_vien = bool(ts.stroke_color) and bool(ts.stroke_width)
+    return MauChu(
+        mau=_rgb(ts.text_color),
+        mau_vien=_rgb(ts.stroke_color) if co_vien else None,
+        vien=float(ts.stroke_width) if co_vien else None,
+    )
+
+
 def build_typesetter(padding_ratio: float | None = None):
     """Dựng typesetter + resolver từ config. Import TRỄ để API không kéo theo Pillow/font.
 
@@ -1684,6 +1765,9 @@ def render_page_preview(page_id: uuid.UUID, resolver=None) -> str:
                 overflow=ts.fit_status is FitStatus.overflow_warning,
                 place_rect=o_dat.get(r.id),
                 rotation_degrees=goc.get(r.id),
+                text_color=ts.text_color,
+                stroke_color=ts.stroke_color,
+                stroke_width=ts.stroke_width,
             )
             for r, ts in rows
             if r.id not in bo_qua_bao
@@ -1736,6 +1820,7 @@ def _run_typeset(job_id: uuid.UUID) -> dict:
 
         page_id = page.id
         clean_rel = page.clean_image_path
+        anh_goc_rel = page.image_path
 
         if page.status not in (PageStatus.translated, PageStatus.typeset_done):
             job.status = JobStatus.failed
@@ -1877,6 +1962,13 @@ def _run_typeset(job_id: uuid.UUID) -> dict:
 
     def _phong(gia_tri: float) -> float:
         return gia_tri * he_so_ve
+
+    # E70 — "áo" của chữ gốc (màu chữ, viền) đo trên ẢNH GỐC, trước khi căn: bề dày viền làm khối
+    # chữ to ra nên phải được tính vào phép đo cỡ chữ, không thì chữ có viền tràn khung.
+    ao_chu = (
+        _do_ao_chu(anh_goc_rel, [(rid, bbox) for rid, bbox, _t, _o in specs])
+        if settings.e70_mau_chu_theo_vung else {}
+    )
     ket_qua: list[tuple[uuid.UUID, BBox, dict]] = []
     #: Vùng font không vẽ được — giữ lại để báo cáo, KHÔNG nuốt im lặng.
     thieu_glyph: list[tuple[uuid.UUID, str]] = []
@@ -1889,6 +1981,7 @@ def _run_typeset(job_id: uuid.UUID) -> dict:
             khung, ts = BBox(
                 x=_phong(o[0]), y=_phong(o[1]), w=_phong(o[2]), h=_phong(o[3]),
             ), typesetter_an_toan
+        ts = _ts_co_vien(ts, ao_chu.get(region_id), he_so_ve)
         try:
             ket_qua.append((region_id, bbox, ts.fit(text, khung, font_family)))
         except MissingGlyph as exc:
@@ -1936,6 +2029,7 @@ def _run_typeset(job_id: uuid.UUID) -> dict:
                     padding_ratio=settings.typeset_padding_ratio,
                     fit_status=FitStatus(fit["fit_status"]),
                     edited_by_user=False,
+                    **_cot_ao_chu(ao_chu.get(region_id)),
                 )
             )
         session.commit()
@@ -2133,6 +2227,7 @@ def _run_refit(job_id: uuid.UUID, region_id: uuid.UUID, font_size_override: floa
             select(TypesetResult).where(TypesetResult.region_id == region_id)
         ).scalars().first()
         font_family = (cu.font_family if cu and cu.font_family else settings.default_font_family)
+        ao_cu = _ao_tu_dong(cu)
         page_id = page.id
         bbox = BBox(x=region.bbox_x, y=region.bbox_y, w=region.bbox_w, h=region.bbox_h)
         text = translation.translated_text or ""
@@ -2140,6 +2235,9 @@ def _run_refit(job_id: uuid.UUID, region_id: uuid.UUID, font_size_override: floa
         session.commit()
 
     typesetter, resolver = build_typesetter()
+    # E70 — sửa tay KHÔNG đo lại màu: giữ "áo" đã đo ở lượt căn cả trang, và tính viền vào phép đo
+    # cỡ chữ y như lượt đó. Khung ở đây là khung GỐC (không nhân hệ số vẽ) nên viền cũng px gốc.
+    typesetter = _ts_co_vien(typesetter, ao_cu, 1.0)
     if font_size_override is not None:
         fit = typesetter.fit_at_size(text, bbox, font_family, float(font_size_override))
     else:
@@ -2157,6 +2255,7 @@ def _run_refit(job_id: uuid.UUID, region_id: uuid.UUID, font_size_override: floa
                 padding_ratio=settings.typeset_padding_ratio,
                 fit_status=FitStatus(fit["fit_status"]),
                 edited_by_user=True,  # đây là đường sửa tay — luôn đánh dấu để còn audit
+                **_cot_ao_chu(ao_cu),
             )
         )
         session.commit()
@@ -2587,6 +2686,10 @@ def _thu_thap_trang(session, project_id: uuid.UUID):
                         # Ảnh GIAO CHO NGƯỜI ĐỌC: không vẽ khung đỏ cảnh báo lên đó.
                         overflow=False,
                         place_rect=o_dat_xuat.get(r.id),
+                        # E70 — cùng màu với ảnh xem thử.
+                        text_color=ts.text_color,
+                        stroke_color=ts.stroke_color,
+                        stroke_width=ts.stroke_width,
                     )
                     for r, ts in rows
                 ],

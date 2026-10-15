@@ -329,6 +329,11 @@ class TypesetResult(TimestampMixin, Base):
         _enum(FitStatus, "fit_status"), nullable=False, default=FitStatus.pending
     )
     edited_by_user: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    #: E70 — "áo" của chữ gốc đo trên ảnh gốc (`typeset/mau_chu.py`). NULL = chưa đo ⇒ bộ vẽ dùng
+    #: màu cấu hình chung như trước E70. `stroke_width` là px ẢNH GỐC, chưa nhân `page.he_so_ve`.
+    text_color: Mapped[str | None] = mapped_column(String(7), nullable=True)
+    stroke_color: Mapped[str | None] = mapped_column(String(7), nullable=True)
+    stroke_width: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
 class Job(TimestampMixin, Base):

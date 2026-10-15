@@ -35,7 +35,8 @@ def test_inpaint_that_xoa_chu_va_giu_nguyen_anh_goc(fixtures_dir, tmp_path):
     work.write_bytes(src.read_bytes())
     before = hashlib.md5(work.read_bytes()).hexdigest()
 
-    inpainter = LamaInpainter(weights_path=_weights(), device="cpu")
+    # flat_fill=False: test này chứng minh MODEL THẬT chạy được, không phải đường tô phẳng E69.
+    inpainter = LamaInpainter(weights_path=_weights(), device="cpu", flat_fill=False)
     assert isinstance(inpainter, IInpainter)
 
     # bbox thật do M2 detect trên chính ảnh này
