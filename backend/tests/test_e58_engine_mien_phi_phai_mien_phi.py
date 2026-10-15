@@ -163,4 +163,10 @@ def test_enum_chi_co_hai_gia_tri_va_google_fast_la_cai_mien_phi():
     Thêm một engine trả tiền thứ hai mà quên chỗ này ⇒ bài đỏ, và người thêm phải đọc lại vì sao
     `google_fast` được đối xử riêng.
     """
-    assert {e.value for e in TranslationEngine} == {"google_fast", "llm_context"}
+    # E72 (15-10-2026) — đã đọc lại khi thêm `local_llm`:
+    # - Cổng nhịp Gemini (`_cong_nhip`) chỉ áp `llm_context`: `local_llm` không tiêu quota Gemini.
+    # - Trên máy chủ dùng chung `local_llm` thất bại TRƯỚC khi gọi mạng (chưa đặt `LOCAL_LLM_MODEL`)
+    #   rồi lùi về `google_fast` ⇒ không phát sinh chi phí.
+    # - ⚠️ Nếu trỏ `LOCAL_LLM_BASE_URL` vào API TRẢ TIỀN (api.openai.com) thì `local_llm` THÀNH đường
+    #   tốn tiền mà KHÔNG qua cổng nhịp — chỉ làm vậy ở bản cài của chính người trả tiền.
+    assert {e.value for e in TranslationEngine} == {"google_fast", "llm_context", "local_llm"}

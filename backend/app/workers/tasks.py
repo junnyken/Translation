@@ -1179,6 +1179,20 @@ def build_translator(engine: str, boi_canh: str = "", anh_trang: tuple | None = 
             # E71 — đoạn có `id` + ép schema JSON; tắt cờ ⇒ giao thức dòng đánh số như trước.
             json_mode=settings.llm_dich_json,
         )
+    if engine == TranslationEngine.local_llm.value:
+        return get_translator(
+            engine,
+            base_url=settings.local_llm_base_url,
+            model_name=settings.local_llm_model,
+            api_key=settings.local_llm_api_key,
+            timeout=settings.local_llm_timeout_seconds,
+            temperature=settings.local_llm_temperature,
+            max_output_tokens=settings.local_llm_max_output_tokens,
+            vision=settings.local_llm_vision,
+            boi_canh=boi_canh,
+            anh_trang=anh_trang[0] if anh_trang else None,
+            anh_mime=anh_trang[1] if anh_trang else "image/jpeg",
+        )
     return get_translator(engine)
 
 
@@ -1205,7 +1219,7 @@ def _cong_nhip(engine_name: str) -> None:
 
 def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dict:
     started = time.perf_counter()
-    from app.services.translate.engines import QuotaExhausted, TranslationFailed
+    from app.services.translate.engines import ENGINE_LLM, QuotaExhausted, TranslationFailed
     from app.services.translate.gop_dong import gop_dong_de_dich
     from app.services.translate.reading_order import calculate_reading_order
 
@@ -1366,7 +1380,9 @@ def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dic
         _cong_nhip(engine_name)
         translated = translator.translate(texts, source_lang, target_lang)
     except (QuotaExhausted, TranslationFailed) as exc:
-        if engine_name != TranslationEngine.llm_context.value or not settings.llm_fallback_to_google:
+        # E72 — mọi engine kiểu LLM đều lùi được (máy chủ cục bộ chưa bật là chuyện thường ngày),
+        # không riêng Gemini.
+        if engine_name not in ENGINE_LLM or not settings.llm_fallback_to_google:
             raise
         # Không âm thầm trả bản rỗng: lùi về google_fast và ĐÁNH DẤU fallback_used.
         fallback_reason = f"{type(exc).__name__}: {exc}"
@@ -2405,7 +2421,7 @@ def _run_region_retranslate(job_id: uuid.UUID, region_id: uuid.UUID, engine_over
     có ý thức của việc sửa tay từng vùng, ghi rõ trong REPORT_M7.
     """
     started = time.perf_counter()
-    from app.services.translate.engines import QuotaExhausted, TranslationFailed
+    from app.services.translate.engines import ENGINE_LLM, QuotaExhausted, TranslationFailed
     from app.services.translate.gop_dong import gop_dong_de_dich
 
     with sync_session() as session:
@@ -2457,7 +2473,7 @@ def _run_region_retranslate(job_id: uuid.UUID, region_id: uuid.UUID, engine_over
     try:
         dich = translator.translate([raw_text], source_lang, target_lang)
     except (QuotaExhausted, TranslationFailed) as exc:
-        if engine_name != TranslationEngine.llm_context.value or not settings.llm_fallback_to_google:
+        if engine_name not in ENGINE_LLM or not settings.llm_fallback_to_google:
             raise
         fallback_reason = f"{type(exc).__name__}: {exc}"
         logger.warning("LLM lỗi khi dịch lại vùng (%s) -> lùi về google_fast", fallback_reason[:200])

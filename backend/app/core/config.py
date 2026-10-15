@@ -278,6 +278,22 @@ class Settings(BaseSettings):
     #: lấy từ Koharu; bằng chứng ép schema: E46 45/45 vs 24/30). Tắt ⇒ dòng đánh số như trước E71.
     llm_dich_json: bool = True
 
+    # ---- E72: LLM qua API kiểu OpenAI — máy chủ trên máy (Ollama / LM Studio / llama.cpp) ----
+    #: Ollama: http://host.docker.internal:11434/v1 · LM Studio: …:1234/v1 · llama.cpp: …:8080/v1
+    #: Cũng dùng được cho API CHÍNH THỨC kiểu OpenAI: https://api.openai.com/v1 + LOCAL_LLM_API_KEY
+    #: (thay cho đăng nhập ChatGPT kiểu Codex — chủ dự án chọn hướng này 15-10-2026).
+    local_llm_base_url: str = "http://host.docker.internal:11434/v1"
+    #: Tên model đúng như máy chủ cục bộ gọi nó (vd `qwen3:14b`, `gemma3:12b`). Rỗng ⇒ engine báo
+    #: lỗi rõ và lùi về google_fast — KHÔNG đoán một model mặc định.
+    local_llm_model: str = ""
+    local_llm_api_key: str = ""
+    local_llm_timeout_seconds: int = 300
+    local_llm_temperature: float = 0.2
+    local_llm_max_output_tokens: int = 4096
+    #: Model có thị giác (gemma3, qwen2.5-vl…) thì bật để gửi ảnh trang (E32). Tắt ⇒ chỉ gửi chữ.
+    local_llm_vision: bool = False
+
+
     #: E32 — gửi kèm ẢNH TRANG cho mô hình dịch (`llm_context`).
     #:
     #: TẮT mặc định, và đó là quyết định có chủ đích: một ảnh tốn nhiều token hơn chữ RẤT nhiều,

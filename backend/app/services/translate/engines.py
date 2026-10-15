@@ -581,6 +581,18 @@ def get_translator(engine: str, api_keys: list[str] | None = None, **kwargs):
         return GoogleTranslateEngine(**{k: v for k, v in kwargs.items() if k in ("timeout", "user_agent")})
     if value == TranslationEngine.llm_context.value:
         return LLMContextTranslator(api_keys=api_keys or [], **kwargs)
+    if value == TranslationEngine.local_llm.value:
+        from app.services.translate.llm_cuc_bo import OpenAICompatTranslator
+
+        return OpenAICompatTranslator(**kwargs)
     raise UnsupportedTranslationEngine(
-        f"engine '{value}' không được hỗ trợ (chỉ google_fast / llm_context)"
+        f"engine '{value}' không được hỗ trợ "
+        "(google_fast / llm_context / local_llm)"
     )
+
+
+#: Các engine là MÔ HÌNH NGÔN NGỮ: lỗi thì lùi về `google_fast` (M5), nhận bối cảnh E31, nhận ảnh E32.
+ENGINE_LLM = frozenset({
+    TranslationEngine.llm_context.value,
+    TranslationEngine.local_llm.value,
+})

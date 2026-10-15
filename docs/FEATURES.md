@@ -70,6 +70,7 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 | E69 | **Bong bóng nền phẳng thì tô màu nền, không chạy LaMa** (ý tưởng từ Koharu) | **BUILT + đo 6 trang thật.** Tô được 8/38 vùng (21%), xem bằng mắt 8/8 sạch, 4/8 sạch hơn LaMa (LaMa để lại bóng mờ/vệt xám). Thời gian CHƯA kết luận (máy bị chia tải). Vùng không chắc vẫn chạy LaMa. Tắt bằng `INPAINT_FLAT_FILL=false`. Xem `REPORT_E69_E70_E71.md` |
 | E70 | **Chữ dịch đúng màu chữ, màu viền, bề dày viền của chữ gốc** (cách đo từ Koharu) | **BUILT.** Test DB thật + font thật xanh, đối chứng âm đạt; **chưa chạy trên trang truyện có chữ màu/viền**. Cột mới `typeset_result.text_color/stroke_color/stroke_width` (NULL = chưa đo ⇒ màu cấu hình như trước). Tắt bằng `E70_MAU_CHU_THEO_VUNG=false` |
 | E71 | **Dịch theo ngữ cảnh trả JSON theo `id`, ép schema** (giao thức Koharu) | **BUILT + A/B 5+5 lượt Gemini thật.** Trên bộ thử 7 câu: hai chế độ ngang nhau (0 câu trống, 0 sót chữ Nhật) — giá trị là chống hỏng giao thức (E30/E46). Đã vá một thụt lùi đo được (bỏ dấu chấm cuối câu). Tắt bằng `LLM_DICH_JSON=false` |
+| E72 | **Dịch bằng LLM qua API kiểu OpenAI**: Ollama / LM Studio / llama.cpp trên máy, hoặc API chính thức OpenAI bằng khoá | **BUILT.** 11 test với máy chủ HTTP thật; chưa chạy với Ollama thật. Lỗi ⇒ lùi `google_fast`. Chưa có trong giao diện. Xem `REPORT_E72.md` |
 
 ## Những gì dùng được ngay hôm nay (sau E12)
 

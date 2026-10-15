@@ -83,6 +83,8 @@ class OCRStatus(str, Enum):
 class TranslationEngine(str, Enum):
     google_fast = "google_fast"
     llm_context = "llm_context"
+    #: E72 — LLM chạy trên máy (Ollama / LM Studio / llama.cpp server).
+    local_llm = "local_llm"
 
 
 class TranslationStatus(str, Enum):
