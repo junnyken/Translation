@@ -139,7 +139,19 @@ Owner đồng ý bản; đăng release; không nâng `latest.json` lên bản ch
 - IT allowlist AV cho `Translation.exe`, `postgres.exe`, sidecar.
 - BA duyệt wording màn Cài đặt máy bàn và hướng dẫn SmartScreen.
 
-## Câu hỏi chủ dự án cần chốt
+## Chủ dự án đã chốt (16-10-2026)
+
+- **Q1:** GitHub Release công khai; gói GPU (và gói model dịch) vượt 2 GB/asset ⇒ **chia phần**, Model Manager
+  ghép lại và kiểm sha256 cả tệp sau khi ghép.
+- **Q2:** máy tối thiểu **8 GB RAM**; **không mua** chứng chỉ ký mã (như VidGrab).
+- **Q3:** chấp nhận **RapidOCR** cho EN/ZH trên desktop nếu PaddleOCR không đóng gói nổi.
+- **Q4:** **app tự kèm llama.cpp + model dịch GGUF** (+4–8 GB, tải lần đầu qua Model Manager, chia phần) ⇒
+  thêm việc vào Phase 1 (sidecar `llama-server` chạy cục bộ, `local_llm` trỏ vào nó) và Phase 4 (đóng gói,
+  ghim sha256). Chọn model dịch cụ thể = đo chất lượng JA/ZH/EN→VI trước khi chốt.
+- **Q5:** máy Windows thử, phút GitHub Actions, repo release — **làm sau**. App desktop tạm hoãn; Phase 0
+  chỉ bắt đầu khi có hạ tầng này.
+
+## Câu hỏi chủ dự án cần chốt (bản gốc)
 
 - **Q1 Phân phối:** GitHub Release công khai hay file share nội bộ? Gói GPU 3–4 GB vượt 2 GB/asset — chia phần hay để nội bộ?
 - **Q2 Máy mục tiêu & ký mã:** RAM tối thiểu 8 hay 16 GB? Không mua chứng chỉ ký mã như VidGrab?
