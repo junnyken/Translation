@@ -449,7 +449,9 @@ Xem trước **trước khi** xuất, để quyết định xuất luôn hay qua
 { "format": "cbz" }
 ```
 `format`: `cbz` (1 file, ứng dụng đọc truyện mở được) · `zip` (giống cbz, đuôi `.zip`) ·
-`png_single` (mỗi trang 1 ảnh trong một thư mục).
+`png_single` (mỗi trang 1 ảnh trong một thư mục) · `psd` (E78 — 1 file `.zip` chứa `<thứ tự>.psd`
+mỗi trang, nhiều lớp: "Ảnh gốc" ẩn, "Đã xoá chữ", mỗi vùng chữ một lớp raster; mở bằng
+Photoshop/Photopea).
 
 ```json
 { "job_id": "…", "project_id": "…", "status": "queued" }
@@ -753,7 +755,7 @@ tick một ô là xong cả hai chuyện.
 | `translation_status` | pending, ok, fallback_used |
 | `fit_status` | pending, fit_ok, overflow_warning, font_missing_glyph *(F1)* |
 | `job_type` | detect, ocr, inpaint, translate, typeset, export |
-| `export_format` | png_single, cbz, zip |
+| `export_format` | png_single, cbz, zip, psd (E78) |
 | `job_status` | queued, running, done, failed |
 | `batch_pipeline` *(M9)* | full_pipeline, retry_failed |
 | `batch_status` *(M9)* | queued, running, completed, partial_failed, blocked_quota, failed, cancelled |

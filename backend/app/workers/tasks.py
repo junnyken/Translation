@@ -2969,6 +2969,8 @@ def _thu_thap_trang(session, project_id: uuid.UUID):
                 order=page.order,
                 clean_image_rel=page.clean_image_path,
                 he_so_ve=float(page.he_so_ve or 1.0),
+                # E78 — lớp ẩn "Ảnh gốc" trong PSD. Các định dạng khác không đọc trường này.
+                anh_goc_rel=page.image_path,
                 regions=[
                     RegionDraw(
                         bbox=BBox(x=r.bbox_x, y=r.bbox_y, w=r.bbox_w, h=r.bbox_h),
@@ -3094,6 +3096,12 @@ def _run_export(job_id: uuid.UUID) -> dict:
             for tep in sorted(_Path(duong_dan).iterdir()):
                 if tep.is_file():
                     storage.save_file(f"{output_rel}/{tep.name}", tep)
+        elif dinh_dang is ExportFormat.psd:
+            # E78 — một ZIP, mỗi trang một `.psd` nhiều lớp. Tên tệp mang `_psd` để không trùng
+            # tên với bản xuất `.zip` ảnh phẳng của cùng chapter khi người dùng tải cả hai về.
+            ten = ten_file_export(f"{project_name} psd", "zip")
+            duong_dan = exporter.export_psd(ws, trang_list, ten)
+            output_rel = storage.save_file(f"{thu_muc_kho}/{ten}", _Path(duong_dan))
         else:
             duoi = "cbz" if dinh_dang is ExportFormat.cbz else "zip"
             ten = ten_file_export(project_name, duoi)

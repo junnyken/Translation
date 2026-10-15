@@ -145,6 +145,9 @@ class ExportFormat(str, Enum):
     png_single = "png_single"
     cbz = "cbz"
     zip = "zip"
+    #: E78 — ZIP chứa mỗi trang một tệp `.psd` nhiều lớp (ảnh gốc ẩn, đã xoá chữ, mỗi vùng chữ
+    #: một lớp) để nhóm dịch mở bằng Photoshop/Photopea chỉnh tiếp.
+    psd = "psd"
 
 
 class JobType(str, Enum):

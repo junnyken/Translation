@@ -94,113 +94,167 @@ class PagePreviewRenderer:
         # Hệ số theo LƯỢT vẽ: xuất cả chapter dùng CHUNG một renderer cho mọi trang, mà hệ số
         # là của từng trang. Ghim nó vào renderer thì mọi trang trong chapter bị phóng theo trang
         # đầu tiên.
-        k = float(he_so_ve if he_so_ve is not None else self.he_so_ve)
-        with Image.open(clean_image_path) as goc:
+        k = self._he_so(he_so_ve)
+        canvas = self.mo_nen(clean_image_path, k)
+        draw = ImageDraw.Draw(canvas)
+        for region in regions:
+            self._ve_vung(canvas, draw, region, k)
+        return canvas
+
+    def _he_so(self, he_so_ve: float | None) -> float:
+        return float(he_so_ve if he_so_ve is not None else self.he_so_ve)
+
+    @staticmethod
+    def co_chu(region: RegionDraw) -> bool:
+        """Vùng này có chữ để vẽ không — ĐÚNG điều kiện mà `_ve_vung` dùng để bỏ qua."""
+        return bool(region.wrapped_text) and region.font_size is not None
+
+    @staticmethod
+    def mo_nen(duong_anh: str, k: float, kich_thuoc: tuple[int, int] | None = None) -> Image.Image:
+        """Mở ảnh thành RGB và phóng theo hệ số `k` (LANCZOS) — nền mà chữ được vẽ lên.
+
+        `kich_thuoc` (E78): ép về đúng cỡ này thay vì tính từ `k` — để ẢNH GỐC trong PSD khớp
+        từng điểm ảnh với canvas đã phóng của ảnh clean, kể cả khi hai ảnh lệch nhau 1px.
+        """
+        with Image.open(duong_anh) as goc:
             canvas = goc.convert("RGB")
-            if k != 1.0:
+            dich = kich_thuoc or (max(round(canvas.width * k), 1), max(round(canvas.height * k), 1))
+            if dich != canvas.size:
                 # LANCZOS: nét mực manga là cạnh mảnh, tương phản cao — nội suy song tuyến làm
                 # nó xám nhoè. Ảnh này chỉ đi VẼ CHỮ, không đi đọc chữ, nên phóng ở đây không
                 # đụng gì tới chất lượng OCR (đó là cả ý của E65).
-                canvas = canvas.resize(
-                    (max(round(canvas.width * k), 1), max(round(canvas.height * k), 1)),
-                    Image.LANCZOS,
-                )
+                canvas = canvas.resize(dich, Image.LANCZOS)
             else:
                 canvas = canvas.copy()
-        draw = ImageDraw.Draw(canvas)
-
-        for region in regions:
-            if k != 1.0:
-                # Nhân TOÀN BỘ hình học lên một lần, ngay tại đây. Nhân rải rác ở từng chỗ dùng
-                # là cách chắc chắn bỏ sót một chỗ — và chỗ bỏ sót sẽ là một vùng chữ lệch mà
-                # không có gì báo.
-                region = replace(
-                    region,
-                    bbox=BBox(
-                        x=region.bbox.x * k, y=region.bbox.y * k,
-                        w=region.bbox.w * k, h=region.bbox.h * k,
-                    ),
-                    place_rect=(
-                        None if region.place_rect is None
-                        else tuple(v * k for v in region.place_rect)
-                    ),
-                    stroke_width=(
-                        None if region.stroke_width is None else region.stroke_width * k
-                    ),
-                    dong=(None if not region.dong else [[x * k, y * k] for x, y in region.dong]),
-                )
-            if not region.wrapped_text or region.font_size is None:
-                continue
-            font = self.font_resolver.resolve(region.font_family, int(region.font_size))
-            spacing = int(round(region.font_size * self.line_spacing_ratio))
-            ao = self._ao_chu(region)
-            if region.dong and not nen_xoay(region.rotation_degrees):
-                self._ve_theo_dong(draw, region, font, ao)
-                continue
-
-            if region.place_rect is not None:
-                # Vùng an toàn của E14 đã thụt vào sẵn nên KHÔNG trừ padding lần nữa —
-                # trừ hai lần là chữ tự nhiên bé lại mà không ai giải thích được vì sao.
-                trai, tren, rong, cao = region.place_rect
-                rong = max(rong, 1.0)
-                cao = max(cao, 1.0)
-            else:
-                pad_x = region.bbox.w * region.padding_ratio
-                pad_y = region.bbox.h * region.padding_ratio
-                trai = region.bbox.x + pad_x
-                tren = region.bbox.y + pad_y
-                rong = max(region.bbox.w - 2 * pad_x, 1.0)
-                cao = max(region.bbox.h - 2 * pad_y, 1.0)
-
-            left, top, right, bottom = draw.multiline_textbbox(
-                (0, 0), region.wrapped_text, font=font, spacing=spacing,
-                stroke_width=ao[2], align="center",
-            )
-            khoi_rong, khoi_cao = right - left, bottom - top
-
-            # Căn giữa cả hai chiều trong vùng content; trừ đi offset của bbox (dấu nhô lên
-            # làm `top` âm) để chữ nằm đúng giữa chứ không lệch lên.
-            x = trai + (rong - khoi_rong) / 2 - left
-            y = tren + (cao - khoi_cao) / 2 - top
-
-            # Vẽ vào một ô riêng ĐÚNG BẰNG bbox rồi dán đè, thay vì vẽ thẳng lên trang.
-            # Nhờ vậy chữ bị cắt gọn trong khung của chính nó: vùng tràn khung không bao giờ
-            # đè lên bubble khác hay chạy dọc suốt trang.
-            # (Bản đầu chỉ kẹp ĐIỂM BẮT ĐẦU vào biên ảnh — chữ vẫn tràn ra ngoài; lỗi này chỉ lộ
-            #  khi mở màn sửa tay của M7 và ghim một cỡ chữ lớn.)
-            # Ô cắt = đúng vùng được phép chiếm. Với E14 đó là ô trong lòng bong bóng, nên chữ
-            # tràn cũng không thể leo ra ngoài viền bong bóng.
-            cat_x = trai if region.place_rect is not None else region.bbox.x
-            cat_y = tren if region.place_rect is not None else region.bbox.y
-            cat_w = rong if region.place_rect is not None else region.bbox.w
-            cat_h = cao if region.place_rect is not None else region.bbox.h
-            o_rong = max(int(round(cat_w)), 1)
-            o_cao = max(int(round(cat_h)), 1)
-            o = Image.new("RGBA", (o_rong, o_cao), (0, 0, 0, 0))
-            if nen_xoay(region.rotation_degrees):
-                # E16 — chữ nghiêng. Vẽ vào lớp RIÊNG rồi xoay, xong dán vào chính ô cắt ở trên,
-                # nên bất biến "chữ không thoát khỏi khung của nó" vẫn giữ nguyên.
-                self._ve_xoay(
-                    o, region, font, spacing, (o_rong, o_cao), (khoi_rong, khoi_cao), (left, top),
-                    ao,
-                )
-            else:
-                ImageDraw.Draw(o).multiline_text(
-                    (x - cat_x, y - cat_y),
-                    region.wrapped_text, font=font, fill=ao[0],
-                    spacing=spacing, align="center",
-                    stroke_width=ao[2], stroke_fill=ao[1],
-                )
-            canvas.paste(o, (int(round(cat_x)), int(round(cat_y))), o)
-            if region.overflow and self.mark_overflow:
-                # Vùng tràn phải NHÌN THẤY được trên preview, không để chữ đẹp che mất cảnh báo.
-                draw.rectangle(
-                    [region.bbox.x, region.bbox.y,
-                     region.bbox.x + region.bbox.w, region.bbox.y + region.bbox.h],
-                    outline="red", width=2,
-                )
-
         return canvas
+
+    def draw_lop_vung(
+        self, kich_thuoc: tuple[int, int], regions: list[RegionDraw],
+        he_so_ve: float | None = None,
+    ):
+        """E78 — vẽ MỖI vùng có chữ lên một lớp RGBA trong suốt cỡ `kich_thuoc` (canvas đã phóng).
+
+        Sinh ra `(số thứ tự vùng tính từ 1, vùng, lớp RGBA)` lần lượt — không giữ mọi lớp trong RAM.
+        Dùng CHÍNH `_ve_vung` của `draw()`, nên chữ trong PSD là chữ của ảnh xem thử.
+        """
+        k = self._he_so(he_so_ve)
+        for so, region in enumerate(regions, start=1):
+            if not self.co_chu(region):
+                continue
+            lop = Image.new("RGBA", kich_thuoc, (0, 0, 0, 0))
+            self._ve_vung(lop, ImageDraw.Draw(lop), region, k)
+            yield so, region, lop
+
+    @staticmethod
+    def _dan(canvas: Image.Image, o: Image.Image, vi_tri: tuple[int, int]) -> None:
+        """Dán ô chữ RGBA lên canvas.
+
+        Canvas RGB (ảnh xem thử) giữ nguyên `paste(…, mask)` như trước E78. Canvas RGBA trong suốt
+        (lớp PSD) phải dùng ghép alpha: `paste` với mask trộn CẢ kênh alpha nên mép chữ khử răng
+        cưa ra alpha bình phương — chữ mỏng đi khi ghép lại trong Photoshop.
+        """
+        if canvas.mode != "RGBA":
+            canvas.paste(o, vi_tri, o)
+            return
+        x, y = vi_tri
+        if x < 0 or y < 0:  # alpha_composite không nhận đích âm ⇒ cắt phần thò ra ngoài trước
+            o = o.crop((max(-x, 0), max(-y, 0), o.width, o.height))
+            x, y = max(x, 0), max(y, 0)
+            if o.width == 0 or o.height == 0:
+                return
+        canvas.alpha_composite(o, (x, y))
+
+    def _ve_vung(self, canvas: Image.Image, draw, region: RegionDraw, k: float) -> None:
+        """Vẽ MỘT vùng lên `canvas` — thân vòng lặp của `draw()`, tách ra cho E78 dùng lại."""
+        if k != 1.0:
+            # Nhân TOÀN BỘ hình học lên một lần, ngay tại đây. Nhân rải rác ở từng chỗ dùng
+            # là cách chắc chắn bỏ sót một chỗ — và chỗ bỏ sót sẽ là một vùng chữ lệch mà
+            # không có gì báo.
+            region = replace(
+                region,
+                bbox=BBox(
+                    x=region.bbox.x * k, y=region.bbox.y * k,
+                    w=region.bbox.w * k, h=region.bbox.h * k,
+                ),
+                place_rect=(
+                    None if region.place_rect is None
+                    else tuple(v * k for v in region.place_rect)
+                ),
+                stroke_width=(
+                    None if region.stroke_width is None else region.stroke_width * k
+                ),
+                dong=(None if not region.dong else [[x * k, y * k] for x, y in region.dong]),
+            )
+        if not region.wrapped_text or region.font_size is None:
+            return
+        font = self.font_resolver.resolve(region.font_family, int(region.font_size))
+        spacing = int(round(region.font_size * self.line_spacing_ratio))
+        ao = self._ao_chu(region)
+        if region.dong and not nen_xoay(region.rotation_degrees):
+            self._ve_theo_dong(draw, region, font, ao)
+            return
+
+        if region.place_rect is not None:
+            # Vùng an toàn của E14 đã thụt vào sẵn nên KHÔNG trừ padding lần nữa —
+            # trừ hai lần là chữ tự nhiên bé lại mà không ai giải thích được vì sao.
+            trai, tren, rong, cao = region.place_rect
+            rong = max(rong, 1.0)
+            cao = max(cao, 1.0)
+        else:
+            pad_x = region.bbox.w * region.padding_ratio
+            pad_y = region.bbox.h * region.padding_ratio
+            trai = region.bbox.x + pad_x
+            tren = region.bbox.y + pad_y
+            rong = max(region.bbox.w - 2 * pad_x, 1.0)
+            cao = max(region.bbox.h - 2 * pad_y, 1.0)
+
+        left, top, right, bottom = draw.multiline_textbbox(
+            (0, 0), region.wrapped_text, font=font, spacing=spacing,
+            stroke_width=ao[2], align="center",
+        )
+        khoi_rong, khoi_cao = right - left, bottom - top
+
+        # Căn giữa cả hai chiều trong vùng content; trừ đi offset của bbox (dấu nhô lên
+        # làm `top` âm) để chữ nằm đúng giữa chứ không lệch lên.
+        x = trai + (rong - khoi_rong) / 2 - left
+        y = tren + (cao - khoi_cao) / 2 - top
+
+        # Vẽ vào một ô riêng ĐÚNG BẰNG bbox rồi dán đè, thay vì vẽ thẳng lên trang.
+        # Nhờ vậy chữ bị cắt gọn trong khung của chính nó: vùng tràn khung không bao giờ
+        # đè lên bubble khác hay chạy dọc suốt trang.
+        # (Bản đầu chỉ kẹp ĐIỂM BẮT ĐẦU vào biên ảnh — chữ vẫn tràn ra ngoài; lỗi này chỉ lộ
+        #  khi mở màn sửa tay của M7 và ghim một cỡ chữ lớn.)
+        # Ô cắt = đúng vùng được phép chiếm. Với E14 đó là ô trong lòng bong bóng, nên chữ
+        # tràn cũng không thể leo ra ngoài viền bong bóng.
+        cat_x = trai if region.place_rect is not None else region.bbox.x
+        cat_y = tren if region.place_rect is not None else region.bbox.y
+        cat_w = rong if region.place_rect is not None else region.bbox.w
+        cat_h = cao if region.place_rect is not None else region.bbox.h
+        o_rong = max(int(round(cat_w)), 1)
+        o_cao = max(int(round(cat_h)), 1)
+        o = Image.new("RGBA", (o_rong, o_cao), (0, 0, 0, 0))
+        if nen_xoay(region.rotation_degrees):
+            # E16 — chữ nghiêng. Vẽ vào lớp RIÊNG rồi xoay, xong dán vào chính ô cắt ở trên,
+            # nên bất biến "chữ không thoát khỏi khung của nó" vẫn giữ nguyên.
+            self._ve_xoay(
+                o, region, font, spacing, (o_rong, o_cao), (khoi_rong, khoi_cao), (left, top),
+                ao,
+            )
+        else:
+            ImageDraw.Draw(o).multiline_text(
+                (x - cat_x, y - cat_y),
+                region.wrapped_text, font=font, fill=ao[0],
+                spacing=spacing, align="center",
+                stroke_width=ao[2], stroke_fill=ao[1],
+            )
+        self._dan(canvas, o, (int(round(cat_x)), int(round(cat_y))))
+        if region.overflow and self.mark_overflow:
+            # Vùng tràn phải NHÌN THẤY được trên preview, không để chữ đẹp che mất cảnh báo.
+            draw.rectangle(
+                [region.bbox.x, region.bbox.y,
+                 region.bbox.x + region.bbox.w, region.bbox.y + region.bbox.h],
+                outline="red", width=2,
+            )
 
     def _ve_theo_dong(self, draw, region: RegionDraw, font, ao) -> None:
         """E75 — vẽ từng dòng đúng vị trí bước căn chữ đã lưu.

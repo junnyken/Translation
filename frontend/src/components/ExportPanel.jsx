@@ -16,6 +16,14 @@ const DINH_DANG = [
       + 'cài thêm gì.',
   },
   { ma: 'png_single', ten: 'PNG — mỗi trang một ảnh', goiY: 'Lưu thành nhiều ảnh rời trên máy chủ; không tải một lần được' },
+  {
+    // E78 — cho nhóm dịch chỉnh tiếp. Lớp chữ là ẢNH, chưa phải chữ gõ lại được: nói trước để
+    // người dùng không mở Photoshop rồi tưởng file hỏng vì không bấm vào sửa chữ được.
+    ma: 'psd',
+    ten: 'PSD — nhiều lớp, mở bằng Photoshop/Photopea',
+    goiY: 'Một file .zip, mỗi trang một file .psd gồm: ảnh gốc (đang ẩn), ảnh đã xoá chữ và mỗi '
+      + 'bong bóng chữ một lớp riêng. Chữ là lớp ảnh — dời, ẩn, xoá được, nhưng chưa gõ sửa chữ được.',
+  },
 ]
 
 /** Bảng xuất chapter: xem trước cảnh báo → chọn định dạng → theo dõi → tải về. */
