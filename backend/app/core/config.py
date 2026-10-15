@@ -486,6 +486,9 @@ class Settings(BaseSettings):
     #: E75 — vùng có đa giác bong bóng thì thử xếp chữ THEO HÌNH (dòng giữa rộng, dòng đầu/cuối hẹp);
     #: chỉ nhận khi cho cỡ chữ LỚN HƠN khối chữ nhật. Tắt ⇒ y như trước E75.
     e75_xep_theo_hinh: bool = True
+    #: E82 — sắp thứ tự đọc theo KHUNG TRANH (cắt XY theo rãnh trắng) trước, rồi mới tới vị trí trong
+    #: khung. Trang không cắt được khung ⇒ y như trước. Xem `translate/khung_tranh.py`.
+    e82_thu_tu_theo_khung: bool = True
     #: E26-C — vùng E12 đánh `possible_sfx` thì giữ nguyên chữ gốc, không dịch thành từ.
     #:
     #: Đo thật: `Clang` -> "Kêu vang", `Cling` -> "Bám vào", `Clong` -> "tiếng kêu". Dịch đúng từ

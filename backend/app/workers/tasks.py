@@ -166,6 +166,28 @@ def _mark_failed(job_id: uuid.UUID, page_id: uuid.UUID | None, reason: str) -> N
         session.commit()
 
 
+def _khung_tranh_cua_trang(image_rel: str, source_lang: str):
+    """E82 — khung tranh theo thứ tự đọc (cắt XY theo rãnh trắng). Lỗi/không cắt được ⇒ None (như cũ)."""
+    if not settings.e82_thu_tu_theo_khung:
+        return None
+    try:
+        import io
+
+        import numpy as np
+        from PIL import Image as _Image
+
+        from app.services.translate.khung_tranh import la_theo_thu_tu, tim_khung_tranh
+        from app.services.translate.reading_order import direction_for
+
+        with _Image.open(io.BytesIO(get_storage().read(image_rel))) as im:
+            xam = np.asarray(im.convert("L"))
+        rtl = direction_for(source_lang, settings.reading_direction_override or None) == "rtl"
+        return la_theo_thu_tu(tim_khung_tranh(xam), rtl)
+    except Exception:  # noqa: BLE001 — thứ tự đọc theo khung là phần THÊM, không được làm hỏng lượt dịch
+        logger.exception("E82: không tìm được khung tranh cho %s — sắp như cũ", image_rel)
+        return None
+
+
 def mat_na_chu_rel(image_rel: str) -> str:
     """E79 — nơi lưu mặt nạ điểm ảnh của chữ, cạnh ảnh trang (suy từ đường ảnh, không cần cột DB)."""
     p = PurePosixPath(image_rel)
@@ -1502,7 +1524,8 @@ def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dic
         # Thứ tự đọc: tính TRƯỚC khi gửi dịch, và ghi luôn vào TextRegion.reading_order
         # (cột này để NULL từ M1, M5 là bước chịu trách nhiệm điền).
         ordered = calculate_reading_order(
-            regions, source_lang, settings.reading_direction_override or None
+            regions, source_lang, settings.reading_direction_override or None,
+            khung_tranh=_khung_tranh_cua_trang(page.image_path, source_lang),
         )
         for position, region in enumerate(ordered, start=1):
             region.reading_order = position

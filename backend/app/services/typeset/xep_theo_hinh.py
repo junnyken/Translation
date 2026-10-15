@@ -101,24 +101,98 @@ def _khoang_ngang(trong: np.ndarray, r0: int, r1: int, cx: int,
     return cx - nua, cx + nua
 
 
-def _ngat(tu: list[str], khoang: list[tuple[int, int]], font, stroke: int) -> list[str] | None:
+class _BoDo:
+    """Bề rộng cụm từ `tu[i:j]` ở MỘT cỡ chữ, đo một lần rồi nhớ (E81).
+
+    Đo chữ (`font.getlength`) là phần đắt nhất. Trước đây mỗi lượt thử — mỗi số dòng × mỗi vị trí
+    khối × tham lam rồi quy hoạch động — đo lại cùng các cụm từ: câu 42 từ mất ~500 ms. Dùng chung một
+    bộ nhớ cho mọi lượt thử ở cùng cỡ chữ.
+    """
+
+    def __init__(self, tu: list[str], font, stroke: int) -> None:
+        self.tu, self.font, self.stroke = tu, font, stroke
+        self._nho: dict[tuple[int, int], float] = {}
+
+    def rong(self, i: int, j: int) -> float:
+        k = (i, j)
+        if k not in self._nho:
+            self._nho[k] = be_rong_dong(self.font, " ".join(self.tu[i:j]), self.stroke)
+        return self._nho[k]
+
+
+def _ngat(tu: list[str], khoang: list[tuple[int, int]], font, stroke: int,
+          bo_do: _BoDo | None = None) -> list[str] | None:
     """Ngắt tham lam vào đúng `len(khoang)` dòng. Từ nào dài hơn dòng của nó ⇒ None (KHÔNG cắt từ, E60)."""
+    bo_do = bo_do or _BoDo(tu, font, stroke)
     dong: list[str] = []
     i = 0
     for trai, phai in khoang:
         rong = phai - trai
-        hien = ""
-        while i < len(tu):
-            thu = f"{hien} {tu[i]}".strip()
-            if be_rong_dong(font, thu, stroke) <= rong:
-                hien = thu
-                i += 1
-            else:
-                break
-        if not hien:
+        j = i
+        while j < len(tu) and bo_do.rong(i, j + 1) <= rong:
+            j += 1
+        if j == i:
             return None
-        dong.append(hien)
+        dong.append(" ".join(tu[i:j]))
+        i = j
     return dong if i == len(tu) else None
+
+
+#: Phạt dòng chỉ có MỘT từ trong khi câu có nhiều từ (chữ "mồ côi" trông như gõ sai).
+PHAT_MO_COI = 0.6
+#: Chấp nhận hạ tối đa chừng này px để tránh dòng một chữ (chữ to nhất vẫn là ưu tiên số một).
+HA_CO_TOI_DA_TRANH_MO_COI = 2
+#: Thưởng (trừ phạt) khi dòng kết thúc ở dấu câu — chỗ ngắt tự nhiên khi đọc thoại.
+THUONG_DAU_CAU = 0.15
+DAU_CAU = (",", ".", "!", "?", "…", ":", ";", "~")
+
+
+def _ngat_deu(tu: list[str], khoang: list[tuple[int, int]], font,
+              stroke: int, bo_do: _BoDo | None = None) -> tuple[list[str], float] | None:
+    """E81 — chia từ vào ĐÚNG `len(khoang)` dòng, dòng nào cũng vừa, mà ĐỀU nhất (quy hoạch động).
+
+    Ý của Koharu (`comic_line_breaks`: tối thiểu độ lởm chởm, ưu tiên chỗ ngắt tự nhiên). Bản tham lam
+    (`_ngat`) dồn từ lên dòng trên ⇒ hay ra dòng đầu một chữ ("Tôi" / "đã nói rồi mà…"). Phạt mỗi
+    dòng = (khoảng trống / bề rộng)², cộng phạt dòng một từ, trừ thưởng ngắt sau dấu câu.
+
+    Tham lam đã tìm được cách chia thì quy hoạch động chắc chắn tìm được (nó xét mọi cách), nên khả năng
+    xếp KHÔNG giảm — chỉ đổi cách chia.
+    """
+    m, n = len(tu), len(khoang)
+    if n == 0 or m < n:
+        return None
+    bo_do = bo_do or _BoDo(tu, font, stroke)
+    rong = [p - t for t, p in khoang]
+    vo_cung = float("inf")
+    # chi_phi[k][j]: chi phí nhỏ nhất xếp j từ đầu vào k dòng đầu; truoc[k][j]: điểm cắt.
+    chi_phi = [[vo_cung] * (m + 1) for _ in range(n + 1)]
+    truoc = [[-1] * (m + 1) for _ in range(n + 1)]
+    chi_phi[0][0] = 0.0
+    for k in range(1, n + 1):
+        w = rong[k - 1]
+        for j in range(k, m - (n - k) + 1):
+            for i in range(k - 1, j):
+                if chi_phi[k - 1][i] == vo_cung:
+                    continue
+                dai = bo_do.rong(i, j)
+                if dai > w:
+                    continue
+                phat = ((w - dai) / max(w, 1)) ** 2
+                if j - i == 1 and m > n:
+                    phat += PHAT_MO_COI
+                if k < n and tu[j - 1].endswith(DAU_CAU):
+                    phat -= THUONG_DAU_CAU
+                tong = chi_phi[k - 1][i] + phat
+                if tong < chi_phi[k][j]:
+                    chi_phi[k][j], truoc[k][j] = tong, i
+    if chi_phi[n][m] == vo_cung:
+        return None
+    dong, j = [], m
+    for k in range(n, 0, -1):
+        i = truoc[k][j]
+        dong.append(" ".join(tu[i:j]))
+        j = i
+    return dong[::-1], chi_phi[n][m]
 
 
 def xep_trong_da_giac(
@@ -145,13 +219,25 @@ def xep_trong_da_giac(
     giua_doc = int((hang_co[0] + hang_co[-1]) // 2)
     cao = int(hang_co[-1] - hang_co[0] + 1)
 
+    du_phong = None  # cách xếp có dòng một chữ ở cỡ lớn nhất — dùng nếu hạ cỡ cũng không khá hơn
     for co in range(int(co_lon_nhat), int(co_nho_nhat) - 1, -1):
+        if du_phong is not None and du_phong[1].font_size - co > HA_CO_TOI_DA_TRANH_MO_COI:
+            return du_phong[1]
         font = font_resolver.resolve(font_family, co)
+        # E81 — ở CÙNG cỡ chữ, xét MỌI số dòng × vị trí khối rồi lấy cách xếp đều nhất, thay vì cách
+        # đầu tiên tìm được (bản E75 lấy số dòng nhỏ nhất ⇒ hay ra dòng đầu một chữ ở bong bóng cao).
+        tot = None
+        bo_do = _BoDo(tu, font, stroke)
+        n_it_nhat = None
         gian = int(round(co * ti_le_gian_dong))
         _lech, cao_net, buoc = do_dong(font, stroke, gian)
         for n in range(1, len(tu) + 1):
             tong = (n - 1) * buoc + cao_net
             if tong > cao:
+                break
+            # Chỉ thử số dòng ít nhất xếp được và hơn nó MỘT dòng: thêm dòng nữa chỉ làm chữ thưa ra,
+            # không đẹp hơn mà nhân thời gian (đo: câu 42 từ 500 ms ⇒ xem REPORT_E81).
+            if n_it_nhat is not None and n > n_it_nhat + 1:
                 break
             for tam in (cy, giua_doc):
                 dinh = int(round(tam - tong / 2))
@@ -171,18 +257,34 @@ def xep_trong_da_giac(
                     khoang.append(kh)
                 if len(khoang) != n:
                     continue
-                dong = _ngat(tu, khoang, font, stroke)
-                if dong is None:
+                # Tham lam trước: rẻ, và nếu nó không xếp được thì không cách chia nào xếp được.
+                if _ngat(tu, khoang, font, stroke, bo_do) is None:
                     continue
-                return KetQuaXepHinh(
-                    font_size=float(co),
-                    wrapped_text="\n".join(dong),
-                    dong=tuple(
-                        (x0 + (t + p) / 2.0, y0 + dinh + k * buoc)
-                        for k, (t, p) in enumerate(khoang)
-                    ),
-                )
-    return None
+                if n_it_nhat is None:
+                    n_it_nhat = n
+                kq = _ngat_deu(tu, khoang, font, stroke, bo_do)
+                if kq is None:
+                    continue
+                dong, phat = kq
+                if tot is None or phat < tot[0]:
+                    tot = (phat, KetQuaXepHinh(
+                        font_size=float(co),
+                        wrapped_text="\n".join(dong),
+                        dong=tuple(
+                            (x0 + (t + p) / 2.0, y0 + dinh + k * buoc)
+                            for k, (t, p) in enumerate(khoang)
+                        ),
+                    ))
+        if tot is not None:
+            # Câu nhiều từ mà vẫn còn dòng một chữ ⇒ thử hạ tối đa `HA_CO_TOI_DA_TRANH_MO_COI` px
+            # tìm cách xếp không mồ côi; không có thì dùng bản cỡ lớn này.
+            mo_coi = any(len(d.split()) == 1 for d in tot[1].wrapped_text.split("\n"))
+            if mo_coi and len(tu) > 2:
+                if du_phong is None:
+                    du_phong = tot
+                continue
+            return tot[1]
+    return du_phong[1] if du_phong is not None else None
 
 
 def tam_nam_trong(polygon: list[list[float]], diem: tuple[float, float]) -> bool:

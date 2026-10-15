@@ -78,6 +78,8 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 | E79 | **Xoá chữ theo nét chữ** (mặt nạ `seg` của CTD) thay vì cả khung | **BUILT + LaMa thật trên trang thật**: diện tích xoá 82–88% so với cả khung, giữ tranh quanh chữ. Hệ số nở ×2 (×1 của Koharu sót viền chữ tiếng động). Chỉ khi `DETECT_ENGINE=ctd` — production (Gemini) không đổi. Xem `REPORT_E79.md` |
 | E78 | **Xuất PSD nhiều lớp** (`format=psd`): ZIP mỗi trang một `.psd` — "Ảnh gốc" (ẩn), "Đã xoá chữ", mỗi vùng chữ một lớp; mở bằng Photoshop/Photopea | **BUILT, chưa mở bằng Photoshop/Photopea thật.** Bộ ghi PSD tự viết (struct + numpy, không thư viện mới), đọc lại bằng bộ đọc trong test + Pillow; ảnh ghép = ảnh xem thử từng điểm ảnh. Lớp chữ là ẢNH, chưa phải text layer sửa được. Xem `REPORT_E78.md` |
 | E80 | **MCP server** (`tools/mcp-translation/`) — Claude/Cursor điều khiển dịch: 16 công cụ (chapter, tải trang, xem/sửa vùng, ảnh trang, chạy cả chapter, xuất, tải file) | **BUILT.** 25 test với máy chủ HTTP giả; chưa chạy với API thật. Cài trong venv RIÊNG (mcp kéo pydantic/starlette mới, lệch bản ghim của backend). Xem `tools/mcp-translation/README.md` |
+| E81 | **Ngắt dòng đều** trong bong bóng (quy hoạch động, tránh dòng một chữ) cho E75 | **BUILT.** Câu 42 từ 234 ms (tham lam 211 ms). Xem `REPORT_E81_E82.md` |
+| E82 | **Thứ tự đọc theo khung tranh** (cắt XY theo rãnh trắng) | **BUILT + 4 trang thật đúng khung.** Trang không rãnh ⇒ như cũ. Tắt bằng `E82_THU_TU_THEO_KHUNG=false`. Xem `REPORT_E81_E82.md` |
 
 ## Những gì dùng được ngay hôm nay (sau E12)
 

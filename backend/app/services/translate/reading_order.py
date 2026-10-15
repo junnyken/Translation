@@ -92,12 +92,27 @@ def order_items(
 
 
 def calculate_reading_order(
-    regions: list[Any], source_lang: str, override: str | None = None
+    regions: list[Any], source_lang: str, override: str | None = None, khung_tranh=None,
 ) -> list[Any]:
-    """Nhận list TextRegion (hoặc object có bbox_x/y/w/h), trả list ĐÃ SẮP theo thứ tự đọc."""
+    """Nhận list TextRegion (hoặc object có bbox_x/y/w/h), trả list ĐÃ SẮP theo thứ tự đọc.
+
+    E82 — `khung_tranh` (danh sách khung lá theo thứ tự đọc, từ `khung_tranh.la_theo_thu_tu`): sắp
+    theo KHUNG trước rồi mới tới vị trí trong khung. `None` hoặc một khung ⇒ y như trước E82.
+    """
     direction = direction_for(source_lang, override)
     items = [
         OrderedItem(key=r, bbox=BBox(x=r.bbox_x, y=r.bbox_y, w=r.bbox_w, h=r.bbox_h))
         for r in regions
     ]
-    return [it.key for it in order_items(items, direction)]
+    if not khung_tranh or len(khung_tranh) < 2:
+        return [it.key for it in order_items(items, direction)]
+    from app.services.translate.khung_tranh import chi_so_khung
+
+    theo_khung: dict[int, list[OrderedItem]] = {}
+    for it in items:
+        k = chi_so_khung(khung_tranh, it.bbox.x + it.bbox.w / 2, it.bbox.y + it.bbox.h / 2)
+        theo_khung.setdefault(k, []).append(it)
+    ra: list[Any] = []
+    for k in sorted(theo_khung):
+        ra.extend(it.key for it in order_items(theo_khung[k], direction))
+    return ra

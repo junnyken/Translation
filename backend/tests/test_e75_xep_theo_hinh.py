@@ -227,3 +227,30 @@ def test_moi_dong_cung_mot_truc_doc(fr):
                            fr, "Bangers", 10, 40, 0.18)
     tam = {round(x, 3) for x, _y in kq.dong}
     assert len(tam) == 1
+
+
+# ---------- E81 — ngắt dòng đều (quy hoạch động) ----------
+
+def test_ngat_deu_khong_de_dong_mot_chu_khi_tranh_duoc(fr):
+    from app.services.typeset.xep_theo_hinh import _ngat, _ngat_deu
+
+    font = fr.resolve("Bangers", 30)
+    tu = "Tôi đã nói rồi mà cậu không nghe".split()
+    # Bề rộng dòng phải vừa CẢ HAI nửa, không thì không cách chia nào xếp được (lần viết đầu sai chỗ này).
+    w = int(max(be_rong_dong(font, "Tôi đã nói rồi", 0), be_rong_dong(font, "mà cậu không nghe", 0))) + 2
+    khoang = [(0, w), (0, w)]
+    tham_lam = _ngat(tu, khoang, font, 0)
+    deu, _phat = _ngat_deu(tu, khoang, font, 0)
+    assert " ".join(deu).split() == tu, "không mất / đổi từ"
+    rong = [be_rong_dong(font, d, 0) for d in deu]
+    assert all(r <= w for r in rong)
+    # đều hơn tham lam: chênh lệch bề rộng hai dòng nhỏ hơn (hoặc bằng)
+    rong_tl = [be_rong_dong(font, d, 0) for d in tham_lam]
+    assert abs(rong[0] - rong[1]) <= abs(rong_tl[0] - rong_tl[1])
+
+
+def test_ngat_deu_khong_xep_duoc_thi_none(fr):
+    from app.services.typeset.xep_theo_hinh import _ngat_deu
+
+    font = fr.resolve("Bangers", 30)
+    assert _ngat_deu(["Siêuuuuuuuuuuuuuuu"], [(0, 20)], font, 0) is None
