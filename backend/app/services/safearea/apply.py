@@ -62,3 +62,24 @@ def nap_o_dat_chu(
         for r in session.scalars(select(TextRegion).where(TextRegion.page_id.in_(trang_ids)))
     }
     return cat_o_dat_chu(ket, khung)
+
+
+def nap_da_giac(
+    session: Session,
+    region_ids: list[uuid.UUID],
+    van_tay_clean: str | None,
+) -> dict[uuid.UUID, list[list[float]]]:
+    """E75 — đa giác lòng bong bóng của từng vùng (toạ độ ảnh gốc), CÙNG điều kiện hiệu lực với
+    `nap_o_dat_chu`: ảnh clean đã đổi thì hình cũ không được dùng. Vùng chỉ có hình chữ nhật dự
+    phòng thì không có mặt ở đây — xếp theo hình cần một hình thật.
+    """
+    if not region_ids:
+        return {}
+    ket: dict[uuid.UUID, list[list[float]]] = {}
+    for ban in session.scalars(
+        select(RegionSafeArea).where(RegionSafeArea.region_id.in_(region_ids))
+    ):
+        hinh = vung_an_toan_dung_duoc(ban, van_tay_clean)
+        if hinh and len(hinh.get("polygon") or []) >= 3:
+            ket[ban.region_id] = [[float(x), float(y)] for x, y in hinh["polygon"]]
+    return ket

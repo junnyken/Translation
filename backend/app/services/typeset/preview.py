@@ -45,6 +45,9 @@ class RegionDraw:
     text_color: str | None = None
     stroke_color: str | None = None
     stroke_width: float | None = None
+    #: E75 — chữ xếp theo hình bong bóng: `[[tâm_x, đỉnh_y], …]` mỗi dòng, toạ độ ẢNH GỐC, do bước
+    #: căn chữ tính và lưu. Có thì vẽ TỪNG DÒNG đúng chỗ đó; None ⇒ khối chữ nhật như trước.
+    dong: list | None = None
 
 
 class PagePreviewRenderer:
@@ -124,12 +127,16 @@ class PagePreviewRenderer:
                     stroke_width=(
                         None if region.stroke_width is None else region.stroke_width * k
                     ),
+                    dong=(None if not region.dong else [[x * k, y * k] for x, y in region.dong]),
                 )
             if not region.wrapped_text or region.font_size is None:
                 continue
             font = self.font_resolver.resolve(region.font_family, int(region.font_size))
             spacing = int(round(region.font_size * self.line_spacing_ratio))
             ao = self._ao_chu(region)
+            if region.dong and not nen_xoay(region.rotation_degrees):
+                self._ve_theo_dong(draw, region, font, ao)
+                continue
 
             if region.place_rect is not None:
                 # Vùng an toàn của E14 đã thụt vào sẵn nên KHÔNG trừ padding lần nữa —
@@ -194,6 +201,23 @@ class PagePreviewRenderer:
                 )
 
         return canvas
+
+    def _ve_theo_dong(self, draw, region: RegionDraw, font, ao) -> None:
+        """E75 — vẽ từng dòng đúng vị trí bước căn chữ đã lưu.
+
+        Bước căn đã bảo đảm từng dòng nằm trong đa giác bong bóng, nên không cần ô cắt. Chiều cao và
+        độ lệch dòng lấy từ `do_dong()` — CÙNG hàm bước căn dùng, nên không thể lệch nhau.
+        """
+        from app.services.typeset.xep_theo_hinh import be_rong_dong, do_dong
+
+        mau, mau_vien, vien = ao
+        gian = int(round((region.font_size or 0) * self.line_spacing_ratio))
+        lech, _cao, _buoc = do_dong(font, vien, gian)
+        cac_dong = (region.wrapped_text or "").split("\n")
+        for chu, (tam_x, dinh_y) in zip(cac_dong, region.dong, strict=False):
+            x = tam_x - be_rong_dong(font, chu, vien) / 2 + vien
+            draw.text((x, dinh_y - lech), chu, font=font, fill=mau, anchor="la",
+                      stroke_width=vien, stroke_fill=mau_vien)
 
     def _ao_chu(self, region: RegionDraw) -> tuple[str, str, int]:
         """(màu chữ, màu viền, bề dày viền) để vẽ vùng này — E70 có đo thì dùng, không thì mặc định.

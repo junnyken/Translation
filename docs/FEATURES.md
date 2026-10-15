@@ -72,6 +72,7 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 | E71 | **Dịch theo ngữ cảnh trả JSON theo `id`, ép schema** (giao thức Koharu) | **BUILT + A/B 5+5 lượt Gemini thật.** Trên bộ thử 7 câu: hai chế độ ngang nhau (0 câu trống, 0 sót chữ Nhật) — giá trị là chống hỏng giao thức (E30/E46). Đã vá một thụt lùi đo được (bỏ dấu chấm cuối câu). Tắt bằng `LLM_DICH_JSON=false` |
 | E72 | **Dịch bằng LLM qua API kiểu OpenAI**: Ollama / LM Studio / llama.cpp trên máy, hoặc API chính thức OpenAI bằng khoá | **BUILT.** 11 test với máy chủ HTTP thật; chưa chạy với Ollama thật. Lỗi ⇒ lùi `google_fast`. Chưa có trong giao diện. Xem `REPORT_E72.md` |
 | E74 | **Xoá chữ bằng SDXL / FLUX.1 trên GPU** + gói cài Docker có GPU (`docker-compose.gpu.yml`, `docs/CAI_DAT_CUC_BO.md`) | **BUILT.** 17 test (torch/diffusers giả) + kiểm API diffusers 0.41 thật; **chưa chạy trên GPU thật, chưa build image GPU** (workspace không GPU, đĩa đầy). FLUX.2-klein không dùng được qua diffusers. Xem `REPORT_E74.md` |
+| E75 | **Xếp chữ theo hình bong bóng** (dòng giữa rộng, đầu/cuối hẹp, chung một trục) — chỉ nhận khi cho chữ to hơn | **BUILT + đo 8 bong bóng thật**: thắng 6/8, +1 đến +2px; 2 ca hoà giữ cách cũ. 11 test + đối chứng âm. Tắt bằng `E75_XEP_THEO_HINH=false`. Xem `REPORT_E75.md` |
 
 ## Những gì dùng được ngay hôm nay (sau E12)
 

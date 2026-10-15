@@ -1661,6 +1661,34 @@ def _ts_co_vien(ts, mau, he_so: float):
     return ban
 
 
+def _thu_xep_theo_hinh(fit: dict, text: str, polygon, he_so: float, ts, resolver,
+                       font_family: str) -> dict:
+    """E75 — thử xếp theo hình bong bóng; CHỈ nhận khi tốt hơn khối chữ nhật (`fit` đã có).
+
+    Tốt hơn = khối chữ nhật tràn khung mà theo hình thì vừa, HOẶC theo hình cho cỡ chữ lớn hơn.
+    Đa giác ở toạ độ ảnh gốc ⇒ nhân `he_so` (E65) trước khi xếp, chia lại trước khi lưu.
+    """
+    from app.services.typeset.fitter import FIT_OK
+    from app.services.typeset.xep_theo_hinh import xep_trong_da_giac
+
+    if fit.get("fit_status") not in (FIT_OK, "overflow_warning") or not fit.get("font_size"):
+        return fit
+    hinh = xep_trong_da_giac(
+        text, [[x * he_so, y * he_so] for x, y in polygon], resolver, font_family,
+        ts.min_font_size, ts.max_font_size, ts.line_spacing_ratio, stroke=ts.stroke_width,
+    )
+    if hinh is None:
+        return fit
+    if fit["fit_status"] == FIT_OK and hinh.font_size <= fit["font_size"]:
+        return fit
+    return {
+        "font_size": hinh.font_size,
+        "wrapped_text": hinh.wrapped_text,
+        "fit_status": FIT_OK,
+        "dong": [[x / he_so, y / he_so] for x, y in hinh.dong],
+    }
+
+
 def _cot_ao_chu(mau) -> dict:
     """MauChu → 3 cột của `TypesetResult`. None ⇒ cả ba NULL (chưa đo)."""
     if mau is None:
@@ -1801,6 +1829,7 @@ def render_page_preview(page_id: uuid.UUID, resolver=None) -> str:
                 text_color=ts.text_color,
                 stroke_color=ts.stroke_color,
                 stroke_width=ts.stroke_width,
+                dong=ts.dong_json,
             )
             for r, ts in rows
             if r.id not in bo_qua_bao
@@ -1943,6 +1972,28 @@ def _run_typeset(job_id: uuid.UUID) -> dict:
             )
             for r in regions
         ]
+        # E75 — đa giác bong bóng cho xếp chữ theo hình. Loại hai trường hợp KHÔNG được dùng:
+        # - vùng sẽ bị XOAY (E16): xếp theo hình là xếp ngang, xoay xong thì không còn khớp hình;
+        # - bong bóng chứa TÂM của một vùng chữ khác: bộ nhận diện hay cắt một bong bóng thành hai
+        #   khung, xếp cả hai vào nguyên bong bóng là chữ đè lên nhau.
+        da_giac: dict = {}
+        if settings.e75_xep_theo_hinh:
+            from app.services.safearea.apply import nap_da_giac
+            from app.services.typeset.xep_theo_hinh import tam_nam_trong
+            from app.services.typeset.xoay import nen_xoay
+
+            da_giac = nap_da_giac(session, [r.id for r in regions], van_tay_clean)
+            if da_giac:
+                from app.services.orientation.apply import nap_goc_nghieng
+
+                goc_e75 = (nap_goc_nghieng(session, list(da_giac))
+                           if settings.e16_xoay_chu_nghieng else {})
+                tam = {r.id: (r.bbox_x + r.bbox_w / 2, r.bbox_y + r.bbox_h / 2) for r in regions}
+                da_giac = {
+                    rid: pg for rid, pg in da_giac.items()
+                    if not nen_xoay(goc_e75.get(rid))
+                    and not any(tam_nam_trong(pg, c) for k, c in tam.items() if k != rid)
+                }
         danh_dau_dang_chay(job)
         session.commit()
 
@@ -2016,7 +2067,11 @@ def _run_typeset(job_id: uuid.UUID) -> dict:
             ), typesetter_an_toan
         ts = _ts_co_vien(ts, ao_chu.get(region_id), he_so_ve)
         try:
-            ket_qua.append((region_id, bbox, ts.fit(text, khung, font_family)))
+            fit = ts.fit(text, khung, font_family)
+            if o is not None and region_id in da_giac:
+                fit = _thu_xep_theo_hinh(fit, text, da_giac[region_id], he_so_ve, ts, resolver,
+                                         font_family)
+            ket_qua.append((region_id, bbox, fit))
         except MissingGlyph as exc:
             # MỘT vùng font không vẽ được KHÔNG được giết cả trang.
             #
@@ -2063,6 +2118,7 @@ def _run_typeset(job_id: uuid.UUID) -> dict:
                     fit_status=FitStatus(fit["fit_status"]),
                     edited_by_user=False,
                     **_cot_ao_chu(ao_chu.get(region_id)),
+                    dong_json=fit.get("dong"),
                 )
             )
         session.commit()
@@ -2723,6 +2779,8 @@ def _thu_thap_trang(session, project_id: uuid.UUID):
                         text_color=ts.text_color,
                         stroke_color=ts.stroke_color,
                         stroke_width=ts.stroke_width,
+                        # E75 — cùng vị trí dòng với ảnh xem thử.
+                        dong=ts.dong_json,
                     )
                     for r, ts in rows
                 ],

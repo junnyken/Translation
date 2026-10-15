@@ -483,6 +483,9 @@ class Settings(BaseSettings):
     #: `typeset/mau_chu.py`). Tắt ⇒ không đo, cột để NULL, mọi vùng dùng `typeset_text_color`/
     #: `typeset_stroke_*` như trước E70.
     e70_mau_chu_theo_vung: bool = True
+    #: E75 — vùng có đa giác bong bóng thì thử xếp chữ THEO HÌNH (dòng giữa rộng, dòng đầu/cuối hẹp);
+    #: chỉ nhận khi cho cỡ chữ LỚN HƠN khối chữ nhật. Tắt ⇒ y như trước E75.
+    e75_xep_theo_hinh: bool = True
     #: E26-C — vùng E12 đánh `possible_sfx` thì giữ nguyên chữ gốc, không dịch thành từ.
     #:
     #: Đo thật: `Clang` -> "Kêu vang", `Cling` -> "Bám vào", `Clong` -> "tiếng kêu". Dịch đúng từ

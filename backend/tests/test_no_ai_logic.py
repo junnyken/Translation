@@ -33,6 +33,8 @@ APP_DIR = Path(__file__).resolve().parent.parent / "app"
 ALLOWED_MODEL_DIRS = (
     "services/detect", "services/ocr", "services/inpaint", "services/safearea",
     "services/orientation", "workers", "services/typeset/mau_chu.py",
+    # E75 — cùng lý do với mau_chu.py: cv2 chỉ vẽ đa giác + biến đổi khoảng cách, import trong hàm.
+    "services/typeset/xep_theo_hinh.py",
 )
 
 

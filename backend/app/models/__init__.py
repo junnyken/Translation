@@ -334,6 +334,9 @@ class TypesetResult(TimestampMixin, Base):
     text_color: Mapped[str | None] = mapped_column(String(7), nullable=True)
     stroke_color: Mapped[str | None] = mapped_column(String(7), nullable=True)
     stroke_width: Mapped[float | None] = mapped_column(Float, nullable=True)
+    #: E75 — chữ xếp THEO HÌNH bong bóng: `[[tâm_x, đỉnh_y], …]` mỗi dòng, toạ độ ẢNH GỐC (bộ vẽ
+    #: nhân `page.he_so_ve`). NULL = xếp khối chữ nhật như trước E75 (kể cả sau khi sửa tay).
+    dong_json: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
 
 class Job(TimestampMixin, Base):
