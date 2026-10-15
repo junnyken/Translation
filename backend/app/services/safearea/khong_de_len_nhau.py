@@ -71,11 +71,21 @@ def _cat_mot_vat_can(o: _Rect, phai_giu: _Rect, vat_can: _Rect, khe: float) -> _
 
     ox, oy, ow, oh = o
     vx, vy, vw, vh = vat_can
+    gx, gy, gw, gh = phai_giu
+    # E83 — cắt ở ĐƯỜNG GIỮA khoảng trống giữa phần phải giữ và vật cản, không phải sát vật cản.
+    # Vùng bên kia cũng tự cắt về đúng đường giữa đó ⇒ hai ô KHÔNG chồng nhau. Cắt sát vật cản
+    # (trước E83) thì cả hai ô cùng chiếm khoảng trống ⇒ chữ căn giữa ô đè lên nhau (đo thật
+    # 16-10-2026, sáu câu trong một bong bóng mây). Vật cản đã chạm phần phải giữ ⇒ không có khoảng
+    # trống để chia, cắt sát như cũ.
+    phai = min(vx - khe, (gx + gw + vx) / 2) if vx >= gx + gw else vx - khe
+    trai = max(vx + vw + khe, (vx + vw + gx) / 2) if vx + vw <= gx else vx + vw + khe
+    duoi = min(vy - khe, (gy + gh + vy) / 2) if vy >= gy + gh else vy - khe
+    tren = max(vy + vh + khe, (vy + vh + gy) / 2) if vy + vh <= gy else vy + vh + khe
     ung_vien: list[_Rect] = [
-        (ox, oy, max(0.0, vx - khe - ox), oh),                          # cắt bên PHẢI
-        (vx + vw + khe, oy, max(0.0, ox + ow - (vx + vw + khe)), oh),   # cắt bên TRÁI
-        (ox, oy, ow, max(0.0, vy - khe - oy)),                          # cắt bên DƯỚI
-        (ox, vy + vh + khe, ow, max(0.0, oy + oh - (vy + vh + khe))),   # cắt bên TRÊN
+        (ox, oy, max(0.0, phai - ox), oh),                 # cắt bên PHẢI
+        (trai, oy, max(0.0, ox + ow - trai), oh),          # cắt bên TRÁI
+        (ox, oy, ow, max(0.0, duoi - oy)),                 # cắt bên DƯỚI
+        (ox, tren, ow, max(0.0, oy + oh - tren)),          # cắt bên TRÊN
     ]
     hop_le = [
         c for c in ung_vien
