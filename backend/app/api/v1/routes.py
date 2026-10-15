@@ -271,6 +271,33 @@ TEN_CHAPTER_DOC_NHANH = "Đọc nhanh (tiện ích)"
 TEN_CHAPTER_DICH_NHANH = "Dịch nhanh"
 
 
+def _kiem_engine(
+    engine: TranslationEngine | None, settings: Settings, *, co_tai_khoan: bool = True
+) -> None:
+    """Chặn engine không dùng được NGAY lúc nhận yêu cầu, trước khi xếp việc.
+
+    - `llm_context` thiếu khoá ⇒ 422 (như trước).
+    - E73 `chatgpt_codex` ngoài bản cài cục bộ ⇒ 422: máy chủ dùng chung KHÔNG được chạy tài khoản
+      ChatGPT của một người cho người khác. Khách lạ chưa đăng nhập ⇒ 403 kể cả ở bản cài cục bộ.
+      Worker vẫn tự từ chối lần nữa (`cho_phep`) — đây chỉ là báo sớm.
+    """
+    if engine is TranslationEngine.llm_context and not settings.llm_configured:
+        raise HTTPException(
+            status_code=422,
+            detail="llm_not_configured: chưa cấu hình khoá dịch, không dùng được llm_context",
+        )
+    if engine is TranslationEngine.chatgpt_codex:
+        if not settings.che_do_cai_cuc_bo:
+            raise HTTPException(
+                status_code=422,
+                detail="codex_chi_cai_cuc_bo: chatgpt_codex chỉ dùng ở bản cài cục bộ",
+            )
+        if not co_tai_khoan:
+            raise HTTPException(
+                status_code=403, detail="codex_can_dang_nhap: khách không dùng được chatgpt_codex",
+            )
+
+
 def _ten_chapter_nhanh(che_do: ChePipeline, source_lang: SourceLang) -> str:
     goc = TEN_CHAPTER_DOC_NHANH if che_do is ChePipeline.chi_chu else TEN_CHAPTER_DICH_NHANH
     return f"{goc} — {source_lang.value}"
@@ -593,11 +620,7 @@ async def doc_truyen_gui_trang(
     tốn token Gemini mỗi trang — tiện ích để người dùng tự bật, không âm thầm đổi mặc định toàn hệ
     thống (đổi mặc định sẽ ảnh hưởng mọi luồng khác, không chỉ E19).
     """
-    if engine is TranslationEngine.llm_context and not settings.llm_configured:
-        raise HTTPException(
-            status_code=422,
-            detail="llm_not_configured: chưa cấu hình khoá dịch, không dùng được llm_context",
-        )
+    _kiem_engine(engine, settings, co_tai_khoan=danh_tinh.co_tai_khoan)
 
     project = await _chapter_doc_nhanh(session, danh_tinh.nguoi_goi, source_lang, che_do)
 
@@ -924,11 +947,7 @@ async def upload_page(
     Bỏ trống `engine` ⇒ cột để NULL ⇒ lùi về `settings.translate_default_engine` y như trước.
     Không bao giờ tự chọn `llm_context` hộ người dùng: engine đó tốn token thật (M5).
     """
-    if engine is TranslationEngine.llm_context and not settings.llm_configured:
-        raise HTTPException(
-            status_code=422,
-            detail="llm_not_configured: chưa cấu hình khoá dịch, không dùng được llm_context",
-        )
+    _kiem_engine(engine, settings)
 
     project = await _get_project_or_404(session, project_id, nguoi)
 
@@ -1042,11 +1061,7 @@ async def upload_archive(
     Cả ba loại đầu vào (`.zip`, `.cbz`, `.pdf`) đi chung MỘT nhánh ghi CSDL — rẽ nhánh theo chữ
     ký đầu file, không theo đuôi tệp.
     """
-    if engine is TranslationEngine.llm_context and not settings.llm_configured:
-        raise HTTPException(
-            status_code=422,
-            detail="llm_not_configured: chưa cấu hình khoá dịch, không dùng được llm_context",
-        )
+    _kiem_engine(engine, settings)
 
     project = await _get_project_or_404(session, project_id, nguoi)
 
@@ -1745,12 +1760,14 @@ async def retry_translate(
     page_id: uuid.UUID,
     engine: TranslationEngine | None = None,
     session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
     nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> PageAccepted:
     """Xếp lại việc dịch. `engine` (tuỳ chọn): `google_fast` (miễn phí) hoặc `llm_context` (tốn token).
 
     Không truyền `engine` thì dùng mặc định trong cấu hình. Chỉ enqueue, không dịch trong request.
     """
+    _kiem_engine(engine, settings)
     page = await _get_page_or_404(session, page_id, nguoi)
     # `typeset_done` PHẢI nằm trong danh sách: từ M6 pipeline tự nối chuỗi nên mọi trang đều kết
     # thúc ở trạng thái này — thiếu nó thì không trang nào dịch lại được nữa (lỗi thật, M8 phát hiện).
@@ -2164,6 +2181,7 @@ async def retranslate_region(
     region_id: uuid.UUID,
     engine: TranslationEngine | None = None,
     session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
     nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> JobAccepted:
     """Dịch lại 1 vùng từ chữ gốc hiện tại. **Ghi đè bản dịch**, kể cả bản đã sửa tay.
@@ -2171,6 +2189,7 @@ async def retranslate_region(
     Lưu ý: dịch lại một dòng lẻ thì `llm_context` mất lợi thế ngữ cảnh cả trang.
     KHÔNG tự canh chữ lại — bấm "canh lại" hoặc sửa tiếp thì mới canh.
     """
+    _kiem_engine(engine, settings)
     region = await _get_region_or_404(session, region_id, nguoi)
     job = Job(type=JobType.translate, page_id=region.page_id, status=JobStatus.queued)
     session.add(job)
@@ -2416,12 +2435,8 @@ async def create_batch_run(
     await _get_project_or_404(session, project_id, nguoi)
 
     engine = body.translation_engine
-    if engine is TranslationEngine.llm_context and not settings.llm_configured:
-        # Báo NGAY chứ không xếp việc rồi mới hỏng ở trang thứ nhất.
-        raise HTTPException(
-            status_code=422,
-            detail="llm_not_configured: chưa cấu hình khoá dịch, không dùng được llm_context",
-        )
+    # Báo NGAY chứ không xếp việc rồi mới hỏng ở trang thứ nhất.
+    _kiem_engine(engine, settings)
 
     from app.services.batch.orchestrator import BatchInvalid
 

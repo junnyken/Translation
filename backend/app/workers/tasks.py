@@ -1415,6 +1415,21 @@ def build_translator(engine: str, boi_canh: str = "", anh_trang: tuple | None = 
             anh_trang=anh_trang[0] if anh_trang else None,
             anh_mime=anh_trang[1] if anh_trang else "image/jpeg",
         )
+    if engine == TranslationEngine.chatgpt_codex.value:
+        # E73 — `cho_phep` đọc cờ NGAY ĐÂY: engine tự từ chối trước khi gọi mạng nếu máy này không
+        # phải bản cài cục bộ, kể cả khi trang đã lưu `chatgpt_codex` từ trước lúc tắt cờ.
+        return get_translator(
+            engine,
+            auth_path=settings.codex_auth_path,
+            model_name=settings.codex_model,
+            originator=settings.codex_originator,
+            timeout=settings.codex_timeout_seconds,
+            cho_phep=settings.che_do_cai_cuc_bo,
+            reasoning=settings.codex_reasoning,
+            boi_canh=boi_canh,
+            anh_trang=anh_trang[0] if anh_trang else None,
+            anh_mime=anh_trang[1] if anh_trang else "image/jpeg",
+        )
     return get_translator(engine)
 
 

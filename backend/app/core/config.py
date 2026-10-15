@@ -280,8 +280,7 @@ class Settings(BaseSettings):
 
     # ---- E72: LLM qua API kiểu OpenAI — máy chủ trên máy (Ollama / LM Studio / llama.cpp) ----
     #: Ollama: http://host.docker.internal:11434/v1 · LM Studio: …:1234/v1 · llama.cpp: …:8080/v1
-    #: Cũng dùng được cho API CHÍNH THỨC kiểu OpenAI: https://api.openai.com/v1 + LOCAL_LLM_API_KEY
-    #: (thay cho đăng nhập ChatGPT kiểu Codex — chủ dự án chọn hướng này 15-10-2026).
+    #: Cũng dùng được cho API CHÍNH THỨC kiểu OpenAI: https://api.openai.com/v1 + LOCAL_LLM_API_KEY.
     local_llm_base_url: str = "http://host.docker.internal:11434/v1"
     #: Tên model đúng như máy chủ cục bộ gọi nó (vd `qwen3:14b`, `gemma3:12b`). Rỗng ⇒ engine báo
     #: lỗi rõ và lùi về google_fast — KHÔNG đoán một model mặc định.
@@ -292,6 +291,19 @@ class Settings(BaseSettings):
     local_llm_max_output_tokens: int = 4096
     #: Model có thị giác (gemma3, qwen2.5-vl…) thì bật để gửi ảnh trang (E32). Tắt ⇒ chỉ gửi chữ.
     local_llm_vision: bool = False
+
+    # ---- E73: ChatGPT kiểu Codex — CHỈ bản cài cục bộ (xem docstring `services/translate/codex.py`) ----
+    #: Bật = máy này là bản cài của MỘT người/nhóm nhỏ dùng tài khoản ChatGPT của chính họ. Tắt
+    #: (mặc định, và PHẢI tắt trên máy chủ dùng chung) ⇒ engine `chatgpt_codex` bị từ chối, API
+    #: đăng nhập trả 404.
+    che_do_cai_cuc_bo: bool = False
+    #: Tệp token (quyền 600, thư mục 700). Đặt trên volume RIÊNG, không nằm trong kho ảnh.
+    codex_auth_path: str = "/secrets/codex/auth.json"
+    #: Rỗng ⇒ lấy model đầu tiên tài khoản được dùng (theo danh sách máy chủ trả về).
+    codex_model: str = ""
+    codex_reasoning: str = "low"
+    codex_timeout_seconds: int = 300
+    codex_originator: str = "matbao-translation"
 
 
     #: E32 — gửi kèm ẢNH TRANG cho mô hình dịch (`llm_context`).

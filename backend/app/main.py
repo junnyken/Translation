@@ -10,6 +10,7 @@ from app.api.v1.routes import router as v1_router
 from app.api.v1.routes import router_khach as v1_router_khach
 from app.core.bao_ve import canh_bao_neu_khong_khoa
 from app.core.quyen import nguoi_dung_hien_tai
+from app.api.v1.codex_routes import router as codex_router
 from app.api.v1.xac_thuc_routes import router as xac_thuc_router
 from app.core.config import get_settings
 
@@ -173,6 +174,12 @@ async def healthz(request: Request) -> dict:
     # `list_env` của nền tảng chỉ trả TÊN biến chứ không trả giá trị, nên không có đường nào khác
     # để biết. Chỉ in tên engine, không in khoá.
     ket_qua["detect_engine"] = _s.detect_engine
+    # E73 — chỉ hai cờ true/false: bản cài cục bộ có bật Codex không, và đã có tệp token chưa.
+    # Không đọc nội dung tệp, không in email — endpoint này không đòi đăng nhập.
+    ket_qua["codex"] = {
+        "bat": _s.che_do_cai_cuc_bo,
+        "da_dang_nhap": _s.che_do_cai_cuc_bo and _Path(_s.codex_auth_path).is_file(),
+    }
 
     # E41 — hai trần bộ nhớ của bước xoá chữ. Không phải bí mật, chỉ là hai con số vận hành.
     #
@@ -259,6 +266,8 @@ app.include_router(xac_thuc_router, prefix="/api/v1")
 # chapter của mọi người), giờ là tài khoản riêng + chapter có chủ. Khoá chung KHÔNG còn mở
 # được dữ liệu nữa — nó chỉ còn gác cổng đăng ký.
 app.include_router(v1_router, dependencies=[Depends(nguoi_dung_hien_tai)])
+# E73 — đăng nhập ChatGPT kiểu Codex. Tự trả 404 khi không phải bản cài cục bộ; chỉ quản trị.
+app.include_router(codex_router, prefix="/api/v1", dependencies=[Depends(nguoi_dung_hien_tai)])
 
 # E49 — router KHÁCH LẠ: cố ý KHÔNG có `Depends(nguoi_dung_hien_tai)`.
 #

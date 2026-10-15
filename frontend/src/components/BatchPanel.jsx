@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import * as api from '../api.js'
+import { useCodex } from '../lib/dung-codex.js'
 
 const TRANG_THAI_ME = {
   queued: { chu: 'Đang xếp hàng', lop: 'cho' },
@@ -37,6 +38,7 @@ function batDauTuBuoc(giay) {
 
 /** Chạy cả chapter bằng một mẻ: chọn cách dịch → theo dõi → chạy lại trang hỏng. */
 export default function BatchPanel({ projectId, soTrang }) {
+  const codex = useCodex()
   const [cauHinh, setCauHinh] = useState(null)
   const [me, setMe] = useState(null)
   const [muc, setMuc] = useState([])
@@ -148,6 +150,11 @@ export default function BatchPanel({ projectId, soTrang }) {
           <option value="llm_context" disabled={!llmDung}>
             Dịch theo ngữ cảnh {llmDung ? '' : '— chưa cấu hình khoá dịch'}
           </option>
+          {codex.bat && (
+            <option value="chatgpt_codex" disabled={!codex.da_dang_nhap}>
+              ChatGPT (tài khoản của bạn){codex.da_dang_nhap ? '' : ' — quản trị cần đăng nhập ChatGPT trước'}
+            </option>
+          )}
         </select>
       </label>
 

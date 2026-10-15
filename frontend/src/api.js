@@ -714,3 +714,25 @@ export const xuatChapterDichNhanh = (projectId, format = 'cbz') =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ format }),
   }).then(doc)
+
+// ---------- E73 — engine dịch bằng tài khoản ChatGPT của người cài (chỉ bản cài cục bộ) ----------
+
+/** `/healthz` nằm NGOÀI `/api/v1` và không cần đăng nhập. Có thêm `codex: {bat, da_dang_nhap}`. */
+export const layHealthz = () => fetch(`${API_BASE}/healthz`).then(doc)
+
+/** Chỉ quản trị, và chỉ khi `codex.bat` — ngược lại máy chủ trả 404. */
+export const layTrangThaiCodex = () => fetch(`${BASE}/codex`).then(doc)
+
+/** Trả `{ma, link, het_han_giay}`: người dùng mở `link` rồi gõ `ma`. */
+export const batDauDangNhapCodex = () =>
+  fetch(`${BASE}/codex/dang-nhap`, { method: 'POST' }).then(doc)
+
+/** Trả `{trang_thai}`: cho_xac_nhan | da_dang_nhap | het_han | chua_bat_dau. Lỗi mạng tới OpenAI ⇒ 502. */
+export const hoiDangNhapCodex = () =>
+  fetch(`${BASE}/codex/dang-nhap/hoi`, { method: 'POST' }).then(doc)
+
+/** Đăng xuất: xoá token khỏi máy. Máy chủ trả 204 (không có body để `doc` đọc). */
+export async function dangXuatCodex() {
+  const res = await fetch(`${BASE}/codex`, { method: 'DELETE' })
+  if (!res.ok) await doc(res)
+}

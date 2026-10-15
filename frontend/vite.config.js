@@ -47,7 +47,9 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5173,
     cors,
-    proxy: { '/api': { target, changeOrigin: true } },
+    // E73 — `/healthz` cũng phải qua proxy: bộ chọn engine đọc `codex.bat` từ đó. Thiếu dòng này
+    // thì ở bản cài cục bộ (API_BASE rỗng) vite trả index.html ⇒ đọc JSON hỏng ⇒ coi như tắt.
+    proxy: { '/api': { target, changeOrigin: true }, '/healthz': { target, changeOrigin: true } },
   },
   preview: {
     host: '0.0.0.0',

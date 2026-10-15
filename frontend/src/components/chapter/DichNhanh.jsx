@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import * as api from '../../api.js'
 import { hangCuaTrang } from '../../lib/chapter-progress.js'
+import { useCodex } from '../../lib/dung-codex.js'
 import { CACH_DICH, MUC_DICH, NGON_NGU } from '../../lib/status-presentation.js'
 import Alert from '../ui/Alert.jsx'
 import Button from '../ui/Button.jsx'
@@ -21,6 +22,7 @@ const MO_TA_MUC_DICH = {
 const MO_TA_ENGINE = {
   google_fast: 'Miễn phí. Dịch từng dòng, không nhìn câu trước sau.',
   llm_context: 'Giữ mạch văn cả trang và tự sửa lỗi đọc chữ — TỐN token AI.',
+  chatgpt_codex: 'Dịch bằng tài khoản ChatGPT của chính bạn (thử nghiệm) — có thể bị giới hạn lượt dùng.',
 }
 
 /** P1 — đếm số vùng chữ đáng xem lại từ cảnh báo xuất ĐÃ CÓ của backend.
@@ -87,6 +89,7 @@ export function datTenTuDong(files, luc = new Date()) {
 export default function DichNhanh({ onMoChapter }) {
   const [nguon, setNguon] = useState('ja')
   const [engine, setEngine] = useState('google_fast')
+  const codex = useCodex()
   const [mucDich, setMucDich] = useState('')
   const [files, setFiles] = useState([])
   const [tuTaiVe, setTuTaiVe] = useState(true)
@@ -198,6 +201,11 @@ export default function DichNhanh({ onMoChapter }) {
             {Object.entries(CACH_DICH).map(([ma, ten]) => (
               <option key={ma} value={ma}>{ten}</option>
             ))}
+            {codex.bat && (
+              <option value="chatgpt_codex" disabled={!codex.da_dang_nhap}>
+                ChatGPT (tài khoản của bạn){codex.da_dang_nhap ? '' : ' — quản trị cần đăng nhập ChatGPT trước'}
+              </option>
+            )}
           </Select>
           <Select
             nhan="Mục đích sử dụng" batBuoc value={mucDich}

@@ -46,6 +46,9 @@ services:
     volumes:
       - ../backend:/app
       - storage_data:/data/storage
+      # E73 — token ChatGPT (Codex) trên volume RIÊNG, không nằm trong kho ảnh. API đăng nhập ghi,
+      # worker đọc + làm mới ⇒ cả hai cùng gắn. Chỉ dùng khi CHE_DO_CAI_CUC_BO=true.
+      - codex_secrets:/secrets/codex
     command: >
       sh -c "alembic upgrade head &&
              uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
@@ -67,6 +70,7 @@ services:
       # M6: font chèn chữ. Chỉ worker cần — API không nạp engine render.
       - ../backend/fonts:/fonts:ro
       - model_cache:/model-cache
+      - codex_secrets:/secrets/codex
     # M2/M3: worker tiêu thụ Job(type=detect) và Job(type=ocr) bằng comic-text-detector (ONNX, CPU).
     # --pool=solo PHẢI khớp `deploy-start.sh` của production. Trước đây chỗ này dùng
     # `--concurrency=1` (pool prefork, CÓ tiến trình con) và điều đó làm bàn thử KHÔNG tái hiện
@@ -115,3 +119,4 @@ volumes:
   db_data:
   storage_data:
   model_cache:
+  codex_secrets:

@@ -85,6 +85,8 @@ class TranslationEngine(str, Enum):
     llm_context = "llm_context"
     #: E72 — LLM chạy trên máy (Ollama / LM Studio / llama.cpp server).
     local_llm = "local_llm"
+    #: E73 — tài khoản ChatGPT của CHÍNH người cài, đăng nhập kiểu Codex. Chỉ bản cài cục bộ.
+    chatgpt_codex = "chatgpt_codex"
 
 
 class TranslationStatus(str, Enum):

@@ -67,9 +67,25 @@ người trả tiền.
 
 **c) Gemini**: `TRANSLATE_DEFAULT_ENGINE=llm_context` + `GEMINI_API_KEYS=...`
 
+**c2) Tài khoản ChatGPT của chính bạn (thử nghiệm, E73).** Đăng nhập kiểu Codex CLI, không cần khoá API:
+
+```ini
+CHE_DO_CAI_CUC_BO=true
+TRANSLATE_DEFAULT_ENGINE=chatgpt_codex   # hoặc để mặc định khác và chọn "ChatGPT" khi dịch
+# CODEX_MODEL=                           # rỗng = model đầu tiên tài khoản được dùng
+```
+
+Bật lại `api` + `worker`, đăng nhập bằng tài khoản **quản trị**, mở khu quản trị → "Đăng nhập ChatGPT"
+→ mở link OpenAI, gõ mã hiện trên màn hình. Token nằm ở volume `codex_secrets` (quyền 600), không bao
+giờ trả qua API. Đăng xuất ở cùng chỗ (xoá token khỏi máy).
+
+⚠️ Đây **không** phải API chính thức của OpenAI: dùng client id của ứng dụng Codex, có thể trái điều
+khoản và tài khoản có thể bị giới hạn. **Chỉ** bật trên máy của chính chủ tài khoản — không bật trên
+máy chủ dùng chung (cờ tắt thì engine tự từ chối, API đăng nhập trả 404, khách lạ luôn bị chặn).
+
 **d) Miễn phí, không cần gì**: `TRANSLATE_DEFAULT_ENGINE=google_fast` (mặc định)
 
-Cách (a), (b), (c) lỗi (máy chủ LLM chưa bật, hết hạn mức…) thì trang tự lùi về `google_fast` và được
+Cách (a), (b), (c), (c2) lỗi (máy chủ LLM chưa bật, hết hạn mức…) thì trang tự lùi về `google_fast` và được
 đánh dấu "đã dùng đường dự phòng". Trang không bị hỏng.
 
 ## 4. Chạy

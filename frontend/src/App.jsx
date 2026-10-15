@@ -25,6 +25,7 @@ import TrangChu from './components/trang-chu/TrangChu.jsx'
 import ManTaiKhoan from './components/auth/ManTaiKhoan.jsx'
 import BangChuaCoChu from './components/auth/BangChuaCoChu.jsx'
 import QuanTriNguoiDung from './components/auth/QuanTriNguoiDung.jsx'
+import DangNhapChatGPT from './components/auth/DangNhapChatGPT.jsx'
 import Alert from './components/ui/Alert.jsx'
 import Button from './components/ui/Button.jsx'
 import Dialog from './components/ui/Dialog.jsx'
@@ -575,6 +576,7 @@ export default function App({ urlBundle } = {}) {
             {/* Danh bạ tài khoản chỉ hiện với quản trị. Máy chủ cũng chặn (404 với người
                 thường), nhưng hiện một mục chắc chắn báo lỗi là thiết kế tồi. */}
             {nguoiDung.la_quan_tri && <QuanTriNguoiDung toi={nguoiDung} />}
+            {nguoiDung.la_quan_tri && <DangNhapChatGPT />}
 
             {/* E63 — tiêu đề và cụm tab là MỘT khối mở đầu.
 

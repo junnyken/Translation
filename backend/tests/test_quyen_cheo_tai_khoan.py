@@ -273,6 +273,11 @@ MIEN_TRU = {
     # miễn trừ ở đây KHÔNG có nghĩa là không kiểm.
     "/api/v1/auth/users": "danh bạ tài khoản, không thuộc chapter nào; kiểm ở test_quan_tri_nguoi_dung",
     "/api/v1/auth/users/{nguoi_id}": "khoá/xoá tài khoản; kiểm ở test_quan_tri_nguoi_dung",
+    # E73 — đăng nhập ChatGPT của bản cài cục bộ: không nhận id, không thuộc chapter nào; chỉ quản
+    # trị + chỉ khi `che_do_cai_cuc_bo`. Cổng đó kiểm ở `test_e73_codex.py`.
+    "/api/v1/codex": "token ChatGPT của máy, không thuộc chapter; kiểm ở test_e73_codex",
+    "/api/v1/codex/dang-nhap": "không nhận id; chỉ quản trị bản cài cục bộ; kiểm ở test_e73_codex",
+    "/api/v1/codex/dang-nhap/hoi": "không nhận id; chỉ quản trị bản cài cục bộ; kiểm ở test_e73_codex",
 }
 
 

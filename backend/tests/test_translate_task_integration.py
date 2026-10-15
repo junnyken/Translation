@@ -291,14 +291,31 @@ async def test_endpoint_translation_tra_theo_thu_tu_doc(
 
 
 async def test_retry_translate_chon_engine(
-    client, sample_page_image, fake_detector, fake_ocr_engine, fake_inpainter
+    client, sample_page_image, fake_detector, fake_ocr_engine, fake_inpainter, monkeypatch
 ):
+    from app.core.config import get_settings
+
+    # E73 — `retry-translate` giờ kiểm engine NGAY (như upload): `llm_context` thiếu khoá ⇒ 422.
+    monkeypatch.setattr(get_settings(), "gemini_api_keys", "khoa-gia")
     page_id = await _page_ready_to_translate(
         client, sample_page_image, fake_detector, fake_ocr_engine, fake_inpainter
     )
     r = await client.post(f"/api/v1/pages/{page_id}/retry-translate?engine=llm_context")
     assert r.status_code == 202
     assert r.json()["job_id"]
+
+
+async def test_retry_translate_llm_chua_cau_hinh_bi_422_ngay(
+    client, sample_page_image, fake_detector, fake_ocr_engine, fake_inpainter, monkeypatch
+):
+    from app.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "gemini_api_keys", "")
+    page_id = await _page_ready_to_translate(
+        client, sample_page_image, fake_detector, fake_ocr_engine, fake_inpainter
+    )
+    r = await client.post(f"/api/v1/pages/{page_id}/retry-translate?engine=llm_context")
+    assert r.status_code == 422 and "llm_not_configured" in r.text
 
 
 async def test_retry_translate_khi_chua_xoa_chu_tra_409(client, sample_page_image):

@@ -585,9 +585,13 @@ def get_translator(engine: str, api_keys: list[str] | None = None, **kwargs):
         from app.services.translate.llm_cuc_bo import OpenAICompatTranslator
 
         return OpenAICompatTranslator(**kwargs)
+    if value == TranslationEngine.chatgpt_codex.value:
+        from app.services.translate.codex import CodexTranslator
+
+        return CodexTranslator(**kwargs)
     raise UnsupportedTranslationEngine(
         f"engine '{value}' không được hỗ trợ "
-        "(google_fast / llm_context / local_llm)"
+        "(google_fast / llm_context / local_llm / chatgpt_codex)"
     )
 
 
@@ -595,4 +599,5 @@ def get_translator(engine: str, api_keys: list[str] | None = None, **kwargs):
 ENGINE_LLM = frozenset({
     TranslationEngine.llm_context.value,
     TranslationEngine.local_llm.value,
+    TranslationEngine.chatgpt_codex.value,
 })

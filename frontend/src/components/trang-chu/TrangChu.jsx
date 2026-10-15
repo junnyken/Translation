@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import * as api from '../../api'
+import { useCodex } from '../../lib/dung-codex'
 import { chuDemNguoc, conLaiMs, mocHetHanGiuTep } from '../../lib/dem-nguoc'
 import Alert from '../ui/Alert'
 import Button from '../ui/Button'
@@ -95,6 +96,7 @@ export default function TrangChu() {
   // muốn. Đây là lựa chọn của TRANG CHỦ, gửi thẳng lên máy chủ — E58 đã chốt rằng lựa chọn này
   // phải được LƯU chứ không để `NULL` thừa hưởng mặc định hệ thống.
   const [cachDich, setCachDich] = useState('google_fast')
+  const codex = useCodex()
   const [dangNhanDang, setDangNhanDang] = useState(false)
   const [ketQuaNhanDang, setKetQuaNhanDang] = useState(null)
   const [loiNhanDang, setLoiNhanDang] = useState(null)
@@ -348,6 +350,11 @@ export default function TrangChu() {
           >
             <option value="google_fast">Nhanh — miễn phí</option>
             <option value="llm_context">Kỹ — AI đọc cả trang</option>
+            {codex.bat && (
+              <option value="chatgpt_codex" disabled={!codex.da_dang_nhap}>
+                ChatGPT (tài khoản của bạn){codex.da_dang_nhap ? '' : ' — quản trị cần đăng nhập ChatGPT trước'}
+              </option>
+            )}
           </select>
           <p className="ghi-chu">
             {cachDich === 'google_fast'

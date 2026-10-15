@@ -1013,3 +1013,11 @@ button:disabled { cursor: not-allowed; opacity: .55; }
    nguồn thông tin duy nhất — luôn kèm tiêu đề chữ + icon. */
 .khoi-nhan-dang { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 8px; }
 .khoi-nhan-dang .ghi-chu { margin: 0; flex: 1 1 220px; min-width: 0; }
+
+/* Đăng nhập ChatGPT (E73, chỉ quản trị) — mã đọc to, dễ gõ lại sang trang OpenAI */
+.ma-codex-so {
+  font-size: 32px; font-weight: 700; letter-spacing: .18em; font-variant-numeric: tabular-nums;
+  margin: 6px 0 10px; color: var(--mau-chinh-dam); user-select: all;
+}
+.dang-nhap-codex .hang-cong-cu { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.dang-nhap-codex a.nut { text-decoration: none; display: inline-flex; align-items: center; }

@@ -169,4 +169,10 @@ def test_enum_chi_co_hai_gia_tri_va_google_fast_la_cai_mien_phi():
     #   rồi lùi về `google_fast` ⇒ không phát sinh chi phí.
     # - ⚠️ Nếu trỏ `LOCAL_LLM_BASE_URL` vào API TRẢ TIỀN (api.openai.com) thì `local_llm` THÀNH đường
     #   tốn tiền mà KHÔNG qua cổng nhịp — chỉ làm vậy ở bản cài của chính người trả tiền.
-    assert {e.value for e in TranslationEngine} == {"google_fast", "llm_context", "local_llm"}
+    # E73 (16-10-2026) — đã đọc lại khi thêm `chatgpt_codex`:
+    # - Không tiêu quota Gemini (cổng nhịp không áp); tính vào hạn mức gói ChatGPT của người cài.
+    # - Máy chủ dùng chung (`che_do_cai_cuc_bo=false`): API từ chối 422, worker từ chối TRƯỚC khi gọi
+    #   mạng rồi lùi về `google_fast` ⇒ không phát sinh chi phí.
+    assert {e.value for e in TranslationEngine} == {
+        "google_fast", "llm_context", "local_llm", "chatgpt_codex",
+    }
