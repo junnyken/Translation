@@ -23,6 +23,9 @@ export default function ReviewToolbar({ tenChapter, projectId, trang, danhSachTr
       </nav>
 
       <div className="thanh-ra-soat-phai">
+        {/* E76 — lối vào màn canvas đặt ở ĐẦU màn, dạng nút chính. Bản đầu để nó lẫn giữa các ô
+            tick bên dưới, dạng nút phụ: chủ dự án mở màn sửa tay mà không tìm thấy (15-10-2026). */}
+        <a className="nut nut-chinh" href={`#canvas=${trang.id}`}>Mở chế độ canvas</a>
         <StatusBadge loai="trang" trangThai={trang.status} />
         {soCanXem > 0 && (
           <span className="the-tt the-tt-canh">

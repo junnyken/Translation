@@ -23,7 +23,7 @@ import uuid
 from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from app.main import app
 from app.models import (
@@ -405,6 +405,18 @@ async def test_khong_endpoint_nao_lo_du_lieu_sang_tai_khoan_khac(
             text("UPDATE project SET chu_so_huu_id = :u WHERE id = :p"),
             {"u": uuid.UUID(nguoi_a[0]), "p": uuid.UUID(ids["project_id"])},
         )
+        # E76 — `PATCH /regions` đổi khung thì XOÁ vùng an toàn (hình quanh khung cũ hết đúng). Dựng
+        # lại sau mỗi lượt, cùng lý do với dòng đặt lại chủ sở hữu ở trên: không thì lượt dò
+        # `GET /regions/{id}/safe-area` phía sau ra 404 ở cả A lẫn B và thành rỗng nghĩa.
+        if not (await session.execute(
+            select(RegionSafeArea.id).where(RegionSafeArea.region_id == uuid.UUID(ids["region_id"]))
+        )).first():
+            session.add(RegionSafeArea(
+                region_id=uuid.UUID(ids["region_id"]), algorithm_version="v1",
+                source=SafeAreaSource.shape_derived, status=SafeAreaStatus.ready,
+                roi_x=0, roi_y=0, roi_w=10, roi_h=10,
+                geometry_type=SafeAreaGeometryType.rect, geometry_json=[],
+            ))
         await session.commit()
 
         nhan = f"{method} {mau} (A {tra_a.status_code} / B {tra_b.status_code})"

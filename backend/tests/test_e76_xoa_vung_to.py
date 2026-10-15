@@ -130,6 +130,27 @@ def _co_trang(page_id):
         return im.size
 
 
+@pytest.mark.parametrize("kieu", ["RGBA_trang_den_duc", "RGBA_trong_suot", "L"])
+def test_doc_mat_na_dung_moi_kieu(kieu):
+    """Màn canvas xuất RGBA trắng/đen ĐỤC — lỗi thật bắt được khi bấm trên hệ thống chạy thật."""
+    from app.api.v1.routes import _doc_mat_na
+
+    mn = np.zeros((20, 30), bool)
+    mn[5:10, 8:20] = True
+    if kieu == "RGBA_trang_den_duc":
+        a = np.zeros((20, 30, 4), np.uint8)
+        a[..., 3] = 255
+        a[mn, :3] = 255
+        im = Image.fromarray(a, "RGBA")
+    elif kieu == "RGBA_trong_suot":
+        a = np.zeros((20, 30, 4), np.uint8)
+        a[mn] = 255
+        im = Image.fromarray(a, "RGBA")
+    else:
+        im = Image.fromarray(mn.astype(np.uint8) * 255)
+    assert np.array_equal(_doc_mat_na(im), mn)
+
+
 async def test_api_kiem_mat_na_ngay(client, trang):
     page_id = await trang()
     w, h = _co_trang(page_id)
@@ -199,3 +220,78 @@ async def test_chay_tron_xoa_dung_vung_giu_anh_goc_va_vung_an_toan(
         ban = s.scalar(sa.select(RegionSafeArea).where(RegionSafeArea.region_id == rid))
         assert ban.clean_image_fingerprint == van_tay_hien_vat(get_storage(), sach_rel), \
             "vùng an toàn phải còn hiệu lực với ảnh sạch MỚI"
+
+
+# ---------- kéo khung trên canvas: chữ phải đi theo khung (lỗi thấy khi bấm thật) ----------
+
+def _kq_refit(region_id):
+    from app.models import TypesetResult
+
+    with sync_session() as s:
+        return s.scalar(sa.select(TypesetResult).where(TypesetResult.region_id == region_id))
+
+
+async def test_keo_khung_thi_vung_an_toan_cu_bi_bo_va_tinh_lai_quanh_khung_moi(client, trang):
+    from app.services.safearea.apply import nap_o_dat_chu
+    from app.workers.tasks import run_refit_job
+
+    page_id = await trang()
+    with sync_session() as s:
+        rid = s.scalar(sa.select(TextRegion.id).where(TextRegion.page_id == uuid.UUID(page_id)))
+        ban = s.scalar(sa.select(RegionSafeArea).where(RegionSafeArea.region_id == rid))
+        if ban is None:
+            ban = RegionSafeArea(region_id=rid, algorithm_version="t", roi_x=0, roi_y=0, roi_w=1,
+                                 roi_h=1, reason_codes=[], config_snapshot={})
+            s.add(ban)
+        ban.source, ban.status = SafeAreaSource.fallback_rectangle, SafeAreaStatus.fallback_rectangle
+        ban.geometry_type = SafeAreaGeometryType.rect
+        ban.geometry_json = {"rect": {"x": 100.0, "y": 120.0, "w": 200.0, "h": 80.0}}
+        ban.place_rect_json = {"x": 100.0, "y": 120.0, "w": 200.0, "h": 80.0}
+        ban.clean_image_fingerprint = None
+        s.commit()
+
+    r = await client.patch(f"/api/v1/regions/{rid}", json={"bbox": {"x": 700, "y": 1000, "w": 200, "h": 80}})
+    assert r.status_code in (200, 202), r.text
+    with sync_session() as s:
+        assert s.scalar(sa.select(RegionSafeArea).where(RegionSafeArea.region_id == rid)) is None, \
+            "khung đổi mà vùng an toàn quanh khung CŨ vẫn còn ⇒ chữ đứng yên chỗ cũ"
+        jid = str(s.scalar(sa.select(Job.id).where(Job.page_id == uuid.UUID(page_id))
+                           .order_by(Job.created_at.desc())))
+    assert run_refit_job(jid, str(rid))["status"] == "done"
+    with sync_session() as s:
+        o = nap_o_dat_chu(s, [rid], None).get(rid)
+    assert o is not None, "vùng an toàn phải được tính lại quanh khung mới"
+
+    def chua(x, y):
+        return o[0] <= x <= o[0] + o[2] and o[1] <= y <= o[1] + o[3]
+    assert chua(800, 1040), f"ô đặt chữ {o} không chứa tâm khung MỚI"
+    assert not chua(200, 160), f"ô đặt chữ {o} vẫn chứa tâm khung CŨ"
+
+
+async def test_can_lai_mot_vung_nhan_he_so_ve_nhu_can_ca_trang(client, trang, monkeypatch):
+    from app.models import Page
+    from app.workers import tasks
+    from app.workers.tasks import run_refit_job
+
+    monkeypatch.setattr(tasks.settings, "e14_safe_area_enabled", False)
+    page_id = await trang()
+    with sync_session() as s:
+        rid = s.scalar(sa.select(TextRegion.id).where(TextRegion.page_id == uuid.UUID(page_id)))
+        s.execute(sa.delete(RegionSafeArea).where(RegionSafeArea.region_id == rid))
+        # Khung NHỎ: với khung 200×80 chữ ngắn chạm trần cỡ 40 ngay ở hệ số 1 ⇒ không so được.
+        v = s.get(TextRegion, rid)
+        v.bbox_w, v.bbox_h = 60.0, 24.0
+        s.commit()
+
+    async def can_lai_voi(k):
+        with sync_session() as s:
+            s.get(Page, uuid.UUID(page_id)).he_so_ve = k
+            j = Job(type=JobType.typeset, page_id=uuid.UUID(page_id), status=JobStatus.queued)
+            s.add(j)
+            s.commit()
+            jid = str(j.id)
+        assert run_refit_job(jid, str(rid))["status"] == "done"
+        return _kq_refit(rid).font_size
+
+    nho, lon = await can_lai_voi(1.0), await can_lai_voi(2.0)
+    assert lon > nho, "bộ vẽ phóng ảnh ×2 ⇒ cỡ chữ (px ảnh đã phóng) phải lớn hơn; trước đây bằng nhau"

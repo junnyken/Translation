@@ -741,10 +741,6 @@ export default function App({ urlBundle } = {}) {
                     />
                     <span>Hiện vùng an toàn của bong bóng</span>
                   </label>
-                  {/* E76 — vào màn sửa tay kiểu canvas. Màn này vẫn là đường lùi, không bỏ. */}
-                  <a className="nut nut-phu" href={`#canvas=${chiTiet.page.id}`}>
-                    Mở chế độ canvas
-                  </a>
                   <span className="ghi-chu">
                     {soTran} vùng tràn khung · {soCanXem} vùng cần xem lại ·{' '}
                     {chiTiet.regions.length} vùng

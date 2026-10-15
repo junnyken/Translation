@@ -277,7 +277,12 @@ async def test_ghim_co_qua_lon_thi_bao_tran_khong_gia_vo_vua(client, trang_da_ca
         row = s.execute(
             sa.select(TranslationResult).where(TranslationResult.region_id == vung.id)
         ).scalars().one()
-        row.translated_text = "Một câu thoại dài kinh khủng không tài nào nhét vừa được đâu nhé"
+        # E76 — câu PHẢI dài hơn hẳn: căn lại một vùng nay dùng ô đặt chữ E14 (như căn cả trang và
+        # như bộ vẽ), rộng hơn khung gốc. Câu ngắn cũ chỉ "tràn" vì đường căn lại đo trong khung gốc
+        # nhỏ trong khi bộ vẽ đặt chữ vào ô E14 lớn — tức kết quả cũ dựa vào chính lỗi đã sửa.
+        row.translated_text = " ".join(
+            ["Một câu thoại dài kinh khủng không tài nào nhét vừa được đâu nhé"] * 12
+        )
         s.commit()
     r = await client.patch(f"/api/v1/regions/{vung.id}", json={"font_size": 40})
     ket_qua = run_refit_job(r.json()["refit_job_id"], str(vung.id), 40)

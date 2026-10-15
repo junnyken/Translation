@@ -1619,6 +1619,24 @@ async def retry_inpaint(
     return PageAccepted(page_id=page.id, status=page.status, job_id=job.id)
 
 
+def _doc_mat_na(im):
+    """Điểm XOÁ = điểm SÁNG (trắng) và ĐỤC. Nhận được cả hai kiểu mặt nạ hay gặp:
+
+    - trắng/đen đục toàn bộ (màn canvas xuất kiểu này),
+    - trong suốt ở chỗ không tô.
+
+    Bản đầu lấy "không trong suốt" làm điểm xoá khi ảnh có kênh alpha ⇒ mặt nạ trắng/đen đục của
+    màn canvas thành "tô 100% trang" ⇒ 422. Test hai phía đều xanh vì mỗi phía tự kiểm theo cách hiểu
+    của mình; chỉ lộ ra khi bấm thật trên hệ thống chạy thật (15-10-2026).
+    """
+    import numpy as np
+
+    sang = np.asarray(im.convert("L")) > 127
+    if im.mode in ("RGBA", "LA", "PA") or "transparency" in im.info:
+        sang &= np.asarray(im.convert("RGBA").getchannel("A")) > 127
+    return sang
+
+
 #: E76 — trần cỡ tệp mặt nạ. PNG một kênh của trang 4000×6000 nén còn vài trăm KB; 20MB là dư.
 _TRAN_MAT_NA_BYTE = 20 * 1024 * 1024
 #: Tô quá nửa trang thì đó không còn là "xoá vết chữ sót" — gần như chắc là bấm nhầm công cụ.
@@ -1658,8 +1676,7 @@ async def xoa_vung_to(
     try:
         with _Image.open(io.BytesIO(tho)) as im:
             co_mn = im.size
-            mn = (np.asarray(im.getchannel("A")) > 0 if im.mode in ("RGBA", "LA")
-                  else np.asarray(im.convert("L")) > 127)
+            mn = _doc_mat_na(im)
         with storage.open_read(page.image_path) as f, _Image.open(f) as goc:
             co_goc = goc.size
     except (OSError, ValueError) as exc:
@@ -1973,6 +1990,10 @@ async def patch_region(
         region.bbox_x, region.bbox_y = patch.bbox.x, patch.bbox.y
         region.bbox_w, region.bbox_h = patch.bbox.w, patch.bbox.h
         da_sua.append("bbox")
+        # E76 — khung đổi ⇒ vùng an toàn E14 cũ (lòng bong bóng quanh khung CŨ) hết đúng. Không xoá
+        # thì bộ vẽ vẫn đặt chữ vào bong bóng cũ: kéo khung trên màn canvas mà chữ đứng yên (thấy khi
+        # bấm thật 15-10-2026). Bước căn lại sẽ tự tính vùng an toàn quanh khung MỚI.
+        await session.execute(delete(RegionSafeArea).where(RegionSafeArea.region_id == region.id))
 
     if patch.translated_text is not None:
         row = (

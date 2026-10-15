@@ -2421,17 +2421,42 @@ def _run_refit(job_id: uuid.UUID, region_id: uuid.UUID, font_size_override: floa
         page_id = page.id
         bbox = BBox(x=region.bbox_x, y=region.bbox_y, w=region.bbox_w, h=region.bbox_h)
         text = translation.translated_text or ""
+        he_so_ve = float(page.he_so_ve or 1.0)
+
+        # E76 — căn lại MỘT vùng phải đi CÙNG đường với căn cả trang (`_run_typeset`): ô đặt chữ
+        # E14 (tự tính lại nếu chưa có — vd vừa kéo khung) và hệ số vẽ E65. Trước đây đường này căn
+        # theo khung GỐC, không nhân hệ số, trong khi bộ vẽ thì đặt chữ vào ô E14 và phóng ảnh ⇒ cỡ
+        # chữ và chỗ vẽ lệch nhau. Ghi nhận từ đầu phiên, lộ rõ khi kéo khung trên màn canvas.
+        from app.services.safearea.apply import nap_o_dat_chu
+        from app.services.storage import get_storage as _lay_kho
+
+        van_tay_clean = van_tay_hien_vat(_lay_kho(), page.clean_image_path)
+        o_dat = nap_o_dat_chu(session, [region_id], van_tay_clean)
+        if region_id not in o_dat and settings.e14_safe_area_enabled and page.clean_image_path:
+            try:
+                from app.services.safearea.config import SafeAreaConfig
+                from app.services.safearea.service import SafeAreaService
+
+                SafeAreaService(get_storage(), SafeAreaConfig.from_settings(settings)) \
+                    .compute_region(session, region_id)
+                session.flush()
+                o_dat = nap_o_dat_chu(session, [region_id], van_tay_clean)
+            except Exception:  # noqa: BLE001
+                logger.exception("refit: không tính lại được vùng an toàn cho vùng %s", region_id)
+        o = o_dat.get(region_id)
         danh_dau_dang_chay(job)
         session.commit()
 
-    typesetter, resolver = build_typesetter()
+    typesetter, resolver = build_typesetter(padding_ratio=0.0 if o is not None else None)
     # E70 — sửa tay KHÔNG đo lại màu: giữ "áo" đã đo ở lượt căn cả trang, và tính viền vào phép đo
-    # cỡ chữ y như lượt đó. Khung ở đây là khung GỐC (không nhân hệ số vẽ) nên viền cũng px gốc.
-    typesetter = _ts_co_vien(typesetter, ao_cu, 1.0)
+    # cỡ chữ y như lượt đó (px gốc × hệ số vẽ, như `_run_typeset`).
+    typesetter = _ts_co_vien(typesetter, ao_cu, he_so_ve)
+    goc = o if o is not None else (bbox.x, bbox.y, bbox.w, bbox.h)
+    khung = BBox(x=goc[0] * he_so_ve, y=goc[1] * he_so_ve, w=goc[2] * he_so_ve, h=goc[3] * he_so_ve)
     if font_size_override is not None:
-        fit = typesetter.fit_at_size(text, bbox, font_family, float(font_size_override))
+        fit = typesetter.fit_at_size(text, khung, font_family, float(font_size_override))
     else:
-        fit = typesetter.fit(text, bbox, font_family)
+        fit = typesetter.fit(text, khung, font_family)
 
     with sync_session() as session:
         # Idempotent: xoá kết quả cũ của ĐÚNG vùng này rồi ghi mới, không đụng vùng khác.

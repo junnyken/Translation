@@ -65,3 +65,35 @@ Bấm thật trên Chromium (bản build, API giả lập bằng dữ liệu m�
    - chưa xoay khung, chưa thêm chữ mới
 4. Chữ trong giao diện mới do DEV viết tạm. BA cần rà wording.
 5. Mặt nạ cọ của trang rất lớn (~4000×6000) tốn ~100 MB bộ nhớ trình duyệt.
+
+## Bổ sung — chạy thật đầu-cuối (15-10-2026, sau lần deploy đầu)
+
+Chủ dự án mở production mà **không tìm thấy nút canvas**. Sau đó tôi dựng nguyên hệ thống thật trên máy
+dev (Postgres, Redis, API, worker với CTD, manga-ocr, LaMa, Google dịch) và bấm trên Chromium với một
+trang manga tiếng Nhật thật. Phát hiện và đã sửa 3 lỗi:
+
+1. **Nút "Mở chế độ canvas" khó thấy.** Nó nằm lẫn giữa các ô tick, dạng nút phụ. Đã chuyển lên thanh
+   đầu màn sửa tay, dạng nút chính, kèm test.
+2. **Cọ xoá chữ luôn bị 422 "Vùng tô chiếm 100% trang".** Màn canvas xuất mặt nạ RGBA trắng/đen
+   **đục**; máy chủ đọc "điểm không trong suốt" thành điểm xoá. Test hai phía đều xanh vì mỗi phía tự kiểm
+   theo cách hiểu riêng. Sửa: điểm xoá = sáng VÀ đục. Có test cho cả 3 kiểu mặt nạ.
+3. **Kéo khung mà chữ đứng yên ở chỗ cũ.** Có hai nguyên nhân:
+   - Đổi khung không bỏ vùng an toàn E14 quanh khung cũ.
+   - Căn lại một vùng đo trong khung gốc, không theo ô E14 và không nhân hệ số E65, trong khi bộ vẽ làm
+     cả hai. Đây là lỗi đã ghi từ đầu phiên.
+
+   Sửa: đổi khung thì xoá vùng an toàn; căn lại một vùng đi CÙNG đường với căn cả trang (tự tính lại
+   vùng an toàn, căn trong ô đặt chữ, nhân hệ số vẽ, tính viền). 2 test kèm đối chứng âm.
+
+Hệ quả lên hai test cũ:
+- `test_ghim_co_qua_lon…` trước đây "tràn" chỉ vì lỗi số 3. Đã dùng câu dài hơn để vẫn tràn thật.
+- Phép dò quyền chéo phải dựng lại vùng an toàn sau mỗi lượt.
+
+Kết quả bấm thật sau khi sửa, lần nào cũng kiểm lại bằng dữ liệu trên máy chủ:
+- Nút canvas hiện trong khung nhìn.
+- Kéo khung ⇒ máy chủ ghi khung mới, chữ vẽ đúng chỗ mới.
+- Sửa bản dịch ⇒ máy chủ ghi đúng.
+- Cọ ⇒ việc xoá chạy xong, ảnh sạch đổi.
+- 0 lỗi HTTP, 0 lỗi console.
+
+Chưa thử trên GPU có WebGPU thật.
