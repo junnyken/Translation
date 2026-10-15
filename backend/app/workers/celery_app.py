@@ -133,8 +133,10 @@ def _don_job_mo_coi_luc_khoi_dong(**_):
         with sync_session() as s:
             don_job_mo_coi(s, ap_dung=True)
     except Exception:  # noqa: BLE001
-        import logging
-
+        # KHÔNG `import logging` ở đây: một lệnh import trong thân hàm biến `logging` thành biến CỤC
+        # BỘ của CẢ hàm ⇒ dòng ghi dấu sẵn sàng phía trên nổ UnboundLocalError, nổ luôn trong
+        # `except` của nó, văng ra khỏi hàm ⇒ lượt dọn job mồ côi và đánh thức mẻ KHÔNG BAO GIỜ
+        # chạy. Thấy trong log production 15-10-2026 (có từ E55).
         logging.getLogger(__name__).exception("dọn job mồ côi lỗi — bỏ qua, worker vẫn nhận việc")
 
     # E23 — dọn xong CHƯA đủ: mẻ vẫn đứng im. `dispatch_next` chỉ chạy khi một trang tới trạng
@@ -153,6 +155,4 @@ def _don_job_mo_coi_luc_khoi_dong(**_):
 
         tao_dieu_phoi(settings).danh_thuc_me_dang_do()
     except Exception:  # noqa: BLE001
-        import logging
-
         logging.getLogger(__name__).exception("đánh thức mẻ lỗi — bỏ qua, worker vẫn nhận việc")
