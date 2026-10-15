@@ -463,6 +463,12 @@ class RegionDetail(ORMModel):
     wrapped_text: str | None = None
     fit_status: FitStatus | None = None
     typeset_edited_by_user: bool = False
+    #: E70 — màu đo từ chữ gốc (`#rrggbb`); `null` = chưa đo ⇒ đang vẽ bằng màu cấu hình chung.
+    text_color: str | None = None
+    stroke_color: str | None = None
+    stroke_width: float | None = None
+    #: E75 — chữ đang được xếp theo hình bong bóng (có vị trí từng dòng).
+    xep_theo_hinh: bool = False
 
 
 # ---------- E19: tiện ích đọc truyện ----------

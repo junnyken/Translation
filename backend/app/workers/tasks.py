@@ -1101,6 +1101,107 @@ def run_inpaint_job(self, job_id: str) -> dict:
         return {"status": "failed", "job_id": str(jid), "error": reason}
 
 
+# ============================ E76: cọ xoá chữ (màn canvas) ============================
+
+
+def _run_xoa_vung_to(job_id: uuid.UUID, mat_na_rel: str) -> dict:
+    """Xoá chữ trong vùng người dùng tô, trên ẢNH SẠCH hiện tại; ảnh gốc không bao giờ bị đụng.
+
+    Sau khi ghi ảnh sạch mới:
+    - Vùng an toàn E14 được GIỮ hiệu lực (cập nhật vân tay ảnh) thay vì tính lại: cọ chỉ xoá nét
+      chữ sót, không đổi hình bong bóng. Tính lại sẽ kéo theo căn chữ lại cả trang và xoá mất cỡ chữ
+      người dùng đã ghim — đúng thứ người dùng không muốn khi họ chỉ tô một vết bẩn.
+    - Có kết quả căn chữ thì vẽ lại ảnh xem thử từ DB như mọi lượt sửa tay khác.
+    """
+    import numpy as np
+    from PIL import Image as _Image
+
+    from app.models import RegionSafeArea
+    from app.services.inpaint.mat_na_co import xoa_theo_mat_na
+    from app.services.safearea.service import van_tay_hien_vat
+
+    with sync_session() as session:
+        job = session.get(Job, job_id)
+        if job is None:
+            return {"status": "job_not_found", "job_id": str(job_id)}
+        page = session.get(Page, job.page_id)
+        page_id = page.id
+        nen_rel = page.clean_image_path or page.image_path
+        clean_rel = page.clean_image_path or str(
+            PurePosixPath(page.image_path).parent / f"{PurePosixPath(page.image_path).stem}_clean.png"
+        )
+        van_tay_cu = van_tay_hien_vat(get_storage(), page.clean_image_path)
+        danh_dau_dang_chay(job)
+        session.commit()
+
+    storage = get_storage()
+    inpainter = get_inpainter()
+    try:
+        with workspace() as ws:
+            nen_abs = storage.fetch_to(nen_rel, ws / ("nen_" + PurePosixPath(nen_rel).name))
+            mn_abs = storage.fetch_to(mat_na_rel, ws / "mat_na.png")
+            with _Image.open(mn_abs) as im:
+                if im.mode in ("RGBA", "LA"):
+                    mat_na = np.asarray(im.getchannel("A")) > 0
+                else:
+                    mat_na = np.asarray(im.convert("L")) > 127
+            dich = ws / "sach_moi.png"
+            so_cum = xoa_theo_mat_na(inpainter, str(nen_abs), mat_na, str(dich))
+            storage.save_file(clean_rel, dich)
+    finally:
+        storage.delete(mat_na_rel)
+
+    with sync_session() as session:
+        page = session.get(Page, page_id)
+        page.clean_image_path = clean_rel
+        van_tay_moi = van_tay_hien_vat(storage, clean_rel)
+        for ban in session.scalars(
+            select(RegionSafeArea)
+            .join(TextRegion, TextRegion.id == RegionSafeArea.region_id)
+            .where(TextRegion.page_id == page_id)
+        ):
+            if ban.clean_image_fingerprint in (None, van_tay_cu):
+                ban.clean_image_fingerprint = van_tay_moi
+        co_can_chu = session.scalar(
+            select(func.count(TypesetResult.id))
+            .join(TextRegion, TextRegion.id == TypesetResult.region_id)
+            .where(TextRegion.page_id == page_id)
+        )
+        session.commit()
+
+    preview_rel = render_page_preview(page_id) if co_can_chu else None
+    with sync_session() as session:
+        job = session.get(Job, job_id)
+        job.status = JobStatus.done
+        job.error_log = None
+        session.commit()
+    logger.info("xoá vùng tô trang %s: %d cụm, preview=%s", page_id, so_cum, preview_rel)
+    return {"status": "done", "job_id": str(job_id), "page_id": str(page_id),
+            "so_cum": so_cum, "clean_image_path": clean_rel, "preview_path": preview_rel}
+
+
+@celery_app.task(
+    bind=True,
+    name="inpaint.run_xoa_vung_to_job",
+    soft_time_limit=settings.inpaint_timeout_seconds,
+    time_limit=settings.inpaint_timeout_seconds + 30,
+)
+def run_xoa_vung_to_job(self, job_id: str, mat_na_rel: str) -> dict:
+    """E76 — cọ xoá chữ. Lỗi: Job=failed + lý do; ảnh sạch cũ GIỮ NGUYÊN (chỉ ghi khi đã xong)."""
+    jid = uuid.UUID(str(job_id))
+    try:
+        return _run_xoa_vung_to(jid, mat_na_rel)
+    except SoftTimeLimitExceeded:
+        reason = f"timeout: vượt {settings.inpaint_timeout_seconds}s"
+        _mark_job_failed(jid, reason)
+        return {"status": "failed", "job_id": str(jid), "error": reason}
+    except Exception as exc:  # noqa: BLE001
+        reason = f"{type(exc).__name__}: {exc}"
+        logger.exception("xoá vùng tô job %s thất bại", jid)
+        _mark_job_failed(jid, reason)
+        return {"status": "failed", "job_id": str(jid), "error": reason}
+
+
 # ============================ M5: Dịch ============================
 
 

@@ -327,3 +327,4 @@ class LamaInpainter:
         out.save(target, format="PNG")
         logger.info("Ảnh clean: %s (%d vùng, %.1f%% diện tích)", target, len(masks), mask.mean() * 100)
         return str(target)
+

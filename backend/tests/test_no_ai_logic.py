@@ -97,6 +97,8 @@ def test_celery_da_dang_ky_dung_task_detect_cua_m2():
         "detect.run_detect_job",
         "ocr.run_ocr_job",
         "inpaint.run_inpaint_job",
+        # E76 — cọ xoá chữ trên màn canvas.
+        "inpaint.run_xoa_vung_to_job",
         "translate.run_translate_job",
         "typeset.run_typeset_job",
         "typeset.run_refit_job",

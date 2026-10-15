@@ -3,6 +3,7 @@ import * as api from './api.js'
 import BangBanMoi from './components/BangBanMoi.jsx'
 import BatchPanel from './components/BatchPanel.jsx'
 import BboxOverlay from './components/BboxOverlay.jsx'
+import CanvasEditor from './components/canvas/CanvasEditor.jsx'
 import ExportPanel from './components/ExportPanel.jsx'
 import RegionPanel from './components/RegionPanel.jsx'
 import RegionQualityBox from './components/RegionQualityBox.jsx'
@@ -36,7 +37,12 @@ import { MUC_DICH } from './lib/status-presentation.js'
  *  Giữ nguyên dạng địa chỉ cũ: link đã gửi cho nhau vẫn phải mở được. */
 function docDiaChi() {
   const p = new URLSearchParams(window.location.hash.slice(1))
-  return { pageId: p.get('page') || '', projectId: p.get('project') || '' }
+  // E76 — `#canvas=<page_id>` mở màn sửa tay kiểu canvas. `#canvas=&project=<id>` (không có trang)
+  // mở theo chapter: vào trang đầu, hoặc hiện màn "chưa có trang" nếu chapter rỗng.
+  return {
+    pageId: p.get('page') || '', projectId: p.get('project') || '',
+    coCanvas: p.has('canvas'), canvasId: p.get('canvas') || '',
+  }
 }
 
 const KHOA_NHO = 'translation:chapter-gan-day'
@@ -65,7 +71,7 @@ export default function App({ urlBundle } = {}) {
   const [moTaiKhoan, setMoTaiKhoan] = useState(false)
   //: ĐX-1 — đang mở đường nào ở màn chính: `nhanh` (thả file là chạy) hay `day_du` (có rà soát).
   const [duong, setDuong] = useState('nhanh')
-  const [{ pageId, projectId }, setDiaChi] = useState(docDiaChi)
+  const [{ pageId, projectId, coCanvas, canvasId }, setDiaChi] = useState(docDiaChi)
   const [nhap, setNhap] = useState(projectId || pageId)
   const [project, setProject] = useState(null)
   const [canhBao, setCanhBao] = useState(null)
@@ -427,7 +433,7 @@ export default function App({ urlBundle } = {}) {
     }
   }, [duongDanAnh, phienBanAnh])
 
-  const oTrangChu = !projectId && !pageId
+  const oTrangChu = !projectId && !pageId && !coCanvas
   // Khách lạ bấm "Đăng nhập" mới hiện màn đăng nhập — xem ghi chú ở nhánh `nguoiDung === null`.
 
   if (nguoiDung === undefined) {
@@ -548,6 +554,9 @@ export default function App({ urlBundle } = {}) {
         </div>
       </header>
 
+      {coCanvas ? (
+        <CanvasEditor pageId={canvasId} projectId={projectId} />
+      ) : (
       <main className="than-trang">
         {/* Sau slice B, 401 ở đây nghĩa là PHIÊN HẾT HẠN giữa chừng, không phải thiếu khoá
             chung nữa. Hiện ô nhập khoá lúc này là chỉ sai đường cho người dùng. */}
@@ -732,6 +741,10 @@ export default function App({ urlBundle } = {}) {
                     />
                     <span>Hiện vùng an toàn của bong bóng</span>
                   </label>
+                  {/* E76 — vào màn sửa tay kiểu canvas. Màn này vẫn là đường lùi, không bỏ. */}
+                  <a className="nut nut-phu" href={`#canvas=${chiTiet.page.id}`}>
+                    Mở chế độ canvas
+                  </a>
                   <span className="ghi-chu">
                     {soTran} vùng tràn khung · {soCanXem} vùng cần xem lại ·{' '}
                     {chiTiet.regions.length} vùng
@@ -925,6 +938,7 @@ export default function App({ urlBundle } = {}) {
           </>
         )}
       </main>
+      )}
 
       {/* E21b — chặn đúng khoảnh khắc chữ đang gõ dở sắp biến mất. KHÔNG tự lưu hộ: lưu ngầm một
           thứ người dùng chưa xác nhận cũng là một kiểu mất kiểm soát. */}

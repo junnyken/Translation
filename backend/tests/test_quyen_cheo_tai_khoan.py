@@ -110,6 +110,10 @@ _MULTIPART = {
         lambda: {"file": ("a.png", _anh_png(), "image/png")},
     "/api/v1/projects/{project_id}/pages/archive":
         lambda: {"file": ("ch.cbz", _goi_cbz(), "application/zip")},
+    # E76 — cọ xoá chữ. Mặt nạ PNG bất kỳ là đủ để vượt bước kiểm thân của FastAPI; cổng quyền
+    # chạy TRƯỚC mọi kiểm tra mặt nạ, nên A dừng ở nghiệp vụ (409/422), B bị chặn 404.
+    "/api/v1/pages/{page_id}/xoa-vung-to":
+        lambda: {"file": ("m.png", _anh_png(), "image/png")},
 }
 
 

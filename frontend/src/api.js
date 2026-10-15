@@ -266,6 +266,8 @@ export const layJob = (id) => fetch(`${BASE}/jobs/${id}`).then(doc)
 // Đường dẫn TRẦN (không tự tải): nơi gọi tự quyết định tải lúc nào (chỉ khi bấm "Phóng to"),
 // đúng chỗ đã ghi ở đầu file — `<img src>` không mang được mã phiên, phải qua `taiVeBlobUrl`.
 export const duongDanAnhGoc = (pageId) => `${BASE}/pages/${pageId}/original-image`
+// E76 — ảnh ĐÃ XOÁ CHỮ (chưa chèn chữ dịch), lớp "Đã xoá chữ" của màn canvas. Cũng phải tải qua `taiVeBlobUrl`.
+export const duongDanAnhSach = (pageId) => `${BASE}/pages/${pageId}/clean-image`
 
 export const suaVung = (regionId, thayDoi) =>
   fetch(`${BASE}/regions/${regionId}`, {
@@ -282,6 +284,14 @@ export const docLaiVung = (regionId) =>
 
 export const canhLaiVung = (regionId) =>
   fetch(`${BASE}/regions/${regionId}/re-fit`, { method: 'POST' }).then(doc)
+
+// E76 — cọ xoá chữ trên màn canvas. `blob` là mặt nạ PNG CÙNG CỠ ẢNH GỐC (điểm tô = trắng đục,
+// còn lại đen). Không tự đặt `Content-Type`: để trình duyệt tự sinh ranh giới multipart.
+export const xoaVungTo = (pageId, blob) => {
+  const f = new FormData()
+  f.append('file', blob, 'mat_na.png')
+  return fetch(`${BASE}/pages/${pageId}/xoa-vung-to`, { method: 'POST', body: f }).then(doc)
+}
 
 export const xemTruocXuat = (projectId) =>
   fetch(`${BASE}/projects/${projectId}/export-preview`).then(doc)

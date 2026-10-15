@@ -75,3 +75,21 @@ describe('lý do trang đứng im', () => {
     expect(await layLyDoDung('pg1')).toBeNull()
   })
 })
+
+describe('xoaVungTo (E76)', () => {
+  it('gửi mặt nạ dạng multipart tới đúng đường dẫn, không tự đặt Content-Type', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true, json: async () => ({ page_id: 'p1', status: 'inpainted', job_id: 'j1' }),
+    })))
+    const { xoaVungTo } = await import('./api.js')
+    const blob = new Blob(['x'], { type: 'image/png' })
+    const kq = await xoaVungTo('p1', blob)
+    expect(kq.job_id).toBe('j1')
+    const [url, opts] = fetch.mock.calls[0]
+    expect(url).toMatch(/\/pages\/p1\/xoa-vung-to$/)
+    expect(opts.method).toBe('POST')
+    expect(opts.body).toBeInstanceOf(FormData)
+    expect(opts.body.get('file').name).toBe('mat_na.png')
+    expect(opts.headers['Content-Type']).toBeUndefined()
+  })
+})

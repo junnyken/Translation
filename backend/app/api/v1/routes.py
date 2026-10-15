@@ -167,6 +167,7 @@ from app.services.dispatch import (
     dispatch_rut_gon_job,
     dispatch_detect_job,
     dispatch_inpaint_job,
+    dispatch_xoa_vung_to_job,
     dispatch_ocr_job,
     dispatch_translate_job,
     dispatch_typeset_job,
@@ -1618,6 +1619,83 @@ async def retry_inpaint(
     return PageAccepted(page_id=page.id, status=page.status, job_id=job.id)
 
 
+#: E76 — trần cỡ tệp mặt nạ. PNG một kênh của trang 4000×6000 nén còn vài trăm KB; 20MB là dư.
+_TRAN_MAT_NA_BYTE = 20 * 1024 * 1024
+#: Tô quá nửa trang thì đó không còn là "xoá vết chữ sót" — gần như chắc là bấm nhầm công cụ.
+_TRAN_TI_LE_TO = 0.5
+
+
+@router.post(
+    "/pages/{page_id}/xoa-vung-to",
+    response_model=PageAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["pages"],
+)
+async def xoa_vung_to(
+    page_id: uuid.UUID,
+    file: UploadFile = File(..., description="Mặt nạ PNG cùng cỡ ẢNH GỐC: điểm trắng/không trong suốt = xoá"),
+    session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
+) -> PageAccepted:
+    """E76 — cọ xoá chữ trên màn canvas: xoá chữ trong vùng người dùng tô, chạy nền.
+
+    Làm trên ẢNH SẠCH hiện tại (chưa có thì trên ảnh gốc); ảnh gốc không bao giờ bị ghi đè. Kiểm
+    mặt nạ NGAY tại đây (đúng cỡ, không rỗng, không trùm quá nửa trang) để lỗi hiện ra liền cho
+    người tô, thay vì thành một việc nền hỏng mà họ phải đi tìm.
+    """
+    import io
+
+    import numpy as np
+    from PIL import Image as _Image
+
+    page = await _get_page_or_404(session, page_id, nguoi)
+    if page.status in (PageStatus.queued, PageStatus.detecting):
+        raise HTTPException(status_code=409, detail="Trang còn đang xử lý — đợi xong rồi hãy tô")
+    tho = await file.read(_TRAN_MAT_NA_BYTE + 1)
+    if len(tho) > _TRAN_MAT_NA_BYTE:
+        raise HTTPException(status_code=413, detail="Tệp mặt nạ quá lớn")
+    storage = get_storage()
+    try:
+        with _Image.open(io.BytesIO(tho)) as im:
+            co_mn = im.size
+            mn = (np.asarray(im.getchannel("A")) > 0 if im.mode in ("RGBA", "LA")
+                  else np.asarray(im.convert("L")) > 127)
+        with storage.open_read(page.image_path) as f, _Image.open(f) as goc:
+            co_goc = goc.size
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=f"Không đọc được mặt nạ: {exc}") from exc
+    if co_mn != co_goc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Mặt nạ {co_mn[0]}x{co_mn[1]} khác cỡ trang {co_goc[0]}x{co_goc[1]}",
+        )
+    ti_le = float(mn.mean())
+    if ti_le == 0:
+        raise HTTPException(status_code=422, detail="Chưa tô vùng nào")
+    if ti_le > _TRAN_TI_LE_TO:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Vùng tô chiếm {ti_le:.0%} trang — quá rộng để là vết chữ sót",
+        )
+
+    from pathlib import PurePosixPath
+
+    mat_na_rel = str(PurePosixPath(page.image_path).parent / f"{page.id}_mat_na_{uuid.uuid4().hex}.png")
+    buf = io.BytesIO()
+    _Image.fromarray(mn.astype(np.uint8) * 255).save(buf, format="PNG")
+    await run_in_threadpool(storage.save, mat_na_rel, buf.getvalue())
+
+    job = Job(type=JobType.inpaint, page_id=page.id, status=JobStatus.queued)
+    session.add(job)
+    await session.commit()
+    await session.refresh(job)
+    sent, reason = dispatch_xoa_vung_to_job(job.id, mat_na_rel)
+    if not sent:
+        job.error_log = reason
+        await session.commit()
+    return PageAccepted(page_id=page.id, status=page.status, job_id=job.id)
+
+
 @router.get(
     "/pages/{page_id}/translation", response_model=list[TranslationResultRead], tags=["pages"]
 )
@@ -1828,6 +1906,10 @@ async def get_page_detail(
             wrapped_text=ts.wrapped_text if ts else None,
             fit_status=ts.fit_status if ts else None,
             typeset_edited_by_user=bool(ts.edited_by_user) if ts else False,
+            text_color=ts.text_color if ts else None,
+            stroke_color=ts.stroke_color if ts else None,
+            stroke_width=ts.stroke_width if ts else None,
+            xep_theo_hinh=bool(ts and ts.dong_json),
         )
         for region, ocr, tr, ts in rows
     ]

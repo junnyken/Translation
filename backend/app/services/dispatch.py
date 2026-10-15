@@ -51,6 +51,19 @@ def dispatch_inpaint_job(job_id: uuid.UUID) -> tuple[bool, str | None]:
         return False, reason
 
 
+def dispatch_xoa_vung_to_job(job_id: uuid.UUID, mat_na_rel: str) -> tuple[bool, str | None]:
+    """E76 — cọ xoá chữ. Cùng nguyên tắc: broker chết thì nói thật."""
+    try:
+        from app.workers.tasks import run_xoa_vung_to_job
+
+        run_xoa_vung_to_job.delay(str(job_id), mat_na_rel)
+        return True, None
+    except Exception as exc:  # noqa: BLE001
+        reason = f"enqueue_failed: {type(exc).__name__}: {exc}"
+        logger.error("Không đẩy được job xoá vùng tô %s: %s", job_id, reason)
+        return False, reason
+
+
 def dispatch_translate_job(job_id: uuid.UUID, engine: str | None = None) -> tuple[bool, str | None]:
     """Trả (đã_gửi, lý_do_lỗi). Broker chết thì nói thật, không giả vờ đã gửi."""
     try:
