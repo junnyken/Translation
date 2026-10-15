@@ -512,6 +512,22 @@ class Settings(BaseSettings):
     #: E69 — vùng chữ nằm trên nền một màu (bong bóng trắng…) được tô màu nền thay vì chạy LaMa.
     #: Ý tưởng từ Koharu; mọi vùng không chắc phẳng vẫn chạy LaMa. Xem `inpaint/to_phang.py`.
     inpaint_flat_fill: bool = True
+    #: E74 — `lama` (CPU, mặc định) hoặc `khuech_tan` (SDXL/FLUX qua diffusers — CẦN GPU NVIDIA và
+    #: image worker GPU: `deploy/docker-compose.gpu.yml`). Không có GPU ⇒ lỗi rõ, KHÔNG lùi về LaMa.
+    inpaint_engine: Literal["lama", "khuech_tan"] = "lama"
+    #: Id model trên HuggingFace. Mặc định SDXL inpainting (CreativeML Open RAIL++-M). FLUX:
+    #: `black-forest-labs/FLUX.1-schnell` (Apache-2.0; đặt STEPS=4, GUIDANCE=0). FLUX.2-klein KHÔNG
+    #: dùng được (diffusers không có pipeline xoá vùng cho nó). FLUX.1-dev cấm dùng thương mại.
+    inpaint_kt_model: str = "diffusers/stable-diffusion-xl-1.0-inpainting-0.1"
+    inpaint_kt_device: str = "cuda"
+    inpaint_kt_steps: int = 20
+    inpaint_kt_strength: float = 0.99
+    inpaint_kt_guidance: float = 7.0
+    #: Cạnh dài tối đa của ô đưa vào model (SDXL huấn luyện quanh 1024).
+    inpaint_kt_max_side: int = 1024
+    #: Seed cố định ⇒ chạy lại cùng trang ra cùng ảnh (dễ so sánh, dễ báo lỗi).
+    inpaint_kt_seed: int = 0
+    inpaint_kt_cache_dir: str = "/model-cache/hf"
     #: Timeout RIÊNG cho inpaint (đo thật: 54,3s/ảnh 1400x2000 trên CPU, chưa tính bước kiểm chứng).
     inpaint_timeout_seconds: int = 600
     inpaint_auto_chain: bool = True

@@ -39,6 +39,29 @@ RUN pip install --no-cache-dir --timeout 300 --retries 10 -r requirements-worker
 ENV HF_HOME=/model-cache/hf \
     PADDLE_PDX_CACHE_HOME=/model-cache/paddle
 
+# ---------- stage worker-gpu: như worker, nhưng torch CUDA + diffusers (E74) ----------
+# CHỈ cho bản cài trên máy có GPU NVIDIA (deploy/docker-compose.gpu.yml). Production KHÔNG dùng.
+# PHẢI đứng TRƯỚC stage `app`: production build KHÔNG có --target ⇒ lấy stage CUỐI. Đặt stage
+# này ở cuối tệp là lượt deploy kế tiếp build nhầm image GPU (bài canh: test_e74_dockerfile).
+# TORCH_CUDA: cu126 (mặc định — torch 2.14.1, chạy với nhiều đời driver) hoặc cu130 (driver mới).
+# Đừng dùng cu128: index đó chỉ có tới torch 2.11 (kiểm 15-10-2026), lệch bản CPU 2.14.
+FROM base AS worker-gpu
+ARG TORCH_CUDA=cu126
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libgl1 libglib2.0-0 libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir --timeout 300 --retries 10 \
+        --index-url https://download.pytorch.org/whl/${TORCH_CUDA} torch==2.14.1 torchvision
+
+COPY requirements-worker.txt requirements-gpu.txt ./
+RUN pip install --no-cache-dir --timeout 300 --retries 10 \
+        -r requirements-worker.txt -r requirements-gpu.txt
+
+ENV HF_HOME=/model-cache/hf \
+    PADDLE_PDX_CACHE_HOME=/model-cache/paddle
+
 # ---------- stage api: NHẸ, không có thư viện AI (docker-compose máy nhà dùng stage này) ----------
 FROM base AS api
 

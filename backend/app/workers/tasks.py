@@ -764,6 +764,23 @@ _inpainter = None
 def get_inpainter():
     """Import trễ để tiến trình API không bao giờ nạp onnxruntime/model inpaint."""
     global _inpainter
+    if _inpainter is None and settings.inpaint_engine == "khuech_tan":
+        # E74 — SDXL/FLUX trên GPU. Dùng chung dilate/tô phẳng với LaMa để bước OCR kiểm lại
+        # (`dilated_masks`) soi đúng vùng đã xoá.
+        from app.services.inpaint.khuech_tan import KhuechTanInpainter
+
+        _inpainter = KhuechTanInpainter(
+            model_id=settings.inpaint_kt_model,
+            device=settings.inpaint_kt_device,
+            dilate_ratio=settings.inpaint_dilate_ratio,
+            so_buoc=settings.inpaint_kt_steps,
+            strength=settings.inpaint_kt_strength,
+            guidance=settings.inpaint_kt_guidance,
+            canh_dai_toi_da=settings.inpaint_kt_max_side,
+            seed=settings.inpaint_kt_seed,
+            thu_muc_cache=settings.inpaint_kt_cache_dir,
+            flat_fill=settings.inpaint_flat_fill,
+        )
     if _inpainter is None:
         from app.services.inpaint.lama import LamaInpainter
 

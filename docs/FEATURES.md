@@ -71,6 +71,7 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 | E70 | **Chữ dịch đúng màu chữ, màu viền, bề dày viền của chữ gốc** (cách đo từ Koharu) | **BUILT.** Test DB thật + font thật xanh, đối chứng âm đạt; **chưa chạy trên trang truyện có chữ màu/viền**. Cột mới `typeset_result.text_color/stroke_color/stroke_width` (NULL = chưa đo ⇒ màu cấu hình như trước). Tắt bằng `E70_MAU_CHU_THEO_VUNG=false` |
 | E71 | **Dịch theo ngữ cảnh trả JSON theo `id`, ép schema** (giao thức Koharu) | **BUILT + A/B 5+5 lượt Gemini thật.** Trên bộ thử 7 câu: hai chế độ ngang nhau (0 câu trống, 0 sót chữ Nhật) — giá trị là chống hỏng giao thức (E30/E46). Đã vá một thụt lùi đo được (bỏ dấu chấm cuối câu). Tắt bằng `LLM_DICH_JSON=false` |
 | E72 | **Dịch bằng LLM qua API kiểu OpenAI**: Ollama / LM Studio / llama.cpp trên máy, hoặc API chính thức OpenAI bằng khoá | **BUILT.** 11 test với máy chủ HTTP thật; chưa chạy với Ollama thật. Lỗi ⇒ lùi `google_fast`. Chưa có trong giao diện. Xem `REPORT_E72.md` |
+| E74 | **Xoá chữ bằng SDXL / FLUX.1 trên GPU** + gói cài Docker có GPU (`docker-compose.gpu.yml`, `docs/CAI_DAT_CUC_BO.md`) | **BUILT.** 17 test (torch/diffusers giả) + kiểm API diffusers 0.41 thật; **chưa chạy trên GPU thật, chưa build image GPU** (workspace không GPU, đĩa đầy). FLUX.2-klein không dùng được qua diffusers. Xem `REPORT_E74.md` |
 
 ## Những gì dùng được ngay hôm nay (sau E12)
 
