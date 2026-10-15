@@ -47,3 +47,22 @@ def test_ca_that_E27_cung_khong_con_chong_nhau():
     khung = {"392e16e2": (466.0, 25.0, 173.0, 27.0), "473212d5": (391.0, 69.0, 274.0, 32.0)}
     ra = cat_o_dat_chu(o_dat, khung)
     assert not _chong_nhau(ra["392e16e2"], ra["473212d5"]), ra
+
+
+def test_o_khong_cham_khung_ben_kia_nhung_hai_o_van_chong_nhau():
+    """Số đo tái hiện local (LaMa thật) trang ja_E12P01: ô câu 6 tự nó chỉ lên tới y=257 nên KHÔNG
+    chạm khung câu 5 (đáy 237) ⇒ lượt cắt theo khung bỏ qua; nhưng ô câu 5 xuống tới 270 ⇒ hai ô
+    chồng 13px và chữ đè nhau."""
+    o_dat = {"cau5": (493.0, 206.0, 145.0, 64.0), "cau6": (457.0, 257.0, 203.0, 94.0)}
+    khung = {"cau5": (544.0, 217.0, 84.0, 20.0), "cau6": (492.0, 302.0, 155.0, 46.0)}
+    ra = cat_o_dat_chu(o_dat, khung)
+    assert not _chong_nhau(ra["cau5"], ra["cau6"]), ra
+    for rid, (kx, ky, kw, kh) in khung.items():
+        ox, oy, ow, oh = ra[rid]
+        assert ox <= kx and oy <= ky and ox + ow >= kx + kw and oy + oh >= ky + kh
+
+
+def test_hai_o_tach_roi_thi_giu_nguyen():
+    o_dat = {"a": (0.0, 0.0, 100.0, 50.0), "b": (0.0, 60.0, 100.0, 50.0)}
+    khung = {"a": (10.0, 10.0, 50.0, 20.0), "b": (10.0, 70.0, 50.0, 20.0)}
+    assert cat_o_dat_chu(o_dat, khung) == o_dat

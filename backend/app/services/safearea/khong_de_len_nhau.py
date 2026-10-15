@@ -140,4 +140,50 @@ def cat_o_dat_chu(
         for _k, b in vat_can:
             moi = _cat_mot_vat_can(moi, phai_giu, b, khe_ho)
         ra[rid] = moi
+    return _tach_o_chong_nhau(ra, khung)
+
+
+def _tach_o_chong_nhau(o_dat: dict, khung: dict) -> dict:
+    """E83 — lượt hai: hai Ô ĐẶT CHỮ còn chồng nhau thì chia ở đường giữa hai khung chữ.
+
+    Lượt một chỉ cắt khi ô của mình trùm lên KHUNG CHỮ vùng kia. Đo thật (ja_E12P01): ô câu 6 tự
+    nó dừng ở y=257, không chạm khung câu 5 (đáy 237) nên không bị cắt; ô câu 5 thì nới xuống tới
+    270 ⇒ hai ô chồng 13px, chữ căn giữa mỗi ô đè lên nhau. Ở đây chọn trục mà hai khung chữ cách
+    nhau XA nhất, cắt cả hai ô về đường giữa. Hai khung tự chồng nhau (không có khoảng trống trên
+    trục nào) ⇒ giữ nguyên, việc của E26-B/B2.
+    """
+    ra = dict(o_dat)
+    ids = [k for k in ra if k in khung]
+    for i, a in enumerate(ids):
+        for b in ids[i + 1:]:
+            oa, ob = ra[a], ra[b]
+            if not _chong_nhau(oa, ob):
+                continue
+            ka, kb = khung[a], khung[b]
+            ung_vien = []
+            if ka[1] + ka[3] <= kb[1]:    # a TRÊN b
+                ung_vien.append((kb[1] - (ka[1] + ka[3]), "y", a, b))
+            if kb[1] + kb[3] <= ka[1]:    # b TRÊN a
+                ung_vien.append((ka[1] - (kb[1] + kb[3]), "y", b, a))
+            if ka[0] + ka[2] <= kb[0]:    # a TRÁI b
+                ung_vien.append((kb[0] - (ka[0] + ka[2]), "x", a, b))
+            if kb[0] + kb[2] <= ka[0]:    # b TRÁI a
+                ung_vien.append((ka[0] - (kb[0] + kb[2]), "x", b, a))
+            if not ung_vien:
+                continue
+            _khe, truc, dau, sau = max(ung_vien)
+            kd, ks = khung[dau], khung[sau]
+            od, os_ = ra[dau], ra[sau]
+            if truc == "y":
+                giua = (kd[1] + kd[3] + ks[1]) / 2
+                day_dau = min(od[1] + od[3], giua)
+                ra[dau] = (od[0], od[1], od[2], max(0.0, day_dau - od[1]))
+                dinh_sau = max(os_[1], giua)
+                ra[sau] = (os_[0], dinh_sau, os_[2], max(0.0, os_[1] + os_[3] - dinh_sau))
+            else:
+                giua = (kd[0] + kd[2] + ks[0]) / 2
+                phai_dau = min(od[0] + od[2], giua)
+                ra[dau] = (od[0], od[1], max(0.0, phai_dau - od[0]), od[3])
+                trai_sau = max(os_[0], giua)
+                ra[sau] = (trai_sau, os_[1], max(0.0, os_[0] + os_[2] - trai_sau), os_[3])
     return ra
