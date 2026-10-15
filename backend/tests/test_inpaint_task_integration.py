@@ -115,7 +115,9 @@ async def test_ocr_lai_con_chu_thi_danh_dau_can_review(
 ):
     """Kiểm chứng khách quan: OCR lại vùng đã xoá mà còn chữ -> inpaint_needs_review."""
     page_id = await _page_through_ocr(client, sample_page_image, fake_detector, fake_ocr_engine)
-    fake_inpainter()
+    # E77 — còn chữ THẬT nghĩa là còn MỰC trên ảnh. Trước đây ảnh "đã xoá" ở đây trắng tinh mà vẫn
+    # kỳ vọng gắn cờ — tức bài này khoá đúng hành vi lỗi (tin lời bộ đọc trên ô trắng).
+    fake_inpainter(con_muc=True)
     fake_ocr_engine(results=("CHỮ VẪN CÒN", 0.95), engine_enum=OCREngine.paddle_ocr)
 
     result = run_inpaint_job(_job_id(page_id, JobType.inpaint))
@@ -124,6 +126,21 @@ async def test_ocr_lai_con_chu_thi_danh_dau_can_review(
     assert result["page_status"] == "inpaint_needs_review"
     assert result["regions_with_text_left"] == 2
     assert _page(page_id).status is PageStatus.inpaint_needs_review
+
+
+async def test_o_trang_tron_ma_bo_doc_van_ra_chu_thi_KHONG_gan_co(
+    client, sample_page_image, fake_detector, fake_ocr_engine, fake_inpainter
+):
+    """E77 — lỗi thật trên production 15-10-2026: manga-ocr đọc `そういえば、` trên ô đã xoá TRẮNG
+    TRƠN ⇒ trang nào cũng "còn chữ ở 10/10 vùng". Vùng không có mực thì không tin bộ đọc."""
+    page_id = await _page_through_ocr(client, sample_page_image, fake_detector, fake_ocr_engine)
+    fake_inpainter()  # trắng tinh
+    fake_ocr_engine(results=("そういえば、", None), engine_enum=OCREngine.manga_ocr)
+
+    result = run_inpaint_job(_job_id(page_id, JobType.inpaint))
+
+    assert result["regions_with_text_left"] == 0
+    assert _page(page_id).status is PageStatus.inpainted
 
 
 async def test_ocr_lai_khong_con_chu_thi_pass(

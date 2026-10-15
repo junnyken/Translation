@@ -559,6 +559,10 @@ class Settings(BaseSettings):
     #: vùng chữ thật ngắn nhất được 3.
     vung_xoa_min_ky_tu: int = 2
     inpaint_verify_min_chars: int = 2
+    #: E77 — tỉ lệ điểm "mực" tối thiểu trong vùng để TIN kết quả đọc lại. Dưới mức này vùng là trắng
+    #: trơn và chữ OCR đọc được là BỊA: manga-ocr nhìn ô trắng vẫn trả `そういえば、`. Đo 15-10-2026
+    #: trên 5 trang thật: vùng có chữ thật ≥ 0,084; vùng đọc bịa 0–0,011.
+    inpaint_verify_min_muc: float = 0.015
     inpaint_intra_op_threads: int = 0
     #: Trang bao nhiêu TRIỆU ĐIỂM ẢNH trở xuống thì xoá chữ cả trang một lượt; lớn hơn thì chia
     #: theo cụm bong bóng. Đo thật: LaMa cần ~1,6 GB RAM cho mỗi triệu điểm ảnh, nên trang truyện

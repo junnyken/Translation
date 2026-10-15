@@ -840,17 +840,43 @@ def _advance_page(page: Page, target: PageStatus) -> None:
     page.status = target
 
 
+def ti_le_muc(xam, bbox) -> float:
+    """Tỉ lệ điểm ảnh lệch hẳn (>60 mức xám) khỏi màu nền (trung vị) trong khung — "có mực không"."""
+    import numpy as np
+
+    cao, rong = xam.shape[:2]
+    x1, y1 = max(0, int(bbox.x)), max(0, int(bbox.y))
+    x2, y2 = min(rong, int(bbox.x + bbox.w)), min(cao, int(bbox.y + bbox.h))
+    o = xam[y1:y2, x1:x2].astype(np.int16)
+    if o.size == 0:
+        return 0.0
+    return float((np.abs(o - np.median(o)) > 60).mean())
+
+
 def _verify_text_removed(clean_abs_path: str, dilated: list, source_lang: str) -> list[str]:
     """Kiểm chứng KHÁCH QUAN: OCR lại đúng vùng vừa xoá trên ảnh clean.
 
     Trả danh sách text còn đọc được. Rỗng = xoá sạch. Không dựa vào cảm nhận "nhìn thấy artifact".
     """
+    import numpy as np
+    from PIL import Image as _Image
+
     from app.services.ocr.engines import dem_ky_tu_co_nghia
 
     engine = get_ocr_engine_cached(source_lang)
     toi_thieu = max(1, settings.inpaint_verify_min_chars)
     leftovers: list[str] = []
+    with _Image.open(clean_abs_path) as _im:
+        xam = np.asarray(_im.convert("L"))
     for thu_tu, bbox in enumerate(dilated, 1):
+        # E77 — vùng TRẮNG TRƠN thì không hỏi bộ đọc. manga-ocr nhìn ô trắng vẫn "đọc" ra một câu hay
+        # gặp (`そういえば、`), nên trước đây trang nào cũng bị gắn "còn chữ ở 10/10 vùng" và danh sách
+        # rà soát đầy cờ giả. Bằng chứng phải là MỰC thật trên ảnh, không phải lời bộ đọc.
+        muc = ti_le_muc(xam, bbox)
+        if muc < settings.inpaint_verify_min_muc:
+            logger.info("kiểm chứng xoá chữ: vùng %d trắng trơn (mực %.4f) — không đọc lại",
+                        thu_tu, muc)
+            continue
         try:
             text, _confidence = engine.recognize(clean_abs_path, bbox)
         except Exception as exc:  # noqa: BLE001 - lỗi kiểm chứng không được giết job inpaint

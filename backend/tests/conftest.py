@@ -402,7 +402,12 @@ def fake_inpainter(monkeypatch):
 
     from app.workers import tasks
 
-    def _install(raises=None, fill=(255, 255, 255)):
+    def _install(raises=None, fill=(255, 255, 255), con_muc=False):
+        """`con_muc=True`: ảnh "đã xoá" vẫn còn VẾT MỰC trong mọi khung (giả lập xoá sót chữ thật).
+
+        E77 — bước kiểm chứng chỉ tin lời bộ đọc khi vùng có mực thật; ảnh trắng tinh thì chữ đọc
+        được bị coi là bịa (manga-ocr nhìn ô trắng vẫn trả `そういえば、`).
+        """
         class _Fake:
             def __init__(self):
                 self.calls = []
@@ -422,7 +427,15 @@ def fake_inpainter(monkeypatch):
                 target = self.clean_path_for(image_path)
                 with Image.open(image_path) as im:
                     size = im.size
-                Image.new("RGB", size, fill).save(target)
+                im2 = Image.new("RGB", size, fill)
+                if con_muc:
+                    from PIL import ImageDraw
+
+                    d = ImageDraw.Draw(im2)
+                    for b in masks:
+                        for k in range(int(b.y) + 4, int(b.y + b.h) - 4, 8):
+                            d.line([(b.x + 4, k), (b.x + b.w - 4, k)], fill=(0, 0, 0), width=3)
+                im2.save(target)
                 return str(target)
 
         fake = _Fake()
