@@ -166,6 +166,56 @@ def _mark_failed(job_id: uuid.UUID, page_id: uuid.UUID | None, reason: str) -> N
         session.commit()
 
 
+def mat_na_chu_rel(image_rel: str) -> str:
+    """E79 — nơi lưu mặt nạ điểm ảnh của chữ, cạnh ảnh trang (suy từ đường ảnh, không cần cột DB)."""
+    p = PurePosixPath(image_rel)
+    return str(p.parent / f"{p.stem}_mat_na_chu.png")
+
+
+def _luu_mat_na_chu(image_rel: str, mat_na) -> None:
+    """Lưu mặt nạ chữ của lượt nhận diện vừa chạy; engine không có mặt nạ (Gemini) ⇒ XOÁ bản cũ.
+
+    Xoá bản cũ là bắt buộc: nhận diện lại bằng engine khác mà để mặt nạ cũ thì bước xoá chữ sẽ xoá
+    theo nét chữ của một bộ khung KHÁC. Lỗi lưu/xoá không được làm hỏng lượt nhận diện.
+    """
+    rel = mat_na_chu_rel(image_rel)
+    storage = get_storage()
+    try:
+        if mat_na is None or not settings.inpaint_theo_net_chu:
+            storage.delete(rel)
+            return
+        import io
+
+        from PIL import Image as _Image
+
+        buf = io.BytesIO()
+        _Image.fromarray(mat_na).save(buf, format="PNG", optimize=True)
+        storage.save(rel, buf.getvalue())
+    except Exception:  # noqa: BLE001
+        logger.exception("E79: không lưu/xoá được mặt nạ chữ %s — xoá chữ sẽ theo khung", rel)
+
+
+def _doc_mat_na_chu(image_rel: str):
+    """Mặt nạ chữ (uint8 HW) nếu có và cờ đang bật; không có ⇒ None (xoá theo khung như trước)."""
+    if not settings.inpaint_theo_net_chu:
+        return None
+    rel = mat_na_chu_rel(image_rel)
+    storage = get_storage()
+    try:
+        if not storage.exists(rel):
+            return None
+        import io
+
+        import numpy as np
+        from PIL import Image as _Image
+
+        with _Image.open(io.BytesIO(storage.read(rel))) as im:
+            return np.asarray(im.convert("L"))
+    except Exception:  # noqa: BLE001
+        logger.exception("E79: không đọc được mặt nạ chữ %s — xoá chữ theo khung", rel)
+        return None
+
+
 def _run_detect(job_id: uuid.UUID) -> dict:
     started = time.perf_counter()
     with sync_session() as session:
@@ -228,6 +278,7 @@ def _run_detect(job_id: uuid.UUID) -> dict:
     with anh_cuc_bo(image_rel) as image_path:
         regions = detector.detect_regions(image_path)
     elapsed = time.perf_counter() - started
+    _luu_mat_na_chu(image_rel, getattr(detector, "mat_na_chu", None))
 
     from app.services.detect.geometry import mark_overlap_suspects
 
@@ -794,6 +845,7 @@ def get_inpainter():
             tile_margin=settings.inpaint_tile_margin,
             max_crop_mpx=settings.inpaint_max_crop_mpx,
             flat_fill=settings.inpaint_flat_fill,
+            he_so_no_net=settings.inpaint_net_chu_he_so_no,
         )
     return _inpainter
 
@@ -1034,9 +1086,13 @@ def _run_inpaint(job_id: uuid.UUID) -> dict:
     # xong mới đưa kết quả vào kho. Path tương đối của ảnh clean vẫn suy ra từ ảnh gốc nên
     # KHÔNG đổi so với trước P3c (`projects/<pid>/pages/<page_id>_clean.png`) — không cần migrate
     # dữ liệu cũ.
+    mat_na_chu = _doc_mat_na_chu(image_rel)
     with workspace() as ws:
         image_abs = str(storage.fetch_to(image_rel, ws / PurePosixPath(image_rel).name))
-        clean_abs = inpainter.inpaint(image_abs, boxes)
+        # E79 — có mặt nạ chữ (CTD) thì xoá theo nét; không có (Gemini) thì như trước. Chỉ truyền
+        # khi có, để bộ xoá chữ không hỗ trợ tham số này (bản giả trong test cũ) vẫn chạy.
+        clean_abs = (inpainter.inpaint(image_abs, boxes, mat_na_chu=mat_na_chu)
+                     if mat_na_chu is not None else inpainter.inpaint(image_abs, boxes))
         clean_rel = str(PurePosixPath(image_rel).parent / PurePosixPath(clean_abs).name)
         storage.save_file(clean_rel, Path(clean_abs))
 

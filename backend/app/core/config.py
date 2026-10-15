@@ -515,6 +515,12 @@ class Settings(BaseSettings):
     #: E69 — vùng chữ nằm trên nền một màu (bong bóng trắng…) được tô màu nền thay vì chạy LaMa.
     #: Ý tưởng từ Koharu; mọi vùng không chắc phẳng vẫn chạy LaMa. Xem `inpaint/to_phang.py`.
     inpaint_flat_fill: bool = True
+    #: E79 — engine nhận diện có mặt nạ điểm ảnh của chữ (CTD) thì xoá theo NÉT CHỮ trong khung, thay
+    #: vì cả khung chữ nhật. Gemini không có mặt nạ ⇒ không đổi gì. Xem `inpaint/mat_na_net.py`.
+    inpaint_theo_net_chu: bool = True
+    #: Nhân bán kính nở mặt nạ nét chữ so với Koharu. 2.0 đo được là đủ trùm viền đen dày của chữ
+    #: tiếng động; 1.0 để sót viền (REPORT_E79).
+    inpaint_net_chu_he_so_no: float = 2.0
     #: E74 — `lama` (CPU, mặc định) hoặc `khuech_tan` (SDXL/FLUX qua diffusers — CẦN GPU NVIDIA và
     #: image worker GPU: `deploy/docker-compose.gpu.yml`). Không có GPU ⇒ lỗi rõ, KHÔNG lùi về LaMa.
     inpaint_engine: Literal["lama", "khuech_tan"] = "lama"

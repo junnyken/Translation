@@ -136,7 +136,10 @@ class LamaInpainter:
         tile_margin: int = 96,
         max_crop_mpx: float = 2.6,
         flat_fill: bool = True,
+        he_so_no_net: float = 2.0,
     ) -> None:
+        #: E79 — nhân bán kính nở mặt nạ nét chữ (xem `mat_na_net.HE_SO_NO_MAC_DINH`).
+        self.he_so_no_net = he_so_no_net
         #: E69 — tô phẳng vùng chữ nằm trên nền một màu thay vì chạy LaMa (xem `to_phang.py`).
         self.flat_fill = flat_fill
         self.weights_path = weights_path
@@ -253,7 +256,7 @@ class LamaInpainter:
             "Cách xử lý: hạ độ phân giải trang, hoặc tăng RAM cho worker."
         )
 
-    def inpaint(self, image_path: str, masks: list[BBox]) -> str:
+    def inpaint(self, image_path: str, masks: list[BBox], mat_na_chu=None) -> str:
         """Xoá chữ trong các vùng mask, trả ĐƯỜNG DẪN ẢNH CLEAN (file mới).
 
         KHÔNG bao giờ ghi đè ảnh gốc — đây là invariant quan trọng nhất của M4.
@@ -284,6 +287,21 @@ class LamaInpainter:
                 masks = [masks[i] for i in kq.con_lai]
                 mask = build_mask(width, height, [khung_noi[i] for i in kq.con_lai], 0.0) \
                     if masks else np.zeros((height, width), dtype=np.float32)
+
+        if mat_na_chu is not None and masks:
+            # E79 — xoá theo NÉT CHỮ trong khung (mặt nạ `seg` của CTD), không xoá cả khung.
+            from app.services.inpaint.mat_na_net import tinh_mat_na_xoa
+            from app.services.inpaint.to_phang import o_nguyen
+
+            if mat_na_chu.shape[:2] != mask.shape:
+                logger.warning("E79: mặt nạ chữ %s khác cỡ ảnh %s — xoá theo khung",
+                               mat_na_chu.shape[:2], mask.shape)
+            else:
+                khung_noi = dilate_bboxes(masks, width, height, self.dilate_ratio)
+                mask, lui = tinh_mat_na_xoa(mask, mat_na_chu,
+                                            [o_nguyen(b, width, height) for b in khung_noi],
+                                            self.he_so_no_net)
+                logger.info("E79: xoá theo nét chữ (%d khung lùi về xoá cả khung)", lui)
 
         rgb = anh_u8.astype(np.float32) / 255.0  # HWC
         del anh_u8

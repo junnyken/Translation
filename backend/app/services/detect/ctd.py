@@ -170,6 +170,14 @@ class CTDDetector:
         input_name = session.get_inputs()[0].name
         outputs = session.run(None, {input_name: tensor})
         blk = outputs[0]  # 'blk': [1, N, 4+1+num_classes]
+        # E79 — `seg` [1,1,S,S] là mặt nạ ĐIỂM ẢNH của chữ; trước E79 bị bỏ phí. Giữ lại (cỡ ảnh gốc)
+        # để bước xoá chữ xoá theo nét thay vì cả khung. Đọc ngay sau `detect_regions` của CÙNG
+        # lượt (worker chạy pool solo ⇒ một lượt một lúc).
+        self.mat_na_chu = None
+        if len(outputs) > 1 and getattr(outputs[1], "ndim", 0) == 4:
+            from app.services.inpaint.mat_na_net import seg_ve_anh_goc
+
+            self.mat_na_chu = seg_ve_anh_goc(outputs[1][0, 0], scale, pad_x, pad_y, img_w, img_h)
 
         detections = self._decode(blk, scale, pad_x, pad_y, img_w, img_h)
         return [DetectedRegion(bbox=d.bbox, confidence=d.confidence, cls=d.cls) for d in detections]

@@ -75,6 +75,7 @@ dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay r�
 | E75 | **Xếp chữ theo hình bong bóng** (dòng giữa rộng, đầu/cuối hẹp, chung một trục) — chỉ nhận khi cho chữ to hơn | **BUILT + đo 8 bong bóng thật**: thắng 6/8, +1 đến +2px; 2 ca hoà giữ cách cũ. 11 test + đối chứng âm. Tắt bằng `E75_XEP_THEO_HINH=false`. Xem `REPORT_E75.md` |
 | E76 | **Màn sửa tay kiểu canvas (WebGPU, lùi 2D)** + **cọ xoá chữ** (`POST /pages/{id}/xoa-vung-to`) | **BUILT + bấm thật trên Chromium với API giả lập.** 495 vitest, 6 test backend + đối chứng âm, phép dò quyền chéo bao trùm. WebGPU chưa chạy trên GPU thật. Màn cũ giữ làm đường lùi. Xem `REPORT_E76.md` |
 | E77 | **Kiểm "còn sót chữ" thôi gắn cờ giả**: vùng trắng trơn không tin lời bộ đọc (manga-ocr bịa `そういえば、` trên ô trắng) | **BUILT + kiểm với manga-ocr thật**: ảnh đã xoá 0/7 vùng báo nhầm (trước 7/7), ảnh còn chữ vẫn bắt 7/7. Ngưỡng `INPAINT_VERIFY_MIN_MUC=0.015`. Xem `REPORT_E77.md` |
+| E79 | **Xoá chữ theo nét chữ** (mặt nạ `seg` của CTD) thay vì cả khung | **BUILT + LaMa thật trên trang thật**: diện tích xoá 82–88% so với cả khung, giữ tranh quanh chữ. Hệ số nở ×2 (×1 của Koharu sót viền chữ tiếng động). Chỉ khi `DETECT_ENGINE=ctd` — production (Gemini) không đổi. Xem `REPORT_E79.md` |
 
 ## Những gì dùng được ngay hôm nay (sau E12)
 
