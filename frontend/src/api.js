@@ -296,6 +296,7 @@ export const xoaVungTo = (pageId, blob) => {
 export const xemTruocXuat = (projectId) =>
   fetch(`${BASE}/projects/${projectId}/export-preview`).then(doc)
 
+/** `format`: `cbz` | `zip` | `png_single` | `psd` (E78 — ZIP chứa mỗi trang một PSD nhiều lớp). */
 export const xuatChapter = (projectId, format) =>
   fetch(`${BASE}/projects/${projectId}/export`, {
     method: 'POST',
