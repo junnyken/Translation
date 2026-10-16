@@ -118,7 +118,9 @@ async def test_ocr_lai_con_chu_thi_danh_dau_can_review(
     # E77 — còn chữ THẬT nghĩa là còn MỰC trên ảnh. Trước đây ảnh "đã xoá" ở đây trắng tinh mà vẫn
     # kỳ vọng gắn cờ — tức bài này khoá đúng hành vi lỗi (tin lời bộ đọc trên ô trắng).
     fake_inpainter(con_muc=True)
-    fake_ocr_engine(results=("CHỮ VẪN CÒN", 0.95), engine_enum=OCREngine.paddle_ocr)
+    # E92 — chữ sót THẬT là MẢNH của chữ gốc ("HELLO"). Trước E92 bài này đọc ra một câu không
+    # liên quan ("CHỮ VẪN CÒN") — ngoài đời đó đúng là kiểu bộ đọc BỊA trên vùng đã sạch.
+    fake_ocr_engine(results=("HELL", 0.95), engine_enum=OCREngine.paddle_ocr)
 
     result = run_inpaint_job(_job_id(page_id, JobType.inpaint))
 
@@ -126,6 +128,21 @@ async def test_ocr_lai_con_chu_thi_danh_dau_can_review(
     assert result["page_status"] == "inpaint_needs_review"
     assert result["regions_with_text_left"] == 2
     assert _page(page_id).status is PageStatus.inpaint_needs_review
+
+
+async def test_co_muc_nhung_chu_doc_lai_khong_khop_chu_goc_thi_KHONG_gan_co(
+    client, sample_page_image, fake_detector, fake_ocr_engine, fake_inpainter
+):
+    """E92 — production 16-10-2026: vùng 「その通り そうあるべきだ」 đã sạch (nhìn ảnh), bộ đọc vẫn
+    ra 「そういうことで、」 (vùng có nét viền/tranh nên qua cổng mực E77) ⇒ gắn cờ oan."""
+    page_id = await _page_through_ocr(client, sample_page_image, fake_detector, fake_ocr_engine)
+    fake_inpainter(con_muc=True)
+    fake_ocr_engine(results=("WORLD PEACE", 0.95), engine_enum=OCREngine.paddle_ocr)
+
+    result = run_inpaint_job(_job_id(page_id, JobType.inpaint))
+
+    assert result["regions_with_text_left"] == 0
+    assert _page(page_id).status is PageStatus.inpainted
 
 
 async def test_o_trang_tron_ma_bo_doc_van_ra_chu_thi_KHONG_gan_co(

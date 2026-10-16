@@ -94,6 +94,7 @@ def get_detector():
                 api_keys=settings.gemini_api_key_list,
                 model_name=settings.detect_ai_model,
                 canh_toi_da=settings.detect_ai_canh_toi_da,
+                so_luot=settings.detect_ai_so_luot,
             )
             return _detector
 
@@ -974,7 +975,30 @@ def ti_le_muc(xam, bbox) -> float:
     return float((np.abs(o - np.median(o)) > 60).mean())
 
 
-def _verify_text_removed(clean_abs_path: str, dilated: list, source_lang: str) -> list[str]:
+#: E92 — chữ đọc lại mà ÍT HƠN tỉ lệ này số ký tự (khác nhau) có mặt trong chữ GỐC của chính vùng
+#: đó ⇒ không phải chữ sót, mà là bộ đọc bịa. Đo thật production 16-10-2026: vùng 「その通り
+#: そうあるべきだ」 đã sạch (nhìn ảnh) mà manga-ocr đọc ra 「そういうことで、」 ⇒ gắn cờ oan.
+#: Chữ sót thật là MẢNH của chữ gốc nên ký tự trùng gần hết.
+TI_LE_TRUNG_CHU_GOC_TOI_THIEU = 0.5
+
+
+def _la_chu_sot_that(doc_lai: str, goc: str | None) -> bool:
+    """Chữ đọc lại có phải mảnh của chữ gốc không. Không có chữ gốc ⇒ coi là thật (như trước)."""
+    if not goc or not goc.strip():
+        return True
+    import unicodedata
+
+    def _ky_tu(t: str) -> set[str]:
+        return {c for c in t if unicodedata.category(c)[0] in ("L", "N")}
+
+    doc, cu = _ky_tu(doc_lai), _ky_tu(goc)
+    if not doc:
+        return False
+    return len(doc & cu) / len(doc) >= TI_LE_TRUNG_CHU_GOC_TOI_THIEU
+
+
+def _verify_text_removed(clean_abs_path: str, dilated: list, source_lang: str,
+                         chu_goc: list[str] | None = None) -> list[str]:
     """Kiểm chứng KHÁCH QUAN: OCR lại đúng vùng vừa xoá trên ảnh clean.
 
     Trả danh sách text còn đọc được. Rỗng = xoá sạch. Không dựa vào cảm nhận "nhìn thấy artifact".
@@ -1004,6 +1028,13 @@ def _verify_text_removed(clean_abs_path: str, dilated: list, source_lang: str) -
             logger.warning("Kiểm chứng OCR trên vùng %s lỗi: %s", bbox, exc)
             continue
         so_ky_tu = dem_ky_tu_co_nghia(text)
+        goc = chu_goc[thu_tu - 1] if chu_goc and thu_tu - 1 < len(chu_goc) else None
+        if so_ky_tu >= toi_thieu and not _la_chu_sot_that(text, goc):
+            logger.info(
+                "kiểm chứng xoá chữ: vùng %d đọc ra %r — không khớp chữ gốc %r, coi là bộ đọc bịa",
+                thu_tu, text.strip()[:40], (goc or "")[:40],
+            )
+            continue
         if so_ky_tu >= toi_thieu:
             # Ghi LẠI CHỮ, không chỉ đếm. Trước E23 chỗ này chỉ dùng `len(leftovers)`, nên cờ
             # "cần rà soát" nói có vấn đề mà không đưa nổi một bằng chứng nào — người dùng phải
@@ -1130,6 +1161,9 @@ def _run_inpaint(job_id: uuid.UUID) -> dict:
                     "next_job_id": str(tiep) if tiep else None}
 
         boxes = [BBox(x=r.bbox_x, y=r.bbox_y, w=r.bbox_w, h=r.bbox_h) for r in dang_xoa]
+        #: E92 — chữ gốc của từng vùng đang xoá (cùng thứ tự `boxes`) để bước kiểm chứng phân biệt
+        #: chữ SÓT THẬT với chữ bộ đọc BỊA trên vùng đã sạch.
+        chu_goc_xoa = [ket_qua_ocr[r.id].raw_text or "" for r in dang_xoa]
         if bo_qua:
             logger.info(
                 "trang %s: bỏ qua %d/%d vùng không đọc ra chữ thật (giữ nét vẽ)",
@@ -1169,7 +1203,7 @@ def _run_inpaint(job_id: uuid.UUID) -> dict:
             with Image.open(image_abs) as im:
                 width, height = im.size
             dilated = inpainter.dilated_masks(width, height, boxes)
-            leftovers = _verify_text_removed(clean_abs, dilated, source_lang)
+            leftovers = _verify_text_removed(clean_abs, dilated, source_lang, chu_goc_xoa)
 
     ghi_moc("inpaint: sau")
     elapsed = time.perf_counter() - started

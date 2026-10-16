@@ -104,6 +104,35 @@ LOI_NHAC = (
 _CHI_LA_SO = __import__("re").compile(r"^(?=.*\d)[\s\d.,:/\-–—#]+$")
 
 
+def _giao(a, b) -> float:
+    """Phần giao / diện tích khung NHỎ hơn ([ymin, xmin, ymax, xmax])."""
+    y0, x0 = max(a[0], b[0]), max(a[1], b[1])
+    y1, x1 = min(a[2], b[2]), min(a[3], b[3])
+    giao = max(0, y1 - y0) * max(0, x1 - x0)
+    nho = min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1]))
+    return giao / nho if nho > 0 else 0.0
+
+
+def gop_luot(cac_luot: list[list[dict]]) -> list[dict]:
+    """E93 — gộp khung của nhiều lượt gọi: giữ NGUYÊN lượt nhiều khung nhất, chỉ THÊM khung của
+    lượt khác KHÔNG chạm khung nào đã giữ.
+
+    Vì sao: model dao động giữa các lượt dù temperature 0. Đo 16-10-2026 trên ja_E12P01 (6 lượt):
+    chữ tượng thanh カラン/コロン có lượt khoanh đủ 3, có lượt 0; lời nhắc nói rõ hơn KHÔNG chữa được
+    (2/3 so với 2/3). E46 cũng ghi engine này sót 2/27 bong bóng. Gộp chỉ thêm khung RỜI nhau ⇒
+    không sinh vùng chồng/đôi chữ; khung chạm nhau (cùng bong bóng khoanh khác cách) thì bỏ.
+    """
+    hop_le = [[m for m in luot if isinstance(m.get("box"), list) and len(m["box"]) == 4]
+              for luot in cac_luot]
+    hop_le.sort(key=len, reverse=True)
+    giu = list(hop_le[0]) if hop_le else []
+    for luot in hop_le[1:]:
+        for m in luot:
+            if all(_giao(m["box"], g["box"]) < 0.2 for g in giu):
+                giu.append(m)
+    return giu
+
+
 class AIDetectError(RuntimeError):
     """Nhận diện bằng AI thất bại. Mang lý do đọc được, không nuốt."""
 
@@ -118,6 +147,9 @@ class AIGeminiDetector:
     #: Cạnh dài ảnh gửi đi. Gemini tính tiền theo ô 768×768 nên gửi nguyên cỡ là đốt token vô ích;
     #: 1024 là mức E32 đã chốt (giữ được chữ đọc được). Xem `translate/anh_kem.py`.
     canh_toi_da: int = 1024
+    #: E93 — số lượt gọi SONG SONG rồi gộp khung (xem `gop_luot`). 1 = như trước; production đặt
+    #: qua `DETECT_AI_SO_LUOT` (mặc định cấu hình 2).
+    so_luot: int = 1
 
     def detect(self, image_path: str) -> list[BBox]:
         return [r.bbox for r in self.detect_regions(image_path)]
@@ -143,7 +175,22 @@ class AIGeminiDetector:
             raise AIDetectError(f"Không chuẩn bị được ảnh để gửi: {image_path}")
         anh, mime = da_chuan
 
-        tho = self._goi(anh, mime)
+        if self.so_luot > 1:
+            from concurrent.futures import ThreadPoolExecutor
+
+            with ThreadPoolExecutor(max_workers=self.so_luot) as ex:
+                tuong_lai = [ex.submit(self._goi, anh, mime) for _ in range(self.so_luot)]
+            cac_luot, loi = [], None
+            for f in tuong_lai:
+                try:
+                    cac_luot.append(f.result())
+                except AIDetectError as exc:
+                    loi = exc
+            if not cac_luot:
+                raise loi or AIDetectError("Mọi lượt gọi Gemini đều thất bại")
+            tho = gop_luot(cac_luot)
+        else:
+            tho = self._goi(anh, mime)
 
         ra: list[DetectedRegion] = []
         for muc in tho:

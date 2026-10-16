@@ -168,3 +168,39 @@ def test_anh_hong_giu_nguyen_khong_no():
     """Bài kiểm quyền chéo gửi "PNG" = chữ ký + rác: thu nhỏ KHÔNG được làm request 500."""
     hong = b"\x89PNG\r\n\x1a\n" + b"0" * 64
     assert thu_nho_anh_trang(hong, ".png", 3000) is hong
+
+
+# ---------------- E93: gộp nhiều lượt nhận diện ----------------
+
+def test_gop_luot_them_khung_bi_sot_khong_nhan_doi():
+    from app.services.detect.ai_gemini import gop_luot
+
+    a = [{"box": [10, 10, 50, 100], "text": "A"}, {"box": [100, 10, 150, 100], "text": "B"},
+         {"box": [500, 500, 520, 560], "text": "C"}]
+    b = [{"box": [12, 12, 49, 98], "text": "A'"},          # cùng bong bóng A, khoanh lệch ⇒ bỏ
+         {"box": [100, 10, 120, 60], "text": "B nửa"},     # nằm trong B ⇒ bỏ
+         {"box": [300, 300, 340, 380], "text": "カラン"}]  # lượt A sót ⇒ thêm
+    ra = gop_luot([a, b])
+    assert [m["text"] for m in ra] == ["A", "B", "C", "カラン"]
+
+
+def test_gop_luot_lay_luot_nhieu_khung_nhat_lam_goc():
+    from app.services.detect.ai_gemini import gop_luot
+
+    it = [{"box": [10, 10, 50, 100], "text": "gộp"}]
+    nhieu = [{"box": [10, 10, 30, 100], "text": "dòng 1"}, {"box": [32, 10, 50, 100], "text": "dòng 2"}]
+    assert [m["text"] for m in gop_luot([it, nhieu])] == ["dòng 1", "dòng 2"]
+
+
+def test_hai_luot_song_song_mot_luot_loi_van_dung_luot_con_lai(anh, monkeypatch):
+    dem = {"n": 0}
+
+    def _urlopen(req, timeout=None):
+        dem["n"] += 1
+        if dem["n"] == 1:
+            raise TimeoutError("chậm")
+        return io.BytesIO(json.dumps(_tra_loi([{"box": [100, 100, 200, 300], "text": "x"}])).encode())
+
+    monkeypatch.setattr("urllib.request.urlopen", _urlopen)
+    ra = AIGeminiDetector(api_keys=["k"], so_luot=2).detect_regions(anh)
+    assert dem["n"] == 2 and len(ra) == 1
