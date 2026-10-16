@@ -241,10 +241,12 @@ button.tab:focus-visible { outline: 2px solid var(--mau-chinh); outline-offset: 
 .dau-man-nho { align-items: center; }
 .luoi-chapter-man { display: grid; gap: var(--s-6); grid-template-columns: minmax(0, 1fr); align-items: start; }
 @media (min-width: 1280px) { .luoi-chapter-man { grid-template-columns: minmax(0, 1fr) 380px; } }
-.khu-tien-do { display: flex; flex-direction: column; gap: var(--s-4); min-width: 0; }
+.khu-tien-do { display: flex; flex-direction: column; gap: var(--s-3); min-width: 0; }
 .cac-buoc-6 { margin-bottom: 0; }
-@media (min-width: 768px) { .cac-buoc-6 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-@media (min-width: 1280px) { .cac-buoc-6 { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+/* MỘT hàng ở mọi cỡ; hẹp thì cuộn ngang thay vì xếp 2-3 hàng cao. */
+.cac-buoc-6 { grid-template-columns: repeat(6, minmax(132px, 1fr)); overflow-x: auto; padding-bottom: var(--s-1); }
+.cac-buoc-6 .buoc-the { padding: var(--s-2) var(--s-3); gap: 2px; font-size: var(--cc-xs); line-height: var(--lh-xs); }
+.cac-buoc-6 .buoc-the-tt { font-size: var(--cc-xs); }
 .buoc-the-canh { border-color: var(--canh-vien); background: var(--canh-nen); }
 .buoc-the-canh .buoc-the-tren .icon { color: var(--canh); }
 .buoc-the-loi { border-color: var(--loi-vien); background: var(--loi-nen); }
@@ -252,8 +254,8 @@ button.tab:focus-visible { outline: 2px solid var(--mau-chinh); outline-offset: 
 .cac-buoc-6 .buoc-the-tren { align-items: flex-start; line-height: var(--lh-sm); }
 .cac-buoc-6 .buoc-the-tren .icon { margin-top: 2px; }
 
-.luoi-trang { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-3); grid-template-columns: repeat(2, minmax(0, 1fr)); }
-@media (min-width: 768px) { .luoi-trang { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: var(--s-4); } }
+.luoi-trang { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-2); grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (min-width: 560px) { .luoi-trang { grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); } }
 .the-trang {
   position: relative; display: flex; flex-direction: column; gap: var(--s-2); padding: var(--s-2); height: 100%;
   border: 1px solid var(--vien); border-radius: var(--bo); background: var(--the);
@@ -388,3 +390,102 @@ a.nut { min-height: var(--cham); justify-content: center; }
 .thumb-trang .skeleton-khoi { height: 100%; min-height: 0; border-radius: 0; }
 .huy-hieu-trang { display: flex; flex-wrap: wrap; gap: var(--s-1); }
 .hang-nut { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: var(--s-3); }
+
+
+/* ================= GỌN LẠI màn chapter (đợt 3) =================
+ * Việc chính (tab Trang) nổi lên, việc phụ thu vào tab; thẻ lồng thẻ → đường kẻ; chữ dài → thu lại. */
+.than-trang { gap: var(--s-4); }
+.dau-man p { margin-top: 2px; }
+.khu-tab-chapter { min-width: 0; scroll-margin-top: calc(var(--s-12) + var(--s-8)); }
+.khu-tab-chapter .tab-noi-dung { gap: var(--s-4); padding-top: var(--s-3); }
+.khu-tab-chapter .tab-noi-dung[hidden] { display: none; }
+
+/* Chữ giải thích dài: một dòng nhãn, mở ra vẫn nguyên văn */
+.giai-thich { font-size: var(--cc-sm); color: var(--mo); }
+.giai-thich > summary { cursor: pointer; display: inline-flex; align-items: center; min-height: var(--s-6); color: var(--mau-chinh-dam); font-weight: 500; }
+.giai-thich > summary:focus-visible { outline: 2px solid var(--mau-chinh); outline-offset: 2px; border-radius: var(--bo-xs); }
+.giai-thich-noi-dung { padding-top: var(--s-1); }
+.giai-thich-noi-dung p { margin: 0 0 var(--s-2); color: var(--mo); font-size: var(--cc-sm); }
+.the-dau .giai-thich { margin-top: 2px; }
+
+/* Chữ dài rút 1 dòng + "Chi tiết" */
+.chu-rut-gon { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; max-width: 100%; }
+.chu-rut-gon-chu { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; text-overflow: ellipsis; }
+.chu-rut-gon-chu.mo { display: block; -webkit-line-clamp: unset; }
+.chu-rut-gon .lien-ket { min-height: 0; padding: 0; font-size: var(--cc-xs); }
+.loi-trang { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; max-width: 100%; }
+.loi-trang .chu-rut-gon-chu:not(.mo) { display: none; }
+
+/* Dải "Vùng cần rà soát": một dải, không thẻ */
+.dai-chat-luong { display: flex; flex-direction: column; gap: var(--s-2); padding: var(--s-3) var(--s-4); background: var(--the-mo); border-radius: var(--bo); min-width: 0; }
+.dai-chat-luong-dau { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-2) var(--s-4); }
+.dai-chat-luong .tieu-the { font-size: var(--cc-md); line-height: var(--lh-md); margin: 0; }
+.dai-so-lieu { display: flex; flex-wrap: wrap; gap: var(--s-1) var(--s-4); margin: 0; font-size: var(--cc-sm); }
+.dai-so-lieu li, .dai-so-lieu li:last-child { border: 0; padding: 0; }
+.dai-chat-luong .nut, .dai-chat-luong button.nut { min-height: var(--s-8); }
+
+/* Trạng thái rỗng gọn */
+.trong.trong-gon { display: flex; align-items: center; gap: var(--s-3); text-align: left; padding: var(--s-3) 0; border: 0; border-top: 1px solid var(--vien); border-radius: 0; background: transparent; }
+.trong-gon > .icon { color: var(--mo); flex: none; }
+.trong-gon-chu { min-width: 0; }
+.trong-gon h3 { font-size: var(--cc-md); line-height: var(--lh-md); margin: 0; }
+.trong-gon p, .trong.trong-gon p { margin: 0; max-width: none; font-size: var(--cc-sm); color: var(--mo); }
+
+/* Thẻ lớn trong tab: bỏ khung lồng, ngăn bằng đường kẻ */
+.khu-tab-chapter .the-lon { background: transparent; border: 0; border-radius: 0; box-shadow: none; padding: var(--s-4) 0 0; border-top: 1px solid var(--vien); }
+.khu-tab-chapter .the-lon:first-child { border-top: 0; padding-top: 0; }
+.khu-tab-chapter .the-lon .the-lon { border-top: 1px solid var(--vien); }
+.khu-tab-chapter .the-dau { margin-bottom: var(--s-2); }
+.khu-tab-chapter .the-dau h2 { font-size: var(--cc-lg); line-height: var(--lh-lg); }
+.khu-tab-chapter .the-lon .hang-cong-cu { margin-bottom: var(--s-2); }
+.khu-tab-chapter .the-lon .tom-tat-xuat { margin: var(--s-2) 0; }
+.khu-tab-chapter .hang.nut { margin-top: var(--s-2); }
+
+/* Tóm tắt "làm gì tiếp" gọn: các dòng cảnh báo nằm ngang */
+.tom-tat-xong { gap: var(--s-2); }
+.tom-tat-xong .ds-canh-bao { display: flex; flex-wrap: wrap; gap: var(--s-1) var(--s-4); margin: var(--s-1) 0; padding-left: var(--s-4); }
+
+/* Thẻ trang nhỏ */
+.the-trang { padding: var(--s-1); gap: var(--s-1); }
+.thumb-trang { border-width: 1px; }
+.than-the-trang { gap: 2px; padding: 0 var(--s-1) var(--s-1); }
+.than-the-trang .lien-ket { min-height: var(--s-6); font-size: var(--cc-xs); }
+
+/* Chạy mẻ: bỏ thẻ lồng, ngăn bằng đường kẻ */
+.me-hanh-dong, .me-tien-do { background: transparent; border: 0; box-shadow: none; padding: 0; }
+@media (min-width: 1280px) { .me-tien-do { border-left: 1px solid var(--vien); padding-left: var(--s-6); } }
+@media (max-width: 1279px) { .me-tien-do { border-top: 1px solid var(--vien); padding-top: var(--s-4); } }
+.luoi-me { gap: var(--s-4) var(--s-6); }
+.bang-muc td.o-loi { max-width: 36ch; font-size: var(--cc-sm); color: var(--mo); }
+.bang-muc td, .bang-muc th { padding: var(--s-2) var(--s-3); }
+
+/* Xuất: bỏ khung lồng; định dạng 2×2 mô tả 1 dòng (chọn thì mở đủ) */
+.bang-xuat .the-man { background: transparent; border: 0; box-shadow: none; padding: 0; }
+.cot-xuat-trai .the-man + .the-man { border-top: 1px solid var(--vien); padding-top: var(--s-4); }
+.the-man h3 { font-size: var(--cc-md); line-height: var(--lh-md); }
+.x-canh-bao { margin-top: var(--s-2); gap: 0; }
+.x-canh-bao li { border: 0; border-radius: 0; background: transparent; padding: var(--s-2) 0; border-bottom: 1px solid var(--vien); }
+.x-canh-bao li:last-child { border-bottom: 0; }
+.x-canh-bao li.xc-canh, .x-canh-bao li.xc-loi { background: transparent; }
+.luoi-dinh-dang { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.the-chon { padding: var(--s-2) var(--s-3); gap: var(--s-2); }
+.the-chon b { font-size: var(--cc-sm); line-height: var(--lh-sm); }
+.the-chon .d { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; overflow: hidden; }
+.the-chon:has(input:checked) .d { -webkit-line-clamp: unset; display: block; }
+@media (max-width: 480px) { .luoi-dinh-dang { grid-template-columns: minmax(0, 1fr); } }
+.khoi-hanh-dong { gap: var(--s-2); }
+.cot-xuat-phai .the-man { background: var(--the); border: 1px solid var(--vien); box-shadow: var(--bong); padding: var(--s-3) var(--s-4); }
+.cot-xuat-phai .the-man h3 { margin: 0; }
+.luoi-xuat { gap: var(--s-4) var(--s-6); }
+.than-the-trang .lien-ket { border: 0; background: none; padding: 0; min-height: 0; color: var(--mau-chinh-dam); text-decoration: underline; }
+.than-the-trang .the-tt, .than-the-trang .badge { font-size: var(--cc-xs); line-height: var(--lh-xs); padding: 2px var(--s-2); border-radius: var(--bo-nho); }
+.thumb-trang { aspect-ratio: 4 / 5; }
+.chu-rut-gon .lien-ket { border: 0; background: none; text-decoration: underline; color: var(--mau-chinh-dam); }
+button.lien-ket { border: 0; background: none; box-shadow: none; }
+.than-the-trang button.lien-ket, .chu-rut-gon button.lien-ket { padding: 0; min-height: 0; }
+.cot-xuat-trai .the-man + .the-man { border-radius: 0; }
+/* Nút dạng liên kết ("Vì sao?", "Chi tiết") — thắng luật `button:not(...)` chung (đặc hiệu cao) */
+.than-the-trang button.lien-ket:not(.x1):not(.x2):not(.x3):not(.x4), .chu-rut-gon button.lien-ket:not(.x1):not(.x2):not(.x3):not(.x4) {
+  border: 0; background: none; box-shadow: none; padding: 0; min-height: 0; width: auto;
+  color: var(--mau-chinh-dam); text-decoration: underline; font-size: var(--cc-xs);
+}

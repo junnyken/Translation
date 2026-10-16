@@ -1,5 +1,6 @@
 import Alert from '../ui/Alert.jsx'
 import Button from '../ui/Button.jsx'
+import { GiaiThich } from '../ui/GiaiThich.jsx'
 import EmptyState from '../ui/EmptyState.jsx'
 import { LOAI_VIEC_NHAT_QUAN } from '../../lib/status-presentation.js'
 
@@ -21,14 +22,16 @@ export default function ConsistencyPanel({ tomTat, dangQuet, onQuet, onMoHangDoi
     <section className="the-lon" aria-labelledby="tieu-de-nhat-quan">
       <header className="the-dau">
         <h2 id="tieu-de-nhat-quan">Nhất quán thuật ngữ</h2>
-        <p>
+        <GiaiThich>
+          <p>
           Đối chiếu bản dịch với những thuật ngữ bạn đã chốt, rồi chỉ ra chỗ chưa theo.
           Đây là <b>gợi ý kiểm tra</b>, không khẳng định bản dịch sai.
         </p>
+        </GiaiThich>
       </header>
 
       {approved_glossary_count === 0 ? (
-        <EmptyState
+        <EmptyState gon
           icon="sach"
           tieuDe="Chưa có thuật ngữ nào được duyệt"
           moTa="Chưa duyệt thuật ngữ thì chưa rà soát được — và 0 việc lúc này KHÔNG có nghĩa là bản dịch đã ổn."

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 import * as api from '../../api'
 import { chuDemNguoc } from '../../lib/dem-nguoc'
+import { chuThoiGianGiu } from '../../lib/thoi-gian-giu.js'
 import Alert from '../ui/Alert'
 import Button from '../ui/Button'
 import Dialog from '../ui/Dialog'
@@ -105,7 +106,7 @@ export default function ManTaiKhoan({ nguoiDung, onDong, onDoiNguoiDung }) {
           <h3 className="nho">Kết quả được giữ bao lâu</h3>
           <p className="ghi-chu">
             {typeof giuPhut === 'number'
-              ? <>Tự xoá <strong>{giuPhut} phút</strong> sau khi dịch xong — ảnh gốc, bản dịch và
+              ? <>Tự xoá <strong>{chuThoiGianGiu(giuPhut)}</strong> sau khi dịch xong — ảnh gốc, bản dịch và
                   tệp đã gói đều mất, không chạy lại và không sửa lại được.</>
               : <>Hiện <strong>không tự xoá</strong> theo giờ. Vẫn nên tải về: đây không phải chỗ
                   lưu trữ lâu dài, và chính sách có thể đổi.</>}

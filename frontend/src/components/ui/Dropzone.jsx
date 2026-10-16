@@ -17,7 +17,7 @@ const LOAI_HO_TRO = ['image/png', 'image/jpeg', 'image/webp']
  * cái gói người dùng vừa thả vào, và họ không hiểu vì sao. Phía máy chủ vẫn xét chữ ký đầu file
  * nên đuôi file sai cũng không lọt được.
  */
-const DUOI_GOI = /\.(zip|cbz)$/i
+const DUOI_GOI = /\.(zip|cbz|pdf)$/i
 
 export function locFileHopLe(files, chapNhanGoi = false) {
   const nhan = [], loai = []
@@ -43,7 +43,7 @@ export default function Dropzone({
 
   const them = (danhSach) => {
     const { nhan, loai } = locFileHopLe(Array.from(danhSach || []), chapNhanGoi)
-    const mong = chapNhanGoi ? 'ảnh PNG/JPG/WebP hoặc gói ZIP/CBZ' : 'ảnh PNG/JPG/WebP'
+    const mong = chapNhanGoi ? 'ảnh PNG/JPG/WebP hoặc gói ZIP/CBZ/PDF' : 'ảnh PNG/JPG/WebP'
     setLoi(loai.length
       ? `Bỏ qua ${loai.length} tệp không phải ${mong}: ${loai.map((f) => f.name).join(', ')}`
       : null)
@@ -79,7 +79,7 @@ export default function Dropzone({
                         : 'Kéo ảnh vào đây hoặc bấm để chọn'}</b>
         <span>
           {chapNhanGoi
-            ? 'Hỗ trợ PNG, JPG và cả gói .zip / .cbz (một gói = cả chapter).'
+            ? 'Hỗ trợ PNG, JPG, WebP và cả gói .zip / .cbz / .pdf (một gói = cả chapter).'
             : 'Hỗ trợ PNG, JPG. Có thể chọn nhiều trang một lúc.'}
         </span>
       </div>
@@ -90,7 +90,7 @@ export default function Dropzone({
         type="file"
         className="o-file-an"
         accept={chapNhanGoi
-          ? 'image/png,image/jpeg,image/webp,.zip,.cbz'
+          ? 'image/png,image/jpeg,image/webp,.zip,.cbz,.pdf'
           : 'image/png,image/jpeg,image/webp'}
         multiple
         tabIndex={-1}

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import Alert from '../ui/Alert.jsx'
 import Button from '../ui/Button.jsx'
+import { GiaiThich } from '../ui/GiaiThich.jsx'
 import Dialog from '../ui/Dialog.jsx'
 import EmptyState from '../ui/EmptyState.jsx'
 import { Input, Select, Field } from '../ui/Field.jsx'
@@ -93,10 +94,12 @@ export default function GlossaryManager({
     <section className="the-lon" aria-labelledby="tieu-de-thuat-ngu">
       <header className="the-dau">
         <h2 id="tieu-de-thuat-ngu">Thuật ngữ của chapter</h2>
-        <p>
+        <GiaiThich>
+          <p>
           Chốt cách dịch cho tên nhân vật, vật phẩm, chiêu thức… rồi hệ thống sẽ tìm những chỗ
           chưa theo. Thuật ngữ chỉ áp dụng cho <b>chapter này</b>.
         </p>
+        </GiaiThich>
       </header>
 
       <div className="hang-cong-cu">
@@ -124,7 +127,7 @@ export default function GlossaryManager({
       )}
 
       {danhSach.length === 0 ? (
-        <EmptyState
+        <EmptyState gon
           icon="sach"
           tieuDe="Chưa có thuật ngữ nào"
           moTa="Thêm vài thuật ngữ hay lặp lại trong chapter — tên nhân vật, vật phẩm, chiêu thức — rồi bấm rà soát để tìm chỗ dịch chưa nhất quán."

@@ -9,6 +9,7 @@ import Icon from '../ui/Icon.jsx'
 import ProgressStage from '../ui/ProgressStage.jsx'
 import EmptyState from '../ui/EmptyState.jsx'
 import StatusBadge from '../ui/StatusBadge.jsx'
+import { ChuRutGon } from '../ui/GiaiThich.jsx'
 
 // wording: BA review — chip lọc trang + trạng thái rỗng (mockup-v2/chapter)
 const LOC_TRANG = [
@@ -21,6 +22,8 @@ const LOC_TRANG = [
 ]
 const NHAN_TRAN = 'Tràn khung'
 const NHAN_CAN_XEM = 'Cần xem lại'
+// wording: BA review — badge lỗi gọn trên thẻ trang
+const NHAN_HONG_BUOC = 'Hỏng · bước'
 const NHAN_DANG_TAI_ANH = 'Đang tải ảnh trang…'
 // null = CHƯA BIẾT (trang chưa canh chữ / chưa chấm) ⇒ không badge, không tính vào chip.
 const CO_SO = (n) => typeof n === 'number' && n > 0
@@ -192,9 +195,15 @@ const TEN_BUOC = {
  * hỏi máy chủ mới biết.
  */
 function LoiCuaTrang({ job }) {
+  // Thẻ trang nhỏ: chỉ badge "Hỏng · bước X"; toàn văn lỗi nằm sau nút "Chi tiết" (vẫn là nguyên văn).
   return (
-    <span className="canh-bao">
-      Bước <b>{TEN_BUOC[job.type] ?? job.type}</b> hỏng: {job.error_log || 'không ghi lý do'}
+    <span className="canh-bao loi-trang">
+      <span className="badge badge-loi">
+        <Icon ten="circle-x" co={12} /> {NHAN_HONG_BUOC} {TEN_BUOC[job.type] ?? job.type}
+      </span>
+      <ChuRutGon dai so={1}>
+        Bước <b>{TEN_BUOC[job.type] ?? job.type}</b> hỏng: {job.error_log || 'không ghi lý do'}
+      </ChuRutGon>
     </span>
   )
 }

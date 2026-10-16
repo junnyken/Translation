@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import Alert from '../ui/Alert.jsx'
 import Button from '../ui/Button.jsx'
+import { GiaiThich } from '../ui/GiaiThich.jsx'
 import Dialog from '../ui/Dialog.jsx'
 import EmptyState from '../ui/EmptyState.jsx'
 import { Input, Select, Field } from '../ui/Field.jsx'
@@ -77,11 +78,13 @@ export default function VoiceProfileManager({
     <section className="the-lon" aria-labelledby="tieu-de-giong">
       <header className="the-dau">
         <h2 id="tieu-de-giong">Giọng nhân vật</h2>
-        <p>
+        <GiaiThich>
+          <p>
           Ghi lại cách một nhân vật nói: xưng hô, giọng điệu. Đây là <b>hướng dẫn của bạn</b>,
           không phải suy luận của máy — hệ thống chỉ hiện nó ra khi bạn rà soát, <b>không</b> tự
           sửa lời thoại theo nó.
         </p>
+        </GiaiThich>
       </header>
 
       <div className="hang-cong-cu">
@@ -167,7 +170,7 @@ export default function VoiceProfileManager({
       )}
 
       {danhSach.length === 0 ? (
-        <EmptyState
+        <EmptyState gon
           icon="sach"
           tieuDe="Chưa có hồ sơ nhân vật nào"
           moTa="Tuỳ chọn. Thêm khi bạn muốn nhớ rõ một nhân vật xưng hô thế nào để rà soát cho nhất quán."

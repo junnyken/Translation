@@ -79,6 +79,15 @@ describe('màn tài khoản', () => {
     await screen.findByText('7')
   })
 
+  it('1440 phút hiện là "1 ngày", không in thẳng "1440 phút"', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      () => dapUng({ ...HAN_MUC, giu_ket_qua_phut: 1440 }),
+    )
+    render(<ManTaiKhoan nguoiDung={NGUOI} onDong={() => {}} />)
+    expect(await screen.findByText('1 ngày')).toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/1440/)
+  })
+
   it('máy chủ nói KHÔNG tự xoá thì màn này cũng KHÔNG hứa xoá', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(
       () => dapUng({ ...HAN_MUC, giu_ket_qua_phut: null }),

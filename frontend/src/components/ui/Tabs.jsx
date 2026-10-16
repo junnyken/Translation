@@ -8,9 +8,12 @@ import Icon from './Icon.jsx'
  *   đầu/cuối.
  * - Chỉ render nội dung của tab đang chọn (`children`), giống hành vi cũ: đổi tab là gỡ form kia.
  *
+ * `noiDung` (tuỳ chọn) = { [ma]: node } — dựng sẵn MỌI tab, tab không chọn chỉ bị `hidden`. Dùng khi tab
+ * chứa việc đang chạy nền (mẻ, xuất) mà đổi tab không được làm mất trạng thái của nó.
+ *
  * `cacTab` = [{ ma, nhan, icon }]. `idGoc` để các id `tb-<ma>` / `tp-<ma>` không trùng nhau.
  */
-export default function Tabs({ nhan, cacTab, chon, onDoi, idGoc = 'tab', children }) {
+export default function Tabs({ nhan, cacTab, chon, onDoi, idGoc = 'tab', children, noiDung }) {
   const refs = useRef({})
 
   const chuyenToi = (i) => {
@@ -41,12 +44,21 @@ export default function Tabs({ nhan, cacTab, chon, onDoi, idGoc = 'tab', childre
           </button>
         ))}
       </div>
-      <div
-        role="tabpanel" className="tab-noi-dung" tabIndex={0}
-        id={`${idGoc}-tp-${chon}`} aria-labelledby={`${idGoc}-tb-${chon}`}
-      >
-        {children}
-      </div>
+      {noiDung ? cacTab.map((t) => (
+        <div
+          key={t.ma} role="tabpanel" className="tab-noi-dung" tabIndex={0} hidden={chon !== t.ma}
+          id={`${idGoc}-tp-${t.ma}`} aria-labelledby={`${idGoc}-tb-${t.ma}`}
+        >
+          {noiDung[t.ma]}
+        </div>
+      )) : (
+        <div
+          role="tabpanel" className="tab-noi-dung" tabIndex={0}
+          id={`${idGoc}-tp-${chon}`} aria-labelledby={`${idGoc}-tb-${chon}`}
+        >
+          {children}
+        </div>
+      )}
     </>
   )
 }

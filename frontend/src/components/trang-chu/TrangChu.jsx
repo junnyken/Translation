@@ -6,6 +6,7 @@ import { chuDemNguoc, conLaiMs, mocHetHanGiuTep } from '../../lib/dem-nguoc'
 import Alert from '../ui/Alert'
 import Button from '../ui/Button'
 import Dropzone from '../ui/Dropzone'
+import { chuThoiGianGiu } from '../../lib/thoi-gian-giu.js'
 import Icon from '../ui/Icon'
 import TheHanMuc from './TheHanMuc'
 
@@ -185,6 +186,7 @@ export default function TrangChu() {
   //: `null`/`undefined` ⇒ KHÔNG tự xoá. Phân biệt với `0` (xoá ngay) nên dùng `?? null`, không `||`.
   const giuPhut = hanMuc?.giu_ket_qua_phut ?? null
   const coTuXoa = typeof giuPhut === 'number'
+  const chuGiu = chuThoiGianGiu(giuPhut)
   const thieuLuot = conLai !== null && files.length > conLai
 
   /** E57 — đọc thử trang ĐẦU rồi đặt ô chọn theo kết quả.
@@ -549,7 +551,7 @@ export default function TrangChu() {
               giữ trong khi sẽ xoá — cả hai đều là nói sai với người dùng về dữ liệu của họ. */}
           {coTuXoa ? (
             <li>
-              <strong>Kết quả chỉ giữ {giuPhut} phút</strong> kể từ lúc dịch xong. Sau đó
+              <strong>Kết quả chỉ giữ {chuGiu}</strong> kể từ lúc dịch xong. Sau đó
               {' '}<strong>ảnh gốc, bản dịch và tệp đã gói đều bị xoá</strong>: không chạy lại được,
               không sửa lại được. Muốn làm lại phải tải lên từ đầu và tốn thêm lượt.
             </li>
@@ -581,7 +583,7 @@ export default function TrangChu() {
             {/* Cố ý KHÔNG lặp lại đúng câu trong `<details>`: hai câu y hệt trên cùng một màn là
                 bắt người dùng đọc hai lần. Dòng này nói phần HÀNH ĐỘNG (tải về ngay), khối kia nói
                 phần HẬU QUẢ đầy đủ (mất cả ảnh gốc lẫn tệp đã gói, không chạy lại được). */}
-            <Icon ten="dong-ho" co={16} /> Nhớ tải về ngay: tệp <strong>tự xoá sau {giuPhut} phút
+            <Icon ten="dong-ho" co={16} /> Nhớ tải về ngay: tệp <strong>tự xoá sau {chuGiu}
             </strong> kể từ lúc dịch xong.
           </p>
         )}
@@ -598,7 +600,7 @@ export default function TrangChu() {
               dài — tải về rồi hãy đóng tab.
             </Alert>
           ) : daHetHan ? (
-            <Alert sac="loi" tieuDe={`Đã quá ${giuPhut} phút — tệp không còn nữa`}>
+            <Alert sac="loi" tieuDe={`Đã quá ${chuGiu} — tệp không còn nữa`}>
               Ảnh gốc, bản dịch và tệp đã gói đều đã bị xoá. Muốn có lại thì phải tải lên từ đầu
               và tốn thêm lượt.
             </Alert>

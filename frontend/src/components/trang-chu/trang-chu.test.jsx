@@ -244,6 +244,16 @@ describe('trang chủ', () => {
     expect(screen.getByText(/chỉ giữ 45 phút/)).toBeInTheDocument()
   })
 
+  it('1440 phút hiện là "1 ngày" ở trang chủ khách', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      () => dapUng({ ...HAN_MUC_CON, giu_ket_qua_phut: 1440 }),
+    )
+    render(<TrangChu />)
+    await screen.findByText(/Lượt dịch hôm nay/)
+    expect(screen.getByText(/chỉ giữ 1 ngày/)).toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/1440/)
+  })
+
   it('ĐỢT 2 — kết quả hiện ảnh TRƯỚC (từ tệp trong máy) và SAU; thanh bước báo đủ 5 bước xong', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((url, opts) => {
       if (String(url).includes('/han-muc')) return dapUng(HAN_MUC_CON)

@@ -9,8 +9,8 @@ import RegionPanel from './components/RegionPanel.jsx'
 import RegionQualityBox from './components/RegionQualityBox.jsx'
 import OrientationBox from './components/OrientationBox.jsx'
 import OrientationSummaryCard from './components/OrientationSummaryCard.jsx'
-import ChapterCreateForm from './components/chapter/ChapterCreateForm.jsx'
-import DichNhanh from './components/chapter/DichNhanh.jsx'
+import DichChapter from './components/chapter/DichChapter.jsx'
+import TuTaiVeBanner from './components/chapter/TuTaiVeBanner.jsx'
 import ChapterProgress from './components/chapter/ChapterProgress.jsx'
 import LoiTaiChapter from './components/chapter/LoiTaiChapter.jsx'
 import QualityPanel from './components/chapter/QualityPanel.jsx'
@@ -42,6 +42,22 @@ import { MUC_DICH } from './lib/status-presentation.js'
 // wording: BA review — nút ở đầu màn chapter (mockup-v2 ghi "Chạy mẻ"; giữ tên khối hiện có)
 const NHAN_CHAY_ME = 'Chạy cả chapter'
 
+// wording: BA review — nhãn tab của màn chapter (việc chính "Trang" mở sẵn, việc phụ thu vào tab)
+const NHAN_CHON_TAB_CHAPTER = 'Các phần của chapter'
+const CAC_TAB_CHAPTER = [
+  { ma: 'trang', nhan: 'Trang', icon: 'image' },
+  { ma: 'me', nhan: 'Chạy cả chapter', icon: 'play' },
+  { ma: 'xuat', nhan: 'Xuất', icon: 'package' },
+  { ma: 'thuat-ngu', nhan: 'Thuật ngữ & giọng', icon: 'sach' },
+]
+const KHOA_TAB_CHAPTER = 'translation.tab-chapter'
+const docTabChapter = () => {
+  try {
+    const v = window.localStorage.getItem(KHOA_TAB_CHAPTER)
+    return CAC_TAB_CHAPTER.some((t) => t.ma === v) ? v : 'trang'
+  } catch { return 'trang' }
+}
+
 /** Lấy id trang/chapter từ địa chỉ (#page=… hoặc #project=…) để chia sẻ link được.
  *  Giữ nguyên dạng địa chỉ cũ: link đã gửi cho nhau vẫn phải mở được. */
 function docDiaChi() {
@@ -54,11 +70,8 @@ function docDiaChi() {
   }
 }
 
-// ĐX-1 — hai đường vào ở màn chính. `phu` là câu mô tả đã có từ trước (giữ nguyên chữ).
-const CAC_DUONG = [
-  { ma: 'nhanh', nhan: 'Dịch nhanh', icon: 'upload', phu: 'Thả file là chạy, xong tự tải về' },
-  { ma: 'day_du', nhan: 'Tạo chapter mới', icon: 'layers', phu: 'Có rà soát, sửa tay, chốt thuật ngữ' },
-]
+// wording: BA review — câu dẫn dưới tiêu đề trang chủ (thay cho câu chọn giữa hai đường)
+const DAN_TRANG_CHU = 'Thả ảnh hoặc gói truyện, chọn vài tuỳ chọn là dịch được cả chapter.'
 
 const KHOA_NHO = 'translation:chapter-gan-day'
 
@@ -84,8 +97,18 @@ export default function App({ urlBundle } = {}) {
   const [muonDangNhap, setMuonDangNhap] = useState(false)
   //: Màn tài khoản (§4.4) đang mở hay không.
   const [moTaiKhoan, setMoTaiKhoan] = useState(false)
-  //: ĐX-1 — đang mở đường nào ở màn chính: `nhanh` (thả file là chạy) hay `day_du` (có rà soát).
-  const [duong, setDuong] = useState('nhanh')
+  // Tab đang mở của màn chapter — nhớ qua localStorage (hash đã dành cho định tuyến project/page).
+  const [tabChapter, setTabChapter] = useState(docTabChapter)
+  const khuTabRef = useRef(null)
+  const chuyenTab = useCallback((ma) => {
+    setTabChapter(ma)
+    try { window.localStorage.setItem(KHOA_TAB_CHAPTER, ma) } catch { /* chế độ riêng tư: bỏ qua */ }
+  }, [])
+  // Nút ở đầu trang chuyển tab rồi đưa vùng tab vào khung nhìn (chỉ khi đang ở ngoài).
+  const moTab = useCallback((ma) => {
+    chuyenTab(ma)
+    setTimeout(() => khuTabRef.current?.scrollIntoView?.({ block: 'nearest' }), 0)
+  }, [chuyenTab])
   const [{ pageId, projectId, coCanvas, canvasId }, setDiaChi] = useState(docDiaChi)
   const [nhap, setNhap] = useState(projectId || pageId)
   const [project, setProject] = useState(null)
@@ -548,7 +571,6 @@ export default function App({ urlBundle } = {}) {
               Nay nó về trang chủ, mở đúng tab, rồi mới cuộn. */}
           <a href="#" className="nut nut-phu" onClick={(e) => {
             e.preventDefault()
-            setDuong('day_du')
             window.location.hash = ''
             // Cuộn SAU khi React vẽ xong màn mới. `hashchange` → đổi state → vẽ lại là ba nhịp,
             // nên một `requestAnimationFrame` là chưa đủ khi đang đi từ màn chapter về.
@@ -613,33 +635,17 @@ export default function App({ urlBundle } = {}) {
             {nguoiDung.la_quan_tri && <QuanTriNguoiDung toi={nguoiDung} />}
             {nguoiDung.la_quan_tri && <DangNhapChatGPT />}
 
-            {/* E63 — tiêu đề và cụm tab là MỘT khối mở đầu.
-
-                Câu dẫn cũ ("Tải ảnh PNG/JPG hoặc cả gói .zip/.cbz. Hệ thống nhận diện chữ…")
-                nói lại đúng thứ mà hai tab ngay bên dưới và thẻ "Dịch nhanh" ngay bên dưới nữa
-                đã nói — ba lần cùng một nội dung trên một màn. Giữ lại phần KHÔNG lặp: cái mà
-                hai tab không tự nói được, là chọn giữa chúng theo nhu cầu nào. */}
             <div className="mo-dau-lam-viec">
               <h1>Dịch truyện tranh</h1>
-              <p className="dan">Chọn đường làm việc — cả hai đều dịch được cả chapter.</p>
+              <p className="dan">{DAN_TRANG_CHU}</p>
             </div>
 
-            {/* ĐX-1 — hai đường vào song song, không đường nào thay thế đường nào.
-                Mặc định mở đường NHANH vì phần lớn lượt dùng chỉ cần đọc; ai cần rà soát,
-                chốt thuật ngữ, sửa tay thì bấm sang đường đầy đủ — vẫn còn nguyên.
-                ĐỢT 2 — bố cục mockup-v2: cột trái = tab (ARIA) + biểu mẫu, cột phải = lưới
-                chapter gần đây (≥1280px hai cột; hẹp hơn thì xếp dọc). */}
+            {/* Một luồng duy nhất (trước đây là hai tab "Dịch nhanh" / "Tạo chapter mới").
+                Bố cục mockup-v2: cột trái = biểu mẫu, cột phải = lưới chapter gần đây
+                (≥1280px hai cột; hẹp hơn thì xếp dọc). */}
             <div className="luoi-trang-chu">
-              <section className="cot-lam-viec" aria-label="Dịch nhanh hoặc tạo chapter">
-                <Tabs
-                  nhan="Chọn cách làm" idGoc="duong" chon={duong} onDoi={setDuong}
-                  cacTab={CAC_DUONG}
-                >
-                  <p className="ghi-chu mo-ta-tab">{CAC_DUONG.find((d) => d.ma === duong)?.phu}</p>
-                  {duong === 'nhanh'
-                    ? <DichNhanh onMoChapter={(id) => { window.location.hash = `project=${id}` }} />
-                    : <ChapterCreateForm onXong={(id) => { window.location.hash = `project=${id}` }} />}
-                </Tabs>
+              <section className="cot-lam-viec" aria-label="Dịch truyện tranh">
+                <DichChapter onMoChapter={(id) => { window.location.hash = `project=${id}` }} />
               </section>
               {/* `onTaoMoi` đã bỏ cùng nút "Tạo chapter đầu tiên" (E63) — giữ lại một prop
                   không ai đọc là để dành một cái bẫy cho người sửa sau. */}
@@ -672,7 +678,7 @@ export default function App({ urlBundle } = {}) {
                 <div className="hang">
                   <Button
                     kieu="chinh" icon="play"
-                    onClick={() => document.getElementById('bang-me')?.scrollIntoView({ block: 'start' })}
+                    onClick={() => moTab('me')}
                   >
                     {NHAN_CHAY_ME}
                   </Button>
@@ -680,9 +686,11 @@ export default function App({ urlBundle } = {}) {
               )}
             </div>
 
+            <TuTaiVeBanner projectId={project.id} />
+
             <ChapterSummary
               tienDo={tienDo} canhBao={canhBao} trangDau={dsTrang[0]?.id}
-              onXuat={() => document.getElementById('bang-xuat')?.scrollIntoView({ block: 'start' })}
+              onXuat={() => moTab('xuat')}
             />
 
             {moHangDoi && (
@@ -698,71 +706,82 @@ export default function App({ urlBundle } = {}) {
               />
             )}
 
-            {/* ĐỢT 2 — bố cục mockup-v2/chapter: trái = thanh bước + lưới trang, phải = chất lượng
-                (≥1280px hai cột). Mẻ chạy và xuất nằm ngang hết cỡ bên dưới để bảng mẻ không bị bóp. */}
-            <div className="luoi-chapter-man">
-              <ChapterProgress
-                project={project} canhBao={canhBao}
-                onNapLai={() => napProject(project.id).catch((e) => setLoi(e.message))}
+            {/* Phần chính chia TAB: "Trang" mở sẵn, việc phụ (chạy mẻ, xuất, thuật ngữ & giọng) thu vào
+                tab riêng. Dựng sẵn mọi tab (noiDung) để mẻ đang chạy / bảng xuất không mất trạng thái
+                khi đổi tab. */}
+            <div ref={khuTabRef} className="khu-tab-chapter">
+              <Tabs
+                nhan={NHAN_CHON_TAB_CHAPTER} idGoc="chap" chon={tabChapter} onDoi={chuyenTab}
+                cacTab={CAC_TAB_CHAPTER}
+                noiDung={{
+                  trang: (
+                    <>
+                      <QualityPanel tomTat={chatLuongChapter} trangDau={dsTrang[0]?.id} />
+                      <ChapterProgress
+                        project={project} canhBao={canhBao}
+                        onNapLai={() => napProject(project.id).catch((e) => setLoi(e.message))}
+                      />
+                    </>
+                  ),
+                  me: <BatchPanel projectId={project.id} soTrang={dsTrang.length} />,
+                  xuat: (
+                    <ExportPanel
+                      projectId={project.id} tenProject={project.name}
+                      // Chữ ký trạng thái mọi trang: đổi khi pipeline chạy xong một trang, và đó
+                      // là tín hiệu để bảng xuất nạp lại con số. Không có nó thì bảng đứng im
+                      // trong khi badge trang đã đổi — xem ghi chú trong ExportPanel.
+                      chuKyTrang={dsTrang.map((t) => t.status).join(',')}
+                      nhatQuan={tomTatNQ}
+                      onRaSoat={() => {
+                        setMoHangDoi(true)
+                        setTimeout(
+                          () => document.getElementById('tieu-de-hang-doi')
+                            ?.scrollIntoView({ block: 'start' }),
+                          0,
+                        )
+                      }}
+                    />
+                  ),
+                  'thuat-ngu': (
+                    <>
+                      <ConsistencyPanel
+                        tomTat={tomTatNQ}
+                        dangQuet={dangQuet}
+                        onQuet={quetNhatQuan}
+                        onMoHangDoi={() => {
+                          setMoHangDoi(true)
+                          setTimeout(
+                            () => document.getElementById('tieu-de-hang-doi')
+                              ?.scrollIntoView({ block: 'start' }),
+                            0,
+                          )
+                        }}
+                      />
+                      <GlossaryManager
+                        danhSach={thuatNgu}
+                        dangBan={dangBan}
+                        onThem={(d) => chayNQ(() => api.themThuatNgu(project.id, d), 'Đã thêm thuật ngữ (đang ở nháp).')}
+                        onSua={(id, d) => chayNQ(() => api.suaThuatNgu(id, d), 'Đã lưu thuật ngữ.')}
+                        onDuyet={(id) => chayNQ(() => api.duyetThuatNgu(id), 'Đã duyệt — thuật ngữ này sẽ tham gia rà soát.')}
+                        onCat={(id) => chayNQ(() => api.catThuatNgu(id), 'Đã cất thuật ngữ đi.')}
+                        onTimUngVien={() => api.layUngVienThuatNgu(project.id)}
+                        onXinGoiY={(ten) => api.xinGoiYTheoTenTruyen(project.id, ten)}
+                        onDoiChieuTen={(ten) => api.doiChieuTenChinhThuc(project.id, ten)}
+                        onDocGoiY={(runId) => api.layKetQuaGoiY(runId)}
+                      />
+                      <VoiceProfileManager
+                        danhSach={hoSoGiong}
+                        dangBan={dangBan}
+                        onThem={(d) => chayNQ(() => api.themHoSoGiong(project.id, d), 'Đã thêm hồ sơ nhân vật.')}
+                        onBat={(id) => chayNQ(() => api.batHoSoGiong(id), 'Đã bật hồ sơ.')}
+                        onCat={(id) => chayNQ(() => api.catHoSoGiong(id), 'Đã cất hồ sơ đi.')}
+                        onTimTinHieu={() => api.layTinHieuXungHo(project.id)}
+                      />
+                    </>
+                  ),
+                }}
               />
-              <div className="cot-phai">
-                <QualityPanel tomTat={chatLuongChapter} trangDau={dsTrang[0]?.id} />
-                <ConsistencyPanel
-                  tomTat={tomTatNQ}
-                  dangQuet={dangQuet}
-                  onQuet={quetNhatQuan}
-                  onMoHangDoi={() => {
-                    setMoHangDoi(true)
-                    setTimeout(
-                      () => document.getElementById('tieu-de-hang-doi')
-                        ?.scrollIntoView({ block: 'start' }),
-                      0,
-                    )
-                  }}
-                />
-              </div>
             </div>
-
-            <BatchPanel projectId={project.id} soTrang={dsTrang.length} />
-
-            <ExportPanel
-              projectId={project.id} tenProject={project.name}
-              // Chữ ký trạng thái mọi trang: đổi khi pipeline chạy xong một trang, và đó
-              // là tín hiệu để bảng xuất nạp lại con số. Không có nó thì bảng đứng im
-              // trong khi badge trang đã đổi — xem ghi chú trong ExportPanel.
-              chuKyTrang={dsTrang.map((t) => t.status).join(',')}
-              nhatQuan={tomTatNQ}
-              onRaSoat={() => {
-                setMoHangDoi(true)
-                setTimeout(
-                  () => document.getElementById('tieu-de-hang-doi')
-                    ?.scrollIntoView({ block: 'start' }),
-                  0,
-                )
-              }}
-            />
-
-            <GlossaryManager
-              danhSach={thuatNgu}
-              dangBan={dangBan}
-              onThem={(d) => chayNQ(() => api.themThuatNgu(project.id, d), 'Đã thêm thuật ngữ (đang ở nháp).')}
-              onSua={(id, d) => chayNQ(() => api.suaThuatNgu(id, d), 'Đã lưu thuật ngữ.')}
-              onDuyet={(id) => chayNQ(() => api.duyetThuatNgu(id), 'Đã duyệt — thuật ngữ này sẽ tham gia rà soát.')}
-              onCat={(id) => chayNQ(() => api.catThuatNgu(id), 'Đã cất thuật ngữ đi.')}
-              onTimUngVien={() => api.layUngVienThuatNgu(project.id)}
-              onXinGoiY={(ten) => api.xinGoiYTheoTenTruyen(project.id, ten)}
-              onDoiChieuTen={(ten) => api.doiChieuTenChinhThuc(project.id, ten)}
-              onDocGoiY={(runId) => api.layKetQuaGoiY(runId)}
-            />
-
-            <VoiceProfileManager
-              danhSach={hoSoGiong}
-              dangBan={dangBan}
-              onThem={(d) => chayNQ(() => api.themHoSoGiong(project.id, d), 'Đã thêm hồ sơ nhân vật.')}
-              onBat={(id) => chayNQ(() => api.batHoSoGiong(id), 'Đã bật hồ sơ.')}
-              onCat={(id) => chayNQ(() => api.catHoSoGiong(id), 'Đã cất hồ sơ đi.')}
-              onTimTinHieu={() => api.layTinHieuXungHo(project.id)}
-            />
 
           </>
         )}

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Alert from '../ui/Alert.jsx'
 import Button from '../ui/Button.jsx'
+import { GiaiThich } from '../ui/GiaiThich.jsx'
 import EmptyState from '../ui/EmptyState.jsx'
 import { Input } from '../ui/Field.jsx'
 import { LOAI_THUAT_NGU } from '../../lib/status-presentation.js'
@@ -114,11 +115,13 @@ export default function TermCandidatePanel({
     <section className="the-lon" aria-labelledby="tieu-de-ung-vien">
       <header className="the-dau">
         <h2 id="tieu-de-ung-vien">Tìm danh xưng trong chapter</h2>
-        <p>
+        <GiaiThich>
+          <p>
           Máy đọc lại chữ đã nhận được của chapter rồi liệt kê những danh xưng lặp lại, kèm{' '}
           <b>số lần xuất hiện và câu trích nguyên văn</b>. Nó <b>không tự thêm thuật ngữ nào</b> —
           bạn vẫn là người quyết cách dịch.
         </p>
+        </GiaiThich>
       </header>
 
       <div className="hang-cong-cu">
@@ -153,7 +156,7 @@ export default function TermCandidatePanel({
         <p className="ghi-chu">Cách tìm cho ngôn ngữ này: {duLieu.ghi_chu_ngon_ngu}.</p>
       )}
 
-      {rong && <EmptyState icon="sach" tieuDe={rong.tieuDe} moTa={rong.moTa} />}
+      {rong && <EmptyState gon icon="sach" tieuDe={rong.tieuDe} moTa={rong.moTa} />}
 
       {duLieu && duLieu.ung_vien.length > 0 && (
         <>

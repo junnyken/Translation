@@ -123,7 +123,7 @@ export default function ExportPanel({
 
   return (
     <section id="bang-xuat" className="bang-xuat" aria-labelledby="tieu-de-bang-xuat">
-      <h2 id="tieu-de-bang-xuat">Xuất chapter{tenProject ? ` — ${tenProject}` : ''}</h2>
+      <h2 id="tieu-de-bang-xuat" className="an-di">Xuất chapter{tenProject ? ` — ${tenProject}` : ''}</h2>
 
       <div className="luoi-xuat">
         <div className="cot-xuat-trai">

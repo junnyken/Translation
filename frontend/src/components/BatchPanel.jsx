@@ -3,6 +3,7 @@ import * as api from '../api.js'
 import { useCodex } from '../lib/dung-codex.js'
 import Button from './ui/Button.jsx'
 import Icon from './ui/Icon.jsx'
+import { ChuRutGon } from './ui/GiaiThich.jsx'
 
 const TRANG_THAI_ME = {
   queued: { chu: 'Đang xếp hàng', lop: 'cho' },
@@ -141,7 +142,7 @@ export default function BatchPanel({ projectId, soTrang }) {
 
   return (
     <section className="bang-me" id="bang-me" aria-labelledby="tieu-de-bang-me">
-      <h2 id="tieu-de-bang-me">Chạy cả chapter</h2>
+      <h2 id="tieu-de-bang-me" className="an-di">Chạy cả chapter</h2>
       <div className="luoi-me">
       <div className="me-hanh-dong">
 
@@ -254,15 +255,16 @@ export default function BatchPanel({ projectId, soTrang }) {
             <tbody>
               {muc.map((m) => {
                 const n = TRANG_THAI_MUC[m.status] ?? { chu: m.status, lop: 'cho' }
+                const ghiChu = m.status === 'skipped'
+                  ? LY_DO_BO_QUA[m.error_code] ?? m.error_code ?? '—'
+                  : m.error_message || (m.error_code === 'dang_chay' ? 'đang chạy bởi việc khác' : '—')
                 return (
                   <tr key={m.id}>
                     <td>{m.page_order}</td>
                     <td><Nhan n={n} /></td>
                     <td>{m.retry_count > 0 ? `${m.retry_count} lần` : '—'}</td>
                     <td className="o-loi">
-                      {m.status === 'skipped'
-                        ? LY_DO_BO_QUA[m.error_code] ?? m.error_code ?? '—'
-                        : m.error_message || (m.error_code === 'dang_chay' ? 'đang chạy bởi việc khác' : '—')}
+                      <ChuRutGon dai={ghiChu.length > 48}>{ghiChu}</ChuRutGon>
                     </td>
                     <td>
                       {CAN_CHAY_LAI(m.status) && (

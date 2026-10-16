@@ -253,7 +253,7 @@ export const taiGoiLen = (projectId, file, engine = null) => {
 }
 
 /** Phần mở rộng backend nhận làm GÓI (ĐX-2) — phân biệt với ảnh lẻ ở màn Dịch nhanh. */
-export const LA_GOI = /\.(zip|cbz)$/i
+export const LA_GOI = /\.(zip|cbz|pdf)$/i
 export const laGoiNen = (file) => LA_GOI.test(file?.name || '')
 
 export const layProject = (id) => fetch(`${BASE}/projects/${id}`).then(doc)
