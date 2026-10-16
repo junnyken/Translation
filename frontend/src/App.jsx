@@ -12,6 +12,7 @@ import OrientationSummaryCard from './components/OrientationSummaryCard.jsx'
 import ChapterCreateForm from './components/chapter/ChapterCreateForm.jsx'
 import DichNhanh from './components/chapter/DichNhanh.jsx'
 import ChapterProgress from './components/chapter/ChapterProgress.jsx'
+import LoiTaiChapter from './components/chapter/LoiTaiChapter.jsx'
 import QualityPanel from './components/chapter/QualityPanel.jsx'
 import ChapterRecentList from './components/chapter/ChapterRecentList.jsx'
 import ChapterSummary from './components/chapter/ChapterSummary.jsx'
@@ -192,6 +193,20 @@ export default function App({ urlBundle } = {}) {
     if (!idChapter) return setProject(null)
     napProject(idChapter).catch((e) => setLoi(e.message))
   }, [idChapter, napProject])
+
+  // Màn chapter tải lỗi → "Thử lại": gọi lại ĐÚNG hàm nạp chapter (`napProject`), không đổi luồng khác.
+  const [dangThuLai, setDangThuLai] = useState(false)
+  const thuLaiNapChapter = async () => {
+    setDangThuLai(true)
+    try {
+      await napProject(idChapter)
+      setLoi(null)
+    } catch (e) {
+      setLoi(e.message)
+    } finally {
+      setDangThuLai(false)
+    }
+  }
 
   // ---------- E13: thao tác thuật ngữ & rà soát ----------
 
@@ -583,7 +598,12 @@ export default function App({ urlBundle } = {}) {
                 Đăng nhập lại
               </Button>
             </Alert>
-          : loi && <Alert sac="loi" tieuDe="Có lỗi" onDong={() => setLoi(null)}>{loi}</Alert>}
+          : loi && projectId && !pageId && !project
+            ? <LoiTaiChapter
+                loi={loi} dangThuLai={dangThuLai} onThuLai={thuLaiNapChapter}
+                onVeDanhSach={() => { window.location.hash = ''; setLoi(null) }}
+              />
+            : loi && <Alert sac="loi" tieuDe="Có lỗi" onDong={() => setLoi(null)}>{loi}</Alert>}
         {thongBao && <Alert sac="tin" onDong={() => setThongBao(null)}>{thongBao}</Alert>}
 
         {oTrangChu && (

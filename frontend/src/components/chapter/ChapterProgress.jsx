@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import * as api from '../../api.js'
 import { tinhTienDoChapter } from '../../lib/chapter-progress.js'
+import { useThumbnail, useVaoKhungNhin } from '../../lib/use-thumbnail.js'
+import Skeleton from '../ui/Skeleton.jsx'
 import { MUC_DICH, NGON_NGU, dienGiaiTrangThai } from '../../lib/status-presentation.js'
 import Button from '../ui/Button.jsx'
 import Icon from '../ui/Icon.jsx'
@@ -14,7 +16,15 @@ const LOC_TRANG = [
   { ma: 'chua', nhan: 'Chưa xong' },
   { ma: 'xong', nhan: 'Đã xong' },
   { ma: 'hong', nhan: 'Hỏng' },
+  { ma: 'tran', nhan: 'Tràn khung' },
+  { ma: 'xem', nhan: 'Cần xem lại' },
 ]
+const NHAN_TRAN = 'Tràn khung'
+const NHAN_CAN_XEM = 'Cần xem lại'
+const NHAN_DANG_TAI_ANH = 'Đang tải ảnh trang…'
+// null = CHƯA BIẾT (trang chưa canh chữ / chưa chấm) ⇒ không badge, không tính vào chip.
+const CO_SO = (n) => typeof n === 'number' && n > 0
+
 const NHAN_LOC_TRANG = 'Lọc trang'
 const NHAN_KHONG_CO_TRANG = 'Không có trang nào ở trạng thái này'
 const MO_TA_KHONG_CO_TRANG = 'Chọn "Tất cả" để xem lại toàn bộ.'
@@ -78,19 +88,22 @@ export default function ChapterProgress({ project, canhBao, onNapLai }) {
     return () => clearTimeout(hen.current)   // gỡ component / hết việc là dừng, không để trôi
   }, [con_chay, nhip, dem])
 
-  // Lọc trang. Chỉ dùng dữ liệu CÓ THẬT trên mỗi trang: trạng thái + việc hỏng. Số vùng tràn khung /
-  // cần xem lại nằm ở từng trang riêng (không có trong `GET /projects/{id}`), nên chip lọc không
-  // đoán theo những thứ đó.
+  // Lọc trang. Chỉ dùng dữ liệu CÓ THẬT trên mỗi trang: trạng thái, việc hỏng, và số vùng tràn khung /
+  // cần xem lại do `GET /projects/{id}` trả (null = chưa biết ⇒ không tính, không coi là 0).
   const hong = (t) => t.status === 'detection_failed' || Boolean(viecHong[t.id])
   const xong = (t) => ['typeset_done', 'ready_for_export'].includes(t.status)
   const dsHienThi = trang.filter((t) => {
     if (loc === 'hong') return hong(t)
+    if (loc === 'tran') return CO_SO(t.so_vung_tran_khung)
+    if (loc === 'xem') return CO_SO(t.so_vung_can_xem)
     if (loc === 'xong') return xong(t)
     if (loc === 'chua') return !xong(t) && !hong(t)
     return true
   })
   const soLoc = {
     tat_ca: trang.length, hong: trang.filter(hong).length,
+    tran: trang.filter((t) => CO_SO(t.so_vung_tran_khung)).length,
+    xem: trang.filter((t) => CO_SO(t.so_vung_can_xem)).length,
     xong: trang.filter(xong).length, chua: trang.filter((t) => !xong(t) && !hong(t)).length,
   }
 
@@ -140,19 +153,7 @@ export default function ChapterProgress({ project, canhBao, onNapLai }) {
         <ul className="luoi-trang">
           {dsHienThi.map((t) => (
             <li key={t.id}>
-              <div className={`the-trang${hong(t) ? ' the-trang-hong' : ''}`}>
-                <div className="thumb-trang" aria-hidden="true"><Icon ten="image" co={24} /></div>
-                <div className="than-the-trang">
-                  <a href={`#page=${t.id}`} className="lien-the"><b>Trang {t.order}</b></a>
-                  <StatusBadge loai="trang" trangThai={t.status} />
-                  {t.status === 'detection_failed' && (
-                    <span className="ghi-chu">Mở trang để chạy lại bước nhận diện.</span>
-                  )}
-                  {viecHong[t.id]
-                    ? <LoiCuaTrang job={viecHong[t.id]} />
-                    : <LyDoDung pageId={t.id} trangThai={t.status} />}
-                </div>
-              </div>
+              <TheTrang t={t} hong={hong(t)} job={viecHong[t.id]} />
             </li>
           ))}
         </ul>
@@ -249,5 +250,46 @@ function LyDoDung({ pageId, trangThai }) {
     <span className="canh-bao">
       Bước <b>{TEN_BUOC[job.type] ?? job.type}</b> hỏng: {job.error_log || 'không ghi lý do'}
     </span>
+  )
+}
+
+function TheTrang({ t, hong, job }) {
+  const ref = useRef(null)
+  const thay = useVaoKhungNhin(ref)          // lazy: chỉ tải khi ô vào khung nhìn
+  const anh = useThumbnail(t.id, thay)
+  const tran = CO_SO(t.so_vung_tran_khung)
+  const xem = CO_SO(t.so_vung_can_xem)
+  return (
+    <div className={`the-trang${hong ? ' the-trang-hong' : ''}`}>
+      <div className="thumb-trang" ref={ref} aria-hidden={anh.tt === 'ok' ? undefined : 'true'}>
+        {anh.tt === 'ok'
+          ? <img src={anh.url} alt={`Trang ${t.order}`} loading="lazy" />
+          : anh.tt === 'tai'
+            ? <Skeleton kieu="khoi" nhan={NHAN_DANG_TAI_ANH} />
+            : <Icon ten="image" co={24} />}
+      </div>
+      <div className="than-the-trang">
+        <a href={`#page=${t.id}`} className="lien-the"><b>Trang {t.order}</b></a>
+        <StatusBadge loai="trang" trangThai={t.status} />
+        {(tran || xem) && (
+          <span className="huy-hieu-trang">
+            {tran && (
+              <span className="badge badge-canh">
+                <Icon ten="triangle-alert" co={12} /> {NHAN_TRAN} · {t.so_vung_tran_khung}
+              </span>
+            )}
+            {xem && (
+              <span className="badge badge-canh">
+                <Icon ten="triangle-alert" co={12} /> {NHAN_CAN_XEM} · {t.so_vung_can_xem}
+              </span>
+            )}
+          </span>
+        )}
+        {t.status === 'detection_failed' && (
+          <span className="ghi-chu">Mở trang để chạy lại bước nhận diện.</span>
+        )}
+        {job ? <LoiCuaTrang job={job} /> : <LyDoDung pageId={t.id} trangThai={t.status} />}
+      </div>
+    </div>
   )
 }

@@ -268,6 +268,8 @@ export const layJob = (id) => fetch(`${BASE}/jobs/${id}`).then(doc)
 export const duongDanAnhGoc = (pageId) => `${BASE}/pages/${pageId}/original-image`
 // E76 — ảnh ĐÃ XOÁ CHỮ (chưa chèn chữ dịch), lớp "Đã xoá chữ" của màn canvas. Cũng phải tải qua `taiVeBlobUrl`.
 export const duongDanAnhSach = (pageId) => `${BASE}/pages/${pageId}/clean-image`
+// Ảnh thu nhỏ (JPEG cạnh dài ≤480px; ảnh đã dịch nếu có, không thì ảnh gốc). Cũng cần `taiVeBlobUrl`. 404 = trang hết ảnh.
+export const duongDanThumbnail = (pageId) => `${BASE}/pages/${pageId}/thumbnail`
 
 export const suaVung = (regionId, thayDoi) =>
   fetch(`${BASE}/regions/${regionId}`, {

@@ -913,7 +913,35 @@ async def get_project(project_id: uuid.UUID, session: AsyncSession = Depends(get
     project = (await session.execute(stmt)).scalar_one_or_none()
     if project is None or not duoc_dung_project(nguoi, project):
         raise HTTPException(status_code=404, detail=LOI_KHONG_THAY)
-    return project
+    ket = ProjectDetail.model_validate(project)
+    ids = [pg.id for pg in ket.pages]
+    if ids:
+        tran, co_canh = await _dem_theo_trang(
+            session, TypesetResult, TypesetResult.fit_status == FitStatus.overflow_warning, ids
+        )
+        can_xem, co_cham = await _dem_theo_trang(
+            session, RegionQualityAssessment,
+            RegionQualityAssessment.review_status == ReviewStatus.needs_review, ids,
+        )
+        for pg in ket.pages:
+            pg.so_vung_tran_khung = tran.get(pg.id, 0) if pg.id in co_canh else None
+            pg.so_vung_can_xem = can_xem.get(pg.id, 0) if pg.id in co_cham else None
+    return ket
+
+
+async def _dem_theo_trang(session: AsyncSession, bang, dieu_kien, page_ids: list) -> tuple[dict, set]:
+    """Đếm theo trang các dòng của `bang` (nối qua `region_id`) thoả `dieu_kien`, kèm tập trang CÓ
+    dòng nào của bảng đó — để phân biệt "0" (đã có dữ liệu, không vùng nào) với "chưa có dữ liệu".
+    Hai câu GROUP BY cho cả chapter, không phải N lời gọi theo trang."""
+    noi = select(TextRegion.page_id).join(bang, bang.region_id == TextRegion.id).where(
+        TextRegion.page_id.in_(page_ids)
+    )
+    co = set((await session.execute(noi.distinct())).scalars())
+    dem = dict((await session.execute(
+        select(TextRegion.page_id, func.count()).join(bang, bang.region_id == TextRegion.id)
+        .where(TextRegion.page_id.in_(page_ids), dieu_kien).group_by(TextRegion.page_id)
+    )).all())
+    return dem, co
 
 
 @router.post(
@@ -1842,6 +1870,63 @@ async def get_typeset_preview(
     # cố định theo page nên thiếu header này thì sau khi sửa tay (M7) người dùng vẫn thấy ảnh cũ.
     return await _phuc_vu_hien_vat(
         storage, rel, "image/png", request, cache_control="no-cache, must-revalidate"
+    )
+
+
+#: Cạnh dài tối đa của ảnh thu nhỏ (px). Thẻ chapter trên giao diện rộng ~220–300px CSS, nhân 2
+#: cho màn hình mật độ cao vẫn dưới mức này.
+CANH_ANH_THU_NHO = 480
+
+
+def _tao_anh_thu_nho(storage: IObjectStorage, nguon: str, dich: str, thu_muc: str) -> None:
+    """Đọc ảnh nguồn, thu nhỏ JPEG, ghi vào kho. Xoá bản thu nhỏ CŨ của cùng trang trước khi ghi —
+    khoá theo phiên bản nguồn nên mỗi lần ảnh đổi là một tệp mới, không xoá thì kho phình mãi."""
+    import io
+
+    from PIL import Image
+
+    with storage.open_read(nguon) as f, Image.open(f) as im:
+        im.thumbnail((CANH_ANH_THU_NHO, CANH_ANH_THU_NHO))
+        ra = io.BytesIO()
+        im.convert("RGB").save(ra, "JPEG", quality=80, optimize=True)
+    storage.delete_prefix(thu_muc)
+    storage.save(dich, ra.getvalue())
+
+
+@router.get(
+    "/pages/{page_id}/thumbnail",
+    tags=["pages"],
+    responses={200: {"content": {"image/jpeg": {}}}, 404: {"description": "Không còn ảnh nào"}},
+)
+async def get_page_thumbnail(
+    page_id: uuid.UUID, request: Request, session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
+) -> Response:
+    """Ảnh thu nhỏ của trang (JPEG, cạnh dài ≤ 480px) — làm ảnh bìa thẻ chapter và lưới trang.
+
+    Nguồn: ảnh ĐÃ DỊCH nếu có, chưa có thì ảnh GỐC. Tạo một lần rồi giữ trong kho, khoá theo phiên
+    bản ảnh nguồn (kích thước + mtime) ⇒ trang dịch lại thì tự có ảnh thu nhỏ mới. Tải cả ảnh gốc
+    1–3MB chỉ để vẽ một thẻ 220px là lãng phí băng thông của chính người dùng.
+    """
+    page = await _get_page_or_404(session, page_id, nguoi)
+    storage = get_storage()
+    nguon = preview_relative_path(page_id)
+    st = await run_in_threadpool(storage.stat, nguon)
+    if st is None:
+        nguon = page.image_path
+        st = await run_in_threadpool(storage.stat, nguon)
+    if st is None:
+        raise HTTPException(status_code=404, detail="Trang không còn ảnh nào để thu nhỏ")
+    thu_muc = f"projects/{page.project_id}/thumbs/{page_id}/"
+    dich = f"{thu_muc}{st.size:x}-{st.mtime:x}.jpg"
+    if not await run_in_threadpool(storage.exists, dich):
+        try:
+            await run_in_threadpool(_tao_anh_thu_nho, storage, nguon, dich, thu_muc)
+        except Exception as exc:  # noqa: BLE001 — ảnh hỏng/không đọc được ⇒ 404 rõ, không 500
+            logger.warning("Không tạo được ảnh thu nhỏ trang %s: %s", page_id, exc)
+            raise HTTPException(status_code=404, detail="Không đọc được ảnh trang để thu nhỏ")
+    return await _phuc_vu_hien_vat(
+        storage, dich, "image/jpeg", request, cache_control="no-cache, must-revalidate"
     )
 
 

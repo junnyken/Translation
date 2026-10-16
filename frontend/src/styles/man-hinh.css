@@ -210,7 +210,7 @@ button.tab:focus-visible { outline: 2px solid var(--mau-chinh); outline-offset: 
 .the-chapter:hover { border-color: var(--mau-chinh-vien); box-shadow: var(--bong-noi); }
 /* Bìa = khối màu giữ chỗ (backend chưa có ảnh bìa). Màu theo trạng thái thật của chapter. */
 .bia-chapter {
-  aspect-ratio: 4 / 3; display: grid; place-items: center; position: relative; overflow: hidden;
+  aspect-ratio: 3 / 4; display: grid; place-items: center; position: relative; overflow: hidden;
   background: color-mix(in srgb, var(--cv, var(--mau-chinh)) 22%, var(--the-mo));
   color: color-mix(in srgb, var(--cv, var(--mau-chinh)) 70%, var(--chu));
 }
@@ -376,3 +376,15 @@ a.nut { min-height: var(--cham); justify-content: center; }
   .cv-tren .nut { min-height: 44px; }
 }
 .than-the-trang .the-tt { white-space: normal; text-align: left; align-items: flex-start; min-width: 0; }
+
+/* Ảnh bìa chapter + thumbnail trang (backend GET /pages/{id}/thumbnail) */
+.bia-chapter-cho { aspect-ratio: 3 / 4; display: grid; }
+.bia-chapter-cho .skeleton-khoi { height: 100%; min-height: 0; }
+.bia-chapter-anh { aspect-ratio: 3 / 4; background: var(--giay); }
+.bia-chapter-anh::before, .bia-chapter-anh::after { content: none; }
+.bia-chapter-anh img, .thumb-trang img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb-trang { position: relative; overflow: hidden; }
+.thumb-trang .skeleton { position: absolute; inset: 0; display: grid; }
+.thumb-trang .skeleton-khoi { height: 100%; min-height: 0; border-radius: 0; }
+.huy-hieu-trang { display: flex; flex-wrap: wrap; gap: var(--s-1); }
+.hang-nut { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: var(--s-3); }

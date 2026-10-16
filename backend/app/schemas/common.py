@@ -198,6 +198,11 @@ class PageSummary(ORMModel):
     id: uuid.UUID
     order: int
     status: PageStatus
+    #: Số vùng chữ TRÀN KHUNG sau lượt canh chữ gần nhất. NULL = trang CHƯA canh chữ (chưa biết),
+    #: khác với 0 = đã canh, không vùng nào tràn.
+    so_vung_tran_khung: int | None = None
+    #: Số vùng bộ chấm chất lượng gắn "cần rà soát" mà người dùng chưa quyết. NULL = chưa chấm.
+    so_vung_can_xem: int | None = None
 
 
 class ProjectDetail(ProjectRead):

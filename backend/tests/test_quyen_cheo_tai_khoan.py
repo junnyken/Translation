@@ -188,7 +188,15 @@ async def _dung_du_lieu(session, chu_so_huu_id: uuid.UUID) -> dict[str, str]:
     from app.services.typeset.paths import preview_relative_path
 
     kho = get_storage()
-    anh = b"\x89PNG\r\n\x1a\n" + b"0" * 64
+    # Ảnh PNG THẬT (không phải chữ ký + rác): `/thumbnail` phải giải mã được ảnh thì A mới nhận 200
+    # và phép dò mới so được với B.
+    import io
+
+    from PIL import Image
+
+    _b = io.BytesIO()
+    Image.new("RGB", (8, 8), "white").save(_b, "PNG")
+    anh = _b.getvalue()
     kho.save(page.image_path, anh)  # E21: /original-image phục vụ ĐÚNG path này
     duong_clean = f"{project.id}/{page.id}/clean.png"
     kho.save(duong_clean, anh)

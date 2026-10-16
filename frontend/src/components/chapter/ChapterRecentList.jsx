@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import * as api from '../../api.js'
 import { tinhTienDoChapter } from '../../lib/chapter-progress.js'
+import { useThumbnail } from '../../lib/use-thumbnail.js'
 import { NGON_NGU } from '../../lib/status-presentation.js'
 import EmptyState from '../ui/EmptyState.jsx'
 import Icon from '../ui/Icon.jsx'
 import Alert from '../ui/Alert.jsx'
 import Button from '../ui/Button.jsx'
+import Skeleton from '../ui/Skeleton.jsx'
 
 // wording: BA review — nhãn chip lọc + các câu mới của lưới chapter (mockup-v2/trang-chu)
 const TIEU_DE_LUOI = 'Chapter gần đây'
@@ -17,6 +19,7 @@ const MO_TA_KHONG_KHOP = 'Thử đổi từ khoá hoặc bỏ bộ lọc.'
 const NHAN_LOI_TAI = 'Không tải được tiến độ'
 const NHAN_THU_LAI = 'Thử lại'
 const NHAN_CHUA_CO_TRANG = 'Chưa có trang'
+const NHAN_DANG_TAI_BIA = 'Đang tải ảnh bìa…'
 
 const LOC = [
   { ma: 'tat_ca', nhan: 'Tất cả' },
@@ -154,14 +157,27 @@ function TheChapter({ chapter, tt }) {
   const h = ok ? HIEN[tt.ma] : null
   const p = ok ? tt.project : null
   const td = ok ? tt.td : null
+  // Bìa = thumbnail của trang có `order` nhỏ nhất. Chưa biết trang (đang tải project) thì chưa tải gì.
+  const trangDau = p?.pages?.length
+    ? p.pages.reduce((a, b) => (b.order < a.order ? b : a))
+    : null
+  const bia = useThumbnail(trangDau?.id)
   const phanTram = td && td.tong > 0 ? Math.round((td.so_xong / td.tong) * 100) : 0
 
   return (
     <li>
       <article className="the-chapter" aria-busy={dangTai || undefined}>
-        <div className="bia-chapter" style={{ '--cv': h ? h.mau : 'var(--mo)' }} aria-hidden="true">
-          <Icon ten="image" co={24} />
-        </div>
+        {bia.tt === 'tai' ? (
+          <Skeleton kieu="khoi" nhan={NHAN_DANG_TAI_BIA} className="bia-chapter-cho" />
+        ) : bia.tt === 'ok' ? (
+          // alt rỗng: ảnh chỉ trang trí — tên chapter đã là chữ của liên kết ngay bên dưới; alt mô tả
+          // sẽ khiến trình đọc màn hình đọc lặp tên (và "ảnh bìa" không mang thêm thông tin nào).
+          <div className="bia-chapter bia-chapter-anh"><img src={bia.url} alt="" loading="lazy" /></div>
+        ) : (
+          <div className="bia-chapter" style={{ '--cv': h ? h.mau : 'var(--mo)' }} aria-hidden="true">
+            <Icon ten="image" co={24} />
+          </div>
+        )}
         <div className="than-the-chapter">
           <h3>
             <a href={`#project=${chapter.id}`} className="lien-the">{chapter.ten}</a>
