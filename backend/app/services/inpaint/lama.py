@@ -329,19 +329,25 @@ class LamaInpainter:
                                             self.he_so_no_net)
                 logger.info("E79: xoá theo nét chữ (%d khung lùi về xoá cả khung)", lui)
 
-        rgb = anh_u8.astype(np.float32) / 255.0  # HWC
-        del anh_u8
-
         trieu_diem = (width * height) / 1e6
         if not masks:
-            pred_hwc = rgb  # mọi vùng đã tô phẳng — không nạp model
+            out_arr = anh_u8  # mọi vùng đã tô phẳng — không nạp model
         elif trieu_diem <= self.whole_page_max_mpx:
             # Trang nhỏ: chạy cả trang một lượt như M4 đã kiểm chứng.
             self._kiem_tran_o_cat(trieu_diem, width, height, "cả trang")
+            rgb = anh_u8.astype(np.float32) / 255.0  # HWC
+            del anh_u8
             pred_hwc = self._chay_model(rgb, mask)
+            # Chỉ thay pixel TRONG mask, theo dải — lý do trong docstring `_tron_theo_dai`.
+            out_arr = _tron_theo_dai(rgb, pred_hwc, mask)
         else:
             # Trang lớn: chạy theo từng cụm bong bóng, nếu không sẽ hết bộ nhớ.
-            pred_hwc = rgb.copy()
+            #
+            # E88 — KHÔNG dựng ảnh số thực cỡ NGUYÊN TRANG. Trước đây giữ `rgb` + `pred_hwc` (mỗi
+            # bản = cao×rộng×3×4 byte) cả trang: trang 3112x4402 (13,7 triệu điểm, production
+            # 16-10-2026) là ~330 MB chỉ cho hai bản đó, cộng LaMa trên ô 1,6 triệu điểm ⇒ worker bị
+            # giết (137) hai lần liên tiếp. Giờ ảnh giữ uint8, chỉ ô cắt mới đổi sang số thực.
+            out_arr = anh_u8
             cum = gom_cum(masks, width, height, self.tile_margin)
             logger.info(
                 "Ảnh %dx%d (%.1f triệu điểm) vượt ngưỡng %.1f -> xoá chữ theo %d cụm",
@@ -356,15 +362,15 @@ class LamaInpainter:
                     o_lon / 1e6, width, height, f"cụm lớn nhất trong {len(cum)} cụm"
                 )
             for x0, y0, x1, y1 in cum:
-                o_anh = rgb[y0:y1, x0:x1]
                 o_mask = mask[y0:y1, x0:x1]
                 if o_mask.max() <= 0:
                     continue
-                pred_hwc[y0:y1, x0:x1] = self._chay_model(o_anh, o_mask)
+                o_anh = out_arr[y0:y1, x0:x1].astype(np.float32) / 255.0
+                o_pred = self._chay_model(o_anh, o_mask)
+                out_arr[y0:y1, x0:x1] = _tron_theo_dai(o_anh, o_pred, o_mask)
+                del o_anh, o_pred
 
-        # Chỉ thay pixel TRONG mask, và làm theo dải để đỉnh bộ nhớ không leo theo cỡ trang
-        # — lý do đầy đủ nằm trong docstring của `_tron_theo_dai`.
-        out = Image.fromarray(_tron_theo_dai(rgb, pred_hwc, mask), mode="RGB")
+        out = Image.fromarray(out_arr, mode="RGB")
 
         target = self.clean_path_for(image_path)
         target.parent.mkdir(parents=True, exist_ok=True)
