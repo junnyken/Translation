@@ -702,11 +702,12 @@ def test_giao_dien_khong_chon_ho_muc_dich_su_dung():
     Trước M10 ô này mặc định `personal`, nghĩa là ai bấm nhanh cũng thành "đọc cá nhân" mà
     không hề tự khai.
     """
-    src = (FE_DIR / "components" / "chapter" / "ChapterCreateForm.jsx").read_text()
+    # 16-10-2026: hai form "Dịch nhanh" + "Tạo chapter" gộp thành `DichChapter.jsx` — chốt đi theo.
+    src = (FE_DIR / "components" / "chapter" / "DichChapter.jsx").read_text()
     assert "useState('personal')" not in src, "vẫn đang chọn sẵn mục đích hộ người dùng"
-    assert "useState('')" in src
+    assert "const [mucDich, setMucDich] = useState('')" in src
     assert "!mucDich" in src, "chưa chọn mục đích thì không được cho tạo chapter"
-    assert "lyDoChuaTaoDuoc" in src, "nút bị khoá phải nói rõ vì sao"
+    assert "lyDoChuaChayDuoc" in src, "nút bị khoá phải nói rõ vì sao"
 
 
 def test_nut_xuat_trong_hop_thoai_chi_sang_khi_da_tick():
