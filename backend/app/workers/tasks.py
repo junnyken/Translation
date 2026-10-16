@@ -891,6 +891,7 @@ def get_inpainter():
             max_crop_mpx=settings.inpaint_max_crop_mpx,
             flat_fill=settings.inpaint_flat_fill,
             he_so_no_net=settings.inpaint_net_chu_he_so_no,
+            xoa_net_tren_tranh=settings.inpaint_net_tren_tranh,
         )
     return _inpainter
 

@@ -137,7 +137,10 @@ class LamaInpainter:
         max_crop_mpx: float = 2.6,
         flat_fill: bool = True,
         he_so_no_net: float = 2.0,
+        xoa_net_tren_tranh: bool = True,
     ) -> None:
+        #: E87 — chữ trên tranh: chỉ xoá nét có viền trắng/đen (xem `mat_na_net_tren_tranh`).
+        self.xoa_net_tren_tranh = xoa_net_tren_tranh
         #: E79 — nhân bán kính nở mặt nạ nét chữ (xem `mat_na_net.HE_SO_NO_MAC_DINH`).
         self.he_so_no_net = he_so_no_net
         #: E69 — tô phẳng vùng chữ nằm trên nền một màu thay vì chạy LaMa (xem `to_phang.py`).
@@ -287,6 +290,29 @@ class LamaInpainter:
                 masks = [masks[i] for i in kq.con_lai]
                 mask = build_mask(width, height, [khung_noi[i] for i in kq.con_lai], 0.0) \
                     if masks else np.zeros((height, width), dtype=np.float32)
+
+        if mat_na_chu is None and masks and self.xoa_net_tren_tranh:
+            # E87 — khung còn lại sau tô phẳng = chữ trên nền KHÔNG phẳng (thường là chữ hiệu ứng
+            # vẽ trên tranh). Không có mặt nạ `seg` ⇒ dựng mặt nạ nét theo viền trắng/đen.
+            from app.services.inpaint.mat_na_net import mat_na_net_tren_tranh
+            from app.services.inpaint.to_phang import o_nguyen
+
+            khung_noi = dilate_bboxes(masks, width, height, self.dilate_ratio)
+            moi = np.zeros_like(mask)
+            dung = 0
+            for b in khung_noi:
+                ox1, oy1, ox2, oy2 = o_nguyen(b, width, height)
+                net = mat_na_net_tren_tranh(anh_u8, (ox1, oy1, ox2, oy2))
+                o_mask = mask[oy1:oy2, ox1:ox2]
+                if net is None:
+                    moi[oy1:oy2, ox1:ox2] = np.maximum(moi[oy1:oy2, ox1:ox2], o_mask)
+                else:
+                    moi[oy1:oy2, ox1:ox2] = np.maximum(moi[oy1:oy2, ox1:ox2],
+                                                       o_mask * net.astype(mask.dtype))
+                    dung += 1
+            if dung:
+                logger.info("E87: xoá theo nét viền ở %d/%d khung trên tranh", dung, len(khung_noi))
+            mask = moi
 
         if mat_na_chu is not None and masks:
             # E79 — xoá theo NÉT CHỮ trong khung (mặt nạ `seg` của CTD), không xoá cả khung.

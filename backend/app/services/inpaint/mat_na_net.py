@@ -70,3 +70,41 @@ def tinh_mat_na_xoa(mat_na_khung: np.ndarray, mat_na_chu: np.ndarray,
         else:
             ra[y1:y2, x1:x2] = np.maximum(ra[y1:y2, x1:x2], o.astype(np.float32))
     return ra * (mat_na_khung > 0), lui
+
+
+#: E87 — chữ nằm TRÊN TRANH (không bong bóng, không tô phẳng được) mà không có mặt nạ `seg`
+#: (nhận diện bằng Gemini chỉ cho khung). Chữ hiệu ứng truyện tranh gần như luôn có VIỀN trắng
+#: hoặc đen đậm ⇒ lấy các điểm rất trắng / rất đen trong khung, nở ra để phủ cả phần ruột màu của
+#: nét, rồi chỉ xoá chừng đó thay vì cả khung. Đo thật ja_E12P01 (カラン/コロン trên đống chai lọ):
+#: xoá cả khung ⇒ LaMa xoá mất mấy chai lọ; mặt nạ này phủ 41% khung, bám đúng chữ.
+SANG_TRANG = 225
+SAC_DO_TRANG_TOI_DA = 30
+TOI_DEN = 60
+#: Viền chiếm ít hơn mức này ⇒ không phải chữ có viền ⇒ xoá cả khung như cũ.
+TI_LE_VIEN_TOI_THIEU = 0.03
+#: Mặt nạ sau khi nở mà phủ quá mức này ⇒ không tiết kiệm được gì / nghi ngờ ⇒ xoá cả khung.
+TI_LE_MAT_NA_TOI_DA = 0.7
+
+
+def mat_na_net_tren_tranh(anh: np.ndarray, o: tuple[int, int, int, int]) -> np.ndarray | None:
+    """Mặt nạ bool (cao×rộng của ô `o`) các nét chữ có viền trắng/đen; None = không chắc ⇒ cả khung."""
+    import cv2
+
+    x1, y1, x2, y2 = o
+    vung = anh[y1:y2, x1:x2].astype(np.int16)
+    if vung.size == 0:
+        return None
+    sang = vung.mean(axis=2)
+    sac = vung.max(axis=2) - vung.min(axis=2)
+    trang = (sang >= SANG_TRANG) & (sac <= SAC_DO_TRANG_TOI_DA)
+    den = sang <= TOI_DEN
+    vien = trang if trang.mean() >= den.mean() else den
+    if vien.mean() < TI_LE_VIEN_TOI_THIEU:
+        return None
+    cao, rong = anh.shape[:2]
+    r = max(2, round(max(rong, cao) / 1024 * 2.8))
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1))
+    m = cv2.morphologyEx(cv2.dilate(vien.astype(np.uint8), k), cv2.MORPH_CLOSE, k) > 0
+    if m.mean() > TI_LE_MAT_NA_TOI_DA:
+        return None
+    return m

@@ -538,6 +538,8 @@ class Settings(BaseSettings):
     #: Nhân bán kính nở mặt nạ nét chữ so với Koharu. 2.0 đo được là đủ trùm viền đen dày của chữ
     #: tiếng động; 1.0 để sót viền (REPORT_E79).
     inpaint_net_chu_he_so_no: float = 2.0
+    #: E87 — chữ trên tranh (không bong bóng): chỉ xoá nét có viền trắng/đen thay vì cả khung.
+    inpaint_net_tren_tranh: bool = True
     #: E74 — `lama` (CPU, mặc định) hoặc `khuech_tan` (SDXL/FLUX qua diffusers — CẦN GPU NVIDIA và
     #: image worker GPU: `deploy/docker-compose.gpu.yml`). Không có GPU ⇒ lỗi rõ, KHÔNG lùi về LaMa.
     inpaint_engine: Literal["lama", "khuech_tan"] = "lama"

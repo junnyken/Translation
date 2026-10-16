@@ -206,6 +206,17 @@ def _be_day_vien(vien: np.ndarray, loi: np.ndarray, ngoai: np.ndarray) -> float 
     return float(day) if day >= VIEN_TOI_THIEU else None
 
 
+def _vien_tin_duoc(m: MauChu, canh_dai: int) -> MauChu:
+    """E87 — viền đo được DÀY bất thường ⇒ phép đo đã lấy nhầm tranh quanh chữ (chữ hiệu ứng vẽ
+    trên tranh). Đo thật ja_E12P01: カラン trên đống chai lọ ⇒ viền nâu (màu chai) dày 17px ⇒ chữ
+    dịch thành một khối nâu. Khi đó giữ MÀU CHỮ, thay viền bằng màu tương phản mỏng."""
+    tran = max(6, round(canh_dai / 1024 * 6))
+    if m.vien is None or m.vien <= tran:
+        return m
+    tuong_phan = (0, 0, 0) if _do_sang(m.mau) >= DO_SANG_TRANG else (255, 255, 255)
+    return MauChu(mau=m.mau, mau_vien=tuong_phan, vien=float(VIEN_TOI_THIEU + 1))
+
+
 def do_mau_chu(anh: np.ndarray, bbox: BBox) -> MauChu | None:
     """Đo trên ẢNH GỐC (chưa xoá chữ). `anh`: HWC uint8 RGB. None nếu khung rỗng sau khi kẹp."""
     cao, rong = anh.shape[:2]
@@ -235,7 +246,7 @@ def do_mau_chu(anh: np.ndarray, bbox: BBox) -> MauChu | None:
 
     co_vien = _do_vien(nhan, tam, o, trong, nen)
     if co_vien is not None:
-        return co_vien
+        return _vien_tin_duoc(co_vien, max(anh.shape[:2]))
 
     co = [k for k in range(SO_CUM) if (nhan == k).any()]
     if len(co) == 1:
