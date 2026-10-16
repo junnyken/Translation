@@ -56,11 +56,16 @@ def test_nen_hoa_tiet_thi_khong_to():
     assert np.array_equal(anh, goc), "không tô thì không được đụng vào ảnh"
 
 
-def test_khung_cham_vien_bong_bong_thi_khong_to():
+def test_khung_cham_vien_bong_bong_thi_khong_dung_vao_net_vien():
+    """Trước E86: dải viền dính nét viền ⇒ KHÔNG tô, để LaMa. E86 (tô từng phần): nền đa số vẫn
+    trắng ⇒ tô phần trong khung, nhưng nét viền nằm NGOÀI khung phải còn nguyên — đó mới là điều
+    ca này canh (tô là xoá mất nét)."""
     anh = np.full((200, 300, 3), 255, np.uint8)
     anh[50:53, :] = 0  # nét viền bong bóng chạy ngay sát mép trên khung
     _chu(anh, 100, 60, 80, 40)
-    assert to_phang(anh, [BBox(96, 56, 88, 48)]).da_to == ()
+    to_phang(anh, [BBox(96, 56, 88, 48)])
+    assert (anh[50:53, :] == 0).all(), "nét viền bị tô mất"
+    assert (anh[56:104, 96:184] == 255).all(), "chữ trong khung chưa được xoá"
 
 
 def test_net_vien_bong_bong_cham_dai_vien_nhung_khong_vao_khung_thi_van_to():

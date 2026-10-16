@@ -187,3 +187,36 @@ def _tach_o_chong_nhau(o_dat: dict, khung: dict) -> dict:
                 trai_sau = max(os_[0], giua)
                 ra[sau] = (trai_sau, os_[1], max(0.0, os_[0] + os_[2] - trai_sau), os_[3])
     return ra
+
+
+def kep_trong_khung_tranh(o_dat: dict, khung: dict, khung_tranh: list) -> dict:
+    """E86 — ô đặt chữ không được vượt ra ngoài KHUNG TRANH chứa nó.
+
+    Đo thật (ja_E12P01): bong bóng chạm mép khung tranh ⇒ lòng trắng bong bóng nối liền lề trắng
+    của trang ⇒ A1 nới ô tràn ra lề ⇒ chữ vẽ ra ngoài khung tranh, có câu rớt khỏi mép trang.
+
+    `khung_tranh`: danh sách (x0, y0, x1, y1) — lá của cắt XY (E82). Chỉ kẹp ở CẠNH mà khung chữ của
+    chính vùng nằm trong khung tranh: bong bóng cố ý tràn qua mép khung (rất hay gặp) thì cạnh đó để
+    nguyên. Không khung tranh nào chứa tâm khung chữ ⇒ giữ nguyên.
+    """
+    ra = dict(o_dat)
+    for rid, o in o_dat.items():
+        k = khung.get(rid)
+        if k is None:
+            continue
+        cx, cy = k[0] + k[2] / 2, k[1] + k[3] / 2
+        tranh = next((t for t in khung_tranh if t[0] <= cx < t[2] and t[1] <= cy < t[3]), None)
+        if tranh is None or len(khung_tranh) < 2:
+            continue
+        x0, y0, x1, y1 = o[0], o[1], o[0] + o[2], o[1] + o[3]
+        if k[0] >= tranh[0]:
+            x0 = max(x0, tranh[0])
+        if k[1] >= tranh[1]:
+            y0 = max(y0, tranh[1])
+        if k[0] + k[2] <= tranh[2]:
+            x1 = min(x1, tranh[2])
+        if k[1] + k[3] <= tranh[3]:
+            y1 = min(y1, tranh[3])
+        if x1 > x0 and y1 > y0:
+            ra[rid] = (x0, y0, x1 - x0, y1 - y0)
+    return ra

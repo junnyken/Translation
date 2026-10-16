@@ -501,6 +501,8 @@ class Settings(BaseSettings):
     #: E82 — sắp thứ tự đọc theo KHUNG TRANH (cắt XY theo rãnh trắng) trước, rồi mới tới vị trí trong
     #: khung. Trang không cắt được khung ⇒ y như trước. Xem `translate/khung_tranh.py`.
     e82_thu_tu_theo_khung: bool = True
+    #: E86 — kẹp ô đặt chữ trong khung tranh chứa nó (bong bóng chạm mép khung ⇒ A1 nới tràn ra lề).
+    e86_o_dat_trong_khung_tranh: bool = True
     #: E26-C — vùng E12 đánh `possible_sfx` thì giữ nguyên chữ gốc, không dịch thành từ.
     #:
     #: Đo thật: `Clang` -> "Kêu vang", `Cling` -> "Bám vào", `Clong` -> "tiếng kêu". Dịch đúng từ

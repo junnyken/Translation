@@ -118,6 +118,79 @@ def _mau_vien_phang(mau: np.ndarray) -> np.ndarray | None:
     return mau_nen_phang(mau[gan])
 
 
+#: E86 — tô từng phần: nền đa số trong dải viền phải chiếm ít nhất tỉ lệ này.
+TI_LE_NEN_DA_SO = 0.6
+
+
+def _to_net_trong_nen_da_so(anh, o, ngoai, lay) -> bool:
+    """E86 — dải viền KHÔNG phẳng toàn bộ, nhưng đa số là MỘT màu nền phẳng (bong bóng trắng không
+    viền nằm trên nền trời: khung chữ sát mép bong bóng nên dải viền lẫn màu trời).
+
+    Đo thật (ja_E12P01, "その通り"): ca này rơi về LaMa và LaMa kéo màu trời vào trong bong bóng
+    thành một vệt xanh. Ở đây chỉ tô màu bong bóng lên NÉT CHỮ, giữ nguyên phần nền khác lọt vào
+    khung:
+    - thành phần liên thông "không phải màu bong bóng" trong khung;
+    - thành phần chạm MÉP khung mà ngay bên ngoài chỗ chạm KHÔNG phải màu bong bóng ⇒ là nền khác
+      (trời) tràn vào ⇒ giữ nguyên;
+    - còn lại là nét chữ (nằm trọn trong lòng bong bóng) ⇒ tô.
+    Không chắc (không đủ nền đa số, nét chữ chiếm quá nửa khung) ⇒ trả False, để LaMa như cũ.
+    """
+    import cv2
+
+    x1, y1, x2, y2 = o
+    ox1, oy1, ox2, oy2 = ngoai
+    vien = anh[oy1:oy2, ox1:ox2][lay]
+    if vien.shape[0] < SO_MAU_TOI_THIEU:
+        return False
+    tho = np.floor(np.median(vien.astype(np.float64), axis=0)).astype(np.int16)
+    gan_vien = (np.abs(vien.astype(np.int16) - tho) <= SAI_SO_GAN_NEN).all(axis=1)
+    if gan_vien.mean() < TI_LE_NEN_DA_SO:
+        return False
+    mau = mau_nen_phang(vien[gan_vien])
+    if mau is None:
+        return False
+
+    vung = anh[oy1:oy2, ox1:ox2].astype(np.int16)
+    gan = (np.abs(vung - mau.astype(np.int16)) <= SAI_SO_GAN_NEN).all(axis=2)
+    ty1, tx1 = y1 - oy1, x1 - ox1
+    trong = ~gan[ty1:ty1 + (y2 - y1), tx1:tx1 + (x2 - x1)]
+    if trong.mean() > 0.5 or not trong.any():
+        return False
+    so, nhan = cv2.connectedComponents(trong.astype(np.uint8), connectivity=8)
+    # Điểm ngay BÊN NGOÀI mép khung (trong vùng `ngoai`) có phải màu bong bóng không.
+    def _ngoai_la_nen(yy, xx):
+        gy, gx = yy + ty1, xx + tx1
+        lan = []
+        if yy == 0 and gy > 0:
+            lan.append(gan[gy - 1, gx])
+        if yy == trong.shape[0] - 1 and gy + 1 < gan.shape[0]:
+            lan.append(gan[gy + 1, gx])
+        if xx == 0 and gx > 0:
+            lan.append(gan[gy, gx - 1])
+        if xx == trong.shape[1] - 1 and gx + 1 < gan.shape[1]:
+            lan.append(gan[gy, gx + 1])
+        return all(lan) if lan else True
+
+    to = np.zeros_like(trong)
+    h, w = trong.shape
+    for k in range(1, so):
+        tp = nhan == k
+        ys, xs = np.nonzero(tp)
+        bien = (ys == 0) | (ys == h - 1) | (xs == 0) | (xs == w - 1)
+        if bien.any() and not all(_ngoai_la_nen(yy, xx) for yy, xx in zip(ys[bien], xs[bien])):
+            continue  # nền khác tràn vào khung — giữ nguyên
+        to |= tp
+    if not to.any():
+        return False
+    # Nới 1px để ăn cả viền khử răng cưa của nét chữ, nhưng không lấn sang khung chữ khác.
+    # Tô MỌI điểm trong khung trừ phần nền khác (và 1px quanh nó để giữ mép bong bóng): tô riêng nét
+    # chữ thì viền khử răng cưa — xám nhạt, vẫn "gần màu nền" — còn lại thành bóng mờ (đo thật).
+    nen_khac = trong & ~to
+    giu = cv2.dilate(nen_khac.astype(np.uint8), np.ones((3, 3), np.uint8)).astype(bool)
+    anh[y1:y2, x1:x2][~giu] = mau
+    return True
+
+
 def to_phang(anh: np.ndarray, khung_da_noi: list[BBox]) -> KetQuaToPhang:
     """Tô phẳng TẠI CHỖ các khung nằm trên nền một màu.
 
@@ -153,7 +226,10 @@ def to_phang(anh: np.ndarray, khung_da_noi: list[BBox]) -> KetQuaToPhang:
         mau_vien = anh[oy1:oy2, ox1:ox2][lay]
         mau = _mau_vien_phang(mau_vien)
         if mau is None:
-            con_lai.append(i)
+            if _to_net_trong_nen_da_so(anh, (x1, y1, x2, y2), (ox1, oy1, ox2, oy2), lay):
+                da_to.append(i)
+            else:
+                con_lai.append(i)
             continue
         vien_sach = bool(
             (np.abs(mau_vien.astype(np.int16) - mau.astype(np.int16)) <= SAI_SO_GAN_NEN)

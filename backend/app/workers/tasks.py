@@ -188,6 +188,29 @@ def _khung_tranh_cua_trang(image_rel: str, source_lang: str):
         return None
 
 
+def _kep_o_dat_theo_khung_tranh(o_dat: dict, regions, image_rel: str | None) -> dict:
+    """E86 — kẹp ô đặt chữ trong khung tranh (xem `kep_trong_khung_tranh`). Lỗi ⇒ giữ nguyên."""
+    if not o_dat or not image_rel or not settings.e86_o_dat_trong_khung_tranh:
+        return o_dat
+    try:
+        import io
+
+        import numpy as np
+        from PIL import Image as _Image
+
+        from app.services.safearea.khong_de_len_nhau import kep_trong_khung_tranh
+        from app.services.translate.khung_tranh import la_theo_thu_tu, tim_khung_tranh
+
+        with _Image.open(io.BytesIO(get_storage().read(image_rel))) as im:
+            xam = np.asarray(im.convert("L"))
+        la = la_theo_thu_tu(tim_khung_tranh(xam), rtl=False)
+        khung = {r.id: (r.bbox_x, r.bbox_y, r.bbox_w, r.bbox_h) for r in regions}
+        return kep_trong_khung_tranh(o_dat, khung, [(k.x0, k.y0, k.x1, k.y1) for k in la])
+    except Exception:  # noqa: BLE001 — phần THÊM, không được làm hỏng lượt canh chữ
+        logger.exception("E86: không kẹp được ô đặt chữ theo khung tranh cho %s", image_rel)
+        return o_dat
+
+
 def mat_na_chu_rel(image_rel: str) -> str:
     """E79 — nơi lưu mặt nạ điểm ảnh của chữ, cạnh ảnh trang (suy từ đường ảnh, không cần cột DB)."""
     p = PurePosixPath(image_rel)
@@ -2184,6 +2207,10 @@ def _run_typeset(job_id: uuid.UUID) -> dict:
                 o_dat = nap_o_dat_chu(session, [r.id for r in regions], van_tay_clean)
             except Exception:  # noqa: BLE001
                 logger.exception("không tính lại được vùng an toàn cho trang %s", page_id)
+        _o_truoc_kep = dict(o_dat)
+        o_dat = _kep_o_dat_theo_khung_tranh(o_dat, regions, page.image_path)
+        #: Vùng có ô bị kẹp ⇒ "lòng bong bóng" đo được đã lẫn lề trang ⇒ đa giác E75 không tin được.
+        bi_kep = {rid for rid, o in o_dat.items() if _o_truoc_kep.get(rid) != o}
         specs = [
             (
                 r.id,
@@ -2212,7 +2239,7 @@ def _run_typeset(job_id: uuid.UUID) -> dict:
                 tam = {r.id: (r.bbox_x + r.bbox_w / 2, r.bbox_y + r.bbox_h / 2) for r in regions}
                 da_giac = {
                     rid: pg for rid, pg in da_giac.items()
-                    if not nen_xoay(goc_e75.get(rid))
+                    if rid not in bi_kep and not nen_xoay(goc_e75.get(rid))
                     and not any(tam_nam_trong(pg, c) for k, c in tam.items() if k != rid)
                 }
         danh_dau_dang_chay(job)
@@ -2563,6 +2590,9 @@ def _run_refit(job_id: uuid.UUID, region_id: uuid.UUID, font_size_override: floa
                 o_dat = nap_o_dat_chu(session, [region_id], van_tay_clean)
             except Exception:  # noqa: BLE001
                 logger.exception("refit: không tính lại được vùng an toàn cho vùng %s", region_id)
+        if region_id in o_dat:
+            # Kẹp theo khung tranh y như lượt canh cả trang (E86) — hai đường phải ra cùng ô.
+            o_dat = _kep_o_dat_theo_khung_tranh(o_dat, [region], page.image_path)
         o = o_dat.get(region_id)
         danh_dau_dang_chay(job)
         session.commit()
