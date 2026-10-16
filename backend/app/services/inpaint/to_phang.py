@@ -52,6 +52,18 @@ TI_LE_VIEN_GAN_NEN = 0.95
 #: nền. Nét viền bong bóng mà cắt vào khung thì mép khung lộ mực ⇒ không tô (tô là xoá mất nét).
 MEP_TRONG = 2
 TI_LE_MEP_TRONG_GAN_NEN = 0.95
+#: E84 — dải viền SẠCH gần như tuyệt đối (≥ tỉ lệ này điểm gần nền) ⇒ không nét viền bong bóng nào
+#: cắt qua khung được (muốn vào khung phải đi qua dải). Khi đó mực ở mép trong chỉ có thể là CHÍNH NÉT
+#: CHỮ chạm mép — khung của bộ nhận diện ngoài (Gemini) ôm rất sát chữ. Đo thật 16-10-2026 trang
+#: ja_E12P01: 5/6 câu có dải viền 100% trắng nhưng mép trong chỉ 84–92% ⇒ bị loại oan, rơi về LaMa và
+#: để lại bóng mờ chữ gốc. Ca này: bỏ chốt mép trong và tô cả khe hở `KHE_HO` (nét chữ chạm mép
+#: thường lấn vào khe).
+TI_LE_VIEN_SACH = 0.995
+#: …nhưng vẫn chặn NÉT VẼ CHẠY DỌC MÉP bên trong khung (không chạm dải viền): nét như vậy phủ kín MỘT
+#: cạnh, còn chữ chạm mép chỉ chạm vài điểm. Đo trên mỗi cạnh: tỉ lệ vị trí dọc cạnh mà CẢ `MEP_TRONG`
+#: điểm đều là nền. Đo thật (11 khung, ja_E12P01): cạnh tệ nhất của khung chữ chạm mép = 0.56; nét vẽ
+#: dọc mép = 0.
+TI_LE_MOI_CANH_GAN_NEN_KHI_VIEN_SACH = 0.4
 #: Tối thiểu tỉ lệ điểm "nền" bên trong khung. Nét chữ manga thường chiếm 10–35% khung đã nới;
 #: dưới 50% nghĩa là trong khung có thứ khác ngoài chữ (tranh, hoạ tiết) ⇒ để LaMa vẽ lại.
 TI_LE_NEN_TRONG_TOI_THIEU = 0.5
@@ -138,10 +150,15 @@ def to_phang(anh: np.ndarray, khung_da_noi: list[BBox]) -> KetQuaToPhang:
             max(0, x1 - KHE_HO - ox1): min(ox2, x2 + KHE_HO) - ox1,
         ] = False
         lay &= ~phu[oy1:oy2, ox1:ox2]
-        mau = _mau_vien_phang(anh[oy1:oy2, ox1:ox2][lay])
+        mau_vien = anh[oy1:oy2, ox1:ox2][lay]
+        mau = _mau_vien_phang(mau_vien)
         if mau is None:
             con_lai.append(i)
             continue
+        vien_sach = bool(
+            (np.abs(mau_vien.astype(np.int16) - mau.astype(np.int16)) <= SAI_SO_GAN_NEN)
+            .all(axis=1).mean() >= TI_LE_VIEN_SACH
+        )
 
         trong = anh[y1:y2, x1:x2].astype(np.int16)
         gan_nen = (np.abs(trong - mau.astype(np.int16)) <= SAI_SO_GAN_NEN).all(axis=2)
@@ -150,11 +167,28 @@ def to_phang(anh: np.ndarray, khung_da_noi: list[BBox]) -> KetQuaToPhang:
             continue
         mep = np.ones(gan_nen.shape, dtype=bool)
         mep[MEP_TRONG:-MEP_TRONG, MEP_TRONG:-MEP_TRONG] = False
-        if gan_nen[mep].mean() < TI_LE_MEP_TRONG_GAN_NEN:
+        if vien_sach:
+            m = MEP_TRONG
+            canh = (gan_nen[:m].all(axis=0), gan_nen[-m:].all(axis=0),
+                    gan_nen[:, :m].all(axis=1), gan_nen[:, -m:].all(axis=1))
+            if min(c.mean() for c in canh) < TI_LE_MOI_CANH_GAN_NEN_KHI_VIEN_SACH:
+                con_lai.append(i)
+                continue
+        elif gan_nen[mep].mean() < TI_LE_MEP_TRONG_GAN_NEN:
             con_lai.append(i)
             continue
 
-        anh[y1:y2, x1:x2] = mau
+        if vien_sach:
+            # Tô cả khe hở — nhưng KHÔNG lấn sang khung chữ khác (khe của khung này có thể là chữ
+            # của khung kia khi hai khung sát nhau).
+            tx1, ty1 = max(0, x1 - KHE_HO), max(0, y1 - KHE_HO)
+            tx2, ty2 = min(rong, x2 + KHE_HO), min(cao, y2 + KHE_HO)
+            vung = np.ones((ty2 - ty1, tx2 - tx1), dtype=bool)
+            vung &= ~phu[ty1:ty2, tx1:tx2]
+            vung[y1 - ty1:y2 - ty1, x1 - tx1:x2 - tx1] = True
+            anh[ty1:ty2, tx1:tx2][vung] = mau
+        else:
+            anh[y1:y2, x1:x2] = mau
         da_to.append(i)
 
     return KetQuaToPhang(da_to=tuple(da_to), con_lai=tuple(con_lai))
