@@ -195,7 +195,7 @@ export default function ExportPanel({
               onClick={async () => {
                 setDangTai(true); setLoi(null)
                 try {
-                  await api.taiFileXuatVe(job.id)
+                  await api.taiFileXuatVe(job.id, job.format)
                 } catch (e) {
                   setLoi(`Không tải được file: ${e.message}`)
                 } finally {

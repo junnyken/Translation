@@ -149,7 +149,7 @@ export default function DichNhanh({ onMoChapter }) {
         // Đường "nhanh" mà giao một file không mở được thì không nhanh.
         const job = await api.xuatChapter(projectId, 'zip')
         await api.choXuatXong(job.job_id)
-        taiVe = await api.taiFileXuatVe(job.job_id)
+        taiVe = await api.taiFileXuatVe(job.job_id, 'zip')
       }
 
       // P1 — hỏi cảnh báo SAU KHI file đã về máy. Thứ tự này là cố ý: quyết định Phase 0 chốt

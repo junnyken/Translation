@@ -271,7 +271,7 @@ export default function TrangChu() {
         // §3.3 — nhiều trang thì MỘT tệp nén. Tải 24 tệp rời là 24 lần bị trình duyệt hỏi.
         const job = await api.xuatChapterDichNhanh(projectId, 'cbz')
         await api.choXuatXong(job.job_id)
-        const ten = await api.taiFileXuatVe(job.job_id)
+        const ten = await api.taiFileXuatVe(job.job_id, 'cbz')
         setTenTepDaTai(ten)
       }
     } catch (e) {

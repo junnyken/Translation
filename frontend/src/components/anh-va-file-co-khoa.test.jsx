@@ -55,6 +55,21 @@ describe('tải tài nguyên có khoá', () => {
     expect(the.download).toBe('chuong-1.cbz')
     expect(the.click).toHaveBeenCalled()
   })
+
+  it('không đọc được Content-Disposition (CORS) ⇒ đuôi theo định dạng đã chọn, ZIP không thành .cbz', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      headers: { get: () => null },
+      blob: async () => new Blob(['x']),
+    })
+    const the = { href: '', download: '', click: vi.fn(), remove: vi.fn() }
+    vi.spyOn(document, 'createElement').mockReturnValue(the)
+    vi.spyOn(document.body, 'appendChild').mockImplementation(() => the)
+
+    expect(await api.taiFileXuatVe('job-1', 'zip')).toBe('chapter-job-1.zip')
+    expect(await api.taiFileXuatVe('job-1', 'cbz')).toBe('chapter-job-1.cbz')
+    expect(await api.taiFileXuatVe('job-1', 'psd')).toBe('chapter-job-1.zip')
+  })
 })
 
 describe('bảng xuất chapter', () => {
@@ -99,6 +114,6 @@ describe('bảng xuất chapter', () => {
 
     const nut = await screen.findByRole('button', { name: /Tải file về/ })
     await userEvent.click(nut)
-    expect(tai).toHaveBeenCalledWith('j1')
+    expect(tai).toHaveBeenCalledWith('j1', 'cbz')
   })
 })

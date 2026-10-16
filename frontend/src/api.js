@@ -332,12 +332,15 @@ export async function taiVeBlobUrl(url) {
  * Tên file lấy từ `Content-Disposition` của máy chủ; không có thì mới tự đặt — đặt bừa một cái
  * tên đẹp rồi ghi đè tên thật là làm người dùng mất dấu file của chính họ.
  */
-export async function taiFileXuatVe(jobId) {
+export async function taiFileXuatVe(jobId, format) {
   const res = await fetch(`${BASE}/export-jobs/${jobId}/download`)
   if (!res.ok) throw new Error(`${res.status}: không tải được file xuất`)
   const cd = res.headers.get('Content-Disposition') || ''
   const khop = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(cd)
-  const ten = khop ? decodeURIComponent(khop[1]) : `chapter-${jobId}.cbz`
+  // Không đọc được tên (CORS chưa mở `Content-Disposition`) ⇒ đuôi theo ĐÚNG định dạng đã chọn.
+  // Trước đây luôn `.cbz` ⇒ chọn ZIP mà tải về thành .cbz (người dùng báo 16-10-2026).
+  const duoi = format === 'cbz' ? 'cbz' : 'zip'
+  const ten = khop ? decodeURIComponent(khop[1]) : `chapter-${jobId}.${duoi}`
   const url = URL.createObjectURL(await res.blob())
   const a = document.createElement('a')
   a.href = url
