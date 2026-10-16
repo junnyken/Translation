@@ -8,6 +8,7 @@ Nguyên tắc:
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 import time
 import uuid
@@ -35,6 +36,7 @@ from app.models import (
     TypesetResult,
 )
 from app.models.enums import (
+    OCREngine,
     ChePipeline,
     ExportFormat,
     FitStatus,
@@ -353,6 +355,7 @@ def _run_detect(job_id: uuid.UUID) -> dict:
                     confidence=region.confidence,
                     overlap_suspect=overlap,
                     status=RegionStatus.low_confidence if is_low else RegionStatus.pending,
+                    chu_nhan_dien=getattr(region, "chu", None) or None,
                 )
             )
 
@@ -546,6 +549,11 @@ def _run_ocr(job_id: uuid.UUID) -> dict:
             (r.id, r.bbox_x, r.bbox_y, r.bbox_w, r.bbox_h, r.status is RegionStatus.low_confidence)
             for r in regions
         ]
+        #: E90 — chữ bộ nhận diện đã đọc sẵn (Gemini). Vùng có ở đây KHÔNG chạy OCR riêng.
+        chu_san = (
+            {r.id: r.chu_nhan_dien for r in regions if (r.chu_nhan_dien or "").strip()}
+            if settings.ocr_dung_chu_nhan_dien else {}
+        )
 
         danh_dau_dang_chay(job)
         session.commit()
@@ -590,17 +598,27 @@ def _run_ocr(job_id: uuid.UUID) -> dict:
         return {"status": "done", "job_id": str(job_id), "page_id": str(page_id),
                 "regions": 0, "khong_co_chu": True, "next_job_id": str(tiep) if tiep else None}
 
-    ep_giai_phong_neu_cang({"ocr"}, settings.worker_rss_soft_limit_mb)
-    ghi_moc("ocr: trước")
-    engine = get_ocr_engine_cached(source_lang)
     from app.services.interfaces import BBox
 
     results = []
     errors: list[str] = []
+    # E90 — vùng đã có chữ đọc sẵn: ghi luôn, engine = ai_gemini, confidence = None (Gemini không
+    # cho điểm — không bịa). Chỉ vùng CÒN LẠI mới cần nạp PaddleOCR/manga-ocr.
+    for region_id, *_ in region_specs:
+        if region_id in chu_san:
+            text = chu_san[region_id]
+            results.append((region_id, text, None, _classify_ocr(text, None), None,
+                            OCREngine.ai_gemini))
+    con_lai = [sp for sp in region_specs if sp[0] not in chu_san]
+    engine = None
+    if con_lai:
+        ep_giai_phong_neu_cang({"ocr"}, settings.worker_rss_soft_limit_mb)
+        ghi_moc("ocr: trước")
+        engine = get_ocr_engine_cached(source_lang)
     # Một lượt vật chất hoá cho CẢ trang: mỗi vùng một lượt tải thì với kho từ xa là
     # 30 lượt tải cùng một ảnh cho một trang 30 vùng.
-    with anh_cuc_bo(image_rel) as image_path:
-        for region_id, x, y, w, h, is_low in region_specs:
+    with (anh_cuc_bo(image_rel) if con_lai else contextlib.nullcontext(None)) as image_path:
+        for region_id, x, y, w, h, is_low in con_lai:
             try:
                 # Engine nào cung cấp được đường bao từng dòng thì lấy luôn — đó là bằng chứng
                 # hình học duy nhất về hướng chữ, và nó chỉ tồn tại ở ĐÂY: sau bước xoá chữ thì
@@ -614,13 +632,15 @@ def _run_ocr(job_id: uuid.UUID) -> dict:
             except Exception as exc:  # noqa: BLE001 - 1 vùng hỏng không được giết cả trang
                 logger.warning("OCR region %s lỗi: %s", region_id, exc)
                 errors.append(f"{type(exc).__name__}: {exc}")
-                results.append((region_id, None, None, OCRStatus.needs_manual, None))
+                results.append((region_id, None, None, OCRStatus.needs_manual, None,
+                                engine.engine_enum))
                 continue
-            results.append((region_id, text, confidence, _classify_ocr(text, confidence), polys))
+            results.append((region_id, text, confidence, _classify_ocr(text, confidence), polys,
+                            engine.engine_enum))
 
     # MỌI region đều ném lỗi => engine hỏng, KHÔNG phải "trang này không có chữ".
     # Báo job failed thay vì ghi 100% needs_manual rồi tự nhận ocr_done (che mất sự cố).
-    if errors and len(errors) == len(region_specs):
+    if errors and len(errors) == len(con_lai):
         raise OCREngineFailedForEveryRegion(
             f"Engine OCR lỗi trên toàn bộ {len(errors)} vùng. Lỗi đầu tiên: {errors[0]}"
         )
@@ -633,13 +653,13 @@ def _run_ocr(job_id: uuid.UUID) -> dict:
         deleted = session.execute(
             delete(OCRResult).where(OCRResult.region_id.in_(region_ids))
         ).rowcount
-        for region_id, text, confidence, status, polys in results:
+        for region_id, text, confidence, status, polys, eng in results:
             session.add(
                 OCRResult(
                     region_id=region_id,
                     raw_text=text,
                     line_polygons=polys,
-                    ocr_engine=engine.engine_enum,
+                    ocr_engine=eng,
                     confidence=confidence,
                     status=status,
                 )
@@ -670,9 +690,11 @@ def _run_ocr(job_id: uuid.UUID) -> dict:
         inpaint_job_id = enqueue_inpaint_after_ocr(page_id)
 
     needs_manual = sum(1 for r in results if r[3] is OCRStatus.needs_manual)
+    ten_engine = engine.engine_enum.value if engine is not None else OCREngine.ai_gemini.value
     logger.info(
-        "ocr job %s: %d region (%d needs_manual), engine=%s, xóa %d kết quả cũ, %.1fs",
-        job_id, len(results), needs_manual, engine.engine_enum.value, deleted, elapsed,
+        "ocr job %s: %d region (%d needs_manual, %d đọc sẵn từ nhận diện), engine=%s, "
+        "xóa %d kết quả cũ, %.1fs",
+        job_id, len(results), needs_manual, len(chu_san), ten_engine, deleted, elapsed,
     )
     return {
         "status": "done",
@@ -680,7 +702,8 @@ def _run_ocr(job_id: uuid.UUID) -> dict:
         "page_id": str(page_id),
         "regions": len(results),
         "needs_manual": needs_manual,
-        "engine": engine.engine_enum.value,
+        "engine": ten_engine,
+        "chu_doc_san": len(chu_san),
         "replaced_results": deleted,
         "elapsed_seconds": round(elapsed, 2),
         "inpaint_job_id": str(inpaint_job_id) if inpaint_job_id else None,

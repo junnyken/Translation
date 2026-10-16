@@ -262,6 +262,13 @@ class Settings(BaseSettings):
     ocr_timeout_seconds: int = 600
     #: Tự nối OCR ngay sau khi detect xong (pipeline tự chảy).
     ocr_auto_chain: bool = True
+    #: E90 — vùng đã có chữ do bộ nhận diện (Gemini) đọc ⇒ dùng luôn, không chạy OCR riêng.
+    #: Đo production 16-10-2026: PaddleOCR 100–112 s/trang (15 vùng, trang 13,7 triệu điểm), còn
+    #: nhận diện + đọc chữ bằng Gemini là một lượt gọi vài giây.
+    ocr_dung_chu_nhan_dien: bool = True
+    #: E91 — cạnh dài tối đa của ảnh trang khi tải lên (px); lớn hơn thì thu nhỏ trước khi lưu.
+    #: 0 = giữ nguyên cỡ. Xem `storage.thu_nho_anh_trang`.
+    anh_trang_canh_dai_toi_da: int = 3000
     # ---- M5: dịch ----
     #: Engine chạy tự động sau inpaint. MẶC ĐỊNH google_fast (miễn phí) — không tự tiêu
     #: token của người dùng khi họ chưa chọn. Đổi sang llm_context qua .env hoặc query param.

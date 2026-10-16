@@ -72,6 +72,8 @@ class RegionStatus(str, Enum):
 class OCREngine(str, Enum):
     manga_ocr = "manga_ocr"
     paddle_ocr = "paddle_ocr"
+    #: E90 — chữ do Gemini đọc ngay trong lượt nhận diện khung (không chạy OCR riêng).
+    ai_gemini = "ai_gemini"
 
 
 class OCRStatus(str, Enum):

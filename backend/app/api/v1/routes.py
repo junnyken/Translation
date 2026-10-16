@@ -190,6 +190,7 @@ from app.services.storage import (
     UnsupportedImage,
     get_storage,
     sniff_image,
+    thu_nho_anh_trang,
 )
 # CHỈ import module quy ước đường dẫn — KHÔNG kéo theo Pillow vào tiến trình API.
 from app.services.export.paths import export_relative_dir
@@ -664,6 +665,7 @@ async def doc_truyen_gui_trang(
     await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=page.id)
 
     storage = get_storage()
+    data = await run_in_threadpool(thu_nho_anh_trang, data, ext, settings.anh_trang_canh_dai_toi_da)
     page.image_path = await run_in_threadpool(
         storage.save_page_image, project.id, page.id, data, ext
     )
@@ -1011,6 +1013,7 @@ async def upload_page(
     await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=page.id)
 
     storage = get_storage()
+    data = await run_in_threadpool(thu_nho_anh_trang, data, ext, settings.anh_trang_canh_dai_toi_da)
     page.image_path = await run_in_threadpool(
         storage.save_page_image, project.id, page.id, data, ext
     )
@@ -1165,8 +1168,11 @@ async def upload_archive(
 
             await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=page.id)
 
+            du_lieu = await run_in_threadpool(
+                thu_nho_anh_trang, muc.data, muc.ext, settings.anh_trang_canh_dai_toi_da
+            )
             page.image_path = await run_in_threadpool(
-                storage.save_page_image, project.id, page.id, muc.data, muc.ext
+                storage.save_page_image, project.id, page.id, du_lieu, muc.ext
             )
             da_luu.append(page.image_path)
             job = Job(type=JobType.detect, page_id=page.id, status=JobStatus.queued)

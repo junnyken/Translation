@@ -79,6 +79,8 @@ SCHEMA = {
         "properties": {
             "box": {"type": "ARRAY", "items": {"type": "INTEGER"},
                     "minItems": 4, "maxItems": 4},
+            #: E90 — chữ trong khung. TUỲ CHỌN trong schema: thiếu thì bước OCR chạy như cũ.
+            "text": {"type": "STRING"},
         },
         "required": ["box"],
     },
@@ -90,7 +92,16 @@ LOI_NHAC = (
     "around the TEXT CHARACTERS THEMSELVES as [ymin, xmin, ymax, xmax] normalized 0-1000. "
     "Do NOT include the speech balloon, bubble outline, or the blank space around the text. "
     "The box edges must touch the outermost letters."
+    # E90 — đọc chữ luôn trong lượt này (xem `CHU_THICH_E90`). A/B 16-10-2026, 5 trang × 2 lượt:
+    # khung lời thoại trùng lời nhắc cũ (lệch 1–2/1000), chữ Nhật đúng từng ký tự, đọc đúng cả chữ
+    # tượng thanh mà PaddleOCR/manga-ocr đọc bậy.
+    " Also return the exact text written inside each box in \"text\", copied character by "
+    "character in its original language (keep line breaks as spaces)."
 )
+
+#: E90 — khung chỉ chứa chữ số (số trang, số in trên nhãn chai…) KHÔNG phải lời cần dịch. Lời nhắc
+#: đọc chữ làm model khoanh thêm chúng (A/B: "18" xuất hiện 3 lần trên trang Pepper&Carrot).
+_CHI_LA_SO = __import__("re").compile(r"^(?=.*\d)[\s\d.,:/\-–—#]+$")
 
 
 class AIDetectError(RuntimeError):
@@ -148,10 +159,15 @@ class AIGeminiDetector:
                 continue  # khung rỗng/đảo chiều: bỏ, không tự "sửa" thành khung đoán
             x0, y0 = max(0.0, x0), max(0.0, y0)
             x1, y1 = min(float(rong_goc), x1), min(float(cao_goc), y1)
+            chu = muc.get("text")
+            chu = " ".join(chu.split()) if isinstance(chu, str) else None
+            if chu and _CHI_LA_SO.match(chu):
+                continue  # E90: số trang / số trên nhãn — không phải lời thoại
             ra.append(DetectedRegion(
                 bbox=BBox(x=x0, y=y0, w=x1 - x0, h=y1 - y0),
                 confidence=None,   # §3: KHÔNG bịa. Xem docstring đầu tệp.
                 cls=0,
+                chu=chu or None,
             ))
 
         logger.info(

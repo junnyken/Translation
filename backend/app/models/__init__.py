@@ -251,6 +251,9 @@ class TextRegion(TimestampMixin, Base):
     # NULL cho tới khi M2 chạy detect thật.
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     overlap_suspect: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    #: E90 — chữ bộ nhận diện (Gemini) đọc được ngay lúc khoanh khung. NULL = engine không đọc
+    #: chữ (CTD) ⇒ bước OCR chạy như cũ. Có giá trị ⇒ bước OCR dùng luôn, không nạp PaddleOCR.
+    chu_nhan_dien: Mapped[str | None] = mapped_column(Text, nullable=True)
     # NULL cho tới khi M5 tính reading order.
     reading_order: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[RegionStatus] = mapped_column(

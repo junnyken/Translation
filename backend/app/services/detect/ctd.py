@@ -39,6 +39,8 @@ class DetectedRegion:
     #: Dien mot so cho gon la bia ra con so khong ton tai — xem `ConfidenceState.unavailable`.
     confidence: float | None
     cls: int
+    #: E90 — chữ engine đọc được kèm khung (Gemini). None = engine chỉ cho khung (CTD).
+    chu: str | None = None
 
 
 class ModelWeightsMissing(FileNotFoundError):

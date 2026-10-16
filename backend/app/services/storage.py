@@ -566,3 +566,46 @@ def build_storage(settings: Settings | None = None) -> IObjectStorage:
 
 def get_storage() -> IObjectStorage:
     return build_storage()
+
+
+def thu_nho_anh_trang(data: bytes, ext: str, canh_toi_da: int) -> bytes:
+    """E91 — thu nhỏ ảnh trang có cạnh dài vượt `canh_toi_da` (px), GIỮ định dạng và đuôi.
+
+    Đo production 16-10-2026: trang 3112x4402 (13,7 triệu điểm) ⇒ đọc chữ 100–112 s, xoá chữ
+    phải chia cụm, worker hết bộ nhớ (137). Cạnh dài 3000 vẫn thừa nét để đọc truyện, số điểm còn
+    ~46%. `canh_toi_da <= 0` hoặc ảnh đã nhỏ ⇒ trả NGUYÊN byte gốc (không nén lại vô cớ).
+    """
+    if canh_toi_da <= 0:
+        return data
+    import io
+
+    from PIL import Image
+
+    try:
+        return _thu_nho(data, ext, canh_toi_da, Image)
+    except Exception:  # noqa: BLE001
+        # Ảnh hỏng/không giải mã được: KHÔNG chặn ở đây — giữ nguyên byte như trước E91, bước
+        # nhận diện sẽ báo lỗi đọc được. Thu nhỏ là tối ưu, không phải cổng kiểm tệp.
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "E91: không thu nhỏ được ảnh trang (%d byte) — giữ nguyên", len(data))
+        return data
+
+
+def _thu_nho(data: bytes, ext: str, canh_toi_da: int, Image) -> bytes:
+    import io
+
+    with Image.open(io.BytesIO(data)) as im:
+        if max(im.size) <= canh_toi_da:
+            return data
+        dinh_dang = im.format or {".png": "PNG", ".webp": "WEBP"}.get(ext.lower(), "JPEG")
+        ti_le = canh_toi_da / max(im.size)
+        moi = im.resize((max(1, round(im.width * ti_le)), max(1, round(im.height * ti_le))),
+                        Image.LANCZOS)
+        if dinh_dang == "JPEG" and moi.mode not in ("RGB", "L"):
+            moi = moi.convert("RGB")
+        ra = io.BytesIO()
+        tuy_chon = {"quality": 92} if dinh_dang in ("JPEG", "WEBP") else {"optimize": True}
+        moi.save(ra, dinh_dang, **tuy_chon)
+    return ra.getvalue()
