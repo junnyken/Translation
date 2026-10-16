@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import Dialog from './ui/Dialog.jsx'
+import Skeleton from './ui/Skeleton.jsx'
 import * as api from '../api.js'
 
 /** Phóng to đúng vùng chữ trên ẢNH GỐC (chưa xoá chữ) để đối chiếu `raw_text` (E21).
@@ -14,16 +16,8 @@ import * as api from '../api.js'
  */
 export default function ZoomCropModal({ pageId, bbox, onClose }) {
   const canvasRef = useRef(null)
-  const hopRef = useRef(null)
   const [loi, setLoi] = useState(null)
   const [dangTai, setDangTai] = useState(true)
-
-  useEffect(() => {
-    const nghe = (e) => e.key === 'Escape' && onClose()
-    window.addEventListener('keydown', nghe)
-    hopRef.current?.focus()
-    return () => window.removeEventListener('keydown', nghe)
-  }, [onClose])
 
   useEffect(() => {
     let huyBo = false
@@ -71,15 +65,12 @@ export default function ZoomCropModal({ pageId, bbox, onClose }) {
   }, [pageId, bbox])
 
   return (
-    <div className="lop-phu" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="hop-thoai hop-thoai-rong" role="dialog" aria-modal="true"
-           aria-labelledby="tieu-de-phong-to" tabIndex={-1} ref={hopRef}>
-        <h2 id="tieu-de-phong-to">Ảnh gốc — chưa xoá chữ</h2>
+    <Dialog tieuDe="Ảnh gốc — chưa xoá chữ" onDong={onClose} rong>
         <p className="ghi-chu">
           Khung đỏ là đúng vùng máy đang đọc. So chữ trong khung với ô "chữ gốc" bên dưới trước
           khi quyết định có cần gõ lại không.
         </p>
-        {dangTai && <p className="ghi-chu">Đang tải ảnh gốc…</p>}
+        {dangTai && <Skeleton kieu="khoi" cao={160} nhan="Đang tải ảnh gốc…" />}
         {loi && <p className="canh-bao">Không tải được ảnh gốc: {loi}</p>}
         <div className="khung-anh-phong-to">
           <canvas ref={canvasRef} hidden={dangTai || !!loi} />
@@ -87,7 +78,6 @@ export default function ZoomCropModal({ pageId, bbox, onClose }) {
         <div className="hang nut">
           <button onClick={onClose}>Đóng</button>
         </div>
-      </div>
-    </div>
+    </Dialog>
   )
 }

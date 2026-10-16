@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as api from '../../api.js'
 import Icon from '../ui/Icon.jsx'
+import Skeleton from '../ui/Skeleton.jsx'
 import '../../styles/canvas.css'
 import CanvasStage from './CanvasStage.jsx'
 import DaiTrang from './DaiTrang.jsx'
@@ -18,17 +19,13 @@ const LOP_MAC_DINH = {
   matna: { hien: true, doMo: 0.6 },
 }
 
-const svg = (d) => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-       strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{d}</svg>
-)
 const CONG_CU = [
-  { ma: 'keo', phim: 'H', nhan: 'Kéo / di chuyển', icon: svg(<><path d="M18 11V6a2 2 0 0 0-4 0v5M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8" /><path d="M18 11a2 2 0 0 1 4 0v3a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.9-5.9-2.4L3.4 16a2 2 0 0 1 3.2-2.4L8 15" /></>) },
-  { ma: 'chon', phim: 'V', nhan: 'Chọn khung chữ', icon: svg(<path d="M5 3l14 8-6 2-2 6z" />) },
-  { ma: 't', phim: 'T', nhan: 'Thêm chữ', tat: true, icon: <span className="cv-chu-t" aria-hidden="true">T</span> },
-  { ma: 'but', phim: 'B', nhan: 'Cọ xoá chữ', icon: svg(<><path d="M18.4 2.6a2 2 0 0 1 2.8 2.8L12 14.6 8.5 15.5l.9-3.5z" /><path d="M8.5 15.5C7 15.5 5.5 17 5.5 19c0 1-1 1.5-2.5 1.5 1.5 1.3 6 2 7.5-1 .8-1.6.5-3-1-4z" /></>) },
-  { ma: 'tay', phim: 'E', nhan: 'Tẩy mặt nạ', icon: svg(<><path d="M20 20H9L3.5 14.5a2 2 0 0 1 0-2.8L12 3.2a2 2 0 0 1 2.8 0l5.5 5.5a2 2 0 0 1 0 2.8L11 20.8" /><path d="M7 11l6 6" /></>) },
-  { ma: 'hut', phim: 'I', nhan: 'Hút màu', icon: svg(<><path d="M2 22l1-1h3l9-9" /><path d="M3 21v-3l9-9" /><path d="M15 6l3.4-3.4a2 2 0 0 1 2.8 2.8L18 9l.4.4a2 2 0 0 1-2.8 2.8l-4.8-4.8a2 2 0 0 1 2.8-2.8z" /></>) },
+  { ma: 'keo', phim: 'H', nhan: 'Kéo / di chuyển', icon: 'hand' },
+  { ma: 'chon', phim: 'V', nhan: 'Chọn khung chữ', icon: 'pointer' },
+  { ma: 't', phim: 'T', nhan: 'Thêm chữ', tat: true, icon: 'type' },
+  { ma: 'but', phim: 'B', nhan: 'Cọ xoá chữ', icon: 'brush' },
+  { ma: 'tay', phim: 'E', nhan: 'Tẩy mặt nạ', icon: 'eraser' },
+  { ma: 'hut', phim: 'I', nhan: 'Hút màu', icon: 'pipette' },
 ]
 const PHIM_CONG_CU = Object.fromEntries(CONG_CU.filter((c) => !c.tat).map((c) => [c.phim.toLowerCase(), c.ma]))
 
@@ -386,7 +383,7 @@ export default function CanvasEditor({ pageId, projectId }) {
     <div className="cv">
       <header className="cv-tren">
         <a className="nut nut-ghost" href={idQuayLai} title="Quay lại danh sách chapter">
-          &larr; Chapter
+          <Icon ten="arrow-left" /> Chapter
         </a>
         <span className="cv-tieu-de">{project?.name ?? 'Chapter'}</span>
         <span className="the-tt the-tt-tin">
@@ -394,34 +391,34 @@ export default function CanvasEditor({ pageId, projectId }) {
         </span>
         <span className="cv-cach" />
         <button type="button" className="nut nut-phu" onClick={hoanTac}
-                disabled={!lichSu.lam.length || khoaSua} title="Hoàn tác (Ctrl+Z)">
-          Hoàn tác
+                disabled={!lichSu.lam.length || khoaSua} title="Hoàn tác (Ctrl+Z)" aria-label="Hoàn tác">
+          <Icon ten="undo" />
         </button>
         <button type="button" className="nut nut-phu" onClick={lamLai}
-                disabled={!lichSu.lai.length || khoaSua} title="Làm lại (Ctrl+Shift+Z)">
-          Làm lại
+                disabled={!lichSu.lai.length || khoaSua} title="Làm lại (Ctrl+Shift+Z)" aria-label="Làm lại">
+          <Icon ten="redo" />
         </button>
         <span className="cv-day" />
         <span className="cv-zoom" role="group" aria-label="Thu phóng">
           <button type="button" className="nut nut-ghost" aria-label="Thu nhỏ" title="Thu nhỏ (−)"
-                  disabled={!W} onClick={() => doiZoom((z) => z / BUOC_ZOOM)}>&minus;</button>
+                  disabled={!W} onClick={() => doiZoom((z) => z / BUOC_ZOOM)}><Icon ten="minus" /></button>
           <button type="button" className="nut nut-ghost cv-phan-tram" disabled={!W}
                   title="Về 100%" aria-label="Về 100%"
                   onClick={() => doiZoom(() => 1)}>
             {Math.round(view.zoom * 100)}%
           </button>
           <button type="button" className="nut nut-ghost" aria-label="Phóng to" title="Phóng to (+)"
-                  disabled={!W} onClick={() => doiZoom((z) => z * BUOC_ZOOM)}>+</button>
+                  disabled={!W} onClick={() => doiZoom((z) => z * BUOC_ZOOM)}><Icon ten="plus" /></button>
           <button type="button" className="nut nut-ghost" title="Vừa khung màn hình" disabled={!W || !kt}
-                  onClick={() => kt && setView(vuaKhung(kt.rong, kt.cao, W, H))}>Vừa khung</button>
+                  onClick={() => kt && setView(vuaKhung(kt.rong, kt.cao, W, H))}><Icon ten="maximize" /> Vừa khung</button>
         </span>
         <span className="cv-day" />
         {pageId && (
           <a className="nut nut-ghost" href={`#page=${pageId}`}
-             title="Mở màn sửa tay kiểu cũ">Màn sửa cũ</a>
+             title="Mở màn sửa tay kiểu cũ"><Icon ten="square-pen" /> Màn sửa cũ</a>
         )}
         {idChapter
-          ? <a className="nut nut-chinh" href={idQuayLai} title="Xuất chapter ở trang chapter">Xuất</a>
+          ? <a className="nut nut-chinh" href={idQuayLai} title="Xuất chapter ở trang chapter"><Icon ten="package" /> Xuất</a>
           : <button type="button" className="nut nut-chinh" disabled title="Cần có ít nhất một trang để xuất">Xuất</button>}
       </header>
 
@@ -438,7 +435,7 @@ export default function CanvasEditor({ pageId, projectId }) {
               disabled={c.tat || !pageId}
               onClick={() => setCongCu(c.ma)}
             >
-              {c.icon}<small>{c.phim}</small>
+              <Icon ten={c.icon} co={20} /><small>{c.phim}</small>
             </button>
           ))}
         </nav>
@@ -464,13 +461,13 @@ export default function CanvasEditor({ pageId, projectId }) {
               )}
             </div>
           )}
-          {viec && <div className="cv-trang-thai" role="status"><Icon ten="quay" co={14} /> {viec}</div>}
+          {viec && <div className="cv-trang-thai" role="status"><Icon ten="quay" co={16} /> {viec}</div>}
           {!viec && thongBao && <div className="cv-trang-thai ok" role="status">{thongBao}</div>}
           {loiViec && (
             <div className="cv-trang-thai loi" role="alert">
               <span>{loiViec}</span>
-              <button type="button" className="nut-bo" aria-label="Đóng thông báo lỗi"
-                      onClick={() => setLoiViec(null)}><Icon ten="x" co={14} /></button>
+              <button type="button" className="nut-bo" aria-label="Đóng thông báo lỗi" title="Đóng thông báo lỗi"
+                      onClick={() => setLoiViec(null)}><Icon ten="x" co={16} /></button>
             </div>
           )}
 
@@ -505,7 +502,7 @@ export default function CanvasEditor({ pageId, projectId }) {
               </div>
             )}
             {pageId && !loiTrang && dangTai && !chiTiet && (
-              <div className="cv-phu"><p className="cv-nho-sang">Đang tải trang…</p></div>
+              <div className="cv-phu"><Skeleton kieu="khoi" cao={240} nhan="Đang tải trang…" /></div>
             )}
             {rong && (
               <div className="cv-phu">

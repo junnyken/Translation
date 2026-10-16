@@ -2,6 +2,7 @@ import React from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App.jsx'
 import './styles.css'
+import './styles/man-hinh.css'
 
 // `import.meta.url` phải lấy Ở ĐÂY, tại điểm vào — không phải trong App.jsx. `index.html` trỏ tới
 // chunk của điểm vào, nên chỉ URL này so được. Ở chế độ dev nó là `/src/main.jsx`, đúng thứ

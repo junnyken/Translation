@@ -89,7 +89,7 @@ export default function ManTaiKhoan({ nguoiDung, onDong, onDoiNguoiDung }) {
             {' '}<span className="ghi-chu">(đã dùng {hanMuc.da_dung})</span>
           </p>
           <p className="ghi-chu">
-            <Icon ten="dong-ho" co={14} /> Có lại sau{' '}
+            <Icon ten="dong-ho" co={16} /> Có lại sau{' '}
             <strong>{chuDemNguoc(hanMuc.reset_luc)}</strong> (0h00 giờ Việt Nam)
           </p>
 

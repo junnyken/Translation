@@ -5,14 +5,14 @@ import Icon from './Icon.jsx'
  * Nút mờ mà không nói vì sao là chỗ người dùng đứng lại lâu nhất: họ không biết còn thiếu gì.
  */
 export default function Button({
-  kieu = 'phu', dangChay = false, lyDoKhoa, icon, children, disabled, ...rest
+  kieu = 'phu', dangChay = false, lyDoKhoa, icon, children, disabled, className = '', ...rest
 }) {
   const khoa = disabled || dangChay || Boolean(lyDoKhoa)
   return (
     <>
       <button
         type="button"
-        className={`nut nut-${kieu}${dangChay ? ' dang-chay' : ''}`}
+        className={`nut nut-${kieu}${dangChay ? ' dang-chay' : ''}${className ? ` ${className}` : ''}`}
         disabled={khoa}
         aria-describedby={lyDoKhoa ? `${rest.id || 'nut'}-ly-do` : undefined}
         {...rest}

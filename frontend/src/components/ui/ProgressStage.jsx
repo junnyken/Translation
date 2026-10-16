@@ -1,24 +1,26 @@
 import Icon from './Icon.jsx'
 
-/** Dòng thời gian pipeline — vẽ từ trạng thái THẬT của trang, không có thanh phần trăm giả.
+/** Thanh bước pipeline — vẽ từ trạng thái THẬT của trang, không có thanh phần trăm giả.
  *
  * Backend không có "phần trăm hoàn thành" cho một trang, nên ở đây cũng không bịa ra: chỉ hiện
- * bước nào xong, bước nào đang chạy, bước nào chưa tới.
+ * bước nào xong, bước nào đang chạy, bước nào chưa tới (kèm "x/y trang" từ `mo_ta`).
+ * ĐỢT 2: dạng lưới các ô bước (mockup-v2/chapter) thay cho dòng thời gian dọc; mỗi ô vẫn có
+ * icon + chữ, màu không là nguồn thông tin duy nhất.
  */
 const ICON = {
-  chua: 'dong-ho', dang_chay: 'quay', xong: 'tich', canh_bao: 'canh', hong: 'canh',
+  chua: 'clock', dang_chay: 'loader', xong: 'circle-check', canh_bao: 'triangle-alert', hong: 'circle-x',
+}
+const LOP = {
+  chua: 'cho', dang_chay: 'chay', xong: 'xong', canh_bao: 'canh', hong: 'loi',
 }
 
 export default function ProgressStage({ buoc }) {
   return (
-    <ol className="dong-tg">
+    <ol className="cac-buoc cac-buoc-6" aria-label="Các bước xử lý">
       {buoc.map((b) => (
-        <li key={b.ma} className={`buoc buoc-${b.tinh_trang}`}>
-          <span className="buoc-cham"><Icon ten={ICON[b.tinh_trang]} co={13} /></span>
-          <div className="buoc-noi-dung">
-            <b>{b.nhan}</b>
-            {b.mo_ta && <span>{b.mo_ta}</span>}
-          </div>
+        <li key={b.ma} className={`buoc-the buoc-the-${LOP[b.tinh_trang] ?? 'cho'} buoc-${b.tinh_trang}`}>
+          <span className="buoc-the-tren"><Icon ten={ICON[b.tinh_trang] ?? 'clock'} />{b.nhan}</span>
+          {b.mo_ta && <span className="buoc-the-tt">{b.mo_ta}</span>}
         </li>
       ))}
     </ol>

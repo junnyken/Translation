@@ -11,7 +11,7 @@ export default function StatusBadge({ loai, trangThai, boiCanh, hienMoTa = false
   const d = dienGiai ?? dienGiaiTrangThai(loai, trangThai, boiCanh)
   return (
     <span className={`the-tt the-tt-${d.sac}`} title={d.mo_ta}>
-      <Icon ten={d.icon} co={13} />
+      <Icon ten={d.icon} co={16} />
       <span>{d.nhan}</span>
       {hienMoTa && d.mo_ta && <span className="the-tt-mo-ta">{d.mo_ta}</span>}
     </span>

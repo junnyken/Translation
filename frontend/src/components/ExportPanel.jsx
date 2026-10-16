@@ -1,6 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
 import * as api from '../api.js'
 import ExportWarningModal from './ExportWarningModal.jsx'
+import Alert from './ui/Alert.jsx'
+import Button from './ui/Button.jsx'
+import Icon from './ui/Icon.jsx'
+import Skeleton from './ui/Skeleton.jsx'
+
+// wording: BA review — nhãn mới của khung xuất (mockup-v2/xuat)
+const NHAN_XEM_TRUOC = 'Xem trước'
+const NHAN_DINH_DANG = 'Định dạng'
+const NHAN_CHON_DINH_DANG = 'Chọn định dạng file xuất'
+const NHAN_DA_XUAT = 'Đã xuất'
+const ICON_DINH_DANG = { cbz: 'book-open', zip: 'file-archive', png_single: 'image', psd: 'layers' }
 
 const DINH_DANG = [
   {
@@ -91,67 +102,186 @@ export default function ExportPanel({
   if (!xemTruoc) {
     // `id` PHẢI có ở CẢ hai nhánh return: nút "Xuất chapter" ở bảng tóm tắt cuộn tới đúng id
     // này. Thiếu ở nhánh đang tải thì bấm lúc chưa nạp xong sẽ không đi đâu cả.
-    return <section id="bang-xuat" className="bang-xuat">{loi ? <div className="bang-loi">Lỗi: {loi}</div> : <p className="ghi-chu">Đang xem trước…</p>}</section>
+    return (
+      <section id="bang-xuat" className="bang-xuat">
+        {loi
+          ? <Alert sac="loi">Lỗi: {loi}</Alert>
+          : (
+            <>
+              <p className="ghi-chu" aria-live="polite">Đang xem trước…</p>
+              <Skeleton kieu="khoi" cao={160} />
+            </>
+          )}
+      </section>
+    )
   }
 
   const khongCoGiDeXuat = xemTruoc.page_count === 0
   const chon = DINH_DANG.find((d) => d.ma === dinhDang)
+  const khongCanhBao = xemTruoc.skipped_page_count === 0 && xemTruoc.overflow_warning_count === 0
+    && (xemTruoc.font_missing_count ?? 0) === 0 && (canhBao?.needs_manual_count ?? 0) === 0
 
   return (
-    <section id="bang-xuat" className="bang-xuat">
-      <h2>Xuất chapter{tenProject ? ` — ${tenProject}` : ''}</h2>
+    <section id="bang-xuat" className="bang-xuat" aria-labelledby="tieu-de-bang-xuat">
+      <h2 id="tieu-de-bang-xuat">Xuất chapter{tenProject ? ` — ${tenProject}` : ''}</h2>
 
-      <ul className="tom-tat-xuat">
-        <li><b>{xemTruoc.page_count}</b> / {xemTruoc.total_page_count} trang sẽ được xuất</li>
-        {xemTruoc.skipped_page_count > 0 && (
-          <li className="canh-bao">
-            <b>{xemTruoc.skipped_page_count}</b> trang sẽ bị <b>bỏ qua</b> vì chưa chèn chữ xong
-          </li>
-        )}
-        {xemTruoc.overflow_warning_count > 0 && (
-          <li className="canh-bao">
-            <b>{xemTruoc.overflow_warning_count}</b> vùng còn <b>tràn khung</b> — xuất vẫn được,
-            nhưng nên sửa tay trước cho đẹp
-          </li>
-        )}
-        {(canhBao?.needs_manual_count ?? 0) > 0 && (
-          <li className="canh-bao">
-            <b>{canhBao.needs_manual_count}</b> bong bóng sẽ <b>trống</b> vì chưa đọc được chữ gốc
-          </li>
-        )}
-        {(xemTruoc.font_missing_count ?? 0) > 0 && (
-          <li className="canh-bao">
-            <b>{xemTruoc.font_missing_count}</b> bong bóng sẽ <b>trống</b> vì font không có ký tự
-            trong bản dịch — sửa lại chữ ở vùng đó rồi căn lại
-          </li>
-        )}
-        {xemTruoc.skipped_page_count === 0 && xemTruoc.overflow_warning_count === 0
-          && (xemTruoc.font_missing_count ?? 0) === 0
-          && (canhBao?.needs_manual_count ?? 0) === 0 && (
-          <li className="on">Không có cảnh báo nào.</li>
-        )}
-      </ul>
+      <div className="luoi-xuat">
+        <div className="cot-xuat-trai">
+          <section className="the-man" aria-labelledby="tieu-de-xem-truoc">
+            <h3 id="tieu-de-xem-truoc">{NHAN_XEM_TRUOC}</h3>
+            <ul className="tom-tat-xuat x-canh-bao">
+              <li className="xc-ok">
+                <Icon ten="circle-check" co={20} />
+                <span><b className="t-so">{xemTruoc.page_count}</b> / {xemTruoc.total_page_count} trang sẽ được xuất</span>
+              </li>
+              {xemTruoc.skipped_page_count > 0 && (
+                <li className="xc-canh">
+                  <Icon ten="triangle-alert" co={20} />
+                  <span><b className="t-so">{xemTruoc.skipped_page_count}</b> trang sẽ bị <b>bỏ qua</b> vì chưa chèn chữ xong</span>
+                </li>
+              )}
+              {xemTruoc.overflow_warning_count > 0 && (
+                <li className="xc-canh">
+                  <Icon ten="triangle-alert" co={20} />
+                  <span><b className="t-so">{xemTruoc.overflow_warning_count}</b> vùng còn <b>tràn khung</b> — xuất vẫn được,
+                  nhưng nên sửa tay trước cho đẹp</span>
+                </li>
+              )}
+              {(canhBao?.needs_manual_count ?? 0) > 0 && (
+                <li className="xc-loi">
+                  <Icon ten="circle-x" co={20} />
+                  <span><b className="t-so">{canhBao.needs_manual_count}</b> bong bóng sẽ <b>trống</b> vì chưa đọc được chữ gốc</span>
+                </li>
+              )}
+              {(xemTruoc.font_missing_count ?? 0) > 0 && (
+                <li className="xc-loi">
+                  <Icon ten="circle-x" co={20} />
+                  <span><b className="t-so">{xemTruoc.font_missing_count}</b> bong bóng sẽ <b>trống</b> vì font không có ký tự
+                  trong bản dịch — sửa lại chữ ở vùng đó rồi căn lại</span>
+                </li>
+              )}
+              {khongCanhBao && (
+                <li className="on xc-ok"><Icon ten="circle-check" co={20} /><span>Không có cảnh báo nào.</span></li>
+              )}
+            </ul>
+          </section>
 
-      <label className="nhan">
-        Định dạng
-        <select value={dinhDang} onChange={(e) => setDinhDang(e.target.value)} disabled={dangChay}>
-          {DINH_DANG.map((d) => <option key={d.ma} value={d.ma}>{d.ten}</option>)}
-        </select>
-      </label>
-      <p className="ghi-chu">{chon.goiY}</p>
+          <section className="the-man" aria-labelledby="tieu-de-dinh-dang">
+            <h3 id="tieu-de-dinh-dang">{NHAN_DINH_DANG}</h3>
+            <fieldset className="nhom-dinh-dang" disabled={dangChay}>
+              <legend className="an-di">{NHAN_CHON_DINH_DANG}</legend>
+              <div className="luoi-dinh-dang">
+                {DINH_DANG.map((d) => (
+                  <label key={d.ma} className="the-chon">
+                    <input
+                      type="radio" name="dinh-dang-xuat" value={d.ma}
+                      checked={dinhDang === d.ma} onChange={() => setDinhDang(d.ma)}
+                    />
+                    <span>
+                      <b><Icon ten={ICON_DINH_DANG[d.ma]} /> {d.ten}</b>
+                      <span className="d">{d.goiY}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          </section>
+        </div>
 
-      <button className="chinh" onClick={bamXuat} disabled={dangChay || khongCoGiDeXuat}>
-        {dangChay ? 'Đang xuất…' : 'Xuất chapter'}
-      </button>
-      {canhBao?.acknowledged && (
-        <p className="ghi-chu">
-          Đã xác nhận trách nhiệm bản quyền cho chapter này
-          {canhBao.acknowledged_at
-            ? ` lúc ${new Date(canhBao.acknowledged_at).toLocaleString('vi-VN')}`
-            : ''}
-          .
-        </p>
-      )}
+        <aside className="cot-xuat-phai" aria-label="Xuất và tải về">
+          <section className="the-man khoi-hanh-dong">
+            <h3>Xuất chapter</h3>
+            <p className="ghi-chu">Định dạng: <b>{chon.ma === 'png_single' ? 'PNG' : chon.ma.toUpperCase()}</b> · {xemTruoc.page_count} trang</p>
+            <Button kieu="chinh" icon={dangChay ? undefined : 'package'} className="rong-het" onClick={bamXuat} dangChay={dangChay} disabled={khongCoGiDeXuat}>
+              {dangChay ? 'Đang xuất…' : 'Xuất chapter'}
+            </Button>
+            {canhBao && !canhBao.acknowledged && (
+              <p className="ghi-chu">Lần đầu xuất chapter này, bạn sẽ được nhắc về bản quyền.</p>
+            )}
+            {canhBao?.acknowledged && (
+              <p className="ghi-chu">
+                Đã xác nhận trách nhiệm bản quyền cho chapter này
+                {canhBao.acknowledged_at
+                  ? ` lúc ${new Date(canhBao.acknowledged_at).toLocaleString('vi-VN')}`
+                  : ''}
+                .
+              </p>
+            )}
+            {khongCoGiDeXuat && (
+              <p className="ghi-chu">Chưa có trang nào chèn chữ xong nên chưa xuất được.</p>
+            )}
+          </section>
+
+          {job && (
+            <section className="the-man khoi-hanh-dong ket-qua-xuat" aria-live="polite" aria-label={NHAN_DA_XUAT}>
+              <div
+                className="thanh-tien" role="progressbar" aria-label="Tiến độ xuất"
+                aria-valuemin={0} aria-valuemax={100}
+                aria-valuenow={Math.round(((job.page_count || 0) / Math.max(xemTruoc.page_count, 1)) * 100)}
+              >
+                <div
+                  className="thanh-tien-trong"
+                  style={{
+                    width: `${Math.round(((job.page_count || 0) / Math.max(xemTruoc.page_count, 1)) * 100)}%`,
+                  }}
+                />
+              </div>
+              <p className="ghi-chu t-so">
+                {job.status === 'done'
+                  ? `Đã xuất ${job.page_count}/${xemTruoc.page_count} trang.`
+                  : `Đang xử lý… (${job.status})`}
+              </p>
+
+              {job.status === 'done' && job.error_log && (
+                <Alert sac="canh">Xuất xong nhưng có cảnh báo: {job.error_log}</Alert>
+              )}
+
+              {job.status === 'done' && job.format !== 'png_single' && (
+                // Nút, KHÔNG phải thẻ <a href>: trình duyệt tự tải link thì không gắn được mã
+                // phiên, và từ slice B đường tải trả 401 — nút "Tải file về" bấm vào không ra gì.
+                <Button
+                  kieu="chinh" icon="download" className="rong-het" dangChay={dangTai}
+                  onClick={async () => {
+                    setDangTai(true); setLoi(null)
+                    try {
+                      await api.taiFileXuatVe(job.id, job.format)
+                    } catch (e) {
+                      setLoi(`Không tải được file: ${e.message}`)
+                    } finally {
+                      setDangTai(false)
+                    }
+                  }}
+                >
+                  {dangTai ? 'Đang tải…' : 'Tải file về'}
+                </Button>
+              )}
+              {job.status === 'done' && job.format === 'cbz' && (
+                <Alert sac="tin">
+                  <p>
+                    File <code>.cbz</code> thực chất là <b>file nén</b>. Máy không mở được thì đổi đuôi
+                    <code> .cbz</code> thành <code>.zip</code> rồi giải nén như thường, hoặc xuất lại
+                    bằng định dạng ZIP — cùng ảnh, cùng thứ tự trang.
+                  </p>
+                  <Button
+                    dangChay={dangChay}
+                    onClick={() => { setDinhDang('zip'); xuat(false, 'zip') }}
+                  >
+                    {dangChay ? 'Đang xuất…' : 'Xuất lại bằng ZIP'}
+                  </Button>
+                </Alert>
+              )}
+              {job.status === 'done' && job.format === 'png_single' && (
+                <p className="ghi-chu">
+                  Ảnh rời đã lưu trên máy chủ tại <code>{job.output_path}</code> — muốn tải một file
+                  thì chọn định dạng CBZ hoặc ZIP.
+                </p>
+              )}
+            </section>
+          )}
+
+          {loi && <Alert sac="loi">Lỗi: {loi}</Alert>}
+        </aside>
+      </div>
 
       {hienCanhBao && (
         <ExportWarningModal
@@ -163,74 +293,6 @@ export default function ExportPanel({
           onRaSoat={onRaSoat && (() => { setHienCanhBao(false); onRaSoat() })}
         />
       )}
-      {khongCoGiDeXuat && (
-        <p className="ghi-chu">Chưa có trang nào chèn chữ xong nên chưa xuất được.</p>
-      )}
-
-      {job && (
-        <div className="ket-qua-xuat">
-          <div className="thanh-tien">
-            <div
-              className="thanh-tien-trong"
-              style={{
-                width: `${Math.round(((job.page_count || 0) / Math.max(xemTruoc.page_count, 1)) * 100)}%`,
-              }}
-            />
-          </div>
-          <p className="ghi-chu">
-            {job.status === 'done'
-              ? `Đã xuất ${job.page_count}/${xemTruoc.page_count} trang.`
-              : `Đang xử lý… (${job.status})`}
-          </p>
-
-          {job.status === 'done' && job.error_log && (
-            <div className="bang-tin canh-bao-o">Xuất xong nhưng có cảnh báo: {job.error_log}</div>
-          )}
-
-          {job.status === 'done' && job.format !== 'png_single' && (
-            // Nút, KHÔNG phải thẻ <a href>: trình duyệt tự tải link thì không gắn được mã
-            // phiên, và từ slice B đường tải trả 401 — nút "Tải file về" bấm vào không ra gì.
-            <button
-              type="button" className="nut-tai" disabled={dangTai}
-              onClick={async () => {
-                setDangTai(true); setLoi(null)
-                try {
-                  await api.taiFileXuatVe(job.id, job.format)
-                } catch (e) {
-                  setLoi(`Không tải được file: ${e.message}`)
-                } finally {
-                  setDangTai(false)
-                }
-              }}
-            >
-              {dangTai ? 'Đang tải…' : 'Tải file về'}
-            </button>
-          )}
-          {job.status === 'done' && job.format === 'cbz' && (
-            <div className="bang-tin">
-              <p>
-                File <code>.cbz</code> thực chất là <b>file nén</b>. Máy không mở được thì đổi đuôi
-                <code> .cbz</code> thành <code>.zip</code> rồi giải nén như thường, hoặc xuất lại
-                bằng định dạng ZIP — cùng ảnh, cùng thứ tự trang.
-              </p>
-              <button
-                type="button" disabled={dangChay}
-                onClick={() => { setDinhDang('zip'); xuat(false, 'zip') }}
-              >
-                {dangChay ? 'Đang xuất…' : 'Xuất lại bằng ZIP'}
-              </button>
-            </div>
-          )}
-          {job.status === 'done' && job.format === 'png_single' && (
-            <p className="ghi-chu">
-              Ảnh rời đã lưu trên máy chủ tại <code>{job.output_path}</code> — muốn tải một file
-              thì chọn định dạng CBZ hoặc ZIP.
-            </p>
-          )}
-        </div>
-      )}
-
-      {loi && <div className="bang-loi">Lỗi: {loi}</div>}
     </section>
   )
 }

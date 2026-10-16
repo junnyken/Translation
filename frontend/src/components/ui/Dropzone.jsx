@@ -70,7 +70,7 @@ export default function Dropzone({
         onDragLeave={() => setDangKeo(false)}
         onDrop={(e) => { e.preventDefault(); setDangKeo(false); them(e.dataTransfer.files) }}
       >
-        <Icon ten="tai-len" co={26} />
+        <Icon ten="tai-len" co={24} />
         {/* Dòng chữ này phải nói ĐÚNG thứ ô file thật sự nhận. Lúc thêm ĐX-2 nó vẫn ghi mỗi
             "PNG, JPG" trong khi `accept` đã có `.zip,.cbz` — người dùng đọc dòng đó thì không
             bao giờ biết là thả được cả gói. Test jsdom soi `accept` nên không thấy; chỉ bấm
@@ -140,10 +140,11 @@ export default function Dropzone({
                 <button
                   type="button" className="nut-bo"
                   aria-label={`Bỏ trang ${i + 1}: ${f.name}`}
+                  title={`Bỏ trang ${i + 1}: ${f.name}`}
                   disabled={tatCa}
                   onClick={() => onDoi(files.filter((_, j) => j !== i))}
                 >
-                  <Icon ten="x" co={14} />
+                  <Icon ten="x" co={16} />
                 </button>
               </li>
             ))}

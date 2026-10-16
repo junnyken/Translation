@@ -74,7 +74,7 @@ export default function ManDangNhap({ onXong, onQuayLai }) {
     <div className="man-dang-nhap">
       <div className="the-dang-nhap">
         <p className="dau-hieu-san-pham">
-          <span className="dau-hieu" aria-hidden="true"><Icon ten="sach" co={18} /></span>
+          <span className="dau-hieu" aria-hidden="true"><Icon ten="sach" co={20} /></span>
           Dịch truyện tranh
         </p>
 

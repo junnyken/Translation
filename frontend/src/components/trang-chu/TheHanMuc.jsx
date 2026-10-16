@@ -4,6 +4,7 @@ import * as api from '../../api'
 import { chuDemNguoc } from '../../lib/dem-nguoc'
 import Alert from '../ui/Alert'
 import Icon from '../ui/Icon'
+import Skeleton from '../ui/Skeleton'
 
 /** Thẻ hạn mức: còn bao nhiêu lượt hôm nay, và bao giờ có lại.
  *
@@ -45,7 +46,13 @@ export default function TheHanMuc({ hanMuc, dangTai, loi, onTaiLai }) {
   }
 
   if (dangTai || !hanMuc) {
-    return <p className="the-han-muc dang-tai" aria-live="polite">Đang xem bạn còn bao nhiêu lượt…</p>
+    // Đang tải ≠ 0 lượt: hiện khung chờ, KHÔNG hiện con số.
+    return (
+      <div className="the-han-muc dang-tai" aria-busy="true">
+        <p aria-live="polite">Đang xem bạn còn bao nhiêu lượt…</p>
+        <Skeleton soDong={2} />
+      </div>
+    )
   }
 
   const chan = api.chotDangChan(hanMuc)
@@ -61,9 +68,20 @@ export default function TheHanMuc({ hanMuc, dangTai, loi, onTaiLai }) {
       <p className="so-luot">
         <strong>{conLai}</strong> / {hanMuc.tran} trang còn lại
       </p>
+      {hanMuc.tran > 0 && (
+        <div
+          className={`thanh-tien thanh-tien-mong thanh-tien-${sacVien}`} role="img"
+          aria-label={`Còn ${conLai} trong ${hanMuc.tran} lượt`}
+        >
+          <div
+            className="thanh-tien-trong"
+            style={{ width: `${Math.max(0, Math.min(100, Math.round((conLai / hanMuc.tran) * 100)))}%` }}
+          />
+        </div>
+      )}
 
       <p className="ghi-chu moc-reset">
-        <Icon ten="dong-ho" co={14} /> Có lại sau <strong>{chuDemNguoc(hanMuc.reset_luc)}</strong>
+        <Icon ten="dong-ho" co={16} /> Có lại sau <strong>{chuDemNguoc(hanMuc.reset_luc)}</strong>
         {' '}(0h00 giờ Việt Nam)
       </p>
 

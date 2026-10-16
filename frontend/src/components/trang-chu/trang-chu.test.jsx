@@ -244,6 +244,36 @@ describe('trang chủ', () => {
     expect(screen.getByText(/chỉ giữ 45 phút/)).toBeInTheDocument()
   })
 
+  it('ĐỢT 2 — kết quả hiện ảnh TRƯỚC (từ tệp trong máy) và SAU; thanh bước báo đủ 5 bước xong', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation((url, opts) => {
+      if (String(url).includes('/han-muc')) return dapUng(HAN_MUC_CON)
+      if (String(url).includes('/doc-truyen/trang') && opts?.method === 'POST') {
+        return dapUng({ page_id: 'p1', project_id: 'c1', trang_thai: 'queued', xong: false, tien_do: {} })
+      }
+      if (String(url).includes('/anh')) {
+        return Promise.resolve({ ok: true, status: 200, blob: () => Promise.resolve(new Blob(['x'])) })
+      }
+      return dapUng({
+        page_id: 'p1', project_id: 'c1', trang_thai: 'typeset_done', xong: true,
+        che_do: 'day_du', tien_do: {},
+      })
+    })
+    globalThis.URL.createObjectURL = vi.fn(() => 'blob:goc')
+    globalThis.URL.revokeObjectURL = vi.fn()
+
+    render(<TrangChu />)
+    await screen.findByText(/Lượt dịch hôm nay/)
+    await userEvent.upload(oFile(), [new File(['a'], 'a.png', { type: 'image/png' })])
+    await userEvent.click(screen.getByRole('button', { name: /Dịch/ }))
+
+    await screen.findByRole('button', { name: /Tải ảnh đã dịch về/ }, { timeout: 5000 })
+    expect(screen.getByAltText('Trang gốc: a.png')).toHaveAttribute('src', 'blob:goc')
+    expect(screen.getByAltText('Trang đã dịch: a.png')).toBeInTheDocument()
+    const cacBuoc = screen.getByRole('list', { name: 'Các bước xử lý' })
+    expect(cacBuoc.querySelectorAll('.buoc-the-xong').length).toBe(5)
+    expect(screen.getByRole('progressbar', { name: 'Tiến độ dịch' })).toHaveAttribute('aria-valuenow', '100')
+  })
+
   it('xong rồi thì LUÔN có nút tải thủ công — không có cách nào dò được trình duyệt đã chặn', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((url, opts) => {
       if (String(url).includes('/han-muc')) return dapUng(HAN_MUC_CON)

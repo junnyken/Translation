@@ -43,6 +43,54 @@ const TEN_BUOC = {
   typeset: 'Căn chữ vào bong bóng',
 }
 
+/** Thứ tự năm bước theo máy chủ — dùng để suy "bước nào đang chạy / đã xong" cho CẢ mẻ từ trạng
+ *  thái THẬT của từng trang. Không có phần trăm giả: số hiện ra là số trang đã xong. */
+const THU_TU_BUOC = ['detect', 'ocr', 'inpaint', 'translate', 'typeset']
+const ICON_BUOC = {
+  detect: 'scan', ocr: 'scan-text', inpaint: 'eraser', translate: 'languages', typeset: 'type',
+}
+// wording: BA review — nhãn trạng thái của thanh bước (mockup-v2 trang-chu-khach)
+const NHAN_BUOC_XONG = 'Xong'
+const NHAN_BUOC_CHAY = 'Đang chạy'
+const NHAN_BUOC_CHO = 'Chờ tới lượt'
+// wording: BA review — chú thích ảnh trước/sau ở phần kết quả
+const NHAN_TRUOC = 'Trước'
+const NHAN_SAU = 'Sau'
+const ALT_TRUOC = 'Trang gốc'
+
+/** Trạng thái từng bước của cả mẻ, suy từ danh sách trang. Trang lỗi không chặn các bước khác. */
+function tinhBuocCaMe(trang) {
+  const conLai = trang.filter((t) => !t.loi)
+  // -1 = chưa có tin gì từ máy chủ (chưa gửi xong / chưa hỏi lần nào): không tính vào bước nào.
+  const viTri = conLai.map((t) => {
+    if (t.xong) return THU_TU_BUOC.length
+    const k = THU_TU_BUOC.indexOf(t.tienDo?.buoc)
+    return k < 0 ? -1 : k
+  })
+  return THU_TU_BUOC.map((ma, k) => {
+    let tt = 'cho'
+    if (conLai.length && viTri.every((v) => v > k)) tt = 'xong'
+    else if (conLai.some((t, i) => viTri[i] === k && t.tienDo?.dang_chay)) tt = 'chay'
+    return { ma, nhan: TEN_BUOC[ma], tt }
+  })
+}
+
+/** Ảnh GỐC người dùng vừa chọn, dựng từ chính tệp trong máy (không gọi máy chủ). Gói zip/cbz
+ *  hay trình duyệt không dựng được thì không hiện khung "Trước". */
+function AnhTruoc({ file, ten }) {
+  const [url, setUrl] = useState(null)
+  useEffect(() => {
+    if (!file || !/^image\//.test(file.type || '') || typeof URL.createObjectURL !== 'function') {
+      return undefined
+    }
+    const u = URL.createObjectURL(file)
+    setUrl(u)
+    return () => { if (typeof URL.revokeObjectURL === 'function') URL.revokeObjectURL(u) }
+  }, [file])
+  if (!url) return null
+  return <img src={url} alt={`${ALT_TRUOC}: ${ten}`} loading="lazy" />
+}
+
 /** Một dòng tiến độ của một trang.
  *
  * Dùng ĐÚNG ba trường máy chủ trả, và phân biệt **đang chờ** với **đang chạy**: gộp hai thứ đó
@@ -54,13 +102,13 @@ function TienDoTrang({ tienDo }) {
   if (!tienDo?.dang_chay && tienDo?.so_viec_cho_truoc > 0) {
     return (
       <span className="nhan-cho">
-        <Icon ten="dong-ho" co={14} /> Đang chờ — còn {tienDo.so_viec_cho_truoc} việc trước
+        <Icon ten="dong-ho" co={16} /> Đang chờ — còn {tienDo.so_viec_cho_truoc} việc trước
       </span>
     )
   }
   return (
     <span className="nhan-chay">
-      <Icon ten="quay" co={14} /> {ten}…
+      <Icon ten="quay" co={16} /> {ten}…
     </span>
   )
 }
@@ -114,7 +162,9 @@ export default function TrangChu() {
   const [loiHanMuc, setLoiHanMuc] = useState(null)
 
   const huy = useRef(false)
-  useEffect(() => () => { huy.current = true }, [])
+  // Đặt lại `false` lúc gắn: React.StrictMode (chế độ dev) gắn → gỡ → gắn lại, và nếu chỉ có
+  // nhánh gỡ thì cờ kẹt ở `true` mãi, mọi `setState` sau đó bị bỏ — hạn mức treo ở khung chờ.
+  useEffect(() => { huy.current = false; return () => { huy.current = true } }, [])
 
   const napHanMuc = useCallback(async () => {
     setDangTaiHanMuc(true)
@@ -292,24 +342,24 @@ export default function TrangChu() {
 
   return (
     <main className="trang-chu">
-      {/* Tiêu đề và hạn mức nằm CÙNG một hàng: hạn mức là thứ liếc qua, không phải thứ đọc.
-          Trước đây nó là một thẻ viền xanh to chiếm trọn bề ngang, đẩy ô thả ảnh xuống dưới. */}
+      {/* ĐỢT 2 — hero gọn; hạn mức chuyển sang cột phải (≥1280px hai cột, hẹp hơn thì xếp dọc
+          NGAY SAU khu thả ảnh để vẫn thấy trước khi bấm Dịch). */}
       <header className="trang-chu-dau">
-        <div className="dau-hang">
-          <div className="dau-chu">
-            <h1>Dịch truyện tranh sang tiếng Việt</h1>
-            <p className="dan">Thả ảnh trang truyện vào đây là chạy — không cần đăng ký trước.</p>
-          </div>
-          <div className="dau-han-muc">
-            <TheHanMuc
-              hanMuc={hanMuc} dangTai={dangTaiHanMuc} loi={loiHanMuc} onTaiLai={napHanMuc}
-            />
-          </div>
-        </div>
-
+        <h1>Dịch truyện tranh sang tiếng Việt</h1>
+        <p className="dan">Thả ảnh trang truyện vào đây là chạy — không cần đăng ký trước.</p>
       </header>
 
+      {loiChung && (
+        <Alert sac="loi" tieuDe={loiChung.ma === 429 ? 'Hết lượt' : 'Không chạy được'}>
+          {String(loiChung.message || loiChung).replace(/^\d+:\s*/, '')}
+          {loiChung.chiTiet?.reset_luc && (
+            <> Có lại sau <strong>{chuDemNguoc(loiChung.chiTiet.reset_luc)}</strong>.</>
+          )}
+        </Alert>
+      )}
 
+      <div className="luoi-khach">
+      <div className="cot-chinh">
       <section className="vung-gui" aria-labelledby="tieu-de-gui">
         {/* Giữ cho trình đọc màn hình (vùng này cần có tên), ẩn khỏi mắt: ngay dưới nó ô thả
             đã tự nói "Kéo ảnh vào đây hoặc bấm để chọn" — hiện cả hai là lặp. */}
@@ -318,21 +368,23 @@ export default function TrangChu() {
         <Dropzone files={files} onDoi={setFiles} id="tha-trang-chu" />
 
         <div className="hang-chon">
-          <label htmlFor="chon-ngon-ngu">Chữ trên ảnh là tiếng gì?</label>
-          {/* `.o` — cùng lớp với mọi ô nhập khác trong app. Thiếu nó thì ô này hiện ra đúng
-              kiểu mặc định của trình duyệt (vuông, xám, phông khác), y như ba ô của màn đăng
-              nhập trước E62: một ô "trần" giữa một màn đã có ngôn ngữ thị giác riêng. */}
-          <select
-            id="chon-ngon-ngu" className="o" value={ngonNgu}
-            onChange={(e) => setNgonNgu(e.target.value)}
-            disabled={dangChay}
-          >
-            {NGON_NGU.map((n) => <option key={n.ma} value={n.ma}>{n.nhan}</option>)}
-          </select>
-          <p className="ghi-chu">
-            Chọn sai thì chữ dịch ra vô nghĩa mà không có báo lỗi nào — nên chọn đúng tiếng của
-            trang bạn đang đọc.
-          </p>
+          <div className="o-chon-khach">
+            <label htmlFor="chon-ngon-ngu">Chữ trên ảnh là tiếng gì?</label>
+            {/* `.o` — cùng lớp với mọi ô nhập khác trong app. Thiếu nó thì ô này hiện ra đúng
+                kiểu mặc định của trình duyệt (vuông, xám, phông khác), y như ba ô của màn đăng
+                nhập trước E62: một ô "trần" giữa một màn đã có ngôn ngữ thị giác riêng. */}
+            <select
+              id="chon-ngon-ngu" className="o" value={ngonNgu}
+              onChange={(e) => setNgonNgu(e.target.value)}
+              disabled={dangChay}
+            >
+              {NGON_NGU.map((n) => <option key={n.ma} value={n.ma}>{n.nhan}</option>)}
+            </select>
+            <p className="ghi-chu">
+              Chọn sai thì chữ dịch ra vô nghĩa mà không có báo lỗi nào — nên chọn đúng tiếng của
+              trang bạn đang đọc.
+            </p>
+          </div>
 
           {/* E67 — ô chọn cách dịch.
               Trước đây trang chủ KHÔNG có ô này nên mọi lượt đều chạy `google_fast`, và người
@@ -342,25 +394,27 @@ export default function TrangChu() {
                 llm_context : "Chờ… chờ một chút, tớ sẽ xuống ngay đây."  · 6/13 vùng TỰ BÁO là
                               đang đoán
               Mặc định vẫn là miễn phí: không ai bị tốn token ngoài ý muốn. */}
-          <label htmlFor="chon-cach-dich">Dịch bằng gì?</label>
-          <select
-            id="chon-cach-dich" className="o" value={cachDich}
-            onChange={(e) => setCachDich(e.target.value)}
-            disabled={dangChay}
-          >
-            <option value="google_fast">Nhanh — miễn phí</option>
-            <option value="llm_context">Kỹ — AI đọc cả trang</option>
-            {codex.bat && (
-              <option value="chatgpt_codex" disabled={!codex.da_dang_nhap}>
-                ChatGPT (tài khoản của bạn){codex.da_dang_nhap ? '' : ' — quản trị cần đăng nhập ChatGPT trước'}
-              </option>
-            )}
-          </select>
-          <p className="ghi-chu">
-            {cachDich === 'google_fast'
-              ? 'Google dịch từng dòng rời nhau. Miễn phí. Chữ đọc sai thì nó dịch luôn cái sai, và có lúc ra tiếng Anh.'
-              : 'AI đọc cả trang rồi dịch nên giữ được mạch truyện, và tự đánh dấu câu nào nó phải đoán. Tốn token của hệ thống.'}
-          </p>
+          <div className="o-chon-khach">
+            <label htmlFor="chon-cach-dich">Dịch bằng gì?</label>
+            <select
+              id="chon-cach-dich" className="o" value={cachDich}
+              onChange={(e) => setCachDich(e.target.value)}
+              disabled={dangChay}
+            >
+              <option value="google_fast">Nhanh — miễn phí</option>
+              <option value="llm_context">Kỹ — AI đọc cả trang</option>
+              {codex.bat && (
+                <option value="chatgpt_codex" disabled={!codex.da_dang_nhap}>
+                  ChatGPT (tài khoản của bạn){codex.da_dang_nhap ? '' : ' — quản trị cần đăng nhập ChatGPT trước'}
+                </option>
+              )}
+            </select>
+            <p className="ghi-chu">
+              {cachDich === 'google_fast'
+                ? 'Google dịch từng dòng rời nhau. Miễn phí. Chữ đọc sai thì nó dịch luôn cái sai, và có lúc ra tiếng Anh.'
+                : 'AI đọc cả trang rồi dịch nên giữ được mạch truyện, và tự đánh dấu câu nào nó phải đoán. Tốn token của hệ thống.'}
+            </p>
+          </div>
 
           {ngonNgu === TU_NHAN && (
             <div className="khoi-nhan-dang">
@@ -434,32 +488,61 @@ export default function TrangChu() {
         >
           {dangChay ? 'Đang dịch…' : `Dịch ${files.length || ''} trang`.trim()}
         </Button>
-
-        {/* E61 — luật giữ tệp phải tới mắt người dùng TRƯỚC khi họ bỏ công chờ, không phải sau khi
-            mất tệp. Chú thích cũ của `.can-biet` chốt đúng điều đó, và việc thu khối kia vào
-            `<details>` sẽ xoá mất bảo đảm ấy.
-            Nên giữ lại đúng MỘT dòng, và CHỈ khi chính sách xoá đang bật — lúc nó không bật thì
-            câu này là chữ thừa. Nội dung đầy đủ vẫn nằm trong `<details>` bên dưới. */}
-        {coTuXoa && (
-          <p className="luu-y-giu-tep">
-            {/* Cố ý KHÔNG lặp lại đúng câu trong `<details>`: hai câu y hệt trên cùng một màn là
-                bắt người dùng đọc hai lần. Dòng này nói phần HÀNH ĐỘNG (tải về ngay), khối kia nói
-                phần HẬU QUẢ đầy đủ (mất cả ảnh gốc lẫn tệp đã gói, không chạy lại được). */}
-            <Icon ten="dong-ho" co={14} /> Nhớ tải về ngay: tệp <strong>tự xoá sau {giuPhut} phút
-            </strong> kể từ lúc dịch xong.
-          </p>
-        )}
       </section>
+
+
+      {trang.length > 0 && (
+        <section className="the-man tien-do-trang" aria-labelledby="tieu-de-tien-do" aria-live="polite">
+          <h2 id="tieu-de-tien-do" className="nho">
+            Tiến độ — xong {trangXong.length}/{trang.length} trang
+          </h2>
+          <ol className="cac-buoc" aria-label="Các bước xử lý">
+            {tinhBuocCaMe(trang).map((b) => (
+              <li key={b.ma} className={`buoc-the buoc-the-${b.tt}`}>
+                <span className="buoc-the-tren">
+                  <Icon ten={b.tt === 'xong' ? 'circle-check' : b.tt === 'chay' ? 'loader' : ICON_BUOC[b.ma]} />
+                  {b.nhan}
+                </span>
+                <span className="buoc-the-tt">
+                  {b.tt === 'xong' ? NHAN_BUOC_XONG : b.tt === 'chay' ? NHAN_BUOC_CHAY : NHAN_BUOC_CHO}
+                </span>
+              </li>
+            ))}
+          </ol>
+          <div
+            className="thanh-tien" role="progressbar" aria-label="Tiến độ dịch"
+            aria-valuemin={0} aria-valuemax={100}
+            aria-valuenow={Math.round((trangXong.length / trang.length) * 100)}
+          >
+            <div
+              className="thanh-tien-trong"
+              style={{ width: `${Math.round((trangXong.length / trang.length) * 100)}%` }}
+            />
+          </div>
+          <ol className="ds-trang">
+            {trang.map((t, i) => (
+              <li key={t.page_id || i}>
+                <span className="ten-trang">{t.ten}</span>
+                {t.loi
+                  ? <span className="nhan-loi"><Icon ten="canh" co={16} /> {t.loi}</span>
+                  : t.xong
+                    ? <span className="nhan-xong"><Icon ten="tich" co={16} /> Xong</span>
+                    : <TienDoTrang tienDo={t.tienDo} />}
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
 
       {/* E61 — THU GỌN, không bỏ chữ. Bốn ý này mỗi ý được thêm vì một lần hiểu nhầm có thật
           (người dùng tưởng máy treo; tưởng tệp giữ mãi; thả nhầm định dạng; thả truyện tiếng
           Hàn). Bỏ là quay lại đúng những lần đó. Nhưng bày cả bốn ngay màn đầu thì chúng đứng
           CHẮN việc chính. `<details>` giữ đủ chữ mà trả lại màn đầu cho ô thả ảnh. */}
-      <details className="can-biet">
+      <details className="can-biet the-man">
         <summary>Cần biết trước khi bắt đầu</summary>
         <ul>
           <li>
-            <Icon ten="dong-ho" co={14} /> Mỗi trang mất <strong>khoảng 30 giây</strong>. Máy
+            <Icon ten="dong-ho" co={16} /> Mỗi trang mất <strong>khoảng 30 giây</strong>. Máy
             không treo — cứ để tab mở.
           </li>
           {/* Câu này phải khớp CẤU HÌNH THẬT của máy chủ. Hứa xoá trong khi không xoá, hay hứa
@@ -480,35 +563,30 @@ export default function TrangChu() {
           <li>Dịch được chữ <strong>Nhật, Anh, Trung</strong> → tiếng Việt.</li>
         </ul>
       </details>
+      </div>
 
-      {loiChung && (
-        <Alert sac="loi" tieuDe={loiChung.ma === 429 ? 'Hết lượt' : 'Không chạy được'}>
-          {String(loiChung.message || loiChung).replace(/^\d+:\s*/, '')}
-          {loiChung.chiTiet?.reset_luc && (
-            <> Có lại sau <strong>{chuDemNguoc(loiChung.chiTiet.reset_luc)}</strong>.</>
-          )}
-        </Alert>
-      )}
-
-      {trang.length > 0 && (
-        <section className="tien-do-trang" aria-labelledby="tieu-de-tien-do" aria-live="polite">
-          <h2 id="tieu-de-tien-do" className="nho">
-            Tiến độ — xong {trangXong.length}/{trang.length} trang
-          </h2>
-          <ol className="ds-trang">
-            {trang.map((t, i) => (
-              <li key={t.page_id || i}>
-                <span className="ten-trang">{t.ten}</span>
-                {t.loi
-                  ? <span className="nhan-loi"><Icon ten="canh" co={14} /> {t.loi}</span>
-                  : t.xong
-                    ? <span className="nhan-xong"><Icon ten="tich" co={14} /> Xong</span>
-                    : <TienDoTrang tienDo={t.tienDo} />}
-              </li>
-            ))}
-          </ol>
-        </section>
-      )}
+      <aside className="cot-phai-khach" aria-label="Hạn mức">
+        <div className="the-man">
+          <TheHanMuc
+            hanMuc={hanMuc} dangTai={dangTaiHanMuc} loi={loiHanMuc} onTaiLai={napHanMuc}
+          />
+        </div>
+        {/* E61 — luật giữ tệp phải tới mắt người dùng TRƯỚC khi họ bỏ công chờ, không phải sau khi
+            mất tệp. Chú thích cũ của `.can-biet` chốt đúng điều đó, và việc thu khối kia vào
+            `<details>` sẽ xoá mất bảo đảm ấy.
+            Nên giữ lại đúng MỘT dòng, và CHỈ khi chính sách xoá đang bật — lúc nó không bật thì
+            câu này là chữ thừa. Nội dung đầy đủ vẫn nằm trong `<details>` bên dưới. */}
+        {coTuXoa && (
+          <p className="luu-y-giu-tep">
+            {/* Cố ý KHÔNG lặp lại đúng câu trong `<details>`: hai câu y hệt trên cùng một màn là
+                bắt người dùng đọc hai lần. Dòng này nói phần HÀNH ĐỘNG (tải về ngay), khối kia nói
+                phần HẬU QUẢ đầy đủ (mất cả ảnh gốc lẫn tệp đã gói, không chạy lại được). */}
+            <Icon ten="dong-ho" co={16} /> Nhớ tải về ngay: tệp <strong>tự xoá sau {giuPhut} phút
+            </strong> kể từ lúc dịch xong.
+          </p>
+        )}
+      </aside>
+      </div>
 
       {xongLuc && trangXong.length > 0 && (
         <section className="ket-qua" aria-labelledby="tieu-de-ket-qua">
@@ -535,7 +613,7 @@ export default function TrangChu() {
               người bấm, và JavaScript không có cách nào biết nó đã bị chặn — nên không giả vờ dò
               được, chỉ nói thật. */}
           <div className="hang-tai-ve">
-            <Button kieu="chinh" onClick={() => taiKetQua(false)} dangChay={dangTai} icon="tai-len">
+            <Button kieu="chinh" onClick={() => taiKetQua(false)} dangChay={dangTai} icon="download">
               {trangXong.length > 1 ? 'Tải cả gói về' : 'Tải ảnh đã dịch về'}
             </Button>
             {daThuTuTai && !tenTepDaTai && (
@@ -546,7 +624,7 @@ export default function TrangChu() {
             )}
             {tenTepDaTai && (
               <p className="ghi-chu">
-                <Icon ten="tich" co={14} /> Đã lưu <strong>{tenTepDaTai}</strong>. Không thấy thì
+                <Icon ten="tich" co={16} /> Đã lưu <strong>{tenTepDaTai}</strong>. Không thấy thì
                 xem lại thư mục Tải về của trình duyệt.
               </p>
             )}
@@ -554,12 +632,24 @@ export default function TrangChu() {
 
           {!daHetHan && (
             <ul className="ds-anh">
-              {trangXong.map((t) => (
-                <li key={t.page_id}>
-                  <img src={api.urlAnhDaDich(t.page_id)} alt={`Trang đã dịch: ${t.ten}`} loading="lazy" />
-                  <span className="ghi-chu">{t.ten}</span>
-                </li>
-              ))}
+              {trangXong.map((t) => {
+                const file = files.find((f) => f.name === t.ten)
+                return (
+                  <li key={t.page_id}>
+                    <div className="cap-anh">
+                      <figure>
+                        <AnhTruoc file={file} ten={t.ten} />
+                        <figcaption>{NHAN_TRUOC}</figcaption>
+                      </figure>
+                      <figure>
+                        <img src={api.urlAnhDaDich(t.page_id)} alt={`Trang đã dịch: ${t.ten}`} loading="lazy" />
+                        <figcaption>{NHAN_SAU}</figcaption>
+                      </figure>
+                    </div>
+                    <span className="ghi-chu">{t.ten}</span>
+                  </li>
+                )
+              })}
             </ul>
           )}
         </section>

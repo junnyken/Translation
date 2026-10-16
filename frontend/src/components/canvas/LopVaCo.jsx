@@ -5,13 +5,6 @@ export const TEN_HIEN_THI = {
 }
 const THU_TU_HIEN_THI = ['goc', 'sach', 'dich', 'matna']
 
-const MAT = (
-  <><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" /></>
-)
-const MAT_GACH = (
-  <><path d="M3 3l18 18" /><path d="M10.6 5.1A9.7 9.7 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4.1M6.6 6.6A17 17 0 0 0 2 12s3.6 7 10 7a9.7 9.7 0 0 0 4.4-1" /></>
-)
-
 /** Bảng Lớp: mỗi lớp có ẩn/hiện và độ mờ. `ghiChu[ten]` là dòng nhỏ khi lớp trống/lỗi. */
 export function LopPanel({ trangThaiLop, onDoi, ghiChu }) {
   return (
@@ -25,13 +18,11 @@ export function LopPanel({ trangThaiLop, onDoi, ghiChu }) {
             <button
               type="button" className="nut nut-ghost cv-mat"
               aria-label={`${tt.hien ? 'Ẩn' : 'Hiện'} lớp ${nhan}`}
+              title={`${tt.hien ? 'Ẩn' : 'Hiện'} lớp ${nhan}`}
               aria-pressed={tt.hien}
               onClick={() => onDoi(ten, { hien: !tt.hien })}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                   strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                {tt.hien ? MAT : MAT_GACH}
-              </svg>
+              <Icon ten={tt.hien ? 'eye' : 'eye-off'} co={16} />
             </button>
             <span className="cv-ten-lop">
               {nhan}
@@ -78,7 +69,7 @@ export function BangCo({
         </div>
       </div>
       <p className="cv-nho cv-thong-tin">
-        <Icon ten="dong-ho" co={13} />{' '}
+        <Icon ten="dong-ho" co={16} />{' '}
         Máy chủ tự chọn cách xoá chữ (LaMa hoặc SDXL) theo cấu hình, bạn không cần chọn.
       </p>
       <div className="cv-nut-doc">

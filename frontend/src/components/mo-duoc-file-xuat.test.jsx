@@ -60,7 +60,8 @@ describe('E40 — file xuất ra phải mở được', () => {
     render(<ExportPanel projectId="p1" tenProject="t" chuKyTrang="typeset_done,typeset_done" />)
     await waitFor(() => expect(nut('Xuất chapter')).toBeEnabled())
 
-    await userEvent.selectOptions(screen.getByRole('combobox'), 'zip')
+    await userEvent.click(screen.getByRole('radio', { name: /ZIP/ }))
+    expect(screen.getByRole('radio', { name: /ZIP/ })).toBeChecked()
     expect(screen.getByText(/Cùng nội dung với CBZ/i)).toBeInTheDocument()
   })
 

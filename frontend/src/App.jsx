@@ -29,10 +29,17 @@ import DangNhapChatGPT from './components/auth/DangNhapChatGPT.jsx'
 import Alert from './components/ui/Alert.jsx'
 import Button from './components/ui/Button.jsx'
 import Dialog from './components/ui/Dialog.jsx'
+import DoiTheme from './components/ui/DoiTheme.jsx'
+import Icon from './components/ui/Icon.jsx'
+import Skeleton from './components/ui/Skeleton.jsx'
 import StatusBadge from './components/ui/StatusBadge.jsx'
+import Tabs from './components/ui/Tabs.jsx'
 import { tinhTienDoChapter } from './lib/chapter-progress.js'
 import { LOC_HUONG_CHU, LOC_RA_SOAT, nhanHuongChu } from './lib/status-presentation.js'
 import { MUC_DICH } from './lib/status-presentation.js'
+
+// wording: BA review — nút ở đầu màn chapter (mockup-v2 ghi "Chạy mẻ"; giữ tên khối hiện có)
+const NHAN_CHAY_ME = 'Chạy cả chapter'
 
 /** Lấy id trang/chapter từ địa chỉ (#page=… hoặc #project=…) để chia sẻ link được.
  *  Giữ nguyên dạng địa chỉ cũ: link đã gửi cho nhau vẫn phải mở được. */
@@ -45,6 +52,12 @@ function docDiaChi() {
     coCanvas: p.has('canvas'), canvasId: p.get('canvas') || '',
   }
 }
+
+// ĐX-1 — hai đường vào ở màn chính. `phu` là câu mô tả đã có từ trước (giữ nguyên chữ).
+const CAC_DUONG = [
+  { ma: 'nhanh', nhan: 'Dịch nhanh', icon: 'upload', phu: 'Thả file là chạy, xong tự tải về' },
+  { ma: 'day_du', nhan: 'Tạo chapter mới', icon: 'layers', phu: 'Có rà soát, sửa tay, chốt thuật ngữ' },
+]
 
 const KHOA_NHO = 'translation:chapter-gan-day'
 
@@ -465,11 +478,12 @@ export default function App({ urlBundle } = {}) {
                 <small>Dịch truyện tranh sang tiếng Việt</small>
               </span>
             </a>
-            {!muonDangNhap && (
-              <div className="dau-phai">
+            <div className="dau-phai hang">
+              <DoiTheme />
+              {!muonDangNhap && (
                 <Button kieu="phu" onClick={() => setMuonDangNhap(true)}>Đăng nhập</Button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </header>
         {/* `TrangChu` TỰ nó là một `<main>`. Bọc nó trong `<main className="than-trang">` như bản
@@ -552,6 +566,7 @@ export default function App({ urlBundle } = {}) {
           />
           <Button kieu="phu" onClick={mo}>Mở</Button>
         </div>
+        <DoiTheme />
         </div>
       </header>
 
@@ -585,36 +600,27 @@ export default function App({ urlBundle } = {}) {
                 đã nói — ba lần cùng một nội dung trên một màn. Giữ lại phần KHÔNG lặp: cái mà
                 hai tab không tự nói được, là chọn giữa chúng theo nhu cầu nào. */}
             <div className="mo-dau-lam-viec">
-              <div>
-                <h1>Dịch truyện tranh</h1>
-                <p className="dan">Chọn đường làm việc — cả hai đều dịch được cả chapter.</p>
-              </div>
+              <h1>Dịch truyện tranh</h1>
+              <p className="dan">Chọn đường làm việc — cả hai đều dịch được cả chapter.</p>
+            </div>
 
             {/* ĐX-1 — hai đường vào song song, không đường nào thay thế đường nào.
                 Mặc định mở đường NHANH vì phần lớn lượt dùng chỉ cần đọc; ai cần rà soát,
-                chốt thuật ngữ, sửa tay thì bấm sang đường đầy đủ — vẫn còn nguyên. */}
-            <div className="chon-duong" role="tablist" aria-label="Chọn cách làm">
-              {[
-                ['nhanh', 'Dịch nhanh', 'Thả file là chạy, xong tự tải về'],
-                ['day_du', 'Tạo chapter mới', 'Có rà soát, sửa tay, chốt thuật ngữ'],
-              ].map(([ma, nhan, phu]) => (
-                <button
-                  key={ma} role="tab" type="button"
-                  aria-selected={duong === ma}
-                  className={`nut-duong${duong === ma ? ' dang-chon' : ''}`}
-                  onClick={() => setDuong(ma)}
+                chốt thuật ngữ, sửa tay thì bấm sang đường đầy đủ — vẫn còn nguyên.
+                ĐỢT 2 — bố cục mockup-v2: cột trái = tab (ARIA) + biểu mẫu, cột phải = lưới
+                chapter gần đây (≥1280px hai cột; hẹp hơn thì xếp dọc). */}
+            <div className="luoi-trang-chu">
+              <section className="cot-lam-viec" aria-label="Dịch nhanh hoặc tạo chapter">
+                <Tabs
+                  nhan="Chọn cách làm" idGoc="duong" chon={duong} onDoi={setDuong}
+                  cacTab={CAC_DUONG}
                 >
-                  <strong>{nhan}</strong>
-                  <span>{phu}</span>
-                </button>
-              ))}
-            </div>
-            </div>
-
-            <div className="luoi-2-cot">
-              {duong === 'nhanh'
-                ? <DichNhanh onMoChapter={(id) => { window.location.hash = `project=${id}` }} />
-                : <ChapterCreateForm onXong={(id) => { window.location.hash = `project=${id}` }} />}
+                  <p className="ghi-chu mo-ta-tab">{CAC_DUONG.find((d) => d.ma === duong)?.phu}</p>
+                  {duong === 'nhanh'
+                    ? <DichNhanh onMoChapter={(id) => { window.location.hash = `project=${id}` }} />
+                    : <ChapterCreateForm onXong={(id) => { window.location.hash = `project=${id}` }} />}
+                </Tabs>
+              </section>
               {/* `onTaoMoi` đã bỏ cùng nút "Tạo chapter đầu tiên" (E63) — giữ lại một prop
                   không ai đọc là để dành một cái bẫy cho người sửa sau. */}
               <ChapterRecentList danhSach={ganDay} />
@@ -629,12 +635,29 @@ export default function App({ urlBundle } = {}) {
               onNhanXong={(moi) => setProject((cu) => ({ ...cu, ...moi }))}
             />
 
-            <div className="tieu-de-man">
-              <h1>{project.name}</h1>
-              <p>
-                Mục đích đã khai: <b>{MUC_DICH[project.intended_use] ?? project.intended_use}</b>
-                {' '}· không sửa được sau khi tạo
-              </p>
+            <nav className="duong-dan" aria-label="Đường dẫn">
+              <a href="#">Chapter gần đây</a>
+              <Icon ten="chevron-right" co={14} />
+              <span aria-current="page">{project.name}</span>
+            </nav>
+            <div className="dau-man tieu-de-man">
+              <div>
+                <h1>{project.name}</h1>
+                <p>
+                  Mục đích đã khai: <b>{MUC_DICH[project.intended_use] ?? project.intended_use}</b>
+                  {' '}· không sửa được sau khi tạo
+                </p>
+              </div>
+              {dsTrang.length > 0 && (
+                <div className="hang">
+                  <Button
+                    kieu="chinh" icon="play"
+                    onClick={() => document.getElementById('bang-me')?.scrollIntoView({ block: 'start' })}
+                  >
+                    {NHAN_CHAY_ME}
+                  </Button>
+                </div>
+              )}
             </div>
 
             <ChapterSummary
@@ -654,6 +677,50 @@ export default function App({ urlBundle } = {}) {
                   chayNQ(() => api.boQuaViecNhatQuan(id, 'not_applicable'), 'Đã bỏ qua gợi ý này.')}
               />
             )}
+
+            {/* ĐỢT 2 — bố cục mockup-v2/chapter: trái = thanh bước + lưới trang, phải = chất lượng
+                (≥1280px hai cột). Mẻ chạy và xuất nằm ngang hết cỡ bên dưới để bảng mẻ không bị bóp. */}
+            <div className="luoi-chapter-man">
+              <ChapterProgress
+                project={project} canhBao={canhBao}
+                onNapLai={() => napProject(project.id).catch((e) => setLoi(e.message))}
+              />
+              <div className="cot-phai">
+                <QualityPanel tomTat={chatLuongChapter} trangDau={dsTrang[0]?.id} />
+                <ConsistencyPanel
+                  tomTat={tomTatNQ}
+                  dangQuet={dangQuet}
+                  onQuet={quetNhatQuan}
+                  onMoHangDoi={() => {
+                    setMoHangDoi(true)
+                    setTimeout(
+                      () => document.getElementById('tieu-de-hang-doi')
+                        ?.scrollIntoView({ block: 'start' }),
+                      0,
+                    )
+                  }}
+                />
+              </div>
+            </div>
+
+            <BatchPanel projectId={project.id} soTrang={dsTrang.length} />
+
+            <ExportPanel
+              projectId={project.id} tenProject={project.name}
+              // Chữ ký trạng thái mọi trang: đổi khi pipeline chạy xong một trang, và đó
+              // là tín hiệu để bảng xuất nạp lại con số. Không có nó thì bảng đứng im
+              // trong khi badge trang đã đổi — xem ghi chú trong ExportPanel.
+              chuKyTrang={dsTrang.map((t) => t.status).join(',')}
+              nhatQuan={tomTatNQ}
+              onRaSoat={() => {
+                setMoHangDoi(true)
+                setTimeout(
+                  () => document.getElementById('tieu-de-hang-doi')
+                    ?.scrollIntoView({ block: 'start' }),
+                  0,
+                )
+              }}
+            />
 
             <GlossaryManager
               danhSach={thuatNgu}
@@ -677,46 +744,12 @@ export default function App({ urlBundle } = {}) {
               onTimTinHieu={() => api.layTinHieuXungHo(project.id)}
             />
 
-            <div className="luoi-2-cot">
-              <ChapterProgress
-                project={project} canhBao={canhBao}
-                onNapLai={() => napProject(project.id).catch((e) => setLoi(e.message))}
-              />
-              <div className="cot-phai">
-                <QualityPanel tomTat={chatLuongChapter} trangDau={dsTrang[0]?.id} />
-                <ConsistencyPanel
-                  tomTat={tomTatNQ}
-                  dangQuet={dangQuet}
-                  onQuet={quetNhatQuan}
-                  onMoHangDoi={() => {
-                    setMoHangDoi(true)
-                    setTimeout(
-                      () => document.getElementById('tieu-de-hang-doi')
-                        ?.scrollIntoView({ block: 'start' }),
-                      0,
-                    )
-                  }}
-                />
-                <BatchPanel projectId={project.id} soTrang={dsTrang.length} />
-                <ExportPanel
-                  projectId={project.id} tenProject={project.name}
-                  // Chữ ký trạng thái mọi trang: đổi khi pipeline chạy xong một trang, và đó
-                  // là tín hiệu để bảng xuất nạp lại con số. Không có nó thì bảng đứng im
-                  // trong khi badge trang đã đổi — xem ghi chú trong ExportPanel.
-                  chuKyTrang={dsTrang.map((t) => t.status).join(',')}
-                  nhatQuan={tomTatNQ}
-                  onRaSoat={() => {
-                    setMoHangDoi(true)
-                    setTimeout(
-                      () => document.getElementById('tieu-de-hang-doi')
-                        ?.scrollIntoView({ block: 'start' }),
-                      0,
-                    )
-                  }}
-                />
-              </div>
-            </div>
           </>
+        )}
+
+        {/* Đang nạp chapter: khung chờ, KHÔNG để trống trơn (lỗi thì khối "Có lỗi" ở trên đã hiện). */}
+        {projectId && !pageId && !project && !loi && (
+          <Skeleton kieu="khoi" cao={320} nhan="Đang tải chapter…" />
         )}
 
         {chiTiet && (
@@ -781,7 +814,7 @@ export default function App({ urlBundle } = {}) {
                 ) : chiTiet.preview_url && !loiAnh ? (
                   // "Đang tải" KHÁC "chưa có": ảnh 2MB tải mất một nhịp, và báo "chưa có ảnh"
                   // lúc đó là nói sai — người dùng sẽ đi chạy lại một bước vốn đã xong.
-                  <p className="ghi-chu">Đang tải ảnh trang…</p>
+                  <Skeleton kieu="khoi" cao={200} nhan="Đang tải ảnh trang…" />
                 ) : !chiTiet.preview_url ? (
                   <Alert sac="tin" tieuDe="Chưa có ảnh xem thử">
                     Trang này cần chạy xong bước căn chữ mới có ảnh để xem.
@@ -840,7 +873,7 @@ export default function App({ urlBundle } = {}) {
                     onClick={() => chonVung(dsVungLoc[viTriDangChon - 1].id)}
                     disabled={viTriDangChon <= 0}
                   >
-                    ← Vùng trước
+                    <Icon ten="mui-ten-trai" /> Vùng trước
                   </button>
                   <span className="ghi-chu" aria-live="polite">
                     {viTriDangChon >= 0
@@ -852,7 +885,7 @@ export default function App({ urlBundle } = {}) {
                     onClick={() => chonVung(dsVungLoc[viTriDangChon + 1].id)}
                     disabled={viTriDangChon < 0 || viTriDangChon >= dsVungLoc.length - 1}
                   >
-                    Vùng sau →
+                    Vùng sau <Icon ten="mui-ten-phai" />
                   </button>
                 </div>
 

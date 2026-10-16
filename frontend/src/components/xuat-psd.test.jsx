@@ -45,8 +45,9 @@ describe('E78 — xuất PSD nhiều lớp', () => {
     render(<ExportPanel projectId="p1" tenProject="t" chuKyTrang="typeset_done,typeset_done" />)
     await waitFor(() => expect(nut('Xuất chapter')).toBeEnabled())
 
-    const opt = screen.getByRole('option', { name: /PSD — nhiều lớp, mở bằng Photoshop\/Photopea/ })
-    expect(opt).toHaveValue('psd')
+    // ĐỢT 2: định dạng là thẻ radio (không còn <select>) — vẫn đúng nhãn và đúng giá trị.
+    const opt = screen.getByRole('radio', { name: /PSD — nhiều lớp, mở bằng Photoshop\/Photopea/ })
+    expect(opt).toHaveAttribute('value', 'psd')
   })
 
   it('chọn PSD thì giải thích các lớp và nói trước chữ chưa gõ sửa được', async () => {
@@ -54,7 +55,8 @@ describe('E78 — xuất PSD nhiều lớp', () => {
     render(<ExportPanel projectId="p1" tenProject="t" chuKyTrang="typeset_done,typeset_done" />)
     await waitFor(() => expect(nut('Xuất chapter')).toBeEnabled())
 
-    await userEvent.selectOptions(screen.getByRole('combobox'), 'psd')
+    await userEvent.click(screen.getByRole('radio', { name: /PSD/ }))
+    expect(screen.getByRole('radio', { name: /PSD/ })).toBeChecked()
     expect(screen.getByText(/ảnh gốc \(đang ẩn\), ảnh đã xoá chữ/i)).toBeInTheDocument()
     expect(screen.getByText(/chưa gõ sửa chữ được/i)).toBeInTheDocument()
   })
@@ -64,7 +66,7 @@ describe('E78 — xuất PSD nhiều lớp', () => {
     render(<ExportPanel projectId="p1" tenProject="t" chuKyTrang="typeset_done,typeset_done" />)
     await waitFor(() => expect(nut('Xuất chapter')).toBeEnabled())
 
-    await userEvent.selectOptions(screen.getByRole('combobox'), 'psd')
+    await userEvent.click(screen.getByRole('radio', { name: /PSD/ }))
     await userEvent.click(nut('Xuất chapter'))
     await waitFor(() => expect(nut('Tải file về')).toBeInTheDocument())
     expect(daGui).toEqual(['psd'])

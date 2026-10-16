@@ -14,6 +14,14 @@
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap"
     />
+    <!-- Áp theme đã lưu TRƯỚC khi vẽ để không nháy sáng→tối. Khoá phải khớp DoiTheme.jsx. Lỗi
+         storage thì bỏ qua: mặc định "theo máy" (không đặt data-theme). -->
+    <script>
+      try {
+        var t = localStorage.getItem('translation.theme')
+        if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t)
+      } catch (e) {}
+    </script>
     <title>Translation — Dịch truyện tranh sang tiếng Việt</title>
   </head>
   <body>

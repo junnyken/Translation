@@ -19,7 +19,7 @@ export default function RegionQualityBox({ danhGia, dangBan, onQuyetDinh }) {
         <div className="hang-tieu-de">
           <h4>Đánh giá chất lượng</h4>
           <span className="the-tt the-tt-trung">
-            <Icon ten="dong-ho" co={13} /><span>Chưa đánh giá</span>
+            <Icon ten="dong-ho" co={16} /><span>Chưa đánh giá</span>
           </span>
         </div>
         <p className="ghi-chu">
@@ -41,10 +41,10 @@ export default function RegionQualityBox({ danhGia, dangBan, onQuyetDinh }) {
         <h4>Đánh giá chất lượng</h4>
         <div className="nhom-nhan">
           <span className={`the-tt the-tt-${loai.sac}`}>
-            <Icon ten={loai.icon} co={13} /><span>{loai.nhan}</span>
+            <Icon ten={loai.icon} co={16} /><span>{loai.nhan}</span>
           </span>
           <span className={`the-tt the-tt-${quyet.sac}`}>
-            <Icon ten={quyet.icon} co={13} /><span>{quyet.nhan}</span>
+            <Icon ten={quyet.icon} co={16} /><span>{quyet.nhan}</span>
           </span>
         </div>
       </div>

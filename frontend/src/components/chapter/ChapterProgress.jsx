@@ -3,8 +3,23 @@ import * as api from '../../api.js'
 import { tinhTienDoChapter } from '../../lib/chapter-progress.js'
 import { MUC_DICH, NGON_NGU, dienGiaiTrangThai } from '../../lib/status-presentation.js'
 import Button from '../ui/Button.jsx'
+import Icon from '../ui/Icon.jsx'
 import ProgressStage from '../ui/ProgressStage.jsx'
+import EmptyState from '../ui/EmptyState.jsx'
 import StatusBadge from '../ui/StatusBadge.jsx'
+
+// wording: BA review — chip lọc trang + trạng thái rỗng (mockup-v2/chapter)
+const LOC_TRANG = [
+  { ma: 'tat_ca', nhan: 'Tất cả' },
+  { ma: 'chua', nhan: 'Chưa xong' },
+  { ma: 'xong', nhan: 'Đã xong' },
+  { ma: 'hong', nhan: 'Hỏng' },
+]
+const NHAN_LOC_TRANG = 'Lọc trang'
+const NHAN_KHONG_CO_TRANG = 'Không có trang nào ở trạng thái này'
+const MO_TA_KHONG_CO_TRANG = 'Chọn "Tất cả" để xem lại toàn bộ.'
+const TIEU_DE_CHUA_CO_TRANG = 'Chapter chưa có trang nào'
+const MO_TA_CHUA_CO_TRANG = 'Tải ảnh PNG hoặc JPG lên để hệ thống nhận diện chữ và dịch.'
 
 const CHUA_XONG = (t) => !['typeset_done', 'ready_for_export', 'detection_failed'].includes(t)
 
@@ -15,6 +30,7 @@ const CHUA_XONG = (t) => !['typeset_done', 'ready_for_export', 'detection_failed
  */
 export default function ChapterProgress({ project, canhBao, onNapLai }) {
   const [dem, setDem] = useState(0)
+  const [loc, setLoc] = useState('tat_ca')
   // Việc HỎNG của từng trang, khoá theo page_id. Hỏi một lời gọi cho cả chapter mỗi nhịp — chứ
   // không đợi người dùng bấm "Vì sao?" mới biết là có thứ đã chết (F1).
   const [viecHong, setViecHong] = useState({})
@@ -62,43 +78,92 @@ export default function ChapterProgress({ project, canhBao, onNapLai }) {
     return () => clearTimeout(hen.current)   // gỡ component / hết việc là dừng, không để trôi
   }, [con_chay, nhip, dem])
 
-  if (!trang.length) return null
+  // Lọc trang. Chỉ dùng dữ liệu CÓ THẬT trên mỗi trang: trạng thái + việc hỏng. Số vùng tràn khung /
+  // cần xem lại nằm ở từng trang riêng (không có trong `GET /projects/{id}`), nên chip lọc không
+  // đoán theo những thứ đó.
+  const hong = (t) => t.status === 'detection_failed' || Boolean(viecHong[t.id])
+  const xong = (t) => ['typeset_done', 'ready_for_export'].includes(t.status)
+  const dsHienThi = trang.filter((t) => {
+    if (loc === 'hong') return hong(t)
+    if (loc === 'xong') return xong(t)
+    if (loc === 'chua') return !xong(t) && !hong(t)
+    return true
+  })
+  const soLoc = {
+    tat_ca: trang.length, hong: trang.filter(hong).length,
+    xong: trang.filter(xong).length, chua: trang.filter((t) => !xong(t) && !hong(t)).length,
+  }
+
+  if (!trang.length) {
+    // Chapter 0 trang: nói rõ vì sao trống thay vì biến mất khỏi màn.
+    return (
+      <section className="the-man" aria-labelledby="tieu-de-tien-do">
+        <h2 id="tieu-de-tien-do" className="tieu-the">Tiến độ xử lý</h2>
+        <EmptyState icon="image" tieuDe={TIEU_DE_CHUA_CO_TRANG} moTa={MO_TA_CHUA_CO_TRANG} />
+      </section>
+    )
+  }
 
   return (
-    <section className="the-lon" aria-labelledby="tieu-de-tien-do">
-      <header className="the-dau">
-        <h2 id="tieu-de-tien-do">Tiến độ xử lý</h2>
-        <p>
-          {NGON_NGU[project.source_lang] ?? project.source_lang} → Tiếng Việt ·{' '}
-          {MUC_DICH[project.intended_use] ?? project.intended_use} · {tien_do.tong} trang
-          {con_chay && ' · đang cập nhật…'}
-        </p>
-      </header>
+    <section aria-labelledby="tieu-de-tien-do" className="khu-tien-do">
+      <div className="dau-man">
+        <div>
+          <h2 id="tieu-de-tien-do" className="tieu-the">Tiến độ xử lý</h2>
+          <p>
+            {NGON_NGU[project.source_lang] ?? project.source_lang} → Tiếng Việt ·{' '}
+            {MUC_DICH[project.intended_use] ?? project.intended_use} · {tien_do.tong} trang
+            {con_chay && ' · đang cập nhật…'}
+          </p>
+        </div>
+      </div>
 
       <ProgressStage buoc={tien_do.buoc} />
 
-      <h3 className="tieu-de-nho">Từng trang</h3>
-      <ul className="ds-trang">
-        {trang.map((t) => (
-          <li key={t.id}>
-            <a href={`#page=${t.id}`}>Trang {t.order}</a>
-            <StatusBadge loai="trang" trangThai={t.status} />
-            {t.status === 'detection_failed' && (
-              <span className="ghi-chu">Mở trang để chạy lại bước nhận diện.</span>
-            )}
-            {viecHong[t.id]
-              ? <LoiCuaTrang job={viecHong[t.id]} />
-              : <LyDoDung pageId={t.id} trangThai={t.status} />}
-          </li>
+      <div className="dau-man dau-man-nho">
+        <h3 className="tieu-the">Từng trang</h3>
+        <span className="ghi-chu t-so" aria-live="polite">{dsHienThi.length} / {trang.length} trang</span>
+      </div>
+      <div className="hang-chip" role="group" aria-label={NHAN_LOC_TRANG}>
+        {LOC_TRANG.map((l) => (
+          <button
+            key={l.ma} type="button" className="chip-loc"
+            aria-pressed={loc === l.ma} onClick={() => setLoc(l.ma)}
+          >
+            {l.nhan} <span className="so">{soLoc[l.ma]}</span>
+          </button>
         ))}
-      </ul>
+      </div>
+
+      {dsHienThi.length === 0 ? (
+        <EmptyState icon="search" tieuDe={NHAN_KHONG_CO_TRANG} moTa={MO_TA_KHONG_CO_TRANG} />
+      ) : (
+        <ul className="luoi-trang">
+          {dsHienThi.map((t) => (
+            <li key={t.id}>
+              <div className={`the-trang${hong(t) ? ' the-trang-hong' : ''}`}>
+                <div className="thumb-trang" aria-hidden="true"><Icon ten="image" co={24} /></div>
+                <div className="than-the-trang">
+                  <a href={`#page=${t.id}`} className="lien-the"><b>Trang {t.order}</b></a>
+                  <StatusBadge loai="trang" trangThai={t.status} />
+                  {t.status === 'detection_failed' && (
+                    <span className="ghi-chu">Mở trang để chạy lại bước nhận diện.</span>
+                  )}
+                  {viecHong[t.id]
+                    ? <LoiCuaTrang job={viecHong[t.id]} />
+                    : <LyDoDung pageId={t.id} trangThai={t.status} />}
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
 
       {!con_chay && (
         <p className="ghi-chu">
           {Object.keys(viecHong).length > 0
             ? 'Không còn việc nào đang chạy — có bước đã hỏng, xem lý do ở từng trang bên trên.'
             : 'Không còn việc nào đang chạy.'}{' '}
-          <Button kieu="ghost" onClick={nhip}>Kiểm tra lại</Button>
+          <Button kieu="ghost" icon="refresh" onClick={nhip}>Kiểm tra lại</Button>
         </p>
       )}
     </section>

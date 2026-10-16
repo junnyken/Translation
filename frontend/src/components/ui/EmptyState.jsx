@@ -4,7 +4,7 @@ import Icon from './Icon.jsx'
 export default function EmptyState({ icon = 'sach', tieuDe, moTa, children }) {
   return (
     <div className="trong">
-      <div className="trong-icon"><Icon ten={icon} co={22} /></div>
+      <div className="trong-icon"><Icon ten={icon} co={24} /></div>
       <h3>{tieuDe}</h3>
       {moTa && <p>{moTa}</p>}
       {children}

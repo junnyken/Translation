@@ -12,8 +12,8 @@ export default function Alert({ sac = 'tin', tieuDe, children, onDong }) {
         <div>{children}</div>
       </div>
       {onDong && (
-        <button type="button" className="nut-bo" aria-label="Đóng thông báo" onClick={onDong}>
-          <Icon ten="x" co={14} />
+        <button type="button" className="nut-bo" aria-label="Đóng thông báo" title="Đóng thông báo" onClick={onDong}>
+          <Icon ten="x" co={16} />
         </button>
       )}
     </div>

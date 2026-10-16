@@ -48,7 +48,7 @@ export default function QualityPanel({ tomTat, trangDau }) {
           <ul className="ds-phan-loai">
             {loai.map(([ma, n]) => (
               <li key={ma}>
-                <Icon ten={PHAN_LOAI_VUNG[ma]?.icon ?? 'dong-ho'} co={13} />
+                <Icon ten={PHAN_LOAI_VUNG[ma]?.icon ?? 'dong-ho'} co={16} />
                 <span>{PHAN_LOAI_VUNG[ma]?.nhan ?? ma}</span>
                 <b>{n}</b>
               </li>

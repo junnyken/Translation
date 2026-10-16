@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import * as api from '../api.js'
 import { useCodex } from '../lib/dung-codex.js'
+import Button from './ui/Button.jsx'
+import Icon from './ui/Icon.jsx'
 
 const TRANG_THAI_ME = {
   queued: { chu: 'Đang xếp hàng', lop: 'cho' },
@@ -26,6 +28,11 @@ const LY_DO_BO_QUA = {
   cancelled: 'mẻ đã bị dừng trước khi tới lượt',
   dang_chay: 'trang đang chạy dở bởi việc khác',
 }
+
+const ICON_LOP = { cho: 'clock', ok: 'circle-check', canh: 'triangle-alert', loi: 'circle-x' }
+const Nhan = ({ n }) => (
+  <span className={`badge ${n.lop}`}><Icon ten={ICON_LOP[n.lop]} co={12} /> {n.chu}</span>
+)
 
 const DANG_CHAY = (tt) => tt === 'queued' || tt === 'running'
 const CAN_CHAY_LAI = (tt) => tt === 'failed' || tt === 'blocked_quota'
@@ -133,8 +140,10 @@ export default function BatchPanel({ projectId, soTrang }) {
     : 0
 
   return (
-    <section className="bang-me">
-      <h2>Chạy cả chapter</h2>
+    <section className="bang-me" id="bang-me" aria-labelledby="tieu-de-bang-me">
+      <h2 id="tieu-de-bang-me">Chạy cả chapter</h2>
+      <div className="luoi-me">
+      <div className="me-hanh-dong">
 
       {!me && (
         <p className="ghi-chu">
@@ -184,16 +193,17 @@ export default function BatchPanel({ projectId, soTrang }) {
       </ul>
 
       {!dangChayMe && (
-        <button className="chinh" onClick={batDau} disabled={dangBan || soTrang === 0}>
+        <Button kieu="chinh" icon="play" onClick={batDau} disabled={dangBan || soTrang === 0}>
           {me ? 'Chạy mẻ mới' : 'Chạy cả chapter'}
-        </button>
+        </Button>
       )}
       {soTrang === 0 && <p className="ghi-chu">Chapter chưa có trang nào.</p>}
+      </div>
 
       {me && (
-        <div className="ket-qua-xuat">
+        <div className="ket-qua-xuat me-tien-do">
           <div className="hang-tieu-de">
-            <span className={`badge ${nhan.lop}`}>{nhan.chu}</span>
+            <Nhan n={nhan} />
             <span className="ghi-chu">Thời gian: {batDauTuBuoc(troi)}</span>
           </div>
 
@@ -221,12 +231,12 @@ export default function BatchPanel({ projectId, soTrang }) {
 
           <div className="hang nut">
             {soCanChayLai > 0 && (
-              <button onClick={() => chayLai(null)} disabled={dangBan}>
+              <Button icon="refresh" onClick={() => chayLai(null)} disabled={dangBan}>
                 Chạy lại {soCanChayLai} trang hỏng/bị chặn
-              </button>
+              </Button>
             )}
             {dangChayMe && (
-              <button onClick={dung} disabled={dangBan}>Dừng mẻ</button>
+              <Button kieu="nguy" onClick={dung} disabled={dangBan}>Dừng mẻ</Button>
             )}
           </div>
           {dangChayMe && (
@@ -236,6 +246,7 @@ export default function BatchPanel({ projectId, soTrang }) {
             </p>
           )}
 
+          <div className="bang-cuon" tabIndex={0} role="region" aria-label="Bảng các trang trong mẻ, cuộn ngang được">
           <table className="bang-muc">
             <thead>
               <tr><th>Trang</th><th>Trạng thái</th><th>Thử lại</th><th>Ghi chú</th><th /></tr>
@@ -246,7 +257,7 @@ export default function BatchPanel({ projectId, soTrang }) {
                 return (
                   <tr key={m.id}>
                     <td>{m.page_order}</td>
-                    <td><span className={`badge ${n.lop}`}>{n.chu}</span></td>
+                    <td><Nhan n={n} /></td>
                     <td>{m.retry_count > 0 ? `${m.retry_count} lần` : '—'}</td>
                     <td className="o-loi">
                       {m.status === 'skipped'
@@ -255,7 +266,7 @@ export default function BatchPanel({ projectId, soTrang }) {
                     </td>
                     <td>
                       {CAN_CHAY_LAI(m.status) && (
-                        <button onClick={() => chayLai([m.id])} disabled={dangBan}>Chạy lại</button>
+                        <Button kieu="phu" onClick={() => chayLai([m.id])} disabled={dangBan}>Chạy lại</Button>
                       )}
                     </td>
                   </tr>
@@ -263,10 +274,12 @@ export default function BatchPanel({ projectId, soTrang }) {
               })}
             </tbody>
           </table>
+          </div>
         </div>
       )}
+      </div>
 
-      {loi && <div className="bang-loi">Lỗi: {loi}</div>}
+      {loi && <div className="bang-loi" role="alert">Lỗi: {loi}</div>}
     </section>
   )
 }

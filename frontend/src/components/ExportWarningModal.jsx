@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
+import Dialog from './ui/Dialog.jsx'
 
 /** Nhắc trách nhiệm bản quyền + chất lượng, hiện MỘT LẦN cho mỗi chapter trước khi xuất.
  *
@@ -8,15 +9,7 @@ import { useEffect, useRef, useState } from 'react'
  */
 export default function ExportWarningModal({ canhBao, nhatQuan, dinhDang, onHuy, onDongY, onRaSoat }) {
   const [daTick, setDaTick] = useState(false)
-  const hopRef = useRef(null)
-
-  // Đóng bằng phím Esc — hộp thoại không có lối thoát bằng bàn phím là hộp thoại bẫy người dùng.
-  useEffect(() => {
-    const nghe = (e) => e.key === 'Escape' && onHuy()
-    window.addEventListener('keydown', nghe)
-    hopRef.current?.focus()
-    return () => window.removeEventListener('keydown', nghe)
-  }, [onHuy])
+  // Esc, giữ focus trong hộp và trả focus về nút mở do `Dialog` dùng chung lo.
 
   const soTran = canhBao?.overflow_warning_count ?? 0
   const soCanDoc = canhBao?.needs_manual_count ?? 0
@@ -50,10 +43,7 @@ export default function ExportWarningModal({ canhBao, nhatQuan, dinhDang, onHuy,
   const soNQBo = (nhatQuan?.rejected_count ?? 0) + (nhatQuan?.resolved_no_change_count ?? 0)
 
   return (
-    <div className="lop-phu" onClick={(e) => e.target === e.currentTarget && onHuy()}>
-      <div className="hop-thoai" role="dialog" aria-modal="true"
-           aria-labelledby="tieu-de-canh-bao" tabIndex={-1} ref={hopRef}>
-        <h2 id="tieu-de-canh-bao">Trước khi tải file về</h2>
+    <Dialog tieuDe="Trước khi tải file về" onDong={onHuy}>
 
         <p className="loi-ban-quyen">
           <b>Bạn chịu trách nhiệm về bản quyền nội dung gốc.</b> Công cụ này dành cho mục đích
@@ -205,7 +195,6 @@ export default function ExportWarningModal({ canhBao, nhatQuan, dinhDang, onHuy,
         {!daTick && (
           <p className="ghi-chu">Cần tick vào ô trên thì nút xuất mới bấm được.</p>
         )}
-      </div>
-    </div>
+    </Dialog>
   )
 }
