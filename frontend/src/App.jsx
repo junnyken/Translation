@@ -33,6 +33,7 @@ import Alert from './components/ui/Alert.jsx'
 import Button from './components/ui/Button.jsx'
 import Dialog from './components/ui/Dialog.jsx'
 import DoiTheme from './components/ui/DoiTheme.jsx'
+import { DoiNgonNguUI, NgonNguUIProvider, useNgonNguUI } from './lib/ngon-ngu-ui.jsx'
 import Icon from './components/ui/Icon.jsx'
 import Skeleton from './components/ui/Skeleton.jsx'
 import StatusBadge from './components/ui/StatusBadge.jsx'
@@ -87,7 +88,16 @@ function luuChapter(id, ten) {
   } catch { /* trình duyệt chặn lưu thì bỏ qua, không phải lỗi */ }
 }
 
-export default function App({ urlBundle } = {}) {
+export default function App(props = {}) {
+  return (
+    <NgonNguUIProvider>
+      <AppRuot {...props} />
+    </NgonNguUIProvider>
+  )
+}
+
+function AppRuot({ urlBundle } = {}) {
+  const { laEn } = useNgonNguUI()
   // Auth slice B — ba trạng thái, KHÔNG phải hai:
   //   undefined = đang hỏi máy chủ xem mã phiên trong máy còn dùng được không
   //   null      = chưa đăng nhập
@@ -515,13 +525,16 @@ export default function App({ urlBundle } = {}) {
               <span className="hieu-dau">T</span>
               <span>
                 <b>Translation</b>
-                <small>Dịch truyện tranh sang tiếng Việt</small>
+                <small>{laEn ? 'AI Manga, Manhwa & Webtoon Translator' : 'Dịch truyện tranh sang tiếng Việt & Quốc tế'}</small>
               </span>
             </a>
             <div className="dau-phai hang">
+              <DoiNgonNguUI />
               <DoiTheme />
               {!muonDangNhap && (
-                <Button kieu="phu" onClick={() => setMuonDangNhap(true)}>Đăng nhập</Button>
+                <Button kieu="phu" onClick={() => setMuonDangNhap(true)}>
+                  {laEn ? 'Sign in / Đăng nhập' : 'Đăng nhập'}
+                </Button>
               )}
             </div>
           </div>
@@ -601,10 +614,11 @@ export default function App({ urlBundle } = {}) {
           <input
             id="o-ma" value={nhap} onChange={(e) => setNhap(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && mo()}
-            placeholder="Dán mã chapter hoặc mã trang…"
+            placeholder={laEn ? 'Paste chapter or page ID…' : 'Dán mã chapter hoặc mã trang…'}
           />
-          <Button kieu="phu" onClick={mo}>Mở</Button>
+          <Button kieu="phu" onClick={mo}>{laEn ? 'Open' : 'Mở'}</Button>
         </div>
+        <DoiNgonNguUI />
         <DoiTheme />
         </div>
       </header>

@@ -7,6 +7,7 @@ import Alert from '../ui/Alert'
 import Button from '../ui/Button'
 import Dropzone from '../ui/Dropzone'
 import { chuThoiGianGiu } from '../../lib/thoi-gian-giu.js'
+import { useNgonNguUI } from '../../lib/ngon-ngu-ui.jsx'
 import Icon from '../ui/Icon'
 import ChanTrangManga from './ChanTrangManga'
 import HeSinhThaiCongCu from './HeSinhThaiCongCu'
@@ -31,23 +32,23 @@ const NGON_NGU = [
 ]
 
 const PILL_NGON_NGU_GOC = [
-  { ma: 'ja', co: 'JP', nhan: 'Tiếng Nhật' },
-  { ma: 'ko', co: 'KR', nhan: 'Tiếng Hàn' },
-  { ma: 'zh', co: 'CN', nhan: 'Tiếng Trung' },
-  { ma: 'en', co: 'GB', nhan: 'Tiếng Anh' },
-  { ma: TU_NHAN, co: '🔍', nhan: 'Tự nhận diện' },
+  { ma: 'ja', co: 'JP', nhan: 'Tiếng Nhật', nhanEn: 'Japanese' },
+  { ma: 'ko', co: 'KR', nhan: 'Tiếng Hàn', nhanEn: 'Korean' },
+  { ma: 'zh', co: 'CN', nhan: 'Tiếng Trung', nhanEn: 'Chinese' },
+  { ma: 'en', co: 'GB', nhan: 'Tiếng Anh', nhanEn: 'English' },
+  { ma: TU_NHAN, co: '🔍', nhan: 'Tự nhận diện', nhanEn: 'Auto Detect' },
 ]
 
 const PILL_NGON_NGU_DICH = [
-  { ma: 'vi', co: 'VN', nhan: 'Sang Tiếng Việt' },
-  { ma: 'en', co: 'US', nhan: 'To English' },
+  { ma: 'vi', co: 'VN', nhan: 'Sang Tiếng Việt', nhanEn: 'To Vietnamese' },
+  { ma: 'en', co: 'US', nhan: 'To English', nhanEn: 'To English' },
 ]
 
 const PILL_FONT_THE_LOAI = [
-  { ma: 'bangers', bieuTuong: '⚔️', nhan: 'Hành động (Đậm)' },
-  { ma: 'romance', bieuTuong: '🌸', nhan: 'Ngôn tình (Mềm)' },
-  { ma: 'historical', bieuTuong: '🏮', nhan: 'Cổ trang (Bút)' },
-  { ma: 'comic', bieuTuong: '💥', nhan: 'Hài hước (Tròn)' },
+  { ma: 'bangers', bieuTuong: '⚔️', nhan: 'Hành động (Đậm)', nhanEn: 'Action (Bold)' },
+  { ma: 'romance', bieuTuong: '🌸', nhan: 'Ngôn tình (Mềm)', nhanEn: 'Romance (Soft)' },
+  { ma: 'historical', bieuTuong: '🏮', nhan: 'Cổ trang (Bút)', nhanEn: 'Historical (Brush)' },
+  { ma: 'comic', bieuTuong: '💥', nhan: 'Hài hước (Tròn)', nhanEn: 'Comedy (Rounded)' },
 ]
 
 const MAU_XUNG_HO = [
@@ -186,12 +187,17 @@ function TienDoTrang({ tienDo }) {
    trang web đặt nó. Trước đây nó là một liên kết gạch chân đứng trơ giữa khoảng trắng, dưới khối
    hạn mức, và trang này không hề có thanh đầu trang nào để neo nó vào. */
 export default function TrangChu() {
+  const { laEn } = useNgonNguUI()
   const [files, setFiles] = useState([])
   const [ngonNgu, setNgonNgu] = useState('ja')
   const [ngonNguDich, setNgonNguDich] = useState('vi')
   const [fontChu, setFontChu] = useState('bangers')
   const [tuDienRieng, setTuDienRieng] = useState('')
   const [moTuDien, setMoTuDien] = useState(false)
+
+  useEffect(() => {
+    setNgonNguDich(laEn ? 'en' : 'vi')
+  }, [laEn])
   // E67 — mặc định MIỄN PHÍ. Chủ dự án chốt: người dùng tự chọn, không ai bị tính tiền ngoài ý
   // muốn. Đây là lựa chọn của TRANG CHỦ, gửi thẳng lên máy chủ — E58 đã chốt rằng lựa chọn này
   // phải được LƯU chứ không để `NULL` thừa hưởng mặc định hệ thống.
@@ -445,32 +451,42 @@ export default function TrangChu() {
       {/* ĐỢT 2 + E107 — Hero phong cách Thế Giới Truyện Tranh (Manga/Manhwa Studio) */}
       <header className="trang-chu-dau manga-hero-banner">
         <div className="manga-hero-fx" aria-hidden="true">
-          <span className="manga-bubble-tag tag-trai">💬 &ldquo;Xoá sạch chữ gốc — Giữ nguyên viền bong bóng!&rdquo;</span>
+          <span className="manga-bubble-tag tag-trai">
+            💬 &ldquo;{laEn ? 'Clean Inpainting — Keep Bubble Borders Intact!' : 'Xoá sạch chữ gốc — Giữ nguyên viền bong bóng!'}&rdquo;
+          </span>
           <span className="manga-bubble-tag tag-phai">⚡ &ldquo;Manga · Manhwa · Manhua · Comic!&rdquo;</span>
         </div>
         <div className="manga-genre-strip" aria-hidden="true">
-          <span>⚔️ Hành động</span>
-          <span>🌸 Ngôn tình</span>
-          <span>📜 Cổ trang</span>
-          <span>💬 Truyện tranh</span>
-          <span>🌍 Việt &amp; Quốc tế</span>
+          <span>⚔️ {laEn ? 'Action' : 'Hành động'}</span>
+          <span>🌸 {laEn ? 'Romance' : 'Ngôn tình'}</span>
+          <span>📜 {laEn ? 'Historical' : 'Cổ trang'}</span>
+          <span>💬 {laEn ? 'Comics & Webtoon' : 'Truyện tranh'}</span>
+          <span>🌍 {laEn ? 'VN & Global English' : 'Việt & Quốc tế'}</span>
         </div>
-        <h1>Dịch truyện tranh sang tiếng Việt</h1>
-        <p className="dan">Thả ảnh trang truyện vào đây là chạy — không cần đăng ký trước.</p>
+        <h1>
+          {laEn
+            ? 'AI Manga, Manhwa & Webtoon Translator'
+            : 'Dịch truyện tranh sang tiếng Việt'}
+        </h1>
+        <p className="dan">
+          {laEn
+            ? 'Drop comic pages or chapter archives (.zip / .cbz / .pdf) here to translate instantly — no sign-up required.'
+            : 'Thả ảnh trang truyện vào đây là chạy — không cần đăng ký trước.'}
+        </p>
         <div className="manga-hero-actions">
           <a
             href={api.urlTaiTienIchChrome()}
             download="dich-truyen-chrome-extension-v0.3.0.zip"
             className="nut-manga nut-manga-chinh"
           >
-            🧩 Tải Tiện Ích Chrome (v0.3.0)
+            🧩 {laEn ? 'Download Chrome Extension (v0.4.0)' : 'Tải Tiện Ích Chrome (v0.4.0)'}
           </a>
           <a
             href={api.urlTaiAppWindows()}
             download="App-Windows-Dich-Truyen-Tu-Dong-v1.0.zip"
             className="nut-manga nut-manga-win"
           >
-            🖥️ Tải App Windows (Dịch Theo Link &amp; Chia Chapter)
+            🖥️ {laEn ? 'Download Windows App (Auto Link & Chapter Splitter)' : 'Tải App Windows (Dịch Theo Link & Chia Chapter)'}
           </a>
         </div>
       </header>
@@ -493,10 +509,12 @@ export default function TrangChu() {
 
         <Dropzone files={files} onDoi={setFiles} chapNhanGoi id="tha-trang-chu" />
 
-        {/* Bảng điều khiển nhanh kiểu Pill-Grid (Chuẩn Tiện Ích v0.3.0 / Hình 3) */}
+        {/* Bảng điều khiển nhanh kiểu Pill-Grid (Chuẩn Tiện Ích v0.4.0 / Hình 3) */}
         <div className="bo-chon-manga">
           <div className="nhom-chon-manga">
-            <span className="nhan-nhom-chon">Ngôn ngữ gốc trên trang (Đổi tức thì):</span>
+            <span className="nhan-nhom-chon">
+              {laEn ? 'Source Language on Page (Instant switch):' : 'Ngôn ngữ gốc trên trang (Đổi tức thì):'}
+            </span>
             <div className="luoi-nut-chon" role="radiogroup" aria-label="Ngôn ngữ gốc trên trang">
               {PILL_NGON_NGU_GOC.map((item) => {
                 const dangChon = ngonNgu === item.ma
@@ -511,7 +529,7 @@ export default function TrangChu() {
                     onClick={() => setNgonNgu(item.ma)}
                   >
                     <span className="pill-co">{item.co}</span>
-                    <span>{item.nhan}</span>
+                    <span>{laEn ? item.nhanEn : item.nhan}</span>
                   </button>
                 )
               })}
@@ -519,7 +537,9 @@ export default function TrangChu() {
           </div>
 
           <div className="nhom-chon-manga">
-            <span className="nhan-nhom-chon">Ngôn ngữ dịch ra (Việt Nam &amp; Quốc tế):</span>
+            <span className="nhan-nhom-chon">
+              {laEn ? 'Target Language (Vietnamese & International):' : 'Ngôn ngữ dịch ra (Việt Nam & Quốc tế):'}
+            </span>
             <div className="luoi-nut-chon luoi-2-cot" role="radiogroup" aria-label="Ngôn ngữ dịch ra">
               {PILL_NGON_NGU_DICH.map((item) => {
                 const dangChon = ngonNguDich === item.ma
@@ -534,7 +554,7 @@ export default function TrangChu() {
                     onClick={() => setNgonNguDich(item.ma)}
                   >
                     <span className="pill-co">{item.co}</span>
-                    <span>{item.nhan}</span>
+                    <span>{laEn ? item.nhanEn : item.nhan}</span>
                   </button>
                 )
               })}
@@ -542,7 +562,9 @@ export default function TrangChu() {
           </div>
 
           <div className="nhom-chon-manga">
-            <span className="nhan-nhom-chon">Bộ máy dịch thuật:</span>
+            <span className="nhan-nhom-chon">
+              {laEn ? 'Translation Engine:' : 'Bộ máy dịch thuật:'}
+            </span>
             <div className="luoi-nut-chon luoi-2-cot" role="radiogroup" aria-label="Bộ máy dịch thuật">
               <button
                 type="button"
@@ -553,7 +575,7 @@ export default function TrangChu() {
                 onClick={() => setCachDich('llm_context')}
               >
                 <span className="pill-co">✨</span>
-                <span>Gemini AI (Chuẩn ngữ cảnh)</span>
+                <span>{laEn ? 'Gemini AI (Context-Aware)' : 'Gemini AI (Chuẩn ngữ cảnh)'}</span>
               </button>
               <button
                 type="button"
@@ -564,13 +586,15 @@ export default function TrangChu() {
                 onClick={() => setCachDich('google_fast')}
               >
                 <span className="pill-co">⚡</span>
-                <span>Google Nhanh</span>
+                <span>{laEn ? 'Google Fast (Free)' : 'Google Nhanh'}</span>
               </button>
             </div>
           </div>
 
           <div className="nhom-chon-manga">
-            <span className="nhan-nhom-chon">Font chữ theo thể loại truyện (Đổi trực tiếp trên trang):</span>
+            <span className="nhan-nhom-chon">
+              {laEn ? 'Genre Font Style (Direct typesetting):' : 'Font chữ theo thể loại truyện (Đổi trực tiếp trên trang):'}
+            </span>
             <div className="luoi-nut-chon luoi-2-cot" role="radiogroup" aria-label="Font chữ theo thể loại">
               {PILL_FONT_THE_LOAI.map((item) => {
                 const dangChon = fontChu === item.ma
@@ -585,7 +609,7 @@ export default function TrangChu() {
                     onClick={() => setFontChu(item.ma)}
                   >
                     <span className="pill-co">{item.bieuTuong}</span>
-                    <span>{item.nhan}</span>
+                    <span>{laEn ? item.nhanEn : item.nhan}</span>
                   </button>
                 )
               })}
@@ -594,7 +618,9 @@ export default function TrangChu() {
 
           <div className="nhom-chon-manga">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-              <span className="nhan-nhom-chon">📖 Sổ tay Nhân vật &amp; Xưng hô cố định (Chuẩn xuyên suốt các chương):</span>
+              <span className="nhan-nhom-chon">
+                📖 {laEn ? 'Character & Pronoun Glossary (Consistent across chapters):' : 'Sổ tay Nhân vật & Xưng hô cố định (Chuẩn xuyên suốt các chương):'}
+              </span>
               <span
                 role="button"
                 tabIndex={0}
@@ -603,7 +629,9 @@ export default function TrangChu() {
                 onClick={() => setMoTuDien(!moTuDien)}
                 onKeyDown={(e) => { if (e.key === 'Enter') setMoTuDien(!moTuDien) }}
               >
-                {moTuDien ? '▲ Thu gọn sổ tay' : '➕ Mở thiết lập Xưng hô & Tên nhân vật'}
+                {moTuDien
+                  ? (laEn ? '▲ Hide Glossary' : '▲ Thu gọn sổ tay')
+                  : (laEn ? '➕ Open Character & Pronoun Glossary' : '➕ Mở thiết lập Xưng hô & Tên nhân vật')}
               </span>
             </div>
             {moTuDien && (
@@ -637,16 +665,16 @@ export default function TrangChu() {
           </div>
 
           <div className="huy-hieu-gpu-khach">
-            🚀 Xoá chữ GPU khách · Nhấp đúp sửa câu — Siêu tốc ~3s
+            {laEn
+              ? '🚀 Client GPU Inpainting · Double-click to Edit — Ultra-fast ~3s'
+              : '🚀 Xoá chữ GPU khách · Nhấp đúp sửa câu — Siêu tốc ~3s'}
           </div>
         </div>
 
         <div className="hang-chon">
-          <div className="o-chon-khach">
+          {/* Ẩn khỏi màn hình vì đã có bảng Pill-Grid ở trên; giữ trong DOM cho trình đọc màn hình & bài kiểm thử */}
+          <div className="o-chon-khach an-di">
             <label htmlFor="chon-ngon-ngu">Chữ trên ảnh là tiếng gì?</label>
-            {/* `.o` — cùng lớp với mọi ô nhập khác trong app. Thiếu nó thì ô này hiện ra đúng
-                kiểu mặc định của trình duyệt (vuông, xám, phông khác), y như ba ô của màn đăng
-                nhập trước E62: một ô "trần" giữa một màn đã có ngôn ngữ thị giác riêng. */}
             <select
               id="chon-ngon-ngu" className="o" value={ngonNgu}
               onChange={(e) => setNgonNgu(e.target.value)}
@@ -654,21 +682,9 @@ export default function TrangChu() {
             >
               {NGON_NGU.map((n) => <option key={n.ma} value={n.ma}>{n.nhan}</option>)}
             </select>
-            <p className="ghi-chu">
-              Chọn sai thì chữ dịch ra vô nghĩa mà không có báo lỗi nào — nên chọn đúng tiếng của
-              trang bạn đang đọc.
-            </p>
           </div>
 
-          {/* E67 — ô chọn cách dịch.
-              Trước đây trang chủ KHÔNG có ô này nên mọi lượt đều chạy `google_fast`, và người
-              dùng không có cách nào biết. Đo trên trang thật 28-09, cùng một ảnh:
-                google_fast : "Vào thời điểm đó là Mt." · "…I went there and this time it was"
-                              (tiếng Anh lọt vào bản dịch tiếng Việt) · 0/14 vùng được cảnh báo
-                llm_context : "Chờ… chờ một chút, tớ sẽ xuống ngay đây."  · 6/13 vùng TỰ BÁO là
-                              đang đoán
-              Mặc định vẫn là miễn phí: không ai bị tốn token ngoài ý muốn. */}
-          <div className="o-chon-khach">
+          <div className="o-chon-khach an-di">
             <label htmlFor="chon-cach-dich">Dịch bằng gì?</label>
             <select
               id="chon-cach-dich" className="o" value={cachDich}
@@ -683,11 +699,6 @@ export default function TrangChu() {
                 </option>
               )}
             </select>
-            <p className="ghi-chu">
-              {cachDich === 'google_fast'
-                ? 'Google dịch từng dòng rời nhau. Miễn phí. Chữ đọc sai thì nó dịch luôn cái sai, và có lúc ra tiếng Anh.'
-                : 'AI đọc cả trang rồi dịch nên giữ được mạch truyện, và tự đánh dấu câu nào nó phải đoán. Tốn token của hệ thống.'}
-            </p>
           </div>
 
           {ngonNgu === TU_NHAN && (

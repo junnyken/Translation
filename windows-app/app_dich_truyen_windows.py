@@ -15,15 +15,18 @@ Tính năng chính:
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import json
 import math
 import os
+import platform
 import re
 import threading
 import time
 import urllib.parse
 import urllib.request
+import uuid
 import zipfile
 from collections import deque
 from pathlib import Path
@@ -43,6 +46,23 @@ USER_AGENT = (
 )
 
 CAU_HINH_FILE = Path.home() / ".dich_truyen_windows_config.json"
+
+
+def lay_dinh_danh_may_tinh() -> tuple[str, str]:
+    """
+    Tạo Mã máy tính (Hardware ID) cố định cho máy Windows hiện tại:
+    - `ma_hien_thi`: dạng `WIN-XXXXXXXXXXXX` (12 ký tự hex viết hoa) để hiển thị và xác nhận tài khoản/thiết bị.
+    - `khach_id_hex`: chuỗi 32 ký tự hex chuẩn gắn vào Cookie `khach_id` và Header `X-Ma-May-Tinh`
+      để máy chủ lưu và đồng bộ chính xác số lượt còn lại của đúng máy tính này.
+    """
+    raw_fingerprint = f"win-manga-studio::{uuid.getnode()}::{platform.node()}::{platform.machine()}"
+    digest = hashlib.sha256(raw_fingerprint.encode("utf-8")).hexdigest()
+    ma_hien_thi = f"WIN-{digest[:12].upper()}"
+    khach_id_hex = digest[:32].lower()
+    return ma_hien_thi, khach_id_hex
+
+
+MA_MAY_HIEN_THI, KHACH_ID_MAY_TINH = lay_dinh_danh_may_tinh()
 
 
 # ==============================================================================
@@ -417,7 +437,11 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
 # ==============================================================================
 
 def goi_http(url: str, method: str = "GET", body: dict | None = None, token: str = "", referer: str = "") -> bytes:
-    headers = {"User-Agent": USER_AGENT}
+    headers = {
+        "User-Agent": USER_AGENT,
+        "X-Ma-May-Tinh": MA_MAY_HIEN_THI,
+        "Cookie": f"khach_id={KHACH_ID_MAY_TINH}",
+    }
     if token:
         headers["Authorization"] = f"Bearer {token}"
     if referer:
@@ -461,6 +485,8 @@ def gui_multipart_trang(
     headers = {
         "User-Agent": USER_AGENT,
         "Content-Type": f"multipart/form-data; boundary={boundary}",
+        "X-Ma-May-Tinh": MA_MAY_HIEN_THI,
+        "Cookie": f"khach_id={KHACH_ID_MAY_TINH}",
     }
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -627,8 +653,10 @@ class AppDichTruyenWindows(tk.Tk):
         self.yeu_cau_dung = False
 
         self._dung_giao_dien()
-        if self.cau_hinh.get("token"):
-            threading.Thread(target=self._cap_nhat_han_muc, daemon=True).start()
+        # Tự động xác nhận Mã máy tính (HWID) và kiểm tra số lượt còn lại ngay khi mở App
+        self.cau_hinh["ma_may_tinh"] = MA_MAY_HIEN_THI
+        self._luu_cau_hinh()
+        threading.Thread(target=self._cap_nhat_han_muc, kwargs={"ghi_nhat_ky": True}, daemon=True).start()
 
     def _doc_cau_hinh(self) -> dict:
         if CAU_HINH_FILE.is_file():
@@ -666,17 +694,17 @@ class AppDichTruyenWindows(tk.Tk):
         ).pack(side="left")
         self.lbl_han_muc = tk.Label(
             header,
-            text="💎 Chưa đăng nhập (Đang dùng hạn mức khách)",
+            text=f"🖥️ Mã máy: {MA_MAY_HIEN_THI} · 💎 Đang kiểm tra số lượt...",
             font=("Segoe UI", 10, "bold"),
             fg="#38bdf8",
             bg="#1e1b4b",
         )
         self.lbl_han_muc.pack(side="right")
 
-        # Khung 1: Kết nối Máy chủ & Tài khoản VIP
+        # Khung 1: Kết nối Máy chủ, Xác nhận Mã Máy Tính & Tài khoản VIP
         f_auth = tk.LabelFrame(
             self,
-            text=" 1. Máy chủ & Tài khoản VIP (Đồng bộ với Web & Tiện ích Chrome) ",
+            text=" 1. Xác nhận Mã Máy Tính & Tài khoản VIP (Đồng bộ lượt dịch với Web & Tiện ích Chrome) ",
             bg="#1e293b",
             fg="#38bdf8",
             font=("Segoe UI", 10, "bold"),
@@ -701,7 +729,7 @@ class AppDichTruyenWindows(tk.Tk):
 
         tk.Button(
             f_auth,
-            text="🔑 Đăng nhập & Kiểm tra gói VIP",
+            text="🔑 Đăng nhập & Lưu máy",
             bg="#2563eb",
             fg="#ffffff",
             font=("Segoe UI", 9, "bold"),
@@ -709,6 +737,61 @@ class AppDichTruyenWindows(tk.Tk):
             padx=10,
             command=self._dang_nhap,
         ).grid(row=0, column=6, padx=6)
+
+        # Hàng xác nhận Mã máy tính & Kiểm tra số lượt còn lại
+        hang_hwid = tk.Frame(f_auth, bg="#1e293b", pady=6)
+        hang_hwid.grid(row=1, column=0, columnspan=7, sticky="ew")
+        tk.Label(
+            hang_hwid,
+            text="🖥️ Mã máy tính xác nhận:",
+            bg="#1e293b",
+            fg="#fbbf24",
+            font=("Segoe UI", 9, "bold"),
+        ).pack(side="left")
+        self.ent_hwid = tk.Entry(
+            hang_hwid,
+            width=20,
+            bg="#0f172a",
+            fg="#fbbf24",
+            font=("Consolas", 10, "bold"),
+            readonlybackground="#0f172a",
+        )
+        self.ent_hwid.insert(0, MA_MAY_HIEN_THI)
+        self.ent_hwid.config(state="readonly")
+        self.ent_hwid.pack(side="left", padx=6)
+
+        tk.Button(
+            hang_hwid,
+            text="📋 Sao chép Mã máy",
+            bg="#334155",
+            fg="#f8fafc",
+            font=("Segoe UI", 8, "bold"),
+            relief="flat",
+            padx=8,
+            command=self._sao_chep_ma_may,
+        ).pack(side="left", padx=4)
+
+        tk.Button(
+            hang_hwid,
+            text="🔄 Xác nhận Mã máy & Kiểm tra số lượt còn lại",
+            bg="#059669",
+            fg="#ffffff",
+            font=("Segoe UI", 9, "bold"),
+            relief="flat",
+            padx=10,
+            command=lambda: threading.Thread(
+                target=self._cap_nhat_han_muc, kwargs={"ghi_nhat_ky": True}, daemon=True
+            ).start(),
+        ).pack(side="left", padx=6)
+
+        self.lbl_chi_tiet_luot = tk.Label(
+            hang_hwid,
+            text="Đang đồng bộ hạn mức của thiết bị...",
+            bg="#1e293b",
+            fg="#34d399",
+            font=("Segoe UI", 9, "bold"),
+        )
+        self.lbl_chi_tiet_luot.pack(side="left", padx=10)
 
         # Khung 2: Nhập Link Truyện / Danh sách Chapter & Quét tự động
         f_link = tk.LabelFrame(
@@ -959,6 +1042,11 @@ class AppDichTruyenWindows(tk.Tk):
         if os.name == "nt":
             os.startfile(str(p))
 
+    def _sao_chep_ma_may(self):
+        self.clipboard_clear()
+        self.clipboard_append(MA_MAY_HIEN_THI)
+        self.ghi_log(f"📋 Đã sao chép Mã máy tính vào bộ nhớ tạm: {MA_MAY_HIEN_THI}")
+
     def _dang_nhap(self):
         may_chu = self.ent_server.get().strip().rstrip("/")
         email = self.ent_email.get().strip()
@@ -972,35 +1060,49 @@ class AppDichTruyenWindows(tk.Tk):
                 raw = goi_http(
                     f"{may_chu}/api/v1/auth/login",
                     method="POST",
-                    body={"email": email, "mat_khau": mat_khau},
+                    body={"email": email, "mat_khau": mat_khau, "ma_may_tinh": MA_MAY_HIEN_THI},
                 )
                 kq = json.loads(raw.decode("utf-8"))
                 self.cau_hinh["may_chu"] = may_chu
                 self.cau_hinh["email"] = email
                 self.cau_hinh["token"] = kq.get("ma_phien", "")
+                self.cau_hinh["ma_may_tinh"] = MA_MAY_HIEN_THI
                 self._luu_cau_hinh()
-                self.ghi_log(f"✅ Đăng nhập thành công tài khoản: {email}")
-                self._cap_nhat_han_muc()
+                self.ghi_log(f"✅ Đăng nhập & Liên kết Mã máy [{MA_MAY_HIEN_THI}] thành công với tài khoản: {email}")
+                self._cap_nhat_han_muc(ghi_nhat_ky=True)
             except Exception as exc:
                 self.ghi_log(f"❌ Đăng nhập thất bại: {exc}")
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _cap_nhat_han_muc(self):
+    def _cap_nhat_han_muc(self, ghi_nhat_ky: bool = False):
         may_chu = self.ent_server.get().strip().rstrip("/")
         token = self.cau_hinh.get("token", "")
+        email = self.cau_hinh.get("email", "")
         try:
             raw = goi_http(f"{may_chu}/api/v1/han-muc", token=token)
             hm = json.loads(raw.decode("utf-8"))
-            con_lai = hm.get("con_lai", 0)
-            tran = hm.get("tran", 0)
-            mua_them = hm.get("so_luot_mua_them", 0)
-            chu = f"💎 Hạn mức còn lại: {con_lai}/{tran} trang"
-            if mua_them > 0:
-                chu += f" (Kèm {mua_them} lượt VIP tích luỹ)"
-            self.after(0, lambda: self.lbl_han_muc.config(text=chu, fg="#34d399"))
-        except Exception:
-            pass
+            con_lai = int(hm.get("con_lai", 0))
+            tran = int(hm.get("tran", 0))
+            da_dung = int(hm.get("da_dung", 0))
+            mua_them = int(hm.get("so_luot_mua_them", 0))
+            tong_kha_dung = con_lai + mua_them
+            loai_tk = f"Tài khoản {email}" if (token and email) else f"Máy tính {MA_MAY_HIEN_THI}"
+
+            chu_header = f"🖥️ {MA_MAY_HIEN_THI} · 💎 Tổng còn: {tong_kha_dung} trang (Ngày: {con_lai}/{tran} · VIP: {mua_them})"
+            chu_chi_tiet = (
+                f"✅ {loai_tk}: Còn {con_lai}/{tran} lượt hôm nay (đã dùng {da_dung}) "
+                f"+ {mua_them} lượt gói VIP = Tổng {tong_kha_dung} trang khả dụng"
+            )
+            self.cau_hinh["luot_con_lai_cuoi"] = tong_kha_dung
+            self._luu_cau_hinh()
+            self.after(0, lambda: self.lbl_han_muc.config(text=chu_header, fg="#34d399"))
+            self.after(0, lambda: self.lbl_chi_tiet_luot.config(text=chu_chi_tiet, fg="#34d399"))
+            if ghi_nhat_ky:
+                self.ghi_log(f"🔐 Xác nhận thiết bị [{MA_MAY_HIEN_THI}] -> {chu_chi_tiet}")
+        except Exception as exc:
+            if ghi_nhat_ky:
+                self.ghi_log(f"⚠️ Chưa kết nối được máy chủ để kiểm tra lượt ({exc}). Mã máy đã lưu: {MA_MAY_HIEN_THI}")
 
     def _quet_link_truyen(self):
         url = self.ent_url.get().strip()
@@ -1135,6 +1237,7 @@ class AppDichTruyenWindows(tk.Tk):
                         vung = trang_kq.get("vung") or []
                         anh_out = xoa_chu_va_ve_ban_dich_tren_anh(img_bytes, vung, loai_font=loai_font)
                         file_dich.write_bytes(anh_out)
+                        self._cap_nhat_han_muc()
                         self.ghi_log(
                             f"   ✅ Đã lưu {ten_chap}/{file_dich.name} ({len(vung)} bóng thoại)"
                         )

@@ -32,13 +32,23 @@ const NHIP_HOI_THUONG_MS = 2200
 const TRAN_CHO_MS = 5 * 60 * 1000
 
 async function taiAnh(url) {
-  const res = await fetch(url, { credentials: 'omit' })
+  // Thử kèm cookie/phiên trước (vượt các trang chặn Cloudflare / yêu cầu đăng nhập đọc truyện),
+  // nếu máy chủ CDN từ chối credentials thì thử lại với chế độ ẩn danh `omit` + `no-referrer`.
+  let res
+  try {
+    res = await fetch(url, { credentials: 'include' })
+  } catch {
+    res = null
+  }
+  if (!res || !res.ok) {
+    res = await fetch(url, { credentials: 'omit', referrerPolicy: 'no-referrer' })
+  }
   if (!res.ok) throw new LoiApi(res.status, `Không tải được ảnh (${res.status})`)
   const blob = await res.blob()
-  if (!blob.type.startsWith('image/')) {
+  if (blob.type && !blob.type.startsWith('image/') && !blob.type.includes('octet-stream')) {
     throw new LoiApi(0, `Địa chỉ này không trả về ảnh (${blob.type || 'không rõ kiểu'})`)
   }
-  return blob
+  return blob.type.startsWith('image/') ? blob : new Blob([blob], { type: 'image/jpeg' })
 }
 
 /** Giải base64 content script đã đọc sẵn bằng canvas — dùng khi `url` là `blob:`/`data:` của
@@ -216,6 +226,35 @@ chrome.runtime.onMessage.addListener((tin, gui_tu, traLoi) => {
         const tl = tin.ngon_ngu_dich || ngonNguDich || 'vi'
         const ban_dich = await dichCauNhanhGtx(chuGoc, sl, tl)
         traLoi({ ok: true, ban_dich })
+      } catch (e) {
+        traLoi({ ok: false, loi: String(e?.message || e) })
+      }
+    })()
+    return true
+  }
+
+  if (tin?.viec === 'dich-doan-van-truyen-chu') {
+    ;(async () => {
+      try {
+        const { ngonNgu, ngonNguDich } = await docCauHinh()
+        const dsDoan = Array.isArray(tin.ds_doan) ? tin.ds_doan : []
+        if (!dsDoan.length) {
+          traLoi({ ok: true, ds_ban_dich: [] })
+          return
+        }
+        const sl = tin.ngon_ngu || ngonNgu || 'auto'
+        const tl = tin.ngon_ngu_dich || ngonNguDich || 'vi'
+        // Gộp các đoạn văn bằng vạch ngăn để dịch nhanh theo lô, giữ mạch truyện liền lạc
+        const VACH_NGAN = '\n⟪__TRUYEN_CHU_SEP__⟫\n'
+        const gop = dsDoan.map((s) => String(s || '').trim()).join(VACH_NGAN)
+        const banDichGop = await dichCauNhanhGtx(gop, sl, tl)
+        let dsKetQua = banDichGop.split(/\s*⟪__TRUYEN_CHU_SEP__⟫\s*/)
+        if (dsKetQua.length !== dsDoan.length) {
+          dsKetQua = await Promise.all(
+            dsDoan.map((doan) => dichCauNhanhGtx(doan, sl, tl).catch(() => doan)),
+          )
+        }
+        traLoi({ ok: true, ds_ban_dich: dsKetQua })
       } catch (e) {
         traLoi({ ok: false, loi: String(e?.message || e) })
       }

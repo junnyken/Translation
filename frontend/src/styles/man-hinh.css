@@ -1188,6 +1188,42 @@ button.lien-ket { border: 0; background: none; box-shadow: none; }
   border: 1.5px solid var(--vien);
 }
 
+/* Bộ chuyển đổi ngôn ngữ giao diện VN / EN Quốc tế */
+.doi-ngon-ngu-ui {
+  display: inline-flex;
+  align-items: center;
+  background: #ffffff;
+  border: 1.5px solid var(--vien-manh, #dcd8ce);
+  border-radius: 999px;
+  padding: 2px;
+  gap: 2px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.nut-lang-ui {
+  border: none;
+  background: transparent;
+  color: var(--mo);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 4px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.nut-lang-ui:hover {
+  color: var(--chu);
+}
+
+.nut-lang-ui.dang-chon {
+  background: #d9460f;
+  color: #ffffff;
+  box-shadow: 0 1px 4px rgba(217, 70, 15, 0.25);
+}
+
+
 
 
 

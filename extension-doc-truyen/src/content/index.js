@@ -230,8 +230,11 @@ void (async () => {
   function timAnhTheoSrc(srcCanTim) {
     if (!srcCanTim) return null
     for (const img of document.images) {
-      const s = img.currentSrc || img.src
+      const s = img.currentSrc || img.src || img.dataset?.translationLazySrc
       if (s === srcCanTim && img.isConnected) return img
+    }
+    for (const cv of document.getElementsByTagName('canvas')) {
+      if (cv.dataset?.translationCanvasId === srcCanTim && cv.isConnected) return cv
     }
     return null
   }
@@ -1531,30 +1534,104 @@ void (async () => {
   // tránh canvas, dồn hết việc tải xuống service worker. Nên thử canvas TRƯỚC, hỏng thì rơi về
   // đường cũ (gửi URL, để service worker tự tải bằng `host_permissions`) — không đoán trước loại
   // ảnh nào đi đường nào.
-  async function docByteAnh(el) {
-    try {
-      const canvas = document.createElement('canvas')
-      canvas.width = el.naturalWidth
-      canvas.height = el.naturalHeight
-      const ctx = canvas.getContext('2d')
-      ctx.fillStyle = '#ffffff'
-      ctx.fillRect(0, 0, canvas.width, canvas.height)
-      ctx.drawImage(el, 0, 0)
-      // Mã hoá JPEG 0.88 thay vì PNG không nén: giữ NGUYÊN kích thước `naturalWidth x naturalHeight`
-      // để toạ độ hộp chữ khớp 1:1, nhưng giảm dung lượng ảnh gửi qua IPC + mạng từ ~4-6MB xuống ~250KB.
-      const blob = await new Promise((resolve, reject) => {
-        canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('canvas rỗng'))), 'image/jpeg', 0.88)
-      })
-      const bytes = new Uint8Array(await blob.arrayBuffer())
-      let nhi_phan = ''
-      for (let i = 0; i < bytes.length; i += 0x8000) {
-        nhi_phan += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
-      }
-      return { anh_base64: btoa(nhi_phan), anh_mime: blob.type || 'image/jpeg' }
-    } catch {
-      // Nhiễm bẩn (ảnh cross-origin không CORS) hoặc lỗi khác — rơi về gửi URL cho service worker.
-      return { anh_base64: null, anh_mime: null }
+  async function blobSangBase64(blob) {
+    const bytes = new Uint8Array(await blob.arrayBuffer())
+    let nhi_phan = ''
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+      nhi_phan += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
     }
+    return { anh_base64: btoa(nhi_phan), anh_mime: blob.type || 'image/jpeg' }
+  }
+
+  async function docByteAnh(el) {
+    const w = el.naturalWidth || el.width || 0
+    const h = el.naturalHeight || el.height || 0
+    const src = el.currentSrc || el.src || el.dataset?.translationLazySrc || ''
+
+    // Lớp 1: Đọc trực tiếp qua Canvas 2D (nhanh nhất, ăn ngay với cùng tên miền, blob:, data:, hoặc thẻ <canvas>)
+    if (w > 0 && h > 0) {
+      try {
+        const canvas = document.createElement('canvas')
+        canvas.width = w
+        canvas.height = h
+        const ctx = canvas.getContext('2d')
+        ctx.fillStyle = '#ffffff'
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+        ctx.drawImage(el, 0, 0, w, h)
+        const blob = await new Promise((resolve, reject) => {
+          canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('canvas rỗng'))), 'image/jpeg', 0.88)
+        })
+        return await blobSangBase64(blob)
+      } catch {
+        // Bị chặn CORS trên canvas -> chuyển sang Lớp 2
+      }
+    }
+
+    // Lớp 2: Tải trực tiếp từ Content Script kèm Cookie + Referer của trang đang đọc
+    // (Vượt qua các trang chặn Hotlink / kiểm tra Referer / bảo vệ Cloudflare Cookie)
+    if (src && /^https?:\/\//i.test(src)) {
+      try {
+        const res = await fetch(src, {
+          credentials: 'include',
+          referrerPolicy: 'no-referrer-when-downgrade',
+        })
+        if (res.ok) {
+          const blob = await res.blob()
+          if (blob.size > 1024 && (!blob.type || blob.type.startsWith('image/') || blob.type.includes('octet-stream'))) {
+            const kq = await blobSangBase64(blob)
+            await napCanvasTuDataUrl(el, `data:${kq.anh_mime};base64,${kq.anh_base64}`)
+            return kq
+          }
+        }
+      } catch {
+        // Nếu CDN chặn CORS cho fetch ở content script -> để Lớp 3 (Service Worker có host_permissions) xử lý
+      }
+    }
+
+    // Lớp 3: Nếu là thẻ <canvas> bị khoá DRM/tainted hoặc ảnh blob: bị khoá -> Tự động chụp vùng hiển thị
+    if (el.tagName === 'CANVAS' || src.startsWith('blob:')) {
+      try {
+        const r = el.getBoundingClientRect()
+        if (r.width >= 120 && r.height >= 120) {
+          const chup = await chrome.runtime.sendMessage({ viec: 'chup-man-hinh' })
+          if (chup?.ok && chup?.data_url) {
+            const anhChup = new Image()
+            await new Promise((resolve, reject) => {
+              anhChup.onload = resolve
+              anhChup.onerror = reject
+              anhChup.src = chup.data_url
+            })
+            const dpr = window.devicePixelRatio || 1
+            const c = document.createElement('canvas')
+            c.width = Math.max(1, Math.round(r.width * dpr))
+            c.height = Math.max(1, Math.round(r.height * dpr))
+            const ctx = c.getContext('2d')
+            ctx.drawImage(
+              anhChup,
+              Math.max(0, Math.round(r.left * dpr)),
+              Math.max(0, Math.round(r.top * dpr)),
+              c.width,
+              c.height,
+              0,
+              0,
+              c.width,
+              c.height,
+            )
+            const blob = await new Promise((resolve) => c.toBlob(resolve, 'image/jpeg', 0.88))
+            if (blob) {
+              const kq = await blobSangBase64(blob)
+              await napCanvasTuDataUrl(el, `data:${kq.anh_mime};base64,${kq.anh_base64}`)
+              return kq
+            }
+          }
+        }
+      } catch {
+        // Bỏ qua nếu không chụp được
+      }
+    }
+
+    // Rơi về gửi URL cho Service Worker tải bằng `host_permissions: <all_urls>`
+    return { anh_base64: null, anh_mime: null }
   }
 
   /**
@@ -1617,22 +1694,147 @@ void (async () => {
   // Tách hàm vì cần gọi LẠI sau khi chờ dịch xong (~45s) để xếp hàng trước trang kế tiếp — dùng
   // mô tả chụp từ ĐẦU quy trình lúc đó đã cũ 45 giây, đúng loại "phần tử có thể đã chết giữa
   // chừng" vừa gặp ở chính ảnh đang dịch (§E19.6e).
+  function moKhoaChongDichVaChongCopy() {
+    if (window[CO].daMoKhoaTrang) return
+    window[CO].daMoKhoaTrang = true
+    try {
+      document.documentElement?.removeAttribute?.('translate')
+      document.body?.removeAttribute?.('translate')
+      document.querySelectorAll('[translate="no"], .notranslate').forEach((el) => {
+        el.removeAttribute('translate')
+        el.classList.remove('notranslate')
+      })
+      const styleMoKhoa = document.createElement('style')
+      styleMoKhoa.id = 'translation-mo-khoa-css'
+      styleMoKhoa.textContent = `
+        body, article, main, p, .chapter-content, .reading-content, #novel_honbun {
+          -webkit-user-select: text !important;
+          user-select: text !important;
+        }
+      `
+      document.head?.appendChild?.(styleMoKhoa)
+    } catch {
+      // Bỏ qua nếu trang khóa DOM
+    }
+  }
+
   function layMoTa() {
-    return [...document.images].map((el) => {
+    moKhoaChongDichVaChongCopy()
+    const ds = []
+    for (const el of document.images) {
+      // Đánh thức các trang gắn lazy-load (`data-src`, `data-original`, `data-lazy-src`) nhưng chưa nạp vào `src`
+      const lazySrc =
+        el.getAttribute('data-src') ||
+        el.getAttribute('data-original') ||
+        el.getAttribute('data-lazy-src') ||
+        el.getAttribute('data-url')
+      if (lazySrc && (!el.src || el.src.startsWith('data:image/gif') || el.src.startsWith('data:image/svg'))) {
+        el.dataset.translationLazySrc = lazySrc
+        try { el.src = lazySrc } catch {}
+      }
       const r = el.getBoundingClientRect()
-      // `filter` áp lên chính thẻ HOẶC một tổ tiên (lightbox hay bọc ảnh nền trong một lớp riêng
-      // rồi mờ cả lớp đó, không mờ thẳng trên <img>). Leo lên vài cấp cho chắc, không chỉ đọc trên el.
       let mo = false
       for (let n = el, dem = 0; n instanceof Element && dem < 4; n = n.parentElement, dem++) {
         const f = getComputedStyle(n).filter
         if (f && f !== 'none') { mo = true; break }
       }
-      return {
-        el, src: el.currentSrc || el.src,
-        naturalWidth: el.naturalWidth, naturalHeight: el.naturalHeight,
-        clientWidth: r.width, clientHeight: r.height, top: r.top, bottom: r.bottom, mo,
+      ds.push({
+        el,
+        src: el.currentSrc || el.src || el.dataset?.translationLazySrc || '',
+        naturalWidth: el.naturalWidth || Math.round(r.width),
+        naturalHeight: el.naturalHeight || Math.round(r.height),
+        clientWidth: r.width,
+        clientHeight: r.height,
+        top: r.top,
+        bottom: r.bottom,
+        mo,
+      })
+    }
+
+    // Hỗ trợ tự động các trang vẽ truyện lên thẻ <canvas> (MangaPlus, KakaoPage, Ridibooks, Bilibili...)
+    const dsCanvas = document.getElementsByTagName('canvas')
+    for (let idx = 0; idx < dsCanvas.length; idx += 1) {
+      const cv = dsCanvas[idx]
+      if (cv.closest(`.${LOP_CLASS}`)) continue
+      const r = cv.getBoundingClientRect()
+      const w = cv.width || Math.round(r.width)
+      const h = cv.height || Math.round(r.height)
+      if (w < 200 || h < 200 || r.width < 180 || r.height < 180) continue
+      if (!cv.dataset.translationCanvasId) {
+        cv.dataset.translationCanvasId = `canvas://page-${idx}-${w}x${h}`
       }
+      // Gắn thuộc tính tương thích với <img> để mọi hàm quy đổi toạ độ (`sanSangQuyDoi`, `vePhu`, `doKhungBongBongCanvas`) hoạt động 100% đồng nhất
+      try {
+        cv.naturalWidth = w
+        cv.naturalHeight = h
+        cv.src = cv.dataset.translationCanvasId
+      } catch {}
+      ds.push({
+        el: cv,
+        src: cv.dataset.translationCanvasId,
+        naturalWidth: w,
+        naturalHeight: h,
+        clientWidth: r.width,
+        clientHeight: r.height,
+        top: r.top,
+        bottom: r.bottom,
+        mo: false,
+      })
+    }
+    return ds
+  }
+
+  /**
+   * E108 — Dịch trực tiếp các trang Truyện Chữ / Light Novel / Web Novel (Syosetu, Kakuyomu, 69shuba, Wattpad...)
+   * khi trang không có ảnh truyện tranh mà chứa các đoạn văn bản truyện chữ.
+   */
+  async function dichTruyenChuTrenTrang({ caChapter = false } = {}) {
+    const boChon = 'article p, main p, #novel_honbun p, .chapter-content p, .reading-content p, .novel-content p, .entry-content p, p'
+    const tatCaDoan = [...document.querySelectorAll(boChon)].filter((el) => {
+      if (el.closest(`.${LOP_CLASS}`) || el === bang || bang.contains(el)) return false
+      if (el.dataset?.translationDaDichChu === '1') return false
+      const r = el.getBoundingClientRect()
+      if (r.width < 120 || r.height < 10) return false
+      if (!caChapter && (r.bottom < -100 || r.top > window.innerHeight + 300)) return false
+      const text = (el.innerText || el.textContent || '').trim()
+      return text.length >= 18
     })
+
+    if (tatCaDoan.length < 2) return false
+
+    const { ngonNgu, ngonNguDich } = await layCauHinhHienTai()
+    const gioiHan = caChapter ? Math.min(tatCaDoan.length, 160) : Math.min(tatCaDoan.length, 28)
+    const dsMucTieu = tatCaDoan.slice(0, gioiHan)
+    noi(`📖 Phát hiện trang Truyện chữ (${dsMucTieu.length} đoạn văn).\nĐang dịch sang ${ngonNguDich === 'en' ? 'Tiếng Anh (EN)' : 'Tiếng Việt (VI)'}…`)
+
+    const KICH_THUOC_LO = 12
+    let daXong = 0
+    for (let i = 0; i < dsMucTieu.length; i += KICH_THUOC_LO) {
+      const lo = dsMucTieu.slice(i, i + KICH_THUOC_LO)
+      const dsText = lo.map((el) => (el.innerText || el.textContent || '').trim())
+      const kq = await chrome.runtime.sendMessage({
+        viec: 'dich-doan-van-truyen-chu',
+        ds_doan: dsText,
+        ngon_ngu: ngonNgu,
+        ngon_ngu_dich: ngonNguDich,
+      })
+      if (kq?.ok && Array.isArray(kq.ds_ban_dich)) {
+        lo.forEach((el, idx) => {
+          const banDich = (kq.ds_ban_dich[idx] || '').trim()
+          if (!banDich) return
+          el.dataset.translationDaDichChu = '1'
+          el.dataset.translationChuGoc = dsText[idx]
+          el.textContent = banDich
+          el.title = `Nguyên văn: ${dsText[idx]}`
+          daXong += 1
+        })
+      }
+      noi(`📖 Đang dịch Truyện chữ: ${daXong}/${dsMucTieu.length} đoạn…`)
+    }
+
+    caiCongTacSoSanhGoc()
+    xong(`✅ Đã dịch xong ${daXong} đoạn văn Truyện chữ trên trang!`, 8)
+    return daXong > 0
   }
 
   // ─────────────────────────────────────────────────────────────────────────────────────────
@@ -2133,8 +2335,9 @@ void (async () => {
     let chu = `${phan.join(' · ')}.`
     if (ket_thuc) chu += `\n\nDỪNG SỚM: ${ket_thuc}.`
     if (!xong_so && !lai_so) {
-      chu += `\n\nKhông dịch được trang nào. Trang vẽ bằng canvas hoặc chống sao chép thì tiện ích `
-        + `không lấy được ảnh.`
+      const daDichChu = await dichTruyenChuTrenTrang({ caChapter: true })
+      if (daDichChu) return
+      chu += `\n\nKhông dịch được trang nào. Nếu trang khoá vùng hiển thị đặc biệt, hãy dùng nút "Khoanh vùng dịch" (Alt+S).`
     }
     bang.textContent = `[v${V}] ${chu}`
     setTimeout(() => bang.remove(), 30000)
@@ -2148,13 +2351,16 @@ void (async () => {
     const mo_ta = layMoTa()
     const chon = chonTrangTruyen(mo_ta, { caoKhungNhin: window.innerHeight })
     if (!chon.anh) {
+      // Nếu trang không có ảnh truyện tranh lớn, kiểm tra ngay xem đây có phải trang Truyện Chữ (Web Novel / Light Novel) không
+      const daDichTruyenChu = await dichTruyenChuTrenTrang({ caChapter: false })
       window[CO].dangChay = false
+      if (daDichTruyenChu) return
       if (!tuDongCuon) {
         xong(
           `Không tìm thấy trang truyện trên màn hình.\n${chon.ly_do}.\n`
-          + `Đã xem ${mo_ta.length} ảnh.`
+          + `Đã xem ${mo_ta.length} ảnh/canvas.`
           + (chon.bi_loai.length ? `\nVí dụ bị loại: ${chon.bi_loai[0].ly_do.join(', ')}.` : '')
-          + `\n\nTrang vẽ bằng canvas hoặc chống sao chép thì hãy dùng nút "Khoanh vùng dịch" trong popup.`,
+          + `\n\nNếu trang khoá vùng hiển thị đặc biệt, hãy dùng nút "Khoanh vùng dịch" (Alt+S) trong popup.`,
           12,
         )
       }

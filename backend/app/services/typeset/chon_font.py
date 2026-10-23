@@ -13,7 +13,6 @@ import json
 import logging
 import uuid
 
-from app.services.storage import get_storage
 from app.services.typeset.registry import FONT_REGISTRY
 
 logger = logging.getLogger(__name__)
@@ -48,6 +47,8 @@ def _duong_dan_tuy_chon(project_id: uuid.UUID | str) -> str:
 def doc_tuy_chon_du_an(project_id: uuid.UUID | str) -> dict:
     """Đọc dict tuỳ chọn (`font_family`, `tu_dien_rieng`) của project từ kho."""
     try:
+        from app.services.storage import get_storage
+
         storage = get_storage()
         rel = _duong_dan_tuy_chon(project_id)
         if not storage.exists(rel):
@@ -71,6 +72,8 @@ def luu_tuy_chon_du_an(
     if not family and not tu_dien:
         return
     try:
+        from app.services.storage import get_storage
+
         storage = get_storage()
         rel = _duong_dan_tuy_chon(project_id)
         hien_tai = doc_tuy_chon_du_an(project_id)
