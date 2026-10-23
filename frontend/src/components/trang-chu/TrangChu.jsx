@@ -8,6 +8,7 @@ import Button from '../ui/Button'
 import Dropzone from '../ui/Dropzone'
 import { chuThoiGianGiu } from '../../lib/thoi-gian-giu.js'
 import Icon from '../ui/Icon'
+import ChanTrangManga from './ChanTrangManga'
 import HeSinhThaiCongCu from './HeSinhThaiCongCu'
 import TheHanMuc from './TheHanMuc'
 
@@ -827,6 +828,8 @@ export default function TrangChu() {
           </li>
         </ol>
       </section>
+
+      <ChanTrangManga />
     </main>
   )
 }

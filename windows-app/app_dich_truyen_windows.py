@@ -533,7 +533,7 @@ class AppDichTruyenWindows(tk.Tk):
             except Exception:
                 pass
         return {
-            "may_chu": "https://translation.vibe1.tinhgon.xyz",
+            "may_chu": "https://translation-api.vibe1.tinhgon.xyz",
             "email": "",
             "token": "",
             "thu_muc_xuat": str(Path.home() / "Downloads" / "Truyen_Da_Dich"),
@@ -583,7 +583,7 @@ class AppDichTruyenWindows(tk.Tk):
 
         tk.Label(f_auth, text="Máy chủ:", bg="#1e293b", fg="#cbd5e1").grid(row=0, column=0, sticky="w")
         self.ent_server = tk.Entry(f_auth, width=28, bg="#0f172a", fg="#f8fafc", insertbackground="#fff")
-        self.ent_server.insert(0, self.cau_hinh.get("may_chu", "https://translation.vibe1.tinhgon.xyz"))
+        self.ent_server.insert(0, self.cau_hinh.get("may_chu", "https://translation-api.vibe1.tinhgon.xyz"))
         self.ent_server.grid(row=0, column=1, padx=6)
 
         tk.Label(f_auth, text="Email:", bg="#1e293b", fg="#cbd5e1").grid(row=0, column=2, sticky="w")

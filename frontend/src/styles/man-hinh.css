@@ -901,3 +901,141 @@ button.lien-ket { border: 0; background: none; box-shadow: none; }
   border: 1px solid #facc15;
 }
 
+/* 4. Chân trang (Footer) Thế Giới Truyện Tranh (`.chan-trang-manga`) */
+.chan-trang-manga {
+  margin-top: var(--s-8);
+  padding: 36px 28px 22px;
+  border-radius: 18px 18px 12px 12px;
+  background-color: var(--the);
+  background-image:
+    radial-gradient(rgba(99, 102, 241, 0.12) 1.25px, transparent 1.25px),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.02) 0%, rgba(37, 99, 235, 0.06) 100%);
+  background-size: 16px 16px, 100% 100%;
+  border: 2px solid var(--chu);
+  box-shadow: 5px 5px 0 var(--chu);
+}
+
+.chan-trang-noi-dung {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr 1fr;
+  gap: 24px;
+  padding-bottom: 24px;
+  border-bottom: 1.5px dashed var(--vien);
+}
+
+@media (max-width: 960px) {
+  .chan-trang-noi-dung {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .chan-trang-noi-dung {
+    grid-template-columns: 1fr;
+  }
+}
+
+.logo-chan-trang {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.huy-hieu-logo {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  background: linear-gradient(135deg, #2563eb, #7c3aed);
+  color: #fff;
+  border: 2px solid var(--chu);
+  box-shadow: 2px 2px 0 var(--chu);
+}
+
+.logo-chan-trang strong {
+  display: block;
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.phu-de-logo {
+  display: block;
+  font-size: 12px;
+  color: var(--mo);
+  font-weight: 600;
+}
+
+.mo-ta-chan-trang {
+  margin: 0 0 12px;
+  font-size: 13.5px;
+  color: var(--mo);
+  line-height: 1.55;
+}
+
+.day-the-loai-chan {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.day-the-loai-chan span {
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  background: var(--the-mo);
+  border: 1px solid var(--vien);
+}
+
+.cot-chan-trang h3 {
+  margin: 0 0 12px;
+  font-size: 14.5px;
+  font-weight: 800;
+}
+
+.ds-lien-ket-chan,
+.ds-tinh-nang-chan {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.ds-lien-ket-chan a {
+  color: var(--mau-chinh-dam);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.ds-lien-ket-chan a:hover {
+  text-decoration: underline;
+}
+
+.ds-tinh-nang-chan li {
+  color: var(--mo);
+  line-height: 1.45;
+}
+
+.chan-trang-day {
+  padding-top: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+  color: var(--mo);
+  font-weight: 600;
+}
+
+.cham-ngan {
+  opacity: 0.45;
+}
+
+

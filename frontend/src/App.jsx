@@ -22,6 +22,7 @@ import GlossaryManager from './components/consistency/GlossaryManager.jsx'
 import VoiceProfileManager from './components/consistency/VoiceProfileManager.jsx'
 import ReviewToolbar from './components/chapter/ReviewToolbar.jsx'
 import ManDangNhap from './components/auth/ManDangNhap.jsx'
+import ChanTrangManga from './components/trang-chu/ChanTrangManga.jsx'
 import HeSinhThaiCongCu from './components/trang-chu/HeSinhThaiCongCu.jsx'
 import TrangChu from './components/trang-chu/TrangChu.jsx'
 import ManTaiKhoan from './components/auth/ManTaiKhoan.jsx'
@@ -677,6 +678,7 @@ export default function App({ urlBundle } = {}) {
             </div>
 
             <HeSinhThaiCongCu />
+            <ChanTrangManga />
           </>
         )}
 
