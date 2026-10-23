@@ -10,4 +10,5 @@
 set -e
 : "${API_BASE:=}"
 printf 'window.__API_BASE__ = "%s";\n' "$API_BASE" > /usr/share/nginx/html/config.js
+chmod -R a+rX /usr/share/nginx/html
 echo "[cau-hinh] API_BASE = '${API_BASE:-(rỗng — gọi đường dẫn tương đối)}'"

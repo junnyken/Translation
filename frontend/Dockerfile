@@ -22,12 +22,13 @@ RUN npm run build
 # ---------- prod: nginx phục vụ file tĩnh. Stage CUỐI, hosting sẽ build stage này ----------
 FROM nginx:1.27-alpine AS prod
 COPY --from=build /app/dist /usr/share/nginx/html
+RUN chmod -R a+rX /usr/share/nginx/html
 # Image nginx chính thức tự chạy mọi script trong /docker-entrypoint.d/ trước khi khởi động
 # (bao gồm 20-envsubst-on-templates.sh xử lý /etc/nginx/templates/). Dùng đúng cơ chế đó thay
 # vì tự đặt ENTRYPOINT — nền tảng hosting có bước "Dockerfile Patching" dễ xung đột.
 COPY default.conf.template /etc/nginx/templates/default.conf.template
 COPY docker-entrypoint.sh /docker-entrypoint.d/40-sinh-config.sh
-RUN chmod +x /docker-entrypoint.d/40-sinh-config.sh
+RUN sed -i 's/\r$//' /docker-entrypoint.d/40-sinh-config.sh && chmod +x /docker-entrypoint.d/40-sinh-config.sh
 
 # Mặc định 8000; nền tảng đặt PORT khác thì nginx đi theo (xem default.conf.template).
 ENV PORT=8000
