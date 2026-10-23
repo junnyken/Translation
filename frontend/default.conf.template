@@ -8,6 +8,26 @@
 server {
   listen ${PORT};
   root /usr/share/nginx/html;
+  client_max_body_size 50M;
+
+  # Cho phép gọi trực tiếp https://comic.io.vn/api/v1/... (Developer API, Extension, App Windows & Web)
+  location /api/ {
+    proxy_pass https://translation-api.vibe1.tinhgon.xyz/api/;
+    proxy_ssl_server_name on;
+    proxy_set_header Host translation-api.vibe1.tinhgon.xyz;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 180s;
+    proxy_send_timeout 180s;
+  }
+
+  location = /healthz {
+    proxy_pass https://translation-api.vibe1.tinhgon.xyz/healthz;
+    proxy_ssl_server_name on;
+    proxy_set_header Host translation-api.vibe1.tinhgon.xyz;
+  }
+
   # SPA: mọi đường dẫn không phải file đều trả index.html, nếu không thì F5 sẽ ra 404.
   location / { try_files $uri $uri.html $uri/ /index.html; }
 }
