@@ -183,6 +183,8 @@ async def danh_tinh_han_muc(
     request: Request,
     response: Response,
     authorization: str | None = Header(default=None, alias="Authorization"),
+    x_customer_api_key: str | None = Header(default=None, alias="X-Customer-Api-Key"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ) -> DanhTinhHanMuc:
@@ -196,7 +198,11 @@ async def danh_tinh_han_muc(
     hạn mức: không cấp cookie cho request bị từ chối thì mỗi lần thử lại là một khách mới, và
     chốt cookie không bao giờ chạm trần.
     """
-    ma = ma_phien_tu_header(authorization)
+    ma = ma_phien_tu_header(authorization, x_customer_api_key, x_api_key)
+    if not ma:
+        q_key = (request.query_params.get("api_key") or "").strip()
+        if q_key.startswith("tr_live_"):
+            ma = q_key
     nguoi = await tai_khoan.lay_theo_ma_phien(session, ma) if ma else None
     if nguoi is not None:
         tran_ngay = (

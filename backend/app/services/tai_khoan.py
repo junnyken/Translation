@@ -29,6 +29,11 @@ DAI_MAT_KHAU_TOI_THIEU = 8
 #: Băm sẵn một lần lúc nạp module, không phải mỗi request.
 _BAM_GIA = mk.bam("khong-phai-mat-khau-cua-ai")
 
+#: Mốc phân biệt phiên trình duyệt (14 ngày) với Developer API Key dài hạn (năm 2099).
+MOC_NAM_API_KEY = datetime(2090, 1, 1, tzinfo=timezone.utc)
+HAN_API_KEY = datetime(2099, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
+TIEN_TO_API_KEY = "tr_live_"
+
 
 def chuan_hoa_email(email: str) -> str:
     """Hạ chữ thường + cắt khoảng trắng. Bắt buộc dùng ở CẢ đăng ký lẫn đăng nhập.
@@ -211,3 +216,44 @@ async def don_phien_het_han(session: AsyncSession) -> int:
     if cu:
         await session.commit()
     return len(cu)
+
+
+async def lay_thong_tin_api_key(session: AsyncSession, nguoi_id: uuid.UUID) -> Phien | None:
+    """Kiểm tra xem tài khoản đang có Developer API Key (`tr_live_...`) nào còn hiệu lực không."""
+    return (
+        await session.execute(
+            select(Phien)
+            .where(Phien.nguoi_dung_id == nguoi_id, Phien.het_han >= MOC_NAM_API_KEY)
+            .order_by(Phien.created_at.desc())
+        )
+    ).scalars().first()
+
+
+async def tao_moi_api_key(session: AsyncSession, nguoi_id: uuid.UUID) -> tuple[str, Phien]:
+    """Sinh mới (hoặc xoay) Developer API Key (`tr_live_...`) cho tài khoản.
+    Xoá các API Key cũ của tài khoản đó trước khi cấp key mới, giữ nguyên phiên trình duyệt.
+    """
+    import secrets
+
+    await session.execute(
+        delete(Phien).where(Phien.nguoi_dung_id == nguoi_id, Phien.het_han >= MOC_NAM_API_KEY)
+    )
+    ma_tho = f"{TIEN_TO_API_KEY}{secrets.token_urlsafe(28)}"
+    ban_ghi = Phien(
+        nguoi_dung_id=nguoi_id,
+        ma_bam=ph.bam_ma(ma_tho),
+        het_han=HAN_API_KEY,
+    )
+    session.add(ban_ghi)
+    await session.commit()
+    await session.refresh(ban_ghi)
+    return ma_tho, ban_ghi
+
+
+async def thu_hoi_api_key(session: AsyncSession, nguoi_id: uuid.UUID) -> int:
+    """Thu hồi ngay lập tức Developer API Key của tài khoản."""
+    kq = await session.execute(
+        delete(Phien).where(Phien.nguoi_dung_id == nguoi_id, Phien.het_han >= MOC_NAM_API_KEY)
+    )
+    await session.commit()
+    return int(kq.rowcount or 0)

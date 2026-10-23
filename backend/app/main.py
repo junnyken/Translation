@@ -8,6 +8,7 @@ from fastapi import Depends
 
 from app.api.v1.routes import router as v1_router
 from app.api.v1.routes import router_khach as v1_router_khach
+from app.api.v1.developer_routes import router as developer_router
 from app.core.bao_ve import canh_bao_neu_khong_khoa
 from app.core.quyen import nguoi_dung_hien_tai
 from app.api.v1.codex_routes import router as codex_router
@@ -45,11 +46,11 @@ if _settings.cors_allow_origin_list:
         #
         # Đi kèm: giao diện phải gọi `fetch` với `credentials: 'include'`. Hai đầu phải cùng bật.
         allow_credentials=True,
-        allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
+        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
         # `X-API-Key` phải nằm trong danh sách này, nếu không trình duyệt sẽ chặn ngay ở
         # preflight và giao diện không bao giờ gửi được khoá đi.
         # `Authorization` cho mã phiên (slice B), `X-API-Key` cho khoá chung lúc đăng ký (slice A).
-        allow_headers=["Content-Type", "X-API-Key", "Authorization", "X-Ma-Khach"],
+        allow_headers=["Content-Type", "X-API-Key", "X-Customer-Api-Key", "Authorization", "X-Ma-Khach"],
         # Giao diện và API khác tên miền ⇒ JS KHÔNG đọc được `Content-Disposition` (không thuộc
         # nhóm header an toàn của CORS) nếu không mở ở đây. Thiếu dòng này, nút "Tải file về" không
         # thấy tên tệp thật và tự đặt `.cbz` cho cả bản xuất ZIP (người dùng báo 16-10-2026).
@@ -343,6 +344,33 @@ app.include_router(codex_router, prefix="/api/v1", dependencies=[Depends(nguoi_d
 #
 # Đổi lại, khách lạ bị chặn bằng HẠN MỨC (cookie + IP) chứ không phải bằng đăng nhập —
 # xem `core/cong_han_muc.py`.
+@app.middleware("http")
+async def _cors_developer_api(request: Request, call_next):
+    """Mở CORS cho các đường dẫn `/api/v1/developer/*` để website / tool của khách hàng từ mọi
+    tên miền đều gọi kéo dữ liệu về được bằng `X-Customer-Api-Key` mà không bị trình duyệt chặn."""
+    if request.url.path.startswith("/api/v1/developer"):
+        if request.method == "OPTIONS":
+            from fastapi.responses import Response as _Resp
+
+            return _Resp(
+                status_code=204,
+                headers={
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+                    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Customer-Api-Key, X-API-Key",
+                    "Access-Control-Max-Age": "86400",
+                },
+            )
+        resp = await call_next(request)
+        resp.headers["Access-Control-Allow-Origin"] = "*"
+        resp.headers["Access-Control-Allow-Headers"] = (
+            "Content-Type, Authorization, X-Customer-Api-Key, X-API-Key"
+        )
+        return resp
+    return await call_next(request)
+
+
 app.include_router(v1_router_khach)
+app.include_router(developer_router)
 
 canh_bao_neu_khong_khoa()

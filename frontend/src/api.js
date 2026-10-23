@@ -813,3 +813,13 @@ export async function dangXuatCodex() {
   const res = await fetch(`${BASE}/codex`, { method: 'DELETE' })
   if (!res.ok) await doc(res)
 }
+
+// ---------- Developer API Key (Cổng API cho Tool & Website khách hàng kéo về) ----------
+
+export const xemTrangThaiApiKey = () => fetch(`${BASE}/auth/api-key`).then(doc)
+
+export const taoMoiApiKey = () =>
+  fetch(`${BASE}/auth/api-key`, { method: 'POST' }).then(doc)
+
+export const thuHoiApiKey = () =>
+  fetch(`${BASE}/auth/api-key`, { method: 'DELETE' }).then(doc)

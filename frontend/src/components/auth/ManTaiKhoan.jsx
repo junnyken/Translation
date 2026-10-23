@@ -113,7 +113,195 @@ export default function ManTaiKhoan({ nguoiDung, onDong, onDoiNguoiDung }) {
           </p>
         </>
       )}
+
+      <OKhoaApiDeveloper />
     </Dialog>
+  )
+}
+
+/** Cổng Developer API Key (`tr_live_...`) để khách hàng tích hợp vào Tool riêng / Website đọc truyện. */
+function OKhoaApiDeveloper() {
+  const [tt, setTt] = useState(null)
+  const [keyMoi, setKeyMoi] = useState('')
+  const [dangChay, setDangChay] = useState(false)
+  const [daCopy, setDaCopy] = useState(false)
+  const [moDoc, setMoDoc] = useState(false)
+  const [loi, setLoi] = useState(null)
+
+  useEffect(() => {
+    let huy = false
+    api.xemTrangThaiApiKey()
+      .then((d) => { if (!huy) setTt(d) })
+      .catch(() => {})
+    return () => { huy = true }
+  }, [])
+
+  const xuLyTaoKey = async () => {
+    setDangChay(true); setLoi(null); setDaCopy(false)
+    try {
+      const kq = await api.taoMoiApiKey()
+      setKeyMoi(kq.api_key || '')
+      setTt({
+        co_api_key: true,
+        tao_luc: kq.tao_luc,
+        dung_lan_cuoi: null,
+      })
+    } catch (e) {
+      setLoi(e)
+    } finally {
+      setDangChay(false)
+    }
+  }
+
+  const xuLyThuHoi = async () => {
+    setDangChay(true); setLoi(null)
+    try {
+      await api.thuHoiApiKey()
+      setKeyMoi('')
+      setTt({ co_api_key: false, tao_luc: null, dung_lan_cuoi: null })
+    } catch (e) {
+      setLoi(e)
+    } finally {
+      setDangChay(false)
+    }
+  }
+
+  const apiOrigin = api.API_BASE || window.location.origin
+  const keyMau = keyMoi || 'tr_live_YOUR_API_KEY_HERE'
+
+  return (
+    <div style={{
+      marginTop: 18,
+      paddingTop: 14,
+      borderTop: '1px solid var(--vien, #334155)',
+    }}>
+      <h3 className="nho">🔑 Cổng Developer API (Cho Tool / Web Khách Hàng Kéo Về)</h3>
+      <p className="ghi-chu">
+        Dùng <strong>API Key cá nhân (<code>tr_live_...</code>)</strong> để kết nối tool tự động, plugin WordPress, bot Discord hoặc web đọc truyện của bạn với máy chủ dịch thuật. Lượt dịch qua API được trừ trực tiếp vào số dư lượt của tài khoản này.
+      </p>
+
+      {loi && <Alert sac="loi" tieuDe="Lỗi thao tác API Key">{thongDiep(loi)}</Alert>}
+
+      {keyMoi && (
+        <div style={{
+          background: 'rgba(16, 185, 129, 0.12)',
+          border: '1px solid rgba(16, 185, 129, 0.45)',
+          borderRadius: 10,
+          padding: '12px 14px',
+          marginBottom: 12,
+        }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#10b981', marginBottom: 6 }}>
+            ✅ Đã tạo API Key mới — Hãy sao chép ngay (chỉ hiện đầy đủ 1 lần):
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <code style={{
+              flex: 1,
+              padding: '8px 10px',
+              background: 'rgba(15, 23, 42, 0.75)',
+              color: '#f8fafc',
+              borderRadius: 6,
+              fontSize: 13,
+              wordBreak: 'break-all',
+            }}>
+              {keyMoi}
+            </code>
+            <Button
+              kieu="chinh"
+              onClick={() => {
+                navigator.clipboard?.writeText(keyMoi)
+                setDaCopy(true)
+              }}
+            >
+              {daCopy ? 'Đã Copy!' : '📋 Copy Key'}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {tt && (
+        <p className="ghi-chu" style={{ marginBottom: 10 }}>
+          Trạng thái:{' '}
+          {tt.co_api_key ? (
+            <strong style={{ color: '#10b981' }}>
+              Đang hoạt động (tr_live_••••••••)
+            </strong>
+          ) : (
+            <span>Chưa kích hoạt API Key</span>
+          )}
+          {tt.dung_lan_cuoi && (
+            <> · Gọi lần cuối: <strong>{new Date(tt.dung_lan_cuoi).toLocaleString('vi-VN')}</strong></>
+          )}
+        </p>
+      )}
+
+      <div className="hang-nut" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <Button kieu="chinh" dangChay={dangChay} onClick={xuLyTaoKey}>
+          {tt?.co_api_key ? '🔄 Đổi API Key mới' : '🔑 Tạo API Key ngay'}
+        </Button>
+        {tt?.co_api_key && (
+          <Button dangChay={dangChay} onClick={xuLyThuHoi}>
+            🗑️ Thu hồi Key
+          </Button>
+        )}
+        <Button kieu="phu" onClick={() => setMoDoc((v) => !v)}>
+          {moDoc ? 'Ẩn tài liệu nối API' : '📖 Xem Code mẫu nối vào Tool'}
+        </Button>
+      </div>
+
+      {moDoc && (
+        <div style={{
+          marginTop: 12,
+          padding: 12,
+          borderRadius: 10,
+          background: 'rgba(15, 23, 42, 0.65)',
+          border: '1px solid var(--vien, #334155)',
+          fontSize: 12.5,
+        }}>
+          <p style={{ margin: '0 0 8px', fontWeight: 600 }}>
+            1. Dịch 1 trang ảnh (Truyền file hoặc link ảnh `image_url`) — Trả về JSON toạ độ + Link ảnh đã ghép chữ:
+          </p>
+          <pre style={{
+            margin: '0 0 10px',
+            padding: 10,
+            borderRadius: 8,
+            background: '#090d16',
+            color: '#e2e8f0',
+            overflowX: 'auto',
+          }}>{`# Python (requests)
+import requests
+
+resp = requests.post(
+    "${apiOrigin}/api/v1/developer/translate-image",
+    headers={"X-Customer-Api-Key": "${keyMau}"},
+    data={
+        "image_url": "https://example.com/manga-page-01.jpg",
+        "source_lang": "ja",   # ja | ko | zh | en
+        "target_lang": "vi",   # vi | en
+        "engine": "llm_context", # google_fast | llm_context
+        "mode": "day_du",      # day_du (có ảnh ghép chữ) | chi_chu (nhanh)
+        "wait": "true"
+    }
+).json()
+
+print("Link tải ảnh đã dịch:", resp["rendered_image_url"])
+print("Các khung thoại:", resp["regions"])
+print("Số lượt còn lại:", resp["quota"]["total_usable_pages"])`}</pre>
+
+          <p style={{ margin: '0 0 6px', fontWeight: 600 }}>
+            2. Kiểm tra số dư lượt (`GET /api/v1/developer/quota`) &amp; Dịch văn bản (`POST /api/v1/developer/translate-text`):
+          </p>
+          <pre style={{
+            margin: 0,
+            padding: 10,
+            borderRadius: 8,
+            background: '#090d16',
+            color: '#e2e8f0',
+            overflowX: 'auto',
+          }}>{`curl -X GET "${apiOrigin}/api/v1/developer/quota" \\
+  -H "X-Customer-Api-Key: ${keyMau}"`}</pre>
+        </div>
+      )}
+    </div>
   )
 }
 

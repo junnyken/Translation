@@ -286,6 +286,60 @@ async def co_tai_khoan_chua(session: AsyncSession = Depends(get_session)) -> dic
     return {"da_co": await tai_khoan.dem_nguoi_dung(session) > 0}
 
 
+@router.get("/api-key", response_model=dict)
+async def xem_trang_thai_api_key(
+    session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
+) -> dict:
+    """Kiểm tra trạng thái Developer API Key (`tr_live_...`) của tài khoản hiện tại."""
+    ban_ghi = await tai_khoan.lay_thong_tin_api_key(session, nguoi.id)
+    if ban_ghi is None:
+        return {
+            "co_api_key": False,
+            "tao_luc": None,
+            "dung_lan_cuoi": None,
+            "het_han": None,
+        }
+    return {
+        "co_api_key": True,
+        "tao_luc": ban_ghi.created_at.isoformat() if ban_ghi.created_at else None,
+        "dung_lan_cuoi": ban_ghi.dung_lan_cuoi.isoformat() if ban_ghi.dung_lan_cuoi else None,
+        "het_han": ban_ghi.het_han.isoformat() if ban_ghi.het_han else None,
+    }
+
+
+@router.post("/api-key", response_model=dict, status_code=status.HTTP_201_CREATED)
+async def tao_hoac_doi_api_key(
+    session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
+) -> dict:
+    """Tạo mới hoặc xoay (rotate) Developer API Key (`tr_live_...`) cho tài khoản hiện tại.
+    Mã thô chỉ trả về ĐÚNG MỘT LẦN trong phản hồi này để khách hàng copy vào tool riêng.
+    """
+    ma_tho, ban_ghi = await tai_khoan.tao_moi_api_key(session, nguoi.id)
+    return {
+        "api_key": ma_tho,
+        "co_api_key": True,
+        "tao_luc": ban_ghi.created_at.isoformat() if ban_ghi.created_at else None,
+        "dung_lan_cuoi": None,
+        "thong_diep": "Đã tạo Developer API Key mới. Hãy sao chép và lưu lại ngay — mã đầy đủ chỉ hiển thị một lần này.",
+    }
+
+
+@router.delete("/api-key", response_model=dict)
+async def xoa_api_key_cua_toi(
+    session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
+) -> dict:
+    """Thu hồi ngay lập tức Developer API Key của tài khoản."""
+    so_xoa = await tai_khoan.thu_hoi_api_key(session, nguoi.id)
+    return {
+        "da_thu_hoi": so_xoa > 0,
+        "co_api_key": False,
+        "thong_diep": "Đã thu hồi Developer API Key. Mọi tool dùng key cũ sẽ bị từ chối ngay lập tức.",
+    }
+
+
 # ---------------- quản trị người dùng ----------------
 #
 # Vì sao cần: không có phần này thì "cho người khác dùng" là con đường một chiều — phát tài

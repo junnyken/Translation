@@ -61,18 +61,30 @@ LOI_CHUA_DANG_NHAP = "Chưa đăng nhập. Gửi mã phiên ở header `Authoriz
 LOI_KHONG_THAY = "Không tìm thấy, hoặc không thuộc về tài khoản của bạn."
 
 
-def ma_phien_tu_header(gia_tri: str | None) -> str | None:
-    if not gia_tri or not gia_tri.startswith(TIEN_TO_BEARER):
-        return None
-    return gia_tri[len(TIEN_TO_BEARER):].strip() or None
+def ma_phien_tu_header(
+    gia_tri: str | None,
+    x_customer_api_key: str | None = None,
+    x_api_key: str | None = None,
+) -> str | None:
+    if gia_tri and gia_tri.startswith(TIEN_TO_BEARER):
+        ma = gia_tri[len(TIEN_TO_BEARER):].strip()
+        if ma:
+            return ma
+    if x_customer_api_key and x_customer_api_key.strip():
+        return x_customer_api_key.strip()
+    if x_api_key and x_api_key.strip().startswith("tr_live_"):
+        return x_api_key.strip()
+    return None
 
 
 async def nguoi_dung_hien_tai(
     authorization: str | None = Header(default=None, alias=TEN_HEADER),
+    x_customer_api_key: str | None = Header(default=None, alias="X-Customer-Api-Key"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
     session: AsyncSession = Depends(get_session),
 ) -> NguoiDung:
-    """Dependency bắt buộc đăng nhập. Thiếu/sai/hết hạn mã phiên ⇒ 401."""
-    ma = ma_phien_tu_header(authorization)
+    """Dependency bắt buộc đăng nhập (hoặc gửi Developer API Key `tr_live_...`). Thiếu/sai/hết hạn ⇒ 401."""
+    ma = ma_phien_tu_header(authorization, x_customer_api_key, x_api_key)
     nguoi = await tai_khoan.lay_theo_ma_phien(session, ma) if ma else None
     if nguoi is None:
         raise HTTPException(

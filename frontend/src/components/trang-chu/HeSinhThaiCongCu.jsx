@@ -9,7 +9,10 @@ import { useNgonNguUI } from '../../lib/ngon-ngu-ui'
 export default function HeSinhThaiCongCu() {
   const [moHuongDanExt, setMoHuongDanExt] = useState(false)
   const [moHuongDanWin, setMoHuongDanWin] = useState(false)
+  const [moTaiLieuApi, setMoTaiLieuApi] = useState(false)
+  const [tabCode, setTabCode] = useState('python')
   const { laEn } = useNgonNguUI()
+  const apiOrigin = api.API_BASE || 'https://translation-api.vibe1.tinhgon.xyz'
 
   return (
     <section className="manga-ecosystem" aria-labelledby="tieu-de-he-sinh-thai">
@@ -188,6 +191,210 @@ export default function HeSinhThaiCongCu() {
           )}
         </article>
       </div>
+
+      {/* Khung tranh 3 (Full-width): Cổng Developer REST API cho Tool & Web Khách Hàng Kéo Về */}
+      <article
+        className="khung-tranh-cong-cu"
+        style={{
+          marginTop: 22,
+          border: '2px solid rgba(56, 189, 248, 0.45)',
+          background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.94), rgba(30, 41, 59, 0.92))',
+        }}
+      >
+        <div className="bong-thoai-goc" style={{ background: '#0284c7', color: '#fff' }}>
+          {laEn ? '🔌 B2B / Developer API Ready!' : '🔌 Đấu nối API vào Tool của bạn!'}
+        </div>
+        <div className="dau-khung-cong-cu">
+          <span className="icon-cong-cu" aria-hidden="true">⚡</span>
+          <div>
+            <span className="nhan-phien-ban" style={{ color: '#38bdf8' }}>
+              {laEn
+                ? 'DEVELOPER REST API · API KEY (tr_live_...) · JSON + RENDERED PNG'
+                : 'CỔNG DEVELOPER REST API · KHOÁ API RIÊNG (tr_live_...) · KÉO ẢNH & JSON TỰ ĐỘNG'}
+            </span>
+            <h3 style={{ color: '#f8fafc' }}>
+              {laEn
+                ? 'Customer Tool & Third-Party Website Integration API'
+                : 'API Cho Tool Khách Hàng, Web Truyện & Bot Tự Động Kéo Về'}
+            </h3>
+          </div>
+        </div>
+
+        <p className="mo-ta-cong-cu" style={{ color: '#cbd5e1' }}>
+          {laEn
+            ? 'Building your own comic reader website, WordPress plugin, auto-crawler, or Discord bot? Generate a personal API Key (tr_live_...) in your Account menu and pull translated images + bubble coordinates in a single HTTP call.'
+            : 'Bạn có website đọc truyện riêng, plugin WordPress/Madara, tool auto-leech hoặc bot Discord/Telegram? Chỉ cần tạo mã API Key (tr_live_...) trong mục Tài khoản để tool của bạn tự động đẩy ảnh/link lên dịch và kéo ảnh đã ghép chữ hoàn chỉnh về!'}
+        </p>
+
+        <ul className="ds-tinh-nang-cong-cu" style={{ color: '#e2e8f0' }}>
+          <li>
+            {laEn ? (
+              <>🔑 <b>Personal API Key (<code>tr_live_...</code>):</b> Never expires after 14 days, revocable anytime, deducts directly from your account quota.</>
+            ) : (
+              <>🔑 <b>Khoá API cố định (<code>tr_live_...</code>):</b> Không lo hết hạn phiên 14 ngày, tạo/đổi key 1 chạm trong mục <b>Tài khoản</b>, trừ trực tiếp vào số dư lượt của bạn.</>
+            )}
+          </li>
+          <li>
+            {laEn ? (
+              <>🖼️ <b>1-Call All-in-One Endpoint (<code>POST /api/v1/developer/translate-image</code>):</b> Send an image file or <code>image_url</code> and receive both <code>rendered_image_url</code> (typeset PNG), <code>inpainted_image_url</code>, and full bubble JSON.</>
+            ) : (
+              <>🖼️ <b>Gọi 1 lệnh lấy trọn bộ (<code>POST /api/v1/developer/translate-image</code>):</b> Gửi file ảnh hoặc <code>image_url</code>, nhận về ngay link tải <b>Ảnh đã ghép chữ hoàn chỉnh</b> + <b>Ảnh đã xoá chữ</b> + <b>JSON toạ độ khung thoại</b>.</>
+            )}
+          </li>
+          <li>
+            {laEn ? (
+              <>⚡ <b>0.15s SHA-256 Community Cache:</b> Instant response when pulling pages already translated on the network.</>
+            ) : (
+              <>⚡ <b>Tích hợp Bảng Cache Cộng Đồng SHA-256:</b> Trả kết quả tức thì trong 0.15 giây nếu trang truyện đã từng được dịch trên hệ thống.</>
+            )}
+          </li>
+        </ul>
+
+        <div className="chan-khung-cong-cu">
+          <button
+            type="button"
+            className="nut-manga nut-manga-chinh"
+            onClick={() => setMoTaiLieuApi((v) => !v)}
+          >
+            {moTaiLieuApi
+              ? (laEn ? '▲ Hide API Code Examples' : '▲ Ẩn tài liệu & Code mẫu API')
+              : (laEn ? '💻 View API Docs & Code Examples' : '💻 Xem Tài Liệu & Code Mẫu Đấu Nối API')}
+          </button>
+          <a
+            href={`${apiOrigin}/docs`}
+            target="_blank"
+            rel="noreferrer"
+            className="nut-manga nut-manga-phu"
+          >
+            {laEn ? '📘 Open Swagger OpenAPI (/docs) ↗' : '📘 Mở Swagger OpenAPI (/docs) ↗'}
+          </a>
+        </div>
+
+        {moTaiLieuApi && (
+          <div className="hop-huong-dan-nhanh" style={{ marginTop: 14, background: '#090d16', color: '#e2e8f0', border: '1px solid #334155' }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+              {[
+                { id: 'python', label: '🐍 Python (Tool / Crawler)' },
+                { id: 'nodejs', label: '🟢 Node.js / JS (Web / Bot)' },
+                { id: 'curl', label: '💻 cURL / PHP' },
+                { id: 'json', label: '📦 JSON Kết quả trả về' },
+              ].map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setTabCode(t.id)}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: 8,
+                    border: tabCode === t.id ? '1px solid #38bdf8' : '1px solid #334155',
+                    background: tabCode === t.id ? 'rgba(56, 189, 248, 0.18)' : '#1e293b',
+                    color: '#f8fafc',
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                    fontSize: 12.5,
+                  }}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {tabCode === 'python' && (
+              <pre style={{ margin: 0, padding: 12, background: '#020617', borderRadius: 8, overflowX: 'auto', fontSize: 12.5 }}>{`import requests
+
+API_KEY = "tr_live_YOUR_API_KEY"  # Lấy trong mục Tài khoản trên Website
+ENDPOINT = "${apiOrigin}/api/v1/developer/translate-image"
+
+# Cách 1: Truyền thẳng link ảnh từ web gốc (hệ thống tự vượt chống hotlink)
+res = requests.post(
+    ENDPOINT,
+    headers={"X-Customer-Api-Key": API_KEY},
+    data={
+        "image_url": "https://uploads.mangadex.org/data/.../page1.jpg",
+        "source_lang": "ja",      # ja | ko | zh | en
+        "target_lang": "vi",      # vi (Tiếng Việt) | en (Tiếng Anh)
+        "engine": "llm_context",  # google_fast | llm_context
+        "mode": "day_du",         # day_du = ghép sẵn chữ vào ảnh | chi_chu = chỉ lấy JSON
+        "wait": "true"
+    }
+).json()
+
+# Tải ảnh đã dịch hoàn chỉnh về máy chủ của bạn:
+if res.get("rendered_image_url"):
+    img_bytes = requests.get(res["rendered_image_url"]).content
+    open("trang_da_dich.png", "wb").write(img_bytes)`}</pre>
+            )}
+
+            {tabCode === 'nodejs' && (
+              <pre style={{ margin: 0, padding: 12, background: '#020617', borderRadius: 8, overflowX: 'auto', fontSize: 12.5 }}>{`const form = new FormData();
+form.append("image_url", "https://example.com/raw-chapter/01.jpg");
+form.append("source_lang", "ko");
+form.append("target_lang", "vi");
+form.append("engine", "llm_context");
+form.append("mode", "day_du");
+form.append("wait", "true");
+
+const res = await fetch("${apiOrigin}/api/v1/developer/translate-image", {
+  method: "POST",
+  headers: { "X-Customer-Api-Key": "tr_live_YOUR_API_KEY" },
+  body: form,
+});
+const data = await res.json();
+console.log("Ảnh đã dịch:", data.rendered_image_url);
+console.log("Danh sách bóng thoại:", data.regions);`}</pre>
+            )}
+
+            {tabCode === 'curl' && (
+              <pre style={{ margin: 0, padding: 12, background: '#020617', borderRadius: 8, overflowX: 'auto', fontSize: 12.5 }}>{`# 1. Dịch ảnh từ file trên máy hoặc link URL:
+curl -X POST "${apiOrigin}/api/v1/developer/translate-image" \\
+  -H "X-Customer-Api-Key: tr_live_YOUR_API_KEY" \\
+  -F "file=@./page01.jpg" \\
+  -F "source_lang=ja" \\
+  -F "target_lang=vi" \\
+  -F "engine=llm_context" \\
+  -F "mode=day_du" \\
+  -F "wait=true"
+
+# 2. Dịch chương truyện chữ (Web Novel / Light Novel):
+curl -X POST "${apiOrigin}/api/v1/developer/translate-text" \\
+  -H "X-Customer-Api-Key: tr_live_YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"texts": ["第1話：始まり", "彼は静かに立ち上がった。"], "source_lang": "ja", "target_lang": "vi", "engine": "llm_context"}'`}</pre>
+            )}
+
+            {tabCode === 'json' && (
+              <pre style={{ margin: 0, padding: 12, background: '#020617', borderRadius: 8, overflowX: 'auto', fontSize: 12.5 }}>{`{
+  "status": "completed",
+  "completed": true,
+  "cached": false,
+  "page_id": "6f9c2a10-...",
+  "source_lang": "ja",
+  "target_lang": "vi",
+  "mode": "day_du",
+  "rendered_image_url": "${apiOrigin}/api/v1/developer/pages/6f9c2a10-.../rendered-image?api_key=tr_live_...",
+  "inpainted_image_url": "${apiOrigin}/api/v1/developer/pages/6f9c2a10-.../inpainted-image?api_key=tr_live_...",
+  "regions_count": 2,
+  "regions": [
+    {
+      "order": 1,
+      "bbox": { "x": 118.0, "y": 42.0, "w": 164.0, "h": 210.0 },
+      "source_text": "いくぞ！",
+      "translated_text": "Lên đường thôi!",
+      "font_size": 24.0,
+      "text_color": "#111827",
+      "stroke_color": "#FFFFFF"
+    }
+  ],
+  "quota": {
+    "daily_remaining": 9,
+    "purchased_remaining": 500,
+    "total_usable_pages": 509
+  }
+}`}</pre>
+            )}
+          </div>
+        )}
+      </article>
     </section>
   )
 }
