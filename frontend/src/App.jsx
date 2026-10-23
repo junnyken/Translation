@@ -43,6 +43,9 @@ import StatusBadge from './components/ui/StatusBadge.jsx'
 import Tabs from './components/ui/Tabs.jsx'
 import { tinhTienDoChapter } from './lib/chapter-progress.js'
 import { LOC_HUONG_CHU, LOC_RA_SOAT, nhanHuongChu } from './lib/status-presentation.js'
+
+// Tạm ẩn menu "💎 Bảng Giá" trên thanh điều hướng theo yêu cầu. Đổi thành `true` khi muốn mở lại.
+export const HIEN_MENU_BANG_GIA = false
 import { MUC_DICH } from './lib/status-presentation.js'
 
 // wording: BA review — nút ở đầu màn chapter (mockup-v2 ghi "Chạy mẻ"; giữ tên khối hiện có)
@@ -575,13 +578,15 @@ function AppRuot({ urlBundle } = {}) {
               >
                 {laEn ? '⚡ Developer API' : '⚡ Kết Nối API'}
               </a>
-              <a
-                href="#bang-gia"
-                className={trangTinh === 'bang-gia' ? 'dang-o' : ''}
-                onClick={() => setMuonDangNhap(false)}
-              >
-                {laEn ? '💎 Pricing' : '💎 Bảng Giá'}
-              </a>
+              {HIEN_MENU_BANG_GIA && (
+                <a
+                  href="#bang-gia"
+                  className={trangTinh === 'bang-gia' ? 'dang-o' : ''}
+                  onClick={() => setMuonDangNhap(false)}
+                >
+                  {laEn ? '💎 Pricing' : '💎 Bảng Giá'}
+                </a>
+              )}
             </nav>
             <div className="dau-phai hang">
               <DoiNgonNguUI />
@@ -662,9 +667,11 @@ function AppRuot({ urlBundle } = {}) {
           <a href="#ket-noi-api" className={trangTinh === 'ket-noi-api' ? 'dang-o' : ''}>
             {laEn ? '⚡ Developer API' : '⚡ Kết Nối API'}
           </a>
-          <a href="#bang-gia" className={trangTinh === 'bang-gia' ? 'dang-o' : ''}>
-            {laEn ? '💎 Pricing' : '💎 Bảng Giá'}
-          </a>
+          {HIEN_MENU_BANG_GIA && (
+            <a href="#bang-gia" className={trangTinh === 'bang-gia' ? 'dang-o' : ''}>
+              {laEn ? '💎 Pricing' : '💎 Bảng Giá'}
+            </a>
+          )}
           <span className="tai-khoan">
             {/* E54 — bấm vào tên mở màn TÀI KHOẢN (§4.4). Trước đây tên chỉ là chữ tĩnh, nên
                 người dùng không có chỗ nào xem hạn mức của mình sau khi đăng nhập. */}
@@ -748,9 +755,11 @@ function AppRuot({ urlBundle } = {}) {
                 <a href="#ket-noi-api" className="nut-manga nut-manga-win">
                   ⚡ {laEn ? 'Developer API Integration' : 'Kết Nối API Cho Tool / Web'}
                 </a>
-                <a href="#bang-gia" className="nut-manga nut-manga-phu">
-                  💎 {laEn ? 'Pricing & VIP Top-up' : 'Bảng Giá & Nạp Lượt VIP'}
-                </a>
+                {HIEN_MENU_BANG_GIA && (
+                  <a href="#bang-gia" className="nut-manga nut-manga-phu">
+                    💎 {laEn ? 'Pricing & VIP Top-up' : 'Bảng Giá & Nạp Lượt VIP'}
+                  </a>
+                )}
               </div>
             </div>
 

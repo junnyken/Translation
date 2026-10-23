@@ -48,11 +48,13 @@ export default function ChanTrangManga() {
                 ⚡ {laEn ? 'Developer REST API Integration' : 'Trang Hướng Dẫn Kết Nối API (tr_live_...)'}
               </a>
             </li>
-            <li>
-              <a href="#bang-gia">
-                💎 {laEn ? 'Pricing & Enterprise API Plans' : 'Trang Bảng Giá & Gói Cước Doanh Nghiệp'}
-              </a>
-            </li>
+            {false && (
+              <li>
+                <a href="#bang-gia">
+                  💎 {laEn ? 'Pricing & Enterprise API Plans' : 'Trang Bảng Giá & Gói Cước Doanh Nghiệp'}
+                </a>
+              </li>
+            )}
             <li>
               <a href="#privacy-policy">
                 🛡️ {laEn ? 'Privacy Policy (/privacy-policy)' : 'Chính sách quyền riêng tư (/privacy-policy)'}

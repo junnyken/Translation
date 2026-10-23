@@ -479,9 +479,11 @@ export default function TrangChu() {
           <a href="#ket-noi-api" className="nut-manga nut-manga-win">
             ⚡ {laEn ? 'Developer API Integration' : 'Kết Nối API Cho Tool / Web'}
           </a>
-          <a href="#bang-gia" className="nut-manga nut-manga-phu">
-            💎 {laEn ? 'Pricing & VIP Top-up' : 'Bảng Giá & Nạp Lượt VIP'}
-          </a>
+          {false && (
+            <a href="#bang-gia" className="nut-manga nut-manga-phu">
+              💎 {laEn ? 'Pricing & VIP Top-up' : 'Bảng Giá & Nạp Lượt VIP'}
+            </a>
+          )}
         </div>
       </header>
 
