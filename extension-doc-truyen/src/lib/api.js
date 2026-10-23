@@ -40,13 +40,16 @@ function sinhMaKhachNgauNhien() {
 }
 
 /** Chuẩn hoá địa chỉ máy chủ:
- *  Nếu người dùng dán địa chỉ trang giao diện Web (`https://translation.vibe1.tinhgon.xyz`) thay vì
- *  máy chủ API (`https://translation-api.vibe1.tinhgon.xyz`), tự động chuyển sang địa chỉ API để
- *  không bị Nginx chặn 405 Not Allowed.
+ *  Nếu người dùng dán địa chỉ trang giao diện Web (`https://comic.io.vn` hoặc
+ *  `https://translation.vibe1.tinhgon.xyz`) thay vì máy chủ API (`https://translation-api.vibe1.tinhgon.xyz`),
+ *  tự động chuyển sang địa chỉ API để không bị Nginx chặn 405 Not Allowed.
  */
 export function chuanHoaDiaChi(raw) {
-  const s = String(raw || '').trim().replace(/\/+$/, '')
+  let s = String(raw || '').trim().replace(/\/+$/, '')
   if (!s) return ''
+  if (/^(https?:\/\/)?(www\.)?comic\.io\.vn$/i.test(s)) {
+    return 'https://translation-api.vibe1.tinhgon.xyz'
+  }
   return s.replace(/^https?:\/\/translation\.vibe1\.tinhgon\.xyz$/i, 'https://translation-api.vibe1.tinhgon.xyz')
 }
 
@@ -135,6 +138,17 @@ async function goi(duong, opts = {}) {
 
 export async function dangNhap(diaChi, email, matKhau) {
   const goc = chuanHoaDiaChi(diaChi)
+  const UngVienKey = String(matKhau || '').trim().startsWith('tr_live_')
+    ? String(matKhau).trim()
+    : (String(email || '').trim().startsWith('tr_live_') ? String(email).trim() : '')
+  if (UngVienKey) {
+    const resKey = await fetch(`${goc}/api/v1/auth/me`, {
+      headers: { Authorization: `Bearer ${UngVienKey}` },
+    })
+    const nguoi = await doc(resKey)
+    await luuCauHinh({ diaChi: goc, maPhien: UngVienKey, email: nguoi.email })
+    return nguoi
+  }
   const res = await fetch(`${goc}/api/v1/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

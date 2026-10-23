@@ -85,7 +85,9 @@ export default function ChanTrangManga() {
       </div>
 
       <div className="chan-trang-day">
-        <span>© {namHienTai} Manga Translation Studio · {laEn ? 'Version v0.3.0' : 'Phiên bản v0.3.0'}</span>
+        <span>
+          © {namHienTai} <a href="https://comic.io.vn" style={{ color: 'inherit', fontWeight: 700, textDecoration: 'none' }}>comic.io.vn</a> — Manga Translation Studio · {laEn ? 'Version v0.3.0' : 'Phiên bản v0.3.0'}
+        </span>
         <span className="cham-ngan" aria-hidden="true">•</span>
         <span>{laEn ? 'Supported: Manga (JP) · Manhwa (KR) · Manhua (ZH) · Comic (EN) · Web Novel' : 'Hỗ trợ: Manga (Nhật) · Manhwa (Hàn) · Manhua (Trung) · Comic (Anh) · Truyện chữ'}</span>
         <span className="cham-ngan" aria-hidden="true">•</span>

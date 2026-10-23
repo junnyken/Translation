@@ -27,6 +27,7 @@ import time
 import urllib.parse
 import urllib.request
 import uuid
+import webbrowser
 import zipfile
 from collections import deque
 from pathlib import Path
@@ -63,6 +64,24 @@ def lay_dinh_danh_may_tinh() -> tuple[str, str]:
 
 
 MA_MAY_HIEN_THI, KHACH_ID_MAY_TINH = lay_dinh_danh_may_tinh()
+WEB_CHINH_THUC = "https://comic.io.vn"
+MAY_CHU_API_MAC_DINH = "https://translation-api.vibe1.tinhgon.xyz"
+
+
+def chuan_hoa_may_chu(raw: str) -> str:
+    """
+    Nếu người dùng nhập địa chỉ trang giao diện Web (`https://comic.io.vn` hoặc
+    `https://translation.vibe1.tinhgon.xyz`) vào ô Máy chủ, tự động chuyển sang
+    máy chủ API (`https://translation-api.vibe1.tinhgon.xyz`) để gọi API chuẩn xác.
+    """
+    s = (raw or "").strip().rstrip("/")
+    if not s:
+        return MAY_CHU_API_MAC_DINH
+    if re.match(r"^(https?://)?(www\.)?comic\.io\.vn$", s, re.I):
+        return MAY_CHU_API_MAC_DINH
+    if re.match(r"^https?://translation\.vibe1\.tinhgon\.xyz$", s, re.I):
+        return MAY_CHU_API_MAC_DINH
+    return s
 
 
 # ==============================================================================
@@ -440,6 +459,7 @@ def goi_http(url: str, method: str = "GET", body: dict | None = None, token: str
     headers = {
         "User-Agent": USER_AGENT,
         "X-Ma-May-Tinh": MA_MAY_HIEN_THI,
+        "X-Ma-Khach": KHACH_ID_MAY_TINH,
         "Cookie": f"khach_id={KHACH_ID_MAY_TINH}",
     }
     if token:
@@ -486,6 +506,7 @@ def gui_multipart_trang(
         "User-Agent": USER_AGENT,
         "Content-Type": f"multipart/form-data; boundary={boundary}",
         "X-Ma-May-Tinh": MA_MAY_HIEN_THI,
+        "X-Ma-Khach": KHACH_ID_MAY_TINH,
         "Cookie": f"khach_id={KHACH_ID_MAY_TINH}",
     }
     if token:
@@ -784,6 +805,17 @@ class AppDichTruyenWindows(tk.Tk):
             ).start(),
         ).pack(side="left", padx=6)
 
+        tk.Button(
+            hang_hwid,
+            text="🌐 Mở Web comic.io.vn (Nạp VIP / API Key)",
+            bg="#7c3aed",
+            fg="#ffffff",
+            font=("Segoe UI", 8, "bold"),
+            relief="flat",
+            padx=8,
+            command=lambda: webbrowser.open(WEB_CHINH_THUC),
+        ).pack(side="left", padx=4)
+
         self.lbl_chi_tiet_luot = tk.Label(
             hang_hwid,
             text="Đang đồng bộ hạn mức của thiết bị...",
@@ -1048,15 +1080,34 @@ class AppDichTruyenWindows(tk.Tk):
         self.ghi_log(f"📋 Đã sao chép Mã máy tính vào bộ nhớ tạm: {MA_MAY_HIEN_THI}")
 
     def _dang_nhap(self):
-        may_chu = self.ent_server.get().strip().rstrip("/")
+        may_chu = chuan_hoa_may_chu(self.ent_server.get())
         email = self.ent_email.get().strip()
-        mat_khau = self.ent_pass.get()
-        if not email or not mat_khau:
-            messagebox.showwarning("Thiếu thông tin", "Vui lòng nhập Email và Mật khẩu tài khoản.")
+        mat_khau = self.ent_pass.get().strip()
+        khoa_api = mat_khau if mat_khau.startswith("tr_live_") else (email if email.startswith("tr_live_") else "")
+        if not khoa_api and (not email or not mat_khau):
+            messagebox.showwarning(
+                "Thiếu thông tin",
+                "Vui lòng nhập Email & Mật khẩu (hoặc dán mã API Key tr_live_... vào ô Mật khẩu).",
+            )
             return
 
         def _worker():
             try:
+                if khoa_api:
+                    raw_me = goi_http(f"{may_chu}/api/v1/auth/me", token=khoa_api)
+                    nguoi = json.loads(raw_me.decode("utf-8"))
+                    email_xac_nhan = nguoi.get("email") or email
+                    self.cau_hinh["may_chu"] = may_chu
+                    self.cau_hinh["email"] = email_xac_nhan
+                    self.cau_hinh["token"] = khoa_api
+                    self.cau_hinh["ma_may_tinh"] = MA_MAY_HIEN_THI
+                    self._luu_cau_hinh()
+                    self.ghi_log(
+                        f"✅ Đã kết nối bằng API Key với tài khoản: {email_xac_nhan} (Mã máy: {MA_MAY_HIEN_THI})"
+                    )
+                    self._cap_nhat_han_muc(ghi_nhat_ky=True)
+                    return
+
                 raw = goi_http(
                     f"{may_chu}/api/v1/auth/login",
                     method="POST",
@@ -1076,7 +1127,7 @@ class AppDichTruyenWindows(tk.Tk):
         threading.Thread(target=_worker, daemon=True).start()
 
     def _cap_nhat_han_muc(self, ghi_nhat_ky: bool = False):
-        may_chu = self.ent_server.get().strip().rstrip("/")
+        may_chu = chuan_hoa_may_chu(self.ent_server.get())
         token = self.cau_hinh.get("token", "")
         email = self.cau_hinh.get("email", "")
         try:
@@ -1154,7 +1205,7 @@ class AppDichTruyenWindows(tk.Tk):
 
     def _luong_dich_hang_loat(self):
         try:
-            may_chu = self.ent_server.get().strip().rstrip("/")
+            may_chu = chuan_hoa_may_chu(self.ent_server.get())
             token = self.cau_hinh.get("token", "")
             ten_truyen = lam_sach_ten_thu_muc(self.ent_ten_truyen.get() or "Truyen-Da-Dich")
             thu_muc_goc = Path(self.ent_out.get().strip()) / ten_truyen

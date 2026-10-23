@@ -36,7 +36,7 @@ function chonTab(cheDo) {
   if ($('khoi-nut-khach')) $('khoi-nut-khach').hidden = !laKhach
 
   const oEmail = $('email')
-  if (oEmail) oEmail.required = !laKhach
+  if (oEmail) oEmail.required = laDangKy
 }
 
 $('tab-dang-nhap')?.addEventListener('click', () => chonTab('dang-nhap'))

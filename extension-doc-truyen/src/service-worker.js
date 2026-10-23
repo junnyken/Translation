@@ -127,7 +127,7 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false)
 
   // E110 — Nếu trúng Bảng Cache Cộng Đồng trên máy chủ (`kqGui.xong === true`), trả kết quả tức thì (0,15s)
   // không cần chờ 900ms hỏi lại!
-  if kqGui?.xong && Array.isArray(kqGui.vung) && kqGui.vung.length > 0) {
+  if (kqGui?.xong && Array.isArray(kqGui.vung) && kqGui.vung.length > 0) {
     if (ngonNguDich === 'en') {
       await damBaoNgonNguDich(kqGui.vung, ngonNgu, ngonNguDich)
     }

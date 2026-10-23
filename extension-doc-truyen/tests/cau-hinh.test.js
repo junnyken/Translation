@@ -5,9 +5,15 @@
  * xuống cuối). Câu báo lỗi đúng mà không đưa tới chỗ sửa được thì chỉ là một câu báo lỗi.
  */
 import { describe, expect, it } from 'vitest'
-import { lyDoThieuCauHinh } from '../src/lib/api.js'
+import { chuanHoaDiaChi, lyDoThieuCauHinh } from '../src/lib/api.js'
 
 describe('kiểm cấu hình trước khi dịch', () => {
+  it('chuẩn hoá tên miền giao diện Web (comic.io.vn / translation.vibe1.tinhgon.xyz) sang máy chủ API', () => {
+    expect(chuanHoaDiaChi('https://comic.io.vn')).toBe('https://translation-api.vibe1.tinhgon.xyz')
+    expect(chuanHoaDiaChi('https://www.comic.io.vn/')).toBe('https://translation-api.vibe1.tinhgon.xyz')
+    expect(chuanHoaDiaChi('comic.io.vn')).toBe('https://translation-api.vibe1.tinhgon.xyz')
+    expect(chuanHoaDiaChi('https://translation.vibe1.tinhgon.xyz/')).toBe('https://translation-api.vibe1.tinhgon.xyz')
+  })
   it('đủ địa chỉ và mã phiên thì không cản', () => {
     expect(lyDoThieuCauHinh({ diaChi: 'https://x', maPhien: 'abc' })).toBeNull()
   })

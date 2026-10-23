@@ -355,7 +355,10 @@
           Dịch truyện đang đọc
           <span class="nhan-phien-ban" id="phien-ban">v0.3.0</span>
         </h1>
-        <p>Tiện ích dịch trực tiếp Manga / Manhwa / Webtoon sang tiếng Việt</p>
+        <p>
+          Tiện ích dịch trực tiếp Manga / Manhwa / Webtoon · Trang chủ:
+          <a href="https://comic.io.vn" target="_blank" rel="noreferrer" style="color:var(--brand);font-weight:700;text-decoration:none">comic.io.vn ↗</a>
+        </p>
       </div>
     </header>
 
@@ -372,11 +375,20 @@
       <div id="da-dang-nhap" class="the-da-dang-nhap" hidden>
         <div class="dong-tai-khoan">
           <div>
-            <div style="font-size:12px;opacity:.85">Đang đăng nhập tài khoản (20 trang/ngày)</div>
+            <div style="font-size:12px;opacity:.85">Đang đăng nhập tài khoản (20 trang/ngày + Gói VIP)</div>
             <b id="email-hien" style="font-size:15px"></b>
           </div>
           <span style="font-size:18px">✅</span>
         </div>
+        <a
+          href="https://comic.io.vn"
+          target="_blank"
+          rel="noreferrer"
+          class="nut-chinh"
+          style="display:block;text-align:center;text-decoration:none"
+        >
+          🌐 Mở Web comic.io.vn (Nạp lượt VIP &amp; Quản lý API Key) ↗
+        </a>
         <button type="button" id="nut-thoat" class="nut-phu">Đăng xuất khỏi thiết bị này</button>
       </div>
 
@@ -395,7 +407,9 @@
             required
             placeholder="https://translation-api.vibe1.tinhgon.xyz"
           />
-          <p class="ghi-chu">Ảnh trang truyện chỉ gửi tới đúng máy chủ này để nhận diện và dịch.</p>
+          <p class="ghi-chu">
+            Bạn có thể nhập <b>https://comic.io.vn</b> hoặc máy chủ API <b>https://translation-api.vibe1.tinhgon.xyz</b> (tiện ích tự động định tuyến chuẩn).
+          </p>
         </div>
 
         <!-- Thanh chọn 3 chế độ rõ ràng -->
@@ -433,13 +447,13 @@
           </div>
 
           <div class="nhom-o">
-            <label for="mat-khau">Mật khẩu</label>
+            <label for="mat-khau">Mật khẩu (hoặc mã API Key tr_live_...)</label>
             <div class="boc-input">
               <input
                 id="mat-khau"
                 type="password"
                 autocomplete="current-password"
-                placeholder="Nhập mật khẩu (tối thiểu 8 ký tự khi đăng ký)"
+                placeholder="Nhập mật khẩu hoặc dán API Key tr_live_..."
                 style="padding-right: 64px"
               />
               <button type="button" class="nut-hien-mk" id="nut-an-hien-mk">Hiện</button>
@@ -476,8 +490,8 @@
             <span>Miễn phí <b>2 trang/ngày</b> · Không cần đăng ký · Dùng thử nhanh.</span>
           </div>
           <div class="o-quyen-loi noi-bat">
-            <strong>✨ Có tài khoản</strong>
-            <span>Miễn phí <b>20 trang/ngày</b> (trọn 1 chapter) · Hỗ trợ nạp lượt tích luỹ VIP.</span>
+            <strong>✨ Có tài khoản / Gói VIP</strong>
+            <span>Miễn phí <b>20 trang/ngày</b> · Nạp lượt tích luỹ VIP &amp; lấy API Key tại <a href="https://comic.io.vn" target="_blank" rel="noreferrer" style="color:var(--brand);font-weight:700">comic.io.vn</a>.</span>
           </div>
         </div>
       </form>
