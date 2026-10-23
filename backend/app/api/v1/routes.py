@@ -522,24 +522,38 @@ async def xem_thong_tin_nap_luot(
         goi_goi_y=[
             GoiNapLuotRead(
                 ma="co_ban",
-                ten="Gói Đọc Nhanh (200 trang)",
+                ten="Gói Đọc Nhanh — Cá Nhân (200 trang)",
                 so_tien_vnd=200 * don_gia,
                 so_trang=200,
                 ghi_chu="Tương đương ~10 chapter truyện. Lượt mua không bao giờ hết hạn qua đêm.",
             ),
             GoiNapLuotRead(
                 ma="tieu_chuan",
-                ten="Gói Cày Truyện (550 trang)",
+                ten="Gói Cày Truyện — VIP (550 trang)",
                 so_tien_vnd=500 * don_gia,
                 so_trang=550,
-                ghi_chu="Tặng thêm 10% số trang (~28 chapter). Dùng chung cho cả Web & Extension.",
+                ghi_chu="Tặng thêm 10% số trang (~28 chapter). Dùng chung Web, Extension & App Windows.",
             ),
             GoiNapLuotRead(
                 ma="nhom_dich",
                 ten="Gói Nhóm Dịch / Studio (1.200 trang)",
                 so_tien_vnd=1000 * don_gia,
                 so_trang=1200,
-                ghi_chu="Tặng thêm 20% số trang (~60 chapter). Phù hợp dịch trọn bộ / làm video.",
+                ghi_chu="Tặng thêm 20% số trang (~60 chapter). Phù hợp nhóm scanlation, dịch trọn bộ / làm video.",
+            ),
+            GoiNapLuotRead(
+                ma="doanh_nghiep_api",
+                ten="🏢 Gói Doanh Nghiệp / Web Truyện API Pro (6.500 trang)",
+                so_tien_vnd=5000 * don_gia,
+                so_trang=6500,
+                ghi_chu="Tặng thêm 30% số trang (~325 chapter). Mở toàn bộ Developer REST API (tr_live_...), đẩy cả chapter qua URL & đồng bộ đa máy.",
+            ),
+            GoiNapLuotRead(
+                ma="enterprise_scale",
+                ten="🏛️ Gói Doanh Nghiệp Lớn / Hệ Thống Cổng Truyện (28.000 trang)",
+                so_tien_vnd=20000 * don_gia,
+                so_trang=28000,
+                ghi_chu="Tặng thêm 40% số trang (~1.400 chapter). Dành cho hệ thống web truyện lớn & tool tự động hoá 24/7 qua API.",
             ),
         ],
     )
@@ -594,8 +608,16 @@ async def webhook_nap_luot_ngan_hang(
     so_trang_goc = so_tien // don_gia
     if so_trang_goc <= 0:
         return {"ok": False, "ly_do": "so_tien_nho_hon_1_trang"}
-    # Tặng thêm 10% nếu nạp >= 500 trang, 20% nếu >= 1000 trang
-    if so_trang_goc >= 1000:
+    # Tặng thêm theo bậc:
+    # >= 20.000 trang gốc (Enterprise): +40%
+    # >= 5.000 trang gốc (Doanh nghiệp API Pro): +30%
+    # >= 1.000 trang gốc (Studio): +20%
+    # >= 500 trang gốc (VIP): +10%
+    if so_trang_goc >= 20000:
+        so_trang_cong = int(so_trang_goc * 1.4)
+    elif so_trang_goc >= 5000:
+        so_trang_cong = int(so_trang_goc * 1.3)
+    elif so_trang_goc >= 1000:
         so_trang_cong = int(so_trang_goc * 1.2)
     elif so_trang_goc >= 500:
         so_trang_cong = int(so_trang_goc * 1.1)

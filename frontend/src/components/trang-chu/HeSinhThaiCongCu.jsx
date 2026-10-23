@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import * as api from '../../api'
 import { useNgonNguUI } from '../../lib/ngon-ngu-ui'
 
@@ -11,8 +11,23 @@ export default function HeSinhThaiCongCu() {
   const [moHuongDanWin, setMoHuongDanWin] = useState(false)
   const [moTaiLieuApi, setMoTaiLieuApi] = useState(false)
   const [tabCode, setTabCode] = useState('python')
+  const [thongTinNap, setThongTinNap] = useState(null)
+  const [goiChonQr, setGoiChonQr] = useState(null)
   const { laEn } = useNgonNguUI()
   const apiOrigin = api.API_BASE || 'https://translation-api.vibe1.tinhgon.xyz'
+  const donGia = thongTinNap?.ty_le_vnd_moi_trang || 500
+
+  useEffect(() => {
+    let huy = false
+    api.layThongTinNapLuot()
+      .then((tt) => { if (!huy) setThongTinNap(tt) })
+      .catch(() => {})
+    return () => { huy = true }
+  }, [])
+
+  function chonGoiDoanhNghiep(goiTinh) {
+    setGoiChonQr(goiTinh)
+  }
 
   return (
     <section className="manga-ecosystem" aria-labelledby="tieu-de-he-sinh-thai">
@@ -410,6 +425,170 @@ curl -X POST "${apiOrigin}/api/v1/developer/translate-text" \\
           </div>
         )}
       </article>
+
+      {/* Khối 4: Bảng Gói Cước Cá Nhân, Nhóm Dịch & Doanh Nghiệp (B2B / Developer API) */}
+      <div style={{ marginTop: 28 }}>
+        <div className="manga-ecosystem-dau" style={{ marginBottom: 16 }}>
+          <span className="manga-sfx-badge" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', borderColor: 'rgba(16, 185, 129, 0.4)' }}>
+            {laEn ? '💎 FLEXIBLE QUOTA & B2B ENTERPRISE PLANS' : '💎 BẢNG GÓI CƯỚC CÁ NHÂN, STUDIO & DOANH NGHIỆP (API)'}
+          </span>
+          <h3 style={{ fontSize: 22, margin: '8px 0 4px' }}>
+            {laEn
+              ? 'Pay-As-You-Go Quota (Never Expires) & Enterprise API Tiers'
+              : 'Lượt Mua Tích Luỹ Không Bao Giờ Hết Hạn — Dùng Chung Web, App & Cổng API'}
+          </h3>
+          <p className="dan" style={{ fontSize: 14 }}>
+            {laEn
+              ? '100% automatic 24/7 VietQR top-up. Higher tiers include up to +40% bonus pages and full Developer API access.'
+              : 'Nạp tự động 24/7 qua mã VietQR. Gói Doanh nghiệp tặng thêm tới +40% số trang và mở toàn bộ Cổng Developer API (tr_live_...).'}
+          </p>
+        </div>
+
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+          gap: 14,
+        }}>
+          {[
+            {
+              ma: 'tieu_chuan',
+              nhan: laEn ? 'READER VIP' : 'CÁ NHÂN / VIP',
+              ten: laEn ? '550 Pages (+10% Bonus)' : 'Gói Cày Truyện (550 trang)',
+              giaVnd: 500 * donGia,
+              soTrang: '550 trang (~28 chap)',
+              diemManh: laEn
+                ? ['+10% bonus pages included', 'Sync Web + Chrome Extension', 'Quota never expires overnight']
+                : ['Tặng thêm +10% số trang', 'Dùng trên Web + Tiện ích Chrome', 'Lượt mua không hết hạn qua đêm'],
+              noiBat: false,
+            },
+            {
+              ma: 'nhom_dich',
+              nhan: laEn ? 'SCANLATION STUDIO' : 'NHÓM DỊCH / STUDIO',
+              ten: laEn ? '1,200 Pages (+20% Bonus)' : 'Gói Studio (1.200 trang)',
+              giaVnd: 1000 * donGia,
+              soTrang: '1.200 trang (~60 chap)',
+              diemManh: laEn
+                ? ['+20% bonus pages included', 'Windows Batch App + Zip/CBZ/PDF', 'Custom Character Glossary']
+                : ['Tặng thêm +20% số trang', 'Mở App Windows cày link tự động', 'Sổ tay nhân vật & Xuất CBZ/ZIP/PDF'],
+              noiBat: false,
+            },
+            {
+              ma: 'doanh_nghiep_api',
+              nhan: laEn ? '🏢 BUSINESS API PRO' : '🏢 DOANH NGHIỆP / WEB API PRO',
+              ten: laEn ? '6,500 Pages (+30% Bonus)' : 'Gói Doanh Nghiệp API (6.500 trang)',
+              giaVnd: 5000 * donGia,
+              soTrang: '6.500 trang (~325 chap)',
+              diemManh: laEn
+                ? ['+30% bonus pages', 'Full Developer API Key (tr_live_...)', 'Batch Chapter URL endpoint + Anti-Hotlink']
+                : ['Tặng thêm +30% số trang', 'Cấp Khoá Developer API (tr_live_...)', 'Đẩy cả Chapter qua URL + Vượt Hotlink'],
+              noiBat: true,
+            },
+            {
+              ma: 'enterprise_scale',
+              nhan: laEn ? '🏛️ ENTERPRISE SCALE' : '🏛️ HỆ THỐNG CỔNG TRUYỆN LỚN',
+              ten: laEn ? '28,000 Pages (+40% Bonus)' : 'Gói Enterprise (28.000 trang)',
+              giaVnd: 20000 * donGia,
+              soTrang: '28.000 trang (~1.400 chap)',
+              diemManh: laEn
+                ? ['+40% bonus pages', 'High-concurrency Worker + SHA-256 Cache', '24/7 Automated Tool & CMS Integration']
+                : ['Tặng thêm +40% số trang', 'Luồng Worker đa nhân + Cache SHA-256', 'Đấu nối không giới hạn vào CMS / Web truyện'],
+              noiBat: true,
+            },
+          ].map((g) => (
+            <div
+              key={g.ma}
+              style={{
+                borderRadius: 14,
+                padding: '18px 16px',
+                background: g.noiBat
+                  ? 'linear-gradient(160deg, rgba(15, 23, 42, 0.96), rgba(30, 58, 138, 0.88))'
+                  : 'var(--nen-the, rgba(15, 23, 42, 0.78))',
+                border: g.noiBat ? '2px solid #f97316' : '1px solid var(--vien, #334155)',
+                color: '#f8fafc',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+              }}
+            >
+              <div>
+                <span style={{
+                  display: 'inline-block',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  padding: '3px 9px',
+                  borderRadius: 999,
+                  background: g.noiBat ? 'rgba(249, 115, 22, 0.2)' : 'rgba(148, 163, 184, 0.15)',
+                  color: g.noiBat ? '#fb923c' : '#cbd5e1',
+                  marginBottom: 8,
+                }}>
+                  {g.nhan}
+                </span>
+                <h4 style={{ margin: '0 0 6px', fontSize: 16, color: '#fff' }}>{g.ten}</h4>
+                <div style={{ fontSize: 21, fontWeight: 800, color: '#38bdf8', marginBottom: 4 }}>
+                  {g.giaVnd.toLocaleString('vi-VN')}đ
+                </div>
+                <div style={{ fontSize: 12.5, color: '#94a3b8', marginBottom: 12 }}>
+                  ⚡ {g.soTrang}
+                </div>
+                <ul style={{ margin: '0 0 14px', paddingLeft: 18, fontSize: 13, lineHeight: 1.6, color: '#e2e8f0' }}>
+                  {g.diemManh.map((dm, idx) => (
+                    <li key={idx}>{dm}</li>
+                  ))}
+                </ul>
+              </div>
+              <button
+                type="button"
+                className={g.noiBat ? 'nut-manga nut-manga-chinh' : 'nut-manga nut-manga-phu'}
+                style={{ width: '100%', justifyContent: 'center' }}
+                onClick={() => chonGoiDoanhNghiep(g)}
+              >
+                {laEn ? '💳 Get VietQR Code' : '💳 Chọn Gói & Lấy Mã QR'}
+              </button>
+            </div>
+          ))}
+        </div>
+
+        {goiChonQr && (
+          <div style={{
+            marginTop: 16,
+            padding: 18,
+            borderRadius: 14,
+            background: 'rgba(15, 23, 42, 0.95)',
+            border: '2px solid #10b981',
+            color: '#f8fafc',
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 20,
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}>
+            <div style={{ flex: '1 1 320px' }}>
+              <div style={{ color: '#10b981', fontWeight: 700, fontSize: 14, marginBottom: 4 }}>
+                ✅ {laEn ? 'Selected Package:' : 'Đang chọn gói nạp tự động 24/7:'} {goiChonQr.ten}
+              </div>
+              <p style={{ margin: '0 0 8px', fontSize: 13.5, color: '#cbd5e1' }}>
+                {laEn
+                  ? 'Scan the VietQR code with your banking app. Your pages are credited automatically within 5–15 seconds after transfer!'
+                  : 'Quét mã VietQR bên cạnh bằng ứng dụng Ngân hàng. Hệ thống Webhook sẽ tự động cộng ngay số trang (kèm % khuyến mãi) vào tài khoản của bạn sau 5–15 giây!'}
+              </p>
+              <div style={{ fontSize: 13, background: '#020617', padding: '10px 12px', borderRadius: 8, border: '1px solid #334155' }}>
+                <div>💰 {laEn ? 'Amount:' : 'Số tiền:'} <strong style={{ color: '#38bdf8' }}>{goiChonQr.giaVnd.toLocaleString('vi-VN')} VNĐ</strong> ({goiChonQr.soTrang})</div>
+                <div>📝 {laEn ? 'Transfer Memo:' : 'Nội dung chuyển khoản bắt buộc:'} <code style={{ color: '#f97316', fontWeight: 700 }}>{thongTinNap?.noi_dung_chuyen_khoan || 'NAP <EMAIL_CUA_BAN>'}</code></div>
+              </div>
+            </div>
+
+            {thongTinNap?.ngan_hang_ten && thongTinNap?.ngan_hang_so_tk && (
+              <div style={{ background: '#fff', padding: 10, borderRadius: 10, textAlign: 'center' }}>
+                <img
+                  src={`https://img.vietqr.io/image/${encodeURIComponent(thongTinNap.ngan_hang_ten)}-${encodeURIComponent(thongTinNap.ngan_hang_so_tk)}-compact2.png?amount=${goiChonQr.giaVnd}&addInfo=${encodeURIComponent(thongTinNap.noi_dung_chuyen_khoan)}&accountName=${encodeURIComponent(thongTinNap.ngan_hang_chu_tk || '')}`}
+                  alt="VietQR Enterprise"
+                  style={{ width: 180, height: 'auto', display: 'block' }}
+                />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </section>
   )
 }
