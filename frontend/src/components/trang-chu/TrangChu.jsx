@@ -50,6 +50,21 @@ const PILL_FONT_THE_LOAI = [
   { ma: 'comic', bieuTuong: '💥', nhan: 'Hài hước (Tròn)' },
 ]
 
+const MAU_XUNG_HO = [
+  {
+    nhan: '🏮 Cổ trang / Tu tiên (Ta - Ngươi / Huynh - Muội)',
+    giaTri: 'Xưng hô phong cách Cổ trang / Tu tiên: dùng Ta - Ngươi, Huynh - Đệ - Muội, Bản tôn, Tiền bối.',
+  },
+  {
+    nhan: '🌸 Ngôn tình / Học đường (Anh - Em / Tớ - Cậu)',
+    giaTri: 'Xưng hô phong cách Ngôn tình / Học đường: dùng Anh - Em hoặc Tớ - Cậu mềm mại, tự nhiên.',
+  },
+  {
+    nhan: '⚔️ Hành động / Hunter (Tôi - Cậu / Ngài)',
+    giaTri: 'Xưng hô phong cách Hành động / Hunter: dùng Tôi - Cậu, Đội trưởng, Ngài; giữ nguyên tên kỹ năng.',
+  },
+]
+
 const TEN_NGON_NGU = {
   ja: 'Tiếng Nhật',
   en: 'Tiếng Anh',
@@ -175,6 +190,8 @@ export default function TrangChu() {
   const [ngonNgu, setNgonNgu] = useState('ja')
   const [ngonNguDich, setNgonNguDich] = useState('vi')
   const [fontChu, setFontChu] = useState('bangers')
+  const [tuDienRieng, setTuDienRieng] = useState('')
+  const [moTuDien, setMoTuDien] = useState(false)
   // E67 — mặc định MIỄN PHÍ. Chủ dự án chốt: người dùng tự chọn, không ai bị tính tiền ngoài ý
   // muốn. Đây là lựa chọn của TRANG CHỦ, gửi thẳng lên máy chủ — E58 đã chốt rằng lựa chọn này
   // phải được LƯU chứ không để `NULL` thừa hưởng mặc định hệ thống.
@@ -291,6 +308,7 @@ export default function TrangChu() {
               cheDo: 'day_du',
               engine: cachDich,
               fontStyle: fontChu,
+              tuDienRieng,
             },
           )
           if (!pid && raGoi.project_id) pid = raGoi.project_id
@@ -319,6 +337,7 @@ export default function TrangChu() {
               cheDo: 'day_du',
               engine: cachDich,
               fontStyle: fontChu,
+              tuDienRieng,
             },
           )
           idTrang.push(ra.page_id)
@@ -571,6 +590,50 @@ export default function TrangChu() {
                 )
               })}
             </div>
+          </div>
+
+          <div className="nhom-chon-manga">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+              <span className="nhan-nhom-chon">📖 Sổ tay Nhân vật &amp; Xưng hô cố định (Chuẩn xuyên suốt các chương):</span>
+              <span
+                role="button"
+                tabIndex={0}
+                className="nut-chu"
+                style={{ fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}
+                onClick={() => setMoTuDien(!moTuDien)}
+                onKeyDown={(e) => { if (e.key === 'Enter') setMoTuDien(!moTuDien) }}
+              >
+                {moTuDien ? '▲ Thu gọn sổ tay' : '➕ Mở thiết lập Xưng hô & Tên nhân vật'}
+              </span>
+            </div>
+            {moTuDien && (
+              <div className="khung-tu-dien-nhanh">
+                <div className="day-mau-xung-ho">
+                  {MAU_XUNG_HO.map((m) => (
+                    <span
+                      key={m.nhan}
+                      role="button"
+                      tabIndex={0}
+                      className="chip-mau-xung-ho"
+                      onClick={() => setTuDienRieng((cu) => (cu ? `${cu}\n${m.giaTri}` : m.giaTri))}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') setTuDienRieng((cu) => (cu ? `${cu}\n${m.giaTri}` : m.giaTri))
+                      }}
+                    >
+                      {m.nhan}
+                    </span>
+                  ))}
+                </div>
+                <textarea
+                  className="o o-tu-dien"
+                  rows={3}
+                  disabled={dangChay}
+                  value={tuDienRieng}
+                  onChange={(e) => setTuDienRieng(e.target.value)}
+                  placeholder="Ví dụ:&#10;- Sung Jin-Woo: xưng tôi, gọi cậu&#10;- Cha Hae-In: xưng em, gọi anh&#10;- Shadow Monarch = Quân Vương Bóng Tối"
+                />
+              </div>
+            )}
           </div>
 
           <div className="huy-hieu-gpu-khach">

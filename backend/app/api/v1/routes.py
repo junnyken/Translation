@@ -460,6 +460,42 @@ async def xem_han_muc(
     )
 
 
+def _doc_cau_hinh_ngan_hang_dong(settings: Settings) -> tuple[str, str, str]:
+    """Đọc cấu hình VietQR động từ kho lưu trữ (nếu Admin đã lưu trên giao diện), lùi về `.env`."""
+    import json
+
+    try:
+        storage = get_storage()
+        rel = "quan_tri/cau_hinh_ngan_hang.json"
+        if storage.exists(rel):
+            data = json.loads(storage.read(rel).decode("utf-8"))
+            if isinstance(data, dict):
+                ten = str(data.get("ngan_hang_ten") or settings.ngan_hang_ten or "").strip()
+                stk = str(data.get("ngan_hang_so_tk") or settings.ngan_hang_so_tk or "").strip()
+                chu = str(data.get("ngan_hang_chu_tk") or settings.ngan_hang_chu_tk or "").strip()
+                return ten, stk, chu
+    except Exception:  # noqa: BLE001
+        pass
+    return (
+        settings.ngan_hang_ten,
+        settings.ngan_hang_so_tk,
+        settings.ngan_hang_chu_tk,
+    )
+
+
+def _luu_cau_hinh_ngan_hang_dong(ten: str, stk: str, chu: str) -> None:
+    import json
+
+    storage = get_storage()
+    rel = "quan_tri/cau_hinh_ngan_hang.json"
+    payload = {
+        "ngan_hang_ten": (ten or "").strip(),
+        "ngan_hang_so_tk": (stk or "").strip(),
+        "ngan_hang_chu_tk": (chu or "").strip(),
+    }
+    storage.save(rel, json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+
+
 @router_khach.get("/nap-luot/thong-tin", response_model=ThongTinNapLuotRead, tags=["han-muc"])
 async def xem_thong_tin_nap_luot(
     settings: Settings = Depends(get_settings),
@@ -470,6 +506,7 @@ async def xem_thong_tin_nap_luot(
     email = nguoi.email if nguoi is not None else None
     ma_noi_dung = f"NAP {str(nguoi.id).split('-')[0].upper()}" if nguoi is not None else "NAP <EMAIL_CUA_BAN>"
     don_gia = max(1, settings.ty_le_vnd_moi_trang)
+    nh_ten, nh_stk, nh_chu = await run_in_threadpool(_doc_cau_hinh_ngan_hang_dong, settings)
 
     return ThongTinNapLuotRead(
         co_tai_khoan=danh_tinh.co_tai_khoan,
@@ -477,9 +514,9 @@ async def xem_thong_tin_nap_luot(
         la_quan_tri=bool(nguoi and nguoi.la_quan_tri),
         so_luot_mua_them=danh_tinh.so_luot_mua_them if danh_tinh.co_tai_khoan else 0,
         tran_hang_ngay=danh_tinh.tran_hien,
-        ngan_hang_ten=settings.ngan_hang_ten,
-        ngan_hang_so_tk=settings.ngan_hang_so_tk,
-        ngan_hang_chu_tk=settings.ngan_hang_chu_tk,
+        ngan_hang_ten=nh_ten,
+        ngan_hang_so_tk=nh_stk,
+        ngan_hang_chu_tk=nh_chu,
         noi_dung_chuyen_khoan=ma_noi_dung,
         ty_le_vnd_moi_trang=don_gia,
         goi_goi_y=[
@@ -581,6 +618,21 @@ async def webhook_nap_luot_ngan_hang(
                     nguoi = u
                     break
 
+    # Hỗ trợ trường hợp App Ngân hàng tự động xoá ký tự '@' và '.' trong nội dung chuyển khoản
+    # (VD: "NAP user@gmail.com" bị ngân hàng biến thành "NAP usergmailcom")
+    if nguoi is None:
+        khop_tu = re.search(r"NAP\s+([a-zA-Z0-9_-]{3,64})", noi_dung, re.IGNORECASE)
+        if khop_tu:
+            tu_khoa = re.sub(r"[^a-z0-9]", "", khop_tu.group(1).lower())
+            ds_nguoi = (await session.execute(select(NguoiDung))).scalars().all()
+            for u in ds_nguoi:
+                email_rut_gon = re.sub(r"[^a-z0-9]", "", (u.email or "").lower())
+                local_part = re.sub(r"[^a-z0-9]", "", (u.email or "").split("@")[0].lower())
+                ten_rut_gon = re.sub(r"[^a-z0-9]", "", (u.ten_hien or "").lower())
+                if tu_khoa in (email_rut_gon, local_part) or (ten_rut_gon and tu_khoa == ten_rut_gon):
+                    nguoi = u
+                    break
+
     if nguoi is None:
         return {"ok": False, "ly_do": "khong_tim_thay_tai_khoan_tu_noi_dung"}
 
@@ -600,9 +652,27 @@ async def quan_tri_cap_luot(
     session: AsyncSession = Depends(get_session),
     nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> CapLuotResponse:
-    """E100 — Quản trị viên cấp trực tiếp lượt mua thêm hoặc đặt trần VIP hằng ngày cho khách hàng."""
+    """E100 — Quản trị viên cấp trực tiếp lượt mua thêm, đặt trần VIP hoặc lưu cấu hình VietQR."""
     if not nguoi.la_quan_tri:
         raise HTTPException(status_code=403, detail="Chỉ quản trị viên mới được cấp lượt.")
+
+    if (
+        body.ngan_hang_ten is not None
+        or body.ngan_hang_so_tk is not None
+        or body.ngan_hang_chu_tk is not None
+    ) and not body.email.strip():
+        await run_in_threadpool(
+            _luu_cau_hinh_ngan_hang_dong,
+            body.ngan_hang_ten or "",
+            body.ngan_hang_so_tk or "",
+            body.ngan_hang_chu_tk or "",
+        )
+        return CapLuotResponse(
+            email=nguoi.email,
+            so_luot_mua_them=int(nguoi.so_luot_mua_them or 0),
+            tran_hang_ngay_rieng=nguoi.tran_hang_ngay_rieng,
+            thong_diep=f"Đã lưu cấu hình VietQR Ngân hàng ({body.ngan_hang_ten} - {body.ngan_hang_so_tk}). Khách hàng sẽ thấy mã QR tự động ngay lập tức.",
+        )
 
     email_tim = body.email.strip().lower()
     dich = (
@@ -758,6 +828,7 @@ async def quan_tri_thong_ke(
             )
         )
 
+    nh_ten, nh_stk, nh_chu = await run_in_threadpool(_doc_cau_hinh_ngan_hang_dong, settings)
     return QuanTriThongKeRead(
         tong_nguoi_dung=len(ds_nguoi),
         nguoi_dung_hoat_dong=so_hoat_dong,
@@ -768,6 +839,9 @@ async def quan_tri_thong_ke(
         trang_dich_toan_thoi_gian=trang_toan_thoi_gian,
         tong_chapter=tong_chapter,
         ty_le_vnd_moi_trang=max(1, settings.ty_le_vnd_moi_trang),
+        ngan_hang_ten=nh_ten,
+        ngan_hang_so_tk=nh_stk,
+        ngan_hang_chu_tk=nh_chu,
         nguoi_dung_chi_tiet=chi_tiet,
     )
 
@@ -1005,6 +1079,14 @@ async def doc_truyen_gui_trang(
         "web (mặc định, giữ nguyên hành vi E19). day_du = chạy hết pipeline (xoá chữ gốc + căn "
         "chữ Việt vào bong bóng) ⇒ có ẢNH ĐÃ DỊCH tải về được — đây là chế độ của trang chủ.",
     ),
+    font_style: str | None = Form(
+        None,
+        description="E108 — Font chữ theo thể loại truyện: bangers | romance | historical | comic",
+    ),
+    tu_dien_rieng: str | None = Form(
+        None,
+        description="E108 — Sổ tay nhân vật / xưng hô cố định do người dịch chỉ định",
+    ),
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
     danh_tinh: DanhTinhHanMuc = Depends(danh_tinh_han_muc),
@@ -1036,6 +1118,15 @@ async def doc_truyen_gui_trang(
     project = await _chapter_doc_nhanh(
         session, danh_tinh.nguoi_goi, source_lang, che_do, target_lang=target_lang
     )
+    if font_style or tu_dien_rieng:
+        from app.services.typeset.chon_font import luu_tuy_chon_du_an
+
+        await run_in_threadpool(
+            luu_tuy_chon_du_an,
+            project.id,
+            font_style=font_style,
+            tu_dien_rieng=tu_dien_rieng,
+        )
 
     data = await file.read()
     if not data:
@@ -1300,6 +1391,14 @@ async def doc_truyen_gui_goi(
         description="day_du = xoá chữ gốc + căn chữ Việt vào bong bóng (mặc định cho trang chủ); "
         "chi_chu = chỉ trả toạ độ + chữ dịch.",
     ),
+    font_style: str | None = Form(
+        None,
+        description="E108 — Font chữ theo thể loại truyện: bangers | romance | historical | comic",
+    ),
+    tu_dien_rieng: str | None = Form(
+        None,
+        description="E108 — Sổ tay nhân vật / xưng hô cố định do người dịch chỉ định",
+    ),
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
     danh_tinh: DanhTinhHanMuc = Depends(danh_tinh_han_muc),
@@ -1318,6 +1417,15 @@ async def doc_truyen_gui_goi(
     project = await _chapter_doc_nhanh(
         session, danh_tinh.nguoi_goi, source_lang, che_do, target_lang=target_lang
     )
+    if font_style or tu_dien_rieng:
+        from app.services.typeset.chon_font import luu_tuy_chon_du_an
+
+        await run_in_threadpool(
+            luu_tuy_chon_du_an,
+            project.id,
+            font_style=font_style,
+            tu_dien_rieng=tu_dien_rieng,
+        )
 
     data = await file.read()
     if not data:
@@ -1465,6 +1573,15 @@ async def create_project(payload: ProjectCreate, session: AsyncSession = Depends
     session.add(project)
     await session.commit()
     await session.refresh(project)
+    if payload.font_style or payload.tu_dien_rieng:
+        from app.services.typeset.chon_font import luu_tuy_chon_du_an
+
+        await run_in_threadpool(
+            luu_tuy_chon_du_an,
+            project.id,
+            font_style=payload.font_style,
+            tu_dien_rieng=payload.tu_dien_rieng,
+        )
     return project
 
 

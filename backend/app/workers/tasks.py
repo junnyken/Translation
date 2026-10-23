@@ -2296,6 +2296,7 @@ def _run_typeset(job_id: uuid.UUID) -> dict:
             return {"status": "page_not_found", "job_id": str(job_id)}
 
         page_id = page.id
+        project_id = page.project_id
         clean_rel = page.clean_image_path
         anh_goc_rel = page.image_path
 
@@ -2417,11 +2418,13 @@ def _run_typeset(job_id: uuid.UUID) -> dict:
         session.commit()
 
     # ---- tính toán NGOÀI transaction: nạp font + đo chữ là việc nặng ----
+    from app.services.typeset.chon_font import doc_font_du_an
+
     typesetter, resolver = build_typesetter()
     # Vùng an toàn của E14 ĐÃ thụt vào sẵn (bước ăn mòn), nên canh chữ trong đó phải dùng
     # padding = 0. Trừ lề hai lần thì chữ tự nhiên bé lại mà không ai giải thích được vì sao.
     typesetter_an_toan = build_typesetter(padding_ratio=0.0)[0]
-    font_family = settings.default_font_family
+    font_family = doc_font_du_an(project_id) or settings.default_font_family
 
     # E65 — tách độ phân giải VẼ khỏi độ phân giải ĐỌC.
     #

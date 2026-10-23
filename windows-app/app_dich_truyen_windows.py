@@ -431,6 +431,110 @@ def goi_http(url: str, method: str = "GET", body: dict | None = None, token: str
         return resp.read()
 
 
+def gui_multipart_trang(
+    url: str,
+    img_bytes: bytes,
+    *,
+    filename: str = "page.jpg",
+    fields: dict[str, str],
+    token: str = "",
+) -> bytes:
+    """Gửi ảnh trang truyện qua chuẩn multipart/form-data lên `/api/v1/doc-truyen/trang`."""
+    boundary = f"----MangaStudioBoundary{int(time.time() * 1000)}"
+    lines: list[bytes] = []
+    for k, v in fields.items():
+        if v is None or v == "":
+            continue
+        lines.append(f"--{boundary}\r\n".encode("utf-8"))
+        lines.append(f'Content-Disposition: form-data; name="{k}"\r\n\r\n'.encode("utf-8"))
+        lines.append(f"{v}\r\n".encode("utf-8"))
+
+    lines.append(f"--{boundary}\r\n".encode("utf-8"))
+    lines.append(
+        f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
+        f"Content-Type: image/jpeg\r\n\r\n".encode("utf-8")
+    )
+    lines.append(img_bytes)
+    lines.append(f"\r\n--{boundary}--\r\n".encode("utf-8"))
+    body = b"".join(lines)
+
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Content-Type": f"multipart/form-data; boundary={boundary}",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        return resp.read()
+
+
+def xuat_pdf_va_longstrip_chapter(
+    tm_chap: Path,
+    ten_chap: str,
+    thu_muc_goc: Path,
+    *,
+    xuat_pdf: bool = False,
+    xuat_longstrip: bool = False,
+) -> list[str]:
+    """Tự động đóng gói thêm file .PDF và ghép dải ảnh dài Webtoon (Long-Strip) cho Chapter."""
+    if Image is None:
+        return []
+    ds_file = sorted(tm_chap.glob("*.jpg"))
+    if not ds_file:
+        return []
+    da_xuat: list[str] = []
+    ds_im = [Image.open(p).convert("RGB") for p in ds_file]
+    try:
+        if xuat_pdf:
+            pdf_path = thu_muc_goc / f"{ten_chap}.pdf"
+            ds_im[0].save(pdf_path, "PDF", resolution=100.0, save_all=True, append_images=ds_im[1:])
+            da_xuat.append(pdf_path.name)
+
+        if xuat_longstrip:
+            # Ghép dọc tối đa 15.000px mỗi dải để mọi trình xem ảnh đọc mượt
+            MAX_H = 15000
+            rong_chung = max(im.width for im in ds_im)
+            cac_dai: list[list] = []
+            dai_hien_tai: list = []
+            cao_hien_tai = 0
+            for im in ds_im:
+                ty_le = rong_chung / max(1, im.width)
+                cao_moi = int(round(im.height * ty_le))
+                if dai_hien_tai and (cao_hien_tai + cao_moi > MAX_H):
+                    cac_dai.append(dai_hien_tai)
+                    dai_hien_tai = []
+                    cao_hien_tai = 0
+                dai_hien_tai.append((im, cao_moi))
+                cao_hien_tai += cao_moi
+            if dai_hien_tai:
+                cac_dai.append(dai_hien_tai)
+
+            for idx_d, dai in enumerate(cac_dai, start=1):
+                tong_h = sum(h for _, h in dai)
+                canvas = Image.new("RGB", (rong_chung, max(1, tong_h)), (255, 255, 255))
+                y_cur = 0
+                for im, h_m in dai:
+                    im_rs = im.resize((rong_chung, h_m)) if im.width != rong_chung else im
+                    canvas.paste(im_rs, (0, y_cur))
+                    y_cur += h_m
+                ten_strip = (
+                    f"{ten_chap}_Webtoon_LongStrip.jpg"
+                    if len(cac_dai) == 1
+                    else f"{ten_chap}_Webtoon_Part{idx_d:02d}.jpg"
+                )
+                strip_path = tm_chap / ten_strip
+                canvas.save(strip_path, format="JPEG", quality=92)
+                da_xuat.append(f"{ten_chap}/{ten_strip}")
+    finally:
+        for im in ds_im:
+            try:
+                im.close()
+            except Exception:
+                pass
+    return da_xuat
+
+
 def lam_sach_ten_thu_muc(ten: str) -> str:
     ten = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "-", ten.strip())
     ten = re.sub(r"\s+", "-", ten).strip("-.")
@@ -687,22 +791,61 @@ class AppDichTruyenWindows(tk.Tk):
         self.cmb_font = ttk.Combobox(
             r1,
             values=["bangers (⚔️ Hành động)", "comic (💬 Truyện tranh)", "romance (🌸 Ngôn tình)", "historical (📜 Cổ trang)"],
-            width=22,
+            width=20,
             state="readonly",
         )
         self.cmb_font.current(0)
-        self.cmb_font.pack(side="left", padx=6)
+        self.cmb_font.pack(side="left", padx=(6, 12))
 
-        self.var_cbz = tk.BooleanVar(value=bool(self.cau_hinh.get("xuat_cbz", False)))
-        tk.Checkbutton(
+        tk.Label(r1, text="Bộ máy AI:", bg="#1e293b", fg="#cbd5e1").pack(side="left")
+        self.cmb_engine = ttk.Combobox(
             r1,
-            text="Đóng gói thêm file .CBZ cho từng Chapter",
+            values=["llm_context (✨ Gemini AI)", "google_fast (⚡ Google Nhanh)"],
+            width=22,
+            state="readonly",
+        )
+        self.cmb_engine.current(0)
+        self.cmb_engine.pack(side="left", padx=6)
+
+        r_export = tk.Frame(f_cfg, bg="#1e293b", pady=4)
+        r_export.pack(fill="x")
+        self.var_cbz = tk.BooleanVar(value=bool(self.cau_hinh.get("xuat_cbz", True)))
+        tk.Checkbutton(
+            r_export,
+            text="📦 Đóng gói .CBZ",
             variable=self.var_cbz,
             bg="#1e293b",
             fg="#e2e8f0",
             selectcolor="#0f172a",
             activebackground="#1e293b",
-        ).pack(side="left", padx=14)
+        ).pack(side="left", padx=(0, 12))
+
+        self.var_pdf = tk.BooleanVar(value=bool(self.cau_hinh.get("xuat_pdf", False)))
+        tk.Checkbutton(
+            r_export,
+            text="📕 Xuất thêm .PDF",
+            variable=self.var_pdf,
+            bg="#1e293b",
+            fg="#e2e8f0",
+            selectcolor="#0f172a",
+            activebackground="#1e293b",
+        ).pack(side="left", padx=(0, 12))
+
+        self.var_longstrip = tk.BooleanVar(value=bool(self.cau_hinh.get("xuat_longstrip", False)))
+        tk.Checkbutton(
+            r_export,
+            text="📜 Ghép dải ảnh dài Webtoon (Long-Strip)",
+            variable=self.var_longstrip,
+            bg="#1e293b",
+            fg="#e2e8f0",
+            selectcolor="#0f172a",
+            activebackground="#1e293b",
+        ).pack(side="left", padx=(0, 16))
+
+        tk.Label(r_export, text="📖 Xưng hô / Từ điển cố định:", bg="#1e293b", fg="#cbd5e1").pack(side="left")
+        self.ent_tu_dien = tk.Entry(r_export, bg="#0f172a", fg="#f8fafc", insertbackground="#fff")
+        self.ent_tu_dien.insert(0, self.cau_hinh.get("tu_dien_rieng", ""))
+        self.ent_tu_dien.pack(side="left", padx=6, fill="x", expand=True)
 
         r2 = tk.Frame(f_cfg, bg="#1e293b", pady=6)
         r2.pack(fill="x")
@@ -918,7 +1061,11 @@ class AppDichTruyenWindows(tk.Tk):
             ngon_ngu_nguon = self.cmb_src.get().split()[0].strip()
             ngon_ngu_dich = self.cmb_tgt.get().split()[0].strip()
             loai_font = self.cmb_font.get().split()[0].strip()
+            engine_dich = self.cmb_engine.get().split()[0].strip()
+            tu_dien_rieng = self.ent_tu_dien.get().strip()
             xuat_cbz = bool(self.var_cbz.get())
+            xuat_pdf = bool(self.var_pdf.get())
+            xuat_longstrip = bool(self.var_longstrip.get())
 
             if not self.ds_chapter_quet:
                 self.ds_chapter_quet = quet_danh_sach_chapter_tu_url(self.ent_url.get().strip())
@@ -960,20 +1107,18 @@ class AppDichTruyenWindows(tk.Tk):
                     )
                     try:
                         img_bytes = goi_http(url_anh, referer=url_chap)
-                        b64 = base64.b64encode(img_bytes).decode("ascii")
-                        body_gui = {
-                            "url": url_anh,
-                            "anh_base64": b64,
-                            "anh_mime": "image/jpeg",
-                            "ngon_ngu_nguon": ngon_ngu_nguon,
-                            "ngon_ngu_dich": ngon_ngu_dich,
-                            "che_do": "chi_chu",
-                            "font_family": loai_font,
-                        }
-                        raw_post = goi_http(
+                        raw_post = gui_multipart_trang(
                             f"{may_chu}/api/v1/doc-truyen/trang",
-                            method="POST",
-                            body=body_gui,
+                            img_bytes,
+                            filename=f"{i_trang:03d}.jpg",
+                            fields={
+                                "source_lang": ngon_ngu_nguon,
+                                "target_lang": ngon_ngu_dich,
+                                "engine": engine_dich,
+                                "che_do": "chi_chu",
+                                "font_style": loai_font,
+                                "tu_dien_rieng": tu_dien_rieng,
+                            },
                             token=token,
                         )
                         trang_kq = json.loads(raw_post.decode("utf-8"))
@@ -1002,6 +1147,17 @@ class AppDichTruyenWindows(tk.Tk):
                         for f_jpg in sorted(tm_chap.glob("*.jpg")):
                             zf.write(f_jpg, arcname=f_jpg.name)
                     self.ghi_log(f"📦 Đã đóng gói {cbz_path.name}")
+
+                if (xuat_pdf or xuat_longstrip) and not self.yeu_cau_dung:
+                    ds_them = xuat_pdf_va_longstrip_chapter(
+                        tm_chap,
+                        ten_chap,
+                        thu_muc_goc,
+                        xuat_pdf=xuat_pdf,
+                        xuat_longstrip=xuat_longstrip,
+                    )
+                    if ds_them:
+                        self.ghi_log(f"✨ Đã xuất thêm: {', '.join(ds_them)}")
 
             self._cap_nhat_han_muc()
             self.ghi_log(f"🎉 HOÀN TẤT! Toàn bộ các Chapter đã được chia vào thư mục: {thu_muc_goc}")

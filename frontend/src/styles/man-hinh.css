@@ -1140,5 +1140,54 @@ button.lien-ket { border: 0; background: none; box-shadow: none; }
   letter-spacing: 0.01em;
 }
 
+.khung-tu-dien-nhanh {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1px dashed var(--vien-manh, #dcd8ce);
+}
+
+.day-mau-xung-ho {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip-mau-xung-ho {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  background: #fff8f3;
+  color: #b93805;
+  border: 1px solid #f7c6a3;
+  cursor: pointer;
+}
+
+.chip-mau-xung-ho:hover {
+  background: #ffedd5;
+}
+
+.o-tu-dien {
+  width: 100%;
+  min-height: 70px;
+  resize: vertical;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.khung-vietqr-admin {
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--nen-phu, #faf9f6);
+  border: 1.5px solid var(--vien);
+}
+
+
 
 

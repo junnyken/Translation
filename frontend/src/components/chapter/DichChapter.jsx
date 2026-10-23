@@ -86,6 +86,8 @@ export default function DichChapter({ onMoChapter }) {
   const [nguon, setNguon] = useState('ja')
   const [dich, setDich] = useState('vi')
   const [fontChu, setFontChu] = useState('bangers')
+  const [tuDienRieng, setTuDienRieng] = useState('')
+  const [moTuDien, setMoTuDien] = useState(false)
   const [engine, setEngine] = useState('google_fast')
   const codex = useCodex()
   const [mucDich, setMucDich] = useState('')
@@ -122,6 +124,8 @@ export default function DichChapter({ onMoChapter }) {
         name: ten.trim() || datTenTuDong(files), source_lang: nguon, intended_use: mucDich,
       }
       if (dich !== 'vi') payload.target_lang = dich
+      if (fontChu !== 'bangers') payload.font_style = fontChu
+      if (tuDienRieng.trim()) payload.tu_dien_rieng = tuDienRieng.trim()
       const project = await api.taoProject(payload)
       projectId = project.id
 
@@ -257,6 +261,34 @@ export default function DichChapter({ onMoChapter }) {
                 )
               })}
             </div>
+          </div>
+
+          <div className="nhom-chon-manga">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+              <span className="nhan-nhom-chon">📖 Sổ tay Nhân vật &amp; Xưng hô cố định:</span>
+              <span
+                role="button"
+                tabIndex={0}
+                className="nut-chu"
+                style={{ fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}
+                onClick={() => setMoTuDien(!moTuDien)}
+                onKeyDown={(e) => { if (e.key === 'Enter') setMoTuDien(!moTuDien) }}
+              >
+                {moTuDien ? '▲ Thu gọn sổ tay' : '➕ Mở thiết lập Xưng hô & Tên nhân vật'}
+              </span>
+            </div>
+            {moTuDien && (
+              <div className="khung-tu-dien-nhanh">
+                <textarea
+                  className="o o-tu-dien"
+                  rows={3}
+                  disabled={dangChay}
+                  value={tuDienRieng}
+                  onChange={(e) => setTuDienRieng(e.target.value)}
+                  placeholder="Ví dụ:&#10;- Sung Jin-Woo: xưng tôi, gọi cậu&#10;- Cha Hae-In: xưng em, gọi anh&#10;- Shadow Monarch = Quân Vương Bóng Tối"
+                />
+              </div>
+            )}
           </div>
 
           <div className="huy-hieu-gpu-khach">

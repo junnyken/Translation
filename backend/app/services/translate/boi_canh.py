@@ -173,7 +173,10 @@ def nap_boi_canh_du_an(
         if page_id is not None and kem_trang_truoc
         else []
     )
-    if not thuat_ngu and not nhan_vat and not thoai_trang_truoc:
+    from app.services.typeset.chon_font import doc_tu_dien_du_an
+
+    tu_dien_rieng = doc_tu_dien_du_an(project_id)
+    if not thuat_ngu and not nhan_vat and not thoai_trang_truoc and not tu_dien_rieng:
         return ""
 
     khoi: list[str] = []
@@ -187,6 +190,16 @@ def nap_boi_canh_du_an(
             khoi.append("")
         khoi.append("### Giọng và xưng hô của nhân vật — giữ đúng khi câu đó là lời của họ:")
         khoi.extend(_dong_nhan_vat(v) for v in nhan_vat)
+    if tu_dien_rieng:
+        if khoi:
+            khoi.append("")
+        khoi.append(
+            "### Sổ tay nhân vật / xưng hô & thuật ngữ cố định do người dịch chỉ định — BẮT BUỘC tuân thủ:"
+        )
+        for dong in tu_dien_rieng.splitlines():
+            d = dong.strip()
+            if d:
+                khoi.append(d if d.startswith("-") else f"- {d}")
     if thoai_trang_truoc:
         if khoi:
             khoi.append("")

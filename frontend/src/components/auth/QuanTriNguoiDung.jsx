@@ -27,6 +27,12 @@ export default function QuanTriNguoiDung({ toi }) {
   const [tranVip, setTranVip] = useState('')
   const [dangCap, setDangCap] = useState(false)
 
+  // Form cấu hình VietQR Ngân hàng & Webhook tự động
+  const [nhTen, setNhTen] = useState('')
+  const [nhSoTk, setNhSoTk] = useState('')
+  const [nhChuTk, setNhChuTk] = useState('')
+  const [dangLuuNh, setDangLuuNh] = useState(false)
+
   async function nap() {
     try {
       const danhSach = await api.layDanhSachNguoiDung()
@@ -39,6 +45,9 @@ export default function QuanTriNguoiDung({ toi }) {
         if (tk && typeof tk === 'object' && Array.isArray(tk.nguoi_dung_chi_tiet)) {
           setThongKe(tk)
           setDs(tk.nguoi_dung_chi_tiet)
+          if (tk.ngan_hang_ten !== undefined) setNhTen(tk.ngan_hang_ten || '')
+          if (tk.ngan_hang_so_tk !== undefined) setNhSoTk(tk.ngan_hang_so_tk || '')
+          if (tk.ngan_hang_chu_tk !== undefined) setNhChuTk(tk.ngan_hang_chu_tk || '')
         }
       } catch {
         // Giữ nguyên danh sách cơ bản từ `/auth/users`
@@ -73,6 +82,25 @@ export default function QuanTriNguoiDung({ toi }) {
       setLoi(String(err?.message || err).replace(/^\d+:\s*/, ''))
     } finally {
       setDangCap(false)
+    }
+  }
+
+  async function xuLyLuuNganHang(e) {
+    e.preventDefault()
+    setDangLuuNh(true); setLoi(null); setThongBaoOk(null)
+    try {
+      const kq = await api.quanTriCapLuot({
+        email: '',
+        nganHangTen: nhTen.trim(),
+        nganHangSoTk: nhSoTk.trim(),
+        nganHangChuTk: nhChuTk.trim(),
+      })
+      setThongBaoOk(kq?.thong_diep || 'Đã lưu cấu hình VietQR ngân hàng thành công.')
+      await nap()
+    } catch (err) {
+      setLoi(String(err?.message || err).replace(/^\d+:\s*/, ''))
+    } finally {
+      setDangLuuNh(false)
     }
   }
 
@@ -200,6 +228,48 @@ export default function QuanTriNguoiDung({ toi }) {
           </Button>
         </div>
       </form>
+
+      {/* Cấu hình VietQR Ngân hàng & Webhook Tự động 24/7 (SePay / Casso) */}
+      <details className="khung-vietqr-admin" style={{ marginBottom: 18 }}>
+        <summary style={{ cursor: 'pointer', fontWeight: 800, fontSize: 14 }}>
+          🏦 Cấu hình Mã QR Ngân hàng (VietQR) &amp; Tự động cộng lượt 24/7 (SePay / Casso)
+          {nhTen && nhSoTk ? ` — Đang bật (${nhTen}: ${nhSoTk})` : ' — Chưa cài STK'}
+        </summary>
+        <form onSubmit={xuLyLuuNganHang} style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <p className="ghi-chu" style={{ margin: 0 }}>
+            Điền thông tin ngân hàng bên dưới để hệ thống tự động sinh mã <strong>VietQR động</strong> kèm số tiền và nội dung <code>NAP &lt;MÃ_KHÁCH&gt;</code> trên Trang chủ.
+            Khi kết nối Webhook của <strong>SePay.vn</strong> hoặc <strong>Casso.vn</strong> trỏ về địa chỉ{' '}
+            <code>{typeof window !== 'undefined' ? `${window.location.origin}/api/v1/nap-luot/webhook` : '/api/v1/nap-luot/webhook'}</code>,
+            khách quét mã chuyển khoản xong sẽ được <strong>tự động cộng lượt sau 5 giây</strong> kể cả nửa đêm!
+          </p>
+          <div className="hang-o-cap-goi">
+            <input
+              type="text"
+              className="o"
+              placeholder="Mã Ngân hàng (VD: MB, VCB, ACB, TCB, VPB, BIDV...)"
+              value={nhTen}
+              onChange={(e) => setNhTen(e.target.value)}
+            />
+            <input
+              type="text"
+              className="o"
+              placeholder="Số tài khoản nhận tiền..."
+              value={nhSoTk}
+              onChange={(e) => setNhSoTk(e.target.value)}
+            />
+            <input
+              type="text"
+              className="o"
+              placeholder="Tên chủ tài khoản (IN HOA KHÔNG DẤU)..."
+              value={nhChuTk}
+              onChange={(e) => setNhChuTk(e.target.value)}
+            />
+            <Button type="submit" kieu="phu" disabled={dangLuuNh}>
+              {dangLuuNh ? 'Đang lưu…' : '💾 Lưu VietQR'}
+            </Button>
+          </div>
+        </form>
+      </details>
 
       {ds.length > 3 && (
         <div style={{ marginBottom: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>

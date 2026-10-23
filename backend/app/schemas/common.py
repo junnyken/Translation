@@ -53,6 +53,8 @@ class ProjectCreate(BaseModel):
     source_lang: SourceLang
     target_lang: TargetLang = TargetLang.vi
     intended_use: IntendedUse
+    font_style: str | None = None
+    tu_dien_rieng: str | None = None
 
 
 class ProjectRead(ORMModel):
@@ -1212,9 +1214,12 @@ class ThongTinNapLuotRead(BaseModel):
 class CapLuotRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    email: str = Field(min_length=3, max_length=320)
+    email: str = Field(default="", max_length=320)
     cong_them_luot: int = Field(default=0, ge=-100000, le=100000)
     tran_hang_ngay_rieng: int | None = Field(default=None, ge=0, le=100000)
+    ngan_hang_ten: str | None = Field(default=None, max_length=80)
+    ngan_hang_so_tk: str | None = Field(default=None, max_length=60)
+    ngan_hang_chu_tk: str | None = Field(default=None, max_length=120)
 
 
 class CapLuotResponse(BaseModel):
@@ -1250,5 +1255,8 @@ class QuanTriThongKeRead(BaseModel):
     trang_dich_toan_thoi_gian: int = 0
     tong_chapter: int = 0
     ty_le_vnd_moi_trang: int = 100
+    ngan_hang_ten: str = ""
+    ngan_hang_so_tk: str = ""
+    ngan_hang_chu_tk: str = ""
     nguoi_dung_chi_tiet: list[QuanTriNguoiDungChiTietRead] = []
 

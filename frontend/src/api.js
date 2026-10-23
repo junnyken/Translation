@@ -654,16 +654,29 @@ export const layHanMuc = () => fetch(`${BASE}/han-muc`).then(doc)
 export const layThongTinNapLuot = () => fetch(`${BASE}/nap-luot/thong-tin`).then(doc)
 
 /** E100 — Quản trị viên cấp trực tiếp lượt mua thêm hoặc đặt trần VIP hằng ngày cho tài khoản. */
-export const quanTriCapLuot = ({ email, congThemLuot = 0, tranHangNgayRieng = null }) =>
-  fetch(`${BASE}/quan-tri/cap-luot`, {
+export const quanTriCapLuot = ({
+  email = '',
+  congThemLuot = 0,
+  tranHangNgayRieng = null,
+  nganHangTen = undefined,
+  nganHangSoTk = undefined,
+  nganHangChuTk = undefined,
+}) => {
+  const payload = {
+    email,
+    cong_them_luot: Number(congThemLuot) || 0,
+    tran_hang_ngay_rieng:
+      tranHangNgayRieng === '' || tranHangNgayRieng === null ? null : Number(tranHangNgayRieng),
+  }
+  if (nganHangTen !== undefined) payload.ngan_hang_ten = nganHangTen
+  if (nganHangSoTk !== undefined) payload.ngan_hang_so_tk = nganHangSoTk
+  if (nganHangChuTk !== undefined) payload.ngan_hang_chu_tk = nganHangChuTk
+  return fetch(`${BASE}/quan-tri/cap-luot`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      email,
-      cong_them_luot: Number(congThemLuot) || 0,
-      tran_hang_ngay_rieng: tranHangNgayRieng === '' || tranHangNgayRieng === null ? null : Number(tranHangNgayRieng),
-    }),
+    body: JSON.stringify(payload),
   }).then(doc)
+}
 
 /** E107 — Lấy thống kê tổng hợp hệ thống & chi tiết hạn mức từng người dùng cho Dashboard Quản trị. */
 export const layThongKeQuanTri = () => fetch(`${BASE}/quan-tri/thong-ke`).then(doc)
@@ -706,7 +719,15 @@ export const guiNhanDangNgonNgu = (file) => {
 export const layNhanDangNgonNgu = (id) => fetch(`${BASE}/nhan-dang-ngon-ngu/${id}`).then(doc)
 
 export const guiTrangDichNhanh = (
-  file, { sourceLang = 'ja', targetLang = 'vi', cheDo = 'day_du', engine = null, fontStyle = null } = {},
+  file,
+  {
+    sourceLang = 'ja',
+    targetLang = 'vi',
+    cheDo = 'day_du',
+    engine = null,
+    fontStyle = null,
+    tuDienRieng = null,
+  } = {},
 ) => {
   const form = new FormData()
   form.append('file', file)
@@ -718,12 +739,21 @@ export const guiTrangDichNhanh = (
   // hưởng bất kỳ mặc định hệ thống nào, kể cả engine trả tiền.
   if (engine) form.append('engine', engine)
   if (fontStyle) form.append('font_style', fontStyle)
+  if (tuDienRieng && tuDienRieng.trim()) form.append('tu_dien_rieng', tuDienRieng.trim())
   return fetch(`${BASE}/doc-truyen/trang`, { method: 'POST', body: form }).then(doc)
 }
 
 /** E99 — gửi gói `.zip` / `.cbz` / `.pdf` từ trang chủ. Trả `{ project_id, so_trang, bo_qua, trang }`. */
 export const guiGoiDichNhanh = (
-  file, { sourceLang = 'ja', targetLang = 'vi', cheDo = 'day_du', engine = null, fontStyle = null } = {},
+  file,
+  {
+    sourceLang = 'ja',
+    targetLang = 'vi',
+    cheDo = 'day_du',
+    engine = null,
+    fontStyle = null,
+    tuDienRieng = null,
+  } = {},
 ) => {
   const form = new FormData()
   form.append('file', file)
@@ -732,6 +762,7 @@ export const guiGoiDichNhanh = (
   form.append('che_do', cheDo)
   if (engine) form.append('engine', engine)
   if (fontStyle) form.append('font_style', fontStyle)
+  if (tuDienRieng && tuDienRieng.trim()) form.append('tu_dien_rieng', tuDienRieng.trim())
   return fetch(`${BASE}/doc-truyen/goi`, { method: 'POST', body: form }).then(doc)
 }
 
