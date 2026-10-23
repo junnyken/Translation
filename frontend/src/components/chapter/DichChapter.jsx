@@ -31,6 +31,25 @@ const MO_TA_ENGINE = {
   chatgpt_codex: 'Dịch bằng tài khoản ChatGPT của chính bạn (thử nghiệm) — có thể bị giới hạn lượt dùng.',
 }
 
+const PILL_NGON_NGU_GOC = [
+  { ma: 'ja', co: 'JP', nhan: 'Tiếng Nhật' },
+  { ma: 'ko', co: 'KR', nhan: 'Tiếng Hàn' },
+  { ma: 'zh', co: 'CN', nhan: 'Tiếng Trung' },
+  { ma: 'en', co: 'GB', nhan: 'Tiếng Anh' },
+]
+
+const PILL_NGON_NGU_DICH = [
+  { ma: 'vi', co: 'VN', nhan: 'Sang Tiếng Việt' },
+  { ma: 'en', co: 'US', nhan: 'To English' },
+]
+
+const PILL_FONT_THE_LOAI = [
+  { ma: 'bangers', bieuTuong: '⚔️', nhan: 'Hành động (Đậm)' },
+  { ma: 'romance', bieuTuong: '🌸', nhan: 'Ngôn tình (Mềm)' },
+  { ma: 'historical', bieuTuong: '🏮', nhan: 'Cổ trang (Bút)' },
+  { ma: 'comic', bieuTuong: '💥', nhan: 'Hài hước (Tròn)' },
+]
+
 /** Vì sao chưa chạy được — `null` nghĩa là chạy được. Tách riêng để test không cần dựng DOM. */
 export function lyDoChuaChayDuoc({ mucDich, files }) {
   // M10 giữ nguyên ở đây: người dùng tự khai mục đích, hệ thống KHÔNG chọn hộ. Tên chapter
@@ -65,6 +84,8 @@ export function datTenTuDong(files, luc = new Date()) {
 export default function DichChapter({ onMoChapter }) {
   const [ten, setTen] = useState('')
   const [nguon, setNguon] = useState('ja')
+  const [dich, setDich] = useState('vi')
+  const [fontChu, setFontChu] = useState('bangers')
   const [engine, setEngine] = useState('google_fast')
   const codex = useCodex()
   const [mucDich, setMucDich] = useState('')
@@ -97,9 +118,11 @@ export default function DichChapter({ onMoChapter }) {
     setDangChay(true); setLoi(null); setDaXong(0)
     let projectId = null
     try {
-      const project = await api.taoProject({
+      const payload = {
         name: ten.trim() || datTenTuDong(files), source_lang: nguon, intended_use: mucDich,
-      })
+      }
+      if (dich !== 'vi') payload.target_lang = dich
+      const project = await api.taoProject(payload)
       projectId = project.id
 
       // Tải tuần tự: gói đi đường gói, ảnh lẻ đi đường ảnh; dồn một lúc chỉ làm máy chủ nghẹn.
@@ -137,6 +160,109 @@ export default function DichChapter({ onMoChapter }) {
 
       <fieldset className="khoi" disabled={dangChay}>
         <Dropzone files={files} onDoi={setFiles} tatCa={dangChay} chapNhanGoi id="vung-tha-nhanh" />
+
+        <div className="bo-chon-manga">
+          <div className="nhom-chon-manga">
+            <span className="nhan-nhom-chon">Ngôn ngữ gốc trên trang (Đổi tức thì):</span>
+            <div className="luoi-nut-chon" role="radiogroup" aria-label="Ngôn ngữ gốc trên trang">
+              {PILL_NGON_NGU_GOC.map((item) => {
+                const dangChon = nguon === item.ma
+                return (
+                  <button
+                    key={item.ma}
+                    type="button"
+                    role="radio"
+                    aria-checked={dangChon}
+                    disabled={dangChay}
+                    className={`nut-chon-pill ${dangChon ? 'dang-chon' : ''}`}
+                    onClick={() => setNguon(item.ma)}
+                  >
+                    <span className="pill-co">{item.co}</span>
+                    <span>{item.nhan}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          <div className="nhom-chon-manga">
+            <span className="nhan-nhom-chon">Ngôn ngữ dịch ra (Việt Nam &amp; Quốc tế):</span>
+            <div className="luoi-nut-chon luoi-2-cot" role="radiogroup" aria-label="Ngôn ngữ dịch ra">
+              {PILL_NGON_NGU_DICH.map((item) => {
+                const dangChon = dich === item.ma
+                return (
+                  <button
+                    key={item.ma}
+                    type="button"
+                    role="radio"
+                    aria-checked={dangChon}
+                    disabled={dangChay}
+                    className={`nut-chon-pill ${dangChon ? 'dang-chon' : ''}`}
+                    onClick={() => setDich(item.ma)}
+                  >
+                    <span className="pill-co">{item.co}</span>
+                    <span>{item.nhan}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          <div className="nhom-chon-manga">
+            <span className="nhan-nhom-chon">Bộ máy dịch thuật:</span>
+            <div className="luoi-nut-chon luoi-2-cot" role="radiogroup" aria-label="Bộ máy dịch thuật">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={engine === 'llm_context'}
+                disabled={dangChay}
+                className={`nut-chon-pill ${engine === 'llm_context' ? 'dang-chon' : ''}`}
+                onClick={() => doiEngine('llm_context')}
+              >
+                <span className="pill-co">✨</span>
+                <span>Gemini AI (Chuẩn ngữ cảnh)</span>
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={engine === 'google_fast'}
+                disabled={dangChay}
+                className={`nut-chon-pill ${engine === 'google_fast' ? 'dang-chon' : ''}`}
+                onClick={() => doiEngine('google_fast')}
+              >
+                <span className="pill-co">⚡</span>
+                <span>Google Nhanh</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="nhom-chon-manga">
+            <span className="nhan-nhom-chon">Font chữ theo thể loại truyện (Đổi trực tiếp trên trang):</span>
+            <div className="luoi-nut-chon luoi-2-cot" role="radiogroup" aria-label="Font chữ theo thể loại">
+              {PILL_FONT_THE_LOAI.map((item) => {
+                const dangChon = fontChu === item.ma
+                return (
+                  <button
+                    key={item.ma}
+                    type="button"
+                    role="radio"
+                    aria-checked={dangChon}
+                    disabled={dangChay}
+                    className={`nut-chon-pill ${dangChon ? 'dang-chon' : ''}`}
+                    onClick={() => setFontChu(item.ma)}
+                  >
+                    <span className="pill-co">{item.bieuTuong}</span>
+                    <span>{item.nhan}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          <div className="huy-hieu-gpu-khach">
+            🚀 Xoá chữ GPU khách · Nhấp đúp sửa câu — Siêu tốc ~3s
+          </div>
+        </div>
       </fieldset>
 
       <fieldset className="khoi" disabled={dangChay}>

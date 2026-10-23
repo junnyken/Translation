@@ -706,28 +706,32 @@ export const guiNhanDangNgonNgu = (file) => {
 export const layNhanDangNgonNgu = (id) => fetch(`${BASE}/nhan-dang-ngon-ngu/${id}`).then(doc)
 
 export const guiTrangDichNhanh = (
-  file, { sourceLang = 'ja', cheDo = 'day_du', engine = null } = {},
+  file, { sourceLang = 'ja', targetLang = 'vi', cheDo = 'day_du', engine = null, fontStyle = null } = {},
 ) => {
   const form = new FormData()
   form.append('file', file)
   form.append('source_lang', sourceLang)
+  form.append('target_lang', targetLang)
   form.append('che_do', cheDo)
   // E67 — `engine` KHÔNG mặc định ở đây. Máy chủ mặc định `google_fast` (miễn phí), và E58 đã
   // chốt rằng lựa chọn đó phải được LƯU chứ không để `NULL` — để trang chủ không âm thầm thừa
   // hưởng bất kỳ mặc định hệ thống nào, kể cả engine trả tiền.
   if (engine) form.append('engine', engine)
+  if (fontStyle) form.append('font_style', fontStyle)
   return fetch(`${BASE}/doc-truyen/trang`, { method: 'POST', body: form }).then(doc)
 }
 
 /** E99 — gửi gói `.zip` / `.cbz` / `.pdf` từ trang chủ. Trả `{ project_id, so_trang, bo_qua, trang }`. */
 export const guiGoiDichNhanh = (
-  file, { sourceLang = 'ja', cheDo = 'day_du', engine = null } = {},
+  file, { sourceLang = 'ja', targetLang = 'vi', cheDo = 'day_du', engine = null, fontStyle = null } = {},
 ) => {
   const form = new FormData()
   form.append('file', file)
   form.append('source_lang', sourceLang)
+  form.append('target_lang', targetLang)
   form.append('che_do', cheDo)
   if (engine) form.append('engine', engine)
+  if (fontStyle) form.append('font_style', fontStyle)
   return fetch(`${BASE}/doc-truyen/goi`, { method: 'POST', body: form }).then(doc)
 }
 
