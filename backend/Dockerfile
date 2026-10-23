@@ -13,8 +13,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
-
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
@@ -61,9 +59,11 @@ RUN pip install --no-cache-dir --timeout 300 --retries 10 \
 
 ENV HF_HOME=/model-cache/hf \
     PADDLE_PDX_CACHE_HOME=/model-cache/paddle
+COPY . .
 
 # ---------- stage api: NHẸ, không có thư viện AI (docker-compose máy nhà dùng stage này) ----------
 FROM base AS api
+COPY . .
 
 # Chạy migration rồi mới phục vụ. Không dùng --reload khi chạy thật.
 CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]
@@ -86,6 +86,10 @@ RUN mkdir -p /models \
 COPY fonts /fonts
 COPY deploy-start.sh /usr/local/bin/deploy-start.sh
 RUN chmod +x /usr/local/bin/deploy-start.sh
+
+# Đặt COPY . . ở CUỐI stage app để khi sửa mã Python trong app/, Docker tái sử dụng 100% cache
+# của các tầng nặng phía trên (torch, paddleocr, manga-ocr, 289MB model ONNX) thay vì tải lại từ đầu!
+COPY . .
 
 ENV FONT_DIR=/fonts \
     CTD_WEIGHTS_PATH=/models/comic-text-detector.onnx \
