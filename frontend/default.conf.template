@@ -9,5 +9,5 @@ server {
   listen ${PORT};
   root /usr/share/nginx/html;
   # SPA: mọi đường dẫn không phải file đều trả index.html, nếu không thì F5 sẽ ra 404.
-  location / { try_files $uri $uri/ /index.html; }
+  location / { try_files $uri $uri.html $uri/ /index.html; }
 }

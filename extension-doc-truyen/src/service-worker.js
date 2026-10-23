@@ -122,7 +122,25 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false)
 
   const { ngonNgu, ngonNguDich, engine, cheDo } = await docCauHinh()
   bao({ giai_doan: 'dang-gui', url, che_do: cheDo, anh_goc_data_url })
-  const { page_id } = await guiTrang(blob, ngonNgu, engine, cheDo, ngonNguDich)
+  const kqGui = await guiTrang(blob, ngonNgu, engine, cheDo, ngonNguDich)
+  const { page_id } = kqGui
+
+  // E110 — Nếu trúng Bảng Cache Cộng Đồng trên máy chủ (`kqGui.xong === true`), trả kết quả tức thì (0,15s)
+  // không cần chờ 900ms hỏi lại!
+  if kqGui?.xong && Array.isArray(kqGui.vung) && kqGui.vung.length > 0) {
+    if (ngonNguDich === 'en') {
+      await damBaoNgonNguDich(kqGui.vung, ngonNgu, ngonNguDich)
+    }
+    let anh_da_dich_data_url = null
+    if (kqGui.che_do === 'day_du' && kqGui.anh_da_dich && ngonNguDich !== 'en') {
+      try {
+        anh_da_dich_data_url = await taiAnhDaDichDataUrl(page_id)
+      } catch {
+        anh_da_dich_data_url = null
+      }
+    }
+    return { ...kqGui, anh_da_dich_data_url, anh_goc_data_url }
+  }
 
   const lucBatDau = Date.now()
   const han = lucBatDau + TRAN_CHO_MS

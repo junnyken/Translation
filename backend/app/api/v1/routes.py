@@ -1185,18 +1185,21 @@ async def doc_truyen_gui_trang(
             session,
             bam_anh=bam_anh,
             source_lang=source_lang,
+            target_lang=target_lang,
             engine=engine,
             che_do=che_do,
             dich_page=page,
             storage=storage,
         )
         if trung_cache:
-            ghi_nhan_trang_anh(bam_anh, source_lang, engine, che_do, page.id)
+            ghi_nhan_trang_anh(
+                bam_anh, source_lang, engine, che_do, page.id, target_lang=target_lang
+            )
             await session.commit()
             await session.refresh(page)
             return await doc_truyen_lay_trang(page.id, session=session, danh_tinh=danh_tinh)
 
-    ghi_nhan_trang_anh(bam_anh, source_lang, engine, che_do, page.id)
+    ghi_nhan_trang_anh(bam_anh, source_lang, engine, che_do, page.id, target_lang=target_lang)
     job = Job(type=JobType.detect, page_id=page.id, status=JobStatus.queued)
     session.add(job)
     await session.commit()
@@ -1271,6 +1274,53 @@ async def doc_truyen_lay_trang(
                               PageStatus.ready_for_export)
     else:
         xong = page.status in (PageStatus.typeset_done, PageStatus.ready_for_export)
+
+    if xong and project is not None and page.image_path and any(v.ban_dich for v in vung):
+        try:
+            from app.services.bo_nho_anh_dich import (
+                ghi_nhan_trang_anh,
+                luu_snapshot_cache_cong_dong,
+                tinh_bam_anh,
+            )
+
+            st_cache = get_storage()
+            if await run_in_threadpool(st_cache.exists, page.image_path):
+                raw_img = await run_in_threadpool(st_cache.read, page.image_path)
+                bam_anh = tinh_bam_anh(raw_img)
+                eng_cache = page.translate_engine_override or TranslationEngine.llm_context
+                ghi_nhan_trang_anh(
+                    bam_anh,
+                    project.source_lang,
+                    eng_cache,
+                    project.che_do_pipeline,
+                    page.id,
+                    target_lang=project.target_lang,
+                )
+                vung_snap = [
+                    {
+                        "x": v.x,
+                        "y": v.y,
+                        "w": v.w,
+                        "h": v.h,
+                        "reading_order": v.thu_tu_doc or (idx + 1),
+                        "chu_goc": v.chu_goc or "",
+                        "ban_dich": v.ban_dich or "",
+                    }
+                    for idx, v in enumerate(vung)
+                    if v.ban_dich
+                ]
+                await luu_snapshot_cache_cong_dong(
+                    storage=st_cache,
+                    bam_anh=bam_anh,
+                    source_lang=project.source_lang,
+                    target_lang=project.target_lang,
+                    engine=eng_cache,
+                    che_do=project.che_do_pipeline,
+                    page_id=page.id,
+                    vung_snapshot=vung_snap,
+                )
+        except Exception:  # noqa: BLE001
+            pass
 
     return TrangDocTruyen(
         page_id=page.id,
@@ -1513,8 +1563,9 @@ async def doc_truyen_gui_goi(
                     che_do=che_do,
                     dich_page=page,
                     storage=storage,
+                    target_lang=target_lang,
                 )
-            ghi_nhan_trang_anh(bam_anh, source_lang, engine, che_do, page.id)
+            ghi_nhan_trang_anh(bam_anh, source_lang, engine, che_do, page.id, target_lang=target_lang)
 
             if trung_cache:
                 job_id_tra = page.id

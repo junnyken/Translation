@@ -23,6 +23,7 @@ import VoiceProfileManager from './components/consistency/VoiceProfileManager.js
 import ReviewToolbar from './components/chapter/ReviewToolbar.jsx'
 import ManDangNhap from './components/auth/ManDangNhap.jsx'
 import ChanTrangManga from './components/trang-chu/ChanTrangManga.jsx'
+import ChinhSachBaoMat from './components/trang-chu/ChinhSachBaoMat.jsx'
 import HeSinhThaiCongCu from './components/trang-chu/HeSinhThaiCongCu.jsx'
 import TrangChu from './components/trang-chu/TrangChu.jsx'
 import ManTaiKhoan from './components/auth/ManTaiKhoan.jsx'
@@ -64,12 +65,18 @@ const docTabChapter = () => {
 /** Lấy id trang/chapter từ địa chỉ (#page=… hoặc #project=…) để chia sẻ link được.
  *  Giữ nguyên dạng địa chỉ cũ: link đã gửi cho nhau vẫn phải mở được. */
 function docDiaChi() {
-  const p = new URLSearchParams(window.location.hash.slice(1))
+  const hashRaw = window.location.hash.slice(1)
+  const p = new URLSearchParams(hashRaw)
+  const laPrivacy =
+    window.location.pathname === '/privacy-policy' ||
+    hashRaw === 'privacy-policy' ||
+    p.has('privacy-policy')
   // E76 — `#canvas=<page_id>` mở màn sửa tay kiểu canvas. `#canvas=&project=<id>` (không có trang)
   // mở theo chapter: vào trang đầu, hoặc hiện màn "chưa có trang" nếu chapter rỗng.
   return {
     pageId: p.get('page') || '', projectId: p.get('project') || '',
     coCanvas: p.has('canvas'), canvasId: p.get('canvas') || '',
+    laPrivacy,
   }
 }
 
@@ -121,7 +128,7 @@ function AppRuot({ urlBundle } = {}) {
     chuyenTab(ma)
     setTimeout(() => khuTabRef.current?.scrollIntoView?.({ block: 'nearest' }), 0)
   }, [chuyenTab])
-  const [{ pageId, projectId, coCanvas, canvasId }, setDiaChi] = useState(docDiaChi)
+  const [{ pageId, projectId, coCanvas, canvasId, laPrivacy }, setDiaChi] = useState(docDiaChi)
   const [nhap, setNhap] = useState(projectId || pageId)
   const [project, setProject] = useState(null)
   const [canhBao, setCanhBao] = useState(null)
@@ -542,7 +549,17 @@ function AppRuot({ urlBundle } = {}) {
         {/* `TrangChu` TỰ nó là một `<main>`. Bọc nó trong `<main className="than-trang">` như bản
             cũ là lồng hai `<main>` vào nhau — HTML không hợp lệ, và trình đọc màn hình mất mốc
             "nội dung chính". Chỉ màn đăng nhập mới cần lớp bọc đó. */}
-        {muonDangNhap
+        {laPrivacy ? (
+          <ChinhSachBaoMat
+            onQuayLai={() => {
+              if (window.location.pathname === '/privacy-policy') {
+                window.history.pushState({}, '', '/')
+              }
+              window.location.hash = ''
+              setDiaChi(docDiaChi())
+            }}
+          />
+        ) : muonDangNhap
           ? (
             <main className="than-trang">
               <ManDangNhap onXong={setNguoiDung} onQuayLai={() => setMuonDangNhap(false)} />
@@ -623,7 +640,17 @@ function AppRuot({ urlBundle } = {}) {
         </div>
       </header>
 
-      {coCanvas ? (
+      {laPrivacy ? (
+        <ChinhSachBaoMat
+          onQuayLai={() => {
+            if (window.location.pathname === '/privacy-policy') {
+              window.history.pushState({}, '', '/')
+            }
+            window.location.hash = ''
+            setDiaChi(docDiaChi())
+          }}
+        />
+      ) : coCanvas ? (
         <CanvasEditor pageId={canvasId} projectId={projectId} />
       ) : (
       <main className="than-trang">

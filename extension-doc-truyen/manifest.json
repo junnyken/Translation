@@ -4,6 +4,11 @@
   "version": "0.3.0",
   "description": "Bấm một cái để phủ chữ dịch tiếng Việt lên trang truyện bạn đang đọc. Gửi ảnh tới máy chủ Translation của chính bạn.",
   "minimum_chrome_version": "114",
+  "icons": {
+    "16": "src/icons/icon-16.png",
+    "48": "src/icons/icon-48.png",
+    "128": "src/icons/icon-128.png"
+  },
   "permissions": [
     "storage",
     "scripting",
@@ -45,7 +50,12 @@
   "options_page": "src/options/index.html",
   "action": {
     "default_title": "Dịch trang truyện này",
-    "default_popup": "src/popup/index.html"
+    "default_popup": "src/popup/index.html",
+    "default_icon": {
+      "16": "src/icons/icon-16.png",
+      "48": "src/icons/icon-48.png",
+      "128": "src/icons/icon-128.png"
+    }
   },
   "content_scripts": [
     {

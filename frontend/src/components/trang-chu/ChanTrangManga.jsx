@@ -88,6 +88,10 @@ export default function ChanTrangManga() {
         <span>© {namHienTai} Manga Translation Studio · {laEn ? 'Version v0.3.0' : 'Phiên bản v0.3.0'}</span>
         <span className="cham-ngan" aria-hidden="true">•</span>
         <span>{laEn ? 'Supported: Manga (JP) · Manhwa (KR) · Manhua (ZH) · Comic (EN) · Web Novel' : 'Hỗ trợ: Manga (Nhật) · Manhwa (Hàn) · Manhua (Trung) · Comic (Anh) · Truyện chữ'}</span>
+        <span className="cham-ngan" aria-hidden="true">•</span>
+        <a href="#privacy-policy" style={{ color: '#f97316', fontWeight: 600 }}>
+          🛡️ {laEn ? 'Privacy Policy' : 'Chính sách quyền riêng tư (/privacy-policy)'}
+        </a>
       </div>
     </footer>
   )
