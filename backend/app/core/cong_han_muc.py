@@ -95,11 +95,13 @@ async def con_du_khong(
     `giu_cho_moi_chot`.
     """
     ngay = ngay_han_muc()
+    luot_mua = danh_tinh.so_luot_mua_them if danh_tinh.co_tai_khoan else 0
     for chot in danh_tinh.chot:
         con = await con_lai_bat_dong_bo(session, chot.loai, chot.chu_the, ngay, chot.tran)
-        if so_trang > con:
+        con_tong = con + (luot_mua if chot.loai is LoaiChuThe.nguoi_dung else 0)
+        if so_trang > con_tong:
             raise loi_vuot_han_muc(
-                danh_tinh=danh_tinh, settings=settings, can=so_trang, con_lai=con, chot=chot
+                danh_tinh=danh_tinh, settings=settings, can=so_trang, con_lai=con_tong, chot=chot
             )
 
 
@@ -111,7 +113,14 @@ async def giu_cho_moi_chot(
     Khách lạ có hai chốt và phải lọt qua **cả hai**. Không cần gỡ phần đã giữ ở chốt trước khi
     chốt sau từ chối: tất cả nằm trong **một giao dịch**, nơi gọi ném 429 ⇒ giao dịch bị huỷ ⇒
     không dòng nào ở lại. Đó cũng là lý do hàm này **không** tự `commit`.
+
+    E100 — Với tài khoản đã đăng nhập (`LoaiChuThe.nguoi_dung`), nếu lượt miễn phí trong ngày đã
+    hết (`not kq.thanh_cong`), tự động trừ 1 lượt trong quỹ `so_luot_mua_them` (nếu còn >= 1)
+    ngay trong cùng giao dịch SQL.
     """
+    from sqlalchemy import update
+    from app.models import NguoiDung
+
     ngay = ngay_han_muc()
     for chot in danh_tinh.chot:
         kq = await giu_cho_trang(
@@ -123,6 +132,23 @@ async def giu_cho_moi_chot(
             tran=chot.tran,
         )
         if not kq.thanh_cong:
+            if (
+                chot.loai is LoaiChuThe.nguoi_dung
+                and danh_tinh.co_tai_khoan
+                and not danh_tinh.nguoi_goi.la_khach
+                and danh_tinh.nguoi_goi.nguoi is not None
+            ):
+                nguoi_id = danh_tinh.nguoi_goi.nguoi.id
+                tru_mua = (
+                    await session.execute(
+                        update(NguoiDung)
+                        .where(NguoiDung.id == nguoi_id, NguoiDung.so_luot_mua_them >= 1)
+                        .values(so_luot_mua_them=NguoiDung.so_luot_mua_them - 1)
+                        .returning(NguoiDung.so_luot_mua_them)
+                    )
+                ).scalar_one_or_none()
+                if tru_mua is not None:
+                    continue
             raise loi_vuot_han_muc(
                 danh_tinh=danh_tinh, settings=settings, can=1, con_lai=kq.con_lai, chot=chot
             )

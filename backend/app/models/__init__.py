@@ -110,6 +110,12 @@ class NguoiDung(TimestampMixin, Base):
     dang_hoat_dong: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     #: Người đầu tiên đăng ký thành quản trị: có quyền nhận các chapter cũ chưa có chủ.
     la_quan_tri: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    #: E100 — Trần lượt mỗi ngày riêng cho tài khoản VIP (NULL = dùng mặc định `han_muc_co_tai_khoan`).
+    tran_hang_ngay_rieng: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
+    #: E100 — Số lượt nạp thêm (mua lẻ / tích luỹ, không hết hạn qua đêm; chỉ trừ khi hết lượt ngày).
+    so_luot_mua_them: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
 
     phien: Mapped[list["Phien"]] = relationship(
         back_populates="nguoi_dung", cascade="all, delete-orphan"

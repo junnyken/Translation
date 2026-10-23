@@ -77,16 +77,9 @@ class DanhTinhHanMuc:
     co_tai_khoan: bool
     chot: tuple[Chot, ...]
     cookie_moi: str | None = None
-    #: Ai đang gọi, dùng cho phân quyền dữ liệu.
-    #:
-    #: Gộp chung vào ĐÂY thay vì một dependency thứ hai là có chủ đích: hai dependency riêng có
-    #: thể **bất đồng** — tính hạn mức cho khách trong khi đọc dữ liệu với tư cách người đăng
-    #: nhập, hoặc ngược lại. Một nguồn thì không có cửa đó.
-    #:
-    #: Mặc định là `NguoiGoi()` rỗng — người gọi không có tài khoản và không có mã khách, tức
-    #: **không thấy gì**. Hỏng kiểu fail-closed: chỗ nào quên gán thì mất quyền, không phải được
-    #: quyền.
     nguoi_goi: NguoiGoi = field(default_factory=NguoiGoi)
+    #: E100 — Số lượt nạp thêm (không hết hạn qua đêm) của tài khoản đã đăng nhập.
+    so_luot_mua_them: int = 0
 
     @property
     def tran_hien(self) -> int:
@@ -142,8 +135,16 @@ def chot_cho_khach(request: Request, settings: Settings) -> tuple[tuple[Chot, ..
 
     Không lấy được IP thì **chỉ còn chốt cookie** — và điều đó được ghi WARNING, vì lúc đó xoá
     cookie là vượt được hạn mức. Đây là hạ cấp có thật, không được im lặng.
+
+    Ngoài cookie `ma_khach`, chấp nhận thêm header `X-Ma-Khach` (dài >= 16 ký tự) cho tiện ích mở
+    rộng trình duyệt (`chrome-extension://`), nơi cookie `SameSite=Lax` không được trình duyệt đính
+    kèm vào request `POST` chéo nguồn. Chốt IP vẫn luôn đi kèm nên không thể lách hạn mức.
     """
     ma_cookie = request.cookies.get(TEN_COOKIE)
+    if not ma_cookie:
+        ma_header = (request.headers.get("x-ma-khach") or "").strip()
+        if len(ma_header) >= 16:
+            ma_cookie = ma_header
     cookie_moi = None
     if not ma_cookie:
         ma_cookie = secrets.token_urlsafe(24)
@@ -198,10 +199,17 @@ async def danh_tinh_han_muc(
     ma = ma_phien_tu_header(authorization)
     nguoi = await tai_khoan.lay_theo_ma_phien(session, ma) if ma else None
     if nguoi is not None:
+        tran_ngay = (
+            int(nguoi.tran_hang_ngay_rieng)
+            if getattr(nguoi, "tran_hang_ngay_rieng", None) is not None
+            else han_muc_cho(True)
+        )
+        luot_mua = max(0, int(getattr(nguoi, "so_luot_mua_them", 0) or 0))
         return DanhTinhHanMuc(
             co_tai_khoan=True,
-            chot=(Chot(LoaiChuThe.nguoi_dung, str(nguoi.id), han_muc_cho(True)),),
+            chot=(Chot(LoaiChuThe.nguoi_dung, str(nguoi.id), tran_ngay),),
             nguoi_goi=NguoiGoi(nguoi=nguoi),
+            so_luot_mua_them=luot_mua,
         )
 
     chot, cookie_moi = chot_cho_khach(request, settings)

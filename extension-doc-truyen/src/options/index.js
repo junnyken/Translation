@@ -4,9 +4,11 @@
  * máy chủ cấp mới nằm lại trong `chrome.storage.local`. Mã phiên thu hồi được (đăng xuất là
  * mất hiệu lực ngay), mật khẩu thì không.
  */
-import { dangNhap, dangXuat, docCauHinh, toiLaAi } from '../lib/api.js'
+import { chuanHoaDiaChi, dangKy, dangNhap, dangXuat, docCauHinh, luuCauHinh, toiLaAi } from '../lib/api.js'
 
 const $ = (id) => document.getElementById(id)
+const MAY_CHU_GOI_Y = 'https://translation-api.vibe1.tinhgon.xyz'
+
 const bao = (chu, loai) => {
   const h = $('bao')
   h.textContent = chu
@@ -18,9 +20,46 @@ const bao = (chu, loai) => {
 // hơn bản mới nhất, và không có cách nào biết ngoài việc nhìn số này.
 document.getElementById('phien-ban').textContent = `v${chrome.runtime.getManifest().version}`
 
+function chonTab(cheDo) {
+  const cacTab = ['dang-nhap', 'dang-ky', 'khach']
+  for (const ma of cacTab) {
+    const nut = $(`tab-${ma}`)
+    if (nut) nut.classList.toggle('dang-chon', ma === cheDo)
+  }
+  const laKhach = cheDo === 'khach'
+  const laDangKy = cheDo === 'dang-ky'
+
+  if ($('khoi-tai-khoan')) $('khoi-tai-khoan').hidden = laKhach
+  if ($('nhom-ten-hien')) $('nhom-ten-hien').hidden = !laDangKy
+  if ($('khoi-nut-dang-nhap')) $('khoi-nut-dang-nhap').hidden = cheDo !== 'dang-nhap'
+  if ($('khoi-nut-dang-ky')) $('khoi-nut-dang-ky').hidden = !laDangKy
+  if ($('khoi-nut-khach')) $('khoi-nut-khach').hidden = !laKhach
+
+  const oEmail = $('email')
+  if (oEmail) oEmail.required = !laKhach
+}
+
+$('tab-dang-nhap')?.addEventListener('click', () => chonTab('dang-nhap'))
+$('tab-dang-ky')?.addEventListener('click', () => chonTab('dang-ky'))
+$('tab-khach')?.addEventListener('click', () => chonTab('khach'))
+
+$('nut-dien-vibe')?.addEventListener('click', () => {
+  $('dia-chi').value = MAY_CHU_GOI_Y
+  $('dia-chi').focus()
+})
+
+$('nut-an-hien-mk')?.addEventListener('click', () => {
+  const o = $('mat-khau')
+  const nut = $('nut-an-hien-mk')
+  if (!o || !nut) return
+  const dangAn = o.type === 'password'
+  o.type = dangAn ? 'text' : 'password'
+  nut.textContent = dangAn ? 'Ẩn' : 'Hiện'
+})
+
 async function ve() {
   const { diaChi, email } = await docCauHinh()
-  $('dia-chi').value = diaChi
+  $('dia-chi').value = diaChi || MAY_CHU_GOI_Y
   $('email').value = email
   try {
     const nguoi = await toiLaAi()
@@ -37,13 +76,47 @@ async function ve() {
 $('dang-nhap').addEventListener('submit', async (e) => {
   e.preventDefault()
   try {
-    const nguoi = await dangNhap($('dia-chi').value.trim(), $('email').value.trim(), $('mat-khau').value)
+    const diaChi = chuanHoaDiaChi($('dia-chi').value)
+    $('dia-chi').value = diaChi
+    const nguoi = await dangNhap(diaChi, $('email').value.trim(), $('mat-khau').value)
     $('mat-khau').value = ''
-    bao(`Đã đăng nhập: ${nguoi.email}`, 'ok')
+    bao(`Đã đăng nhập: ${nguoi.email} (hạn mức 20 trang/ngày)`, 'ok')
     await ve()
   } catch (err) {
     bao(String(err?.message || err), 'loi')
   }
+})
+
+$('nut-dang-ky')?.addEventListener('click', async () => {
+  const diaChi = chuanHoaDiaChi($('dia-chi').value)
+  $('dia-chi').value = diaChi
+  const email = $('email').value.trim()
+  const matKhau = $('mat-khau').value
+  const tenHien = $('ten-hien')?.value.trim() || ''
+  if (!diaChi || !email || !matKhau) {
+    bao('Vui lòng nhập Địa chỉ máy chủ, Email và Mật khẩu (tối thiểu 8 ký tự) để đăng ký.', 'loi')
+    return
+  }
+  try {
+    const nguoi = await dangKy(diaChi, email, tenHien, matKhau)
+    $('mat-khau').value = ''
+    bao(`Đã tạo tài khoản và đăng nhập: ${nguoi.email} (hạn mức 20 trang/ngày)`, 'ok')
+    await ve()
+  } catch (err) {
+    bao(String(err?.message || err), 'loi')
+  }
+})
+
+$('nut-khach')?.addEventListener('click', async () => {
+  const diaChi = chuanHoaDiaChi($('dia-chi').value)
+  $('dia-chi').value = diaChi
+  if (!diaChi) {
+    bao('Vui lòng nhập Địa chỉ máy chủ Translation.', 'loi')
+    return
+  }
+  await luuCauHinh({ diaChi, maPhien: '', email: '' })
+  bao(`Đã lưu máy chủ (${diaChi}). Bạn đang ở chế độ Khách vãng lai (2 trang/ngày).`, 'ok')
+  await ve()
 })
 
 $('nut-thoat').addEventListener('click', async () => {
@@ -52,4 +125,5 @@ $('nut-thoat').addEventListener('click', async () => {
   await ve()
 })
 
+chonTab('dang-nhap')
 ve()

@@ -1,6 +1,6 @@
 /** Quy đổi toạ độ ảnh gốc → toạ độ hiển thị. Sai chỗ này thì lớp phủ lệch khỏi bong bóng. */
 import { describe, expect, it } from 'vitest'
-import { coChu, quyDoi, sanSangQuyDoi } from '../src/lib/toa-do.js'
+import { coChu, moRongKhungBongBong, quyDoi, sanSangQuyDoi } from '../src/lib/toa-do.js'
 
 const anh = (o = {}) => ({
   naturalWidth: 1200, naturalHeight: 1700, clientWidth: 600, clientHeight: 850, ...o,
@@ -47,5 +47,15 @@ describe('cỡ chữ trong bong bóng', () => {
 
   it('không chia cho 0 khi bong bóng rỗng chữ', () => {
     expect(Number.isFinite(coChu({ width: 100, height: 100 }, 0))).toBe(true)
+  })
+
+  it('mở rộng khung chữ dọc Nhật hẹp ra lòng bong bóng mà không đè lên bong bóng kế', () => {
+    const ds = [
+      { left: 100, top: 100, width: 24, height: 60 },
+      { left: 160, top: 100, width: 50, height: 60 },
+    ]
+    const moRong = moRongKhungBongBong(ds, { width: 600, height: 900 })
+    expect(moRong[0].width).toBeGreaterThan(ds[0].width)
+    expect(moRong[0].left + moRong[0].width).toBeLessThanOrEqual(moRong[1].left)
   })
 })

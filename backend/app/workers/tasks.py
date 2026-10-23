@@ -299,8 +299,8 @@ def _run_detect(job_id: uuid.UUID) -> dict:
         #     được ghi); một trường trong kết quả thì tra được và kiểm được.
         global _da_canh_bao_ja_ctd
         rui_ro_ja_ctd = False
+        du_an = session.get(Project, page.project_id)
         if settings.canh_bao_ctd_cho_tieng_nhat and settings.detect_engine == "ctd":
-            du_an = session.get(Project, page.project_id)
             if du_an is not None and du_an.source_lang is SourceLang.ja:
                 rui_ro_ja_ctd = True
                 if not _da_canh_bao_ja_ctd:
@@ -313,6 +313,33 @@ def _run_detect(job_id: uuid.UUID) -> dict:
                         "ứng ánh sáng. Dùng DETECT_ENGINE=ai_gemini để tránh."
                     )
 
+        engine_dich_hieu_luc = (
+            page.translate_engine_override.value
+            if page.translate_engine_override is not None
+            else settings.translate_default_engine
+        )
+        du_dieu_kien_gop_1_luot = (
+            settings.gop_mot_luot_chi_chu
+            and settings.detect_engine == "ai_gemini"
+            and settings.ocr_auto_chain
+            and settings.translate_auto_chain
+            and du_an is not None
+            and du_an.che_do_pipeline is ChePipeline.chi_chu
+            and engine_dich_hieu_luc == TranslationEngine.llm_context.value
+        )
+        du_an_source_lang = du_an.source_lang.value if du_an is not None else "ja"
+        du_an_target_lang = du_an.target_lang.value if du_an is not None else "vi"
+        boi_canh_gop = ""
+        if du_dieu_kien_gop_1_luot:
+            from app.services.translate.boi_canh import nap_boi_canh_du_an
+
+            boi_canh_gop = nap_boi_canh_du_an(
+                session,
+                page.project_id,
+                page_id=page_id,
+                kem_trang_truoc=settings.boi_canh_kem_trang_truoc,
+            )
+
         danh_dau_dang_chay(job)
         if page.status is not PageStatus.detecting:
             assert_transition(page.status, PageStatus.detecting)
@@ -323,14 +350,40 @@ def _run_detect(job_id: uuid.UUID) -> dict:
     ep_giai_phong_neu_cang({"detector"}, settings.worker_rss_soft_limit_mb)
     ghi_moc("detect: trước")
     detector = get_detector()
+    da_gop_1_luot = False
     with anh_cuc_bo(image_rel) as image_path:
-        regions = detector.detect_regions(image_path)
+        if du_dieu_kien_gop_1_luot and hasattr(detector, "detect_va_dich_regions"):
+            regions = detector.detect_va_dich_regions(
+                image_path,
+                source_lang=du_an_source_lang,
+                target_lang=du_an_target_lang,
+                boi_canh=boi_canh_gop,
+            )
+            regions = [
+                r
+                for r in regions
+                if bool((getattr(r, "chu", None) or "").strip())
+                or bool((getattr(r, "ban_dich", None) or "").strip())
+            ]
+            for r in regions:
+                chu_r = (getattr(r, "chu", None) or "").strip()
+                dich_r = (getattr(r, "ban_dich", None) or "").strip()
+                if not chu_r and dich_r:
+                    r.chu = dich_r
+                elif chu_r and not dich_r:
+                    r.ban_dich = chu_r
+            da_gop_1_luot = True
+        else:
+            regions = detector.detect_regions(image_path)
     elapsed = time.perf_counter() - started
     _luu_mat_na_chu(image_rel, getattr(detector, "mat_na_chu", None))
 
     from app.services.detect.geometry import mark_overlap_suspects
 
     flags = mark_overlap_suspects([r.bbox for r in regions], settings.ctd_overlap_suspect_ratio)
+    khung_tranh_gop = (
+        _khung_tranh_cua_trang(image_rel, du_an_source_lang) if da_gop_1_luot and regions else None
+    )
 
     with sync_session() as session:
         # Idempotent guard: xóa region cũ của page trước khi ghi mới (retry không nhân đôi).
@@ -338,6 +391,7 @@ def _run_detect(job_id: uuid.UUID) -> dict:
             delete(TextRegion).where(TextRegion.page_id == page_id)
         ).rowcount
         low_conf = 0
+        cap_region_db: list[tuple[TextRegion, object]] = []
         for region, overlap in zip(regions, flags, strict=True):
             # E46 — `None` = engine khong tra diem (Gemini). KHONG phai diem thap.
             # So sanh thang se no TypeError; coi None la 'thap' thi gan co oan moi vung.
@@ -346,23 +400,70 @@ def _run_detect(job_id: uuid.UUID) -> dict:
                 and region.confidence < settings.ctd_conf_threshold
             )
             low_conf += int(is_low)
-            session.add(
-                TextRegion(
-                    page_id=page_id,
-                    bbox_x=region.bbox.x,
-                    bbox_y=region.bbox.y,
-                    bbox_w=region.bbox.w,
-                    bbox_h=region.bbox.h,
-                    confidence=region.confidence,
-                    overlap_suspect=overlap,
-                    status=RegionStatus.low_confidence if is_low else RegionStatus.pending,
-                    chu_nhan_dien=getattr(region, "chu", None) or None,
-                )
+            tr = TextRegion(
+                page_id=page_id,
+                bbox_x=region.bbox.x,
+                bbox_y=region.bbox.y,
+                bbox_w=region.bbox.w,
+                bbox_h=region.bbox.h,
+                confidence=region.confidence,
+                overlap_suspect=overlap,
+                status=RegionStatus.low_confidence if is_low else RegionStatus.pending,
+                chu_nhan_dien=getattr(region, "chu", None) or None,
             )
+            session.add(tr)
+            cap_region_db.append((tr, region))
 
         page = session.get(Page, page_id)
         assert_transition(page.status, PageStatus.detected)
         page.status = PageStatus.detected
+
+        if da_gop_1_luot:
+            session.flush()
+            if cap_region_db:
+                from app.services.translate.reading_order import calculate_reading_order
+
+                db_regions = [tr for tr, _ in cap_region_db]
+                theo_id_det = {tr.id: reg for tr, reg in cap_region_db}
+                ordered = calculate_reading_order(
+                    db_regions,
+                    du_an_source_lang,
+                    settings.reading_direction_override or None,
+                    khung_tranh=khung_tranh_gop,
+                )
+                usage_meta = getattr(detector, "last_usage", None) or {}
+                tong_token = usage_meta.get("totalTokenCount")
+                ten_model = getattr(detector, "model_name", settings.detect_ai_model)
+                for idx, tr in enumerate(ordered):
+                    tr.reading_order = idx + 1
+                    reg = theo_id_det[tr.id]
+                    chu_goc = (getattr(reg, "chu", None) or "").strip()
+                    ban_dich = (getattr(reg, "ban_dich", None) or "").strip()
+                    co_doan = bool(getattr(reg, "doan", False))
+                    session.add(
+                        OCRResult(
+                            region_id=tr.id,
+                            raw_text=chu_goc,
+                            line_polygons=None,
+                            ocr_engine=OCREngine.ai_gemini,
+                            confidence=None,
+                            status=OCRStatus.needs_manual if co_doan else _classify_ocr(chu_goc, None),
+                        )
+                    )
+                    session.add(
+                        TranslationResult(
+                            region_id=tr.id,
+                            translated_text=ban_dich or None,
+                            engine=TranslationEngine.llm_context,
+                            model_name=ten_model,
+                            token_cost=tong_token if idx == 0 else None,
+                            status=TranslationStatus.ok if ban_dich else TranslationStatus.pending,
+                        )
+                    )
+            assert_transition(page.status, PageStatus.ocr_done)
+            page.status = PageStatus.ocr_done
+            assert_transition(page.status, PageStatus.translated)
+            page.status = PageStatus.translated
 
         job = session.get(Job, job_id)
         job.status = JobStatus.done
@@ -370,11 +471,17 @@ def _run_detect(job_id: uuid.UUID) -> dict:
         session.commit()
 
     logger.info(
-        "detect job %s: %d region (%d low_confidence, %d overlap_suspect), xóa %d region cũ, %.1fs",
-        job_id, len(regions), low_conf, sum(flags), deleted, elapsed,
+        "detect job %s%s: %d region (%d low_confidence, %d overlap_suspect), xóa %d region cũ, %.1fs",
+        job_id,
+        " (gop_1_luot detect+ocr+dich)" if da_gop_1_luot else "",
+        len(regions), low_conf, sum(flags), deleted, elapsed,
     )
 
-    ocr_job_id = enqueue_ocr_after_detect(page_id) if settings.ocr_auto_chain else None
+    ocr_job_id = (
+        None
+        if da_gop_1_luot
+        else (enqueue_ocr_after_detect(page_id) if settings.ocr_auto_chain else None)
+    )
 
     return {
         "status": "done",
@@ -386,6 +493,7 @@ def _run_detect(job_id: uuid.UUID) -> dict:
         "replaced_regions": deleted,
         "elapsed_seconds": round(elapsed, 2),
         "ocr_job_id": str(ocr_job_id) if ocr_job_id else None,
+        "gop_mot_luot": da_gop_1_luot,
         # `None` khi không có rủi ro — không bịa ra giá trị mặc định giả.
         "canh_bao": "ja_voi_ctd" if rui_ro_ja_ctd else None,
     }
@@ -1648,7 +1756,12 @@ def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dic
         # định đó. Nạp trong transaction vì cần session; chuỗi rỗng ⇒ prompt y như trước E31.
         from app.services.translate.boi_canh import nap_boi_canh_du_an
 
-        boi_canh = nap_boi_canh_du_an(session, page.project_id)
+        boi_canh = nap_boi_canh_du_an(
+            session,
+            page.project_id,
+            page_id=page_id,
+            kem_trang_truoc=settings.boi_canh_kem_trang_truoc,
+        )
 
         # E32 — ảnh trang gửi kèm cho mô hình. BẬT từ 14-09, nhưng chỉ bật được VÌ có E34 lọc bên
         # dưới: một ảnh tốn cố định +1166 token, nên gửi cho mọi trang là 24 trang từ 9.600 lên

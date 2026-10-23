@@ -21,7 +21,7 @@ from app.services.ocr.crop import crop_region
 logger = logging.getLogger(__name__)
 
 #: Ký tự "rác" thường gặp khi model đoán bừa trên vùng không có chữ.
-_MEANINGFUL = re.compile(r"[0-9A-Za-z぀-ヿ㐀-鿿＀-￯À-ỹ]")
+_MEANINGFUL = re.compile(r"[0-9A-Za-z぀-ヿ㐀-鿿＀-￯À-ỹ가-힣ㄱ-ㆎᄀ-ᇿ]")
 
 
 def has_meaningful_text(text: str) -> bool:
@@ -291,12 +291,13 @@ def get_ocr_engine(
     value = source_lang.value if isinstance(source_lang, SourceLang) else str(source_lang)
     if value == SourceLang.ja.value:
         return MangaOCREngine(device=device)
-    if value in (SourceLang.zh.value, SourceLang.en.value):
+    if value in (SourceLang.zh.value, SourceLang.en.value, SourceLang.ko.value):
+        paddle_lang = {"zh": "ch", "en": "en", "ko": "korean"}[value]
         return PaddleOCREngine(
-            lang="ch" if value == "zh" else "en",
+            lang=paddle_lang,
             device=device,
             enable_mkldnn=paddle_enable_mkldnn,
         )
     raise UnsupportedSourceLang(
-        f"source_lang '{value}' không được hỗ trợ ở M3 (chỉ ja/zh/en)"
+        f"source_lang '{value}' không được hỗ trợ ở M3 (chỉ ja/zh/en/ko)"
     )

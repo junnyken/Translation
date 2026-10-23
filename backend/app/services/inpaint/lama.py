@@ -279,12 +279,14 @@ class LamaInpainter:
         if mask.max() <= 0:
             raise InvalidMask("Mask rỗng sau khi dựng — không có gì để xoá")
 
+        so_vung_da_to_phang = 0
         if self.flat_fill:
             # E69 — vùng chữ trên nền một màu: tô màu nền, không cần LaMa. Mặt nạ còn lại CHỈ
             # gồm khung chưa tô, để vùng giao với khung chưa tô vẫn do model vẽ lại.
             khung_noi = dilate_bboxes(masks, width, height, self.dilate_ratio)
             kq = to_phang(anh_u8, khung_noi)
             if kq.da_to:
+                so_vung_da_to_phang = len(kq.da_to)
                 logger.info("Tô phẳng %d/%d vùng chữ, bỏ qua LaMa cho các vùng đó",
                             len(kq.da_to), len(masks))
                 masks = [masks[i] for i in kq.con_lai]
@@ -330,9 +332,14 @@ class LamaInpainter:
                 logger.info("E79: xoá theo nét chữ (%d khung lùi về xoá cả khung)", lui)
 
         trieu_diem = (width * height) / 1e6
+        cum_con_lai = gom_cum(masks, width, height, self.tile_margin) if (masks and so_vung_da_to_phang > 0) else []
+        dien_tich_cum = sum((x1 - x0) * (y1 - y0) for x0, y0, x1, y1 in cum_con_lai)
+        chay_theo_cum_nhanh = bool(
+            cum_con_lai and dien_tich_cum < (width * height * 0.45)
+        )
         if not masks:
             out_arr = anh_u8  # mọi vùng đã tô phẳng — không nạp model
-        elif trieu_diem <= self.whole_page_max_mpx:
+        elif trieu_diem <= self.whole_page_max_mpx and not chay_theo_cum_nhanh:
             # Trang nhỏ: chạy cả trang một lượt như M4 đã kiểm chứng.
             self._kiem_tran_o_cat(trieu_diem, width, height, "cả trang")
             rgb = anh_u8.astype(np.float32) / 255.0  # HWC
@@ -341,14 +348,9 @@ class LamaInpainter:
             # Chỉ thay pixel TRONG mask, theo dải — lý do trong docstring `_tron_theo_dai`.
             out_arr = _tron_theo_dai(rgb, pred_hwc, mask)
         else:
-            # Trang lớn: chạy theo từng cụm bong bóng, nếu không sẽ hết bộ nhớ.
-            #
-            # E88 — KHÔNG dựng ảnh số thực cỡ NGUYÊN TRANG. Trước đây giữ `rgb` + `pred_hwc` (mỗi
-            # bản = cao×rộng×3×4 byte) cả trang: trang 3112x4402 (13,7 triệu điểm, production
-            # 16-10-2026) là ~330 MB chỉ cho hai bản đó, cộng LaMa trên ô 1,6 triệu điểm ⇒ worker bị
-            # giết (137) hai lần liên tiếp. Giờ ảnh giữ uint8, chỉ ô cắt mới đổi sang số thực.
+            # Trang lớn (hoặc đa số bong bóng đã tô phẳng, chỉ còn vài cụm nhỏ): chạy theo từng cụm.
             out_arr = anh_u8
-            cum = gom_cum(masks, width, height, self.tile_margin)
+            cum = cum_con_lai or gom_cum(masks, width, height, self.tile_margin)
             logger.info(
                 "Ảnh %dx%d (%.1f triệu điểm) vượt ngưỡng %.1f -> xoá chữ theo %d cụm",
                 width, height, trieu_diem, self.whole_page_max_mpx, len(cum),

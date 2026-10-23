@@ -6,31 +6,156 @@
  * riêng (`tests/chon-anh.test.js`, `tests/toa-do.test.js`), còn tệp này chỉ sống được trong
  * trình duyệt thật. Chép lại = có hai bản và một bản sẽ lệch.
  */
-;(async () => {
+void (async () => {
   const CO = '__translation_doc_truyen__'
-  if (window[CO]?.dangChay) return
-  // `dangXepHang`: src đang được xếp hàng trước (§ dưới) — chặn xếp trùng khi bấm dịch liên tiếp
-  // nhiều trang trước khi lượt xếp hàng của trang trước kịp xong.
-  window[CO] = window[CO] || { daDich: new Map(), dangXepHang: new Set() }
+  window[CO] = window[CO] || { daDich: new Map(), dangXepHang: new Set(), luotChayId: 0 }
+  if (window[CO].dangChay && window[CO].dangChayBulk) {
+    chrome.storage?.local?.remove?.(['__e60_snip', '__e59_bulk', '__e102_auto_scroll'])?.catch?.(() => {})
+    return
+  }
   window[CO].dangChay = true
+  const maLuotHienTai = (window[CO].luotChayId || 0) + 1
+  window[CO].luotChayId = maLuotHienTai
 
-  const { chonMoiTrang, chonTrangKeTiep, chonTrangTruyen } = await import(chrome.runtime.getURL('src/lib/chon-anh.js'))
-  const { coChu, quyDoi, sanSangQuyDoi } = await import(chrome.runtime.getURL('src/lib/toa-do.js'))
+  const { chonCacTrangKeTiep, chonMoiTrang, chonTrangKeTiep, chonTrangTruyen } = await import(chrome.runtime.getURL('src/lib/chon-anh.js'))
+  const { coChu, moRongKhungBongBong, quyDoi, sanSangQuyDoi } = await import(chrome.runtime.getURL('src/lib/toa-do.js'))
 
-  const bang = document.createElement('div')
-  bang.style.cssText = [
-    'position:fixed', 'z-index:2147483647', 'right:16px', 'bottom:16px',
-    'max-width:320px', 'padding:10px 12px', 'border-radius:8px',
-    'background:#111', 'color:#fff', 'font:13px/1.45 system-ui,sans-serif',
-    'box-shadow:0 4px 16px rgba(0,0,0,.35)', 'white-space:pre-wrap',
-  ].join(';')
-  document.body.appendChild(bang)
+  // E101 + E105 — Kho 4 Font truyện tranh theo thể loại (Hành động / Ngôn tình / Cổ trang / Hài hước)
+  // đóng gói nội bộ trong tiện ích để không bao giờ bị chặn bởi CSP của trang truyện.
+  const KHO_FONT_TRUYEN = {
+    bangers: {
+      ten: '⚔️ Hành động',
+      fontFace: 'TranslationBangers',
+      tep: 'src/fonts/Bangers-Regular.ttf',
+      css: "'TranslationBangers', 'Bangers', system-ui, -apple-system, sans-serif",
+      lineHeight: '1.14',
+      letterSpacing: '0.025em',
+    },
+    shantell: {
+      ten: '🌸 Ngôn tình',
+      fontFace: 'TranslationShantell',
+      tep: 'src/fonts/ShantellSans-Regular.ttf',
+      css: "'TranslationShantell', 'Shantell Sans', system-ui, -apple-system, sans-serif",
+      lineHeight: '1.18',
+      letterSpacing: '0.01em',
+    },
+    mansalva: {
+      ten: '🏮 Cổ trang',
+      fontFace: 'TranslationMansalva',
+      tep: 'src/fonts/Mansalva-Regular.ttf',
+      css: "'TranslationMansalva', 'Mansalva', cursive, system-ui, sans-serif",
+      lineHeight: '1.16',
+      letterSpacing: '0.015em',
+    },
+    sigmar: {
+      ten: '💥 Hài hước',
+      fontFace: 'TranslationSigmar',
+      tep: 'src/fonts/SigmarOne-Regular.ttf',
+      css: "'TranslationSigmar', 'Sigmar One', system-ui, sans-serif",
+      lineHeight: '1.12',
+      letterSpacing: '0.02em',
+    },
+  }
+  const layThongSoFont = (maFont) => KHO_FONT_TRUYEN[maFont] || KHO_FONT_TRUYEN.bangers
+
+  if (!window[CO].daNapFont && typeof FontFace !== 'undefined') {
+    window[CO].daNapFont = true
+    for (const cfg of Object.values(KHO_FONT_TRUYEN)) {
+      try {
+        const fontUrl = chrome.runtime.getURL(cfg.tep)
+        const ff = new FontFace(cfg.fontFace, `url(${fontUrl})`, { style: 'normal', weight: '400' })
+        ff.load().then((loaded) => {
+          document.fonts.add(loaded)
+          window.dispatchEvent(new Event('resize'))
+        }).catch(() => {})
+      } catch {
+        // Bỏ qua nếu môi trường không hỗ trợ FontFace
+      }
+    }
+  }
+
+  if (!window[CO].daNgheStorageFont && chrome.storage?.onChanged) {
+    window[CO].daNgheStorageFont = true
+    chrome.storage.onChanged.addListener((thayDoi, vungLuu) => {
+      if (vungLuu !== 'local') return
+      if (thayDoi.fontChuTruyen?.newValue) {
+        window[CO].fontChuHienTai = thayDoi.fontChuTruyen.newValue
+        const nutFont = document.getElementById('translation-nut-doi-font')
+        if (nutFont) nutFont.textContent = layThongSoFont(window[CO].fontChuHienTai).ten
+        window.dispatchEvent(new Event('resize'))
+      }
+      if (thayDoi.ngonNguDich?.newValue) {
+        window[CO].ngonNguDichHienTai = thayDoi.ngonNguDich.newValue
+      }
+    })
+  }
+
+  let bang = window[CO].bang
+  if (!bang) {
+    bang = document.createElement('div')
+    bang.style.cssText = [
+      'position:fixed', 'z-index:2147483647', 'right:16px', 'bottom:16px',
+      'max-width:330px', 'padding:11px 14px', 'border-radius:12px',
+      'border:1px solid rgba(129,140,248,.35)',
+      'background:rgba(15,23,42,.94)', 'color:#f8fafc', 'font:13px/1.45 system-ui,-apple-system,sans-serif',
+      'box-shadow:0 8px 24px rgba(15,23,42,.45)', 'backdrop-filter:blur(8px)', 'white-space:pre-wrap',
+    ].join(';')
+    window[CO].bang = bang
+  }
+  if (!bang.isConnected) document.body.appendChild(bang)
+  bang.style.display = ''
+
   const V = chrome.runtime.getManifest().version
   // Gắn phiên bản vào MỌI thông báo: người dùng tải gói .zip về máy nên bản đang chạy có thể cũ
   // hơn bản vừa sửa, và hai lượt thử vừa rồi không có cách nào phân biệt "bản sửa không ăn thua"
   // với "bản sửa chưa tới máy".
-  const noi = (t) => { bang.textContent = `[v${V}] ${t}` }
-  const xong = (t, giay = 6) => { noi(t); setTimeout(() => bang.remove(), giay * 1000) }
+  const noi = (t) => {
+    if (window[CO].henXoaBang) {
+      clearTimeout(window[CO].henXoaBang)
+      window[CO].henXoaBang = null
+    }
+    if (!bang.isConnected) document.body.appendChild(bang)
+    bang.style.display = ''
+    bang.textContent = `[v${V}] ${t}`
+  }
+  const xong = (t, giay = 6) => {
+    noi(t)
+    window[CO].henXoaBang = setTimeout(() => bang.remove(), giay * 1000)
+  }
+
+  const layCauHinhHienTai = async () => {
+    try {
+      const d = await chrome.storage.local.get({
+        cheDoGpuKhach: 'chi_chu',
+        ngonNgu: 'ja',
+        ngonNguDich: 'vi',
+        engine: 'llm_context',
+        fontChuTruyen: 'bangers',
+      })
+      const fontChu = d?.fontChuTruyen || 'bangers'
+      const ngonNguDich = d?.ngonNguDich || 'vi'
+      window[CO].fontChuHienTai = fontChu
+      window[CO].ngonNguDichHienTai = ngonNguDich
+      return {
+        cheDo: d?.cheDoGpuKhach || 'chi_chu',
+        ngonNgu: d?.ngonNgu || 'ja',
+        ngonNguDich,
+        engine: d?.engine || 'llm_context',
+        fontChu,
+      }
+    } catch {
+      return {
+        cheDo: 'chi_chu',
+        ngonNgu: 'ja',
+        ngonNguDich: window[CO].ngonNguDichHienTai || 'vi',
+        engine: 'llm_context',
+        fontChu: window[CO].fontChuHienTai || 'bangers',
+      }
+    }
+  }
+  const layCheDoHienTai = async () => (await layCauHinhHienTai()).cheDo
+  const khoaCache = (src, cheDo, ngonNgu = 'ja', engine = 'llm_context', ngonNguDich = 'vi') =>
+    `${cheDo || 'chi_chu'}::${ngonNgu || 'ja'}::${ngonNguDich || 'vi'}::${engine || 'llm_context'}::${src}`
 
   //: Lớp phủ nay có NHIỀU cái cùng lúc (E59 — dịch cả chapter): mỗi trang đã dịch giữ lớp của
   //: riêng nó, để cuộn qua là thấy chữ Việt sẵn thay vì phải bấm lại từng trang.
@@ -43,54 +168,1153 @@
     `.${LOP_CLASS}[data-src="${CSS.escape(src)}"]`,
   )
 
-  function vePhu(el, vung) {
+  // E99 + E101 — Đo độ sáng nền & dò lòng bong bóng thực tế trên Canvas (`doKhungBongBongCanvas`).
+  //
+  // Vì sao cần dò trên điểm ảnh thật (tương tự `grow.py` + `long_bong_bong.py` của máy chủ):
+  // 1. Trong bong bóng tròn/gai góc lớn, khung chữ Nhật gốc chỉ chiếm ~1/3 ở tâm. Dò tia (ray-march)
+  //    ra 4 phía trên nền trắng của bong bóng giúp mở rộng hộp chữ gấp ~2 lần để cỡ chữ to đẹp,
+  //    đồng thời nuốt trọn các dấu câu (`!`, `?`) bị lệch nhẹ ra rìa khung chữ.
+  // 2. Trong hộp thoại hình chữ nhật hẹp nằm đè lên tranh vẽ (như khung chữ nhật cận cảnh mặt nhân vật),
+  //    dò tia sẽ DỪNG NGAY LẬP TỨC khi chạm đường viền mực của hộp chữ nhật, tuyệt đối không nở mù
+  //    quáng tràn ra che mất mắt/tóc nhân vật.
+  function layCtxMau(el) {
+    try {
+      const srcHienTai = el.currentSrc || el.src
+      if (el.__translationCtxMau && el.__translationCtxSrc === srcHienTai) {
+        return el.__translationCtxMau
+      }
+      const c = document.createElement('canvas')
+      c.width = el.naturalWidth
+      c.height = el.naturalHeight
+      const ctx = c.getContext('2d', { willReadFrequently: true })
+      ctx.drawImage(el, 0, 0)
+      ctx.getImageData(0, 0, 1, 1)
+      el.__translationCtxMau = ctx
+      el.__translationCtxSrc = srcHienTai
+      return el.__translationCtxMau
+    } catch {
+      return el?.__translationCtxMau || null
+    }
+  }
+
+  // Nạp ảnh từ Data URL (do service worker tải vượt CORS) vào Canvas của máy khách để
+  // 100% trang web truyện (kể cả CDN khác tên miền không có CORS) đều dùng được CPU/Canvas
+  // của máy khách để xoá chữ gốc và đo viền bong bóng thật.
+  async function napCanvasTuDataUrl(el, dataUrl) {
+    if (!el || !dataUrl) return null
+    const srcHienTai = el.currentSrc || el.src
+    if (el.__translationCtxMau && el.__translationCtxSrc === srcHienTai) {
+      return el.__translationCtxMau
+    }
+    try {
+      const img = new Image()
+      await new Promise((resolve, reject) => {
+        img.onload = resolve
+        img.onerror = reject
+        img.src = dataUrl
+      })
+      const c = document.createElement('canvas')
+      c.width = el.naturalWidth || img.naturalWidth
+      c.height = el.naturalHeight || img.naturalHeight
+      const ctx = c.getContext('2d', { willReadFrequently: true })
+      ctx.drawImage(img, 0, 0, c.width, c.height)
+      ctx.getImageData(0, 0, 1, 1)
+      el.__translationCtxMau = ctx
+      el.__translationCtxSrc = srcHienTai
+      return ctx
+    } catch {
+      return null
+    }
+  }
+
+  function timAnhTheoSrc(srcCanTim) {
+    if (!srcCanTim) return null
+    for (const img of document.images) {
+      const s = img.currentSrc || img.src
+      if (s === srcCanTim && img.isConnected) return img
+    }
+    return null
+  }
+
+  function laBongBongToi(el, v) {
+    try {
+      const ctx = layCtxMau(el)
+      if (!ctx) return false
+      const pad = Math.max(4, Math.round(Math.min(v.w || 10, v.h || 10) * 0.15))
+      const x = Math.max(0, Math.min(el.naturalWidth - 1, Math.round(v.x - pad)))
+      const y = Math.max(0, Math.min(el.naturalHeight - 1, Math.round(v.y - pad)))
+      const w = Math.max(1, Math.min(el.naturalWidth - x, Math.round(v.w + pad * 2)))
+      const h = Math.max(1, Math.min(el.naturalHeight - y, Math.round(v.h + pad * 2)))
+      const data = ctx.getImageData(x, y, w, h).data
+      const buoc = Math.max(4, Math.floor((data.length / 4) / 96) * 4)
+      const doSang = []
+      for (let i = 0; i < data.length; i += buoc) {
+        if (data[i + 3] < 128) continue
+        const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]
+        doSang.push(lum)
+      }
+      if (!doSang.length) return false
+      doSang.sort((a, b) => a - b)
+      const p50 = doSang[Math.floor(doSang.length * 0.5)]
+      return p50 < 95
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * E106 — Dò lòng bong bóng 2D (Connected-Component Flood-Fill) & Xoá sạch 100% chữ gốc trên CPU/Canvas máy khách.
+   *
+   * Khắc phục triệt để 2 lỗi của cách dò dải 1D cũ:
+   * 1. Khi khung bbox sơ bộ của AI cắt ngang chữ đầu ("URGENT") hoặc bỏ sót dòng cuối ("FALLEN!", "REPORT!!"):
+   *    - Thuật toán mới loang 2D (`longTrang`) qua các điểm nền trắng chảy vòng qua khe giữa các chữ cái để
+   *      lấp đầy TOÀN BỘ lòng bong bóng cho tới sát vách viền mực đen.
+   *    - Sau đó loang ngược từ biên ngoài ROI vào (`ngoaiBongBong`) qua các điểm không thuộc `longTrang`:
+   *      chỉ có vách viền đen của bong bóng và tranh vẽ bên ngoài mới nối thông với biên ROI (`ngoaiBongBong = 1`),
+   *      còn MỌI nét chữ đen nằm lọt trong lòng bong bóng ("URGENT", "FALLEN!", "REPORT!!", "IZAWA...?") đều bị
+   *      bao vây bởi hào nước trắng `longTrang` nên có `ngoaiBongBong = 0` -> bị xoá sạch 100% không sót 1 nét nào!
+   * 2. Khung xếp chữ (`_khungCanvas`) được nở ra từ TÂM TRỌNG LƯỢNG (`tamX, tamY`) của mặt nạ lòng bong bóng
+   *    đã lấp lỗ chữ (`ngoaiBongBong === 0`), nên không bao giờ bị dòng chữ gốc "REPORT!!" chặn ngang làm chữ
+   *    Việt bị nhỏ hoặc lệch lên góc trên.
+   */
+  function doKhungBongBongCanvas(el, v, tatCaVung) {
+    if (v._khungCanvas) return v._khungCanvas
+    const ctx = layCtxMau(el)
+    if (!ctx) return null
+
+    try {
+      const W = el.naturalWidth
+      const H = el.naturalHeight
+      if (v.nen_toi === undefined) {
+        v.nen_toi = laBongBongToi(el, v)
+      }
+      const nenToi = Boolean(v.nen_toi)
+      const xGoc = Math.max(0, Math.round(v.x))
+      const yGoc = Math.max(0, Math.round(v.y))
+      const wGoc = Math.max(4, Math.min(W - xGoc, Math.round(v.w)))
+      const hGoc = Math.max(4, Math.min(H - yGoc, Math.round(v.h)))
+      const canhDai = Math.max(wGoc, hGoc)
+
+      // Mở ROI đủ rộng xung quanh bbox của AI để dù AI chỉ khoanh trúng nửa trên ("URGENT") và bỏ sót
+      // nửa dưới ("REPORT!!"), toàn bộ bong bóng vẫn nằm gọn trong ROI.
+      const moX = Math.min(Math.max(Math.round(canhDai * 1.45), Math.round(W * 0.11)), Math.round(W * 0.26))
+      const moY = Math.min(Math.max(Math.round(canhDai * 1.45), Math.round(H * 0.095)), Math.round(H * 0.22))
+      let rx0 = Math.max(2, xGoc - moX)
+      let ry0 = Math.max(2, yGoc - moY)
+      let rx1 = Math.min(W - 2, xGoc + wGoc + moX)
+      let ry1 = Math.min(H - 2, yGoc + hGoc + moY)
+
+      // Không cho ROI lấn vào lõi chữ gốc của bong bóng khác
+      const kheHoGoc = 4
+      for (const u of tatCaVung) {
+        if (u === v) continue
+        const ux0 = u.x + u.w * 0.1
+        const uy0 = u.y + u.h * 0.1
+        const ux1 = u.x + u.w * 0.9
+        const uy1 = u.y + u.h * 0.9
+        const giaoBanDau = xGoc < ux1 && xGoc + wGoc > ux0 && yGoc < uy1 && yGoc + hGoc > uy0
+        if (giaoBanDau) continue
+        if (yGoc < uy1 && yGoc + hGoc > uy0) {
+          if (ux1 <= xGoc) rx0 = Math.max(rx0, Math.round(ux1 + kheHoGoc))
+          if (ux0 >= xGoc + wGoc) rx1 = Math.min(rx1, Math.round(ux0 - kheHoGoc))
+        }
+        if (xGoc < ux1 && xGoc + wGoc > ux0) {
+          if (uy1 <= yGoc) ry0 = Math.max(ry0, Math.round(uy1 + kheHoGoc))
+          if (uy0 >= yGoc + hGoc) ry1 = Math.min(ry1, Math.round(uy0 - kheHoGoc))
+        }
+      }
+
+      const rw = Math.max(4, rx1 - rx0)
+      const rh = Math.max(4, ry1 - ry0)
+      const N = rw * rh
+      const data = ctx.getImageData(rx0, ry0, rw, rh).data
+
+      const cx0 = Math.max(0, xGoc - rx0)
+      const cy0 = Math.max(0, yGoc - ry0)
+      const cx1 = Math.min(rw, xGoc + wGoc - rx0)
+      const cy1 = Math.min(rh, yGoc + hGoc - ry0)
+
+      // Lấy mẫu màu nền thật `(bgR, bgG, bgB)` ngay trong vùng chữ gốc `cx0..cy1`
+      // Hỗ trợ cả truyện trắng đen (Manga) lẫn truyện màu (Manhwa/Manhua có bong bóng màu vàng, xanh, hồng, kem...):
+      const dsR = []
+      const dsG = []
+      const dsB = []
+      const dsLum = []
+      let tongMauQuet = 0
+      for (let py = cy0; py < cy1; py += 2) {
+        for (let px = cx0; px < cx1; px += 2) {
+          const i = (py * rw + px) * 4
+          if (data[i + 3] < 128) continue
+          tongMauQuet += 1
+          const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]
+          if (nenToi ? lum <= 82 : lum >= 180) {
+            dsR.push(data[i])
+            dsG.push(data[i + 1])
+            dsB.push(data[i + 2])
+            dsLum.push(lum)
+          }
+        }
+      }
+      // Nếu bong bóng là màu trung tính/pastel trong truyện màu (Manhwa/Webtoon: xanh lam, vàng hệ thống, tím nhạt...)
+      // khiến ít điểm đạt ngưỡng trắng/đen thuần, lấy mẫu vành đai ngay sát quanh chữ gốc `cx0..cy1`
+      if (dsR.length < Math.max(8, Math.floor(tongMauQuet * 0.22))) {
+        const demVanh = []
+        const vx0 = Math.max(0, cx0 - 8)
+        const vy0 = Math.max(0, cy0 - 8)
+        const vx1 = Math.min(rw, cx1 + 8)
+        const vy1 = Math.min(rh, cy1 + 8)
+        for (let py = vy0; py < vy1; py += 2) {
+          for (let px = vx0; px < vx1; px += 2) {
+            if (px > cx0 + 2 && px < cx1 - 2 && py > cy0 + 2 && py < cy1 - 2) continue
+            const i = (py * rw + px) * 4
+            if (data[i + 3] < 128) continue
+            const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]
+            demVanh.push({ r: data[i], g: data[i + 1], b: data[i + 2], lum })
+          }
+        }
+        if (demVanh.length >= 6) {
+          demVanh.sort((a, b) => a.lum - b.lum)
+          const batDau = nenToi ? 0 : Math.floor(demVanh.length * 0.35)
+          const ketThuc = nenToi ? Math.ceil(demVanh.length * 0.65) : demVanh.length
+          dsR.length = 0; dsG.length = 0; dsB.length = 0; dsLum.length = 0
+          for (let k = batDau; k < ketThuc; k += 1) {
+            dsR.push(demVanh[k].r)
+            dsG.push(demVanh[k].g)
+            dsB.push(demVanh[k].b)
+            dsLum.push(demVanh[k].lum)
+          }
+        }
+      }
+      dsR.sort((a, b) => a - b)
+      dsG.sort((a, b) => a - b)
+      dsB.sort((a, b) => a - b)
+      dsLum.sort((a, b) => a - b)
+      // Lấy phân vị 78% cho bong bóng nền sáng (và 22% cho bong bóng nền tối) để các điểm xám khử răng cưa
+      // quanh nét chữ gốc tuyệt đối không kéo màu nền `(bgR, bgG, bgB)` bị xám đi.
+      const idxMau = Math.min(dsR.length - 1, Math.floor(dsR.length * (nenToi ? 0.22 : 0.78)))
+      const bgR = dsR.length ? dsR[idxMau] : (nenToi ? 12 : 255)
+      const bgG = dsG.length ? dsG[idxMau] : (nenToi ? 12 : 255)
+      const bgB = dsB.length ? dsB[idxMau] : (nenToi ? 12 : 255)
+      v._mauNenCss = `rgb(${bgR},${bgG},${bgB})`
+
+      // Đo độ đồng nhất màu nền (`doLechMauNen`): bong bóng thoại (trắng, đen hoặc màu) có nền rất đồng nhất,
+      // trong khi chữ đặt nổi ngoài bong bóng đè trực tiếp lên tranh vẽ nhiều chi tiết có `doLechMauNen` cao.
+      const p20Idx = Math.floor(dsLum.length * 0.2)
+      const p80Idx = Math.min(dsLum.length - 1, Math.floor(dsLum.length * 0.8))
+      const doLechMauNen = dsLum.length >= 6 ? (dsLum[p80Idx] - dsLum[p20Idx]) : 99
+      const laBongMauDongNhat = dsR.length >= 8 && doLechMauNen <= 38
+
+      // Bảng đánh dấu điểm nền (`laNenMask[pos] = 1`): dùng ngưỡng sáng chặt (`>= 192` cho nền trắng)
+      // hoặc khoảng cách màu `<= 42` so với `(bgR, bgG, bgB)` cho bong bóng màu Manhwa/Webtoon.
+      const laNenMask = new Uint8Array(N)
+      let demNenTrongHop = 0
+      const dienTichHopGoc = Math.max(1, (cx1 - cx0) * (cy1 - cy0))
+      for (let idx = 0; idx < N; idx += 1) {
+        const i = idx * 4
+        if (data[i + 3] < 128) continue
+        const r = data[i]
+        const g = data[i + 1]
+        const b = data[i + 2]
+        const lum = 0.299 * r + 0.587 * g + 0.114 * b
+        const khopTrangDen = nenToi ? lum <= 72 : lum >= 192
+        const khopBongMau = laBongMauDongNhat && (Math.abs(r - bgR) + Math.abs(g - bgG) + Math.abs(b - bgB) <= 42)
+        if (khopTrangDen || khopBongMau) {
+          laNenMask[idx] = 1
+          const px = idx % rw
+          const py = (idx - px) / rw
+          if (px >= cx0 && px < cx1 && py >= cy0 && py < cy1) demNenTrongHop += 1
+        }
+      }
+      const tyLeNenTrongHop = demNenTrongHop / dienTichHopGoc
+
+      // Ranh giới lãnh thổ Voronoi (`vungCamVoronoi[pos] = 1`) giữa bóng thoại `v` và các bóng thoại `u` khác:
+      // Trong truyện tranh rất hay có "bong bóng đôi nối liền cổ trắng" (2 câu thoại thông nhau không có vách đen ngăn giữa).
+      // Mọi điểm ảnh nằm gần hộp chữ của bóng thoại `u` hơn hộp chữ của `v` (`distU2 <= distV2`) đều thuộc lãnh thổ của `u`,
+      // giúp dòng loang `longTrang` của `v` dừng đúng tại cổ nối giữa 2 bong bóng mà không tràn sang nuốt mất bóng thoại bên cạnh!
+      const dsLangGieng = []
+      for (const u of tatCaVung) {
+        if (u === v) continue
+        const ucx0 = Math.round(u.x - rx0)
+        const ucy0 = Math.round(u.y - ry0)
+        const ucx1 = Math.round(u.x + u.w - rx0)
+        const ucy1 = Math.round(u.y + u.h - ry0)
+        if (ucx1 < -rw || ucx0 > rw * 2 || ucy1 < -rh || ucy0 > rh * 2) continue
+        dsLangGieng.push([ucx0, ucy0, ucx1, ucy1])
+      }
+
+      const vungCamVoronoi = new Uint8Array(N)
+      if (dsLangGieng.length > 0) {
+        for (let py = 0; py < rh; py += 1) {
+          const dvy = py < cy0 ? cy0 - py : (py > cy1 ? py - cy1 : 0)
+          const dvy2 = dvy * dvy
+          const base = py * rw
+          for (let px = 0; px < rw; px += 1) {
+            const dvx = px < cx0 ? cx0 - px : (px > cx1 ? px - cx1 : 0)
+            const distV2 = dvx * dvx + dvy2
+            if (distV2 === 0) continue
+            for (let k = 0; k < dsLangGieng.length; k += 1) {
+              const lg = dsLangGieng[k]
+              const dux = px < lg[0] ? lg[0] - px : (px > lg[2] ? px - lg[2] : 0)
+              const duy = py < lg[1] ? lg[1] - py : (py > lg[3] ? py - lg[3] : 0)
+              if (dux * dux + duy * duy <= distV2) {
+                vungCamVoronoi[base + px] = 1
+                break
+              }
+            }
+          }
+        }
+      }
+
+      // Bước 1: Loang 2D (`longTrang`) từ vùng hạt giống `cx0..cy1` ra toàn bộ lòng bong bóng.
+      // Để không rò rỉ qua khe hở 1px của nét vẽ tay ở viền bong bóng nhưng vẫn chảy mượt qua khe
+      // giữa các dòng chữ ("URGENT" -> "REPORT!!", "FALLEN!"), điểm ngoài hạt giống cần có ít nhất
+      // 3/4 láng giềng cạnh bên là nền trắng và không vượt qua ranh giới Voronoi của bóng thoại kế bên.
+      const longTrang = new Uint8Array(N)
+      const hangDoi = new Int32Array(N)
+      let dau = 0
+      let cuoi = 0
+
+      for (let py = cy0; py < cy1; py += 1) {
+        for (let px = cx0; px < cx1; px += 1) {
+          const pos = py * rw + px
+          if (laNenMask[pos] && !longTrang[pos]) {
+            longTrang[pos] = 1
+            hangDoi[cuoi++] = pos
+          }
+        }
+      }
+
+      const laNenAnToan = (px, py) => {
+        const pos = py * rw + px
+        if (!laNenMask[pos] || vungCamVoronoi[pos]) return false
+        if (px >= cx0 && px < cx1 && py >= cy0 && py < cy1) return true
+        let dem = 0
+        if (px > 0 && laNenMask[pos - 1]) dem += 1
+        if (px + 1 < rw && laNenMask[pos + 1]) dem += 1
+        if (py > 0 && laNenMask[pos - rw]) dem += 1
+        if (py + 1 < rh && laNenMask[pos + rw]) dem += 1
+        return dem >= 3
+      }
+
+      while (dau < cuoi) {
+        const pos = hangDoi[dau++]
+        const px = pos % rw
+        const py = (pos - px) / rw
+        if (px > 0) {
+          const npos = pos - 1
+          if (!longTrang[npos] && laNenAnToan(px - 1, py)) { longTrang[npos] = 1; hangDoi[cuoi++] = npos }
+        }
+        if (px + 1 < rw) {
+          const npos = pos + 1
+          if (!longTrang[npos] && laNenAnToan(px + 1, py)) { longTrang[npos] = 1; hangDoi[cuoi++] = npos }
+        }
+        if (py > 0) {
+          const npos = pos - rw
+          if (!longTrang[npos] && laNenAnToan(px, py - 1)) { longTrang[npos] = 1; hangDoi[cuoi++] = npos }
+        }
+        if (py + 1 < rh) {
+          const npos = pos + rw
+          if (!longTrang[npos] && laNenAnToan(px, py + 1)) { longTrang[npos] = 1; hangDoi[cuoi++] = npos }
+        }
+      }
+
+      // Nới nhẹ `longTrang` thêm 1px vào các điểm nền sát mép viền/nét chữ (bù lại lớp lọc `dem >= 3`)
+      const nhipNoi = cuoi
+      for (let k = 0; k < nhipNoi; k += 1) {
+        const pos = hangDoi[k]
+        const px = pos % rw
+        const py = (pos - px) / rw
+        if (px > 0 && !longTrang[pos - 1] && laNenMask[pos - 1] && !vungCamVoronoi[pos - 1]) longTrang[pos - 1] = 1
+        if (px + 1 < rw && !longTrang[pos + 1] && laNenMask[pos + 1] && !vungCamVoronoi[pos + 1]) longTrang[pos + 1] = 1
+        if (py > 0 && !longTrang[pos - rw] && laNenMask[pos - rw] && !vungCamVoronoi[pos - rw]) longTrang[pos - rw] = 1
+        if (py + 1 < rh && !longTrang[pos + rw] && laNenMask[pos + rw] && !vungCamVoronoi[pos + rw]) longTrang[pos + rw] = 1
+      }
+
+      // Kiểm tra xem `longTrang` có tràn ra biên ROI không (trường hợp chữ nổi trên nền trắng không có viền bong bóng)
+      let chamBien = 0
+      const chuVi = (rw + rh) * 2
+      for (let px = 0; px < rw; px += 1) {
+        if (longTrang[px]) chamBien += 1
+        if (longTrang[(rh - 1) * rw + px]) chamBien += 1
+      }
+      for (let py = 0; py < rh; py += 1) {
+        if (longTrang[py * rw]) chamBien += 1
+        if (longTrang[py * rw + (rw - 1)]) chamBien += 1
+      }
+      const roRiBien = (chamBien / Math.max(1, chuVi)) > 0.24
+      const laNenPhucTap = (tyLeNenTrongHop < 0.28) || (roRiBien && !laBongMauDongNhat)
+      v._laNenPhucTap = laNenPhucTap
+
+      if (roRiBien || laNenPhucTap) {
+        // Nếu không có viền bong bóng khép kín (chữ đặt tự do ngoài bong bóng hoặc đè lên nền tranh màu):
+        // Giữ vùng xoá ôm sát quanh toạ độ chữ gốc `cx0..cy1` để xoá đúng chữ gốc tại chỗ mà không loang ra tranh vẽ.
+        const tamGocX = (cx0 + cx1) * 0.5
+        const tamGocY = (cy0 + cy1) * 0.5
+        const moRongR = laNenPhucTap ? 0.14 : 0.28
+        const banKinhX = Math.max(10, (cx1 - cx0) * 0.5 + Math.max(8, Math.round(wGoc * moRongR)))
+        const banKinhY = Math.max(10, (cy1 - cy0) * 0.5 + Math.max(8, Math.round(hGoc * moRongR)))
+        for (let py = 0; py < rh; py += 1) {
+          const dy = (py - tamGocY) / banKinhY
+          for (let px = 0; px < rw; px += 1) {
+            const dx = (px - tamGocX) / banKinhX
+            if (dx * dx + dy * dy > 1.0) {
+              longTrang[py * rw + px] = 0
+            }
+          }
+        }
+      }
+
+      // Bước 2: Loang ngược từ 4 mép ngoài của ROI vào (`ngoaiBongBong = 1`) qua các điểm `longTrang === 0`.
+      // Lưu ý: Tại cổ nối trắng giữa 2 bong bóng đôi (`vungCamVoronoi === 1 && laNenMask === 1`), không cho
+      // `ngoaiBongBong` mượn đường nền trắng của bóng thoại bên cạnh để lách ngược vào trong bóng thoại hiện tại.
+      const ngoaiBongBong = new Uint8Array(N)
+      dau = 0
+      cuoi = 0
+      const dayNgoai = (pos) => {
+        if (ngoaiBongBong[pos] || longTrang[pos]) return
+        if (vungCamVoronoi[pos] && laNenMask[pos]) return
+        ngoaiBongBong[pos] = 1
+        hangDoi[cuoi++] = pos
+      }
+      for (let px = 0; px < rw; px += 1) {
+        dayNgoai(px)
+        dayNgoai((rh - 1) * rw + px)
+      }
+      for (let py = 0; py < rh; py += 1) {
+        dayNgoai(py * rw)
+        dayNgoai(py * rw + (rw - 1))
+      }
+
+      // Không cho `ngoaiBongBong` đi xuyên qua lõi chữ gốc `tx0..tx1, ty0..ty1`
+      const leLoiX = Math.max(2, Math.round((cx1 - cx0) * 0.08))
+      const leLoiY = Math.max(2, Math.round((cy1 - cy0) * 0.08))
+      const tx0 = cx0 + leLoiX
+      const ty0 = cy0 + leLoiY
+      const tx1 = cx1 - leLoiX
+      const ty1 = cy1 - leLoiY
+
+      while (dau < cuoi) {
+        const pos = hangDoi[dau++]
+        const px = pos % rw
+        const py = (pos - px) / rw
+        if (px > 0) {
+          const nx = px - 1
+          if (!(nx >= tx0 && nx <= tx1 && py >= ty0 && py <= ty1)) dayNgoai(pos - 1)
+        }
+        if (px + 1 < rw) {
+          const nx = px + 1
+          if (!(nx >= tx0 && nx <= tx1 && py >= ty0 && py <= ty1)) dayNgoai(pos + 1)
+        }
+        if (py > 0) {
+          const ny = py - 1
+          if (!(px >= tx0 && px <= tx1 && ny >= ty0 && ny <= ty1)) dayNgoai(pos - rw)
+        }
+        if (py + 1 < rh) {
+          const ny = py + 1
+          if (!(px >= tx0 && px <= tx1 && ny >= ty0 && ny <= ty1)) dayNgoai(pos + rw)
+        }
+      }
+
+      // Bảo vệ tuyệt đối chữ gốc trong lòng bong bóng:
+      // 1. Mọi chữ cái không chạm viền bong bóng đều đã bị bao vây bởi `longTrang === 1` nên có `ngoaiBongBong === 0` (xoá sạch 100%).
+      // 2. Nếu một chữ cái ở sát rìa ("URGENT", "FALLEN!", "REPORT!!", "IZAWA...?") vô tình chạm nhẹ vào gai nhọn
+      //    của viền bong bóng khiến `ngoaiBongBong` lan vào nét chữ đó: ta kiểm tra trên 4 phương (ngang, dọc, 2 đường chéo)
+      //    trong bán kính `<= 14px`. Nét chữ luôn là nét mảnh có nền trắng `longTrang === 1` kẹp ở CẢ HAI PHÍA đối diện,
+      //    trong khi vách viền bong bóng chỉ có nền trắng ở 1 phía trong và phía ngoài là tranh vẽ (`longTrang === 0`).
+      const padQuetX = Math.max(16, Math.round(wGoc * 0.45))
+      const padQuetY = Math.max(24, Math.round(hGoc * 0.85))
+      const qx0 = Math.max(4, cx0 - padQuetX)
+      const qx1 = Math.min(rw - 4, cx1 + padQuetX)
+      const qy0 = Math.max(4, cy0 - padQuetY)
+      const qy1 = Math.min(rh - 4, cy1 + padQuetY)
+
+      for (let py = qy0; py < qy1; py += 1) {
+        const base = py * rw
+        for (let px = qx0; px < qx1; px += 1) {
+          const pos = base + px
+          if (!ngoaiBongBong[pos] || vungCamVoronoi[pos]) continue
+          let tTrai = false, tPhai = false
+          let tTren = false, tDuoi = false
+          let tCheo1A = false, tCheo1B = false
+          let tCheo2A = false, tCheo2B = false
+          for (let d = 1; d <= 14; d += 1) {
+            if (px - d >= 0 && longTrang[pos - d]) tTrai = true
+            if (px + d < rw && longTrang[pos + d]) tPhai = true
+            if (py - d >= 0 && longTrang[pos - d * rw]) tTren = true
+            if (py + d < rh && longTrang[pos + d * rw]) tDuoi = true
+            if (d <= 10) {
+              if (px - d >= 0 && py - d >= 0 && longTrang[pos - d * rw - d]) tCheo1A = true
+              if (px + d < rw && py + d < rh && longTrang[pos + d * rw + d]) tCheo1B = true
+              if (px + d < rw && py - d >= 0 && longTrang[pos - d * rw + d]) tCheo2A = true
+              if (px - d >= 0 && py + d < rh && longTrang[pos + d * rw - d]) tCheo2B = true
+            }
+          }
+          if ((tTrai && tPhai) || (tTren && tDuoi) || (tCheo1A && tCheo1B) || (tCheo2A && tCheo2B)) {
+            ngoaiBongBong[pos] = 0
+          }
+        }
+      }
+
+      // Khép kín ranh giới Voronoi: toàn bộ lãnh thổ thuộc về bóng thoại láng giềng `u` (`vungCamVoronoi === 1`)
+      // được đánh dấu `ngoaiBongBong = 1` để bóng thoại `v` không bao giờ vẽ đè hoặc kéo tâm sang bóng thoại `u`.
+      for (let idx = 0; idx < N; idx += 1) {
+        if (vungCamVoronoi[idx]) ngoaiBongBong[idx] = 1
+      }
+
+      // Tìm hộp bao `[minX, minY, maxX, maxY]` và trọng tâm `(tamX, tamY)` của toàn bộ lòng bong bóng `ngoaiBongBong === 0`
+      let minX = cx0
+      let minY = cy0
+      let maxX = cx1
+      let maxY = cy1
+      let tongX = 0
+      let tongY = 0
+      let demTrong = 0
+      for (let py = 0; py < rh; py += 1) {
+        for (let px = 0; px < rw; px += 1) {
+          if (ngoaiBongBong[py * rw + px] === 0) {
+            if (px < minX) minX = px
+            if (px + 1 > maxX) maxX = px + 1
+            if (py < minY) minY = py
+            if (py + 1 > maxY) maxY = py + 1
+            tongX += px
+            tongY += py
+            demTrong += 1
+          }
+        }
+      }
+
+      // Dựng sẵn ảnh xoá chữ `_anhCheDataUrl` trên đúng hộp bao `[minX..maxX, minY..maxY]` của lòng bong bóng:
+      // Phủ kín 100% mọi điểm thuộc lòng bong bóng (`ngoaiBongBong === 0`) bằng màu nền sạch `(bgR, bgG, bgB)`
+      // để triệt tiêu hoàn toàn cả nét mực đen lẫn bóng mờ chống răng cưa JPEG, đồng thời giữ trong suốt (`alpha = 0`)
+      // tuyệt đối cho đường viền cong/gai góc của bong bóng (`ngoaiBongBong === 1`).
+      const cwChe = Math.max(4, maxX - minX)
+      const chChe = Math.max(4, maxY - minY)
+      const cOut = document.createElement('canvas')
+      cOut.width = cwChe
+      cOut.height = chChe
+      const ctxOut = cOut.getContext('2d')
+      const outImg = ctxOut.createImageData(cwChe, chChe)
+      const outData = outImg.data
+
+      for (let py = 0; py < chChe; py += 1) {
+        const roiY = minY + py
+        // Nếu là chữ nổi ngoài bong bóng trên nền tranh chuyển sắc (`laNenPhucTap`), nội suy màu nền theo từng dòng ngang
+        // từ mép trái/phải của hộp xoá để tiệp màu tranh vẽ mượt mà thay vì đắp 1 mảng màu đơn sắc.
+        let rTrai = bgR, gTrai = bgG, bTrai = bgB
+        let rPhai = bgR, gPhai = bgG, bPhai = bgB
+        if (laNenPhucTap) {
+          const iTrai = (roiY * rw + Math.max(0, minX - 2)) * 4
+          const iPhai = (roiY * rw + Math.min(rw - 1, maxX + 1)) * 4
+          rTrai = data[iTrai]; gTrai = data[iTrai + 1]; bTrai = data[iTrai + 2]
+          rPhai = data[iPhai]; gPhai = data[iPhai + 1]; bPhai = data[iPhai + 2]
+        }
+        for (let px = 0; px < cwChe; px += 1) {
+          const roiPos = roiY * rw + (minX + px)
+          if (ngoaiBongBong[roiPos]) continue
+          const pOut = (py * cwChe + px) * 4
+          if (laNenPhucTap) {
+            const t = cwChe > 1 ? (px / (cwChe - 1)) : 0.5
+            outData[pOut] = Math.round(rTrai * (1 - t) + rPhai * t)
+            outData[pOut + 1] = Math.round(gTrai * (1 - t) + gPhai * t)
+            outData[pOut + 2] = Math.round(bTrai * (1 - t) + bPhai * t)
+            outData[pOut + 3] = 235
+          } else {
+            outData[pOut] = bgR
+            outData[pOut + 1] = bgG
+            outData[pOut + 2] = bgB
+            outData[pOut + 3] = 255
+          }
+        }
+      }
+      ctxOut.putImageData(outImg, 0, 0)
+      v._anhCheDataUrl = cOut.toDataURL('image/png')
+      v._khungCheCanvas = {
+        x: rx0 + minX,
+        y: ry0 + minY,
+        w: cwChe,
+        h: chChe,
+      }
+
+      // Bước 3: Tìm khung xếp chữ nội tiếp (`_khungCanvas`) trên mặt nạ lòng bong bóng ĐÃ LẤP LỖ CHỮ (`ngoaiBongBong === 0`).
+      // Nhờ kiểm tra trên `ngoaiBongBong === 0` thay vì ảnh thô, việc nở khung hoàn toàn KHÔNG BỊ CHẶN bởi
+      // các dòng chữ gốc bị lệch như "REPORT!!" hay "FALLEN!", giúp khung chữ luôn nằm chính giữa bong bóng!
+      const laTrongBong = (px, py) => ngoaiBongBong[py * rw + px] === 0
+
+      const daiTrongBong = (x0, y0, x1, y1, tyLeCan = 0.92, catGoc = 0.12) => {
+        let ax0 = Math.max(0, x0)
+        let ay0 = Math.max(0, y0)
+        let ax1 = Math.min(rw, x1)
+        let ay1 = Math.min(rh, y1)
+        if (catGoc > 0 && ax1 - ax0 > 16) {
+          const catX = Math.floor((ax1 - ax0) * catGoc)
+          ax0 += catX
+          ax1 -= catX
+        }
+        if (catGoc > 0 && ay1 - ay0 > 16) {
+          const catY = Math.floor((ay1 - ay0) * catGoc)
+          ay0 += catY
+          ay1 -= catY
+        }
+        if (ax1 <= ax0 || ay1 <= ay0) return false
+        let trong = 0
+        let tong = 0
+        for (let py = ay0; py < ay1; py += 1) {
+          for (let px = ax0; px < ax1; px += 1) {
+            tong += 1
+            if (laTrongBong(px, py)) trong += 1
+          }
+        }
+        return tong > 0 && (trong / tong) >= tyLeCan
+      }
+
+      const vanhElipTrongBong = (x0, y0, x1, y1) => {
+        const cx = (x0 + x1) * 0.5
+        const cy = (y0 + y1) * 0.5
+        const rx = (x1 - x0) * 0.5
+        const ry = (y1 - y0) * 0.5
+        if (rx < 4 || ry < 4) return false
+        let trong = 0
+        let tong = 0
+        const SO_DIEM = 28
+        for (let k = 0; k < SO_DIEM; k += 1) {
+          const goc = (k / SO_DIEM) * Math.PI * 2
+          const cos = Math.cos(goc)
+          const sin = Math.sin(goc)
+          for (const banKinh of [0.82, 0.94]) {
+            const px = Math.max(0, Math.min(rw - 1, Math.round(cx + rx * banKinh * cos)))
+            const py = Math.max(0, Math.min(rh - 1, Math.round(cy + ry * banKinh * sin)))
+            tong += 1
+            if (laTrongBong(px, py)) trong += 1
+          }
+        }
+        return tong > 0 && (trong / tong) >= 0.92
+      }
+
+      // Khởi tạo hạt giống nở khung từ cả vị trí chữ gốc `[cx0..cx1, cy0..cy1]` LẪN trọng tâm thật `(tamX, tamY)`
+      // của bong bóng để khi AI chỉ khoanh nửa trên ("URGENT"), hạt giống từ trọng tâm vẫn nở đều cả chiều cao bong bóng!
+      const tamX = demTrong > 0 ? Math.round((tongX / demTrong) * 0.65 + ((minX + maxX) * 0.5) * 0.35) : Math.round((cx0 + cx1) * 0.5)
+      const tamY = demTrong > 0 ? Math.round((tongY / demTrong) * 0.65 + ((minY + maxY) * 0.5) * 0.35) : Math.round((cy0 + cy1) * 0.5)
+      const banRongHat = Math.max(8, Math.round(Math.min(wGoc, cwChe * 0.45) * 0.5))
+      const banCaoHat = Math.max(8, Math.round(Math.min(hGoc, chChe * 0.45) * 0.5))
+      const dsHatGiong = [
+        [
+          Math.max(minX, Math.min(cx0, tamX - banRongHat)),
+          Math.max(minY, Math.min(cy0, tamY - banCaoHat)),
+          Math.min(maxX, Math.max(cx1, tamX + banRongHat)),
+          Math.min(maxY, Math.max(cy1, tamY + banCaoHat)),
+        ],
+        [
+          Math.max(minX, tamX - banRongHat),
+          Math.max(minY, tamY - banCaoHat),
+          Math.min(maxX, tamX + banRongHat),
+          Math.min(maxY, tamY + banCaoHat),
+        ],
+      ]
+
+      const buoc = Math.max(2, Math.round(Math.max(cwChe, chChe) / 40))
+      const CACH_NO = [
+        ['trai', 'phai', 'tren', 'duoi'],
+        ['trai', 'phai', 'trai', 'phai', 'tren', 'duoi'],
+        ['tren', 'duoi', 'trai', 'phai'],
+      ]
+
+      let tot = dsHatGiong[0]
+      let diemTot = -1
+
+      for (const hat of dsHatGiong) {
+        for (const thuTu of CACH_NO) {
+          let [x0, y0, x1, y1] = hat
+          let conNhich = true
+          while (conNhich) {
+            conNhich = false
+            for (const phia of thuTu) {
+              if (phia === 'trai') {
+                const moi = Math.max(minX, x0 - buoc)
+                if (moi < x0 && daiTrongBong(moi, y0, x0, y1, 0.91, 0.14) && vanhElipTrongBong(moi, y0, x1, y1)) { x0 = moi; conNhich = true }
+              } else if (phia === 'phai') {
+                const moi = Math.min(maxX, x1 + buoc)
+                if (moi > x1 && daiTrongBong(x1, y0, moi, y1, 0.91, 0.14) && vanhElipTrongBong(x0, y0, moi, y1)) { x1 = moi; conNhich = true }
+              } else if (phia === 'tren') {
+                const moi = Math.max(minY, y0 - buoc)
+                if (moi < y0 && daiTrongBong(x0, moi, x1, y0, 0.91, 0.14) && vanhElipTrongBong(x0, moi, x1, y1)) { y0 = moi; conNhich = true }
+              } else {
+                const moi = Math.min(maxY, y1 + buoc)
+                if (moi > y1 && daiTrongBong(x0, y1, x1, moi, 0.91, 0.14) && vanhElipTrongBong(x0, y0, x1, moi)) { y1 = moi; conNhich = true }
+              }
+            }
+          }
+          // Ưu tiên hộp cân đối và có diện tích lớn quanh tâm bong bóng
+          const wHop = x1 - x0
+          const hHop = y1 - y0
+          const tyLeCanDoi = Math.min(wHop, hHop) / Math.max(1, Math.max(wHop, hHop))
+          const heSoCanDoi = 0.75 + 0.25 * Math.min(1, tyLeCanDoi / 0.55)
+          const diem = wHop * 1.18 * hHop * heSoCanDoi
+          if (diem > diemTot) {
+            diemTot = diem
+            tot = [x0, y0, x1, y1]
+          }
+        }
+      }
+
+      let [bx0, by0, bx1, by1] = tot
+      if (roRiBien || laNenPhucTap) {
+        // Khi chữ nằm ngoài bong bóng (trên lề trắng hoặc nổi trực tiếp trên tranh màu):
+        // Giữ khung dịch bám sát đối xứng ngay đúng vị trí chữ gốc `cx0..cy1` để không bị trôi lệch vị trí!
+        const gioiHanLeX = Math.max(4, Math.round(wGoc * 0.14))
+        const gioiHanLeY = Math.max(4, Math.round(hGoc * 0.12))
+        bx0 = Math.max(0, cx0 - gioiHanLeX)
+        bx1 = Math.min(rw, cx1 + gioiHanLeX)
+        by0 = Math.max(0, cy0 - gioiHanLeY)
+        by1 = Math.min(rh, cy1 + gioiHanLeY)
+      } else {
+        // Thụt nhẹ khỏi vách viền mực đen để chữ có khoảng thở tự nhiên
+        const leTrongX = Math.max(3, Math.round((bx1 - bx0) * 0.045))
+        const leTrongY = Math.max(3, Math.round((by1 - by0) * 0.045))
+        if (bx1 - bx0 > wGoc + leTrongX * 2) {
+          bx0 += leTrongX
+          bx1 -= leTrongX
+        }
+        if (by1 - by0 > hGoc + leTrongY * 2) {
+          by0 += leTrongY
+          by1 -= leTrongY
+        }
+      }
+
+      const gocW = Math.max(3, Math.round((bx1 - bx0) * 0.14))
+      const gocH = Math.max(3, Math.round((by1 - by0) * 0.14))
+      const bonGocSach = (
+        daiTrongBong(bx0, by0, bx0 + gocW, by0 + gocH, 0.90, 0) &&
+        daiTrongBong(bx1 - gocW, by0, bx1, by0 + gocH, 0.90, 0) &&
+        daiTrongBong(bx0, by1 - gocH, bx0 + gocW, by1, 0.90, 0) &&
+        daiTrongBong(bx1 - gocW, by1 - gocH, bx1, by1, 0.90, 0)
+      )
+      v._laHopChuNhat = Boolean(bonGocSach)
+
+      v._khungCanvas = {
+        x: rx0 + bx0,
+        y: ry0 + by0,
+        w: Math.max(16, bx1 - bx0),
+        h: Math.max(16, by1 - by0),
+      }
+      return v._khungCanvas
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Trả về ảnh PNG trong suốt đã xoá sạch 100% chữ gốc trong lòng bong bóng (`_anhCheDataUrl`)
+   * được tính toán trực tiếp từ mặt nạ 2D `ngoaiBongBong === 0` trong `doKhungBongBongCanvas`.
+   */
+  function taoAnhCheChuCanvas(el, v, tatCaVung = []) {
+    if (v._anhCheDataUrl !== undefined) return v._anhCheDataUrl
+    doKhungBongBongCanvas(el, v, tatCaVung)
+    return v._anhCheDataUrl || null
+  }
+
+  // E91 + E99 + E105 — Thanh công cụ nổi nhanh (Floating Mini-Toolbar) góc dưới trái:
+  // ⚡ Dịch trang (Alt+Q) · 📚 Cả chapter (Alt+A) · 🔄 Tự dịch cuộn (Alt+W) · ✂️ Khoanh vùng (Alt+S) · 🔤 Đổi Font · A-/A+ · 👁 Xem gốc (Alt)
+  function caiCongTacSoSanhGoc() {
+    window[CO].heSoCoChu = window[CO].heSoCoChu || 1
+    window[CO].fontChuHienTai = window[CO].fontChuHienTai || 'bangers'
+
+    const datAnLopPhu = (an) => {
+      window[CO].dangAnLopPhu = an
+      document.querySelectorAll(`.${LOP_CLASS}`).forEach((el) => {
+        el.style.opacity = an ? '0' : '1'
+      })
+      const nut = document.getElementById('translation-cong-tac-goc')
+      if (nut) {
+        nut.textContent = an ? '👁 Đang xem gốc (Alt)' : '👁 Xem gốc (Alt)'
+        nut.style.background = an ? '#b45309' : 'rgba(30,41,59,.9)'
+      }
+    }
+
+    if (!window[CO].daCaiPhimAlt) {
+      window[CO].daCaiPhimAlt = true
+
+      window.addEventListener('keydown', (e) => {
+        if (window[CO].dangSuaBong) return
+        if (e.key === 'Alt' && !e.repeat && !window[CO].dangAnLopPhu) datAnLopPhu(true)
+        if (e.altKey && (e.key === 'q' || e.key === 'Q')) {
+          e.preventDefault()
+          datAnLopPhu(false)
+          if (!window[CO].dangChayBulk) dichTrangHienTai()
+        }
+        if (e.altKey && (e.key === 'a' || e.key === 'A')) {
+          e.preventDefault()
+          datAnLopPhu(false)
+          if (!window[CO].dangChay) {
+            window[CO].dangChay = true
+            dichCaChapter()
+          }
+        }
+        if (e.altKey && (e.key === 'w' || e.key === 'W')) {
+          e.preventDefault()
+          datAnLopPhu(false)
+          window[CO].tuDichKhiCuon = !window[CO].tuDichKhiCuon
+          const nutCuon = document.getElementById('translation-nut-tu-dich-cuon')
+          if (nutCuon) {
+            const bat = Boolean(window[CO].tuDichKhiCuon)
+            nutCuon.textContent = bat ? '🔄 Tự dịch khi cuộn: BẬT (Alt+W)' : '🔄 Tự dịch khi cuộn (Alt+W)'
+            nutCuon.style.background = bat ? '#059669' : 'rgba(30,41,59,.9)'
+            nutCuon.style.borderColor = bat ? '#10b981' : 'rgba(255,255,255,.18)'
+          }
+          xong(
+            window[CO].tuDichKhiCuon
+              ? 'Đã BẬT Tự động dịch khi cuộn (Alt+W). Cuộn tới đâu sẽ dịch tới đó.'
+              : 'Đã TẮT Tự động dịch khi cuộn (Alt+W).',
+            4,
+          )
+          if (window[CO].tuDichKhiCuon && !window[CO].dangChay) {
+            dichTrangHienTai({ tuDongCuon: true })
+          }
+        }
+        if (e.altKey && (e.key === 's' || e.key === 'S')) {
+          e.preventDefault()
+          datAnLopPhu(false)
+          if (!window[CO].dangChay) {
+            window[CO].dangChay = true
+            khoanhVungDich()
+          }
+        }
+      })
+      window.addEventListener('keyup', (e) => {
+        if (e.key === 'Alt' && window[CO].dangAnLopPhu) datAnLopPhu(false)
+      })
+      window.addEventListener('blur', () => {
+        if (window[CO].dangAnLopPhu) datAnLopPhu(false)
+      })
+
+      // Tự động dịch khi cuộn tới trang mới (chỉ chạy khi người dùng bật công tắc `tuDichKhiCuon`)
+      const henCuon = { id: null }
+      window.addEventListener('scroll', () => {
+        if (!window[CO].tuDichKhiCuon) return
+        if (henCuon.id) clearTimeout(henCuon.id)
+        henCuon.id = setTimeout(async () => {
+          if (!window[CO].tuDichKhiCuon || window[CO].dangChay) return
+          const chon = chonTrangTruyen(layMoTa(), { caoKhungNhin: window.innerHeight })
+          if (!chon.anh) return
+          const { cheDo, ngonNgu, ngonNguDich, engine } = await layCauHinhHienTai()
+          const khoa = khoaCache(chon.anh.src, cheDo, ngonNgu, engine, ngonNguDich)
+          if (!window[CO].daDich.has(khoa) && !window[CO].dangXepHang.has(khoa)) {
+            dichTrangHienTai({ tuDongCuon: true })
+          }
+        }, 350)
+      }, { passive: true, capture: true })
+    }
+
+    if (!document.getElementById('translation-thanh-nhanh')) {
+      const thanh = document.createElement('div')
+      thanh.id = 'translation-thanh-nhanh'
+      thanh.style.cssText = [
+        'position:fixed', 'z-index:2147483647', 'left:16px', 'bottom:16px',
+        'display:flex', 'flex-wrap:wrap', 'align-items:center', 'gap:6px',
+        'padding:6px 8px', 'border-radius:999px', 'border:1px solid rgba(255,255,255,.22)',
+        'background:rgba(15,23,42,.92)', 'color:#fff', 'font:12px/1.3 system-ui,sans-serif',
+        'box-shadow:0 4px 16px rgba(0,0,0,.4)', 'backdrop-filter:blur(6px)',
+      ].join(';')
+
+      const kieuNut = [
+        'padding:5px 10px', 'border-radius:999px', 'border:1px solid rgba(255,255,255,.18)',
+        'background:rgba(30,41,59,.9)', 'color:#f8fafc', 'font:12px/1.2 system-ui,sans-serif',
+        'cursor:pointer', 'white-space:nowrap',
+      ].join(';')
+
+      const nutDich = document.createElement('button')
+      nutDich.id = 'translation-nut-dich-nhanh'
+      nutDich.type = 'button'
+      nutDich.textContent = '⚡ Dịch trang (Alt+Q)'
+      nutDich.style.cssText = `${kieuNut};background:#2563eb;border-color:#3b82f6;font-weight:600`
+      nutDich.addEventListener('click', () => {
+        if (!window[CO].dangChayBulk) dichTrangHienTai()
+      })
+
+      const nutChapter = document.createElement('button')
+      nutChapter.id = 'translation-nut-dich-chapter'
+      nutChapter.type = 'button'
+      nutChapter.textContent = '📚 Cả chapter (Alt+A)'
+      nutChapter.style.cssText = kieuNut
+      nutChapter.addEventListener('click', () => {
+        if (!window[CO].dangChay) {
+          window[CO].dangChay = true
+          dichCaChapter()
+        }
+      })
+
+      const nutSnip = document.createElement('button')
+      nutSnip.id = 'translation-nut-khoanh-vung'
+      nutSnip.type = 'button'
+      nutSnip.textContent = '✂️ Khoanh vùng (Alt+S)'
+      nutSnip.style.cssText = kieuNut
+      nutSnip.addEventListener('click', () => {
+        if (!window[CO].dangChay) {
+          window[CO].dangChay = true
+          khoanhVungDich()
+        }
+      })
+
+      const nutCuon = document.createElement('button')
+      nutCuon.id = 'translation-nut-tu-dich-cuon'
+      nutCuon.type = 'button'
+      const capNhatNutCuon = () => {
+        const bat = Boolean(window[CO].tuDichKhiCuon)
+        nutCuon.textContent = bat ? '🔄 Tự dịch khi cuộn: BẬT (Alt+W)' : '🔄 Tự dịch khi cuộn (Alt+W)'
+        nutCuon.style.background = bat ? '#059669' : 'rgba(30,41,59,.9)'
+        nutCuon.style.borderColor = bat ? '#10b981' : 'rgba(255,255,255,.18)'
+      }
+      nutCuon.style.cssText = kieuNut
+      capNhatNutCuon()
+      nutCuon.addEventListener('click', () => {
+        window[CO].tuDichKhiCuon = !window[CO].tuDichKhiCuon
+        capNhatNutCuon()
+        if (window[CO].tuDichKhiCuon && !window[CO].dangChay) {
+          dichTrangHienTai({ tuDongCuon: true })
+        }
+      })
+
+      // Nút đổi nhanh Font theo thể loại ngay trên thanh nổi
+      const dsMaFont = Object.keys(KHO_FONT_TRUYEN)
+      const nutFont = document.createElement('button')
+      nutFont.id = 'translation-nut-doi-font'
+      nutFont.type = 'button'
+      nutFont.title = 'Bấm để đổi nhanh Font chữ theo thể loại truyện (Hành động / Ngôn tình / Cổ trang / Hài hước)'
+      nutFont.textContent = layThongSoFont(window[CO].fontChuHienTai).ten
+      nutFont.style.cssText = `${kieuNut};background:rgba(79,70,229,.35);border-color:rgba(129,140,248,.45)`
+      nutFont.addEventListener('click', () => {
+        const idxHienTai = dsMaFont.indexOf(window[CO].fontChuHienTai || 'bangers')
+        const tiepTheo = dsMaFont[(idxHienTai + 1) % dsMaFont.length]
+        window[CO].fontChuHienTai = tiepTheo
+        nutFont.textContent = layThongSoFont(tiepTheo).ten
+        chrome.storage?.local?.set?.({ fontChuTruyen: tiepTheo })?.catch?.(() => {})
+        window.dispatchEvent(new Event('resize'))
+      })
+
+      const doiCoChu = (delta) => {
+        const hienTai = window[CO].heSoCoChu || 1
+        window[CO].heSoCoChu = Math.max(0.75, Math.min(1.45, Math.round((hienTai + delta) * 100) / 100))
+        window.dispatchEvent(new Event('resize'))
+      }
+      const nutChuNho = document.createElement('button')
+      nutChuNho.type = 'button'
+      nutChuNho.textContent = 'A-'
+      nutChuNho.title = 'Thu nhỏ chữ dịch trong bong bóng'
+      nutChuNho.style.cssText = `${kieuNut};padding:5px 8px`
+      nutChuNho.addEventListener('click', () => doiCoChu(-0.1))
+
+      const nutChuTo = document.createElement('button')
+      nutChuTo.type = 'button'
+      nutChuTo.textContent = 'A+'
+      nutChuTo.title = 'Phóng to chữ dịch trong bong bóng'
+      nutChuTo.style.cssText = `${kieuNut};padding:5px 8px`
+      nutChuTo.addEventListener('click', () => doiCoChu(0.1))
+
+      const nut = document.createElement('button')
+      nut.id = 'translation-cong-tac-goc'
+      nut.type = 'button'
+      nut.textContent = '👁 Xem gốc (Alt)'
+      nut.style.cssText = kieuNut
+      nut.addEventListener('click', () => datAnLopPhu(!window[CO].dangAnLopPhu))
+
+      thanh.append(nutDich, nutChapter, nutCuon, nutSnip, nutFont, nutChuNho, nutChuTo, nut)
+      document.documentElement.appendChild(thanh)
+    }
+  }
+
+  /**
+   * E105 (#6) — Khả năng sửa nhanh 1 bóng thoại bị dịch sai ngay trên tiện ích (Double-Click Inline Bubble Editor).
+   *
+   * Khi người dùng nhấp đúp (`dblclick`) vào bất kỳ bóng thoại nào:
+   * - Mở chế độ sửa trực tiếp (`contentEditable = "true"`) ngay trong bóng thoại đó.
+   * - Tự động co/giãn cỡ chữ vừa khít lòng bong bóng theo thời gian thực khi người dùng gõ sửa.
+   * - Hiện thanh công cụ mini ngay trên đỉnh bóng thoại: `🔄 Dịch lại câu này`, `A-`, `A+`, `✓ Xong`.
+   */
+  function moTrinhSuaBongThoai({ hop, noiDung, v, coChuVuaKhung }) {
+    document.getElementById('translation-thanh-sua-bong')?.remove()
+    window[CO].dangSuaBong = true
+
+    noiDung.contentEditable = 'true'
+    noiDung.spellcheck = false
+    noiDung.style.outline = 'none'
+    noiDung.style.cursor = 'text'
+    hop.style.boxShadow = '0 0 0 2px #6366f1, 0 4px 14px rgba(79,70,229,.35)'
+    hop.style.background = v.nen_toi ? 'rgba(15,23,42,.35)' : 'rgba(255,255,255,.35)'
+    hop.style.zIndex = '10'
+    noiDung.focus()
+
+    // Đưa con trỏ về cuối câu hoặc bôi đen để sửa nhanh
+    try {
+      const sel = window.getSelection()
+      const range = document.createRange()
+      range.selectNodeContents(noiDung)
+      sel.removeAllRanges()
+      sel.addRange(range)
+    } catch {}
+
+    const rHop = hop.getBoundingClientRect()
+    const thanhSua = document.createElement('div')
+    thanhSua.id = 'translation-thanh-sua-bong'
+    const topBar = Math.max(8, rHop.top - 38)
+    const leftBar = Math.max(8, Math.min(window.innerWidth - 260, rHop.left + rHop.width * 0.5 - 120))
+    thanhSua.style.cssText = [
+      'position:fixed', 'z-index:2147483647',
+      `left:${Math.round(leftBar)}px`, `top:${Math.round(topBar)}px`,
+      'display:flex', 'align-items:center', 'gap:4px',
+      'padding:4px 6px', 'border-radius:999px',
+      'background:rgba(15,23,42,.95)', 'border:1px solid #818cf8',
+      'box-shadow:0 6px 18px rgba(15,23,42,.45)', 'font:11.5px/1.2 system-ui,sans-serif',
+      'color:#fff', 'user-select:none',
+    ].join(';')
+
+    const kieuNutMini = [
+      'padding:4px 8px', 'border-radius:999px', 'border:1px solid rgba(255,255,255,.2)',
+      'background:rgba(30,41,59,.95)', 'color:#f8fafc', 'font:600 11px/1.1 system-ui,sans-serif',
+      'cursor:pointer', 'white-space:nowrap',
+    ].join(';')
+
+    const nutDichLai = document.createElement('button')
+    nutDichLai.type = 'button'
+    nutDichLai.textContent = '🔄 Dịch lại'
+    nutDichLai.title = v.chu_goc ? `Dịch lại từ chữ gốc: ${v.chu_goc}` : 'Dịch lại bóng thoại này'
+    nutDichLai.style.cssText = `${kieuNutMini};background:#4f46e5;border-color:#818cf8`
+    nutDichLai.addEventListener('mousedown', (e) => e.preventDefault())
+    nutDichLai.addEventListener('click', async (e) => {
+      e.stopPropagation()
+      nutDichLai.disabled = true
+      nutDichLai.textContent = '⏳…'
+      try {
+        const kq = await chrome.runtime.sendMessage({
+          viec: 'dich-lai-cau',
+          chu_goc: v.chu_goc || '',
+          chu_hien_tai: noiDung.textContent || v.ban_dich || '',
+          ngon_ngu_dich: window[CO].ngonNguDichHienTai || 'vi',
+        })
+        if (kq?.ok && kq.ban_dich) {
+          v.ban_dich = kq.ban_dich
+          noiDung.textContent = kq.ban_dich
+          coChuVuaKhung()
+        }
+      } catch {}
+      nutDichLai.disabled = false
+      nutDichLai.textContent = '🔄 Dịch lại'
+    })
+
+    const nutThuNho = document.createElement('button')
+    nutThuNho.type = 'button'
+    nutThuNho.textContent = 'A-'
+    nutThuNho.title = 'Thu nhỏ chữ của riêng bóng thoại này'
+    nutThuNho.style.cssText = kieuNutMini
+    nutThuNho.addEventListener('mousedown', (e) => e.preventDefault())
+    nutThuNho.addEventListener('click', (e) => {
+      e.stopPropagation()
+      v._heSoRieng = Math.max(0.65, Math.round(((v._heSoRieng || 1) - 0.1) * 100) / 100)
+      coChuVuaKhung()
+    })
+
+    const nutPhongTo = document.createElement('button')
+    nutPhongTo.type = 'button'
+    nutPhongTo.textContent = 'A+'
+    nutPhongTo.title = 'Phóng to chữ của riêng bóng thoại này'
+    nutPhongTo.style.cssText = kieuNutMini
+    nutPhongTo.addEventListener('mousedown', (e) => e.preventDefault())
+    nutPhongTo.addEventListener('click', (e) => {
+      e.stopPropagation()
+      v._heSoRieng = Math.min(1.65, Math.round(((v._heSoRieng || 1) + 0.1) * 100) / 100)
+      coChuVuaKhung()
+    })
+
+    const nutXong = document.createElement('button')
+    nutXong.type = 'button'
+    nutXong.textContent = '✓ Xong'
+    nutXong.style.cssText = `${kieuNutMini};background:#059669;border-color:#10b981`
+
+    const hoanTatSua = () => {
+      if (!window[CO].dangSuaBong) return
+      window[CO].dangSuaBong = false
+      const chuMoi = String(noiDung.textContent || '').trim()
+      if (chuMoi) v.ban_dich = chuMoi
+      noiDung.contentEditable = 'false'
+      noiDung.style.cursor = 'pointer'
+      hop.style.boxShadow = 'none'
+      hop.style.background = 'transparent'
+      hop.style.zIndex = ''
+      thanhSua.remove()
+      window.removeEventListener('mousedown', bamRaNgoai, true)
+      coChuVuaKhung()
+    }
+
+    const bamRaNgoai = (ev) => {
+      if (hop.contains(ev.target) || thanhSua.contains(ev.target)) return
+      hoanTatSua()
+    }
+
+    nutXong.addEventListener('click', (e) => {
+      e.stopPropagation()
+      hoanTatSua()
+    })
+
+    noiDung.addEventListener('input', () => {
+      const s = String(noiDung.textContent || '').trim()
+      if (s) v.ban_dich = s
+      coChuVuaKhung()
+    })
+
+    noiDung.addEventListener('keydown', (e) => {
+      e.stopPropagation()
+      if (e.key === 'Escape' || (e.key === 'Enter' && !e.shiftKey)) {
+        e.preventDefault()
+        hoanTatSua()
+      }
+    })
+
+    thanhSua.append(nutDichLai, nutThuNho, nutPhongTo, nutXong)
+    document.documentElement.appendChild(thanhSua)
+    setTimeout(() => window.addEventListener('mousedown', bamRaNgoai, true), 20)
+  }
+
+  function vePhu(el, dulieu) {
+    caiCongTacSoSanhGoc()
+    const vung = Array.isArray(dulieu) ? dulieu : (dulieu?.vung || [])
+    const anh_da_dich = Array.isArray(dulieu) ? null : (dulieu?.anh_da_dich || null)
+
     const src_khoa = el.currentSrc || el.src
+    if (typeof el.__translationDungLopPhu === 'function') {
+      try { el.__translationDungLopPhu() } catch {}
+    }
     timLop(src_khoa)?.remove()
     const lop = document.createElement('div')
     lop.className = LOP_CLASS
     lop.dataset.src = src_khoa
-    // Giữ `id` cho ĐÚNG MỘT lớp — lớp vừa vẽ gần nhất. Phần đo ở cuối quy trình một trang đọc
-    // `#translation-lop-phu`, và nhiều thứ ngoài tiện ích (ảnh chụp lỗi, người soi DOM) cũng đã
-    // quen với id đó. Chuyển hẳn sang class sẽ làm mọi phép đo cũ im lặng trả `null`.
     document.querySelectorAll(`#${LOP_CLASS}`).forEach((x) => x.removeAttribute('id'))
     lop.id = LOP_CLASS
-    // `fixed` + toạ độ KHUNG NHÌN, gắn vào <html> chứ không vào <body>.
-    //
-    // Bản đầu dùng `absolute` + toạ độ tài liệu (cộng `window.scrollX/scrollY`) và gắn vào
-    // `document.body`. Hỏng trên trang thật đầu tiên thử (07/09) — lớp phủ rơi xuống góc dưới
-    // bên trái, ngoài hẳn ảnh. Hai lỗi chồng nhau, cả hai đều không test đơn vị nào bắt được:
-    //
-    // 1. `absolute` neo theo TỔ TIÊN ĐÃ ĐỊNH VỊ gần nhất, không phải theo tài liệu. Trang đó là
-    //    lightbox nên ảnh nằm trong hộp đã định vị ⇒ phép tính toạ độ tài liệu rơi vào hệ quy
-    //    chiếu khác.
-    // 2. Cộng độ cuộn trong lightbox là sai hẳn: ảnh nằm trong hộp cố định, trang nền không
-    //    cuộn, nên phần cộng thêm đẩy lớp phủ lệch đúng bằng độ cuộn.
-    //
-    // `getBoundingClientRect()` vốn đã trả toạ độ khung nhìn, nên `fixed` dùng thẳng được, không
-    // phải cộng trừ gì. Gắn vào `documentElement` để không dính `transform` của <body>.
-    lop.style.cssText = 'position:fixed;z-index:2147483646;pointer-events:none'
+    lop.style.cssText = 'position:fixed;z-index:2147483646;pointer-events:none;transition:opacity .12s ease'
+    if (window[CO].dangAnLopPhu) lop.style.opacity = '0'
     document.documentElement.appendChild(lop)
 
-    // Khai báo TRƯỚC `ve`, vì `ve` gọi `dung`. `const` không được nâng lên đầu phạm vi: để
-    // `dung` ở dưới thì nó chỉ chạy đúng nhờ thứ tự gọi may mắn, và một lần đổi thứ tự là ném
-    // "Cannot access before initialization" ngay lúc bấm — không phải lúc nạp, nên mắt thường
-    // không thấy. Đúng bẫy này đã cắn một lần ở giao diện web (BangChuaCoChu.jsx).
     const ro = new ResizeObserver(() => ve())
+    const mo = typeof MutationObserver !== 'undefined'
+      ? new MutationObserver(() => ve())
+      : null
     const dung = () => {
       ro.disconnect()
+      if (mo) mo.disconnect()
+      el.removeEventListener('load', goiVe)
       window.removeEventListener('scroll', goiVe, true)
       window.removeEventListener('resize', goiVe)
+      if (el.__translationDungLopPhu === dung) el.__translationDungLopPhu = null
       lop.remove()
     }
+    el.__translationDungLopPhu = dung
     const goiVe = () => ve()
 
     const ve = () => {
-      if (!el.isConnected || !sanSangQuyDoi(el)) { dung(); return }
+      if (window[CO].dangSuaBong) return
+      const srcHienTai = el.currentSrc || el.src
+      if (!el.isConnected || (src_khoa && srcHienTai && srcHienTai !== src_khoa) || !sanSangQuyDoi(el)) {
+        dung()
+        return
+      }
       const r = el.getBoundingClientRect()
-      // E59 — CHỐT HIỆU NĂNG, không phải tối ưu sớm. Với một chapter 24 trang thì có 24 lớp phủ,
-      // mỗi lớp nghe `scroll` và mỗi lần cuộn đều dựng lại toàn bộ ô chữ + chạy vòng co cỡ chữ.
-      // 24 lần việc đó cho mỗi sự kiện cuộn là đủ để trang giật hẳn. Lớp nào ở xa khung nhìn thì
-      // ẩn và về ngay — chỉ 1-2 lớp quanh mắt đọc làm việc thật.
       const LE = 800
       if (r.bottom < -LE || r.top > window.innerHeight + LE) {
         lop.style.display = 'none'
@@ -104,54 +1328,194 @@
         width: `${r.width}px`, height: `${r.height}px`,
       })
 
-      for (const v of vung) {
-        if (!v.ban_dich) continue
-        const o = quyDoi(v, {
-          naturalWidth: el.naturalWidth, naturalHeight: el.naturalHeight,
-          clientWidth: r.width, clientHeight: r.height,
-        })
+      const vungCoDich = vung.filter((v) => Boolean(v.ban_dich))
+      if (anh_da_dich && !vungCoDich.length) {
+        const anhPhu = document.createElement('img')
+        anhPhu.src = anh_da_dich
+        anhPhu.alt = 'Trang đã dịch'
+        anhPhu.style.cssText = 'width:100%;height:100%;object-fit:fill;display:block;pointer-events:none;user-select:none'
+        lop.appendChild(anhPhu)
+        return
+      }
+
+      const coCanvas = Boolean(layCtxMau(el))
+      const thongSoFont = layThongSoFont(window[CO].fontChuHienTai)
+      const thongSoAnh = {
+        naturalWidth: el.naturalWidth, naturalHeight: el.naturalHeight,
+        clientWidth: r.width, clientHeight: r.height,
+      }
+      const dsOChe = vungCoDich.map((v) => {
+        if (coCanvas) doKhungBongBongCanvas(el, v, vungCoDich)
+        return quyDoi(v._khungCheCanvas || v, thongSoAnh)
+      })
+      const dsOGoc = vungCoDich.map((v) => {
+        const khungThuc = coCanvas ? doKhungBongBongCanvas(el, v, vungCoDich) : null
+        return {
+          ...quyDoi(khungThuc || v, thongSoAnh),
+          soKyTu: v.ban_dich.length,
+        }
+      })
+      const dsOMoRong = (!coCanvas && typeof moRongKhungBongBong === 'function')
+        ? moRongKhungBongBong(dsOGoc, { width: r.width, height: r.height })
+        : dsOGoc
+
+      const dsHopDaVe = []
+      for (let idx = 0; idx < vungCoDich.length; idx += 1) {
+        const v = vungCoDich[idx]
+        const oChe = dsOChe[idx]
+        const o = dsOMoRong[idx] || dsOGoc[idx]
+        if (v.nen_toi === undefined) {
+          v.nen_toi = laBongBongToi(el, v)
+        }
+        const anhChe = coCanvas ? taoAnhCheChuCanvas(el, v, vungCoDich) : null
+        const nenMau = v._mauNenCss || (v.nen_toi ? '#000000' : '#ffffff')
+        const chuMau = v.nen_toi ? '#ffffff' : '#000000'
+
+        // Lớp 1 (`lopChe` / Clean-Image trên GPU/Canvas máy khách):
+        // Xoá sạch 100% chữ gốc trên toàn bộ lòng bong bóng `oChe` trong khi bảo toàn đường viền cong của bong bóng.
+        // Đặt `zIndex: 1` cố định cho mọi lớp xoá nền để KHÔNG BAO GIỜ đè lên lớp chữ `hop` (`zIndex: 2`) của bóng thoại kế bên!
+        const lopChe = document.createElement('div')
+        lopChe.className = 'translation-anh-sach'
+        if (anhChe) {
+          Object.assign(lopChe.style, {
+            position: 'absolute',
+            zIndex: '1',
+            left: `${oChe.left}px`, top: `${oChe.top}px`,
+            width: `${oChe.width}px`, height: `${oChe.height}px`,
+            backgroundImage: `url(${anhChe})`,
+            backgroundSize: '100% 100%',
+            backgroundRepeat: 'no-repeat',
+            pointerEvents: 'none',
+          })
+        } else {
+          Object.assign(lopChe.style, {
+            position: 'absolute',
+            zIndex: '1',
+            left: `${oChe.left}px`, top: `${oChe.top}px`,
+            width: `${oChe.width}px`, height: `${oChe.height}px`,
+            background: nenMau,
+            borderRadius: '38%',
+            pointerEvents: 'none',
+          })
+        }
+        lop.appendChild(lopChe)
+
+        const padY = Math.max(2, Math.round(o.height * 0.055))
+        const padX = Math.max(3, Math.round(o.width * 0.07))
+        // Khi đã có `anhChe` phủ sạch nền bong bóng, dùng bóng sáng dịu `0 0 2px` thay vì viền cứng 1.5px
+        // để các chữ in hoa sát nhau của font Hành động (Bangers) như "THUỘC", "CẤP" không bị viền trắng cắt lẹm vào nhau.
+        const vienSangChu = (anhChe && !v._laNenPhucTap)
+          ? `0 0 2px ${nenMau}, 0 0 3px ${nenMau}`
+          : [
+              `-1px -1px 0 ${nenMau}`,
+              `1px -1px 0 ${nenMau}`,
+              `-1px 1px 0 ${nenMau}`,
+              `1px 1px 0 ${nenMau}`,
+              `0 0 4px ${nenMau}`,
+            ].join(', ')
+
         const hop = document.createElement('div')
-        hop.textContent = v.ban_dich
-        hop.title = v.chu_goc || ''
+        hop.className = 'translation-hop-chu'
+        hop.title = `✏️ Nhấp đúp (Double-click) để sửa nhanh câu này\nChữ gốc: ${v.chu_goc || '(không rõ)'}`
+        hop.dataset.nenToi = v.nen_toi ? '1' : '0'
         Object.assign(hop.style, {
           position: 'absolute',
+          zIndex: '2',
           left: `${o.left}px`, top: `${o.top}px`,
           width: `${o.width}px`, height: `${o.height}px`,
-          // Nền đục HẾT CỠ để che chữ gốc: chế độ này KHÔNG xoá chữ khỏi ảnh, còn hở dù chỉ vài
-          // % cũng lộ chữ Nhật mờ mờ chồng sau chữ Việt (thấy trên trang thật 07/09, để ở .94).
-          background: 'rgba(255,255,255,1)', color: '#000',
-          border: v.kem_tin_cay ? '1px dashed #e0a800' : '1px solid rgba(0,0,0,.15)',
-          borderRadius: '6px',
-          font: `${coChu(o, v.ban_dich.length)}px/1.2 system-ui,sans-serif`,
-          padding: '2px 3px', boxSizing: 'border-box',
+          background: 'transparent',
+          color: chuMau,
+          textShadow: vienSangChu,
+          border: v.kem_tin_cay ? '1px dashed #e0a800' : 'none',
+          borderRadius: v._laHopChuNhat ? '12%' : '46%',
+          fontFamily: thongSoFont.css,
+          lineHeight: thongSoFont.lineHeight,
+          letterSpacing: thongSoFont.letterSpacing,
+          padding: `${padY}px ${padX}px`, boxSizing: 'border-box',
           display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center',
-          // Chữ Việt dài hơn chữ Nhật và chế độ này KHÔNG chạy bước căn chữ, nên không có bảo
-          // đảm nào là chữ vừa ô. Cuộn là LƯỚI AN TOÀN cuối cùng — vòng co chữ dưới đây mới là
-          // thứ chính, chạy trước khi cần tới cuộn.
-          overflow: 'auto', overflowWrap: 'anywhere', pointerEvents: 'auto',
+          overflow: 'hidden', pointerEvents: 'auto', cursor: 'pointer',
         })
+
+        const noiDung = document.createElement('span')
+        noiDung.textContent = v.ban_dich
+        noiDung.style.cssText = 'display:inline-block;max-width:100%;word-break:normal;overflow-wrap:normal;text-wrap:balance'
+        hop.appendChild(noiDung)
         lop.appendChild(hop)
 
-        // `coChu()` chỉ ước lượng bằng diện tích/số ký tự, không đo chữ thật — không có gì bảo
-        // đảm nó vừa khung. Đo THẬT bằng scrollHeight/scrollWidth sau khi đã nằm trong DOM (trước
-        // đó trình duyệt chưa layout, đọc số lúc đó là rác), rồi co dần tới khi vừa hoặc chạm sàn.
-        let px = coChu(o, v.ban_dich.length)
-        while (px > 8 && (hop.scrollHeight > hop.clientHeight + 1 || hop.scrollWidth > hop.clientWidth + 1)) {
-          px -= 1
+        const coChuVuaKhung = () => {
+          const doDaiChu = Math.max(1, (noiDung.textContent || v.ban_dich || '').length)
+          const heSo = (window[CO].heSoCoChu || 1) * (v._heSoRieng || 1)
+          const uocLuong = coChu(o, doDaiChu)
+          const tranTren = Math.min(
+            26,
+            Math.max(uocLuong + 6, Math.round(Math.min(o.width, o.height) * 0.44)),
+          )
+          const coChuBanDau = Math.max(9, Math.round(tranTren * heSo))
+          const sanPx = Math.max(8, Math.round(9 * Math.min(heSo, 1)))
+          const rongNoiDungToiDa = Math.max(18, o.width - padX * 2)
+          const caoNoiDungToiDa = Math.max(14, o.height - padY * 2)
+          const laElip = !v._laHopChuNhat
+
+          noiDung.style.overflowWrap = 'normal'
+          let px = coChuBanDau
           hop.style.fontSize = `${px}px`
+          while (px > sanPx) {
+            const tranKhung = (
+              hop.scrollHeight > hop.clientHeight + 1 ||
+              hop.scrollWidth > hop.clientWidth + 1 ||
+              noiDung.scrollWidth > rongNoiDungToiDa + 1 ||
+              noiDung.offsetHeight > caoNoiDungToiDa + 1
+            )
+            const tyLeRong = noiDung.offsetWidth / Math.max(1, o.width)
+            const tyLeCao = noiDung.offsetHeight / Math.max(1, o.height)
+            const tranGocElip = laElip && noiDung.offsetHeight > px * 1.55 && (tyLeRong * tyLeRong + tyLeCao * tyLeCao) > 1.08
+            if (!tranKhung && !tranGocElip) break
+            px -= 1
+            hop.style.fontSize = `${px}px`
+          }
+          noiDung.style.overflowWrap = 'break-word'
+          return px
+        }
+
+        const pxDatDuoc = coChuVuaKhung()
+        dsHopDaVe.push({ hop, v, px: pxDatDuoc, doDai: (v.ban_dich || '').length })
+
+        // E105 (#6) — Nhấp đúp chuột vào bất kỳ bóng thoại nào để sửa chữ / phóng to / dịch lại tức thì
+        hop.addEventListener('dblclick', (e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          moTrinhSuaBongThoai({ hop, noiDung, v, coChuVuaKhung })
+        })
+      }
+
+      // Đồng bộ cỡ chữ hài hoà toàn trang (`dongBoCoChuToanTrang`):
+      // Giữ cho các bóng thoại hội thoại thông thường trên cùng 1 trang có kích thước chữ đồng đều,
+      // tránh hiện tượng 1 bóng thoại trống trải phình chữ quá to so với bóng thoại bên cạnh.
+      const dsPxThoai = dsHopDaVe
+        .filter((m) => !m.v._heSoRieng && m.doDai >= 10)
+        .map((m) => m.px)
+        .sort((a, b) => a - b)
+      if (dsPxThoai.length >= 2) {
+        const pxTrungVi = dsPxThoai[Math.floor(dsPxThoai.length * 0.5)]
+        const tranThoai = Math.max(12, Math.round(pxTrungVi * 1.18))
+        const tranCamThan = Math.max(14, Math.round(pxTrungVi * 1.32))
+        for (const m of dsHopDaVe) {
+          if (m.v._heSoRieng) continue
+          const tran = m.doDai >= 10 ? tranThoai : tranCamThan
+          if (m.px > tran) {
+            m.px = tran
+            m.hop.style.fontSize = `${tran}px`
+          }
         }
       }
     }
 
-    // Toạ độ khung nhìn đổi mỗi khi cuộn, nên PHẢI vẽ lại khi cuộn — đây là cái giá của
-    // `fixed`, và là cái giá đúng: đổi lại nó không phụ thuộc tổ tiên nào cả.
-    //
-    // `capture: true` để bắt cả cuộn BÊN TRONG một hộp con (lightbox cuộn nội bộ, trang nền
-    // đứng yên) — nghe ở `window` không có capture sẽ bỏ sót đúng ca đó.
     ve()
     ro.observe(el)
-    window.addEventListener('scroll', ve, { passive: true, capture: true })
-    window.addEventListener('resize', ve, { passive: true })
+    if (mo) mo.observe(el, { attributes: true, attributeFilter: ['src', 'srcset'] })
+    el.addEventListener('load', goiVe)
+    window.addEventListener('scroll', goiVe, { passive: true, capture: true })
+    window.addEventListener('resize', goiVe, { passive: true })
   }
 
   // Đọc ẢNH THẬT bằng canvas ngay tại đây trước khi nhờ service worker tải lại bằng URL.
@@ -172,16 +1536,21 @@
       const canvas = document.createElement('canvas')
       canvas.width = el.naturalWidth
       canvas.height = el.naturalHeight
-      canvas.getContext('2d').drawImage(el, 0, 0)
+      const ctx = canvas.getContext('2d')
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      ctx.drawImage(el, 0, 0)
+      // Mã hoá JPEG 0.88 thay vì PNG không nén: giữ NGUYÊN kích thước `naturalWidth x naturalHeight`
+      // để toạ độ hộp chữ khớp 1:1, nhưng giảm dung lượng ảnh gửi qua IPC + mạng từ ~4-6MB xuống ~250KB.
       const blob = await new Promise((resolve, reject) => {
-        canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('canvas rỗng'))), 'image/png')
+        canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('canvas rỗng'))), 'image/jpeg', 0.88)
       })
       const bytes = new Uint8Array(await blob.arrayBuffer())
       let nhi_phan = ''
       for (let i = 0; i < bytes.length; i += 0x8000) {
         nhi_phan += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
       }
-      return { anh_base64: btoa(nhi_phan), anh_mime: blob.type || 'image/png' }
+      return { anh_base64: btoa(nhi_phan), anh_mime: blob.type || 'image/jpeg' }
     } catch {
       // Nhiễm bẩn (ảnh cross-origin không CORS) hoặc lỗi khác — rơi về gửi URL cho service worker.
       return { anh_base64: null, anh_mime: null }
@@ -189,32 +1558,58 @@
   }
 
   /**
-   * Xếp hàng dịch trước TỐI ĐA MỘT trang kế tiếp — trong lúc người dùng còn đang đọc trang hiện
-   * tại, không phải quét cả chapter (cố ý loại ở `PLAN_E19` §8, xem `docs/ARCH.md` §E19.6f).
+   * E98 — Xếp hàng dịch đón đầu trang kế tiếp (N+1) CHỈ KHI người dùng đang bật công tắc
+   * "🔄 Tự dịch khi cuộn" và ở chế độ "Phủ hộp chữ nhanh" (`chi_chu`).
    *
-   * Chạy NỀN, không chờ, không báo lỗi ra thông báo chính: đây là việc làm trước cho êm, người
-   * dùng không đang đứng chờ nó như trang họ vừa bấm. Chỉ nạp được trên trang cuộn dọc liên tục
-   * giữ sẵn vài trang kế cận trong DOM (đo trên MangaPlus: 22-36 `<img>` cùng lúc) — trang kiểu
-   * "bấm Tiếp" mới nạp ảnh mới thì `chonTrangKeTiep` trả `null`, không có gì để xếp hàng.
+   * Vì sao không tự chạy ngầm khi người dùng chỉ bấm "Dịch trang này" 1 lần:
+   * 1. Máy chủ chạy 1 worker tuần tự: nếu tự động xếp thêm 2 trang N+1, N+2 (nhất là ở chế độ `day_du`
+   *    tốn ~2 phút/trang xoá chữ LaMa), worker sẽ bị khoá cứng 4-5 phút, khiến lần bấm kế tiếp của
+   *    chính người dùng phải chờ hàng đợi rất lâu.
+   * 2. Tự động dịch ngầm khi chưa bật "Tự dịch khi cuộn" sẽ âm thầm trừ mất lượt miễn phí của khách.
    */
   function xepHangTrangKeTiep(mo_ta_hien_tai, boQuaSrc) {
-    const ke = chonTrangKeTiep(mo_ta_hien_tai, { caoKhungNhin: window.innerHeight, boQuaSrc })
-    if (!ke.anh) return
-    const src = ke.anh.src
-    if (window[CO].daDich.has(src) || window[CO].dangXepHang.has(src)) return
-    window[CO].dangXepHang.add(src)
+    if (!window[CO].tuDichKhiCuon) return
+
+    const danh_sach_ke = typeof chonCacTrangKeTiep === 'function'
+      ? chonCacTrangKeTiep(mo_ta_hien_tai, { caoKhungNhin: window.innerHeight, boQuaSrc, toiDa: 1 })
+      : [chonTrangKeTiep(mo_ta_hien_tai, { caoKhungNhin: window.innerHeight, boQuaSrc }).anh].filter(Boolean)
+
+    if (!danh_sach_ke.length) return
+
     ;(async () => {
-      try {
-        const { anh_base64, anh_mime } = await docByteAnh(ke.anh.el)
-        const tra_ke = await chrome.runtime.sendMessage({
-          viec: 'dich-anh', url: src, anh_base64, anh_mime,
-        })
-        if (tra_ke?.ok) window[CO].daDich.set(src, tra_ke.vung)
-      } catch {
-        // Im lặng có chủ đích — bấm dịch lại trang đó sau này sẽ chạy như bình thường (không
-        // cache), không phải lỗi cần người dùng xử lý ngay.
-      } finally {
-        window[CO].dangXepHang.delete(src)
+      const { cheDo, ngonNgu, ngonNguDich, engine } = await layCauHinhHienTai()
+      for (const ke of danh_sach_ke) {
+        if (!window[CO].tuDichKhiCuon) break
+        const src = ke.src
+        const khoa = khoaCache(src, cheDo, ngonNgu, engine, ngonNguDich)
+        if (!src || window[CO].daDich.has(khoa) || window[CO].dangXepHang.has(khoa)) continue
+        window[CO].dangXepHang.add(khoa)
+        try {
+          const { anh_base64, anh_mime } = await docByteAnh(ke.el)
+          const tra_ke = await chrome.runtime.sendMessage({
+            viec: 'dich-anh', url: src, anh_base64, anh_mime, ngam: true,
+          })
+          if (tra_ke?.ok) {
+            const elSong = ke.el?.isConnected ? ke.el : timAnhTheoSrc(src)
+            if (elSong && tra_ke.anh_goc_data_url) {
+              await napCanvasTuDataUrl(elSong, tra_ke.anh_goc_data_url)
+            }
+            const goi = {
+              vung: tra_ke.vung,
+              anh_da_dich: tra_ke.anh_da_dich || null,
+              anh_goc_data_url: tra_ke.anh_goc_data_url || null,
+            }
+            window[CO].daDich.set(khoaCache(src, tra_ke.che_do || cheDo, ngonNgu, engine, ngonNguDich), goi)
+            if (elSong?.isConnected) vePhu(elSong, goi)
+          } else if (tra_ke?.ma === 429 || tra_ke?.ma === 401) {
+            // Hết hạn mức hoặc hết phiên đăng nhập thì dừng luôn chuỗi nạp đón đầu.
+            break
+          }
+        } catch {
+          // Im lặng có chủ đích — bấm dịch lại trang đó sau này sẽ chạy như bình thường.
+        } finally {
+          window[CO].dangXepHang.delete(khoa)
+        }
       }
     })()
   }
@@ -290,7 +1685,307 @@
     return false
   }
 
+  // ─────────────────────────────────────────────────────────────────────────────────────────
+  // E60 — KHOANH VÙNG DỊCH TRÊN MÀN HÌNH (dành cho trang vẽ bằng <canvas> / DRM chống sao chép)
+  // ─────────────────────────────────────────────────────────────────────────────────────────
+  async function khoanhVungDich() {
+    noi('Kéo chuột chọn vùng truyện cần dịch (bấm Esc để huỷ)…')
+    const manChe = document.createElement('div')
+    manChe.style.cssText = [
+      'position:fixed', 'inset:0', 'z-index:2147483646',
+      'cursor:crosshair', 'background:rgba(0,0,0,.22)', 'user-select:none',
+    ].join(';')
+    const khungChon = document.createElement('div')
+    khungChon.style.cssText = [
+      'position:fixed', 'border:2px dashed #38bdf8', 'background:rgba(56,189,248,.12)',
+      'pointer-events:none', 'display:none',
+    ].join(';')
+    manChe.appendChild(khungChon)
+    document.documentElement.appendChild(manChe)
+
+    const vungChon = await new Promise((resolve) => {
+      let x0 = 0
+      let y0 = 0
+      let dangKeo = false
+
+      const huy = (e) => {
+        if (e.key === 'Escape') {
+          donDep()
+          resolve(null)
+        }
+      }
+      const batDau = (e) => {
+        if (e.button !== 0) return
+        dangKeo = true
+        x0 = e.clientX
+        y0 = e.clientY
+        khungChon.style.display = 'block'
+        khungChon.style.left = `${x0}px`
+        khungChon.style.top = `${y0}px`
+        khungChon.style.width = '0px'
+        khungChon.style.height = '0px'
+      }
+      const diChuyen = (e) => {
+        if (!dangKeo) return
+        const left = Math.min(x0, e.clientX)
+        const top = Math.min(y0, e.clientY)
+        const width = Math.abs(e.clientX - x0)
+        const height = Math.abs(e.clientY - y0)
+        Object.assign(khungChon.style, {
+          left: `${left}px`, top: `${top}px`, width: `${width}px`, height: `${height}px`,
+        })
+      }
+      const ketThuc = (e) => {
+        if (!dangKeo) return
+        dangKeo = false
+        const left = Math.min(x0, e.clientX)
+        const top = Math.min(y0, e.clientY)
+        const width = Math.abs(e.clientX - x0)
+        const height = Math.abs(e.clientY - y0)
+        donDep()
+        if (width < 24 || height < 24) {
+          resolve(null)
+          return
+        }
+        resolve({ left, top, width, height })
+      }
+      const donDep = () => {
+        window.removeEventListener('keydown', huy)
+        manChe.remove()
+      }
+
+      window.addEventListener('keydown', huy)
+      manChe.addEventListener('mousedown', batDau)
+      manChe.addEventListener('mousemove', diChuyen)
+      manChe.addEventListener('mouseup', ketThuc)
+    })
+
+    if (!vungChon) {
+      window[CO].dangChay = false
+      xong('Đã huỷ khoanh vùng dịch.', 3)
+      return
+    }
+
+    // Ẩn tạm bảng thông báo trước khi chụp màn hình để ảnh chụp không dính chính hộp thông báo.
+    bang.style.display = 'none'
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+    const chup = await chrome.runtime.sendMessage({ viec: 'chup-man-hinh' })
+    bang.style.display = ''
+
+    if (!chup?.ok || !chup?.data_url) {
+      window[CO].dangChay = false
+      xong(`Không chụp được màn hình: ${chup?.loi || 'không rõ lý do'}`, 8)
+      return
+    }
+
+    noi('Đang cắt vùng chọn và gửi dịch…')
+    const anhChup = new Image()
+    await new Promise((resolve, reject) => {
+      anhChup.onload = resolve
+      anhChup.onerror = reject
+      anhChup.src = chup.data_url
+    })
+
+    const dpr = window.devicePixelRatio || 1
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(vungChon.width * dpr))
+    canvas.height = Math.max(1, Math.round(vungChon.height * dpr))
+    const ctxSnip = canvas.getContext('2d')
+    ctxSnip.fillStyle = '#ffffff'
+    ctxSnip.fillRect(0, 0, canvas.width, canvas.height)
+    ctxSnip.drawImage(
+      anhChup,
+      Math.round(vungChon.left * dpr),
+      Math.round(vungChon.top * dpr),
+      canvas.width,
+      canvas.height,
+      0,
+      0,
+      canvas.width,
+      canvas.height,
+    )
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.88)
+    const anh_base64 = dataUrl.split(',')[1]
+
+    const tra = await chrome.runtime.sendMessage({
+      viec: 'dich-anh',
+      url: `snip://${Date.now()}`,
+      anh_base64,
+      anh_mime: 'image/jpeg',
+    })
+    window[CO].dangChay = false
+
+    if (!tra?.ok) {
+      xong(`Không dịch được vùng đã chọn.\n${tra?.loi || 'không rõ lý do'}`, 12)
+      return
+    }
+
+    caiCongTacSoSanhGoc()
+    const hopSnip = document.createElement('div')
+    hopSnip.className = LOP_CLASS
+    hopSnip.style.cssText = [
+      'position:fixed', 'z-index:2147483646',
+      `left:${vungChon.left}px`, `top:${vungChon.top}px`,
+      `width:${vungChon.width}px`, `height:${vungChon.height}px`,
+      'box-shadow:0 4px 18px rgba(0,0,0,.35)', 'border:1px solid #38bdf8', 'border-radius:6px',
+    ].join(';')
+
+    const nutDong = document.createElement('button')
+    nutDong.type = 'button'
+    nutDong.textContent = '✕'
+    nutDong.title = 'Đóng khung dịch vùng này'
+    nutDong.style.cssText = [
+      'position:absolute', 'right:-10px', 'top:-10px', 'z-index:2',
+      'width:22px', 'height:22px', 'border-radius:999px', 'border:none',
+      'background:#ef4444', 'color:#fff', 'font:bold 12px/22px system-ui,sans-serif',
+      'cursor:pointer', 'pointer-events:auto',
+    ].join(';')
+    nutDong.addEventListener('click', () => hopSnip.remove())
+    hopSnip.appendChild(nutDong)
+
+    if (tra.anh_da_dich) {
+      const img = document.createElement('img')
+      img.src = tra.anh_da_dich
+      img.style.cssText = 'width:100%;height:100%;object-fit:fill;display:block;border-radius:5px'
+      hopSnip.appendChild(img)
+    } else {
+      const elAo = {
+        naturalWidth: canvas.width,
+        naturalHeight: canvas.height,
+        currentSrc: 'snip://canvas',
+        __translationCtxMau: ctxSnip,
+        __translationCtxSrc: 'snip://canvas',
+      }
+      const vungSnip = (tra.vung || []).filter((v) => Boolean(v.ban_dich))
+      const thongSoSnip = {
+        naturalWidth: canvas.width,
+        naturalHeight: canvas.height,
+        clientWidth: vungChon.width,
+        clientHeight: vungChon.height,
+      }
+      const dsOChe = vungSnip.map((v) => {
+        doKhungBongBongCanvas(elAo, v, vungSnip)
+        return quyDoi(v._khungCheCanvas || v, thongSoSnip)
+      })
+      const dsOGoc = vungSnip.map((v) => ({
+        ...quyDoi(doKhungBongBongCanvas(elAo, v, vungSnip) || v, thongSoSnip),
+        soKyTu: v.ban_dich.length,
+      }))
+
+      for (let idx = 0; idx < vungSnip.length; idx += 1) {
+        const v = vungSnip[idx]
+        const oChe = dsOChe[idx]
+        const o = dsOGoc[idx]
+        const anhChe = taoAnhCheChuCanvas(elAo, v, vungSnip)
+        const nenMau = v._mauNenCss || (v.nen_toi ? '#000000' : '#ffffff')
+        const chuMau = v.nen_toi ? '#ffffff' : '#000000'
+
+        const lopChe = document.createElement('div')
+        if (anhChe) {
+          Object.assign(lopChe.style, {
+            position: 'absolute',
+            zIndex: '1',
+            left: `${oChe.left}px`, top: `${oChe.top}px`,
+            width: `${oChe.width}px`, height: `${oChe.height}px`,
+            backgroundImage: `url(${anhChe})`,
+            backgroundSize: '100% 100%',
+            backgroundRepeat: 'no-repeat',
+            pointerEvents: 'none',
+          })
+        } else {
+          Object.assign(lopChe.style, {
+            position: 'absolute',
+            zIndex: '1',
+            left: `${oChe.left}px`, top: `${oChe.top}px`,
+            width: `${oChe.width}px`, height: `${oChe.height}px`,
+            background: nenMau,
+            borderRadius: '38%',
+            pointerEvents: 'none',
+          })
+        }
+        hopSnip.appendChild(lopChe)
+
+        const padY = Math.max(2, Math.round(o.height * 0.055))
+        const padX = Math.max(3, Math.round(o.width * 0.07))
+        const uocLuong = coChu(o, v.ban_dich.length)
+        const coChuBanDau = Math.min(28, Math.max(uocLuong + 6, Math.round(Math.min(o.width, o.height) * 0.46)))
+        const vienSangChu = (anhChe && !v._laNenPhucTap)
+          ? `0 0 2px ${nenMau}, 0 0 3px ${nenMau}`
+          : [
+              `-1px -1px 0 ${nenMau}`,
+              `1px -1px 0 ${nenMau}`,
+              `-1px 1px 0 ${nenMau}`,
+              `1px 1px 0 ${nenMau}`,
+              `0 0 4px ${nenMau}`,
+            ].join(', ')
+        const thongSoFontSnip = layThongSoFont(window[CO].fontChuHienTai)
+        const hop = document.createElement('div')
+        hop.className = 'translation-hop-chu'
+        hop.title = `✏️ Nhấp đúp (Double-click) để sửa nhanh câu này\nChữ gốc: ${v.chu_goc || '(không rõ)'}`
+        Object.assign(hop.style, {
+          position: 'absolute',
+          zIndex: '2',
+          left: `${o.left}px`, top: `${o.top}px`,
+          width: `${o.width}px`, height: `${o.height}px`,
+          background: 'transparent', color: chuMau,
+          textShadow: vienSangChu,
+          border: 'none', borderRadius: v._laHopChuNhat ? '12%' : '46%',
+          fontFamily: thongSoFontSnip.css,
+          fontSize: `${coChuBanDau}px`,
+          lineHeight: thongSoFontSnip.lineHeight,
+          letterSpacing: thongSoFontSnip.letterSpacing,
+          padding: `${padY}px ${padX}px`, boxSizing: 'border-box',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center',
+          overflow: 'hidden', pointerEvents: 'auto', cursor: 'pointer',
+        })
+        const noiDung = document.createElement('span')
+        noiDung.textContent = v.ban_dich
+        noiDung.style.cssText = 'display:inline-block;max-width:100%;word-break:normal;overflow-wrap:normal;text-wrap:balance'
+        hop.appendChild(noiDung)
+        hopSnip.appendChild(hop)
+        const coChuSnip = () => {
+          let px = Math.round(coChuBanDau * (v._heSoRieng || 1))
+          hop.style.fontSize = `${px}px`
+          while (
+            px > 9 &&
+            (hop.scrollHeight > hop.clientHeight + 1 ||
+              hop.scrollWidth > hop.clientWidth + 1 ||
+              noiDung.scrollWidth > noiDung.clientWidth + 1)
+          ) {
+            px -= 1
+            hop.style.fontSize = `${px}px`
+          }
+        }
+        hop.addEventListener('dblclick', (e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          moTrinhSuaBongThoai({ hop, noiDung, v, coChuVuaKhung: coChuSnip })
+        })
+      }
+    }
+
+    document.documentElement.appendChild(hopSnip)
+    // Sau khi hopSnip đã gắn vào DOM, co cỡ chữ vừa khít từng ô
+    hopSnip.querySelectorAll('div > span').forEach((noiDung) => {
+      const hop = noiDung.parentElement
+      let px = parseInt(hop.style.fontSize, 10) || 16
+      while (
+        px > 9 &&
+        (hop.scrollHeight > hop.clientHeight + 1 ||
+          hop.scrollWidth > hop.clientWidth + 1 ||
+          noiDung.scrollWidth > noiDung.clientWidth + 1)
+      ) {
+        px -= 1
+        hop.style.fontSize = `${px}px`
+      }
+      noiDung.style.overflowWrap = 'break-word'
+    })
+    const co_chu = (tra.vung || []).filter((v) => v.ban_dich).length
+    xong(`Xong khoanh vùng: ${co_chu}/${(tra.vung || []).length} bong bóng có bản dịch.`, 8)
+  }
+
   async function dichCaChapter() {
+    window[CO].dangChayBulk = true
     const vi_tri_dau = window.scrollY
     let dung_lai = false
 
@@ -312,8 +2007,35 @@
     let lai_so = 0        // lấy từ bản dịch đã có sẵn
     let ket_thuc = null   // lý do dừng sớm, nếu có
 
+    // Đọc sẵn byte ảnh của các trang kế tiếp bằng cả danh sách liền kề lẫn IntersectionObserver (2000px):
+    // 1. Tận dụng thời gian chờ máy chủ (~30-45s/trang) để mã hoá canvas PNG phía trình duyệt.
+    // 2. Chống mất ảnh khi người dùng cuộn trang làm trình đọc truyện ảo hoá (gỡ <img> khỏi DOM)
+    //    nhưng KHÔNG tiêu trước hạn mức máy chủ nếu người dùng bấm "Dừng" giữa chừng.
+    const {
+      cheDo: cheDoHienTai,
+      ngonNgu: ngonNguHienTai,
+      ngonNguDich: ngonNguDichHienTai,
+      engine: engineHienTai,
+    } = await layCauHinhHienTai()
+    const bo_nho_byte = new Map()
+    const chuanBiByte = (muc) => {
+      if (!muc || bo_nho_byte.has(muc.src) || window[CO].daDich.has(khoaCache(muc.src, cheDoHienTai, ngonNguHienTai, engineHienTai, ngonNguDichHienTai))) return
+      bo_nho_byte.set(muc.src, docByteAnh(muc.el))
+    }
+    const io = typeof IntersectionObserver !== 'undefined'
+      ? new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue
+          const el = entry.target
+          const src = el.currentSrc || el.src
+          if (src && el.naturalWidth > 200) chuanBiByte({ el, src })
+        }
+      }, { rootMargin: '2000px 0px' })
+      : null
+
     for (let vong = 0; vong < TRAN_VONG_CUON && !dung_lai && !ket_thuc; vong++) {
       const { danh_sach } = chonMoiTrang(layMoTa())
+      if (io) danh_sach.forEach((a) => io.observe(a.el))
       const moi = danh_sach.filter((a) => !da_thu.has(a.src))
 
       if (!moi.length) {
@@ -322,7 +2044,8 @@
         continue
       }
 
-      for (const a of moi) {
+      for (let idx = 0; idx < moi.length; idx++) {
+        const a = moi[idx]
         if (dung_lai) { ket_thuc = 'bạn đã bấm Dừng'; break }
         if (xong_so + lai_so >= TRAN_TRANG_MOI_LUOT) {
           ket_thuc = `đã đạt trần ${TRAN_TRANG_MOI_LUOT} trang một lượt`
@@ -330,12 +2053,20 @@
         }
         da_thu.add(a.src)
 
-        const co_san = window[CO].daDich.get(a.src)
+        const co_san = window[CO].daDich.get(khoaCache(a.src, cheDoHienTai, ngonNguHienTai, engineHienTai, ngonNguDichHienTai))
         if (co_san) {
-          if (a.el.isConnected) vePhu(a.el, co_san)
+          const elSong = a.el?.isConnected ? a.el : timAnhTheoSrc(a.src)
+          if (elSong) {
+            if (co_san.anh_goc_data_url) await napCanvasTuDataUrl(elSong, co_san.anh_goc_data_url)
+            vePhu(elSong, co_san)
+          }
           lai_so++
           continue
         }
+
+        chuanBiByte(a)
+        chuanBiByte(moi[idx + 1])
+        chuanBiByte(moi[idx + 2])
 
         noiBulk(
           `Đang dịch trang ${xong_so + 1}… (máy chủ dịch một trang một lúc)\n`
@@ -345,11 +2076,13 @@
 
         let tra
         try {
-          const { anh_base64, anh_mime } = await docByteAnh(a.el)
+          const { anh_base64, anh_mime } = await (bo_nho_byte.get(a.src) || docByteAnh(a.el))
+          bo_nho_byte.delete(a.src)
           tra = await chrome.runtime.sendMessage({
             viec: 'dich-anh', url: a.src, anh_base64, anh_mime,
           })
         } catch (e) {
+          bo_nho_byte.delete(a.src)
           loi_so++
           continue
         }
@@ -372,15 +2105,26 @@
           continue
         }
 
-        window[CO].daDich.set(a.src, tra.vung)
+        const elSong = a.el?.isConnected ? a.el : timAnhTheoSrc(a.src)
+        if (elSong && tra.anh_goc_data_url) {
+          await napCanvasTuDataUrl(elSong, tra.anh_goc_data_url)
+        }
+        const goi_ket_qua = {
+          vung: tra.vung,
+          anh_da_dich: tra.anh_da_dich || null,
+          anh_goc_data_url: tra.anh_goc_data_url || null,
+        }
+        window[CO].daDich.set(khoaCache(a.src, tra.che_do || cheDoHienTai, ngonNguHienTai, engineHienTai, ngonNguDichHienTai), goi_ket_qua)
         // Ảnh có thể đã bị trang gỡ/thay trong lúc chờ (~45s) — cùng lý do §E19.6e. Bản dịch vẫn
         // giữ trong cache, nên cuộn về bấm lại là hiện ngay.
-        if (a.el.isConnected) vePhu(a.el, tra.vung)
+        if (elSong?.isConnected) vePhu(elSong, goi_ket_qua)
         xong_so++
       }
     }
 
+    if (io) io.disconnect()
     window[CO].dangChay = false
+    window[CO].dangChayBulk = false
     window.scrollTo({ top: vi_tri_dau, behavior: 'instant' })
 
     const phan = [`Dịch cả chapter: xong ${xong_so} trang`]
@@ -396,112 +2140,216 @@
     setTimeout(() => bang.remove(), 30000)
   }
 
-  // Popup đặt cờ này ngay trước khi tiêm. ĐỌC LÀ XOÁ: để lại thì lần bấm "Dịch trang này" sau đó
-  // sẽ chạy nguyên cả chapter — tiêu hạn mức của người dùng cho một việc họ không yêu cầu.
-  const { __e59_bulk: bulk } = await chrome.storage.local.get('__e59_bulk')
+  async function dichTrangHienTai({ tuDongCuon = false } = {}) {
+    window[CO].dangChay = true
+    if (!bang.isConnected) document.body.appendChild(bang)
+    bang.style.display = ''
+
+    const mo_ta = layMoTa()
+    const chon = chonTrangTruyen(mo_ta, { caoKhungNhin: window.innerHeight })
+    if (!chon.anh) {
+      window[CO].dangChay = false
+      if (!tuDongCuon) {
+        xong(
+          `Không tìm thấy trang truyện trên màn hình.\n${chon.ly_do}.\n`
+          + `Đã xem ${mo_ta.length} ảnh.`
+          + (chon.bi_loai.length ? `\nVí dụ bị loại: ${chon.bi_loai[0].ly_do.join(', ')}.` : '')
+          + `\n\nTrang vẽ bằng canvas hoặc chống sao chép thì hãy dùng nút "Khoanh vùng dịch" trong popup.`,
+          12,
+        )
+      }
+      return
+    }
+
+    const anh = chon.anh
+    // Dọn ngay mọi lớp phủ của các trang cũ không còn trên màn hình (trình đọc SPA lật trang `/11` -> `/15`
+    // thường tái sử dụng thẻ <img> hoặc đổi URL mà không tải lại tài liệu).
+    const tapSrcHienTai = new Set(mo_ta.map((m) => m.src).filter(Boolean))
+    document.querySelectorAll(`.${LOP_CLASS}`).forEach((lopCu) => {
+      const srcCu = lopCu.dataset?.src
+      if (srcCu && !tapSrcHienTai.has(srcCu)) lopCu.remove()
+    })
+    if (typeof anh.el.__translationDungLopPhu === 'function') {
+      try { anh.el.__translationDungLopPhu() } catch {}
+    }
+
+    const {
+      cheDo: cheDoHienTai,
+      ngonNgu: ngonNguHienTai,
+      ngonNguDich: ngonNguDichHienTai,
+      engine: engineHienTai,
+    } = await layCauHinhHienTai()
+    // Nhớ theo (chế độ + ngôn ngữ + ngôn ngữ đích + engine + URL ảnh): bấm lại đúng trang đó ở cùng cấu hình thì
+    // vẽ lại ngay, còn nếu người dùng vừa đổi ngôn ngữ hoặc đổi ngôn ngữ đích (Việt -> Anh) trong
+    // Popup thì chạy lại đúng cấu hình mới thay vì trả lại kết quả cũ.
+    const da_co = window[CO].daDich.get(khoaCache(anh.src, cheDoHienTai, ngonNguHienTai, engineHienTai, ngonNguDichHienTai))
+    if (da_co) {
+      if (da_co.anh_goc_data_url) await napCanvasTuDataUrl(anh.el, da_co.anh_goc_data_url)
+      vePhu(anh.el, da_co)
+      window[CO].dangChay = false
+      xong('Đã phủ lại bản dịch có sẵn.', 3)
+      xepHangTrangKeTiep(layMoTa(), anh.src)
+      return
+    }
+
+    noi(`Đang chuẩn bị ảnh trang truyện…\n(${chon.ly_do})`)
+
+    const { anh_base64, anh_mime } = await docByteAnh(anh.el)
+    window[CO].anhDangDich = anh.el
+    window[CO].srcDangDich = anh.src
+    window[CO].cheDoDangDich = cheDoHienTai
+    const batDauMs = Date.now()
+    if (!window[CO].daCaiTienDo && chrome.runtime?.onMessage) {
+      window[CO].daCaiTienDo = true
+      chrome.runtime.onMessage.addListener((tin) => {
+        if (tin?.viec !== 'tien-do' || !window[CO].dangChay) return
+        if (tin.url && window[CO].srcDangDich && tin.url !== window[CO].srcDangDich) return
+        const giay = Math.max(1, Math.round((Date.now() - (window[CO].batDauDichMs || Date.now())) / 1000))
+        if (tin.giai_doan === 'dang-gui') {
+          if (tin.anh_goc_data_url && window[CO].anhDangDich) {
+            napCanvasTuDataUrl(window[CO].anhDangDich, tin.anh_goc_data_url)
+          }
+          noi(`Đang tải ảnh lên máy chủ… (${giay}s)`)
+          return
+        }
+        if (tin.giai_doan === 'dang-xu-ly') {
+          const td = tin.tien_do || {}
+          const choTruoc = Number(td.so_viec_cho_truoc || 0)
+          const tenBuoc = {
+            detect: 'Nhận diện khung thoại & dịch ngữ cảnh AI',
+            ocr: 'Đang đọc chữ trên trang',
+            inpaint: 'Đang xoá chữ gốc bằng AI (LaMa)',
+            translate: 'Gemini AI đang dịch ngữ cảnh',
+            typeset: 'Đang căn chữ vào bong bóng',
+          }[td.buoc] || 'Máy chủ đang xử lý trang truyện'
+          const dongCho = (!td.dang_chay && choTruoc > 0)
+            ? `\n⏳ Đang chờ hàng đợi máy chủ (còn ${choTruoc} việc phía trước)…`
+            : ''
+          const vungCoDich = Array.isArray(tin.vung) ? tin.vung.filter((v) => Boolean(v.ban_dich)) : []
+          if (vungCoDich.length > 0 && window[CO].anhDangDich?.isConnected) {
+            vePhu(window[CO].anhDangDich, { vung: tin.vung, anh_da_dich: null })
+          }
+          noi(
+            `⏳ ${tenBuoc}… (${giay}s)${dongCho}`
+            + (vungCoDich.length ? `\nĐã dịch xong ${vungCoDich.length}/${tin.vung.length} bong bóng.` : ''),
+          )
+        }
+      })
+    }
+    window[CO].batDauDichMs = batDauMs
+
+    let tra
+    try {
+      tra = await chrome.runtime.sendMessage({ viec: 'dich-anh', url: anh.src, anh_base64, anh_mime })
+    } catch (e) {
+      if (window[CO].luotChayId !== maLuotHienTai) return
+      window[CO].dangChay = false
+      window[CO].anhDangDich = null
+      xong(`Không gọi được tiện ích nền: ${e}`, 10)
+      return
+    }
+    if (window[CO].luotChayId !== maLuotHienTai) return
+    window[CO].dangChay = false
+    window[CO].anhDangDich = null
+
+    if (!tra?.ok) {
+      if (tra?.ma === 429 && window[CO].tuDichKhiCuon) {
+        window[CO].tuDichKhiCuon = false
+        const nutCuon = document.getElementById('translation-nut-tu-dich-cuon')
+        if (nutCuon) {
+          nutCuon.textContent = '🔄 Tự dịch khi cuộn'
+          nutCuon.style.background = 'rgba(30,41,59,.9)'
+        }
+      }
+      const them = tra?.ma === 401
+        ? '\n\nPhiên đăng nhập đã hết. Mở Tuỳ chọn của tiện ích để đăng nhập lại.'
+        : ''
+      const do_do = [
+        `thẻ: <${anh.el.tagName.toLowerCase()}>`,
+        `src: ${String(anh.src).slice(0, 60)}${anh.src.length > 60 ? '…' : ''}`,
+        `ảnh thật: ${anh.el.naturalWidth}x${anh.el.naturalHeight}`,
+        `số <img>: ${document.images.length} · số <canvas>: ${document.getElementsByTagName('canvas').length}`,
+      ].join('\n')
+      xong(`Không dịch được.\n${tra?.loi || 'không rõ lý do'}${them}\n\n${do_do}`, 20)
+      return
+    }
+
+    if (tra.anh_goc_data_url) {
+      await napCanvasTuDataUrl(anh.el, tra.anh_goc_data_url)
+    }
+    const goi_ket_qua = {
+      vung: tra.vung,
+      anh_da_dich: tra.anh_da_dich || null,
+      anh_goc_data_url: tra.anh_goc_data_url || null,
+    }
+    window[CO].daDich.set(khoaCache(anh.src, tra.che_do || cheDoHienTai, ngonNguHienTai, engineHienTai, ngonNguDichHienTai), goi_ket_qua)
+    vePhu(anh.el, goi_ket_qua)
+    xepHangTrangKeTiep(layMoTa(), anh.src)
+    const co_chu = tra.vung.filter((v) => v.ban_dich).length
+
+    const r = anh.el.getBoundingClientRect()
+    const lop = document.getElementById('translation-lop-phu')
+    const lop_r = lop?.getBoundingClientRect()
+    const so_do = [
+      `ảnh: ${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)}`,
+      `lớp phủ: ${lop_r ? `${Math.round(lop_r.left)},${Math.round(lop_r.top)} ${Math.round(lop_r.width)}x${Math.round(lop_r.height)}` : 'KHÔNG CÓ'}`,
+      `ảnh thật: ${anh.el.naturalWidth}x${anh.el.naturalHeight}`,
+      `số <img> đủ lớn: ${1 + chon.bi_loai.length} xét, chọn 1`,
+    ].join('\n')
+
+    if (!anh.el.isConnected || !lop) {
+      xong(
+        `Dịch xong (${co_chu}/${tra.vung.length} bong bóng có bản dịch) NHƯNG không vẽ được lên `
+        + `trang: ảnh đã biến mất khỏi trang trong lúc chờ (trang tự vẽ lại/đổi ảnh khi bạn cuộn `
+        + `hoặc trang tự làm mới nội dung). Cuộn về đúng trang rồi bấm dịch lại — với ảnh dạng `
+        + `\`blob:\` (MangaPlus và tương tự), ảnh mới sẽ có địa chỉ khác nên có thể phải chờ lại `
+        + `từ đầu, không dùng lại được bản dịch vừa xong.\n\n${so_do}`,
+        20,
+      )
+      return
+    }
+
+    xong(`Xong: ${co_chu}/${tra.vung.length} bong bóng có bản dịch.\n\n${so_do}`, 40)
+  }
+
+  // Popup hoặc phím tắt toàn cục đặt cờ ngay trước khi tiêm. ĐỌC LÀ XOÁ: để lại thì lần bấm
+  // "Dịch trang này" sau đó sẽ chạy nhầm chế độ trước đó.
+  const {
+    __e60_snip: snip,
+    __e59_bulk: bulk,
+    __e102_auto_scroll: autoScroll,
+  } = await chrome.storage.local.get(['__e60_snip', '__e59_bulk', '__e102_auto_scroll'])
+  if (snip) {
+    await chrome.storage.local.remove('__e60_snip')
+    await khoanhVungDich()
+    return
+  }
   if (bulk) {
     await chrome.storage.local.remove('__e59_bulk')
     await dichCaChapter()
     return
   }
-
-  const mo_ta = layMoTa()
-  const chon = chonTrangTruyen(mo_ta, { caoKhungNhin: window.innerHeight })
-  if (!chon.anh) {
-    window[CO].dangChay = false
-    xong(
-      `Không tìm thấy trang truyện trên màn hình.\n${chon.ly_do}.\n`
-      + `Đã xem ${mo_ta.length} ảnh.`
-      + (chon.bi_loai.length ? `\nVí dụ bị loại: ${chon.bi_loai[0].ly_do.join(', ')}.` : '')
-      + `\n\nTrang vẽ bằng canvas hoặc chống sao chép thì tiện ích không lấy được ảnh.`,
-      12,
-    )
-    return
+  if (autoScroll) {
+    await chrome.storage.local.remove('__e102_auto_scroll')
+    caiCongTacSoSanhGoc()
+    window[CO].tuDichKhiCuon = !window[CO].tuDichKhiCuon
+    const nutCuon = document.getElementById('translation-nut-tu-dich-cuon')
+    if (nutCuon) {
+      const bat = Boolean(window[CO].tuDichKhiCuon)
+      nutCuon.textContent = bat ? '🔄 Tự dịch khi cuộn: BẬT (Alt+W)' : '🔄 Tự dịch khi cuộn (Alt+W)'
+      nutCuon.style.background = bat ? '#059669' : 'rgba(30,41,59,.9)'
+      nutCuon.style.borderColor = bat ? '#10b981' : 'rgba(255,255,255,.18)'
+    }
+    if (!window[CO].tuDichKhiCuon) {
+      window[CO].dangChay = false
+      xong('Đã TẮT Tự động dịch khi cuộn (Alt+W).', 4)
+      return
+    }
+    xong('Đã BẬT Tự động dịch khi cuộn (Alt+W). Đang dịch trang hiện tại…', 4)
   }
 
-  const anh = chon.anh
-  // Nhớ theo URL ảnh: bấm lại đúng trang đó thì vẽ lại ngay, không chạy lại 45 giây. Máy chủ cố
-  // ý KHÔNG lọc trùng — làm vậy sẽ cần thêm cột vân tay và một lượt băm mỗi lần tải lên.
-  const da_co = window[CO].daDich.get(anh.src)
-  if (da_co) {
-    vePhu(anh.el, da_co)
-    window[CO].dangChay = false
-    xong('Đã phủ lại bản dịch có sẵn.', 3)
-    xepHangTrangKeTiep(layMoTa(), anh.src)
-    return
-  }
-
-  noi(`Đang dịch trang này…\n(${chon.ly_do})`)
-
-  const { anh_base64, anh_mime } = await docByteAnh(anh.el)
-
-  let tra
-  try {
-    tra = await chrome.runtime.sendMessage({ viec: 'dich-anh', url: anh.src, anh_base64, anh_mime })
-  } catch (e) {
-    window[CO].dangChay = false
-    xong(`Không gọi được tiện ích nền: ${e}`, 10)
-    return
-  }
-  window[CO].dangChay = false
-
-  if (!tra?.ok) {
-    const them = tra?.ma === 401
-      ? '\n\nPhiên đăng nhập đã hết. Mở Tuỳ chọn của tiện ích để đăng nhập lại.'
-      : ''
-    // "Failed to fetch" không kèm mã lỗi HTTP nào — không phân biệt được "mạng chập chờn" với
-    // "trang cố ý chặn tải ảnh" (URL ký hạn dùng ngắn, hoặc <img src> là `blob:` chỉ sống được
-    // trong đúng tab đang mở nó, service worker ở ngữ cảnh khác tải lại chắc chắn hỏng). Nhiều
-    // trang manga (vd MangaPlus) còn chặn cả chuột phải lẫn phím tắt mở DevTools nên người dùng
-    // không tự soi được — in thẳng vào đây thay vì bắt đi tìm cách khác.
-    const do_do = [
-      `thẻ: <${anh.el.tagName.toLowerCase()}>`,
-      `src: ${String(anh.src).slice(0, 60)}${anh.src.length > 60 ? '…' : ''}`,
-      `ảnh thật: ${anh.el.naturalWidth}x${anh.el.naturalHeight}`,
-      `số <img>: ${document.images.length} · số <canvas>: ${document.getElementsByTagName('canvas').length}`,
-    ].join('\n')
-    xong(`Không dịch được.\n${tra?.loi || 'không rõ lý do'}${them}\n\n${do_do}`, 20)
-    return
-  }
-
-  window[CO].daDich.set(anh.src, tra.vung)
-  vePhu(anh.el, tra.vung)
-  // Chụp lại DOM MỚI (không dùng `mo_ta` cũ 45 giây) — độc lập với việc lớp phủ trang hiện tại
-  // có vẽ được hay không: dù trang này chết giữa chừng, vị trí đọc thật của người dùng bây giờ
-  // vẫn đáng để xếp hàng trước, không phụ thuộc kết quả vẽ lớp phủ.
-  xepHangTrangKeTiep(layMoTa(), anh.src)
-  const co_chu = tra.vung.filter((v) => v.ban_dich).length
-
-  // Kèm SỐ ĐO vị trí. Hai lượt sửa vừa rồi đều đoán sai nguyên nhân lớp phủ lệch, vì ảnh chụp
-  // màn hình cho thấy "sai" nhưng không cho biết sai ở đâu. Ba con số dưới đây phân biệt được:
-  //   - khung ảnh ≈ chỗ ảnh đang hiện  ⇒ chọn đúng phần tử, lỗi ở phép đặt lớp phủ
-  //   - khung ảnh ≠ chỗ ảnh đang hiện  ⇒ vẽ nhầm phần tử (hai <img> cùng src, bản nền vs bản lightbox)
-  const r = anh.el.getBoundingClientRect()
-  const lop = document.getElementById('translation-lop-phu')
-  const lop_r = lop?.getBoundingClientRect()
-  const so_do = [
-    `ảnh: ${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)}`,
-    `lớp phủ: ${lop_r ? `${Math.round(lop_r.left)},${Math.round(lop_r.top)} ${Math.round(lop_r.width)}x${Math.round(lop_r.height)}` : 'KHÔNG CÓ'}`,
-    `ảnh thật: ${anh.el.naturalWidth}x${anh.el.naturalHeight}`,
-    `số <img> đủ lớn: ${1 + chon.bi_loai.length} xét, chọn 1`,
-  ].join('\n')
-
-  // `vePhu` tự gỡ lớp phủ ngay khi phát hiện `el.isConnected === false` (xem hàm `dung` bên
-  // trên) — đúng để không vẽ rác lên một phần tử đã chết, nhưng "Xong: X/Y" phía dưới vẫn nói
-  // như thể mọi thứ ổn trong khi màn hình KHÔNG hiện gì cả. Đo được 08/09 trên MangaPlus: sau
-  // ~45s chờ dịch, `<img>` gốc đã bị chính trang gỡ/thay (SPA tự vẽ lại), lớp phủ vừa tạo xong
-  // đã tự huỷ. Phải nói ĐÚNG "không vẽ được" thay vì "xong" — im lặng thất bại còn tệ hơn báo lỗi.
-  if (!anh.el.isConnected || !lop) {
-    xong(
-      `Dịch xong (${co_chu}/${tra.vung.length} bong bóng có bản dịch) NHƯNG không vẽ được lên `
-      + `trang: ảnh đã biến mất khỏi trang trong lúc chờ (trang tự vẽ lại/đổi ảnh khi bạn cuộn `
-      + `hoặc trang tự làm mới nội dung). Cuộn về đúng trang rồi bấm dịch lại — với ảnh dạng `
-      + `\`blob:\` (MangaPlus và tương tự), ảnh mới sẽ có địa chỉ khác nên có thể phải chờ lại `
-      + `từ đầu, không dùng lại được bản dịch vừa xong.\n\n${so_do}`,
-      20,
-    )
-    return
-  }
-
-  xong(`Xong: ${co_chu}/${tra.vung.length} bong bóng có bản dịch.\n\n${so_do}`, 40)
+  await dichTrangHienTai()
 })()
+// Trả về `undefined` đồng bộ ở biểu thức cuối tệp để `chrome.scripting.executeScript` trong Popup
+// giải quyết ngay lập tức (<5ms) và đóng Popup, thay vì treo ở nút "Đang mở…" chờ cả lượt dịch xong.
+undefined

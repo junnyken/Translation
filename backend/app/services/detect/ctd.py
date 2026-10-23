@@ -41,6 +41,10 @@ class DetectedRegion:
     cls: int
     #: E90 — chữ engine đọc được kèm khung (Gemini). None = engine chỉ cho khung (CTD).
     chu: str | None = None
+    #: E96 — bản dịch ngữ cảnh đi kèm ngay trong lượt nhận diện gộp (chế độ `chi_chu`).
+    ban_dich: str | None = None
+    #: E96 — cờ báo mô hình phải đoán chữ gốc khi dịch trong lượt gộp.
+    doan: bool = False
 
 
 class ModelWeightsMissing(FileNotFoundError):

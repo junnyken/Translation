@@ -6,36 +6,81 @@
  */
 
 export const KHOA_LUU = {
-  dia_chi: 'diaChi', ma_phien: 'maPhien', email: 'email',
+  dia_chi: 'diaChi', ma_phien: 'maPhien', email: 'email', ma_khach: 'maKhach',
   //: Ngôn ngữ CHỮ TRÊN ẢNH (không phải ngôn ngữ đích) — quyết định chọn engine OCR. `ja` là mặc
   //: định trung thực nhất với hành vi trước khi có lựa chọn này, không phải "loại phổ biến nhất".
   ngon_ngu: 'ngonNgu',
-  //: Engine dịch. `google_fast` là mặc định trung thực với hành vi trước khi có lựa chọn này —
-  //: không tự tốn token Gemini khi người dùng chưa từng bật (đúng chủ ý M5).
+  //: Ngôn ngữ ĐÍCH dịch ra (`vi` = Tiếng Việt, `en` = Tiếng Anh quốc tế).
+  ngon_ngu_dich: 'ngonNguDich',
+  //: Engine dịch. `llm_context` là mặc định chuẩn ngữ cảnh.
   engine: 'engine',
+  //: Chế độ xử lý: mặc định `chi_chu` để máy chủ chạy gộp 1 lượt Gemini (~3-4s, 0% nghẽn CPU khi
+  //: nhiều người dùng cùng lúc) và giao toàn bộ việc Xoá chữ (Inpaint) + Dựng lớp chữ DOM tương tác
+  //: cho GPU/Canvas của máy khách.
+  che_do: 'cheDoGpuKhach',
+  //: Font chữ theo thể loại truyện (`bangers` | `shantell` | `mansalva` | `sigmar`).
+  font_chu: 'fontChuTruyen',
 }
 export const NGON_NGU_MAC_DINH = 'ja'
-export const ENGINE_MAC_DINH = 'google_fast'
+export const NGON_NGU_DICH_MAC_DINH = 'vi'
+export const ENGINE_MAC_DINH = 'llm_context'
+export const CHE_DO_MAC_DINH = 'chi_chu'
+export const FONT_CHU_MAC_DINH = 'bangers'
+//: Địa chỉ máy chủ mặc định trỏ sẵn vào máy chủ API chính thức để người dùng cài xong là dịch ngay.
+export const DIA_CHI_MAC_DINH = 'https://translation-api.vibe1.tinhgon.xyz'
+
+function sinhMaKhachNgauNhien() {
+  const mang = new Uint8Array(18)
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(mang)
+  } else {
+    for (let i = 0; i < mang.length; i++) mang[i] = Math.floor(Math.random() * 256)
+  }
+  return Array.from(mang, (b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+/** Chuẩn hoá địa chỉ máy chủ:
+ *  Nếu người dùng dán địa chỉ trang giao diện Web (`https://translation.vibe1.tinhgon.xyz`) thay vì
+ *  máy chủ API (`https://translation-api.vibe1.tinhgon.xyz`), tự động chuyển sang địa chỉ API để
+ *  không bị Nginx chặn 405 Not Allowed.
+ */
+export function chuanHoaDiaChi(raw) {
+  const s = String(raw || '').trim().replace(/\/+$/, '')
+  if (!s) return ''
+  return s.replace(/^https?:\/\/translation\.vibe1\.tinhgon\.xyz$/i, 'https://translation-api.vibe1.tinhgon.xyz')
+}
 
 export async function docCauHinh() {
   const d = await chrome.storage.local.get(Object.values(KHOA_LUU))
+  let maKhach = d[KHOA_LUU.ma_khach] || ''
+  if (maKhach.length < 16) {
+    maKhach = sinhMaKhachNgauNhien()
+    await chrome.storage.local.set({ [KHOA_LUU.ma_khach]: maKhach })
+  }
   return {
-    diaChi: (d[KHOA_LUU.dia_chi] || '').replace(/\/+$/, ''),
+    diaChi: chuanHoaDiaChi(d[KHOA_LUU.dia_chi] || DIA_CHI_MAC_DINH || ''),
     maPhien: d[KHOA_LUU.ma_phien] || '',
     email: d[KHOA_LUU.email] || '',
+    maKhach,
     ngonNgu: d[KHOA_LUU.ngon_ngu] || NGON_NGU_MAC_DINH,
+    ngonNguDich: d[KHOA_LUU.ngon_ngu_dich] || NGON_NGU_DICH_MAC_DINH,
     engine: d[KHOA_LUU.engine] || ENGINE_MAC_DINH,
+    cheDo: d[KHOA_LUU.che_do] || CHE_DO_MAC_DINH,
+    fontChu: d[KHOA_LUU.font_chu] || FONT_CHU_MAC_DINH,
   }
 }
 
 export async function luuCauHinh(c) {
   const hien = await docCauHinh()
   await chrome.storage.local.set({
-    [KHOA_LUU.dia_chi]: c.diaChi ?? hien.diaChi,
+    [KHOA_LUU.dia_chi]: c.diaChi !== undefined ? chuanHoaDiaChi(c.diaChi) : hien.diaChi,
     [KHOA_LUU.ma_phien]: c.maPhien ?? hien.maPhien,
     [KHOA_LUU.email]: c.email ?? hien.email,
     [KHOA_LUU.ngon_ngu]: c.ngonNgu ?? hien.ngonNgu,
+    [KHOA_LUU.ngon_ngu_dich]: c.ngonNguDich ?? hien.ngonNguDich,
     [KHOA_LUU.engine]: c.engine ?? hien.engine,
+    [KHOA_LUU.che_do]: c.cheDo ?? hien.cheDo,
+    [KHOA_LUU.font_chu]: c.fontChu ?? hien.fontChu,
   })
 }
 
@@ -62,24 +107,34 @@ async function doc(res) {
     const chi_tiet = than?.detail
     if (chi_tiet && typeof chi_tiet === 'object') {
       // Lấy câu người đọc được nếu máy chủ có gửi, và GIỮ nguyên object cho bên gọi dùng.
-      const cau = chi_tiet.thong_diep ?? chi_tiet.loi ?? res.statusText
+      const cau = chi_tiet.thong_diep ?? chi_tiet.loi ?? (res.statusText || `Lỗi HTTP ${res.status}`)
       throw new LoiApi(res.status, String(cau), chi_tiet)
     }
-    throw new LoiApi(res.status, typeof chi_tiet === 'string' ? chi_tiet : res.statusText)
+    if (typeof chi_tiet === 'string' && chi_tiet.trim()) {
+      throw new LoiApi(res.status, chi_tiet)
+    }
+    if (res.status === 405) {
+      throw new LoiApi(
+        405,
+        'Địa chỉ đang nhập là trang Giao diện Web (không phải máy chủ API). Hãy thêm "-api" vào tên miền (ví dụ: https://translation-api.vibe1.tinhgon.xyz).',
+      )
+    }
+    throw new LoiApi(res.status, res.statusText || `Máy chủ trả lỗi HTTP ${res.status}`)
   }
   return than
 }
 
 async function goi(duong, opts = {}) {
-  const { diaChi, maPhien } = await docCauHinh()
+  const { diaChi, maPhien, maKhach } = await docCauHinh()
   if (!diaChi) throw new LoiApi(0, 'Chưa đặt địa chỉ máy chủ Translation.')
   const headers = { ...(opts.headers || {}) }
   if (maPhien) headers.Authorization = `Bearer ${maPhien}`
+  else if (maKhach) headers['X-Ma-Khach'] = maKhach
   return doc(await fetch(`${diaChi}/api/v1${duong}`, { ...opts, headers }))
 }
 
 export async function dangNhap(diaChi, email, matKhau) {
-  const goc = diaChi.replace(/\/+$/, '')
+  const goc = chuanHoaDiaChi(diaChi)
   const res = await fetch(`${goc}/api/v1/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -88,6 +143,21 @@ export async function dangNhap(diaChi, email, matKhau) {
   const d = await doc(res)
   await luuCauHinh({ diaChi: goc, maPhien: d.ma_phien, email: d.nguoi_dung.email })
   return d.nguoi_dung
+}
+
+export async function dangKy(diaChi, email, tenHien, matKhau) {
+  const goc = chuanHoaDiaChi(diaChi)
+  const res = await fetch(`${goc}/api/v1/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, ten_hien: tenHien || '', mat_khau: matKhau }),
+  })
+  await doc(res)
+  return dangNhap(goc, email, matKhau)
+}
+
+export async function layHanMuc() {
+  return goi('/han-muc')
 }
 
 export async function toiLaAi() {
@@ -110,16 +180,37 @@ export async function dangXuat() {
  * token — người dùng tự bật ở popup). Bản miễn phí không tự sửa được lỗi đọc chữ dính/sai trên
  * font cách điệu (đo 08/09 trên MangaPlus: vài dòng ra nguyên tiếng Anh hoặc dịch sai nghĩa).
  */
-export async function guiTrang(blob, ngonNgu, engine) {
+export async function guiTrang(blob, ngonNgu, engine, cheDo, ngonNguDich = NGON_NGU_DICH_MAC_DINH) {
   const form = new FormData()
   form.append('file', blob, 'trang.png')
   form.append('source_lang', ngonNgu || NGON_NGU_MAC_DINH)
+  form.append('target_lang', ngonNguDich || NGON_NGU_DICH_MAC_DINH)
   form.append('engine', engine || ENGINE_MAC_DINH)
+  form.append('che_do', cheDo || CHE_DO_MAC_DINH)
   return goi('/doc-truyen/trang', { method: 'POST', body: form })
 }
 
 export async function layTrang(pageId) {
   return goi(`/doc-truyen/trang/${pageId}`)
+}
+
+/** Tải ảnh PNG đã xoá chữ + căn chữ (`che_do = day_du`) và đổi sang Data URL để content script
+ *  hiển thị trực tiếp trên mọi trang web mà không bị chặn CORS/CSP nguồn ngoài. */
+export async function taiAnhDaDichDataUrl(pageId) {
+  const { diaChi, maPhien, maKhach } = await docCauHinh()
+  if (!diaChi) throw new LoiApi(0, 'Chưa đặt địa chỉ máy chủ Translation.')
+  const headers = {}
+  if (maPhien) headers.Authorization = `Bearer ${maPhien}`
+  else if (maKhach) headers['X-Ma-Khach'] = maKhach
+  const res = await fetch(`${diaChi}/api/v1/doc-truyen/trang/${pageId}/anh`, { headers })
+  if (!res.ok) return null
+  const blob = await res.blob()
+  const bytes = new Uint8Array(await blob.arrayBuffer())
+  let nhi_phan = ''
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    nhi_phan += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  }
+  return `data:${blob.type || 'image/png'};base64,${btoa(nhi_phan)}`
 }
 
 
@@ -129,11 +220,11 @@ export async function layTrang(pageId) {
  * bản đầu chỉ nói "Chưa đặt địa chỉ máy chủ Translation." — đúng nhưng vô dụng, vì nó không
  * đưa người dùng tới chỗ sửa được, và người dùng thật đã không tìm ra trang tuỳ chọn.
  */
-export function lyDoThieuCauHinh({ diaChi, maPhien }) {
+export function lyDoThieuCauHinh({ diaChi, maPhien, choPhepKhach = false }) {
   if (!diaChi) {
     return 'Chưa đặt địa chỉ máy chủ Translation. Đã mở trang cài đặt — nhập địa chỉ rồi đăng nhập.'
   }
-  if (!maPhien) {
+  if (!maPhien && !choPhepKhach) {
     return 'Chưa đăng nhập. Đã mở trang cài đặt — đăng nhập rồi bấm dịch lại.'
   }
   return null

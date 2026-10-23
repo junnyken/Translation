@@ -650,6 +650,28 @@ export async function layLyDoDung(pageId) {
  */
 export const layHanMuc = () => fetch(`${BASE}/han-muc`).then(doc)
 
+/** E100 — Thông tin gói nạp lượt & mã chuyển khoản VietQR. */
+export const layThongTinNapLuot = () => fetch(`${BASE}/nap-luot/thong-tin`).then(doc)
+
+/** E100 — Quản trị viên cấp trực tiếp lượt mua thêm hoặc đặt trần VIP hằng ngày cho tài khoản. */
+export const quanTriCapLuot = ({ email, congThemLuot = 0, tranHangNgayRieng = null }) =>
+  fetch(`${BASE}/quan-tri/cap-luot`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email,
+      cong_them_luot: Number(congThemLuot) || 0,
+      tran_hang_ngay_rieng: tranHangNgayRieng === '' || tranHangNgayRieng === null ? null : Number(tranHangNgayRieng),
+    }),
+  }).then(doc)
+
+/** E107 — Lấy thống kê tổng hợp hệ thống & chi tiết hạn mức từng người dùng cho Dashboard Quản trị. */
+export const layThongKeQuanTri = () => fetch(`${BASE}/quan-tri/thong-ke`).then(doc)
+
+/** Đường dẫn tải trực tiếp gói Tiện ích Chrome (.zip) và App Windows (.zip). */
+export const urlTaiTienIchChrome = () => '/tai-ve/dich-truyen-chrome-extension-v0.3.0.zip'
+export const urlTaiAppWindows = () => '/tai-ve/App-Windows-Dich-Truyen-Tu-Dong-v1.0.zip'
+
 /** Chốt nào đang chặn, hoặc `null` nếu còn lượt.
  *
  * Cần biết để nói ĐÚNG câu: `khach_ip` nghĩa là **địa chỉ mạng dùng chung** đã hết lượt, không
@@ -697,6 +719,18 @@ export const guiTrangDichNhanh = (
   return fetch(`${BASE}/doc-truyen/trang`, { method: 'POST', body: form }).then(doc)
 }
 
+/** E99 — gửi gói `.zip` / `.cbz` / `.pdf` từ trang chủ. Trả `{ project_id, so_trang, bo_qua, trang }`. */
+export const guiGoiDichNhanh = (
+  file, { sourceLang = 'ja', cheDo = 'day_du', engine = null } = {},
+) => {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('source_lang', sourceLang)
+  form.append('che_do', cheDo)
+  if (engine) form.append('engine', engine)
+  return fetch(`${BASE}/doc-truyen/goi`, { method: 'POST', body: form }).then(doc)
+}
+
 /** Tiến độ + kết quả một trang.
  *
  * ⚠️ Đọc trường `xong`, **đừng tự suy từ `trang_thai`**: `translated` là ĐÍCH của chế độ
@@ -708,6 +742,9 @@ export const layTrangDichNhanh = (pageId) =>
 
 /** URL ảnh ĐÃ DỊCH của một trang. Chỉ có ở chế độ `day_du`. */
 export const urlAnhDaDich = (pageId) => `${BASE}/doc-truyen/trang/${pageId}/anh`
+
+/** URL ảnh GỐC của một trang dịch nhanh (khi tải lên gói ZIP/CBZ/PDF ở trang chủ). */
+export const urlAnhGocDichNhanh = (pageId) => `${BASE}/doc-truyen/trang/${pageId}/anh-goc`
 
 /** Xin gói cả chapter thành MỘT tệp. Trả `{job_id, …}`.
  *

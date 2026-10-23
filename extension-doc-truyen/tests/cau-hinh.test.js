@@ -33,4 +33,9 @@ describe('kiểm cấu hình trước khi dịch', () => {
       expect(lyDoThieuCauHinh(c)).toMatch(/đã mở trang cài đặt/i)
     }
   })
+
+  it('bật choPhepKhach thì chỉ cần địa chỉ máy chủ là dịch được (chế độ khách 2 trang/ngày)', () => {
+    expect(lyDoThieuCauHinh({ diaChi: 'https://x', maPhien: '', choPhepKhach: true })).toBeNull()
+    expect(lyDoThieuCauHinh({ diaChi: '', maPhien: '', choPhepKhach: true })).toMatch(/địa chỉ/i)
+  })
 })

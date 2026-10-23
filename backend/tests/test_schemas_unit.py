@@ -28,10 +28,15 @@ def test_project_create_reject_empty_name():
         ProjectCreate(name="", source_lang="ja", intended_use="personal")
 
 
-@pytest.mark.parametrize("bad_lang", ["vi", "ko", "JA", "japanese", ""])
+@pytest.mark.parametrize("bad_lang", ["vi", "ru", "JA", "japanese", ""])
 def test_project_create_reject_source_lang_ngoai_enum(bad_lang):
     with pytest.raises(ValidationError):
         ProjectCreate(name="X", source_lang=bad_lang, intended_use="personal")
+
+
+def test_project_create_ho_tro_tieng_han_ko():
+    p = ProjectCreate(name="Solo Leveling", source_lang="ko", intended_use="personal")
+    assert p.source_lang is SourceLang.ko
 
 
 @pytest.mark.parametrize("bad_use", ["commercial", "share", ""])

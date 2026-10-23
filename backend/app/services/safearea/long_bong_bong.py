@@ -55,6 +55,11 @@ from app.services.safearea.decision import ReasonCode
 #: khi xoá chữ, không đủ để nhảy sang bong bóng bên cạnh.
 BAN_KINH_DOI_TAM = 12
 
+#: Bề rộng tối đa (px) của "cổ chai" nối hai bong bóng đôi (E92 — học từ Koharu).
+#: Cổ hẹp hơn cỡ này và tách ra thành >=2 buồng lớn sẽ bị cắt tại cổ để không tràn sang bong bóng kế.
+CO_CO_CHAI_MAC_DINH = 15
+TI_LE_BUONG_TOI_THIEU = 0.15
+
 
 @dataclass(frozen=True)
 class KetQuaLoang:
@@ -65,6 +70,63 @@ class KetQuaLoang:
     tam_da_dung: tuple[int, int]
     #: Tâm ban đầu rơi trúng mực và đã phải dời — bên gọi nên coi kết quả kém chắc chắn hơn.
     da_doi_tam: bool
+
+
+def tach_co_chai(
+    mat_na_loang,
+    tam: tuple[int, int],
+    *,
+    co_co_chai_px: int = CO_CO_CHAI_MAC_DINH,
+    ti_le_buong_toi_thieu: float = TI_LE_BUONG_TOI_THIEU,
+):
+    """Tách bong bóng đôi nối nhau qua cổ chai hẹp (E92).
+
+    Nếu phép mở hình thái học (`MORPH_OPEN`) với nhân bầu dục cỡ `co_co_chai_px` tách mặt nạ thành
+    **tối thiểu 2 buồng lớn** (mỗi buồng >= `ti_le_buong_toi_thieu` diện tích tổng), giữ lại buồng
+    chứa `tam` rồi nở ngược lại trong phạm vi mặt nạ gốc để bảo toàn sát mép viền bong bóng.
+    Nếu chỉ có 1 buồng (bong bóng đơn bình thường), trả nguyên mặt nạ gốc không đổi một pixel nào.
+    """
+    import cv2
+    import numpy as np
+
+    m = (np.asarray(mat_na_loang) > 0).astype(np.uint8) * 255
+    tong_diem = int((m > 0).sum())
+    if tong_diem <= 0 or co_co_chai_px < 3:
+        return m
+
+    k = int(co_co_chai_px) | 1
+    nhan = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+    mo = cv2.morphologyEx(m, cv2.MORPH_OPEN, nhan)
+    so_nhan, nhan_anh, thong_ke, tam_vung = cv2.connectedComponentsWithStats(mo, connectivity=8)
+    if so_nhan <= 2:
+        return m
+
+    nguong_buong = max(int(tong_diem * ti_le_buong_toi_thieu), 20)
+    buong_lon = [
+        idx for idx in range(1, so_nhan)
+        if int(thong_ke[idx, cv2.CC_STAT_AREA]) >= nguong_buong
+    ]
+    if len(buong_lon) < 2:
+        return m
+
+    cx, cy = int(tam[0]), int(tam[1])
+    h, w = m.shape[:2]
+    cx = min(max(cx, 0), w - 1)
+    cy = min(max(cy, 0), h - 1)
+
+    nhan_chon = int(nhan_anh[cy, cx])
+    if nhan_chon not in buong_lon:
+        # Tâm rơi sát cổ chai vừa bị mở xoá -> chọn buồng lớn có tâm gần `tam` nhất.
+        nhan_chon = min(
+            buong_lon,
+            key=lambda idx: (tam_vung[idx][0] - cx) ** 2 + (tam_vung[idx][1] - cy) ** 2,
+        )
+
+    hat_nhan = (nhan_anh == nhan_chon).astype(np.uint8) * 255
+    # Nở lại bằng nhân lớn hơn 2px để bù phần góc cong và giao với mặt nạ gốc.
+    nhan_no = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k + 2, k + 2))
+    khoi_phuc = cv2.dilate(hat_nhan, nhan_no)
+    return cv2.bitwise_and(khoi_phuc, m)
 
 
 def _tam_thay_the(mat_na_trong, cx: int, cy: int, ban_kinh: int):
@@ -117,6 +179,23 @@ def long_bong_bong(mat_na_trong, tam: tuple[int, int], *, ban_kinh_doi_tam: int 
     )
     if so_diem <= 0:
         return None, [ReasonCode.SHAPE_EROSION_ELIMINATED_AREA]
+
+    # E92 — nếu vùng loang chưa tràn ra sát cả 4 mép ROI (không phải nền trang) mà có hình cổ chai
+    # nối hai bong bóng đôi, cắt tại cổ chai để chỉ giữ buồng chứa (cx, cy).
+    vung_loang = (anh == 128).astype(np.uint8) * 255
+    cham_4_mep = (
+        vung_loang[0, :].any()
+        and vung_loang[-1, :].any()
+        and vung_loang[:, 0].any()
+        and vung_loang[:, -1].any()
+    )
+    if not cham_4_mep:
+        da_tach = tach_co_chai(vung_loang, (cx, cy))
+        diem_tach = int((da_tach > 0).sum())
+        if 0 < diem_tach < so_diem:
+            so_diem = diem_tach
+            rect = cv2.boundingRect(da_tach)
+
     return KetQuaLoang(rect=tuple(int(v) for v in rect), so_diem=int(so_diem),
                        tam_da_dung=(cx, cy), da_doi_tam=da_doi), []
 

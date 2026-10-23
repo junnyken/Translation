@@ -107,6 +107,28 @@ export function chonTrangKeTiep(anh, { caoKhungNhin, boQuaSrc }) {
 }
 
 /**
+ * E98 — Chọn tối đa `toiDa` (mặc định 2) trang kế tiếp đã nạp sẵn trong DOM theo thứ tự từ trên xuống.
+ * Dùng để xếp hàng dịch đón đầu tuần tự (N+1 -> N+2): vừa giúp cuộn trang hiện bản dịch tức thì (0s),
+ * vừa bảo đảm trang N+1 dịch xong trước để truyền ngữ cảnh trượt (xưng hô, tên riêng) sang trang N+2.
+ */
+export function chonCacTrangKeTiep(anh, { caoKhungNhin, boQuaSrc, toiDa = 2 }) {
+  const bo_qua = boQuaSrc instanceof Set ? boQuaSrc : new Set(boQuaSrc ? [boQuaSrc] : [])
+  const da_thay = new Set()
+  const ung_vien = []
+
+  for (const a of anh) {
+    if (!a.src || bo_qua.has(a.src) || da_thay.has(a.src)) continue
+    if (a.top < caoKhungNhin) continue
+    if (loaiDoChatLuong(a).length > 0) continue
+    da_thay.add(a.src)
+    ung_vien.push(a)
+  }
+
+  ung_vien.sort((a, b) => a.top - b.top)
+  return ung_vien.slice(0, Math.max(0, toiDa))
+}
+
+/**
  * MỌI ảnh trông giống trang truyện trên trang, xếp theo thứ tự đọc (trên → dưới) — nền của chế độ
  * "dịch cả chapter" (E59).
  *

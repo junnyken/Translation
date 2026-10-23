@@ -35,7 +35,7 @@ from app.core.cong_han_muc import con_du_khong, giu_cho_moi_chot, loi_vuot_han_m
 from app.core.danh_tinh_khach import DanhTinhHanMuc, danh_tinh_han_muc
 from app.services.han_muc import bay_gio, moc_reset_ke_tiep, ngay_han_muc
 from app.services.han_muc_nhan_dang import giu_mot_luot
-from app.services.so_cai_han_muc import da_dung_bat_dong_bo
+from app.services.so_cai_han_muc import da_dung_bat_dong_bo, giu_cho_bat_dong_bo
 from app.core.quyen import (
     LOI_KHONG_THAY,
     NguoiGoi,
@@ -58,6 +58,7 @@ from app.models import (
     RegionQualityAssessment,
     RegionSafeArea,
     RegionTextOrientation,
+    SoCaiHanMuc,
     TermSuggestionRun,
     TextRegion,
     TranslationResult,
@@ -71,6 +72,7 @@ from app.models.enums import (
     RegionStatus,
     SourceLang,
     TargetLang,
+    TrangThaiHanMuc,
     BatchItemStatus,
     OrientationStatus,
     SafeAreaStatus,
@@ -88,12 +90,19 @@ from app.models.enums import (
     FitStatus,
     JobStatus,
     JobType,
+    LoaiChuThe,
     PageStatus,
     TranslationEngine,
 )
 from app.schemas.common import (
+    CapLuotRequest,
+    CapLuotResponse,
     ChotHanMucRead,
+    GoiNapLuotRead,
     HanMucRead,
+    QuanTriNguoiDungChiTietRead,
+    QuanTriThongKeRead,
+    ThongTinNapLuotRead,
     TienDoDocTruyen,
     NhanDangNgonNguRead,
     TrangDocTruyen,
@@ -299,22 +308,27 @@ def _kiem_engine(
             )
 
 
-def _ten_chapter_nhanh(che_do: ChePipeline, source_lang: SourceLang) -> str:
+def _ten_chapter_nhanh(
+    che_do: ChePipeline, source_lang: SourceLang, target_lang: TargetLang = TargetLang.vi
+) -> str:
     goc = TEN_CHAPTER_DOC_NHANH if che_do is ChePipeline.chi_chu else TEN_CHAPTER_DICH_NHANH
-    return f"{goc} — {source_lang.value}"
+    if target_lang is TargetLang.vi:
+        return f"{goc} — {source_lang.value}"
+    return f"{goc} — {source_lang.value}→{target_lang.value}"
 
 
 async def _chapter_doc_nhanh(
     session: AsyncSession, goi: NguoiGoi, source_lang: SourceLang,
     che_do: ChePipeline = ChePipeline.chi_chu,
+    target_lang: TargetLang = TargetLang.vi,
 ) -> Project:
-    """Lấy chapter `chi_chu` đúng ngôn ngữ nguồn của người gọi, chưa có thì tạo.
+    """Lấy chapter `chi_chu` đúng ngôn ngữ nguồn/đích của người gọi, chưa có thì tạo.
 
     E49 — nhận cả khách lạ. Điều kiện tìm phải **đối xứng** với luật ở `duoc_dung_project`:
     người đăng nhập tìm kèm `chu_khach IS NULL`, nếu không một chapter của khách trùng tên sẽ
     bị nhận nhầm là của họ.
     """
-    ten = _ten_chapter_nhanh(che_do, source_lang)
+    ten = _ten_chapter_nhanh(che_do, source_lang, target_lang)
     chu = (
         (Project.chu_khach == goi.khach,)
         if goi.la_khach
@@ -326,6 +340,7 @@ async def _chapter_doc_nhanh(
             Project.name == ten,
             Project.che_do_pipeline == che_do,
             Project.source_lang == source_lang,
+            Project.target_lang == target_lang,
         ).limit(1)
     )).scalars().first()
     if co is not None:
@@ -334,7 +349,7 @@ async def _chapter_doc_nhanh(
     project = Project(
         name=ten,
         source_lang=source_lang,
-        target_lang=TargetLang.vi,
+        target_lang=target_lang,
         # Khai `personal`: tiện ích dịch truyện người dùng đang tự đọc. Đây là mặc định trung
         # thực nhất, và người dùng đổi được ở bản web như mọi chapter khác.
         intended_use=IntendedUse.personal,
@@ -423,6 +438,12 @@ async def xem_han_muc(
 
     reset = moc_reset_ke_tiep()
     chinh = chi_tiet[0] if chi_tiet else None
+    luot_mua = danh_tinh.so_luot_mua_them if danh_tinh.co_tai_khoan else 0
+    la_qt = bool(
+        danh_tinh.co_tai_khoan
+        and not danh_tinh.nguoi_goi.la_khach
+        and getattr(danh_tinh.nguoi_goi.nguoi, "la_quan_tri", False)
+    )
     return HanMucRead(
         giu_ket_qua_phut=_giu_ket_qua_phut_cho(danh_tinh.co_tai_khoan, settings),
         co_tai_khoan=danh_tinh.co_tai_khoan,
@@ -430,11 +451,369 @@ async def xem_han_muc(
         # `da_dung` lấy của chốt CHÍNH: đó là con số "tôi đã dùng bao nhiêu", trong khi phần đã
         # dùng của chốt IP là của cả mạng dùng chung — trộn hai thứ đó vào một ô là nói sai.
         da_dung=chinh.da_dung if chinh else 0,
-        con_lai=min((c.con_lai for c in chi_tiet), default=0),
+        con_lai=min((c.con_lai for c in chi_tiet), default=0) + luot_mua,
         reset_luc=reset,
         reset_sau_giay=max(0, int((reset - bay_gio()).total_seconds())),
         chot=chi_tiet,
+        so_luot_mua_them=luot_mua,
+        la_quan_tri=la_qt,
     )
+
+
+@router_khach.get("/nap-luot/thong-tin", response_model=ThongTinNapLuotRead, tags=["han-muc"])
+async def xem_thong_tin_nap_luot(
+    settings: Settings = Depends(get_settings),
+    danh_tinh: DanhTinhHanMuc = Depends(danh_tinh_han_muc),
+) -> ThongTinNapLuotRead:
+    """E100 — Thông tin gói nạp lượt & mã chuyển khoản VietQR tự động."""
+    nguoi = danh_tinh.nguoi_goi.nguoi if (danh_tinh.co_tai_khoan and not danh_tinh.nguoi_goi.la_khach) else None
+    email = nguoi.email if nguoi is not None else None
+    ma_noi_dung = f"NAP {str(nguoi.id).split('-')[0].upper()}" if nguoi is not None else "NAP <EMAIL_CUA_BAN>"
+    don_gia = max(1, settings.ty_le_vnd_moi_trang)
+
+    return ThongTinNapLuotRead(
+        co_tai_khoan=danh_tinh.co_tai_khoan,
+        email=email,
+        la_quan_tri=bool(nguoi and nguoi.la_quan_tri),
+        so_luot_mua_them=danh_tinh.so_luot_mua_them if danh_tinh.co_tai_khoan else 0,
+        tran_hang_ngay=danh_tinh.tran_hien,
+        ngan_hang_ten=settings.ngan_hang_ten,
+        ngan_hang_so_tk=settings.ngan_hang_so_tk,
+        ngan_hang_chu_tk=settings.ngan_hang_chu_tk,
+        noi_dung_chuyen_khoan=ma_noi_dung,
+        ty_le_vnd_moi_trang=don_gia,
+        goi_goi_y=[
+            GoiNapLuotRead(
+                ma="co_ban",
+                ten="Gói Đọc Nhanh (200 trang)",
+                so_tien_vnd=200 * don_gia,
+                so_trang=200,
+                ghi_chu="Tương đương ~10 chapter truyện. Lượt mua không bao giờ hết hạn qua đêm.",
+            ),
+            GoiNapLuotRead(
+                ma="tieu_chuan",
+                ten="Gói Cày Truyện (550 trang)",
+                so_tien_vnd=500 * don_gia,
+                so_trang=550,
+                ghi_chu="Tặng thêm 10% số trang (~28 chapter). Dùng chung cho cả Web & Extension.",
+            ),
+            GoiNapLuotRead(
+                ma="nhom_dich",
+                ten="Gói Nhóm Dịch / Studio (1.200 trang)",
+                so_tien_vnd=1000 * don_gia,
+                so_trang=1200,
+                ghi_chu="Tặng thêm 20% số trang (~60 chapter). Phù hợp dịch trọn bộ / làm video.",
+            ),
+        ],
+    )
+
+
+@router_khach.post("/nap-luot/webhook", tags=["han-muc"])
+async def webhook_nap_luot_ngan_hang(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    """E100 — Webhook tự động cộng lượt khi khách chuyển khoản ngân hàng (tương thích SePay / Casso / PayOS).
+
+    Cú pháp nội dung chuyển khoản: `NAP <8_KY_TU_DAU_UUID>` hoặc `NAP <EMAIL>`.
+    Bảo vệ bằng khoá bí mật `WEBHOOK_NAP_LUOT_BI_MAT` trong header `Authorization`.
+    """
+    import hmac
+    import re
+
+    bi_mat = (settings.webhook_nap_luot_bi_mat or "").strip()
+    if not bi_mat:
+        raise HTTPException(
+            status_code=503,
+            detail="Chưa cấu hình WEBHOOK_NAP_LUOT_BI_MAT trên máy chủ.",
+        )
+
+    auth = (request.headers.get("authorization") or request.headers.get("x-webhook-secret") or "").strip()
+    for tien_to in ("Apikey ", "Bearer ", "apikey ", "bearer "):
+        if auth.startswith(tien_to):
+            auth = auth[len(tien_to):].strip()
+            break
+    if not hmac.compare_digest(auth.encode("utf-8"), bi_mat.encode("utf-8")):
+        raise HTTPException(status_code=401, detail="Khoá xác thực webhook không hợp lệ.")
+
+    payload = await request.json()
+    noi_dung = str(
+        payload.get("content")
+        or payload.get("description")
+        or (payload.get("data") or {}).get("description")
+        or ""
+    ).strip()
+    so_tien = int(
+        payload.get("transferAmount")
+        or payload.get("amount")
+        or (payload.get("data") or {}).get("amount")
+        or 0
+    )
+    if so_tien <= 0 or not noi_dung:
+        return {"ok": False, "ly_do": "khong_co_so_tien_hoac_noi_dung"}
+
+    don_gia = max(1, settings.ty_le_vnd_moi_trang)
+    so_trang_goc = so_tien // don_gia
+    if so_trang_goc <= 0:
+        return {"ok": False, "ly_do": "so_tien_nho_hon_1_trang"}
+    # Tặng thêm 10% nếu nạp >= 500 trang, 20% nếu >= 1000 trang
+    if so_trang_goc >= 1000:
+        so_trang_cong = int(so_trang_goc * 1.2)
+    elif so_trang_goc >= 500:
+        so_trang_cong = int(so_trang_goc * 1.1)
+    else:
+        so_trang_cong = so_trang_goc
+
+    nguoi: NguoiDung | None = None
+    khop_email = re.search(r"([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)", noi_dung)
+    if khop_email:
+        email_tim = khop_email.group(1).lower()
+        nguoi = (await session.execute(select(NguoiDung).where(NguoiDung.email == email_tim))).scalar_one_or_none()
+
+    if nguoi is None:
+        khop_ma = re.search(r"NAP\s+([0-9A-Fa-f]{8})", noi_dung, re.IGNORECASE)
+        if khop_ma:
+            tien_to_id = khop_ma.group(1).lower()
+            ds_nguoi = (await session.execute(select(NguoiDung))).scalars().all()
+            for u in ds_nguoi:
+                if str(u.id).lower().startswith(tien_to_id):
+                    nguoi = u
+                    break
+
+    if nguoi is None:
+        return {"ok": False, "ly_do": "khong_tim_thay_tai_khoan_tu_noi_dung"}
+
+    nguoi.so_luot_mua_them = max(0, int(nguoi.so_luot_mua_them or 0)) + so_trang_cong
+    await session.commit()
+    return {
+        "ok": True,
+        "email": nguoi.email,
+        "da_cong_them": so_trang_cong,
+        "so_luot_mua_them_moi": nguoi.so_luot_mua_them,
+    }
+
+
+@router.post("/quan-tri/cap-luot", response_model=CapLuotResponse, tags=["han-muc"])
+async def quan_tri_cap_luot(
+    body: CapLuotRequest,
+    session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
+) -> CapLuotResponse:
+    """E100 — Quản trị viên cấp trực tiếp lượt mua thêm hoặc đặt trần VIP hằng ngày cho khách hàng."""
+    if not nguoi.la_quan_tri:
+        raise HTTPException(status_code=403, detail="Chỉ quản trị viên mới được cấp lượt.")
+
+    email_tim = body.email.strip().lower()
+    dich = (
+        await session.execute(select(NguoiDung).where(NguoiDung.email == email_tim))
+    ).scalar_one_or_none()
+    if dich is None:
+        raise HTTPException(status_code=404, detail=f"Không tìm thấy tài khoản '{email_tim}'.")
+
+    if body.cong_them_luot != 0:
+        dich.so_luot_mua_them = max(0, int(dich.so_luot_mua_them or 0) + body.cong_them_luot)
+    if body.tran_hang_ngay_rieng is not None:
+        dich.tran_hang_ngay_rieng = body.tran_hang_ngay_rieng if body.tran_hang_ngay_rieng > 0 else None
+
+    await session.commit()
+    await session.refresh(dich)
+    return CapLuotResponse(
+        email=dich.email,
+        so_luot_mua_them=dich.so_luot_mua_them,
+        tran_hang_ngay_rieng=dich.tran_hang_ngay_rieng,
+        thong_diep=f"Đã cập nhật hạn mức cho {dich.email}: {dich.so_luot_mua_them} lượt tích luỹ"
+        + (f", trần VIP {dich.tran_hang_ngay_rieng} trang/ngày." if dich.tran_hang_ngay_rieng else "."),
+    )
+
+
+@router.get("/quan-tri/thong-ke", response_model=QuanTriThongKeRead, tags=["han-muc"])
+async def quan_tri_thong_ke(
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
+) -> QuanTriThongKeRead:
+    """E107 — Dashboard Quản trị tổng hợp: Thống kê hệ thống, số lượt tiêu thụ hôm nay/7 ngày/toàn thời gian và danh sách chi tiết từng khách hàng."""
+    if not nguoi.la_quan_tri:
+        raise HTTPException(status_code=404, detail="Không tìm thấy.")
+
+    from datetime import timedelta
+    from pathlib import Path
+
+    hom_nay = ngay_han_muc()
+    bay_ngay_truoc = hom_nay - timedelta(days=6)
+
+    ds_nguoi = list(
+        (await session.execute(select(NguoiDung).order_by(NguoiDung.created_at.desc()))).scalars()
+    )
+
+    # Thống kê số trang đã dịch từ sổ cái `SoCaiHanMuc` (không tính các khoản đã hoàn)
+    trang_thai_hop_le = [TrangThaiHanMuc.dang_giu, TrangThaiHanMuc.da_tieu]
+
+    trang_hom_nay = int(
+        (
+            await session.execute(
+                select(func.coalesce(func.sum(SoCaiHanMuc.so_trang), 0)).where(
+                    SoCaiHanMuc.ngay_han_muc == hom_nay,
+                    SoCaiHanMuc.trang_thai.in_(trang_thai_hop_le),
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+    trang_7_ngay = int(
+        (
+            await session.execute(
+                select(func.coalesce(func.sum(SoCaiHanMuc.so_trang), 0)).where(
+                    SoCaiHanMuc.ngay_han_muc >= bay_ngay_truoc,
+                    SoCaiHanMuc.trang_thai.in_(trang_thai_hop_le),
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+    trang_toan_thoi_gian = int(
+        (
+            await session.execute(
+                select(func.coalesce(func.sum(SoCaiHanMuc.so_trang), 0)).where(
+                    SoCaiHanMuc.trang_thai.in_(trang_thai_hop_le),
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+    tong_chapter = int(
+        (await session.execute(select(func.count(Project.id)))).scalar_one() or 0
+    )
+
+    # Gom số trang dùng hôm nay theo từng user
+    rows_hom_nay = (
+        await session.execute(
+            select(SoCaiHanMuc.chu_the, func.coalesce(func.sum(SoCaiHanMuc.so_trang), 0))
+            .where(
+                SoCaiHanMuc.loai_chu_the == LoaiChuThe.nguoi_dung,
+                SoCaiHanMuc.ngay_han_muc == hom_nay,
+                SoCaiHanMuc.trang_thai.in_(trang_thai_hop_le),
+            )
+            .group_by(SoCaiHanMuc.chu_the)
+        )
+    ).all()
+    map_hom_nay = {str(chu_the): int(tong) for chu_the, tong in rows_hom_nay}
+
+    # Gom tổng trang toàn thời gian theo từng user
+    rows_all = (
+        await session.execute(
+            select(SoCaiHanMuc.chu_the, func.coalesce(func.sum(SoCaiHanMuc.so_trang), 0))
+            .where(
+                SoCaiHanMuc.loai_chu_the == LoaiChuThe.nguoi_dung,
+                SoCaiHanMuc.trang_thai.in_(trang_thai_hop_le),
+            )
+            .group_by(SoCaiHanMuc.chu_the)
+        )
+    ).all()
+    map_all = {str(chu_the): int(tong) for chu_the, tong in rows_all}
+
+    # Gom số chapter theo từng user
+    rows_chap = (
+        await session.execute(
+            select(Project.chu_so_huu_id, func.count(Project.id))
+            .where(Project.chu_so_huu_id.is_not(None))
+            .group_by(Project.chu_so_huu_id)
+        )
+    ).all()
+    map_chap = {str(uid): int(cnt) for uid, cnt in rows_chap}
+
+    tran_mac_dinh = settings.han_muc_co_tai_khoan
+    chi_tiet: list[QuanTriNguoiDungChiTietRead] = []
+    tong_tich_luy = 0
+    so_vip = 0
+    so_hoat_dong = 0
+
+    for u in ds_nguoi:
+        uid_str = str(u.id)
+        if u.dang_hoat_dong:
+            so_hoat_dong += 1
+        mua_them = max(0, int(u.so_luot_mua_them or 0))
+        tong_tich_luy += mua_them
+        if mua_them > 0 or (u.tran_hang_ngay_rieng and u.tran_hang_ngay_rieng > tran_mac_dinh):
+            so_vip += 1
+        tran_u = u.tran_hang_ngay_rieng if (u.tran_hang_ngay_rieng and u.tran_hang_ngay_rieng > 0) else tran_mac_dinh
+        da_dung_u = map_hom_nay.get(uid_str, 0)
+        con_lai_ngay = max(0, tran_u - da_dung_u)
+        chi_tiet.append(
+            QuanTriNguoiDungChiTietRead(
+                id=u.id,
+                email=u.email,
+                ten_hien=u.ten_hien,
+                la_quan_tri=u.la_quan_tri,
+                dang_hoat_dong=u.dang_hoat_dong,
+                tran_hang_ngay=tran_u,
+                tran_hang_ngay_rieng=u.tran_hang_ngay_rieng,
+                da_dung_hom_nay=da_dung_u,
+                con_lai_hom_nay=con_lai_ngay + mua_them,
+                so_luot_mua_them=mua_them,
+                tong_trang_da_dich=map_all.get(uid_str, 0),
+                so_chapter=map_chap.get(uid_str, 0),
+                created_at=u.created_at,
+            )
+        )
+
+    return QuanTriThongKeRead(
+        tong_nguoi_dung=len(ds_nguoi),
+        nguoi_dung_hoat_dong=so_hoat_dong,
+        so_khach_vip=so_vip,
+        tong_luot_tich_luy_con_lai=tong_tich_luy,
+        trang_dich_hom_nay=trang_hom_nay,
+        trang_dich_7_ngay=trang_7_ngay,
+        trang_dich_toan_thoi_gian=trang_toan_thoi_gian,
+        tong_chapter=tong_chapter,
+        ty_le_vnd_moi_trang=max(1, settings.ty_le_vnd_moi_trang),
+        nguoi_dung_chi_tiet=chi_tiet,
+    )
+
+
+@router_khach.get("/tai-ve/tien-ich-chrome", tags=["tai-ve"])
+async def tai_ve_tien_ich_chrome() -> Response:
+    """Tải trực tiếp gói cài đặt Tiện ích mở rộng Chrome (.zip) từ Trang chủ."""
+    from pathlib import Path
+
+    goc = Path(__file__).resolve().parents[4]
+    ung_vien = [
+        goc / "dist" / "extension-doc-truyen-v0.3.0.zip",
+        goc / "dich-truyen-dang-doc.zip",
+    ]
+    for p in ung_vien:
+        if p.is_file():
+            return Response(
+                content=p.read_bytes(),
+                media_type="application/zip",
+                headers={
+                    "Content-Disposition": 'attachment; filename="dich-truyen-chrome-extension-v0.3.0.zip"'
+                },
+            )
+    raise HTTPException(status_code=404, detail="Chưa tìm thấy gói cài đặt Tiện ích Chrome.")
+
+
+@router_khach.get("/tai-ve/app-windows", tags=["tai-ve"])
+async def tai_ve_app_windows() -> Response:
+    """Tải trực tiếp bộ cài App Windows Dịch Truyện Tự Động Theo Link (.zip) từ Trang chủ."""
+    from pathlib import Path
+
+    goc = Path(__file__).resolve().parents[4]
+    ung_vien = [
+        goc / "dist" / "app-windows-dich-truyen.zip",
+    ]
+    for p in ung_vien:
+        if p.is_file():
+            return Response(
+                content=p.read_bytes(),
+                media_type="application/zip",
+                headers={
+                    "Content-Disposition": 'attachment; filename="App-Windows-Dich-Truyen-Tu-Dong-v1.0.zip"'
+                },
+            )
+    raise HTTPException(status_code=404, detail="Chưa tìm thấy gói cài đặt App Windows.")
+
 
 
 @router_khach.post(
@@ -475,12 +854,40 @@ async def nhan_dang_ngon_ngu_gui(
     data = await file.read()
     if not data:
         raise HTTPException(status_code=422, detail="File rỗng")
-    if len(data) > settings.max_upload_bytes:
-        raise HTTPException(status_code=413, detail=f"Ảnh vượt quá {settings.max_upload_mb}MB")
+    if len(data) > settings.archive_max_total_bytes:
+        raise HTTPException(status_code=413, detail=f"Tệp vượt quá {settings.archive_max_total_mb}MB")
     try:
+        if len(data) > settings.max_upload_bytes:
+            raise UnsupportedImage("kiem_tra_goi")
         _mime, ext = sniff_image(data)
     except UnsupportedImage as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        # Nếu người dùng thả gói ZIP/CBZ/PDF ở trang chủ rồi bấm "Đọc thử trang đầu", trích đúng
+        # trang đầu tiên ra để nhận dạng thay vì báo lỗi 422.
+        def _trich_trang_dau():
+            if la_pdf(data):
+                it = doc_pdf_anh(
+                    data, max_pages=settings.archive_max_pages,
+                    max_page_bytes=settings.max_upload_bytes, max_px=settings.pdf_render_max_px,
+                )
+            else:
+                it = doc_goi_anh(
+                    data, max_pages=settings.archive_max_pages,
+                    max_total_bytes=settings.archive_max_total_bytes,
+                    max_page_bytes=settings.max_upload_bytes,
+                )
+            return next(it, None)
+
+        try:
+            muc_dau = await run_in_threadpool(_trich_trang_dau)
+        except Exception:  # noqa: BLE001
+            muc_dau = None
+        if muc_dau is None:
+            if len(data) > settings.max_upload_bytes:
+                raise HTTPException(
+                    status_code=413, detail=f"Ảnh vượt quá {settings.max_upload_mb}MB"
+                ) from exc
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        data, ext = muc_dau.data, muc_dau.ext
 
     yc = YeuCauNhanDangNgonNgu(
         chu_so_huu_id=danh_tinh.nguoi_goi.nguoi.id if not danh_tinh.nguoi_goi.la_khach else None,
@@ -584,6 +991,9 @@ async def doc_truyen_gui_trang(
     source_lang: SourceLang = Form(
         SourceLang.ja, description="Ngôn ngữ chữ TRÊN ẢNH — quyết định chọn engine OCR nào"
     ),
+    target_lang: TargetLang = Form(
+        TargetLang.vi, description="Ngôn ngữ ĐÍCH muốn dịch sang (vi = Tiếng Việt, en = Tiếng Anh quốc tế)"
+    ),
     engine: TranslationEngine = Form(
         TranslationEngine.google_fast,
         description="google_fast (miễn phí, dịch rời rạc) hoặc llm_context (Gemini, giữ mạch văn "
@@ -623,7 +1033,9 @@ async def doc_truyen_gui_trang(
     """
     _kiem_engine(engine, settings, co_tai_khoan=danh_tinh.co_tai_khoan)
 
-    project = await _chapter_doc_nhanh(session, danh_tinh.nguoi_goi, source_lang, che_do)
+    project = await _chapter_doc_nhanh(
+        session, danh_tinh.nguoi_goi, source_lang, che_do, target_lang=target_lang
+    )
 
     data = await file.read()
     if not data:
@@ -669,6 +1081,31 @@ async def doc_truyen_gui_trang(
     page.image_path = await run_in_threadpool(
         storage.save_page_image, project.id, page.id, data, ext
     )
+
+    from app.services.bo_nho_anh_dich import (
+        ghi_nhan_trang_anh,
+        thu_sao_chep_tu_cache,
+        tinh_bam_anh,
+    )
+
+    bam_anh = tinh_bam_anh(data)
+    if settings.doc_truyen_dung_cache_anh:
+        trung_cache = await thu_sao_chep_tu_cache(
+            session,
+            bam_anh=bam_anh,
+            source_lang=source_lang,
+            engine=engine,
+            che_do=che_do,
+            dich_page=page,
+            storage=storage,
+        )
+        if trung_cache:
+            ghi_nhan_trang_anh(bam_anh, source_lang, engine, che_do, page.id)
+            await session.commit()
+            await session.refresh(page)
+            return await doc_truyen_lay_trang(page.id, session=session, danh_tinh=danh_tinh)
+
+    ghi_nhan_trang_anh(bam_anh, source_lang, engine, che_do, page.id)
     job = Job(type=JobType.detect, page_id=page.id, status=JobStatus.queued)
     session.add(job)
     await session.commit()
@@ -808,6 +1245,209 @@ async def doc_truyen_lay_anh(
     # dùng vẫn thấy ảnh cũ.
     return await _phuc_vu_hien_vat(
         storage, rel, "image/png", request, cache_control="no-cache, must-revalidate"
+    )
+
+
+@router_khach.get(
+    "/doc-truyen/trang/{page_id}/anh-goc",
+    tags=["doc-truyen"],
+    responses={
+        200: {"content": {"image/*": {}}},
+        404: {"description": "Không còn ảnh gốc hoặc trang không thuộc về người gọi"},
+    },
+)
+async def doc_truyen_lay_anh_goc(
+    page_id: uuid.UUID,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    danh_tinh: DanhTinhHanMuc = Depends(danh_tinh_han_muc),
+) -> Response:
+    """Ảnh GỐC của trang dịch nhanh (dùng cho xem trước Trước/Sau khi người dùng tải lên gói
+    ZIP/CBZ/PDF ở trang chủ, nơi trình duyệt không có tệp ảnh rời trong RAM)."""
+    page = await _get_page_or_404(session, page_id, danh_tinh.nguoi_goi)
+    storage = get_storage()
+    if not await run_in_threadpool(storage.exists, page.image_path):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Đường dẫn ảnh gốc có trong DB nhưng file không còn: {page.image_path}",
+        )
+    mime, _ = mimetypes.guess_type(page.image_path)
+    return await _phuc_vu_hien_vat(
+        storage, page.image_path, mime or "application/octet-stream", request
+    )
+
+
+@router_khach.post(
+    "/doc-truyen/goi",
+    response_model=ArchiveAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["doc-truyen"],
+)
+async def doc_truyen_gui_goi(
+    file: UploadFile = File(..., description="Gói ZIP/CBZ/PDF chứa các trang truyện"),
+    source_lang: SourceLang = Form(
+        SourceLang.ja, description="Ngôn ngữ chữ TRÊN ẢNH — quyết định chọn engine OCR nào"
+    ),
+    target_lang: TargetLang = Form(
+        TargetLang.vi, description="Ngôn ngữ ĐÍCH muốn dịch sang (vi = Tiếng Việt, en = Tiếng Anh quốc tế)"
+    ),
+    engine: TranslationEngine = Form(
+        TranslationEngine.google_fast,
+        description="google_fast (miễn phí) hoặc llm_context (Gemini, giữ mạch văn, tốn token)",
+    ),
+    che_do: ChePipeline = Form(
+        ChePipeline.day_du,
+        description="day_du = xoá chữ gốc + căn chữ Việt vào bong bóng (mặc định cho trang chủ); "
+        "chi_chu = chỉ trả toạ độ + chữ dịch.",
+    ),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    danh_tinh: DanhTinhHanMuc = Depends(danh_tinh_han_muc),
+) -> ArchiveAccepted:
+    """E99 (Chuẩn Ichigo Reader) — Nhận trực tiếp gói `.zip`, `.cbz`, `.pdf` ngay trên màn hình
+    trang chủ (`router_khach`, hỗ trợ cả khách chưa đăng nhập lẫn tài khoản đã đăng nhập).
+
+    Áp dụng đầy đủ các chốt an toàn của `upload_archive`:
+    - Chặn zip-bomb, path traversal, gói lồng gói (`doc_goi_anh` / `doc_pdf_anh`).
+    - Kiểm tra tổng số lượt còn lại (`con_du_khong`) TRƯỚC khi giải nén từng trang để nếu thiếu
+      lượt thì báo 429 ngay lập tức, không tiêu nửa chừng.
+    - Tận dụng bộ nhớ đệm SHA-256 (`thu_sao_chep_tu_cache`) cho các trang trùng nội dung.
+    """
+    _kiem_engine(engine, settings, co_tai_khoan=danh_tinh.co_tai_khoan)
+
+    project = await _chapter_doc_nhanh(
+        session, danh_tinh.nguoi_goi, source_lang, che_do, target_lang=target_lang
+    )
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=422, detail="File rỗng")
+    if len(data) > settings.archive_max_total_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Gói vượt quá {settings.archive_max_total_mb}MB",
+        )
+
+    def _mo_goi():
+        if la_pdf(data):
+            return doc_pdf_anh(
+                data,
+                max_pages=settings.archive_max_pages,
+                max_page_bytes=settings.max_upload_bytes,
+                max_px=settings.pdf_render_max_px,
+            )
+        return doc_goi_anh(
+            data,
+            max_pages=settings.archive_max_pages,
+            max_total_bytes=settings.archive_max_total_bytes,
+            max_page_bytes=settings.max_upload_bytes,
+        )
+
+    try:
+        trang_iter = await run_in_threadpool(_mo_goi)
+    except ArchiveTooLarge as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except ArchiveError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    await con_du_khong(session, danh_tinh, settings, so_trang=trang_iter.so_muc)
+
+    next_order = (
+        await session.scalar(
+            select(func.coalesce(func.max(Page.order), 0) + 1).where(Page.project_id == project.id)
+        )
+    ) or 1
+
+    from app.services.bo_nho_anh_dich import (
+        ghi_nhan_trang_anh,
+        thu_sao_chep_tu_cache,
+        tinh_bam_anh,
+    )
+
+    storage = get_storage()
+    da_nhan: list[TrangTrongGoiAccepted] = []
+    jobs: list[uuid.UUID] = []
+    da_luu: list[str] = []
+    try:
+        while True:
+            muc = await run_in_threadpool(next, trang_iter, None)
+            if muc is None:
+                break
+
+            page = Page(
+                project_id=project.id,
+                image_path="",
+                order=next_order,
+                status=PageStatus.queued,
+                translate_engine_override=engine,
+            )
+            session.add(page)
+            await session.flush()
+
+            await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=page.id)
+
+            du_lieu = await run_in_threadpool(
+                thu_nho_anh_trang, muc.data, muc.ext, settings.anh_trang_canh_dai_toi_da
+            )
+            page.image_path = await run_in_threadpool(
+                storage.save_page_image, project.id, page.id, du_lieu, muc.ext
+            )
+            da_luu.append(page.image_path)
+
+            bam_anh = tinh_bam_anh(du_lieu)
+            trung_cache = False
+            if settings.doc_truyen_dung_cache_anh:
+                trung_cache = await thu_sao_chep_tu_cache(
+                    session,
+                    bam_anh=bam_anh,
+                    source_lang=source_lang,
+                    engine=engine,
+                    che_do=che_do,
+                    dich_page=page,
+                    storage=storage,
+                )
+            ghi_nhan_trang_anh(bam_anh, source_lang, engine, che_do, page.id)
+
+            if trung_cache:
+                job_id_tra = page.id
+            else:
+                job = Job(type=JobType.detect, page_id=page.id, status=JobStatus.queued)
+                session.add(job)
+                await session.flush()
+                jobs.append(job.id)
+                job_id_tra = job.id
+
+            da_nhan.append(
+                TrangTrongGoiAccepted(
+                    page_id=page.id, job_id=job_id_tra, order=next_order, ten_trong_goi=muc.ten
+                )
+            )
+            next_order += 1
+    except ArchiveEmpty as exc:
+        await _huy_me_goi(session, storage, da_luu)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ArchiveError as exc:
+        await _huy_me_goi(session, storage, da_luu)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except HTTPException:
+        await _huy_me_goi(session, storage, da_luu)
+        raise
+
+    await session.commit()
+
+    for job_id in jobs:
+        sent, reason = dispatch_detect_job(job_id)
+        if not sent:
+            job = await session.get(Job, job_id)
+            if job is not None:
+                job.error_log = reason
+    await session.commit()
+
+    return ArchiveAccepted(
+        project_id=project.id,
+        so_trang=len(da_nhan),
+        bo_qua=max(0, trang_iter.so_muc - len(da_nhan)),
+        trang=da_nhan,
     )
 
 
@@ -1243,6 +1883,46 @@ async def list_page_regions(
     return [RegionRead.from_model(r) for r in regions]
 
 
+async def _giu_suat_chay_lai_trang(
+    session: AsyncSession,
+    page_id: uuid.UUID,
+    job_type: JobType,
+    settings: Settings,
+) -> None:
+    """Chặn gọi `retry-*` / `re-translate` vô hạn trên cùng một trang để đốt token LLM / CPU.
+
+    Dùng lại sổ cái `so_cai_han_muc` với tiền tố `chay-lai:<page_id>:<buoc>` (chứa dấu `:` nên
+    không bao giờ lẫn vào bộ đếm hạn mức trang). Chỉ tính các lượt người dùng bấm chạy lại qua
+    HTTP; chuỗi tự động `detect -> ocr -> inpaint -> translate` không đi qua đây.
+    """
+    tran = settings.so_lan_chay_lai_toi_da_moi_trang
+    if tran <= 0:
+        return
+    kq = await giu_cho_bat_dong_bo(
+        session,
+        khoa=f"chay-lai:{uuid.uuid4()}",
+        loai=LoaiChuThe.khach_ip,
+        chu_the=f"chay-lai:{page_id}:{job_type.value}",
+        ngay=ngay_han_muc(),
+        so_trang=1,
+        tran=tran,
+    )
+    if not kq.thanh_cong:
+        reset = moc_reset_ke_tiep()
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            headers={"Retry-After": str(max(0, int((reset - bay_gio()).total_seconds())))},
+            detail={
+                "loi": "vuot_tran_chay_lai_trang",
+                "buoc": job_type.value,
+                "tran_moi_trang": tran,
+                "reset_luc": reset.isoformat(),
+                "thong_diep": f"Trang này đã chạy lại bước '{job_type.value}' tối đa {tran} lần "
+                "trong hôm nay.",
+            },
+        )
+
+
 @router.post(
     "/pages/{page_id}/retry-detect",
     response_model=PageAccepted,
@@ -1250,7 +1930,9 @@ async def list_page_regions(
     tags=["pages"],
 )
 async def retry_detect(
-    page_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    page_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
     nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> PageAccepted:
     """Xếp lại việc detect cho 1 page (dùng sau khi detection_failed hoặc muốn chạy lại).
@@ -1260,6 +1942,8 @@ async def retry_detect(
     page = await _get_page_or_404(session, page_id, nguoi)
     if page.status is PageStatus.detecting:
         raise HTTPException(status_code=409, detail="Page đang detect, không xếp thêm việc trùng")
+
+    await _giu_suat_chay_lai_trang(session, page.id, JobType.detect, settings)
 
     job = Job(type=JobType.detect, page_id=page.id, status=JobStatus.queued)
     session.add(job)
@@ -1396,7 +2080,9 @@ async def list_page_ocr(
     tags=["pages"],
 )
 async def retry_ocr(
-    page_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    page_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
     nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> PageAccepted:
     """Xếp lại việc OCR cho 1 page. Chỉ enqueue — không chạy OCR trong request."""
@@ -1420,6 +2106,8 @@ async def retry_ocr(
             status_code=409,
             detail="Page chưa có vùng chữ nào — chạy detect trước (POST /pages/{id}/retry-detect)",
         )
+
+    await _giu_suat_chay_lai_trang(session, page.id, JobType.ocr, settings)
 
     job = Job(type=JobType.ocr, page_id=page.id, status=JobStatus.queued)
     session.add(job)
@@ -1640,7 +2328,9 @@ async def get_original_image(
     tags=["pages"],
 )
 async def retry_inpaint(
-    page_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+    page_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
     nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> PageAccepted:
     """Xếp lại việc xoá chữ cho 1 page. Chỉ enqueue — không chạy inpaint trong request."""
@@ -1654,6 +2344,8 @@ async def retry_inpaint(
             status_code=409,
             detail=f"Page đang ở '{page.status.value}' — cần OCR xong trước khi xoá chữ",
         )
+
+    await _giu_suat_chay_lai_trang(session, page.id, JobType.inpaint, settings)
 
     job = Job(type=JobType.inpaint, page_id=page.id, status=JobStatus.queued)
     session.add(job)
@@ -1815,6 +2507,8 @@ async def retry_translate(
             status_code=409,
             detail=f"Page đang ở '{page.status.value}' — cần xoá chữ xong trước khi dịch",
         )
+
+    await _giu_suat_chay_lai_trang(session, page.id, JobType.translate, settings)
 
     job = Job(type=JobType.translate, page_id=page.id, status=JobStatus.queued)
     session.add(job)
@@ -2282,6 +2976,7 @@ async def retranslate_region(
     """
     _kiem_engine(engine, settings)
     region = await _get_region_or_404(session, region_id, nguoi)
+    await _giu_suat_chay_lai_trang(session, region.page_id, JobType.translate, settings)
     job = Job(type=JobType.translate, page_id=region.page_id, status=JobStatus.queued)
     session.add(job)
     await session.commit()

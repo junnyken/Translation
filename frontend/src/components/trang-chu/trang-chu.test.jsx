@@ -454,4 +454,63 @@ describe('E57 — tự nhận ngôn ngữ', () => {
     // Không nói ra thì người dùng tưởng bấm là mất lượt, và sẽ tránh dùng.
     expect(screen.getByText(/Không tính vào lượt dịch/)).toBeInTheDocument()
   })
+
+  it('E99 — trang chủ nhận trực tiếp gói .cbz/.zip/.pdf qua /doc-truyen/goi và có chế độ Đọc dọc liền mạch', async () => {
+    const goi = vi.spyOn(globalThis, 'fetch').mockImplementation((url, opts) => {
+      const u = String(url)
+      if (u.includes('/han-muc')) return dapUng(HAN_MUC_CON)
+      if (u.includes('/doc-truyen/goi') && opts?.method === 'POST') {
+        return dapUng({
+          project_id: 'c-goi',
+          so_trang: 2,
+          bo_qua: 0,
+          trang: [
+            { page_id: 'p1', job_id: 'j1', order: 1, ten_trong_goi: '01.png' },
+            { page_id: 'p2', job_id: 'j2', order: 2, ten_trong_goi: '02.png' },
+          ],
+        })
+      }
+      if (u.includes('/export') && opts?.method === 'POST') {
+        return dapUng({ job_id: 'ex-1', project_id: 'c-goi', status: 'queued' })
+      }
+      if (u.includes('/export-jobs/ex-1/download')) {
+        return Promise.resolve({
+          ok: true, status: 200,
+          blob: () => Promise.resolve(new Blob(['cbz'])),
+          headers: { get: () => 'attachment; filename="chap.cbz"' },
+        })
+      }
+      if (u.includes('/export-jobs/ex-1')) {
+        return dapUng({ id: 'ex-1', status: 'done', output_path: 'exports/chap.cbz' })
+      }
+      return dapUng({
+        page_id: u.includes('p2') ? 'p2' : 'p1',
+        project_id: 'c-goi',
+        trang_thai: 'typeset_done',
+        xong: true,
+        che_do: 'day_du',
+        tien_do: {},
+      })
+    })
+    globalThis.URL.createObjectURL = vi.fn(() => 'blob:xuat')
+    globalThis.URL.revokeObjectURL = vi.fn()
+
+    const u = userEvent.setup()
+    render(<TrangChu />)
+    await screen.findByText(/Lượt dịch hôm nay/)
+
+    await u.upload(oFile(), [new File(['PK'], 'chap1.cbz', { type: 'application/x-cbz' })])
+    await u.click(screen.getByRole('button', { name: /^Dịch/ }))
+
+    await waitFor(() => {
+      const guiGoi = goi.mock.calls.find(([url, o]) => String(url).includes('/doc-truyen/goi') && o?.method === 'POST')
+      expect(guiGoi).toBeTruthy()
+      expect(guiGoi[1].body.get('che_do')).toBe('day_du')
+    })
+
+    await screen.findByRole('button', { name: /Đọc dọc liền mạch/ }, { timeout: 5000 })
+    await u.click(screen.getByRole('button', { name: /Đọc dọc liền mạch/ }))
+    expect(screen.getByText(/Trang 1\/2 · 01\.png/)).toBeInTheDocument()
+    expect(screen.getByText(/Trang 2\/2 · 02\.png/)).toBeInTheDocument()
+  })
 })

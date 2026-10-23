@@ -76,6 +76,9 @@ class NguoiDungRead(ORMModel):
     email: str
     ten_hien: str
     la_quan_tri: bool
+    dang_hoat_dong: bool = True
+    tran_hang_ngay_rieng: int | None = None
+    so_luot_mua_them: int = 0
     created_at: datetime
 
 
@@ -1177,11 +1180,75 @@ class HanMucRead(BaseModel):
     #: Chi tiết từng chốt, để giao diện giải thích đúng lý do khi `con_lai = 0`.
     chot: list[ChotHanMucRead] = []
     #: E54 — kết quả được giữ bao nhiêu PHÚT sau khi xong. `null` = **không tự xoá**.
-    #:
-    #: Máy chủ phải nói con số này ra, vì giao diện không có cách nào biết: nó phụ thuộc hai biến
-    #: môi trường (`bat_lich_don_tep`, `tu_xoa_cho_tai_khoan`) VÀ phụ thuộc người gọi là khách lạ
-    #: hay đã đăng nhập.
-    #:
-    #: Gõ cứng "30 phút" vào giao diện là nói SAI với người dùng ngay khi lịch dọn tắt — và nó đã
-    #: sai thật: E50 ship với lịch mặc định TẮT trong khi màn hình vẫn hứa xoá sau 30 phút.
     giu_ket_qua_phut: int | None = None
+    #: E100 — số lượt nạp thêm (mua lẻ / tích luỹ, không hết hạn lúc 0h00).
+    so_luot_mua_them: int = 0
+    #: E100 — người gọi có phải quản trị viên không (để bật khung cấp lượt nhanh trên giao diện).
+    la_quan_tri: bool = False
+
+
+class GoiNapLuotRead(BaseModel):
+    ma: str
+    ten: str
+    so_tien_vnd: int
+    so_trang: int
+    ghi_chu: str
+
+
+class ThongTinNapLuotRead(BaseModel):
+    co_tai_khoan: bool
+    email: str | None = None
+    la_quan_tri: bool = False
+    so_luot_mua_them: int = 0
+    tran_hang_ngay: int
+    ngan_hang_ten: str = ""
+    ngan_hang_so_tk: str = ""
+    ngan_hang_chu_tk: str = ""
+    noi_dung_chuyen_khoan: str = ""
+    ty_le_vnd_moi_trang: int = 100
+    goi_goi_y: list[GoiNapLuotRead] = []
+
+
+class CapLuotRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: str = Field(min_length=3, max_length=320)
+    cong_them_luot: int = Field(default=0, ge=-100000, le=100000)
+    tran_hang_ngay_rieng: int | None = Field(default=None, ge=0, le=100000)
+
+
+class CapLuotResponse(BaseModel):
+    email: str
+    so_luot_mua_them: int
+    tran_hang_ngay_rieng: int | None = None
+    thong_diep: str
+
+
+class QuanTriNguoiDungChiTietRead(BaseModel):
+    id: uuid.UUID
+    email: str
+    ten_hien: str
+    la_quan_tri: bool
+    dang_hoat_dong: bool = True
+    tran_hang_ngay: int
+    tran_hang_ngay_rieng: int | None = None
+    da_dung_hom_nay: int = 0
+    con_lai_hom_nay: int = 0
+    so_luot_mua_them: int = 0
+    tong_trang_da_dich: int = 0
+    so_chapter: int = 0
+    created_at: datetime
+
+
+class QuanTriThongKeRead(BaseModel):
+    tong_nguoi_dung: int = 0
+    nguoi_dung_hoat_dong: int = 0
+    so_khach_vip: int = 0
+    tong_luot_tich_luy_con_lai: int = 0
+    trang_dich_hom_nay: int = 0
+    trang_dich_7_ngay: int = 0
+    trang_dich_toan_thoi_gian: int = 0
+    tong_chapter: int = 0
+    ty_le_vnd_moi_trang: int = 100
+    nguoi_dung_chi_tiet: list[QuanTriNguoiDungChiTietRead] = []
+

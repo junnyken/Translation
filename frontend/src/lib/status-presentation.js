@@ -199,7 +199,12 @@ export function dienGiaiTrangThai(loai, trang_thai, boi_canh = {}) {
 
 /** Nhãn tiếng Việt cho các enum không phải trạng thái (chỉ diễn giải, không đổi nghĩa). */
 export const MUC_DICH = { personal: 'Đọc cá nhân', study: 'Học tập / nghiên cứu', other: 'Khác' }
-export const NGON_NGU = { en: 'Tiếng Anh', ja: 'Tiếng Nhật (manga)', zh: 'Tiếng Trung' }
+export const NGON_NGU = {
+  en: 'Tiếng Anh',
+  ja: 'Tiếng Nhật (manga)',
+  zh: 'Tiếng Trung',
+  ko: 'Tiếng Hàn (Manhwa)',
+}
 export const CACH_DICH = {
   google_fast: 'Dịch nhanh (miễn phí)',
   llm_context: 'Dịch theo ngữ cảnh (AI)',

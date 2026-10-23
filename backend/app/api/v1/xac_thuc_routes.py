@@ -22,6 +22,7 @@ from app.core.config import Settings, get_settings
 from app.core.danh_tinh_khach import bam, ip_cua
 from app.services.han_muc import bay_gio, moc_reset_ke_tiep, ngay_han_muc
 from app.services.han_muc_dang_ky import giu_suat_dang_ky
+from app.services.han_muc_dang_nhap import da_sai_bao_nhieu, ghi_nhan_dang_nhap_sai
 from app.core.db import get_session
 from app.core.phien import han_moi
 from app.core.quyen import TIEN_TO_BEARER, ma_phien_tu_header, nguoi_dung_hien_tai
@@ -149,12 +150,40 @@ async def dang_ky(
 
 @router.post("/login", response_model=DangNhapResponse)
 async def dang_nhap(
-    payload: DangNhapRequest, session: AsyncSession = Depends(get_session)
+    payload: DangNhapRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
 ) -> DangNhapResponse:
+    tran = settings.so_lan_dang_nhap_sai_moi_ip_mot_ngay
+    ip = ip_cua(request, settings) if tran > 0 else None
+    ip_bam = bam(ip, settings) if ip is not None else None
+    ngay = ngay_han_muc() if ip_bam is not None else None
+
+    if ip_bam is not None and ngay is not None:
+        if await da_sai_bao_nhieu(session, ip_bam, ngay) >= tran:
+            reset = moc_reset_ke_tiep()
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                headers={"Retry-After": str(max(0, int((reset - bay_gio()).total_seconds())))},
+                detail={
+                    "loi": "vuot_tran_dang_nhap_sai",
+                    "tran_moi_ngay": tran,
+                    "reset_luc": reset.isoformat(),
+                    "thong_diep": "Quá nhiều lần đăng nhập sai từ địa chỉ mạng này trong hôm nay. "
+                    "Vui lòng thử lại sau.",
+                },
+            )
+
     ket_qua = await tai_khoan.dang_nhap(
         session, email=payload.email, mat_khau_tho=payload.mat_khau
     )
     if ket_qua is None:
+        if ip_bam is not None and ngay is not None:
+            await ghi_nhan_dang_nhap_sai(
+                session, ip_da_bam=ip_bam, ngay=ngay, tran=tran
+            )
+            await session.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail=LOI_SAI_THONG_TIN
         )

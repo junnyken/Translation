@@ -22,6 +22,7 @@ import GlossaryManager from './components/consistency/GlossaryManager.jsx'
 import VoiceProfileManager from './components/consistency/VoiceProfileManager.jsx'
 import ReviewToolbar from './components/chapter/ReviewToolbar.jsx'
 import ManDangNhap from './components/auth/ManDangNhap.jsx'
+import HeSinhThaiCongCu from './components/trang-chu/HeSinhThaiCongCu.jsx'
 import TrangChu from './components/trang-chu/TrangChu.jsx'
 import ManTaiKhoan from './components/auth/ManTaiKhoan.jsx'
 import BangChuaCoChu from './components/auth/BangChuaCoChu.jsx'
@@ -635,9 +636,32 @@ export default function App({ urlBundle } = {}) {
             {nguoiDung.la_quan_tri && <QuanTriNguoiDung toi={nguoiDung} />}
             {nguoiDung.la_quan_tri && <DangNhapChatGPT />}
 
-            <div className="mo-dau-lam-viec">
+            <div className="mo-dau-lam-viec manga-hero-banner">
+              <div className="manga-genre-strip" aria-hidden="true">
+                <span>⚔️ Hành động</span>
+                <span>🌸 Ngôn tình</span>
+                <span>📜 Cổ trang</span>
+                <span>💬 Truyện tranh</span>
+                <span>🌍 Việt &amp; Quốc tế</span>
+              </div>
               <h1>Dịch truyện tranh</h1>
               <p className="dan">{DAN_TRANG_CHU}</p>
+              <div className="manga-hero-actions">
+                <a
+                  href={api.urlTaiTienIchChrome()}
+                  download="dich-truyen-chrome-extension-v0.3.0.zip"
+                  className="nut-manga nut-manga-chinh"
+                >
+                  🧩 Tải Tiện Ích Chrome (v0.3.0)
+                </a>
+                <a
+                  href={api.urlTaiAppWindows()}
+                  download="App-Windows-Dich-Truyen-Tu-Dong-v1.0.zip"
+                  className="nut-manga nut-manga-win"
+                >
+                  🖥️ Tải App Windows (Dịch Theo Link &amp; Chia Chapter)
+                </a>
+              </div>
             </div>
 
             {/* Một luồng duy nhất (trước đây là hai tab "Dịch nhanh" / "Tạo chapter mới").
@@ -651,6 +675,8 @@ export default function App({ urlBundle } = {}) {
                   không ai đọc là để dành một cái bẫy cho người sửa sau. */}
               <ChapterRecentList danhSach={ganDay} />
             </div>
+
+            <HeSinhThaiCongCu />
           </>
         )}
 

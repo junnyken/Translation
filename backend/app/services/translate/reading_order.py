@@ -18,6 +18,7 @@ DEFAULT_DIRECTION: dict[str, Direction] = {
     "ja": "rtl",  # manga Nhật: phải sang trái
     "zh": "ltr",
     "en": "ltr",
+    "ko": "ltr",  # manhwa / webtoon Hàn: trái sang phải, trên xuống dưới
 }
 
 

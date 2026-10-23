@@ -8,6 +8,7 @@ import Button from '../ui/Button'
 import Dropzone from '../ui/Dropzone'
 import { chuThoiGianGiu } from '../../lib/thoi-gian-giu.js'
 import Icon from '../ui/Icon'
+import HeSinhThaiCongCu from './HeSinhThaiCongCu'
 import TheHanMuc from './TheHanMuc'
 
 /** Ngôn ngữ chữ TRÊN ẢNH. Sai ngôn ngữ ra chữ vô nghĩa chứ không phải lỗi rõ ràng, nên phải để
@@ -25,9 +26,15 @@ const NGON_NGU = [
   { ma: 'ja', nhan: 'Tiếng Nhật' },
   { ma: 'en', nhan: 'Tiếng Anh' },
   { ma: 'zh', nhan: 'Tiếng Trung' },
+  { ma: 'ko', nhan: 'Tiếng Hàn (Manhwa)' },
 ]
 
-const TEN_NGON_NGU = { ja: 'Tiếng Nhật', en: 'Tiếng Anh', zh: 'Tiếng Trung' }
+const TEN_NGON_NGU = {
+  ja: 'Tiếng Nhật',
+  en: 'Tiếng Anh',
+  zh: 'Tiếng Trung',
+  ko: 'Tiếng Hàn',
+}
 
 /** Số phút giữ kết quả lấy từ MÁY CHỦ (`han_muc.giu_ket_qua_phut`), không gõ cứng ở đây.
  *
@@ -76,20 +83,24 @@ function tinhBuocCaMe(trang) {
   })
 }
 
-/** Ảnh GỐC người dùng vừa chọn, dựng từ chính tệp trong máy (không gọi máy chủ). Gói zip/cbz
- *  hay trình duyệt không dựng được thì không hiện khung "Trước". */
-function AnhTruoc({ file, ten }) {
+const DUOI_GOI = /\.(zip|cbz|pdf)$/i
+
+/** Ảnh GỐC người dùng vừa chọn, dựng từ chính tệp trong máy (không gọi máy chủ). Nếu trang đến từ
+ *  gói zip/cbz/pdf (không có tệp ảnh rời trong RAM), lấy qua đường dẫn ảnh gốc của trang dịch nhanh. */
+function AnhTruoc({ file, ten, pageId }) {
   const [url, setUrl] = useState(null)
   useEffect(() => {
     if (!file || !/^image\//.test(file.type || '') || typeof URL.createObjectURL !== 'function') {
+      setUrl(null)
       return undefined
     }
     const u = URL.createObjectURL(file)
     setUrl(u)
     return () => { if (typeof URL.revokeObjectURL === 'function') URL.revokeObjectURL(u) }
   }, [file])
-  if (!url) return null
-  return <img src={url} alt={`${ALT_TRUOC}: ${ten}`} loading="lazy" />
+  const src = url || (pageId ? api.urlAnhGocDichNhanh(pageId) : null)
+  if (!src) return null
+  return <img src={src} alt={`${ALT_TRUOC}: ${ten}`} loading="lazy" />
 }
 
 /** Một dòng tiến độ của một trang.
@@ -157,6 +168,10 @@ export default function TrangChu() {
   const [daThuTuTai, setDaThuTuTai] = useState(false)
   const [dangTai, setDangTai] = useState(false)
   const [tenTepDaTai, setTenTepDaTai] = useState(null)
+  // E99 (Chuẩn Ichigo Reader) — Chế độ đọc dọc liền mạch vs So sánh Trước-Sau & tuỳ chọn định dạng gói tải về
+  const [cheDoXem, setCheDoXem] = useState('so_sanh') // 'so_sanh' | 'doc_doc'
+  const [dinhDangXuat, setDinhDangXuat] = useState('cbz') // 'cbz' | 'zip'
+  const [trangDangXemGoc, setTrangDangXemGoc] = useState(null)
 
   const [hanMuc, setHanMuc] = useState(null)
   const [dangTaiHanMuc, setDangTaiHanMuc] = useState(true)
@@ -233,26 +248,53 @@ export default function TrangChu() {
     setDaThuTuTai(false)
     setTenTepDaTai(null)
 
-    const dsTrang = files.map((f) => ({ ten: f.name, page_id: null, xong: false, tienDo: null, loi: null }))
+    const dsTrang = files.map((f, idx) => ({
+      槽: idx, ten: f.name, page_id: null, xong: false, tienDo: null, loi: null,
+    }))
     setTrang(dsTrang)
 
     let pid = null
     const idTrang = []
     for (let i = 0; i < files.length; i++) {
+      const tep = files[i]
+      const laGoi = DUOI_GOI.test(tep.name || '')
       try {
-        const ra = await api.guiTrangDichNhanh(
-          files[i], { sourceLang: ngonNgu, cheDo: 'day_du', engine: cachDich },
-        )
-        idTrang.push(ra.page_id)
-        if (!huy.current) {
-          setTrang((cu) => cu.map((t, j) => (j === i ? { ...t, page_id: ra.page_id } : t)))
+        if (laGoi) {
+          const raGoi = await api.guiGoiDichNhanh(
+            tep, { sourceLang: ngonNgu, cheDo: 'day_du', engine: cachDich },
+          )
+          if (!pid && raGoi.project_id) pid = raGoi.project_id
+          const trangMoRong = (raGoi.trang || []).map((tr) => ({
+            槽: i,
+            ten: tr.ten_trong_goi || tep.name,
+            page_id: tr.page_id,
+            xong: false,
+            tienDo: null,
+            loi: null,
+          }))
+          for (const tr of trangMoRong) idTrang.push(tr.page_id)
+          if (!huy.current) {
+            setTrang((cu) => {
+              const truoc = cu.filter((t) => t.槽 < i)
+              const sau = cu.filter((t) => t.槽 > i)
+              return [...truoc, ...trangMoRong, ...sau]
+            })
+          }
+        } else {
+          const ra = await api.guiTrangDichNhanh(
+            tep, { sourceLang: ngonNgu, cheDo: 'day_du', engine: cachDich },
+          )
+          idTrang.push(ra.page_id)
+          if (!huy.current) {
+            setTrang((cu) => cu.map((t) => (t.槽 === i ? { ...t, page_id: ra.page_id } : t)))
+          }
         }
       } catch (e) {
         // 429 = hết hạn mức. Máy chủ đã gửi đủ thông tin để nói câu tử tế; `doc()` đính nó vào
         // `e.chiTiet`. Dừng NGUYÊN mẻ chứ không gửi tiếp: gửi tiếp chỉ nhận thêm 429.
         if (!huy.current) {
           setLoiChung(e)
-          setTrang((cu) => cu.map((t, j) => (j >= i ? { ...t, loi: 'chưa gửi được' } : t)))
+          setTrang((cu) => cu.map((t) => (t.槽 >= i ? { ...t, loi: 'chưa gửi được' } : t)))
         }
         break
       }
@@ -321,9 +363,9 @@ export default function TrangChu() {
         setTenTepDaTai(ten)
       } else if (projectId) {
         // §3.3 — nhiều trang thì MỘT tệp nén. Tải 24 tệp rời là 24 lần bị trình duyệt hỏi.
-        const job = await api.xuatChapterDichNhanh(projectId, 'cbz')
+        const job = await api.xuatChapterDichNhanh(projectId, dinhDangXuat)
         await api.choXuatXong(job.job_id)
-        const ten = await api.taiFileXuatVe(job.job_id, 'cbz')
+        const ten = await api.taiFileXuatVe(job.job_id, dinhDangXuat)
         setTenTepDaTai(ten)
       }
     } catch (e) {
@@ -331,7 +373,7 @@ export default function TrangChu() {
     } finally {
       if (!huy.current) { setDangTai(false); if (tuDong) setDaThuTuTai(true) }
     }
-  }, [trangXong, projectId])
+  }, [trangXong, projectId, dinhDangXuat])
 
   // Thử tải tự động MỘT lần khi vừa xong. Không lặp lại: bấm tải nhiều lần là đúng thứ làm trình
   // duyệt chặn hẳn về sau.
@@ -343,12 +385,38 @@ export default function TrangChu() {
   const daHetHan = Boolean(mocHetHan) && conLaiMs(mocHetHan) <= 0
 
   return (
-    <main className="trang-chu">
-      {/* ĐỢT 2 — hero gọn; hạn mức chuyển sang cột phải (≥1280px hai cột, hẹp hơn thì xếp dọc
-          NGAY SAU khu thả ảnh để vẫn thấy trước khi bấm Dịch). */}
-      <header className="trang-chu-dau">
+    <main className="trang-chu manga-world-page">
+      {/* ĐỢT 2 + E107 — Hero phong cách Thế Giới Truyện Tranh (Manga/Manhwa Studio) */}
+      <header className="trang-chu-dau manga-hero-banner">
+        <div className="manga-hero-fx" aria-hidden="true">
+          <span className="manga-bubble-tag tag-trai">💬 &ldquo;Xoá sạch chữ gốc — Giữ nguyên viền bong bóng!&rdquo;</span>
+          <span className="manga-bubble-tag tag-phai">⚡ &ldquo;Manga · Manhwa · Manhua · Comic!&rdquo;</span>
+        </div>
+        <div className="manga-genre-strip" aria-hidden="true">
+          <span>⚔️ Hành động</span>
+          <span>🌸 Ngôn tình</span>
+          <span>📜 Cổ trang</span>
+          <span>💬 Truyện tranh</span>
+          <span>🌍 Việt &amp; Quốc tế</span>
+        </div>
         <h1>Dịch truyện tranh sang tiếng Việt</h1>
         <p className="dan">Thả ảnh trang truyện vào đây là chạy — không cần đăng ký trước.</p>
+        <div className="manga-hero-actions">
+          <a
+            href={api.urlTaiTienIchChrome()}
+            download="dich-truyen-chrome-extension-v0.3.0.zip"
+            className="nut-manga nut-manga-chinh"
+          >
+            🧩 Tải Tiện Ích Chrome (v0.3.0)
+          </a>
+          <a
+            href={api.urlTaiAppWindows()}
+            download="App-Windows-Dich-Truyen-Tu-Dong-v1.0.zip"
+            className="nut-manga nut-manga-win"
+          >
+            🖥️ Tải App Windows (Dịch Theo Link &amp; Chia Chapter)
+          </a>
+        </div>
       </header>
 
       {loiChung && (
@@ -367,7 +435,7 @@ export default function TrangChu() {
             đã tự nói "Kéo ảnh vào đây hoặc bấm để chọn" — hiện cả hai là lặp. */}
         <h2 id="tieu-de-gui" className="an-di">Chọn trang truyện</h2>
 
-        <Dropzone files={files} onDoi={setFiles} id="tha-trang-chu" />
+        <Dropzone files={files} onDoi={setFiles} chapNhanGoi id="tha-trang-chu" />
 
         <div className="hang-chon">
           <div className="o-chon-khach">
@@ -463,7 +531,7 @@ export default function TrangChu() {
                   {ketQuaNhanDang.ly_do?.startsWith('khong_doc_duoc_chu_nao')
                     ? 'Trang này máy không đọc ra chữ nào (có thể là trang bìa, hoặc chữ quá mờ).'
                     : 'Máy đọc được chữ nhưng không đủ để chắc chắn.'}
-                  {' '}Bạn chọn tay ở ô trên giúp nhé — chọn sai thì chữ dịch ra vô nghĩa.
+                  {' '}Bạn chọn tay ở ô trên giúp nhé (nếu là truyện Hàn Quốc thì chọn "Tiếng Hàn (Manhwa)") — chọn sai thì chữ dịch ra vô nghĩa.
                 </Alert>
               )
           )}
@@ -561,8 +629,8 @@ export default function TrangChu() {
               không phải chỗ lưu trữ lâu dài, và chính sách có thể đổi.
             </li>
           )}
-          <li>Nhận ảnh <strong>PNG, JPG, WebP</strong>. Mỗi tệp tối đa 25 MB.</li>
-          <li>Dịch được chữ <strong>Nhật, Anh, Trung</strong> → tiếng Việt.</li>
+          <li>Nhận ảnh <strong>PNG, JPG, WebP</strong> (tối đa 25 MB/ảnh) và gói truyện <strong>ZIP, CBZ, PDF</strong>.</li>
+          <li>Dịch được chữ <strong>Nhật, Hàn, Anh, Trung</strong> → tiếng Việt.</li>
         </ul>
       </details>
       </div>
@@ -616,16 +684,48 @@ export default function TrangChu() {
               được, chỉ nói thật. */}
           <div className="hang-tai-ve">
             <Button kieu="chinh" onClick={() => taiKetQua(false)} dangChay={dangTai} icon="download">
-              {trangXong.length > 1 ? 'Tải cả gói về' : 'Tải ảnh đã dịch về'}
+              {trangXong.length > 1 ? `Tải cả gói (${dinhDangXuat.toUpperCase()}) về` : 'Tải ảnh đã dịch về'}
             </Button>
+            {trangXong.length > 1 && (
+              <label className="chon-dinh-dang-xuat" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                <span>Định dạng gói:</span>
+                <select
+                  aria-label="Định dạng gói tải về"
+                  className="o"
+                  style={{ width: 'auto', padding: '4px 10px' }}
+                  value={dinhDangXuat}
+                  onChange={(e) => setDinhDangXuat(e.target.value)}
+                  disabled={dangTai}
+                >
+                  <option value="cbz">.CBZ (Trình đọc truyện)</option>
+                  <option value="zip">.ZIP (Giải nén ảnh PNG)</option>
+                </select>
+              </label>
+            )}
+            <div className="bo-chuyen-che-do-xem" role="group" aria-label="Chế độ xem kết quả" style={{ display: 'inline-flex', gap: 6, marginLeft: 'auto' }}>
+              <Button
+                kieu={cheDoXem === 'so_sanh' ? 'phu' : 'ghost'}
+                co="nho"
+                onClick={() => setCheDoXem('so_sanh')}
+              >
+                So sánh Trước – Sau
+              </Button>
+              <Button
+                kieu={cheDoXem === 'doc_doc' ? 'phu' : 'ghost'}
+                co="nho"
+                onClick={() => setCheDoXem('doc_doc')}
+              >
+                Đọc dọc liền mạch
+              </Button>
+            </div>
             {daThuTuTai && !tenTepDaTai && (
-              <p className="ghi-chu">
+              <p className="ghi-chu" style={{ width: '100%' }}>
                 Đã thử tải tự động. <strong>Nếu không thấy tệp nào</strong>, trình duyệt đã chặn
                 lượt tải không do bạn bấm — bấm nút trên là được.
               </p>
             )}
             {tenTepDaTai && (
-              <p className="ghi-chu">
+              <p className="ghi-chu" style={{ width: '100%' }}>
                 <Icon ten="tich" co={16} /> Đã lưu <strong>{tenTepDaTai}</strong>. Không thấy thì
                 xem lại thư mục Tải về của trình duyệt.
               </p>
@@ -633,26 +733,66 @@ export default function TrangChu() {
           </div>
 
           {!daHetHan && (
-            <ul className="ds-anh">
-              {trangXong.map((t) => {
-                const file = files.find((f) => f.name === t.ten)
-                return (
-                  <li key={t.page_id}>
-                    <div className="cap-anh">
-                      <figure>
-                        <AnhTruoc file={file} ten={t.ten} />
-                        <figcaption>{NHAN_TRUOC}</figcaption>
-                      </figure>
-                      <figure>
-                        <img src={api.urlAnhDaDich(t.page_id)} alt={`Trang đã dịch: ${t.ten}`} loading="lazy" />
-                        <figcaption>{NHAN_SAU}</figcaption>
-                      </figure>
-                    </div>
-                    <span className="ghi-chu">{t.ten}</span>
-                  </li>
-                )
-              })}
-            </ul>
+            cheDoXem === 'doc_doc' ? (
+              <ul className="ds-anh ds-anh-doc-doc" style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 820, margin: '16px auto 0', padding: 0, listStyle: 'none' }}>
+                {trangXong.map((t, idx) => {
+                  const dangGiu = trangDangXemGoc === t.page_id
+                  return (
+                    <li
+                      key={t.page_id}
+                      style={{ position: 'relative', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--vien, #e2e8f0)', background: '#0f172a' }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 12px', background: 'rgba(15,23,42,0.88)', color: '#f8fafc', fontSize: 12 }}>
+                        <span>Trang {idx + 1}/{trangXong.length} · {t.ten}</span>
+                        <button
+                          type="button"
+                          onMouseDown={() => setTrangDangXemGoc(t.page_id)}
+                          onMouseUp={() => setTrangDangXemGoc(null)}
+                          onMouseLeave={() => setTrangDangXemGoc(null)}
+                          onTouchStart={() => setTrangDangXemGoc(t.page_id)}
+                          onTouchEnd={() => setTrangDangXemGoc(null)}
+                          onClick={() => setTrangDangXemGoc((cu) => (cu === t.page_id ? null : t.page_id))}
+                          style={{
+                            border: '1px solid rgba(255,255,255,0.28)', borderRadius: 999,
+                            padding: '2px 10px', background: dangGiu ? '#2563eb' : 'transparent',
+                            color: '#fff', cursor: 'pointer', fontSize: 12,
+                          }}
+                        >
+                          {dangGiu ? 'Đang hiện bản gốc' : 'Giữ / Bấm xem bản gốc'}
+                        </button>
+                      </div>
+                      <img
+                        src={dangGiu ? api.urlAnhGocDichNhanh(t.page_id) : api.urlAnhDaDich(t.page_id)}
+                        alt={dangGiu ? `${ALT_TRUOC}: ${t.ten}` : `Trang đã dịch: ${t.ten}`}
+                        loading="lazy"
+                        style={{ display: 'block', width: '100%', height: 'auto' }}
+                      />
+                    </li>
+                  )
+                })}
+              </ul>
+            ) : (
+              <ul className="ds-anh">
+                {trangXong.map((t) => {
+                  const file = files.find((f) => f.name === t.ten)
+                  return (
+                    <li key={t.page_id}>
+                      <div className="cap-anh">
+                        <figure>
+                          <AnhTruoc file={file} ten={t.ten} pageId={t.page_id} />
+                          <figcaption>{NHAN_TRUOC}</figcaption>
+                        </figure>
+                        <figure>
+                          <img src={api.urlAnhDaDich(t.page_id)} alt={`Trang đã dịch: ${t.ten}`} loading="lazy" />
+                          <figcaption>{NHAN_SAU}</figcaption>
+                        </figure>
+                      </div>
+                      <span className="ghi-chu">{t.ten}</span>
+                    </li>
+                  )
+                })}
+              </ul>
+            )
           )}
         </section>
       )}
@@ -665,6 +805,8 @@ export default function TrangChu() {
 
           Cố ý KHÔNG nhắc lại "khoảng 30 giây mỗi trang" và "tệp giữ 30 phút" — khối `<details>`
           ngay trên đã nói cả hai, và lặp lại là đúng thứ đang làm màn này rối. */}
+      <HeSinhThaiCongCu />
+
       <section className="cach-chay" aria-labelledby="tieu-de-cach-chay">
         <h2 id="tieu-de-cach-chay">Cách hoạt động</h2>
         <ol className="ds-buoc">

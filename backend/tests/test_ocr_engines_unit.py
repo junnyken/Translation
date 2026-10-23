@@ -19,8 +19,8 @@ class TestFactory:
         assert isinstance(engine, MangaOCREngine)
         assert engine.engine_enum is OCREngine.manga_ocr
 
-    @pytest.mark.parametrize("lang,paddle_lang", [("zh", "ch"), ("en", "en")])
-    def test_zh_en_chon_paddleocr_dung_lang(self, lang, paddle_lang):
+    @pytest.mark.parametrize("lang,paddle_lang", [("zh", "ch"), ("en", "en"), ("ko", "korean")])
+    def test_zh_en_ko_chon_paddleocr_dung_lang(self, lang, paddle_lang):
         engine = get_ocr_engine(lang)
         assert isinstance(engine, PaddleOCREngine)
         assert engine.lang == paddle_lang
@@ -28,8 +28,9 @@ class TestFactory:
 
     def test_nhan_ca_enum_source_lang(self):
         assert isinstance(get_ocr_engine(SourceLang.ja), MangaOCREngine)
+        assert isinstance(get_ocr_engine(SourceLang.ko), PaddleOCREngine)
 
-    @pytest.mark.parametrize("bad", ["vi", "ko", "JA", "", "fr"])
+    @pytest.mark.parametrize("bad", ["vi", "ru", "JA", "", "fr"])
     def test_lang_la_bao_loi_ro_khong_fallback_am_tham(self, bad):
         with pytest.raises(UnsupportedSourceLang) as exc:
             get_ocr_engine(bad)
@@ -92,7 +93,7 @@ class TestPaddleParse:
 
 
 class TestMeaningfulText:
-    @pytest.mark.parametrize("text", ["HELLO", "こんにちは", "你好", "Xin chào", "42"])
+    @pytest.mark.parametrize("text", ["HELLO", "こんにちは", "你好", "안녕하세요", "Xin chào", "42"])
     def test_co_chu_that(self, text):
         assert has_meaningful_text(text)
 

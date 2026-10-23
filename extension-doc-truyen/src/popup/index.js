@@ -1,42 +1,92 @@
-/** Popup khi bấm icon (E19-4).
- *
- * Trước đây bấm icon chạy thẳng `chrome.scripting.executeScript` trong `service-worker.js`
- * (không có popup). Có `default_popup` khai trong manifest thì Chrome **không còn gửi**
- * `chrome.action.onClicked` nữa — nên việc tiêm content script phải chuyển hẳn vào đây, không
- * phải thêm, để tránh có hai chỗ cùng làm một việc và một chỗ chết lặng lẽ.
- *
- * Ngôn ngữ đổi ngay tại đây (không phải mở riêng trang Tuỳ chọn): đây là thuộc tính của TRANG
- * đang đọc, đổi theo từng trang web, không phải một lần cấu hình rồi để yên như địa chỉ máy chủ.
- */
-import { docCauHinh, luuCauHinh } from '../lib/api.js'
+/** Popup khi bấm icon (E19-4 + E104 — Giao diện hiện đại, cố định chế độ Xoá chữ & căn chữ LaMa). */
+import { docCauHinh, layHanMuc, luuCauHinh } from '../lib/api.js'
 
 const $ = (id) => document.getElementById(id)
 const bao = (chu, loai) => {
   const h = $('bao')
+  if (!h) return
   h.textContent = chu
   h.className = `hop ${loai}`
   h.hidden = false
 }
 
+function dongBoNutNgonNgu(nn) {
+  document.querySelectorAll('#nhom-nut-nn .nut-nn').forEach((btn) => {
+    btn.classList.toggle('dang-chon', btn.dataset.nn === nn)
+  })
+}
+
+function dongBoNutDichRa(dich) {
+  document.querySelectorAll('#nhom-nut-dich .nut-dich-ra').forEach((btn) => {
+    btn.classList.toggle('dang-chon', btn.dataset.dich === dich)
+  })
+  const nhanPhu = $('nhan-phu-eng')
+  if (nhanPhu) {
+    nhanPhu.textContent = dich === 'en' ? 'Sang Tiếng Anh' : 'Sang Tiếng Việt'
+  }
+}
+
+function dongBoNutEngine(eng) {
+  document.querySelectorAll('#nhom-nut-eng .nut-eng').forEach((btn) => {
+    btn.classList.toggle('dang-chon', btn.dataset.eng === eng)
+  })
+}
+
+function dongBoNutFont(font) {
+  document.querySelectorAll('#nhom-nut-font .nut-font').forEach((btn) => {
+    btn.classList.toggle('dang-chon', btn.dataset.font === font)
+  })
+}
+
 async function ve() {
-  const { ngonNgu, engine } = await docCauHinh()
-  $('ngon-ngu').value = ngonNgu
-  $('engine').value = engine
+  const { ngonNgu, ngonNguDich, engine, fontChu } = await docCauHinh()
+  await luuCauHinh({ cheDo: 'chi_chu' })
+  if ($('ngon-ngu')) $('ngon-ngu').value = ngonNgu
+  if ($('ngon-ngu-dich')) $('ngon-ngu-dich').value = ngonNguDich || 'vi'
+  if ($('engine')) $('engine').value = engine
+  if ($('font-chu')) $('font-chu').value = fontChu || 'bangers'
+  if ($('che-do')) $('che-do').value = 'chi_chu'
+  dongBoNutNgonNgu(ngonNgu)
+  dongBoNutDichRa(ngonNguDich || 'vi')
+  dongBoNutEngine(engine)
+  dongBoNutFont(fontChu || 'bangers')
+  veHanMuc()
   veMayChu()
 }
 
-/** Nói ra BƯỚC NÀO đang tốn tiền, đọc từ `/healthz` của chính máy chủ đang cấu hình.
- *
- * Lý do tồn tại: đo được 28-09-2026 rằng production chạy `DETECT_ENGINE=ai_gemini`, tức **bước
- * nhận diện bong bóng cũng gọi mô hình ngoài** — mỗi trang tốn hai lượt trả tiền, không phải một.
- * Ô "Chất lượng dịch" ở trên chỉ chọn được engine DỊCH, nên người dùng chọn "Miễn phí" rất dễ
- * tưởng cả lượt là miễn phí. Với nút "Dịch cả chapter" thì hiểu nhầm đó nhân lên theo số trang.
- *
- * Hỏng thì IM LẶNG (ẩn dòng này) chứ không báo lỗi: đây là thông tin thêm, không phải thứ chặn
- * người dùng dịch. Nhưng cũng KHÔNG đoán bừa "miễn phí" khi không đọc được.
- */
+async function veHanMuc() {
+  const o = $('han-muc')
+  if (!o) return
+  try {
+    const { diaChi } = await docCauHinh()
+    if (!diaChi) {
+      o.textContent = '⚠️ Chưa đặt máy chủ. Bấm "⚙️ Tài khoản" góc phải trên để cài đặt.'
+      o.className = 'hop canh-bao'
+      o.hidden = false
+      return
+    }
+    const hm = await layHanMuc()
+    const vaiTro = hm.co_tai_khoan ? '✅ Đã đăng nhập' : '👤 Khách (đăng nhập nhận 20 trang/ngày)'
+    const tichLuy = hm.so_luot_mua_them > 0 ? ` (+${hm.so_luot_mua_them} VIP)` : ''
+    o.textContent = `${vaiTro} · Còn ${hm.con_lai}/${hm.tran} trang hôm nay${tichLuy}`
+    o.className = hm.con_lai <= 0
+      ? 'hop loi'
+      : (hm.con_lai < hm.tran && hm.con_lai <= 2) ? 'hop canh-bao' : 'hop ok'
+    o.hidden = false
+    if (hm.con_lai <= 0) {
+      $('nut-dich').disabled = true
+      $('nut-dich-chapter').disabled = true
+      if ($('nut-tu-dich-cuon')) $('nut-tu-dich-cuon').disabled = true
+      if ($('nut-khoanh-vung')) $('nut-khoanh-vung').disabled = true
+    }
+  } catch {
+    o.hidden = true
+  }
+}
+
 async function veMayChu() {
   const o = $('may-chu')
+  if (!o) return
   try {
     const { diaChi } = await docCauHinh()
     if (!diaChi) return
@@ -44,78 +94,139 @@ async function veMayChu() {
     if (!r.ok) return
     const d = await r.json()
     const ton_tien = []
-    if (d.detect_engine && d.detect_engine !== 'ctd') ton_tien.push('nhận diện bong bóng')
+    if (d.detect_engine && d.detect_engine !== 'ctd') ton_tien.push('nhận diện')
     if ($('engine').value === 'llm_context') ton_tien.push('dịch')
     o.textContent = ton_tien.length
-      ? `Máy chủ: ${ton_tien.join(' và ')} đang dùng mô hình ngoài — TỐN PHÍ mỗi trang `
-        + `(detect_engine=${d.detect_engine}).`
-      : `Máy chủ: chạy hoàn toàn cục bộ, không tốn phí mỗi trang.`
+      ? `Máy chủ AI: ${ton_tien.join(' + ')} bằng mô hình đám mây (${d.detect_engine}).`
+      : `Máy chủ: chạy hoàn toàn cục bộ.`
     o.hidden = false
   } catch {
-    /* không đọc được thì thôi — không đoán bừa là miễn phí */
+    /* bỏ qua nếu không đọc được */
   }
 }
 
-$('engine').addEventListener('change', () => veMayChu())
-
-$('ngon-ngu').addEventListener('change', async (e) => {
-  await luuCauHinh({ ngonNgu: e.target.value })
+document.querySelectorAll('#nhom-nut-nn .nut-nn').forEach((btn) => {
+  btn.addEventListener('click', async () => {
+    const nn = btn.dataset.nn
+    if ($('ngon-ngu')) $('ngon-ngu').value = nn
+    dongBoNutNgonNgu(nn)
+    await luuCauHinh({ ngonNgu: nn, cheDo: 'chi_chu' })
+  })
 })
 
-$('engine').addEventListener('change', async (e) => {
-  await luuCauHinh({ engine: e.target.value })
+document.querySelectorAll('#nhom-nut-dich .nut-dich-ra').forEach((btn) => {
+  btn.addEventListener('click', async () => {
+    const dich = btn.dataset.dich
+    if ($('ngon-ngu-dich')) $('ngon-ngu-dich').value = dich
+    dongBoNutDichRa(dich)
+    await luuCauHinh({ ngonNguDich: dich, cheDo: 'chi_chu' })
+  })
 })
 
-$('mo-cai-dat').addEventListener('click', (e) => {
+document.querySelectorAll('#nhom-nut-eng .nut-eng').forEach((btn) => {
+  btn.addEventListener('click', async () => {
+    const eng = btn.dataset.eng
+    if ($('engine')) $('engine').value = eng
+    dongBoNutEngine(eng)
+    await luuCauHinh({ engine: eng, cheDo: 'chi_chu' })
+    veMayChu()
+  })
+})
+
+document.querySelectorAll('#nhom-nut-font .nut-font').forEach((btn) => {
+  btn.addEventListener('click', async () => {
+    const font = btn.dataset.font
+    if ($('font-chu')) $('font-chu').value = font
+    dongBoNutFont(font)
+    await luuCauHinh({ fontChu: font, cheDo: 'chi_chu' })
+  })
+})
+
+$('ngon-ngu')?.addEventListener('change', async (e) => {
+  dongBoNutNgonNgu(e.target.value)
+  await luuCauHinh({ ngonNgu: e.target.value, cheDo: 'chi_chu' })
+})
+
+$('ngon-ngu-dich')?.addEventListener('change', async (e) => {
+  dongBoNutDichRa(e.target.value)
+  await luuCauHinh({ ngonNguDich: e.target.value, cheDo: 'chi_chu' })
+})
+
+$('engine')?.addEventListener('change', async (e) => {
+  dongBoNutEngine(e.target.value)
+  await luuCauHinh({ engine: e.target.value, cheDo: 'chi_chu' })
+  veMayChu()
+})
+
+$('font-chu')?.addEventListener('change', async (e) => {
+  dongBoNutFont(e.target.value)
+  await luuCauHinh({ fontChu: e.target.value, cheDo: 'chi_chu' })
+})
+
+$('mo-cai-dat')?.addEventListener('click', (e) => {
   e.preventDefault()
   chrome.runtime.openOptionsPage()
   window.close()
 })
 
-/** Tiêm content script. `bulk` bật chế độ dịch cả chapter (E59).
- *
- * Cờ đặt qua `chrome.storage.local` chứ không truyền tham số: `executeScript` với `files:` không
- * nhận đối số, và content script ĐỌC LÀ XOÁ cờ — để lại thì lần bấm "Dịch trang này" sau đó sẽ
- * chạy nguyên cả chapter, tiêu hạn mức cho một việc người dùng không yêu cầu.
- */
-async function tiem(bulk) {
-  if (bulk) await chrome.storage.local.set({ __e59_bulk: true })
-  else await chrome.storage.local.remove('__e59_bulk')
+async function tiem(cheDoChay = 'don') {
+  await luuCauHinh({ cheDo: 'chi_chu' })
+  await chrome.storage.local.remove(['__e59_bulk', '__e60_snip', '__e102_auto_scroll'])
+  if (cheDoChay === 'bulk') await chrome.storage.local.set({ __e59_bulk: true })
+  if (cheDoChay === 'snip') await chrome.storage.local.set({ __e60_snip: true })
+  if (cheDoChay === 'auto_scroll') await chrome.storage.local.set({ __e102_auto_scroll: true })
+
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
   await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['src/content/index.js'] })
 }
 
-$('nut-dich-chapter').addEventListener('click', async () => {
+$('nut-dich-chapter')?.addEventListener('click', async () => {
   const nut = $('nut-dich-chapter')
   nut.disabled = true
-  nut.textContent = 'Đang mở…'
   try {
-    await tiem(true)
+    await tiem('bulk')
     window.close()
   } catch (err) {
     nut.disabled = false
-    nut.textContent = 'Dịch cả chapter'
-    // Cờ đã đặt nhưng không tiêm được ⇒ phải xoá, không thì lần bấm "Dịch trang này" kế tiếp sẽ
-    // vô tình chạy cả chapter.
     await chrome.storage.local.remove('__e59_bulk')
     bao(`Không chạy được trên trang này.\n${err?.message || err}`, 'loi')
   }
 })
 
-$('nut-dich').addEventListener('click', async () => {
-  const nut = $('nut-dich')
+$('nut-tu-dich-cuon')?.addEventListener('click', async () => {
+  const nut = $('nut-tu-dich-cuon')
   nut.disabled = true
-  nut.textContent = 'Đang mở…'
   try {
-    await tiem(false)
-    // Từ đây content script tự vẽ thông báo NGAY TRÊN TRANG — popup đóng lại, không cần đứng
-    // canh: quá trình dịch tốn ~45s, giữ popup mở tới lúc đó chỉ tổ chặn người dùng đọc tiếp.
+    await tiem('auto_scroll')
     window.close()
   } catch (err) {
     nut.disabled = false
-    nut.textContent = 'Dịch trang này'
-    // Trang nội bộ của Chrome (chrome://, cửa hàng tiện ích) không cho tiêm — nói thẳng lý do
-    // thay vì im lặng, đây đúng là ca `Không chạy được trên trang này` trước kia chỉ log console.
+    await chrome.storage.local.remove('__e102_auto_scroll')
+    bao(`Không chạy được trên trang này.\n${err?.message || err}`, 'loi')
+  }
+})
+
+$('nut-khoanh-vung')?.addEventListener('click', async () => {
+  const nut = $('nut-khoanh-vung')
+  nut.disabled = true
+  try {
+    await tiem('snip')
+    window.close()
+  } catch (err) {
+    nut.disabled = false
+    await chrome.storage.local.remove('__e60_snip')
+    bao(`Không chạy được trên trang này.\n${err?.message || err}`, 'loi')
+  }
+})
+
+$('nut-dich')?.addEventListener('click', async () => {
+  const nut = $('nut-dich')
+  nut.disabled = true
+  try {
+    await tiem('don')
+    window.close()
+  } catch (err) {
+    nut.disabled = false
     bao(`Không chạy được trên trang này.\n${err?.message || err}`, 'loi')
   }
 })

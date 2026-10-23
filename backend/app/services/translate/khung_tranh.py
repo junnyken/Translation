@@ -120,3 +120,28 @@ def chi_so_khung(khung: list[Nut], cx: float, cy: float) -> int:
         if dx * dx + dy * dy < kc_tot:
             tot, kc_tot = i, dx * dx + dy * dy
     return tot
+
+
+def vung_cham_mep_cat_doc(
+    boxes: dict,
+    cao_trang: int,
+    *,
+    le_px: int = 6,
+) -> dict[str, set]:
+    """E94 — phát hiện vùng chữ chạm sát mép trên/dưới của dải ảnh Webtoon/Manhwa cuộn dọc.
+
+    Các nền tảng Webtoon (Naver, KakaoPage, Bilibili) cắt một dải tranh dài thành nhiều tấm ảnh
+    nối tiếp nhau theo chiều dọc; đôi khi đường cắt đi ngang qua một bong bóng thoại làm câu bị
+    chia đôi ở mép dưới trang N và mép trên trang N+1. Hàm này trả về `{"mep_tren": set_ids, "mep_duoi": set_ids}`
+    để bước rà soát hoặc bộ ghép dải biết vùng nào nằm ngay đường cắt dọc.
+    """
+    mep_tren: set = set()
+    mep_duoi: set = set()
+    if cao_trang <= 0:
+        return {"mep_tren": mep_tren, "mep_duoi": mep_duoi}
+    for rid, b in boxes.items():
+        if b.y <= le_px:
+            mep_tren.add(rid)
+        if b.y + b.h >= cao_trang - le_px:
+            mep_duoi.add(rid)
+    return {"mep_tren": mep_tren, "mep_duoi": mep_duoi}

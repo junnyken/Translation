@@ -23,6 +23,16 @@ import Skeleton from '../ui/Skeleton'
  */
 export default function TheHanMuc({ hanMuc, dangTai, loi, onTaiLai }) {
   const [nhip, setNhip] = useState(0)
+  const [moNapLuot, setMoNapLuot] = useState(false)
+  const [thongTinNap, setThongTinNap] = useState(null)
+  const [goiDangChon, setGoiDangChon] = useState(null)
+  // Form quản trị cấp lượt nhanh
+  const [qtEmail, setQtEmail] = useState('')
+  const [qtCongLuot, setQtCongLuot] = useState('200')
+  const [qtTranVip, setQtTranVip] = useState('')
+  const [qtKetQua, setQtKetQua] = useState(null)
+  const [qtLoi, setQtLoi] = useState(null)
+  const [qtDangGui, setQtDangGui] = useState(false)
 
   // Nhịp lại mỗi 30 giây để đồng hồ không đứng im trên một tab để mở lâu. 30 giây là đủ: chuỗi
   // chữ chỉ hiện tới phút, nên nhịp dày hơn chỉ tốn lượt render mà không đổi được gì trên màn.
@@ -30,6 +40,41 @@ export default function TheHanMuc({ hanMuc, dangTai, loi, onTaiLai }) {
     const t = setInterval(() => setNhip((n) => n + 1), 30_000)
     return () => clearInterval(t)
   }, [])
+
+  async function batTatNapLuot() {
+    const tiep = !moNapLuot
+    setMoNapLuot(tiep)
+    if (tiep && !thongTinNap) {
+      try {
+        const tt = await api.layThongTinNapLuot()
+        setThongTinNap(tt)
+        if (tt.goi_goi_y?.length) setGoiDangChon(tt.goi_goi_y[0])
+      } catch {
+        // Không chặn hiển thị thẻ hạn mức nếu API phụ trợ chưa phản hồi
+      }
+    }
+  }
+
+  async function guiCapLuotQuanTri(e) {
+    e.preventDefault()
+    if (!qtEmail.trim()) return
+    setQtDangGui(true)
+    setQtKetQua(null)
+    setQtLoi(null)
+    try {
+      const kq = await api.quanTriCapLuot({
+        email: qtEmail.trim(),
+        congThemLuot: Number(qtCongLuot) || 0,
+        tranHangNgayRieng: qtTranVip === '' ? null : Number(qtTranVip),
+      })
+      setQtKetQua(kq.thong_diep)
+      if (onTaiLai) onTaiLai()
+    } catch (err) {
+      setQtLoi(String(err.message || err))
+    } finally {
+      setQtDangGui(false)
+    }
+  }
 
   if (loi) {
     return (
@@ -58,7 +103,7 @@ export default function TheHanMuc({ hanMuc, dangTai, loi, onTaiLai }) {
   const chan = api.chotDangChan(hanMuc)
   const chanBoiMangChung = chan?.loai === 'khach_ip'
   const conLai = hanMuc.con_lai
-  const sacVien = conLai <= 0 ? 'loi' : conLai <= 2 ? 'canh' : 'ok'
+  const sacVien = conLai <= 0 ? 'loi' : (conLai < hanMuc.tran && conLai <= 2) ? 'canh' : 'ok'
 
   return (
     <section className={`the-han-muc vien-${sacVien}`} aria-labelledby="tieu-de-han-muc">
@@ -68,6 +113,11 @@ export default function TheHanMuc({ hanMuc, dangTai, loi, onTaiLai }) {
       <p className="so-luot">
         <strong>{conLai}</strong> / {hanMuc.tran} trang còn lại
       </p>
+      {hanMuc.so_luot_mua_them > 0 && (
+        <p className="ghi-chu" style={{ color: '#059669', fontWeight: 600, marginTop: 2 }}>
+          💎 Đã bao gồm <strong>{hanMuc.so_luot_mua_them}</strong> lượt tích luỹ (không hết hạn qua đêm)
+        </p>
+      )}
       {hanMuc.tran > 0 && (
         <div
           className={`thanh-tien thanh-tien-mong thanh-tien-${sacVien}`} role="img"
@@ -97,13 +147,15 @@ export default function TheHanMuc({ hanMuc, dangTai, loi, onTaiLai }) {
             <>Đợi tới 0h00 giờ Việt Nam là có lại.</>
           )}
           {!hanMuc.co_tai_khoan && (
-            <> Tạo tài khoản thì được nhiều lượt hơn mỗi ngày.</>
+            <> Tạo tài khoản thì được nhiều lượt hơn mỗi ngày (20 trang/ngày — đủ trọn 1 chapter).</>
           )}
         </Alert>
       )}
 
       {conLai > 0 && !hanMuc.co_tai_khoan && (
-        <p className="ghi-chu">Tạo tài khoản để được nhiều lượt hơn mỗi ngày.</p>
+        <p className="ghi-chu">
+          Tạo tài khoản để được nhiều lượt hơn mỗi ngày (<strong>20 trang/ngày</strong> thay vì {hanMuc.tran} trang).
+        </p>
       )}
 
       {/* Chi tiết từng chốt — chỉ hiện khi CÓ NHIỀU HƠN MỘT chốt, tức người gọi là khách lạ.
@@ -125,6 +177,119 @@ export default function TheHanMuc({ hanMuc, dangTai, loi, onTaiLai }) {
           </p>
         </details>
       )}
+
+      <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed var(--vien, #e2e8f0)' }}>
+        <button
+          type="button"
+          className="nut-chu"
+          onClick={batTatNapLuot}
+          style={{ fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+        >
+          {moNapLuot ? '▲ Thu gọn bảng Nạp thêm lượt / VIP' : '💎 Nạp thêm lượt / Nâng cấp VIP'}
+        </button>
+
+        {moNapLuot && (
+          <div style={{ marginTop: 10, padding: 10, borderRadius: 8, background: 'var(--nen-phu, rgba(15,23,42,0.04))', fontSize: 13 }}>
+            {!hanMuc.co_tai_khoan && (
+              <p className="ghi-chu" style={{ marginBottom: 8 }}>
+                ⚠️ Hãy <strong>Đăng nhập / Tạo tài khoản</strong> trên thanh đầu trang trước khi nạp để lượt mua được gắn vĩnh viễn vào tài khoản của bạn (dùng chung cả Web lẫn Tiện ích mở rộng).
+              </p>
+            )}
+
+            {thongTinNap?.goi_goi_y?.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
+                {thongTinNap.goi_goi_y.map((g) => {
+                  const dangChon = goiDangChon?.ma === g.ma
+                  return (
+                    <div
+                      key={g.ma}
+                      onClick={() => setGoiDangChon(g)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setGoiDangChon(g) }}
+                      style={{
+                        padding: '8px 10px', borderRadius: 6, cursor: 'pointer',
+                        border: dangChon ? '2px solid #2563eb' : '1px solid var(--vien, #cbd5e1)',
+                        background: dangChon ? 'rgba(37,99,235,0.06)' : 'transparent',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600 }}>
+                        <span>{g.ten}</span>
+                        <span style={{ color: '#2563eb' }}>{g.so_tien_vnd.toLocaleString('vi-VN')}đ</span>
+                      </div>
+                      <div className="ghi-chu" style={{ fontSize: 12, marginTop: 2 }}>{g.ghi_chu}</div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {thongTinNap?.ngan_hang_ten && thongTinNap?.ngan_hang_so_tk ? (
+              <div style={{ textAlign: 'center', padding: 8, background: '#fff', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+                <img
+                  src={`https://img.vietqr.io/image/${encodeURIComponent(thongTinNap.ngan_hang_ten)}-${encodeURIComponent(thongTinNap.ngan_hang_so_tk)}-compact2.png?amount=${goiDangChon?.so_tien_vnd || 20000}&addInfo=${encodeURIComponent(thongTinNap.noi_dung_chuyen_khoan)}&accountName=${encodeURIComponent(thongTinNap.ngan_hang_chu_tk || '')}`}
+                  alt="Mã VietQR nạp lượt"
+                  style={{ maxWidth: 200, width: '100%', height: 'auto', margin: '0 auto', display: 'block' }}
+                />
+                <p className="ghi-chu" style={{ marginTop: 6, color: '#0f172a' }}>
+                  Ngân hàng: <strong>{thongTinNap.ngan_hang_ten}</strong> · STK: <strong>{thongTinNap.ngan_hang_so_tk}</strong>
+                  <br />
+                  Nội dung CK: <code style={{ fontWeight: 700, color: '#dc2626' }}>{thongTinNap.noi_dung_chuyen_khoan}</code>
+                </p>
+              </div>
+            ) : (
+              <p className="ghi-chu">
+                Nội dung chuyển khoản nhận diện tự động: <code>{thongTinNap?.noi_dung_chuyen_khoan || 'NAP <EMAIL>'}</code>.
+                {' '}Sau khi chuyển khoản, hệ thống tự động cộng lượt tích luỹ vào tài khoản của bạn.
+              </p>
+            )}
+
+            {hanMuc.la_quan_tri && (
+              <form onSubmit={guiCapLuotQuanTri} style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--vien, #cbd5e1)' }}>
+                <div style={{ fontWeight: 600, marginBottom: 6 }}>⚡ Cấp lượt nhanh (Dành cho Quản trị viên)</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <input
+                    type="email"
+                    className="o"
+                    placeholder="Email khách hàng (vd: khach@gmail.com)"
+                    value={qtEmail}
+                    onChange={(e) => setQtEmail(e.target.value)}
+                    required
+                  />
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input
+                      type="number"
+                      className="o"
+                      placeholder="Cộng thêm lượt (vd: 200)"
+                      value={qtCongLuot}
+                      onChange={(e) => setQtCongLuot(e.target.value)}
+                      title="Số lượt mua thêm cộng vào tài khoản"
+                    />
+                    <input
+                      type="number"
+                      className="o"
+                      placeholder="Trần VIP/ngày (tuỳ chọn)"
+                      value={qtTranVip}
+                      onChange={(e) => setQtTranVip(e.target.value)}
+                      title="Trần lượt mỗi ngày riêng cho khách VIP (bỏ trống = giữ nguyên)"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="nut nut-chinh"
+                    disabled={qtDangGui}
+                    style={{ padding: '6px 12px', borderRadius: 6, cursor: 'pointer' }}
+                  >
+                    {qtDangGui ? 'Đang cấp lượt…' : 'Cấp lượt / Cập nhật VIP'}
+                  </button>
+                  {qtKetQua && <p className="ghi-chu" style={{ color: '#059669', fontWeight: 600 }}>{qtKetQua}</p>}
+                  {qtLoi && <p className="ghi-chu" style={{ color: '#dc2626' }}>{qtLoi}</p>}
+                </div>
+              </form>
+            )}
+          </div>
+        )}
+      </div>
     </section>
   )
 }

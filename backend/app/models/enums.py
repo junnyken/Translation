@@ -6,10 +6,12 @@ class SourceLang(str, Enum):
     ja = "ja"
     zh = "zh"
     en = "en"
+    ko = "ko"
 
 
 class TargetLang(str, Enum):
     vi = "vi"
+    en = "en"
 
 
 class IntendedUse(str, Enum):

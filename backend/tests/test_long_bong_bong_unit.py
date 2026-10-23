@@ -77,6 +77,23 @@ class TestToLoang:
         kq, _ = long_bong_bong(m, (100, 130))
         assert kq.rect == (43, 43, 114, 114), "lòng bong bóng bị nét sót chia nhỏ"
 
+    def test_bong_bong_doi_noi_co_chai_hep_thi_tach_giu_buong_chua_tam(self):
+        """E92 — hai bong bóng 70x70 nối nhau bằng cổ chai rộng 8px: tô từ tâm buồng trái chỉ giữ buồng trái."""
+        m = np.zeros((200, 240), dtype=bool)
+        # Buồng trái: x=20..90, y=60..130
+        m[60:130, 20:90] = True
+        # Buồng phải: x=130..200, y=60..130
+        m[60:130, 130:200] = True
+        # Cổ chai hẹp cao 8px nối hai buồng: x=90..130, y=91..99
+        m[91:99, 90:130] = True
+
+        kq, ly_do = long_bong_bong(m, (55, 95))
+        assert ly_do == []
+        x, y, w, h = kq.rect
+        assert x == 20 and y == 60
+        assert w < 90, f"Không tách được cổ chai: bề rộng {w} vẫn tràn sang buồng phải"
+        assert h == 70
+
 
 class TestTranDienTich:
     #: Lấy đúng dải đã đo trên `test_fixtures/`: trong bong bóng 4-6% trang, rò ra 75-82%.

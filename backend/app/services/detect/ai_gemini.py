@@ -86,6 +86,27 @@ SCHEMA = {
     },
 }
 
+#: E96 — Schema gộp Nhận diện khung + Đọc chữ (OCR) + Dịch ngữ cảnh trong 1 lượt gọi Gemini
+#: duy nhất cho chế độ `chi_chu` (tiện ích đọc truyện).
+SCHEMA_GOP_DICH = {
+    "type": "ARRAY",
+    "items": {
+        "type": "OBJECT",
+        "properties": {
+            "box": {
+                "type": "ARRAY",
+                "items": {"type": "INTEGER"},
+                "minItems": 4,
+                "maxItems": 4,
+            },
+            "text": {"type": "STRING"},
+            "ban_dich": {"type": "STRING"},
+            "doan": {"type": "BOOLEAN"},
+        },
+        "required": ["box", "text", "ban_dich", "doan"],
+    },
+}
+
 #: Xem §2 ở docstring đầu tệp. Mỗi câu ở đây đều đang gánh một con số đo được.
 LOI_NHAC = (
     "Find every block of written text in this comic page. For each one give a TIGHT bounding box "
@@ -98,6 +119,41 @@ LOI_NHAC = (
     " Also return the exact text written inside each box in \"text\", copied character by "
     "character in its original language (keep line breaks as spaces)."
 )
+
+
+def xay_loi_nhac_gop_dich(source_lang: str, target_lang: str, boi_canh: str = "") -> str:
+    """E96 + E104 — Lời nhắc gộp Nhận diện + Đọc chữ + Dịch ngữ cảnh trong 1 lượt gọi (hỗ trợ đích `vi` và `en`)."""
+    boi_canh_sach = (boi_canh or "").strip()
+    if str(target_lang).lower() == "en":
+        return (
+            f"{LOI_NHAC}\n\n"
+            f"At the same time, you are a professional comic/manga translator. Translate each detected "
+            f"text block from {source_lang} into natural, idiomatic English in the \"ban_dich\" field:\n"
+            "- Translate in the context of the whole page and visual scene, not isolated fragments.\n"
+            "- Match each character's tone, age, and emotion shown in the artwork.\n"
+            "- Sound effects (SFX like カラン, ドン, 두근…): translate into natural English comic SFX "
+            "(Clang, Thud, Boom, Thump…), never transliterate them as person names.\n"
+            "- Proper nouns (character names, places): romanize accurately and consistently.\n"
+            "- Each \"ban_dich\" must be a complete, natural English sentence/phrase using only English "
+            "letters, numbers, and punctuation (leave zero untranslated CJK characters).\n"
+            "- Set \"doan\" = true ONLY when the original text is blurry/occluded and required guessing; otherwise false."
+            + (f"\n\n{boi_canh_sach}" if boi_canh_sach else "")
+        )
+    return (
+        f"{LOI_NHAC}\n\n"
+        f"Đồng thời, bạn là người dịch truyện tranh chuyên nghiệp. Hãy dịch từng khối chữ vừa tìm "
+        f"được từ {source_lang} sang {target_lang} vào trường \"ban_dich\" theo đúng yêu cầu:\n"
+        "- Dịch theo mạch văn và hình ảnh của cả trang, không dịch rời rạc từng khung.\n"
+        "- Bám sát nghĩa gốc, giữ giọng điệu nhân vật; đại từ xưng hô tiếng Việt (Ta/Bà/Tôi/Cậu/Anh/Em…) "
+        "phải khớp với ngoại hình, độ tuổi, biểu cảm nhân vật trên tranh và ngữ cảnh trang trước.\n"
+        "- Chữ tượng thanh / tiếng động vẽ cách điệu (SFX như カラン, コロン, ドン…): dịch sang từ tượng "
+        "thanh tiếng Việt tự nhiên (Keng, Cộp, Rầm, Ực…), không phiên âm thành tên người.\n"
+        "- TÊN RIÊNG (người, địa danh): phiên âm theo cách đọc và giữ nguyên là tên riêng.\n"
+        "- Mỗi \"ban_dich\" là một câu hoàn chỉnh: viết hoa chữ đầu, có dấu câu kết thúc (. ! ? …), "
+        "chỉ chứa chữ Việt, số và dấu câu (tuyệt đối không để sót ký tự Nhật/Trung/Hàn).\n"
+        "- Đặt \"doan\" = true CHỈ KHI chữ gốc bị mờ/che khuất phải đoán mới dịch được; còn lại đặt false."
+        + (f"\n\n{boi_canh_sach}" if boi_canh_sach else "")
+    )
 
 #: E90 — khung chỉ chứa chữ số (số trang, số in trên nhãn chai…) KHÔNG phải lời cần dịch. Lời nhắc
 #: đọc chữ làm model khoanh thêm chúng (A/B: "18" xuất hiện 3 lần trên trang Pepper&Carrot).
@@ -210,11 +266,15 @@ class AIGeminiDetector:
             chu = " ".join(chu.split()) if isinstance(chu, str) else None
             if chu and _CHI_LA_SO.match(chu):
                 continue  # E90: số trang / số trên nhãn — không phải lời thoại
+            ban_dich = muc.get("ban_dich")
+            ban_dich = " ".join(ban_dich.split()) if isinstance(ban_dich, str) else None
             ra.append(DetectedRegion(
                 bbox=BBox(x=x0, y=y0, w=x1 - x0, h=y1 - y0),
                 confidence=None,   # §3: KHÔNG bịa. Xem docstring đầu tệp.
                 cls=0,
                 chu=chu or None,
+                ban_dich=ban_dich or None,
+                doan=bool(muc.get("doan")),
             ))
 
         logger.info(
@@ -222,19 +282,95 @@ class AIGeminiDetector:
         )
         return ra
 
-    def _goi(self, anh: bytes, mime: str) -> list[dict]:
+    def detect_va_dich_regions(
+        self,
+        image_path: str,
+        source_lang: str,
+        target_lang: str,
+        boi_canh: str = "",
+    ) -> list[DetectedRegion]:
+        """E96 — Nhận diện khung chữ + Đọc chữ + Dịch ngữ cảnh trong 1 lượt gọi Gemini duy nhất.
+
+        Dành riêng cho chế độ `chi_chu` khi `DETECT_ENGINE=ai_gemini` và `engine=llm_context`.
+        Chỉ gửi ảnh 1 lần và dùng 1 lượt gọi để cắt giảm một nửa độ trễ (~8s -> ~4s) lẫn ~45%
+        token ảnh đầu vào.
+        """
+        if not self.api_keys:
+            raise AIDetectError(
+                "Chưa cấu hình GEMINI_API_KEYS — engine nhận diện 'ai_gemini' cần khoá API. "
+                "Đặt khoá, hoặc chuyển DETECT_ENGINE về 'ctd' để chạy model cục bộ."
+            )
+
+        from PIL import Image
+
+        from app.services.translate.anh_kem import chuan_bi_anh
+
+        with Image.open(image_path) as im:
+            rong_goc, cao_goc = im.size
+
+        with open(image_path, "rb") as f:
+            goc = f.read()
+        da_chuan = chuan_bi_anh(goc, self.canh_toi_da)
+        if da_chuan is None:
+            raise AIDetectError(f"Không chuẩn bị được ảnh để gửi: {image_path}")
+        anh, mime = da_chuan
+
+        loi_nhac = xay_loi_nhac_gop_dich(source_lang, target_lang, boi_canh)
+        tho = self._goi(anh, mime, loi_nhac=loi_nhac, schema=SCHEMA_GOP_DICH)
+
+        ra: list[DetectedRegion] = []
+        for muc in tho:
+            hop = muc.get("box")
+            if not (isinstance(hop, list) and len(hop) == 4):
+                continue
+            y0, x0, y1, x1 = (float(v) for v in hop)
+            x0, x1 = x0 / THANG * rong_goc, x1 / THANG * rong_goc
+            y0, y1 = y0 / THANG * cao_goc, y1 / THANG * cao_goc
+            if x1 <= x0 or y1 <= y0:
+                continue
+            x0, y0 = max(0.0, x0), max(0.0, y0)
+            x1, y1 = min(float(rong_goc), x1), min(float(cao_goc), y1)
+            chu = muc.get("text")
+            chu = " ".join(chu.split()) if isinstance(chu, str) else None
+            if chu and _CHI_LA_SO.match(chu):
+                continue
+            ban_dich = muc.get("ban_dich")
+            ban_dich = " ".join(ban_dich.split()) if isinstance(ban_dich, str) else None
+            ra.append(DetectedRegion(
+                bbox=BBox(x=x0, y=y0, w=x1 - x0, h=y1 - y0),
+                confidence=None,
+                cls=0,
+                chu=chu or None,
+                ban_dich=ban_dich or None,
+                doan=bool(muc.get("doan")),
+            ))
+
+        logger.info(
+            "ai_gemini detect_va_dich (1-pass): %s -> %d khung (model %s)",
+            image_path, len(ra), self.model_name,
+        )
+        return ra
+
+    def _goi(
+        self,
+        anh: bytes,
+        mime: str,
+        *,
+        loi_nhac: str = LOI_NHAC,
+        schema: dict = SCHEMA,
+    ) -> list[dict]:
         """Gọi API, xoay key khi gặp lỗi có thể do key. Hết key thì ném lỗi cuối cùng."""
         than = json.dumps({
             "contents": [{"parts": [
                 {"inline_data": {"mime_type": mime, "data": base64.b64encode(anh).decode()}},
-                {"text": LOI_NHAC},
+                {"text": loi_nhac},
             ]}],
             "generationConfig": {
                 "temperature": 0.0,
                 "maxOutputTokens": 4096,
                 "thinkingConfig": {"thinkingBudget": 0},
                 "responseMimeType": "application/json",
-                "responseSchema": SCHEMA,
+                "responseSchema": schema,
             },
         }).encode()
 
@@ -266,6 +402,7 @@ class AIGeminiDetector:
             raise loi_cuoi or AIDetectError("Gọi Gemini thất bại, không rõ lý do")
 
         try:
+            self.last_usage = d.get("usageMetadata") if isinstance(d, dict) else {}
             ung_vien = d["candidates"][0]
             # Gộp MỌI phần: câu trả lời có thể bị tách thành nhiều `parts`.
             chu = "".join(p.get("text", "") for p in ung_vien["content"]["parts"])

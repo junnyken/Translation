@@ -49,7 +49,7 @@ if _settings.cors_allow_origin_list:
         # `X-API-Key` phải nằm trong danh sách này, nếu không trình duyệt sẽ chặn ngay ở
         # preflight và giao diện không bao giờ gửi được khoá đi.
         # `Authorization` cho mã phiên (slice B), `X-API-Key` cho khoá chung lúc đăng ký (slice A).
-        allow_headers=["Content-Type", "X-API-Key", "Authorization"],
+        allow_headers=["Content-Type", "X-API-Key", "Authorization", "X-Ma-Khach"],
         # Giao diện và API khác tên miền ⇒ JS KHÔNG đọc được `Content-Disposition` (không thuộc
         # nhóm header an toàn của CORS) nếu không mở ở đây. Thiếu dòng này, nút "Tải file về" không
         # thấy tên tệp thật và tự đặt `.cbz` cho cả bản xuất ZIP (người dùng báo 16-10-2026).

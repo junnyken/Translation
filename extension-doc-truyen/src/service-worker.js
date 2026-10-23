@@ -15,11 +15,19 @@
  * MV3 tắt service worker khi rảnh rồi dựng lại từ đầu, nên ở đây **không giữ trạng thái nào ở
  * biến module** — mọi thứ cần nhớ đều nằm trong `chrome.storage.session`.
  */
-import { LoiApi, docCauHinh, guiTrang, layTrang, lyDoThieuCauHinh } from './lib/api.js'
+import {
+  LoiApi,
+  docCauHinh,
+  guiTrang,
+  layTrang,
+  lyDoThieuCauHinh,
+  taiAnhDaDichDataUrl,
+} from './lib/api.js'
 
-/** Hỏi lại mỗi 3 giây. Ngắn hơn thì tốn lượt gọi vô ích cho một việc dài ~45s; dài hơn thì
- *  người dùng thấy chữ hiện ra chậm hơn thực tế. */
-const NHIP_HOI_MS = 3000
+/** Nhịp hỏi lại thích ứng: 1.2 giây trong 20 giây đầu để bắt kịp kết quả gộp 1 lượt (E96 ~3-5s)
+ *  ngay khi xong; sau 20 giây hạ xuống 2.2 giây cho các việc nặng (xoá chữ LaMa / hàng đợi dài). */
+const NHIP_HOI_NHANH_MS = 1200
+const NHIP_HOI_THUONG_MS = 2200
 /** Bỏ cuộc sau 5 phút. Không có trần thì một việc kẹt sẽ hỏi lại mãi mãi. */
 const TRAN_CHO_MS = 5 * 60 * 1000
 
@@ -43,24 +51,100 @@ function base64ThanhBlob(b64, mime) {
   return new Blob([bytes], { type: mime || 'image/png' })
 }
 
-async function dichMotTrang(url, anhBase64, anhMime, bao) {
-  bao({ giai_doan: 'dang-tai-anh' })
+async function blobThanhDataUrl(blob) {
+  try {
+    const bytes = new Uint8Array(await blob.arrayBuffer())
+    let nhi_phan = ''
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+      nhi_phan += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+    }
+    return `data:${blob.type || 'image/jpeg'};base64,${btoa(nhi_phan)}`
+  } catch {
+    return null
+  }
+}
+
+const luotDichTheoTab = new Map()
+const viecDangChayTheoUrl = new Map()
+const REGEX_DAU_TIENG_VIET = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i
+
+async function dichCauNhanhGtx(chu, sl = 'auto', tl = 'vi') {
+  const s = String(chu || '').trim()
+  if (!s) return ''
+  const maNguon = sl === 'zh' ? 'zh-CN' : (sl || 'auto')
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(maNguon)}&tl=${encodeURIComponent(tl || 'vi')}&dt=t&q=${encodeURIComponent(s)}`
+  const res = await fetch(url, { credentials: 'omit' })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const data = await res.json()
+  const doan = Array.isArray(data?.[0]) ? data[0].map((x) => x?.[0] || '').join('') : ''
+  return doan.trim() || s
+}
+
+async function damBaoNgonNguDich(dsVung, ngonNguGoc, ngonNguDich) {
+  if (!Array.isArray(dsVung) || !dsVung.length) return dsVung
+  if (ngonNguDich !== 'en') return dsVung
+  // Nếu máy chủ đã cập nhật trả thẳng tiếng Anh (không còn dấu tiếng Việt) thì giữ nguyên.
+  // Nếu máy chủ từ xa chưa redeploy nên vẫn trả tiếng Việt khi khách chọn `en`, dịch tức thì sang tiếng Anh (~180ms).
+  const canChuyenAnh = dsVung.some((v) => v?.ban_dich && REGEX_DAU_TIENG_VIET.test(v.ban_dich))
+  if (!canChuyenAnh) return dsVung
+  await Promise.all(dsVung.map(async (v) => {
+    if (!v || (!v.chu_goc && !v.ban_dich)) return
+    try {
+      const nguon = v.chu_goc ? (ngonNguGoc || 'auto') : 'vi'
+      const goc = v.chu_goc || v.ban_dich
+      v.ban_dich = await dichCauNhanhGtx(goc, nguon, 'en')
+    } catch {
+      // Giữ nguyên nếu mạng lỗi
+    }
+  }))
+  return dsVung
+}
+
+async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false) {
+  bao({ giai_doan: 'dang-tai-anh', url })
   const blob = anhBase64 ? base64ThanhBlob(anhBase64, anhMime) : await taiAnh(url)
+  if (daBiHuy()) throw new LoiApi(0, 'Đã chuyển sang dịch trang mới.')
 
-  bao({ giai_doan: 'dang-gui' })
-  const { ngonNgu, engine } = await docCauHinh()
-  const { page_id } = await guiTrang(blob, ngonNgu, engine)
+  // Khi content script bị chặn CORS (`!anhBase64`), trả kèm `anh_goc_data_url` để trình duyệt của
+  // khách vẽ lên Canvas/WebGL2 nội bộ mà không dính `SecurityError` — giúp dò khung bong bóng và xoá chữ
+  // gốc bằng GPU/Canvas máy khách trên 100% trang web truyện.
+  const anh_goc_data_url = anhBase64 ? null : await blobThanhDataUrl(blob)
 
-  const han = Date.now() + TRAN_CHO_MS
+  const { ngonNgu, ngonNguDich, engine, cheDo } = await docCauHinh()
+  bao({ giai_doan: 'dang-gui', url, che_do: cheDo, anh_goc_data_url })
+  const { page_id } = await guiTrang(blob, ngonNgu, engine, cheDo, ngonNguDich)
+
+  const lucBatDau = Date.now()
+  const han = lucBatDau + TRAN_CHO_MS
+  // Chờ 900ms trước lượt hỏi đầu tiên: máy chủ vừa nhận ảnh (202 Accepted), hỏi ngay ở 0ms chắc chắn
+  // chưa xong và chỉ tốn 1 vòng mạng vô ích.
+  await new Promise((r) => setTimeout(r, 900))
   for (;;) {
+    if (daBiHuy()) throw new LoiApi(0, 'Đã chuyển sang dịch trang mới.')
     const d = await layTrang(page_id)
-    bao({ giai_doan: 'dang-xu-ly', tien_do: d.tien_do, vung: d.vung })
+    if (daBiHuy()) throw new LoiApi(0, 'Đã chuyển sang dịch trang mới.')
+    if (Array.isArray(d.vung) && d.vung.length && ngonNguDich === 'en') {
+      await damBaoNgonNguDich(d.vung, ngonNgu, ngonNguDich)
+    }
+    bao({ giai_doan: 'dang-xu-ly', url, che_do: d.che_do || cheDo, tien_do: d.tien_do, vung: d.vung })
     if (d.loi) throw new LoiApi(0, d.loi)
-    if (d.xong) return d
+    if (d.xong) {
+      let anh_da_dich_data_url = null
+      if (d.che_do === 'day_du' && d.anh_da_dich && ngonNguDich !== 'en') {
+        try {
+          anh_da_dich_data_url = await taiAnhDaDichDataUrl(page_id)
+        } catch {
+          anh_da_dich_data_url = null
+        }
+      }
+      return { ...d, anh_da_dich_data_url, anh_goc_data_url }
+    }
     if (Date.now() > han) {
       throw new LoiApi(0, 'Quá 5 phút chưa xong — máy chủ đang quá tải hoặc việc bị kẹt.')
     }
-    await new Promise((r) => setTimeout(r, NHIP_HOI_MS))
+    const daCho = Date.now() - lucBatDau
+    const nhip = daCho < 20000 ? NHIP_HOI_NHANH_MS : NHIP_HOI_THUONG_MS
+    await new Promise((r) => setTimeout(r, nhip))
   }
 }
 
@@ -74,36 +158,134 @@ async function dichMotTrang(url, anhBase64, anhMime, bao) {
  * Trả `true` nghĩa là "thiếu cấu hình, đã mở trang tuỳ chọn rồi".
  */
 async function thieuCauHinh() {
-  const ly_do = lyDoThieuCauHinh(await docCauHinh())
+  const ly_do = lyDoThieuCauHinh({ ...(await docCauHinh()), choPhepKhach: true })
   if (ly_do) chrome.runtime.openOptionsPage()
   return ly_do
 }
 
 
+async function chayLenhPhimTat(lenh, tabId) {
+  try {
+    let targetTabId = tabId
+    if (!targetTabId) {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+      targetTabId = tab?.id
+    }
+    if (!targetTabId) return
+    await chrome.storage.local.remove(['__e60_snip', '__e59_bulk', '__e102_auto_scroll'])
+    if (lenh === 'khoanh-vung-dich') {
+      await chrome.storage.local.set({ __e60_snip: true })
+    } else if (lenh === 'dich-ca-chapter') {
+      await chrome.storage.local.set({ __e59_bulk: true })
+    } else if (lenh === 'tu-dich-khi-cuon') {
+      await chrome.storage.local.set({ __e102_auto_scroll: true })
+    }
+    await chrome.scripting.executeScript({
+      target: { tabId: targetTabId },
+      files: ['src/content/index.js'],
+    })
+  } catch {
+    // Tab hệ thống (chrome://, Web Store) không cho tiêm script — bỏ qua an toàn.
+  }
+}
+
 chrome.runtime.onMessage.addListener((tin, gui_tu, traLoi) => {
+  if (tin?.viec === 'phim-tat' && tin?.lenh) {
+    chayLenhPhimTat(tin.lenh, gui_tu?.tab?.id).finally(() => traLoi({ ok: true }))
+    return true
+  }
+
+  if (tin?.viec === 'chup-man-hinh') {
+    chrome.tabs
+      .captureVisibleTab(gui_tu.tab?.windowId, { format: 'png' })
+      .then((dataUrl) => traLoi({ ok: true, data_url: dataUrl }))
+      .catch((e) => traLoi({ ok: false, loi: String(e?.message || e) }))
+    return true
+  }
+
+  if (tin?.viec === 'dich-lai-cau') {
+    ;(async () => {
+      try {
+        const { ngonNgu, ngonNguDich } = await docCauHinh()
+        const chuGoc = String(tin.chu_goc || tin.chu_hien_tai || '').trim()
+        if (!chuGoc) {
+          traLoi({ ok: false, loi: 'Không có chữ gốc để dịch lại.' })
+          return
+        }
+        const sl = tin.chu_goc ? (tin.ngon_ngu || ngonNgu || 'auto') : 'auto'
+        const tl = tin.ngon_ngu_dich || ngonNguDich || 'vi'
+        const ban_dich = await dichCauNhanhGtx(chuGoc, sl, tl)
+        traLoi({ ok: true, ban_dich })
+      } catch (e) {
+        traLoi({ ok: false, loi: String(e?.message || e) })
+      }
+    })()
+    return true
+  }
+
   if (tin?.viec !== 'dich-anh') return false
 
-  const bao = (p) => {
-    // Trang có thể đã đóng giữa chừng — bỏ qua, không để nó làm hỏng cả lượt dịch.
-    chrome.tabs.sendMessage(gui_tu.tab.id, { viec: 'tien-do', ...p }).catch(() => {})
+  const tabId = gui_tu?.tab?.id
+  const laNgam = Boolean(tin?.ngam)
+  const khoaUrl = `${tabId ?? 0}::${tin.url || ''}`
+
+  // Nếu trang này đang được dịch dở (ví dụ: luồng nạp đón đầu vừa gửi 2 giây trước rồi người dùng
+  // cuộn tới hoặc bấm Alt+Q), dùng chung luôn Promise đang chạy thay vì huỷ đi gửi lại từ đầu!
+  if (tin.url && viecDangChayTheoUrl.has(khoaUrl)) {
+    viecDangChayTheoUrl.get(khoaUrl)
+      .then((ketQua) => traLoi(ketQua))
+      .catch((err) => traLoi(err))
+    return true
   }
-  thieuCauHinh()
+
+  let maLuot = luotDichTheoTab.get(tabId) || 0
+  if (!laNgam && tabId !== undefined) {
+    maLuot += 1
+    luotDichTheoTab.set(tabId, maLuot)
+  }
+  const daBiHuy = () => !laNgam && tabId !== undefined && luotDichTheoTab.get(tabId) !== maLuot
+
+  const bao = (p) => {
+    if (daBiHuy() || !tabId) return
+    // Trang có thể đã đóng giữa chừng — bỏ qua, không để nó làm hỏng cả lượt dịch.
+    chrome.tabs.sendMessage(tabId, { viec: 'tien-do', ...p }).catch(() => {})
+  }
+
+  const loiHua = thieuCauHinh()
     .then((thieu) => {
-      if (thieu) return traLoi({ ok: false, ma: 0, loi: thieu, da_mo_cai_dat: true })
-      return dichMotTrang(tin.url, tin.anh_base64, tin.anh_mime, bao)
-        .then((d) => traLoi({ ok: true, vung: d.vung }))
+      if (thieu) return { ok: false, ma: 0, loi: thieu, da_mo_cai_dat: true }
+      return dichMotTrang(tin.url, tin.anh_base64, tin.anh_mime, bao, daBiHuy)
+        .then((d) => ({
+          ok: true,
+          vung: d.vung,
+          che_do: d.che_do,
+          anh_da_dich: d.anh_da_dich_data_url || null,
+          anh_goc_data_url: d.anh_goc_data_url || null,
+        }))
     })
     .catch((e) => {
       // Phiên hết hạn giữa chừng cũng đưa thẳng tới chỗ đăng nhập lại.
       if (e?.ma === 401) chrome.runtime.openOptionsPage()
       // `chi_tiet` đi kèm để content script nói được câu tử tế cho 429 (trần, giờ reset) —
       // thiếu nó thì chế độ dịch cả chapter chỉ báo được "hết lượt" mà không nói bao giờ có lại.
-      traLoi({ ok: false, ma: e?.ma ?? 0, loi: String(e?.message || e), chi_tiet: e?.chiTiet ?? null })
+      return { ok: false, ma: e?.ma ?? 0, loi: String(e?.message || e), chi_tiet: e?.chiTiet ?? null }
     })
+    .finally(() => {
+      viecDangChayTheoUrl.delete(khoaUrl)
+    })
+
+  if (tin.url) viecDangChayTheoUrl.set(khoaUrl, loiHua)
+  loiHua.then((kq) => traLoi(kq))
   return true // giữ kênh mở cho phản hồi bất đồng bộ
 })
 
-// KHÔNG có `chrome.action.onClicked` ở đây: manifest khai `action.default_popup`, nên Chrome
-// không bao giờ gửi sự kiện đó nữa (có popup thì bấm icon luôn mở popup, không phát `onClicked`).
-// Việc tiêm content script khi bấm "Dịch trang này" nằm trong `src/popup/index.js` — đứng ở đây
-// sẽ là mã chết, không lỗi gì cả nên rất dễ tưởng nhầm là vẫn còn chạy.
+// E99 + E102 — Phím tắt toàn cục:
+// - `Alt+Q` (`dich-trang-nay`): Dịch 1 trang hiện tại
+// - `Alt+A` (`dich-ca-chapter`): Dịch toàn bộ chapter
+// - `Alt+W` (`tu-dich-khi-cuon`): Bật/tắt tự động dịch khi cuộn trang
+// - `Alt+S` (`khoanh-vung-dich`): Khoanh vùng dịch trên màn hình
+if (chrome.commands?.onCommand) {
+  chrome.commands.onCommand.addListener(async (lenh) => {
+    await chayLenhPhimTat(lenh)
+  })
+}

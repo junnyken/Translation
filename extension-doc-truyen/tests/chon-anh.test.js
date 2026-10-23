@@ -5,7 +5,7 @@
  * ngoài khung nhìn.
  */
 import { describe, expect, it } from 'vitest'
-import { chonMoiTrang, chonTrangKeTiep, chonTrangTruyen } from '../src/lib/chon-anh.js'
+import { chonCacTrangKeTiep, chonMoiTrang, chonTrangKeTiep, chonTrangTruyen } from '../src/lib/chon-anh.js'
 
 const anh = (o) => ({
   src: 'x', naturalWidth: 900, naturalHeight: 1300,
@@ -138,6 +138,17 @@ describe('chọn trang KẾ TIẾP để xếp hàng trước', () => {
       }),
     ])
     expect(kq.anh).toBeNull()
+  })
+
+  it('chonCacTrangKeTiep lấy tối đa 2 trang kế tiếp theo thứ tự trên xuống và khử trùng src', () => {
+    const ds = chonCacTrangKeTiep([
+      anh({ src: 'dang-doc.png', top: 0, bottom: 900 }),
+      anh({ src: 'trang-3.png', top: 2200, bottom: 3500 }),
+      anh({ src: 'trang-2.png', top: 900, bottom: 2200 }),
+      anh({ src: 'trang-2.png', top: 910, bottom: 2210 }),
+      anh({ src: 'trang-4.png', top: 3500, bottom: 4800 }),
+    ], { caoKhungNhin: 900, boQuaSrc: 'dang-doc.png', toiDa: 2 })
+    expect(ds.map((a) => a.src)).toEqual(['trang-2.png', 'trang-3.png'])
   })
 })
 

@@ -327,6 +327,10 @@ class BubbleSafeAreaExtractor:
         mask = np.zeros((rh, rw), np.uint8)
         cv2.drawContours(mask, [c], -1, 255, cv2.FILLED)   # tô đặc = lấp lỗ của riêng ứng viên này
 
+        # E92 — tách cổ chai nếu ứng viên là hai bong bóng đôi nối nhau qua khe hẹp.
+        from app.services.safearea.long_bong_bong import tach_co_chai
+        mask = tach_co_chai(mask, (int(round(cx)), int(round(cy))))
+
         dien_tich = int((mask > 0).sum())
         dt_bbox = max(region_bbox.w * region_bbox.h, 1.0)
         if dien_tich < config.min_bbox_coverage_ratio * dt_bbox:

@@ -86,14 +86,14 @@ class Settings(BaseSettings):
     #: Hạn mức theo TRANG mỗi ngày. Đơn vị là trang chứ không phải chapter/tệp/lần bấm, vì chi
     #: phí thật tính theo trang.
     #:
-    #: 6 cho khách lạ: một trang mất ~30 giây trọn chuỗi, nên 3 trang (số ban đầu) là chưa đầy
-    #: 2 phút — khách có thể rời đi trước khi kịp thấy công cụ làm được gì. Chi phí ~0,3 xu Mỹ.
-    han_muc_khach_la: int = 6
-    han_muc_co_tai_khoan: int = 10
+    #: 2 cho khách lạ (trải nghiệm nhanh 2 trang mẫu) và 20 cho tài khoản đăng ký (đủ dịch trọn
+    #: 1 chapter tiêu chuẩn 18–20 trang/ngày, tỉ lệ 1:10 khuyến khích đăng ký và chống spam).
+    han_muc_khach_la: int = 2
+    han_muc_co_tai_khoan: int = 20
     #: Trần theo IP cho khách lạ. **PHẢI lớn hơn `han_muc_khach_la`**: văn phòng, trường học,
     #: quán cà phê dùng chung một IP — đặt bằng nhau là chặn oan hàng loạt người dùng thật.
     #: Đây là hàng rào chống xoá cookie lấy lượt mới, KHÔNG phải định danh người dùng.
-    han_muc_ip_khach_la: int = 25
+    han_muc_ip_khach_la: int = 8
     #: Múi giờ quyết định "hôm nay" của hạn mức.
     #:
     #: ⚠️ BẮT BUỘC tường minh. Container chạy **UTC**, người dùng và chính sách theo **UTC+7**.
@@ -124,13 +124,36 @@ class Settings(BaseSettings):
 
     #: Số TÀI KHOẢN mới được tạo từ cùng một địa chỉ mạng trong một ngày.
     #:
-    #: ⚠️ Không có trần này thì hạn mức trang trở thành VÔ NGHĨA: khách hết 6 trang chỉ cần tạo
-    #: tài khoản mới để có 10, rồi lặp vô hạn. Mở đường tự đăng ký mà quên con số này là tự tay
+    #: ⚠️ Không có trần này thì hạn mức trang trở thành VÔ NGHĨA: khách hết 2 trang chỉ cần tạo
+    #: tài khoản mới để có 20, rồi lặp vô hạn. Mở đường tự đăng ký mà quên con số này là tự tay
     #: vô hiệu hoá cả E49.
     #:
-    #: 3 là con số thận trọng: đủ cho một gia đình hoặc vài người cùng phòng, mà không đủ để biến
-    #: việc tạo tài khoản thành cách lách hạn mức. Cần tinh chỉnh theo hành vi thật.
-    so_tai_khoan_moi_moi_ip_mot_ngay: int = 3
+    #: 2 là con số thận trọng khi mỗi tài khoản có 20 trang/ngày: đủ cho hai người cùng nhà, mà
+    #: không đủ để biến việc tạo tài khoản thành cách lách hạn mức.
+    so_tai_khoan_moi_moi_ip_mot_ngay: int = 2
+
+    #: Trần số lần ĐĂNG NHẬP SAI từ một địa chỉ mạng trong một ngày (chống dò mật khẩu brute-force).
+    #: Chỉ trừ suất khi đăng nhập THẤT BẠI; đăng nhập đúng không mất suất.
+    so_lan_dang_nhap_sai_moi_ip_mot_ngay: int = 10
+
+    #: Trần số lượt CHẠY LẠI (retry-detect / retry-ocr / retry-inpaint / retry-translate / re-translate)
+    #: tối đa trên MỘT trang (tính theo tổng số job đã tạo trên trang đó vượt ngoài 4 bước tự động).
+    #: Chặn lỗ hổng tải 1 trang rồi gọi `retry-translate` với `llm_context` vô hạn làm cạn token Gemini.
+    #: 0 = không giới hạn.
+    so_lan_chay_lai_toi_da_moi_trang: int = 5
+
+    # --- E100: nạp lượt / gói VIP thương mại (VietQR / SePay / Casso / PayOS) -----------------
+    #: Khoá bí mật xác thực Webhook ngân hàng (`Authorization: Apikey <key>` hoặc `Bearer <key>`).
+    #: Để trống = cổng webhook tự động khoá (chỉ quản trị cấp lượt thủ công qua `/quan-tri/cap-luot`).
+    webhook_nap_luot_bi_mat: str = ""
+    #: Mã ngân hàng VietQR (vd: `MB`, `VCB`, `TCB`, `ACB`, `BIDV`) để sinh ảnh QR chuyển khoản tự động.
+    ngan_hang_ten: str = ""
+    #: Số tài khoản ngân hàng nhận tiền nạp lượt.
+    ngan_hang_so_tk: str = ""
+    #: Tên chủ tài khoản hiển thị bên cạnh mã VietQR.
+    ngan_hang_chu_tk: str = ""
+    #: Đơn giá VNĐ cho mỗi 1 lượt trang mua thêm (mặc định 100 VNĐ/trang ⇒ 20.000đ = 200 trang).
+    ty_le_vnd_moi_trang: int = 100
 
     # --- E57: tự nhận ngôn ngữ ---------------------------------------------------------------
     #: Số lượt "đọc thử ảnh để đoán ngôn ngữ" mỗi chủ thể mỗi ngày.
@@ -272,6 +295,18 @@ class Settings(BaseSettings):
     #: E91 — cạnh dài tối đa của ảnh trang khi tải lên (px); lớn hơn thì thu nhỏ trước khi lưu.
     #: 0 = giữ nguyên cỡ. Xem `storage.thu_nho_anh_trang`.
     anh_trang_canh_dai_toi_da: int = 3000
+    #: E93 — tái sử dụng kết quả dịch theo mã băm SHA-256 của ảnh chuẩn hoá trên `/doc-truyen/trang`.
+    #: Vẫn tạo bản ghi Page riêng cho từng người gọi (bảo toàn cô lập quyền truy cập và sổ cái hạn mức),
+    #: nhưng sao chép các vùng chữ đã hoàn tất để trả kết quả tức thì không tốn lại CPU/token.
+    doc_truyen_dung_cache_anh: bool = True
+    #: E95 — nối ngữ cảnh trượt (tối đa 8 câu thoại sạch của trang liền trước trong cùng chapter)
+    #: vào prompt dịch của trang kế tiếp để giữ đồng nhất đại từ xưng hô (Ta/Bà/Tôi/Cậu) và tên riêng
+    #: khi người dùng đọc liên tục nhiều trang trên tiện ích mà không cần duyệt bảng thuật ngữ trước.
+    boi_canh_kem_trang_truoc: bool = True
+    #: E96 — ở chế độ `chi_chu` với `DETECT_ENGINE=ai_gemini` và `engine=llm_context`, gộp
+    #: Nhận diện khung chữ + Đọc chữ (OCR) + Dịch ngữ cảnh thành 1 lượt gọi Gemini duy nhất.
+    #: Giảm một nửa thời gian chờ (~8s -> ~4s) và tiết kiệm ~45% chi phí token ảnh đầu vào.
+    gop_mot_luot_chi_chu: bool = True
     # ---- M5: dịch ----
     #: Engine chạy tự động sau inpaint. MẶC ĐỊNH google_fast (miễn phí) — không tự tiêu
     #: token của người dùng khi họ chưa chọn. Đổi sang llm_context qua .env hoặc query param.

@@ -33,8 +33,8 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import CharacterVoiceProfile, GlossaryEntry
-from app.models.enums import GlossaryStatus, VoiceProfileStatus
+from app.models import CharacterVoiceProfile, GlossaryEntry, OCRResult, Page, TextRegion, TranslationResult
+from app.models.enums import GlossaryStatus, OCRStatus, TranslationStatus, VoiceProfileStatus
 
 #: Chặn prompt phình vô hạn. Chapter dài có thể có hàng trăm thuật ngữ, mà mỗi token trong prompt
 #: đều tính tiền ở MỌI trang. Lấy theo thứ tự bảng chữ cái để lượt nào cũng ra cùng một tập —
@@ -42,6 +42,8 @@ from app.models.enums import GlossaryStatus, VoiceProfileStatus
 #: quán xuyên trang — đúng thứ module này sinh ra để lo — lại vỡ.
 SO_THUAT_NGU_TOI_DA = 60
 SO_NHAN_VAT_TOI_DA = 20
+#: E95 — số cặp câu thoại (gốc → dịch) tối đa lấy từ trang liền trước làm ngữ cảnh trượt liên trang.
+SO_CAU_TRANG_TRUOC_TOI_DA = 8
 
 
 def _dong_thuat_ngu(e: GlossaryEntry) -> str:
@@ -66,11 +68,83 @@ def _dong_nhan_vat(v: CharacterVoiceProfile) -> str:
     return " ".join(phan)
 
 
-def nap_boi_canh_du_an(session: Session, project_id: uuid.UUID) -> str:
-    """Khối chữ mô tả thuật ngữ + giọng nhân vật ĐÃ CHỐT của project. Rỗng thì trả `""`.
+def nap_boi_canh_trang_truoc(
+    session: Session,
+    project_id: uuid.UUID,
+    page_id: uuid.UUID,
+    so_cau_toi_da: int = SO_CAU_TRANG_TRUOC_TOI_DA,
+) -> list[tuple[str, str]]:
+    """E95 — Lấy các cặp `(chữ gốc, bản dịch)` sạch của trang liền trước trong cùng chapter.
 
-    Trả chuỗi rỗng khi chưa có gì được chốt — bên gọi nối thẳng vào prompt, nên chuỗi rỗng nghĩa
-    là prompt không đổi một ký tự nào so với trước E31.
+    Giải quyết bài toán đọc liên tục nhiều trang trên tiện ích (`doc-truyen`): người dùng không
+    vào trang quản trị để duyệt bảng thuật ngữ trước, nên nếu trang N không thấy trang N-1 đã dịch
+    thế nào thì đại từ xưng hô (*Ta – bà*, *Anh – em*) và cách phiên âm tên riêng sẽ bị nhảy giữa
+    các trang.
+
+    Chỉ lấy các câu thoả mãn CẢ HAI điều kiện:
+    1. `OCRResult.status == OCRStatus.ok` (không lấy câu bị đánh dấu `needs_manual` / đoán mò `[?]`).
+    2. `TranslationResult.status == TranslationStatus.ok` (không lấy bản dịch lùi `fallback_used`).
+    """
+    if so_cau_toi_da <= 0:
+        return []
+    trang_hien_tai = session.get(Page, page_id)
+    if trang_hien_tai is None or trang_hien_tai.project_id != project_id:
+        return []
+
+    cac_trang_truoc = list(
+        session.scalars(
+            select(Page)
+            .where(
+                Page.project_id == project_id,
+                Page.id != page_id,
+                Page.order <= trang_hien_tai.order,
+            )
+            .order_by(Page.order.desc(), Page.created_at.desc())
+            .limit(2)
+        )
+    )
+    if not cac_trang_truoc:
+        return []
+
+    id_trang_truoc = [p.id for p in reversed(cac_trang_truoc)]
+    rows = session.execute(
+        select(OCRResult.raw_text, TranslationResult.translated_text)
+        .join(TextRegion, TextRegion.id == OCRResult.region_id)
+        .join(TranslationResult, TranslationResult.region_id == TextRegion.id)
+        .join(Page, Page.id == TextRegion.page_id)
+        .where(
+            TextRegion.page_id.in_(id_trang_truoc),
+            OCRResult.status == OCRStatus.ok,
+            TranslationResult.status == TranslationStatus.ok,
+        )
+        .order_by(
+            Page.order.asc(),
+            Page.created_at.asc(),
+            TextRegion.reading_order.nulls_last(),
+            TextRegion.created_at.asc(),
+        )
+    ).all()
+
+    cap_hop_le: list[tuple[str, str]] = []
+    for chu_goc, ban_dich in rows:
+        goc = " ".join((chu_goc or "").splitlines()).strip()
+        dich = " ".join((ban_dich or "").splitlines()).strip()
+        if goc and dich:
+            cap_hop_le.append((goc, dich))
+    return cap_hop_le[-so_cau_toi_da:]
+
+
+def nap_boi_canh_du_an(
+    session: Session,
+    project_id: uuid.UUID,
+    page_id: uuid.UUID | None = None,
+    *,
+    kem_trang_truoc: bool = True,
+) -> str:
+    """Khối chữ mô tả thuật ngữ + giọng nhân vật ĐÃ CHỐT của project (+ thoại trang liền trước).
+
+    Trả chuỗi rỗng khi chưa có gì được chốt và không có ngữ cảnh trang trước — bên gọi nối thẳng
+    vào prompt, nên chuỗi rỗng nghĩa là prompt không đổi một ký tự nào so với trước E31.
     """
     thuat_ngu = list(
         session.scalars(
@@ -94,7 +168,12 @@ def nap_boi_canh_du_an(session: Session, project_id: uuid.UUID) -> str:
             .limit(SO_NHAN_VAT_TOI_DA)
         )
     )
-    if not thuat_ngu and not nhan_vat:
+    thoai_trang_truoc = (
+        nap_boi_canh_trang_truoc(session, project_id, page_id)
+        if page_id is not None and kem_trang_truoc
+        else []
+    )
+    if not thuat_ngu and not nhan_vat and not thoai_trang_truoc:
         return ""
 
     khoi: list[str] = []
@@ -108,4 +187,12 @@ def nap_boi_canh_du_an(session: Session, project_id: uuid.UUID) -> str:
             khoi.append("")
         khoi.append("### Giọng và xưng hô của nhân vật — giữ đúng khi câu đó là lời của họ:")
         khoi.extend(_dong_nhan_vat(v) for v in nhan_vat)
+    if thoai_trang_truoc:
+        if khoi:
+            khoi.append("")
+        khoi.append(
+            "### Thoại đã dịch ở trang liền trước — tham khảo để giữ ĐỒNG NHẤT đại từ xưng hô "
+            "(Ta/Bà/Tôi/Cậu…) và cách dịch tên riêng sang trang này:"
+        )
+        khoi.extend(f"- {goc} → {dich}" for goc, dich in thoai_trang_truoc)
     return "\n".join(khoi)
