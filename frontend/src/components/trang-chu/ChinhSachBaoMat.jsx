@@ -44,8 +44,8 @@ export default function ChinhSachBaoMat({ onQuayLai }) {
         </h1>
         <p style={{ opacity: 0.78, fontSize: 14, marginBottom: 20 }}>
           {laEn
-            ? 'Last updated: October 23, 2026 — Applies to Manga Translation Studio Web, Chrome Extension (v0.3.0+), and Windows App.'
-            : 'Cập nhật lần cuối: 23/10/2026 — Áp dụng cho Website Manga Translation Studio, Tiện ích Chrome Dịch truyện đang đọc (v0.3.0+) và Ứng dụng Windows.'}
+            ? 'Last updated: October 23, 2026 — Applies to Manga Translation Studio (https://comic.io.vn & translation.vibe1.tinhgon.xyz), Chrome Extension (v0.3.0+), and Windows App.'
+            : 'Cập nhật lần cuối: 23/10/2026 — Áp dụng cho Website chính thức https://comic.io.vn (và địa chỉ dự phòng translation.vibe1.tinhgon.xyz), Tiện ích Chrome Dịch truyện đang đọc (v0.3.0+) và Ứng dụng Windows.'}
         </p>
 
         <section style={{

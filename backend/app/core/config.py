@@ -725,7 +725,18 @@ class Settings(BaseSettings):
 
     @property
     def cors_allow_origin_list(self) -> list[str]:
-        return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]
+        ds = [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]
+        if ds:
+            for ten_mien_chinh in (
+                "https://comic.io.vn",
+                "https://www.comic.io.vn",
+                "http://comic.io.vn",
+                "http://www.comic.io.vn",
+                "https://translation.vibe1.tinhgon.xyz",
+            ):
+                if ten_mien_chinh not in ds:
+                    ds.append(ten_mien_chinh)
+        return ds
 
     @property
     def llm_configured(self) -> bool:

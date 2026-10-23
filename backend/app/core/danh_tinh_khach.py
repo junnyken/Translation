@@ -142,7 +142,11 @@ def chot_cho_khach(request: Request, settings: Settings) -> tuple[tuple[Chot, ..
     """
     ma_cookie = request.cookies.get(TEN_COOKIE)
     if not ma_cookie:
-        ma_header = (request.headers.get("x-ma-khach") or "").strip()
+        ma_header = (
+            request.headers.get("x-ma-khach")
+            or request.query_params.get("ma_khach")
+            or ""
+        ).strip()
         if len(ma_header) >= 16:
             ma_cookie = ma_header
     cookie_moi = None

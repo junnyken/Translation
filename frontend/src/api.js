@@ -36,6 +36,7 @@ export function xoaKhoa() {
 // Khoá chung KHÔNG biến mất, nhưng từ nay chỉ còn đúng một việc: gác cổng **đăng ký**, để
 // người lạ trên internet không tự tạo tài khoản trên hạ tầng của mình.
 const PHIEN_LUU = 'translation:ma-phien'
+const MA_KHACH_LUU = 'translation:ma-khach'
 
 export function docMaPhien() {
   try { return localStorage.getItem(PHIEN_LUU) || '' } catch { return '' }
@@ -45,6 +46,28 @@ export function luuMaPhien(ma) {
 }
 export function xoaMaPhien() {
   try { localStorage.removeItem(PHIEN_LUU) } catch { /* bỏ qua */ }
+}
+
+/** Mã định danh khách dự phòng khi giao diện chạy trên tên miền riêng (vd `https://comic.io.vn`)
+ *  gọi sang máy chủ API khác tên miền gốc (`translation-api.vibe1.tinhgon.xyz`), nơi trình duyệt
+ *  chặn cookie bên thứ ba (`SameSite=Lax`). */
+export function docMaKhach() {
+  try {
+    let ma = localStorage.getItem(MA_KHACH_LUU) || ''
+    if (ma.length < 16) {
+      const arr = new Uint8Array(18)
+      if (globalThis.crypto?.getRandomValues) {
+        globalThis.crypto.getRandomValues(arr)
+        ma = Array.from(arr, (b) => b.toString(16).padStart(2, '0')).join('')
+      } else {
+        ma = `khach_${Date.now()}_${Math.random().toString(36).slice(2, 14)}`
+      }
+      localStorage.setItem(MA_KHACH_LUU, ma)
+    }
+    return ma
+  } catch {
+    return ''
+  }
 }
 
 /** `fetch` có gắn mã phiên và khoá. Che hàm toàn cục CÓ CHỦ Ý — xem ghi chú ở trên.
@@ -70,6 +93,8 @@ function fetch(url, opts = {}) {
   if (khoa) headers['X-API-Key'] = khoa
   const ma = docMaPhien()
   if (ma) headers.Authorization = `Bearer ${ma}`
+  const maKhach = docMaKhach()
+  if (maKhach) headers['X-Ma-Khach'] = maKhach
   return globalThis.fetch(url, { credentials: 'include', ...opts, headers })
 }
 
@@ -775,11 +800,19 @@ export const guiGoiDichNhanh = (
 export const layTrangDichNhanh = (pageId) =>
   fetch(`${BASE}/doc-truyen/trang/${pageId}`).then(doc)
 
-/** URL ảnh ĐÃ DỊCH của một trang. Chỉ có ở chế độ `day_du`. */
-export const urlAnhDaDich = (pageId) => `${BASE}/doc-truyen/trang/${pageId}/anh`
+/** URL ảnh ĐÃ DỊCH của một trang. Chỉ có ở chế độ `day_du`.
+ *  Đính kèm `?ma_khach=...` để thẻ `<img>` trên tên miền `https://comic.io.vn` tải được ảnh
+ *  ngay cả khi trình duyệt chặn cookie chéo tên miền gốc. */
+export const urlAnhDaDich = (pageId) => {
+  const mk = docMaKhach()
+  return `${BASE}/doc-truyen/trang/${pageId}/anh${mk ? `?ma_khach=${encodeURIComponent(mk)}` : ''}`
+}
 
 /** URL ảnh GỐC của một trang dịch nhanh (khi tải lên gói ZIP/CBZ/PDF ở trang chủ). */
-export const urlAnhGocDichNhanh = (pageId) => `${BASE}/doc-truyen/trang/${pageId}/anh-goc`
+export const urlAnhGocDichNhanh = (pageId) => {
+  const mk = docMaKhach()
+  return `${BASE}/doc-truyen/trang/${pageId}/anh-goc${mk ? `?ma_khach=${encodeURIComponent(mk)}` : ''}`
+}
 
 /** Xin gói cả chapter thành MỘT tệp. Trả `{job_id, …}`.
  *
