@@ -322,7 +322,22 @@ res = requests.post(
 # Tải ảnh đã dịch hoàn chỉnh về máy chủ của bạn:
 if res.get("rendered_image_url"):
     img_bytes = requests.get(res["rendered_image_url"]).content
-    open("trang_da_dich.png", "wb").write(img_bytes)`}</pre>
+    open("trang_da_dich.png", "wb").write(img_bytes)
+
+# Cách 2: Đẩy nguyên 1 Chapter (danh sách nhiều URL ảnh) chỉ với 1 lệnh gọi:
+chap = requests.post(
+    "${apiOrigin}/api/v1/developer/translate-chapter",
+    headers={"X-Customer-Api-Key": API_KEY},
+    json={
+        "chapter_name": "One Piece - Chap 1120",
+        "image_urls": ["https://.../01.jpg", "https://.../02.jpg"],
+        "source_lang": "ja",
+        "target_lang": "vi",
+        "engine": "llm_context",
+        "mode": "day_du"
+    }
+).json()
+print("Link theo dõi & kéo cả chapter:", chap["poll_chapter_url"])`}</pre>
             )}
 
             {tabCode === 'nodejs' && (

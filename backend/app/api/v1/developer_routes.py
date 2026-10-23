@@ -290,6 +290,7 @@ async def developer_dich_anh(
     request: Request,
     file: UploadFile | None = File(default=None, description="File ảnh truyện (PNG/JPG/WEBP)"),
     image_url: str | None = Form(default=None, description="Hoặc truyền URL ảnh trực tiếp từ web nguồn"),
+    image_base64: str | None = Form(default=None, description="Hoặc truyền chuỗi Base64 của ảnh"),
     referer: str | None = Form(default=None, description="Referer tuỳ chọn để vượt chống hotlink khi tải từ image_url"),
     source_lang: SourceLang = Form(SourceLang.ja, description="Ngôn ngữ gốc: ja | ko | zh | en"),
     target_lang: TargetLang = Form(TargetLang.vi, description="Ngôn ngữ đích: vi | en"),
@@ -310,13 +311,54 @@ async def developer_dich_anh(
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
-    """Endpoint All-in-One cho Tool/Website khách hàng gửi 1 trang ảnh lên dịch và kéo kết quả về."""
+    """Endpoint All-in-One cho Tool/Website khách hàng gửi 1 trang ảnh lên dịch và kéo kết quả về.
+    Hỗ trợ cả `multipart/form-data` (gửi `file` / `image_url` / `image_base64`) LẪN `application/json`.
+    """
     nguoi, ma_api = xac_thuc
     danh_tinh = _danh_tinh_tu_nguoi_dung(nguoi)
+
+    # Hỗ trợ cả khách hàng gọi bằng JSON body (`Content-Type: application/json`)
+    ctype = (request.headers.get("content-type") or "").lower()
+    if "application/json" in ctype:
+        try:
+            body_json = await request.json()
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=422, detail=f"JSON không hợp lệ: {exc}") from exc
+        if isinstance(body_json, dict):
+            image_url = body_json.get("image_url") or image_url
+            image_base64 = body_json.get("image_base64") or image_base64
+            referer = body_json.get("referer") or referer
+            if "source_lang" in body_json and body_json["source_lang"]:
+                source_lang = SourceLang(str(body_json["source_lang"]))
+            if "target_lang" in body_json and body_json["target_lang"]:
+                target_lang = TargetLang(str(body_json["target_lang"]))
+            if "engine" in body_json and body_json["engine"]:
+                engine = TranslationEngine(str(body_json["engine"]))
+            if "mode" in body_json and body_json["mode"]:
+                mode = ChePipeline(str(body_json["mode"]))
+            if "font_style" in body_json:
+                font_style = body_json["font_style"]
+            if "glossary" in body_json:
+                glossary = body_json["glossary"]
+            if "wait" in body_json:
+                wait = bool(body_json["wait"])
+            if "timeout_sec" in body_json and body_json["timeout_sec"] is not None:
+                timeout_sec = int(body_json["timeout_sec"])
+            if "include_base64" in body_json:
+                include_base64 = bool(body_json["include_base64"])
+
     _kiem_engine(engine, settings, co_tai_khoan=True)
 
     if file is not None:
         data = await file.read()
+    elif image_base64 and image_base64.strip():
+        try:
+            b64_clean = image_base64.strip()
+            if "," in b64_clean and b64_clean.startswith("data:"):
+                b64_clean = b64_clean.split(",", 1)[1]
+            data = base64.b64decode(b64_clean)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=422, detail=f"image_base64 không hợp lệ: {exc}") from exc
     elif image_url and image_url.strip():
         try:
             data = await run_in_threadpool(
@@ -333,7 +375,7 @@ async def developer_dich_anh(
     else:
         raise HTTPException(
             status_code=422,
-            detail="Phải gửi kèm 'file' (multipart/form-data) hoặc 'image_url'.",
+            detail="Phải gửi kèm 'file' (multipart/form-data), 'image_url' hoặc 'image_base64'.",
         )
 
     if not data:
@@ -535,6 +577,196 @@ async def developer_tai_anh_da_xoa_chu(
         media_type="image/png",
         headers={"Cache-Control": "public, max-age=3600"},
     )
+
+
+class DeveloperTranslateChapterRequest(BaseModel):
+    chapter_name: str = Field("Chapter API", max_length=200, description="Tên chapter")
+    image_urls: list[str] = Field(..., min_length=1, max_length=80, description="Danh sách URL ảnh của cả chapter theo thứ tự trang")
+    referer: str | None = Field(default=None, description="Referer tuỳ chọn để vượt chống hotlink")
+    source_lang: SourceLang = Field(SourceLang.ja, description="ja | ko | zh | en")
+    target_lang: TargetLang = Field(TargetLang.vi, description="vi | en")
+    engine: TranslationEngine = Field(TranslationEngine.google_fast, description="google_fast hoặc llm_context")
+    mode: ChePipeline = Field(ChePipeline.day_du, description="day_du hoặc chi_chu")
+    font_style: str | None = Field(default=None)
+    glossary: str | None = Field(default=None)
+
+
+@router.post("/translate-chapter", response_model=dict, status_code=status.HTTP_202_ACCEPTED)
+async def developer_dich_ca_chapter_urls(
+    body: DeveloperTranslateChapterRequest,
+    request: Request,
+    xac_thuc: tuple[NguoiDung, str] = Depends(_xac_thuc_developer),
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    """Nhận danh sách `image_urls` của nguyên 1 chapter từ tool khách hàng, tự động tải từng trang,
+    kiểm tra Cache Cộng Đồng SHA-256 và xếp hàng dịch toàn bộ chapter.
+    """
+    from app.core.cong_han_muc import con_du_khong
+    from app.models.enums import IntendedUse
+
+    nguoi, ma_api = xac_thuc
+    danh_tinh = _danh_tinh_tu_nguoi_dung(nguoi)
+    _kiem_engine(body.engine, settings, co_tai_khoan=True)
+
+    urls = [u.strip() for u in body.image_urls if u and u.strip()]
+    if not urls:
+        raise HTTPException(status_code=422, detail="Danh sách image_urls rỗng.")
+
+    await con_du_khong(session, danh_tinh, settings, so_trang=len(urls))
+
+    project = Project(
+        name=body.chapter_name.strip() or "Chapter API",
+        source_lang=body.source_lang,
+        target_lang=body.target_lang,
+        intended_use=IntendedUse.personal,
+        che_do_pipeline=body.mode,
+        chu_so_huu_id=nguoi.id,
+    )
+    session.add(project)
+    await session.flush()
+
+    if body.font_style or body.glossary:
+        from app.services.typeset.chon_font import luu_tuy_chon_du_an
+
+        await run_in_threadpool(
+            luu_tuy_chon_du_an,
+            project.id,
+            font_style=body.font_style,
+            tu_dien_rieng=body.glossary,
+        )
+
+    storage = get_storage()
+    pages_out = []
+    jobs_to_dispatch: list[uuid.UUID] = []
+
+    for idx, url in enumerate(urls, start=1):
+        try:
+            raw_data = await run_in_threadpool(
+                _tai_anh_url_chong_chan, url, body.referer, settings.max_upload_bytes
+            )
+            _mime, ext = sniff_image(raw_data)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(
+                status_code=422,
+                detail=f"Trang số {idx} ({url}) không tải được hoặc không phải ảnh hợp lệ: {exc}",
+            ) from exc
+
+        page = Page(
+            project_id=project.id,
+            image_path="",
+            order=idx,
+            status=PageStatus.queued,
+            translate_engine_override=body.engine,
+        )
+        session.add(page)
+        await session.flush()
+
+        await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=page.id)
+
+        du_lieu = await run_in_threadpool(
+            thu_nho_anh_trang, raw_data, ext, settings.anh_trang_canh_dai_toi_da
+        )
+        page.image_path = await run_in_threadpool(
+            storage.save_page_image, project.id, page.id, du_lieu, ext
+        )
+
+        bam_anh = tinh_bam_anh(du_lieu)
+        trung_cache = False
+        if settings.doc_truyen_dung_cache_anh:
+            trung_cache = await thu_sao_chep_tu_cache(
+                session,
+                bam_anh=bam_anh,
+                source_lang=body.source_lang,
+                target_lang=body.target_lang,
+                engine=body.engine,
+                che_do=body.mode,
+                dich_page=page,
+                storage=storage,
+            )
+        ghi_nhan_trang_anh(
+            bam_anh, body.source_lang, body.engine, body.mode, page.id, target_lang=body.target_lang
+        )
+
+        if not trung_cache:
+            job = Job(type=JobType.detect, page_id=page.id, status=JobStatus.queued)
+            session.add(job)
+            await session.flush()
+            jobs_to_dispatch.append(job.id)
+
+        pages_out.append(
+            {
+                "order": idx,
+                "page_id": str(page.id),
+                "source_url": url,
+                "cached": trung_cache,
+                "status": "completed" if trung_cache else "processing",
+            }
+        )
+
+    await session.commit()
+
+    for jid in jobs_to_dispatch:
+        sent, reason = dispatch_detect_job(jid)
+        if not sent:
+            j = await session.get(Job, jid)
+            if j is not None:
+                j.error_log = reason
+    await session.commit()
+
+    base_url = str(request.base_url).rstrip("/")
+    return {
+        "status": "accepted",
+        "project_id": str(project.id),
+        "chapter_name": project.name,
+        "total_pages": len(pages_out),
+        "cached_pages": sum(1 for p in pages_out if p["cached"]),
+        "poll_chapter_url": f"{base_url}/api/v1/developer/projects/{project.id}",
+        "pages": pages_out,
+        "quota": await _thong_tin_quota(session, nguoi),
+    }
+
+
+@router.get("/projects/{project_id}", response_model=dict)
+async def developer_lay_ket_qua_chapter(
+    project_id: uuid.UUID,
+    request: Request,
+    xac_thuc: tuple[NguoiDung, str] = Depends(_xac_thuc_developer),
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    """Lấy tiến độ & danh sách toàn bộ các trang đã dịch của 1 chapter (`project_id`)."""
+    from app.api.v1.routes import _get_project_or_404
+
+    nguoi, ma_api = xac_thuc
+    project = await _get_project_or_404(session, project_id, NguoiGoi(nguoi=nguoi))
+    pages = (
+        await session.execute(
+            select(Page).where(Page.project_id == project.id).order_by(Page.order)
+        )
+    ).scalars().all()
+
+    ds_trang = []
+    so_xong = 0
+    for p in pages:
+        item = await _dong_goi_ket_qua_trang_developer(
+            request, session, p, nguoi, ma_api, cached=False, include_base64=False
+        )
+        if item["completed"]:
+            so_xong += 1
+        ds_trang.append(item)
+
+    return {
+        "project_id": str(project.id),
+        "chapter_name": project.name,
+        "source_lang": project.source_lang.value,
+        "target_lang": project.target_lang.value,
+        "mode": project.che_do_pipeline.value,
+        "total_pages": len(ds_trang),
+        "completed_pages": so_xong,
+        "all_completed": len(ds_trang) > 0 and so_xong == len(ds_trang),
+        "pages": ds_trang,
+        "quota": await _thong_tin_quota(session, nguoi),
+    }
 
 
 class DeveloperTranslateTextRequest(BaseModel):
