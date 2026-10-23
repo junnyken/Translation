@@ -10,7 +10,6 @@ import { chuThoiGianGiu } from '../../lib/thoi-gian-giu.js'
 import { useNgonNguUI } from '../../lib/ngon-ngu-ui.jsx'
 import Icon from '../ui/Icon'
 import ChanTrangManga from './ChanTrangManga'
-import HeSinhThaiCongCu from './HeSinhThaiCongCu'
 import TheHanMuc from './TheHanMuc'
 
 /** Ngôn ngữ chữ TRÊN ẢNH. Sai ngôn ngữ ra chữ vô nghĩa chứ không phải lỗi rõ ràng, nên phải để
@@ -474,19 +473,14 @@ export default function TrangChu() {
             : 'Thả ảnh trang truyện vào đây là chạy — không cần đăng ký trước.'}
         </p>
         <div className="manga-hero-actions">
-          <a
-            href={api.urlTaiTienIchChrome()}
-            download="dich-truyen-chrome-extension-v0.3.0.zip"
-            className="nut-manga nut-manga-chinh"
-          >
-            🧩 {laEn ? 'Download Chrome Extension (v0.4.0)' : 'Tải Tiện Ích Chrome (v0.4.0)'}
+          <a href="#tien-ich" className="nut-manga nut-manga-chinh">
+            🧩 {laEn ? 'Install Chrome Extension & Windows App' : 'Cài Tiện Ích Chrome & App Windows'}
           </a>
-          <a
-            href={api.urlTaiAppWindows()}
-            download="App-Windows-Dich-Truyen-Tu-Dong-v1.0.zip"
-            className="nut-manga nut-manga-win"
-          >
-            🖥️ {laEn ? 'Download Windows App (Auto Link & Chapter Splitter)' : 'Tải App Windows (Dịch Theo Link & Chia Chapter)'}
+          <a href="#ket-noi-api" className="nut-manga nut-manga-win">
+            ⚡ {laEn ? 'Developer API Integration' : 'Kết Nối API Cho Tool / Web'}
+          </a>
+          <a href="#bang-gia" className="nut-manga nut-manga-phu">
+            💎 {laEn ? 'Pricing & VIP Top-up' : 'Bảng Giá & Nạp Lượt VIP'}
           </a>
         </div>
       </header>
@@ -1020,8 +1014,6 @@ export default function TrangChu() {
 
           Cố ý KHÔNG nhắc lại "khoảng 30 giây mỗi trang" và "tệp giữ 30 phút" — khối `<details>`
           ngay trên đã nói cả hai, và lặp lại là đúng thứ đang làm màn này rối. */}
-      <HeSinhThaiCongCu />
-
       <section className="cach-chay" aria-labelledby="tieu-de-cach-chay">
         <h2 id="tieu-de-cach-chay">Cách hoạt động</h2>
         <ol className="ds-buoc">

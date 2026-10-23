@@ -61,8 +61,16 @@ a { color: var(--mau-chinh-dam); }
 /* `min-width: 0` là thứ bắt buộc, không phải trang trí: mặc định flex item KHÔNG co nhỏ hơn nội
    dung của nó, nên thiếu dòng này thì mọi `max-width` bên dưới đều vô hiệu. */
 .dieu-huong { display: flex; align-items: center; gap: var(--s-2); min-width: 0; flex-wrap: wrap; }
-.dieu-huong > a { text-decoration: none; font-size: var(--cc-md); color: var(--mo); padding: 6px var(--s-2); }
-.dieu-huong > a.dang-o { color: var(--chu); font-weight: 600; }
+.dieu-huong > a {
+  text-decoration: none; font-size: var(--cc-md); color: var(--mo);
+  padding: 6px 11px; border-radius: 8px; font-weight: 600;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.dieu-huong > a:hover { background: var(--the-mo); color: var(--chu); }
+.dieu-huong > a.dang-o {
+  color: var(--mau-chinh-dam); font-weight: 700;
+  background: var(--mau-chinh-nhat);
+}
 .o-tim { display: flex; gap: var(--s-2); margin-left: auto; flex: 1 1 260px; max-width: 460px; }
 .o-tim input {
   flex: 1; min-width: 0; padding: var(--s-2) var(--s-3); border: 1px solid var(--vien-o);

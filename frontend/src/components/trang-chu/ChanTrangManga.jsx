@@ -36,26 +36,26 @@ export default function ChanTrangManga() {
 
         {/* Cột 2: Tải Bộ Công Cụ */}
         <div className="cot-chan-trang">
-          <h3>📦 {laEn ? 'Download Toolkit' : 'Tải Bộ Công Cụ'}</h3>
+          <h3>📦 {laEn ? 'Ecosystem & Pages' : 'Hệ Sinh Thái & Trang Chuyên Biệt'}</h3>
           <ul className="ds-lien-ket-chan">
             <li>
-              <a href={api.urlTaiTienIchChrome()} download="dich-truyen-chrome-extension-v0.3.0.zip">
-                🧩 {laEn ? 'Chrome / Edge Extension (v0.3.0)' : 'Tải Tiện Ích Chrome / Edge (v0.3.0)'}
+              <a href="#tien-ich">
+                🧩 {laEn ? 'Install Chrome Extension & Windows App' : 'Trang Cài Tiện Ích Chrome & App Windows'}
               </a>
             </li>
             <li>
-              <a href={api.urlTaiAppWindows()} download="App-Windows-Dich-Truyen-Tu-Dong-v1.0.zip">
-                🖥️ {laEn ? 'Windows Batch Chapter App (v1.0)' : 'Tải App Windows Chia Chapter (v1.0)'}
+              <a href="#ket-noi-api">
+                ⚡ {laEn ? 'Developer REST API Integration' : 'Trang Hướng Dẫn Kết Nối API (tr_live_...)'}
               </a>
             </li>
             <li>
-              <a href="#tieu-de-he-sinh-thai">
-                📖 {laEn ? '10-Second Setup Guide' : 'Hướng dẫn cài đặt trong 10 giây'}
+              <a href="#bang-gia">
+                💎 {laEn ? 'Pricing & Enterprise API Plans' : 'Trang Bảng Giá & Gói Cước Doanh Nghiệp'}
               </a>
             </li>
             <li>
-              <a href="#tieu-de-cach-chay">
-                ⚡ {laEn ? 'Fast Web Translation Workflow' : 'Quy trình dịch nhanh trên Web'}
+              <a href="#privacy-policy">
+                🛡️ {laEn ? 'Privacy Policy (/privacy-policy)' : 'Chính sách quyền riêng tư (/privacy-policy)'}
               </a>
             </li>
           </ul>

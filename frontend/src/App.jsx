@@ -24,8 +24,10 @@ import ReviewToolbar from './components/chapter/ReviewToolbar.jsx'
 import ManDangNhap from './components/auth/ManDangNhap.jsx'
 import ChanTrangManga from './components/trang-chu/ChanTrangManga.jsx'
 import ChinhSachBaoMat from './components/trang-chu/ChinhSachBaoMat.jsx'
-import HeSinhThaiCongCu from './components/trang-chu/HeSinhThaiCongCu.jsx'
+import TrangBangGia from './components/trang-chu/TrangBangGia.jsx'
 import TrangChu from './components/trang-chu/TrangChu.jsx'
+import TrangKetNoiApi from './components/trang-chu/TrangKetNoiApi.jsx'
+import TrangTienIch from './components/trang-chu/TrangTienIch.jsx'
 import ManTaiKhoan from './components/auth/ManTaiKhoan.jsx'
 import BangChuaCoChu from './components/auth/BangChuaCoChu.jsx'
 import QuanTriNguoiDung from './components/auth/QuanTriNguoiDung.jsx'
@@ -67,16 +69,24 @@ const docTabChapter = () => {
 function docDiaChi() {
   const hashRaw = window.location.hash.slice(1)
   const p = new URLSearchParams(hashRaw)
-  const laPrivacy =
-    window.location.pathname === '/privacy-policy' ||
-    hashRaw === 'privacy-policy' ||
-    p.has('privacy-policy')
+  const pathClean = window.location.pathname.replace(/^\/+|\/+$/g, '')
+  let trangTinh = ''
+  if (pathClean === 'privacy-policy' || hashRaw === 'privacy-policy' || p.has('privacy-policy')) {
+    trangTinh = 'privacy-policy'
+  } else if (pathClean === 'tien-ich' || hashRaw === 'tien-ich' || p.has('tien-ich')) {
+    trangTinh = 'tien-ich'
+  } else if (pathClean === 'ket-noi-api' || hashRaw === 'ket-noi-api' || p.has('ket-noi-api')) {
+    trangTinh = 'ket-noi-api'
+  } else if (pathClean === 'bang-gia' || hashRaw === 'bang-gia' || p.has('bang-gia')) {
+    trangTinh = 'bang-gia'
+  }
+  const laPrivacy = trangTinh === 'privacy-policy'
   // E76 — `#canvas=<page_id>` mở màn sửa tay kiểu canvas. `#canvas=&project=<id>` (không có trang)
   // mở theo chapter: vào trang đầu, hoặc hiện màn "chưa có trang" nếu chapter rỗng.
   return {
     pageId: p.get('page') || '', projectId: p.get('project') || '',
     coCanvas: p.has('canvas'), canvasId: p.get('canvas') || '',
-    laPrivacy,
+    laPrivacy, trangTinh,
   }
 }
 
@@ -128,7 +138,15 @@ function AppRuot({ urlBundle } = {}) {
     chuyenTab(ma)
     setTimeout(() => khuTabRef.current?.scrollIntoView?.({ block: 'nearest' }), 0)
   }, [chuyenTab])
-  const [{ pageId, projectId, coCanvas, canvasId, laPrivacy }, setDiaChi] = useState(docDiaChi)
+  const [{ pageId, projectId, coCanvas, canvasId, laPrivacy, trangTinh }, setDiaChi] = useState(docDiaChi)
+  const veTrangChu = useCallback(() => {
+    if (window.location.pathname !== '/') {
+      window.history.pushState({}, '', '/')
+    }
+    window.location.hash = ''
+    setMuonDangNhap(false)
+    setDiaChi(docDiaChi())
+  }, [])
   const [nhap, setNhap] = useState(projectId || pageId)
   const [project, setProject] = useState(null)
   const [canhBao, setCanhBao] = useState(null)
@@ -528,13 +546,43 @@ function AppRuot({ urlBundle } = {}) {
             trắng, nên nó đọc ra như một mảnh trang chứ không phải một sản phẩm. */}
         <header className="dau-trang">
           <div className="dau-trang-trong">
-            <a className="hieu" href="#">
+            <a className="hieu" href="#" onClick={() => setMuonDangNhap(false)}>
               <span className="hieu-dau">T</span>
               <span>
                 <b>Translation</b>
                 <small>{laEn ? 'AI Manga, Manhwa & Webtoon Translator' : 'Dịch truyện tranh sang tiếng Việt & Quốc tế'}</small>
               </span>
             </a>
+            <nav aria-label="Điều hướng chính" className="dieu-huong">
+              <a
+                href="#"
+                className={!trangTinh && !muonDangNhap ? 'dang-o' : ''}
+                onClick={() => setMuonDangNhap(false)}
+              >
+                {laEn ? '🏠 Translate' : '🏠 Dịch Truyện'}
+              </a>
+              <a
+                href="#tien-ich"
+                className={trangTinh === 'tien-ich' ? 'dang-o' : ''}
+                onClick={() => setMuonDangNhap(false)}
+              >
+                {laEn ? '🧩 Extensions & App' : '🧩 Tiện Ích'}
+              </a>
+              <a
+                href="#ket-noi-api"
+                className={trangTinh === 'ket-noi-api' ? 'dang-o' : ''}
+                onClick={() => setMuonDangNhap(false)}
+              >
+                {laEn ? '⚡ Developer API' : '⚡ Kết Nối API'}
+              </a>
+              <a
+                href="#bang-gia"
+                className={trangTinh === 'bang-gia' ? 'dang-o' : ''}
+                onClick={() => setMuonDangNhap(false)}
+              >
+                {laEn ? '💎 Pricing' : '💎 Bảng Giá'}
+              </a>
+            </nav>
             <div className="dau-phai hang">
               <DoiNgonNguUI />
               <DoiTheme />
@@ -549,23 +597,21 @@ function AppRuot({ urlBundle } = {}) {
         {/* `TrangChu` TỰ nó là một `<main>`. Bọc nó trong `<main className="than-trang">` như bản
             cũ là lồng hai `<main>` vào nhau — HTML không hợp lệ, và trình đọc màn hình mất mốc
             "nội dung chính". Chỉ màn đăng nhập mới cần lớp bọc đó. */}
-        {laPrivacy ? (
-          <ChinhSachBaoMat
-            onQuayLai={() => {
-              if (window.location.pathname === '/privacy-policy') {
-                window.history.pushState({}, '', '/')
-              }
-              window.location.hash = ''
-              setDiaChi(docDiaChi())
-            }}
-          />
-        ) : muonDangNhap
-          ? (
-            <main className="than-trang">
-              <ManDangNhap onXong={setNguoiDung} onQuayLai={() => setMuonDangNhap(false)} />
-            </main>
-          )
-          : <TrangChu />}
+        {muonDangNhap ? (
+          <main className="than-trang">
+            <ManDangNhap onXong={setNguoiDung} onQuayLai={() => setMuonDangNhap(false)} />
+          </main>
+        ) : laPrivacy ? (
+          <ChinhSachBaoMat onQuayLai={veTrangChu} />
+        ) : trangTinh === 'tien-ich' ? (
+          <TrangTienIch onQuayLai={veTrangChu} />
+        ) : trangTinh === 'ket-noi-api' ? (
+          <TrangKetNoiApi onQuayLai={veTrangChu} onMoTaiKhoan={() => setMuonDangNhap(true)} />
+        ) : trangTinh === 'bang-gia' ? (
+          <TrangBangGia nguoiDung={null} onQuayLai={veTrangChu} onMoDangNhap={() => setMuonDangNhap(true)} />
+        ) : (
+          <TrangChu />
+        )}
       </div>
     )
   }
@@ -596,7 +642,7 @@ function AppRuot({ urlBundle } = {}) {
         </a>
 
         <nav aria-label="Điều hướng chính" className="dieu-huong">
-          <a href="#" className={oTrangChu ? 'dang-o' : ''}>Chapter</a>
+          <a href="#" className={oTrangChu && !trangTinh ? 'dang-o' : ''}>Chapter</a>
           {/* E63 — trước đây chỗ này chỉ `scrollIntoView` vào `#nut-tao`. Nút đó CHỈ tồn tại
               trên trang chủ, ở tab "Tạo chapter mới" — nên khi đang mở một chapter thì `?.`
               nuốt lời gọi và bấm vào đây KHÔNG có gì xảy ra, cũng không có lời giải thích nào.
@@ -610,6 +656,15 @@ function AppRuot({ urlBundle } = {}) {
               () => document.getElementById('nut-tao')?.scrollIntoView({ block: 'center' }), 80,
             )
           }}>Tạo chapter</a>
+          <a href="#tien-ich" className={trangTinh === 'tien-ich' ? 'dang-o' : ''}>
+            {laEn ? '🧩 Extensions & App' : '🧩 Tiện Ích'}
+          </a>
+          <a href="#ket-noi-api" className={trangTinh === 'ket-noi-api' ? 'dang-o' : ''}>
+            {laEn ? '⚡ Developer API' : '⚡ Kết Nối API'}
+          </a>
+          <a href="#bang-gia" className={trangTinh === 'bang-gia' ? 'dang-o' : ''}>
+            {laEn ? '💎 Pricing' : '💎 Bảng Giá'}
+          </a>
           <span className="tai-khoan">
             {/* E54 — bấm vào tên mở màn TÀI KHOẢN (§4.4). Trước đây tên chỉ là chữ tĩnh, nên
                 người dùng không có chỗ nào xem hạn mức của mình sau khi đăng nhập. */}
@@ -641,15 +696,13 @@ function AppRuot({ urlBundle } = {}) {
       </header>
 
       {laPrivacy ? (
-        <ChinhSachBaoMat
-          onQuayLai={() => {
-            if (window.location.pathname === '/privacy-policy') {
-              window.history.pushState({}, '', '/')
-            }
-            window.location.hash = ''
-            setDiaChi(docDiaChi())
-          }}
-        />
+        <ChinhSachBaoMat onQuayLai={veTrangChu} />
+      ) : trangTinh === 'tien-ich' ? (
+        <TrangTienIch onQuayLai={veTrangChu} />
+      ) : trangTinh === 'ket-noi-api' ? (
+        <TrangKetNoiApi onQuayLai={veTrangChu} onMoTaiKhoan={() => setMoTaiKhoan(true)} />
+      ) : trangTinh === 'bang-gia' ? (
+        <TrangBangGia nguoiDung={nguoiDung} onQuayLai={veTrangChu} />
       ) : coCanvas ? (
         <CanvasEditor pageId={canvasId} projectId={projectId} />
       ) : (
@@ -689,19 +742,14 @@ function AppRuot({ urlBundle } = {}) {
               <h1>Dịch truyện tranh</h1>
               <p className="dan">{DAN_TRANG_CHU}</p>
               <div className="manga-hero-actions">
-                <a
-                  href={api.urlTaiTienIchChrome()}
-                  download="dich-truyen-chrome-extension-v0.3.0.zip"
-                  className="nut-manga nut-manga-chinh"
-                >
-                  🧩 Tải Tiện Ích Chrome (v0.3.0)
+                <a href="#tien-ich" className="nut-manga nut-manga-chinh">
+                  🧩 {laEn ? 'Install Chrome Extension & Windows App' : 'Cài Tiện Ích Chrome & App Windows'}
                 </a>
-                <a
-                  href={api.urlTaiAppWindows()}
-                  download="App-Windows-Dich-Truyen-Tu-Dong-v1.0.zip"
-                  className="nut-manga nut-manga-win"
-                >
-                  🖥️ Tải App Windows (Dịch Theo Link &amp; Chia Chapter)
+                <a href="#ket-noi-api" className="nut-manga nut-manga-win">
+                  ⚡ {laEn ? 'Developer API Integration' : 'Kết Nối API Cho Tool / Web'}
+                </a>
+                <a href="#bang-gia" className="nut-manga nut-manga-phu">
+                  💎 {laEn ? 'Pricing & VIP Top-up' : 'Bảng Giá & Nạp Lượt VIP'}
                 </a>
               </div>
             </div>
@@ -718,7 +766,6 @@ function AppRuot({ urlBundle } = {}) {
               <ChapterRecentList danhSach={ganDay} />
             </div>
 
-            <HeSinhThaiCongCu />
             <ChanTrangManga />
           </>
         )}
