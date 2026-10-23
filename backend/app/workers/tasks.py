@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import threading
 import time
 import uuid
 from datetime import datetime, timezone
@@ -70,6 +71,7 @@ _OCR_HARD_LIMIT = settings.ocr_timeout_seconds + 30
 
 #: Detector nạp 1 lần/process (weight ~91MB) — nạp lại mỗi ảnh sẽ rất chậm.
 _detector = None
+_KHOA_MO_HINH_CUC_BO = threading.Lock()
 
 #: Cảnh báo `ja` + `ctd` chỉ ghi MỘT lần mỗi tiến trình — đây là vấn đề cấu hình, không
 #: phải vấn đề của từng trang. Lặp mỗi trang chỉ tạo tiếng ồn.
@@ -1287,33 +1289,29 @@ def _run_inpaint(job_id: uuid.UUID) -> dict:
     if old_clean_rel:
         deleted_old = storage.delete(old_clean_rel)
 
-    # Bước nặng nhất. Giữ lại OCR vì `inpaint_verify_by_ocr` cần nó ngay sau đó — nhả rồi nạp
-    # lại trong cùng một job là tự chuốc lấy cái giá vô ích.
-    ep_giai_phong_neu_cang({"inpainter", "ocr"}, settings.worker_rss_soft_limit_mb)
-    ghi_moc("inpaint: trước")
-    inpainter = get_inpainter()
-    leftovers: list[str] = []
-    # LaMa đọc ảnh gốc rồi tự ghi ảnh clean CẠNH nó — nên cho nó làm việc đó trong thư mục tạm,
-    # xong mới đưa kết quả vào kho. Path tương đối của ảnh clean vẫn suy ra từ ảnh gốc nên
-    # KHÔNG đổi so với trước P3c (`projects/<pid>/pages/<page_id>_clean.png`) — không cần migrate
-    # dữ liệu cũ.
-    mat_na_chu = _doc_mat_na_chu(image_rel)
-    with workspace() as ws:
-        image_abs = str(storage.fetch_to(image_rel, ws / PurePosixPath(image_rel).name))
-        # E79 — có mặt nạ chữ (CTD) thì xoá theo nét; không có (Gemini) thì như trước. Chỉ truyền
-        # khi có, để bộ xoá chữ không hỗ trợ tham số này (bản giả trong test cũ) vẫn chạy.
-        clean_abs = (inpainter.inpaint(image_abs, boxes, mat_na_chu=mat_na_chu)
-                     if mat_na_chu is not None else inpainter.inpaint(image_abs, boxes))
-        clean_rel = str(PurePosixPath(image_rel).parent / PurePosixPath(clean_abs).name)
-        storage.save_file(clean_rel, Path(clean_abs))
+    # Bước nặng nhất. Khi worker chạy `--pool=threads`, khoá `_KHOA_MO_HINH_CUC_BO` bảo đảm LaMa
+    # chỉ chạy 1 trang tại 1 thời điểm để không vọt RAM, trong khi các luồng `chi_chu` (Gemini API)
+    # vẫn chạy song song 6 luồng không chờ nhau.
+    with _KHOA_MO_HINH_CUC_BO:
+        ep_giai_phong_neu_cang({"inpainter", "ocr"}, settings.worker_rss_soft_limit_mb)
+        ghi_moc("inpaint: trước")
+        inpainter = get_inpainter()
+        leftovers: list[str] = []
+        mat_na_chu = _doc_mat_na_chu(image_rel)
+        with workspace() as ws:
+            image_abs = str(storage.fetch_to(image_rel, ws / PurePosixPath(image_rel).name))
+            clean_abs = (inpainter.inpaint(image_abs, boxes, mat_na_chu=mat_na_chu)
+                         if mat_na_chu is not None else inpainter.inpaint(image_abs, boxes))
+            clean_rel = str(PurePosixPath(image_rel).parent / PurePosixPath(clean_abs).name)
+            storage.save_file(clean_rel, Path(clean_abs))
 
-        if settings.inpaint_verify_by_ocr:
-            with Image.open(image_abs) as im:
-                width, height = im.size
-            dilated = inpainter.dilated_masks(width, height, boxes)
-            leftovers = _verify_text_removed(clean_abs, dilated, source_lang, chu_goc_xoa)
+            if settings.inpaint_verify_by_ocr:
+                with Image.open(image_abs) as im:
+                    width, height = im.size
+                dilated = inpainter.dilated_masks(width, height, boxes)
+                leftovers = _verify_text_removed(clean_abs, dilated, source_lang, chu_goc_xoa)
 
-    ghi_moc("inpaint: sau")
+        ghi_moc("inpaint: sau")
     elapsed = time.perf_counter() - started
     target_status = PageStatus.inpaint_needs_review if leftovers else PageStatus.inpainted
 

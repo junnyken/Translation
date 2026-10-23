@@ -21,22 +21,18 @@ TRANG_THAI_WORKER="${WORKER_STATE_FILE:-/tmp/trang-thai-worker.json}"
 # ở trên: tệp kia do shell này ghi, hai người ghi chung một tệp là mất dữ liệu của cả hai.
 export WORKER_RSS_FILE="${WORKER_RSS_FILE:-/tmp/rss-worker.json}"
 
+# Mặc định cho phép 120 lượt Gemini/phút và 6 luồng I/O đồng thời trên bản chạy thật
+# để phục vụ mượt 40-60 người dùng cùng lúc ở chế độ GPU/Canvas máy khách (`chi_chu`).
+export LLM_PROJECT_RPM="${LLM_PROJECT_RPM:-120}"
+CELERY_CONCURRENCY="${CELERY_CONCURRENCY:-6}"
+
 lenh_worker() {
-  # --pool=solo: một tiến trình duy nhất, không fork. Xử lý mỗi lần một việc nên không mất gì,
-  #   mà bớt được một bản sao toàn bộ thư viện AI trong bộ nhớ.
-  # --without-gossip/mingle/heartbeat: chỉ có MỘT worker, không cần dò tìm worker khác.
-  # -B: beat NHÚNG trong chính worker. Topology là đúng MỘT worker `--pool=solo`, nên không
-  #   cần (và không nên) dựng thêm một container beat — đó là thêm một tiến trình Python cùng
-  #   toàn bộ thư viện AI trên một máy chủ đã bó 4096 MB.
-  #   Lịch dọn tệp chỉ được ĐĂNG KÝ khi `BAT_LICH_DON_TEP=true`; mặc định tắt nên beat chạy
-  #   không lịch nào và gần như không tốn gì. Nhờ vậy bật tính năng là đổi BIẾN MÔI TRƯỜNG,
-  #   không phải sửa lệnh khởi động rồi deploy lại.
-  #   ⚠️ Ngày nào chạy nhiều worker, PHẢI tách beat ra trước — nếu không mỗi worker tự chạy lịch
-  #   của riêng nó và các lượt dọn chạy chồng lên nhau.
-  # --schedule: để trong /tmp. Mặc định beat ghi tệp lịch vào THƯ MỤC LÀM VIỆC, mà thư mục đó
-  #   có thể chỉ-đọc trên nền tảng hosting ⇒ worker chết lúc khởi động vì một tệp phụ trợ.
+  # --pool=threads --concurrency=6: giữ nguyên 1 tiến trình Python duy nhất (0 MB nhân bản bộ nhớ),
+  #   nhưng cho phép 6 yêu cầu mạng Gemini API (`dich_trang_gop_mot_luot`) chạy song song cùng lúc
+  #   thay vì bắt 40 người dùng xếp hàng tuần tự từng người một. Các bước nặng RAM cục bộ (LaMa inpaint)
+  #   đã có khoá `threading.Lock` bảo vệ trong `tasks.py`.
   celery -A app.workers.celery_app.celery_app worker \
-    -l info -Q celery --pool=solo -B --schedule=/tmp/celerybeat-schedule \
+    -l info -Q celery --pool=threads --concurrency="${CELERY_CONCURRENCY}" -B --schedule=/tmp/celerybeat-schedule \
     --without-gossip --without-mingle --without-heartbeat
 }
 
