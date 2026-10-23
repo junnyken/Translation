@@ -98,11 +98,14 @@ from app.schemas.common import (
     CapLuotRequest,
     CapLuotResponse,
     ChotHanMucRead,
+    DonNapLuotRead,
+    DuyetDonNapRequest,
     GoiNapLuotRead,
     HanMucRead,
     QuanTriNguoiDungChiTietRead,
     QuanTriThongKeRead,
     ThongTinNapLuotRead,
+    XacNhanChuyenKhoanRequest,
     TienDoDocTruyen,
     NhanDangNgonNguRead,
     TrangDocTruyen,
@@ -461,7 +464,7 @@ async def xem_han_muc(
 
 
 def _doc_cau_hinh_ngan_hang_dong(settings: Settings) -> tuple[str, str, str]:
-    """Đọc cấu hình VietQR động từ kho lưu trữ (nếu Admin đã lưu trên giao diện), lùi về `.env`."""
+    """Đọc cấu hình VietQR động từ kho lưu trữ (nếu Admin đã lưu trên giao diện), lùi về ACB 20260457."""
     import json
 
     try:
@@ -470,16 +473,16 @@ def _doc_cau_hinh_ngan_hang_dong(settings: Settings) -> tuple[str, str, str]:
         if storage.exists(rel):
             data = json.loads(storage.read(rel).decode("utf-8"))
             if isinstance(data, dict):
-                ten = str(data.get("ngan_hang_ten") or settings.ngan_hang_ten or "").strip()
-                stk = str(data.get("ngan_hang_so_tk") or settings.ngan_hang_so_tk or "").strip()
-                chu = str(data.get("ngan_hang_chu_tk") or settings.ngan_hang_chu_tk or "").strip()
+                ten = str(data.get("ngan_hang_ten") or settings.ngan_hang_ten or "ACB").strip()
+                stk = str(data.get("ngan_hang_so_tk") or settings.ngan_hang_so_tk or "20260457").strip()
+                chu = str(data.get("ngan_hang_chu_tk") or settings.ngan_hang_chu_tk or "NGUYEN THIEN TRIEU").strip()
                 return ten, stk, chu
     except Exception:  # noqa: BLE001
         pass
     return (
-        settings.ngan_hang_ten,
-        settings.ngan_hang_so_tk,
-        settings.ngan_hang_chu_tk,
+        settings.ngan_hang_ten or "ACB",
+        settings.ngan_hang_so_tk or "20260457",
+        settings.ngan_hang_chu_tk or "NGUYEN THIEN TRIEU",
     )
 
 
@@ -494,6 +497,69 @@ def _luu_cau_hinh_ngan_hang_dong(ten: str, stk: str, chu: str) -> None:
         "ngan_hang_chu_tk": (chu or "").strip(),
     }
     storage.save(rel, json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+
+
+def _danh_sach_goi_nap_chuan(don_gia: int) -> list[GoiNapLuotRead]:
+    return [
+        GoiNapLuotRead(
+            ma="co_ban",
+            ten="🌱 Gói Khởi Đầu — Starter (100 trang)",
+            so_tien_vnd=100 * don_gia,
+            so_trang=100,
+            ghi_chu="Tương đương ~5 chapter truyện. Lượt mua không bao giờ hết hạn qua đêm.",
+        ),
+        GoiNapLuotRead(
+            ma="tieu_chuan",
+            ten="🔥 Gói Độc Giả VIP — Reader (550 trang)",
+            so_tien_vnd=500 * don_gia,
+            so_trang=550,
+            ghi_chu="Tặng thêm 10% số trang (~28 chapter). Dùng chung Web, Extension & App Windows.",
+        ),
+        GoiNapLuotRead(
+            ma="nhom_dich",
+            ten="🎬 Gói Nhóm Dịch / Studio (1.200 trang)",
+            so_tien_vnd=1000 * don_gia,
+            so_trang=1200,
+            ghi_chu="Tặng thêm 20% số trang (~60 chapter). Phù hợp nhóm scanlation, dịch trọn bộ / làm video.",
+        ),
+        GoiNapLuotRead(
+            ma="doanh_nghiep_api",
+            ten="🏢 Gói Doanh Nghiệp / Web Truyện API Pro (6.500 trang)",
+            so_tien_vnd=5000 * don_gia,
+            so_trang=6500,
+            ghi_chu="Tặng thêm 30% số trang (~325 chapter). Mở toàn bộ Developer REST API (tr_live_...), đẩy cả chapter qua URL & đồng bộ đa máy.",
+        ),
+        GoiNapLuotRead(
+            ma="enterprise_scale",
+            ten="🏛️ Gói Doanh Nghiệp Lớn / Hệ Thống Cổng Truyện (28.000 trang)",
+            so_tien_vnd=20000 * don_gia,
+            so_trang=28000,
+            ghi_chu="Tặng thêm 40% số trang (~1.400 chapter). Dành cho hệ thống web truyện lớn & tool tự động hoá 24/7 qua API.",
+        ),
+    ]
+
+
+def _doc_ds_don_nap() -> list[dict]:
+    import json
+
+    try:
+        storage = get_storage()
+        rel = "quan_tri/don_nap_luot.json"
+        if storage.exists(rel):
+            data = json.loads(storage.read(rel).decode("utf-8"))
+            if isinstance(data, list):
+                return [d for d in data if isinstance(d, dict)]
+    except Exception:  # noqa: BLE001
+        pass
+    return []
+
+
+def _luu_ds_don_nap(ds: list[dict]) -> None:
+    import json
+
+    storage = get_storage()
+    rel = "quan_tri/don_nap_luot.json"
+    storage.save(rel, json.dumps(ds[:250], ensure_ascii=False).encode("utf-8"))
 
 
 @router_khach.get("/nap-luot/thong-tin", response_model=ThongTinNapLuotRead, tags=["han-muc"])
@@ -519,44 +585,71 @@ async def xem_thong_tin_nap_luot(
         ngan_hang_chu_tk=nh_chu,
         noi_dung_chuyen_khoan=ma_noi_dung,
         ty_le_vnd_moi_trang=don_gia,
-        goi_goi_y=[
-            GoiNapLuotRead(
-                ma="co_ban",
-                ten="Gói Đọc Nhanh — Cá Nhân (200 trang)",
-                so_tien_vnd=200 * don_gia,
-                so_trang=200,
-                ghi_chu="Tương đương ~10 chapter truyện. Lượt mua không bao giờ hết hạn qua đêm.",
-            ),
-            GoiNapLuotRead(
-                ma="tieu_chuan",
-                ten="Gói Cày Truyện — VIP (550 trang)",
-                so_tien_vnd=500 * don_gia,
-                so_trang=550,
-                ghi_chu="Tặng thêm 10% số trang (~28 chapter). Dùng chung Web, Extension & App Windows.",
-            ),
-            GoiNapLuotRead(
-                ma="nhom_dich",
-                ten="Gói Nhóm Dịch / Studio (1.200 trang)",
-                so_tien_vnd=1000 * don_gia,
-                so_trang=1200,
-                ghi_chu="Tặng thêm 20% số trang (~60 chapter). Phù hợp nhóm scanlation, dịch trọn bộ / làm video.",
-            ),
-            GoiNapLuotRead(
-                ma="doanh_nghiep_api",
-                ten="🏢 Gói Doanh Nghiệp / Web Truyện API Pro (6.500 trang)",
-                so_tien_vnd=5000 * don_gia,
-                so_trang=6500,
-                ghi_chu="Tặng thêm 30% số trang (~325 chapter). Mở toàn bộ Developer REST API (tr_live_...), đẩy cả chapter qua URL & đồng bộ đa máy.",
-            ),
-            GoiNapLuotRead(
-                ma="enterprise_scale",
-                ten="🏛️ Gói Doanh Nghiệp Lớn / Hệ Thống Cổng Truyện (28.000 trang)",
-                so_tien_vnd=20000 * don_gia,
-                so_trang=28000,
-                ghi_chu="Tặng thêm 40% số trang (~1.400 chapter). Dành cho hệ thống web truyện lớn & tool tự động hoá 24/7 qua API.",
-            ),
-        ],
+        goi_goi_y=_danh_sach_goi_nap_chuan(don_gia),
     )
+
+
+@router.post("/nap-luot/xac-nhan-chuyen-khoan", response_model=DonNapLuotRead, tags=["han-muc"])
+async def xac_nhan_chuyen_khoan_goi(
+    body: XacNhanChuyenKhoanRequest,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
+) -> DonNapLuotRead:
+    """Ghi nhận gói khách đã chọn & tự động kích hoạt gói ngay khi khách bấm xác nhận đã chuyển khoản ACB."""
+    don_gia = max(1, settings.ty_le_vnd_moi_trang)
+    ds_goi = {g.ma: g for g in _danh_sach_goi_nap_chuan(don_gia)}
+    goi = ds_goi.get(body.ma_goi.strip())
+
+    if goi is not None:
+        ma_goi = goi.ma
+        ten_goi = goi.ten
+        so_tien = goi.so_tien_vnd
+        so_trang = goi.so_trang
+    else:
+        ma_goi = body.ma_goi.strip()
+        ten_goi = body.ten_goi.strip() or f"Gói nạp ({body.so_trang} trang)"
+        so_tien = max(don_gia, int(body.so_tien_vnd))
+        so_trang = max(1, int(body.so_trang or (so_tien // don_gia)))
+
+    ds_don = await run_in_threadpool(_doc_ds_don_nap)
+    email_lower = (nguoi.email or "").lower()
+
+    # Kiểm tra xem user đã có đơn tự động cộng chưa đối soát hay chưa (tránh bấm trùng nhiều lần)
+    da_co_don_cho_doi_soat = any(
+        str(d.get("email") or "").lower() == email_lower
+        and d.get("trang_thai") == "da_cong_tu_dong"
+        for d in ds_don
+    )
+
+    if not da_co_don_cho_doi_soat:
+        nguoi.so_luot_mua_them = max(0, int(nguoi.so_luot_mua_them or 0)) + so_trang
+        await session.commit()
+        await session.refresh(nguoi)
+        trang_thai = "da_cong_tu_dong"
+    else:
+        trang_thai = "cho_duyet"
+
+    ma_don = f"ACB-{uuid.uuid4().hex[:8].upper()}"
+    noi_dung_ck = (
+        body.noi_dung_chuyen_khoan.strip()
+        or f"NAP {ma_goi.upper()} {nguoi.email}"
+    )
+    don_moi = {
+        "ma_don": ma_don,
+        "email": nguoi.email,
+        "ten_hien": nguoi.ten_hien,
+        "ma_goi": ma_goi,
+        "ten_goi": ten_goi,
+        "so_tien_vnd": so_tien,
+        "so_trang_cong": so_trang,
+        "noi_dung_chuyen_khoan": noi_dung_ck,
+        "trang_thai": trang_thai,
+        "created_at": bay_gio().isoformat(),
+    }
+    ds_don.insert(0, don_moi)
+    await run_in_threadpool(_luu_ds_don_nap, ds_don)
+    return DonNapLuotRead(**don_moi)
 
 
 @router_khach.post("/nap-luot/webhook", tags=["han-muc"])
@@ -615,14 +708,24 @@ async def webhook_nap_luot_ngan_hang(
     # >= 500 trang gốc (VIP): +10%
     if so_trang_goc >= 20000:
         so_trang_cong = int(so_trang_goc * 1.4)
+        ma_goi_nhan = "enterprise_scale"
+        ten_goi_nhan = "🏛️ Gói Doanh Nghiệp Lớn / Hệ Thống Cổng Truyện"
     elif so_trang_goc >= 5000:
         so_trang_cong = int(so_trang_goc * 1.3)
+        ma_goi_nhan = "doanh_nghiep_api"
+        ten_goi_nhan = "🏢 Gói Doanh Nghiệp / Web Truyện API Pro"
     elif so_trang_goc >= 1000:
         so_trang_cong = int(so_trang_goc * 1.2)
+        ma_goi_nhan = "nhom_dich"
+        ten_goi_nhan = "🎬 Gói Nhóm Dịch / Studio"
     elif so_trang_goc >= 500:
         so_trang_cong = int(so_trang_goc * 1.1)
+        ma_goi_nhan = "tieu_chuan"
+        ten_goi_nhan = "🔥 Gói Độc Giả VIP — Reader"
     else:
         so_trang_cong = so_trang_goc
+        ma_goi_nhan = "co_ban"
+        ten_goi_nhan = f"🌱 Gói Khởi Đầu ({so_trang_cong} trang)"
 
     nguoi: NguoiDung | None = None
     khop_email = re.search(r"([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)", noi_dung)
@@ -643,29 +746,101 @@ async def webhook_nap_luot_ngan_hang(
     # Hỗ trợ trường hợp App Ngân hàng tự động xoá ký tự '@' và '.' trong nội dung chuyển khoản
     # (VD: "NAP user@gmail.com" bị ngân hàng biến thành "NAP usergmailcom")
     if nguoi is None:
-        khop_tu = re.search(r"NAP\s+([a-zA-Z0-9_-]{3,64})", noi_dung, re.IGNORECASE)
-        if khop_tu:
-            tu_khoa = re.sub(r"[^a-z0-9]", "", khop_tu.group(1).lower())
-            ds_nguoi = (await session.execute(select(NguoiDung))).scalars().all()
-            for u in ds_nguoi:
-                email_rut_gon = re.sub(r"[^a-z0-9]", "", (u.email or "").lower())
-                local_part = re.sub(r"[^a-z0-9]", "", (u.email or "").split("@")[0].lower())
-                ten_rut_gon = re.sub(r"[^a-z0-9]", "", (u.ten_hien or "").lower())
-                if tu_khoa in (email_rut_gon, local_part) or (ten_rut_gon and tu_khoa == ten_rut_gon):
-                    nguoi = u
-                    break
+        ds_nguoi = (await session.execute(select(NguoiDung))).scalars().all()
+        noi_dung_sach = re.sub(r"[^a-z0-9]", "", noi_dung.lower())
+        for u in ds_nguoi:
+            email_rut_gon = re.sub(r"[^a-z0-9]", "", (u.email or "").lower())
+            local_part = re.sub(r"[^a-z0-9]", "", (u.email or "").split("@")[0].lower())
+            if (email_rut_gon and email_rut_gon in noi_dung_sach) or (len(local_part) >= 5 and local_part in noi_dung_sach):
+                nguoi = u
+                break
 
     if nguoi is None:
         return {"ok": False, "ly_do": "khong_tim_thay_tai_khoan_tu_noi_dung"}
 
-    nguoi.so_luot_mua_them = max(0, int(nguoi.so_luot_mua_them or 0)) + so_trang_cong
-    await session.commit()
+    # Đối soát với danh sách đơn khách đã bấm xác nhận trên web
+    ds_don = await run_in_threadpool(_doc_ds_don_nap)
+    email_lower = (nguoi.email or "").lower()
+    don_khop = None
+    for d in ds_don:
+        if str(d.get("email") or "").lower() == email_lower and d.get("trang_thai") in ("da_cong_tu_dong", "cho_duyet"):
+            don_khop = d
+            break
+
+    if don_khop is not None and don_khop.get("trang_thai") == "da_cong_tu_dong":
+        # Khách đã được cộng tự động lúc bấm nút -> chuyển sang đã xác nhận ngân hàng (không cộng trùng)
+        don_khop["trang_thai"] = "da_xac_nhan"
+        await run_in_threadpool(_luu_ds_don_nap, ds_don)
+    else:
+        if don_khop is not None:
+            don_khop["trang_thai"] = "da_xac_nhan"
+        else:
+            ds_don.insert(
+                0,
+                {
+                    "ma_don": f"ACB-{uuid.uuid4().hex[:8].upper()}",
+                    "email": nguoi.email,
+                    "ten_hien": nguoi.ten_hien,
+                    "ma_goi": ma_goi_nhan,
+                    "ten_goi": ten_goi_nhan,
+                    "so_tien_vnd": so_tien,
+                    "so_trang_cong": so_trang_cong,
+                    "noi_dung_chuyen_khoan": noi_dung,
+                    "trang_thai": "da_xac_nhan",
+                    "created_at": bay_gio().isoformat(),
+                },
+            )
+        await run_in_threadpool(_luu_ds_don_nap, ds_don)
+        nguoi.so_luot_mua_them = max(0, int(nguoi.so_luot_mua_them or 0)) + so_trang_cong
+        await session.commit()
+
     return {
         "ok": True,
         "email": nguoi.email,
         "da_cong_them": so_trang_cong,
         "so_luot_mua_them_moi": nguoi.so_luot_mua_them,
     }
+
+
+@router.post("/quan-tri/duyet-don-nap", response_model=DonNapLuotRead, tags=["han-muc"])
+async def quan_tri_duyet_don_nap(
+    body: DuyetDonNapRequest,
+    session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
+) -> DonNapLuotRead:
+    """Admin (thientrieu753@gmail.com) xác nhận khớp sao kê ACB hoặc thu hồi đơn."""
+    if not nguoi.la_quan_tri:
+        raise HTTPException(status_code=403, detail="Chỉ quản trị viên mới được duyệt đơn nạp.")
+
+    ds_don = await run_in_threadpool(_doc_ds_don_nap)
+    don_tim = None
+    for d in ds_don:
+        if d.get("ma_don") == body.ma_don:
+            don_tim = d
+            break
+    if don_tim is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy đơn nạp.")
+
+    email_khach = str(don_tim.get("email") or "").strip().lower()
+    khach = (
+        await session.execute(select(NguoiDung).where(NguoiDung.email == email_khach))
+    ).scalar_one_or_none()
+    so_trang = int(don_tim.get("so_trang_cong") or 0)
+    trang_thai_cu = str(don_tim.get("trang_thai") or "")
+
+    if body.hanh_dong == "xac_nhan":
+        if trang_thai_cu in ("cho_duyet", "da_thu_hoi") and khach is not None:
+            khach.so_luot_mua_them = max(0, int(khach.so_luot_mua_them or 0)) + so_trang
+            await session.commit()
+        don_tim["trang_thai"] = "da_xac_nhan"
+    elif body.hanh_dong == "thu_hoi":
+        if trang_thai_cu in ("da_cong_tu_dong", "da_xac_nhan") and khach is not None:
+            khach.so_luot_mua_them = max(0, int(khach.so_luot_mua_them or 0) - so_trang)
+            await session.commit()
+        don_tim["trang_thai"] = "da_thu_hoi"
+
+    await run_in_threadpool(_luu_ds_don_nap, ds_don)
+    return DonNapLuotRead(**don_tim)
 
 
 @router.post("/quan-tri/cap-luot", response_model=CapLuotResponse, tags=["han-muc"])
@@ -851,6 +1026,14 @@ async def quan_tri_thong_ke(
         )
 
     nh_ten, nh_stk, nh_chu = await run_in_threadpool(_doc_cau_hinh_ngan_hang_dong, settings)
+    ds_don_raw = await run_in_threadpool(_doc_ds_don_nap)
+    ds_don_out: list[DonNapLuotRead] = []
+    for d in ds_don_raw[:50]:
+        try:
+            ds_don_out.append(DonNapLuotRead(**d))
+        except Exception:  # noqa: BLE001
+            pass
+
     return QuanTriThongKeRead(
         tong_nguoi_dung=len(ds_nguoi),
         nguoi_dung_hoat_dong=so_hoat_dong,
@@ -865,6 +1048,7 @@ async def quan_tri_thong_ke(
         ngan_hang_so_tk=nh_stk,
         ngan_hang_chu_tk=nh_chu,
         nguoi_dung_chi_tiet=chi_tiet,
+        don_nap_gan_day=ds_don_out,
     )
 
 

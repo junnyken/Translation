@@ -147,13 +147,15 @@ class Settings(BaseSettings):
     #: Để trống = cổng webhook tự động khoá (chỉ quản trị cấp lượt thủ công qua `/quan-tri/cap-luot`).
     webhook_nap_luot_bi_mat: str = ""
     #: Mã ngân hàng VietQR (vd: `MB`, `VCB`, `TCB`, `ACB`, `BIDV`) để sinh ảnh QR chuyển khoản tự động.
-    ngan_hang_ten: str = ""
+    ngan_hang_ten: str = "ACB"
     #: Số tài khoản ngân hàng nhận tiền nạp lượt.
-    ngan_hang_so_tk: str = ""
+    ngan_hang_so_tk: str = "20260457"
     #: Tên chủ tài khoản hiển thị bên cạnh mã VietQR.
-    ngan_hang_chu_tk: str = ""
-    #: Đơn giá VNĐ cho mỗi 1 lượt trang mua thêm (mặc định 100 VNĐ/trang ⇒ 20.000đ = 200 trang).
-    ty_le_vnd_moi_trang: int = 100
+    ngan_hang_chu_tk: str = "NGUYEN THIEN TRIEU"
+    #: Email quản trị viên chính thức của hệ thống.
+    email_quan_tri_he_thong: str = "thientrieu753@gmail.com"
+    #: Đơn giá VNĐ cho mỗi 1 lượt trang mua thêm (mặc định 500 VNĐ/trang ⇒ 50.000đ = 100 trang).
+    ty_le_vnd_moi_trang: int = 500
 
     # --- E57: tự nhận ngôn ngữ ---------------------------------------------------------------
     #: Số lượt "đọc thử ảnh để đoán ngôn ngữ" mỗi chủ thể mỗi ngày.

@@ -8,11 +8,15 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
   const [thongTinNap, setThongTinNap] = useState(null)
   const [emailNhapTay, setEmailNhapTay] = useState(nguoiDung?.email || '')
   const [daChepNoiDung, setDaChepNoiDung] = useState(false)
+  const [dangXacNhan, setDangXacNhan] = useState(false)
+  const [ketQuaDon, setKetQuaDon] = useState(null)
+  const [loiXacNhan, setLoiXacNhan] = useState('')
   const donGia = thongTinNap?.ty_le_vnd_moi_trang || 500
 
   const DANH_SACH_GOI = [
     {
-      ma: 'khoi_dong',
+      ma: 'co_ban',
+      maNgan: 'STARTER',
       nhan: laEn ? 'STARTER' : 'KHỞI ĐỘNG',
       ten: laEn ? 'Starter Pack (100 Pages)' : 'Gói Khởi Động (100 trang)',
       giaVnd: 100 * donGia,
@@ -35,6 +39,7 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
     },
     {
       ma: 'tieu_chuan',
+      maNgan: 'VIP',
       nhan: laEn ? '⭐ POPULAR VIP' : '⭐ ĐỘC GIẢ CÀY TRUYỆN',
       ten: laEn ? 'Reader VIP (550 Pages)' : 'Gói Cày Truyện (550 trang)',
       giaVnd: 500 * donGia,
@@ -59,6 +64,7 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
     },
     {
       ma: 'nhom_dich',
+      maNgan: 'STUDIO',
       nhan: laEn ? '🎨 SCANLATION STUDIO' : '🎨 NHÓM DỊCH / STUDIO',
       ten: laEn ? 'Studio Pack (1,200 Pages)' : 'Gói Studio (1.200 trang)',
       giaVnd: 1000 * donGia,
@@ -83,6 +89,7 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
     },
     {
       ma: 'doanh_nghiep_api',
+      maNgan: 'APIPRO',
       nhan: laEn ? '🏢 BUSINESS API PRO' : '🏢 DOANH NGHIỆP / WEB API PRO',
       ten: laEn ? 'Business API (6,500 Pages)' : 'Gói Doanh Nghiệp API (6.500 trang)',
       giaVnd: 5000 * donGia,
@@ -107,6 +114,7 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
     },
     {
       ma: 'enterprise_scale',
+      maNgan: 'ENTERPRISE',
       nhan: laEn ? '🏛️ ENTERPRISE SCALE' : '🏛️ HỆ THỐNG CỔNG TRUYỆN LỚN',
       ten: laEn ? 'Enterprise (28,000 Pages)' : 'Gói Enterprise (28.000 trang)',
       giaVnd: 20000 * donGia,
@@ -148,21 +156,45 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
   }, [nguoiDung?.email])
 
   const emailHienTai = (nguoiDung?.email || emailNhapTay || '').trim()
+  const maGoiNgan = goiDangChon.maNgan || 'VIP'
   const noiDungChuyenKhoan = emailHienTai
-    ? `NAP ${emailHienTai}`
-    : (thongTinNap?.noi_dung_chuyen_khoan || 'NAP <EMAIL_CUA_BAN>')
+    ? `NAP ${maGoiNgan} ${emailHienTai}`
+    : `NAP ${maGoiNgan} <EMAIL_CUA_BAN>`
 
-  const nganHangTen = thongTinNap?.ngan_hang_ten || 'MB'
-  const nganHangSoTk = thongTinNap?.ngan_hang_so_tk || ''
-  const nganHangChuTk = thongTinNap?.ngan_hang_chu_tk || ''
-  const urlQr = nganHangSoTk
-    ? `https://img.vietqr.io/image/${encodeURIComponent(nganHangTen)}-${encodeURIComponent(nganHangSoTk)}-compact2.png?amount=${goiDangChon.giaVnd}&addInfo=${encodeURIComponent(noiDungChuyenKhoan)}&accountName=${encodeURIComponent(nganHangChuTk)}`
-    : ''
+  const nganHangTen = thongTinNap?.ngan_hang_ten || 'ACB'
+  const nganHangSoTk = thongTinNap?.ngan_hang_so_tk || '20260457'
+  const nganHangChuTk = thongTinNap?.ngan_hang_chu_tk || 'NGUYEN THIEN TRIEU'
+  const urlQr = `https://img.vietqr.io/image/${encodeURIComponent(nganHangTen)}-${encodeURIComponent(nganHangSoTk)}-compact2.png?amount=${goiDangChon.giaVnd}&addInfo=${encodeURIComponent(noiDungChuyenKhoan)}&accountName=${encodeURIComponent(nganHangChuTk)}`
 
   function saoChepNoiDung() {
     navigator.clipboard?.writeText(noiDungChuyenKhoan)
     setDaChepNoiDung(true)
     setTimeout(() => setDaChepNoiDung(false), 2000)
+  }
+
+  async function bamXacNhanDaChuyenKhoan() {
+    if (!nguoiDung) {
+      if (onMoDangNhap) onMoDangNhap()
+      return
+    }
+    setDangXacNhan(true)
+    setLoiXacNhan('')
+    try {
+      const kq = await api.xacNhanChuyenKhoanGoi({
+        ma_goi: goiDangChon.ma,
+        ten_goi: goiDangChon.ten,
+        so_tien_vnd: goiDangChon.giaVnd,
+        so_trang: goiDangChon.soTrang,
+        noi_dung_chuyen_khoan: noiDungChuyenKhoan,
+      })
+      setKetQuaDon(kq)
+      const ttMoi = await api.layThongTinNapLuot().catch(() => null)
+      if (ttMoi) setThongTinNap(ttMoi)
+    } catch (err) {
+      setLoiXacNhan(err?.message || 'Không thể gửi xác nhận lúc này.')
+    } finally {
+      setDangXacNhan(false)
+    }
   }
 
   return (
@@ -460,6 +492,79 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
               </button>
             </div>
           </div>
+
+          <div style={{ marginTop: 14, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
+            <button
+              type="button"
+              disabled={dangXacNhan}
+              onClick={bamXacNhanDaChuyenKhoan}
+              style={{
+                padding: '12px 20px',
+                borderRadius: 10,
+                border: '1px solid #34d399',
+                background: 'linear-gradient(135deg, #059669, #10b981)',
+                color: '#ffffff',
+                fontSize: 14.5,
+                fontWeight: 800,
+                cursor: dangXacNhan ? 'wait' : 'pointer',
+                boxShadow: '0 8px 20px rgba(16, 185, 129, 0.35)',
+              }}
+            >
+              {dangXacNhan
+                ? '⏳ Đang ghi nhận & kích hoạt gói...'
+                : (nguoiDung
+                  ? `✅ Tôi đã chuyển khoản ${goiDangChon.giaVnd.toLocaleString('vi-VN')}đ — Nhận Gói Ngay`
+                  : '🔐 Đăng nhập để Xác nhận Chuyển khoản & Nhận Gói Ngay')}
+            </button>
+            <span style={{ fontSize: 12.5, color: '#94a3b8' }}>
+              📩 Hỗ trợ Admin: <b style={{ color: '#e2e8f0' }}>thientrieu753@gmail.com</b>
+            </span>
+          </div>
+
+          {loiXacNhan && (
+            <div style={{
+              marginTop: 10,
+              padding: '10px 14px',
+              borderRadius: 10,
+              background: 'rgba(239, 68, 68, 0.16)',
+              border: '1px solid rgba(248, 113, 113, 0.5)',
+              color: '#fca5a5',
+              fontSize: 13.5,
+            }}>
+              ⚠️ {loiXacNhan}
+            </div>
+          )}
+
+          {ketQuaDon && (
+            <div style={{
+              marginTop: 12,
+              padding: '14px 16px',
+              borderRadius: 12,
+              background: 'rgba(16, 185, 129, 0.15)',
+              border: '1px solid #34d399',
+              color: '#ecfdf5',
+              fontSize: 13.8,
+              lineHeight: 1.65,
+            }}>
+              <div style={{ fontWeight: 800, color: '#34d399', fontSize: 15 }}>
+                🎉 {ketQuaDon.trang_thai === 'da_cong_tu_dong'
+                  ? `ĐÃ KÍCH HOẠT GÓI THÀNH CÔNG (+${ketQuaDon.so_trang_cong.toLocaleString('vi-VN')} trang)!`
+                  : 'ĐÃ GHI NHẬN ĐƠN CHUYỂN KHOẢN CỦA BẠN!'}
+              </div>
+              <div>
+                • Mã đơn: <b>{ketQuaDon.ma_don}</b> · Gói: <b>{ketQuaDon.ten_goi}</b> ({ketQuaDon.so_tien_vnd.toLocaleString('vi-VN')}đ)
+              </div>
+              <div>
+                • Tài khoản: <b>{ketQuaDon.email}</b> · Số trang tích luỹ hiện có:{' '}
+                <b style={{ color: '#38bdf8' }}>{(thongTinNap?.so_luot_mua_them ?? ketQuaDon.so_trang_cong).toLocaleString('vi-VN')} trang</b>
+              </div>
+              <div style={{ fontSize: 12.5, color: '#a7f3d0', marginTop: 4 }}>
+                {ketQuaDon.trang_thai === 'da_cong_tu_dong'
+                  ? 'Hệ thống đã tự động cộng trước lượt để bạn dịch truyện ngay lập tức trong lúc chờ đối soát sao kê ACB 20260457.'
+                  : 'Đơn đã được gửi tới Quản trị viên (thientrieu753@gmail.com) để đối soát sao kê ACB 20260457.'}
+              </div>
+            </div>
+          )}
         </div>
 
         {urlQr && (

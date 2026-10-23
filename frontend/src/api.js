@@ -856,3 +856,19 @@ export const taoMoiApiKey = () =>
 
 export const thuHoiApiKey = () =>
   fetch(`${BASE}/auth/api-key`, { method: 'DELETE' }).then(doc)
+
+// ---------- Ghi nhận & xác nhận gói chuyển khoản ACB 20260457 ----------
+
+export const xacNhanChuyenKhoanGoi = (body) =>
+  fetch(`${BASE}/nap-luot/xac-nhan-chuyen-khoan`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).then(doc)
+
+export const quanTriDuyetDonNap = (body) =>
+  fetch(`${BASE}/quan-tri/duyet-don-nap`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).then(doc)

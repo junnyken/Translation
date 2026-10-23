@@ -26,6 +26,9 @@ export default function TheHanMuc({ hanMuc, dangTai, loi, onTaiLai }) {
   const [moNapLuot, setMoNapLuot] = useState(false)
   const [thongTinNap, setThongTinNap] = useState(null)
   const [goiDangChon, setGoiDangChon] = useState(null)
+  const [dangXacNhanCk, setDangXacNhanCk] = useState(false)
+  const [ketQuaCk, setKetQuaCk] = useState(null)
+  const [loiCk, setLoiCk] = useState(null)
   // Form quản trị cấp lượt nhanh
   const [qtEmail, setQtEmail] = useState('')
   const [qtCongLuot, setQtCongLuot] = useState('200')
@@ -224,25 +227,81 @@ export default function TheHanMuc({ hanMuc, dangTai, loi, onTaiLai }) {
               </div>
             )}
 
-            {thongTinNap?.ngan_hang_ten && thongTinNap?.ngan_hang_so_tk ? (
-              <div style={{ textAlign: 'center', padding: 8, background: '#fff', borderRadius: 6, border: '1px solid #e2e8f0' }}>
-                <img
-                  src={`https://img.vietqr.io/image/${encodeURIComponent(thongTinNap.ngan_hang_ten)}-${encodeURIComponent(thongTinNap.ngan_hang_so_tk)}-compact2.png?amount=${goiDangChon?.so_tien_vnd || 20000}&addInfo=${encodeURIComponent(thongTinNap.noi_dung_chuyen_khoan)}&accountName=${encodeURIComponent(thongTinNap.ngan_hang_chu_tk || '')}`}
-                  alt="Mã VietQR nạp lượt"
-                  style={{ maxWidth: 200, width: '100%', height: 'auto', margin: '0 auto', display: 'block' }}
-                />
-                <p className="ghi-chu" style={{ marginTop: 6, color: '#0f172a' }}>
-                  Ngân hàng: <strong>{thongTinNap.ngan_hang_ten}</strong> · STK: <strong>{thongTinNap.ngan_hang_so_tk}</strong>
-                  <br />
-                  Nội dung CK: <code style={{ fontWeight: 700, color: '#dc2626' }}>{thongTinNap.noi_dung_chuyen_khoan}</code>
-                </p>
-              </div>
-            ) : (
-              <p className="ghi-chu">
-                Nội dung chuyển khoản nhận diện tự động: <code>{thongTinNap?.noi_dung_chuyen_khoan || 'NAP <EMAIL>'}</code>.
-                {' '}Sau khi chuyển khoản, hệ thống tự động cộng lượt tích luỹ vào tài khoản của bạn.
-              </p>
-            )}
+            {(() => {
+              const nhTen = thongTinNap?.ngan_hang_ten || 'ACB'
+              const nhStk = thongTinNap?.ngan_hang_so_tk || '20260457'
+              const nhChu = thongTinNap?.ngan_hang_chu_tk || 'NGUYEN THIEN TRIEU'
+              const ndCk = thongTinNap?.noi_dung_chuyen_khoan || 'NAP <EMAIL>'
+              const soTien = goiDangChon?.so_tien_vnd || 50000
+              return (
+                <div style={{ textAlign: 'center', padding: 10, background: '#fff', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                  <img
+                    src={`https://img.vietqr.io/image/${encodeURIComponent(nhTen)}-${encodeURIComponent(nhStk)}-compact2.png?amount=${soTien}&addInfo=${encodeURIComponent(ndCk)}&accountName=${encodeURIComponent(nhChu)}`}
+                    alt="Mã VietQR nạp lượt ACB"
+                    style={{ maxWidth: 195, width: '100%', height: 'auto', margin: '0 auto', display: 'block' }}
+                  />
+                  <p className="ghi-chu" style={{ marginTop: 6, color: '#0f172a', lineHeight: 1.5 }}>
+                    Ngân hàng: <strong>{nhTen}</strong> · STK: <strong>{nhStk}</strong> ({nhChu})
+                    <br />
+                    Nội dung CK: <code style={{ fontWeight: 700, color: '#dc2626' }}>{ndCk}</code>
+                  </p>
+                  {hanMuc.co_tai_khoan && (
+                    <button
+                      type="button"
+                      disabled={dangXacNhanCk}
+                      onClick={async () => {
+                        setDangXacNhanCk(true)
+                        setLoiCk(null)
+                        try {
+                          const kq = await api.xacNhanChuyenKhoanGoi({
+                            ma_goi: goiDangChon?.ma || 'co_ban',
+                            ten_goi: goiDangChon?.ten || 'Gói Nạp Lượt',
+                            so_tien_vnd: soTien,
+                            so_trang: goiDangChon?.so_trang || 100,
+                            noi_dung_chuyen_khoan: ndCk,
+                          })
+                          setKetQuaCk(kq)
+                          if (onTaiLai) onTaiLai()
+                        } catch (err) {
+                          setLoiCk(String(err.message || err))
+                        } finally {
+                          setDangXacNhanCk(false)
+                        }
+                      }}
+                      style={{
+                        marginTop: 6,
+                        width: '100%',
+                        padding: '8px 12px',
+                        borderRadius: 6,
+                        border: 'none',
+                        background: '#059669',
+                        color: '#fff',
+                        fontWeight: 700,
+                        fontSize: 12.5,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {dangXacNhanCk ? '⏳ Đang kích hoạt gói…' : '✅ Tôi đã chuyển khoản — Nhận Gói Ngay'}
+                    </button>
+                  )}
+                  {ketQuaCk && (
+                    <p className="ghi-chu" style={{ color: '#059669', fontWeight: 700, marginTop: 6 }}>
+                      🎉 Đã ghi nhận đơn {ketQuaCk.ma_don} (+{ketQuaCk.so_trang_cong} trang)!
+                    </p>
+                  )}
+                  {loiCk && (
+                    <p className="ghi-chu" style={{ color: '#dc2626', marginTop: 6 }}>
+                      {loiCk}
+                    </p>
+                  )}
+                  <div style={{ marginTop: 6 }}>
+                    <a href="#bang-gia" style={{ fontSize: 12, fontWeight: 700, color: '#2563eb' }}>
+                      💎 Mở trang Bảng Giá &amp; Gói Doanh Nghiệp đầy đủ →
+                    </a>
+                  </div>
+                </div>
+              )
+            })()}
 
             {hanMuc.la_quan_tri && (
               <form onSubmit={guiCapLuotQuanTri} style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--vien, #cbd5e1)' }}>

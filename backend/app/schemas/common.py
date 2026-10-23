@@ -1245,6 +1245,38 @@ class QuanTriNguoiDungChiTietRead(BaseModel):
     created_at: datetime
 
 
+class DonNapLuotRead(BaseModel):
+    ma_don: str
+    email: str
+    ma_goi: str
+    ten_goi: str
+    so_tien_vnd: int
+    so_trang_cong: int
+    noi_dung_ck: str = ""
+    trang_thai: str = "da_cong_tu_dong"
+    tao_luc: str
+    duyet_luc: str | None = None
+    ghi_chu: str = ""
+
+
+class XacNhanChuyenKhoanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: str = Field(default="", max_length=320)
+    ma_goi: str = Field(default="tieu_chuan", max_length=60)
+    ten_goi: str = Field(default="", max_length=160)
+    so_tien_vnd: int = Field(default=250000, ge=10000, le=100000000)
+    so_trang_cong: int = Field(default=550, ge=1, le=200000)
+    noi_dung_ck: str = Field(default="", max_length=160)
+
+
+class DuyetDonNapRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ma_don: str = Field(..., min_length=3, max_length=64)
+    hanh_dong: str = Field(default="xac_nhan", max_length=32)
+
+
 class QuanTriThongKeRead(BaseModel):
     tong_nguoi_dung: int = 0
     nguoi_dung_hoat_dong: int = 0
@@ -1254,9 +1286,10 @@ class QuanTriThongKeRead(BaseModel):
     trang_dich_7_ngay: int = 0
     trang_dich_toan_thoi_gian: int = 0
     tong_chapter: int = 0
-    ty_le_vnd_moi_trang: int = 100
-    ngan_hang_ten: str = ""
-    ngan_hang_so_tk: str = ""
-    ngan_hang_chu_tk: str = ""
+    ty_le_vnd_moi_trang: int = 500
+    ngan_hang_ten: str = "ACB"
+    ngan_hang_so_tk: str = "20260457"
+    ngan_hang_chu_tk: str = "NGUYEN THIEN TRIEU"
     nguoi_dung_chi_tiet: list[QuanTriNguoiDungChiTietRead] = []
+    don_nap_gan_day: list[DonNapLuotRead] = []
 

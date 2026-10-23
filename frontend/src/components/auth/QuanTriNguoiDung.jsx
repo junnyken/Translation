@@ -28,9 +28,9 @@ export default function QuanTriNguoiDung({ toi }) {
   const [dangCap, setDangCap] = useState(false)
 
   // Form cấu hình VietQR Ngân hàng & Webhook tự động
-  const [nhTen, setNhTen] = useState('')
-  const [nhSoTk, setNhSoTk] = useState('')
-  const [nhChuTk, setNhChuTk] = useState('')
+  const [nhTen, setNhTen] = useState('ACB')
+  const [nhSoTk, setNhSoTk] = useState('20260457')
+  const [nhChuTk, setNhChuTk] = useState('NGUYEN THIEN TRIEU')
   const [dangLuuNh, setDangLuuNh] = useState(false)
 
   async function nap() {
@@ -167,11 +167,11 @@ export default function QuanTriNguoiDung({ toi }) {
           <span
             role="button"
             tabIndex={0}
-            className={`nhan-goi-nhanh ${congLuot === '200' ? 'dang-chon' : ''}`}
-            onClick={() => setCongLuot('200')}
-            onKeyDown={(e) => { if (e.key === 'Enter') setCongLuot('200') }}
+            className={`nhan-goi-nhanh ${congLuot === '100' ? 'dang-chon' : ''}`}
+            onClick={() => setCongLuot('100')}
+            onKeyDown={(e) => { if (e.key === 'Enter') setCongLuot('100') }}
           >
-            📦 Gói Đọc Nhanh (+200 trang)
+            🌱 Gói Khởi Động (+100 trang)
           </span>
           <span
             role="button"
@@ -190,6 +190,24 @@ export default function QuanTriNguoiDung({ toi }) {
             onKeyDown={(e) => { if (e.key === 'Enter') setCongLuot('1200') }}
           >
             👑 Gói Studio / Nhóm Dịch (+1.200 trang)
+          </span>
+          <span
+            role="button"
+            tabIndex={0}
+            className={`nhan-goi-nhanh ${congLuot === '6500' ? 'dang-chon' : ''}`}
+            onClick={() => setCongLuot('6500')}
+            onKeyDown={(e) => { if (e.key === 'Enter') setCongLuot('6500') }}
+          >
+            🏢 Gói Doanh Nghiệp API (+6.500 trang)
+          </span>
+          <span
+            role="button"
+            tabIndex={0}
+            className={`nhan-goi-nhanh ${congLuot === '28000' ? 'dang-chon' : ''}`}
+            onClick={() => setCongLuot('28000')}
+            onKeyDown={(e) => { if (e.key === 'Enter') setCongLuot('28000') }}
+          >
+            🏛️ Gói Enterprise (+28.000 trang)
           </span>
         </div>
         <div className="hang-o-cap-goi">
@@ -233,14 +251,14 @@ export default function QuanTriNguoiDung({ toi }) {
       <details className="khung-vietqr-admin" style={{ marginBottom: 18 }}>
         <summary style={{ cursor: 'pointer', fontWeight: 800, fontSize: 14 }}>
           🏦 Cấu hình Mã QR Ngân hàng (VietQR) &amp; Tự động cộng lượt 24/7 (SePay / Casso)
-          {nhTen && nhSoTk ? ` — Đang bật (${nhTen}: ${nhSoTk})` : ' — Chưa cài STK'}
+          {nhTen && nhSoTk ? ` — Đang bật (${nhTen}: ${nhSoTk} - ${nhChuTk})` : ' — Chưa cài STK'}
         </summary>
         <form onSubmit={xuLyLuuNganHang} style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
           <p className="ghi-chu" style={{ margin: 0 }}>
-            Điền thông tin ngân hàng bên dưới để hệ thống tự động sinh mã <strong>VietQR động</strong> kèm số tiền và nội dung <code>NAP &lt;MÃ_KHÁCH&gt;</code> trên Trang chủ.
+            Mặc định đã cấu hình sẵn <strong>ACB — 20260457 — NGUYEN THIEN TRIEU</strong> (Quản trị: <code>thientrieu753@gmail.com</code>).
             Khi kết nối Webhook của <strong>SePay.vn</strong> hoặc <strong>Casso.vn</strong> trỏ về địa chỉ{' '}
             <code>{typeof window !== 'undefined' ? `${window.location.origin}/api/v1/nap-luot/webhook` : '/api/v1/nap-luot/webhook'}</code>,
-            khách quét mã chuyển khoản xong sẽ được <strong>tự động cộng lượt sau 5 giây</strong> kể cả nửa đêm!
+            khách quét mã chuyển khoản xong sẽ được <strong>tự động đối soát và cộng lượt sau 5 giây</strong> kể cả nửa đêm!
           </p>
           <div className="hang-o-cap-goi">
             <input
@@ -270,6 +288,88 @@ export default function QuanTriNguoiDung({ toi }) {
           </div>
         </form>
       </details>
+
+      {/* Bảng đơn chuyển khoản khách đã chọn trên trang Bảng Giá */}
+      {Array.isArray(thongKe?.don_nap_gan_day) && thongKe.don_nap_gan_day.length > 0 && (
+        <div className="khung-cap-goi-admin" style={{ marginBottom: 18 }}>
+          <div className="tieu-de-cap-goi" style={{ marginBottom: 10 }}>
+            <strong>📋 Lịch sử Đơn Chuyển Khoản Khách Đã Chọn ({thongKe.don_nap_gan_day.length} đơn gần nhất)</strong>
+            <span className="ghi-chu">
+              Ghi nhận tự động khi khách chọn gói &amp; bấm xác nhận chuyển khoản tới ACB 20260457 (NGUYEN THIEN TRIEU)
+            </span>
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="bang-tai-khoan">
+              <thead>
+                <tr>
+                  <th>Mã đơn</th>
+                  <th>Khách hàng</th>
+                  <th>Gói đã chọn</th>
+                  <th>Số tiền</th>
+                  <th>Số trang</th>
+                  <th>Nội dung CK</th>
+                  <th>Trạng thái</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {thongKe.don_nap_gan_day.map((don) => (
+                  <tr key={don.ma_don}>
+                    <td><code>{don.ma_don}</code></td>
+                    <td><strong>{don.email}</strong></td>
+                    <td>{don.ten_goi}</td>
+                    <td><strong>{Number(don.so_tien_vnd || 0).toLocaleString('vi-VN')}đ</strong></td>
+                    <td>+{Number(don.so_trang_cong || 0).toLocaleString('vi-VN')} trang</td>
+                    <td><code>{don.noi_dung_chuyen_khoan}</code></td>
+                    <td>
+                      {don.trang_thai === 'da_xac_nhan' && (
+                        <span style={{ color: '#059669', fontWeight: 700 }}>✅ Đã khớp sao kê</span>
+                      )}
+                      {don.trang_thai === 'da_cong_tu_dong' && (
+                        <span style={{ color: '#0284c7', fontWeight: 700 }}>⚡ Đã tự động kích hoạt</span>
+                      )}
+                      {don.trang_thai === 'cho_duyet' && (
+                        <span style={{ color: '#d97706', fontWeight: 700 }}>⏳ Chờ xác nhận</span>
+                      )}
+                      {don.trang_thai === 'da_thu_hoi' && (
+                        <span style={{ color: '#dc2626', fontWeight: 700 }}>⛔ Đã thu hồi</span>
+                      )}
+                    </td>
+                    <td className="hang-cong-cu">
+                      {don.trang_thai !== 'da_xac_nhan' && (
+                        <Button
+                          kieu="chinh"
+                          disabled={dangLam === don.ma_don}
+                          onClick={() =>
+                            lam(don.ma_don, () =>
+                              api.quanTriDuyetDonNap({ ma_don: don.ma_don, hanh_dong: 'xac_nhan' })
+                            )
+                          }
+                        >
+                          ✅ Xác nhận
+                        </Button>
+                      )}
+                      {don.trang_thai !== 'da_thu_hoi' && (
+                        <Button
+                          kieu="phu"
+                          disabled={dangLam === don.ma_don}
+                          onClick={() =>
+                            lam(don.ma_don, () =>
+                              api.quanTriDuyetDonNap({ ma_don: don.ma_don, hanh_dong: 'thu_hoi' })
+                            )
+                          }
+                        >
+                          Thu hồi
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {ds.length > 3 && (
         <div style={{ marginBottom: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
