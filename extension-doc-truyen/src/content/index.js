@@ -66,7 +66,7 @@ void (async () => {
         const ff = new FontFace(cfg.fontFace, `url(${fontUrl})`, { style: 'normal', weight: '400' })
         ff.load().then((loaded) => {
           document.fonts.add(loaded)
-          window.dispatchEvent(new Event('resize'))
+          window.dispatchEvent(new CustomEvent('translation:ve-lai'))
         }).catch(() => {})
       } catch {
         // Bỏ qua nếu môi trường không hỗ trợ FontFace
@@ -82,7 +82,7 @@ void (async () => {
         window[CO].fontChuHienTai = thayDoi.fontChuTruyen.newValue
         const nutFont = document.getElementById('translation-nut-doi-font')
         if (nutFont) nutFont.textContent = layThongSoFont(window[CO].fontChuHienTai).ten
-        window.dispatchEvent(new Event('resize'))
+        window.dispatchEvent(new CustomEvent('translation:ve-lai'))
       }
       if (thayDoi.ngonNguDich?.newValue) {
         window[CO].ngonNguDichHienTai = thayDoi.ngonNguDich.newValue
@@ -236,6 +236,99 @@ void (async () => {
     for (const cv of document.getElementsByTagName('canvas')) {
       if (cv.dataset?.translationCanvasId === srcCanTim && cv.isConnected) return cv
     }
+    return null
+  }
+
+  /**
+   * Phục hồi phần tử `<img>` hoặc `<canvas>` khi các trình đọc Virtual DOM / `blob:` (như MangaPlus)
+   * huỷ và dựng lại nút DOM trong lúc chờ máy chủ dịch hoặc khi cuộn trang.
+   */
+  function timAnhThayThe(elCu, srcCanTim, thongSoGoc = {}, choPhepKhungNhin = false) {
+    const chonHopLe = (node) => {
+      if (!node || !node.isConnected) return null
+      const r = node.getBoundingClientRect()
+      if (r.width < 40 || r.height < 40) return null
+      if (elCu?.__translationCtxMau && !node.__translationCtxMau) {
+        node.__translationCtxMau = elCu.__translationCtxMau
+        node.__translationCtxSrc = node.currentSrc || node.src || ''
+      }
+      return node
+    }
+
+    const giuNguyen = chonHopLe(elCu)
+    if (giuNguyen) return giuNguyen
+
+    const theoSrc = chonHopLe(timAnhTheoSrc(srcCanTim))
+    if (theoSrc) return theoSrc
+
+    const wGoc = thongSoGoc.naturalWidth || elCu?.naturalWidth || 0
+    const hGoc = thongSoGoc.naturalHeight || elCu?.naturalHeight || 0
+    const docTopGoc = thongSoGoc.docTop
+    const khopKichThuoc = (w, h) => {
+      if (!wGoc || !hGoc || !w || !h) return true
+      if (w === wGoc && h === hGoc) return true
+      const tlGoc = wGoc / Math.max(1, hGoc)
+      const tlMoi = w / Math.max(1, h)
+      return Math.abs(tlMoi - tlGoc) <= 0.08
+    }
+
+    // Bước 1: Tìm trong các thẻ cha đã ghi nhận của phần tử cũ (ví dụ khung trang `.zao-page` trên MangaPlus)
+    const dsCha = [elCu?.__translationCha1, elCu?.__translationCha2, elCu?.__translationCha3].filter(
+      (c) => c && c.isConnected && c !== document.body && c !== document.documentElement,
+    )
+    for (const cha of dsCha) {
+      const ungVienCon = [...cha.querySelectorAll('img, canvas')].filter((node) => {
+        if (!node.isConnected || node.closest(`.${LOP_CLASS}`)) return false
+        const r = node.getBoundingClientRect()
+        if (r.width < 120 || r.height < 120) return false
+        const nw = node.naturalWidth || node.width || Math.round(r.width)
+        const nh = node.naturalHeight || node.height || Math.round(r.height)
+        return khopKichThuoc(nw, nh)
+      })
+      if (ungVienCon.length === 1) {
+        return chonHopLe(ungVienCon[0])
+      }
+    }
+
+    // Bước 2: Tìm ảnh đang nằm ở cùng toạ độ dọc trên tài liệu (`docTop = window.scrollY + r.top`)
+    const moTaHienTai = layMoTa()
+    if (typeof docTopGoc === 'number' && Number.isFinite(docTopGoc)) {
+      const cungViTri = moTaHienTai
+        .filter((m) => (
+          !m.mo
+          && m.el?.isConnected
+          && (m.clientWidth || 0) >= 160
+          && (m.clientHeight || 0) >= 200
+          && khopKichThuoc(m.naturalWidth, m.naturalHeight)
+          && Math.abs((window.scrollY + m.top) - docTopGoc) <= 240
+        ))
+        .sort((a, b) => Math.abs((window.scrollY + a.top) - docTopGoc) - Math.abs((window.scrollY + b.top) - docTopGoc))
+      if (cungViTri.length > 0) {
+        return chonHopLe(cungViTri[0].el)
+      }
+    }
+
+    // Bước 3: Khi vừa dịch xong trang hiện tại (`choPhepKhungNhin = true`), lấy trang đang hiển thị rõ nhất trên màn hình
+    if (choPhepKhungNhin) {
+      let chonMoi = chonTrangTruyen(moTaHienTai, { caoKhungNhin: window.innerHeight })
+      if (!chonMoi.anh) {
+        const hienThi = moTaHienTai.filter((m) => (
+          !m.mo
+          && m.bottom > 20
+          && m.top < window.innerHeight - 20
+          && (m.clientWidth || 0) >= 200
+          && (m.clientHeight || 0) >= 240
+        ))
+        if (hienThi.length > 0) {
+          const diem = (a) => Math.max(0, Math.min(a.bottom, window.innerHeight) - Math.max(a.top, 0)) * (a.clientWidth || 1)
+          chonMoi = { anh: hienThi.reduce((a, b) => (diem(b) > diem(a) ? b : a)) }
+        }
+      }
+      if (chonMoi?.anh?.el && khopKichThuoc(chonMoi.anh.naturalWidth, chonMoi.anh.naturalHeight)) {
+        return chonHopLe(chonMoi.anh.el)
+      }
+    }
+
     return null
   }
 
@@ -1090,13 +1183,13 @@ void (async () => {
         window[CO].fontChuHienTai = tiepTheo
         nutFont.textContent = layThongSoFont(tiepTheo).ten
         chrome.storage?.local?.set?.({ fontChuTruyen: tiepTheo })?.catch?.(() => {})
-        window.dispatchEvent(new Event('resize'))
+        window.dispatchEvent(new CustomEvent('translation:ve-lai'))
       })
 
       const doiCoChu = (delta) => {
         const hienTai = window[CO].heSoCoChu || 1
         window[CO].heSoCoChu = Math.max(0.75, Math.min(1.45, Math.round((hienTai + delta) * 100) / 100))
-        window.dispatchEvent(new Event('resize'))
+        window.dispatchEvent(new CustomEvent('translation:ve-lai'))
       }
       const nutChuNho = document.createElement('button')
       nutChuNho.type = 'button'
@@ -1275,16 +1368,25 @@ void (async () => {
     setTimeout(() => window.addEventListener('mousedown', bamRaNgoai, true), 20)
   }
 
-  function vePhu(el, dulieu) {
+  function vePhu(elBanDau, dulieu) {
     caiCongTacSoSanhGoc()
     const vung = Array.isArray(dulieu) ? dulieu : (dulieu?.vung || [])
     const anh_da_dich = Array.isArray(dulieu) ? null : (dulieu?.anh_da_dich || null)
 
-    const src_khoa = el.currentSrc || el.src
+    let el = elBanDau
+    let src_khoa = el.currentSrc || el.src || el.dataset?.translationCanvasId || ''
+    const rBanDau = el.getBoundingClientRect()
+    const thongSoGoc = {
+      naturalWidth: el.naturalWidth || el.width || 0,
+      naturalHeight: el.naturalHeight || el.height || 0,
+      docTop: (rBanDau.width >= 40 && rBanDau.height >= 40) ? (window.scrollY + rBanDau.top) : el.__translationDocTop,
+    }
+    let daVeThanhCong = false
+
     if (typeof el.__translationDungLopPhu === 'function') {
       try { el.__translationDungLopPhu() } catch {}
     }
-    timLop(src_khoa)?.remove()
+    if (src_khoa) timLop(src_khoa)?.remove()
     const lop = document.createElement('div')
     lop.className = LOP_CLASS
     lop.dataset.src = src_khoa
@@ -1304,6 +1406,7 @@ void (async () => {
       el.removeEventListener('load', goiVe)
       window.removeEventListener('scroll', goiVe, true)
       window.removeEventListener('resize', goiVe)
+      window.removeEventListener('translation:ve-lai', goiVe)
       if (el.__translationDungLopPhu === dung) el.__translationDungLopPhu = null
       lop.remove()
     }
@@ -1312,19 +1415,63 @@ void (async () => {
 
     const ve = () => {
       if (window[CO].dangSuaBong) return
-      const srcHienTai = el.currentSrc || el.src
-      if (!el.isConnected || (src_khoa && srcHienTai && srcHienTai !== src_khoa) || !sanSangQuyDoi(el)) {
-        dung()
-        return
+      let r = el.getBoundingClientRect()
+      if (!el.isConnected || r.width < 40 || r.height < 40) {
+        const elPhucHoi = timAnhThayThe(el, src_khoa, thongSoGoc, !daVeThanhCong)
+        if (elPhucHoi && elPhucHoi !== el) {
+          try { ro.unobserve(el) } catch {}
+          el.removeEventListener('load', goiVe)
+          if (el.__translationDungLopPhu === dung) el.__translationDungLopPhu = null
+          el = elPhucHoi
+          el.__translationDungLopPhu = dung
+          src_khoa = el.currentSrc || el.src || el.dataset?.translationCanvasId || src_khoa
+          lop.dataset.src = src_khoa
+          ro.observe(el)
+          if (mo) mo.observe(el, { attributes: true, attributeFilter: ['src', 'srcset'] })
+          el.addEventListener('load', goiVe)
+          r = el.getBoundingClientRect()
+        } else if (!el.isConnected) {
+          // Trên MangaPlus hoặc trình đọc cuộn ảo (`blob:` / `canvas://`), khi cuộn xa trang có thể
+          // tạm thời bị gỡ khỏi DOM rồi gắn lại khi cuộn ngược lên — chỉ ẩn đi thay vì huỷ vĩnh viễn.
+          if (String(src_khoa).startsWith('blob:') || String(src_khoa).startsWith('canvas://') || typeof thongSoGoc.docTop === 'number') {
+            lop.style.display = 'none'
+            return
+          }
+          dung()
+          return
+        }
       }
-      const r = el.getBoundingClientRect()
+
+      const srcHienTai = el.currentSrc || el.src || el.dataset?.translationCanvasId || ''
+      if (src_khoa && srcHienTai && srcHienTai !== src_khoa) {
+        const nwHienTai = el.naturalWidth || el.width || 0
+        const nhHienTai = el.naturalHeight || el.height || 0
+        const cungKichThuoc = thongSoGoc.naturalWidth > 0
+          && nwHienTai === thongSoGoc.naturalWidth
+          && nhHienTai === thongSoGoc.naturalHeight
+        if (cungKichThuoc && (src_khoa.startsWith('blob:') || srcHienTai.startsWith('blob:'))) {
+          src_khoa = srcHienTai
+          lop.dataset.src = src_khoa
+        } else {
+          dung()
+          return
+        }
+      }
+
       const LE = 800
       if (r.bottom < -LE || r.top > window.innerHeight + LE) {
         lop.style.display = 'none'
         return
       }
       lop.innerHTML = ''
-      if (r.width < 1 || r.height < 1) { lop.style.display = 'none'; return }
+      const nw = el.naturalWidth || el.width || Math.round(r.width)
+      const nh = el.naturalHeight || el.height || Math.round(r.height)
+      if (r.width < 1 || r.height < 1 || nw < 1 || nh < 1) { lop.style.display = 'none'; return }
+      thongSoGoc.naturalWidth = nw
+      thongSoGoc.naturalHeight = nh
+      thongSoGoc.docTop = window.scrollY + r.top
+      el.__translationDocTop = thongSoGoc.docTop
+      daVeThanhCong = true
       lop.style.display = ''
       Object.assign(lop.style, {
         left: `${r.left}px`, top: `${r.top}px`,
@@ -1519,6 +1666,8 @@ void (async () => {
     el.addEventListener('load', goiVe)
     window.addEventListener('scroll', goiVe, { passive: true, capture: true })
     window.addEventListener('resize', goiVe, { passive: true })
+    window.addEventListener('translation:ve-lai', goiVe)
+    return lop
   }
 
   // Đọc ẢNH THẬT bằng canvas ngay tại đây trước khi nhờ service worker tải lại bằng URL.
@@ -1554,10 +1703,15 @@ void (async () => {
         const canvas = document.createElement('canvas')
         canvas.width = w
         canvas.height = h
-        const ctx = canvas.getContext('2d')
+        const ctx = canvas.getContext('2d', { willReadFrequently: true })
         ctx.fillStyle = '#ffffff'
         ctx.fillRect(0, 0, canvas.width, canvas.height)
         ctx.drawImage(el, 0, 0, w, h)
+        try {
+          ctx.getImageData(0, 0, 1, 1)
+          el.__translationCtxMau = ctx
+          el.__translationCtxSrc = src
+        } catch {}
         const blob = await new Promise((resolve, reject) => {
           canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('canvas rỗng'))), 'image/jpeg', 0.88)
         })
@@ -1733,6 +1887,12 @@ void (async () => {
         try { el.src = lazySrc } catch {}
       }
       const r = el.getBoundingClientRect()
+      if (r.width >= 40 && r.height >= 40) {
+        el.__translationDocTop = window.scrollY + r.top
+      }
+      el.__translationCha1 = el.parentElement || null
+      el.__translationCha2 = el.parentElement?.parentElement || null
+      el.__translationCha3 = el.parentElement?.parentElement?.parentElement || null
       let mo = false
       for (let n = el, dem = 0; n instanceof Element && dem < 4; n = n.parentElement, dem++) {
         const f = getComputedStyle(n).filter
@@ -1748,6 +1908,7 @@ void (async () => {
         clientHeight: r.height,
         top: r.top,
         bottom: r.bottom,
+        docTop: window.scrollY + r.top,
         mo,
       })
     }
@@ -2320,7 +2481,12 @@ void (async () => {
           continue
         }
 
-        const elSong = a.el?.isConnected ? a.el : timAnhTheoSrc(a.src)
+        const elSong = timAnhThayThe(
+          a.el,
+          a.src,
+          { naturalWidth: a.naturalWidth, naturalHeight: a.naturalHeight, docTop: a.docTop },
+          false,
+        ) || (a.el?.isConnected ? a.el : timAnhTheoSrc(a.src))
         if (elSong && tra.anh_goc_data_url) {
           await napCanvasTuDataUrl(elSong, tra.anh_goc_data_url)
         }
@@ -2330,6 +2496,10 @@ void (async () => {
           anh_goc_data_url: tra.anh_goc_data_url || null,
         }
         window[CO].daDich.set(khoaCache(a.src, tra.che_do || cheDoHienTai, ngonNguHienTai, engineHienTai, ngonNguDichHienTai), goi_ket_qua)
+        const srcSong = elSong?.currentSrc || elSong?.src
+        if (srcSong && srcSong !== a.src) {
+          window[CO].daDich.set(khoaCache(srcSong, tra.che_do || cheDoHienTai, ngonNguHienTai, engineHienTai, ngonNguDichHienTai), goi_ket_qua)
+        }
         // Ảnh có thể đã bị trang gỡ/thay trong lúc chờ (~45s) — cùng lý do §E19.6e. Bản dịch vẫn
         // giữ trong cache, nên cuộn về bấm lại là hiện ngay.
         if (elSong?.isConnected) vePhu(elSong, goi_ket_qua)
@@ -2475,8 +2645,21 @@ void (async () => {
             ? `\n⏳ Đang chờ hàng đợi máy chủ (còn ${choTruoc} việc phía trước)…`
             : ''
           const vungCoDich = Array.isArray(tin.vung) ? tin.vung.filter((v) => Boolean(v.ban_dich)) : []
-          if (vungCoDich.length > 0 && window[CO].anhDangDich?.isConnected) {
-            vePhu(window[CO].anhDangDich, { vung: tin.vung, anh_da_dich: null })
+          if (vungCoDich.length > 0 && window[CO].anhDangDich) {
+            const elTienDo = timAnhThayThe(
+              window[CO].anhDangDich,
+              window[CO].srcDangDich,
+              {
+                naturalWidth: window[CO].anhDangDich.naturalWidth,
+                naturalHeight: window[CO].anhDangDich.naturalHeight,
+                docTop: window[CO].anhDangDich.__translationDocTop,
+              },
+              true,
+            )
+            if (elTienDo) {
+              window[CO].anhDangDich = elTienDo
+              vePhu(elTienDo, { vung: tin.vung, anh_da_dich: null })
+            }
           }
           noi(
             `⏳ ${tenBuoc}… (${giay}s)${dongCho}`
@@ -2526,27 +2709,39 @@ void (async () => {
     if (tra.anh_goc_data_url) {
       await napCanvasTuDataUrl(anh.el, tra.anh_goc_data_url)
     }
+    const elVe = timAnhThayThe(
+      anh.el,
+      anh.src,
+      { naturalWidth: anh.naturalWidth, naturalHeight: anh.naturalHeight, docTop: anh.docTop },
+      true,
+    ) || anh.el
+    if (tra.anh_goc_data_url && elVe !== anh.el) {
+      await napCanvasTuDataUrl(elVe, tra.anh_goc_data_url)
+    }
+    const srcMoi = elVe.currentSrc || elVe.src || elVe.dataset?.translationCanvasId || anh.src
     const goi_ket_qua = {
       vung: tra.vung,
       anh_da_dich: tra.anh_da_dich || null,
       anh_goc_data_url: tra.anh_goc_data_url || null,
     }
     window[CO].daDich.set(khoaCache(anh.src, tra.che_do || cheDoHienTai, ngonNguHienTai, engineHienTai, ngonNguDichHienTai), goi_ket_qua)
-    vePhu(anh.el, goi_ket_qua)
-    xepHangTrangKeTiep(layMoTa(), anh.src)
+    if (srcMoi && srcMoi !== anh.src) {
+      window[CO].daDich.set(khoaCache(srcMoi, tra.che_do || cheDoHienTai, ngonNguHienTai, engineHienTai, ngonNguDichHienTai), goi_ket_qua)
+    }
+    const lop = vePhu(elVe, goi_ket_qua)
+    xepHangTrangKeTiep(layMoTa(), srcMoi)
     const co_chu = tra.vung.filter((v) => v.ban_dich).length
 
-    const r = anh.el.getBoundingClientRect()
-    const lop = document.getElementById('translation-lop-phu')
+    const r = elVe.getBoundingClientRect()
     const lop_r = lop?.getBoundingClientRect()
     const so_do = [
       `ảnh: ${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)}`,
       `lớp phủ: ${lop_r ? `${Math.round(lop_r.left)},${Math.round(lop_r.top)} ${Math.round(lop_r.width)}x${Math.round(lop_r.height)}` : 'KHÔNG CÓ'}`,
-      `ảnh thật: ${anh.el.naturalWidth}x${anh.el.naturalHeight}`,
+      `ảnh thật: ${elVe.naturalWidth || anh.naturalWidth}x${elVe.naturalHeight || anh.naturalHeight}`,
       `số <img> đủ lớn: ${1 + chon.bi_loai.length} xét, chọn 1`,
     ].join('\n')
 
-    if (!anh.el.isConnected || !lop) {
+    if (!elVe.isConnected || !lop?.isConnected) {
       xong(
         `Dịch xong (${co_chu}/${tra.vung.length} bong bóng có bản dịch) NHƯNG không vẽ được lên `
         + `trang: ảnh đã biến mất khỏi trang trong lúc chờ (trang tự vẽ lại/đổi ảnh khi bạn cuộn `
