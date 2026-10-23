@@ -28,16 +28,25 @@ function loaiDoChatLuong(a) {
   const h = a.naturalHeight || 0
   const ly_do = []
 
-  if (w < CANH_TOI_THIEU && h < CANH_TOI_THIEU) ly_do.push('quá nhỏ')
-  if (w * h < DIEN_TICH_TOI_THIEU) ly_do.push('diện tích quá nhỏ')
-  // Tỉ lệ tính bằng CẠNH NGẮN / CẠNH DÀI nên nó không phụ thuộc ảnh dọc hay ngang.
-  if (Math.min(w, h) / Math.max(w, h, 1) < TI_LE_TOI_THIEU) ly_do.push('quá dẹt — nhiều khả năng là banner')
-  // Ảnh bị CSS thu nhỏ hẳn so với kích thước thật thường là thumbnail trong danh sách.
-  if (a.clientWidth && w / a.clientWidth > 3) ly_do.push('bị thu nhỏ nhiều — nhiều khả năng là ảnh thu nhỏ')
-  // Lightbox hay dựng nền bằng CHÍNH ảnh đang xem, phóng to + làm mờ để lấp khung. Cùng `src`
-  // nên không phân biệt được bằng kích thước thật — chỉ CSS filter mới lộ ra nó không phải nội
-  // dung mà là trang trí. Đo được trên trang thật 07/09: bản nền mờ 2304x1134, chiếm khung nhìn
-  // NHIỀU hơn bản rõ 750x750 phóng vừa khung, nên phần "chấm điểm" bên dưới bị nó thắng.
+  const hienThiLon = (a.clientWidth || 0) >= 320 && (a.clientHeight || 0) >= 420
+  const canhToiThieu = hienThiLon ? 280 : CANH_TOI_THIEU
+  const dienTichToiThieu = hienThiLon ? 280 * 400 : DIEN_TICH_TOI_THIEU
+
+  if (w < canhToiThieu && h < canhToiThieu) ly_do.push('quá nhỏ')
+  if (w * h < dienTichToiThieu) ly_do.push('diện tích quá nhỏ')
+  // Banner quảng cáo là ảnh NGANG dẹt (`w > h` và `h / w < 0.45`).
+  // Trang truyện dọc hoặc dải Webtoon (`h >= w`) có thể rất dài theo chiều dọc (`w / h` xuống tới 0.08).
+  const tiLe = w > h ? (h / Math.max(w, 1)) : (w / Math.max(h, 1))
+  const nguongTiLe = w > h ? TI_LE_TOI_THIEU : 0.08
+  if (tiLe < nguongTiLe) ly_do.push('quá dẹt — nhiều khả năng là banner')
+  // Ảnh bị CSS thu nhỏ hẳn xuống kích thước tem thư (< 240px) thường là thumbnail trong danh sách.
+  // Không loại nếu ảnh đang hiển thị đủ rộng trên màn hình (`clientWidth >= 240`), vì trên MangaDex
+  // hoặc màn hình Windows DPI 125%-150%, bản scan gốc 1800px-2400px hiển thị vừa chiều cao khung nhìn
+  // (`clientWidth` ~ 450px-600px) sẽ có `w / clientWidth` đạt 3.2 - 4.5 dù chính là trang truyện đang đọc!
+  if (a.clientWidth && a.clientWidth < 240 && w / a.clientWidth > 3) {
+    ly_do.push('bị thu nhỏ nhiều — nhiều khả năng là ảnh thu nhỏ')
+  }
+  // Lightbox hay dựng nền bằng CHÍNH ảnh đang xem, phóng to + làm mờ để lấp khung.
   if (a.mo) ly_do.push('có hiệu ứng mờ — nhiều khả năng là ảnh nền trang trí của lightbox')
 
   return ly_do

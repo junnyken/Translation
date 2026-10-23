@@ -942,14 +942,14 @@ void (async () => {
         if (e.altKey && (e.key === 'q' || e.key === 'Q')) {
           e.preventDefault()
           datAnLopPhu(false)
-          if (!window[CO].dangChayBulk) dichTrangHienTai()
+          if (!window[CO].dangChayBulk) (window[CO].dichTrangHienTai || dichTrangHienTai)()
         }
         if (e.altKey && (e.key === 'a' || e.key === 'A')) {
           e.preventDefault()
           datAnLopPhu(false)
           if (!window[CO].dangChay) {
             window[CO].dangChay = true
-            dichCaChapter()
+            ;(window[CO].dichCaChapter || dichCaChapter)()
           }
         }
         if (e.altKey && (e.key === 'w' || e.key === 'W')) {
@@ -1030,7 +1030,7 @@ void (async () => {
       nutDich.textContent = '⚡ Dịch trang (Alt+Q)'
       nutDich.style.cssText = `${kieuNut};background:#2563eb;border-color:#3b82f6;font-weight:600`
       nutDich.addEventListener('click', () => {
-        if (!window[CO].dangChayBulk) dichTrangHienTai()
+        if (!window[CO].dangChayBulk) (window[CO].dichTrangHienTai || dichTrangHienTai)()
       })
 
       const nutChapter = document.createElement('button')
@@ -1041,7 +1041,7 @@ void (async () => {
       nutChapter.addEventListener('click', () => {
         if (!window[CO].dangChay) {
           window[CO].dangChay = true
-          dichCaChapter()
+          ;(window[CO].dichCaChapter || dichCaChapter)()
         }
       })
 
@@ -1053,7 +1053,7 @@ void (async () => {
       nutSnip.addEventListener('click', () => {
         if (!window[CO].dangChay) {
           window[CO].dangChay = true
-          khoanhVungDich()
+          ;(window[CO].khoanhVungDich || khoanhVungDich)()
         }
       })
 
@@ -1736,7 +1736,8 @@ void (async () => {
       let mo = false
       for (let n = el, dem = 0; n instanceof Element && dem < 4; n = n.parentElement, dem++) {
         const f = getComputedStyle(n).filter
-        if (f && f !== 'none') { mo = true; break }
+        // Chỉ coi là nền trang trí lightbox khi có hiệu ứng làm mờ `blur(...)`
+        if (f && f.includes('blur(')) { mo = true; break }
       }
       ds.push({
         el,
@@ -2236,7 +2237,19 @@ void (async () => {
       : null
 
     for (let vong = 0; vong < TRAN_VONG_CUON && !dung_lai && !ket_thuc; vong++) {
-      const { danh_sach } = chonMoiTrang(layMoTa())
+      const moTaChapter = layMoTa()
+      let { danh_sach } = chonMoiTrang(moTaChapter)
+      if (!danh_sach.length) {
+        const daThaySrc = new Set()
+        danh_sach = moTaChapter.filter((m) => {
+          if (!m.src || m.mo || daThaySrc.has(m.src)) return false
+          const duLon = ((m.naturalWidth || 0) >= 350 && (m.naturalHeight || 0) >= 450)
+            || ((m.clientWidth || 0) >= 220 && (m.clientHeight || 0) >= 260)
+          if (!duLon) return false
+          daThaySrc.add(m.src)
+          return true
+        }).sort((a, b) => a.top - b.top)
+      }
       if (io) danh_sach.forEach((a) => io.observe(a.el))
       const moi = danh_sach.filter((a) => !da_thu.has(a.src))
 
@@ -2349,7 +2362,37 @@ void (async () => {
     bang.style.display = ''
 
     const mo_ta = layMoTa()
-    const chon = chonTrangTruyen(mo_ta, { caoKhungNhin: window.innerHeight })
+    let chon = chonTrangTruyen(mo_ta, { caoKhungNhin: window.innerHeight })
+    if (!chon.anh) {
+      // Dự phòng trực tiếp theo khung nhìn: trên MangaDex hoặc màn hình laptop DPI 125%-150%,
+      // ảnh bản scan độ phân giải cao (1800px-2400px) thu vừa chiều cao màn hình (`clientWidth` ~ 450px-600px)
+      // từng bị bộ lọc cũ loại nhầm là thumbnail (`w / clientWidth > 3`). Nếu có ảnh/canvas đang hiển thị
+      // rõ trên màn hình (`clientWidth >= 200 && clientHeight >= 240`), chọn ngay ảnh chiếm khung nhìn lớn nhất!
+      const ungVienHienThi = mo_ta.filter((m) => (
+        !m.mo
+        && m.bottom > 20
+        && m.top < window.innerHeight - 20
+        && (m.clientWidth || 0) >= 200
+        && (m.clientHeight || 0) >= 240
+      ))
+      if (ungVienHienThi.length > 0) {
+        const diemHien = (a) => (
+          Math.max(0, Math.min(a.bottom, window.innerHeight) - Math.max(a.top, 0)) * (a.clientWidth || 1)
+        )
+        const totNhat = ungVienHienThi.reduce((a, b) => (diemHien(b) > diemHien(a) ? b : a))
+        if (!totNhat.naturalWidth || totNhat.naturalWidth < 200) {
+          totNhat.naturalWidth = Math.round(totNhat.clientWidth * (window.devicePixelRatio || 1))
+        }
+        if (!totNhat.naturalHeight || totNhat.naturalHeight < 200) {
+          totNhat.naturalHeight = Math.round(totNhat.clientHeight * (window.devicePixelRatio || 1))
+        }
+        chon = {
+          anh: totNhat,
+          ly_do: `chọn theo khung hiển thị thực tế (${Math.round(totNhat.clientWidth)}x${Math.round(totNhat.clientHeight)})`,
+          bi_loai: chon.bi_loai || [],
+        }
+      }
+    }
     if (!chon.anh) {
       // Nếu trang không có ảnh truyện tranh lớn, kiểm tra ngay xem đây có phải trang Truyện Chữ (Web Novel / Light Novel) không
       const daDichTruyenChu = await dichTruyenChuTrenTrang({ caChapter: false })
@@ -2517,6 +2560,10 @@ void (async () => {
 
     xong(`Xong: ${co_chu}/${tra.vung.length} bong bóng có bản dịch.\n\n${so_do}`, 40)
   }
+
+  window[CO].dichTrangHienTai = dichTrangHienTai
+  window[CO].dichCaChapter = dichCaChapter
+  window[CO].khoanhVungDich = khoanhVungDich
 
   // Popup hoặc phím tắt toàn cục đặt cờ ngay trước khi tiêm. ĐỌC LÀ XOÁ: để lại thì lần bấm
   // "Dịch trang này" sau đó sẽ chạy nhầm chế độ trước đó.
