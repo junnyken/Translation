@@ -15,6 +15,9 @@ from app.api.v1.codex_routes import router as codex_router
 from app.api.v1.xac_thuc_routes import router as xac_thuc_router
 from app.core.config import get_settings
 
+_settings = get_settings()
+_la_prod = _settings.app_env == "prod"
+
 app = FastAPI(
     title="Translation — Manga Translation Extension (MTE)",
     version="0.1.0-M1",
@@ -22,14 +25,12 @@ app = FastAPI(
         "Pipeline dịch manga EN/JP/CN → VI. M1: data model + API contract + interface engine. "
         "Chưa có logic AI thật (detect/OCR/inpaint/translate/typeset thuộc M2–M6)."
     ),
-    docs_url="/docs",
-    openapi_url="/openapi.json",
+    # Bảo mật Production: Ẩn toàn bộ tài liệu Swagger / OpenAPI nội bộ trên môi trường chạy thật
+    # để chống đối thủ dò quét cấu trúc endpoint và schema của hệ thống.
+    docs_url=None if _la_prod else "/docs",
+    redoc_url=None,
+    openapi_url=None if _la_prod else "/openapi.json",
 )
-
-# Chạy thật thì giao diện (M7/M8) và API nằm ở HAI tên miền khác nhau, nên trình duyệt coi là
-# gọi chéo nguồn và sẽ chặn nếu thiếu CORS. Mặc định để RỖNG = không cho phép nguồn nào —
-# phải khai báo tường minh trong `.env`, không mở sẵn `*` cho cả internet.
-_settings = get_settings()
 if _settings.cors_allow_origin_list:
     app.add_middleware(
         CORSMiddleware,

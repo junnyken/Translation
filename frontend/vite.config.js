@@ -43,6 +43,14 @@ const cors = CHO_PHEP.length === 0
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    // Bảo mật mã nguồn Production: Tắt xuất file .map để không ai mở F12 khôi phục lại code React gốc
+    sourcemap: false,
+    minify: 'esbuild',
+  },
+  esbuild: {
+    legalComments: 'none',
+  },
   server: {
     host: '0.0.0.0',
     port: 5173,
