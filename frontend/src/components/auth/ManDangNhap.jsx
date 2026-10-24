@@ -11,11 +11,7 @@ const MIEN_EMAIL_CHINH_THONG_CLIENT = new Set([
   'icloud.com', 'me.com', 'mac.com',
   'yahoo.com', 'yahoo.com.vn', 'ymail.com', 'rocketmail.com',
   'proton.me', 'protonmail.com', 'pm.me',
-  'zoho.com', 'zohomail.com', 'yandex.com', 'gmx.com', 'aol.com',
-  'matbao.com', 'matbao.vn', 'fpt.com', 'fpt.com.vn', 'viettel.com.vn', 'vnpt.vn',
 ])
-
-const DUOI_TO_CHUC_CHO_PHEP_CLIENT = ['.edu.vn', '.gov.vn', '.ac.vn', '.org.vn', '.edu']
 
 export function kiemEmailHopLeClient(rawEmail, laEn = false) {
   const chuan = (rawEmail || '').trim().toLowerCase()
@@ -42,13 +38,10 @@ export function kiemEmailHopLeClient(rawEmail, laEn = false) {
   if (domain.endsWith('.local') || ['vi-du.com', 'example.com', 'x.com', 'b.com', 'c.com'].includes(domain)) {
     return null
   }
-  const hopLe =
-    MIEN_EMAIL_CHINH_THONG_CLIENT.has(domain) ||
-    DUOI_TO_CHUC_CHO_PHEP_CLIENT.some((duoi) => domain.endsWith(duoi))
-  if (!hopLe) {
+  if (!MIEN_EMAIL_CHINH_THONG_CLIENT.has(domain)) {
     return laEn
-      ? `Domain '@${domain}' is not supported (10-minute / temporary emails are blocked). Please use Gmail, Outlook/Hotmail, iCloud, Yahoo, ProtonMail, or an educational (.edu.vn) email.`
-      : `Tên miền '@${domain}' không được hỗ trợ (chặn triệt để mail 10 phút / tên miền ảo). Vui lòng dùng Gmail (@gmail.com), Outlook/Hotmail, iCloud, Yahoo, ProtonMail hoặc email trường học (.edu.vn).`
+      ? `Domain '@${domain}' is not supported (10-minute / temporary emails are blocked). Please use Gmail, Outlook/Hotmail, iCloud, Yahoo, or ProtonMail.`
+      : `Tên miền '@${domain}' không được hỗ trợ (chặn triệt để mail 10 phút / tên miền ảo). Hệ thống chỉ chấp nhận Gmail (@gmail.com), Outlook/Hotmail, iCloud, Yahoo hoặc ProtonMail.`
   }
   return null
 }

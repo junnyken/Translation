@@ -109,23 +109,20 @@ def email_goc_chong_clone(email: str) -> str:
 
 
 #: Danh sách CÁC NHÀ CUNG CẤP EMAIL CHÍNH THỐNG ĐƯỢC PHÉP ĐĂNG KÝ (Whitelist).
-#: Chặn 100% mọi dịch vụ mail 10 phút xoay tên miền ngẫu nhiên (temp-mail, smailpro, emailondeck...).
+#: Chặn 100% mọi dịch vụ mail 10 phút xoay tên miền ngẫu nhiên (temp-mail, smailpro, emailondeck...)
+#: và không chấp nhận các đuôi tên miền tổ chức/trường học (.edu.vn, .gov.vn...).
 MIEN_EMAIL_CHINH_THONG_CHO_PHEP: frozenset[str] = frozenset({
     "gmail.com", "googlemail.com",
     "outlook.com", "hotmail.com", "live.com", "msn.com", "outlook.com.vn", "hotmail.com.vn",
     "icloud.com", "me.com", "mac.com",
     "yahoo.com", "yahoo.com.vn", "ymail.com", "rocketmail.com",
     "proton.me", "protonmail.com", "pm.me",
-    "zoho.com", "zohomail.com", "yandex.com", "gmx.com", "aol.com",
-    "matbao.com", "matbao.vn", "fpt.com", "fpt.com.vn", "viettel.com.vn", "vnpt.vn",
 })
-
-_DUOI_TO_CHUC_CHO_PHEP = (".edu.vn", ".gov.vn", ".ac.vn", ".org.vn", ".edu")
 
 
 def kiem_email_hop_le_chong_spam(email: str) -> str | None:
     """Kiểm tra định dạng email và CHỈ chấp nhận các nhà cung cấp email chính thống (Gmail, Outlook,
-    iCloud, Yahoo, Proton, Email giáo dục/cơ quan) để chặn triệt để 100% mọi loại mail 10 phút.
+    iCloud, Yahoo, ProtonMail) để chặn triệt để 100% mọi loại mail 10 phút.
     Trả về lý do từ chối (tiếng Việt), hoặc `None` nếu hợp lệ."""
     chuan = chuan_hoa_email(email)
     if "@" not in chuan:
@@ -147,15 +144,11 @@ def kiem_email_hop_le_chong_spam(email: str) -> str | None:
     if domain.endswith(".local") or domain in ("vi-du.com", "example.com", "x.com", "b.com", "c.com"):
         return None
 
-    # Whitelist nhà cung cấp email thật chính thống — chặn 100% mail 10 phút đổi đuôi miền ngẫu nhiên
-    hop_le_chinh_thong = (
-        domain in MIEN_EMAIL_CHINH_THONG_CHO_PHEP
-        or any(domain.endswith(duoi) for duoi in _DUOI_TO_CHUC_CHO_PHEP)
-    )
-    if not hop_le_chinh_thong:
+    # Whitelist nhà cung cấp email thật chính thống — chặn 100% mail 10 phút và các tên miền khác
+    if domain not in MIEN_EMAIL_CHINH_THONG_CHO_PHEP:
         return (
             f"Tên miền '@{domain}' không được hỗ trợ để chống tạo tài khoản ảo / mail 10 phút. "
-            "Hệ thống chỉ chấp nhận email chính thống: Gmail (@gmail.com), Outlook/Hotmail, iCloud, Yahoo, ProtonMail hoặc email trường học (.edu.vn)."
+            "Hệ thống chỉ chấp nhận Gmail (@gmail.com), Outlook/Hotmail, iCloud, Yahoo hoặc ProtonMail."
         )
     return None
 
