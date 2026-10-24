@@ -904,6 +904,8 @@ async def quan_tri_thong_ke(
     if not nguoi.la_quan_tri:
         raise HTTPException(status_code=404, detail="Không tìm thấy.")
 
+    import json as _json
+    import os as _os
     from datetime import timedelta
     from pathlib import Path
 
@@ -914,25 +916,43 @@ async def quan_tri_thong_ke(
         (await session.execute(select(NguoiDung).order_by(NguoiDung.created_at.desc()))).scalars()
     )
 
-    # Thống kê số trang đã dịch từ sổ cái `SoCaiHanMuc` (không tính các khoản đã hoàn)
-    trang_thai_hop_le = [TrangThaiHanMuc.dang_giu, TrangThaiHanMuc.da_tieu]
+    # Thống kê số trang đã dịch từ sổ cái `SoCaiHanMuc` (không tính các khoản đã hoàn;
+    # chỉ đếm `nguoi_dung` và `khach_cookie` để không cộng trùng `khach_ip` của cùng 1 khách lạ).
+    trang_thai_hop_le = [TrangThaiHanMuc.giu_cho, TrangThaiHanMuc.da_tieu]
+    loai_dem_trang = [LoaiChuThe.nguoi_dung, LoaiChuThe.khach_cookie]
 
-    trang_hom_nay = int(
+    trang_tk_hom_nay = int(
         (
             await session.execute(
                 select(func.coalesce(func.sum(SoCaiHanMuc.so_trang), 0)).where(
                     SoCaiHanMuc.ngay_han_muc == hom_nay,
+                    SoCaiHanMuc.loai_chu_the == LoaiChuThe.nguoi_dung,
                     SoCaiHanMuc.trang_thai.in_(trang_thai_hop_le),
                 )
             )
         ).scalar_one()
         or 0
     )
+    trang_khach_hom_nay = int(
+        (
+            await session.execute(
+                select(func.coalesce(func.sum(SoCaiHanMuc.so_trang), 0)).where(
+                    SoCaiHanMuc.ngay_han_muc == hom_nay,
+                    SoCaiHanMuc.loai_chu_the == LoaiChuThe.khach_cookie,
+                    SoCaiHanMuc.trang_thai.in_(trang_thai_hop_le),
+                )
+            )
+        ).scalar_one()
+        or 0
+    )
+    trang_hom_nay = trang_tk_hom_nay + trang_khach_hom_nay
+
     trang_7_ngay = int(
         (
             await session.execute(
                 select(func.coalesce(func.sum(SoCaiHanMuc.so_trang), 0)).where(
                     SoCaiHanMuc.ngay_han_muc >= bay_ngay_truoc,
+                    SoCaiHanMuc.loai_chu_the.in_(loai_dem_trang),
                     SoCaiHanMuc.trang_thai.in_(trang_thai_hop_le),
                 )
             )
@@ -943,15 +963,75 @@ async def quan_tri_thong_ke(
         (
             await session.execute(
                 select(func.coalesce(func.sum(SoCaiHanMuc.so_trang), 0)).where(
+                    SoCaiHanMuc.loai_chu_the.in_(loai_dem_trang),
                     SoCaiHanMuc.trang_thai.in_(trang_thai_hop_le),
                 )
             )
         ).scalar_one()
         or 0
     )
+    # Nếu có trang được dịch trước khi bật sổ cái hoặc qua luồng nội bộ, lấy max với tổng số Page thực tế
+    tong_page_db = int(
+        (await session.execute(select(func.count(Page.id)))).scalar_one() or 0
+    )
+    if tong_page_db > trang_toan_thoi_gian:
+        trang_toan_thoi_gian = tong_page_db
+
     tong_chapter = int(
         (await session.execute(select(func.count(Project.id)))).scalar_one() or 0
     )
+
+    # Biểu đồ sản lượng 7 ngày gần nhất
+    rows_7_ngay = (
+        await session.execute(
+            select(
+                SoCaiHanMuc.ngay_han_muc,
+                SoCaiHanMuc.loai_chu_the,
+                func.coalesce(func.sum(SoCaiHanMuc.so_trang), 0),
+            )
+            .where(
+                SoCaiHanMuc.ngay_han_muc >= bay_ngay_truoc,
+                SoCaiHanMuc.loai_chu_the.in_(loai_dem_trang),
+                SoCaiHanMuc.trang_thai.in_(trang_thai_hop_le),
+            )
+            .group_by(SoCaiHanMuc.ngay_han_muc, SoCaiHanMuc.loai_chu_the)
+        )
+    ).all()
+    map_7_ngay_tk: dict[str, int] = {}
+    map_7_ngay_khach: dict[str, int] = {}
+    for ngay_row, loai_row, so_tr in rows_7_ngay:
+        k = ngay_row.isoformat() if hasattr(ngay_row, "isoformat") else str(ngay_row)
+        if loai_row == LoaiChuThe.nguoi_dung:
+            map_7_ngay_tk[k] = int(so_tr or 0)
+        else:
+            map_7_ngay_khach[k] = int(so_tr or 0)
+
+    bieu_do_7_ngay: list[dict] = []
+    for i in range(6, -1, -1):
+        d = hom_nay - timedelta(days=i)
+        k = d.isoformat()
+        tk_d = map_7_ngay_tk.get(k, 0)
+        kh_d = map_7_ngay_khach.get(k, 0)
+        bieu_do_7_ngay.append(
+            {
+                "ngay": k,
+                "nhan": d.strftime("%d/%m"),
+                "trang_tai_khoan": tk_d,
+                "trang_khach": kh_d,
+                "tong": tk_d + kh_d,
+            }
+        )
+
+    # Phân bổ theo ngôn ngữ nguồn
+    rows_lang = (
+        await session.execute(
+            select(Project.source_lang, func.count(Project.id)).group_by(Project.source_lang)
+        )
+    ).all()
+    phan_bo_ngon_ngu: dict[str, int] = {}
+    for lang_val, cnt_lang in rows_lang:
+        ma_lang = lang_val.value if hasattr(lang_val, "value") else str(lang_val)
+        phan_bo_ngon_ngu[ma_lang] = int(cnt_lang or 0)
 
     # Gom số trang dùng hôm nay theo từng user
     rows_hom_nay = (
@@ -989,17 +1069,28 @@ async def quan_tri_thong_ke(
         )
     ).all()
     map_chap = {str(uid): int(cnt) for uid, cnt in rows_chap}
+    map_email_theo_uid = {str(u.id): u.email for u in ds_nguoi}
 
     tran_mac_dinh = settings.han_muc_co_tai_khoan
     chi_tiet: list[QuanTriNguoiDungChiTietRead] = []
     tong_tich_luy = 0
     so_vip = 0
     so_hoat_dong = 0
+    nguoi_moi_hom_nay = 0
+    nguoi_moi_7_ngay = 0
 
     for u in ds_nguoi:
         uid_str = str(u.id)
         if u.dang_hoat_dong:
             so_hoat_dong += 1
+        try:
+            ngay_tao = ngay_han_muc(u.created_at) if u.created_at else None
+            if ngay_tao == hom_nay:
+                nguoi_moi_hom_nay += 1
+            if ngay_tao and ngay_tao >= bay_ngay_truoc:
+                nguoi_moi_7_ngay += 1
+        except Exception:
+            pass
         mua_them = max(0, int(u.so_luot_mua_them or 0))
         tong_tich_luy += mua_them
         if mua_them > 0 or (u.tran_hang_ngay_rieng and u.tran_hang_ngay_rieng > tran_mac_dinh):
@@ -1011,7 +1102,7 @@ async def quan_tri_thong_ke(
             QuanTriNguoiDungChiTietRead(
                 id=u.id,
                 email=u.email,
-                ten_hien=u.ten_hien,
+                ten_hien=u.ten_hien or "",
                 la_quan_tri=u.la_quan_tri,
                 dang_hoat_dong=u.dang_hoat_dong,
                 tran_hang_ngay=tran_u,
@@ -1025,11 +1116,91 @@ async def quan_tri_thong_ke(
             )
         )
 
+    # Danh sách 15 chapter hoạt động gần đây trên toàn hệ thống
+    rows_recent_proj = (
+        await session.execute(
+            select(Project, func.count(Page.id))
+            .outerjoin(Page, Page.project_id == Project.id)
+            .group_by(Project.id)
+            .order_by(Project.created_at.desc())
+            .limit(15)
+        )
+    ).all()
+    chapter_gan_day: list[dict] = []
+    for prj, so_tr_prj in rows_recent_proj:
+        uid_c = str(prj.chu_so_huu_id) if prj.chu_so_huu_id else ""
+        email_chu = map_email_theo_uid.get(uid_c) or ("Khách vãng lai" if prj.chu_khach else "Chưa có chủ")
+        chapter_gan_day.append(
+            {
+                "id": str(prj.id),
+                "name": prj.name,
+                "email_chu": email_chu,
+                "source_lang": prj.source_lang.value if hasattr(prj.source_lang, "value") else str(prj.source_lang),
+                "target_lang": prj.target_lang.value if hasattr(prj.target_lang, "value") else str(prj.target_lang),
+                "che_do_pipeline": prj.che_do_pipeline.value if hasattr(prj.che_do_pipeline, "value") else str(prj.che_do_pipeline),
+                "so_trang": int(so_tr_prj or 0),
+                "created_at": prj.created_at.isoformat() if prj.created_at else "",
+            }
+        )
+
+    # Đếm job đang chạy và job lỗi hôm nay
+    viec_dang_chay = int(
+        (
+            await session.execute(
+                select(func.count(Job.id)).where(Job.status.in_((JobStatus.queued, JobStatus.running)))
+            )
+        ).scalar_one()
+        or 0
+    )
+    viec_loi_hom_nay = int(
+        (
+            await session.execute(
+                select(func.count(Job.id)).where(Job.status == JobStatus.failed)
+            )
+        ).scalar_one()
+        or 0
+    )
+
+    # Sức khoẻ máy chủ & Worker AI
+    from app.workers.bo_nho import rss_mb
+
+    rss_api = rss_mb()
+    rss_worker = None
+    worker_tt = "running"
+    try:
+        moc_w = _json.loads(Path(_os.environ.get("WORKER_RSS_FILE", "/tmp/rss-worker.json")).read_text())
+        rss_worker = moc_w.get("rss_mb")
+    except Exception:
+        pass
+    try:
+        san_sang = _json.loads(Path(_os.environ.get("WORKER_READY_FILE", "/tmp/worker-ready.json")).read_text()).get("san_sang_luc")
+        if san_sang:
+            worker_tt = "running"
+    except Exception:
+        pass
+
+    he_thong_info = {
+        "worker_trang_thai": worker_tt,
+        "rss_api_mb": rss_api,
+        "rss_worker_mb": rss_worker,
+        "llm_configured": settings.llm_configured,
+        "llm_model_name": settings.llm_model_name,
+        "detect_engine": settings.detect_engine,
+        "translate_default_engine": settings.translate_default_engine,
+        "han_muc_khach_la": settings.han_muc_khach_la,
+        "han_muc_co_tai_khoan": settings.han_muc_co_tai_khoan,
+        "han_muc_ip_khach_la": settings.han_muc_ip_khach_la,
+    }
+
     nh_ten, nh_stk, nh_chu = await run_in_threadpool(_doc_cau_hinh_ngan_hang_dong, settings)
     ds_don_raw = await run_in_threadpool(_doc_ds_don_nap)
     ds_don_out: list[DonNapLuotRead] = []
     for d in ds_don_raw[:50]:
         try:
+            if "tao_luc" not in d and "created_at" in d:
+                d["tao_luc"] = str(d.get("created_at") or "")
+            if "noi_dung_ck" not in d and "noi_dung_chuyen_khoan" in d:
+                d["noi_dung_ck"] = str(d.get("noi_dung_chuyen_khoan") or "")
             ds_don_out.append(DonNapLuotRead(**d))
         except Exception:  # noqa: BLE001
             pass
@@ -1037,16 +1208,29 @@ async def quan_tri_thong_ke(
     return QuanTriThongKeRead(
         tong_nguoi_dung=len(ds_nguoi),
         nguoi_dung_hoat_dong=so_hoat_dong,
+        nguoi_dung_moi_hom_nay=nguoi_moi_hom_nay,
+        nguoi_dung_moi_7_ngay=nguoi_moi_7_ngay,
         so_khach_vip=so_vip,
         tong_luot_tich_luy_con_lai=tong_tich_luy,
         trang_dich_hom_nay=trang_hom_nay,
+        trang_tai_khoan_hom_nay=trang_tk_hom_nay,
+        trang_khach_hom_nay=trang_khach_hom_nay,
         trang_dich_7_ngay=trang_7_ngay,
         trang_dich_toan_thoi_gian=trang_toan_thoi_gian,
         tong_chapter=tong_chapter,
+        viec_dang_chay=viec_dang_chay,
+        viec_loi_hom_nay=viec_loi_hom_nay,
+        han_muc_khach_la=settings.han_muc_khach_la,
+        han_muc_co_tai_khoan=settings.han_muc_co_tai_khoan,
+        han_muc_ip_khach_la=settings.han_muc_ip_khach_la,
         ty_le_vnd_moi_trang=max(1, settings.ty_le_vnd_moi_trang),
         ngan_hang_ten=nh_ten,
         ngan_hang_so_tk=nh_stk,
         ngan_hang_chu_tk=nh_chu,
+        bieu_do_7_ngay=bieu_do_7_ngay,
+        phan_bo_ngon_ngu=phan_bo_ngon_ngu,
+        chapter_gan_day=chapter_gan_day,
+        he_thong=he_thong_info,
         nguoi_dung_chi_tiet=chi_tiet,
         don_nap_gan_day=ds_don_out,
     )

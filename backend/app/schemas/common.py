@@ -1257,13 +1257,16 @@ class QuanTriNguoiDungChiTietRead(BaseModel):
 class DonNapLuotRead(BaseModel):
     ma_don: str
     email: str
+    ten_hien: str = ""
     ma_goi: str
     ten_goi: str
     so_tien_vnd: int
     so_trang_cong: int
     noi_dung_ck: str = ""
+    noi_dung_chuyen_khoan: str = ""
     trang_thai: str = "da_cong_tu_dong"
-    tao_luc: str
+    tao_luc: str = ""
+    created_at: str = ""
     duyet_luc: str | None = None
     ghi_chu: str = ""
 
@@ -1275,8 +1278,10 @@ class XacNhanChuyenKhoanRequest(BaseModel):
     ma_goi: str = Field(default="tieu_chuan", max_length=60)
     ten_goi: str = Field(default="", max_length=160)
     so_tien_vnd: int = Field(default=250000, ge=10000, le=100000000)
+    so_trang: int = Field(default=550, ge=1, le=200000)
     so_trang_cong: int = Field(default=550, ge=1, le=200000)
     noi_dung_ck: str = Field(default="", max_length=160)
+    noi_dung_chuyen_khoan: str = Field(default="", max_length=160)
 
 
 class DuyetDonNapRequest(BaseModel):
@@ -1289,16 +1294,29 @@ class DuyetDonNapRequest(BaseModel):
 class QuanTriThongKeRead(BaseModel):
     tong_nguoi_dung: int = 0
     nguoi_dung_hoat_dong: int = 0
+    nguoi_dung_moi_hom_nay: int = 0
+    nguoi_dung_moi_7_ngay: int = 0
     so_khach_vip: int = 0
     tong_luot_tich_luy_con_lai: int = 0
     trang_dich_hom_nay: int = 0
+    trang_tai_khoan_hom_nay: int = 0
+    trang_khach_hom_nay: int = 0
     trang_dich_7_ngay: int = 0
     trang_dich_toan_thoi_gian: int = 0
     tong_chapter: int = 0
+    viec_dang_chay: int = 0
+    viec_loi_hom_nay: int = 0
+    han_muc_khach_la: int = 2
+    han_muc_co_tai_khoan: int = 20
+    han_muc_ip_khach_la: int = 8
     ty_le_vnd_moi_trang: int = 500
     ngan_hang_ten: str = "ACB"
     ngan_hang_so_tk: str = "20260457"
     ngan_hang_chu_tk: str = "NGUYEN THIEN TRIEU"
+    bieu_do_7_ngay: list[dict] = []
+    phan_bo_ngon_ngu: dict[str, int] = {}
+    chapter_gan_day: list[dict] = []
+    he_thong: dict = {}
     nguoi_dung_chi_tiet: list[QuanTriNguoiDungChiTietRead] = []
     don_nap_gan_day: list[DonNapLuotRead] = []
 
