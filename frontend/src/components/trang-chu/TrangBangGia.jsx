@@ -161,10 +161,12 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
     ? `NAP ${maGoiNgan} ${emailHienTai}`
     : `NAP ${maGoiNgan} <EMAIL_CUA_BAN>`
 
-  const nganHangTen = thongTinNap?.ngan_hang_ten || 'ACB'
-  const nganHangSoTk = thongTinNap?.ngan_hang_so_tk || '20260457'
-  const nganHangChuTk = thongTinNap?.ngan_hang_chu_tk || 'NGUYEN THIEN TRIEU'
-  const urlQr = `https://img.vietqr.io/image/${encodeURIComponent(nganHangTen)}-${encodeURIComponent(nganHangSoTk)}-compact2.png?amount=${goiDangChon.giaVnd}&addInfo=${encodeURIComponent(noiDungChuyenKhoan)}&accountName=${encodeURIComponent(nganHangChuTk)}`
+  const nganHangTen = thongTinNap?.ngan_hang_ten || ''
+  const nganHangSoTk = thongTinNap?.ngan_hang_so_tk || ''
+  const nganHangChuTk = thongTinNap?.ngan_hang_chu_tk || ''
+  const urlQr = nganHangTen && nganHangSoTk
+    ? `https://img.vietqr.io/image/${encodeURIComponent(nganHangTen)}-${encodeURIComponent(nganHangSoTk)}-compact2.png?amount=${goiDangChon.giaVnd}&addInfo=${encodeURIComponent(noiDungChuyenKhoan)}&accountName=${encodeURIComponent(nganHangChuTk)}`
+    : ''
 
   function saoChepNoiDung() {
     navigator.clipboard?.writeText(noiDungChuyenKhoan)
@@ -516,9 +518,6 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
                   ? `✅ Tôi đã chuyển khoản ${goiDangChon.giaVnd.toLocaleString('vi-VN')}đ — Nhận Gói Ngay`
                   : '🔐 Đăng nhập để Xác nhận Chuyển khoản & Nhận Gói Ngay')}
             </button>
-            <span style={{ fontSize: 12.5, color: '#94a3b8' }}>
-              📩 Hỗ trợ Admin: <b style={{ color: '#e2e8f0' }}>thientrieu753@gmail.com</b>
-            </span>
           </div>
 
           {loiXacNhan && (
@@ -547,7 +546,7 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
               lineHeight: 1.65,
             }}>
               <div style={{ fontWeight: 800, color: '#34d399', fontSize: 15 }}>
-                🎉 {ketQuaDon.trang_thai === 'da_cong_tu_dong'
+                🎉 {ketQuaDon.trang_thai === 'da_cong_tu_dong' || ketQuaDon.trang_thai === 'da_xac_nhan'
                   ? `ĐÃ KÍCH HOẠT GÓI THÀNH CÔNG (+${ketQuaDon.so_trang_cong.toLocaleString('vi-VN')} trang)!`
                   : 'ĐÃ GHI NHẬN ĐƠN CHUYỂN KHOẢN CỦA BẠN!'}
               </div>
@@ -557,11 +556,6 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
               <div>
                 • Tài khoản: <b>{ketQuaDon.email}</b> · Số trang tích luỹ hiện có:{' '}
                 <b style={{ color: '#38bdf8' }}>{(thongTinNap?.so_luot_mua_them ?? ketQuaDon.so_trang_cong).toLocaleString('vi-VN')} trang</b>
-              </div>
-              <div style={{ fontSize: 12.5, color: '#a7f3d0', marginTop: 4 }}>
-                {ketQuaDon.trang_thai === 'da_cong_tu_dong'
-                  ? 'Hệ thống đã tự động cộng trước lượt để bạn dịch truyện ngay lập tức trong lúc chờ đối soát sao kê ACB 20260457.'
-                  : 'Đơn đã được gửi tới Quản trị viên (thientrieu753@gmail.com) để đối soát sao kê ACB 20260457.'}
               </div>
             </div>
           )}

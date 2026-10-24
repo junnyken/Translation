@@ -735,7 +735,7 @@ function AppRuot({ urlBundle } = {}) {
         <TrangTienIch onQuayLai={veTrangChu} />
       ) : trangTinh === 'ket-noi-api' ? (
         <TrangKetNoiApi onQuayLai={veTrangChu} onMoTaiKhoan={() => setMoTaiKhoan(true)} />
-      ) : trangTinh === 'bang-gia' ? (
+      ) : (HIEN_MENU_BANG_GIA && trangTinh === 'bang-gia') ? (
         <TrangBangGia nguoiDung={nguoiDung} onQuayLai={veTrangChu} />
       ) : coCanvas ? (
         <CanvasEditor pageId={canvasId} projectId={projectId} />

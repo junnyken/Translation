@@ -276,73 +276,24 @@ export default function TheHanMuc({ hanMuc, dangTai, loi, onTaiLai }) {
               </div>
             )}
 
-            {(() => {
-              const nhTen = thongTinNap?.ngan_hang_ten || 'ACB'
-              const nhStk = thongTinNap?.ngan_hang_so_tk || '20260457'
-              const nhChu = thongTinNap?.ngan_hang_chu_tk || 'NGUYEN THIEN TRIEU'
+            {HIEN_BANG_GIA_VIP && thongTinNap?.ngan_hang_ten && thongTinNap?.ngan_hang_so_tk && (() => {
+              const nhTen = thongTinNap.ngan_hang_ten
+              const nhStk = thongTinNap.ngan_hang_so_tk
+              const nhChu = thongTinNap.ngan_hang_chu_tk || ''
               const ndCk = thongTinNap?.noi_dung_chuyen_khoan || 'NAP <EMAIL>'
               const soTien = goiDangChon?.so_tien_vnd || 50000
               return (
                 <div style={{ textAlign: 'center', padding: 10, background: '#fff', borderRadius: 8, border: '1px solid #e2e8f0' }}>
                   <img
                     src={`https://img.vietqr.io/image/${encodeURIComponent(nhTen)}-${encodeURIComponent(nhStk)}-compact2.png?amount=${soTien}&addInfo=${encodeURIComponent(ndCk)}&accountName=${encodeURIComponent(nhChu)}`}
-                    alt="Mã VietQR nạp lượt ACB"
+                    alt="Mã VietQR nạp lượt"
                     style={{ maxWidth: 195, width: '100%', height: 'auto', margin: '0 auto', display: 'block' }}
                   />
                   <p className="ghi-chu" style={{ marginTop: 6, color: '#0f172a', lineHeight: 1.5 }}>
-                    Ngân hàng: <strong>{nhTen}</strong> · STK: <strong>{nhStk}</strong> ({nhChu})
+                    Ngân hàng: <strong>{nhTen}</strong> · STK: <strong>{nhStk}</strong> {nhChu ? `(${nhChu})` : ''}
                     <br />
                     Nội dung CK: <code style={{ fontWeight: 700, color: '#dc2626' }}>{ndCk}</code>
                   </p>
-                  {hanMuc.co_tai_khoan && (
-                    <button
-                      type="button"
-                      disabled={dangXacNhanCk}
-                      onClick={async () => {
-                        setDangXacNhanCk(true)
-                        setLoiCk(null)
-                        try {
-                          const kq = await api.xacNhanChuyenKhoanGoi({
-                            ma_goi: goiDangChon?.ma || 'co_ban',
-                            ten_goi: goiDangChon?.ten || 'Gói Nạp Lượt',
-                            so_tien_vnd: soTien,
-                            so_trang: goiDangChon?.so_trang || 100,
-                            noi_dung_chuyen_khoan: ndCk,
-                          })
-                          setKetQuaCk(kq)
-                          if (onTaiLai) onTaiLai()
-                        } catch (err) {
-                          setLoiCk(String(err.message || err))
-                        } finally {
-                          setDangXacNhanCk(false)
-                        }
-                      }}
-                      style={{
-                        marginTop: 6,
-                        width: '100%',
-                        padding: '8px 12px',
-                        borderRadius: 6,
-                        border: 'none',
-                        background: '#059669',
-                        color: '#fff',
-                        fontWeight: 700,
-                        fontSize: 12.5,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      {dangXacNhanCk ? '⏳ Đang kích hoạt gói…' : '✅ Tôi đã chuyển khoản — Nhận Gói Ngay'}
-                    </button>
-                  )}
-                  {ketQuaCk && (
-                    <p className="ghi-chu" style={{ color: '#059669', fontWeight: 700, marginTop: 6 }}>
-                      🎉 Đã ghi nhận đơn {ketQuaCk.ma_don} (+{ketQuaCk.so_trang_cong} trang)!
-                    </p>
-                  )}
-                  {loiCk && (
-                    <p className="ghi-chu" style={{ color: '#dc2626', marginTop: 6 }}>
-                      {loiCk}
-                    </p>
-                  )}
                 </div>
               )
             })()}

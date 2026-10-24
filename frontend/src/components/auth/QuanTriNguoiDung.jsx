@@ -44,10 +44,10 @@ export default function QuanTriNguoiDung({ toi }) {
   const [tranVip, setTranVip] = useState('')
   const [dangCap, setDangCap] = useState(false)
 
-  // Form cấu hình VietQR Ngân hàng & Webhook tự động
-  const [nhTen, setNhTen] = useState('ACB')
-  const [nhSoTk, setNhSoTk] = useState('20260457')
-  const [nhChuTk, setNhChuTk] = useState('NGUYEN THIEN TRIEU')
+  // Form cấu hình VietQR Ngân hàng & Webhook tự động (tạm để trống theo yêu cầu)
+  const [nhTen, setNhTen] = useState('')
+  const [nhSoTk, setNhSoTk] = useState('')
+  const [nhChuTk, setNhChuTk] = useState('')
   const [dangLuuNh, setDangLuuNh] = useState(false)
 
   async function nap() {
@@ -434,7 +434,7 @@ export default function QuanTriNguoiDung({ toi }) {
                 </div>
                 <form onSubmit={xuLyLuuNganHang} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <p className="ghi-chu" style={{ margin: 0 }}>
-                    Mặc định cấu hình <strong>ACB — 20260457 — NGUYEN THIEN TRIEU</strong> (Quản trị: <code>thientrieu753@gmail.com</code>).
+                    Thông tin tài khoản ngân hàng &amp; email hỗ trợ hiện đang được <strong>tạm ẩn trên trang công khai</strong> theo cấu hình của bạn.
                     Webhook tự động đối soát: <code>{typeof window !== 'undefined' ? `${window.location.origin}/api/v1/nap-luot/webhook` : '/api/v1/nap-luot/webhook'}</code>
                   </p>
                   <div className="hang-o-cap-goi">

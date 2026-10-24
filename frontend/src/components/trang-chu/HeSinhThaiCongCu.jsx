@@ -276,12 +276,10 @@ export default function HeSinhThaiCongCu() {
               : (laEn ? '💻 View API Docs & Code Examples' : '💻 Xem Tài Liệu & Code Mẫu Đấu Nối API')}
           </button>
           <a
-            href={`${apiOrigin}/docs`}
-            target="_blank"
-            rel="noreferrer"
+            href="#ket-noi-api"
             className="nut-manga nut-manga-phu"
           >
-            {laEn ? '📘 Open Swagger OpenAPI (/docs) ↗' : '📘 Mở Swagger OpenAPI (/docs) ↗'}
+            {laEn ? '📘 Full API Integration Guide ↗' : '📘 Xem Hướng Dẫn Đấu Nối API Chi Tiết ↗'}
           </a>
         </div>
 
@@ -426,7 +424,8 @@ curl -X POST "${apiOrigin}/api/v1/developer/translate-text" \\
         )}
       </article>
 
-      {/* Khối 4: Bảng Gói Cước Cá Nhân, Nhóm Dịch & Doanh Nghiệp (B2B / Developer API) */}
+      {/* Khối 4: Bảng Gói Cước Cá Nhân, Nhóm Dịch & Doanh Nghiệp (tạm ẩn theo yêu cầu) */}
+      {false && (
       <div style={{ marginTop: 28 }}>
         <div className="manga-ecosystem-dau" style={{ marginBottom: 16 }}>
           <span className="manga-sfx-badge" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981', borderColor: 'rgba(16, 185, 129, 0.4)' }}>
@@ -589,6 +588,7 @@ curl -X POST "${apiOrigin}/api/v1/developer/translate-text" \\
           </div>
         )}
       </div>
+      )}
     </section>
   )
 }

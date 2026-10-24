@@ -74,13 +74,13 @@ export default function ChanTrangManga() {
           </ul>
         </div>
 
-        {/* Cột 4: Tài Khoản & Gói VIP */}
+        {/* Cột 4: Tài Khoản & Quyền Lợi */}
         <div className="cot-chan-trang">
-          <h3>💎 {laEn ? 'Accounts & VIP Plans' : 'Tài Khoản & Gói Cước'}</h3>
+          <h3>💎 {laEn ? 'Accounts & Benefits' : 'Tài Khoản & Quyền Lợi'}</h3>
           <ul className="ds-tinh-nang-chan">
             <li>🔄 {laEn ? 'Sync 1 Account across Web, Extension & Windows App' : 'Đồng bộ 1 tài khoản trên Web, Extension & App Windows'}</li>
-            <li>🏦 {laEn ? '24/7 Instant Top-up via Bank QR Code' : 'Nạp lượt tự động 24/7 qua mã VietQR ngân hàng'}</li>
-            <li>🛡️ {laEn ? 'Purchased Quota Never Expires Overnight' : 'Lượt mua tích luỹ không bao giờ hết hạn qua đêm'}</li>
+            <li>🎁 {laEn ? 'Free 20 Pages/Day for Every Registered Account' : 'Tặng miễn phí 20 trang/ngày cho tài khoản đăng ký'}</li>
+            <li>🛡️ {laEn ? 'Purchased Quota Never Expires Overnight' : 'Lượt tích luỹ không bao giờ hết hạn qua đêm'}</li>
             <li>📂 {laEn ? 'Export High-Res PNG/JPG, .CBZ, .ZIP & .PDF' : 'Hỗ trợ xuất ảnh PNG/JPG rời, gói .CBZ, .ZIP & .PDF'}</li>
           </ul>
         </div>

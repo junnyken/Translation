@@ -464,25 +464,11 @@ async def xem_han_muc(
 
 
 def _doc_cau_hinh_ngan_hang_dong(settings: Settings) -> tuple[str, str, str]:
-    """Đọc cấu hình VietQR động từ kho lưu trữ (nếu Admin đã lưu trên giao diện), lùi về ACB 20260457."""
-    import json
-
-    try:
-        storage = get_storage()
-        rel = "quan_tri/cau_hinh_ngan_hang.json"
-        if storage.exists(rel):
-            data = json.loads(storage.read(rel).decode("utf-8"))
-            if isinstance(data, dict):
-                ten = str(data.get("ngan_hang_ten") or settings.ngan_hang_ten or "ACB").strip()
-                stk = str(data.get("ngan_hang_so_tk") or settings.ngan_hang_so_tk or "20260457").strip()
-                chu = str(data.get("ngan_hang_chu_tk") or settings.ngan_hang_chu_tk or "NGUYEN THIEN TRIEU").strip()
-                return ten, stk, chu
-    except Exception:  # noqa: BLE001
-        pass
+    """Đọc cấu hình VietQR động (hiện tạm ẩn thông tin tài khoản ngân hàng mặc định theo yêu cầu)."""
     return (
-        settings.ngan_hang_ten or "ACB",
-        settings.ngan_hang_so_tk or "20260457",
-        settings.ngan_hang_chu_tk or "NGUYEN THIEN TRIEU",
+        (settings.ngan_hang_ten or "").strip(),
+        (settings.ngan_hang_so_tk or "").strip(),
+        (settings.ngan_hang_chu_tk or "").strip(),
     )
 
 

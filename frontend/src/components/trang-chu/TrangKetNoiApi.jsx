@@ -244,14 +244,6 @@ curl -X POST "${apiOrigin}/api/v1/developer/translate-text" \\
             </button>
           )}
           <a
-            href={`${apiOrigin}/docs`}
-            target="_blank"
-            rel="noreferrer"
-            className="nut-manga nut-manga-win"
-          >
-            📘 {laEn ? 'Open Swagger OpenAPI (/docs) ↗' : 'Mở Tài Liệu Swagger OpenAPI (/docs) ↗'}
-          </a>
-          <a
             href="#tien-ich"
             className="nut-manga nut-manga-phu"
           >

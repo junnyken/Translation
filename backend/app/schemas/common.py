@@ -1310,9 +1310,9 @@ class QuanTriThongKeRead(BaseModel):
     han_muc_co_tai_khoan: int = 20
     han_muc_ip_khach_la: int = 8
     ty_le_vnd_moi_trang: int = 500
-    ngan_hang_ten: str = "ACB"
-    ngan_hang_so_tk: str = "20260457"
-    ngan_hang_chu_tk: str = "NGUYEN THIEN TRIEU"
+    ngan_hang_ten: str = ""
+    ngan_hang_so_tk: str = ""
+    ngan_hang_chu_tk: str = ""
     bieu_do_7_ngay: list[dict] = []
     phan_bo_ngon_ngu: dict[str, int] = {}
     chapter_gan_day: list[dict] = []
