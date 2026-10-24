@@ -28,7 +28,15 @@ class Settings(BaseSettings):
     storage_pg_max_artifact_mb: int = 96
     supabase_url: str = ""
     supabase_service_key: str = ""
+    supabase_anon_key: str = ""
     supabase_bucket: str = "manga-pages"
+    #: Cloudflare Turnstile (chống bot thật bằng widget của Cloudflare)
+    cloudflare_turnstile_site_key: str = ""
+    cloudflare_turnstile_secret_key: str = ""
+    #: Địa chỉ trang web chính để gắn vào liên kết xác nhận email khi đăng ký
+    frontend_site_url: str = "https://comic.io.vn"
+    #: Bật bắt buộc xác nhận qua liên kết email (Supabase Auth) khi đăng ký từ trình duyệt
+    bat_xac_nhan_email_dang_ky: bool = True
 
     # Worker
     #: Vượt ngưỡng này thì worker NHẢ các model không cần cho bước đang chạy (van xả chống OOM).

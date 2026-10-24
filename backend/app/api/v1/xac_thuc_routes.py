@@ -26,12 +26,16 @@ from app.services.han_muc_dang_nhap import da_sai_bao_nhieu, ghi_nhan_dang_nhap_
 from app.core.db import get_session
 from app.core.phien import han_moi
 from app.core.quyen import TIEN_TO_BEARER, ma_phien_tu_header, nguoi_dung_hien_tai
+import base64
 import hashlib
 import hmac
+import logging
 import secrets
 import time
+import urllib.parse
 import uuid
 
+import httpx
 from sqlalchemy import delete, select
 
 from app.models import NguoiDung, Phien
@@ -43,8 +47,11 @@ from app.schemas.common import (
     NguoiDungRead,
     SuaTaiKhoanRequest,
     SuaTaiKhoanResponse,
+    XacNhanEmailRequest,
 )
 from app.services import tai_khoan
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -53,6 +60,10 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 LOI_SAI_THONG_TIN = "Email hoặc mật khẩu không đúng."
 
 _THOI_HAN_THACH_THUC_GIAY = 600
+_THOI_HAN_XAC_NHAN_EMAIL_GIAY = 24 * 3600
+#: Khoá Cloudflare Turnstile mặc định khi chủ hệ thống chưa gắn khoá riêng cho tên miền.
+_CF_TURNSTILE_SITE_KEY_MAC_DINH = "1x00000000000000000000AA"
+_CF_TURNSTILE_SECRET_KEY_MAC_DINH = "1x0000000000000000000000000000000AA"
 
 
 def _khoa_ky_thach_thuc(settings: Settings) -> bytes:
@@ -65,55 +76,132 @@ def _ky_thach_thuc(iat: int, nonce: str, dap_an: str, settings: Settings) -> str
     return hmac.new(_khoa_ky_thach_thuc(settings), thong_diep, hashlib.sha256).hexdigest()[:32]
 
 
-def kiem_thach_thuc_bot(
-    ma_thach_thuc: str | None,
-    dap_an: str | None,
-    xac_nhan_khong_phai_bot: bool,
-    settings: Settings,
-) -> str | None:
-    """Kiểm tra bước xác thực chống Robot khi đăng ký tài khoản.
-    Trả về thông báo lỗi nếu không đạt, hoặc `None` nếu hợp lệ."""
-    if not xac_nhan_khong_phai_bot:
-        return "Vui lòng tích chọn xác nhận 'Tôi không phải là Robot' trước khi tạo tài khoản."
-    if not ma_thach_thuc or not dap_an:
-        return "Vui lòng chọn mã xác thực bảo mật để xác nhận bạn không phải là Robot."
-    phan = ma_thach_thuc.strip().split(".")
+def _tao_token_xac_nhan_email(email: str, settings: Settings) -> str:
+    iat = int(time.time())
+    chuan = tai_khoan.chuan_hoa_email(email)
+    email_b64 = base64.urlsafe_b64encode(chuan.encode("utf-8")).decode("ascii").rstrip("=")
+    thong_diep = f"verify-email:{iat}:{email_b64}".encode("utf-8")
+    chu_ky = hmac.new(_khoa_ky_thach_thuc(settings), thong_diep, hashlib.sha256).hexdigest()[:32]
+    return f"{iat}.{email_b64}.{chu_ky}"
+
+
+def _giai_token_xac_nhan_email(token: str, settings: Settings) -> str | None:
+    phan = (token or "").strip().split(".")
     if len(phan) != 3:
-        return "Mã phiên xác thực bảo mật không hợp lệ. Vui lòng tải lại mã mới."
-    iat_str, nonce, chu_ky = phan
+        return None
+    iat_str, email_b64, chu_ky = phan
     if not iat_str.isdigit():
-        return "Mã phiên xác thực bảo mật không hợp lệ."
+        return None
     iat = int(iat_str)
     hien_tai = int(time.time())
-    if hien_tai - iat > _THOI_HAN_THACH_THUC_GIAY or iat > hien_tai + 60:
-        return "Mã xác thực bảo mật đã hết hạn. Vui lòng bấm làm mới mã và thử lại."
-    ky_mong_doi = _ky_thach_thuc(iat, nonce, dap_an.strip(), settings)
+    if hien_tai - iat > _THOI_HAN_XAC_NHAN_EMAIL_GIAY or iat > hien_tai + 60:
+        return None
+    thong_diep = f"verify-email:{iat}:{email_b64}".encode("utf-8")
+    ky_mong_doi = hmac.new(_khoa_ky_thach_thuc(settings), thong_diep, hashlib.sha256).hexdigest()[:32]
     if not hmac.compare_digest(chu_ky, ky_mong_doi):
-        return "Mã xác thực bảo mật chưa đúng. Vui lòng chọn đúng mã hiển thị trên màn hình."
-    return None
+        return None
+    try:
+        pad = "=" * (-len(email_b64) % 4)
+        return base64.urlsafe_b64decode((email_b64 + pad).encode("ascii")).decode("utf-8")
+    except Exception:
+        return None
+
+
+async def _xac_thuc_cloudflare_turnstile(
+    token: str | None, ip: str | None, settings: Settings
+) -> str | None:
+    """Xác thực token Cloudflare Turnstile với máy chủ `challenges.cloudflare.com`."""
+    if not token or not token.strip():
+        return "Vui lòng hoàn thành bước xác thực Cloudflare (Verify you are human) trước khi tạo tài khoản."
+    secret = settings.cloudflare_turnstile_secret_key.strip() or _CF_TURNSTILE_SECRET_KEY_MAC_DINH
+    du_lieu = {"secret": secret, "response": token.strip()}
+    if ip:
+        du_lieu["remoteip"] = ip
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.post(
+                "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+                data=du_lieu,
+            )
+            kq = r.json()
+            if not kq.get("success"):
+                return "Xác thực Cloudflare chưa hợp lệ hoặc đã hết hạn. Vui lòng tích lại vào ô xác thực Cloudflare."
+            return None
+    except Exception as exc:
+        logger.warning("Lỗi kết nối Cloudflare Turnstile siteverify: %s", exc)
+        return "Không kết nối được cổng xác thực Cloudflare. Vui lòng thử lại sau giây lát."
+
+
+async def _gui_email_xac_nhan_supabase(
+    email: str, redirect_url: str, settings: Settings
+) -> tuple[bool, str | None]:
+    """Gửi email chứa liên kết kích hoạt tài khoản thông qua Supabase Auth (`/auth/v1/otp` hoặc `/auth/v1/signup`)."""
+    base_url = settings.supabase_url.strip().rstrip("/")
+    api_key = (settings.supabase_anon_key or settings.supabase_service_key).strip()
+    if not base_url or not api_key:
+        return False, "Chưa cấu hình SUPABASE_URL / SUPABASE_SERVICE_KEY."
+
+    headers = {
+        "apikey": api_key,
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    encoded_redirect = urllib.parse.quote(redirect_url, safe="")
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            # Ưu tiên gọi `/auth/v1/otp` (Magic Link / Confirm Email) để gửi thư xác nhận ngay cả khi user đã tồn tại trên Supabase
+            r_otp = await client.post(
+                f"{base_url}/auth/v1/otp?redirect_to={encoded_redirect}",
+                headers=headers,
+                json={
+                    "email": email,
+                    "create_user": True,
+                    "options": {"emailRedirectTo": redirect_url},
+                },
+            )
+            if r_otp.status_code in (200, 201):
+                return True, None
+
+            # Dự phòng `/auth/v1/signup`
+            r_signup = await client.post(
+                f"{base_url}/auth/v1/signup?redirect_to={encoded_redirect}",
+                headers=headers,
+                json={
+                    "email": email,
+                    "password": f" Verify_{secrets.token_urlsafe(12)}!9",
+                    "options": {"emailRedirectTo": redirect_url},
+                },
+            )
+            if r_signup.status_code in (200, 201):
+                return True, None
+
+            chi_tiet = ""
+            try:
+                body_err = r_otp.json()
+                chi_tiet = body_err.get("msg") or body_err.get("error_description") or body_err.get("message") or ""
+            except Exception:
+                chi_tiet = r_otp.text[:200]
+            logger.warning("Supabase từ chối gửi email xác nhận (%s): %s", r_otp.status_code, chi_tiet)
+            return False, chi_tiet or f"HTTP {r_otp.status_code}"
+    except Exception as exc:
+        logger.warning("Lỗi gọi Supabase gửi email xác nhận: %s", exc)
+        return False, str(exc)
 
 
 @router.get("/thach-thuc-bot")
 async def lay_thach_thuc_bot(
     settings: Settings = Depends(get_settings),
 ) -> dict[str, object]:
-    """Sinh mã xác thực chống Robot (HMAC-signed) cho biểu mẫu tạo tài khoản mới."""
-    iat = int(time.time())
-    nonce = secrets.token_hex(6)
-    dap_an = str(1000 + secrets.randbelow(9000))
-    lua_chon_phu: set[str] = set()
-    while len(lua_chon_phu) < 3:
-        Ung_vien = str(1000 + secrets.randbelow(9000))
-        if Ung_vien != dap_an:
-            lua_chon_phu.add(Ung_vien)
-    danh_sach = list(lua_chon_phu)
-    vi_tri = secrets.randbelow(4)
-    danh_sach.insert(vi_tri, dap_an)
-    chu_ky = _ky_thach_thuc(iat, nonce, dap_an, settings)
+    """Trả cấu hình xác thực Cloudflare Turnstile và trạng thái bật xác nhận qua Email."""
+    site_key = settings.cloudflare_turnstile_site_key.strip() or _CF_TURNSTILE_SITE_KEY_MAC_DINH
+    co_supabase_email = bool(
+        settings.bat_xac_nhan_email_dang_ky
+        and settings.supabase_url.strip()
+        and settings.supabase_service_key.strip()
+    )
     return {
-        "ma_thach_thuc": f"{iat}.{nonce}.{chu_ky}",
-        "ma_xac_nhan_hien_thi": dap_an,
-        "lua_chon": danh_sach,
+        "turnstile_site_key": site_key,
+        "yeu_cau_xac_nhan_email": co_supabase_email,
     }
 
 
@@ -158,28 +246,24 @@ async def dang_ky(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=ly_do_email)
 
     dau_tien = await tai_khoan.dem_nguoi_dung(session) == 0
+    bat_buoc_chong_bot = False
     if dau_tien:
         await cong_khoa(x_api_key)
     else:
         ua = request.headers.get("user-agent", "")
         co_origin = bool(request.headers.get("origin"))
         bat_buoc_chong_bot = (
-            payload.ma_thach_thuc is not None
-            or payload.dap_an_thach_thuc is not None
+            payload.cf_turnstile_token is not None
+            or payload.ma_thach_thuc is not None
             or co_origin
             or ua.startswith("Mozilla/")
         )
-        if bat_buoc_chong_bot:
-            loi_bot = kiem_thach_thuc_bot(
-                payload.ma_thach_thuc,
-                payload.dap_an_thach_thuc,
-                payload.xac_nhan_khong_phai_bot,
-                settings,
-            )
-            if loi_bot:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=loi_bot)
-
         ip = ip_cua(request, settings)
+        if bat_buoc_chong_bot:
+            loi_cf = await _xac_thuc_cloudflare_turnstile(payload.cf_turnstile_token, ip, settings)
+            if loi_cf:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=loi_cf)
+
         if ip is None:
             # Không xác định được địa chỉ mạng ⇒ KHÔNG mở cửa tự do. Thà chặn còn hơn để đường
             # tạo tài khoản không có trần nào — đó là đường vô hiệu hoá hạn mức.
@@ -201,34 +285,28 @@ async def dang_ky(
                     "loi": "vuot_tran_dang_ky",
                     "tran_moi_ngay": tran,
                     "reset_luc": reset.isoformat(),
-                    # Nói rõ là trần theo ĐỊA CHỈ MẠNG: người ở văn phòng/quán cà phê có thể bị
-                    # chặn dù chính họ chưa tạo tài khoản nào, và không có cách nào tự đoán ra.
                     "thong_diep": "Địa chỉ mạng này đã tạo đủ số tài khoản cho phép trong hôm "
                     "nay. Thử lại sau, hoặc liên hệ người quản trị.",
                 },
             )
 
+    can_xac_nhan_email = bool(
+        not dau_tien
+        and bat_buoc_chong_bot
+        and settings.bat_xac_nhan_email_dang_ky
+        and settings.supabase_url.strip()
+        and settings.supabase_service_key.strip()
+    )
+
     try:
-        return await tai_khoan.dang_ky(
+        nguoi = await tai_khoan.dang_ky(
             session,
             email=payload.email,
             ten_hien=payload.ten_hien,
             mat_khau_tho=payload.mat_khau,
+            dang_hoat_dong=not can_xac_nhan_email,
         )
     except ValueError as exc:
-        # Lùi TƯỜNG MINH để trả lại suất đã giữ ở trên.
-        #
-        # Về nguyên tắc `get_session` đóng phiên khi request nổ và `AsyncSession.close()` tự lùi
-        # giao dịch — nên ở bản chạy thật suất vẫn được trả lại dù không có dòng này. Nhưng:
-        #
-        # 1. Bảo đảm "lượt bị từ chối không mất suất" khi đó nằm ở **vòng đời của dependency**,
-        #    cách xa chỗ đọc mã. Ai sửa phần cấp phiên sau này sẽ phá nó mà không biết.
-        # 2. Bộ test ghi đè `get_session` bằng một phiên sống lâu, nên nó **không bao giờ quan sát
-        #    được** phép lùi kia. Đo được 27-09: hai bài canh đúng luật này ĐỎ, và đỏ vì bàn thử
-        #    không thấy được, chứ không phải vì sản phẩm sai.
-        #
-        # Lùi ngay tại đây làm bảo đảm thành thứ đọc được và kiểm được. `upload_archive` đã làm
-        # đúng như vậy ở các nhánh lỗi của nó.
         await session.rollback()
         thong_bao = (
             "Email này đã có tài khoản."
@@ -236,6 +314,73 @@ async def dang_ky(
             else str(exc)
         )
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=thong_bao) from exc
+
+    if can_xac_nhan_email and not nguoi.dang_hoat_dong:
+        token_xn = _tao_token_xac_nhan_email(nguoi.email, settings)
+        origin_hdr = (request.headers.get("origin") or settings.frontend_site_url).strip().rstrip("/")
+        if not origin_hdr.startswith("http"):
+            origin_hdr = settings.frontend_site_url.strip().rstrip("/")
+        redirect_url = f"{origin_hdr}/?xac_nhan_email={token_xn}"
+        da_gui, loi_gui = await _gui_email_xac_nhan_supabase(nguoi.email, redirect_url, settings)
+        if not da_gui:
+            logger.error("Không gửi được email xác nhận cho %s: %s", nguoi.email, loi_gui)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Chưa gửi được thư xác nhận tới {nguoi.email} ({loi_gui}). "
+                    "Vui lòng kiểm tra lại hộp thư hoặc thử lại sau ít phút."
+                ),
+            )
+
+    return nguoi
+
+
+@router.post("/xac-nhan-email", response_model=DangNhapResponse)
+async def xac_nhan_email(
+    payload: XacNhanEmailRequest,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+) -> DangNhapResponse:
+    """Kích hoạt tài khoản và đăng nhập tự động khi người dùng bấm vào liên kết trong Email."""
+    email_xac_nhan: str | None = None
+    if payload.token_xac_nhan:
+        email_xac_nhan = _giai_token_xac_nhan_email(payload.token_xac_nhan, settings)
+
+    # Nếu liên kết trả về `#access_token=...` từ Supabase Auth, xác minh trực tiếp với Supabase
+    if not email_xac_nhan and payload.supabase_access_token and settings.supabase_url.strip():
+        base_url = settings.supabase_url.strip().rstrip("/")
+        api_key = (settings.supabase_anon_key or settings.supabase_service_key).strip()
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                r_user = await client.get(
+                    f"{base_url}/auth/v1/user",
+                    headers={
+                        "apikey": api_key,
+                        "Authorization": f"Bearer {payload.supabase_access_token.strip()}",
+                    },
+                )
+                if r_user.status_code == 200:
+                    du_lieu = r_user.json()
+                    email_xac_nhan = du_lieu.get("email")
+        except Exception as exc:
+            logger.warning("Lỗi kiểm tra supabase_access_token: %s", exc)
+
+    if not email_xac_nhan:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Liên kết xác nhận email không hợp lệ hoặc đã hết hạn (24 giờ). Vui lòng đăng ký lại để nhận liên kết mới.",
+        )
+
+    ket_qua = await tai_khoan.kich_hoat_tai_khoan_va_dang_nhap(session, email=email_xac_nhan)
+    if ket_qua is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Không tìm thấy tài khoản tương ứng với liên kết xác nhận này.",
+        )
+    nguoi, ma_tho = ket_qua
+    return DangNhapResponse(
+        ma_phien=ma_tho, het_han=han_moi(), nguoi_dung=NguoiDungRead.model_validate(nguoi)
+    )
 
 
 @router.post("/login", response_model=DangNhapResponse)

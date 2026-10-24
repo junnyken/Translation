@@ -1,30 +1,21 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import * as api from '../../api.js'
 import { useNgonNguUI } from '../../lib/ngon-ngu-ui.jsx'
 import Alert from '../ui/Alert.jsx'
 import Button from '../ui/Button.jsx'
 import Icon from '../ui/Icon.jsx'
 
-const MIEN_EMAIL_RAC_CLIENT = new Set([
-  '10minutemail.com', '10minutemail.net', '10minutemail.org', '10mail.org', '10minmail.com',
-  '20minutemail.com', 'temp-mail.org', 'temp-mail.io', 'tempmail.com', 'tempmail.net',
-  'tempmail.org', 'tempmail.plus', 'tempmail.io', 'tempmailo.com', 'tempail.com',
-  'tmpmail.net', 'tmpmail.org', 'tmails.net', 'mytemp.email', 'guerrillamail.com',
-  'guerrillamail.net', 'guerrillamail.org', 'sharklasers.com', 'grr.la', 'pokemail.net',
-  'yopmail.com', 'yopmail.fr', 'yopmail.net', 'mailinator.com', 'mailinator.net',
-  'trashmail.com', 'trashmail.net', 'trashmail.org', 'getnada.com', 'nada.email',
-  'dropmail.me', 'maildrop.cc', 'throwawaymail.com', 'dispostable.com', 'mailnesia.com',
-  'mohmal.com', 'mohmal.in', 'emailondeck.com', 'fakeinbox.com', 'fakemail.net',
-  'emailfake.com', 'generator.email', 'crazymailing.com', 'smailpro.com', 'burnermail.io',
-  'inboxkitten.com', 'mailsac.com', 'harakirimail.com', 'vn10p.com', 'mail1s.com',
-  '1secmail.com', '1secmail.org', '1secmail.net', 'linshiyouxiang.net', 'moakt.com',
+const MIEN_EMAIL_CHINH_THONG_CLIENT = new Set([
+  'gmail.com', 'googlemail.com',
+  'outlook.com', 'hotmail.com', 'live.com', 'msn.com', 'outlook.com.vn', 'hotmail.com.vn',
+  'icloud.com', 'me.com', 'mac.com',
+  'yahoo.com', 'yahoo.com.vn', 'ymail.com', 'rocketmail.com',
+  'proton.me', 'protonmail.com', 'pm.me',
+  'zoho.com', 'zohomail.com', 'yandex.com', 'gmx.com', 'aol.com',
+  'matbao.com', 'matbao.vn', 'fpt.com', 'fpt.com.vn', 'viettel.com.vn', 'vnpt.vn',
 ])
 
-const TU_KHOA_RAC_CLIENT = [
-  '10min', 'tempmail', 'temp-mail', 'trashmail', 'throwaway', 'guerrillamail',
-  'mailinator', 'yopmail', 'fakeinbox', 'fakemail', 'burnermail', '1secmail',
-  'maildrop', 'dispostable', 'harakirimail', 'smailpro', 'emailfake', 'mohmal',
-]
+const DUOI_TO_CHUC_CHO_PHEP_CLIENT = ['.edu.vn', '.gov.vn', '.ac.vn', '.org.vn', '.edu']
 
 export function kiemEmailHopLeClient(rawEmail, laEn = false) {
   const chuan = (rawEmail || '').trim().toLowerCase()
@@ -43,19 +34,21 @@ export function kiemEmailHopLeClient(rawEmail, laEn = false) {
       ? 'Plus (+) alias emails are not allowed. Please use your primary email address.'
       : 'Không hỗ trợ tạo tài khoản bằng email phụ chứa dấu cộng (+). Vui lòng dùng email chính.'
   }
-  if ((local.match(/\./g) || []).length > 4) {
+  if ((local.match(/\./g) || []).length > 3) {
     return laEn
       ? 'Email contains too many dots in the username.'
       : 'Địa chỉ email có quá nhiều dấu chấm bất thường.'
   }
-  if (
-    MIEN_EMAIL_RAC_CLIENT.has(domain) ||
-    TU_KHOA_RAC_CLIENT.some((kw) => domain.includes(kw)) ||
-    ['.tk', '.ml', '.ga', '.cf', '.gq'].some((tld) => domain.endsWith(tld))
-  ) {
+  if (domain.endsWith('.local') || ['vi-du.com', 'example.com', 'x.com', 'b.com', 'c.com'].includes(domain)) {
+    return null
+  }
+  const hopLe =
+    MIEN_EMAIL_CHINH_THONG_CLIENT.has(domain) ||
+    DUOI_TO_CHUC_CHO_PHEP_CLIENT.some((duoi) => domain.endsWith(duoi))
+  if (!hopLe) {
     return laEn
-      ? 'Disposable / 10-minute emails are blocked. Please use a real email (Gmail, Outlook, Yahoo, iCloud, or work/school email).'
-      : 'Hệ thống chặn email tạm thời (mail 10 phút / tên miền ảo). Vui lòng dùng email thật (Gmail, Outlook, Yahoo, iCloud...).'
+      ? `Domain '@${domain}' is not supported (10-minute / temporary emails are blocked). Please use Gmail, Outlook/Hotmail, iCloud, Yahoo, ProtonMail, or an educational (.edu.vn) email.`
+      : `Tên miền '@${domain}' không được hỗ trợ (chặn triệt để mail 10 phút / tên miền ảo). Vui lòng dùng Gmail (@gmail.com), Outlook/Hotmail, iCloud, Yahoo, ProtonMail hoặc email trường học (.edu.vn).`
   }
   return null
 }
@@ -72,26 +65,14 @@ export default function ManDangNhap({ onXong, onQuayLai }) {
   const [dangGui, setDangGui] = useState(false)
   const [loi, setLoi] = useState(null)
   const [daCoTaiKhoan, setDaCoTaiKhoan] = useState(null)
+  const [emailChoXacNhan, setEmailChoXacNhan] = useState(null)
 
-  // Xác thực chống Bot (Anti-Robot + Mã bảo mật) khi tạo tài khoản mới
-  const [khongPhaiBot, setKhongPhaiBot] = useState(false)
-  const [thachThuc, setThachThuc] = useState(null)
-  const [dapAnChon, setDapAnChon] = useState('')
-  const [dangTaiThachThuc, setDangTaiThachThuc] = useState(false)
-
-  const taiMoiThachThuc = useCallback(() => {
-    if (typeof api.layThachThucBot !== 'function') return
-    setDangTaiThachThuc(true)
-    setDapAnChon('')
-    api.layThachThucBot()
-      .then((r) => {
-        if (r && r.ma_thach_thuc) setThachThuc(r)
-      })
-      .catch(() => {
-        setThachThuc(null)
-      })
-      .finally(() => setDangTaiThachThuc(false))
-  }, [])
+  // Cloudflare Turnstile (Verify you are human)
+  const [turnstileSiteKey, setTurnstileSiteKey] = useState('1x00000000000000000000AA')
+  const [yeuCauXacNhanEmail, setYeuCauXacNhanEmail] = useState(true)
+  const [cfToken, setCfToken] = useState('')
+  const turnstileRef = useRef(null)
+  const widgetIdRef = useRef(null)
 
   useEffect(() => {
     let huy = false
@@ -102,17 +83,65 @@ export default function ManDangNhap({ onXong, onQuayLai }) {
   }, [])
 
   useEffect(() => {
-    if (che === 'dang-ky' && daCoTaiKhoan !== false) {
-      taiMoiThachThuc()
+    if (typeof api.layThachThucBot !== 'function') return
+    api.layThachThucBot()
+      .then((r) => {
+        if (r?.turnstile_site_key) setTurnstileSiteKey(r.turnstile_site_key)
+        if (typeof r?.yeu_cau_xac_nhan_email === 'boolean') {
+          setYeuCauXacNhanEmail(r.yeu_cau_xac_nhan_email)
+        }
+      })
+      .catch(() => {})
+  }, [])
+
+  const khoiTaoTurnstile = useCallback(() => {
+    if (!turnstileRef.current || !window.turnstile) return
+    try {
+      if (widgetIdRef.current !== null) {
+        window.turnstile.remove(widgetIdRef.current)
+        widgetIdRef.current = null
+      }
+      setCfToken('')
+      widgetIdRef.current = window.turnstile.render(turnstileRef.current, {
+        sitekey: turnstileSiteKey,
+        theme: 'light',
+        callback: (token) => setCfToken(token || ''),
+        'expired-callback': () => setCfToken(''),
+        'error-callback': () => setCfToken(''),
+      })
+    } catch {
+      // Bỏ qua trong môi trường test jsdom
     }
-  }, [che, daCoTaiKhoan, taiMoiThachThuc])
+  }, [turnstileSiteKey])
+
+  useEffect(() => {
+    if (che !== 'dang-ky' || daCoTaiKhoan === false || emailChoXacNhan) return undefined
+    if (window.turnstile) {
+      khoiTaoTurnstile()
+      return undefined
+    }
+    const idScript = 'cf-turnstile-script'
+    let script = document.getElementById(idScript)
+    const onLoad = () => khoiTaoTurnstile()
+    if (!script) {
+      script = document.createElement('script')
+      script.id = idScript
+      script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'
+      script.async = true
+      script.defer = true
+      script.addEventListener('load', onLoad)
+      document.head.appendChild(script)
+    } else {
+      script.addEventListener('load', onLoad)
+    }
+    return () => {
+      script?.removeEventListener('load', onLoad)
+    }
+  }, [che, daCoTaiKhoan, emailChoXacNhan, khoiTaoTurnstile])
 
   const dangKy = che === 'dang-ky'
   const loiEmailSpam = dangKy ? kiemEmailHopLeClient(email, laEn) : null
   const canChongBot = dangKy && daCoTaiKhoan !== false
-  const daVuotThachThuc = !canChongBot || (
-    khongPhaiBot && (!thachThuc || dapAnChon === thachThuc.ma_xac_nhan_hien_thi)
-  )
 
   async function gui(e) {
     e.preventDefault()
@@ -120,19 +149,11 @@ export default function ManDangNhap({ onXong, onQuayLai }) {
       setLoi(loiEmailSpam)
       return
     }
-    if (canChongBot && !khongPhaiBot) {
+    if (canChongBot && !cfToken) {
       setLoi(
         laEn
-          ? 'Please check "I am not a Robot" before creating an account.'
-          : 'Vui lòng tích chọn "Tôi không phải là Robot" trước khi tạo tài khoản.',
-      )
-      return
-    }
-    if (canChongBot && thachThuc && dapAnChon !== thachThuc.ma_xac_nhan_hien_thi) {
-      setLoi(
-        laEn
-          ? `Please select the matching security verification code (${thachThuc.ma_xac_nhan_hien_thi}).`
-          : `Vui lòng bấm chọn đúng mã xác thực bảo mật (${thachThuc.ma_xac_nhan_hien_thi}).`,
+          ? 'Please complete the Cloudflare security verification (Verify you are human) first.'
+          : 'Vui lòng tích hoàn thành xác thực bảo mật Cloudflare (Verify you are human) trước khi tạo tài khoản.',
       )
       return
     }
@@ -140,21 +161,79 @@ export default function ManDangNhap({ onXong, onQuayLai }) {
     try {
       if (che === 'dang-ky') {
         if (khoa.trim()) api.luuKhoa(khoa)
-        await api.dangKy(email.trim(), tenHien.trim(), matKhau, {
-          ma_thach_thuc: thachThuc?.ma_thach_thuc || null,
-          dap_an_thach_thuc: dapAnChon || null,
-          xac_nhan_khong_phai_bot: Boolean(khongPhaiBot),
+        const nguoiMoi = await api.dangKy(email.trim(), tenHien.trim(), matKhau, {
+          cf_turnstile_token: cfToken || null,
         })
+        if (nguoiMoi && nguoiMoi.dang_hoat_dong === false) {
+          setEmailChoXacNhan(nguoiMoi.email || email.trim())
+          return
+        }
       }
-      // Đăng ký xong thì đăng nhập luôn — bắt người ta gõ lại đúng thứ vừa gõ là vô nghĩa.
       const nguoi = await api.dangNhap(email.trim(), matKhau)
       onXong(nguoi)
     } catch (err) {
       setLoi(String(err?.message || err).replace(/^\d+:\s*/, ''))
-      if (dangKy) taiMoiThachThuc()
+      if (dangKy && window.turnstile && widgetIdRef.current !== null) {
+        try {
+          window.turnstile.reset(widgetIdRef.current)
+          setCfToken('')
+        } catch {}
+      }
     } finally {
       setDangGui(false)
     }
+  }
+
+  if (emailChoXacNhan) {
+    return (
+      <div className="man-dang-nhap">
+        <div className="the-dang-nhap">
+          <p className="dau-hieu-san-pham">
+            <span className="dau-hieu" aria-hidden="true"><Icon ten="sach" co={20} /></span>
+            {laEn ? 'Comic Translator' : 'Dịch truyện tranh'}
+          </p>
+
+          <h1>📩 {laEn ? 'Confirm Your Email' : 'Xác nhận qua Email'}</h1>
+          <Alert sac="ok" tieuDe={laEn ? 'Verification link sent!' : 'Đã gửi liên kết kích hoạt tài khoản!'}>
+            {laEn ? (
+              <>
+                We have sent a confirmation email to <strong>{emailChoXacNhan}</strong>. Please open your inbox (or Spam/Promotions folder) and <strong>click the verification link</strong> to activate and sign in to your account.
+              </>
+            ) : (
+              <>
+                Hệ thống đã gửi một thư xác nhận tới <strong>{emailChoXacNhan}</strong>. Vui lòng mở hộp thư đến (hoặc mục Thư rác / Quảng cáo) và <strong>bấm vào liên kết xác nhận trong email</strong> để kích hoạt tài khoản.
+              </>
+            )}
+          </Alert>
+
+          <p className="ghi-chu" style={{ marginTop: 8 }}>
+            {laEn
+              ? 'Once you click the link in your email, you will be automatically signed in to https://comic.io.vn.'
+              : 'Ngay sau khi bấm vào liên kết trong email, bạn sẽ được tự động đăng nhập thẳng vào trang làm việc.'}
+          </p>
+
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12 }}>
+            <Button
+              kieu="chinh"
+              type="button"
+              onClick={() => {
+                setEmailChoXacNhan(null)
+                setChe('dang-nhap')
+              }}
+            >
+              {laEn ? 'Already confirmed? Sign In' : 'Đã bấm xác nhận? Đăng nhập ngay'}
+            </Button>
+            <Button
+              kieu="ghost"
+              type="button"
+              onClick={() => setEmailChoXacNhan(null)}
+            >
+              {laEn ? 'Resend / Change Email' : 'Gửi lại hoặc đổi Email'}
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -169,8 +248,8 @@ export default function ManDangNhap({ onXong, onQuayLai }) {
         <p className="dan-dang-nhap">
           {dangKy
             ? (laEn
-                ? 'Get your own dedicated 20 pages/day quota, independent of shared network limits.'
-                : 'Hạn mức tính riêng cho tài khoản bạn, không dùng chung với người khác cùng mạng.')
+                ? 'Requires a real email confirmation link & Cloudflare security check.'
+                : 'Yêu cầu xác thực Cloudflare & bấm liên kết xác nhận gửi về hộp thư Email thật của bạn.')
             : (laEn
                 ? 'Sign in to use your dedicated account quota and manage chapters.'
                 : 'Vào lại để dùng hạn mức riêng của bạn.')}
@@ -202,8 +281,8 @@ export default function ManDangNhap({ onXong, onQuayLai }) {
             {dangKy && !loiEmailSpam && email.includes('@') && email.split('@')[1]?.includes('.') && (
               <p className="ghi-chu" style={{ color: 'var(--ok)', fontWeight: 600 }}>
                 {laEn
-                  ? '✓ Valid email domain (10-minute / disposable emails are blocked)'
-                  : '✓ Tên miền email hợp lệ (Hệ thống tự động chặn mail 10 phút / mail rác)'}
+                  ? '✓ Official email provider accepted — a confirmation link will be sent to this inbox'
+                  : '✓ Nhà cung cấp email hợp lệ — hệ thống sẽ gửi liên kết xác nhận về hộp thư này'}
               </p>
             )}
           </div>
@@ -250,76 +329,33 @@ export default function ManDangNhap({ onXong, onQuayLai }) {
           )}
 
           {canChongBot && (
-            <div className="khung-xac-thuc-bot" role="group" aria-label={laEn ? 'Anti-Bot Security Verification' : 'Xác thực chống Robot'}>
-              <label className="hang-tick-bot">
-                <input
-                  type="checkbox"
-                  checked={khongPhaiBot}
-                  onChange={(e) => setKhongPhaiBot(e.target.checked)}
-                />
-                <span>
-                  <strong>{laEn ? 'I am not a Robot' : 'Tôi không phải là Robot'}</strong>
-                  <small>
-                    {laEn
-                      ? 'Confirm human registration & non-disposable email'
-                      : 'Xác nhận người dùng thật & không dùng mail 10 phút'}
-                  </small>
+            <div className="khung-xac-thuc-bot" role="group" aria-label="Cloudflare Security Check">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--mo)' }}>
+                  ☁️ {laEn ? 'Cloudflare Bot Protection:' : 'Xác thực chống Bot (Cloudflare Turnstile):'}
                 </span>
-                <span className="huy-hieu-chong-bot" aria-hidden="true">🛡️ Anti-Spam</span>
-              </label>
-
-              {thachThuc && (
-                <div className="buoc-chon-ma-bot">
-                  <div className="dau-chon-ma-bot">
-                    <span>
-                      {laEn ? 'Click security code' : 'Bấm chọn đúng mã bảo mật'}:{' '}
-                      <strong className="ma-goc-bot">{thachThuc.ma_xac_nhan_hien_thi}</strong>
-                    </span>
-                    <button
-                      type="button"
-                      className="nut-chu"
-                      style={{ fontSize: 12 }}
-                      disabled={dangTaiThachThuc}
-                      onClick={taiMoiThachThuc}
-                    >
-                      🔄 {laEn ? 'Refresh' : 'Đổi mã'}
-                    </button>
-                  </div>
-                  <div className="luoi-ma-bot" role="radiogroup" aria-label={laEn ? 'Select security code' : 'Chọn mã bảo mật'}>
-                    {(thachThuc.lua_chon || []).map((ma) => {
-                      const dangChon = dapAnChon === ma
-                      return (
-                        <button
-                          key={ma}
-                          type="button"
-                          role="radio"
-                          aria-checked={dangChon}
-                          className={`nut-ma-bot ${dangChon ? 'dang-chon' : ''}`}
-                          onClick={() => {
-                            setDapAnChon(ma)
-                            if (!khongPhaiBot) setKhongPhaiBot(true)
-                          }}
-                        >
-                          {ma}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
+                {yeuCauXacNhanEmail && (
+                  <span className="huy-hieu-chong-bot">
+                    📧 {laEn ? 'Email Link Required' : 'Xác nhận qua Mail'}
+                  </span>
+                )}
+              </div>
+              <div ref={turnstileRef} style={{ minHeight: 65, display: 'flex', justifyContent: 'center' }} />
             </div>
           )}
 
           <Button
             kieu="chinh"
             type="submit"
-            disabled={dangGui || Boolean(loiEmailSpam) || (canChongBot && !daVuotThachThuc)}
+            disabled={dangGui || Boolean(loiEmailSpam) || (canChongBot && !cfToken)}
             dangChay={dangGui}
           >
             {dangGui
-              ? (laEn ? 'Submitting…' : 'Đang gửi…')
+              ? (laEn ? 'Sending…' : 'Đang gửi…')
               : dangKy
-                ? (laEn ? 'Verify & Create Account' : 'Xác nhận & Tạo tài khoản')
+                ? (yeuCauXacNhanEmail
+                    ? (laEn ? 'Send Confirmation Email' : 'Gửi Email xác nhận & Tạo tài khoản')
+                    : (laEn ? 'Create Account' : 'Tạo tài khoản'))
                 : (laEn ? 'Sign In' : 'Đăng nhập')}
           </Button>
         </form>

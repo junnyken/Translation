@@ -91,6 +91,12 @@ class DangKyRequest(BaseModel):
     ma_thach_thuc: str | None = Field(default=None, max_length=512)
     dap_an_thach_thuc: str | None = Field(default=None, max_length=64)
     xac_nhan_khong_phai_bot: bool = False
+    cf_turnstile_token: str | None = Field(default=None, max_length=4096)
+
+
+class XacNhanEmailRequest(BaseModel):
+    token_xac_nhan: str | None = Field(default=None, max_length=2048)
+    supabase_access_token: str | None = Field(default=None, max_length=4096)
 
 
 class DangNhapRequest(BaseModel):

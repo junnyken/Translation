@@ -108,8 +108,24 @@ def email_goc_chong_clone(email: str) -> str:
     return f"{local}@{domain}"
 
 
+#: Danh sách CÁC NHÀ CUNG CẤP EMAIL CHÍNH THỐNG ĐƯỢC PHÉP ĐĂNG KÝ (Whitelist).
+#: Chặn 100% mọi dịch vụ mail 10 phút xoay tên miền ngẫu nhiên (temp-mail, smailpro, emailondeck...).
+MIEN_EMAIL_CHINH_THONG_CHO_PHEP: frozenset[str] = frozenset({
+    "gmail.com", "googlemail.com",
+    "outlook.com", "hotmail.com", "live.com", "msn.com", "outlook.com.vn", "hotmail.com.vn",
+    "icloud.com", "me.com", "mac.com",
+    "yahoo.com", "yahoo.com.vn", "ymail.com", "rocketmail.com",
+    "proton.me", "protonmail.com", "pm.me",
+    "zoho.com", "zohomail.com", "yandex.com", "gmx.com", "aol.com",
+    "matbao.com", "matbao.vn", "fpt.com", "fpt.com.vn", "viettel.com.vn", "vnpt.vn",
+})
+
+_DUOI_TO_CHUC_CHO_PHEP = (".edu.vn", ".gov.vn", ".ac.vn", ".org.vn", ".edu")
+
+
 def kiem_email_hop_le_chong_spam(email: str) -> str | None:
-    """Kiểm tra định dạng email và chặn các dịch vụ email 10 phút / email ảo / alias `+`.
+    """Kiểm tra định dạng email và CHỈ chấp nhận các nhà cung cấp email chính thống (Gmail, Outlook,
+    iCloud, Yahoo, Proton, Email giáo dục/cơ quan) để chặn triệt để 100% mọi loại mail 10 phút.
     Trả về lý do từ chối (tiếng Việt), hoặc `None` nếu hợp lệ."""
     chuan = chuan_hoa_email(email)
     if "@" not in chuan:
@@ -124,21 +140,22 @@ def kiem_email_hop_le_chong_spam(email: str) -> str | None:
         )
     if not _MAU_EMAIL_CO_BAN.match(chuan):
         return "Địa chỉ email chứa ký tự không hợp lệ."
-    if local.count(".") > 4:
+    if local.count(".") > 3:
         return "Địa chỉ email có quá nhiều dấu chấm bất thường."
 
     # Cho phép các tên miền nội bộ phục vụ bộ kiểm thử tự động (`@test.local`, `@vi-du.com`, ...)
     if domain.endswith(".local") or domain in ("vi-du.com", "example.com", "x.com", "b.com", "c.com"):
         return None
 
-    if (
-        domain in MIEN_EMAIL_RAC_10_PHUT
-        or any( chuan_con in domain for chuan_con in _TU_KHOA_MIEN_RAC )
-        or any( domain.endswith(tld) for tld in _TLD_RAC )
-    ):
+    # Whitelist nhà cung cấp email thật chính thống — chặn 100% mail 10 phút đổi đuôi miền ngẫu nhiên
+    hop_le_chinh_thong = (
+        domain in MIEN_EMAIL_CHINH_THONG_CHO_PHEP
+        or any(domain.endswith(duoi) for duoi in _DUOI_TO_CHUC_CHO_PHEP)
+    )
+    if not hop_le_chinh_thong:
         return (
-            "Hệ thống không chấp nhận email tạm thời (mail 10 phút / tên miền ảo). "
-            "Vui lòng sử dụng email thật (Gmail, Outlook, Yahoo, iCloud hoặc email công ty/trường học)."
+            f"Tên miền '@{domain}' không được hỗ trợ để chống tạo tài khoản ảo / mail 10 phút. "
+            "Hệ thống chỉ chấp nhận email chính thống: Gmail (@gmail.com), Outlook/Hotmail, iCloud, Yahoo, ProtonMail hoặc email trường học (.edu.vn)."
         )
     return None
 
@@ -161,41 +178,66 @@ async def tim_theo_email(session: AsyncSession, email: str) -> NguoiDung | None:
 
 
 async def dang_ky(
-    session: AsyncSession, *, email: str, ten_hien: str, mat_khau_tho: str
+    session: AsyncSession,
+    *,
+    email: str,
+    ten_hien: str,
+    mat_khau_tho: str,
+    dang_hoat_dong: bool = True,
 ) -> NguoiDung:
-    """Tạo tài khoản. Người **đầu tiên** đăng ký thành quản trị.
-
-    Vì sao người đầu tiên: hệ thống phải có ít nhất một người nhận được các chapter cũ chưa có
-    chủ, mà lúc migration chạy thì chưa có tài khoản nào để gán. Người dựng hệ thống là người
-    đăng ký trước — đây là quy ước bootstrap chuẩn, và nó được nói thẳng ra trong tài liệu chứ
-    không giấu.
-    """
+    """Tạo tài khoản. Người **đầu tiên** đăng ký thành quản trị."""
     email = chuan_hoa_email(email)
     ly_do_email = kiem_email_hop_le_chong_spam(email)
     if ly_do_email:
         raise ValueError(ly_do_email)
-    if await tim_theo_email(session, email) is not None:
+    ly_do = kiem_mat_khau_du_manh(mat_khau_tho)
+    if ly_do:
+        raise ValueError(ly_do)
+
+    hien_co = await tim_theo_email(session, email)
+    if hien_co is not None:
+        if not hien_co.dang_hoat_dong and not dang_hoat_dong:
+            # Tài khoản đang chờ xác nhận email -> cập nhật lại mật khẩu/tên hiển thị để gửi lại mail xác nhận
+            hien_co.ten_hien = ten_hien.strip() or email.split("@")[0]
+            hien_co.mat_khau_bam = mk.bam(mat_khau_tho)
+            await session.commit()
+            await session.refresh(hien_co)
+            return hien_co
         raise ValueError("email_da_ton_tai")
     # Chặn thủ thuật chèn dấu chấm Gmail (vd `a.b.c@gmail.com` trùng với `abc@gmail.com`)
     email_goc = email_goc_chong_clone(email)
     if email_goc != email and await tim_theo_email(session, email_goc) is not None:
         raise ValueError("email_da_ton_tai")
-    ly_do = kiem_mat_khau_du_manh(mat_khau_tho)
-    if ly_do:
-        raise ValueError(ly_do)
 
     la_chu_he_thong = email in ("thientrieu753@gmail.com",)
     nguoi = NguoiDung(
         email=email,
         ten_hien=ten_hien.strip() or email.split("@")[0],
         mat_khau_bam=mk.bam(mat_khau_tho),
-        dang_hoat_dong=True,
+        dang_hoat_dong=dang_hoat_dong or la_chu_he_thong,
         la_quan_tri=(await dem_nguoi_dung(session) == 0) or la_chu_he_thong,
     )
     session.add(nguoi)
     await session.commit()
     await session.refresh(nguoi)
     return nguoi
+
+
+async def kich_hoat_tai_khoan_va_dang_nhap(
+    session: AsyncSession, *, email: str
+) -> tuple[NguoiDung, str] | None:
+    """Kích hoạt tài khoản sau khi người dùng bấm vào liên kết xác nhận trong email và cấp phiên đăng nhập."""
+    nguoi = await tim_theo_email(session, email)
+    if nguoi is None:
+        return None
+    nguoi.dang_hoat_dong = True
+    if nguoi.email in ("thientrieu753@gmail.com",) and not nguoi.la_quan_tri:
+        nguoi.la_quan_tri = True
+    ma_tho = ph.sinh_ma()
+    session.add(Phien(nguoi_dung_id=nguoi.id, ma_bam=ph.bam_ma(ma_tho), het_han=ph.han_moi()))
+    await session.commit()
+    await session.refresh(nguoi)
+    return nguoi, ma_tho
 
 
 def _ten_hien_chuan(ten_tho: str, email: str) -> str:
