@@ -35,8 +35,9 @@ class Settings(BaseSettings):
     cloudflare_turnstile_secret_key: str = "0x4AAAAAAFjgaMk3b6UZEl-lrYGA91gc1Lk"
     #: Địa chỉ trang web chính để gắn vào liên kết xác nhận email khi đăng ký
     frontend_site_url: str = "https://comic.io.vn"
-    #: Bật bắt buộc xác nhận qua liên kết email (Supabase Auth) khi đăng ký từ trình duyệt
-    bat_xac_nhan_email_dang_ky: bool = True
+    #: Bật bắt buộc xác nhận qua liên kết email (Supabase Auth) khi đăng ký từ trình duyệt.
+    #: Mặc định False vì đã khoá cứng Whitelist email chính thống + xác thực Cloudflare Turnstile.
+    bat_xac_nhan_email_dang_ky: bool = False
 
     # Worker
     #: Vượt ngưỡng này thì worker NHẢ các model không cần cho bước đang chạy (van xả chống OOM).

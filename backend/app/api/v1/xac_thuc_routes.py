@@ -263,32 +263,32 @@ async def dang_ky(
             loi_cf = await _xac_thuc_cloudflare_turnstile(payload.cf_turnstile_token, ip, settings)
             if loi_cf:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=loi_cf)
-
-        if ip is None:
-            # Không xác định được địa chỉ mạng ⇒ KHÔNG mở cửa tự do. Thà chặn còn hơn để đường
-            # tạo tài khoản không có trần nào — đó là đường vô hiệu hoá hạn mức.
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Chưa xác định được địa chỉ mạng của bạn nên tạm thời không mở đăng ký "
-                "tự do. Liên hệ người quản trị để được cấp tài khoản.",
+        else:
+            if ip is None:
+                # Không xác định được địa chỉ mạng ⇒ KHÔNG mở cửa tự do. Thà chặn còn hơn để đường
+                # tạo tài khoản không có trần nào — đó là đường vô hiệu hoá hạn mức.
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Chưa xác định được địa chỉ mạng của bạn nên tạm thời không mở đăng ký "
+                    "tự do. Liên hệ người quản trị để được cấp tài khoản.",
+                )
+            tran = settings.so_tai_khoan_moi_moi_ip_mot_ngay
+            kq = await giu_suat_dang_ky(
+                session, ip_da_bam=bam(ip, settings), ngay=ngay_han_muc(), tran=tran
             )
-        tran = settings.so_tai_khoan_moi_moi_ip_mot_ngay
-        kq = await giu_suat_dang_ky(
-            session, ip_da_bam=bam(ip, settings), ngay=ngay_han_muc(), tran=tran
-        )
-        if not kq.thanh_cong:
-            reset = moc_reset_ke_tiep()
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                headers={"Retry-After": str(max(0, int((reset - bay_gio()).total_seconds())))},
-                detail={
-                    "loi": "vuot_tran_dang_ky",
-                    "tran_moi_ngay": tran,
-                    "reset_luc": reset.isoformat(),
-                    "thong_diep": "Địa chỉ mạng này đã tạo đủ số tài khoản cho phép trong hôm "
-                    "nay. Thử lại sau, hoặc liên hệ người quản trị.",
-                },
-            )
+            if not kq.thanh_cong:
+                reset = moc_reset_ke_tiep()
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    headers={"Retry-After": str(max(0, int((reset - bay_gio()).total_seconds())))},
+                    detail={
+                        "loi": "vuot_tran_dang_ky",
+                        "tran_moi_ngay": tran,
+                        "reset_luc": reset.isoformat(),
+                        "thong_diep": "Địa chỉ mạng này đã tạo đủ số tài khoản cho phép trong hôm "
+                        "nay. Thử lại sau, hoặc liên hệ người quản trị.",
+                    },
+                )
 
     can_xac_nhan_email = bool(
         not dau_tien

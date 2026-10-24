@@ -62,7 +62,7 @@ export default function ManDangNhap({ onXong, onQuayLai }) {
 
   // Cloudflare Turnstile (Verify you are human)
   const [turnstileSiteKey, setTurnstileSiteKey] = useState('0x4AAAAAAFjgaHej0056M8hW')
-  const [yeuCauXacNhanEmail, setYeuCauXacNhanEmail] = useState(true)
+  const [yeuCauXacNhanEmail, setYeuCauXacNhanEmail] = useState(false)
   const [cfToken, setCfToken] = useState('')
   const turnstileRef = useRef(null)
   const widgetIdRef = useRef(null)
@@ -241,8 +241,8 @@ export default function ManDangNhap({ onXong, onQuayLai }) {
         <p className="dan-dang-nhap">
           {dangKy
             ? (laEn
-                ? 'Requires a real email confirmation link & Cloudflare security check.'
-                : 'Yêu cầu xác thực Cloudflare & bấm liên kết xác nhận gửi về hộp thư Email thật của bạn.')
+                ? 'Dedicated 20 pages/day quota — protected by Cloudflare & official email filter.'
+                : 'Hạn mức tính riêng cho tài khoản bạn — bảo vệ bởi Cloudflare & bộ lọc Email chính thống.')
             : (laEn
                 ? 'Sign in to use your dedicated account quota and manage chapters.'
                 : 'Vào lại để dùng hạn mức riêng của bạn.')}
@@ -274,8 +274,8 @@ export default function ManDangNhap({ onXong, onQuayLai }) {
             {dangKy && !loiEmailSpam && email.includes('@') && email.split('@')[1]?.includes('.') && (
               <p className="ghi-chu" style={{ color: 'var(--ok)', fontWeight: 600 }}>
                 {laEn
-                  ? '✓ Official email provider accepted — a confirmation link will be sent to this inbox'
-                  : '✓ Nhà cung cấp email hợp lệ — hệ thống sẽ gửi liên kết xác nhận về hộp thư này'}
+                  ? '✓ Official email provider accepted (10-minute / disposable emails are blocked)'
+                  : '✓ Nhà cung cấp email chính thống hợp lệ (đã chặn triệt để mail 10 phút / mail rác)'}
               </p>
             )}
           </div>
