@@ -456,72 +456,131 @@ void (async () => {
       const cx1 = Math.min(rw, xGoc + wGoc - rx0)
       const cy1 = Math.min(rh, yGoc + hGoc - ry0)
 
-      // Lấy mẫu màu nền thật `(bgR, bgG, bgB)` ngay trong vùng chữ gốc `cx0..cy1`
-      const dsR = []
-      const dsG = []
-      const dsB = []
+      // Lấy mẫu màu nền thật `(bgR, bgG, bgB)` bằng cụm màu chủ đạo (16-mức RGB) từ vành đai + lòng hộp chữ.
+      // Khắc phục triệt để bong bóng màu (hộp hệ thống xanh dương/tím chữ trắng, giấy da vàng, hồng, xám...)
+      // vốn có độ sáng trung bình (82 < lum < 180) hoặc chữ trắng trên nền màu đậm:
+      const bangDemBin = new Int32Array(4096)
+      const tongRBin = new Int32Array(4096)
+      const tongGBin = new Int32Array(4096)
+      const tongBBin = new Int32Array(4096)
+      const vx0 = Math.max(0, cx0 - 8)
+      const vy0 = Math.max(0, cy0 - 8)
+      const vx1 = Math.min(rw, cx1 + 8)
+      const vy1 = Math.min(rh, cy1 + 8)
+
+      const themMauBin = (r, g, b, trongSo) => {
+        const bin = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4)
+        bangDemBin[bin] += trongSo
+        tongRBin[bin] += r * trongSo
+        tongGBin[bin] += g * trongSo
+        tongBBin[bin] += b * trongSo
+      }
+
+      // Quét vành đai sát quanh chữ (trọng số 2 vì ít dính nét chữ hơn) + lòng hộp chữ (trọng số 1)
+      for (let py = vy0; py < vy1; py += 2) {
+        for (let px = vx0; px < vx1; px += 2) {
+          const i = (py * rw + px) * 4
+          if (data[i + 3] < 128) continue
+          const trongHop = px >= cx0 && px < cx1 && py >= cy0 && py < cy1
+          themMauBin(data[i], data[i + 1], data[i + 2], trongHop ? 1 : 2)
+        }
+      }
+
+      // Tìm cụm màu nền chiếm đa số trong bóng thoại (gộp cả 26 bin lân cận 3x3x3 để chống nhiễu JPEG)
+      let binTotNhat = -1
+      let diemBinTotNhat = -1
+      for (let bIdx = 0; bIdx < 4096; bIdx += 1) {
+        if (bangDemBin[bIdx] === 0) continue
+        const br = (bIdx >> 8) & 15
+        const bg = (bIdx >> 4) & 15
+        const bb = bIdx & 15
+        let tongCum = 0
+        for (let dr = -1; dr <= 1; dr += 1) {
+          const nr = br + dr
+          if (nr < 0 || nr > 15) continue
+          for (let dg = -1; dg <= 1; dg += 1) {
+            const ng = bg + dg
+            if (ng < 0 || ng > 15) continue
+            for (let db = -1; db <= 1; db += 1) {
+              const nb = bb + db
+              if (nb < 0 || nb > 15) continue
+              tongCum += bangDemBin[(nr << 8) | (ng << 4) | nb]
+            }
+          }
+        }
+        if (tongCum > diemBinTotNhat) {
+          diemBinTotNhat = tongCum
+          binTotNhat = bIdx
+        }
+      }
+
+      let bgR = nenToi ? 12 : 255
+      let bgG = nenToi ? 12 : 255
+      let bgB = nenToi ? 12 : 255
+      if (binTotNhat >= 0) {
+        const br = (binTotNhat >> 8) & 15
+        const bg = (binTotNhat >> 4) & 15
+        const bb = binTotNhat & 15
+        let sumW = 0, sumR = 0, sumG = 0, sumB = 0
+        for (let dr = -1; dr <= 1; dr += 1) {
+          const nr = br + dr
+          if (nr < 0 || nr > 15) continue
+          for (let dg = -1; dg <= 1; dg += 1) {
+            const ng = bg + dg
+            if (ng < 0 || ng > 15) continue
+            for (let db = -1; db <= 1; db += 1) {
+              const nb = bb + db
+              if (nb < 0 || nb > 15) continue
+              const nbIdx = (nr << 8) | (ng << 4) | nb
+              sumW += bangDemBin[nbIdx]
+              sumR += tongRBin[nbIdx]
+              sumG += tongGBin[nbIdx]
+              sumB += tongBBin[nbIdx]
+            }
+          }
+        }
+        if (sumW > 0) {
+          bgR = Math.round(sumR / sumW)
+          bgG = Math.round(sumG / sumW)
+          bgB = Math.round(sumB / sumW)
+        }
+      }
+
+      const bgLum = 0.299 * bgR + 0.587 * bgG + 0.114 * bgB
+      const bgSat = Math.max(bgR, bgG, bgB) - Math.min(bgR, bgG, bgB)
+      // Cập nhật lại `v.nen_toi` theo độ sáng thực sự của màu nền chủ đạo (giúp hộp hệ thống xanh đậm/tím/xám đậm luôn hiện chữ trắng sắc nét)
+      v.nen_toi = bgLum < 128
+      const nenToiThuc = Boolean(v.nen_toi)
+      v._mauNenCss = `rgb(${bgR},${bgG},${bgB})`
+
       const dsLum = []
+      let demKhopMauTrongHop = 0
       let tongMauQuet = 0
       for (let py = cy0; py < cy1; py += 2) {
         for (let px = cx0; px < cx1; px += 2) {
           const i = (py * rw + px) * 4
           if (data[i + 3] < 128) continue
           tongMauQuet += 1
-          const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]
-          if (nenToi ? lum <= 82 : lum >= 180) {
-            dsR.push(data[i])
-            dsG.push(data[i + 1])
-            dsB.push(data[i + 2])
-            dsLum.push(lum)
+          const r = data[i], g = data[i + 1], b = data[i + 2]
+          const lum = 0.299 * r + 0.587 * g + 0.114 * b
+          dsLum.push(lum)
+          if (Math.abs(r - bgR) + Math.abs(g - bgG) + Math.abs(b - bgB) <= 45) {
+            demKhopMauTrongHop += 1
           }
         }
       }
-      if (dsR.length < Math.max(8, Math.floor(tongMauQuet * 0.22))) {
-        const demVanh = []
-        const vx0 = Math.max(0, cx0 - 8)
-        const vy0 = Math.max(0, cy0 - 8)
-        const vx1 = Math.min(rw, cx1 + 8)
-        const vy1 = Math.min(rh, cy1 + 8)
-        for (let py = vy0; py < vy1; py += 2) {
-          for (let px = vx0; px < vx1; px += 2) {
-            if (px > cx0 + 2 && px < cx1 - 2 && py > cy0 + 2 && py < cy1 - 2) continue
-            const i = (py * rw + px) * 4
-            if (data[i + 3] < 128) continue
-            const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]
-            demVanh.push({ r: data[i], g: data[i + 1], b: data[i + 2], lum })
-          }
-        }
-        if (demVanh.length >= 6) {
-          demVanh.sort((a, b) => a.lum - b.lum)
-          const batDau = nenToi ? 0 : Math.floor(demVanh.length * 0.35)
-          const ketThuc = nenToi ? Math.ceil(demVanh.length * 0.65) : demVanh.length
-          dsR.length = 0; dsG.length = 0; dsB.length = 0; dsLum.length = 0
-          for (let k = batDau; k < ketThuc; k += 1) {
-            dsR.push(demVanh[k].r)
-            dsG.push(demVanh[k].g)
-            dsB.push(demVanh[k].b)
-            dsLum.push(demVanh[k].lum)
-          }
-        }
-      }
-      dsR.sort((a, b) => a - b)
-      dsG.sort((a, b) => a - b)
-      dsB.sort((a, b) => a - b)
       dsLum.sort((a, b) => a - b)
-      const idxMau = Math.min(dsR.length - 1, Math.floor(dsR.length * (nenToi ? 0.22 : 0.78)))
-      const bgR = dsR.length ? dsR[idxMau] : (nenToi ? 12 : 255)
-      const bgG = dsG.length ? dsG[idxMau] : (nenToi ? 12 : 255)
-      const bgB = dsB.length ? dsB[idxMau] : (nenToi ? 12 : 255)
-      v._mauNenCss = `rgb(${bgR},${bgG},${bgB})`
-
       const p20Idx = Math.floor(dsLum.length * 0.2)
-      const p80Idx = Math.min(dsLum.length - 1, Math.floor(dsLum.length * 0.8))
-      const doLechMauNen = dsLum.length >= 6 ? (dsLum[p80Idx] - dsLum[p20Idx]) : 99
-      const laBongMauDongNhat = dsR.length >= 8 && doLechMauNen <= 34
+      const p75Idx = Math.min(dsLum.length - 1, Math.floor(dsLum.length * 0.75))
+      const doLechMauNen = dsLum.length >= 6 ? (dsLum[p75Idx] - dsLum[p20Idx]) : 99
+      const laBongMauDongNhat = (demKhopMauTrongHop >= Math.max(6, Math.floor(tongMauQuet * 0.38))) || (doLechMauNen <= 36)
+      const laNenTrangChuan = !nenToiThuc && bgLum >= 205 && bgSat <= 30
+      const laNenDenChuan = nenToiThuc && bgLum <= 55 && bgSat <= 30
 
       const laNenMask = new Uint8Array(N)
       let demNenTrongHop = 0
       const dienTichHopGoc = Math.max(1, (cx1 - cx0) * (cy1 - cy0))
+      const nguongSaiSoMau = laBongMauDongNhat ? 46 : 54
       for (let idx = 0; idx < N; idx += 1) {
         const i = idx * 4
         if (data[i + 3] < 128) continue
@@ -529,8 +588,12 @@ void (async () => {
         const g = data[i + 1]
         const b = data[i + 2]
         const lum = 0.299 * r + 0.587 * g + 0.114 * b
-        const khopTrangDen = nenToi ? lum <= 72 : lum >= 192
-        const khopBongMau = laBongMauDongNhat && (Math.abs(r - bgR) + Math.abs(g - bgG) + Math.abs(b - bgB) <= 40)
+        const sat = Math.max(r, g, b) - Math.min(r, g, b)
+        // Chỉ dùng ngưỡng trắng/đen tuyệt đối khi nền thực sự là trắng hoặc đen trung tính;
+        // nếu là bong bóng màu (xanh, tím, vàng, hồng...) thì bắt buộc so khớp khoảng cách RGB với `(bgR, bgG, bgB)`
+        // để chữ trắng trên nền xanh/tím KHÔNG bị nhận nhầm là nền!
+        const khopTrangDen = (laNenTrangChuan && lum >= 192 && sat <= 38) || (laNenDenChuan && lum <= 72 && sat <= 38)
+        const khopBongMau = (Math.abs(r - bgR) + Math.abs(g - bgG) + Math.abs(b - bgB)) <= nguongSaiSoMau
         if (khopTrangDen || khopBongMau) {
           laNenMask[idx] = 1
           const px = idx % rw
@@ -943,10 +1006,30 @@ void (async () => {
         let rTrai = bgR, gTrai = bgG, bTrai = bgB
         let rPhai = bgR, gPhai = bgG, bPhai = bgB
         if (laNenPhucTap) {
-          const iTrai = (roiY * rw + Math.max(0, minX - 2)) * 4
-          const iPhai = (roiY * rw + Math.min(rw - 1, maxX + 1)) * 4
-          rTrai = data[iTrai]; gTrai = data[iTrai + 1]; bTrai = data[iTrai + 2]
-          rPhai = data[iPhai]; gPhai = data[iPhai + 1]; bPhai = data[iPhai + 2]
+          for (let d = 1; d <= 6; d += 1) {
+            const xL = Math.max(0, minX - d)
+            const posL = roiY * rw + xL
+            if (!vungXoaChu[posL] && (laNenMask[posL] || d === 6)) {
+              const iL = posL * 4
+              const lumL = 0.299 * data[iL] + 0.587 * data[iL + 1] + 0.114 * data[iL + 2]
+              if (laNenMask[posL] || Math.abs(lumL - bgLum) <= 65) {
+                rTrai = data[iL]; gTrai = data[iL + 1]; bTrai = data[iL + 2]
+                break
+              }
+            }
+          }
+          for (let d = 1; d <= 6; d += 1) {
+            const xR = Math.min(rw - 1, maxX - 1 + d)
+            const posR = roiY * rw + xR
+            if (!vungXoaChu[posR] && (laNenMask[posR] || d === 6)) {
+              const iR = posR * 4
+              const lumR = 0.299 * data[iR] + 0.587 * data[iR + 1] + 0.114 * data[iR + 2]
+              if (laNenMask[posR] || Math.abs(lumR - bgLum) <= 65) {
+                rPhai = data[iR]; gPhai = data[iR + 1]; bPhai = data[iR + 2]
+                break
+              }
+            }
+          }
         }
         for (let px = 0; px < cwChe; px += 1) {
           const roiPos = roiY * rw + (minX + px)
@@ -957,7 +1040,7 @@ void (async () => {
             outData[pOut] = Math.round(rTrai * (1 - t) + rPhai * t)
             outData[pOut + 1] = Math.round(gTrai * (1 - t) + gPhai * t)
             outData[pOut + 2] = Math.round(bTrai * (1 - t) + bPhai * t)
-            outData[pOut + 3] = 242
+            outData[pOut + 3] = 248
           } else {
             outData[pOut] = bgR
             outData[pOut + 1] = bgG

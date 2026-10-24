@@ -189,14 +189,6 @@ async def dang_ky(
 
     hien_co = await tim_theo_email(session, email)
     if hien_co is not None:
-        if not hien_co.dang_hoat_dong:
-            # Tài khoản đang chờ kích hoạt trước đó -> cập nhật mật khẩu/tên hiển thị và kích hoạt theo trạng thái mới
-            hien_co.ten_hien = ten_hien.strip() or email.split("@")[0]
-            hien_co.mat_khau_bam = mk.bam(mat_khau_tho)
-            hien_co.dang_hoat_dong = dang_hoat_dong
-            await session.commit()
-            await session.refresh(hien_co)
-            return hien_co
         raise ValueError("email_da_ton_tai")
     # Chặn thủ thuật chèn dấu chấm Gmail (vd `a.b.c@gmail.com` trùng với `abc@gmail.com`)
     email_goc = email_goc_chong_clone(email)

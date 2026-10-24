@@ -596,7 +596,7 @@ async def xac_nhan_chuyen_khoan_goi(
     settings: Settings = Depends(get_settings),
     nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> DonNapLuotRead:
-    """Ghi nhận gói khách đã chọn & tự động kích hoạt gói ngay khi khách bấm xác nhận đã chuyển khoản ACB."""
+    """Ghi nhận đơn khách đã chọn để chờ Webhook ngân hàng hoặc Admin (`thientrieu753@gmail.com`) xác nhận đối soát."""
     don_gia = max(1, settings.ty_le_vnd_moi_trang)
     ds_goi = {g.ma: g for g in _danh_sach_goi_nap_chuan(don_gia)}
     goi = ds_goi.get(body.ma_goi.strip())
@@ -607,26 +607,31 @@ async def xac_nhan_chuyen_khoan_goi(
         so_tien = goi.so_tien_vnd
         so_trang = goi.so_trang
     else:
-        ma_goi = body.ma_goi.strip()
-        ten_goi = body.ten_goi.strip() or f"Gói nạp ({body.so_trang} trang)"
+        ma_goi = body.ma_goi.strip() or "tieu_chuan"
         so_tien = max(don_gia, int(body.so_tien_vnd))
-        so_trang = max(1, int(body.so_trang or (so_tien // don_gia)))
+        so_trang = max(1, so_tien // don_gia)
+        ten_goi = body.ten_goi.strip() or f"Gói nạp ({so_trang} trang)"
 
     ds_don = await run_in_threadpool(_doc_ds_don_nap)
     email_lower = (nguoi.email or "").lower()
 
-    # Kiểm tra xem user đã có đơn tự động cộng chưa đối soát hay chưa (tránh bấm trùng nhiều lần)
-    da_co_don_cho_doi_soat = any(
-        str(d.get("email") or "").lower() == email_lower
-        and d.get("trang_thai") == "da_cong_tu_dong"
-        for d in ds_don
-    )
+    # Nếu khách đã có đơn chờ duyệt cùng gói, trả về đơn đó để tránh tạo trùng lặp nhiều dòng
+    for d in ds_don:
+        if (
+            str(d.get("email") or "").lower() == email_lower
+            and d.get("trang_thai") == "cho_duyet"
+            and d.get("ma_goi") == ma_goi
+        ):
+            return DonNapLuotRead(**d)
 
-    if not da_co_don_cho_doi_soat:
+    # Bảo mật chống gian lận: Chỉ tự động kích hoạt ngay nếu chính Admin thao tác thử nghiệm;
+    # người dùng thường tạo đơn ở trạng thái `cho_duyet` (sẽ tự động cộng ngay khi Webhook ngân hàng
+    # báo tiền về hoặc khi Admin bấm "✅ Xác nhận" trong bảng Quản trị).
+    if nguoi.la_quan_tri:
         nguoi.so_luot_mua_them = max(0, int(nguoi.so_luot_mua_them or 0)) + so_trang
         await session.commit()
         await session.refresh(nguoi)
-        trang_thai = "da_cong_tu_dong"
+        trang_thai = "da_xac_nhan"
     else:
         trang_thai = "cho_duyet"
 

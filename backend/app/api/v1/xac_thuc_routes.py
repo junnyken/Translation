@@ -273,7 +273,8 @@ async def dang_ky(
         ua = request.headers.get("user-agent", "")
         co_origin = bool(request.headers.get("origin"))
         bat_buoc_chong_bot = (
-            payload.cf_turnstile_token is not None
+            settings.app_env == "prod"
+            or payload.cf_turnstile_token is not None
             or payload.ma_thach_thuc is not None
             or co_origin
             or ua.startswith("Mozilla/")
@@ -283,15 +284,15 @@ async def dang_ky(
             loi_cf = await _xac_thuc_cloudflare_turnstile(payload.cf_turnstile_token, ip, settings)
             if loi_cf:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=loi_cf)
-        else:
-            if ip is None:
-                # Không xác định được địa chỉ mạng ⇒ KHÔNG mở cửa tự do. Thà chặn còn hơn để đường
-                # tạo tài khoản không có trần nào — đó là đường vô hiệu hoá hạn mức.
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="Chưa xác định được địa chỉ mạng của bạn nên tạm thời không mở đăng ký "
-                    "tự do. Liên hệ người quản trị để được cấp tài khoản.",
-                )
+        if ip is None and not bat_buoc_chong_bot:
+            # Không xác định được địa chỉ mạng ⇒ KHÔNG mở cửa tự do. Thà chặn còn hơn để đường
+            # tạo tài khoản không có trần nào — đó là đường vô hiệu hoá hạn mức.
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Chưa xác định được địa chỉ mạng của bạn nên tạm thời không mở đăng ký "
+                "tự do. Liên hệ người quản trị để được cấp tài khoản.",
+            )
+        if ip is not None:
             tran = settings.so_tai_khoan_moi_moi_ip_mot_ngay
             kq = await giu_suat_dang_ky(
                 session, ip_da_bam=bam(ip, settings), ngay=ngay_han_muc(), tran=tran

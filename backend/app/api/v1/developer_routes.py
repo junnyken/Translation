@@ -142,6 +142,37 @@ async def _thong_tin_quota(session: AsyncSession, nguoi: NguoiDung) -> dict[str,
     }
 
 
+def _kiem_tra_url_an_toan_ssrf(url: str) -> None:
+    """Chặn SSRF: từ chối tải ảnh từ localhost, dải IP nội bộ (LAN), link-local và cloud metadata."""
+    import ipaddress
+    import socket
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").strip().lower()
+    if not host or host in ("localhost", "0.0.0.0", "metadata.google.internal"):
+        raise ValueError("URL ảnh không hợp lệ hoặc trỏ tới địa chỉ nội bộ bị cấm.")
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except OSError as exc:
+        raise ValueError(f"Không phân giải được tên miền ảnh: {host}") from exc
+    for info in infos:
+        ip_str = info[4][0]
+        try:
+            ip_obj = ipaddress.ip_address(ip_str)
+        except ValueError:
+            continue
+        if (
+            ip_obj.is_private
+            or ip_obj.is_loopback
+            or ip_obj.is_link_local
+            or ip_obj.is_multicast
+            or ip_obj.is_reserved
+            or ip_obj.is_unspecified
+        ):
+            raise ValueError("Từ chối kết nối tới địa chỉ IP nội bộ / đặc quyền.")
+
+
 def _tai_anh_url_chong_chan(url: str, referer: str | None = None, max_bytes: int = 20 * 1024 * 1024) -> bytes:
     """Tải ảnh từ URL bên ngoài kèm Referer tự động vượt chống hotlink cho tool khách hàng."""
     from urllib.parse import urlparse
@@ -149,6 +180,7 @@ def _tai_anh_url_chong_chan(url: str, referer: str | None = None, max_bytes: int
     u = (url or "").strip()
     if not (u.startswith("http://") or u.startswith("https://")):
         raise ValueError("image_url phải bắt đầu bằng http:// hoặc https://")
+    _kiem_tra_url_an_toan_ssrf(u)
     parsed = urlparse(u)
     origin_ref = referer or f"{parsed.scheme}://{parsed.netloc}/"
     headers = {
