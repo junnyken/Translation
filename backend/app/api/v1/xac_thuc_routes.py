@@ -64,12 +64,6 @@ _THOI_HAN_XAC_NHAN_EMAIL_GIAY = 24 * 3600
 #: Khoá Cloudflare Turnstile chính thức của hệ thống comic.io.vn.
 _CF_TURNSTILE_SITE_KEY_MAC_DINH = "0x4AAAAAAFjgaHej0056M8hW"
 _CF_TURNSTILE_SECRET_KEY_MAC_DINH = "0x4AAAAAAFjgaMk3b6UZEl-lrYGA91gc1Lk"
-_SUPABASE_URL_CHINH_THUC = "https://wtwnbagcqyedindtcadv.supabase.co"
-_SUPABASE_ANON_KEY_CHINH_THUC = (
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
-    "eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind0d25iYWdjcXllZGluZHRjYWR2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwOTA2NjMsImV4cCI6MjA4ODY2NjY2M30."
-    "s0fLtsS-EWyeodWwhhdonHNTn9v2l13xcZSJtK9pD80"
-)
 
 
 def _khoa_ky_thach_thuc(settings: Settings) -> bytes:
@@ -223,16 +217,11 @@ async def _gui_email_xac_nhan_supabase(
 async def lay_thach_thuc_bot(
     settings: Settings = Depends(get_settings),
 ) -> dict[str, object]:
-    """Trả cấu hình xác thực Cloudflare Turnstile và trạng thái bật xác nhận qua Email."""
+    """Trả cấu hình xác thực Cloudflare Turnstile (không dùng Supabase gửi mail ngoài)."""
     site_key = settings.cloudflare_turnstile_site_key.strip() or _CF_TURNSTILE_SITE_KEY_MAC_DINH
-    co_supabase_email = bool(
-        settings.bat_xac_nhan_email_dang_ky
-        and (settings.supabase_url.strip() or _SUPABASE_URL_CHINH_THUC)
-        and (settings.supabase_anon_key.strip() or _SUPABASE_ANON_KEY_CHINH_THUC)
-    )
     return {
         "turnstile_site_key": site_key,
-        "yeu_cau_xac_nhan_email": co_supabase_email,
+        "yeu_cau_xac_nhan_email": False,
     }
 
 
@@ -321,21 +310,13 @@ async def dang_ky(
                     },
                 )
 
-    can_xac_nhan_email = bool(
-        not dau_tien
-        and bat_buoc_chong_bot
-        and settings.bat_xac_nhan_email_dang_ky
-        and (settings.supabase_url.strip() or _SUPABASE_URL_CHINH_THUC)
-        and (settings.supabase_anon_key.strip() or _SUPABASE_ANON_KEY_CHINH_THUC)
-    )
-
     try:
         nguoi = await tai_khoan.dang_ky(
             session,
             email=payload.email,
             ten_hien=payload.ten_hien,
             mat_khau_tho=payload.mat_khau,
-            dang_hoat_dong=not can_xac_nhan_email,
+            dang_hoat_dong=True,
         )
     except ValueError as exc:
         await session.rollback()
@@ -346,23 +327,6 @@ async def dang_ky(
         )
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=thong_bao) from exc
 
-    if can_xac_nhan_email and not nguoi.dang_hoat_dong:
-        token_xn = _tao_token_xac_nhan_email(nguoi.email, settings)
-        origin_hdr = (request.headers.get("origin") or settings.frontend_site_url).strip().rstrip("/")
-        if not origin_hdr.startswith("http"):
-            origin_hdr = settings.frontend_site_url.strip().rstrip("/")
-        redirect_url = f"{origin_hdr}/?xac_nhan_email={token_xn}"
-        da_gui, loi_gui = await _gui_email_xac_nhan_supabase(nguoi.email, redirect_url, settings)
-        if not da_gui:
-            logger.error("Không gửi được email xác nhận cho %s: %s", nguoi.email, loi_gui)
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    f"Chưa gửi được thư xác nhận tới {nguoi.email} ({loi_gui}). "
-                    "Vui lòng kiểm tra lại hộp thư hoặc thử lại sau ít phút."
-                ),
-            )
-
     return nguoi
 
 
@@ -372,31 +336,10 @@ async def xac_nhan_email(
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ) -> DangNhapResponse:
-    """Kích hoạt tài khoản và đăng nhập tự động khi người dùng bấm vào liên kết trong Email."""
+    """Kích hoạt tài khoản và đăng nhập tự động khi người dùng bấm vào liên kết xác nhận."""
     email_xac_nhan: str | None = None
     if payload.token_xac_nhan:
         email_xac_nhan = _giai_token_xac_nhan_email(payload.token_xac_nhan, settings)
-
-    # Nếu liên kết trả về `#access_token=...` từ Supabase Auth, xác minh trực tiếp với Supabase
-    if not email_xac_nhan and payload.supabase_access_token:
-        base_url = settings.supabase_url.strip().rstrip("/")
-        if not base_url or "wtwnbagcqyedindtcadv" not in base_url:
-            base_url = _SUPABASE_URL_CHINH_THUC
-        api_key = (settings.supabase_anon_key or _SUPABASE_ANON_KEY_CHINH_THUC).strip()
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                r_user = await client.get(
-                    f"{base_url}/auth/v1/user",
-                    headers={
-                        "apikey": api_key,
-                        "Authorization": f"Bearer {payload.supabase_access_token.strip()}",
-                    },
-                )
-                if r_user.status_code == 200:
-                    du_lieu = r_user.json()
-                    email_xac_nhan = du_lieu.get("email")
-        except Exception as exc:
-            logger.warning("Lỗi kiểm tra supabase_access_token: %s", exc)
 
     if not email_xac_nhan:
         raise HTTPException(

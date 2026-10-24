@@ -62,7 +62,7 @@ export default function ManDangNhap({ onXong, onQuayLai }) {
 
   // Cloudflare Turnstile (Verify you are human)
   const [turnstileSiteKey, setTurnstileSiteKey] = useState('0x4AAAAAAFjgaHej0056M8hW')
-  const [yeuCauXacNhanEmail, setYeuCauXacNhanEmail] = useState(true)
+  const [yeuCauXacNhanEmail, setYeuCauXacNhanEmail] = useState(false)
   const [cfToken, setCfToken] = useState('')
   const turnstileRef = useRef(null)
   const widgetIdRef = useRef(null)
@@ -241,8 +241,8 @@ export default function ManDangNhap({ onXong, onQuayLai }) {
         <p className="dan-dang-nhap">
           {dangKy
             ? (laEn
-                ? 'Requires Cloudflare security verification & clicking the confirmation link sent to your Email.'
-                : 'Yêu cầu xác thực Cloudflare & bấm liên kết xác nhận gửi về hộp thư Email thật của bạn.')
+                ? 'Requires a trusted email provider (Gmail, Outlook, iCloud, Yahoo, ProtonMail) & Cloudflare security verification.'
+                : 'Yêu cầu Email chính thống (Gmail, Outlook, iCloud, Yahoo, ProtonMail) & xác thực chống bot Cloudflare.')
             : (laEn
                 ? 'Sign in to use your dedicated account quota and manage chapters.'
                 : 'Vào lại để dùng hạn mức riêng của bạn.')}

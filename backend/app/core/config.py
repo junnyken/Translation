@@ -26,21 +26,17 @@ class Settings(BaseSettings):
     #: Trần một hiện vật khi lưu trong CSDL. Chặn sớm để không nhét cả gói CBZ khổng lồ vào một
     #: hàng bytea rồi phát hiện lúc đọc. 0 = không giới hạn.
     storage_pg_max_artifact_mb: int = 96
-    supabase_url: str = "https://wtwnbagcqyedindtcadv.supabase.co"
+    supabase_url: str = ""
     supabase_service_key: str = ""
-    supabase_anon_key: str = (
-        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
-        "eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind0d25iYWdjcXllZGluZHRjYWR2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwOTA2NjMsImV4cCI6MjA4ODY2NjY2M30."
-        "s0fLtsS-EWyeodWwhhdonHNTn9v2l13xcZSJtK9pD80"
-    )
+    supabase_anon_key: str = ""
     supabase_bucket: str = "manga-pages"
     #: Cloudflare Turnstile (chống bot thật bằng widget của Cloudflare)
     cloudflare_turnstile_site_key: str = "0x4AAAAAAFjgaHej0056M8hW"
     cloudflare_turnstile_secret_key: str = "0x4AAAAAAFjgaMk3b6UZEl-lrYGA91gc1Lk"
     #: Địa chỉ trang web chính để gắn vào liên kết xác nhận email khi đăng ký
     frontend_site_url: str = "https://comic.io.vn"
-    #: Bật bắt buộc xác nhận qua liên kết email (Supabase Auth) khi đăng ký từ trình duyệt.
-    bat_xac_nhan_email_dang_ky: bool = True
+    #: Tắt gửi email qua Supabase (dùng trực tiếp Email chính thống + Cloudflare Turnstile để vào thẳng tài khoản).
+    bat_xac_nhan_email_dang_ky: bool = False
 
     # Worker
     #: Vượt ngưỡng này thì worker NHẢ các model không cần cho bước đang chạy (van xả chống OOM).

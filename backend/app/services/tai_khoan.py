@@ -189,10 +189,11 @@ async def dang_ky(
 
     hien_co = await tim_theo_email(session, email)
     if hien_co is not None:
-        if not hien_co.dang_hoat_dong and not dang_hoat_dong:
-            # Tài khoản đang chờ xác nhận email -> cập nhật lại mật khẩu/tên hiển thị để gửi lại mail xác nhận
+        if not hien_co.dang_hoat_dong:
+            # Tài khoản đang chờ kích hoạt trước đó -> cập nhật mật khẩu/tên hiển thị và kích hoạt theo trạng thái mới
             hien_co.ten_hien = ten_hien.strip() or email.split("@")[0]
             hien_co.mat_khau_bam = mk.bam(mat_khau_tho)
+            hien_co.dang_hoat_dong = dang_hoat_dong
             await session.commit()
             await session.refresh(hien_co)
             return hien_co
