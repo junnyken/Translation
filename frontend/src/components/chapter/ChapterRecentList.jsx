@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import * as api from '../../api.js'
 import { tinhTienDoChapter } from '../../lib/chapter-progress.js'
+import { useNgonNguUI } from '../../lib/ngon-ngu-ui.jsx'
 import { useThumbnail } from '../../lib/use-thumbnail.js'
 import { NGON_NGU } from '../../lib/status-presentation.js'
 import EmptyState from '../ui/EmptyState.jsx'
@@ -22,10 +23,10 @@ const NHAN_CHUA_CO_TRANG = 'Chưa có trang'
 const NHAN_DANG_TAI_BIA = 'Đang tải ảnh bìa…'
 
 const LOC = [
-  { ma: 'tat_ca', nhan: 'Tất cả' },
-  { ma: 'dang_chay', nhan: 'Đang xử lý' },
-  { ma: 'xong', nhan: 'Đã xong' },
-  { ma: 'hong', nhan: 'Có trang hỏng' },
+  { ma: 'tat_ca', nhan: 'Tất cả', nhanEn: 'All' },
+  { ma: 'dang_chay', nhan: 'Đang xử lý', nhanEn: 'Processing' },
+  { ma: 'xong', nhan: 'Đã xong', nhanEn: 'Completed' },
+  { ma: 'hong', nhan: 'Có trang hỏng', nhanEn: 'Failed pages' },
 ]
 
 /** Suy trạng thái của một chapter từ danh sách trang THẬT (cùng hàm với màn chapter). */
@@ -56,6 +57,7 @@ const HIEN = {
  * Chưa tải xong thì hiện khung chờ, KHÔNG hiện 0; tải lỗi thì nói là lỗi, không đoán.
  */
 export default function ChapterRecentList({ danhSach }) {
+  const { laEn } = useNgonNguUI()
   const [tim, setTim] = useState('')
   const [loc, setLoc] = useState('tat_ca')
   const [thongTin, setThongTin] = useState({})   // id → { tt: 'tai' | 'loi' | 'ok', ... }
@@ -88,9 +90,14 @@ export default function ChapterRecentList({ danhSach }) {
     // bên trái và trên thanh đầu trang; thêm lối vào thứ ba chỉ làm người dùng đoán chúng khác nhau.
     return (
       <section aria-labelledby="tieu-de-gan-day" className="luoi-chapter-boc">
-        <h2 id="tieu-de-gan-day" className="an-di">{TIEU_DE_LUOI}</h2>
-        <EmptyState icon="book-open" tieuDe="Chưa có chapter nào trên trình duyệt này">
-          Chapter bạn tạo sẽ hiện ở đây; đã có mã sẵn thì dán vào ô tìm ở đầu trang.
+        <h2 id="tieu-de-gan-day" className="an-di">{laEn ? 'Recent Chapters' : TIEU_DE_LUOI}</h2>
+        <EmptyState
+          icon="book-open"
+          tieuDe={laEn ? 'No chapters in this browser yet' : 'Chưa có chapter nào trên trình duyệt này'}
+        >
+          {laEn
+            ? 'Chapters you create above will appear here; or paste an existing chapter ID into the search bar at the top.'
+            : 'Chapter bạn tạo sẽ hiện ở đây; đã có mã sẵn thì dán vào ô tìm ở đầu trang.'}
         </EmptyState>
       </section>
     )
@@ -102,8 +109,12 @@ export default function ChapterRecentList({ danhSach }) {
     <section aria-labelledby="tieu-de-gan-day" className="luoi-chapter-boc">
       <div className="dau-man">
         <div>
-          <h2 id="tieu-de-gan-day">{TIEU_DE_LUOI}</h2>
-          <p>Ghi nhớ trên trình duyệt này. Mở ở máy khác thì dùng mã chapter.</p>
+          <h2 id="tieu-de-gan-day">{laEn ? 'Recent Chapters' : TIEU_DE_LUOI}</h2>
+          <p>
+            {laEn
+              ? 'Saved in this browser. To open on another device, use the chapter ID.'
+              : 'Ghi nhớ trên trình duyệt này. Mở ở máy khác thì dùng mã chapter.'}
+          </p>
         </div>
       </div>
 
@@ -112,7 +123,8 @@ export default function ChapterRecentList({ danhSach }) {
           <Icon ten="search" />
           <input
             type="search" className="o" value={tim} onChange={(e) => setTim(e.target.value)}
-            placeholder={NHAN_TIM} aria-label={NHAN_TIM_ARIA}
+            placeholder={laEn ? 'Search by chapter name or ID…' : NHAN_TIM}
+            aria-label={NHAN_TIM_ARIA}
           />
         </div>
         <div className="hang-chip" role="group" aria-label={NHAN_LOC}>
@@ -121,7 +133,7 @@ export default function ChapterRecentList({ danhSach }) {
               key={l.ma} type="button" className="chip-loc"
               aria-pressed={loc === l.ma} onClick={() => setLoc(l.ma)}
             >
-              {l.nhan}
+              {laEn ? l.nhanEn : l.nhan}
             </button>
           ))}
         </div>

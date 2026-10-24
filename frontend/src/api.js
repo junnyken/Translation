@@ -123,12 +123,15 @@ export async function dangNhap(email, matKhau) {
   return kq.nguoi_dung
 }
 
-/** Tạo tài khoản. Đòi khoá chung (`X-API-Key`) — `fetch` ở trên tự gắn nếu đã lưu. */
-export const dangKy = (email, tenHien, matKhau) =>
+export const layThachThucBot = () =>
+  fetch(`${BASE}/auth/thach-thuc-bot`).then(doc)
+
+/** Tạo tài khoản. Đòi khoá chung (`X-API-Key`) ở lượt đầu tiên hoặc xác thực chống Robot (`xacThucBot`). */
+export const dangKy = (email, tenHien, matKhau, xacThucBot = {}) =>
   fetch(`${BASE}/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, ten_hien: tenHien, mat_khau: matKhau }),
+    body: JSON.stringify({ email, ten_hien: tenHien, mat_khau: matKhau, ...xacThucBot }),
   }).then(doc)
 
 export async function dangXuat() {

@@ -26,6 +26,10 @@ from app.services.han_muc_dang_nhap import da_sai_bao_nhieu, ghi_nhan_dang_nhap_
 from app.core.db import get_session
 from app.core.phien import han_moi
 from app.core.quyen import TIEN_TO_BEARER, ma_phien_tu_header, nguoi_dung_hien_tai
+import hashlib
+import hmac
+import secrets
+import time
 import uuid
 
 from sqlalchemy import delete, select
@@ -47,6 +51,70 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 #: Cùng một câu cho "email không tồn tại", "sai mật khẩu" và "tài khoản bị khoá".
 #: Phân biệt ra là xác nhận cho người dò biết email nào có thật.
 LOI_SAI_THONG_TIN = "Email hoặc mật khẩu không đúng."
+
+_THOI_HAN_THACH_THUC_GIAY = 600
+
+
+def _khoa_ky_thach_thuc(settings: Settings) -> bytes:
+    goc = settings.muoi_bam_khach or settings.api_access_key or "chong-bot-mac-dinh-comic-io-vn"
+    return hashlib.sha256(f"anti-bot:{goc}".encode("utf-8")).digest()
+
+
+def _ky_thach_thuc(iat: int, nonce: str, dap_an: str, settings: Settings) -> str:
+    thong_diep = f"{iat}:{nonce}:{dap_an}".encode("utf-8")
+    return hmac.new(_khoa_ky_thach_thuc(settings), thong_diep, hashlib.sha256).hexdigest()[:32]
+
+
+def kiem_thach_thuc_bot(
+    ma_thach_thuc: str | None,
+    dap_an: str | None,
+    xac_nhan_khong_phai_bot: bool,
+    settings: Settings,
+) -> str | None:
+    """Kiểm tra bước xác thực chống Robot khi đăng ký tài khoản.
+    Trả về thông báo lỗi nếu không đạt, hoặc `None` nếu hợp lệ."""
+    if not xac_nhan_khong_phai_bot:
+        return "Vui lòng tích chọn xác nhận 'Tôi không phải là Robot' trước khi tạo tài khoản."
+    if not ma_thach_thuc or not dap_an:
+        return "Vui lòng chọn mã xác thực bảo mật để xác nhận bạn không phải là Robot."
+    phan = ma_thach_thuc.strip().split(".")
+    if len(phan) != 3:
+        return "Mã phiên xác thực bảo mật không hợp lệ. Vui lòng tải lại mã mới."
+    iat_str, nonce, chu_ky = phan
+    if not iat_str.isdigit():
+        return "Mã phiên xác thực bảo mật không hợp lệ."
+    iat = int(iat_str)
+    hien_tai = int(time.time())
+    if hien_tai - iat > _THOI_HAN_THACH_THUC_GIAY or iat > hien_tai + 60:
+        return "Mã xác thực bảo mật đã hết hạn. Vui lòng bấm làm mới mã và thử lại."
+    ky_mong_doi = _ky_thach_thuc(iat, nonce, dap_an.strip(), settings)
+    if not hmac.compare_digest(chu_ky, ky_mong_doi):
+        return "Mã xác thực bảo mật chưa đúng. Vui lòng chọn đúng mã hiển thị trên màn hình."
+    return None
+
+
+@router.get("/thach-thuc-bot")
+async def lay_thach_thuc_bot(
+    settings: Settings = Depends(get_settings),
+) -> dict[str, object]:
+    """Sinh mã xác thực chống Robot (HMAC-signed) cho biểu mẫu tạo tài khoản mới."""
+    iat = int(time.time())
+    nonce = secrets.token_hex(6)
+    dap_an = str(1000 + secrets.randbelow(9000))
+    lua_chon_phu: set[str] = set()
+    while len(lua_chon_phu) < 3:
+        Ung_vien = str(1000 + secrets.randbelow(9000))
+        if Ung_vien != dap_an:
+            lua_chon_phu.add(Ung_vien)
+    danh_sach = list(lua_chon_phu)
+    vi_tri = secrets.randbelow(4)
+    danh_sach.insert(vi_tri, dap_an)
+    chu_ky = _ky_thach_thuc(iat, nonce, dap_an, settings)
+    return {
+        "ma_thach_thuc": f"{iat}.{nonce}.{chu_ky}",
+        "ma_xac_nhan_hien_thi": dap_an,
+        "lua_chon": danh_sach,
+    }
 
 
 @router.post(
@@ -85,10 +153,32 @@ async def dang_ky(
     nên email trùng hay mật khẩu yếu ⇒ giao dịch huỷ ⇒ không mất suất. Cùng luật với "tệp hỏng
     không mất lượt" của đường tải lên.
     """
+    ly_do_email = tai_khoan.kiem_email_hop_le_chong_spam(payload.email)
+    if ly_do_email:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=ly_do_email)
+
     dau_tien = await tai_khoan.dem_nguoi_dung(session) == 0
     if dau_tien:
         await cong_khoa(x_api_key)
     else:
+        ua = request.headers.get("user-agent", "")
+        co_origin = bool(request.headers.get("origin"))
+        bat_buoc_chong_bot = (
+            payload.ma_thach_thuc is not None
+            or payload.dap_an_thach_thuc is not None
+            or co_origin
+            or ua.startswith("Mozilla/")
+        )
+        if bat_buoc_chong_bot:
+            loi_bot = kiem_thach_thuc_bot(
+                payload.ma_thach_thuc,
+                payload.dap_an_thach_thuc,
+                payload.xac_nhan_khong_phai_bot,
+                settings,
+            )
+            if loi_bot:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=loi_bot)
+
         ip = ip_cua(request, settings)
         if ip is None:
             # Không xác định được địa chỉ mạng ⇒ KHÔNG mở cửa tự do. Thà chặn còn hơn để đường

@@ -168,233 +168,249 @@ export default function DichChapter({ onMoChapter }) {
         </p>
       </header>
 
-      <fieldset className="khoi" disabled={dangChay}>
-        <Dropzone files={files} onDoi={setFiles} tatCa={dangChay} chapNhanGoi id="vung-tha-nhanh" />
+      <div className="luoi-dich-chapter-ngang">
+        <fieldset className="khoi cot-trai-dich-chapter" disabled={dangChay}>
+          <Dropzone files={files} onDoi={setFiles} tatCa={dangChay} chapNhanGoi id="vung-tha-nhanh" />
+        </fieldset>
 
-        <div className="bo-chon-manga">
-          <div className="nhom-chon-manga">
-            <span className="nhan-nhom-chon">
-              {laEn ? 'Source Language on Page (Instant switch):' : 'Ngôn ngữ gốc trên trang (Đổi tức thì):'}
-            </span>
-            <div className="luoi-nut-chon" role="radiogroup" aria-label="Ngôn ngữ gốc trên trang">
-              {PILL_NGON_NGU_GOC.map((item) => {
-                const dangChon = nguon === item.ma
-                return (
-                  <button
-                    key={item.ma}
-                    type="button"
-                    role="radio"
-                    aria-checked={dangChon}
-                    disabled={dangChay}
-                    className={`nut-chon-pill ${dangChon ? 'dang-chon' : ''}`}
-                    onClick={() => setNguon(item.ma)}
+        <div className="cot-phai-dich-chapter">
+          <fieldset className="khoi" disabled={dangChay}>
+            <div className="bo-chon-manga">
+              <div className="nhom-chon-manga">
+                <span className="nhan-nhom-chon">
+                  {laEn ? 'Source Language on Page (Instant switch):' : 'Ngôn ngữ gốc trên trang (Đổi tức thì):'}
+                </span>
+                <div className="luoi-nut-chon luoi-4-cot" role="radiogroup" aria-label="Ngôn ngữ gốc trên trang">
+                  {PILL_NGON_NGU_GOC.map((item) => {
+                    const dangChon = nguon === item.ma
+                    return (
+                      <button
+                        key={item.ma}
+                        type="button"
+                        role="radio"
+                        aria-checked={dangChon}
+                        disabled={dangChay}
+                        className={`nut-chon-pill ${dangChon ? 'dang-chon' : ''}`}
+                        onClick={() => setNguon(item.ma)}
+                      >
+                        <span className="pill-co">{item.co}</span>
+                        <span>{laEn ? item.nhanEn : item.nhan}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div className="hang-nhom-doi-manga">
+                <div className="nhom-chon-manga">
+                  <span className="nhan-nhom-chon">
+                    {laEn ? 'Target Language:' : 'Ngôn ngữ dịch ra:'}
+                  </span>
+                  <div className="luoi-nut-chon luoi-2-cot" role="radiogroup" aria-label="Ngôn ngữ dịch ra">
+                    {PILL_NGON_NGU_DICH.map((item) => {
+                      const dangChon = dich === item.ma
+                      return (
+                        <button
+                          key={item.ma}
+                          type="button"
+                          role="radio"
+                          aria-checked={dangChon}
+                          disabled={dangChay}
+                          className={`nut-chon-pill ${dangChon ? 'dang-chon' : ''}`}
+                          onClick={() => setDich(item.ma)}
+                        >
+                          <span className="pill-co">{item.co}</span>
+                          <span>{laEn ? item.nhanEn : item.nhan}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <div className="nhom-chon-manga">
+                  <span className="nhan-nhom-chon">
+                    {laEn ? 'Translation Engine:' : 'Bộ máy dịch thuật:'}
+                  </span>
+                  <div className="luoi-nut-chon luoi-2-cot" role="radiogroup" aria-label="Bộ máy dịch thuật">
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={engine === 'llm_context'}
+                      disabled={dangChay}
+                      className={`nut-chon-pill ${engine === 'llm_context' ? 'dang-chon' : ''}`}
+                      onClick={() => doiEngine('llm_context')}
+                    >
+                      <span className="pill-co">✨</span>
+                      <span>{laEn ? 'Gemini AI' : 'Gemini AI (Ngữ cảnh)'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={engine === 'google_fast'}
+                      disabled={dangChay}
+                      className={`nut-chon-pill ${engine === 'google_fast' ? 'dang-chon' : ''}`}
+                      onClick={() => doiEngine('google_fast')}
+                    >
+                      <span className="pill-co">⚡</span>
+                      <span>{laEn ? 'Google Fast' : 'Google Nhanh'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="nhom-chon-manga">
+                <span className="nhan-nhom-chon">
+                  {laEn ? 'Genre Font Style (Direct typesetting):' : 'Font chữ theo thể loại truyện (Đổi trực tiếp trên trang):'}
+                </span>
+                <div className="luoi-nut-chon luoi-4-cot" role="radiogroup" aria-label="Font chữ theo thể loại">
+                  {PILL_FONT_THE_LOAI.map((item) => {
+                    const dangChon = fontChu === item.ma
+                    return (
+                      <button
+                        key={item.ma}
+                        type="button"
+                        role="radio"
+                        aria-checked={dangChon}
+                        disabled={dangChay}
+                        className={`nut-chon-pill ${dangChon ? 'dang-chon' : ''}`}
+                        onClick={() => setFontChu(item.ma)}
+                      >
+                        <span className="pill-co">{item.bieuTuong}</span>
+                        <span>{laEn ? item.nhanEn : item.nhan}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div className="nhom-chon-manga">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                  <span className="nhan-nhom-chon">
+                    📖 {laEn ? 'Character & Pronoun Glossary:' : 'Sổ tay Nhân vật & Xưng hô cố định:'}
+                  </span>
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    className="nut-chu"
+                    style={{ fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}
+                    onClick={() => setMoTuDien(!moTuDien)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') setMoTuDien(!moTuDien) }}
                   >
-                    <span className="pill-co">{item.co}</span>
-                    <span>{laEn ? item.nhanEn : item.nhan}</span>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
+                    {moTuDien
+                      ? (laEn ? '▲ Hide Glossary' : '▲ Thu gọn sổ tay')
+                      : (laEn ? '➕ Open Character & Pronoun Glossary' : '➕ Mở thiết lập Xưng hô & Tên nhân vật')}
+                  </span>
+                </div>
+                {moTuDien && (
+                  <div className="khung-tu-dien-nhanh">
+                    <textarea
+                      className="o o-tu-dien"
+                      rows={3}
+                      disabled={dangChay}
+                      value={tuDienRieng}
+                      onChange={(e) => setTuDienRieng(e.target.value)}
+                      placeholder={
+                        laEn
+                          ? 'Example:\n- Sung Jin-Woo: main protagonist\n- Cha Hae-In: S-Rank Hunter\n- 影の君主 = Shadow Monarch'
+                          : 'Ví dụ:\n- Sung Jin-Woo: xưng tôi, gọi cậu\n- Cha Hae-In: xưng em, gọi anh\n- Shadow Monarch = Quân Vương Bóng Tối'
+                      }
+                    />
+                  </div>
+                )}
+              </div>
 
-          <div className="nhom-chon-manga">
-            <span className="nhan-nhom-chon">
-              {laEn ? 'Target Language (Vietnamese & International):' : 'Ngôn ngữ dịch ra (Việt Nam & Quốc tế):'}
-            </span>
-            <div className="luoi-nut-chon luoi-2-cot" role="radiogroup" aria-label="Ngôn ngữ dịch ra">
-              {PILL_NGON_NGU_DICH.map((item) => {
-                const dangChon = dich === item.ma
-                return (
-                  <button
-                    key={item.ma}
-                    type="button"
-                    role="radio"
-                    aria-checked={dangChon}
-                    disabled={dangChay}
-                    className={`nut-chon-pill ${dangChon ? 'dang-chon' : ''}`}
-                    onClick={() => setDich(item.ma)}
-                  >
-                    <span className="pill-co">{item.co}</span>
-                    <span>{laEn ? item.nhanEn : item.nhan}</span>
-                  </button>
-                )
-              })}
+              <div className="huy-hieu-gpu-khach">
+                {laEn
+                  ? '🚀 Client GPU Inpainting · Double-click to Edit — Ultra-fast ~3s'
+                  : '🚀 Xoá chữ GPU khách · Nhấp đúp sửa câu — Siêu tốc ~3s'}
+              </div>
             </div>
-          </div>
+          </fieldset>
 
-          <div className="nhom-chon-manga">
-            <span className="nhan-nhom-chon">
-              {laEn ? 'Translation Engine:' : 'Bộ máy dịch thuật:'}
-            </span>
-            <div className="luoi-nut-chon luoi-2-cot" role="radiogroup" aria-label="Bộ máy dịch thuật">
-              <button
-                type="button"
-                role="radio"
-                aria-checked={engine === 'llm_context'}
-                disabled={dangChay}
-                className={`nut-chon-pill ${engine === 'llm_context' ? 'dang-chon' : ''}`}
-                onClick={() => doiEngine('llm_context')}
+          <fieldset className="khoi" disabled={dangChay}>
+            <div className="an-di">
+              <Select nhan="Ngôn ngữ gốc" batBuoc value={nguon}
+                      onChange={(e) => setNguon(e.target.value)}>
+                {Object.entries(NGON_NGU).map(([ma, tenNn]) => (
+                  <option key={ma} value={ma}>{tenNn}</option>
+                ))}
+              </Select>
+              <Select
+                nhan="Cách dịch" batBuoc value={engine} moTa={MO_TA_ENGINE[engine]}
+                onChange={(e) => doiEngine(e.target.value)}
               >
-                <span className="pill-co">✨</span>
-                <span>{laEn ? 'Gemini AI (Context-Aware)' : 'Gemini AI (Chuẩn ngữ cảnh)'}</span>
-              </button>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={engine === 'google_fast'}
-                disabled={dangChay}
-                className={`nut-chon-pill ${engine === 'google_fast' ? 'dang-chon' : ''}`}
-                onClick={() => doiEngine('google_fast')}
-              >
-                <span className="pill-co">⚡</span>
-                <span>{laEn ? 'Google Fast' : 'Google Nhanh'}</span>
-              </button>
+                {Object.entries(CACH_DICH).map(([ma, tenCd]) => (
+                  <option key={ma} value={ma}>{tenCd}</option>
+                ))}
+                {codex.bat && (
+                  <option value="chatgpt_codex" disabled={!codex.da_dang_nhap}>
+                    ChatGPT (tài khoản của bạn){codex.da_dang_nhap ? '' : ' — quản trị cần đăng nhập ChatGPT trước'}
+                  </option>
+                )}
+              </Select>
             </div>
-          </div>
 
-          <div className="nhom-chon-manga">
-            <span className="nhan-nhom-chon">
-              {laEn ? 'Genre Font Style (Direct typesetting):' : 'Font chữ theo thể loại truyện (Đổi trực tiếp trên trang):'}
-            </span>
-            <div className="luoi-nut-chon luoi-2-cot" role="radiogroup" aria-label="Font chữ theo thể loại">
-              {PILL_FONT_THE_LOAI.map((item) => {
-                const dangChon = fontChu === item.ma
-                return (
-                  <button
-                    key={item.ma}
-                    type="button"
-                    role="radio"
-                    aria-checked={dangChon}
-                    disabled={dangChay}
-                    className={`nut-chon-pill ${dangChon ? 'dang-chon' : ''}`}
-                    onClick={() => setFontChu(item.ma)}
-                  >
-                    <span className="pill-co">{item.bieuTuong}</span>
-                    <span>{laEn ? item.nhanEn : item.nhan}</span>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          <div className="nhom-chon-manga">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-              <span className="nhan-nhom-chon">
-                📖 {laEn ? 'Character & Pronoun Glossary:' : 'Sổ tay Nhân vật & Xưng hô cố định:'}
-              </span>
-              <span
-                role="button"
-                tabIndex={0}
-                className="nut-chu"
-                style={{ fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}
-                onClick={() => setMoTuDien(!moTuDien)}
-                onKeyDown={(e) => { if (e.key === 'Enter') setMoTuDien(!moTuDien) }}
+            <div className="hang-muc-dich-ten">
+              <Select
+                nhan="Mục đích sử dụng" batBuoc value={mucDich}
+                moTa={mucDich
+                  ? MO_TA_MUC_DICH[mucDich]
+                  : 'Bạn tự khai — hệ thống không chọn hộ. Khai báo gắn với chapter và không sửa được.'}
+                onChange={(e) => setMucDich(e.target.value)}
               >
-                {moTuDien
-                  ? (laEn ? '▲ Hide Glossary' : '▲ Thu gọn sổ tay')
-                  : (laEn ? '➕ Open Character & Pronoun Glossary' : '➕ Mở thiết lập Xưng hô & Tên nhân vật')}
-              </span>
+                <option value="" disabled>— hãy chọn —</option>
+                {Object.entries(MUC_DICH).map(([ma, tenMd]) => (
+                  <option key={ma} value={ma}>{tenMd}</option>
+                ))}
+              </Select>
+
+              <Input
+                nhan={NHAN_TEN} moTa={GOI_Y_TEN}
+                value={ten} onChange={(e) => setTen(e.target.value)} placeholder={MAU_TEN}
+              />
             </div>
-            {moTuDien && (
-              <div className="khung-tu-dien-nhanh">
-                <textarea
-                  className="o o-tu-dien"
-                  rows={3}
-                  disabled={dangChay}
-                  value={tuDienRieng}
-                  onChange={(e) => setTuDienRieng(e.target.value)}
-                  placeholder={
-                    laEn
-                      ? 'Example:\n- Sung Jin-Woo: main protagonist\n- Cha Hae-In: S-Rank Hunter\n- 影の君主 = Shadow Monarch'
-                      : 'Ví dụ:\n- Sung Jin-Woo: xưng tôi, gọi cậu\n- Cha Hae-In: xưng em, gọi anh\n- Shadow Monarch = Quân Vương Bóng Tối'
-                  }
-                />
+
+            <div className="hang-chan-nut-chapter">
+              <div className="khoi-tu-tai-ve">
+                <label className="o-tick">
+                  <input
+                    type="checkbox" checked={tuTaiVe}
+                    onChange={(e) => setTuTaiVe(e.target.checked)}
+                  />
+                  <span>Tự tải về khi xong</span>
+                </label>
+                {tuTaiVe && <p className="ghi-chu">{GHI_CHU_TU_TAI_VE}</p>}
+              </div>
+
+              <div className="khoi-nut-tao-chapter">
+                <Button kieu="chinh" id="nut-tao" onClick={batDau}
+                        dangChay={dangChay} lyDoKhoa={lyDo}>
+                  {dangChay ? `Đang tải lên ${daXong}/${files.length}…` : NHAN_NUT_CHINH}
+                </Button>
+                <p className="ghi-chu">{GHI_CHU_CHAY_NEN}</p>
+              </div>
+            </div>
+
+            {dangChay && (
+              <div className="thanh-tien" aria-hidden="true">
+                <div className="thanh-tien-trong"
+                     style={{ width: `${Math.round((daXong / Math.max(files.length, 1)) * 100)}%` }} />
               </div>
             )}
-          </div>
 
-          <div className="huy-hieu-gpu-khach">
-            {laEn
-              ? '🚀 Client GPU Inpainting · Double-click to Edit — Ultra-fast ~3s'
-              : '🚀 Xoá chữ GPU khách · Nhấp đúp sửa câu — Siêu tốc ~3s'}
-          </div>
-        </div>
-      </fieldset>
-
-      <fieldset className="khoi" disabled={dangChay}>
-        <div className="hang-doi">
-          <Select nhan="Ngôn ngữ gốc" batBuoc value={nguon}
-                  onChange={(e) => setNguon(e.target.value)}>
-            {Object.entries(NGON_NGU).map(([ma, tenNn]) => (
-              <option key={ma} value={ma}>{tenNn}</option>
-            ))}
-          </Select>
-          <Select
-            nhan="Cách dịch" batBuoc value={engine} moTa={MO_TA_ENGINE[engine]}
-            onChange={(e) => doiEngine(e.target.value)}
-          >
-            {Object.entries(CACH_DICH).map(([ma, tenCd]) => (
-              <option key={ma} value={ma}>{tenCd}</option>
-            ))}
-            {codex.bat && (
-              <option value="chatgpt_codex" disabled={!codex.da_dang_nhap}>
-                ChatGPT (tài khoản của bạn){codex.da_dang_nhap ? '' : ' — quản trị cần đăng nhập ChatGPT trước'}
-              </option>
+            {loi && (
+              <Alert sac="loi" tieuDe="Không tạo được chapter">
+                <p>{loi.thongDiep}</p>
+                {loi.projectId && (
+                  <Button kieu="ghost" onClick={() => onMoChapter?.(loi.projectId)}>
+                    Mở chapter đã tạo để xem đã chạy tới đâu
+                  </Button>
+                )}
+              </Alert>
             )}
-          </Select>
-          <Select
-            nhan="Mục đích sử dụng" batBuoc value={mucDich}
-            moTa={mucDich
-              ? MO_TA_MUC_DICH[mucDich]
-              : 'Bạn tự khai — hệ thống không chọn hộ. Khai báo gắn với chapter và không sửa được.'}
-            onChange={(e) => setMucDich(e.target.value)}
-          >
-            <option value="" disabled>— hãy chọn —</option>
-            {Object.entries(MUC_DICH).map(([ma, tenMd]) => (
-              <option key={ma} value={ma}>{tenMd}</option>
-            ))}
-          </Select>
+          </fieldset>
         </div>
-
-        <Input
-          nhan={NHAN_TEN} moTa={GOI_Y_TEN}
-          value={ten} onChange={(e) => setTen(e.target.value)} placeholder={MAU_TEN}
-        />
-
-        <label className="o-tick">
-          <input
-            type="checkbox" checked={tuTaiVe}
-            onChange={(e) => setTuTaiVe(e.target.checked)}
-          />
-          <span>Tự tải về khi xong</span>
-        </label>
-        {tuTaiVe && <p className="ghi-chu">{GHI_CHU_TU_TAI_VE}</p>}
-      </fieldset>
-
-      <fieldset className="khoi khoi-cuoi">
-        <Button kieu="chinh" id="nut-tao" onClick={batDau}
-                dangChay={dangChay} lyDoKhoa={lyDo}>
-          {dangChay ? `Đang tải lên ${daXong}/${files.length}…` : NHAN_NUT_CHINH}
-        </Button>
-        {dangChay && (
-          <div className="thanh-tien" aria-hidden="true">
-            <div className="thanh-tien-trong"
-                 style={{ width: `${Math.round((daXong / Math.max(files.length, 1)) * 100)}%` }} />
-          </div>
-        )}
-        <p className="ghi-chu">{GHI_CHU_CHAY_NEN}</p>
-
-        {loi && (
-          <Alert sac="loi" tieuDe="Không tạo được chapter">
-            <p>{loi.thongDiep}</p>
-            {loi.projectId && (
-              <Button kieu="ghost" onClick={() => onMoChapter?.(loi.projectId)}>
-                Mở chapter đã tạo để xem đã chạy tới đâu
-              </Button>
-            )}
-          </Alert>
-        )}
-      </fieldset>
+      </div>
     </section>
   )
 }

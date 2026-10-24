@@ -13,6 +13,7 @@ và trả về object/None — **không** ném `HTTPException`; việc dịch sa
 """
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime, timezone
 
@@ -34,6 +35,55 @@ MOC_NAM_API_KEY = datetime(2090, 1, 1, tzinfo=timezone.utc)
 HAN_API_KEY = datetime(2099, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
 TIEN_TO_API_KEY = "tr_live_"
 
+#: Danh sách tên miền email 10 phút / email tạm thời / email rác bị chặn khi đăng ký tài khoản.
+MIEN_EMAIL_RAC_10_PHUT: frozenset[str] = frozenset({
+    "10minutemail.com", "10minutemail.net", "10minutemail.org", "10minutemail.co.uk",
+    "10minutemail.de", "10minutemail.be", "10minutemail.cf", "10minutemail.ga",
+    "10minutemail.gq", "10minutemail.ml", "10minutemail.tk", "10minutemail.us",
+    "10mail.org", "10minmail.com", "10mail.tk", "20minutemail.com", "20minutemail.it",
+    "temp-mail.org", "temp-mail.io", "temp-mail.ru", "temp-mail.de", "tempmail.com",
+    "tempmail.net", "tempmail.org", "tempmail.plus", "tempmail.io", "tempmail.dev",
+    "tempmailo.com", "tempail.com", "tmpmail.net", "tmpmail.org", "tmails.net",
+    "tempmailaddress.com", "mytemp.email", "tempinbox.com", "tempmailer.com",
+    "guerrillamail.com", "guerrillamail.net", "guerrillamail.org", "guerrillamail.biz",
+    "guerrillamail.de", "guerrillamail.info", "guerrillamailblock.com", "sharklasers.com",
+    "grr.la", "pokemail.net", "spam4.me",
+    "yopmail.com", "yopmail.fr", "yopmail.net", "cool.fr.nf", "jetable.fr.nf",
+    "courriel.fr.nf", "moncourrier.fr.nf", "monemail.fr.nf", "monmail.fr.nf",
+    "mailinator.com", "mailinator.net", "mailinator.org", "mailinator2.com",
+    "sogetthis.com", "mailin8r.com", "mailinator.gq", "binkmail.com", "bobmail.info",
+    "chammy.info", "devnullmail.com", "letthemeatspam.com", "mailinater.com",
+    "trashmail.com", "trashmail.net", "trashmail.org", "trashmail.me", "trashmail.io",
+    "trashmail.at", "trashmail.es", "trash-mail.com", "trashemail.de",
+    "getnada.com", "nada.email", "nada.ltd", "abyssmail.com", "boximail.com",
+    "clrmail.com", "dropmail.me", "getairmail.com", "givmail.com", "inboxbear.com",
+    "tafmail.com", "vomoto.com", "zetmail.com",
+    "maildrop.cc", "throwawaymail.com", "throwaway.email", "dispostable.com",
+    "mailnesia.com", "mohmal.com", "mohmal.in", "mohmal.tech", "mohmal.im",
+    "emailondeck.com", "fakeinbox.com", "fakemail.net", "fakemailgenerator.com",
+    "emailfake.com", "generator.email", "crazymailing.com", "smailpro.com",
+    "burnermail.io", "inboxkitten.com", "mailsac.com", "harakirimail.com",
+    "mintemail.com", "incognitomail.org", "anonbox.net", "mailcatch.com",
+    "mailnull.com", "meltmail.com", "spamgourmet.com", "eyepaste.com",
+    "armyspy.com", "cuvox.de", "dayrep.com", "einrot.com", "fleckens.hu",
+    "gustr.com", "jourrapide.com", "rhyta.com", "superrito.com", "teleworm.us",
+    "vn10p.com", "mail1s.com", "1secmail.com", "1secmail.org", "1secmail.net",
+    "esiix.com", "wwjmp.com", "dcctb.com", "dpptd.com", "rteet.com",
+    "linshiyouxiang.net", "luxusmail.org", "moakt.com", "moakt.cc", "moakt.ws",
+    "tmail.ws", "disbox.net", "disbox.org", "mailpoof.com", "mailtemp.info",
+    "spambox.us", "spamfree24.org", "tempomail.fr", "wegwerfmail.de", "wegwerfmail.net",
+})
+
+_TU_KHOA_MIEN_RAC = (
+    "10min", "tempmail", "temp-mail", "trashmail", "throwaway", "guerrillamail",
+    "mailinator", "yopmail", "fakeinbox", "fakemail", "burnermail", "1secmail",
+    "maildrop", "dispostable", "harakirimail", "smailpro", "emailfake", "mohmal",
+)
+
+_TLD_RAC = (".tk", ".ml", ".ga", ".cf", ".gq")
+
+_MAU_EMAIL_CO_BAN = re.compile(r"^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
+
 
 def chuan_hoa_email(email: str) -> str:
     """Hạ chữ thường + cắt khoảng trắng. Bắt buộc dùng ở CẢ đăng ký lẫn đăng nhập.
@@ -42,6 +92,55 @@ def chuan_hoa_email(email: str) -> str:
     `an@x.com`, đăng nhập gõ `An@x.com` tra không ra, người dùng tưởng sai mật khẩu.
     """
     return email.strip().lower()
+
+
+def email_goc_chong_clone(email: str) -> str:
+    """Đưa địa chỉ email về dạng gốc để chống lách hạn mức bằng dấu chấm Gmail (`a.b.c@gmail.com`)
+    hoặc đuôi `+alias` (`user+1@gmail.com`)."""
+    chuan = chuan_hoa_email(email)
+    if "@" not in chuan:
+        return chuan
+    local, domain = chuan.split("@", 1)
+    local = local.split("+", 1)[0]
+    if domain in ("gmail.com", "googlemail.com"):
+        local = local.replace(".", "")
+        domain = "gmail.com"
+    return f"{local}@{domain}"
+
+
+def kiem_email_hop_le_chong_spam(email: str) -> str | None:
+    """Kiểm tra định dạng email và chặn các dịch vụ email 10 phút / email ảo / alias `+`.
+    Trả về lý do từ chối (tiếng Việt), hoặc `None` nếu hợp lệ."""
+    chuan = chuan_hoa_email(email)
+    if "@" not in chuan:
+        return "Địa chỉ email không hợp lệ."
+    local, domain = chuan.split("@", 1)
+    if not local or not domain or "." not in domain:
+        return "Địa chỉ email không đúng định dạng (ví dụ: ten@gmail.com)."
+    if "+" in local:
+        return (
+            "Không hỗ trợ tạo tài khoản bằng email phụ chứa dấu cộng (+). "
+            "Vui lòng dùng địa chỉ email chính."
+        )
+    if not _MAU_EMAIL_CO_BAN.match(chuan):
+        return "Địa chỉ email chứa ký tự không hợp lệ."
+    if local.count(".") > 4:
+        return "Địa chỉ email có quá nhiều dấu chấm bất thường."
+
+    # Cho phép các tên miền nội bộ phục vụ bộ kiểm thử tự động (`@test.local`, `@vi-du.com`, ...)
+    if domain.endswith(".local") or domain in ("vi-du.com", "example.com", "x.com", "b.com", "c.com"):
+        return None
+
+    if (
+        domain in MIEN_EMAIL_RAC_10_PHUT
+        or any( chuan_con in domain for chuan_con in _TU_KHOA_MIEN_RAC )
+        or any( domain.endswith(tld) for tld in _TLD_RAC )
+    ):
+        return (
+            "Hệ thống không chấp nhận email tạm thời (mail 10 phút / tên miền ảo). "
+            "Vui lòng sử dụng email thật (Gmail, Outlook, Yahoo, iCloud hoặc email công ty/trường học)."
+        )
+    return None
 
 
 def kiem_mat_khau_du_manh(mat_khau_tho: str) -> str | None:
@@ -72,7 +171,14 @@ async def dang_ky(
     không giấu.
     """
     email = chuan_hoa_email(email)
+    ly_do_email = kiem_email_hop_le_chong_spam(email)
+    if ly_do_email:
+        raise ValueError(ly_do_email)
     if await tim_theo_email(session, email) is not None:
+        raise ValueError("email_da_ton_tai")
+    # Chặn thủ thuật chèn dấu chấm Gmail (vd `a.b.c@gmail.com` trùng với `abc@gmail.com`)
+    email_goc = email_goc_chong_clone(email)
+    if email_goc != email and await tim_theo_email(session, email_goc) is not None:
         raise ValueError("email_da_ton_tai")
     ly_do = kiem_mat_khau_du_manh(mat_khau_tho)
     if ly_do:

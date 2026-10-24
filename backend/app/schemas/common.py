@@ -88,6 +88,9 @@ class DangKyRequest(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     ten_hien: str = Field(default="", max_length=120)
     mat_khau: str = Field(min_length=1, max_length=1024)
+    ma_thach_thuc: str | None = Field(default=None, max_length=512)
+    dap_an_thach_thuc: str | None = Field(default=None, max_length=64)
+    xac_nhan_khong_phai_bot: bool = False
 
 
 class DangNhapRequest(BaseModel):
