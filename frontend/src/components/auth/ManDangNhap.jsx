@@ -61,7 +61,7 @@ export default function ManDangNhap({ onXong, onQuayLai }) {
   const [emailChoXacNhan, setEmailChoXacNhan] = useState(null)
 
   // Cloudflare Turnstile (Verify you are human)
-  const [turnstileSiteKey, setTurnstileSiteKey] = useState('1x00000000000000000000AA')
+  const [turnstileSiteKey, setTurnstileSiteKey] = useState('0x4AAAAAAFjgaHej0056M8hW')
   const [yeuCauXacNhanEmail, setYeuCauXacNhanEmail] = useState(true)
   const [cfToken, setCfToken] = useState('')
   const turnstileRef = useRef(null)

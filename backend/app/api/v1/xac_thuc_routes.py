@@ -61,9 +61,9 @@ LOI_SAI_THONG_TIN = "Email hoặc mật khẩu không đúng."
 
 _THOI_HAN_THACH_THUC_GIAY = 600
 _THOI_HAN_XAC_NHAN_EMAIL_GIAY = 24 * 3600
-#: Khoá Cloudflare Turnstile mặc định khi chủ hệ thống chưa gắn khoá riêng cho tên miền.
-_CF_TURNSTILE_SITE_KEY_MAC_DINH = "1x00000000000000000000AA"
-_CF_TURNSTILE_SECRET_KEY_MAC_DINH = "1x0000000000000000000000000000000AA"
+#: Khoá Cloudflare Turnstile chính thức của hệ thống comic.io.vn.
+_CF_TURNSTILE_SITE_KEY_MAC_DINH = "0x4AAAAAAFjgaHej0056M8hW"
+_CF_TURNSTILE_SECRET_KEY_MAC_DINH = "0x4AAAAAAFjgaMk3b6UZEl-lrYGA91gc1Lk"
 
 
 def _khoa_ky_thach_thuc(settings: Settings) -> bytes:
