@@ -25,15 +25,18 @@ export function conLaiMs(moc, bayGio = Date.now()) {
  * Cố ý KHÔNG hiện giây khi còn trên một phút: một con số nhảy từng giây kéo mắt người dùng khỏi
  * việc họ đang làm, mà độ chính xác đó chẳng giúp gì cho một mốc cách đây hàng giờ.
  */
-export function chuDemNguoc(moc, bayGio = Date.now()) {
+export function chuDemNguoc(moc, bayGio = Date.now(), laEn = false) {
   const ms = conLaiMs(moc, bayGio)
-  if (ms <= 0) return 'hết giờ'
+  if (ms <= 0) return laEn ? '0m' : 'hết giờ'
   const giay = Math.ceil(ms / 1000)
-  if (giay < 60) return `${giay} giây`
+  if (giay < 60) return laEn ? `${giay}s` : `${giay} giây`
   const phut = Math.floor(giay / 60)
-  if (phut < 60) return `${phut} phút`
+  if (phut < 60) return laEn ? `${phut}m` : `${phut} phút`
   const gio = Math.floor(phut / 60)
   const phutLe = phut % 60
+  if (laEn) {
+    return phutLe ? `${gio}h ${phutLe}m` : `${gio}h`
+  }
   return phutLe ? `${gio} giờ ${phutLe} phút` : `${gio} giờ`
 }
 

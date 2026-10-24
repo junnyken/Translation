@@ -2,9 +2,12 @@ import { useEffect, useState } from 'react'
 
 import * as api from '../../api'
 import { chuDemNguoc } from '../../lib/dem-nguoc'
+import { useNgonNguUI } from '../../lib/ngon-ngu-ui'
 import Alert from '../ui/Alert'
 import Icon from '../ui/Icon'
 import Skeleton from '../ui/Skeleton'
+
+const HIEN_BANG_GIA_VIP = false
 
 /** Thẻ hạn mức: còn bao nhiêu lượt hôm nay, và bao giờ có lại.
  *
@@ -22,6 +25,7 @@ import Skeleton from '../ui/Skeleton'
  *    Người chưa dịch trang nào mà bị chặn không có cách nào tự đoán ra lý do.
  */
 export default function TheHanMuc({ hanMuc, dangTai, loi, onTaiLai }) {
+  const { laEn } = useNgonNguUI()
   const [nhip, setNhip] = useState(0)
   const [moNapLuot, setMoNapLuot] = useState(false)
   const [thongTinNap, setThongTinNap] = useState(null)
@@ -81,12 +85,14 @@ export default function TheHanMuc({ hanMuc, dangTai, loi, onTaiLai }) {
 
   if (loi) {
     return (
-      <Alert sac="canh" tieuDe="Chưa lấy được hạn mức">
+      <Alert sac="canh" tieuDe={laEn ? 'Failed to load quota' : 'Chưa lấy được hạn mức'}>
         {String(loi.message || loi)}
         {onTaiLai && (
           <>
             {' '}
-            <button type="button" className="nut-chu" onClick={onTaiLai}>Thử lại</button>
+            <button type="button" className="nut-chu" onClick={onTaiLai}>
+              {laEn ? 'Retry' : 'Thử lại'}
+            </button>
           </>
         )}
       </Alert>
@@ -97,7 +103,7 @@ export default function TheHanMuc({ hanMuc, dangTai, loi, onTaiLai }) {
     // Đang tải ≠ 0 lượt: hiện khung chờ, KHÔNG hiện con số.
     return (
       <div className="the-han-muc dang-tai" aria-busy="true">
-        <p aria-live="polite">Đang xem bạn còn bao nhiêu lượt…</p>
+        <p aria-live="polite">{laEn ? 'Checking your remaining quota…' : 'Đang xem bạn còn bao nhiêu lượt…'}</p>
         <Skeleton soDong={2} />
       </div>
     )
@@ -110,21 +116,25 @@ export default function TheHanMuc({ hanMuc, dangTai, loi, onTaiLai }) {
 
   return (
     <section className={`the-han-muc vien-${sacVien}`} aria-labelledby="tieu-de-han-muc">
-      <h2 id="tieu-de-han-muc" className="nho">Lượt dịch hôm nay</h2>
+      <h2 id="tieu-de-han-muc" className="nho">
+        {laEn ? 'Daily Translation Quota' : 'Lượt dịch hôm nay'}
+      </h2>
 
       {/* Màu KHÔNG bao giờ là nguồn thông tin duy nhất: luôn kèm con số và nhãn chữ. */}
       <p className="so-luot">
-        <strong>{conLai}</strong> / {hanMuc.tran} trang còn lại
+        <strong>{conLai}</strong> / {hanMuc.tran} {laEn ? 'pages remaining' : 'trang còn lại'}
       </p>
       {hanMuc.so_luot_mua_them > 0 && (
         <p className="ghi-chu" style={{ color: '#059669', fontWeight: 600, marginTop: 2 }}>
-          💎 Đã bao gồm <strong>{hanMuc.so_luot_mua_them}</strong> lượt tích luỹ (không hết hạn qua đêm)
+          💎 {laEn
+            ? <>Includes <strong>{hanMuc.so_luot_mua_them}</strong> purchased pages (never expire overnight)</>
+            : <>Đã bao gồm <strong>{hanMuc.so_luot_mua_them}</strong> lượt tích luỹ (không hết hạn qua đêm)</>}
         </p>
       )}
       {hanMuc.tran > 0 && (
         <div
           className={`thanh-tien thanh-tien-mong thanh-tien-${sacVien}`} role="img"
-          aria-label={`Còn ${conLai} trong ${hanMuc.tran} lượt`}
+          aria-label={laEn ? `${conLai} of ${hanMuc.tran} pages remaining` : `Còn ${conLai} trong ${hanMuc.tran} lượt`}
         >
           <div
             className="thanh-tien-trong"
@@ -134,30 +144,55 @@ export default function TheHanMuc({ hanMuc, dangTai, loi, onTaiLai }) {
       )}
 
       <p className="ghi-chu moc-reset">
-        <Icon ten="dong-ho" co={16} /> Có lại sau <strong>{chuDemNguoc(hanMuc.reset_luc)}</strong>
-        {' '}(0h00 giờ Việt Nam)
+        <Icon ten="dong-ho" co={16} />{' '}
+        {laEn ? (
+          <>Resets in <strong>{chuDemNguoc(hanMuc.reset_luc, Date.now(), true)}</strong> (00:00 GMT+7)</>
+        ) : (
+          <>Có lại sau <strong>{chuDemNguoc(hanMuc.reset_luc)}</strong> (0h00 giờ Việt Nam)</>
+        )}
       </p>
 
       {conLai <= 0 && (
-        <Alert sac="loi" tieuDe={chanBoiMangChung ? 'Địa chỉ mạng này đã hết lượt chung' : 'Bạn đã hết lượt hôm nay'}>
+        <Alert
+          sac="loi"
+          tieuDe={
+            chanBoiMangChung
+              ? (laEn ? 'Shared network quota reached' : 'Địa chỉ mạng này đã hết lượt chung')
+              : (laEn ? 'You have reached today’s quota' : 'Bạn đã hết lượt hôm nay')
+          }
+        >
           {chanBoiMangChung ? (
-            <>
-              Lượt được tính theo <strong>địa chỉ mạng</strong>, nên nếu bạn đang ở văn phòng,
-              trường học hay quán cà phê thì người khác cùng mạng đã dùng hết. Bạn có thể đợi tới
-              0h00, hoặc đổi sang mạng khác.
-            </>
+            laEn ? (
+              <>
+                Quota is also tracked by <strong>shared IP address</strong>. If you are at an office,
+                school, or café, others on the same network may have used it up. Wait until 00:00 GMT+7
+                or switch networks.
+              </>
+            ) : (
+              <>
+                Lượt được tính theo <strong>địa chỉ mạng</strong>, nên nếu bạn đang ở văn phòng,
+                trường học hay quán cà phê thì người khác cùng mạng đã dùng hết. Bạn có thể đợi tới
+                0h00, hoặc đổi sang mạng khác.
+              </>
+            )
           ) : (
-            <>Đợi tới 0h00 giờ Việt Nam là có lại.</>
+            laEn ? <>Quota resets at 00:00 GMT+7.</> : <>Đợi tới 0h00 giờ Việt Nam là có lại.</>
           )}
           {!hanMuc.co_tai_khoan && (
-            <> Tạo tài khoản thì được nhiều lượt hơn mỗi ngày (20 trang/ngày — đủ trọn 1 chapter).</>
+            laEn
+              ? <> Sign in or create a free account to get more pages per day (20 pages/day — enough for a full chapter).</>
+              : <> Tạo tài khoản thì được nhiều lượt hơn mỗi ngày (20 trang/ngày — đủ trọn 1 chapter).</>
           )}
         </Alert>
       )}
 
       {conLai > 0 && !hanMuc.co_tai_khoan && (
         <p className="ghi-chu">
-          Tạo tài khoản để được nhiều lượt hơn mỗi ngày (<strong>20 trang/ngày</strong> thay vì {hanMuc.tran} trang).
+          {laEn ? (
+            <>Create a free account to get more pages per day (<strong>20 pages/day</strong> instead of {hanMuc.tran} pages).</>
+          ) : (
+            <>Tạo tài khoản để được nhiều lượt hơn mỗi ngày (<strong>20 trang/ngày</strong> thay vì {hanMuc.tran} trang).</>
+          )}
         </p>
       )}
 
@@ -165,22 +200,34 @@ export default function TheHanMuc({ hanMuc, dangTai, loi, onTaiLai }) {
           Người đã đăng nhập chỉ có một chốt, bày bảng một dòng ra là tiếng ồn. */}
       {(hanMuc.chot || []).length > 1 && (
         <details className="chi-tiet-chot">
-          <summary>Lượt được tính thế nào?</summary>
+          <summary>{laEn ? 'How is quota calculated?' : 'Lượt được tính thế nào?'}</summary>
           <ul>
             {hanMuc.chot.map((c) => (
               <li key={c.loai}>
-                {c.loai === 'khach_cookie' ? 'Theo trình duyệt này' : 'Theo địa chỉ mạng (dùng chung)'}
-                : {c.da_dung}/{c.tran} trang
+                {c.loai === 'khach_cookie'
+                  ? (laEn ? 'This browser' : 'Theo trình duyệt này')
+                  : (laEn ? 'Shared IP network' : 'Theo địa chỉ mạng (dùng chung)')}
+                : {c.da_dung}/{c.tran} {laEn ? 'pages' : 'trang'}
               </li>
             ))}
           </ul>
           <p className="ghi-chu">
-            Phải còn lượt ở <strong>cả hai</strong> mới dịch được. Trần theo địa chỉ mạng cao hơn
-            vì nhiều người có thể dùng chung một mạng.
+            {laEn ? (
+              <>
+                Quota must remain in <strong>both</strong> limits to translate. The shared IP limit is
+                higher because multiple people may share one network.
+              </>
+            ) : (
+              <>
+                Phải còn lượt ở <strong>cả hai</strong> mới dịch được. Trần theo địa chỉ mạng cao hơn
+                vì nhiều người có thể dùng chung một mạng.
+              </>
+            )}
           </p>
         </details>
       )}
 
+      {(HIEN_BANG_GIA_VIP || hanMuc.la_quan_tri) && (
       <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed var(--vien, #e2e8f0)' }}>
         <button
           type="button"
@@ -188,7 +235,9 @@ export default function TheHanMuc({ hanMuc, dangTai, loi, onTaiLai }) {
           onClick={batTatNapLuot}
           style={{ fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
         >
-          {moNapLuot ? '▲ Thu gọn bảng Nạp thêm lượt / VIP' : '💎 Nạp thêm lượt / Nâng cấp VIP'}
+          {moNapLuot
+            ? (laEn ? '▲ Collapse Top-up / VIP Panel' : '▲ Thu gọn bảng Nạp thêm lượt / VIP')
+            : (laEn ? '💎 Top Up Quota / Upgrade VIP' : '💎 Nạp thêm lượt / Nâng cấp VIP')}
         </button>
 
         {moNapLuot && (
@@ -294,11 +343,6 @@ export default function TheHanMuc({ hanMuc, dangTai, loi, onTaiLai }) {
                       {loiCk}
                     </p>
                   )}
-                  <div style={{ marginTop: 6 }}>
-                    <a href="#bang-gia" style={{ fontSize: 12, fontWeight: 700, color: '#2563eb' }}>
-                      💎 Mở trang Bảng Giá &amp; Gói Doanh Nghiệp đầy đủ →
-                    </a>
-                  </div>
                 </div>
               )
             })()}
@@ -349,6 +393,7 @@ export default function TheHanMuc({ hanMuc, dangTai, loi, onTaiLai }) {
           </div>
         )}
       </div>
+      )}
     </section>
   )
 }

@@ -53,15 +53,21 @@ const PILL_FONT_THE_LOAI = [
 const MAU_XUNG_HO = [
   {
     nhan: '🏮 Cổ trang / Tu tiên (Ta - Ngươi / Huynh - Muội)',
+    nhanEn: '🏮 Historical / Martial Arts (Lord / Senior / Junior)',
     giaTri: 'Xưng hô phong cách Cổ trang / Tu tiên: dùng Ta - Ngươi, Huynh - Đệ - Muội, Bản tôn, Tiền bối.',
+    giaTriEn: 'Historical / Martial Arts style: use formal/archaic terms, Senior/Junior, Sect Master, keep skill names.',
   },
   {
     nhan: '🌸 Ngôn tình / Học đường (Anh - Em / Tớ - Cậu)',
+    nhanEn: '🌸 Romance / School Life (Warm & natural tone)',
     giaTri: 'Xưng hô phong cách Ngôn tình / Học đường: dùng Anh - Em hoặc Tớ - Cậu mềm mại, tự nhiên.',
+    giaTriEn: 'Romance / School Life style: warm, natural conversational tone, keep honorifics consistent.',
   },
   {
     nhan: '⚔️ Hành động / Hunter (Tôi - Cậu / Ngài)',
+    nhanEn: '⚔️ Action / Hunter (Captain / Sir / Skill names)',
     giaTri: 'Xưng hô phong cách Hành động / Hunter: dùng Tôi - Cậu, Đội trưởng, Ngài; giữ nguyên tên kỹ năng.',
+    giaTriEn: 'Action / Hunter style: crisp tone, Captain/Sir, keep rank & skill names consistent.',
   },
 ]
 
@@ -70,6 +76,13 @@ const TEN_NGON_NGU = {
   en: 'Tiếng Anh',
   zh: 'Tiếng Trung',
   ko: 'Tiếng Hàn',
+}
+
+const TEN_NGON_NGU_EN = {
+  ja: 'Japanese',
+  en: 'English',
+  zh: 'Chinese',
+  ko: 'Korean',
 }
 
 /** Số phút giữ kết quả lấy từ MÁY CHỦ (`han_muc.giu_ket_qua_phut`), không gõ cứng ở đây.
@@ -85,6 +98,14 @@ const TEN_BUOC = {
   inpaint: 'Xoá chữ gốc',
   translate: 'Dịch',
   typeset: 'Căn chữ vào bong bóng',
+}
+
+const TEN_BUOC_EN = {
+  detect: 'Detect bubbles',
+  ocr: 'Read source text',
+  inpaint: 'Erase source text',
+  translate: 'Translate',
+  typeset: 'Typeset bubbles',
 }
 
 /** Thứ tự năm bước theo máy chủ — dùng để suy "bước nào đang chạy / đã xong" cho CẢ mẻ từ trạng
@@ -103,7 +124,7 @@ const NHAN_SAU = 'Sau'
 const ALT_TRUOC = 'Trang gốc'
 
 /** Trạng thái từng bước của cả mẻ, suy từ danh sách trang. Trang lỗi không chặn các bước khác. */
-function tinhBuocCaMe(trang) {
+function tinhBuocCaMe(trang, laEn = false) {
   const conLai = trang.filter((t) => !t.loi)
   // -1 = chưa có tin gì từ máy chủ (chưa gửi xong / chưa hỏi lần nào): không tính vào bước nào.
   const viTri = conLai.map((t) => {
@@ -115,7 +136,7 @@ function tinhBuocCaMe(trang) {
     let tt = 'cho'
     if (conLai.length && viTri.every((v) => v > k)) tt = 'xong'
     else if (conLai.some((t, i) => viTri[i] === k && t.tienDo?.dang_chay)) tt = 'chay'
-    return { ma, nhan: TEN_BUOC[ma], tt }
+    return { ma, nhan: laEn ? TEN_BUOC_EN[ma] : TEN_BUOC[ma], tt }
   })
 }
 
@@ -145,12 +166,17 @@ function AnhTruoc({ file, ten, pageId }) {
  * làm thanh tiến độ nói dối — người dùng thấy "đang xử lý" trong khi việc còn nằm sau 6 trang
  * khác. `so_viec_cho_truoc` là con số duy nhất giải thích được vì sao phải đợi.
  */
-function TienDoTrang({ tienDo }) {
-  const ten = TEN_BUOC[tienDo?.buoc] || 'Đang chuẩn bị'
+function TienDoTrang({ tienDo, laEn = false }) {
+  const ten = laEn
+    ? (TEN_BUOC_EN[tienDo?.buoc] || 'Preparing')
+    : (TEN_BUOC[tienDo?.buoc] || 'Đang chuẩn bị')
   if (!tienDo?.dang_chay && tienDo?.so_viec_cho_truoc > 0) {
     return (
       <span className="nhan-cho">
-        <Icon ten="dong-ho" co={16} /> Đang chờ — còn {tienDo.so_viec_cho_truoc} việc trước
+        <Icon ten="dong-ho" co={16} />{' '}
+        {laEn
+          ? `Queued — ${tienDo.so_viec_cho_truoc} job(s) ahead`
+          : `Đang chờ — còn ${tienDo.so_viec_cho_truoc} việc trước`}
       </span>
     )
   }
@@ -246,7 +272,7 @@ export default function TrangChu() {
   //: `null`/`undefined` ⇒ KHÔNG tự xoá. Phân biệt với `0` (xoá ngay) nên dùng `?? null`, không `||`.
   const giuPhut = hanMuc?.giu_ket_qua_phut ?? null
   const coTuXoa = typeof giuPhut === 'number'
-  const chuGiu = chuThoiGianGiu(giuPhut)
+  const chuGiu = chuThoiGianGiu(giuPhut, laEn)
   const thieuLuot = conLai !== null && files.length > conLai
 
   /** E57 — đọc thử trang ĐẦU rồi đặt ô chọn theo kết quả.
@@ -633,20 +659,23 @@ export default function TrangChu() {
             {moTuDien && (
               <div className="khung-tu-dien-nhanh">
                 <div className="day-mau-xung-ho">
-                  {MAU_XUNG_HO.map((m) => (
-                    <span
-                      key={m.nhan}
-                      role="button"
-                      tabIndex={0}
-                      className="chip-mau-xung-ho"
-                      onClick={() => setTuDienRieng((cu) => (cu ? `${cu}\n${m.giaTri}` : m.giaTri))}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') setTuDienRieng((cu) => (cu ? `${cu}\n${m.giaTri}` : m.giaTri))
-                      }}
-                    >
-                      {m.nhan}
-                    </span>
-                  ))}
+                  {MAU_XUNG_HO.map((m) => {
+                    const gt = laEn ? m.giaTriEn : m.giaTri
+                    return (
+                      <span
+                        key={m.nhan}
+                        role="button"
+                        tabIndex={0}
+                        className="chip-mau-xung-ho"
+                        onClick={() => setTuDienRieng((cu) => (cu ? `${cu}\n${gt}` : gt))}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') setTuDienRieng((cu) => (cu ? `${cu}\n${gt}` : gt))
+                        }}
+                      >
+                        {laEn ? m.nhanEn : m.nhan}
+                      </span>
+                    )
+                  })}
                 </div>
                 <textarea
                   className="o o-tu-dien"
@@ -654,7 +683,11 @@ export default function TrangChu() {
                   disabled={dangChay}
                   value={tuDienRieng}
                   onChange={(e) => setTuDienRieng(e.target.value)}
-                  placeholder="Ví dụ:&#10;- Sung Jin-Woo: xưng tôi, gọi cậu&#10;- Cha Hae-In: xưng em, gọi anh&#10;- Shadow Monarch = Quân Vương Bóng Tối"
+                  placeholder={
+                    laEn
+                      ? 'Example:\n- Sung Jin-Woo: main protagonist\n- Cha Hae-In: S-Rank Hunter\n- 影の君主 = Shadow Monarch'
+                      : 'Ví dụ:\n- Sung Jin-Woo: xưng tôi, gọi cậu\n- Cha Hae-In: xưng em, gọi anh\n- Shadow Monarch = Quân Vương Bóng Tối'
+                  }
                 />
               </div>
             )}
@@ -701,73 +734,111 @@ export default function TrangChu() {
             <div className="khoi-nhan-dang">
               <Button
                 onClick={nhanDangNgonNgu} dangChay={dangNhanDang}
-                lyDoKhoa={!files.length ? 'Chọn ít nhất một trang trước' : undefined}
+                lyDoKhoa={!files.length ? (laEn ? 'Select at least one page first' : 'Chọn ít nhất một trang trước') : undefined}
               >
-                {dangNhanDang ? 'Đang đọc thử…' : 'Đọc thử trang đầu'}
+                {dangNhanDang
+                  ? (laEn ? 'Reading sample…' : 'Đang đọc thử…')
+                  : (laEn ? 'Detect language from 1st page' : 'Đọc thử trang đầu')}
               </Button>
               <p className="ghi-chu">
-                Máy đọc chữ trên trang đầu rồi đoán. Không tính vào lượt dịch của bạn.
+                {laEn
+                  ? 'Reads text on the first page to detect the language. Does not consume your translation quota.'
+                  : 'Máy đọc chữ trên trang đầu rồi đoán. Không tính vào lượt dịch của bạn.'}
               </p>
             </div>
           )}
 
           {loiNhanDang && (
-            <Alert sac="canh" tieuDe="Chưa đọc thử được">
+            <Alert sac="canh" tieuDe={laEn ? 'Could not auto-detect' : 'Chưa đọc thử được'}>
               {String(loiNhanDang.cauNguoiDoc || loiNhanDang.message || loiNhanDang)
                 .replace(/^\d+:\s*/, '')}
-              {' '}Bạn chọn tay ở ô trên giúp nhé.
+              {' '}{laEn ? 'Please select the source language manually above.' : 'Bạn chọn tay ở ô trên giúp nhé.'}
             </Alert>
           )}
 
           {ketQuaNhanDang && (
             ketQuaNhanDang.ngon_ngu
               ? (
-                <Alert sac="ok" tieuDe={`Máy đoán: ${TEN_NGON_NGU[ketQuaNhanDang.ngon_ngu]}`}>
+                <Alert
+                  sac="ok"
+                  tieuDe={
+                    laEn
+                      ? `Detected: ${TEN_NGON_NGU_EN[ketQuaNhanDang.ngon_ngu] || ketQuaNhanDang.ngon_ngu}`
+                      : `Máy đoán: ${TEN_NGON_NGU[ketQuaNhanDang.ngon_ngu]}`
+                  }
+                >
                   {/* HIỆN SỐ ĐO, không chỉ nói "đã nhận dạng": một kết luận không kèm bằng chứng
                       thì người dùng không có cách nào biết nên tin bao nhiêu. */}
                   {ketQuaNhanDang.bang_chung && (
+                    laEn ? (
+                      <>
+                        Read <strong>{ketQuaNhanDang.bang_chung.tong_co_nghia}</strong> characters
+                        {ketQuaNhanDang.bang_chung.kana > 0 && <> (<strong>{ketQuaNhanDang.bang_chung.kana}</strong> Japanese kana)</>}
+                        {ketQuaNhanDang.bang_chung.kana === 0 && ketQuaNhanDang.bang_chung.han > 0 && <> (<strong>{ketQuaNhanDang.bang_chung.han}</strong> Han characters, no kana)</>}
+                        .{' '}
+                      </>
+                    ) : (
+                      <>
+                        Đọc được <strong>{ketQuaNhanDang.bang_chung.tong_co_nghia}</strong> ký tự
+                        {ketQuaNhanDang.bang_chung.kana > 0 && <> (<strong>{ketQuaNhanDang.bang_chung.kana}</strong> chữ kana của tiếng Nhật)</>}
+                        {ketQuaNhanDang.bang_chung.kana === 0 && ketQuaNhanDang.bang_chung.han > 0 && <> (<strong>{ketQuaNhanDang.bang_chung.han}</strong> chữ Hán, không có kana)</>}
+                        .{' '}
+                      </>
+                    )
+                  )}
+                  {laEn ? (
+                    <>The language selector above has been updated. <strong>Change it if needed</strong>.</>
+                  ) : (
                     <>
-                      Đọc được <strong>{ketQuaNhanDang.bang_chung.tong_co_nghia}</strong> ký tự
-                      {ketQuaNhanDang.bang_chung.kana > 0 && <> (<strong>{ketQuaNhanDang.bang_chung.kana}</strong> chữ kana của tiếng Nhật)</>}
-                      {ketQuaNhanDang.bang_chung.kana === 0 && ketQuaNhanDang.bang_chung.han > 0 && <> (<strong>{ketQuaNhanDang.bang_chung.han}</strong> chữ Hán, không có kana)</>}
-                      .{' '}
+                      Ô chọn ở trên đã đổi theo. <strong>Sai thì bạn sửa lại</strong> — máy đoán từ chữ
+                      đọc được, không phải luôn đúng.
                     </>
                   )}
-                  Ô chọn ở trên đã đổi theo. <strong>Sai thì bạn sửa lại</strong> — máy đoán từ chữ
-                  đọc được, không phải luôn đúng.
                 </Alert>
               )
               : (
-                <Alert sac="canh" tieuDe="Máy không đoán được">
+                <Alert sac="canh" tieuDe={laEn ? 'Could not determine language' : 'Máy không đoán được'}>
                   {ketQuaNhanDang.ly_do?.startsWith('khong_doc_duoc_chu_nao')
-                    ? 'Trang này máy không đọc ra chữ nào (có thể là trang bìa, hoặc chữ quá mờ).'
-                    : 'Máy đọc được chữ nhưng không đủ để chắc chắn.'}
-                  {' '}Bạn chọn tay ở ô trên giúp nhé (nếu là truyện Hàn Quốc thì chọn "Tiếng Hàn (Manhwa)") — chọn sai thì chữ dịch ra vô nghĩa.
+                    ? (laEn
+                        ? 'No readable text found on this page (it might be a cover image or low-contrast art).'
+                        : 'Trang này máy không đọc ra chữ nào (có thể là trang bìa, hoặc chữ quá mờ).')
+                    : (laEn
+                        ? 'Found text, but not enough to be certain.'
+                        : 'Máy đọc được chữ nhưng không đủ để chắc chắn.')}
+                  {' '}
+                  {laEn
+                    ? 'Please choose the source language manually above.'
+                    : 'Bạn chọn tay ở ô trên giúp nhé (nếu là truyện Hàn Quốc thì chọn "Tiếng Hàn (Manhwa)") — chọn sai thì chữ dịch ra vô nghĩa.'}
                 </Alert>
               )
           )}
         </div>
 
         {thieuLuot && (
-          <Alert sac="canh" tieuDe="Nhiều hơn số lượt còn lại">
-            Bạn chọn {files.length} trang nhưng chỉ còn {conLai} lượt. Bỏ bớt trang, hoặc đợi tới
-            0h00 giờ Việt Nam.
+          <Alert sac="canh" tieuDe={laEn ? 'Not enough remaining quota' : 'Nhiều hơn số lượt còn lại'}>
+            {laEn
+              ? `You selected ${files.length} page(s), but only ${conLai} page(s) remain today. Remove some pages or wait until 00:00 GMT+7.`
+              : `Bạn chọn ${files.length} trang nhưng chỉ còn ${conLai} lượt. Bỏ bớt trang, hoặc đợi tới 0h00 giờ Việt Nam.`}
           </Alert>
         )}
 
         <Button
           kieu="chinh" onClick={batDau} dangChay={dangChay}
           lyDoKhoa={
-            !files.length ? 'Chọn ít nhất một trang'
+            !files.length ? (laEn ? 'Select at least one page' : 'Chọn ít nhất một trang')
               // Gửi `tu-nhan` lên đường dịch là nhận 422 — người dùng sẽ đọc một lỗi kỹ thuật cho
               // một lựa chọn mà chính giao diện mời họ chọn.
-              : ngonNgu === TU_NHAN ? 'Bấm "Đọc thử trang đầu", hoặc chọn tay một ngôn ngữ'
-                : thieuLuot ? 'Nhiều hơn số lượt còn lại'
-                  : conLai === 0 ? 'Hết lượt hôm nay'
+              : ngonNgu === TU_NHAN ? (laEn ? 'Click "Detect language from 1st page" or pick a language manually' : 'Bấm "Đọc thử trang đầu", hoặc chọn tay một ngôn ngữ')
+                : thieuLuot ? (laEn ? 'Exceeds remaining quota' : 'Nhiều hơn số lượt còn lại')
+                  : conLai === 0 ? (laEn ? 'Out of quota for today' : 'Hết lượt hôm nay')
                     : undefined
           }
         >
-          {dangChay ? 'Đang dịch…' : `Dịch ${files.length || ''} trang`.trim()}
+          {dangChay
+            ? (laEn ? 'Translating…' : 'Đang dịch…')
+            : (laEn
+                ? (files.length ? `Translate ${files.length} page(s)` : 'Translate pages')
+                : `Dịch ${files.length || ''} trang`.trim())}
         </Button>
       </section>
 
@@ -775,23 +846,29 @@ export default function TrangChu() {
       {trang.length > 0 && (
         <section className="the-man tien-do-trang" aria-labelledby="tieu-de-tien-do" aria-live="polite">
           <h2 id="tieu-de-tien-do" className="nho">
-            Tiến độ — xong {trangXong.length}/{trang.length} trang
+            {laEn
+              ? `Progress — ${trangXong.length}/${trang.length} page(s) completed`
+              : `Tiến độ — xong ${trangXong.length}/${trang.length} trang`}
           </h2>
-          <ol className="cac-buoc" aria-label="Các bước xử lý">
-            {tinhBuocCaMe(trang).map((b) => (
+          <ol className="cac-buoc" aria-label={laEn ? 'Processing steps' : 'Các bước xử lý'}>
+            {tinhBuocCaMe(trang, laEn).map((b) => (
               <li key={b.ma} className={`buoc-the buoc-the-${b.tt}`}>
                 <span className="buoc-the-tren">
                   <Icon ten={b.tt === 'xong' ? 'circle-check' : b.tt === 'chay' ? 'loader' : ICON_BUOC[b.ma]} />
                   {b.nhan}
                 </span>
                 <span className="buoc-the-tt">
-                  {b.tt === 'xong' ? NHAN_BUOC_XONG : b.tt === 'chay' ? NHAN_BUOC_CHAY : NHAN_BUOC_CHO}
+                  {b.tt === 'xong'
+                    ? (laEn ? 'Done' : NHAN_BUOC_XONG)
+                    : b.tt === 'chay'
+                      ? (laEn ? 'Running' : NHAN_BUOC_CHAY)
+                      : (laEn ? 'Waiting' : NHAN_BUOC_CHO)}
                 </span>
               </li>
             ))}
           </ol>
           <div
-            className="thanh-tien" role="progressbar" aria-label="Tiến độ dịch"
+            className="thanh-tien" role="progressbar" aria-label={laEn ? 'Translation progress' : 'Tiến độ dịch'}
             aria-valuemin={0} aria-valuemax={100}
             aria-valuenow={Math.round((trangXong.length / trang.length) * 100)}
           >
@@ -807,8 +884,8 @@ export default function TrangChu() {
                 {t.loi
                   ? <span className="nhan-loi"><Icon ten="canh" co={16} /> {t.loi}</span>
                   : t.xong
-                    ? <span className="nhan-xong"><Icon ten="tich" co={16} /> Xong</span>
-                    : <TienDoTrang tienDo={t.tienDo} />}
+                    ? <span className="nhan-xong"><Icon ten="tich" co={16} /> {laEn ? 'Done' : 'Xong'}</span>
+                    : <TienDoTrang tienDo={t.tienDo} laEn={laEn} />}
               </li>
             ))}
           </ol>
@@ -820,33 +897,64 @@ export default function TrangChu() {
           Hàn). Bỏ là quay lại đúng những lần đó. Nhưng bày cả bốn ngay màn đầu thì chúng đứng
           CHẮN việc chính. `<details>` giữ đủ chữ mà trả lại màn đầu cho ô thả ảnh. */}
       <details className="can-biet the-man">
-        <summary>Cần biết trước khi bắt đầu</summary>
+        <summary>{laEn ? 'Good to know before starting' : 'Cần biết trước khi bắt đầu'}</summary>
         <ul>
           <li>
-            <Icon ten="dong-ho" co={16} /> Mỗi trang mất <strong>khoảng 30 giây</strong>. Máy
-            không treo — cứ để tab mở.
+            <Icon ten="dong-ho" co={16} />{' '}
+            {laEn ? (
+              <>Each page takes <strong>about 30 seconds</strong>. Keep this tab open while it runs.</>
+            ) : (
+              <>Mỗi trang mất <strong>khoảng 30 giây</strong>. Máy không treo — cứ để tab mở.</>
+            )}
           </li>
           {/* Câu này phải khớp CẤU HÌNH THẬT của máy chủ. Hứa xoá trong khi không xoá, hay hứa
               giữ trong khi sẽ xoá — cả hai đều là nói sai với người dùng về dữ liệu của họ. */}
           {coTuXoa ? (
             <li>
-              <strong>Kết quả chỉ giữ {chuGiu}</strong> kể từ lúc dịch xong. Sau đó
-              {' '}<strong>ảnh gốc, bản dịch và tệp đã gói đều bị xoá</strong>: không chạy lại được,
-              không sửa lại được. Muốn làm lại phải tải lên từ đầu và tốn thêm lượt.
+              {laEn ? (
+                <>
+                  <strong>Results are kept for {chuGiu}</strong> after completion. After that,{' '}
+                  <strong>original images, translations, and archives are permanently deleted</strong>.
+                </>
+              ) : (
+                <>
+                  <strong>Kết quả chỉ giữ {chuGiu}</strong> kể từ lúc dịch xong. Sau đó{' '}
+                  <strong>ảnh gốc, bản dịch và tệp đã gói đều bị xoá</strong>: không chạy lại được,
+                  không sửa lại được. Muốn làm lại phải tải lên từ đầu và tốn thêm lượt.
+                </>
+              )}
             </li>
           ) : (
             <li>
-              Kết quả <strong>không tự xoá</strong> theo giờ. Nhưng vẫn nên tải về ngay — đây
-              không phải chỗ lưu trữ lâu dài, và chính sách có thể đổi.
+              {laEn ? (
+                <>Results are <strong>not auto-deleted</strong> on a timer, but please download them right away.</>
+              ) : (
+                <>
+                  Kết quả <strong>không tự xoá</strong> theo giờ. Nhưng vẫn nên tải về ngay — đây
+                  không phải chỗ lưu trữ lâu dài, và chính sách có thể đổi.
+                </>
+              )}
             </li>
           )}
-          <li>Nhận ảnh <strong>PNG, JPG, WebP</strong> (tối đa 25 MB/ảnh) và gói truyện <strong>ZIP, CBZ, PDF</strong>.</li>
-          <li>Dịch được chữ <strong>Nhật, Hàn, Anh, Trung</strong> → tiếng Việt.</li>
+          <li>
+            {laEn ? (
+              <>Supports <strong>PNG, JPG, WebP</strong> images (up to 25 MB/image) and <strong>ZIP, CBZ, PDF</strong> chapter archives.</>
+            ) : (
+              <>Nhận ảnh <strong>PNG, JPG, WebP</strong> (tối đa 25 MB/ảnh) và gói truyện <strong>ZIP, CBZ, PDF</strong>.</>
+            )}
+          </li>
+          <li>
+            {laEn ? (
+              <>Translates <strong>Japanese, Korean, English, Chinese</strong> → Vietnamese &amp; Global English.</>
+            ) : (
+              <>Dịch được chữ <strong>Nhật, Hàn, Anh, Trung</strong> → tiếng Việt.</>
+            )}
+          </li>
         </ul>
       </details>
       </div>
 
-      <aside className="cot-phai-khach" aria-label="Hạn mức">
+      <aside className="cot-phai-khach" aria-label={laEn ? 'Quota' : 'Hạn mức'}>
         <div className="the-man">
           <TheHanMuc
             hanMuc={hanMuc} dangTai={dangTaiHanMuc} loi={loiHanMuc} onTaiLai={napHanMuc}
@@ -862,8 +970,12 @@ export default function TrangChu() {
             {/* Cố ý KHÔNG lặp lại đúng câu trong `<details>`: hai câu y hệt trên cùng một màn là
                 bắt người dùng đọc hai lần. Dòng này nói phần HÀNH ĐỘNG (tải về ngay), khối kia nói
                 phần HẬU QUẢ đầy đủ (mất cả ảnh gốc lẫn tệp đã gói, không chạy lại được). */}
-            <Icon ten="dong-ho" co={16} /> Nhớ tải về ngay: tệp <strong>tự xoá sau {chuGiu}
-            </strong> kể từ lúc dịch xong.
+            <Icon ten="dong-ho" co={16} />{' '}
+            {laEn ? (
+              <>Remember to download right away: files are <strong>auto-deleted after {chuGiu}</strong> once completed.</>
+            ) : (
+              <>Nhớ tải về ngay: tệp <strong>tự xoá sau {chuGiu}</strong> kể từ lúc dịch xong.</>
+            )}
           </p>
         )}
       </aside>
@@ -871,22 +983,38 @@ export default function TrangChu() {
 
       {xongLuc && trangXong.length > 0 && (
         <section className="ket-qua" aria-labelledby="tieu-de-ket-qua">
-          <h2 id="tieu-de-ket-qua" className="nho">Kết quả</h2>
+          <h2 id="tieu-de-ket-qua" className="nho">{laEn ? 'Results' : 'Kết quả'}</h2>
 
           {!coTuXoa ? (
-            <Alert sac="tin" tieuDe="Nhớ tải về">
-              Kết quả <strong>không tự xoá</strong> theo giờ, nhưng đây không phải chỗ lưu trữ lâu
-              dài — tải về rồi hãy đóng tab.
+            <Alert sac="tin" tieuDe={laEn ? 'Remember to download' : 'Nhớ tải về'}>
+              {laEn ? (
+                <>Results are <strong>not auto-deleted</strong> on a timer, but please download your files before closing this tab.</>
+              ) : (
+                <>
+                  Kết quả <strong>không tự xoá</strong> theo giờ, nhưng đây không phải chỗ lưu trữ lâu
+                  dài — tải về rồi hãy đóng tab.
+                </>
+              )}
             </Alert>
           ) : daHetHan ? (
-            <Alert sac="loi" tieuDe={`Đã quá ${chuGiu} — tệp không còn nữa`}>
-              Ảnh gốc, bản dịch và tệp đã gói đều đã bị xoá. Muốn có lại thì phải tải lên từ đầu
-              và tốn thêm lượt.
+            <Alert sac="loi" tieuDe={laEn ? `Expired after ${chuGiu} — files removed` : `Đã quá ${chuGiu} — tệp không còn nữa`}>
+              {laEn
+                ? 'Original images, translations, and archives have been deleted. Please upload again if needed.'
+                : 'Ảnh gốc, bản dịch và tệp đã gói đều đã bị xoá. Muốn có lại thì phải tải lên từ đầu và tốn thêm lượt.'}
             </Alert>
           ) : (
-            <Alert sac="canh" tieuDe="Tải về trước khi hết giờ">
-              Còn <strong>{chuDemNguoc(mocHetHan)}</strong> trước khi toàn bộ kết quả bị xoá —
-              ảnh gốc, bản dịch, tệp đã gói. Xoá rồi thì không chạy lại và không sửa lại được.
+            <Alert sac="canh" tieuDe={laEn ? 'Download before expiration' : 'Tải về trước khi hết giờ'}>
+              {laEn ? (
+                <>
+                  <strong>{chuDemNguoc(mocHetHan, Date.now(), true)}</strong> remaining before all results
+                  (original images, translations, and packages) are automatically deleted.
+                </>
+              ) : (
+                <>
+                  Còn <strong>{chuDemNguoc(mocHetHan)}</strong> trước khi toàn bộ kết quả bị xoá —
+                  ảnh gốc, bản dịch, tệp đã gói. Xoá rồi thì không chạy lại và không sửa lại được.
+                </>
+              )}
             </Alert>
           )}
 
@@ -895,50 +1023,65 @@ export default function TrangChu() {
               được, chỉ nói thật. */}
           <div className="hang-tai-ve">
             <Button kieu="chinh" onClick={() => taiKetQua(false)} dangChay={dangTai} icon="download">
-              {trangXong.length > 1 ? `Tải cả gói (${dinhDangXuat.toUpperCase()}) về` : 'Tải ảnh đã dịch về'}
+              {trangXong.length > 1
+                ? (laEn ? `Download full package (${dinhDangXuat.toUpperCase()})` : `Tải cả gói (${dinhDangXuat.toUpperCase()}) về`)
+                : (laEn ? 'Download translated image' : 'Tải ảnh đã dịch về')}
             </Button>
             {trangXong.length > 1 && (
               <label className="chon-dinh-dang-xuat" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-                <span>Định dạng gói:</span>
+                <span>{laEn ? 'Package format:' : 'Định dạng gói:'}</span>
                 <select
-                  aria-label="Định dạng gói tải về"
+                  aria-label={laEn ? 'Download package format' : 'Định dạng gói tải về'}
                   className="o"
                   style={{ width: 'auto', padding: '4px 10px' }}
                   value={dinhDangXuat}
                   onChange={(e) => setDinhDangXuat(e.target.value)}
                   disabled={dangTai}
                 >
-                  <option value="cbz">.CBZ (Trình đọc truyện)</option>
-                  <option value="zip">.ZIP (Giải nén ảnh PNG)</option>
+                  <option value="cbz">{laEn ? '.CBZ (Comic Reader)' : '.CBZ (Trình đọc truyện)'}</option>
+                  <option value="zip">{laEn ? '.ZIP (PNG Images)' : '.ZIP (Giải nén ảnh PNG)'}</option>
                 </select>
               </label>
             )}
-            <div className="bo-chuyen-che-do-xem" role="group" aria-label="Chế độ xem kết quả" style={{ display: 'inline-flex', gap: 6, marginLeft: 'auto' }}>
+            <div className="bo-chuyen-che-do-xem" role="group" aria-label={laEn ? 'Result view mode' : 'Chế độ xem kết quả'} style={{ display: 'inline-flex', gap: 6, marginLeft: 'auto' }}>
               <Button
                 kieu={cheDoXem === 'so_sanh' ? 'phu' : 'ghost'}
                 co="nho"
                 onClick={() => setCheDoXem('so_sanh')}
               >
-                So sánh Trước – Sau
+                {laEn ? 'Compare Before – After' : 'So sánh Trước – Sau'}
               </Button>
               <Button
                 kieu={cheDoXem === 'doc_doc' ? 'phu' : 'ghost'}
                 co="nho"
                 onClick={() => setCheDoXem('doc_doc')}
               >
-                Đọc dọc liền mạch
+                {laEn ? 'Vertical Webtoon Reader' : 'Đọc dọc liền mạch'}
               </Button>
             </div>
             {daThuTuTai && !tenTepDaTai && (
               <p className="ghi-chu" style={{ width: '100%' }}>
-                Đã thử tải tự động. <strong>Nếu không thấy tệp nào</strong>, trình duyệt đã chặn
-                lượt tải không do bạn bấm — bấm nút trên là được.
+                {laEn ? (
+                  <>Auto-download attempted. <strong>If you don’t see the file</strong>, your browser blocked automatic downloads — click the button above.</>
+                ) : (
+                  <>
+                    Đã thử tải tự động. <strong>Nếu không thấy tệp nào</strong>, trình duyệt đã chặn
+                    lượt tải không do bạn bấm — bấm nút trên là được.
+                  </>
+                )}
               </p>
             )}
             {tenTepDaTai && (
               <p className="ghi-chu" style={{ width: '100%' }}>
-                <Icon ten="tich" co={16} /> Đã lưu <strong>{tenTepDaTai}</strong>. Không thấy thì
-                xem lại thư mục Tải về của trình duyệt.
+                <Icon ten="tich" co={16} />{' '}
+                {laEn ? (
+                  <>Saved <strong>{tenTepDaTai}</strong>. Check your browser’s Downloads folder.</>
+                ) : (
+                  <>
+                    Đã lưu <strong>{tenTepDaTai}</strong>. Không thấy thì
+                    xem lại thư mục Tải về của trình duyệt.
+                  </>
+                )}
               </p>
             )}
           </div>
@@ -954,7 +1097,7 @@ export default function TrangChu() {
                       style={{ position: 'relative', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--vien, #e2e8f0)', background: '#0f172a' }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 12px', background: 'rgba(15,23,42,0.88)', color: '#f8fafc', fontSize: 12 }}>
-                        <span>Trang {idx + 1}/{trangXong.length} · {t.ten}</span>
+                        <span>{laEn ? `Page ${idx + 1}/${trangXong.length}` : `Trang ${idx + 1}/${trangXong.length}`} · {t.ten}</span>
                         <button
                           type="button"
                           onMouseDown={() => setTrangDangXemGoc(t.page_id)}
@@ -969,7 +1112,9 @@ export default function TrangChu() {
                             color: '#fff', cursor: 'pointer', fontSize: 12,
                           }}
                         >
-                          {dangGiu ? 'Đang hiện bản gốc' : 'Giữ / Bấm xem bản gốc'}
+                          {dangGiu
+                            ? (laEn ? 'Showing original' : 'Đang hiện bản gốc')
+                            : (laEn ? 'Hold / Click for original' : 'Giữ / Bấm xem bản gốc')}
                         </button>
                       </div>
                       <img
@@ -991,11 +1136,11 @@ export default function TrangChu() {
                       <div className="cap-anh">
                         <figure>
                           <AnhTruoc file={file} ten={t.ten} pageId={t.page_id} />
-                          <figcaption>{NHAN_TRUOC}</figcaption>
+                          <figcaption>{laEn ? 'Before' : NHAN_TRUOC}</figcaption>
                         </figure>
                         <figure>
                           <img src={api.urlAnhDaDich(t.page_id)} alt={`Trang đã dịch: ${t.ten}`} loading="lazy" />
-                          <figcaption>{NHAN_SAU}</figcaption>
+                          <figcaption>{laEn ? 'After' : NHAN_SAU}</figcaption>
                         </figure>
                       </div>
                       <span className="ghi-chu">{t.ten}</span>
@@ -1017,22 +1162,34 @@ export default function TrangChu() {
           Cố ý KHÔNG nhắc lại "khoảng 30 giây mỗi trang" và "tệp giữ 30 phút" — khối `<details>`
           ngay trên đã nói cả hai, và lặp lại là đúng thứ đang làm màn này rối. */}
       <section className="cach-chay" aria-labelledby="tieu-de-cach-chay">
-        <h2 id="tieu-de-cach-chay">Cách hoạt động</h2>
+        <h2 id="tieu-de-cach-chay">{laEn ? 'How It Works' : 'Cách hoạt động'}</h2>
         <ol className="ds-buoc">
           <li>
             <span className="so-buoc" aria-hidden="true">01</span>
-            <b>Thả ảnh trang truyện</b>
-            <span>Chọn một hay nhiều trang cùng lúc. Không cần tài khoản.</span>
+            <b>{laEn ? 'Drop comic pages' : 'Thả ảnh trang truyện'}</b>
+            <span>
+              {laEn
+                ? 'Select one or multiple pages (or a .zip/.cbz/.pdf chapter). No account required.'
+                : 'Chọn một hay nhiều trang cùng lúc. Không cần tài khoản.'}
+            </span>
           </li>
           <li>
             <span className="so-buoc" aria-hidden="true">02</span>
-            <b>Máy đọc chữ rồi dịch</b>
-            <span>Nhận ra chữ trên ảnh, dịch sang tiếng Việt, rồi căn vào đúng bong bóng.</span>
+            <b>{laEn ? 'AI OCR & Context Translation' : 'Máy đọc chữ rồi dịch'}</b>
+            <span>
+              {laEn
+                ? 'Detects speech bubbles, erases source text, translates in context, and typesets cleanly.'
+                : 'Nhận ra chữ trên ảnh, dịch sang tiếng Việt, rồi căn vào đúng bong bóng.'}
+            </span>
           </li>
           <li>
             <span className="so-buoc" aria-hidden="true">03</span>
-            <b>Tải ảnh đã dịch về</b>
-            <span>Nhiều trang thì tải một gói. Xem trước ngay trên trang này trước khi tải.</span>
+            <b>{laEn ? 'Download translated pages' : 'Tải ảnh đã dịch về'}</b>
+            <span>
+              {laEn
+                ? 'Preview side-by-side or in vertical Webtoon mode, then download single images or a full archive.'
+                : 'Nhiều trang thì tải một gói. Xem trước ngay trên trang này trước khi tải.'}
+            </span>
           </li>
         </ol>
       </section>

@@ -593,7 +593,7 @@ function AppRuot({ urlBundle } = {}) {
               <DoiTheme />
               {!muonDangNhap && (
                 <Button kieu="phu" onClick={() => setMuonDangNhap(true)}>
-                  {laEn ? 'Sign in / Đăng nhập' : 'Đăng nhập'}
+                  {laEn ? 'Sign In' : 'Đăng nhập'}
                 </Button>
               )}
             </div>
@@ -642,7 +642,7 @@ function AppRuot({ urlBundle } = {}) {
           <span className="hieu-dau">T</span>
           <span>
             <b>Translation</b>
-            <small>Dịch truyện tranh sang tiếng Việt</small>
+            <small>{laEn ? 'AI Manga, Manhwa & Webtoon Translator' : 'Dịch truyện tranh sang tiếng Việt'}</small>
           </span>
         </a>
 
@@ -660,7 +660,7 @@ function AppRuot({ urlBundle } = {}) {
             setTimeout(
               () => document.getElementById('nut-tao')?.scrollIntoView({ block: 'center' }), 80,
             )
-          }}>Tạo chapter</a>
+          }}>{laEn ? 'New Chapter' : 'Tạo chapter'}</a>
           <a href="#tien-ich" className={trangTinh === 'tien-ich' ? 'dang-o' : ''}>
             {laEn ? '🧩 Extensions & App' : '🧩 Tiện Ích'}
           </a>
@@ -684,7 +684,7 @@ function AppRuot({ urlBundle } = {}) {
             <button type="button" className="nut-chu" onClick={async () => {
               await api.dangXuat()
               setNguoiDung(null)
-            }}>Đăng xuất</button>
+            }}>{laEn ? 'Sign Out' : 'Đăng xuất'}</button>
           </span>
         </nav>
 
@@ -740,14 +740,18 @@ function AppRuot({ urlBundle } = {}) {
 
             <div className="mo-dau-lam-viec manga-hero-banner">
               <div className="manga-genre-strip" aria-hidden="true">
-                <span>⚔️ Hành động</span>
-                <span>🌸 Ngôn tình</span>
-                <span>📜 Cổ trang</span>
-                <span>💬 Truyện tranh</span>
-                <span>🌍 Việt &amp; Quốc tế</span>
+                <span>⚔️ {laEn ? 'Action' : 'Hành động'}</span>
+                <span>🌸 {laEn ? 'Romance' : 'Ngôn tình'}</span>
+                <span>📜 {laEn ? 'Historical' : 'Cổ trang'}</span>
+                <span>💬 {laEn ? 'Comics & Webtoon' : 'Truyện tranh'}</span>
+                <span>🌍 {laEn ? 'VN & Global English' : 'Việt & Quốc tế'}</span>
               </div>
-              <h1>Dịch truyện tranh</h1>
-              <p className="dan">{DAN_TRANG_CHU}</p>
+              <h1>{laEn ? 'AI Manga, Manhwa & Webtoon Translator' : 'Dịch truyện tranh'}</h1>
+              <p className="dan">
+                {laEn
+                  ? 'Drop comic pages or chapter archives (.zip / .cbz / .pdf) to translate, review, and export.'
+                  : DAN_TRANG_CHU}
+              </p>
               <div className="manga-hero-actions">
                 <a href="#tien-ich" className="nut-manga nut-manga-chinh">
                   🧩 {laEn ? 'Install Chrome Extension & Windows App' : 'Cài Tiện Ích Chrome & App Windows'}

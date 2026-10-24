@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { useNgonNguUI } from '../../lib/ngon-ngu-ui'
 import Icon from './Icon.jsx'
 import Button from './Button.jsx'
 
@@ -37,15 +38,20 @@ export function coChuoi(so) {
 export default function Dropzone({
   files, onDoi, tatCa = false, id = 'vung-tha', chapNhanGoi = false,
 }) {
+  const { laEn } = useNgonNguUI()
   const oFile = useRef(null)
   const [dangKeo, setDangKeo] = useState(false)
   const [loi, setLoi] = useState(null)
 
   const them = (danhSach) => {
     const { nhan, loai } = locFileHopLe(Array.from(danhSach || []), chapNhanGoi)
-    const mong = chapNhanGoi ? 'ảnh PNG/JPG/WebP hoặc gói ZIP/CBZ/PDF' : 'ảnh PNG/JPG/WebP'
+    const mong = chapNhanGoi
+      ? (laEn ? 'PNG/JPG/WebP images or ZIP/CBZ/PDF archives' : 'ảnh PNG/JPG/WebP hoặc gói ZIP/CBZ/PDF')
+      : (laEn ? 'PNG/JPG/WebP images' : 'ảnh PNG/JPG/WebP')
     setLoi(loai.length
-      ? `Bỏ qua ${loai.length} tệp không phải ${mong}: ${loai.map((f) => f.name).join(', ')}`
+      ? (laEn
+          ? `Skipped ${loai.length} unsupported file(s) (expected ${mong}): ${loai.map((f) => f.name).join(', ')}`
+          : `Bỏ qua ${loai.length} tệp không phải ${mong}: ${loai.map((f) => f.name).join(', ')}`)
       : null)
     if (nhan.length) onDoi([...files, ...nhan])
   }
@@ -59,7 +65,7 @@ export default function Dropzone({
         className={`vung-tha${dangKeo ? ' dang-keo' : ''}`}
         role="button"
         tabIndex={0}
-        aria-label="Chọn ảnh trang truyện: bấm hoặc kéo tệp vào đây"
+        aria-label={laEn ? 'Select comic pages: click or drag files here' : 'Chọn ảnh trang truyện: bấm hoặc kéo tệp vào đây'}
         aria-disabled={tatCa || undefined}
         onClick={() => !tatCa && moChon()}
         onKeyDown={(e) => {
@@ -75,12 +81,23 @@ export default function Dropzone({
             "PNG, JPG" trong khi `accept` đã có `.zip,.cbz` — người dùng đọc dòng đó thì không
             bao giờ biết là thả được cả gói. Test jsdom soi `accept` nên không thấy; chỉ bấm
             tay trên trình duyệt thật mới lộ ra. */}
-        <b>{chapNhanGoi ? 'Kéo ảnh hoặc gói truyện vào đây, hoặc bấm để chọn'
-                        : 'Kéo ảnh vào đây hoặc bấm để chọn'}</b>
+        <b>
+          {chapNhanGoi
+            ? (laEn
+                ? 'Drag & drop comic images or archives here, or click to browse'
+                : 'Kéo ảnh hoặc gói truyện vào đây, hoặc bấm để chọn')
+            : (laEn
+                ? 'Drag & drop images here or click to browse'
+                : 'Kéo ảnh vào đây hoặc bấm để chọn')}
+        </b>
         <span>
           {chapNhanGoi
-            ? 'Hỗ trợ PNG, JPG, WebP và cả gói .zip / .cbz / .pdf (một gói = cả chapter).'
-            : 'Hỗ trợ PNG, JPG. Có thể chọn nhiều trang một lúc.'}
+            ? (laEn
+                ? 'Supports PNG, JPG, WebP and .zip / .cbz / .pdf packages (1 package = full chapter).'
+                : 'Hỗ trợ PNG, JPG, WebP và cả gói .zip / .cbz / .pdf (một gói = cả chapter).')
+            : (laEn
+                ? 'Supports PNG, JPG. You can select multiple pages at once.'
+                : 'Hỗ trợ PNG, JPG. Có thể chọn nhiều trang một lúc.')}
         </span>
       </div>
 
@@ -112,7 +129,12 @@ export default function Dropzone({
               const soGoi = files.filter((f) => DUOI_GOI.test(f.name || '')).length
               const soAnh = files.length - soGoi
               if (soGoi === 0) {
-                return (
+                return laEn ? (
+                  <>
+                    <b>{soAnh}</b> page(s) · the order below{' '}
+                    <b>is the exact page order</b> in the chapter.
+                  </>
+                ) : (
                   <>
                     <b>{soAnh}</b> trang · thứ tự dưới đây{' '}
                     <b>chính là thứ tự trang</b> trong chapter.
@@ -120,10 +142,15 @@ export default function Dropzone({
                 )
               }
               const phan = [
-                soGoi > 0 && `${soGoi} gói`,
-                soAnh > 0 && `${soAnh} ảnh lẻ`,
+                soGoi > 0 && (laEn ? `${soGoi} archive(s)` : `${soGoi} gói`),
+                soAnh > 0 && (laEn ? `${soAnh} loose image(s)` : `${soAnh} ảnh lẻ`),
               ].filter(Boolean).join(' + ')
-              return (
+              return laEn ? (
+                <>
+                  <b>{phan}</b> · actual page count is determined after unpacking. Pages inside an
+                  archive are sorted by <b>filename</b>.
+                </>
+              ) : (
                 <>
                   <b>{phan}</b> · số trang thật biết được sau khi mở gói. Trang trong gói được
                   xếp theo <b>tên tệp</b> bên trong nó, không theo thứ tự danh sách này.
@@ -139,8 +166,8 @@ export default function Dropzone({
                 <span className="co-file">{coChuoi(f.size)}</span>
                 <button
                   type="button" className="nut-bo"
-                  aria-label={`Bỏ trang ${i + 1}: ${f.name}`}
-                  title={`Bỏ trang ${i + 1}: ${f.name}`}
+                  aria-label={laEn ? `Remove page ${i + 1}: ${f.name}` : `Bỏ trang ${i + 1}: ${f.name}`}
+                  title={laEn ? `Remove page ${i + 1}: ${f.name}` : `Bỏ trang ${i + 1}: ${f.name}`}
                   disabled={tatCa}
                   onClick={() => onDoi(files.filter((_, j) => j !== i))}
                 >
@@ -149,7 +176,9 @@ export default function Dropzone({
               </li>
             ))}
           </ol>
-          <Button kieu="ghost" onClick={() => onDoi([])} disabled={tatCa}>Bỏ hết</Button>
+          <Button kieu="ghost" onClick={() => onDoi([])} disabled={tatCa}>
+            {laEn ? 'Clear all' : 'Bỏ hết'}
+          </Button>
         </>
       )}
     </div>

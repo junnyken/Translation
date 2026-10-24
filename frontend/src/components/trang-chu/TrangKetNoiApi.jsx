@@ -252,10 +252,10 @@ curl -X POST "${apiOrigin}/api/v1/developer/translate-text" \\
             📘 {laEn ? 'Open Swagger OpenAPI (/docs) ↗' : 'Mở Tài Liệu Swagger OpenAPI (/docs) ↗'}
           </a>
           <a
-            href="#bang-gia"
+            href="#tien-ich"
             className="nut-manga nut-manga-phu"
           >
-            💎 {laEn ? 'View Enterprise API Pricing' : 'Xem Bảng Giá Gói API Doanh Nghiệp'}
+            🧩 {laEn ? 'Download Extension & Windows App' : 'Tải Tiện Ích Chrome & App Windows'}
           </a>
         </div>
       </div>
@@ -305,7 +305,7 @@ curl -X POST "${apiOrigin}/api/v1/developer/translate-text" \\
             }}
           >
             <div style={{ fontSize: 12, fontWeight: 800, color: item.mau, marginBottom: 6 }}>
-              BƯỚC {item.buoc}
+              {laEn ? `STEP ${item.buoc}` : `BƯỚC ${item.buoc}`}
             </div>
             <h2 style={{ fontSize: 18, margin: '0 0 8px', color: '#ffffff' }}>{item.tieuDe}</h2>
             <p style={{ margin: 0, fontSize: 14, color: '#cbd5e1', lineHeight: 1.6 }}>{item.moTa}</p>
@@ -443,7 +443,9 @@ curl -X POST "${apiOrigin}/api/v1/developer/translate-text" \\
               cursor: 'pointer',
             }}
           >
-            {daSaoChep ? '✅ Đã sao chép!' : '📋 Sao chép đoạn Code này'}
+            {daSaoChep
+              ? (laEn ? '✅ Copied!' : '✅ Đã sao chép!')
+              : (laEn ? '📋 Copy Code Snippet' : '📋 Sao chép đoạn Code này')}
           </button>
         </div>
 
@@ -453,7 +455,7 @@ curl -X POST "${apiOrigin}/api/v1/developer/translate-text" \\
             { id: 'nodejs', label: '🟢 Node.js / JS (Web / Bot)' },
             { id: 'php', label: '🐘 PHP (WordPress / Madara)' },
             { id: 'curl', label: '💻 cURL / Terminal' },
-            { id: 'json', label: '📦 Mẫu JSON Kết quả trả về' },
+            { id: 'json', label: laEn ? '📦 Sample JSON Response' : '📦 Mẫu JSON Kết quả trả về' },
           ].map((t) => (
             <button
               key={t.id}

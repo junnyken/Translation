@@ -3,6 +3,7 @@ import * as api from '../../api.js'
 import { chayTuTaiVe } from '../../lib/tu-tai-ve.js'
 import { CACH_DICH, MUC_DICH, NGON_NGU } from '../../lib/status-presentation.js'
 import { useCodex } from '../../lib/dung-codex.js'
+import { useNgonNguUI } from '../../lib/ngon-ngu-ui.jsx'
 import Alert from '../ui/Alert.jsx'
 import Button from '../ui/Button.jsx'
 import Dropzone from '../ui/Dropzone.jsx'
@@ -32,22 +33,22 @@ const MO_TA_ENGINE = {
 }
 
 const PILL_NGON_NGU_GOC = [
-  { ma: 'ja', co: 'JP', nhan: 'Tiếng Nhật' },
-  { ma: 'ko', co: 'KR', nhan: 'Tiếng Hàn' },
-  { ma: 'zh', co: 'CN', nhan: 'Tiếng Trung' },
-  { ma: 'en', co: 'GB', nhan: 'Tiếng Anh' },
+  { ma: 'ja', co: 'JP', nhan: 'Tiếng Nhật', nhanEn: 'Japanese' },
+  { ma: 'ko', co: 'KR', nhan: 'Tiếng Hàn', nhanEn: 'Korean' },
+  { ma: 'zh', co: 'CN', nhan: 'Tiếng Trung', nhanEn: 'Chinese' },
+  { ma: 'en', co: 'GB', nhan: 'Tiếng Anh', nhanEn: 'English' },
 ]
 
 const PILL_NGON_NGU_DICH = [
-  { ma: 'vi', co: 'VN', nhan: 'Sang Tiếng Việt' },
-  { ma: 'en', co: 'US', nhan: 'To English' },
+  { ma: 'vi', co: 'VN', nhan: 'Sang Tiếng Việt', nhanEn: 'To Vietnamese' },
+  { ma: 'en', co: 'US', nhan: 'To English', nhanEn: 'To English' },
 ]
 
 const PILL_FONT_THE_LOAI = [
-  { ma: 'bangers', bieuTuong: '⚔️', nhan: 'Hành động (Đậm)' },
-  { ma: 'romance', bieuTuong: '🌸', nhan: 'Ngôn tình (Mềm)' },
-  { ma: 'historical', bieuTuong: '🏮', nhan: 'Cổ trang (Bút)' },
-  { ma: 'comic', bieuTuong: '💥', nhan: 'Hài hước (Tròn)' },
+  { ma: 'bangers', bieuTuong: '⚔️', nhan: 'Hành động (Đậm)', nhanEn: 'Action (Bold)' },
+  { ma: 'romance', bieuTuong: '🌸', nhan: 'Ngôn tình (Mềm)', nhanEn: 'Romance (Soft)' },
+  { ma: 'historical', bieuTuong: '🏮', nhan: 'Cổ trang (Bút)', nhanEn: 'Historical (Brush)' },
+  { ma: 'comic', bieuTuong: '💥', nhan: 'Hài hước (Tròn)', nhanEn: 'Comedy (Rounded)' },
 ]
 
 /** Vì sao chưa chạy được — `null` nghĩa là chạy được. Tách riêng để test không cần dựng DOM. */
@@ -82,6 +83,7 @@ export function datTenTuDong(files, luc = new Date()) {
  * Giữ nguyên có chủ đích: khai báo mục đích sử dụng (M10) và mọi kiểm tra của máy chủ.
  */
 export default function DichChapter({ onMoChapter }) {
+  const { laEn } = useNgonNguUI()
   const [ten, setTen] = useState('')
   const [nguon, setNguon] = useState('ja')
   const [dich, setDich] = useState('vi')
@@ -156,9 +158,13 @@ export default function DichChapter({ onMoChapter }) {
   return (
     <section className="the-lon" aria-labelledby="tieu-de-dich">
       <header className="the-dau">
-        <h2 id="tieu-de-dich">Dịch truyện tranh</h2>
+        <h2 id="tieu-de-dich">{laEn ? 'Translate Comic Chapter' : 'Dịch truyện tranh'}</h2>
         <p>
-          Thả ảnh hoặc cả gói <code>.zip</code>/<code>.cbz</code>/<code>.pdf</code> vào đây.
+          {laEn ? (
+            <>Drop images or a full <code>.zip</code>/<code>.cbz</code>/<code>.pdf</code> chapter archive here.</>
+          ) : (
+            <>Thả ảnh hoặc cả gói <code>.zip</code>/<code>.cbz</code>/<code>.pdf</code> vào đây.</>
+          )}
         </p>
       </header>
 
@@ -167,7 +173,9 @@ export default function DichChapter({ onMoChapter }) {
 
         <div className="bo-chon-manga">
           <div className="nhom-chon-manga">
-            <span className="nhan-nhom-chon">Ngôn ngữ gốc trên trang (Đổi tức thì):</span>
+            <span className="nhan-nhom-chon">
+              {laEn ? 'Source Language on Page (Instant switch):' : 'Ngôn ngữ gốc trên trang (Đổi tức thì):'}
+            </span>
             <div className="luoi-nut-chon" role="radiogroup" aria-label="Ngôn ngữ gốc trên trang">
               {PILL_NGON_NGU_GOC.map((item) => {
                 const dangChon = nguon === item.ma
@@ -182,7 +190,7 @@ export default function DichChapter({ onMoChapter }) {
                     onClick={() => setNguon(item.ma)}
                   >
                     <span className="pill-co">{item.co}</span>
-                    <span>{item.nhan}</span>
+                    <span>{laEn ? item.nhanEn : item.nhan}</span>
                   </button>
                 )
               })}
@@ -190,7 +198,9 @@ export default function DichChapter({ onMoChapter }) {
           </div>
 
           <div className="nhom-chon-manga">
-            <span className="nhan-nhom-chon">Ngôn ngữ dịch ra (Việt Nam &amp; Quốc tế):</span>
+            <span className="nhan-nhom-chon">
+              {laEn ? 'Target Language (Vietnamese & International):' : 'Ngôn ngữ dịch ra (Việt Nam & Quốc tế):'}
+            </span>
             <div className="luoi-nut-chon luoi-2-cot" role="radiogroup" aria-label="Ngôn ngữ dịch ra">
               {PILL_NGON_NGU_DICH.map((item) => {
                 const dangChon = dich === item.ma
@@ -205,7 +215,7 @@ export default function DichChapter({ onMoChapter }) {
                     onClick={() => setDich(item.ma)}
                   >
                     <span className="pill-co">{item.co}</span>
-                    <span>{item.nhan}</span>
+                    <span>{laEn ? item.nhanEn : item.nhan}</span>
                   </button>
                 )
               })}
@@ -213,7 +223,9 @@ export default function DichChapter({ onMoChapter }) {
           </div>
 
           <div className="nhom-chon-manga">
-            <span className="nhan-nhom-chon">Bộ máy dịch thuật:</span>
+            <span className="nhan-nhom-chon">
+              {laEn ? 'Translation Engine:' : 'Bộ máy dịch thuật:'}
+            </span>
             <div className="luoi-nut-chon luoi-2-cot" role="radiogroup" aria-label="Bộ máy dịch thuật">
               <button
                 type="button"
@@ -224,7 +236,7 @@ export default function DichChapter({ onMoChapter }) {
                 onClick={() => doiEngine('llm_context')}
               >
                 <span className="pill-co">✨</span>
-                <span>Gemini AI (Chuẩn ngữ cảnh)</span>
+                <span>{laEn ? 'Gemini AI (Context-Aware)' : 'Gemini AI (Chuẩn ngữ cảnh)'}</span>
               </button>
               <button
                 type="button"
@@ -235,13 +247,15 @@ export default function DichChapter({ onMoChapter }) {
                 onClick={() => doiEngine('google_fast')}
               >
                 <span className="pill-co">⚡</span>
-                <span>Google Nhanh</span>
+                <span>{laEn ? 'Google Fast' : 'Google Nhanh'}</span>
               </button>
             </div>
           </div>
 
           <div className="nhom-chon-manga">
-            <span className="nhan-nhom-chon">Font chữ theo thể loại truyện (Đổi trực tiếp trên trang):</span>
+            <span className="nhan-nhom-chon">
+              {laEn ? 'Genre Font Style (Direct typesetting):' : 'Font chữ theo thể loại truyện (Đổi trực tiếp trên trang):'}
+            </span>
             <div className="luoi-nut-chon luoi-2-cot" role="radiogroup" aria-label="Font chữ theo thể loại">
               {PILL_FONT_THE_LOAI.map((item) => {
                 const dangChon = fontChu === item.ma
@@ -256,7 +270,7 @@ export default function DichChapter({ onMoChapter }) {
                     onClick={() => setFontChu(item.ma)}
                   >
                     <span className="pill-co">{item.bieuTuong}</span>
-                    <span>{item.nhan}</span>
+                    <span>{laEn ? item.nhanEn : item.nhan}</span>
                   </button>
                 )
               })}
@@ -265,7 +279,9 @@ export default function DichChapter({ onMoChapter }) {
 
           <div className="nhom-chon-manga">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-              <span className="nhan-nhom-chon">📖 Sổ tay Nhân vật &amp; Xưng hô cố định:</span>
+              <span className="nhan-nhom-chon">
+                📖 {laEn ? 'Character & Pronoun Glossary:' : 'Sổ tay Nhân vật & Xưng hô cố định:'}
+              </span>
               <span
                 role="button"
                 tabIndex={0}
@@ -274,7 +290,9 @@ export default function DichChapter({ onMoChapter }) {
                 onClick={() => setMoTuDien(!moTuDien)}
                 onKeyDown={(e) => { if (e.key === 'Enter') setMoTuDien(!moTuDien) }}
               >
-                {moTuDien ? '▲ Thu gọn sổ tay' : '➕ Mở thiết lập Xưng hô & Tên nhân vật'}
+                {moTuDien
+                  ? (laEn ? '▲ Hide Glossary' : '▲ Thu gọn sổ tay')
+                  : (laEn ? '➕ Open Character & Pronoun Glossary' : '➕ Mở thiết lập Xưng hô & Tên nhân vật')}
               </span>
             </div>
             {moTuDien && (
@@ -285,14 +303,20 @@ export default function DichChapter({ onMoChapter }) {
                   disabled={dangChay}
                   value={tuDienRieng}
                   onChange={(e) => setTuDienRieng(e.target.value)}
-                  placeholder="Ví dụ:&#10;- Sung Jin-Woo: xưng tôi, gọi cậu&#10;- Cha Hae-In: xưng em, gọi anh&#10;- Shadow Monarch = Quân Vương Bóng Tối"
+                  placeholder={
+                    laEn
+                      ? 'Example:\n- Sung Jin-Woo: main protagonist\n- Cha Hae-In: S-Rank Hunter\n- 影の君主 = Shadow Monarch'
+                      : 'Ví dụ:\n- Sung Jin-Woo: xưng tôi, gọi cậu\n- Cha Hae-In: xưng em, gọi anh\n- Shadow Monarch = Quân Vương Bóng Tối'
+                  }
                 />
               </div>
             )}
           </div>
 
           <div className="huy-hieu-gpu-khach">
-            🚀 Xoá chữ GPU khách · Nhấp đúp sửa câu — Siêu tốc ~3s
+            {laEn
+              ? '🚀 Client GPU Inpainting · Double-click to Edit — Ultra-fast ~3s'
+              : '🚀 Xoá chữ GPU khách · Nhấp đúp sửa câu — Siêu tốc ~3s'}
           </div>
         </div>
       </fieldset>

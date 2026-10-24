@@ -86,6 +86,8 @@ void (async () => {
       }
       if (thayDoi.ngonNguDich?.newValue) {
         window[CO].ngonNguDichHienTai = thayDoi.ngonNguDich.newValue
+        const nutNnDich = document.getElementById('translation-nut-ngon-ngu-dich')
+        if (nutNnDich) nutNnDich.textContent = thayDoi.ngonNguDich.newValue === 'en' ? '🇺🇸 EN' : '🇻🇳 VI'
       }
     })
   }
@@ -1320,6 +1322,29 @@ void (async () => {
         }
       })
 
+      // Nút đổi nhanh Ngôn ngữ dịch ra (VI ⇄ EN) ngay trên thanh nổi
+      const nutDichRa = document.createElement('button')
+      nutDichRa.id = 'translation-nut-ngon-ngu-dich'
+      nutDichRa.type = 'button'
+      nutDichRa.title = 'Bấm để đổi nhanh Ngôn ngữ dịch ra: Tiếng Việt (VI) ⇄ Tiếng Anh Quốc tế (EN)'
+      const capNhatNutDichRa = () => {
+        const laEnDich = (window[CO].ngonNguDichHienTai || 'vi') === 'en'
+        nutDichRa.textContent = laEnDich ? '🇺🇸 EN' : '🇻🇳 VI'
+        nutDichRa.style.cssText = `${kieuNut};background:rgba(14,116,144,.45);border-color:rgba(56,189,248,.5);font-weight:700`
+      }
+      capNhatNutDichRa()
+      nutDichRa.addEventListener('click', async () => {
+        const tiep = (window[CO].ngonNguDichHienTai || 'vi') === 'en' ? 'vi' : 'en'
+        window[CO].ngonNguDichHienTai = tiep
+        capNhatNutDichRa()
+        try {
+          await chrome.storage?.local?.set?.({ ngonNguDich: tiep })
+        } catch {}
+        if (!window[CO].dangChay) {
+          ;(window[CO].dichTrangHienTai || dichTrangHienTai)()
+        }
+      })
+
       // Nút đổi nhanh Font theo thể loại ngay trên thanh nổi
       const dsMaFont = Object.keys(KHO_FONT_TRUYEN)
       const nutFont = document.createElement('button')
@@ -1356,6 +1381,120 @@ void (async () => {
       nutChuTo.style.cssText = `${kieuNut};padding:5px 8px`
       nutChuTo.addEventListener('click', () => doiCoChu(0.1))
 
+      // Nút Lưu trang truyện đang xem thành ảnh PNG độ phân giải cao (đã xoá chữ gốc + ghép chữ dịch)
+      const nutLuuAnh = document.createElement('button')
+      nutLuuAnh.id = 'translation-nut-luu-anh'
+      nutLuuAnh.type = 'button'
+      nutLuuAnh.textContent = '📥 Lưu ảnh'
+      nutLuuAnh.title = 'Tải trang truyện đang xem (đã dịch & xoá chữ gốc) về máy dạng PNG chất lượng cao'
+      nutLuuAnh.style.cssText = kieuNut
+      nutLuuAnh.addEventListener('click', async () => {
+        try {
+          const chon = chonTrangTruyen(layMoTa(), { caoKhungNhin: window.innerHeight })
+          const el = chon?.anh?.el
+          if (!el) {
+            xong('Chưa tìm thấy trang truyện trên màn hình để lưu.', 4)
+            return
+          }
+          const ctxGoc = layCtxMau(el)
+          const src = el.currentSrc || el.src || el.dataset?.translationCanvasId || ''
+          const lop = src ? timLop(src) : document.querySelector(`.${LOP_CLASS}`)
+          const W = el.naturalWidth || el.width || 0
+          const H = el.naturalHeight || el.height || 0
+          if (!ctxGoc || W < 50 || H < 50) {
+            xong('Hãy dịch trang này trước khi bấm Lưu ảnh.', 4)
+            return
+          }
+          const cOut = document.createElement('canvas')
+          cOut.width = W
+          cOut.height = H
+          const ctxOut = cOut.getContext('2d')
+          ctxOut.drawImage(ctxGoc.canvas, 0, 0, W, H)
+
+          if (lop) {
+            const rLop = lop.getBoundingClientRect()
+            const tlX = W / Math.max(1, rLop.width)
+            const tlY = H / Math.max(1, rLop.height)
+
+            // Vẽ các lớp xoá chữ gốc (`translation-anh-sach`)
+            const dsLopChe = lop.querySelectorAll('.translation-anh-sach')
+            for (const lc of dsLopChe) {
+              const bgUrl = (lc.style.backgroundImage || '').replace(/^url\(["']?/, '').replace(/["']?\)$/, '')
+              const rChe = lc.getBoundingClientRect()
+              const dx = (rChe.left - rLop.left) * tlX
+              const dy = (rChe.top - rLop.top) * tlY
+              const dw = rChe.width * tlX
+              const dh = rChe.height * tlY
+              if (bgUrl.startsWith('data:image/')) {
+                const imgPatch = new Image()
+                await new Promise((res) => { imgPatch.onload = res; imgPatch.onerror = res; imgPatch.src = bgUrl })
+                ctxOut.drawImage(imgPatch, dx, dy, dw, dh)
+              }
+            }
+
+            // Vẽ chữ dịch trong từng bóng thoại (`translation-hop-chu`)
+            const dsHop = lop.querySelectorAll('.translation-hop-chu')
+            for (const hop of dsHop) {
+              const span = hop.querySelector('span')
+              const text = (span?.innerText || hop.innerText || '').trim()
+              if (!text) continue
+              const rHop = hop.getBoundingClientRect()
+              const cx = (rHop.left - rLop.left + rHop.width * 0.5) * tlX
+              const cy = (rHop.top - rLop.top + rHop.height * 0.5) * tlY
+              const maxW = Math.max(24, (rHop.width - 6) * tlX)
+              const pxCss = parseFloat(getComputedStyle(hop).fontSize) || 14
+              const pxCanvas = Math.max(12, Math.round(pxCss * tlX))
+              const fontCss = getComputedStyle(hop).fontFamily || 'sans-serif'
+              const nenToi = hop.dataset.nenToi === '1'
+
+              ctxOut.save()
+              ctxOut.font = `${pxCanvas}px ${fontCss}`
+              ctxOut.textAlign = 'center'
+              ctxOut.textBaseline = 'middle'
+
+              const tu = text.split(/\s+/)
+              const dong = []
+              let dongHienTai = ''
+              for (const w of tu) {
+                const thu = dongHienTai ? `${dongHienTai} ${w}` : w
+                if (ctxOut.measureText(thu).width > maxW && dongHienTai) {
+                  dong.push(dongHienTai)
+                  dongHienTai = w
+                } else {
+                  dongHienTai = thu
+                }
+              }
+              if (dongHienTai) dong.push(dongHienTai)
+
+              const caoDong = pxCanvas * 1.18
+              const yBatDau = cy - ((dong.length - 1) * caoDong) * 0.5
+              ctxOut.lineJoin = 'round'
+              ctxOut.lineWidth = Math.max(2, Math.round(pxCanvas * 0.14))
+              ctxOut.strokeStyle = nenToi ? '#000000' : '#ffffff'
+              ctxOut.fillStyle = nenToi ? '#ffffff' : '#000000'
+
+              dong.forEach((d, i) => {
+                const y = yBatDau + i * caoDong
+                ctxOut.strokeText(d, cx, y)
+                ctxOut.fillText(d, cx, y)
+              })
+              ctxOut.restore()
+            }
+          }
+
+          const urlPng = cOut.toDataURL('image/png')
+          const a = document.createElement('a')
+          a.href = urlPng
+          a.download = `trang-truyen-da-dich-${Date.now()}.png`
+          document.body.appendChild(a)
+          a.click()
+          a.remove()
+          xong('✅ Đã lưu ảnh trang truyện đã dịch (PNG)!', 4)
+        } catch (err) {
+          xong(`Không lưu được ảnh: ${err?.message || err}`, 5)
+        }
+      })
+
       const nut = document.createElement('button')
       nut.id = 'translation-cong-tac-goc'
       nut.type = 'button'
@@ -1363,7 +1502,7 @@ void (async () => {
       nut.style.cssText = kieuNut
       nut.addEventListener('click', () => datAnLopPhu(!window[CO].dangAnLopPhu))
 
-      thanh.append(nutDich, nutChapter, nutCuon, nutSnip, nutFont, nutChuNho, nutChuTo, nut)
+      thanh.append(nutDich, nutChapter, nutCuon, nutSnip, nutDichRa, nutFont, nutChuNho, nutChuTo, nutLuuAnh, nut)
       document.documentElement.appendChild(thanh)
     }
   }
@@ -2526,6 +2665,8 @@ void (async () => {
 
   async function dichCaChapter() {
     window[CO].dangChayBulk = true
+    await layCauHinhHienTai()
+    caiCongTacSoSanhGoc()
     const vi_tri_dau = window.scrollY
     let dung_lai = false
 
@@ -2708,6 +2849,8 @@ void (async () => {
 
   async function dichTrangHienTai({ tuDongCuon = false } = {}) {
     window[CO].dangChay = true
+    await layCauHinhHienTai()
+    caiCongTacSoSanhGoc()
     if (!bang.isConnected) document.body.appendChild(bang)
     bang.style.display = ''
 
