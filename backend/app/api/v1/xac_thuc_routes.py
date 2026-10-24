@@ -64,6 +64,12 @@ _THOI_HAN_XAC_NHAN_EMAIL_GIAY = 24 * 3600
 #: Khoá Cloudflare Turnstile chính thức của hệ thống comic.io.vn.
 _CF_TURNSTILE_SITE_KEY_MAC_DINH = "0x4AAAAAAFjgaHej0056M8hW"
 _CF_TURNSTILE_SECRET_KEY_MAC_DINH = "0x4AAAAAAFjgaMk3b6UZEl-lrYGA91gc1Lk"
+_SUPABASE_URL_CHINH_THUC = "https://wtwnbagcqyedindtcadv.supabase.co"
+_SUPABASE_ANON_KEY_CHINH_THUC = (
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+    "eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind0d25iYWdjcXllZGluZHRjYWR2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwOTA2NjMsImV4cCI6MjA4ODY2NjY2M30."
+    "s0fLtsS-EWyeodWwhhdonHNTn9v2l13xcZSJtK9pD80"
+)
 
 
 def _khoa_ky_thach_thuc(settings: Settings) -> bytes:
@@ -135,11 +141,13 @@ async def _xac_thuc_cloudflare_turnstile(
 async def _gui_email_xac_nhan_supabase(
     email: str, redirect_url: str, settings: Settings
 ) -> tuple[bool, str | None]:
-    """Gửi email chứa liên kết kích hoạt tài khoản thông qua Supabase Auth (`/auth/v1/otp` hoặc `/auth/v1/signup`)."""
+    """Gửi email chứa liên kết kích hoạt tài khoản thông qua Supabase Auth (`/auth/v1/signup`, `/auth/v1/resend` hoặc `/auth/v1/otp`)."""
     base_url = settings.supabase_url.strip().rstrip("/")
-    api_key = (settings.supabase_anon_key or settings.supabase_service_key).strip()
+    if not base_url or "wtwnbagcqyedindtcadv" not in base_url:
+        base_url = _SUPABASE_URL_CHINH_THUC
+    api_key = (settings.supabase_anon_key or _SUPABASE_ANON_KEY_CHINH_THUC).strip()
     if not base_url or not api_key:
-        return False, "Chưa cấu hình SUPABASE_URL / SUPABASE_SERVICE_KEY."
+        return False, "Chưa cấu hình SUPABASE_URL / SUPABASE_ANON_KEY."
 
     headers = {
         "apikey": api_key,
@@ -148,8 +156,44 @@ async def _gui_email_xac_nhan_supabase(
     }
     encoded_redirect = urllib.parse.quote(redirect_url, safe="")
     try:
-        async with httpx.AsyncClient(timeout=12.0) as client:
-            # Ưu tiên gọi `/auth/v1/otp` (Magic Link / Confirm Email) để gửi thư xác nhận ngay cả khi user đã tồn tại trên Supabase
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            # 1. Gọi `/auth/v1/signup` để gửi email Confirm Signup chuẩn của Supabase
+            r_signup = await client.post(
+                f"{base_url}/auth/v1/signup?redirect_to={encoded_redirect}",
+                headers=headers,
+                json={
+                    "email": email,
+                    "password": f"Verify_{secrets.token_urlsafe(12)}!9",
+                    "options": {"emailRedirectTo": redirect_url},
+                },
+            )
+            if r_signup.status_code in (200, 201):
+                # Nếu user đã tồn tại trên Supabase, gọi thêm `/auth/v1/resend` hoặc `/auth/v1/otp` để chắc chắn gửi lại mail mới
+                await client.post(
+                    f"{base_url}/auth/v1/resend",
+                    headers=headers,
+                    json={
+                        "type": "signup",
+                        "email": email,
+                        "options": {"emailRedirectTo": redirect_url},
+                    },
+                )
+                return True, None
+
+            # 2. Dự phòng gọi `/auth/v1/resend` (cho tài khoản đã gửi mail trước đó)
+            r_resend = await client.post(
+                f"{base_url}/auth/v1/resend",
+                headers=headers,
+                json={
+                    "type": "signup",
+                    "email": email,
+                    "options": {"emailRedirectTo": redirect_url},
+                },
+            )
+            if r_resend.status_code in (200, 201):
+                return True, None
+
+            # 3. Dự phòng gọi `/auth/v1/otp` (Magic Link / Confirm Email)
             r_otp = await client.post(
                 f"{base_url}/auth/v1/otp?redirect_to={encoded_redirect}",
                 headers=headers,
@@ -160,19 +204,6 @@ async def _gui_email_xac_nhan_supabase(
                 },
             )
             if r_otp.status_code in (200, 201):
-                return True, None
-
-            # Dự phòng `/auth/v1/signup`
-            r_signup = await client.post(
-                f"{base_url}/auth/v1/signup?redirect_to={encoded_redirect}",
-                headers=headers,
-                json={
-                    "email": email,
-                    "password": f" Verify_{secrets.token_urlsafe(12)}!9",
-                    "options": {"emailRedirectTo": redirect_url},
-                },
-            )
-            if r_signup.status_code in (200, 201):
                 return True, None
 
             chi_tiet = ""
@@ -196,8 +227,8 @@ async def lay_thach_thuc_bot(
     site_key = settings.cloudflare_turnstile_site_key.strip() or _CF_TURNSTILE_SITE_KEY_MAC_DINH
     co_supabase_email = bool(
         settings.bat_xac_nhan_email_dang_ky
-        and settings.supabase_url.strip()
-        and settings.supabase_service_key.strip()
+        and (settings.supabase_url.strip() or _SUPABASE_URL_CHINH_THUC)
+        and (settings.supabase_anon_key.strip() or _SUPABASE_ANON_KEY_CHINH_THUC)
     )
     return {
         "turnstile_site_key": site_key,
@@ -294,8 +325,8 @@ async def dang_ky(
         not dau_tien
         and bat_buoc_chong_bot
         and settings.bat_xac_nhan_email_dang_ky
-        and settings.supabase_url.strip()
-        and settings.supabase_service_key.strip()
+        and (settings.supabase_url.strip() or _SUPABASE_URL_CHINH_THUC)
+        and (settings.supabase_anon_key.strip() or _SUPABASE_ANON_KEY_CHINH_THUC)
     )
 
     try:
@@ -347,9 +378,11 @@ async def xac_nhan_email(
         email_xac_nhan = _giai_token_xac_nhan_email(payload.token_xac_nhan, settings)
 
     # Nếu liên kết trả về `#access_token=...` từ Supabase Auth, xác minh trực tiếp với Supabase
-    if not email_xac_nhan and payload.supabase_access_token and settings.supabase_url.strip():
+    if not email_xac_nhan and payload.supabase_access_token:
         base_url = settings.supabase_url.strip().rstrip("/")
-        api_key = (settings.supabase_anon_key or settings.supabase_service_key).strip()
+        if not base_url or "wtwnbagcqyedindtcadv" not in base_url:
+            base_url = _SUPABASE_URL_CHINH_THUC
+        api_key = (settings.supabase_anon_key or _SUPABASE_ANON_KEY_CHINH_THUC).strip()
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 r_user = await client.get(

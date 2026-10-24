@@ -26,9 +26,13 @@ class Settings(BaseSettings):
     #: Trần một hiện vật khi lưu trong CSDL. Chặn sớm để không nhét cả gói CBZ khổng lồ vào một
     #: hàng bytea rồi phát hiện lúc đọc. 0 = không giới hạn.
     storage_pg_max_artifact_mb: int = 96
-    supabase_url: str = ""
+    supabase_url: str = "https://wtwnbagcqyedindtcadv.supabase.co"
     supabase_service_key: str = ""
-    supabase_anon_key: str = ""
+    supabase_anon_key: str = (
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+        "eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind0d25iYWdjcXllZGluZHRjYWR2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwOTA2NjMsImV4cCI6MjA4ODY2NjY2M30."
+        "s0fLtsS-EWyeodWwhhdonHNTn9v2l13xcZSJtK9pD80"
+    )
     supabase_bucket: str = "manga-pages"
     #: Cloudflare Turnstile (chống bot thật bằng widget của Cloudflare)
     cloudflare_turnstile_site_key: str = "0x4AAAAAAFjgaHej0056M8hW"
