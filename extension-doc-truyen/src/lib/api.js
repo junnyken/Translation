@@ -161,13 +161,43 @@ export async function dangNhap(diaChi, email, matKhau) {
 
 export async function dangKy(diaChi, email, tenHien, matKhau) {
   const goc = chuanHoaDiaChi(diaChi)
+  let maThachThuc = null
+  try {
+    const rBot = await fetch(`${goc}/api/v1/auth/thach-thuc-bot`)
+    if (rBot && rBot.ok) {
+      const dBot = await rBot.json()
+      maThachThuc = dBot?.ma_thach_thuc || null
+    }
+  } catch { /* bỏ qua nếu môi trường test mock chỉ định tuyến /auth/register */ }
+  const payload = { email, ten_hien: tenHien || '', mat_khau: matKhau }
+  if (maThachThuc) payload.ma_thach_thuc = maThachThuc
   const res = await fetch(`${goc}/api/v1/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, ten_hien: tenHien || '', mat_khau: matKhau }),
+    body: JSON.stringify(payload),
   })
   await doc(res)
   return dangNhap(goc, email, matKhau)
+}
+
+/** Mở trang web chính thức kèm tự động chuyển hướng sang `https://translation.vibe1.tinhgon.xyz`
+ *  nếu mạng hiện tại của người dùng (như 4G Viettel) đang chặn DNS `comic.io.vn`.
+ */
+export async function moTrangWebThongMinh() {
+  let url = 'https://comic.io.vn'
+  try {
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 1400)
+    await fetch('https://comic.io.vn/favicon.ico', { mode: 'no-cors', cache: 'no-store', signal: ctrl.signal })
+    clearTimeout(timer)
+  } catch {
+    url = 'https://translation.vibe1.tinhgon.xyz'
+  }
+  if (globalThis.chrome?.tabs?.create) {
+    chrome.tabs.create({ url })
+  } else {
+    window.open(url, '_blank', 'noopener')
+  }
 }
 
 export async function layHanMuc() {

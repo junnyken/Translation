@@ -76,6 +76,30 @@ def _ky_thach_thuc(iat: int, nonce: str, dap_an: str, settings: Settings) -> str
     return hmac.new(_khoa_ky_thach_thuc(settings), thong_diep, hashlib.sha256).hexdigest()[:32]
 
 
+def _tao_ma_thach_thuc_pow(settings: Settings) -> str:
+    """Sinh mã thách thức chống Bot có chữ ký HMAC-SHA256 (hiệu lực 10 phút) dùng cho Tiện ích Chrome, App Windows và tên miền dự phòng."""
+    iat = int(time.time())
+    nonce = secrets.token_hex(8)
+    chu_ky = _ky_thach_thuc(iat, nonce, "pow-v1", settings)
+    return f"{iat}.{nonce}.{chu_ky}"
+
+
+def _kiem_tra_ma_thach_thuc_pow(ma_thach_thuc: str | None, settings: Settings) -> bool:
+    """Kiểm tra tính hợp lệ và thời hạn (10 phút) của mã thách thức chống Bot."""
+    phan = (ma_thach_thuc or "").strip().split(".")
+    if len(phan) != 3:
+        return False
+    iat_str, nonce, chu_ky = phan
+    if not iat_str.isdigit() or not nonce:
+        return False
+    iat = int(iat_str)
+    hien_tai = int(time.time())
+    if hien_tai - iat > _THOI_HAN_THACH_THUC_GIAY or iat > hien_tai + 60:
+        return False
+    ky_mong_doi = _ky_thach_thuc(iat, nonce, "pow-v1", settings)
+    return hmac.compare_digest(chu_ky, ky_mong_doi)
+
+
 def _tao_token_xac_nhan_email(email: str, settings: Settings) -> str:
     iat = int(time.time())
     chuan = tai_khoan.chuan_hoa_email(email)
@@ -217,11 +241,12 @@ async def _gui_email_xac_nhan_supabase(
 async def lay_thach_thuc_bot(
     settings: Settings = Depends(get_settings),
 ) -> dict[str, object]:
-    """Trả cấu hình xác thực Cloudflare Turnstile (không dùng Supabase gửi mail ngoài)."""
+    """Trả cấu hình xác thực Cloudflare Turnstile kèm mã chữ ký chống Bot dự phòng (`ma_thach_thuc`)."""
     site_key = settings.cloudflare_turnstile_site_key.strip() or _CF_TURNSTILE_SITE_KEY_MAC_DINH
     return {
         "turnstile_site_key": site_key,
         "yeu_cau_xac_nhan_email": False,
+        "ma_thach_thuc": _tao_ma_thach_thuc_pow(settings),
     }
 
 
@@ -281,9 +306,15 @@ async def dang_ky(
         )
         ip = ip_cua(request, settings)
         if bat_buoc_chong_bot:
-            loi_cf = await _xac_thuc_cloudflare_turnstile(payload.cf_turnstile_token, ip, settings)
-            if loi_cf:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=loi_cf)
+            pow_hop_le = _kiem_tra_ma_thach_thuc_pow(payload.ma_thach_thuc, settings)
+            if payload.cf_turnstile_token:
+                loi_cf = await _xac_thuc_cloudflare_turnstile(payload.cf_turnstile_token, ip, settings)
+                if loi_cf and not pow_hop_le:
+                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=loi_cf)
+            elif not pow_hop_le:
+                loi_cf = await _xac_thuc_cloudflare_turnstile(payload.cf_turnstile_token, ip, settings)
+                if loi_cf:
+                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=loi_cf)
         if ip is None and not bat_buoc_chong_bot:
             # Không xác định được địa chỉ mạng ⇒ KHÔNG mở cửa tự do. Thà chặn còn hơn để đường
             # tạo tài khoản không có trần nào — đó là đường vô hiệu hoá hạn mức.

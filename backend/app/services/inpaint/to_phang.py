@@ -188,7 +188,76 @@ def _to_net_trong_nen_da_so(anh, o, ngoai, lay) -> bool:
     nen_khac = trong & ~to
     giu = cv2.dilate(nen_khac.astype(np.uint8), np.ones((3, 3), np.uint8)).astype(bool)
     anh[y1:y2, x1:x2][~giu] = mau
+    _xoa_net_chu_tho_ra_ngoai(anh, (x1, y1, x2, y2), mau, None)
     return True
+
+
+def _xoa_net_chu_tho_ra_ngoai(
+    anh: np.ndarray,
+    o: tuple[int, int, int, int],
+    mau: np.ndarray,
+    phu_khac: np.ndarray | None = None,
+) -> None:
+    """Xoá nốt các nét chữ / dấu câu bị bộ nhận diện (Gemini) khoanh hụt thò ra ngoài mép `o` trong lòng bong bóng.
+
+    Chỉ xoá các thành phần liên thông khác màu `mau` nằm trong vùng đệm quanh `o` mà:
+    1) Chạm hoặc nằm sát (`<= 5px`) hộp `o`, VÀ
+    2) KHÔNG chạm biên ngoài của vùng đệm (tức là nằm gọn hoàn toàn trong lòng nền phẳng `mau`, không phải viền bong bóng).
+    """
+    import cv2
+
+    cao, rong = anh.shape[:2]
+    x1, y1, x2, y2 = o
+    w, h = x2 - x1, y2 - y1
+    if w <= 2 or h <= 2:
+        return
+    pad = max(10, min(32, int(round(0.22 * max(w, h)))))
+    ex1, ey1 = max(0, x1 - pad), max(0, y1 - pad)
+    ex2, ey2 = min(rong, x2 + pad), min(cao, y2 + pad)
+    ew, eh = ex2 - ex1, ey2 - ey1
+    if ew <= w + 2 and eh <= h + 2:
+        return
+
+    vung = anh[ey1:ey2, ex1:ex2].astype(np.int16)
+    khac_nen = (np.abs(vung - mau.astype(np.int16)) > 18).any(axis=2)
+    if not khac_nen.any():
+        return
+
+    so, nhan, stats, _ = cv2.connectedComponentsWithStats(khac_nen.astype(np.uint8), connectivity=8)
+    if so <= 1:
+        return
+
+    cx1, cy1 = x1 - ex1, y1 - ey1
+    cx2, cy2 = x2 - ex1, y2 - ey1
+    gan_hop = max(4, min(10, pad // 2))
+    mat_na_xoa = np.zeros((eh, ew), dtype=np.uint8)
+
+    for k in range(1, so):
+        bx = int(stats[k, cv2.CC_STAT_LEFT])
+        by = int(stats[k, cv2.CC_STAT_TOP])
+        bw = int(stats[k, cv2.CC_STAT_WIDTH])
+        bh = int(stats[k, cv2.CC_STAT_HEIGHT])
+        area = int(stats[k, cv2.CC_STAT_AREA])
+        # Thành phần chạm biên ngoài của cửa sổ mở rộng => có thể là viền bong bóng hoặc khung tranh => giữ nguyên!
+        if bx <= 1 or by <= 1 or (bx + bw) >= ew - 1 or (by + bh) >= eh - 1:
+            continue
+        # Phải nằm gần hoặc giao với hộp chữ gốc `[cx1..cx2, cy1..cy2]`
+        if (bx + bw) < (cx1 - gan_hop) or bx > (cx2 + gan_hop) or (by + bh) < (cy1 - gan_hop) or by > (cy2 + gan_hop):
+            continue
+        if bw > max(w * 0.85, 48) and bh > max(h * 0.85, 48):
+            continue
+        if area > (w * h * 0.45):
+            continue
+        mat_na_xoa[nhan == k] = 255
+
+    if not mat_na_xoa.any():
+        return
+    # Nở 2px để phủ sạch viền khử răng cưa JPEG quanh nét chữ thò ra
+    k_no = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    vung_to = cv2.dilate(mat_na_xoa, k_no) > 0
+    if phu_khac is not None:
+        vung_to &= ~phu_khac[ey1:ey2, ex1:ex2]
+    anh[ey1:ey2, ex1:ex2][vung_to] = mau
 
 
 def to_phang(anh: np.ndarray, khung_da_noi: list[BBox]) -> KetQuaToPhang:
@@ -265,6 +334,7 @@ def to_phang(anh: np.ndarray, khung_da_noi: list[BBox]) -> KetQuaToPhang:
             anh[ty1:ty2, tx1:tx2][vung] = mau
         else:
             anh[y1:y2, x1:x2] = mau
+        _xoa_net_chu_tho_ra_ngoai(anh, (x1, y1, x2, y2), mau, None)
         da_to.append(i)
 
     return KetQuaToPhang(da_to=tuple(da_to), con_lai=tuple(con_lai))

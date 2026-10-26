@@ -60,10 +60,12 @@ export default function ManDangNhap({ onXong, onQuayLai }) {
   const [daCoTaiKhoan, setDaCoTaiKhoan] = useState(null)
   const [emailChoXacNhan, setEmailChoXacNhan] = useState(null)
 
-  // Cloudflare Turnstile (Verify you are human)
+  // Cloudflare Turnstile (Verify you are human) + Mã chữ ký chống Bot dự phòng (`maThachThuc`)
   const [turnstileSiteKey, setTurnstileSiteKey] = useState('0x4AAAAAAFjgaHej0056M8hW')
   const [yeuCauXacNhanEmail, setYeuCauXacNhanEmail] = useState(false)
   const [cfToken, setCfToken] = useState('')
+  const [maThachThuc, setMaThachThuc] = useState('')
+  const [turnstileLoi, setTurnstileLoi] = useState(false)
   const turnstileRef = useRef(null)
   const widgetIdRef = useRef(null)
 
@@ -80,6 +82,7 @@ export default function ManDangNhap({ onXong, onQuayLai }) {
     api.layThachThucBot()
       .then((r) => {
         if (r?.turnstile_site_key) setTurnstileSiteKey(r.turnstile_site_key)
+        if (r?.ma_thach_thuc) setMaThachThuc(r.ma_thach_thuc)
         if (typeof r?.yeu_cau_xac_nhan_email === 'boolean') {
           setYeuCauXacNhanEmail(r.yeu_cau_xac_nhan_email)
         }
@@ -95,15 +98,16 @@ export default function ManDangNhap({ onXong, onQuayLai }) {
         widgetIdRef.current = null
       }
       setCfToken('')
+      setTurnstileLoi(false)
       widgetIdRef.current = window.turnstile.render(turnstileRef.current, {
         sitekey: turnstileSiteKey,
         theme: 'light',
-        callback: (token) => setCfToken(token || ''),
+        callback: (token) => { setCfToken(token || ''); setTurnstileLoi(false) },
         'expired-callback': () => setCfToken(''),
-        'error-callback': () => setCfToken(''),
+        'error-callback': () => { setCfToken(''); setTurnstileLoi(true) },
       })
     } catch {
-      // Bỏ qua trong môi trường test jsdom
+      setTurnstileLoi(true)
     }
   }, [turnstileSiteKey])
 
@@ -142,7 +146,7 @@ export default function ManDangNhap({ onXong, onQuayLai }) {
       setLoi(loiEmailSpam)
       return
     }
-    if (canChongBot && !cfToken) {
+    if (canChongBot && !cfToken && !(turnstileLoi && maThachThuc)) {
       setLoi(
         laEn
           ? 'Please complete the Cloudflare security verification (Verify you are human) first.'
@@ -156,6 +160,7 @@ export default function ManDangNhap({ onXong, onQuayLai }) {
         if (khoa.trim()) api.luuKhoa(khoa)
         const nguoiMoi = await api.dangKy(email.trim(), tenHien.trim(), matKhau, {
           cf_turnstile_token: cfToken || null,
+          ma_thach_thuc: maThachThuc || null,
         })
         if (nguoiMoi && nguoiMoi.dang_hoat_dong === false) {
           setEmailChoXacNhan(nguoiMoi.email || email.trim())

@@ -4,7 +4,7 @@
  * máy chủ cấp mới nằm lại trong `chrome.storage.local`. Mã phiên thu hồi được (đăng xuất là
  * mất hiệu lực ngay), mật khẩu thì không.
  */
-import { chuanHoaDiaChi, dangKy, dangNhap, dangXuat, docCauHinh, luuCauHinh, toiLaAi } from '../lib/api.js'
+import { chuanHoaDiaChi, dangKy, dangNhap, dangXuat, docCauHinh, luuCauHinh, moTrangWebThongMinh, toiLaAi } from '../lib/api.js'
 
 const $ = (id) => document.getElementById(id)
 const MAY_CHU_GOI_Y = 'https://translation-api.vibe1.tinhgon.xyz'
@@ -123,6 +123,13 @@ $('nut-thoat').addEventListener('click', async () => {
   await dangXuat()
   bao('Đã đăng xuất.', 'ok')
   await ve()
+})
+
+document.querySelectorAll('a[href^="https://comic.io.vn"]').forEach((a) => {
+  a.addEventListener('click', (e) => {
+    e.preventDefault()
+    moTrangWebThongMinh()
+  })
 })
 
 chonTab('dang-nhap')

@@ -1,5 +1,5 @@
 /** Popup khi bấm icon (E19-4 + E104 — Giao diện hiện đại, cố định chế độ Xoá chữ & căn chữ LaMa). */
-import { docCauHinh, layHanMuc, luuCauHinh } from '../lib/api.js'
+import { docCauHinh, layHanMuc, luuCauHinh, moTrangWebThongMinh } from '../lib/api.js'
 
 const $ = (id) => document.getElementById(id)
 const bao = (chu, loai) => {
@@ -167,6 +167,13 @@ $('mo-cai-dat')?.addEventListener('click', (e) => {
   e.preventDefault()
   chrome.runtime.openOptionsPage()
   window.close()
+})
+
+document.querySelectorAll('a[href^="https://comic.io.vn"]').forEach((a) => {
+  a.addEventListener('click', (e) => {
+    e.preventDefault()
+    moTrangWebThongMinh()
+  })
 })
 
 async function tiem(cheDoChay = 'don') {
