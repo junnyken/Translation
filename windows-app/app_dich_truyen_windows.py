@@ -339,6 +339,88 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
             if vung_cam[i]:
                 ngoai_bong[i] = 1
 
+        # Bước 2.5: Phân tích thành phần liên thông 2D (Connected Component Analysis - CCA)
+        # Quét nới rộng 25% quanh bbox chữ gốc `cx0..cy1` để gom sạch mọi nét chữ hoặc dấu câu
+        # bị Gemini cắt hụt thò ra ngoài bbox, rồi nở viền (dilate) 4px chống răng cưa.
+        pad_cca_x = max(10, int(round((cx1 - cx0) * 0.25)))
+        pad_cca_y = max(10, int(round((cy1 - cy0) * 0.25)))
+        sx0 = max(1, cx0 - pad_cca_x)
+        sy0 = max(1, cy0 - pad_cca_y)
+        sx1 = min(rw - 1, cx1 + pad_cca_x)
+        sy1 = min(rh - 1, cy1 + pad_cca_y)
+        da_tham_cca = bytearray(N)
+        dien_tich_max_net = max(160, int(round((cx1 - cx0) * (cy1 - cy0) * 0.35)))
+
+        for sy in range(sy0, sy1):
+            base_s = sy * rw
+            for sx in range(sx0, sx1):
+                s_idx = base_s + sx
+                if da_tham_cca[s_idx] or la_nen[s_idx] or vung_cam[s_idx]:
+                    continue
+                comp = [s_idx]
+                da_tham_cca[s_idx] = 1
+                cham_bien_roi = False
+                min_cx = max_cx = sx
+                min_cy = max_cy = sy
+                head_c = 0
+                while head_c < len(comp):
+                    cur = comp[head_c]
+                    head_c += 1
+                    cpx = cur % rw
+                    cpy = cur // rw
+                    if cpx <= 1 or cpx >= rw - 2 or cpy <= 1 or cpy >= rh - 2:
+                        cham_bien_roi = True
+                    if cpx < min_cx:
+                        min_cx = cpx
+                    if cpx > max_cx:
+                        max_cx = cpx
+                    if cpy < min_cy:
+                        min_cy = cpy
+                    if cpy > max_cy:
+                        max_cy = cpy
+                    if len(comp) > dien_tich_max_net:
+                        continue
+                    for dj in (-1, 0, 1):
+                        ny = cpy + dj
+                        if ny < sy0 or ny >= sy1:
+                            continue
+                        nb = ny * rw
+                        for di in (-1, 0, 1):
+                            if di == 0 and dj == 0:
+                                continue
+                            nx = cpx + di
+                            if nx < sx0 or nx >= sx1:
+                                continue
+                            np = nb + nx
+                            if not da_tham_cca[np] and not la_nen[np] and not vung_cam[np]:
+                                da_tham_cca[np] = 1
+                                comp.append(np)
+                w_c = max_cx - min_cx + 1
+                h_c = max_cy - min_cy + 1
+                if (
+                    not cham_bien_roi
+                    and len(comp) <= dien_tich_max_net
+                    and w_c < (sx1 - sx0) * 0.90
+                    and h_c < (sy1 - sy0) * 0.90
+                ):
+                    for p_idx in comp:
+                        ngoai_bong[p_idx] = 0
+
+        # Nở viền (Dilation 3px) quanh toàn bộ các điểm `ngoai_bong == 0` để xoá sạch viền mờ JPEG
+        ban_goc_ngoai = bytes(ngoai_bong)
+        for py in range(2, rh - 2):
+            base = py * rw
+            for px in range(2, rw - 2):
+                pos = base + px
+                if ban_goc_ngoai[pos] == 0:
+                    for dj in range(-3, 4):
+                        nb = (py + dj) * rw
+                        for di in range(-3, 4):
+                            if di * di + dj * dj <= 10:
+                                np = nb + (px + di)
+                                if 0 <= np < N and not vung_cam[np]:
+                                    ngoai_bong[np] = 0
+
         # Tô sạch lòng bong bóng (`ngoai_bong == 0`) bằng màu nền `(bg_r, bg_g, bg_b)`
         min_x, min_y, max_x, max_y = cx0, cy0, cx1, cy1
         tong_x, tong_y, dem_trong = 0, 0, 0
@@ -514,6 +596,163 @@ def gui_multipart_trang(
     req = urllib.request.Request(url, data=body, headers=headers, method="POST")
     with urllib.request.urlopen(req, timeout=120) as resp:
         return resp.read()
+
+
+def dich_anh_local_gguf_tren_may_khach(
+    img_bytes: bytes,
+    *,
+    ngon_ngu_nguon: str = "ja",
+    ngon_ngu_dich: str = "vi",
+    tu_dien_rieng: str = "",
+) -> list[dict]:
+    """
+    Chạy Offline 100% trên máy khách bằng mô hình GGUF cục bộ:
+    - Tự động kết nối Ollama (`http://127.0.0.1:11434`) hoặc LM Studio / llama.cpp GGUF server (`http://127.0.0.1:1234`).
+    - Hoàn toàn KHÔNG gửi ảnh lên máy chủ của chúng ta -> 0% tải máy chủ, 0 tốn phí API, không trừ lượt.
+    """
+    import base64
+
+    W, H = 1000, 1400
+    if Image is not None:
+        try:
+            with Image.open(io.BytesIO(img_bytes)) as im_tmp:
+                W, H = im_tmp.size
+        except Exception:
+            pass
+
+    anh_b64 = base64.b64encode(img_bytes).decode("ascii")
+    ten_dich = "English" if ngon_ngu_dich == "en" else "Tiếng Việt tự nhiên, chuẩn phong cách truyện tranh"
+    doan_ngu_canh = (
+        f"\nNgữ cảnh xưng hô & thuật ngữ từ các trang trước (hãy giữ đồng nhất):\n{tu_dien_rieng}\n"
+        if tu_dien_rieng
+        else ""
+    )
+    prompt = (
+        f"Bạn là AI nhận diện và dịch truyện tranh chuyên nghiệp (ngôn ngữ gốc: {ngon_ngu_nguon} -> dịch sang: {ten_dich})."
+        f"{doan_ngu_canh}\n"
+        "Hãy tìm TẤT CẢ các bóng thoại trong trang truyện này, đọc chữ gốc và dịch sang ngôn ngữ đích.\n"
+        "Trả về DUY NHẤT một mảng JSON hợp lệ theo cấu trúc:\n"
+        '[{"box_2d":[ymin,xmin,ymax,xmax],"chu_goc":"...","ban_dich":"..."}]\n'
+        "Trong đó ymin, xmin, ymax, xmax được chuẩn hoá trên thang 0..1000."
+    )
+
+    raw_text = ""
+    da_chay = False
+
+    # 1. Thử Ollama cục bộ trên máy khách (http://127.0.0.1:11434)
+    try:
+        req_tags = urllib.request.Request("http://127.0.0.1:11434/api/tags", method="GET")
+        with urllib.request.urlopen(req_tags, timeout=4) as r_tags:
+            d_tags = json.loads(r_tags.read().decode("utf-8"))
+            ds_models = [m.get("name", "") for m in (d_tags.get("models") or [])]
+            model_chon = next(
+                (
+                    m
+                    for m in ds_models
+                    if re.search(r"qwen2\.5vl|qwen2-vl|gemma3|minicpm-v|llava|llama3\.2-vision|internvl|pixtral", m, re.I)
+                ),
+                ds_models[0] if ds_models else "",
+            )
+            if not model_chon:
+                raise RuntimeError(
+                    "Ollama trên máy bạn chưa cài model GGUF Vision nào. "
+                    "Hãy bấm nút '💻 Kiểm tra / Tải GGUF' hoặc chạy: ollama pull qwen2.5vl:7b"
+                )
+            payload_ollama = json.dumps(
+                {
+                    "model": model_chon,
+                    "stream": False,
+                    "format": "json",
+                    "messages": [{"role": "user", "content": prompt, "images": [anh_b64]}],
+                }
+            ).encode("utf-8")
+            req_chat = urllib.request.Request(
+                "http://127.0.0.1:11434/api/chat",
+                data=payload_ollama,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req_chat, timeout=180) as r_chat:
+                d_chat = json.loads(r_chat.read().decode("utf-8"))
+                raw_text = (d_chat.get("message") or {}).get("content") or d_chat.get("response") or ""
+                da_chay = True
+    except RuntimeError:
+        raise
+    except Exception:
+        pass
+
+    # 2. Thử LM Studio / llama.cpp GGUF server cục bộ (http://127.0.0.1:1234)
+    if not da_chay:
+        try:
+            req_m = urllib.request.Request("http://127.0.0.1:1234/v1/models", method="GET")
+            with urllib.request.urlopen(req_m, timeout=4) as r_m:
+                d_m = json.loads(r_m.read().decode("utf-8"))
+                model_id = ((d_m.get("data") or [{}])[0]).get("id") or "local-gguf-vision"
+            payload_lms = json.dumps(
+                {
+                    "model": model_id,
+                    "temperature": 0.2,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt},
+                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{anh_b64}"}},
+                            ],
+                        }
+                    ],
+                }
+            ).encode("utf-8")
+            req_c = urllib.request.Request(
+                "http://127.0.0.1:1234/v1/chat/completions",
+                data=payload_lms,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req_c, timeout=180) as r_c:
+                d_c = json.loads(r_c.read().decode("utf-8"))
+                raw_text = (((d_c.get("choices") or [{}])[0]).get("message") or {}).get("content") or ""
+                da_chay = True
+        except Exception:
+            pass
+
+    if not da_chay:
+        raise RuntimeError(
+            "Chưa phát hiện phần mềm chạy GGUF cục bộ trên máy bạn (Ollama cổng 11434 hoặc LM Studio cổng 1234). "
+            "Hãy bật Ollama (`ollama run qwen2.5vl:7b`) hoặc LM Studio Local Server để dịch Offline 0đ!"
+        )
+
+    khop = re.search(r"\[[\s\S]*\]", str(raw_text))
+    try:
+        parsed = json.loads(khop.group(0) if khop else str(raw_text))
+        danh_sach = parsed if isinstance(parsed, list) else (parsed.get("regions") or parsed.get("vung") or [])
+    except Exception:
+        danh_sach = []
+
+    vung_out: list[dict] = []
+    for m in danh_sach:
+        if not isinstance(m, dict):
+            continue
+        ban_dich = str(m.get("ban_dich") or m.get("translation") or m.get("text") or "").strip()
+        if not ban_dich:
+            continue
+        chu_goc = str(m.get("chu_goc") or m.get("original") or "").strip()
+        box = m.get("box_2d")
+        if isinstance(box, list) and len(box) == 4:
+            ymin, xmin, ymax, xmax = [float(v) for v in box]
+            thang = 1.0 if max(ymin, xmin, ymax, xmax) <= 1.05 else 1000.0
+            x = int(round((xmin / thang) * W))
+            y = int(round((ymin / thang) * H))
+            w = int(round(((xmax - xmin) / thang) * W))
+            h = int(round(((ymax - ymin) / thang) * H))
+        else:
+            x = int(round(float(m.get("x") or 0)))
+            y = int(round(float(m.get("y") or 0)))
+            w = int(round(float(m.get("w") or 120)))
+            h = int(round(float(m.get("h") or 80)))
+        if w >= 12 and h >= 12:
+            vung_out.append({"x": x, "y": y, "w": w, "h": h, "chu_goc": chu_goc, "ban_dich": ban_dich})
+    return vung_out
 
 
 def xuat_pdf_va_longstrip_chapter(
@@ -859,6 +1098,17 @@ class AppDichTruyenWindows(tk.Tk):
             command=self._quet_link_truyen,
         ).pack(side="left", padx=4)
 
+        tk.Button(
+            hang_url,
+            text="📁 Chọn Thư Mục Ảnh Có Sẵn (Offline)",
+            bg="#0d9488",
+            fg="#ffffff",
+            font=("Segoe UI", 9, "bold"),
+            relief="flat",
+            padx=10,
+            command=self._chon_thu_muc_anh_offline,
+        ).pack(side="left", padx=4)
+
         hang_chon_chap = tk.Frame(f_link, bg="#1e293b", pady=6)
         hang_chon_chap.pack(fill="x")
         tk.Label(hang_chon_chap, text="Dịch từ Chapter thứ:", bg="#1e293b", fg="#cbd5e1").pack(side="left")
@@ -872,7 +1122,7 @@ class AppDichTruyenWindows(tk.Tk):
 
         self.lbl_so_chap = tk.Label(
             hang_chon_chap,
-            text="(Hoặc dán trực tiếp danh sách nhiều link chapter vào ô nhật ký bên dưới)",
+            text="(Hoặc bấm '📁 Chọn Thư Mục Ảnh Có Sẵn' để dịch ảnh có sẵn trên máy)",
             bg="#1e293b",
             fg="#94a3b8",
         )
@@ -915,12 +1165,27 @@ class AppDichTruyenWindows(tk.Tk):
         tk.Label(r1, text="Bộ máy AI:", bg="#1e293b", fg="#cbd5e1").pack(side="left")
         self.cmb_engine = ttk.Combobox(
             r1,
-            values=["llm_context (✨ Gemini AI)", "google_fast (⚡ Google Nhanh)"],
-            width=22,
+            values=[
+                "llm_context (✨ Gemini AI)",
+                "google_fast (⚡ Google Nhanh)",
+                "local_gguf (💻 GGUF Cục bộ Offline 0đ)",
+            ],
+            width=26,
             state="readonly",
         )
         self.cmb_engine.current(0)
         self.cmb_engine.pack(side="left", padx=6)
+
+        tk.Button(
+            r1,
+            text="💻 Kiểm tra / Tải GGUF",
+            bg="#15803d",
+            fg="#ffffff",
+            font=("Segoe UI", 8, "bold"),
+            relief="flat",
+            padx=8,
+            command=self._kiem_tra_gguf_cuc_bo,
+        ).pack(side="left", padx=4)
 
         r_export = tk.Frame(f_cfg, bg="#1e293b", pady=4)
         r_export.pack(fill="x")
@@ -1155,10 +1420,101 @@ class AppDichTruyenWindows(tk.Tk):
             if ghi_nhat_ky:
                 self.ghi_log(f"⚠️ Chưa kết nối được máy chủ để kiểm tra lượt ({exc}). Mã máy đã lưu: {MA_MAY_HIEN_THI}")
 
+    def _chon_thu_muc_anh_offline(self):
+        d = filedialog.askdirectory(title="Chọn thư mục chứa ảnh truyện (hoặc chứa các thư mục Chapter) trên máy tính")
+        if not d:
+            return
+        tm = Path(d)
+        self.ent_ten_truyen.delete(0, "end")
+        self.ent_ten_truyen.insert(0, tm.name or "Truyen-Offline")
+        self.ent_url.delete(0, "end")
+        self.ent_url.insert(0, f"local_dir::{tm}")
+
+        # Kiểm tra xem trong thư mục có các thư mục con (Chapter) hay chứa ảnh trực tiếp
+        cac_tm_con = sorted([p for p in tm.iterdir() if p.is_dir()])
+        ds_chap = []
+        if cac_tm_con:
+            for idx, sub in enumerate(cac_tm_con, start=1):
+                co_anh = any(
+                    f.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp")
+                    for f in sub.iterdir()
+                    if f.is_file()
+                )
+                if co_anh:
+                    ds_chap.append(
+                        {
+                            "so": float(idx),
+                            "ten": sub.name,
+                            "url": f"local_dir::{sub}",
+                            "nhan": sub.name,
+                        }
+                    )
+        if not ds_chap:
+            ds_chap.append(
+                {
+                    "so": 1.0,
+                    "ten": "Chapter-001",
+                    "url": f"local_dir::{tm}",
+                    "nhan": tm.name,
+                }
+            )
+        self.ds_chapter_quet = ds_chap
+        self._cap_nhat_ui_sau_quet(ds_chap)
+
+    def _kiem_tra_gguf_cuc_bo(self):
+        def _worker():
+            self.ghi_log("💻 Đang kiểm tra máy chủ GGUF cục bộ trên máy tính của bạn (127.0.0.1:11434 / 1234)...")
+            # 1. Kiểm tra Ollama
+            try:
+                req = urllib.request.Request("http://127.0.0.1:11434/api/tags", method="GET")
+                with urllib.request.urlopen(req, timeout=3) as resp:
+                    d = json.loads(resp.read().decode("utf-8"))
+                    models = [m.get("name", "") for m in (d.get("models") or [])]
+                    if models:
+                        self.ghi_log(f"✅ Đã kết nối Ollama cục bộ! Các model GGUF sẵn sàng trên máy bạn: {', '.join(models)}")
+                        self.after(0, lambda: self.cmb_engine.current(2))
+                        return
+                    else:
+                        self.ghi_log("⚠️ Ollama đang chạy nhưng chưa tải model Vision. Đang mở cửa sổ tải `qwen2.5vl:7b`...")
+                        if os.name == "nt":
+                            os.system('start cmd /k "ollama pull qwen2.5vl:7b"')
+                        return
+            except Exception:
+                pass
+
+            # 2. Kiểm tra LM Studio / llama.cpp server
+            try:
+                req2 = urllib.request.Request("http://127.0.0.1:1234/v1/models", method="GET")
+                with urllib.request.urlopen(req2, timeout=3) as resp2:
+                    d2 = json.loads(resp2.read().decode("utf-8"))
+                    models2 = [m.get("id", "") for m in (d2.get("data") or [])]
+                    self.ghi_log(f"✅ Đã kết nối LM Studio / llama.cpp GGUF Server (cổng 1234): {', '.join(models2)}")
+                    self.after(0, lambda: self.cmb_engine.current(2))
+                    return
+            except Exception:
+                pass
+
+            self.ghi_log(
+                "ℹ️ Máy bạn chưa bật Ollama (cổng 11434) hoặc LM Studio (cổng 1234).\n"
+                "   -> Cách 1 (Khuyên dùng): Tải Ollama tại https://ollama.com rồi chạy lệnh: ollama run qwen2.5vl:7b\n"
+                "   -> Cách 2: Mở LM Studio -> nạp model GGUF Vision -> bật Local Server (Port 1234)."
+            )
+            if messagebox.askyesno(
+                "Cài đặt Model GGUF Offline trên máy bạn",
+                "Chưa phát hiện Ollama (127.0.0.1:11434) hoặc LM Studio (127.0.0.1:1234) trên máy bạn.\n\n"
+                "Bạn có muốn mở trang tải Ollama chính thức (miễn phí, tự động nhận GPU máy bạn) không?",
+            ):
+                webbrowser.open("https://ollama.com/download/windows")
+
+        threading.Thread(target=_worker, daemon=True).start()
+
     def _quet_link_truyen(self):
         url = self.ent_url.get().strip()
         if not url:
             messagebox.showwarning("Chưa nhập Link", "Vui lòng dán đường link truyện hoặc link chapter vào ô!")
+            return
+        if url.startswith("local_dir::"):
+            self.ghi_log("📁 Đang dùng chế độ Thư mục ảnh có sẵn trên máy.")
             return
 
         def _worker():
@@ -1194,7 +1550,7 @@ class AppDichTruyenWindows(tk.Tk):
             return
         url_chinh = self.ent_url.get().strip()
         if not self.ds_chapter_quet and not url_chinh:
-            messagebox.showwarning("Chưa có Link", "Hãy dán Link truyện hoặc Link chapter trước khi bắt đầu!")
+            messagebox.showwarning("Chưa có Link", "Hãy dán Link truyện hoặc chọn Thư mục ảnh trước khi bắt đầu!")
             return
 
         self.dang_chay = True
@@ -1215,7 +1571,7 @@ class AppDichTruyenWindows(tk.Tk):
             ngon_ngu_dich = self.cmb_tgt.get().split()[0].strip()
             loai_font = self.cmb_font.get().split()[0].strip()
             engine_dich = self.cmb_engine.get().split()[0].strip()
-            tu_dien_rieng = self.ent_tu_dien.get().strip()
+            tu_dien_goc = self.ent_tu_dien.get().strip()
             xuat_cbz = bool(self.var_cbz.get())
             xuat_pdf = bool(self.var_pdf.get())
             xuat_longstrip = bool(self.var_longstrip.get())
@@ -1227,7 +1583,12 @@ class AppDichTruyenWindows(tk.Tk):
             den_idx = min(len(self.ds_chapter_quet), int(self.spin_den.get() or len(self.ds_chapter_quet)))
             ds_chay = self.ds_chapter_quet[tu_idx - 1 : den_idx]
 
-            self.ghi_log(f"🚀 Bắt đầu dịch {len(ds_chay)} Chapter -> Lưu tại: {thu_muc_goc}")
+            che_do_ten = (
+                "💻 OFFLINE 100% GGUF TRÊN MÁY BẠN (0 tốn lượt)"
+                if engine_dich == "local_gguf"
+                else f"☁️ Máy chủ AI ({engine_dich})"
+            )
+            self.ghi_log(f"🚀 Bắt đầu dịch {len(ds_chay)} Chapter [{che_do_ten}] -> Lưu tại: {thu_muc_goc}")
 
             for i_chap, chap in enumerate(ds_chay, start=1):
                 if self.yeu_cau_dung:
@@ -1237,13 +1598,25 @@ class AppDichTruyenWindows(tk.Tk):
                 tm_chap = thu_muc_goc / ten_chap
                 tm_chap.mkdir(parents=True, exist_ok=True)
 
-                self.ghi_log(f"📂 [{i_chap}/{len(ds_chay)}] Đang quét ảnh trong {ten_chap} ({url_chap})...")
-                ds_anh = quet_anh_trang_truyen_trong_chapter(url_chap)
+                # Bộ nhớ ngữ cảnh xuyên trang trong cùng Chapter (giữ đồng nhất xưng hô & tên nhân vật)
+                bo_nho_ngu_canh_chap: list[str] = []
+
+                if url_chap.startswith("local_dir::"):
+                    tm_nguon = Path(url_chap.replace("local_dir::", "", 1))
+                    ds_anh = [
+                        f"local_file::{p}"
+                        for p in sorted(tm_nguon.iterdir())
+                        if p.is_file() and p.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp")
+                    ]
+                else:
+                    self.ghi_log(f"📂 [{i_chap}/{len(ds_chay)}] Đang quét ảnh trong {ten_chap} ({url_chap})...")
+                    ds_anh = quet_anh_trang_truyen_trong_chapter(url_chap)
+
                 if not ds_anh:
                     self.ghi_log(f"⚠️ Không tìm thấy ảnh trang truyện trong {url_chap}, bỏ qua.")
                     continue
 
-                self.ghi_log(f"   -> Tìm thấy {len(ds_anh)} trang ảnh. Bắt đầu tải & dịch...")
+                self.ghi_log(f"   -> Tìm thấy {len(ds_anh)} trang ảnh. Bắt đầu xử lý...")
                 for i_trang, url_anh in enumerate(ds_anh, start=1):
                     if self.yeu_cau_dung:
                         break
@@ -1259,36 +1632,64 @@ class AppDichTruyenWindows(tk.Tk):
                         ),
                     )
                     try:
-                        img_bytes = goi_http(url_anh, referer=url_chap)
-                        raw_post = gui_multipart_trang(
-                            f"{may_chu}/api/v1/doc-truyen/trang",
-                            img_bytes,
-                            filename=f"{i_trang:03d}.jpg",
-                            fields={
-                                "source_lang": ngon_ngu_nguon,
-                                "target_lang": ngon_ngu_dich,
-                                "engine": engine_dich,
-                                "che_do": "chi_chu",
-                                "font_style": loai_font,
-                                "tu_dien_rieng": tu_dien_rieng,
-                            },
-                            token=token,
+                        if url_anh.startswith("local_file::"):
+                            img_bytes = Path(url_anh.replace("local_file::", "", 1)).read_bytes()
+                        else:
+                            img_bytes = goi_http(url_anh, referer=url_chap)
+
+                        # Gộp từ điển cố định của người dùng + bộ nhớ ngữ cảnh 10 câu gần nhất của chapter
+                        ngu_canh_gop = "\n".join(
+                            [s for s in [tu_dien_goc, "\n".join(bo_nho_ngu_canh_chap[-10:])] if s.strip()]
                         )
-                        trang_kq = json.loads(raw_post.decode("utf-8"))
-                        page_id = trang_kq.get("page_id")
 
-                        while not trang_kq.get("xong") and not self.yeu_cau_dung:
-                            time.sleep(1.5)
-                            raw_poll = goi_http(f"{may_chu}/api/v1/doc-truyen/trang/{page_id}", token=token)
-                            trang_kq = json.loads(raw_poll.decode("utf-8"))
+                        if engine_dich == "local_gguf":
+                            vung = dich_anh_local_gguf_tren_may_khach(
+                                img_bytes,
+                                ngon_ngu_nguon=ngon_ngu_nguon,
+                                ngon_ngu_dich=ngon_ngu_dich,
+                                tu_dien_rieng=ngu_canh_gop,
+                            )
+                        else:
+                            raw_post = gui_multipart_trang(
+                                f"{may_chu}/api/v1/doc-truyen/trang",
+                                img_bytes,
+                                filename=f"{i_trang:03d}.jpg",
+                                fields={
+                                    "source_lang": ngon_ngu_nguon,
+                                    "target_lang": ngon_ngu_dich,
+                                    "engine": engine_dich,
+                                    "che_do": "chi_chu",
+                                    "font_style": loai_font,
+                                    "tu_dien_rieng": ngu_canh_gop,
+                                },
+                                token=token,
+                            )
+                            trang_kq = json.loads(raw_post.decode("utf-8"))
+                            page_id = trang_kq.get("page_id")
 
-                        if trang_kq.get("trang_thai") == "failed":
-                            raise RuntimeError(trang_kq.get("loi") or "Trang dịch lỗi trên máy chủ")
+                            while not trang_kq.get("xong") and not self.yeu_cau_dung:
+                                time.sleep(1.5)
+                                raw_poll = goi_http(f"{may_chu}/api/v1/doc-truyen/trang/{page_id}", token=token)
+                                trang_kq = json.loads(raw_poll.decode("utf-8"))
 
-                        vung = trang_kq.get("vung") or []
+                            if trang_kq.get("trang_thai") == "failed":
+                                raise RuntimeError(trang_kq.get("loi") or "Trang dịch lỗi trên máy chủ")
+
+                            vung = trang_kq.get("vung") or []
+
+                        # Cập nhật bộ nhớ ngữ cảnh xuyên trang
+                        for item_v in vung:
+                            cg = str(item_v.get("chu_goc") or "").strip()
+                            bd = str(item_v.get("ban_dich") or "").strip()
+                            if cg and bd and len(cg) <= 80 and len(bd) <= 120:
+                                dong_nc = f"{cg} = {bd}"
+                                if dong_nc not in bo_nho_ngu_canh_chap:
+                                    bo_nho_ngu_canh_chap.append(dong_nc)
+
                         anh_out = xoa_chu_va_ve_ban_dich_tren_anh(img_bytes, vung, loai_font=loai_font)
                         file_dich.write_bytes(anh_out)
-                        self._cap_nhat_han_muc()
+                        if engine_dich != "local_gguf":
+                            self._cap_nhat_han_muc()
                         self.ghi_log(
                             f"   ✅ Đã lưu {ten_chap}/{file_dich.name} ({len(vung)} bóng thoại)"
                         )

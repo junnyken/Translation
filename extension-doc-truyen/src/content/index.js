@@ -1591,7 +1591,18 @@ void (async () => {
                 const imgPatch = new Image()
                 await new Promise((res) => { imgPatch.onload = res; imgPatch.onerror = res; imgPatch.src = bgUrl })
                 ctxOut.drawImage(imgPatch, dx, dy, dw, dh)
+              } else if (lc.style.backgroundColor || lc.style.background) {
+                ctxOut.save()
+                ctxOut.fillStyle = lc.style.backgroundColor || lc.style.background || '#ffffff'
+                ctxOut.fillRect(dx, dy, dw, dh)
+                ctxOut.restore()
               }
+            }
+
+            // Vẽ lớp Cọ vẽ tay Inpaint (`translation-co-ve`) nếu người dùng có tô xoá thủ công
+            const canvasCoVe = lop.querySelector('.translation-co-ve')
+            if (canvasCoVe && canvasCoVe.width > 0 && canvasCoVe.height > 0) {
+              ctxOut.drawImage(canvasCoVe, 0, 0, W, H)
             }
 
             // Vẽ chữ dịch trong từng bóng thoại (`translation-hop-chu`)
@@ -1657,6 +1668,48 @@ void (async () => {
         }
       })
 
+      const nutCoVe = document.createElement('button')
+      nutCoVe.id = 'translation-nut-co-ve'
+      nutCoVe.type = 'button'
+      nutCoVe.title = 'Bật/tắt Cọ vẽ tay xoá chữ gốc còn sót trên trang (Brush Inpaint trực tiếp trên Canvas)'
+      const capNhatNutCoVe = () => {
+        const bat = Boolean(window[CO].cheDoCoVe)
+        nutCoVe.textContent = bat ? '🖌️ Cọ xoá: BẬT' : '🖌️ Cọ xoá'
+        nutCoVe.style.cssText = bat
+          ? `${kieuNut};background:#db2777;border-color:#f472b6;font-weight:700`
+          : kieuNut
+      }
+      capNhatNutCoVe()
+      nutCoVe.addEventListener('click', () => {
+        window[CO].cheDoCoVe = !window[CO].cheDoCoVe
+        if (!window[CO].cheDoCoVe) window[CO].mauCoVeUuTien = null
+        capNhatNutCoVe()
+        window.dispatchEvent(new CustomEvent('translation:ve-lai'))
+        xong(
+          window[CO].cheDoCoVe
+            ? '🖌️ Đã BẬT Cọ xoá chữ: Kéo chuột lên nét chữ gốc còn sót để tô xoá tiệp màu nền. Bấm ↩️ để hoàn tác.'
+            : 'Đã TẮT Cọ xoá chữ.',
+          4,
+        )
+      })
+
+      const nutHoanTacCo = document.createElement('button')
+      nutHoanTacCo.id = 'translation-nut-hoan-tac-co'
+      nutHoanTacCo.type = 'button'
+      nutHoanTacCo.textContent = '↩️'
+      nutHoanTacCo.title = 'Hoàn tác nét cọ xoá chữ vừa vẽ'
+      nutHoanTacCo.style.cssText = `${kieuNut};padding:5px 8px`
+      nutHoanTacCo.addEventListener('click', () => {
+        const chon = chonTrangTruyen(layMoTa(), { caoKhungNhin: window.innerHeight })
+        const el = chon?.anh?.el
+        if (el && Array.isArray(el.__translationNhatKyCoVe) && el.__translationNhatKyCoVe.length > 0) {
+          el.__translationNhatKyCoVe.pop()
+          window.dispatchEvent(new CustomEvent('translation:ve-lai'))
+        } else {
+          xong('Chưa có nét cọ nào trên trang này để hoàn tác.', 3)
+        }
+      })
+
       const nut = document.createElement('button')
       nut.id = 'translation-cong-tac-goc'
       nut.type = 'button'
@@ -1664,8 +1717,46 @@ void (async () => {
       nut.style.cssText = kieuNut
       nut.addEventListener('click', () => datAnLopPhu(!window[CO].dangAnLopPhu))
 
-      thanh.append(nutDich, nutChapter, nutCuon, nutSnip, nutDichRa, nutFont, nutChuNho, nutChuTo, nutLuuAnh, nut)
+      thanh.append(nutDich, nutChapter, nutCuon, nutSnip, nutDichRa, nutFont, nutChuNho, nutChuTo, nutCoVe, nutHoanTacCo, nutLuuAnh, nut)
       document.documentElement.appendChild(thanh)
+    }
+  }
+
+  /**
+   * Lấy màu nền sạch xung quanh điểm đặt cọ `(nx, ny)` trên ảnh gốc `el`:
+   * Tự động loại bỏ nét mực đen/chữ gốc dưới đầu cọ bằng cách lấy phân vị sáng (78%) cho nền sáng
+   * hoặc phân vị tối (22%) cho nền tối.
+   */
+  function layMauNenTaiDiemCoVe(el, nx, ny, mauMacDinh = null) {
+    if (mauMacDinh) return mauMacDinh
+    const ctx = layCtxMau(el)
+    if (!ctx) return '#ffffff'
+    const W = ctx.canvas.width
+    const H = ctx.canvas.height
+    const cx = Math.max(0, Math.min(W - 1, Math.round(nx * W)))
+    const cy = Math.max(0, Math.min(H - 1, Math.round(ny * H)))
+    const R = 6
+    const x0 = Math.max(0, cx - R)
+    const y0 = Math.max(0, cy - R)
+    const rw = Math.min(W - x0, R * 2 + 1)
+    const rh = Math.min(H - y0, R * 2 + 1)
+    try {
+      const data = ctx.getImageData(x0, y0, rw, rh).data
+      const mau = []
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i], g = data[i + 1], b = data[i + 2]
+        const luma = 0.299 * r + 0.587 * g + 0.114 * b
+        mau.push({ r, g, b, luma })
+      }
+      if (!mau.length) return '#ffffff'
+      mau.sort((a, b) => a.luma - b.luma)
+      const trungVi = mau[Math.floor(mau.length * 0.5)].luma
+      const chon = trungVi >= 110
+        ? mau[Math.min(mau.length - 1, Math.floor(mau.length * 0.8))]
+        : mau[Math.max(0, Math.floor(mau.length * 0.2))]
+      return `rgb(${chon.r}, ${chon.g}, ${chon.b})`
+    } catch {
+      return '#ffffff'
     }
   }
 
@@ -1675,9 +1766,10 @@ void (async () => {
    * Khi người dùng nhấp đúp (`dblclick`) vào bất kỳ bóng thoại nào:
    * - Mở chế độ sửa trực tiếp (`contentEditable = "true"`) ngay trong bóng thoại đó.
    * - Tự động co/giãn cỡ chữ vừa khít lòng bong bóng theo thời gian thực khi người dùng gõ sửa.
-   * - Hiện thanh công cụ mini ngay trên đỉnh bóng thoại: `🔄 Dịch lại câu này`, `A-`, `A+`, `✓ Xong`.
+   * - Hiện thanh công cụ mini ngay trên đỉnh bóng thoại:
+   *   `🔄 Dịch lại` · `A-` · `A+` · `⬛ Phủ kín` · `🖌️ Cọ xoá` · `✥ Kéo` · `✓ Xong`.
    */
-  function moTrinhSuaBongThoai({ hop, noiDung, v, coChuVuaKhung }) {
+  function moTrinhSuaBongThoai({ hop, noiDung, v, coChuVuaKhung, rLop }) {
     document.getElementById('translation-thanh-sua-bong')?.remove()
     window[CO].dangSuaBong = true
 
@@ -1702,8 +1794,8 @@ void (async () => {
     const rHop = hop.getBoundingClientRect()
     const thanhSua = document.createElement('div')
     thanhSua.id = 'translation-thanh-sua-bong'
-    const topBar = Math.max(8, rHop.top - 38)
-    const leftBar = Math.max(8, Math.min(window.innerWidth - 260, rHop.left + rHop.width * 0.5 - 120))
+    const topBar = Math.max(8, rHop.top - 40)
+    const leftBar = Math.max(8, Math.min(window.innerWidth - 420, rHop.left + rHop.width * 0.5 - 200))
     thanhSua.style.cssText = [
       'position:fixed', 'z-index:2147483647',
       `left:${Math.round(leftBar)}px`, `top:${Math.round(topBar)}px`,
@@ -1771,6 +1863,85 @@ void (async () => {
       coChuVuaKhung()
     })
 
+    // Nút Phủ kín hộp (`_phuKinHop`) — dùng khi bong bóng có chữ gốc thò quá dài hoặc nền phức tạp cần che kín 100%
+    const nutPhuKin = document.createElement('button')
+    nutPhuKin.type = 'button'
+    const capNhatNutPhuKin = () => {
+      nutPhuKin.textContent = v._phuKinHop ? '⬛ Đã phủ kín' : '⬛ Phủ kín'
+      nutPhuKin.style.cssText = v._phuKinHop
+        ? `${kieuNutMini};background:#0284c7;border-color:#38bdf8`
+        : kieuNutMini
+    }
+    nutPhuKin.title = 'Bật/tắt phủ kín toàn bộ hộp bóng thoại để che sạch 100% chữ gốc còn sót ở rìa'
+    capNhatNutPhuKin()
+    nutPhuKin.addEventListener('mousedown', (e) => e.preventDefault())
+    nutPhuKin.addEventListener('click', (e) => {
+      e.stopPropagation()
+      v._phuKinHop = !v._phuKinHop
+      capNhatNutPhuKin()
+      const nenMau = v._mauNenCss || (v.nen_toi ? '#000000' : '#ffffff')
+      hop.style.background = v._phuKinHop ? nenMau : (v.nen_toi ? 'rgba(15,23,42,.35)' : 'rgba(255,255,255,.35)')
+    })
+
+    // Nút bật Cọ xoá (`🖌️ Cọ xoá`) lấy sẵn màu nền của đúng bóng thoại này
+    const nutCoBong = document.createElement('button')
+    nutCoBong.type = 'button'
+    nutCoBong.textContent = '🖌️ Cọ xoá'
+    nutCoBong.title = 'Dùng cọ vẽ tay tô xoá nét chữ gốc còn sót quanh bóng thoại này'
+    nutCoBong.style.cssText = `${kieuNutMini};background:#be185d;border-color:#f472b6`
+    nutCoBong.addEventListener('mousedown', (e) => e.preventDefault())
+    nutCoBong.addEventListener('click', (e) => {
+      e.stopPropagation()
+      window[CO].cheDoCoVe = true
+      window[CO].mauCoVeUuTien = v._mauNenCss || (v.nen_toi ? '#000000' : '#ffffff')
+      const nutCoThanh = document.getElementById('translation-nut-co-ve')
+      if (nutCoThanh) {
+        nutCoThanh.textContent = '🖌️ Cọ xoá: BẬT'
+        nutCoThanh.style.background = '#db2777'
+        nutCoThanh.style.borderColor = '#f472b6'
+      }
+      hoanTatSua()
+      xong('🖌️ Hãy kéo chuột tô lên phần chữ gốc còn sót để xoá. Bấm "🖌️ Cọ xoá: BẬT" lần nữa khi xong.', 4)
+    })
+
+    // Nút Kéo di chuyển vị trí bóng thoại (`✥ Kéo`)
+    const nutKeo = document.createElement('button')
+    nutKeo.type = 'button'
+    nutKeo.textContent = '✥ Kéo'
+    nutKeo.title = 'Giữ chuột và kéo để di chuyển vị trí chữ dịch sang chỗ khác'
+    nutKeo.style.cssText = `${kieuNutMini};cursor:move`
+    nutKeo.addEventListener('mousedown', (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      const startX = e.clientX
+      const startY = e.clientY
+      const origLeft = parseFloat(hop.style.left) || 0
+      const origTop = parseFloat(hop.style.top) || 0
+      const origBarLeft = parseFloat(thanhSua.style.left) || 0
+      const origBarTop = parseFloat(thanhSua.style.top) || 0
+      const wLop = Math.max(1, rLop?.width || hop.parentElement?.clientWidth || 1)
+      const hLop = Math.max(1, rLop?.height || hop.parentElement?.clientHeight || 1)
+      const lechXBanDau = v._lechX || 0
+      const lechYBanDau = v._lechY || 0
+
+      const onMove = (ev) => {
+        const dx = ev.clientX - startX
+        const dy = ev.clientY - startY
+        hop.style.left = `${origLeft + dx}px`
+        hop.style.top = `${origTop + dy}px`
+        thanhSua.style.left = `${origBarLeft + dx}px`
+        thanhSua.style.top = `${origBarTop + dy}px`
+        v._lechX = lechXBanDau + dx / wLop
+        v._lechY = lechYBanDau + dy / hLop
+      }
+      const onUp = () => {
+        window.removeEventListener('mousemove', onMove, true)
+        window.removeEventListener('mouseup', onUp, true)
+      }
+      window.addEventListener('mousemove', onMove, true)
+      window.addEventListener('mouseup', onUp, true)
+    })
+
     const nutXong = document.createElement('button')
     nutXong.type = 'button'
     nutXong.textContent = '✓ Xong'
@@ -1785,10 +1956,11 @@ void (async () => {
       noiDung.style.cursor = 'pointer'
       hop.style.boxShadow = 'none'
       hop.style.background = 'transparent'
-      hop.style.zIndex = ''
+      hop.style.zIndex = '2'
       thanhSua.remove()
       window.removeEventListener('mousedown', bamRaNgoai, true)
       coChuVuaKhung()
+      window.dispatchEvent(new CustomEvent('translation:ve-lai'))
     }
 
     const bamRaNgoai = (ev) => {
@@ -1815,7 +1987,7 @@ void (async () => {
       }
     })
 
-    thanhSua.append(nutDichLai, nutThuNho, nutPhongTo, nutXong)
+    thanhSua.append(nutDichLai, nutThuNho, nutPhongTo, nutPhuKin, nutCoBong, nutKeo, nutXong)
     document.documentElement.appendChild(thanhSua)
     setTimeout(() => window.addEventListener('mousedown', bamRaNgoai, true), 20)
   }
@@ -1872,7 +2044,7 @@ void (async () => {
     const goiVe = () => ve()
 
     const ve = () => {
-      if (window[CO].dangSuaBong) return
+      if (window[CO].dangSuaBong || lop.__dangKeoCoVe) return
       let r = el.getBoundingClientRect()
       if (!el.isConnected || r.width < 40 || r.height < 40) {
         // Trong `vePhu`, luôn truyền `choPhepKhungNhin = false` để lớp phủ của trang ở cuối chapter
@@ -1988,10 +2160,26 @@ void (async () => {
 
         // Lớp 1 (`lopChe` / Clean-Image trên GPU/Canvas máy khách):
         // Xoá sạch 100% nét chữ gốc trên `oChe` trong khi bảo toàn mọi gai nhọn/đường viền của bong bóng.
+        // Nếu người dùng bật `⬛ Phủ kín` (`v._phuKinHop`), phủ hộp màu nền đặc lên toàn bộ vùng `oChe` (nới nhẹ 4px) để che sạch chữ thò xa.
         // Đặt `zIndex: 1` cố định cho mọi lớp xoá nền để KHÔNG BAO GIỜ đè lên lớp chữ `hop` (`zIndex: 2`) của bóng thoại kế bên!
         const lopChe = document.createElement('div')
         lopChe.className = 'translation-anh-sach'
-        if (anhChe) {
+        if (v._phuKinHop) {
+          const padKin = 4
+          Object.assign(lopChe.style, {
+            position: 'absolute',
+            zIndex: '1',
+            left: `${Math.max(0, oChe.left - padKin)}px`,
+            top: `${Math.max(0, oChe.top - padKin)}px`,
+            width: `${oChe.width + padKin * 2}px`,
+            height: `${oChe.height + padKin * 2}px`,
+            background: nenMau,
+            borderRadius: v._laHopChuNhat ? '10%' : '28%',
+            boxShadow: `0 0 4px 2px ${nenMau}`,
+            opacity: '0.99',
+            pointerEvents: 'none',
+          })
+        } else if (anhChe) {
           Object.assign(lopChe.style, {
             position: 'absolute',
             zIndex: '1',
@@ -2030,14 +2218,17 @@ void (async () => {
               `0 0 4px ${nenMau}`,
             ].join(', ')
 
+        const lechX = Math.round((v._lechX || 0) * r.width)
+        const lechY = Math.round((v._lechY || 0) * r.height)
+
         const hop = document.createElement('div')
         hop.className = 'translation-hop-chu'
-        hop.title = `✏️ Nhấp đúp (Double-click) để sửa nhanh câu này\nChữ gốc: ${v.chu_goc || '(không rõ)'}`
+        hop.title = `✏️ Nhấp đúp (Double-click) để sửa câu / phủ kín / cọ xoá / kéo vị trí\nChữ gốc: ${v.chu_goc || '(không rõ)'}`
         hop.dataset.nenToi = v.nen_toi ? '1' : '0'
         Object.assign(hop.style, {
           position: 'absolute',
           zIndex: '2',
-          left: `${o.left}px`, top: `${o.top}px`,
+          left: `${o.left + lechX}px`, top: `${o.top + lechY}px`,
           width: `${o.width}px`, height: `${o.height}px`,
           background: 'transparent',
           color: chuMau,
@@ -2049,7 +2240,9 @@ void (async () => {
           letterSpacing: thongSoFont.letterSpacing,
           padding: `${padY}px ${padX}px`, boxSizing: 'border-box',
           display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center',
-          overflow: 'hidden', pointerEvents: 'auto', cursor: 'pointer',
+          overflow: 'hidden',
+          pointerEvents: window[CO].cheDoCoVe ? 'none' : 'auto',
+          cursor: 'pointer',
         })
 
         const noiDung = document.createElement('span')
@@ -2096,12 +2289,100 @@ void (async () => {
         const pxDatDuoc = coChuVuaKhung()
         dsHopDaVe.push({ hop, v, px: pxDatDuoc, doDai: (v.ban_dich || '').length })
 
-        // E105 (#6) — Nhấp đúp chuột vào bất kỳ bóng thoại nào để sửa chữ / phóng to / dịch lại tức thì
+        // E105 (#6) — Nhấp đúp chuột vào bất kỳ bóng thoại nào để sửa chữ / phóng to / dịch lại / phủ kín / cọ xoá tức thì
         hop.addEventListener('dblclick', (e) => {
           e.preventDefault()
           e.stopPropagation()
-          moTrinhSuaBongThoai({ hop, noiDung, v, coChuVuaKhung })
+          moTrinhSuaBongThoai({ hop, noiDung, v, coChuVuaKhung, rLop: r })
         })
+      }
+
+      // Lớp 1.5 (`canvasCoVe` — Cọ vẽ tay Brush Inpaint trực tiếp trên Canvas tiện ích):
+      // Nằm ở `zIndex: 1` (trên ảnh gốc & lớp xoá nền tự động, nhưng dưới lớp chữ dịch `zIndex: 2`)
+      // để người dùng tô xoá bất kỳ chữ gốc/SFX nào còn sót mà không bao giờ xoá nhầm chữ đã dịch!
+      const nhatKyCo = el.__translationNhatKyCoVe || []
+      if (nhatKyCo.length > 0 || window[CO].cheDoCoVe) {
+        const canvasCo = document.createElement('canvas')
+        canvasCo.className = 'translation-co-ve'
+        canvasCo.width = Math.max(1, Math.round(r.width))
+        canvasCo.height = Math.max(1, Math.round(r.height))
+        Object.assign(canvasCo.style, {
+          position: 'absolute',
+          left: '0px',
+          top: '0px',
+          width: `${r.width}px`,
+          height: `${r.height}px`,
+          zIndex: '1',
+          pointerEvents: window[CO].cheDoCoVe ? 'auto' : 'none',
+          cursor: window[CO].cheDoCoVe ? 'crosshair' : 'default',
+          touchAction: window[CO].cheDoCoVe ? 'none' : 'auto',
+        })
+        const ctxCo = canvasCo.getContext('2d')
+        const veLaiNhatKyCo = () => {
+          ctxCo.clearRect(0, 0, canvasCo.width, canvasCo.height)
+          const Wc = canvasCo.width
+          const Hc = canvasCo.height
+          for (const net of (el.__translationNhatKyCoVe || [])) {
+            if (!net?.diem?.length) continue
+            ctxCo.save()
+            ctxCo.strokeStyle = net.mau || '#ffffff'
+            ctxCo.fillStyle = net.mau || '#ffffff'
+            ctxCo.lineCap = 'round'
+            ctxCo.lineJoin = 'round'
+            ctxCo.lineWidth = Math.max(6, Math.round((net.co || 0.022) * Wc))
+            ctxCo.beginPath()
+            const [d0x, d0y] = net.diem[0]
+            ctxCo.moveTo(d0x * Wc, d0y * Hc)
+            if (net.diem.length === 1) {
+              ctxCo.arc(d0x * Wc, d0y * Hc, ctxCo.lineWidth * 0.5, 0, Math.PI * 2)
+              ctxCo.fill()
+            } else {
+              for (let i = 1; i < net.diem.length; i += 1) {
+                ctxCo.lineTo(net.diem[i][0] * Wc, net.diem[i][1] * Hc)
+              }
+              ctxCo.stroke()
+            }
+            ctxCo.restore()
+          }
+        }
+        veLaiNhatKyCo()
+
+        if (window[CO].cheDoCoVe) {
+          canvasCo.addEventListener('mousedown', (ev) => {
+            if (ev.button !== 0) return
+            ev.preventDefault()
+            ev.stopPropagation()
+            const rectC = canvasCo.getBoundingClientRect()
+            const nx0 = Math.max(0, Math.min(1, (ev.clientX - rectC.left) / Math.max(1, rectC.width)))
+            const ny0 = Math.max(0, Math.min(1, (ev.clientY - rectC.top) / Math.max(1, rectC.height)))
+            const mauVe = layMauNenTaiDiemCoVe(el, nx0, ny0, window[CO].mauCoVeUuTien)
+            if (!Array.isArray(el.__translationNhatKyCoVe)) el.__translationNhatKyCoVe = []
+            const netMoi = {
+              mau: mauVe,
+              co: 0.022,
+              diem: [[nx0, ny0]],
+            }
+            el.__translationNhatKyCoVe.push(netMoi)
+            lop.__dangKeoCoVe = true
+            veLaiNhatKyCo()
+
+            const onMoveCo = (mv) => {
+              const rNow = canvasCo.getBoundingClientRect()
+              const nx = Math.max(0, Math.min(1, (mv.clientX - rNow.left) / Math.max(1, rNow.width)))
+              const ny = Math.max(0, Math.min(1, (mv.clientY - rNow.top) / Math.max(1, rNow.height)))
+              netMoi.diem.push([nx, ny])
+              veLaiNhatKyCo()
+            }
+            const onUpCo = () => {
+              lop.__dangKeoCoVe = false
+              window.removeEventListener('mousemove', onMoveCo, true)
+              window.removeEventListener('mouseup', onUpCo, true)
+            }
+            window.addEventListener('mousemove', onMoveCo, true)
+            window.addEventListener('mouseup', onUpCo, true)
+          })
+        }
+        lop.appendChild(canvasCo)
       }
 
       // Đồng bộ cỡ chữ hài hoà toàn trang (`dongBoCoChuToanTrang`):

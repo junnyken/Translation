@@ -124,16 +124,16 @@ export default function TrangTienIch({ onQuayLai }) {
                 : 'Làm sạch 100% chữ gốc trong lòng bong bóng, giữ nguyên viền cong và tách bong bóng đôi bằng rào chắn Voronoi chỉ trong 2–4 giây.'}
             </div>
             <div style={featureItemStyle}>
-              ✏️ <b>{laEn ? 'Double-Click Live Speech Bubble Editor:' : 'Nhấp đúp (Double-click) sửa bóng thoại tức thì:'}</b>{' '}
+              ✏️ <b>{laEn ? 'Double-Click Live Bubble Editor + Brush Inpaint:' : 'Nhấp đúp sửa bóng thoại + 🖌️ Cọ xoá chữ (Brush Inpaint):'}</b>{' '}
               {laEn
-                ? 'Double-click any translated bubble to edit text, adjust font size, or re-translate with AI right on the comic page.'
-                : 'Nhấp đúp vào bất kỳ bóng thoại nào để sửa câu dịch, phóng to/thu nhỏ chữ hoặc gọi AI dịch lại ngay trên trang đọc.'}
+                ? 'Double-click any bubble to edit text, toggle solid box fill (⬛), drag bubble position (✥), or paint over leftover original strokes with the Canvas Brush (🖌️).'
+                : 'Nhấp đúp vào bất kỳ bóng thoại nào để sửa câu, bật ⬛ Phủ kín hộp, ✥ Kéo vị trí chữ hoặc dùng 🖌️ Cọ vẽ tay tô xoá nét chữ gốc còn sót ngay trên Canvas.'}
             </div>
             <div style={featureItemStyle}>
-              🌍 <b>{laEn ? 'Multi-Language & 4 Genre Fonts:' : 'Đa ngôn ngữ & 4 Bộ Font thể loại:'}</b>{' '}
+              🌍 <b>{laEn ? 'Cross-Page Context Memory & Local GGUF Offline Mode:' : 'Nhớ ngữ cảnh xuyên trang & Chế độ GGUF Cục bộ (Offline 0đ):'}</b>{' '}
               {laEn
-                ? 'Translates JP · KR · ZH · EN into Vietnamese & Global English with Action, Romance, Historical, and Comedy fonts.'
-                : 'Dịch từ Nhật · Hàn · Trung · Anh sang Tiếng Việt & Tiếng Anh Quốc tế với 4 font: Hành động, Ngôn tình, Cổ trang, Hài hước.'}
+                ? 'Remembers character pronouns across pages and supports 100% client-side offline translation via Ollama / LM Studio GGUF on your PC.'
+                : 'Tự động nhớ xưng hô xuyên suốt chapter và hỗ trợ chọn 💻 GGUF Cục bộ (chạy Ollama / LM Studio trên máy bạn, không tốn lượt).'}
             </div>
           </div>
 
@@ -246,10 +246,10 @@ export default function TrangTienIch({ onQuayLai }) {
                 : <>Tự động lưu gọn gàng theo cấu trúc <code>Tên_Truyện / Chapter-001 / 001.jpg, 002.jpg...</code> kèm chế độ Resume (bỏ qua trang đã dịch).</>}
             </div>
             <div style={{ ...featureItemStyle, borderLeftColor: '#10b981' }}>
-              📦 <b>{laEn ? 'Export JPG, .CBZ, .PDF & Webtoon Long-Strip:' : 'Đóng gói đa định dạng (.CBZ, .PDF, Long-Strip):'}</b>{' '}
+              📦 <b>{laEn ? 'Export JPG, .CBZ, .PDF, Long-Strip + 100% Offline GGUF Mode:' : 'Xuất .CBZ, .PDF, Long-Strip + Chạy Offline 100% GGUF trên máy bạn:'}</b>{' '}
               {laEn
-                ? 'Supports high-res JPG folders, .CBZ archives, .PDF books, and vertical Webtoon Long-Strip stitching.'
-                : 'Xuất đồng thời thư mục ảnh JPG chất lượng cao, đóng gói .CBZ, .PDF và ghép dải ảnh dài Webtoon (Long-Strip).'}
+                ? 'Supports Cloud AI or 100% Offline Local GGUF models (Ollama / LM Studio on your own GPU/CPU with zero API cost) + local folder batch translation.'
+                : 'Tùy chọn dùng AI Đám mây hoặc bật 💻 GGUF Cục bộ (tận dụng cấu hình máy bạn qua Ollama / LM Studio, không tốn phí API, không tốn lượt) + dịch thư mục ảnh có sẵn.'}
             </div>
           </div>
 

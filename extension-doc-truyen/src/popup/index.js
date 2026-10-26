@@ -58,7 +58,17 @@ async function veHanMuc() {
   const o = $('han-muc')
   if (!o) return
   try {
-    const { diaChi } = await docCauHinh()
+    const { diaChi, engine } = await docCauHinh()
+    if (engine === 'local_gguf') {
+      o.textContent = '💻 Chế độ GGUF Cục bộ (Ollama / LM Studio trên máy bạn) · Không giới hạn lượt!'
+      o.className = 'hop ok'
+      o.hidden = false
+      $('nut-dich').disabled = false
+      $('nut-dich-chapter').disabled = false
+      if ($('nut-tu-dich-cuon')) $('nut-tu-dich-cuon').disabled = false
+      if ($('nut-khoanh-vung')) $('nut-khoanh-vung').disabled = false
+      return
+    }
     if (!diaChi) {
       o.textContent = '⚠️ Chưa đặt máy chủ. Bấm "⚙️ Tài khoản" góc phải trên để cài đặt.'
       o.className = 'hop canh-bao'
@@ -78,6 +88,11 @@ async function veHanMuc() {
       $('nut-dich-chapter').disabled = true
       if ($('nut-tu-dich-cuon')) $('nut-tu-dich-cuon').disabled = true
       if ($('nut-khoanh-vung')) $('nut-khoanh-vung').disabled = true
+    } else {
+      $('nut-dich').disabled = false
+      $('nut-dich-chapter').disabled = false
+      if ($('nut-tu-dich-cuon')) $('nut-tu-dich-cuon').disabled = false
+      if ($('nut-khoanh-vung')) $('nut-khoanh-vung').disabled = false
     }
   } catch {
     o.hidden = true
@@ -88,7 +103,12 @@ async function veMayChu() {
   const o = $('may-chu')
   if (!o) return
   try {
-    const { diaChi } = await docCauHinh()
+    const { diaChi, engine } = await docCauHinh()
+    if (engine === 'local_gguf') {
+      o.textContent = 'Chạy Offline 100% trên phần cứng máy bạn (127.0.0.1:11434 / 1234).'
+      o.hidden = false
+      return
+    }
     if (!diaChi) return
     const r = await fetch(`${diaChi}/healthz`, { cache: 'no-store' })
     if (!r.ok) return
@@ -129,6 +149,7 @@ document.querySelectorAll('#nhom-nut-eng .nut-eng').forEach((btn) => {
     if ($('engine')) $('engine').value = eng
     dongBoNutEngine(eng)
     await luuCauHinh({ engine: eng, cheDo: 'chi_chu' })
+    veHanMuc()
     veMayChu()
   })
 })
@@ -155,6 +176,7 @@ $('ngon-ngu-dich')?.addEventListener('change', async (e) => {
 $('engine')?.addEventListener('change', async (e) => {
   dongBoNutEngine(e.target.value)
   await luuCauHinh({ engine: e.target.value, cheDo: 'chi_chu' })
+  veHanMuc()
   veMayChu()
 })
 

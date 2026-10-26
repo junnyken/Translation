@@ -17,6 +17,7 @@
  */
 import {
   LoiApi,
+  dichTrangLocalGguf,
   docCauHinh,
   guiTrang,
   layTrang,
@@ -76,7 +77,35 @@ async function blobThanhDataUrl(blob) {
 
 const luotDichTheoTab = new Map()
 const viecDangChayTheoUrl = new Map()
+// Bộ nhớ Ngữ cảnh Xuyên trang (Cross-Page Context Memory):
+// Lưu tối đa 12 cặp câu thoại gần nhất trong cùng tab đọc truyện để giữ đồng nhất đại từ xưng hô (anh/em, huynh/muội, tao/mày) & tên nhân vật xuyên suốt chapter.
+const boNhoNguCanhTheoTab = new Map()
 const REGEX_DAU_TIENG_VIET = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i
+
+function layChuoiNguCanhTab(tabId) {
+  const ds = boNhoNguCanhTheoTab.get(tabId ?? 0) || []
+  if (!ds.length) return ''
+  return ds.slice(-10).join('\n')
+}
+
+function capNhatNguCanhTab(tabId, dsVung) {
+  if (!Array.isArray(dsVung) || !dsVung.length) return
+  const khoa = tabId ?? 0
+  const hienTai = boNhoNguCanhTheoTab.get(khoa) || []
+  for (const v of dsVung) {
+    const goc = String(v?.chu_goc || '').trim().replace(/\s+/g, ' ')
+    const dich = String(v?.ban_dich || '').trim().replace(/\s+/g, ' ')
+    if (goc && dich && goc.length <= 80 && dich.length <= 120) {
+      const dong = `${goc} = ${dich}`
+      if (!hienTai.includes(dong)) hienTai.push(dong)
+    }
+  }
+  if (hienTai.length > 12) {
+    boNhoNguCanhTheoTab.set(khoa, hienTai.slice(-12))
+  } else {
+    boNhoNguCanhTheoTab.set(khoa, hienTai)
+  }
+}
 
 async function dichCauNhanhGtx(chu, sl = 'auto', tl = 'vi') {
   const s = String(chu || '').trim()
@@ -110,7 +139,7 @@ async function damBaoNgonNguDich(dsVung, ngonNguGoc, ngonNguDich) {
   return dsVung
 }
 
-async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false) {
+async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false, tabId = 0) {
   bao({ giai_doan: 'dang-tai-anh', url })
   const blob = anhBase64 ? base64ThanhBlob(anhBase64, anhMime) : await taiAnh(url)
   if (daBiHuy()) throw new LoiApi(0, 'Đã chuyển sang dịch trang mới.')
@@ -121,8 +150,23 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false)
   const anh_goc_data_url = anhBase64 ? null : await blobThanhDataUrl(blob)
 
   const { ngonNgu, ngonNguDich, engine, cheDo } = await docCauHinh()
+  const tuDienRieng = layChuoiNguCanhTab(tabId)
   bao({ giai_doan: 'dang-gui', url, che_do: cheDo, anh_goc_data_url })
-  const kqGui = await guiTrang(blob, ngonNgu, engine, cheDo, ngonNguDich)
+
+  // Chế độ Offline 100% trên máy khách bằng model GGUF cục bộ (Ollama 127.0.0.1:11434 / LM Studio 127.0.0.1:1234):
+  // Không tốn bất kỳ tài nguyên nào của máy chủ hay phí API đám mây.
+  if (engine === 'local_gguf') {
+    const kqLocal = await dichTrangLocalGguf(blob, { ngonNgu, ngonNguDich, tuDienRieng })
+    if (daBiHuy()) throw new LoiApi(0, 'Đã chuyển sang dịch trang mới.')
+    capNhatNguCanhTab(tabId, kqLocal.vung)
+    return {
+      ...kqLocal,
+      anh_da_dich_data_url: null,
+      anh_goc_data_url,
+    }
+  }
+
+  const kqGui = await guiTrang(blob, ngonNgu, engine, cheDo, ngonNguDich, tuDienRieng)
   const { page_id } = kqGui
 
   // E110 — Nếu trúng Bảng Cache Cộng Đồng trên máy chủ (`kqGui.xong === true`), trả kết quả tức thì (0,15s)
@@ -131,6 +175,7 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false)
     if (ngonNguDich === 'en') {
       await damBaoNgonNguDich(kqGui.vung, ngonNgu, ngonNguDich)
     }
+    capNhatNguCanhTab(tabId, kqGui.vung)
     let anh_da_dich_data_url = null
     if (kqGui.che_do === 'day_du' && kqGui.anh_da_dich && ngonNguDich !== 'en') {
       try {
@@ -157,6 +202,7 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false)
     bao({ giai_doan: 'dang-xu-ly', url, che_do: d.che_do || cheDo, tien_do: d.tien_do, vung: d.vung })
     if (d.loi) throw new LoiApi(0, d.loi)
     if (d.xong) {
+      capNhatNguCanhTab(tabId, d.vung)
       let anh_da_dich_data_url = null
       if (d.che_do === 'day_du' && d.anh_da_dich && ngonNguDich !== 'en') {
         try {
@@ -186,7 +232,9 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false)
  * Trả `true` nghĩa là "thiếu cấu hình, đã mở trang tuỳ chọn rồi".
  */
 async function thieuCauHinh() {
-  const ly_do = lyDoThieuCauHinh({ ...(await docCauHinh()), choPhepKhach: true })
+  const cauHinh = await docCauHinh()
+  if (cauHinh.engine === 'local_gguf') return null
+  const ly_do = lyDoThieuCauHinh({ ...cauHinh, choPhepKhach: true })
   if (ly_do) chrome.runtime.openOptionsPage()
   return ly_do
 }
@@ -311,7 +359,7 @@ chrome.runtime.onMessage.addListener((tin, gui_tu, traLoi) => {
   const loiHua = thieuCauHinh()
     .then((thieu) => {
       if (thieu) return { ok: false, ma: 0, loi: thieu, da_mo_cai_dat: true }
-      return dichMotTrang(tin.url, tin.anh_base64, tin.anh_mime, bao, daBiHuy)
+      return dichMotTrang(tin.url, tin.anh_base64, tin.anh_mime, bao, daBiHuy, tabId)
         .then((d) => ({
           ok: true,
           vung: d.vung,
