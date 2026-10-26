@@ -5,6 +5,8 @@
  * bản web.
  */
 
+import { giaiPow } from './giai-pow.js'
+
 export const KHOA_LUU = {
   dia_chi: 'diaChi', ma_phien: 'maPhien', email: 'email', ma_khach: 'maKhach',
   //: Ngôn ngữ CHỮ TRÊN ẢNH (không phải ngôn ngữ đích) — quyết định chọn engine OCR. `ja` là mặc
@@ -161,16 +163,17 @@ export async function dangNhap(diaChi, email, matKhau) {
 
 export async function dangKy(diaChi, email, tenHien, matKhau) {
   const goc = chuanHoaDiaChi(diaChi)
-  let maThachThuc = null
+  let thachThuc = null
   try {
     const rBot = await fetch(`${goc}/api/v1/auth/thach-thuc-bot`)
-    if (rBot && rBot.ok) {
-      const dBot = await rBot.json()
-      maThachThuc = dBot?.ma_thach_thuc || null
-    }
+    if (rBot && rBot.ok) thachThuc = await rBot.json()
   } catch { /* bỏ qua nếu môi trường test mock chỉ định tuyến /auth/register */ }
   const payload = { email, ten_hien: tenHien || '', mat_khau: matKhau }
-  if (maThachThuc) payload.ma_thach_thuc = maThachThuc
+  if (thachThuc?.ma_thach_thuc) {
+    // Máy chủ đòi lời giải PoW thật — mã trơn không còn đủ để qua.
+    payload.ma_thach_thuc = thachThuc.ma_thach_thuc
+    payload.dap_an_thach_thuc = await giaiPow(thachThuc.ma_thach_thuc, thachThuc.do_kho_pow ?? 16)
+  }
   const res = await fetch(`${goc}/api/v1/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

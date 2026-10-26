@@ -25,7 +25,9 @@ from fastapi import (
 )
 from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
-from sqlalchemy import delete, func, select
+from sqlalchemy import String, delete, func, select
+from sqlalchemy import cast as sa_cast
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -34,7 +36,9 @@ from app.core.db import get_session
 from app.core.cong_han_muc import con_du_khong, giu_cho_moi_chot, loi_vuot_han_muc
 from app.core.danh_tinh_khach import DanhTinhHanMuc, danh_tinh_han_muc
 from app.services.han_muc import bay_gio, moc_reset_ke_tiep, ngay_han_muc
+from app.services import don_nap
 from app.services.han_muc_nhan_dang import giu_mot_luot
+from app.services.nhat_ky_quan_tri import ghi_nhat_ky
 from app.services.so_cai_han_muc import da_dung_bat_dong_bo, giu_cho_bat_dong_bo
 from app.core.quyen import (
     LOI_KHONG_THAY,
@@ -48,6 +52,7 @@ from app.models import (
     BatchRun,
     CharacterVoiceProfile,
     ConsistencyReviewTask,
+    DonNapLuot,
     ExportJob,
     GlossaryEntry,
     Job,
@@ -525,29 +530,6 @@ def _danh_sach_goi_nap_chuan(don_gia: int) -> list[GoiNapLuotRead]:
     ]
 
 
-def _doc_ds_don_nap() -> list[dict]:
-    import json
-
-    try:
-        storage = get_storage()
-        rel = "quan_tri/don_nap_luot.json"
-        if storage.exists(rel):
-            data = json.loads(storage.read(rel).decode("utf-8"))
-            if isinstance(data, list):
-                return [d for d in data if isinstance(d, dict)]
-    except Exception:  # noqa: BLE001
-        pass
-    return []
-
-
-def _luu_ds_don_nap(ds: list[dict]) -> None:
-    import json
-
-    storage = get_storage()
-    rel = "quan_tri/don_nap_luot.json"
-    storage.save(rel, json.dumps(ds[:250], ensure_ascii=False).encode("utf-8"))
-
-
 @router_khach.get("/nap-luot/thong-tin", response_model=ThongTinNapLuotRead, tags=["han-muc"])
 async def xem_thong_tin_nap_luot(
     settings: Settings = Depends(get_settings),
@@ -582,7 +564,7 @@ async def xac_nhan_chuyen_khoan_goi(
     settings: Settings = Depends(get_settings),
     nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> DonNapLuotRead:
-    """Ghi nhận đơn khách đã chọn để chờ Webhook ngân hàng hoặc Admin (`thientrieu753@gmail.com`) xác nhận đối soát."""
+    """Ghi nhận đơn khách đã chọn để chờ Webhook ngân hàng hoặc quản trị xác nhận đối soát."""
     don_gia = max(1, settings.ty_le_vnd_moi_trang)
     ds_goi = {g.ma: g for g in _danh_sach_goi_nap_chuan(don_gia)}
     goi = ds_goi.get(body.ma_goi.strip())
@@ -598,49 +580,44 @@ async def xac_nhan_chuyen_khoan_goi(
         so_trang = max(1, so_tien // don_gia)
         ten_goi = body.ten_goi.strip() or f"Gói nạp ({so_trang} trang)"
 
-    ds_don = await run_in_threadpool(_doc_ds_don_nap)
-    email_lower = (nguoi.email or "").lower()
+    # Khách đã có đơn chờ duyệt cùng gói ⇒ trả đơn đó, không tạo dòng trùng.
+    cho = await don_nap.tim_don_cho_duyet(session, nguoi.email or "", ma_goi)
+    if cho is not None:
+        return don_nap.sang_read(cho)
 
-    # Nếu khách đã có đơn chờ duyệt cùng gói, trả về đơn đó để tránh tạo trùng lặp nhiều dòng
-    for d in ds_don:
-        if (
-            str(d.get("email") or "").lower() == email_lower
-            and d.get("trang_thai") == "cho_duyet"
-            and d.get("ma_goi") == ma_goi
-        ):
-            return DonNapLuotRead(**d)
-
-    # Bảo mật chống gian lận: Chỉ tự động kích hoạt ngay nếu chính Admin thao tác thử nghiệm;
-    # người dùng thường tạo đơn ở trạng thái `cho_duyet` (sẽ tự động cộng ngay khi Webhook ngân hàng
-    # báo tiền về hoặc khi Admin bấm "✅ Xác nhận" trong bảng Quản trị).
-    if nguoi.la_quan_tri:
-        nguoi.so_luot_mua_them = max(0, int(nguoi.so_luot_mua_them or 0)) + so_trang
-        await session.commit()
-        await session.refresh(nguoi)
-        trang_thai = "da_xac_nhan"
-    else:
-        trang_thai = "cho_duyet"
-
-    ma_don = f"ACB-{uuid.uuid4().hex[:8].upper()}"
-    noi_dung_ck = (
-        body.noi_dung_chuyen_khoan.strip()
-        or f"NAP {ma_goi.upper()} {nguoi.email}"
+    don = DonNapLuot(
+        ma_don=don_nap.sinh_ma_don(),
+        nguoi_dung_id=nguoi.id,
+        email=nguoi.email,
+        ten_hien=nguoi.ten_hien,
+        ma_goi=ma_goi,
+        ten_goi=ten_goi,
+        so_tien_vnd=so_tien,
+        so_trang_cong=so_trang,
+        noi_dung_chuyen_khoan=body.noi_dung_chuyen_khoan.strip() or f"NAP {ma_goi.upper()} {nguoi.email}",
+        trang_thai="cho_duyet",
     )
-    don_moi = {
-        "ma_don": ma_don,
-        "email": nguoi.email,
-        "ten_hien": nguoi.ten_hien,
-        "ma_goi": ma_goi,
-        "ten_goi": ten_goi,
-        "so_tien_vnd": so_tien,
-        "so_trang_cong": so_trang,
-        "noi_dung_chuyen_khoan": noi_dung_ck,
-        "trang_thai": trang_thai,
-        "created_at": bay_gio().isoformat(),
-    }
-    ds_don.insert(0, don_moi)
-    await run_in_threadpool(_luu_ds_don_nap, ds_don)
-    return DonNapLuotRead(**don_moi)
+    session.add(don)
+    # Quản trị tự thử thì kích hoạt ngay; người thường chờ webhook ngân hàng hoặc quản trị duyệt.
+    if nguoi.la_quan_tri:
+        don.trang_thai = "da_xac_nhan"
+        don.duyet_luc = bay_gio()
+        await don_nap.cong_luot(session, nguoi.id, so_trang)
+        ghi_nhat_ky(session, nguoi, "tu_nap_thu", don.ma_don, so_trang=so_trang)
+    await session.commit()
+    await session.refresh(don)
+    return don_nap.sang_read(don)
+
+
+def _ma_giao_dich_ngan_hang(payload: dict) -> str | None:
+    """Mã giao dịch duy nhất của ngân hàng/cổng (SePay `id`/`referenceCode`, Casso/PayOS `data`)."""
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    for nguon in (payload, data):
+        for khoa in ("id", "referenceCode", "reference", "tid", "transactionId", "transaction_id"):
+            gia_tri = nguon.get(khoa)
+            if gia_tri not in (None, ""):
+                return f"{khoa}:{gia_tri}"[:128]
+    return None
 
 
 @router_khach.post("/nap-luot/webhook", tags=["han-muc"])
@@ -653,6 +630,10 @@ async def webhook_nap_luot_ngan_hang(
 
     Cú pháp nội dung chuyển khoản: `NAP <8_KY_TU_DAU_UUID>` hoặc `NAP <EMAIL>`.
     Bảo vệ bằng khoá bí mật `WEBHOOK_NAP_LUOT_BI_MAT` trong header `Authorization`.
+
+    Chống cộng trùng: mỗi mã giao dịch ngân hàng chỉ cộng MỘT lần (ràng buộc duy nhất trên
+    `don_nap_luot.ma_giao_dich_ngan_hang`). Cổng gửi lại vì timeout ⇒ trả `trung_lap`, không cộng.
+    Chỉ nhận tiền VÀO (`transferType == "in"` khi cổng có gửi trường này).
     """
     import hmac
     import re
@@ -673,20 +654,37 @@ async def webhook_nap_luot_ngan_hang(
         raise HTTPException(status_code=401, detail="Khoá xác thực webhook không hợp lệ.")
 
     payload = await request.json()
+    if not isinstance(payload, dict):
+        return {"ok": False, "ly_do": "payload_khong_hop_le"}
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    loai_ck = str(payload.get("transferType") or data.get("transferType") or "in").lower()
+    if loai_ck != "in":
+        return {"ok": False, "ly_do": "khong_phai_tien_vao"}
+    ma_giao_dich = _ma_giao_dich_ngan_hang(payload)
+    if ma_giao_dich is None:
+        return {"ok": False, "ly_do": "thieu_ma_giao_dich"}
     noi_dung = str(
         payload.get("content")
         or payload.get("description")
-        or (payload.get("data") or {}).get("description")
+        or data.get("description")
         or ""
     ).strip()
     so_tien = int(
         payload.get("transferAmount")
         or payload.get("amount")
-        or (payload.get("data") or {}).get("amount")
+        or data.get("amount")
         or 0
     )
     if so_tien <= 0 or not noi_dung:
         return {"ok": False, "ly_do": "khong_co_so_tien_hoac_noi_dung"}
+
+    da_xu_ly = (
+        await session.execute(
+            select(DonNapLuot.ma_don).where(DonNapLuot.ma_giao_dich_ngan_hang == ma_giao_dich)
+        )
+    ).scalar_one_or_none()
+    if da_xu_ly is not None:
+        return {"ok": True, "trung_lap": True, "ma_don": da_xu_ly}
 
     don_gia = max(1, settings.ty_le_vnd_moi_trang)
     so_trang_goc = so_tien // don_gia
@@ -725,69 +723,74 @@ async def webhook_nap_luot_ngan_hang(
         nguoi = (await session.execute(select(NguoiDung).where(NguoiDung.email == email_tim))).scalar_one_or_none()
 
     if nguoi is None:
-        khop_ma = re.search(r"NAP\s+([0-9A-Fa-f]{8})", noi_dung, re.IGNORECASE)
+        khop_ma = re.search(r"NAP\s+([0-9A-Fa-f]{8})\b", noi_dung, re.IGNORECASE)
         if khop_ma:
-            tien_to_id = khop_ma.group(1).lower()
-            ds_nguoi = (await session.execute(select(NguoiDung))).scalars().all()
-            for u in ds_nguoi:
-                if str(u.id).lower().startswith(tien_to_id):
-                    nguoi = u
-                    break
+            ung_vien = (
+                await session.execute(
+                    select(NguoiDung).where(
+                        sa_cast(NguoiDung.id, String).like(f"{khop_ma.group(1).lower()}%")
+                    )
+                )
+            ).scalars().all()
+            # Hai tài khoản trùng 8 ký tự đầu ⇒ không đoán, để quản trị đối soát tay.
+            if len(ung_vien) == 1:
+                nguoi = ung_vien[0]
 
-    # Hỗ trợ trường hợp App Ngân hàng tự động xoá ký tự '@' và '.' trong nội dung chuyển khoản
-    # (VD: "NAP user@gmail.com" bị ngân hàng biến thành "NAP usergmailcom")
+    # App ngân hàng hay xoá '@' và '.' ("NAP user@gmail.com" → "NAP usergmailcom"): chỉ nhận khi
+    # TOÀN BỘ email đã rút gọn nằm trong nội dung. Không còn khớp theo phần trước @ — "nguyen"
+    # nằm trong nội dung của người khác là cộng nhầm tiền sang tài khoản khác.
     if nguoi is None:
-        ds_nguoi = (await session.execute(select(NguoiDung))).scalars().all()
         noi_dung_sach = re.sub(r"[^a-z0-9]", "", noi_dung.lower())
-        for u in ds_nguoi:
+        khop: list[NguoiDung] = []
+        for u in (await session.execute(select(NguoiDung))).scalars().all():
             email_rut_gon = re.sub(r"[^a-z0-9]", "", (u.email or "").lower())
-            local_part = re.sub(r"[^a-z0-9]", "", (u.email or "").split("@")[0].lower())
-            if (email_rut_gon and email_rut_gon in noi_dung_sach) or (len(local_part) >= 5 and local_part in noi_dung_sach):
-                nguoi = u
-                break
+            if len(email_rut_gon) >= 8 and email_rut_gon in noi_dung_sach:
+                khop.append(u)
+        if len(khop) == 1:
+            nguoi = khop[0]
 
     if nguoi is None:
         return {"ok": False, "ly_do": "khong_tim_thay_tai_khoan_tu_noi_dung"}
 
-    # Đối soát với danh sách đơn khách đã bấm xác nhận trên web
-    ds_don = await run_in_threadpool(_doc_ds_don_nap)
-    email_lower = (nguoi.email or "").lower()
-    don_khop = None
-    for d in ds_don:
-        if str(d.get("email") or "").lower() == email_lower and d.get("trang_thai") in ("da_cong_tu_dong", "cho_duyet"):
-            don_khop = d
-            break
-
-    if don_khop is not None and don_khop.get("trang_thai") == "da_cong_tu_dong":
-        # Khách đã được cộng tự động lúc bấm nút -> chuyển sang đã xác nhận ngân hàng (không cộng trùng)
-        don_khop["trang_thai"] = "da_xac_nhan"
-        await run_in_threadpool(_luu_ds_don_nap, ds_don)
-    else:
-        if don_khop is not None:
-            don_khop["trang_thai"] = "da_xac_nhan"
+    # Đơn khách đã bấm trên web ⇒ chốt đơn đó; không có ⇒ tạo đơn mới. Số lượt cộng LUÔN theo
+    # số tiền thật về tài khoản, không theo con số khách tự khai trên đơn.
+    don_cho = await don_nap.tim_don_cho_duyet(session, nguoi.email or "")
+    try:
+        if don_cho is not None and await don_nap.chuyen_trang_thai(
+            session, don_cho.id, tu=("cho_duyet",), sang="da_xac_nhan", ma_giao_dich=ma_giao_dich,
+            so_tien_vnd=so_tien, so_trang_cong=so_trang_cong,
+        ):
+            ma_don = don_cho.ma_don
         else:
-            ds_don.insert(
-                0,
-                {
-                    "ma_don": f"ACB-{uuid.uuid4().hex[:8].upper()}",
-                    "email": nguoi.email,
-                    "ten_hien": nguoi.ten_hien,
-                    "ma_goi": ma_goi_nhan,
-                    "ten_goi": ten_goi_nhan,
-                    "so_tien_vnd": so_tien,
-                    "so_trang_cong": so_trang_cong,
-                    "noi_dung_chuyen_khoan": noi_dung,
-                    "trang_thai": "da_xac_nhan",
-                    "created_at": bay_gio().isoformat(),
-                },
+            don_moi = DonNapLuot(
+                ma_don=don_nap.sinh_ma_don(),
+                nguoi_dung_id=nguoi.id,
+                email=nguoi.email,
+                ten_hien=nguoi.ten_hien,
+                ma_goi=ma_goi_nhan,
+                ten_goi=ten_goi_nhan,
+                so_tien_vnd=so_tien,
+                so_trang_cong=so_trang_cong,
+                noi_dung_chuyen_khoan=noi_dung,
+                trang_thai="da_xac_nhan",
+                ma_giao_dich_ngan_hang=ma_giao_dich,
+                duyet_luc=bay_gio(),
             )
-        await run_in_threadpool(_luu_ds_don_nap, ds_don)
-        nguoi.so_luot_mua_them = max(0, int(nguoi.so_luot_mua_them or 0)) + so_trang_cong
+            session.add(don_moi)
+            await session.flush()
+            ma_don = don_moi.ma_don
+        await don_nap.cong_luot(session, nguoi.id, so_trang_cong)
         await session.commit()
+    except IntegrityError:
+        # Hai lượt gửi lại cùng lúc: lượt kia đã ghi mã giao dịch trước ⇒ không cộng lần hai.
+        await session.rollback()
+        return {"ok": True, "trung_lap": True}
 
+    await session.refresh(nguoi)
     return {
         "ok": True,
         "email": nguoi.email,
+        "ma_don": ma_don,
         "da_cong_them": so_trang_cong,
         "so_luot_mua_them_moi": nguoi.so_luot_mua_them,
     }
@@ -799,39 +802,46 @@ async def quan_tri_duyet_don_nap(
     session: AsyncSession = Depends(get_session),
     nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> DonNapLuotRead:
-    """Admin (thientrieu753@gmail.com) xác nhận khớp sao kê ACB hoặc thu hồi đơn."""
+    """Quản trị xác nhận khớp sao kê hoặc thu hồi đơn.
+
+    Chuyển trạng thái nguyên tử: bấm "Xác nhận" hai lần (hoặc trùng lúc webhook) thì chỉ một
+    lượt cộng lượt, lượt kia thấy trạng thái đã đổi và không làm gì.
+    """
     if not nguoi.la_quan_tri:
         raise HTTPException(status_code=403, detail="Chỉ quản trị viên mới được duyệt đơn nạp.")
 
-    ds_don = await run_in_threadpool(_doc_ds_don_nap)
-    don_tim = None
-    for d in ds_don:
-        if d.get("ma_don") == body.ma_don:
-            don_tim = d
-            break
-    if don_tim is None:
+    don = await don_nap.tim_don(session, body.ma_don)
+    if don is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy đơn nạp.")
 
-    email_khach = str(don_tim.get("email") or "").strip().lower()
-    khach = (
-        await session.execute(select(NguoiDung).where(NguoiDung.email == email_khach))
-    ).scalar_one_or_none()
-    so_trang = int(don_tim.get("so_trang_cong") or 0)
-    trang_thai_cu = str(don_tim.get("trang_thai") or "")
+    khach_id = don.nguoi_dung_id
+    if khach_id is None:
+        khach_id = (
+            await session.execute(select(NguoiDung.id).where(NguoiDung.email == don.email.lower()))
+        ).scalar_one_or_none()
 
     if body.hanh_dong == "xac_nhan":
-        if trang_thai_cu in ("cho_duyet", "da_thu_hoi") and khach is not None:
-            khach.so_luot_mua_them = max(0, int(khach.so_luot_mua_them or 0)) + so_trang
-            await session.commit()
-        don_tim["trang_thai"] = "da_xac_nhan"
+        if await don_nap.chuyen_trang_thai(
+            session, don.id, tu=("cho_duyet", "da_thu_hoi"), sang="da_xac_nhan"
+        ):
+            if khach_id is not None:
+                await don_nap.cong_luot(session, khach_id, don.so_trang_cong)
+            ghi_nhat_ky(session, nguoi, "duyet_don_nap", don.ma_don,
+                        email=don.email, so_trang=don.so_trang_cong)
     elif body.hanh_dong == "thu_hoi":
-        if trang_thai_cu in ("da_cong_tu_dong", "da_xac_nhan") and khach is not None:
-            khach.so_luot_mua_them = max(0, int(khach.so_luot_mua_them or 0) - so_trang)
-            await session.commit()
-        don_tim["trang_thai"] = "da_thu_hoi"
+        if await don_nap.chuyen_trang_thai(
+            session, don.id, tu=("da_cong_tu_dong", "da_xac_nhan"), sang="da_thu_hoi"
+        ):
+            if khach_id is not None:
+                await don_nap.cong_luot(session, khach_id, -don.so_trang_cong)
+            ghi_nhat_ky(session, nguoi, "thu_hoi_don_nap", don.ma_don,
+                        email=don.email, so_trang=don.so_trang_cong)
+    else:
+        raise HTTPException(status_code=422, detail="hanh_dong phải là 'xac_nhan' hoặc 'thu_hoi'.")
 
-    await run_in_threadpool(_luu_ds_don_nap, ds_don)
-    return DonNapLuotRead(**don_tim)
+    await session.commit()
+    await session.refresh(don)
+    return don_nap.sang_read(don)
 
 
 @router.post("/quan-tri/cap-luot", response_model=CapLuotResponse, tags=["han-muc"])
@@ -855,11 +865,17 @@ async def quan_tri_cap_luot(
             body.ngan_hang_so_tk or "",
             body.ngan_hang_chu_tk or "",
         )
+        ghi_nhat_ky(session, nguoi, "doi_cau_hinh_ngan_hang", body.ngan_hang_ten or "",
+                    so_tk=body.ngan_hang_so_tk, chu_tk=body.ngan_hang_chu_tk)
+        await session.commit()
         return CapLuotResponse(
             email=nguoi.email,
             so_luot_mua_them=int(nguoi.so_luot_mua_them or 0),
             tran_hang_ngay_rieng=nguoi.tran_hang_ngay_rieng,
-            thong_diep=f"Đã lưu cấu hình VietQR Ngân hàng ({body.ngan_hang_ten} - {body.ngan_hang_so_tk}). Khách hàng sẽ thấy mã QR tự động ngay lập tức.",
+            # Thông tin ngân hàng đang TẠM ẨN theo yêu cầu (trang khách chỉ đọc từ biến môi trường),
+            # nên báo đúng: đã lưu nhưng khách CHƯA thấy.
+            thong_diep=f"Đã lưu cấu hình VietQR ({body.ngan_hang_ten} - {body.ngan_hang_so_tk}). "
+            "Thông tin ngân hàng đang tạm ẩn trên trang khách — khách chưa thấy mã QR này.",
         )
 
     email_tim = body.email.strip().lower()
@@ -869,10 +885,13 @@ async def quan_tri_cap_luot(
     if dich is None:
         raise HTTPException(status_code=404, detail=f"Không tìm thấy tài khoản '{email_tim}'.")
 
+    truoc = (int(dich.so_luot_mua_them or 0), dich.tran_hang_ngay_rieng)
     if body.cong_them_luot != 0:
-        dich.so_luot_mua_them = max(0, int(dich.so_luot_mua_them or 0) + body.cong_them_luot)
+        await don_nap.cong_luot(session, dich.id, body.cong_them_luot)
     if body.tran_hang_ngay_rieng is not None:
         dich.tran_hang_ngay_rieng = body.tran_hang_ngay_rieng if body.tran_hang_ngay_rieng > 0 else None
+    ghi_nhat_ky(session, nguoi, "cap_luot", dich.email, cong_them=body.cong_them_luot,
+                luot_truoc=truoc[0], tran_truoc=truoc[1], tran_sau=dich.tran_hang_ngay_rieng)
 
     await session.commit()
     await session.refresh(dich)
@@ -1184,17 +1203,7 @@ async def quan_tri_thong_ke(
     }
 
     nh_ten, nh_stk, nh_chu = await run_in_threadpool(_doc_cau_hinh_ngan_hang_dong, settings)
-    ds_don_raw = await run_in_threadpool(_doc_ds_don_nap)
-    ds_don_out: list[DonNapLuotRead] = []
-    for d in ds_don_raw[:50]:
-        try:
-            if "tao_luc" not in d and "created_at" in d:
-                d["tao_luc"] = str(d.get("created_at") or "")
-            if "noi_dung_ck" not in d and "noi_dung_chuyen_khoan" in d:
-                d["noi_dung_ck"] = str(d.get("noi_dung_chuyen_khoan") or "")
-            ds_don_out.append(DonNapLuotRead(**d))
-        except Exception:  # noqa: BLE001
-            pass
+    ds_don_out = [don_nap.sang_read(d) for d in await don_nap.ds_don_moi_nhat(session, 50)]
 
     return QuanTriThongKeRead(
         tong_nguoi_dung=len(ds_nguoi),
@@ -2027,16 +2036,19 @@ async def list_projects(
     Endpoint này **mới có ở slice B**. Trước đó giao diện tự nhớ id chapter trong máy, nên
     người dùng mới đăng nhập trên máy khác sẽ không thấy gì cả.
 
-    Chapter chưa có chủ (`chu_so_huu_id IS NULL`, tạo trước slice B) cũng hiện ra, để chúng
-    không biến mất khỏi tầm nhìn. Giao diện phải gắn nhãn phân biệt.
+    Chapter chưa có chủ (`chu_so_huu_id IS NULL`) chỉ hiện cho **quản trị**, để họ nhận hoặc
+    dọn. Giao diện phải gắn nhãn phân biệt.
     """
+    dieu_kien = Project.chu_so_huu_id == nguoi.id
+    if nguoi.la_quan_tri:
+        # Vô chủ = không thuộc tài khoản nào VÀ không thuộc khách lạ nào (thiếu vế sau là lộ
+        # tên/id chapter của mọi khách). Chỉ quản trị — cùng luật với `duoc_dung_project`.
+        dieu_kien = dieu_kien | (
+            Project.chu_so_huu_id.is_(None) & Project.chu_khach.is_(None)
+        )
     return list(
         (await session.execute(
-            select(Project)
-            .where(
-                (Project.chu_so_huu_id == nguoi.id) | (Project.chu_so_huu_id.is_(None))
-            )
-            .order_by(Project.created_at.desc())
+            select(Project).where(dieu_kien).order_by(Project.created_at.desc())
         )).scalars()
     )
 
@@ -2082,7 +2094,7 @@ async def release_project(
     trong lượt kiểm chứng B1: một tài khoản thử nhận nhầm chapter thật, và không có đường nào
     trả lại ngoài sửa tay trong CSDL.
 
-    Nhả xong thì chapter về đúng trạng thái của chapter cũ: ai đăng nhập cũng thấy và nhận được.
+    Nhả xong thì chapter về trạng thái vô chủ: chỉ quản trị thấy và nhận lại được.
     Đây KHÔNG phải chuyển chủ cho một người cụ thể — chuyển chủ cần biết tên người nhận, tức là
     cần một danh bạ người dùng, và đó là chuyện khác.
     """

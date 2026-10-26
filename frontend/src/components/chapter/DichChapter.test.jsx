@@ -70,7 +70,9 @@ describe('form gộp một luồng', () => {
     const thu = [
       '#vung-tha-nhanh', null, null, null, null, 'input[type=checkbox]', '#nut-tao',
     ]
-    const nhanVaTen = ['Ngôn ngữ gốc', 'Cách dịch', 'Mục đích sử dụng', 'Tên chapter']
+    // "Ngôn ngữ gốc" có HAI chỗ: hàng nút đổi tức thì (hiện) và ô chọn ẩn cùng giá trị — lấy ô
+    // chọn bằng nhãn chính xác để không đụng `aria-label` "Ngôn ngữ gốc trên trang".
+    const nhanVaTen = ['^Ngôn ngữ gốc\\s*\\*?$', 'Cách dịch', 'Mục đích sử dụng', 'Tên chapter']
     const vitri = (el) => Array.from(container.querySelectorAll('*')).indexOf(el)
     const moc = [
       container.querySelector(thu[0]),
@@ -157,7 +159,7 @@ describe('chạy: tạo chapter + tải trang + mở màn chapter', () => {
     gia()
     const moChapter = vi.fn()
     const { container } = render(<DichChapter onMoChapter={moChapter} />)
-    await u.selectOptions(screen.getByLabelText(/Ngôn ngữ gốc/), 'en')
+    await u.selectOptions(screen.getByRole('combobox', { name: /^Ngôn ngữ gốc/ }), 'en')
     await u.selectOptions(screen.getByLabelText(/Mục đích sử dụng/), 'personal')
     await u.upload(container.querySelector('input[type=file]'), [goi('ch.cbz'), anh('p1.png')])
     await u.click(screen.getByRole('button', { name: NUT }))

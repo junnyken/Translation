@@ -10,7 +10,7 @@ Thực ra đó là **lỗi CHỈ CÓ ở local**, do bàn thử dùng pool khác
 
 | | Pool | SIGKILL giết gì | `worker_ready` chạy lại? | Quét mồ côi |
 |---|---|---|---|---|
-| production (`deploy-start.sh`) | `--pool=solo` | cả worker ⇒ vòng bật lại khởi động lại | **CÓ** | **chạy** |
+| production (`deploy-start.sh`) | `--pool=solo` (nay `threads`) | cả worker ⇒ vòng bật lại khởi động lại | **CÓ** | **chạy** |
 | local (trước bản sửa này) | `--concurrency=1` (prefork) | chỉ tiến trình CON | KHÔNG | **không chạy** |
 
 Với prefork, Celery sinh tiến trình con thay thế và tiến trình chính sống tiếp, nên tín hiệu
@@ -36,7 +36,10 @@ COMPOSE = GOC / "deploy" / "docker-compose.yml"
 DEPLOY_SH = GOC / "backend" / "deploy-start.sh"
 
 #: Chỉ những pool KHÔNG fork mới giữ được tính chất "SIGKILL giết cả worker".
-POOL_KHONG_FORK = {"solo"}
+#: `threads` cũng là MỘT tiến trình (luồng, không tiến trình con) ⇒ SIGKILL giết cả worker,
+#: vòng bật lại chạy, `worker_ready` phát lại — y như `solo`, nhưng chạy song song được các lượt
+#: gọi Gemini (việc chờ mạng). Production đổi sang `threads --concurrency=6` vì lý do đó.
+POOL_KHONG_FORK = {"solo", "threads"}
 
 
 def _doc(p: Path) -> str:

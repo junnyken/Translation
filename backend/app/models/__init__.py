@@ -1027,3 +1027,62 @@ class SoCaiHanMuc(TimestampMixin, Base):
     trang_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True), nullable=True, index=True
     )
+
+
+class DonNapLuot(TimestampMixin, Base):
+    """Đơn nạp lượt (chuyển khoản ngân hàng). Thay tệp `quan_tri/don_nap_luot.json`.
+
+    Tệp JSON đọc-sửa-ghi không khoá: hai lượt duyệt song song cùng thấy `cho_duyet` và cùng cộng
+    lượt, ghi đồng thời làm mất đơn, và tệp cắt ở 250 dòng. Ở đây mọi chuyển trạng thái là một
+    `UPDATE ... WHERE trang_thai IN (...)` nguyên tử — chỉ một lượt thắng.
+
+    `ma_giao_dich_ngan_hang` DUY NHẤT: webhook ngân hàng gửi lại cùng một giao dịch (timeout,
+    thử lại) thì lần sau đụng ràng buộc và KHÔNG cộng lượt lần hai.
+
+    `trang_thai` là chuỗi chứ không phải enum Postgres — xem cảnh báo enum trong `CLAUDE.md`.
+    """
+
+    __tablename__ = "don_nap_luot"
+    __table_args__ = (
+        UniqueConstraint("ma_don", name="uq_don_nap_luot_ma_don"),
+        UniqueConstraint("ma_giao_dich_ngan_hang", name="uq_don_nap_luot_ma_giao_dich"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    ma_don: Mapped[str] = mapped_column(String(32), nullable=False)
+    nguoi_dung_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("nguoi_dung.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    email: Mapped[str] = mapped_column(String(320), nullable=False, index=True)
+    ten_hien: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    ma_goi: Mapped[str] = mapped_column(String(60), nullable=False)
+    ten_goi: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    so_tien_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    so_trang_cong: Mapped[int] = mapped_column(Integer, nullable=False)
+    noi_dung_chuyen_khoan: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    #: cho_duyet | da_xac_nhan | da_thu_hoi | da_cong_tu_dong (đơn cũ từ JSON)
+    trang_thai: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    ma_giao_dich_ngan_hang: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    duyet_luc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class NhatKyQuanTri(Base):
+    """Dấu vết thao tác quản trị: cấp lượt, duyệt/thu hồi đơn, khoá/xoá/phong quyền, đổi STK.
+
+    Chỉ THÊM, không sửa/xoá. `quan_tri_email` lưu kèm vì tài khoản quản trị có thể bị xoá sau
+    này (FK về NULL) mà dấu vết vẫn phải đọc được là ai làm.
+    """
+
+    __tablename__ = "nhat_ky_quan_tri"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    quan_tri_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("nguoi_dung.id", ondelete="SET NULL"), nullable=True
+    )
+    quan_tri_email: Mapped[str] = mapped_column(String(320), nullable=False)
+    hanh_dong: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    doi_tuong: Mapped[str] = mapped_column(String(320), nullable=False, default="")
+    chi_tiet: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )

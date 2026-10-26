@@ -94,11 +94,6 @@ class DangKyRequest(BaseModel):
     cf_turnstile_token: str | None = Field(default=None, max_length=4096)
 
 
-class XacNhanEmailRequest(BaseModel):
-    token_xac_nhan: str | None = Field(default=None, max_length=2048)
-    supabase_access_token: str | None = Field(default=None, max_length=4096)
-
-
 class DangNhapRequest(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     mat_khau: str = Field(min_length=1, max_length=1024)

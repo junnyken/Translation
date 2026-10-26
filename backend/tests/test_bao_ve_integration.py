@@ -78,7 +78,7 @@ class TestCongBat:
     ):
         """Sau slice B, khoá chung gác **đăng ký** — chứ không còn gác dữ liệu."""
         r = await client_chua_dang_nhap.post("/api/v1/auth/register", json={
-            "email": "len@x.test", "ten_hien": "len", "mat_khau": "mat-khau-du-dai"})
+            "email": "len@test.local", "ten_hien": "len", "mat_khau": "mat-khau-du-dai"})
         assert r.status_code == 401
         assert TEN_HEADER in r.headers.get("www-authenticate", "")
 
@@ -87,7 +87,7 @@ class TestCongBat:
     ):
         r = await client_chua_dang_nhap.post(
             "/api/v1/auth/register", headers={TEN_HEADER: "sai"},
-            json={"email": "len2@x.test", "ten_hien": "len", "mat_khau": "mat-khau-du-dai"})
+            json={"email": "len2@test.local", "ten_hien": "len", "mat_khau": "mat-khau-du-dai"})
         assert r.status_code == 401
 
     async def test_CHI_CO_KHOA_CHUNG_thi_KHONG_doc_duoc_du_lieu(
@@ -115,7 +115,7 @@ class TestCongBat:
         self, client_chua_dang_nhap, bat_cong, chua_co_tai_khoan_nao
     ):
         """Nói ra sự khác biệt là xác nhận cho người dò biết họ đã đoán đúng định dạng."""
-        than = {"email": "x@x.test", "ten_hien": "x", "mat_khau": "mat-khau-du-dai"}
+        than = {"email": "x@test.local", "ten_hien": "x", "mat_khau": "mat-khau-du-dai"}
         a = await client_chua_dang_nhap.post("/api/v1/auth/register", json=than)
         b = await client_chua_dang_nhap.post(
             "/api/v1/auth/register", headers={TEN_HEADER: "sai"}, json=than
@@ -138,7 +138,7 @@ class TestCongBat:
     async def test_dung_khoa_chung_thi_tao_duoc_tai_khoan(self, client_chua_dang_nhap, bat_cong):
         r = await client_chua_dang_nhap.post(
             "/api/v1/auth/register", headers={TEN_HEADER: KHOA},
-            json={"email": f"moi-{uuid.uuid4().hex[:8]}@x.test", "ten_hien": "moi",
+            json={"email": f"moi-{uuid.uuid4().hex[:8]}@test.local", "ten_hien": "moi",
                   "mat_khau": "mat-khau-du-dai"},
         )
         assert r.status_code == 201, r.text
@@ -195,6 +195,15 @@ MIEN_TRU_DANG_NHAP = {
     # `test_e57_duong_nhan_dang` chứng minh cả ba chiều cách ly + trần + 429.
     "/api/v1/nhan-dang-ngon-ngu",
     "/api/v1/nhan-dang-ngon-ngu/{yeu_cau_id}",
+    # ---- Rà 26/10/2026: các đường đã mở từ E100–E107 mà danh sách này chưa ghi ----
+    "/api/v1/privacy-policy",           # nội dung công khai (Chrome Web Store đòi đường này)
+    "/api/v1/auth/thach-thuc-bot",      # phát mã chống bot cho trang đăng ký
+    "/api/v1/nap-luot/thong-tin",       # bảng giá; có tài khoản thì kèm mã CK của chính mình
+    "/api/v1/nap-luot/webhook",         # gác bằng khoá bí mật webhook, không bằng đăng nhập
+    "/api/v1/tai-ve/tien-ich-chrome",   # tệp cài đặt công khai
+    "/api/v1/tai-ve/app-windows",       # tệp cài đặt công khai
+    "/api/v1/doc-truyen/goi",           # gói zip/cbz của khách — cùng cổng hạn mức với trang lẻ
+    "/api/v1/doc-truyen/trang/{page_id}/anh-goc",  # cùng `_get_page_or_404` với `/anh`
 }
 
 
@@ -231,7 +240,10 @@ class TestKhongSotDuongNao:
         for r in self._duong_v1():
             if r.path in MIEN_TRU_DANG_NHAP:
                 continue
-            if "nguoi_dung_hien_tai" not in self._ten_phu_thuoc(r.dependant):
+            phu_thuoc = self._ten_phu_thuoc(r.dependant)
+            # Developer API (E100) có cổng RIÊNG: `_xac_thuc_developer` tra cùng bảng phiên
+            # (`lay_theo_ma_phien`) qua header `X-Customer-Api-Key`/`Authorization`, thiếu là 401.
+            if "nguoi_dung_hien_tai" not in phu_thuoc and "_xac_thuc_developer" not in phu_thuoc:
                 thieu.append(f"{sorted(r.methods)} {r.path}")
         assert not thieu, f"{len(thieu)} endpoint KHÔNG đòi đăng nhập: {thieu[:5]}"
 
@@ -272,7 +284,7 @@ class TestKhongSotDuongNao:
         """
         monkeypatch.setattr(get_settings(), "api_access_key", KHOA)
         r = await client_chua_dang_nhap.post("/api/v1/auth/register", json={
-            "email": "nguoi-la@x.test", "ten_hien": "la", "mat_khau": "mat-khau-du-dai"})
+            "email": "nguoi-la@test.local", "ten_hien": "la", "mat_khau": "mat-khau-du-dai"})
         assert r.status_code == 401, (
             f"tạo được tài khoản ĐẦU TIÊN mà không cần khoá chung ⇒ ai mở được địa chỉ cũng "
             f"thành quản trị: {r.status_code}"
@@ -285,7 +297,7 @@ class TestKhongSotDuongNao:
         bắt, và người lạ lại không tự đăng ký được (đúng lỗ §4.1 mà E52 vá)."""
         monkeypatch.setattr(get_settings(), "api_access_key", KHOA)
         r = await client_chua_dang_nhap.post("/api/v1/auth/register", json={
-            "email": "nguoi-la-2@x.test", "ten_hien": "la", "mat_khau": "mat-khau-du-dai"})
+            "email": "nguoi-la-2@test.local", "ten_hien": "la", "mat_khau": "mat-khau-du-dai"})
         assert r.status_code == 201, f"vẫn đòi khoá chung dù đã có tài khoản: {r.text}"
 
     def test_co_dang_kiem_that_chu_khong_phai_danh_sach_rong(self):

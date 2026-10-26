@@ -156,6 +156,8 @@ async def test_openapi_co_dung_6_endpoint_cua_m1(client):
     # Mọi endpoint NGHIỆP VỤ phải nằm dưới /api/v1 để còn đánh phiên bản được.
     # Ngoại lệ: `/` và `/healthz` — endpoint vận hành cho nền tảng hosting thăm dò, không có
     # phiên bản vì không thuộc hợp đồng API. Thiếu `/` thì hosting nhận 404 và coi deploy hỏng.
-    NGOAI_LE = {"/", "/healthz"}
+    # `/privacy-policy`: trang chính sách cho Chrome Web Store — cần URL ngắn, cố định, không
+    # phiên bản (bản `/api/v1/privacy-policy` vẫn có).
+    NGOAI_LE = {"/", "/healthz", "/privacy-policy"}
     la = {p for p, _ in paths if not p.startswith("/api/v1/")} - NGOAI_LE
     assert not la, f"endpoint nằm ngoài /api/v1: {la}"

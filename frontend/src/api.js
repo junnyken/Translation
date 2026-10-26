@@ -134,19 +134,6 @@ export const dangKy = (email, tenHien, matKhau, xacThucBot = {}) =>
     body: JSON.stringify({ email, ten_hien: tenHien, mat_khau: matKhau, ...xacThucBot }),
   }).then(doc)
 
-export async function xacNhanEmail(tokenXacNhan, supabaseAccessToken) {
-  const kq = await fetch(`${BASE}/auth/xac-nhan-email`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      token_xac_nhan: tokenXacNhan || null,
-      supabase_access_token: supabaseAccessToken || null,
-    }),
-  }).then(doc)
-  luuMaPhien(kq.ma_phien)
-  return kq.nguoi_dung
-}
-
 export async function dangXuat() {
   // Gọi máy chủ TRƯỚC rồi mới xoá mã: xoá trước thì lời gọi thu hồi mất mã để gửi đi, và
   // phiên vẫn còn hiệu lực trên máy chủ tới lúc hết hạn.

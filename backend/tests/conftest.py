@@ -45,6 +45,8 @@ TABLES = (
     # E57 — bảng MỚI phải vào đây ngay khi tạo. Bỏ sót là đúng bẫy E48: bản ghi của test
     # trước còn lại, và bài canh "chỉ thấy lượt của mình" xanh giả vì nó đếm cả rác cũ.
     "yeu_cau_nhan_dang_ngon_ngu",
+    "don_nap_luot",
+    "nhat_ky_quan_tri",
     "consistency_review_task",
     "character_voice_profile",
     "glossary_entry",
@@ -171,6 +173,15 @@ def _tao_tai_khoan_test() -> dict[str, tuple[str, str]]:
                         " (:id, :e, :t, :b, true, false)"
                     ),
                     {"id": uid, "e": email, "t": email.split("@")[0], "b": bam_chung},
+                )
+            else:
+                # Tài khoản test SỐNG QUA các test (bảng không bị TRUNCATE): test nào phong quản
+                # trị mà quên trả lại thì test sau thấy chapter vô chủ (chỉ quản trị thấy) và đỏ
+                # theo THỨ TỰ chạy. Mỗi test bắt đầu từ cùng một trạng thái: người thường, đang dùng.
+                conn.execute(
+                    sa.text("UPDATE nguoi_dung SET la_quan_tri = false, dang_hoat_dong = true"
+                            " WHERE id = :id"),
+                    {"id": uid},
                 )
             ma_tho = ph.sinh_ma()
             conn.execute(

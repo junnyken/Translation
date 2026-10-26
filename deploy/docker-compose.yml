@@ -7,12 +7,16 @@ name: translation
 services:
   db:
     image: postgres:16-alpine
+    labels: &nhan_tu_tat
+      - mb.env=staging
+      - mb.owner=${CODER_USER:-unknown}
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-translation}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-translation}
       POSTGRES_DB: ${POSTGRES_DB:-translation}
     ports:
-      - "${DB_PORT:-5433}:5432"
+      # Chỉ mở trên 127.0.0.1: mở 0.0.0.0 kèm mật khẩu mặc định là phơi CSDL ra cả mạng.
+      - "127.0.0.1:${DB_PORT:-5433}:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:
@@ -23,8 +27,9 @@ services:
 
   redis:
     image: redis:7-alpine
+    labels: *nhan_tu_tat
     ports:
-      - "${REDIS_PORT:-6380}:6379"
+      - "127.0.0.1:${REDIS_PORT:-6380}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -32,6 +37,7 @@ services:
       retries: 10
 
   api:
+    labels: *nhan_tu_tat
     build:
       context: ../backend
       target: api
@@ -54,6 +60,7 @@ services:
              uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 
   worker:
+    labels: *nhan_tu_tat
     build:
       context: ../backend
       target: worker
@@ -72,7 +79,8 @@ services:
       - model_cache:/model-cache
       - codex_secrets:/secrets/codex
     # M2/M3: worker tiêu thụ Job(type=detect) và Job(type=ocr) bằng comic-text-detector (ONNX, CPU).
-    # --pool=solo PHẢI khớp `deploy-start.sh` của production. Trước đây chỗ này dùng
+    # Pool PHẢI khớp `deploy-start.sh` của production (nay `threads`: một tiến trình như `solo`,
+    # nên chuỗi hồi phục bên dưới giữ nguyên; chỉ thêm việc chạy song song các lượt gọi mạng). Trước đây chỗ này dùng
     # `--concurrency=1` (pool prefork, CÓ tiến trình con) và điều đó làm bàn thử KHÔNG tái hiện
     # được chế độ hỏng quan trọng nhất:
     #   prefork: OOM giết tiến trình CON, tiến trình chính sống ⇒ `worker_ready` KHÔNG chạy lại
@@ -89,13 +97,16 @@ services:
     # hẳn — tệ hơn prefork (prefork còn sinh tiến trình con thay thế). Production có vòng
     # `while true` trong `deploy-start.sh`; ở local thì Docker làm việc đó.
     # Đúng chuỗi này mới tái hiện production: SIGKILL → bật lại → `worker_ready` → quét mồ côi.
-    restart: unless-stopped
+    # `on-failure` vẫn bật lại sau SIGKILL (mã thoát 137) nhưng KHÔNG tự sống lại sau reboot —
+    # quy ước máy chủ dùng chung: stack thử nghiệm phải tự tắt được.
+    restart: on-failure
     # -B + --schedule: khớp ĐÚNG production (xem deploy-start.sh). Lệch ở đây nghĩa là bàn
     # thử không tái hiện được lịch chạy định kỳ.
-    command: celery -A app.workers.celery_app.celery_app worker -l info -Q celery --pool=solo -B --schedule=/tmp/celerybeat-schedule
+    command: celery -A app.workers.celery_app.celery_app worker -l info -Q celery --pool=threads --concurrency=${CELERY_CONCURRENCY:-6} -B --schedule=/tmp/celerybeat-schedule
 
   # M7 — màn sửa tay. Chỉ là consumer của API, không đụng DB/Redis.
   frontend:
+    labels: *nhan_tu_tat
     build:
       context: ../frontend
       target: dev

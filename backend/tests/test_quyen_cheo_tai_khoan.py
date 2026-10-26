@@ -34,6 +34,7 @@ from app.models import (
     ExportJob,
     GlossaryEntry,
     Job,
+    NguoiDung,
     OCRResult,
     Page,
     Project,
@@ -286,6 +287,28 @@ MIEN_TRU = {
     "/api/v1/codex": "token ChatGPT của máy, không thuộc chapter; kiểm ở test_e73_codex",
     "/api/v1/codex/dang-nhap": "không nhận id; chỉ quản trị bản cài cục bộ; kiểm ở test_e73_codex",
     "/api/v1/codex/dang-nhap/hoi": "không nhận id; chỉ quản trị bản cài cục bộ; kiểm ở test_e73_codex",
+    # Rà 26/10/2026 — các đường dưới đây không nhận id nào: hoặc là nội dung công khai, hoặc trả
+    # / sửa dữ liệu của CHÍNH người gọi. "B nhận 2xx" ở đây là đúng, không phải rò rỉ.
+    "/api/v1/privacy-policy": "chính sách quyền riêng tư — nội dung công khai",
+    "/api/v1/auth/thach-thuc-bot": "phát mã chống bot mới — công khai, không dữ liệu người dùng",
+    "/api/v1/auth/api-key": "khoá API CỦA CHÍNH người gọi (xem/tạo/thu hồi), không nhận id",
+    "/api/v1/nap-luot/thong-tin": "bảng giá + mã chuyển khoản của chính người gọi",
+    "/api/v1/tai-ve/tien-ich-chrome": "tệp cài đặt công khai",
+    "/api/v1/tai-ve/app-windows": "tệp cài đặt công khai",
+    "/api/v1/developer/quota": "hạn mức của chính người gọi",
+    "/api/v1/developer/me": "thông tin của chính người gọi",
+    "/api/v1/nap-luot/xac-nhan-chuyen-khoan": "tạo đơn nạp MỚI của chính người gọi, không nhận id",
+    "/api/v1/nap-luot/webhook": "gác bằng khoá bí mật webhook; kiểm ở test_va_bao_mat_audit_2610",
+    "/api/v1/doc-truyen/goi": "tải gói vào chapter của chính người gọi, không nhận id",
+    # Quản trị: không nhận id chapter nào; cổng `la_quan_tri` kiểm ở test_va_bao_mat_audit_2610
+    # (duyệt đơn) và test_quan_tri_nguoi_dung.
+    "/api/v1/quan-tri/duyet-don-nap": "chỉ quản trị; kiểm ở test_va_bao_mat_audit_2610",
+    "/api/v1/quan-tri/cap-luot": "chỉ quản trị; không nhận id chapter",
+    "/api/v1/quan-tri/thong-ke": "chỉ quản trị; không nhận id chapter",
+    # Developer API: TẠO việc dịch mới của chính người gọi (ảnh/URL/chữ gửi kèm), không nhận id.
+    "/api/v1/developer/translate-image": "tạo việc dịch mới của chính người gọi",
+    "/api/v1/developer/translate-chapter": "tạo việc dịch mới của chính người gọi",
+    "/api/v1/developer/translate-text": "dịch chữ gửi kèm, không đụng dữ liệu đã lưu",
 }
 
 
@@ -494,6 +517,19 @@ MO_CHO_KHACH = {
     # `test_e57_duong_nhan_dang::test_gui_duoc_va_tra_202_kem_id` (khách gửi được) và
     # `…::test_nguoi_khac_KHONG_tra_duoc_va_nhan_404_chu_khong_403` (không đọc được của người khác).
     "/api/v1/nhan-dang-ngon-ngu": 422,
+    # Rà 26/10/2026 — nội dung công khai, không nhận id ⇒ 200 là đúng.
+    "/api/v1/privacy-policy": 200,
+    "/api/v1/auth/thach-thuc-bot": 200,
+    "/api/v1/nap-luot/thong-tin": 200,
+    "/api/v1/tai-ve/tien-ich-chrome": 200,
+    "/api/v1/tai-ve/app-windows": 200,
+    # Webhook ngân hàng gác bằng khoá bí mật riêng, không bằng đăng nhập: test không đặt khoá
+    # ⇒ 503 (thiếu cấu hình), khoá sai ⇒ 401. Kiểm ở `test_va_bao_mat_audit_2610`.
+    "/api/v1/nap-luot/webhook": 503,
+    # Ảnh gốc của trang NGƯỜI KHÁC ⇒ 404 (cùng `_get_page_or_404` với `/anh`).
+    "/api/v1/doc-truyen/trang/{page_id}/anh-goc": 404,
+    # 422: multipart, FastAPI kiểm thân trước khi vào hàm — cùng điểm mù như `/nhan-dang-ngon-ngu`.
+    "/api/v1/doc-truyen/goi": 422,
 }
 
 
@@ -517,8 +553,17 @@ async def test_moi_endpoint_deu_doi_dang_nhap(session, client_chua_dang_nhap, cl
     assert not lot, "Endpoint trả sai mã khi chưa đăng nhập:\n" + "\n".join(lot)
 
 
-async def test_chapter_chua_co_chu_thi_ai_dang_nhap_cung_thay(session, client, client_b):
-    """Chapter tạo TRƯỚC slice B (`chu_so_huu_id IS NULL`) không được biến mất khỏi tầm nhìn."""
+async def _quan_tri(session, nguoi_id: str, la: bool = True) -> None:
+    n = await session.get(NguoiDung, uuid.UUID(nguoi_id))
+    n.la_quan_tri = la
+    await session.commit()
+
+
+async def test_chapter_chua_co_chu_CHI_quan_tri_thay(session, client, client_b, nguoi_a):
+    """Chapter vô chủ (`chu_so_huu_id IS NULL`) không biến mất — nhưng chỉ QUẢN TRỊ thấy.
+
+    Vá 26/10/2026: trước đây mọi tài khoản đều thấy, nên xoá một người dùng là phát toàn bộ
+    truyện của họ cho cả hệ thống đọc và nhận về."""
     project = Project(
         name="chapter cu khong co chu",
         source_lang=SourceLang.ja, target_lang=TargetLang.vi,
@@ -527,15 +572,18 @@ async def test_chapter_chua_co_chu_thi_ai_dang_nhap_cung_thay(session, client, c
     session.add(project)
     await session.commit()
 
-    for c in (client, client_b):
-        tra = await c.get(f"/api/v1/projects/{project.id}")
-        assert tra.status_code == 200, tra.text
-        ds = await c.get("/api/v1/projects")
-        assert str(project.id) in [p["id"] for p in ds.json()]
+    assert (await client_b.get(f"/api/v1/projects/{project.id}")).status_code == 404
+    assert str(project.id) not in [p["id"] for p in (await client_b.get("/api/v1/projects")).json()]
+
+    await _quan_tri(session, nguoi_a[0])
+    tra = await client.get(f"/api/v1/projects/{project.id}")
+    assert tra.status_code == 200, tra.text
+    assert str(project.id) in [p["id"] for p in (await client.get("/api/v1/projects")).json()]
 
 
-async def test_nhan_chapter_vo_chu_roi_thi_nguoi_khac_mat_quyen(session, client, client_b):
-    """Nhận chapter vô chủ về mình ⇒ người khác không còn thấy nữa."""
+async def test_nhan_chapter_vo_chu_roi_thi_nguoi_khac_mat_quyen(session, client, client_b, nguoi_a):
+    """Quản trị nhận chapter vô chủ về mình ⇒ người khác không thấy."""
+    await _quan_tri(session, nguoi_a[0])
     project = Project(
         name="chapter vo chu", source_lang=SourceLang.ja, target_lang=TargetLang.vi,
         intended_use=IntendedUse.personal, chu_so_huu_id=None,

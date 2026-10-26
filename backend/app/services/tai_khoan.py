@@ -140,8 +140,13 @@ def kiem_email_hop_le_chong_spam(email: str) -> str | None:
     if local.count(".") > 3:
         return "Địa chỉ email có quá nhiều dấu chấm bất thường."
 
-    # Cho phép các tên miền nội bộ phục vụ bộ kiểm thử tự động (`@test.local`, `@vi-du.com`, ...)
-    if domain.endswith(".local") or domain in ("vi-du.com", "example.com", "x.com", "b.com", "c.com"):
+    # Tên miền nội bộ cho bộ kiểm thử tự động (`@test.local`, `@vi-du.com`, ...) — KHÔNG mở ở
+    # production: `x.com`, `*.local` là địa chỉ không nhận thư, mở ra là lỗ tạo tài khoản ảo.
+    from app.core.config import get_settings
+
+    if get_settings().app_env != "prod" and (
+        domain.endswith(".local") or domain in ("vi-du.com", "example.com", "x.com", "b.com", "c.com")
+    ):
         return None
 
     # Whitelist nhà cung cấp email thật chính thống — chặn 100% mail 10 phút và các tên miền khác
@@ -195,35 +200,20 @@ async def dang_ky(
     if email_goc != email and await tim_theo_email(session, email_goc) is not None:
         raise ValueError("email_da_ton_tai")
 
-    la_chu_he_thong = email in ("thientrieu753@gmail.com",)
+    # KHÔNG có email "chủ hệ thống" viết cứng: repo công khai + đăng ký không xác minh email ⇒ ai
+    # đăng ký trước bằng email đó là thành quản trị. Phong quyền qua `PATCH /auth/users/{id}` hoặc
+    # `python -m app.scripts.phong_quan_tri <email>`.
     nguoi = NguoiDung(
         email=email,
         ten_hien=ten_hien.strip() or email.split("@")[0],
         mat_khau_bam=mk.bam(mat_khau_tho),
-        dang_hoat_dong=dang_hoat_dong or la_chu_he_thong,
-        la_quan_tri=(await dem_nguoi_dung(session) == 0) or la_chu_he_thong,
+        dang_hoat_dong=dang_hoat_dong,
+        la_quan_tri=await dem_nguoi_dung(session) == 0,
     )
     session.add(nguoi)
     await session.commit()
     await session.refresh(nguoi)
     return nguoi
-
-
-async def kich_hoat_tai_khoan_va_dang_nhap(
-    session: AsyncSession, *, email: str
-) -> tuple[NguoiDung, str] | None:
-    """Kích hoạt tài khoản sau khi người dùng bấm vào liên kết xác nhận trong email và cấp phiên đăng nhập."""
-    nguoi = await tim_theo_email(session, email)
-    if nguoi is None:
-        return None
-    nguoi.dang_hoat_dong = True
-    if nguoi.email in ("thientrieu753@gmail.com",) and not nguoi.la_quan_tri:
-        nguoi.la_quan_tri = True
-    ma_tho = ph.sinh_ma()
-    session.add(Phien(nguoi_dung_id=nguoi.id, ma_bam=ph.bam_ma(ma_tho), het_han=ph.han_moi()))
-    await session.commit()
-    await session.refresh(nguoi)
-    return nguoi, ma_tho
 
 
 def _ten_hien_chuan(ten_tho: str, email: str) -> str:
@@ -305,8 +295,6 @@ async def dang_nhap(session: AsyncSession, *, email: str, mat_khau_tho: str) -> 
         # Kiểm SAU khi kiểm mật khẩu: kiểm trước sẽ trả lời nhanh hơn cho tài khoản bị khoá.
         return None
 
-    if nguoi.email in ("thientrieu753@gmail.com",) and not nguoi.la_quan_tri:
-        nguoi.la_quan_tri = True
     ma_tho = ph.sinh_ma()
     session.add(Phien(nguoi_dung_id=nguoi.id, ma_bam=ph.bam_ma(ma_tho), het_han=ph.han_moi()))
     await session.commit()
@@ -325,8 +313,6 @@ async def lay_theo_ma_phien(session: AsyncSession, ma_tho: str) -> NguoiDung | N
     nguoi = await session.get(NguoiDung, ban_ghi.nguoi_dung_id)
     if nguoi is None or not nguoi.dang_hoat_dong:
         return None
-    if nguoi.email in ("thientrieu753@gmail.com",) and not nguoi.la_quan_tri:
-        nguoi.la_quan_tri = True
     ban_ghi.dung_lan_cuoi = datetime.now(timezone.utc)
     await session.commit()
     return nguoi

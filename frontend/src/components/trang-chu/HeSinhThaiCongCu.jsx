@@ -61,8 +61,8 @@ export default function HeSinhThaiCongCu() {
 
           <p className="mo-ta-cong-cu">
             {laEn
-              ? 'Translate directly on any Manga, Manhwa, Manhua, Webtoon, or Web Novel site — even sites that block right-click or image hotlinking.'
-              : 'Dịch trực tiếp trên mọi trang đọc Manga, Manhwa, Manhua, Webtoon và Truyện chữ — vượt qua cả các trang chặn chuột phải hoặc chống tải ảnh.'}
+              ? 'Translate directly on the Manga, Manhwa, Manhua, Webtoon, and Web Novel pages you are reading — for personal reading only.'
+              : 'Dịch trực tiếp trên trang Manga, Manhwa, Manhua, Webtoon và Truyện chữ bạn đang đọc — dùng cho việc đọc cá nhân.'}
           </p>
 
           <ul className="ds-tinh-nang-cong-cu">
@@ -75,9 +75,9 @@ export default function HeSinhThaiCongCu() {
             </li>
             <li>
               {laEn ? (
-                <>🛡️ <b>Anti-Block &amp; Canvas/Novel Bypass:</b> Works on protected comic sites, Canvas readers, and Light Novel text pages.</>
+                <>📖 <b>Comics &amp; Web Novels:</b> Works on image-based comic readers and Light Novel text pages.</>
               ) : (
-                <>🛡️ <b>Vượt mọi trang chặn dịch:</b> Xử lý cả ảnh chống Hotlink, trang vẽ bằng thẻ Canvas và trang Truyện chữ (Web Novel).</>
+                <>📖 <b>Truyện tranh &amp; Truyện chữ:</b> Dùng được trên trang đọc truyện tranh dạng ảnh và trang Truyện chữ (Web Novel).</>
               )}
             </li>
             <li>

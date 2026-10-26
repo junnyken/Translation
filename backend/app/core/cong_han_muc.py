@@ -30,6 +30,7 @@ from fastapi import HTTPException, Response, status
 
 from app.core.config import Settings
 from app.core.danh_tinh_khach import Chot, DanhTinhHanMuc, dat_cookie_khach
+from app.models.enums import LoaiChuThe
 from app.services.han_muc import bay_gio, moc_reset_ke_tiep, ngay_han_muc
 from app.services.so_cai_han_muc import con_lai_bat_dong_bo, giu_cho_trang
 

@@ -371,6 +371,20 @@ async def _cors_developer_api(request: Request, call_next):
     return await call_next(request)
 
 
+@app.middleware("http")
+async def _header_bao_mat(request: Request, call_next):
+    """Header bảo mật cho mọi phản hồi của API (gọi thẳng `translation-api…` không đi qua nginx
+    của web nên không nhận header bên đó). API chỉ trả JSON/ảnh/tệp — không trang nào cần nằm
+    trong khung của trang khác."""
+    resp = await call_next(request)
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "DENY")
+    resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    if request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https":
+        resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return resp
+
+
 app.include_router(v1_router_khach)
 app.include_router(developer_router)
 

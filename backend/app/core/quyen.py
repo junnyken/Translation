@@ -173,14 +173,18 @@ def duoc_dung_project(ai: "NguoiDung | NguoiGoi", project: Project) -> bool:
     2. **Người đăng nhập KHÔNG thấy chapter của khách.** Thiếu nhánh này thì chapter khách
        (`chu_so_huu_id IS NULL`) rơi vào nhóm "chưa có chủ" ở nhánh 3, và **mọi tài khoản đăng
        nhập đọc được truyện của mọi khách lạ**. Đây là rò rỉ dữ liệu, không phải chuyện tiện lợi.
-    3. Người đăng nhập thấy chapter của mình, và chapter **cũ chưa có chủ** (từ trước slice B).
+    3. Người đăng nhập thấy chapter của mình; chapter **chưa có chủ** chỉ quản trị thấy.
     """
     goi = NguoiGoi.cua(ai)
     if goi.la_khach:
         return goi.khach is not None and project.chu_khach == goi.khach
     if project.chu_khach is not None:
         return False
-    return project.chu_so_huu_id is None or project.chu_so_huu_id == goi.nguoi.id
+    if project.chu_so_huu_id is None:
+        # Chapter vô chủ (cũ trước slice B, của tài khoản đã bị xoá, hoặc vừa `release`) CHỈ quản
+        # trị thấy/nhận. Mở cho mọi tài khoản thì xoá một người là phát truyện của họ cho cả hệ thống.
+        return bool(goi.nguoi.la_quan_tri)
+    return project.chu_so_huu_id == goi.nguoi.id
 
 
 async def bao_dam_quyen(

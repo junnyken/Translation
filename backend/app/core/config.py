@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     supabase_bucket: str = "manga-pages"
     #: Cloudflare Turnstile (chống bot thật bằng widget của Cloudflare)
     cloudflare_turnstile_site_key: str = "0x4AAAAAAFjgaHej0056M8hW"
-    cloudflare_turnstile_secret_key: str = "0x4AAAAAAFjgaMk3b6UZEl-lrYGA91gc1Lk"
+    cloudflare_turnstile_secret_key: str = ""  # chỉ từ biến môi trường; khoá cũ đã lộ trong repo
     #: Địa chỉ trang web chính để gắn vào liên kết xác nhận email khi đăng ký
     frontend_site_url: str = "https://comic.io.vn"
     #: Tắt gửi email qua Supabase (dùng trực tiếp Email chính thống + Cloudflare Turnstile để vào thẳng tài khoản).

@@ -836,8 +836,8 @@ export default function QuanTriNguoiDung({ toi }) {
                                   onClick={() => {
                                     if (!window.confirm(
                                       `Xoá hẳn tài khoản ${n.email}?\n\n` +
-                                      'Chapter của họ KHÔNG bị xoá — chúng trở về "chưa có chủ" và người ' +
-                                      'khác nhận được.\n\nMuốn giữ nguyên chủ sở hữu thì bấm Khoá.'
+                                      'Chapter của họ KHÔNG bị xoá — chúng trở về "chưa có chủ" và chỉ ' +
+                                      'quản trị nhận lại được.\n\nMuốn giữ nguyên chủ sở hữu thì bấm Khoá.'
                                     )) return
                                     lam(n.id, () => api.xoaNguoiDung(n.id))
                                   }}
@@ -855,7 +855,8 @@ export default function QuanTriNguoiDung({ toi }) {
               </div>
               <p className="ghi-chu" style={{ marginTop: 10 }}>
                 <b>Khoá</b> giữ nguyên chapter của họ và cắt phiên đang mở ngay lập tức.
-                {' '}<b>Xoá</b> làm chapter của họ thành <i>chưa có chủ</i>.
+                {' '}<b>Xoá</b> làm chapter của họ thành <i>chưa có chủ</i> (chỉ quản trị thấy).
+                {soQuanTri < 2 ? <>{' '}Nên có <b>ít nhất hai quản trị</b> để không bị khoá ngoài khi mất tài khoản.</> : null}
                 {' '}Mỗi tài khoản tạo mới mặc định có <b>{tranMacDinh} trang/ngày</b> (làm mới lúc 0h00 giờ Việt Nam).
               </p>
             </>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import * as api from '../../api.js'
+import { giaiPow } from '../../lib/giai-pow.js'
 import { useNgonNguUI } from '../../lib/ngon-ngu-ui.jsx'
 import Alert from '../ui/Alert.jsx'
 import Button from '../ui/Button.jsx'
@@ -158,10 +159,17 @@ export default function ManDangNhap({ onXong, onQuayLai }) {
     try {
       if (che === 'dang-ky') {
         if (khoa.trim()) api.luuKhoa(khoa)
-        const nguoiMoi = await api.dangKy(email.trim(), tenHien.trim(), matKhau, {
-          cf_turnstile_token: cfToken || null,
-          ma_thach_thuc: maThachThuc || null,
-        })
+        // Có token Turnstile ⇒ chỉ gửi token. Không có (Turnstile không tải được) ⇒ lấy mã MỚI rồi
+        // giải PoW: máy chủ không còn nhận mã trơn, và mỗi mã chỉ tạo được một tài khoản.
+        let xacThucBot = { cf_turnstile_token: cfToken || null }
+        if (canChongBot && !cfToken) {
+          const tt = await api.layThachThucBot()
+          xacThucBot = {
+            ma_thach_thuc: tt.ma_thach_thuc,
+            dap_an_thach_thuc: await giaiPow(tt.ma_thach_thuc, tt.do_kho_pow ?? 16),
+          }
+        }
+        const nguoiMoi = await api.dangKy(email.trim(), tenHien.trim(), matKhau, xacThucBot)
         if (nguoiMoi && nguoiMoi.dang_hoat_dong === false) {
           setEmailChoXacNhan(nguoiMoi.email || email.trim())
           return

@@ -14,9 +14,10 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from sqlalchemy import select
 
 from app.core.db_sync import sync_session
-from app.models import OCRResult, Page, Project, TextRegion, TranslationResult
+from app.models import NguoiDung, OCRResult, Page, Project, TextRegion, TranslationResult
 from app.models.enums import (
     IntendedUse,
     OCREngine,
@@ -25,6 +26,8 @@ from app.models.enums import (
     TranslationStatus,
 )
 
+from tests.conftest import EMAIL_A
+
 pytestmark = pytest.mark.anyio
 
 
@@ -32,14 +35,13 @@ def _dung_chapter(token_moi_vung: list[int | None], project_id: str | None = Non
     """Dựng 1 chapter 1 trang, mỗi vùng mang đúng `token_cost` truyền vào (`None` = miễn phí).
 
     `project_id` để truyền vào một chapter **đã có chủ** (tạo qua API). Chapter dựng thẳng vào
-    CSDL ở đây **không có chủ**, và chapter không chủ thì hệ thống **cố ý cho mọi tài khoản
-    thấy** — để chapter tạo từ trước slice B không biến mất khỏi tầm nhìn. Nên muốn kiểm quyền
-    chéo tài khoản thì bắt buộc phải có chủ thật, không dùng fixture trần này được.
+    CSDL ở đây thuộc **tài khoản A** (máy khách `client`): chapter vô chủ nay chỉ quản trị thấy.
     """
     with sync_session() as s:
         if project_id is None:
+            chu = s.execute(select(NguoiDung.id).where(NguoiDung.email == EMAIL_A)).scalar_one()
             pr = Project(name="P1 token", source_lang="en", target_lang="vi",
-                         intended_use=IntendedUse.study)
+                         intended_use=IntendedUse.study, chu_so_huu_id=chu)
             s.add(pr); s.flush()
             pid = pr.id
         else:
@@ -97,8 +99,9 @@ class TestTongTokenCuaChapter:
 
     async def test_chapter_rong_khong_no(self, client):
         with sync_session() as s:
+            chu = s.execute(select(NguoiDung.id).where(NguoiDung.email == EMAIL_A)).scalar_one()
             pr = Project(name="P1 rỗng", source_lang="en", target_lang="vi",
-                         intended_use=IntendedUse.study)
+                         intended_use=IntendedUse.study, chu_so_huu_id=chu)
             s.add(pr); s.commit()
             pid = str(pr.id)
         r = await client.get(f"/api/v1/projects/{pid}/export-warnings")

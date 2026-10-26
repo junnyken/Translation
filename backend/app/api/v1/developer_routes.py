@@ -142,45 +142,57 @@ async def _thong_tin_quota(session: AsyncSession, nguoi: NguoiDung) -> dict[str,
     }
 
 
+class LoiTaiAnh(ValueError):
+    """Lỗi tải ảnh có câu báo AN TOÀN để trả cho người gọi (không kèm chi tiết mạng nội bộ)."""
+
+
 def _kiem_tra_url_an_toan_ssrf(url: str) -> None:
-    """Chặn SSRF: từ chối tải ảnh từ localhost, dải IP nội bộ (LAN), link-local và cloud metadata."""
+    """Chặn SSRF: chỉ cho tải ảnh từ địa chỉ IP công cộng (`is_global`).
+
+    `is_global` thay cho danh sách `is_private/is_loopback/...`: danh sách cũ để lọt dải CGNAT
+    100.64.0.0/10 và NAT64 64:ff9b::/96 — cả hai đều có thể trỏ vào mạng nội bộ của nền tảng.
+    """
     import ipaddress
     import socket
     from urllib.parse import urlparse
 
     parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise LoiTaiAnh("image_url phải bắt đầu bằng http:// hoặc https://")
     host = (parsed.hostname or "").strip().lower()
-    if not host or host in ("localhost", "0.0.0.0", "metadata.google.internal"):
-        raise ValueError("URL ảnh không hợp lệ hoặc trỏ tới địa chỉ nội bộ bị cấm.")
+    if not host or host in ("localhost", "metadata.google.internal"):
+        raise LoiTaiAnh("URL ảnh không hợp lệ hoặc trỏ tới địa chỉ nội bộ bị cấm.")
     try:
         infos = socket.getaddrinfo(host, None)
     except OSError as exc:
-        raise ValueError(f"Không phân giải được tên miền ảnh: {host}") from exc
+        raise LoiTaiAnh(f"Không phân giải được tên miền ảnh: {host}") from exc
     for info in infos:
-        ip_str = info[4][0]
-        try:
-            ip_obj = ipaddress.ip_address(ip_str)
-        except ValueError:
-            continue
-        if (
-            ip_obj.is_private
-            or ip_obj.is_loopback
-            or ip_obj.is_link_local
-            or ip_obj.is_multicast
-            or ip_obj.is_reserved
-            or ip_obj.is_unspecified
-        ):
-            raise ValueError("Từ chối kết nối tới địa chỉ IP nội bộ / đặc quyền.")
+        ip_obj = ipaddress.ip_address(info[4][0].split("%")[0])
+        if getattr(ip_obj, "ipv4_mapped", None):
+            ip_obj = ip_obj.ipv4_mapped
+        if not ip_obj.is_global or ip_obj.is_multicast:
+            raise LoiTaiAnh("Từ chối kết nối tới địa chỉ IP nội bộ / đặc quyền.")
+
+
+class _KhongTuChuyenHuong(urllib.request.HTTPRedirectHandler):
+    """Tắt tự đi theo 3xx: mỗi bước chuyển hướng phải qua lại `_kiem_tra_url_an_toan_ssrf`.
+    Để urllib tự đi theo là kiểm host đầu rồi bị 302 dắt vào 169.254.169.254 hay `redis:6379`."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D401
+        return None
+
+
+_SO_LAN_CHUYEN_HUONG_TOI_DA = 5
 
 
 def _tai_anh_url_chong_chan(url: str, referer: str | None = None, max_bytes: int = 20 * 1024 * 1024) -> bytes:
     """Tải ảnh từ URL bên ngoài kèm Referer tự động vượt chống hotlink cho tool khách hàng."""
-    from urllib.parse import urlparse
+    import urllib.error
+    from urllib.parse import urljoin, urlparse
 
     u = (url or "").strip()
     if not (u.startswith("http://") or u.startswith("https://")):
-        raise ValueError("image_url phải bắt đầu bằng http:// hoặc https://")
-    _kiem_tra_url_an_toan_ssrf(u)
+        raise LoiTaiAnh("image_url phải bắt đầu bằng http:// hoặc https://")
     parsed = urlparse(u)
     origin_ref = referer or f"{parsed.scheme}://{parsed.netloc}/"
     headers = {
@@ -191,12 +203,30 @@ def _tai_anh_url_chong_chan(url: str, referer: str | None = None, max_bytes: int
         "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
         "Referer": origin_ref,
     }
-    req = urllib.request.Request(u, headers=headers)
-    with urllib.request.urlopen(req, timeout=25) as resp:
-        data = resp.read(max_bytes + 1)
+    opener = urllib.request.build_opener(_KhongTuChuyenHuong)
+    for _ in range(_SO_LAN_CHUYEN_HUONG_TOI_DA + 1):
+        _kiem_tra_url_an_toan_ssrf(u)
+        try:
+            with opener.open(urllib.request.Request(u, headers=headers), timeout=25) as resp:
+                data = resp.read(max_bytes + 1)
+            break
+        except urllib.error.HTTPError as exc:
+            dich = exc.headers.get("Location") if exc.code in (301, 302, 303, 307, 308) else None
+            if not dich:
+                raise LoiTaiAnh(f"Máy chủ ảnh trả mã lỗi HTTP {exc.code}.") from exc
+            u = urljoin(u, dich)
+        except (urllib.error.URLError, OSError) as exc:
+            # KHÔNG trả nguyên văn lỗi mạng: "connection refused" vs "timeout" là công cụ dò cổng.
+            raise LoiTaiAnh("Không kết nối được tới máy chủ ảnh.") from exc
+    else:
+        raise LoiTaiAnh("Ảnh chuyển hướng quá nhiều lần.")
     if len(data) > max_bytes:
-        raise ValueError("Ảnh từ image_url vượt quá dung lượng tối đa cho phép.")
+        raise LoiTaiAnh("Ảnh từ image_url vượt quá dung lượng tối đa cho phép.")
     return data
+
+
+def _ly_do_an_toan(exc: Exception) -> str:
+    return str(exc) if isinstance(exc, (LoiTaiAnh, ValueError)) else "Lỗi không xác định khi tải ảnh."
 
 
 async def _dong_goi_ket_qua_trang_developer(
@@ -402,7 +432,7 @@ async def developer_dich_anh(
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(
                 status_code=422,
-                detail=f"Không tải được ảnh từ image_url: {exc}",
+                detail=f"Không tải được ảnh từ image_url: {_ly_do_an_toan(exc)}",
             ) from exc
     else:
         raise HTTPException(
@@ -681,7 +711,7 @@ async def developer_dich_ca_chapter_urls(
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(
                 status_code=422,
-                detail=f"Trang số {idx} ({url}) không tải được hoặc không phải ảnh hợp lệ: {exc}",
+                detail=f"Trang số {idx} ({url}) không tải được hoặc không phải ảnh hợp lệ: {_ly_do_an_toan(exc)}",
             ) from exc
 
         page = Page(

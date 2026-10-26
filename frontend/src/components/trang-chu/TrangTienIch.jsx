@@ -112,8 +112,8 @@ export default function TrangTienIch({ onQuayLai }) {
 
           <p style={{ color: '#cbd5e1', fontSize: 14.5, lineHeight: 1.6, marginBottom: 16 }}>
             {laEn
-              ? 'Read and translate directly on any Manga, Manhwa, Manhua, Webtoon, or Web Novel site — bypasses right-click blocks, Canvas DRM, and image hotlink protection.'
-              : 'Đọc tới đâu dịch tới đó ngay trên mọi trang đọc Manga, Manhwa, Manhua, Webtoon và Truyện chữ — vượt qua cả các trang chặn chuột phải, vẽ bằng thẻ Canvas hoặc chống tải ảnh.'}
+              ? 'Read and translate as you go on the Manga, Manhwa, Manhua, Webtoon, and Web Novel sites you already read — translations are overlaid on the page you are viewing, for personal reading only.'
+              : 'Đọc tới đâu dịch tới đó ngay trên trang Manga, Manhwa, Manhua, Webtoon và Truyện chữ bạn đang đọc — bản dịch phủ lên chính trang đang xem, dùng cho việc đọc cá nhân.'}
           </p>
 
           <div style={{ marginBottom: 18 }}>

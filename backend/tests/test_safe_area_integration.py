@@ -42,8 +42,16 @@ def trang_co_bong_bong(sample_page_image, no_broker_for_chained_ocr):
             from app.models import Project
             from app.models.enums import IntendedUse
 
+            # Chapter phải CÓ CHỦ (tài khoản A — máy khách `client`): chapter vô chủ nay chỉ
+            # quản trị thấy (vá 26/10/2026).
+            from app.models import NguoiDung
+            from tests.conftest import EMAIL_A
+
+            # `.scalar()` chứ không `scalar_one()`: test không dùng `client` thì tài khoản A có thể
+            # chưa được dựng — khi đó chapter vô chủ cũng được vì test không đi qua API.
+            chu = s.execute(sa.select(NguoiDung.id).where(NguoiDung.email == EMAIL_A)).scalar()
             pr = Project(name="E14", source_lang="en", target_lang="vi",
-                         intended_use=IntendedUse.study)
+                         intended_use=IntendedUse.study, chu_so_huu_id=chu)
             s.add(pr); s.flush()
             page = Page(project_id=pr.id, image_path="x.png", order=1,
                         status=PageStatus.translated)

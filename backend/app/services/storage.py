@@ -80,12 +80,42 @@ class ObjectStat(NamedTuple):
     mtime: int
 
 
+#: Trần số điểm ảnh của MỘT trang. Ảnh "bom" một màu 13000x13000 chỉ vài KB (lọt trần byte),
+#: nhưng giải mã ra ~500-700MB RAM — vài tệp song song là API (~1GB) bị OOM. 50 triệu điểm vẫn
+#: chứa dải webtoon dài 800x60000.
+TRAN_DIEM_ANH = 50_000_000
+TRAN_CANH_ANH = 65_000
+
+
+def kiem_kich_thuoc_anh(data: bytes) -> None:
+    """Đọc KÍCH THƯỚC từ header (Pillow chưa giải mã điểm ảnh ở bước `open`) và chặn ảnh bom."""
+    import io
+
+    from PIL import Image
+
+    try:
+        with Image.open(io.BytesIO(data)) as im:
+            rong, cao = im.size
+    except Image.DecompressionBombError as exc:
+        raise UnsupportedImage("Ảnh có kích thước quá lớn") from exc
+    except Exception:  # noqa: BLE001
+        # Header hỏng: không phải việc của cổng KÍCH THƯỚC — bước sau báo lỗi đọc ảnh như cũ.
+        return
+    if rong * cao > TRAN_DIEM_ANH or max(rong, cao) > TRAN_CANH_ANH:
+        raise UnsupportedImage(
+            f"Ảnh {rong}x{cao} vượt quá kích thước cho phép "
+            f"(tối đa {TRAN_DIEM_ANH // 1_000_000} triệu điểm ảnh)"
+        )
+
+
 def sniff_image(data: bytes) -> tuple[str, str]:
-    """Trả (mime, extension) nếu là JPEG/PNG thật; ném UnsupportedImage nếu không."""
+    """Trả (mime, extension) nếu là JPEG/PNG thật và không phải ảnh bom; ném UnsupportedImage nếu không."""
     for magic, (mime, ext) in _MAGIC.items():
         if data.startswith(magic):
+            kiem_kich_thuoc_anh(data)
             return mime, ext
     if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        kiem_kich_thuoc_anh(data)
         return "image/webp", ".webp"
     raise UnsupportedImage("File upload không phải ảnh JPEG/PNG/WEBP hợp lệ")
 
@@ -601,8 +631,12 @@ def _thu_nho(data: bytes, ext: str, canh_toi_da: int, Image) -> bytes:
             return data
         dinh_dang = im.format or {".png": "PNG", ".webp": "WEBP"}.get(ext.lower(), "JPEG")
         ti_le = canh_toi_da / max(im.size)
-        moi = im.resize((max(1, round(im.width * ti_le)), max(1, round(im.height * ti_le))),
-                        Image.LANCZOS)
+        dich = (max(1, round(im.width * ti_le)), max(1, round(im.height * ti_le)))
+        if dinh_dang == "JPEG":
+            # Giải mã JPEG ở độ phân giải giảm sẵn (1/2, 1/4, 1/8) — đỡ RAM cho trang rất lớn.
+            # `draft` đổi `im.size`, nên kích thước đích phải tính TRƯỚC dòng này.
+            im.draft("RGB", dich)
+        moi = im.resize(dich, Image.LANCZOS)
         if dinh_dang == "JPEG" and moi.mode not in ("RGB", "L"):
             moi = moi.convert("RGB")
         ra = io.BytesIO()

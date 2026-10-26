@@ -37,7 +37,7 @@ async def _dat_quan_tri(session, nguoi_id, la=True):
 
 
 class TestNhaChapter:
-    async def test_nha_roi_thi_nguoi_khac_nhan_duoc(self, session, client, client_b, nguoi_a):
+    async def test_nha_roi_thi_nguoi_khac_nhan_duoc(self, session, client, client_b, nguoi_a, nguoi_b):
         """Đường ngược của `claim` — không có nó thì nhận nhầm là khoá cứng vĩnh viễn."""
         p = await _chapter_cua(session, uuid.UUID(nguoi_a[0]))
         assert (await client_b.get(f"/api/v1/projects/{p.id}")).status_code == 404
@@ -46,8 +46,15 @@ class TestNhaChapter:
         assert nha.status_code == 200, nha.text
         assert nha.json()["chu_so_huu_id"] is None
 
-        assert (await client_b.get(f"/api/v1/projects/{p.id}")).status_code == 200
-        assert (await client_b.post(f"/api/v1/projects/{p.id}/claim")).status_code == 200
+        # Chapter vô chủ chỉ QUẢN TRỊ thấy/nhận (vá 26/10): người thường vẫn 404 sau khi nhả.
+        await _dat_quan_tri(session, uuid.UUID(nguoi_b[0]), False)
+        assert (await client_b.get(f"/api/v1/projects/{p.id}")).status_code == 404
+        await _dat_quan_tri(session, uuid.UUID(nguoi_b[0]))
+        try:
+            assert (await client_b.get(f"/api/v1/projects/{p.id}")).status_code == 200
+            assert (await client_b.post(f"/api/v1/projects/{p.id}/claim")).status_code == 200
+        finally:
+            await _dat_quan_tri(session, uuid.UUID(nguoi_b[0]), False)
 
     async def test_khong_nha_ho_chapter_cua_nguoi_khac(self, session, client_b, nguoi_a):
         """Nhả hộ = cướp gián tiếp: nhả xong rồi nhận lại là xong."""
@@ -57,10 +64,15 @@ class TestNhaChapter:
         assert p.chu_so_huu_id is not None, "chapter đã bị người lạ nhả mất"
 
     async def test_nha_chapter_von_da_vo_chu_thi_409_chu_khong_gia_vo_thanh_cong(
-        self, session, client
+        self, session, client, nguoi_a
     ):
-        p = await _chapter_cua(session, None)
-        assert (await client.post(f"/api/v1/projects/{p.id}/release")).status_code == 409
+        # Chapter vô chủ chỉ quản trị thấy; người thường nhận 404 trước khi tới được nhánh 409.
+        await _dat_quan_tri(session, uuid.UUID(nguoi_a[0]))
+        try:
+            p = await _chapter_cua(session, None)
+            assert (await client.post(f"/api/v1/projects/{p.id}/release")).status_code == 409
+        finally:
+            await _dat_quan_tri(session, uuid.UUID(nguoi_a[0]), False)
 
 
 class TestQuanTriNguoiDung:

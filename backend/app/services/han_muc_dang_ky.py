@@ -65,15 +65,18 @@ async def da_tao_bao_nhieu(session, ip_da_bam: str, ngay: date) -> int:
 
 
 async def giu_suat_dang_ky(
-    session, *, ip_da_bam: str, ngay: date, tran: int
+    session, *, ip_da_bam: str, ngay: date, tran: int, ma_mot_lan: str | None = None
 ) -> KetQuaGiuCho:
     """Giữ MỘT suất tạo tài khoản. Không tự commit — nơi gọi commit cùng lượt tạo tài khoản.
 
     Trả `thanh_cong=False` kèm `ly_do="vuot_han_muc"` khi địa chỉ mạng này đã chạm trần.
+
+    `ma_mot_lan` (vd `pow:<nonce>`) thay cho `uuid4()` làm khoá chống trùng: mã thách thức chống
+    bot đã tạo được một tài khoản thì lần dùng lại trả `da_co_san=True` — nơi gọi PHẢI từ chối.
     """
     return await giu_cho_bat_dong_bo(
         session,
-        khoa=f"{TIEN_TO}{uuid.uuid4()}",
+        khoa=f"{TIEN_TO}{ma_mot_lan or uuid.uuid4()}",
         loai=LOAI,
         chu_the=chu_the_dang_ky(ip_da_bam),
         ngay=ngay,

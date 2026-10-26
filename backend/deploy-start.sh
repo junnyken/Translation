@@ -65,6 +65,12 @@ if [ "$ROLE" = "all" ] || [ "$ROLE" = "api" ]; then
     off) : ;;
     *) echo "[khoi-dong] RECONCILE_LEGACY='${RECONCILE_LEGACY}' không hợp lệ (off|report|apply) — bỏ qua" ;;
   esac
+
+  # Phong quản trị cho một tài khoản ĐÃ CÓ (thay email viết cứng trong mã). Không chặn khởi động.
+  if [ -n "${PHONG_QUAN_TRI_EMAIL:-}" ]; then
+    python -m app.scripts.phong_quan_tri "${PHONG_QUAN_TRI_EMAIL}" \
+      || echo "[khoi-dong] phong quản trị không thành — bỏ qua"
+  fi
 fi
 
 case "$ROLE" in

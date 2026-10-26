@@ -148,7 +148,7 @@ describe('màn đăng nhập', () => {
     const xong = vi.fn()
     render(<ManDangNhap onXong={xong} />)
     await screen.findByText('Chưa có tài khoản nào')
-    await userEvent.type(screen.getByLabelText('Email'), 'a@x.test')
+    await userEvent.type(screen.getByLabelText('Email'), 'a@gmail.com')
     await userEvent.type(screen.getByLabelText('Mật khẩu'), 'mat-khau-du-dai')
     await userEvent.type(screen.getByLabelText('Khoá chung của hệ thống'), 'khoa-chung')
     await userEvent.click(screen.getByRole('button', { name: 'Tạo tài khoản' }))
@@ -165,7 +165,7 @@ describe('màn đăng nhập', () => {
     })
     render(<ManDangNhap onXong={() => {}} />)
     await screen.findByText('Chưa có tài khoản nào')
-    await userEvent.type(screen.getByLabelText('Email'), 'a@x.test')
+    await userEvent.type(screen.getByLabelText('Email'), 'a@gmail.com')
     await userEvent.type(screen.getByLabelText('Mật khẩu'), 'mat-khau-du-dai')
     await userEvent.type(screen.getByLabelText('Khoá chung của hệ thống'), 'khoa-chung')
     await userEvent.click(screen.getByRole('button', { name: 'Tạo tài khoản' }))
@@ -268,7 +268,9 @@ describe('quản trị tài khoản', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(() => dapUng(DS))
     render(<QuanTriNguoiDung toi={{ id: 'u1' }} />)
     const hang = (await screen.findByText('toi@x.test')).closest('tr')
-    expect(hang.querySelector('button')).toBeNull()
+    // Nút "+100" (tự cấp lượt) vẫn được phép; chỉ khoá/xoá/thu quyền chính mình là không.
+    const nhan = [...hang.querySelectorAll('button')].map((b) => b.textContent)
+    expect(nhan.some((t) => /Khoá|Xoá|quyền quản trị/.test(t))).toBe(false)
     expect(hang).toHaveTextContent('(bạn)')
   })
 

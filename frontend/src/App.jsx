@@ -495,33 +495,6 @@ function AppRuot({ urlBundle } = {}) {
   })
   useEffect(() => {
     let huy = false
-    const params = new URLSearchParams(window.location.search || '')
-    const tokenXn = params.get('xac_nhan_email')
-    const hashParams = new URLSearchParams((window.location.hash || '').replace(/^#/, ''))
-    const supaToken = hashParams.get('access_token')
-
-    if ((tokenXn || supaToken) && typeof api.xacNhanEmail === 'function') {
-      try {
-        window.history.replaceState({}, document.title, window.location.pathname)
-      } catch {}
-      api.xacNhanEmail(tokenXn, supaToken)
-        .then((n) => {
-          if (!huy) {
-            setNguoiDung(n)
-            setMuonDangNhap(false)
-            setThongBao('🎉 Đã xác nhận Email và kích hoạt tài khoản thành công!')
-          }
-        })
-        .catch((err) => {
-          if (!huy) {
-            setNguoiDung(null)
-            setMuonDangNhap(true)
-            setLoi(String(err?.message || err).replace(/^\d+:\s*/, ''))
-          }
-        })
-      return () => { huy = true }
-    }
-
     if (!api.docMaPhien()) { setNguoiDung(null); return undefined }
     api.toiLaAi()
       .then((n) => { if (!huy) setNguoiDung(n) })

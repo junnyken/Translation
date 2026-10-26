@@ -25,8 +25,9 @@ from PIL import Image
 
 from app.core.config import get_settings
 from app.core.danh_tinh_khach import TEN_COOKIE
-from app.models import Project
+from app.models import NguoiDung, Project
 from app.models.enums import SourceLang
+from tests.conftest import EMAIL_A
 
 
 def _anh() -> bytes:
@@ -74,13 +75,22 @@ class TestDanhSachDuongMo:
         )
         assert thuc_te == [
             # Luồng dịch: gửi trang → hỏi tiến độ → lấy ảnh đã dịch
+            # `goi` (cả gói zip/cbz) qua cùng cổng hạn mức với trang lẻ; `anh-goc` chỉ trả ảnh
+            # của chính trang khách đó (cùng `duoc_dung_project`). Rà lại ngày 26/10/2026.
+            ("/api/v1/doc-truyen/goi", "POST"),
             ("/api/v1/doc-truyen/trang", "POST"),
             ("/api/v1/doc-truyen/trang/{page_id}", "GET"),
             ("/api/v1/doc-truyen/trang/{page_id}/anh", "GET"),
+            ("/api/v1/doc-truyen/trang/{page_id}/anh-goc", "GET"),
             # Gói nhiều trang thành MỘT tệp (§3.3): 24 tệp rời là 24 lần bị trình duyệt hỏi
             ("/api/v1/export-jobs/{job_id}", "GET"),
             ("/api/v1/export-jobs/{job_id}/download", "GET"),
             ("/api/v1/han-muc", "GET"),
+            # E100 — bảng giá (chỉ đọc) và webhook ngân hàng: webhook KHÔNG dùng đăng nhập mà dùng
+            # khoá bí mật `WEBHOOK_NAP_LUOT_BI_MAT` (thiếu khoá ⇒ 503), chống cộng trùng theo mã
+            # giao dịch (vá 26/10/2026).
+            ("/api/v1/nap-luot/thong-tin", "GET"),
+            ("/api/v1/nap-luot/webhook", "POST"),
             # E57 — đọc thử để đoán ngôn ngữ. MỞ CHO KHÁCH có chủ đích: khách lạ là người cần nó
             # nhất (họ chưa từng chọn ngôn ngữ nên dễ chọn sai nhất), và bắt đăng nhập mới được
             # đoán giúp là dựng lại đúng cổng chặn mà E52 vừa gỡ.
@@ -91,6 +101,9 @@ class TestDanhSachDuongMo:
             ("/api/v1/nhan-dang-ngon-ngu", "POST"),
             ("/api/v1/nhan-dang-ngon-ngu/{yeu_cau_id}", "GET"),
             ("/api/v1/projects/{project_id}/export", "POST"),
+            # Tải bản cài tiện ích Chrome / App Windows — tệp công khai, không chứa khoá.
+            ("/api/v1/tai-ve/app-windows", "GET"),
+            ("/api/v1/tai-ve/tien-ich-chrome", "GET"),
         ], f"danh sách đường mở cho khách đã đổi: {thuc_te}"
 
     async def test_duong_khac_VAN_doi_dang_nhap(self, client_chua_dang_nhap):
@@ -175,8 +188,9 @@ class TestKhongAiDocDuocCuaAi:
         assert r.status_code == 404, r.status_code
 
     async def test_chapter_CU_chua_co_chu_van_dung_duoc_nhu_truoc(self, client, session):
-        """Không được sửa lỗi này bằng cách làm hỏng hành vi cũ: chapter từ trước slice B
-        (`chu_so_huu_id NULL` **và** `chu_khach NULL`) vẫn phải mở được cho tài khoản đăng nhập."""
+        """Chapter từ trước slice B (`chu_so_huu_id NULL` **và** `chu_khach NULL`) vẫn mở được —
+        nhưng nay CHỈ cho quản trị (vá 26/10: mở cho mọi tài khoản thì xoá một người là phát
+        truyện của họ cho cả hệ thống). Người thường nhận 404."""
         cu = Project(
             name="Chapter cũ vô chủ", source_lang=SourceLang.ja, target_lang="vi",
             intended_use="personal", chu_so_huu_id=None, chu_khach=None,
@@ -184,8 +198,17 @@ class TestKhongAiDocDuocCuaAi:
         session.add(cu)
         await session.commit()
 
-        r = await client.get(f"/api/v1/projects/{cu.id}")
-        assert r.status_code == 200, r.text
+        assert (await client.get(f"/api/v1/projects/{cu.id}")).status_code == 404
+
+        a = (await session.execute(sa.select(NguoiDung).where(NguoiDung.email == EMAIL_A))).scalar_one()
+        a.la_quan_tri = True
+        await session.commit()
+        try:
+            r = await client.get(f"/api/v1/projects/{cu.id}")
+            assert r.status_code == 200, r.text
+        finally:
+            a.la_quan_tri = False
+            await session.commit()
 
 
 class TestHanMucKhachLa:
