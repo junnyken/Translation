@@ -315,6 +315,15 @@ export async function dichTrangLocalGguf(blob, { ngonNgu = 'ja', ngonNguDich = '
         const dChat = await rChat.json()
         rawText = dChat?.message?.content || dChat?.response || ''
         daChayLocal = true
+      } else {
+        // Ollama ĐANG chạy nhưng model lỗi (vd runner CUDA sập, HTTP 500): giữ nguyên nhân thật,
+        // không rơi xuống LM Studio rồi báo nhầm "chưa phát hiện Ollama".
+        const chiTiet = (await rChat.text().catch(() => '')).slice(0, 300)
+        throw new LoiApi(
+          rChat.status,
+          `Ollama đang chạy nhưng không chạy được model ${modelVision} (HTTP ${rChat.status}): ${chiTiet} ` +
+            '— xem %LOCALAPPDATA%\\Ollama\\server.log, cập nhật driver NVIDIA/Ollama hoặc dùng Gemini.',
+        )
       }
     }
   } catch (e) {

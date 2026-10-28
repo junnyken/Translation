@@ -24,6 +24,7 @@ import platform
 import re
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
@@ -598,19 +599,180 @@ def gui_multipart_trang(
         return resp.read()
 
 
+QWEN3_VL_MODEL = "qwen3-vl:8b"
+HUONG_DAN_QWEN3 = (
+    "Chạy Cai-Dich-Offline.bat để cài theo hướng dẫn hoặc tự chạy: ollama pull qwen3-vl:8b "
+    "(khoảng 6.2 GB, cần Internet và đồng ý tải lần đầu). "
+    "Sau đó chọn 'local_gguf (Qwen3-VL 8B Offline)' trong ô 'Bộ máy AI'; "
+    "Gemini vẫn là mặc định. Muốn không tải ảnh qua mạng, chọn thư mục ảnh có sẵn."
+)
+
+
+class LocalServerUnavailableError(RuntimeError):
+    """Không kết nối được endpoint cục bộ, khác với thiếu/sai model."""
+
+
+class LocalModelMissingError(RuntimeError):
+    """Server đã chạy nhưng chưa có đúng Qwen3-VL 8B."""
+
+
+class LocalCpuUnsupportedError(RuntimeError):
+    """Người dùng chọn CPU nhưng LM Studio không nhận tùy chọn này từ app."""
+
+
+class LocalEmptyResponseError(RuntimeError):
+    """Server trả HTTP 200 nhưng không có nội dung model thật."""
+
+
+class LocalRuntimeCrashError(RuntimeError):
+    """Ollama đã chạy nhưng tiến trình nạp/chạy model bị sập (thường do GPU/CUDA/VRAM)."""
+
+
+DAU_HIEU_RUNTIME_SAP = ("0xc0000409", "cuda error", "runner", "terminated", "out of memory")
+HUONG_DAN_RUNTIME_SAP = (
+    "Đây là lỗi Ollama không chạy được model trên máy này (thường do driver/GPU NVIDIA hoặc thiếu VRAM), "
+    "không phải lỗi cài model. Hãy: (1) mở %LOCALAPPDATA%\\Ollama\\server.log để xem nguyên nhân, "
+    "(2) cập nhật driver NVIDIA và Ollama, (3) tick 'Chạy Ollama bằng CPU' trong app rồi bấm kiểm tra lại "
+    "(chậm hơn nhiều), hoặc chọn Gemini. App không tự đổi bộ máy."
+)
+TIMEOUT_GPU = 180
+TIMEOUT_CPU = 900
+HUONG_DAN_CPU_LM_STUDIO = (
+    "Tùy chọn 'Chạy Ollama bằng CPU' chỉ áp dụng cho Ollama; app không điều khiển được CPU/GPU của LM Studio. "
+    "Hãy bỏ tick CPU và tự chọn chế độ CPU trong LM Studio, hoặc mở Ollama (cổng 11434) với qwen3-vl:8b."
+)
+
+
+def _goi_json_ai_cuc_bo(url: str, *, timeout: int, payload: dict | None = None) -> dict:
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8") if payload is not None else None,
+        headers={"Content-Type": "application/json"},
+        method="POST" if payload is not None else "GET",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        chi_tiet = exc.read(2048).decode("utf-8", errors="replace")
+        if exc.code >= 500 and any(k in chi_tiet.lower() for k in DAU_HIEU_RUNTIME_SAP):
+            raise LocalRuntimeCrashError(
+                f"AI cục bộ trả HTTP {exc.code} tại {url}: {chi_tiet}. " + HUONG_DAN_RUNTIME_SAP
+            ) from exc
+        raise RuntimeError(
+            f"AI cục bộ trả HTTP {exc.code} tại {url}: {chi_tiet}. "
+            "Nếu Ollama báo không hỗ trợ Qwen3-VL, hãy cập nhật Ollama từ "
+            "https://ollama.com/download/windows rồi thử lại."
+        ) from exc
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise LocalServerUnavailableError(
+            f"Không kết nối được hoặc hết thời gian chờ AI cục bộ tại {url}: {exc}"
+        ) from exc
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError) as exc:
+        raise RuntimeError(f"AI cục bộ tại {url} trả dữ liệu không phải JSON hợp lệ.") from exc
+    if not isinstance(data, dict):
+        raise RuntimeError(f"AI cục bộ tại {url} trả JSON không đúng cấu trúc.")
+    if data.get("error"):
+        raise RuntimeError(f"AI cục bộ tại {url} báo lỗi: {data['error']}")
+    return data
+
+
+def _ket_noi_qwen3_vl_cuc_bo() -> tuple[str, str]:
+    """Chỉ nhận Qwen3-VL 8B; chỉ thử LM Studio khi không kết nối được Ollama."""
+    try:
+        data = _goi_json_ai_cuc_bo("http://127.0.0.1:11434/api/tags", timeout=4)
+    except LocalServerUnavailableError as ollama_exc:
+        try:
+            data = _goi_json_ai_cuc_bo("http://127.0.0.1:1234/v1/models", timeout=4)
+        except LocalServerUnavailableError as exc:
+            raise LocalServerUnavailableError(
+                "Chưa kết nối được Ollama (cổng 11434) hoặc LM Studio (cổng 1234). "
+                "Hãy mở Ollama trên Windows rồi thử lại. " + HUONG_DAN_QWEN3
+            ) from exc
+        models = [m.get("id", "") for m in (data.get("data") or []) if isinstance(m, dict)]
+        # LM Studio thường dùng ID Qwen/Qwen3-VL-8B-Instruct[-Q4_K_M.gguf].
+        model = next(
+            (m for m in models if isinstance(m, str) and re.search(
+                r"(?:^|/)qwen3[-_]vl[-_:]8b(?:$|[-_.:])", m, re.I
+            )),
+            "",
+        )
+        if not model:
+            raise LocalModelMissingError(
+                "LM Studio đang chạy nhưng chưa nạp Qwen3-VL 8B. "
+                "Hãy nạp đúng model Vision Qwen3-VL-8B và bật Local Server, "
+                "hoặc mở Ollama và cài qwen3-vl:8b. " + HUONG_DAN_QWEN3
+            ) from ollama_exc
+        return "lmstudio", model
+
+    models = [m.get("name", "") for m in (data.get("models") or []) if isinstance(m, dict)]
+    if QWEN3_VL_MODEL not in models:
+        raise LocalModelMissingError(
+            "Ollama đang chạy nhưng chưa cài đúng model qwen3-vl:8b (Qwen3-VL 8B). "
+            "App không tự chọn model khác và không tự tải model. " + HUONG_DAN_QWEN3
+        )
+    return "ollama", QWEN3_VL_MODEL
+
+
+def _tuy_chon_ollama(chay_cpu: bool, **them) -> dict:
+    """Chỉ ép CPU khi người dùng tự bật; mặc định để Ollama tự chọn."""
+    tuy_chon = {"temperature": 0.2, **them}
+    if chay_cpu:
+        tuy_chon["num_gpu"] = 0
+    return tuy_chon
+
+
+def chay_thu_model_cuc_bo(chay_cpu: bool = False) -> tuple[str, str]:
+    """Nạp và chạy thật một câu ngắn (không ảnh) để biết runner có sống, không chỉ model có trong danh sách."""
+    backend, model = _ket_noi_qwen3_vl_cuc_bo()
+    if backend == "lmstudio" and chay_cpu:
+        raise LocalCpuUnsupportedError(HUONG_DAN_CPU_LM_STUDIO)
+    if backend == "ollama":
+        data = _goi_json_ai_cuc_bo(
+            "http://127.0.0.1:11434/api/chat",
+            timeout=TIMEOUT_CPU if chay_cpu else TIMEOUT_GPU,
+            payload={
+                "model": model, "stream": False,
+                "options": _tuy_chon_ollama(chay_cpu, num_predict=8),
+                "messages": [{"role": "user", "content": "hi"}],
+            },
+        )
+        message = data.get("message")
+        message = message if isinstance(message, dict) else {}
+        # Model có chế độ suy luận có thể chỉ trả "thinking" trong 8 token đầu; vẫn là phản hồi thật.
+        co_noi_dung = any(str(message.get(k) or "").strip() for k in ("content", "thinking"))
+    else:
+        data = _goi_json_ai_cuc_bo(
+            "http://127.0.0.1:1234/v1/chat/completions",
+            timeout=TIMEOUT_GPU,
+            payload={"model": model, "max_tokens": 8, "messages": [{"role": "user", "content": "hi"}]},
+        )
+        choices = data.get("choices")
+        first = choices[0] if isinstance(choices, list) and choices and isinstance(choices[0], dict) else {}
+        message = first.get("message") if isinstance(first.get("message"), dict) else {}
+        co_noi_dung = bool(str(message.get("content") or "").strip())
+    if not co_noi_dung:
+        raise LocalEmptyResponseError(
+            "AI cục bộ trả HTTP 200 nhưng không có nội dung trả lời thật nên chưa coi là chạy được. "
+            "Xem log Ollama/LM Studio, thử lại hoặc chọn Gemini."
+        )
+    return backend, model
+
+
 def dich_anh_local_gguf_tren_may_khach(
     img_bytes: bytes,
     *,
     ngon_ngu_nguon: str = "ja",
     ngon_ngu_dich: str = "vi",
     tu_dien_rieng: str = "",
+    chay_cpu: bool = False,
 ) -> list[dict]:
     """
-    Chạy Offline 100% trên máy khách bằng mô hình GGUF cục bộ:
-    - Tự động kết nối Ollama (`http://127.0.0.1:11434`) hoặc LM Studio / llama.cpp GGUF server (`http://127.0.0.1:1234`).
-    - Hoàn toàn KHÔNG gửi ảnh lên máy chủ của chúng ta -> 0% tải máy chủ, 0 tốn phí API, không trừ lượt.
+    Dịch trên máy khách bằng Qwen3-VL 8B qua Ollama hoặc LM Studio.
+    Không gửi ảnh lên máy chủ dịch, không tự tải model hay đổi sang engine khác.
     """
-    import base64
 
     W, H = 1000, 1400
     if Image is not None:
@@ -631,103 +793,61 @@ def dich_anh_local_gguf_tren_may_khach(
         f"Bạn là AI nhận diện và dịch truyện tranh chuyên nghiệp (ngôn ngữ gốc: {ngon_ngu_nguon} -> dịch sang: {ten_dich})."
         f"{doan_ngu_canh}\n"
         "Hãy tìm TẤT CẢ các bóng thoại trong trang truyện này, đọc chữ gốc và dịch sang ngôn ngữ đích.\n"
-        "Trả về DUY NHẤT một mảng JSON hợp lệ theo cấu trúc:\n"
-        '[{"box_2d":[ymin,xmin,ymax,xmax],"chu_goc":"...","ban_dich":"..."}]\n'
+        "Trả về DUY NHẤT một đối tượng JSON hợp lệ theo cấu trúc:\n"
+        '{"regions":[{"box_2d":[ymin,xmin,ymax,xmax],"chu_goc":"...","ban_dich":"..."}]}\n'
         "Trong đó ymin, xmin, ymax, xmax được chuẩn hoá trên thang 0..1000."
     )
 
-    raw_text = ""
-    da_chay = False
-
-    # 1. Thử Ollama cục bộ trên máy khách (http://127.0.0.1:11434)
-    try:
-        req_tags = urllib.request.Request("http://127.0.0.1:11434/api/tags", method="GET")
-        with urllib.request.urlopen(req_tags, timeout=4) as r_tags:
-            d_tags = json.loads(r_tags.read().decode("utf-8"))
-            ds_models = [m.get("name", "") for m in (d_tags.get("models") or [])]
-            model_chon = next(
-                (
-                    m
-                    for m in ds_models
-                    if re.search(r"qwen2\.5vl|qwen2-vl|gemma3|minicpm-v|llava|llama3\.2-vision|internvl|pixtral", m, re.I)
-                ),
-                ds_models[0] if ds_models else "",
-            )
-            if not model_chon:
-                raise RuntimeError(
-                    "Ollama trên máy bạn chưa cài model GGUF Vision nào. "
-                    "Hãy bấm nút '💻 Kiểm tra / Tải GGUF' hoặc chạy: ollama pull qwen2.5vl:7b"
-                )
-            payload_ollama = json.dumps(
-                {
-                    "model": model_chon,
-                    "stream": False,
-                    "format": "json",
-                    "messages": [{"role": "user", "content": prompt, "images": [anh_b64]}],
-                }
-            ).encode("utf-8")
-            req_chat = urllib.request.Request(
-                "http://127.0.0.1:11434/api/chat",
-                data=payload_ollama,
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            with urllib.request.urlopen(req_chat, timeout=180) as r_chat:
-                d_chat = json.loads(r_chat.read().decode("utf-8"))
-                raw_text = (d_chat.get("message") or {}).get("content") or d_chat.get("response") or ""
-                da_chay = True
-    except RuntimeError:
-        raise
-    except Exception:
-        pass
-
-    # 2. Thử LM Studio / llama.cpp GGUF server cục bộ (http://127.0.0.1:1234)
-    if not da_chay:
-        try:
-            req_m = urllib.request.Request("http://127.0.0.1:1234/v1/models", method="GET")
-            with urllib.request.urlopen(req_m, timeout=4) as r_m:
-                d_m = json.loads(r_m.read().decode("utf-8"))
-                model_id = ((d_m.get("data") or [{}])[0]).get("id") or "local-gguf-vision"
-            payload_lms = json.dumps(
-                {
-                    "model": model_id,
-                    "temperature": 0.2,
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": prompt},
-                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{anh_b64}"}},
-                            ],
-                        }
-                    ],
-                }
-            ).encode("utf-8")
-            req_c = urllib.request.Request(
-                "http://127.0.0.1:1234/v1/chat/completions",
-                data=payload_lms,
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            with urllib.request.urlopen(req_c, timeout=180) as r_c:
-                d_c = json.loads(r_c.read().decode("utf-8"))
-                raw_text = (((d_c.get("choices") or [{}])[0]).get("message") or {}).get("content") or ""
-                da_chay = True
-        except Exception:
-            pass
-
-    if not da_chay:
-        raise RuntimeError(
-            "Chưa phát hiện phần mềm chạy GGUF cục bộ trên máy bạn (Ollama cổng 11434 hoặc LM Studio cổng 1234). "
-            "Hãy bật Ollama (`ollama run qwen2.5vl:7b`) hoặc LM Studio Local Server để dịch Offline 0đ!"
+    backend, model = _ket_noi_qwen3_vl_cuc_bo()
+    if backend == "lmstudio" and chay_cpu:
+        raise LocalCpuUnsupportedError(HUONG_DAN_CPU_LM_STUDIO)
+    if backend == "ollama":
+        data = _goi_json_ai_cuc_bo(
+            "http://127.0.0.1:11434/api/chat",
+            timeout=TIMEOUT_CPU if chay_cpu else TIMEOUT_GPU,
+            payload={
+                "model": model,
+                "stream": False,
+                "format": "json",
+                "options": _tuy_chon_ollama(chay_cpu),
+                "messages": [{"role": "user", "content": prompt, "images": [anh_b64]}],
+            },
         )
+        raw_text = (data.get("message") or {}).get("content") or data.get("response") or ""
+    else:
+        data = _goi_json_ai_cuc_bo(
+            "http://127.0.0.1:1234/v1/chat/completions",
+            timeout=180,
+            payload={
+                "model": model,
+                "temperature": 0.2,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{anh_b64}"}},
+                        ],
+                    }
+                ],
+            },
+        )
+        raw_text = (((data.get("choices") or [{}])[0]).get("message") or {}).get("content") or ""
 
-    khop = re.search(r"\[[\s\S]*\]", str(raw_text))
     try:
-        parsed = json.loads(khop.group(0) if khop else str(raw_text))
-        danh_sach = parsed if isinstance(parsed, list) else (parsed.get("regions") or parsed.get("vung") or [])
-    except Exception:
-        danh_sach = []
+        try:
+            parsed = json.loads(raw_text)
+        except ValueError:
+            # Giữ khả năng đọc mảng JSON nằm trong Markdown như bản app cũ.
+            khop = re.search(r"\[[\s\S]*\]", str(raw_text))
+            parsed = json.loads(khop.group(0) if khop else str(raw_text))
+        danh_sach = parsed if isinstance(parsed, list) else parsed.get("regions", parsed.get("vung"))
+        if not isinstance(danh_sach, list):
+            raise ValueError("Thiếu danh sách regions")
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise RuntimeError(
+            "Qwen3-VL 8B đã phản hồi nhưng kết quả không đúng JSON regions; hãy thử lại trang này."
+        ) from exc
 
     vung_out: list[dict] = []
     for m in danh_sach:
@@ -1168,23 +1288,33 @@ class AppDichTruyenWindows(tk.Tk):
             values=[
                 "llm_context (✨ Gemini AI)",
                 "google_fast (⚡ Google Nhanh)",
-                "local_gguf (💻 GGUF Cục bộ Offline 0đ)",
+                "local_gguf (Qwen3-VL 8B Offline)",
             ],
-            width=26,
+            width=30,
             state="readonly",
         )
         self.cmb_engine.current(0)
         self.cmb_engine.pack(side="left", padx=6)
 
+        self.var_cpu_ollama = tk.BooleanVar(value=bool(self.cau_hinh.get("ollama_cpu", False)))
         tk.Button(
             r1,
-            text="💻 Kiểm tra / Tải GGUF",
+            text="💻 Kiểm tra Qwen3-VL 8B",
             bg="#15803d",
             fg="#ffffff",
             font=("Segoe UI", 8, "bold"),
             relief="flat",
             padx=8,
             command=self._kiem_tra_gguf_cuc_bo,
+        ).pack(side="left", padx=4)
+        tk.Checkbutton(
+            r1,
+            text="Chạy Ollama bằng CPU (chậm)",
+            variable=self.var_cpu_ollama,
+            bg="#1e293b",
+            fg="#e2e8f0",
+            selectcolor="#0f172a",
+            activebackground="#1e293b",
         ).pack(side="left", padx=4)
 
         r_export = tk.Frame(f_cfg, bg="#1e293b", pady=4)
@@ -1462,49 +1592,32 @@ class AppDichTruyenWindows(tk.Tk):
         self._cap_nhat_ui_sau_quet(ds_chap)
 
     def _kiem_tra_gguf_cuc_bo(self):
+        # Đọc biến Tk ở luồng giao diện, không đọc từ luồng nền.
+        chay_cpu = bool(self.var_cpu_ollama.get())
+        self.cau_hinh["ollama_cpu"] = chay_cpu
+        self._luu_cau_hinh()
+
         def _worker():
-            self.ghi_log("💻 Đang kiểm tra máy chủ GGUF cục bộ trên máy tính của bạn (127.0.0.1:11434 / 1234)...")
-            # 1. Kiểm tra Ollama
+            self.ghi_log("💻 Đang kiểm tra Qwen3-VL 8B: tìm model rồi chạy thử một câu ngắn...")
             try:
-                req = urllib.request.Request("http://127.0.0.1:11434/api/tags", method="GET")
-                with urllib.request.urlopen(req, timeout=3) as resp:
-                    d = json.loads(resp.read().decode("utf-8"))
-                    models = [m.get("name", "") for m in (d.get("models") or [])]
-                    if models:
-                        self.ghi_log(f"✅ Đã kết nối Ollama cục bộ! Các model GGUF sẵn sàng trên máy bạn: {', '.join(models)}")
-                        self.after(0, lambda: self.cmb_engine.current(2))
-                        return
-                    else:
-                        self.ghi_log("⚠️ Ollama đang chạy nhưng chưa tải model Vision. Đang mở cửa sổ tải `qwen2.5vl:7b`...")
-                        if os.name == "nt":
-                            os.system('start cmd /k "ollama pull qwen2.5vl:7b"')
-                        return
-            except Exception:
-                pass
-
-            # 2. Kiểm tra LM Studio / llama.cpp server
-            try:
-                req2 = urllib.request.Request("http://127.0.0.1:1234/v1/models", method="GET")
-                with urllib.request.urlopen(req2, timeout=3) as resp2:
-                    d2 = json.loads(resp2.read().decode("utf-8"))
-                    models2 = [m.get("id", "") for m in (d2.get("data") or [])]
-                    self.ghi_log(f"✅ Đã kết nối LM Studio / llama.cpp GGUF Server (cổng 1234): {', '.join(models2)}")
-                    self.after(0, lambda: self.cmb_engine.current(2))
-                    return
-            except Exception:
-                pass
-
+                backend, model = chay_thu_model_cuc_bo(chay_cpu)
+            except LocalRuntimeCrashError as exc:
+                self.ghi_log(f"❌ Model có trong máy nhưng không chạy được: {exc}")
+                return
+            except LocalServerUnavailableError as exc:
+                self.ghi_log(f"ℹ️ {exc}")
+                return
+            except (LocalModelMissingError, LocalCpuUnsupportedError) as exc:
+                self.ghi_log(f"⚠️ {exc}")
+                return
+            except Exception as exc:
+                self.ghi_log(f"❌ Không kiểm tra được AI cục bộ: {exc}")
+                return
+            ten_backend = "Ollama" if backend == "ollama" else "LM Studio"
             self.ghi_log(
-                "ℹ️ Máy bạn chưa bật Ollama (cổng 11434) hoặc LM Studio (cổng 1234).\n"
-                "   -> Cách 1 (Khuyên dùng): Tải Ollama tại https://ollama.com rồi chạy lệnh: ollama run qwen2.5vl:7b\n"
-                "   -> Cách 2: Mở LM Studio -> nạp model GGUF Vision -> bật Local Server (Port 1234)."
+                f"✅ {ten_backend} đã có và chạy thử được {model} (chưa thử dịch ảnh). Nếu muốn dịch bằng model này, hãy tự chọn "
+                "'local_gguf (Qwen3-VL 8B Offline)' trong ô 'Bộ máy AI'."
             )
-            if messagebox.askyesno(
-                "Cài đặt Model GGUF Offline trên máy bạn",
-                "Chưa phát hiện Ollama (127.0.0.1:11434) hoặc LM Studio (127.0.0.1:1234) trên máy bạn.\n\n"
-                "Bạn có muốn mở trang tải Ollama chính thức (miễn phí, tự động nhận GPU máy bạn) không?",
-            ):
-                webbrowser.open("https://ollama.com/download/windows")
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -1553,6 +1666,11 @@ class AppDichTruyenWindows(tk.Tk):
             messagebox.showwarning("Chưa có Link", "Hãy dán Link truyện hoặc chọn Thư mục ảnh trước khi bắt đầu!")
             return
 
+        # Đọc biến Tk ở luồng giao diện rồi lưu để lần sau mở app vẫn nhớ.
+        self._chay_cpu_ollama = bool(self.var_cpu_ollama.get())
+        self.cau_hinh["ollama_cpu"] = self._chay_cpu_ollama
+        self._luu_cau_hinh()
+
         self.dang_chay = True
         self.yeu_cau_dung = False
         self.btn_start.config(state="disabled")
@@ -1575,6 +1693,7 @@ class AppDichTruyenWindows(tk.Tk):
             xuat_cbz = bool(self.var_cbz.get())
             xuat_pdf = bool(self.var_pdf.get())
             xuat_longstrip = bool(self.var_longstrip.get())
+            chay_cpu_ollama = bool(getattr(self, "_chay_cpu_ollama", False))
 
             if not self.ds_chapter_quet:
                 self.ds_chapter_quet = quet_danh_sach_chapter_tu_url(self.ent_url.get().strip())
@@ -1648,6 +1767,7 @@ class AppDichTruyenWindows(tk.Tk):
                                 ngon_ngu_nguon=ngon_ngu_nguon,
                                 ngon_ngu_dich=ngon_ngu_dich,
                                 tu_dien_rieng=ngu_canh_gop,
+                                chay_cpu=chay_cpu_ollama,
                             )
                         else:
                             raw_post = gui_multipart_trang(
