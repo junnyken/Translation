@@ -1,10 +1,10 @@
 {
   "App-Windows-Dich-Truyen-Tu-Dong-v1.1.zip": {
-    "sha256": "81c9acc5a09d7891e27041e3ed2e747f2a6d1f4b6377c26058bd5df0555a2c91",
-    "bytes": 76998
+    "sha256": "eec902ddaab172f992ea01fb9398366222781929ce7d789f555dd9815d544fd4",
+    "bytes": 77222
   },
   "dich-truyen-chrome-extension-v0.3.1.zip": {
-    "sha256": "4f41c4c5cbe0c0abea5f35b01b344b87b58d432207d687d4aff2e75f6eb307d6",
+    "sha256": "54831372bcf054b5fd5f673a79391b62a22e28e96ef306b28617217a4267085e",
     "bytes": 994338
   }
 }

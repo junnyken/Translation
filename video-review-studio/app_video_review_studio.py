@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import sys
 import tempfile
 import threading
 import tkinter as tk
@@ -10,6 +11,14 @@ import zipfile
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 from typing import Any
+
+_STUDIO_DIR = str(Path(__file__).resolve().parent)
+if _STUDIO_DIR not in sys.path:
+    sys.path.insert(0, _STUDIO_DIR)
+if sys.stdout is None:
+    sys.stdout = io.StringIO()
+if sys.stderr is None:
+    sys.stderr = io.StringIO()
 
 from core_tts_voice import (
     DANH_SACH_GIONG_DOC,
@@ -698,4 +707,12 @@ class AppVideoReviewStudio(tk.Tk):
 
 if __name__ == "__main__":
     app = AppVideoReviewStudio()
+    try:
+        app.deiconify()
+        app.lift()
+        app.attributes("-topmost", True)
+        app.after(400, lambda: app.attributes("-topmost", False))
+        app.focus_force()
+    except Exception:
+        pass
     app.mainloop()

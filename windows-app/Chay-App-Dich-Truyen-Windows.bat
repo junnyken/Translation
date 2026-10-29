@@ -1,14 +1,21 @@
 @echo off
 chcp 65001 >nul
 title Manga Studio Pro - App Dich Truyen Tu Dong Theo Link (Windows)
+cd /d "%~dp0"
 echo ============================================================================
 echo    MANGA STUDIO PRO - APP DICH TRUYEN TU DONG THEO LINK VA CHIA CHAPTER
 echo ============================================================================
 echo.
-python -c "import PIL" 2>nul
+python -c "import PIL" >nul 2>&1
 if errorlevel 1 (
     echo [1/2] Dang cai dat thu vien xu ly anh Pillow cho Windows...
-    pip install Pillow --quiet
+    python -m pip install Pillow --quiet
 )
 echo [2/2] Dang khoi dong giao dien Manga Studio Windows...
-start "" pythonw "%~dp0app_dich_truyen_windows.py" || python "%~dp0app_dich_truyen_windows.py"
+python "%~dp0app_dich_truyen_windows.py"
+if errorlevel 1 (
+    echo.
+    echo [LOI] Khong khoi dong duoc giao dien. Vui long kiem tra Python tren may.
+    pause
+)
+

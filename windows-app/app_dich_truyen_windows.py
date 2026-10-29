@@ -23,6 +23,7 @@ import os
 import platform
 import re
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -36,6 +37,14 @@ from collections import deque
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
+
+_APP_DIR = str(Path(__file__).resolve().parent)
+if _APP_DIR not in sys.path:
+    sys.path.insert(0, _APP_DIR)
+if sys.stdout is None:
+    sys.stdout = io.StringIO()
+if sys.stderr is None:
+    sys.stderr = io.StringIO()
 
 from production import ChapterLedger, NeedsAttention, RunStopped, natural_key, process_chapter, require_production_backend
 from sources import archive_sources, chapter_links, image_links, local_image_sources, read_local_source
@@ -4549,8 +4558,8 @@ class AppDichTruyenWindows(tk.Tk):
         self.spin_den.insert(0, "10")
         self.spin_den.pack(side="left", padx=(4, 12), ipady=2)
 
-        hw_info = phat_hien_cau_hinh_may_va_luong_toi_uu()
-        luong_de_xuat = self.cau_hinh.get("so_luong_song_song") or hw_info["de_xuat_song_song"]
+        luong_hw, mo_ta_hw = phat_hien_cau_hinh_may_va_luong_toi_uu()
+        luong_de_xuat = self.cau_hinh.get("so_luong_song_song") or luong_hw
         tk.Label(bar_range, text="⚡ Chạy song song:", bg=T["bg_surface"], fg="#38BDF8", font=("Segoe UI", 9, "bold")).pack(side="left")
         self.spin_song_song = tk.Spinbox(
             bar_range,
@@ -4568,7 +4577,7 @@ class AppDichTruyenWindows(tk.Tk):
         self.spin_song_song.pack(side="left", padx=(4, 4), ipady=2)
         tk.Label(
             bar_range,
-            text=f"chap cùng lúc ({hw_info['mo_ta']})",
+            text=f"chap cùng lúc ({mo_ta_hw})",
             bg=T["bg_surface"],
             fg=T["text_secondary"],
             font=("Segoe UI", 8),
@@ -6221,4 +6230,12 @@ class AppDichTruyenWindows(tk.Tk):
 
 if __name__ == "__main__":
     app = AppDichTruyenWindows()
+    try:
+        app.deiconify()
+        app.lift()
+        app.attributes("-topmost", True)
+        app.after(400, lambda: app.attributes("-topmost", False))
+        app.focus_force()
+    except Exception:
+        pass
     app.mainloop()
