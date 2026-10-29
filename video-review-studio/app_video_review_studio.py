@@ -51,11 +51,11 @@ def doc_cau_hinh_studio() -> dict[str, Any]:
     mac_dinh: dict[str, Any] = {
         "server_url": "https://translation-api.vibe1.tinhgon.xyz",
         "token": "",
-        "phong_cach": "kich_tinh",
+        "phong_cach": "hai_huoc",
         "dinh_dang": "tiktok_9_16",
-        "ma_giong": "nam_minh_kich_tinh",
+        "ma_giong": "chi_google_review_chuan",
         "goi_luot": "review_standard",
-        "toc_do_doc": 1.15,
+        "toc_do_doc": 1.20,
     }
     if CAU_HINH_APP_DICH_PATH.is_file():
         try:
@@ -111,6 +111,7 @@ def nap_danh_sach_anh_va_thoai_tu_thu_muc(folder_path: Path) -> tuple[list[bytes
       (`001.jpg` -> `pages[0]`, `002.jpg` -> `pages[1]`...) kèm cả `ban_dich` lẫn `chu_goc` để AI biên kịch hiểu đúng 100% cốt truyện!
     - Nếu thư mục ảnh chưa qua App dịch (chưa có `trang-thai.json`), tự động quét OCR trực tiếp trên ảnh.
     """
+    folder_path = Path(folder_path)
     exts = {".jpg", ".jpeg", ".png", ".webp"}
     if folder_path.is_file() and folder_path.suffix.lower() in (".zip", ".cbz"):
         panels_zip: list[bytes] = []
@@ -145,19 +146,48 @@ def nap_danh_sach_anh_va_thoai_tu_thu_muc(folder_path: Path) -> tuple[list[bytes
             pages = ledger_data.get("pages") or []
             for p_idx, p in enumerate(pages):
                 regs = [r for r in (p.get("regions") or []) if isinstance(r, dict)]
-                # Sắp xếp bóng thoại từ trên xuống dưới theo thứ tự đọc
-                regs.sort(key=lambda r: (int(r.get("y") or 0) // 160, int(r.get("x") or 0)))
-                ds_cau: list[str] = []
+                # Sắp xếp bóng thoại theo từng tầng khung tranh (mỗi tầng ~1100px trên trang chuẩn) và từ PHẢI sang TRÁI (-x) chuẩn Manga
+                regs.sort(key=lambda r: (int(r.get("y") or 0) // 1100, -int(r.get("x") or 0), int(r.get("y") or 0)))
+
+                # Gom các mảnh chữ ngắn (<= 22 ký tự) nằm trong cùng một tầng khung tranh bị tách rời
+                merged_raw_goc: list[tuple[str, str]] = []
+                cur_parts: list[tuple[int, int, str]] = []
+                cur_dich: str = ""
                 for r in regs:
-                    goc = lam_sach_thoai_ocr_cho_review(str(r.get("chu_goc") or ""))
-                    dich = lam_sach_thoai_ocr_cho_review(str(r.get("ban_dich") or ""))
-                    # Nếu câu gốc là tiếng Anh rõ nghĩa, đưa trực tiếp câu gốc đã làm sạch để AI Biên kịch hiểu chuẩn 100% mạch truyện gốc
-                    if goc and sum(1 for c in goc if c.isascii() and c.isalpha()) >= len(goc) * 0.55:
+                    rx = int(r.get("x") or 0)
+                    ry = int(r.get("y") or 0)
+                    rgoc = str(r.get("chu_goc") or "").strip()
+                    rdich = str(r.get("ban_dich") or "").strip()
+                    if not rgoc and not rdich:
+                        continue
+                    if cur_parts:
+                        last_x, last_y, last_txt = cur_parts[-1]
+                        if (ry // 1100 == last_y // 1100) and (len(last_txt) <= 22 and len(rgoc) <= 22):
+                            cur_parts.append((rx, ry, rgoc))
+                            if not cur_dich and rdich:
+                                cur_dich = rdich
+                            continue
+                        else:
+                            merged_raw_goc.append((" ".join(pt[2] for pt in cur_parts if pt[2]), cur_dich))
+                            cur_parts = []
+                            cur_dich = ""
+                    cur_parts = [(rx, ry, rgoc)]
+                    cur_dich = rdich
+                if cur_parts:
+                    merged_raw_goc.append((" ".join(pt[2] for pt in cur_parts if pt[2]), cur_dich))
+
+                ds_cau: list[str] = []
+                for raw_goc, raw_dich in merged_raw_goc:
+                    goc = lam_sach_thoai_ocr_cho_review(raw_goc)
+                    if raw_goc and not goc:
+                        # Bỏ qua các vùng ký tự SFX / mảnh chữ rác đã bị bộ lọc loại bỏ
+                        continue
+                    if goc:
                         ds_cau.append(goc)
-                    elif dich:
-                        ds_cau.append(dich)
-                    elif goc:
-                        ds_cau.append(goc)
+                    else:
+                        dich = lam_sach_thoai_ocr_cho_review(raw_dich)
+                        if dich:
+                            ds_cau.append(dich)
                 fname = str(p.get("output_name") or "")
                 if fname:
                     thoai_theo_file[Path(fname).name] = ds_cau
@@ -538,8 +568,7 @@ class AppVideoReviewStudio(tk.Tk):
         try:
             p_folder = Path(folder_str)
             self.panels_bytes, self.ocr_per_panel = nap_danh_sach_anh_va_thoai_tu_thu_muc(p_folder)
-            if not self.cast_memory.characters:
-                tu_dong_quet_ho_so_nhan_vat_tu_thoai(self.ocr_per_panel, self.cast_memory)
+            tu_dong_quet_ho_so_nhan_vat_tu_thoai(self.ocr_per_panel, self.cast_memory)
             pc_key = self.cmb_phong_cach.get().split(" — ", 1)[0].strip()
             goi_key = self.cmb_goi_luot.get().split(" — ", 1)[0].strip()
             self.kich_ban_hien_tai = sinh_kich_ban_review_chuong(
