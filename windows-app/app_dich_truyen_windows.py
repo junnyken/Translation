@@ -2984,8 +2984,6 @@ def khoi_dong_may_chu_bridge_cuc_bo(port: int = LOCAL_BRIDGE_PORT, ghi_log_fn=No
                         "status": "ok",
                         "service": "manga-studio-local-bridge",
                         "port": port,
-                        "ocr_hf": True,
-                        "llm_configured": True,
                         "translate_default_engine": "local_ocr_gpu",
                         "translation_capabilities": {
                             "private_context_v1": True,
@@ -2995,107 +2993,17 @@ def khoi_dong_may_chu_bridge_cuc_bo(port: int = LOCAL_BRIDGE_PORT, ghi_log_fn=No
                 )
                 return
 
-            if path_clean in ("/api/v1/han-muc", "/api/v1/developer/me"):
+            if path_clean in (
+                "/api/v1/han-muc",
+                "/api/v1/developer/me",
+                "/api/v1/auth/me",
+                "/api/v1/auth/api-key",
+                "/api/v1/nap-luot/thong-tin",
+            ):
                 self._send_json(
-                    200,
+                    403,
                     {
-                        "co_tai_khoan": True,
-                        "email": f"host@{MA_MAY_HIEN_THI.lower()}.local",
-                        "tran": 99999,
-                        "da_dung": 0,
-                        "con_lai": 99999,
-                        "so_luot_mua_them": 0,
-                        "tong_kha_dung": 99999,
-                        "la_quan_tri": True,
-                    },
-                )
-                return
-
-            if path_clean == "/api/v1/auth/me":
-                self._send_json(
-                    200,
-                    {
-                        "id": str(uuid.uuid4()),
-                        "email": f"client@{MA_MAY_HIEN_THI.lower()}.local",
-                        "ma_may_tinh": MA_MAY_HIEN_THI,
-                        "so_luot_mua_them": 99999,
-                    },
-                )
-                return
-
-            if path_clean == "/api/v1/auth/api-key":
-                khoa_host = f"tr_live_host_{MA_MAY_HIEN_THI.lower().replace('-', '')}"
-                self._send_json(
-                    200,
-                    {
-                        "co_api_key": True,
-                        "co_khoa_api": True,
-                        "tien_to_khoa_api": khoa_host[:16],
-                        "api_key": khoa_host,
-                        "khoa_api": khoa_host,
-                    },
-                )
-                return
-
-            if path_clean == "/api/v1/nap-luot/thong-tin":
-                don_gia = 500
-                self._send_json(
-                    200,
-                    {
-                        "co_tai_khoan": True,
-                        "email": f"host@{MA_MAY_HIEN_THI.lower()}.local",
-                        "la_quan_tri": True,
-                        "so_luot_mua_them": 99999,
-                        "tran_hang_ngay": 99999,
-                        "ngan_hang_ten": "MBBank",
-                        "ngan_hang_so_tk": "0000000000",
-                        "ngan_hang_chu_tk": "MANGA STUDIO CLOUD",
-                        "noi_dung_chuyen_khoan": f"NAP {MA_MAY_HIEN_THI}",
-                        "ty_le_vnd_moi_trang": don_gia,
-                        "goi_goi_y": [
-                            {
-                                "ma": "goi_moi",
-                                "ten": "🎯 Gói Mồi Trải Nghiệm — Đọc Nhanh (40 trang)",
-                                "so_tien_vnd": 20000,
-                                "so_trang": 40,
-                                "ghi_chu": "Gói nhỏ 20.000đ đọc trọn ~2 chapter. Mua nhiều lần tự động cộng dồn vĩnh viễn vào tài khoản.",
-                            },
-                            {
-                                "ma": "co_ban",
-                                "ten": "🌱 Gói Khởi Đầu — Starter (105 trang)",
-                                "so_tien_vnd": 50000,
-                                "so_trang": 105,
-                                "ghi_chu": "Tặng thêm +5% số trang (~5.5 chapter). Lượt mua cộng dồn không bao giờ hết hạn qua đêm.",
-                            },
-                            {
-                                "ma": "tieu_chuan",
-                                "ten": "🔥 Gói Độc Giả VIP — Reader (550 trang)",
-                                "so_tien_vnd": 250000,
-                                "so_trang": 550,
-                                "ghi_chu": "Tặng thêm 10% số trang (~28 chapter). Dùng chung Web, Extension & App Windows.",
-                            },
-                            {
-                                "ma": "nhom_dich",
-                                "ten": "🎬 Gói Nhóm Dịch / Studio (1.200 trang)",
-                                "so_tien_vnd": 500000,
-                                "so_trang": 1200,
-                                "ghi_chu": "Tặng thêm 20% số trang (~60 chapter). Phù hợp nhóm scanlation, dịch trọn bộ.",
-                            },
-                            {
-                                "ma": "doanh_nghiep_api",
-                                "ten": "🏢 Gói Doanh Nghiệp / Web Truyện API Pro (6.500 trang)",
-                                "so_tien_vnd": 2500000,
-                                "so_trang": 6500,
-                                "ghi_chu": "Tặng thêm 30% số trang (~325 chapter). Mở toàn bộ Developer REST API (tr_live_...).",
-                            },
-                            {
-                                "ma": "enterprise_scale",
-                                "ten": "🏛️ Gói Doanh Nghiệp Lớn / Hệ Thống Cổng Truyện (28.000 trang)",
-                                "so_tien_vnd": 10000000,
-                                "so_trang": 28000,
-                                "ghi_chu": "Tặng thêm 40% số trang (~1.400 chapter). Dành cho hệ thống web truyện lớn 24/7.",
-                            },
-                        ],
+                        "detail": "Xác thực tài khoản & hạn mức trang phải thực hiện trên máy chủ Cloud chính thức (https://translation-api.vibe1.tinhgon.xyz)."
                     },
                 )
                 return
@@ -3107,7 +3015,7 @@ def khoi_dong_may_chu_bridge_cuc_bo(port: int = LOCAL_BRIDGE_PORT, ghi_log_fn=No
                     pid = _BRIDGE_REQ_KEY_STORE.get(req_k)
                     doc = _BRIDGE_PAGES_STORE.get(pid) if pid else None
                 if doc is None:
-                    self._send_json(404, {"detail": "Chưa có yêu cầu này trên máy chủ Host."})
+                    self._send_json(404, {"detail": "Chưa có yêu cầu này trên cổng nội bộ."})
                 else:
                     self._send_json(200, doc)
                 return
@@ -3134,12 +3042,12 @@ def khoi_dong_may_chu_bridge_cuc_bo(port: int = LOCAL_BRIDGE_PORT, ghi_log_fn=No
                 with _BRIDGE_STORE_LOCK:
                     doc = _BRIDGE_PAGES_STORE.get(pid)
                 if doc is None:
-                    self._send_json(404, {"detail": "Không tìm thấy trang trên máy chủ Host."})
+                    self._send_json(404, {"detail": "Không tìm thấy trang trên cổng nội bộ."})
                 else:
                     self._send_json(200, doc)
                 return
 
-            self._send_json(404, {"detail": "Endpoint không tồn tại trên Host Bridge."})
+            self._send_json(404, {"detail": "Endpoint không tồn tại trên cổng nội bộ."})
 
         def do_POST(self):
             path_clean = self.path.split("?", 1)[0].rstrip("/")
@@ -3148,29 +3056,11 @@ def khoi_dong_may_chu_bridge_cuc_bo(port: int = LOCAL_BRIDGE_PORT, ghi_log_fn=No
                 raw = self.rfile.read(length) if length > 0 else b"{}"
                 ctype = self.headers.get("Content-Type") or ""
 
-                if path_clean in ("/api/v1/auth/login", "/api/v1/auth/register"):
-                    payload = json.loads(raw.decode("utf-8", errors="replace") or "{}")
-                    email = str(payload.get("email") or "khach@local").strip()
+                if path_clean in ("/api/v1/auth/login", "/api/v1/auth/register", "/api/v1/auth/api-key"):
                     self._send_json(
-                        200,
+                        403,
                         {
-                            "ma_phien": f"tr_live_host_{MA_MAY_HIEN_THI}",
-                            "email": email,
-                            "ma_may_tinh": MA_MAY_HIEN_THI,
-                        },
-                    )
-                    return
-
-                if path_clean == "/api/v1/auth/api-key":
-                    khoa_host = f"tr_live_host_{MA_MAY_HIEN_THI.lower().replace('-', '')}"
-                    self._send_json(
-                        200,
-                        {
-                            "co_api_key": True,
-                            "co_khoa_api": True,
-                            "tien_to_khoa_api": khoa_host[:16],
-                            "api_key": khoa_host,
-                            "khoa_api": khoa_host,
+                            "detail": "Xác thực tài khoản phải thực hiện trên máy chủ Cloud chính thức (https://translation-api.vibe1.tinhgon.xyz)."
                         },
                     )
                     return
