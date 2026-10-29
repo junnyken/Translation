@@ -152,6 +152,8 @@ async def healthz(request: Request) -> dict:
     from app.workers.bo_nho import rss_mb
 
     ket_qua: dict = {"status": "ok", "nhan_dien_khach": _chan_doan_nhan_dien_khach(request)}
+    # Desktop checks this BEFORE sending customer images or private terminology.
+    ket_qua["translation_capabilities"] = {"private_context_v1": True, "idempotent_upload_v1": True}
 
     # D — `llm_context` có dùng được không. CHỈ true/false, không có mảnh khoá nào ở đây (cùng
     # hợp đồng với `/batch-config`, chỉ khác là endpoint này KHÔNG đòi đăng nhập).

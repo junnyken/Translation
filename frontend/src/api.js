@@ -710,8 +710,8 @@ export const quanTriCapLuot = ({
 export const layThongKeQuanTri = () => fetch(`${BASE}/quan-tri/thong-ke`).then(doc)
 
 /** Đường dẫn tải trực tiếp gói Tiện ích Chrome (.zip) và App Windows (.zip). */
-export const urlTaiTienIchChrome = () => '/tai-ve/dich-truyen-chrome-extension-v0.3.0.zip'
-export const urlTaiAppWindows = () => '/tai-ve/App-Windows-Dich-Truyen-Tu-Dong-v1.0.zip'
+export const urlTaiTienIchChrome = () => '/tai-ve/dich-truyen-chrome-extension-v0.3.1.zip'
+export const urlTaiAppWindows = () => '/tai-ve/App-Windows-Dich-Truyen-Tu-Dong-v1.1.zip'
 
 /** Chốt nào đang chặn, hoặc `null` nếu còn lượt.
  *

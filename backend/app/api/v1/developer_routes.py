@@ -41,10 +41,11 @@ from app.api.v1.routes import (
     doc_truyen_lay_trang,
 )
 from app.core.config import Settings, get_settings
-from app.core.cong_han_muc import giu_cho_moi_chot
-from app.core.danh_tinh_khach import Chot, DanhTinhHanMuc
+from app.core.cong_han_muc import danh_tinh_han_muc, giu_cho_moi_chot
+from app.core.danh_tinh_khach import Chot, DanhTinhHanMuc, bam, ip_cua
 from app.core.db import get_session
 from app.core.quyen import NguoiGoi, ma_phien_tu_header
+from app.services.han_muc_dang_nhap import da_sai_bao_nhieu, ghi_nhan_dang_nhap_sai
 from app.models import (
     Job,
     NguoiDung,
@@ -85,6 +86,55 @@ from app.services.typeset.paths import preview_relative_path
 router = APIRouter(prefix="/api/v1/developer", tags=["developer-api"])
 
 
+def _khoa_bi_mat_chu_ky_anh(settings: Settings) -> bytes:
+    """Khoá HMAC riêng để ký URL tải ảnh từng trang (`?sig=...&exp=...`), tránh lộ `tr_live_...`."""
+    goc = (settings.muoi_bam_khach or settings.api_key or "comic-developer-img-hmac-v1").encode("utf-8")
+    import hashlib
+
+    return hashlib.sha256(b"developer-image-url-v1:" + goc).digest()
+
+
+def _ky_url_anh_developer(
+    page_id: uuid.UUID, nguoi_id: uuid.UUID, exp: int, settings: Settings | None = None
+) -> str:
+    import hashlib
+    import hmac
+
+    st = settings or get_settings()
+    msg = f"{page_id}:{nguoi_id}:{int(exp)}".encode("utf-8")
+    return hmac.new(_khoa_bi_mat_chu_ky_anh(st), msg, hashlib.sha256).hexdigest()[:32]
+
+
+async def _xac_minh_chu_ky_anh_developer(
+    session: AsyncSession,
+    page_id: uuid.UUID,
+    sig: str | None,
+    exp: int | None,
+    settings: Settings,
+) -> NguoiDung | None:
+    """Kiểm tra chữ ký `?sig=...&exp=...` gắn riêng cho đúng `page_id` đó."""
+    import hmac
+    import time
+
+    if not sig or exp is None:
+        return None
+    if int(exp) < int(time.time()):
+        return None
+    page = await session.get(Page, page_id)
+    if page is None:
+        return None
+    project = await session.get(Project, page.project_id)
+    if project is None or project.chu_so_huu_id is None:
+        return None
+    nguoi = await session.get(NguoiDung, project.chu_so_huu_id)
+    if nguoi is None or not nguoi.dang_hoat_dong:
+        return None
+    ky_vong = _ky_url_anh_developer(page_id, nguoi.id, int(exp), settings)
+    if not hmac.compare_digest(sig.strip(), ky_vong):
+        return None
+    return nguoi
+
+
 async def _xac_thuc_developer(
     request: Request,
     authorization: str | None = Header(default=None, alias="Authorization"),
@@ -92,13 +142,34 @@ async def _xac_thuc_developer(
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
     api_key_query: str | None = Query(default=None, alias="api_key"),
     session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
 ) -> tuple[NguoiDung, str]:
-    """Xác thực API Key của khách hàng từ Header hoặc Query param."""
+    """Xác thực API Key của khách hàng từ Header hoặc Query param, kèm chống dò khoá theo IP."""
+    tran = settings.so_lan_dang_nhap_sai_moi_ip_mot_ngay
+    ip = ip_cua(request, settings) if tran > 0 else None
+    ip_bam = bam(ip, settings) if ip is not None else None
+    ngay = ngay_han_muc() if ip_bam is not None else None
+
+    if ip_bam is not None and ngay is not None:
+        if await da_sai_bao_nhieu(session, ip_bam, ngay) >= tran:
+            reset = moc_reset_ke_tiep()
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                headers={"Retry-After": str(max(0, int((reset - bay_gio()).total_seconds())))},
+                detail={
+                    "error": "too_many_invalid_api_key_attempts",
+                    "message": "Quá nhiều lần gửi sai Developer API Key từ địa chỉ mạng này trong hôm nay. Vui lòng thử lại sau.",
+                },
+            )
+
     ma = ma_phien_tu_header(authorization, x_customer_api_key, x_api_key)
     if not ma and api_key_query and api_key_query.strip():
         ma = api_key_query.strip()
     nguoi = await tai_khoan.lay_theo_ma_phien(session, ma) if ma else None
     if nguoi is None:
+        if ma and ip_bam is not None and ngay is not None:
+            await ghi_nhan_dang_nhap_sai(session, ip_da_bam=ip_bam, ngay=ngay, tran=tran)
+            await session.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={
@@ -257,7 +328,11 @@ async def _dong_goi_ket_qua_trang_developer(
     map_ts = {rid: ts for rid, ts in rows_ts if ts is not None}
 
     base_url = str(request.base_url).rstrip("/")
-    duoi_key = f"?api_key={ma_api}" if ma_api.startswith("tr_live_") else ""
+    import time as _time
+
+    exp_ts = int(_time.time()) + 86400
+    sig_anh = _ky_url_anh_developer(page.id, nguoi.id, exp_ts)
+    duoi_key = f"?sig={sig_anh}&exp={exp_ts}"
 
     storage = get_storage()
     rel_preview = preview_relative_path(page.id)
@@ -344,6 +419,67 @@ async def developer_kiem_tra_quota(
             "display_name": nguoi.ten_hien,
         },
         "quota": await _thong_tin_quota(session, nguoi),
+    }
+
+
+@router.post("/consume-local-page", response_model=dict)
+async def developer_khau_tru_trang_cuc_bo(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    danh_tinh: DanhTinhHanMuc = Depends(danh_tinh_han_muc),
+) -> dict[str, Any]:
+    """Khấu trừ 1 lượt/trang trên sổ cái Server khi khách hàng chạy Bộ máy AI Cục bộ (`local_ocr_gpu`) trên App Windows:
+    - Máy khách tự gánh 100% tải OCR + Dịch bằng CPU/GPU của khách (chi phí vận hành Server = 0 VNĐ).
+    - Sổ cái Server vẫn kiểm tra & trừ đúng 1 lượt/trang vào hạn mức ngày (10 trang/ngày) hoặc ví mua thêm (`so_luot_mua_them`).
+    - Chống trừ trùng (Idempotent) theo `page_key` / `sha256` của bức ảnh.
+    - Riêng tài khoản Quản trị viên (`la_quan_tri = True`) được miễn trừ không giới hạn.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    page_key = str(body.get("page_key") or body.get("request_key") or body.get("sha256") or uuid.uuid4().hex).strip()
+
+    # Nếu gửi kèm X-Customer-Api-Key (tr_live_...) mà chưa qua danh_tinh_han_muc
+    if not danh_tinh.co_tai_khoan:
+        api_hdr = (request.headers.get("X-Customer-Api-Key") or request.headers.get("X-API-Key") or "").strip()
+        if api_hdr:
+            nguoi_k = await tai_khoan.nguoi_dung_cua_khoa_api(session, api_hdr)
+            if nguoi_k is not None:
+                danh_tinh = _danh_tinh_tu_nguoi_dung(nguoi_k)
+
+    # Quản trị viên (Chủ hệ thống) chạy tự động không bị giới hạn lượt
+    if (
+        danh_tinh.co_tai_khoan
+        and not danh_tinh.nguoi_goi.la_khach
+        and getattr(danh_tinh.nguoi_goi.nguoi, "la_quan_tri", False)
+    ):
+        return {
+            "ok": True,
+            "admin_bypass": True,
+            "deducted": 0,
+        }
+
+    chu_the_chinh = danh_tinh.chot[0].chu_the if danh_tinh.chot else "guest"
+    so_luot_can = max(1, min(3, int(body.get("credits") or 1)))
+    engine_name = str(body.get("engine") or "local_ocr_gpu").strip()
+    page_uuid = uuid.uuid5(uuid.NAMESPACE_URL, f"local-ocr-gpu:{engine_name}:{chu_the_chinh}:{page_key}:0")
+    for idx_c in range(so_luot_can):
+        uid_c = (
+            page_uuid
+            if idx_c == 0
+            else uuid.uuid5(uuid.NAMESPACE_URL, f"local-ocr-gpu:{engine_name}:{chu_the_chinh}:{page_key}:{idx_c}")
+        )
+        await giu_cho_moi_chot(session, danh_tinh, uid_c)
+    await session.commit()
+
+    return {
+        "ok": True,
+        "page_id": str(page_uuid),
+        "engine": engine_name,
+        "deducted": so_luot_can,
     }
 
 
@@ -597,11 +733,30 @@ async def developer_lay_ket_qua_trang(
 @router.get("/pages/{page_id}/rendered-image")
 async def developer_tai_anh_da_dich(
     page_id: uuid.UUID,
-    xac_thuc: tuple[NguoiDung, str] = Depends(_xac_thuc_developer),
+    request: Request,
+    sig: str | None = Query(default=None, description="Chữ ký HMAC gắn theo trang"),
+    exp: int | None = Query(default=None, description="Thời điểm hết hạn chữ ký (Unix timestamp)"),
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_customer_api_key: str | None = Header(default=None, alias="X-Customer-Api-Key"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    api_key_query: str | None = Query(default=None, alias="api_key"),
     session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
 ) -> Response:
-    """Tải trực tiếp file ảnh PNG đã xoá chữ + ghép chữ dịch hoàn chỉnh của trang."""
-    nguoi, _ = xac_thuc
+    """Tải trực tiếp file ảnh PNG đã xoá chữ + ghép chữ dịch hoàn chỉnh của trang.
+    Chấp nhận chữ ký ngắn hạn `?sig=...&exp=...` (không làm lộ `tr_live_...`) hoặc Header API Key.
+    """
+    nguoi = await _xac_minh_chu_ky_anh_developer(session, page_id, sig, exp, settings)
+    if nguoi is None:
+        nguoi, _ = await _xac_thuc_developer(
+            request=request,
+            authorization=authorization,
+            x_customer_api_key=x_customer_api_key,
+            x_api_key=x_api_key,
+            api_key_query=api_key_query,
+            session=session,
+            settings=settings,
+        )
     await _get_page_or_404(session, page_id, NguoiGoi(nguoi=nguoi))
     storage = get_storage()
     rel = preview_relative_path(page_id)
@@ -621,11 +776,30 @@ async def developer_tai_anh_da_dich(
 @router.get("/pages/{page_id}/inpainted-image")
 async def developer_tai_anh_da_xoa_chu(
     page_id: uuid.UUID,
-    xac_thuc: tuple[NguoiDung, str] = Depends(_xac_thuc_developer),
+    request: Request,
+    sig: str | None = Query(default=None, description="Chữ ký HMAC gắn theo trang"),
+    exp: int | None = Query(default=None, description="Thời điểm hết hạn chữ ký (Unix timestamp)"),
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    x_customer_api_key: str | None = Header(default=None, alias="X-Customer-Api-Key"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    api_key_query: str | None = Query(default=None, alias="api_key"),
     session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
 ) -> Response:
-    """Tải trực tiếp file ảnh đã xoá sạch chữ gốc trong bong bóng (chưa vẽ chữ mới)."""
-    nguoi, _ = xac_thuc
+    """Tải trực tiếp file ảnh đã xoá sạch chữ gốc trong bong bóng (chưa vẽ chữ mới).
+    Chấp nhận chữ ký ngắn hạn `?sig=...&exp=...` (không làm lộ `tr_live_...`) hoặc Header API Key.
+    """
+    nguoi = await _xac_minh_chu_ky_anh_developer(session, page_id, sig, exp, settings)
+    if nguoi is None:
+        nguoi, _ = await _xac_thuc_developer(
+            request=request,
+            authorization=authorization,
+            x_customer_api_key=x_customer_api_key,
+            x_api_key=x_api_key,
+            api_key_query=api_key_query,
+            session=session,
+            settings=settings,
+        )
     page = await _get_page_or_404(session, page_id, NguoiGoi(nguoi=nguoi))
     storage = get_storage()
     if not page.clean_image_path or not await run_in_threadpool(storage.exists, page.clean_image_path):

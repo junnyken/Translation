@@ -79,7 +79,7 @@ export default function ChanTrangManga() {
           <h3>💎 {laEn ? 'Accounts & Benefits' : 'Tài Khoản & Quyền Lợi'}</h3>
           <ul className="ds-tinh-nang-chan">
             <li>🔄 {laEn ? 'Sync 1 Account across Web, Extension & Windows App' : 'Đồng bộ 1 tài khoản trên Web, Extension & App Windows'}</li>
-            <li>🎁 {laEn ? 'Free 20 Pages/Day for Every Registered Account' : 'Tặng miễn phí 20 trang/ngày cho tài khoản đăng ký'}</li>
+            <li>🎁 {laEn ? 'Free 10 Pages/Day for Every Registered Account' : 'Tặng miễn phí 10 trang/ngày cho tài khoản đăng ký'}</li>
             <li>🛡️ {laEn ? 'Purchased Quota Never Expires Overnight' : 'Lượt tích luỹ không bao giờ hết hạn qua đêm'}</li>
             <li>📂 {laEn ? 'Export High-Res PNG/JPG, .CBZ, .ZIP & .PDF' : 'Hỗ trợ xuất ảnh PNG/JPG rời, gói .CBZ, .ZIP & .PDF'}</li>
           </ul>

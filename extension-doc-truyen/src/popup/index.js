@@ -30,6 +30,16 @@ function dongBoNutEngine(eng) {
   document.querySelectorAll('#nhom-nut-eng .nut-eng').forEach((btn) => {
     btn.classList.toggle('dang-chon', btn.dataset.eng === eng)
   })
+  const nhanPhu = $('nhan-phu-eng')
+  if (nhanPhu) {
+    if (eng === 'local_hybrid_pro') {
+      nhanPhu.textContent = '🧠 2 lượt/trang · Tự học & Chữ viết tay'
+    } else if (eng === 'local_ocr_gpu') {
+      nhanPhu.textContent = '⚡ 1 lượt/trang · Khuyên dùng'
+    } else {
+      nhanPhu.textContent = '✨ 1 lượt/trang · Cloud AI'
+    }
+  }
 }
 
 function dongBoNutFont(font) {
@@ -76,9 +86,12 @@ async function veHanMuc() {
       return
     }
     const hm = await layHanMuc()
-    const vaiTro = hm.co_tai_khoan ? '✅ Đã đăng nhập' : '👤 Khách (đăng nhập nhận 20 trang/ngày)'
-    const tichLuy = hm.so_luot_mua_them > 0 ? ` (+${hm.so_luot_mua_them} VIP)` : ''
-    o.textContent = `${vaiTro} · Còn ${hm.con_lai}/${hm.tran} trang hôm nay${tichLuy}`
+    const muaThem = Number(hm.so_luot_mua_them || 0)
+    const conLaiNgay = Math.max(0, Number(hm.con_lai || 0) - muaThem)
+    const vaiTro = hm.co_tai_khoan ? '✅ Đã đăng nhập' : '👤 Khách (đăng nhập nhận 10 trang/ngày)'
+    const tichLuy = muaThem > 0 ? ` + Ví VIP: ${muaThem} trang (Tổng ${hm.con_lai})` : ''
+    const nhanChiPhi = engine === 'local_hybrid_pro' ? ' · [Pro: 2 lượt/trang]' : ' · [1 lượt/trang]'
+    o.textContent = `${vaiTro} · Hôm nay: ${conLaiNgay}/${hm.tran} trang${tichLuy}${nhanChiPhi}`
     o.className = hm.con_lai <= 0
       ? 'hop loi'
       : (hm.con_lai < hm.tran && hm.con_lai <= 2) ? 'hop canh-bao' : 'hop ok'
@@ -106,6 +119,16 @@ async function veMayChu() {
     const { diaChi, engine } = await docCauHinh()
     if (engine === 'local_gguf') {
       o.textContent = 'Chạy Offline 100% trên phần cứng máy bạn (127.0.0.1:11434 / 1234).'
+      o.hidden = false
+      return
+    }
+    if (engine === 'local_ocr_gpu') {
+      o.textContent = '⚡ OCR + GPU Nhanh (1 lượt/trang): Tự động kết nối App Windows (127.0.0.1:17890) hoặc Cloud.'
+      o.hidden = false
+      return
+    }
+    if (engine === 'local_hybrid_pro') {
+      o.textContent = '🧠 OCR + GPU Pro (2 lượt/trang): Tăng cường nét chữ viết tay + Tự học vĩnh viễn các câu bạn sửa.'
       o.hidden = false
       return
     }

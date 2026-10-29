@@ -363,7 +363,7 @@ async def tao_moi_api_key(session: AsyncSession, nguoi_id: uuid.UUID) -> tuple[s
     await session.execute(
         delete(Phien).where(Phien.nguoi_dung_id == nguoi_id, Phien.het_han >= MOC_NAM_API_KEY)
     )
-    ma_tho = f"{TIEN_TO_API_KEY}{secrets.token_urlsafe(28)}"
+    ma_tho = f"{TIEN_TO_API_KEY}{secrets.token_urlsafe(32)}"
     ban_ghi = Phien(
         nguoi_dung_id=nguoi_id,
         ma_bam=ph.bam_ma(ma_tho),

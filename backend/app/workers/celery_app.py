@@ -92,8 +92,15 @@ celery_app.conf.update(
 # phải bật tường minh sau khi đã quan sát mốc `het_han_luc` được ghi đúng trên bản chạy thật.
 # Đăng ký lịch rồi để task tự kiểm cờ cũng được, nhưng như vậy beat vẫn đánh thức worker mỗi
 # 5 phút để chạy một hàm trả về ngay — tiếng ồn vô ích trên tiến trình đang bó bộ nhớ.
+celery_app.conf.beat_schedule = {
+    "dispatch-private-upload-outbox": {
+        "task": "production.dispatch_upload_outbox",
+        "schedule": 30.0,
+        "options": {"expires": 25},
+    }
+}
 if settings.bat_lich_don_tep:
-    celery_app.conf.beat_schedule = {
+    celery_app.conf.beat_schedule.update({
         "don-tep-het-han": {
             "task": "vong_doi.don_tep_het_han",
             "schedule": float(settings.don_tep_moi_giay),
@@ -101,7 +108,7 @@ if settings.bat_lich_don_tep:
             # dài lượt dọn rồi chạy liên tiếp đúng lúc worker đang yếu.
             "options": {"expires": float(settings.don_tep_moi_giay) - 10},
         }
-    }
+    })
 
 
 @worker_ready.connect
@@ -156,3 +163,12 @@ def _don_job_mo_coi_luc_khoi_dong(**_):
         tao_dieu_phoi(settings).danh_thuc_me_dang_do()
     except Exception:  # noqa: BLE001
         logging.getLogger(__name__).exception("đánh thức mẻ lỗi — bỏ qua, worker vẫn nhận việc")
+
+
+@worker_ready.connect
+def _publish_upload_outbox_on_ready(**_):
+    try:
+        from app.services.upload_outbox import publish_due
+        publish_due(limit=20)
+    except Exception:
+        logging.getLogger(__name__).exception("upload outbox startup publish failed; beat will retry")

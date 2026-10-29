@@ -23,7 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
-from app.models import OCRResult, Page, TextRegion, TranslationResult, TypesetResult
+from app.models import OCRResult, Page, Project, TextRegion, TranslationResult, TypesetResult
 from app.models.enums import (
     ChePipeline,
     OCREngine,
@@ -166,6 +166,9 @@ async def thu_sao_chep_tu_cache(
 
     Trả `True` nếu đã sao chép thành công (không cần đẩy Celery job, tốn 0 token AI), `False` nếu chưa có.
     """
+    project_dich = await session.get(Project, dich_page.project_id)
+    if project_dich is None or project_dich.cau_hinh_rieng:
+        return False
     k = _khoa(bam_anh, source_lang, engine, che_do, target_lang=target_lang)
     ung_vien_ids = list(reversed(_BO_NHO_BAM.get(k, [])))
 
@@ -191,6 +194,9 @@ async def thu_sao_chep_tu_cache(
             continue
         nguon = await session.get(Page, uv_id)
         if nguon is None or nguon.status not in trang_thai_xong:
+            continue
+        project_nguon = await session.get(Project, nguon.project_id)
+        if project_nguon is None or project_nguon.cau_hinh_rieng:
             continue
 
         rows = (

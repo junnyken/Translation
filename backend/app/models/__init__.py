@@ -151,6 +151,10 @@ class Project(TimestampMixin, Base):
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    #: P1 — private immutable request context; never publish/reuse community translations.
+    cau_hinh_rieng: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     source_lang: Mapped[SourceLang] = mapped_column(_enum(SourceLang, "source_lang"), nullable=False)
     target_lang: Mapped[TargetLang] = mapped_column(
         _enum(TargetLang, "target_lang"), nullable=False, default=TargetLang.vi
@@ -1086,3 +1090,33 @@ class NhatKyQuanTri(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )
+
+
+class UploadRequest(TimestampMixin, Base):
+    """A key belongs to an account; retain tombstones after page/project deletion."""
+    __tablename__ = "upload_request"
+
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("nguoi_dung.id", ondelete="CASCADE"), primary_key=True,
+    )
+    request_key: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    page_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("page.id", ondelete="SET NULL"), nullable=True, index=True,
+    )
+
+
+class DetectOutbox(TimestampMixin, Base):
+    """Delivery intent committed together with a keyed upload's first detect Job."""
+    __tablename__ = "detect_outbox"
+
+    job_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("job.id", ondelete="CASCADE"), primary_key=True,
+    )
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    next_attempt_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True,
+    )
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    abandoned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)

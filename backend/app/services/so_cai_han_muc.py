@@ -333,11 +333,30 @@ def hoan_theo_trang(session, trang_id: uuid.UUID, ly_do: str) -> int:
 
     Dòng đã `da_tieu` **không** bị đụng tới: trang đã chạy xong thì lượt đã tiêu đúng, hoàn ngược
     là cho lượt từ hư không.
+    Nếu dòng giữ chỗ thuộc quỹ `mua_them:<user_id>`, hoàn trả lại đúng số trang đó vào cột
+    `NguoiDung.so_luot_mua_them` để khách không mất oan lượt gói cước khi hệ thống lỗi.
     """
+    from app.models import NguoiDung
+
     dem = 0
     for dong in session.execute(_cau_theo_trang(trang_id)).scalars().all():
         truoc = dong.trang_thai
         if _hoan_dong(dong, ly_do) and truoc is TrangThaiHanMuc.giu_cho:
             dem += 1
+            if (
+                dong.loai_chu_the is LoaiChuThe.nguoi_dung
+                and isinstance(dong.chu_the, str)
+                and dong.chu_the.startswith("mua_them:")
+            ):
+                uid_raw = dong.chu_the.removeprefix("mua_them:")
+                try:
+                    uid = uuid.UUID(uid_raw)
+                    session.execute(
+                        sa.update(NguoiDung)
+                        .where(NguoiDung.id == uid)
+                        .values(so_luot_mua_them=NguoiDung.so_luot_mua_them + max(1, int(dong.so_trang or 1)))
+                    )
+                except ValueError:
+                    pass
     session.flush()
     return dem

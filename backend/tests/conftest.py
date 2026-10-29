@@ -16,6 +16,11 @@ TEST_DB_URL = os.environ.setdefault(
     "TEST_DATABASE_URL",
     "postgresql+asyncpg://translation:translation@localhost:5433/translation_test",
 )
+from app.services.test_database_guard import validate_test_database_url
+
+# Tests downgrade to base and TRUNCATE: validate before importing DB/app.
+validate_test_database_url(TEST_DB_URL)
+
 # Phải set TRƯỚC khi import app (Settings cache bằng lru_cache).
 os.environ["DATABASE_URL"] = TEST_DB_URL
 _STORAGE_ROOT = tempfile.mkdtemp(prefix="translation-test-storage-")
@@ -37,6 +42,8 @@ from app.core.db import get_session  # noqa: E402
 from app.main import app  # noqa: E402
 
 TABLES = (
+    "detect_outbox",
+    "upload_request",
     # Sổ cái hạn mức: dọn giữa các test là BẮT BUỘC, không phải cho sạch sẽ. Hạn mức tính theo
     # (chủ thể, ngày), mà tài khoản test dùng CHUNG một id cho cả lượt chạy và mọi test chạy
     # trong cùng một ngày lịch ⇒ để lại thì lượt tải lên của test này ăn hạn mức của test kia,
@@ -288,11 +295,12 @@ def fake_dispatch(monkeypatch):
     """
     sent: list = []
 
-    def _fake(job_id):
+    def _fake(job_id, **kwargs):
         sent.append(job_id)
         return True, None
 
     monkeypatch.setattr("app.api.v1.routes.dispatch_detect_job", _fake)
+    monkeypatch.setattr("app.services.dispatch.dispatch_detect_job", _fake)
     # E57 — đường nhận dạng ngôn ngữ cũng đẩy việc qua broker. KHÔNG chặn ở đây thì mỗi bài test
     # gọi nó sẽ ngồi thử kết nối Redis **20 lần** rồi mới bỏ: bài test đỏ vì hạ tầng, và chậm tới
     # mức tưởng là treo. (Redis của môi trường test nằm ở cổng 6380, không phải 6379.)

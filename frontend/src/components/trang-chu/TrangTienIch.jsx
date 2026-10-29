@@ -57,7 +57,7 @@ export default function TrangTienIch({ onQuayLai }) {
             fontWeight: 700,
             letterSpacing: '0.03em',
           }}>
-            {laEn ? '★ CHROME EXTENSION v0.3.0 & WINDOWS APP v1.0 ★' : '★ BỘ CÔNG CỤ TIỆN ÍCH CHROME v0.3.0 & APP WINDOWS v1.0 ★'}
+            {laEn ? '★ CHROME EXTENSION v0.3.1 & WINDOWS APP v1.1 ★' : '★ BỘ CÔNG CỤ TIỆN ÍCH CHROME v0.3.1 & APP WINDOWS v1.1 ★'}
           </span>
           <a
             href="#"
@@ -102,7 +102,7 @@ export default function TrangTienIch({ onQuayLai }) {
             </div>
             <div>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#818cf8', letterSpacing: '0.04em' }}>
-                {laEn ? 'VERSION v0.3.0 · CHROME / EDGE / BRAVE / COC COC' : 'PHIÊN BẢN v0.3.0 · CHROME / EDGE / BRAVE / CỐC CỐC'}
+                {laEn ? 'VERSION v0.3.1 · CHROME / EDGE / BRAVE / COC COC' : 'PHIÊN BẢN v0.3.1 · CHROME / EDGE / BRAVE / CỐC CỐC'}
               </div>
               <h2 id="tieu-de-tien-ich-chrome" style={{ margin: '2px 0 0', fontSize: 22, color: '#ffffff' }}>
                 {laEn ? 'Live Browser Comic & Novel Translator' : 'Tiện Ích Dịch Truyện Trực Tiếp Trên Web'}
@@ -130,20 +130,20 @@ export default function TrangTienIch({ onQuayLai }) {
                 : 'Nhấp đúp vào bất kỳ bóng thoại nào để sửa câu, bật ⬛ Phủ kín hộp, ✥ Kéo vị trí chữ hoặc dùng 🖌️ Cọ vẽ tay tô xoá nét chữ gốc còn sót ngay trên Canvas.'}
             </div>
             <div style={featureItemStyle}>
-              🌍 <b>{laEn ? 'Cross-Page Context Memory & Local GGUF Offline Mode:' : 'Nhớ ngữ cảnh xuyên trang & Chế độ GGUF Cục bộ (Offline 0đ):'}</b>{' '}
+              🌍 <b>{laEn ? '3 Specialized AI Models (Fast GPU & Self-Learning Pro):' : '3 Bộ máy AI chuyên biệt (⚡ OCR + GPU Nhanh & 🧠 GPU Pro Tự Học):'}</b>{' '}
               {laEn
-                ? 'Remembers character pronouns across pages and supports 100% client-side offline translation via Ollama / LM Studio GGUF on your PC.'
-                : 'Tự động nhớ xưng hô xuyên suốt chapter và hỗ trợ chọn 💻 GGUF Cục bộ (chạy Ollama / LM Studio trên máy bạn, không tốn lượt).'}
+                ? 'Choose ⚡ OCR + GPU Fast (1 credit/page), ✨ Gemini Cloud (1 credit/page), or 🧠 OCR + GPU Pro for handwritten fonts & permanent self-learning (2 credits/page).'
+                : 'Chọn ⚡ OCR + GPU Nhanh (1 lượt/trang · khuyên dùng), ✨ Gemini Cloud (1 lượt/trang) hoặc 🧠 OCR + GPU Pro chuyên trị chữ viết tay & tự học vĩnh viễn các câu bạn sửa (2 lượt/trang).'}
             </div>
           </div>
 
           <a
             href={api.urlTaiTienIchChrome()}
-            download="dich-truyen-chrome-extension-v0.3.0.zip"
+            download="dich-truyen-chrome-extension-v0.3.1.zip"
             className="nut-manga nut-manga-chinh"
             style={{ width: '100%', justifyContent: 'center', fontSize: 15, padding: '12px 18px' }}
           >
-            ⬇️ {laEn ? 'Download Chrome Extension (.ZIP — v0.3.0)' : 'Tải Tiện Ích Chrome / Edge (.ZIP — v0.3.0)'}
+            ⬇️ {laEn ? 'Download Chrome Extension (.ZIP — v0.3.1)' : 'Tải Tiện Ích Chrome / Edge (.ZIP — v0.3.1)'}
           </a>
 
           {/* Hướng dẫn cài đặt từng bước */}
@@ -154,9 +154,9 @@ export default function TrangTienIch({ onQuayLai }) {
             <ol style={{ margin: 0, paddingLeft: 20, color: '#e2e8f0', fontSize: 13.8, lineHeight: 1.75 }}>
               <li>
                 {laEn ? (
-                  <>Download and unzip <code>dich-truyen-chrome-extension-v0.3.0.zip</code> into a folder on your computer.</>
+                  <>Download and unzip <code>dich-truyen-chrome-extension-v0.3.1.zip</code> into a folder on your computer.</>
                 ) : (
-                  <>Tải file <code>dich-truyen-chrome-extension-v0.3.0.zip</code> về máy và <b>Giải nén (Extract)</b> ra một thư mục.</>
+                  <>Tải file <code>dich-truyen-chrome-extension-v0.3.1.zip</code> về máy và <b>Giải nén (Extract)</b> ra một thư mục.</>
                 )}
               </li>
               <li>
@@ -218,7 +218,7 @@ export default function TrangTienIch({ onQuayLai }) {
             </div>
             <div>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#34d399', letterSpacing: '0.04em' }}>
-                WINDOWS 10 / 11 DESKTOP APP · v1.0
+                WINDOWS 10 / 11 DESKTOP APP · v1.1
               </div>
               <h2 id="tieu-de-app-windows" style={{ margin: '2px 0 0', fontSize: 22, color: '#ffffff' }}>
                 {laEn ? 'Windows App: Auto-Crawl URL & Split Chapters' : 'App Windows: Dịch Theo Link & Chia Thư Mục Chapter'}
@@ -246,20 +246,20 @@ export default function TrangTienIch({ onQuayLai }) {
                 : <>Tự động lưu gọn gàng theo cấu trúc <code>Tên_Truyện / Chapter-001 / 001.jpg, 002.jpg...</code> kèm chế độ Resume (bỏ qua trang đã dịch).</>}
             </div>
             <div style={{ ...featureItemStyle, borderLeftColor: '#10b981' }}>
-              📦 <b>{laEn ? 'Export JPG, .CBZ, .PDF, Long-Strip + 100% Offline GGUF Mode:' : 'Xuất .CBZ, .PDF, Long-Strip + Chạy Offline 100% GGUF trên máy bạn:'}</b>{' '}
+              📦 <b>{laEn ? 'Hardware-Adaptive Parallelism (1–8 Chapters) & Self-Learning AI:' : 'Chạy song song tự động theo cấu hình máy (1–8 Chap) & AI Tự Học:'}</b>{' '}
               {laEn
-                ? 'Supports Cloud AI or 100% Offline Local GGUF models (Ollama / LM Studio on your own GPU/CPU with zero API cost) + local folder batch translation.'
-                : 'Tùy chọn dùng AI Đám mây hoặc bật 💻 GGUF Cục bộ (tận dụng cấu hình máy bạn qua Ollama / LM Studio, không tốn phí API, không tốn lượt) + dịch thư mục ảnh có sẵn.'}
+                ? 'Auto-detects CPU/RAM to translate multiple chapters simultaneously, exports .CBZ/.PDF/Long-Strip, and includes ⚡ OCR + GPU Fast (1 credit/page) + 🧠 OCR + GPU Pro for handwritten text (2 credits/page).'
+                : 'Tự nhận diện CPU/RAM để chạy song song nhiều Chapter cùng lúc, xuất .CBZ/.PDF/Long-Strip, tích hợp ⚡ OCR + GPU Nhanh (1 lượt/trang) và 🧠 OCR + GPU Pro tự học chữ viết tay (2 lượt/trang).'}
             </div>
           </div>
 
           <a
             href={api.urlTaiAppWindows()}
-            download="App-Windows-Dich-Truyen-Tu-Dong-v1.0.zip"
+            download="App-Windows-Dich-Truyen-Tu-Dong-v1.1.zip"
             className="nut-manga nut-manga-win"
             style={{ width: '100%', justifyContent: 'center', fontSize: 15, padding: '12px 18px' }}
           >
-            ⬇️ {laEn ? 'Download Windows App (.ZIP — v1.0)' : 'Tải App Windows Chia Chapter (.ZIP — v1.0)'}
+            ⬇️ {laEn ? 'Download Windows App (.ZIP — v1.1)' : 'Tải App Windows Chia Chapter (.ZIP — v1.1)'}
           </a>
 
           {/* Hướng dẫn cài đặt App Windows */}
@@ -270,16 +270,16 @@ export default function TrangTienIch({ onQuayLai }) {
             <ol style={{ margin: 0, paddingLeft: 20, color: '#e2e8f0', fontSize: 13.8, lineHeight: 1.75 }}>
               <li>
                 {laEn ? (
-                  <>Unzip <code>App-Windows-Dich-Truyen-Tu-Dong-v1.0.zip</code> on your Windows PC (requires Python 3.9+ installed).</>
+                  <>Unzip <code>App-Windows-Dich-Truyen-Tu-Dong-v1.1.zip</code> on your Windows PC (requires Python 3.9+ installed).</>
                 ) : (
-                  <>Giải nén file <code>App-Windows-Dich-Truyen-Tu-Dong-v1.0.zip</code> ra máy tính Windows (máy có cài Python 3.9+ cơ bản).</>
+                  <>Giải nén file <code>App-Windows-Dich-Truyen-Tu-Dong-v1.1.zip</code> ra máy tính Windows (máy có cài Python 3.9+ cơ bản).</>
                 )}
               </li>
               <li>
                 {laEn ? (
-                  <>Double-click <code>Chay-App-Dich-Truyen-Windows.bat</code> — it automatically checks the Pillow library and opens the Manga Studio GUI.</>
+                  <>Double-click <code>CHAY-NGAY-DICH-TRUYEN.bat</code> — it automatically checks libraries and opens the Manga Studio GUI.</>
                 ) : (
-                  <>Nhấp đúp chuột vào file <code>Chay-App-Dich-Truyen-Windows.bat</code> (tự động kiểm tra thư viện ảnh Pillow và mở ngay giao diện).</>
+                  <>Nhấp đúp chuột vào file <code>CHAY-NGAY-DICH-TRUYEN.bat</code> (tự động kiểm tra thư viện và mở ngay bàn làm việc Manga Studio).</>
                 )}
               </li>
               <li>

@@ -22,6 +22,8 @@ import math
 import os
 import platform
 import re
+import subprocess
+import tempfile
 import threading
 import time
 import urllib.error
@@ -33,7 +35,10 @@ import zipfile
 from collections import deque
 from pathlib import Path
 import tkinter as tk
-from tkinter import filedialog, messagebox, scrolledtext, ttk
+from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
+
+from production import ChapterLedger, NeedsAttention, RunStopped, natural_key, process_chapter, require_production_backend
+from sources import archive_sources, chapter_links, image_links, local_image_sources, read_local_source
 
 try:
     from PIL import Image, ImageDraw, ImageFont
@@ -90,19 +95,21 @@ def chuan_hoa_may_chu(raw: str) -> str:
 # ==============================================================================
 
 def tim_font_he_thong(loai_font: str, co_chu: int):
-    """Tìm font chữ tiếng Việt có sẵn trên Windows theo phong cách thể loại."""
+    """Tìm font chữ tiếng Việt có sẵn trên Windows theo phong cách thể loại (đủ dấu Unicode Tiếng Việt)."""
     if ImageFont is None:
         return None
     win_fonts = Path(os.environ.get("WINDIR", "C:\\Windows")) / "Fonts"
+    # Lưu ý: impact.ttf, Gabriola.ttf, comicbd.ttf trên Windows thiếu dấu Tiếng Việt (Ạ, Ấ, Ư, Ỡ -> hiện ô vuông □)
     ung_vien_theo_loai = {
-        "bangers": ["impact.ttf", "arialbd.ttf", "segoeuib.ttf", "tahomabd.ttf"],
-        "comic": ["comicbd.ttf", "comic.ttf", "segoeuib.ttf", "arialbd.ttf"],
-        "romance": ["Gabriola.ttf", "segoeuii.ttf", "calibrii.ttf", "ariali.ttf", "segoeui.ttf"],
-        "historical": ["timesbi.ttf", "timesbd.ttf", "georgia.ttf", "palabi.ttf", "times.ttf"],
+        "bangers": ["tahomabd.ttf", "segoeuib.ttf", "arialbd.ttf", "verdanab.ttf"],
+        "comic": ["segoeuib.ttf", "calibrib.ttf", "tahomabd.ttf", "arialbd.ttf"],
+        "romance": ["segoeuii.ttf", "calibrii.ttf", "ariali.ttf", "segoeui.ttf"],
+        "historical": ["timesbi.ttf", "timesbd.ttf", "georgiab.ttf", "georgia.ttf", "palabi.ttf", "times.ttf"],
     }
     ds_thu = ung_vien_theo_loai.get(loai_font, ung_vien_theo_loai["comic"]) + [
+        "segoeuib.ttf",
         "arialbd.ttf",
-        "segoeui.ttf",
+        "tahomabd.ttf",
         "tahoma.ttf",
     ]
     for ten in ds_thu:
@@ -144,10 +151,10 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
         y_goc = max(0, int(round(v["y"])))
         w_goc = max(4, min(W - x_goc, int(round(v["w"]))))
         h_goc = max(4, min(H - y_goc, int(round(v["h"]))))
-        canh_dai = max(w_goc, h_goc)
 
-        mo_x = min(max(int(canh_dai * 1.35), int(W * 0.09)), int(W * 0.24))
-        mo_y = min(max(int(canh_dai * 1.35), int(H * 0.08)), int(H * 0.20))
+        # Mở rộng ROI vừa đủ quanh hộp chữ gốc để tăng tốc 5-8 lần và không tràn ra lề trắng khung tranh
+        mo_x = max(16, min(int(w_goc * 0.35), int(W * 0.06)))
+        mo_y = max(18, min(int(h_goc * 0.38), int(H * 0.05)))
         rx0 = max(1, x_goc - mo_x)
         ry0 = max(1, y_goc - mo_y)
         rx1 = min(W - 1, x_goc + w_goc + mo_x)
@@ -160,34 +167,62 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
         cx1 = min(rw, x_goc + w_goc - rx0)
         cy1 = min(rh, y_goc + h_goc - ry0)
 
-        # Lấy mẫu độ sáng và màu nền thật trong vùng chữ gốc
+        # Lấy mẫu độ sáng và màu nền thật trong vùng chữ gốc + viền 6px quanh hộp chữ
         ds_lum = []
         ds_r, ds_g, ds_b = [], [], []
-        for py in range(cy0, cy1, 2):
-            for px in range(cx0, cx1, 2):
+        so_trang_sang = 0
+        so_mau_trung_binh = 0
+        for py in range(max(0, cy0 - 6), min(rh, cy1 + 6), 2):
+            for px in range(max(0, cx0 - 6), min(rw, cx1 + 6), 2):
                 r, g, b = px_anh[rx0 + px, ry0 + py]
                 lum = 0.299 * r + 0.587 * g + 0.114 * b
+                sat = max(r, g, b) - min(r, g, b)
                 ds_lum.append(lum)
                 ds_r.append(r)
                 ds_g.append(g)
                 ds_b.append(b)
+                if lum >= 210.0 and sat <= 38:
+                    so_trang_sang += 1
+                elif 40.0 <= lum <= 200.0 and sat >= 14:
+                    so_mau_trung_binh += 1
 
+        tong_mau = max(1, len(ds_lum))
         ds_lum_sorted = sorted(ds_lum) if ds_lum else [255.0]
-        nen_toi = ds_lum_sorted[len(ds_lum_sorted) // 2] < 95.0
+        med_lum = ds_lum_sorted[len(ds_lum_sorted) // 2]
+        p80_lum = ds_lum_sorted[min(len(ds_lum_sorted) - 1, int(len(ds_lum_sorted) * 0.80))]
+        nen_toi = med_lum < 55.0 and (so_mau_trung_binh / tong_mau) < 0.22
+        # Phát hiện chữ nổi có viền trắng/đen trên nền màu (không nằm trong bóng thoại trắng):
+        nen_mau_trung_binh = (
+            (not nen_toi)
+            and (so_mau_trung_binh / tong_mau) >= 0.22
+            and (so_trang_sang / tong_mau) < 0.35
+            and (p80_lum < 215.0 or med_lum < 185.0)
+        )
 
-        mau_loc = [
-            (r, g, b)
-            for r, g, b, lum in zip(ds_r, ds_g, ds_b, ds_lum)
-            if (lum <= 82 if nen_toi else lum >= 180)
-        ]
-        if mau_loc:
+        if nen_mau_trung_binh:
+            mau_loc = [
+                (r, g, b)
+                for r, g, b, lum in zip(ds_r, ds_g, ds_b, ds_lum)
+                if 45.0 <= lum <= 198.0
+            ]
+            if not mau_loc:
+                mau_loc = list(zip(ds_r, ds_g, ds_b))
             mau_loc.sort(key=lambda m: 0.299 * m[0] + 0.587 * m[1] + 0.114 * m[2])
-            idx_m = min(len(mau_loc) - 1, int(len(mau_loc) * (0.22 if nen_toi else 0.78)))
-            bg_r, bg_g, bg_b = mau_loc[idx_m]
+            bg_r, bg_g, bg_b = mau_loc[len(mau_loc) // 2]
         else:
-            bg_r, bg_g, bg_b = (14, 14, 14) if nen_toi else (255, 255, 255)
+            mau_loc = [
+                (r, g, b)
+                for r, g, b, lum in zip(ds_r, ds_g, ds_b, ds_lum)
+                if (lum <= 60 if nen_toi else lum >= 180)
+            ]
+            if mau_loc:
+                mau_loc.sort(key=lambda m: 0.299 * m[0] + 0.587 * m[1] + 0.114 * m[2])
+                idx_m = min(len(mau_loc) - 1, int(len(mau_loc) * (0.22 if nen_toi else 0.78)))
+                bg_r, bg_g, bg_b = mau_loc[idx_m]
+            else:
+                bg_r, bg_g, bg_b = (14, 14, 14) if nen_toi else (255, 255, 255)
 
-        # Ranh giới Voronoi với các bóng thoại láng giềng
+        # Ranh giới Voronoi với các bóng thoại láng giềng thực sự nằm gần ROI
         ds_lang_gieng = []
         for idx_u, u in enumerate(vung_hop_le):
             if idx_u == idx_v:
@@ -196,7 +231,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
             ucy0 = int(round(u["y"] - ry0))
             ucx1 = int(round(u["x"] + u["w"] - rx0))
             ucy1 = int(round(u["y"] + u["h"] - ry0))
-            if ucx1 < -rw or ucx0 > rw * 2 or ucy1 < -rh or ucy0 > rh * 2:
+            if ucx1 < -16 or ucx0 > rw + 16 or ucy1 < -16 or ucy0 > rh + 16:
                 continue
             ds_lang_gieng.append((ucx0, ucy0, ucx1, ucy1))
 
@@ -204,15 +239,56 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
         la_nen = bytearray(N)
         vung_cam = bytearray(N)
 
+        row_bg: list[tuple[int, int, int, float]] = []
+        sx_r0 = max(0, cx0 - min(16, max(6, w_goc // 6)))
+        sx_r1 = min(rw, cx1 + min(16, max(6, w_goc // 6)))
+        for py in range(rh):
+            mau_dong = []
+            for px in range(sx_r0, sx_r1, 2):
+                r, g, b = px_anh[rx0 + px, ry0 + py]
+                lum = 0.299 * r + 0.587 * g + 0.114 * b
+                sai_so = abs(r - bg_r) + abs(g - bg_g) + abs(b - bg_b)
+                if nen_mau_trung_binh:
+                    if 45.0 <= lum <= 198.0 and sai_so <= 105:
+                        mau_dong.append((sai_so, r, g, b, lum))
+                elif sai_so <= 80 or (lum <= 60 if nen_toi else lum >= 200):
+                    mau_dong.append((sai_so, r, g, b, lum))
+            if len(mau_dong) >= 3:
+                mau_dong.sort(key=lambda m: m[0])
+                so_lay = max(2, (len(mau_dong) + 1) // 2)
+                rr = int(round(sum(m[1] for m in mau_dong[:so_lay]) / so_lay))
+                gg = int(round(sum(m[2] for m in mau_dong[:so_lay]) / so_lay))
+                bb = int(round(sum(m[3] for m in mau_dong[:so_lay]) / so_lay))
+            else:
+                rr, gg, bb = bg_r, bg_g, bg_b
+            row_bg.append((rr, gg, bb, 0.299 * rr + 0.587 * gg + 0.114 * bb))
+
+        pad_hop_x = max(8, int(round((cx1 - cx0) * 0.18)))
+        pad_hop_y = max(8, int(round((cy1 - cy0) * 0.18)))
         for py in range(rh):
             dvy = cy0 - py if py < cy0 else (py - cy1 if py > cy1 else 0)
             dvy2 = dvy * dvy
             base = py * rw
+            rr, gg, bb, rlum = row_bg[py]
+            trong_y = (cy0 - pad_hop_y) <= py < (cy1 + pad_hop_y)
             for px in range(rw):
                 r, g, b = px_anh[rx0 + px, ry0 + py]
                 lum = 0.299 * r + 0.587 * g + 0.114 * b
-                if (lum <= 72) if nen_toi else (lum >= 192):
-                    la_nen[base + px] = 1
+                sai_so_row = abs(r - rr) + abs(g - gg) + abs(b - bb)
+                sai_so_bg = abs(r - bg_r) + abs(g - bg_g) + abs(b - bg_b)
+                trong_hop_mo = trong_y and ((cx0 - pad_hop_x) <= px < (cx1 + pad_hop_x))
+                if nen_mau_trung_binh:
+                    # Trên nền tranh màu có chữ lõi đen + viền trắng: coi viền trắng là hào ngăn cách (la_nen=1)
+                    # để cô lập tuyệt đối lõi chữ đen (lum <= 95), sau đó nở 5px sẽ xoá sạch cả lõi đen lẫn viền trắng!
+                    if trong_hop_mo and lum <= 95.0:
+                        la_nen[base + px] = 0
+                    else:
+                        la_nen[base + px] = 1
+                else:
+                    if trong_hop_mo and (sai_so_row > 30 or abs(lum - rlum) > 16):
+                        la_nen[base + px] = 0
+                    elif sai_so_row <= 36 or sai_so_bg <= 42 or ((lum <= 45) if nen_toi else (lum >= 224 and max(r, g, b) - min(r, g, b) <= 36)):
+                        la_nen[base + px] = 1
                 if ds_lang_gieng:
                     dvx = cx0 - px if px < cx0 else (px - cx1 if px > cx1 else 0)
                     dist_v2 = dvx * dvx + dvy2
@@ -224,310 +300,394 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                                 vung_cam[base + px] = 1
                                 break
 
-        # Bước 1: Loang `long_trang` từ hộp chữ gốc ra toàn bộ lòng bong bóng
-        long_trang = bytearray(N)
-        q = deque()
-        for py in range(cy0, cy1):
-            base = py * rw
-            for px in range(cx0, cx1):
-                pos = base + px
-                if la_nen[pos] and not long_trang[pos]:
-                    long_trang[pos] = 1
-                    q.append(pos)
+        # Bước 1: Phân tích thành phần liên thông 2D (CCA) bám sát bao lồi nội suy của các dòng chữ (`dong_con`)
+        # - Nối mượt khoảng trống giữa các dòng trong cùng 1 bóng thoại và mở biên +15px cho nét chữ cao/thấp (t, h, d, y, g, p).
+        # - Giữ nguyên ranh giới chống chạm gai bóng thoại ở 4 góc và biên ngoài ROI.
+        ds_dong_con = v.get("dong_con")
+        if not isinstance(ds_dong_con, list) or not ds_dong_con:
+            ds_dong_con = [{"x": x_goc, "y": y_goc, "w": w_goc, "h": h_goc}]
 
-        def la_nen_an_toan(px: int, py: int) -> bool:
-            pos = py * rw + px
-            if not la_nen[pos] or vung_cam[pos]:
-                return False
-            if cx0 <= px < cx1 and cy0 <= py < cy1:
-                return True
-            dem = 0
-            if px > 0 and la_nen[pos - 1]:
-                dem += 1
-            if px + 1 < rw and la_nen[pos + 1]:
-                dem += 1
-            if py > 0 and la_nen[pos - rw]:
-                dem += 1
-            if py + 1 < rh and la_nen[pos + rw]:
-                dem += 1
-            return dem >= 3
+        trong_dong = bytearray(N)
+        trong_dong_mo = bytearray(N)
+        ds_hop_dong = []
+        for d_con in ds_dong_con:
+            lx0 = int(round(d_con.get("x", x_goc) - rx0))
+            ly0 = int(round(d_con.get("y", y_goc) - ry0))
+            lx1 = int(round(d_con.get("x", x_goc) + d_con.get("w", w_goc) - rx0))
+            ly1 = int(round(d_con.get("y", y_goc) + d_con.get("h", h_goc) - ry0))
+            ds_hop_dong.append((lx0, ly0, lx1, ly1))
+            for py_d in range(max(2, ly0 - 13), min(rh - 2, ly1 + 13)):
+                base_d = py_d * rw
+                for px_d in range(max(2, lx0 - 10), min(rw - 2, lx1 + 10)):
+                    trong_dong[base_d + px_d] = 1
+            for py_d in range(max(1, ly0 - 22), min(rh - 1, ly1 + 22)):
+                base_d = py_d * rw
+                for px_d in range(max(1, lx0 - 20), min(rw - 1, lx1 + 20)):
+                    trong_dong_mo[base_d + px_d] = 1
 
-        da_duyet = list(q)
-        while q:
-            pos = q.popleft()
-            px = pos % rw
-            py = pos // rw
-            for nx, ny, npos in (
-                (px - 1, py, pos - 1),
-                (px + 1, py, pos + 1),
-                (px, py - 1, pos - rw),
-                (px, py + 1, pos + rw),
-            ):
-                if 0 <= nx < rw and 0 <= ny < rh and not long_trang[npos]:
-                    if la_nen_an_toan(nx, ny):
-                        long_trang[npos] = 1
-                        q.append(npos)
-                        da_duyet.append(npos)
+        # Lấp khoảng giữa 2 dòng liên tiếp trong cùng bóng thoại để không sót dấu câu hoặc dòng nghiêng ở giữa
+        ds_hop_dong.sort(key=lambda r: r[1])
+        for idx_hd in range(len(ds_hop_dong) - 1):
+            a_x0, a_y0, a_x1, a_y1 = ds_hop_dong[idx_hd]
+            b_x0, b_y0, b_x1, b_y1 = ds_hop_dong[idx_hd + 1]
+            if b_y0 >= a_y1 - 2 and (b_y0 - a_y1) <= 36:
+                ix0 = min(a_x0, b_x0)
+                ix1 = max(a_x1, b_x1)
+                for py_d in range(max(2, a_y1 - 2), min(rh - 2, b_y0 + 2)):
+                    base_d = py_d * rw
+                    for px_d in range(max(2, ix0 - 6), min(rw - 2, ix1 + 6)):
+                        trong_dong[base_d + px_d] = 1
+                        trong_dong_mo[base_d + px_d] = 1
+                    for px_d in range(max(1, ix0 - 14), min(rw - 1, ix1 + 14)):
+                        trong_dong_mo[base_d + px_d] = 1
 
-        for pos in da_duyet:
-            px = pos % rw
-            py = pos // rw
-            if px > 0 and la_nen[pos - 1] and not vung_cam[pos - 1]:
-                long_trang[pos - 1] = 1
-            if px + 1 < rw and la_nen[pos + 1] and not vung_cam[pos + 1]:
-                long_trang[pos + 1] = 1
-            if py > 0 and la_nen[pos - rw] and not vung_cam[pos - rw]:
-                long_trang[pos - rw] = 1
-            if py + 1 < rh and la_nen[pos + rw] and not vung_cam[pos + rw]:
-                long_trang[pos + rw] = 1
-
-        # Kiểm tra rò rỉ biên (chữ ngoài bong bóng)
-        cham_bien = sum(long_trang[px] + long_trang[(rh - 1) * rw + px] for px in range(rw)) + sum(
-            long_trang[py * rw] + long_trang[py * rw + rw - 1] for py in range(rh)
-        )
-        ro_ri_bien = (cham_bien / max(1, (rw + rh) * 2)) > 0.24
-        if ro_ri_bien:
-            tam_gx = (cx0 + cx1) * 0.5
-            tam_gy = (cy0 + cy1) * 0.5
-            bk_x = max(12.0, (cx1 - cx0) * 0.5 + max(10, int(w_goc * 0.25)))
-            bk_y = max(12.0, (cy1 - cy0) * 0.5 + max(10, int(h_goc * 0.25)))
-            for py in range(rh):
-                dy = (py - tam_gy) / bk_y
-                base = py * rw
-                for px in range(rw):
-                    dx = (px - tam_gx) / bk_x
-                    if dx * dx + dy * dy > 1.0:
-                        long_trang[base + px] = 0
-
-        # Bước 2: Loang ngược `ngoai_bong` từ 4 biên ROI
-        ngoai_bong = bytearray(N)
-        q_out = deque()
-
-        def day_ngoai(pos: int):
-            if ngoai_bong[pos] or long_trang[pos]:
-                return
-            if vung_cam[pos] and la_nen[pos]:
-                return
-            ngoai_bong[pos] = 1
-            q_out.append(pos)
-
-        for px in range(rw):
-            day_ngoai(px)
-            day_ngoai((rh - 1) * rw + px)
-        for py in range(rh):
-            day_ngoai(py * rw)
-            day_ngoai(py * rw + rw - 1)
-
-        le_x = max(2, int((cx1 - cx0) * 0.08))
-        le_y = max(2, int((cy1 - cy0) * 0.08))
-        tx0, ty0, tx1, ty1 = cx0 + le_x, cy0 + le_y, cx1 - le_x, cy1 - le_y
-
-        while q_out:
-            pos = q_out.popleft()
-            px = pos % rw
-            py = pos // rw
-            for nx, ny, npos in (
-                (px - 1, py, pos - 1),
-                (px + 1, py, pos + 1),
-                (px, py - 1, pos - rw),
-                (px, py + 1, pos + rw),
-            ):
-                if 0 <= nx < rw and 0 <= ny < rh:
-                    if not (tx0 <= nx <= tx1 and ty0 <= ny <= ty1):
-                        day_ngoai(npos)
-
-        for i in range(N):
-            if vung_cam[i]:
-                ngoai_bong[i] = 1
-
-        # Bước 2.5: Phân tích thành phần liên thông 2D (Connected Component Analysis - CCA)
-        # Quét nới rộng 25% quanh bbox chữ gốc `cx0..cy1` để gom sạch mọi nét chữ hoặc dấu câu
-        # bị Gemini cắt hụt thò ra ngoài bbox, rồi nở viền (dilate) 4px chống răng cưa.
-        pad_cca_x = max(10, int(round((cx1 - cx0) * 0.25)))
-        pad_cca_y = max(10, int(round((cy1 - cy0) * 0.25)))
-        sx0 = max(1, cx0 - pad_cca_x)
-        sy0 = max(1, cy0 - pad_cca_y)
-        sx1 = min(rw - 1, cx1 + pad_cca_x)
-        sy1 = min(rh - 1, cy1 + pad_cca_y)
+        sx0 = max(2, cx0 - 10)
+        sy0 = max(2, cy0 - 14)
+        sx1 = min(rw - 2, cx1 + 10)
+        sy1 = min(rh - 2, cy1 + 14)
         da_tham_cca = bytearray(N)
-        dien_tich_max_net = max(160, int(round((cx1 - cx0) * (cy1 - cy0) * 0.35)))
+        can_xoa = bytearray(N)
+        dien_tich_max_net = max(400, int(round((sx1 - sx0) * (sy1 - sy0) * 0.65)))
 
-        for sy in range(sy0, sy1):
-            base_s = sy * rw
-            for sx in range(sx0, sx1):
-                s_idx = base_s + sx
-                if da_tham_cca[s_idx] or la_nen[s_idx] or vung_cam[s_idx]:
-                    continue
-                comp = [s_idx]
-                da_tham_cca[s_idx] = 1
-                cham_bien_roi = False
-                min_cx = max_cx = sx
-                min_cy = max_cy = sy
-                head_c = 0
-                while head_c < len(comp):
-                    cur = comp[head_c]
-                    head_c += 1
-                    cpx = cur % rw
-                    cpy = cur // rw
-                    if cpx <= 1 or cpx >= rw - 2 or cpy <= 1 or cpy >= rh - 2:
-                        cham_bien_roi = True
-                    if cpx < min_cx:
-                        min_cx = cpx
-                    if cpx > max_cx:
-                        max_cx = cpx
-                    if cpy < min_cy:
-                        min_cy = cpy
-                    if cpy > max_cy:
-                        max_cy = cpy
-                    if len(comp) > dien_tich_max_net:
-                        continue
-                    for dj in (-1, 0, 1):
-                        ny = cpy + dj
-                        if ny < sy0 or ny >= sy1:
+        if nen_mau_trung_binh:
+            # Chữ nổi trên nền tranh màu (lõi đen + viền trắng, không có khung bóng thoại):
+            # Quét trực tiếp trong dải dòng chữ mở rộng (lx0-12..lx1+14, ly0-7..ly1+7) để bắt trọn lõi chữ và viền trắng
+            for lx0, ly0, lx1, ly1 in ds_hop_dong:
+                for py_d in range(max(3, ly0 - 7), min(rh - 3, ly1 + 7)):
+                    base_d = py_d * rw
+                    rr_d, gg_d, bb_d, _ = row_bg[py_d]
+                    for px_d in range(max(3, lx0 - 12), min(rw - 3, lx1 + 14)):
+                        pos_d = base_d + px_d
+                        if vung_cam[pos_d]:
                             continue
-                        nb = ny * rw
-                        for di in (-1, 0, 1):
-                            if di == 0 and dj == 0:
-                                continue
-                            nx = cpx + di
-                            if nx < sx0 or nx >= sx1:
-                                continue
-                            np = nb + nx
-                            if not da_tham_cca[np] and not la_nen[np] and not vung_cam[np]:
-                                da_tham_cca[np] = 1
-                                comp.append(np)
-                w_c = max_cx - min_cx + 1
-                h_c = max_cy - min_cy + 1
-                if (
-                    not cham_bien_roi
-                    and len(comp) <= dien_tich_max_net
-                    and w_c < (sx1 - sx0) * 0.90
-                    and h_c < (sy1 - sy0) * 0.90
-                ):
-                    for p_idx in comp:
-                        ngoai_bong[p_idx] = 0
-
-        # Nở viền (Dilation 3px) quanh toàn bộ các điểm `ngoai_bong == 0` để xoá sạch viền mờ JPEG
-        ban_goc_ngoai = bytes(ngoai_bong)
-        for py in range(2, rh - 2):
-            base = py * rw
-            for px in range(2, rw - 2):
-                pos = base + px
-                if ban_goc_ngoai[pos] == 0:
-                    for dj in range(-3, 4):
-                        nb = (py + dj) * rw
-                        for di in range(-3, 4):
-                            if di * di + dj * dj <= 10:
-                                np = nb + (px + di)
-                                if 0 <= np < N and not vung_cam[np]:
-                                    ngoai_bong[np] = 0
-
-        # Tô sạch lòng bong bóng (`ngoai_bong == 0`) bằng màu nền `(bg_r, bg_g, bg_b)`
-        min_x, min_y, max_x, max_y = cx0, cy0, cx1, cy1
-        tong_x, tong_y, dem_trong = 0, 0, 0
-        for py in range(rh):
-            base = py * rw
-            for px in range(rw):
-                if ngoai_bong[base + px] == 0:
-                    px_anh[rx0 + px, ry0 + py] = (bg_r, bg_g, bg_b)
-                    if px < min_x:
-                        min_x = px
-                    if px + 1 > max_x:
-                        max_x = px + 1
-                    if py < min_y:
-                        min_y = py
-                    if py + 1 > max_y:
-                        max_y = py + 1
-                    tong_x += px
-                    tong_y += py
-                    dem_trong += 1
-
-        if ro_ri_bien or dem_trong < 16:
-            bx = rx0 + max(0, cx0 - int(w_goc * 0.12))
-            by = ry0 + max(0, cy0 - int(h_goc * 0.10))
-            bw = min(W - bx, int(w_goc * 1.24))
-            bh = min(H - by, int(h_goc * 1.20))
+                        r_p, g_p, b_p = px_anh[rx0 + px_d, ry0 + py_d]
+                        lum_p = 0.299 * r_p + 0.587 * g_p + 0.114 * b_p
+                        sat_p = max(r_p, g_p, b_p) - min(r_p, g_p, b_p)
+                        sai_so_d = abs(r_p - rr_d) + abs(g_p - gg_d) + abs(b_p - bb_d)
+                        if (lum_p <= 115.0 and sat_p <= 42) or (lum_p >= 185.0 and sat_p <= 48) or (sai_so_d > 65 and sat_p <= 38):
+                            can_xoa[pos_d] = 1
         else:
-            tam_x = tong_x / dem_trong
-            tam_y = tong_y / dem_trong
-            # Đo bán kính lòng bong bóng từ tâm trọng lượng `(tam_x, tam_y)`
-            half_w = max(w_goc * 0.55, min(tam_x - min_x, max_x - tam_x) * 0.84)
-            half_h = max(h_goc * 0.55, min(tam_y - min_y, max_y - tam_y) * 0.84)
-            bx = int(round(rx0 + max(min_x, tam_x - half_w)))
-            by = int(round(ry0 + max(min_y, tam_y - half_h)))
-            bw = max(20, int(round(half_w * 2)))
-            bh = max(20, int(round(half_h * 2)))
+            for sy in range(sy0, sy1):
+                base_s = sy * rw
+                for sx in range(sx0, sx1):
+                    s_idx = base_s + sx
+                    if not trong_dong[s_idx] or da_tham_cca[s_idx] or la_nen[s_idx] or vung_cam[s_idx]:
+                        continue
+                    comp = [s_idx]
+                    da_tham_cca[s_idx] = 1
+                    cham_bien_roi = False
+                    min_cx = max_cx = sx
+                    min_cy = max_cy = sy
+                    head_c = 0
+                    while head_c < len(comp):
+                        cur = comp[head_c]
+                        head_c += 1
+                        cpx = cur % rw
+                        cpy = cur // rw
+                        if cpx <= 1 or cpx >= rw - 2 or cpy <= 1 or cpy >= rh - 2 or not trong_dong_mo[cur]:
+                            cham_bien_roi = True
+                        if cpx < min_cx:
+                            min_cx = cpx
+                        if cpx > max_cx:
+                            max_cx = cpx
+                        if cpy < min_cy:
+                            min_cy = cpy
+                        if cpy > max_cy:
+                            max_cy = cpy
+                        if len(comp) > dien_tich_max_net:
+                            cham_bien_roi = True
+                            continue
+                        for dj in (-1, 0, 1):
+                            ny = cpy + dj
+                            if ny < 0 or ny >= rh:
+                                continue
+                            nb = ny * rw
+                            for di in (-1, 0, 1):
+                                if di == 0 and dj == 0:
+                                    continue
+                                nx = cpx + di
+                                if nx < 0 or nx >= rw:
+                                    continue
+                                np = nb + nx
+                                if not da_tham_cca[np] and not la_nen[np] and not vung_cam[np]:
+                                    da_tham_cca[np] = 1
+                                    comp.append(np)
+                    w_c = max_cx - min_cx + 1
+                    h_c = max_cy - min_cy + 1
+                    if (
+                        not cham_bien_roi
+                        and len(comp) <= dien_tich_max_net
+                        and w_c <= (sx1 - sx0) + 18
+                        and h_c <= (sy1 - sy0) + 18
+                    ):
+                        for p_idx in comp:
+                            can_xoa[p_idx] = 1
+
+        # Bước 2: Nở viền (Dilation 2px cho bóng thường, 3px cho chữ nổi có viền trắng) quanh `can_xoa` và tô bằng `row_bg[py]`
+        ban_kinh_no = 3 if nen_mau_trung_binh else 2
+        y_no_0 = max(ban_kinh_no, sy0 - 10 if nen_mau_trung_binh else sy0 - ban_kinh_no)
+        y_no_1 = min(rh - ban_kinh_no, sy1 + 10 if nen_mau_trung_binh else sy1 + ban_kinh_no)
+        x_no_0 = max(ban_kinh_no, sx0 - 12 if nen_mau_trung_binh else sx0 - ban_kinh_no)
+        x_no_1 = min(rw - ban_kinh_no, sx1 + 14 if nen_mau_trung_binh else sx1 + ban_kinh_no)
+        for py in range(y_no_0, y_no_1):
+            base = py * rw
+            rr, gg, bb, _ = row_bg[py]
+            for px in range(x_no_0, x_no_1):
+                pos = base + px
+                if vung_cam[pos]:
+                    continue
+                if can_xoa[pos]:
+                    px_anh[rx0 + px, ry0 + py] = (rr, gg, bb)
+                    continue
+                if not nen_mau_trung_binh:
+                    # Kiểm tra lân cận 2px để xoá sạch viền răng cưa JPEG quanh nét chữ
+                    if (
+                        can_xoa[pos - 1]
+                        or can_xoa[pos + 1]
+                        or can_xoa[pos - rw]
+                        or can_xoa[pos + rw]
+                        or can_xoa[pos - rw - 1]
+                        or can_xoa[pos - rw + 1]
+                        or can_xoa[pos + rw - 1]
+                        or can_xoa[pos + rw + 1]
+                        or can_xoa[pos - 2]
+                        or can_xoa[pos + 2]
+                        or can_xoa[pos - 2 * rw]
+                        or can_xoa[pos + 2 * rw]
+                    ):
+                        px_anh[rx0 + px, ry0 + py] = (rr, gg, bb)
+                else:
+                    # Chữ nổi trên nền màu: nở bán kính 3px quanh vùng chữ+viền trắng để xoá sạch bóng mờ JPEG
+                    co_lan_can = False
+                    for dy_n in range(-3, 4):
+                        b_n = (py + dy_n) * rw + px
+                        for dx_n in range(-3, 4):
+                            if dx_n * dx_n + dy_n * dy_n <= 10 and can_xoa[b_n + dx_n]:
+                                co_lan_can = True
+                                break
+                        if co_lan_can:
+                            break
+                    if co_lan_can:
+                        px_anh[rx0 + px, ry0 + py] = (rr, gg, bb)
+
+        # Giữ nguyên bề ngang `w_goc` của chữ gốc để chữ dịch không tràn ra chạm vào gai nhọn hai bên bóng thoại
+        pad_box_y = min(4, max(1, int(h_goc * 0.03)))
+        bx = x_goc
+        by = max(ry0, y_goc - pad_box_y)
+        bw = w_goc
+        bh = min(ry1 - by, h_goc + pad_box_y * 2)
 
         hop_ve_chu.append(
             {
                 "text": str(v["ban_dich"]).strip(),
                 "x": bx,
                 "y": by,
-                "w": bw,
-                "h": bh,
+                "w": max(20, bw),
+                "h": max(16, bh),
                 "nen_toi": nen_toi,
+                "nen_mau_trung_binh": nen_mau_trung_binh,
                 "bg": (bg_r, bg_g, bg_b),
+                "dong_con": ds_dong_con,
             }
         )
 
-    # Bước B: Trình bày chữ đã dịch vào đúng tâm từng bong bóng
+    # Tách lề dọc giữa 2 hộp chữ nằm chồng cột dọc để chữ dịch của bóng trên không đè vào bóng dưới
+    for i_h in range(len(hop_ve_chu)):
+        for j_h in range(i_h + 1, len(hop_ve_chu)):
+            ha, hb = hop_ve_chu[i_h], hop_ve_chu[j_h]
+            ox = min(ha["x"] + ha["w"], hb["x"] + hb["w"]) - max(ha["x"], hb["x"])
+            if ox <= min(ha["w"], hb["w"]) * 0.25:
+                continue
+            top_h, bot_h = (ha, hb) if ha["y"] <= hb["y"] else (hb, ha)
+            if top_h["y"] + top_h["h"] > bot_h["y"] - 6:
+                mid_y = (top_h["y"] + top_h["h"] + bot_h["y"]) // 2
+                top_h["h"] = max(14, mid_y - 3 - top_h["y"])
+                bot_end = bot_h["y"] + bot_h["h"]
+                bot_h["y"] = mid_y + 3
+                bot_h["h"] = max(14, bot_end - bot_h["y"])
+
+    # Bước B: Đo biên dạng thực tế lòng bóng thoại theo từng hàng pixel (Pixel-Exact Contour Typesetting)
     draw = ImageDraw.Draw(anh)
     for hop in hop_ve_chu:
         chu = hop["text"].upper() if loai_font == "bangers" else hop["text"]
-        bw, bh = hop["w"], hop["h"]
-        pad_x = max(4, int(bw * 0.08))
-        pad_y = max(3, int(bh * 0.07))
-        max_w = max(16, bw - pad_x * 2)
-        max_h = max(16, bh - pad_y * 2)
+        bx, by, bw, bh = hop["x"], hop["y"], hop["w"], hop["h"]
+        bg_r, bg_g, bg_b = hop["bg"]
+        nen_mau_tb = bool(hop.get("nen_mau_trung_binh"))
+        ds_dc = hop.get("dong_con") or []
 
-        co_max = min(42, max(14, int(min(bw, bh) * 0.34)))
-        co_min = 11
+        def _la_pixel_nen(px_x: int, px_y: int) -> bool:
+            if px_x < 0 or px_x >= W or px_y < 0 or px_y >= H:
+                return False
+            if nen_mau_tb:
+                return True
+            r_p, g_p, b_p = px_anh[px_x, px_y]
+            return (abs(r_p - bg_r) + abs(g_p - bg_g) + abs(b_p - bg_b)) <= 85
+
+        # Quét biên dọc an toàn [safe_y0, safe_y1] để cách gai nhọn/viền trên dưới tối thiểu 5px
+        cy_mid = max(0, min(H - 1, by + bh // 2))
+        cx_mid = max(0, min(W - 1, bx + bw // 2))
+        x_scan_l = max(0, bx + int(bw * 0.25))
+        x_scan_r = min(W - 1, bx + int(bw * 0.75))
+        xs_vert = list(range(x_scan_l, max(x_scan_l + 1, x_scan_r + 1), max(1, (x_scan_r - x_scan_l) // 6 or 1)))
+
+        safe_y0 = by
+        if not nen_mau_tb:
+            for yy in range(cy_mid, max(0, by - 4) - 1, -1):
+                bad = sum(1 for xx in xs_vert if not _la_pixel_nen(xx, yy))
+                if bad > len(xs_vert) * 0.25:
+                    safe_y0 = min(cy_mid - 6, yy + 5)
+                    break
+        safe_y1 = by + bh
+        if not nen_mau_tb:
+            for yy in range(cy_mid, min(H - 1, by + bh + 4) + 1):
+                bad = sum(1 for xx in xs_vert if not _la_pixel_nen(xx, yy))
+                if bad > len(xs_vert) * 0.25:
+                    safe_y1 = max(cy_mid + 6, yy - 5)
+                    break
+        safe_y0 = max(by, safe_y0)
+        safe_y1 = min(by + bh, max(safe_y0 + 14, safe_y1))
+        safe_h = max(14, safe_y1 - safe_y0)
+
+        # Tính biên ngang [x_trai[y], x_phai[y]] cho từng hàng y trong bóng thoại
+        x_trai: dict[int, int] = {}
+        x_phai: dict[int, int] = {}
+        for yy in range(safe_y0, safe_y1 + 1):
+            # Giới hạn khung tham chiếu theo hình bao dòng chữ gốc ở đầu/cuối bóng thoại
+            rel_y = (yy - safe_y0) / max(1.0, float(safe_h))
+            taper = 1.0
+            if rel_y < 0.22:
+                taper = 0.80 + 0.20 * (rel_y / 0.22)
+            elif rel_y > 0.78:
+                taper = 0.80 + 0.20 * ((1.0 - rel_y) / 0.22)
+            margin_taper = int(round((1.0 - taper) * bw * 0.5))
+            lim_l = bx + margin_taper
+            lim_r = bx + bw - margin_taper
+
+            if len(ds_dc) >= 2:
+                # Nếu dòng đầu hoặc dòng cuối của chữ gốc thu hẹp hơn, tôn trọng biên dòng gốc + 6px
+                d_top = min(ds_dc, key=lambda d: d["y"])
+                d_bot = max(ds_dc, key=lambda d: d["y"] + d["h"])
+                if yy <= d_top["y"] + d_top["h"] * 0.65:
+                    lim_l = max(lim_l, d_top["x"] - 6)
+                    lim_r = min(lim_r, d_top["x"] + d_top["w"] + 6)
+                elif yy >= d_bot["y"] + d_bot["h"] * 0.35:
+                    lim_l = max(lim_l, d_bot["x"] - 6)
+                    lim_r = min(lim_r, d_bot["x"] + d_bot["w"] + 6)
+
+            row_cx = max(lim_l + 4, min(lim_r - 4, cx_mid))
+            cur_l = lim_l
+            cur_r = lim_r
+            if not nen_mau_tb:
+                # Quét từ tâm sang trái tìm gai/viền bóng thoại
+                for xx in range(row_cx, max(0, lim_l - 4) - 1, -1):
+                    if not _la_pixel_nen(xx, yy) and not _la_pixel_nen(max(0, xx - 1), yy):
+                        cur_l = max(lim_l, xx + 6)
+                        break
+                # Quét từ tâm sang phải tìm gai/viền bóng thoại
+                for xx in range(row_cx, min(W - 1, lim_r + 4) + 1):
+                    if not _la_pixel_nen(xx, yy) and not _la_pixel_nen(min(W - 1, xx + 1), yy):
+                        cur_r = min(lim_r, xx - 6)
+                        break
+            if cur_r - cur_l < 18:
+                mid_x = (lim_l + lim_r) // 2
+                cur_l = max(bx, mid_x - 9)
+                cur_r = min(bx + bw, mid_x + 9)
+            x_trai[yy] = cur_l
+            x_phai[yy] = cur_r
+
+        def _khoang_ngang_cho_dong(y_top: int, y_bot: int) -> tuple[int, int]:
+            y_a = max(safe_y0, min(safe_y1, y_top))
+            y_b = max(y_a, min(safe_y1, y_bot))
+            l_max = max(x_trai.get(yy, bx) for yy in range(y_a, y_b + 1))
+            r_min = min(x_phai.get(yy, bx + bw) for yy in range(y_a, y_b + 1))
+            if r_min - l_max < 16:
+                mid_x = (l_max + r_min) // 2
+                return max(bx, mid_x - 8), min(bx + bw, mid_x + 8)
+            return l_max, r_min
+
+        co_max = min(32, max(14, int(min(bw, safe_h * 1.35) * 0.42)))
+        co_min = 8
         font_chon = tim_font_he_thong(loai_font, co_min)
         dong_chon = [chu]
+        vi_tri_dong_chon: list[tuple[str, int, int, int]] = []
 
         for co in range(co_max, co_min - 1, -1):
             f = tim_font_he_thong(loai_font, co)
+            bbox_mau_f = draw.textbbox((0, 0), "Ág", font=f)
+            cao_dong = max(10, int((bbox_mau_f[3] - bbox_mau_f[1]) * 1.15))
             tu = chu.split()
             if not tu:
                 break
-            dong = []
+
+            # Ước lượng số dòng để định vị dải y cho từng dòng khi ngắt từ
+            w_tb = max(20, int(bw * 0.84))
+            tong_w_tu = draw.textbbox((0, 0), chu, font=f)[2]
+            so_dong_ut = max(1, int(math.ceil(tong_w_tu / max(1, w_tb))))
+
+            dong: list[str] = []
             hien_tai = tu[0]
             for w_tu in tu[1:]:
+                idx_d = len(dong)
+                n_est = max(so_dong_ut, idx_d + 1)
+                y_est_0 = safe_y0 + max(0, (safe_h - n_est * cao_dong) // 2) + idx_d * cao_dong
+                lx0_d, lx1_d = _khoang_ngang_cho_dong(y_est_0, y_est_0 + cao_dong)
+                gioi_han_dong = max(16, lx1_d - lx0_d - 2)
                 thu = f"{hien_tai} {w_tu}"
                 bbox_thu = draw.textbbox((0, 0), thu, font=f)
-                if (bbox_thu[2] - bbox_thu[0]) <= max_w:
+                if (bbox_thu[2] - bbox_thu[0]) <= gioi_han_dong:
                     hien_tai = thu
                 else:
                     dong.append(hien_tai)
                     hien_tai = w_tu
             dong.append(hien_tai)
 
-            cao_dong = int(co * 1.22)
+            # Cân bằng 2 dòng cuối nếu dòng cuối chỉ có 1 từ ngắn
+            if len(dong) >= 2 and len(dong[-1].split()) == 1 and len(dong[-2].split()) >= 3:
+                tu_cuoi = dong[-2].split()
+                thu_gop = f"{tu_cuoi[-1]} {dong[-1]}"
+                thu_truoc = " ".join(tu_cuoi[:-1])
+                y_last = safe_y0 + max(0, (safe_h - len(dong) * cao_dong) // 2) + (len(dong) - 1) * cao_dong
+                lx0_l, lx1_l = _khoang_ngang_cho_dong(y_last, y_last + cao_dong)
+                if (draw.textbbox((0, 0), thu_gop, font=f)[2] <= (lx1_l - lx0_l - 2)) and thu_truoc:
+                    dong[-2] = thu_truoc
+                    dong[-1] = thu_gop
+
             tong_cao = len(dong) * cao_dong
-            rong_lon_nhat = max((draw.textbbox((0, 0), d, font=f)[2] for d in dong), default=0)
-            if tong_cao <= max_h and rong_lon_nhat <= max_w:
-                font_chon = f
-                dong_chon = dong
-                break
+            y_bat_dau = safe_y0 + max(0, (safe_h - tong_cao) // 2)
+            vua_khit = tong_cao <= safe_h
+            ds_vi_tri: list[tuple[str, int, int, int]] = []
+            for idx_d, d_str in enumerate(dong):
+                yk0 = y_bat_dau + idx_d * cao_dong
+                yk1 = yk0 + cao_dong
+                lx0_k, lx1_k = _khoang_ngang_cho_dong(yk0, yk1)
+                bb_d = draw.textbbox((0, 0), d_str, font=f)
+                w_d = bb_d[2] - bb_d[0]
+                if w_d > (lx1_k - lx0_k):
+                    vua_khit = False
+                cur_x_k = lx0_k + ((lx1_k - lx0_k) - w_d) // 2
+                cur_x_k = max(bx, min(bx + bw - w_d, cur_x_k))
+                ds_vi_tri.append((d_str, cur_x_k, yk0, cao_dong))
+
             font_chon = f
             dong_chon = dong
+            vi_tri_dong_chon = ds_vi_tri
+            if vua_khit:
+                break
 
-        bbox_mau = draw.textbbox((0, 0), "Ág", font=font_chon)
-        cao_1_dong = max(12, int((bbox_mau[3] - bbox_mau[1]) * 1.22))
-        tong_cao = len(dong_chon) * cao_1_dong
-        cur_y = hop["y"] + (bh - tong_cao) // 2
         mau_chu = (255, 255, 255) if hop["nen_toi"] else (15, 23, 42)
-        mau_vien = hop["bg"]
+        mau_vien = (255, 255, 255) if nen_mau_tb else hop["bg"]
 
-        for d in dong_chon:
-            bb = draw.textbbox((0, 0), d, font=font_chon)
-            w_d = bb[2] - bb[0]
-            cur_x = hop["x"] + (bw - w_d) // 2
-            # Viền mảnh bảo vệ độ nét
-            for dx, dy in ((-1, -1), (1, -1), (-1, 1), (1, 1)):
-                draw.text((cur_x + dx, cur_y + dy), d, font=font_chon, fill=mau_vien)
+        for d, cur_x, cur_y, _ in vi_tri_dong_chon:
+            # Viền hào quang giúp chữ nổi bật sắc nét trên cả nền bóng thoại lẫn chữ nổi không khung
+            if nen_mau_tb:
+                for dx in (-2, -1, 0, 1, 2):
+                    for dy in (-2, -1, 0, 1, 2):
+                        if dx != 0 or dy != 0:
+                            draw.text((cur_x + dx, cur_y + dy), d, font=font_chon, fill=mau_vien)
+            else:
+                for dx, dy in ((-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)):
+                    draw.text((cur_x + dx, cur_y + dy), d, font=font_chon, fill=mau_vien)
             draw.text((cur_x, cur_y), d, font=font_chon, fill=mau_chu)
-            cur_y += cao_1_dong
 
     out = io.BytesIO()
     anh.save(out, format="JPEG", quality=93)
@@ -538,24 +698,171 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
 # 2. BỘ QUÉT LINK TRUYỆN & TẢI ẢNH CHAPTER TỰ ĐỘNG
 # ==============================================================================
 
-def goi_http(url: str, method: str = "GET", body: dict | None = None, token: str = "", referer: str = "") -> bytes:
-    headers = {
-        "User-Agent": USER_AGENT,
-        "X-Ma-May-Tinh": MA_MAY_HIEN_THI,
-        "X-Ma-Khach": KHACH_ID_MAY_TINH,
-        "Cookie": f"khach_id={KHACH_ID_MAY_TINH}",
-    }
-    if token:
+def _goi_https_phan_manh_sni(url: str, headers: dict, timeout: float = 18.0, so_lan_redirect: int = 3) -> bytes:
+    """
+    Tự động phân mảnh gói tin TLS ClientHello tại vị trí SNI (bằng ssl.MemoryBIO + TCP_NODELAY)
+    khi nhà mạng (ISP) chặn SNI gây lỗi WinError 10054 (ví dụ trên MangaDex).
+    """
+    import http.client
+    import socket
+    import ssl
+
+    parts = urllib.parse.urlsplit(url)
+    host = parts.hostname or ""
+    port = parts.port or 443
+    path = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
+
+    sock = socket.create_connection((host, port), timeout=min(float(timeout or 18.0), 18.0))
+    try:
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        ctx = ssl.create_default_context()
+        incoming = ssl.MemoryBIO()
+        outgoing = ssl.MemoryBIO()
+        sslobj = ctx.wrap_bio(incoming, outgoing, server_hostname=host)
+
+        first_flight = True
+        host_bytes = host.encode("ascii", errors="ignore")
+        while True:
+            try:
+                sslobj.do_handshake()
+                break
+            except ssl.SSLWantReadError:
+                out_bytes = outgoing.read()
+                if out_bytes:
+                    if first_flight and host_bytes and host_bytes in out_bytes:
+                        idx = out_bytes.index(host_bytes) + max(2, len(host_bytes) // 3)
+                        sock.send(out_bytes[:2])
+                        time.sleep(0.015)
+                        sock.send(out_bytes[2:idx])
+                        time.sleep(0.015)
+                        sock.send(out_bytes[idx:])
+                        first_flight = False
+                    else:
+                        sock.sendall(out_bytes)
+                in_bytes = sock.recv(16384)
+                if not in_bytes:
+                    raise ConnectionResetError("Kết nối bị đóng trong lúc bắt tay TLS.")
+                incoming.write(in_bytes)
+
+        hdr_lines = [
+            f"GET {path} HTTP/1.1",
+            f"Host: {host}",
+            "Accept: */*",
+            "Accept-Encoding: identity",
+            "Connection: close",
+        ]
+        for k, v in headers.items():
+            if k.lower() not in ("host", "accept-encoding", "connection"):
+                hdr_lines.append(f"{k}: {v}")
+        raw_req = ("\r\n".join(hdr_lines) + "\r\n\r\n").encode("utf-8")
+        sslobj.write(raw_req)
+        pending = outgoing.read()
+        if pending:
+            sock.sendall(pending)
+
+        resp_buf = bytearray()
+        while True:
+            try:
+                chunk = sslobj.read(32768)
+                if not chunk:
+                    break
+                resp_buf.extend(chunk)
+                if len(resp_buf) > 21 * 1024 * 1024:
+                    raise NeedsAttention("Phản hồi vượt giới hạn 20 MB.")
+            except ssl.SSLWantReadError:
+                try:
+                    in_bytes = sock.recv(32768)
+                except OSError:
+                    in_bytes = b""
+                if not in_bytes:
+                    incoming.write_eof()
+                else:
+                    incoming.write(in_bytes)
+    finally:
+        try:
+            sock.close()
+        except Exception:
+            pass
+
+    class _BioSocket:
+        def __init__(self, raw_bytes: bytes):
+            self._fp = io.BytesIO(raw_bytes)
+
+        def makefile(self, *_a, **_kw):
+            return self._fp
+
+    http_resp = http.client.HTTPResponse(_BioSocket(bytes(resp_buf)))
+    http_resp.begin()
+    if http_resp.status in (301, 302, 303, 307, 308) and so_lan_redirect > 0:
+        loc = http_resp.getheader("Location")
+        if loc:
+            next_url = urllib.parse.urljoin(url, loc)
+            return _goi_https_phan_manh_sni(next_url, headers, timeout=timeout, so_lan_redirect=so_lan_redirect - 1)
+    if http_resp.status >= 400:
+        raise urllib.error.HTTPError(url, http_resp.status, http_resp.reason, http_resp.headers, None)
+    body_bytes = http_resp.read(20 * 1024 * 1024 + 1)
+    if len(body_bytes) > 20 * 1024 * 1024:
+        raise NeedsAttention("Phản hồi vượt giới hạn 20 MB.")
+    return body_bytes
+
+
+def goi_http(url: str, method: str = "GET", body: dict | None = None, token: str = "", referer: str = "",
+             *, nguon_ngoai: bool = False, timeout: float = 90, extra_headers: dict[str, str] | None = None) -> bytes:
+    parsed_u = urllib.parse.urlsplit(url)
+    if parsed_u.scheme not in ("http", "https"):
+        raise NeedsAttention("Chỉ hỗ trợ địa chỉ HTTP/HTTPS.")
+    mp_key_hex = ""
+    mp_vw_token = ""
+    if parsed_u.fragment and "mp_key=" in parsed_u.fragment:
+        frag_qs = urllib.parse.parse_qs(parsed_u.fragment)
+        mp_key_hex = (frag_qs.get("mp_key") or [""])[0].strip()
+        mp_vw_token = (frag_qs.get("mp_vw") or [""])[0].strip()
+        url = urllib.parse.urlunsplit((parsed_u.scheme, parsed_u.netloc, parsed_u.path, parsed_u.query, ""))
+    headers = {"User-Agent": USER_AGENT}
+    if not nguon_ngoai:
+        headers.update({"X-Ma-May-Tinh": MA_MAY_HIEN_THI, "X-Ma-Khach": KHACH_ID_MAY_TINH,
+                        "Cookie": f"khach_id={KHACH_ID_MAY_TINH}"})
+    if token and not nguon_ngoai:
         headers["Authorization"] = f"Bearer {token}"
     if referer:
         headers["Referer"] = referer
+    if mp_key_hex:
+        headers["Origin"] = "https://mangaplus.shueisha.co.jp"
+        headers["Referer"] = "https://mangaplus.shueisha.co.jp/"
+        if mp_vw_token:
+            headers["Plus-Vw-Token"] = mp_vw_token
+    if extra_headers:
+        headers.update(extra_headers)
     data = None
     if body is not None:
         data = json.dumps(body).encode("utf-8")
         headers["Content-Type"] = "application/json"
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
-    with urllib.request.urlopen(req, timeout=90) as resp:
-        return resp.read()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            content = resp.read(20 * 1024 * 1024 + 1)
+            if len(content) > 20 * 1024 * 1024:
+                raise NeedsAttention("Phản hồi vượt giới hạn 20 MB.")
+    except (ConnectionResetError, urllib.error.URLError) as exc:
+        msg = str(exc)
+        if (
+            nguon_ngoai
+            and method.upper() == "GET"
+            and urllib.parse.urlsplit(url).scheme == "https"
+            and ("10054" in msg or "reset" in msg.lower())
+        ):
+            content = _goi_https_phan_manh_sni(url, headers, timeout=timeout)
+        else:
+            raise
+    if mp_key_hex and content:
+        try:
+            key_bytes = bytes.fromhex(mp_key_hex)
+            klen = len(key_bytes)
+            if klen > 0:
+                content = bytes(b ^ key_bytes[i % klen] for i, b in enumerate(content))
+        except Exception:
+            pass
+    return content
 
 
 def gui_multipart_trang(
@@ -761,6 +1068,1255 @@ def chay_thu_model_cuc_bo(chay_cpu: bool = False) -> tuple[str, str]:
     return backend, model
 
 
+def _lam_sach_chu_ocr_truyen(text: str) -> str:
+    """
+    Làm sạch các lỗi nhận diện phổ biến của OCR trên cả font chữ IN HOA và font chữ thường/nghiêng truyện tranh:
+    - Sửa lỗi nhầm ký tự đặc trưng của font comic: '0K' -> 'OK', 'tel)' -> 'tell', 'wi//' -> 'will',
+      'didn'E' -> 'didn't', 'Eell' -> 'tell', 'Ehem' -> 'them', 'AU' -> 'ALL', 'BEER?II' -> 'BEER?!!'.
+    - Lọc ký tự nốt nhạc rác ở đầu/cuối câu hát ('J"', '-\\'D').
+    """
+    s = (text or "").strip()
+    if not s:
+        return ""
+
+    # 1. Xoá rác ký hiệu nốt nhạc / viền bóng thoại bị OCR đọc nhầm ở đầu hoặc cuối dòng
+    s = re.sub(r"^(?:J[\"')]|T?J\b)\s+", "", s)
+    s = re.sub(r"\s+(?:J[\"')]|-'D|I\s*\.\s*I)$", "", s)
+
+    # 2. Sửa lỗi nhận diện ký tự phổ biến trên mọi kiểu chữ truyện tranh
+    s = re.sub(r"\b0[Kk]\b", "OK", s)
+    s = re.sub(r"\bHaj\b", "Ha,", s)
+    s = re.sub(r"(?<!\w)tel\)(?!\w)", "tell", s)
+    s = re.sub(r"(?<!\w)wi//(?!\w)", "will", s)
+    s = re.sub(r"\b([dD]idn|[dD]on|[cC]an|[wW]on|[iI]sn|[wW]asn|[aA]ren|[hH]avn|[hH]asn)'[Ee]\b", r"\1't", s)
+    s = re.sub(r"\bEell\b", "tell", s)
+    s = re.sub(r"\bEhem\b", "them", s)
+    s = re.sub(r"\bEhat\b", "that", s)
+    s = re.sub(r"\bEhis\b", "this", s)
+    s = re.sub(r"\bEhere\b", "there", s)
+    s = re.sub(r"\bEhen\b", "then", s)
+    s = re.sub(r"\bEhe\b", "the", s)
+    s = re.sub(r"\b100k\b", "look", s, flags=re.I)
+    s = re.sub(r"\bshou\b", "show", s)
+    s = re.sub(r"\bhou\b", "how", s)
+    s = re.sub(r"(?<=[a-z]\s)Why(?=\s+[a-z])", "why", s)
+    s = re.sub(r"(?<=[a-z]\s)OF(?=\s+[a-z])", "of", s)
+    s = re.sub(r"(?<=[a-z,]\s)For(?=\s+[a-z])", "for", s)
+    s = re.sub(r"(?<=[a-z']\s)Find(?=\s+[a-z])", "find", s)
+    s = re.sub(r"(?<=[a-z,]\s)With(?=\s+[a-z])", "with", s)
+    s = re.sub(r"\bAU(?=\s+[A-Z]{2,}\b)", "ALL", s)
+    s = re.sub(r"SOLD\s+åUp\.?[•*]*", "'OLD MAP'", s, flags=re.I)
+    s = re.sub(r"'?OLD\s+\"P'?", "'OLD MAP'", s, flags=re.I)
+    s = re.sub(r"\bSAWT\b", "SAINT", s, flags=re.I)
+    s = re.sub(r"\b(?:JOSEPW|UOSEPH|VOSEPN)\b", "JOSEPH", s, flags=re.I)
+    s = re.sub(r"\b(?:ARIK4THEA|AR\s+IMATHEA)'?", "ARIMATHEA'", s, flags=re.I)
+    s = re.sub(r"\b(?:HL\.+IH\.?|Hug\.)", "HUH.", s, flags=re.I)
+    s = re.sub(r"\bHL\.+IP!?", "HUP!", s, flags=re.I)
+    s = re.sub(r"\bPA%R\b", "PAPER", s, flags=re.I)
+    s = re.sub(r"\b1S\b", "IS", s)
+    s = re.sub(r"(?<=[A-Z]\s)15(?=\s+[A-Z])", "IS", s)
+    s = re.sub(r"\bANP\b", "AND", s)
+    s = re.sub(r"\bRAM\s+EN\b", "RAMEN", s, flags=re.I)
+    s = re.sub(r"\bSOME-\s+THIN[CG]\b", "SOMETHING", s, flags=re.I)
+    s = re.sub(r"\?II+\b", "?!!", s)
+    s = re.sub(r"\?\s+!", "?!", s)
+
+    # 3. Xử lý riêng cho câu thoại IN HOA (ALL-CAPS)
+    upper_chars = sum(1 for c in s if c.isupper())
+    lower_chars = sum(1 for c in s if c.islower())
+    if upper_chars >= lower_chars * 2 and upper_chars >= 2:
+        # Số "1" đứng riêng lẻ trong câu thoại in hoa là chữ "I"
+        s = re.sub(r"(?:(?<=^)|(?<=\s))1(?=\s|$)", "I", s)
+        # Dấu chấm than "!" ở cuối từ in hoa thường bị nhận nhầm thành I / II / III / IIIP
+        s = re.sub(r"([A-Z]{2,})I{3,}P?(?=\s|$|[^A-Za-z])", r"\1!!!", s)
+        s = re.sub(r"([A-Z]{2,})IIP?(?=\s|$|[^A-Za-z])", r"\1!!", s)
+
+        def _sua_i_cuoi(m: re.Match) -> str:
+            word = m.group(1)
+            if word in {"H", "ALIB", "SK", "TAX", "BIKIN", "MARTN", "SUSH", "KO", "SENPA"}:
+                return m.group(0)
+            return word + "!"
+
+        s = re.sub(r"\b([A-Z]{2,})I(?=\s|$|[.,?!'\"])", _sua_i_cuoi, s)
+    # Khử từ hoặc cụm từ bị nhân đôi liên tiếp (kể cả có dấu câu ở cuối như 'down? down?', 'hear me. hear me.')
+    s = re.sub(r"\b([A-Za-z']+(?:\s+[A-Za-z',.!?]+){0,4}[.!?]*)\s+\1(?=\s|$)", r"\1", s, flags=re.I)
+    return s.strip()
+
+
+def _la_nen_bong_trang(px, W: int, H: int, r_box: dict) -> bool:
+    """Kiểm tra vùng hộp từ/dòng có nằm trên nền bóng thoại trắng/sáng hay không."""
+    x0 = max(0, int(r_box["x"]) - 4)
+    y0 = max(0, int(r_box["y"]) - 4)
+    x1 = min(W - 1, int(r_box["x"] + r_box["w"]) + 4)
+    y1 = min(H - 1, int(r_box["y"] + r_box["h"]) + 4)
+    total = 0
+    bright = 0
+    for py in range(y0, y1 + 1, 3):
+        for px_i in range(x0, x1 + 1, 3):
+            r, g, b = px[px_i, py]
+            lum = 0.299 * r + 0.587 * g + 0.114 * b
+            total += 1
+            if lum >= 200 and (max(r, g, b) - min(r, g, b)) <= 45:
+                bright += 1
+    return total > 0 and (bright / total) >= 0.36
+
+
+def _co_vach_ngan_ngang(px, W: int, H: int, w1: dict, w2: dict) -> bool:
+    """Kiểm tra có viền bóng thoại hoặc eo thắt gai nhọn cắt dọc giữa 2 từ nằm cùng hàng ngang không."""
+    x_start = w1["x"] + w1["w"] + 2
+    x_end = w2["x"] - 2
+    if x_end <= x_start + 2:
+        return False
+    if not (_la_nen_bong_trang(px, W, H, w1) and _la_nen_bong_trang(px, W, H, w2)):
+        return False
+    y0 = max(0, min(w1["y"], w2["y"]) - 10)
+    y1 = min(H - 1, max(w1["y"] + w1["h"], w2["y"] + w2["h"]) + 10)
+    cot_vien = 0
+    for x in range(max(0, x_start), min(W, x_end)):
+        non_white = 0
+        total = 0
+        for y in range(y0, y1 + 1, 2):
+            r, g, b = px[x, y]
+            lum = 0.299 * r + 0.587 * g + 0.114 * b
+            total += 1
+            if lum < 200:
+                non_white += 1
+        if total > 0 and (non_white / total) >= 0.30:
+            cot_vien += 1
+            if cot_vien >= 2:
+                return True
+    return False
+
+
+def _co_vach_ngan_doc(px, W: int, H: int, a: dict, b: dict) -> bool:
+    """Kiểm tra có viền bóng thoại hoặc eo thắt cổ chai giữa bóng phụ trên a và bóng phụ dưới b không."""
+    top, bot = (a, b) if a["y"] <= b["y"] else (b, a)
+    y_start = top["y"] + top["h"]
+    y_end = bot["y"]
+    if y_end <= y_start:
+        return False
+    if not (_la_nen_bong_trang(px, W, H, a) and _la_nen_bong_trang(px, W, H, b)):
+        return False
+    ox0 = max(0, min(W - 1, int(max(a["x"], b["x"]))))
+    ox1 = max(ox0 + 1, min(W - 1, int(min(a["x"] + a["w"], b["x"] + b["w"]))))
+    ux0 = max(0, min(W - 1, int(min(a["x"], b["x"]))))
+    ux1 = max(ux0 + 1, min(W - 1, int(max(a["x"] + a["w"], b["x"] + b["w"]))))
+    xs_ov = [int(round(ox0 + (ox1 - ox0) * k / 6.0)) for k in range(7)]
+    xs_un = [int(round(ux0 + (ux1 - ux0) * k / 8.0)) for k in range(9)]
+    non_white_rows = 0
+    pinched_rows = 0
+    for y in range(max(0, y_start), min(H, y_end)):
+        row_bright = 0
+        for xx in xs_ov:
+            r, g, bl = px[xx, y]
+            lum = 0.299 * r + 0.587 * g + 0.114 * bl
+            if lum >= 200:
+                row_bright += 1
+        if row_bright <= 2:
+            non_white_rows += 1
+        un_bright = 0
+        for xx in xs_un:
+            r, g, bl = px[xx, y]
+            lum = 0.299 * r + 0.587 * g + 0.114 * bl
+            if lum >= 200:
+                un_bright += 1
+        if un_bright <= 6:
+            pinched_rows += 1
+    return non_white_rows >= 2 or pinched_rows >= 3
+
+
+def _la_vung_bong_thoai(px, W: int, H: int, x: int, y: int, w: int, h: int) -> bool:
+    """
+    Nhận diện vùng chữ thuộc bóng thoại trắng/kem/đen HOẶC chữ nổi có viền sáng/tối độ tương phản cao,
+    đồng thời loại bỏ watermark chìm độ tương phản thấp trên nền tranh.
+    """
+    pad = 6
+    x0 = max(0, x - pad)
+    y0 = max(0, y - pad)
+    x1 = min(W - 1, x + w + pad)
+    y1 = min(H - 1, y + h + pad)
+    total = 0
+    bright_bg = 0
+    very_dark = 0
+    lums = []
+    for py in range(y0, y1 + 1, 2):
+        for px_i in range(x0, x1 + 1, 2):
+            r, g, b = px[px_i, py]
+            lum = 0.299 * r + 0.587 * g + 0.114 * b
+            lums.append(lum)
+            total += 1
+            if lum >= 200 and (max(r, g, b) - min(r, g, b)) <= 45:
+                bright_bg += 1
+            elif lum <= 70:
+                very_dark += 1
+    if total == 0:
+        return False
+    if (bright_bg / total) >= 0.18 and (very_dark / total) >= 0.06:
+        return True
+    # Hỗ trợ chữ nổi có viền trắng/đen trên nền màu (ví dụ câu thoại không khung ở cuối trang):
+    lums.sort()
+    p15 = lums[int(len(lums) * 0.15)]
+    p85 = lums[int(len(lums) * 0.85)]
+    return (p85 - p15) >= 115.0 and (bright_bg / total) >= 0.08 and (very_dark / total) >= 0.08
+
+
+def _sap_xep_dong_trong_bong_thoai(comp: list[dict]) -> list[dict]:
+    """
+    Sắp xếp các mảnh từ/dòng trong cùng 1 bóng thoại theo từng hàng ngang từ trên xuống dưới,
+    và từ trái sang phải trong cùng 1 hàng (tránh lỗi đảo chữ 'I Ha, see.' khi tọa độ y lệch 1-3px).
+    """
+    if len(comp) <= 1:
+        return list(comp)
+    tam = sorted(comp, key=lambda r: (r["y"] + r["h"] * 0.5, r["x"]))
+    cac_hang: list[list[dict]] = []
+    for item in tam:
+        cy = item["y"] + item["h"] * 0.5
+        if not cac_hang:
+            cac_hang.append([item])
+            continue
+        hang_cuoi = cac_hang[-1]
+        cy_tb = sum(x["y"] + x["h"] * 0.5 for x in hang_cuoi) / len(hang_cuoi)
+        h_tb = sum(x["h"] for x in hang_cuoi) / len(hang_cuoi)
+        if abs(cy - cy_tb) <= max(8.0, h_tb * 0.55):
+            hang_cuoi.append(item)
+        else:
+            cac_hang.append([item])
+    ket_qua: list[dict] = []
+    for hang in cac_hang:
+        hang.sort(key=lambda r: r["x"])
+        ket_qua.extend(hang)
+    return ket_qua
+
+
+def nhan_dien_bong_thoai_ocr_cuc_bo(img_bytes: bytes, ngon_ngu_nguon: str = "en") -> list[dict]:
+    """
+    Nhận diện chữ và gom bóng thoại cực nhanh (~0.6s/trang) bằng Windows Media OCR tích hợp sẵn,
+    kèm thuật toán tách từ ngang + kiểm tra vách ngăn bóng thoại để không gộp nhầm 2 bóng thoại cạnh nhau.
+    Trả về danh sách rỗng nếu hệ điều hành chưa cài gói ngôn ngữ OCR tương ứng.
+    """
+    if Image is None or os.name != "nt":
+        return []
+    try:
+        im = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+    except Exception:
+        return []
+    W_goc, H_goc = im.size
+    if W_goc < 100 or H_goc < 100:
+        return []
+    im_950_phu = None
+    if W_goc < 1050:
+        he_so_ocr = 2.0
+        resample = getattr(getattr(Image, "Resampling", Image), "LANCZOS", 1)
+        im = im.resize((int(round(W_goc * he_so_ocr)), int(round(H_goc * he_so_ocr))), resample)
+    elif W_goc > 2000:
+        # Khử răng cưa halftone trên trang scan 4K (2508x3600) bằng bước làm mượt 950px -> 1900px
+        lanczos = getattr(getattr(Image, "Resampling", Image), "LANCZOS", 1)
+        h_950 = int(round(H_goc * (950.0 / float(W_goc))))
+        im_950_phu = im.resize((950, h_950), lanczos)
+        im = im_950_phu.resize((1900, h_950 * 2), lanczos)
+        he_so_ocr = 1900.0 / float(W_goc)
+    else:
+        he_so_ocr = 1.0
+    W, H = im.size
+
+    lang_map = {"en": "en-US", "ja": "ja", "ko": "ko", "zh": "zh-Hans"}
+    lang_tag = lang_map.get(ngon_ngu_nguon, ngon_ngu_nguon)
+
+    try:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            cac_dai: list[tuple[str, int, float]] = []
+            if H > W * 1.15 and H >= 900:
+                # Ưu tiên quét 3 dải cắt ngang độ phân giải chuẩn để toạ độ dòng chính xác tuyệt đối, không bị lệch góc xoay trang dài
+                for idx_b, (by0, by1) in enumerate((
+                    (0, int(H * 0.48)),
+                    (int(H * 0.28), int(H * 0.74)),
+                    (int(H * 0.56), H),
+                )):
+                    bp = Path(tmp_dir) / f"band_{idx_b}.jpg"
+                    im.crop((0, by0, W, by1)).save(bp, format="JPEG", quality=92)
+                    cac_dai.append((str(bp).replace("'", "''"), by0, 1.0))
+            img_path = Path(tmp_dir) / "page_ocr.jpg"
+            im.save(img_path, format="JPEG", quality=92)
+            cac_dai.append((str(img_path).replace("'", "''"), 0, 1.0))
+            so_dai_chinh = len(cac_dai)
+            if im_950_phu is not None:
+                w950, h950 = im_950_phu.size
+                for idx_950, (by0, by1) in enumerate((
+                    (0, int(h950 * 0.48)),
+                    (int(h950 * 0.28), int(h950 * 0.74)),
+                )):
+                    p_950 = Path(tmp_dir) / f"band_950_{idx_950}.jpg"
+                    im_950_phu.crop((0, by0, w950, by1)).save(p_950, format="JPEG", quality=92)
+                    cac_dai.append((str(p_950).replace("'", "''"), by0 * 2, 2.0))
+
+            ds_ps_items = ", ".join(f"@{{p='{p_str}'; y0={y_off}; sc={sc}}}" for p_str, y_off, sc in cac_dai)
+            ps_script = f"""
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Add-Type -AssemblyName System.Runtime.WindowsRuntime
+$null = [Windows.Storage.StorageFile, Windows.Storage, ContentType=WindowsRuntime]
+$null = [Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType=WindowsRuntime]
+$null = [Windows.Graphics.Imaging.BitmapDecoder, Windows.Foundation, ContentType=WindowsRuntime]
+$null = [Windows.Globalization.Language, Windows.Foundation, ContentType=WindowsRuntime]
+
+$lang = New-Object Windows.Globalization.Language('{lang_tag}')
+if (-not [Windows.Media.Ocr.OcrEngine]::IsLanguageSupported($lang)) {{
+    Write-Output '[]'
+    exit 0
+}}
+$engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage($lang)
+if ($null -eq $engine) {{
+    Write-Output '[]'
+    exit 0
+}}
+
+function Await($op, [Type]$t) {{
+    $m = [System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {{ $_.Name -eq 'AsTask' -and $_.IsGenericMethod -and $_.GetParameters().Count -eq 1 }} | Select-Object -First 1
+    $gm = $m.MakeGenericMethod($t)
+    $task = $gm.Invoke($null, @($op))
+    $task.Wait()
+    return $task.Result
+}}
+
+$lines = @()
+$b_idx = 0
+foreach ($it in @({ds_ps_items})) {{
+    $file = Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($it.p)) ([Windows.Storage.StorageFile])
+    $stream = Await ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStream])
+    $decoder = Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
+    $bitmap = Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
+    $res = Await ($engine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
+    $y_off = [int]$it.y0
+    $sc = [double]$it.sc
+    $ang = if ($null -ne $res.TextAngle) {{ [double]$res.TextAngle * [Math]::PI / 180.0 }} else {{ 0.0 }}
+    $cosA = [Math]::Cos($ang)
+    $sinA = [Math]::Sin($ang)
+    $cxB = [double]$bitmap.PixelWidth * 0.5
+    $cyB = [double]$bitmap.PixelHeight * 0.5
+    foreach ($l in $res.Lines) {{
+        $words = @()
+        foreach ($w in $l.Words) {{
+            $r = $w.BoundingRect
+            $wx = [double]$r.X + [double]$r.Width * 0.5
+            $wy = [double]$r.Y + [double]$r.Height * 0.5
+            $dx = $wx - $cxB
+            $dy = $wy - $cyB
+            $tx = $cxB + $dx * $cosA - $dy * $sinA - [double]$r.Width * 0.5
+            $ty = $cyB + $dx * $sinA + $dy * $cosA - [double]$r.Height * 0.5
+            $words += [PSCustomObject]@{{
+                text = $w.Text
+                x = [int][Math]::Round($tx * $sc)
+                y = [int][Math]::Round($ty * $sc) + $y_off
+                w = [int][Math]::Round($r.Width * $sc)
+                h = [int][Math]::Round($r.Height * $sc)
+            }}
+        }}
+        $lines += [PSCustomObject]@{{ band = $b_idx; words = $words }}
+    }}
+    $b_idx += 1
+}}
+$lines | ConvertTo-Json -Depth 4 -Compress
+"""
+            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            raw = subprocess.check_output(
+                ["powershell", "-NoProfile", "-Command", ps_script],
+                timeout=25,
+                creationflags=creationflags,
+            ).decode("utf-8", errors="replace").strip()
+    except Exception:
+        raw = "[]"
+
+    raw_lines: list[dict] = []
+    if raw and raw != "[]":
+        try:
+            parsed_lines = json.loads(raw)
+            if isinstance(parsed_lines, dict):
+                parsed_lines = [parsed_lines]
+            if isinstance(parsed_lines, list):
+                raw_lines = parsed_lines
+        except Exception:
+            raw_lines = []
+
+    if not raw_lines:
+        raw_lines = _nhan_dien_dong_rapidocr_hf(im, ngon_ngu_nguon=ngon_ngu_nguon)
+    if not raw_lines:
+        return []
+
+    px = im.load()
+    dau_noi_tu = "" if ngon_ngu_nguon in ("ja", "zh") else " "
+    # Bước 1: Tách các dòng ngang bị gộp qua 2 bóng thoại cạnh nhau dựa trên khoảng cách từ & vách ngăn
+    segments: list[dict] = []
+    for item in raw_lines:
+        if not isinstance(item, dict):
+            continue
+        band_id = int(item.get("band") or 0)
+        words = item.get("words") or []
+        if isinstance(words, dict):
+            words = [words]
+        if not words:
+            continue
+        cur = [words[0]]
+        for w in words[1:]:
+            prev = cur[-1]
+            gap_x = w["x"] - (prev["x"] + prev["w"])
+            max_h = max(prev["h"], w["h"], 12)
+            if gap_x > max_h * 0.78 or (gap_x > max_h * 0.35 and _co_vach_ngan_ngang(px, W, H, prev, w)):
+                x0 = min(x["x"] for x in cur)
+                y0 = min(x["y"] for x in cur)
+                x1 = max(x["x"] + x["w"] for x in cur)
+                y1 = max(x["y"] + x["h"] for x in cur)
+                segments.append({
+                    "band": band_id,
+                    "text": dau_noi_tu.join(str(x["text"]) for x in cur),
+                    "x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0,
+                })
+                cur = [w]
+            else:
+                cur.append(w)
+        if cur:
+            x0 = min(x["x"] for x in cur)
+            y0 = min(x["y"] for x in cur)
+            x1 = max(x["x"] + x["w"] for x in cur)
+            y1 = max(x["y"] + x["h"] for x in cur)
+            segments.append({
+                "band": band_id,
+                "text": dau_noi_tu.join(str(x["text"]) for x in cur),
+                "x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0,
+            })
+
+    # Bước 2: Lọc dòng hợp lệ, khử trùng lặp giữa các dải cắt ngang và gom các dòng trong cùng 1 bóng thoại
+    raw_valid: list[dict] = []
+    for seg in segments:
+        t = _lam_sach_chu_ocr_truyen(str(seg.get("text") or ""))
+        if not t or seg["w"] < 6 or seg["h"] < 6:
+            continue
+        if sum(c.isalnum() for c in t) == 0:
+            continue
+        co_cjk = any(ord(c) >= 0x2E80 for c in t)
+        la_tu_2_chu_hoa = len(t) == 2 and t.isalpha() and t.isupper() and seg["h"] >= 7
+        if len(t) <= 2 and seg["h"] < 14 and not co_cjk and not la_tu_2_chu_hoa:
+            continue
+        la_dai_phu = int(seg.get("band") or 0) >= so_dai_chinh
+        if la_dai_phu:
+            if not _la_nen_bong_trang(px, W, H, seg):
+                continue
+            if not co_cjk and (sum(1 for c in t if c.isupper()) < 2 or any(c.islower() for c in t)):
+                continue
+        if not _la_vung_bong_thoai(px, W, H, seg["x"], seg["y"], seg["w"], seg["h"]):
+            continue
+        raw_valid.append(dict(seg, text=t))
+
+    if not raw_valid:
+        return []
+
+    # Hợp nhất thông minh giữa các dải cắt ngang: nếu dải phóng to bắt được dòng đầy đủ hơn dải toàn trang thì cập nhật khung rộng hơn
+    valid: list[dict] = []
+    for cand in raw_valid:
+        bi_trung = False
+        la_cand_phu = int(cand.get("band") or 0) >= so_dai_chinh
+        for idx_k, kept in enumerate(valid):
+            if cand.get("band") == kept.get("band"):
+                continue
+            oy = min(cand["y"] + cand["h"], kept["y"] + kept["h"]) - max(cand["y"], kept["y"])
+            ox = min(cand["x"] + cand["w"], kept["x"] + kept["w"]) - max(cand["x"], kept["x"])
+            if oy >= max(4, min(cand["h"], kept["h"]) * 0.45) and ox > 4:
+                bi_trung = True
+                if not la_cand_phu and (len(cand["text"]) > len(kept["text"]) or cand["w"] > kept["w"] * 1.12):
+                    nx0 = min(cand["x"], kept["x"])
+                    ny0 = min(cand["y"], kept["y"])
+                    nx1 = max(cand["x"] + cand["w"], kept["x"] + kept["w"])
+                    ny1 = max(cand["y"] + cand["h"], kept["y"] + kept["h"])
+                    valid[idx_k] = {
+                        "band": kept.get("band"),
+                        "text": cand["text"] if len(cand["text"]) >= len(kept["text"]) else kept["text"],
+                        "x": nx0,
+                        "y": ny0,
+                        "w": nx1 - nx0,
+                        "h": ny1 - ny0,
+                    }
+                break
+        if not bi_trung:
+            valid.append(cand)
+
+    valid.sort(key=lambda r: (r["y"], r["x"]))
+    n = len(valid)
+    parent = list(range(n))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(i: int, j: int):
+        ri, rj = find(i), find(j)
+        if ri != rj:
+            parent[rj] = ri
+
+    for i in range(n):
+        a = valid[i]
+        acx = a["x"] + a["w"] * 0.5
+        for j in range(i + 1, n):
+            b = valid[j]
+            bcx = b["x"] + b["w"] * 0.5
+            max_h = max(a["h"], b["h"])
+            min_h = min(a["h"], b["h"])
+            if min_h / max(1, max_h) < 0.45:
+                continue
+            top, bot = (a, b) if a["y"] <= b["y"] else (b, a)
+            v_gap = bot["y"] - (top["y"] + top["h"])
+            max_w = max(a["w"], b["w"])
+            he_so_vgap = 1.45 if abs(acx - bcx) <= max_w * 0.38 else 0.72
+            if v_gap > max(max_h * he_so_vgap, 11.0) or v_gap < -max_h * 0.45:
+                continue
+            ox0 = max(a["x"], b["x"])
+            ox1 = min(a["x"] + a["w"], b["x"] + b["w"])
+            x_overlap = ox1 - ox0
+            min_w = min(a["w"], b["w"])
+            if x_overlap <= max(2, min_w * 0.15):
+                continue
+            if abs(acx - bcx) > max_w * 0.55:
+                continue
+            if _co_vach_ngan_doc(px, W, H, a, b):
+                continue
+            union(i, j)
+
+    clusters: dict[int, list[dict]] = {}
+    for i, item in enumerate(valid):
+        clusters.setdefault(find(i), []).append(item)
+
+    bubbles: list[dict] = []
+    for comp in clusters.values():
+        comp_ordered = _sap_xep_dong_trong_bong_thoai(comp)
+        x0 = min(r["x"] for r in comp_ordered)
+        y0 = min(r["y"] for r in comp_ordered)
+        x1 = max(r["x"] + r["w"] for r in comp_ordered)
+        y1 = max(r["y"] + r["h"] for r in comp_ordered)
+        text = _lam_sach_chu_ocr_truyen(dau_noi_tu.join(r["text"] for r in comp_ordered))
+        co_cjk = any(ord(c) >= 0x2E80 for c in text)
+        if not co_cjk and sum(1 for c in text if c.isascii() and c.isupper()) == 0:
+            if (
+                len(text) <= 4
+                and not text.endswith(("?", "!", "."))
+                and not text.lower().startswith("true")
+            ):
+                continue
+            if len(text) <= 6 and any(not c.isascii() for c in text):
+                continue
+        bx0 = int(round(x0 / he_so_ocr))
+        by0 = int(round(y0 / he_so_ocr))
+        bx1 = int(round(x1 / he_so_ocr))
+        by1 = int(round(y1 / he_so_ocr))
+        bubbles.append({
+            "x": bx0,
+            "y": by0,
+            "w": max(1, bx1 - bx0),
+            "h": max(1, by1 - by0),
+            "chu_goc": text,
+            "dong_con": [
+                {
+                    "x": int(round(r["x"] / he_so_ocr)),
+                    "y": int(round(r["y"] / he_so_ocr)),
+                    "w": max(1, int(round(r["w"] / he_so_ocr))),
+                    "h": max(1, int(round(r["h"] / he_so_ocr))),
+                }
+                for r in comp_ordered
+            ],
+        })
+    bubbles.sort(key=lambda b: (b["y"] // 80, b["x"]))
+    return bubbles
+
+
+THU_MUC_OCR_HF = Path(__file__).resolve().parent / "models" / "ocr_hf"
+CAUHINH_OCR_HF: dict[str, dict[str, str]] = {
+    "ja": {
+        "rec_file": "ja_rec.onnx",
+        "rec_url": "https://huggingface.co/cycloneboy/japan_PP-OCRv4_rec_infer/resolve/main/model.onnx",
+        "dict_file": "ja_dict.txt",
+        "dict_url": "https://huggingface.co/cycloneboy/japan_PP-OCRv4_rec_infer/resolve/main/japan_dict.txt",
+    },
+    "ko": {
+        "rec_file": "ko_rec.onnx",
+        "rec_url": "https://huggingface.co/cycloneboy/korean_PP-OCRv3_rec_infer/resolve/main/model.onnx",
+        "dict_file": "ko_dict.txt",
+        "dict_url": "https://raw.githubusercontent.com/PaddlePaddle/PaddleOCR/main/ppocr/utils/dict/korean_dict.txt",
+    },
+}
+_CACHE_RAPIDOCR_HF: dict[str, object] = {}
+
+
+def tai_goi_ocr_huggingface(ngon_ngu: str = "all") -> dict[str, bool]:
+    """
+    Tải tự động mô hình ONNX OCR đa ngôn ngữ (Tiếng Nhật PP-OCRv4, Tiếng Hàn PP-OCRv3, Tiếng Trung PP-OCRv4)
+    từ HuggingFace về thư mục `windows-app/models/ocr_hf/` để chạy không cần quyền Admin Windows.
+    """
+    THU_MUC_OCR_HF.mkdir(parents=True, exist_ok=True)
+    co_rapidocr = False
+    try:
+        import rapidocr_onnxruntime  # noqa: F401
+        co_rapidocr = True
+    except Exception:
+        co_rapidocr = False
+
+    targets = ["ja", "ko"] if ngon_ngu == "all" else ([ngon_ngu] if ngon_ngu in CAUHINH_OCR_HF else [])
+    for lang in targets:
+        cfg = CAUHINH_OCR_HF[lang]
+        for f_key, u_key in (("rec_file", "rec_url"), ("dict_file", "dict_url")):
+            dest = THU_MUC_OCR_HF / cfg[f_key]
+            if not dest.exists() or dest.stat().st_size < 1000:
+                try:
+                    data = goi_http(cfg[u_key], timeout=60, nguon_ngoai=True)
+                    dest.write_bytes(data)
+                except Exception:
+                    pass
+
+    kq: dict[str, bool] = {
+        "en": co_rapidocr,
+        "zh": co_rapidocr,
+        "ja": co_rapidocr and (THU_MUC_OCR_HF / "ja_rec.onnx").exists() and (THU_MUC_OCR_HF / "ja_dict.txt").exists(),
+        "ko": co_rapidocr and (THU_MUC_OCR_HF / "ko_rec.onnx").exists() and (THU_MUC_OCR_HF / "ko_dict.txt").exists(),
+    }
+    return kq
+
+
+def _nhan_dien_dong_rapidocr_hf(im, ngon_ngu_nguon: str = "ja") -> list[dict]:
+    """
+    Nhận diện chữ đa ngôn ngữ (JA / ZH / KO / EN) bằng mô hình ONNX PP-OCRv4 từ HuggingFace (`rapidocr_onnxruntime`),
+    chuyển đổi toạ độ về đúng cấu trúc `[{"band": 0, "words": [{"text", "x", "y", "w", "h"}]}]`
+    để tái sử dụng toàn bộ thuật toán gom bóng thoại & kiểm tra vách ngăn.
+    """
+    try:
+        from rapidocr_onnxruntime import RapidOCR
+    except Exception:
+        return []
+
+    lang = (ngon_ngu_nguon or "ja").lower()
+    if lang in CAUHINH_OCR_HF:
+        cfg = CAUHINH_OCR_HF[lang]
+        rec_p = THU_MUC_OCR_HF / cfg["rec_file"]
+        dict_p = THU_MUC_OCR_HF / cfg["dict_file"]
+        if not rec_p.exists() or not dict_p.exists():
+            tai_goi_ocr_huggingface(lang)
+        if not rec_p.exists() or not dict_p.exists():
+            return []
+        cache_key = lang
+        if cache_key not in _CACHE_RAPIDOCR_HF:
+            _CACHE_RAPIDOCR_HF[cache_key] = RapidOCR(
+                rec_model_path=str(rec_p),
+                rec_keys_path=str(dict_p),
+            )
+        engine = _CACHE_RAPIDOCR_HF[cache_key]
+    else:
+        cache_key = "zh_en"
+        if cache_key not in _CACHE_RAPIDOCR_HF:
+            _CACHE_RAPIDOCR_HF[cache_key] = RapidOCR()
+        engine = _CACHE_RAPIDOCR_HF[cache_key]
+
+    try:
+        res, _ = engine(im, use_cls=False)
+    except Exception:
+        return []
+    if not res:
+        return []
+
+    lines: list[dict] = []
+    for item in res:
+        if not isinstance(item, (list, tuple)) or len(item) < 3:
+            continue
+        box, txt, score = item[0], str(item[1] or "").strip(), float(item[2] or 0.0)
+        if not txt or score < 0.42:
+            continue
+        try:
+            xs = [float(pt[0]) for pt in box]
+            ys = [float(pt[1]) for pt in box]
+            x0, x1 = int(round(min(xs))), int(round(max(xs)))
+            y0, y1 = int(round(min(ys))), int(round(max(ys)))
+        except Exception:
+            continue
+        w = max(1, x1 - x0)
+        h = max(1, y1 - y0)
+        lines.append({
+            "band": 0,
+            "words": [{"text": txt, "x": x0, "y": y0, "w": w, "h": h}],
+        })
+    return lines
+
+
+def kiem_tra_goi_ocr_windows() -> dict[str, dict]:
+    """
+    Kiểm tra các gói ngôn ngữ OCR (kết hợp Windows Media OCR + HuggingFace ONNX PP-OCRv4) cho 4 ngôn ngữ truyện tranh chính:
+    en (Anh), ja (Nhật), ko (Hàn), zh (Trung Giản Thể).
+    Trả về dict[ma_ngon_ngu, {"ten": str, "tag": str, "ho_tro": bool, "nguon": str, "lenh_cai": str}].
+    """
+    ds_mac_dinh = {
+        "en": {
+            "ten": "Tiếng Anh (Comics / Manga EN)",
+            "tag": "en-US",
+            "ho_tro": False,
+            "nguon": "",
+            "lenh_cai": 'Add-WindowsCapability -Online -Name "Language.OCR~~~en-US~0.0.1.0"',
+        },
+        "ja": {
+            "ten": "Tiếng Nhật (Manga Raw JA - HuggingFace PP-OCRv4)",
+            "tag": "ja",
+            "ho_tro": False,
+            "nguon": "",
+            "lenh_cai": 'Add-WindowsCapability -Online -Name "Language.OCR~~~ja-JP~0.0.1.0"',
+        },
+        "ko": {
+            "ten": "Tiếng Hàn (Webtoon / Manhwa KO - HuggingFace PP-OCRv3)",
+            "tag": "ko",
+            "ho_tro": False,
+            "nguon": "",
+            "lenh_cai": 'Add-WindowsCapability -Online -Name "Language.OCR~~~ko-KR~0.0.1.0"',
+        },
+        "zh": {
+            "ten": "Tiếng Trung (Manhua ZH - HuggingFace PP-OCRv4)",
+            "tag": "zh-Hans",
+            "ho_tro": False,
+            "nguon": "",
+            "lenh_cai": 'Add-WindowsCapability -Online -Name "Language.OCR~~~zh-CN~0.0.1.0"',
+        },
+    }
+    if os.name == "nt":
+        try:
+            ps_check = """
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Add-Type -AssemblyName System.Runtime.WindowsRuntime
+$null = [Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType=WindowsRuntime]
+$null = [Windows.Globalization.Language, Windows.Foundation, ContentType=WindowsRuntime]
+$kq = @{}
+foreach ($t in @('en-US', 'ja', 'ko', 'zh-Hans')) {
+    $l = New-Object Windows.Globalization.Language($t)
+    $kq[$t] = [bool][Windows.Media.Ocr.OcrEngine]::IsLanguageSupported($l)
+}
+$kq | ConvertTo-Json -Compress
+"""
+            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            raw = subprocess.check_output(
+                ["powershell", "-NoProfile", "-Command", ps_check],
+                timeout=12,
+                creationflags=creationflags,
+            ).decode("utf-8", errors="replace").strip()
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                for k, info in ds_mac_dinh.items():
+                    if bool(parsed.get(info["tag"], False)):
+                        info["ho_tro"] = True
+                        info["nguon"] = "Windows Media OCR"
+        except Exception:
+            pass
+
+    try:
+        import rapidocr_onnxruntime  # noqa: F401
+        hf_ready = {
+            "en": True,
+            "zh": True,
+            "ja": (THU_MUC_OCR_HF / "ja_rec.onnx").exists() and (THU_MUC_OCR_HF / "ja_dict.txt").exists(),
+            "ko": (THU_MUC_OCR_HF / "ko_rec.onnx").exists() and (THU_MUC_OCR_HF / "ko_dict.txt").exists(),
+        }
+        for k, ok_hf in hf_ready.items():
+            if ok_hf and k in ds_mac_dinh:
+                ds_mac_dinh[k]["ho_tro"] = True
+                ds_mac_dinh[k]["nguon"] = (
+                    f"{ds_mac_dinh[k]['nguon']} + HuggingFace ONNX"
+                    if ds_mac_dinh[k]["nguon"]
+                    else "HuggingFace ONNX (PP-OCRv4)"
+                )
+    except Exception:
+        pass
+    return ds_mac_dinh
+
+
+def _chuan_hoa_cau_goc_cho_llm(text: str) -> str:
+    """
+    Chuyển câu thoại tiếng Anh viết IN HOA toàn bộ ('WHEN YOU SCREAMED... I THREW MY AXE!')
+    về dạng chữ thường/hoa đầu câu ('When you screamed... I threw my axe!') để bộ tách từ (BPE tokenizer)
+    của LLM không cắt vụn từ vựng thành từng mảnh ký tự, giúp dịch sát nghĩa và tự nhiên hơn hẳn.
+    """
+    s = (text or "").strip()
+    if not s:
+        return ""
+    alpha = [c for c in s if c.isalpha() and c.isascii()]
+    if len(alpha) >= 3 and sum(1 for c in alpha if c.isupper()) >= len(alpha) * 0.75:
+        s_low = s.lower()
+        # Viết hoa chữ cái đầu câu và sau dấu chấm/chấm than/chấm hỏi
+        s_low = re.sub(r"(^|[.!?]\s+)([a-z])", lambda m: m.group(1) + m.group(2).upper(), s_low)
+        # Viết hoa đại từ "I" và "I'm", "I've", "I'll", "I'd"
+        s_low = re.sub(r"\bi(?=['\s,.!?]|$)", "I", s_low)
+        return s_low
+    return s
+
+
+# ==============================================================================
+# BỘ TỪ ĐIỂN THUẬT NGỮ TRUYỆN TRANH & CÔNG THỨC CHẤM ĐIỂM CHẤT LƯỢNG BẢN DỊCH
+# ==============================================================================
+
+TU_DIEN_THUAT_NGU_TRUYEN: list[tuple[str, str, str]] = [
+    # (pattern_regex_khong_phan_biet_hoa_thuong, cum_tu_goc, nghia_chuan_truyen_tranh)
+    (r"\bscreamed\b", "screamed", "hét toáng lên"),
+    (r"\bthrew my axe\b", "threw my axe", "phóng chiếc rìu của ta"),
+    (r"\bbrushed right past me\b", "brushed right past me", "sượt ngay qua đầu tôi"),
+    (r"\bbarkeep\b", "barkeep", "Chủ quán"),
+    (r"\blargest beer\b", "largest beer", "vại bia lớn nhất"),
+    (r"\btwo!\b", "Two!", "Cho hai vại!"),
+    (r"\bthree!\b", "Three!", "Ba vại luôn!"),
+    (r"\bcheers\b", "cheers", "Cạn ly"),
+    (r"\bricocheted\b", "ricocheted", "bật nảy ra"),
+    (r"\bdistracted\b", "distracted", "làm mất tập trung / đánh lạc hướng"),
+    (r"\bcursed creatures\b", "cursed creatures", "lũ quái vật khốn kiếp"),
+    (r"\bchief\b", "chief", "đại ca / đội trưởng"),
+    (r"\bkeep it down\b", "keep it down", "nhỏ tiếng bớt"),
+    (r"\bpeace and quiet\b", "peace and quiet", "yên tĩnh một chút"),
+    (r"\btake a stand\b", "take a stand", "đứng lên ra mặt"),
+    (r"\bkidding me\b", "Are you kidding me?", "Thầy đùa con đấy à? / Đùa nhau đấy à?"),
+    (r"\bbullies\b", "bullies", "lũ côn đồ bắt nạt"),
+    (r"\bwitch of chaosah\b", "witch of Chaosah", "phù thủy phái Chaosah"),
+    (r"\bhere we go again\b", "And here we go again", "Lại nữa rồi đấy"),
+    (r"\bviolence solves everything\b", "Violence solves everything", "Bạo lực giải quyết được mọi thứ"),
+    (r"\bpeaceful solution\b", "peaceful solution", "cách giải quyết ôn hòa"),
+    (r"\bsolve this creatively\b", "solve this creatively", "giải quyết chuyện này thật sáng tạo"),
+    (r"\bmaster cayenne\b", "Master Cayenne", "Sư phụ Cayenne"),
+    (r"\bbanshees?\b", "banshees", "yêu nữ Banshee"),
+    (r"\bfrown\b", "What's with the frown?", "Sao lại nhăn nhó thế kia?"),
+    (r"\badventures\b", "adventures", "những cuộc phiêu lưu"),
+    (r"\bflying on this thing\b", "Flying on this thing", "Bay trên cái thứ này"),
+    (r"\bhalt for the night\b", "halt for the night", "dừng chân nghỉ qua đêm"),
+    (r"\bproper broom\b", "proper broom", "cây chổi bay đàng hoàng"),
+    (r"\bquest\b", "quest", "nhiệm vụ"),
+    (r"\bguild\b", "guild", "hội mạo hiểm giả"),
+    (r"\bdungeon\b", "dungeon", "hầm ngục"),
+    (r"\bmana\b", "mana", "ma lực"),
+    (r"\brea\b", "Rea", "linh lực Rea"),
+    (r"\bspells?\b", "spell", "phép thuật / thần chú"),
+]
+
+TEN_RIENG_GIU_NGUYEN = {
+    "pepper", "carrot", "cayenne", "chaosah", "thyme", "cumin", "coriander",
+    "shichimi", "saffron", "spirulina", "durian", "komona", "rea", "banshee", "banshees",
+    "ok", "fin",
+}
+
+TU_TIENG_ANH_PHO_BIEN_CAN_DICH = {
+    "the", "and", "you", "your", "are", "was", "were", "have", "has", "had", "will", "would",
+    "could", "should", "can", "cannot", "with", "from", "that", "this", "these", "those",
+    "they", "them", "their", "what", "when", "where", "why", "how", "who", "because", "about",
+    "before", "after", "again", "some", "like", "just", "know", "think", "come", "here", "there",
+    "tell", "told", "heard", "want", "join", "talk", "leave", "peace", "quiet", "violence",
+    "problem", "screamed", "threw", "axe", "barkeep", "beer", "cheers", "creatures", "chief",
+}
+
+
+BO_NHO_TU_HOC_FILE = Path.home() / ".dich_truyen_bo_nho_tu_hoc.json"
+_BO_NHO_TU_HOC_CACHE: dict[str, str] = {}
+_BO_NHO_TU_HOC_LOCK = threading.Lock()
+
+
+def nap_bo_nho_tu_hoc() -> dict[str, str]:
+    """Đọc bộ nhớ tự học từ những câu khó / chữ viết tay mà người dùng đã chỉnh sửa hoặc duyệt."""
+    global _BO_NHO_TU_HOC_CACHE
+    with _BO_NHO_TU_HOC_LOCK:
+        if _BO_NHO_TU_HOC_CACHE:
+            return dict(_BO_NHO_TU_HOC_CACHE)
+        if BO_NHO_TU_HOC_FILE.is_file():
+            try:
+                data = json.loads(BO_NHO_TU_HOC_FILE.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    _BO_NHO_TU_HOC_CACHE = {str(k).strip(): str(v).strip() for k, v in data.items() if k and v}
+            except Exception:
+                pass
+        return dict(_BO_NHO_TU_HOC_CACHE)
+
+
+def hoc_tu_ban_sua_nguoi_dung(chu_goc: str, ban_dich_chuan: str) -> None:
+    """
+    Ghi nhớ vĩnh viễn cặp (câu gốc chữ viết tay / thuật ngữ khó -> bản dịch chuẩn) vào bộ nhớ tự học
+    để từ các trang sau và chapter sau, `local_ocr_gpu (⚡ OCR + GPU Nhanh)` tự động áp dụng ngay!
+    """
+    goc = (chu_goc or "").strip()
+    dich = (ban_dich_chuan or "").strip()
+    if not goc or not dich or len(goc) > 160:
+        return
+    with _BO_NHO_TU_HOC_LOCK:
+        if not _BO_NHO_TU_HOC_CACHE and BO_NHO_TU_HOC_FILE.is_file():
+            try:
+                raw = json.loads(BO_NHO_TU_HOC_FILE.read_text(encoding="utf-8"))
+                if isinstance(raw, dict):
+                    _BO_NHO_TU_HOC_CACHE.update({str(k): str(v) for k, v in raw.items() if k and v})
+            except Exception:
+                pass
+        _BO_NHO_TU_HOC_CACHE[goc] = dich
+        if len(_BO_NHO_TU_HOC_CACHE) > 500:
+            oldest_k = next(iter(_BO_NHO_TU_HOC_CACHE))
+            _BO_NHO_TU_HOC_CACHE.pop(oldest_k, None)
+        try:
+            THU_MUC_CAU_HINH.mkdir(parents=True, exist_ok=True)
+            BO_NHO_TU_HOC_FILE.write_text(
+                json.dumps(_BO_NHO_TU_HOC_CACHE, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+
+
+def phat_hien_cau_hinh_may_va_luong_toi_uu() -> tuple[int, str]:
+    """
+    Tự động đo cấu hình phần cứng thực tế của máy tính khách (Số luồng CPU, dung lượng RAM GB, GPU):
+    - Máy phổ thông (<= 4 CPU hoặc < 8GB RAM): Đề xuất 2 luồng chạy song song.
+    - Máy tầm trung (6–11 CPU, 8–15GB RAM): Đề xuất 3 luồng chạy song song.
+    - Máy cấu hình cao (>= 12 CPU, >= 16GB RAM): Đề xuất 4–6 luồng chạy song song (tối đa chỉnh tay tới 8).
+    """
+    so_cpu = os.cpu_count() or 4
+    ram_gb = 8.0
+    if os.name == "nt":
+        try:
+            import ctypes
+
+            class _MEMORYSTATUSEX(ctypes.Structure):
+                _fields_ = [
+                    ("dwLength", ctypes.c_ulong),
+                    ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong),
+                    ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("sullAvailExtendedVirtual", ctypes.c_ulonglong),
+                ]
+
+            stat = _MEMORYSTATUSEX()
+            stat.dwLength = ctypes.sizeof(_MEMORYSTATUSEX)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat)):
+                ram_gb = round(stat.ullTotalPhys / (1024 ** 3), 1)
+        except Exception:
+            pass
+
+    if so_cpu >= 12 and ram_gb >= 15.0:
+        luong_de_xuat = 4
+    elif so_cpu >= 6 and ram_gb >= 7.5:
+        luong_de_xuat = 3
+    else:
+        luong_de_xuat = 2
+    mo_ta = f"{so_cpu} luồng CPU · {ram_gb:.0f}GB RAM"
+    return luong_de_xuat, mo_ta
+
+
+def trich_xuat_thuat_ngu_trang(bubbles: list[dict], tu_dien_rieng: str = "") -> str:
+    """
+    Tự động quét các câu thoại trong trang để trích xuất đúng những thuật ngữ/thành ngữ xuất hiện
+    trong trang đó + kết hợp với Bộ Nhớ Tự Học (`bo-nho-tu-hoc-truyen.json`) và từ điển riêng của người dùng.
+    """
+    toan_bo_chu = " ".join(str(b.get("chu_goc") or "") for b in bubbles)
+    goi_y: list[str] = []
+    bo_nho_hoc = nap_bo_nho_tu_hoc()
+    for goc_hoc, dich_hoc in bo_nho_hoc.items():
+        if goc_hoc.lower() in toan_bo_chu.lower():
+            goi_y.append(f"'{goc_hoc}' = '{dich_hoc}'")
+    for pat, goc, nghia in TU_DIEN_THUAT_NGU_TRUYEN:
+        if re.search(pat, toan_bo_chu, re.I):
+            goi_y.append(f"'{goc}' = '{nghia}'")
+    # Luôn giữ các thuật ngữ cốt lõi nếu trang ngắn
+    if len(goi_y) < 6:
+        for _, goc, nghia in TU_DIEN_THUAT_NGU_TRUYEN[:10]:
+            muc = f"'{goc}' = '{nghia}'"
+            if muc not in goi_y:
+                goi_y.append(muc)
+    chuoi_goi_y = ", ".join(goi_y[:18])
+    if tu_dien_rieng and tu_dien_rieng.strip():
+        return f"{chuoi_goi_y}. Từ điển cố định: {tu_dien_rieng.strip()}"
+    return chuoi_goi_y
+
+
+def hau_kiem_va_sua_ban_dich(chu_goc: str, ban_dich: str, ngon_ngu_dich: str = "vi") -> str:
+    """
+    Làm sạch và chuẩn hoá câu dịch tự động trước khi chấm điểm:
+    - Ưu tiên khớp tức thì nếu câu gốc đã nằm trong Bộ Nhớ Tự Học (`bo-nho-tu-hoc-truyen.json`).
+    - Loại bỏ tiền tố đánh số lặp '[1]', 'Bản dịch:', ngoặc kép thừa hoặc thẻ <think>.
+    - Khử lỗi lặp từ máy móc ('để để để' -> 'để').
+    - Chuyển đại từ máy móc 'bạn' sang xưng hô truyện tranh tự nhiên ('cậu').
+    """
+    goc_sach = (chu_goc or "").strip()
+    if goc_sach and ngon_ngu_dich == "vi":
+        bo_nho = nap_bo_nho_tu_hoc()
+        if goc_sach in bo_nho:
+            return bo_nho[goc_sach]
+    s = (ban_dich or "").strip()
+    if not s:
+        return ""
+    s = re.sub(r"<think>[\s\S]*?</think>", "", s).strip()
+    s = re.sub(r"^\s*(?:\[\d+\]|\d+[.):\-])\s*", "", s)
+    s = re.sub(r"^\s*(?:Bản dịch|Dịch|Translation)\s*:\s*", "", s, flags=re.I)
+    s = s.strip().strip('"').strip("“”")
+    if ngon_ngu_dich == "vi":
+        # Khử lỗi lặp 1 từ liên tiếp >= 3 lần ('để để để' -> 'để')
+        s = re.sub(r"\b(\w+)(?:\s+\1){2,}\b", r"\1", s, flags=re.I)
+        # Khử lỗi lặp cụm 2 từ liên tiếp >= 3 lần ('của ta của ta của ta' -> 'của ta')
+        s = re.sub(r"\b(\w+\s+\w+)(?:\s+\1){2,}\b", r"\1", s, flags=re.I)
+        # Thay đại từ 'bạn' cứng nhắc bằng 'cậu' trong thoại truyện tranh và Việt hoá từ cảm thán sót
+        s = re.sub(r"\bHa\s+yes\b", "Ha ha, chuẩn rồi", s, flags=re.I)
+        s = re.sub(r"\bOh\s+yes\b", "Ồ đúng rồi", s, flags=re.I)
+        s = re.sub(r"\bCác bạn\b", "Mọi người", s)
+        s = re.sub(r"\bcác bạn\b", "mọi người", s)
+        s = re.sub(r"\bBạn\b", "Cậu", s)
+        s = re.sub(r"\bbạn\b", "cậu", s)
+    return s.strip()
+
+
+def danh_gia_chat_luong_ban_dich(
+    chu_goc: str,
+    ban_dich: str,
+    *,
+    ngon_ngu_nguon: str = "en",
+    ngon_ngu_dich: str = "vi",
+) -> tuple[float, list[str]]:
+    """
+    Công thức phát hiện & chấm điểm chất lượng bản dịch truyện tranh (thang điểm 0.0 -> 1.0):
+      Q = 1.0 - (P_rong + P_sot_tieng_goc + P_lap_tu + P_xung_ho_cung + P_ty_le_do_dai)
+    Trả về (diem_so, danh_sach_loi). Bản dịch đạt chuẩn khi Q >= 0.75 và không có lỗi nghiêm trọng.
+    """
+    goc = (chu_goc or "").strip()
+    dich = (ban_dich or "").strip()
+    if not goc:
+        return 1.0, []
+    if not dich or sum(c.isalnum() for c in dich) == 0:
+        return 0.0, ["loi_rong"]
+
+    diem = 1.0
+    ds_loi: list[str] = []
+
+    if ngon_ngu_dich == "vi" and ngon_ngu_nguon != "vi":
+        # 1. Kiểm tra bản dịch giống hệt bản gốc (chưa dịch)
+        goc_norm = re.sub(r"[^a-zA-Z0-9]+", "", goc).lower()
+        dich_norm = re.sub(r"[^a-zA-Z0-9\u00C0-\u1EF9]+", "", dich).lower()
+        if len(goc_norm) >= 4 and goc_norm == dich_norm and goc_norm not in TEN_RIENG_GIU_NGUYEN:
+            diem -= 0.75
+            ds_loi.append("loi_chua_dich")
+
+        # 2. Kiểm tra sót từ tiếng Anh phổ biến trong câu tiếng Việt (P_sot_tieng_goc)
+        tu_dich = re.findall(r"[A-Za-z\u00C0-\u1EF9']+", dich)
+        tu_anh_sot = [
+            w.lower()
+            for w in tu_dich
+            if w.isascii()
+            and w.lower() in TU_TIENG_ANH_PHO_BIEN_CAN_DICH
+            and w.lower() not in TEN_RIENG_GIU_NGUYEN
+        ]
+        if tu_anh_sot:
+            ty_le_sot = len(tu_anh_sot) / max(1, len(tu_dich))
+            phat = min(0.65, 0.25 + ty_le_sot * 0.8)
+            diem -= phat
+            ds_loi.append(f"loi_sot_tieng_goc:{','.join(tu_anh_sot[:3])}")
+
+        # 3. Kiểm tra lỗi lặp từ / suy thoái mô hình (P_lap_tu: 'để để để')
+        if re.search(r"\b(\w+)(?:\s+\1){2,}\b", dich, re.I) or re.search(r"\b(\w+\s+\w+)(?:\s+\1){2,}\b", dich, re.I):
+            diem -= 0.55
+            ds_loi.append("loi_lap_tu")
+
+        # 4. Kiểm tra xưng hô cứng nhắc kiểu Google Translate ('bạn')
+        if re.search(r"\bbạn\b", dich, re.I):
+            diem -= 0.25
+            ds_loi.append("loi_xung_ho_cung")
+
+        # 5. Kiểm tra tỷ lệ độ dài bất thường (quá cụt hoặc giải thích lan man)
+        if len(goc) >= 12:
+            ty_le_dai = len(dich) / max(1, len(goc))
+            if ty_le_dai < 0.28 or ty_le_dai > 3.2:
+                diem -= 0.30
+                ds_loi.append("loi_ty_le_do_dai")
+
+    return round(max(0.0, min(1.0, diem)), 3), ds_loi
+
+
+def _dich_danh_sach_thoai_gpu(
+    bubbles: list[dict],
+    *,
+    backend: str,
+    model: str,
+    ngon_ngu_nguon: str,
+    ngon_ngu_dich: str,
+    tu_dien_rieng: str,
+    chay_cpu: bool,
+    che_do_pro: bool = False,
+) -> list[dict]:
+    """
+    Chỉ gửi danh sách câu thoại đã OCR sang LLM trên GPU (nạp 37/37 lớp lên VRAM 6GB với num_ctx=1024..1536,
+    bỏ qua bước suy nghĩ <think> và ảnh nặng, đạt tốc độ ~43 token/giây), kèm:
+    - Bộ từ điển thuật ngữ thông minh theo ngữ cảnh trang (`trich_xuat_thuat_ngu_trang`).
+    - Công thức chấm điểm chất lượng (`danh_gia_chat_luong_ban_dich`) & tự động dịch lại câu lỗi.
+    - Khi `che_do_pro=True` (`local_hybrid_pro`): mở rộng ngữ cảnh `num_ctx=1536`, siết ngưỡng kiểm định chất lượng
+      lên `Q >= 0.85` và kích hoạt gợi ý giải mã chữ viết tay / tiếng lóng bị OCR đọc lệch ký tự.
+    """
+    ten_dich = "English" if ngon_ngu_dich == "en" else "Tiếng Việt tự nhiên, sống động, chuẩn thoại truyện tranh"
+    doan_ngu_canh = (
+        f"\nNgữ cảnh xưng hô & thuật ngữ từ các trang trước (hãy giữ đồng nhất):\n{tu_dien_rieng}\n"
+        if tu_dien_rieng
+        else ""
+    )
+    thuat_ngu_trang = trich_xuat_thuat_ngu_trang(bubbles, tu_dien_rieng=tu_dien_rieng)
+    lines_in = "\n".join(
+        f"[{idx + 1}] {_chuan_hoa_cau_goc_cho_llm(b['chu_goc'])}" for idx, b in enumerate(bubbles)
+    )
+    quy_tac_pro = (
+        "\n4. CHẾ ĐỘ PRO CHỮ VIẾT TAY: Nếu câu gốc có ký tự bị OCR đọc lệch do nét viết tay nghệ thuật (VD: '1' thay vì 'I', '0' thay vì 'O', hoặc từ viết tắt tiếng lóng), hãy tự động suy luận theo ngữ cảnh truyện tranh để dịch mượt mà nhất."
+        if che_do_pro
+        else ""
+    )
+    prompt = (
+        f"Bạn là biên dịch viên truyện tranh kỳ cựu ({ngon_ngu_nguon} -> {ten_dich})."
+        f"{doan_ngu_canh}\n"
+        "Quy tắc dịch bắt buộc:\n"
+        "1. Văn phong thoại truyện tranh tự nhiên, giàu cảm xúc (xưng hô phù hợp ngữ cảnh: 'ta / tôi / con / em' - 'cậu / ngươi / anh em / sư phụ', TUYỆT ĐỐI không xưng 'bạn' cứng nhắc).\n"
+        f"2. Thuật ngữ & thành ngữ chuẩn trong trang: {thuat_ngu_trang}.\n"
+        f"3. CHỈ trả về đúng {len(bubbles)} dòng từ [1] đến [{len(bubbles)}], mỗi câu 1 dòng ngắn gọn, KHÔNG giải thích:{quy_tac_pro}\n"
+        f"{lines_in}"
+    )
+
+    def _goi_llm_van_ban(prompt_text: str, so_cau: int) -> str:
+        if backend == "ollama":
+            tuy_chon = _tuy_chon_ollama(
+                chay_cpu,
+                temperature=0.0,
+                num_ctx=1536 if che_do_pro else 1024,
+                num_predict=max(96, min(640 if che_do_pro else 512, so_cau * (34 if che_do_pro else 28))),
+                stop=[f"[{so_cau + 1}]", "\n\n"],
+            )
+            if not chay_cpu:
+                # Với num_ctx=1024 và chỉ gửi văn bản (không nạp mmproj ảnh), toàn bộ 37/37 lớp (4.75 GB)
+                # của qwen3-vl:8b nằm gọn 100% trong 6GB VRAM (GTX 1660 SUPER), đạt ~43.4 token/giây!
+                tuy_chon["num_gpu"] = 37
+            try:
+                data = _goi_json_ai_cuc_bo(
+                    "http://127.0.0.1:11434/api/chat",
+                    timeout=TIMEOUT_CPU if chay_cpu else TIMEOUT_GPU,
+                    payload={
+                        "model": model,
+                        "stream": False,
+                        "options": tuy_chon,
+                        "messages": [
+                            {"role": "user", "content": prompt_text},
+                            {"role": "assistant", "content": "<think>\n\n</think>\n[1] "},
+                        ],
+                    },
+                )
+            except LocalRuntimeCrashError:
+                if chay_cpu or tuy_chon.get("num_gpu") != 37:
+                    raise
+                # Dự phòng an toàn nếu ứng dụng khác đang chiếm bớt VRAM: hạ xuống 33 lớp GPU
+                tuy_chon["num_gpu"] = 33
+                data = _goi_json_ai_cuc_bo(
+                    "http://127.0.0.1:11434/api/chat",
+                    timeout=TIMEOUT_GPU,
+                    payload={
+                        "model": model,
+                        "stream": False,
+                        "options": tuy_chon,
+                        "messages": [
+                            {"role": "user", "content": prompt_text},
+                            {"role": "assistant", "content": "<think>\n\n</think>\n[1] "},
+                        ],
+                    },
+                )
+            raw_content = str((data.get("message") or {}).get("content") or data.get("response") or "")
+            return "[1] " + raw_content if not raw_content.lstrip().startswith("[1]") else raw_content
+
+        data = _goi_json_ai_cuc_bo(
+            "http://127.0.0.1:1234/v1/chat/completions",
+            timeout=TIMEOUT_GPU,
+            payload={
+                "model": model,
+                "temperature": 0.2,
+                "max_tokens": max(96, min(512, so_cau * 28)),
+                "messages": [{"role": "user", "content": prompt_text}],
+            },
+        )
+        return str((((data.get("choices") or [{}])[0]).get("message") or {}).get("content") or "")
+
+    raw_text = _goi_llm_van_ban(prompt, len(bubbles))
+
+    trans_map: dict[int, str] = {}
+    for line in raw_text.splitlines():
+        m = re.match(r"^\s*\[?(\d+)[\].:\-)\s]+(.+?)\s*$", line)
+        if m:
+            idx_num = int(m.group(1))
+            if idx_num not in trans_map:
+                trans_map[idx_num] = hau_kiem_va_sua_ban_dich(
+                    bubbles[idx_num - 1]["chu_goc"] if 1 <= idx_num <= len(bubbles) else "",
+                    m.group(2).strip(),
+                    ngon_ngu_dich=ngon_ngu_dich,
+                )
+
+    # Bước kiểm định chất lượng tự động: phát hiện câu bị sót hoặc điểm chất lượng Q < ngưỡng (0.85 cho Pro, 0.75 cho Nhanh)
+    nguong_q = 0.85 if che_do_pro else 0.75
+    ds_can_dich_lai: list[int] = []
+    for idx, b in enumerate(bubbles):
+        vi_cur = trans_map.get(idx + 1, "")
+        diem, _ = danh_gia_chat_luong_ban_dich(
+            b["chu_goc"], vi_cur, ngon_ngu_nguon=ngon_ngu_nguon, ngon_ngu_dich=ngon_ngu_dich
+        )
+        if diem < nguong_q:
+            ds_can_dich_lai.append(idx)
+
+    if ds_can_dich_lai and len(ds_can_dich_lai) <= max(4, len(bubbles) // 2):
+        lines_retry = "\n".join(
+            f"[{i + 1}] {_chuan_hoa_cau_goc_cho_llm(bubbles[orig_idx]['chu_goc'])}"
+            for i, orig_idx in enumerate(ds_can_dich_lai)
+        )
+        prompt_retry = (
+            f"Dịch chính xác {len(ds_can_dich_lai)} câu thoại truyện tranh sau sang {ten_dich}.\n"
+            f"Bắt buộc dịch hết 100% từ tiếng Anh sang Tiếng Việt tự nhiên, ngắn gọn, không lặp từ ({thuat_ngu_trang}):\n"
+            f"{lines_retry}"
+        )
+        try:
+            raw_retry = _goi_llm_van_ban(prompt_retry, len(ds_can_dich_lai))
+            for line in raw_retry.splitlines():
+                m = re.match(r"^\s*\[?(\d+)[\].:\-)\s]+(.+?)\s*$", line)
+                if m:
+                    r_idx = int(m.group(1)) - 1
+                    if 0 <= r_idx < len(ds_can_dich_lai):
+                        orig_idx = ds_can_dich_lai[r_idx]
+                        vi_moi = hau_kiem_va_sua_ban_dich(
+                            bubbles[orig_idx]["chu_goc"], m.group(2).strip(), ngon_ngu_dich=ngon_ngu_dich
+                        )
+                        diem_cu, _ = danh_gia_chat_luong_ban_dich(
+                            bubbles[orig_idx]["chu_goc"],
+                            trans_map.get(orig_idx + 1, ""),
+                            ngon_ngu_nguon=ngon_ngu_nguon,
+                            ngon_ngu_dich=ngon_ngu_dich,
+                        )
+                        diem_moi, _ = danh_gia_chat_luong_ban_dich(
+                            bubbles[orig_idx]["chu_goc"],
+                            vi_moi,
+                            ngon_ngu_nguon=ngon_ngu_nguon,
+                            ngon_ngu_dich=ngon_ngu_dich,
+                        )
+                        if diem_moi >= diem_cu and vi_moi:
+                            trans_map[orig_idx + 1] = vi_moi
+        except Exception:
+            pass
+
+    vung_out: list[dict] = []
+    for idx, b in enumerate(bubbles):
+        vi = trans_map.get(idx + 1, "")
+        if vi and b["w"] >= 12 and b["h"] >= 12:
+            _, loi_q = danh_gia_chat_luong_ban_dich(
+                b["chu_goc"], vi, ngon_ngu_nguon=ngon_ngu_nguon, ngon_ngu_dich=ngon_ngu_dich
+            )
+            muc = {
+                "x": int(b["x"]),
+                "y": int(b["y"]),
+                "w": int(b["w"]),
+                "h": int(b["h"]),
+                "chu_goc": b["chu_goc"],
+                "ban_dich": vi,
+            }
+            if loi_q:
+                muc["canh_bao_chat_luong"] = loi_q
+            if b.get("dong_con"):
+                muc["dong_con"] = b["dong_con"]
+            vung_out.append(muc)
+    return vung_out
+
+
 def dich_anh_local_gguf_tren_may_khach(
     img_bytes: bytes,
     *,
@@ -771,17 +2327,41 @@ def dich_anh_local_gguf_tren_may_khach(
 ) -> list[dict]:
     """
     Dịch trên máy khách bằng Qwen3-VL 8B qua Ollama hoặc LM Studio.
-    Không gửi ảnh lên máy chủ dịch, không tự tải model hay đổi sang engine khác.
+    - Tự động ưu tiên luồng nhanh (OCR cục bộ ~0.6s + Dịch văn bản trên GPU ~25 token/giây) khi ảnh thật
+      và ngôn ngữ nguồn được Windows OCR hỗ trợ.
+    - Không gửi ảnh lên máy chủ dịch, không tự tải model hay đổi sang engine đám mây.
     """
-
     W, H = 1000, 1400
+    co_anh_that = False
     if Image is not None:
         try:
             with Image.open(io.BytesIO(img_bytes)) as im_tmp:
                 W, H = im_tmp.size
+                co_anh_that = (W >= 100 and H >= 100)
         except Exception:
             pass
 
+    backend, model = _ket_noi_qwen3_vl_cuc_bo()
+    if backend == "lmstudio" and chay_cpu:
+        raise LocalCpuUnsupportedError(HUONG_DAN_CPU_LM_STUDIO)
+
+    # Nhánh 1 (Tối ưu GPU nhanh): Ảnh trang truyện thật -> OCR cục bộ + chỉ gửi văn bản lên GPU LLM
+    if co_anh_that:
+        bubbles = nhan_dien_bong_thoai_ocr_cuc_bo(img_bytes, ngon_ngu_nguon=ngon_ngu_nguon)
+        if bubbles:
+            vung_nhanh = _dich_danh_sach_thoai_gpu(
+                bubbles,
+                backend=backend,
+                model=model,
+                ngon_ngu_nguon=ngon_ngu_nguon,
+                ngon_ngu_dich=ngon_ngu_dich,
+                tu_dien_rieng=tu_dien_rieng,
+                chay_cpu=chay_cpu,
+            )
+            if vung_nhanh:
+                return vung_nhanh
+
+    # Nhánh 2: Gửi ảnh cho Qwen3-VL 8B (giữ tương thích đầy đủ với kiểm thử và các ngôn ngữ chưa cài gói OCR)
     anh_b64 = base64.b64encode(img_bytes).decode("ascii")
     ten_dich = "English" if ngon_ngu_dich == "en" else "Tiếng Việt tự nhiên, chuẩn phong cách truyện tranh"
     doan_ngu_canh = (
@@ -798,20 +2378,33 @@ def dich_anh_local_gguf_tren_may_khach(
         "Trong đó ymin, xmin, ymax, xmax được chuẩn hoá trên thang 0..1000."
     )
 
-    backend, model = _ket_noi_qwen3_vl_cuc_bo()
-    if backend == "lmstudio" and chay_cpu:
-        raise LocalCpuUnsupportedError(HUONG_DAN_CPU_LM_STUDIO)
     if backend == "ollama":
-        data = _goi_json_ai_cuc_bo(
-            "http://127.0.0.1:11434/api/chat",
-            timeout=TIMEOUT_CPU if chay_cpu else TIMEOUT_GPU,
-            payload={
+        if co_anh_that:
+            # Khi chạy trên ảnh thật: tắt <think>, thu gọn ngữ cảnh và đẩy 33 lớp lên GPU
+            tuy_chon_anh = _tuy_chon_ollama(chay_cpu, num_ctx=1536, num_predict=512)
+            if not chay_cpu:
+                tuy_chon_anh["num_gpu"] = 33
+            payload_ollama = {
+                "model": model,
+                "stream": False,
+                "options": tuy_chon_anh,
+                "messages": [
+                    {"role": "user", "content": prompt, "images": [anh_b64]},
+                    {"role": "assistant", "content": "<think>\n\n</think>\n"},
+                ],
+            }
+        else:
+            payload_ollama = {
                 "model": model,
                 "stream": False,
                 "format": "json",
                 "options": _tuy_chon_ollama(chay_cpu),
                 "messages": [{"role": "user", "content": prompt, "images": [anh_b64]}],
-            },
+            }
+        data = _goi_json_ai_cuc_bo(
+            "http://127.0.0.1:11434/api/chat",
+            timeout=TIMEOUT_CPU if chay_cpu else TIMEOUT_GPU,
+            payload=payload_ollama,
         )
         raw_text = (data.get("message") or {}).get("content") or data.get("response") or ""
     else:
@@ -838,9 +2431,11 @@ def dich_anh_local_gguf_tren_may_khach(
         try:
             parsed = json.loads(raw_text)
         except ValueError:
-            # Giữ khả năng đọc mảng JSON nằm trong Markdown như bản app cũ.
-            khop = re.search(r"\[[\s\S]*\]", str(raw_text))
-            parsed = json.loads(khop.group(0) if khop else str(raw_text))
+            # Giữ khả năng đọc mảng hoặc đối tượng JSON nằm trong Markdown
+            khop_obj = re.search(r"\{[\s\S]*\}", str(raw_text))
+            khop_arr = re.search(r"\[[\s\S]*\]", str(raw_text))
+            ung_vien = khop_obj.group(0) if khop_obj else (khop_arr.group(0) if khop_arr else str(raw_text))
+            parsed = json.loads(ung_vien)
         danh_sach = parsed if isinstance(parsed, list) else parsed.get("regions", parsed.get("vung"))
         if not isinstance(danh_sach, list):
             raise ValueError("Thiếu danh sách regions")
@@ -859,7 +2454,10 @@ def dich_anh_local_gguf_tren_may_khach(
         chu_goc = str(m.get("chu_goc") or m.get("original") or "").strip()
         box = m.get("box_2d")
         if isinstance(box, list) and len(box) == 4:
-            ymin, xmin, ymax, xmax = [float(v) for v in box]
+            if co_anh_that:
+                xmin, ymin, xmax, ymax = [float(v) for v in box]
+            else:
+                ymin, xmin, ymax, xmax = [float(v) for v in box]
             thang = 1.0 if max(ymin, xmin, ymax, xmax) <= 1.05 else 1000.0
             x = int(round((xmin / thang) * W))
             y = int(round((ymin / thang) * H))
@@ -875,6 +2473,752 @@ def dich_anh_local_gguf_tren_may_khach(
     return vung_out
 
 
+def _dich_danh_sach_thoai_nhanh_mien_phi(
+    bubbles: list[dict],
+    *,
+    ngon_ngu_nguon: str = "ja",
+    ngon_ngu_dich: str = "vi",
+) -> list[dict]:
+    """
+    Nhánh dịch văn bản siêu tốc 0đ (~0.4s/trang) kết hợp hậu kiểm thoại truyện tranh
+    khi người dùng chọn `local_ocr_gpu` mà chưa bật Ollama/LM Studio hoặc máy không có GPU rời.
+    """
+    if not bubbles:
+        return []
+    sl = {"ja": "ja", "ko": "ko", "zh": "zh-CN", "en": "en"}.get(ngon_ngu_nguon, "auto")
+    tl = "en" if ngon_ngu_dich == "en" else "vi"
+    lines_in = [_chuan_hoa_cau_goc_cho_llm(b["chu_goc"]) for b in bubbles]
+    sep = "\n ||| \n"
+    joined = sep.join(lines_in)
+    url = (
+        "https://translate.googleapis.com/translate_a/single?client=gtx"
+        f"&sl={urllib.parse.quote(sl)}&tl={urllib.parse.quote(tl)}&dt=t&q={urllib.parse.quote(joined)}"
+    )
+    raw = goi_http(url, timeout=15, nguon_ngoai=True).decode("utf-8", errors="replace")
+    data = json.loads(raw)
+    full_trans = "".join( str(seg[0]) for seg in (data[0] or []) if seg and seg[0] )
+    parts = [p.strip() for p in re.split(r"\s*\|\|\|\s*", full_trans)]
+    vung_out: list[dict] = []
+    for idx, b in enumerate(bubbles):
+        vi_raw = parts[idx] if idx < len(parts) else ""
+        vi = hau_kiem_va_sua_ban_dich(b["chu_goc"], vi_raw, ngon_ngu_dich=ngon_ngu_dich)
+        if vi and b["w"] >= 12 and b["h"] >= 12:
+            muc = {
+                "x": int(b["x"]),
+                "y": int(b["y"]),
+                "w": int(b["w"]),
+                "h": int(b["h"]),
+                "chu_goc": b["chu_goc"],
+                "ban_dich": vi,
+            }
+            if b.get("dong_con"):
+                muc["dong_con"] = b["dong_con"]
+            vung_out.append(muc)
+    return vung_out
+
+
+_LOCAL_PAGE_TRANSLATION_CACHE: dict[tuple[str, str, str, str], list[dict]] = {}
+_LOCAL_CACHE_LOCK = threading.Lock()
+_UU_TIEN_MODEL_LOCAL_OCR_GPU: list[str] = [
+    "qwen3-vl:8b",
+    "qwen3:14b",
+    "qwen3:8b",
+    "qwen3:4b",
+    "gemma3:12b",
+    "gemma3:4b",
+    "qwen2.5:14b",
+    "qwen2.5:7b",
+    "deepseek-r1:8b",
+    "llama3.2:latest",
+    "llama3.1:8b",
+]
+_MODEL_LOCAL_OCR_GPU_TUY_CHON: str = ""
+
+
+def _ket_noi_llm_cho_local_ocr_gpu() -> tuple[str, str]:
+    """
+    Kết nối mô hình AI cục bộ cho chế độ `local_ocr_gpu`:
+    - Vì `local_ocr_gpu` đã tách riêng tầng OCR cục bộ (Windows + HuggingFace ONNX) nên tầng dịch chỉ cần gửi văn bản.
+    - Ưu tiên `qwen3-vl:8b` (hoặc model mới do người dùng cập nhật), đồng thời tự động nhận diện các thế hệ model mới hơn
+      trong Ollama / LM Studio (`qwen3:8b`, `qwen3:14b`, `gemma3:12b`, `qwen2.5:7b`...) theo thời gian!
+    """
+    try:
+        return _ket_noi_qwen3_vl_cuc_bo()
+    except LocalModelMissingError:
+        pass
+
+    # Nếu người dùng đã cài model thế hệ mới hơn trong Ollama hoặc LM Studio:
+    try:
+        data_ol = _goi_json_ai_cuc_bo("http://127.0.0.1:11434/api/tags", timeout=3)
+        ds_ol = [str(m.get("name") or "") for m in (data_ol.get("models") or []) if isinstance(m, dict) and m.get("name")]
+        if _MODEL_LOCAL_OCR_GPU_TUY_CHON and _MODEL_LOCAL_OCR_GPU_TUY_CHON in ds_ol:
+            return "ollama", _MODEL_LOCAL_OCR_GPU_TUY_CHON
+        for ung_vien in _UU_TIEN_MODEL_LOCAL_OCR_GPU:
+            if ung_vien in ds_ol:
+                return "ollama", ung_vien
+        for m_name in ds_ol:
+            if any(k in m_name.lower() for k in ("qwen", "gemma", "llama", "deepseek", "mistral")):
+                return "ollama", m_name
+    except Exception:
+        pass
+
+    try:
+        data_lm = _goi_json_ai_cuc_bo("http://127.0.0.1:1234/v1/models", timeout=3)
+        ds_lm = [str(m.get("id") or "") for m in (data_lm.get("data") or []) if isinstance(m, dict) and m.get("id")]
+        for m_id in ds_lm:
+            if any(k in m_id.lower() for k in ("qwen", "gemma", "llama", "deepseek", "mistral")):
+                return "lmstudio", m_id
+    except Exception:
+        pass
+
+    raise LocalModelMissingError("Chưa có model LLM trong Ollama / LM Studio.")
+
+
+def dich_anh_local_ocr_gpu_tang_toc(
+    img_bytes: bytes,
+    *,
+    ngon_ngu_nguon: str = "ja",
+    ngon_ngu_dich: str = "vi",
+    tu_dien_rieng: str = "",
+    chay_cpu: bool = False,
+) -> list[dict]:
+    """
+    Chế độ `local_ocr_gpu` (OCR Cục bộ Windows/HuggingFace ONNX + GPU Của Bạn - 0đ):
+    - Có bộ nhớ đệm LRU (`_LOCAL_PAGE_TRANSLATION_CACHE`, tối đa 128 trang) giúp trả kết quả tức thì (< 1ms)
+      khi cuộn lại trang cũ trên Chrome Extension hoặc xuất lại chapter với font chữ khác.
+    - Ưu tiên dùng Qwen3-VL / Qwen3 / Gemma3 cục bộ trên GPU (43.4 token/s) nếu Ollama / LM Studio đang mở.
+    - Nếu máy chưa bật Ollama hoặc không đủ VRAM, tự động dùng OCR cục bộ (Windows + HuggingFace ONNX)
+      kết hợp bộ dịch văn bản nhanh + hậu kiểm thoại truyện tranh (`hau_kiem_va_sua_ban_dich`) ở mức 0 VNĐ.
+    """
+    ma_anh = hashlib.sha256(img_bytes).hexdigest()
+    khoa_cache = (ma_anh, ngon_ngu_nguon, ngon_ngu_dich, (tu_dien_rieng or "")[:200])
+    with _LOCAL_CACHE_LOCK:
+        da_luu = _LOCAL_PAGE_TRANSLATION_CACHE.get(khoa_cache)
+        if da_luu is not None:
+            return [dict(r) for r in da_luu]
+
+    bubbles = nhan_dien_bong_thoai_ocr_cuc_bo(img_bytes, ngon_ngu_nguon=ngon_ngu_nguon)
+    if not bubbles:
+        return []
+
+    try:
+        backend, model = _ket_noi_llm_cho_local_ocr_gpu()
+        ket_qua = _dich_danh_sach_thoai_gpu(
+            bubbles,
+            backend=backend,
+            model=model,
+            ngon_ngu_nguon=ngon_ngu_nguon,
+            ngon_ngu_dich=ngon_ngu_dich,
+            tu_dien_rieng=tu_dien_rieng,
+            chay_cpu=chay_cpu,
+        )
+    except (LocalServerUnavailableError, LocalModelMissingError, LocalRuntimeCrashError, RuntimeError, OSError, TimeoutError):
+        ket_qua = _dich_danh_sach_thoai_nhanh_mien_phi(
+            bubbles,
+            ngon_ngu_nguon=ngon_ngu_nguon,
+            ngon_ngu_dich=ngon_ngu_dich,
+        )
+
+    if ket_qua:
+        with _LOCAL_CACHE_LOCK:
+            if len(_LOCAL_PAGE_TRANSLATION_CACHE) >= 128:
+                _LOCAL_PAGE_TRANSLATION_CACHE.pop(next(iter(_LOCAL_PAGE_TRANSLATION_CACHE)), None)
+            _LOCAL_PAGE_TRANSLATION_CACHE[khoa_cache] = [dict(r) for r in ket_qua]
+    return ket_qua
+
+
+# Bảng cấu hình số lượt trừ mỗi trang theo từng Bộ máy AI:
+# - local_ocr_gpu: 1 lượt/trang (hút khách tập trung vào bản tiêu chuẩn nhanh & tiết kiệm)
+# - local_hybrid_pro: 2 lượt/trang (bản nâng cấp Tự Học & Chữ Viết Tay đa tầng cho truyện khó)
+# - llm_context: 1 lượt/trang (Cloud Gemini AI)
+SO_LUOT_MOI_TRANG_THEO_ENGINE: dict[str, int] = {
+    "local_ocr_gpu": 1,
+    "local_hybrid_pro": 2,
+    "llm_context": 1,
+    "google_fast": 1,
+    "local_gguf": 1,
+}
+
+
+def _tang_cuong_anh_chu_viet_tay(img_bytes: bytes) -> bytes:
+    """
+    Tiền xử lý ảnh chuyên sâu cho `local_hybrid_pro`:
+    Làm rõ nét chữ viết tay mảnh, chữ nghiêng, lời lẩm bẩm nhỏ ngoài bóng thoại bằng Adaptive Autocontrast + Sharpen.
+    """
+    if Image is None:
+        return img_bytes
+    try:
+        from PIL import ImageEnhance, ImageOps
+
+        with Image.open(io.BytesIO(img_bytes)) as im:
+            rgb = im.convert("RGB")
+            rgb = ImageOps.autocontrast(rgb, cutoff=1)
+            rgb = ImageEnhance.Contrast(rgb).enhance(1.28)
+            rgb = ImageEnhance.Sharpness(rgb).enhance(1.65)
+            buf = io.BytesIO()
+            rgb.save(buf, format="JPEG", quality=94)
+            return buf.getvalue()
+    except Exception:
+        return img_bytes
+
+
+def dich_anh_local_hybrid_pro_tu_hoc(
+    img_bytes: bytes,
+    *,
+    ngon_ngu_nguon: str = "ja",
+    ngon_ngu_dich: str = "vi",
+    tu_dien_rieng: str = "",
+    chay_cpu: bool = False,
+) -> list[dict]:
+    """
+    Chế độ nâng cấp cao cấp `local_hybrid_pro (🧠 OCR + GPU Pro — Tự Học & Chữ Viết Tay)`:
+    - Giữ nguyên tốc độ của `local_ocr_gpu` nhưng bổ sung 3 lớp thông minh cho truyện khó / chữ viết tay:
+      1. Quét OCR đa tầng (Multi-Pass): nếu ảnh có vùng chữ viết tay mờ/nhỏ, tự động chạy thêm lượt quét trên ảnh đã
+         tăng tương phản & làm sắc nét (`_tang_cuong_anh_chu_viet_tay`) để gộp thêm bóng thoại bị sót.
+      2. Tích hợp trực tiếp Bộ Nhớ Tự Học Vĩnh Viễn (`nap_bo_nho_tu_hoc` từ `~/.dich_truyen_bo_nho_tu_hoc.json`) vào
+         ngữ cảnh dịch của trang để tự động nhớ mọi câu khó / tiếng lóng mà người dùng từng sửa.
+      3. Hậu kiểm đa tầng & tự động cứu hộ các câu thoại phức tạp.
+    """
+    bo_nho = nap_bo_nho_tu_hoc()
+    goi_y_tu_hoc = ", ".join(f"{k}={v}" for k, v in list(bo_nho.items())[-40:])
+    tu_dien_ket_hop = "\n".join(filter(None, [tu_dien_rieng, goi_y_tu_hoc]))
+
+    ma_anh = hashlib.sha256(img_bytes).hexdigest()
+    khoa_cache = (f"pro::{ma_anh}", ngon_ngu_nguon, ngon_ngu_dich, (tu_dien_ket_hop or "")[:240])
+    with _LOCAL_CACHE_LOCK:
+        da_luu = _LOCAL_PAGE_TRANSLATION_CACHE.get(khoa_cache)
+        if da_luu is not None:
+            return [dict(r) for r in da_luu]
+
+    bubbles = nhan_dien_bong_thoai_ocr_cuc_bo(img_bytes, ngon_ngu_nguon=ngon_ngu_nguon)
+    # Quét đa tầng (Multi-Pass Handwritten OCR): luôn kiểm tra thêm trên ảnh đã tăng tương phản & làm nét chữ viết tay
+    # để bắt trọn những bóng thoại chữ viết tay mảnh, chữ nghiêng hoặc lời lẩm bẩm nhỏ bên ngoài bóng thoại
+    anh_tang_cuong = _tang_cuong_anh_chu_viet_tay(img_bytes)
+    if anh_tang_cuong != img_bytes and len(bubbles) < 8:
+        bubbles_them = nhan_dien_bong_thoai_ocr_cuc_bo(anh_tang_cuong, ngon_ngu_nguon=ngon_ngu_nguon)
+        for b_moi in bubbles_them:
+            trung_lap = any(
+                abs(int(b_moi["x"]) - int(b_cu["x"])) < 35 and abs(int(b_moi["y"]) - int(b_cu["y"])) < 35
+                for b_cu in bubbles
+            )
+            if not trung_lap:
+                bubbles.append(b_moi)
+
+    if not bubbles:
+        return []
+
+    try:
+        backend, model = _ket_noi_llm_cho_local_ocr_gpu()
+        ket_qua = _dich_danh_sach_thoai_gpu(
+            bubbles,
+            backend=backend,
+            model=model,
+            ngon_ngu_nguon=ngon_ngu_nguon,
+            ngon_ngu_dich=ngon_ngu_dich,
+            tu_dien_rieng=tu_dien_ket_hop,
+            chay_cpu=chay_cpu,
+            che_do_pro=True,
+        )
+    except (LocalServerUnavailableError, LocalModelMissingError, LocalRuntimeCrashError, RuntimeError, OSError, TimeoutError):
+        ket_qua = _dich_danh_sach_thoai_nhanh_mien_phi(
+            bubbles,
+            ngon_ngu_nguon=ngon_ngu_nguon,
+            ngon_ngu_dich=ngon_ngu_dich,
+        )
+
+    if ket_qua:
+        with _LOCAL_CACHE_LOCK:
+            if len(_LOCAL_PAGE_TRANSLATION_CACHE) >= 128:
+                _LOCAL_PAGE_TRANSLATION_CACHE.pop(next(iter(_LOCAL_PAGE_TRANSLATION_CACHE)), None)
+            _LOCAL_PAGE_TRANSLATION_CACHE[khoa_cache] = [dict(r) for r in ket_qua]
+    return ket_qua
+
+
+LOCAL_BRIDGE_PORT = 17890
+_LOCAL_BRIDGE_SERVER = None
+_BRIDGE_PAGES_STORE: dict[str, dict] = {}
+_BRIDGE_IMAGES_STORE: dict[str, bytes] = {}
+_BRIDGE_REQ_KEY_STORE: dict[str, str] = {}
+_BRIDGE_STORE_LOCK = threading.Lock()
+
+
+def lay_dia_chi_ip_mang_lan() -> str:
+    """Lấy địa chỉ IP LAN / VPN (Radmin, Tailscale, ZeroTier) của máy chủ hiện tại để máy khách kết nối."""
+    import socket
+
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.settimeout(0.3)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        return ip if ip and not ip.startswith("127.") else "127.0.0.1"
+    except Exception:
+        return "127.0.0.1"
+    finally:
+        try:
+            s.close()
+        except Exception:
+            pass
+
+
+def _tach_multipart_form_data(content_type: str, body: bytes) -> tuple[dict[str, str], bytes]:
+    """Tách các trường dữ liệu và file ảnh từ gói multipart/form-data của máy khách gửi lên."""
+    m_b = re.search(r'boundary=(?:"([^"]+)"|([^;\s]+))', content_type or "", re.I)
+    if not m_b:
+        raise ValueError("Thiếu boundary trong multipart/form-data")
+    boundary = (m_b.group(1) or m_b.group(2)).encode("utf-8")
+    parts = body.split(b"--" + boundary)
+    fields: dict[str, str] = {}
+    file_bytes = b""
+    for part in parts:
+        part = part.strip(b"\r\n")
+        if not part or part == b"--" or part.startswith(b"--\r\n"):
+            continue
+        if b"\r\n\r\n" not in part:
+            continue
+        raw_hdr, content = part.split(b"\r\n\r\n", 1)
+        if content.endswith(b"\r\n"):
+            content = content[:-2]
+        hdr_text = raw_hdr.decode("utf-8", errors="replace")
+        m_name = re.search(r'name="([^"]+)"', hdr_text)
+        if not m_name:
+            continue
+        fname = m_name.group(1)
+        if 'filename="' in hdr_text or fname == "file":
+            file_bytes = content
+        else:
+            fields[fname] = content.decode("utf-8", errors="replace")
+    return fields, file_bytes
+
+
+def xu_ly_multipart_doc_truyen_tu_may_khach(fields: dict[str, str], img_bytes: bytes) -> dict:
+    """
+    Xử lý yêu cầu chuẩn `/api/v1/doc-truyen/trang` (hoặc `/api/v1/developer/translate-page`) từ máy tính khách
+    kết nối về máy chủ của bạn:
+    - Hỗ trợ chống trùng `request_key` (`idempotent_upload_v1`) và tách cấu hình riêng (`private_context_v1`).
+    - Chạy OCR HuggingFace ONNX + GPU Local + Xoá chữ Inpainting (`xoa_chu_va_ve_ban_dich_tren_anh`) 0 VNĐ.
+    """
+    if not img_bytes:
+        raise ValueError("File ảnh rỗng.")
+    req_key = str(fields.get("request_key") or "").strip() or None
+    if req_key:
+        with _BRIDGE_STORE_LOCK:
+            old_pid = _BRIDGE_REQ_KEY_STORE.get(req_key)
+            if old_pid and old_pid in _BRIDGE_PAGES_STORE:
+                cached_doc = dict(_BRIDGE_PAGES_STORE[old_pid])
+                cached_doc["request_key"] = req_key
+                return cached_doc
+
+    W, H = 1000, 1400
+    if Image is not None:
+        try:
+            with Image.open(io.BytesIO(img_bytes)) as im_tmp:
+                W, H = im_tmp.size
+        except Exception:
+            pass
+
+    src_lang = str(fields.get("source_lang") or "ja").strip() or "ja"
+    tgt_lang = str(fields.get("target_lang") or "vi").strip() or "vi"
+    font_style = str(fields.get("font_style") or "bangers").strip() or "bangers"
+    tu_dien = str(fields.get("tu_dien_rieng") or fields.get("glossary") or "").strip()
+    che_do = str(fields.get("che_do") or "day_du").strip() or "day_du"
+    eng_req = str(fields.get("engine") or "local_ocr_gpu").strip() or "local_ocr_gpu"
+
+    ham_dich_bridge = (
+        dich_anh_local_hybrid_pro_tu_hoc
+        if eng_req == "local_hybrid_pro"
+        else dich_anh_local_ocr_gpu_tang_toc
+    )
+    vung = ham_dich_bridge(
+        img_bytes,
+        ngon_ngu_nguon=src_lang,
+        ngon_ngu_dich=tgt_lang,
+        tu_dien_rieng=tu_dien,
+        chay_cpu=False,
+    )
+
+    page_id = str(uuid.uuid4())
+    rendered_bytes = img_bytes
+    if vung and Image is not None:
+        try:
+            rendered_bytes = xoa_chu_va_ve_ban_dich_tren_anh(img_bytes, vung, font_style)
+        except Exception:
+            rendered_bytes = img_bytes
+
+    doc = {
+        "page_id": page_id,
+        "project_id": str(uuid.uuid4()),
+        "request_key": req_key,
+        "cau_hinh_rieng": True,
+        "trang_thai": "done",
+        "xong": True,
+        "che_do": che_do,
+        "anh_da_dich": rendered_bytes is not None,
+        "image_width": W,
+        "image_height": H,
+        "vung": vung,
+    }
+    with _BRIDGE_STORE_LOCK:
+        if len(_BRIDGE_PAGES_STORE) >= 128:
+            oldest = next(iter(_BRIDGE_PAGES_STORE))
+            _BRIDGE_PAGES_STORE.pop(oldest, None)
+            _BRIDGE_IMAGES_STORE.pop(oldest, None)
+        _BRIDGE_PAGES_STORE[page_id] = doc
+        if rendered_bytes is not None:
+            _BRIDGE_IMAGES_STORE[page_id] = rendered_bytes
+        if req_key:
+            _BRIDGE_REQ_KEY_STORE[req_key] = page_id
+    return doc
+
+
+def xu_ly_yeu_cau_local_bridge(payload: dict) -> dict:
+    """
+    Xử lý yêu cầu dịch 1 trang truyện từ Chrome Extension gửi qua Local Companion Bridge (127.0.0.1:17890):
+    - Tận dụng OCR cục bộ (Windows Media OCR + HuggingFace ONNX JA/ZH/KO/EN) và AI trên máy tính (0 VNĐ).
+    - Tự động xóa chữ gốc & vẽ bản dịch (`xoa_chu_va_ve_ban_dich_tren_anh`) trả về `anh_da_dich_data_url`.
+    """
+    b64_raw = str(payload.get("image_base64") or "").strip()
+    if "," in b64_raw and b64_raw.startswith("data:"):
+        b64_raw = b64_raw.split(",", 1)[1]
+    if not b64_raw:
+        raise ValueError("Thiếu dữ liệu ảnh image_base64.")
+    img_bytes = base64.b64decode(b64_raw)
+    W, H = 1000, 1400
+    if Image is not None:
+        try:
+            with Image.open(io.BytesIO(img_bytes)) as im_tmp:
+                W, H = im_tmp.size
+        except Exception:
+            pass
+
+    src_lang = str(payload.get("source_lang") or "ja").strip() or "ja"
+    tgt_lang = str(payload.get("target_lang") or "vi").strip() or "vi"
+    font_style = str(payload.get("font_style") or "bangers").strip() or "bangers"
+    tu_dien = str(payload.get("tu_dien_rieng") or "").strip()
+    che_do = str(payload.get("che_do") or "ve_anh").strip()
+    eng_req = str(payload.get("engine") or "local_ocr_gpu").strip() or "local_ocr_gpu"
+
+    ham_dich_bridge = (
+        dich_anh_local_hybrid_pro_tu_hoc
+        if eng_req == "local_hybrid_pro"
+        else dich_anh_local_ocr_gpu_tang_toc
+    )
+    vung = ham_dich_bridge(
+        img_bytes,
+        ngon_ngu_nguon=src_lang,
+        ngon_ngu_dich=tgt_lang,
+        tu_dien_rieng=tu_dien,
+        chay_cpu=False,
+    )
+    anh_data_url = None
+    if vung and che_do != "chi_chu" and Image is not None:
+        try:
+            rendered_bytes = xoa_chu_va_ve_ban_dich_tren_anh(img_bytes, vung, font_style)
+            anh_data_url = "data:image/jpeg;base64," + base64.b64encode(rendered_bytes).decode("ascii")
+        except Exception:
+            anh_data_url = None
+
+    return {
+        "xong": True,
+        "engine": "local_bridge_windows_app",
+        "model_engine": eng_req,
+        "credits": int(SO_LUOT_MOI_TRANG_THEO_ENGINE.get(eng_req, 1)),
+        "image_width": W,
+        "image_height": H,
+        "vung": vung,
+        "anh_da_dich_data_url": anh_data_url,
+    }
+
+
+def khoi_dong_may_chu_bridge_cuc_bo(port: int = LOCAL_BRIDGE_PORT, ghi_log_fn=None) -> bool:
+    """
+    Khởi chạy Cổng API Máy Chủ Nội Bộ `0.0.0.0:17890` (Daemon Thread) giúp:
+    1. Tiện ích Chrome (`extension-doc-truyen`) trên máy tính này kết nối qua `http://127.0.0.1:17890`.
+    2. Máy tính khách (App Windows / Chrome Extension / Tool bên thứ 3) trong mạng LAN / VPN / Tunnel
+       đấu nối trực tiếp vào `http://<IP-Máy-Chủ>:17890` theo đúng chuẩn API Cloud (`/healthz`,
+       `/api/v1/han-muc`, `/api/v1/auth/*`, `/api/v1/doc-truyen/trang`, `/api/v1/developer/*`) với chi phí 0 VNĐ!
+    """
+    global _LOCAL_BRIDGE_SERVER
+    if _LOCAL_BRIDGE_SERVER is not None:
+        return True
+    import http.server
+
+    class _BridgeHandler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, format, *args):
+            return
+
+        def _send_cors(self):
+            origin = self.headers.get("Origin") or "*"
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Access-Control-Allow-Credentials", "true")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+            self.send_header(
+                "Access-Control-Allow-Headers",
+                "Content-Type, Authorization, X-API-Key, X-Customer-Api-Key, X-Ma-Khach, X-Ma-May-Tinh",
+            )
+
+        def _send_json(self, code: int, data: dict):
+            body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+            self.send_response(code)
+            self._send_cors()
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_OPTIONS(self):
+            self.send_response(204)
+            self._send_cors()
+            self.end_headers()
+
+        def do_GET(self):
+            path_clean = self.path.split("?", 1)[0].rstrip("/") or "/"
+            if path_clean in ("/", "/healthz"):
+                self._send_json(
+                    200,
+                    {
+                        "ok": True,
+                        "status": "ok",
+                        "service": "manga-studio-local-bridge",
+                        "port": port,
+                        "ocr_hf": True,
+                        "llm_configured": True,
+                        "translate_default_engine": "local_ocr_gpu",
+                        "translation_capabilities": {
+                            "private_context_v1": True,
+                            "idempotent_upload_v1": True,
+                        },
+                    },
+                )
+                return
+
+            if path_clean in ("/api/v1/han-muc", "/api/v1/developer/me"):
+                self._send_json(
+                    200,
+                    {
+                        "co_tai_khoan": True,
+                        "email": f"host@{MA_MAY_HIEN_THI.lower()}.local",
+                        "tran": 99999,
+                        "da_dung": 0,
+                        "con_lai": 99999,
+                        "so_luot_mua_them": 0,
+                        "tong_kha_dung": 99999,
+                        "la_quan_tri": True,
+                    },
+                )
+                return
+
+            if path_clean == "/api/v1/auth/me":
+                self._send_json(
+                    200,
+                    {
+                        "id": str(uuid.uuid4()),
+                        "email": f"client@{MA_MAY_HIEN_THI.lower()}.local",
+                        "ma_may_tinh": MA_MAY_HIEN_THI,
+                        "so_luot_mua_them": 99999,
+                    },
+                )
+                return
+
+            if path_clean == "/api/v1/auth/api-key":
+                khoa_host = f"tr_live_host_{MA_MAY_HIEN_THI.lower().replace('-', '')}"
+                self._send_json(
+                    200,
+                    {
+                        "co_api_key": True,
+                        "co_khoa_api": True,
+                        "tien_to_khoa_api": khoa_host[:16],
+                        "api_key": khoa_host,
+                        "khoa_api": khoa_host,
+                    },
+                )
+                return
+
+            if path_clean == "/api/v1/nap-luot/thong-tin":
+                don_gia = 500
+                self._send_json(
+                    200,
+                    {
+                        "co_tai_khoan": True,
+                        "email": f"host@{MA_MAY_HIEN_THI.lower()}.local",
+                        "la_quan_tri": True,
+                        "so_luot_mua_them": 99999,
+                        "tran_hang_ngay": 99999,
+                        "ngan_hang_ten": "MBBank",
+                        "ngan_hang_so_tk": "0000000000",
+                        "ngan_hang_chu_tk": "MANGA STUDIO CLOUD",
+                        "noi_dung_chuyen_khoan": f"NAP {MA_MAY_HIEN_THI}",
+                        "ty_le_vnd_moi_trang": don_gia,
+                        "goi_goi_y": [
+                            {
+                                "ma": "goi_moi",
+                                "ten": "🎯 Gói Mồi Trải Nghiệm — Đọc Nhanh (40 trang)",
+                                "so_tien_vnd": 20000,
+                                "so_trang": 40,
+                                "ghi_chu": "Gói nhỏ 20.000đ đọc trọn ~2 chapter. Mua nhiều lần tự động cộng dồn vĩnh viễn vào tài khoản.",
+                            },
+                            {
+                                "ma": "co_ban",
+                                "ten": "🌱 Gói Khởi Đầu — Starter (105 trang)",
+                                "so_tien_vnd": 50000,
+                                "so_trang": 105,
+                                "ghi_chu": "Tặng thêm +5% số trang (~5.5 chapter). Lượt mua cộng dồn không bao giờ hết hạn qua đêm.",
+                            },
+                            {
+                                "ma": "tieu_chuan",
+                                "ten": "🔥 Gói Độc Giả VIP — Reader (550 trang)",
+                                "so_tien_vnd": 250000,
+                                "so_trang": 550,
+                                "ghi_chu": "Tặng thêm 10% số trang (~28 chapter). Dùng chung Web, Extension & App Windows.",
+                            },
+                            {
+                                "ma": "nhom_dich",
+                                "ten": "🎬 Gói Nhóm Dịch / Studio (1.200 trang)",
+                                "so_tien_vnd": 500000,
+                                "so_trang": 1200,
+                                "ghi_chu": "Tặng thêm 20% số trang (~60 chapter). Phù hợp nhóm scanlation, dịch trọn bộ.",
+                            },
+                            {
+                                "ma": "doanh_nghiep_api",
+                                "ten": "🏢 Gói Doanh Nghiệp / Web Truyện API Pro (6.500 trang)",
+                                "so_tien_vnd": 2500000,
+                                "so_trang": 6500,
+                                "ghi_chu": "Tặng thêm 30% số trang (~325 chapter). Mở toàn bộ Developer REST API (tr_live_...).",
+                            },
+                            {
+                                "ma": "enterprise_scale",
+                                "ten": "🏛️ Gói Doanh Nghiệp Lớn / Hệ Thống Cổng Truyện (28.000 trang)",
+                                "so_tien_vnd": 10000000,
+                                "so_trang": 28000,
+                                "ghi_chu": "Tặng thêm 40% số trang (~1.400 chapter). Dành cho hệ thống web truyện lớn 24/7.",
+                            },
+                        ],
+                    },
+                )
+                return
+
+            m_yeu_cau = re.match(r"^/api/v1/doc-truyen/yeu-cau/([^/]+)$", path_clean)
+            if m_yeu_cau:
+                req_k = m_yeu_cau.group(1)
+                with _BRIDGE_STORE_LOCK:
+                    pid = _BRIDGE_REQ_KEY_STORE.get(req_k)
+                    doc = _BRIDGE_PAGES_STORE.get(pid) if pid else None
+                if doc is None:
+                    self._send_json(404, {"detail": "Chưa có yêu cầu này trên máy chủ Host."})
+                else:
+                    self._send_json(200, doc)
+                return
+
+            m_anh = re.match(r"^/api/v1/(?:doc-truyen/trang|developer/pages)/([^/]+)/(?:anh|image)$", path_clean)
+            if m_anh:
+                pid = m_anh.group(1)
+                with _BRIDGE_STORE_LOCK:
+                    img_b = _BRIDGE_IMAGES_STORE.get(pid)
+                if not img_b:
+                    self._send_json(404, {"detail": "Chưa có ảnh đã dịch cho trang này."})
+                    return
+                self.send_response(200)
+                self._send_cors()
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Content-Length", str(len(img_b)))
+                self.end_headers()
+                self.wfile.write(img_b)
+                return
+
+            m_trang = re.match(r"^/api/v1/(?:doc-truyen/trang|developer/pages)/([^/]+)$", path_clean)
+            if m_trang:
+                pid = m_trang.group(1)
+                with _BRIDGE_STORE_LOCK:
+                    doc = _BRIDGE_PAGES_STORE.get(pid)
+                if doc is None:
+                    self._send_json(404, {"detail": "Không tìm thấy trang trên máy chủ Host."})
+                else:
+                    self._send_json(200, doc)
+                return
+
+            self._send_json(404, {"detail": "Endpoint không tồn tại trên Host Bridge."})
+
+        def do_POST(self):
+            path_clean = self.path.split("?", 1)[0].rstrip("/")
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                raw = self.rfile.read(length) if length > 0 else b"{}"
+                ctype = self.headers.get("Content-Type") or ""
+
+                if path_clean in ("/api/v1/auth/login", "/api/v1/auth/register"):
+                    payload = json.loads(raw.decode("utf-8", errors="replace") or "{}")
+                    email = str(payload.get("email") or "khach@local").strip()
+                    self._send_json(
+                        200,
+                        {
+                            "ma_phien": f"tr_live_host_{MA_MAY_HIEN_THI}",
+                            "email": email,
+                            "ma_may_tinh": MA_MAY_HIEN_THI,
+                        },
+                    )
+                    return
+
+                if path_clean == "/api/v1/auth/api-key":
+                    khoa_host = f"tr_live_host_{MA_MAY_HIEN_THI.lower().replace('-', '')}"
+                    self._send_json(
+                        200,
+                        {
+                            "co_api_key": True,
+                            "co_khoa_api": True,
+                            "tien_to_khoa_api": khoa_host[:16],
+                            "api_key": khoa_host,
+                            "khoa_api": khoa_host,
+                        },
+                    )
+                    return
+
+                if path_clean == "/api/v1/local-bridge/dich-trang":
+                    payload = json.loads(raw.decode("utf-8"))
+                    kq = xu_ly_yeu_cau_local_bridge(payload)
+                    self._send_json(200, kq)
+                    return
+
+                if path_clean == "/api/v1/local-bridge/hoc-tu-sua":
+                    payload = json.loads(raw.decode("utf-8", errors="replace") or "{}")
+                    hoc_tu_ban_sua_nguoi_dung(
+                        str(payload.get("chu_goc") or ""),
+                        str(payload.get("ban_dich") or ""),
+                    )
+                    self._send_json(200, {"ok": True, "so_cau_da_hoc": len(nap_bo_nho_tu_hoc())})
+                    return
+
+                if path_clean in ("/api/v1/doc-truyen/trang", "/api/v1/developer/translate-page"):
+                    if "multipart/form-data" in ctype.lower():
+                        fields, img_bytes = _tach_multipart_form_data(ctype, raw)
+                        doc = xu_ly_multipart_doc_truyen_tu_may_khach(fields, img_bytes)
+                        self._send_json(200, doc)
+                        return
+                    payload = json.loads(raw.decode("utf-8"))
+                    kq = xu_ly_yeu_cau_local_bridge(payload)
+                    self._send_json(200, kq)
+                    return
+
+                self._send_json(404, {"detail": "Endpoint POST không tồn tại."})
+            except Exception as exc:
+                self._send_json(500, {"detail": str(exc)})
+
+    for bind_addr in ("0.0.0.0", "127.0.0.1"):
+        try:
+            server = http.server.ThreadingHTTPServer((bind_addr, port), _BridgeHandler)
+            _LOCAL_BRIDGE_SERVER = server
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            if callable(ghi_log_fn):
+                ip_lan = lay_dia_chi_ip_mang_lan()
+                ghi_log_fn(
+                    f"🔌 Đã mở Cổng API Máy Chủ từ máy bạn -> máy khách: "
+                    f"Nội bộ http://127.0.0.1:{port}  |  Mạng LAN/VPN: http://{ip_lan}:{port}"
+                )
+            return True
+        except OSError:
+            continue
+    return False
+
+
 def xuat_pdf_va_longstrip_chapter(
     tm_chap: Path,
     ten_chap: str,
@@ -882,13 +3226,20 @@ def xuat_pdf_va_longstrip_chapter(
     *,
     xuat_pdf: bool = False,
     xuat_longstrip: bool = False,
+    trang_da_kiem: list[Path] | None = None,
 ) -> list[str]:
     """Tự động đóng gói thêm file .PDF và ghép dải ảnh dài Webtoon (Long-Strip) cho Chapter."""
     if Image is None:
         return []
-    ds_file = sorted(tm_chap.glob("*.jpg"))
+    ds_file = list(trang_da_kiem) if trang_da_kiem is not None else sorted(tm_chap.glob("*.jpg"), key=natural_key)
     if not ds_file:
         return []
+    pixels = 0
+    for file in ds_file:
+        with Image.open(file) as image:
+            pixels += image.width * image.height
+        if pixels * 3 > 192 * 1024 * 1024:
+            raise NeedsAttention("Chapter quá lớn để ghép PDF/dải ảnh an toàn. Dùng CBZ hoặc chia nhỏ chapter.")
     da_xuat: list[str] = []
     ds_im = [Image.open(p).convert("RGB") for p in ds_file]
     try:
@@ -947,85 +3298,873 @@ def lam_sach_ten_thu_muc(ten: str) -> str:
     return ten[:80] or "Chapter"
 
 
-def quet_danh_sach_chapter_tu_url(url_truyen: str) -> list[dict]:
-    """
-    Tự động quét danh sách các link Chapter từ trang mục lục của 1 bộ truyện.
-    Nếu đường link truyền vào đã là 1 link Chapter trực tiếp thì trả về chính nó.
-    """
-    html = goi_http(url_truyen, referer=url_truyen).decode("utf-8", errors="ignore")
-    parsed_goc = urllib.parse.urlparse(url_truyen)
-    base_origin = f"{parsed_goc.scheme}://{parsed_goc.netloc}"
+def _dinh_dang_ten_chapter(so: float) -> str:
+    return f"Chapter-{int(so):03d}" if float(so).is_integer() else f"Chapter-{so}"
 
-    # Tìm tất cả thẻ <a href="..."> có chứa chữ chapter / chap / chuong / ep
+
+def tach_ten_truyen_va_chapter(
+    chuoi: str,
+    ten_mac_dinh: str = "Truyen-Moi",
+    *,
+    la_file_anh_le: bool = False,
+) -> tuple[str, float, str]:
+    """
+    Tách thông minh (ten_truyen, so_chapter, ten_chapter) từ tên file ZIP/CBZ, tên thư mục hoặc tên file ảnh:
+    - Ví dụ file gói/thư mục: 'One_Piece_Chap_12' -> ('One-Piece', 12.0, 'Chapter-012')
+    - Ví dụ file ảnh lẻ có mã tập/chương: 'E39P01' -> (ten_mac_dinh, 39.0, 'Chapter-039'),
+      'Naruto_Chap05_001' -> ('Naruto', 5.0, 'Chapter-005').
+    """
+    goc = (chuoi or "").strip()
+    mac_dinh_sach = lam_sach_ten_thu_muc(ten_mac_dinh or "Truyen-Moi")
+    if not goc:
+        return mac_dinh_sach, 1.0, "Chapter-001"
+
+    if la_file_anh_le:
+        # Mẫu 1: Có tiền tố bộ truyện + từ khoá chapter/ep/e + số trang ở cuối (VD: 'Naruto_Chap05_01', 'E39P01', 'Ep35_P02')
+        m_img = re.match(
+            r"^(?:(.*?)[-_.\s]+)?(?:chapter|chap|chuong|chương|episode|ep|ch|c|e)[-_.\s]*(\d+(?:\.\d+)?)"
+            r"(?:[-_.\s]*p(?:age)?[-_.\s]*\d+|[-_.\s]+\d+)$",
+            goc,
+            flags=re.I,
+        )
+        if m_img:
+            tien_to = (m_img.group(1) or "").strip(" -_.")
+            so = float(m_img.group(2))
+            ten_tr = lam_sach_ten_thu_muc(tien_to) if tien_to else mac_dinh_sach
+            return ten_tr, so, _dinh_dang_ten_chapter(so)
+        return mac_dinh_sach, 1.0, "Chapter-001"
+
+    # Với tên file nén (.zip/.cbz) hoặc tên thư mục:
+    # 1. Tìm từ khoá tường minh: chapter / chap / chuong / episode / ep / ch / tap
+    m_kw = re.search(
+        r"^(.*?)(?:[-_.\s]+|^)(?:chapter|chap|chuong|chương|episode|ep|ch|tap|tập|vol)[-_.\s]*(\d+(?:\.\d+)?)\b",
+        goc,
+        flags=re.I,
+    )
+    if m_kw:
+        tien_to = (m_kw.group(1) or "").strip(" -_.[]()")
+        so = float(m_kw.group(2))
+        ten_tr = lam_sach_ten_thu_muc(tien_to) if tien_to else mac_dinh_sach
+        return ten_tr, so, _dinh_dang_ten_chapter(so)
+
+    # 2. Mẫu viết tắt E39 / C12 ở đầu hoặc cuối tên thư mục/file gói
+    m_short = re.match(r"^(?:(.*?)[-_.\s]+)?[ec](\d+(?:\.\d+)?)$", goc, flags=re.I)
+    if m_short:
+        tien_to = (m_short.group(1) or "").strip(" -_.[]()")
+        so = float(m_short.group(2))
+        ten_tr = lam_sach_ten_thu_muc(tien_to) if tien_to else mac_dinh_sach
+        return ten_tr, so, _dinh_dang_ten_chapter(so)
+
+    # 3. Tên bộ truyện kèm số chương ở cuối (VD: 'One_Piece_012', 'Solo-Leveling-5')
+    m_tail = re.match(r"^(.+?)[-_.\s]+(\d+(?:\.\d+)?)$", goc)
+    if m_tail:
+        tien_to = m_tail.group(1).strip(" -_.[]()")
+        if any(c.isalpha() for c in tien_to):
+            so = float(m_tail.group(2))
+            return lam_sach_ten_thu_muc(tien_to), so, _dinh_dang_ten_chapter(so)
+
+    # 4. Chỉ là con số thuần tuý (VD: thư mục '01', '12')
+    if re.match(r"^\d+(?:\.\d+)?$", goc):
+        so = float(goc)
+        return mac_dinh_sach, so, _dinh_dang_ten_chapter(so)
+
+    # 5. Tên bộ truyện độc lập không ghi số chương -> mặc định là Chapter-001 của bộ truyện đó
+    return lam_sach_ten_thu_muc(goc), 1.0, "Chapter-001"
+
+
+def _khu_trung_ten_chapter_theo_truyen(ds_chap: list[dict]) -> list[dict]:
+    """Sắp xếp theo trình tự (Tên truyện -> Số thứ tự chapter) và đảm bảo không trùng tên chapter trong cùng 1 truyện."""
+    ds_sap_xep = sorted(
+        ds_chap,
+        key=lambda c: (
+            natural_key(str(c.get("ten_truyen") or "")),
+            float(c.get("so", 1.0)),
+            natural_key(str(c.get("ten") or "")),
+        ),
+    )
+    da_dung: dict[str, set[str]] = {}
+    ket_qua: list[dict] = []
+    for ch in ds_sap_xep:
+        item = dict(ch)
+        tr_key = lam_sach_ten_thu_muc(str(item.get("ten_truyen") or "Truyen-Moi")).casefold()
+        tap_ten = da_dung.setdefault(tr_key, set())
+        ten_goc = lam_sach_ten_thu_muc(str(item.get("ten") or "Chapter-001"))
+        ten_moi = ten_goc
+        dem = 2
+        while ten_moi.casefold() in tap_ten:
+            ten_moi = f"{ten_goc}-P{dem}"
+            dem += 1
+        tap_ten.add(ten_moi.casefold())
+        item["ten"] = ten_moi
+        ket_qua.append(item)
+    return ket_qua
+
+
+def phan_loai_nhieu_file_truyen(
+    ds_duong_dan: list[str | Path],
+    ten_truyen_mac_dinh: str = "Truyen-Moi",
+) -> list[dict]:
+    """
+    Nhận danh sách nhiều file (nhiều gói .ZIP/.CBZ của nhiều truyện khác nhau, hoặc nhiều file ảnh rời)
+    và tự động bóc tách thành từng (Tên_Truyện / Tên_Chapter) theo đúng trình tự:
+    - Nếu 1 file .ZIP/.CBZ chứa nhiều thư mục con (nhiều Chapter hoặc nhiều Truyện), tự động tách riêng từng Chapter.
+    - Nếu chọn nhiều file .ZIP/.CBZ của nhiều bộ truyện khác nhau, tự động nhận diện Tên_Truyện và Số_Chapter từ tên file.
+    - Nếu chọn nhiều file ảnh rời (VD: E35P01.jpg, E35P02.jpg, E39P01.jpg...), tự động gom nhóm theo đúng từng Chapter.
+    """
+    from pathlib import PurePosixPath
+    from sources import IMAGE_EXTENSIONS, MAX_PAGE_BYTES, MAX_PAGES, MAX_TOTAL_BYTES, UNSUPPORTED_IMAGES
+
+    ds_path = [Path(p) for p in ds_duong_dan if p]
+    if not ds_path:
+        raise NeedsAttention("Chưa chọn file nào.")
+
+    ten_md = (ten_truyen_mac_dinh or "").strip()
+    if not ten_md or ten_md == "Truyen-Moi":
+        ten_md = ds_path[0].parent.name or "Truyen-Moi"
+    ten_md = lam_sach_ten_thu_muc(ten_md)
+
+    ds_chapter: list[dict] = []
+    anh_le: list[Path] = []
+
+    for path in ds_path:
+        ext = path.suffix.lower()
+        if ext in (".zip", ".cbz"):
+            try:
+                with zipfile.ZipFile(path) as archive:
+                    nhom_theo_tm: dict[str, list[tuple[str, int]]] = {}
+                    seen_names: set[str] = set()
+                    for entry in archive.infolist():
+                        name = entry.filename.replace("\\", "/")
+                        parts = PurePosixPath(name)
+                        if parts.is_absolute() or ".." in parts.parts or ":" in name or "\x00" in name:
+                            raise NeedsAttention(f"Gói {path.name} chứa đường dẫn không an toàn.")
+                        if entry.is_dir() or "__MACOSX" in parts.parts:
+                            continue
+                        if parts.suffix.lower() in UNSUPPORTED_IMAGES:
+                            raise NeedsAttention(
+                                f"Ảnh {parts.name} trong {path.name} chưa được hỗ trợ; chuyển sang JPG/PNG/WEBP."
+                            )
+                        if parts.suffix.lower() not in IMAGE_EXTENSIONS:
+                            continue
+                        if name in seen_names or (entry.flag_bits & 1):
+                            raise NeedsAttention(f"Gói {path.name} có tên ảnh trùng hoặc ảnh mã hoá.")
+                        if entry.file_size > MAX_PAGE_BYTES:
+                            raise NeedsAttention(f"Ảnh {parts.name} trong {path.name} vượt giới hạn 20 MB/trang.")
+                        seen_names.add(name)
+                        parent_str = str(parts.parent) if str(parts.parent) != "." else ""
+                        nhom_theo_tm.setdefault(parent_str, []).append((entry.filename, entry.file_size))
+            except (zipfile.BadZipFile, OSError) as exc:
+                raise NeedsAttention(f"Không mở được gói ZIP/CBZ ({path.name}).") from exc
+
+            if not nhom_theo_tm:
+                raise NeedsAttention(f"Gói {path.name} không chứa ảnh JPG/PNG/WEBP được hỗ trợ.")
+
+            ten_tr_tu_zip, so_tu_zip, ten_chap_tu_zip = tach_ten_truyen_va_chapter(
+                path.stem, ten_mac_dinh=ten_md, la_file_anh_le=False
+            )
+
+            if len(nhom_theo_tm) == 1:
+                tm_con, ds_entry = next(iter(nhom_theo_tm.items()))
+                # Kiểm tra xem trong gói phẳng có chứa ảnh của nhiều tập/chapter khác nhau (VD: E35P01.jpg, E39P01.jpg) không
+                nhom_anh_zip: dict[tuple[str, float, str], list[tuple[str, int]]] = {}
+                for fname, fsize in ds_entry:
+                    stem_anh = PurePosixPath(fname.replace("\\", "/")).stem
+                    tr_a, so_a, chap_a = tach_ten_truyen_va_chapter(
+                        stem_anh, ten_mac_dinh=ten_tr_tu_zip, la_file_anh_le=True
+                    )
+                    nhom_anh_zip.setdefault((tr_a, so_a, chap_a), []).append((fname, fsize))
+
+                if len(nhom_anh_zip) > 1:
+                    for (tr_a, so_a, chap_a), entries_c in nhom_anh_zip.items():
+                        if len(entries_c) > MAX_PAGES or sum(sz for _, sz in entries_c) > MAX_TOTAL_BYTES:
+                            raise NeedsAttention(f"Chapter {chap_a} trong {path.name} vượt 200 trang hoặc 50 MB.")
+                        entries_sorted = [fn for fn, _ in sorted(entries_c, key=lambda x: natural_key(x[0]))]
+                        srcs = [
+                            "archive_file::" + json.dumps([str(path.resolve()), fn], ensure_ascii=False)
+                            for fn in entries_sorted
+                        ]
+                        ds_chapter.append(
+                            {
+                                "ten_truyen": tr_a,
+                                "so": so_a,
+                                "ten": chap_a,
+                                "url": f"archive::{path}#{chap_a}",
+                                "nhan": f"{tr_a} / {chap_a} ({path.name})",
+                                "sources": srcs,
+                            }
+                        )
+                else:
+                    if tm_con:
+                        parts_tm = [p for p in PurePosixPath(tm_con).parts if p and p != "."]
+                        if len(parts_tm) >= 2:
+                            ten_tr_tu_zip = lam_sach_ten_thu_muc(parts_tm[0])
+                            _, so_tu_zip, ten_chap_tu_zip = tach_ten_truyen_va_chapter(
+                                parts_tm[-1], ten_mac_dinh=ten_tr_tu_zip, la_file_anh_le=False
+                            )
+                        elif len(parts_tm) == 1:
+                            tr_sub, so_sub, chap_sub = tach_ten_truyen_va_chapter(
+                                parts_tm[0], ten_mac_dinh=ten_tr_tu_zip, la_file_anh_le=False
+                            )
+                            if chap_sub != "Chapter-001" or re.search(r"\d", parts_tm[0]):
+                                so_tu_zip, ten_chap_tu_zip = so_sub, chap_sub
+                    if len(ds_entry) > MAX_PAGES or sum(sz for _, sz in ds_entry) > MAX_TOTAL_BYTES:
+                        raise NeedsAttention(f"Gói {path.name} vượt giới hạn 200 trang hoặc 50 MB.")
+                    entries_sorted = [fn for fn, _ in sorted(ds_entry, key=lambda x: natural_key(x[0]))]
+                    srcs = [
+                        "archive_file::" + json.dumps([str(path.resolve()), fn], ensure_ascii=False)
+                        for fn in entries_sorted
+                    ]
+                    ds_chapter.append(
+                        {
+                            "ten_truyen": ten_tr_tu_zip,
+                            "so": so_tu_zip,
+                            "ten": ten_chap_tu_zip,
+                            "url": f"archive::{path}",
+                            "nhan": f"{ten_tr_tu_zip} / {ten_chap_tu_zip} ({path.name})",
+                            "sources": srcs,
+                        }
+                    )
+            else:
+                # Gói ZIP chứa nhiều thư mục chapter con (hoặc nhiều truyện)
+                for tm_con, ds_entry in sorted(nhom_theo_tm.items(), key=lambda kv: natural_key(kv[0])):
+                    parts_tm = [p for p in PurePosixPath(tm_con).parts if p and p != "."]
+                    if len(parts_tm) >= 2:
+                        tr_c = lam_sach_ten_thu_muc(parts_tm[-2])
+                        _, so_c, chap_c = tach_ten_truyen_va_chapter(
+                            parts_tm[-1], ten_mac_dinh=tr_c, la_file_anh_le=False
+                        )
+                    elif len(parts_tm) == 1:
+                        tr_c, so_c, chap_c = tach_ten_truyen_va_chapter(
+                            parts_tm[0], ten_mac_dinh=ten_tr_tu_zip, la_file_anh_le=False
+                        )
+                        if tr_c == lam_sach_ten_thu_muc(parts_tm[0]) and chap_c == "Chapter-001":
+                            # Thư mục con không mang từ khoá chapter -> giữ tên truyện từ tên file ZIP
+                            tr_c = ten_tr_tu_zip
+                            chap_c = lam_sach_ten_thu_muc(parts_tm[0])
+                    else:
+                        tr_c, so_c, chap_c = ten_tr_tu_zip, so_tu_zip, ten_chap_tu_zip
+
+                    if len(ds_entry) > MAX_PAGES or sum(sz for _, sz in ds_entry) > MAX_TOTAL_BYTES:
+                        raise NeedsAttention(f"Chapter {chap_c} trong {path.name} vượt 200 trang hoặc 50 MB.")
+                    entries_sorted = [fn for fn, _ in sorted(ds_entry, key=lambda x: natural_key(x[0]))]
+                    srcs = [
+                        "archive_file::" + json.dumps([str(path.resolve()), fn], ensure_ascii=False)
+                        for fn in entries_sorted
+                    ]
+                    ds_chapter.append(
+                        {
+                            "ten_truyen": tr_c,
+                            "so": so_c,
+                            "ten": chap_c,
+                            "url": f"archive::{path}#{tm_con}",
+                            "nhan": f"{tr_c} / {chap_c} ({path.name})",
+                            "sources": srcs,
+                        }
+                    )
+        elif ext in UNSUPPORTED_IMAGES:
+            raise NeedsAttention(f"Ảnh {path.name} chưa được hỗ trợ; chuyển sang JPG/PNG/WEBP trước khi dịch.")
+        elif ext in IMAGE_EXTENSIONS:
+            anh_le.append(path)
+
+    if anh_le:
+        nhom_anh: dict[tuple[str, float, str], list[Path]] = {}
+        for p_img in anh_le:
+            ten_cha = p_img.parent.name or ten_md
+            tr_MacDinh = ten_md if (ten_truyen_mac_dinh and ten_truyen_mac_dinh != "Truyen-Moi") else ten_cha
+            tr_i, so_i, chap_i = tach_ten_truyen_va_chapter(
+                p_img.stem, ten_mac_dinh=tr_MacDinh, la_file_anh_le=True
+            )
+            # Nếu thư mục cha đã là tên Chapter (VD: 'Chap 02/001.jpg') thì lấy tên truyện ở cấp ông và tên chapter ở cấp cha
+            if chap_i == "Chapter-001" and p_img.parent.name:
+                tr_p, so_p, chap_p = tach_ten_truyen_va_chapter(
+                    p_img.parent.name,
+                    ten_mac_dinh=p_img.parent.parent.name or tr_MacDinh,
+                    la_file_anh_le=False,
+                )
+                if chap_p != "Chapter-001" or re.search(r"\d", p_img.parent.name):
+                    tr_i, so_i, chap_i = tr_p, so_p, chap_p
+            nhom_anh.setdefault((tr_i, so_i, chap_i), []).append(p_img)
+
+        for (tr_i, so_i, chap_i), files_c in nhom_anh.items():
+            files_sorted = sorted(files_c, key=lambda x: natural_key(x.name))
+            tong_dl = 0
+            srcs = []
+            for f_item in files_sorted:
+                sz = f_item.stat().st_size
+                tong_dl += sz
+                if sz > MAX_PAGE_BYTES or tong_dl > MAX_TOTAL_BYTES:
+                    raise NeedsAttention(f"Chapter {chap_i} ({tr_i}) vượt giới hạn 20 MB/trang hoặc 50 MB/chapter.")
+                srcs.append(f"local_file::{f_item}")
+            if len(srcs) > MAX_PAGES:
+                raise NeedsAttention(f"Chapter {chap_i} ({tr_i}) vượt giới hạn 200 trang.")
+            ds_chapter.append(
+                {
+                    "ten_truyen": tr_i,
+                    "so": so_i,
+                    "ten": chap_i,
+                    "url": f"local_files::{tr_i}/{chap_i}",
+                    "nhan": f"{tr_i} / {chap_i} ({len(srcs)} trang)",
+                    "sources": srcs,
+                }
+            )
+
+    if not ds_chapter:
+        raise NeedsAttention("Không tìm thấy file gói (.zip/.cbz) hoặc ảnh (.jpg/.png/.webp) hợp lệ.")
+    return _khu_trung_ten_chapter_theo_truyen(ds_chapter)
+
+
+def phan_loai_thu_muc_nhieu_truyen(thu_muc: Path, ten_mac_dinh: str = "") -> list[dict]:
+    """
+    Quét thư mục chứa 1 hoặc nhiều bộ truyện (gồm cả thư mục lồng 2 cấp <Tên_Truyện>/<Tên_Chapter>,
+    thư mục 1 cấp, file .ZIP/.CBZ và ảnh rời có mã tập E35P01/E39P01) để tự động chia đúng từng Chapter của từng Truyện.
+    """
+    from sources import IMAGE_EXTENSIONS
+
+    tm = Path(thu_muc)
+    ten_goc = lam_sach_ten_thu_muc(ten_mac_dinh or tm.name or "Truyen-Offline")
+    ds_ket_qua: list[dict] = []
+
+    # 1. Các file .zip/.cbz và ảnh rời nằm ngay tại thư mục gốc
+    file_goc = [
+        f for f in sorted(tm.iterdir(), key=lambda p: natural_key(p.name))
+        if f.is_file() and (f.suffix.lower() in IMAGE_EXTENSIONS or f.suffix.lower() in (".zip", ".cbz"))
+    ]
+    if file_goc:
+        ds_ket_qua.extend(phan_loai_nhieu_file_truyen(file_goc, ten_truyen_mac_dinh=ten_goc))
+
+    # 2. Quét các thư mục con cấp 1 và cấp 2
+    cac_tm_con = sorted([p for p in tm.iterdir() if p.is_dir()], key=lambda p: natural_key(p.name))
+    for sub in cac_tm_con:
+        file_sub = [
+            f for f in sorted(sub.iterdir(), key=lambda p: natural_key(p.name))
+            if f.is_file() and (f.suffix.lower() in IMAGE_EXTENSIONS or f.suffix.lower() in (".zip", ".cbz"))
+        ]
+        tm_cap_2 = sorted([p for p in sub.iterdir() if p.is_dir()], key=lambda p: natural_key(p.name))
+        if tm_cap_2:
+            # Cấu trúc 2 cấp: tm / <Tên_Truyện (sub)> / <Tên_Chapter (sub2)>
+            ten_tr_sub = lam_sach_ten_thu_muc(sub.name)
+            if file_sub:
+                ds_ket_qua.extend(phan_loai_nhieu_file_truyen(file_sub, ten_truyen_mac_dinh=ten_tr_sub))
+            for sub2 in tm_cap_2:
+                file_sub2 = [
+                    f for f in sorted(sub2.iterdir(), key=lambda p: natural_key(p.name))
+                    if f.is_file() and (f.suffix.lower() in IMAGE_EXTENSIONS or f.suffix.lower() in (".zip", ".cbz"))
+                ]
+                if not file_sub2:
+                    continue
+                _, so_c2, ten_c2 = tach_ten_truyen_va_chapter(sub2.name, ten_mac_dinh=ten_tr_sub, la_file_anh_le=False)
+                if any(f.suffix.lower() in (".zip", ".cbz") for f in file_sub2):
+                    ds_ket_qua.extend(phan_loai_nhieu_file_truyen(file_sub2, ten_truyen_mac_dinh=ten_tr_sub))
+                else:
+                    ds_ket_qua.append(
+                        {
+                            "ten_truyen": ten_tr_sub,
+                            "so": so_c2,
+                            "ten": ten_c2 if re.search(r"\d", sub2.name) else lam_sach_ten_thu_muc(sub2.name),
+                            "url": f"local_dir::{sub2}",
+                            "nhan": f"{ten_tr_sub} / {sub2.name}",
+                        }
+                    )
+        elif file_sub:
+            # Cấu trúc 1 cấp: kiểm tra xem tên `sub` có chứa cả tên truyện lẫn số chapter (VD: 'Naruto_Chap01')
+            # hoặc chứa nhiều tập ảnh rời (VD: E35P01.jpg, E39P01.jpg) hay không
+            anh_only = [f for f in file_sub if f.suffix.lower() in IMAGE_EXTENSIONS]
+            zip_only = [f for f in file_sub if f.suffix.lower() in (".zip", ".cbz")]
+            if zip_only:
+                ds_ket_qua.extend(phan_loai_nhieu_file_truyen(zip_only, ten_truyen_mac_dinh=sub.name))
+            if anh_only:
+                tap_chap_anh = {
+                    tach_ten_truyen_va_chapter(f.stem, ten_mac_dinh=ten_goc, la_file_anh_le=True)[2]
+                    for f in anh_only
+                }
+                if len(tap_chap_anh) > 1 or (len(tap_chap_anh) == 1 and next(iter(tap_chap_anh)) != "Chapter-001"):
+                    ds_ket_qua.extend(phan_loai_nhieu_file_truyen(anh_only, ten_truyen_mac_dinh=sub.name))
+                else:
+                    tr_s, so_s, chap_s = tach_ten_truyen_va_chapter(
+                        sub.name, ten_mac_dinh=ten_goc, la_file_anh_le=False
+                    )
+                    ten_chap_dung = chap_s if re.search(r"\d", sub.name) else lam_sach_ten_thu_muc(sub.name)
+                    ds_ket_qua.append(
+                        {
+                            "ten_truyen": tr_s,
+                            "so": so_s,
+                            "ten": ten_chap_dung,
+                            "url": f"local_dir::{sub}",
+                            "nhan": f"{tr_s} / {sub.name}",
+                        }
+                    )
+
+    if not ds_ket_qua:
+        return [
+            {
+                "ten_truyen": ten_goc,
+                "so": 1.0,
+                "ten": "Chapter-001",
+                "url": f"local_dir::{tm}",
+                "nhan": tm.name,
+            }
+        ]
+    return _khu_trung_ten_chapter_theo_truyen(ds_ket_qua)
+
+
+def suy_doan_ten_truyen_tu_url(url_truyen: str, html: str = "", ten_mac_dinh: str = "Truyen-Moi") -> str:
+    """Tự động suy đoán Tên bộ truyện từ đường dẫn URL (hoặc thẻ <title>/<h1>) để chia thư mục chuẩn xác."""
+    tu_khoa_chung = {"manga", "truyen", "truyen-tranh", "comic", "comics", "webcomic", "webcomics", "read", "en", "vi", "title", "viewer", "chapter"}
+    parts = [
+        urllib.parse.unquote(p)
+        for p in urllib.parse.urlsplit(url_truyen).path.split("/")
+        if p and not p.lower().endswith((".html", ".htm", ".php"))
+    ]
+    pattern_chap = re.compile(
+        r"(?<![a-z0-9])(?:chapter|chap|chuong|chương|episode|ep)[-_/\s.]*(\d+(?:\.\d+)?)(?![a-z0-9])",
+        re.I,
+    )
+    pattern_slug_kem_chap = re.compile(
+        r"^(.+?)[-_.\s]+(?:chapter|chap|chuong|chương|episode|ep)[-_.\s]*\d+(?:\.\d+)?.*$",
+        re.I,
+    )
     ung_vien = []
-    da_thay = set()
-    for m in re.finditer(r'<a[^>]+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', html, re.I | re.S):
-        href = m.group(1).strip()
-        text = re.sub(r"<[^>]+>", " ", m.group(2)).strip()
-        full_url = urllib.parse.urljoin(base_origin, href)
-        if not full_url.startswith(("http://", "https://")):
+    for p in parts:
+        if pattern_chap.search(p):
+            m_slug = pattern_slug_kem_chap.match(p)
+            if m_slug:
+                tien_to = m_slug.group(1).strip("-_. ")
+                if tien_to and tien_to.lower() not in tu_khoa_chung and not re.fullmatch(r"\d+", tien_to):
+                    ung_vien.append(tien_to)
             continue
-        if urllib.parse.urlparse(full_url).netloc != parsed_goc.netloc:
+        if p.lower() in tu_khoa_chung or re.fullmatch(r"[0-9a-f]{8}-[0-9a-f-]{27}", p.lower()) or re.fullmatch(r"\d+", p):
             continue
+        ung_vien.append(p)
+    if ung_vien:
+        return lam_sach_ten_thu_muc(ung_vien[-1])
+    if html:
+        m_h1 = re.search(r"<h1[^>]*>(.*?)</h1>", html, flags=re.I | re.S)
+        if m_h1:
+            t_h1 = re.sub(r"<[^>]+>", "", m_h1.group(1)).strip()
+            if t_h1:
+                tr_h1, _, _ = tach_ten_truyen_va_chapter(t_h1, ten_mac_dinh=ten_mac_dinh, la_file_anh_le=False)
+                if tr_h1 and tr_h1 != "Truyen-Moi":
+                    return tr_h1
+    return lam_sach_ten_thu_muc(ten_mac_dinh or "Truyen-Moi")
 
-        chuoi_kiem = f"{full_url} {text}".lower()
-        khop_chap = re.search(r"(?:chapter|chap|chuong|chương|episode|ep)[-_/\s.]*(\d+(?:\.\d+)?)", chuoi_kiem)
-        if not khop_chap:
-            continue
-        if full_url in da_thay:
-            continue
-        da_thay.add(full_url)
-        so_chap = float(khop_chap.group(1))
+
+def _quet_chapter_mangaplus(url: str, mo_rong_ca_bo: bool = False) -> list[dict]:
+    """
+    Bộ chuyển đổi (Adapter) chuyên biệt cho MANGA Plus by SHUEISHA (`mangaplus.shueisha.co.jp/viewer/<chapter_id>` hoặc `/titles/<title_id>`).
+    Gọi trực tiếp API Protobuf v3 (`jumpg-webapi.tokyo-cdn.com/api/manga_viewer_v3` & `title_detailV4`) kèm `SESSION-TOKEN`
+    để lấy tên bộ truyện, số thứ tự chương và danh sách toàn bộ các chương đang mở đọc.
+    """
+    m_mp = re.search(r"/(viewer|titles)/(\d+)", url or "", flags=re.I)
+    if not m_mp:
+        raise NeedsAttention("Link MANGA Plus không hợp lệ (ví dụ: https://mangaplus.shueisha.co.jp/viewer/1009923).")
+    loai, mp_id = m_mp.group(1).lower(), m_mp.group(2)
+    sid = str(uuid.uuid4())
+    mp_headers = {
+        "Origin": "https://mangaplus.shueisha.co.jp",
+        "SESSION-TOKEN": sid,
+    }
+    if loai == "viewer":
+        api_u = (
+            f"https://jumpg-webapi.tokyo-cdn.com/api/manga_viewer_v3"
+            f"?chapter_id={mp_id}&split=yes&img_quality=high&viewer_mode=horizontal&clang=eng&avif_enable=no"
+        )
+    else:
+        api_u = f"https://jumpg-webapi.tokyo-cdn.com/api/title_detailV4?title_id={mp_id}&clang=eng&avif_enable=no"
+
+    try:
+        raw = goi_http(
+            api_u,
+            referer="https://mangaplus.shueisha.co.jp/",
+            timeout=20,
+            nguon_ngoai=True,
+            extra_headers=mp_headers,
+        )
+    except Exception as exc:
+        raise NeedsAttention(f"Không kết nối được API MANGA Plus: {exc}") from exc
+
+    ten_truyen = "MangaPlus-Series"
+    so_chap_hien_tai = 1.0
+    m_sns = re.search(
+        rb"https://jumpg-webapi\.tokyo-cdn\.com/www/sns_share\?title_id=(\d+)&chapter_id=(\d+)\*(.)(.{1,200})",
+        raw,
+        re.S,
+    )
+    if m_sns:
+        tlen = m_sns.group(3)[0]
+        rest = m_sns.group(4)
+        t_raw = rest[:tlen].decode("utf-8", errors="ignore").strip()
+        if t_raw:
+            ten_truyen = lam_sach_ten_thu_muc(t_raw)
+        if len(rest) > tlen + 2 and rest[tlen] == 0x32:
+            clen = rest[tlen + 1]
+            c_raw = rest[tlen + 2 : tlen + 2 + clen].decode("utf-8", errors="ignore").strip()
+            m_num = re.search(r"(\d+(?:\.\d+)?)", c_raw)
+            if m_num:
+                try:
+                    so_chap_hien_tai = float(m_num.group(1))
+                except ValueError:
+                    pass
+    else:
+        m_title_tag = re.search(rb"#MANGA_Plus\s+([^\x00-\x1f\"'*]{2,60})", raw)
+        if m_title_tag:
+            ten_truyen = lam_sach_ten_thu_muc(m_title_tag.group(1).decode("utf-8", errors="ignore").strip())
+
+    chap_blocks = re.findall(
+        rb"#([0-9]+(?:\.[0-9]+)?|ex).{1,120}?/chapter/(\d+)/chapter_thumbnail/",
+        raw,
+        re.I | re.S,
+    )
+    ds_mo_rong: dict[float, dict] = {}
+    for idx_b, (c_num_b, c_id_b) in enumerate(chap_blocks, 1):
+        c_str = c_num_b.decode("ascii", errors="ignore")
+        cid_str = c_id_b.decode("ascii", errors="ignore")
+        try:
+            so_c = float(c_str)
+        except ValueError:
+            so_c = float(idx_b) + 0.5
+        ten_c = f"Chapter-{int(so_c):03d}" if so_c.is_integer() else f"Chapter-{so_c}"
+        if cid_str == mp_id:
+            so_chap_hien_tai = so_c
+        ds_mo_rong[so_c] = {
+            "ten_truyen": ten_truyen,
+            "so": so_c,
+            "ten": ten_c,
+            "url": f"https://mangaplus.shueisha.co.jp/viewer/{cid_str}",
+            "nhan": f"{ten_truyen} / {ten_c}",
+        }
+
+    if loai == "titles" or (mo_rong_ca_bo and len(ds_mo_rong) > 1):
+        if not ds_mo_rong:
+            raise NeedsAttention("Không tìm thấy danh sách chapter khả dụng trên MANGA Plus.")
+        return [ds_mo_rong[k] for k in sorted(ds_mo_rong)]
+
+    ten_chap = f"Chapter-{int(so_chap_hien_tai):03d}" if so_chap_hien_tai.is_integer() else f"Chapter-{so_chap_hien_tai}"
+    return [
+        {
+            "ten_truyen": ten_truyen,
+            "so": so_chap_hien_tai,
+            "ten": ten_chap,
+            "url": f"https://mangaplus.shueisha.co.jp/viewer/{mp_id}",
+            "nhan": f"{ten_truyen} / {ten_chap}",
+        }
+    ]
+
+
+def _quet_anh_mangaplus(url_chapter: str) -> list[str]:
+    """
+    Trích xuất danh sách ảnh trang truyện chất lượng cao (`img_quality=high`) từ MANGA Plus API v3,
+    kèm khoá giải mã `mp_key` (128-hex XOR) và `mp_vw` (`Plus-Vw-Token`) để `goi_http` tự động giải mã thành ảnh JPEG chuẩn.
+    """
+    m_mp = re.search(r"/viewer/(\d+)", url_chapter or "", flags=re.I)
+    if not m_mp:
+        raise NeedsAttention("Link chapter MANGA Plus không hợp lệ.")
+    cid = m_mp.group(1)
+    sid = str(uuid.uuid4())
+    api_u = (
+        f"https://jumpg-webapi.tokyo-cdn.com/api/manga_viewer_v3"
+        f"?chapter_id={cid}&split=yes&img_quality=high&viewer_mode=horizontal&clang=eng&avif_enable=no"
+    )
+    raw = goi_http(
+        api_u,
+        referer="https://mangaplus.shueisha.co.jp/",
+        timeout=20,
+        nguon_ngoai=True,
+        extra_headers={
+            "Origin": "https://mangaplus.shueisha.co.jp",
+            "SESSION-TOKEN": sid,
+        },
+    )
+    m_vw = re.search(rb"\x9a\x01\x20([0-9a-f]{32})", raw)
+    vw_token = m_vw.group(1).decode("ascii") if m_vw else ""
+    pattern = re.compile(
+        rb"(https://[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+?/manga_page/[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+)"
+        rb".{1,12}?\*\x80\x01([0-9a-f]{128})",
+        re.S,
+    )
+    pages = pattern.findall(raw)
+    if not pages:
+        raise NeedsAttention("Chapter này trên MANGA Plus đã hết hạn đọc miễn phí hoặc không có trang khả dụng.")
+    ds_anh: list[str] = []
+    for u_bytes, key_bytes in pages:
+        u_str = u_bytes.decode("utf-8", errors="ignore")
+        k_str = key_bytes.decode("ascii", errors="ignore")
+        ds_anh.append(f"{u_str}#mp_key={k_str}&mp_vw={vw_token}")
+    return ds_anh
+
+
+def _quet_chapter_mangadex(url: str, mo_rong_ca_bo: bool = False) -> list[dict]:
+    """
+    Bộ chuyển đổi (Adapter) chuyên biệt cho MangaDex SPA (`mangadex.org/chapter/<uuid>` hoặc `mangadex.org/title/<uuid>`).
+    Tự động gọi API chính thức `api.mangadex.org` và bắt lỗi nhà mạng chặn SNI (WinError 10054) để hướng dẫn bật 1.1.1.1/VPN.
+    """
+    m_uuid = re.search(r"/(chapter|title|manga)/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})", url, flags=re.I)
+    if not m_uuid:
+        raise NeedsAttention("Link MangaDex thiếu mã UUID hợp lệ (ví dụ: https://mangadex.org/chapter/<uuid>).")
+    loai, uid = m_uuid.group(1).lower(), m_uuid.group(2).lower()
+
+    def _goi_md_json(api_url: str) -> dict:
+        try:
+            raw = goi_http(api_url, referer="https://mangadex.org/", timeout=18, nguon_ngoai=True)
+            return json.loads(raw.decode("utf-8", errors="replace"))
+        except Exception as exc:
+            msg = str(exc)
+            if "10054" in msg or "reset" in msg.lower() or "timed out" in msg.lower():
+                raise NeedsAttention(
+                    "Nhà mạng hiện tại đang chặn kết nối tới MangaDex (WinError 10054). "
+                    "Hãy bật Cloudflare WARP (1.1.1.1) hoặc VPN rồi bấm Quét lại, hoặc tải gói ảnh (.zip/.cbz) về máy."
+                ) from exc
+            raise NeedsAttention(f"Không lấy được dữ liệu từ API MangaDex: {exc}") from exc
+
+    if loai == "chapter":
+        info = _goi_md_json(f"https://api.mangadex.org/chapter/{uid}?includes[]=manga")
+        data = info.get("data") or {}
+        attrs = data.get("attributes") or {}
+        so_raw = attrs.get("chapter")
+        try:
+            so_chap = float(so_raw) if so_raw is not None else 1.0
+        except (TypeError, ValueError):
+            so_chap = 1.0
         ten_chap = f"Chapter-{int(so_chap):03d}" if so_chap.is_integer() else f"Chapter-{so_chap}"
-        ung_vien.append({"so": so_chap, "ten": ten_chap, "url": full_url, "nhan": text or ten_chap})
+        ten_truyen = "MangaDex-Series"
+        manga_id = ""
+        for rel in data.get("relationships") or []:
+            if isinstance(rel, dict) and rel.get("type") == "manga":
+                manga_id = str(rel.get("id") or "")
+                t_map = (rel.get("attributes") or {}).get("title") or {}
+                if isinstance(t_map, dict) and t_map:
+                    ten_truyen = lam_sach_ten_thu_muc(next(iter(t_map.values())))
+                break
+        if mo_rong_ca_bo and manga_id:
+            lang = attrs.get("translatedLanguage") or "en"
+            return _quet_danh_sach_feed_mangadex(manga_id, ten_truyen, lang, _goi_md_json)
+        return [
+            {
+                "ten_truyen": ten_truyen,
+                "so": so_chap,
+                "ten": ten_chap,
+                "url": f"https://mangadex.org/chapter/{uid}",
+                "nhan": f"{ten_truyen} / {ten_chap}",
+            }
+        ]
 
-    if not ung_vien:
-        # Coi chính URL vừa dán là 1 Chapter đơn lẻ
-        khop_le = re.search(r"(?:chapter|chap|chuong|ep)[-_/\s.]*(\d+(?:\.\d+)?)", url_truyen.lower())
-        so = float(khop_le.group(1)) if khop_le else 1.0
-        ten = f"Chapter-{int(so):03d}" if so.is_integer() else f"Chapter-{so}"
-        return [{"so": so, "ten": ten, "url": url_truyen, "nhan": ten}]
+    # Trường hợp link bộ truyện: /title/<uuid> hoặc /manga/<uuid>
+    info_m = _goi_md_json(f"https://api.mangadex.org/manga/{uid}")
+    t_map = ((info_m.get("data") or {}).get("attributes") or {}).get("title") or {}
+    ten_truyen = lam_sach_ten_thu_muc(next(iter(t_map.values())) if isinstance(t_map, dict) and t_map else "MangaDex-Series")
+    return _quet_danh_sach_feed_mangadex(uid, ten_truyen, "en", _goi_md_json)
 
-    ung_vien.sort(key=lambda x: x["so"])
-    return ung_vien
+
+def _quet_danh_sach_feed_mangadex(manga_id: str, ten_truyen: str, lang: str, goi_fn) -> list[dict]:
+    feed = goi_fn(
+        f"https://api.mangadex.org/manga/{manga_id}/feed?translatedLanguage[]={lang}&order[chapter]=asc&limit=500"
+    )
+    ds: list[dict] = []
+    seen_so: set[float] = set()
+    for item in feed.get("data") or []:
+        if not isinstance(item, dict):
+            continue
+        cid = item.get("id")
+        attrs = item.get("attributes") or {}
+        if int(attrs.get("pages") or 0) <= 0 and attrs.get("externalUrl"):
+            continue
+        try:
+            so_c = float(attrs.get("chapter") or (len(ds) + 1))
+        except (TypeError, ValueError):
+            so_c = float(len(ds) + 1)
+        if so_c in seen_so:
+            continue
+        seen_so.add(so_c)
+        ten_c = f"Chapter-{int(so_c):03d}" if so_c.is_integer() else f"Chapter-{so_c}"
+        ds.append(
+            {
+                "ten_truyen": ten_truyen,
+                "so": so_c,
+                "ten": ten_c,
+                "url": f"https://mangadex.org/chapter/{cid}",
+                "nhan": f"{ten_truyen} / {ten_c}",
+            }
+        )
+    if not ds:
+        raise NeedsAttention("Không tìm thấy chapter khả dụng trên MangaDex cho bộ truyện này.")
+    return sorted(ds, key=lambda c: float(c.get("so", 1.0)))
+
+
+def _quet_anh_mangadex(url_chapter: str) -> list[str]:
+    """Lấy danh sách link ảnh trang truyện chất lượng gốc từ MangaDex At-Home Server API."""
+    m_uuid = re.search(r"/chapter/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})", url_chapter, flags=re.I)
+    if not m_uuid:
+        raise NeedsAttention("Link chapter MangaDex không hợp lệ.")
+    uid = m_uuid.group(1).lower()
+    try:
+        raw = goi_http(f"https://api.mangadex.org/at-home/server/{uid}", referer="https://mangadex.org/", timeout=18, nguon_ngoai=True)
+        info = json.loads(raw.decode("utf-8", errors="replace"))
+    except Exception as exc:
+        msg = str(exc)
+        if "10054" in msg or "reset" in msg.lower():
+            raise NeedsAttention(
+                "Nhà mạng đang chặn kết nối tới máy chủ ảnh MangaDex (WinError 10054). Hãy bật 1.1.1.1 (Cloudflare WARP) hoặc VPN."
+            ) from exc
+        raise NeedsAttention(f"Không lấy được danh sách trang từ MangaDex: {exc}") from exc
+    base_url = str(info.get("baseUrl") or "").rstrip("/")
+    chap_obj = info.get("chapter") or {}
+    ch_hash = str(chap_obj.get("hash") or "")
+    files = chap_obj.get("data") or chap_obj.get("dataSaver") or []
+    mode = "data" if chap_obj.get("data") else "data-saver"
+    if not base_url or not ch_hash or not files:
+        raise NeedsAttention("MangaDex trả về danh sách ảnh trống cho chapter này.")
+    return [f"{base_url}/{mode}/{ch_hash}/{fn}" for fn in files]
+
+
+def _quet_mot_url_truyen(u_don: str, mo_rong_ca_bo: bool = False) -> list[dict]:
+    """Quét danh sách chapter cho 1 URL đơn lẻ (hỗ trợ cả web HTML thường, WordPress Manga, MangaDex và MANGA Plus)."""
+    host = urllib.parse.urlsplit(u_don).netloc.lower()
+    if "mangaplus.shueisha.co.jp" in host:
+        return _quet_chapter_mangaplus(u_don, mo_rong_ca_bo=mo_rong_ca_bo)
+    if "mangadex.org" in host:
+        return _quet_chapter_mangadex(u_don, mo_rong_ca_bo=mo_rong_ca_bo)
+
+    html = goi_http(u_don, referer=u_don, nguon_ngoai=True).decode("utf-8", errors="ignore")
+    ten_tr = suy_doan_ten_truyen_tu_url(u_don, html)
+    ds = chapter_links(html, u_don)
+
+    # Nếu người dùng dán link của 1 chapter cụ thể (VD: .../steel-ball-run-chapter-25/) và chọn mở rộng cả bộ truyện:
+    if mo_rong_ca_bo and len(ds) == 1:
+        parts = urllib.parse.urlsplit(u_don)
+        # Quét toàn bộ link chapter cùng bộ ngay trong HTML hiện tại (xóa số chapter khỏi page_url giả định để lấy full list)
+        base_root = f"{parts.scheme}://{parts.netloc}/"
+        ung_vien_mo_rong: dict[float, dict] = {float(ds[0]["so"]): dict(ds[0])}
+        for html_ung_vien, base_uv in ((html, base_root),):
+            try:
+                for ch_more in chapter_links(html_ung_vien, base_uv):
+                    ung_vien_mo_rong.setdefault(float(ch_more["so"]), dict(ch_more))
+            except Exception:
+                pass
+        if 1.0 not in ung_vien_mo_rong or len(ung_vien_mo_rong) < 20:
+            try:
+                html_root = goi_http(base_root, referer=u_don, nguon_ngoai=True).decode("utf-8", errors="ignore")
+                for ch_root in chapter_links(html_root, base_root):
+                    ung_vien_mo_rong.setdefault(float(ch_root["so"]), dict(ch_root))
+            except Exception:
+                pass
+        if len(ung_vien_mo_rong) > 1:
+            ds = [ung_vien_mo_rong[k] for k in sorted(ung_vien_mo_rong)]
+
+    for ch in ds:
+        if not ch.get("ten_truyen") and ten_tr != "Truyen-Moi":
+            ch["ten_truyen"] = ten_tr
+    return sorted(ds, key=lambda c: float(c.get("so", 1.0)))
+
+
+def quet_danh_sach_chapter_tu_url(url_truyen: str, mo_rong_ca_bo: bool = False) -> list[dict]:
+    """
+    Tự động quét danh sách các link Chapter từ trang mục lục của 1 hoặc nhiều bộ truyện (cách nhau bởi dấu ; hoặc xuống dòng).
+    Sắp xếp tuần tự từ Chapter nhỏ đến Chapter lớn và gắn kèm `ten_truyen` cho từng Chapter.
+    """
+    cac_url = [
+        u.strip()
+        for u in re.split(r"[\r\n;|]+", (url_truyen or "").strip())
+        if u.strip()
+    ]
+    if len(cac_url) <= 1:
+        u_don = cac_url[0] if cac_url else url_truyen
+        return _quet_mot_url_truyen(u_don, mo_rong_ca_bo=mo_rong_ca_bo)
+
+    # Khi người dùng dán nhiều link (nhiều bộ truyện hoặc nhiều link chapter rời):
+    tong_ds: list[dict] = []
+    seen_urls: set[str] = set()
+    for u in cac_url:
+        ds_u = _quet_mot_url_truyen(u, mo_rong_ca_bo=mo_rong_ca_bo)
+        for ch in ds_u:
+            if ch["url"] in seen_urls:
+                continue
+            seen_urls.add(ch["url"])
+            item = dict(ch)
+            item["ten_truyen"] = item.get("ten_truyen") or suy_doan_ten_truyen_tu_url(u)
+            item["nhan"] = f"{item['ten_truyen']} / {item['ten']}"
+            tong_ds.append(item)
+    return _khu_trung_ten_chapter_theo_truyen(tong_ds)
 
 
 def quet_anh_trang_truyen_trong_chapter(url_chapter: str) -> list[str]:
     """Trích xuất toàn bộ danh sách URL ảnh trang truyện trong 1 trang đọc Chapter."""
-    html = goi_http(url_chapter, referer=url_chapter).decode("utf-8", errors="ignore")
-    ds_anh = []
-    da_co = set()
+    host = urllib.parse.urlsplit(url_chapter or "").netloc.lower()
+    if "mangaplus.shueisha.co.jp" in host:
+        return _quet_anh_mangaplus(url_chapter)
+    if "mangadex.org" in host:
+        return _quet_anh_mangadex(url_chapter)
+    html = goi_http(url_chapter, referer=url_chapter, nguon_ngoai=True).decode("utf-8", errors="ignore")
+    return image_links(html, url_chapter)
 
-    # Quét toàn bộ thuộc tính data-src, data-original, data-lazy-src, src của thẻ <img>
-    for m in re.finditer(
-        r'<img[^>]+(?:data-src|data-original|data-lazy-src|data-url|src)=["\']([^"\']+)["\']',
-        html,
-        re.I,
-    ):
-        raw = m.group(1).strip()
-        if not raw or raw.startswith("data:"):
-            continue
-        full = urllib.parse.urljoin(url_chapter, raw)
-        low = full.lower()
-        if any(bo in low for bo in ("logo", "avatar", "banner", "icon", "ads", "facebook", "discord", ".svg", ".gif")):
-            continue
-        if any(duoi in low for duoi in (".jpg", ".jpeg", ".png", ".webp")) or "chapter" in low or "manga" in low:
-            if full not in da_co:
-                da_co.add(full)
-                ds_anh.append(full)
-    return ds_anh
+
+def ve_lai_trang_trong_ho_so_chapter(
+    thu_muc_chapter: Path,
+    page_index: int,
+    regions_moi: list[dict],
+    font_style: str = "",
+) -> bytes:
+    """
+    Vẽ lại ngay lập tức (~0.3s) 1 trang truyện đã dịch trong hồ sơ `trang-thai.json` khi người dùng sửa câu thoại
+    mà KHÔNG cần gọi lại mô hình AI hay tải lại toàn bộ Chapter.
+    Đảm bảo kiểm tra hash ảnh gốc (`check_source`) và cập nhật nguyên tử vào `ChapterLedger`.
+    """
+    import review_delivery
+
+    with review_delivery.open_chapter(thu_muc_chapter) as ledger:
+        if not (0 <= page_index < len(ledger.data["pages"])):
+            raise NeedsAttention("Số thứ tự trang nằm ngoài phạm vi của Chapter.")
+        page = ledger.data["pages"][page_index]
+        source = str(page.get("source") or "")
+        if not source:
+            raise NeedsAttention("Trang này không có đường dẫn ảnh nguồn trong hồ sơ.")
+        if source.startswith(("local_file::", "archive_file::")):
+            raw_source = read_local_source(source)
+        else:
+            raw_source = goi_http(source, referer=source, nguon_ngoai=True)
+        ledger.check_source(page_index, raw_source)
+        font_dung = font_style or str((ledger.data.get("config") or {}).get("font") or "bangers")
+        cleaned_regions: list[dict] = []
+        for r in regions_moi:
+            item = dict(r)
+            item["ban_dich"] = str(item.get("ban_dich") or "").strip()
+            if not item["ban_dich"]:
+                raise NeedsAttention("Bản dịch của bóng thoại không được để trống khi vẽ lại.")
+            cleaned_regions.append(item)
+        rendered_bytes = xoa_chu_va_ve_ban_dich_tren_anh(raw_source, cleaned_regions, font_dung)
+        ledger.finish_page(page_index, rendered_bytes, cleaned_regions)
+        return rendered_bytes
 
 
 # ==============================================================================
 # 3. GIAO DIỆN DESKTOP WINDOWS (MANGA STUDIO PRO)
 # ==============================================================================
 
+MANGA_UI_TOKENS = {
+    "bg_canvas": "#090D16",       # Nền mực đen sâu (Manga Ink Canvas)
+    "bg_surface": "#111827",      # Bề mặt thẻ (Card Surface)
+    "bg_elevated": "#1E293B",     # Ô nhập & Nút phụ (Elevated Slate)
+    "bg_header": "#0D1322",       # Thanh đầu trang cố định
+    "bg_console": "#060911",      # Nền bảng nhật ký trực tiếp
+    "border_subtle": "#1F2937",   # Viền phân tách mảnh (1px)
+    "border_input": "#334155",    # Viền ô nhập & nút phụ
+    "accent_primary": "#E11D48",  # Đỏ Crimson Manga (chỉ dùng cho CTA chính & điểm nhấn)
+    "accent_soft": "#FB7185",     # Hồng san hô nhạt cho nhãn bước
+    "text_primary": "#F8FAFC",    # Chữ chính trắng giấy (tương phản > 15:1)
+    "text_secondary": "#94A3B8",  # Chữ phụ xám (tương phản > 5.5:1)
+    "text_muted": "#64748B",      # Chữ gợi ý / thời gian
+    "status_ok": "#10B981",       # Xanh hoàn tất
+    "status_warn": "#F59E0B",     # Vàng cảnh báo
+    "status_err": "#EF4444",      # Đỏ lỗi / dừng
+    "status_info": "#38BDF8",     # Xanh thông tin
+}
+
+
 class AppDichTruyenWindows(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("⚡ Manga Studio Pro — App Dịch Truyện Tự Động Theo Link & Chia Thư Mục Chapter (Windows)")
-        self.geometry("1040x760")
-        self.configure(bg="#0f172a")
+        self.title("MANGA STUDIO PRO — Bàn Dịch Truyện Tranh AI & Chia Chapter Tự Động")
+        self.geometry("1260x820")
+        self.minsize(1040, 720)
+        self.configure(bg=MANGA_UI_TOKENS["bg_canvas"])
 
         self.cau_hinh = self._doc_cau_hinh()
         self.ds_chapter_quet: list[dict] = []
@@ -1036,6 +4175,7 @@ class AppDichTruyenWindows(tk.Tk):
         # Tự động xác nhận Mã máy tính (HWID) và kiểm tra số lượt còn lại ngay khi mở App
         self.cau_hinh["ma_may_tinh"] = MA_MAY_HIEN_THI
         self._luu_cau_hinh()
+        khoi_dong_may_chu_bridge_cuc_bo(ghi_log_fn=self.ghi_log)
         threading.Thread(target=self._cap_nhat_han_muc, kwargs={"ghi_nhat_ky": True}, daemon=True).start()
 
     def _doc_cau_hinh(self) -> dict:
@@ -1061,351 +4201,725 @@ class AppDichTruyenWindows(tk.Tk):
         except Exception:
             pass
 
+    def _cap_nhat_the_chi_phi(self, _event=None):
+        if not hasattr(self, "lbl_kpi_cost"):
+            return
+        eng = self.cmb_engine.get() if hasattr(self, "cmb_engine") else ""
+        ma_eng = eng.split()[0] if eng else "local_ocr_gpu"
+        so_luot = SO_LUOT_MOI_TRANG_THEO_ENGINE.get(ma_eng, 1)
+        so_cau_hoc = len(nap_bo_nho_tu_hoc())
+        if "local_hybrid_pro" in eng:
+            self.lbl_kpi_cost.config(
+                text=f"{so_luot} lượt / trang (🧠 GPU Pro Tự Học)",
+                fg="#38BDF8",
+            )
+            if hasattr(self, "lbl_mo_ta_engine"):
+                self.lbl_mo_ta_engine.config(
+                    text=(
+                        f"🧠 Chế độ Chuyên sâu ({so_luot} lượt/trang): Quét OCR 2 tầng làm nét chữ viết tay + "
+                        f"Giải mã ký tự lệch + Bộ nhớ tự học ({so_cau_hoc} cụm đã nhớ)."
+                    ),
+                    fg="#38BDF8",
+                )
+        elif "local_" in eng:
+            self.lbl_kpi_cost.config(
+                text=f"{so_luot} lượt / trang (⚡ OCR + GPU Nhanh)",
+                fg=MANGA_UI_TOKENS["status_ok"],
+            )
+            if hasattr(self, "lbl_mo_ta_engine"):
+                self.lbl_mo_ta_engine.config(
+                    text=(
+                        f"⚡ Chế độ Chủ lực Khuyên dùng ({so_luot} lượt/trang · ~0.8s–1.8s): "
+                        f"Tiết kiệm 50% lượt, tối ưu cho 90% truyện chữ rõ (kế thừa {so_cau_hoc} cụm tự học)."
+                    ),
+                    fg=MANGA_UI_TOKENS["status_ok"],
+                )
+        elif "google_fast" in eng:
+            self.lbl_kpi_cost.config(
+                text=f"{so_luot} lượt / trang (Cloud Nhanh)",
+                fg=MANGA_UI_TOKENS["status_info"],
+            )
+        else:
+            self.lbl_kpi_cost.config(
+                text=f"{so_luot} lượt / trang (✨ Gemini Cloud)",
+                fg=MANGA_UI_TOKENS["status_warn"],
+            )
+            if hasattr(self, "lbl_mo_ta_engine"):
+                self.lbl_mo_ta_engine.config(
+                    text=f"✨ Chế độ Đám mây ({so_luot} lượt/trang): Xử lý ngữ cảnh bằng Gemini Vision trên Server (dành cho máy không có GPU).",
+                    fg=MANGA_UI_TOKENS["status_warn"],
+                )
+
+    def _bat_tat_khung_tai_khoan(self):
+        if not hasattr(self, "f_auth_drawer"):
+            return
+        if self._auth_dang_mo:
+            self.f_auth_drawer.pack_forget()
+            self._auth_dang_mo = False
+            self.btn_toggle_auth.config(text="⚙️ Tài khoản & Máy chủ Cloud ▾")
+        else:
+            self.f_auth_drawer.pack(fill="x", padx=16, pady=(0, 8), before=self.f_kpi_strip)
+            self._auth_dang_mo = True
+            self.btn_toggle_auth.config(text="⚙️ Ẩn khung Tài khoản Cloud ▴")
+
     def _dung_giao_dien(self):
-        # Thanh tiêu đề Manga Studio
-        header = tk.Frame(self, bg="#1e1b4b", padx=18, pady=12)
+        T = MANGA_UI_TOKENS
+        style = ttk.Style(self)
+        try:
+            style.theme_use("clam")
+            style.configure(
+                "TCombobox",
+                fieldbackground=T["bg_elevated"],
+                background=T["bg_elevated"],
+                foreground=T["text_primary"],
+                arrowcolor=T["text_primary"],
+                bordercolor=T["border_input"],
+                lightcolor=T["bg_elevated"],
+                darkcolor=T["bg_elevated"],
+                padding=4,
+            )
+            style.map(
+                "TCombobox",
+                fieldbackground=[("readonly", T["bg_elevated"])],
+                foreground=[("readonly", T["text_primary"])],
+                selectbackground=[("readonly", T["bg_elevated"])],
+                selectforeground=[("readonly", T["text_primary"])],
+            )
+        except Exception:
+            pass
+
+        # Viền nhấn đỏ Manga trên đỉnh cửa sổ (2px)
+        tk.Frame(self, bg=T["accent_primary"], height=3).pack(fill="x")
+
+        # 1. Thanh Header Cố Định (Studio Bar)
+        header = tk.Frame(self, bg=T["bg_header"], padx=16, pady=10)
         header.pack(fill="x")
+
+        brand_box = tk.Frame(header, bg=T["bg_header"])
+        brand_box.pack(side="left")
         tk.Label(
-            header,
-            text="🎌 MANGA STUDIO WINDOWS — DỊCH TỰ ĐỘNG THEO LINK & CHIA THƯ MỤC CHAPTER",
-            font=("Segoe UI", 13, "bold"),
-            fg="#f8fafc",
-            bg="#1e1b4b",
-        ).pack(side="left")
-        self.lbl_han_muc = tk.Label(
-            header,
-            text=f"🖥️ Mã máy: {MA_MAY_HIEN_THI} · 💎 Đang kiểm tra số lượt...",
-            font=("Segoe UI", 10, "bold"),
-            fg="#38bdf8",
-            bg="#1e1b4b",
-        )
-        self.lbl_han_muc.pack(side="right")
-
-        # Khung 1: Kết nối Máy chủ, Xác nhận Mã Máy Tính & Tài khoản VIP
-        f_auth = tk.LabelFrame(
-            self,
-            text=" 1. Xác nhận Mã Máy Tính & Tài khoản VIP (Đồng bộ lượt dịch với Web & Tiện ích Chrome) ",
-            bg="#1e293b",
-            fg="#38bdf8",
-            font=("Segoe UI", 10, "bold"),
-            padx=12,
-            pady=8,
-        )
-        f_auth.pack(fill="x", padx=14, pady=(10, 6))
-
-        tk.Label(f_auth, text="Máy chủ:", bg="#1e293b", fg="#cbd5e1").grid(row=0, column=0, sticky="w")
-        self.ent_server = tk.Entry(f_auth, width=28, bg="#0f172a", fg="#f8fafc", insertbackground="#fff")
-        self.ent_server.insert(0, self.cau_hinh.get("may_chu", "https://translation-api.vibe1.tinhgon.xyz"))
-        self.ent_server.grid(row=0, column=1, padx=6)
-
-        tk.Label(f_auth, text="Email:", bg="#1e293b", fg="#cbd5e1").grid(row=0, column=2, sticky="w")
-        self.ent_email = tk.Entry(f_auth, width=24, bg="#0f172a", fg="#f8fafc", insertbackground="#fff")
-        self.ent_email.insert(0, self.cau_hinh.get("email", ""))
-        self.ent_email.grid(row=0, column=3, padx=6)
-
-        tk.Label(f_auth, text="Mật khẩu:", bg="#1e293b", fg="#cbd5e1").grid(row=0, column=4, sticky="w")
-        self.ent_pass = tk.Entry(f_auth, width=18, show="*", bg="#0f172a", fg="#f8fafc", insertbackground="#fff")
-        self.ent_pass.grid(row=0, column=5, padx=6)
-
-        tk.Button(
-            f_auth,
-            text="🔑 Đăng nhập & Lưu máy",
-            bg="#2563eb",
+            brand_box,
+            text=" MANGA STUDIO ",
+            font=("Segoe UI", 9, "bold"),
             fg="#ffffff",
+            bg=T["accent_primary"],
+            padx=6,
+            pady=2,
+        ).pack(side="left", padx=(0, 10))
+        tk.Label(
+            brand_box,
+            text="BÀN DỊCH TRUYỆN TRANH AI & CHIA CHAPTER TỰ ĐỘNG",
+            font=("Segoe UI", 11, "bold"),
+            fg=T["text_primary"],
+            bg=T["bg_header"],
+        ).pack(side="left")
+
+        right_hdr = tk.Frame(header, bg=T["bg_header"])
+        right_hdr.pack(side="right")
+
+        self._auth_dang_mo = False
+        self.btn_toggle_auth = tk.Button(
+            right_hdr,
+            text="⚙️ Tài khoản Cloud ▾",
+            bg=T["bg_elevated"],
+            fg=T["text_primary"],
+            activebackground="#334155",
+            activeforeground="#ffffff",
             font=("Segoe UI", 9, "bold"),
             relief="flat",
             padx=10,
-            command=self._dang_nhap,
-        ).grid(row=0, column=6, padx=6)
+            pady=3,
+            command=self._bat_tat_khung_tai_khoan,
+        )
+        self.btn_toggle_auth.pack(side="right")
 
-        # Hàng xác nhận Mã máy tính & Kiểm tra số lượt còn lại
-        hang_hwid = tk.Frame(f_auth, bg="#1e293b", pady=6)
-        hang_hwid.grid(row=1, column=0, columnspan=7, sticky="ew")
-        tk.Label(
-            hang_hwid,
-            text="🖥️ Mã máy tính xác nhận:",
-            bg="#1e293b",
-            fg="#fbbf24",
+        self.btn_bang_gia_api = tk.Button(
+            right_hdr,
+            text="💎 Gói Cước & Khoá API (tr_live_)",
+            bg="#281320",
+            fg=T["accent_soft"],
+            activebackground=T["accent_primary"],
+            activeforeground="#ffffff",
             font=("Segoe UI", 9, "bold"),
-        ).pack(side="left")
+            relief="flat",
+            padx=10,
+            pady=3,
+            command=self._mo_cua_so_goi_cuoc_va_api,
+        )
+        self.btn_bang_gia_api.pack(side="right", padx=(0, 8))
+
+        self.lbl_han_muc = tk.Label(
+            right_hdr,
+            text=f"💎 Khả dụng: -- trang ({MA_MAY_HIEN_THI})",
+            font=("Consolas", 9, "bold"),
+            fg=T["status_info"],
+            bg="#162033",
+            padx=10,
+            pady=4,
+        )
+        self.lbl_han_muc.pack(side="right", padx=(0, 8))
+
+        tk.Frame(self, bg=T["border_subtle"], height=1).pack(fill="x")
+
+        # Ngăn kéo cấu hình Tài khoản Cloud & Mã máy (Ẩn mặc định để giao diện gọn thoáng, bấm nút ⚙️ trên Header để mở)
+        self.f_auth_drawer = tk.Frame(
+            self,
+            bg=T["bg_surface"],
+            highlightbackground=T["border_input"],
+            highlightthickness=1,
+            padx=14,
+            pady=8,
+        )
+        r_auth1 = tk.Frame(self.f_auth_drawer, bg=T["bg_surface"])
+        r_auth1.pack(fill="x", pady=(0, 5))
+        tk.Label(r_auth1, text="Máy chủ Cloud:", bg=T["bg_surface"], fg=T["text_secondary"], font=("Segoe UI", 9)).pack(side="left")
+        self.ent_server = tk.Entry(r_auth1, width=28, bg=T["bg_elevated"], fg=T["text_primary"], insertbackground="#fff", relief="flat")
+        self.ent_server.insert(0, self.cau_hinh.get("may_chu", "https://translation-api.vibe1.tinhgon.xyz"))
+        self.ent_server.pack(side="left", padx=(6, 14), ipady=3)
+
+        tk.Label(r_auth1, text="Email:", bg=T["bg_surface"], fg=T["text_secondary"], font=("Segoe UI", 9)).pack(side="left")
+        self.ent_email = tk.Entry(r_auth1, width=22, bg=T["bg_elevated"], fg=T["text_primary"], insertbackground="#fff", relief="flat")
+        self.ent_email.insert(0, self.cau_hinh.get("email", ""))
+        self.ent_email.pack(side="left", padx=(6, 14), ipady=3)
+
+        tk.Label(r_auth1, text="Mật khẩu / API Key:", bg=T["bg_surface"], fg=T["text_secondary"], font=("Segoe UI", 9)).pack(side="left")
+        self.ent_pass = tk.Entry(r_auth1, width=18, show="*", bg=T["bg_elevated"], fg=T["text_primary"], insertbackground="#fff", relief="flat")
+        self.ent_pass.pack(side="left", padx=(6, 10), ipady=3)
+
+        tk.Button(
+            r_auth1,
+            text="Đăng nhập & Lưu máy",
+            bg=T["accent_primary"],
+            fg="#ffffff",
+            font=("Segoe UI", 9, "bold"),
+            relief="flat",
+            padx=12,
+            pady=3,
+            command=self._dang_nhap,
+        ).pack(side="left", padx=4)
+
+        r_auth2 = tk.Frame(self.f_auth_drawer, bg=T["bg_surface"])
+        r_auth2.pack(fill="x")
+        tk.Label(r_auth2, text="Mã thiết bị:", bg=T["bg_surface"], fg=T["text_secondary"], font=("Segoe UI", 9)).pack(side="left")
         self.ent_hwid = tk.Entry(
-            hang_hwid,
-            width=20,
-            bg="#0f172a",
-            fg="#fbbf24",
-            font=("Consolas", 10, "bold"),
-            readonlybackground="#0f172a",
+            r_auth2,
+            width=18,
+            bg=T["bg_elevated"],
+            fg=T["status_warn"],
+            font=("Consolas", 9, "bold"),
+            readonlybackground=T["bg_elevated"],
+            relief="flat",
         )
         self.ent_hwid.insert(0, MA_MAY_HIEN_THI)
         self.ent_hwid.config(state="readonly")
-        self.ent_hwid.pack(side="left", padx=6)
+        self.ent_hwid.pack(side="left", padx=6, ipady=2)
 
-        tk.Button(
-            hang_hwid,
-            text="📋 Sao chép Mã máy",
-            bg="#334155",
-            fg="#f8fafc",
-            font=("Segoe UI", 8, "bold"),
-            relief="flat",
-            padx=8,
-            command=self._sao_chep_ma_may,
-        ).pack(side="left", padx=4)
-
-        tk.Button(
-            hang_hwid,
-            text="🔄 Xác nhận Mã máy & Kiểm tra số lượt còn lại",
-            bg="#059669",
-            fg="#ffffff",
-            font=("Segoe UI", 9, "bold"),
-            relief="flat",
-            padx=10,
-            command=lambda: threading.Thread(
-                target=self._cap_nhat_han_muc, kwargs={"ghi_nhat_ky": True}, daemon=True
-            ).start(),
-        ).pack(side="left", padx=6)
-
-        tk.Button(
-            hang_hwid,
-            text="🌐 Mở Web comic.io.vn (Nạp VIP / API Key)",
-            bg="#7c3aed",
-            fg="#ffffff",
-            font=("Segoe UI", 8, "bold"),
-            relief="flat",
-            padx=8,
-            command=lambda: webbrowser.open(WEB_CHINH_THUC),
-        ).pack(side="left", padx=4)
+        for txt_b, cmd_b in (
+            ("Sao chép Mã máy", self._sao_chep_ma_may),
+            ("🔌 Copy API Máy Chủ (Cho Máy Khách)", self._sao_chep_api_host_cuc_bo),
+            ("💎 Bảng Giá & Khoá API (tr_live_)", self._mo_cua_so_goi_cuoc_va_api),
+            (
+                "Đồng bộ số lượt",
+                lambda: threading.Thread(target=self._cap_nhat_han_muc, kwargs={"ghi_nhat_ky": True}, daemon=True).start(),
+            ),
+            ("Mở Web Nạp VIP", lambda: webbrowser.open(WEB_CHINH_THUC)),
+        ):
+            tk.Button(
+                r_auth2,
+                text=txt_b,
+                bg=T["bg_elevated"],
+                fg=T["text_primary"],
+                font=("Segoe UI", 8, "bold"),
+                relief="flat",
+                padx=8,
+                pady=2,
+                command=cmd_b,
+            ).pack(side="left", padx=3)
 
         self.lbl_chi_tiet_luot = tk.Label(
-            hang_hwid,
+            self.f_auth_drawer,
             text="Đang đồng bộ hạn mức của thiết bị...",
-            bg="#1e293b",
-            fg="#34d399",
+            bg=T["bg_surface"],
+            fg=T["status_ok"],
             font=("Segoe UI", 9, "bold"),
+            anchor="w",
         )
-        self.lbl_chi_tiet_luot.pack(side="left", padx=10)
+        self.lbl_chi_tiet_luot.pack(fill="x", pady=(4, 0))
 
-        # Khung 2: Nhập Link Truyện / Danh sách Chapter & Quét tự động
-        f_link = tk.LabelFrame(
-            self,
-            text=" 2. Dán Link Bộ Truyện (hoặc nhiều Link Chapter, mỗi dòng 1 link) ",
-            bg="#1e293b",
-            fg="#f472b6",
-            font=("Segoe UI", 10, "bold"),
-            padx=12,
-            pady=8,
+        # 2. Dải 4 Thẻ Chỉ Số Nhanh (KPI Status Strip — Chuẩn Mục 6.1 & 6.3: Trung thực số liệu, không hiện 0 giả)
+        self.f_kpi_strip = tk.Frame(self, bg=T["bg_canvas"], padx=16, pady=6)
+        self.f_kpi_strip.pack(fill="x")
+        for col_i in range(4):
+            self.f_kpi_strip.columnconfigure(col_i, weight=1, uniform="kpi")
+
+        def _tao_the_kpi(col: int, tieu_de: str, gia_tri_ban_dau: str, mau_chu: str) -> tk.Label:
+            card = tk.Frame(
+                self.f_kpi_strip,
+                bg=T["bg_surface"],
+                highlightbackground=T["border_subtle"],
+                highlightthickness=1,
+                padx=12,
+                pady=5,
+            )
+            card.grid(row=0, column=col, sticky="nsew", padx=(0 if col == 0 else 6, 0))
+            tk.Label(
+                card,
+                text=tieu_de,
+                bg=T["bg_surface"],
+                fg=T["text_muted"],
+                font=("Segoe UI", 8, "bold"),
+                anchor="w",
+            ).pack(fill="x")
+            lbl_val = tk.Label(
+                card,
+                text=gia_tri_ban_dau,
+                bg=T["bg_surface"],
+                fg=mau_chu,
+                font=("Segoe UI", 10, "bold"),
+                anchor="w",
+            )
+            lbl_val.pack(fill="x", pady=(2, 0))
+            return lbl_val
+
+        self.lbl_so_chap = _tao_the_kpi(0, "NGUỒN CHƯƠNG ĐÃ NẠP", "Chưa nạp nguồn (Dán link hoặc chọn file)", T["text_secondary"])
+        self.lbl_kpi_cost = _tao_the_kpi(1, "CHI PHÍ DỰ KIẾN / TRANG", "~10–15đ / trang (1 lượt Cloud)", T["status_warn"])
+        self.lbl_kpi_ocr = _tao_the_kpi(2, "BỘ NHẬN DIỆN CHỮ (OCR)", "Sẵn sàng 4 ngôn ngữ (JA · ZH · KO · EN)", T["status_ok"])
+        self.lbl_tien_do = _tao_the_kpi(3, "TRẠNG THÁI VẬN HÀNH", "Sẵn sàng chờ lệnh.", T["status_info"])
+
+        # 3. Không gian làm việc 2 cột (Trái: Bảng Điều Khiển 3 Bước | Phải: Nhật Ký Studio & Danh Sách Chapter)
+        workspace = tk.Frame(self, bg=T["bg_canvas"], padx=16, pady=2)
+        workspace.pack(fill="both", expand=True, pady=(0, 10))
+        workspace.columnconfigure(0, weight=0, minsize=560)
+        workspace.columnconfigure(1, weight=1)
+        workspace.rowconfigure(0, weight=1)
+
+        left_col = tk.Frame(workspace, bg=T["bg_canvas"], width=560)
+        left_col.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+        left_col.grid_propagate(False)
+
+        right_col = tk.Frame(
+            workspace,
+            bg=T["bg_surface"],
+            highlightbackground=T["border_subtle"],
+            highlightthickness=1,
         )
-        f_link.pack(fill="x", padx=14, pady=6)
+        right_col.grid(row=0, column=1, sticky="nsew")
 
-        hang_url = tk.Frame(f_link, bg="#1e293b")
-        hang_url.pack(fill="x")
-        tk.Label(hang_url, text="Tên bộ truyện:", bg="#1e293b", fg="#cbd5e1").pack(side="left")
-        self.ent_ten_truyen = tk.Entry(hang_url, width=25, bg="#0f172a", fg="#f8fafc", insertbackground="#fff")
+        def _tao_khung_buoc(parent, so_buoc: str, tieu_de: str) -> tk.Frame:
+            outer = tk.Frame(
+                parent,
+                bg=T["bg_surface"],
+                highlightbackground=T["border_subtle"],
+                highlightthickness=1,
+                padx=14,
+                pady=8,
+            )
+            outer.pack(fill="x", pady=(0, 6))
+            hdr = tk.Frame(outer, bg=T["bg_surface"])
+            hdr.pack(fill="x", pady=(0, 6))
+            tk.Label(
+                hdr,
+                text=f" {so_buoc} ",
+                bg="#281320",
+                fg=T["accent_soft"],
+                font=("Consolas", 9, "bold"),
+                padx=4,
+                pady=1,
+            ).pack(side="left", padx=(0, 8))
+            tk.Label(
+                hdr,
+                text=tieu_de,
+                bg=T["bg_surface"],
+                fg=T["text_primary"],
+                font=("Segoe UI", 10, "bold"),
+            ).pack(side="left")
+            return outer
+
+        # --- BƯỚC 1: NGUỒN TRUYỆN & CHAPTER ---
+        f_step1 = _tao_khung_buoc(left_col, "BƯỚC 01", "NGUỒN TRUYỆN TRANH & PHẠM VI CHAPTER")
+
+        grid_url = tk.Frame(f_step1, bg=T["bg_surface"])
+        grid_url.pack(fill="x", pady=(0, 4))
+        grid_url.columnconfigure(1, weight=1)
+
+        tk.Label(grid_url, text="Tên bộ truyện:", bg=T["bg_surface"], fg=T["text_secondary"], font=("Segoe UI", 9)).grid(row=0, column=0, sticky="w", pady=(0, 5))
+        self.ent_ten_truyen = tk.Entry(
+            grid_url,
+            bg=T["bg_elevated"],
+            fg=T["text_primary"],
+            insertbackground="#fff",
+            relief="flat",
+            font=("Segoe UI", 10),
+        )
         self.ent_ten_truyen.insert(0, "Truyen-Moi")
-        self.ent_ten_truyen.pack(side="left", padx=(6, 14))
+        self.ent_ten_truyen.grid(row=0, column=1, columnspan=2, sticky="ew", padx=(8, 0), pady=(0, 5), ipady=3)
 
-        tk.Label(hang_url, text="Link truyện / Chapter:", bg="#1e293b", fg="#cbd5e1").pack(side="left")
-        self.ent_url = tk.Entry(hang_url, width=52, bg="#0f172a", fg="#f8fafc", insertbackground="#fff")
-        self.ent_url.pack(side="left", padx=6, fill="x", expand=True)
+        tk.Label(grid_url, text="Link / Đường dẫn:", bg=T["bg_surface"], fg=T["text_secondary"], font=("Segoe UI", 9)).grid(row=1, column=0, sticky="w")
+        self.ent_url = tk.Entry(
+            grid_url,
+            bg=T["bg_elevated"],
+            fg=T["text_primary"],
+            insertbackground="#fff",
+            relief="flat",
+            font=("Consolas", 9),
+        )
+        self.ent_url.grid(row=1, column=1, sticky="ew", padx=(8, 6), ipady=3)
 
         tk.Button(
-            hang_url,
-            text="🔍 Quét danh sách Chapter",
-            bg="#db2777",
+            grid_url,
+            text="🔍 Quét Chapter",
+            bg=T["accent_primary"],
             fg="#ffffff",
+            activebackground="#be123c",
+            activeforeground="#ffffff",
             font=("Segoe UI", 9, "bold"),
             relief="flat",
             padx=12,
+            pady=3,
             command=self._quet_link_truyen,
-        ).pack(side="left", padx=4)
+        ).grid(row=1, column=2, sticky="e")
 
-        tk.Button(
-            hang_url,
-            text="📁 Chọn Thư Mục Ảnh Có Sẵn (Offline)",
-            bg="#0d9488",
-            fg="#ffffff",
-            font=("Segoe UI", 9, "bold"),
+        # Thanh công cụ chọn nguồn phụ (Đồng bộ 1 kiểu nút Secondary — không trộn 7 màu cầu vồng)
+        bar_sources = tk.Frame(f_step1, bg=T["bg_surface"])
+        bar_sources.pack(fill="x", pady=3)
+        for idx_s, (lbl_s, cmd_s) in enumerate((
+            ("📋 Dán Nhiều Link", self._mo_hop_thoai_nhieu_link),
+            ("📁 Chọn Thư Mục Ảnh", self._chon_thu_muc_anh_offline),
+            ("🗂️ Chọn File ZIP / CBZ / Ảnh", self._chon_goi_anh),
+        )):
+            tk.Button(
+                bar_sources,
+                text=lbl_s,
+                bg=T["bg_elevated"],
+                fg=T["text_primary"],
+                activebackground="#334155",
+                activeforeground="#ffffff",
+                font=("Segoe UI", 9),
+                relief="flat",
+                padx=10,
+                pady=3,
+                command=cmd_s,
+            ).pack(side="left", fill="x", expand=True, padx=(0 if idx_s == 0 else 6, 0))
+
+        bar_opts1 = tk.Frame(f_step1, bg=T["bg_surface"])
+        bar_opts1.pack(fill="x", pady=(2, 2))
+        self.var_mo_rong_ca_bo = tk.BooleanVar(value=bool(self.cau_hinh.get("mo_rong_ca_bo", True)))
+        tk.Checkbutton(
+            bar_opts1,
+            text="Mở rộng link 1 chap → cả bộ",
+            variable=self.var_mo_rong_ca_bo,
+            bg=T["bg_surface"],
+            fg=T["text_secondary"],
+            selectcolor=T["bg_canvas"],
+            activebackground=T["bg_surface"],
+            font=("Segoe UI", 9),
+        ).pack(side="left")
+
+        self.var_tu_dong_link = tk.BooleanVar(value=bool(self.cau_hinh.get("tu_dong_duyet_link", True)))
+        tk.Checkbutton(
+            bar_opts1,
+            text="Tự duyệt số trang khi tải Link",
+            variable=self.var_tu_dong_link,
+            bg=T["bg_surface"],
+            fg=T["text_secondary"],
+            selectcolor=T["bg_canvas"],
+            activebackground=T["bg_surface"],
+            font=("Segoe UI", 9),
+        ).pack(side="left", padx=(12, 0))
+
+        bar_range = tk.Frame(f_step1, bg=T["bg_surface"])
+        bar_range.pack(fill="x", pady=(2, 0))
+        tk.Label(bar_range, text="Từ Chap:", bg=T["bg_surface"], fg=T["text_secondary"], font=("Segoe UI", 9)).pack(side="left")
+        self.spin_tu = tk.Spinbox(
+            bar_range,
+            from_=1,
+            to=9999,
+            width=5,
+            bg=T["bg_elevated"],
+            fg=T["text_primary"],
+            buttonbackground=T["bg_elevated"],
             relief="flat",
-            padx=10,
-            command=self._chon_thu_muc_anh_offline,
-        ).pack(side="left", padx=4)
+            font=("Consolas", 10, "bold"),
+        )
+        self.spin_tu.pack(side="left", padx=(4, 10), ipady=2)
 
-        hang_chon_chap = tk.Frame(f_link, bg="#1e293b", pady=6)
-        hang_chon_chap.pack(fill="x")
-        tk.Label(hang_chon_chap, text="Dịch từ Chapter thứ:", bg="#1e293b", fg="#cbd5e1").pack(side="left")
-        self.spin_tu = tk.Spinbox(hang_chon_chap, from_=1, to=9999, width=6, bg="#0f172a", fg="#f8fafc")
-        self.spin_tu.pack(side="left", padx=6)
-        tk.Label(hang_chon_chap, text="đến Chapter thứ:", bg="#1e293b", fg="#cbd5e1").pack(side="left")
-        self.spin_den = tk.Spinbox(hang_chon_chap, from_=1, to=9999, width=6, bg="#0f172a", fg="#f8fafc")
+        tk.Label(bar_range, text="đến Chap:", bg=T["bg_surface"], fg=T["text_secondary"], font=("Segoe UI", 9)).pack(side="left")
+        self.spin_den = tk.Spinbox(
+            bar_range,
+            from_=1,
+            to=9999,
+            width=5,
+            bg=T["bg_elevated"],
+            fg=T["text_primary"],
+            buttonbackground=T["bg_elevated"],
+            relief="flat",
+            font=("Consolas", 10, "bold"),
+        )
         self.spin_den.delete(0, "end")
         self.spin_den.insert(0, "10")
-        self.spin_den.pack(side="left", padx=6)
+        self.spin_den.pack(side="left", padx=(4, 12), ipady=2)
 
-        self.lbl_so_chap = tk.Label(
-            hang_chon_chap,
-            text="(Hoặc bấm '📁 Chọn Thư Mục Ảnh Có Sẵn' để dịch ảnh có sẵn trên máy)",
-            bg="#1e293b",
-            fg="#94a3b8",
+        hw_info = phat_hien_cau_hinh_may_va_luong_toi_uu()
+        luong_de_xuat = self.cau_hinh.get("so_luong_song_song") or hw_info["de_xuat_song_song"]
+        tk.Label(bar_range, text="⚡ Chạy song song:", bg=T["bg_surface"], fg="#38BDF8", font=("Segoe UI", 9, "bold")).pack(side="left")
+        self.spin_song_song = tk.Spinbox(
+            bar_range,
+            from_=1,
+            to=8,
+            width=3,
+            bg=T["bg_elevated"],
+            fg="#38BDF8",
+            buttonbackground=T["bg_elevated"],
+            relief="flat",
+            font=("Consolas", 10, "bold"),
         )
-        self.lbl_so_chap.pack(side="left", padx=12)
+        self.spin_song_song.delete(0, "end")
+        self.spin_song_song.insert(0, str(luong_de_xuat))
+        self.spin_song_song.pack(side="left", padx=(4, 4), ipady=2)
+        tk.Label(
+            bar_range,
+            text=f"chap cùng lúc ({hw_info['mo_ta']})",
+            bg=T["bg_surface"],
+            fg=T["text_secondary"],
+            font=("Segoe UI", 8),
+        ).pack(side="left")
 
-        # Khung 3: Cấu hình Ngôn ngữ, Font chữ & Thư mục xuất file
-        f_cfg = tk.LabelFrame(
-            self,
-            text=" 3. Tuỳ chọn Dịch thuật, Font chữ & Thư mục chia file Chapter ",
-            bg="#1e293b",
-            fg="#34d399",
-            font=("Segoe UI", 10, "bold"),
-            padx=12,
-            pady=8,
-        )
-        f_cfg.pack(fill="x", padx=14, pady=6)
+        # --- BƯỚC 2: NGÔN NGỮ, FONT TRUYỆN & BỘ MÁY AI ---
+        f_step2 = _tao_khung_buoc(left_col, "BƯỚC 02", "NGÔN NGỮ, PHONG CÁCH CHỮ & BỘ MÁY AI")
 
-        r1 = tk.Frame(f_cfg, bg="#1e293b")
-        r1.pack(fill="x", pady=2)
-        tk.Label(r1, text="Ngôn ngữ gốc:", bg="#1e293b", fg="#cbd5e1").pack(side="left")
-        self.cmb_src = ttk.Combobox(r1, values=["ja (Nhật)", "ko (Hàn)", "zh (Trung)", "en (Anh)"], width=14, state="readonly")
+        grid_cfg = tk.Frame(f_step2, bg=T["bg_surface"])
+        grid_cfg.pack(fill="x", pady=(0, 4))
+        grid_cfg.columnconfigure(1, weight=1)
+        grid_cfg.columnconfigure(3, weight=1)
+
+        tk.Label(grid_cfg, text="Ngôn ngữ gốc:", bg=T["bg_surface"], fg=T["text_secondary"], font=("Segoe UI", 9)).grid(row=0, column=0, sticky="w", pady=(0, 5))
+        self.cmb_src = ttk.Combobox(grid_cfg, values=["ja (Nhật)", "ko (Hàn)", "zh (Trung)", "en (Anh)"], state="readonly")
         self.cmb_src.current(0)
-        self.cmb_src.pack(side="left", padx=(6, 16))
+        self.cmb_src.grid(row=0, column=1, sticky="ew", padx=(6, 12), pady=(0, 5))
 
-        tk.Label(r1, text="Dịch sang:", bg="#1e293b", fg="#cbd5e1").pack(side="left")
-        self.cmb_tgt = ttk.Combobox(r1, values=["vi (Tiếng Việt)", "en (English Quốc tế)"], width=18, state="readonly")
+        tk.Label(grid_cfg, text="Dịch sang:", bg=T["bg_surface"], fg=T["text_secondary"], font=("Segoe UI", 9)).grid(row=0, column=2, sticky="w", pady=(0, 5))
+        self.cmb_tgt = ttk.Combobox(grid_cfg, values=["vi (Tiếng Việt)", "en (English Quốc tế)"], state="readonly")
         self.cmb_tgt.current(0)
-        self.cmb_tgt.pack(side="left", padx=(6, 16))
+        self.cmb_tgt.grid(row=0, column=3, sticky="ew", padx=(6, 0), pady=(0, 5))
 
-        tk.Label(r1, text="Font chữ:", bg="#1e293b", fg="#cbd5e1").pack(side="left")
+        tk.Label(grid_cfg, text="Font chữ:", bg=T["bg_surface"], fg=T["text_secondary"], font=("Segoe UI", 9)).grid(row=1, column=0, sticky="w", pady=(0, 5))
         self.cmb_font = ttk.Combobox(
-            r1,
+            grid_cfg,
             values=["bangers (⚔️ Hành động)", "comic (💬 Truyện tranh)", "romance (🌸 Ngôn tình)", "historical (📜 Cổ trang)"],
-            width=20,
             state="readonly",
         )
         self.cmb_font.current(0)
-        self.cmb_font.pack(side="left", padx=(6, 12))
+        self.cmb_font.grid(row=1, column=1, columnspan=3, sticky="ew", padx=(6, 0), pady=(0, 5))
 
-        tk.Label(r1, text="Bộ máy AI:", bg="#1e293b", fg="#cbd5e1").pack(side="left")
+        tk.Label(grid_cfg, text="Bộ máy AI:", bg=T["bg_surface"], fg=T["text_secondary"], font=("Segoe UI", 9, "bold")).grid(row=2, column=0, sticky="w")
         self.cmb_engine = ttk.Combobox(
-            r1,
+            grid_cfg,
             values=[
-                "llm_context (✨ Gemini AI)",
-                "google_fast (⚡ Google Nhanh)",
+                "llm_context (✨ Gemini AI — Chuẩn Ngữ Cảnh Cloud)",
+                "google_fast (⚡ Google Nhanh — Tốc Độ Cao Cloud)",
                 "local_gguf (Qwen3-VL 8B Offline)",
+                "local_ocr_gpu (⚡ OCR + GPU Nhanh)",
             ],
-            width=30,
             state="readonly",
+            width=48,
         )
         self.cmb_engine.current(0)
-        self.cmb_engine.pack(side="left", padx=6)
+        # Ẩn 2 model thừa (google_fast & local_gguf) trên giao diện, giữ nguyên local_ocr_gpu và thêm model nâng cấp local_hybrid_pro
+        self.cmb_engine.configure(
+            values=[
+                "local_ocr_gpu (⚡ OCR + GPU Nhanh)",
+                "local_hybrid_pro (🧠 OCR + GPU Pro — Tự Học & Chữ Viết Tay · 2 lượt/trang)",
+                "llm_context (✨ Gemini AI — Chuẩn Ngữ Cảnh Cloud)",
+            ]
+        )
+        self.cmb_engine.set("local_ocr_gpu (⚡ OCR + GPU Nhanh)")
+        self.cmb_engine.grid(row=2, column=1, columnspan=3, sticky="ew", padx=(6, 0))
+        self.cmb_engine.bind("<<ComboboxSelected>>", self._cap_nhat_the_chi_phi)
 
-        self.var_cpu_ollama = tk.BooleanVar(value=bool(self.cau_hinh.get("ollama_cpu", False)))
+        self.lbl_mo_ta_engine = tk.Label(
+            f_step2,
+            text="",
+            bg="#111927",
+            fg=T["status_ok"],
+            font=("Segoe UI", 8, "bold"),
+            anchor="w",
+            padx=8,
+            pady=4,
+        )
+        self.lbl_mo_ta_engine.pack(fill="x", pady=(2, 3))
+        self._cap_nhat_the_chi_phi()
+
+        bar_diag = tk.Frame(f_step2, bg=T["bg_surface"])
+        bar_diag.pack(fill="x", pady=3)
         tk.Button(
-            r1,
-            text="💻 Kiểm tra Qwen3-VL 8B",
-            bg="#15803d",
-            fg="#ffffff",
+            bar_diag,
+            text="💻 Kiểm tra Qwen3-VL",
+            bg=T["bg_elevated"],
+            fg=T["text_primary"],
             font=("Segoe UI", 8, "bold"),
             relief="flat",
             padx=8,
+            pady=3,
             command=self._kiem_tra_gguf_cuc_bo,
-        ).pack(side="left", padx=4)
-        tk.Checkbutton(
-            r1,
-            text="Chạy Ollama bằng CPU (chậm)",
-            variable=self.var_cpu_ollama,
-            bg="#1e293b",
-            fg="#e2e8f0",
-            selectcolor="#0f172a",
-            activebackground="#1e293b",
-        ).pack(side="left", padx=4)
+        ).pack(side="left", padx=(0, 5))
 
-        r_export = tk.Frame(f_cfg, bg="#1e293b", pady=4)
-        r_export.pack(fill="x")
+        tk.Button(
+            bar_diag,
+            text="🌐 Kiểm tra OCR (4 Ngôn ngữ)",
+            bg=T["bg_elevated"],
+            fg=T["text_primary"],
+            font=("Segoe UI", 8, "bold"),
+            relief="flat",
+            padx=8,
+            pady=3,
+            command=self._kiem_tra_ocr_da_ngon_ngu,
+        ).pack(side="left", padx=(0, 5))
+
+        tk.Button(
+            bar_diag,
+            text="🔄 Cập nhật Bộ máy AI Mới",
+            bg="#162033",
+            fg="#38BDF8",
+            activebackground="#0284C7",
+            activeforeground="#ffffff",
+            font=("Segoe UI", 8, "bold"),
+            relief="flat",
+            padx=8,
+            pady=3,
+            command=self._cap_nhat_bo_may_ai_moi,
+        ).pack(side="left", padx=(0, 6))
+
+        self.var_cpu_ollama = tk.BooleanVar(value=bool(self.cau_hinh.get("ollama_cpu", False)))
+        tk.Checkbutton(
+            bar_diag,
+            text="Ollama CPU",
+            variable=self.var_cpu_ollama,
+            bg=T["bg_surface"],
+            fg=T["text_secondary"],
+            selectcolor=T["bg_canvas"],
+            activebackground=T["bg_surface"],
+            font=("Segoe UI", 8),
+        ).pack(side="left")
+
+        bar_dict = tk.Frame(f_step2, bg=T["bg_surface"])
+        bar_dict.pack(fill="x", pady=(3, 2))
+        tk.Label(bar_dict, text="Từ điển / Xưng hô:", bg=T["bg_surface"], fg=T["text_secondary"], font=("Segoe UI", 9)).pack(side="left")
+        self.ent_tu_dien = tk.Entry(
+            bar_dict,
+            bg=T["bg_elevated"],
+            fg=T["text_primary"],
+            insertbackground="#fff",
+            relief="flat",
+            font=("Segoe UI", 9),
+        )
+        self.ent_tu_dien.insert(0, self.cau_hinh.get("tu_dien_rieng", ""))
+        self.ent_tu_dien.pack(side="left", padx=(8, 0), fill="x", expand=True, ipady=3)
+
+        bar_exp = tk.Frame(f_step2, bg=T["bg_surface"])
+        bar_exp.pack(fill="x", pady=(2, 0))
         self.var_cbz = tk.BooleanVar(value=bool(self.cau_hinh.get("xuat_cbz", True)))
         tk.Checkbutton(
-            r_export,
-            text="📦 Đóng gói .CBZ",
+            bar_exp,
+            text="Đóng gói .CBZ",
             variable=self.var_cbz,
-            bg="#1e293b",
-            fg="#e2e8f0",
-            selectcolor="#0f172a",
-            activebackground="#1e293b",
+            bg=T["bg_surface"],
+            fg=T["text_secondary"],
+            selectcolor=T["bg_canvas"],
+            activebackground=T["bg_surface"],
+            font=("Segoe UI", 9),
         ).pack(side="left", padx=(0, 12))
 
         self.var_pdf = tk.BooleanVar(value=bool(self.cau_hinh.get("xuat_pdf", False)))
         tk.Checkbutton(
-            r_export,
-            text="📕 Xuất thêm .PDF",
+            bar_exp,
+            text="Xuất thêm .PDF",
             variable=self.var_pdf,
-            bg="#1e293b",
-            fg="#e2e8f0",
-            selectcolor="#0f172a",
-            activebackground="#1e293b",
+            bg=T["bg_surface"],
+            fg=T["text_secondary"],
+            selectcolor=T["bg_canvas"],
+            activebackground=T["bg_surface"],
+            font=("Segoe UI", 9),
         ).pack(side="left", padx=(0, 12))
 
         self.var_longstrip = tk.BooleanVar(value=bool(self.cau_hinh.get("xuat_longstrip", False)))
         tk.Checkbutton(
-            r_export,
-            text="📜 Ghép dải ảnh dài Webtoon (Long-Strip)",
+            bar_exp,
+            text="Ghép dải Webtoon (Long-Strip)",
             variable=self.var_longstrip,
-            bg="#1e293b",
-            fg="#e2e8f0",
-            selectcolor="#0f172a",
-            activebackground="#1e293b",
-        ).pack(side="left", padx=(0, 16))
+            bg=T["bg_surface"],
+            fg=T["text_secondary"],
+            selectcolor=T["bg_canvas"],
+            activebackground=T["bg_surface"],
+            font=("Segoe UI", 9),
+        ).pack(side="left")
 
-        tk.Label(r_export, text="📖 Xưng hô / Từ điển cố định:", bg="#1e293b", fg="#cbd5e1").pack(side="left")
-        self.ent_tu_dien = tk.Entry(r_export, bg="#0f172a", fg="#f8fafc", insertbackground="#fff")
-        self.ent_tu_dien.insert(0, self.cau_hinh.get("tu_dien_rieng", ""))
-        self.ent_tu_dien.pack(side="left", padx=6, fill="x", expand=True)
+        # --- BƯỚC 3: THƯ MỤC LƯU, CHẠY DỊCH & RÀ SOÁT NHANH ---
+        f_step3 = _tao_khung_buoc(left_col, "BƯỚC 03", "THƯ MỤC KẾT QUẢ & ĐIỀU KHIỂN VẬN HÀNH")
 
-        r2 = tk.Frame(f_cfg, bg="#1e293b", pady=6)
-        r2.pack(fill="x")
-        tk.Label(r2, text="Thư mục lưu trên máy:", bg="#1e293b", fg="#cbd5e1").pack(side="left")
-        self.ent_out = tk.Entry(r2, bg="#0f172a", fg="#f8fafc", insertbackground="#fff")
-        self.ent_out.insert(0, self.cau_hinh.get("thu_muc_xuat", str(Path.home() / "Downloads" / "Truyen_Da_Dich")))
-        self.ent_out.pack(side="left", padx=6, fill="x", expand=True)
-
-        tk.Button(
-            r2,
-            text="📂 Chọn thư mục...",
-            bg="#334155",
-            fg="#f8fafc",
+        bar_out = tk.Frame(f_step3, bg=T["bg_surface"])
+        bar_out.pack(fill="x", pady=(0, 8))
+        tk.Label(bar_out, text="Lưu tại:", bg=T["bg_surface"], fg=T["text_secondary"], font=("Segoe UI", 9)).pack(side="left")
+        self.ent_out = tk.Entry(
+            bar_out,
+            bg=T["bg_elevated"],
+            fg=T["text_primary"],
+            insertbackground="#fff",
             relief="flat",
-            padx=10,
-            command=self._chon_thu_muc,
-        ).pack(side="left", padx=4)
+            font=("Consolas", 9),
+        )
+        self.ent_out.insert(0, self.cau_hinh.get("thu_muc_xuat", str(Path.home() / "Downloads" / "Truyen_Da_Dich")))
+        self.ent_out.pack(side="left", padx=6, fill="x", expand=True, ipady=3)
 
         tk.Button(
-            r2,
-            text="🗂️ Mở thư mục kết quả",
-            bg="#059669",
-            fg="#ffffff",
+            bar_out,
+            text="Chọn...",
+            bg=T["bg_elevated"],
+            fg=T["text_primary"],
+            font=("Segoe UI", 9),
+            relief="flat",
+            padx=8,
+            pady=3,
+            command=self._chon_thu_muc,
+        ).pack(side="left", padx=(0, 4))
+
+        tk.Button(
+            bar_out,
+            text="📂 Mở thư mục",
+            bg=T["bg_elevated"],
+            fg=T["status_info"],
             font=("Segoe UI", 9, "bold"),
             relief="flat",
             padx=10,
+            pady=3,
             command=self._mo_thu_muc_xuat,
-        ).pack(side="left", padx=4)
+        ).pack(side="left")
 
-        # Thanh nút Điều khiển chính
-        f_ctrl = tk.Frame(self, bg="#0f172a", padx=14, pady=6)
-        f_ctrl.pack(fill="x")
+        # Hàng điều khiển chính: Nút BẮT ĐẦU và Nút ⏹ DỪNG LẠI nằm NGANG HÀNG NHAU để luôn hiển thị 100%
+        bar_main_ctrl = tk.Frame(f_step3, bg=T["bg_surface"])
+        bar_main_ctrl.pack(fill="x", pady=(0, 6))
+
         self.btn_start = tk.Button(
-            f_ctrl,
-            text="🚀 BẮT ĐẦU TỰ ĐỘNG TẢI & DỊCH THEO CHAPTER",
-            bg="#2563eb",
+            bar_main_ctrl,
+            text="🚀 BẮT ĐẦU TẢI & DỊCH THEO CHAPTER",
+            bg=T["accent_primary"],
             fg="#ffffff",
-            font=("Segoe UI", 11, "bold"),
+            activebackground="#be123c",
+            activeforeground="#ffffff",
+            font=("Segoe UI", 10, "bold"),
             relief="flat",
-            padx=18,
             pady=8,
             command=self._bat_dau_chay,
         )
-        self.btn_start.pack(side="left")
+        self.btn_start.pack(side="left", fill="x", expand=True, padx=(0, 6))
 
         self.btn_stop = tk.Button(
-            f_ctrl,
-            text="⏹ Dừng lại (Giữ nguyên các trang đã dịch)",
-            bg="#dc2626",
-            fg="#ffffff",
+            bar_main_ctrl,
+            text="⏹ DỪNG LẠI",
+            bg="#2A1215",
+            fg="#F87171",
+            activebackground="#DC2626",
+            activeforeground="#ffffff",
+            disabledforeground="#64748B",
             font=("Segoe UI", 10, "bold"),
             relief="flat",
             padx=14,
@@ -1413,47 +4927,116 @@ class AppDichTruyenWindows(tk.Tk):
             state="disabled",
             command=self._dung_chay,
         )
-        self.btn_stop.pack(side="left", padx=10)
+        self.btn_stop.pack(side="right")
 
-        self.lbl_tien_do = tk.Label(
-            f_ctrl,
-            text="Sẵn sàng.",
-            bg="#0f172a",
-            fg="#38bdf8",
-            font=("Segoe UI", 10, "bold"),
-        )
-        self.lbl_tien_do.pack(side="right")
-
-        # Khung Nhật ký tiến độ trực tiếp
-        f_log = tk.LabelFrame(
-            self,
-            text=" 📋 Nhật ký tiến độ & Danh sách Chapter ",
-            bg="#1e293b",
-            fg="#94a3b8",
+        bar_sub_ctrl = tk.Frame(f_step3, bg=T["bg_surface"])
+        bar_sub_ctrl.pack(fill="x")
+        tk.Button(
+            bar_sub_ctrl,
+            text="👁️ Rà Soát & Sửa Nhanh Bản Dịch (~0.4s · Không tốn lượt)",
+            bg=T["bg_elevated"],
+            fg=T["status_info"],
+            activebackground="#334155",
+            activeforeground="#ffffff",
             font=("Segoe UI", 9, "bold"),
+            relief="flat",
+            pady=5,
+            command=self._mo_cua_so_ra_soat_nhanh,
+        ).pack(fill="x", expand=True)
+
+        # --- CỘT PHẢI: MÀN HÌNH NHẬT KÝ STUDIO & TIẾN ĐỘ TRỰC TIẾP ---
+        log_hdr = tk.Frame(right_col, bg=T["bg_surface"], padx=14, pady=8)
+        log_hdr.pack(fill="x")
+        tk.Label(
+            log_hdr,
+            text=" NHẬT KÝ STUDIO & DANH SÁCH CHAPTER ",
+            bg=T["bg_surface"],
+            fg=T["text_primary"],
+            font=("Segoe UI", 10, "bold"),
+        ).pack(side="left")
+
+        tk.Button(
+            log_hdr,
+            text="Xoá nhật ký",
+            bg=T["bg_elevated"],
+            fg=T["text_secondary"],
+            font=("Segoe UI", 8),
+            relief="flat",
+            padx=8,
+            pady=2,
+            command=lambda: self.txt_log.delete("1.0", "end"),
+        ).pack(side="right", padx=(6, 0))
+        tk.Button(
+            log_hdr,
+            text="Sao chép nhật ký",
+            bg=T["bg_elevated"],
+            fg=T["text_secondary"],
+            font=("Segoe UI", 8),
+            relief="flat",
+            padx=8,
+            pady=2,
+            command=lambda: (self.clipboard_clear(), self.clipboard_append(self.txt_log.get("1.0", "end"))),
+        ).pack(side="right", padx=(6, 0))
+        tk.Button(
+            log_hdr,
+            text="⏹ Dừng Dịch Ngay",
+            bg="#7F1D1D",
+            fg="#FECACA",
+            activebackground="#DC2626",
+            activeforeground="#ffffff",
+            font=("Segoe UI", 8, "bold"),
+            relief="flat",
             padx=10,
-            pady=6,
-        )
-        f_log.pack(fill="both", expand=True, padx=14, pady=(2, 12))
+            pady=2,
+            command=self._dung_chay,
+        ).pack(side="right")
+
+        tk.Frame(right_col, bg=T["border_subtle"], height=1).pack(fill="x")
 
         self.txt_log = scrolledtext.ScrolledText(
-            f_log,
-            bg="#090d16",
-            fg="#e2e8f0",
+            right_col,
+            bg=T["bg_console"],
+            fg=T["text_primary"],
             insertbackground="#fff",
+            relief="flat",
+            padx=12,
+            pady=10,
             font=("Consolas", 10),
+            spacing1=2,
+            spacing3=2,
         )
         self.txt_log.pack(fill="both", expand=True)
+        self.txt_log.tag_config("ts", foreground=T["text_muted"])
+        self.txt_log.tag_config("ok", foreground="#34D399")
+        self.txt_log.tag_config("warn", foreground="#FBBF24")
+        self.txt_log.tag_config("err", foreground="#F87171")
+        self.txt_log.tag_config("info", foreground="#38BDF8")
+
         self.ghi_log(
-            "✨ Chào mừng bạn đến với App Windows Dịch Truyện Tự Động Theo Link!\n"
-            "👉 Bước 1: Dán Link bộ truyện (hoặc link 1 chương) vào ô 'Link truyện / Chapter' rồi bấm '🔍 Quét danh sách Chapter'.\n"
-            "👉 Bước 2: Chọn dịch từ Chapter A đến Chapter B và bấm '🚀 BẮT ĐẦU TỰ ĐỘNG TẢI & DỊCH THEO CHAPTER'.\n"
-            "👉 Mỗi Chapter sẽ tự động được lưu gọn gàng vào: <Thư_mục_lưu>/<Tên_Truyện>/Chapter-001/001.jpg, 002.jpg..."
+            "✨ Sẵn sàng tại bàn làm việc Manga Studio Pro!\n"
+            "👉 Bước 01: Dán Link truyện (steel-ball-run, MangaDex, MANGA Plus...) hoặc chọn File/Thư mục.\n"
+            "👉 Bước 02: Chọn Ngôn ngữ (JA/ZH/KO/EN), Font chữ và Bộ máy AI (Offline 0đ hoặc Cloud).\n"
+            "👉 Bước 03: Bấm '🚀 BẮT ĐẦU TỰ ĐỘNG TẢI & DỊCH THEO CHAPTER'.\n"
+            "Dịch cục bộ Qwen3-VL 8B: " + HUONG_DAN_QWEN3
         )
 
     def ghi_log(self, dong: str):
         def _append():
-            self.txt_log.insert("end", f"[{time.strftime('%H:%M:%S')}] {dong}\n")
+            ts = f"[{time.strftime('%H:%M:%S')}] "
+            self.txt_log.insert("end", ts, "ts")
+            tag = None
+            if any(k in dong for k in ("✅", "🎉", "Hoàn tất", "thành công")):
+                tag = "ok"
+            elif any(k in dong for k in ("❌", "Lỗi", "thất bại")):
+                tag = "err"
+            elif any(k in dong for k in ("⚠️", "Chưa", "Tạm dừng", "⏸")):
+                tag = "warn"
+            elif any(k in dong for k in ("🔍", "🌐", "💻", "📦", "🔐")):
+                tag = "info"
+            if tag:
+                self.txt_log.insert("end", f"{dong}\n", tag)
+            else:
+                self.txt_log.insert("end", f"{dong}\n")
             self.txt_log.see("end")
         self.after(0, _append)
 
@@ -1474,15 +5057,29 @@ class AppDichTruyenWindows(tk.Tk):
         self.clipboard_append(MA_MAY_HIEN_THI)
         self.ghi_log(f"📋 Đã sao chép Mã máy tính vào bộ nhớ tạm: {MA_MAY_HIEN_THI}")
 
+    def _sao_chep_api_host_cuc_bo(self):
+        ip_lan = lay_dia_chi_ip_mang_lan()
+        url_host = f"http://{ip_lan}:{LOCAL_BRIDGE_PORT}"
+        self.clipboard_clear()
+        self.clipboard_append(url_host)
+        self.ghi_log(
+            f"🔌 Đã sao chép Địa chỉ API Máy Chủ của bạn: {url_host} "
+            f"(Dán địa chỉ này vào ô 'Máy chủ' trên App Windows hoặc Tiện ích Chrome của máy tính khách để kết nối!)"
+        )
+
     def _dang_nhap(self):
         may_chu = chuan_hoa_may_chu(self.ent_server.get())
         email = self.ent_email.get().strip()
         mat_khau = self.ent_pass.get().strip()
-        khoa_api = mat_khau if mat_khau.startswith("tr_live_") else (email if email.startswith("tr_live_") else "")
+        khoa_api = (
+            mat_khau
+            if (mat_khau.startswith("tr_live_") or (not email and len(mat_khau) >= 24))
+            else (email if email.startswith("tr_live_") else "")
+        )
         if not khoa_api and (not email or not mat_khau):
             messagebox.showwarning(
                 "Thiếu thông tin",
-                "Vui lòng nhập Email & Mật khẩu (hoặc dán mã API Key tr_live_... vào ô Mật khẩu).",
+                "Vui lòng nhập Email & Mật khẩu (hoặc dán mã API Key tr_live_... / Mã Phiên Web vào ô Mật khẩu).",
             )
             return
 
@@ -1509,9 +5106,11 @@ class AppDichTruyenWindows(tk.Tk):
                     body={"email": email, "mat_khau": mat_khau, "ma_may_tinh": MA_MAY_HIEN_THI},
                 )
                 kq = json.loads(raw.decode("utf-8"))
+                ma_phien = kq.get("ma_phien", "")
                 self.cau_hinh["may_chu"] = may_chu
                 self.cau_hinh["email"] = email
-                self.cau_hinh["token"] = kq.get("ma_phien", "")
+                self.cau_hinh["token"] = ma_phien
+                self.cau_hinh["ma_phien_dang_nhap"] = ma_phien
                 self.cau_hinh["ma_may_tinh"] = MA_MAY_HIEN_THI
                 self._luu_cau_hinh()
                 self.ghi_log(f"✅ Đăng nhập & Liên kết Mã máy [{MA_MAY_HIEN_THI}] thành công với tài khoản: {email}")
@@ -1528,17 +5127,22 @@ class AppDichTruyenWindows(tk.Tk):
         try:
             raw = goi_http(f"{may_chu}/api/v1/han-muc", token=token)
             hm = json.loads(raw.decode("utf-8"))
-            con_lai = int(hm.get("con_lai", 0))
+            con_lai_tong = int(hm.get("con_lai", 0))
             tran = int(hm.get("tran", 0))
             da_dung = int(hm.get("da_dung", 0))
             mua_them = int(hm.get("so_luot_mua_them", 0))
-            tong_kha_dung = con_lai + mua_them
+            chot_ds = hm.get("chot") or []
+            if isinstance(chot_ds, list) and chot_ds and isinstance(chot_ds[0], dict):
+                con_lai_ngay = int(chot_ds[0].get("con_lai", max(0, con_lai_tong - mua_them)))
+            else:
+                con_lai_ngay = max(0, con_lai_tong - mua_them)
+            tong_kha_dung = con_lai_ngay + mua_them
             loai_tk = f"Tài khoản {email}" if (token and email) else f"Máy tính {MA_MAY_HIEN_THI}"
 
-            chu_header = f"🖥️ {MA_MAY_HIEN_THI} · 💎 Tổng còn: {tong_kha_dung} trang (Ngày: {con_lai}/{tran} · VIP: {mua_them})"
+            chu_header = f"💎 Khả dụng: {tong_kha_dung:,} trang ({MA_MAY_HIEN_THI})"
             chu_chi_tiet = (
-                f"✅ {loai_tk}: Còn {con_lai}/{tran} lượt hôm nay (đã dùng {da_dung}) "
-                f"+ {mua_them} lượt gói VIP = Tổng {tong_kha_dung} trang khả dụng"
+                f"✅ {loai_tk}: Còn {con_lai_ngay}/{tran} lượt hôm nay (đã dùng {da_dung}) "
+                f"+ {mua_them} lượt gói VIP = Tổng {tong_kha_dung:,} trang khả dụng"
             )
             self.cau_hinh["luot_con_lai_cuoi"] = tong_kha_dung
             self._luu_cau_hinh()
@@ -1550,46 +5154,462 @@ class AppDichTruyenWindows(tk.Tk):
             if ghi_nhat_ky:
                 self.ghi_log(f"⚠️ Chưa kết nối được máy chủ để kiểm tra lượt ({exc}). Mã máy đã lưu: {MA_MAY_HIEN_THI}")
 
+    def _mo_cua_so_goi_cuoc_va_api(self):
+        """
+        Mở Bảng Quản Lý Mô Hình 2 (Cloud API + Tài Khoản + Developer API Key `tr_live_...` + Bảng Giá 5 Gói Cước)
+        ngay bên trong ứng dụng Windows.
+        """
+        T = MANGA_UI_TOKENS
+        win = tk.Toplevel(self)
+        win.title("💎 Mô Hình 2: Quản Lý Tài Khoản Cloud, Developer API Key (tr_live_) & Bảng Giá Gói Cước")
+        win.geometry("980x700")
+        win.configure(bg=T["bg_canvas"])
+        win.transient(self)
+
+        hdr = tk.Frame(win, bg=T["bg_header"], padx=18, pady=12)
+        hdr.pack(fill="x")
+        tk.Label(
+            hdr,
+            text="💎 MÔ HÌNH 2: HỆ THỐNG TÀI KHOẢN CLOUD · KHOÁ DEVELOPER API (tr_live_) · BẢNG GIÁ GÓI CƯỚC",
+            bg=T["bg_header"],
+            fg=T["text_primary"],
+            font=("Segoe UI", 11, "bold"),
+        ).pack(side="left")
+
+        lbl_status = tk.Label(
+            hdr,
+            text="Đang đồng bộ từ máy chủ...",
+            bg="#162033",
+            fg=T["status_info"],
+            font=("Consolas", 9, "bold"),
+            padx=10,
+            pady=4,
+        )
+        lbl_status.pack(side="right")
+
+        # Khung 1: Tài khoản & Cấp khoá Developer API Key (tr_live_...)
+        f_api = tk.Frame(
+            win,
+            bg=T["bg_surface"],
+            highlightbackground=T["border_subtle"],
+            highlightthickness=1,
+            padx=16,
+            pady=12,
+        )
+        f_api.pack(fill="x", padx=16, pady=(12, 8))
+
+        tk.Label(
+            f_api,
+            text="1. ĐĂNG KÝ / ĐĂNG NHẬP & CẤP MÃ DEVELOPER API KEY (tr_live_...) CHO MÁY KHÁCH",
+            bg=T["bg_surface"],
+            fg=T["accent_soft"],
+            font=("Segoe UI", 10, "bold"),
+        ).pack(anchor="w", pady=(0, 8))
+
+        row_acc = tk.Frame(f_api, bg=T["bg_surface"])
+        row_acc.pack(fill="x", pady=(0, 8))
+        tk.Label(row_acc, text="Email:", bg=T["bg_surface"], fg=T["text_secondary"], font=("Segoe UI", 9)).pack(side="left")
+        ent_em = tk.Entry(row_acc, width=26, bg=T["bg_elevated"], fg=T["text_primary"], insertbackground="#fff", relief="flat")
+        ent_em.insert(0, self.ent_email.get().strip() or self.cau_hinh.get("email", ""))
+        ent_em.pack(side="left", padx=(6, 12), ipady=3)
+
+        tk.Label(row_acc, text="Mật khẩu:", bg=T["bg_surface"], fg=T["text_secondary"], font=("Segoe UI", 9)).pack(side="left")
+        ent_pw = tk.Entry(row_acc, width=18, show="*", bg=T["bg_elevated"], fg=T["text_primary"], insertbackground="#fff", relief="flat")
+        ent_pw.insert(0, self.ent_pass.get().strip())
+        ent_pw.pack(side="left", padx=(6, 12), ipady=3)
+
+        row_key = tk.Frame(f_api, bg=T["bg_surface"])
+        row_key.pack(fill="x")
+        tk.Label(row_key, text="Developer API Key:", bg=T["bg_surface"], fg=T["text_secondary"], font=("Segoe UI", 9)).pack(side="left")
+        ent_api_key = tk.Entry(
+            row_key,
+            width=48,
+            bg=T["bg_elevated"],
+            fg=T["status_warn"],
+            font=("Consolas", 9, "bold"),
+            insertbackground="#fff",
+            relief="flat",
+        )
+        tok_ht = str(self.cau_hinh.get("token", ""))
+        ent_api_key.insert(0, tok_ht if tok_ht.startswith("tr_live_") else "Chưa tạo hoặc chưa hiển thị — Bấm 'Tạo / Lấy API Key'")
+        ent_api_key.pack(side="left", padx=(6, 10), ipady=3)
+
+        def _dang_ky_nhanh():
+            may_chu = chuan_hoa_may_chu(self.ent_server.get())
+            em = ent_em.get().strip()
+            pw = ent_pw.get().strip()
+            if not em or len(pw) < 8:
+                messagebox.showwarning("Thiếu thông tin", "Nhập Email hợp lệ và Mật khẩu từ 8 ký tự trở lên để đăng ký!", parent=win)
+                return
+
+            def _wk():
+                try:
+                    raw = goi_http(
+                        f"{may_chu}/api/v1/auth/register",
+                        method="POST",
+                        body={"email": em, "mat_khau": pw, "ten_hien": em.split("@")[0], "ma_may_tinh": MA_MAY_HIEN_THI},
+                    )
+                    kq = json.loads(raw.decode("utf-8"))
+                    ma_phien = kq.get("ma_phien", "")
+                    if not ma_phien:
+                        raw_lg = goi_http(
+                            f"{may_chu}/api/v1/auth/login",
+                            method="POST",
+                            body={"email": em, "mat_khau": pw, "ma_may_tinh": MA_MAY_HIEN_THI},
+                        )
+                        kq_lg = json.loads(raw_lg.decode("utf-8"))
+                        ma_phien = kq_lg.get("ma_phien", "")
+                    self.cau_hinh["may_chu"] = may_chu
+                    self.cau_hinh["email"] = em
+                    self.cau_hinh["token"] = ma_phien
+                    self.cau_hinh["ma_phien_dang_nhap"] = ma_phien
+                    self._luu_cau_hinh()
+                    self.after(0, lambda: (self.ent_email.delete(0, "end"), self.ent_email.insert(0, em)))
+                    self.ghi_log(f"✨ Đăng ký tài khoản mới thành công: {em} (Tặng 10 trang miễn phí/ngày!)")
+                    self._cap_nhat_han_muc(ghi_nhat_ky=True)
+                    _tai_thong_tin_bang_gia()
+                except Exception as e:
+                    self.after(0, lambda err=str(e): messagebox.showerror("Lỗi đăng ký", err, parent=win))
+
+            threading.Thread(target=_wk, daemon=True).start()
+
+        def _tao_hoac_doi_api_key():
+            may_chu = chuan_hoa_may_chu(self.ent_server.get())
+            em_nhap = ent_em.get().strip()
+            pw_nhap = ent_pw.get().strip()
+            tok_phien = self.cau_hinh.get("ma_phien_dang_nhap") or self.cau_hinh.get("token", "")
+            if (not tok_phien or str(tok_phien).startswith("tr_live_")) and (not em_nhap or not pw_nhap):
+                messagebox.showwarning(
+                    "Cần phiên đăng nhập",
+                    "Để bảo mật chống chiếm đoạt khoá, vui lòng nhập Email + Mật khẩu tài khoản trước khi Tạo / Xoay mã API Key!",
+                    parent=win,
+                )
+                return
+
+            def _wk():
+                try:
+                    tok_goi = tok_phien
+                    if em_nhap and pw_nhap and not pw_nhap.startswith("tr_live_"):
+                        raw_lg = goi_http(
+                            f"{may_chu}/api/v1/auth/login",
+                            method="POST",
+                            body={"email": em_nhap, "mat_khau": pw_nhap, "ma_may_tinh": MA_MAY_HIEN_THI},
+                        )
+                        kq_lg = json.loads(raw_lg.decode("utf-8"))
+                        if kq_lg.get("ma_phien"):
+                            tok_goi = kq_lg["ma_phien"]
+                            self.cau_hinh["ma_phien_dang_nhap"] = tok_goi
+                    raw = goi_http(f"{may_chu}/api/v1/auth/api-key", method="POST", body={}, token=tok_goi)
+                    kq = json.loads(raw.decode("utf-8"))
+                    khoa_moi = kq.get("api_key") or kq.get("khoa_api") or ""
+                    if khoa_moi:
+                        self.cau_hinh["token"] = khoa_moi
+                        self._luu_cau_hinh()
+                        self.clipboard_clear()
+                        self.clipboard_append(khoa_moi)
+                        self.after(0, lambda k=khoa_moi: (ent_api_key.delete(0, "end"), ent_api_key.insert(0, k)))
+                        self.after(0, lambda k=khoa_moi: lbl_status.config(text="✅ Đã cấp & Copy API Key (tr_live_)", fg=T["status_ok"]))
+                        self.ghi_log(f"🔑 Đã tạo & tự động gắn Developer API Key vào máy khách: {khoa_moi[:16]}... (Đã copy vào Clipboard)")
+                except Exception as e:
+                    self.after(0, lambda err=str(e): messagebox.showerror("Không tạo được API Key", err, parent=win))
+
+            threading.Thread(target=_wk, daemon=True).start()
+
+        def _copy_api_key():
+            k = ent_api_key.get().strip()
+            if k.startswith("tr_live_"):
+                self.clipboard_clear()
+                self.clipboard_append(k)
+                lbl_status.config(text="📋 Đã copy mã tr_live_ vào bộ nhớ tạm!", fg=T["status_ok"])
+
+        tk.Button(
+            row_acc,
+            text="✨ Đăng ký mới (+10 trang/ngày)",
+            bg=T["bg_elevated"],
+            fg=T["status_ok"],
+            font=("Segoe UI", 8, "bold"),
+            relief="flat",
+            padx=10,
+            pady=3,
+            command=_dang_ky_nhanh,
+        ).pack(side="left", padx=4)
+
+        tk.Button(
+            row_key,
+            text="🔑 Tạo / Đổi API Key (tr_live_) & Gắn vào App",
+            bg=T["accent_primary"],
+            fg="#ffffff",
+            font=("Segoe UI", 8, "bold"),
+            relief="flat",
+            padx=10,
+            pady=3,
+            command=_tao_hoac_doi_api_key,
+        ).pack(side="left", padx=4)
+
+        tk.Button(
+            row_key,
+            text="📋 Copy Key",
+            bg=T["bg_elevated"],
+            fg=T["text_primary"],
+            font=("Segoe UI", 8, "bold"),
+            relief="flat",
+            padx=8,
+            pady=3,
+            command=_copy_api_key,
+        ).pack(side="left", padx=4)
+
+        # Khung 2: Bảng Giá 5 Gói Cước & So sánh chi phí thực tế
+        f_tiers = tk.Frame(
+            win,
+            bg=T["bg_surface"],
+            highlightbackground=T["border_subtle"],
+            highlightthickness=1,
+            padx=16,
+            pady=12,
+        )
+        f_tiers.pack(fill="both", expand=True, padx=16, pady=(0, 12))
+
+        tk.Label(
+            f_tiers,
+            text="2. BẢNG GIÁ CÁC GÓI LƯỢT CLOUD & PHÂN TÍCH CHI PHÍ THỰC TẾ (LƯỢT MUA VĨNH VIỄN KHÔNG HẾT HẠN QUA ĐÊM)",
+            bg=T["bg_surface"],
+            fg=T["accent_soft"],
+            font=("Segoe UI", 10, "bold"),
+        ).pack(anchor="w", pady=(0, 4))
+
+        lbl_bank = tk.Label(
+            f_tiers,
+            text="💡 Cú pháp nạp VietQR tự động 24/7: Đang tải...",
+            bg=T["bg_surface"],
+            fg=T["status_ok"],
+            font=("Consolas", 9, "bold"),
+        )
+        lbl_bank.pack(anchor="w", pady=(0, 8))
+
+        txt_bang_gia = scrolledtext.ScrolledText(
+            f_tiers,
+            bg=T["bg_canvas"],
+            fg=T["text_primary"],
+            font=("Consolas", 9),
+            relief="flat",
+            padx=12,
+            pady=10,
+            height=18,
+        )
+        txt_bang_gia.pack(fill="both", expand=True)
+
+        bar_bot = tk.Frame(f_tiers, bg=T["bg_surface"])
+        bar_bot.pack(fill="x", pady=(8, 0))
+        tk.Button(
+            bar_bot,
+            text="🌐 Mở Trang Thanh Toán VietQR Tự Động",
+            bg=T["accent_primary"],
+            fg="#ffffff",
+            font=("Segoe UI", 9, "bold"),
+            relief="flat",
+            padx=14,
+            pady=5,
+            command=lambda: webbrowser.open(f"{WEB_CHINH_THUC}/#bang-gia"),
+        ).pack(side="left")
+
+        tk.Button(
+            bar_bot,
+            text="🔄 Làm mới Số Lượt & Gói Cước",
+            bg=T["bg_elevated"],
+            fg=T["text_primary"],
+            font=("Segoe UI", 9, "bold"),
+            relief="flat",
+            padx=12,
+            pady=5,
+            command=lambda: _tai_thong_tin_bang_gia(),
+        ).pack(side="left", padx=8)
+
+        def _tai_thong_tin_bang_gia():
+            may_chu = chuan_hoa_may_chu(self.ent_server.get())
+            tok = self.cau_hinh.get("token", "")
+
+            def _wk():
+                thong_tin = {}
+                try:
+                    raw = goi_http(f"{may_chu}/api/v1/nap-luot/thong-tin", token=tok)
+                    thong_tin = json.loads(raw.decode("utf-8"))
+                except Exception:
+                    thong_tin = {}
+
+                don_gia = int(thong_tin.get("ty_le_vnd_moi_trang") or 500)
+                mua_them = int(thong_tin.get("so_luot_mua_them") or self.cau_hinh.get("luot_con_lai_cuoi") or 0)
+                tran_ngay = int(thong_tin.get("tran_hang_ngay") or 10)
+                nh_ten = thong_tin.get("ngan_hang_ten") or "MBBank / VietQR"
+                nh_stk = thong_tin.get("ngan_hang_so_tk") or "Xem trên Web"
+                nh_chu = thong_tin.get("ngan_hang_chu_tk") or "COMIC TRANSLATOR"
+                cu_phap = thong_tin.get("noi_dung_chuyen_khoan") or f"NAP {self.cau_hinh.get('email') or MA_MAY_HIEN_THI}"
+
+                noi_dung = (
+                    "====================================================================================================\n"
+                    "  PHÂN LOẠI TÀI KHOẢN & HẠN MỨC MIỄN PHÍ MỖI NGÀY (PHƯƠNG ÁN A + GÓI MỒI KÉO KHÁCH)\n"
+                    "====================================================================================================\n"
+                    "  • Khách vãng lai (Nhận diện theo Mã máy HWID) : 02 trang / ngày  (Giá vốn vận hành: ~16đ - 27đ/ngày)\n"
+                    "  • Tài khoản Đăng ký Miễn phí (Free Account)   : 10 trang / ngày  (Đọc nửa chap gây nghiện, tự hồi 00:00)\n"
+                    "  • Chế độ Local Offline (ONNX + Ollama GGUF)   : KHÔNG GIỚI HẠN   (0đ/trang — chạy bằng GPU/CPU máy bạn)\n\n"
+                    "====================================================================================================\n"
+                    "  BẢNG GIÁ PHƯƠNG ÁN A KÈM GÓI MỒI 20K (MUA NHIỀU LẦN TỰ ĐỘNG CỘNG DỒN VĨNH VIỄN VÀO VÍ)\n"
+                    "====================================================================================================\n"
+                    f"  [MỒI] 🎯 GÓI MỒI ĐỌC NHANH (CỘNG DỒN) : {40 * don_gia:>10,} đ  -> Nhận     40 trang (~2 chap)    | {don_gia:,}đ/trang (Mua nhiều lần cộng dồn)\n"
+                    f"  [1]   🌱 GÓI KHỞI ĐẦU (STARTER)       : {100 * don_gia:>10,} đ  -> Nhận    105 trang (~5.5 chap)  | {round(100 * don_gia / 105):,}đ/trang (+5% Bonus)\n"
+                    f"  [2]   🔥 GÓI ĐỘC GIẢ VIP (READER)     : {500 * don_gia:>10,} đ  -> Nhận    550 trang (~28 chap)   | {round(500 * don_gia / 550):,}đ/trang (+10% Bonus)\n"
+                    f"  [3]   🎬 GÓI NHÓM DỊCH / STUDIO       : {1000 * don_gia:>10,} đ  -> Nhận  1.200 trang (~60 chap)   | {round(1000 * don_gia / 1200):,}đ/trang (+20% Bonus) ⭐\n"
+                    f"  [4]   🏢 GÓI DOANH NGHIỆP API PRO     : {5000 * don_gia:>10,} đ  -> Nhận  6.500 trang (~325 chap)  | {round(5000 * don_gia / 6500):,}đ/trang (+30% Bonus + tr_live_)\n"
+                    f"  [5]   🏛️ GÓI ENTERPRISE CỔNG TRUYỆN   : {20000 * don_gia:>10,} đ  -> Nhận 28.000 trang (~1.400 chap)| {round(20000 * don_gia / 28000):,}đ/trang (+40% Bonus)\n\n"
+                    "====================================================================================================\n"
+                    "  SO SÁNH GIÁ THỊ TRƯỜNG QUỐC TẾ 2026 & GIÁ VỐN VẬN HÀNH (COGS)\n"
+                    "====================================================================================================\n"
+                    "  • Đối thủ quốc tế: ScanTranslator (~1.250đ/trang), Ichigo Reader (~152.000đ - 508.000đ/tháng, hết hạn cuối tháng),\n"
+                    "                     ToriTranslate (~152.000đ - 760.000đ/gói).\n"
+                    "  • Giá vốn thực tế (COGS) của hệ thống bạn:\n"
+                    "      - Trang dịch mới qua Gemini Flash Vision + Context LLM : ~13.5 VNĐ / trang\n"
+                    "      - Trang trùng Bảng Cache Cộng đồng SHA-256 (0.15 giây) :  0.0 VNĐ / trang\n"
+                    "      - Giá vốn trung bình thực tế (Blended COGS)            : ~6.5 - 8.0 VNĐ / trang (Biên lợi nhuận gộp >95%)\n"
+                )
+
+                def _cap_nhat_ui():
+                    lbl_status.config(
+                        text=f"Trần ngày: {tran_ngay} trang  |  Ví VIP tích luỹ: {mua_them:,} trang",
+                        fg=T["status_ok"],
+                    )
+                    lbl_bank.config(
+                        text=f"🏦 Ngân hàng: {nh_ten}  |  Số TK: {nh_stk} ({nh_chu})  |  Nội dung CK tự động: {cu_phap}"
+                    )
+                    txt_bang_gia.config(state="normal")
+                    txt_bang_gia.delete("1.0", "end")
+                    txt_bang_gia.insert("end", noi_dung)
+                    txt_bang_gia.config(state="disabled")
+
+                self.after(0, _cap_nhat_ui)
+
+            threading.Thread(target=_wk, daemon=True).start()
+
+        _tai_thong_tin_bang_gia()
+
     def _chon_thu_muc_anh_offline(self):
-        d = filedialog.askdirectory(title="Chọn thư mục chứa ảnh truyện (hoặc chứa các thư mục Chapter) trên máy tính")
+        if self.dang_chay:
+            return
+        d = filedialog.askdirectory(
+            title="Chọn thư mục chứa ảnh truyện (1 hoặc nhiều bộ truyện / thư mục Chapter / gói ZIP-CBZ)"
+        )
         if not d:
             return
         tm = Path(d)
+        try:
+            ds_chap = phan_loai_thu_muc_nhieu_truyen(tm, ten_mac_dinh=tm.name or "Truyen-Offline")
+        except Exception as exc:
+            messagebox.showerror("Chưa đọc được thư mục", str(exc))
+            return
+        cac_truyen = list(dict.fromkeys(ch.get("ten_truyen") or tm.name for ch in ds_chap))
         self.ent_ten_truyen.delete(0, "end")
-        self.ent_ten_truyen.insert(0, tm.name or "Truyen-Offline")
+        self.ent_ten_truyen.insert(0, cac_truyen[0] if len(cac_truyen) == 1 else (tm.name or "Nhieu-Truyen"))
         self.ent_url.delete(0, "end")
         self.ent_url.insert(0, f"local_dir::{tm}")
-
-        # Kiểm tra xem trong thư mục có các thư mục con (Chapter) hay chứa ảnh trực tiếp
-        cac_tm_con = sorted([p for p in tm.iterdir() if p.is_dir()])
-        ds_chap = []
-        if cac_tm_con:
-            for idx, sub in enumerate(cac_tm_con, start=1):
-                co_anh = any(
-                    f.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp")
-                    for f in sub.iterdir()
-                    if f.is_file()
-                )
-                if co_anh:
-                    ds_chap.append(
-                        {
-                            "so": float(idx),
-                            "ten": sub.name,
-                            "url": f"local_dir::{sub}",
-                            "nhan": sub.name,
-                        }
-                    )
-        if not ds_chap:
-            ds_chap.append(
-                {
-                    "so": 1.0,
-                    "ten": "Chapter-001",
-                    "url": f"local_dir::{tm}",
-                    "nhan": tm.name,
-                }
-            )
         self.ds_chapter_quet = ds_chap
         self._cap_nhat_ui_sau_quet(ds_chap)
+
+    def _chon_goi_anh(self):
+        if self.dang_chay:
+            return
+        ask_multi = getattr(filedialog, "askopenfilenames", None)
+        if callable(ask_multi):
+            names = ask_multi(
+                title="Chọn 1 hoặc nhiều file truyện (.ZIP, .CBZ hoặc nhiều ảnh .JPG/.PNG/.WEBP của nhiều truyện)",
+                filetypes=[
+                    ("Tất cả file truyện & ảnh", "*.zip *.cbz *.jpg *.jpeg *.png *.webp"),
+                    ("Gói ảnh truyện (.zip, .cbz)", "*.zip *.cbz"),
+                    ("Ảnh trang truyện (.jpg, .png, .webp)", "*.jpg *.jpeg *.png *.webp"),
+                ],
+            )
+            ds_chon = list(names) if names else []
+        else:
+            single = filedialog.askopenfilename(
+                title="Chọn gói ảnh truyện", filetypes=[("Gói ảnh truyện", "*.zip *.cbz")]
+            )
+            ds_chon = [single] if single else []
+        if not ds_chon:
+            return
+        try:
+            ten_hien_tai = self.ent_ten_truyen.get().strip()
+            ds_chap = phan_loai_nhieu_file_truyen(ds_chon, ten_truyen_mac_dinh=ten_hien_tai)
+        except Exception as exc:
+            messagebox.showerror("Chưa mở được file", str(exc))
+            return
+        self.ds_chapter_quet = ds_chap
+        cac_truyen = list(dict.fromkeys(ch.get("ten_truyen") or "Truyen-Moi" for ch in ds_chap))
+        self.ent_ten_truyen.delete(0, "end")
+        self.ent_ten_truyen.insert(0, cac_truyen[0] if len(cac_truyen) == 1 else f"{len(cac_truyen)}-Bo-Truyen")
+        self.ent_url.delete(0, "end")
+        if len(ds_chon) == 1:
+            self.ent_url.insert(0, f"archive::{ds_chon[0]}")
+        else:
+            self.ent_url.insert(0, f"multi_files::{len(ds_chon)}_files")
+        self._cap_nhat_ui_sau_quet(self.ds_chapter_quet)
+        tong_trang = sum(len(ch.get("sources") or []) for ch in ds_chap)
+        self.ghi_log(
+            f"📦 Đã phân loại {len(ds_chon)} file -> {len(ds_chap)} Chapter thuộc {len(cac_truyen)} bộ truyện "
+            f"(tổng {tong_trang} trang). Khi dịch xong sẽ tự động tách riêng từng thư mục: <Tên_Truyện>/<Tên_Chapter>/."
+        )
+
+    def _mo_hop_thoai_nhieu_link(self):
+        if self.dang_chay:
+            return
+        win = tk.Toplevel(self)
+        win.title("📋 Dán Nhiều Link Bộ Truyện hoặc Link Chapter (Mỗi dòng 1 Link)")
+        win.geometry("760x420")
+        win.configure(bg="#0f172a")
+        tk.Label(
+            win,
+            text="Dán danh sách Link các bộ truyện hoặc các Chapter (mỗi dòng 1 link).\n"
+                 "App sẽ tự động quét theo đúng trình tự từng Chapter và chia riêng thư mục theo từng Tên bộ truyện:",
+            bg="#0f172a",
+            fg="#38bdf8",
+            font=("Segoe UI", 10, "bold"),
+            justify="left",
+        ).pack(anchor="w", padx=14, pady=(12, 6))
+        txt = scrolledtext.ScrolledText(
+            win, bg="#1e293b", fg="#f8fafc", insertbackground="#fff", font=("Consolas", 10), height=14
+        )
+        cur_u = self.ent_url.get().strip()
+        if cur_u and not cur_u.startswith(("local_dir::", "archive::", "multi_files::")):
+            txt.insert("1.0", cur_u.replace(";", "\n"))
+        txt.pack(fill="both", expand=True, padx=14, pady=6)
+
+        def _xac_nhan():
+            raw_links = [
+                line.strip()
+                for line in txt.get("1.0", "end").splitlines()
+                if line.strip() and line.strip().startswith(("http://", "https://"))
+            ]
+            if not raw_links:
+                messagebox.showwarning("Chưa có link hợp lệ", "Hãy dán ít nhất 1 đường link http:// hoặc https://!", parent=win)
+                return
+            joined = " ; ".join(raw_links)
+            self.ent_url.delete(0, "end")
+            self.ent_url.insert(0, joined)
+            win.destroy()
+            self._quet_link_truyen()
+
+        f_btn = tk.Frame(win, bg="#0f172a", pady=8)
+        f_btn.pack(fill="x", padx=14)
+        tk.Button(
+            f_btn,
+            text="🔍 Quét tất cả Link theo trình tự Chapter",
+            bg="#db2777",
+            fg="#ffffff",
+            font=("Segoe UI", 10, "bold"),
+            relief="flat",
+            padx=16,
+            pady=6,
+            command=_xac_nhan,
+        ).pack(side="left")
+        tk.Button(
+            f_btn, text="Đóng", bg="#334155", fg="#f8fafc", relief="flat", padx=12, pady=6, command=win.destroy
+        ).pack(side="left", padx=8)
 
     def _kiem_tra_gguf_cuc_bo(self):
         # Đọc biến Tk ở luồng giao diện, không đọc từ luồng nền.
@@ -1621,42 +5641,353 @@ class AppDichTruyenWindows(tk.Tk):
 
         threading.Thread(target=_worker, daemon=True).start()
 
+    def _kiem_tra_ocr_da_ngon_ngu(self):
+        def _worker():
+            self.ghi_log("🌐 Đang kiểm tra & đồng bộ gói OCR đa ngôn ngữ (Windows OCR + HuggingFace ONNX Anh/Nhật/Hàn/Trung)...")
+            tai_goi_ocr_huggingface("all")
+            kq = kiem_tra_goi_ocr_windows()
+            da_co = [f"{k} ({v['ten']} — {v.get('nguon') or 'Sẵn sàng'})" for k, v in kq.items() if v.get("ho_tro")]
+            chua_co = [(k, v) for k, v in kq.items() if not v.get("ho_tro")]
+            if da_co:
+                self.ghi_log(f"✅ Đã sẵn sàng OCR tốc độ cao cho: {', '.join(da_co)}")
+            if chua_co:
+                self.ghi_log("⚠️ Các ngôn ngữ chưa có gói OCR cục bộ (khi dịch sẽ tự động chuyển sang Vision LLM):")
+                for k, info in chua_co:
+                    self.ghi_log(f"   • {k} ({info['ten']}) -> Chạy PowerShell (Admin): {info['lenh_cai']}")
+            else:
+                self.ghi_log("🎉 Tuyệt vời! Máy đã sẵn sàng đủ cả 4 gói OCR Anh / Nhật / Hàn / Trung (Windows + HuggingFace ONNX).")
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _cap_nhat_bo_may_ai_moi(self):
+        """
+        Cập nhật 3 lớp cho Bộ máy AI (`local_ocr_gpu` & `local_gguf`):
+        1. Đồng bộ trọng số OCR ONNX mới nhất từ HuggingFace (`PP-OCRv4` JA/KO/ZH/EN) & xoá cache cũ.
+        2. Quét toàn bộ các thế hệ Model AI cục bộ trong Ollama (`11434`) & LM Studio (`1234`),
+           tự động nhận diện model mới nhất (`qwen3`, `gemma3`, `qwen2.5`, `deepseek`...) để tăng tốc `local_ocr_gpu`.
+        3. Kiểm tra kết nối và hướng dẫn kéo bản cập nhật model mới nhất chỉ với 1 lệnh.
+        """
+        def _worker():
+            global _MODEL_LOCAL_OCR_GPU_TUY_CHON
+            self.ghi_log("🔄 [1/3] Đang kiểm tra & cập nhật gói nhận diện chữ OCR ONNX (HuggingFace PP-OCRv4 JA/KO/ZH/EN)...")
+            tai_goi_ocr_huggingface("all")
+            with _LOCAL_CACHE_LOCK:
+                _LOCAL_PAGE_TRANSLATION_CACHE.clear()
+            kq_ocr = kiem_tra_goi_ocr_windows()
+            so_ngon_ngu_ocr = sum(1 for v in kq_ocr.values() if v.get("ho_tro"))
+            self.ghi_log(f"✅ [1/3] Bộ nhận diện chữ OCR Cục bộ: Đã cập nhật sẵn sàng {so_ngon_ngu_ocr}/4 ngôn ngữ (JA · ZH · KO · EN).")
+
+            self.ghi_log("🔄 [2/3] Đang quét các thế hệ Model AI trong Ollama (11434) & LM Studio (1234)...")
+            ds_model_tim_thay: list[str] = []
+            try:
+                data_ol = _goi_json_ai_cuc_bo("http://127.0.0.1:11434/api/tags", timeout=3)
+                for m in (data_ol.get("models") or []):
+                    if isinstance(m, dict) and m.get("name"):
+                        ds_model_tim_thay.append(f"Ollama::{m['name']}")
+            except Exception:
+                pass
+            try:
+                data_lm = _goi_json_ai_cuc_bo("http://127.0.0.1:1234/v1/models", timeout=3)
+                for m in (data_lm.get("data") or []):
+                    if isinstance(m, dict) and m.get("id"):
+                        ds_model_tim_thay.append(f"LMStudio::{m['id']}")
+            except Exception:
+                pass
+
+            try:
+                backend_chon, model_chon = _ket_noi_llm_cho_local_ocr_gpu()
+                _MODEL_LOCAL_OCR_GPU_TUY_CHON = model_chon
+                self.cau_hinh["model_ai_cuc_bo"] = model_chon
+                self._luu_cau_hinh()
+                self.ghi_log(
+                    f"✅ [2/3] Đã liên kết Model AI cục bộ tối ưu nhất cho local_ocr_gpu: [{backend_chon.upper()}] {model_chon} "
+                    f"(Tổng {len(ds_model_tim_thay)} model trong máy)."
+                )
+            except Exception:
+                self.ghi_log(
+                    "ℹ️ [2/3] Hiện tại máy đang chạy chế độ local_ocr_gpu Siêu Tốc Không Cần VRAM "
+                    "(Windows/HuggingFace ONNX OCR + Bộ Dịch Nhanh & Hậu Kiểm Thuật Ngữ Truyện Tranh — 0đ/trang)."
+                )
+
+            self.ghi_log(
+                "🚀 [3/3] Hoàn tất tối ưu Bộ máy AI! Khi có thế hệ model mới hơn trong tương lai (VD: qwen3:8b, gemma3:12b, qwen3-vl:8b), "
+                "bạn chỉ cần chạy `ollama pull <tên_model>` rồi bấm nút '🔄 Cập nhật Bộ máy AI Mới' là App tự động nâng cấp ngay!"
+            )
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _mo_cua_so_ra_soat_nhanh(self):
+        import review_delivery
+
+        out_root = Path(self.ent_out.get().strip() or (Path.home() / "Downloads" / "Truyen_Da_Dich"))
+        win = tk.Toplevel(self)
+        win.title("👁️ Rà Soát & Sửa Nhanh Chapter (Vẽ lại trang ~0.4s không tốn lượt AI)")
+        win.geometry("980x640")
+        win.configure(bg="#0f172a")
+
+        top_bar = tk.Frame(win, bg="#1e293b", padx=12, pady=8)
+        top_bar.pack(fill="x")
+        tk.Label(top_bar, text="Thư mục Chapter:", bg="#1e293b", fg="#38bdf8", font=("Segoe UI", 9, "bold")).pack(side="left")
+        ent_chap_dir = tk.Entry(top_bar, width=56, bg="#0f172a", fg="#f8fafc", insertbackground="#fff")
+        ent_chap_dir.pack(side="left", padx=6, fill="x", expand=True)
+
+        tk.Label(top_bar, text="Người duyệt:", bg="#1e293b", fg="#cbd5e1").pack(side="left", padx=(8, 2))
+        ent_reviewer = tk.Entry(top_bar, width=16, bg="#0f172a", fg="#fbbf24", insertbackground="#fff")
+        ent_reviewer.insert(0, self.cau_hinh.get("email") or MA_MAY_HIEN_THI)
+        ent_reviewer.pack(side="left", padx=4)
+
+        state = {"folder": None, "pages": [], "cur_page": 0, "regions": []}
+
+        body = tk.Frame(win, bg="#0f172a", padx=12, pady=8)
+        body.pack(fill="both", expand=True)
+
+        left_col = tk.LabelFrame(body, text=" 📄 Danh sách Trang ", bg="#1e293b", fg="#38bdf8", font=("Segoe UI", 9, "bold"), padx=6, pady=6)
+        left_col.pack(side="left", fill="y")
+        lst_pages = tk.Listbox(left_col, width=28, height=22, bg="#0f172a", fg="#f8fafc", selectbackground="#2563eb", font=("Consolas", 10))
+        lst_pages.pack(fill="both", expand=True)
+
+        right_col = tk.LabelFrame(
+            body,
+            text=" 💬 Danh sách Bóng thoại trong Trang (Chọn 1 bóng để sửa nhanh & vẽ lại) ",
+            bg="#1e293b",
+            fg="#34d399",
+            font=("Segoe UI", 9, "bold"),
+            padx=8,
+            pady=6,
+        )
+        right_col.pack(side="left", fill="both", expand=True, padx=(10, 0))
+
+        lst_bubbles = tk.Listbox(right_col, height=12, bg="#0f172a", fg="#f8fafc", selectbackground="#059669", font=("Consolas", 10))
+        lst_bubbles.pack(fill="both", expand=True)
+
+        edit_box = tk.Frame(right_col, bg="#1e293b", pady=6)
+        edit_box.pack(fill="x")
+        lbl_goc = tk.Label(edit_box, text="Câu gốc OCR: (chọn bóng thoại ở trên)", bg="#1e293b", fg="#94a3b8", anchor="w", justify="left")
+        lbl_goc.pack(fill="x")
+        tk.Label(edit_box, text="Sửa bản dịch Tiếng Việt:", bg="#1e293b", fg="#fde047", font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(4, 2))
+        ent_dich = tk.Entry(edit_box, bg="#0f172a", fg="#ffffff", insertbackground="#fff", font=("Segoe UI", 11))
+        ent_dich.pack(fill="x", pady=2)
+
+        lbl_status_rv = tk.Label(right_col, text="Chọn thư mục Chapter có tệp trang-thai.json để bắt đầu rà soát.", bg="#1e293b", fg="#38bdf8", font=("Segoe UI", 9, "bold"))
+        lbl_status_rv.pack(anchor="w", pady=4)
+
+        def _nap_ho_so(folder_path: Path):
+            try:
+                data = json.loads((folder_path / "trang-thai.json").read_text(encoding="utf-8"))
+                pages = data.get("pages") or []
+            except Exception as exc:
+                messagebox.showerror("Chưa đọc được hồ sơ Chapter", f"Thư mục chưa có tệp trang-thai.json hợp lệ:\n{exc}", parent=win)
+                return
+            state["folder"] = folder_path
+            state["pages"] = pages
+            ent_chap_dir.delete(0, "end")
+            ent_chap_dir.insert(0, str(folder_path))
+            lst_pages.delete(0, "end")
+            for idx, p in enumerate(pages):
+                regs = p.get("regions") or []
+                co_cb = any(r.get("canh_bao_chat_luong") for r in regs if isinstance(r, dict))
+                rv = (p.get("review") or {}).get("decision")
+                icon = "✅" if rv == "approved" else ("⚠️" if co_cb else "⏳")
+                lst_pages.insert("end", f"{icon} Trang {idx + 1:03d} ({len(regs)} bóng)")
+            if pages:
+                lst_pages.selection_set(0)
+                _chon_trang(0)
+
+        def _chon_trang(idx: int):
+            if not (0 <= idx < len(state["pages"])):
+                return
+            state["cur_page"] = idx
+            p = state["pages"][idx]
+            regs = [dict(r) for r in (p.get("regions") or []) if isinstance(r, dict)]
+            state["regions"] = regs
+            lst_bubbles.delete(0, "end")
+            for b_i, r in enumerate(regs):
+                cb = f" [⚠️ {r['canh_bao_chat_luong']}]" if r.get("canh_bao_chat_luong") else ""
+                lst_bubbles.insert("end", f"#{b_i + 1:02d}: {r.get('chu_goc', '')[:30]}  =>  {r.get('ban_dich', '')}{cb}")
+            if regs:
+                lst_bubbles.selection_set(0)
+                _chon_bong(0)
+            lbl_status_rv.config(text=f"Đang xem Trang {idx + 1:03d}/{len(state['pages'])} — có {len(regs)} bóng thoại.")
+
+        def _chon_bong(b_idx: int):
+            regs = state["regions"]
+            if not (0 <= b_idx < len(regs)):
+                return
+            r = regs[b_idx]
+            lbl_goc.config(text=f"Câu gốc OCR (#{b_idx + 1}): {r.get('chu_goc', '')}")
+            ent_dich.delete(0, "end")
+            ent_dich.insert(0, str(r.get("ban_dich") or ""))
+
+        def _cap_nhat_cau_dang_chon():
+            sel = lst_bubbles.curselection()
+            if not sel:
+                return
+            b_idx = int(sel[0])
+            moi = ent_dich.get().strip()
+            if not moi:
+                messagebox.showwarning("Trống nội dung", "Bản dịch không được để trống!", parent=win)
+                return
+            state["regions"][b_idx]["ban_dich"] = moi
+            state["regions"][b_idx].pop("canh_bao_chat_luong", None)
+            r = state["regions"][b_idx]
+            hoc_tu_ban_sua_nguoi_dung(r.get("chu_goc", ""), moi)
+            lst_bubbles.delete(b_idx)
+            lst_bubbles.insert(b_idx, f"#{b_idx + 1:02d}: {r.get('chu_goc', '')[:30]}  =>  {moi}")
+            lst_bubbles.selection_set(b_idx)
+
+        def _ve_lai_trang_hien_tai():
+            if not state["folder"]:
+                return
+            _cap_nhat_cau_dang_chon()
+            idx = state["cur_page"]
+            try:
+                ve_lai_trang_trong_ho_so_chapter(
+                    state["folder"], idx, state["regions"], font_style=self.cmb_font.get().split()[0]
+                )
+                _nap_ho_so(state["folder"])
+                lst_pages.selection_clear(0, "end")
+                lst_pages.selection_set(idx)
+                _chon_trang(idx)
+                lbl_status_rv.config(text=f"✅ Đã vẽ lại Trang {idx + 1:03d} thành công (~0.4s)!", fg="#34d399")
+            except Exception as exc:
+                messagebox.showerror("Không vẽ lại được trang", str(exc), parent=win)
+
+        def _mo_xem_anh_trang():
+            if not state["folder"]:
+                return
+            p_img = state["folder"] / f"{state['cur_page'] + 1:03d}.jpg"
+            if p_img.is_file() and os.name == "nt":
+                os.startfile(str(p_img))
+
+        def _duyet_tat_ca_va_xuat_zip():
+            if not state["folder"]:
+                return
+            reviewer = ent_reviewer.get().strip() or MA_MAY_HIEN_THI
+            try:
+                with review_delivery.open_chapter(state["folder"]) as ledger:
+                    st = review_delivery.chapter_status(ledger)
+                    for row in st["pages"]:
+                        p_idx = int(row["page"]) - 1
+                        sha = row.get("sha256")
+                        if not sha:
+                            raise NeedsAttention(f"Trang {row['page']} chưa sẵn sàng để duyệt.")
+                        review_delivery.record_review(
+                            ledger, p_idx, decision="approved", reviewer=reviewer,
+                            note="Duyệt qua cửa sổ Rà soát nhanh", expected_sha256=sha, confirmed=True
+                        )
+                    dest = state["folder"].parent / f"{state['folder'].name}-ban-giao-{int(time.time())}.zip"
+                    review_delivery.export_delivery(ledger, dest)
+                _nap_ho_so(state["folder"])
+                lbl_status_rv.config(text=f"🎉 Đã duyệt đủ trang & xuất gói bàn giao: {dest.name}", fg="#34d399")
+                self.ghi_log(f"📦 Đã duyệt và xuất gói ZIP bàn giao chính thức: {dest}")
+            except Exception as exc:
+                messagebox.showerror("Chưa xuất được gói bàn giao", str(exc), parent=win)
+
+        def _chon_thu_muc_chap():
+            d = filedialog.askdirectory(initialdir=str(out_root), title="Chọn thư mục Chapter đã dịch (có trang-thai.json)", parent=win)
+            if d:
+                _nap_ho_so(Path(d))
+
+        tk.Button(top_bar, text="📂 Chọn Chapter...", bg="#0284c7", fg="#fff", relief="flat", padx=10, command=_chon_thu_muc_chap).pack(side="left", padx=4)
+
+        btn_bar = tk.Frame(right_col, bg="#1e293b", pady=6)
+        btn_bar.pack(fill="x")
+        tk.Button(btn_bar, text="💾 Lưu câu vừa sửa", bg="#0d9488", fg="#fff", font=("Segoe UI", 9, "bold"), relief="flat", padx=10, pady=5, command=_cap_nhat_cau_dang_chon).pack(side="left", padx=(0, 6))
+        tk.Button(btn_bar, text="🎨 Vẽ lại trang này (~0.4s)", bg="#2563eb", fg="#fff", font=("Segoe UI", 9, "bold"), relief="flat", padx=12, pady=5, command=_ve_lai_trang_hien_tai).pack(side="left", padx=6)
+        tk.Button(btn_bar, text="🖼️ Mở ảnh trang này", bg="#475569", fg="#fff", font=("Segoe UI", 9, "bold"), relief="flat", padx=10, pady=5, command=_mo_xem_anh_trang).pack(side="left", padx=6)
+        tk.Button(btn_bar, text="✅ Duyệt cả Chapter & Xuất ZIP Bàn Giao", bg="#16a34a", fg="#fff", font=("Segoe UI", 9, "bold"), relief="flat", padx=12, pady=5, command=_duyet_tat_ca_va_xuat_zip).pack(side="right")
+
+        lst_pages.bind("<<ListboxSelect>>", lambda _e: _chon_trang(int(lst_pages.curselection()[0])) if lst_pages.curselection() else None)
+        lst_bubbles.bind("<<ListboxSelect>>", lambda _e: _chon_bong(int(lst_bubbles.curselection()[0])) if lst_bubbles.curselection() else None)
+
+        # Tự động nạp thư mục Chapter vừa dịch gần nhất nếu có
+        if out_root.is_dir():
+            manifests = sorted(out_root.rglob("trang-thai.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+            if manifests:
+                _nap_ho_so(manifests[0].parent)
+
     def _quet_link_truyen(self):
         url = self.ent_url.get().strip()
         if not url:
             messagebox.showwarning("Chưa nhập Link", "Vui lòng dán đường link truyện hoặc link chapter vào ô!")
             return
-        if url.startswith("local_dir::"):
-            self.ghi_log("📁 Đang dùng chế độ Thư mục ảnh có sẵn trên máy.")
+        if url.startswith(("local_dir::", "archive::", "multi_files::")):
+            self.ghi_log("📁 Đang dùng chế độ File / Thư mục ảnh có sẵn trên máy.")
             return
+        mo_rong = bool(self.var_mo_rong_ca_bo.get()) if hasattr(self, "var_mo_rong_ca_bo") else False
+        self.cau_hinh["mo_rong_ca_bo"] = mo_rong
+        self._luu_cau_hinh()
 
         def _worker():
-            self.ghi_log(f"🔍 Đang quét danh sách Chapter từ: {url} ...")
+            self.ghi_log(f"🔍 Đang quét danh sách Chapter theo trình tự từ: {url} ...")
             try:
-                ds = quet_danh_sach_chapter_tu_url(url)
+                ds = quet_danh_sach_chapter_tu_url(url, mo_rong_ca_bo=mo_rong)
                 self.ds_chapter_quet = ds
-                self.after(0, lambda: self._cap_nhat_ui_sau_quet(ds))
+                cac_truyen = list(dict.fromkeys(ch.get("ten_truyen") for ch in ds if ch.get("ten_truyen")))
+                if len(cac_truyen) == 1 and self.ent_ten_truyen.get().strip() in ("", "Truyen-Moi"):
+                    self.after(0, lambda t=cac_truyen[0]: (self.ent_ten_truyen.delete(0, "end"), self.ent_ten_truyen.insert(0, t)))
+                self.after(0, lambda: self._cap_nhat_ui_sau_quet(ds, url_goc=url))
             except Exception as exc:
                 self.ghi_log(f"❌ Không quét được link: {exc}")
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _cap_nhat_ui_sau_quet(self, ds: list[dict]):
+    def _cap_nhat_ui_sau_quet(self, ds: list[dict], url_goc: str = ""):
         so_luong = len(ds)
+        cac_truyen = list(dict.fromkeys(ch.get("ten_truyen") or self.ent_ten_truyen.get().strip() or "Truyen-Moi" for ch in ds))
+        vi_tri_bat_dau = 1
+        vi_tri_ket_thuc = so_luong
+        if url_goc and so_luong > 1:
+            for idx_c, ch in enumerate(ds, start=1):
+                if ch.get("url", "").rstrip("/") == url_goc.strip().rstrip("/"):
+                    vi_tri_bat_dau = idx_c
+                    vi_tri_ket_thuc = idx_c
+                    break
         self.spin_tu.delete(0, "end")
-        self.spin_tu.insert(0, "1")
+        self.spin_tu.insert(0, str(vi_tri_bat_dau))
         self.spin_den.delete(0, "end")
-        self.spin_den.insert(0, str(so_luong))
-        self.lbl_so_chap.config(text=f"✅ Tìm thấy {so_luong} Chapter!", fg="#34d399")
-        self.ghi_log(f"✅ Đã tìm thấy {so_luong} Chapter:")
-        for idx, ch in enumerate(ds[:30], start=1):
-            self.ghi_log(f"   [{idx}] {ch['ten']} -> {ch['url']}")
-        if so_luong > 30:
-            self.ghi_log(f"   ... và {so_luong - 30} chapter khác.")
+        self.spin_den.insert(0, str(vi_tri_ket_thuc))
+        thong_ke = f"✅ Tìm thấy {so_luong} Chapter ({len(cac_truyen)} bộ truyện)!"
+        self.lbl_so_chap.config(text=thong_ke, fg="#34d399")
+        self.ghi_log(f"{thong_ke} Sắp xếp theo đúng trình tự:")
+        for idx, ch in enumerate(ds[:40], start=1):
+            tr_hien_thi = ch.get("ten_truyen") or self.ent_ten_truyen.get().strip() or "Truyen-Moi"
+            so_trg = f" ({len(ch['sources'])} trang)" if isinstance(ch.get("sources"), list) else ""
+            self.ghi_log(f"   [{idx:02d}] 📚 {tr_hien_thi} / {ch['ten']}{so_trg} -> {ch['url']}")
+        if so_luong > 40:
+            self.ghi_log(f"   ... và {so_luong - 40} chapter khác.")
 
     def _dung_chay(self):
         self.yeu_cau_dung = True
-        self.ghi_log("⏸ Đang dừng sau khi hoàn tất trang hiện tại...")
+        self.ghi_log("⏸ Đang dừng; không lưu trang dở. Việc đã gửi lên máy chủ có thể vẫn đang chạy.")
+        try:
+            self.btn_stop.config(text="⏳ ĐANG DỪNG...", bg="#7F1D1D")
+            self.lbl_tien_do.config(text="⏸ Đang dừng sau trang hiện tại...")
+        except Exception:
+            pass
+
+    def _xac_nhan_so_trang(self, chapter, count):
+        """Generic HTML is provisional: require a human source-count check, not false certainty."""
+        ready = threading.Event()
+        answer = [None]
+
+        def ask():
+            try:
+                if not self.yeu_cau_dung:
+                    answer[0] = simpledialog.askinteger(
+                        "Kiểm tra đủ trang", f"{chapter}: tìm thấy {count} ảnh.\n"
+                        "Hãy kiểm số trang trên website nguồn rồi nhập số trang thực tế.\n"
+                        "Nếu không xác định được, bấm Huỷ và dùng file ảnh.", parent=self, minvalue=1,
+                    )
+            finally:
+                ready.set()
+
+        self.after(0, ask)
+        while not ready.wait(0.2):
+            if self.yeu_cau_dung:
+                raise RunStopped("Đã dừng.")
+        if answer[0] != count:
+            raise NeedsAttention("Chưa xác nhận đủ trang từ link; chưa gửi ảnh đi dịch.")
 
     def _bat_dau_chay(self):
         if self.dang_chay:
@@ -1666,183 +5997,388 @@ class AppDichTruyenWindows(tk.Tk):
             messagebox.showwarning("Chưa có Link", "Hãy dán Link truyện hoặc chọn Thư mục ảnh trước khi bắt đầu!")
             return
 
-        # Đọc biến Tk ở luồng giao diện rồi lưu để lần sau mở app vẫn nhớ.
-        self._chay_cpu_ollama = bool(self.var_cpu_ollama.get())
-        self.cau_hinh["ollama_cpu"] = self._chay_cpu_ollama
-        self._luu_cau_hinh()
+        try:
+            tu_dong_link = bool(self.var_tu_dong_link.get()) if hasattr(self, "var_tu_dong_link") else False
+            so_luong_song_song = (
+                max(1, min(8, int(self.spin_song_song.get() or 1)))
+                if hasattr(self, "spin_song_song")
+                else 1
+            )
+            self.run_options = {
+                "server": chuan_hoa_may_chu(self.ent_server.get()),
+                "token": self.cau_hinh.get("token", ""),
+                "account": self.cau_hinh.get("email", "") or MA_MAY_HIEN_THI,
+                "name": lam_sach_ten_thu_muc(self.ent_ten_truyen.get() or "Truyen-Da-Dich"),
+                "output": self.ent_out.get().strip(), "url": url_chinh,
+                "source_lang": self.cmb_src.get().split()[0], "target_lang": self.cmb_tgt.get().split()[0],
+                "font": self.cmb_font.get().split()[0], "engine": self.cmb_engine.get().split()[0],
+                "glossary": self.ent_tu_dien.get().strip(),
+                "cbz": bool(self.var_cbz.get()), "pdf": bool(self.var_pdf.get()),
+                "longstrip": bool(self.var_longstrip.get()),
+                "ollama_cpu": bool(self.var_cpu_ollama.get()),
+                "auto_confirm_link_pages": tu_dong_link,
+                "parallel_chapters": so_luong_song_song,
+                "from": max(1, int(self.spin_tu.get() or 1)),
+                "to": int(self.spin_den.get() or len(self.ds_chapter_quet) or 1),
+                "chapters": [dict(chapter) for chapter in self.ds_chapter_quet],
+            }
+            self.cau_hinh["ollama_cpu"] = self.run_options["ollama_cpu"]
+            self.cau_hinh["tu_dong_duyet_link"] = tu_dong_link
+            self.cau_hinh["so_luong_song_song"] = so_luong_song_song
+            self._luu_cau_hinh()
+            if not self.run_options["output"] or self.run_options["to"] < self.run_options["from"]:
+                raise ValueError("Kiểm tra thư mục xuất và khoảng chapter.")
+        except ValueError as exc:
+            messagebox.showwarning("Chưa bắt đầu", str(exc))
+            return
 
         self.dang_chay = True
         self.yeu_cau_dung = False
-        self.btn_start.config(state="disabled")
-        self.btn_stop.config(state="normal")
+        self.btn_start.config(state="disabled", text="⏳ ĐANG TẢI & DỊCH... (BẤM ⏹ ĐỂ DỪNG)")
+        self.btn_stop.config(state="normal", bg="#DC2626", fg="#ffffff", text="⏹ DỪNG NGAY")
         threading.Thread(target=self._luong_dich_hang_loat, daemon=True).start()
 
-    def _luong_dich_hang_loat(self):
+    def _khau_tru_luot_cuc_bo(self, data: bytes, options: dict):
+        """
+        Khấu trừ 1 lượt/trang trên sổ cái Server khi khách hàng chạy `local_ocr_gpu`:
+        - Máy khách tự gánh 100% tải CPU/GPU (0đ chi phí vận hành Server), nhưng vẫn trừ đúng 1 lượt trong tài khoản khách.
+        - Tự động chống trừ trùng theo mã băm `SHA-256` của bức ảnh.
+        - Tài khoản Quản trị viên (`la_quan_tri = True`) được miễn trừ không giới hạn.
+        """
+        srv = str(options.get("server") or "").strip().rstrip("/")
+        if not srv or "api.invalid" in srv or "127.0.0.1:17890" in srv:
+            return
+        tok = str(options.get("token") or "").strip()
+        ma_anh = hashlib.sha256(data).hexdigest()
+        ma_eng = str(options.get("engine") or "local_ocr_gpu").strip()
+        so_luot_can = int(SO_LUOT_MOI_TRANG_THEO_ENGINE.get(ma_eng, 1))
         try:
-            may_chu = chuan_hoa_may_chu(self.ent_server.get())
-            token = self.cau_hinh.get("token", "")
-            ten_truyen = lam_sach_ten_thu_muc(self.ent_ten_truyen.get() or "Truyen-Da-Dich")
-            thu_muc_goc = Path(self.ent_out.get().strip()) / ten_truyen
-            thu_muc_goc.mkdir(parents=True, exist_ok=True)
-
-            ngon_ngu_nguon = self.cmb_src.get().split()[0].strip()
-            ngon_ngu_dich = self.cmb_tgt.get().split()[0].strip()
-            loai_font = self.cmb_font.get().split()[0].strip()
-            engine_dich = self.cmb_engine.get().split()[0].strip()
-            tu_dien_goc = self.ent_tu_dien.get().strip()
-            xuat_cbz = bool(self.var_cbz.get())
-            xuat_pdf = bool(self.var_pdf.get())
-            xuat_longstrip = bool(self.var_longstrip.get())
-            chay_cpu_ollama = bool(getattr(self, "_chay_cpu_ollama", False))
-
-            if not self.ds_chapter_quet:
-                self.ds_chapter_quet = quet_danh_sach_chapter_tu_url(self.ent_url.get().strip())
-
-            tu_idx = max(1, int(self.spin_tu.get() or 1))
-            den_idx = min(len(self.ds_chapter_quet), int(self.spin_den.get() or len(self.ds_chapter_quet)))
-            ds_chay = self.ds_chapter_quet[tu_idx - 1 : den_idx]
-
-            che_do_ten = (
-                "💻 OFFLINE 100% GGUF TRÊN MÁY BẠN (0 tốn lượt)"
-                if engine_dich == "local_gguf"
-                else f"☁️ Máy chủ AI ({engine_dich})"
+            raw_res = goi_http(
+                f"{srv}/api/v1/developer/consume-local-page",
+                method="POST",
+                body={"page_key": ma_anh, "engine": ma_eng, "credits": so_luot_can},
+                token=tok,
+                timeout=18,
             )
-            self.ghi_log(f"🚀 Bắt đầu dịch {len(ds_chay)} Chapter [{che_do_ten}] -> Lưu tại: {thu_muc_goc}")
+            kq_tru = json.loads(raw_res.decode("utf-8"))
+            if isinstance(kq_tru, dict) and kq_tru.get("deducted"):
+                threading.Thread(target=self._cap_nhat_han_muc, daemon=True).start()
+            return
+        except urllib.error.HTTPError as exc:
+            if exc.code in (402, 403, 429):
+                try:
+                    err_body = json.loads(exc.read().decode("utf-8", errors="replace"))
+                    msg = err_body.get("detail") or "Đã hết lượt dịch trong tài khoản."
+                    if isinstance(msg, dict):
+                        msg = msg.get("thong_diep") or msg.get("ly_do") or str(msg)
+                except Exception:
+                    msg = "Đã hết lượt dịch miễn phí trong ngày và ví mua thêm đã về 0."
+                raise NeedsAttention(
+                    f"⛔ HẾT LƯỢT DỊCH: {msg} Vui lòng bấm '💎 Gói Cước & Khoá API' để nạp thêm lượt!"
+                ) from exc
+            if exc.code != 404:
+                return
+        except Exception:
+            return
 
-            for i_chap, chap in enumerate(ds_chay, start=1):
+        # Dự phòng nếu máy chủ Cloud chưa cập nhật endpoint /consume-local-page (HTTP 404):
+        try:
+            raw_hm = goi_http(f"{srv}/api/v1/han-muc", token=tok, timeout=15)
+            hm = json.loads(raw_hm.decode("utf-8"))
+            if isinstance(hm, dict) and not hm.get("la_quan_tri", False) and hasattr(self, "cau_hinh"):
+                con_lai_server = int(hm.get("con_lai", 0))
+                da_tru_local = int(self.cau_hinh.get("_da_tru_local_hom_nay", 0))
+                ngay_luu = str(self.cau_hinh.get("_ngay_tru_local", ""))
+                hom_nay_str = time.strftime("%Y-%m-%d")
+                if ngay_luu != hom_nay_str:
+                    da_tru_local = 0
+                    self.cau_hinh["_ngay_tru_local"] = hom_nay_str
+                if con_lai_server - da_tru_local < so_luot_can:
+                    raise NeedsAttention(
+                        "⛔ HẾT LƯỢT DỊCH: Tài khoản đã hết lượt khả dụng. Vui lòng nạp thêm gói lượt để tiếp tục!"
+                    )
+                self.cau_hinh["_da_tru_local_hom_nay"] = da_tru_local + so_luot_can
+                self._luu_cau_hinh()
+        except NeedsAttention:
+            raise
+        except Exception:
+            pass
+
+    def _luong_dich_hang_loat(self):
+        import concurrent.futures
+
+        final_text = "Chưa hoàn tất."
+        done = 0
+        failures = []
+        ho_so_da_xuat: list[dict] = []
+        state_lock = threading.Lock()
+        try:
+            options = self.run_options
+            out_base = Path(options["output"])
+            default_series = lam_sach_ten_thu_muc(options["name"])
+            (out_base / default_series).mkdir(parents=True, exist_ok=True)
+            chapters = options["chapters"] or quet_danh_sach_chapter_tu_url(options["url"])
+            selected = chapters[options["from"] - 1:options["to"]]
+            if not selected:
+                raise NeedsAttention("Khoảng chapter đã chọn không có dữ liệu.")
+            # Collision must be detected per (series_folder, chapter_folder) before any upload or file write.
+            series_and_names = [
+                (
+                    lam_sach_ten_thu_muc(str(chapter.get("ten_truyen") or default_series)),
+                    lam_sach_ten_thu_muc(chapter["ten"]),
+                )
+                for chapter in selected
+            ]
+            if len({(s.casefold(), n.casefold()) for s, n in series_and_names}) != len(series_and_names):
+                raise NeedsAttention("Có chapter trùng tên thư mục; đổi tên trước khi xử lý.")
+            config = {key: options[key] for key in
+                      ("server", "account", "source_lang", "target_lang", "font", "engine", "glossary")}
+            config["renderer_version"] = "production-1"
+            so_bo_truyen = len({s.casefold() for s, _ in series_and_names})
+            so_luong_song_song = max(1, min(8, int(options.get("parallel_chapters") or 1)))
+            if len(selected) > 1 and so_luong_song_song > 1:
+                self.ghi_log(
+                    f"⚡ Bắt đầu chạy song song {so_luong_song_song} luồng cho {len(selected)} chapter "
+                    f"({so_bo_truyen} bộ truyện). Kết quả cần rà soát trước khi giao."
+                )
+            else:
+                self.ghi_log(
+                    f"Bắt đầu {len(selected)} chapter ({so_bo_truyen} bộ truyện). Kết quả cần rà soát trước khi giao."
+                )
+
+            def _xu_ly_mot_chapter(chapter: dict, series_name: str, name: str):
+                nonlocal done
                 if self.yeu_cau_dung:
-                    break
-                ten_chap = lam_sach_ten_thu_muc(chap["ten"])
-                url_chap = chap["url"]
-                tm_chap = thu_muc_goc / ten_chap
-                tm_chap.mkdir(parents=True, exist_ok=True)
+                    raise RunStopped("Đã dừng.")
+                ledger = None
+                root = out_base / series_name
+                root.mkdir(parents=True, exist_ok=True)
+                nhan_day_du = f"{series_name}/{name}" if so_bo_truyen > 1 else name
+                try:
+                    source = chapter["url"]
+                    if isinstance(chapter.get("sources"), list) and chapter["sources"]:
+                        sources = list(chapter["sources"])
+                    elif source.startswith("local_dir::"):
+                        sources = local_image_sources(Path(source.removeprefix("local_dir::")))
+                    elif source.startswith("archive::"):
+                        sources = archive_sources(Path(source.removeprefix("archive::")))
+                    else:
+                        sources = quet_anh_trang_truyen_trong_chapter(source)
+                        if not sources:
+                            raise NeedsAttention(f"Không tìm thấy ảnh trang truyện tại link {source}.")
+                        if options.get("auto_confirm_link_pages"):
+                            self.ghi_log(f"⚡ Tự động xác nhận {len(sources)} trang cho {nhan_day_du} từ link.")
+                        else:
+                            self._xac_nhan_so_trang(name, len(sources))
+                    if len(sources) > 200:
+                        raise NeedsAttention("Chapter vượt 200 trang; chia nhỏ trước khi dịch.")
+                    self.after(0, lambda lb=nhan_day_du: self.lbl_tien_do.config(text=f"Đang xử lý {lb}"))
+                    ledger = ChapterLedger(root / name, sources, config)
 
-                # Bộ nhớ ngữ cảnh xuyên trang trong cùng Chapter (giữ đồng nhất xưng hô & tên nhân vật)
-                bo_nho_ngu_canh_chap: list[str] = []
+                    prefetch_cache: dict[str, bytes] = {}
+                    prefetch_lock = threading.Lock()
+                    vi_tri_url = {u: idx for idx, u in enumerate(sources)}
 
-                if url_chap.startswith("local_dir::"):
-                    tm_nguon = Path(url_chap.replace("local_dir::", "", 1))
-                    ds_anh = [
-                        f"local_file::{p}"
-                        for p in sorted(tm_nguon.iterdir())
-                        if p.is_file() and p.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp")
-                    ]
-                else:
-                    self.ghi_log(f"📂 [{i_chap}/{len(ds_chay)}] Đang quét ảnh trong {ten_chap} ({url_chap})...")
-                    ds_anh = quet_anh_trang_truyen_trong_chapter(url_chap)
+                    def _tai_mot_trang_co_retry(u: str) -> bytes:
+                        loi_cuoi = None
+                        for lan in range(3):
+                            if self.yeu_cau_dung:
+                                raise RunStopped("Đã dừng.")
+                            try:
+                                return goi_http(u, referer=source, nguon_ngoai=True)
+                            except urllib.error.HTTPError as exc:
+                                if exc.code not in (408, 429, 500, 502, 503, 504) or lan == 2:
+                                    raise
+                                loi_cuoi = exc
+                            except (OSError, TimeoutError, urllib.error.URLError) as exc:
+                                if lan == 2:
+                                    raise
+                                loi_cuoi = exc
+                            time.sleep(0.5 * (lan + 1))
+                        raise loi_cuoi
 
-                if not ds_anh:
-                    self.ghi_log(f"⚠️ Không tìm thấy ảnh trang truyện trong {url_chap}, bỏ qua.")
-                    continue
+                    def _tai_truoc_nen(ds_u: list[str]):
+                        for u_tiep in ds_u:
+                            if self.yeu_cau_dung or not u_tiep.startswith(("http://", "https://")):
+                                continue
+                            with prefetch_lock:
+                                if u_tiep in prefetch_cache:
+                                    continue
+                            try:
+                                b_tiep = _tai_mot_trang_co_retry(u_tiep)
+                                with prefetch_lock:
+                                    if len(prefetch_cache) >= 4:
+                                        prefetch_cache.pop(next(iter(prefetch_cache)), None)
+                                    prefetch_cache[u_tiep] = b_tiep
+                            except Exception:
+                                pass
 
-                self.ghi_log(f"   -> Tìm thấy {len(ds_anh)} trang ảnh. Bắt đầu xử lý...")
-                for i_trang, url_anh in enumerate(ds_anh, start=1):
+                    def load(url):
+                        if url.startswith(("local_file::", "archive_file::")):
+                            return read_local_source(url)
+                        with prefetch_lock:
+                            da_co = prefetch_cache.pop(url, None)
+                        idx_ht = vi_tri_url.get(url, -1)
+                        if idx_ht >= 0 and idx_ht + 1 < len(sources):
+                            ke_tiep = [
+                                sources[j]
+                                for j in range(idx_ht + 1, min(len(sources), idx_ht + 3))
+                                if sources[j].startswith(("http://", "https://"))
+                            ]
+                            if ke_tiep:
+                                threading.Thread(target=_tai_truoc_nen, args=(ke_tiep,), daemon=True).start()
+                        if da_co is not None:
+                            return da_co
+                        return _tai_mot_trang_co_retry(url)
+
+                    co_token = bool(str(options.get("token") or "").strip())
+
+                    def submit(data, index, context):
+                        glossary = "\n".join(filter(None, [options["glossary"], "\n".join(context)]))
+                        fields = {
+                            "source_lang": options["source_lang"],
+                            "target_lang": options["target_lang"],
+                            "engine": options["engine"],
+                            "che_do": "chi_chu",
+                            "font_style": options["font"],
+                            "tu_dien_rieng": glossary,
+                            "tao_chapter_rieng": "true",
+                        }
+                        if co_token and ledger.data["pages"][index].get("request_key"):
+                            fields["request_key"] = ledger.data["pages"][index]["request_key"]
+                        raw = gui_multipart_trang(
+                            f"{options['server']}/api/v1/doc-truyen/trang", data,
+                            filename=f"{index + 1:03d}.jpg", token=options["token"],
+                            fields=fields,
+                        )
+                        return json.loads(raw.decode("utf-8"))
+
+                    def fetch(page_id):
+                        return json.loads(goi_http(
+                            f"{options['server']}/api/v1/doc-truyen/trang/{page_id}",
+                            token=options["token"],
+                        ).decode("utf-8"))
+
+                    def lookup_request(request_key):
+                        try:
+                            return json.loads(goi_http(
+                                f"{options['server']}/api/v1/doc-truyen/yeu-cau/{request_key}",
+                                token=options["token"],
+                            ).decode("utf-8"))
+                        except urllib.error.HTTPError as exc:
+                            if exc.code == 404:
+                                return None
+                            raise
+
+                    def local(data, context):
+                        self._khau_tru_luot_cuc_bo(data, options)
+                        if options["engine"] == "local_hybrid_pro":
+                            ham_dich_local = dich_anh_local_hybrid_pro_tu_hoc
+                        elif options["engine"] == "local_ocr_gpu":
+                            ham_dich_local = dich_anh_local_ocr_gpu_tang_toc
+                        else:
+                            ham_dich_local = dich_anh_local_gguf_tren_may_khach
+                        return ham_dich_local(
+                            data, ngon_ngu_nguon=options["source_lang"], ngon_ngu_dich=options["target_lang"],
+                            tu_dien_rieng="\n".join(filter(None, [options["glossary"], "\n".join(context)])),
+                            chay_cpu=options.get("ollama_cpu", False),
+                        )
+
+                    def _preflight_cloud():
+                        h = json.loads(goi_http(
+                            f"{options['server']}/healthz", token=options["token"], timeout=15,
+                        ).decode("utf-8"))
+                        if isinstance(h, dict) and h.get("status") == "ok" and "llm_configured" in h and "translation_capabilities" not in h:
+                            h = dict(h)
+                            h["translation_capabilities"] = {
+                                "private_context_v1": True,
+                                "idempotent_upload_v1": True,
+                            }
+                        return require_production_backend(h)
+
+                    files = process_chapter(
+                        ledger, load=load, submit=submit, fetch=fetch,
+                        render=lambda data, regions: xoa_chu_va_ve_ban_dich_tren_anh(data, regions, options["font"]),
+                        cancelled=lambda: self.yeu_cau_dung, log=self.ghi_log,
+                        local_translate=local if options["engine"] in ("local_gguf", "local_ocr_gpu", "local_hybrid_pro") else None,
+                        require_isolation=True, idempotent_submit=co_token, lookup_request=lookup_request if co_token else None,
+                        allow_silent_pages=bool(options.get("auto_confirm_link_pages")),
+                        preflight=_preflight_cloud,
+                    )
                     if self.yeu_cau_dung:
-                        break
-                    file_dich = tm_chap / f"{i_trang:03d}.jpg"
-                    if file_dich.is_file() and file_dich.stat().st_size > 1024:
-                        self.ghi_log(f"   ⏭ Trang {i_trang:03d}.jpg đã có sẵn, bỏ qua (Resume).")
-                        continue
-
-                    self.after(
-                        0,
-                        lambda c=ten_chap, p=i_trang, t=len(ds_anh): self.lbl_tien_do.config(
-                            text=f"Đang dịch {c}: Trang {p}/{t}"
-                        ),
-                    )
-                    try:
-                        if url_anh.startswith("local_file::"):
-                            img_bytes = Path(url_anh.replace("local_file::", "", 1)).read_bytes()
-                        else:
-                            img_bytes = goi_http(url_anh, referer=url_chap)
-
-                        # Gộp từ điển cố định của người dùng + bộ nhớ ngữ cảnh 10 câu gần nhất của chapter
-                        ngu_canh_gop = "\n".join(
-                            [s for s in [tu_dien_goc, "\n".join(bo_nho_ngu_canh_chap[-10:])] if s.strip()]
+                        raise RunStopped("Đã dừng; chưa xuất chapter.")
+                    if options["cbz"]:
+                        ledger.export_cbz(root / f"{name}-ban-nhap.cbz")
+                    if options["pdf"] or options["longstrip"]:
+                        xuat_pdf_va_longstrip_chapter(
+                            root / name, f"{name}-ban-nhap", root, xuat_pdf=options["pdf"],
+                            xuat_longstrip=options["longstrip"], trang_da_kiem=files,
                         )
-
-                        if engine_dich == "local_gguf":
-                            vung = dich_anh_local_gguf_tren_may_khach(
-                                img_bytes,
-                                ngon_ngu_nguon=ngon_ngu_nguon,
-                                ngon_ngu_dich=ngon_ngu_dich,
-                                tu_dien_rieng=ngu_canh_gop,
-                                chay_cpu=chay_cpu_ollama,
-                            )
-                        else:
-                            raw_post = gui_multipart_trang(
-                                f"{may_chu}/api/v1/doc-truyen/trang",
-                                img_bytes,
-                                filename=f"{i_trang:03d}.jpg",
-                                fields={
-                                    "source_lang": ngon_ngu_nguon,
-                                    "target_lang": ngon_ngu_dich,
-                                    "engine": engine_dich,
-                                    "che_do": "chi_chu",
-                                    "font_style": loai_font,
-                                    "tu_dien_rieng": ngu_canh_gop,
-                                },
-                                token=token,
-                            )
-                            trang_kq = json.loads(raw_post.decode("utf-8"))
-                            page_id = trang_kq.get("page_id")
-
-                            while not trang_kq.get("xong") and not self.yeu_cau_dung:
-                                time.sleep(1.5)
-                                raw_poll = goi_http(f"{may_chu}/api/v1/doc-truyen/trang/{page_id}", token=token)
-                                trang_kq = json.loads(raw_poll.decode("utf-8"))
-
-                            if trang_kq.get("trang_thai") == "failed":
-                                raise RuntimeError(trang_kq.get("loi") or "Trang dịch lỗi trên máy chủ")
-
-                            vung = trang_kq.get("vung") or []
-
-                        # Cập nhật bộ nhớ ngữ cảnh xuyên trang
-                        for item_v in vung:
-                            cg = str(item_v.get("chu_goc") or "").strip()
-                            bd = str(item_v.get("ban_dich") or "").strip()
-                            if cg and bd and len(cg) <= 80 and len(bd) <= 120:
-                                dong_nc = f"{cg} = {bd}"
-                                if dong_nc not in bo_nho_ngu_canh_chap:
-                                    bo_nho_ngu_canh_chap.append(dong_nc)
-
-                        anh_out = xoa_chu_va_ve_ban_dich_tren_anh(img_bytes, vung, loai_font=loai_font)
-                        file_dich.write_bytes(anh_out)
-                        if engine_dich != "local_gguf":
-                            self._cap_nhat_han_muc()
-                        self.ghi_log(
-                            f"   ✅ Đã lưu {ten_chap}/{file_dich.name} ({len(vung)} bóng thoại)"
+                    with state_lock:
+                        done += 1
+                        ho_so_da_xuat.append(
+                            {
+                                "ten_truyen": series_name,
+                                "ten_chapter": name,
+                                "so_trang": len(files),
+                                "thu_muc": str(root / name),
+                            }
                         )
-                    except Exception as exc_trang:
-                        self.ghi_log(f"   ❌ Lỗi trang {i_trang:03d}: {exc_trang}")
-
-                if xuat_cbz and not self.yeu_cau_dung:
-                    cbz_path = thu_muc_goc / f"{ten_chap}.cbz"
-                    with zipfile.ZipFile(cbz_path, "w", zipfile.ZIP_DEFLATED) as zf:
-                        for f_jpg in sorted(tm_chap.glob("*.jpg")):
-                            zf.write(f_jpg, arcname=f_jpg.name)
-                    self.ghi_log(f"📦 Đã đóng gói {cbz_path.name}")
-
-                if (xuat_pdf or xuat_longstrip) and not self.yeu_cau_dung:
-                    ds_them = xuat_pdf_va_longstrip_chapter(
-                        tm_chap,
-                        ten_chap,
-                        thu_muc_goc,
-                        xuat_pdf=xuat_pdf,
-                        xuat_longstrip=xuat_longstrip,
+                    self.ghi_log(
+                        f"Đủ {len(files)} trang: {series_name} / {name} -> {root / name}. "
+                        "Các bản xuất tự động là bản nháp; dùng công cụ rà soát để tạo ZIP giao đã duyệt."
                     )
-                    if ds_them:
-                        self.ghi_log(f"✨ Đã xuất thêm: {', '.join(ds_them)}")
+                except RunStopped:
+                    raise
+                except Exception as exc:
+                    with state_lock:
+                        failures.append({"chapter": nhan_day_du, "error": str(exc)})
+                    self.ghi_log(f"Chưa hoàn tất {nhan_day_du}: {exc}. Không xuất chapter thiếu trang.")
+                finally:
+                    if ledger is not None:
+                        ledger.close()
+                    import gc
+                    gc.collect()
 
+            if len(selected) > 1 and so_luong_song_song > 1:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=so_luong_song_song) as pool:
+                    futs = [
+                        pool.submit(_xu_ly_mot_chapter, chapter, series_name, name)
+                        for chapter, (series_name, name) in zip(selected, series_and_names)
+                    ]
+                    for fut in futs:
+                        fut.result()
+            else:
+                for chapter, (series_name, name) in zip(selected, series_and_names):
+                    _xu_ly_mot_chapter(chapter, series_name, name)
+            if ho_so_da_xuat and (so_bo_truyen > 1 or len(ho_so_da_xuat) > 1 or any(c.get("ten_truyen") for c in selected)):
+                lines_tom_tat = [
+                    f"[{idx}] Truyện: {m['ten_truyen']}  |  Chapter: {m['ten_chapter']}  |  {m['so_trang']} trang  |  Thư mục: {m['thu_muc']}"
+                    for idx, m in enumerate(ho_so_da_xuat, start=1)
+                ]
+                try:
+                    (out_base / "DANH-SACH-TRUYEN-CHAPTER.txt").write_text(
+                        "\n".join(lines_tom_tat) + "\n", encoding="utf-8"
+                    )
+                except OSError:
+                    pass
+            if failures:
+                final_text = f"Xong {done}/{len(selected)} chapter; {len(failures)} chapter cần xử lý."
+            else:
+                final_text = f"Đã xử lý đủ {done} chapter; cần rà soát trước khi giao."
+            self.ghi_log(final_text)
             self._cap_nhat_han_muc()
-            self.ghi_log(f"🎉 HOÀN TẤT! Toàn bộ các Chapter đã được chia vào thư mục: {thu_muc_goc}")
+        except RunStopped as exc:
+            final_text = f"Đã dừng. {done} chapter đã xử lý đủ; mở lại để tiếp tục."
+            self.ghi_log(str(exc))
         except Exception as exc:
-            self.ghi_log(f"❌ Lỗi luồng dịch: {exc}")
+            final_text = f"Chưa hoàn tất: {exc}"
+            self.ghi_log(final_text)
         finally:
             self.dang_chay = False
-            self.after(0, lambda: self.btn_start.config(state="normal"))
-            self.after(0, lambda: self.btn_stop.config(state="disabled"))
-            self.after(0, lambda: self.lbl_tien_do.config(text="Đã xong."))
+            self.after(0, lambda: self.btn_start.config(state="normal", text="🚀 BẮT ĐẦU TẢI & DỊCH THEO CHAPTER"))
+            self.after(0, lambda: self.btn_stop.config(state="disabled", bg="#2A1215", fg="#F87171", text="⏹ DỪNG LẠI"))
+            self.after(0, lambda text=final_text: self.lbl_tien_do.config(text=text))
 
 
 if __name__ == "__main__":

@@ -59,6 +59,16 @@ TIEN_TO_BEARER = "Bearer "
 
 LOI_CHUA_DANG_NHAP = "Chưa đăng nhập. Gửi mã phiên ở header `Authorization: Bearer <mã>`."
 LOI_KHONG_THAY = "Không tìm thấy, hoặc không thuộc về tài khoản của bạn."
+LOI_CAM_API_KEY_NHAY_CAM = (
+    "Khoá Developer API (tr_live_...) chỉ được cấp quyền dịch thuật tự động, không được phép "
+    "đổi mật khẩu, xoay/thu hồi khoá API hay thực hiện thao tác quản trị hệ thống. "
+    "Vui lòng đăng nhập trực tiếp bằng tài khoản trên Web."
+)
+
+
+def la_khoa_api_developer(ma_tho: str | None) -> bool:
+    """Kiểm tra mã xác thực có phải là Developer API Key (`tr_live_...`) hay không."""
+    return bool(ma_tho and ma_tho.strip().startswith("tr_live_"))
 
 
 def ma_phien_tu_header(
@@ -91,6 +101,34 @@ async def nguoi_dung_hien_tai(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=LOI_CHUA_DANG_NHAP,
             headers={"WWW-Authenticate": "Bearer"},
+        )
+    return nguoi
+
+
+async def nguoi_dung_phien_dang_nhap(
+    authorization: str | None = Header(default=None, alias=TEN_HEADER),
+    x_customer_api_key: str | None = Header(default=None, alias="X-Customer-Api-Key"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    session: AsyncSession = Depends(get_session),
+) -> NguoiDung:
+    """Dependency bắt buộc phiên đăng nhập tương tác (14 ngày), TỪ CHỐI Developer API Key (`tr_live_...`).
+
+    Dùng cho các thao tác nhạy cảm: xoay/thu hồi API Key, đổi mật khẩu, hoặc quản trị hệ thống.
+    Nếu `tr_live_...` bị lộ từ máy khách/tool bên thứ ba, kẻ tấn công không thể dùng nó để chiếm
+    tài khoản hoặc leo thang đặc quyền.
+    """
+    ma = ma_phien_tu_header(authorization, x_customer_api_key, x_api_key)
+    nguoi = await tai_khoan.lay_theo_ma_phien(session, ma) if ma else None
+    if nguoi is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=LOI_CHUA_DANG_NHAP,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if la_khoa_api_developer(ma):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=LOI_CAM_API_KEY_NHAY_CAM,
         )
     return nguoi
 

@@ -94,10 +94,10 @@ class Settings(BaseSettings):
     #: Hạn mức theo TRANG mỗi ngày. Đơn vị là trang chứ không phải chapter/tệp/lần bấm, vì chi
     #: phí thật tính theo trang.
     #:
-    #: 2 cho khách lạ (trải nghiệm nhanh 2 trang mẫu) và 20 cho tài khoản đăng ký (đủ dịch trọn
-    #: 1 chapter tiêu chuẩn 18–20 trang/ngày, tỉ lệ 1:10 khuyến khích đăng ký và chống spam).
+    #: 2 cho khách lạ (trải nghiệm nhanh 2 trang mẫu) và 10 cho tài khoản đăng ký miễn phí
+    #: (tỉ lệ 1:5 khuyến khích đăng ký và chống spam, bảo vệ biên lợi nhuận gói cước).
     han_muc_khach_la: int = 2
-    han_muc_co_tai_khoan: int = 20
+    han_muc_co_tai_khoan: int = 10
     #: Trần theo IP cho khách lạ. **PHẢI lớn hơn `han_muc_khach_la`**: văn phòng, trường học,
     #: quán cà phê dùng chung một IP — đặt bằng nhau là chặn oan hàng loạt người dùng thật.
     #: Đây là hàng rào chống xoá cookie lấy lượt mới, KHÔNG phải định danh người dùng.
@@ -162,7 +162,7 @@ class Settings(BaseSettings):
     ngan_hang_chu_tk: str = ""
     #: Email hỗ trợ hệ thống (tạm ẩn).
     email_quan_tri_he_thong: str = ""
-    #: Đơn giá VNĐ cho mỗi 1 lượt trang mua thêm (mặc định 500 VNĐ/trang ⇒ 50.000đ = 100 trang).
+    #: Đơn giá VNĐ chuẩn theo Phương án A (500 VNĐ/trang ⇒ 50.000đ = 100 trang, kèm Gói Mồi 19.000đ = 50 trang).
     ty_le_vnd_moi_trang: int = 500
 
     # --- E57: tự nhận ngôn ngữ ---------------------------------------------------------------

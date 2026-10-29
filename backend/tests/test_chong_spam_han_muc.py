@@ -28,9 +28,9 @@ def st():
 
 
 class TestCauHinhHanMucMoi:
-    def test_mac_dinh_khach_2_trang_tai_khoan_20_trang(self, st):
+    def test_mac_dinh_khach_2_trang_tai_khoan_10_trang(self, st):
         assert st.han_muc_khach_la == 2
-        assert st.han_muc_co_tai_khoan == 20
+        assert st.han_muc_co_tai_khoan == 10
         assert st.han_muc_ip_khach_la == 8
         assert st.han_muc_ip_khach_la > st.han_muc_khach_la
         assert st.so_tai_khoan_moi_moi_ip_mot_ngay == 2

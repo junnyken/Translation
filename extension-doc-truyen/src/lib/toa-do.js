@@ -36,9 +36,9 @@ export function sanSangQuyDoi(anh) {
  * thay vì giả vờ mọi câu đều vừa.
  */
 export function coChu({ height, width }, soKyTu) {
-  // Một ký tự tiếng Việt tỷ lệ (system-ui, line-height ~1.18) chiếm trung bình ~(0.52 * F) x (1.18 * F) ≈ 0.61 * F^2.
-  // Nhân hệ số 1.38 để cỡ chữ ước lượng sát diện tích thực của ô trước khi đo DOM thật.
-  const theo_o = Math.sqrt((height * width) / Math.max(soKyTu, 1)) * 1.38
+  // Một ký tự tiếng Việt tỷ lệ (system-ui, line-height ~1.24) chiếm trung bình ~(0.52 * F) x (1.24 * F) ≈ 0.64 * F^2.
+  // Nhân hệ số 1.45 để cỡ chữ ước lượng thoáng, to rõ và dễ đọc hơn trong lòng bong bóng trước khi đo DOM thật.
+  const theo_o = Math.sqrt((height * width) / Math.max(soKyTu, 1)) * 1.45
   return Math.max(9, Math.min(22, Math.round(theo_o)))
 }
 

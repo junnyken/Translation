@@ -149,6 +149,22 @@ async def giu_cho_moi_chot(
                     )
                 ).scalar_one_or_none()
                 if tru_mua is not None:
+                    from app.models import SoCaiHanMuc
+                    from app.models.enums import TrangThaiHanMuc
+                    from app.services.so_cai_han_muc import khoa_cua_trang
+
+                    session.add(
+                        SoCaiHanMuc(
+                            khoa_idempotency=khoa_cua_trang(trang_id, chot.loai),
+                            loai_chu_the=chot.loai,
+                            chu_the=f"mua_them:{chot.chu_the}",
+                            ngay_han_muc=ngay,
+                            so_trang=1,
+                            trang_thai=TrangThaiHanMuc.giu_cho,
+                            trang_id=trang_id,
+                        )
+                    )
+                    await session.flush()
                     continue
             raise loi_vuot_han_muc(
                 danh_tinh=danh_tinh, settings=settings, can=1, con_lai=kq.con_lai, chot=chot

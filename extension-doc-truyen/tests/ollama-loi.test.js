@@ -31,4 +31,44 @@ describe('dịch cục bộ bằng Ollama', () => {
     const loi = await dichTrangLocalGguf(blob).catch((e) => e)
     expect(loi.message).toMatch(/chưa phát hiện/i)
   })
+
+  it('ưu tiên chọn đúng qwen3-vl:8b khi Ollama có nhiều model văn bản khác đứng trước', async () => {
+    let modelDaGoi = ''
+    vi.stubGlobal('fetch', async (url, init) => {
+      if (url.endsWith('/api/tags')) {
+        return json({ models: [{ name: 'llama3:8b' }, { name: 'qwen3-vl:8b' }] })
+      }
+      if (url.endsWith('/api/chat')) {
+        modelDaGoi = JSON.parse(init.body).model
+        return json({
+          message: {
+            content: JSON.stringify([{ box_2d: [100, 100, 300, 400], chu_goc: 'Hello', ban_dich: 'Xin chào' }]),
+          },
+        })
+      }
+      throw new TypeError('Failed to fetch')
+    })
+    const kq = await dichTrangLocalGguf(blob)
+    expect(modelDaGoi).toBe('qwen3-vl:8b')
+    expect(kq.vung).toHaveLength(1)
+    expect(kq.vung[0].ban_dich).toBe('Xin chào')
+  })
+
+  it('tự động dùng Cầu nối App Windows (127.0.0.1:17890) khi đang mở để lấy OCR ONNX + ảnh đã xóa chữ 0đ', async () => {
+    vi.stubGlobal('fetch', async (url) => {
+      if (url.includes('127.0.0.1:17890/api/v1/local-bridge/dich-trang')) {
+        return json({
+          xong: true,
+          engine: 'local_bridge_windows_app',
+          vung: [{ x: 20, y: 30, w: 120, h: 60, chu_goc: 'ダンダダン', ban_dich: 'Dandadan!' }],
+          anh_da_dich_data_url: 'data:image/jpeg;base64,AAA=',
+        })
+      }
+      throw new Error('Không được gọi Ollama trực tiếp khi Local Bridge đã xử lý xong')
+    })
+    const kq = await dichTrangLocalGguf(blob)
+    expect(kq.che_do).toBe('day_du')
+    expect(kq.anh_da_dich_data_url).toBe('data:image/jpeg;base64,AAA=')
+    expect(kq.vung[0].ban_dich).toBe('Dandadan!')
+  })
 })

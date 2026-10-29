@@ -1,0 +1,12 @@
+# Disposable API/SQL test environment. No worker/model downloads, no deployment entrypoint.
+FROM python:3.12-slim
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/app
+WORKDIR /app
+COPY requirements.txt requirements-dev.txt ./
+RUN pip install --no-cache-dir -r requirements-dev.txt
+COPY app ./app
+COPY alembic ./alembic
+COPY alembic.ini pytest.ini ./
+COPY tests ./tests
+COPY fonts ./fonts
+CMD ["python", "-m", "pytest", "tests/test_production_private_context.py", "tests/test_production_upload_requests.py", "tests/test_production_broker.py", "-ra"]

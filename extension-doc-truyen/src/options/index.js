@@ -4,7 +4,7 @@
  * máy chủ cấp mới nằm lại trong `chrome.storage.local`. Mã phiên thu hồi được (đăng xuất là
  * mất hiệu lực ngay), mật khẩu thì không.
  */
-import { chuanHoaDiaChi, dangKy, dangNhap, dangXuat, docCauHinh, luuCauHinh, moTrangWebThongMinh, toiLaAi } from '../lib/api.js'
+import { chuanHoaDiaChi, dangKy, dangNhap, dangXuat, docCauHinh, layHanMuc, luuCauHinh, moTrangWebThongMinh, toiLaAi } from '../lib/api.js'
 
 const $ = (id) => document.getElementById(id)
 const MAY_CHU_GOI_Y = 'https://translation-api.vibe1.tinhgon.xyz'
@@ -66,6 +66,17 @@ async function ve() {
     $('email-hien').textContent = nguoi.email
     $('da-dang-nhap').hidden = false
     $('dang-nhap').hidden = true
+    const oSoDu = $('so-du-hien')
+    if (oSoDu) {
+      try {
+        const hm = await layHanMuc()
+        const muaThem = Number(hm.so_luot_mua_them || 0)
+        const conNgay = Math.max(0, Number(hm.con_lai || 0) - muaThem)
+        oSoDu.textContent = `💎 Khả dụng: ${hm.con_lai} trang (Miễn phí hôm nay: ${conNgay}/${hm.tran} + Ví gói: ${muaThem} trang)`
+      } catch {
+        oSoDu.textContent = ''
+      }
+    }
   } catch {
     // Chưa đăng nhập hoặc phiên hết hạn — hiện form, không báo lỗi đỏ cho một trạng thái bình thường.
     $('da-dang-nhap').hidden = true
@@ -80,7 +91,7 @@ $('dang-nhap').addEventListener('submit', async (e) => {
     $('dia-chi').value = diaChi
     const nguoi = await dangNhap(diaChi, $('email').value.trim(), $('mat-khau').value)
     $('mat-khau').value = ''
-    bao(`Đã đăng nhập: ${nguoi.email} (hạn mức 20 trang/ngày)`, 'ok')
+    bao(`Đã đăng nhập: ${nguoi.email} (hạn mức 10 trang/ngày)`, 'ok')
     await ve()
   } catch (err) {
     bao(String(err?.message || err), 'loi')
@@ -100,7 +111,7 @@ $('nut-dang-ky')?.addEventListener('click', async () => {
   try {
     const nguoi = await dangKy(diaChi, email, tenHien, matKhau)
     $('mat-khau').value = ''
-    bao(`Đã tạo tài khoản và đăng nhập: ${nguoi.email} (hạn mức 20 trang/ngày)`, 'ok')
+    bao(`Đã tạo tài khoản và đăng nhập: ${nguoi.email} (hạn mức 10 trang/ngày)`, 'ok')
     await ve()
   } catch (err) {
     bao(String(err?.message || err), 'loi')

@@ -20,6 +20,7 @@ import {
   dichTrangLocalGguf,
   docCauHinh,
   guiTrang,
+  khauTruLuotLocal,
   layTrang,
   lyDoThieuCauHinh,
   taiAnhDaDichDataUrl,
@@ -150,19 +151,54 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false,
   const anh_goc_data_url = anhBase64 ? null : await blobThanhDataUrl(blob)
 
   const { ngonNgu, ngonNguDich, engine, cheDo } = await docCauHinh()
-  const tuDienRieng = layChuoiNguCanhTab(tabId)
+  let tuDienTuHoc = ''
+  try {
+    const dHoc = await chrome.storage.local.get({ boNhoTuHocTruyen: {} })
+    const entries = Object.entries(dHoc?.boNhoTuHocTruyen || {}).slice(-30)
+    if (entries.length) {
+      tuDienTuHoc = entries.map(([k, v]) => `${k} = ${v}`).join('\n')
+    }
+  } catch {}
+  const tuDienRieng = [layChuoiNguCanhTab(tabId), tuDienTuHoc].filter(Boolean).join('\n')
   bao({ giai_doan: 'dang-gui', url, che_do: cheDo, anh_goc_data_url })
 
   // Chế độ Offline 100% trên máy khách bằng model GGUF cục bộ (Ollama 127.0.0.1:11434 / LM Studio 127.0.0.1:1234):
-  // Không tốn bất kỳ tài nguyên nào của máy chủ hay phí API đám mây.
   if (engine === 'local_gguf') {
-    const kqLocal = await dichTrangLocalGguf(blob, { ngonNgu, ngonNguDich, tuDienRieng })
+    const kqLocal = await dichTrangLocalGguf(blob, { ngonNgu, ngonNguDich, tuDienRieng, engine })
     if (daBiHuy()) throw new LoiApi(0, 'Đã chuyển sang dịch trang mới.')
     capNhatNguCanhTab(tabId, kqLocal.vung)
     return {
       ...kqLocal,
-      anh_da_dich_data_url: null,
+      anh_da_dich_data_url: kqLocal.anh_da_dich_data_url || null,
       anh_goc_data_url,
+    }
+  }
+
+  // Chế độ `local_ocr_gpu` (⚡ OCR + GPU Nhanh · 1 lượt/trang) & `local_hybrid_pro` (🧠 OCR + GPU Pro · 2 lượt/trang):
+  // - Ưu tiên kết nối Cầu nối App Windows (127.0.0.1:17890) hoặc Ollama cục bộ trên máy khách kèm khấu trừ đúng số lượt.
+  // - Nếu máy khách chưa bật App Windows / Ollama, tự động chuyển mượt sang máy chủ Cloud để không bao giờ bị gián đoạn.
+  if (engine === 'local_ocr_gpu' || engine === 'local_hybrid_pro') {
+    try {
+      const kqLocal = await dichTrangLocalGguf(blob, { ngonNgu, ngonNguDich, tuDienRieng, engine })
+      if (daBiHuy()) throw new LoiApi(0, 'Đã chuyển sang dịch trang mới.')
+      await khauTruLuotLocal(blob, engine, url).catch((errTru) => {
+        if (errTru instanceof LoiApi && [402, 403, 429].includes(errTru.ma)) throw errTru
+      })
+      capNhatNguCanhTab(tabId, kqLocal.vung)
+      return {
+        ...kqLocal,
+        anh_da_dich_data_url: kqLocal.anh_da_dich_data_url || null,
+        anh_goc_data_url,
+      }
+    } catch (errLocal) {
+      if (errLocal instanceof LoiApi && [402, 403, 429].includes(errLocal.ma)) {
+        throw errLocal
+      }
+      // Nếu chưa mở App Windows / Ollama ở máy khách, tự động chạy qua Cloud Server:
+      // Nếu là `local_hybrid_pro` (2 lượt/trang), trừ thêm 1 lượt phụ ngoài 1 lượt mặc định của guiTrang.
+      if (engine === 'local_hybrid_pro') {
+        await khauTruLuotLocal(blob, 'local_ocr_gpu', `pro-extra::${url}`).catch(() => {})
+      }
     }
   }
 
@@ -276,6 +312,34 @@ chrome.runtime.onMessage.addListener((tin, gui_tu, traLoi) => {
       .captureVisibleTab(gui_tu.tab?.windowId, { format: 'png' })
       .then((dataUrl) => traLoi({ ok: true, data_url: dataUrl }))
       .catch((e) => traLoi({ ok: false, loi: String(e?.message || e) }))
+    return true
+  }
+
+  if (tin?.viec === 'hoc-tu-sua') {
+    ;(async () => {
+      try {
+        const goc = String(tin.chu_goc || '').trim()
+        const dich = String(tin.ban_dich || '').trim()
+        if (goc && dich && goc.length <= 180 && dich.length <= 240) {
+          capNhatNguCanhTab(gui_tu?.tab?.id ?? 0, [{ chu_goc: goc, ban_dich: dich }])
+          const d = await chrome.storage.local.get({ boNhoTuHocTruyen: {} })
+          const boNho = { ...(d?.boNhoTuHocTruyen || {}), [goc]: dich }
+          const keys = Object.keys(boNho)
+          if (keys.length > 200) {
+            delete boNho[keys[0]]
+          }
+          await chrome.storage.local.set({ boNhoTuHocTruyen: boNho })
+          fetch('http://127.0.0.1:17890/api/v1/local-bridge/hoc-tu-sua', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chu_goc: goc, ban_dich: dich }),
+          }).catch(() => {})
+        }
+        traLoi({ ok: true })
+      } catch {
+        traLoi({ ok: false })
+      }
+    })()
     return true
   }
 

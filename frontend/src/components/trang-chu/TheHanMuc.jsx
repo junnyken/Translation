@@ -180,8 +180,8 @@ export default function TheHanMuc({ hanMuc, dangTai, loi, onTaiLai }) {
           )}
           {!hanMuc.co_tai_khoan && (
             laEn
-              ? <> Sign in or create a free account to get more pages per day (20 pages/day — enough for a full chapter).</>
-              : <> Tạo tài khoản thì được nhiều lượt hơn mỗi ngày (20 trang/ngày — đủ trọn 1 chapter).</>
+              ? <> Sign in or create a free account to get more pages per day (10 pages/day).</>
+              : <> Tạo tài khoản thì được nhiều lượt hơn mỗi ngày (10 trang/ngày).</>
           )}
         </Alert>
       )}
@@ -189,9 +189,9 @@ export default function TheHanMuc({ hanMuc, dangTai, loi, onTaiLai }) {
       {conLai > 0 && !hanMuc.co_tai_khoan && (
         <p className="ghi-chu">
           {laEn ? (
-            <>Create a free account to get more pages per day (<strong>20 pages/day</strong> instead of {hanMuc.tran} pages).</>
+            <>Create a free account to get more pages per day (<strong>10 pages/day</strong> instead of {hanMuc.tran} pages).</>
           ) : (
-            <>Tạo tài khoản để được nhiều lượt hơn mỗi ngày (<strong>20 trang/ngày</strong> thay vì {hanMuc.tran} trang).</>
+            <>Tạo tài khoản để được nhiều lượt hơn mỗi ngày (<strong>10 trang/ngày</strong> thay vì {hanMuc.tran} trang).</>
           )}
         </p>
       )}

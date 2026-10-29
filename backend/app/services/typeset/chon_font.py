@@ -65,6 +65,7 @@ def luu_tuy_chon_du_an(
     *,
     font_style: str | None = None,
     tu_dien_rieng: str | None = None,
+    strict: bool = False,
 ) -> None:
     """Cập nhật `font_family` hoặc `tu_dien_rieng` vào `projects/{project_id}/tuy_chon_dich.json`."""
     family = chuan_hoa_font_family(font_style)
@@ -84,6 +85,8 @@ def luu_tuy_chon_du_an(
         storage.save(rel, json.dumps(hien_tai, ensure_ascii=False).encode("utf-8"))
     except Exception as exc:  # noqa: BLE001
         logger.warning("Không lưu được tuỳ chọn dịch cho project %s: %s", project_id, exc)
+        if strict:
+            raise
 
 
 def doc_font_du_an(project_id: uuid.UUID | str | None) -> str | None:

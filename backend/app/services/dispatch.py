@@ -12,12 +12,15 @@ import uuid
 logger = logging.getLogger(__name__)
 
 
-def dispatch_detect_job(job_id: uuid.UUID) -> tuple[bool, str | None]:
+def dispatch_detect_job(job_id: uuid.UUID, *, task_id: str | None = None) -> tuple[bool, str | None]:
     """Trả (đã_gửi, lý_do_lỗi)."""
     try:
         from app.workers.tasks import run_detect_job
 
-        run_detect_job.delay(str(job_id))
+        if task_id is None:
+            run_detect_job.delay(str(job_id))
+        else:
+            run_detect_job.apply_async(args=[str(job_id)], task_id=task_id, retry=False)
         return True, None
     except Exception as exc:  # noqa: BLE001
         reason = f"enqueue_failed: {type(exc).__name__}: {exc}"

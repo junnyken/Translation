@@ -521,7 +521,13 @@ class TienDoDocTruyen(BaseModel):
 
 
 class TrangDocTruyen(BaseModel):
+    request_key: uuid.UUID | None = None
     page_id: uuid.UUID
+    #: P1 — backend confirms an isolated project, with community cache disabled.
+    cau_hinh_rieng: bool = False
+    #: Coordinates refer to the stored image, which may be smaller than the uploaded original.
+    image_width: int | None = None
+    image_height: int | None = None
     #: E53 — chapter chứa trang này. Khách lạ cần nó để xin GÓI nhiều trang thành MỘT tệp
     #: (`POST /projects/{id}/export`, §3.3 đặc tả).
     #:
@@ -1211,7 +1217,7 @@ class ThongTinNapLuotRead(BaseModel):
     ngan_hang_so_tk: str = ""
     ngan_hang_chu_tk: str = ""
     noi_dung_chuyen_khoan: str = ""
-    ty_le_vnd_moi_trang: int = 100
+    ty_le_vnd_moi_trang: int = 500
     goi_goi_y: list[GoiNapLuotRead] = []
 
 
@@ -1302,7 +1308,7 @@ class QuanTriThongKeRead(BaseModel):
     viec_dang_chay: int = 0
     viec_loi_hom_nay: int = 0
     han_muc_khach_la: int = 2
-    han_muc_co_tai_khoan: int = 20
+    han_muc_co_tai_khoan: int = 10
     han_muc_ip_khach_la: int = 8
     ty_le_vnd_moi_trang: int = 500
     ngan_hang_ten: str = ""

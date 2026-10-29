@@ -339,3 +339,97 @@ def test_setup_batch_consent_and_error_guards_static():
     assert "|" not in text
     assert "exit /b 1" in text
     assert "local_gguf (Qwen3-VL 8B Offline)" in text
+
+
+def test_gpu_text_translation_prefills_think_and_sets_gpu_layers(app, monkeypatch):
+    calls = mock_http(monkeypatch, app, {
+        CHAT: {"message": {"content": "Chủ quán!\n[2] Cạn ly!"}},
+    })
+    bubbles = [
+        {"x": 10, "y": 20, "w": 100, "h": 30, "chu_goc": "BARKEEP!"},
+        {"x": 50, "y": 80, "w": 120, "h": 35, "chu_goc": "CHEERS!"},
+    ]
+    out = app._dich_danh_sach_thoai_gpu(
+        bubbles,
+        backend="ollama",
+        model=MODEL,
+        ngon_ngu_nguon="en",
+        ngon_ngu_dich="vi",
+        tu_dien_rieng="Chief = Đội trưởng",
+        chay_cpu=False,
+    )
+    assert out == [
+        {"x": 10, "y": 20, "w": 100, "h": 30, "chu_goc": "BARKEEP!", "ban_dich": "Chủ quán!"},
+        {"x": 50, "y": 80, "w": 120, "h": 35, "chu_goc": "CHEERS!", "ban_dich": "Cạn ly!"},
+    ]
+    payload = json.loads(calls[0][0].data)
+    assert payload["options"]["num_gpu"] == 37
+    assert payload["options"]["num_ctx"] == 1024
+    assert payload["options"]["stop"] == ["[3]", "\n\n"]
+    assert "images" not in payload["messages"][0]
+    assert payload["messages"][1]["content"].startswith("<think>\n\n</think>\n[1] ")
+
+
+def test_comic_ocr_cleanup_fixes_uppercase_artifacts(app):
+    assert app._lam_sach_chu_ocr_truyen("1 THREW MY AXE!") == "I THREW MY AXE!"
+    assert app._lam_sach_chu_ocr_truyen("BARKEEPI") == "BARKEEP!"
+    assert app._lam_sach_chu_ocr_truyen("MUHAHAHAIII") == "MUHAHAHA!!!"
+    assert app._lam_sach_chu_ocr_truyen("SCREAMED 'AHHHHHHIIIP,") == "SCREAMED 'AHHHHHH!!!,"
+    assert app._lam_sach_chu_ocr_truyen("0K, go Eell Ehem I didn'E hear!") == "OK, go tell them I didn't hear!"
+    assert app._lam_sach_chu_ocr_truyen("I LOVE AU THESE STORIES!") == "I LOVE ALL THESE STORIES!"
+    assert app._lam_sach_chu_ocr_truyen("tel) me what wi// happen") == "tell me what will happen"
+
+
+def test_translation_quality_formula_and_post_processor(app):
+    # 1. Bản dịch tốt đạt điểm tuyệt đối 1.0
+    diem_tot, loi_tot = app.danh_gia_chat_luong_ban_dich(
+        "WHEN YOU SCREAMED... I THREW MY AXE!",
+        "Khi cậu hét toáng lên... ta đã phóng chiếc rìu của mình!",
+    )
+    assert diem_tot == 1.0
+    assert loi_tot == []
+
+    # 2. Phát hiện lỗi lặp từ ('để để để') và sót tiếng Anh ('because they are')
+    diem_loi, ds_loi = app.danh_gia_chat_luong_ban_dich(
+        "Because they are real bullies!",
+        "Bởi vì they are lũ bắt nạt để để để!",
+    )
+    assert diem_loi < 0.5
+    assert any(l.startswith("loi_sot_tieng_goc") for l in ds_loi)
+    assert "loi_lap_tu" in ds_loi
+
+    # 3. Hậu kiểm tự động khử lặp từ, xoá tiền tố [1] và đổi đại từ 'bạn' -> 'cậu'
+    da_sua = app.hau_kiem_va_sua_ban_dich(
+        "You heard them!",
+        "[1] Bản dịch: Bạn đã nghe thấy họ để để để!",
+    )
+    assert da_sua == "Cậu đã nghe thấy họ để!"
+
+
+def test_gpu_translation_auto_retries_low_quality_line(app, monkeypatch):
+    responses = [
+        {"message": {"content": "Chủ quán!\n[2] Three of them are real bullies!"}},
+        {"message": {"content": "Bọn chúng có tới ba tên, trông đúng là lũ côn đồ bắt nạt!"}},
+    ]
+
+    def fake_goi_json(url, *, timeout, payload=None):
+        return responses.pop(0)
+
+    monkeypatch.setattr(app, "_goi_json_ai_cuc_bo", fake_goi_json)
+    bubbles = [
+        {"x": 10, "y": 20, "w": 100, "h": 30, "chu_goc": "BARKEEP!"},
+        {"x": 50, "y": 80, "w": 180, "h": 45, "chu_goc": "Three of them are real bullies!"},
+    ]
+    out = app._dich_danh_sach_thoai_gpu(
+        bubbles,
+        backend="ollama",
+        model=MODEL,
+        ngon_ngu_nguon="en",
+        ngon_ngu_dich="vi",
+        tu_dien_rieng="",
+        chay_cpu=False,
+    )
+    assert out[0]["ban_dich"] == "Chủ quán!"
+    assert out[1]["ban_dich"] == "Bọn chúng có tới ba tên, trông đúng là lũ côn đồ bắt nạt!"
+
+

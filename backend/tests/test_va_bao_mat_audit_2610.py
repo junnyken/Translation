@@ -219,3 +219,106 @@ class TestAnhBom:
 
     def test_anh_trang_binh_thuong_van_qua(self, sample_page_image):
         assert sniff_image(sample_page_image)[1] in (".png", ".jpg", ".webp")
+
+
+class TestChongHackGoiVaBaoMatApiKey:
+    async def test_chan_gia_mao_ma_goi_va_so_tien_khi_xac_nhan_chuyen_khoan(self, client):
+        # 1. Gửi mã gói tự chế -> phải bị chặn 422
+        r_fake = await client.post(
+            "/api/v1/nap-luot/xac-nhan-chuyen-khoan",
+            json={
+                "ma_goi": "goi_tu_che_999999_trang",
+                "ten_goi": "Hack 1 triệu trang",
+                "so_tien_vnd": 500_000_000,
+                "noi_dung_chuyen_khoan": "NAP HACK",
+            },
+        )
+        assert r_fake.status_code == 422, r_fake.text
+
+        # 2. Gửi mã gói hợp lệ ('co_ban' = 105 trang, 50.000đ theo Phương án A) nhưng cố tình sửa so_tien_vnd = 500 triệu
+        # -> Hệ thống phải bỏ qua so_tien_vnd của client, giữ đúng 105 trang / 50.000đ và ở trạng thái 'cho_duyet'
+        r_ok = await client.post(
+            "/api/v1/nap-luot/xac-nhan-chuyen-khoan",
+            json={
+                "ma_goi": "co_ban",
+                "ten_goi": "Hack tên gói",
+                "so_tien_vnd": 500_000_000,
+                "noi_dung_chuyen_khoan": "NAP STARTER",
+            },
+        )
+        assert r_ok.status_code == 200, r_ok.text
+        body = r_ok.json()
+        assert body["so_trang_cong"] == 105
+        assert body["so_tien_vnd"] == 50_000
+        assert body["trang_thai"] == "cho_duyet"
+
+        # 3. Gói Mồi ('goi_moi' = 40 trang, 20.000đ) cho phép mua nhiều lần và cộng dồn luỹ kế vào so_luot_mua_them
+        for lan in (1, 2):
+            r_moi = await client.post(
+                "/api/v1/nap-luot/xac-nhan-chuyen-khoan",
+                json={
+                    "ma_goi": "goi_moi",
+                    "ten_goi": f"Gói Mồi lần {lan}",
+                    "so_tien_vnd": 20_000,
+                    "noi_dung_chuyen_khoan": f"NAP MOI {lan}",
+                },
+            )
+            assert r_moi.status_code == 200, r_moi.text
+            don_moi = r_moi.json()
+            assert don_moi["so_trang_cong"] == 40
+            assert don_moi["so_tien_vnd"] == 20_000
+            r_duyet = await client.post(
+                "/api/v1/quan-tri/duyet-don-nap",
+                json={"ma_don": don_moi["ma_don"], "hanh_dong": "xac_nhan"},
+            )
+            assert r_duyet.status_code == 200, r_duyet.text
+
+        # Kiểm tra số dư mua thêm đã cộng dồn đủ 2 lần x 40 = 80 trang
+        r_tt = await client.get("/api/v1/nap-luot/thong-tin")
+        assert r_tt.status_code == 200
+        assert r_tt.json()["so_luot_mua_them"] >= 80
+
+    async def test_khoa_api_tr_live_khong_duoc_xoay_key_doi_mat_khau_hay_quan_tri(
+        self, client, client_chua_dang_nhap
+    ):
+        # Tạo API Key bằng phiên đăng nhập tương tác hợp lệ
+        r_key = await client.post("/api/v1/auth/api-key")
+        assert r_key.status_code == 201, r_key.text
+        api_key = r_key.json()["api_key"]
+        assert api_key.startswith("tr_live_")
+        assert len(api_key) >= 48  # 256-bit token_urlsafe(32) + prefix
+
+        headers_api = {"Authorization": f"Bearer {api_key}"}
+
+        # Dùng tr_live_ để xoay key mới hoặc xoá key -> phải bị chặn 403
+        r_rotate = await client_chua_dang_nhap.post("/api/v1/auth/api-key", headers=headers_api)
+        assert r_rotate.status_code == 403, r_rotate.text
+        r_delete = await client_chua_dang_nhap.delete("/api/v1/auth/api-key", headers=headers_api)
+        assert r_delete.status_code == 403, r_delete.text
+
+        # Dùng tr_live_ để đổi mật khẩu -> phải bị chặn 403
+        r_pw = await client_chua_dang_nhap.patch(
+            "/api/v1/auth/me",
+            headers=headers_api,
+            json={"mat_khau_cu": "mat-khau-test-1234", "mat_khau_moi": "mat-khau-moi-56789"},
+        )
+        assert r_pw.status_code == 403, r_pw.text
+
+        # Dùng tr_live_ (kể cả của tài khoản admin) gọi endpoint quản trị -> phải bị chặn 403
+        r_admin_users = await client_chua_dang_nhap.get("/api/v1/auth/users", headers=headers_api)
+        assert r_admin_users.status_code == 403, r_admin_users.text
+        r_admin_cap = await client_chua_dang_nhap.post(
+            "/api/v1/quan-tri/cap-luot",
+            headers=headers_api,
+            json={"email": "a@test.local", "cong_them_luot": 1000},
+        )
+        assert r_admin_cap.status_code == 403, r_admin_cap.text
+
+    def test_chu_ky_url_anh_developer_khong_lo_api_key(self):
+        import uuid
+
+        pid = uuid.uuid4()
+        uid = uuid.uuid4()
+        sig = dev._ky_url_anh_developer(pid, uid, 1800000000)
+        assert len(sig) == 32
+        assert "tr_live_" not in sig

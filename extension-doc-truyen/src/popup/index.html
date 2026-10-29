@@ -532,24 +532,26 @@
 
     <div class="nhan-muc">
       <span>Bộ máy dịch thuật</span>
-      <span class="phu" id="nhan-phu-eng">AI Ngữ cảnh</span>
+      <span class="phu" id="nhan-phu-eng">⚡ 1 lượt/trang · Khuyên dùng</span>
     </div>
 
     <select id="engine" class="select-an">
-      <option value="llm_context">Gemini AI</option>
+      <option value="local_ocr_gpu" selected>⚡ OCR + GPU Nhanh (1 lượt/trang)</option>
+      <option value="local_hybrid_pro">🧠 OCR + GPU Pro — Tự Học &amp; Chữ Viết Tay (2 lượt/trang)</option>
+      <option value="llm_context">✨ Gemini AI Cloud (1 lượt/trang)</option>
       <option value="google_fast">Google Dịch</option>
       <option value="local_gguf">GGUF Cục bộ (Offline 0đ)</option>
     </select>
 
     <div class="thanh-engine" id="nhom-nut-eng">
-      <button type="button" class="nut-eng dang-chon" data-eng="llm_context">
-        ✨ Gemini AI
+      <button type="button" class="nut-eng dang-chon" data-eng="local_ocr_gpu" title="⚡ OCR + GPU Nhanh (1 lượt/trang): Tốc độ siêu nhanh, tiết kiệm 50% lượt, tối ưu cho 90% truyện chữ rõ">
+        ⚡ OCR + GPU Nhanh
       </button>
-      <button type="button" class="nut-eng" data-eng="google_fast">
-        ⚡ Google Nhanh
+      <button type="button" class="nut-eng" data-eng="llm_context" title="✨ Gemini AI Cloud (1 lượt/trang): Dịch chuẩn ngữ cảnh trên máy chủ đám mây">
+        ✨ Gemini AI Cloud
       </button>
-      <button type="button" class="nut-eng nut-eng-local" data-eng="local_gguf" title="Chạy 100% trên máy bạn bằng Ollama (127.0.0.1:11434) hoặc LM Studio GGUF (127.0.0.1:1234) — không tốn lượt, không qua máy chủ">
-        💻 GGUF Cục bộ (Chạy trên máy bạn · Không tốn lượt)
+      <button type="button" class="nut-eng nut-eng-local" data-eng="local_hybrid_pro" title="🧠 OCR + GPU Pro (2 lượt/trang): Quét OCR 2 tầng tăng tương phản chữ viết tay + Giải mã ký tự lệch + Tự học vĩnh viễn khi bạn sửa câu">
+        🧠 OCR + GPU Pro · Tự Học &amp; Chữ Viết Tay (2 lượt/trang)
       </button>
     </div>
 

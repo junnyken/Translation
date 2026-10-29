@@ -83,36 +83,60 @@ export default function ManTaiKhoan({ nguoiDung, onDong, onDoiNguoiDung }) {
 
       {!loi && !hanMuc && <p className="ghi-chu" aria-live="polite">Đang xem…</p>}
 
-      {hanMuc && (
-        <>
-          <p className="so-luot">
-            <strong>{hanMuc.con_lai}</strong> / {hanMuc.tran} trang còn lại
-            {' '}<span className="ghi-chu">(đã dùng {hanMuc.da_dung})</span>
-          </p>
-          <p className="ghi-chu">
-            <Icon ten="dong-ho" co={16} /> Có lại sau{' '}
-            <strong>{chuDemNguoc(hanMuc.reset_luc)}</strong> (0h00 giờ Việt Nam)
-          </p>
-
-          {/* `con_lai` khác `tran - da_dung` khi một chốt khác thấp hơn. Nói ra khi hai số vênh,
-              thay vì để người dùng tự trừ rồi thấy mình tính sai. */}
-          {hanMuc.con_lai !== hanMuc.tran - hanMuc.da_dung && (
-            <p className="ghi-chu">
-              Số còn lại thấp hơn phép trừ vì lượt còn được tính theo <strong>địa chỉ mạng</strong>
-              {' '}dùng chung.
+      {hanMuc && (() => {
+        const muaThem = Number(hanMuc.so_luot_mua_them || 0)
+        const conLaiNgay = Math.max(0, Number(hanMuc.con_lai || 0) - muaThem)
+        return (
+          <>
+            <p className="so-luot">
+              <strong>{hanMuc.con_lai}</strong> trang khả dụng
+              {' '}<span className="ghi-chu">
+                (Miễn phí hôm nay: <b>{conLaiNgay}/{hanMuc.tran}</b> · Ví gói tích luỹ: <b style={{ color: '#10b981' }}>{muaThem.toLocaleString('vi-VN')} trang</b>)
+              </span>
             </p>
-          )}
+            <p className="ghi-chu">
+              <Icon ten="dong-ho" co={16} /> Lượt miễn phí ({hanMuc.tran} trang/ngày) hồi lại sau{' '}
+              <strong>{chuDemNguoc(hanMuc.reset_luc)}</strong> (0h00 giờ Việt Nam). Lượt gói mua thêm cộng dồn vĩnh viễn.
+            </p>
 
-          <h3 className="nho">Kết quả được giữ bao lâu</h3>
-          <p className="ghi-chu">
-            {typeof giuPhut === 'number'
-              ? <>Tự xoá <strong>{chuThoiGianGiu(giuPhut)}</strong> sau khi dịch xong — ảnh gốc, bản dịch và
-                  tệp đã gói đều mất, không chạy lại và không sửa lại được.</>
-              : <>Hiện <strong>không tự xoá</strong> theo giờ. Vẫn nên tải về: đây không phải chỗ
-                  lưu trữ lâu dài, và chính sách có thể đổi.</>}
-          </p>
-        </>
-      )}
+            {/* `conLaiNgay` khác `tran - da_dung` khi một chốt khác thấp hơn. */}
+            {conLaiNgay !== Math.max(0, hanMuc.tran - hanMuc.da_dung) && (
+              <p className="ghi-chu">
+                Số còn lại thấp hơn phép trừ vì lượt còn được tính theo <strong>địa chỉ mạng</strong>
+                {' '}dùng chung.
+              </p>
+            )}
+
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8, marginBottom: 10 }}>
+              <a
+                href="#bang-gia"
+                onClick={() => onDong?.()}
+                className="nut nut-chinh"
+                style={{ textDecoration: 'none', fontSize: 12.5, padding: '6px 12px' }}
+              >
+                💎 Mua thêm Gói lượt (Từ 20.000đ · Cộng dồn)
+              </a>
+              <a
+                href="#ket-noi-api"
+                onClick={() => onDong?.()}
+                className="nut nut-phu"
+                style={{ textDecoration: 'none', fontSize: 12.5, padding: '6px 12px' }}
+              >
+                🔌 Hướng dẫn nối API &amp; Đồng bộ App/Extension
+              </a>
+            </div>
+
+            <h3 className="nho">Kết quả được giữ bao lâu</h3>
+            <p className="ghi-chu">
+              {typeof giuPhut === 'number'
+                ? <>Tự xoá <strong>{chuThoiGianGiu(giuPhut)}</strong> sau khi dịch xong — ảnh gốc, bản dịch và
+                    tệp đã gói đều mất, không chạy lại và không sửa lại được.</>
+                : <>Hiện <strong>không tự xoá</strong> theo giờ. Vẫn nên tải về: đây không phải chỗ
+                    lưu trữ lâu dài, và chính sách có thể đổi.</>}
+            </p>
+          </>
+        )
+      })()}
 
       <OKhoaApiDeveloper />
     </Dialog>
@@ -125,6 +149,7 @@ function OKhoaApiDeveloper() {
   const [keyMoi, setKeyMoi] = useState('')
   const [dangChay, setDangChay] = useState(false)
   const [daCopy, setDaCopy] = useState(false)
+  const [daCopyPhien, setDaCopyPhien] = useState(false)
   const [moDoc, setMoDoc] = useState(false)
   const [loi, setLoi] = useState(null)
 
@@ -166,6 +191,14 @@ function OKhoaApiDeveloper() {
     }
   }
 
+  const saoChepMaPhien = () => {
+    const mp = api.layMaPhien?.() || ''
+    if (!mp) return
+    navigator.clipboard?.writeText(mp)
+    setDaCopyPhien(true)
+    setTimeout(() => setDaCopyPhien(false), 2500)
+  }
+
   const apiOrigin = api.API_BASE || window.location.origin
   const keyMau = keyMoi || 'tr_live_YOUR_API_KEY_HERE'
 
@@ -175,9 +208,9 @@ function OKhoaApiDeveloper() {
       paddingTop: 14,
       borderTop: '1px solid var(--vien, #334155)',
     }}>
-      <h3 className="nho">🔑 Cổng Developer API (Cho Tool / Web Khách Hàng Kéo Về)</h3>
+      <h3 className="nho">🔑 Liên Kết Đa Nền Tảng &amp; Khoá Developer API (tr_live_...)</h3>
       <p className="ghi-chu">
-        Dùng <strong>API Key cá nhân (<code>tr_live_...</code>)</strong> để kết nối tool tự động, plugin WordPress, bot Discord hoặc web đọc truyện của bạn với máy chủ dịch thuật. Lượt dịch qua API được trừ trực tiếp vào số dư lượt của tài khoản này.
+        Cùng 1 tài khoản này đồng bộ số dư lượt trên cả 4 nơi: <strong>Web (comic.io.vn)</strong>, <strong>Tiện ích Chrome</strong>, <strong>App Windows</strong> và <strong>Cổng Developer API</strong>. Bạn có thể đăng nhập bằng Email + Mật khẩu hoặc dán trực tiếp mã <code>tr_live_...</code> vào ô Mật khẩu trên Tiện ích / App Windows.
       </p>
 
       {loi && <Alert sac="loi" tieuDe="Lỗi thao tác API Key">{thongDiep(loi)}</Alert>}
@@ -220,13 +253,13 @@ function OKhoaApiDeveloper() {
 
       {tt && (
         <p className="ghi-chu" style={{ marginBottom: 10 }}>
-          Trạng thái:{' '}
+          Trạng thái API Key:{' '}
           {tt.co_api_key ? (
             <strong style={{ color: '#10b981' }}>
-              Đang hoạt động (tr_live_••••••••)
+              Đang hoạt động (tr_live_•••••••• · Không hết hạn 14 ngày)
             </strong>
           ) : (
-            <span>Chưa kích hoạt API Key</span>
+            <span>Chưa kích hoạt API Key cố định</span>
           )}
           {tt.dung_lan_cuoi && (
             <> · Gọi lần cuối: <strong>{new Date(tt.dung_lan_cuoi).toLocaleString('vi-VN')}</strong></>
@@ -236,13 +269,16 @@ function OKhoaApiDeveloper() {
 
       <div className="hang-nut" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <Button kieu="chinh" dangChay={dangChay} onClick={xuLyTaoKey}>
-          {tt?.co_api_key ? '🔄 Đổi API Key mới' : '🔑 Tạo API Key ngay'}
+          {tt?.co_api_key ? '🔄 Đổi API Key mới (tr_live_)' : '🔑 Tạo API Key (tr_live_)'}
         </Button>
         {tt?.co_api_key && (
           <Button dangChay={dangChay} onClick={xuLyThuHoi}>
             🗑️ Thu hồi Key
           </Button>
         )}
+        <Button kieu="phu" onClick={saoChepMaPhien}>
+          {daCopyPhien ? '✅ Đã chép Mã Phiên!' : '🔗 Copy Mã Phiên (Dán vào Tiện ích/App)'}
+        </Button>
         <Button kieu="phu" onClick={() => setMoDoc((v) => !v)}>
           {moDoc ? 'Ẩn tài liệu nối API' : '📖 Xem Code mẫu nối vào Tool'}
         </Button>

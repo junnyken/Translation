@@ -54,7 +54,7 @@ export default function HeSinhThaiCongCu() {
           <div className="dau-khung-cong-cu">
             <span className="icon-cong-cu" aria-hidden="true">🧩</span>
             <div>
-              <span className="nhan-phien-ban">{laEn ? 'VERSION v0.3.0 · CHROME / EDGE / BRAVE' : 'PHIÊN BẢN v0.3.0 · CHROME / EDGE / BRAVE'}</span>
+              <span className="nhan-phien-ban">{laEn ? 'VERSION v0.3.1 · CHROME / EDGE / BRAVE' : 'PHIÊN BẢN v0.3.1 · CHROME / EDGE / BRAVE'}</span>
               <h3>{laEn ? 'Live Browser Comic & Novel Translator' : 'Tiện Ích Dịch Truyện Trực Tiếp Trên Web'}</h3>
             </div>
           </div>
@@ -99,7 +99,7 @@ export default function HeSinhThaiCongCu() {
           <div className="chan-khung-cong-cu">
             <a
               href={api.urlTaiTienIchChrome()}
-              download="dich-truyen-chrome-extension-v0.3.0.zip"
+              download="dich-truyen-chrome-extension-v0.3.1.zip"
               className="nut-manga nut-manga-chinh"
             >
               {laEn ? '⬇️ Download Chrome Extension (.ZIP)' : '⬇️ Tải Tiện Ích Chrome (.ZIP)'}
@@ -119,7 +119,7 @@ export default function HeSinhThaiCongCu() {
             <div className="hop-huong-dan-nhanh">
               <b>{laEn ? 'How to install on Chrome / Edge / Brave:' : 'Cách cài đặt vào Chrome / Edge / Cốc Cốc:'}</b>
               <ol>
-                <li>{laEn ? <>Unzip <code>dich-truyen-chrome-extension-v0.3.0.zip</code>.</> : <>Giải nén file <code>dich-truyen-chrome-extension-v0.3.0.zip</code> vừa tải về.</>}</li>
+                <li>{laEn ? <>Unzip <code>dich-truyen-chrome-extension-v0.3.1.zip</code>.</> : <>Giải nén file <code>dich-truyen-chrome-extension-v0.3.1.zip</code> vừa tải về.</>}</li>
                 <li>{laEn ? <>Open <code>chrome://extensions</code> and enable <b>Developer mode</b> at the top right.</> : <>Mở trình duyệt, gõ <code>chrome://extensions</code> và bật công tắc <b>Chế độ nhà phát triển (Developer mode)</b> ở góc phải trên.</>}</li>
                 <li>{laEn ? <>Click <b>Load unpacked</b> and select the unzipped folder!</> : <>Bấm <b>Tải tiện ích đã giải nén (Load unpacked)</b> và chọn thư mục vừa giải nén là xong!</>}</li>
               </ol>
@@ -133,7 +133,7 @@ export default function HeSinhThaiCongCu() {
           <div className="dau-khung-cong-cu">
             <span className="icon-cong-cu" aria-hidden="true">🖥️</span>
             <div>
-              <span className="nhan-phien-ban nhan-win">WINDOWS 10 / 11 DESKTOP APP · v1.0</span>
+              <span className="nhan-phien-ban nhan-win">WINDOWS 10 / 11 DESKTOP APP · v1.1</span>
               <h3>{laEn ? 'Windows App: Auto-Crawl URL & Split Chapters' : 'App Windows: Dịch Theo Link & Chia Thư Mục Chapter'}</h3>
             </div>
           </div>
@@ -178,7 +178,7 @@ export default function HeSinhThaiCongCu() {
           <div className="chan-khung-cong-cu">
             <a
               href={api.urlTaiAppWindows()}
-              download="App-Windows-Dich-Truyen-Tu-Dong-v1.0.zip"
+              download="App-Windows-Dich-Truyen-Tu-Dong-v1.1.zip"
               className="nut-manga nut-manga-win"
             >
               {laEn ? '⬇️ Download Windows App (.ZIP)' : '⬇️ Tải App Windows (.ZIP)'}
@@ -198,7 +198,7 @@ export default function HeSinhThaiCongCu() {
             <div className="hop-huong-dan-nhanh">
               <b>{laEn ? 'How to launch on Windows 10/11:' : 'Cách mở App trên máy tính Windows:'}</b>
               <ol>
-                <li>{laEn ? <>Unzip <code>App-Windows-Dich-Truyen-Tu-Dong-v1.0.zip</code> on your PC.</> : <>Giải nén file <code>App-Windows-Dich-Truyen-Tu-Dong-v1.0.zip</code> ra máy tính.</>}</li>
+                <li>{laEn ? <>Unzip <code>App-Windows-Dich-Truyen-Tu-Dong-v1.1.zip</code> on your PC.</> : <>Giải nén file <code>App-Windows-Dich-Truyen-Tu-Dong-v1.1.zip</code> ra máy tính.</>}</li>
                 <li>{laEn ? <>Double-click <code>Chay-App-Dich-Truyen-Windows.bat</code> to open the Manga Studio GUI.</> : <>Nhấp đúp chuột vào file <code>Chay-App-Dich-Truyen-Windows.bat</code> để mở giao diện Manga Studio.</>}</li>
                 <li>{laEn ? <>Verify your PC ID / VIP token, paste the comic URL, select chapters, and click <b>Start</b>!</> : <>Xác nhận Mã máy tính / tài khoản VIP, dán Link truyện, chọn Chapter muốn dịch và bấm <b>Bắt đầu</b>!</>}</li>
               </ol>

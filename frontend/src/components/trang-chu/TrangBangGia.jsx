@@ -15,25 +15,48 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
 
   const DANH_SACH_GOI = [
     {
-      ma: 'co_ban',
-      maNgan: 'STARTER',
-      nhan: laEn ? 'STARTER' : 'KHỞI ĐỘNG',
-      ten: laEn ? 'Starter Pack (100 Pages)' : 'Gói Khởi Động (100 trang)',
-      giaVnd: 100 * donGia,
-      soTrang: 100,
-      uocChap: '~5 chapter',
-      khuyenMai: '0%',
+      ma: 'goi_moi',
+      maNgan: 'MOI',
+      nhan: laEn ? '🎯 MINI HOOK PACK' : '🎯 GÓI MỒI ĐỌC NHANH',
+      ten: laEn ? 'Mini Hook Pack (40 Pages)' : 'Gói Mồi Trải Nghiệm (40 trang)',
+      giaVnd: 40 * donGia,
+      soTrang: 40,
+      uocChap: '~2 chapter',
+      khuyenMai: 'Cộng dồn',
       donGiaThuc: `${donGia.toLocaleString('vi-VN')}đ/trang`,
       diemManh: laEn
         ? [
-            '100 translated comic pages',
-            'Use on Web (comic.io.vn) + Chrome Extension',
-            'Purchased pages never expire overnight',
+            '40 translated comic pages (~2 full chapters)',
+            'Buy multiple times — stacks forever in your wallet',
+            'Instant 5s VietQR activation on Web & Extension',
           ]
         : [
-            '100 trang dịch truyện tranh chất lượng cao',
+            'Nhận ngay 40 trang đọc tiếp 2 chapter đang gay cấn',
+            'Mua nhiều lần tự động CỘNG DỒN vĩnh viễn vào ví',
+            'Kích hoạt VietQR tự động 5 giây — không bao giờ hết hạn',
+          ],
+      noiBat: true,
+    },
+    {
+      ma: 'co_ban',
+      maNgan: 'STARTER',
+      nhan: laEn ? 'STARTER' : 'KHỞI ĐỘNG',
+      ten: laEn ? 'Starter Pack (105 Pages)' : 'Gói Khởi Đầu (105 trang)',
+      giaVnd: 100 * donGia,
+      soTrang: 105,
+      uocChap: '~5.5 chapter',
+      khuyenMai: '+5%',
+      donGiaThuc: `${Math.round((100 * donGia) / 105).toLocaleString('vi-VN')}đ/trang`,
+      diemManh: laEn
+        ? [
+            'Includes +5% bonus pages (100 + 5 free)',
+            'Use on Web (comic.io.vn) + Chrome Extension',
+            'Purchased pages stack & never expire overnight',
+          ]
+        : [
+            'Tặng thêm +5% số trang (mua 100 nhận 105 trang)',
             'Dùng trên Web (comic.io.vn) + Tiện ích Chrome',
-            'Lượt mua tích luỹ không bao giờ hết hạn qua đêm',
+            'Lượt mua cộng dồn vĩnh viễn, không hết hạn qua đêm',
           ],
       noiBat: false,
     },
@@ -125,13 +148,13 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
       diemManh: laEn
         ? [
             'Includes +40% bonus pages (20,000 + 8,000 free)',
-            'Lowest cost per page (~357 VND / page)',
+            `Lowest cost per page (~${Math.round((20000 * donGia) / 28000).toLocaleString('vi-VN')} VND / page)`,
             'Multi-worker concurrency + 0.15s Community Cache',
             'Unlimited integration with WordPress/Madara CMS & Bots',
           ]
         : [
             'Tặng thêm +40% số trang (mua 20.000 nhận 28.000 trang)',
-            'Đơn giá tối ưu nhất hệ thống (chỉ ~357đ / trang)',
+            `Đơn giá tối ưu nhất hệ thống (chỉ ~${Math.round((20000 * donGia) / 28000).toLocaleString('vi-VN')}đ / trang)`,
             'Luồng Worker đa nhân + Cache Cộng đồng SHA-256 siêu tốc',
             'Đấu nối không giới hạn vào CMS WordPress/Madara & Bot',
           ],
@@ -295,15 +318,15 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
           <div>
             <div style={{ fontSize: 12, fontWeight: 700, color: '#818cf8' }}>✨ TÀI KHOẢN ĐĂNG KÝ MIỄN PHÍ</div>
             <div style={{ fontSize: 16, fontWeight: 700, color: '#ffffff', marginTop: 2 }}>
-              {laEn ? 'Free 20 Pages / Day (1 Full Chapter)' : 'Miễn phí 20 trang / ngày (Trọn 1 Chapter)'}
+              {laEn ? 'Free 10 Pages / Day' : 'Miễn phí 10 trang / ngày'}
             </div>
             <div style={{ fontSize: 13, color: '#cbd5e1' }}>
-              {laEn ? 'Resets automatically at 00:00 Vietnam time every day.' : 'Tự động hồi lại 20 trang mới vào 00:00 mỗi ngày. Chỉ mất 5 giây đăng ký.'}
+              {laEn ? 'Resets automatically at 00:00 Vietnam time every day.' : 'Tự động hồi lại 10 trang mới vào 00:00 mỗi ngày. Chỉ mất 5 giây đăng ký.'}
             </div>
           </div>
           {!nguoiDung && onMoDangNhap ? (
             <button type="button" className="nut-manga nut-manga-chinh" onClick={onMoDangNhap} style={{ whiteSpace: 'nowrap' }}>
-              {laEn ? 'Sign Up Free' : 'Đăng ký nhận 20 trang'}
+              {laEn ? 'Sign Up Free' : 'Đăng ký nhận 10 trang'}
             </button>
           ) : (
             <span style={{ fontSize: 14, fontWeight: 700, color: '#34d399', whiteSpace: 'nowrap' }}>✅ Đang kích hoạt</span>

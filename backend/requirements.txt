@@ -6,12 +6,12 @@ psycopg[binary]==3.2.3
 alembic==1.14.0
 pydantic==2.10.4
 pydantic-settings==2.7.0
-python-multipart==0.0.20
+python-multipart==0.0.31
 celery[redis]==5.4.0
 redis==5.2.1
 onnxruntime==1.20.1
 numpy==2.2.1
-Pillow==11.0.0
+Pillow==13.0.0
 # ĐX-2b — dựng ảnh từng trang PDF. Wheel thuần, không cần gói hệ thống nào, ~3MB.
 # Nằm ở requirements.txt (ảnh `api`) chứ không phải requirements-worker.txt: việc dựng ảnh
 # xảy ra ngay lúc nhận file ở endpoint, trước khi có job nào được tạo.

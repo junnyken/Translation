@@ -7,7 +7,53 @@ export default function TrangKetNoiApi({ onQuayLai, onMoTaiKhoan }) {
   const { laEn } = useNgonNguUI()
   const [tabCode, setTabCode] = useState('python')
   const [daSaoChep, setDaSaoChep] = useState(false)
+  const [khoaThuNghiem, setKhoaThuNghiem] = useState('')
+  const [dangTestApi, setDangTestApi] = useState(false)
+  const [ketQuaTest, setKetQuaTest] = useState(null)
+  const [loiTest, setLoiTest] = useState('')
   const apiOrigin = api.API_BASE || 'https://translation-api.vibe1.tinhgon.xyz'
+
+  async function kiemTraKetNoiApiTrucTiep(e) {
+    if (e) e.preventDefault()
+    setDangTestApi(true)
+    setLoiTest('')
+    setKetQuaTest(null)
+    const t0 = performance.now()
+    try {
+      const keySach = (khoaThuNghiem || '').trim()
+      const headers = {}
+      if (keySach) {
+        headers['X-Customer-Api-Key'] = keySach
+        headers['Authorization'] = `Bearer ${keySach}`
+      } else {
+        const tokenWeb = api.layTokenXacThuc?.()
+        if (tokenWeb) {
+          headers['Authorization'] = `Bearer ${tokenWeb}`
+        }
+      }
+      if (!headers['X-Customer-Api-Key'] && !headers['Authorization']) {
+        throw new Error(
+          laEn
+            ? 'Please paste your tr_live_... API Key (or sign in first) to test connection.'
+            : 'Vui lòng dán mã tr_live_... (hoặc đăng nhập tài khoản trên Web) để kiểm tra kết nối.'
+        )
+      }
+      const res = await fetch(`${apiOrigin}/api/v1/developer/quota`, {
+        method: 'GET',
+        headers,
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data?.detail || `HTTP ${res.status}`)
+      }
+      const latencyMs = Math.round(performance.now() - t0)
+      setKetQuaTest({ ...data, latencyMs })
+    } catch (err) {
+      setLoiTest(err.message || (laEn ? 'Connection test failed.' : 'Không thể kết nối tới API.'))
+    } finally {
+      setDangTestApi(false)
+    }
+  }
 
   const CODE_MAU = {
     python: `import requests
@@ -155,8 +201,8 @@ curl -X POST "${apiOrigin}/api/v1/developer/translate-text" \\
   "source_lang": "ja",
   "target_lang": "vi",
   "mode": "day_du",
-  "rendered_image_url": "${apiOrigin}/api/v1/developer/pages/6f9c2a10-.../rendered-image?api_key=tr_live_...",
-  "inpainted_image_url": "${apiOrigin}/api/v1/developer/pages/6f9c2a10-.../inpainted-image?api_key=tr_live_...",
+  "rendered_image_url": "${apiOrigin}/api/v1/developer/pages/6f9c2a10-.../rendered-image?sig=a8f92c...&exp=1793294000",
+  "inpainted_image_url": "${apiOrigin}/api/v1/developer/pages/6f9c2a10-.../inpainted-image?sig=a8f92c...&exp=1793294000",
   "regions_count": 2,
   "regions": [
     {
@@ -170,9 +216,9 @@ curl -X POST "${apiOrigin}/api/v1/developer/translate-text" \\
     }
   ],
   "quota": {
-    "daily_remaining": 18,
+    "daily_remaining": 10,
     "purchased_remaining": 6500,
-    "total_usable_pages": 6518
+    "total_usable_pages": 6510
   }
 }`,
   }
@@ -303,6 +349,226 @@ curl -X POST "${apiOrigin}/api/v1/developer/translate-text" \\
             <p style={{ margin: 0, fontSize: 14, color: '#cbd5e1', lineHeight: 1.6 }}>{item.moTa}</p>
           </div>
         ))}
+      </section>
+
+      {/* Trạm kiểm tra kết nối API & số dư trực tiếp */}
+      <section style={{
+        background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(6, 78, 59, 0.28))',
+        border: '1px solid rgba(16, 185, 129, 0.45)',
+        borderRadius: 18,
+        padding: '22px',
+        color: '#f8fafc',
+        marginBottom: 26,
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
+          <h2 style={{ margin: 0, fontSize: 20, color: '#6ee7b7' }}>
+            🩺 {laEn ? 'Live API Connection & Quota Tester' : 'Trạm Kiểm Tra Kết Nối API & Đồng Bộ Số Dư Trực Tiếp'}
+          </h2>
+          <span style={{ fontSize: 12.5, color: '#a7f3d0', fontWeight: 700 }}>
+            GET /api/v1/developer/quota
+          </span>
+        </div>
+        <p style={{ margin: '0 0 14px', fontSize: 13.8, color: '#cbd5e1', lineHeight: 1.6 }}>
+          {laEn
+            ? 'Paste your tr_live_... API Key (or leave blank to test with your current Web login session) to verify connection speed, account linkage, daily free quota (10 pages/day), and cumulative VIP purchased pages.'
+            : 'Dán mã tr_live_... của bạn vào ô bên dưới (hoặc để trống nếu bạn đang đăng nhập trên Web) rồi bấm Kiểm tra ngay để xác nhận API thông suốt, kiểm tra độ trễ (ms) và xem số dư trang đồng bộ thời gian thực.'}
+        </p>
+
+        <form onSubmit={kiemTraKetNoiApiTrucTiep} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <input
+            type="text"
+            value={khoaThuNghiem}
+            onChange={(e) => setKhoaThuNghiem(e.target.value)}
+            placeholder={laEn ? 'Paste tr_live_... API Key (or leave empty if signed in on Web)' : 'Dán mã tr_live_... vào đây (hoặc để trống nếu đã đăng nhập trên Web)'}
+            style={{
+              flex: '1 1 320px',
+              padding: '10px 14px',
+              borderRadius: 10,
+              border: '1px solid rgba(56, 189, 248, 0.45)',
+              background: '#020617',
+              color: '#38bdf8',
+              fontFamily: 'monospace',
+              fontSize: 13.5,
+            }}
+          />
+          <button
+            type="submit"
+            disabled={dangTestApi}
+            className="nut-manga nut-manga-chinh"
+            style={{ padding: '10px 18px', fontSize: 13.5 }}
+          >
+            {dangTestApi
+              ? (laEn ? '⏳ Testing...' : '⏳ Đang kiểm tra...')
+              : (laEn ? '⚡ Test Connection & Quota Now' : '⚡ Kiểm Tra Kết Nối & Số Dư Ngay')}
+          </button>
+        </form>
+
+        {loiTest && (
+          <div style={{
+            marginTop: 12,
+            padding: '10px 14px',
+            borderRadius: 10,
+            background: 'rgba(239, 68, 68, 0.16)',
+            border: '1px solid rgba(248, 113, 113, 0.45)',
+            color: '#fca5a5',
+            fontSize: 13.5,
+          }}>
+            ❌ {loiTest}
+          </div>
+        )}
+
+        {ketQuaTest && (
+          <div style={{
+            marginTop: 14,
+            padding: '14px 16px',
+            borderRadius: 12,
+            background: 'rgba(2, 6, 23, 0.85)',
+            border: '1px solid rgba(16, 185, 129, 0.5)',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(185px, 1fr))',
+            gap: 12,
+            fontSize: 13.5,
+          }}>
+            <div>
+              <div style={{ color: '#94a3b8', fontSize: 12 }}>{laEn ? 'Connection Status' : 'Trạng thái kết nối'}</div>
+              <div style={{ color: '#34d399', fontWeight: 800, marginTop: 2 }}>
+                ✅ ONLINE ({ketQuaTest.latencyMs} ms)
+              </div>
+            </div>
+            <div>
+              <div style={{ color: '#94a3b8', fontSize: 12 }}>{laEn ? 'Linked Account' : 'Tài khoản liên kết'}</div>
+              <div style={{ color: '#f8fafc', fontWeight: 700, marginTop: 2 }}>
+                {ketQuaTest.user?.email || '—'}
+              </div>
+            </div>
+            <div>
+              <div style={{ color: '#94a3b8', fontSize: 12 }}>{laEn ? 'Daily Free Quota' : 'Miễn phí trong ngày'}</div>
+              <div style={{ color: '#38bdf8', fontWeight: 800, marginTop: 2 }}>
+                {ketQuaTest.daily_free_remaining ?? 0} / {ketQuaTest.daily_free_limit ?? 10} {laEn ? 'pages' : 'trang'}
+              </div>
+            </div>
+            <div>
+              <div style={{ color: '#94a3b8', fontSize: 12 }}>{laEn ? 'VIP Purchased Wallet' : 'Ví mua thêm (cộng dồn)'}</div>
+              <div style={{ color: '#fbbf24', fontWeight: 800, marginTop: 2 }}>
+                +{ketQuaTest.purchased_pages_remaining ?? 0} {laEn ? 'pages' : 'trang'}
+              </div>
+            </div>
+            <div>
+              <div style={{ color: '#94a3b8', fontSize: 12 }}>{laEn ? 'Total Usable Pages' : 'Tổng khả dụng ngay'}</div>
+              <div style={{ color: '#6ee7b7', fontWeight: 900, fontSize: 15, marginTop: 2 }}>
+                {ketQuaTest.total_usable_pages ?? 0} {laEn ? 'pages' : 'trang'}
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* Checklist 5 điều kiện cần thiết để kết nối API & đồng bộ đa nền tảng ổn định 100% */}
+      <section style={{
+        background: 'rgba(15, 23, 42, 0.95)',
+        border: '1px solid rgba(56, 189, 248, 0.35)',
+        borderRadius: 18,
+        padding: '24px 22px',
+        color: '#f8fafc',
+        marginBottom: 26,
+      }}>
+        <h2 style={{ margin: '0 0 8px', fontSize: 21, color: '#ffffff' }}>
+          🛠️ {laEn
+            ? '5 Essential Requirements for Rock-Solid API Connection & Cross-Platform Sync'
+            : 'Khách Dùng API Cần Chuẩn Bị Gì Để Kết Nối Ổn Định 100% & Đồng Bộ Đa Nền Tảng?'}
+        </h2>
+        <p style={{ margin: '0 0 18px', fontSize: 14, color: '#cbd5e1', lineHeight: 1.6 }}>
+          {laEn
+            ? 'Follow these 5 technical guidelines so your Website, Auto-Leech Tool, Chrome Extension, and Windows App run continuously without timeout, hotlink block, or quota desync:'
+            : 'Chỉ cần cấu hình đúng 5 mục dưới đây, tool/website của bạn sẽ chạy tự động 24/7 mượt mà, không lo đứt kết nối, không bị chặn ảnh gốc và đồng bộ chung 1 ví trang với Tiện ích Chrome & App Windows:'}
+        </p>
+
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(310px, 1fr))',
+          gap: 14,
+        }}>
+          {[
+            {
+              icon: '🔑',
+              mau: '#38bdf8',
+              tieuDe: laEn
+                ? '1. Use Fixed API Key (tr_live_...) & Cumulative Wallet'
+                : '1. Dùng Khoá API Cố Định (tr_live_...) & Ví Cộng Dồn Vĩnh Viễn',
+              noiDung: laEn
+                ? 'Unlike Web login cookies (which expire after 14 days), your tr_live_... key never expires until you rotate it. Every package you buy (including the 20,000đ / 40-page Starter Pack or larger bonus packs) automatically stacks into one shared balance.'
+                : 'Khác với phiên đăng nhập Web (hết hạn sau 14 ngày), mã tr_live_... hoạt động vĩnh viễn cho tới khi bạn bấm Đổi khoá. Khi bạn mua bất kỳ gói nào (kể cả mua nhiều lần Gói Mồi 20.000đ = 40 trang hay gói lớn +5% → +40%), toàn bộ số trang đều cộng dồn vào chung 1 ví duy nhất.',
+            },
+            {
+              icon: '⏱️',
+              mau: '#f59e0b',
+              tieuDe: laEn
+                ? '2. Set HTTP Timeout >= 120s (Sync vs Async Chapter Queue)'
+                : '2. Đặt Timeout HTTP >= 120 Giây & Chọn Đúng Chế Độ Chờ (wait)',
+              noiDung: laEn
+                ? 'AI OCR + LaMa Inpainting + Typesetting takes ~4–12s per new page (or 0.15s on SHA-256 cache hit). When calling /translate-image with wait=true, set your HTTP client timeout to 120–180s. When translating a full chapter (10–150 pages), call /translate-chapter or set wait=false and poll /projects/{project_id} every 3 seconds.'
+                : 'Quá trình OCR + Xoá chữ LaMa + Dịch Gemini + Ghép chữ tốn khoảng 4–12 giây/trang mới (hoặc chỉ 0.15 giây nếu trúng Cache SHA-256). Khi gọi /translate-image với wait=true, hãy đặt CURLOPT_TIMEOUT / timeout >= 120–180 giây. Nếu đẩy nguyên chương (10–150 ảnh), hãy gọi /translate-chapter hoặc đặt wait=false rồi poll tiến độ mỗi 3 giây.',
+            },
+            {
+              icon: '🛡️',
+              mau: '#10b981',
+              tieuDe: laEn
+                ? '3. Pass Anti-Hotlink Referer & Image Format Rules'
+                : '3. Truyền Tham Số Referer Chống Chặn Ảnh (Anti-Hotlink) & Quy Chuẩn File',
+              noiDung: laEn
+                ? 'Supported formats: JPG, PNG, WEBP up to 20MB/page. If you pass image_url from a site protected by Cloudflare/Hotlink (e.g. MangaDex, Rawkuma, Baozimh), pass the referer field (e.g. referer="https://mangadex.org/") so our server fetches the raw image cleanly.'
+                : 'Hỗ trợ ảnh JPG, PNG, WEBP tối đa 20MB/trang. Nếu bạn gửi image_url lấy từ các trang gốc chặn leech ảnh (MangaDex, Rawkuma, Baozimh...), hãy truyền thêm tham số referer (ví dụ referer="https://mangadex.org/") để server tự động giả lập trình duyệt vượt chặn Hotlink.',
+            },
+            {
+              icon: '🔒',
+              mau: '#a855f7',
+              tieuDe: laEn
+                ? '4. Secure HMAC Signed Image URLs (?sig=...&exp=...)'
+                : '4. Bảo Mật Chữ Ký Số HMAC (?sig=...&exp=...) Khi Tải Ảnh Đã Dịch',
+              noiDung: laEn
+                ? 'The returned rendered_image_url and inpainted_image_url are signed with a page-scoped HMAC-SHA256 signature (?sig=...&exp=..., valid for 24h). Your API Key is NEVER exposed in image URLs, and tr_live_... keys cannot be abused to change your password or rotate keys.'
+                : 'Link ảnh trả về (rendered_image_url, inpainted_image_url) được đính kèm chữ ký HMAC-SHA256 riêng cho từng trang (?sig=...&exp=..., hiệu lực 24h) giúp bạn tải ảnh trực tiếp mà KHÔNG bao giờ lộ mã tr_live_... trên trình duyệt. Ngoài ra, mã tr_live_... bị khoá quyền đổi mật khẩu để bảo vệ tài khoản tuyệt đối.',
+            },
+            {
+              icon: '🔗',
+              mau: '#ec4899',
+              tieuDe: laEn
+                ? '5. 1-Click Account Sync Across Web, Chrome Extension & Windows App'
+                : '5. Đồng Bộ Chung 1 Tài Khoản Giữa Web ↔ Tiện Ích Chrome ↔ App Windows',
+              noiDung: laEn
+                ? 'You can sign in to the Chrome Extension and Windows Desktop App using: (A) Email + Password, (B) your tr_live_... API Key, or (C) clicking "Copy Session Token" in your Web Account modal and pasting it into the Extension/App. All platforms share the exact same 10 free daily pages + VIP wallet.'
+                : 'Trên Tiện ích Chrome và App Windows, bạn có thể liên kết cùng 1 tài khoản theo 3 cách: (A) Nhập Email + Mật khẩu, (B) Dán trực tiếp mã tr_live_... vào ô kết nối, hoặc (C) Bấm nút "🔗 Copy Mã Phiên" trong mục Tài khoản trên Web rồi dán vào Tiện ích/App. Cả 4 nơi đều dùng chung 10 trang miễn phí/ngày + Ví trang mua thêm.',
+            },
+            {
+              icon: '♻️',
+              mau: '#34d399',
+              tieuDe: laEn
+                ? '6. Auto-Refund on Error & Free SHA-256 Community Cache'
+                : '6. Tự Động Hoàn Lượt Khi Lỗi Ảnh & Miễn Phí Khi Trúng Cache Cộng Đồng',
+              noiDung: laEn
+                ? 'If a raw image URL is broken or fails during processing, the ledger automatically refunds +1 page back to your wallet. If a page matches our SHA-256 Community Cache, it returns in 0.15s with cached=true and costs 0 pages!'
+                : 'Nếu link ảnh gốc bị lỗi hoặc quá trình xử lý gặp sự cố, sổ cái tự động hoàn trả lại đúng +1 trang vào ví của bạn. Đặc biệt, nếu trang truyện đã có trong Cache Cộng đồng SHA-256, API trả kết quả ngay trong 0.15 giây (cached=true) và hoàn toàn KHÔNG trừ lượt!',
+            },
+          ].map((muc) => (
+            <div
+              key={muc.tieuDe}
+              style={{
+                background: 'rgba(2, 6, 23, 0.72)',
+                border: '1px solid rgba(148, 163, 184, 0.24)',
+                borderLeft: `4px solid ${muc.mau}`,
+                borderRadius: 14,
+                padding: '16px',
+              }}
+            >
+              <div style={{ fontWeight: 800, fontSize: 15, color: '#ffffff', marginBottom: 6 }}>
+                {muc.icon} {muc.tieuDe}
+              </div>
+              <p style={{ margin: 0, fontSize: 13.4, color: '#cbd5e1', lineHeight: 1.6 }}>
+                {muc.noiDung}
+              </p>
+            </div>
+          ))}
+        </div>
       </section>
 
       {/* Bảng danh sách 6 Endpoint */}

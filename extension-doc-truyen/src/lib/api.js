@@ -25,7 +25,7 @@ export const KHOA_LUU = {
 }
 export const NGON_NGU_MAC_DINH = 'ja'
 export const NGON_NGU_DICH_MAC_DINH = 'vi'
-export const ENGINE_MAC_DINH = 'llm_context'
+export const ENGINE_MAC_DINH = 'local_ocr_gpu'
 export const CHE_DO_MAC_DINH = 'chi_chu'
 export const FONT_CHU_MAC_DINH = 'bangers'
 //: Địa chỉ máy chủ mặc định trỏ sẵn vào máy chủ API chính thức để người dùng cài xong là dịch ngay.
@@ -140,9 +140,11 @@ async function goi(duong, opts = {}) {
 
 export async function dangNhap(diaChi, email, matKhau) {
   const goc = chuanHoaDiaChi(diaChi)
-  const UngVienKey = String(matKhau || '').trim().startsWith('tr_live_')
-    ? String(matKhau).trim()
-    : (String(email || '').trim().startsWith('tr_live_') ? String(email).trim() : '')
+  const mkTrim = String(matKhau || '').trim()
+  const emTrim = String(email || '').trim()
+  const UngVienKey = mkTrim.startsWith('tr_live_')
+    ? mkTrim
+    : (emTrim.startsWith('tr_live_') ? emTrim : (!emTrim && mkTrim.length >= 24 ? mkTrim : ''))
   if (UngVienKey) {
     const resKey = await fetch(`${goc}/api/v1/auth/me`, {
       headers: { Authorization: `Bearer ${UngVienKey}` },
@@ -228,11 +230,14 @@ export async function dangXuat() {
  * font cách điệu (đo 08/09 trên MangaPlus: vài dòng ra nguyên tiếng Anh hoặc dịch sai nghĩa).
  */
 export async function guiTrang(blob, ngonNgu, engine, cheDo, ngonNguDich = NGON_NGU_DICH_MAC_DINH, tuDienRieng = '') {
+  const engineCloud = (engine === 'local_ocr_gpu' || engine === 'local_hybrid_pro' || engine === 'local_gguf')
+    ? 'llm_context'
+    : (engine || 'llm_context')
   const form = new FormData()
   form.append('file', blob, 'trang.png')
   form.append('source_lang', ngonNgu || NGON_NGU_MAC_DINH)
   form.append('target_lang', ngonNguDich || NGON_NGU_DICH_MAC_DINH)
-  form.append('engine', engine || ENGINE_MAC_DINH)
+  form.append('engine', engineCloud)
   form.append('che_do', cheDo || CHE_DO_MAC_DINH)
   if (tuDienRieng && String(tuDienRieng).trim()) {
     form.append('tu_dien_rieng', String(tuDienRieng).trim())
@@ -241,11 +246,27 @@ export async function guiTrang(blob, ngonNgu, engine, cheDo, ngonNguDich = NGON_
 }
 
 /**
- * Chạy Offline 100% trên máy khách bằng mô hình GGUF cục bộ (Ollama `127.0.0.1:11434` hoặc LM Studio / llama.cpp `127.0.0.1:1234`).
- * - Hoàn toàn KHÔNG gọi máy chủ của chúng ta -> 0% tải máy chủ, 0 tốn phí API, không trừ lượt.
- * - Tận dụng 100% GPU/CPU trên máy tính của khách hàng.
+ * Khấu trừ số lượt trên sổ cái Server khi chạy `local_ocr_gpu` (1 lượt/trang) hoặc `local_hybrid_pro` (2 lượt/trang).
  */
-export async function dichTrangLocalGguf(blob, { ngonNgu = 'ja', ngonNguDich = 'vi', tuDienRieng = '' } = {}) {
+export async function khauTruLuotLocal(blob, engine = 'local_ocr_gpu', pageKey = '') {
+  const soLuot = engine === 'local_hybrid_pro' ? 2 : 1
+  const khoaTrang = pageKey || `ext-${blob?.size || 0}-${Date.now()}`
+  return goi('/developer/consume-local-page', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      page_key: khoaTrang,
+      engine,
+      credits: soLuot,
+    }),
+  })
+}
+
+/**
+ * Chạy trên máy khách bằng Cầu nối App Windows (`127.0.0.1:17890`) hoặc mô hình GGUF cục bộ (`127.0.0.1:11434` / `1234`).
+ * Hỗ trợ đầy đủ cả `local_ocr_gpu` (⚡ OCR + GPU Nhanh · 1 lượt/trang) và `local_hybrid_pro` (🧠 OCR + GPU Pro · 2 lượt/trang).
+ */
+export async function dichTrangLocalGguf(blob, { ngonNgu = 'ja', ngonNguDich = 'vi', tuDienRieng = '', engine = 'local_ocr_gpu' } = {}) {
   const bytes = new Uint8Array(await blob.arrayBuffer())
   let nhiPhan = ''
   for (let i = 0; i < bytes.length; i += 0x8000) {
@@ -269,16 +290,49 @@ export async function dichTrangLocalGguf(blob, { ngonNgu = 'ja', ngonNguDich = '
   const doanNguCanh = tuDienRieng
     ? `\nNgữ cảnh xưng hô & thuật ngữ từ các trang trước (hãy giữ đồng nhất):\n${tuDienRieng}\n`
     : ''
+  const quyTacPro = engine === 'local_hybrid_pro'
+    ? 'Đặc biệt chú ý đọc kỹ các nét chữ viết tay mảnh, chữ nghiêng nghệ thuật hoặc lời lẩm bẩm nhỏ ngoài bóng thoại và tự suy luận nếu chữ viết tay bị dính nét.'
+    : ''
   const prompt = [
     `Bạn là AI nhận diện và dịch truyện tranh chuyên nghiệp (ngôn ngữ gốc: ${ngonNgu} -> dịch sang: ${tenNgonNguDich}).`,
     doanNguCanh,
     'Hãy tìm TẤT CẢ các bóng thoại trong trang truyện này, đọc chữ gốc và dịch sang ngôn ngữ đích.',
+    quyTacPro,
     'Trả về DUY NHẤT một mảng JSON hợp lệ theo cấu trúc:',
     '[{"box_2d":[ymin,xmin,ymax,xmax],"chu_goc":"...","ban_dich":"..."}]',
     'Trong đó ymin, xmin, ymax, xmax được chuẩn hoá trên thang 0..1000.',
-  ].join('\n')
+  ].filter(Boolean).join('\n')
 
   let rawText = ''
+
+  // 0. Ưu tiên Cầu nối App Windows cục bộ (http://127.0.0.1:17890) nếu người dùng đang mở App Manga Studio trên PC:
+  //    Tự động kích hoạt đúng `local_ocr_gpu` hoặc `local_hybrid_pro` (Quét OCR 2 tầng chữ viết tay + Bộ nhớ tự học).
+  try {
+    const rBridge = await fetch('http://127.0.0.1:17890/api/v1/local-bridge/dich-trang', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        image_base64: anhBase64,
+        source_lang: ngonNgu,
+        target_lang: ngonNguDich,
+        tu_dien_rieng: tuDienRieng,
+        engine,
+        che_do: 've_anh',
+      }),
+    })
+    if (rBridge.ok) {
+      const dBridge = await rBridge.json().catch(() => null)
+      if (dBridge && dBridge.engine === 'local_bridge_windows_app' && Array.isArray(dBridge.vung)) {
+        return {
+          vung: dBridge.vung,
+          che_do: dBridge.anh_da_dich_data_url ? 'day_du' : 'chi_chu',
+          anh_da_dich_data_url: dBridge.anh_da_dich_data_url || null,
+        }
+      }
+    }
+  } catch {
+    // Nếu App Windows chưa bật trên máy, tự động chuyển xuống gọi trực tiếp Ollama / LM Studio bên dưới.
+  }
 
   // 1. Thử kết nối Ollama cục bộ trên máy khách (http://127.0.0.1:11434)
   let daChayLocal = false
@@ -287,12 +341,12 @@ export async function dichTrangLocalGguf(blob, { ngonNgu = 'ja', ngonNguDich = '
     if (rTags.ok) {
       const dTags = await rTags.json()
       const dsModel = (dTags?.models || []).map((m) => m.name || '')
-      const modelVision = dsModel.find((m) => /qwen2\.5vl|qwen2-vl|gemma3|minicpm-v|llava|llama3\.2-vision|internvl|pixtral/i.test(m))
+      const modelVision = dsModel.find((m) => /qwen3-vl|qwen3vl|qwen2\.5vl|qwen2-vl|gemma3|minicpm-v|llava|llama3\.2-vision|internvl|pixtral/i.test(m))
         || dsModel[0]
       if (!modelVision) {
         throw new LoiApi(
           0,
-          'Ollama trên máy bạn chưa cài model GGUF Vision nào. Hãy mở Terminal chạy: ollama run qwen2.5vl:7b (hoặc gemma3:4b)',
+          'Ollama trên máy bạn chưa cài model GGUF Vision nào. Hãy chạy Cai-Dich-Offline.bat hoặc mở Terminal chạy: ollama pull qwen3-vl:8b',
         )
       }
       const rChat = await fetch('http://127.0.0.1:11434/api/chat', {

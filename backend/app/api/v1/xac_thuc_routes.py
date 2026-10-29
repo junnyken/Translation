@@ -25,7 +25,14 @@ from app.services.han_muc_dang_ky import giu_suat_dang_ky
 from app.services.han_muc_dang_nhap import da_sai_bao_nhieu, ghi_nhan_dang_nhap_sai
 from app.core.db import get_session
 from app.core.phien import han_moi
-from app.core.quyen import TIEN_TO_BEARER, ma_phien_tu_header, nguoi_dung_hien_tai
+from app.core.quyen import (
+    LOI_CAM_API_KEY_NHAY_CAM,
+    TIEN_TO_BEARER,
+    la_khoa_api_developer,
+    ma_phien_tu_header,
+    nguoi_dung_hien_tai,
+    nguoi_dung_phien_dang_nhap,
+)
 import hashlib
 import hmac
 import logging
@@ -373,6 +380,8 @@ async def toi_la_ai(nguoi: NguoiDung = Depends(nguoi_dung_hien_tai)) -> NguoiDun
 async def sua_tai_khoan_cua_toi(
     payload: SuaTaiKhoanRequest,
     authorization: str | None = Header(default=None),
+    x_customer_api_key: str | None = Header(default=None, alias="X-Customer-Api-Key"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
     session: AsyncSession = Depends(get_session),
     nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> SuaTaiKhoanResponse:
@@ -393,14 +402,20 @@ async def sua_tai_khoan_cua_toi(
     """
     so_thu_hoi = 0
     da_doi_mk = False
+    ma_xac_thuc = ma_phien_tu_header(authorization, x_customer_api_key, x_api_key)
 
     if payload.mat_khau_moi:
+        if la_khoa_api_developer(ma_xac_thuc):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=LOI_CAM_API_KEY_NHAY_CAM,
+            )
         ly_do, so_thu_hoi = await tai_khoan.doi_mat_khau(
             session,
             nguoi=nguoi,
             mat_khau_cu=payload.mat_khau_cu or "",
             mat_khau_moi=payload.mat_khau_moi,
-            giu_ma_phien_tho=ma_phien_tu_header(authorization),
+            giu_ma_phien_tho=ma_xac_thuc,
         )
         if ly_do:
             # Rollback tường minh: `doi_mat_khau` trả lý do TRƯỚC khi commit, nhưng tên hiển thị
@@ -458,10 +473,11 @@ async def xem_trang_thai_api_key(
 @router.post("/api-key", response_model=dict, status_code=status.HTTP_201_CREATED)
 async def tao_hoac_doi_api_key(
     session: AsyncSession = Depends(get_session),
-    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
+    nguoi: NguoiDung = Depends(nguoi_dung_phien_dang_nhap),
 ) -> dict:
     """Tạo mới hoặc xoay (rotate) Developer API Key (`tr_live_...`) cho tài khoản hiện tại.
     Mã thô chỉ trả về ĐÚNG MỘT LẦN trong phản hồi này để khách hàng copy vào tool riêng.
+    Bắt buộc dùng phiên đăng nhập tương tác (không cho phép dùng chính `tr_live_...` để tự xoay khoá).
     """
     ma_tho, ban_ghi = await tai_khoan.tao_moi_api_key(session, nguoi.id)
     return {
@@ -476,7 +492,7 @@ async def tao_hoac_doi_api_key(
 @router.delete("/api-key", response_model=dict)
 async def xoa_api_key_cua_toi(
     session: AsyncSession = Depends(get_session),
-    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
+    nguoi: NguoiDung = Depends(nguoi_dung_phien_dang_nhap),
 ) -> dict:
     """Thu hồi ngay lập tức Developer API Key của tài khoản."""
     so_xoa = await tai_khoan.thu_hoi_api_key(session, nguoi.id)
@@ -495,15 +511,25 @@ async def xoa_api_key_cua_toi(
 
 
 async def quan_tri_hien_tai(
+    authorization: str | None = Header(default=None),
+    x_customer_api_key: str | None = Header(default=None, alias="X-Customer-Api-Key"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
     nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> NguoiDung:
     """Chỉ quản trị. Không phải quản trị ⇒ **404**, không phải 403.
 
     Cùng lý do như quyền sở hữu chapter: 403 xác nhận "có endpoint này và nó có thật", tức là
     nói cho người dò biết hệ thống có phần quản trị để mà nhắm vào.
+    Đồng thời chặn việc dùng Developer API Key (`tr_live_...`) để thực thi thao tác quản trị.
     """
     if not nguoi.la_quan_tri:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy.")
+    ma = ma_phien_tu_header(authorization, x_customer_api_key, x_api_key)
+    if la_khoa_api_developer(ma):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=LOI_CAM_API_KEY_NHAY_CAM,
+        )
     return nguoi
 
 

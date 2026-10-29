@@ -266,7 +266,7 @@ def _doc_mat_na_chu(image_rel: str):
         return None
 
 
-def _run_detect(job_id: uuid.UUID) -> dict:
+def _run_detect(job_id: uuid.UUID, *, outbox_claimed: bool = False) -> dict:
     started = time.perf_counter()
     with sync_session() as session:
         job = session.get(Job, job_id)
@@ -275,6 +275,9 @@ def _run_detect(job_id: uuid.UUID) -> dict:
             return {"status": "job_not_found", "job_id": str(job_id)}
         if job.type is not JobType.detect:
             return {"status": "wrong_job_type", "job_id": str(job_id), "type": job.type.value}
+
+        if outbox_claimed and job.status is not JobStatus.running:
+            return {"status": "stale_ignored", "job_id": str(job_id)}
 
         page = session.get(Page, job.page_id)
         if page is None:
@@ -342,7 +345,12 @@ def _run_detect(job_id: uuid.UUID) -> dict:
                 kem_trang_truoc=settings.boi_canh_kem_trang_truoc,
             )
 
-        danh_dau_dang_chay(job)
+        if outbox_claimed:
+            session.refresh(job)
+            if job.status is not JobStatus.running:
+                return {"status": "stale_ignored", "job_id": str(job_id)}
+        else:
+            danh_dau_dang_chay(job)
         if page.status is not PageStatus.detecting:
             assert_transition(page.status, PageStatus.detecting)
             page.status = PageStatus.detecting
@@ -509,12 +517,23 @@ def _run_detect(job_id: uuid.UUID) -> dict:
 )
 def run_detect_job(self, job_id: str) -> dict:
     jid = uuid.UUID(str(job_id))
+    # Claim failures and duplicate deliveries must never fail another consumer's job.
+    from app.services.upload_outbox import claim_detect_job
+    try:
+        claim = claim_detect_job(jid)
+    except Exception as exc:
+        raise self.retry(exc=exc, countdown=min(30 * 2 ** min(self.request.retries, 4), 300),
+                         max_retries=None)
+    if claim == "duplicate_or_stale":
+        return {"status": "duplicate_ignored", "job_id": str(jid)}
     page_id = None
     try:
         with sync_session() as session:
             job = session.get(Job, jid)
             page_id = job.page_id if job is not None else None
-        kq = _run_detect(jid)
+        kq = _run_detect(jid, outbox_claimed=True) if claim == "claimed" else _run_detect(jid)
+        if kq.get("status") == "stale_ignored":
+            return kq
         bao_ket_thuc_buoc(
             _page_cua_job(jid), jid,
             "completed" if kq.get("status") == "done" else "failed",
@@ -3873,3 +3892,10 @@ def run_nhan_dang_ngon_ngu_job(yeu_cau_id: str) -> dict:
                 # vẫn cần câu trả lời. Ảnh còn sót sẽ được lượt dọn định kỳ nhặt.
                 logger.exception("không xoá được ảnh tạm của lượt nhận dạng %s", yeu_cau_id)
     return ket
+
+
+@celery_app.task(name="production.dispatch_upload_outbox")
+def dispatch_upload_outbox():
+    """Publish committed first-detect intents; never run providers here."""
+    from app.services.upload_outbox import publish_due
+    return publish_due(limit=20)

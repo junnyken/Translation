@@ -142,7 +142,7 @@ export default function QuanTriNguoiDung({ toi }) {
 
   if (!ds) return null
 
-  const tranMacDinh = thongKe?.han_muc_co_tai_khoan ?? 20
+  const tranMacDinh = thongKe?.han_muc_co_tai_khoan ?? 10
   const tranKhachLa = thongKe?.han_muc_khach_la ?? 2
   const heThong = thongKe?.he_thong || {}
   const bieuDo7Ngay = Array.isArray(thongKe?.bieu_do_7_ngay) ? thongKe.bieu_do_7_ngay : []
@@ -218,8 +218,8 @@ export default function QuanTriNguoiDung({ toi }) {
           </h2>
           <p className="ghi-chu" style={{ margin: 0 }}>
             {laEn
-              ? 'Monitor real-time translation volume, manage customer quotas (20 pages/day default), and activate VIP packages.'
-              : 'Theo dõi sản lượng dịch thuật thời gian thực, kiểm soát hạn mức khách hàng (mặc định 20 trang/ngày) và kích hoạt gói VIP.'}
+              ? 'Monitor real-time translation volume, manage customer quotas (10 pages/day default), and activate VIP packages.'
+              : 'Theo dõi sản lượng dịch thuật thời gian thực, kiểm soát hạn mức khách hàng (mặc định 10 trang/ngày) và kích hoạt gói VIP.'}
           </p>
         </div>
 
