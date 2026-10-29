@@ -19,9 +19,11 @@ from core_video_renderer import (
 )
 from core_vision_character import (
     CharacterCastMemory,
+    phan_tich_bo_cuc_anh_khung_tranh,
     sinh_kich_ban_review_chuong,
     tach_khung_tranh_thong_minh,
     tao_luoi_storyboard_2x2,
+    tu_dong_quet_ho_so_nhan_vat_tu_thoai,
 )
 
 
@@ -148,9 +150,26 @@ def test_4_tts_audio_and_mp4_video_export_end_to_end():
         assert kq["ok"] is True
         assert Path(kq["video_path"]).is_file()
         assert Path(kq["video_path"]).stat().st_size > 1000
+        assert Path(kq["audio_master_path"]).is_file()
         assert Path(kq["srt_path"]).is_file()
         assert "00:00:00,000 -->" in Path(kq["srt_path"]).read_text(encoding="utf-8")
         assert Path(kq["storyboard_json_path"]).is_file()
+
+
+def test_6_auto_character_scanner_and_visual_atmosphere():
+    cast = CharacterCastMemory()
+    ocr_sample = [
+        ["Lâm Phong, hôm nay ngươi không thoát khỏi tay Triệu Hổ ta đâu!"],
+        ["Lâm Phong lạnh lùng rút kiếm đối mặt với Triệu Hổ và Tô Tuyết."],
+    ]
+    ds = tu_dong_quet_ho_so_nhan_vat_tu_thoai(ocr_sample, cast)
+    names = [c["ten"] for c in ds]
+    assert "Lâm Phong" in names
+    assert "Triệu Hổ" in names
+
+    raw_strip = _tao_anh_webtoon_dai_co_ranh()
+    bo_cuc = phan_tich_bo_cuc_anh_khung_tranh(raw_strip)
+    assert "khong_khi" in bo_cuc
 
 
 def test_5_cloud_wallet_ticket_deduction_for_video_studio(monkeypatch=None):
@@ -208,4 +227,5 @@ if __name__ == "__main__":
     test_3_script_generator_handles_dialogue_and_silent_action_panels()
     test_4_tts_audio_and_mp4_video_export_end_to_end()
     test_5_cloud_wallet_ticket_deduction_for_video_studio()
-    print("ALL 5 VIDEO REVIEW STUDIO TESTS PASSED!")
+    test_6_auto_character_scanner_and_visual_atmosphere()
+    print("ALL 6 VIDEO REVIEW STUDIO TESTS PASSED!")

@@ -9,6 +9,7 @@ import subprocess
 import textwrap
 import urllib.error
 import urllib.request
+import wave
 from pathlib import Path
 from typing import Any
 
@@ -79,7 +80,6 @@ def xac_thuc_va_tru_luot_video_cloud(
     else:
         headers["Authorization"] = f"Bearer {tok}"
 
-    # 1. Kiểm tra số dư khả dụng trước khi trừ
     hm_req = urllib.request.Request(f"{base}/api/v1/han-muc", headers=headers, method="GET")
     try:
         with urllib.request.urlopen(hm_req, timeout=15) as resp:
@@ -97,7 +97,6 @@ def xac_thuc_va_tru_luot_video_cloud(
             "Vui lòng nạp thêm lượt trên comic.io.vn!"
         )
 
-    # 2. Xin cấp vé thực thi ký số HMAC-SHA256 từ cổng consume-local-page
     seed = ma_dinh_danh_video or hashlib.sha256(os.urandom(16)).hexdigest()
     tickets: list[dict[str, Any]] = []
     da_tru = 0
@@ -172,15 +171,12 @@ def ve_khung_hinh_pan_zoom_va_phu_de(
     with Image.open(io.BytesIO(panel_bytes)) as raw_im:
         src = raw_im.convert("RGB")
 
-    # 1. Tạo lớp nền mờ sang trọng
     bg = src.resize((vw, vh))
     if ImageFilter is not None:
         bg = bg.filter(ImageFilter.GaussianBlur(radius=18))
-    # Làm tối nhẹ lớp nền mờ để khung tranh chính nổi bật
     overlay_dark = Image.new("RGB", (vw, vh), (10, 15, 28))
     canvas = Image.blend(bg, overlay_dark, alpha=0.55)
 
-    # 2. Tính toán vùng cắt / phóng (Pan & Zoom) cho khung tranh chính
     vung_hien_thi_h = int(vh * 0.76)
     vung_hien_thi_w = int(vw * 0.94)
 
@@ -194,7 +190,6 @@ def ve_khung_hinh_pan_zoom_va_phu_de(
             ch = min(fg.height, vung_hien_thi_h)
             fg = fg.crop((cx - cw // 2, cy - ch // 2, cx + cw // 2, cy + ch // 2))
     else:
-        # Pan Down: phóng chiều ngang khớp khung và trượt từ trên xuống dưới nếu ảnh cao
         ty_le_w = vung_hien_thi_w / max(1, src.width)
         new_h = max(1, int(src.height * ty_le_w))
         fg_full = src.resize((vung_hien_thi_w, new_h))
@@ -213,13 +208,11 @@ def ve_khung_hinh_pan_zoom_va_phu_de(
     font_sub = _nap_font_phu_de(co_chu=26 if vw <= 720 else 30)
     font_tag = _nap_font_phu_de(co_chu=20)
 
-    # 3. Vẽ nhãn Nhân Vật ở góc trái trên khung hình
     if nhan_vat:
         nhan_txt = f"🎭 {nhan_vat}"
         draw.rectangle([24, 18, min(vw - 24, 48 + len(nhan_txt) * 13), 56], fill=(220, 38, 38), outline=(255, 255, 255), width=2)
         draw.text((36, 25), nhan_txt, fill=(255, 255, 255), font=font_tag)
 
-    # 4. Vẽ hộp Phụ Đề Review nổi bật ở phần dưới màn hình
     if loi_thuyet_minh:
         so_ky_tu_dong = 36 if vw <= 720 else 58
         cac_dong = textwrap.wrap(loi_thuyet_minh.strip(), width=so_ky_tu_dong)[:3]
@@ -227,7 +220,6 @@ def ve_khung_hinh_pan_zoom_va_phu_de(
         draw.rectangle([18, sub_y_top, vw - 18, vh - 22], fill=(15, 23, 42), outline=(245, 158, 11), width=2)
         for idx_d, dong in enumerate(cac_dong):
             dy = sub_y_top + 14 + idx_d * 34
-            # Viền đen chữ phụ đề
             for ox, oy in ((-2, -2), (2, -2), (-2, 2), (2, 2)):
                 draw.text((34 + ox, dy + oy), dong, fill=(0, 0, 0), font=font_sub)
             draw.text((34, dy), dong, fill=(253, 224, 71), font=font_sub)
@@ -235,6 +227,37 @@ def ve_khung_hinh_pan_zoom_va_phu_de(
     buf = io.BytesIO()
     canvas.save(buf, format="JPEG", quality=90)
     return buf.getvalue()
+
+
+def ghep_cac_file_wav_thanh_master(wav_paths: list[Path], out_master_wav: Path) -> Path:
+    """
+    Ghép nối tuần tự tất cả file âm thanh `.wav` của từng phân cảnh thành 1 track âm thanh tổng (`out_master_wav`)
+    để ghép đồng bộ vào luồng Video MP4.
+    """
+    out_master_wav.parent.mkdir(parents=True, exist_ok=True)
+    frames_all: list[bytes] = []
+    params = None
+    for wp in wav_paths:
+        if not wp.is_file():
+            continue
+        try:
+            with wave.open(str(wp), "rb") as rf:
+                if params is None:
+                    params = rf.getparams()
+                frames_all.append(rf.readframes(rf.getnframes()))
+        except Exception:
+            continue
+
+    with wave.open(str(out_master_wav), "wb") as wf:
+        if params is not None:
+            wf.setparams(params)
+        else:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(24000)
+        for chunk in frames_all:
+            wf.writeframes(chunk)
+    return out_master_wav
 
 
 def _tim_ffmpeg_exe() -> str | None:
@@ -251,7 +274,7 @@ def _tim_ffmpeg_exe() -> str | None:
 
 def _tao_container_mp4_hop_le_du_phong(frames_jpeg: list[bytes], out_mp4: Path) -> None:
     """
-    Đóng gói container ISO-BMFF MP4 chuẩn (`ftypisom` + `moov` + `mdat` chứa chuỗi khung hình đã dựng)
+    Đóng gói container ISO-BMFF MP4 chuẩn (`ftypisom` + `mdat` chứa chuỗi khung hình đã dựng)
     trong trường hợp máy khách chưa cài đặt `ffmpeg`, đảm bảo luôn xuất ra file `.mp4` hợp lệ.
     """
     ftyp = b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2mp41"
@@ -273,10 +296,10 @@ def xuat_video_review_mp4(
     che_do_nhanh_offline: bool = False,
 ) -> dict[str, Any]:
     """
-    Quy trình khép kín dựng Video Review Truyện `.mp4` + phụ đề `.srt` + `storyboard_review.json`:
+    Quy trình khép kín dựng Video Review Truyện `.mp4` + âm thanh tổng `.wav` + phụ đề `.srt` + `storyboard.json`:
     1. Tổng hợp giọng đọc thuyết minh cho từng phân cảnh (`scenes`).
     2. Dựng các khung hình chuyển động Pan & Zoom kèm phụ đề chữ vàng.
-    3. Kết xuất file `.mp4`, `.srt` và bản lưu kịch bản `.json` ngay tại thư mục đích.
+    3. Ghép cả hình lẫn tiếng nói thành file `.mp4` hoàn chỉnh.
     """
     scenes = list(kich_ban.get("scenes") or [])
     if not panels_bytes or not scenes:
@@ -294,6 +317,7 @@ def xuat_video_review_mp4(
     tong_thoi_luong = 0.0
     frames_jpeg: list[bytes] = []
     concat_lines: list[str] = []
+    wav_files: list[Path] = []
 
     for idx, sc in enumerate(scenes):
         p_bytes = panels_bytes[min(idx, len(panels_bytes) - 1)]
@@ -312,9 +336,9 @@ def xuat_video_review_mp4(
         thoi_luong = float(tts_info["thoi_luong_giay"])
         sc["thoi_luong_giay"] = thoi_luong
         sc["audio_path"] = tts_info["audio_path"]
+        wav_files.append(Path(tts_info["audio_path"]))
         tong_thoi_luong += thoi_luong
 
-        # Dựng 3 mốc chuyển động Pan/Zoom (Đầu - Giữa - Cuối cảnh) cho mỗi phân cảnh
         for step_idx, t_ratio in enumerate((0.1, 0.5, 0.9)):
             frame_b = ve_khung_hinh_pan_zoom_va_phu_de(
                 p_bytes,
@@ -331,7 +355,10 @@ def xuat_video_review_mp4(
             safe_fp = str(frame_file.resolve()).replace("\\", "/")
             concat_lines.append(f"file '{safe_fp}'\nduration {dur_step}")
 
-    # Xuất file phụ đề .srt và kịch bản .json đi kèm
+    # Ghép track âm thanh thuyết minh tổng (.wav)
+    out_audio_master = out_mp4_path.with_name(f"{out_mp4_path.stem}_voice.wav")
+    ghep_cac_file_wav_thanh_master(wav_files, out_audio_master)
+
     out_srt_path = out_mp4_path.with_suffix(".srt")
     xuat_phu_de_srt(scenes, out_srt_path)
 
@@ -340,9 +367,9 @@ def xuat_video_review_mp4(
     kich_ban_luu["tong_thoi_luong_giay"] = round(tong_thoi_luong, 2)
     kich_ban_luu["dinh_dang_video"] = ma_dinh_dang
     kich_ban_luu["ma_giong"] = ma_giong
+    kich_ban_luu["master_audio_path"] = str(out_audio_master)
     out_json_path.write_text(json.dumps(kich_ban_luu, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    # Kết xuất MP4 bằng FFmpeg nếu có sẵn, hoặc đóng gói MP4 trực tiếp
     ffmpeg_exe = _tim_ffmpeg_exe()
     da_xuat_ffmpeg = False
     if ffmpeg_exe and concat_lines:
@@ -360,15 +387,22 @@ def xuat_video_review_mp4(
                     "0",
                     "-i",
                     str(concat_file),
+                    "-i",
+                    str(out_audio_master),
                     "-vf",
                     "fps=24,format=yuv420p",
                     "-c:v",
                     "libx264",
                     "-preset",
                     "ultrafast",
+                    "-c:a",
+                    "aac",
+                    "-b:a",
+                    "128k",
+                    "-shortest",
                     str(out_mp4_path),
                 ],
-                timeout=90,
+                timeout=120,
                 check=True,
                 creationflags=flags,
                 stdout=subprocess.DEVNULL,
@@ -384,6 +418,7 @@ def xuat_video_review_mp4(
     return {
         "ok": True,
         "video_path": str(out_mp4_path),
+        "audio_master_path": str(out_audio_master),
         "srt_path": str(out_srt_path),
         "storyboard_json_path": str(out_json_path),
         "so_phan_canh": len(scenes),

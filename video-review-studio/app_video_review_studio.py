@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import io
 import json
 import os
+import tempfile
 import threading
 import tkinter as tk
+import zipfile
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 from typing import Any
@@ -12,6 +15,7 @@ from core_tts_voice import DANH_SACH_GIONG_DOC
 from core_video_renderer import (
     DINH_DANG_VIDEO,
     GOI_LUOT_VIDEO_REVIEW,
+    ve_khung_hinh_pan_zoom_va_phu_de,
     xac_thuc_va_tru_luot_video_cloud,
     xuat_video_review_mp4,
 )
@@ -20,6 +24,7 @@ from core_vision_character import (
     CharacterCastMemory,
     sinh_kich_ban_review_chuong,
     tach_khung_tranh_thong_minh,
+    tu_dong_quet_ho_so_nhan_vat_tu_thoai,
 )
 
 
@@ -37,7 +42,6 @@ def doc_cau_hinh_studio() -> dict[str, Any]:
         "goi_luot": "review_standard",
         "toc_do_doc": 1.15,
     }
-    # Tự động kế thừa token từ App Dịch Truyện nếu người dùng đã đăng nhập trên cùng máy tính
     if CAU_HINH_APP_DICH_PATH.is_file():
         try:
             cfg_dich = json.loads(CAU_HINH_APP_DICH_PATH.read_text(encoding="utf-8"))
@@ -64,12 +68,28 @@ def luu_cau_hinh_studio(data: dict[str, Any]) -> None:
 
 def nap_danh_sach_anh_va_thoai_tu_thu_muc(folder_path: Path) -> tuple[list[bytes], list[list[str]]]:
     """
-    Quét thư mục Chapter:
+    Quét thư mục Chapter (hoặc file .zip/.cbz):
     - Nếu thư mục đã có sẵn dữ liệu vùng dịch (`_translation_ledger.json`), tự động trích xuất lời thoại đã dịch
       để AI biên kịch bám sát 100% nội dung!
     - Tự động cắt các trang Webtoon dài thành từng khung tranh (Panel) vừa vặn.
     """
     exts = {".jpg", ".jpeg", ".png", ".webp"}
+    if folder_path.is_file() and folder_path.suffix.lower() in (".zip", ".cbz"):
+        panels_zip: list[bytes] = []
+        ocr_zip: list[list[str]] = []
+        with zipfile.ZipFile(folder_path, "r") as zf:
+            names = sorted(
+                [n for n in zf.namelist() if Path(n).suffix.lower() in exts and not Path(n).name.startswith("_")],
+                key=lambda s: s.lower(),
+            )
+            for name in names:
+                for pb in tach_khung_tranh_thong_minh(zf.read(name)):
+                    panels_zip.append(pb)
+                    ocr_zip.append([])
+        if not panels_zip:
+            raise ValueError(f"Gói nén không chứa ảnh hợp lệ: {folder_path}")
+        return panels_zip, ocr_zip
+
     files = sorted(
         [p for p in folder_path.iterdir() if p.is_file() and p.suffix.lower() in exts and not p.name.startswith("_")],
         key=lambda p: p.name.lower(),
@@ -114,7 +134,7 @@ class AppVideoReviewStudio(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("🎬 Manga/Manhwa Video Review Studio v1.0 — Tự Động Biên Kịch, Nhận Diện Nhân Vật & Lồng Tiếng MP4")
-        self.geometry("1180x760")
+        self.geometry("1220x780")
         self.configure(bg="#0b0f19")
 
         self.cau_hinh = doc_cau_hinh_studio()
@@ -127,7 +147,6 @@ class AppVideoReviewStudio(tk.Tk):
         self._dung_giao_dien()
 
     def _dung_giao_dien(self):
-        # Thanh Header trên cùng
         header = tk.Frame(self, bg="#111827", padx=16, pady=10)
         header.pack(fill="x")
         tk.Label(
@@ -145,11 +164,10 @@ class AppVideoReviewStudio(tk.Tk):
             font=("Segoe UI", 9),
         ).pack(side="left", padx=12)
 
-        # Khung chia 2 cột: Cột trái (Cấu hình & Nhân vật) | Cột phải (Bảng Storyboard Duyệt Kịch Bản & Nhật ký)
         main_body = tk.Frame(self, bg="#0b0f19", padx=14, pady=10)
         main_body.pack(fill="both", expand=True)
 
-        left_col = tk.Frame(main_body, bg="#111827", width=460, padx=14, pady=12)
+        left_col = tk.Frame(main_body, bg="#111827", width=470, padx=14, pady=12)
         left_col.pack(side="left", fill="y")
         left_col.pack_propagate(False)
 
@@ -168,10 +186,11 @@ class AppVideoReviewStudio(tk.Tk):
 
         f_chap = tk.Frame(left_col, bg="#111827", pady=4)
         f_chap.pack(fill="x")
-        tk.Label(f_chap, text="Thư mục Chapter:", bg="#111827", fg="#cbd5e1", width=16, anchor="w").pack(side="left")
+        tk.Label(f_chap, text="Nguồn Chapter:", bg="#111827", fg="#cbd5e1", width=16, anchor="w").pack(side="left")
         self.ent_folder = tk.Entry(f_chap, bg="#1e293b", fg="#f8fafc", insertbackground="#fff")
         self.ent_folder.pack(side="left", fill="x", expand=True, padx=4)
-        tk.Button(f_chap, text="📂 Chọn", bg="#2563eb", fg="#fff", relief="flat", padx=8, command=self._chon_thu_muc_chapter).pack(side="left")
+        tk.Button(f_chap, text="📂 Thư mục", bg="#2563eb", fg="#fff", relief="flat", padx=6, command=self._chon_thu_muc_chapter).pack(side="left", padx=2)
+        tk.Button(f_chap, text="📦 ZIP/CBZ", bg="#334155", fg="#fff", relief="flat", padx=6, command=self._chon_file_zip_chapter).pack(side="left")
 
         f_meta = tk.Frame(left_col, bg="#111827", pady=4)
         f_meta.pack(fill="x")
@@ -182,16 +201,28 @@ class AppVideoReviewStudio(tk.Tk):
 
         # --- BƯỚC 2: HỒ SƠ NHÂN VẬT (CHỐNG NHẦM NGƯỜI NÓI) ---
         tk.Label(left_col, text="02 · HỒ SƠ NHÂN VẬT (ĐỊNH DANH NGƯỜI NÓI)", bg="#111827", fg="#34d399", font=("Segoe UI", 9, "bold"), pady=6).pack(anchor="w")
+        f_cast_btns = tk.Frame(left_col, bg="#111827")
+        f_cast_btns.pack(fill="x", pady=(0, 8))
         tk.Button(
-            left_col,
-            text="🎭 Mở Bảng Hồ Sơ Nhân Vật (Tên + Ngoại hình + Xưng hô)",
+            f_cast_btns,
+            text="🎭 Mở Bảng Hồ Sơ Nhân Vật",
             bg="#059669",
             fg="#ffffff",
             font=("Segoe UI", 9, "bold"),
             relief="flat",
             pady=6,
             command=self._mo_cua_so_ho_so_nhan_vat,
-        ).pack(fill="x", pady=(0, 8))
+        ).pack(side="left", fill="x", expand=True, padx=(0, 4))
+        tk.Button(
+            f_cast_btns,
+            text="🔍 Tự Quét Nhân Vật",
+            bg="#0d9488",
+            fg="#ffffff",
+            font=("Segoe UI", 9, "bold"),
+            relief="flat",
+            pady=6,
+            command=self._tu_dong_quet_nhan_vat,
+        ).pack(side="left", fill="x", expand=True)
 
         # --- BƯỚC 3: PHONG CÁCH KỊCH BẢN & GIỌNG ĐỌC ---
         tk.Label(left_col, text="03 · PHONG CÁCH REVIEW & LÕI GIỌNG ĐỌC AI", bg="#111827", fg="#fbbf24", font=("Segoe UI", 9, "bold"), pady=4).pack(anchor="w")
@@ -203,7 +234,7 @@ class AppVideoReviewStudio(tk.Tk):
             state="readonly",
         )
         self.cmb_phong_cach.current(0)
-        self.cmb_phong_cach.pack(fill="x", pady=(2, 6))
+        self.cmb_phong_cach.pack(fill="x", pady=(2, 5))
 
         tk.Label(left_col, text="Khung hình Video xuất bản:", bg="#111827", fg="#cbd5e1").pack(anchor="w")
         self.cmb_dinh_dang = ttk.Combobox(
@@ -212,16 +243,30 @@ class AppVideoReviewStudio(tk.Tk):
             state="readonly",
         )
         self.cmb_dinh_dang.current(0)
-        self.cmb_dinh_dang.pack(fill="x", pady=(2, 6))
+        self.cmb_dinh_dang.pack(fill="x", pady=(2, 5))
 
-        tk.Label(left_col, text="Giọng đọc thuyết minh AI:", bg="#111827", fg="#cbd5e1").pack(anchor="w")
+        f_voice_row = tk.Frame(left_col, bg="#111827")
+        f_voice_row.pack(fill="x", pady=(2, 5))
+        tk.Label(f_voice_row, text="Giọng đọc AI:", bg="#111827", fg="#cbd5e1").pack(anchor="w")
         self.cmb_giong = ttk.Combobox(
-            left_col,
+            f_voice_row,
             values=[f"{k} — {v['ten']}" for k, v in DANH_SACH_GIONG_DOC.items()],
             state="readonly",
         )
         self.cmb_giong.current(0)
-        self.cmb_giong.pack(fill="x", pady=(2, 6))
+        self.cmb_giong.pack(fill="x", pady=(2, 4))
+
+        f_spd = tk.Frame(left_col, bg="#111827")
+        f_spd.pack(fill="x", pady=(0, 5))
+        tk.Label(f_spd, text="Tốc độ giọng Review:", bg="#111827", fg="#cbd5e1").pack(side="left")
+        self.cmb_toc_do = ttk.Combobox(
+            f_spd,
+            values=["1.00x (Chuẩn)", "1.15x (Chuẩn TikTok/YouTube Review)", "1.25x (Nhịp nhanh cuốn hút)", "1.35x (Siêu tốc Shorts)"],
+            state="readonly",
+            width=30,
+        )
+        self.cmb_toc_do.current(1)
+        self.cmb_toc_do.pack(side="right")
 
         tk.Label(left_col, text="Gói xử lý Video (Tính vào Ví lượt tài khoản):", bg="#111827", fg="#cbd5e1").pack(anchor="w")
         self.cmb_goi_luot = ttk.Combobox(
@@ -230,9 +275,8 @@ class AppVideoReviewStudio(tk.Tk):
             state="readonly",
         )
         self.cmb_goi_luot.current(0)
-        self.cmb_goi_luot.pack(fill="x", pady=(2, 10))
+        self.cmb_goi_luot.pack(fill="x", pady=(2, 8))
 
-        # Hai nút hành động chính
         tk.Button(
             left_col,
             text="✨ BƯỚC 1: TẠO KỊCH BẢN STORYBOARD (DUYỆT TRƯỚC)",
@@ -242,7 +286,7 @@ class AppVideoReviewStudio(tk.Tk):
             relief="flat",
             pady=8,
             command=self._tao_kich_ban_storyboard,
-        ).pack(fill="x", pady=4)
+        ).pack(fill="x", pady=3)
 
         tk.Button(
             left_col,
@@ -251,9 +295,9 @@ class AppVideoReviewStudio(tk.Tk):
             fg="#ffffff",
             font=("Segoe UI", 10, "bold"),
             relief="flat",
-            pady=10,
+            pady=9,
             command=self._xuat_video_mp4,
-        ).pack(fill="x", pady=4)
+        ).pack(fill="x", pady=3)
 
         # --- CỘT PHẢI: STORYBOARD EDITOR & NHẬT KÝ ---
         sb_frame = tk.LabelFrame(
@@ -267,7 +311,7 @@ class AppVideoReviewStudio(tk.Tk):
         )
         sb_frame.pack(fill="both", expand=True)
 
-        self.lst_scenes = tk.Listbox(sb_frame, height=12, bg="#0f172a", fg="#f8fafc", selectbackground="#2563eb", font=("Consolas", 10))
+        self.lst_scenes = tk.Listbox(sb_frame, height=11, bg="#0f172a", fg="#f8fafc", selectbackground="#2563eb", font=("Consolas", 10))
         self.lst_scenes.pack(fill="x", pady=(0, 6))
         self.lst_scenes.bind("<<ListboxSelect>>", self._khi_chon_phan_canh)
 
@@ -276,7 +320,8 @@ class AppVideoReviewStudio(tk.Tk):
         tk.Label(f_edit, text="Nhân vật cảnh này:", bg="#111827", fg="#fbbf24").pack(side="left")
         self.ent_nv_canh = tk.Entry(f_edit, width=22, bg="#1e293b", fg="#fbbf24", insertbackground="#fff")
         self.ent_nv_canh.pack(side="left", padx=6)
-        tk.Button(f_edit, text="💾 Lưu sửa cảnh này", bg="#059669", fg="#fff", relief="flat", padx=10, command=self._luu_sua_phan_canh).pack(side="left")
+        tk.Button(f_edit, text="💾 Lưu sửa cảnh này", bg="#059669", fg="#fff", relief="flat", padx=10, command=self._luu_sua_phan_canh).pack(side="left", padx=4)
+        tk.Button(f_edit, text="👁️ Xem Trước Khung Hình Video", bg="#2563eb", fg="#fff", relief="flat", padx=10, command=self._xem_truoc_khung_hinh_canh).pack(side="left")
 
         self.txt_loi_binh = scrolledtext.ScrolledText(sb_frame, height=5, bg="#1e293b", fg="#fde047", insertbackground="#fff", font=("Segoe UI", 10))
         self.txt_loi_binh.pack(fill="x", pady=6)
@@ -285,7 +330,7 @@ class AppVideoReviewStudio(tk.Tk):
         log_frame.pack(fill="x", pady=(8, 0))
         self.txt_log = scrolledtext.ScrolledText(log_frame, height=8, bg="#090d16", fg="#a7f3d0", font=("Consolas", 9))
         self.txt_log.pack(fill="x")
-        self.ghi_log("✅ Đã khởi động Manga/Manhwa Video Review Studio độc lập (An toàn 100%, tách biệt với luồng Dịch Truyện).")
+        self.ghi_log("✅ Đã khởi động Manga/Manhwa Video Review Studio v1.0 (Độc lập 100% với luồng Dịch Truyện).")
 
     def ghi_log(self, msg: str) -> None:
         self.txt_log.insert("end", msg + "\n")
@@ -304,6 +349,32 @@ class AppVideoReviewStudio(tk.Tk):
         bible_local = p.parent / "character_bible.json"
         self.cast_memory = CharacterCastMemory(bible_local)
         self.ghi_log(f"📂 Đã chọn thư mục: {d} (Đã nạp {len(self.cast_memory.characters)} hồ sơ nhân vật).")
+
+    def _chon_file_zip_chapter(self):
+        f = filedialog.askopenfilename(title="Chọn gói ảnh Chapter (.zip / .cbz)", filetypes=[("Gói truyện", "*.zip *.cbz")])
+        if not f:
+            return
+        self.ent_folder.delete(0, "end")
+        self.ent_folder.insert(0, f)
+        p = Path(f)
+        self.ent_ten_truyen.delete(0, "end")
+        self.ent_ten_truyen.insert(0, p.stem)
+        bible_local = p.parent / "character_bible.json"
+        self.cast_memory = CharacterCastMemory(bible_local)
+        self.ghi_log(f"📦 Đã chọn gói truyện: {f}.")
+
+    def _tu_dong_quet_nhan_vat(self):
+        src_str = self.ent_folder.get().strip()
+        if not src_str or not Path(src_str).exists():
+            messagebox.showwarning("Chưa chọn nguồn ảnh", "Hãy chọn thư mục hoặc gói ZIP Chapter trước khi quét nhân vật!")
+            return
+        try:
+            self.panels_bytes, self.ocr_per_panel = nap_danh_sach_anh_va_thoai_tu_thu_muc(Path(src_str))
+            ds_quet = tu_dong_quet_ho_so_nhan_vat_tu_thoai(self.ocr_per_panel, self.cast_memory)
+            ten_ds = ", ".join(c["ten"] for c in ds_quet)
+            self.ghi_log(f"🔍 Đã tự động quét & cập nhật {len(ds_quet)} nhân vật vào Hồ sơ bộ truyện: {ten_ds}")
+        except Exception as exc:
+            messagebox.showerror("Lỗi quét nhân vật", str(exc))
 
     def _mo_cua_so_ho_so_nhan_vat(self):
         win = tk.Toplevel(self)
@@ -358,20 +429,24 @@ class AppVideoReviewStudio(tk.Tk):
 
     def _tao_kich_ban_storyboard(self):
         folder_str = self.ent_folder.get().strip()
-        if not folder_str or not Path(folder_str).is_dir():
-            messagebox.showwarning("Chưa chọn thư mục", "Hãy chọn thư mục chứa ảnh Chapter trước!")
+        if not folder_str or not Path(folder_str).exists():
+            messagebox.showwarning("Chưa chọn nguồn Chapter", "Hãy chọn thư mục hoặc file ZIP chứa ảnh Chapter trước!")
             return
         try:
             p_folder = Path(folder_str)
             self.panels_bytes, self.ocr_per_panel = nap_danh_sach_anh_va_thoai_tu_thu_muc(p_folder)
+            if not self.cast_memory.characters:
+                tu_dong_quet_ho_so_nhan_vat_tu_thoai(self.ocr_per_panel, self.cast_memory)
             pc_key = self.cmb_phong_cach.get().split(" — ", 1)[0].strip()
+            goi_key = self.cmb_goi_luot.get().split(" — ", 1)[0].strip()
             self.kich_ban_hien_tai = sinh_kich_ban_review_chuong(
                 self.panels_bytes,
                 self.ocr_per_panel,
                 cast_memory=self.cast_memory,
                 phong_cach=pc_key,
                 ten_truyen=self.ent_ten_truyen.get().strip(),
-                ten_chap=p_folder.name,
+                ten_chap=p_folder.stem if p_folder.is_file() else p_folder.name,
+                thu_ket_noi_vision_cuc_bo=(goi_key == "review_pro_character"),
             )
             self.lst_scenes.delete(0, "end")
             for sc in self.kich_ban_hien_tai.get("scenes") or []:
@@ -414,6 +489,36 @@ class AppVideoReviewStudio(tk.Tk):
         )
         self.ghi_log(f"💾 Đã cập nhật lời thuyết minh Cảnh #{sc['scene_index']:02d}.")
 
+    def _xem_truoc_khung_hinh_canh(self):
+        sel = self.lst_scenes.curselection()
+        if not sel or not self.kich_ban_hien_tai or not self.panels_bytes:
+            messagebox.showinfo("Chọn phân cảnh", "Hãy bấm chọn 1 phân cảnh trong danh sách Storyboard để xem trước!")
+            return
+        idx = sel[0]
+        sc = self.kich_ban_hien_tai["scenes"][idx]
+        dinh_dang_key = self.cmb_dinh_dang.get().split(" — ", 1)[0].strip()
+        kich_thuoc = (DINH_DANG_VIDEO.get(dinh_dang_key) or DINH_DANG_VIDEO["tiktok_9_16"])["kich_thuoc"]
+        frame_b = ve_khung_hinh_pan_zoom_va_phu_de(
+            self.panels_bytes[min(idx, len(self.panels_bytes) - 1)],
+            loi_thuyet_minh=sc.get("loi_thuyet_minh") or "",
+            nhan_vat=sc.get("nhan_vat") or "",
+            kich_thuoc_video=kich_thuoc,
+            tien_do_canh=0.5,
+            kieu_chuyen_dong=sc.get("hieu_ung_camera") or "pan_down",
+        )
+        tmp_preview = Path(tempfile.gettempdir()) / f"preview_scene_{idx + 1:02d}.jpg"
+        tmp_preview.write_bytes(frame_b)
+        if os.name == "nt":
+            os.startfile(str(tmp_preview))
+        self.ghi_log(f"👁️ Đã mở ảnh xem trước Cảnh #{idx + 1:02d} ({kich_thuoc[0]}x{kich_thuoc[1]}): {tmp_preview}")
+
+    def _lay_toc_do_doc(self) -> float:
+        raw = self.cmb_toc_do.get().split("x", 1)[0].strip()
+        try:
+            return float(raw)
+        except Exception:
+            return 1.15
+
     def _xuat_video_mp4(self):
         if self.dang_xu_ly:
             return
@@ -422,10 +527,13 @@ class AppVideoReviewStudio(tk.Tk):
             if not self.kich_ban_hien_tai:
                 return
 
-        folder_p = Path(self.ent_folder.get().strip())
+        src_p = Path(self.ent_folder.get().strip())
+        out_folder = src_p.parent if src_p.is_file() else src_p
+        ten_goc = src_p.stem if src_p.is_file() else src_p.name
         dinh_dang_key = self.cmb_dinh_dang.get().split(" — ", 1)[0].strip()
         giong_key = self.cmb_giong.get().split(" — ", 1)[0].strip()
         goi_key = self.cmb_goi_luot.get().split(" — ", 1)[0].strip()
+        toc_do_val = self._lay_toc_do_doc()
         token_val = self.ent_token.get().strip()
 
         self.cau_hinh.update(
@@ -434,11 +542,12 @@ class AppVideoReviewStudio(tk.Tk):
                 "dinh_dang": dinh_dang_key,
                 "ma_giong": giong_key,
                 "goi_luot": goi_key,
+                "toc_do_doc": toc_do_val,
             }
         )
         luu_cau_hinh_studio(self.cau_hinh)
 
-        out_mp4 = folder_p / f"{folder_p.name}_Video_Review_{dinh_dang_key}.mp4"
+        out_mp4 = out_folder / f"{ten_goc}_Video_Review_{dinh_dang_key}.mp4"
         self.dang_xu_ly = True
 
         def _worker():
@@ -449,23 +558,24 @@ class AppVideoReviewStudio(tk.Tk):
                         self.cau_hinh.get("server_url") or "https://translation-api.vibe1.tinhgon.xyz",
                         token_val,
                         ma_goi=goi_key,
-                        ma_dinh_danh_video=f"{folder_p.name}:{dinh_dang_key}",
+                        ma_dinh_danh_video=f"{ten_goc}:{dinh_dang_key}",
                     )
                     self.ghi_log(
                         f"✅ Đã xác thực gói '{goi_key}' (-{kq_ve['so_luot_da_tru']} lượt · Số dư còn {kq_ve['con_lai_sau_tru']} lượt)."
                     )
-                self.ghi_log("🎙️ Đang tổng hợp giọng đọc thuyết minh & dựng chuyển động Pan/Zoom MP4...")
+                self.ghi_log(f"🎙️ Đang tổng hợp giọng đọc thuyết minh ({toc_do_val:.2f}x) & dựng chuyển động Pan/Zoom MP4...")
                 kq = xuat_video_review_mp4(
                     self.panels_bytes,
                     self.kich_ban_hien_tai,
                     out_mp4,
                     ma_dinh_dang=dinh_dang_key,
                     ma_giong=giong_key,
-                    toc_do_doc=1.15,
+                    toc_do_doc=toc_do_val,
                 )
                 self.ghi_log(
                     f"🎉 HOÀN TẤT! Đã xuất Video Review ({kq['tong_thoi_luong_giay']}s):\n"
                     f"   • Video MP4: {kq['video_path']}\n"
+                    f"   • Audio Master WAV: {kq['audio_master_path']}\n"
                     f"   • Phụ đề SRT: {kq['srt_path']}"
                 )
             except Exception as exc:
