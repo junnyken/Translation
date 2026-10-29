@@ -5816,12 +5816,14 @@ class AppDichTruyenWindows(tk.Tk):
         so_luong = len(ds)
         cac_truyen = list(dict.fromkeys(ch.get("ten_truyen") or self.ent_ten_truyen.get().strip() or "Truyen-Moi" for ch in ds))
         vi_tri_bat_dau = 1
-        vi_tri_ket_thuc = so_luong
+        vi_tri_ket_thuc = max(1, so_luong)
+        mo_rong = bool(self.var_mo_rong_ca_bo.get()) if hasattr(self, "var_mo_rong_ca_bo") else True
         if url_goc and so_luong > 1:
             for idx_c, ch in enumerate(ds, start=1):
                 if ch.get("url", "").rstrip("/") == url_goc.strip().rstrip("/"):
                     vi_tri_bat_dau = idx_c
-                    vi_tri_ket_thuc = idx_c
+                    if not mo_rong:
+                        vi_tri_ket_thuc = idx_c
                     break
         self.spin_tu.delete(0, "end")
         self.spin_tu.insert(0, str(vi_tri_bat_dau))
@@ -5897,6 +5899,7 @@ class AppDichTruyenWindows(tk.Tk):
                 "longstrip": bool(self.var_longstrip.get()),
                 "ollama_cpu": bool(self.var_cpu_ollama.get()),
                 "auto_confirm_link_pages": tu_dong_link,
+                "mo_rong_ca_bo": bool(self.var_mo_rong_ca_bo.get()) if hasattr(self, "var_mo_rong_ca_bo") else True,
                 "parallel_chapters": so_luong_song_song,
                 "from": max(1, int(self.spin_tu.get() or 1)),
                 "to": int(self.spin_den.get() or len(self.ds_chapter_quet) or 1),
@@ -5997,7 +6000,9 @@ class AppDichTruyenWindows(tk.Tk):
             out_base = Path(options["output"])
             default_series = lam_sach_ten_thu_muc(options["name"])
             (out_base / default_series).mkdir(parents=True, exist_ok=True)
-            chapters = options["chapters"] or quet_danh_sach_chapter_tu_url(options["url"])
+            chapters = options["chapters"] or quet_danh_sach_chapter_tu_url(
+                options["url"], mo_rong_ca_bo=bool(options.get("mo_rong_ca_bo", True))
+            )
             selected = chapters[options["from"] - 1:options["to"]]
             if not selected:
                 raise NeedsAttention("Khoảng chapter đã chọn không có dữ liệu.")
