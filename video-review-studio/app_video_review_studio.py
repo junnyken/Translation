@@ -36,6 +36,7 @@ from core_video_renderer import (
 from core_vision_character import (
     PHONG_CACH_KICH_BAN,
     CharacterCastMemory,
+    lam_sach_thoai_ocr_cho_review,
     sinh_kich_ban_review_chuong,
     tach_khung_tranh_thong_minh,
     tu_dong_quet_ho_so_nhan_vat_tu_thoai,
@@ -80,12 +81,35 @@ def luu_cau_hinh_studio(data: dict[str, Any]) -> None:
         pass
 
 
+def _quet_ocr_nhanh_tren_anh(img_bytes: bytes) -> list[str]:
+    """Dự phòng quét chữ trực tiếp trên ảnh nếu thư mục chưa có sẵn tệp trang-thai.json."""
+    try:
+        from rapidocr_onnxruntime import RapidOCR
+        from PIL import Image
+        with Image.open(io.BytesIO(img_bytes)) as im:
+            im_rgb = im.convert("RGB")
+            engine = RapidOCR()
+            res, _ = engine(im_rgb, use_cls=False)
+        if not res:
+            return []
+        lines: list[str] = []
+        for item in res:
+            if isinstance(item, (list, tuple)) and len(item) >= 3:
+                txt = lam_sach_thoai_ocr_cho_review(str(item[1] or ""))
+                score = float(item[2] or 0.0)
+                if txt and score >= 0.45:
+                    lines.append(txt)
+        return lines
+    except Exception:
+        return []
+
+
 def nap_danh_sach_anh_va_thoai_tu_thu_muc(folder_path: Path) -> tuple[list[bytes], list[list[str]]]:
     """
     Quét thư mục Chapter (hoặc file .zip/.cbz):
-    - Nếu thư mục đã có sẵn dữ liệu vùng dịch (`_translation_ledger.json`), tự động trích xuất lời thoại đã dịch
-      để AI biên kịch bám sát 100% nội dung!
-    - Tự động cắt các trang Webtoon dài thành từng khung tranh (Panel) vừa vặn.
+    - Đọc trực tiếp dữ liệu vùng thoại từ `trang-thai.json` (hoặc `_translation_ledger.json`) theo đúng thứ tự trang
+      (`001.jpg` -> `pages[0]`, `002.jpg` -> `pages[1]`...) kèm cả `ban_dich` lẫn `chu_goc` để AI biên kịch hiểu đúng 100% cốt truyện!
+    - Nếu thư mục ảnh chưa qua App dịch (chưa có `trang-thai.json`), tự động quét OCR trực tiếp trên ảnh.
     """
     exts = {".jpg", ".jpeg", ".png", ".webp"}
     if folder_path.is_file() and folder_path.suffix.lower() in (".zip", ".cbz"):
@@ -99,7 +123,7 @@ def nap_danh_sach_anh_va_thoai_tu_thu_muc(folder_path: Path) -> tuple[list[bytes
             for name in names:
                 for pb in tach_khung_tranh_thong_minh(zf.read(name)):
                     panels_zip.append(pb)
-                    ocr_zip.append([])
+                    ocr_zip.append(_quet_ocr_nhanh_tren_anh(pb))
         if not panels_zip:
             raise ValueError(f"Gói nén không chứa ảnh hợp lệ: {folder_path}")
         return panels_zip, ocr_zip
@@ -112,19 +136,35 @@ def nap_danh_sach_anh_va_thoai_tu_thu_muc(folder_path: Path) -> tuple[list[bytes
         raise ValueError(f"Không tìm thấy ảnh (.jpg/.png/.webp) trong thư mục: {folder_path}")
 
     thoai_theo_file: dict[str, list[str]] = {}
-    ledger_file = folder_path / "_translation_ledger.json"
-    if ledger_file.is_file():
+    for ten_ledger in ("trang-thai.json", "_translation_ledger.json"):
+        ledger_file = folder_path / ten_ledger
+        if not ledger_file.is_file():
+            continue
         try:
             ledger_data = json.loads(ledger_file.read_text(encoding="utf-8"))
-            for p in ledger_data.get("pages") or []:
-                fname = str(p.get("output_name") or p.get("source") or "")
-                ds_cau = [
-                    str(r.get("ban_dich") or r.get("chu_goc") or "").strip()
-                    for r in (p.get("regions") or [])
-                    if isinstance(r, dict) and str(r.get("ban_dich") or r.get("chu_goc") or "").strip()
-                ]
+            pages = ledger_data.get("pages") or []
+            for p_idx, p in enumerate(pages):
+                regs = [r for r in (p.get("regions") or []) if isinstance(r, dict)]
+                # Sắp xếp bóng thoại từ trên xuống dưới theo thứ tự đọc
+                regs.sort(key=lambda r: (int(r.get("y") or 0) // 160, int(r.get("x") or 0)))
+                ds_cau: list[str] = []
+                for r in regs:
+                    goc = lam_sach_thoai_ocr_cho_review(str(r.get("chu_goc") or ""))
+                    dich = lam_sach_thoai_ocr_cho_review(str(r.get("ban_dich") or ""))
+                    # Nếu câu gốc là tiếng Anh rõ nghĩa, đưa trực tiếp câu gốc đã làm sạch để AI Biên kịch hiểu chuẩn 100% mạch truyện gốc
+                    if goc and sum(1 for c in goc if c.isascii() and c.isalpha()) >= len(goc) * 0.55:
+                        ds_cau.append(goc)
+                    elif dich:
+                        ds_cau.append(dich)
+                    elif goc:
+                        ds_cau.append(goc)
+                fname = str(p.get("output_name") or "")
                 if fname:
                     thoai_theo_file[Path(fname).name] = ds_cau
+                if p_idx < len(files):
+                    thoai_theo_file[files[p_idx].name] = ds_cau
+                thoai_theo_file[f"{p_idx + 1:03d}.jpg"] = ds_cau
+            break
         except Exception:
             pass
 
@@ -133,13 +173,19 @@ def nap_danh_sach_anh_va_thoai_tu_thu_muc(folder_path: Path) -> tuple[list[bytes
     for f in files:
         raw_b = f.read_bytes()
         sub_panels = tach_khung_tranh_thong_minh(raw_b)
-        ds_thoai_trang = thoai_theo_file.get(f.name) or []
+        ds_thoai_trang = thoai_theo_file.get(f.name)
+        if ds_thoai_trang is None:
+            ds_thoai_trang = _quet_ocr_nhanh_tren_anh(raw_b)
+        so_sub = len(sub_panels)
         for idx_p, pb in enumerate(sub_panels):
             panels_out.append(pb)
-            if idx_p == 0 and ds_thoai_trang:
+            if so_sub == 1:
                 ocr_per_panel.append(ds_thoai_trang)
             else:
-                ocr_per_panel.append([])
+                # Chia đều các câu thoại theo thứ tự khung tranh con từ trên xuống dưới
+                start_i = (idx_p * len(ds_thoai_trang)) // so_sub
+                end_i = ((idx_p + 1) * len(ds_thoai_trang)) // so_sub
+                ocr_per_panel.append(ds_thoai_trang[start_i:end_i])
 
     return panels_out, ocr_per_panel
 

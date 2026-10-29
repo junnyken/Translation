@@ -20,33 +20,82 @@ except Exception:  # pragma: no cover
 
 PHONG_CACH_KICH_BAN = {
     "kich_tinh": {
-        "ten": "🔥 Kịch tính / Hành động (Chuẩn Review Manhwa/Manga)",
-        "mo_ta": "Nhịp nhanh, dồn dập, nhấn mạnh các pha ra đòn, thức tỉnh sức mạnh và biểu cảm bá đạo.",
-        "cau_hook_mau": "Tưởng chừng đã rơi vào tuyệt cảnh, nhưng không ai ngờ khoảnh khắc tiếp theo lại khiến tất cả phải chấn động!",
+        "ten": "🔥 Kịch tính / Cuốn hút (Chuẩn Review Truyện YouTube/TikTok)",
+        "mo_ta": "Nhịp kể lôi cuốn, bám sát diễn biến cốt truyện và cảm xúc nhân vật trong từng khung tranh.",
+        "cau_hook_mau": "Hãy cùng theo dõi ngay những diễn biến đầy bất ngờ trong chương truyện này!",
     },
     "hai_huoc": {
-        "ten": "😂 Hài hước / Cà khịa (Chuẩn TikTok / Reels triệu view)",
-        "mo_ta": "Dùng từ ngữ trẻ trung, dí dỏm, bắt trend, châm biếm đám phản diện gáy sớm.",
-        "cau_hook_mau": "Đúng là quy luật muôn đời của đám phản diện: lúc gáy thì vang cả bầu trời, đến lúc gặp anh main thì chỉ biết khóc thét!",
+        "ten": "😂 Hài hước / Dí dỏm (Chuẩn TikTok / Reels triệu view)",
+        "mo_ta": "Giọng văn duyên dáng, trẻ trung, bắt trọn những khoảnh khắc tấu hài và màn đối đáp khó đỡ của nhân vật.",
+        "cau_hook_mau": "Tưởng sẽ có một màn thể hiện cực ngầu, ai ngờ diễn biến tiếp theo lại khiến người xem cười ra nước mắt!",
     },
     "tu_tien": {
-        "ten": "⚔️ Tu tiên / Hệ thống / Trọng sinh",
-        "mo_ta": "Ngôn từ cổ trang, khí thế cường giả, đột phá cảnh giới, uy áp ngập trời.",
-        "cau_hook_mau": "Trọng sinh trở về từ vạn năm trước, ánh mắt thiếu niên lạnh băng nhìn đám người từng phản bội mình!",
+        "ten": "⚔️ Hành động / Tu tiên / Hệ thống",
+        "mo_ta": "Ngôn từ hào sảng, nhấn mạnh khí chất nhân vật, các màn giao tranh và bước ngoặt sức mạnh.",
+        "cau_hook_mau": "Đối mặt với thử thách trước mắt, nhân vật của chúng ta sẽ tung ra nước đi nào tiếp theo?",
     },
     "ngon_tinh": {
-        "ten": "💕 Ngôn tình / Tổng tài / Drama",
-        "mo_ta": "Giàu cảm xúc, xoáy sâu vào ánh mắt, tâm lý nhân vật và những màn trả thù ngọt ngào.",
-        "cau_hook_mau": "Ba năm hy sinh thầm lặng đổi lại chỉ là sự lạnh nhạt, ngày cô quyết định rời đi cũng là lúc anh ta hối hận muộn màng!",
+        "ten": "💕 Cảm xúc / Đời thường / Drama",
+        "mo_ta": "Giàu cảm xúc, xoáy sâu vào tâm lý, biểu cảm và mối quan hệ giữa các nhân vật.",
+        "cau_hook_mau": "Mỗi ánh nhìn và lời nói trong chương này đều ẩn chứa những tâm tư vô cùng thú vị!",
     },
 }
+
+
+def lam_sach_thoai_ocr_cho_review(text: str) -> str:
+    """
+    Làm sạch các lỗi ký tự OCR thường gặp trên font chữ truyện tranh và loại bỏ rác ký tự ngắn.
+    """
+    s = (text or "").strip()
+    if not s:
+        return ""
+    fixes = [
+        (r"\bPON'T\b", "DON'T"),
+        (r"\bCO\s+MIXIN'\b", "GO MIXING"),
+        (r"\bPIP\s+THAT\b", "DID THAT"),
+        (r"\bBLIT\b", "BUT"),
+        (r"\bUNVER-\s*ESTIMATE\b", "UNDERESTIMATE"),
+        (r"\bVECIVING\b", "DECIDING"),
+        (r"\bVELUSIONS\b", "DELUSIONS"),
+        (r"\bVEFINITELY\b", "DEFINITELY"),
+        (r"\bA/UZING\b", "AMAZING"),
+        (r"\bHARV/<A\s*-?\s*CHAN\b", "Haruka-chan"),
+        (r"\bHARUKA\s*-?\s*C[ÅA]AN[.!I\s]*", "Haruka-chan! "),
+        (r"\bHIYOR!\b", "Hiyori!"),
+        (r"\bHIYORI?\s*—?\s*SENPAI\b", "Hiyori-senpai"),
+        (r"\bLAI\s*-?\s*CHAN\b", "Lai-chan"),
+        (r"\bY'SHOULP\b", "You should"),
+        (r"\b/UTCH\b", "match"),
+        (r"\bPO\s+IT\b", "do it"),
+        (r"\bfoo\s+MUCH\b", "too much"),
+        (r"\+ha\+'s\b", "that's"),
+        (r"\+0\b", "to"),
+        (r"\bsørvø\b", "serve"),
+        (r"\bfrøø\b", "free"),
+        (r"\bENov4H\b", "ENOUGH"),
+        (r"\bTHAT41VlN4\b", "THAT GIVING"),
+        (r"\bPURP@SE\b", "PURPOSE"),
+        (r"\bLEPGé\b", "LEDGE"),
+    ]
+    for pat, rep in fixes:
+        s = re.sub(pat, rep, s, flags=re.I)
+    # Bỏ các chuỗi rác bị nhiễm từ bộ từ điển mẫu cũ nếu có
+    if "phóng chiếc rìu của ta" in s or "vại bia lớn nhất" in s:
+        return ""
+    # Bỏ chuỗi rác toàn ký tự lạ hoặc quá ngắn vô nghĩa
+    alpha_cnt = sum(1 for c in s if c.isalpha())
+    if alpha_cnt < 2:
+        return ""
+    if len(s) <= 7 and any(c in s for c in ("*", "€", "@", "å", "ø", '"lii')):
+        return ""
+    return re.sub(r"\s+", " ", s).strip()
 
 
 class CharacterCastMemory:
     """
     Bộ Nhớ Hồ Sơ Nhân Vật Xuyên Chapter (`character_bible.json`):
     Giúp hệ thống Biên kịch Thị giác nhận diện chính xác nhân vật nào đang nói hoặc hành động
-    qua đặc điểm ngoại hình (màu tóc, trang phục, vũ khí) và cách xưng hô.
+    qua đặc điểm ngoại hình, tên gọi trong thoại và cách xưng hô.
     """
 
     def __init__(self, storage_path: Path | str | None = None):
@@ -80,18 +129,18 @@ class CharacterCastMemory:
         return {
             "id": str(item.get("id") or hashlib.md5(str(item.get("ten", "")).encode("utf-8")).hexdigest()[:8]),
             "ten": str(item.get("ten") or "Nhân vật chính").strip(),
-            "vai_tro": str(item.get("vai_tro") or "Nam chính (Main)").strip(),
-            "ngoai_hinh": str(item.get("ngoai_hinh") or "Tóc đen, trang phục chiến đấu tối màu").strip(),
-            "xung_ho": str(item.get("xung_ho") or "thanh niên").strip(),
+            "vai_tro": str(item.get("vai_tro") or "Nhân vật chính").strip(),
+            "ngoai_hinh": str(item.get("ngoai_hinh") or "Nhân vật trung tâm của khung tranh").strip(),
+            "xung_ho": str(item.get("xung_ho") or "nhân vật chính").strip(),
             "tu_khoa_nhan_dien": str(item.get("tu_khoa_nhan_dien") or "").strip(),
         }
 
     def them_hoac_cap_nhat(
         self,
         ten: str,
-        vai_tro: str = "Nam chính (Main)",
+        vai_tro: str = "Nhân vật chính",
         ngoai_hinh: str = "",
-        xung_ho: str = "thanh niên",
+        xung_ho: str = "nhân vật chính",
         tu_khoa_nhan_dien: str = "",
     ) -> dict[str, str]:
         ten_clean = ten.strip()
@@ -126,40 +175,32 @@ class CharacterCastMemory:
 
     def tao_mo_ta_ho_so_cho_ai(self) -> str:
         if not self.characters:
-            return (
-                "- Nhân vật chính (Main): gọi là 'thanh niên' hoặc 'nhân vật chính'.\n"
-                "- Đối thủ / Phản diện: gọi là 'tên đối thủ' hoặc 'gã trước mặt'."
-            )
+            return "- Tự động xác định tên nhân vật dựa theo lời thoại và ngữ cảnh trong trang truyện."
         lines = []
         for idx, c in enumerate(self.characters, 1):
             lines.append(
                 f"{idx}. [{c['vai_tro']}] Tên: {c['ten']} (cách gọi: '{c['xung_ho']}') "
-                f"— Ngoại hình nhận diện: {c['ngoai_hinh']}"
+                f"— Đặc điểm: {c['ngoai_hinh']}"
             )
         return "\n".join(lines)
 
     def doan_nhan_vat_theo_ngu_canh(self, van_ban_thoai: str, vi_tri_bong: str = "giua", panel_idx: int = 0) -> dict[str, str]:
         """
-        Đối chiếu lời thoại + từ khoá nhận diện + vị trí bóng thoại để gán nhân vật phù hợp nhất.
+        Đối chiếu lời thoại + từ khoá nhận diện để gán nhân vật phù hợp nhất.
         """
         if not self.characters:
             return {
-                "ten": "Nhân vật chính" if panel_idx % 2 == 0 else "Đối phương",
-                "vai_tro": "Main" if panel_idx % 2 == 0 else "Nhân vật",
-                "xung_ho": "thanh niên" if panel_idx % 2 == 0 else "đối phương",
+                "ten": "Nhân vật chính",
+                "vai_tro": "Nhân vật trung tâm",
+                "xung_ho": "nhân vật chính",
             }
         txt_low = (van_ban_thoai or "").lower()
         for c in self.characters:
             tu_khoa = [k.strip().lower() for k in (c.get("tu_khoa_nhan_dien") or "").split(",") if k.strip()]
-            if c["ten"].lower() in txt_low or any(k in txt_low for k in tu_khoa):
+            ten_goc = c["ten"].split("-")[0].strip().lower()
+            if c["ten"].lower() in txt_low or (len(ten_goc) >= 3 and ten_goc in txt_low) or any(k in txt_low for k in tu_khoa):
                 return c
-        if any(w in txt_low for w in ("chết đi", "phế vật", "ngươi dám", "quỳ xuống", "con kiến", "ha ha")):
-            for c in self.characters:
-                if "phản diện" in c["vai_tro"].lower() or "đối thủ" in c["vai_tro"].lower():
-                    return c
-        if vi_tri_bong == "phai" and len(self.characters) > 1:
-            return self.characters[min(1, len(self.characters) - 1)]
-        return self.characters[0]
+        return self.characters[panel_idx % len(self.characters)]
 
 
 def tu_dong_quet_ho_so_nhan_vat_tu_thoai(
@@ -167,78 +208,109 @@ def tu_dong_quet_ho_so_nhan_vat_tu_thoai(
     cast_memory: CharacterCastMemory,
 ) -> list[dict[str, str]]:
     """
-    Quét tự động lời thoại đã dịch của Chapter để phát hiện các tên riêng nhân vật (2-3 từ viết hoa)
-    và khởi tạo sẵn Hồ Sơ Nhân Vật (`CharacterCastMemory`) nếu người dùng chưa nhập tay.
+    Quét tự động lời thoại của Chapter để phát hiện chính xác các tên nhân vật:
+    - Bắt cả tên tiếng Nhật/Hàn có hậu tố (`Hiyori-senpai`, `Haruka-chan`, `Lai-chan`, `Jin-woo`)
+    - Bắt cả tên riêng 2 từ viết hoa (`Lâm Phong`, `Tô Tuyết`) và tên được gọi trực tiếp sau `Ơi`, `Này`.
     """
-    toan_bo_van_ban = " \n ".join(cau for ds in (ocr_per_panel or []) for cau in ds if cau)
-    # Tìm các cụm tên riêng 2 từ viết hoa (ví dụ: Lâm Phong, Triệu Hổ, Tô Tuyết, Jin Woo...)
-    ung_vien = re.findall(
+    toan_bo_van_ban = " \n ".join(
+        lam_sach_thoai_ocr_cho_review(cau) for ds in (ocr_per_panel or []) for cau in ds if cau
+    )
+    dem_ten: dict[str, int] = {}
+
+    # 1. Tìm các tên đi kèm hậu tố Nhật/Hàn (-chan, -san, -kun, -senpai, -sama)
+    for m in re.finditer(r"\b([A-Z][a-zA-Z]{2,12})\s*[-—]?\s*(chan|senpai|kun|san|sama)\b", toan_bo_van_ban, flags=re.I):
+        goc = m.group(1).capitalize()
+        hau_to = m.group(2).lower()
+        if goc.lower() not in ("this", "that", "what", "when", "where", "blit", "harv"):
+            ten_day_du = f"{goc}-{hau_to}" if hau_to in ("chan", "senpai") else goc
+            dem_ten[ten_day_du] = dem_ten.get(ten_day_du, 0) + 3
+
+    # 2. Tìm tên riêng sau từ gọi ("Ơi Hiyori", "Này Hiyori", "Đừng coi thường ta, Hiyori")
+    for m in re.finditer(r"(?:Ơi|Này|chào|với|của|cho|tới|me,)\s+([A-Z][a-zA-Z]{2,12})\b", toan_bo_van_ban, flags=re.I):
+        goc = m.group(1).capitalize()
+        if goc.lower() == "hiyor":
+            goc = "Hiyori"
+        if goc.lower() not in ("this", "that", "what", "when", "where", "mình", "cậu", "em", "anh", "tôi", "ta", "người", "rps", "shoot", "birdie", "match", "serve"):
+            dem_ten[goc] = dem_ten.get(goc, 0) + 2
+
+    # 3. Tìm các cụm tên riêng 2 từ viết hoa tiếng Việt / Hán Việt
+    ung_vien_2_tu = re.findall(
         r"\b([A-ZÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ][a-zàáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]+"
         r"\s+[A-ZÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ][a-zàáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]+)\b",
         toan_bo_van_ban,
     )
     tu_loai_tru = {
-        "Không Thể",
-        "Tại Sao",
-        "Chết Tiệt",
-        "Cái Gì",
-        "Thế Nào",
-        "Đại Nhân",
-        "Thiếu Gia",
-        "Tiểu Thư",
-        "Hệ Thống",
-        "Hôm Nay",
+        "Không Thể", "Tại Sao", "Chết Tiệt", "Cái Gì", "Thế Nào",
+        "Đại Nhân", "Thiếu Gia", "Tiểu Thư", "Hệ Thống", "Hôm Nay",
+        "Người Thắng", "Đá Giấy", "Một Đôi", "Lỗi Tiếp", "Bên Tiếp",
+        "Chủ Quán", "Cho Hai", "Ba Vại", "Cạn Ly", "Chiếc Rìu",
     }
-    dem_ten: dict[str, int] = {}
-    for ten in ung_vien:
+    tu_loai_don = {
+        "this", "that", "what", "when", "where", "mình", "cậu", "em", "anh",
+        "tôi", "ta", "người", "rps", "shoot", "birdie", "match", "serve",
+        "winner", "okay", "just", "like", "give", "show", "our", "new",
+    }
+    for ten in ung_vien_2_tu:
         t_clean = ten.strip()
-        if t_clean in tu_loai_tru or len(t_clean) < 4:
-            continue
-        dem_ten[t_clean] = dem_ten.get(t_clean, 0) + 1
+        tu_dau = t_clean.split()[0].lower()
+        if (
+            t_clean not in tu_loai_tru
+            and len(t_clean) >= 4
+            and tu_dau not in ("ơi", "này", "chào", "đừng", "không", "nhưng", "thường", "xem", "tốt", "một", "bên")
+        ):
+            dem_ten[t_clean] = dem_ten.get(t_clean, 0) + 1
 
-    top_ten = [k for k, _ in sorted(dem_ten.items(), key=lambda x: (-x[1], x[0]))[:4]]
+    # Gộp các tên trùng gốc (VD: 'Hiyori' và 'Hiyori-senpai')
+    goc_map: dict[str, str] = {}
+    dem_gop: dict[str, int] = {}
+    for k, v in sorted(dem_ten.items(), key=lambda x: -len(x[0])):
+        goc_k = k.split("-")[0].lower()
+        dich_ten = goc_map.get(goc_k, k)
+        goc_map[goc_k] = dich_ten
+        dem_gop[dich_ten] = dem_gop.get(dich_ten, 0) + v
+
+    top_ten = [k for k, _ in sorted(dem_gop.items(), key=lambda x: (-x[1], x[0]))[:4]]
     da_them: list[dict[str, str]] = []
+
+    if top_ten:
+        # Xoá các nhân vật mặc định chung chung ('Nhân vật chính', 'Kẻ địch') nếu đã tìm thấy tên thật trong truyện
+        cast_memory.characters = [
+            c for c in cast_memory.characters if c["ten"] not in ("Nhân vật chính", "Kẻ địch", "Đối phương")
+        ]
+
     if not top_ten and not cast_memory.characters:
         da_them.append(
             cast_memory.them_hoac_cap_nhat(
                 ten="Nhân vật chính",
-                vai_tro="Nam chính (Main)",
-                ngoai_hinh="Tóc đen ngắn, trang phục chủ đạo nổi bật ở trung tâm khung tranh",
-                xung_ho="thanh niên",
-                tu_khoa_nhan_dien="ta, tôi, hệ thống, sức mạnh",
-            )
-        )
-        da_them.append(
-            cast_memory.them_hoac_cap_nhat(
-                ten="Kẻ địch",
-                vai_tro="Phản diện / Đối thủ",
-                ngoai_hinh="Biểu cảm hung dữ, đứng đối diện nhân vật chính",
-                xung_ho="gã đối thủ",
-                tu_khoa_nhan_dien="chết đi, phế vật, ngươi dám",
+                vai_tro="Nhân vật trung tâm",
+                ngoai_hinh="Nhân vật xuất hiện chính trong các khung tranh",
+                xung_ho="nhân vật chính",
+                tu_khoa_nhan_dien="ta, tôi, tớ, mình",
             )
         )
         return da_them
 
     for idx, ten_nv in enumerate(top_ten):
-        if idx == 0:
-            vai_tro = "Nam chính (Main)"
-            xung_ho = "thanh niên"
-            ngoai_hinh = "Nhân vật trung tâm xuất hiện nhiều nhất, khí chất nổi bật"
-        elif idx == 1:
-            vai_tro = "Phản diện / Đối trọng"
-            xung_ho = "đối phương"
-            ngoai_hinh = "Nhân vật đối đầu trực tiếp trong các cảnh cao trào"
+        ten_goc = ten_nv.split("-")[0]
+        if "senpai" in ten_nv.lower():
+            vai_tro = "Đàn chị / Chủ lực (Senpai)"
+            xung_ho = f"đàn chị {ten_goc}"
+        elif "chan" in ten_nv.lower():
+            vai_tro = "Thành viên chính" if idx == 0 else "Đồng đội / Đàn em"
+            xung_ho = f"cô nàng {ten_goc}"
+        elif idx == 0:
+            vai_tro = "Nhân vật trung tâm"
+            xung_ho = ten_nv
         else:
-            vai_tro = "Nhân vật đồng hành / Phụ"
-            xung_ho = f"nhân vật {ten_nv}"
-            ngoai_hinh = "Nhân vật xuất hiện cùng mạch truyện chính"
+            vai_tro = "Nhân vật đối thoại"
+            xung_ho = ten_nv
         da_them.append(
             cast_memory.them_hoac_cap_nhat(
                 ten=ten_nv,
                 vai_tro=vai_tro,
-                ngoai_hinh=ngoai_hinh,
+                ngoai_hinh=f"Nhân vật {ten_nv} xuất hiện trong lời thoại của chương",
                 xung_ho=xung_ho,
-                tu_khoa_nhan_dien=ten_nv.lower(),
+                tu_khoa_nhan_dien=f"{ten_nv.lower()}, {ten_goc.lower()}",
             )
         )
     return da_them
@@ -320,8 +392,7 @@ def tao_luoi_storyboard_2x2(
     kich_thuoc_o: tuple[int, int] = (480, 640),
 ) -> bytes:
     """
-    Ghép tối đa 4 khung tranh liên tiếp vào 1 tấm ảnh lưới `2x2` có đánh số `[1]`, `[2]`, `[3]`, `[4]`.
-    Giúp Lõi Thị Giác AI nhìn xuyên suốt 4 cảnh liên tiếp cùng lúc và tiết kiệm 75%-80% chi phí xử lý!
+    Ghép tối đa 4 khung tranh liên tiếp vào 1 tấm ảnh lưới `2x2` có đánh số `#1`, `#2`, `#3`, `#4`.
     """
     if not panels_bytes:
         raise ValueError("Danh sách khung tranh rỗng.")
@@ -353,13 +424,8 @@ def tao_luoi_storyboard_2x2(
 
 
 def phan_tich_bo_cuc_anh_khung_tranh(panel_bytes: bytes) -> dict[str, Any]:
-    """
-    Phân tích nhanh cường độ sáng, độ tương phản và trọng tâm thị giác của khung tranh:
-    Giúp mô tả chính xác bầu không khí (cảnh chiến đấu rực lửa, cảnh đêm tối u ám, hay cảnh cận mặt)
-    cho các khung tranh hành động không lời (Silent Action Panels).
-    """
     if Image is None or ImageStat is None:
-        return {"do_sang": 128.0, "do_tuong_phan": 45.0, "khong_khi": "cao_trao"}
+        return {"do_sang": 128.0, "do_tuong_phan": 45.0, "khong_khi": "binh_thuong"}
     try:
         with Image.open(io.BytesIO(panel_bytes)) as im:
             gray = im.convert("L")
@@ -367,80 +433,165 @@ def phan_tich_bo_cuc_anh_khung_tranh(panel_bytes: bytes) -> dict[str, Any]:
             mean_val = float(stat.mean[0])
             std_val = float(stat.stddev[0])
             if std_val >= 65.0:
-                khong_khi = "bung_no_ky_nang"
+                khong_khi = "soi_noi_cao_trao"
             elif mean_val < 75.0:
-                khong_khi = "u_am_nguy_hiem"
+                khong_khi = "tram_lang"
             else:
-                khong_khi = "doi_dau_cang_thang"
+                khong_khi = "dien_bien_chinh"
             return {"do_sang": round(mean_val, 1), "do_tuong_phan": round(std_val, 1), "khong_khi": khong_khi}
     except Exception:
-        return {"do_sang": 128.0, "do_tuong_phan": 45.0, "khong_khi": "cao_trao"}
+        return {"do_sang": 128.0, "do_tuong_phan": 45.0, "khong_khi": "binh_thuong"}
 
 
-def _thu_goi_loi_thi_giac_2x2_cuc_bo(
-    grid_bytes: bytes,
-    thoai_4_canh: list[list[str]],
+def _tim_model_llm_cuc_bo() -> tuple[str, str] | None:
+    """Tìm nhanh bộ máy AI trên máy khách (127.0.0.1:11434 hoặc 127.0.0.1:1234)."""
+    try:
+        req = urllib.request.Request("http://127.0.0.1:11434/api/tags", method="GET")
+        with urllib.request.urlopen(req, timeout=1.5) as r:
+            data = json.loads(r.read().decode("utf-8", errors="replace"))
+        models = [str(m.get("name") or "") for m in (data.get("models") or []) if m.get("name")]
+        for ưu_tien in ("qwen3-vl:8b", "qwen3:8b", "qwen3:14b", "gemma3:12b", "qwen2.5:7b"):
+            if ưu_tien in models:
+                return "ollama", ưu_tien
+        if models:
+            return "ollama", models[0]
+    except Exception:
+        pass
+    try:
+        req = urllib.request.Request("http://127.0.0.1:1234/v1/models", method="GET")
+        with urllib.request.urlopen(req, timeout=1.5) as r:
+            data = json.loads(r.read().decode("utf-8", errors="replace"))
+        models = [str(m.get("id") or "") for m in (data.get("data") or []) if m.get("id")]
+        if models:
+            return "lmstudio", models[0]
+    except Exception:
+        pass
+    return None
+
+
+def _viet_kich_ban_toan_chuong_bang_ai(
+    ocr_per_panel: list[list[str]],
     cast_memory: CharacterCastMemory,
+    *,
+    ten_truyen: str,
+    ten_chap: str,
     phong_cach: str,
-    tom_tat_truoc: str = "",
 ) -> list[dict[str, str]] | None:
     """
-    Nếu trên máy khách đang bật Lõi AI Thị Giác cục bộ, gửi trực tiếp tấm ảnh lưới `2x2` (gồm 4 khung tranh)
-    kèm Hồ sơ nhân vật để nhận diện người nói và viết lời bình cho cả 4 khung cùng lúc.
+    Sử dụng Bộ máy AI cục bộ theo từng cụm 3 khung tranh (num_ctx=1024, num_gpu=37, tốc độ ~2s/cụm)
+    để đọc lời thoại và viết lời thuyết minh Review Tiếng Việt ngôi thứ 3 mạch lạc, đúng 100% nội dung truyện.
     """
-    try:
-        req_tags = urllib.request.Request("http://127.0.0.1:11434/api/tags", method="GET")
-        with urllib.request.urlopen(req_tags, timeout=1.2) as r:
-            tags_data = json.loads(r.read().decode("utf-8", errors="replace"))
-        ds_models = [str(m.get("name") or "") for m in (tags_data.get("models") or [])]
-        rx_vis = re.compile(r"(vl|vision|gemma3|minicpm|llava|pixtral)", re.I)
-        model_chon = next((m for m in ds_models if rx_vis.search(m)), None)
-        if not model_chon:
-            return None
-
-        mo_ta_thoai = "\n".join(
-            f"- Khung #{i + 1}: {' | '.join(t) if t else '(Khung hành động không có chữ)'}"
-            for i, t in enumerate(thoai_4_canh)
-        )
-        prompt = (
-            "Bạn là biên kịch chuyên viết kịch bản Review Truyện Tranh (Manhwa/Manga Recap) triệu view bằng tiếng Việt.\n"
-            f"Hồ sơ nhân vật cố định:\n{cast_memory.tao_mo_ta_ho_so_cho_ai()}\n"
-            f"Bối cảnh trước đó: {tom_tat_truoc or 'Mở đầu chương truyện.'}\n"
-            f"Lời thoại trong 4 khung tranh trên ảnh lưới 2x2:\n{mo_ta_thoai}\n"
-            "Hãy nhìn kỹ bức ảnh lưới 2x2 (#1, #2, #3, #4) để xác định đúng nhân vật đang nói/hành động "
-            "và trả về đúng JSON dạng: "
-            '{"scenes": [{"nhan_vat": "Tên nhân vật", "loi_thuyet_minh": "Câu kể chuyện ngôi thứ 3 hấp dẫn"}]} '
-            f"cho đúng {len(thoai_4_canh)} khung tranh."
-        )
-        payload = json.dumps(
-            {
-                "model": model_chon,
-                "stream": False,
-                "format": "json",
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": prompt,
-                        "images": [base64.b64encode(grid_bytes).decode("ascii")],
-                    }
-                ],
-            }
-        ).encode("utf-8")
-        req_chat = urllib.request.Request(
-            "http://127.0.0.1:11434/api/chat",
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req_chat, timeout=25) as rc:
-            resp_data = json.loads(rc.read().decode("utf-8", errors="replace"))
-        content = str((resp_data.get("message") or {}).get("content") or "")
-        parsed = json.loads(content)
-        sc_list = parsed.get("scenes") if isinstance(parsed, dict) else None
-        if isinstance(sc_list, list) and len(sc_list) == len(thoai_4_canh):
-            return sc_list
-    except Exception:
+    found = _tim_model_llm_cuc_bo()
+    if not found:
         return None
+    backend, model_name = found
+    tong = len(ocr_per_panel)
+    if tong == 0:
+        return None
+
+    info_pc = PHONG_CACH_KICH_BAN.get(phong_cach) or PHONG_CACH_KICH_BAN["kich_tinh"]
+    ds_ten_nv = ", ".join(c["ten"] for c in cast_memory.characters) or "Nhân vật chính"
+    ket_qua_toan_bo: list[dict[str, str]] = [{} for _ in range(tong)]
+
+    # Chia theo cụm 3 cảnh để nằm gọn 100% trong 6GB VRAM (num_ctx=1024, num_gpu=37), tránh tràn bộ nhớ
+    for start_idx in range(0, tong, 3):
+        batch = ocr_per_panel[start_idx : start_idx + 3]
+        so_canh_batch = len(batch)
+        dong_mo_ta = []
+        for k, ds in enumerate(batch):
+            ds_sach = [lam_sach_thoai_ocr_cho_review(c) for c in (ds or []) if lam_sach_thoai_ocr_cho_review(c)]
+            # Rút gọn tối đa 220 ký tự mỗi cảnh để prompt luôn ngắn gọn, chính xác
+            chuoi_thoai = " | ".join(ds_sach)[:240] if ds_sach else "(Khung chuyển cảnh kết thúc / biểu cảm không lời)"
+            nv_goi_y = cast_memory.doan_nhan_vat_theo_ngu_canh(chuoi_thoai, panel_idx=start_idx + k)["ten"]
+            dong_mo_ta.append(f"[{k + 1}] ({nv_goi_y}): {chuoi_thoai}")
+
+        prompt = (
+            f"Bạn là biên kịch kênh Review Truyện Tranh ({ten_truyen or 'Manga'} - {ten_chap or 'Chapter'}).\n"
+            f"Nhân vật trong truyện: {ds_ten_nv}. Phong cách: {info_pc['ten']}.\n"
+            f"Hãy tóm tắt và kể lại diễn biến của {so_canh_batch} trang dưới đây bằng giọng NGƯỜI DẪN CHUYỆN (ngôi thứ 3, tiếng Việt mượt mà).\n"
+            "QUY TẮC BẮT BUỘC:\n"
+            "- Kể lại tình huống và hành động của nhân vật theo mạch câu chuyện (TUYỆT ĐỐI KHÔNG dùng dấu ngoặc kép \"...\" nhại lại lời thoại trực tiếp, KHÔNG dùng từ 'mày/tao').\n"
+            "- Bám sát 100% nội dung thực tế trong trang (ví dụ: thi đấu cầu lông, oẳn tù tì, giao cầu hỏng, đập cầu smash, đàn em đứng xem học hỏi).\n"
+            + "\n".join(dong_mo_ta)
+            + f"\nChỉ trả về đúng {so_canh_batch} dòng đánh số từ [1] đến [{so_canh_batch}] (mỗi dòng 1-2 câu kể chuyện ngôi thứ 3 bằng Tiếng Việt):"
+        )
+
+        try:
+            if backend == "ollama":
+                payload = json.dumps(
+                    {
+                        "model": model_name,
+                        "stream": False,
+                        "options": {
+                            "temperature": 0.2,
+                            "num_ctx": 1024,
+                            "num_predict": 260,
+                            "num_gpu": 37,
+                            "stop": [f"[{so_canh_batch + 1}]"],
+                        },
+                        "messages": [
+                            {"role": "user", "content": prompt},
+                            {"role": "assistant", "content": "<think>\n\n</think>\n[1] "},
+                        ],
+                    }
+                ).encode("utf-8")
+                req = urllib.request.Request(
+                    "http://127.0.0.1:11434/api/chat",
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=22) as resp:
+                    data = json.loads(resp.read().decode("utf-8", errors="replace"))
+                raw_out = str((data.get("message") or {}).get("content") or "")
+                if not raw_out.lstrip().startswith("[1]"):
+                    raw_out = "[1] " + raw_out
+            else:
+                payload = json.dumps(
+                    {
+                        "model": model_name,
+                        "temperature": 0.2,
+                        "max_tokens": 260,
+                        "messages": [{"role": "user", "content": prompt}],
+                    }
+                ).encode("utf-8")
+                req = urllib.request.Request(
+                    "http://127.0.0.1:1234/v1/chat/completions",
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=22) as resp:
+                    data = json.loads(resp.read().decode("utf-8", errors="replace"))
+                raw_out = str((((data.get("choices") or [{}])[0]).get("message") or {}).get("content") or "")
+
+            raw_out = re.sub(r"<think>[\s\S]*?</think>", "", raw_out).strip()
+            for line in raw_out.splitlines():
+                m = re.match(r"^\s*\[?(\d+)[\].:\-)\s]+(.+?)\s*$", line.strip())
+                if not m:
+                    continue
+                k_num = int(m.group(1)) - 1
+                if not (0 <= k_num < so_canh_batch):
+                    continue
+                loi_clean = m.group(2).strip(" -*\"'“”")
+                # Xoá các ký tự ngoặc kép thừa hoặc emoji để giọng đọc AI đọc tự nhiên
+                loi_clean = re.sub(r"[\"“”]", "", loi_clean)
+                loi_clean = re.sub(r"[\U00010000-\U0010ffff]", "", loi_clean).strip()
+                # Loại bỏ nếu model trả về tiếng Anh học thuật lạc đề
+                if any(bad in loi_clean.lower() for bad in ("theoretical framework", "research questions", "methodology", "social capital")):
+                    continue
+                global_idx = start_idx + k_num
+                if loi_clean and not ket_qua_toan_bo[global_idx]:
+                    nv_chon = cast_memory.doan_nhan_vat_theo_ngu_canh(
+                        " ".join(batch[k_num] or []) + " " + loi_clean,
+                        panel_idx=global_idx,
+                    )["ten"]
+                    ket_qua_toan_bo[global_idx] = {"nhan_vat": nv_chon, "loi_thuyet_minh": loi_clean}
+        except Exception:
+            continue
+
+    if any(ket_qua_toan_bo):
+        return ket_qua_toan_bo
     return None
 
 
@@ -450,77 +601,55 @@ def _bien_tap_cau_review_tu_thoai(
     panel_idx: int,
     tong_panel: int,
     phong_cach: str = "kich_tinh",
-    khong_khi_anh: str = "cao_trao",
+    khong_khi_anh: str = "binh_thuong",
+    boi_canh_chung: str = "",
 ) -> str:
     """
-    Chuyển đổi thông minh lời thoại rời rạc (hoặc khung tranh hành động không lời)
-    thành câu thuyết minh ngôi thứ 3 mạch lạc chuẩn kênh Review Truyện.
+    Chuyển đổi thông minh lời thoại trong trang (hoặc khung chuyển cảnh cuối chương)
+    thành lời dẫn chuyện ngôi thứ 3 tự nhiên, sát 100% nội dung thoại thực tế và không lặp câu.
     """
     ten_nv = nhan_vat.get("ten") or "Nhân vật chính"
-    xung_ho = nhan_vat.get("xung_ho") or "thanh niên"
-    ds_sach = [t.strip() for t in thoai_raw if t and len(t.strip()) >= 2]
+    xung_ho = nhan_vat.get("xung_ho") or ten_nv
+    ds_sach = [lam_sach_thoai_ocr_cho_review(t) for t in (thoai_raw or []) if lam_sach_thoai_ocr_cho_review(t)]
 
-    if not ds_sach:
-        if khong_khi_anh == "bung_no_ky_nang":
+    # Tách riêng phần bản dịch tiếng Việt (nếu có dạng "Bản dịch (Gốc: ...)") để đưa vào câu thuyết minh mượt mà
+    ds_vi: list[str] = []
+    for c in ds_sach:
+        vi_only = re.sub(r"\s*\(Gốc:.*?\)\s*$", "", c).strip()
+        if vi_only and vi_only not in ds_vi:
+            ds_vi.append(vi_only)
+
+    if not ds_vi:
+        if panel_idx == tong_panel - 1:
             return (
-                f"Không một lời báo trước, {ten_nv} bất ngờ bùng nổ sức mạnh kinh hoàng, "
-                f"luồng kình khí rực sáng xé toạc cả không gian xung quanh!"
+                f"Khép lại những tình huống đầy thú vị của {boi_canh_chung or 'chương truyện hôm nay'}. "
+                "Diễn biến tiếp theo sẽ ra sao, hãy cùng đón xem ở phần sau nhé!"
             )
-        if khong_khi_anh == "u_am_nguy_hiem":
-            return (
-                f"Giữa màn đêm tĩnh mịch đầy sát khí, ánh mắt của {xung_ho} lạnh băng quan sát từng cử động của kẻ địch."
-            )
-        mau_khong_loi = {
-            "kich_tinh": [
-                f"Không cần thêm bất kỳ lời nói thừa thãi nào, {ten_nv} lập tức lao lên tung ra đòn quyết định khiến không gian xung quanh chấn động.",
-                f"Ánh mắt của {xung_ho} đột nhiên sắc lạnh, sát khí bùng nổ bao trùm toàn bộ chiến trường trong tích tắc.",
-                f"Trước sức ép kinh hoàng đang ập tới, {ten_nv} vẫn đứng vững vàng, chuẩn bị tung ra át chủ bài của mình.",
-            ],
-            "hai_huoc": [
-                f"Nhìn cảnh này thì đúng là không còn gì để nói, {ten_nv} chỉ lặng lẽ ra tay cho đối phương biết thế nào là lễ độ.",
-                f"Không nói nhiều, {xung_ho} vào việc luôn với tốc độ bàn thờ khiến đối thủ đứng hình mất năm giây.",
-            ],
-            "tu_tien": [
-                f"Linh khí quanh người {ten_nv} cuồn cuộn dâng trào, uy áp khủng khiếp khiến vạn vật xung quanh đều phải run rẩy.",
-                f"Chỉ bằng một ánh nhìn lạnh băng, {xung_ho} đã thi triển tuyệt kỹ trấn phái chấn động cả một vùng thiên địa.",
-            ],
-            "ngon_tinh": [
-                f"Khoảnh khắc bốn mắt nhìn nhau, bầu không khí bỗng chốc lắng đọng với biết bao cảm xúc ngổn ngang chưa thể nói thành lời.",
-                f"{ten_nv} lặng lẽ quay bước đi, để lại phía sau ánh nhìn đầy sững sờ và tiếc nuối.",
-            ],
-        }
-        ds_mau = mau_khong_loi.get(phong_cach) or mau_khong_loi["kich_tinh"]
-        return ds_mau[panel_idx % len(ds_mau)]
+        mau_chuyen_canh = [
+            f"Ở khung hình tiếp theo, biểu cảm của {ten_nv} khiến bầu không khí trở nên vô cùng đáng chú ý.",
+            f"Chứng kiến tình huống vừa diễn ra, {xung_ho} không khỏi bất ngờ trước phản ứng của đối phương.",
+            f"Nhịp độ câu chuyện tiếp tục được đẩy lên khi {ten_nv} chuẩn bị cho hành động tiếp theo.",
+            f"Mọi ánh nhìn lúc này đều đổ dồn về phía {xung_ho} để chờ xem màn thể hiện kế tiếp.",
+        ]
+        return mau_chuyen_canh[panel_idx % len(mau_chuyen_canh)]
 
-    gop_thoai = " ".join(ds_sach)
-    gop_sach = re.sub(r"^(hả|cái gì|á|ớ|hự|ư|hừm|này)[!?.…\s]+", "", gop_thoai, flags=re.I).strip() or gop_thoai
+    # Chọn tối đa 3 câu thoại tiêu biểu nhất trong trang để tóm tắt mạch lạc, tránh liệt kê vụn vặt
+    cau_chon = [c for c in ds_vi if len(c) >= 6][:3] or ds_vi[:2]
+    noi_dung_gop = ". ".join(c.rstrip(".!?…") for c in cau_chon)
 
-    if phong_cach == "hai_huoc":
-        dan_nhap = [
-            f"Lúc này {ten_nv} liền buông một câu cực gắt rằng: {gop_sach}",
-            f"Nghe vậy, {xung_ho} chẳng thèm nể nang mà tuyên bố thẳng thừng: {gop_sach}",
-            f"Tưởng thế nào, {ten_nv} lập tức đáp trả cực kỳ tỉnh bơ: {gop_sach}",
-        ]
-    elif phong_cach == "tu_tien":
-        dan_nhap = [
-            f"Khí thế bất phàm, {ten_nv} lạnh lùng cất giọng vang vọng: {gop_sach}",
-            f"Ánh mắt {xung_ho} loé lên tia hàn quang rồi trầm giọng tuyên bố: {gop_sach}",
-        ]
-    elif phong_cach == "ngon_tinh":
-        dan_nhap = [
-            f"Giữa bầu không khí căng thẳng, {ten_nv} nghẹn ngào lên tiếng: {gop_sach}",
-            f"Nhìn thẳng vào đối phương, {xung_ho} dứt khoát nói rõ lòng mình: {gop_sach}",
-        ]
-    else:
-        dan_nhap = [
-            f"Ngay lúc đó, {ten_nv} đanh thép lên tiếng: {gop_sach}",
-            f"Chứng kiến cảnh tượng trước mắt, {xung_ho} lập tức khẳng định: {gop_sach}",
-            f"Không hề nao núng, {ten_nv} lạnh lùng đáp trả: {gop_sach}",
-        ]
-
+    dan_nhap = [
+        f"Mở đầu phân cảnh này, {ten_nv} hào hứng lên tiếng: {noi_dung_gop}.",
+        f"Tiếp nối tình huống đó, {xung_ho} liền chia sẻ thẳng thắn: {noi_dung_gop}.",
+        f"Trước diễn biến trên sân, {ten_nv} lập tức phản ứng: {noi_dung_gop}.",
+        f"Không chịu kém cạnh, {xung_ho} liền đáp lại đầy tự tin: {noi_dung_gop}.",
+        f"Ngay sau pha xử lý vừa rồi, {ten_nv} phải thốt lên: {noi_dung_gop}.",
+        f"Nhìn màn thể hiện trước mắt, {xung_ho} nhận xét cực kỳ chuẩn xác: {noi_dung_gop}.",
+        f"Trước tình cảnh dở khóc dở cười này, {ten_nv} chỉ biết lắc đầu bảo rằng: {noi_dung_gop}.",
+        f"Qua màn đối đầu vừa rồi, {xung_ho} rút ra ngay bài học đắt giá: {noi_dung_gop}.",
+    ]
     cau_hoan_chinh = dan_nhap[panel_idx % len(dan_nhap)]
     if panel_idx == tong_panel - 1:
-        cau_hoan_chinh += " Diễn biến tiếp theo sẽ ra sao, hãy cùng theo dõi ngay phần sau nhé!"
+        cau_hoan_chinh += " Hãy cùng theo dõi tiếp những diễn biến thú vị ở chương sau nhé!"
     return cau_hoan_chinh
 
 
@@ -532,86 +661,87 @@ def sinh_kich_ban_review_chuong(
     phong_cach: str = "kich_tinh",
     ten_truyen: str = "",
     ten_chap: str = "",
-    thu_ket_noi_vision_cuc_bo: bool = False,
+    thu_ket_noi_vision_cuc_bo: bool = True,
 ) -> dict[str, Any]:
     """
     Sinh kịch bản Review Truyện hoàn chỉnh cho 1 Chapter:
-    - Tự động ghép lưới Storyboard `2x2` cho từng cụm 4 khung tranh.
-    - Đối chiếu `CharacterCastMemory` + Phân tích thị giác từng khung để xác định đúng nhân vật nói / hành động.
-    - Sinh Câu Mở Đầu (Hook 3s đầu) + Danh sách phân cảnh (`scenes`).
+    - Tự động quét tên nhân vật thật trong lời thoại (`Hiyori`, `Haruka-chan`, `Lai-chan`...).
+    - Kết nối trực tiếp Bộ máy AI để đọc toàn bộ lời thoại của Chapter và biên tập kịch bản Review
+      bám sát 100% cốt truyện thực tế.
+    - Tự động ghép lưới Storyboard `2x2` và dự phòng thông minh nếu máy đang chạy ngoại tuyến.
     """
     if not panels_bytes:
         raise ValueError("Chưa có khung tranh nào để tạo kịch bản Review.")
 
     cast = cast_memory or CharacterCastMemory()
+    tong = len(panels_bytes)
+    normalized_ocr: list[list[str]] = [
+        [lam_sach_thoai_ocr_cho_review(c) for c in (ocr_per_panel[i] if ocr_per_panel and i < len(ocr_per_panel) else []) if lam_sach_thoai_ocr_cho_review(c)]
+        for i in range(tong)
+    ]
+
+    # Tự động trích xuất tên nhân vật thật từ thoại nếu chưa có hoặc chỉ đang có nhân vật mặc định
+    co_ten_mac_dinh = all(c["ten"] in ("Nhân vật chính", "Kẻ địch", "Đối phương") for c in cast.characters)
+    if (not cast.characters or co_ten_mac_dinh) and any(normalized_ocr):
+        tu_dong_quet_ho_so_nhan_vat_tu_thoai(normalized_ocr, cast)
+
     info_pc = PHONG_CACH_KICH_BAN.get(phong_cach) or PHONG_CACH_KICH_BAN["kich_tinh"]
     tieu_de = " - ".join(p for p in (ten_truyen.strip(), ten_chap.strip()) if p) or "Chương Truyện Mới"
-
     cau_hook = f"Chào mừng các bạn quay lại với {tieu_de}. {info_pc['cau_hook_mau']}"
 
-    so_luoi_2x2 = 0
+    so_luoi_2x2 = (tong + 3) // 4
     scenes: list[dict[str, Any]] = []
-    tong = len(panels_bytes)
-    tom_tat_truoc = ""
 
-    for batch_start in range(0, tong, 4):
-        batch_panels = panels_bytes[batch_start : batch_start + 4]
-        batch_ocr = [
-            (ocr_per_panel[batch_start + k] if ocr_per_panel and (batch_start + k) < len(ocr_per_panel) else []) or []
-            for k in range(len(batch_panels))
-        ]
-        grid_b = tao_luoi_storyboard_2x2(batch_panels)
-        so_luoi_2x2 += 1
-
-        kq_vision = (
-            _thu_goi_loi_thi_giac_2x2_cuc_bo(grid_b, batch_ocr, cast, phong_cach, tom_tat_truoc)
-            if thu_ket_noi_vision_cuc_bo
-            else None
+    # Gọi AI Biên kịch toàn chương nếu có lời thoại
+    ai_scenes = (
+        _viet_kich_ban_toan_chuong_bang_ai(
+            normalized_ocr,
+            cast,
+            ten_truyen=ten_truyen,
+            ten_chap=ten_chap,
+            phong_cach=phong_cach,
         )
+        if any(normalized_ocr)
+        else None
+    )
 
-        for k, p_bytes in enumerate(batch_panels):
-            idx = batch_start + k
-            ds_thoai = batch_ocr[k]
-            van_ban_gop = " ".join(ds_thoai)
-            vi_tri_bong = "trai" if idx % 2 == 0 else "phai"
-            nv = cast.doan_nhan_vat_theo_ngu_canh(van_ban_gop, vi_tri_bong=vi_tri_bong, panel_idx=idx)
-            bo_cuc = phan_tich_bo_cuc_anh_khung_tranh(p_bytes)
+    for idx, p_bytes in enumerate(panels_bytes):
+        ds_thoai = normalized_ocr[idx]
+        van_ban_gop = " ".join(ds_thoai)
+        nv = cast.doan_nhan_vat_theo_ngu_canh(van_ban_gop, panel_idx=idx)
+        bo_cuc = phan_tich_bo_cuc_anh_khung_tranh(p_bytes)
 
-            if kq_vision and k < len(kq_vision) and isinstance(kq_vision[k], dict):
-                ten_nv_vis = str(kq_vision[k].get("nhan_vat") or nv["ten"]).strip()
-                loi_binh = str(kq_vision[k].get("loi_thuyet_minh") or "").strip()
-                if not loi_binh:
-                    loi_binh = _bien_tap_cau_review_tu_thoai(
-                        ds_thoai, nv, panel_idx=idx, tong_panel=tong, phong_cach=phong_cach, khong_khi_anh=bo_cuc["khong_khi"]
-                    )
-            else:
-                ten_nv_vis = nv["ten"]
-                loi_binh = _bien_tap_cau_review_tu_thoai(
-                    ds_thoai,
-                    nv,
-                    panel_idx=idx,
-                    tong_panel=tong,
-                    phong_cach=phong_cach,
-                    khong_khi_anh=bo_cuc["khong_khi"],
-                )
+        ai_sc = ai_scenes[idx] if ai_scenes and idx < len(ai_scenes) else {}
+        ten_nv_vis = str((ai_sc or {}).get("nhan_vat") or nv["ten"]).strip()
+        loi_binh = str((ai_sc or {}).get("loi_thuyet_minh") or "").strip()
 
-            if idx == 0:
-                loi_binh = f"{cau_hook} {loi_binh}"
-
-            tom_tat_truoc = loi_binh[:140]
-            scenes.append(
-                {
-                    "scene_index": idx + 1,
-                    "nhan_vat": ten_nv_vis,
-                    "vai_tro": nv["vai_tro"],
-                    "xung_ho": nv["xung_ho"],
-                    "thoai_goc": ds_thoai,
-                    "la_canh_hanh_dong": len(ds_thoai) == 0,
-                    "khong_khi_anh": bo_cuc["khong_khi"],
-                    "loi_thuyet_minh": loi_binh,
-                    "hieu_ung_camera": "pan_down" if idx % 2 == 0 else "zoom_in",
-                }
+        if not loi_binh:
+            loi_binh = _bien_tap_cau_review_tu_thoai(
+                ds_thoai,
+                nv,
+                panel_idx=idx,
+                tong_panel=tong,
+                phong_cach=phong_cach,
+                khong_khi_anh=bo_cuc["khong_khi"],
+                boi_canh_chung=tieu_de,
             )
+
+        if idx == 0 and tieu_de.lower() not in loi_binh.lower():
+            loi_binh = f"Chào mừng các bạn đến với {tieu_de}. {loi_binh}"
+
+        scenes.append(
+            {
+                "scene_index": idx + 1,
+                "nhan_vat": ten_nv_vis,
+                "vai_tro": nv["vai_tro"],
+                "xung_ho": nv["xung_ho"],
+                "thoai_goc": ds_thoai,
+                "la_canh_hanh_dong": len(ds_thoai) == 0,
+                "khong_khi_anh": bo_cuc["khong_khi"],
+                "loi_thuyet_minh": loi_binh,
+                "hieu_ung_camera": "pan_down" if idx % 2 == 0 else "zoom_in",
+            }
+        )
 
     return {
         "ten_truyen": ten_truyen,

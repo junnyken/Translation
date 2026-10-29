@@ -1850,12 +1850,31 @@ $kq | ConvertTo-Json -Compress
 def _chuan_hoa_cau_goc_cho_llm(text: str) -> str:
     """
     Chuyển câu thoại tiếng Anh viết IN HOA toàn bộ ('WHEN YOU SCREAMED... I THREW MY AXE!')
-    về dạng chữ thường/hoa đầu câu ('When you screamed... I threw my axe!') để bộ tách từ (BPE tokenizer)
-    của LLM không cắt vụn từ vựng thành từng mảnh ký tự, giúp dịch sát nghĩa và tự nhiên hơn hẳn.
+    về dạng chữ thường/hoa đầu câu ('When you screamed... I threw my axe!') và khử lỗi nhận diện
+    ký tự đặc trưng của font chữ truyện tranh (VD: 'BLIT' -> 'BUT', 'PON\\'T' -> 'DON\\'T')
+    để bộ tách từ (BPE tokenizer) của LLM dịch sát nghĩa và tự nhiên hơn hẳn.
     """
     s = (text or "").strip()
     if not s:
         return ""
+    # Khử các lỗi OCR phổ biến trên font truyện tranh in hoa (Anime Ace / WildWords / CC Meanwhile)
+    ocr_fixes = [
+        (r"\bPON'T\b", "DON'T"),
+        (r"\bBLIT\b", "BUT"),
+        (r"\bUNVER-\s*ESTIMATE\b", "UNDERESTIMATE"),
+        (r"\bVECIVING\b", "DECIDING"),
+        (r"\bVELUSIONS\b", "DELUSIONS"),
+        (r"\bVEFINITELY\b", "DEFINITELY"),
+        (r"\bA/UZING\b", "AMAZING"),
+        (r"\bHARV/<A\b", "HARUKA"),
+        (r"\bHIYOR!\b", "HIYORI!"),
+        (r"\bPO\s+IT\b", "DO IT"),
+        (r"\+ha\+'s\b", "that's"),
+        (r"\+0\b", "to"),
+    ]
+    for pat, rep in ocr_fixes:
+        s = re.sub(pat, rep, s, flags=re.I)
+
     alpha = [c for c in s if c.isalpha() and c.isascii()]
     if len(alpha) >= 3 and sum(1 for c in alpha if c.isupper()) >= len(alpha) * 0.75:
         s_low = s.lower()
@@ -2035,15 +2054,12 @@ def trich_xuat_thuat_ngu_trang(bubbles: list[dict], tu_dien_rieng: str = "") -> 
     for pat, goc, nghia in TU_DIEN_THUAT_NGU_TRUYEN:
         if re.search(pat, toan_bo_chu, re.I):
             goi_y.append(f"'{goc}' = '{nghia}'")
-    # Luôn giữ các thuật ngữ cốt lõi nếu trang ngắn
-    if len(goi_y) < 6:
-        for _, goc, nghia in TU_DIEN_THUAT_NGU_TRUYEN[:10]:
-            muc = f"'{goc}' = '{nghia}'"
-            if muc not in goi_y:
-                goi_y.append(muc)
     chuoi_goi_y = ", ".join(goi_y[:18])
     if tu_dien_rieng and tu_dien_rieng.strip():
-        return f"{chuoi_goi_y}. Từ điển cố định: {tu_dien_rieng.strip()}"
+        # Chỉ giữ tối đa 3 dòng ngữ cảnh ngắn để tránh LLM chép nhầm câu của trang trước
+        dong_ctx = [d.strip() for d in tu_dien_rieng.strip().splitlines() if d.strip()][-3:]
+        ctx_ngan = " ; ".join(dong_ctx)
+        return f"{chuoi_goi_y}. Tham khảo xưng hô: {ctx_ngan}".strip(". ")
     return chuoi_goi_y
 
 
@@ -2167,12 +2183,8 @@ def _dich_danh_sach_thoai_gpu(
       lên `Q >= 0.85` và kích hoạt gợi ý giải mã chữ viết tay / tiếng lóng bị OCR đọc lệch ký tự.
     """
     ten_dich = "English" if ngon_ngu_dich == "en" else "Tiếng Việt tự nhiên, sống động, chuẩn thoại truyện tranh"
-    doan_ngu_canh = (
-        f"\nNgữ cảnh xưng hô & thuật ngữ từ các trang trước (hãy giữ đồng nhất):\n{tu_dien_rieng}\n"
-        if tu_dien_rieng
-        else ""
-    )
     thuat_ngu_trang = trich_xuat_thuat_ngu_trang(bubbles, tu_dien_rieng=tu_dien_rieng)
+    dong_thuat_ngu = f"2. Gợi ý từ vựng (nếu có): {thuat_ngu_trang}.\n" if thuat_ngu_trang else ""
     lines_in = "\n".join(
         f"[{idx + 1}] {_chuan_hoa_cau_goc_cho_llm(b['chu_goc'])}" for idx, b in enumerate(bubbles)
     )
@@ -2182,11 +2194,10 @@ def _dich_danh_sach_thoai_gpu(
         else ""
     )
     prompt = (
-        f"Bạn là biên dịch viên truyện tranh kỳ cựu ({ngon_ngu_nguon} -> {ten_dich})."
-        f"{doan_ngu_canh}\n"
+        f"Bạn là biên dịch viên truyện tranh kỳ cựu ({ngon_ngu_nguon} -> {ten_dich}).\n"
         "Quy tắc dịch bắt buộc:\n"
-        "1. Văn phong thoại truyện tranh tự nhiên, giàu cảm xúc (xưng hô phù hợp ngữ cảnh: 'ta / tôi / con / em' - 'cậu / ngươi / anh em / sư phụ', TUYỆT ĐỐI không xưng 'bạn' cứng nhắc).\n"
-        f"2. Thuật ngữ & thành ngữ chuẩn trong trang: {thuat_ngu_trang}.\n"
+        "1. Dịch ĐÚNG NGHĨA từng câu thoại bên dưới sang văn phong truyện tranh tự nhiên (TUYỆT ĐỐI không bịa thêm nội dung không có trong câu gốc, không chép lại câu của trang trước).\n"
+        f"{dong_thuat_ngu}"
         f"3. CHỈ trả về đúng {len(bubbles)} dòng từ [1] đến [{len(bubbles)}], mỗi câu 1 dòng ngắn gọn, KHÔNG giải thích:{quy_tac_pro}\n"
         f"{lines_in}"
     )

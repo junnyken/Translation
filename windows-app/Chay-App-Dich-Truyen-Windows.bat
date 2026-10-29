@@ -8,14 +8,27 @@ echo ===========================================================================
 echo.
 python -c "import PIL, rapidocr_onnxruntime" >nul 2>&1
 if errorlevel 1 (
-    echo [1/2] Dang tu dong cai dat Loi Nhan Dien Da Ngon Ngu va Xu Ly Anh lan dau...
+    echo [1/3] Dang cai dat Loi Nhan Dien Da Ngon Ngu va Xu Ly Anh lan dau...
     python -m pip install --upgrade Pillow rapidocr-onnxruntime --quiet
 )
-echo [2/2] Dang khoi dong giao dien Manga Studio Windows...
+if not exist "%~dp0models\ocr_hf\ja_rec.onnx" (
+    echo [2/3] Dang dong bo Model Nhan Dien 4 Ngon Ngu ^(JA / KO / ZH / EN^)...
+    python -c "import app_dich_truyen_windows as m; m.tai_goi_ocr_huggingface('all')" >nul 2>&1
+)
+where ollama >nul 2>&1
+if not errorlevel 1 (
+    ollama list | findstr /i "qwen" >nul 2>&1
+    if errorlevel 1 (
+        echo [2/3] Dang tai Bo May AI Tang Toc GPU cho may moi...
+        ollama pull qwen3-vl:8b
+    )
+)
+echo [3/3] Dang khoi dong giao dien Manga Studio Windows...
 python "%~dp0app_dich_truyen_windows.py"
 if errorlevel 1 (
     echo.
     echo [LOI] Khong khoi dong duoc giao dien. Vui long kiem tra Python tren may.
     pause
 )
+
 
