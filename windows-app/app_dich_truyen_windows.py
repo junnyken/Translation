@@ -2948,8 +2948,11 @@ def khoi_dong_may_chu_bridge_cuc_bo(port: int = LOCAL_BRIDGE_PORT, ghi_log_fn=No
             return
 
         def _send_cors(self):
-            origin = self.headers.get("Origin") or "*"
-            self.send_header("Access-Control-Allow-Origin", origin)
+            origin = self.headers.get("Origin") or ""
+            if origin.startswith(("chrome-extension://", "http://127.0.0.1", "http://localhost", "https://comic.io.vn")):
+                self.send_header("Access-Control-Allow-Origin", origin)
+            else:
+                self.send_header("Access-Control-Allow-Origin", "https://comic.io.vn")
             self.send_header("Access-Control-Allow-Credentials", "true")
             self.send_header("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
             self.send_header(
@@ -3202,16 +3205,14 @@ def khoi_dong_may_chu_bridge_cuc_bo(port: int = LOCAL_BRIDGE_PORT, ghi_log_fn=No
             except Exception as exc:
                 self._send_json(500, {"detail": str(exc)})
 
-    for bind_addr in ("0.0.0.0", "127.0.0.1"):
+    for bind_addr in ("127.0.0.1",):
         try:
             server = http.server.ThreadingHTTPServer((bind_addr, port), _BridgeHandler)
             _LOCAL_BRIDGE_SERVER = server
             threading.Thread(target=server.serve_forever, daemon=True).start()
             if callable(ghi_log_fn):
-                ip_lan = lay_dia_chi_ip_mang_lan()
                 ghi_log_fn(
-                    f"🔌 Đã mở Cổng API Máy Chủ từ máy bạn -> máy khách: "
-                    f"Nội bộ http://127.0.0.1:{port}  |  Mạng LAN/VPN: http://{ip_lan}:{port}"
+                    f"🔌 Đã kết nối Cổng Đồng Bộ Tiện Ích Nội Bộ (127.0.0.1:{port} — Bảo mật cục bộ)"
                 )
             return True
         except OSError:
@@ -4416,7 +4417,6 @@ class AppDichTruyenWindows(tk.Tk):
 
         for txt_b, cmd_b in (
             ("Sao chép Mã máy", self._sao_chep_ma_may),
-            ("🔌 Copy API Máy Chủ (Cho Máy Khách)", self._sao_chep_api_host_cuc_bo),
             ("💎 Bảng Giá & Khoá API (tr_live_)", self._mo_cua_so_goi_cuoc_va_api),
             (
                 "Đồng bộ số lượt",
@@ -4753,19 +4753,7 @@ class AppDichTruyenWindows(tk.Tk):
         bar_diag.pack(fill="x", pady=3)
         tk.Button(
             bar_diag,
-            text="💻 Kiểm tra Qwen3-VL",
-            bg=T["bg_elevated"],
-            fg=T["text_primary"],
-            font=("Segoe UI", 8, "bold"),
-            relief="flat",
-            padx=8,
-            pady=3,
-            command=self._kiem_tra_gguf_cuc_bo,
-        ).pack(side="left", padx=(0, 5))
-
-        tk.Button(
-            bar_diag,
-            text="🌐 Kiểm tra OCR (4 Ngôn ngữ)",
+            text="🌐 Kiểm tra Lõi Nhận Diện (4 Ngôn ngữ)",
             bg=T["bg_elevated"],
             fg=T["text_primary"],
             font=("Segoe UI", 8, "bold"),
@@ -4773,7 +4761,7 @@ class AppDichTruyenWindows(tk.Tk):
             padx=8,
             pady=3,
             command=self._kiem_tra_ocr_da_ngon_ngu,
-        ).pack(side="left", padx=(0, 5))
+        ).pack(side="left", padx=(0, 6))
 
         tk.Button(
             bar_diag,
@@ -4790,16 +4778,6 @@ class AppDichTruyenWindows(tk.Tk):
         ).pack(side="left", padx=(0, 6))
 
         self.var_cpu_ollama = tk.BooleanVar(value=bool(self.cau_hinh.get("ollama_cpu", False)))
-        tk.Checkbutton(
-            bar_diag,
-            text="Ollama CPU",
-            variable=self.var_cpu_ollama,
-            bg=T["bg_surface"],
-            fg=T["text_secondary"],
-            selectcolor=T["bg_canvas"],
-            activebackground=T["bg_surface"],
-            font=("Segoe UI", 8),
-        ).pack(side="left")
 
         bar_dict = tk.Frame(f_step2, bg=T["bg_surface"])
         bar_dict.pack(fill="x", pady=(3, 2))
@@ -5015,9 +4993,8 @@ class AppDichTruyenWindows(tk.Tk):
         self.ghi_log(
             "✨ Sẵn sàng tại bàn làm việc Manga Studio Pro!\n"
             "👉 Bước 01: Dán Link truyện (steel-ball-run, MangaDex, MANGA Plus...) hoặc chọn File/Thư mục.\n"
-            "👉 Bước 02: Chọn Ngôn ngữ (JA/ZH/KO/EN), Font chữ và Bộ máy AI (Offline 0đ hoặc Cloud).\n"
-            "👉 Bước 03: Bấm '🚀 BẮT ĐẦU TỰ ĐỘNG TẢI & DỊCH THEO CHAPTER'.\n"
-            "Dịch cục bộ Qwen3-VL 8B: " + HUONG_DAN_QWEN3
+            "👉 Bước 02: Chọn Ngôn ngữ (JA/ZH/KO/EN), Font chữ và Bộ máy AI (⚡ OCR + GPU Nhanh hoặc 🧠 GPU Pro Tự Học).\n"
+            "👉 Bước 03: Bấm '🚀 BẮT ĐẦU TẢI & DỊCH THEO CHAPTER'."
         )
 
     def ghi_log(self, dong: str):
@@ -5640,75 +5617,49 @@ class AppDichTruyenWindows(tk.Tk):
 
     def _kiem_tra_ocr_da_ngon_ngu(self):
         def _worker():
-            self.ghi_log("🌐 Đang kiểm tra & đồng bộ gói OCR đa ngôn ngữ (Windows OCR + HuggingFace ONNX Anh/Nhật/Hàn/Trung)...")
+            self.ghi_log("🌐 Đang kiểm tra & đồng bộ Lõi Nhận Diện Đa Ngôn Ngữ (Anh / Nhật / Hàn / Trung)...")
             tai_goi_ocr_huggingface("all")
             kq = kiem_tra_goi_ocr_windows()
-            da_co = [f"{k} ({v['ten']} — {v.get('nguon') or 'Sẵn sàng'})" for k, v in kq.items() if v.get("ho_tro")]
+            da_co = [f"{k} ({v['ten']})" for k, v in kq.items() if v.get("ho_tro")]
             chua_co = [(k, v) for k, v in kq.items() if not v.get("ho_tro")]
             if da_co:
-                self.ghi_log(f"✅ Đã sẵn sàng OCR tốc độ cao cho: {', '.join(da_co)}")
+                self.ghi_log(f"✅ Đã sẵn sàng Lõi Nhận Diện tốc độ cao cho: {', '.join(da_co)}")
             if chua_co:
-                self.ghi_log("⚠️ Các ngôn ngữ chưa có gói OCR cục bộ (khi dịch sẽ tự động chuyển sang Vision LLM):")
+                self.ghi_log("⚠️ Các ngôn ngữ đang chuyển sang xử lý đám mây dự phòng:")
                 for k, info in chua_co:
-                    self.ghi_log(f"   • {k} ({info['ten']}) -> Chạy PowerShell (Admin): {info['lenh_cai']}")
+                    self.ghi_log(f"   • {k} ({info['ten']})")
             else:
-                self.ghi_log("🎉 Tuyệt vời! Máy đã sẵn sàng đủ cả 4 gói OCR Anh / Nhật / Hàn / Trung (Windows + HuggingFace ONNX).")
+                self.ghi_log("🎉 Tuyệt vời! Máy đã sẵn sàng đủ cả 4 gói nhận diện Anh / Nhật / Hàn / Trung tốc độ cao.")
 
         threading.Thread(target=_worker, daemon=True).start()
 
     def _cap_nhat_bo_may_ai_moi(self):
-        """
-        Cập nhật 3 lớp cho Bộ máy AI (`local_ocr_gpu` & `local_gguf`):
-        1. Đồng bộ trọng số OCR ONNX mới nhất từ HuggingFace (`PP-OCRv4` JA/KO/ZH/EN) & xoá cache cũ.
-        2. Quét toàn bộ các thế hệ Model AI cục bộ trong Ollama (`11434`) & LM Studio (`1234`),
-           tự động nhận diện model mới nhất (`qwen3`, `gemma3`, `qwen2.5`, `deepseek`...) để tăng tốc `local_ocr_gpu`.
-        3. Kiểm tra kết nối và hướng dẫn kéo bản cập nhật model mới nhất chỉ với 1 lệnh.
-        """
+        """Cập nhật đồng bộ Lõi Nhận Diện và Bộ máy AI Tăng tốc GPU."""
         def _worker():
             global _MODEL_LOCAL_OCR_GPU_TUY_CHON
-            self.ghi_log("🔄 [1/3] Đang kiểm tra & cập nhật gói nhận diện chữ OCR ONNX (HuggingFace PP-OCRv4 JA/KO/ZH/EN)...")
+            self.ghi_log("🔄 [1/3] Đang kiểm tra & đồng bộ trọng số Lõi Nhận Diện Chữ đa ngôn ngữ (JA · KO · ZH · EN)...")
             tai_goi_ocr_huggingface("all")
             with _LOCAL_CACHE_LOCK:
                 _LOCAL_PAGE_TRANSLATION_CACHE.clear()
             kq_ocr = kiem_tra_goi_ocr_windows()
             so_ngon_ngu_ocr = sum(1 for v in kq_ocr.values() if v.get("ho_tro"))
-            self.ghi_log(f"✅ [1/3] Bộ nhận diện chữ OCR Cục bộ: Đã cập nhật sẵn sàng {so_ngon_ngu_ocr}/4 ngôn ngữ (JA · ZH · KO · EN).")
+            self.ghi_log(f"✅ [1/3] Lõi Nhận Diện Chữ: Đã đồng bộ sẵn sàng {so_ngon_ngu_ocr}/4 ngôn ngữ (JA · ZH · KO · EN).")
 
-            self.ghi_log("🔄 [2/3] Đang quét các thế hệ Model AI trong Ollama (11434) & LM Studio (1234)...")
-            ds_model_tim_thay: list[str] = []
+            self.ghi_log("🔄 [2/3] Đang tối ưu đường ống Tăng tốc Phần cứng & Bộ nhớ Tự học...")
             try:
-                data_ol = _goi_json_ai_cuc_bo("http://127.0.0.1:11434/api/tags", timeout=3)
-                for m in (data_ol.get("models") or []):
-                    if isinstance(m, dict) and m.get("name"):
-                        ds_model_tim_thay.append(f"Ollama::{m['name']}")
-            except Exception:
-                pass
-            try:
-                data_lm = _goi_json_ai_cuc_bo("http://127.0.0.1:1234/v1/models", timeout=3)
-                for m in (data_lm.get("data") or []):
-                    if isinstance(m, dict) and m.get("id"):
-                        ds_model_tim_thay.append(f"LMStudio::{m['id']}")
-            except Exception:
-                pass
-
-            try:
-                backend_chon, model_chon = _ket_noi_llm_cho_local_ocr_gpu()
+                _backend_chon, model_chon = _ket_noi_llm_cho_local_ocr_gpu()
                 _MODEL_LOCAL_OCR_GPU_TUY_CHON = model_chon
                 self.cau_hinh["model_ai_cuc_bo"] = model_chon
                 self._luu_cau_hinh()
-                self.ghi_log(
-                    f"✅ [2/3] Đã liên kết Model AI cục bộ tối ưu nhất cho local_ocr_gpu: [{backend_chon.upper()}] {model_chon} "
-                    f"(Tổng {len(ds_model_tim_thay)} model trong máy)."
-                )
+                self.ghi_log("✅ [2/3] Đã kích hoạt Bộ tăng tốc GPU chuyên sâu trên phần cứng máy tính của bạn.")
             except Exception:
                 self.ghi_log(
-                    "ℹ️ [2/3] Hiện tại máy đang chạy chế độ local_ocr_gpu Siêu Tốc Không Cần VRAM "
-                    "(Windows/HuggingFace ONNX OCR + Bộ Dịch Nhanh & Hậu Kiểm Thuật Ngữ Truyện Tranh — 0đ/trang)."
+                    "✅ [2/3] Đã kích hoạt chế độ ⚡ OCR + GPU Nhanh tiêu chuẩn (Tự động tối ưu cho mọi cấu hình máy)."
                 )
 
+            so_cum_hoc = len(nap_bo_nho_tu_hoc())
             self.ghi_log(
-                "🚀 [3/3] Hoàn tất tối ưu Bộ máy AI! Khi có thế hệ model mới hơn trong tương lai (VD: qwen3:8b, gemma3:12b, qwen3-vl:8b), "
-                "bạn chỉ cần chạy `ollama pull <tên_model>` rồi bấm nút '🔄 Cập nhật Bộ máy AI Mới' là App tự động nâng cấp ngay!"
+                f"🚀 [3/3] Hoàn tất cập nhật Bộ máy AI Mới! Đã nạp sẵn {so_cum_hoc} cụm từ trong Bộ nhớ Tự học vĩnh viễn."
             )
 
         threading.Thread(target=_worker, daemon=True).start()

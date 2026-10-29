@@ -1919,7 +1919,7 @@ async def doc_truyen_lay_anh_goc(
     if not await run_in_threadpool(storage.exists, page.image_path):
         raise HTTPException(
             status_code=404,
-            detail=f"Đường dẫn ảnh gốc có trong DB nhưng file không còn: {page.image_path}",
+            detail="Không còn tệp ảnh gốc trên máy chủ lưu trữ.",
         )
     mime, _ = mimetypes.guess_type(page.image_path)
     return await _phuc_vu_hien_vat(
@@ -2999,7 +2999,7 @@ async def get_original_image(
     if not await run_in_threadpool(storage.exists, page.image_path):
         raise HTTPException(
             status_code=404,
-            detail=f"Đường dẫn ảnh gốc có trong DB nhưng file không còn: {page.image_path}",
+            detail="Không còn tệp ảnh gốc trên máy chủ lưu trữ.",
         )
     mime, _ = mimetypes.guess_type(page.image_path)
     return await _phuc_vu_hien_vat(storage, page.image_path, mime or "application/octet-stream", request)
