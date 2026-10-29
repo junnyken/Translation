@@ -27,6 +27,7 @@ from core_tts_voice import (
     tong_hop_giong_doc_phan_canh,
 )
 from core_video_renderer import (
+    DANH_SACH_NHAC_NEN,
     DINH_DANG_VIDEO,
     GOI_LUOT_VIDEO_REVIEW,
     ve_khung_hinh_pan_zoom_va_phu_de,
@@ -339,7 +340,7 @@ class AppVideoReviewStudio(tk.Tk):
         f_voice_row.pack(fill="x", pady=(2, 5))
         tk.Label(
             f_voice_row,
-            text=f"Kho Giọng Đọc AI ({len(DANH_SACH_GIONG_DOC)} giọng Bắc/Trung/Nam + Đa nhân vật + Nhái giọng):",
+            text=f"Kho Giọng Đọc AI ({len(DANH_SACH_GIONG_DOC)} giọng Thuần Việt + Đa nhân vật + Nhái giọng):",
             bg="#111827",
             fg="#cbd5e1",
         ).pack(anchor="w")
@@ -348,8 +349,17 @@ class AppVideoReviewStudio(tk.Tk):
             values=[f"{k} — {v['ten']}" for k, v in DANH_SACH_GIONG_DOC.items()],
             state="readonly",
         )
-        self.cmb_giong.current(2)  # Mặc định chọn Nam Minh hoặc Đa nhân vật
+        self.cmb_giong.current(0)  # Mặc định chọn Chị Google Review Chuẩn Thuần Việt
         self.cmb_giong.pack(fill="x", pady=(2, 4))
+
+        tk.Label(left_col, text="Nhạc nền không bản quyền (BGM -18dB) & Hiệu ứng chuyển cảnh:", bg="#111827", fg="#38bdf8").pack(anchor="w")
+        self.cmb_nhac_nen = ttk.Combobox(
+            left_col,
+            values=[f"{k} — {v['ten']}" for k, v in DANH_SACH_NHAC_NEN.items()],
+            state="readonly",
+        )
+        self.cmb_nhac_nen.current(0)
+        self.cmb_nhac_nen.pack(fill="x", pady=(2, 4))
 
         f_clone = tk.Frame(left_col, bg="#111827")
         f_clone.pack(fill="x", pady=(0, 5))
@@ -725,6 +735,7 @@ class AppVideoReviewStudio(tk.Tk):
         ten_goc = src_p.stem if src_p.is_file() else src_p.name
         dinh_dang_key = self.cmb_dinh_dang.get().split(" — ", 1)[0].strip()
         giong_key = self.cmb_giong.get().split(" — ", 1)[0].strip()
+        nhac_nen_key = self.cmb_nhac_nen.get().split(" — ", 1)[0].strip() if hasattr(self, "cmb_nhac_nen") else "tu_dong_theo_phong_cach"
         goi_key = self.cmb_goi_luot.get().split(" — ", 1)[0].strip()
         toc_do_val = self._lay_toc_do_doc()
         token_val = self.ent_token.get().strip()
@@ -734,6 +745,7 @@ class AppVideoReviewStudio(tk.Tk):
                 "token": token_val,
                 "dinh_dang": dinh_dang_key,
                 "ma_giong": giong_key,
+                "ma_nhac_nen": nhac_nen_key,
                 "goi_luot": goi_key,
                 "toc_do_doc": toc_do_val,
             }
@@ -756,13 +768,14 @@ class AppVideoReviewStudio(tk.Tk):
                     self.ghi_log(
                         f"✅ Đã xác thực gói '{goi_key}' (-{kq_ve['so_luot_da_tru']} lượt · Số dư còn {kq_ve['con_lai_sau_tru']} lượt)."
                     )
-                self.ghi_log(f"🎙️ Đang tổng hợp giọng đọc thuyết minh ({toc_do_val:.2f}x) & dựng chuyển động Pan/Zoom MP4...")
+                self.ghi_log(f"🎙️ Đang tổng hợp giọng đọc ({toc_do_val:.2f}x), trộn nhạc nền ({nhac_nen_key}) & dựng MP4...")
                 kq = xuat_video_review_mp4(
                     self.panels_bytes,
                     self.kich_ban_hien_tai,
                     out_mp4,
                     ma_dinh_dang=dinh_dang_key,
                     ma_giong=giong_key,
+                    ma_nhac_nen=nhac_nen_key,
                     toc_do_doc=toc_do_val,
                     file_giong_mau_clone=self.ent_ref_audio.get().strip() or None,
                 )

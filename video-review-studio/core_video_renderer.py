@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import array
 import hashlib
 import io
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -32,6 +34,27 @@ DINH_DANG_VIDEO = {
     "youtube_16_9": {
         "ten": "📺 Ngang 16:9 — YouTube Review Full (1280x720)",
         "kich_thuoc": (1280, 720),
+    },
+}
+
+DANH_SACH_NHAC_NEN = {
+    "tu_dong_theo_phong_cach": {
+        "ten": "🎵 Tự động khớp Phong cách Kịch bản + Hiệu ứng chuyển cảnh Whoosh (-18dB)",
+    },
+    "bgm_kich_tinh": {
+        "ten": "🥁 Nhạc nền Kịch tính / Gay cấn + Tiếng chuyển cảnh Whoosh (Chuẩn TikTok)",
+    },
+    "bgm_hai_huoc": {
+        "ten": "🎪 Nhạc nền Hài hước / Tấu hài vui nhộn + Tiếng chuyển cảnh Whoosh",
+    },
+    "bgm_tu_tien": {
+        "ten": "🏮 Nhạc nền Cổ trang / Tu tiên Ngũ cung + Tiếng chuyển cảnh Whoosh",
+    },
+    "bgm_cam_xuc": {
+        "ten": "🎹 Nhạc nền Piano Cảm xúc / Đời thường sâu lắng (-18dB)",
+    },
+    "tat_nhac_nen": {
+        "ten": "🔇 Tắt nhạc nền (Chỉ giữ giọng đọc thuyết minh)",
     },
 }
 
@@ -269,6 +292,122 @@ def ghep_cac_file_wav_thanh_master(wav_paths: list[Path], out_master_wav: Path) 
     return out_master_wav
 
 
+def pha_tron_nhac_nen_va_hieu_ung_chuyen_canh(
+    master_wav_path: Path,
+    scenes: list[dict[str, Any]],
+    *,
+    ma_nhac_nen: str = "tu_dong_theo_phong_cach",
+    phong_cach_kich_ban: str = "kich_tinh",
+) -> Path:
+    """
+    Trộn Nhạc nền không bản quyền (Procedural Harmonic BGM ở mức -18dB) + Hiệu ứng âm thanh chuyển cảnh (`Whoosh`)
+    kèm cơ chế Auto-Ducking (tự động hạ nhỏ nhạc nền khi có tiếng người đọc để giọng thuyết minh luôn rõ 100%).
+    """
+    if not master_wav_path.is_file() or master_wav_path.suffix.lower() != ".wav" or ma_nhac_nen == "tat_nhac_nen":
+        return master_wav_path
+
+    kieu_bgm = ma_nhac_nen
+    if kieu_bgm == "tu_dong_theo_phong_cach":
+        kieu_bgm = {
+            "kich_tinh": "bgm_kich_tinh",
+            "hai_huoc": "bgm_hai_huoc",
+            "tu_tien": "bgm_tu_tien",
+            "ngon_tinh": "bgm_cam_xuc",
+        }.get(phong_cach_kich_ban, "bgm_kich_tinh")
+
+    hop_am_theo_kieu = {
+        "bgm_kich_tinh": [(110.0, 130.81, 164.81), (87.31, 110.0, 130.81), (98.0, 123.47, 146.83), (82.41, 103.83, 123.47)],
+        "bgm_hai_huoc": [(261.63, 329.63, 392.0), (293.66, 369.99, 440.0), (329.63, 392.0, 493.88), (261.63, 349.23, 440.0)],
+        "bgm_tu_tien": [(146.83, 174.61, 220.0), (130.81, 164.81, 196.0), (110.0, 146.83, 174.61), (130.81, 174.61, 220.0)],
+        "bgm_cam_xuc": [(130.81, 164.81, 196.0), (110.0, 130.81, 164.81), (87.31, 110.0, 130.81), (98.0, 123.47, 146.83)],
+    }
+    ds_hop_am = hop_am_theo_kieu.get(kieu_bgm, hop_am_theo_kieu["bgm_kich_tinh"])
+
+    try:
+        with wave.open(str(master_wav_path), "rb") as rf:
+            n_channels = rf.getnchannels()
+            sampwidth = rf.getsampwidth()
+            framerate = rf.getframerate()
+            n_frames = rf.getnframes()
+            raw_bytes = rf.readframes(n_frames)
+
+        if sampwidth != 2 or n_channels != 1 or n_frames <= 0:
+            return master_wav_path
+
+        samples = array.array("h")
+        samples.frombytes(raw_bytes)
+        total_samples = len(samples)
+
+        # Tính danh sách mốc mẫu (sample index) bắt đầu mỗi phân cảnh mới để chèn tiếng Whoosh chuyển cảnh
+        moc_chuyen_canh: list[int] = []
+        t_acc = 0.0
+        for idx_s, sc in enumerate(scenes):
+            if idx_s > 0:
+                idx_sample = int(t_acc * framerate)
+                if 0 < idx_sample < total_samples - int(0.25 * framerate):
+                    moc_chuyen_canh.append(idx_sample)
+            t_acc += float(sc.get("thoi_luong_giay") or 3.0)
+
+        # Chiều dài mỗi hợp âm ~ 2.0 giây, tính sẵn 1 chu kỳ 8 giây để trộn cực nhanh (< 50ms)
+        chord_len = max(1, int(framerate * 2.0))
+        cycle_len = chord_len * 4
+        bgm_cycle = array.array("h", [0] * cycle_len)
+        two_pi = 2.0 * math.pi
+        beat_len = max(1, int(framerate * 0.5))
+
+        for i in range(cycle_len):
+            chord = ds_hop_am[(i // chord_len) % 4]
+            t = i / float(framerate)
+            pos_in_beat = (i % beat_len) / float(beat_len)
+            env_beat = 0.65 + 0.35 * math.exp(-3.5 * pos_in_beat)
+            val = (
+                0.48 * math.sin(two_pi * chord[0] * t)
+                + 0.32 * math.sin(two_pi * chord[1] * t)
+                + 0.20 * math.sin(two_pi * chord[2] * t)
+            )
+            bgm_cycle[i] = int(950.0 * env_beat * val)
+
+        # Trộn BGM (Auto-Ducking khi có tiếng đọc lớn)
+        for i in range(total_samples):
+            v = samples[i]
+            b = bgm_cycle[i % cycle_len]
+            if abs(v) > 3500:
+                b = (b * 55) // 100
+            mixed = v + b
+            if mixed > 32760:
+                mixed = 32760
+            elif mixed < -32760:
+                mixed = -32760
+            samples[i] = mixed
+
+        # Chèn hiệu ứng âm thanh chuyển cảnh Whoosh nhẹ (0.18s) ở đầu mỗi khung tranh mới
+        whoosh_samples = int(0.18 * framerate)
+        for start_i in moc_chuyen_canh:
+            for k in range(whoosh_samples):
+                idx = start_i + k
+                if idx >= total_samples:
+                    break
+                u = k / float(whoosh_samples)
+                env_w = math.sin(math.pi * u)
+                freq_w = 380.0 - 240.0 * u
+                w_val = int(1350.0 * env_w * math.sin(two_pi * freq_w * (k / float(framerate))))
+                mixed = samples[idx] + w_val
+                if mixed > 32760:
+                    mixed = 32760
+                elif mixed < -32760:
+                    mixed = -32760
+                samples[idx] = mixed
+
+        with wave.open(str(master_wav_path), "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(framerate)
+            wf.writeframes(samples.tobytes())
+    except Exception:
+        pass
+    return master_wav_path
+
+
 def _tim_ffmpeg_exe() -> str | None:
     ff = shutil.which("ffmpeg")
     if ff:
@@ -300,7 +439,8 @@ def xuat_video_review_mp4(
     out_mp4_path: Path,
     *,
     ma_dinh_dang: str = "tiktok_9_16",
-    ma_giong: str = "nam_minh_kich_tinh",
+    ma_giong: str = "chi_google_review_chuan",
+    ma_nhac_nen: str = "tu_dong_theo_phong_cach",
     toc_do_doc: float = 1.15,
     file_giong_mau_clone: str | Path | None = None,
     che_do_nhanh_offline: bool = False,
@@ -368,9 +508,15 @@ def xuat_video_review_mp4(
             safe_fp = str(frame_file.resolve()).replace("\\", "/")
             concat_lines.append(f"file '{safe_fp}'\nduration {dur_step}")
 
-    # Ghép track âm thanh thuyết minh tổng (.wav)
+    # Ghép track âm thanh thuyết minh tổng (.wav) và trộn nhạc nền + hiệu ứng chuyển cảnh Whoosh
     out_audio_master = ghep_cac_file_wav_thanh_master(
         wav_files, out_mp4_path.with_name(f"{out_mp4_path.stem}_voice.wav")
+    )
+    out_audio_master = pha_tron_nhac_nen_va_hieu_ung_chuyen_canh(
+        out_audio_master,
+        scenes,
+        ma_nhac_nen=ma_nhac_nen,
+        phong_cach_kich_ban=str(kich_ban.get("phong_cach") or "kich_tinh"),
     )
 
     out_srt_path = out_mp4_path.with_suffix(".srt")

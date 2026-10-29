@@ -131,6 +131,49 @@ def tim_font_he_thong(loai_font: str, co_chu: int):
     return ImageFont.load_default()
 
 
+def _inpaint_vung_nen_phuc_tap_harmonic(px_anh, W: int, H: int, x0: int, y0: int, w: int, h: int) -> tuple[int, int, int]:
+    """
+    Nội suy bề mặt 4 hướng (4-Boundary Harmonic Ring Inpainting) cho vùng chữ SFX / chữ đè lên nền phức tạp:
+    Lấy mẫu vành đai 3px xung quanh 4 cạnh (Trái, Phải, Trên, Dưới) và pha màu mượt theo khoảng cách nghịch đảo
+    giúp tái tạo dải màu chuyển sắc (gradient), đường kẻ nền hoặc mảng màu quần áo/bầu trời mà không bị vệt phẳng.
+    """
+    rx0 = max(1, x0)
+    ry0 = max(1, y0)
+    rx1 = min(W - 2, x0 + w)
+    ry1 = min(H - 2, y0 + h)
+    rw = max(1, rx1 - rx0)
+    rh = max(1, ry1 - ry0)
+
+    left_col = [px_anh[max(0, rx0 - 2), ry0 + py] for py in range(rh)]
+    right_col = [px_anh[min(W - 1, rx1 + 1), ry0 + py] for py in range(rh)]
+    top_row = [px_anh[rx0 + px, max(0, ry0 - 2)] for px in range(rw)]
+    bot_row = [px_anh[rx0 + px, min(H - 1, ry1 + 1)] for px in range(rw)]
+
+    sum_r = sum_g = sum_b = cnt = 0
+    for py in range(rh):
+        l_r, l_g, l_b = left_col[py]
+        r_r, r_g, r_b = right_col[py]
+        wy_t = 1.0 / max(1.0, float(py + 1))
+        wy_b = 1.0 / max(1.0, float(rh - py))
+        for px in range(rw):
+            t_r, t_g, t_b = top_row[px]
+            b_r, b_g, b_b = bot_row[px]
+            wx_l = 1.0 / max(1.0, float(px + 1))
+            wx_r = 1.0 / max(1.0, float(rw - px))
+            w_tot = wx_l + wx_r + wy_t + wy_b
+            nr = int(round((l_r * wx_l + r_r * wx_r + t_r * wy_t + b_r * wy_b) / w_tot))
+            ng = int(round((l_g * wx_l + r_g * wx_r + t_g * wy_t + b_g * wy_b) / w_tot))
+            nb = int(round((l_b * wx_l + r_b * wx_r + t_b * wy_t + b_b * wy_b) / w_tot))
+            px_anh[rx0 + px, ry0 + py] = (nr, ng, nb)
+            sum_r += nr
+            sum_g += ng
+            sum_b += nb
+            cnt += 1
+    if cnt > 0:
+        return (sum_r // cnt, sum_g // cnt, sum_b // cnt)
+    return (255, 255, 255)
+
+
 def xoa_chu_va_ve_ban_dich_tren_anh(
     img_bytes: bytes,
     ds_vung: list[dict],
@@ -138,7 +181,8 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
 ) -> bytes:
     """
     Thực hiện xoá sạch chữ gốc trong lòng bong bóng (2D Connected-Component Flood-Fill +
-    Rào chắn lãnh thổ Voronoi cho bong bóng đôi) và trình bày bản dịch ngay trên máy khách Windows.
+    Rào chắn lãnh thổ Voronoi cho bong bóng đôi + 4-Boundary Harmonic Inpainting cho SFX)
+    và trình bày bản dịch ngay trên máy khách Windows.
     """
     if Image is None:
         return img_bytes
@@ -147,7 +191,10 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
     W, H = anh.size
     px_anh = anh.load()
 
-    vung_hop_le = [v for v in ds_vung if v.get("ban_dich") and v.get("w", 0) > 4 and v.get("h", 0) > 4]
+    vung_hop_le = [
+        v for v in ds_vung
+        if (v.get("ban_dich") or v.get("inpaint_sfx")) and v.get("w", 0) > 4 and v.get("h", 0) > 4
+    ]
     if not vung_hop_le:
         out = io.BytesIO()
         anh.save(out, format="JPEG", quality=92)
@@ -160,6 +207,26 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
         y_goc = max(0, int(round(v["y"])))
         w_goc = max(4, min(W - x_goc, int(round(v["w"]))))
         h_goc = max(4, min(H - y_goc, int(round(v["h"]))))
+        txt_dich = str(v.get("ban_dich") or "").strip()
+
+        if v.get("inpaint_sfx") or txt_dich == "[XOA_SFX]":
+            bg_r, bg_g, bg_b = _inpaint_vung_nen_phuc_tap_harmonic(px_anh, W, H, x_goc, y_goc, w_goc, h_goc)
+            if txt_dich and txt_dich != "[XOA_SFX]":
+                lum_bg = 0.299 * bg_r + 0.587 * bg_g + 0.114 * bg_b
+                hop_ve_chu.append(
+                    {
+                        "text": txt_dich,
+                        "x": x_goc,
+                        "y": y_goc,
+                        "w": max(20, w_goc),
+                        "h": max(16, h_goc),
+                        "nen_toi": lum_bg < 85.0,
+                        "nen_mau_trung_binh": True,
+                        "bg": (bg_r, bg_g, bg_b),
+                        "dong_con": [{"x": x_goc, "y": y_goc, "w": w_goc, "h": h_goc}],
+                    }
+                )
+            continue
 
         # Mở rộng ROI vừa đủ quanh hộp chữ gốc để tăng tốc 5-8 lần và không tràn ra lề trắng khung tranh
         mo_x = max(16, min(int(w_goc * 0.35), int(W * 0.06)))
@@ -5601,8 +5668,8 @@ class AppDichTruyenWindows(tk.Tk):
 
         out_root = Path(self.ent_out.get().strip() or (Path.home() / "Downloads" / "Truyen_Da_Dich"))
         win = tk.Toplevel(self)
-        win.title("👁️ Rà Soát & Sửa Nhanh Chapter (Vẽ lại trang ~0.4s không tốn lượt AI)")
-        win.geometry("980x640")
+        win.title("👁️ Rà Soát, Khoanh Chuột Xoá SFX & Sửa Nhanh Chapter (Vẽ lại trang ~0.4s · Không tốn lượt)")
+        win.geometry("1260x740")
         win.configure(bg="#0f172a")
 
         top_bar = tk.Frame(win, bg="#1e293b", padx=12, pady=8)
@@ -5616,40 +5683,117 @@ class AppDichTruyenWindows(tk.Tk):
         ent_reviewer.insert(0, self.cau_hinh.get("email") or MA_MAY_HIEN_THI)
         ent_reviewer.pack(side="left", padx=4)
 
-        state = {"folder": None, "pages": [], "cur_page": 0, "regions": []}
+        state: dict[str, Any] = {
+            "folder": None,
+            "pages": [],
+            "cur_page": 0,
+            "regions": [],
+            "img_w": 1,
+            "img_h": 1,
+            "scale": 1.0,
+            "offset_x": 0,
+            "offset_y": 0,
+            "drag_start": None,
+            "drag_rect_id": None,
+            "tk_img": None,
+        }
 
-        body = tk.Frame(win, bg="#0f172a", padx=12, pady=8)
+        body = tk.Frame(win, bg="#0f172a", padx=10, pady=8)
         body.pack(fill="both", expand=True)
 
         left_col = tk.LabelFrame(body, text=" 📄 Danh sách Trang ", bg="#1e293b", fg="#38bdf8", font=("Segoe UI", 9, "bold"), padx=6, pady=6)
         left_col.pack(side="left", fill="y")
-        lst_pages = tk.Listbox(left_col, width=28, height=22, bg="#0f172a", fg="#f8fafc", selectbackground="#2563eb", font=("Consolas", 10))
+        lst_pages = tk.Listbox(left_col, width=24, height=22, bg="#0f172a", fg="#f8fafc", selectbackground="#2563eb", font=("Consolas", 10))
         lst_pages.pack(fill="both", expand=True)
+
+        center_col = tk.LabelFrame(
+            body,
+            text=" 🖱️ Khung Ảnh Trực Tiếp (Kéo chuột khoanh vùng để Xoá SFX hoặc Thêm bóng thoại mới) ",
+            bg="#1e293b",
+            fg="#fbbf24",
+            font=("Segoe UI", 9, "bold"),
+            padx=6,
+            pady=6,
+        )
+        center_col.pack(side="left", fill="both", expand=True, padx=(8, 8))
+        cv_page = tk.Canvas(center_col, width=410, height=580, bg="#090d16", highlightthickness=1, highlightbackground="#334155", cursor="crosshair")
+        cv_page.pack(fill="both", expand=True)
 
         right_col = tk.LabelFrame(
             body,
-            text=" 💬 Danh sách Bóng thoại trong Trang (Chọn 1 bóng để sửa nhanh & vẽ lại) ",
+            text=" 💬 Danh sách Bóng thoại & Vùng SFX (Chọn 1 vùng để sửa nhanh & vẽ lại) ",
             bg="#1e293b",
             fg="#34d399",
             font=("Segoe UI", 9, "bold"),
             padx=8,
             pady=6,
         )
-        right_col.pack(side="left", fill="both", expand=True, padx=(10, 0))
+        right_col.pack(side="left", fill="both", expand=True)
 
-        lst_bubbles = tk.Listbox(right_col, height=12, bg="#0f172a", fg="#f8fafc", selectbackground="#059669", font=("Consolas", 10))
+        lst_bubbles = tk.Listbox(right_col, height=11, bg="#0f172a", fg="#f8fafc", selectbackground="#059669", font=("Consolas", 10))
         lst_bubbles.pack(fill="both", expand=True)
 
         edit_box = tk.Frame(right_col, bg="#1e293b", pady=6)
         edit_box.pack(fill="x")
-        lbl_goc = tk.Label(edit_box, text="Câu gốc OCR: (chọn bóng thoại ở trên)", bg="#1e293b", fg="#94a3b8", anchor="w", justify="left")
+        lbl_goc = tk.Label(edit_box, text="Câu gốc OCR: (chọn bóng thoại hoặc kéo chuột khoanh vùng trên ảnh)", bg="#1e293b", fg="#94a3b8", anchor="w", justify="left")
         lbl_goc.pack(fill="x")
-        tk.Label(edit_box, text="Sửa bản dịch Tiếng Việt:", bg="#1e293b", fg="#fde047", font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(4, 2))
+        tk.Label(edit_box, text="Sửa bản dịch Tiếng Việt (hoặc để [XOA_SFX] nếu chỉ muốn xoá chữ nền):", bg="#1e293b", fg="#fde047", font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(4, 2))
         ent_dich = tk.Entry(edit_box, bg="#0f172a", fg="#ffffff", insertbackground="#fff", font=("Segoe UI", 11))
         ent_dich.pack(fill="x", pady=2)
 
-        lbl_status_rv = tk.Label(right_col, text="Chọn thư mục Chapter có tệp trang-thai.json để bắt đầu rà soát.", bg="#1e293b", fg="#38bdf8", font=("Segoe UI", 9, "bold"))
+        var_inpaint_sfx = tk.BooleanVar(value=False)
+        chk_sfx_bar = tk.Frame(edit_box, bg="#1e293b")
+        chk_sfx_bar.pack(fill="x", pady=(4, 0))
+        tk.Checkbutton(
+            chk_sfx_bar,
+            text="✨ Xoá chữ nền phức tạp / SFX 4 hướng (Harmonic Inpainting)",
+            variable=var_inpaint_sfx,
+            bg="#1e293b",
+            fg="#38bdf8",
+            selectcolor="#0f172a",
+            activebackground="#1e293b",
+            font=("Segoe UI", 9, "bold"),
+        ).pack(side="left")
+
+        lbl_status_rv = tk.Label(right_col, text="Chọn thư mục Chapter có tệp trang-thai.json để bắt đầu rà soát.", bg="#1e293b", fg="#38bdf8", font=("Segoe UI", 9, "bold"), wraplength=460, justify="left")
         lbl_status_rv.pack(anchor="w", pady=4)
+
+        def _ve_anh_len_canvas():
+            cv_page.delete("all")
+            if not state["folder"]:
+                return
+            p_img = state["folder"] / f"{state['cur_page'] + 1:03d}.jpg"
+            if not p_img.is_file() or Image is None or ImageTk is None:
+                return
+            try:
+                with Image.open(p_img) as raw_im:
+                    im = raw_im.convert("RGB")
+                    W, H = im.size
+                    state["img_w"], state["img_h"] = W, H
+                    cw = max(360, cv_page.winfo_width() or 410)
+                    ch = max(480, cv_page.winfo_height() or 580)
+                    scale = min((cw - 12) / max(1, W), (ch - 12) / max(1, H))
+                    nw, nh = max(1, int(W * scale)), max(1, int(H * scale))
+                    ox, oy = (cw - nw) // 2, (ch - nh) // 2
+                    state["scale"], state["offset_x"], state["offset_y"] = scale, ox, oy
+                    im_thumb = im.resize((nw, nh))
+                    tk_im = ImageTk.PhotoImage(im_thumb)
+                    state["tk_img"] = tk_im
+                    cv_page.create_image(ox, oy, anchor="nw", image=tk_im)
+
+                    sel_b = int(lst_bubbles.curselection()[0]) if lst_bubbles.curselection() else -1
+                    for b_i, r in enumerate(state["regions"]):
+                        rx = ox + int(r.get("x", 0) * scale)
+                        ry = oy + int(r.get("y", 0) * scale)
+                        rw = max(8, int(r.get("w", 20) * scale))
+                        rh = max(8, int(r.get("h", 20) * scale))
+                        mau_vien = "#fbbf24" if b_i == sel_b else ("#f43f5e" if r.get("inpaint_sfx") else "#10b981")
+                        do_day = 3 if b_i == sel_b else 1
+                        cv_page.create_rectangle(rx, ry, rx + rw, ry + rh, outline=mau_vien, width=do_day)
+                        cv_page.create_rectangle(rx, max(oy, ry - 15), rx + 28, ry, fill=mau_vien, outline=mau_vien)
+                        cv_page.create_text(rx + 14, max(oy + 7, ry - 7), text=f"#{b_i + 1}", fill="#000000" if b_i == sel_b else "#ffffff", font=("Consolas", 8, "bold"))
+            except Exception:
+                pass
 
         def _nap_ho_so(folder_path: Path):
             try:
@@ -5683,20 +5827,25 @@ class AppDichTruyenWindows(tk.Tk):
             lst_bubbles.delete(0, "end")
             for b_i, r in enumerate(regs):
                 cb = f" [⚠️ {r['canh_bao_chat_luong']}]" if r.get("canh_bao_chat_luong") else ""
-                lst_bubbles.insert("end", f"#{b_i + 1:02d}: {r.get('chu_goc', '')[:30]}  =>  {r.get('ban_dich', '')}{cb}")
+                sfx_tag = "[SFX] " if r.get("inpaint_sfx") else ""
+                lst_bubbles.insert("end", f"#{b_i + 1:02d}: {sfx_tag}{r.get('chu_goc', '')[:26]}  =>  {r.get('ban_dich', '')}{cb}")
             if regs:
                 lst_bubbles.selection_set(0)
                 _chon_bong(0)
-            lbl_status_rv.config(text=f"Đang xem Trang {idx + 1:03d}/{len(state['pages'])} — có {len(regs)} bóng thoại.")
+            else:
+                _ve_anh_len_canvas()
+            lbl_status_rv.config(text=f"Đang xem Trang {idx + 1:03d}/{len(state['pages'])} — có {len(regs)} vùng. Kéo chuột trên ảnh giữa để khoanh thêm vùng SFX / bóng thoại!")
 
         def _chon_bong(b_idx: int):
             regs = state["regions"]
             if not (0 <= b_idx < len(regs)):
                 return
             r = regs[b_idx]
-            lbl_goc.config(text=f"Câu gốc OCR (#{b_idx + 1}): {r.get('chu_goc', '')}")
+            lbl_goc.config(text=f"Câu gốc OCR (#{b_idx + 1} · x={r.get('x')}, y={r.get('y')}, {r.get('w')}x{r.get('h')}): {r.get('chu_goc', '')}")
             ent_dich.delete(0, "end")
             ent_dich.insert(0, str(r.get("ban_dich") or ""))
+            var_inpaint_sfx.set(bool(r.get("inpaint_sfx")))
+            _ve_anh_len_canvas()
 
         def _cap_nhat_cau_dang_chon():
             sel = lst_bubbles.curselection()
@@ -5705,20 +5854,116 @@ class AppDichTruyenWindows(tk.Tk):
             b_idx = int(sel[0])
             moi = ent_dich.get().strip()
             if not moi:
-                messagebox.showwarning("Trống nội dung", "Bản dịch không được để trống!", parent=win)
-                return
+                if var_inpaint_sfx.get():
+                    moi = "[XOA_SFX]"
+                else:
+                    messagebox.showwarning("Trống nội dung", "Bản dịch không được để trống (hoặc bấm nút 'Chỉ xoá chữ SFX')!", parent=win)
+                    return
             state["regions"][b_idx]["ban_dich"] = moi
+            state["regions"][b_idx]["inpaint_sfx"] = bool(var_inpaint_sfx.get() or moi == "[XOA_SFX]")
             state["regions"][b_idx].pop("canh_bao_chat_luong", None)
             r = state["regions"][b_idx]
-            hoc_tu_ban_sua_nguoi_dung(r.get("chu_goc", ""), moi)
+            if moi != "[XOA_SFX]":
+                hoc_tu_ban_sua_nguoi_dung(r.get("chu_goc", ""), moi)
+            sfx_tag = "[SFX] " if r.get("inpaint_sfx") else ""
             lst_bubbles.delete(b_idx)
-            lst_bubbles.insert(b_idx, f"#{b_idx + 1:02d}: {r.get('chu_goc', '')[:30]}  =>  {moi}")
+            lst_bubbles.insert(b_idx, f"#{b_idx + 1:02d}: {sfx_tag}{r.get('chu_goc', '')[:26]}  =>  {moi}")
             lst_bubbles.selection_set(b_idx)
+            _ve_anh_len_canvas()
 
-        def _ve_lai_trang_hien_tai():
+        def _chi_xoa_sfx_vung_chon():
+            var_inpaint_sfx.set(True)
+            ent_dich.delete(0, "end")
+            ent_dich.insert(0, "[XOA_SFX]")
+            _ve_lai_trang_hien_tai()
+
+        def _xoa_bo_vung_dang_chon():
+            sel = lst_bubbles.curselection()
+            if not sel:
+                return
+            b_idx = int(sel[0])
+            if 0 <= b_idx < len(state["regions"]):
+                state["regions"].pop(b_idx)
+                _ve_lai_trang_hien_tai(bo_qua_cap_nhat_o_nhap=True)
+
+        def _on_canvas_press(event):
+            state["drag_start"] = (event.x, event.y)
+            if state["drag_rect_id"]:
+                cv_page.delete(state["drag_rect_id"])
+                state["drag_rect_id"] = None
+
+        def _on_canvas_drag(event):
+            if not state["drag_start"]:
+                return
+            x0, y0 = state["drag_start"]
+            if state["drag_rect_id"]:
+                cv_page.coords(state["drag_rect_id"], x0, y0, event.x, event.y)
+            else:
+                state["drag_rect_id"] = cv_page.create_rectangle(x0, y0, event.x, event.y, outline="#f43f5e", width=2, dash=(4, 2))
+
+        def _on_canvas_release(event):
+            if not state["drag_start"] or not state["folder"]:
+                return
+            x0, y0 = state["drag_start"]
+            state["drag_start"] = None
+            if state["drag_rect_id"]:
+                cv_page.delete(state["drag_rect_id"])
+                state["drag_rect_id"] = None
+
+            scale = float(state["scale"] or 1.0)
+            ox, oy = int(state["offset_x"]), int(state["offset_y"])
+            ix0 = int((min(x0, event.x) - ox) / scale)
+            iy0 = int((min(y0, event.y) - oy) / scale)
+            ix1 = int((max(x0, event.x) - ox) / scale)
+            iy1 = int((max(y0, event.y) - oy) / scale)
+
+            # Nếu người dùng click nhẹ (< 12px): chọn bóng thoại có sẵn tại vị trí click
+            if abs(event.x - x0) < 10 and abs(event.y - y0) < 10:
+                for b_i, r in enumerate(state["regions"]):
+                    rx, ry, rw, rh = int(r.get("x", 0)), int(r.get("y", 0)), int(r.get("w", 0)), int(r.get("h", 0))
+                    if rx <= ix0 <= rx + rw and ry <= iy0 <= ry + rh:
+                        lst_bubbles.selection_clear(0, "end")
+                        lst_bubbles.selection_set(b_i)
+                        _chon_bong(b_i)
+                        return
+                return
+
+            W, H = int(state["img_w"]), int(state["img_h"])
+            rx = max(0, min(W - 16, ix0))
+            ry = max(0, min(H - 16, iy0))
+            rw = max(16, min(W - rx, ix1 - rx))
+            rh = max(16, min(H - ry, iy1 - ry))
+
+            vung_moi = {
+                "x": rx,
+                "y": ry,
+                "w": rw,
+                "h": rh,
+                "chu_goc": "Vùng khoanh thủ công / SFX",
+                "ban_dich": "[XOA_SFX]",
+                "inpaint_sfx": True,
+            }
+            state["regions"].append(vung_moi)
+            b_new = len(state["regions"]) - 1
+            lst_bubbles.insert("end", f"#{b_new + 1:02d}: [SFX] Vùng khoanh thủ công  =>  [XOA_SFX]")
+            lst_bubbles.selection_clear(0, "end")
+            lst_bubbles.selection_set(b_new)
+            _chon_bong(b_new)
+            lbl_status_rv.config(
+                text=f"✨ Đã khoanh vùng mới #{b_new + 1} ({rw}x{rh}px). Bấm '🎨 Vẽ lại trang này' để xoá sạch SFX ngay, hoặc gõ chữ dịch vào ô trên!",
+                fg="#fbbf24",
+            )
+
+        cv_page.bind("<ButtonPress-1>", _on_canvas_press)
+        cv_page.bind("<B1-Motion>", _on_canvas_drag)
+        cv_page.bind("<ButtonRelease-1>", _on_canvas_release)
+        cv_page.bind("<Configure>", lambda _e: _ve_anh_len_canvas())
+
+        def _ve_lai_trang_hien_tai(bo_qua_cap_nhat_o_nhap: bool = False):
             if not state["folder"]:
                 return
-            _cap_nhat_cau_dang_chon()
+            if not bo_qua_cap_nhat_o_nhap:
+                _cap_nhat_cau_dang_chon()
             idx = state["cur_page"]
             try:
                 ve_lai_trang_trong_ho_so_chapter(
@@ -5728,7 +5973,7 @@ class AppDichTruyenWindows(tk.Tk):
                 lst_pages.selection_clear(0, "end")
                 lst_pages.selection_set(idx)
                 _chon_trang(idx)
-                lbl_status_rv.config(text=f"✅ Đã vẽ lại Trang {idx + 1:03d} thành công (~0.4s)!", fg="#34d399")
+                lbl_status_rv.config(text=f"✅ Đã vẽ lại & làm sạch nền Trang {idx + 1:03d} thành công (~0.4s)!", fg="#34d399")
             except Exception as exc:
                 messagebox.showerror("Không vẽ lại được trang", str(exc), parent=win)
 
@@ -5770,12 +6015,17 @@ class AppDichTruyenWindows(tk.Tk):
 
         tk.Button(top_bar, text="📂 Chọn Chapter...", bg="#0284c7", fg="#fff", relief="flat", padx=10, command=_chon_thu_muc_chap).pack(side="left", padx=4)
 
+        btn_bar_sfx = tk.Frame(right_col, bg="#1e293b", pady=3)
+        btn_bar_sfx.pack(fill="x")
+        tk.Button(btn_bar_sfx, text="✨ Chỉ xoá chữ SFX (Không điền chữ)", bg="#e11d48", fg="#fff", font=("Segoe UI", 8, "bold"), relief="flat", padx=8, pady=4, command=_chi_xoa_sfx_vung_chon).pack(side="left", padx=(0, 6))
+        tk.Button(btn_bar_sfx, text="🗑️ Xoá bỏ vùng đang chọn", bg="#64748b", fg="#fff", font=("Segoe UI", 8, "bold"), relief="flat", padx=8, pady=4, command=_xoa_bo_vung_dang_chon).pack(side="left", padx=4)
+        tk.Button(btn_bar_sfx, text="🖼️ Mở ảnh lớn", bg="#475569", fg="#fff", font=("Segoe UI", 8, "bold"), relief="flat", padx=8, pady=4, command=_mo_xem_anh_trang).pack(side="right")
+
         btn_bar = tk.Frame(right_col, bg="#1e293b", pady=6)
         btn_bar.pack(fill="x")
         tk.Button(btn_bar, text="💾 Lưu câu vừa sửa", bg="#0d9488", fg="#fff", font=("Segoe UI", 9, "bold"), relief="flat", padx=10, pady=5, command=_cap_nhat_cau_dang_chon).pack(side="left", padx=(0, 6))
         tk.Button(btn_bar, text="🎨 Vẽ lại trang này (~0.4s)", bg="#2563eb", fg="#fff", font=("Segoe UI", 9, "bold"), relief="flat", padx=12, pady=5, command=_ve_lai_trang_hien_tai).pack(side="left", padx=6)
-        tk.Button(btn_bar, text="🖼️ Mở ảnh trang này", bg="#475569", fg="#fff", font=("Segoe UI", 9, "bold"), relief="flat", padx=10, pady=5, command=_mo_xem_anh_trang).pack(side="left", padx=6)
-        tk.Button(btn_bar, text="✅ Duyệt cả Chapter & Xuất ZIP Bàn Giao", bg="#16a34a", fg="#fff", font=("Segoe UI", 9, "bold"), relief="flat", padx=12, pady=5, command=_duyet_tat_ca_va_xuat_zip).pack(side="right")
+        tk.Button(btn_bar, text="✅ Duyệt & Xuất ZIP", bg="#16a34a", fg="#fff", font=("Segoe UI", 9, "bold"), relief="flat", padx=10, pady=5, command=_duyet_tat_ca_va_xuat_zip).pack(side="right")
 
         lst_pages.bind("<<ListboxSelect>>", lambda _e: _chon_trang(int(lst_pages.curselection()[0])) if lst_pages.curselection() else None)
         lst_bubbles.bind("<<ListboxSelect>>", lambda _e: _chon_bong(int(lst_bubbles.curselection()[0])) if lst_bubbles.curselection() else None)
