@@ -32,3 +32,7 @@ dich-truyen-dang-doc.zip
 # lại nên KHÔNG có gì lên remote — nhưng lớp chặn đó là của GitHub, không phải của repo này.
 **/.secrets/
 **/*service-account*.json
+
+.claude/
+.vibe/
+manga-studio-windows-cpu-*.zip
