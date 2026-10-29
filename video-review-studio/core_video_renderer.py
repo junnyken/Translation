@@ -231,14 +231,18 @@ def ve_khung_hinh_pan_zoom_va_phu_de(
 
 def ghep_cac_file_wav_thanh_master(wav_paths: list[Path], out_master_wav: Path) -> Path:
     """
-    Ghép nối tuần tự tất cả file âm thanh `.wav` của từng phân cảnh thành 1 track âm thanh tổng (`out_master_wav`)
-    để ghép đồng bộ vào luồng Video MP4.
+    Ghép nối tuần tự tất cả file âm thanh `.wav` (hoặc `.mp3`) của từng phân cảnh
+    thành 1 track âm thanh tổng (`out_master_wav`) để ghép đồng bộ vào luồng Video MP4.
     """
     out_master_wav.parent.mkdir(parents=True, exist_ok=True)
     frames_all: list[bytes] = []
+    mp3_chunks: list[bytes] = []
     params = None
     for wp in wav_paths:
         if not wp.is_file():
+            continue
+        if wp.suffix.lower() == ".mp3":
+            mp3_chunks.append(wp.read_bytes())
             continue
         try:
             with wave.open(str(wp), "rb") as rf:
@@ -247,6 +251,11 @@ def ghep_cac_file_wav_thanh_master(wav_paths: list[Path], out_master_wav: Path) 
                 frames_all.append(rf.readframes(rf.getnframes()))
         except Exception:
             continue
+
+    if mp3_chunks and not frames_all:
+        out_mp3 = out_master_wav.with_suffix(".mp3")
+        out_mp3.write_bytes(b"".join(mp3_chunks))
+        return out_mp3
 
     with wave.open(str(out_master_wav), "wb") as wf:
         if params is not None:
@@ -356,8 +365,9 @@ def xuat_video_review_mp4(
             concat_lines.append(f"file '{safe_fp}'\nduration {dur_step}")
 
     # Ghép track âm thanh thuyết minh tổng (.wav)
-    out_audio_master = out_mp4_path.with_name(f"{out_mp4_path.stem}_voice.wav")
-    ghep_cac_file_wav_thanh_master(wav_files, out_audio_master)
+    out_audio_master = ghep_cac_file_wav_thanh_master(
+        wav_files, out_mp4_path.with_name(f"{out_mp4_path.stem}_voice.wav")
+    )
 
     out_srt_path = out_mp4_path.with_suffix(".srt")
     xuat_phu_de_srt(scenes, out_srt_path)

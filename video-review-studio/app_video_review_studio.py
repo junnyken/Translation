@@ -11,7 +11,12 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 from typing import Any
 
-from core_tts_voice import DANH_SACH_GIONG_DOC
+from core_tts_voice import (
+    DANH_SACH_GIONG_DOC,
+    cai_dat_tu_dong_goi_giong_doc_va_mp4,
+    kiem_tra_ha_tang_giong_doc_va_video,
+    tong_hop_giong_doc_phan_canh,
+)
 from core_video_renderer import (
     DINH_DANG_VIDEO,
     GOI_LUOT_VIDEO_REVIEW,
@@ -268,6 +273,29 @@ class AppVideoReviewStudio(tk.Tk):
         self.cmb_toc_do.current(1)
         self.cmb_toc_do.pack(side="right")
 
+        f_voice_tools = tk.Frame(left_col, bg="#111827")
+        f_voice_tools.pack(fill="x", pady=(0, 6))
+        tk.Button(
+            f_voice_tools,
+            text="🔊 Nghe Thử Giọng Này",
+            bg="#0284c7",
+            fg="#ffffff",
+            font=("Segoe UI", 8, "bold"),
+            relief="flat",
+            pady=5,
+            command=self._nghe_thu_giong_doc,
+        ).pack(side="left", fill="x", expand=True, padx=(0, 4))
+        tk.Button(
+            f_voice_tools,
+            text="⚙️ Cài / Đồng Bộ Giọng & MP4",
+            bg="#475569",
+            fg="#ffffff",
+            font=("Segoe UI", 8, "bold"),
+            relief="flat",
+            pady=5,
+            command=self._dong_bo_goi_giong_doc_va_mp4,
+        ).pack(side="left", fill="x", expand=True)
+
         tk.Label(left_col, text="Gói xử lý Video (Tính vào Ví lượt tài khoản):", bg="#111827", fg="#cbd5e1").pack(anchor="w")
         self.cmb_goi_luot = ttk.Combobox(
             left_col,
@@ -518,6 +546,52 @@ class AppVideoReviewStudio(tk.Tk):
             return float(raw)
         except Exception:
             return 1.15
+
+    def _nghe_thu_giong_doc(self):
+        giong_key = self.cmb_giong.get().split(" — ", 1)[0].strip()
+        toc_do_val = self._lay_toc_do_doc()
+        cau_thu = self.txt_loi_binh.get("1.0", "end").strip()
+        if not cau_thu:
+            cau_thu = (
+                "Chào mừng các bạn đến với kênh Review Truyện Tranh. "
+                "Tưởng chừng đã rơi vào tuyệt cảnh, nhưng khoảnh khắc tiếp theo của thanh niên lại khiến tất cả chấn động!"
+            )
+
+        def _worker():
+            self.ghi_log(f"🔊 Đang tạo mẫu giọng thử '{giong_key}' ({toc_do_val:.2f}x)...")
+            try:
+                tmp_dir = Path(tempfile.gettempdir()) / "manga_video_voice_preview"
+                kq = tong_hop_giong_doc_phan_canh(
+                    cau_thu,
+                    tmp_dir,
+                    scene_index=999,
+                    ma_giong=giong_key,
+                    toc_do=toc_do_val,
+                )
+                audio_p = kq["audio_path"]
+                if os.name == "nt" and os.path.isfile(audio_p):
+                    os.startfile(audio_p)
+                self.ghi_log(f"✅ Đã phát mẫu giọng thử ({kq['thoi_luong_giay']}s): {audio_p}")
+            except Exception as exc:
+                self.ghi_log(f"⚠️ Chưa phát được mẫu giọng thử: {exc}")
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _dong_bo_goi_giong_doc_va_mp4(self):
+        giong_key = self.cmb_giong.get().split(" — ", 1)[0].strip()
+        can_onnx = giong_key == "bieu_cam_ai_pro"
+
+        def _worker():
+            self.ghi_log("⚙️ Đang kiểm tra & tự động cài đặt Bộ Giọng Đọc AI + Nhân Render MP4...")
+            ok, msg = cai_dat_tu_dong_goi_giong_doc_va_mp4(cai_them_onnx_pro=can_onnx)
+            tt = kiem_tra_ha_tang_giong_doc_va_video()
+            self.ghi_log(
+                f"{'✅' if ok else '⚠️'} {msg}\n"
+                f"   • Giọng Đọc Neural (Nam Minh / Hoài My): {'Sẵn sàng' if tt['neural_voice_ready'] else 'Dự phòng Offline'}\n"
+                f"   • Nhân Render MP4 (H.264 + AAC): {'Sẵn sàng' if tt['ffmpeg_ready'] else 'Dự phòng Container'}"
+            )
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _xuat_video_mp4(self):
         if self.dang_xu_ly:
