@@ -11,30 +11,144 @@ from pathlib import Path
 from typing import Any
 
 
-DANH_SACH_GIONG_DOC = {
+DANH_SACH_GIONG_DOC: dict[str, dict[str, Any]] = {
+    # --- CHẾ ĐỘ ĐẶC BIỆT: ĐA NHÂN VẬT & NHÁI GIỌNG ---
+    "da_nhan_vat_thong_minh": {
+        "ten": "🎭 Đa Nhân Vật Tự Động (Tự đổi giọng Nam / Nữ / Phản Diện theo từng cảnh)",
+        "voice_id": "auto_role_cast",
+        "preset_hf": "binh",
+        "pitch_hz": "+0Hz",
+        "gioi_tinh": "auto",
+        "vung_mien": "Đa miền",
+        "toc_do_mac_dinh": 1.15,
+    },
+    "clone_giong_mau_5s": {
+        "ten": "🧬 Nhái Giọng Từ File Mẫu 5 Giây (Zero-Shot Voice Cloning — Giọng bất kỳ)",
+        "voice_id": "zero_shot_clone",
+        "preset_hf": "custom_clone",
+        "pitch_hz": "+0Hz",
+        "gioi_tinh": "custom",
+        "vung_mien": "Theo mẫu",
+        "toc_do_mac_dinh": 1.15,
+    },
+    # --- NHÓM GIỌNG NAM REVIEW & NHÂN VẬT NAM (BẮC / TRUNG / NAM) ---
     "nam_minh_kich_tinh": {
-        "ten": "🎙️ Nam Minh — Trầm Ngầu / Review Hành Động & Tu Tiên (Miền Bắc)",
+        "ten": "🎙️ Nam Minh — Nam Miền Bắc (Trầm Ngầu · Review Hành Động & Manhwa)",
         "voice_id": "vi-VN-NamMinhNeural",
+        "preset_hf": "binh",
+        "pitch_hz": "+0Hz",
         "gioi_tinh": "nam",
+        "vung_mien": "Miền Bắc",
         "toc_do_mac_dinh": 1.15,
     },
+    "hoang_binh_tu_tien": {
+        "ten": "⚔️ Hoàng Bình — Nam Miền Bắc (Uy Nghiêm · Review Tu Tiên & Hệ Thống)",
+        "voice_id": "vi-VN-NamMinhNeural",
+        "preset_hf": "binh",
+        "pitch_hz": "-6Hz",
+        "gioi_tinh": "nam",
+        "vung_mien": "Miền Bắc",
+        "toc_do_mac_dinh": 1.15,
+    },
+    "bac_si_tuyen_trinh_tham": {
+        "ten": "📜 Minh Tuyên — Nam Miền Bắc (Điềm Đạm · Kể Chuyện Trinh Thám & Lịch Sử)",
+        "voice_id": "vi-VN-NamMinhNeural",
+        "preset_hf": "tuyen",
+        "pitch_hz": "-3Hz",
+        "gioi_tinh": "nam",
+        "vung_mien": "Miền Bắc",
+        "toc_do_mac_dinh": 1.10,
+    },
+    "xuan_vinh_tong_tai": {
+        "ten": "👑 Xuân Vĩnh — Nam Trầm Ấm (Bá Đạo · Tổng Tài & Đô Thị)",
+        "voice_id": "vi-VN-NamMinhNeural",
+        "preset_hf": "vinh",
+        "pitch_hz": "-8Hz",
+        "gioi_tinh": "nam",
+        "vung_mien": "Miền Bắc",
+        "toc_do_mac_dinh": 1.12,
+    },
+    "khoi_nguyen_mien_nam": {
+        "ten": "🔥 Khôi Nguyên — Nam Miền Nam (Trẻ Trung · Review Hài Hước & Đời Sống)",
+        "voice_id": "vi-VN-NamMinhNeural",
+        "preset_hf": "nguyen",
+        "pitch_hz": "+6Hz",
+        "gioi_tinh": "nam",
+        "vung_mien": "Miền Nam",
+        "toc_do_mac_dinh": 1.20,
+    },
+    "quang_son_mien_trung": {
+        "ten": "⛰️ Quang Sơn — Nam Miền Trung (Chất Phác · Kiếm Hiệp & Cổ Trang)",
+        "voice_id": "vi-VN-NamMinhNeural",
+        "preset_hf": "son",
+        "pitch_hz": "-4Hz",
+        "gioi_tinh": "nam",
+        "vung_mien": "Miền Trung",
+        "toc_do_mac_dinh": 1.15,
+    },
+    "hac_am_phan_dien": {
+        "ten": "😈 Hắc Ám Lão Tổ — Giọng Trùm Phản Diện / Ma Tôn (Trầm Rền Uy Áp)",
+        "voice_id": "vi-VN-NamMinhNeural",
+        "preset_hf": "vinh",
+        "pitch_hz": "-16Hz",
+        "gioi_tinh": "nam",
+        "vung_mien": "Cổ trang",
+        "toc_do_mac_dinh": 1.05,
+    },
+    # --- NHÓM GIỌNG NỮ REVIEW & NHÂN VẬT NỮ (BẮC / NAM) ---
     "hoai_my_truyen_cam": {
-        "ten": "🎙️ Hoài My — Truyền Cảm / Review Ngôn Tình & Drama (Miền Nam)",
+        "ten": "🎙️ Hoài My — Nữ Miền Nam (Truyền Cảm · Review Ngôn Tình & Drama)",
         "voice_id": "vi-VN-HoaiMyNeural",
+        "preset_hf": "doan",
+        "pitch_hz": "+0Hz",
         "gioi_tinh": "nu",
+        "vung_mien": "Miền Nam",
         "toc_do_mac_dinh": 1.15,
     },
-    "luan_phien_nam_nu": {
-        "ten": "🎭 Cặp Đôi Nam Minh & Hoài My (Tự động đổi giọng theo phân cảnh)",
-        "voice_id": "auto_pair",
-        "gioi_tinh": "auto",
+    "ngoc_huyen_mien_bac": {
+        "ten": "🌸 Ngọc Huyền — Nữ Miền Bắc (Trong Trẻo · Nữ Chính Thanh Xuân & Học Đường)",
+        "voice_id": "vi-VN-HoaiMyNeural",
+        "preset_hf": "ngoc",
+        "pitch_hz": "+5Hz",
+        "gioi_tinh": "nu",
+        "vung_mien": "Miền Bắc",
         "toc_do_mac_dinh": 1.15,
     },
-    "bieu_cam_ai_pro": {
-        "ten": "🧠 Lõi Giọng Biểu Cảm AI Pro (ONNX 3 Miền · Tự Nhiên Như Người Thật)",
-        "voice_id": "vieneu_onnx_pro",
-        "gioi_tinh": "auto",
+    "thuc_doan_ngot_ngao": {
+        "ten": "🌺 Thục Đoan — Nữ Miền Nam (Ngọt Ngào · Chữa Lành & Xuyên Không)",
+        "voice_id": "vi-VN-HoaiMyNeural",
+        "preset_hf": "doan",
+        "pitch_hz": "+3Hz",
+        "gioi_tinh": "nu",
+        "vung_mien": "Miền Nam",
         "toc_do_mac_dinh": 1.15,
+    },
+    "truc_ly_nu_cuong": {
+        "ten": "❄️ Trúc Ly — Nữ Lạnh Lùng (Sắc Sảo · Nữ Cường & Báo Thù)",
+        "voice_id": "vi-VN-HoaiMyNeural",
+        "preset_hf": "ly",
+        "pitch_hz": "-6Hz",
+        "gioi_tinh": "nu",
+        "vung_mien": "Miền Bắc",
+        "toc_do_mac_dinh": 1.18,
+    },
+    "my_duyen_ca_khia": {
+        "ten": "😂 Mỹ Duyên — Nữ Năng Động (Bắt Trend · Review Cà Khịa TikTok)",
+        "voice_id": "vi-VN-HoaiMyNeural",
+        "preset_hf": "duyen",
+        "pitch_hz": "+8Hz",
+        "gioi_tinh": "nu",
+        "vung_mien": "Miền Nam",
+        "toc_do_mac_dinh": 1.25,
+    },
+    "thu_huong_ke_chuyen": {
+        "ten": "🌙 Thu Hương — Nữ Miền Bắc (Sâu Lắng · Kể Chuyện Tâm Lý & Bí Ẩn)",
+        "voice_id": "vi-VN-HoaiMyNeural",
+        "preset_hf": "huong",
+        "pitch_hz": "-4Hz",
+        "gioi_tinh": "nu",
+        "vung_mien": "Miền Bắc",
+        "toc_do_mac_dinh": 1.08,
     },
 }
 
@@ -52,12 +166,6 @@ def tim_ffmpeg_he_thong() -> str | None:
 
 
 def kiem_tra_ha_tang_giong_doc_va_video() -> dict[str, Any]:
-    """
-    Kiểm tra trạng thái sẵn sàng của 3 thành phần:
-    1. Lõi Giọng Đọc Neural (`edge_tts`)
-    2. Lõi Giọng Biểu Cảm ONNX (`vieneu`)
-    3. Nhân ghép hình & tiếng MP4 (`ffmpeg` / `imageio_ffmpeg`)
-    """
     co_edge_tts = False
     try:
         import edge_tts  # noqa: F401
@@ -76,6 +184,7 @@ def kiem_tra_ha_tang_giong_doc_va_video() -> dict[str, Any]:
 
     ffmpeg_exe = tim_ffmpeg_he_thong()
     return {
+        "so_luong_giong_doc": len(DANH_SACH_GIONG_DOC),
         "neural_voice_ready": co_edge_tts,
         "onnx_pro_voice_ready": co_vieneu,
         "ffmpeg_ready": bool(ffmpeg_exe),
@@ -84,10 +193,6 @@ def kiem_tra_ha_tang_giong_doc_va_video() -> dict[str, Any]:
 
 
 def cai_dat_tu_dong_goi_giong_doc_va_mp4(cai_them_onnx_pro: bool = False) -> tuple[bool, str]:
-    """
-    Tự động cài đặt các gói thư viện giọng đọc AI & bộ đóng gói MP4 (`edge-tts`, `imageio-ffmpeg`, `Pillow`)
-    trực tiếp từ giao diện Studio mà người dùng không cần mở Terminal.
-    """
     import sys
 
     ds_goi = ["Pillow", "edge-tts", "imageio-ffmpeg"]
@@ -101,15 +206,28 @@ def cai_dat_tu_dong_goi_giong_doc_va_mp4(cai_them_onnx_pro: bool = False) -> tup
             check=True,
             creationflags=flags,
         )
-        return True, f"Đã cài đặt & đồng bộ thành công: {', '.join(ds_goi)}"
+        return True, f"Đã cài đặt & đồng bộ thành công kho {len(DANH_SACH_GIONG_DOC)} giọng đọc AI ({', '.join(ds_goi)})"
     except Exception as exc:
         return False, f"Không thể tự động cài gói mở rộng: {exc}"
 
 
+def chon_giong_theo_vai_tro_nhan_vat(vai_tro: str = "", ten_nhan_vat: str = "", scene_index: int = 1) -> str:
+    """
+    Khi người dùng bật chế độ `da_nhan_vat_thong_minh`:
+    Tự động gán giọng đọc phù hợp nhất với vai trò nhân vật trong phân cảnh đó!
+    """
+    vt = (vai_tro or "").lower()
+    ten = (ten_nhan_vat or "").lower()
+    if any(k in vt or k in ten for k in ("nữ", "tiểu thư", "cô", "tuyết", "ly", "ngọc", "huyền", "my", "hương")):
+        return "ngoc_huyen_mien_bac" if scene_index % 2 == 0 else "hoai_my_truyen_cam"
+    if any(k in vt or k in ten for k in ("phản diện", "trùm", "ma tôn", "kẻ địch", "đối thủ", "lão", "hổ")):
+        return "hac_am_phan_dien"
+    if any(k in vt for k in ("hài", "phụ", "bạn")):
+        return "khoi_nguyen_mien_nam"
+    return "nam_minh_kich_tinh"
+
+
 def uoc_tinh_thoi_luong_cau(van_ban: str, toc_do: float = 1.15) -> float:
-    """
-    Ước tính chính xác thời lượng đọc tiếng Việt (tính bằng giây) theo số âm tiết (từ) và tốc độ nói.
-    """
     so_tu = len([w for w in (van_ban or "").strip().split() if w])
     toc_do_an_toan = max(0.75, min(1.6, float(toc_do or 1.15)))
     am_tiet_moi_giay = 3.6 * toc_do_an_toan
@@ -118,7 +236,6 @@ def uoc_tinh_thoi_luong_cau(van_ban: str, toc_do: float = 1.15) -> float:
 
 
 def do_thoi_luong_wav_thuc_te(wav_path: Path) -> float | None:
-    """Đo chính xác thời lượng (giây) của file WAV PCM thực tế sau khi tổng hợp giọng nói."""
     if not wav_path.is_file():
         return None
     try:
@@ -133,7 +250,6 @@ def do_thoi_luong_wav_thuc_te(wav_path: Path) -> float | None:
 
 
 def _chuyen_mp3_sang_wav_chuan(mp3_path: Path, out_wav: Path) -> bool:
-    """Chuyển đổi file âm thanh MP3 từ Lõi Giọng Neural sang chuẩn WAV PCM 24kHz 16-bit mono để ghép đồng bộ."""
     ff = tim_ffmpeg_he_thong()
     if not ff or not mp3_path.is_file():
         return False
@@ -165,9 +281,6 @@ def _chuyen_mp3_sang_wav_chuan(mp3_path: Path, out_wav: Path) -> bool:
 
 
 def _tao_wav_pcm_chuan(thoi_luong_giay: float, sample_rate: int = 24000, tan_so_goi_y: float = 0.0) -> bytes:
-    """
-    Tạo luồng âm thanh WAV PCM 16-bit mono hợp lệ với đúng thời lượng `thoi_luong_giay`.
-    """
     so_mau = max(int(sample_rate * 0.5), int(sample_rate * thoi_luong_giay))
     buf = io.BytesIO()
     with wave.open(buf, "wb") as wf:
@@ -186,24 +299,46 @@ def _tao_wav_pcm_chuan(thoi_luong_giay: float, sample_rate: int = 24000, tan_so_
     return buf.getvalue()
 
 
-def _thu_goi_vieneu_onnx(van_ban: str, out_wav: Path) -> bool:
-    """Thử gọi Lõi Giọng Biểu Cảm ONNX cục bộ (`vieneu`)."""
+def _thu_goi_vieneu_onnx(
+    van_ban: str,
+    out_wav: Path,
+    *,
+    preset_voice: str = "binh",
+    ref_audio_path: str | Path | None = None,
+) -> bool:
+    """
+    Gọi Lõi Giọng Đọc Biểu Cảm ONNX (`vieneu` từ HuggingFace):
+    - Hỗ trợ cả 10+ giọng Preset 3 miền (`binh`, `tuyen`, `vinh`, `nguyen`, `son`, `ngoc`, `doan`, `ly`, `duyen`, `huong`)
+    - Hỗ trợ Zero-Shot Voice Cloning (`ref_audio_path`) nhái bất kỳ giọng nào chỉ từ mẫu âm thanh 5 giây!
+    """
     try:
         from vieneu import Vieneu  # type: ignore
 
         tts = Vieneu()
-        audio = tts.infer(text=van_ban)
+        if ref_audio_path and Path(ref_audio_path).is_file():
+            audio = tts.infer(text=van_ban, ref_audio=str(ref_audio_path))
+        else:
+            try:
+                audio = tts.infer(text=van_ban, voice=preset_voice)
+            except TypeError:
+                audio = tts.infer(text=van_ban)
         tts.save(audio, str(out_wav))
         return out_wav.is_file() and out_wav.stat().st_size > 256
     except Exception:
         return False
 
 
-def _thu_goi_edge_neural(van_ban: str, voice_id: str, toc_do: float, out_wav: Path) -> tuple[bool, Path]:
+def _thu_goi_edge_neural(
+    van_ban: str,
+    voice_id: str,
+    toc_do: float,
+    out_wav: Path,
+    *,
+    pitch_hz: str = "+0Hz",
+) -> tuple[bool, Path]:
     """
-    Tổng hợp giọng đọc Neural (`vi-VN-NamMinhNeural` / `vi-VN-HoaiMyNeural`):
-    - Xuất ra `.mp3` rồi tự động chuẩn hoá sang `.wav` PCM 24kHz (nếu có `ffmpeg`),
-      hoặc trả về file `.mp3` gốc để phát trực tiếp!
+    Tổng hợp giọng đọc Neural kết hợp điều biến âm sắc/cao độ (`pitch_hz`) cho từng nhân vật:
+    - Trùm phản diện (`-16Hz` trầm rền), Tổng tài (`-8Hz`), Nữ chính thanh xuân (`+5Hz`), Cà khịa TikTok (`+8Hz`).
     """
     try:
         import asyncio
@@ -214,7 +349,7 @@ def _thu_goi_edge_neural(van_ban: str, voice_id: str, toc_do: float, out_wav: Pa
         mp3_tmp = out_wav.with_suffix(".mp3")
 
         async def _run():
-            comm = edge_tts.Communicate(van_ban, voice=voice_id, rate=rate_str)
+            comm = edge_tts.Communicate(van_ban, voice=voice_id, rate=rate_str, pitch=pitch_hz)
             await comm.save(str(mp3_tmp))
 
         asyncio.run(_run())
@@ -232,7 +367,6 @@ def _thu_goi_edge_neural(van_ban: str, voice_id: str, toc_do: float, out_wav: Pa
 
 
 def _thu_goi_windows_sapi(van_ban: str, toc_do: float, out_wav: Path) -> bool:
-    """Sử dụng bộ tổng hợp giọng nói tích hợp sẵn trên Windows (`System.Speech.Synthesis`) nếu chạy offline."""
     if os.name != "nt":
         return False
     try:
@@ -268,18 +402,25 @@ def tong_hop_giong_doc_phan_canh(
     scene_index: int = 1,
     ma_giong: str = "nam_minh_kich_tinh",
     toc_do: float = 1.15,
+    vai_tro_nhan_vat: str = "",
+    ten_nhan_vat: str = "",
+    file_giong_mau_clone: str | Path | None = None,
     che_do_nhanh_offline: bool = False,
 ) -> dict[str, Any]:
     """
-    Tổng hợp file âm thanh thuyết minh cho 1 phân cảnh Storyboard:
-    - Tự động chọn giọng Nam/Nữ hoặc luân phiên theo phân cảnh.
-    - Đo thời lượng thực tế của file âm thanh vừa tạo để khớp 100% với chuyển động hình ảnh.
+    Tổng hợp file âm thanh thuyết minh cho 1 phân cảnh Storyboard với kho 15 giọng đọc:
+    - Nếu chọn `da_nhan_vat_thong_minh`: tự động đổi giọng theo vai trò nhân vật (Main / Nữ chính / Phản diện).
+    - Nếu chọn `clone_giong_mau_5s`: nhái giọng từ file mẫu 5 giây bằng Lõi ONNX.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
-    info = DANH_SACH_GIONG_DOC.get(ma_giong) or DANH_SACH_GIONG_DOC["nam_minh_kich_tinh"]
-    voice_id = info["voice_id"]
-    if voice_id == "auto_pair":
-        voice_id = "vi-VN-NamMinhNeural" if scene_index % 2 == 1 else "vi-VN-HoaiMyNeural"
+    ma_giong_thuc = ma_giong
+    if ma_giong == "da_nhan_vat_thong_minh":
+        ma_giong_thuc = chon_giong_theo_vai_tro_nhan_vat(vai_tro_nhan_vat, ten_nhan_vat, scene_index)
+
+    info = DANH_SACH_GIONG_DOC.get(ma_giong_thuc) or DANH_SACH_GIONG_DOC["nam_minh_kich_tinh"]
+    voice_id = str(info.get("voice_id") or "vi-VN-NamMinhNeural")
+    preset_hf = str(info.get("preset_hf") or "binh")
+    pitch_hz = str(info.get("pitch_hz") or "+0Hz")
 
     thoi_luong = uoc_tinh_thoi_luong_cau(van_ban, toc_do=toc_do)
     wav_path = out_dir / f"scene_{scene_index:03d}.wav"
@@ -287,13 +428,18 @@ def tong_hop_giong_doc_phan_canh(
 
     da_tao = False
     if not che_do_nhanh_offline:
-        if ma_giong == "bieu_cam_ai_pro":
-            da_tao = _thu_goi_vieneu_onnx(van_ban, wav_path)
-            if not da_tao:
-                # Nếu máy chưa cài gói ONNX mở rộng, tự động dùng giọng Neural chất lượng cao
-                da_tao, actual_audio_path = _thu_goi_edge_neural(van_ban, "vi-VN-NamMinhNeural", toc_do, wav_path)
-        elif voice_id.startswith("vi-VN-"):
-            da_tao, actual_audio_path = _thu_goi_edge_neural(van_ban, voice_id, toc_do, wav_path)
+        # 1. Nếu chọn Nhái giọng 5s hoặc máy đã cài Lõi ONNX HuggingFace (VieNeu)
+        if ma_giong == "clone_giong_mau_5s" or file_giong_mau_clone:
+            da_tao = _thu_goi_vieneu_onnx(
+                van_ban, wav_path, preset_voice=preset_hf, ref_audio_path=file_giong_mau_clone
+            )
+        if not da_tao:
+            da_tao = _thu_goi_vieneu_onnx(van_ban, wav_path, preset_voice=preset_hf)
+        # 2. Tổng hợp bằng Lõi Giọng Đọc Neural kèm tinh chỉnh âm sắc nhân vật (Pitch/Timbre)
+        if not da_tao and voice_id.startswith("vi-VN-"):
+            da_tao, actual_audio_path = _thu_goi_edge_neural(
+                van_ban, voice_id, toc_do, wav_path, pitch_hz=pitch_hz
+            )
         if not da_tao:
             da_tao = _thu_goi_windows_sapi(van_ban, toc_do, wav_path)
             actual_audio_path = wav_path
@@ -311,8 +457,9 @@ def tong_hop_giong_doc_phan_canh(
         "scene_index": scene_index,
         "audio_path": str(actual_audio_path),
         "thoi_luong_giay": thoi_luong,
-        "ma_giong": ma_giong,
+        "ma_giong": ma_giong_thuc,
         "voice_id": voice_id,
+        "preset_hf": preset_hf,
     }
 
 
@@ -328,9 +475,6 @@ def _dinh_dang_moc_srt(giay: float) -> str:
 
 
 def xuat_phu_de_srt(scenes: list[dict[str, Any]], out_srt_path: Path | None = None) -> str:
-    """
-    Sinh nội dung phụ đề chuẩn `.srt` khớp chính xác từng mili-giây với từng phân cảnh trong Video Review.
-    """
     blocks: list[str] = []
     moc_hien_tai = 0.0
     for idx, sc in enumerate(scenes, 1):

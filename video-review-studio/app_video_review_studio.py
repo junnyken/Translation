@@ -252,14 +252,34 @@ class AppVideoReviewStudio(tk.Tk):
 
         f_voice_row = tk.Frame(left_col, bg="#111827")
         f_voice_row.pack(fill="x", pady=(2, 5))
-        tk.Label(f_voice_row, text="Giọng đọc AI:", bg="#111827", fg="#cbd5e1").pack(anchor="w")
+        tk.Label(
+            f_voice_row,
+            text=f"Kho Giọng Đọc AI ({len(DANH_SACH_GIONG_DOC)} giọng Bắc/Trung/Nam + Đa nhân vật + Nhái giọng):",
+            bg="#111827",
+            fg="#cbd5e1",
+        ).pack(anchor="w")
         self.cmb_giong = ttk.Combobox(
             f_voice_row,
             values=[f"{k} — {v['ten']}" for k, v in DANH_SACH_GIONG_DOC.items()],
             state="readonly",
         )
-        self.cmb_giong.current(0)
+        self.cmb_giong.current(2)  # Mặc định chọn Nam Minh hoặc Đa nhân vật
         self.cmb_giong.pack(fill="x", pady=(2, 4))
+
+        f_clone = tk.Frame(left_col, bg="#111827")
+        f_clone.pack(fill="x", pady=(0, 5))
+        tk.Label(f_clone, text="Mẫu giọng Clone (5s):", bg="#111827", fg="#94a3b8", width=18, anchor="w").pack(side="left")
+        self.ent_ref_audio = tk.Entry(f_clone, bg="#1e293b", fg="#f8fafc", insertbackground="#fff")
+        self.ent_ref_audio.pack(side="left", fill="x", expand=True, padx=4)
+        tk.Button(
+            f_clone,
+            text="🧬 Chọn WAV/MP3",
+            bg="#6d28d9",
+            fg="#fff",
+            relief="flat",
+            padx=6,
+            command=self._chon_file_giong_mau,
+        ).pack(side="left")
 
         f_spd = tk.Frame(left_col, bg="#111827")
         f_spd.pack(fill="x", pady=(0, 5))
@@ -540,6 +560,18 @@ class AppVideoReviewStudio(tk.Tk):
             os.startfile(str(tmp_preview))
         self.ghi_log(f"👁️ Đã mở ảnh xem trước Cảnh #{idx + 1:02d} ({kich_thuoc[0]}x{kich_thuoc[1]}): {tmp_preview}")
 
+    def _chon_file_giong_mau(self):
+        f = filedialog.askopenfilename(
+            title="Chọn file âm thanh mẫu 5-8 giây (.wav / .mp3) để AI nhái giọng",
+            filetypes=[("File âm thanh mẫu", "*.wav *.mp3")],
+        )
+        if not f:
+            return
+        self.ent_ref_audio.delete(0, "end")
+        self.ent_ref_audio.insert(0, f)
+        self.cmb_giong.current(1)  # Tự động chuyển sang chế độ clone_giong_mau_5s
+        self.ghi_log(f"🧬 Đã nạp mẫu giọng Clone (Zero-Shot): {f}")
+
     def _lay_toc_do_doc(self) -> float:
         raw = self.cmb_toc_do.get().split("x", 1)[0].strip()
         try:
@@ -567,6 +599,9 @@ class AppVideoReviewStudio(tk.Tk):
                     scene_index=999,
                     ma_giong=giong_key,
                     toc_do=toc_do_val,
+                    vai_tro_nhan_vat=self.ent_nv_canh.get().strip(),
+                    ten_nhan_vat=self.ent_nv_canh.get().strip(),
+                    file_giong_mau_clone=self.ent_ref_audio.get().strip() or None,
                 )
                 audio_p = kq["audio_path"]
                 if os.name == "nt" and os.path.isfile(audio_p):
@@ -579,15 +614,15 @@ class AppVideoReviewStudio(tk.Tk):
 
     def _dong_bo_goi_giong_doc_va_mp4(self):
         giong_key = self.cmb_giong.get().split(" — ", 1)[0].strip()
-        can_onnx = giong_key == "bieu_cam_ai_pro"
+        can_onnx = giong_key == "clone_giong_mau_5s" or bool(self.ent_ref_audio.get().strip())
 
         def _worker():
-            self.ghi_log("⚙️ Đang kiểm tra & tự động cài đặt Bộ Giọng Đọc AI + Nhân Render MP4...")
+            self.ghi_log("⚙️ Đang kiểm tra & tự động cài đặt Kho 15 Giọng Đọc AI + Nhân Render MP4...")
             ok, msg = cai_dat_tu_dong_goi_giong_doc_va_mp4(cai_them_onnx_pro=can_onnx)
             tt = kiem_tra_ha_tang_giong_doc_va_video()
             self.ghi_log(
                 f"{'✅' if ok else '⚠️'} {msg}\n"
-                f"   • Giọng Đọc Neural (Nam Minh / Hoài My): {'Sẵn sàng' if tt['neural_voice_ready'] else 'Dự phòng Offline'}\n"
+                f"   • Kho 15 Giọng Đọc Bắc/Trung/Nam & Đa Nhân Vật: {'Sẵn sàng' if tt['neural_voice_ready'] else 'Dự phòng Offline'}\n"
                 f"   • Nhân Render MP4 (H.264 + AAC): {'Sẵn sàng' if tt['ffmpeg_ready'] else 'Dự phòng Container'}"
             )
 
@@ -645,6 +680,7 @@ class AppVideoReviewStudio(tk.Tk):
                     ma_dinh_dang=dinh_dang_key,
                     ma_giong=giong_key,
                     toc_do_doc=toc_do_val,
+                    file_giong_mau_clone=self.ent_ref_audio.get().strip() or None,
                 )
                 self.ghi_log(
                     f"🎉 HOÀN TẤT! Đã xuất Video Review ({kq['tong_thoi_luong_giay']}s):\n"

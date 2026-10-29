@@ -302,6 +302,7 @@ def xuat_video_review_mp4(
     ma_dinh_dang: str = "tiktok_9_16",
     ma_giong: str = "nam_minh_kich_tinh",
     toc_do_doc: float = 1.15,
+    file_giong_mau_clone: str | Path | None = None,
     che_do_nhanh_offline: bool = False,
 ) -> dict[str, Any]:
     """
@@ -340,6 +341,9 @@ def xuat_video_review_mp4(
             scene_index=idx + 1,
             ma_giong=ma_giong,
             toc_do=toc_do_doc,
+            vai_tro_nhan_vat=str(sc.get("vai_tro") or ""),
+            ten_nhan_vat=nhan_vat,
+            file_giong_mau_clone=file_giong_mau_clone,
             che_do_nhanh_offline=che_do_nhanh_offline,
         )
         thoi_luong = float(tts_info["thoi_luong_giay"])

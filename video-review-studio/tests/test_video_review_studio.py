@@ -11,7 +11,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PIL import Image, ImageDraw
 
 from app_video_review_studio import nap_danh_sach_anh_va_thoai_tu_thu_muc
-from core_tts_voice import tong_hop_giong_doc_phan_canh, uoc_tinh_thoi_luong_cau, xuat_phu_de_srt
+from core_tts_voice import (
+    DANH_SACH_GIONG_DOC,
+    chon_giong_theo_vai_tro_nhan_vat,
+    tong_hop_giong_doc_phan_canh,
+    uoc_tinh_thoi_luong_cau,
+    xuat_phu_de_srt,
+)
 from core_video_renderer import (
     ve_khung_hinh_pan_zoom_va_phu_de,
     xac_thuc_va_tru_luot_video_cloud,
@@ -170,6 +176,12 @@ def test_6_auto_character_scanner_and_visual_atmosphere():
     raw_strip = _tao_anh_webtoon_dai_co_ranh()
     bo_cuc = phan_tich_bo_cuc_anh_khung_tranh(raw_strip)
     assert "khong_khi" in bo_cuc
+
+    # Kiểm tra đủ 15 giọng đọc Bắc/Trung/Nam + Đa nhân vật + Nhái giọng
+    assert len(DANH_SACH_GIONG_DOC) >= 15
+    assert chon_giong_theo_vai_tro_nhan_vat("Trùm Phản diện", "Triệu Hổ", 1) == "hac_am_phan_dien"
+    assert chon_giong_theo_vai_tro_nhan_vat("Nữ chính", "Tô Tuyết", 2) in ("ngoc_huyen_mien_bac", "hoai_my_truyen_cam")
+    assert chon_giong_theo_vai_tro_nhan_vat("Nam chính (Main)", "Lâm Phong", 1) == "nam_minh_kich_tinh"
 
 
 def test_5_cloud_wallet_ticket_deduction_for_video_studio(monkeypatch=None):
