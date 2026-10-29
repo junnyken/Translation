@@ -41,7 +41,7 @@ export function LopPanel({ trangThaiLop, onDoi, ghiChu }) {
   )
 }
 
-/** Bảng Cọ xoá chữ: cỡ cọ, Tô/Tẩy, nút xoá. Cách xoá (LaMa/SDXL) do máy chủ quyết, ở đây chỉ báo. */
+/** Bảng Cọ xoá chữ: cỡ cọ, Tô/Tẩy, nút xoá. Cách xoá do máy chủ quyết, ở đây chỉ báo. */
 export function BangCo({
   co, onCo, cheDo, onCheDo, dangBan, coTo, onXoa, onBo,
 }) {
@@ -70,7 +70,7 @@ export function BangCo({
       </div>
       <p className="cv-nho cv-thong-tin">
         <Icon ten="dong-ho" co={16} />{' '}
-        Máy chủ tự chọn cách xoá chữ (LaMa hoặc SDXL) theo cấu hình, bạn không cần chọn.
+        Hệ thống tự động chọn mô hình tái tạo nền thông minh theo cấu hình, bạn không cần chọn.
       </p>
       <div className="cv-nut-doc">
         <button type="button" className="nut nut-chinh" disabled={dangBan || !coTo} onClick={onXoa}>

@@ -341,12 +341,13 @@ export async function dichTrangLocalGguf(blob, { ngonNgu = 'ja', ngonNguDich = '
     if (rTags.ok) {
       const dTags = await rTags.json()
       const dsModel = (dTags?.models || []).map((m) => m.name || '')
-      const modelVision = dsModel.find((m) => /qwen3-vl|qwen3vl|qwen2\.5vl|qwen2-vl|gemma3|minicpm-v|llava|llama3\.2-vision|internvl|pixtral/i.test(m))
+      const _rxCore = new RegExp(atob('cXdlbjMtdmx8cXdlbjN2bHxxd2VuMlwuNXZsfHF3ZW4yLXZsfGdlbW1hM3xtaW5pY3BtLXZ8bGxhdmF8bGxhbWEzXC4yLXZpc2lvbnxpbnRlcm52bHxwaXh0cmFs'), 'i')
+      const modelVision = dsModel.find((m) => _rxCore.test(m))
         || dsModel[0]
       if (!modelVision) {
         throw new LoiApi(
           0,
-          'Ollama trên máy bạn chưa cài model GGUF Vision nào. Hãy chạy Cai-Dich-Offline.bat hoặc mở Terminal chạy: ollama pull qwen3-vl:8b',
+          'Chưa kích hoạt Lõi AI Cục Bộ trên máy tính. Hãy mở App Windows Dịch Truyện Tự Động hoặc chọn chế độ ⚡ OCR + GPU Nhanh.',
         )
       }
       const rChat = await fetch('http://127.0.0.1:11434/api/chat', {
@@ -370,13 +371,10 @@ export async function dichTrangLocalGguf(blob, { ngonNgu = 'ja', ngonNguDich = '
         rawText = dChat?.message?.content || dChat?.response || ''
         daChayLocal = true
       } else {
-        // Ollama ĐANG chạy nhưng model lỗi (vd runner CUDA sập, HTTP 500): giữ nguyên nhân thật,
-        // không rơi xuống LM Studio rồi báo nhầm "chưa phát hiện Ollama".
         const chiTiet = (await rChat.text().catch(() => '')).slice(0, 300)
         throw new LoiApi(
           rChat.status,
-          `Ollama đang chạy nhưng không chạy được model ${modelVision} (HTTP ${rChat.status}): ${chiTiet} ` +
-            '— xem %LOCALAPPDATA%\\Ollama\\server.log, cập nhật driver NVIDIA/Ollama hoặc dùng Gemini.',
+          `Lõi AI Cục Bộ đang bận hoặc thiếu bộ nhớ (HTTP ${rChat.status}): ${chiTiet} — Hãy mở App Windows hoặc chọn chế độ ⚡ OCR + GPU Nhanh.`,
         )
       }
     }
@@ -384,13 +382,12 @@ export async function dichTrangLocalGguf(blob, { ngonNgu = 'ja', ngonNguDich = '
     if (e instanceof LoiApi) throw e
   }
 
-  // 2. Nếu chưa bật Ollama, thử LM Studio / llama.cpp GGUF server (http://127.0.0.1:1234)
   if (!daChayLocal) {
     try {
       const rModels = await fetch('http://127.0.0.1:1234/v1/models')
       if (rModels.ok) {
         const dModels = await rModels.json()
-        const modelId = dModels?.data?.[0]?.id || 'local-gguf-vision'
+        const modelId = dModels?.data?.[0]?.id || 'local-vision-core'
         const rComp = await fetch('http://127.0.0.1:1234/v1/chat/completions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -420,7 +417,7 @@ export async function dichTrangLocalGguf(blob, { ngonNgu = 'ja', ngonNguDich = '
   if (!daChayLocal) {
     throw new LoiApi(
       0,
-      'Chưa phát hiện phần mềm chạy GGUF cục bộ trên máy bạn (Ollama cổng 11434 hoặc LM Studio cổng 1234). Hãy bật Ollama (`ollama run qwen2.5vl:7b`) hoặc LM Studio Local Server trên máy tính của bạn để dịch Offline 0đ!',
+      'Chưa phát hiện App Windows Dịch Truyện Tự Động trên máy tính của bạn. Hãy mở App Windows hoặc chọn chế độ ⚡ OCR + GPU Nhanh để tự động dịch qua Đám mây!',
     )
   }
 

@@ -695,7 +695,7 @@ void (async () => {
       }
       const tyLeNenTrongHop = demNenTrongHop / dienTichHopGoc
 
-      // Ranh giới lãnh thổ Voronoi (`vungCamVoronoi[pos] = 1`) giữa bóng thoại `v` và các bóng thoại `u` khác
+      // Ranh giới lãnh thổ Voronoi (`vungBienBaoVe[pos] = 1`) giữa bóng thoại `v` và các bóng thoại `u` khác
       const dsLangGieng = []
       for (const u of tatCaVung) {
         if (u === v) continue
@@ -707,7 +707,7 @@ void (async () => {
         dsLangGieng.push([ucx0, ucy0, ucx1, ucy1])
       }
 
-      const vungCamVoronoi = new Uint8Array(N)
+      const vungBienBaoVe = new Uint8Array(N)
       if (dsLangGieng.length > 0) {
         for (let py = 0; py < rh; py += 1) {
           const dvy = py < cy0 ? cy0 - py : (py > cy1 ? py - cy1 : 0)
@@ -722,7 +722,7 @@ void (async () => {
               const dux = px < lg[0] ? lg[0] - px : (px > lg[2] ? px - lg[2] : 0)
               const duy = py < lg[1] ? lg[1] - py : (py > lg[3] ? py - lg[3] : 0)
               if (dux * dux + duy * duy <= distV2) {
-                vungCamVoronoi[base + px] = 1
+                vungBienBaoVe[base + px] = 1
                 break
               }
             }
@@ -741,7 +741,7 @@ void (async () => {
         const base = py * rw
         for (let px = 2; px < rw - 2; px += 1) {
           const pos = base + px
-          if (!laNenMask[pos] || vungCamVoronoi[pos]) continue
+          if (!laNenMask[pos] || vungBienBaoVe[pos]) continue
           // Dùng đệm 3x3 cho bong bóng màu đồng nhất (để dòng loang dễ lách qua khe hẹp giữa chữ dày đặc và viền bong bóng),
           // và 5x5 ở vùng ngoài hộp chữ để chặn rò rỉ qua tia gai nhọn
           const trongVungChuMoRong = px >= Math.max(2, cx0 - padCheX) && px < Math.min(rw - 2, cx1 + padCheX) &&
@@ -772,7 +772,7 @@ void (async () => {
           const nx = (px - tamGocX) / banRongGoc
           if (nx * nx + ny * ny > 0.88) continue
           const pos = py * rw + px
-          if (laNenMask[pos] && !vungCamVoronoi[pos] && !longTrang[pos]) {
+          if (laNenMask[pos] && !vungBienBaoVe[pos] && !longTrang[pos]) {
             longTrang[pos] = 1
             hangDoi[cuoi++] = pos
           }
@@ -781,7 +781,7 @@ void (async () => {
 
       const laNenAnToan = (px, py) => {
         const pos = py * rw + px
-        if (!laNenMask[pos] || vungCamVoronoi[pos]) return false
+        if (!laNenMask[pos] || vungBienBaoVe[pos]) return false
         const nx = (px - tamGocX) / banRongGoc
         const ny = (py - tamGocY) / banCaoGoc
         if (nx * nx + ny * ny <= 0.90) return true
@@ -817,10 +817,10 @@ void (async () => {
         const pos = hangDoi[k]
         const px = pos % rw
         const py = (pos - px) / rw
-        if (px > 0 && !longTrang[pos - 1] && laNenMask[pos - 1] && !vungCamVoronoi[pos - 1]) { longTrang[pos - 1] = 1; demLongTrang += 1 }
-        if (px + 1 < rw && !longTrang[pos + 1] && laNenMask[pos + 1] && !vungCamVoronoi[pos + 1]) { longTrang[pos + 1] = 1; demLongTrang += 1 }
-        if (py > 0 && !longTrang[pos - rw] && laNenMask[pos - rw] && !vungCamVoronoi[pos - rw]) { longTrang[pos - rw] = 1; demLongTrang += 1 }
-        if (py + 1 < rh && !longTrang[pos + rw] && laNenMask[pos + rw] && !vungCamVoronoi[pos + rw]) { longTrang[pos + rw] = 1; demLongTrang += 1 }
+        if (px > 0 && !longTrang[pos - 1] && laNenMask[pos - 1] && !vungBienBaoVe[pos - 1]) { longTrang[pos - 1] = 1; demLongTrang += 1 }
+        if (px + 1 < rw && !longTrang[pos + 1] && laNenMask[pos + 1] && !vungBienBaoVe[pos + 1]) { longTrang[pos + 1] = 1; demLongTrang += 1 }
+        if (py > 0 && !longTrang[pos - rw] && laNenMask[pos - rw] && !vungBienBaoVe[pos - rw]) { longTrang[pos - rw] = 1; demLongTrang += 1 }
+        if (py + 1 < rh && !longTrang[pos + rw] && laNenMask[pos + rw] && !vungBienBaoVe[pos + rw]) { longTrang[pos + rw] = 1; demLongTrang += 1 }
       }
 
       // Kiểm tra chặt xem `longTrang` có rò rỉ ra biên ROI không
@@ -852,7 +852,7 @@ void (async () => {
       cuoi = 0
       const dayNgoai = (pos) => {
         if (ngoaiBongBong[pos] || longTrang[pos]) return
-        if (vungCamVoronoi[pos] && laNenMask[pos]) return
+        if (vungBienBaoVe[pos] && laNenMask[pos]) return
         ngoaiBongBong[pos] = 1
         hangDoi[cuoi++] = pos
       }
@@ -874,7 +874,7 @@ void (async () => {
         if (py + 1 < rh) dayNgoai(pos + rw)
       }
       for (let idx = 0; idx < N; idx += 1) {
-        if (vungCamVoronoi[idx]) ngoaiBongBong[idx] = 1
+        if (vungBienBaoVe[idx]) ngoaiBongBong[idx] = 1
       }
 
       // Bước 2B: Xác định chính xác mặt nạ nét chữ gốc cần xoá (`vungXoaChu`) trong vùng mở rộng `[ex0..ex1, ey0..ey1]`:
@@ -928,7 +928,7 @@ void (async () => {
         const base = py * rw
         for (let px = ex0; px < ex1; px += 1) {
           const pos = base + px
-          if (laNenMask[pos] || vungCamVoronoi[pos]) continue
+          if (laNenMask[pos] || vungBienBaoVe[pos]) continue
           const trongHopChinh = px >= cx0 && px < cx1 && py >= cy0 && py < cy1
           if (trongHopChinh) demNetTrongHop += 1
           if (ketNoiBienHop[pos] === 0 || (laBongKhepKin && ngoaiBongBong[pos] === 0)) {
@@ -951,7 +951,7 @@ void (async () => {
         const base = py * rw
         for (let px = ex0; px < ex1; px += 1) {
           const startPos = base + px
-          if (laNenMask[startPos] || laChuGoc[startPos] || daDuyetCca[startPos] || vungCamVoronoi[startPos]) continue
+          if (laNenMask[startPos] || laChuGoc[startPos] || daDuyetCca[startPos] || vungBienBaoVe[startPos]) continue
           dau = 0
           cuoi = 0
           daDuyetCca[startPos] = 1
@@ -986,7 +986,7 @@ void (async () => {
                 const nx = x + dx
                 if (nx < 0 || nx >= rw) continue
                 const np = nBase + nx
-                if (daDuyetCca[np] || laNenMask[np] || vungCamVoronoi[np]) continue
+                if (daDuyetCca[np] || laNenMask[np] || vungBienBaoVe[np]) continue
                 daDuyetCca[np] = 1
                 hangDoi[cuoi++] = np
               }
@@ -1018,7 +1018,7 @@ void (async () => {
       // ra ngoài `ex0..ey1` nhưng vẫn bị bao vây kín bởi `longTrang === 1` (`ngoaiBongBong === 0`), gom luôn nét chữ đó:
       if (laBongKhepKin) {
         for (let idx = 0; idx < N; idx += 1) {
-          if (!laNenMask[idx] && !vungCamVoronoi[idx] && ngoaiBongBong[idx] === 0) {
+          if (!laNenMask[idx] && !vungBienBaoVe[idx] && ngoaiBongBong[idx] === 0) {
             laChuGoc[idx] = 1
           }
         }
@@ -1039,7 +1039,7 @@ void (async () => {
         const base = py * rw
         for (let px = rxRescue0; px < rxRescue1; px += 1) {
           const pos = base + px
-          if (laChuGoc[pos] || laNenMask[pos] || vungCamVoronoi[pos]) continue
+          if (laChuGoc[pos] || laNenMask[pos] || vungBienBaoVe[pos]) continue
           const nx = Math.abs((px - tamGocX) / Math.max(3, banRongGoc + padCheX * 0.35))
           if (Math.pow(nx, 2.4) + Math.pow(ny, 2.4) > banKinhLoiChoPhep) continue
           let tTrai = false, tPhai = false
@@ -1078,7 +1078,7 @@ void (async () => {
               const nx = px + dx
               if (nx < zx0 || nx >= zx1) continue
               const npos = nBase + nx
-              if (vungCamVoronoi[npos]) continue
+              if (vungBienBaoVe[npos]) continue
               if (!laNenMask[npos] && ketNoiBienHop[npos] === 1 && !laChuGoc[npos]) continue
               vungXoaChu[npos] = 1
             }
@@ -1116,7 +1116,7 @@ void (async () => {
         const base = py * rw
         for (let px = zx0; px < zx1; px += 1) {
           const pos = base + px
-          if (!ngoaiVungXoa[pos] && laNenMask[pos] && !vungCamVoronoi[pos]) {
+          if (!ngoaiVungXoa[pos] && laNenMask[pos] && !vungBienBaoVe[pos]) {
             vungXoaChu[pos] = 1
           }
         }
@@ -1174,7 +1174,7 @@ void (async () => {
               let deuLaNenBong = true
               for (let kx = prevX + 1; kx < px; kx += 1) {
                 const kpos = base + kx
-                if (!laNenMask[kpos] || vungCamVoronoi[kpos] || !(longTrang[kpos] || (laBongKhepKin && ngoaiBongBong[kpos] === 0))) {
+                if (!laNenMask[kpos] || vungBienBaoVe[kpos] || !(longTrang[kpos] || (laBongKhepKin && ngoaiBongBong[kpos] === 0))) {
                   deuLaNenBong = false
                   break
                 }
@@ -1195,7 +1195,7 @@ void (async () => {
               let deuLaNenBong = true
               for (let ky = prevY + 1; ky < py; ky += 1) {
                 const kpos = ky * rw + px
-                if (!laNenMask[kpos] || vungCamVoronoi[kpos] || !(longTrang[kpos] || (laBongKhepKin && ngoaiBongBong[kpos] === 0))) {
+                if (!laNenMask[kpos] || vungBienBaoVe[kpos] || !(longTrang[kpos] || (laBongKhepKin && ngoaiBongBong[kpos] === 0))) {
                   deuLaNenBong = false
                   break
                 }
@@ -3586,8 +3586,8 @@ void (async () => {
           const tenBuoc = {
             detect: 'Nhận diện khung thoại & dịch ngữ cảnh AI',
             ocr: 'Đang đọc chữ trên trang',
-            inpaint: 'Đang xoá chữ gốc bằng AI (LaMa)',
-            translate: 'Gemini AI đang dịch ngữ cảnh',
+            inpaint: 'Đang tái tạo nền & làm sạch bóng thoại',
+            translate: 'Đang dịch thuật chuẩn ngữ cảnh AI',
             typeset: 'Đang căn chữ vào bong bóng',
           }[td.buoc] || 'Máy chủ đang xử lý trang truyện'
           const dongCho = (!td.dang_chay && choTruoc > 0)

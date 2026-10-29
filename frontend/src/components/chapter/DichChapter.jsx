@@ -241,7 +241,7 @@ export default function DichChapter({ onMoChapter }) {
                       onClick={() => doiEngine('llm_context')}
                     >
                       <span className="pill-co">✨</span>
-                      <span>{laEn ? 'Gemini AI' : 'Gemini AI (Ngữ cảnh)'}</span>
+                      <span>{laEn ? 'Context AI Pro' : 'AI Chuẩn Ngữ Cảnh'}</span>
                     </button>
                     <button
                       type="button"
@@ -252,7 +252,7 @@ export default function DichChapter({ onMoChapter }) {
                       onClick={() => doiEngine('google_fast')}
                     >
                       <span className="pill-co">⚡</span>
-                      <span>{laEn ? 'Google Fast' : 'Google Nhanh'}</span>
+                      <span>{laEn ? 'Fast Cloud' : 'Dịch Nhanh Tốc Độ Cao'}</span>
                     </button>
                   </div>
                 </div>

@@ -70,7 +70,7 @@ async function veHanMuc() {
   try {
     const { diaChi, engine } = await docCauHinh()
     if (engine === 'local_gguf') {
-      o.textContent = '💻 Chế độ GGUF Cục bộ (Ollama / LM Studio trên máy bạn) · Không giới hạn lượt!'
+      o.textContent = '💻 Chế độ Lõi AI Cục bộ (Xử lý trên phần cứng máy bạn)'
       o.className = 'hop ok'
       o.hidden = false
       $('nut-dich').disabled = false
@@ -118,7 +118,7 @@ async function veMayChu() {
   try {
     const { diaChi, engine } = await docCauHinh()
     if (engine === 'local_gguf') {
-      o.textContent = 'Chạy Offline 100% trên phần cứng máy bạn (127.0.0.1:11434 / 1234).'
+      o.textContent = 'Chạy trực tiếp trên phần cứng máy tính của bạn.'
       o.hidden = false
       return
     }

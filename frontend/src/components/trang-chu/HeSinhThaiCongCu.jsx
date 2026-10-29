@@ -489,8 +489,8 @@ curl -X POST "${apiOrigin}/api/v1/developer/translate-text" \\
               giaVnd: 20000 * donGia,
               soTrang: '28.000 trang (~1.400 chap)',
               diemManh: laEn
-                ? ['+40% bonus pages', 'High-concurrency Worker + SHA-256 Cache', '24/7 Automated Tool & CMS Integration']
-                : ['Tặng thêm +40% số trang', 'Luồng Worker đa nhân + Cache SHA-256', 'Đấu nối không giới hạn vào CMS / Web truyện'],
+                ? ['+40% bonus pages', 'High-concurrency Worker + Instant Cloud Cache', '24/7 Automated Tool & CMS Integration']
+                : ['Tặng thêm +40% số trang', 'Luồng Worker đa nhân + Cache Đám Mây Tức Thì', 'Đấu nối không giới hạn vào CMS / Web truyện'],
               noiBat: true,
             },
           ].map((g) => (

@@ -67,7 +67,7 @@ export default function ChinhSachBaoMat({ onQuayLai }) {
               <strong>Lưu trữ cấu hình cục bộ:</strong> Tiện ích sử dụng <code>chrome.storage.local</code> chỉ để lưu tuỳ chọn của bạn (ngôn ngữ nguồn, ngôn ngữ đích Việt/Anh, kiểu phông chữ, và mã phiên đăng nhập nếu có).
             </li>
             <li>
-              <strong>Bộ nhớ đệm Cộng đồng ẩn danh (SHA-256 Community Cache):</strong> Để trả kết quả tức thì (0.15 giây) và tiết kiệm tài nguyên AI, hệ thống lưu bản dịch theo chữ ký băm <code>SHA-256</code> của bức ảnh kèm ngôn ngữ đích. Bộ nhớ đệm này hoàn toàn ẩn danh, không lưu danh tính hay lịch sử duyệt web của người dùng.
+              <strong>Bộ nhớ đệm Cộng đồng ẩn danh (Anonymous Community Cache):</strong> Để trả kết quả tức thì (0.15 giây) và tiết kiệm tài nguyên AI, hệ thống lưu bản dịch theo chữ ký định danh một chiều của bức ảnh kèm ngôn ngữ đích. Bộ nhớ đệm này hoàn toàn ẩn danh, không lưu danh tính hay lịch sử duyệt web của người dùng.
             </li>
             <li>
               <strong>Cam kết không theo dõi &amp; không bán dữ liệu:</strong> Chúng tôi <strong>KHÔNG</strong> thu thập lịch sử duyệt web, không đọc thông tin cá nhân/mật khẩu, không chèn quảng cáo và tuyệt đối không bán hoặc chia sẻ dữ liệu người dùng cho bên thứ ba.
@@ -93,7 +93,7 @@ export default function ChinhSachBaoMat({ onQuayLai }) {
               <strong>Local Preferences:</strong> We use <code>chrome.storage.local</code> solely to store your user preferences (source language, target language, font style, and optional session token).
             </li>
             <li>
-              <strong>Anonymous Community Cache (SHA-256):</strong> Translated regions are cached using an anonymous cryptographic image hash (<code>SHA-256</code> + target language) to deliver instant translations for subsequent readers. No personal identifiers or browsing URLs are attached to this cache.
+              <strong>Anonymous Community Cache:</strong> Translated regions are cached using an anonymous one-way cryptographic image fingerprint (+ target language) to deliver instant translations for subsequent readers. No personal identifiers or browsing URLs are attached to this cache.
             </li>
             <li>
               <strong>No Tracking or Data Selling:</strong> We do <strong>NOT</strong> collect general browsing history, personal credentials, or financial details. We never sell, rent, or transfer user data to third parties for advertising or analytics.

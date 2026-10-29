@@ -1756,21 +1756,21 @@ def kiem_tra_goi_ocr_windows() -> dict[str, dict]:
             "lenh_cai": 'Add-WindowsCapability -Online -Name "Language.OCR~~~en-US~0.0.1.0"',
         },
         "ja": {
-            "ten": "Tiếng Nhật (Manga Raw JA - HuggingFace PP-OCRv4)",
+            "ten": "Tiếng Nhật (Manga Raw JA — Lõi Nhận Diện Chuyên Sâu)",
             "tag": "ja",
             "ho_tro": False,
             "nguon": "",
             "lenh_cai": 'Add-WindowsCapability -Online -Name "Language.OCR~~~ja-JP~0.0.1.0"',
         },
         "ko": {
-            "ten": "Tiếng Hàn (Webtoon / Manhwa KO - HuggingFace PP-OCRv3)",
+            "ten": "Tiếng Hàn (Webtoon / Manhwa KO — Lõi Nhận Diện Chuyên Sâu)",
             "tag": "ko",
             "ho_tro": False,
             "nguon": "",
             "lenh_cai": 'Add-WindowsCapability -Online -Name "Language.OCR~~~ko-KR~0.0.1.0"',
         },
         "zh": {
-            "ten": "Tiếng Trung (Manhua ZH - HuggingFace PP-OCRv4)",
+            "ten": "Tiếng Trung (Manhua ZH — Lõi Nhận Diện Chuyên Sâu)",
             "tag": "zh-Hans",
             "ho_tro": False,
             "nguon": "",
@@ -1802,7 +1802,7 @@ $kq | ConvertTo-Json -Compress
                 for k, info in ds_mac_dinh.items():
                     if bool(parsed.get(info["tag"], False)):
                         info["ho_tro"] = True
-                        info["nguon"] = "Windows Media OCR"
+                        info["nguon"] = "Lõi Hệ Thống"
         except Exception:
             pass
 
@@ -1818,9 +1818,9 @@ $kq | ConvertTo-Json -Compress
             if ok_hf and k in ds_mac_dinh:
                 ds_mac_dinh[k]["ho_tro"] = True
                 ds_mac_dinh[k]["nguon"] = (
-                    f"{ds_mac_dinh[k]['nguon']} + HuggingFace ONNX"
+                    f"{ds_mac_dinh[k]['nguon']} + Lõi Nhận Diện Độc Quyền"
                     if ds_mac_dinh[k]["nguon"]
-                    else "HuggingFace ONNX (PP-OCRv4)"
+                    else "Lõi Nhận Diện Độc Quyền"
                 )
     except Exception:
         pass

@@ -298,7 +298,7 @@ _HTML_CHINH_SACH_BAO_MAT = """<!DOCTYPE html>
       <ul>
         <li><strong>Dữ liệu thu thập và xử lý:</strong> Khi bạn bấm nút Dịch (hoặc bật chế độ tự dịch khi cuộn), tiện ích chỉ trích xuất hình ảnh khung truyện hoặc đoạn văn bản truyện trên tab hiện tại để gửi tới máy chủ API dịch thuật (<code>translation-api.vibe1.tinhgon.xyz</code>).</li>
         <li><strong>Lưu trữ cục bộ (Local Storage):</strong> Tiện ích sử dụng <code>chrome.storage.local</code> để lưu cấu hình của bạn (ngôn ngữ nguồn, ngôn ngữ đích, kiểu chữ, mã phiên đăng nhập nếu có).</li>
-        <li><strong>Bộ nhớ đệm cộng đồng (Community Cache):</strong> Để tăng tốc độ dịch và tiết kiệm tài nguyên AI, hệ thống lưu trữ bản dịch theo mã băm ẩn danh của hình ảnh (<code>SHA-256</code> + ngôn ngữ đích), hoàn toàn không gắn với danh tính cá nhân hay lịch sử duyệt web của bạn.</li>
+        <li><strong>Bộ nhớ đệm cộng đồng (Community Cache):</strong> Để tăng tốc độ dịch và tiết kiệm tài nguyên AI, hệ thống lưu trữ bản dịch theo chữ ký định danh một chiều ẩn danh của hình ảnh (+ ngôn ngữ đích), hoàn toàn không gắn với danh tính cá nhân hay lịch sử duyệt web của bạn.</li>
         <li><strong>Không theo dõi &amp; Không bán dữ liệu:</strong> Chúng tôi <strong>KHÔNG</strong> thu thập lịch sử duyệt web, không đọc mật khẩu/thông tin ngân hàng, không chèn quảng cáo và không bán hay chia sẻ dữ liệu người dùng cho bất kỳ bên thứ ba nào vì mục đích quảng cáo.</li>
       </ul>
     </div>
@@ -309,7 +309,7 @@ _HTML_CHINH_SACH_BAO_MAT = """<!DOCTYPE html>
       <ul>
         <li><strong>Data Processed:</strong> When you click Translate (or enable Auto-Translate on scroll), the extension captures only the comic image or story text on the active tab and transmits it securely over HTTPS to our translation server (<code>translation-api.vibe1.tinhgon.xyz</code>) to perform OCR, inpainting, and translation.</li>
         <li><strong>Local Preferences:</strong> We use <code>chrome.storage.local</code> solely to store your user preferences (source language, target language, font style, and optional session token).</li>
-        <li><strong>Anonymous Community Cache:</strong> Translated text regions may be cached using an anonymous cryptographic image hash (<code>SHA-256</code> + target language) to provide instant translations for subsequent readers. No personal identifiers or browsing URLs are attached to this cache.</li>
+        <li><strong>Anonymous Community Cache:</strong> Translated text regions may be cached using an anonymous one-way cryptographic image fingerprint (+ target language) to provide instant translations for subsequent readers. No personal identifiers or browsing URLs are attached to this cache.</li>
         <li><strong>No Tracking or Data Selling:</strong> We do <strong>NOT</strong> collect general browsing history, personal credentials, or payment details. We never sell, rent, or transfer user data to third parties for advertising or analytics.</li>
       </ul>
     </div>

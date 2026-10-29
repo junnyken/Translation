@@ -523,11 +523,11 @@ curl -X POST "${apiOrigin}/api/v1/developer/translate-text" \\
               icon: '🔒',
               mau: '#a855f7',
               tieuDe: laEn
-                ? '4. Secure HMAC Signed Image URLs (?sig=...&exp=...)'
-                : '4. Bảo Mật Chữ Ký Số HMAC (?sig=...&exp=...) Khi Tải Ảnh Đã Dịch',
+                ? '4. Secure Signed Image URLs (?sig=...&exp=...)'
+                : '4. Bảo Mật Chữ Ký Số (?sig=...&exp=...) Khi Tải Ảnh Đã Dịch',
               noiDung: laEn
-                ? 'The returned rendered_image_url and inpainted_image_url are signed with a page-scoped HMAC-SHA256 signature (?sig=...&exp=..., valid for 24h). Your API Key is NEVER exposed in image URLs, and tr_live_... keys cannot be abused to change your password or rotate keys.'
-                : 'Link ảnh trả về (rendered_image_url, inpainted_image_url) được đính kèm chữ ký HMAC-SHA256 riêng cho từng trang (?sig=...&exp=..., hiệu lực 24h) giúp bạn tải ảnh trực tiếp mà KHÔNG bao giờ lộ mã tr_live_... trên trình duyệt. Ngoài ra, mã tr_live_... bị khoá quyền đổi mật khẩu để bảo vệ tài khoản tuyệt đối.',
+                ? 'The returned rendered_image_url and inpainted_image_url are signed with a page-scoped cryptographic signature (?sig=...&exp=..., valid for 24h). Your API Key is NEVER exposed in image URLs, and tr_live_... keys cannot be abused to change your password or rotate keys.'
+                : 'Link ảnh trả về (rendered_image_url, inpainted_image_url) được đính kèm chữ ký bảo mật riêng cho từng trang (?sig=...&exp=..., hiệu lực 24h) giúp bạn tải ảnh trực tiếp mà KHÔNG bao giờ lộ mã tr_live_... trên trình duyệt. Ngoài ra, mã tr_live_... bị khoá quyền đổi mật khẩu để bảo vệ tài khoản tuyệt đối.',
             },
             {
               icon: '🔗',

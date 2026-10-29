@@ -597,7 +597,7 @@ export default function TrangChu() {
                 onClick={() => setCachDich('llm_context')}
               >
                 <span className="pill-co">✨</span>
-                <span>{laEn ? 'Gemini AI (Context-Aware)' : 'Gemini AI (Chuẩn ngữ cảnh)'}</span>
+                <span>{laEn ? 'Context AI Pro (Context-Aware)' : 'AI Chuẩn Ngữ Cảnh'}</span>
               </button>
               <button
                 type="button"
@@ -608,7 +608,7 @@ export default function TrangChu() {
                 onClick={() => setCachDich('google_fast')}
               >
                 <span className="pill-co">⚡</span>
-                <span>{laEn ? 'Google Fast (Free)' : 'Google Nhanh'}</span>
+                <span>{laEn ? 'Fast Cloud' : 'Dịch Nhanh Tốc Độ Cao'}</span>
               </button>
             </div>
           </div>
