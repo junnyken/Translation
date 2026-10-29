@@ -5746,7 +5746,7 @@ class AppDichTruyenWindows(tk.Tk):
         chk_sfx_bar.pack(fill="x", pady=(4, 0))
         tk.Checkbutton(
             chk_sfx_bar,
-            text="✨ Xoá chữ nền phức tạp / SFX 4 hướng (Harmonic Inpainting)",
+            text="✨ Xoá chữ nền phức tạp / SFX 4 hướng (Tái tạo nền tự động)",
             variable=var_inpaint_sfx,
             bg="#1e293b",
             fg="#38bdf8",

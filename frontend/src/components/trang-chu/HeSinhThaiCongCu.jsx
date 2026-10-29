@@ -68,9 +68,9 @@ export default function HeSinhThaiCongCu() {
           <ul className="ds-tinh-nang-cong-cu">
             <li>
               {laEn ? (
-                <>⚡ <b>Smart Background Reconstruction:</b> Cleanly replaces original text while preserving artwork borders in 2–4s.</>
+                <>⚡ <b>Ultra-Fast Auto Layout:</b> Displays crisp translated dialogs with natural comic formatting in 2–4s.</>
               ) : (
-                <>⚡ <b>Tái tạo nền &amp; dàn chữ thông minh:</b> Sạch 100% chữ gốc, giữ nguyên nét vẽ khung tranh chỉ trong 2–4 giây.</>
+                <>⚡ <b>Xử lý &amp; dàn chữ tự động siêu tốc:</b> Hiển thị bản dịch tiếng Việt sắc nét, cân đối bố cục khung tranh chỉ trong 2–4 giây.</>
               )}
             </li>
             <li>
@@ -82,16 +82,16 @@ export default function HeSinhThaiCongCu() {
             </li>
             <li>
               {laEn ? (
-                <>✏️ <b>Double-Click Live Editor:</b> Edit translations, resize text, or re-translate with AI right on the page.</>
+                <>✏️ <b>Double-Click Live Editor:</b> Edit translations, resize text, or re-translate right on the page.</>
               ) : (
-                <>✏️ <b>Nhấp đúp sửa câu dịch tức thì:</b> Sửa câu thoại, phóng to/thu nhỏ chữ hoặc gọi AI dịch lại ngay trên trang.</>
+                <>✏️ <b>Nhấp đúp sửa câu dịch tức thì:</b> Sửa câu thoại, phóng to/thu nhỏ chữ hoặc dịch lại ngay trên trang.</>
               )}
             </li>
             <li>
               {laEn ? (
-                <>🌍 <b>3 AI Engines &amp; Genre Fonts:</b> ⚡ OCR + GPU Fast (1 credit), 🧠 GPU Pro Self-Learning (2 credits) &amp; 4 genre fonts.</>
+                <>🌍 <b>3 Translation Modes &amp; Genre Fonts:</b> ⚡ Standard High-Speed (1 credit), 🧠 Pro Self-Learning (2 credits) &amp; 4 genre fonts.</>
               ) : (
-                <>🌍 <b>3 Bộ máy AI &amp; 4 Font thể loại:</b> ⚡ OCR + GPU Nhanh (1 lượt), 🧠 GPU Pro Tự Học chữ viết tay (2 lượt) &amp; 4 Font truyện.</>
+                <>🌍 <b>3 Chế độ dịch &amp; 4 Font thể loại:</b> ⚡ Tiêu Chuẩn Siêu Tốc (1 lượt), 🧠 Pro Tự Học (2 lượt) &amp; 4 Font truyện.</>
               )}
             </li>
           </ul>

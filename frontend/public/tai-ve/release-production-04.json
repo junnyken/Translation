@@ -1,10 +1,8 @@
 {
-  "App-Windows-Dich-Truyen-Tu-Dong-v1.1.zip": {
-    "sha256": "774b046afb29a94b2755b4b9e267ed214fede8b4079041503da169cb46da4167",
-    "bytes": 81222
-  },
-  "dich-truyen-chrome-extension-v0.3.1.zip": {
-    "sha256": "955d83ff388c71fe046734fc0564a9c406a10d0b705175473c0456375cee188e",
-    "bytes": 994338
-  }
+  "windows_app_version": "1.1",
+  "windows_app_sha256": "72ee6835a90a694a170954fff8c4fac13423832a797d981dfdbd4e0c84273ad1",
+  "chrome_extension_version": "0.3.1",
+  "chrome_extension_sha256": "955d83ff388c71fe046734fc0564a9c406a10d0b705175473c0456375cee188e",
+  "video_studio_version": "1.0",
+  "video_studio_sha256": "a38ad2817e2fde0fce03626b5e2438520e28e36816c4150b717464fdb0cc24cc"
 }

@@ -61,7 +61,7 @@ export default function ChinhSachBaoMat({ onQuayLai }) {
           </p>
           <ul style={{ lineHeight: 1.7, paddingLeft: 20 }}>
             <li>
-              <strong>Dữ liệu được xử lý:</strong> Khi bạn yêu cầu dịch, tiện ích chỉ trích xuất ảnh khung truyện hoặc đoạn văn bản truyện trên tab đang đọc và gửi qua kết nối mã hoá HTTPS tới máy chủ dịch thuật (<code>translation-api.vibe1.tinhgon.xyz</code>) để nhận diện chữ (OCR), xoá chữ gốc và dịch thuật.
+              <strong>Dữ liệu được xử lý:</strong> Khi bạn yêu cầu dịch, tiện ích chỉ trích xuất ảnh khung truyện hoặc đoạn văn bản truyện trên tab đang đọc và gửi qua kết nối mã hoá HTTPS tới hệ thống máy chủ dịch thuật bảo mật để xử lý và trả về bản dịch.
             </li>
             <li>
               <strong>Lưu trữ cấu hình cục bộ:</strong> Tiện ích sử dụng <code>chrome.storage.local</code> chỉ để lưu tuỳ chọn của bạn (ngôn ngữ nguồn, ngôn ngữ đích Việt/Anh, kiểu phông chữ, và mã phiên đăng nhập nếu có).
@@ -87,7 +87,7 @@ export default function ChinhSachBaoMat({ onQuayLai }) {
           </p>
           <ul style={{ lineHeight: 1.7, paddingLeft: 20 }}>
             <li>
-              <strong>Data Processed:</strong> When you click Translate (or enable Auto-Translate on scroll), the extension captures only the comic image or story text on the active tab and transmits it securely over HTTPS to our translation server (<code>translation-api.vibe1.tinhgon.xyz</code>) to perform OCR, inpainting, and translation.
+              <strong>Data Processed:</strong> When you click Translate (or enable Auto-Translate on scroll), the extension captures only the comic image or story text on the active tab and transmits it securely over HTTPS to our secure translation service to process and return the translated content.
             </li>
             <li>
               <strong>Local Preferences:</strong> We use <code>chrome.storage.local</code> solely to store your user preferences (source language, target language, font style, and optional session token).

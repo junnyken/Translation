@@ -477,7 +477,7 @@ export default function TrangChu() {
       <header className="trang-chu-dau manga-hero-banner">
         <div className="manga-hero-fx" aria-hidden="true">
           <span className="manga-bubble-tag tag-trai">
-            💬 &ldquo;{laEn ? 'Clean Inpainting — Keep Bubble Borders Intact!' : 'Xoá sạch chữ gốc — Giữ nguyên viền bong bóng!'}&rdquo;
+            💬 &ldquo;{laEn ? 'Instant Comic Translation — Natural Layout & Genre Fonts!' : 'Dịch Tự Động Siêu Tốc — Chuẩn Phong Cách Truyện Tranh!'}&rdquo;
           </span>
           <span className="manga-bubble-tag tag-phai">⚡ &ldquo;Manga · Manhwa · Manhua · Comic!&rdquo;</span>
         </div>
@@ -695,8 +695,8 @@ export default function TrangChu() {
 
           <div className="huy-hieu-gpu-khach">
             {laEn
-              ? '🚀 Client GPU Inpainting · Double-click to Edit — Ultra-fast ~3s'
-              : '🚀 Xoá chữ GPU khách · Nhấp đúp sửa câu — Siêu tốc ~3s'}
+              ? '🚀 Ultra-Fast Auto Translation ~3s · Double-Click to Edit'
+              : '🚀 Dịch tự động siêu tốc ~3s · Nhấp đúp sửa câu trực tiếp'}
           </div>
         </div>
 

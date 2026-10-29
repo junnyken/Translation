@@ -321,8 +321,8 @@ export default function DichChapter({ onMoChapter }) {
 
               <div className="huy-hieu-gpu-khach">
                 {laEn
-                  ? '🚀 Client GPU Inpainting · Double-click to Edit — Ultra-fast ~3s'
-                  : '🚀 Xoá chữ GPU khách · Nhấp đúp sửa câu — Siêu tốc ~3s'}
+                  ? '🚀 Ultra-Fast Auto Translation ~3s · Double-Click to Edit'
+                  : '🚀 Dịch tự động siêu tốc ~3s · Nhấp đúp sửa câu trực tiếp'}
               </div>
             </div>
           </fieldset>

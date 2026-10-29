@@ -118,22 +118,22 @@ export default function TrangTienIch({ onQuayLai }) {
 
           <div style={{ marginBottom: 18 }}>
             <div style={featureItemStyle}>
-              ⚡ <b>{laEn ? 'Smart Background Reconstruction & Typesetting:' : 'Tái tạo nền & dàn trang thông minh:'}</b>{' '}
+              ⚡ <b>{laEn ? 'Ultra-Fast Auto Layout & Typesetting:' : 'Xử lý & dàn trang tự động siêu tốc:'}</b>{' '}
               {laEn
-                ? 'Cleanly replaces original text while preserving artwork borders and layout balance in 2–4 seconds.'
-                : 'Làm sạch chữ gốc tự nhiên, giữ nguyên nét vẽ viền khung và tự động dàn chữ cân đối chỉ trong 2–4 giây.'}
+                ? 'Displays crisp translated dialogs with balanced comic typography in just 2–4 seconds.'
+                : 'Hiển thị bản dịch tiếng Việt sắc nét, tự động cân đối bố cục và phông chữ truyện tranh chỉ trong 2–4 giây.'}
             </div>
             <div style={featureItemStyle}>
-              ✏️ <b>{laEn ? 'Double-Click Live Text Editor + Touch-Up Brush:' : 'Nhấp đúp sửa câu dịch + 🖌️ Cọ tinh chỉnh nền:'}</b>{' '}
+              ✏️ <b>{laEn ? 'Double-Click Live Text Editor + Touch-Up Tool:' : 'Nhấp đúp sửa câu dịch + 🖌️ Công cụ tinh chỉnh nhanh:'}</b>{' '}
               {laEn
-                ? 'Double-click any dialog region to edit text, toggle solid box fill (⬛), drag text position (✥), or touch up strokes with the Brush tool (🖌️).'
-                : 'Nhấp đúp vào bất kỳ vùng chữ nào để sửa câu, bật ⬛ Phủ nền, ✥ Kéo vị trí chữ hoặc dùng 🖌️ Cọ tinh chỉnh trực tiếp ngay trên trang.'}
+                ? 'Double-click any dialog region to edit text, toggle solid box fill (⬛), drag text position (✥), or touch up directly on the page (🖌️).'
+                : 'Nhấp đúp vào bất kỳ vùng chữ nào để sửa câu, bật ⬛ Phủ hộp chữ, ✥ Kéo vị trí hoặc dùng 🖌️ Công cụ tinh chỉnh trực tiếp ngay trên trang.'}
             </div>
             <div style={featureItemStyle}>
-              🌍 <b>{laEn ? '3 Proprietary AI Engines (Fast GPU & Self-Learning Pro):' : '3 Bộ máy AI chuyên biệt (⚡ OCR + GPU Nhanh & 🧠 GPU Pro Tự Học):'}</b>{' '}
+              🌍 <b>{laEn ? '3 Smart Translation Modes (Standard · Context · Self-Learning Pro):' : '3 Chế độ dịch thông minh (Tiêu Chuẩn · Ngữ Cảnh · Pro Tự Học):'}</b>{' '}
               {laEn
-                ? 'Choose ⚡ OCR + GPU Fast (1 credit/page), ✨ Cloud Context AI (1 credit/page), or 🧠 OCR + GPU Pro for handwritten fonts & permanent self-learning (2 credits/page).'
-                : 'Chọn ⚡ OCR + GPU Nhanh (1 lượt/trang · khuyên dùng), ✨ AI Ngữ Cảnh Đám Mây (1 lượt/trang) hoặc 🧠 OCR + GPU Pro chuyên trị chữ viết tay & tự học vĩnh viễn các câu bạn sửa (2 lượt/trang).'}
+                ? 'Choose ⚡ Standard High-Speed (1 credit/page), ✨ Cloud Context Mode (1 credit/page), or 🧠 Pro Self-Learning Mode for stylized text & permanent vocabulary memory (2 credits/page).'
+                : 'Chọn ⚡ Chế độ Tiêu Chuẩn Siêu Tốc (1 lượt/trang · khuyên dùng), ✨ Chế độ Đám Mây Ngữ Cảnh (1 lượt/trang) hoặc 🧠 Chế độ Pro Tự Học chuyên trị chữ cách điệu & tự học vĩnh viễn các câu bạn sửa (2 lượt/trang).'}
             </div>
           </div>
 
@@ -246,10 +246,10 @@ export default function TrangTienIch({ onQuayLai }) {
                 : <>Tự động lưu gọn gàng theo cấu trúc <code>Tên_Truyện / Chapter-001 / 001.jpg, 002.jpg...</code> kèm chế độ Resume (bỏ qua trang đã dịch).</>}
             </div>
             <div style={{ ...featureItemStyle, borderLeftColor: '#10b981' }}>
-              📦 <b>{laEn ? 'Hardware-Adaptive Parallelism (1–8 Chapters) & Self-Learning AI:' : 'Chạy song song tự động theo cấu hình máy (1–8 Chap) & AI Tự Học:'}</b>{' '}
+              📦 <b>{laEn ? 'Hardware-Adaptive Parallelism (1–8 Chapters) & Self-Learning Mode:' : 'Chạy song song tự động theo cấu hình máy (1–8 Chap) & Chế độ Tự Học:'}</b>{' '}
               {laEn
-                ? 'Auto-detects CPU/RAM to translate multiple chapters simultaneously, exports .CBZ/.PDF/Long-Strip, and includes ⚡ OCR + GPU Fast (1 credit/page) + 🧠 OCR + GPU Pro for handwritten text (2 credits/page).'
-                : 'Tự nhận diện CPU/RAM để chạy song song nhiều Chapter cùng lúc, xuất .CBZ/.PDF/Long-Strip, tích hợp ⚡ OCR + GPU Nhanh (1 lượt/trang) và 🧠 OCR + GPU Pro tự học chữ viết tay (2 lượt/trang).'}
+                ? 'Auto-detects system resources to translate multiple chapters simultaneously, exports .CBZ/.PDF/Long-Strip, and includes ⚡ Standard High-Speed (1 credit/page) + 🧠 Pro Self-Learning Mode (2 credits/page).'
+                : 'Tự nhận diện cấu hình máy để chạy song song nhiều Chapter cùng lúc, xuất .CBZ/.PDF/Long-Strip, tích hợp ⚡ Chế độ Tiêu Chuẩn Siêu Tốc (1 lượt/trang) và 🧠 Chế độ Pro Tự Học (2 lượt/trang).'}
             </div>
           </div>
 
