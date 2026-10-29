@@ -1,0 +1,6364 @@
+# TEST_LOG.md — Translation
+
+Ghi **số liệu thật** của từng lần chạy. Không ước lượng, không ghi "pass" khi chưa chạy.
+
+---
+
+## M1 — Project Scaffolding & Pipeline Contract
+
+**Ngày:** 2026-08-27 · **Môi trường:** workspace `trieunt-c`, Docker 29.1.3, Python 3.12.3,
+Postgres 16-alpine (container `translation-db-1`), Redis 7-alpine.
+
+### 1. Test tự động
+
+```
+$ cd backend && ../.venv/bin/python -m pytest
+42 passed in 5.52s
+```
+
+| Nhóm | File | Số test | Kết quả |
+|---|---|---|---|
+| Unit — Pydantic schema | `tests/test_schemas_unit.py` | 12 | pass |
+| Unit — state machine Page | `tests/test_state_machine_unit.py` | 6 | pass |
+| Unit — interface engine | `tests/test_interfaces_unit.py` | 6 | pass |
+| Guardrail — không có logic AI ở M1 | `tests/test_no_ai_logic.py` | 2 | pass |
+| Integration — HTTP + Postgres thật | `tests/test_api_integration.py` | 12 | pass |
+| Migration — upgrade/downgrade thật | `tests/test_migration.py` | 4 | pass |
+
+Ghi chú: integration test chạy trên **Postgres thật** (DB `translation_test`), không dùng SQLite/mock;
+ảnh upload trong test là **PNG thật do Pillow render**, không phải file rỗng.
+
+### 2. Migration 2 chiều (chạy tay, ngoài test)
+
+```
+$ alembic upgrade head      → tạo 7 bảng + alembic_version   (OK)
+$ alembic downgrade base    → 0 bảng, 0 enum type còn sót     (OK)
+$ alembic upgrade head      → dựng lại sạch, không lỗi "type already exists" (OK)
+```
+
+### 3. Live verification (chạy thật qua HTTP trên container)
+
+```
+POST /api/v1/projects                      -> 201  id=416da44c… name="MTE Live Test Chapter" source_lang=ja intended_use=personal
+POST /api/v1/projects/{id}/pages           -> 202  {"page_id":"2bfbe09f…","status":"queued","job_id":"388e42be…"}
+     (upload ảnh JPEG THẬT 148.593 byte, 1400x2000)
+GET  /api/v1/pages/{page_id}               -> 200  status=queued, order=1, clean_image_path=null
+GET  /api/v1/pages/{page_id}/regions       -> 200  []            (đúng: M2 chưa chạy, không bịa region)
+GET  /api/v1/jobs/{job_id}                 -> 200  type=detect, status=queued, retry_count=0, error_log=null
+GET  /api/v1/jobs/<uuid không tồn tại>     -> 404
+POST /api/v1/projects (thiếu intended_use) -> 422
+GET  /docs                                 -> 200  (Swagger liệt kê đúng 6 endpoint /api/v1)
+```
+
+Đối chiếu dữ liệu thật sau flow trên:
+
+| Kiểm | Kết quả |
+|---|---|
+| File lưu trên volume | `/data/storage/projects/<pid>/pages/<page_id>.jpg`, 148.593 byte |
+| md5 ảnh gốc vs ảnh đã lưu | `4beff20947efb0152fb9d2f68e1d5d89` — **trùng khớp**, không hỏng byte |
+| `page` trong Postgres | order=1, status=`queued`, `clean_image_path` = NULL |
+| `job` trong Postgres | type=`detect`, status=`queued`, retry_count=0 |
+| `text_region` / `ocr_result` / `translation_result` / `typeset_result` | **0 record** — đúng, chưa bước nào chạy |
+
+Ghi chú trung thực: ảnh dùng để verify là **trang mẫu tự dựng bằng Pillow** (khung panel + bubble trắng,
+chữ Latin), **không phải trang manga scan thật**. Đủ để chứng minh đường đi upload → lưu file → vào hàng đợi
+của M1; **không đủ** để kết luận gì về chất lượng nhận diện — M2 cần ảnh manga thật.
+
+### 4. Regression
+
+**N/A — Mini-Spec đầu tiên của Phase**, chưa có invariant cũ để bảo vệ.
+
+### 5. Giới hạn của lần đo này
+
+- Ảnh dùng để verify là **trang mẫu tự dựng**, chưa phải trang manga scan thật.
+  Đủ cho M1 (chỉ kiểm lưu file + tạo job), **không đủ** cho M2 — M2 cần ảnh manga thật để đo tỷ lệ miss.
+- Chưa đo thời gian xử lý/trang (chưa có bước AI nào chạy).
+
+---
+
+## M2 — Text Region Detection (comic-text-detector)
+
+**Ngày:** 2026-08-27 · **Môi trường:** worker container (Celery, CPU-only, `--concurrency=1`),
+onnxruntime 1.20.1, model `comic-text-detector.onnx` 91MB
+(sha256 `1a86ace7…d718f`, nguồn `mayocream/comic-text-detector-onnx`).
+
+### 1. Test tự động
+
+```
+$ cd backend && ../.venv/bin/python -m pytest
+84 passed, 3 skipped in 13.67s
+```
+(3 skipped = test chạy ONNX thật, phải bật `MTE_RUN_MODEL_TESTS=1` vì mất ~40s/ảnh)
+
+| Nhóm | File | Số test | Kết quả |
+|---|---|---|---|
+| Unit — hình học bbox (convert, clamp, overlap, NMS) | `tests/test_detect_geometry_unit.py` | 17 | pass |
+| Unit — CTDDetector (Protocol, letterbox, giải mã, thiếu weight) | `tests/test_detect_ctd_unit.py` | 11 | pass |
+| Integration — Celery task detect trên DB thật | `tests/test_detect_task_integration.py` | 11 | pass |
+| Guardrail kiến trúc (M1 mở rộng cho M2) | `tests/test_no_ai_logic.py` | 5 | pass |
+| Model thật trên fixture | `tests/test_detect_real_model.py` | 3 | skipped (opt-in) |
+| Kế thừa M1 (schema, state machine, API, migration) | các file M1 | 40 | pass |
+
+Bài test đáng chú ý của M2:
+- `test_confidence_thap_van_duoc_luu_voi_low_confidence` — chặn việc lọc bỏ âm thầm region điểm thấp.
+- `test_chay_lai_khong_tao_region_trung_lap` — chạy lại job không nhân đôi region.
+- `test_timeout_ghi_failed_va_detection_failed` — quá giờ thì ghi `failed`/`detection_failed`, worker không treo.
+- `test_upload_tra_202_ngay_khong_cho_detect_chay_xong` — cắm detector ngủ 5s, upload vẫn < 2s ⇒ không chạy đồng bộ.
+- `test_import_app_khong_keo_theo_onnxruntime` — tiến trình API không nạp model.
+- `test_nguong_bien_79_phan_tram` / `81_phan_tram` / `dung_80_phan_tram` — ngưỡng `overlap_suspect`.
+
+### 2. Live verification — chạy model THẬT qua worker
+
+Chạy qua đúng đường thật: `POST /pages` → Redis → Celery worker → ONNX CPU → DB.
+
+| Ảnh | Kích thước | Vùng chữ đếm tay | Region detect được | bbox âm/vượt ảnh | low_confidence | overlap_suspect | Thời gian |
+|---|---|---|---|---|---|---|---|
+| `many_bubbles.png` | 1400×2000 | 6 | **6** | 0 | 1 | 0 | 39,6s |
+| `few_bubbles.png` | 1200×1700 | 2 | **2** | 0 | 0 | 0 | 40,3s |
+| `loose_sfx.png` | 1300×1800 | 4 (1 bubble + 3 SFX rời) | **4** | 0 | 0 | 0 | 40,1s |
+
+Cả 3 page kết thúc ở `status=detected`, cả 3 job `status=done`, `error_log=null`.
+
+Region của `many_bubbles.png` (toạ độ thật đọc từ API):
+
+```
+conf=0.88 pending         (240,164)  192x85
+conf=0.85 pending         (964,1716) 183x82
+conf=0.79 pending         (986,837)  108x83
+conf=0.70 pending         (284,1481) 163x80
+conf=0.56 pending         (959,212)  192x81
+conf=0.50 low_confidence  (292,808)  106x85   <- dưới ngưỡng 0.5, VẪN được lưu, không bị bỏ
+```
+
+Region `low_confidence` này nằm đúng trên bubble "I AM / HERE" — là case khó thật (chữ nhỏ, nền xám),
+không phải lỗi model.
+
+**Idempotent — chạy lại thật:**
+```
+POST /pages/{id}/retry-detect                    -> 202, job mới eca4f4b5…
+region TRƯỚC retry: 6 (id đầu 2b7e8c56…)
+region SAU   retry: 6 (id đầu 333f6c32…)
+worker log: "6 region (1 low_confidence, 0 overlap_suspect), xóa 6 region cũ, 44.6s"
+page.status sau retry = detected
+```
+⇒ số region **không nhân đôi**, region cũ bị thay chứ không cộng dồn.
+
+**Thời gian thật:** ~40s/ảnh trên CPU của workspace (`--concurrency=1`), nạp model lần đầu thêm ~1s.
+Vì vậy `DETECT_TIMEOUT_SECONDS` trong `.env` đặt **120s** (mặc định trong code vẫn là 60s theo spec):
+với 60s, một trang lớn hơn hoặc máy bận sẽ chạm timeout oan.
+
+### 3. Giới hạn của lần đo này (đọc kỹ trước khi tin số)
+
+- **Fixture là ảnh TỔNG HỢP do repo tự sinh** (`test_fixtures/make_fixtures.py`), không phải trang manga scan thật.
+  Chúng chứng minh pipeline chạy đúng đầu-cuối và cách giải mã output của model là đúng —
+  **không** chứng minh được tỷ lệ nhận diện trên manga thật.
+- Tiêu chí "detect đúng ≥90% bubble có chữ thật" của M2 vì vậy **CHƯA được nghiệm thu**.
+  Chặn: chưa có bộ ảnh có license rõ. Manga109-s trên Hugging Face đang `gated` (tải không token → HTTP 401);
+  Roboflow cần API key. Cần bạn cấp bộ ảnh hoặc token để chạy lại chính bài đo này.
+- Thời gian đo trên CPU của workspace, không phải GPU.
+
+---
+
+## M3 — OCR Extraction (manga-ocr / PaddleOCR)
+
+**Ngày:** 2026-08-27 · **Môi trường:** container `worker` (image riêng, 4,45GB) —
+torch 2.13.0+cpu · transformers 5.16.1 · paddlepaddle 3.3.1 · paddleocr 3.7.0 · onnxruntime 1.20.1 · numpy 2.2.1.
+Image `api` giữ nguyên 1,06GB (không có thư viện AI).
+
+### 1. Audit Before Build — kết quả kiểm chứng thật
+
+| # | Mục | Kết quả |
+|---|---|---|
+| 1 | `IOCREngine.recognize(image_path, bbox) -> tuple[str, float]` chưa đổi | Đạt |
+| 2 | bbox của M2 crop ra đúng vùng chữ | **Đạt — kiểm bằng mắt**: crop 6 region thật của `many_bubbles.png` từ DB, cả 6 ảnh crop chứa trọn chữ trong bubble, không lệch/không cụt |
+| 3 | manga-ocr + PaddleOCR cài được trong worker | Đạt (xem §2) |
+| 4 | manga-ocr có trả confidence không? | **KHÔNG** — đọc source 0.1.16: `MangaOcr.__call__` chỉ trả chuỗi. Xử lý: `confidence=NULL` + tiêu chí `needs_manual` theo text rỗng/không có ký tự có nghĩa |
+| 5 | Xung đột dependency onnxruntime (M2) ↔ torch/paddle (M3)? | **Không có xung đột** — resolve 108 package thành công, cùng numpy 2.x. Nhưng phát hiện 2 bẫy thật, xem dưới |
+| 6 | Gap = `IOCREngine` chưa implement | Đúng, M3 chỉ lấp đúng phần đó |
+
+Hai bẫy phát hiện khi audit dependency (nếu không xử lý thì hỏng lúc chạy, không hỏng lúc cài):
+
+1. `torch` trên PyPI kéo theo **toàn bộ stack CUDA** (`nvidia-*`, `cuda-toolkit-13`, `triton`) — vô dụng
+   trên máy chỉ có CPU. → cài từ `--index-url https://download.pytorch.org/whl/cpu`.
+2. `paddleocr` **không** kéo theo `paddlepaddle` (framework thật để chạy). Cài xong vẫn "thành công"
+   rồi chết lúc nhận diện. → khai `paddlepaddle==3.3.1` tường minh trong `requirements-worker.txt`.
+
+### 2. Test tự động
+
+```
+$ cd backend && ../.venv/bin/python -m pytest
+150 passed, 5 skipped in 26.14s
+```
+(5 skipped = test chạy model thật: 3 của M2 `MTE_RUN_MODEL_TESTS=1`, 2 của M3 `MTE_RUN_OCR_TESTS=1`)
+
+| Nhóm | File | Số test |
+|---|---|---|
+| Unit — crop bbox float→pixel | `tests/test_ocr_crop_unit.py` | 10 |
+| Unit — factory engine, parse output PaddleOCR, cờ runtime | `tests/test_ocr_engines_unit.py` | 28 |
+| Integration — task OCR trên DB thật | `tests/test_ocr_task_integration.py` | 15 |
+| Guardrail kiến trúc (M1+M2+M3) | `tests/test_no_ai_logic.py` | 10 |
+| Engine OCR thật | `tests/test_ocr_real_engine.py` | 2 (skipped, opt-in) |
+| Kế thừa M1+M2 | các file trước | 90 |
+
+Bài test đáng chú ý của M3:
+- `test_moi_region_deu_co_ocrresult_ke_ca_low_confidence` — region detect điểm thấp vẫn phải được OCR.
+- `test_text_rong_thi_needs_manual_van_giu_record` — không xoá record khi OCR không ra chữ.
+- `test_manga_ocr_ghi_confidence_null_va_status_ok` — không bịa confidence.
+- `test_engine_hong_toan_tap_thi_bao_failed_khong_gia_vo_ocr_done` — **sinh ra từ sự cố thật ở §3**.
+- `test_ocr_loi_thi_page_giu_nguyen_detected` — lỗi giữa chừng không đẩy page sang `ocr_done`.
+- `test_ocr_lai_khong_tao_ket_qua_trung_lap` — idempotent theo `region_id`.
+- `test_sap_lai_dong_theo_toa_do_tren_xuong_duoi` + `test_tat_phan_loai_huong_trang_cho_crop_bubble`
+  — **sinh ra từ sự cố thật ở §3**.
+- `test_import_app_khong_keo_theo_thu_vien_ocr`, `test_engine_ocr_import_tre_khong_nap_luc_import_module`.
+
+### 3. Live verification — engine THẬT qua worker
+
+Chạy đúng đường thật: `POST /pages` → detect (M2) → **tự nối** job OCR → PaddleOCR/manga-ocr → DB.
+
+#### Nhánh `en` (PaddleOCR) — 2 trang, 8 vùng
+
+| Ảnh | Vùng | Đọc ra chữ | Khớp CHÍNH XÁC từng ký tự | Thời gian OCR |
+|---|---|---|---|---|
+| `few_bubbles.png` | 2 | 2/2 (`ok`) | 2/2 | 13,1s |
+| `many_bubbles.png` | 6 | 6/6 (`ok`) | 5/6 | 8,0s |
+
+Đối chiếu tay từng vùng (bản gốc ⟶ OCR đọc được):
+
+```
+HELLO / THERE      -> "HELLO\nTHERE"     conf 1.000   khớp
+GOODBYE            -> "GOODBYE"          conf 1.000   khớp
+GOOD / MORNING     -> "GOOD\nMORNING"    conf 1.000   khớp
+THE END / FOR NOW  -> "THE END\nFOR NOW" conf 0.999   khớp
+LOOK / OUT!        -> "LOOK\nOUT!"       conf 1.000   khớp
+LET US / GO NOW    -> "LET US\nGO NOW"   conf 0.998   khớp
+WHO / ARE YOU?     -> "WHO\nARE YOU?"    conf 0.992   khớp
+I AM / HERE        -> "IAM\nHERE"        conf 0.990   LỆCH: mất dấu cách
+```
+
+Chỗ lệch duy nhất là `IAM` thiếu dấu cách. **Cố ý không sửa** — constraint 5 của M3 cấm normalize
+`raw_text`; việc sửa lỗi OCR là của bước dịch (M5) theo ngữ cảnh.
+
+**Idempotent chạy thật:** gọi `retry-ocr` → log worker ghi `xóa 2 kết quả cũ` / `xóa 6 kết quả cũ`,
+số record không đổi (2 và 6), `page.status` vẫn `ocr_done`.
+
+#### Nhánh `ja` (manga-ocr)
+
+Dùng chính ảnh mẫu tiếng Nhật mà thư viện manga-ocr đóng gói sẵn (`assets/example.jpg`, 600×341) —
+không cần ảnh manga có bản quyền:
+
+```
+đọc được: 徹篇購訴珀騫隋被乭澄枉常参奉果章違値嶋人嘩饅午雉
+confidence: None   (đúng thiết kế — thư viện không cung cấp)
+```
+
+Đối chiếu bằng mắt với ảnh gốc: đây là bubble chứa **kanji hiếm, cố ý vô nghĩa** (ảnh dùng để
+stress-test model), viết dọc đọc **phải→trái**. Model chép lại gần như chính xác từng chữ và
+đúng chiều đọc. Nhánh `ja` chạy đúng.
+
+Thời gian: **8,8s/vùng** khi có `torchvision`, **55,8s** khi thiếu (transformers lùi về bộ tiền xử lý
+PIL và cảnh báo). → `torchvision` đã được thêm vào image worker.
+
+#### Thời gian detect đo lại (M2) trên image worker mới
+
+61,4s và 57,5s/ảnh — **chậm hơn con số ~40s đo ở M2**. Đáng chú ý: 61,4s đã **vượt mặc định 60s
+trong code**; nhờ `.env` đặt `DETECT_TIMEOUT_SECONDS=120` (điểm lệch spec #3 của M2) mà job không
+chết oan. Đây là bằng chứng thực tế cho quyết định đó.
+
+
+### 3b. Hai sự cố thật do live verification lộ ra (test giả lập KHÔNG bắt được)
+
+**Sự cố 1 — PaddleOCR không chạy được dòng nào.** Lần chạy live đầu tiên: 8/8 vùng `needs_manual`,
+`raw_text` rỗng, job vẫn `done`. Soi output thô trong worker thấy:
+
+```
+NotImplementedError: (Unimplemented) ConvertPirAttribute2RuntimeAttribute not support
+[pir::ArrayAttribute<pir::DoubleAttribute>] (at .../new_executor/instruction/onednn/onednn_instruction.cc:116)
+```
+
+paddlepaddle 3.3.1 vỡ ở nhánh oneDNN/PIR trên CPU này. `FLAGS_use_mkldnn=0` **không** cứu được;
+truyền `enable_mkldnn=False` vào `PaddleOCR(...)` thì chạy. → thành `OCR_PADDLE_ENABLE_MKLDNN=false`.
+
+**Lỗ hổng của chính code M3 mà sự cố 1 phơi ra:** task bắt exception theo từng vùng để "1 vùng hỏng
+không giết cả trang" — nhưng khi engine chết ở **mọi** vùng, nó ghi 100% `needs_manual` rồi tự nhận
+`ocr_done`. Nhìn từ ngoài giống "trang này không có chữ". Đã sửa: **mọi vùng đều lỗi ⇒ job `failed`**,
+page giữ `detected`, không ghi record rỗng. Có test canh (`test_engine_hong_toan_tap...`).
+
+**Sự cố 2 — thứ tự dòng bị đảo.** Sau khi sửa sự cố 1, 2/8 vùng trả `"OUT!\nLOOK"` và
+`"ARE YOU?\nWHO"`. Cắt đúng vùng đó ra **nhìn bằng mắt**: LOOK nằm trên OUT!. Nhưng PaddleOCR báo
+`OUT!` ở `y_min=0`, `LOOK` ở `y_min=40`.
+
+Nguyên nhân: bộ **phân loại hướng TRANG TÀI LIỆU** (`use_doc_orientation_classify`) xoay crop 180° —
+crop 1 bubble không có "hướng trang" để dựa vào nên nó đoán bừa. Tắt `use_doc_orientation_classify`
++ `use_doc_unwarping` (vẫn giữ `use_textline_orientation` cho hướng DÒNG chữ):
+`['LOOK','OUT!']`, `y_min` 10 < 53, khớp ảnh. Kèm theo: OCR nhanh hơn hẳn (30,0s/48,6s → 13,1s/8,0s).
+
+Ngoài ra vẫn giữ bước **sắp lại dòng theo toạ độ** (trên→dưới, trái→phải) như lưới an toàn —
+chỉ sắp thứ tự dòng, không đụng ký tự nào trong text.
+
+### 4. Giới hạn của lần đo này
+
+- Vẫn là **ảnh tổng hợp** (`test_fixtures/`), không phải manga scan thật →
+  **provisional, cần đo lại khi có ảnh thật**. Đúng như spec M3 §7.4 yêu cầu đánh dấu.
+- Tiêu chí "≥80% region đọc ra text đúng nghĩa trên ảnh thật" **CHƯA nghiệm thu** —
+  chung một nút thắt với tiêu chí ≥90% của M2 (đang chờ ảnh có license rõ).
+
+---
+
+## M4 — Inpainting (xoá chữ gốc bằng LaMa)
+
+**Ngày:** 2026-08-27 · **Môi trường:** container `worker` (CPU), onnxruntime 1.20.1,
+model `lama-manga-dynamic.onnx` 197MB (sha256 `de31ffa5…5315f9`, nguồn `ogkalu/lama-manga-onnx-dynamic`).
+
+### 1. Audit Before Build — kết quả kiểm chứng thật
+
+| # | Mục | Kết quả |
+|---|---|---|
+| 1 | `IInpainter.inpaint(image_path, masks) -> str` chưa đổi | Đạt |
+| 2 | `Page.clean_image_path` tồn tại, nullable, không NOT NULL | Đạt (`character varying(1024)`, nullable) |
+| 3 | Weight LaMa tải được + mount vào worker | Đạt — 197MB, mount sẵn qua `./models:/models:ro` (không cần build lại image) |
+| 4 | **LaMa có trả ảnh cùng kích thước ảnh gốc không?** | **Có** — `image[b,3,h,w]` + `mask[b,1,h,w]` → `inpainted[b,3,h,w]`, cùng h×w. Nhưng lộ ra 1 ràng buộc cứng, xem dưới |
+| 5 | Đĩa đủ chỗ cho ảnh clean | Đạt — còn 70GB; ảnh clean ~2/3 kích thước ảnh gốc (PNG) |
+| 6 | Gap = `IInpainter` chưa implement | Đúng phạm vi, không lấn sang M5 |
+
+**Ràng buộc cứng phát hiện ở Audit 4 (nếu không xử lý thì hỏng lúc chạy):**
+
+```
+1401x2001 (không chia hết 8) -> ONNXRuntimeError: Non-zero status code ... Mul node
+                                 "Attempting to broadcast an axis by a dimension other than 1. 2001 by 2008"
+1400x2000 (chia hết 8)       -> OK, output (1,3,1400,2000), 54,3s
+```
+
+⇒ code **luôn pad** mép phải/dưới về bội số 8 (mode `edge` để không tạo viền đen giả), chạy xong cắt lại
+đúng kích thước gốc. Có unit test canh cả hai chiều.
+
+### 2. Test tự động
+
+```
+$ cd backend && ../.venv/bin/python -m pytest
+192 passed, 6 skipped in 30.65s
+```
+
+| Nhóm | File | Số test |
+|---|---|---|
+| Unit — mask + dilate + clamp | `tests/test_inpaint_mask_unit.py` | 13 |
+| Unit — LamaInpainter (pad, ghép ảnh, không ghi đè) | `tests/test_inpaint_lama_unit.py` | 12 |
+| Integration — task inpaint trên DB thật | `tests/test_inpaint_task_integration.py` | 12 |
+| Guardrail kiến trúc (M1→M4) | `tests/test_no_ai_logic.py` | 15 |
+| LaMa thật trên fixture | `tests/test_inpaint_real_model.py` | 1 (skipped, opt-in) |
+| Kế thừa M1+M2+M3 | các file trước | 139 |
+
+Bài test đáng chú ý của M4:
+- `test_khong_ghi_de_anh_goc` + `test_anh_goc_khong_bi_ghi_de` — **invariant quan trọng nhất**, so md5 trước/sau.
+- `test_chi_thay_pixel_trong_mask` — model chỉ được đụng vùng mask, ngoài mask giữ nguyên từng pixel.
+- `test_anh_le_duoc_pad_truoc_khi_vao_model` — sinh ra từ ràng buộc bội số 8 ở §1.
+- `test_ratio_vuot_tran_bi_kep_xuong_15_phan_tram` — nới mask không bao giờ quá 15%.
+- `test_ocr_lai_con_chu_thi_danh_dau_can_review` — kiểm chứng khách quan, còn chữ thì không tự nhận xong.
+- `test_chay_lai_xoa_anh_clean_cu_khong_de_file_rac` — idempotent, so danh sách file trong thư mục.
+- `test_page_chua_ocr_thi_tu_choi_inpaint`, `test_thieu_ket_qua_ocr_cua_mot_vung_thi_tu_choi` — không xoá chữ trên dữ liệu dở dang.
+- `test_khong_lang_le_fallback_opencv_khi_lama_loi` — constraint 10.
+
+### 3. Live verification — LaMa THẬT qua worker
+
+Chạy đúng đường thật (`POST /pages/{id}/retry-inpaint` → Redis → worker → LaMa → DB):
+
+| Ảnh | Vùng | Diện tích bị mask | Kết quả | OCR lại còn chữ | Thời gian |
+|---|---|---|---|---|---|
+| `few_bubbles.png` (1200×1700) | 2 | 1,3% | `inpainted` | **0/2 vùng** | 63,2s |
+| `many_bubbles.png` (1400×2000) | 6 | 3,3% | `inpainted` | **0/6 vùng** | 44,8s |
+
+**Invariant ảnh gốc — so md5 trước/sau:**
+
+```
+few_bubbles  gốc: 3eb2acc6aec7a2d0a504b2bf42ce591e -> 3eb2acc6aec7a2d0a504b2bf42ce591e  (y nguyên)
+many_bubbles gốc: bf9df4751a3f9517a453ba9804154650 -> bf9df4751a3f9517a453ba9804154650  (y nguyên)
+```
+
+Thư mục `pages/` sau khi chạy có **đúng 4 file**: 2 ảnh gốc + 2 ảnh clean (`<id>_clean.png`) — không file rác.
+
+**Nhìn bằng mắt** (tải qua `GET /pages/{id}/clean-image`): cả 6 bubble của `many_bubbles.png` trở thành
+hình ellipse trắng sạch, viền bubble và khung panel giữ nguyên nét, nền xám không bị loang, không còn
+bóng chữ. Không thấy artifact.
+
+**Idempotent — chạy lại thật:**
+
+```
+TRƯỚC retry: 4 file trong pages/, md5 ảnh clean = 267f160b4759ef9318633359ef85b56f
+POST /pages/{id}/retry-inpaint  -> 202
+SAU   retry: 4 file trong pages/, md5 ảnh clean = 267f160b4759ef9318633359ef85b56f
+md5 ảnh gốc: bf9df4751a3f9517a453ba9804154650  (không đổi)
+log worker : "6 vùng, inpainted, còn chữ ở 0 vùng, xoá ảnh clean cũ=True, 43,5s"
+```
+
+⇒ số file **không tăng** (xoá cũ trước khi ghi mới), ảnh gốc không đổi. md5 ảnh clean trùng nhau
+giữa 2 lần chạy cho thấy model chạy tất định — không phải do bỏ qua bước xử lý.
+
+### 4. Giới hạn của lần đo này
+
+- Vẫn là **ảnh tổng hợp** (`test_fixtures/`) → **provisional, cần đo lại khi có ảnh manga thật**,
+  đúng như spec M4 §7.4 yêu cầu đánh dấu.
+- Ảnh tổng hợp có nền phẳng (trắng/xám) nên inpaint dễ hơn thực tế rất nhiều. Trang manga thật có
+  nét vẽ, lưới halftone, viền bubble cách điệu — **không được suy ra kết quả sẽ tương đương**.
+- Tiêu chí "≥90% vùng OCR lại không còn chữ **trên ảnh thật**" vì vậy **CHƯA nghiệm thu** —
+  cùng nút thắt với M2/M3.
+
+---
+
+## M5 — Dịch 2 đường + thứ tự đọc
+
+**Ngày:** 2026-08-27 · **Môi trường:** workspace `trieunt-c`, Docker, Python 3.12.3,
+Postgres 16-alpine (`translation-db-1`), Redis 7-alpine, worker Celery `translation-worker-1`.
+API dịch gọi qua HTTPS — **không nạp model**, nên chạy được cả ở image `api` lẫn `worker`.
+
+### 1. Test tự động
+
+```
+$ cd backend && ../.venv/bin/python -m pytest
+256 passed, 6 skipped in 34.28s
+```
+
+| Nhóm | File | Số test |
+|---|---|---|
+| Unit — 2 engine dịch, parse response, xoay key | `tests/test_translate_engines_unit.py` | 30 |
+| Unit — thứ tự đọc (ltr/rtl, gom dải ngang) | `tests/test_translate_reading_order_unit.py` | 15 |
+| Integration — task translate trên DB thật | `tests/test_translate_task_integration.py` | 13 |
+| Guardrail kiến trúc (M1→M5) | `tests/test_no_ai_logic.py` | 21 (+6 của M5) |
+| Kế thừa M1+M2+M3+M4 | các file trước | 177 |
+| Model/OCR thật (opt-in) | `test_*_real_*.py` | 6 (skipped) |
+
+Bài test đáng chú ý của M5:
+- `test_khong_co_api_key_nao_bi_commit_vao_git` — quét **toàn bộ file git track** tìm chuỗi giống API key.
+- `test_file_env_that_khong_duoc_track` + `test_key_khong_bi_ghi_vao_db_hay_tra_ra_api` — constraint 7:
+  key chỉ sống trong `.env`, không lọt vào DB, không lọt ra response.
+- `test_mac_dinh_khong_tu_tieu_token_cua_nguoi_dung` — canh `TRANSLATE_DEFAULT_ENGINE=google_fast`.
+  Đổi mặc định sang `llm_context` sẽ **làm đỏ test**, không lặng lẽ tiêu tiền người dùng.
+- `test_mac_dinh_tat_thinking_de_khong_dot_token` — canh `LLM_THINKING_BUDGET=0` (xem §3).
+- `test_bon_task_co_bon_timeout_rieng` → nay là **bốn** timeout riêng (detect/OCR/inpaint/translate).
+- `parse_response`: thiếu dòng → chuỗi rỗng + `status=pending`, **không bịa nội dung**; thừa dòng → cắt.
+- `test_engine_la_bao_loi_khong_fallback_am_tham` — engine lạ raise `UnsupportedTranslationEngine`, không fallback âm thầm.
+
+### 2. Live verification — gọi API dịch THẬT qua worker
+
+Đường thật: `POST /pages/{id}/retry-translate` → Redis → worker Celery → HTTPS → DB.
+
+**2a. `llm_context` (Gemini) — trang 6 bubble, en → vi:**
+
+| # | OCR đọc được | Bản dịch | token_cost |
+|---|---|---|---|
+| 1 | `GOOD\nMORNING` | Chào buổi sáng. | **227** |
+| 2 | `WHO\nARE YOU?` | Ngươi là ai? | NULL |
+| 3 | `IAM\nHERE` | Ta ở đây. | NULL |
+| 4 | `LOOK\nOUT!` | Cẩn thận! | NULL |
+| 5 | `LET US\nGO NOW` | Đi thôi nào. | NULL |
+| 6 | `THE END\nFOR NOW` | Tạm kết tại đây. | NULL |
+
+- `reading_order` được điền **1..6** (cột này để NULL từ M1, M5 chịu trách nhiệm điền).
+- `IAM` là **lỗi OCR** của `I AM` — LLM tự sửa theo ngữ cảnh, đúng như thiết kế (`raw_text` giữ nguyên,
+  không normalize ở M3).
+- `token_cost` ghi ở **đúng 1 dòng đầu trang**: `SUM(token_cost)` toàn bảng = 227 = chi phí thật của
+  1 request, không bị nhân bản 6 lần.
+
+**2b. Đối chứng 2 engine trên CÙNG một trang (2 bubble, en → vi):**
+
+| Engine | `HELLO\nTHERE` → | `GOODBYE` → | Token | Thời gian |
+|---|---|---|---|---|
+| `google_fast` | **"Xin chào\nĐÓ"** ❌ | "TẠM BIỆT" | 0 (miễn phí) | <1s |
+| `llm_context` | **"Chào nhé."** ✅ | "Tạm biệt." | 164 | ~5s |
+
+Đây là **bằng chứng thật cho lý do tồn tại của 2 đường**: `google_fast` dịch rời từng dòng nên
+`THERE` thành `ĐÓ` — vô nghĩa trong ngữ cảnh chào hỏi. `llm_context` gộp 2 dòng của cùng 1 bubble
+thành một câu thoại tự nhiên. Không suy đoán — đo trên đúng dữ liệu đó.
+
+Chạy lại trên cùng page **thay thế** bản dịch cũ (xoá theo `region_id` rồi ghi mới), không tích luỹ
+bản trùng — cùng cách M4 xử lý ảnh clean.
+
+### 3. Đo bẫy "thinking" đốt token
+
+Cùng 1 trang 6 dòng, cùng prompt, chỉ đổi model/cấu hình:
+
+| Model | thinking token | tổng token | thời gian |
+|---|---|---|---|
+| `gemini-3.6-flash` (không tắt thinking) | **938** | 1072 | 7,0s |
+| `gemini-3-flash-preview` + `thinkingBudget=0` | 0 | 133 | 2,0s |
+| **`gemini-3.1-flash-lite` + `thinkingBudget=0`** (mặc định) | **0** | **140** | **1,6s** |
+
+⇒ Không tắt thinking thì **đắt gấp ~7,7 lần, chậm gấp 4 lần** mà chất lượng dịch trên mẫu này
+tương đương. Nếu model vẫn trả `thoughtsTokenCount > 0` dù đã yêu cầu tắt, worker **ghi cảnh báo
+vào log** — hoá đơn phình lên sẽ không diễn ra âm thầm.
+
+### 4. Hai giả định của spec bị thực tế bác bỏ
+
+| Spec giả định | Thực tế đo được |
+|---|---|
+| Dùng `gemini-2.5-flash` | **404 NOT_FOUND** — *"This model is no longer available to new users"*. Phải đổi sang dòng 3.x. |
+| Nhiều API key ⇒ nhiều quota | Tài liệu Gemini: *"Rate limits are applied per project, not per API key."* ⇒ **xoay key trong cùng project không tăng hạn mức**. Cơ chế xoay vẫn giữ (có test) nhưng chỉ có tác dụng khi key thuộc **project khác nhau**. |
+
+Cả hai đều ghi vào `ARCH.md §8` để người sau không kỳ vọng sai.
+
+### 5. Giới hạn của lần đo này
+
+- Vẫn là **ảnh tổng hợp** (`test_fixtures/`) với thoại tiếng Anh ngắn — **chưa đo trên manga thật**,
+  chưa đo tiếng Nhật/Trung. Cùng nút thắt với M2/M3/M4.
+- Hướng đọc `rtl` (manga Nhật) mới chỉ verify bằng **unit test**, chưa có trang JP thật chạy đầu-cuối:
+  các page `ja` trong DB đang dừng ở `detected`.
+- Nhánh `fallback_used` (LLM chết → lùi về Google) mới verify bằng **integration test giả lập lỗi**,
+  chưa gặp tình huống hết quota thật.
+
+---
+
+## M6 — Canh cỡ chữ & ngắt dòng cho vừa bubble
+
+**Ngày:** 2026-08-27 · **Môi trường:** workspace `trieunt-c`, Docker, Python 3.12.3,
+Postgres 16-alpine, Redis 7-alpine, worker Celery `translation-worker-1`, Pillow 11.0.0.
+Font: `fonts/` mount vào worker theo `FONT_DIR=/fonts` (API **không** mount, không cần).
+
+### 1. Audit Before Build — 7 mục, có bằng chứng
+
+| # | Mục | Kết quả |
+|---|---|---|
+| 1 | `ITypesetter.fit(text, bbox, font_family) -> dict` + bảng `TypesetResult` | Nguyên vẹn từ M1: đủ 6 cột (`font_family`, `font_size`, `wrapped_text`, `padding_ratio`, `fit_status`, `edited_by_user`), `region_id` unique, enum `FitStatus(pending/fit_ok/overflow_warning)`, `JobType.typeset` có sẵn ⇒ **không cần migration** |
+| 2 | Page `translated` thật + đơn vị bbox | Page `e08da9e4` (6 vùng / 6 bản dịch / 0 typeset). bbox max `(x+w, y+h) = (1147, 1798)` nằm gọn trong ảnh clean `1400×2000` ⇒ **bbox đúng pixel của ảnh clean**, không phải thumbnail |
+| 3 | Pillow trong worker | `11.0.0`; có `getlength` ✓, có `multiline_textbbox` ✓, **`textsize`/`getsize` đã bị gỡ khỏi Pillow 11** (`hasattr = False`) nên không có nguy cơ lỡ tay dùng API cũ |
+| 4 | File font + hỗ trợ tiếng Việt | `fonts/` chưa được mount vào worker ⇒ **đã bổ sung volume `./fonts:/fonts:ro`**. Độ phủ dấu đã đo ở `docs/FONTS.md`: 4 font bundle đều 134/134 |
+| 5 | License font trước khi commit | Cả 4 font **SIL OFL 1.1**, có `OFL.txt` đi kèm ⇒ **có quyền phân phối**, nên được commit (spec cấm commit font *trừ khi* quyền phân phối được xác nhận — điều kiện này đã thoả) |
+| 6 | Đường dẫn preview + quyền ghi/đọc | Worker ghi `/data/storage/previews/_audit/probe.txt` → **API đọc lại được** đúng nội dung ⇒ chung volume `storage_data`. Đĩa còn **68 GB** |
+| 7 | Gap | `typeset_result` có **0 record**, không có implementation nào của `ITypesetter` ⇒ đúng phạm vi M6 |
+
+**Phát hiện lớn nhất của audit — `raqm` KHÔNG có trong worker.**
+Workspace có `features.check("raqm") = True` nhưng **worker là `False`**. Đo hậu quả thật:
+
+| Dạng chuỗi | `getlength()` | Render ra |
+|---|---|---|
+| NFC (dựng sẵn) | 325.0 | `ĐỪNG NGOẢNH LẠI! CẨN THẬN` ✅ |
+| NFD (tách dấu) | **325.0 — y hệt** | `ĐUNG NGOANH LAỊ! CAN THAN` ❌ |
+
+⇒ Chuỗi NFD render **sai** mà phép đo **vẫn trả đúng con số của NFC**, nên sai không lộ ra qua
+bất kỳ assert nào về kích thước. Dữ liệu M5 hiện tại tình cờ là NFC (đã kiểm 3 mẫu), nhưng Gemini
+không cam kết trả NFC. → M6 **chuẩn hoá NFC trong đường đo/vẽ** (xem REPORT_M6 §3).
+
+### 2. Test tự động
+
+```
+$ cd backend && ../.venv/bin/python -m pytest
+329 passed, 6 skipped in 44.22s
+```
+
+| Nhóm | File | Số test |
+|---|---|---|
+| Unit — ngắt dòng, đo chữ, FontResolver, chặn tofu | `tests/test_typeset_layout_unit.py` | 21 |
+| Unit — thuật toán chọn cỡ chữ | `tests/test_typeset_fitter_unit.py` | 13 |
+| Integration — task typeset + 3 endpoint trên DB thật | `tests/test_typeset_task_integration.py` | 17 |
+| Guardrail kiến trúc (M1→M6) | `tests/test_no_ai_logic.py` | 27 (+6 của M6) |
+| Font bundle đủ dấu tiếng Việt | `tests/test_fonts_vietnamese.py` | 16 |
+| Kế thừa M1–M5 | các file trước | 235 |
+
+Bài test đáng chú ý của M6:
+- `test_giam_1px_lay_duoc_co_lon_nhat_ke_ca_khi_khong_don_dieu` — **khoá lại bằng chứng §4**: ca
+  `"Cẩn thận!"` phải KHÔNG đơn điệu, và `fit()` phải trả đúng cỡ lớn nhất trong tập vừa.
+- `test_thieu_glyph_bao_loi_khong_am_tham_ra_o_vuong` — tự cắt một font chỉ còn ASCII rồi bắt buộc
+  phải ném `font_missing_glyph`.
+- `test_khong_co_chu_thi_pending_khong_phai_overflow` — vùng chưa có bản dịch không được gắn "tràn khung".
+- `test_preview_that_su_co_ve_chu_len` — preview phải KHÁC ảnh clean; giống hệt nghĩa là không vẽ được gì.
+- `test_khong_dung_toi_du_lieu_cua_m2_m5` — so nguyên bộ `(reading_order, bbox, translated_text, token_cost)`
+  trước/sau typeset.
+- `test_api_khong_nap_engine_render_cua_m6` + `test_package_typeset_khong_keo_theo_pillow` — API
+  không được nạp Pillow; vì thế quy ước đường dẫn preview tách sang `typeset/paths.py`.
+- `test_endpoint_preview_chi_phuc_vu_file_khong_tu_render` — quét thân hàm, cấm mọi dấu vết renderer.
+- `test_nam_task_co_nam_timeout_rieng` — nay là **năm** timeout độc lập.
+
+### 3. Live verification — Run A (bắt buộc)
+
+Đường thật: `POST /pages/{id}/retry-typeset` → Redis → worker Celery → Pillow → DB + file preview.
+Page `e08da9e4`, 6 bubble, bản dịch **thật từ Gemini** (M5), ảnh clean 1400×2000, font `Bangers`.
+
+| # | Bản dịch | bbox | Cỡ chữ | Ngắt dòng | Trạng thái |
+|---|---|---|---|---|---|
+| 1 | Chào buổi sáng. | 192×85 | 30 | 2 dòng | `fit_ok` |
+| 2 | Ngươi là ai? | 192×81 | **36** | 1 dòng | `fit_ok` |
+| 3 | Ta ở đây. | 106×85 | 33 | 2 dòng | `fit_ok` |
+| 4 | Cẩn thận! | 108×84 | **27** | 2 dòng | `fit_ok` |
+| 5 | Đi thôi nào. | 163×80 | 32 | 1 dòng | `fit_ok` |
+| 6 | Tạm kết tại đây. | 183×82 | 29 | 2 dòng | `fit_ok` |
+
+**Thời gian: 0,5–0,6 s/trang** (rẻ hơn detect 40-61s, OCR, inpaint 45-63s rất nhiều — M6 không nạp model).
+
+**Checksum — bằng chứng M6 không đụng output của M4:**
+
+```
+TRƯỚC: gốc bf9df4751a3f9517a453ba9804154650 · clean 267f160b4759ef9318633359ef85b56f
+SAU  : gốc bf9df4751a3f9517a453ba9804154650 · clean 267f160b4759ef9318633359ef85b56f
+```
+Preview là **file thứ ba**: `previews/<page_id>/typeset.png`, đúng 1400×2000 = kích thước ảnh clean.
+
+**Nhìn bằng mắt** (tải qua `GET /pages/{id}/typeset-preview`): cả 6 bubble có chữ tiếng Việt căn giữa
+cả hai chiều, **đủ dấu** (`CHÀO BUỔI SÁNG`, `NGƯƠI LÀ AI?`, `TA Ở ĐÂY`, `CẨN THẬN!`, `ĐI THÔI NÀO`,
+`TẠM KẾT TẠI ĐÂY`), không chữ nào chạm viền bubble, không có ô vuông.
+
+**Ca tràn khung có chủ ý** (spec Run A yêu cầu) — nhét 1 câu 208 ký tự vào bubble 192×81:
+
+| Vùng | Cỡ chữ | Số dòng | Trạng thái |
+|---|---|---|---|
+| câu dài 208 ký tự | **10 = đúng `TYPESET_MIN_FONT_SIZE`** | 7 | `overflow_warning` |
+| "Tạm biệt." | 29 | 1 | `fit_ok` |
+
+⇒ Hệ thống **không co chữ xuống dưới min để giả vờ vừa khung**. Preview vẽ khung đỏ quanh vùng tràn,
+chữ nằm trong bbox, không tràn vô hạn ra trang. Cảnh báo đọc được ở `GET /pages/{id}/typeset`.
+
+**Idempotent — chạy lại thật 2 lần:**
+
+```
+TRƯỚC : 6 bản ghi typeset_result, thư mục previews/<page_id>/ có đúng 1 file typeset.png
+retry x2 -> log: "6 vùng (vừa 6, tràn 0, chưa có chữ 0), xoá 6 kết quả cũ"
+SAU   : 6 bản ghi typeset_result, vẫn đúng 1 file typeset.png, không có file .tmp.png sót lại
+```
+
+### 4. Đo tính đơn điệu — vì sao KHÔNG dùng tìm kiếm nhị phân
+
+Spec §6 cho phép nhị phân *nếu* quan hệ "vừa khung theo cỡ chữ" đơn điệu. **Đo thật trên 8 ca**
+(6 bubble thật + 2 ca khắc nghiệt), chuỗi `fits(10..28)`:
+
+| Ca | Chuỗi `fits(10→28)` | Đơn điệu? |
+|---|---|---|
+| Chào buổi sáng. (192×85) | `1111111111111111111` | có |
+| **Cẩn thận! (108×84)** | `1111111111111110110` | **KHÔNG** |
+| **token dài (300×200)** | `1111111111101111111` | **KHÔNG** |
+| 5 ca còn lại | đơn điệu | có |
+
+`"Cẩn thận!"` **vừa ở cỡ 25, hỏng ở 26, lại vừa ở 27** — vì tăng cỡ làm ngắt dòng nhảy từ 2 dòng
+xuống 1 dòng (hoặc ngược lại) một cách rời rạc. Tìm kiếm nhị phân sẽ dừng ở **25** và bỏ sót **27**.
+
+⇒ **2/8 ca không đơn điệu ⇒ chuyển hẳn sang giảm dần 1px**, chỉ giữ một thuật toán trong production
+đúng như spec §6 yêu cầu. Có test khoá lại ca này để không ai "tối ưu" ngược về nhị phân.
+
+### 5. Đo trần cỡ chữ — vì sao đổi mặc định 28 → 40
+
+Chạy Run A lần đầu với `TYPESET_MAX_FONT_SIZE=28` (giá trị spec đề xuất): **5/6 vùng dừng đúng ở 28**.
+Nhiều vùng cùng chạm đúng trần là dấu hiệu **trần đang chặn, không phải bubble**. Đo lại khi nới trần:
+
+| Trần | Cỡ chọn được cho 6 vùng | Còn chạm trần? |
+|---|---|---|
+| 28 | 28, 28, 28, 27, 28, 28 | **có — 5/6** |
+| **40** | 30, 36, 33, 27, 32, 29 | không |
+| 56 | 30, 36, 33, 27, 32, 29 | không (giống hệt 40) |
+| 72 | 30, 36, 33, 27, 32, 29 | không (giống hệt 40) |
+
+Trên 40 thì hình học bubble mới là ràng buộc, nới thêm vô ích. → **mặc định đổi thành 40**, ghi rõ
+lý do trong `.env.example` và `config.py`.
+
+### 6. Giới hạn của lần đo này
+
+- Vẫn là **ảnh tổng hợp** nền phẳng, bubble hình ellipse đều đặn — **Run C (manga scan thật) CHƯA chạy**,
+  cùng nút thắt với M2/M3/M4/M5.
+- **Run B (font comic mà spec chỉ định) KHÔNG chạy được**: `HL Comic2` chỉ có 38/134 ký tự tiếng Việt,
+  Anime Ace "Limited European Characters" + phải mua license, MTO Comic không tồn tại (`docs/FONTS.md`).
+  M6 chạy bằng **Bangers — font comic thật, SIL OFL, đủ 134/134 dấu**, không phải font hệ thống chữa cháy.
+  Nhưng đây **chưa phải** typography đã được duyệt bởi người làm truyện.
+- Chưa có **text dọc / chữ xoay / SFX** — M6 chỉ layout chữ Việt nằm ngang trong bbox (đúng phạm vi spec).
+- Chưa đo trên bubble **không phải hình chữ nhật**: bbox là hình chữ nhật bao quanh bubble ellipse, nên
+  chữ căn giữa vẫn có thể chạm mép cong ở bubble dẹt. Trên fixture chưa thấy, cần Run C xác nhận.
+
+---
+
+## M7 — Màn sửa tay từng vùng
+
+**Ngày:** 2026-08-28 · **Môi trường:** workspace `trieunt-c`, Docker, Python 3.12.3, Node 22,
+Postgres 16-alpine, Redis 7-alpine, worker Celery, frontend Vite/React 18 (cổng 5174),
+kiểm giao diện bằng Playwright + Chromium 151.
+
+### 1. Audit Before Build — 6 mục, có bằng chứng
+
+| # | Mục | Kết quả |
+|---|---|---|
+| 1 | `edited_by_user` trên `TranslationResult` + `TypesetResult` | Có sẵn từ M1, `nullable=False, default=False`. DB thật: **16/16 record đều `false`** ⇒ chưa có gì được sửa tay |
+| 2 | `TextRegion.bbox_x/y/w/h` | Có sẵn — nhưng **`nullable=False`**, không phải nullable như spec ghi. Không sao: bbox luôn bắt buộc |
+| 3 | `GET /pages/{id}/typeset-preview` từ M6 | Có, trả PNG đúng kích thước ảnh clean |
+| 4 | `FitToBoxTypesetter.fit()` từ M6 | Nguyên vẹn `fit(text, bbox, font_family) -> dict` ⇒ M7 gọi lại, không viết lại logic |
+| 5 | Chuẩn hoá NFC của M6 | Có ở `fitter.py` + `layout.py`, **không** ghi ngược vào `TranslationResult` ⇒ M7 giữ nguyên |
+| 6 | Gap | Không có endpoint `PATCH` nào, không có thư mục frontend nào ⇒ đúng phạm vi M7 |
+
+**Về việc thêm cột:** spec §4A yêu cầu nêu rõ nếu cần cột mới. **Không cần cột nào** —
+`TimestampMixin` đã có `updated_at` với `onupdate=func.now()` nên thời điểm sửa tay tự được ghi;
+chưa có auth nên không có user id để lưu.
+
+**Phát hiện của audit — ảnh xem thử bị trình duyệt nhớ bản cũ.** Endpoint preview của M6 trả
+`etag` + `last-modified` nhưng **không có `Cache-Control`**, mà đường dẫn lại cố định theo page.
+Sửa xong mà trình duyệt hiện ảnh cũ thì phạm đúng constraint 8 của M7. → thêm
+`Cache-Control: no-cache, must-revalidate` ở server **và** tham số `?v=` ở client (hai lớp).
+
+### 2. Test tự động
+
+```
+$ cd backend && ../.venv/bin/python -m pytest
+366 passed, 6 skipped in 72.99s
+```
+
+| Nhóm | File | Số test |
+|---|---|---|
+| Integration — PATCH vùng, canh lại, đọc lại, dịch lại, chi tiết trang | `tests/test_region_edit_integration.py` | 31 |
+| Guardrail kiến trúc (M1→M7) | `tests/test_no_ai_logic.py` | 32 (+5 của M7) |
+| M6 + bất biến "chữ không tràn ra ngoài khung" | `tests/test_typeset_task_integration.py` | 18 (+1) |
+| Kế thừa M1–M6 | các file trước | 315 |
+
+Bài test đáng chú ý của M7:
+- `test_canh_lai_mot_vung_khong_dung_vung_khac` — chụp nguyên trạng vùng B trước/sau khi sửa vùng A.
+- `test_auto_fit_khong_bao_gio_danh_dau_sua_tay` — quét mã nguồn: nhánh tự động chỉ được có
+  `edited_by_user=False`, nhánh sửa tay mới được `True`.
+- `test_sua_tay_khong_dung_chu_goc_ocr` — sửa bản dịch không được đụng `raw_text` của M3.
+- `test_sua_vung_khong_dung_anh_goc_va_anh_clean` — so md5 trước/sau.
+- `test_ghim_co_qua_lon_thi_bao_tran_khong_gia_vo_vua` — ghim cỡ to quá khung vẫn dùng cỡ đó
+  nhưng phải gắn `overflow_warning`.
+- `test_sua_tay_khong_render_dong_bo_trong_request` — quét thân hàm `patch_region`, cấm mọi dấu vết
+  renderer/typesetter.
+- `test_preview_khong_duoc_cache` + `test_preview_co_header_chong_cache` — canh lỗi ở §1.
+- `test_chu_khong_bao_gio_ve_ra_ngoai_khung` — **sinh ra từ lỗi thật ở §4**: bôi trắng mọi bbox trên
+  cả ảnh clean lẫn ảnh preview rồi so **từng pixel**; khác nhau nghĩa là có chữ vẽ ra ngoài khung.
+
+### 3. Live verification — thao tác THẬT trên giao diện
+
+Chạy Chromium thật, click/gõ/kéo chuột trên UI ở `localhost:5174`, đối chiếu DB qua API và md5 ảnh
+preview trong volume. Trang `e08da9e4`, 6 bubble, bản dịch thật từ M5.
+
+| # | Thao tác trên UI | Kết quả DB | Ảnh preview |
+|---|---|---|---|
+| 0 | mở trang | 6 khung vẽ đúng vị trí bubble, 6 thẻ vùng, 0 lỗi JS | `8ad51c74…` |
+| 1 | gõ câu dài 118 ký tự → **Lưu & canh lại** | cỡ **30 → 13**, 4 dòng, `fit_ok`, `edited_by_user=true` | `3992003…` **đã vẽ lại** |
+| 2 | sửa lại thành `"Chào cậu!"` | cỡ **13 → 40** (kịch trần), `fit_ok` | `07f2d78…` **đã vẽ lại** |
+| 3 | đổi kiểu chữ `Mansalva` + ghim cỡ **16** | `font_family=Mansalva`, `font_size=16`, `fit_ok` | `f03c91d…` **đã vẽ lại** |
+| 4 | **kéo khung chữ** bằng chuột 60×40 px màn hình | bbox `(240,164)` → `(324,220)` = **+84, +56 px ảnh gốc** | `d0cb404…` **đã vẽ lại** |
+| 5 | bật/tắt ô “Hiện cảnh báo” | khung cảnh báo: 1 → **0** → 1 | — |
+| 6 | ghim cỡ **40** cho câu dài | cỡ **40** (đúng cỡ ghim), `overflow_warning`, nhãn đỏ “Tràn khung”, bộ đếm “1 vùng tràn khung” | có khung đỏ |
+
+**Phép thử tỷ lệ ở bước 4 là bằng chứng quan trọng:** kéo 60 px trên màn hình cho ra **84 px** trên
+ảnh gốc — đúng bằng `60 ÷ (1000/1400)`. Nếu quy đổi sai thì khung sẽ lệch khỏi bubble.
+
+Ảnh gốc và ảnh clean **không đổi md5** sau toàn bộ chuỗi thao tác trên (có test tự động canh).
+
+### 4. Hai lỗi thật do live verification làm lộ ra
+
+**Lỗi A — khung chữ vẽ lệch hẳn khỏi bubble (lỗi của M7, đã sửa).**
+Ảnh chụp đầu tiên cho thấy khung vùng 2 và vùng 4 nằm **ngoài ảnh**. Nguyên nhân: tỷ lệ quy đổi
+được tính lúc ảnh **chưa tải xong** nên `naturalWidth = 0`, hàm bỏ qua và tỷ lệ kẹt ở `1`.
+Sửa: overlay tự sở hữu thẻ `<img>` và tính lại tỷ lệ đúng lúc sự kiện `load`; trước khi đo được thì
+**không vẽ khung nào** (`tyLe = null`) — thà chưa hiện còn hơn hiện sai chỗ.
+
+**Lỗi B — chữ tràn khung chạy dọc suốt trang (lỗi của M6, đã sửa).**
+Khi ghim cỡ chữ 40 cho một câu dài, chữ được vẽ **đè lên các khung tranh khác**, chạy dọc gần hết
+trang. M6 mới chỉ kẹp *điểm bắt đầu* vào biên ảnh chứ chưa cắt chữ theo khung, nên vi phạm chính
+ràng buộc của M6: *“không tràn vô hạn ra ảnh”*. Lỗi này **không lộ ra ở M6** vì ca tràn khi đó ở cỡ
+nhỏ nhất (10 px) nên khối chữ vẫn gần bằng bbox.
+Sửa: mỗi vùng được vẽ vào **một ô riêng đúng bằng bbox** rồi dán đè lên trang, nên chữ luôn bị cắt
+gọn trong khung của chính nó. Kèm test bất biến so từng pixel ngoài bbox.
+
+### 5. Giới hạn của lần đo này
+
+- Vẫn là **ảnh tổng hợp** — Run C (manga scan thật) vẫn treo, cùng nút thắt từ M2.
+- **Chưa có auth**: ai mở được URL là sửa được, và `edited_by_user` chỉ nói “có người sửa”, không
+  nói **ai** sửa. Đúng phạm vi spec (multi-user là mini-spec riêng).
+- **Chưa có lịch sử phiên bản**: sửa đè lên bản cũ, không lùi lại được. Dữ liệu gốc của M2/M3/M5 thì
+  vẫn còn nguyên để đối chiếu.
+- **Giao diện chỉ mới thử ở 1600×1100** bằng Chromium. Chưa thử màn hình nhỏ, chưa thử Firefox/Safari,
+  chưa kiểm khả năng dùng bằng bàn phím cho thao tác kéo khung.
+- **Dịch lại 1 vùng lẻ thì `llm_context` mất ngữ cảnh cả trang** — đánh đổi có ý thức của việc sửa
+  từng vùng, đã ghi trong mô tả endpoint.
+
+---
+
+## M8 — Xuất chapter (PNG / CBZ / ZIP)
+
+**Ngày:** 2026-08-28 · **Môi trường:** workspace `trieunt-c`, Docker, Python 3.12.3,
+Postgres 16-alpine, Redis 7-alpine, worker Celery, frontend Vite/React.
+
+### 1. Audit Before Build — 6 mục, có bằng chứng
+
+| # | Mục | Kết quả |
+|---|---|---|
+| 1 | Bảng `ExportJob` đề xuất | Đủ field, **không thiếu cột nào** phải migrate thêm. `status` **dùng lại enum `job_status`** của M1 thay vì tạo enum trùng nghĩa |
+| 2 | `Page.order` | Có sẵn (`Integer`, `NOT NULL`), lại có sẵn index `ix_page_project_order` ⇒ sắp trang khi xuất không phải quét bảng |
+| 3 | Dùng lại `PagePreviewRenderer` của M6 | **Chưa dùng lại được ngay**: `render()` chỉ ghi thẳng ra file, trong khi spec yêu cầu PNG binary trong RAM ⇒ tách `draw()` (trả ảnh) + `render()` (= `draw()` rồi ghi file). Không nhân bản logic vẽ |
+| 4 | Thư mục `exports/`, quyền ghi worker / đọc API | Worker tạo `exports/_audit/p.txt` → **API đọc lại đúng nội dung**; đĩa còn **66 GB** |
+| 5 | Thư viện CBZ/ZIP | `zipfile` là **builtin** (Python 3.12.3), có `ZIP_DEFLATED` ⇒ **không thêm phụ thuộc nào** |
+| 6 | Gap | Không có `ExportJob`, không có enum `export_format`, không có logic xuất ⇒ đúng phạm vi M8 |
+
+**Về "Project save/load" ở tiêu đề spec:** toàn bộ state (project, page, region, OCR, bản dịch,
+kết quả canh chữ, cờ sửa tay) **đã nằm trong Postgres từ M1** — không có gì giữ trong RAM hay file
+tạm để mất. Mở lại project bằng `GET /projects/{id}` là tiếp tục làm việc được ngay; M7 đã dùng đúng
+đường đó. Vì vậy **không xây thêm cơ chế save/load nào** — đó sẽ là bảng thứ hai lưu cùng một sự thật.
+
+**Migration `0002_m8`** — dính đúng 2 bẫy mà M1 đã ghi lại, đã xử lý trước khi chạy:
+- Alembic sinh `sa.Enum(..., name='job_status')` cho cột `status`, nhưng type này **M1 đã tạo rồi**
+  ⇒ phải `postgresql.ENUM(..., create_type=False)`, không thì lỗi *"type already exists"*.
+- `downgrade` không tự xoá enum ⇒ thêm `DROP TYPE IF EXISTS export_format`. **Không** drop
+  `job_status` vì bảng `job` của M1 vẫn dùng.
+- Đã chạy thật **upgrade → downgrade → upgrade** sạch cả 3 lượt.
+
+### 2. Test tự động
+
+```
+$ cd backend && ../.venv/bin/python -m pytest
+421 passed, 6 skipped in 113.40s
+```
+
+| Nhóm | File | Số test |
+|---|---|---|
+| Unit — đặt tên file, đánh số trang, đóng gói CBZ/ZIP/PNG | `tests/test_export_unit.py` | 21 |
+| Integration — xuất thật trên DB + storage, 4 endpoint | `tests/test_export_integration.py` | 27 |
+| Guardrail kiến trúc (M1→M8) | `tests/test_no_ai_logic.py` | 38 (+6 của M8) |
+| Dịch lại trang đã canh chữ (lỗi §4 phát hiện) | `tests/test_translate_task_integration.py` | 14 (+1) |
+| Kế thừa M1–M7 | các file trước | 321 |
+
+Bài test đáng chú ý của M8:
+- `test_danh_so_0_o_dau_de_sap_dung_thu_tu` — `010.png` phải đứng sau `002.png`. Ứng dụng đọc truyện
+  sắp trang **theo tên file**; thiếu số 0 đầu là `10.png` chen lên trước `2.png`.
+- `test_export_dung_lai_renderer_cua_m6_khong_viet_lai` — quét mã: `chapter.py` **không được** chứa
+  `ImageDraw`/`multiline_text`/`getlength`. Hai đường vẽ khác nhau ⇒ ảnh xuất lệch ảnh xem thử.
+- `test_khong_export_trang_chua_canh_chu` — chốt danh sách trạng thái được xuất.
+- `test_bo_qua_trang_chua_canh_chu_va_noi_ro` — bỏ qua trang chưa xong nhưng **ghi vào `error_log`**.
+- `test_con_vung_tran_khung_van_xuat_nhung_ghi_lai` — tràn khung **không chặn** xuất, nhưng phải đếm đúng.
+- `test_xuat_lai_khong_tich_tu_file_rac` + `test_doi_dinh_dang_thi_don_file_cu` — chạy lại 3 lần,
+  đổi định dạng, thư mục vẫn đúng 1 kết quả, không sót `.tmp`.
+- `test_xuat_khong_xoa_du_lieu_goc` — đếm `TextRegion`/`TranslationResult`/`TypesetResult` trước-sau.
+- `test_ten_file_export_khong_co_ky_tu_gay_loi_he_tep` — tên project chứa `/ \ : * ? " < > |`.
+- `test_bay_task_co_bay_timeout_rieng` — nay là **bảy** timeout độc lập.
+
+### 3. Live verification — xuất chapter thật
+
+Chapter thật 4 trang trong project `26db0621` (2 trang cũ từ M6/M7 + 2 trang mới chạy nguyên
+pipeline detect → OCR → xoá chữ → dịch → canh chữ).
+
+| Bước | Kết quả |
+|---|---|
+| `GET /export-preview` | `4/4 trang, bỏ qua 0, còn 1 vùng tràn khung` |
+| `POST /export {format:cbz}` | `202` + job id, **không** render trong request |
+| Worker | `4 trang -> …/m3_live_ocr_en_chapter.cbz, 2 vùng tràn khung, bỏ qua 0 trang, xoá 1 thứ cũ, **1,0s**` |
+| `GET /export-jobs/{id}` | `done`, `page_count=4`, `error_log = "overflow_warning: 2 vùng còn tràn khung"` |
+| `GET /export-jobs/{id}/download` | `200`, `content-disposition: attachment; filename="m3_live_ocr_en_chapter.cbz"`, `cache-control: no-cache` |
+| Mở file tải về | ZIP hợp lệ (`testzip() = None`), đúng `001.png…004.png`, **sắp theo tên = đúng thứ tự trang**, mỗi ảnh mở được (PNG 1200×1700 và 1400×2000) |
+| Thư mục `exports/` sau 2 lần xuất | **đúng 1 file**, không có `.tmp` |
+| Tên file | `m3_live_ocr_en_chapter.cbz` — bỏ dấu, không ký tự lạ |
+
+**Thời gian: 1,0 s cho 4 trang** (≈0,25 s/trang) — rẻ hơn nhiều so với detect (40–61 s/ảnh) hay
+xoá chữ (45–117 s/ảnh) vì xuất **không nạp model nào**, chỉ vẽ lại chữ. `EXPORT_TIMEOUT_SECONDS=900`
+vì vậy rất rộng rãi; con số này chỉ có ý nghĩa khi chapter lên hàng trăm trang.
+
+### 4. Lỗi thật do live verification phát hiện
+
+**Lỗi A — không trang nào dịch lại được nữa (lỗi của M5/M6, đã sửa).**
+Định xuất bản `llm_context` để so sánh thì `POST /pages/{id}/retry-translate` trả **409**:
+*"Page đang ở 'typeset_done' — cần xoá chữ xong trước khi dịch"*.
+Danh sách điều kiện của M5 viết khi `typeset_done` chưa phải trạng thái tự động; từ M6 pipeline nối
+chuỗi nên **mọi trang đều kết thúc ở `typeset_done`** ⇒ endpoint dịch lại cả trang chết hẳn, im lặng,
+suốt từ M6 tới giờ. M7 chỉ mở đường dịch lại **từng vùng** nên che mất triệu chứng.
+Sửa: thêm `typeset_done` vào danh sách cho phép (state machine đã cho `typeset_done → translated`),
+kèm test canh.
+
+**Lỗi B — không phải lỗi phần mềm, nhưng phải ghi: worker bị OOM giết, job kẹt `running` mãi.**
+Khi chạy xoá chữ trang thứ 4, worker bị **SIGKILL (signal 9)**:
+`WorkerLostError: Worker exited prematurely: signal 9`. Job giữ nguyên `status=running` **vĩnh viễn**,
+`error_log` rỗng — không ai đánh dấu `failed`, pipeline đứng im mà nhìn vào không biết vì sao.
+Chạy lại tay thì thành công (116,8 s). Máy có 62 GB RAM, container **không đặt giới hạn**.
+⇒ Đây là lỗ hổng **thật** của hạ tầng M2–M6, ngoài phạm vi M8: cần watchdog phát hiện job `running`
+quá lâu mà worker đã chết. Ghi vào phần còn treo.
+
+### 5. Chất lượng bản dịch trong file giao đi — phát hiện lớn nhất của M8
+
+File CBZ đầu tiên xuất ra **có chữ tiếng Anh chưa dịch**. Truy nguyên: không phải lỗi xuất — xuất
+đang phản ánh trung thực thứ pipeline tạo ra.
+
+| Chữ gốc OCR đọc | `google_fast` (mặc định, miễn phí) | `llm_context` (Gemini) |
+|---|---|---|
+| `ITIS` / `TOO LATE` | **`CNTT`** / `QUÁ TRỄ` | **Muộn quá rồi.** |
+| `THE SUN` / `ISUP` | `MẶT TRỜI` / **`ISUP`** | **Mặt trời lên rồi.** |
+| `HOLDON` / `TIGHT` | **`HOLDON`** / `CHẮC CHẮN` | **Bám chắc vào.** |
+| `ISEE` / `THE END` | **`ISEE`** / `KẾT THÚC` | **Tôi thấy đích rồi.** |
+| `WE MUST` / `GO` | `CHÚNG TÔI PHẢI ĐI` (tràn khung) | **Chúng ta phải đi thôi.** |
+
+OCR dính chữ (`IT IS`→`ITIS`, `I SEE`→`ISEE`) là chuyện thường. `google_fast` dịch **từng dòng rời**
+nên gặp token lạ là bỏ nguyên tiếng Anh — thậm chí đoán bậy: `ITIS` bị Google hiểu là **viết tắt** và
+dịch thành `CNTT` (Công Nghệ Thông Tin). `llm_context` nhìn cả trang nên **tự sửa lỗi OCR**, đúng như
+đã chứng minh ở M5 với `IAM` → "Ta ở đây."
+
+**Giá của việc sửa: 386 token cho 2 trang** (184 + 202).
+
+⇒ Mặc định `google_fast` vẫn đúng cho nguyên tắc "không tự tiêu tiền người dùng", nhưng
+**cần cảnh báo trước khi giao file**: xuất bằng bản miễn phí có thể ra chữ chưa dịch. Đây là việc của
+mini-spec sau, không mở rộng M8 giữa chừng.
+
+### 6. Giới hạn của lần đo này
+
+- **Run C vẫn treo** — vẫn là ảnh tổng hợp. Riêng lần này ảnh mẫu còn có nhược điểm mới: chữ nguồn vẽ
+  bằng font mặc định của Pillow nên rất nhỏ, khiến bbox nhận diện chỉ **~50×34 px** (so với ~190×85 ở
+  fixture cũ) ⇒ chữ dịch trong ảnh xuất ra trông rất nhỏ. **Không phải lỗi xuất** — M6 canh đúng vào
+  bbox nó nhận được.
+- **Chưa mở file CBZ bằng ứng dụng đọc truyện thật** (Tachiyomi/Perfect Viewer) — mới kiểm bằng
+  `zipfile` + Pillow: đúng cấu trúc ZIP, đúng thứ tự tên, mỗi ảnh mở được. Đủ để tin nhưng chưa phải
+  bằng chứng cuối cùng.
+- **Chưa đo trên chapter lớn** (hàng trăm trang) — mọi con số thời gian đều từ 4 trang.
+- **Chỉ 3/6 và 4/6 bubble được nhận diện** trên 2 trang mới ⇒ tỷ lệ nhận diện của M2 trên ảnh tổng
+  hợp kiểu này còn thấp, củng cố thêm lý do phải có ảnh manga thật.
+
+---
+
+## Run C — đo trên TRUYỆN TRANH THẬT (không còn là ảnh tự vẽ)
+
+**Ngày:** 2026-08-28 · **Môi trường:** máy nhà (Docker), pipeline đầy đủ M2→M8.
+**Chạy bằng:** `scripts/do_run_c.py` — kịch bản lặp lại được, không chép số bằng tay.
+
+### 0. Ảnh dùng để đo
+
+**Pepper&Carrot** tập 1, tác giả **David Revoy** — https://www.peppercarrot.com — **CC BY-SA 4.0**.
+
+Chọn bộ này thay vì một trang manga chép từ dịch vụ đọc truyện vì hai lý do đều quan trọng:
+truyện **vẽ tay thật** (nền màu, chuyển sắc, bong bóng thật) khác hẳn ảnh tổng hợp nền phẳng mà
+M2–M8 vẫn dùng; và **giấy phép rõ ràng** nên số đo ghi vào đây công bố được và tái lập được.
+
+Đo ở **1600×2259** — đúng cỡ các dịch vụ đọc truyện phục vụ, không phải cỡ in 2481×3503.
+
+### 1. Kết quả từng trang
+
+**Trang E01P02** — 4 vùng nhận diện, **150 s**:
+
+| # | Khung | Tin cậy | OCR đọc được | Bản dịch (`llm_context`) | Canh chữ |
+|---|---|---|---|---|---|
+| 1 | 96×64 | 0,87 | `ha...\nperfect.` | Ha... hoàn hảo. | `fit_ok` cỡ 21 |
+| 2 | 196×100 | 0,93 | `NO!\nDon't even think\nabout it.` | **KHÔNG! Đừng hòng nghĩ đến chuyện đó.** | `fit_ok` cỡ 23 |
+| 3 | 104×197 | 0,63 | *(rỗng)* | — | `pending` |
+| 4 | 603×177 | 0,38 | `SPLASH\n18` | **BÕM!** | `fit_ok` cỡ 40 |
+
+**Trang E01P03** — 3 vùng, **99 s**:
+
+| # | Khung | Tin cậy | OCR đọc được | Bản dịch | Canh chữ |
+|---|---|---|---|---|---|
+| 1 | 106×35 | 0,82 | `Happy?!` | Vui vẻ á?! | `fit_ok` cỡ 24 |
+| 2 | 507×56 | 0,46 | *(rỗng)* | — | `pending` |
+| 3 | 147×46 | 0,58 | `WWW.PEPPERCARROT.COM\n05/2014` | WWW.PEPPERCARROT.COM | `fit_ok` cỡ 18 |
+
+### 2. Đối chiếu với tiêu chí đã treo từ M2
+
+| Tiêu chí | Kết quả trên ảnh thật |
+|---|---|
+| **M2: nhận đúng ≥90% bong bóng có chữ** | **3/3 bong bóng thoại thật đều tìm ra (100%)** — đếm tay trên ảnh gốc |
+| Nhận nhầm | **2 vùng nhận nhầm** (cây chổi, vệt sáng) — nhưng **cả hai đều có độ tin cậy thấp** (0,46 và 0,63) và OCR trả rỗng nên **tự gắn `needs_manual` + `pending`**, không lọt vào bản dịch |
+| **M3: ≥80% OCR đúng nghĩa** | **3/3 câu thoại đọc CHÍNH XÁC từng chữ**, kể cả dấu nháy `Don't` và dấu chấm lửng `ha...` |
+| **M4: ≥90% vùng xoá sạch** | **5/5 vùng xoá sạch**, và quan trọng hơn: **hình bong bóng giữ nguyên vẹn** trên nền vẽ tay (xem §4) |
+| **M6: chữ vừa khung** | **5/5 `fit_ok`, 0 tràn khung** |
+
+### 3. PHÁT HIỆN LỚN NHẤT — bộ nhớ xoá chữ tỉ lệ với diện tích trang
+
+Trang thật **làm chết worker** ngay lần chạy đầu: `WorkerLostError: signal 9 (SIGKILL)`.
+
+Đo thật mức RAM đỉnh của LaMa:
+
+| Cỡ ảnh | Triệu điểm ảnh | RAM đỉnh | Kết quả |
+|---|---|---|---|
+| 1400×2000 (fixture cũ) | 2,8 | 4.481 MB | chạy được |
+| **1600×2259 (trang thật, cỡ đọc)** | **3,6** | **5.415 MB** | **bị hệ điều hành giết** |
+| 2481×3503 (cỡ in) | 8,7 | ~14 GB (suy ra) | không khả thi |
+
+⇒ **~1,6 GB RAM cho mỗi triệu điểm ảnh.** Ảnh tổng hợp của M2–M8 chỉ 1200×1700 (2,0 triệu điểm)
+nên **suốt 7 mini-spec không có gì làm lộ ra giới hạn này**. Đây đúng là thứ Run C sinh ra để tìm.
+
+**Đã sửa: xoá chữ theo CỤM bong bóng thay vì cả trang.** Bộ nhớ khi đó tỉ lệ với ô cắt, không
+với trang. Các vùng gần nhau được gộp làm một cụm để chỗ giao không bị vẽ đè hai lượt.
+
+Đo lại trên đúng ảnh vừa làm chết worker (1600×2259, 4 bong bóng):
+
+| Cách làm | RAM đỉnh | Thời gian |
+|---|---|---|
+| Cả trang (cách cũ) | 5.415 MB | 72 s |
+| **Theo cụm (cách mới)** | **1.109 MB** | **19 s** |
+
+**Giảm 5 lần bộ nhớ, nhanh gấp 3,8 lần.** Trang ≤ `INPAINT_WHOLE_PAGE_MAX_MPX` (mặc định 2,5
+triệu điểm) vẫn chạy cả trang như M4 đã kiểm chứng — đường cũ không bị đụng tới.
+
+### 4. Nhìn bằng mắt — thứ ảnh nền phẳng không kiểm được
+
+Phóng to bong bóng `NO! Don't even think about it.` trên nền tranh vẽ tay:
+
+- Chữ **xoá sạch hoàn toàn**, không còn vệt mờ nào.
+- **Đường viền bong bóng còn nguyên vẹn** — LaMa không ăn lem vào nét vẽ. Đây là điều đáng lo
+  nhất trước khi đo (fixture cũ chỉ có nền trắng phẳng nên không chứng minh được gì).
+- Chữ Việt chèn vào nằm gọn trong bong bóng.
+
+Trang E01P03 (nền trời đêm nhiều sao, chuyển sắc) cũng cho kết quả tương tự.
+
+### 5. Chất lượng dịch — `llm_context` hơn hẳn, đúng như M8 đã cảnh báo
+
+| Chữ gốc | `google_fast` (miễn phí) | `llm_context` |
+|---|---|---|
+| `NO! Don't even think about it.` | *"KHÔNG! thậm chí không nghĩ về nó."* — **mất hẳn nghĩa cấm đoán** | **"KHÔNG! Đừng hòng nghĩ đến chuyện đó."** |
+| `SPLASH` (từ tượng thanh) | *"TUYỆT VỜI"* — **dịch sai hoàn toàn** | **"BÕM!"** — nhận đúng là tiếng động, và **bỏ luôn số `18`** vốn là hình vẽ lọt vào khung |
+
+Đây là bằng chứng thứ hai, trên ảnh thật, cho kết luận ở `REPORT_M8 §8`.
+
+### 6. Còn treo sau Run C
+
+- **Chưa đo trên manga Nhật thật** (chữ dọc, đọc phải→trái). Pepper&Carrot là truyện phương Tây,
+  chữ ngang — nên Run C này **chưa** kiểm được đường `ja` và giới hạn "không hỗ trợ chữ dọc"
+  đã ghi ở `REPORT_M6 §10`.
+- **Nhận nhầm 2/7 vùng** (~29%). Không lọt vào bản dịch nhờ ngưỡng tin cậy, nhưng vẫn tạo ra
+  vùng thừa mà người biên tập phải bỏ qua bằng tay.
+- **Dòng ghi công của tác giả bị coi là chữ cần dịch** (`WWW.PEPPERCARROT.COM 05/2014`). Về
+  nguyên tắc không nên đụng vào; cần một luật loại trừ vùng ở rìa trang.
+- **Cỡ in (8,7 triệu điểm ảnh) chưa đo** — theo tỉ lệ thì cần ~14 GB nếu chạy cả trang; với cách
+  cắt cụm thì không còn phụ thuộc cỡ trang nữa, nhưng phải đo mới được nói chắc.
+
+## M9 — Chạy cả chapter theo mẻ (batch)
+
+> Mọi con số dưới đây do `scripts/do_run_m9.py` in ra, không chép tay. Chạy lại được:
+> `.venv/bin/python scripts/do_run_m9.py A test_fixtures/external/*_1600.png`.
+> Ảnh đo: **Pepper&Carrot** ep.1 trang 1–3 (CC BY-SA 4.0, David Revoy) — truyện tranh **thật**,
+> không phải ảnh tổng hợp. Cấu hình lúc đo: `BATCH_MAX_CONCURRENT_PAGES=1`,
+> `BATCH_MAX_RETRIES=3`, `BATCH_RETRY_BACKOFF_BASE_SECONDS=10` (số dev, cố ý để lớn hơn mặc định
+> 2s cho đủ thời gian quan sát), `LLM_PROJECT_RPM=10`, tự-nối bước **tắt** để mẻ là thứ duy nhất
+> điều phối.
+
+### 1. Test tự động
+
+| Nhóm | Số test | Kết quả |
+|---|---|---|
+| Toàn bộ M1–M9 | **546** | pass, 0 fail |
+| Riêng M9 (`test_batch_unit.py` + `test_batch_integration.py`) | 90 | pass |
+| Guardrail (`test_no_ai_logic.py`) | 47 | pass |
+
+Guardrail của M9 canh những thứ mà "code chạy được" không phát hiện ra:
+
+- không có `APIKeyPool`/xoay khoá cùng project ở bất kỳ file nào,
+- bộ điều phối không nhắc tới bất kỳ engine nào của M2–M8 (không sao chép logic pipeline),
+- mẻ không nhắc tới `ExportJob`/`run_export_job` (không tự xuất chapter),
+- `gate.py` không chứa chuỗi nào liên quan khoá, bắt buộc có băm,
+- Celery **không** đặt `rate_limit` ở bất kỳ đâu (nó chỉ giới hạn từng worker, không toàn cục),
+- mỗi task pipeline báo kết quả về mẻ ở **cả 3 nhánh** (đếm bằng AST, không phải đọc chuỗi),
+- việc thao tác tay **không** báo về mẻ,
+- chỉ **một** chỗ trong toàn bộ mã được phép dựng `BatchOrchestrator`.
+
+### 2. Run A — chạy cả chapter bằng một mẻ (bắt buộc)
+
+Mẻ `bdf72fef`, project `c10032f2`, engine `google_fast`, 3 trang.
+
+| Đo | Kết quả |
+|---|---|
+| Số trang chụp lúc tạo mẻ | 3 (đúng `Page.order` 1-2-3) |
+| Trang tải lên **sau** khi tạo mẻ có lọt vào không | **không** |
+| Tổng thời gian | **143,2s** cho 3 trang (4 bước/trang = 12 việc) |
+| Trang 1 xong | 102,8s |
+| Trang 2 xong | +26,3s |
+| Trang 3 xong | +14,1s |
+| Trạng thái mẻ | `completed` 3/3, 0 hỏng, 0 bị chặn |
+
+Trang đầu chậm gấp 4–7 lần hai trang sau vì worker phải **nạp mô hình lần đầu** (PaddleOCR + LaMa
++ font). Đây là lý do chạy cả mẻ rẻ hơn chạy từng trang rời: chi phí nạp mô hình trả **một lần**.
+
+Bằng chứng không tạo kết quả trùng — đếm sau khi mẻ xong:
+
+| Trang | Trạng thái | Vùng | Có bản dịch | Đã canh chữ | MD5 ảnh xem thử |
+|---|---|---|---|---|---|
+| 1 | `typeset_done` | 2 | 2 | 2 | `9230ed1d…` |
+| 2 | `typeset_done` | 4 | 3 | 3 | `b71a5e05…` |
+| 3 | `typeset_done` | 3 | 2 | 2 | `1bc802db…` |
+
+Số vùng khớp **chính xác** với Run C đo rời từng trang trước đó (trang 2: 4 vùng, trang 3: 3 vùng)
+⇒ chạy theo mẻ cho kết quả y hệt chạy lẻ, không nhân bản bản ghi.
+
+### 3. Run B — lỗi tạm thời rồi thành công (bắt buộc)
+
+Cách gây lỗi: chặn **thật** ở tầng mạng trong container worker (`/etc/hosts` trỏ
+`clients5.google.com` và `translate.googleapis.com` về `127.0.0.1`) — không mock hàm dịch, nên
+đường đi của lỗi giống hệt lúc mạng thật hỏng.
+
+| Mốc | Kết quả |
+|---|---|
+| 0,0s | mẻ chạy, dò khung xong từ trước |
+| 28,7s | dịch **hỏng** — phân loại `transient_network`, thử lại lần 1, hẹn chờ **6,9s** |
+| 28,7s | bỏ chặn mạng |
+| 38,8s | trang `completed`, mẻ `completed` 1/1 |
+
+- Đúng **1** lần thử lại, không thử lại vô hạn.
+- Thời gian chờ 6,9s nằm trong dải `[5s, 10s]` của mốc lùi dần 10s (nhiễu một nửa).
+- Bước **canh chữ ngay sau đó được đẩy với thời gian chờ 0s** — không bị phạt oan.
+- MD5 ảnh xem thử `9230ed1d…` **trùng khít** Run A cùng trang ⇒ thử lại không tạo ra kết quả khác
+  hay bản ghi thừa.
+
+### 4. Run C — cổng hạn mức chặn, không có lời gọi nào ra nhà cung cấp (bắt buộc)
+
+Mẻ `8c26ad61`, engine `llm_context`, cổng bị **giữ đầy liên tục** suốt mẻ.
+
+| Mốc | Kết quả |
+|---|---|
+| 25,5s / 32,6s / 50,9s | 3 lần thử lại, đều bị chặn **tại cổng** — `transient_rate_limit` |
+| 73,2s | mục `blocked_quota`, mẻ `blocked_quota` (0 xong, 0 hỏng, **1 bị chặn**) |
+| thả cổng + `POST /resume` | `resumed_count=1` |
+| +5,1s | mẻ `completed` |
+
+- **Không một lời gọi nào ra `generativelanguage.googleapis.com`** trong cả 4 lần: lỗi được ném ra
+  *trước* khi tạo HTTP request, thông điệp ghi rõ `cổng nhịp chặn (rate_limited), còn 0 lượt`.
+- Mẻ **không** báo `completed` trong lúc còn trang bị chặn.
+- Sau khi hạn mức hồi, chính mẻ đó chạy lại được — không phải tạo mẻ mới.
+- Bản dịch sau khi qua cổng là **LLM thật** (đây cũng là Run D không bắt buộc, 1 trang):
+  `NO! Don't even think about it.` → **"KHÔNG! Đừng hòng nghĩ đến chuyện đó."**,
+  `SPLASH` → **"BÕM!"** — khớp với kết luận chất lượng ở `REPORT_M8 §8`.
+
+Hai biến thể phụ, đều có ích:
+
+| Biến thể | Cấu hình | Kết quả |
+|---|---|---|
+| C1 | `LLM_FALLBACK_TO_GOOGLE=true` (mặc định) | cổng chặn ⇒ **lùi về `google_fast`**, mọi dòng mang nhãn `fallback_used`, 0 lời gọi ra Gemini. Đường lùi của M5 vẫn nguyên vẹn. |
+| C2 | chỉ làm đầy cổng **một lần** | lần thử thứ 4 **lọt qua** sau khi cửa sổ 60s trượt hết ⇒ cổng là bộ **giữ nhịp**, không phải khoá chặn vĩnh viễn. Đúng ý muốn, nhưng đây là lý do Run C phải giữ cổng đầy liên tục mới đo được trạng thái `blocked_quota`. |
+
+### 5. Run E — worker chết giữa mẻ rồi chạy tiếp (bắt buộc)
+
+Mẻ `f0b024ac`, 3 trang. Giết worker (`docker compose kill worker`) đúng lúc trang 2 đang chạy.
+
+| Mốc | Kết quả |
+|---|---|
+| lúc giết | mẻ `running` 1/3 — trang 1 xong, trang 2 `running`, trang 3 `pending` |
+| worker sống lại | mẻ vẫn 1/3, trang 2 kẹt `running` (việc chạy nó đã biến mất) |
+| `POST /resume` | `resumed_count=1` — thu hồi mục mồ côi, `error_code=stale_reclaimed` |
+| +46,4s | trang 2 xong |
+| +60,5s | trang 3 xong, mẻ `completed` 3/3 |
+
+| Kiểm | Kết quả |
+|---|---|
+| Ảnh chụp danh sách trang trước/sau sự cố | **không đổi** |
+| MD5 ảnh xem thử 3 trang so với Run A | **giống hệt** (`9230ed1d…`, `b71a5e05…`, `1bc802db…`) |
+| Số vùng / bản dịch | không nhân bản |
+
+### 6. Hồi quy sống — chạy 1 trang lẻ khi KHÔNG có mẻ nào
+
+Tải 1 trang lên project trắng với cấu hình mặc định (tự-nối bật): `queued → detecting(4s) →
+detected(40s) → ocr_done(56s) → typeset_done(72s)`, và `GET /projects/{id}/batch-runs` trả **0 mẻ**.
+Đường đi cũ của M2–M6 không bị M9 đụng vào.
+
+### 7. Sáu lỗi thật do M9 làm lộ ra (đều đã sửa, đều có test đỏ trước khi xanh)
+
+| # | Lỗi | Vì sao nguy hiểm | Cách phát hiện |
+|---|---|---|---|
+| 1 | `run_detect_job` chỉ báo kết quả về mẻ ở nhánh **thành công** | Dò khung là bước đầu và hay hỏng nhất. Hỏng ⇒ mục nằm lại `running` tới mốc thu hồi **2400s**: 40 phút giao diện hiện "đang chạy" trong khi không còn gì chạy | đọc mã + test đếm nhánh bằng AST |
+| 2 | Cấu hình thử lại **không có tác dụng** ở worker | Tầng API dựng `RetryPolicy` từ `.env`, tầng worker dựng bằng tay và quên truyền — mà mọi quyết định thử lại đều ở worker. Đặt lùi dần 30s, **đo được 0,6s** | Run B |
+| 3 | `next_delay_seconds` viết ra nhưng **không chỗ nào gọi** | Thử lại gọi lại ngay lập tức — đúng thứ tệ nhất ngay sau khi nhà cung cấp báo "quá nhịp" | đọc mã trước khi chạy Run B |
+| 4 | Bước **kế tiếp** bị phạt chờ oan | Log thật `đẩy bước typeset …, chờ 3.7s` — canh chữ không liên quan gì tới lỗi mạng lúc dịch, nhưng lấy thẳng `retry_count` làm căn cứ nên mọi bước sau đều bị phạt | log Run B |
+| 5 | Nhiễu toàn phần cho ra **0,2s** | "Có lùi dần" trên giấy nhưng thực tế chờ như không chờ. Đổi sang nhiễu **một nửa**: luôn chờ ít nhất nửa mốc | log Run B |
+| 6 | Bấm "chạy lại" ngay sau sự cố **không cứu được gì** | Thu hồi mục mồ côi chỉ dựa vào đồng hồ (2400s), nên `resumed_count=0` và mẻ treo ở 2/3. Sửa: **hỏi broker** xem việc còn sống thật không | Run E |
+
+Ngoài ra hai lỗi khác đã được phát hiện và sửa **trước** khi đo (ghi lại vì cùng một họ):
+mục bị đánh `skipped` khi trang đang chạy dở (mẻ báo "3/3 hoàn thành" trong khi còn trang kẹt),
+và mẻ đứng im khi vòng đẩy việc chỉ toàn mục bị bỏ qua.
+
+### 8. Giới hạn của lần đo này
+
+- **Chỉ 1 worker, `--concurrency=1`.** Cổng nhịp Redis có test 40 luồng tranh nhau ở mức đơn vị,
+  nhưng **chưa** đo với nhiều container worker thật. Trước khi tuyên bố "giữ đúng hạn mức toàn
+  cục" ở môi trường nhiều máy thì phải đo lại với Redis dùng chung.
+- **Hạn mức thật của nhà cung cấp chưa đo.** `LLM_PROJECT_RPM=10` là số dev đặt ra, không phải số
+  Google công bố cho project này.
+- **Chưa đo mẻ dài** (10+ trang, chạy hàng giờ) — mới đo tối đa 3 trang.
+- Thời gian chờ lùi dần lúc đo dùng `BATCH_RETRY_BACKOFF_BASE_SECONDS=10` cho dễ quan sát; mặc
+  định đã trả về **2s**.
+- **Giao diện chưa bấm thật trên trình duyệt.** Bảng "Chạy cả chapter" đã dựng và build sạch,
+  các endpoint nó gọi đều đã đo ở trên, nhưng chưa có phiên thao tác tay như M7.
+
+## M10 — Khai báo mục đích & nhắc trách nhiệm trước khi giao file
+
+> Số liệu do `scripts/do_run_m10.py` in ra. Chạy lại:
+> `.venv/bin/python scripts/do_run_m10.py <project_id>`.
+> Chạy trên chapter thật của Run A (Pepper&Carrot 3 trang) — **không dựng dữ liệu giả**: vùng
+> tràn khung được tạo bằng đúng thao tác người dùng làm ở màn sửa tay, không ghi thẳng
+> `overflow_warning` vào DB.
+
+### 1. Test tự động
+
+| Nhóm | Số test | Kết quả |
+|---|---|---|
+| Toàn bộ M1–M10 | **579** | pass, 0 fail |
+| Riêng M10 (`test_compliance_unit.py` + `test_compliance_integration.py`) | 27 | pass |
+| Guardrail (`test_no_ai_logic.py`) | 53 | pass |
+
+Guardrail của M10:
+
+- giao diện **không chọn hộ** mục đích sử dụng (`useState('')`, nút mờ khi chưa chọn),
+- nút xuất trong hộp thoại có `disabled={!daTick}`,
+- hộp thoại hiện **đủ cả hai** loại cảnh báo, không ẩn bớt,
+- **không** watermark/DRM ở bất kỳ đâu — quét **phần mã**, bỏ chú thích và chuỗi tài liệu,
+- không có `public_url`/`share_link`/`make_public`/`publish` trong tầng API,
+- bảng nhật ký tuân thủ **chỉ có 10 cột số liệu**, không cột nào chứa nội dung.
+
+### 2. Live — khai báo là bắt buộc, không có mặc định
+
+| Gửi lên | HTTP |
+|---|---|
+| thiếu hẳn `intended_use` | **422** |
+| `intended_use: "commercial"` (ngoài enum) | **422** |
+| `intended_use: ""` | **422** |
+| `intended_use: "study"` | **201** |
+
+### 3. Live — cảnh báo hiện đúng số thật
+
+Tạo vùng tràn khung bằng thao tác thật: sửa bản dịch một vùng thành câu **170 ký tự** qua màn sửa
+tay → hệ thống canh lại → vùng đó thành `overflow_warning` **ở cỡ chữ 10** (đã thu tới đáy
+`TYPESET_MIN_FONT_SIZE` mà vẫn không vừa — đúng hành vi M6).
+
+```
+GET /projects/{id}/export-warnings
+{"overflow_warning_count": 1, "needs_manual_count": 2,
+ "acknowledged": false, "acknowledged_at": null}
+```
+
+`needs_manual_count = 2` là **số thật có sẵn** từ Run A: hai bong bóng OCR không đọc ra chữ, nên
+sẽ **trống** trong file xuất — đúng thứ người dùng cần biết trước khi mang file đi.
+
+### 4. Live — xác nhận, ghi nhận, và không hỏi lại
+
+| Bước | Kết quả |
+|---|---|
+| `POST /projects/{id}/export` | `202`, có `job_id` |
+| `POST /export-jobs/{job_id}/acknowledge {user_acknowledged:true}` | `200`, bản ghi có `overflow_warning_count=1`, `needs_manual_count=2`, `intended_use=study`, `acknowledged_at` có mốc |
+| việc xuất | `done` |
+| `GET export-warnings` lần sau | `acknowledged: true` ⇒ hộp thoại **không hiện lại** |
+| Tải file về | `200`, **10.140.252 byte** — xuất không bị chặn |
+
+Nhật ký trong DB đúng 10 cột: `id, project_id, export_job_id, intended_use,
+overflow_warning_count, needs_manual_count, user_acknowledged, acknowledged_at, created_at,
+updated_at`. **Không** đường dẫn file, **không** ảnh, **không** bản dịch.
+
+### 5. Hai lỗi thật lộ ra khi chạy M10
+
+| # | Lỗi | Vì sao đáng ghi |
+|---|---|---|
+| 1 | Bộ quét khoá bí mật đỏ vì một **khoá giả** trong test của M9 | Chuỗi `AIzaSyD-…` viết liền trong `test_batch_unit.py` chỉ lộ ra sau khi M9 được commit (bộ quét chỉ soi file git đã theo dõi). **Một cảnh báo kêu sai là một cảnh báo sẽ bị tắt** — sửa bằng cách ghép chuỗi lúc chạy, không nới lỏng bộ quét |
+| 2 | Guardrail "không watermark" đỏ vì **chính đoạn văn giải thích** "không làm watermark" | Soi lời văn thay vì soi mã ⇒ test đỏ vì đúng lý do ngược hẳn ý nghĩa của nó. Sửa: bỏ chú thích + chuỗi tài liệu bằng `tokenize` rồi mới quét |
+
+Ngoài ra script đo của chính M10 từng treo 10 phút vì hỏi trạng thái việc xuất ở sai bảng
+(`/jobs/{id}` thay vì `/export-jobs/{id}`, luôn trả 404 rồi ngồi chờ hết giờ). Không phải lỗi sản
+phẩm, nhưng ghi lại vì nó cho thấy **chờ mà không kiểm tra mã trả về** là cái bẫy im lặng.
+
+### 6. Giới hạn của lần đo này
+
+- **Giao diện chưa bấm tay trên trình duyệt.** Hộp thoại đã dựng, build sạch, guardrail canh phần
+  logic; nhưng chưa có phiên thao tác thật như M7.
+- **Chưa đo trường hợp chapter hoàn toàn sạch** (0 tràn khung, 0 chưa đọc được) trên hệ thật —
+  mới kiểm bằng test tích hợp.
+- `user_acknowledged=false` mới kiểm bằng test, chưa bấm "Để sau" trên giao diện thật.
+
+## E11 — Làm lại giao diện & luồng thao tác
+
+> Số liệu do hai script in ra, chạy lại được:
+> `scripts/soi_giao_dien.py --nhan truoc|sau` (đo tràn ngang, điểm dừng tab, lỗi console, chụp ảnh)
+> và `scripts/kiem_e11.py` (chạy đúng thao tác người dùng trên Chromium thật).
+> E11 **không** đụng vào backend: không đổi API, schema, enum, Celery hay mô hình AI.
+
+### 1. Audit trước khi sửa — đo, không phán bằng mắt
+
+| Mục | Bằng chứng |
+|---|---|
+| Stack | React 18.3.1 · Vite 6.0.7 · CSS thuần · điều hướng bằng `#hash` · **không có** thư viện icon, không có bộ khung giao diện, **không có bộ chạy test** |
+| Enum backend | 17 enum trong `API.md`; giao diện cần diễn giải **8 họ trạng thái** |
+| 360×800 | **TRÀN NGANG** — rộng cuộn 398 > khung nhìn 360; thủ phạm: `div.hang` + ô nhập |
+| 768 / 1280 / 1600 | không tràn |
+| Điểm dừng tab ở trang chủ | **6** |
+| Console | **4 lỗi** mỗi lần mở trang (thiếu `favicon`, và `config.js` không có ở môi trường máy nhà) |
+| Danh sách chapter | **Không có endpoint liệt kê project** — danh sách "gần đây" lấy từ bộ nhớ trình duyệt |
+| Copy hứa thời gian | Giao diện cũ ghi **"mỗi trang mất khoảng 3–6 phút"** — con số này **không có trong bất kỳ phép đo nào**; đo thật ở M9/M10 là ~40–100 giây/trang |
+
+### 2. Sau khi làm lại
+
+| Đo | Trước | Sau |
+|---|---|---|
+| Tràn ngang 360px | **có** | **không** |
+| Tràn ngang 768 / 1280 / 1600 | không | không |
+| Lỗi console | **4** | **0** |
+| Điểm dừng tab (trang chủ) | 6 | 11 |
+| Ô chọn tệp | `<input type=file>` gốc của trình duyệt | vùng kéo-thả, **vẫn giữ input thật ẩn** cho bàn phím và trình đọc màn hình |
+| Chữ hứa thời gian | "3–6 phút/trang" (bịa) | "Xử lý chạy nền. Bạn có thể rời trang và mở lại chapter để xem tiến độ." |
+
+### 3. Test tự động
+
+| Nhóm | Số test | Kết quả |
+|---|---|---|
+| Frontend (`vitest`) | **57** | pass |
+| Backend M1–M10 (hồi quy) | **579** | pass — không sửa một kỳ vọng cũ nào |
+
+Trong đó lưới an toàn quan trọng nhất: test **đối chiếu từng giá trị enum trong `API.md`** với bảng
+diễn giải của giao diện. Backend thêm trạng thái mà quên cập nhật giao diện thì test đỏ ngay, và
+trạng thái lạ bị hiện là *"Trạng thái chưa được hỗ trợ"* kèm mã thô chứ **không** bị đoán là thành công.
+
+### 4. Lỗi thật tìm được khi chạy trên trình duyệt
+
+| # | Lỗi | Đo được | Vì sao đáng sửa |
+|---|---|---|---|
+| 1 | **Giao diện bỏ cuộc sớm hơn máy chủ rất nhiều** (lỗi có từ M7) | Việc căn lại chữ mất **108 giây** vì đứng sau một chapter 3 trang; giao diện chỉ chờ **42 giây** (60 lượt × 700ms) rồi báo *"Việc chạy nền quá lâu, chưa xong"* | Người dùng tưởng hỏng và sửa lại lần nữa, trong khi việc vẫn chạy và xong bình thường ngay sau đó. Nay chờ tới 10 phút, hiện rõ **"đang chờ tới lượt"**, và nếu hết kiên nhẫn thì nói *"vẫn đang chạy"* chứ không nói là hỏng |
+| 2 | Tràn ngang ở 360px | rộng cuộn 398 > 360 | Điện thoại phải cuộn ngang mới thấy hết form |
+| 3 | Console 404 mỗi lần mở trang | 4 lỗi/lần | Console nhiễu là console không ai còn đọc — che mất lỗi thật |
+| 4 | Chữ hứa "3–6 phút/trang" | đo thật 40–100 giây/trang | Hứa sai về sản phẩm của chính mình |
+
+### 5. Giới hạn của lần làm này
+
+- **Không có chế độ tối, không có bộ nhận diện thương hiệu đầy đủ** — ngoài phạm vi E11.
+- **Chưa có endpoint liệt kê chapter**: danh sách "gần đây" vẫn nằm trong bộ nhớ trình duyệt, mở
+  máy khác là không thấy. Giao diện **nói rõ điều đó** thay vì giả vờ là danh sách đầy đủ.
+  Ghi thành khoảng trống ở `REPORT_E11.md`, không lén thêm API trong E11.
+- **Chưa đo bằng trình đọc màn hình thật** (NVDA/VoiceOver) — mới kiểm nhãn liên kết, vòng focus
+  và thao tác bàn phím.
+- Màn sửa tay (M7) giữ nguyên cách làm việc; E11 chỉ thêm vỏ điều hướng quanh nó.
+
+## E12 — Cổng chất lượng từng vùng
+
+> Số liệu do `scripts/do_run_e12.py` (Run B/C/D) và một script Chromium in ra. Run A đo trực tiếp
+> trên **trang truyện thật** đã chạy hết pipeline từ M9 (Pepper&Carrot, CC BY-SA).
+> E12 **không** gọi mô hình nào: bộ chấm là luật thuần, không chạm mạng.
+
+### 1. Test tự động
+
+| Nhóm | Số test | Kết quả |
+|---|---|---|
+| Backend M1–M10 + E11 + E12 | **633** | pass (E12 thêm 54) |
+| Riêng E12 backend (`test_quality_unit.py` + `test_quality_integration.py`) | 41 + 13 | pass |
+| Frontend (`vitest`) | **66** | pass (E12 thêm 9) |
+
+Test đơn vị chạy **bảng-lái qua đủ 18 mã lý do**, cộng thêm các mệnh đề mà spec coi là ranh giới:
+không mã nào ngoài bảng trắng, số/chữ ngắn/chữ hoa không bao giờ bị tự bỏ, "không có điểm tin cậy"
+không bị hiểu thành "điểm thấp", và độ dài tính theo **ký tự hiển thị** chứ không theo byte
+(`Đừng` = 4 ký tự / 7 byte; `こんにちは` = 5 ký tự / 15 byte).
+
+### 2. Run A — trang truyện thật (bắt buộc)
+
+Trang `57dab44d` của chapter Run A, 4 vùng, chấm bằng `e12-rules-v1`:
+
+| Vùng | Chữ gốc | Kết quả chấm | Lý do máy đưa ra |
+|---|---|---|---|
+| 1 | `ha... perfect.` | `likely_translatable` · rõ ràng | — |
+| 2 | `NO! Don't even think about it.` | `likely_translatable` · rõ ràng | — |
+| 3 | *(rỗng)* | `uncertain` · **cần rà soát** | OCR không đọc được nội dung · bước đọc chữ tự đánh dấu cần kiểm tra tay · engine không cung cấp điểm tin cậy |
+| 4 | `SPLASH / 18` | `uncertain` · **cần rà soát** | Khung chữ có điểm nhận diện thấp (0,384) |
+
+Không vùng nào bị xoá; bằng chứng số kèm theo từng vùng (`so_ky_tu_goc`, `ty_le_do_dai`,
+`ty_le_dien_tich`, điểm tin cậy).
+
+### 3. Run B — bơm lỗi có kiểm soát (bắt buộc)
+
+| Bơm vào | Máy nói ra |
+|---|---|
+| Đặt bản dịch thành `fallback_used` | *"Đã lùi về đường dịch nhanh vì dịch theo ngữ cảnh lỗi."* |
+| Xoá bản dịch của một vùng | *"Chưa có bản dịch cho vùng này."* |
+| Đặt căn chữ thành tràn khung | *"Chữ dịch chưa vừa khung."* |
+| — | Cả hai vùng đều chuyển sang **cần rà soát** |
+
+Số trên API **khớp chính xác** số đếm thẳng bằng SQL (4 = 4), và hộp thoại xuất nhận đủ ba số mới.
+Đáng chú ý: `quality_unassessed_count = 7` — đó là các vùng đã căn chữ **từ trước khi có E12**,
+và chúng được đếm là **chưa đánh giá** chứ không bị coi là sạch.
+
+### 4. Run C — quyết định của người dùng (bắt buộc)
+
+| Kiểm | Kết quả |
+|---|---|
+| Ghi "bỏ qua" và "giữ để dịch" | 200, trạng thái đổi đúng |
+| Dữ liệu sau khi bỏ qua | `TextRegion` còn, `OCRResult` còn — **không xoá gì** |
+| Khởi động lại API | quyết định vẫn còn |
+| Chấm lại | quyết định của người **được giữ** |
+
+### 5. Run D — sửa tay xong thì chấm lại (bắt buộc)
+
+Sửa bản dịch một vùng thành câu 301 ký tự → căn lại → vùng đó được chấm lại và xuất hiện lý do
+*"Chữ dịch chưa vừa khung"*. **Vùng không liên quan giữ nguyên đánh giá cũ** — chấm lại có phạm vi,
+không quét lại cả chapter.
+
+### 6. Kiểm trên Chromium (10/10 đạt)
+
+Màn chapter có bảng "Vùng cần rà soát" đếm riêng ô *chưa đánh giá được*; màn sửa tay có hộp
+"Đánh giá chất lượng" với lý do bằng **câu tiếng Việt** (không lộ mã), hai nút quyết định của
+người dùng, và dòng nói rõ *"khung chữ, chữ gốc và bản dịch vẫn được giữ"*. Bấm "Bỏ qua vùng này"
+thì nhãn đổi thành **Đã bỏ qua thủ công**. Console 0 lỗi.
+
+Guardrail về câu chữ: không màn nào dùng "bản dịch chuẩn" / "đạt chất lượng" / "dịch đúng hoàn
+toàn" — E12 là kết quả của một bộ luật, không phải lời bảo đảm dịch đúng nghĩa.
+
+### 7. Một chỗ tôi sửa TEST chứ không sửa luật
+
+Test đầu tiên của tôi khẳng định `SPLASH` phải bị gắn "có thể là hiệu ứng âm thanh". Nó **đỏ**:
+`SPLASH` dài 6 ký tự, còn ngưỡng "chữ ngắn" của spec là ≤5.
+
+Nới ngưỡng lên 6 cho test xanh chính là sửa luật cho vừa test. Sự thật đo được: luật độ dài
+**không** bắt được mọi tiếng động — nhưng trên trang thật, vùng `SPLASH` **vẫn** được đẩy cho
+người xem, vì một lý do khác: điểm nhận diện khung chỉ 0,384. Tôi giữ ngưỡng ≤5, sửa test cho
+đúng sự thật, và thêm một test dựng lại **đúng ca thật** đó.
+
+### 8. Giới hạn của lần làm này
+
+- **Luật độ dài không nhận ra tiếng động dài** (`SPLASH`, `CRASH!!`). Chúng chỉ được đẩy đi rà
+  soát khi có dấu hiệu khác. Nhận ra tiếng động theo nghĩa là việc của mô hình, không phải của luật.
+- **Không xử lý chữ dọc / chữ xoay / bong bóng hình elip** — thuộc mini-spec khác.
+- **Vùng "bỏ qua" vẫn được vẽ vào ảnh xem thử và file xuất.** E12 chỉ ghi quyết định; đổi cách vẽ
+  là sửa hợp đồng render của M6/M8, spec cho phép hoãn và tôi hoãn.
+- **Chưa có endpoint chấm lại thủ công** — chấm lại đi kèm bước căn chữ. Thêm nó cần một loại
+  `Job` mới, mà `ALTER TYPE` trên enum Postgres không an toàn trong một giao dịch.
+
+---
+
+## E13 — Thuật ngữ, giọng nhân vật & rà soát nhất quán
+
+**Ngày:** 2026-08-29 · **Môi trường:** workspace `trieunt-c`, Docker, Python 3.12.3,
+Postgres **16.15**, Redis 7-alpine, worker Celery.
+
+### 1. Audit Before Build — 10 mục
+
+| # | Mục | Kết quả |
+|---|---|---|
+| 1 | E11/E12 đã đóng | `REPORT_E11.md`, `REPORT_E12.md` có; bảng `region_quality_assessment` đang chạy; `ReviewStatus` = `not_required`/`needs_review`/`reviewed_keep`/`reviewed_skip` |
+| 2 | Hợp đồng dịch M5 | model `gemini-3.1-flash-lite` (đúng dòng 3.x), engine mặc định `google_fast` |
+| 3 | Đường sửa tay M7 | `PATCH /regions/{id}` trả `pending` + `refit_job_id`; `fit_at_size()` là chỗ giữ cỡ chữ đã ghim |
+| 4 | E12 `reviewed_skip` | có, và là **quyết định của người** — E13 loại vùng này khỏi quét |
+| 5 | Dữ liệu thật | 3 trang Pepper&Carrot (CC BY-SA, David Revoy) còn trong `test_fixtures/external/` |
+| 6 | **NULL trong ràng buộc duy nhất** | **Đo thật, xem §2** |
+| 7 | Chuẩn hoá Unicode | M6 đã có `normalize_for_layout` (NFC) cho việc vẽ; E13 dựng bộ chuẩn hoá **riêng** cho việc so khớp, không đụng văn bản đã lưu |
+| 8 | Thành phần giao diện E11 | `Alert`, `Button`, `Dialog`, `Dropzone`, `EmptyState`, `Field`, `Icon`, `ProgressStage`, `StatusBadge` + nhóm `chapter/` — dùng lại, không dựng bộ sửa thứ hai |
+| 9 | Gợi ý bằng LLM | để **TẮT** mặc định (`E13_LLM_SUGGESTIONS_ENABLED=false`) |
+| 10 | Gap | không có gì về glossary trong toàn bộ mã nguồn ⇒ đúng phạm vi E13 |
+
+### 2. Đo thật: `UNIQUE` thường **không** chống được trùng khi có NULL
+
+Spec cảnh báo đừng tin vào ràng buộc duy nhất khi khoá ngoại để trống. Kiểm chứng trên chính DB:
+
+```
+create table thu (a int, b int, unique (a, b));
+insert into thu values (1, null);   -- OK
+insert into thu values (1, null);   -- OK  ← LỌT, có 2 dòng giống hệt
+
+create table thu2 (a int, b int, unique nulls not distinct (a, b));
+insert into thu2 values (1, null);  -- OK
+insert into thu2 values (1, null);  -- ERROR: duplicate key ← đúng
+```
+
+Postgres coi **mỗi NULL là một giá trị khác nhau**, nên `UNIQUE` thường vô dụng ở đây —
+`ConsistencyReviewTask` có hai khoá ngoại tuỳ chọn (`glossary_entry_id`, `voice_profile_id`) và
+việc do luật sinh ra luôn để trống một trong hai. Dùng `UNIQUE NULLS NOT DISTINCT` (Postgres 15+;
+bản đang chạy là 16.15). Xác nhận trong DB thật sau khi migrate:
+
+```
+uq_consistency_task_idem | UNIQUE NULLS NOT DISTINCT
+                           (region_id, task_type, glossary_entry_id, voice_profile_id, snapshot_hash)
+```
+
+Đây là thứ khiến **quét lại không đẻ ra việc trùng**.
+
+### 3. Test tự động
+
+```
+$ cd backend && ../.venv/bin/python -m pytest
+697 passed, 6 skipped in 204.13s
+```
+
+| Nhóm | File | Số test |
+|---|---|---|
+| Unit — so khớp theo ngôn ngữ | `tests/test_consistency_matching_unit.py` | 25 |
+| Integration — thuật ngữ, quét, áp dụng, API | `tests/test_consistency_integration.py` | 37 |
+| Guardrail kiến trúc (M1→E13) | `tests/test_no_ai_logic.py` | +8 của E13 |
+| Kế thừa M1–M10, E11, E12 | các file trước | 627 |
+
+Bài test đáng chú ý:
+- `test_giu_hanh_vi_cua_dau_nhay_va_gach_noi` — `\b` của Python coi `'` và `-` là ranh giới nên
+  dùng thẳng sẽ khớp sai; test canh `Don't` ≠ `Dont`, `well-known` ≠ `wellknown`.
+- `test_giu_nguyen_dau_tieng_viet` — bỏ dấu để so sẽ khiến `ma` khớp cả `mà`/`má`/`mã` và sinh
+  hàng loạt cảnh báo sai.
+- `test_thuat_ngu_dai_thang_thuat_ngu_ngan` — `魔法薬` phải thắng `魔法`, nếu không một chỗ bị
+  đếm thành hai.
+- `test_ban_dich_doi_roi_thi_tu_choi_ap_de` — **chốt chặn quan trọng nhất**: áp bản cũ sẽ xoá mất
+  phần người khác vừa sửa.
+- `test_khong_ghi_de_quyet_dinh_cua_nguoi` — quét lại KHÔNG mở lại việc người đã từ chối.
+- `test_khong_tu_nghi_ra_tu_dong_nghia_de_cam` — chỉ biến thể **người dùng tự khai** mới bị gắn cờ.
+- `test_bo_quet_khong_goi_mang` — quét theo luật chạy offline hoàn toàn, không token.
+- `test_khong_co_diem_chat_luong_0_100` — kiểm **tên trường** thật; bản đầu của test này bắt nhầm
+  chính dòng chú thích giải thích luật.
+
+### 4. Live verification — Run A (bắt buộc)
+
+Chạy trên chapter chứa **3 trang Pepper&Carrot thật** (CC BY-SA), qua đường thật
+HTTP → Redis → worker.
+
+**Thuật ngữ đã tạo** (đều bắt đầu ở *nháp*):
+
+| Nguồn | Tiếng Việt đã chốt | Loại | Ghi chú |
+|---|---|---|---|
+| `SPLASH` | `TÕM` | general_term | Từ tượng thanh — dịch thành tiếng động. Cấm: `TUYỆT VỜI` |
+| `Pepper` | `Pepper` | character_name | Giữ nguyên tên |
+| `perfect` | `hoàn hảo` | general_term | |
+
+**Quét khi chưa duyệt:** `open_count = 0`, `approved_glossary_count = 0` — đúng: thuật ngữ nháp
+không tham gia quét.
+
+**Sau khi duyệt cả 3 rồi quét lại:**
+
+```
+open_count = 2   approved_glossary_count = 3
+by_type = {"glossary_missing": 1, "prohibited_variant": 1}
+```
+
+Cả hai đều trỏ vào **cùng một vùng thật** — vùng mà Run C của M8 đã phát hiện dịch sai:
+
+| Loại việc | Bản dịch hiện tại | Lý do (nguyên văn hệ thống sinh ra) |
+|---|---|---|
+| `glossary_missing` | `TUYỆT VỜI\n18` | *Chữ gốc có "SPLASH" — thuật ngữ này đã được chốt là "TÕM", nhưng bản dịch hiện tại chưa dùng.* |
+| `prohibited_variant` | `TUYỆT VỜI\n18` | *Bản dịch đang dùng "TUYỆT VỜI" — bạn đã ghi đây là cách dịch không dùng cho thuật ngữ "TÕM".* |
+
+`perfect` → `hoàn hảo` **không** bị gắn cờ vì bản dịch đã dùng đúng thuật ngữ — đúng như mong đợi.
+
+### 5. Live verification — Run B (bắt buộc)
+
+| # | Thao tác | Kết quả |
+|---|---|---|
+| 1 | Áp bản **tự sửa** `TÕM!\n18` | HTTP **202**, kèm `refit_job_id` (canh lại chạy nền, đúng hợp đồng M7) |
+| 2 | Việc thứ hai trên **cùng vùng** | tự chuyển `stale` — nó tính trên bản dịch trước đó nên không còn dùng được |
+| 3 | Cố áp việc đã cũ | **422** `task_not_open: việc đang ở 'stale'` — không áp đè |
+| 4 | Quét lại | **0 việc mở** — sửa xong thì không còn cảnh báo, không báo nhầm |
+| 5 | Bản dịch cuối | `TÕM!\n18`, `edited_by_user = true` |
+| 6 | **Chữ gốc OCR** | `SPLASH\n18` — **nguyên vẹn**, không bị đụng tới |
+
+Tổng kết: `open=0 · accepted=1 · stale=1`. Đúng một vùng được sửa, đúng một việc canh lại được xếp.
+
+### 6. Giao diện E13 (D1–D5) — dựng ở lần làm thứ hai
+
+`ConsistencyPanel` (D1), `GlossaryManager` (D2), `VoiceProfileManager` (D3),
+`ConsistencyReviewQueue` (D4), khối cảnh báo trong `ExportWarningModal` (D5).
+
+**Test giao diện: 91 pass** (`vitest run`, +18 của E13, `src/components/consistency/consistency.test.jsx`).
+Những test đáng kể — đều canh **câu chữ có thể lừa người dùng**, không canh màu sắc hay bố cục:
+
+| Test | Chặn điều gì |
+|---|---|
+| `chưa duyệt thuật ngữ nào thì KHÔNG được trình bày như "đã ổn"` | 0 việc lúc chưa có thuật ngữ nào là **chưa đo**, không phải "đạt" |
+| `hết việc thì nói rõ "không còn chỗ lệch thuật ngữ", KHÔNG nói "dịch đúng"` | không nhận vơ đã kiểm được nghĩa |
+| `gợi ý đã cũ thì KHÔNG cho áp dụng` | nút áp dụng biến mất hẳn khi việc `stale` |
+| `bắt buộc nhập giải nghĩa` | không cho lưu cặp chữ trần trụi |
+| `cảnh báo rõ khi sửa mục đã duyệt` | sửa mục đã duyệt ⇒ quay về nháp, phải nói trước |
+| `KHÔNG hiện thanh "độ tin cậy của AI"` | hồ sơ giọng là hướng dẫn của người, không phải suy luận máy |
+| `hồ sơ giọng KHÔNG được tự chèn vào ô bản dịch` | ngữ cảnh chỉ để đọc |
+| `đếm việc nhất quán TÁCH RIÊNG khỏi tràn khung và bản quyền` | ba khối khác bản chất, tick một ô không xử lý cả ba |
+| `gợi ý đã từ chối KHÔNG bị tính là việc còn tồn` | quyết định của người không bị đếm ngược lại thành nợ |
+| `nhãn tiếng Việt, không phải mã enum` | bắt được đúng lỗi ở mục 8 dưới đây |
+
+### 7. Live verification — Run C (hồ sơ giọng nhân vật)
+
+Chạy bằng **Chromium thật** trên chính hệ thống đang chạy (`scripts/do_run_e13_ui.py`), click
+thật từ đầu: tạo hồ sơ → bật → thêm thuật ngữ → duyệt → quét → mở hàng đợi.
+
+Thuật ngữ mới dùng cho lần đo: `Happy` → `Vui chưa` (Carrot **trêu** Pepper, là câu hỏi "vui
+chưa?", không phải cảm thán "vui mừng"). Bản dịch máy đang để `Vui mừng?!`.
+
+| # | Đo gì | Kết quả |
+|---|---|---|
+| C1 | Tạo hồ sơ `Pepper` qua giao diện | ✅ |
+| C1b | Hồ sơ mới ở trạng thái **Nháp** | ✅ chưa bật thì không có hiệu lực |
+| C1c | Bật lên thành **Đang dùng** | ✅ |
+| C2 | Không có chữ "độ tin cậy" ở bất kỳ đâu trên màn hình | ✅ |
+| C3 | Hàng đợi hiện đúng việc kèm thuật ngữ đã chốt | ✅ |
+| C4 | Hồ sơ giọng hiện **trong** hàng đợi kèm nhãn tiếng Việt (`Pepper · Thân mật`) | ✅ |
+| C5 | Có câu nói thẳng "**không** tự sửa lời thoại theo" hồ sơ | ✅ |
+| C6 | Ô sửa nạp **bản dịch hiện tại** (`Vui mừng?!`), không phải bản máy tự viết | ✅ |
+| C7 | **Toàn bộ bản dịch trong CSDL y nguyên trước–sau** (băm md5 từng dòng + cờ `edited_by_user`) | ✅ |
+| — | Lỗi console | **0** |
+
+C7 là chốt chặn thật của Run C: chỉ *xem* hồ sơ giọng và mở hàng đợi thì **không** được đụng vào
+một ký tự nào của bản dịch.
+
+### 8. Live verification — Run D (cảnh báo lúc xuất)
+
+Hộp thoại xuất phải để **ba** loại cảnh báo ở ba khối tách biệt, vì chúng khác bản chất: bố cục
+(tràn khung) · chất lượng (E12) · nhất quán thuật ngữ (E13) · và pháp lý (bản quyền).
+
+| # | Đo gì | Kết quả |
+|---|---|---|
+| D1 | Có khối riêng "Nhất quán thuật ngữ" | ✅ |
+| D2 | Tách khỏi khối "Chất lượng bản đang xuất" | ✅ |
+| D3 | Tách khỏi đoạn trách nhiệm bản quyền | ✅ |
+| D4 | Đếm đúng: `1 chỗ chưa rà soát` + `1 gợi ý đã cũ` | ✅ |
+| D5 | **Vẫn xuất được**, nhãn nút nói thẳng: `Xuất dù còn 1 chỗ cần rà soát (CBZ)` | ✅ |
+| D6/D7 | Chưa tick ⇒ nút khoá; tick rồi ⇒ mở | ✅ |
+| D8 | Bấm "Để sau" ⇒ **không** có việc xuất nào chạy ngầm (đếm `export_job` trước/sau) | ✅ |
+
+Điều kiện đầu phải dựng lại bằng tay: chapter này **đã xác nhận bản quyền từ lần xuất 28/08**, mà
+hộp thoại cố ý chỉ hiện **một lần cho mỗi chapter** — không xoá dấu xác nhận thì Run D không có gì
+để quan sát. `don_dep()` trong script làm việc đó và nói rõ lý do.
+
+### 9. Ba lỗi thật lộ ra ở khâu dựng giao diện
+
+**a) Nhãn giọng nói ra thành mã máy.** `GIONG_NOI` là bảng **chuỗi**, nhưng khối ngữ cảnh mới
+viết `GIONG_NOI[ma]?.nhan ?? ma` — `.nhan` trên một chuỗi là `undefined` nên rơi xuống nhánh dự
+phòng và in thẳng `casual` ra màn hình. Không có gì đổ vỡ, chỉ là người dùng đọc phải chữ máy.
+Đã sửa, và test giờ canh cả hai đầu: **phải** thấy `Thân mật`, **không** được thấy `casual`.
+
+**b) Trang trôi ngang 23px trên điện thoại 360px.** Tiêu đề cột ẩn cho trình đọc màn hình
+(`.an-nhin`) là `position: absolute`, mà phần tử absolute **chỉ bị cắt bởi khung cuộn có định
+vị**. `.bang-cuon` thiếu `position: relative` nên nó đứng ở mép phải của bảng rộng 560px và kéo
+cả trang. Đo được bằng `window.scrollX = 23` sau khi `scrollTo(500, 0)`; ẩn `.bang-cuon` đi thì
+về đúng 360. Sau khi sửa: **không tràn ngang ở cả 4 kích thước** (360/768/1280/1600), 0 lỗi
+console, 29 điểm dừng tab.
+
+**c) Mượn nhầm lưới của E12.** Khối "Vì sao các chỗ này được nêu" dùng lại `.ds-phan-loai`, mà
+CSS ở đó có `li b { margin-left: auto }` vì bên E12 con số đứng **cuối** dòng. Ở E13 con số đứng
+**đầu**, nên nó bị đẩy sang phải và cả dòng vỡ cột. Đã tách `.ds-vi-sao` riêng.
+
+Cả ba đều chỉ lộ ra khi **nhìn vào màn hình thật** — không test đơn vị nào bắt được, vì cả ba đều
+là mã chạy đúng mà hiển thị sai.
+
+### 10. Giới hạn của lần đo này
+
+- **Gợi ý bằng LLM chưa bật và chưa thử** (`E13_LLM_SUGGESTIONS_ENABLED=false`). Đường luật tất
+  định chạy độc lập, không cần LLM.
+- Luật "giọng nhân vật" ở v1 **cố ý chưa sinh việc tự động**: hồ sơ giọng chỉ là ngữ cảnh biên
+  tập hiển thị lúc rà soát. Máy không tự phán một câu có đúng giọng nhân vật hay không.
+- Vẫn chỉ đo trên **một** chapter; chưa thử trên chapter dài nhiều chục trang.
+- Run C/D chạy trên **Chromium**; chưa thử Firefox/Safari.
+- Chưa đo với **bàn phím và trình đọc màn hình thật** cho các thành phần mới — mới chỉ đếm điểm
+  dừng tab (29, không đổi so với trước khi thêm E13).
+
+
+---
+
+## E14 — Vùng an toàn theo hình bong bóng (đang làm)
+
+### 1. Audit Before Build — bằng chứng đo được
+
+Spec E14 đặt một **cổng chặn**: nếu thăm dò trên trang thật cho thấy heuristic chọn nhầm vùng
+trắng, phải dừng lại và báo `E14 blocked` chứ không được deploy. Dưới đây là số đo thật.
+
+| # | Mục audit | Kết quả |
+|---|---|---|
+| 1 | Adapter CTD đưa ra gì | **Chỉ bbox + confidence + chỉ số lớp.** `ctd.py:161-162` chỉ lấy `outputs[0]`; hai nhánh `seg`/`det` của model **chưa bao giờ được giải mã** (`REPORT_M2.md:121` khai đúng). Guardrail "đừng nhầm text mask thành bubble mask" vì vậy là hiển nhiên — không có mask nào để mà nhầm |
+| 2 | Ảnh clean của M4 | Kích thước **giống hệt** ảnh gốc (1600×2213 / 1600×2259, đo cả 3 trang) ⇒ toạ độ bbox dùng thẳng được. **Nhưng** mảng LaMa vá vào có độ bão hoà khác lòng bong bóng — đo được: nó rơi khỏi ngưỡng và tạo **lỗ thủng ngay giữa** vùng an toàn |
+| 3 | Bộ vẽ chuẩn | `PagePreviewRenderer.draw()` là **một đường duy nhất**; M8 gọi lại đúng hàm đó (`export/chapter.py:44`). Không có hai bộ vẽ |
+| 4 | Thư viện trong worker | cv2 **4.10.0**, Pillow 11.0.0, numpy 2.2.1; đủ `findContours`, `distanceTransform`, `morphologyEx`, `connectedComponentsWithStats`, `approxPolyDP`, `erode`. API **không nạp** cv2/torch (test guardrail đo ở mức `sys.modules`) |
+| 4b | **Cực tính `distanceTransform`** — đo chứ không đoán | Ô vuông 11×11 giá trị 255 trên nền 0: tâm = **6.0**, sát mép = **1.0**, ngoài ô = **0.0**; đảo mask thì tâm = **0.0**. ⇒ vùng cần đo phải mang giá trị **khác 0**, biên là 0 |
+| 5 | **Thăm dò trên 9 vùng thật** | xem §2 |
+| 6 | Bất biến theo độ phân giải | Chạy lại toàn bộ 9 vùng ở **0.5× / 0.75× / 1× / 1.5×**: **9/9 ra cùng quyết định ở cả 4 mức**. Tham số tỉ lệ theo kích thước bbox nên không có magic number pixel |
+| 7 | `manual_override` | **Ngoài phạm vi v1** — không dựng trình sửa đa giác; M7 đã có sửa bbox tay làm đường lui |
+| 10 | Khoảng trống đã xác nhận | `fitter.py:56-60` `content_rect()` chỉ trừ padding theo tỉ lệ của **bbox chữ nhật** — không hề biết biên cong của bong bóng |
+
+### 2. Thăm dò trên trang Pepper&Carrot thật (mục audit 5)
+
+9 vùng thật từ 3 trang đã chạy hết pipeline (`scripts/tham_do/e14_tham_do.py` — **mã thăm dò,
+không phải mã sản xuất**; không import `app.*`, không ghi CSDL).
+
+**Kết quả cuối:** 5 bong bóng thật → `shape_derived` (**5/5**); 4 vùng không phải bong bóng
+(chữ trên tranh, dòng bản quyền, 2 vùng OCR rỗng) → `fallback` (**4/4**). **0 lần chọn nhầm.**
+
+Bốn lần chạy hỏng trước đó đều là **tham số của tôi sai, không phải phương pháp sai** — và mỗi
+lần đều phải nhìn ảnh gỡ lỗi mới biết:
+
+| Lần | Kết quả | Nguyên nhân thật |
+|---|---|---|
+| 1 | 0/9 | ROI nới theo bbox **chữ** nên nhỏ hơn bong bóng; và phép thử tâm đọc **một pixel** — rơi trúng vệt chữ sót |
+| 2 | 1/9 | Vẫn chạm biên ROI. Đổi sang xét cả **đĩa quanh tâm** thay vì 1 điểm |
+| 3 | 2/9 | Nới ngưỡng sáng để cứu lỗ thủng ⇒ bong bóng **dính vào nền sáng** (thành phần to gấp 4–7 lần bbox, chạm biên 15–31%) — đúng cái bẫy "chọn vùng trắng lớn nhất" mà spec cảnh báo |
+| 4 | 2/9 | Lấp lỗ trên **toàn ROI** ⇒ vùng tối bị nền sáng bao quanh cũng bị nuốt (tỉ lệ so với bbox vọt lên 10.7) |
+| 5 | **5/9** | Lấp lỗ **theo từng ứng viên**, chọn đường viền **khít nhất chứa tâm** (không phải to nhất), và tách nhân hình thái ra khỏi ROI |
+
+Khiếm khuyết cấu trúc tìm được ở lần 5: **nhân hình thái đang tỉ lệ theo ROI**, mà ROI lại tỉ lệ
+theo bbox — nên nới ROI là vô tình đổi luôn thuật toán, kết quả nhảy 2 → 1 → 3 không đơn điệu.
+Sau khi cho nhân bám theo bbox, dãy trở nên đơn điệu và đọc được: 2 → 4 → 4 → 5.
+
+**Tham số v1 chọn theo bằng chứng này** (chưa phải giá trị cuối, sẽ đưa hết vào `.env`):
+
+| Tham số | Giá trị | Vì sao |
+|---|---|---|
+| ROI nới | 4.0× bbox, trần 1400px | bong bóng lớn hơn bbox **chữ** rất nhiều; nhỏ hơn thì bị cắt và bị loại oan |
+| Ngưỡng sáng / bão hoà | V ≥ 200, S ≤ 60 | nới lỏng hơn thì dính nền sáng (đo ở lần 3) |
+| Nhân đóng/mở | 6% cạnh ngắn bbox | bám bbox, không bám ROI |
+| Lề ăn vào | 6% cạnh ngắn bbox, tối thiểu 3px | |
+| Loại nếu chạm biên ROI | > 2% chu vi ROI | tiếp xúc nhỏ không có nghĩa là hình bị cắt |
+
+### 3. Điều phải nói thẳng về chất lượng đa giác
+
+Nhìn tận mắt cả 5 đa giác được chấp nhận: **đúng bong bóng, không cái nào chọn nhầm** — nhưng
+hình **còn thô**: có khía lẹm vào, và ở một bong bóng thì cái **đuôi** cũng bị tính vào vùng an
+toàn. Lẹm vào là **an toàn** (vùng nhỏ hơn lòng bong bóng thật), còn cái đuôi thì phải để bước
+tìm hình chữ nhật nội tiếp loại ra.
+
+⇒ **E14 KHÔNG bị chặn.** Nhưng đây là bằng chứng để đặt kỳ vọng đúng: v1 cho *vị trí đặt chữ
+an toàn hơn*, chứ không phải *nhận diện bong bóng chính xác*.
+
+
+### 4. Test tự động
+
+| Nhóm | Tệp | Số |
+|---|---|---|
+| Đơn vị — hình học, chọn ứng viên, ô nội tiếp | `tests/test_safe_area_unit.py` | 23 |
+| Integration — CSDL thật + ảnh thật, API, ảnh xem thử ↔ file xuất | `tests/test_safe_area_integration.py` | 20 |
+| Chốt chặn kiến trúc | `tests/test_no_ai_logic.py` | +6 |
+| **Tổng backend** | | **743 pass** (M1–E13 không xước) |
+| Giao diện | `vitest run` | **95 pass** (+4 của E14) |
+
+Những test đáng kể — mỗi cái ứng với một cách hệ thống có thể **nói dối**:
+
+- `test_khong_chon_nen_trang_lon_khong_chua_tam_bbox` — cái bẫy "vơ lấy vùng trắng lớn nhất".
+- `test_kiem_ca_o_chu_chu_khong_phai_moi_diem_neo` — điểm neo nằm trong mà cả khối chữ vẫn thò
+  ra ngoài; đúng kiểu lỗi M6 từng mắc.
+- `test_anh_clean_doi_thi_hinh_cu_khong_duoc_dung_lai` — vẽ theo hình của một bong bóng **không
+  còn ở đó** là lỗi im lặng tệ nhất mà E14 có thể gây ra.
+- `test_e14_ready_phai_co_hinh_that` — `ready` rỗng ruột bị chặn ngay ở tầng kiểu dữ liệu.
+- `test_api_chua_tinh_thi_404_chu_khong_tra_hinh_rong` — `geometry=[]` mà đọc thành "vừa khít".
+- `test_khung_du_phong_cho_dung_vung_chu_nhu_M6` — xem §5, đây là test sinh ra từ một lệch thật.
+- `test_e14_khong_goi_ctd_text_mask_la_bubble_mask` — canh cả **cách dùng từ**: mask của bộ nhận
+  diện là mask CHỮ, gọi nó là mask bong bóng là nói sai về bằng chứng.
+
+### 5. Live verification — Run A (bắt buộc)
+
+Chạy trên **9 vùng thật** của 3 trang Pepper&Carrot (CC BY-SA), qua đúng dịch vụ sản xuất.
+
+| Vùng | bbox | Ô đặt chữ | Nguồn | Cỡ chữ M6 → E14 | Chữ nằm trọn trong bong bóng |
+|---|---|---|---|---|---|
+| …và điều cuối cùng | 167×66 | 91×111 | shape_derived | 19 → **25** | ✅ |
+| …mmm có lẽ là không | 174×101 | 111×113 | shape_derived | 25 → **27** | ✅ |
+| ha… hoàn hảo. | 96×64 | 69×65 | shape_derived | 21 → 21 | ✅ |
+| KHÔNG! thậm chí… | 196×100 | 159×87 | shape_derived | 21 → 20 | ✅ |
+| Vui mừng?! | 106×35 | 117×51 | shape_derived | 21 → **29** | ✅ |
+| TÕM! 18 (SFX trên tranh) | 603×177 | — | fallback | 40 → 40 | — |
+| WWW.PEPPERCARROT.COM | 147×46 | — | fallback | 14 → 14 | — |
+| 2 vùng OCR rỗng | | — | fallback | — | — |
+
+- **5/5 vùng shape_derived có toàn bộ dấu chân chữ nằm trong đa giác bong bóng** (tiêu chí đòi
+  ≥90%). Đo bằng điểm ảnh: dựng mặt nạ đa giác rồi kiểm cả ô chữ, không phải mỗi điểm neo.
+- **0 lần chọn nhầm** trên 4 vùng không phải bong bóng (chữ trên tranh, dòng bản quyền, 2 vùng
+  OCR rỗng) — tất cả đều lùi về khung dự phòng kèm lý do đọc được.
+- Trái với lo ngại ban đầu, cỡ chữ **tăng** ở 3/5 vùng: vùng an toàn thường **rộng hơn** bbox
+  trừ lề, vì bbox chỉ ôm lấy chữ chứ không ôm lấy bong bóng.
+- Nhìn ảnh trước/sau: chữ giờ nằm giữa **lòng bong bóng**, không còn lệch sang một bên như khi
+  căn theo khung chữ nhật.
+
+### 6. Live verification — Run B (fallback trung thực)
+
+4 ca khó trong bộ trên: chữ tượng thanh nằm trên tranh (`TÕM!`), dòng địa chỉ web trên nền
+tranh, và 2 vùng bộ nhận diện bắt được nhưng OCR không ra chữ. **Không ca nào bị gán hình giả**;
+mã lý do lần lượt là `shape_candidate_not_centered` (không có vùng sáng nào bao quanh chữ) và
+`shape_candidate_touches_roi_boundary` (hình bị cắt ở mép vùng tìm kiếm).
+
+### 7. Một lệch thật do đo mới thấy — và cách sửa
+
+Đường **dự phòng** ban đầu dùng lề ăn-vào của E14, nên cỡ chữ của dòng bản quyền nhảy **14 → 16**
+— tức là E14 đổi bố cục ở ngay chỗ nó **không nhận ra hình gì cả**. Không ai xin thay đổi đó và
+không có cách nào giải thích cho người dùng.
+
+Đã sửa: khung dự phòng lấy đúng `typeset_padding_ratio` của M6. Đo lại: **2/2 vùng dự phòng cho
+cỡ chữ và trạng thái y hệt M6**. Khoá lại bằng `test_khung_du_phong_cho_dung_vung_chu_nhu_M6`.
+
+### 8. Giới hạn của lần đo này
+
+- Mới đo trên **Pepper&Carrot** — bong bóng màu bạc hà trên tranh màu. **Chưa đo trên truyện đen
+  trắng** (bong bóng trắng trên nền tối), là ca phổ biến nhất của manga.
+- Chưa đo bong bóng tối, bong bóng gradient, chữ dọc, SFX cong.
+- Run C (sửa bbox tay rồi tính lại) mới có **test integration**, chưa bấm tay trên trình duyệt.
+- Lớp phủ vùng an toàn trên giao diện đã dựng và build sạch, nhưng **chưa xem trên trình duyệt
+  thật** với dữ liệu thật.
+
+
+### 9. Đo trước rủi ro của ảnh đen trắng (dẫn xuất — KHÔNG phải manga thật)
+
+Chưa có trang manga đen trắng nào có bản quyền rõ trong kho, nên chưa thể coi đây là bằng chứng
+về manga thật. Nhưng có một rủi ro **đo được ngay**: ở ảnh xám thì **mọi** điểm ảnh đều thoả điều
+kiện bão hoà `S ≤ 60`, tức một nửa bộ lọc mất tác dụng và chỉ còn độ sáng gánh việc phân biệt.
+
+Chạy lại cả 9 vùng trên 3 biến thể dẫn xuất từ chính trang màu thật:
+
+| Biến thể | Nhận được hình | Chọn nhầm |
+|---|---|---|
+| Màu (gốc) | **5/9** | 0 |
+| Xám | **3/9** | 0 |
+| Xám + tương phản cao | **1/9** | 0 |
+| Xám + chấm tram (screentone) | **3/9** | 0 |
+
+Lý do tụt: ở bản tương phản cao, **8/9 vùng** báo `shape_candidate_touches_roi_boundary` — vùng
+sáng của tranh bị đẩy lên trắng và **dính liền vào bong bóng**, nên hình bị coi là cắt dở.
+
+Điều đáng giá: tụt là tụt về **dự phòng**, **0 lần sinh hình sai** ở cả 4 biến thể. Tức là ở ảnh
+đen trắng, E14 v1 nhiều khả năng **giúp ít hơn** chứ không **hại**. Vẫn phải đo trên trang thật
+mới biết con số thật.
+
+
+---
+
+## E15 — Hướng chữ, thoại dọc & SFX cách điệu (mới audit, CHƯA build)
+
+### 1. Audit Before Build — bằng chứng đo được
+
+| # | Mục audit | Kết quả đo |
+|---|---|---|
+| 1 | Bộ nhận diện có cho hình học dòng chữ không | **KHÔNG.** Adapter chỉ giải mã bbox; hai nhánh `seg`/`det` chưa bao giờ được đọc (đã chứng minh ở `§E14.1`). ⇒ nguồn bằng chứng mạnh nhất mà spec trông đợi **không tồn tại** |
+| 2 | OCR có cho bố cục dòng không | PaddleOCR **có** trả `rec_polys`/`dt_polys` (`ocr/engines.py:153-157`) nhưng chỉ dùng để sắp thứ tự dòng rồi **vứt đi** — `OCRResult` chỉ lưu `raw_text`, `ocr_engine`, `confidence`, `status`. manga-ocr chỉ trả chuỗi. ⇒ muốn dùng phải **lưu thêm**, tức là migration |
+| 3 | Ảnh mẫu tiếng Nhật dọc có license rõ | **KHÔNG CÓ.** Kho chỉ có Pepper&Carrot (tiếng Anh, chữ ngang) |
+| 4 | Pillow có RAQM không | **KHÔNG** (`features.check("raqm") = False`, harfbuzz/fribidi cũng False). `direction="ttb"` ném `KeyError` **rõ ràng**, không im lặng ⇒ Phương án A bị chặn trừ khi cài thêm |
+| 5 | Vẽ chữ dọc theo từng grapheme có được không | **ĐƯỢC.** `regex` 2026.7.19 đã có sẵn (`\X` tách grapheme). Vẽ thử `"Chào bạn nhé, đừng đi!"` theo cột: **dấu tiếng Việt nguyên vẹn**, không tách rời — đã nhìn tận mắt |
+| 7 | Quy ước góc của `minAreaRect` | **Đúng là cái bẫy spec cảnh báo.** Đo trên hình biết trước đáp án: hình 0° cho `angle = 90.0` (w/h đảo), hình 90° **cũng** cho `angle = 90.0`. ⇒ góc thô **không phân biệt được 0° với 90°**; bắt buộc phải chuẩn hoá bằng w/h |
+| 8 | M7 có điều khiển xoay chữ không | Không có ⇒ ghi đè hướng bằng tay **ngoài phạm vi**, đúng như spec chốt |
+
+### 2. Đo: xoá chữ xong thì còn dấu vết hướng chữ không?
+
+Spec cho phép dùng "dấu vết cấu trúc còn lại trong ảnh clean". Đo thật số điểm ảnh tối trong
+từng vùng, trước và sau khi xoá chữ:
+
+| Vùng | Điểm tối ở ảnh gốc | Ở ảnh clean |
+|---|---|---|
+| 195×99 (thoại) | 1 499 | **0** |
+| 173×100 (thoại) | … | **4** |
+| 103×196 (không phải bong bóng) | 617 | 667 |
+| 602×176 (SFX trên tranh) | 51 163 | 87 078 |
+
+Với **thoại trong bong bóng** — đúng thứ E15 cần đoán hướng — chữ bị xoá **sạch** (còn 0–4 điểm).
+Đó chính là việc M4 phải làm. ⇒ **Không thể** đo hướng chữ trên ảnh clean; muốn có bằng chứng
+hình học thì phải đọc **ảnh gốc** (chữ còn nguyên). Đây là điểm spec chưa lường tới.
+
+(Hai vùng còn lại tăng điểm tối vì chúng nằm trên tranh chứ không trong bong bóng, nên phép xoá
+gần như không đụng tới — không mâu thuẫn với kết luận trên.)
+
+### 3. Điều kiện dừng của spec — đối chiếu
+
+Spec: *"Nếu không có ảnh mẫu chữ dọc hợp pháp, không có bằng chứng hình học tin cậy từ
+CTD/OCR, hoặc không có renderer giữ được dấu tiếng Việt → chỉ làm phần routing và ghi rõ
+**vertical rendering blocked**. Không được ship một renderer dọc giả để đánh dấu E15 xong."*
+
+Đối chiếu: **không có ảnh mẫu hợp pháp** (mục 3) và **không có hình học từ CTD** (mục 1).
+Renderer thì ngược lại — **làm được** (mục 5). Nên theo đúng chữ của spec, E15 v1 phải là
+**routing + bằng chứng**, còn phần dựng chữ dọc chỉ được gắn nhãn thử nghiệm/chưa sẵn sàng cho
+tới khi có ảnh mẫu thật để chạy Run B.
+
+
+### 4. Đã build ở lần này (backend)
+
+| Nhóm | Tệp | Số |
+|---|---|---|
+| Đơn vị — chuẩn hoá góc + bộ nhận biết hướng | `tests/test_orientation_unit.py` | 27 |
+| Chốt chặn kiến trúc | `tests/test_no_ai_logic.py` | +6 |
+| **Tổng backend** | | **779 pass** (M1–E14 không xước) |
+
+Test đáng kể nhất — mỗi cái ứng với một cách hệ thống có thể **nói dối**:
+
+- `test_goc_tho_KHONG_phan_biet_duoc_0_va_90_nhung_da_chuan_hoa_thi_duoc` — khoá lại **cả tiền
+  đề**: nếu một bản OpenCV sau này đổi quy ước, test sẽ đỏ và bắt đọc lại phần audit này.
+- `test_TI_LE_KHUNG_KHONG_BAO_GIO_TU_QUYET` — khung cao gấp 5 lần bề rộng vẫn không được tự
+  thành chữ dọc. `PHEW!` viết thưa theo chiều dọc vẫn là chữ ngang cách điệu.
+- `test_ti_le_khung_khong_lat_nguoc_duoc_bang_chung_hinh_hoc` — khung rất cao **nhưng** các dòng
+  nằm ngang ⇒ vẫn là chữ ngang.
+- `test_dong_dung_dung_thi_ra_chu_doc_nhung_CHUA_dung_duoc` — nhận ra hướng ≠ dựng được chữ.
+- `test_cac_dong_cai_nhau_thi_noi_thang_la_mau_thuan` — không bỏ phiếu đa số cho xong.
+- `test_khong_the_tao_chu_doc_ready_ma_khong_co_bang_chung` — ràng buộc nằm ở **tầng kiểu dữ
+  liệu**, không phải ở chỗ gọi hàm, nên không lách được.
+- `test_e15_khong_sua_chu_ocr_hay_ban_dich` — canh cả `[::-1]` và `reversed(`: đảo chuỗi theo
+  hướng là phá bằng chứng của M3/M5.
+- `test_e15_khong_dung_goc_tho_cua_minAreaRect` — mọi chỗ đọc `minAreaRect` phải đi qua bộ
+  chuẩn hoá.
+
+### 5. Chưa làm
+
+- **Giao diện chưa dựng** (nhãn hướng chữ, bộ lọc, khối cảnh báo lúc xuất).
+- **Test integration chưa viết.**
+- **Run A–D chưa chạy** — cần ảnh mẫu thật, đặc biệt là ảnh chữ dọc có license rõ.
+- **Bộ dựng chữ dọc cố ý chưa dựng** — xem `REPORT_E15.md` §3.
+
+
+---
+
+# E1 — Tiện ích Chrome mở nhanh (2026-08-30)
+
+Chromium: **Google Chrome for Testing 151.0.7922.34**, nạp unpacked từ `extension/`,
+`--headless=new`. ID tiện ích lúc đo: `gppdcagfjgnekmdfbiplpfeahillicgi`.
+
+## E1.1 — Audit trước khi dựng (số đo thô)
+
+```
+GET /api/v1/projects                        -> 405 Method Not Allowed   (không có API liệt kê)
+curl -H "Origin: chrome-extension://<id>" http://127.0.0.1:8010/api/v1/health
+    -> 200, KHÔNG có access-control-allow-origin        (server: uvicorn)
+curl -H "Origin: chrome-extension://<id>" http://127.0.0.1:5174/api/v1/health
+    -> 200, access-control-allow-origin: *              (server: uvicorn, qua proxy Vite)
+curl -H "Origin: chrome-extension://<id>" http://127.0.0.1:5174/healthz
+    -> 200, access-control-allow-origin: *  NHƯNG thân là HTML của SPA, không phải JSON
+```
+
+Dòng cuối là cái bẫy: **200 OK không phải bằng chứng máy chủ API còn sống.**
+
+Chuẩn hoá URL (Node 22, cùng bộ phân tích WHATWG với trình duyệt):
+
+```
+http://2130706433:8010      -> hostname = 127.0.0.1
+http://0x7f000001:8010      -> hostname = 127.0.0.1
+http://0177.0.0.1:8010      -> hostname = 127.0.0.1
+http://127.1:8010           -> hostname = 127.0.0.1
+http://[::1]:8010           -> hostname = [::1]                (bị từ chối)
+http://localhost%2eevil.example:8010 -> hostname = localhost.evil.example   (bị từ chối)
+```
+
+⇒ Bốn dạng đầu **không phải** đường lách — chúng thật sự là loopback. Chỗ an toàn nằm ở việc hàm
+trả về địa chỉ **đã chuẩn hoá** và mọi lượt gọi về sau dùng chuỗi đó, không dùng lại chuỗi người
+dùng gõ.
+
+## E1.2 — Test tự động
+
+`cd extension && npm test` → **282 pass / 7 tệp**.
+
+## E1.3 — Run A/B/C/D (`scripts/do_run_e1.py`) — 21/21 ĐẠT
+
+Chạy với `.env` **sạch** (không có `CORS_ALLOW_ORIGINS`).
+
+| Mục | Kết quả |
+|---|---|
+| A1–A3 màn đầu: ô nhập, câu nói rõ phạm vi, gợi ý cổng **đo được** (5174) | ĐẠT |
+| A4 `http://evil.example:5174` bị từ chối và **không** ghi vào kho | ĐẠT |
+| A5–A7 địa chỉ hợp lệ được lưu, kết nối được, mở được web app | ĐẠT |
+| B1–B2 "Tạo chapter mới" → `http://127.0.0.1:5174/`, form tạo chapter hiện ra | ĐẠT |
+| C1–C2 kho chỉ có khoá đã khai báo; không key/ảnh/OCR/đường dẫn/cookie | ĐẠT |
+| C3 cài đặt sống sót qua lượt mở lại panel | ĐẠT |
+| C4–C6 hộp xác nhận nói rõ backend không bị xoá; xoá xong kho sạch; backend vẫn sống | ĐẠT |
+| D1–D5 manifest sạch; mở trang ngoài: không tiêm gì, kho không ghi địa chỉ trang | ĐẠT |
+| Z1 0 lỗi JS trong console | ĐẠT |
+
+## E1.4 — Nhánh đọc được dữ liệu (`scripts/do_run_e1_ket_noi.py`) — 20/20 ĐẠT
+
+Chapter thật `67094721-c9e4-4231-896d-83b555205a42` (3 trang, đều `typeset_done`).
+
+```
+K3  tên thật từ máy chủ:        "E11 kiem ban phim"
+K4  số trang thật:              "3 trang · 3 trang xuất được"
+K8  Mở rà soát  -> http://127.0.0.1:5174/#page=194bcdf2-c30a-4dbe-8f29-b90fe6bd6f5d
+K9  Xem tiến độ -> http://127.0.0.1:5174/#project=67094721-c9e4-4231-896d-83b555205a42
+K10 Xuất        -> CÙNG #project= ở trên, KHÔNG có chữ "export" trong địa chỉ
+K12 mã bịa 00000000-… -> 404 -> "Không tìm thấy chapter", KHÔNG ghim mục ma
+```
+
+Kho sau khi ghim 2 chapter thật:
+
+```json
+{"caiDatV1": {"lastConnectionCheckAt":"…","lastOpenedPageId":"194bcdf2-…",
+  "lastOpenedProjectId":"67094721-…","preferredLaunchSurface":"side_panel",
+  "schemaVersion":1,"translationBaseUrl":"http://127.0.0.1:5174"},
+ "chapterGhimV1":[{"cachedAt":"…","projectId":"c10032f2-…", …}]}
+```
+
+Đúng 2 khoá, mỗi mục ghim đúng 5 trường trong khuôn, đều có `cachedAt`; **không** có
+`source_lang` / `intended_use` / `image_path` / OCR / key.
+
+## E1.5 — Ba lỗi thật do lượt bấm thật tìm ra
+
+**1. Nút chính không bấm được.** `nut()` luôn đặt `type="button"`. Nút "Lưu & kiểm tra kết nối"
+nằm trong `<form>` nên **chưa bao giờ** gửi form — màn đầu vô dụng nếu người dùng bấm chuột.
+Test đơn vị không bắt được vì nó `dispatchEvent(submit)` thẳng vào `<form>`, đi vòng qua đúng cái
+nút hỏng. → sửa: `type = gui_form ? 'submit' : 'button'` + test khoá `expect(b.type).toBe('submit')`.
+
+**2. Kiểm kết nối gọi nhầm máy chủ.** Gọi `<base>/healthz` trong khi `<base>` là địa chỉ **giao
+diện**. Vite trả trang SPA kèm 200 + `ACAO: *`. May là bộ đọc JSON vẫn từ chối (`du_lieu_la`) nên
+không báo sai "đã kết nối" — nhưng nó báo sai "không kết nối" khi mọi thứ đều ổn. → sửa: gọi
+`/api/v1/health` + test khoá endpoint không được chứa `/healthz`.
+
+**3. Nhấp nháy "Chưa kết nối" trước khi kiểm xong.** Trạng thái kết nối chỉ có true/false, mặc
+định `false`, nên panel khẳng định một thất bại **chưa hề đo được**. → sửa: ba trạng thái
+(`null` = đang kiểm) + 5 test khoá.
+
+## E1.6 — Chưa làm
+
+- **Bấm biểu tượng để mở Side Panel** chưa bấm được trong headless — trang panel được mở thẳng
+  bằng địa chỉ `chrome-extension://…`. `sidePanel.setPanelBehavior` chạy không lỗi nhưng hành vi
+  bấm biểu tượng **cần một lượt bấm tay**.
+- **Chưa đo trên Chrome bản người dùng thật** (mới đo Chrome for Testing).
+- **Chưa đo trên bản dựng prod (nginx)** — chế độ chỉ-mở-link ở prod suy ra từ việc đọc
+  `default.conf.template` (không có `location /api`), chưa dựng prod lên để bấm.
+
+
+---
+
+# E15 phần 2 — Giao diện hướng chữ + Run A–D (2026-08-30)
+
+## E15.6 — Audit: worker chạy mã CŨ hơn E15
+
+Trước khi đo được gì, phải tìm ra vì sao bảng `region_text_orientation` rỗng sạch:
+
+```
+select count(*) from region_text_orientation;              ->  0
+select count(*) from ocr_result where line_polygons is not null;  ->  0 / 97
+docker ps --format '{{.Names}}\t{{.RunningFor}}'
+  translation-worker-1    44 hours ago        <-- khởi động TRƯỚC khi E15 được commit
+```
+
+Thư mục `backend/` được mount làm volume nên tệp trên đĩa là mã mới, nhưng **Celery nạp module
+lúc khởi động và không nạp lại**. ⇒ Toàn bộ mã E15 chưa từng chạy một lần nào.
+
+Sau `docker compose restart worker`, chạy lại pipeline một chapter: `line_polygons` và
+`region_text_orientation` có dữ liệu ngay.
+
+**Bài học:** mọi mini-spec đụng vào worker phải khởi động lại worker **trước khi đo**, nếu không
+là đo nhầm mã cũ và kết luận sai về chính thứ mình vừa viết.
+
+## E15.7 — libraqm: worker ≠ máy dev
+
+```
+PIL.features.check("raqm")
+  translation-worker-1  -> False        (Pillow 11.0.0, freetype2=True, regex 2026.7.19)
+  translation-api-1     -> False
+  .venv trên máy dev    -> True         ← KHÁC
+```
+
+Vẽ thật bằng font trong `/fonts` (5 font: Bangers, Mansalva, ShantellSans, SigmarOne):
+
+```
+worker : draw.text(..., direction="ttb")
+         -> KeyError: 'setting text direction, language or font features is not supported
+                       without libraqm'          (cả "Đường" lẫn "カタカナ")
+máy dev: draw.text(..., direction="ttb")  -> VẼ ĐƯỢC   (cả hai)
+```
+
+⇒ Option A (Pillow + libraqm) **không dùng được ở nơi cần dùng**. Một bộ dựng chữ dọc viết và
+thử trên máy dev sẽ xanh hết, rồi hỏng im lặng trong worker.
+
+Không có font nào trên máy (host lẫn worker) có glyph kana/kanji: `find / -iname "*CJK*"` → rỗng,
+`/usr/share/fonts/truetype/` chỉ có `dejavu`.
+
+## E15.8 — Run A: chữ ngang không hồi quy (6/6 ĐẠT)
+
+Chapter `79b07f20-5afd-4e85-a816-7697240191b6`, 3 trang Pepper&Carrot, 9 vùng.
+
+```
+A1 chạy lại pipeline sinh đường bao dòng THẬT        -> 6 vùng
+A2 hướng chữ được tính                                -> 6 vùng (rồi 9 sau khi thêm trang 3)
+A3 nhận đúng chữ ngang                                -> 5 vùng ngang
+A4 vùng ngang bị gọi nhầm thành chữ dọc               -> 0
+A5 trang vẫn tới typeset_done                         -> ['typeset_done', 'typeset_done']
+A6 GET /pages/{id}/orientation-summary                -> 200, đúng khuôn
+```
+
+Mã lý do THẬT xuất hiện trên dữ liệu này:
+`ctd_geometry_unavailable`, `bbox_aspect_horizontal_signal`, `ocr_line_geometry_horizontal`,
+`orientation_unknown`, `ocr_layout_unavailable`, `safe_area_fallback_rectangle`.
+
+## E15.9 — Run B: BỊ CHẶN (4 vật cản độc lập)
+
+| # | Loại | Số đo |
+|---|---|---|
+| 1 | Dữ liệu | không có ảnh chữ dọc tiếng Nhật license rõ trong kho |
+| 2 | **Kiến trúc** | `MangaOCREngine.recognize()` trả `(text, None)` — không đường bao dòng |
+| 3 | Môi trường | libraqm trong worker = False |
+| 4 | Glyph | 0 font có kana/kanji |
+
+Vật cản 2 là cái quyết định: `analyzer` chỉ tới được `vertical_ttb` qua
+`ocr_line_geometry_vertical`, mà nguồn đó không tồn tại cho tiếng Nhật. **Có ảnh cũng không mở
+khoá được Run B** — đây là giới hạn cấu trúc, không phải thiếu dữ liệu.
+
+Chốt chặn: `where orientation='vertical_ttb' and status='ready'` → **0 dòng**.
+
+## E15.10 — Run C: 3/3 ĐẠT nhưng RỖNG
+
+```
+C1 mọi vùng đều có phán quyết hướng chữ    -> 9/9
+C2 vùng nghiêng thiếu mã 'chỉ rà soát tay' -> 0
+C3 vùng nghiêng thiếu góc chuẩn hoá        -> 0
+
+tần suất trên TOÀN BỘ dữ liệu đã phân tích:
+    horizontal_ltr = 7
+    unknown        = 2
+    rotated_horizontal = 0
+```
+
+⚠️ Spec đòi tối thiểu 5 ví dụ SFX; thực tế **0**. C2/C3 vì thế là **đúng nhưng rỗng** — chúng
+chỉ chứng minh "không có vùng nào vi phạm", không chứng minh đường xử lý chữ nghiêng chạy đúng.
+n=9 quá nhỏ để nói gì về tần suất. **Không đủ căn cứ mở E16.**
+
+## E15.11 — Run D: 4/4 ĐẠT
+
+```
+D1 GET /projects/{id}/export-warnings              -> 200
+D2 khối hướng chữ tách riêng
+   {"orientation_vertical_rendered_count": 0,
+    "orientation_review_count": 0,
+    "orientation_unknown_count": 2}
+D3 PATCH /regions/{id} (sửa tay M7)                -> 200
+D4 POST /projects/{id}/export {"format":"cbz"}     -> 202
+```
+
+Hai lỗi của chính script đo (không phải lỗi sản phẩm), đã sửa: gọi `/exports` thay vì `/export`
+(404), rồi `format:"png"` thay vì giá trị enum thật `png_single|cbz|zip` (422).
+
+## E15.12 — Giao diện trên Chromium (14/14 ĐẠT)
+
+Trang `98e5c3bc` — CSDL: 4 vùng, 3 ngang, 1 chưa rõ.
+
+```
+U2  số 'Chữ ngang' trên giao diện        = 3, CSDL = 3        KHỚP
+U3  số 'Chưa xác định hướng'             = 1, CSDL = 1        KHỚP
+U4  huy hiệu tách biệt trên mỗi vùng     >= 2 (căn chữ + hướng chữ)
+U6  nhãn hỏng / 'chưa được hỗ trợ' lọt ra giao diện           -> []
+U7  bộ lọc                                -> đủ 5 mục
+U8  lọc 'Chữ dọc'                         -> 4 vùng còn 0
+U9  lọc rỗng                              -> nói rõ, không để bảng trắng
+U10 lọc 'Cần kiểm tra hướng chữ'          -> 1 vùng (đúng kỳ vọng)
+U12 khối giải thích                       -> tiếng Việt, không lộ mã máy
+U13 không có vùng dọc ready               -> công tắc lưới cột chữ VẮNG MẶT
+Z1  lỗi JS trong console                  -> 0
+```
+
+## E15.13 — Test tự động
+
+`frontend`: **158 pass** (+63 của E15: 8 tệp). Trong đó có test canh:
+
+- Bảng dịch **đủ 15 mã lý do**, khớp 1:1 với `LyDo.TAT_CA` của backend — không thiếu, không thừa.
+- Mọi tổ hợp (4 hướng × 4 trạng thái) đều có nhãn đọc được, **không** lọt `undefined`.
+- `vertical_ttb + needs_review|unavailable|failed` **tuyệt đối không** mang sắc thái thành công.
+- Bộ lọc "Cần kiểm tra" **có** bắt vùng chưa phân tích (`null`).
+- Lưới cột chữ chỉ hiện khi `status === 'ready'`.
+
+
+## E15.14 — Số đo tại thời điểm ĐÓNG E15 (2026-08-30)
+
+Chạy **lại từ đầu**, không chép số của lượt trước. Chapter mới:
+`a4e76707-80a0-4dbf-bae6-aa67de639e54` (2 trang Pepper&Carrot, 6 vùng).
+
+### Bộ test tự động
+
+| Bộ | Lệnh | Kết quả |
+|---|---|---|
+| Backend | `cd backend && ../.venv/bin/python -m pytest -q` | **785 thu thập, exit 0**, 0 fail |
+| Frontend | `cd frontend && npx vitest run` | **158 pass / 8 tệp**, 0 fail |
+| Extension | `cd extension && npx vitest run` | **282 pass / 7 tệp**, 0 fail |
+
+### Build / lint
+
+```
+cd frontend && npx vite build     -> ✓ built in 2.98s, 57 modules
+                                     dist/assets/index-DIkt_6FW.js  232.01 kB (gzip 73.87 kB)
+
+ruff check backend scripts        -> 167 phát hiện, NHƯNG repo KHÔNG có cấu hình lint
+                                     (không backend/pyproject.toml, không ruff.toml)
+   phân bố: backend/tests 157 · backend/app 136 · backend/alembic 11
+            do_run_m9 7 · do_run_e15 7 · do_run_e12 5 · do_run_e15_ui 2 · kiem_e11 2
+```
+
+⇒ Lint **không phải cổng đã cấu hình** của repo. Hai script E15 mới ngang mức các script đo anh
+em. Không sửa trong phase này (mở rộng scope).
+
+### Run A–D lượt đóng phase — 16/16 ĐẠT
+
+```
+Run A  A1 đường bao dòng THẬT sinh ra          -> 6 vùng
+       A2 hướng chữ được tính                   -> 6 vùng
+       A3 nhận đúng chữ ngang                    -> 5 vùng
+       A4 vùng ngang bị gọi nhầm thành dọc       -> 0
+       A5 trang tới typeset_done                 -> ['typeset_done', 'typeset_done']
+       A6 orientation-summary đúng khuôn         -> 200
+
+Run B  BLOCKED — 4 vật cản, B1/B2 đạt
+       B2 vertical_ttb + ready trong CSDL        -> 0
+
+Run C  C1 mọi vùng có phán quyết                 -> 6/6
+       C2 vùng nghiêng thiếu mã rà-soát-tay      -> 0
+       C3 vùng nghiêng thiếu góc chuẩn hoá       -> 0
+       tần suất TOÀN BỘ dữ liệu: horizontal_ltr=17 · unknown=4 · rotated_horizontal=0
+
+Run D  D1 export-warnings                        -> 200
+       D2 khối hướng chữ tách riêng
+          {"orientation_vertical_rendered_count": 0,
+           "orientation_review_count": 0,
+           "orientation_unknown_count": 1}
+       D3 PATCH /regions/{id} (M7)                -> 200
+       D4 POST /projects/{id}/export cbz (M8)     -> 202
+```
+
+⚠️ **Run C vẫn là pass RỖNG** — `rotated_horizontal=0` trên toàn bộ dữ liệu. C2/C3 đúng nhưng
+không chứng minh đường xử lý chữ nghiêng chạy đúng.
+
+### Chromium — 14/14 ĐẠT
+
+Trang `6ff9fb4f` (4 vùng: 3 ngang + 1 chưa rõ), giao diện thật ở `localhost:5174`:
+
+```
+U2  'Chữ ngang' giao diện = 3, CSDL = 3          KHỚP
+U3  'Chưa xác định hướng' = 1, CSDL = 1          KHỚP
+U4  huy hiệu tách biệt mỗi vùng                  >= 2
+U6  nhãn hỏng / 'chưa được hỗ trợ' lọt ra        -> []
+U8  lọc 'Chữ dọc'                                -> 4 vùng còn 0
+U10 lọc 'Cần kiểm tra hướng chữ'                 -> 1 (đúng kỳ vọng)
+U12 khối giải thích                              -> tiếng Việt, không lộ mã máy
+U13 vùng dọc ready = 0 -> công tắc lưới cột chữ  VẮNG MẶT
+Z1  lỗi JS console                               -> 0
+```
+
+⇒ Tài liệu **không trái** state UI/DB: cả ba nguồn (CSDL, API, màn hình) cùng nói `vertical=0`.
+
+### Audit 4 assertion trước khi đóng — đo lại, đều còn đúng
+
+```
+1. PIL.features.check("raqm")   worker=False · api=False · dev=True         ✓
+2. MangaOCR.recognize_with_layout = False; recognize trả (text, None)       ✓
+   vertical_ttb chỉ tới được qua ocr_line_geometry_vertical (analyzer:155)  ✓
+3. worker đã nạp mã E15: region_text_orientation có dữ liệu thật
+   (7 horizontal_ltr/ready + 2 unknown/needs_review trước lượt đóng),
+   ocr_result.line_polygons 9/106 — tất cả sinh SAU khi restart worker      ✓
+4. vertical_ttb + ready trong CSDL = 0                                      ✓
+```
+
+
+---
+
+# E1a — Siết CORS API local & proxy Vite (2026-08-30)
+
+## E1a.1 — Tách bạch bằng chứng từ quan sát terminal
+
+Người dùng chạy compose ở `/home/coder/workspace` và nhận `no such file or directory`, nhưng API
+vẫn trả `ok`. Đo lại từng tầng riêng:
+
+```
+compose THẬT   : /home/coder/workspace/projects/Translation/deploy/docker-compose.yml
+đường gõ nhầm  : /home/coder/workspace/deploy/docker-compose.yml  -> KHÔNG tồn tại
+container      : 5/5 Up (api, frontend, worker, db healthy, redis healthy)
+API /healthz   : HTTP 200 · content-type: application/json · server: uvicorn
+                 {"status":"ok","worker":{"trang_thai":"khong_ro"}}
+worker ping    : pong — 1 node online
+worker việc    : 158 job `done` trong 3 giờ gần nhất, mới nhất 13:16:50
+/tmp/trang-thai-worker.json trong container api -> KHÔNG tồn tại
+```
+
+⇒ Lỗi compose là lỗi **đường dẫn**, không phải Docker/API chết.
+⇒ `worker: khong_ro` chỉ nghĩa **API không biết** (tệp trạng thái chỉ có khi `ROLE=all`), không
+nói worker khoẻ hay chết. Sức khoẻ worker đo riêng bằng ping + throughput job.
+
+**Đính chính:** thân JSON thật không dấu (`trang_thai`/`khong_ro`); bản chép tay có thêm dấu.
+
+## E1a.2 — Header TRƯỚC khi sửa (Origin thật, curl)
+
+```
+Origin: http://localhost:5174        -> :8010/api/v1/health   200  ACAO=(không có)
+Origin: http://localhost:5174        -> :5174/api/v1/health   200  ACAO=*
+Origin: https://evil.example         -> :5174/api/v1/health   200  ACAO=*
+Origin: http://localhost.evil.example-> :5174/api/v1/health   200  ACAO=*
+Origin: chrome-extension://gppdc…    -> :5174/api/v1/health   200  ACAO=*
+Origin: null                         -> :5174/api/v1/health   200  ACAO=*
+Origin: https://evil.example         -> :5174/api/v1/projects/{id}  200  ACAO=*   << DỮ LIỆU THẬT
+Origin: https://evil.example         -> :5174/api/v1/pages/{id}/preview  404  ACAO=*
+Origin: https://evil.example         -> :5174/healthz  200  ACAO=*  content-type: text/html
+```
+
+Nguồn wildcard: **một tầng duy nhất** — Vite 6.0.7 mặc định `server.cors: true`.
+FastAPI vốn đã chặn (middleware chỉ gắn khi `CORS_ALLOW_ORIGINS` khác rỗng). nginx prod không có
+`add_header` CORS nào.
+
+## E1a.3 — Header SAU khi sửa
+
+**Mặc định (danh sách rỗng):** mọi origin trên đều `ACAO=(KHÔNG CÓ)`, kể cả trên endpoint dữ
+liệu thật. Giao diện web vẫn chạy: `curl :5174/api/v1/health` → `{"status":"ok"}`, trang chủ 200.
+
+**Khi khai `DEV_SERVER_CORS_ALLOW_ORIGINS=chrome-extension://gppdcagfjgnekmdfbiplpfeahillicgi`:**
+
+```
+chrome-extension://gppdc…(khớp)  ACAO=chrome-extension://gppdc…  Vary=Origin  ACAC=0
+chrome-extension://aaaa…(ID khác) ACAO=(KHÔNG CÓ)
+https://evil.example              ACAO=(KHÔNG CÓ)
+http://localhost.evil.example     ACAO=(KHÔNG CÓ)
+http://127.0.0.1.nip.io           ACAO=(KHÔNG CÓ)
+null · file://                    ACAO=(KHÔNG CÓ)
+
+OPTIONS từ origin khớp -> 204 · ACAO đúng origin · Vary: Origin
+                          Allow-Methods: GET,POST,PATCH,OPTIONS · Allow-Headers: Content-Type
+OPTIONS từ origin lạ   -> 405 · KHÔNG header CORS nào
+```
+
+## E1a.4 — Bộ test
+
+| Bộ | Lệnh | Kết quả |
+|---|---|---|
+| Backend | `cd backend && ../.venv/bin/python -m pytest -q` | **785 thu thập, exit 0** |
+| Frontend | `cd frontend && npx vitest run` | **226 pass / 9 tệp** (+68) |
+| Extension | `cd extension && npx vitest run` | **282 pass / 7 tệp** |
+| Build | `cd frontend && npx vite build` | ✅ 1.98s · 232.01 kB |
+
+## E1a.5 — Chromium thật (`scripts/do_run_e1a.py`) — 17/17, chạy HAI lần
+
+Website lạ thật ở cổng 9999; `localhost.evil.example` ánh xạ về loopback bằng
+`--host-resolver-rules` ⇒ origin thật trong trình duyệt.
+
+```
+                                        mặc định        đã khai origin tiện ích
+L1  giao diện gọi API cùng nguồn        200 ok          200 ok
+L2  giao diện đọc chapter thật          200, 411 byte   200
+L4  website lạ đọc /api/v1/health       CHẶN            CHẶN
+L5  website lạ đọc dữ liệu chapter      CHẶN            CHẶN
+L6  website lạ đọc API trực tiếp :8010  CHẶN            CHẶN
+L8  localhost.evil.example đọc API      CHẶN            CHẶN
+L9  getPanelBehavior()                  openPanelOnActionClick: true
+L10 manifest quyền                      ['storage','sidePanel'], host_permissions []
+L11 "Tạo chapter mới"                   http://127.0.0.1:5174/
+L12 hành vi E1                          CHỈ-MỞ-LINK     ĐỌC METADATA THẬT
+L13 tắt máy chủ                         báo chưa kết nối kèm 3 lý do
+L13b câu danh sách rỗng                 chỉ về ứng dụng, không khẳng định "không có chapter"
+L14 sau restart: giao diện              200
+L15 sau restart: website lạ             VẪN CHẶN
+Z1  ngoại lệ JS                         0
+```
+
+Lỗi chặn trong trình duyệt là `TypeError: Failed to fetch` — đúng biểu hiện của CORS deny.
+
+## E1a.6 — Hai lỗi của chính bộ đo (không phải lỗi sản phẩm)
+
+1. **`socketserver.TCPServer` đơn luồng**: một `BrokenPipeError` làm kẹt cả máy chủ thử, khiến
+   trang `localhost.evil.example` timeout. → `ThreadingTCPServer` + nuốt broken pipe.
+2. **Tiêu đề render HOA do CSS `text-transform`**: `inner_text` trả `"CHAPTER ĐÃ GHIM"`, nên
+   `split("Chapter đã ghim")` không bao giờ khớp và phép kiểm L13 báo hỏng oan. Panel vốn hiển
+   thị **đúng** — đã dump toàn bộ text để xác nhận trước khi sửa phép kiểm.
+
+## E1a.7 — Còn treo
+
+Chưa bấm tay biểu tượng tiện ích trên thanh công cụ: môi trường không có display server
+(`$DISPLAY` rỗng, không Xvfb) và không API nào dispatch được cú bấm vào chrome UI. Đã kiểm phần
+kiểm được: `getPanelBehavior()` → `{openPanelOnActionClick: true}`.
+
+
+---
+
+# Deploy 001 — Push GitHub + VibeHost (2026-08-30/31)
+
+Chi tiết đầy đủ: `docs/REPORT_DEPLOY_001.md`.
+
+## D001.1 — Hồi quy trước phát hành
+
+```
+backend  : 785 thu thập, exit 0
+frontend : 226 pass
+extension: 282 pass
+build    : vite build ✓ 2.17s
+lint     : KHÔNG phải cổng phát hành (repo chưa có ruleset)
+```
+
+## D001.2 — Push
+
+```
+7ca8af6..45c0af2  main -> main   (103 object, 167.44 KiB)
+git ls-remote origin main -> 45c0af26b913cd83ea43446218552126cca3bf54
+tag: CHƯA đẩy (v1.5-E15-closed, v1.6-E1a-cors-hardening còn local)
+```
+
+## D001.3 — Deploy
+
+```
+translation-api  v20 -> v21   31/08 00:12   job cmtg2exdn0ede0i5f56kswhpp  succeeded
+translation-web  v12 -> v13   31/08 00:13   job cmtg2i0oh0efm0i5fajnvxnii  succeeded
+push KHÔNG tự deploy -> redeploy thủ công
+rollback sẵn: api->20, web->12
+```
+
+## D001.4 — Bằng chứng phiên bản (không có build SHA ⇒ dùng tính năng)
+
+```
+/api/v1/khong-he-co-route-nay            -> {"detail":"Not Found"}
+/api/v1/pages/{uuid}/orientation-summary -> {"detail":"page_not_found"}            <- E15 CÓ
+/api/v1/regions/{uuid}/orientation       -> {"detail":"orientation_not_analyzed…"} <- E15 CÓ
+
+bundle web /assets/index-CGGZ4XNz.js (238.952 byte) chứa:
+  "Chữ dọc — đã căn theo cột" · "Chưa xác định hướng chữ" · "Hiện lưới cột chữ"
+  · "Chữ nghiêng/cách điệu" · "orientation-summary"
+```
+
+## D001.5 — Smoke Chromium thật: 11/11 ĐẠT
+
+`scripts/do_smoke_hosted.py` — website lạ ở cổng 9999 gọi API hosted.
+
+```
+H1 HTTPS                                    ĐẠT
+H2 __API_BASE__ trỏ đúng API hosted         ĐẠT
+H3 giao diện E11 hiện form tạo chapter      ĐẠT
+H4 giao diện ĐỌC ĐƯỢC API chéo nguồn        ĐẠT  200 {"status":"ok"}
+H5 website lạ đọc /api/v1/health            CHẶN (TypeError: Failed to fetch)
+H5 website lạ đọc /healthz                  CHẶN
+H6 không tràn ngang 360/768/1280/1600       4/4 ĐẠT
+Z1 lỗi JS console                           0
+```
+
+## D001.6 — Ma trận CORS hosted (trước == sau deploy)
+
+| Origin | ACAO |
+|---|---|
+| `https://translation.cmc-1.vibenode.matbao.ai` | khớp chính xác |
+| `https://evil.example` | *(không có)* |
+| `http://localhost:5174` | *(không có)* |
+| `null` | *(không có)* |
+| `…matbao.ai.evil.example` (giống tên miền thật) | *(không có)* |
+
+`ACAO: *` → 0 · `Allow-Credentials` → 0.
+
+## D001.7 — Worker: `starting` KHÔNG phải bằng chứng
+
+```
+{"worker":{"trang_thai":"starting","so_lan_chet":0,"luc":"2026-08-30T17:12:14Z"}}
+```
+
+`backend/deploy-start.sh` ở `ROLE=all` ghi `starting` **một lần** lúc khởi động, chỉ ghi lại khi
+worker chết (`restarting`) — **không bao giờ** ghi `running`. Nên trạng thái này chỉ chứng minh
+"đã bật, chưa sập", KHÔNG chứng minh worker đang tiêu thụ việc. Cần Pilot mới biết.
+
+
+---
+
+# P3a — Sẵn sàng Pilot/UAT trên VibeHost (2026-08-31) — **BLOCKED**
+
+Chi tiết: `docs/REPORT_P3a_HOSTED_READINESS.md`.
+
+## P3a.1 — Worker hosted: chứng minh bằng việc thật, không bằng telemetry
+
+Một trang smoke **tự vẽ** (1200×1700, 2 bong bóng, không dùng tranh có bản quyền) tải qua **đúng
+giao diện E11 hosted**:
+
+```
+  3.3s -> detecting     141.5s -> ocr_done      156.7s -> typeset_done
+ 90.6s -> detected      151.6s -> inpainted
+```
+
+```
+inpaint  : 11.4s · 2 vùng · "còn chữ ở 0 vùng" · KHÔNG OOM/SIGKILL/restart
+translate: 0.7s  · engine=google_fast · fallback=False · token=***
+typeset  : 0.28s · fit_ok=2 · overflow_warning=0 · font=Bangers
+E14      : fallback_rectangle=2 · shape_derived=0
+E15      : horizontal_ltr=2 · tt_ready=2      <- mã E15 chạy thật trên host
+celery   : "Connected to redis://:**@vays-db-…" + "celery@70d910a961c2 ready."
+```
+
+`worker.trang_thai` vẫn kẹt `starting` — **không dùng làm bằng chứng**, đúng như thiết kế phép đo.
+
+## P3a.2 — **Lưu trữ hosted là TẠM** ⛔
+
+MCP VibeHost từ chối redeploy cùng mã:
+
+```
+redeploy_project(translation-api) -> NO_CHANGE: Không có thay đổi mới so với phiên bản hiện tại
+```
+
+Chủ dự án bấm "Triển khai lại" trên giao diện → **v22** (cùng mã `45c0af2`). Đo ngay sau đó:
+
+| | Trước v22 | Sau v22 |
+|---|---|---|
+| `clean-image` | 200 · image/png · **69.486 byte** | **404** |
+| `typeset-preview` | 200 · image/png · **98.060 byte** | **404** |
+| CSDL `status` | `typeset_done` | **`typeset_done`** |
+| `image_path` / `clean_image_path` | có | **vẫn có** |
+
+```
+{"detail":"Đường dẫn ảnh clean có trong DB nhưng file không còn:
+           projects/7bb1b714…/pages/4b955242…_clean.png"}
+```
+
+Đường lưu thật là **`/app/storage`** (log: `preview typeset -> /app/storage/previews/…`), không
+phải `/data/storage` như mặc định `config.py`. Đó là **lớp ghi của container**.
+
+Chapter cũ `ddc7019b…` (28/08) cũng vậy: bản ghi còn, ảnh đã mất từ lâu.
+
+⇒ **Điều kiện no-go §8.3.** Không chạy Pilot/UAT 10–20 trang.
+
+## P3a.3 — CORS hosted sau mọi thao tác: không đổi
+
+| Origin | ACAO |
+|---|---|
+| `https://translation.cmc-1.vibenode.matbao.ai` | khớp chính xác |
+| `https://evil.example` · `http://localhost:5174` · `null` | *(không có)* |
+
+Wildcard 0 · Credentials 0.
+
+## P3a.4 — Hai ghi nhận phụ (P3)
+
+- Route `clean-image` nói đúng **"có trong DB nhưng file không còn"**; route `typeset-preview`
+  lại trả **"bước căn chữ chưa chạy xong"** — sai nguyên nhân, vì typeset đã chạy xong thật.
+  Hai route không nhất quán về cách nói thật khi tệp biến mất.
+- Log có `SecurityWarning: running the worker with superuser privileges` — celery chạy bằng root.
+
+# ==================== P3d — Bỏ `abs_path()` làm hợp đồng đọc/ghi (2026-08-31) ====================
+
+## P3d.1 — Bộ test sau refactor
+
+```
+801 passed, 6 skipped in 295.38s
+```
+
+Nền trước P3d: **779 passed**. Chênh **+22** là tệp mới `tests/test_storage_unit.py`.
+**0 test bị xoá.** Hai unit test của bộ xuất (`test_xuat_lai_khong_tich_tu_file_rac`,
+`test_doi_dinh_dang_thi_don_ket_qua_cu`) được **chuyển chỗ kiểm** chứ không bỏ: việc dọn bản
+xuất cũ đã đi từ bộ xuất sang kho, nên bảo đảm đó nay kiểm ở `delete_prefix`.
+
+## P3d.2 — Test mới: `tests/test_storage_unit.py` (22 test)
+
+Hai nhóm dưới đây trước P3d **không có test nào**:
+
+| Nhóm | Kiểm gì |
+|---|---|
+| `TestChanPathNguyHiem` (6) | path tuyệt đối / `..` / rỗng bị từ chối; `exists`/`stat`/`delete` trả "không có" thay vì ném; tệp **ngoài** kho không bị ghi đè |
+| `TestGhiDocXoa` (7) | ghi–đọc nguyên văn; không sót tệp `.ghi-do-*`; **lỗi giữa chừng thì bản cũ còn nguyên**; `stat` đổi khi nội dung đổi; xoá idempotent |
+| `TestLietKeVaDonTheoTienTo` (3) | liệt kê đệ quy có thứ tự; **`exports/p1` không xoá lan sang `exports/p10`**; không để lại thư mục rỗng |
+| `TestVatChatHoa` (3) | `fetch_to` chép ra **ngoài** kho; `workspace()` được dọn **kể cả khi lỗi**; ghi ngược vào kho từ tệp cục bộ |
+
+Ca đáng chú ý nhất — **`test_don_ban_cu_khong_dung_toi_hang_xom`**: `exports/p1` là tiền tố
+**chuỗi** của `exports/p10`. Một hiện thực `delete_prefix` dựa trên `startswith` sẽ xoá nhầm
+bản xuất của project khác mà không ai biết. Test này chặn đúng lỗi đó.
+
+Và **`test_khong_ghi_duoc_ra_ngoai_goc_that`**: dựng một tệp thật ngoài kho, gọi
+`save("../moi-nhu.txt", …)`, rồi khẳng định nội dung tệp đó **không đổi**. Trước P3d phép ghi
+này thành công.
+
+## P3d.3 — Lint: không thêm nợ
+
+Đo trên **đúng bộ 9 tệp đã sửa**, so bản HEAD với bản sau sửa:
+
+| | ruff |
+|---|---|
+| Trước (HEAD) | 100 lỗi |
+| Sau P3d | **95 lỗi** |
+
+Toàn repo 270 lỗi — có sẵn từ trước, P3d không đụng tới và cũng không làm tăng.
+
+## P3d.4 — Một lỗi thật do refactor, bắt được bằng test
+
+`anh_cuc_bo()` đặt ở scope module nhưng `get_storage` khi đó **chỉ được import cục bộ trong vài
+hàm** ⇒ `NameError: name 'get_storage' is not defined`. Hệ quả: **mọi job detect thất bại**, và
+vì detect là đầu chuỗi nên OCR/inpaint/typeset/export đổ theo — 40+ integration test đỏ.
+
+Đáng ghi lại hai điều:
+
+- Lỗi **không** lộ ra ở `import app.workers.tasks` (import sạch), cũng không ở 411 unit test.
+  Chỉ integration test chạm tới đường chạy thật mới thấy.
+- Job nuốt lỗi vào `error_log` rồi trả `{"status": "failed"}`, nên traceback **không** hiện ở
+  log pytest. Phải in `repr(result)` ra mới thấy nguyên nhân. Đây là cái giá của việc bắt hết
+  ngoại lệ ở tầng task — đúng cho vận hành, nhưng làm chẩn đoán chậm hơn một nhịp.
+
+# ==================== P3e — Kho hiện vật trong Postgres (2026-08-31) ====================
+
+## P3e.1 — Bộ test
+
+```
+823 passed, 6 skipped in 293.06s      (nền trước P3e: 801)
+```
+
+## P3e.2 — Cùng MỘT hợp đồng chạy trên CẢ HAI backend
+
+`tests/test_storage_unit.py` đổi fixture `kho` thành parametrize `["local", "postgres"]` ⇒ **19
+test hợp đồng chạy hai lượt** (40 test thay vì 22).
+
+Đây là điểm mấu chốt của cả P3d+P3e: test riêng từng lớp thì "thay backend được" mãi mãi chỉ là
+lời hứa. Chạy chung một bộ khẳng định mới là bằng chứng.
+
+Tách riêng đúng những gì thật sự đặc thù:
+- `kho_local` — kiểm tệp `.ghi-do-*` và thư mục rỗng (chỉ có nghĩa với hệ tệp)
+- `TestRiengPostgres` (5) — trần kích thước, upsert không đẻ hàng trùng, `stat()` không kéo cột
+  `data`, mốc phiên bản phân biệt được hai lượt ghi liên tiếp cùng cỡ, và `_` không bị LIKE hiểu nhầm
+
+## P3e.3 — Test trả lời đúng câu hỏi khiến P3a/P3b bị chặn
+
+`tests/test_storage_durability_integration.py` (4 test). Mô phỏng một lượt triển khai lại bằng
+`shutil.rmtree(storage_root)` — đúng điều nền tảng làm với lớp ghi container (P3a đo trực tiếp).
+
+| Test | Khẳng định | Kết quả |
+|---|---|---|
+| `..._postgres_song_sot_...` | xoá sạch đĩa xong, `GET /clean-image` vẫn **200** + đúng byte | ✅ |
+| `..._local_mat_hien_vat_...` | cùng kịch bản, `local` trả **404** trong khi DB vẫn khai có ảnh | ✅ |
+| `..._ETag_304_tren_kho_CSDL` | `If-None-Match` khớp ⇒ **304**, thân rỗng | ✅ |
+| `..._doi_noi_dung_thi_ETag_doi_theo` | ghi đè cùng cỡ ⇒ ETag vẫn đổi | ✅ |
+
+**Vì sao phải có test đối chứng (`local` mất):** không có nó thì không ai biết test đầu đang kiểm
+gì thật. Và nó **khẳng định điều sai đang xảy ra trên host** — ngày nào nó bắt đầu đỏ, nghĩa là
+nền tảng đã cấp được volume bền và có thể xét quay về `local`.
+
+Thêm một khẳng định phụ trong test đầu: backend `postgres` **không ghi một byte MỚI nào ra đĩa**.
+Có, nghĩa là còn một đường ghi lén chưa đi qua kho.
+
+## P3e.4 — Hai lỗi bắt được trong lúc viết test
+
+1. **Assert quá rộng.** Bản đầu của khẳng định "không ghi ra đĩa" soi **cả** thư mục kho dùng
+   chung cả phiên, nên bắt phải tệp do test khác để lại ⇒ đỏ khi chạy cả bộ, xanh khi chạy riêng.
+   Sửa: chụp ảnh thư mục trước/sau, chỉ so tệp **mới**. Bài học: khẳng định trên tài nguyên dùng
+   chung phải là *delta*, không phải *trạng thái tuyệt đối*.
+2. **Test xoá tài nguyên dùng chung.** Hai test `rmtree` thư mục kho của cả phiên; với
+   pytest-randomly thì đó là quả mìn cho test chạy sau. Thêm fixture `autouse` dựng lại thư mục
+   sau mỗi test.
+
+# ==================== P3f — Đối chiếu bản ghi ↔ hiện vật (2026-08-31) ====================
+
+```
+831 passed, 6 skipped      (nền trước P3f: 823)
+```
+
+`tests/test_reconcile_integration.py` — 8 test. Hai cái quan trọng nhất **không** kiểm việc sửa:
+
+| Test | Vì sao nó là cái gắt nhất |
+|---|---|
+| `test_che_do_chi_dem_KHONG_ghi_mot_chu_nao` | Công cụ sửa dữ liệu mà lỡ ghi trong lúc người ta tưởng nó chỉ đang đếm thì **tệ hơn hẳn** việc không có công cụ nào |
+| `test_khong_dung_toi_trang_con_du_hien_vat` | Trang lành lặn phải được để yên — sửa nhầm là hỏng thứ đang tốt |
+
+Còn lại: lùi đúng mốc theo bằng chứng còn lại (3 ca), mất riêng ảnh xem thử thì **không** xoá lây
+ảnh clean, lần xuất mất file bị hạ `failed`, và idempotent (chạy lần hai ra toàn số 0).
+
+`test_png_single_la_THU_MUC_khong_bi_ket_oan` — `exists()` luôn False với thư mục ở cả hai
+backend, nên nếu chỉ hỏi `exists()` thì **mọi** lần xuất `png_single` bị kết oan là đã mất file.
+
+# ==================== P3g — Range + đọc lười + đo độ trễ (2026-08-31) ====================
+
+```
+856 passed, 6 skipped      (nền trước P3g: 832)
+```
+Ruff trên 2 tệp đã sửa: **84 → 83**.
+
+## P3g.1 — Hai test đo BYTE THẬT SỰ kéo về từ CSDL
+
+Không có phép đếm này thì "đọc lười" chỉ là một khẳng định trong docstring:
+
+| Test | Khẳng định |
+|---|---|
+| `test_doc_dau_tep_KHONG_keo_ca_hien_vat_ve` | đọc **100 byte đầu** của hiện vật **2MB** ⇒ tổng byte kéo về **≤ 512KB**, **≤ 2 lượt** |
+| `test_doc_het_tep_thi_chia_thanh_nhieu_luot` | đọc hết 2MB ⇒ **≥ 4 lượt** (không phải một cú `SELECT data` khổng lồ) |
+
+Hai cái này là một cặp: cái đầu chống "vẫn nạp cả hiện vật", cái sau chống việc lách bằng cách
+đọc một phát rồi cache.
+
+## P3g.2 — Hợp đồng `read_range` chạy trên CẢ HAI backend (+8 test ×2)
+
+Đoạn giữa · từ đầu · tới hết · xin quá cuối (trả ít hơn, không ném) · đoạn rỗng · tua hai chiều ·
+ghép nhiều khối ra đúng nguyên văn · **PIL mở được ảnh qua luồng** (ca này chặn đúng lỗi "luồng
+không tua được").
+
+## P3g.3 — Hành vi HTTP (10 test, `tests/test_range_integration.py`)
+
+Test có ý nghĩa nhất là `test_noi_hai_doan_lai_ra_dung_tep_goc` — vì đó mới đúng là thứ người
+dùng cần: tải dở rồi tải tiếp, ghép lại phải khớp. Các test còn lại kiểm 206/416/`If-Range`/304
+và **cú pháp hỏng thì trả nguyên tệp chứ không nổ**.
+
+## P3g.4 — Một hồi quy do chính tôi tạo, test hợp đồng bắt được
+
+`open_read()` mới gọi `stat()` trước, mà `stat()` **cố ý nuốt** `UnsafeObjectPath` và trả `None`.
+Hệ quả: path nguy hiểm hiện ra thành "không tìm thấy" — **che mất tín hiệu bảo mật**. Bắt bởi
+`TestChanPathNguyHiem::test_moi_thao_tac_deu_tu_choi_chu_khong_chi_rieng_ham_kiem[postgres]`.
+
+Bài học: một hàm "hỏi han" được phép nuốt lỗi (`exists`/`stat` trả về "không có"), nhưng hàm
+"ra lệnh" (`open_read`) thì **không** — và đừng để hàm ra lệnh mượn hàm hỏi han làm cửa vào.
+
+## P3g.5 — Đo độ trễ trên host: phép đo đầu SAI
+
+Bản đầu dùng `curl` mỗi lượt một tiến trình ⇒ **bắt tay TLS lại từ đầu mỗi lượt**. Chi phí đó
+(~130–220 ms) át hẳn phần việc máy chủ, đến mức hiệu số so với mốc nền ra **số âm** (−51,9 ms).
+
+Đo lại bằng **một kết nối dùng lại**, bỏ 5 lượt khởi động nguội, n=40:
+
+| Mục | p50 | p95 | min |
+|---|---|---|---|
+| MỐC NỀN `/healthz` | 3,4 ms | 4,0 | 3,0 |
+| `clean-image` 304 (chỉ `stat`) | 6,8 ms | 13,6 | 6,2 |
+| `clean-image` Range 8KB | 8,6 ms | 10,1 | 7,5 |
+| `clean-image` đầy đủ (14 KB) | 9,6 ms | 14,4 | 8,2 |
+| `typeset-preview` đầy đủ (16 KB) | 9,8 ms | 12,0 | 8,1 |
+
+Trừ mốc nền: `stat()`+ETag ≈ **3,4 ms** · đọc+phát nguyên hiện vật ≈ **6,2 ms** · đoạn 8KB ≈ **5,2 ms**.
+
+Bài học: **một phép đo không tách được chi phí thiết lập kết nối thì không đo cái nó tưởng nó đang
+đo.** Dấu hiệu nhận ra ở đây rất rõ — kết quả ra số âm.
+
+## P3g.6 — Đo trên hiện vật KÍCH THƯỚC THẬT (6,76 MB), n=25
+
+14 KB không đại diện cho một trang truyện. Đẩy một trang 1400×2000 có nhiễu qua pipeline thật
+trên host để LaMa sinh ra ảnh clean **6.763.787 byte**, rồi đo lại:
+
+| Mục | p50 | p95 |
+|---|---|---|
+| MỐC NỀN `/healthz` | 3,7 ms | 8,3 |
+| 304 (chỉ `stat`) | 6,8 ms | 7,4 |
+| Range 8 KB (đầu tệp) | 8,6 ms | 19,0 |
+| **Range 64 KB (GIỮA tệp, offset 3.000.000)** | **9,2 ms** | 10,7 |
+| Đầy đủ 6,76 MB | 114,7 ms | 151,3 |
+
+**Đây mới là phép đo chứng minh được thiết kế:**
+
+- Đọc 64 KB ở **giữa** hiện vật 6,76 MB tốn **5,5 ms** trên mốc nền — gần y hệt đọc 8 KB ở
+  **đầu** (4,8 ms), và bằng **1/20** chi phí đọc nguyên tệp (111 ms). Nếu Postgres phải bung cả
+  hiện vật ra mới cắt được, đoạn giữa đã phải tốn cỡ 111 ms. ⇒ `SET STORAGE EXTERNAL` (P3e) thật
+  sự cho **giải TOAST một phần**.
+- `stat()` trên hiện vật 6,76 MB tốn **3,1 ms** — bằng đúng `stat()` trên hiện vật 14 KB. ⇒ tách
+  `size_bytes` ra cột riêng đúng là cần: nó không hề chạm cột `data`.
+
+# ==================== P3h — Chặn OOM worker (2026-08-31) ====================
+
+```
+867 passed, 6 skipped      (nền trước P3h: 856)      exit 0     <- tại commit 64c006a
+869 passed, 6 skipped                                exit 0     <- sau lượt hậu kiểm (P3h.3/P3h.6)
+```
+Chạy lại lúc viết báo cáo (31/08 ~19:0x): **đúng 867/6**. Ruff trên các tệp đã sửa: **20 → 19**
+(lượt hậu kiểm thêm 2 test, không thêm nợ lint: vẫn **19**).
+
+## P3h.1 — Ba test của van xả: khẳng định đúng thứ dễ làm sai nhất
+
+| Test | Khẳng định |
+|---|---|
+| `test_vuot_nguong_thi_nha_dung_thu_khong_can` | nhả `detector`, **giữ** `inpainter` + `ocr`. "Nhả model của chính bước đang chạy" là cách hỏng tệ nhất — nó biến một cơ chế cứu mạng thành một cơ chế tự bắn vào chân |
+| `test_duoi_nguong_thi_giu_nguyen_cache` | chưa căng thì **không** được nhả. Van xả mà nổ suốt thì mỗi trang phải nạp lại LaMa ~197 MB + CTD ~91 MB — mất tốc độ vô ích |
+| `test_khong_doc_duoc_thi_tra_None_chu_khong_phai_0` | `None` = *không đo được*, `0` = *đo được và bằng 0*. Gộp hai thứ đó là cách nhanh nhất để có một biểu đồ nói dối |
+| `test_nguong_0_thi_khong_bao_gio_nha` | `nguong_mb <= 0` ⇒ tắt hẳn cơ chế (máy dev + test) |
+| `test_nha_khong_no_khi_chua_nap_model_nao` | gọi van xả lúc chưa nạp model nào thì không nổ, trả `[]` |
+
+## P3h.2 — Đo đỉnh bộ nhớ khi trộn (`tracemalloc`, cùng seed)
+
+| Cỡ trang | Một biểu thức | Theo dải 256 dòng | Giảm | Giống từng byte |
+|---|---|---|---|---|
+| 1200×1660 (đúng cỡ trang pilot) | **71,7 MB** | **14,6 MB** | **80 %** | ✅ |
+| 1400×2000 (cỡ trang M4) | **100,8 MB** | **18,5 MB** | **82 %** | ✅ |
+
+Dòng thứ hai là điểm đo thêm lúc viết báo cáo, và nó nói cái mà một dòng không nói được: **cách cũ
+leo theo diện tích trang, cách mới gần như đứng yên.** Một phép đo đơn lẻ không phân biệt được
+"nhỏ hơn" với "không phụ thuộc cỡ".
+
+## P3h.3 — ⚠️ Hai test phần trộn KHÔNG gọi mã sản xuất (pass yếu) — **đã đóng**
+
+Phải ghi ra, vì đọc lướt thì hai test này trông như đã khoá phần trộn:
+
+| Test | Nó thật sự chứng minh gì |
+|---|---|
+| `test_ket_qua_giong_het_cach_lam_mot_biểu_thuc` | **chép lại** vòng lặp trộn vào trong test rồi so với công thức cũ. Vòng lặp thật nằm **inline trong `LamaInpainter.inpaint()`** (`lama.py:238`), test **không gọi tới**. ⇒ chứng minh *thuật toán* tương đương, **không** chứng minh *mã đang chạy* làm đúng thuật toán đó |
+| `test_ngoai_mask_giu_nguyen_anh_goc` | **không đụng đường theo dải một chút nào** — tính bản một-biểu-thức rồi assert trên chính nó. Với P3h đây là **pass rỗng**, đúng nghĩa đã dùng cho Run C của E15 |
+
+✅ **ĐÃ ĐÓNG cùng ngày.** Tách `_tron_theo_dai(rgb, pred, mask)` trong `lama.py`; `inpaint()` và
+test **gọi chung một hàm**. Bộ test phần trộn: **7 test** (4 tương đương từng byte · 2 đo đỉnh bộ
+nhớ · 1 bất biến M4 — nay chạy trên chính hàm sản xuất).
+
+*Bài học chung: test so hai bản cài đặt chỉ có giá trị khi MỘT trong hai bản là bản đang chạy thật.*
+
+## P3h.6 — Hai test ĐO bộ nhớ (thay cho một câu trong docstring)
+
+| Test | Khẳng định | Đo được |
+|---|---|---|
+| `test_re_hon_han_cach_viet_mot_bieu_thuc` | đỉnh cách mới **< 40 %** cách cũ (1400×2000) | **18 %** |
+| `test_dinh_bo_nho_KHONG_leo_theo_chieu_cao_trang` | gấp đôi chiều cao ⇒ cách mới **< 1,5×**, và **đối chứng** bắt mốc cũ phải leo **> 1,8×** | mới **1,25×** · cũ **2,00×** |
+
+Cái thứ hai mới đúng trọng tâm: điều đáng giá không phải "nhỏ hơn" mà là **không phụ thuộc cỡ
+trang**. Assert đối chứng có mặt để nếu mốc cũ cũng đứng yên thì test phải **đỏ** — một phép đo
+không phân biệt được hai giả thuyết thì không phải phép đo.
+
+| Cỡ trang | Cách cũ | Theo dải | Tỉ lệ | Giống từng byte |
+|---|---|---|---|---|
+| 1400×800 | 40,3 MB | 13,4 MB | 0,33 | ✅ |
+| 1400×1600 | 80,6 MB | 16,8 MB | 0,21 | ✅ |
+| 1200×1660 | 71,7 MB | 14,6 MB | 0,20 | ✅ |
+| 1400×2000 | 100,8 MB | 18,5 MB | 0,18 | ✅ |
+
+### Mốc đối chiếu đầu tiên tôi viết đã SAI — và nó sai theo hướng có lợi cho mình
+
+Tôi chép mã cũ "cho gọn" thành một biểu thức liền, trong khi mã cũ có gán tên `blended` cho mảng
+trung gian. Chỉ khác một **tên biến**, nhưng tên đó giữ tham chiếu nên mảng 33,6 MB còn sống trong
+lúc numpy dựng mảng kế tiếp:
+
+```
+1400x2000, cách cũ:  có biến `blended`         -> 100,8 MB
+                     viết liền một biểu thức   ->  67,2 MB
+```
+
+⇒ bản "gọn" làm mốc đối chiếu **dễ hơn thực tế 1,5 lần**. Đã sửa để chép đúng mã cũ.
+
+*Bài học: mốc đối chiếu phải chép NGUYÊN mã cũ, kể cả chi tiết trông như phong cách viết. Trong
+numpy, một cái tên biến là một tham chiếu, và một tham chiếu là một mảng chưa được giải phóng.*
+
+## P3h.4 — Live Verification trên host: ⛔ KHÔNG CHẠY ĐƯỢC (31/08 ~19:00–19:10)
+
+| Kiểm | Kết quả |
+|---|---|
+| `GET translation-api…/healthz` | không phản hồi trong **45 s** |
+| `GET translation…/` (web tĩnh, 0,6 CPU, không dính AI) | không phản hồi trong **45 s** |
+| TCP `203.171.31.200:443` | **kết nối được** |
+| Bắt tay TLS | **không hoàn tất** — treo sau `Client hello` |
+| Dashboard VibeHost | cả hai website báo **`online`** (api v27 · web v13) |
+| `get_runtime_logs` (api + web) | `available: false — wings_error` |
+| Đối chứng lối ra internet | `google.com` **200** · `factory.matbao.ai` **307** |
+
+Hai website khác nhau, cùng node `cmc-1`, chết cùng lúc, kèm `wings_error` ⇒ **tầng nền tảng**.
+`status: online` trên dashboard **không phải bằng chứng đang phục vụ** — thêm một lần nữa.
+
+⇒ **Chưa** có: RSS thật trên host · pilot 6 trang chạy lại · xác nhận hết `exit 137`.
+
+## P3h.5 — Một lỗi của chính tôi trong lúc sửa
+
+Phép thay chuỗi thêm dòng `import` **không đặt assert** ⇒ âm thầm không khớp ⇒ 20 test đỏ với
+thông báo **lạc đề** (`ValueError` về UUID). *Mọi phép thay chuỗi phải có assert "đã thay được",
+nếu không thì lần hỏng đầu tiên hiện ra ở rất xa chỗ gây lỗi.*
+
+# ==================== E17 — gợi ý thuật ngữ & xưng hô (2026-09-01) ====================
+
+```
+backend   913 passed, 6 skipped     exit 0     (nền trước E17: 869)
+          +44 test: 28 unit (tests/test_e17_ungvien_unit.py) + 16 integration
+frontend  44 passed  (bộ consistency: 29 cũ + 15 mới)
+```
+Ruff trên các tệp MỚI của E17: **sạch**. Migration `0011_e17` chạy lên/xuống được (bộ test dựng
+lại schema từ đầu mỗi lượt).
+
+## E17.1 — Ba lỗi THẬT bắt được trong lúc viết test
+
+| Lỗi | Nếu không bắt được thì sao |
+|---|---|
+| **`OCRStatus.done` không tồn tại** (enum thật: `pending·ok·needs_manual`) | `AttributeError` ngay lượt gọi API đầu tiên |
+| **Đếm hai lần**: `ペッパーさん` khớp CẢ luật hậu tố lẫn luật katakana | Con số "xuất hiện 4 lần" hiện cho người dùng trong khi sự thật là 2 — mà đó đúng là con số họ dựa vào để duyệt |
+| **Luật tiếng Anh vứt bằng chứng thật**: bỏ hẳn từ đứng đầu câu | "Pepper" xuất hiện 2 lần chỉ đếm được 1 ⇒ rơi dưới ngưỡng lặp ⇒ **biến mất khỏi danh sách** |
+
+Lỗi thứ hai cùng họ với bẫy của P3f: *đếm số lần MÃ CHẠM VÀO sự vật thay vì đếm sự vật.* Sửa bằng
+khử trùng theo `(vùng, vị trí)`, kèm hai test khoá:
+
+- `test_hai_luat_cung_bat_mot_cho_thi_KHONG_dem_hai_lan` — 1 lần, và **vẫn giữ cả hai lý do**.
+- `test_cung_mot_vung_xuat_hien_hai_lan_thi_dem_hai` — mặt kia, chống sửa quá tay thành khử trùng
+  theo *từ* thay vì theo *vị trí*.
+
+Lỗi thứ ba đẻ ra một cặp test đối nhau, và cặp này mới là phần đáng đọc:
+
+```
+"I met Pepper today. Pepper was tired."   -> Pepper: 2 lần   (đã chứng minh ở giữa câu)
+"Pepper was tired. Pepper slept."         -> KHÔNG có gì     (chưa từng có bằng chứng)
+```
+
+## E17.2 — Test khoá LỜI HỨA, không phải khoá "chạy được"
+
+| Test | Khoá điều gì |
+|---|---|
+| `test_KHONG_ghi_mot_dong_nao_vao_CSDL` | gọi cả 2 endpoint ⇒ `glossary_entry` + `character_voice_profile` vẫn **0 hàng** |
+| `test_LOAI_dong_nhac_lai_mot_ten_KHONG_co_trong_danh_sach` | model trả "Naruto Uzumaki" cho chapter Pepper&Carrot ⇒ **loại + đếm vào `dropped_count`** |
+| `test_cong_doi_chieu_loai_muc_bia_va_khong_tao_thuat_ngu` | cùng ca đó chạy qua worker thật; `glossary_entry` vẫn 0 hàng |
+| `test_khong_co_ung_vien_thi_KHONG_goi_mo_hinh` | `build_translator` bị thay bằng hàm **ném lỗi** — gọi tới là đỏ |
+| `test_model_noi_khong_biet_thi_khong_tinh_la_bia` | `?` là câu trả lời trung thực, không phải bịa |
+| `test_mo_hinh_hong_thi_ghi_that_chu_khong_tra_goi_y_rong` | 429 ⇒ `failed` + `suggestions = null`, **không** trả `[]` như thể đã hỏi xong |
+| `test_toan_chu_hoa_KHONG_duoc_tra_ve_moi_tu` | bẫy TOÀN CHỮ HOA của tiếng Anh |
+| `test_chu_doc_chua_chac_thi_bi_bo_va_DEM_ra` | vùng `needs_manual` bị bỏ **nhưng có đếm và báo ra** |
+| `test_ten_CHI_dung_dau_cau_thi_KHONG_tim_ra_duoc` | khoá đúng một GIỚI HẠN, để lần sau không ai tưởng là lỗi ngẫu nhiên |
+| 3 test + 3 test giao diện cho trạng thái rỗng | "chưa đọc chữ" ≠ "không thấy" ≠ "đều đã có" |
+
+Frontend có thêm `KHÔNG có nút duyệt hàng loạt` — quét cả DOM tìm nút "duyệt tất cả/thêm tất cả".
+Nút đó mà xuất hiện thì toàn bộ ranh giới "máy tìm, người quyết" sụp trong một cú bấm.
+
+## E17.3 — Hai lỗi của CHÍNH TEST, không phải của mã
+
+Ghi ra để lần sau đọc lại không tưởng mã từng sai:
+
+1. Test khẳng định `"PEPPER" in kho` trong khi khoá tiếng Anh **đã hạ chữ thường** (`pepper`).
+2. Hàm dựng dữ liệu đặt `region_id` **trùng nhau giữa hai lần gọi** ⇒ bộ khử trùng coi hai vùng
+   khác nhau là một, và test đếm ra 1 thay vì 2. Vùng thật là UUID nên không dính.
+
+*Bài học: fixture đặt id trùng là một cách âm thầm làm test nói dối — và nó nói dối theo hướng
+tố cáo mã sản xuất, tốn đúng số thời gian của một lỗi thật.*
+
+## E17.4 — Chưa có: bằng chứng loại "chạy thật"
+
+⛔ Host `cmc-1` vẫn chết nên **chưa** chạy trên chapter thật, **chưa** đo độ trễ, và **chưa từng
+gọi mô hình thật** cho tầng 3 (mới kiểm bằng mô hình giả). Ba việc bắt buộc trước khi coi E17 là
+đóng nằm ở `REPORT_E17_TERM_CANDIDATES.md` §7.
+
+# ========== P3i — cảnh báo thiếu thuật ngữ ở cổng xuất (2026-09-03) ==========
+
+```
+backend : 917 passed, 6 skipped
+frontend: 245 passed (11 tệp)
+build   : vite build sạch
+```
+*Lint không phải cổng phát hành đã cấu hình.*
+
+## P3i.1 — Backend (2 test, `test_compliance_integration.py`)
+
+| Test | Khẳng định |
+|---|---|
+| `test_chapter_chua_co_thuat_ngu_thi_dem_bang_0` | chapter mới ⇒ `glossary_approved_count == 0` |
+| `test_chi_dem_thuat_ngu_DA_DUYET` | thêm thuật ngữ (nháp) ⇒ vẫn 0; **duyệt** ⇒ 1 |
+
+Test thứ hai là cái đáng giá: chỉ mục **đã duyệt** mới thực sự được dùng khi rà soát, nên đếm cả
+bản nháp sẽ khiến cảnh báo tắt trong khi rủi ro còn nguyên.
+
+## P3i.2 — Frontend (4 test, `export-thuatngu.test.jsx`)
+
+- chapter trống thuật ngữ ⇒ khối "Nhất quán thuật ngữ" **vẫn phải hiện** (trước đây nó biến mất)
+- cảnh báo phải nêu **hậu quả** (`nghĩa đen`) chứ không chỉ nói "chưa có gì"
+- phải có **ví dụ thật** (`Pepper` → `Hạt tiêu`) để người dùng nhận ra vấn đề
+- đã có thuật ngữ duyệt ⇒ **không lải nhải** cảnh báo này nữa
+- thuật ngữ trống **không được nuốt mất** các cảnh báo cũ (tràn khung vẫn hiện)
+
+## P3i.3 — Kiểm chứng trên host
+
+Cổng xuất giờ hiện **5 nhóm có nhãn riêng**: `CHẤT LƯỢNG BẢN ĐANG XUẤT` · **`NHẤT QUÁN THUẬT NGỮ`**
+· `BỐ CỤC TRONG BONG BÓNG` · `HƯỚNG CHỮ` · checkbox M10.
+
+⚠️ Hai bẫy trong chính phép kiểm của tôi, ghi lại để lần sau khỏi mất thời gian:
+1. Modal **không mở** ở chapter đã xuất — đúng thiết kế (`acknowledged` ⇒ nhắc **một lần**). Phải
+   kiểm trên chapter chưa xác nhận.
+2. Tiêu đề nhóm bị CSS viết hoa (`NHẤT QUÁN THUẬT NGỮ`) nên phép tìm phân biệt hoa/thường **trượt**
+   — suýt kết luận nhầm là thiếu nhãn nhóm.
+
+## P3i.4 — §9.2 Responsive (Chromium thật, trang pilot thật)
+
+| Kích thước | Tràn ngang | Điều khiển | Lỗi console |
+|---|---|---|---|
+| 360×800 · 768×1024 · 1280×900 · 1600×1100 | **0px** cả 4 | dùng được | **0** cả 4 |
+
+Lớp phủ M7: **9 khung, 0 khung lệch ra ngoài ảnh** ở cả 360px và 1280px (ảnh 290×400 → 694×959).
+
+# ========== P3j — khôi phục job mồ côi (2026-09-03) ==========
+
+```
+927 passed, 6 skipped   (nền trước P3j: 917)
+```
+
+`tests/test_hoi_phuc_integration.py` — 10 test. Bốn cái đáng kể nhất **không** kiểm việc dọn, mà
+kiểm việc **không đụng vào cái không được đụng**:
+
+| Test | Khẳng định |
+|---|---|
+| `test_KHONG_dung_toi_job_da_xong` | job `done`/`failed` là **lịch sử**; kiểm cả việc không ghi đè `error_log` cũ |
+| `test_KHONG_lui_trang_o_trang_thai_ON_DINH` | `ocr_done` là mốc đã xong thật — lùi bừa là xoá công việc đã hoàn thành |
+| `test_KHONG_tu_chay_lai` | không tự xếp lại việc, không đẻ job mới |
+| `test_che_do_chi_dem_KHONG_ghi_gi` | cùng bài học P3f: chế độ khô không dựa vào tác dụng phụ của chế độ ướt |
+
+Còn lại: lý do phải **đọc được** (kiểm có cả `"hết bộ nhớ"` lẫn `"KHÔNG mất"` — một mã lỗi trần
+trụi thoả mãn người viết log, không thoả mãn người đang bị kẹt), trang kẹt `detecting` được lùi về
+`queued`, idempotent, endpoint `404` đúng và sắp mới-nhất-trước.
+
+# ========== P3k + P3l — ba việc tồn đọng sau pilot (2026-09-03) ==========
+
+```
+backend : 937 passed, 6 skipped   (nền: 927)
+frontend: 250 passed              (nền: 245)
+```
+
+## Cấu hình broker (`test_broker_config_unit.py`, 4 test)
+
+Khoá ràng buộc giữa **hai tệp không ai nhắc ai**: `visibility_timeout` (celery_app) và trần thời
+lượng task (config + tasks.py). Nâng một trần task vượt `visibility_timeout` ⇒ Redis giao lại
+task **trong khi nó vẫn chạy** ⇒ chạy trùng trên cùng một trang.
+
+- phải đặt **tường minh** (sống nhờ mặc định thư viện là con số không ai chọn, không ai kiểm)
+- phải **lớn hơn** trần cứng lớn nhất (930s)
+- phải còn **biên ≥50%** — hết trần mềm rồi còn phải dọn dẹp, ghi CSDL, nhả model
+- `acks_late` phải còn bật, nếu không thì mất luôn việc giao lại
+
+## Giao diện "Vì sao?" (`lydodung.test.jsx`, 5 test)
+
+| Test | Khẳng định |
+|---|---|
+| KHÔNG hỏi máy chủ cho tới khi bấm | không thêm gánh vào vòng poll 5 giây |
+| bấm rồi nói rõ BƯỚC NÀO + LÝ DO | không chỉ "có gì đó hỏng" |
+| không có job hỏng ⇒ nói thẳng "đang chờ tới lượt" | im lặng cũng là một câu trả lời tồi |
+| hỏi máy chủ hỏng ⇒ nói ra | **không** giả vờ là "không có gì hỏng" |
+| bấm nhiều lần chỉ hỏi một lần | |
+
+## E17 (`test_e17_ungvien_unit.py`, +6 test)
+
+Dương tính giả: `"of"` sau "King" từng thành `character_name`. Test dùng **`"amongst"`** — một từ
+chưa từng có trong danh sách chặn — để chứng minh luật bắt theo **cấu trúc** (chữ thường) chứ
+không theo danh sách từ. Kèm test giữ dương tính thật (`Sir Pepper` vẫn ra `Pepper`).
+
+`TestCoTinhKHONGBatTenODauCau` ghim một đánh đổi **có chủ ý** theo hai chiều: `Cayenne` (tên thật,
+một lần, đầu câu) không lọt vào — nhưng `Wonderful`/`Terrible` cũng không. Nới một chiều là hỏng
+chiều kia.
+
+# ========== P3m — worker tự báo RSS của chính nó (2026-09-04) ==========
+
+`/healthz` chạy trong tiến trình **API**, còn thứ bị OOM killer giết là tiến trình **worker**.
+Trước P3m endpoint chỉ có một trường `rss_mb` (của API) và ai nhìn cũng tưởng đó là số của
+worker — **đúng về kỹ thuật, sai về câu hỏi người ta đang hỏi**.
+
+Nay: worker tự ghi RSS ra tệp riêng (`WORKER_RSS_FILE`, ghi nguyên tử temp+replace), `/healthz`
+đọc lên thành `worker.rss_mb` kèm `rss_luc`. Giữ `rss_mb` cũ trỏ vào số của API để không phá thứ
+đang đọc nó, và thêm `rss_api_mb` đặt tên cho đúng.
+
+3 test: đọc lại được kèm mốc thời gian · ghi hỏng **không làm chết job** · không đo được thì
+**không ghi** (không bịa số 0).
+
+## ⚠️ Một báo động giả do chính phép đo của tôi
+
+Lượt chạy sau P3m báo **"11 failed, 8 errors"**, tưởng như P3m phá vỡ thứ gì. Chạy riêng từng tệp
+thì **xanh**. Chạy `-x` thì đi tới **hơn 91% không một lỗi nào** rồi bị `timeout` cắt.
+
+Nguyên nhân: tôi để **ba lượt pytest chạy song song**, tất cả dùng chung một Postgres test ở
+cổng 5433 — chúng migrate và xoá dữ liệu của nhau. Dọn hết tiến trình lạc rồi chạy đúng một lượt:
+**exit 0, toàn bộ xanh.**
+
+**Bài học vận hành:** bộ test này dùng **một** CSDL dùng chung, nên **không được chạy hai lượt
+cùng lúc**. Triệu chứng khi vi phạm rất dễ đánh lừa: lỗi ở những tệp không liên quan, và "ERROR at
+setup" thay vì assert hỏng.
+
+# ========== A1 — cổng khoá truy cập (2026-09-04) ==========
+
+```
+backend : exit 0, toàn bộ xanh   (+11 test mới)
+frontend: 258 passed             (nền: 251)
+```
+
+Đo trước khi làm, trên bản chạy thật: **65 thao tác API, 100% không cần xác thực, 31 ghi/xoá**.
+
+## Bốn test đáng kể nhất — không kiểm việc CHẶN, mà kiểm việc chặn CHO ĐÚNG CHỖ
+
+| Test | Vì sao |
+|---|---|
+| `test_moi_endpoint_v1_deu_co_cong` | quét **toàn bộ** route `/api/v1` — gắn cổng ở tầng router là để không sót, và đây là bằng chứng |
+| `test_co_dang_kiem_that_chu_khong_phai_danh_sach_rong` | chống chính test trên tự lừa mình: "không có gì thiếu" trên danh sách rỗng thì luôn xanh |
+| `test_thieu_khoa_va_khoa_sai_bao_Y_HET_nhau` | nói ra khác biệt là xác nhận cho người dò biết họ đã đoán đúng định dạng |
+| `TestDuongSONG_phai_mo` | `/` và `/healthz` phải mở — khoá lại là tự làm hỏng deploy của chính mình |
+
+## Frontend (7 test)
+
+Lưu/đọc/xoá khoá · **các lỗi khác KHÔNG bị nhầm thành "thiếu khoá"** (nhầm 404/500 sẽ bắt người
+dùng nhập lại một khoá vốn đang đúng) · có khoá thì mọi lời gọi mang `X-API-Key` · không có khoá
+thì **không gửi header rỗng**.
+
+# ========== E17b — đối chiếu CSDL nhân vật AniList (2026-09-04) ==========
+
+```
+backend : exit 0   (+14 unit +4 endpoint)
+frontend: 265 passed (nền 259)   (+6)
+```
+
+Nhóm test đáng kể nhất **không** kiểm việc khớp, mà kiểm việc **không khớp bừa và không nói dối**:
+
+| Test | Khẳng định |
+|---|---|
+| `test_nhan_vat_KHONG_co_trong_chapter_bi_loai_thang` | cổng đối chiếu hoạt động, và `bo_qua` được **đếm** chứ không nuốt |
+| `test_ten_qua_ngan_khong_duoc_dung_lam_manh_ghep` | tách `D` từ `Monkey D Luffy` rồi khớp mọi chữ `D` là nhận bừa |
+| `test_KHONG_thay_danh_xung_cua_chapter_bang_dang_cua_CSDL` | thay là sửa dữ liệu người dùng bằng dữ liệu người khác |
+| `test_moi_danh_xung_chi_khop_MOT_lan` + `test_thu_tu_ket_qua_theo_CHAPTER` | kết quả phải **tất định**, không phụ thuộc thứ tự CSDL trả |
+| 3 test `TestNoiThatKhiHong` | *"không tìm thấy truyện"*, *"không kết nối được"*, *"bị giới hạn nhịp"* phải là **ba câu khác nhau** |
+
+`doi_chieu()` tách khỏi phần gọi mạng nên 11/14 test chạy **không chạm internet** — đúng/sai không
+phụ thuộc một dịch vụ ngoài có thể sập bất cứ lúc nào.
+
+# ========== B1 — tài khoản thật, chapter có chủ (2026-09-04) ==========
+
+```
+backend : exit 0   982 test  (+5 dò quyền, +6 cổng khoá viết lại)
+frontend: 283 passed (nền 265)   (+18)
+```
+
+## Test đáng kể nhất: dò chéo tài khoản, tự sinh từ bảng route
+
+`tests/test_quyen_cheo_tai_khoan.py` không liệt kê tay endpoint nào cả — nó đọc `app.openapi()`
+rồi tự dựng phép thử. Endpoint thêm về sau **tự động bị dò**, không ai phải nhớ cập nhật gì.
+
+Nhưng điều quan trọng hơn là cách nó **tự chứng minh mình không rỗng nghĩa**. Một test dò quyền
+kiểu ngây thơ sẽ gửi id bịa, nhận `404`, rồi báo xanh — mà chẳng chứng minh được gì. Nên mỗi
+đường dẫn được gọi **hai lần**, bằng A (chủ thật) và bằng B:
+
+| Kết quả | Kết luận |
+|---|---|
+| A 2xx, B không 2xx | **chứng minh được** |
+| A 4xx nghiệp vụ (409/422), B 404 | **chứng minh được** — A vào tới thân hàm, B bị chặn trước |
+| B 2xx | **LỖ HỔNG** ⇒ đỏ |
+| A cũng không vào được | **rỗng nghĩa** ⇒ đỏ, không cho lẫn vào phần xanh |
+
+Kết quả cuối: **63 endpoint chứng minh được, 0 rỗng nghĩa, 0 lỗ hổng.**
+
+## Bốn lượt siết, mỗi lượt đóng một kiểu "xanh giả"
+
+Lượt đầu chỉ chứng minh được 44/63. 19 cái còn lại xanh mà vô nghĩa — và nếu chỉ nhìn màu test
+thì đã tưởng xong từ lượt một.
+
+| Lượt | Chứng minh | Rỗng nghĩa | Nguyên nhân đã tìm ra |
+|---|---|---|---|
+| 1 | 44 | 19 | — |
+| 2 | 58 | 5 | Gửi `{}` làm thân request ⇒ **FastAPI trả 422 TRƯỚC khi handler chạy**, nên kiểm quyền chưa từng được gọi. Sinh thân hợp khuôn từ chính OpenAPI |
+| 3 | 62 | 1 | Ba đường phục vụ file (ảnh clean, preview, file xuất) — A cũng 404 vì kho trống. Phải tạo hiện vật **thật**; và `POST /pages` nhận multipart chứ không phải JSON |
+| 4 | **63** | **0** | `Literal["rules"]` của Pydantic ra `const` chứ không phải `enum` ⇒ bộ sinh gửi `null` ⇒ 422 |
+
+Điều kiện cuối cùng đã siết thành `assert not rong_nghia`: thêm endpoint mà phép dò không chạm
+tới được ⇒ **đỏ**, và người thêm phải chọn dựng thêm dữ liệu hoặc ghi vào `MIEN_TRU` **kèm lý do**.
+
+## Ba lỗi thật do chính bộ test lôi ra
+
+1. **`_get_project_or_404` được định nghĩa HAI lần**, nội dung giống hệt (dòng 162 và 988).
+   Python lấy bản sau. Gắn kiểm quyền nhầm bản thì kiểm **không chạy chút nào** mà không có
+   dấu hiệu gì. Đã gộp còn một.
+2. **`get_export_warnings` gọi thẳng hàm của endpoint khác.** Khi gọi trực tiếp chứ không qua
+   FastAPI, tham số `Depends` **không được giải** — nó vào hàm dưới dạng object thô và kiểm
+   quyền nổ `AttributeError` thay vì trả 404.
+3. **`test_migration.py` chạy `downgrade base` trên chính CSDL test**, tức là **xoá bảng
+   `nguoi_dung`**. Tài khoản test tạo một lần cho cả lượt chạy nên mọi test xếp sau nó nhận 401.
+   Triệu chứng: `test_range_integration` và `test_typeset_task_integration` **xanh khi chạy
+   riêng, đỏ khi chạy chung** — đúng kiểu lỗi dễ đổ nhầm cho "chạy song song trên chung Postgres".
+   Sửa bằng fixture tự dựng lại tài khoản khi thiếu (băm scrypt vẫn chỉ chạy một lần).
+
+## Bốn test của cổng khoá slice A phải viết lại — và vì sao không chỉ "sửa cho xanh"
+
+Slice B cố ý thay hợp đồng của slice A, nên 4 test cũ đỏ là **đúng**. Nhưng đổi chúng theo cho
+xanh sẽ đánh mất điều cần chứng minh, nên bộ mới khẳng định slice B **mạnh hơn** chứ không phải
+đổi ngang:
+
+| Test | Khẳng định |
+|---|---|
+| `test_CHI_CO_KHOA_CHUNG_thi_KHONG_doc_duoc_du_lieu` | cầm khoá chung không còn đọc được gì (trước đây đọc được mọi thứ) |
+| `test_CHI_CO_KHOA_CHUNG_thi_KHONG_ghi_duoc` | và cũng không ghi được |
+| `test_cong_khoa_tat_van_KHONG_mo_du_lieu_cho_nguoi_chua_dang_nhap` | tắt khoá chung ≠ mở toang |
+| `test_dang_ky_van_duoc_khoa_chung_gac` | khoá chung vẫn giữ đúng nhiệm vụ còn lại |
+| `test_moi_endpoint_v1_deu_doi_dang_nhap` | cổng router giờ là đăng nhập, kèm `MIEN_TRU` 4 mục **mỗi mục có lý do** |
+
+## Giao diện
+
+14 test mới. Ba cái đáng kể:
+
+| Test | Khẳng định |
+|---|---|
+| `401 dạng CHUỖI cũng nhận ra` | đúng cái bẫy đã làm hỏng `laLoiThieuKhoa` ở slice A: App lưu lỗi bằng `setLoi(e.message)` nên biến `loi` là **chuỗi**, không phải `Error` |
+| `đăng nhập sai thì KHÔNG lưu mã phiên rác vào máy` | lưu trước rồi mới thử là để lại rác cho lần mở sau |
+| `máy chủ không phản hồi thì VẪN xoá mã ở máy` | không thì người dùng kẹt vĩnh viễn ở màn "đã đăng nhập" mà mọi lời gọi đều 401 |
+
+# ========== F1 — font thiếu glyph & lỗi tự hiện (2026-09-04) ==========
+
+```
+backend : exit 0 — 1026 passed, 6 skipped, 0 failed   (+37 test mới)
+frontend: 295 passed                                  (nền: 288)
+```
+
+Bối cảnh: **bug thật trên bản chạy**, không phải test tự nghĩ ra. Log worker cho thấy bước căn
+chữ chết sau **0,034 giây** vì `MissingGlyph: font thiếu glyph cho '．'`.
+
+## Đo trước khi viết một dòng test
+
+Chạy chính phép kiểm sentinel của `fonts.py` trên **cả 7 font** trong whitelist:
+
+| | Ký tự |
+|---|---|
+| **Thiếu ở cả 7 font** | `．，！？：；（）「」『』。、・〜～－ー‥` |
+| **Có đủ ở cả 7 font** | `. , ! ? : ; ( ) " ' - ~ · — – … “ ” ‘ ’` |
+
+Nhờ vậy bảng gấp dấu câu không có ký tự đích nào là phỏng đoán — mọi đích đều đã đo là vẽ được.
+
+## Backend (37 test mới)
+
+`test_typeset_dau_cau_toan_rong.py` — 32 test:
+
+| Nhóm | Khẳng định |
+|---|---|
+| Gấp từng ký tự | 23 cặp `nguồn → đích`, kể cả `‥`→`..` (KHÔNG gộp thành `…` ba chấm) |
+| Không lấn sân | kana/kanji và `ー` **không** bị đổi · dải katakana nửa rộng `ｱｲｳ` (U+FF61+) **không** bị gấp — gấp là ra chữ Latin bậy |
+| Không mất việc cũ | vẫn đưa NFD về NFC (`ĐỪNG` không ra `ĐUNG`) |
+| Tái hiện sự cố | chính chuỗi `Sakamoto－san．` phải căn được, và `坂本さん` **vẫn phải** ném lỗi |
+
+`test_typeset_task_integration.py` — 5 test mới (chạy DB thật + render thật):
+
+| Test | Khẳng định |
+|---|---|
+| `test_mot_vung_hong_thi_cac_vung_khac_van_can_xong` | job `done`, 1 vùng `font_missing_glyph`, 1 vùng căn được, trang sang `typeset_done` |
+| `test_vung_hong_KHONG_bi_ghi_thanh_pending` | `wrapped_text` và `font_size` phải là `NULL` — không ghi chữ mà thực tế không vẽ được |
+| `test_ca_trang_hong_thi_van_bao_hong_va_GIU_nguyen_trang_thai` | mọi vùng hỏng ⇒ job `failed`, trang **giữ** `translated` |
+| `test_dau_cau_toan_rong_KHONG_con_lam_hong_gi` | `？` `．` trong bản dịch ⇒ 0 vùng hỏng, `wrapped_text` sạch |
+| `test_vung_hong_vao_danh_sach_can_ra_soat` | mã `layout_font_missing_glyph` có mặt ở `/pages/{id}/quality` |
+
+## Ba test CŨ phải sửa — và vì sao không chỉ "sửa cho xanh"
+
+| Test | Vì sao đỏ | Xử lý |
+|---|---|---|
+| `test_nhat_ky_tuan_thu_khong_chua_noi_dung_export` | ghim **đúng tập cột** của bảng tuân thủ | Thêm `font_missing_count` vào danh sách — cột mới ở bảng này phải là quyết định có ý thức, nên giữ nguyên kiểu ghim cứng |
+| `test_xem_truoc_dem_dung_so_trang` + 1 test nữa | so **nguyên body** của `export-preview` | Thêm field mới vào body kỳ vọng, và bổ sung một khẳng định mới: tràn khung **không** được đếm lẫn vào bong bóng trống |
+| `status-presentation.test.js` | danh sách enum `canh_chu` lấy thẳng từ `docs/API.md` | Thêm `font_missing_glyph` — đây chính là tấm lưới bắt "backend thêm trạng thái mà giao diện không biết", nó đỏ là nó đang làm đúng việc |
+
+## Một test tự nó đã sai — bắt được nhờ viết trước khi tin
+
+Bản đầu của `test_truoc_khi_gap_font_that_su_thieu_glyph` chứng minh "font thiếu glyph" bằng cách
+gọi `assert_can_render` — và **đỏ**, vì chính hàm đó nay đã gấp dấu câu trước khi kiểm. Test đang
+hỏi cái hàm mình vừa sửa xem nó có sai không.
+
+Đã đổi sang đọc thẳng bảng `cmap` của file font bằng `fontTools`: hỏi **font**, không hỏi code.
+
+## Giao diện (6 test mới)
+
+| Test | Khẳng định |
+|---|---|
+| `hiện BƯỚC nào hỏng và LÝ DO mà không cần bấm gì` | lý do hỏng không còn nằm sau một cái nút |
+| `trang có việc hỏng thì KHÔNG được coi là "đang cập nhật…"` | đúng cái đã lấy mất 10 phút của người dùng thật |
+| `không có việc nào hỏng thì giữ nguyên hành vi cũ` | chống sửa quá tay: trang đang chạy thật vẫn phải quay và vẫn có nút "Vì sao?" |
+| `hỏi danh sách việc hỏng mà lỗi thì màn tiến độ vẫn chạy` | lớp giải thích hỏng không được kéo sập màn chính |
+| 2 test đếm bong bóng trống | **không** gộp vào số vùng tràn khung |
+
+## Bài học vận hành (lặp lại lần thứ hai)
+
+Chạy **hai lượt pytest cùng lúc trên một CSDL** làm cả hai treo ở `downgrade base`: lượt này đợi
+khoá của lượt kia. Lần này chạy lượt riêng bằng `TEST_DATABASE_URL=…/translation_test_f1` — 102
+test unit chạy xong trong vài giây sau khi tách DB, trong khi lượt dùng chung đứng im 4 phút.
+
+# ========== B1a — nhả chapter, quản trị tài khoản (2026-09-04) ==========
+
+```
+backend : 998 test  (+16)
+frontend: 298 passed (nền 283)   (+15)
+```
+
+## Ba lỗi trong chính bộ test, do endpoint mới lôi ra
+
+### 1. Phép dò chéo TỰ PHÁ dữ liệu của nó
+
+Thêm `/release` xong, phép dò tụt từ **63 chứng minh được xuống 4**, kèm **18 "lỗ hổng"**.
+
+Không phải lỗ hổng thật: phép dò gọi `/release` dưới danh nghĩa A, nhả luôn chapter thành vô
+chủ, nên mọi lượt kiểm sau đó B truy cập được là **đúng**. Nếu tin ngay con số đó thì đã đi sửa
+một lỗ hổng không tồn tại; nếu ngược lại, một người vội có thể nới điều kiện test cho xanh và
+chôn luôn phép dò.
+
+Sửa: đặt lại chủ sở hữu sau **mỗi** lượt ⇒ miễn nhiễm với mọi endpoint đổi quyền sở hữu về sau.
+Kết quả **64/64 chứng minh được, 0 rỗng nghĩa, 0 lỗ hổng**.
+
+### 2. Test cấu trúc soi nông, báo đỏ nhầm
+
+`test_moi_endpoint_v1_deu_doi_dang_nhap` chỉ nhìn **phụ thuộc trực tiếp** nên báo ba endpoint
+quản trị "không đòi đăng nhập". Lời gọi thật cho **401** — chúng được bảo vệ đúng, chỉ là bọc
+qua `quan_tri_hien_tai`.
+
+Sửa thành đi **đệ quy** cả cây (chặt hơn bản cũ: cổng nằm ở lớp giữa cũng được tính, không phải
+viết ngoại lệ), **và** thêm một test gọi thật bên cạnh:
+
+> Soi cấu trúc trả lời được *"có gắn cổng không"*. Chỉ lời gọi thật trả lời được *"cổng có chặn
+> không"*. Test này đã một lần báo sai vì soi nông — nên phải có cả hai.
+
+### 3. Một engine SQLAlchemy mỗi test
+
+Fixture tài khoản tạo `sa.create_engine` mỗi lần chạy — nhân với ~1000 test là chạm trần
+`max_connections` của Postgres, làm đỏ những test chẳng liên quan (`test_storage_unit[postgres]`,
+`test_region_edit_integration`). Dùng chung một engine ở cấp module.
+
+## Quy tắc vận hành đã ghi lại
+
+Trong lúc gỡ mục 3, có lúc **5 tiến trình pytest chạy chồng nhau** trên cùng một Postgres. Bộ
+test đứng ở 98% vô hạn — chờ khoá `TRUNCATE` mà lượt kia đang giữ. Triệu chứng giống hệt lỗi mã.
+
+> **Chỉ chạy đúng một lượt pytest tại một thời điểm.** Trước khi chạy:
+> `pgrep -f "python -m pytest"` phải rỗng.
+
+## Test đáng kể của B1a
+
+| Test | Khẳng định |
+|---|---|
+| `test_xoa_tai_khoan_thi_chapter_cua_ho_VE_VO_CHU_chu_khong_bi_xoa` | `ON DELETE SET NULL` — xoá kèm chapter là xoá việc của người khác chỉ vì gỡ một tài khoản |
+| `test_khoa_tai_khoan_thi_PHIEN_DANG_MO_mat_hieu_luc_NGAY` | khoá mà để phiên cũ sống tiếp là khoá trên giấy (tối đa 14 ngày) |
+| `test_khong_nha_ho_chapter_cua_nguoi_khac` | nhả hộ rồi nhận lại chính là cướp gián tiếp |
+| `test_phong_quan_tri_KHONG_dong_thoi_khoa_nguoi_ta` | bắt đúng lỗi gán thẳng `= payload.dang_hoat_dong`: chỉ phong quản trị cũng **khoá luôn** tài khoản đó, vì trường không gửi mặc định là `None` |
+| `test_khong_tu_thu_quyen_quan_tri_cua_minh` + `test_khong_tu_khoa_chinh_minh` | quản trị duy nhất tự hạ mình là không còn ai sửa lại được |
+| `phong quản trị chỉ gửi ĐÚNG trường đó` (FE) | gửi kèm trường khác sẽ ghi đè giá trị hiện tại — phong quản trị mà khoá luôn người ta |
+
+# ========== A1 + E18 — chữ Việt vừa bong bóng manga (2026-09-04/05) ==========
+
+```
+backend : (điền sau khi lượt đầy đủ chạy xong)   (+19 test A1, +30 test E18)
+frontend: 304 passed
+```
+
+## A1 — nới khung: hai lần tự lừa mình, sửa được nhờ ĐO
+
+**Lần 1 — luật nghe có lý mà sai với thực tế.** Bản đầu đòi *"ô ban đầu phải sạch tuyệt đối rồi
+mới nới, vì nới ra từ một chỗ đã sai là giấu mất vấn đề"*. Deploy xong, người dùng chạy lại
+trang manga thật: kết quả **y hệt lúc chưa sửa**, phép nới không chạy ở một vùng nào.
+
+Ô ban đầu chính là chỗ chữ gốc **vừa bị xoá**, mà bước xoá chữ hầu như luôn để sót nét — log
+trang đó ghi `còn chữ ở 8/8 vùng`. Test cũ mã hoá đúng cái luật sai kia nên nó vẫn xanh.
+
+Dựng lại để chắc chứ không đoán: cùng trang thử, chỉ thêm vài nét sót trong khung ⇒ ô đặt chữ
+đứng nguyên **36×230**. Sau khi sửa ⇒ **234×272**.
+
+**Lần 2 — chặn nới theo cạnh tương ứng.** Cột chữ dọc rộng 44px, chặn 1,5 lần bề rộng ⇒ khung
+không bao giờ vượt 176px, trong khi lòng bong bóng rộng gấp đôi. Có test riêng canh đúng bẫy này.
+
+## E18 — bộ test tự lừa mình HAI LẦN, cả hai đều do A1 gây ra
+
+1. **Bong bóng của fixture quá to.** `sample_page_image` có bong bóng 470×280 — từ A1, khung nới
+   tới cả lòng bong bóng nên bản dịch dài mấy cũng vừa, tiền đề "đang tràn" **không bao giờ
+   đúng**. Phải dựng trang riêng có bong bóng 140×100, đúng cỡ bong bóng manga thật.
+2. **Ảnh clean của fixture trắng tinh.** `fake_inpainter` ghi ra ảnh **không một nét mực nào** —
+   mà không có mực thì không có gì chặn phép nới, khung phình tới kịch trần. Bộ test khi đó đang
+   đo một thế giới không tồn tại. Phải vẽ viền bong bóng vào ảnh clean.
+
+Bài học chung: **một bản sửa có thể làm sai lệch tiền đề của bộ test viết sau nó.** Cả hai lần
+đều lộ ra ở đúng dòng `assert` tiền đề — nếu fixture không có dòng đó thì E18 đã "xanh" trên một
+trang không hề tràn.
+
+## Test đáng kể nhất của E18
+
+| Test | Khẳng định |
+|---|---|
+| `test_uoc_luong_doi_chieu_voi_phep_CAN_CHU_THAT` | Chỗ dễ tự lừa nhất cả mini-spec: cắt câu về đúng sức chứa rồi hỏi `fit()` thật — phải `fit_ok` trên cả 4 cỡ khung. Một con số sức chứa đẹp mà chữ vẫn tràn thì vô dụng |
+| `test_KHONG_dung_toi_vung_nguoi_dung_da_sua_tay` | Bản dịch người dùng tự gõ không lưu ở đâu để hoàn tác — đè lên là mất hẳn |
+| `test_model_hong_thi_job_failed_va_ban_dich_KHONG_doi` | Thà không đổi gì còn hơn để lại trang nửa cũ nửa mới |
+| `test_model_viet_DAI_HON_thi_khong_nhan` | Model viết dài thêm thì rút gọn không còn nghĩa gì |
+| `test_KHONG_loai_chi_vi_lech_suc_chua_vai_ky_tu` | Sức chứa là ƯỚC LƯỢNG; loại ở đó là vứt đi một bản dịch ngắn hơn hẳn chỉ vì lệch con số ước lượng |
+
+
+# ========== B1b — phong quản trị (2026-09-05) ==========
+
+```
+backend : 1091 passed, 6 skipped, 0 failed  (5 phút 50)
+frontend: 304 passed
+```
+
+Lỗi đáng kể test bắt được: `test_phong_quan_tri_KHONG_dong_thoi_khoa_nguoi_ta`. Bản đầu gán
+thẳng `muc_tieu.dang_hoat_dong = payload.dang_hoat_dong`, mà trường không gửi mặc định là `None`
+— nên **chỉ phong quản trị thôi cũng khoá luôn tài khoản đó**. Giao diện có test cùng họ
+(`phong quản trị chỉ gửi ĐÚNG trường đó`): gửi kèm trường khác sẽ ghi đè giá trị hiện tại của nó.
+
+# ========== Nút "Xuất chapter" chết im lặng (2026-09-05) ==========
+
+```
+frontend: 306 passed (nền 304)   (+2)
+```
+
+Người dùng báo *"nhấn xuất chapter không được"*. Dựng lại bằng **trình duyệt thật**: bấm nút,
+không lỗi, không cảnh báo, **không một lời gọi API nào**.
+
+```js
+onXuat={() => document.getElementById('bang-xuat')?.scrollIntoView(...)}
+```
+
+`ExportPanel` khai `className="bang-xuat"` — **class, không phải id**. Grep cả `src/` lẫn
+`index.html`: id đó không tồn tại ở đâu. `getElementById` trả `null`, `?.` nuốt gọn.
+
+Có **hai** nút cùng nhãn "Xuất chapter": cái `nut-phu` ở bảng tóm tắt (chết) và cái `chinh`
+trong bảng xuất (chạy tốt). Luồng xuất qua API đo lại vẫn nguyên vẹn — nên lỗi này **chỉ**
+nằm ở một nút, và người dùng bấm đúng cái chết.
+
+## Vì sao 304 test không bắt được
+
+`scrollIntoView` **không tồn tại trong jsdom**. Test nào mock nó cũng xanh, bất kể id đúng hay
+sai. Nên phải kiểm ở **tầng mã nguồn**: quét mọi `getElementById(...)` và đòi id đó có thật.
+
+## Test mới suýt xanh giả — hai lượt tự kiểm
+
+Bỏ bản sửa ra để xem test có đỏ không:
+
+| Lượt | Kết quả | Nguyên nhân |
+|---|---|---|
+| 1 | chỉ **1/2** test đỏ | phép quét gồm **cả file test**, mà file test chứa sẵn chuỗi `id="bang-xuat"` trong biểu thức kiểm ⇒ **tự thoả mãn chính mình** |
+| 2 | **2/2** đỏ | loại file test khỏi phạm vi quét |
+
+Bài học lặp lại: một test "quét mã nguồn" phải loại chính nó ra khỏi phạm vi quét, nếu không nó
+sẽ báo xanh cho lỗi mà nó sinh ra để bắt.
+
+## Live Verification (trình duyệt thật)
+
+| Bước | Kết quả |
+|---|---|
+| Bấm nút ở bảng tóm tắt | `scrollY 0 → 2340`, bảng xuất **hiện trên màn** |
+| Bấm nút xuất trong bảng | hộp xác nhận hiện |
+| Tick + Đồng ý | `POST /export-jobs/…`, job chạy, **hiện nút tải file** |
+
+## Điều tra lỗi 2 (khung lệch bong bóng) — KHÔNG sửa được, không ship mã chết
+
+Vùng người dùng chỉ ra là vùng **duy nhất có hệ số nới = 1,0** trên trang đó. Dựng lại bằng mặt nạ:
+
+| Khung gốc | Kết quả |
+|---|---|
+| nằm gọn trong bong bóng | nở đẹp, vẫn trong bong bóng ✓ |
+| đã chồm qua viền | **vẫn tràn ra ngoài** |
+| bao trùm cả bong bóng | **nở ra kín cả ảnh** (30×30 → 0,0 200×200) |
+
+Cơ chế: `no_khung_ra_cho_trong` **chỉ nới ra, không bao giờ thu vào**, và cố ý đánh dấu ô ban đầu
+là "chỗ trống" ⇒ viền bong bóng nằm trong ô bị xoá khỏi mặt nạ, không còn gì chặn.
+
+Đã thử một bản sửa (chỉ xoá vệt mực **nằm trọn** trong ô, giữ vệt kéo dài ra ngoài — để phân biệt
+nét chữ mình vừa xoá với viền bong bóng). **Đo A/B trên 6 ca: không đổi kết quả ở ca nào.** Đã bỏ
+đi thay vì giữ một lượt quét connected-components mỗi vùng để đổi lấy con số 0.
+
+# ========== A2 — cắt khung chữ về trong lòng bong bóng (2026-09-05) ==========
+
+```
+backend : 1107 passed, 6 skipped, 0 failed  (+16)
+frontend: 308 passed (nền 306)   (+2)
+```
+
+## Test quan trọng nhất: ghi lại hành vi CŨ bằng số
+
+```python
+def test_TAT_thi_khung_van_de_len_net_ve(self):
+    """Ghi lại hành vi CŨ bằng số, để bản sửa có mốc so sánh thật."""
+    _, _, muc = chay(False, self.BBOX)
+    assert muc > 0, "ca dựng không tái hiện được lỗi — test dưới sẽ rỗng nghĩa"
+```
+
+Không có test này thì `test_BAT_thi_khung_khong_con_de_len_net_ve` xanh kể cả khi ca dựng chưa
+bao giờ tái hiện được lỗi — đúng kiểu xanh giả đã gặp ở phép dò quyền B1.
+
+Thước đo dùng xuyên suốt là **số điểm mực nằm trong khung** — trả lời trực tiếp câu hỏi "khung có
+lọt trong bong bóng không", chứ không phải một tỉ lệ gián tiếp nào.
+
+| Ca | Điểm mực trong khung |
+|---|---|
+| A2 tắt (hành vi cũ) | **400** |
+| A2 bật | **0** |
+
+## Bốn test chống tác dụng phụ
+
+| Test | Khẳng định |
+|---|---|
+| `test_CHI_THU_NHO_khong_bao_gio_no_them` | A2 là phép **giao**, không thể làm khung to ra |
+| `test_khung_von_da_nam_gon_thi_KHONG_bi_dong_toi` | vùng đang đúng phải y nguyên — bật A2 là sửa ca hỏng, không phải xáo trộn cả trang |
+| `test_chu_tren_NEN_VE_thi_A2_dung_ngoai` | không có bong bóng ⇒ tô loang rò ⇒ trần diện tích loại ⇒ giữ nguyên hành vi A1 |
+| `test_mac_dinh_la_TAT` | đổi hình học mà bật mặc định trước khi đo trên trang thật là đúng thứ kế hoạch cấm |
+
+## Tại sao không sửa trong `grow.py`
+
+Đã thử ở phiên trước (chỉ xoá vệt mực nằm trọn trong ô, giữ vệt kéo dài ra ngoài). **Đo A/B trên
+6 ca: không đổi kết quả ca nào**, đã bỏ. Lý do: khung đã chồm ra ngoài thì phần chồm nằm ở vùng
+trắng thật, phép nới đi tiếp là **đúng luật** — sai nằm ở điểm xuất phát, không nằm ở phép nới.
+
+## Còn nợ
+
+Cả ba ảnh đo được đều là ảnh **dựng**. Chưa có trang manga in thật có lưới chấm (screentone),
+thứ có thể làm mặt nạ mực vỡ vụn và tô loang rò lung tung. A2 ở trạng thái **tắt** cho tới khi
+đo được ba con số ở `PLAN_A2` §7 trên trang thật.
+
+# ========== Bảng xuất đóng băng con số (2026-09-05) ==========
+
+Người dùng: trang hiện badge *"Đã căn chữ, cần rà soát"* (0 vùng tràn) mà bảng xuất vẫn ghi
+*"0 / 2 trang sẽ được xuất"* và nút bị khoá.
+
+**API không sai.** Đo song song trạng thái trang và `export-preview` trên bản chạy:
+
+```
+trạng thái=[detecting,queued]        bảng xuất=0/2 bỏ qua 2
+trạng thái=[ocr_done,ocr_done]       bảng xuất=0/2 bỏ qua 2
+trạng thái=[typeset_done,typeset_done] bảng xuất=2/2 bỏ qua 0   ← đúng
+```
+
+Lỗi ở giao diện: `ChapterProgress` nạp lại chapter mỗi 4 giây nên badge đổi đúng, nhưng `nap()`
+của `ExportPanel` chỉ phụ thuộc `projectId` — mà `projectId` không đổi, nên `useEffect` **không
+chạy lại lần nào**. Con số đứng im tới khi tải lại cả trang.
+
+Test được tự kiểm bằng cách bỏ bản sửa ra: đỏ đúng chỗ
+(`'0 / 2 trang sẽ được xuất' không khớp 2/2`). Kèm một test ngược chiều: trạng thái **không** đổi
+thì không được gọi lại API, để nhịp 4 giây của `ChapterProgress` không biến thành 2 request/4 giây.
+
+# ========== E19 — Tiện ích "Dịch truyện đang đọc" (2026-09-05..07) ==========
+
+**Môi trường:** workspace `trieunt-c`, Postgres 16-alpine (`translation-db-1`), Redis 7-alpine.
+Backend chạy thật tại `translation-api.cmc-1.vibenode.matbao.ai`. Tiện ích nạp unpacked trong
+Chrome **thật** trên máy người dùng (không phải Chromium trong workspace) — khác mọi mini-spec
+trước, không dùng browser tool tự động được vì cần tài khoản/trang thật của người dùng.
+
+## 1. Backend — chế độ `chi_chu` + endpoint gộp
+
+```
+$ cd backend && ../.venv/bin/python -m pytest tests/test_e19_che_do_chi_chu.py \
+    tests/test_translate_engines_unit.py -q
+...........................................                              [100%]
+43 passed
+```
+
+`test_e19_che_do_chi_chu.py` (12 test): xác nhận đường đi `chi_chu` bỏ đúng bước xoá chữ + căn
+chữ, `PageStatus.translated` là đích cuối (không chờ `typeset_done`). Không khẳng định gì về tốc
+độ — số đo tốc độ nằm ở `REPORT_E19_0_DO_COND_CHAN.md`.
+
+`test_translate_engines_unit.py` (31 test, +1 so với trước E19): thêm
+`test_yeu_cau_bam_sat_nghia_goc` canh prompt `LLMContextTranslator` có yêu cầu bám sát nghĩa gốc
+(thêm 07/09 sau phản hồi người dùng, áp dụng toàn hệ thống chứ không riêng E19).
+
+`test_quyen_cheo_tai_khoan.py` — 2 test đặt tên riêng cho endpoint gộp:
+- `test_moi_nguoi_gui_anh_vao_chapter_CUA_MINH`: endpoint không nhận id nào nên phép dò chéo
+  tự sinh (openapi) không kiểm được nó bằng cách thông thường — viết tay: hai tài khoản bấm dịch,
+  xác nhận ảnh rơi vào chapter khác nhau và không đọc chéo được trang của nhau (404).
+- `test_bam_dich_nhieu_lan_KHONG_sinh_nhieu_chapter`: bấm dịch 3 lần chỉ sinh **đúng 1** chapter
+  ẩn `"Đọc nhanh (tiện ích)"`, không phải 3 — tránh lặp lại bài học B1 (phép dò tự sinh phải tự
+  chứng minh có nghĩa; ở đây nghĩa là phải kiểm luôn tác dụng phụ chứ không chỉ đường happy path).
+- Cả hai endpoint cũng nằm trong bộ dò quyền chéo tự sinh từ `app.openapi()` như mọi endpoint
+  khác (xem `project_translation_auth_slice_b.md`), dù không kiểm được ca "id do người khác đưa"
+  vì endpoint tự chọn chapter chứ không nhận id.
+
+## 2. Tiện ích — 3 lượt sửa trên trang thật, không phải trang dựng
+
+Đo trên `reddit.com/r/translator/comments/14x5ea0/...#lightbox` (07/09), người dùng chụp lại từng
+lượt:
+
+| Lượt | Triệu chứng | Nguyên nhân xác nhận | Sửa |
+|---|---|---|---|
+| v0.1.1→v0.1.3 | Lớp phủ rơi góc dưới-trái, ngoài hẳn ảnh | `absolute`+toạ độ tài liệu neo sai hệ quy chiếu (lightbox có tổ tiên đã định vị) | `fixed`+toạ độ khung nhìn |
+| v0.1.3→v0.1.4 | Vẫn lệch sau lượt 1, **đoán sai 2 lần liền** | Không biết sai ở đâu — ảnh chụp chỉ cho thấy "sai" | Thêm bảng debug in 3 số đo (khung ảnh / khung lớp phủ / kích thước thật) vào thông báo |
+| v0.1.4 | Số đo: `ảnh` = `lớp phủ` **khớp tuyệt đối** (`-192,-94 2304×1134`), nhưng `ảnh thật` 750×750 | Không phải lỗi vẽ — chọn NHẦM `<img>` nền mờ phóng to của lightbox (cùng `src`, khác kích thước hiển thị) | Loại ứng viên có `filter:blur` (đọc cả tổ tiên) trong `chonTrangTruyen` |
+| v0.1.4→v0.1.5 | Vị trí đúng rồi, nhưng chữ Nhật gốc mờ lộ sau chữ Việt | Nền hộp dịch chỉ đục 94% | Đặt `rgba(255,255,255,1)` |
+
+Kèm test hồi quy tái tạo đúng số đo thật của lượt 3 (`tests/chon-anh.test.js`, ảnh 750×750 phóng
+lên 2304×1134 phải bị loại dù chiếm khung nhìn nhiều hơn ảnh 830×830 hiển thị vừa khung):
+
+```
+$ cd extension-doc-truyen && npm test
+ ✓ tests/cau-hinh.test.js (5 tests)
+ ✓ tests/chon-anh.test.js (10 tests)
+ ✓ tests/toa-do.test.js (7 tests)
+ 22 passed
+```
+
+**Bài học:** ảnh chụp màn hình cho biết "sai" nhưng không cho biết "sai ở đâu" — hai lượt sửa đầu
+đoán sai nguyên nhân vì chỉ có ảnh chụp. Chỉ sau khi in số đo thẳng vào thông báo (chấp nhận giao
+diện xấu hơn để đổi lấy chẩn đoán được) mới tìm ra đúng nguyên nhân trong 1 lượt.
+
+## 3. Còn nợ
+
+- ~~Chưa đo trên trang không phải lightbox~~ — đã đo 08/09 trên MangaPlus (đọc cuộn dọc bình
+  thường, không lightbox): vị trí lớp phủ khớp đúng bong bóng, xác nhận §E19.5 không phụ thuộc
+  cấu trúc lightbox.
+- Chưa có test end-to-end thật cho chính 2 endpoint HTTP (`POST`/`GET /doc-truyen/trang`) ở mức
+  hợp đồng request/response đầy đủ (mã lỗi 413/422 theo từng nhánh) — chỉ có test quyền chéo và
+  test pipeline mode. Việc test viết tay ở trên chỉ phủ đúng phần quyền + tác dụng phụ, không phủ
+  toàn bộ hợp đồng API.
+- Cỡ chữ tự co (§ARCH E19.6) đo bằng `scrollHeight`/`scrollWidth` trong trình duyệt thật — không
+  test tự động được (module không thuần), chỉ xác nhận bằng mắt qua ảnh chụp của người dùng.
+- **Mới:** `engine=llm_context` (§E19.6g) chưa chạy thật trên trang MangaPlus lỗi ban đầu để xác
+  nhận có thật sự sửa được các dòng dịch sai/thiếu hay không — mới verify được đường dây (test
+  `test_engine_da_chon_THAT_SU_duoc_dung_khi_dich`: `.delay()` nhận đúng `engine`), chưa verify
+  CHẤT LƯỢNG đầu ra thật trên đúng trang từng lỗi.
+
+## 4. E19 — `engine` chọn được cho tiện ích (2026-09-08)
+
+```
+$ cd backend && ../.venv/bin/python -m pytest tests/test_e19_che_do_chi_chu.py -q
+................                                                          [100%]
+16 passed
+```
+
+4 test mới: mặc định không ghi cột (`None`), chọn `llm_context` ghi đúng cột, chưa cấu hình
+`GEMINI_API_KEYS` thì `422` ngay lúc gửi ảnh (không đợi tới bước dịch mới hỏng), và **engine đã
+chọn THẬT SỰ được gửi tới `run_translate_job.delay()`** — test đầu viết sai (tự gọi lại
+`run_translate_job` bằng tay, bỏ qua tham số `.delay()` đã nhận) xanh **giả**; sửa bằng cách đè
+`.delay` để bắt tham số thật thay vì tự đoán theo trí nhớ.
+
+Migration `0015_e19b` (thêm `Page.translate_engine_override`, tái dùng enum `translation_engine`
+có sẵn từ 0003_m9): chạy thật `up → down → up` trên `translation-db-1`, sạch cả hai chiều.
+
+# ========== E21 — gõ đè raw_text + phóng to đối chiếu ảnh gốc (2026-09-09) ==========
+
+Migration `0016_e21` (thêm `OCRResult.edited_by_user`, `server_default=false`): chạy thật
+`up → down → up` qua container `api` (auto-migrate lúc khởi động), sạch cả hai chiều — log
+`alembic.runtime.migration` xác nhận cả downgrade `0016_e21 -> 0015_e19b` lẫn upgrade ngược lại
+trong đúng một lượt (bị kích hoạt bởi `git stash`/`git stash pop` khi cô lập nguyên nhân một test
+hỏng, xem ngay dưới).
+
+## Backend — toàn bộ suite, không chỉ riêng E21
+
+```
+$ cd backend && ../.venv/bin/python -m pytest -q
+1176 passed (bao gồm 6 test mới của E21)
+```
+
+**Một lượt đỏ giữa chừng, đã sửa đúng chỗ.** Lượt chạy đầu tiên trên toàn suite ra đỏ ở
+`test_quyen_cheo_tai_khoan.py::test_khong_endpoint_nao_lo_du_lieu_sang_tai_khoan_khac` — endpoint
+mới `GET /pages/{id}/original-image` rơi vào đúng bẫy "rỗng nghĩa" đã ghi ở đầu file đó: A (chủ
+thật) cũng nhận 404 nên phép dò không so sánh được gì với B. Nguyên nhân: fixture dùng chung của
+file test đặt `Page.image_path = "a/1.png"` **chỉ ở tầng CSDL**, chưa từng ghi byte thật lên kho
+— khác `clean_image_path`/preview đã có `kho.save(...)` sẵn. Sửa bằng cách thêm đúng một dòng
+`kho.save(page.image_path, anh)` vào fixture (`_dung_du_lieu`) — không ghi vào `MIEN_TRU`, vì
+endpoint này CÓ gắn với chủ trang, dò chéo ở đây có ý nghĩa thật.
+
+**Xác nhận đây là lỗi CỦA E21, không phải nhiễu môi trường**, bằng `git stash`: cùng một test,
+trên code trước E21 (`c6cac49`) → xanh; sau khi `stash pop` khôi phục thay đổi mà CHƯA sửa fixture
+→ đỏ đúng lỗi đó. Log stderr có kèm hàng loạt `Connection to Redis lost: Retry (N/20)` do host
+không resolve được hostname `redis` (chỉ có trong mạng docker) — đây là NHIỄU không liên quan tới
+lý do test đỏ thật (chỉ xuất hiện vì fixture dựng `BatchRun` gọi thử broker), đã xác minh bằng
+cách đọc thẳng `AssertionError` thật trong traceback thay vì đoán theo dòng lỗi ồn ào nhất.
+
+Test mới (`tests/test_region_edit_integration.py`):
+- `test_sua_raw_text_ghi_dung_va_danh_dau_da_sua` — PATCH ghi đúng `raw_text` +
+  `edited_by_user=true`, **không** đụng `translated_text`.
+- `test_sua_raw_text_vung_chua_ocr_bao_loi_ro` — 409 khi vùng chưa từng OCR.
+- `test_detail_tra_dung_co_ocr_edited_by_user` — `GET .../detail` phản ánh đúng cờ trước/sau sửa.
+- `test_re_ocr_reset_edited_by_user_ve_false` — đọc lại chữ gốc TỰ ĐỘNG (từ ảnh) phải xoá cờ
+  "người tự gõ", không được để lại dấu vết sai của lượt sửa tay trước đó.
+
+Test mới (`tests/test_inpaint_task_integration.py`):
+- `test_endpoint_original_image` — trả ĐÚNG byte đã upload, có ngay từ đầu (không cần đợi M4).
+- `test_original_image_page_khong_ton_tai_tra_404`.
+
+## Frontend
+
+```
+$ cd frontend && npm test
+315 passed (20 test file, bao gồm 7 test mới của RegionPanel.test.jsx)
+```
+
+**Bẫy accessible-name khi test `<button>` lồng trong `<label>`.** Bản đầu đặt nút "Phóng to đối
+chiếu" ngay trong cùng `<label>` bọc ô chữ gốc — Testing Library tính tên hỗ trợ tiếp cận của nút
+đó thành CẢ đoạn text của label (gộp cả nội dung ô textarea lẫn câu ghi chú bên dưới), nên
+`getByRole('button', {name: 'Phóng to đối chiếu'})` không tìm thấy gì. Sửa bằng cách tách nút ra
+khỏi `<label>` (đưa `<label>` chỉ bọc đúng chữ, gắn `htmlFor`/`id` tường minh với textarea) — vừa
+sửa được test, vừa là cấu trúc HTML đúng hơn (nút lồng trong label vốn không chuẩn).
+
+`ZoomCropModal` test giả lập canvas 2D (`HTMLCanvasElement.prototype.getContext`) và
+`Image.prototype.decode`/`naturalWidth/Height` vì jsdom không có canvas thật — xác nhận modal mở
+đúng, gọi đúng `api.duongDanAnhGoc(pageId)`, đóng được, và báo lỗi rõ khi tải ảnh gốc hỏng.
+
+## Còn nợ
+
+~~Chưa live-verify trên trình duyệt thật~~ — **đã xong, xem "E21-LV" bên dưới.**
+
+---
+
+## E21-LV — Live Verification & Closeout (2026-09-09)
+
+**Tìm ra nguyên nhân thật của "chrome-devtools MCP mất kết nối"**: không phải lỗi hạ tầng vĩnh
+viễn như ghi ở trên lúc làm E21 — Playwright launch Chromium trực tiếp lộ ra lỗi thật:
+`chrome-headless-shell: error while loading shared libraries: libnspr4.so: cannot open shared
+object file`. Sửa bằng `python -m playwright install-deps chromium` (cần sudo, có sẵn
+passwordless trong workspace này). Sau khi sửa, cả Playwright lẫn (khả năng cao) chrome-devtools
+MCP đều dùng được — chi tiết ở `REPORT_E21-LV.md §2`.
+
+`scripts/do_run_e21_lv.py` (mới) chạy 13 tiêu chí của kế hoạch E21-LV trên Chromium thật, dữ
+liệu thật (project fixture "Test E2E Pepper Carrot", trang `e3b458c7…`, vùng `30234117…`):
+
+- Khung đỏ được kiểm bằng cách tính lại ĐỘC LẬP công thức `ZoomCropModal.jsx` (bbox + nới lề +
+  tỉ lệ phóng, `Math.round` kiểu JS) từ kích thước ảnh gốc đo thật, rồi lấy mẫu
+  `canvas.getImageData` thật ở đúng toạ độ tính ra — không so màu tuyệt đối (nét đè lên ảnh gốc,
+  alpha .85) mà so "đỏ trội" tại 12 điểm dọc 4 cạnh, yêu cầu ≥80% khớp.
+  **12/12 khớp** cả lúc mở, sau 600ms, và sau khi resize viewport 2 lần.
+- Sửa `raw_text` qua UI thật → Lưu → đợi job thật chạy xong (polling thật, không giả lập) →
+  refresh trình duyệt thật → giá trị mới vẫn còn. Đối chiếu trực tiếp Postgres: `translated_text`
+  không đổi, số job `type='translate'` cho trang đó không đổi (1 → 1) — sửa `raw_text` không kéo
+  theo dịch lại, đúng như E21 đã thiết kế.
+- Không tràn ngang ở 375/768/1440px, kể cả lúc modal đang mở (6/6). Không lỗi JS console suốt
+  phiên (gắn listener `console`/`pageerror` toàn bộ, không chỉ lúc mở modal).
+
+**25/25 kiểm đạt.** Ảnh chụp bằng chứng ở `docs/evidence/E21-LV/` — `02_modal_mo_desktop.png`
+đối chiếu mắt xác nhận khung đỏ áp sát đúng câu "...mmm probably not strong enough." trên bong
+bóng thoại, khớp với phép đo pixel độc lập.
+
+**Chuẩn bị môi trường kiểm** (ghi lại vì có tác động ngoài scope UI thuần tuý):
+- Đặt lại mật khẩu tài khoản fixture `test-e2e@local.test` bằng đúng hàm băm `scrypt` của server
+  (không đoán, không bỏ qua xác thực) — mật khẩu mới giữ lại cho các script kiểm UI thật sau này.
+- Bước "sửa raw_text" ghi thật vào Postgres của project fixture dùng chung nhiều mini-spec trước
+  — sau khi xác nhận đạt, đã **phục hồi `raw_text`/`edited_by_user` về giá trị trước khi kiểm**,
+  không để lại dấu vết trong dữ liệu dùng chung.
+
+`FEATURES.md`: E21 nâng từ **BUILT** lên **LIVE**. Chi tiết đầy đủ ở `docs/REPORT_E21-LV.md`.
+
+# ========== E22 — worker memory/OOM, bản THU HẸP theo audit (2026-09-09) ==========
+
+Migration `0017_e22` (thêm `job.heartbeat_at`, `job.error_class`, `job.exit_signal` — cả 3 đều
+`NULL` được nên không cần `server_default`, khác bài học 0014/0016): chạy thật qua container
+`worker` (`docker compose run --rm worker alembic upgrade head`), sạch, không lỗi.
+
+## Backend — toàn bộ suite
+
+```
+$ cd backend && ../.venv/bin/python -m pytest -q
+1189 passed · 6 skipped · 0 failed   (1195 thu thập được = 1176 nền E21 + 19 mới của E22)
+```
+
+`pytest.ini` đặt `addopts = -q` nên lượt chạy KHÔNG in dòng tổng kết — con số trên đối chiếu từ
+`--collect-only` (1195) với số dấu chấm/`s` thật đếm trong log lượt chạy đầy đủ, exit code 0, 0 ký
+tự `F`/`E`. 6 test skip là skip sẵn có từ trước E22, không phải test mới bị bỏ qua.
+
+Test mới:
+- `tests/test_e22_job_status_unit.py` (7) — suy luận `processing_state` LÚC ĐỌC. Đáng chú ý:
+  `test_job_cu_truoc_e22_chua_tung_co_heartbeat_khong_bi_bao_gian_doan` khoá lại nguyên tắc
+  evidence-first: `heartbeat_at IS NULL` (job có từ trước migration) là THIẾU DỮ LIỆU, không phải
+  bằng chứng worker chết — không được suy diễn thành "gián đoạn".
+  `test_moi_job_type_da_biet_deu_co_nguong_rieng` sẽ đỏ nếu sau này thêm `JobType` mới mà quên
+  cập nhật bảng ngưỡng (rơi vào mặc định 900s là báo trễ, im lặng).
+- `tests/test_e22_trang_thai_worker_unit.py` (8) — phân loại mã thoát.
+  `test_137_la_nghi_ngo_het_bo_nho_KHONG_phai_chac_chan` assert thẳng rằng chuỗi trả về **không**
+  chứa `confirmed`: đây là ranh giới trung thực của cả mini-spec, không phải chi tiết phụ.
+- `tests/test_e22_heartbeat_integration.py` (1) — `danh_dau_dang_chay()` đặt `heartbeat_at` đúng
+  bằng `started_at` (một mốc thời gian dùng cho cả hai, không phải hai lệnh `now()` riêng lệch nhau).
+- `tests/test_hoi_phuc_integration.py` (+3) — dọn job mồ côi ghi `error_class`/`exit_signal` theo
+  mã thoát thật đọc từ `WORKER_STATE_FILE`; không có tệp vẫn gắn `worker_lost`; chế độ chỉ-đếm
+  (`ap_dung=False`) KHÔNG ghi gì.
+
+## Frontend
+
+```
+$ cd frontend && npm test -- --run
+322 passed (20 file)     — 315 nền E21 + 7 mới của E22
+```
+
+**Một lượt đỏ giữa chừng, và nó đỏ ĐÚNG.** Lượt đầu thêm `worker_interrupted` thẳng vào bảng
+`VIEC` ⇒ `status-presentation.test.js > không thừa giá trị lạ ở "viec"` đỏ ngay. Bài test đó khoá
+`VIEC` đúng 4 giá trị THẬT của cột `job_status` (danh sách lấy từ `docs/API.md`) để không màn nào
+tự bịa trạng thái DB không tồn tại — nhét giá trị suy luận vào đó là làm hỏng chính tấm lưới an
+toàn của E11. Sửa đúng chỗ: tách bảng `TT_XU_LY` riêng cho `processing_state` (5 giá trị, tái
+dùng 4 mục của `VIEC` + `worker_interrupted`), thêm khoá `tt_xu_ly` vào `ENUM_BACKEND` của bài
+test để nó cũng được canh đủ/không thừa như mọi bảng khác. 2 test mới sinh ra từ đúng việc này.
+
+Test mới cho màn thật (nối `processing_state` vào panel "Vì sao?" của `ChapterProgress`):
+- `src/components/chapter/lydodung.test.jsx` (+2) — worker gián đoạn thì panel hiện "Worker gián
+  đoạn", vẫn nói rõ BƯỚC NÀO, và **không** còn "đang chờ tới lượt"/"không có bước nào hỏng"; cũng
+  không dùng chữ "thất bại" (việc chưa mất, worker khởi động lại là tự đánh dấu đúng).
+- `src/api.test.js` (+3) — `layLyDoDung()` ưu tiên job đã `failed` (lý do đã chốt trong CSDL) hơn
+  suy luận theo nhịp tim; không có job hỏng mới lấy job `worker_interrupted`; job đang chạy BÌNH
+  THƯỜNG không bị coi là lý do đứng im (báo thế là doạ người dùng về thứ đang chạy đúng).
+
+## Chưa làm
+
+Không dựng fault-injection giết worker thật trên production — bằng chứng dùng cho audit là sự kiện
+SIGKILL có thật lúc 07:17 xảy ra tự nhiên, và cơ chế cốt lõi (`hoi_phuc.py`) vốn đã có từ trước
+E22 chứ không phải thứ mini-spec này mới dựng lên. Panel "Vì sao?" sau khi deploy chỉ kiểm được
+nhánh bình thường (không có worker chết đúng lúc đang xem) — nhánh `worker_interrupted` được canh
+bằng test tự động, chưa bắt được tận mắt trên production.
+
+# ========== E20b phụ lục — tham số detection PaddleOCR (2026-09-09, sau E22) ==========
+
+Lượt đo bổ sung sau khi rà lại thấy 9 path gốc của E20b chỉ đổi **pixel đầu vào**, chưa từng đụng
+tham số bộ detect của chính PaddleOCR — trong khi `REPORT_E20a.md §10` chốt nguyên nhân gốc nằm
+đúng ở bước detect đó.
+
+```
+$ docker compose -f deploy/docker-compose.yml run --rm -e PYTHONPATH=/app worker \
+    python scripts/ocr_benchmark_e20b_det_params_run.py
+
+cấu hình            chữ MẢNH (mục tiêu)    chữ ĐẬM (đối chứng)    p50 ms
+det_baseline      0/10 (0.0%) cer=0.231  9/10 (90.0%) cer=0.003      772
+det_nhay          0/10 (0.0%) cer=0.228  9/10 (90.0%) cer=0.007      658
+det_rat_nhay      0/10 (0.0%) cer=0.226  8/10 (80.0%) cer=0.014      730
+det_no_khung      0/10 (0.0%) cer=0.228  9/10 (90.0%) cer=0.007      701
+```
+
+**Đối chứng tái hiện đúng từng con số của `REPORT_E20b.md §7`** (`det_baseline` = 0/10 CER=0,231
+và 9/10 CER=0,003, khớp `paddleocr+khong_doi`) — đây là điều làm phép so có giá trị: harness gọi
+engine đúng như lượt gốc, nên khác biệt (nếu có) là do tham số chứ không do cách chạy. Không có
+cấu hình nào cứu được dù một mẫu; cấu hình mạnh tay nhất còn kéo nhóm đối chứng từ 9/10 xuống
+8/10 (CER xấu đi gần 5 lần).
+
+Không thêm test tự động: cùng lý do đã ghi ở `REPORT_E20b.md §6` — giá trị nằm ở SỐ ĐO, và
+`paddle_tuned.py` chỉ là subclass ghi đè `build_kwargs()` (sai tên tham số thì PaddleOCR ném lỗi
+ngay lúc nạp, đã tự kiểm bằng chính 4 lượt chạy thật đều nạp được).
+
+**Không đụng code production:** `PaddleOCREngine` giữ nguyên tuyệt đối (kế thừa, không thêm cả
+tham số tuỳ chọn mặc định `None`); Tesseract/PaddleOCR tuned chỉ sống trong container `--rm`.
+`text_det_limit_side_len` bị loại khỏi thí nghiệm sau khi đo thật kích thước crop (mọi crop ≤600px
+< mặc định ~960 ⇒ không có phép thu nhỏ để mà chặn) — loại theo số đo, không theo cảm tính.
+
+# ========== E21b — chặn mất chữ đang gõ + bỏ việc canh lại thừa (2026-09-10) ==========
+
+Không có migration. Hai thay đổi có rủi ro hồi quy: điều kiện xếp việc canh lại ở
+`PATCH /regions/{id}`, và `refit_job_id` thành nullable trong `RegionPatchAccepted`.
+
+## Backend — toàn bộ suite
+
+```
+$ cd backend && ../.venv/bin/python -m pytest -q
+1193 passed · 6 skipped · 0 failed   (1199 thu thập = 1195 nền E22 + 4 mới của E21b)
+```
+
+`pytest.ini` đặt `addopts = -q` nên không in dòng tổng kết; số trên đối chiếu `--collect-only`
+(1199) với số dấu chấm/`s` đếm trong log lượt chạy đầy đủ, `EXIT:0`, 0 ký tự `F`/`E`.
+
+**Một báo động giả đáng ghi lại:** lệnh chạy nền báo "failed with exit code 1", nhưng mã 1 đó đến
+từ `grep -c` ở cuối chuỗi lệnh — `grep -c` trả 1 khi đếm được **0** kết quả, tức là 0 lỗi. Bản
+thân pytest trả `EXIT:0`. Đọc mã thoát của lệnh cuối trong chuỗi mà tưởng là mã của cả chuỗi là
+cách dễ nhất để tự doạ mình bằng một lượt test hoàn toàn xanh.
+
+4 test mới (`tests/test_region_edit_integration.py`):
+- `test_sua_raw_text_KHONG_xep_viec_canh_lai` — `refit_job_id is None`, số job typeset không tăng,
+  `fit_status` giữ nguyên (không hạ xuống `pending`), `TypesetResult.edited_by_user` không bị bật,
+  và `raw_text` vẫn được ghi thật (trước đây nó commit ké theo job nên đây là chỗ dễ vỡ nhất).
+- `test_sua_thu_doi_ban_ve_VAN_xep_viec_canh_lai[translated_text|bbox]` — chốt ranh giới từ phía
+  ngược lại: hai trường này vẫn phải canh lại như cũ.
+- `test_sua_raw_text_KEM_ban_dich_thi_VAN_canh_lai` — ca gộp: điều kiện là "có trường nào đổi bản
+  vẽ không", không phải "có `raw_text` không".
+
+## Frontend
+
+```
+$ cd frontend && npm test -- --run
+331 passed (20 file)     — 322 nền E22 + 9 mới của E21b
+```
+
+- `RegionPanel.test.jsx` (+6) — cơ chế chống mất dữ liệu: báo cờ `daDoi` lên App khi gõ vào ô chữ
+  gốc VÀ ô bản dịch, báo `false` khi gỡ bảng, và App gọi được `dieuKhien.current.luu()` để lưu
+  ĐÚNG thứ vừa gõ (đường mà nút "Lưu rồi chuyển" đi).
+- `status-presentation.test.js` (+3) — bộ lọc trạng thái rà soát phủ kín miền giá trị: mỗi trạng
+  thái rơi vào đúng MỘT ô, và "chưa đánh giá" không bị gộp với "không cần rà soát".
+
+## Live verification — Chromium thật, stack local (KHÔNG phải production)
+
+Trang fixture `e3b458c7…` ("Test E2E Pepper Carrot", 2 vùng) có sẵn trong DB local. Đặt lại mật
+khẩu tài khoản fixture `test-e2e@local.test` **chỉ trên DB local** bằng đúng hàm băm scrypt của
+server (`app/core/mat_khau.py:bam`) — không đoán, không bỏ qua xác thực.
+
+Kiểm được:
+- Gõ dở chữ gốc rồi bấm sang vùng khác ⇒ hộp thoại chặn lại; chữ **còn nguyên** trong ô, vẫn ở
+  Vùng 1, chỉ số điều hướng vẫn "1 / 2".
+- "Ở lại vùng này" ⇒ hộp thoại đóng, chữ còn nguyên. "Bỏ thay đổi" ⇒ mới chuyển sang Vùng 2 và
+  ô chữ gốc trở về giá trị thật của vùng đó.
+- Trước/Sau: ở 2/2 thì nút "Sau" tắt, bấm "Trước" về 1/2 và nút "Trước" tắt — đúng cả hai biên.
+- Console: 0 lỗi JS (chỉ còn một ghi chú accessibility có sẵn từ trước về `id`/`name` của form).
+
+**Lỗi bắt được nhờ bấm thật, test không bắt:** hàng lọc hiện "Tất cả 2" mà cả ba ô con đều 0 —
+`not_required` (máy chấm là sạch) không có ô nào nhận. Đã sửa thành 5 ô phủ kín và thêm test khoá
+tính phủ kín để lần sau thêm giá trị mới vào `ReviewStatus` mà quên ô lọc thì đỏ ngay.
+
+## Smoke test sau deploy — production, 3/3 đạt (2026-09-10)
+
+Deploy đúng thứ tự frontend trước: `translation-web` v32→33, rồi `translation-api` v57→58. Chạy
+trên chapter test của chính tôi (`5597b5d2…`), không đụng dữ liệu thật.
+
+1. **Sửa `raw_text` không sinh việc canh lại thừa** — job `typeset` của trang giữ nguyên 2, tổng
+   job giữ nguyên 7, `fit_status` giữ `fit_ok` (không bị hạ xuống `pending`). Giao diện hiện đúng
+   câu của nhánh mới: "Đã lưu. Không cần căn lại chữ vì bản dịch không đổi."
+2. **Hộp thoại chặn mất dữ liệu** — gõ dở rồi bấm sang vùng khác: hộp thoại hiện, vẫn ở Vùng 1,
+   chữ còn nguyên, "1 / 2" không đổi. "Bỏ thay đổi" mới chuyển.
+3. **Bộ lọc phủ kín** — `Tất cả 2` = `0 + 0 + Không cần rà soát 2 + 0`.
+
+Dọn sau khi đo: `re-ocr` vùng 1 ⇒ `raw_text` về chữ máy đọc, `ocr_edited_by_user=false` cả hai
+vùng.
+
+**Bẫy gặp phải: lượt kiểm đầu tiên tưởng deploy hỏng, hoá ra là cache trình duyệt.** Giao diện mới
+không hiện dù trang nạp xong. Phân biệt bằng cách tải `index.html` với `cache:'no-store'` rồi so
+tên bundle: HTML mới trỏ `index-L--Qw3pV.js` còn tab đang chạy `index-BBBiktgW.js` từ hôm trước.
+Kết luận "deploy hỏng" ở bước đó là sai — chi tiết ở `REPORT_E21b.md §11.3`.
+
+## Chưa làm
+
+`App.jsx` vẫn không có unit test nào (tình trạng có từ trước E21b): phần wiring hộp thoại/điều
+hướng/lọc dựa hoàn toàn vào lượt kiểm trình duyệt ở trên và smoke test production.
+
+Chưa có cơ chế báo "có bản mới, tải lại đi" cho tab đang mở — nên sau mỗi lần đổi hợp đồng API,
+tab cũ vẫn chạy frontend cũ trên backend mới cho tới khi người dùng tự tải lại
+(`REPORT_E21b.md §11.3`).
+
+# ========== E25 — truy tìm chỗ tối ưu thời gian, KHÔNG SHIP GÌ (2026-09-10) ==========
+
+Không có test tự động nào ở E25: nó là một cuộc **đo lường**, không phải một tính năng. Không đổi
+code production, không migration, không deploy. Ghi vào đây vì bốn kết quả âm này có giá trị chặn
+người sau đi lại đường cũ. Số đầy đủ: `docs/REPORT_E25.md`.
+
+## Bàn thử — điều kiện phải đúng nếu không mọi số đều vô nghĩa
+
+Container local **không giới hạn CPU**, đã kiểm tường minh trước khi tin bất kỳ số nào:
+
+```
+NanoCpus=0  CpuQuota=0  CpuPeriod=0  CpusetCpus=""
+/sys/fs/cgroup/cpu.max  ->  "max 100000"
+os.cpu_count()=12  affinity=12
+```
+
+Nên `taskset -c 0-2` (mô phỏng quota production 2,6 CPU) là ràng buộc duy nhất. **Nếu container
+có quota thì đường cong theo số core sẽ phẳng vì quota, chứ không vì model — và nhìn bảng kết quả
+thì hai nguyên nhân đó giống nhau y hệt.** Đây là confound phải loại trước, không phải sau.
+
+Dải nhiễu FP32 cùng một cấu hình: 38,7 / 42,0 / 42,0 / 46,7 / 50,1s ⇒ **~30%**. Mọi "cải thiện"
+dưới mức này là nhiễu.
+
+## Kết quả — cả bốn giả thuyết đều ĐỎ
+
+| Phép đo | Kết quả | Kết luận |
+|---|---|---|
+| `intra_op_num_threads` = 0 / 4 / 2 (ghim 3 core, lượt ấm) | 46,7s / 119,6s / 164,9s | Hiện trạng nhanh nhất. Đặt tường minh **chậm hơn 2,5–3,5×** |
+| `input_size` 1024 → 896 | `INVALID_ARGUMENT: Got: 896 Expected: 1024` | Graph ONNX shape **tĩnh**, tham số chỉ có 1 giá trị hợp lệ |
+| Đếm số lần nạp model / 6 trang | CTD 1 · Paddle 1 · LaMa 1 · nhả 1 | **Không** có thrash; RSS phẳng ~1219MB |
+| `quantize_dynamic` QInt8 | `NOT_IMPLEMENTED: ConvInteger(10)` | Tạo được model, **nạp không được** |
+| Đường cong 2/3/4/6/8/12 core (lượt ấm) | 53,0 / 70,5 / 45,0 / 51,3 / **76,6** / 44,4s | **Không có xu hướng**; 6× core = 1,19×; 8 core chậm nhất bảng |
+
+Kiểm chứng H1 không bị confound: nhánh `if intra_op_threads > 0` trong `ctd.py:92-103` chỉ gán
+đúng một thứ (`opts.intra_op_num_threads`), không đổi `execution_mode` hay mức tối ưu graph.
+Cơ chế của hiệu ứng 2,5–3,5× thì **không giải thích được** — có số đo sạch nhưng không có lời
+giải, nên KHÔNG ngoại suy sang `intra_op=1`.
+
+## Chi phí thật từng bước — và một số cũ của tôi bị bác
+
+6 trang thật (1200×1660, 7–9 vùng/trang), tuần tự qua pipeline: **134s/trang ⇒ 24 trang ≈ 54 phút**.
+
+| Bước | TB/trang | Tỉ lệ |
+|---|---|---|
+| Nhận diện khung | 61,7s | 46% |
+| Xoá chữ (LaMa) | 50,7s | 38% |
+| Đọc chữ | 14,7s | 11% |
+| Dịch | 4,2s | 3% |
+| Căn chữ | 2,7s | 2% |
+
+**Tôi đã báo sai trước đó:** xoá chữ "~12% (10,7s)" — đo trên **một trang tổng hợp chỉ 2 vùng chữ**.
+LaMa chạy theo từng cụm chữ nên mẫu đó không đại diện. Cùng lỗi này có trong `PLAN_E19` ("cắt
+6–17s"), đã thêm đính chính có ngày tại chỗ.
+
+## Bẫy đo gặp phải — thứ tự redirect
+
+Lần đầu đếm số lần nạp model tôi viết `docker logs ... 2>&1 > /tmp/w.log`. Thứ tự đó đẩy **stderr
+ra terminal** rồi mới đưa stdout vào file — mà log Celery đi qua stderr, nên file gần như rỗng và
+mọi `grep -c` trả **0**. Tin con số đó thì đã "chứng minh" không có nạp lại model **từ một file
+trống**. Thứ tự đúng: `> file 2>&1`.
+
+## Chưa làm
+
+- Đường cong theo core chỉ đo **bước nhận diện (46%)**. Xoá chữ (38%) **chưa đo scaling**; cơ sở để
+  giả định nó giống là `inpaint/lama.py:170-182` dùng đúng cùng đường ONNX Runtime với cùng mặc
+  định `intra_op_threads=0` — tương đồng **cấu trúc**, không phải số đo.
+- Phép đo quá nhiễu để loại hiệu ứng **nhỏ** (1,3–1,5×); chỉ đủ loại hiệu ứng **lớn** (3×).
+- Điểm 8 core chậm bất thường chưa có lời giải; nghi tải khác trên máy chủ dùng chung — biến không
+  kiểm soát được.
+- Mọi số đo trên **trang tiếng Anh** (PaddleOCR). Chapter tiếng Nhật dùng `manga_ocr` với chi phí
+  nạp model lớn hơn (~19s theo log 09-09) nên cơ cấu thời gian có thể khác.
+- Chưa chạy thật 24 trang; con số 54 phút là ngoại suy tuyến tính từ 6 trang.
+
+## Phép đo song song hoá — THẤT BẠI, ghi lại vì lỗi nằm trong script đo của tôi
+
+Đường cong phẳng theo core là dấu hiệu nên song song hoá ở tầng **task**. Đo thử (cùng 3 core cho
+mọi nhánh) ra kết quả **không dùng được**:
+
+```
+song_song=1  tường=175,4s / 2 lượt ⇒  87,7s   [0] 45,9-129,3s        RSS 1117MB
+song_song=2  tường=510,0s / 4 lượt ⇒ 127,5s   [0] 102-406s · [1] 102-406s
+song_song=3  tường=257,5s / 6 lượt ⇒  42,9s   [0] … · [2] …   RSS_tổng 2236MB
+```
+
+**Lỗi 1 — script đo tính số từ giả định.** Nhánh n=3 chỉ có `[0]` và `[2]` báo về (`RSS_tổng` =
+2×1118, không phải 3×1118): một tiến trình con đã chết. Script vẫn chia cho `so_tien_trinh *
+SO_LUOT` = 6 **theo giả định** trong khi chỉ 4 lượt chạy thật ⇒ in ra "42,9s/trang", trông y hệt
+một cú thắng gấp 2, và **hoàn toàn không có thật** (số thật 257,5/4 = 64,4s). `p.join()` không
+kiểm `p.exitcode`, `ket_qua` chỉ được lấp một phần. Script bị giữ ở scratchpad, **không** đưa vào
+repo cho tới khi đếm lượt thật.
+
+**Lỗi 2 — bàn thử quá nhiễu, độc lập với lỗi 1.** Cùng tiến trình, cùng trang, lượt dao động
+45,9-129,3s (n=1) và 102-406s (n=2) — biên độ 4×, lớn hơn hiệu ứng cần đo. Máy chủ dùng chung đang
+tải việc khác (37/62GB). Bằng chứng nội tại là nhiễu: thông lượng n=2 *tệ hơn* n=1 nhưng n=3 lại
+*tốt hơn* n=1 — không có mô hình vật lý nào cho hình dạng đó.
+
+⇒ **Song song hoá tầng task: CHƯA ĐO.** Không được kết luận theo cả hai chiều. Số duy nhất rút ra
+được (vì không phụ thuộc thời gian): **RSS ~1117MB mỗi tiến trình**, ổn định qua cả ba nhánh ⇒
+2 worker ≈ 2,2GB nhét được vào 4096MB; 3 worker ≈ 3,4GB thì sát trần khi cộng tiến trình API.
+
+# ========== E24 — báo tab đang chạy bundle cũ (2026-09-10) ==========
+
+Lỗi nền: `REPORT_E21b §11.3` — tab mở sẵn từ trước lúc deploy chạy **frontend cũ trên backend
+mới**; lưu chữ gốc OCR **thành công** nhưng giao diện báo lỗi `/jobs/null`. Sẽ tái diễn ở **mọi**
+lần deploy đổi hợp đồng API. Chi tiết: `docs/REPORT_E24.md`.
+
+## Frontend
+
+```
+$ cd frontend && npm test -- --run
+361 passed (23 file)      (331 nền E21b + 25 của E24 + 5 của E23)
+$ npm run build           ✓ built — dist/assets/index-<hash>.js
+```
+
+- `lib/phien-ban-moi.test.js` — 16 test. Quan trọng nhất: **`LUÔN tải index.html với cache
+  no-store`**. Mất tuỳ chọn đó thì trình duyệt trả bản đã cache, phép so luôn nói "không có bản
+  mới", và cơ chế **tự vô hiệu hoá mà không có lỗi nào nổ ra** để ai đó phát hiện.
+- `components/BangBanMoi.test.jsx` — 9 test, gồm: **KHÔNG tự tải lại trang** (tự tải lại sẽ xoá
+  đúng thứ E21b vừa dựng để bảo vệ — chữ đang gõ dở), kiểm lại lúc tab được xem lại, bỏ qua
+  `visibilitychange` khi tab đang ẩn, dừng hỏi sau khi đã biết là cũ, dọn nhịp khi unmount.
+
+## Kiểm trên hiện vật THẬT do Vite sinh (không phải fixture tự viết)
+
+Unit test không bắt được sai giả định về hình dạng output, nên chạy hàm thuần trên `dist/index.html`
+thật:
+
+| Đầu vào | Kết quả | Mong đợi |
+|---|---|---|
+| bundle mới `index-FQWWfZ_R.js` | `false` | `false` ✓ |
+| bundle cũ `index-BBBiktgW.js` (hash **thật** từ §11.3) | `true` | `true` ✓ |
+| URL tuyệt đối của bundle mới | `false` | `false` ✓ |
+
+Phát hiện phụ: `index.html` còn trỏ tới `config.js` **không có hash**.
+
+## Live verification — MỚI XONG BƯỚC 1/2
+
+Bước 1 ĐẠT: build v1 (`index-Bn23K2FI.js`), phục vụ tĩnh cổng 8099, mở bằng Chromium thật ⇒ đang
+chạy đúng bundle đó, **không** có `.bang-ban-moi`, màn đăng nhập hiện đúng.
+
+Bước 2 CHƯA XONG: đã dựng đúng cảnh (build v2 `index-CEmON4Vx.js` — đổi hash bằng biến env
+`VITE_API_BASE` để **không phải sửa tệp nguồn nào** — rồi triển khai vào thư mục đang phục vụ; xác
+nhận `index.html` trả v2 trong khi tab vẫn chạy v1). Nhưng `Runtime.evaluate` và
+`Accessibility.getFullAXTree` đều **timeout** vì máy đang chạy E23 (load average 17,27 trên 12
+core, Celery ăn 762% CPU). **E24 CHƯA được live-verified, chưa deploy.**
+
+# ========== E23 — chạy thật 24 trang: 4 lỗi được sửa, 1 bị bác bỏ (2026-09-10) ==========
+
+Số đầy đủ ở `docs/REPORT_E23.md`. Đây là lượt chạy tìm ra nhiều lỗi nhất từ trước tới nay, và lý do
+là nó **chạy đủ lâu để worker bị giết ba lần**.
+
+## Bàn thử — hai chỗ KHÔNG dựng được, phải nói trước
+
+1. **Không bó được RAM container.** DinD từ chối `mem_limit`: `cannot enter cgroupv2 ... threaded
+   mode`, container không start nổi. ⇒ lượt này **không** quan sát được hồi phục sau OOM đúng
+   ngưỡng production.
+2. **Trần cgroup 10 GiB của cả workspace** mới là thứ giết worker (`memory.current` 8,7 GiB,
+   `oom_kill 99`), không phải giới hạn container. `free -m` báo RAM host 64GB nên **không thấy**
+   trần này — chỗ dễ chẩn đoán sai nhất. ⇒ các cú giết **không đại diện production**, và tổng thời
+   gian lượt chạy **vô giá trị**.
+
+## Kết quả test
+
+```
+$ cd backend && pytest tests/test_hoi_phuc_integration.py -q          20 passed  (12 nền + 8 mới)
+$ pytest tests/test_e23_typeset_mat_anh_clean.py -q                    6 passed
+$ pytest tests/test_worker_pool_config_unit.py -q                      4 passed
+$ pytest <typeset + reconcile>                                       104 passed
+$ pytest tests/test_batch_integration.py -q                           41 passed  (sau khi revert §5)
+$ cd frontend && npm test -- --run                                   361 passed
+```
+
+## Bốn lỗi đã sửa, kèm cách chứng minh
+
+| # | Lỗi | Chứng minh |
+|---|---|---|
+| 1 | Bàn thử dùng pool khác production ⇒ SIGKILL không kích hoạt quét mồ côi | Live: `dọn job mồ côi (ĐÃ SỬA): 3 job -> failed, 1 trang lùi khỏi trạng thái tạm` |
+| 2 | Trang kẹt vĩnh viễn khi thiếu `_clean.png` (12 job typeset hỏng, mọi nút bấm vô ích) | 6 test + `doi_chieu_hien_vat` in đúng `translated -> ocr_done` |
+| 3 | `BatchItem` kẹt `running` ⇒ mẻ đứng im 40 phút | Live: `0 job -> failed, … 1 mục mẻ -> failed` |
+| 4 | `completed_pages` đứng 0 gần hết lượt chạy ⇒ nhìn như treo | 5 test; đo được 22/24 trang đã qua OCR mà ô vẫn `0/24` |
+
+## Ba test guard đáng ghi lại vì chúng bắt lỗi của CHÍNH bản sửa
+
+1. **`test_pool_celery_phai_khop_production` bắt lỗi parser của nó.** Bản đầu lọc theo từng dòng,
+   mà `deploy-start.sh` viết lệnh celery trên ba dòng và `--pool=solo` nằm ở dòng thứ hai — dòng đó
+   có chữ "celery" (trong `-Q celery`) nhưng **không** có chữ "worker". Test báo production dùng
+   `prefork`, sai.
+2. **`test_pool_solo_o_local_phai_kem_co_che_bat_lai` đã được KIỂM NGƯỢC.** Tạm bỏ dòng `restart`
+   ⇒ test ĐỎ; khôi phục ⇒ xanh. Một test guard không đỏ được thì không chứng minh gì.
+3. **Bản sửa #3 đầu tiên bỏ sót đúng cảnh đang có.** Nó lọc theo "job vừa bị đánh mồ côi trong lượt
+   NÀY", nên mục kẹt từ lượt quét **trước** (job đã `failed`) không được cứu. Đã mở rộng thành
+   "mục `running` mà job đã tới trạng thái cuối", kèm test riêng.
+
+## Một tiền đề test của tôi sai
+
+Dựng `Job(page_id=None)` để mô phỏng job mồ côi ⇒ CSDL từ chối, `job.page_id` là **NOT NULL**. Cảnh
+"job không có trang" **không thể tồn tại** — schema đã chặn sẵn. Cảnh có thật là job bị xoá mất
+trong lúc task còn chờ trong hàng đợi.
+
+## Bẫy quy trình: hai lượt pytest cùng lúc
+
+Tôi chạy suite đầy đủ ở nền rồi chạy tiếp một lượt test khác — đúng thứ
+`feedback_pytest_mot_luot_mot_luc` đã ghi là gây đỏ giả và treo. Cả hai treo. Phải dừng cả hai rồi
+chạy **một lượt duy nhất**.
+
+## Chưa làm
+
+- Lượt 24 trang **chưa xong** khi ghi mục này ⇒ **chưa có tổng thời gian thật**, tức câu hỏi khởi
+  đầu ("54 phút đúng không") vẫn chưa trả lời được. Và một trang từng kẹt nghĩa là tổng thời gian
+  của lượt này không dùng làm số tham chiếu được.
+- Mẻ **không tự chạy tiếp** sau sự cố — phải bấm "Chạy lại". Đã kiểm đường thoát bằng lệnh thật:
+  `POST /batch-runs/{id}/resume` ⇒ `resumed_count: 2`, 20s sau `inpaint | running | 1`.
+- 7/23 trang ra `inpaint_needs_review` (~30%) — chưa soi vì sao.
+- Job detect trùng (25 job cho 24 trang): **cố ý không sửa**, hai cách đều bị bác bỏ có bằng chứng.
+
+## Bổ sung E23 — lượt chạy ĐÃ XONG 24/24, và bản sửa thứ 5
+
+```
+$ cd backend && pytest -q -p no:randomly      1216 đạt · 6 bỏ qua · 0 ĐỎ  (exit 0)
+$ cd frontend && npm test -- --run             361 đạt
+```
+
+**Lượt 24 trang hoàn tất: 24/24 `typeset_done`.** Nhưng tổng thời gian **không dùng được** làm số
+tham chiếu: worker bị OOM killer của workspace giết 3 lần, và tôi bấm "Chạy lại" nhiều lần giữa
+chừng.
+
+### Bản sửa thứ 5 — một trang giết worker 4 lần
+
+Trang E13P07 (1200x2144 = 2,57 Mpx, **lớn nhất** bộ) có 4 job inpaint đều `failed / worker_lost`.
+Code đã có cơ chế "quá 2,5 Mpx thì xoá chữ theo cụm", và log xác nhận nó chạy — nhưng in
+**"1 cụm"**. Đo trực tiếp: `số cụm: 1 · cụm lớn nhất: 2.57 Mpx` = **đúng bằng cả trang**. Trang có
+11 vùng chữ trải khắp (hộp bao chung = 84% diện tích) nên cơ chế gộp ô chồng nhau thu tất cả thành
+một cụm cỡ trang ⇒ **tiết kiệm bằng 0**.
+
+Bản sửa: `_kiem_ngan_sach_bo_nho()` chạy TRƯỚC khi gọi model, kiểm **ô cắt lớn nhất** (không kiểm
+cỡ trang), ném `InpaintFailed` kèm câu lỗi nói cách xử lý. Không đổi chất lượng đầu ra — chỉ chặn
+đúng những lượt trước đây kết thúc bằng SIGKILL.
+
+Live verification (cấu hình production, code thật trong container):
+
+```
+cấu hình thật: gb_per_mpx=1.28 · ngân sách=3.85 GB
+trang 1600x2259 = 3,61 Mpx  ->  CHẶN ĐÚNG, worker không bị giết
+  memory_budget_exceeded: … cần khoảng 4.5 GB (cụm lớn nhất trong 1 cụm: 3.51 triệu điểm
+  x 1.28 GB/triệu điểm) nhưng ngân sách chỉ 3.85 GB. Đã DỪNG trước khi chạy…
+```
+
+### HAI lỗi suy luận của tôi trên đường sửa nó — cả hai đều đáng ghi
+
+**1. Dùng RSS-sau làm bằng chứng, mà nó không phải đỉnh.** Log in
+`bộ nhớ [inpaint: sau]: RSS 1628.1 MB` và tôi đã định kết luận "trang chỉ cần 1,5 GB, chẩn đoán
+của tôi sai". RSS *sau* là con số đã giải phóng mảng tạm. Đo lại bằng **`VmHWM`** (đỉnh thật):
+**3367,8 MB** — gấp **2,07 lần**. Tin RSS-sau thì đã kết luận ngược hoàn toàn.
+
+**2. Trình bày một lượt chạy làm bằng chứng cho code chưa tồn tại.** Tôi báo bản sửa đã kiểm live
+vì lượt inpaint sau đó thành công. Mốc thời gian nói khác:
+
+```
+job inpaint thành công : 11:41:59Z
+lama.py sửa lúc        : 11:42:43Z   <- SAU khi job chạy 44 giây
+worker khởi động lúc   : 11:44:35Z   <- SAU cả hai
+```
+
+Lượt đó chạy trên code **cũ**. "Sửa xong rồi thấy nó chạy đúng" **chưa phải** bằng chứng — phải
+kiểm tiến trình đang chạy có nạp đúng code đó chưa.
+
+**3. Và hệ số của tôi sai theo chiều CÓ HẠI.** Bản đầu dùng `gb_per_mpx = 1,6` (số ghi trong
+`lama.py`, nhưng đo ở M4 cho đường chạy **CẢ TRANG**). Với 1,6 thì E13P07 được dự đoán cần 4,11 GB
+> ngân sách 3,85 ⇒ **bị chặn**, trong khi đo thật nó cần 3,37 GB và **chạy được**. Phép canh sẽ
+chặn oan đúng trang nó sinh ra để cứu. Đã hiệu chỉnh về **1,28 GB/Mpx** (n=1) và **thay test đã mã
+hoá niềm tin sai**: nay có test canh E13P07 **KHÔNG** bị chặn, và test canh trang cỡ đọc **bị**
+chặn.
+
+### Chưa làm (bổ sung)
+
+- Chiều "không chặn oan" của phép canh **chưa live-verify được trên production**: sau khi hiệu
+  chỉnh thì không trang nào trong chapter này bị chặn. Chỉ có unit test cho chiều đó.
+- Hệ số 1,28 GB/Mpx là **n=1**. Nó đủ cho một phép canh chặn-thảm-hoạ, **không** đủ làm cổng lọc
+  tinh. Muốn dùng chặt hơn thì phải đo nhiều cỡ trang.
+
+## Bổ sung E23 (2) — đo n=6, và bỏ cách tiếp cận "hệ số GB/Mpx"
+
+Hai giới hạn còn lại của bản sửa thứ 5 có **cùng một gốc**: quan hệ bộ nhớ ↔ diện tích mới đo một
+điểm. Đo cả đường cong bằng `VmHWM`, **mỗi cỡ một tiến trình riêng** (đo nhiều cỡ trong cùng tiến
+trình thì VmHWM là đỉnh cộng dồn, không tách được):
+
+| Ô cắt (Mpx) | Đỉnh (MB) | % ngân sách 3850MB | GB/Mpx |
+|---|---|---|---|
+| 0,80 | 1697 | 44% | **2,07** |
+| 1,40 | 2076 | 54% | 1,45 |
+| 2,00 | 3367 | 87% | 1,64 |
+| 2,57 | 3368 | 87% | **1,28** |
+| 2,60 | 3710 | **96%** | 1,39 |
+| 3,20 | BỊ GIẾT (`oom_kill` 111→112) | — | — |
+
+**Đường cong CÓ BẬC**: 2,00 → 2,57 chỉ **+1 MB**, rồi 2,57 → 2,60 nhảy **+342 MB**. Tỉ lệ GB/Mpx
+chạy 1,28–2,07. Không hệ số tuyến tính nào mô tả được.
+
+⇒ Sai của tôi ở **cách tiếp cận**, không ở con số. Và 1,28 đã commit là tỉ lệ **thấp nhất** loạt ⇒
+nó **cho lọt** trang làm chết worker — ngược hẳn chiều tôi lo lúc đầu. Đã thay bằng một tham số đo
+trực tiếp: `inpaint_max_crop_mpx = 2.6`.
+
+**Lần đầu 2,6 và 3,2 đều "BỊ GIẾT"; đo lại lúc máy rảnh (6,8/10 GiB) thì 2,6 chạy xong.** Cú giết
+đầu là do áp lực bộ nhớ của workspace, không phải nhu cầu của trang — phải đo lại khi máy rảnh mới
+tách được hai nguyên nhân.
+
+### Một giải pháp bị bác bỏ TRƯỚC khi viết code
+
+Tách cụm quá lớn tại dải ngang không có mask (ô cắt bị chặn trên theo thiết kế, không đổi chất
+lượng vì chỗ tách không có gì để xoá). Đo trên đúng trang sinh ra vấn đề:
+
+```
+cụm sau khi gộp : [(0, 0, 1200, 2144)]  => 1 cụm phủ cả trang
+số dải ngang KHÔNG có mask : 3
+trong đó đủ rộng để tách (>=192px, giữ lề 96 hai bên) : 0
+```
+
+Không dải nào đủ rộng — 11 vùng chữ cách nhau ~10px sau khi nở mask.
+
+### Live verification — CẢ HAI CHIỀU
+
+| Chiều | Bằng chứng |
+|---|---|
+| Chặn đúng cỡ thật sự giết worker | ô 3,14 Mpx ⇒ `crop_too_large: … vượt trần 2.60 …`; `oom_kill` giữ nguyên 112, worker sống |
+| KHÔNG chặn oan cỡ thật sự chạy được | trang E13P07 (2,57 Mpx) **chạy xong thật** trong lượt 24/24 |
+
+## Bổ sung E23 (3) — cờ "cần rà soát" bật 29% số trang, gần như toàn báo động giả
+
+Mục "chưa soi" còn lại của E23 (7/23 trang ra `inpaint_needs_review`) nay đã soi.
+
+### Con số 30% là SỐ HỌC, không phải độ nhạy sai
+
+Đếm trên log: **74 vùng, 6 vùng gắn cờ = 8,1% mỗi VÙNG** nhưng **4/9 trang = 44% mỗi TRANG**. Một
+vùng hỏng là cả trang bị cờ, mỗi trang ~8 vùng ⇒ 1−0,92⁸ ≈ 49%.
+
+### Nhưng bằng chứng cho thấy là báo động giả
+
+Quét lại **cả 24 trang giao ra cuối cùng** (168 vùng) bằng đúng phép kiểm chứng đang chạy:
+
+```
+24 trang · 168 vùng · 11 vùng gắn cờ · 7 trang (29%) -> inpaint_needs_review
+```
+
+**Cả 11 vùng đều đọc ra ĐÚNG MỘT ký tự:** `O` x4 · `X` x2 · `G` · `1` · `C` · `è` · và một **`中`
+trên trang TIẾNG ANH**. Toàn hình OCR bịa ra từ nét cong/góc còn lại trên nền đã xoá.
+
+### Và cờ đó KHÔNG kèm bằng chứng nào
+
+`_verify_text_removed` trả về danh sách chữ, nhưng `_run_inpaint` **chỉ dùng `len()`** — chữ tìm
+được và vùng nào không lưu ở đâu cả. Người dùng nhận "cần rà soát" rồi tự soi 8-11 vùng.
+
+### Bản sửa
+
+- `inpaint_verify_min_chars = 2`, dùng hàm **riêng** `dem_ky_tu_co_nghia()`. **KHÔNG** đụng
+  `has_meaningful_text` — nó còn dùng cho `needs_manual` của OCR, nơi 1 ký tự VẪN là chữ thật.
+- `leftovers` nay mang `vùng N: '<chữ>'`, vào cả log lẫn kết quả job (`text_left_evidence`). Vùng
+  đọc được chữ nhưng DƯỚI ngưỡng cũng log ở mức info — nếu ngưỡng sai thì đó là chỗ duy nhất thấy.
+- Hiệu quả trên chính dữ liệu đã đo: **11/11 vùng oan bị lọc ⇒ 7 trang gắn cờ về 0**.
+
+### Test bắt được một điểm mù, và tôi giữ nó lại thay vì xoá
+
+Ca `'Ừ'` làm test đỏ: đó là **một từ tiếng Việt hoàn chỉnh dài một ký tự**, và ngưỡng 2 bỏ sót nó.
+Không phải lỗi test — là tính chất thật của bản sửa. Đã chuyển thành
+`test_DIEM_MU_da_biet_chu_that_MOT_ky_tu_bi_bo_sot` để chốt điểm mù lại, kèm lý do chấp nhận:
+bỏ sót thì một nét đơn còn lại mà bước căn chữ vẽ đè lên chính vùng đó nên gần như luôn bị che;
+còn gắn cờ oan 29% thì dạy người dùng phớt lờ cờ, hỏng luôn cả những lần đúng.
+
+```
+$ pytest tests/test_e23_kiem_chung_xoa_chu.py -q     28 passed
+$ pytest -q -p no:randomly                           1244 đạt · 6 bỏ qua · 0 ĐỎ
+```
+
+### Chưa làm
+
+- **Chưa live-verify chiều "vẫn bắt được chữ thật"**: trong 24 trang không có vùng nào sót ≥2 ký
+  tự, nên không có ca dương tính thật để kiểm. Chỉ có unit test.
+- Bằng chứng mới vào log + kết quả job, **chưa vào CSDL** ⇒ giao diện vẫn chưa chỉ được vùng nào
+  cần soi. Nối vào `RegionQualityAssessment` (E12) là slice riêng.
+
+## Bổ sung E23 (4) — câu hỏi KHỞI ĐẦU đã trả lời được, không cần chạy lại
+
+Thời gian **tường** của lượt 24 trang không dùng được (3 cú OOM kill + bão thử lại), nhưng thời
+gian **máy làm việc** nằm sẵn trong bảng `job`.
+
+### Phải lọc bão thử lại trước — và nó định lượng cái giá của các lỗi đã sửa
+
+| Bước | 1 lần | 2 lần | 3-4 lần | 8 lần | 16 lần |
+|---|---|---|---|---|---|
+| detect | 23 | 1 | | | |
+| ocr | 21 | 3 | | | |
+| inpaint | 21 | 1 | 2 | | |
+| translate | 20 | 2 | | 2 | |
+| typeset | 9 | 11 | 3 | | **1** |
+
+Tổng gộp 75,7 phút, phần lớn là làm lại vô ích.
+
+### Và phải dùng TRUNG VỊ
+
+Lọc còn trang chạy đúng một lần rồi tính trung bình vẫn lệch: `ocr` có một job **595,7 giây** trong
+khi min là **3,0 giây** — ngoại lệ đó kéo trung bình từ 13,9 lên 60,6.
+
+| Bước | Trung vị | p90 | E25 (6 trang) |
+|---|---|---|---|
+| inpaint | 44,2s | 96,0s | 50,7s |
+| detect | 41,7s | 51,8s | 61,7s |
+| ocr | 13,9s | 37,6s | 14,7s |
+| dịch | 4,6s | 8,5s | 4,2s |
+| căn chữ | 2,9s | 4,1s | 2,7s |
+| **tổng/trang** | **107,3s** | **198,0s** | 134,0s |
+
+### Kết quả
+
+```
+107,3s × 24 = 42,9 phút (local)  ×1,25 (hệ số production)  =>  53,6 phút
+E25 ngoại suy độc lập từ 6 trang  =>  53,6 phút
+```
+
+Hai phép đo khác nhau, hai bộ dữ liệu khác nhau, **cùng một con số**. 54 phút đứng vững.
+
+Nhưng p90 ⇒ 198s/trang ⇒ ~79 phút local ⇒ **~99 phút production**. 54 phút là TRUNG VỊ, không phải
+bảo đảm. Hứa "khoảng một tiếng" thì đúng; hứa "54 phút" là hứa quá.
+
+### Vì sao KHÔNG chạy lại một lượt sạch (đo, không phỏng đoán)
+
+```
+memory.stat  anon 6,07 GiB (không thu hồi được) · file/cache 2,40 GiB
+memory.max   10 GiB      =>  chỗ thật còn ≈ 3,9 GiB   vs   đỉnh pipeline 3,71 GB
+```
+
+Biên ~200MB, bộ nhớ phía IDE dao động liên tục — chính là lý do lượt trước bị giết 3 lần. Cần host
+có ≥6 GiB trống mới đo sạch được.
+
+## Bổ sung E23 (5) — mẻ tự chạy tiếp sau sự cố, và HAI lỗi phương pháp thử của tôi
+
+Mục cuối của E23 ("mẻ không tự chạy tiếp, phải bấm Chạy lại") nay đã sửa.
+`danh_thuc_me_dang_do()` chạy ở `worker_ready`, **sau** lượt quét mồ côi (thứ tự bắt buộc: quét mới
+là thứ giải phóng chỗ chạy).
+
+**Ranh giới giữ nguyên:** chỉ đẩy mục `pending` — trang CHƯA từng chạy. Job vừa giết worker nằm ở
+`failed` nên không bị xếp lại; nguyên tắc "Không tự chạy lại" của `hoi_phuc.py` nguyên vẹn.
+`test_KHONG_xep_lai_muc_da_HONG` chốt ranh giới.
+
+### HAI lỗi phương pháp thử — cùng một bài học
+
+1. **`docker kill` KHÔNG kích hoạt restart policy.** Tôi dùng nó rồi kết luận
+   `restart: unless-stopped` hỏng (`Exited (137)`, không bật lại). Sai: Docker coi đó là người
+   dùng chủ động dừng. Log tôi tưởng "sau cú giết" thật ra là của lần khởi động trước.
+2. **`kill -9 1` từ BÊN TRONG container bị kernel bỏ qua.** PID 1 của một PID namespace được bảo
+   vệ khỏi tín hiệu do chính tiến trình trong namespace đó gửi.
+
+**Mô phỏng đúng OOM killer** là giết từ NGOÀI namespace:
+`kill -9 $(docker inspect <ct> --format '{{.State.Pid}}')`
+
+Bài học chung: *mô phỏng một chế độ hỏng mà không kiểm rằng mình đã thật sự gây ra nó thì phép thử
+đo một thứ khác.* Cả hai lần đầu đều "chạy xong" và đều cho kết luận sai.
+
+### Kết quả với cách đúng (mẻ 3 trang, giết giữa lúc trang 2 chạy)
+
+```
+RestartCount 0 -> 1                                       <- Docker TỰ bật lại
+dọn job mồ côi (ĐÃ SỬA): 1 job -> failed, 1 trang lùi…, 0 mục mẻ -> failed
+đánh thức mẻ ad0d389f… sau khi worker khởi động lại: đẩy 0 việc
+Task detect.run_detect_job[81fd54dd…] received
+```
+
+Mẻ **tự về đích, không một thao tác tay nào**: trang 1 `typeset_done`/`completed`, trang 2 (trang
+bị giết) `typeset_done`/`skipped`, trang 3 chạy tiếp.
+
+### Nhưng phần nào THẬT SỰ được kiểm live
+
+Hàm đánh thức đẩy **0 việc** — chỗ chạy duy nhất (`batch_max_concurrent_pages=1`) đã bị chiếm bởi
+job mà **broker giao lại** (`acks_late` + pool solo, đúng như tài liệu). Nên lượt này đường cứu là
+**broker**, không phải hàm của tôi. Phần "đánh thức rồi đẩy được việc" chỉ có **4 unit test** đứng
+sau; muốn kiểm live cần dựng cảnh 0 job đang chạy + còn mục `pending`.
+
+`0 mục mẻ -> failed` cũng ĐÚNG, không phải lỗi: trang 2 có **hai** job detect cách nhau 1,5 giây
+(race trùng ở §5, cố ý không sửa) — mục mẻ trỏ vào job của MẺ, còn job bị giết là của UPLOAD.
+
+```
+$ pytest tests/test_batch_integration.py -q    45 passed
+$ pytest -q -p no:randomly                     1248 đạt · 6 bỏ qua · 0 ĐỎ
+```
+
+# ========== E23 + E24 LIVE — deploy production (2026-09-11) ==========
+
+Thứ tự deploy: **frontend trước, backend sau** — đúng ràng buộc đã tự sửa ở `REPORT_E21b §11.1`
+(FE mới chịu được BE cũ; FE cũ + BE mới là tổ hợp vỡ).
+
+```
+translation-web  v33 -> v34   deploy succeeded, 11/11 chặng
+translation-api  v58 -> v59   deploy succeeded, 11/11 chặng
+```
+
+## Bằng chứng code MỚI thật sự đang chạy (không tin "deploy succeeded")
+
+**Commit được build** — lấy từ log build của cả hai project:
+
+```
+[Source] nạp source (git_url) @ 44fcb854      (khớp HEAD local 44fcb85)
+```
+
+**Bundle frontend đã đổi** (kiểm bằng `Cache-Control: no-cache`, đúng cách đã dùng để phân biệt
+cache trình duyệt với deploy hỏng ở E21b §11.3):
+
+| | Bundle |
+|---|---|
+| E21b (trước) | `index-L--Qw3pV.js` |
+| nay | `index-0VIGJVIg.js` |
+
+**Và code E23/E24 có mặt TRONG bundle đó** — tải thẳng bundle production rồi tìm chuỗi:
+
+```
+✓ "Có bản mới của giao diện"        (E24 banner)
+✓ "Tải lại ngay"                    (E24 nút)
+✓ "no-store"                        (E24 — thiếu nó là cơ chế tự vô hiệu hoá)
+✓ "hết mọi bước"                    (E23 ô đếm mẻ)
+✓ "đứng ở 0 gần hết lượt chạy"      (E23 chú thích)
+```
+
+**Backend sống và quét mồ côi đã chạy:**
+
+```
+/healthz            -> 200 · status ok · RSS API 88,8 MB
+GET /api/v1/projects -> 401  (cổng auth hoạt động)
+runtime log 06:21:57 -> celery@ecb525562575 ready.
+runtime log 06:21:57 -> dọn job mồ côi: không có gì để dọn
+```
+
+## Một chỗ dễ đọc sai trong /healthz, không phải sự cố
+
+`worker: "starting"` **không bao giờ đổi thành "running"** với `ROLE=all`. Đọc
+`deploy-start.sh:74` thấy rõ: nhánh `all` ghi `starting` đúng một lần rồi vào vòng `while true`;
+chỉ có nhánh `ROLE=worker` mới ghi `running`. Nên `starting` + `số lần chết 0` CHÍNH LÀ trạng thái
+khoẻ bình thường của production. Bằng chứng sống thật là dòng `celery@… ready` ở trên.
+
+`rss_mb: null` cũng bình thường khi chưa có job nào chạy — worker tự ghi RSS ở mỗi mốc job.
+
+## Nợ tài liệu đã trả
+
+`FEATURES.md`: E22 `BUILT` → `LIVE` (đã deploy từ 09-10 mà bảng chưa cập nhật), và thêm hai dòng
+E23, E24 — trước đó không có dòng nào.
+
+# ========== E16 — đặt chữ nghiêng (2026-09-11) ==========
+
+```
+$ pytest tests/test_e16_xoay_chu_unit.py -q      37 passed
+$ pytest tests/test_e16_ve_chu_xoay_unit.py -q   20 passed
+$ pytest -q -p no:randomly                     1325 đạt · 6 bỏ qua · 0 ĐỎ
+$ cd frontend && npm test -- --run              361 đạt
+```
+
+## Cổng chặn của E15 đã mở — nhưng chỉ một nửa
+
+`REPORT_E15 §11.4` chặn E16 vì Run C có **0 mẫu nghiêng** ("pass RỖNG"). Lượt 24 trang của E23 cho
+**11 mẫu thật**, nên nửa nghiêng kiểm được. Nửa dọc thì không: chặn nằm ở hợp đồng OCR
+(`MangaOCREngine.recognize()` trả `(text, None)`, không có `recognize_with_layout`), và 3 mẫu
+`vertical_ttb` hiện có đều là **dương tính giả** — `?!` (36×45), `?!` (37×48), `SXXX` (37×76), gắn
+cờ vì tỉ lệ khung chứ không vì chữ dọc thật.
+
+## Hai chỗ có thể sai âm thầm, cả hai đều ĐO
+
+**1. `rotation_degrees` KHÔNG phải góc xoay.** Nó là hướng cạnh dài quy về [0,180) — một đường
+**vô hướng**. 8/11 góc thật nằm 149-167°, xoay thẳng theo là chữ **gần như lộn ngược**. Quy về
+(−90,90] thì không bao giờ lộn.
+
+**2. Chiều xoay ngược dấu.** Đo bằng cách xoay ảnh một góc biết trước rồi cho `chuan_hoa_goc` đo
+lại:
+
+```
+ảnh +15° -> chuan_hoa_goc 165.0° -> goc_xoay_chu -15.0°
+ảnh -15° -> chuan_hoa_goc  15.0° -> goc_xoay_chu +15.0°
+ảnh +40° -> chuan_hoa_goc 140.0° -> goc_xoay_chu -40.0°
+ảnh -40° -> chuan_hoa_goc  40.0° -> goc_xoay_chu +40.0°
+```
+
+⇒ góc cho PIL = **−goc_xoay_chu**. Có test vòng kín qua cv2.
+
+## Ngưỡng của tôi sai, và test guard ĐÃ CHE MẤT
+
+Tôi đặt `NGUONG_XOAY_DO = 8.0` trong khi E15 dùng `e15_angle_tolerance_deg = 12.0` ⇒ cửa sổ 8-12°
+mà E15 gọi là NGANG nhưng E16 lại xoay. Test chéo lẽ ra bắt được, nhưng nó tra
+`orientation_horizontal_tolerance_deg` — **một tên không tồn tại** — nên `getattr` trả None và test
+tự `skip`. **Một guard bị skip là một guard không canh gì.** Đã sửa cả hai.
+
+## Live verification — phải so với NÉT VẼ GỐC
+
+Trang thật `0d47b661` (14 vùng, 3 nghiêng). Pixel đổi đúng ở ba vùng đó và chỉ ở đó (2585 / 2724 /
+1921; tổng cả trang 6918).
+
+**Nhưng con số không đủ.** Ảnh clean đã xoá chữ nên không còn gì để so chiều xoay — phải lấy **ảnh
+GỐC** nơi chữ SFX còn nguyên:
+
+| Góc | Chữ gốc | E16 vẽ ra |
+|---|---|---|
+| 126,9° | `Clang` chúc mạnh xuống phải | `KÊU VANG` chúc xuống phải — khớp |
+| 162,2° | `Cling` nghiêng nhẹ | `BÁM VÀO` nghiêng nhẹ cùng chiều |
+| 166,0° | `Clong` gần ngang | `TIẾNG KÊU` gần ngang |
+
+3/3 khớp nét vẽ. Đoán dấu thì cả ba nghiêng ngược.
+
+## Một lỗi đo của tôi
+
+Lượt kiểm đầu tôi đo góc mực từng vùng, ra **giống hệt nhau** giữa có-xoay và không-xoay (90,0° vs
+90,0°), và suýt kết luận "chưa xoay gì". Phép đo đó vô dụng ở đây: vùng nhỏ (85×97) và chữ là khối
+2 dòng gần **vuông** (`Bám\nvào`) nên `minAreaRect` cho góc vô nghĩa. Với tính năng THỊ GIÁC thì
+đếm pixel khác + xem ảnh mới là phép đúng.
+
+## Chưa làm
+
+- **Nửa dọc**: không sửa được bằng code trong phạm vi E16; cần `recognize_with_layout` cho
+  `MangaOCREngine` (đổi hợp đồng OCR).
+- **Chiều đọc trên/dưới không có trong dữ liệu**: quy ước "gần nằm ngang nhất" sẽ sai với chữ thật
+  sự đọc ngược. Cần lưu đa giác dòng chữ **có thứ tự** từ OCR.
+- **Chưa có mẫu thoại nghiêng nào** — cả 11 mẫu đều là SFX hoặc bảng chữ.
+- **Chưa deploy**: đây là thay đổi NHÌN THẤY ĐƯỢC ở đầu ra cuối, nên cần một lượt kiểm trên
+  production trước.
+- Chữ nghiêng nhỏ hơn chữ ngang (hộp bao sau khi xoay lớn hơn, phải thu nhỏ cho khỏi bị gọt) —
+  đánh đổi có chủ đích, không phải lỗi.
+
+## E16 nửa nghiêng — LIVE (2026-09-11)
+
+```
+translation-api  v59 -> v60   11/11 chặng
+build từ commit  36d02767     (khớp HEAD)
+/healthz         200 · ok · RSS 93,4 MB
+celery ready     07:12:49
+translation-web  v34          KHÔNG deploy — xem lý do dưới
+```
+
+**Cố ý KHÔNG deploy frontend.** `git diff --name-only 44fcb854..HEAD -- frontend/` ra **rỗng** — nó
+không đổi một dòng nào. Rebuild vừa vô ích, vừa có thể đổi hash bundle ⇒ E24 (vừa lên cùng ngày)
+sẽ hiện banner "có bản mới, tải lại đi" cho **mọi tab đang mở** một cách vô cớ. Một cờ báo sai
+nhiều lần thì người dùng học cách phớt lờ nó, kể cả lần đúng — đúng lập luận đã viết trong
+`REPORT_E24 §3`.
+
+**Chưa kiểm thị giác trên production**, và nói rõ vì sao: làm vậy cần tải một chapter test lên
+production. Bằng chứng hiện có là cùng commit đó đã kiểm thị giác trên 3 vùng thật ở local, và log
+build xác nhận production chạy đúng commit ấy.
+
+# ========== E26 — sửa chất lượng dịch A+B+C (2026-09-11) ==========
+
+Nguồn: lượt kiểm dịch EN/JA × màu/trắng đen, so với bản `vi` **do người dịch** của Pepper&Carrot.
+Ba lỗi đáng sửa ngay. Báo cáo đầy đủ: `docs/REPORT_E26.md`.
+
+## Audit lật ngược giả định của tôi: 3/4 hạ tầng ĐÃ CÓ SẴN
+
+| Hạ tầng | Trước E26 |
+|---|---|
+| Dịch theo ngữ cảnh cả trang | **ĐÃ CÓ** — `llm_context`, prompt viết đúng yêu cầu |
+| Cờ vùng chồng lấn | **ĐÃ CÓ và gắn ĐÚNG** — `overlap_suspect` trên đúng 4 vùng lỗi |
+| Phân loại SFX | **ĐÃ CÓ** — `RegionRelevance.possible_sfx` |
+| Gộp dòng trước khi dịch | **KHÔNG CÓ** |
+
+Nên #2 không phải "không phát hiện được" mà là **"đã gắn cờ nhưng không ai dùng cờ đó"**.
+
+## A — đo TRƯỚC/SAU trên chữ THẬT, 6/7 tốt lên
+
+```
+to name just\na few!            TRƯỚC 'chỉ kể tên thôi\nmột vài!'     SAU 'chỉ kể tên một vài!'
+私はコモナの市場に\n行かねばならぬ   TRƯỚC 'Tôi đang ở chợ ở Komona\nphải đi'  <- SAI NGHĨA
+                                SAU   'Tôi phải đi chợ ở Komona.'
+私がいない間に\nすべて片付けるのだ   TRƯỚC 'trong khi tôi đi vắng\nDọn dẹp mọi thứ'  <- ĐẢO THỨ TỰ
+                                SAU   'Dọn dẹp mọi thứ khi tôi đi vắng.'
+"A-true-witch-of-Chaosah..."   TRƯỚC '...của Hỗn loạn...'  <- dịch cả TÊN RIÊNG
+                                SAU   '...Chaosah...'
+Exactly.\nAs well it should be. TRƯỚC = SAU (KHÔNG đổi)   <- luật ranh giới câu chạy đúng
+```
+
+Ca cuối **không đổi** mới là bằng chứng quan trọng: nó chứng minh luật không gộp bừa.
+7/14 vùng của trang đo là nhiều dòng ⇒ lỗi này ảnh hưởng một nửa số thoại.
+
+## Một test ĐỎ, và vì sao tôi sửa fixture chứ không nới assertion
+
+`test_dich_lai_duoc_ca_trang_sau_khi_da_canh_chu` đỏ sau E26-C. Truy ra: fixture dùng `"TRAI"` /
+`"PHAI"` (4 ký tự) ⇒ bộ chấm E12 gắn `possible_sfx` ⇒ E26-C giữ nguyên ⇒ không mang tiền tố.
+
+Mục đích thật của test là *"trang đã canh chữ phải dịch lại được"*; độ dài chữ chỉ là chi tiết tình
+cờ. Nên đổi fixture sang chữ dài thực tế, **giữ nguyên assertion mạnh** (MỌI vùng phải dịch lại).
+
+Test này đồng thời là bằng chứng lớp dương tính giả của C là **thật**: `TRAI`/`PHAI` là từ có nghĩa.
+
+## C — kiểm an toàn trên TOÀN BỘ dữ liệu thật trước khi bật
+
+13 chữ bị E12 gắn `possible_sfx` trên cả 24 trang:
+`CC · Pam · 音全。 · Bam · SXXX · Boom · Grrrr · Grrr! · Poof! · Cling · Clong · Pfff! · Clang`
+⇒ **13/13 là tiếng động hoặc nhiễu OCR, 0 ca là thoại.**
+
+Nhưng `possible_sfx` gán **thuần theo độ dài** (`so_ky_tu_goc <= 5`) — comment ở `assessor.py:183`
+tự viết *"`NO!` là thoại"*. Rủi ro dương tính giả có thật, đo được 0/13, tắt bằng
+`e26_giu_nguyen_sfx=false`. Và nó **bỏ sót 3/6** SFX (`Shhshh`, `Shklak!`, `CRACK!!\nKLING!!`).
+
+## Kết quả
+
+```
+pytest tests/test_e26_*.py -q                        43 đạt
+pytest tests/test_translate_task_integration.py -q   14 đạt
+pytest -q -p no:randomly                           1368 đạt · 6 bỏ qua · 0 ĐỎ
+```
+
+## Chưa làm
+
+- **Chưa chạy lại cả 4 tổ hợp qua pipeline thật** sau khi sửa. A đo trên chữ thật ở tầng service;
+  B và C mới có unit test, chưa có bằng chứng end-to-end.
+- **Chưa deploy.**
+- **D (bật `llm_context`) chưa làm** — chờ người dùng xác nhận production có khoá Gemini chưa và
+  chấp nhận tốn token (`google_fast` miễn phí).
+
+# ========== D — dịch theo ngữ cảnh: ĐO thay vì hỏi rồi chờ (2026-09-11) ==========
+
+Tôi đã treo D bằng hai câu hỏi cho người dùng. Cả hai đều **đo được**, nên tôi đo.
+
+## Chất lượng — trang EN thật `0d47b661`, đúng đường production (có A và C)
+
+```
+14 vùng · gửi đi dịch 11 · giữ nguyên 3 (SFX: Cling/Clang/Clong) · KHÁC NHAU 11/11
+```
+
+| Gốc | google_fast | llm_context |
+|---|---|---|
+| `Luughing Fotlons` (OCR sai) | để nguyên rác | **Thuốc Cười** |
+| `"Bright-Side" Potions` | *Độc dược "Bright-Side"* | **Thuốc "Lạc Quan"** |
+| `Mega-Hairgrowth` vùng #2 | *cực mạnh* | *Siêu Tốc* |
+| `Mega-Hairgrowth` vùng #3 | *siêu lớn* ⇒ **LỆCH** | *Siêu Tốc* ⇒ **khớp** |
+
+Ca `Luughing Fotlons` chính là **Lỗi #1** tôi đã xếp vào "giới hạn của bộ đọc chữ". Sai — prompt
+`llm_context` có sẵn dòng *"chữ do OCR đọc nên có thể sai chính tả; tự suy luận và sửa khi dịch"*
+và nó chạy thật.
+
+Cột nhất quán là lợi ích **chỉ ngữ cảnh cả trang mới cho được**: google không biết hai vùng đó
+cùng một trang nên dịch cùng một cụm thành hai kiểu.
+
+## Tiếng Nhật — giọng nhân vật
+
+```
+私はコモナの市場に 行かねばならぬ   google: 'Tôi phải đi chợ ở Komona.'
+                                  llm   : 'Ta phải đến chợ Komona ngay.'
+その通り。\nそうあるべきじゃ。      google: 'đúng rồi.\nĐó là cách nó nên được.'
+                                  llm   : 'Đúng vậy. Phải làm thế mới được.'
+```
+
+`ならぬ`/`のだ`/`じゃ` là văn cổ giọng bề trên. Google cho *"Tôi"* — không sai nghĩa nhưng mất giọng.
+
+CHỮ GHI LẠI, không phải trang trong CSDL — local không có project tiếng Nhật nào. Nói rõ để không
+ai đọc nhầm thành lượt chạy end-to-end.
+
+## Một chỗ tôi viết SAI trong REPORT_E26 §3.3, đo lại mới ra
+
+Tôi quy ca `Thuốc cười siêu mọc tóc` cho việc "4 nhãn nằm chung một vùng" rồi dừng. Đo lại:
+
+```
+'笑い薬\n超毛生え薬…'  (CÓ xuống dòng)  -> 'thuốc cười\nthuốc mọc tóc siêu tốc\n…'   ĐÚNG
+'笑い薬超毛生え薬'      (KHÔNG dấu tách) -> 'Thuốc cười siêu mọc tóc'                 SAI  <- tái hiện
+'笑い薬 超毛生え薬'     (dấu cách)       -> 'Thuốc cười siêu mọc tóc'                 VẪN SAI
+'笑い薬超毛生え薬'      llm_context      -> 'Thuốc cười, thuốc mọc tóc siêu tốc.'     ĐÚNG
+```
+
+Cơ chế thật: OCR đọc **dính, không dấu tách**, google nuốt chuỗi kanji liền thành một từ ghép.
+**A không cứu được, thêm dấu cách cũng không** — đã thử cả hai. Chỉ D cứu được.
+
+## Chi phí — đo, không ước lượng
+
+```
+trang EN 14 vùng (gửi 11)  553 token
+4 dòng tiếng Nhật           315 token
+google_fast                 không có token
+```
+
+⇒ chapter 24 trang ≈ 13 000 token. KHÔNG quy ra tiền: đơn giá `gemini-3.1-flash-lite` là thứ tôi
+không kiểm chứng được ở đây, bịa con số đô la còn tệ hơn không đưa.
+
+## Câu hỏi "production có khoá chưa" KHÔNG còn chặn — vì đo được ca xấu nhất
+
+```
+get_translator('llm_context', api_keys=[])  -> dựng được, KHÔNG ném
+    .translate([...])                       -> QuotaExhausted('… GEMINI_API_KEYS rỗng')
+_run_translate except (QuotaExhausted, TranslationFailed) -> lùi google_fast + fallback_used
+```
+
+Hai mệnh đề này mong manh và kéo ngược chiều nhau: `build_translator` gọi **NGOÀI** khối try
+(`tasks.py:1094`) nên ném lúc dựng là mất hẳn đường lùi; và lỗi phải **đúng loại** `QuotaExhausted`.
+
+Test cũ `test_llm_loi_thi_lui_ve_google_va_danh_dau_fallback` chỉ canh bằng **translator giả tự
+ném** — xanh mà không canh được đường thật. Bổ sung `test_d_khoa_rong_van_co_duong_lui_unit.py`
+(7 test), trong đó có một test **đọc thẳng mã nguồn** khối except để ai đổi nó là đỏ.
+
+⇒ Khoá rỗng thì tệ nhất là **đúng hành vi hôm nay, có dán nhãn**. Không ca nào hỏng thêm.
+
+## `/healthz` nay trả `llm_configured`
+
+Trước: muốn biết production bật được LLM chưa thì phải đăng nhập gọi `/batch-config`. Bảng biến
+môi trường của nền tảng hosting chỉ liệt kê **tên** biến — `GEMINI_API_KEYS` có tên ở đó nhưng
+**đó không phải bằng chứng nó có giá trị**.
+
+Test soi rò rỉ suýt RỖNG NGHĨA: nó đặt khoá giả rồi kiểm thân phản hồi không chứa khoá — nhưng sẽ
+xanh y hệt nếu khoá giả **chưa bao giờ được nạp**. Đúng kiểu test-tự-bỏ-qua đã dính ở E16. Thêm
+`assert llm_configured is True` trước phần soi để nó không thể rỗng nghĩa.
+
+## CỐ Ý không đổi `TRANSLATE_DEFAULT_ENGINE` trên production
+
+Không phải vì rủi ro kỹ thuật — mà vì nó tiêu quota/tiền của người dùng cho **mọi trang của mọi
+người**. Đó là quyết định của họ.
+
+Và hoá ra **không cần đổi**: `BatchPanel.jsx:146` đã có sẵn ô chọn bộ dịch, mục `llm_context` tự
+bật theo `llm_configured`. Chọn được theo từng mẻ — không ai bị ép tốn token.
+
+## Bổ sung E26 — bằng chứng END-TO-END cho B và C (2026-09-11)
+
+§9 bản đầu ghi *"B và C mới có unit test"*. Đã chạy thật `_run_translate` + `_run_typeset` trên
+trang `0d47b661` (14 vùng). Tìm ra thêm một giới hạn unit test không thấy được.
+
+### A và C — dữ liệu ra
+
+```
+756e89d8  'Tôi cần phải đi đến / chợ ở Komona.'  ->  'Tôi cần đi chợ ở / Komona.'
+4b8c6563  '... chỉ kể tên thôi / một vài!'       ->  '... chỉ kể tên một / vài!'
+cd115254  '…thực sự của Hỗn loạn…'               ->  '…thực sự của Chaosah…'
+5ea82bf8  'Bám / vào'                            ->  'Cling'
+34a57f8b  'Kêu / vang'                           ->  'Clang'
+7ed91cf0  'tiếng kêu'                            ->  'Clong'
+```
+
+### B — tôi suýt kết luận SAI vì đo nhầm thứ
+
+Đếm dòng `TypesetResult` thấy **14/14** và suýt kết luận "B không chạy". Đo nhầm: B lọc ở danh
+sách **vẽ lên ảnh** (`ve`), không đụng dòng dữ liệu — đúng thiết kế *"không xoá, chỉ không vẽ"*.
+Dòng `TypesetResult` còn nguyên là ĐÚNG.
+
+Đo đúng chỗ:
+
+```
+typeset trang 0d47b661…: bỏ qua 1 vùng BAO (chứa trọn >=2 vùng khác): ['b8b24333']
+```
+
+### So ảnh bật/tắt cờ trên cùng trang
+
+Dựng ảnh đối chứng bằng `E26_BO_QUA_VUNG_BAO=false`, rồi bật lại về mặc định:
+
+- **Tắt**: cả khối `LUUGHING FOTLONS / THUỐC MỌC TÓC CỰC MẠNH…` đè lên mọi thứ, không đọc được gì.
+- **Bật**: khối rác biến mất, các nhãn con đọc được.
+
+### GIỚI HẠN MỚI mà chỉ ẢNH mới lộ
+
+Ảnh "sau" **vẫn còn một cặp chồng**: `ĐỘC DƯỢC KHÓI..` (`e8e30ad4`) và `THUỐC KHÓI...`
+(`6aaf8a55`) là cùng một câu gốc vẽ hai lần. B không bắt vì thua CẢ HAI điều kiện:
+
+```
+e8e30ad4 chứa 6aaf8a55 ~68.6%  < ngưỡng 0.9
+chỉ 1 vùng con                 < tối thiểu 2
+```
+
+Nới ngưỡng / hạ tối thiểu xuống 1 thì bỏ oan bong bóng thật (ca
+`test_chua_TRON_mot_vung_thoi_cung_KHONG_du`). ⇒ **cố ý chưa vá**, cần dấu hiệu khác (vd trùng nội
+dung sau khi dịch) và phải có bằng chứng riêng.
+
+**B giảm hẳn chồng chữ nhưng KHÔNG xoá hết.** Đừng đọc thành "đã xử lý xong chồng lấn".
+
+### Toàn bộ test
+
+```
+pytest -q -p no:randomly                 exit=0 · 1379 đạt · 6 bỏ qua · 0 ĐỎ
++ test khoá-rác thêm sau lượt đó          12/12 đạt  ⇒ tổng 1380 đạt · 6 bỏ qua
+```
+
+## E26 A+B+C + D — LIVE trên production (2026-09-11)
+
+```
+translation-api  v60 -> v61   11/11 chặng, status=online
+build từ commit  1656eb1a     (KHỚP HEAD)
+celery ready     09:35:40
+dọn job mồ côi   'không có gì để dọn'
+lọc log 'ERROR'  0 dòng
+translation-web  v34          KHÔNG deploy — lý do dưới
+```
+
+### Bằng chứng code MỚI đang chạy, không phải dòng "deploy succeeded"
+
+`/healthz` trả **`"llm_configured": true`** — trường này CHỈ tồn tại trong commit vừa deploy. Nó là
+tín hiệu tự chứng: có trường ⇒ ảnh mới; thiếu trường ⇒ ảnh cũ. Trước deploy, cùng endpoint đó trả
+`{"status":"ok","worker":{…},"rss_api_mb":81.9}` — **không có** trường này.
+
+Tôi dùng chính nó làm điều kiện chờ deploy, thay vì tin `state: succeeded`.
+
+### Và nó trả lời luôn câu hỏi treo suốt E26
+
+**`llm_configured: true` ⇒ production ĐÃ cấu hình khoá Gemini.** Mục "Dịch theo ngữ cảnh" trong ô
+**Cách dịch** bấm được ngay, không cần deploy thêm hay đổi cấu hình gì.
+
+Đây đúng là thứ trước hôm nay không ai biết được nếu không đăng nhập — và là lý do trường này đáng
+thêm vào.
+
+### Cờ E26/E16 trên production đều BẬT (theo mặc định)
+
+Bảng biến môi trường của `translation-api` **không có** `E26_BO_QUA_VUNG_BAO`, `E26_GIU_NGUYEN_SFX`
+hay `E16_XOAY_CHU_NGHIENG` ⇒ dùng mặc định trong `config.py`, tức cả ba đều `True`.
+`LLM_PROJECT_RPM` cũng không có ⇒ mặc định 10 lượt/phút.
+
+`TRANSLATE_DEFAULT_ENGINE` **có** trong bảng nhưng bảng chỉ liệt kê TÊN, không trả giá trị — nên
+tôi **không biết** engine mặc định của production là gì và **không đoán**. Ô chọn theo từng mẻ là
+đường chắc chắn.
+
+### Cố ý KHÔNG deploy frontend — lần thứ hai
+
+`git diff --name-only 69b475b..HEAD -- frontend/` ra **rỗng**: E26 và D không đụng một dòng frontend
+nào. Rebuild vừa vô ích vừa đổi hash bundle ⇒ E24 bắn banner "có bản mới, tải lại đi" cho **mọi tab
+đang mở** một cách vô cớ. Một cờ báo sai nhiều lần thì người dùng học cách phớt lờ nó, kể cả lần
+đúng (`REPORT_E24 §3`).
+
+### Chưa kiểm thị giác TRÊN production
+
+Bằng chứng thị giác của B (so ảnh bật/tắt cờ) là ở **local**, trên trang thật. Kiểm trên production
+đòi tải một chapter test lên đó. Log build xác nhận production chạy đúng commit ấy.
+
+# ========== E26-B2 + truy ra gốc chồng chữ (2026-09-12) ==========
+
+Xuất phát: người dùng chạy thật truyện Nhật trên production, và §7b của E26 còn nợ một cặp chồng
+chữ mà luật hình học cố ý không đụng tới. Lần này truy tới gốc.
+
+## E26-B2 — thêm dấu hiệu NỘI DUNG cho luật chống vẽ trùng
+
+Hình học không nới được (hạ 0.9 hay hạ "≥2 vùng con" là bỏ oan bong bóng thật), nên dùng dấu
+hiệu khác: **chữ GỐC của vùng nhỏ nằm nguyên trong chữ gốc của vùng lớn**.
+
+**Đo trước khi viết mã** — 34 trang, 220 vùng, **8 cặp, 0 báo oan**:
+
+```
+0d47b661  e8e30ad4 lặp 6aaf8a55      <- ca trong ảnh, hình học BỎ SÓT (chồng 69%, 1 vùng con)
+0d47b661  b8b24333 lặp 3 vùng        <- hình học đã bắt
+cc1fffc9  9b1850ee lặp 29ccbe1f
+cc1fffc9  6787e037 lặp 73bce606      <- chữ Y HỆT nhau
+6f0e8e0c  f483f70d lặp 79b0a30b      <- chữ Y HỆT nhau
+29ab3d86  65ea2827 lặp 0b346c76
+```
+
+Chạy **đúng hàm sản xuất** trên cả 34 trang: hình học bỏ 2 vùng, nội dung bỏ **THÊM 4** vùng trên
+3 trang. Ảnh sau khi bật: khối `ĐỘC DƯỢC / "BRIGHT-SIDE" / ĐỘC DƯỢC KHÓI..` **biến mất**.
+
+### Kiểm an toàn TRƯỚC khi bật: chữ thêm có chỗ khác không
+
+Hai ca mới mang **thêm** chữ ngoài phần lặp. Tra dữ liệu thật:
+
+```
+29ab3d86  65ea2827 = 'Pfff!' + thoại   ->  'Pfff!' CÓ vùng riêng 617c502e  ⇒ không mất gì
+cc1fffc9  9b1850ee = 'so nice here!' + ...  ->  CÓ 6787e037 và 73bce606   ⇒ không mất gì
+```
+
+### Bất biến: không bao giờ mất HẾT chữ
+
+Chỉ bỏ vùng có diện tích **lớn hơn hẳn**. Quan hệ "bỏ" vì thế luôn đi từ lớn xuống nhỏ ⇒ vùng nhỏ
+nhất trong mọi chuỗi không bao giờ bị bỏ, và hai vùng bằng diện tích không loại được nhau. Có test
+riêng (`test_hai_vung_BANG_dien_tich_cung_chu_thi_KHONG_bo_cai_nao`,
+`test_chuoi_LONG_NHAU_ba_cap_van_con_lai_vung_nho_nhat`).
+
+### Ngưỡng 6 ký tự SAI với chữ Nhật — test bắt được, thiết kế thì không
+
+`超毛生え薬` chỉ **5 ký tự** nhưng là cả một danh từ ghép; 5 chữ cái Latin mới là `just`/`nice`.
+Dùng chung ngưỡng 6 thì luật này **gần như không bao giờ chạy trên truyện Nhật** — đúng loại truyện
+đang dùng thật. Thêm `DO_DAI_TOI_THIEU_CJK = 3`, chọn theo hệ chữ chiếm đa số.
+
+⚠️ Con số 3 là **suy ra từ mật độ thông tin, chưa đo trên dữ liệu Nhật thật** (CSDL chưa có project
+tiếng Nhật). Ba ràng buộc còn lại — chồng ≥50%, diện tích nhỏ hơn hẳn, chữ lồng nguyên văn — mới là
+phần chịu lực.
+
+### Vì sao dùng chữ GỐC chứ không dùng bản dịch
+
+Đo thật: `Smoke Potions..` ra *"Độc dược khói.."* ở vùng lớn và *"Thuốc khói..."* ở vùng nhỏ.
+Chuẩn hoá xong vẫn không lồng nhau ⇒ so bản dịch là **mất tín hiệu**.
+
+## GỐC của phần chồng chữ còn lại — KHÔNG phải lỗi vẽ trùng
+
+Ảnh sau B2 vẫn còn `THUỐC CƯỜI` đè `THUỐC MỌC TÓC SIÊU LỚN` — hai nhãn **nội dung khác nhau**, nên
+không luật chống-trùng nào bắt. Truy số đo:
+
+```
+392e16e2  khung 466,25 173x27  ->  ô đặt chữ 399,3   497x156     (5,8x cao, bắt đầu TRÊN khung)
+473212d5  khung 391,69 274x32  ->  ô đặt chữ 379,33  636x130     (4x cao)
+6aaf8a55  khung 452,211 215x29 ->  ô đặt chữ 435,171 234x96
+tất cả: source = fallback_rectangle   ROI rộng 1200px = CẢ TRANG
+font 40.0 (= TYPESET_MAX_FONT_SIZE) trong khung cao 27px  ->  fit_status = fit_ok
+```
+
+**Ô đặt chữ của hai vùng CHỒNG LÊN NHAU** (y 3–159 và y 33–163). Đó là nguyên nhân thật.
+
+Cơ chế: A1 nới khung **tới khi chạm nét vẽ** — chủ đích, và đo được là giảm tràn 3→2. Nhưng nền
+chỗ này là **trời phẳng**, không có nét vẽ nào cản, nên nó nới tràn cả trang. Và **A1 không coi các
+vùng chữ khác là vật cản**.
+
+Hệ quả thứ hai, nặng hơn: bộ căn chữ thấy ô rộng nên chọn cỡ tối đa rồi báo **`fit_ok`** cho chữ
+cao 40 trong khung cao 27. Đó là một lời **bảo đảm sai** — vi phạm nguyên tắc 3 của `CLAUDE.md`
+(thiếu bằng chứng thì phải `overflow_warning`, không được nói "ổn").
+
+⇒ **Chưa sửa trong lượt này.** Sửa đúng là cho A1 coi ô đặt chữ của vùng khác là vật cản, và đó là
+một mini-spec riêng có bằng chứng riêng, không nhét vào E26. Ghi ra đây để không ai đọc ảnh rồi
+tưởng B2 còn hở.
+
+## E15/E16 chữ dọc — đề nghị BỎ, kèm số đo
+
+```
+raqm: False          libraqm vẫn vắng trong worker
+0 font có kana+kanji  (đo bằng so với ô .notdef, KHÔNG dùng getbbox trần)
+MangaOCREngine.recognize() -> (text, None)   không có đường bao dòng
+paddleocr: CÓ cài     (nên cách gỡ mà E15 §9 đề xuất là khả thi)
+```
+
+Nhưng **đầu ra là tiếng Việt, mà tiếng Việt viết ngang**. Ảnh người dùng gửi chứng minh: bong bóng
+cao hẹp của bản Nhật, chữ Việt xuống dòng thành cột hẹp, đọc tốt. Ba vật cản còn lại **chỉ cản việc
+vẽ chữ NHẬT** — việc hệ thống không bao giờ làm.
+
+⇒ Nhãn "Chưa xác định hướng chữ" trên trang Nhật là **nhãn thừa, không phải lỗi cần sửa**. Bỏ mục
+này tiết kiệm nhiều công nhất trong cả danh sách còn lại.
+
+## Một phép đo của tôi SAI, và cách bắt được
+
+Lượt đầu tôi đếm font có glyph kanji bằng `font.getmask('日本語').getbbox()` và ra **4 font** —
+gồm ShantellSans, Bangers (font Latin thuần). Nó đếm **ô .notdef** (ô vuông rỗng) thành glyph. So
+với bbox của `.notdef` thì ra đúng **0**. Cùng loại bẫy với `file --mime-type` không tồn tại mà vẫn
+cho ra "kết luận".
+
+## Tôi đẩy một test ĐỎ lên git và deploy nó — cổng chặn key bắt được (2026-09-12)
+
+`test_khong_co_api_key_nao_bi_commit_vao_git` **ĐỎ** ở lượt chạy toàn bộ hôm nay:
+
+```
+Có API key bị commit vào git: ['backend/tests/test_d_healthz_llm_configured_integration.py: AIzaSyFA…']
+```
+
+Chuỗi đó là khoá **GIẢ** tôi viết trong chính test soi rò rỉ của mình. Nhưng cổng chặn **không thể
+phân biệt thật/giả**, và nó chỉ có giá trị khi tuyệt đối. Nên nó đúng, tôi sai.
+
+### Vì sao lượt chạy trước báo xanh — đây mới là phần đáng nhớ
+
+Lượt `1379 đạt · 0 đỏ` chạy lúc file còn **chưa được `git add`**. `_tracked_files()` chỉ liệt kê
+tệp **đã vào git**, nên nó không thấy. Tôi `git add` + commit (`1656eb1`) + push + **deploy** mà
+KHÔNG chạy lại toàn bộ.
+
+⇒ **Thêm một tệp vào git có thể làm ĐỎ một test mà lượt chạy trước đó không thể phát hiện.** Với
+mọi test soi phạm vi "những gì đã vào git", thứ tự đúng là: `git add` **rồi mới** chạy test, không
+phải ngược lại.
+
+Bản sửa: ghép chuỗi lúc chạy (`"AIza" + "Sy" + "K" * 33`) nên không literal nào trong mã nguồn khớp
+mẫu, còn khoá lúc chạy vẫn đúng định dạng để phép soi rò rỉ giữ nguyên ý nghĩa.
+
+# ========== E27 — ô đặt chữ không trùm khung chữ vùng khác (2026-09-12) ==========
+
+## Đính chính: bộ căn chữ KHÔNG báo sai
+
+Hôm trước tôi viết *"`fit_ok` là một bảo đảm sai"*. **Không đúng.** `fitter.py` kiểm
+`w <= rect.width and h <= rect.height` — trung thực với cái `rect` nó nhận. Vấn đề là
+`tasks.py:1531` đưa cho nó **`place_rect`** chứ không phải khung chữ:
+
+```
+392e16e2   khung chữ 173x27   ->  fitter nhận ô 497x156   ->  fit_ok (ĐÚNG với ô đó)
+```
+
+Ô rộng gấp 16 lần khung thật, nên chữ vừa ô mà vẫn đè vùng khác. Bộ căn chữ bị đưa **sai đầu
+vào**, không phải nói dối. Vá đầu vào là hết cả hai triệu chứng.
+
+## Gốc
+
+A1 nới ô đặt chữ **tới khi chạm nét vẽ**. Nền chỗ này là **trời phẳng** ⇒ không nét nào cản ⇒ nới
+tràn. Và A1 **không coi vùng chữ khác là vật cản**.
+
+## Bản vá — cắt bớt, KHÔNG bỏ nới
+
+Nối vào `nap_o_dat_chu` vì docstring của nó đã chốt: *"một chỗ duy nhất trả ra ô đặt chữ"*, mọi
+đường (canh chữ / ảnh xem thử / file xuất) đều đi qua. Vá chỗ khác là sớm muộn ba đường lệch nhau.
+
+Đo trên trang thật sau khi vá:
+
+```
+392e16e2   (399,3,497,156)  ->  (399,3,497,65)     cắt ĐÁY,  khung y25–52 còn trọn
+473212d5   (379,33,636,130) ->  (379,54,636,104)   cắt ĐỈNH, khung y69–101 còn trọn
+```
+
+Ảnh xác nhận: `THUỐC CƯỜI` / `THUỐC MỌC TÓC SIÊU LỚN` / `THUỐC KHÓI...` **tách bạch hoàn toàn**,
+hết đè nhau.
+
+## Một giả định của tôi SAI, số đo bắt được
+
+Tôi viết luật với giả định *"ô đặt chữ bao trọn khung chữ của chính nó"*. Chạy thật thì:
+
+```
+e8e30ad4   ô x 423–660   khung chữ x 421–671     <- ô HẸP HƠN khung
+```
+
+Với bong bóng THẬT, vùng an toàn là **lòng bong bóng đã ăn mòn** nên nhỏ hơn khung chữ. Giữ giả
+định đó thì E27 **không chạm tới phần lớn bong bóng thật**, chỉ chạy đúng mấy ca dự phòng nới
+tràn. Đổi sang giữ phần **giao** của ô với khung chữ.
+
+## Vì sao chọn "cắt" chứ không phải "bỏ nới"
+
+Bỏ nới là mất luôn cái A1 đem lại (đo được: tràn 3→2). Nên chỉ cắt đủ để hết trùm, **không bao giờ
+cắt vào phần giao với khung chữ của chính mình**, và chọn nhát cắt **mất ít diện tích nhất**. Vật
+cản đè lên chính khung chữ mình (hai vùng nhận diện chồng nhau) thì **giữ nguyên** — đó là việc của
+E26-B/B2 ở bước vẽ, không phải việc cắt ô.
+
+```
+pytest -q -p no:randomly   exit=0 · 1415 đạt · 6 bỏ qua · 0 ĐỎ   (git add TRƯỚC khi chạy)
+```
+
+Chưa deploy E27.
+
+# ========== E28 — bớt "kỹ thuật" ở màn rà soát (2026-09-12) ==========
+
+Người dùng: *"trong nó kỹ thuật thuần DEV quá, nó không được đẹp"*. Audit trước khi sửa: **không
+phải thiếu CSS** — E11 đã có sẵn hệ token màu/bo góc/đổ bóng. Vấn đề là **chẩn đoán dành cho người
+dò lỗi đang chiếm mặt tiền**, đẩy bản dịch xuống dưới màn hình.
+
+## 1. Màu của chip MÂU THUẪN với chữ của chính nó
+
+```
+unknown: B('Chưa xác định hướng chữ', 'canh', ...   <- sắc CẢNH BÁO (hổ phách)
+         mô tả: "Đây là câu trả lời trung thực, KHÔNG PHẢI LỖI"
+```
+
+Màu nói "có việc cần xử lý", chữ nói "không phải lỗi" — và người đọc tin **màu** trước.
+
+Nặng hơn: đo được `MangaOCREngine.recognize()` trả `(text, None)` nên trang **tiếng Nhật luôn
+luôn** ra `unknown` ⇒ **mọi vùng của mọi trang Nhật** đều nổi một chip cảnh báo mang đúng **0**
+thông tin hành động. Một cờ báo động luôn bật thì người dùng học cách phớt lờ nó, kể cả lần nó thật
+sự cần chú ý — đúng lập luận đã viết ở `REPORT_E24 §3`.
+
+⇒ Đổi sang sắc `trung` (xám nhạt, đã có sẵn trong token).
+
+## 2. Giao diện đang NÓI SAI về một tính năng đã ship
+
+`OrientationBox.jsx:71` viết:
+
+> *"Bản này **chưa tự xoay chữ**. Cần đặt thủ công bằng công cụ sẵn có ở màn sửa tay."*
+
+Nhưng **E16 đã LIVE từ api v60** — hệ thống xoay chữ tự động, và `_ve_xoay` còn tự thu nhỏ cho nằm
+gọn trong bong bóng. Giao diện đang bảo người dùng làm tay một việc máy đã làm.
+
+**Và có một test canh cho lời sai đó đứng yên:**
+
+```
+expect(screen.getByText(/chưa tự xoay chữ/i)).toBeInTheDocument()
+```
+
+Test đúng lúc viết, nhưng khi E16 ship thì không ai cập nhật — nên nó biến thành cái khoá giữ một
+câu đã sai. Đây là lý do test giao diện phải canh **hành vi thật**, không canh câu chữ của bản cũ.
+
+## 3. Thu gọn bằng chứng, KHÔNG xoá
+
+Bảng "Căn cứ / Số dòng đo được / Góc nghiêng" + danh sách lý do vào `<details>`:
+
+- **mở sẵn** khi thật sự nhận ra chữ dọc hoặc chữ nghiêng (lúc đó bằng chứng có ích),
+- **thu lại** khi `unknown` (lúc đó nó lặp y hệt ở mọi vùng).
+
+Không xoá gì — giữ đúng nguyên tắc "nói ra căn cứ" của E15.
+
+```
+npx vitest run   363 đạt / 23 tệp · 0 đỏ   (65 test riêng cho OrientationBox)
+```
+
+Chưa deploy.
+
+# ========== E29–E31 — đo CẢ tiếng Anh lẫn tiếng Nhật rồi mới chọn engine (2026-09-12) ==========
+
+Người dùng yêu cầu: *"test cả tiếng anh luôn chứ không phải tiếng nhật không, từ đó chọn phép đo
+thật chọn nào tốt nhất"*. Lượt đo đó tìm ra **ba lỗi**, trong đó một lỗi làm **mất chữ**.
+
+## E30 — `llm_context` LÀM MẤT CẢ CÂU (nặng nhất)
+
+Trang `29ab3d86`, tiếng Anh:
+
+```
+vào      "Whoo!\nI think it'll be a teeny tiny bit more complicated than I thought!"
+google   "Ối! / Tôi nghĩ nó sẽ phức tạp hơn tôi nghĩ một chút!"        ✓ đủ
+llm CŨ   "Whoo!"                                                       ✗ MẤT CẢ CÂU
+llm MỚI  "Hự! Có vẻ mọi chuyện rắc rối hơn mình tưởng một chút rồi!"   ✓
+
+vào      "Pfff!\n.. and I thought it'd be easier with an Air Dragon!"
+llm CŨ   "Phụt!"                                                       ✗ MẤT CẢ CÂU
+llm MỚI  "Phì! ...cứ tưởng có Rồng Gió thì mọi chuyện sẽ dễ dàng hơn chứ!"  ✓
+```
+
+Đây là chỗ `llm_context` **tệ hơn hẳn** `google_fast`, và tệ theo kiểu **im lặng**: job xanh, ảnh
+vẫn ra, chỉ thiếu chữ.
+
+**Gốc:** prompt dùng giao thức "một dòng một mục" (`1. …`), mà `build_prompt` ghép
+`f"{i+1}. {t}"` — mục có `\n` bên trong **trải ra nhiều dòng**, phá giao thức. Vá: dàn phẳng `\n`
+thành dấu cách **chỉ trong prompt của LLM**. `google_fast` vẫn cần `\n` (nó dịch từng câu theo
+dòng) nên không đụng dữ liệu vào.
+
+### Một chỗ tôi SỬA QUÁ TAY và đã hoàn lại
+
+Tôi còn sửa `parse_response` cho "nối dòng không có số vào mục trước". Nó **phá**
+`test_bo_qua_heading_va_dong_thua`: mô hình thêm dòng tán gẫu ở cuối thì dòng đó lọt vào bong bóng
+cuối. Hai yêu cầu kéo ngược chiều nhau và **không phân biệt được bằng vị trí dòng**.
+
+Đọc lại nguyên nhân đã đo: chữ mất vì **prompt vỡ**, không vì bộ đọc bỏ dòng. Nên hoàn lại phần
+sửa bộ đọc, đo lại — **bản vá prompt một mình là đủ**. Thêm hành vi phỏng đoán ở đó là đổi một lỗi
+đã hết lấy một lỗi mới.
+
+## E29 — ngưỡng "chữ rất ngắn" SAI với tiếng Nhật
+
+Lượt chạy 3 trang tiếng Nhật thật: **hai câu thoại không được dịch chút nào**.
+
+```
+それでも、  (5 ký tự) = "Dù vậy,"      -> giữ nguyên
+ちなみに、  (5 ký tự) = "Nhân tiện,"   -> giữ nguyên
+```
+
+Cả hai bị `short_stylized_text` bắt (`so_ky_tu_goc <= 5`) ⇒ `possible_sfx` ⇒ E26-C giữ nguyên.
+Đây **đúng** lớp dương tính giả đã ghi ở `REPORT_E26 §4.3` là *"có thật nhưng chưa xảy ra"* — với
+tiếng Nhật nó xảy ra **ngay lượt đầu**.
+
+Vá: `short_text_max_chars_cjk = 2`, chọn theo hệ chữ chiếm đa số. Cùng một lỗi hiệu chỉnh đã gặp ở
+E26-B2 sáng nay — ngưỡng tính theo chữ Latin không dùng được cho CJK.
+
+**Vì sao 2 mà không bỏ hẳn luật:** trong tiếng Nhật độ dài gần như **không mang tín hiệu**
+(`それでも、` thoại, `音全。` nhiễu OCR, cùng 3–5 ký tự). Chọn sai về phía **cứ dịch**.
+
+## E31 — nối thuật ngữ + giọng nhân vật vào prompt
+
+`llm_context` nhất quán trong MỘT trang nhưng **không thấy trang khác** — giới hạn đã ghi ở
+`REPORT_E26 §9`. Đo thật: `Air Dragon` ra `Rồng Gió` ở trang này, **không gì bảo đảm** trang sau
+không ra `Rồng Không Khí`.
+
+Lại đúng khuôn đã gặp cả ngày: **E13/E17 đã dựng sẵn hai bảng, chưa ai cắm dây.**
+
+Hai luật:
+- **Chỉ nạp mục đã chốt** (`approved` / `active`). Bản `draft` là gợi ý máy chưa ai duyệt — đưa vào
+  prompt là để mô hình tự xác nhận phỏng đoán của chính nó, biến một gợi ý sai thành cái sai lặp
+  trên cả chapter. Nguyên tắc E13: *"máy chỉ ra chỗ, KHÔNG tự sửa"*.
+- **Chưa chốt gì thì prompt không đổi một ký tự** — có test canh bất biến này.
+
+Áp cho **cả hai** đường dịch (cả trang + dịch lại vùng): hai đường khác prompt thì bấm "dịch lại
+vùng" ra cách gọi tên khác, đúng thứ bảng thuật ngữ sinh ra để tránh.
+
+## Kết luận về engine — đo cả hai ngôn ngữ
+
+| | `google_fast` | `llm_context` |
+|---|---|---|
+| `Air Dragon!` | **để nguyên tiếng Anh** | `Rồng Gió` |
+| `Whoo! I think…` | *"tôi nghĩ… tôi nghĩ"* lặp | `mình tưởng` — tự nhiên |
+| `は、はぁ．．．` | `Hà, Hà. ．． ．．` | **`H-hả...`** (nói lắp ra nói lắp) |
+| `ダメ！…` | `Bạn không nên…` | `Cậu không được làm thế đâu` |
+| `Luughing Fotlons` (OCR sai) | để nguyên rác | **`Thuốc Cười`** |
+| Chi phí | miễn phí | **295–325 token/trang** |
+
+⇒ **`llm_context`**, nhưng **chỉ sau khi E30 được deploy** — trước đó nó làm mất chữ.
+
+## Tôi vi phạm quy tắc "một lượt pytest một lúc" LẦN THỨ BA hôm nay
+
+Lượt tổng đầu báo 4 đỏ. Ba trong số đó (`test_safe_area_integration.py`) là **đỏ giả**: chạy riêng
+thì 20/20 xanh. Nguyên nhân: tôi chạy `test_e30_*` và `test_e31_*` **trong lúc** lượt tổng đang
+chạy, và test migration của lượt sau xoá bảng của lượt trước.
+
+Cái đỏ thứ tư (`test_bo_qua_heading_va_dong_thua`) là **thật** — chính là ca "sửa quá tay" ở trên.
+
+## E27–E31 + E28 — LIVE trên production (2026-09-12)
+
+```
+translation-web  v34 -> v35   11/11 chặng (deploy TRƯỚC — REPORT_E21b §11.1)
+translation-api  v62 -> v63   11/11 chặng, online
+build từ commit  e2af61d4     (KHỚP HEAD)
+celery ready     07:47:47
+```
+
+### Bằng chứng code MỚI đang chạy — cả hai tầng
+
+**Backend** — `/healthz` trả:
+
+```json
+{"status":"ok","llm_configured":true,"translate_default_engine":"llm_context", …}
+```
+
+`translate_default_engine` CHỈ có trong commit vừa deploy ⇒ tín hiệu tự chứng. Và giá trị
+`llm_context` xác nhận biến người dùng đổi trên bảng cấu hình **đã thật sự có hiệu lực** — thứ
+trước hôm nay không ai kiểm được, vì bảng chỉ trả TÊN biến.
+
+**Frontend** — bundle đổi `index-0VIGJVIg.js` → `index-BQBs_1Us.js`, tải thẳng bundle production
+rồi soi chuỗi:
+
+```
+CO    : "đặt nghiêng theo đúng góc này"      <- câu ĐÚNG của E28
+KHONG : "chưa tự xoay chữ"                   <- câu SAI đã biến mất
+CO    : "Căn cứ kỹ thuật"                    <- khối chẩn đoán đã thu gọn
+CO    : "Có bản mới của giao diện"           <- E24 không hồi quy
+CO    : "Dịch theo ngữ cảnh"                 <- ô chọn engine còn nguyên
+```
+
+Đây là lần đầu deploy frontend kể từ E23/E24, và có lý do thật: E28 đổi mã frontend. Hai lượt
+trước tôi cố ý KHÔNG deploy vì `git diff -- frontend/` ra rỗng.
+
+### Thứ tự deploy
+
+Frontend TRƯỚC, backend SAU — đúng ràng buộc `REPORT_E21b §11.1` (FE mới chịu được BE cũ; FE cũ +
+BE mới là tổ hợp vỡ).
+
+### Chưa kiểm
+
+Chưa chạy một chapter thật TRÊN production sau lượt deploy này. Bằng chứng hiện có: bộ test
+1466 đạt/0 đỏ, ảnh so sánh ở local, và log build xác nhận production chạy đúng commit.
+
+# ========== E32 — gửi kèm ẢNH TRANG cho mô hình dịch (2026-09-14) ==========
+
+Việc #1 trong kế hoạch. Dựng **TẮT mặc định** và đo chi phí trước khi bàn tới việc bật.
+
+## Chi phí — đo trên hai trang thật
+
+```
+trang EN 0d47b661 · 14 vùng · ảnh 615 KB -> gửi 174 KB
+  KHÔNG ảnh   token=581    (prompt=383  ra=198)
+  CÓ ảnh      token=1754   (prompt=1549 ra=205)      x3.0
+
+trang JA 4579a443 · 3 vùng · ảnh 432 KB -> gửi 113 KB
+  KHÔNG ảnh   token=247    (prompt=215  ra=32)
+  CÓ ảnh      token=1412   (prompt=1381 ra=31)       x5.7
+```
+
+**Chi phí ảnh gần như CỐ ĐỊNH: +1166 và +1165 token.** Nên tỉ lệ tăng phụ thuộc vào trang có bao
+nhiêu chữ — trang ít chữ bị đội giá nặng hơn nhiều. Đây là con số quan trọng nhất của E32, và nó
+giải thích vì sao không bật mặc định: một chapter 24 trang tốn thêm **~28 000 token**.
+
+## Chất lượng — hai loại lợi ích khác nhau
+
+### 1. Sửa được chữ OCR đọc RÁC (bằng chứng mạnh nhất)
+
+```
+GỐC 'どなどは'   <- OCR đọc rác hoàn toàn
+KHÔNG ảnh:  "Chẳng hạn như..."    <- đoán thành などは, sai
+CÓ ảnh   :  "Đổ ào ào."           <- nhận ra đó là SFX ぱらぱら vẽ trong tranh
+```
+
+Đây là khác biệt **LOẠI**, không phải khác biệt câu chữ. **Lặp 3 lượt, bên có ảnh ra `Đổ ào ào.`
+mỗi lần** — ổn định, không phải nhiễu temperature. (Bên không ảnh đo 1 lượt.)
+
+### 2. Biết AI đang nói ⇒ đại từ đúng
+
+```
+#7   'Yeah, I know:'          KHÔNG ảnh "Ừ, tôi biết mà:"   CÓ ảnh "Vâng, con biết:"
+#12  'I need to go to the…'   KHÔNG ảnh "Tôi cần…"          CÓ ảnh "Ta cần…"
+```
+
+Học việc gọi "con", phù thuỷ già gọi "ta" — thông tin chỉ có trong tranh.
+
+### Một chỗ tôi KHÔNG kết luận
+
+Vùng #14 trang EN: bên không-ảnh ra *"trước khi tôi về"* (sai nghĩa, gốc là *"while I'm gone"*),
+bên có-ảnh ra *"khi ta đi vắng"* (đúng). Trông như ảnh sửa lỗi nghĩa — **nhưng lượt đo E30 hôm 12-09
+bên không-ảnh đã từng ra đúng**. Với `temperature=0.3` thì một lượt không tách được tín hiệu khỏi
+nhiễu, nên **không tính ca này là bằng chứng**. Chỉ §1 (lặp 3 lượt, khác biệt loại) và §2 (thông tin
+chỉ ảnh có) mới tính.
+
+## Quyết định thiết kế
+
+**Ảnh đứng TRƯỚC chữ** trong `parts` — Gemini neo câu trả lời vào phần đầu; đảo lại thì ảnh dễ bị
+coi là phần phụ.
+
+**Dùng ảnh GỐC, không dùng ảnh đã xoá chữ.** Mục đích là để mô hình ĐỌC LẠI chữ gốc khi OCR sai, mà
+ảnh clean thì đã xoá hết chữ.
+
+**Thu nhỏ về 1024 px cạnh dài.** Gemini tính tiền theo ô 768×768; trang gốc 1200×1660 chiếm nhiều ô.
+Không thu nhỏ hơn nữa vì mô hình phải còn ĐỌC ĐƯỢC chữ trong bong bóng — nhỏ quá là mất đúng cái lợi
+mà ảnh mang lại. Đo được: 615 KB → 174 KB.
+
+**Prompt chỉ nói về ảnh KHI CÓ ảnh**, và nói rõ *"ảnh là để HIỂU ĐÚNG, không phải để thêm nội dung"*
+— không chặn thì mô hình dễ tự thêm thoại nó thấy trong tranh mà không có trong danh sách.
+
+**Ảnh hỏng thì trả `None`, không nổ.** Gửi ảnh là phần THÊM; ảnh hỏng không được làm mất cả lượt
+dịch.
+
+## Phép chắn chữ ký ĐÃ CHỨNG MINH giá trị ngay lần đầu
+
+`build_translator` thêm tham số thứ ba (`anh_trang`) — đúng loại thay đổi đã gây 115 test đỏ dây
+chuyền hôm 12-09. Lần này `test_chu_ky_ban_gia_khop_ham_that_unit.py` **đỏ trong 2 giây**, in thẳng
+ra chỗ lệch:
+
+```
+thật=['engine', 'boi_canh', 'anh_trang']   giả=['engine_name', 'boi_canh']
+```
+
+Sửa 6 bản giả rồi xanh lại. So với lần trước: 20 phút chạy + 115 đỏ + một lượt truy nguyên nhân.
+
+## Còn lại
+
+- **TẮT mặc định** (`e32_kem_anh_trang=false`). Bật là quyết định chi phí của người dùng.
+- Mới đo **2 trang, 1 lượt mỗi phía** cho phần chất lượng (trừ ca §1 lặp 3 lượt).
+- Chưa chạy end-to-end qua pipeline với cờ bật.
+- Chưa làm phương án rẻ hơn: chỉ gửi ảnh cho trang **có vùng bị E12 gắn cần rà soát** hoặc OCR
+  điểm tin cậy thấp — vì lợi ích của ảnh tập trung đúng vào những trang đó.
+
+# ========== E33 — gộp nhiều chapter vào một file xuất (2026-09-14) ==========
+
+Thứ **duy nhất** thật sự thiếu trong luồng tự động (kiểm kê 12-09). Bốn phần còn lại đã có từ
+trước: tải nhiều ảnh, tự nhận diện sau khi tải, năm bước nối nhau, chạy cả chapter một mẻ.
+
+## Rủi ro lớn nhất KHÔNG phải chức năng, mà là IDOR
+
+Mỗi chapter có **chủ riêng** (auth slice B). `create_export` trước E33 chỉ kiểm chapter trên URL.
+Thêm một danh sách id vào **thân request** mà không kiểm từng cái là mở đường cho bất kỳ ai gộp
+chapter của người khác vào file của mình rồi tải về.
+
+Và **phép dò quyền tự sinh không bắt được ca này**: `test_quyen_cheo_tai_khoan.py` thử từng endpoint
+với id của A trên **URL**, còn ở đây id lạ nằm trong **thân request**.
+
+Nên có `test_e33_gop_quyen_integration.py` (7 test) canh riêng:
+
+```
+B gộp chapter của A  -> 404   ✓
+A gộp chapter của B  -> 404   ✓   (kiểm CẢ HAI chiều — lỗ một chiều vẫn là lỗ)
+id không tồn tại     -> 404   ✓   (từ chối CẢ lượt, không lặng lẽ xuất thiếu)
+gộp chapter của mình -> 202   ✓   (chiều thuận phải chạy, nếu không test trên rỗng nghĩa)
+```
+
+## Hai chỗ mất dữ liệu ÂM THẦM, và một giả định của tôi SAI
+
+**Tên trùng trong archive.** Mỗi chapter đều có trang `order=1`. `ten_trang()` đặt tên theo
+`trang.order`, nên gộp mà không có tiền tố thì trang 1 của chapter sau **ghi đè** trang 1 của
+chapter trước — `zipfile` **không báo lỗi**, nó tạo hai entry cùng tên mà phần lớn ứng dụng đọc
+truyện chỉ thấy một. Mất trang mà không ai biết.
+
+**Thứ tự phải nằm trong TÊN**, không chỉ trong thứ tự ghi vào archive: ứng dụng đọc CBZ sắp trang
+theo **tên file**. Test canh bằng `sorted(ten) == ten`.
+
+### Giả định sai của tôi, và số đo bắt được
+
+Tôi viết worker gán `t_.ten_file = ...`, giả định `TrangCanXuat` có trường đó. Đọc mã thì **không
+có** — tên trang do `ChapterExporter.ten_trang()` tính từ `trang.order`. Và dataclass đó
+`frozen=True` nên gán thuộc tính sẽ **nổ** chứ không âm thầm.
+
+Sửa đúng chỗ: thêm trường `tien_to` vào `TrangCanXuat`, cho `ten_trang` ghép `tiền tố/số trang`, và
+worker dựng bản mới bằng `dataclasses.replace`.
+
+Kéo theo một lỗi nữa: `export_png_single` ghi thẳng `dich / ten_trang(...)`, mà tên nay có `/` ⇒
+`FileNotFoundError` vì thư mục con chưa tồn tại. Thêm `mkdir(parents=True)`.
+
+### Và tôi đã bỏ một hàm mình vừa viết
+
+`gop_chapter.ten_trong_archive()` ghép tên đầy đủ — nhưng `ten_trang` của bộ xuất **đã là** chỗ duy
+nhất quyết định tên trang (nó còn tự tính độ rộng chữ số theo tổng số trang). Hai chỗ đặt tên là
+sớm muộn hai chỗ lệch nhau. Bỏ hàm đó, và **viết lại test để đi qua đúng đường sản xuất** — test tự
+ghép chuỗi là test một hàm không ai gọi.
+
+## Thiết kế
+
+**Không đổi `project_id` thành nhiều.** Cột đó là chỗ nghẽn kiểm quyền và là khoá ngoại mà mọi
+đường đọc hiện có đang dùng. Giữ nó làm chapter CHÍNH, thêm `gop_project_ids` (JSONB, nullable) bên
+cạnh — không phá hợp đồng nào (CLAUDE.md nguyên tắc 6).
+
+**Lưu THỨ TỰ chứ không phải tập hợp.** Gộp 3 rồi 1 ra file khác hẳn gộp 1 rồi 3.
+
+**Bỏ trùng nhưng giữ thứ tự lần xuất hiện đầu** — chọn trùng là nhầm tay; để nguyên thì trang bị
+xuất hai lần với hai tiền tố khác nhau.
+
+**Đánh SỐ chapter, không dùng tên làm thư mục.** Tên do người dùng đặt, có thể trùng, có thể rỗng
+sau khi lọc ký tự lạ. Số thì luôn duy nhất và luôn sắp đúng. Tên vẫn đi **sau** số để còn nhận ra.
+
+**Chapter bị xoá sau khi xếp việc** ⇒ ghi vào `bo_qua`, không lặng lẽ xuất thiếu.
+
+**Trần 50 chapter** — gộp nhiều hơn thì file quá lớn và lượt xuất chạy quá lâu.
+
+## Migration
+
+`0018_e33` thêm **một** cột nullable, chạy được **cả hai chiều** (đã kiểm `upgrade` → `downgrade`
+→ `upgrade` trên CSDL thật). Không enum mới nên không cần `DROP TYPE` như `0001_m1`.
+
+Bẫy: revision id của migration trước là `0017_e22`, **không phải** tên tệp
+`0017_e22_job_heartbeat_error_evidence`. Ghi sai thì `alembic` không tìm được chuỗi.
+
+## E33b — vá rủi ro IDOR ở tầng CẤU TRÚC, không chỉ thêm test cho E33 (2026-09-14)
+
+E33 đã có 7 test riêng chặn IDOR. Nhưng chúng chỉ che **endpoint đó**. Rủi ro thật là: endpoint
+**sau này** nhận id trong thân request sẽ lọt y như vậy, vì phép dò tự sinh không với tới.
+
+### Lần vá thứ nhất — SAI, và tôi chứng minh nó sai
+
+Tôi nghĩ chỗ mù nằm ở `_gia_tri_mau`: `if kieu == "array": return []` ⇒ mọi mảng nhận `[]` ⇒ id của
+A không bao giờ vào thân. Vá: mảng uuid nhận id thật của A.
+
+Rồi **tạm bỏ phép kiểm quyền của E33 để xem phép dò có đỏ không** — nó **vẫn xanh**. Bản vá vô giá
+trị, và lý do là cấu trúc:
+
+```
+phép dò cũ :  B  ->  /projects/{id-của-A}/export   { }                   -> chặn ngay ở URL
+lỗ thật    :  B  ->  /projects/{id-của-B}/export   {"gop": [id-của-A]}   -> URL HỢP LỆ
+```
+
+Phép dò cũ **luôn** đặt id của A lên URL, nên B bị chặn trước khi body được nhìn tới. Hình dạng của
+lỗ này — **URL hợp lệ của chính B + id lạ trong body** — phép dò đó không diễn đạt được. Nếu tôi chỉ
+đọc mã rồi tin bản vá đầu là đủ thì đã báo "đã che" cho một phép dò không che gì.
+
+### Lần vá thứ hai — phép dò RIÊNG, và đã chứng minh nó đỏ đúng lúc
+
+`tests/test_quyen_id_trong_than_request.py`: tự sinh từ `app.openapi()`, tìm mọi endpoint
+`POST/PATCH/PUT` có `{project_id}` trên URL **và** trường mang id chapter trong thân, rồi gọi bằng
+B với chapter **của chính B** trên URL.
+
+**Chống rỗng nghĩa — hai lượt cho mỗi endpoint:**
+
+```
+body chứa id của A      -> phải KHÔNG 2xx   (2xx = LỖ HỔNG)
+body chứa id của B      -> phải 2xx         (không 2xx = rỗng nghĩa, bị chặn vì lý do KHÁC)
+```
+
+Không có lượt thứ hai thì một endpoint hỏng vì bất kỳ lý do gì cũng làm test xanh.
+
+**Và phép chống-rỗng-nghĩa đã bắt lỗi ngay lần chạy đầu:** cả hai lượt trả 422 vì `format` là enum
+qua `$ref`, mà hàm dựng body của tôi không giải `$ref` nên gửi chuỗi rác. Nếu chỉ có
+`assert not lo_hong` thì test đã xanh và tôi tưởng mình đã che được.
+
+**Phép thử quyết định** — tạm bỏ phép kiểm quyền của E33:
+
+```
+LỖ HỔNG id trong thân request:
+  POST /api/v1/projects/{project_id}/export [gop_project_ids]: id của A trong thân ⇒ HTTP 202
+```
+
+Nó **tự tìm ra endpoint, tự dựng body, tự phát hiện lỗ**. Hoàn lại phép kiểm ⇒ 18/18 xanh.
+
+### Giới hạn, nói rõ
+
+Dò trường theo **TÊN** (`project_id`, `project_ids`, `chapter_id`, `chapter_ids`) vì OpenAPI không
+nói field này trỏ tới bảng nào. Đặt tên khác hẳn (vd `nguon`) thì phép dò không thấy. Đó là giới
+hạn của schema, không phải lựa chọn — và ghi ra đây để ai thêm endpoint còn biết.
+
+Chỉ dò endpoint có `{project_id}` trên URL, vì cần một tài nguyên hợp lệ của B để dựng URL.
+
+# ========== E34 — chỉ gửi ảnh cho trang cần (2026-09-14) ==========
+
+Người dùng đưa spec kèm ước tính. **Ba chỗ trong spec cần chỉnh, và tôi đo trước khi làm.**
+
+## Chỉnh 1 — con số ảnh trong spec sai gấp 4,5 lần
+
+Spec ghi 258 token/ảnh. Đó là giá **một ô ảnh** của Gemini, nhưng ảnh 1024px chiếm **nhiều ô**. Đo
+thật ở E32: `prompt` 383→1549 (EN) và 215→1381 (JA) ⇒ **+1166 token/trang**.
+
+Điều đó làm phương án chọn lọc **có giá trị hơn** ước tính, không kém:
+
+```
+24 trang chỉ chữ          9.600 token
+24 trang ảnh MỌI trang   37.584 token
+24 trang chọn lọc 5/24   15.430 token
+```
+
+## Chỉnh 2 — hai cờ trong spec không tồn tại
+
+```
+inpaint_needs_review   CÓ (PageStatus)
+low_confidence         CÓ (RegionStatus)
+needs_manual           CÓ — nhưng là OCRStatus, không phải RegionStatus
+ocr_needs_review       KHÔNG TỒN TẠI
+```
+
+## Chỉnh 3 — KHÔNG dò chuỗi rác bằng danh sách cứng
+
+Spec liệt `どなどは`, `Luughing Fotlons`, `ITIS`. Đó là mấy mẫu tình cờ gặp, không phải luật — và
+spec còn ghi `たりなかたかも` trong khi chuỗi thật là `足りなかったかかも`. Danh sách cứng bỏ sót mọi
+ca khác và không bao giờ tự phát hiện ca mới: mã trông như có tác dụng mà không ai đo được.
+
+Thay bằng ba cờ **pipeline tự ghi ra**. Người dùng đồng ý thứ tự: dựng trên cờ có thật → ĐO → chỉ
+thêm luật mới khi số đo cho biết cờ hiện có bỏ sót bao nhiêu.
+
+## Lần dựng thứ nhất — luật của spec TỰ BÃO HOÀ
+
+Luật "trang bật nếu **có một** vùng bị cờ" cho:
+
+```
+24 trang tiếng Anh   13/24 = 54%   tiết kiệm 34%
+3 trang tiếng Nhật    3/3  = 100%  tiết kiệm 0%
+```
+
+Và nó bão hoà **theo toán học**, không phải tình cờ:
+
+```
+en:  27/220 vùng = 12%  ·  ~9 vùng/trang  ->  1-(0.88^9) ≈ 68%   (đo 54%)
+ja:   8/16  vùng = 50%  ·  ~5 vùng/trang  ->  gần 100%           (đo 100%)
+```
+
+Chọn lọc mà bật 54% thì gần bằng gửi hết.
+
+## Lần dựng thứ hai — ngưỡng TỈ LỆ, neo vào ca đã chứng minh
+
+Đo phân bố thật rồi mới chọn:
+
+| Luật | EN (34 trang) | JA (4 trang) |
+|---|---|---|
+| ≥1 vùng bị cờ | 17 = 50% | 4 = 100% |
+| chỉ `needs_manual` | 7 = 21% | **0 = 0%** |
+| tỉ lệ ≥30% | 9 = 26% | 4 = 100% |
+| tỉ lệ ≥50% | 3 = 9% | 2 = 50% |
+
+`needs_manual` đơn lẻ cho 21% — gần ước tính của người dùng — nhưng **0% cho tiếng Nhật**, tức
+**bỏ mất** trang `どなどは`, ca DUY NHẤT chứng minh được ảnh có tác dụng.
+
+Trang đó có tỉ lệ **33%**. Nên ngưỡng ≥50% (trông chặt chẽ hơn) sẽ **loại bỏ chính lý do làm E32**.
+Chọn **0.3**, neo vào ca đó.
+
+Kết quả sau khi đổi sang tỉ lệ:
+
+```
+24 trang tiếng Anh   5/24 = 21%   tiết kiệm 22.154 token (59%)
+6 trang tiếng Anh    1/6  = 17%   tiết kiệm  5.830 token (62%)
+3 trang (mẻ nhỏ)     0/3  =  0%   tiết kiệm  3.498 token (74%)
+trang どなどは        vẫn được bắt (ti_le_dang_ngo_33%)     ✓
+```
+
+**5/24 đúng bằng ước tính 5/24 của người dùng** — nhưng tiết kiệm 22.154 token thay vì 4.902, vì
+nền token thật lớn hơn 4,5 lần.
+
+## GIỚI HẠN ĐO ĐƯỢC: tiếng Nhật không tiết kiệm được gì
+
+```
+ja / manga_ocr    16 vùng    0 vùng có điểm tin cậy     8 low_confidence
+en / paddle_ocr  220 vùng  218 vùng có điểm tin cậy    27 low_confidence
+```
+
+`manga-ocr` **không trả điểm tin cậy cho vùng nào** (0/16). Nên với tiếng Nhật `low_confidence`
+không đến từ điểm tin cậy — nó là cờ suy từ tiêu chí dự phòng. **Một cờ suy từ phép đo không tồn
+tại thì không mang thông tin về chất lượng đọc chữ.**
+
+Tỉ lệ vùng bị cờ ở 4 trang Nhật: 33%, 33%, 50%, 63%. **Mọi** ngưỡng còn giữ ca 33% cũng bật cho ba
+trang kia. Nên E34 **không tiết kiệm cho tiếng Nhật**, và đó là giới hạn của dữ liệu chứ không phải
+của luật. Muốn tiết kiệm thì cần một tín hiệu chất lượng đọc chữ THẬT — ví dụ chạy PaddleOCR
+`lang='japan'` song song chỉ để lấy điểm tin cậy. Việc đó cần bằng chứng riêng.
+
+## Test canh đúng chỗ dễ sai
+
+15 test, trong đó bốn ca quan trọng nhất: **1/10 vùng bị cờ ⇒ KHÔNG gửi** (chống bão hoà),
+**3/10 ⇒ gửi**, **ca `どなどは` 33% vẫn được giữ**, và **vùng bị cả hai cờ chỉ đếm MỘT lần** (đếm
+đôi thì 2/9 thành 4/9 và bật oan).
+
+---
+
+## E38 · E39 · E40 — ba lỗi do lượt chạy thật E35 phơi ra (14-09)
+
+Cả ba đều KHÔNG tìm ra được bằng test: mã chạy đúng như viết, chỉ là giả định nền sai. Chúng chỉ
+lộ ra khi một chapter THẬT có trang không phải truyện (trang trắng, trang bạt) và khi người dùng
+thật tải file về máy thật.
+
+### E38 — trang không có chữ bị loại khỏi file xuất (13 test)
+
+Phân biệt an toàn phải giữ, và nó CÓ THẬT trong mã:
+
+```
+detect NỔ        -> PageStatus.detection_failed     (tasks.py:140)
+detect CHẠY XONG -> PageStatus.detected, kể cả 0 vùng (tasks.py:206)
+```
+
+Nên `detected` + 0 vùng nghĩa là **máy đã xem và xác nhận không có chữ** ⇒ ảnh gốc chính là trang
+hoàn thiện. Ca canh quan trọng nhất: `detection_failed` **vẫn phải bị bỏ** — nếu gộp hai trạng
+thái này thì một trang detect lỗi sẽ lặng lẽ ra file ở dạng chưa dịch.
+
+Sửa ở **hai** chỗ, và đó là phần dễ làm sai: `_thu_thap_trang` (nội dung file) *và* `thong_ke_xuat`
+(con số xem trước). Chỉ sửa một chỗ thì con số nói một chuyện mà file chứa chuyện khác — tệ hơn
+thiếu trang, vì người dùng không có cách nào biết. Có test canh đúng sự khớp đó.
+
+### E39 — trang bạt đẻ ra danh xưng rác (17 test đơn vị + 5 test nối + 3 test giao diện)
+
+**Bản đầu của tôi có lỗi thật, và chính phép đo bắt được nó trước khi deploy.** Trần đầu tiên là
+20 từ, chốt trên **n = 3 lời thoại** của một chapter. Người dùng chặn lại và bắt viết mini-spec
+với mục "rủi ro sai" — viết ra mới thấy chưa đo bong bóng ≥20 từ nào. Đo lại trên **211 vùng
+`OCRStatus.ok` tiếng Anh thật** (3 chapter, DB dev):
+
+```
+vùng >= 20 từ:   10 / 211 (4,8%)
+nhóm được GIỮ:   22, 23, 24, 26 từ     (từ nối 19,2 - 54,2%)
+nhóm bị BỎ:      146 ... 723 từ        (từ nối  0,0 -  5,7%)
+                 ^^^ khoảng trống 26 -> 146 RỖNG HOÀN TOÀN
+```
+
+Trần nâng **20 → 100**. Đã thử 20/40/60/80/100/120/146 — đều bỏ đúng 6 vùng, nên 100 không mất gì
+mà có lề 3,8× so với lời thoại dài nhất.
+
+**Ca test quan trọng nhất của cả E39** — `test_loi_thoai_cut_lun_dai_KHONG_bi_loai_oan`: một lời
+thoại đọc-danh-sách 21 từ, 0% từ nối. Đã CHỨNG MINH nó không rỗng nghĩa bằng cách chạy lại với
+trần 20:
+
+```
+tran  20: loi thoai cut lun -> BI LOAI OAN (test DO)  | trang bat -> bo
+tran 100: loi thoai cut lun -> duoc giu  (test XANH)  | trang bat -> bo
+```
+
+Test còn tự canh tiền đề của chính nó (`>20 từ` và `<15% từ nối`) — nếu mẫu trôi thành vô hại thì
+nó đỏ chứ không xanh giả.
+
+Bốn phép canh khác:
+
+- **Chống rỗng nghĩa ×2:** mẫu THẬT phải đẻ ra `david`/`alex` khi không lọc, và khối liệt kê phải
+  đẻ ra ≥10 ứng viên. Không có chúng thì mọi test lọc đều có thể xanh vì mẫu vô hại.
+- **Lọc không được quá tay:** `AXE` (2 lời thoại thật) phải CÒN.
+- **Trần có lề hai phía:** `trần ≥ 3× lời thoại dài nhất đo được` **và** `trần < khối liệt kê nhỏ
+  nhất đo được` — hai bất đẳng thức chốt trần vào giữa hai số đo, không phải một con số rời.
+- **Tính chất, không phải một ca:** `_cat_trich_dan` thử **≥10 vị trí khác nhau** của cùng khối
+  dài; mỗi lần phải giữ chỗ khớp và không vượt 162 ký tự.
+
+Giới hạn ghi thẳng vào tên test (`test_dong_ghi_cong_ngan_khong_bi_bo__gioi_han_da_biet`): dòng
+ghi công 30 từ không bị xét vì dưới trần 100. Chấp nhận được — trên 211 vùng thật, khối cỡ đó có
+19,2–54,2% từ nối và là chữ thật cần giữ; còn thiệt hại đo được đến từ khối 146–723 từ.
+
+Về dữ liệu mẫu: dòng ghi công của bộ truyện là **thật** (attribution mà CC-BY yêu cầu công bố).
+Khối danh sách lớn dựng tổng hợp — giữ nguyên tính chất cấu trúc đã đo nhưng không chép hàng trăm
+tên người thật vào repo.
+
+### E40 — file `.cbz` tải về không mở được (4 test giao diện)
+
+Backend đã có `zip` từ M8, nên đây là lỗi **chỉ đường**, không phải thiếu tính năng. Ca canh quan
+trọng nhất là một bẫy React có thật: nút "Xuất lại bằng ZIP" nếu dựa vào `setDinhDang` rồi gọi
+`xuat()` thì state chưa kịp đổi ở lượt vẽ đó ⇒ **gửi lại đúng `cbz` vừa xuất**, người dùng bấm mà
+không có gì khác. Test bắt đúng chỗ đó bằng cách ghi lại định dạng ĐÃ GỬI LÊN mạng
+(`expect(daGui).toEqual(['cbz', 'zip'])`), không so trên chữ hiện ra màn hình.
+
+
+---
+
+## E41 — hạ trần bộ nhớ xoá chữ, và cái bẫy gần như làm chết tính năng (14-09)
+
+Người dùng chốt **hướng B** (hạ trần) và **không nâng RAM**. Làm B đúng thì trần mới phải ĐO, vì
+trần 2,6 hiện tại cũng từng được đo mà vẫn để worker chết.
+
+### Máy đo của E23 đã mục — không ai đo lại được từ lúc đó
+
+`scripts/do_duong_cong_bo_nho_inpaint.py` ném `TypeError: LamaInpainter.__init__() got an
+unexpected keyword argument 'mem_budget_gb'` — E23 đổi phép canh từ hệ số GB/Mpx sang trần diện
+tích mà không sửa script. Nghĩa là **từ E23 tới 14-09 chưa ai đo lại đường cong đó lần nào.** Đã
+sửa (`max_crop_mpx=0` để tắt phép canh).
+
+### Đo lại trên hai máy đo độc lập
+
+| ô cắt | E23 (cgroup 4096) | đo lại 14-09 (không giới hạn) | lệch |
+|---|---|---|---|
+| 1,4 Mpx | 2076 MB | **2401 MB** | +15,7% |
+| 1,6 Mpx | — | **2295 MB** | — |
+| 1,8 Mpx | — | **2951 MB** | — |
+| 2,0 Mpx | 3367 MB | **2985 MB** | **−11,3%** |
+| 2,6 Mpx | 3710 MB | **3912 MB** | +5,4% |
+
++16% / −11% / +5% ⇒ đó là **nhiễu ±15% của allocator**, không phải độ lệch môi trường, nên KHÔNG
+quy được thang này về thang kia — phải lấy giá trị xấu nhất của cả hai loạt. Đường cong cũng không
+đơn điệu (1,6 tốn ít hơn 1,4), đúng như E23 đã ghi, nên không nội suy.
+
+Điều hai máy đo nói **giống nhau**: ở 2,6 Mpx đỉnh là 3710–3912 MB = **96–102% ngân sách worker**
+(~3850 MB). Cộng API ~115 MB thường trú cùng container thì không vừa — xác nhận độc lập cho cái
+chết SIGKILL/137.
+
+### Giá phải trả: đo bằng `gom_cum` thật, không bằng chặn trên
+
+Lượt đầu tôi dùng **chặn trên** (bbox trùm mọi vùng của trang) và nó nói trần 1,6 có thể từ chối
+**14/38 trang (37%)** — con số đó làm tôi gần như chọn sai. Chạy `gom_cum` thật:
+
+```
+ô cắt lớn nhất thật:  2,70 Mpx (trang bạt) · 1,96 Mpx · rồi TỤT xuống <= 1,06 Mpx
+trần 1,4 / 1,6 / 1,8 -> 2/38 trang bị từ chối (5%)
+trần 2,0 / 2,6       -> 1/38 trang bị từ chối (3%)
+```
+
+Chặn trên **sai gấp 7 lần** so với thực tế (37% vs 5%), vì nó giả định mọi vùng gộp một cụm trong
+khi `gom_cum` tách chúng ra. **Chốt trần bằng chặn trên là chốt bằng con số sai.**
+
+Khoảng 1,06 → 1,96 rỗng ⇒ mọi trần trong đó từ chối đúng cùng một tập trang. Chọn **1,6**: xấu
+nhất trong vùng cho phép là 2401 MB = **62% ngân sách**, mất thêm **đúng một trang trên 38**.
+Trần 1,8 không mua thêm trang nào mà đỉnh nhảy lên 2951 MB (77%) — kém hơn hẳn.
+
+### Cái bẫy: hạ một trần thì làm chết tính năng
+
+Đường xoá **cả trang** cũng đi qua `_kiem_tran_o_cat`, và nó nộp **diện tích cả trang**
+(`lama.py:275`). Nên nếu chỉ hạ `inpaint_max_crop_mpx` xuống 1,6 mà để
+`inpaint_whole_page_max_mpx` ở 2,5 thì **mọi trang giữa 1,6 và 2,5 bị từ chối thẳng** thay vì
+được chia cụm — trang truyện cỡ đọc 1200×1800 (2,16 Mpx) hỏng hết. Phải hạ **cả hai**.
+
+Ba test canh đúng chỗ đó, và chúng đọc `Settings()` chứ không truyền số cứng:
+
+| test | canh gì |
+|---|---|
+| `test_tran_ca_trang_KHONG_duoc_lon_hon_tran_o_cat` | bất biến `ca_trang <= o_cat` trên cấu hình THẬT |
+| `test_trang_truyen_co_doc_binh_thuong_van_chay_voi_cau_hinh_THAT` | 1200×1800 phải chạy — ai hạ một trần thì test này ĐỎ |
+| `test_cau_hinh_LECH_thi_chan_oan__chong_rong_nghia` | với cấu hình lệch, **cùng trang đó** bị chặn ⇒ hai test trên không rỗng nghĩa |
+
+Cộng `test_healthz_khai_hai_tran_bo_nho_inpaint`: bất biến còn được canh một lần nữa **từ ngoài
+qua HTTP**, vì đó là lớp bảo vệ duy nhất và nó phải nói ra được.
+
+---
+
+## E42 — job trùng, và ranh giới suýt làm tôi sửa sai (14-09)
+
+### Hai bộ dữ liệu độc lập nói cùng một chuyện
+
+Production (E35, trang `a744aede`): `translate` 2 job (token 935 + **959 lãng phí**), `typeset`
+4 job, `inpaint` 2 job. DB dev, 38 trang:
+
+```
+typeset 2,92 · translate 1,68 · inpaint 1,42 · ocr 1,13 · detect 1,11 job/trang
+```
+
+**Xếp hạng đó chính là phép kiểm chứng cho nguyên nhân.** `detect` là bước DUY NHẤT có trạng thái
+đang-chạy (`detecting`) và nó trùng **ít nhất**. Bốn bước còn lại đều cao hơn. Nếu nguyên nhân là
+thứ khác thì không có lý gì thứ tự lại khớp đúng như vậy.
+
+### Ranh giới suýt sửa sai: `typeset 2,92` KHÔNG phải toàn bộ là lãng phí
+
+`enqueue_refit_after_retranslate` tạo một job `typeset` cho **mỗi vùng** (gọi `run_refit_job`,
+khác `run_typeset_job`). Dịch lại 16 vùng ⇒ 16 job, **đúng thiết kế** — và đó chính là trang "16
+job" trong số đo. Một luật chắn toàn cục theo (trang, loại) sẽ làm vùng thứ hai **không được căn
+lại chữ**: bản dịch mới nằm trong CSDL mà ảnh vẫn của bản cũ, đúng thứ hàm đó sinh ra để tránh.
+
+Có test canh đúng ranh giới này: `test_refit_hai_VUNG_khac_nhau_van_ra_HAI_job`.
+
+### Phép chống rỗng nghĩa làm thành TEST THƯỜNG TRÚ
+
+Lần đầu tôi định chứng minh bằng cách sửa mã rồi chạy lại bằng tay (như đã làm cho E39). Làm thành
+test thì phép chứng minh còn sống mãi — ai bỏ chắn đi mà bộ test vẫn xanh thì chính test này đỏ:
+
+| test | canh gì |
+|---|---|
+| `test_TAT_chan_thi_ra_HAI_job` | tắt chắn ⇒ phải ra **2** job. Nếu vẫn 1 thì test kia xanh vì lý do khác |
+| `test_TAT_chan_thi_me_cung_day_trung` | cùng việc đó cho đường của mẻ |
+| `test_BAT_chan_thi_me_chi_day_MOT_lan` | bật chắn ⇒ đúng 1 |
+| `test_job_mo_coi_thi_VAN_day_lai_duoc` | chống rỗng nghĩa **chiều ngược**: chắn không được thành khoá vĩnh viễn |
+
+### Một lỗi trong test của tôi, và nó KHÔNG phải lỗi mã sản phẩm
+
+Hai test đường-mẻ đỏ lượt đầu với `Connection to Redis lost: Retry (0/20)`. Nguyên nhân: fixture
+`no_broker_for_chained_ocr` của conftest chỉ chặn `.delay`, còn `day_viec_buoc` đẩy bằng
+`apply_async`. Đã thêm fixture `khong_goi_broker` chặn `apply_async`. Nếu tin "đỏ = mã sai" thì đã
+đi sửa sai chỗ.
+
+### Sửa một hiểu sai của chính tôi về `heartbeat_at`
+
+Lúc đề xuất việc này tôi viết rằng `Job.heartbeat_at` phân biệt được "đang chạy với nhịp tim còn
+mới" với "mồ côi". **Sai** — nó chỉ được ghi MỘT LẦN lúc job bắt đầu (`tasks.py:308`), nên tương
+đương `started_at`. Phép nhận mồ côi dùng `nguong_qua_han_giay(loai)` của E22 (suy từ
+`*_timeout_seconds` đã cấu hình + 20s), **không bịa ngưỡng mới**.
+
+---
+
+## 2026-09-22 — ĐX-1 / ĐX-2 / ĐX-3 (từ benchmark Ichigo, hướng A)
+
+Ba việc sinh ra từ `REPORT_ICHIGO_BLACKBOX_BENCHMARK.md` §8. Không đụng chất lượng dịch —
+thuần lớp nhận việc và lớp điều phối.
+
+### Con số
+
+| Bộ | Số bài | Kết quả |
+|---|---|---|
+| `test_dx2_goi_nen_unit.py` (thuần) | 23 | xanh |
+| `test_dx2_dx3_upload_goi_integration.py` | 15 | xanh |
+| `test_dx3_engine_pipeline_day_du.py` | 4 | xanh |
+| `DichNhanh.test.jsx` | 16 | xanh |
+| Toàn bộ frontend | 386 (25 file) | xanh |
+| `test_quyen_cheo_tai_khoan.py` sau khi sửa | 9 | xanh |
+
+### Lỗi THẬT mà việc này lôi ra: cột có chỗ ghi, không có chỗ đọc
+
+`Page.translate_engine_override` có từ E19. Nhưng `enqueue_translate_after_inpaint` **cố ý**
+truyền `engine=None` — chỉ nhánh `chi_chu` đọc cột đó. Nghĩa là nếu chỉ làm phần giao diện cho
+ĐX-3, người dùng chọn engine xong thì lựa chọn **rơi vào hư không, không báo lỗi gì**, và mọi
+bài test kiểu "đã lưu vào cột chưa" vẫn xanh.
+
+Phát hiện được vì trước khi viết đã đi đọc đường ĐỌC chứ không chỉ đường GHI. Xem
+[[feedback_tinh_nang_chet_vi_hai_dau_khong_gap]].
+
+### Đối chứng âm — test có bắt được lỗi không
+
+Gỡ tạm bản vá, chạy lại `test_dx3_engine_pipeline_day_du.py`:
+
+- `test_engine_nguoi_dung_chon_di_TOI_lenh_xep_viec_dich` → **ĐỎ**, nhận `None`
+- `test_chon_google_fast_cung_di_toi_noi` → **ĐỎ**, nhận `None`
+- `test_khong_chon_gi_thi_van_truyen_None_nhu_cu` → xanh (đúng: kiểm tương thích ngược)
+- `test_job_dich_that_su_duoc_tao` → xanh (đúng: đối chứng âm cho ba bài trên không xanh rỗng)
+
+Khôi phục ⇒ 4/4 xanh. Không có bước này thì 4 bài xanh kia không chứng minh được gì.
+
+### Bẫy generator suýt lọt
+
+Viết `doc_goi_anh` thành generator thì **mọi phép kiểm trần không chạy cho tới lần `next()` đầu
+tiên** — route sẽ bắt lỗi sai chỗ, có khi đã ghi vài trang vào CSDL rồi mới nổ. Tách phần sinh ra
+`_sinh_trang`, giữ thân hàm chính là hàm thường. Có test thường trú canh đúng chuyện này:
+`test_loi_no_ngay_luc_goi_chu_khong_doi_toi_luc_lap` — nó **không** bọc `list()`, và sẽ đỏ ngay
+nếu ai đó biến hàm này thành generator lần nữa.
+
+### Một con số BỊA suýt lên giao diện
+
+Bản viết đầu lấy số mục bị bỏ qua bằng `getattr(trang_iter, "so_muc_bo_qua", 0)` trên một
+generator **không hề có thuộc tính đó** ⇒ luôn ra `0`. Người dùng sẽ thấy "bỏ qua 0 mục" trong
+khi gói có 3 file bị bỏ. Sửa bằng lớp `GoiAnh` mang số mục **đếm thật**, kèm test riêng
+(`TestDemMucBoQua`). Xem [[feedback_absolute_no_fake_data]].
+
+### Bộ test sẵn có bắt lỗi của tôi
+
+`test_quyen_cheo_tai_khoan.py` đỏ với endpoint mới:
+`rỗng nghĩa: POST /api/v1/projects/{project_id}/pages/archive (A 422 / B 422)`.
+
+Phép dò khoá cứng một file PNG cho mọi endpoint multipart ⇒ đường nhận gói ZIP trả 422 cho **cả
+hai** tài khoản ⇒ không chứng minh được gì về quyền. Đã thay bằng bảng `_MULTIPART` tra thân
+request hợp lệ theo từng endpoint. Sau khi sửa endpoint mới vào nhóm **chứng minh được**.
+
+### Mã thoát giả trong chính lượt này
+
+Lượt chạy toàn bộ backend đầu tiên in `exited with code 0` **trong khi có 4 bài đỏ** — mã thoát
+đo được là của `tail` ở cuối chuỗi ống, không phải của `pytest`. Ba trong bốn bài đỏ
+(`TestCongNhip`) chỉ vì **thiếu Redis** cổng 6380, không phải hồi quy.
+Xem [[feedback_do_ma_thoat_giua_chuoi_lenh]].
+
+### Kiểm bản ĐÃ BUILD
+
+`npx vite build` xanh. Kiểm chuỗi thật trong `dist/assets/index-*.js`: `"Dịch nhanh"`,
+`"pages/archive"`, `"Tự tải về khi xong"`, `"hệ thống không chọn hộ"`, `".cbz"` — đều có mặt.
+Test chạy `src`, người dùng chạy bundle.
+
+### Chưa làm (không được coi là đã xong)
+
+Chưa chạy thật một chapter nào qua đường mới (chưa dựng worker + model weight), chưa bấm tay trên
+Chromium, chưa thử `.cbz` do phần mềm đọc truyện thật tạo ra, chưa đo bộ nhớ thật khi nhận gói
+lớn. Nhãn trong `FEATURES.md` để **BUILT**, không phải LIVE.
+
+### Chốt số — lượt chạy toàn bộ
+
+**Backend: 1618 passed · 6 skipped · 0 failed · 0 error**, `PYTEST_EXIT=0` (Postgres + Redis đều
+chạy). **Frontend: 386 passed** (25 file).
+
+Cách lấy con số backend, vì nó không lấy thẳng được: lượt chạy chạy hết 100% và thoát 0 nhưng
+**file log không có dòng `N passed in …s`** (mất lúc đệm stdout bị cắt). Tin mỗi `exit 0` rồi viết
+đại một con số là bịa. Số trên đếm từ **chính ký tự tiến trình của lượt chạy đó**: 1618 dấu `.`,
+6 chữ `s`, **0 chữ `F`, 0 chữ `E`** — hai đường đo độc lập (đếm ký tự ↔ mã thoát) cùng một kết quả.
+
+### Lượt CHẠY THẬT 22-09 (một phần) — và 2 lỗi chỉ bấm tay mới thấy
+
+Chạy bằng `.venv`, **không Docker**: đĩa máy còn 15G/485G (**97% đầy**), build image `worker`
+~4,5GB trong chỗ đó là liều. Postgres + Redis qua compose; API `uvicorn` + worker
+`celery --pool=solo` từ venv. Fixture **Pepper&Carrot CC BY-SA 4.0**, nén `.cbz` với tên cố ý
+lộn xộn (`ch01/p1.png`, `ch01/p2.png`, `ch01/p10.png`) + `ComicInfo.xml` + `__MACOSX/`.
+
+**Đạt:** `HTTP 202` trong **0,85 giây** cho gói 9,7MB · `so_trang:3 · bo_qua:1` (metadata tính là
+bỏ qua, rác macOS không tính) · CSDL `order` = 1/2/3 theo **đúng thứ tự tự nhiên** (`p10` xuống
+cuối) · `translate_engine_override = google_fast` cả ba trang · 3 file ảnh thật trên đĩa ·
+nhận diện khung chữ chạy thật **42–76 giây/trang, 2–4 vùng chữ/trang** trên 6 trang ·
+Chromium thật: tab "Dịch nhanh" mặc định, mục đích **không chọn sẵn**, bấm *Dịch ngay* ra
+"Đã xong 0/3 trang", **0 lỗi console**.
+
+**Dừng ở OCR:** venv thiếu `paddleocr` (nguồn EN) và `torch`/`manga_ocr` (JA). Worker báo đúng
+nguyên nhân thật rồi đánh dấu job thất bại — **không giả vờ xong**. Hệ quả: nửa ĐỌC của ĐX-3,
+bước xuất, và đường tự tải về của ĐX-1 **chưa kiểm được**.
+
+**Hai lỗi mà 386 test không bắt được**, cả hai là câu chữ và đều xanh trong jsdom vì test soi
+thuộc tính `accept` chứ không soi chữ người dùng đọc:
+
+1. Vùng thả vẫn ghi "Hỗ trợ PNG, JPG" trong khi đã nhận `.zip/.cbz`.
+2. Gói chứa 3 trang bị đếm thành **"1 trang"**, kèm câu "thứ tự dưới đây chính là thứ tự trang
+   trong chapter" — sai với gói, vì thứ tự nằm BÊN TRONG gói.
+
+Sửa cả hai (`2e648b1`), thêm 3 test canh **chữ hiển thị**, kiểm lại trên Chromium ra
+"1 gói · số trang thật biết được sau khi mở gói…". Frontend 386 → **390 passed**.
+Xem [[feedback_click_through_finds_what_tests_cannot]].
+
+**Hai lỗi trong test của tôi, không phải lỗi sản phẩm:** cả hai bài mới đầu tiên đều đỏ vì
+`getByText` khớp NHIỀU phần tử (`/\.cbz/` khớp cả thẻ `<code>` ở mô tả đầu màn; `/gói/` khớp cả
+dòng trợ giúp). Nhắm hẹp lại (`/Hỗ trợ.*\.cbz/`, `/\d+\s*gói/`) là xanh. Nếu tin "đỏ = mã sai"
+thì đã đi sửa nhầm chỗ.
+
+**Quan sát ngoài phạm vi:** `API_ACCESS_KEY` trong `.env` **rỗng** mà `POST /auth/register` vẫn
+cho qua — tạo được tài khoản quản trị đầu tiên không cần khoá. Ở máy nhà thì tiện; chưa kiểm cấu
+hình production nên **chưa kết luận là lỗ hổng**, nhưng phải đi xác minh.
+
+### Lượt CHẠY THẬT ĐẦU-CUỐI 22-09 — đã đi hết chuỗi, có file mở được
+
+Sau khi chủ dự án duyệt cài `paddleocr==3.7.0` + `paddlepaddle==3.3.1` vào venv, chạy lại trọn
+vẹn qua **trình duyệt thật**: thả `.cbz` → bấm *Dịch ngay* → **230 giây** → *"Dịch xong 3/3 trang
+· bỏ qua 1 mục trong gói không phải ảnh"* → *"File đã tải về máy bạn."*, **0 lỗi console**.
+
+| Bước | Số đo thật (3 trang Pepper&Carrot, CPU) |
+|---|---|
+| Nhận diện khung chữ | 125,7s ≈ **42s/trang** |
+| Đọc chữ (PaddleOCR, `en`) | 24,1s ≈ **8s/trang** |
+| Xoá chữ gốc (LaMa) | 58,3s ≈ **19s/trang** |
+| Dịch (`google_fast`) | 5,9s ≈ **2s/trang** |
+| Căn chữ | 6,3s ≈ **2s/trang** |
+
+File nhận được: 9,7MB, `testzip()` sạch, 3 trang `001/002/003` đúng thứ tự, 1600px.
+
+**Nhìn tận mắt trang đã dịch** — thứ không test nào thay được: chữ gốc xoá sạch không để lại
+bóng; chữ Việt **có dấu render đúng, KHÔNG có ô vuông tofu** (xác nhận công đo font ở `FONTS.md`
+có tác dụng thật); chữ nằm gọn trong bong bóng; tiếng động `SHH`/`PLOP` giữ nguyên đúng E26.
+Mới xem 1 trang/3 khung nên chưa kết luận rộng.
+
+#### Nửa ĐỌC của ĐX-3 VẪN chưa được lượt chạy thật chứng minh
+
+Rất dễ tự lừa ở chỗ này: engine người dùng chọn là `google_fast`, mà `translate_default_engine`
+**cũng** là `google_fast` ⇒ hai đường ra cùng kết quả, lượt chạy **không phân biệt được** "đã đọc
+cột override" với "bỏ qua cột, rơi về mặc định". Nửa ĐỌC hiện chỉ được chứng minh bằng test +
+đối chứng âm (engine `llm_context`, khác hẳn mặc định). Muốn chứng minh bằng lượt chạy thật thì
+cần khoá Gemini. **Chưa làm.**
+
+#### Ba lần hỏng — cả ba là cấu hình sai của tôi, không phải sản phẩm
+
+1. OCR hỏng → venv thiếu `paddleocr`.
+2. Xoá chữ hỏng → tôi đặt `INPAINT_MODEL_PATH`, tên thật là **`INPAINT_WEIGHTS_PATH`**.
+3. Căn chữ hỏng → tôi trỏ `FONT_DIR` vào `fonts/`, font thật ở **`backend/fonts/`** (compose
+   mount `../backend/fonts:/fonts`). Thư mục `fonts/` ở gốc repo **không tồn tại**, dù README nói
+   font "nằm sẵn trong `fonts/`" — README sai đường dẫn.
+
+Cả ba lần sản phẩm đều nêu **đúng nguyên nhân thật** (`No module named 'paddleocr'`;
+`font_not_found: family 'Bangers' … thiếu file …`), không lần nào giả vờ xong.
+
+#### Một lần suýt sửa nhầm thứ không hỏng
+
+Giao diện báo "0/3 trang" suốt 11 phút ⇒ nghi phép đếm sai, vì trang kết thúc ở `typeset_done`
+chứ không phải `ready_for_export`. Kiểm ra: bảng `HANG` xếp **cả hai cùng hạng 6**, backend cũng
+coi cả hai là xuất được (`TRANG_XUAT_DUOC`). Phép đếm đúng; "0/3" chỉ vì căn chữ đang hỏng do
+font. Nếu tin cảm giác mà đi sửa `demTienDo` thì đã phá một thứ đang đúng.
+
+---
+
+## 2026-09-25 — E49 Hạn mức sử dụng (sổ cái · cổng chặn · quyết toán · khách lạ)
+
+### Bốn đối chứng âm — phần đáng tin nhất của lượt này
+
+Bài test xanh chỉ chứng minh "mã hiện tại không làm nó đỏ". Đối chứng âm chứng minh bài test
+**có thật sự canh** thứ nó nói là canh. Bốn lượt dưới đây đều đã chạy: dựng lại lỗi ⇒ bài canh
+đỏ ⇒ khôi phục ⇒ xanh lại.
+
+| Dựng lại lỗi gì | Bài nào đỏ | Ý nghĩa |
+|---|---|---|
+| Bỏ `pg_advisory_xact_lock` | `test_hai_request_song_song_KHONG_tieu_qua_han_muc` | Hai luồng THẬT cùng xin 4 trên trần 6 đều lọt ⇒ tiêu 8 |
+| Chụp `get_settings()` lúc import | `test_doc_cau_hinh_LUC_GOI…` + `test_het_han_muc_thi_API_tu_choi_429` | Cổng chạy theo trần SAI |
+| Đẩy quyết toán xuống sau cổng `batch_enabled` | `test_trang_le_KHONG_thuoc_me_van_duoc_chot` | Trang tải lẻ giữ chỗ vĩnh viễn |
+| Gỡ nhánh 2 của `duoc_dung_project` | `test_NGUOI_DANG_NHAP_khong_doc_duoc_truyen_cua_khach` | Trả **200 OK** — rò rỉ dữ liệu thật |
+
+### Một lỗi TÔI tự gây ra, và vì sao nó đáng ghi
+
+`services/han_muc.py` chụp `settings = get_settings()` ở mức module. `get_settings` có
+`@lru_cache` nên tôi kết luận "chắc chắn cùng một đối tượng" và **loại bỏ giả thuyết này sớm**.
+
+Sự thật: cache đó xoá được, và `tests/conftest.py` gọi `cache_clear()`. Đo được
+`han_muc_cho(True)` trả **10** trong khi cấu hình app đang là **2** — cổng vẫn chạy, chỉ là theo
+trần sai, và **không bài test nào đỏ**.
+
+Tôi đi đoán ba chỗ khác trước khi chịu **in `id()` ra mà so**. Bài học: nghi cấu hình sai thì so
+danh tính đối tượng TRƯỚC, đừng suy luận từ việc có `lru_cache` hay không.
+
+### Một bẫy của môi trường test, KHÔNG phải của production
+
+`caplog` bắt được **0** bản ghi dù mã thật có gọi `log.warning`. Nguyên nhân **không** phải
+`propagate`: `alembic/env.py` gọi `fileConfig(...)`, mà `logging.config.fileConfig` mặc định
+`disable_existing_loggers=True` ⇒ đặt `disabled = True` cho mọi logger `app.*`. `Logger.handle`
+kiểm `self.disabled` **trước** khi gọi handler nên gắn handler riêng cũng vô ích.
+
+⚠️ Production **không** bị: `deploy/docker-compose.yml` và `deploy-start.sh` chạy
+`alembic upgrade head` ở **tiến trình riêng** rồi mới khởi động `uvicorn`.
+
+### Chưa chạy thật lần nào
+
+Toàn bộ số liệu trên là bộ test trên máy (Postgres thật, HTTP thật qua ASGI) — **không** phải
+bản đã deploy. Không lượt nào gọi Gemini thật: bộ test thay `urllib.request.urlopen` bằng hàm
+giả, nên lượt chạy này **không tốn đồng nào**.
+
+Rủi ro số một khi lên thật, và bộ test **không thể** bắt được: `request.client` có thể trả IP
+của Traefik thay vì IP người dùng ⇒ mọi khách chung một chốt IP ⇒ chặn oan hàng loạt. Xem
+`REPORT_E49.md` §8.
+
+---
+
+## 2026-09-26 — E50 Vòng đời tệp (chapter tự xoá sau khi xong)
+
+### Một "chỗ chặn" của đặc tả hoá ra không có thật
+
+Đặc tả §6bis ghi: *"Kho lưu trữ có BA nền, mỗi nền xoá một kiểu. Production đang dùng nền nào thì
+CHƯA BIẾT. Phải tra trước khi viết phần dọn dẹp."*
+
+Đọc mã thì cả hai vế đều không đứng vững:
+
+* `supabase` **chưa implement dòng nào** — `build_storage` ném `SupabaseStorageNotConfigured`
+  thẳng, nên production **không thể** đang chạy nền đó. Còn **hai** nền, không phải ba.
+* Cả hai nền còn lại đều hiện thực `IObjectStorage.delete_prefix()` cùng hợp đồng ⇒ phần dọn viết
+  trên interface là xong, **không cần biết** production dùng nền nào.
+
+⇒ Không phải mọi câu "bị chặn" trong tài liệu đều còn đúng. Tra mã trước khi chấp nhận một chỗ
+chặn — nó có thể đã tự tan từ lâu.
+
+### Nhưng chỗ đặc tả KHÔNG nhắc mới là chỗ dễ sai
+
+Hiện vật nằm ở **ba** tiền tố, và `previews/` đánh theo **TRANG** chứ không theo chapter:
+
+| Tiền tố | Đánh theo |
+|---|---|
+| `projects/{project_id}/` | chapter |
+| `exports/{project_id}` | chapter |
+| `previews/{page_id}/` | **trang** |
+
+`delete_prefix("projects/{id}")` rồi coi là xong sẽ bỏ sót `previews/` **vĩnh viễn**. Đối chứng
+âm: bỏ tiền tố đó ra ⇒ `test_xoa_DU_CA_BA_tien_to` đỏ.
+
+### Bốn bài canh, và cái chúng khoá lại
+
+| Bài | Khoá cái gì |
+|---|---|
+| `test_KHONG_xoa_chapter_con_viec_dang_chay` | Xoá tệp giữa lúc worker đang đọc = lỗi không tái hiện được |
+| `test_xoa_DU_CA_BA_tien_to` | Tiền tố `previews/` dễ sót nhất |
+| `test_het_han_KHONG_hoan_luot_han_muc` | Thêm khoá ngoại vào `so_cai_han_muc.trang_id` thì bài này đỏ |
+| `test_goi_lai_KHONG_doi_moc` | Dời mốc mỗi lần chạy lại một bước ⇒ chapter không bao giờ hết hạn |
+
+### Một bẫy của chính tôi lúc đo: `pgrep` khớp chính shell đang gõ
+
+`pgrep -f pytest` khớp **cả shell Bash đang chạy lệnh đó**, vì chuỗi mẫu nằm trong dòng lệnh của
+shell. Hai hậu quả đều đã xảy ra trong lượt này:
+
+* báo "CÓ PYTEST ĐANG CHẠY" trong khi không có lượt nào — suýt hoãn một việc vì con số sai;
+* `while pgrep -f "python -m pytest"; do sleep; done` **tự khớp chính nó** ⇒ 4 shell treo vĩnh
+  viễn, phải đi giết tay.
+
+Thu hẹp mẫu không cứu được. Đúng cách: `pgrep -af pytest | grep -v "/bin/bash -c"` — và tốt hơn
+nữa là **đừng viết vòng `while pgrep`**, dùng thông báo của tác vụ nền.
+
+⚠️ Ngay cả phép lọc đó cũng cho tôi **một âm tính giả** trong lượt này (pytest đang chạy mà báo
+đã xong). Kết luận thẳng: phép dò tiến trình tự viết không đáng tin làm cổng; chờ thông báo thật.
+
+### Chưa chạy thật lần nào
+
+Lịch dọn **mặc định TẮT**, và **không được bật** trước khi có phần tự động tải về — đặc tả §3 nói
+thẳng: làm luật 30 phút mà không có tự tải về là bày ra một cái bẫy.
+
+---
+
+## 2026-09-26 — E51 Khách lạ nhận ảnh đã dịch
+
+### Lỗ mà E49/E50 để lại, và không đặc tả nào nói ra
+
+E49 mở đường tải lên cho khách, E50 làm luật 30 phút. Cả hai đứng trên một tiền đề mà **không ai
+kiểm**: rằng khách có tệp để mất.
+
+Đo bằng cách đọc mã: chapter của khách chạy `chi_chu`, **bỏ hẳn** bước xoá chữ và căn chữ, dừng ở
+`translated`, chỉ trả toạ độ + chữ dịch. ⇒ Khách **không có tệp nào**, nên §3 (tự động tải về)
+chẳng có gì để tải và luật 30 phút chỉ xoá ảnh gốc với mấy dòng chữ.
+
+Dạng lỗi "hai đầu không gặp nhau": mỗi phần đúng theo đặc tả của nó, nối lại thì thiếu một khúc.
+
+### Lỗi sẽ phát sinh NGAY khi mở chế độ đầy đủ
+
+Cờ `xong` trước đây là danh sách trạng thái **cứng** `(translated, typeset_done,
+ready_for_export)`. Với `chi_chu` thì đúng — `translated` là đích. Với `day_du` thì `translated`
+mới là **giữa đường**: chưa căn chữ, chưa có ảnh nào.
+
+⇒ Chế độ đầy đủ **báo xong sớm một bước**, client đi lấy một ảnh chưa tồn tại. Đối chứng âm: dựng
+lại danh sách cứng ⇒ `test_che_do_day_du_KHONG_bao_xong_o_translated` đỏ (`assert True is False`).
+
+### Một ĐIỂM MÙ của bộ dò quyền tự sinh
+
+`test_quyen_cheo_tai_khoan::test_moi_endpoint_deu_doi_dang_nhap` gửi `json={}` cho mọi đường. Với
+endpoint POST có thân bắt buộc, FastAPI kiểm thân **TRƯỚC** khi vào hàm ⇒ trả `422` và **không bao
+giờ tới phép kiểm quyền**.
+
+Trước E51 điều đó không lộ ra: cổng đăng nhập ở tầng router chạy trước cả phép kiểm thân, nên mọi
+đường đều trả 401. Mở endpoint cho khách là mất lớp đó, và `POST /projects/{id}/export` thành điểm
+mù — bài test xanh mà chẳng chứng minh gì.
+
+Cách xử lý: ghi đúng mã `422` vào `MO_CHO_KHACH` **kèm lý do**, rồi chuyển phần chứng minh thật
+sang `test_e51::test_khach_KHONG_xuat_duoc_chapter_cua_nguoi_khac` — chỗ gửi thân **hợp lệ**. Bỏ
+qua đường đó (thay vì ghi mã) sẽ giấu luôn điểm mù.
+
+### Ba ổ khoá cho danh sách đường mở
+
+Mở một đường cho khách là mở nó ra cả internet, nên nó phải đắt. Ba nơi cùng phải sửa:
+
+| Nơi | Cách canh |
+|---|---|
+| `test_e49f::test_CHI_nhung_duong_nay_mo_cho_khach` | Liệt kê chính xác `router_khach.routes` |
+| `test_bao_ve_integration::MIEN_TRU_DANG_NHAP` | Soi **cây phụ thuộc**, đệ quy |
+| `test_quyen_cheo_tai_khoan::MO_CHO_KHACH` | Gọi thật, so mã trả về |
+
+### Chưa chạy thật lần nào
+
+Rủi ro mới của E51: chế độ `day_du` cho khách nghĩa là **lưu lượng ẩn danh kích hoạt LaMa**. Đo ở
+E45: đỉnh RSS bước xoá chữ ~2239 MB trên trần 3950 MB. Worker `--pool=solo` nên một việc một lúc ⇒
+rủi ro OOM **không** tăng, nhưng hàng đợi dài ra. Hạn mức là thứ giữ cho nó có trần.
+
+**Chưa đo lần nào:** một trang đi hết chế độ `day_du` từ đầu đến cuối qua đường của khách lạ.
+
+---
+
+## 2026-09-27 — E52 tự đăng ký · E53 trang chủ cho khách lạ
+
+### 1833 bài test backend XANH trong lúc tính năng chết hoàn toàn
+
+Đây là bài học đáng nhất của hai mini-spec này. Sau E49→E52, backend có đủ: hạn mức, đường dịch cho
+khách, đường xuất gói, đường tự đăng ký — và **1833 bài test đều xanh**. Nhưng nối vào giao diện thì
+không chạy được gì, vì **bốn lỗi chỉ tồn tại ở ranh giới trình duyệt ↔ máy chủ**:
+
+| Lỗi | Vì sao bộ test không thể thấy |
+|---|---|
+| `allow_credentials=False` + `fetch` mặc định `same-origin` ⇒ cookie khách chưa bao giờ tới API | Test gọi ASGI trực tiếp, không có khái niệm "khác nguồn" |
+| `TrangDocTruyen` không trả `project_id` ⇒ khách không xin gói được | Backend đúng hợp đồng của chính nó; thiếu sót chỉ lộ khi CÓ NGƯỜI TIÊU THỤ |
+| `a.download` bị bỏ qua với href khác nguồn ⇒ trình duyệt MỞ ảnh thay vì lưu | Luật trình duyệt, không của máy chủ |
+| `doc()` biến thân lỗi 429 có cấu trúc thành `[object Object]` | Máy chủ gửi đúng; mất mát ở tầng đọc của client |
+
+⚠️ Lỗi thứ nhất **cũng không lộ ra khi thử bằng `curl`** — ở đó tôi gửi cookie tay. Tôi đã curl
+thành công `/han-muc` trên production và tưởng đường khách lạ chạy được. Nó chỉ chạy cho `curl`.
+
+### 22/26 bài đỏ KHÔNG phải do thay đổi của tôi
+
+Workspace mất `libGL.so.1` + `libgthread-2.0.so.0` giữa hai phiên nên `cv2` không import được. Nếu
+tin con số 26 mà đi sửa mã thì sẽ chữa một bệnh không có. Cài lại hai gói là xanh.
+
+⇒ **Đọc nguyên nhân từng nhóm đỏ trước khi sửa bất cứ gì.** 26 bài đỏ có thể là hai sự cố khác
+hẳn nhau.
+
+### Bốn bài canh CŨ đỏ vì canh LUẬT CŨ — sửa theo hướng giữ nguyên sức canh
+
+`TestCongBat` (3 bài) khẳng định "đăng ký thiếu khoá → 401". E52 đổi luật, nên chúng chạy ở trạng
+thái "chưa có tài khoản" — nơi khoá chung **vẫn** áp.
+
+`test_dang_ky_van_duoc_khoa_chung_gac` soi `dependant.dependencies` tìm `cong_khoa`. Cổng nay có
+điều kiện nên nằm trong **thân hàm** ⇒ phép soi cấu trúc không thấy nữa. Đổi sang **đo hành vi**, và
+bản mới **mạnh hơn**: bản cũ chỉ chứng minh "có gắn dependency tên `cong_khoa`" — một endpoint gắn
+đúng dependency mà thân hàm bỏ qua nó vẫn lọt.
+
+### Ba lần bài test của TÔI sai, không phải mã sai
+
+1. `ipaddress.is_private` của Python coi **cả ba dải TEST-NET** tài liệu là private ⇒ `203.0.113.9`
+   không dùng được làm "IP công cộng". Suýt đi sửa mã.
+2. `userEvent.upload` nhắm vào DIV vùng thả (`id` của Dropzone gắn ở đó) thay vì ô
+   `<input type="file">` thật.
+3. `findByText` cho một câu **cố ý hiện hai chỗ** (cảnh báo + lý do nút bị khoá) ⇒ truy vấn mơ hồ.
+   Đổi sang `findAllByText`, và thêm khẳng định mạnh hơn: nút **thật sự bị khoá**.
+
+### Bảo đảm dựa vào vòng đời dependency thì bàn thử KHÔNG thấy được
+
+"Email trùng không mất suất đăng ký" vốn đúng ở bản chạy thật nhờ `get_session` đóng phiên và tự
+lùi giao dịch. Nhưng bộ test ghi đè `get_session` bằng một **phiên sống lâu**, nên nó không bao giờ
+quan sát được phép lùi đó — hai bài canh ĐỎ, và đỏ vì bàn thử không thấy, không vì sản phẩm sai.
+
+⇒ Lùi **tường minh** tại chỗ. Bảo đảm nằm ở vòng đời của dependency là bảo đảm không đọc được và
+không kiểm được.
+
+### Chưa bấm tay trên trình duyệt thật
+
+Frontend 411 bài xanh và build ra bundle thật (CSS 24,63→26,95 kB — kiểm được style đã vào bundle
+chứ không chỉ vào `src`). Nhưng jsdom **không** trả lời được: lượt tải tự động có bị chặn hay không,
+cookie khách có đi qua CORS thật hay không, ảnh cross-origin có hiện hay không.
+
+### Bấm tay trên Chrome thật (27-09) — và nó bắt đúng lỗi mà 1836 test + curl đều bỏ qua
+
+Mở `https://translation.vibe1.tinhgon.xyz` **trước** khi bản vá CORS lên. Chrome ghi:
+
+```
+blocked by CORS policy: The value of the 'Access-Control-Allow-Credentials' header in the
+response is '' which must be 'true' when the request's credentials mode is 'include'.
+```
+
+Cùng lúc đó `curl /han-muc` trả **200** bình thường — và tôi đã dựa vào lượt curl đó để nói hạn
+mức "đã LIVE". **Câu đó sai.** Nó LIVE cho curl, bị chặn hoàn toàn với người dùng thật.
+
+Sau bản vá, request thật của Chrome:
+
+```
+cookie: ma_khach=ek6t0aM5AM1uZjJjDWpJb4JQoBYDAfI7
+sec-fetch-site: same-site
+→ 200  access-control-allow-credentials: true  ·  vary: Origin
+```
+
+`sec-fetch-site: same-site` **xác nhận bằng số đo** một điều trước đó chỉ là suy luận: hai hostname
+cùng site dưới `tinhgon.xyz` nên cookie `SameSite=Lax` đi qua được. Khác site thì `Lax` sẽ chặn và
+phải đổi `SameSite=None`.
+
+Đo được trên màn: **"6 / 6 trang còn lại"**, **"Có lại sau 19 giờ 52 phút (0h00 giờ Việt Nam)"**,
+câu 30 phút nói đủ mức hậu quả, nút Dịch `disabled` kèm lý do đọc được, **console sạch**.
+
+Một chi tiết đáng giữ: giao diện **hiện lỗi ra** kèm nút "Thử lại" thay vì im lặng hiện `0/0`. Nếu
+nó nuốt lỗi thì lượt kiểm này sẽ xanh giả và lỗi CORS lên production mà không ai biết.
+
+### Chạy THẬT một trang qua trang chủ (27-09) — toàn bộ chuỗi E49→E53
+
+Ảnh thử 900×1280, hai bong bóng thoại chữ Anh trên nền có khối xám (để bước xoá chữ có việc thật).
+Chi phí ước tính trước khi chạy: **dưới 0,1 xu Mỹ** (`REPORT_E46` đo 1,2 xu cho cả chapter 24 trang).
+
+| Đo được | Giá trị |
+|---|---|
+| Giữa lượt | "xong 0/1 trang" · bước **"Đọc chữ gốc…"** ⇒ nhận diện tìm được vùng chữ |
+| Về đích | "xong 1/1 trang" · "Xong" |
+| Đồng hồ | "Còn 30 phút trước khi toàn bộ kết quả bị xoá" — đếm từ lúc XONG |
+| **Ảnh khác nguồn** | `naturalWidth` **900×1280** ⇒ tải được thật, cookie qua được cả request `<img>` |
+| **Tải tự động** | "Đã lưu trang-thu-e53-da-dich.png" ⇒ không bị chặn (Chrome **headless**) |
+| **Tiêu lượt** | `/han-muc` sau đó: `da_dung: 1`, `con_lai: 5`, **cả hai chốt** tăng |
+| Console | sạch |
+
+⇒ Lần đầu **toàn bộ sổ cái E49 chạy thật**: giữ chỗ → pipeline → tiêu khi tới trạng thái cuối.
+
+⚠️ Lượt tải tự động không bị chặn **trong Chrome headless**. Chính sách chặn của headless KHÁC
+trình duyệt người dùng thật, nên kết quả này **không** chứng minh nó chạy trên máy người dùng — đó
+đúng là lý do nút thủ công luôn hiện.
+
+### Một lần `wait_for` khớp NHẦM, và vì sao đáng ghi
+
+Tôi chờ chuỗi `"Kết quả"` để biết trang đã xong. Nó khớp ngay — nhưng khớp vào câu **"Kết quả chỉ
+giữ 30 phút"** ở phần dặn trước, trong khi trang còn đang ở bước đọc chữ. Suýt kết luận "đã xong"
+khi chưa xong.
+
+⇒ Mốc chờ phải là chuỗi **chỉ xuất hiện ở trạng thái đích** ("xong 1/1 trang"), không phải một từ
+cũng có trong phần mô tả tĩnh.
+
+---
+
+## 2026-09-27 — E54 nói đúng chính sách giữ tệp · E55 worker `starting` vĩnh viễn
+
+### Một câu SAI trên màn, phát hiện nhờ chính quyết định của chủ dự án
+
+Chủ dự án chốt **không bật** lịch dọn. Ngay lúc đó câu trên trang chủ — *"kết quả chỉ giữ 30 phút,
+sau đó bị xoá"* — thành **sai**: tệp không hề bị xoá.
+
+Không mất dữ liệu, nhưng đó là giao diện nói sai về dữ liệu của người dùng, và làm họ gấp gáp tải về
+vì một lý do không tồn tại.
+
+⇒ Con số này **không thể** ở phía giao diện: nó phụ thuộc hai biến môi trường VÀ phụ thuộc người gọi
+là khách lạ hay đã đăng nhập. Cùng một cấu hình cho hai câu trả lời khác nhau. Bài canh
+`test_KHACH_bi_xoa_nhung_TAI_KHOAN_thi_khong` khoá đúng hàng đó.
+
+### Hai trường trong cùng một phản hồi nói NGƯỢC nhau
+
+Đo 26-09 trên production:
+
+```json
+"worker": {"trang_thai": "starting", "luc": "2026-09-25T04:35:45Z",
+           "rss_moc": "inpaint: sau", "rss_luc": "2026-09-25T09:55:23+00:00"}
+```
+
+`starting` suốt **42 giờ**, trong khi `rss_moc` chứng minh worker đã chạy xong một bước xoá chữ.
+Gốc: `deploy-start.sh` nhánh `ROLE=all` ghi `starting` một lần rồi chỉ ghi `restarting` khi chết.
+
+Cách vá **không** phải sửa shell — shell không có cách nào biết worker đã nạp xong model, nên ghi
+`running` trước khi gọi lệnh là **đoán**. Dấu sẵn sàng do CHÍNH worker ghi ở tín hiệu `worker_ready`.
+
+Và nó phải là tệp **thứ ba**: tệp của shell thì hai người ghi sẽ mất dữ liệu của cả hai; còn
+`worker_rss_file` bị ghi ĐÈ TOÀN BỘ mỗi lần đo RSS nên trường "sẵn sàng" sẽ bị xoá ở mốc kế tiếp.
+
+### Thứ tự nhánh là chỗ dễ sai nhất, và đối chứng âm chứng minh nó
+
+`restarting` phải thắng dấu sẵn sàng: shell vừa **quan sát** một lần thoát, mạnh hơn một dấu còn sót
+từ lần chạy trước. Đảo thứ tự ⇒ `test_shell_noi_restarting_thi_TIN_SHELL` **đỏ** (báo `running` cho
+một worker vừa chết).
+
+### Cảnh báo `act()` — sửa thay vì bỏ qua
+
+Bốn bài của màn tài khoản khẳng định xong trước khi `fetch` giải quyết ⇒ React cảnh báo `act()`.
+Test vẫn xanh, nhưng **cảnh báo ồn làm người ta quen bỏ qua đầu ra của bộ test** — nên đổi sang
+`findBy` cho lượt nạp settle xong. Sạch cảnh báo.
+
+### Con số
+
+Backend: 5 bài (E54) + 8 bài (E55). Frontend: 2 bài trang chủ + 9 bài màn tài khoản ⇒ **422 bài
+xanh**, build ra bundle thật (CSS 26,95 → 27,27 kB ⇒ style màn tài khoản đã vào bundle).
+
+Đối chứng âm: đảo thứ tự nhánh `trang_thai_thuc` ⇒ đỏ đúng bài.
+
+### Bấm tay trên production 27-09 — thứ bộ test không thấy được
+
+Ba mục E53/E54/E55 đã bấm tay trên Chrome thật. Hai phát hiện **không bài test nào bắt được**, vì cả
+hai chỉ tồn tại khi có trình duyệt thật + máy chủ thật:
+
+1. **Chốt hạn mức khi có CẢ HAI danh tính.** Sau đăng nhập, trình duyệt vẫn gửi cookie khách kèm
+   bearer. Test backend dựng từng danh tính **riêng lẻ**, nên không có bài nào ở trạng thái "có cả
+   hai". Đo thật: `chot` chỉ có `nguoi_dung`, `tran: 10` (khách là 6), `da_dung: 0` — đúng. Chọn sai
+   thì người đã đăng nhập bị kẹt trần khách mà **không lỗi nào hiện ra**.
+2. **Header tràn ở khổ 390px.** jsdom không có layout nên `getBoundingClientRect` luôn trả 0 ⇒
+   **không thể** viết bài canh tràn ngang bằng jsdom. Đo bằng Chrome thật: tên ≥12 ký tự là nav rộng
+   422px trong khung 390px, nút "Đăng xuất" còn 33%. Ghi ở `REPORT_E54.md` §7, chưa vá.
+
+Bài học chung: bộ test dựng **một** danh tính một lúc sẽ không bao giờ thấy lỗi ưu tiên giữa hai
+danh tính; và mọi lỗi **hình học** cần trình duyệt thật, jsdom mù hoàn toàn.
+
+### E56 — bốn đối chứng âm cho một tính năng bảo mật
+
+Tính năng đổi mật khẩu có ba chốt mà **không lượt chạy bình thường nào** sờ tới: mật khẩu cũ, thu
+hồi phiên khác, giữ phiên đang dùng. Cả ba đều "im lặng đúng" nếu viết sai, nên mỗi chốt phải có một
+lượt phá riêng:
+
+| Phá gì | Bài đỏ |
+|---|---|
+| Bỏ phép kiểm mật khẩu cũ | `test_sai_mat_khau_cu…` + `test_bi_tu_choi_thi_ten_hien…` |
+| Không thu hồi phiên nào | `test_doi_mat_khau_THU_HOI_cac_phien_khac` |
+| Thu hồi CẢ phiên đang dùng | `…THU_HOI…` + `…GIU_LAI_phien_dang_dung` |
+| Tắt phép so hai ô mật khẩu (giao diện) | `KHONG_gui_duoc_khi_hai_o_mat_khau_lech_nhau` |
+
+**Bài giao diện khẳng định vào `fetch` chứ không vào chữ đỏ.** Một câu cảnh báo cạnh một nút **vẫn
+bấm được** là trang trí; bài này đếm số lượt PATCH và đòi bằng 0.
+
+**Tài khoản riêng cho từng bài.** `nguoi_dung` KHÔNG nằm trong danh sách TRUNCATE, nên một bài đổi
+mật khẩu của tài khoản dùng chung sẽ rò trạng thái sang mọi bài xếp sau — biểu hiện đúng là "xanh
+khi chạy riêng, đỏ khi chạy chung", thứ khó truy nhất trong một bộ test.
+
+### E57 — bài test của TÔI đỏ vì lý do tôi không đoán trước
+
+`test_khong_nhom_nao_du_nguong` đỏ với `latin_90%` trong khi tôi tưởng ví dụ đó không có nhóm nào
+trội. Nguyên nhân: tôi đếm chữ cái bằng `unicodedata.category(c).startswith("L")`, mà `L*` là **mọi**
+loại chữ cái — nên `фффф` (Cyrillic) vào ô `latin`. Hệ quả thật: một trang **tiếng Nga** ra kết luận
+`en`, **tự tin và sai**.
+
+Đây là lý do viết ví dụ test bằng **số đo cụ thể** (`assert (latin, han, chu_cai_khac) == (4, 1, 5)`)
+thay vì chỉ `assert ngon_ngu is None`: khẳng định vào con số buộc tôi phải biết mình đang đếm gì, và
+nó đỏ ngay khi tôi không biết.
+
+Cũng trong lượt đó, bài `test_chu_Latin_co_dau…` đỏ vì tôi cộng nhẩm sai (14 chữ cái, tôi ghi 15) —
+code đúng, test sai. Đã sửa test và ghi phép cộng vào chú thích để lần sau không phải nhẩm lại.
+
+### Lỗi KHÔNG viết được bài test — và nói ra thay vì giả vờ có
+
+Header tràn ở khổ 390px (REPORT_E54 §7) không có bài test nào canh được: jsdom **không có layout**,
+`getBoundingClientRect()` luôn trả 0, nên mọi phép đo hình học đều vô nghĩa ở đó.
+
+Đáng chú ý hơn: chỗ này **đã có** một phép chặn trông như thật từ Auth slice B —
+`.tai-khoan { max-width: 30ch; overflow: hidden; text-overflow: ellipsis }` kèm chú thích *"Email dài
+không được đẩy vỡ thanh điều hướng"*. Nó **chưa bao giờ hoạt động**: `text-overflow` chỉ áp cho nội
+dung inline nằm TRỰC TIẾP trong một block, còn con của `.tai-khoan` là `<button>` flex item. Và
+thiếu `min-width: 0` thì flex item không co nhỏ hơn nội dung, nên `max-width` cũng vô hiệu.
+
+⇒ Một chú thích khẳng định đã chặn + một luật CSS không có tác dụng = **phép chặn trên giấy**, sống
+được 1 tháng. Cách duy nhất phát hiện là mở khung 390px trên Chrome thật và **đo `scrollWidth`**.
+Phép kiểm cho chỗ này nằm ở quy trình bấm tay, không nằm trong bộ test — ghi ra để không ai tưởng
+đã có bài canh.
+
+### E57 — hai lỗi mà chỉ MỘT bài test chạm tới
+
+**`NameError: loi_vuot_han_muc`** — dùng hàm mà quên import. Chỉ **hai bài hạn mức** đi qua dòng đó;
+mọi bài khác đi đường thành công. Thiếu chúng thì lỗi nổ đúng lúc người dùng đầu tiên hết lượt, tức
+đúng lúc tệ nhất.
+
+**429 in ra con số ĐÚNG ĐỊNH DẠNG nhưng SAI NỘI DUNG** — `loi_vuot_han_muc` lấy `chot.tran`, mà
+`Chot.tran` luôn là trần hạn mức **trang**. Lượt vượt trần nhận dạng báo *"trần 10"* trong khi trần
+thật là 20. Lộ ra **chỉ vì** bài test khẳng định `ct["tran"] == 2`, không phải `status_code == 429`.
+
+⇒ Bài học chung cho cả hai: **khẳng định vào GIÁ TRỊ, đừng chỉ khẳng định MÃ TRẠNG THÁI.** Một phản
+hồi 429 đúng hình dạng mà sai số liệu vẫn làm người dùng đọc sai về chính hạn mức của họ — và không có
+log nào kêu.
+
+### E57 — năm đối chứng âm
+
+| Phá gì | Bài đỏ |
+|---|---|
+| Bỏ nhánh GIỮA của phép kiểm chủ sở hữu | `test_nguoi_dang_nhap_KHONG_doc_duoc_luot_cua_khach` |
+| Dùng chung bộ đếm với hạn mức trang | `test_KHONG_tru_han_muc_TRANG` |
+| Bỏ chốt chạy-lại của task | `test_task_chay_LAI…` — nổ `UnsafeObjectPath: Path hiện vật rỗng`, đúng hậu quả đã dự đoán |
+| Bỏ khoá nút Dịch khi ô còn `tu-nhan` | `KHONG_gui_duoc_khi_o_chon_con_o_tu_nhan` |
+| Không kết luận thì chọn bừa `ja` | `khong_ket_luan_thi_HOI_LAI_chu_khong_chon_bua` |
+
+**Một lượt đối chứng âm KHÔNG chạy mà tôi suýt tính là đã chạy:** heredoc Python bị lỗi cú pháp
+(`unterminated triple-quoted string`), tệp không hề đổi, và bộ test in ra "24 passed" — trông y như
+một đối chứng âm thất bại vì bài canh yếu. Thực ra là **phép phá chưa được áp**. Từ đó: sau mỗi lượt
+sửa để đối chứng, **in ra đoạn mã đã sửa** rồi mới chạy test; "vẫn xanh" chỉ có nghĩa khi biết chắc
+mã đã đổi.
+
+### E57 — Redis của môi trường test nằm ở cổng 6380
+
+Bộ test chặn broker bằng fixture `fake_dispatch` (autouse), nhưng nó chỉ chặn `dispatch_detect_job`.
+Đường mới đẩy việc qua broker thật ⇒ mỗi bài ngồi thử kết nối Redis **20 lần** rồi mới bỏ: 9 bài đỏ
+vì hạ tầng, và chậm tới mức tưởng là treo. Thêm đường mới vào `fake_dispatch` là xong. Bài học: thêm
+một `dispatch_*` mới thì phải thêm nó vào fixture đó **cùng lúc**.
+
+### E57 — "không dựng được đường dẫn" là một ĐIỂM MÙ, không phải một ngoại lệ vô hại
+
+Phép quét chéo tài khoản tự sinh đường dẫn từ OpenAPI. Endpoint nào nó không dựng được id cho thì rơi
+vào nhóm `khong_dung_duoc` — và **nó không kiểm endpoint đó chút nào**.
+
+`GET /nhan-dang-ngon-ngu/{yeu_cau_id}` rơi vào đó. Cách dễ là ghi vào `MIEN_TRU`. Nhưng đây là đường
+trả về **chữ đã đọc từ ảnh của người khác**, tức đúng loại dữ liệu phép quét tồn tại để bảo vệ.
+
+Cách đúng: **dựng một bản ghi thật của A** trong `_dung_du_lieu` và trả `yeu_cau_id`. Phép quét nay
+thật sự thử "B gọi vào lượt của A" và đòi non-2xx ⇒ **mạnh hơn trước**, không phải yếu đi.
+
+Phân biệt với `POST /nhan-dang-ngon-ngu`, được miễn trừ vì một lý do khác hẳn: nó không nhận id nào —
+tạo bản ghi mới của chính người gọi, nên "B nhận 202" là ĐÚNG. Mô hình "B được 2xx = lọt" không áp
+được cho đường tạo mới.
+
+⇒ Khi một phép quét tự sinh báo "không dựng được", hỏi **endpoint đó trả về gì** trước khi miễn trừ.
+Miễn trừ một đường ĐỌC dữ liệu người khác là gỡ đúng phần có giá trị nhất của phép quét.
+
+### E57b — hiệu chỉnh ngưỡng: dữ liệu thật đổi đúng MỘT ngưỡng, và bắt một lỗi
+
+93 mẫu có nhãn gom thành 37 "trang" (trang là đơn vị production phân loại). **37/37 đúng** sau khi vá;
+trước khi vá **36/37**.
+
+**Thứ tự kana-trước-Hán từ suy luận thành số đo.** 6/17 trang tiếng Nhật thật có tỉ lệ chữ Hán **≥20%**
+— cao nhất 35,1%. Đảo thứ tự xét là gán cả sáu thành tiếng Trung ⇒ PaddleOCR thay manga-ocr, chữ vẫn
+ra, **không lỗi nào hiện**. Trước lượt này chốt đó chỉ có một ví dụ tôi tự gõ.
+
+**Lỗi thật:** trang ghi công bản tiếng Trung có **121 chữ Hán giữa 1097 chữ Latin** ⇒ tỉ lệ 9,9% ⇒ ra
+`en`. Trang **cùng số** bản tiếng Nhật thì đúng, **chỉ vì** ngưỡng kana đếm số **tuyệt đối**. ⇒ thêm
+`SO_HAN_TOI_THIEU = 8`, nằm giữa hai phép đo: trang Trung ít Hán nhất có 10, mọi trang Anh có 0.
+
+**Ba ngưỡng còn lại KHÔNG đổi, và số đo nói vì sao** — `SO_KY_TU_TOI_THIEU=8` (trang thật ít chữ nhất:
+10 và 12 ký tự, nâng lên 15 là phá chúng), `SO_KANA_TOI_THIEU=2` (11/11 trang Trung có 0 kana, trang
+Nhật ít nhất có 3), `TI_LE_HAN_TOI_THIEU=20%` (tiếng Anh đo được 0,0% ở cả 9 nhóm). Hiệu chỉnh nghĩa là
+**đổi cái số đo bảo đổi**, không phải vặn hết cho đẹp bảng.
+
+### E57b — bẫy lấy dữ liệu: HTTP 200 + ảnh sai tiền tố = tập dữ liệu BỊA
+
+Mã ngôn ngữ tiếng Trung của peppercarrot.com là **`cn`**, không phải `zh`. Và `/zh/webcomic/ep01…`
+trả HTTP **200** — nhưng ảnh trong đó mang tiền tố **`en_`**, tức trang **chưa dịch** và site lùi về
+bản tiếng Anh.
+
+Tin "200 = có bản dịch" là tải ảnh **tiếng Anh** về rồi dán nhãn **"tiếng Trung"**. Hậu quả không phải
+"thiếu dữ liệu" mà là **số đo bịa trông như thật**: bộ kiểm sẽ báo "nhận tiếng Trung rất tốt" trong khi
+nó đang đọc tiếng Anh. Tệ hơn hẳn việc không đo.
+
+⇒ Khi tải tập dữ liệu theo ngôn ngữ, **kiểm chính nội dung mang nhãn đó** (ở đây: tiền tố tên tệp),
+đừng kiểm mã HTTP. Cùng họ với soft-404 mà `REPORT_E23` đã ghi, nhưng nguy hiểm hơn: soft-404 cho một
+tệp HTML rõ ràng là rác, còn cái này cho một **ảnh thật, hợp lệ, sai ngôn ngữ**.
+
+### E57b — assert tự kiểm trong bài test bắt lỗi của chính tôi
+
+Bài có tham số dựng lại 6 trang thật từ ba ô đo được (`han`, `kana`, `latin`) và `assert len(chuoi) ==
+tong`. Hai dòng đỏ: 23+54+10 = 87 mà tôi ghi 89 — trang thật có vài ký tự rơi vào ô `chu_cai_khac` mà
+bảng số liệu không in.
+
+**Không nhồi thêm cho khớp.** Bỏ cột tổng, ghi rõ ví dụ dựng lại chỉ gồm ba ô đo được nên nó **nghiêm
+hơn** trang thật một chút. Một `assert` về tính nhất quán của chính dữ liệu test là thứ rẻ nhất mà bắt
+được nhiều nhất.
+
+### E58/E59 — ba cách tôi kết luận SAI về một tiện ích đang chạy tốt
+
+**1. Cuộn về đầu trang rồi bảo "không chạy".** Bộ lọc loại ảnh `'ngoài khung nhìn'` — đúng luật. Muốn
+kiểm thì phải đưa một trang truyện **vào giữa khung nhìn** trước khi tiêm.
+
+**2. Tìm biến ở sai thế giới.** `window.__translation_doc_truyen__` do content script đặt sống ở
+**isolated world**; `page.evaluate` của Playwright chạy ở **main world** nên thấy `undefined`. DOM thì
+dùng chung — nên dấu hiệu đúng để đo là **phần tử lớp phủ**, không phải biến `window`. Đo sai thế giới
+cho ra "tiện ích không chạy" trong khi nó vừa dịch xong 5 bong bóng.
+
+**3. Chẩn một triệu chứng không tồn tại.** Bulk báo "xong 3 trang" trong khi trang có 5 ảnh `ja_` và
+còn 4790px chưa cuộn tới ⇒ tôi kết luận "bỏ cuộc sau một nhịp cuộn" và đi vá. Vá xong: **vẫn 3**. Đo
+từng ảnh mới thấy `P00` là banner `1200x287` (tỉ lệ 0,24) và `P04` là dải `1200x24` — **cả hai bị loại
+ĐÚNG**, và `3` là đáp án đúng từ đầu.
+
+Bản vá vẫn giữ, nhưng vì **lý do khác**: bỏ cuộc sau một nhịp 371px trên tài liệu 5227px là logic sai,
+chỉ chưa gây hại trên trang cụ thể đó. Không được ghi nó là "đã sửa lỗi mất trang".
+⇒ Trước khi vá một con số đáng ngờ, **đo từng phần tử** thay vì so tổng số với kỳ vọng.
+
+### E58/E59 — con số trong giao diện phải đo lại được trên bản ĐANG CHẠY
+
+Popup của tiện ích viết *"~45 giây mỗi trang"*, lấy từ `REPORT_E19_0`. Nhưng đo trên production hôm
+nay: **2 trang / ~8 giây** và **3 trang / 43 giây**. `MINI_SPEC_E44` (hạ `ctd_input_size`) đã bị **huỷ**
+nên detect ONNX không hề nhanh hơn.
+
+Giải thích khả dĩ: production đặt cả `DETECT_ENGINE` lẫn `DETECT_AI_MODEL` (E46 — nhận diện bằng mô
+hình ngoài). Nhưng `list_env` của nền tảng **chỉ trả TÊN biến, không trả giá trị**, nên **chưa kết
+luận** — đã thêm `detect_engine` vào `/healthz` để biết chắc.
+
+⇒ Đã **bỏ con số 45 giây** khỏi popup và thông báo tiến độ. Giữ một số không đo lại được trên bản đang
+chạy là đúng loại lỗi cả lượt này đi sửa. Cùng họ [[feedback-tinh-nang-tat-lam-cau-tren-man-thanh-sai]].
+
+### E60 — lỗi tự che mắt phép đo dùng để phát hiện nó
+
+`wrap_to_width` cắt token theo **ký tự** khi token rộng hơn khung. Hệ quả phụ: bề rộng **luôn vừa**.
+Vòng dò cỡ chữ của `fit()` kiểm `w <= rect.width and h <= rect.height` — vế bề rộng **luôn đúng**, nên
+nó không bao giờ biết khung quá hẹp, chỉ thấy chiều cao sai, thu nhỏ chữ, rồi trả **`fit_ok`**.
+
+```
+khung 64x420, câu "VÒNG QUA ĐÂY ĐI"
+TRƯỚC  cỡ 38  VÒ/N/G/Q/UA/ĐÂ/Y/ĐI   fit_ok   ← hệ thống coi là THÀNH CÔNG
+SAU    cỡ 18  VÒNG/QUA/ĐÂY/ĐI       fit_ok
+```
+
+⇒ Phần lớn chữ hỏng trên trang thật **không hề được gắn cảnh báo**. Bài học: khi một nhánh dự phòng
+làm cho phép kiểm **luôn qua**, nó vô hiệu hoá luôn phép kiểm đó. Nhánh dự phòng phải **báo ra** rằng
+nó đã phải chạy, để bên gọi còn biết.
+
+### E60 — bài canh cấu trúc bắt lỗi của chính người viết nó
+
+Bài canh đọc mã đòi `_run_export` phải truyền `mark_overflow=False`. Lượt đầu nó **đỏ dù mã đã đúng**:
+tôi đọc `run_export_job` (task bao ngoài) trong khi renderer được dựng ở `_run_export`.
+
+Sửa thành soi **cả hai** hàm với kỳ vọng **ngược nhau** — `_run_export` phải tắt, `render_page_preview`
+phải KHÔNG tắt. Bản sửa mạnh hơn bản đầu: nó chặn luôn cái sai ngược lại (tắt nhầm ở ảnh xem thử, làm
+người rà soát mất đường duy nhất thấy chỗ tràn).
+
+## 2026-10-15 — E69 tô phẳng · E70 màu chữ · E71 dịch JSON (từ Koharu)
+
+Chi tiết và bảng số đo: `REPORT_E69_E70_E71.md`.
+
+- **E69**: CTD thật + LaMa thật trên 6 trang (Pepper&Carrot E11–E14, pc_E01P02 1600px,
+  ja_E12P01). Bản đầu tô được 3/38 vùng. Chẩn đoán: nét viền bong bóng lọt vào dải viền làm hỏng
+  phép đo độ phẳng. Bản sửa (thống kê chịu ngoại lai + chốt mép trong) tô được **8/38**. Xem bằng mắt
+  8/8 sạch. Thời gian không kết luận được: cùng bước detect đo lúc 39s, lúc 97s trên cùng máy.
+- **E70**: 13 test, có chạy trọn bước căn chữ trên Postgres thật. Chưa chạy trên trang truyện thật.
+- **E71**: A/B 5+5 lượt `gemini-3.1-flash-lite`, 7 câu tiếng Nhật. Hai chế độ cùng 0/35 câu trống và
+  0/35 sót chữ Nhật. Lượt JSON đầu bỏ dấu chấm cuối câu; thêm luật rồi đo lại thì 5/5 có dấu câu.

@@ -1,0 +1,119 @@
+"""Thứ tự đọc của các vùng chữ trong 1 trang truyện.
+
+Không dùng thứ tự bbox thô: manga Nhật đọc **phải → trái**, còn EN/CN đọc trái → phải.
+Sai thứ tự ở đây làm hỏng cả mạch văn khi gộp cả trang gửi cho LLM (M5) và làm lệch
+khi ghép bản dịch trở lại từng vùng.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Literal
+
+from app.services.interfaces import BBox
+
+Direction = Literal["ltr", "rtl"]
+
+#: Hướng đọc mặc định theo ngôn ngữ nguồn — cấu hình được, không hard-code 1 hướng.
+DEFAULT_DIRECTION: dict[str, Direction] = {
+    "ja": "rtl",  # manga Nhật: phải sang trái
+    "zh": "ltr",
+    "en": "ltr",
+    "ko": "ltr",  # manhwa / webtoon Hàn: trái sang phải, trên xuống dưới
+}
+
+
+class UnknownReadingDirection(ValueError):
+    pass
+
+
+#: Cách nói TƯỜNG MINH "đừng ép hướng đọc, cứ suy theo ngôn ngữ nguồn".
+#:
+#: Vì sao cần, trong khi bỏ trống đã có nghĩa đó: bỏ trống chỉ biểu đạt được ở nơi cho phép biến
+#: môi trường rỗng. Nền tảng hosting đang chạy production **bắt buộc mọi biến phải có ít nhất 1
+#: ký tự**, nên `READING_DIRECTION_OVERRIDE=` không khai được ở đó. Không có lối này thì người
+#: vận hành buộc phải điền `ltr` hoặc `rtl` — và cả hai đều **ép cứng toàn hệ thống**, làm hỏng
+#: thứ tự đọc của đúng một nửa số chapter (manga Nhật đọc phải→trái, EN/CN trái→phải) mà không
+#: một thông báo lỗi nào. Đây là một lỗi im lặng có thật, chỉ lộ ra khi đem deploy lần đầu.
+KHONG_EP = "auto"
+
+
+def direction_for(source_lang: str, override: str | None = None) -> Direction:
+    if override:
+        value = override.strip().lower()
+        if value == KHONG_EP:
+            return DEFAULT_DIRECTION.get(source_lang, "ltr")
+        if value not in ("ltr", "rtl"):
+            raise UnknownReadingDirection(
+                f"Hướng đọc '{override}' không hợp lệ (chỉ ltr/rtl, hoặc '{KHONG_EP}' để tự suy)"
+            )
+        return value  # type: ignore[return-value]
+    return DEFAULT_DIRECTION.get(source_lang, "ltr")
+
+
+@dataclass(frozen=True)
+class OrderedItem:
+    """1 vùng chữ kèm khoá của nó (id region) để ghép ngược lại sau khi dịch."""
+
+    key: Any
+    bbox: BBox
+
+
+def _band_key(bbox: BBox, band_height: float) -> int:
+    """Gom các bbox nằm cùng một 'hàng' (dải ngang) lại với nhau.
+
+    Bubble hiếm khi thẳng hàng tuyệt đối nên không so y tuyệt đối mà chia theo dải.
+    """
+    return int(bbox.y // band_height) if band_height > 0 else 0
+
+
+def order_items(
+    items: list[OrderedItem], direction: Direction = "ltr", band_ratio: float = 0.6
+) -> list[OrderedItem]:
+    """Sắp các vùng theo thứ tự đọc: theo dải ngang từ trên xuống, trong dải theo hướng đọc.
+
+    `band_ratio`: chiều cao dải = trung vị chiều cao bbox × band_ratio. Cùng dải nghĩa là
+    "cùng một hàng bong bóng" dù lệch nhau vài chục pixel.
+    """
+    if not items:
+        return []
+
+    heights = sorted(i.bbox.h for i in items)
+    median_h = heights[len(heights) // 2]
+    band_height = max(median_h * band_ratio, 1.0)
+
+    reverse_x = direction == "rtl"
+    return sorted(
+        items,
+        key=lambda it: (
+            _band_key(it.bbox, band_height),
+            -(it.bbox.x + it.bbox.w) if reverse_x else it.bbox.x,
+            it.bbox.y,
+        ),
+    )
+
+
+def calculate_reading_order(
+    regions: list[Any], source_lang: str, override: str | None = None, khung_tranh=None,
+) -> list[Any]:
+    """Nhận list TextRegion (hoặc object có bbox_x/y/w/h), trả list ĐÃ SẮP theo thứ tự đọc.
+
+    E82 — `khung_tranh` (danh sách khung lá theo thứ tự đọc, từ `khung_tranh.la_theo_thu_tu`): sắp
+    theo KHUNG trước rồi mới tới vị trí trong khung. `None` hoặc một khung ⇒ y như trước E82.
+    """
+    direction = direction_for(source_lang, override)
+    items = [
+        OrderedItem(key=r, bbox=BBox(x=r.bbox_x, y=r.bbox_y, w=r.bbox_w, h=r.bbox_h))
+        for r in regions
+    ]
+    if not khung_tranh or len(khung_tranh) < 2:
+        return [it.key for it in order_items(items, direction)]
+    from app.services.translate.khung_tranh import chi_so_khung
+
+    theo_khung: dict[int, list[OrderedItem]] = {}
+    for it in items:
+        k = chi_so_khung(khung_tranh, it.bbox.x + it.bbox.w / 2, it.bbox.y + it.bbox.h / 2)
+        theo_khung.setdefault(k, []).append(it)
+    ra: list[Any] = []
+    for k in sorted(theo_khung):
+        ra.extend(it.key for it in order_items(theo_khung[k], direction))
+    return ra

@@ -1,0 +1,46 @@
+# Mẫu cấu hình nginx. Image nginx chính thức chạy envsubst trên mọi file trong
+# /etc/nginx/templates/ (script 20-envsubst-on-templates.sh) rồi đổ ra /etc/nginx/conf.d/.
+#
+# VÌ SAO PHẢI ĐỌC ${PORT} THAY VÌ NƯỚNG CỨNG: nền tảng hosting có bước "Dockerfile Patching"
+# và tự đặt cổng cho container. Website API chạy được vì script khởi động của nó dùng
+# ${PORT:-8000}; còn nginx nướng cứng cổng thì dựng xong, health-gate báo 2xx, nhưng bước
+# chuyển traffic cuối cùng vẫn treo rồi báo lỗi.
+server {
+  listen ${PORT};
+  root /usr/share/nginx/html;
+  client_max_body_size 50M;
+  server_tokens off;
+
+  # Header bảo mật — áp cho MỌI location bên dưới vì không location nào tự khai `add_header`
+  # (nginx chỉ kế thừa khi location không có add_header riêng; thêm vào location là mất hết).
+  add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+  add_header X-Content-Type-Options "nosniff" always;
+  add_header X-Frame-Options "DENY" always;
+  add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+  add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+  # CSP ở chế độ CHỈ BÁO: index.html có script inline và trang gọi nhiều nguồn ngoài (Turnstile,
+  # Google Fonts, VietQR, API). Bật chặn thẳng mà sót một nguồn là trắng trang trên production —
+  # xem console vài ngày, không có vi phạm thì đổi tên header sang `Content-Security-Policy`.
+  add_header Content-Security-Policy-Report-Only "default-src 'self'; script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' https://translation-api.vibe1.tinhgon.xyz https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" always;
+
+  # Cho phép gọi trực tiếp https://comic.io.vn/api/v1/... (Developer API, Extension, App Windows & Web)
+  location /api/ {
+    proxy_pass https://translation-api.vibe1.tinhgon.xyz/api/;
+    proxy_ssl_server_name on;
+    proxy_set_header Host translation-api.vibe1.tinhgon.xyz;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 180s;
+    proxy_send_timeout 180s;
+  }
+
+  location = /healthz {
+    proxy_pass https://translation-api.vibe1.tinhgon.xyz/healthz;
+    proxy_ssl_server_name on;
+    proxy_set_header Host translation-api.vibe1.tinhgon.xyz;
+  }
+
+  # SPA: mọi đường dẫn không phải file đều trả index.html, nếu không thì F5 sẽ ra 404.
+  location / { try_files $uri $uri.html $uri/ /index.html; }
+}

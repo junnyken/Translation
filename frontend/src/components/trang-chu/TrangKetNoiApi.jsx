@@ -76,7 +76,7 @@ res = requests.post(
         "image_url": "https://uploads.mangadex.org/data/.../page01.jpg",
         "source_lang": "ja",      # ja (Nhật) | ko (Hàn) | zh (Trung) | en (Anh)
         "target_lang": "vi",      # vi (Tiếng Việt) | en (Tiếng Anh Quốc tế)
-        "engine": "llm_context",  # llm_context (Gemini AI) | google_fast
+        "engine": "llm_context",  # llm_context (AI Ngữ Cảnh) | google_fast
         "mode": "day_du",         # day_du = ghép sẵn chữ vào ảnh | chi_chu = chỉ lấy JSON
         "font_style": "bangers",  # bangers | romance | historical | comic
         "wait": "true"
@@ -506,8 +506,8 @@ curl -X POST "${apiOrigin}/api/v1/developer/translate-text" \\
                 ? '2. Set HTTP Timeout >= 120s (Sync vs Async Chapter Queue)'
                 : '2. Đặt Timeout HTTP >= 120 Giây & Chọn Đúng Chế Độ Chờ (wait)',
               noiDung: laEn
-                ? 'AI OCR + LaMa Inpainting + Typesetting takes ~4–12s per new page (or 0.15s on SHA-256 cache hit). When calling /translate-image with wait=true, set your HTTP client timeout to 120–180s. When translating a full chapter (10–150 pages), call /translate-chapter or set wait=false and poll /projects/{project_id} every 3 seconds.'
-                : 'Quá trình OCR + Xoá chữ LaMa + Dịch Gemini + Ghép chữ tốn khoảng 4–12 giây/trang mới (hoặc chỉ 0.15 giây nếu trúng Cache SHA-256). Khi gọi /translate-image với wait=true, hãy đặt CURLOPT_TIMEOUT / timeout >= 120–180 giây. Nếu đẩy nguyên chương (10–150 ảnh), hãy gọi /translate-chapter hoặc đặt wait=false rồi poll tiến độ mỗi 3 giây.',
+                ? 'Smart OCR + Background Reconstruction + Typesetting takes ~4–12s per new page (or 0.15s on high-speed cache hit). When calling /translate-image with wait=true, set your HTTP client timeout to 120–180s. When translating a full chapter (10–150 pages), call /translate-chapter or set wait=false and poll /projects/{project_id} every 3 seconds.'
+                : 'Quá trình Nhận diện chữ + Tái tạo nền + Dịch ngữ cảnh + Ghép chữ tốn khoảng 4–12 giây/trang mới (hoặc chỉ 0.15 giây nếu trúng Bộ nhớ đệm tốc độ cao). Khi gọi /translate-image với wait=true, hãy đặt CURLOPT_TIMEOUT / timeout >= 120–180 giây. Nếu đẩy nguyên chương (10–150 ảnh), hãy gọi /translate-chapter hoặc đặt wait=false rồi poll tiến độ mỗi 3 giây.',
             },
             {
               icon: '🛡️',
@@ -543,11 +543,11 @@ curl -X POST "${apiOrigin}/api/v1/developer/translate-text" \\
               icon: '♻️',
               mau: '#34d399',
               tieuDe: laEn
-                ? '6. Auto-Refund on Error & Free SHA-256 Community Cache'
-                : '6. Tự Động Hoàn Lượt Khi Lỗi Ảnh & Miễn Phí Khi Trúng Cache Cộng Đồng',
+                ? '6. Auto-Refund on Error & Free High-Speed Cache'
+                : '6. Tự Động Hoàn Lượt Khi Lỗi Ảnh & Miễn Phí Khi Trúng Bộ Nhớ Đệm',
               noiDung: laEn
-                ? 'If a raw image URL is broken or fails during processing, the ledger automatically refunds +1 page back to your wallet. If a page matches our SHA-256 Community Cache, it returns in 0.15s with cached=true and costs 0 pages!'
-                : 'Nếu link ảnh gốc bị lỗi hoặc quá trình xử lý gặp sự cố, sổ cái tự động hoàn trả lại đúng +1 trang vào ví của bạn. Đặc biệt, nếu trang truyện đã có trong Cache Cộng đồng SHA-256, API trả kết quả ngay trong 0.15 giây (cached=true) và hoàn toàn KHÔNG trừ lượt!',
+                ? 'If a raw image URL is broken or fails during processing, the ledger automatically refunds +1 page back to your wallet. If a page matches our High-Speed Cache, it returns in 0.15s with cached=true and costs 0 pages!'
+                : 'Nếu link ảnh gốc bị lỗi hoặc quá trình xử lý gặp sự cố, sổ cái tự động hoàn trả lại đúng +1 trang vào ví của bạn. Đặc biệt, nếu trang truyện đã có trong Bộ nhớ đệm tốc độ cao, API trả kết quả ngay trong 0.15 giây (cached=true) và hoàn toàn KHÔNG trừ lượt!',
             },
           ].map((muc) => (
             <div
@@ -611,8 +611,8 @@ curl -X POST "${apiOrigin}/api/v1/developer/translate-text" \\
                   mau: '#38bdf8',
                   path: '/api/v1/developer/translate-image',
                   moTa: laEn
-                    ? 'Translate 1 comic page (send file, image_url, or image_base64). Supports wait=true (sync) or wait=false (async) + 0.15s SHA-256 Community Cache.'
-                    : 'Dịch 1 trang truyện (gửi file, image_url hoặc image_base64). Hỗ trợ wait=true (chờ lấy ngay link ảnh đã ghép chữ) hoặc wait=false (chạy nền) + Cache Cộng đồng 0.15s.',
+                    ? 'Translate 1 comic page (send file, image_url, or image_base64). Supports wait=true (sync) or wait=false (async) + 0.15s High-Speed Cache.'
+                    : 'Dịch 1 trang truyện (gửi file, image_url hoặc image_base64). Hỗ trợ wait=true (chờ lấy ngay link ảnh đã ghép chữ) hoặc wait=false (chạy nền) + Bộ nhớ đệm 0.15s.',
                 },
                 {
                   method: 'POST',
@@ -635,16 +635,16 @@ curl -X POST "${apiOrigin}/api/v1/developer/translate-text" \\
                   mau: '#10b981',
                   path: '/api/v1/developer/pages/{page_id}',
                   moTa: laEn
-                    ? 'Get status, rendered_image_url, inpainted_image_url, and speech bubble JSON of a single page.'
-                    : 'Lấy trạng thái, link tải ảnh đã ghép chữ (rendered-image), ảnh đã xoá chữ (inpainted-image) và JSON bóng thoại của 1 trang.',
+                    ? 'Get status, rendered_image_url, inpainted_image_url, and dialog coordinates JSON of a single page.'
+                    : 'Lấy trạng thái, link tải ảnh đã ghép chữ (rendered-image), ảnh nền sạch (inpainted-image) và JSON vùng chữ của 1 trang.',
                 },
                 {
                   method: 'POST',
                   mau: '#f59e0b',
                   path: '/api/v1/developer/translate-text',
                   moTa: laEn
-                    ? 'Batch-translate an array of paragraphs for Web Novels / Light Novels using Gemini AI or Google Fast.'
-                    : 'Dịch hàng loạt mảng các đoạn văn bản Truyện Chữ (Web Novel / Light Novel) chuẩn mạch ngữ cảnh bằng Gemini AI hoặc Google Nhanh.',
+                    ? 'Batch-translate an array of paragraphs for Web Novels / Light Novels using Cloud Context AI.'
+                    : 'Dịch hàng loạt mảng các đoạn văn bản Truyện Chữ (Web Novel / Light Novel) chuẩn mạch ngữ cảnh bằng AI Đám Mây.',
                 },
               ].map((ep) => (
                 <tr key={ep.path} style={{ borderBottom: '1px solid rgba(51, 65, 85, 0.65)' }}>

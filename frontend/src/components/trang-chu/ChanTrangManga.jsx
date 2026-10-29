@@ -23,8 +23,8 @@ export default function ChanTrangManga() {
           </div>
           <p className="mo-ta-chan-trang">
             {laEn
-              ? 'Next-generation automatic comic & novel translation platform for readers, scanlation teams, and content creators. Clean bubble text inpainting, intact artwork, and scanlation-grade typesetting.'
-              : 'Nền tảng dịch truyện tranh tự động thế hệ mới dành cho độc giả, nhóm dịch và nhà sáng tạo nội dung. Xoá sạch chữ gốc trong lòng bong bóng, giữ trọn nét vẽ và căn chữ chuẩn thẩm mỹ scanlation.'}
+              ? 'Next-generation automatic comic & novel translation platform for readers, scanlation teams, and content creators. Smart background reconstruction, intact artwork, and studio-grade typesetting.'
+              : 'Nền tảng dịch truyện tranh tự động thế hệ mới dành cho độc giả, nhóm dịch và nhà sáng tạo nội dung. Tái tạo nền sạch tự nhiên, giữ trọn nét vẽ và dàn chữ chuẩn thẩm mỹ xuất bản.'}
           </p>
           <div className="day-the-loai-chan">
             <span>⚔️ {laEn ? 'Action' : 'Hành động'}</span>
@@ -65,11 +65,11 @@ export default function ChanTrangManga() {
 
         {/* Cột 3: Công Nghệ & Tính Năng */}
         <div className="cot-chan-trang">
-          <h3>✨ {laEn ? 'Core Technology' : 'Công Nghệ Lõi'}</h3>
+          <h3>✨ {laEn ? 'Core Technology' : 'Công Nghệ Độc Quyền'}</h3>
           <ul className="ds-tinh-nang-chan">
-            <li>🎯 {laEn ? '2D Flood-Fill & Voronoi Double-Bubble Split' : 'Flood-Fill 2D & Rào chắn Voronoi tách bong bóng đôi'}</li>
-            <li>⚡ {laEn ? 'High-Speed Client GPU/Canvas Inpainting' : 'Xoá chữ tốc độ cao trên GPU/Canvas máy khách'}</li>
-            <li>✏️ {laEn ? 'Double-Click Live Speech Bubble Editor' : 'Nhấp đúp (Double-click) sửa thoại trực tiếp trên ảnh'}</li>
+            <li>🎯 {laEn ? 'Smart Background Reconstruction & Multi-Dialog Layout' : 'Tái tạo nền thông minh & Tự động căn chỉnh vùng thoại'}</li>
+            <li>⚡ {laEn ? 'High-Speed Hardware-Accelerated Processing' : 'Xử lý hình ảnh tăng tốc phần cứng siêu tốc'}</li>
+            <li>✏️ {laEn ? 'Double-Click Live Text Editor on Page' : 'Nhấp đúp (Double-click) chỉnh sửa câu dịch trực tiếp trên ảnh'}</li>
             <li>🌍 {laEn ? 'JP · KR · ZH · EN ➔ Vietnamese & Global English' : 'Hỗ trợ dịch Nhật · Hàn · Trung · Anh ➔ Việt & Quốc tế'}</li>
           </ul>
         </div>

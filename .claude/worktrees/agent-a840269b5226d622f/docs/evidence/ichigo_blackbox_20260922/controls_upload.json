@@ -1,0 +1,46 @@
+[
+ {
+  "tag": "a",
+  "href": "/",
+  "text": "Ichigo"
+ },
+ {
+  "tag": "button",
+  "text": "Contact"
+ },
+ {
+  "tag": "a",
+  "href": "/leaderboard",
+  "text": "Leaderboard"
+ },
+ {
+  "tag": "button",
+  "text": "Platforms"
+ },
+ {
+  "tag": "button",
+  "text": "Account"
+ },
+ {
+  "tag": "button",
+  "text": "translate to English"
+ },
+ {
+  "tag": "button",
+  "text": "GPT-5.6 Luna"
+ },
+ {
+  "tag": "label",
+  "text": "auto-download"
+ },
+ {
+  "tag": "button",
+  "type": "button",
+  "text": "select files"
+ },
+ {
+  "tag": "input",
+  "type": "file",
+  "accept": ".pdf,.cbz,.zip,.png,.webp,.avif,.jpeg,.jpg,.gif,.bmp,.tif,.tiff"
+ }
+]

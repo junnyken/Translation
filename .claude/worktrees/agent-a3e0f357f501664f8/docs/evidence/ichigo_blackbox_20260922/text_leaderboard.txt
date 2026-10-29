@@ -1,0 +1,42 @@
+URL=https://ichigoreader.com/leaderboard
+HTTP=200
+AT_UTC=2026-09-22T07:50:14.255Z
+TITLE=Manga Translator🍓
+
+Ichigo
+Contact
+Leaderboard
+Platforms
+Account
+Leaderboard
+Models are ranked by BLEU and by scoring with multiple leading frontier models acting as judges.
+Last run: August 31, 2026
+Model
+	
+BLEU
+	
+Rank
+	
+Score ▼
+
+Gemini 3.1 Pro	16.44	6.18	85.70
+GPT-5.6 Sol	13.43	6.93	84.28
+Muse Spark 1.2	14.35	8.29	81.54
+GPT-5.6 Terra	13.83	7.78	80.44
+Gemini 3.7 Flash	16.66	8.19	80.29
+DeepSeek v4 Pro	15.05	9.17	78.98
+Claude Fable 5	12.55	9.04	78.55
+GLM 5.3	13.60	9.51	77.97
+GPT-5.6 Luna	12.40	9.80	77.37
+Gemini 3.8 Flash	15.70	9.37	76.13
+Qwen3.8 Max	10.04	10.13	75.41
+Kimi K3	13.79	11.08	75.33
+MiniMax M3	13.87	11.74	73.99
+Grok 4.6	13.48	11.41	73.84
+GLM 5.3 Flash	11.84	11.58	73.06
+Kimi K2.6	12.65	11.92	72.72
+Claude Opus 5	7.91	10.92	72.22
+Gemini 3 Flash	15.35	11.11	71.31
+Hy4 Preview	13.00	12.36	70.69
+Qwen3.8 Flash	11.58	12.87	66.56
+DeepSeek v4 Flash	9.33	14.84	60.93

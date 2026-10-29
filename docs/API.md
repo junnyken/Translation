@@ -1688,3 +1688,56 @@ worker chạy tốt hai ngày vẫn báo `starting` (đo được **42 giờ** n
 
 `san_sang_luc` do **chính worker** ghi ở tín hiệu `worker_ready` của Celery — shell không có cách
 nào biết worker đã nạp xong model.
+
+## PRODUCTION-01 — Hợp đồng cấu hình riêng (BUILT, 27/10/2026)
+
+`POST /api/v1/doc-truyen/trang` bổ sung multipart form `tao_chapter_rieng: bool = false`.
+Khi true, tạo project riêng cho trang, lưu tuỳ chọn nghiêm ngặt và bỏ qua cache cộng đồng.
+Client cũ không gửi cờ vẫn dùng luồng mặc định. Xác thực/hạn mức hiện có vẫn áp dụng.
+
+Schema `TrangDocTruyen` bổ sung `cau_hinh_rieng: bool = false`,
+`image_width: int | null`, `image_height: int | null`. POST xác nhận cờ riêng;
+GET trang hoàn tất ở chế độ riêng trả kích thước ảnh lưu khi đọc được để client quy đổi bbox
+về kích thước ảnh gốc; không được giả định kích thước luôn có.
+
+`GET /healthz` bổ sung `translation_capabilities.private_context_v1 = true`.
+Client kiểm cờ trước upload và kiểm xác nhận riêng trong response. Cờ health không phải readiness
+của migration/DB/worker. Cần migration `0036_cau_hinh_rieng` trước khi chạy backend mới.
+Năm kiểm thử tích hợp đã viết nhưng chưa chạy được; chưa xác minh hợp đồng trên dịch vụ thật.
+
+PRODUCTION-01 kiểm tiếp cùng ngày: không thay đổi hợp đồng HTTP. Desktop hỏi GET trạng thái
+ngay lần đầu, không bắt đầu request mới sau thời hạn chờ; không tự POST lại khi timeout.
+Backend integration và migration vẫn chưa chạy được vì môi trường kiểm thử chưa khả dụng.
+
+## PRODUCTION-02 — Công cụ local, không đổi HTTP (BUILT, 27/10/2026)
+
+Không có endpoint/migration mới. CLI `windows-app/review_delivery.py` có status/approve/reject/export;
+review dùng ledger local, không gọi provider và không tự gửi khách. Hợp đồng/giới hạn chi tiết
+ở `windows-app/HUONG-DAN-RA-SOAT.md` và `docs/REPORT_PRODUCTION_02.md`.
+
+## PRODUCTION-03 — Mã yêu cầu upload bền (BUILT, 27/10/2026)
+
+`POST /api/v1/doc-truyen/trang` thêm multipart optional `request_key: UUID`.
+Không gửi key giữ hành vi cũ. Có key bắt buộc tài khoản đăng nhập và `tao_chapter_rieng=true`:
+thiếu đăng nhập trả 401, không riêng trả 422. Cùng tài khoản/key/ảnh/lựa chọn trả 202 với
+trang đã nhận; khác raw ảnh hoặc source/target lang/engine/pipeline/font/glossary/private flag
+trả 409. Trang đã xoá giữ tombstone, request đúng cũ trả 410 thay vì tạo việc và giữ lượt mới.
+Response `TrangDocTruyen` thêm `request_key: UUID | null`; POST keyed và GET lookup xác nhận key.
+
+`GET /api/v1/doc-truyen/yeu-cau/{request_key}` trả 200 TrangDocTruyen với key/page_id hiện có;
+401 chưa đăng nhập, 404 absent/unowned, 410 trang đã xoá. Không enqueue hoặc tính lượt mới.
+Trang đổi chủ vẫn chịu quyền hiện tại; key không thay thế xác thực. Không TTL tự hết hạn:
+record giữ tới khi xoá tài khoản, xoá page/project chỉ SET NULL.
+
+Fingerprint v1 gắn bytes và lựa chọn đã gửi, không đổi theo deployment/model defaults về sau.
+None và chuỗi rỗng của font/glossary tương đương; lựa chọn khác dù có thể render giống nhau vẫn
+có thể 409. Không tự cấp key mới hoặc xoá record để retry request mơ hồ.
+
+Cần migration `0037_upload_request` sau 0036. Health thêm capability `idempotent_upload_v1`,
+không phải DB/worker readiness. Atomic key/page/quota/Job chưa được kiểm trên PostgreSQL thật.
+Cửa sổ DB commit→broker và phí provider vẫn chưa được bảo đảm exactly-once.
+
+
+## Bổ sung PRODUCTION-04
+
+PRODUCTION-04 (28/10/2026): keyed private upload lưu first-detect intent cùng transaction. Lỗi dispatch được lưu DetectOutbox, không đặt Job.error_log để giả job đã thất bại. Publisher gửi lại tối đa8 lần; CLI nội bộ xem/reset chỉ intent exhausted chưa published còn queued. Không thêm HTTP field/endpoint; không đảm bảo broker ACK đồng nghĩa AI hoàn tất. Xem REPORT_PRODUCTION_04.md (BUILT, chưa LIVE).

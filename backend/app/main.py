@@ -373,15 +373,48 @@ async def _cors_developer_api(request: Request, call_next):
     return await call_next(request)
 
 
+_CHUOI_BOT_DO_QUET_CAM = (
+    "sqlmap",
+    "nikto",
+    "nmap",
+    "nuclei",
+    "masscan",
+    "zgrab",
+    "gobuster",
+    "dirbuster",
+    "wfuzz",
+    "ffuf",
+    "scrapy",
+    "phantomjs",
+    "headlesschrome",
+    "puppeteer",
+    "playwright",
+    "selenium",
+    "acunetix",
+    "nessus",
+    "openvas",
+)
+
+
 @app.middleware("http")
 async def _header_bao_mat(request: Request, call_next):
-    """Header bảo mật cho mọi phản hồi của API (gọi thẳng `translation-api…` không đi qua nginx
-    của web nên không nhận header bên đó). API chỉ trả JSON/ảnh/tệp — không trang nào cần nằm
-    trong khung của trang khác."""
+    """Header bảo mật và tường lửa chống bot dò quét tự động cho mọi phản hồi của API."""
+    ua = (request.headers.get("user-agent") or "").lower()
+    if ua and any(bot in ua for bot in _CHUOI_BOT_DO_QUET_CAM):
+        from fastapi.responses import JSONResponse as _JSONResp
+
+        return _JSONResp(
+            status_code=403,
+            content={
+                "error": "automated_scanner_blocked",
+                "detail": "Hệ thống bảo vệ đã chặn truy cập tự động từ công cụ dò quét.",
+            },
+        )
     resp = await call_next(request)
     resp.headers.setdefault("X-Content-Type-Options", "nosniff")
     resp.headers.setdefault("X-Frame-Options", "DENY")
     resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    resp.headers.setdefault("X-Robots-Tag", "noindex, noarchive, nosnippet")
     if request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https":
         resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
     return resp

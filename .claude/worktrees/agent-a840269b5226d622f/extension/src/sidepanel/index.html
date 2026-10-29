@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Translation Companion</title>
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+  <header class="dau">
+    <div class="dau-hieu" aria-hidden="true">T</div>
+    <div class="dau-chu">
+      <h1>Translation Companion</h1>
+      <small>Mở nhanh công cụ Translation trên máy của bạn.</small>
+    </div>
+  </header>
+
+  <!-- Toàn bộ thân panel do panel.js dựng. Thông báo trạng thái đọc bằng trình đọc màn hình
+       nhờ aria-live ở đây, để người dùng bàn phím biết lượt kiểm tra đã xong. -->
+  <main id="than"></main>
+  <div id="loa" class="an-di" role="status" aria-live="polite"></div>
+
+  <script type="module" src="panel.js"></script>
+</body>
+</html>

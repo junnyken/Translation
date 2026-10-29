@@ -1,0 +1,47 @@
+# Disposable test data only. No .env import, published ports or persistent volumes.
+services:
+  db-test:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: translation_test
+      POSTGRES_PASSWORD: disposable-test-only
+      POSTGRES_DB: translation_test
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U translation_test -d translation_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [test-only]
+  redis-test:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [test-only]
+  tests:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile.integration
+    environment:
+      TEST_DATABASE_URL: postgresql+asyncpg://translation_test:disposable-test-only@db-test:5432/translation_test
+      CELERY_BROKER_URL: redis://redis-test:6379/0
+      CELERY_RESULT_BACKEND: redis://redis-test:6379/1
+      PRODUCTION_BROKER_TEST: "1"
+      WORKER_SWEEP_ORPHAN_JOBS_ON_START: "false"
+      BATCH_DANH_THUC_KHI_WORKER_KHOI_DONG: "false"
+      LLM_PROJECT_RPM: "0"
+      STORAGE_BACKEND: local
+    depends_on:
+      db-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+    networks: [test-only]
+networks:
+  test-only:
+    internal: true

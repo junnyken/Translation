@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cài đặt — Translation Companion</title>
+  <link rel="stylesheet" href="../sidepanel/panel.css">
+  <style>
+    body { max-width: 640px; margin: 0 auto; padding: 24px 18px 40px; }
+    h1 { font-size: 20px; }
+    h2 { font-size: 13px; }
+    .the { padding: 16px; }
+    ul.gon { margin: 6px 0 0; padding-left: 20px; font-size: 13px; color: var(--mo); }
+    ul.gon li { margin-bottom: 4px; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px;
+           background: var(--trung-nen); padding: 1px 5px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <header class="dau">
+    <div class="dau-hieu" aria-hidden="true">T</div>
+    <div class="dau-chu">
+      <h1>Translation Companion</h1>
+      <small>Cài đặt kết nối tới ứng dụng Translation trên máy bạn.</small>
+    </div>
+  </header>
+
+  <section class="the">
+    <h2>Địa chỉ Translation local</h2>
+    <form id="form-dia-chi">
+      <label for="o-dia-chi">Địa chỉ</label>
+      <input type="text" id="o-dia-chi" placeholder="http://127.0.0.1:5174"
+             spellcheck="false" autocomplete="off" aria-describedby="goi-y-dia-chi">
+      <p id="goi-y-dia-chi" class="goi-y">
+        Chỉ nhận máy của chính bạn: <code>localhost</code> hoặc <code>127.0.0.1</code>, kèm số cổng.
+        Không hỗ trợ máy chủ trong mạng LAN hay trên internet.
+      </p>
+      <div id="ket-qua" role="status" aria-live="polite"></div>
+      <button class="nut" data-vai="chinh" type="submit" id="nut-luu">Lưu &amp; kiểm tra kết nối</button>
+    </form>
+  </section>
+
+  <section class="the">
+    <h2>Tiện ích này làm gì — và không làm gì</h2>
+    <ul class="gon">
+      <li><b>Không</b> đọc nội dung trang web bạn đang xem (không có content script).</li>
+      <li><b>Không</b> xin quyền truy cập website nào — <code>host_permissions</code> để rỗng.</li>
+      <li><b>Không</b> tự tải ảnh từ internet, không quét trang, không phủ bản dịch lên trang.</li>
+      <li><b>Không</b> giữ ảnh, chữ OCR, bản dịch hay API key trong bộ nhớ tiện ích.</li>
+      <li>Mọi xử lý dịch vẫn chạy trong ứng dụng Translation và backend trên máy bạn.</li>
+    </ul>
+    <p class="goi-y" style="margin-top:10px">
+      Chi tiết: <a href="../../PRIVACY.md" target="_blank" rel="noreferrer">PRIVACY.md</a> đi kèm trong gói tiện ích.
+    </p>
+  </section>
+
+  <section class="the">
+    <h2>Chưa đọc được trạng thái chapter?</h2>
+    <p class="goi-y" style="margin:0 0 8px">
+      Với cách chạy thường ngày (docker dev, giao diện ở <code>127.0.0.1:5174</code>) thì
+      <b>không cần cấu hình gì</b> — máy chủ dev đã cho tiện ích đọc dữ liệu sẵn. Nếu vẫn báo
+      chưa kết nối:
+    </p>
+    <ul class="gon">
+      <li>Ứng dụng Translation chưa chạy — khởi động lại bằng docker compose.</li>
+      <li>Sai cổng — thử <code>5173</code> nếu bạn chạy <code>npm run dev</code> bằng tay.</li>
+      <li>Bạn đang dùng <b>bản dựng prod (nginx)</b>: nginx không chuyển tiếp
+        <code>/api</code>, nên tiện ích chỉ mở link được, không đọc được trạng thái. Đây là giới
+        hạn đã biết, không phải lỗi.</li>
+    </ul>
+    <p class="goi-y" id="id-tien-ich" style="margin-top:8px"></p>
+  </section>
+
+  <section class="the">
+    <h2>Xoá cài đặt và metadata extension</h2>
+    <p class="goi-y" style="margin:0 0 10px">
+      Chỉ xoá địa chỉ đã lưu và danh sách chapter đã ghim <b>trong trình duyệt</b>.
+      Chapter, ảnh và bản dịch trong ứng dụng Translation <b>không</b> bị xoá.
+    </p>
+    <div id="vung-xoa"></div>
+  </section>
+
+  <script type="module" src="options.js"></script>
+</body>
+</html>

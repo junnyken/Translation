@@ -1,0 +1,8 @@
+# E74 — CHỈ cho image `worker-gpu` (deploy/docker-compose.gpu.yml). Không cài vào api/worker CPU.
+# torch bản CUDA cài riêng trong Dockerfile qua index PyTorch (build arg TORCH_CUDA).
+# Đã kiểm 15-10-2026: diffusers 0.41.0 import được với torch 2.14 + transformers 5.17 (bản worker
+# đang dùng), `StableDiffusionXLInpaintPipeline` nhận đủ tham số mà `khuech_tan.py` truyền.
+diffusers==0.41.0
+accelerate==1.15.0
+# Tokenizer T5 của FLUX.1 cần sentencepiece.
+sentencepiece==0.2.2

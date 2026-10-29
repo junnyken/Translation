@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mockup trang chính — duyệt bố cục</title>
+  <style>
+    /* ⚠️ MOCKUP DUYỆT BỐ CỤC. Khi làm thật phải dùng `frontend/src/styles/tokens.css`
+       (một nguồn màu duy nhất), KHÔNG lấy các giá trị dưới đây làm nguồn thiết kế.
+
+       Mọi tỷ lệ tương phản đều ĐO bằng công thức WCAG, không ước lượng bằng mắt. */
+    :root {
+      --chu: #172033;            /* 15,27:1 trên nền — AAA */
+      --mo: #657087;             /* 4,67:1 trên nền — AA */
+      --vien: #dce3ed;
+      --the: #ffffff;
+      --nen: #f5f8fc;
+      --chinh: #3d63dd;          /* 5,21:1 trên trắng — AA */
+      --chinh-nhat: #edf1ff;
+      --canh: #9a6500;           /* 4,65:1 trên --canh-nhat — AA */
+      --canh-nhat: #fff7e6;
+      --canh-vien: #f0d28d;
+      --loi: #b34747;            /* 5,37:1 trên trắng — AA */
+      /* Viền vùng thả tệp: ĐÃ SỬA từ #aab8d0 (1,95:1 — THIẾU).
+         Đây là tín hiệu DUY NHẤT báo "chỗ này thả được", nên phải đạt 3:1 cho thành phần
+         giao diện. #7d8eae = 3,22:1. */
+      --vien-tha: #7d8eae;
+      --bo: 18px;
+      --bong: 0 18px 50px rgba(30, 48, 80, .10);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: var(--chu); background: var(--nen);
+           font: 15px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+    button, input, select { font: inherit; }
+    button { cursor: pointer; }
+    :where(a, button, input, select, [tabindex]):focus-visible {
+      outline: 2px solid var(--chinh); outline-offset: 2px; border-radius: 8px;
+    }
+    .khung { width: min(1040px, calc(100% - 32px)); margin: 0 auto; }
+    .dau { height: 72px; display: flex; align-items: center; border-bottom: 1px solid var(--vien);
+           background: rgba(255,255,255,.86); }
+    .hieu { display: flex; gap: 11px; align-items: center; font-weight: 800; letter-spacing: -.02em; }
+    .hieu-dau { width: 34px; height: 34px; display: grid; place-items: center; color: #fff;
+                background: var(--chinh); border-radius: 11px; }
+    .dieu-huong { display: flex; gap: 10px; align-items: center; }
+    .dieu-huong button { border: 0; background: transparent; color: var(--mo); padding: 9px 12px; border-radius: 8px; }
+    .dieu-huong .chinh { color: #fff; background: var(--chinh); }
+    main { padding: 58px 0 72px; }
+    .gioi-thieu { max-width: 700px; margin: 0 auto 30px; text-align: center; }
+    .nhan { color: var(--chinh); font-size: 12px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+    h1 { margin: 12px 0 10px; font-size: clamp(30px, 5vw, 50px); line-height: 1.06; letter-spacing: -.045em; }
+    .gioi-thieu p { margin: 0 auto; max-width: 590px; color: var(--mo); font-size: 17px; }
+    .the { background: var(--the); border: 1px solid var(--vien); border-radius: var(--bo); box-shadow: var(--bong); padding: 18px; }
+    .tha { min-height: 240px; display: grid; place-items: center; text-align: center;
+           border: 2px dashed var(--vien-tha); border-radius: 14px; background: #fbfcff; transition: .15s ease; }
+    .tha:hover, .tha.dang-keo { border-color: var(--chinh); background: var(--chinh-nhat); }
+    .tha-icon { width: 58px; height: 58px; display: grid; place-items: center; margin: 0 auto 14px;
+                color: var(--chinh); background: var(--chinh-nhat); border-radius: 17px; font-size: 25px; }
+    .tha h2 { margin: 0 0 5px; font-size: 19px; }
+    .tha p, .tha small { color: var(--mo); }
+    .tha small { display: block; margin-top: 12px; }
+    .nut-chon { margin-top: 18px; color: #fff; background: var(--chinh); border: 0; border-radius: 10px;
+                padding: 11px 16px; font-weight: 700; }
+    input[type=file] { display: none; }
+    .chinh-sach { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }
+    .o-chinh-sach { padding: 13px 14px; border: 1px solid var(--vien); border-radius: 12px; }
+    .o-chinh-sach .ten { color: var(--mo); font-size: 12px; }
+    .o-chinh-sach .so { margin-top: 2px; font-weight: 750; }
+    .mau-gia { color: var(--canh); }
+    .tuy-chon { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 22px;
+                padding-top: 20px; border-top: 1px solid var(--vien); }
+    label { display: block; color: var(--mo); font-size: 13px; font-weight: 700; }
+    select { width: 100%; margin-top: 6px; padding: 10px 11px; color: var(--chu); background: #fff;
+             border: 1px solid var(--vien); border-radius: 10px; }
+    .bat-buoc { color: var(--loi); }
+    .ghi-chu { grid-column: 1 / -1; margin: -3px 0 0; color: var(--mo); font-size: 12px; }
+    .o-chon { grid-column: 1 / -1; display: flex; gap: 9px; align-items: flex-start;
+              padding: 12px 13px; border: 1px solid var(--vien); border-radius: 12px; }
+    .o-chon input { margin-top: 3px; }
+    .o-chon span { color: var(--chu); font-size: 13.5px; }
+    .o-chon small { display: block; color: var(--mo); }
+    .nhac { display: flex; gap: 10px; margin-top: 16px; padding: 13px 14px; color: var(--canh);
+            background: var(--canh-nhat); border: 1px solid var(--canh-vien); border-radius: 12px; }
+    .nhac strong { color: var(--chu); }
+    .thao-tac { display: flex; gap: 12px; align-items: center; justify-content: space-between; margin-top: 20px; }
+    .da-chon { min-width: 0; color: var(--mo); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .nut-chay { padding: 12px 18px; color: #fff; background: var(--chinh); border: 0; border-radius: 10px; font-weight: 800; }
+    .nut-chay:disabled { cursor: not-allowed; opacity: .45; }
+    /* --- Trạng thái ĐANG CHẠY: thiếu nó thì người dùng tưởng treo rồi bấm lại, tốn hạn mức oan --- */
+    .tien-do { margin-top: 18px; padding: 15px 16px; border: 1px solid var(--vien); border-radius: 12px; background: #fbfcff; }
+    .tien-do[hidden] { display: none; }
+    .tien-do .hang { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .tien-do b { font-size: 14px; }
+    .tien-do .con-lai { color: var(--mo); font-size: 13px; }
+    .thanh { height: 8px; margin-top: 10px; background: var(--vien); border-radius: 999px; overflow: hidden; }
+    .thanh i { display: block; height: 100%; width: 38%; background: var(--chinh); }
+    .huong-dan { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 34px; }
+    .o-huong-dan { padding: 18px; background: #fff; border: 1px solid var(--vien); border-radius: 14px; }
+    .so-thu-tu { color: var(--chinh); font-weight: 900; }
+    .huong-dan h3 { margin: 9px 0 5px; font-size: 15px; }
+    .huong-dan p { margin: 0; color: var(--mo); font-size: 13px; }
+    footer { padding: 20px 0 30px; color: var(--mo); text-align: center; font-size: 12px; }
+    @media (max-width: 680px) {
+      main { padding-top: 38px; }
+      .chinh-sach, .huong-dan, .tuy-chon { grid-template-columns: 1fr; }
+      .ghi-chu, .o-chon { grid-column: auto; }
+      .thao-tac { align-items: stretch; flex-direction: column; }
+      .nut-chay { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <header class="dau">
+    <div class="khung" style="display:flex;align-items:center;justify-content:space-between;width:100%;">
+      <div class="hieu"><span class="hieu-dau" aria-hidden="true">文</span><span>Translation</span></div>
+      <nav class="dieu-huong" aria-label="Tài khoản">
+        <button type="button">Đăng nhập</button><button type="button" class="chinh">Đăng ký</button>
+      </nav>
+    </div>
+  </header>
+
+  <main class="khung">
+    <section class="gioi-thieu">
+      <div class="nhan">Công cụ dịch truyện tranh</div>
+      <h1>Thả truyện vào.<br />Nhận bản dịch ra.</h1>
+      <p>EN · JA · ZH → Tiếng Việt — nhận diện chữ, xoá chữ gốc và dàn bản dịch tự động.</p>
+    </section>
+
+    <section class="the" aria-label="Tải truyện lên">
+      <!-- role + nhãn: bàn phím đã dùng được, nhưng thiếu hai thứ này thì trình đọc màn hình
+           KHÔNG biết đây là nút bấm. -->
+      <div class="tha" id="vung-tha" role="button" tabindex="0"
+           aria-label="Thả tệp vào đây hoặc bấm để chọn tệp từ thiết bị">
+        <div>
+          <div class="tha-icon" aria-hidden="true">↑</div>
+          <h2>Thả tệp vào đây</h2>
+          <p>hoặc chọn tệp từ thiết bị</p>
+          <button class="nut-chon" id="nut-chon" type="button">Chọn tệp</button>
+          <input id="o-tep" type="file" accept=".png,.jpg,.jpeg,.webp,.zip,.cbz,.pdf" />
+          <small>Ảnh lẻ, ZIP, CBZ hoặc PDF · mỗi tệp tối đa 25 MB · cả gói tối đa 50 MB</small>
+        </div>
+      </div>
+
+      <!-- Số có nhãn "(mẫu)" là số GIẢ để duyệt bố cục — hạn mức và vòng đời tệp CHƯA có API. -->
+      <div class="chinh-sach">
+        <div class="o-chinh-sach"><div class="ten">Hạn mức hôm nay</div>
+          <div class="so mau-gia">6 trang còn lại <small>(mẫu)</small></div></div>
+        <div class="o-chinh-sach"><div class="ten">Thời gian xử lý</div>
+          <div class="so">~30 giây/trang</div></div>
+        <div class="o-chinh-sach"><div class="ten">Lưu kết quả</div>
+          <div class="so mau-gia">30 phút <small>(mẫu)</small></div></div>
+      </div>
+
+      <div class="tuy-chon">
+        <label for="ngon-ngu">Ngôn ngữ nguồn <span class="bat-buoc" aria-hidden="true">*</span>
+          <select id="ngon-ngu" required>
+            <option value="">Chọn ngôn ngữ</option>
+            <option value="en">Tiếng Anh</option><option value="ja">Tiếng Nhật</option>
+            <option value="zh">Tiếng Trung</option>
+          </select>
+        </label>
+        <!-- THÊM MỚI: API tạo dự án BẮT BUỘC trường này (rào bản quyền M10).
+             Cố ý KHÔNG chọn sẵn — người dùng phải tự khai. -->
+        <label for="muc-dich">Mục đích sử dụng <span class="bat-buoc" aria-hidden="true">*</span>
+          <select id="muc-dich" required>
+            <option value="">Chọn mục đích</option>
+            <option value="personal">Cá nhân</option><option value="study">Học tập</option>
+            <option value="other">Khác</option>
+          </select>
+        </label>
+        <label for="engine">Engine dịch
+          <select id="engine">
+            <option value="llm_context">Chất lượng cao · dùng token</option>
+            <option value="google_fast">Nhanh, miễn phí · không có ngữ cảnh</option>
+          </select>
+        </label>
+        <p class="ghi-chu">Ngôn ngữ nguồn bắt buộc vì hệ thống chọn engine đọc chữ theo đó:
+          tiếng Nhật dùng manga-ocr, Anh và Trung dùng PaddleOCR. Đoán sai là đọc sai cả trang.</p>
+
+        <!-- THÊM MỚI: đặc tả xếp đây là THIẾT YẾU, không phải tiện ích — kết quả chỉ giữ 30 phút,
+             đóng tab rồi quên là mất hẳn. -->
+        <label class="o-chon" for="tu-tai">
+          <input type="checkbox" id="tu-tai" checked />
+          <span>Tự tải về khi xong
+            <small>Có thể bị trình duyệt chặn — nút “Tải ngay” luôn dùng được.</small></span>
+        </label>
+      </div>
+
+      <div class="nhac" role="note"><span aria-hidden="true">ⓘ</span><div>
+        <strong>Một lượt không nhất thiết là cả chapter.</strong> Khách chưa đăng ký có 6 trang/ngày,
+        tức khoảng 3 phút xử lý. Chapter 24 trang mất 30–40 phút. Kết quả chỉ giữ 30 phút sau khi
+        xong, sau đó xoá hẳn cả ảnh gốc.
+      </div></div>
+
+      <div class="thao-tac">
+        <div class="da-chon" id="da-chon">Chưa chọn tệp</div>
+        <button class="nut-chay" id="nut-chay" type="button" disabled>Bắt đầu dịch</button>
+      </div>
+
+      <!-- Trạng thái ĐANG CHẠY. Thiếu nó thì người dùng tưởng treo và bấm lại — tốn hạn mức oan. -->
+      <div class="tien-do" id="tien-do" hidden aria-live="polite">
+        <div class="hang">
+          <b>Đang xử lý trang 3/8</b>
+          <span class="con-lai">còn khoảng 2 phút 30 giây</span>
+        </div>
+        <div class="thanh" role="progressbar" aria-valuenow="38" aria-valuemin="0" aria-valuemax="100"
+             aria-label="Tiến độ dịch"><i></i></div>
+      </div>
+    </section>
+
+    <section class="huong-dan" aria-label="Cách dùng">
+      <div class="o-huong-dan"><div class="so-thu-tu">01</div><h3>Khai ngôn ngữ và mục đích</h3>
+        <p>Hai trường bắt buộc: ngôn ngữ để chọn đúng engine đọc chữ, mục đích là rào bản quyền.</p></div>
+      <div class="o-huong-dan"><div class="so-thu-tu">02</div><h3>Tải một lượt vừa sức</h3>
+        <p>Xem số trang và hạn mức trước khi bắt đầu — đừng thả cả chapter khi chưa đăng ký.</p></div>
+      <div class="o-huong-dan"><div class="so-thu-tu">03</div><h3>Tải kết quả ngay</h3>
+        <p>Sau 30 phút toàn bộ bị xoá, kể cả ảnh gốc. Không khôi phục được.</p></div>
+    </section>
+  </main>
+
+  <footer>Mockup duyệt bố cục · Số có nhãn “mẫu” chưa nối API thật ·
+    Khi làm thật dùng <code>frontend/src/styles/tokens.css</code>.</footer>
+
+  <script>
+    const oTep = document.querySelector('#o-tep');
+    const vung = document.querySelector('#vung-tha');
+    const daChon = document.querySelector('#da-chon');
+    const nutChay = document.querySelector('#nut-chay');
+    const nnguon = document.querySelector('#ngon-ngu');
+    const mucDich = document.querySelector('#muc-dich');
+    const tienDo = document.querySelector('#tien-do');
+
+    // Bật nút chỉ khi ĐỦ cả ba: tệp + ngôn ngữ + mục đích. Thiếu một là API từ chối.
+    const capNhat = () => {
+      const t = oTep.files[0];
+      daChon.textContent = t ? `${t.name} · ${(t.size / 1024 / 1024).toFixed(1)} MB` : 'Chưa chọn tệp';
+      nutChay.disabled = !(t && nnguon.value && mucDich.value);
+    };
+    document.querySelector('#nut-chon').addEventListener('click', () => oTep.click());
+    vung.addEventListener('click', (e) => { if (e.target === vung) oTep.click(); });
+    vung.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); oTep.click(); }
+    });
+    oTep.addEventListener('change', capNhat);
+    nnguon.addEventListener('change', capNhat);
+    mucDich.addEventListener('change', capNhat);
+    ['dragenter', 'dragover'].forEach(k => vung.addEventListener(k, e => {
+      e.preventDefault(); vung.classList.add('dang-keo');
+    }));
+    ['dragleave', 'drop'].forEach(k => vung.addEventListener(k, e => {
+      e.preventDefault(); vung.classList.remove('dang-keo');
+    }));
+    vung.addEventListener('drop', e => { oTep.files = e.dataTransfer.files; capNhat(); });
+    // Chỉ để xem khối tiến độ trong mockup; bản thật lấy trạng thái từ máy chủ.
+    nutChay.addEventListener('click', () => { tienDo.hidden = false; });
+  </script>
+</body>
+</html>

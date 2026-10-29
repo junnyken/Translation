@@ -1,0 +1,75 @@
+{
+  "project_id": "39b8ce0a-12c6-4416-9a57-c64d7497af38",
+  "nguon": "en",
+  "trang": [
+    {
+      "so_vung": 4,
+      "vung": [
+        {
+          "thu_tu": 1,
+          "khung": {
+            "x": 1144,
+            "y": 197,
+            "w": 96,
+            "h": 64
+          },
+          "do_tin_cay": 0.867,
+          "chu_goc": "ha...\nperfect.",
+          "trang_thai_ocr": "ok",
+          "ban_dich": "ha...\nhoàn hảo.",
+          "co_chu": 21.0,
+          "vua_khung": "fit_ok"
+        },
+        {
+          "thu_tu": 2,
+          "khung": {
+            "x": 800,
+            "y": 846,
+            "w": 196,
+            "h": 100
+          },
+          "do_tin_cay": 0.925,
+          "chu_goc": "NO!\nDon't even think\nabout it.",
+          "trang_thai_ocr": "ok",
+          "ban_dich": "KHÔNG!\nthậm chí không nghĩ\nvề nó.",
+          "co_chu": 21.0,
+          "vua_khung": "fit_ok"
+        },
+        {
+          "thu_tu": 3,
+          "khung": {
+            "x": 594,
+            "y": 1503,
+            "w": 104,
+            "h": 197
+          },
+          "do_tin_cay": 0.63,
+          "chu_goc": "",
+          "trang_thai_ocr": "needs_manual",
+          "ban_dich": null,
+          "co_chu": null,
+          "vua_khung": "pending"
+        },
+        {
+          "thu_tu": 4,
+          "khung": {
+            "x": 432,
+            "y": 1838,
+            "w": 603,
+            "h": 177
+          },
+          "do_tin_cay": 0.384,
+          "chu_goc": "SPLASH\n18",
+          "trang_thai_ocr": "ok",
+          "ban_dich": "TUYỆT VỜI\n18",
+          "co_chu": 40.0,
+          "vua_khung": "fit_ok"
+        }
+      ],
+      "page_id": "0a85a63c-8fcf-4568-91dc-2ebb8b68be97",
+      "tep": "pc_E01P02_1600.png",
+      "trang_thai": "typeset_done",
+      "giay": 150.4
+    }
+  ]
+}

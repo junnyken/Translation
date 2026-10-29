@@ -1,0 +1,244 @@
+/* Design token — MỘT nguồn duy nhất cho màu, khoảng cách, bo góc, đổ bóng (E11).
+ *
+ * Trước E11 mỗi chỗ tự đặt màu và khoảng cách, nên cùng một ý ("đây là cảnh báo") lại hiện ra
+ * ba kiểu khác nhau. Từ đây mọi component đọc token, không viết mã màu trực tiếp.
+ *
+ * E11 từng cố ý không làm dark mode. ĐỢT 1 REDESIGN (docs/UI_REDESIGN.md) đã thêm theme tối theo
+ * mẫu 3 trạng thái ở cuối tệp: `:root` (sáng) · `@media (prefers-color-scheme: dark)` (theo máy,
+ * trừ khi người dùng ép sáng) · `:root[data-theme="dark"]` (ép tối). Hai khối tối PHẢI giống hệt
+ * nhau — tokens.test.js canh điều đó. Khu xem truyện (canvas) luôn tối ở cả hai theme.
+ *
+ * ## 28-09 — đổi tone sang XANH TÍM, NỀN TRẮNG NGẢ TÍM (E63)
+
+ * Chủ dự án chọn tông xanh tím trên **nền sáng** (không phải nền tối như trang mẫu họ gửi): ảnh
+ * trang truyện vẫn được xem trên nền sáng, nên soi chữ không bị chói.
+ *
+ * Lượt 24-09 từng bỏ tím indigo (#4f46e5) vì "rực và lạnh" rồi chuyển sang xanh mực + nền ngà ấm.
+ * Nay quay lại họ tím, nhưng **không quay lại đúng #4f46e5**: chọn #5546cc trầm hơn một bậc
+ * (trắng trên nền này 6,70:1 thay vì 6,29:1) và bỏ nền ngà ấm — nền ngà vàng cạnh điểm nhấn tím
+ * làm cả hai cùng bẩn màu. Nền nay trắng ngả tím lạnh, cùng họ với màu chính.
+ *
+ * **Mọi tỷ lệ tương phản dưới đây đều ĐO bằng công thức WCAG, không ước lượng bằng mắt.**
+ */
+:root {
+  color-scheme: light;
+  --font: "Be Vietnam Pro", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-ma: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* --- Màu chính: xanh tím. Trắng trên nền này đạt 6,70:1 (AA cho mọi cỡ chữ). --- */
+  --mau-chinh: #5546cc;
+  --mau-chinh-dam: #43349f;   /* màu LIÊN KẾT — 8,83:1 trên nền */
+  --mau-chinh-nhat: #f0edfe;
+  --mau-chinh-vien: #cdc4f7;
+  --tren-chinh: #ffffff;   /* chữ/icon đặt TRÊN nền --mau-chinh hoặc --loi (đảo theo theme) */
+  --trang: #ffffff;        /* trắng CỐ ĐỊNH, không đảo theo theme: viền tay nắm trên ảnh trang */
+
+  /* --- Nền và bề mặt: trắng ngả tím lạnh, không dùng trắng trống toàn màn --- */
+  --nen: #f8f7fc;          /* canvas */
+  --the: #ffffff;          /* surface */
+  --the-mo: #f3f1fa;
+  --vien: #e6e3f2;
+  --vien-dam: #d2cee4;     /* viền TRANG TRÍ (thẻ, đường kẻ). Chỉ 1,5:1 — KHÔNG dùng cho ô nhập */
+  --vien-o: var(--mo-nhat); /* viền Ô NHẬP / nút ghost: thành phần giao diện, phải ≥3:1 (WCAG 1.4.11) */
+
+  /* --- Chữ. Sắc tím-than lạnh cho hợp nền và màu chính mới. --- */
+  --chu: #191528;          /* 16,71:1 trên nền — AAA */
+  --mo: #6a6381;           /* 5,30:1  — AA. Chữ phụ, vẫn đọc tốt */
+  --mo-nhat: #8d86a3;      /* 3,20:1  — xem ghi chú bên dưới */
+
+  /* ⚠️ `--mo-nhat` KHÔNG đạt 4,5:1 nên **chỉ dùng cho chữ đã giảm nhấn hoặc đường kẻ trang trí**,
+     đừng dùng cho nội dung người ta cần đọc. Nó đạt 3,20:1 — mức AA cho chữ lớn và thành phần
+     giao diện, không hơn. */
+
+  /* --- Màu ngữ nghĩa. LUÔN đi kèm nhãn chữ + icon: màu không bao giờ là
+         nguồn thông tin duy nhất (có người không phân biệt được màu). --- */
+  --ok: #047857;           /* 5,21:1 trên --ok-nen */
+  --ok-nen: #ecfdf5;
+  --ok-vien: #a7f3d0;
+  --canh: #b45309;         /* 4,84:1 trên --canh-nen */
+  --canh-nen: #fffbeb;
+  --canh-vien: #fde68a;
+  --canh-dam: #92400e;     /* dùng cho chữ cảnh báo cần nhấn mạnh hơn */
+  --loi: #b91c1c;          /* 5,91:1 trên --loi-nen */
+  --loi-nen: #fef2f2;
+  --loi-vien: #fecaca;
+
+  /* `--tin` ĐỔI TỪ XANH DƯƠNG SANG XANH NGỌC có lý do: màu chính nay đã là xanh mực, nên giữ
+     `--tin` màu xanh dương (#1d4ed8 cũ) sẽ làm khối thông tin trông y như nút hành động chính.
+     Xanh ngọc vẫn đọc ra "thông tin" mà không lẫn với màu chính. */
+  /* Giữ NGUYÊN xanh ngọc dù màu chính đã đổi sang tím: lý do gốc vẫn đúng nguyên vẹn — khối
+     thông tin phải phân biệt được với nút hành động chính, và xanh ngọc cách họ tím còn xa hơn
+     cách họ xanh mực cũ. Đo lại: 5,15:1, không đổi. */
+  --tin: #0e7490;          /* 5,15:1 trên --tin-nen */
+  --tin-nen: #ecfeff;
+  --tin-vien: #a5f3fc;
+
+  /* --- Nền tối cho khối mã / nhật ký. Trước đây gõ cứng `#111` qua một token KHÔNG TỒN TẠI
+         (`--nen-mo`), nên nó chưa bao giờ đi theo theme. --- */
+  --nen-canvas: #1b1729;   /* khu xem truyện: LUÔN tối ở cả hai theme */
+  --chu-tren-canvas: #b4acd6;
+  --giay: #fdfcf8;         /* giấy trang truyện minh hoạ */
+  --muc: #1a1626;          /* mực viền minh hoạ */
+  --nen-mo: var(--nen-canvas);
+
+  /* --- Màu lớp phủ vẽ trên ảnh trang. Tách token riêng vì chúng phải PHÂN BIỆT ĐƯỢC với nhau
+         trên nền tranh nhiều màu, không chỉ hợp tone. --- */
+  --phu-suy-ra: #0e7490;              /* vùng do hệ thống suy ra */
+  --phu-suy-ra-to: rgba(14, 116, 144, .10);
+  --phu-du-phong: #b45309;            /* vùng dùng đường dự phòng */
+
+  /* --- Lớp phủ có độ trong suốt. Phải là token RIÊNG: `rgba()` không đọc được biến màu,
+         nên nếu để giá trị thô thì đổi tone lần sau chúng lại đứng nguyên tone cũ — đúng lỗi
+         vừa xảy ra (tím #4f46e5 viết dạng `rgba(79, 70, 229, …)` lọt qua phép quét chỉ tìm hex). --- */
+  --chinh-phu: rgba(85, 70, 204, .18);
+  --chinh-phu-vien: rgba(85, 70, 204, .25);
+  --loi-phu: rgba(185, 28, 28, .12);
+  --loi-phu-dam: rgba(185, 28, 28, .18);
+  --loi-phu-nhat: rgba(185, 28, 28, .05);
+  --mo-phu: rgba(106, 99, 129, .10);
+  --nen-che: rgba(25, 21, 40, .55);      /* màn che sau hộp thoại */
+
+  /* --- Bo góc: thống nhất thẻ/nút/ô nhập --- */
+  --bo-xs: 4px;
+  --bo-nho: 8px;
+  --bo: 12px;
+  --bo-lon: 16px;
+  --bo-tron: 999px;
+
+  /* --- Thang chữ 7 bậc (cỡ / line-height). Sàn 12px: không có chữ nào nhỏ hơn. --- */
+  --cc-xs: 12px;  --lh-xs: 1.4;
+  --cc-sm: 13px;  --lh-sm: 1.45;
+  --cc-md: 14px;  --lh-md: 1.55;
+  --cc-lg: 16px;  --lh-lg: 1.5;
+  --cc-xl: 20px;  --lh-xl: 1.3;
+  --cc-2xl: 28px; --lh-2xl: 1.2;
+  --cc-3xl: 40px; --lh-3xl: 1.1;
+
+  /* --- Khoảng cách bội 4 --- */
+  --s-1: 4px;  --s-2: 8px;  --s-3: 12px; --s-4: 16px; --s-5: 20px;
+  --s-6: 24px; --s-8: 32px; --s-10: 40px; --s-12: 48px;
+
+  /* --- Vùng chạm tối thiểu cho nút công cụ --- */
+  --cham: 40px;
+  --tg: 160ms;
+
+  /* --- Đổ bóng: nhẹ, chỉ để tách lớp. Sắc tím-than cho khớp nền mới --- */
+  --bong: 0 1px 2px rgba(25, 21, 40, .06), 0 1px 3px rgba(25, 21, 40, .04);
+  --bong-noi: 0 8px 24px rgba(25, 21, 40, .10);
+  --bong-hop-thoai: 0 20px 48px rgba(25, 21, 40, .28);
+
+  /* --- Khoảng cách theo khổ màn (16 / 24 / 32) --- */
+  --le: 16px;
+  --khoang: 16px;
+
+  --rong-toi-da: 1240px;
+}
+
+/* ---------- Theme tối (ĐỢT 1 redesign) ----------
+   Mẫu 3 trạng thái. Hai khối bên dưới giống hệt nhau từng dòng — sửa cái này phải sửa cái kia
+   (tokens.test.js so khớp). `--mo-nhat` tối được nâng từ #7a7396 (mẫu) lên #8a83a8 để viền ô
+   nhập đạt ≥3:1 trên --the tối. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --mau-chinh: #9b8cff;
+    --mau-chinh-dam: #b9aeff;
+    --mau-chinh-nhat: #2a2450;
+    --mau-chinh-vien: #443e63;
+    --tren-chinh: #14102b;
+
+    --nen: #12101c;
+    --the: #1b1829;
+    --the-mo: #242036;
+    --vien: #2f2a45;
+    --vien-dam: #443e63;
+
+    --chu: #ece9f8;
+    --mo: #a8a1c4;
+    --mo-nhat: #8a83a8;
+
+    --ok: #34d399;   --canh: #fbbf24;   --loi: #f87171;   --tin: #22d3ee;
+    --canh-dam: #fcd34d;
+    --ok-nen: color-mix(in srgb, var(--ok) 14%, var(--the));
+    --canh-nen: color-mix(in srgb, var(--canh) 14%, var(--the));
+    --loi-nen: color-mix(in srgb, var(--loi) 14%, var(--the));
+    --tin-nen: color-mix(in srgb, var(--tin) 14%, var(--the));
+    --ok-vien: color-mix(in srgb, var(--ok) 40%, var(--the));
+    --canh-vien: color-mix(in srgb, var(--canh) 40%, var(--the));
+    --loi-vien: color-mix(in srgb, var(--loi) 40%, var(--the));
+    --tin-vien: color-mix(in srgb, var(--tin) 40%, var(--the));
+
+    --nen-canvas: #0d0b14;
+    --phu-suy-ra: #22d3ee;
+    --phu-suy-ra-to: rgba(34, 211, 238, .14);
+    --phu-du-phong: #fbbf24;
+    --chinh-phu: rgba(155, 140, 255, .22);
+    --chinh-phu-vien: rgba(155, 140, 255, .32);
+    --loi-phu: rgba(248, 113, 113, .16);
+    --loi-phu-dam: rgba(248, 113, 113, .24);
+    --loi-phu-nhat: rgba(248, 113, 113, .08);
+    --mo-phu: rgba(168, 161, 196, .14);
+    --nen-che: rgba(0, 0, 0, .65);
+    --bong: 0 0 0 1px var(--vien);
+    --bong-noi: 0 0 0 1px var(--vien), 0 8px 24px rgba(0, 0, 0, .4);
+    --bong-hop-thoai: 0 0 0 1px var(--vien-dam), 0 20px 48px rgba(0, 0, 0, .5);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --mau-chinh: #9b8cff;
+  --mau-chinh-dam: #b9aeff;
+  --mau-chinh-nhat: #2a2450;
+  --mau-chinh-vien: #443e63;
+  --tren-chinh: #14102b;
+
+  --nen: #12101c;
+  --the: #1b1829;
+  --the-mo: #242036;
+  --vien: #2f2a45;
+  --vien-dam: #443e63;
+
+  --chu: #ece9f8;
+  --mo: #a8a1c4;
+  --mo-nhat: #8a83a8;
+
+  --ok: #34d399;   --canh: #fbbf24;   --loi: #f87171;   --tin: #22d3ee;
+  --canh-dam: #fcd34d;
+  --ok-nen: color-mix(in srgb, var(--ok) 14%, var(--the));
+  --canh-nen: color-mix(in srgb, var(--canh) 14%, var(--the));
+  --loi-nen: color-mix(in srgb, var(--loi) 14%, var(--the));
+  --tin-nen: color-mix(in srgb, var(--tin) 14%, var(--the));
+  --ok-vien: color-mix(in srgb, var(--ok) 40%, var(--the));
+  --canh-vien: color-mix(in srgb, var(--canh) 40%, var(--the));
+  --loi-vien: color-mix(in srgb, var(--loi) 40%, var(--the));
+  --tin-vien: color-mix(in srgb, var(--tin) 40%, var(--the));
+
+  --nen-canvas: #0d0b14;
+  --phu-suy-ra: #22d3ee;
+  --phu-suy-ra-to: rgba(34, 211, 238, .14);
+  --phu-du-phong: #fbbf24;
+  --chinh-phu: rgba(155, 140, 255, .22);
+  --chinh-phu-vien: rgba(155, 140, 255, .32);
+  --loi-phu: rgba(248, 113, 113, .16);
+  --loi-phu-dam: rgba(248, 113, 113, .24);
+  --loi-phu-nhat: rgba(248, 113, 113, .08);
+  --mo-phu: rgba(168, 161, 196, .14);
+  --nen-che: rgba(0, 0, 0, .65);
+  --bong: 0 0 0 1px var(--vien);
+  --bong-noi: 0 0 0 1px var(--vien), 0 8px 24px rgba(0, 0, 0, .4);
+  --bong-hop-thoai: 0 0 0 1px var(--vien-dam), 0 20px 48px rgba(0, 0, 0, .5);
+}
+
+@media (min-width: 768px) {
+  :root { --le: 24px; --khoang: 20px; }
+}
+@media (min-width: 1280px) {
+  :root { --le: 32px; --khoang: 24px; }
+}
+
+/* Vòng focus dùng chung — bàn phím phải luôn nhìn thấy mình đang ở đâu. */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--mau-chinh);
+  outline-offset: 2px;
+  border-radius: var(--bo-nho);
+}

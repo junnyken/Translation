@@ -475,11 +475,22 @@ async def developer_khau_tru_trang_cuc_bo(
         await giu_cho_moi_chot(session, danh_tinh, uid_c)
     await session.commit()
 
+    import time as _time
+
+    ts_ticket = int(_time.time())
+    khoa_ky = (get_settings().muoi_bam_khach or "manga-studio-ticket-secret").encode("utf-8")
+    sig_ticket = hmac.new(
+        khoa_ky,
+        f"{page_uuid}:{engine_name}:{so_luot_can}:{ts_ticket}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()[:32]
+
     return {
         "ok": True,
         "page_id": str(page_uuid),
         "engine": engine_name,
         "deducted": so_luot_can,
+        "execution_ticket": f"{ts_ticket}.{sig_ticket}",
     }
 
 

@@ -1,0 +1,133 @@
+# Chỉ dùng cho MÁY NHÀ. Chạy: docker compose -f deploy/docker-compose.yml up -d
+#
+# File này KHÔNG được để ở gốc repo: nền tảng hosting quét gốc, thấy docker-compose.yml là
+# từ chối build với lỗi "compose: chưa hỗ trợ deploy stack" — dù ta chỉ muốn nó build Dockerfile.
+name: translation
+
+services:
+  db:
+    image: postgres:16-alpine
+    labels: &nhan_tu_tat
+      - mb.env=staging
+      - mb.owner=${CODER_USER:-unknown}
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-translation}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-translation}
+      POSTGRES_DB: ${POSTGRES_DB:-translation}
+    ports:
+      # Chỉ mở trên 127.0.0.1: mở 0.0.0.0 kèm mật khẩu mặc định là phơi CSDL ra cả mạng.
+      - "127.0.0.1:${DB_PORT:-5433}:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-translation}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    labels: *nhan_tu_tat
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6380}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    labels: *nhan_tu_tat
+    build:
+      context: ../backend
+      target: api
+    env_file: ../.env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${API_PORT:-8010}:8000"
+    volumes:
+      - ../backend:/app
+      - storage_data:/data/storage
+      # E73 — token ChatGPT (Codex) trên volume RIÊNG, không nằm trong kho ảnh. API đăng nhập ghi,
+      # worker đọc + làm mới ⇒ cả hai cùng gắn. Chỉ dùng khi CHE_DO_CAI_CUC_BO=true.
+      - codex_secrets:/secrets/codex
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+
+  worker:
+    labels: *nhan_tu_tat
+    build:
+      context: ../backend
+      target: worker
+    env_file: ../.env
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    volumes:
+      - ../backend:/app
+      - storage_data:/data/storage
+      - ../models:/models:ro
+      # M6: font chèn chữ. Chỉ worker cần — API không nạp engine render.
+      - ../backend/fonts:/fonts:ro
+      - model_cache:/model-cache
+      - codex_secrets:/secrets/codex
+    # M2/M3: worker tiêu thụ Job(type=detect) và Job(type=ocr) bằng comic-text-detector (ONNX, CPU).
+    # Pool PHẢI khớp `deploy-start.sh` của production (nay `threads`: một tiến trình như `solo`,
+    # nên chuỗi hồi phục bên dưới giữ nguyên; chỉ thêm việc chạy song song các lượt gọi mạng). Trước đây chỗ này dùng
+    # `--concurrency=1` (pool prefork, CÓ tiến trình con) và điều đó làm bàn thử KHÔNG tái hiện
+    # được chế độ hỏng quan trọng nhất:
+    #   prefork: OOM giết tiến trình CON, tiến trình chính sống ⇒ `worker_ready` KHÔNG chạy lại
+    #            ⇒ quét job mồ côi KHÔNG chạy ⇒ job nằm `running` và trang nằm `detecting` mãi.
+    #   solo   : OOM giết CẢ worker ⇒ vòng bật lại trong deploy-start.sh khởi động lại
+    #            ⇒ `worker_ready` chạy ⇒ quét mồ côi gắn nhãn resource_limit_suspected.
+    # Đo thật ở E23 (24 trang, 2026-09-10): SIGKILL trên bàn thử prefork để lại một job kẹt
+    # `running` 20+ phút — một lỗi CHỈ CÓ ở local. Bàn thử lệch production ở đúng chỗ này thì
+    # mọi kết luận độ tin cậy rút từ nó đều vô giá trị.
+    # `test_pool_celery_phai_khop_production` khoá ràng buộc này lại.
+    #
+    # `restart` bên dưới là PHẦN KHÔNG THỂ THIẾU của lựa chọn `solo`, không phải tuỳ chọn thêm:
+    # solo nghĩa là SIGKILL giết cả tiến trình chính, nên thiếu cơ chế bật lại thì container chết
+    # hẳn — tệ hơn prefork (prefork còn sinh tiến trình con thay thế). Production có vòng
+    # `while true` trong `deploy-start.sh`; ở local thì Docker làm việc đó.
+    # Đúng chuỗi này mới tái hiện production: SIGKILL → bật lại → `worker_ready` → quét mồ côi.
+    # `on-failure` vẫn bật lại sau SIGKILL (mã thoát 137) nhưng KHÔNG tự sống lại sau reboot —
+    # quy ước máy chủ dùng chung: stack thử nghiệm phải tự tắt được.
+    restart: on-failure
+    # -B + --schedule: khớp ĐÚNG production (xem deploy-start.sh). Lệch ở đây nghĩa là bàn
+    # thử không tái hiện được lịch chạy định kỳ.
+    command: celery -A app.workers.celery_app.celery_app worker -l info -Q celery --pool=threads --concurrency=${CELERY_CONCURRENCY:-6} -B --schedule=/tmp/celerybeat-schedule
+
+  # M7 — màn sửa tay. Chỉ là consumer của API, không đụng DB/Redis.
+  frontend:
+    labels: *nhan_tu_tat
+    build:
+      context: ../frontend
+      target: dev
+    depends_on:
+      - api
+    environment:
+      # Trong mạng docker thì gọi thẳng service `api`, không qua cổng máy host.
+      VITE_API_TARGET: http://api:8000
+      # E1a — danh sách trắng CORS của MÁY CHỦ DEV. RỖNG = chặn mọi origin chéo nguồn.
+      # Giao diện web không cần mục nào ở đây (nó gọi API cùng nguồn qua proxy `/api`).
+      # Lấy từ biến môi trường của shell, KHÔNG dùng `env_file: ../.env` để khỏi bơm
+      # GEMINI_API_KEYS vào container giao diện. Xem `docs/SECURITY.md`.
+      DEV_SERVER_CORS_ALLOW_ORIGINS: ${DEV_SERVER_CORS_ALLOW_ORIGINS:-}
+    volumes:
+      - ../frontend:/app
+      - /app/node_modules
+    ports:
+      - "5174:5173"
+
+volumes:
+  db_data:
+  storage_data:
+  model_cache:
+  codex_secrets:

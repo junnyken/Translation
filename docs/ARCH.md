@@ -2260,3 +2260,77 @@ sót từ lần chạy trước. Đảo thứ tự là báo `running` cho một 
 
 Có thứ đang đọc nó (`API.md §healthz`). Thêm trường mới, để trường cũ nói đúng thứ nó vẫn nói: shell
 nghĩ gì. Đổi nghĩa một trường đang được đọc là cách âm thầm làm hỏng người tiêu thụ.
+
+## PRODUCTION-01 — Desktop recovery và cấu hình riêng (BUILT, 27/10/2026)
+
+`windows-app/production.py` giữ ledger `trang-thai.json`, hash nguồn/kết quả, page_id,
+ngữ cảnh và khoá chapter giữa các tiến trình. Upload không rõ đã nhận không được tự gửi lại;
+resume dùng page_id cũ. Ảnh và CBZ ghi nguyên tử, CBZ chỉ nhận danh sách trang đã kiểm đầy đủ.
+`sources.py` xử lý ZIP/CBZ có giới hạn và link ảnh; website tổng quát cần xác nhận số trang thủ công.
+
+Migration `0036_cau_hinh_rieng` thêm `project.cau_hinh_rieng`, mặc định false.
+Client mới yêu cầu project riêng mỗi trang để giữ glossary/font riêng; không dùng hoặc công bố
+cache cộng đồng. Đây chưa phải sửa toàn bộ cache/idempotency/outbox của hệ thống.
+Health capability chỉ mô tả khả năng code; không chứng minh DB đã migrate hoặc worker sẵn sàng.
+Chưa chạy migration/Windows/worker thật; xem `REPORT_PRODUCTION_01.md`.
+
+PRODUCTION-01 bổ sung: đầu vào folder có cùng giới hạn archive; ảnh định dạng chưa hỗ trợ
+trong folder/archive làm dừng kiểm tra, không bị loại lặng lẽ. Chapter URL được ưu tiên
+trước previous/next; regex có ranh giới và lấy marker cuối. Poll lần đầu không chờ,
+không bắt đầu GET mới sau deadline (request đang chạy vẫn dùng timeout HTTP riêng).
+
+## PRODUCTION-02 — Duyệt và xuất bản giao local (BUILT, 27/10/2026)
+
+`windows-app/review_delivery.py` dùng lại ChapterLedger lock, không tạo job/server state.
+`pages[].review` là quyết định người vận hành với fingerprint canonical của cấu hình, nguồn,
+vùng dịch, trạng thái và bytes ảnh. Status/export kiểm lại bytes, không tin cờ tổng hợp đã cũ.
+Require-existing tránh tái tạo ledger mất trong lúc mở review. Công cụ chưa có GUI/chỉnh ảnh.
+
+ZIP giao được viết tạm rồi fsync/hard-link độc quyền cùng filesystem; chỉ gói đủ trang được duyệt,
+không overwrite hoặc fallback copy dở. Receipt tối giản không chứa source/glossary/reviewer/token.
+App tự xuất CBZ/PDF/dải ảnh với hậu tố `-ban-nhap`; file cũ không tự đổi tên/xoá.
+Chưa có authenticated reviewer/audit chống sửa, chưa Windows/NTFS UAT; xem REPORT_PRODUCTION_02.md.
+
+## PRODUCTION-03 — Transaction upload và đối soát (BUILT, 27/10/2026)
+
+Model/migration `upload_request` có composite PK(owner_id, request_key), request_hash,
+page_id FK SET NULL/index và timestamps; owner FK CASCADE. No TTL: page/project deletion giữ
+key tombstone, account deletion xoá key. Không được dọn tombstone như cache có thể tái tạo.
+`upload_identity.py` giữ hash canonical v1 và advisory-lock ID theo namespace/account/key.
+`upload_requests.py` lấy transaction advisory lock rồi lookup/replay trước kiểm engine/quota mới.
+Keyed private upload gọi `_chapter_doc_nhanh(commit_project=False)`, commit record/page/quota/Job
+cùng transaction. GET lookup luôn account-scoped và qua kiểm quyền page hiện tại.
+
+`upload_artifacts.py` xử lý storage ngoài giao dịch: quota trước khi ghi glossary/ảnh;
+rollback dọn prefix project mới. Commit mơ hồ được probe primary dưới cùng advisory lock,
+chỉ dọn khi không nhận. Lỗi DB/storage giữ lại để đối soát, log project/request; process kill
+cần orphan sweeper chưa có. Không tuyên bố atomic giữa SQL và object storage.
+
+Client lưu key/protocol/payload version/context trước POST; resume lookup rồi tối đa một POST
+cùng key nếu cần, không nâng cấp lượt mơ hồ cũ thiếu key. Cần ACK key đúng trước render.
+DB→broker outbox/worker generation/cost ceilings và PostgreSQL/Windows UAT vẫn còn thiếu.
+
+
+## Bổ sung PRODUCTION-04
+
+PRODUCTION-04 (28/10/2026, BUILT chưa LIVE): DetectOutbox cùng transaction keyed private upload, post-commit publisher + beat30s/worker-ready, SKIP LOCKED và atomic queued→running consumer gate. Không backfill, không outbox downstream/full generation fencing. Published là broker accepted; migration0038 và beat là điều kiện vận hành. Chi tiết REPORT_PRODUCTION_04.md; integration chưa xác minh.
+
+
+### Bộ chạy nghiệm thu cách ly — 28/10/2026
+
+Thêm Dockerfile.integration, deploy/docker-compose.production-tests.yml và
+scripts/test_production_docker.sh: DB tmpfs riêng, không port/.env/volume app,
+network internal, exit code test được giữ khi dọn tài nguyên. Docker compose config,
+Bash syntax đạt; isolated tests vẫn43 đạt. Thử chạy bị chặn Docker socket; lần xin
+tải dependency tiếp tục không thực thi do approval review503. Chưa build hoặc chạy
+PostgreSQL/broker. Xem TEST_PRODUCTION_BACKEND.md.
+
+
+### Bổ sung phép kiểm broker — 28/10/2026
+
+Thêm Redis tạm vào stack test và2 case Celery worker thật (threads/concurrency2):
+duplicate trong lúc xử lý/sau hoàn tất và outbox→Redis→consumer claim. Provider/callback
+được thay ở ranh giới kiểm thử; startup hooks được cô lập. Đã compile/config validation,
+43 isolated đạt; 2 case broker mới CHƯA CHẠY do quyền Docker trong agent. 26 case SQL/API
+cũ đã đạt theo log user. Chưa kiểm beat/restart/AI thật/Windows hoặc deploy.
+Hướng dẫn và tiêu chí ảnh mẫu: TEST_PRODUCTION_BACKEND.md.

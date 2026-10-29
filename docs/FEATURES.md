@@ -927,3 +927,46 @@ thà báo lỗi còn hơn lặng lẽ xuất thiếu một chương mà bạn t�
 **Chọn trùng một chapter hai lần** thì nó chỉ vào file một lần, ở vị trí bạn chọn đầu tiên.
 
 **Tối đa 50 chapter một lần.** Nhiều hơn thì file quá lớn và lượt xuất chạy quá lâu.
+
+## PRODUCTION-01 — Đợt nâng cấp dịch file (27/10/2026)
+
+**BUILT, chưa LIVE**: ZIP/CBZ, thứ tự trang tự nhiên, ledger khôi phục theo page_id,
+kiểm hash/khoá chapter, dừng an toàn, xuất CBZ đủ trang, cấu hình riêng từng trang và quy đổi bbox.
+43 kiểm thử desktop đạt trên Linux; chưa kiểm Windows, DB/migration và worker thật.
+Chưa có tự quét từng website, lịch chạy tự động, quản lý đơn/thu tiền hay phê duyệt giao hàng.
+Xem [REPORT_PRODUCTION_01.md](REPORT_PRODUCTION_01.md).
+
+PRODUCTION-01 bổ sung cùng ngày (**BUILT**): giữ đúng chapter trực tiếp thay vì previous/next,
+kiểm limits thư mục và từ chối ảnh định dạng chưa hỗ trợ thay vì bỏ trang; 62 test desktop đạt.
+
+## PRODUCTION-02 — Duyệt từng trang và ZIP giao (27/10/2026)
+
+**BUILT, chưa LIVE**: CLI status/approve/reject/export, duyệt theo hash/nội dung/cấu hình,
+thu hồi duyệt, ZIP đủ trang với receipt tối giản; không ghi đè bản giao. Bản xuất tự động mang
+hậu tố `-ban-nhap`. Chưa GUI review/chỉnh ảnh, xác thực người duyệt, đồng bộ web hoặc giao tự động.
+87 test desktop đạt trên Linux; Windows/NTFS và backend thật vẫn chưa nghiệm thu.
+Xem [REPORT_PRODUCTION_02.md](REPORT_PRODUCTION_02.md).
+
+## PRODUCTION-03 — Phục hồi upload theo mã yêu cầu (27/10/2026)
+
+**BUILT, chưa LIVE**: keyed private upload theo tài khoản, replay cùng ảnh/cấu hình,
+conflict khi đổi nội dung, tombstone trang bị xoá; desktop giữ key/ngữ cảnh qua restart,
+lookup lấy lại page_id và gửi lại có giới hạn cùng key. Bổ sung cleanup artifact khi rollback.
+102 test desktop + 19 test độc lập đạt; 16 integration scenarios mới chưa chạy được.
+Chưa chứng minh concurrent quota PostgreSQL, Windows hoặc job dispatch recovery.
+Xem [REPORT_PRODUCTION_03.md](REPORT_PRODUCTION_03.md).
+
+
+## Bổ sung PRODUCTION-04
+
+PRODUCTION-04 — BUILT chưa LIVE: durable first-detect intent cho keyed private upload, bounded broker retry và consumer duplicate gate. CLI vận hành; chưa có status UI, outbox downstream hoặc nghiệm thu PostgreSQL/broker. Xem REPORT_PRODUCTION_04.md.
+
+
+### Bổ sung phép kiểm broker — 28/10/2026
+
+Thêm Redis tạm vào stack test và2 case Celery worker thật (threads/concurrency2):
+duplicate trong lúc xử lý/sau hoàn tất và outbox→Redis→consumer claim. Provider/callback
+được thay ở ranh giới kiểm thử; startup hooks được cô lập. Đã compile/config validation,
+43 isolated đạt; 2 case broker mới CHƯA CHẠY do quyền Docker trong agent. 26 case SQL/API
+cũ đã đạt theo log user. Chưa kiểm beat/restart/AI thật/Windows hoặc deploy.
+Hướng dẫn và tiêu chí ảnh mẫu: TEST_PRODUCTION_BACKEND.md.

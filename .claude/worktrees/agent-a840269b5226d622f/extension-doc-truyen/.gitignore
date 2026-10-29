@@ -1,0 +1,3 @@
+# Không có dấu / ở cuối: node_modules ở đây là SYMLINK sang ../extension/node_modules,
+# mà git coi symlink là tệp nên quy tắc "node_modules/" không khớp và nó lọt vào lần đầu.
+node_modules

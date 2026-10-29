@@ -68,9 +68,9 @@ export default function HeSinhThaiCongCu() {
           <ul className="ds-tinh-nang-cong-cu">
             <li>
               {laEn ? (
-                <>⚡ <b>Client GPU/Canvas 2D Inpainting:</b> Clean 100% original text while preserving bubble borders in 2–4s.</>
+                <>⚡ <b>Smart Background Reconstruction:</b> Cleanly replaces original text while preserving artwork borders in 2–4s.</>
               ) : (
-                <>⚡ <b>Xoá chữ 2D trên GPU/Canvas máy khách:</b> Sạch 100% chữ gốc, giữ nguyên viền cong bong bóng chỉ trong 2–4 giây.</>
+                <>⚡ <b>Tái tạo nền &amp; dàn chữ thông minh:</b> Sạch 100% chữ gốc, giữ nguyên nét vẽ khung tranh chỉ trong 2–4 giây.</>
               )}
             </li>
             <li>
@@ -82,16 +82,16 @@ export default function HeSinhThaiCongCu() {
             </li>
             <li>
               {laEn ? (
-                <>✏️ <b>Double-Click Bubble Editor:</b> Edit translations, resize text, or re-translate with AI right on the page.</>
+                <>✏️ <b>Double-Click Live Editor:</b> Edit translations, resize text, or re-translate with AI right on the page.</>
               ) : (
-                <>✏️ <b>Nhấp đúp sửa bóng thoại tức thì:</b> Sửa câu dịch, phóng to/thu nhỏ chữ hoặc gọi AI dịch lại ngay trên trang.</>
+                <>✏️ <b>Nhấp đúp sửa câu dịch tức thì:</b> Sửa câu thoại, phóng to/thu nhỏ chữ hoặc gọi AI dịch lại ngay trên trang.</>
               )}
             </li>
             <li>
               {laEn ? (
-                <>🌍 <b>Multi-Target &amp; Genre Fonts:</b> Translate to 🇻🇳 Vietnamese &amp; 🇬🇧 English with 4 genre fonts.</>
+                <>🌍 <b>3 AI Engines &amp; Genre Fonts:</b> ⚡ OCR + GPU Fast (1 credit), 🧠 GPU Pro Self-Learning (2 credits) &amp; 4 genre fonts.</>
               ) : (
-                <>🌍 <b>Đa ngôn ngữ &amp; 4 Bộ Font thể loại:</b> Dịch sang 🇻🇳 Tiếng Việt &amp; 🇬🇧 Tiếng Anh Quốc tế.</>
+                <>🌍 <b>3 Bộ máy AI &amp; 4 Font thể loại:</b> ⚡ OCR + GPU Nhanh (1 lượt), 🧠 GPU Pro Tự Học chữ viết tay (2 lượt) &amp; 4 Font truyện.</>
               )}
             </li>
           </ul>
@@ -251,16 +251,16 @@ export default function HeSinhThaiCongCu() {
           </li>
           <li>
             {laEn ? (
-              <>🖼️ <b>1-Call All-in-One Endpoint (<code>POST /api/v1/developer/translate-image</code>):</b> Send an image file or <code>image_url</code> and receive both <code>rendered_image_url</code> (typeset PNG), <code>inpainted_image_url</code>, and full bubble JSON.</>
+              <>🖼️ <b>1-Call All-in-One Endpoint (<code>POST /api/v1/developer/translate-image</code>):</b> Send an image file or <code>image_url</code> and receive both <code>rendered_image_url</code> (typeset PNG), <code>inpainted_image_url</code>, and full dialog coordinates JSON.</>
             ) : (
-              <>🖼️ <b>Gọi 1 lệnh lấy trọn bộ (<code>POST /api/v1/developer/translate-image</code>):</b> Gửi file ảnh hoặc <code>image_url</code>, nhận về ngay link tải <b>Ảnh đã ghép chữ hoàn chỉnh</b> + <b>Ảnh đã xoá chữ</b> + <b>JSON toạ độ khung thoại</b>.</>
+              <>🖼️ <b>Gọi 1 lệnh lấy trọn bộ (<code>POST /api/v1/developer/translate-image</code>):</b> Gửi file ảnh hoặc <code>image_url</code>, nhận về ngay link tải <b>Ảnh đã ghép chữ hoàn chỉnh</b> + <b>Ảnh nền sạch</b> + <b>JSON toạ độ vùng chữ</b>.</>
             )}
           </li>
           <li>
             {laEn ? (
-              <>⚡ <b>0.15s SHA-256 Community Cache:</b> Instant response when pulling pages already translated on the network.</>
+              <>⚡ <b>0.15s High-Speed Cloud Cache:</b> Instant response when pulling pages already translated on the system.</>
             ) : (
-              <>⚡ <b>Tích hợp Bảng Cache Cộng Đồng SHA-256:</b> Trả kết quả tức thì trong 0.15 giây nếu trang truyện đã từng được dịch trên hệ thống.</>
+              <>⚡ <b>Bộ nhớ đệm tốc độ cao 0.15 giây:</b> Trả kết quả tức thì trong 0.15 giây nếu trang truyện đã từng được xử lý trên hệ thống.</>
             )}
           </li>
         </ul>

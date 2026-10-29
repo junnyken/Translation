@@ -118,22 +118,22 @@ export default function TrangTienIch({ onQuayLai }) {
 
           <div style={{ marginBottom: 18 }}>
             <div style={featureItemStyle}>
-              ⚡ <b>{laEn ? '2D Client GPU/Canvas Inpainting:' : 'Xoá chữ 2D trên GPU/Canvas máy khách:'}</b>{' '}
+              ⚡ <b>{laEn ? 'Smart Background Reconstruction & Typesetting:' : 'Tái tạo nền & dàn trang thông minh:'}</b>{' '}
               {laEn
-                ? 'Erases 100% of original text inside speech bubbles while keeping curved bubble borders intact in 2–4 seconds.'
-                : 'Làm sạch 100% chữ gốc trong lòng bong bóng, giữ nguyên viền cong và tách bong bóng đôi bằng rào chắn Voronoi chỉ trong 2–4 giây.'}
+                ? 'Cleanly replaces original text while preserving artwork borders and layout balance in 2–4 seconds.'
+                : 'Làm sạch chữ gốc tự nhiên, giữ nguyên nét vẽ viền khung và tự động dàn chữ cân đối chỉ trong 2–4 giây.'}
             </div>
             <div style={featureItemStyle}>
-              ✏️ <b>{laEn ? 'Double-Click Live Bubble Editor + Brush Inpaint:' : 'Nhấp đúp sửa bóng thoại + 🖌️ Cọ xoá chữ (Brush Inpaint):'}</b>{' '}
+              ✏️ <b>{laEn ? 'Double-Click Live Text Editor + Touch-Up Brush:' : 'Nhấp đúp sửa câu dịch + 🖌️ Cọ tinh chỉnh nền:'}</b>{' '}
               {laEn
-                ? 'Double-click any bubble to edit text, toggle solid box fill (⬛), drag bubble position (✥), or paint over leftover original strokes with the Canvas Brush (🖌️).'
-                : 'Nhấp đúp vào bất kỳ bóng thoại nào để sửa câu, bật ⬛ Phủ kín hộp, ✥ Kéo vị trí chữ hoặc dùng 🖌️ Cọ vẽ tay tô xoá nét chữ gốc còn sót ngay trên Canvas.'}
+                ? 'Double-click any dialog region to edit text, toggle solid box fill (⬛), drag text position (✥), or touch up strokes with the Brush tool (🖌️).'
+                : 'Nhấp đúp vào bất kỳ vùng chữ nào để sửa câu, bật ⬛ Phủ nền, ✥ Kéo vị trí chữ hoặc dùng 🖌️ Cọ tinh chỉnh trực tiếp ngay trên trang.'}
             </div>
             <div style={featureItemStyle}>
-              🌍 <b>{laEn ? '3 Specialized AI Models (Fast GPU & Self-Learning Pro):' : '3 Bộ máy AI chuyên biệt (⚡ OCR + GPU Nhanh & 🧠 GPU Pro Tự Học):'}</b>{' '}
+              🌍 <b>{laEn ? '3 Proprietary AI Engines (Fast GPU & Self-Learning Pro):' : '3 Bộ máy AI chuyên biệt (⚡ OCR + GPU Nhanh & 🧠 GPU Pro Tự Học):'}</b>{' '}
               {laEn
-                ? 'Choose ⚡ OCR + GPU Fast (1 credit/page), ✨ Gemini Cloud (1 credit/page), or 🧠 OCR + GPU Pro for handwritten fonts & permanent self-learning (2 credits/page).'
-                : 'Chọn ⚡ OCR + GPU Nhanh (1 lượt/trang · khuyên dùng), ✨ Gemini Cloud (1 lượt/trang) hoặc 🧠 OCR + GPU Pro chuyên trị chữ viết tay & tự học vĩnh viễn các câu bạn sửa (2 lượt/trang).'}
+                ? 'Choose ⚡ OCR + GPU Fast (1 credit/page), ✨ Cloud Context AI (1 credit/page), or 🧠 OCR + GPU Pro for handwritten fonts & permanent self-learning (2 credits/page).'
+                : 'Chọn ⚡ OCR + GPU Nhanh (1 lượt/trang · khuyên dùng), ✨ AI Ngữ Cảnh Đám Mây (1 lượt/trang) hoặc 🧠 OCR + GPU Pro chuyên trị chữ viết tay & tự học vĩnh viễn các câu bạn sửa (2 lượt/trang).'}
             </div>
           </div>
 

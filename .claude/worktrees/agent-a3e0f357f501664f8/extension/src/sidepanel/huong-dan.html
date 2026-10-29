@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Khởi động Translation trên máy</title>
+  <link rel="stylesheet" href="panel.css">
+  <style>
+    body { max-width: 640px; margin: 0 auto; padding: 24px 18px 40px; }
+    h1 { font-size: 20px; }
+    pre { background: var(--trung-nen); border: 1px solid var(--vien); border-radius: 8px;
+          padding: 12px; overflow-x: auto; font-size: 12.5px; margin: 0 0 12px; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+    ol { padding-left: 20px; }
+    li { margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+  <header class="dau">
+    <div class="dau-hieu" aria-hidden="true">T</div>
+    <div class="dau-chu">
+      <h1>Khởi động Translation trên máy</h1>
+      <small>Trang này nằm trong gói tiện ích — không gọi ra internet.</small>
+    </div>
+  </header>
+
+  <section class="the">
+    <ol>
+      <li>
+        Mở thư mục dự án Translation trong terminal, rồi chạy:
+        <pre><code>docker compose -f deploy/docker-compose.yml up -d</code></pre>
+      </li>
+      <li>
+        Chờ tới khi API trả lời. Kiểm nhanh:
+        <pre><code>curl http://127.0.0.1:8010/healthz</code></pre>
+        Thấy <code>{"status":"ok"...}</code> là API đã sống.
+      </li>
+      <li>
+        Giao diện web app chạy ở <code>http://127.0.0.1:5174</code> (bản docker) hoặc
+        <code>http://127.0.0.1:5173</code> (chạy <code>npm run dev</code> trong <code>frontend/</code>).
+        Cổng thật đọc trong <code>.env</code> của dự án.
+      </li>
+      <li>
+        Quay lại Side Panel, nhập đúng địa chỉ giao diện đó rồi bấm
+        <b>Lưu &amp; kiểm tra kết nối</b>.
+      </li>
+    </ol>
+  </section>
+
+  <section class="the">
+    <h2>Vẫn báo chưa kết nối?</h2>
+    <p class="goi-y" style="margin:0">
+      Nếu web app mở được trong tab nhưng tiện ích vẫn báo chưa kết nối, gần như chắc chắn là
+      máy chủ chưa cho tiện ích đọc dữ liệu (CORS). Mở <b>Cài đặt kết nối</b> của tiện ích để xem
+      cách thêm ID tiện ích vào <code>CORS_ALLOW_ORIGINS</code>. Không làm bước đó thì tiện ích
+      vẫn mở web app bình thường, chỉ là không hiện được trạng thái chapter.
+    </p>
+  </section>
+</body>
+</html>

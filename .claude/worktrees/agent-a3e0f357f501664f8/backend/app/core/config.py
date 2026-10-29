@@ -1,0 +1,805 @@
+"""Cấu hình ứng dụng — đọc toàn bộ từ biến môi trường (.env), không hard-code credential."""
+from functools import lru_cache
+from typing import Literal
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    # Database
+    database_url: str = "postgresql+asyncpg://translation:translation@db:5432/translation"
+    alembic_database_url: str | None = None
+
+    # Job queue (dùng thật từ M2)
+    redis_url: str = "redis://redis:6379/0"
+    celery_broker_url: str = "redis://redis:6379/0"
+    celery_result_backend: str = "redis://redis:6379/1"
+
+    # Storage
+    #: `postgres` = hiện vật nằm trong CSDL (P3e). Chọn nó khi nền tảng KHÔNG cấp volume bền —
+    #: đúng trường hợp VibeHost, xem docs/REPORT_P3c_STORAGE_CAPABILITY_PROBE.md.
+    #: `local` chỉ bền khi có volume thật gắn vào `storage_local_root`.
+    storage_backend: Literal["local", "postgres", "supabase"] = "local"
+    storage_local_root: str = "/data/storage"
+    #: Trần một hiện vật khi lưu trong CSDL. Chặn sớm để không nhét cả gói CBZ khổng lồ vào một
+    #: hàng bytea rồi phát hiện lúc đọc. 0 = không giới hạn.
+    storage_pg_max_artifact_mb: int = 96
+    supabase_url: str = ""
+    supabase_service_key: str = ""
+    supabase_anon_key: str = ""
+    supabase_bucket: str = "manga-pages"
+    #: Cloudflare Turnstile (chống bot thật bằng widget của Cloudflare)
+    cloudflare_turnstile_site_key: str = "0x4AAAAAAFjgaHej0056M8hW"
+    cloudflare_turnstile_secret_key: str = ""  # chỉ từ biến môi trường; khoá cũ đã lộ trong repo
+    #: Địa chỉ trang web chính để gắn vào liên kết xác nhận email khi đăng ký
+    frontend_site_url: str = "https://comic.io.vn"
+    #: Tắt gửi email qua Supabase (dùng trực tiếp Email chính thống + Cloudflare Turnstile để vào thẳng tài khoản).
+    bat_xac_nhan_email_dang_ky: bool = False
+
+    # Worker
+    #: Vượt ngưỡng này thì worker NHẢ các model không cần cho bước đang chạy (van xả chống OOM).
+    #: 0 = tắt.
+    #:
+    #: Con số này ĐO ĐƯỢC, không phải chọn cho tròn. Pilot 6 trang trên host 03/09 ghi lại:
+    #:
+    #:     ocr: trước      RSS 1914,7 MB     (detector + PaddleOCR cùng thường trú)
+    #:     inpaint: trước  RSS 1914,6 MB
+    #:     [worker] BỊ GIẾT (SIGKILL/137)    <- nạp LaMa ~1,2 GB đè lên 1,9 GB
+    #:
+    #: Suy ra: detector ~1,1 GB · PaddleOCR ~0,7 GB · LaMa ~1,2 GB.
+    #:
+    #: Ngưỡng CŨ là 2200 — cao hơn 1914 nên van KHÔNG mở, và worker chết đúng ở chỗ nó sinh ra
+    #: để cứu. Bài học: ngưỡng phải tính theo **model sắp nạp**, không phải theo trần container.
+    #: 1500 mở đúng lúc RSS 1914 (nhả detector, còn ~0,8 GB, cộng LaMa ~2,0 GB — an toàn) mà
+    #: không mở oan lúc chỉ có detector (1203 MB + LaMa vẫn vừa).
+    worker_rss_soft_limit_mb: int = 1500
+    #: P3j — lúc worker khởi động, đánh dấu mọi job đang `running` là hỏng (chúng là mồ côi của
+    #: tiến trình vừa chết) và lùi trang khỏi trạng thái tạm.
+    #:
+    #: ĐÚNG ĐẮN CỦA CỜ NÀY PHỤ THUỘC TOPOLOGY: hiện chỉ có MỘT worker (`--pool=solo`, một
+    #: container), nên không có worker thứ hai để giết nhầm. Ngày nào chạy nhiều worker thì
+    #: **phải tắt cờ này trước**, rồi mới đổi sang cơ chế job-có-chủ (id worker + nhịp tim).
+    worker_sweep_orphan_jobs_on_start: bool = True
+    #: E23 — sau khi quét job mồ côi, đẩy tiếp các mẻ còn dở. Dọn xong CHƯA đủ: `dispatch_next`
+    #: chỉ chạy khi một trang tới trạng thái cuối, mà sau sự cố thì không còn trang nào đang chạy
+    #: để mà kết thúc ⇒ mẻ nằm im với các mục `pending` cho tới khi người dùng tự bấm "Chạy lại"
+    #: (đo được hai lần trong lượt 24 trang).
+    #:
+    #: Chỉ đẩy mục `pending` — trang CHƯA từng chạy. Job vừa giết worker đã bị quét đánh `failed`
+    #: nên KHÔNG bị xếp lại; quyết định chạy lại trang HỎNG vẫn thuộc về người dùng.
+    batch_danh_thuc_khi_worker_khoi_dong: bool = True
+    #: P3m — worker ghi RSS của CHÍNH NÓ ra đây để `/healthz` đọc được từ ngoài.
+    #: Không dùng chung tệp trạng thái của `deploy-start.sh`: tệp đó do shell ghi, worker ghi đè
+    #: vào sẽ đá nhau. Hai người ghi một tệp là cách chắc chắn để mất dữ liệu của cả hai.
+    worker_rss_file: str = "/tmp/rss-worker.json"
+    #: E55 — worker tự ghi dấu "TÔI ĐÃ SẴN SÀNG" ra đây, một lần, khi Celery báo `worker_ready`.
+    #:
+    #: Vì sao cần tệp THỨ BA thay vì ghi vào hai tệp đã có:
+    #:
+    #: * tệp trạng thái của `deploy-start.sh` do **shell** ghi — hai người ghi một tệp là mất dữ
+    #:   liệu của cả hai (lý do đã ghi ở `worker_rss_file` bên trên);
+    #: * `worker_rss_file` bị ghi ĐÈ toàn bộ mỗi lần đo RSS, nên một trường "sẵn sàng" nhét vào đó
+    #:   sẽ bị xoá ở mốc RSS kế tiếp.
+    #:
+    #: Vấn đề đang vá: nhánh `ROLE=all` của `deploy-start.sh` ghi `starting` MỘT lần rồi chỉ ghi
+    #: `restarting` khi worker chết — nên worker chạy tốt hai ngày vẫn báo `starting`. Đo được
+    #: 26-09: `trang_thai: starting` suốt **42 giờ** trong khi `rss_moc` chứng minh nó đã chạy
+    #: xong một bước xoá chữ. Shell không có cách nào biết worker đã nạp xong model, nên dấu này
+    #: phải do CHÍNH worker ghi.
+    worker_ready_file: str = "/tmp/worker-ready.json"
+
+    # --- Hạn mức sử dụng ---------------------------------------------------------------------
+    #: Hạn mức theo TRANG mỗi ngày. Đơn vị là trang chứ không phải chapter/tệp/lần bấm, vì chi
+    #: phí thật tính theo trang.
+    #:
+    #: 2 cho khách lạ (trải nghiệm nhanh 2 trang mẫu) và 20 cho tài khoản đăng ký (đủ dịch trọn
+    #: 1 chapter tiêu chuẩn 18–20 trang/ngày, tỉ lệ 1:10 khuyến khích đăng ký và chống spam).
+    han_muc_khach_la: int = 2
+    han_muc_co_tai_khoan: int = 20
+    #: Trần theo IP cho khách lạ. **PHẢI lớn hơn `han_muc_khach_la`**: văn phòng, trường học,
+    #: quán cà phê dùng chung một IP — đặt bằng nhau là chặn oan hàng loạt người dùng thật.
+    #: Đây là hàng rào chống xoá cookie lấy lượt mới, KHÔNG phải định danh người dùng.
+    han_muc_ip_khach_la: int = 8
+    #: Múi giờ quyết định "hôm nay" của hạn mức.
+    #:
+    #: ⚠️ BẮT BUỘC tường minh. Container chạy **UTC**, người dùng và chính sách theo **UTC+7**.
+    #: Dự án đã có tiền lệ: bài test gom theo "giờ trong ngày" XANH ở máy mà ĐỎ trên server.
+    mui_gio_han_muc: str = "Asia/Ho_Chi_Minh"
+
+    #: Muối băm định danh khách lạ (cookie + IP). **PHẢI đặt ở production.**
+    #:
+    #: Để rỗng thì băm vẫn chạy và hạn mức vẫn đúng, nhưng SHA-256 không muối của một địa chỉ
+    #: IPv4 là dò được toàn bộ: cả không gian 4 tỉ địa chỉ băm hết chỉ mất vài phút. Nghĩa là ai
+    #: đọc được CSDL sẽ khôi phục được IP thô — đúng thứ mà việc băm sinh ra để tránh.
+    #: Rỗng ⇒ ghi WARNING, cố ý ồn ào.
+    muoi_bam_khach: str = ""
+    #: Có tin `X-Forwarded-For` không. **Mặc định KHÔNG.**
+    #:
+    #: Header này do client gửi và sửa được tuỳ ý. Tin nó khi chưa có proxy ghi đè đồng nghĩa với
+    #: việc ai cũng tự đổi được "IP" của mình ⇒ chốt chặn theo IP thành vô dụng. Chỉ bật khi CHẮC
+    #: CHẮN mọi request đều đi qua proxy nhà mình và proxy đó GHI ĐÈ header.
+    tin_header_proxy: bool = False
+    #: Cookie nhận diện khách lạ chỉ gửi qua HTTPS.
+    #:
+    #: Mặc định bật. Đặt `False` cho máy phát triển chạy HTTP thuần — trình duyệt (và bộ test)
+    #: KHÔNG gửi lại cookie `Secure` qua `http://`, nên để bật ở môi trường HTTP sẽ khiến mỗi
+    #: request là một "khách mới" và hạn mức theo cookie không bao giờ chạm trần.
+    cookie_khach_secure: bool = True
+    #: Cookie sống bao lâu. 400 ngày là trần Chrome áp cho mọi cookie — đặt cao hơn vô nghĩa.
+    cookie_khach_song_giay: int = 400 * 24 * 3600
+
+    #: Số TÀI KHOẢN mới được tạo từ cùng một địa chỉ mạng trong một ngày.
+    #:
+    #: ⚠️ Không có trần này thì hạn mức trang trở thành VÔ NGHĨA: khách hết 2 trang chỉ cần tạo
+    #: tài khoản mới để có 20, rồi lặp vô hạn. Mở đường tự đăng ký mà quên con số này là tự tay
+    #: vô hiệu hoá cả E49.
+    #:
+    #: 2 là con số thận trọng khi mỗi tài khoản có 20 trang/ngày: đủ cho hai người cùng nhà, mà
+    #: không đủ để biến việc tạo tài khoản thành cách lách hạn mức.
+    so_tai_khoan_moi_moi_ip_mot_ngay: int = 2
+
+    #: Trần số lần ĐĂNG NHẬP SAI từ một địa chỉ mạng trong một ngày (chống dò mật khẩu brute-force).
+    #: Chỉ trừ suất khi đăng nhập THẤT BẠI; đăng nhập đúng không mất suất.
+    so_lan_dang_nhap_sai_moi_ip_mot_ngay: int = 10
+
+    #: Trần số lượt CHẠY LẠI (retry-detect / retry-ocr / retry-inpaint / retry-translate / re-translate)
+    #: tối đa trên MỘT trang (tính theo tổng số job đã tạo trên trang đó vượt ngoài 4 bước tự động).
+    #: Chặn lỗ hổng tải 1 trang rồi gọi `retry-translate` với `llm_context` vô hạn làm cạn token Gemini.
+    #: 0 = không giới hạn.
+    so_lan_chay_lai_toi_da_moi_trang: int = 5
+
+    # --- E100: nạp lượt / gói VIP thương mại (VietQR / SePay / Casso / PayOS) -----------------
+    #: Khoá bí mật xác thực Webhook ngân hàng (`Authorization: Apikey <key>` hoặc `Bearer <key>`).
+    #: Để trống = cổng webhook tự động khoá (chỉ quản trị cấp lượt thủ công qua `/quan-tri/cap-luot`).
+    webhook_nap_luot_bi_mat: str = ""
+    #: Mã ngân hàng VietQR (tạm để trống theo yêu cầu ẩn thông tin chuyển khoản).
+    ngan_hang_ten: str = ""
+    #: Số tài khoản ngân hàng nhận tiền nạp lượt (tạm ẩn).
+    ngan_hang_so_tk: str = ""
+    #: Tên chủ tài khoản hiển thị bên cạnh mã VietQR (tạm ẩn).
+    ngan_hang_chu_tk: str = ""
+    #: Email hỗ trợ hệ thống (tạm ẩn).
+    email_quan_tri_he_thong: str = ""
+    #: Đơn giá VNĐ cho mỗi 1 lượt trang mua thêm (mặc định 500 VNĐ/trang ⇒ 50.000đ = 100 trang).
+    ty_le_vnd_moi_trang: int = 500
+
+    # --- E57: tự nhận ngôn ngữ ---------------------------------------------------------------
+    #: Số lượt "đọc thử ảnh để đoán ngôn ngữ" mỗi chủ thể mỗi ngày.
+    #:
+    #: PHẢI có trần: đường này trả về chữ đã đọc được, tức là một dịch vụ OCR. Không có trần thì nó
+    #: thành OCR miễn phí không giới hạn — đúng thứ hạn mức trang của E49 được dựng để chặn.
+    #:
+    #: Đặt CAO hơn hạn mức trang (khách 6) có chủ đích: đoán ngôn ngữ là bước phụ trợ rẻ, và nếu nó
+    #: hết trước lượt dịch thì người dùng bị ép quay lại chọn tay — tức tính năng tự vô hiệu hoá
+    #: đúng lúc cần nhất. 20 là số ĐẶT RA, chưa hiệu chỉnh trên hành vi thật.
+    so_lan_nhan_dang_ngon_ngu_mot_ngay: int = 20
+
+    # KHÔNG có `gio_giu_anh_nhan_dang` ở đây — cố ý, và đã từng có rồi gỡ (27-09-2026).
+    #
+    # Nó được thêm cùng E57 rồi **không ai đọc**: ảnh tạm của lượt đọc thử đã bị xoá ngay trong
+    # `finally` của task. Một biến cấu hình hứa một lượt dọn không tồn tại thì tệ hơn là không có
+    # biến nào: ai đó sẽ đặt `GIO_GIU_ANH_NHAN_DANG=1` và tin rằng có phép dọn.
+    #
+    # Nếu `storage.delete` thất bại, ảnh đó **còn sót** và hiện KHÔNG có ai nhặt — lỗi được ghi
+    # `logger.exception`. Chấp nhận có chủ đích: thêm một lịch xoá dữ liệu nữa là thêm một thứ xoá
+    # không hoàn tác được, mà chủ dự án đã chốt không bật lịch dọn tệp (`bat_lich_don_tep=False`).
+
+    # --- E50: vòng đời tệp -------------------------------------------------------------------
+    #: Giữ kết quả bao lâu (PHÚT) **kể từ lúc cả chapter xong**, không phải từ lúc tải lên.
+    #: Một chapter 24 trang mất 30–40 phút để chạy; đếm từ lúc tải lên thì tệp hết hạn trước khi
+    #: dịch xong và người dùng chờ nửa tiếng để nhận về con số 0.
+    giu_ket_qua_phut: int = 30
+    #: Có áp luật tự xoá cho chapter của **tài khoản đã đăng ký** không.
+    #:
+    #: `True` = đúng đặc tả §2.1 (không phân biệt khách hay tài khoản). Đặt `False` thì chỉ
+    #: chapter của KHÁCH LẠ bị dọn, còn chapter của người đã đăng ký giữ nguyên.
+    #:
+    #: ⚠️ Đây là công tắc của một hành vi **XOÁ DỮ LIỆU KHÔNG HOÀN TÁC ĐƯỢC**. Đọc kỹ §2.9 đặc
+    #: tả trước khi bật ở production: sau 30 phút, ảnh gốc + ảnh đã xoá chữ + bản dịch + tệp xuất
+    #: đều biến mất, người dùng không chạy lại và không sửa lại được.
+    tu_xoa_cho_tai_khoan: bool = True
+    #: Bao lâu chạy một lượt dọn (GIÂY). Lượt dọn chạy CHUNG tiến trình worker đang bó 4096 MB,
+    #: mà worker đã bị hệ điều hành giết 3 lần ⇒ để thưa và giữ cho phép dọn thật nhẹ.
+    don_tep_moi_giay: int = 300
+    #: Tắt hẳn lịch dọn. Có mặt để triển khai theo thứ tự an toàn: đẩy mã trước, quan sát mốc
+    #: `het_han_luc` được ghi có đúng không, RỒI mới bật xoá thật.
+    bat_lich_don_tep: bool = False
+
+    # Bảo vệ truy cập (slice A)
+    #: Khoá CHUNG cho cả hệ thống. Rỗng = cổng TẮT (máy phát triển, và để triển khai theo thứ tự
+    #: an toàn: đẩy mã trước, deploy giao diện biết gửi khoá, RỒI mới đặt biến này).
+    #: Đây KHÔNG phải hệ thống tài khoản — xem `app/core/bao_ve.py`.
+    api_access_key: str = ""
+
+    # Upload
+    max_upload_mb: int = 25
+
+    # ---- ĐX-2: nhận gói ZIP/CBZ ----
+    #: Trần SỐ TRANG mỗi gói. Chặn gói chứa hàng vạn mục rỗng làm nghẽn hàng đợi.
+    #: 200 đủ rộng cho chapter dài nhất từng chạy thật (E23 đo 24 trang), vẫn chặn được lạm dụng.
+    archive_max_pages: int = 200
+    #: Trần TỔNG dung lượng sau khi bung — lớp chặn bom giải nén. Cộng theo số khai trong header
+    #: nên không phải bung thử. Trần mỗi trang vẫn là `max_upload_mb` như ảnh lẻ.
+    #: Trần TỔNG mỗi lượt tải lên. Hạ 500 -> 50 (25-09) để bảo vệ worker: container chỉ có
+    #: 4096 MB và worker ĐÃ bị hệ điều hành giết 3 lần. Để khách lạ ném 500 MB vào là đúng
+    #: rủi ro cần chặn. Trần MỖI TỆP vẫn là `max_upload_mb` (25) — đã chặt hơn, giữ nguyên.
+    archive_max_total_mb: int = 50
+    #: Cạnh DÀI của ảnh dựng ra từ mỗi trang PDF. Dựng theo cạnh cố định chứ không theo DPI của
+    #: tài liệu: cùng một mức DPI, trang khổ lớn ra ảnh to gấp nhiều lần trang khổ nhỏ, và đó
+    #: đúng là chỗ nổ bộ nhớ. 1600px là cỡ các dịch vụ đọc truyện phục vụ thật
+    #: (xem `test_fixtures/external/NGUON.md`).
+    pdf_render_max_px: int = 1600
+
+    # ---- M2: comic-text-detector ----
+    #: Đường dẫn file weight ONNX. Không có file -> job detect fail rõ ràng,
+    #: tuyệt đối không detect bằng weight giả.
+    model_weights_path: str = "/models/comic-text-detector.onnx"
+    ctd_device: str = "cpu"
+    #: Arena bộ nhớ CPU của ONNX Runtime. CTD letterbox về MỘT kích thước cố định
+    #: (`ctd_input_size`) nên chỉ có một shape ⇒ arena vô hại và còn nhanh hơn. Giữ bật.
+    ctd_cpu_mem_arena: bool = True
+    #: Dưới ngưỡng này region vẫn được LƯU với status=low_confidence (không loại bỏ).
+    ctd_conf_threshold: float = 0.5
+    #: Sàn nhiễu trước NMS — phải nhỏ hơn ctd_conf_threshold để low_confidence còn được giữ.
+    ctd_raw_min_conf: float = 0.25
+    ctd_nms_iou: float = 0.45
+    #: E46 — chon engine nhan dien: 'ctd' (ONNX cuc bo) hoac 'ai_gemini' (goi API).
+    #:
+    #: MAC DINH GIU 'ctd' co chu y. Do tren 5 trang Pepper&Carrot: ai_gemini nhanh hon
+    #: 11-19x (3,5s vs 42-70s) va re (~1,2 xu My/chapter 24 trang), NHUNG bo sot 2/27 vung
+    #: trong khi ctd sot 0/27. Sot mot bong bong = mat han mot cau thoai.
+    #:
+    #: Toan bo phep do chay tren truyen TIENG ANH, khung tranh phuong Tay. Truyen Nhat
+    #: (chu doc, bong bong khong vien, chu tuong thanh de len net ve) CHUA thu lan nao.
+    #: Bang so day du: `docs/REPORT_E46.md`.
+    detect_engine: str = "ctd"
+    #: Ghi cảnh báo khi chạy `source_lang=ja` với `DETECT_ENGINE=ctd`.
+    #:
+    #: Đo 25-09 trên 13 vùng `ctd` khoanh ở 3 trang tiếng Nhật: luật E47 lọc được **0/13**.
+    #: manga-ocr là mô hình SINH — nó **bịa ra chữ Nhật nghe hợp lý** trên cả mảng ánh sáng lấp
+    #: lánh, và **không trả điểm tin cậy** nên E47 không có tín hiệu để nghi ngờ.
+    #:
+    #: CẢNH BÁO chứ KHÔNG chặn: rủi ro cao ở trang nhiều hiệu ứng ánh sáng, nhưng `ctd` +
+    #: tiếng Nhật là cấu hình dự án đã chạy suốt từ đầu và cho kết quả tốt trên trang thường.
+    #: Bản đầu viết là chặn thẳng và bộ test bắt được — 51 bài đỏ.
+    canh_bao_ctd_cho_tieng_nhat: bool = True
+    #: Cạnh dài ảnh gửi cho engine AI. Gemini tính tiền theo ô 768×768 nên gửi nguyên cỡ
+    #: là đốt token vô ích; 1024 là mức E32 đã chốt (giữ được chữ còn đọc được).
+    detect_ai_canh_toi_da: int = 1024
+    #: E93 — gọi nhận diện N lượt SONG SONG rồi gộp khung bị sót (model dao động giữa các lượt).
+    #: Gấp N chi phí bước nhận diện, gần như không thêm thời gian. 1 = một lượt như trước.
+    detect_ai_so_luot: int = 2
+    #: Model cho engine nhận diện AI. **Tách riêng khỏi `llm_model_name` có chủ ý.**
+    #:
+    #: Mượn chung một thiết lập cho hai quyết định khác nhau là bẫy thật, không phải lo xa:
+    #: engine này gửi `thinkingBudget: 0`, mà bậc `pro` TỪ CHỐI giá trị đó ("Budget 0 is
+    #: invalid. This model only works in thinking mode" — đo được ở E46). Nếu ai đổi
+    #: `LLM_MODEL_NAME` sang bậc pro cho bước dịch thì MỌI lượt nhận diện trả HTTP 400.
+    #:
+    #: `gemini-3.1-flash-lite` là model ĐÃ ĐO: ổn định tuyệt đối qua 3 lượt, khung khít
+    #: nhất, rẻ nhất. Bậc pro chậm hơn 2,2× và che phủ KHÔNG tốt hơn.
+    detect_ai_model: str = "gemini-3.1-flash-lite"
+    ctd_input_size: int = 1024
+    ctd_intra_op_threads: int = 0
+    #: 2 box chồng nhau quá tỷ lệ này (so với box nhỏ hơn) -> gắn cờ overlap_suspect.
+    ctd_overlap_suspect_ratio: float = 0.8
+    #: Timeout job detect. Mặc định 60s theo spec; trên máy chỉ có CPU nên đặt cao hơn
+    #: trong .env (đo thật: ~39s/ảnh 1400x2000 trên workspace này).
+    detect_timeout_seconds: int = 60
+
+    # ---- M3: OCR ----
+    ocr_device: str = "cpu"
+    #: Chỉ áp cho engine CÓ confidence thật (PaddleOCR). manga-ocr không trả confidence
+    #: -> confidence=NULL, tiêu chí needs_manual dựa vào text rỗng/không có ký tự có nghĩa.
+    ocr_conf_threshold: float = 0.5
+    #: Timeout RIÊNG cho OCR (không dùng chung với detect): OCR chạy N vùng/trang nên chậm hơn.
+    ocr_timeout_seconds: int = 600
+    #: Tự nối OCR ngay sau khi detect xong (pipeline tự chảy).
+    ocr_auto_chain: bool = True
+    #: E90 — vùng đã có chữ do bộ nhận diện (Gemini) đọc ⇒ dùng luôn, không chạy OCR riêng.
+    #: Đo production 16-10-2026: PaddleOCR 100–112 s/trang (15 vùng, trang 13,7 triệu điểm), còn
+    #: nhận diện + đọc chữ bằng Gemini là một lượt gọi vài giây.
+    ocr_dung_chu_nhan_dien: bool = True
+    #: E91 — cạnh dài tối đa của ảnh trang khi tải lên (px); lớn hơn thì thu nhỏ trước khi lưu.
+    #: 0 = giữ nguyên cỡ. Xem `storage.thu_nho_anh_trang`.
+    anh_trang_canh_dai_toi_da: int = 3000
+    #: E93 — tái sử dụng kết quả dịch theo mã băm SHA-256 của ảnh chuẩn hoá trên `/doc-truyen/trang`.
+    #: Vẫn tạo bản ghi Page riêng cho từng người gọi (bảo toàn cô lập quyền truy cập và sổ cái hạn mức),
+    #: nhưng sao chép các vùng chữ đã hoàn tất để trả kết quả tức thì không tốn lại CPU/token.
+    doc_truyen_dung_cache_anh: bool = True
+    #: E95 — nối ngữ cảnh trượt (tối đa 8 câu thoại sạch của trang liền trước trong cùng chapter)
+    #: vào prompt dịch của trang kế tiếp để giữ đồng nhất đại từ xưng hô (Ta/Bà/Tôi/Cậu) và tên riêng
+    #: khi người dùng đọc liên tục nhiều trang trên tiện ích mà không cần duyệt bảng thuật ngữ trước.
+    boi_canh_kem_trang_truoc: bool = True
+    #: E96 — ở chế độ `chi_chu` với `DETECT_ENGINE=ai_gemini` và `engine=llm_context`, gộp
+    #: Nhận diện khung chữ + Đọc chữ (OCR) + Dịch ngữ cảnh thành 1 lượt gọi Gemini duy nhất.
+    #: Giảm một nửa thời gian chờ (~8s -> ~4s) và tiết kiệm ~45% chi phí token ảnh đầu vào.
+    gop_mot_luot_chi_chu: bool = True
+    # ---- M5: dịch ----
+    #: Engine chạy tự động sau inpaint. MẶC ĐỊNH google_fast (miễn phí) — không tự tiêu
+    #: token của người dùng khi họ chưa chọn. Đổi sang llm_context qua .env hoặc query param.
+    translate_default_engine: str = "google_fast"
+    #: Nhiều key ngăn cách bằng dấu phẩy, chỉ đọc từ .env — KHÔNG bao giờ lưu vào DB/git.
+    gemini_api_keys: str = ""
+    #: gemini-2.5-flash đã bị Google chặn với key mới (404 "no longer available to new users").
+    llm_model_name: str = "gemini-3.1-flash-lite"
+    #: 0 = TẮT thinking. Đo thật: không tắt thì 938 token suy nghĩ cho 6 dòng (đắt gấp ~7,7 lần).
+    llm_thinking_budget: int = 0
+    llm_temperature: float = 0.3
+    llm_max_output_tokens: int = 8192
+    #: E71 — `llm_context` gửi đoạn dạng JSON có `id` và ÉP đầu ra theo schema (giao thức theo id
+    #: lấy từ Koharu; bằng chứng ép schema: E46 45/45 vs 24/30). Tắt ⇒ dòng đánh số như trước E71.
+    llm_dich_json: bool = True
+
+    # ---- E72: LLM qua API kiểu OpenAI — máy chủ trên máy (Ollama / LM Studio / llama.cpp) ----
+    #: Ollama: http://host.docker.internal:11434/v1 · LM Studio: …:1234/v1 · llama.cpp: …:8080/v1
+    #: Cũng dùng được cho API CHÍNH THỨC kiểu OpenAI: https://api.openai.com/v1 + LOCAL_LLM_API_KEY.
+    local_llm_base_url: str = "http://host.docker.internal:11434/v1"
+    #: Tên model đúng như máy chủ cục bộ gọi nó (vd `qwen3:14b`, `gemma3:12b`). Rỗng ⇒ engine báo
+    #: lỗi rõ và lùi về google_fast — KHÔNG đoán một model mặc định.
+    local_llm_model: str = ""
+    local_llm_api_key: str = ""
+    local_llm_timeout_seconds: int = 300
+    local_llm_temperature: float = 0.2
+    local_llm_max_output_tokens: int = 4096
+    #: Model có thị giác (gemma3, qwen2.5-vl…) thì bật để gửi ảnh trang (E32). Tắt ⇒ chỉ gửi chữ.
+    local_llm_vision: bool = False
+
+    # ---- E73: ChatGPT kiểu Codex — CHỈ bản cài cục bộ (xem docstring `services/translate/codex.py`) ----
+    #: Bật = máy này là bản cài của MỘT người/nhóm nhỏ dùng tài khoản ChatGPT của chính họ. Tắt
+    #: (mặc định, và PHẢI tắt trên máy chủ dùng chung) ⇒ engine `chatgpt_codex` bị từ chối, API
+    #: đăng nhập trả 404.
+    che_do_cai_cuc_bo: bool = False
+    #: Tệp token (quyền 600, thư mục 700). Đặt trên volume RIÊNG, không nằm trong kho ảnh.
+    codex_auth_path: str = "/secrets/codex/auth.json"
+    #: Rỗng ⇒ lấy model đầu tiên tài khoản được dùng (theo danh sách máy chủ trả về).
+    codex_model: str = ""
+    codex_reasoning: str = "low"
+    codex_timeout_seconds: int = 300
+    codex_originator: str = "matbao-translation"
+
+
+    #: E32 — gửi kèm ẢNH TRANG cho mô hình dịch (`llm_context`).
+    #:
+    #: TẮT mặc định, và đó là quyết định có chủ đích: một ảnh tốn nhiều token hơn chữ RẤT nhiều,
+    #: còn `llm_context` chỉ tốn ~300 token/trang khi chỉ gửi chữ (đo 12-09). Bật mặc định là tự
+    #: nhân hoá đơn của người dùng trước khi ai kịp xem số.
+    #:
+    #: Vì sao đáng làm: mô hình hiện chỉ nhận **chữ do OCR đọc**, nên nó phải đoán khi chữ đọc sai
+    #: và không biết ai đang nói. Lỗi đọc đo được là thật: `どなどは` là rác, `足りなかったかかも`
+    #: nhân đôi ký tự, `Laughing Potions` thành `Luughing Fotlons`.
+    #: BẬT từ 14-09 — nhưng chỉ bật được VÌ có E34 đứng sau. Trước E34, bật cờ này là gửi ảnh cho
+    #: MỌI trang: 24 trang từ 9.600 lên 37.584 token. Với E34 (`e34_chi_trang_can_anh=True`) thì đo
+    #: được chỉ 5/24 trang cần ảnh ⇒ 15.430 token, tiết kiệm 22.154 so với gửi hết.
+    #:
+    #: Đặt `False` để tắt hẳn việc gửi ảnh.
+    e32_kem_anh_trang: bool = True
+
+    #: Cạnh dài nhất của ảnh gửi kèm, tính bằng pixel. Trang gốc 1200x1660 mà Gemini tính tiền
+    #: theo ô 768x768, nên thu nhỏ là cách trực tiếp nhất để chặn chi phí. 1024 giữ được chữ trong
+    #: bong bóng còn đọc được — nhỏ hơn nữa thì mô hình không đọc nổi chữ gốc, tức mất đúng cái lợi
+    #: mà việc gửi ảnh mang lại.
+    e32_anh_max_px: int = 1024
+
+    #: E34 — bật `e32_kem_anh_trang` thì CHỈ gửi ảnh cho trang có dấu hiệu cần, không gửi mọi
+    #: trang. Đây là mặc định có chủ đích: đo được ảnh tốn cố định +1166 token/trang, mà lợi ích
+    #: chỉ dồn vào trang bộ đọc chữ làm kém. Trả token cho trang đã đọc sạch là trả cho thứ không
+    #: đổi gì.
+    #:
+    #: Đặt `False` để gửi ảnh cho MỌI trang — chỉ nên dùng khi đang đo đối chứng, vì nó nhân chi
+    #: phí lên khoảng 4 lần (24 trang: 9.600 -> 37.584 token).
+    e34_chi_trang_can_anh: bool = True
+    #: LLM lỗi/hết quota -> tự lùi về google_fast, ghi status=fallback_used (không trả bản rỗng).
+    llm_fallback_to_google: bool = True
+    #: Timeout RIÊNG cho dịch, không dùng chung với detect/OCR/inpaint.
+    translate_timeout_seconds: int = 900
+    translate_auto_chain: bool = True
+    #: Ép hướng đọc (ltr/rtl). Rỗng = suy theo source_lang (ja -> rtl).
+    reading_direction_override: str = ""
+
+    # ---- M6: canh chữ vào bubble ----
+    #: Thư mục font, mount vào worker. API KHÔNG cần đọc (không nạp engine render).
+    font_dir: str = "/fonts"
+    #: Family mặc định khi Project chưa chọn. Phải nằm trong whitelist FONT_REGISTRY.
+    default_font_family: str = "Bangers"
+    #: Font hỏng/thiếu ⇒ lỗi rõ. Chỉ bật cái này khi CHẤP NHẬN bị đổi font âm thầm.
+    allow_font_fallback: bool = False
+    #: Không bao giờ co chữ nhỏ hơn min để giả vờ vừa khung — dưới min là overflow_warning.
+    typeset_min_font_size: int = 10
+    #: Spec đề xuất 28, nhưng ĐO THẬT trên trang 1400x2000: 5/6 vùng dừng đúng ở 28 ⇒ trần
+    #: đang chặn chứ không phải bubble. Nới lên 40 thì không vùng nào chạm trần (30-36) và
+    #: trên 40 không đổi gì nữa. Xem REPORT_M6 §3.
+    typeset_max_font_size: int = 40
+    typeset_padding_ratio: float = 0.09
+    typeset_line_spacing_ratio: float = 0.18
+    #: Viền chữ (0 = tắt). Bật lên thì phép đo cũng tính viền, không lệch.
+    typeset_stroke_width: int = 0
+    typeset_text_color: str = "black"
+    typeset_stroke_color: str = "white"
+    #: Timeout RIÊNG cho typeset — nay là năm timeout độc lập (có test canh).
+    typeset_timeout_seconds: int = 600
+    typeset_auto_chain: bool = True
+    # ---- M7: sửa tay từng vùng ----
+    #: Canh lại 1 vùng nhanh hơn cả trang nhiều (đo thật ~0,5s/trang) nên timeout ngắn hơn.
+    refit_timeout_seconds: int = 180
+    # ---- M8: xuất chapter ----
+    #: Timeout RIÊNG — nay là bảy timeout độc lập (có test canh). Đo thật rồi chỉnh, đừng copy
+    #: số của job khác: xuất chapter là nhiều trang nhân lên, không phải một trang.
+    export_timeout_seconds: int = 900
+    # ---- M9: chạy cả mẻ ----
+    batch_enabled: bool = True
+    #: Số trang chạy song song trong một mẻ. Để 1 vì worker hiện chạy concurrency=1 và bước
+    #: xoá chữ đã ngốn ~1,1GB RAM; nâng lên phải đo lại RAM trước.
+    batch_max_concurrent_pages: int = 1
+    batch_max_retries: int = 3
+    batch_retry_backoff_base_seconds: float = 2.0
+    batch_retry_backoff_max_seconds: float = 120.0
+    batch_retry_jitter: bool = True
+    #: Hạn mức gọi Gemini theo PROJECT (lượt/phút). <=0 = tắt cổng.
+    #: Đây là số dev; phải đo hạn mức thật của nhà cung cấp rồi mới chốt cho chạy thật.
+    llm_project_rpm: int = 10
+    llm_quota_mode: str = "redis_sliding_window"
+    #: Mục của mẻ ở trạng thái `running` lâu hơn ngần này coi như mồ côi (worker đã chết) và
+    #: được xếp lại. Phải LỚN HƠN bước chậm nhất — xoá chữ đo được 72s/trang, timeout 1800s.
+    batch_stale_item_seconds: float = 2400.0
+    # ---- E13: rà soát nhất quán thuật ngữ ----
+    #: Quét theo luật, không gọi mạng — nhanh, nhưng chapter dài vẫn cần timeout riêng.
+    consistency_scan_timeout_seconds: int = 600
+    #: E17 tầng 3 — một lượt hỏi mô hình cho tối đa 30 danh xưng. Ngắn hơn hẳn dịch cả
+    #: trang vì prompt nhỏ; quá ngưỡng này gần như luôn là nhà cung cấp treo chứ không
+    #: phải việc nặng.
+    term_suggestion_timeout_seconds: int = 120
+
+    # --- E18: dịch lại NGẮN HƠN cho vừa bong bóng ---
+    #
+    # Bong bóng manga vẽ vừa lượng chữ tiếng Nhật; bản dịch tiếng Việt dài gấp 2-3 lần là
+    # chuyện thường, và lúc đó không cách xếp chữ nào cứu được. Đo trên trang thật 04/09: bong
+    # bóng ~30 ký tự Nhật nhận bản dịch 105 ký tự, tràn kể cả sau khi đã nới khung hết cỡ.
+    e18_rut_gon_timeout_seconds: int = 180
+    #: Cỡ chữ dùng làm mốc đo sức chứa, tính theo vị trí giữa min và max.
+    #: 0 = lấy cỡ nhỏ nhất (sức chứa lớn nhất, chữ bé nhất) · 1 = lấy cỡ lớn nhất.
+    #:
+    #: 0,35 trên dải THẬT của bản chạy (10-40) cho ra cỡ 20. Ban đầu để 0,5 và đo được hậu quả
+    #: ngay ở lượt kiểm chứng đầu tiên: dải 10-40 thành cỡ 25, một bong bóng 120×53px chỉ còn
+    #: sức chứa **22 ký tự**, và model buộc phải bỏ luôn "cô gái tôi từng thích" — mất thông
+    #: tin, không còn là rút gọn. Đòi chữ to là đòi bản dịch ngắn; hai thứ đó đánh đổi nhau và
+    #: con số này là chỗ chọn điểm đánh đổi.
+    e18_co_chu_muc_tieu_ty_le: float = 0.35
+    #: Gợi ý bằng LLM là TÙY CHỌN và mặc định TẮT. Bật lên mới tốn token.
+    e13_llm_suggestions_enabled: bool = False
+    #: Trần số vùng gửi cho LLM một lần — chặn yêu cầu quá lớn thay vì âm thầm cắt bớt.
+    e13_llm_max_regions: int = 5
+
+    # ---- E14: vùng an toàn theo hình bong bóng ----
+    #: Bật/tắt cả tính năng. Tắt ⇒ mọi vùng dùng khung chữ nhật như M6, không có bản ghi nào.
+    e14_safe_area_enabled: bool = True
+    #: Nới ROI quanh bbox CHỮ để tìm bong bóng. Đo thật trên Pepper&Carrot: bong bóng lớn hơn
+    #: bbox chữ rất nhiều — để 1,2 thì 3/5 bong bóng thật bị cắt và bị loại oan (TEST_LOG §E14.2).
+    e14_roi_expand_ratio: float = 4.0
+    e14_roi_expand_max_px: int = 1400
+    #: Ngưỡng "sáng và nhạt màu". Nới lỏng hơn thì bong bóng DÍNH vào nền sáng của tranh —
+    #: đo được: thành phần phình to gấp 4–7 lần bbox (TEST_LOG §E14.2, lần thử 3).
+    e14_brightness_threshold: int = 200
+    e14_saturation_threshold: int = 60
+    #: Nhân hình thái và lề ăn vào bám theo CẠNH NGẮN CỦA BBOX, không theo ROI: ROI đổi mà nhân
+    #: đổi theo thì mỗi lần nới ROI là một thuật toán khác, kết quả nhảy không đơn điệu.
+    e14_morph_kernel_ratio: float = 0.06
+    e14_erosion_margin_ratio: float = 0.06
+    e14_erosion_margin_min_px: int = 3
+    e14_erosion_margin_max_px: int = 40
+    #: Ứng viên nhỏ hơn bbox chữ thì không thể là lòng bong bóng chứa chữ đó.
+    e14_min_bbox_coverage_ratio: float = 0.8
+    #: Chiếm gần hết ROI ⇒ nhiều khả năng là nền trang chứ không phải bong bóng.
+    e14_max_roi_coverage_ratio: float = 0.75
+    #: Chạm biên ROI bao nhiêu phần chu vi thì coi là hình bị cắt dở. Tiếp xúc nhỏ không tính.
+    e14_max_roi_touch_ratio: float = 0.02
+    e14_max_polygon_vertices: int = 64
+    e14_safe_area_min_pixels: int = 400
+    e14_safe_area_min_width_px: int = 24
+    e14_safe_area_min_height_px: int = 16
+
+    # --- A1: nới khung dự phòng ra chỗ trống quanh chữ ---
+    #
+    # Vì sao cần: ngưỡng sáng của E14 không tách được bong bóng TRẮNG trên trang cũng TRẮNG
+    # (manga đen trắng) — đo thật 04/09: 0/8 vùng dựng được hình. Khung dự phòng khi đó là cột
+    # chữ Nhật cao-hẹp, chữ Việt viết ngang nhét vào là tràn. Nới ra tới khi chạm nét mực thì
+    # lấy được gần trọn lòng bong bóng mà không cần tách được nó.
+    e14_grow_enabled: bool = True
+    #: Mỗi phía nới thêm tối đa ngần này lần cạnh bbox (1.5 = khung có thể rộng gấp ~4 lần).
+    e14_grow_max_ratio: float = 1.5
+    e14_grow_max_px: int = 400
+    e14_grow_step_px: int = 2
+    e14_grow_min_gain_ratio: float = 0.15
+
+    # ---- A2: cắt khung chữ về trong lòng bong bóng ----
+    #: MẶC ĐỊNH TẮT. Đổi hình học là đổi thứ người dùng nhìn thấy, và số đo hiện có chỉ đến từ
+    #: ảnh DỰNG — chưa có trang manga in thật có lưới chấm. Bật sau khi đo trên trang thật.
+    a2_cat_ve_bong_bong_enabled: bool = False
+    a2_cat_tran_ti_le_roi: float = 0.60
+    a2_cat_tran_boi_bbox: float = 40.0
+
+    # ---- E15: hướng chữ ----
+    e15_orientation_enabled: bool = True
+    #: Lệch bao nhiêu độ so với 0/90 thì vẫn coi là ngang/dọc.
+    e15_angle_tolerance_deg: float = 12.0
+    #: E16 — xoay chữ theo góc nghiêng đã đo, cho các vùng `rotated_horizontal`.
+    #:
+    #: E15 cố ý KHÔNG xoay ("v1 chỉ điều hướng rà soát"), vì lúc đó Run C có **0 mẫu nghiêng** nên
+    #: không có gì để kiểm. Lượt 24 trang của E23 cho **11 mẫu thật** (toàn SFX: Clang, CRACK!!,
+    #: Shklak!, PHRoooOwwoww!!!), nên nay kiểm được.
+    #:
+    #: Hai chỗ đã ĐO để không sai âm thầm: `rotation_degrees` là hướng-đường [0,180) vô hướng nên
+    #: phải quy về (-90,90] (8/11 góc thật nằm 149-167°, xoay thẳng là chữ lộn ngược); và chiều
+    #: xoay của PIL ngược dấu với con số đó (đo bằng vòng kín qua cv2). Xem `typeset/xoay.py`.
+    #:
+    #: Tắt cờ này thì bước căn chữ vẽ y như trước — không có nhánh nào đổi hành vi.
+    e16_xoay_chu_nghieng: bool = True
+    #: E26-B — KHÔNG chèn chữ lên vùng BAO (vùng chứa trọn >=2 vùng khác).
+    #:
+    #: Đo thật trên `en_E12P01` (2026-09-11): một vùng 285x228 chứa trọn hai vùng nhỏ và lặp lại
+    #: nội dung của chúng ⇒ cùng một câu bị vẽ hai lần chồng nhau. Chính vùng bao đọc sai nhiều
+    #: nhất (`Luughing Fotlons`) vì nó gộp năm nhãn vào một khối.
+    #:
+    #: KHÔNG xoá dữ liệu, KHÔNG bỏ cờ rà soát — chỉ bước VẼ bỏ qua. Đúng nguyên tắc của M2
+    #: (`mark_overlap_suspects`: "chỉ gắn cờ, không merge/xóa box nào") và E12 ("máy không được
+    #: kết luận một vùng là rác rồi tự bỏ").
+    e26_bo_qua_vung_bao: bool = True
+    #: E70 — đo màu chữ/viền của chữ GỐC từng vùng rồi vẽ chữ dịch đúng màu đó (cách đo từ Koharu,
+    #: `typeset/mau_chu.py`). Tắt ⇒ không đo, cột để NULL, mọi vùng dùng `typeset_text_color`/
+    #: `typeset_stroke_*` như trước E70.
+    e70_mau_chu_theo_vung: bool = True
+    #: E75 — vùng có đa giác bong bóng thì thử xếp chữ THEO HÌNH (dòng giữa rộng, dòng đầu/cuối hẹp);
+    #: chỉ nhận khi cho cỡ chữ LỚN HƠN khối chữ nhật. Tắt ⇒ y như trước E75.
+    e75_xep_theo_hinh: bool = True
+    #: E82 — sắp thứ tự đọc theo KHUNG TRANH (cắt XY theo rãnh trắng) trước, rồi mới tới vị trí trong
+    #: khung. Trang không cắt được khung ⇒ y như trước. Xem `translate/khung_tranh.py`.
+    e82_thu_tu_theo_khung: bool = True
+    #: E86 — kẹp ô đặt chữ trong khung tranh chứa nó (bong bóng chạm mép khung ⇒ A1 nới tràn ra lề).
+    e86_o_dat_trong_khung_tranh: bool = True
+    #: E26-C — vùng E12 đánh `possible_sfx` thì giữ nguyên chữ gốc, không dịch thành từ.
+    #:
+    #: Đo thật: `Clang` -> "Kêu vang", `Cling` -> "Bám vào", `Clong` -> "tiếng kêu". Dịch đúng từ
+    #: điển nhưng sai thể loại — đó là tiếng động, truyện tranh Việt thường giữ nguyên.
+    #:
+    #: CHỈ dựa vào cờ của E12 (bắt được 3/6 ca thật), KHÔNG tự suy thêm bằng luật chữ-ngắn /
+    #: nghiêng / ngoài-bong-bóng: một dương tính giả sẽ để THOẠI THẬT không được dịch, tức mất cả
+    #: câu — tệ hơn hẳn một SFX dịch sai. Nên cơ chế này cải thiện 3/6 và không phá ca nào.
+    e26_giu_nguyen_sfx: bool = True
+    e15_min_agreement_ratio: float = 0.75
+    #: Dựng chữ Việt theo cột. Mặc định TẮT và **phải giữ TẮT** cho tới khi chạy được Run B
+    #: trên ảnh chữ dọc có license rõ. Nhận ra hướng ≠ dựng được chữ theo hướng đó.
+    e15_vertical_render_enabled: bool = False
+
+    # ---- M4: inpaint (LaMa) ----
+    inpaint_weights_path: str = "/models/lama-manga-dynamic.onnx"
+    inpaint_device: str = "cpu"
+    #: Arena bộ nhớ CPU của ONNX Runtime cho LaMa — **mặc định TẮT**, và đây là một quyết định
+    #: có bằng chứng, không phải phòng xa. LaMa là model *dynamic shape* và chạy theo từng cụm
+    #: bong bóng, mỗi cụm một kích thước khác nhau. Arena cấp một khối cho MỖI shape mới và
+    #: KHÔNG trả lại ⇒ càng nhiều trang càng phình, tới lúc bị OOM killer giết.
+    #: Đo trên host 31/08: pilot 6 trang ⇒ worker `exit 137`, API tụt từ 3,4 ms xuống 10–42 s
+    #: rồi tắt tiếng. Bật lại chỉ khi có bằng chứng bộ nhớ đã đủ và cần thêm tốc độ.
+    inpaint_cpu_mem_arena: bool = False
+    #: Nới mask quanh bbox để không sót viền chữ. Trần cứng 15% ở tầng code (mask.MAX_DILATE_RATIO).
+    inpaint_dilate_ratio: float = 0.08
+    #: E69 — vùng chữ nằm trên nền một màu (bong bóng trắng…) được tô màu nền thay vì chạy LaMa.
+    #: Ý tưởng từ Koharu; mọi vùng không chắc phẳng vẫn chạy LaMa. Xem `inpaint/to_phang.py`.
+    inpaint_flat_fill: bool = True
+    #: E79 — engine nhận diện có mặt nạ điểm ảnh của chữ (CTD) thì xoá theo NÉT CHỮ trong khung, thay
+    #: vì cả khung chữ nhật. Gemini không có mặt nạ ⇒ không đổi gì. Xem `inpaint/mat_na_net.py`.
+    inpaint_theo_net_chu: bool = True
+    #: Nhân bán kính nở mặt nạ nét chữ so với Koharu. 2.0 đo được là đủ trùm viền đen dày của chữ
+    #: tiếng động; 1.0 để sót viền (REPORT_E79).
+    inpaint_net_chu_he_so_no: float = 2.0
+    #: E87 — chữ trên tranh (không bong bóng): chỉ xoá nét có viền trắng/đen thay vì cả khung.
+    inpaint_net_tren_tranh: bool = True
+    #: E74 — `lama` (CPU, mặc định) hoặc `khuech_tan` (SDXL/FLUX qua diffusers — CẦN GPU NVIDIA và
+    #: image worker GPU: `deploy/docker-compose.gpu.yml`). Không có GPU ⇒ lỗi rõ, KHÔNG lùi về LaMa.
+    inpaint_engine: Literal["lama", "khuech_tan"] = "lama"
+    #: Id model trên HuggingFace. Mặc định SDXL inpainting (CreativeML Open RAIL++-M). FLUX:
+    #: `black-forest-labs/FLUX.1-schnell` (Apache-2.0; đặt STEPS=4, GUIDANCE=0). FLUX.2-klein KHÔNG
+    #: dùng được (diffusers không có pipeline xoá vùng cho nó). FLUX.1-dev cấm dùng thương mại.
+    inpaint_kt_model: str = "diffusers/stable-diffusion-xl-1.0-inpainting-0.1"
+    inpaint_kt_device: str = "cuda"
+    inpaint_kt_steps: int = 20
+    inpaint_kt_strength: float = 0.99
+    inpaint_kt_guidance: float = 7.0
+    #: Cạnh dài tối đa của ô đưa vào model (SDXL huấn luyện quanh 1024).
+    inpaint_kt_max_side: int = 1024
+    #: Seed cố định ⇒ chạy lại cùng trang ra cùng ảnh (dễ so sánh, dễ báo lỗi).
+    inpaint_kt_seed: int = 0
+    inpaint_kt_cache_dir: str = "/model-cache/hf"
+    #: Timeout RIÊNG cho inpaint (đo thật: 54,3s/ảnh 1400x2000 trên CPU, chưa tính bước kiểm chứng).
+    inpaint_timeout_seconds: int = 600
+    inpaint_auto_chain: bool = True
+    #: Kiểm chứng khách quan: OCR lại đúng vùng đã xoá, còn chữ -> inpaint_needs_review.
+    inpaint_verify_by_ocr: bool = True
+    #: Cần ÍT NHẤT bao nhiêu ký tự chữ/số đọc lại được thì mới coi là "chưa xoá sạch".
+    #:
+    #: Vì sao không phải 1: đo cả 24 trang của lượt E23 — 168 vùng, 11 vùng bị gắn cờ, và **cả 11
+    #: đều chỉ ra ĐÚNG MỘT ký tự**: 'O' x4, 'X' x2, 'G', '1', 'C', 'è', và một '中' trên trang
+    #: TIẾNG ANH. Đó là hình OCR bịa ra từ nét cong/góc còn lại trên nền đã xoá (viền bong bóng,
+    #: khung panel), không phải chữ chưa xoá. Chữ thật còn sót trong bong bóng là một từ hoặc mảnh
+    #: từ, không phải một ký tự đơn.
+    #:
+    #: Hậu quả của ngưỡng 1: **7/24 trang (29%) bị gắn cờ cần rà soát** mà gần như toàn báo động
+    #: giả. Cờ báo sai nhiều thì người dùng học cách phớt lờ nó, và lần thật sự cần thì cũng bỏ
+    #: qua — hỏng luôn cả cơ chế.
+    #:
+    #: Đánh đổi đã cân: có thể BỎ SÓT một ký tự đơn còn sót thật. Thiệt hại đó nhỏ (một nét lạc
+    #: trên nền, và bước căn chữ sẽ vẽ chữ dịch đè lên chính vùng đó), nhỏ hơn hẳn cái giá của
+    #: việc làm người dùng mất niềm tin vào cờ rà soát. Đặt 1 để quay lại hành vi cũ.
+    #: Ngưỡng quyết định một vùng có đáng XOÁ CHỮ không. Xem `ocr.engines.vung_dang_xoa_chu`
+    #: — có bảng số đo đứng sau: vùng nhiễu được 0,38 điểm, mọi vùng chữ thật từ 0,96 trở lên.
+    #: Đặt 0 để tắt hẳn phép lọc (quay lại hành vi cũ: xoá MỌI vùng được khoanh).
+    vung_xoa_min_conf: float = 0.5
+    #: Chỉ dùng khi engine KHÔNG trả điểm tin cậy (manga-ocr). Vùng nhiễu đo được 1 ký tự,
+    #: vùng chữ thật ngắn nhất được 3.
+    vung_xoa_min_ky_tu: int = 2
+    inpaint_verify_min_chars: int = 2
+    #: E77 — tỉ lệ điểm "mực" tối thiểu trong vùng để TIN kết quả đọc lại. Dưới mức này vùng là trắng
+    #: trơn và chữ OCR đọc được là BỊA: manga-ocr nhìn ô trắng vẫn trả `そういえば、`. Đo 15-10-2026
+    #: trên 5 trang thật: vùng có chữ thật ≥ 0,084; vùng đọc bịa 0–0,011.
+    inpaint_verify_min_muc: float = 0.015
+    inpaint_intra_op_threads: int = 0
+    #: Trang bao nhiêu TRIỆU ĐIỂM ẢNH trở xuống thì xoá chữ cả trang một lượt; lớn hơn thì chia
+    #: theo cụm bong bóng. Đo thật: LaMa cần ~1,6 GB RAM cho mỗi triệu điểm ảnh, nên trang truyện
+    #: thật ở cỡ đọc (3,6 triệu điểm) chạy cả trang là bị hệ điều hành giết.
+    #:
+    #: **E41 — BẤT BIẾN: trần này KHÔNG được lớn hơn `inpaint_max_crop_mpx`.** Đường xoá cả
+    #: trang cũng đi qua `_kiem_tran_o_cat`, và nó nộp DIỆN TÍCH CẢ TRANG (`lama.py:275`). Nếu
+    #: trần trang > trần ô thì mọi trang nằm giữa hai số bị **từ chối thẳng** thay vì được chia
+    #: cụm — trang truyện cỡ đọc 1200x1800 (2,16 Mpx) sẽ hỏng hết. Hạ trần ô mà quên trần trang
+    #: là đúng cách làm chết tính năng, nên có test canh bất biến này.
+    inpaint_whole_page_max_mpx: float = 1.6
+    inpaint_tile_margin: int = 96
+    #: E23 — trần DIỆN TÍCH ô cắt (triệu điểm ảnh) mà bước xoá chữ dám chạy. Vượt thì tự báo
+    #: hỏng, thay vì để hệ điều hành giết worker và làm mồ côi mọi việc đang chạy.
+    #:
+    #: Vì sao là TRẦN DIỆN TÍCH chứ không phải công thức "x GB mỗi triệu điểm": đo `VmHWM` (đỉnh
+    #: thật) trên chính đường chạy theo cụm, container 4096MB (worker được ~3850MB):
+    #:
+    #:     ô cắt 0,80 Mpx -> đỉnh 1697 MB   (44% ngân sách)
+    #:     ô cắt 1,40 Mpx -> đỉnh 2076 MB   (54%)
+    #:     ô cắt 2,00 Mpx -> đỉnh 3367 MB   (87%)
+    #:     ô cắt 2,57 Mpx -> đỉnh 3368 MB   (87%)   <- gần như KHÔNG tăng so với 2,00
+    #:     ô cắt 2,60 Mpx -> đỉnh 3710 MB   (96%)   <- nhảy +342 MB chỉ vì thêm 0,03 Mpx
+    #:     ô cắt 3,20 Mpx -> BỊ GIẾT (oom_kill của cgroup tăng 111 -> 112)
+    #:
+    #: Đường cong CÓ BẬC, không trơn. Tỉ lệ GB/Mpx chạy từ 1,28 đến 2,07 tuỳ cỡ, nên **không**
+    #: hệ số tuyến tính nào — có hay không có hằng số chặn — mô tả được nó. Bản đầu của E23 dùng
+    #: 1,28 GB/Mpx, và 1,28 là tỉ lệ THẤP NHẤT trong cả loạt ⇒ nó đánh giá thấp nhu cầu ở mọi cỡ
+    #: khác và sẽ cho lọt đúng những trang làm chết worker. Một tham số đo trực tiếp trung thực
+    #: hơn hẳn một công thức bịa.
+    #:
+    #: 2,6 là ô lớn nhất ĐO ĐƯỢC là chạy xong — ở 96% ngân sách, tức gần như không còn biên an
+    #: toàn. Đã đề nghị nới RAM 4096 -> 5376MB (gói CÒN chỗ) để đưa 96% về ~71%; **người dùng chốt
+    #: GIỮ 4096MB (2026-09-11)**. Vậy trần này CHÍNH LÀ lớp bảo vệ duy nhất — đổi nó lên mà không
+    #: nới RAM là mở lại đúng đường làm chết worker.
+    #:
+    #: ## E41 (2026-09-14) — 96% KHÔNG đủ, hạ 2,6 -> 1,6
+    #:
+    #: Worker production bị SIGKILL/137 **hai lần** (`/healthz`: `so_lan_chet: 2`, đỉnh RSS
+    #: 1479 MB ở mốc `inpaint: trước`, log container 07:37:41Z `Killed ... celery`). Trần 2,6 đã
+    #: chặn đúng một ô 3,43 Mpx lúc 06:50, nhưng cái chết lúc 07:37 là việc **đã qua được trần**.
+    #: Người dùng chốt lại: KHÔNG nâng RAM (2026-09-14) -> chỉ còn đường hạ trần.
+    #:
+    #: Đo lại đường cong (máy đo của E23 đã MỤC từ lúc E23 đổi sang trần diện tích — ném
+    #: TypeError, nên từ đó tới nay chưa ai đo lại được lần nào; đã sửa):
+    #:
+    #:     ô cắt   E23 (cgroup 4096)   đo lại 14-09   lệch
+    #:     1,4 Mpx      2076 MB           2401 MB     +15,7%
+    #:     1,6 Mpx        --              2295 MB
+    #:     1,8 Mpx        --              2951 MB
+    #:     2,0 Mpx      3367 MB           2985 MB     -11,3%
+    #:     2,6 Mpx      3710 MB           3912 MB      +5,4%
+    #:
+    #: Lệch +16% / -11% / +5% ⇒ **nhiễu ±15% của allocator, KHÔNG phải độ lệch môi trường**, nên
+    #: không quy được số máy này về thang kia. Phải lấy giá trị XẤU NHẤT của cả hai loạt. Đường
+    #: cong cũng KHÔNG đơn điệu (1,6 tốn ít hơn 1,4) nên không nội suy được — đúng như E23 ghi.
+    #:
+    #: Điều hai máy đo nói GIỐNG nhau: ở 2,6 Mpx đỉnh là 3710-3912 MB, tức 96-102% ngân sách
+    #: worker (~3850 MB) — cộng API ~115 MB thường trú cùng container thì KHÔNG vừa. Đó là xác
+    #: nhận độc lập cho cái chết 137.
+    #:
+    #: Giá phải trả, đo trên 38 trang thật qua chính `gom_cum` (không phải chặn trên):
+    #:
+    #:     ô cắt lớn nhất thật:  2,70 Mpx (trang bạt) · 1,96 Mpx · rồi TỤT xuống <= 1,06 Mpx
+    #:     trần 1,4 / 1,6 / 1,8 -> 2/38 trang bị từ chối (5%)
+    #:     trần 2,0 / 2,6       -> 1/38 trang bị từ chối (3%)
+    #:
+    #: Khoảng 1,06 -> 1,96 RỖNG, nên mọi trần trong khoảng đó từ chối ĐÚNG cùng một tập trang.
+    #: Chọn **1,6**: xấu nhất trong vùng cho phép là 2401 MB = **62% ngân sách** (thay vì 96-102%),
+    #: cách mức thường thấy của trang thật (1,06) một khoảng 1,5x, và chỉ mất thêm ĐÚNG MỘT trang
+    #: trên 38 so với trần cũ. Trần 1,8 không mua thêm được trang nào mà đỉnh nhảy lên 2951 MB
+    #: (77%), nên 1,8 là lựa chọn kém hơn hẳn.
+    #:
+    #: 0 hoặc số âm = TẮT phép kiểm.
+    inpaint_max_crop_mpx: float = 1.6
+    #: Constraint 10 của M4: KHÔNG lặng lẽ lùi về cv2.inpaint khi LaMa lỗi.
+    #: Muốn cho phép fallback thì phải bật tường minh ở đây.
+    inpaint_allow_opencv_fallback: bool = False
+
+    #: paddlepaddle 3.3.1 vỡ ở nhánh oneDNN/PIR trên CPU này
+    #: (NotImplementedError: ConvertPirAttribute2RuntimeAttribute ... onednn_instruction.cc)
+    #: -> phải tắt oneDNN thì PaddleOCR mới chạy. Xem docs/TEST_LOG.md § M3.
+    ocr_paddle_enable_mkldnn: bool = False
+
+    #: Danh sách tên miền được phép gọi API, ngăn cách bằng dấu phẩy.
+    #: RỖNG = không cho phép gọi chéo nguồn. Cố ý không mặc định `*`.
+    cors_allow_origins: str = ""
+    app_env: str = "dev"
+    log_level: str = "INFO"
+
+    @property
+    def cors_allow_origin_list(self) -> list[str]:
+        ds = [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]
+        if ds:
+            for ten_mien_chinh in (
+                "https://comic.io.vn",
+                "https://www.comic.io.vn",
+                "http://comic.io.vn",
+                "http://www.comic.io.vn",
+                "https://translation.vibe1.tinhgon.xyz",
+            ):
+                if ten_mien_chinh not in ds:
+                    ds.append(ten_mien_chinh)
+        return ds
+
+    @property
+    def llm_configured(self) -> bool:
+        """Đã cấu hình khoá dịch chưa — CHỈ trả true/false.
+
+        Tầng API dùng cái này thay vì đọc danh sách khoá: mã phục vụ HTTP không có lý do gì
+        chạm tới khoá bí mật, và có guardrail quét mã canh đúng điều đó.
+        """
+        return bool(self.gemini_api_key_list)
+
+    @property
+    def gemini_api_key_list(self) -> list[str]:
+        """Tách chuỗi key thành list. Không log, không trả ra API."""
+        return [k.strip() for k in self.gemini_api_keys.split(",") if k.strip()]
+
+    @staticmethod
+    def _doi_driver(url: str, driver: str) -> str:
+        """Ép URL Postgres về đúng driver cần dùng, dù URL vào ở dạng nào.
+
+        Nền tảng hosting tiêm `DATABASE_URL` dạng `postgresql://user:pass@host/db` — KHÔNG có
+        driver. SQLAlchemy gặp dạng đó sẽ mặc định `psycopg2`, mà repo này cài `psycopg` (v3)
+        và `asyncpg`, nên nổ `ModuleNotFoundError: No module named 'psycopg2'` lúc khởi động.
+        Cũng nhận cả `postgres://` (kiểu Heroku cũ) mà SQLAlchemy không còn hiểu.
+        """
+        for tien_to in ("postgresql+asyncpg://", "postgresql+psycopg://", "postgresql+psycopg2://"):
+            if url.startswith(tien_to):
+                return f"postgresql+{driver}://" + url[len(tien_to):]
+        for tien_to in ("postgresql://", "postgres://"):
+            if url.startswith(tien_to):
+                return f"postgresql+{driver}://" + url[len(tien_to):]
+        return url
+
+    @property
+    def async_database_url(self) -> str:
+        """URL cho engine bất đồng bộ của API."""
+        return self._doi_driver(self.database_url, "asyncpg")
+
+    @property
+    def sync_database_url(self) -> str:
+        """URL driver đồng bộ cho Alembic + worker (suy ra từ database_url nếu không khai riêng)."""
+        if self.alembic_database_url:
+            return self._doi_driver(self.alembic_database_url, "psycopg")
+        return self._doi_driver(self.database_url, "psycopg")
+
+    @property
+    def max_upload_bytes(self) -> int:
+        return self.max_upload_mb * 1024 * 1024
+
+    @property
+    def archive_max_total_bytes(self) -> int:
+        return self.archive_max_total_mb * 1024 * 1024
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()

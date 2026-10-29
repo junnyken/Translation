@@ -1,0 +1,877 @@
+// Địa chỉ API, theo thứ tự ưu tiên:
+//   1. `window.__API_BASE__` — sinh lúc CHẠY (config.js), cách dùng khi deploy
+//   2. `VITE_API_BASE` — nhúng lúc build
+//   3. rỗng — gọi đường dẫn tương đối, đúng khi chạy máy nhà (vite proxy sang API)
+export const API_BASE =
+  (typeof window !== 'undefined' && window.__API_BASE__) || import.meta.env.VITE_API_BASE || ''
+const BASE = `${API_BASE}/api/v1`
+
+// ---------- Khoá truy cập (auth slice A) ----------
+//
+// Máy chủ có thể bật một khoá chung; khi bật, MỌI lời gọi `/api/v1` thiếu khoá sẽ bị 401.
+//
+// Đặt khoá vào bằng cách bọc `fetch` NGAY TẠI ĐÂY, rồi mọi lời gọi trong tệp này tự động mang
+// theo — thay vì sửa ~40 chỗ gọi và chắc chắn quên một chỗ. Hàm cục bộ tên `fetch` che hàm toàn
+// cục trong phạm vi module, nên các dòng bên dưới không phải đổi một chữ nào.
+//
+// Khoá nằm ở localStorage: đây là công cụ cá nhân, không có phiên đăng nhập. Nó KHÔNG phải hệ
+// thống tài khoản — ai cầm khoá là làm được mọi thứ.
+const KHOA_LUU = 'translation:khoa-truy-cap'
+
+export function docKhoa() {
+  try { return localStorage.getItem(KHOA_LUU) || '' } catch { return '' }
+}
+export function luuKhoa(khoa) {
+  try { localStorage.setItem(KHOA_LUU, khoa.trim()) } catch { /* trình duyệt chặn thì thôi */ }
+}
+export function xoaKhoa() {
+  try { localStorage.removeItem(KHOA_LUU) } catch { /* bỏ qua */ }
+}
+
+// ---------- Phiên đăng nhập (auth slice B) ----------
+//
+// Slice A là MỘT khoá chung cho cả hệ thống: ai cầm khoá là đọc/xoá được chapter của mọi
+// người. Slice B thay nó ở đường vào dữ liệu — mỗi người một tài khoản, mỗi chapter có chủ.
+//
+// Khoá chung KHÔNG biến mất, nhưng từ nay chỉ còn đúng một việc: gác cổng **đăng ký**, để
+// người lạ trên internet không tự tạo tài khoản trên hạ tầng của mình.
+const PHIEN_LUU = 'translation:ma-phien'
+const MA_KHACH_LUU = 'translation:ma-khach'
+
+export function docMaPhien() {
+  try { return localStorage.getItem(PHIEN_LUU) || '' } catch { return '' }
+}
+export function luuMaPhien(ma) {
+  try { localStorage.setItem(PHIEN_LUU, ma) } catch { /* trình duyệt chặn thì thôi */ }
+}
+export function xoaMaPhien() {
+  try { localStorage.removeItem(PHIEN_LUU) } catch { /* bỏ qua */ }
+}
+
+/** Mã định danh khách dự phòng khi giao diện chạy trên tên miền riêng (vd `https://comic.io.vn`)
+ *  gọi sang máy chủ API khác tên miền gốc (`translation-api.vibe1.tinhgon.xyz`), nơi trình duyệt
+ *  chặn cookie bên thứ ba (`SameSite=Lax`). */
+export function docMaKhach() {
+  try {
+    let ma = localStorage.getItem(MA_KHACH_LUU) || ''
+    if (ma.length < 16) {
+      const arr = new Uint8Array(18)
+      if (globalThis.crypto?.getRandomValues) {
+        globalThis.crypto.getRandomValues(arr)
+        ma = Array.from(arr, (b) => b.toString(16).padStart(2, '0')).join('')
+      } else {
+        ma = `khach_${Date.now()}_${Math.random().toString(36).slice(2, 14)}`
+      }
+      localStorage.setItem(MA_KHACH_LUU, ma)
+    }
+    return ma
+  } catch {
+    return ''
+  }
+}
+
+/** `fetch` có gắn mã phiên và khoá. Che hàm toàn cục CÓ CHỦ Ý — xem ghi chú ở trên.
+ *
+ * ## `credentials: 'include'` — vì sao BẮT BUỘC (E53)
+ *
+ * Giao diện và API nằm ở HAI tên miền khác nhau. Mặc định của `fetch` là `same-origin`, tức
+ * **không gửi cookie sang tên miền khác**. Với người đã đăng nhập thì không sao — mã phiên đi
+ * bằng header `Authorization`. Nhưng **khách lạ được nhận diện bằng COOKIE**, nên thiếu dòng này:
+ *
+ * * mỗi request là một "khách mới" ⇒ chốt cookie không bao giờ cộng dồn;
+ * * khách **không đọc lại được trang của chính mình** (`chu_khach` không khớp ⇒ 404).
+ *
+ * Nó chạy khi thử bằng `curl` vì ở đó cookie được gửi tay — đúng kiểu lỗi chỉ lộ ra trên trình
+ * duyệt thật.
+ *
+ * Đi kèm: máy chủ phải `allow_credentials=True` (xem `backend/app/main.py`). Hai đầu phải cùng
+ * bật, bật một đầu thì trình duyệt chặn và **không nói vì sao** ở chỗ dễ thấy.
+ */
+function fetch(url, opts = {}) {
+  const headers = { ...(opts.headers || {}) }
+  const khoa = docKhoa()
+  if (khoa) headers['X-API-Key'] = khoa
+  const ma = docMaPhien()
+  if (ma) headers.Authorization = `Bearer ${ma}`
+  const maKhach = docMaKhach()
+  if (maKhach) headers['X-Ma-Khach'] = maKhach
+  return globalThis.fetch(url, { credentials: 'include', ...opts, headers })
+}
+
+/** Chưa đăng nhập (hoặc phiên hết hạn) — giao diện phải hiện màn đăng nhập.
+ *
+ * Nhận CẢ `Error` LẪN chuỗi, cùng lý do đã ghi ở `laLoiThieuKhoa`: App lưu lỗi bằng
+ * `setLoi(e.message)`, tức truyền vào một CHUỖI.
+ */
+export function laLoiChuaDangNhap(e) {
+  const s = typeof e === 'string' ? e : e?.message
+  return typeof s === 'string' && s.startsWith('401')
+}
+
+export const coTaiKhoanChua = () =>
+  fetch(`${BASE}/auth/co-tai-khoan-chua`).then(doc)
+
+export const toiLaAi = () => fetch(`${BASE}/auth/me`).then(doc)
+
+export async function dangNhap(email, matKhau) {
+  const kq = await fetch(`${BASE}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, mat_khau: matKhau }),
+  }).then(doc)
+  luuMaPhien(kq.ma_phien)
+  return kq.nguoi_dung
+}
+
+export const layThachThucBot = () =>
+  fetch(`${BASE}/auth/thach-thuc-bot`).then(doc)
+
+/** Tạo tài khoản. Đòi khoá chung (`X-API-Key`) ở lượt đầu tiên hoặc xác thực chống Robot (`xacThucBot`). */
+export const dangKy = (email, tenHien, matKhau, xacThucBot = {}) =>
+  fetch(`${BASE}/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, ten_hien: tenHien, mat_khau: matKhau, ...xacThucBot }),
+  }).then(doc)
+
+export async function dangXuat() {
+  // Gọi máy chủ TRƯỚC rồi mới xoá mã: xoá trước thì lời gọi thu hồi mất mã để gửi đi, và
+  // phiên vẫn còn hiệu lực trên máy chủ tới lúc hết hạn.
+  try {
+    await fetch(`${BASE}/auth/logout`, { method: 'POST' })
+  } finally {
+    xoaMaPhien()
+  }
+}
+
+export const layDanhSachChapter = () => fetch(`${BASE}/projects`).then(doc)
+
+export const nhaChapter = (projectId) =>
+  fetch(`${BASE}/projects/${projectId}/release`, { method: 'POST' }).then(doc)
+
+export const layDanhSachNguoiDung = () => fetch(`${BASE}/auth/users`).then(doc)
+
+/** Đổi trạng thái tài khoản. Chỉ gửi trường thật sự muốn đổi —
+ *  gửi kèm trường khác sẽ ghi đè giá trị hiện tại của nó. */
+export const doiTrangThaiNguoiDung = (id, thayDoi) =>
+  fetch(`${BASE}/auth/users/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(thayDoi),
+  }).then(doc)
+
+/** E56 — người dùng tự sửa tài khoản CỦA MÌNH.
+ *
+ * Khác `doiTrangThaiNguoiDung` (đường của quản trị, có `{id}`): đường này KHÔNG có id, nên về
+ * cấu trúc đã không nhắm được vào ai khác.
+ *
+ * Trả `{ nguoi_dung, da_doi_mat_khau, so_phien_khac_da_thu_hoi }` — con số cuối để giao diện nói
+ * ra hệ quả, chứ không chỉ báo "đã lưu".
+ */
+export const suaTaiKhoanCuaToi = (thayDoi) =>
+  fetch(`${BASE}/auth/me`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(thayDoi),
+  }).then(doc)
+
+export async function xoaNguoiDung(id) {
+  const res = await fetch(`${BASE}/auth/users/${id}`, { method: 'DELETE' })
+  // 204 không có thân — gọi `doc()` sẽ ném lỗi phân tích JSON và biến việc xoá thành công
+  // thành một thông báo lỗi.
+  if (!res.ok) return doc(res)
+  return null
+}
+
+export const nhanChapter = (projectId) =>
+  fetch(`${BASE}/projects/${projectId}/claim`, { method: 'POST' }).then(doc)
+
+/** Thử một lời gọi THẬT để biết khoá có dùng được không.
+ *
+ * Dùng `batch-config`: là GET, không tham số, không đổi gì, và nằm sau cổng khoá — đúng ba tính
+ * chất cần có để kiểm khoá mà không gây tác dụng phụ nào.
+ */
+export const kiemKhoa = () => layCauHinhMe()   // một hiện thực duy nhất, xem bên dưới
+
+/** Máy chủ có đang đòi khoá không — dùng để giao diện biết lúc nào cần hỏi người dùng.
+ *
+ * Nhận CẢ `Error` LẪN chuỗi. Bản đầu chỉ đọc `e.message`, mà App lưu lỗi bằng `setLoi(e.message)`
+ * — tức truyền vào một CHUỖI. Hàm luôn trả `false`, ô nhập khoá không bao giờ hiện, và test thì
+ * vẫn xanh vì nó truyền `new Error(...)` chứ không truyền đúng thứ mã thật truyền.
+ */
+export function laLoiThieuKhoa(e) {
+  const s = typeof e === 'string' ? e : e?.message
+  return typeof s === 'string' && s.startsWith('401')
+}
+
+async function doc(res) {
+  if (!res.ok) {
+    let chiTiet = res.statusText
+    let coCauTruc = null
+    try {
+      const body = await res.json()
+      // E53 — `detail` có thể là OBJECT, không chỉ là chuỗi.
+      //
+      // Hạn mức (429) và trần đăng ký trả một object đủ thông tin để nói câu tử tế: còn bao
+      // nhiêu, bao giờ có lại, chốt nào chặn. Bản cũ nội suy thẳng vào chuỗi nên nó thành
+      // `[object Object]` — mất sạch, và giao diện chỉ còn cách nói "đã có lỗi".
+      //
+      // Nên: giữ nguyên hình dạng thông điệp CŨ cho `detail` dạng chuỗi (không phá chỗ nào đang
+      // đọc nó), còn object thì đính vào `.chiTiet` để bên gọi dùng, và lấy `thong_diep` làm
+      // câu hiển thị nếu máy chủ có gửi.
+      if (body && typeof body.detail === 'object' && body.detail !== null) {
+        coCauTruc = body.detail
+        chiTiet = body.detail.thong_diep ?? body.detail.loi ?? JSON.stringify(body.detail)
+      } else {
+        chiTiet = body.detail ?? JSON.stringify(body)
+      }
+    } catch {
+      /* body không phải JSON — giữ statusText */
+    }
+    const loi = new Error(`${res.status}: ${chiTiet}`)
+    loi.ma = res.status
+    loi.chiTiet = coCauTruc
+    // E56 — câu của máy chủ, KHÔNG có tiền tố mã trạng thái.
+    //
+    // `message` cố ý giữ nguyên hình dạng `"400: ..."` vì nhiều chỗ đang đọc nó (và
+    // `laLoiThieuKhoa` dò `startsWith('401')` trên chính chuỗi đó). Nhưng dán mã HTTP vào một ô
+    // nhập mật khẩu là bắt người dùng đọc thứ dành cho lập trình viên. Nên: thêm trường MỚI, để
+    // trường cũ nói đúng thứ nó vẫn nói.
+    loi.cauNguoiDoc = typeof chiTiet === 'string' ? chiTiet : String(chiTiet)
+    throw loi
+  }
+  return res.json()
+}
+
+export const taoProject = (thongTin) =>
+  fetch(`${BASE}/projects`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(thongTin),
+  }).then(doc)
+
+/** Tải 1 trang lên. Trả {page_id, job_id, status}.
+ *
+ * `engine` (ĐX-3) là lựa chọn engine dịch của người dùng cho đúng trang này —
+ * `'google_fast'` (miễn phí) hoặc `'llm_context'` (tốn token). Bỏ trống = mặc định hệ thống.
+ * Gửi đi thì backend ghi vào `Page.translate_engine_override`, và pipeline đầy đủ đọc lại
+ * đúng cột đó khi tới bước dịch.
+ */
+export const taiTrangLen = (projectId, file, engine = null) => {
+  const form = new FormData()
+  form.append('file', file)
+  if (engine) form.append('engine', engine)
+  return fetch(`${BASE}/projects/${projectId}/pages`, { method: 'POST', body: form }).then(doc)
+}
+
+/** ĐX-2 — tải CẢ GÓI `.zip`/`.cbz` lên. Trả {project_id, so_trang, bo_qua, trang:[…]}.
+ *
+ * `trang` đã sắp theo thứ tự đọc tự nhiên (`p2` trước `p10`) và mỗi mục mang `ten_trong_goi`
+ * để đối chiếu — sắp sai thứ tự là hỏng im lặng, file vẫn xuất ra bình thường.
+ * `bo_qua` là số mục trong gói không phải ảnh (metadata, gói lồng gói) đã bị bỏ qua.
+ */
+export const taiGoiLen = (projectId, file, engine = null) => {
+  const form = new FormData()
+  form.append('file', file)
+  if (engine) form.append('engine', engine)
+  return fetch(`${BASE}/projects/${projectId}/pages/archive`, {
+    method: 'POST',
+    body: form,
+  }).then(doc)
+}
+
+/** Phần mở rộng backend nhận làm GÓI (ĐX-2) — phân biệt với ảnh lẻ ở màn Dịch nhanh. */
+export const LA_GOI = /\.(zip|cbz|pdf)$/i
+export const laGoiNen = (file) => LA_GOI.test(file?.name || '')
+
+export const layProject = (id) => fetch(`${BASE}/projects/${id}`).then(doc)
+export const layChiTietTrang = (id) => fetch(`${BASE}/pages/${id}/detail`).then(doc)
+export const layJob = (id) => fetch(`${BASE}/jobs/${id}`).then(doc)
+
+// ---------- E21: ảnh gốc chưa xoá chữ, để đối chiếu khi gõ lại raw_text ----------
+//
+// `typeset-preview`/`clean-image` đều đã xoá chữ gốc (M4) — không dùng để đối chiếu OCR được.
+// Đường dẫn TRẦN (không tự tải): nơi gọi tự quyết định tải lúc nào (chỉ khi bấm "Phóng to"),
+// đúng chỗ đã ghi ở đầu file — `<img src>` không mang được mã phiên, phải qua `taiVeBlobUrl`.
+export const duongDanAnhGoc = (pageId) => `${BASE}/pages/${pageId}/original-image`
+// E76 — ảnh ĐÃ XOÁ CHỮ (chưa chèn chữ dịch), lớp "Đã xoá chữ" của màn canvas. Cũng phải tải qua `taiVeBlobUrl`.
+export const duongDanAnhSach = (pageId) => `${BASE}/pages/${pageId}/clean-image`
+// Ảnh thu nhỏ (JPEG cạnh dài ≤480px; ảnh đã dịch nếu có, không thì ảnh gốc). Cũng cần `taiVeBlobUrl`. 404 = trang hết ảnh.
+export const duongDanThumbnail = (pageId) => `${BASE}/pages/${pageId}/thumbnail`
+
+export const suaVung = (regionId, thayDoi) =>
+  fetch(`${BASE}/regions/${regionId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(thayDoi),
+  }).then(doc)
+
+export const dichLaiVung = (regionId) =>
+  fetch(`${BASE}/regions/${regionId}/re-translate`, { method: 'POST' }).then(doc)
+
+export const docLaiVung = (regionId) =>
+  fetch(`${BASE}/regions/${regionId}/re-ocr`, { method: 'POST' }).then(doc)
+
+export const canhLaiVung = (regionId) =>
+  fetch(`${BASE}/regions/${regionId}/re-fit`, { method: 'POST' }).then(doc)
+
+// E76 — cọ xoá chữ trên màn canvas. `blob` là mặt nạ PNG CÙNG CỠ ẢNH GỐC (điểm tô = trắng đục,
+// còn lại đen). Không tự đặt `Content-Type`: để trình duyệt tự sinh ranh giới multipart.
+export const xoaVungTo = (pageId, blob) => {
+  const f = new FormData()
+  f.append('file', blob, 'mat_na.png')
+  return fetch(`${BASE}/pages/${pageId}/xoa-vung-to`, { method: 'POST', body: f }).then(doc)
+}
+
+export const xemTruocXuat = (projectId) =>
+  fetch(`${BASE}/projects/${projectId}/export-preview`).then(doc)
+
+/** `format`: `cbz` | `zip` | `png_single` | `psd` (E78 — ZIP chứa mỗi trang một PSD nhiều lớp). */
+export const xuatChapter = (projectId, format) =>
+  fetch(`${BASE}/projects/${projectId}/export`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ format }),
+  }).then(doc)
+
+export const layJobXuat = (id) => fetch(`${BASE}/export-jobs/${id}`).then(doc)
+export const duongDanTaiVe = (id) => `${BASE}/export-jobs/${id}/download`
+
+// ---------- Ảnh và file: hai đường KHÔNG mang được mã phiên ----------
+//
+// `<img src>` và `<a href>` do trình duyệt tự tải, và **không có cách nào** gắn header
+// `Authorization` vào chúng. Từ slice B mọi endpoint `/api/v1` đòi mã phiên, nên ảnh trang và
+// file xuất cùng trả 401: màn sửa tay không có ảnh để nhìn, nút tải file không tải được gì.
+//
+// Đo trên bản chạy 04/09: `GET /pages/{id}/typeset-preview` không kèm mã ⇒ **401**; kèm mã ⇒
+// 200, 2,1MB PNG. Y hệt với `/export-jobs/{id}/download`.
+//
+// Cách sửa: tự tải bằng `fetch` (có mã phiên) rồi biến thành `blob:` URL cho trình duyệt dùng.
+// KHÔNG nhét mã phiên vào query string — nó sẽ nằm lại trong lịch sử duyệt, log máy chủ và
+// header `Referer`, tức là biến một mã còn hiệu lực 14 ngày thành thứ đọc trộm được.
+
+/** Tải một tài nguyên có khoá về thành `blob:` URL. Nhớ `URL.revokeObjectURL` khi thôi dùng. */
+export async function taiVeBlobUrl(url) {
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`${res.status}: không tải được ${url}`)
+  return URL.createObjectURL(await res.blob())
+}
+
+/** Tải file xuất về máy. Trả tên file đã lưu.
+ *
+ * Tên file lấy từ `Content-Disposition` của máy chủ; không có thì mới tự đặt — đặt bừa một cái
+ * tên đẹp rồi ghi đè tên thật là làm người dùng mất dấu file của chính họ.
+ */
+export async function taiFileXuatVe(jobId, format) {
+  const res = await fetch(`${BASE}/export-jobs/${jobId}/download`)
+  if (!res.ok) throw new Error(`${res.status}: không tải được file xuất`)
+  const cd = res.headers.get('Content-Disposition') || ''
+  const khop = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(cd)
+  // Không đọc được tên (CORS chưa mở `Content-Disposition`) ⇒ đuôi theo ĐÚNG định dạng đã chọn.
+  // Trước đây luôn `.cbz` ⇒ chọn ZIP mà tải về thành .cbz (người dùng báo 16-10-2026).
+  const duoi = format === 'cbz' ? 'cbz' : 'zip'
+  const ten = khop ? decodeURIComponent(khop[1]) : `chapter-${jobId}.${duoi}`
+  const url = URL.createObjectURL(await res.blob())
+  const a = document.createElement('a')
+  a.href = url
+  a.download = ten
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  // Thu hồi ngay là có trình duyệt huỷ luôn lượt tải đang chạy — chờ một nhịp.
+  setTimeout(() => URL.revokeObjectURL(url), 60000)
+  return ten
+}
+
+/** Chờ việc xuất chapter xong. Trả job cuối; ném lỗi nếu `failed`. */
+export async function choXuatXong(jobId, { soLanToiDa = 240, nhipMs = 1000, onTien } = {}) {
+  for (let i = 0; i < soLanToiDa; i++) {
+    const job = await layJobXuat(jobId)
+    onTien?.(job)
+    if (job.status === 'done') return job
+    if (job.status === 'failed') throw new Error(job.error_log || 'Xuất chapter bị lỗi')
+    await new Promise((r) => setTimeout(r, nhipMs))
+  }
+  throw new Error('Xuất chapter quá lâu, chưa xong')
+}
+
+/** Chờ job chạy xong. Trả job cuối; ném lỗi nếu job `failed`.
+ *
+ * Kiên nhẫn tới 10 phút chứ không phải 42 giây như trước: worker chạy MỘT việc một lúc, nên khi
+ * đang có mẻ hoặc chapter khác chạy thì việc của bạn phải xếp hàng. Đo thật ở E11: căn lại chữ
+ * mất **108 giây** vì đứng sau một chapter 3 trang — giao diện cũ bỏ cuộc ở giây 42 rồi báo
+ * "quá lâu, chưa xong", trong khi việc vẫn chạy và xong bình thường ngay sau đó.
+ *
+ * `onTien` để giao diện nói được đang chờ tới lượt hay đang chạy, thay vì đứng im.
+ */
+export async function choJobXong(jobId, { soLanToiDa = 600, nhipMs = 1000, onTien } = {}) {
+  for (let i = 0; i < soLanToiDa; i++) {
+    const job = await layJob(jobId)
+    onTien?.(job)
+    if (job.status === 'done') return job
+    if (job.status === 'failed') throw new Error(job.error_log || 'Việc chạy nền bị lỗi')
+    await new Promise((r) => setTimeout(r, nhipMs))
+  }
+  // Hết kiên nhẫn KHÔNG có nghĩa là hỏng — nói đúng như vậy.
+  const e = new Error(
+    'Việc vẫn đang chạy sau 10 phút. Máy chủ xử lý từng việc một nên có thể đang bận; '
+    + 'bạn tải lại trang sau ít phút để xem kết quả.',
+  )
+  e.vanDangChay = true
+  throw e
+}
+
+// ---------- M9: chạy cả chapter theo mẻ ----------
+
+/** Cấu hình mẻ (chỉ true/false + các con số, không có khoá bí mật). */
+export const layCauHinhMe = () => fetch(`${BASE}/batch-config`).then(doc)
+
+export const layDanhSachMe = (projectId) =>
+  fetch(`${BASE}/projects/${projectId}/batch-runs`).then(doc)
+
+export const taoMe = (projectId, { engine, pipeline = 'full_pipeline' }) =>
+  fetch(`${BASE}/projects/${projectId}/batch-runs`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ requested_pipeline: pipeline, translation_engine: engine }),
+  }).then(doc)
+
+export const layMe = (id) => fetch(`${BASE}/batch-runs/${id}`).then(doc)
+
+export const layMucCuaMe = (id) => fetch(`${BASE}/batch-runs/${id}/items?limit=500`).then(doc)
+
+/** Chạy lại các trang hỏng/bị chặn. `itemIds` bỏ trống = chạy lại tất cả. */
+export const chayLaiMe = (id, itemIds = null) =>
+  fetch(`${BASE}/batch-runs/${id}/resume`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(itemIds ? { item_ids: itemIds } : {}),
+  }).then(doc)
+
+export const huyMe = (id) => fetch(`${BASE}/batch-runs/${id}/cancel`, { method: 'POST' }).then(doc)
+
+// ---------- M10: khai báo mục đích & cảnh báo trước khi xuất ----------
+
+/** Số vùng còn lỗi + chapter này đã xác nhận bản quyền lần nào chưa. */
+export const layCanhBaoXuat = (projectId) =>
+  fetch(`${BASE}/projects/${projectId}/export-warnings`).then(doc)
+
+/** Ghi lại việc người dùng đã đọc cảnh báo. Máy chủ tự đếm lại số liệu, không nhận từ đây. */
+export const xacNhanXuat = (jobId, daTick) =>
+  fetch(`${BASE}/export-jobs/${jobId}/acknowledge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_acknowledged: daTick }),
+  }).then(doc)
+
+// ---------- E12: cổng chất lượng từng vùng ----------
+
+/** Đánh giá chất lượng từng vùng của một trang (kèm câu lý do tiếng Việt). */
+export const layChatLuongTrang = (pageId) => fetch(`${BASE}/pages/${pageId}/quality`).then(doc)
+
+export const layTomTatChatLuong = (projectId) =>
+  fetch(`${BASE}/projects/${projectId}/quality-summary`).then(doc)
+
+/** Ghi quyết định của NGƯỜI cho một vùng: `keep` giữ để dịch, `skip` bỏ qua.
+ *  `skip` KHÔNG xoá dữ liệu — chỉ ghi lại quyết định. */
+export const ghiQuyetDinhVung = (regionId, decision) =>
+  fetch(`${BASE}/regions/${regionId}/quality-review`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ decision }),
+  }).then(doc)
+
+// ---------- E13: thuật ngữ & rà soát nhất quán ----------
+
+export const layThuatNgu = (projectId, loc = '') =>
+  fetch(`${BASE}/projects/${projectId}/glossary${loc}`).then(doc)
+
+export const themThuatNgu = (projectId, du_lieu) =>
+  fetch(`${BASE}/projects/${projectId}/glossary`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(du_lieu),
+  }).then(doc)
+
+export const suaThuatNgu = (entryId, du_lieu) =>
+  fetch(`${BASE}/glossary/${entryId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(du_lieu),
+  }).then(doc)
+
+export const duyetThuatNgu = (entryId) =>
+  fetch(`${BASE}/glossary/${entryId}/approve`, { method: 'POST' }).then(doc)
+
+export const catThuatNgu = (entryId) =>
+  fetch(`${BASE}/glossary/${entryId}/archive`, { method: 'POST' }).then(doc)
+
+export const layHoSoGiong = (projectId) =>
+  fetch(`${BASE}/projects/${projectId}/voice-profiles`).then(doc)
+
+export const themHoSoGiong = (projectId, du_lieu) =>
+  fetch(`${BASE}/projects/${projectId}/voice-profiles`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(du_lieu),
+  }).then(doc)
+
+export const batHoSoGiong = (profileId) =>
+  fetch(`${BASE}/voice-profiles/${profileId}/activate`, { method: 'POST' }).then(doc)
+
+export const catHoSoGiong = (profileId) =>
+  fetch(`${BASE}/voice-profiles/${profileId}/archive`, { method: 'POST' }).then(doc)
+
+// ---------- E17: gợi ý thuật ngữ & xưng hô rút từ chính chapter ----------
+
+/** Danh xưng lặp lại trong chapter, kèm bằng chứng. Chỉ đọc — không tạo thuật ngữ nào. */
+export const layUngVienThuatNgu = (projectId) =>
+  fetch(`${BASE}/projects/${projectId}/term-candidates`).then(doc)
+
+/** Tín hiệu xưng hô CÓ THẬT trong bản gốc (hậu tố kính ngữ, đại từ nhân xưng). */
+export const layTinHieuXungHo = (projectId) =>
+  fetch(`${BASE}/projects/${projectId}/voice-signals`).then(doc)
+
+/** Tầng 3 — hỏi mô hình cách dịch cho danh xưng đã tìm được. Trả 202 + lượt hỏi để theo dõi. */
+/** E17 tầng 3b — đối chiếu danh xưng CỦA CHAPTER với CSDL nhân vật AniList.
+ *
+ * Khác tầng 3a ở chỗ căn bản: 3a hỏi MÔ HÌNH (luôn trả lời kể cả khi không biết), 3b tra một
+ * CSDL có thật. Nhưng cả hai chịu chung một cổng: thứ trả về không khớp danh xưng của chapter
+ * thì bị loại.
+ */
+export const doiChieuTenChinhThuc = (projectId, ten_bo_truyen) =>
+  fetch(`${BASE}/projects/${projectId}/term-official-names`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ten_bo_truyen }),
+  }).then(doc)
+
+export const xinGoiYTheoTenTruyen = (projectId, series_name) =>
+  fetch(`${BASE}/projects/${projectId}/term-suggestions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ series_name }),
+  }).then(doc)
+
+/** `suggestions === null` là CHƯA XONG; `[]` là xong mà không mục nào qua cổng đối chiếu. */
+export const layKetQuaGoiY = (runId) =>
+  fetch(`${BASE}/term-suggestion-runs/${runId}`).then(doc)
+
+export const quetNhatQuan = (projectId) =>
+  fetch(`${BASE}/projects/${projectId}/consistency-scans`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode: 'rules' }),
+  }).then(doc)
+
+export const tomTatNhatQuan = (projectId) =>
+  fetch(`${BASE}/projects/${projectId}/consistency-summary`).then(doc)
+
+export const layViecNhatQuan = (projectId, loc = '') =>
+  fetch(`${BASE}/projects/${projectId}/consistency-tasks${loc}`).then(doc)
+
+export const apViecNhatQuan = (taskId, edited_text) =>
+  fetch(`${BASE}/consistency-tasks/${taskId}/accept`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ edited_text: edited_text ?? null }),
+  }).then(doc)
+
+export const boQuaViecNhatQuan = (taskId, resolution) =>
+  fetch(`${BASE}/consistency-tasks/${taskId}/reject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ resolution }),
+  }).then(doc)
+
+
+// ---------- E14: vùng an toàn của bong bóng ----------
+
+/** Vùng an toàn của từng vùng chữ trên một trang, gom thành `{region_id: bản ghi}`.
+ *
+ * Vùng chưa tính trả 404 — đó KHÔNG phải lỗi, chỉ là chưa có, nên bỏ qua. Nhưng chỉ bỏ qua
+ * ĐÚNG 404: mọi lỗi khác phải ném ra, nếu không thì hỏng đường mạng cũng hiện y như "chưa tính"
+ * và không ai biết. (Bản đầu bắt hết mọi lỗi — và nuốt luôn một `ReferenceError` của chính nó.)
+ */
+export async function layVungAnToan(regionIds) {
+  const cap = await Promise.all(regionIds.map(async (id) => {
+    const res = await fetch(`${BASE}/regions/${id}/safe-area`)
+    if (res.status === 404) return [id, null]
+    return [id, await doc(res)]
+  }))
+  return Object.fromEntries(cap.filter(([, v]) => v))
+}
+
+export const tomTatVungAnToan = (pageId) => fetch(`${BASE}/pages/${pageId}/safe-area-summary`).then(doc)
+export const tinhLaiVungAnToan = (pageId) =>
+  fetch(`${BASE}/pages/${pageId}/retry-safe-area`, { method: 'POST' }).then(doc)
+
+/** E18 — dịch lại NGẮN HƠN những vùng đang tràn khung, rồi căn chữ lại. */
+export const rutGonChoVuaKhung = (pageId) =>
+  fetch(`${BASE}/pages/${pageId}/fit-translation`, { method: 'POST' }).then(doc)
+
+// ---------- E15: hướng chữ ----------
+
+/** Lấy hướng chữ của nhiều vùng cùng lúc.
+ *
+ * Backend cố ý trả **404** cho vùng chưa phân tích thay vì `unknown` giả — nên ở đây 404 được
+ * dịch thành `null` ("chưa kiểm"), khác hẳn `orientation: 'unknown'` ("kiểm rồi, không đủ
+ * bằng chứng"). Giao diện phải nói được hai thứ đó khác nhau.
+ */
+export async function layHuongChu(regionIds) {
+  const cap = await Promise.all(regionIds.map(async (id) => {
+    const res = await fetch(`${BASE}/regions/${id}/orientation`)
+    if (res.status === 404) return [id, null]
+    // Chỉ nuốt ĐÚNG 404. Nuốt cả lỗi mạng thì "API chết" hiện y hệt "chưa kiểm" — đúng cái bẫy
+    // mà `layVungAnToan` của E14 đã dính một lần rồi.
+    return [id, await doc(res)]
+  }))
+  return Object.fromEntries(cap)
+}
+
+export const tomTatHuongChu = (pageId) =>
+  fetch(`${BASE}/pages/${pageId}/orientation-summary`).then(doc)
+
+export const chayLaiHuongChu = (pageId) =>
+  fetch(`${BASE}/pages/${pageId}/retry-orientation`, { method: 'POST' }).then(doc)
+
+// ---------- P3j: vì sao trang này đứng im ----------
+
+/** Lịch sử job của một trang, mới nhất trước.
+ *
+ * Gọi KHI NGƯỜI DÙNG HỎI, không đưa vào vòng poll: màn chapter đã hỏi lại 7 endpoint mỗi 5 giây,
+ * thêm một lượt cho mỗi trang nữa là nhân số request lên theo số trang để phục vụ một câu hỏi mà
+ * phần lớn thời gian không ai đặt.
+ */
+export function layJobCuaTrang(pageId) {
+  return fetch(`${BASE}/pages/${pageId}/jobs`).then(doc)
+}
+
+/** Việc hỏng mới nhất của MỌI trang trong chapter — một lời gọi, không hỏi từng trang (F1). */
+export const layViecHongCuaChapter = (projectId) =>
+  fetch(`${BASE}/projects/${projectId}/failed-jobs`).then(doc)
+
+/** Job giải thích được vì sao trang đứng im, hoặc `null` nếu không có gì để nói.
+ *
+ * Trả về nguyên bản ghi chứ không chỉ chuỗi lý do — bên gọi còn cần `type` để nói cho người dùng
+ * biết BƯỚC NÀO hỏng, không chỉ "có gì đó hỏng".
+ *
+ * Ưu tiên job đã `failed` (lý do CHẮC CHẮN, đã ghi vào CSDL). Không có mới xét tới job còn treo
+ * `running` mà máy chủ đánh giá là `worker_interrupted` (E22) — worker nhiều khả năng đã chết
+ * giữa chừng nhưng chưa tới lượt dọn dẹp. Thứ tự này quan trọng: một lý do đã chốt luôn đáng tin
+ * hơn một suy luận theo nhịp tim.
+ */
+export async function layLyDoDung(pageId) {
+  const js = await layJobCuaTrang(pageId)
+  return js.find((j) => j.status === 'failed')
+    ?? js.find((j) => j.processing_state === 'worker_interrupted')
+    ?? null
+}
+
+// ── E53: trang chủ — hạn mức, dịch nhanh, ảnh đã dịch ─────────────────────────────────────
+
+/** Hạn mức hôm nay của người đang gọi. **Khách lạ gọi được** — không cần đăng nhập.
+ *
+ * ⚠️ `con_lai` KHÔNG bằng `tran - da_dung`: nó là NHỎ NHẤT trong các chốt. Khách ở văn phòng đã
+ * chạm trần IP thì `con_lai = 0` dù chốt cookie còn nguyên. Hiện `tran - da_dung` lên là mời
+ * người ta thả tệp rồi nhận 429.
+ */
+export const layHanMuc = () => fetch(`${BASE}/han-muc`).then(doc)
+
+/** E100 — Thông tin gói nạp lượt & mã chuyển khoản VietQR. */
+export const layThongTinNapLuot = () => fetch(`${BASE}/nap-luot/thong-tin`).then(doc)
+
+/** E100 — Quản trị viên cấp trực tiếp lượt mua thêm hoặc đặt trần VIP hằng ngày cho tài khoản. */
+export const quanTriCapLuot = ({
+  email = '',
+  congThemLuot = 0,
+  tranHangNgayRieng = null,
+  nganHangTen = undefined,
+  nganHangSoTk = undefined,
+  nganHangChuTk = undefined,
+}) => {
+  const payload = {
+    email,
+    cong_them_luot: Number(congThemLuot) || 0,
+    tran_hang_ngay_rieng:
+      tranHangNgayRieng === '' || tranHangNgayRieng === null ? null : Number(tranHangNgayRieng),
+  }
+  if (nganHangTen !== undefined) payload.ngan_hang_ten = nganHangTen
+  if (nganHangSoTk !== undefined) payload.ngan_hang_so_tk = nganHangSoTk
+  if (nganHangChuTk !== undefined) payload.ngan_hang_chu_tk = nganHangChuTk
+  return fetch(`${BASE}/quan-tri/cap-luot`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).then(doc)
+}
+
+/** E107 — Lấy thống kê tổng hợp hệ thống & chi tiết hạn mức từng người dùng cho Dashboard Quản trị. */
+export const layThongKeQuanTri = () => fetch(`${BASE}/quan-tri/thong-ke`).then(doc)
+
+/** Đường dẫn tải trực tiếp gói Tiện ích Chrome (.zip) và App Windows (.zip). */
+export const urlTaiTienIchChrome = () => '/tai-ve/dich-truyen-chrome-extension-v0.3.0.zip'
+export const urlTaiAppWindows = () => '/tai-ve/App-Windows-Dich-Truyen-Tu-Dong-v1.0.zip'
+
+/** Chốt nào đang chặn, hoặc `null` nếu còn lượt.
+ *
+ * Cần biết để nói ĐÚNG câu: `khach_ip` nghĩa là **địa chỉ mạng dùng chung** đã hết lượt, không
+ * phải "bạn đã hết lượt" — người chưa dùng lượt nào mà bị chặn không thể tự đoán ra.
+ */
+export function chotDangChan(hanMuc) {
+  if (!hanMuc || hanMuc.con_lai > 0) return null
+  return (hanMuc.chot || []).find((c) => c.con_lai <= 0) || null
+}
+
+/** Gửi MỘT trang để dịch. `cheDo='day_du'` ⇒ có ảnh đã dịch tải về được.
+ *
+ * Mặc định của máy chủ là `chi_chu` (chỉ trả toạ độ + chữ cho tiện ích phủ lên ảnh gốc), nên
+ * trang chủ PHẢI gửi `day_du` tường minh — thiếu nó thì không có ảnh nào để tải.
+ */
+/** E57 — gửi MỘT ảnh để máy đọc thử và đoán ngôn ngữ. Trả 202 + `{ id }`, hỏi lại bằng
+ * `layNhanDangNgonNgu`.
+ *
+ * Bộ đếm RIÊNG, không trừ hạn mức trang — xem `POST /nhan-dang-ngon-ngu` ở docs/API.md.
+ */
+export const guiNhanDangNgonNgu = (file) => {
+  const form = new FormData()
+  form.append('file', file)
+  return fetch(`${BASE}/nhan-dang-ngon-ngu`, { method: 'POST', body: form }).then(doc)
+}
+
+/** Kết quả một lượt đọc thử.
+ *
+ * ⚠️ Đọc trường `xong`, **đừng tự suy từ `trang_thai`**. Và `ngon_ngu === null` KHÔNG phải lỗi:
+ * nó nghĩa là máy đã đọc xong mà không đủ căn cứ — lúc đó phải để người dùng tự chọn.
+ */
+export const layNhanDangNgonNgu = (id) => fetch(`${BASE}/nhan-dang-ngon-ngu/${id}`).then(doc)
+
+export const guiTrangDichNhanh = (
+  file,
+  {
+    sourceLang = 'ja',
+    targetLang = 'vi',
+    cheDo = 'day_du',
+    engine = null,
+    fontStyle = null,
+    tuDienRieng = null,
+  } = {},
+) => {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('source_lang', sourceLang)
+  form.append('target_lang', targetLang)
+  form.append('che_do', cheDo)
+  // E67 — `engine` KHÔNG mặc định ở đây. Máy chủ mặc định `google_fast` (miễn phí), và E58 đã
+  // chốt rằng lựa chọn đó phải được LƯU chứ không để `NULL` — để trang chủ không âm thầm thừa
+  // hưởng bất kỳ mặc định hệ thống nào, kể cả engine trả tiền.
+  if (engine) form.append('engine', engine)
+  if (fontStyle) form.append('font_style', fontStyle)
+  if (tuDienRieng && tuDienRieng.trim()) form.append('tu_dien_rieng', tuDienRieng.trim())
+  return fetch(`${BASE}/doc-truyen/trang`, { method: 'POST', body: form }).then(doc)
+}
+
+/** E99 — gửi gói `.zip` / `.cbz` / `.pdf` từ trang chủ. Trả `{ project_id, so_trang, bo_qua, trang }`. */
+export const guiGoiDichNhanh = (
+  file,
+  {
+    sourceLang = 'ja',
+    targetLang = 'vi',
+    cheDo = 'day_du',
+    engine = null,
+    fontStyle = null,
+    tuDienRieng = null,
+  } = {},
+) => {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('source_lang', sourceLang)
+  form.append('target_lang', targetLang)
+  form.append('che_do', cheDo)
+  if (engine) form.append('engine', engine)
+  if (fontStyle) form.append('font_style', fontStyle)
+  if (tuDienRieng && tuDienRieng.trim()) form.append('tu_dien_rieng', tuDienRieng.trim())
+  return fetch(`${BASE}/doc-truyen/goi`, { method: 'POST', body: form }).then(doc)
+}
+
+/** Tiến độ + kết quả một trang.
+ *
+ * ⚠️ Đọc trường `xong`, **đừng tự suy từ `trang_thai`**: `translated` là ĐÍCH của chế độ
+ * `chi_chu` nhưng là GIỮA ĐƯỜNG của `day_du` (lúc đó chưa căn chữ, chưa có ảnh). Máy chủ đã
+ * tính đúng theo chế độ của chapter.
+ */
+export const layTrangDichNhanh = (pageId) =>
+  fetch(`${BASE}/doc-truyen/trang/${pageId}`).then(doc)
+
+/** URL ảnh ĐÃ DỊCH của một trang. Chỉ có ở chế độ `day_du`.
+ *  Đính kèm `?ma_khach=...` để thẻ `<img>` trên tên miền `https://comic.io.vn` tải được ảnh
+ *  ngay cả khi trình duyệt chặn cookie chéo tên miền gốc. */
+export const urlAnhDaDich = (pageId) => {
+  const mk = docMaKhach()
+  return `${BASE}/doc-truyen/trang/${pageId}/anh${mk ? `?ma_khach=${encodeURIComponent(mk)}` : ''}`
+}
+
+/** URL ảnh GỐC của một trang dịch nhanh (khi tải lên gói ZIP/CBZ/PDF ở trang chủ). */
+export const urlAnhGocDichNhanh = (pageId) => {
+  const mk = docMaKhach()
+  return `${BASE}/doc-truyen/trang/${pageId}/anh-goc${mk ? `?ma_khach=${encodeURIComponent(mk)}` : ''}`
+}
+
+/** Xin gói cả chapter thành MỘT tệp. Trả `{job_id, …}`.
+ *
+ * §3.3 đặc tả: tải 24 tệp rời là 24 lần bị trình duyệt hỏi, gần như chắc chắn bị chặn.
+ */
+export const xuatChapterDichNhanh = (projectId, format = 'cbz') =>
+  fetch(`${BASE}/projects/${projectId}/export`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ format }),
+  }).then(doc)
+
+// ---------- E73 — engine dịch bằng tài khoản ChatGPT của người cài (chỉ bản cài cục bộ) ----------
+
+/** `/healthz` nằm NGOÀI `/api/v1` và không cần đăng nhập. Có thêm `codex: {bat, da_dang_nhap}`. */
+export const layHealthz = () => fetch(`${API_BASE}/healthz`).then(doc)
+
+/** Chỉ quản trị, và chỉ khi `codex.bat` — ngược lại máy chủ trả 404. */
+export const layTrangThaiCodex = () => fetch(`${BASE}/codex`).then(doc)
+
+/** Trả `{ma, link, het_han_giay}`: người dùng mở `link` rồi gõ `ma`. */
+export const batDauDangNhapCodex = () =>
+  fetch(`${BASE}/codex/dang-nhap`, { method: 'POST' }).then(doc)
+
+/** Trả `{trang_thai}`: cho_xac_nhan | da_dang_nhap | het_han | chua_bat_dau. Lỗi mạng tới OpenAI ⇒ 502. */
+export const hoiDangNhapCodex = () =>
+  fetch(`${BASE}/codex/dang-nhap/hoi`, { method: 'POST' }).then(doc)
+
+/** Đăng xuất: xoá token khỏi máy. Máy chủ trả 204 (không có body để `doc` đọc). */
+export async function dangXuatCodex() {
+  const res = await fetch(`${BASE}/codex`, { method: 'DELETE' })
+  if (!res.ok) await doc(res)
+}
+
+// ---------- Developer API Key (Cổng API cho Tool & Website khách hàng kéo về) ----------
+
+export const xemTrangThaiApiKey = () => fetch(`${BASE}/auth/api-key`).then(doc)
+
+export const taoMoiApiKey = () =>
+  fetch(`${BASE}/auth/api-key`, { method: 'POST' }).then(doc)
+
+export const thuHoiApiKey = () =>
+  fetch(`${BASE}/auth/api-key`, { method: 'DELETE' }).then(doc)
+
+// ---------- Ghi nhận & xác nhận gói chuyển khoản ACB 20260457 ----------
+
+export const xacNhanChuyenKhoanGoi = (body) =>
+  fetch(`${BASE}/nap-luot/xac-nhan-chuyen-khoan`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).then(doc)
+
+export const quanTriDuyetDonNap = (body) =>
+  fetch(`${BASE}/quan-tri/duyet-don-nap`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).then(doc)

@@ -1,0 +1,929 @@
+# FEATURES.md — Translation
+
+Tool dịch manga **EN/JP/CN → Tiếng Việt**: tự nhận diện khung chữ (bubble/box), xóa chữ gốc,
+dịch theo mạch văn, tự canh cỡ chữ cho vừa khung, cho sửa tay rồi xuất chapter.
+
+> Quy ước đọc bảng: **LIVE** = đã chạy thật và verify · **BUILT** = có code, chưa verify thật ·
+> **CHƯA** = chưa làm (thuộc mini-spec ghi kèm). Không đánh dấu LIVE nếu chưa chạy thật một lần.
+
+## Trạng thái theo mini-spec
+
+| ID | Tính năng | Trạng thái |
+|---|---|---|
+| M1 | Data model 7 bảng + migration 2 chiều + API contract `/api/v1` + interface 5 engine | **LIVE** |
+| M2 | Nhận diện khung chữ (comic-text-detector) → `TextRegion` + confidence | **LIVE** (đo trên ảnh tổng hợp; ảnh manga thật chưa đo — xem TEST_LOG) |
+| M3 | OCR theo ngôn ngữ nguồn (manga-ocr cho `ja`, PaddleOCR cho `zh`/`en`) | **LIVE** (đo trên ảnh tổng hợp — provisional, xem TEST_LOG) |
+| M4 | Xoá chữ gốc bằng LaMa → ảnh clean (giữ nguyên ảnh gốc) | **LIVE** (đo trên ảnh tổng hợp — provisional, xem TEST_LOG) |
+| M5 | Dịch 2 đường: `google_fast` (miễn phí) và `llm_context` (giữ mạch văn cả trang) + reading order | **LIVE** (đo trên ảnh tổng hợp thoại tiếng Anh; manga thật + tiếng Nhật chưa đo — xem TEST_LOG) |
+| M6 | Tự tính cỡ chữ + xuống dòng cho vừa bubble (đo font-metrics thật) | **LIVE** (đo trên ảnh tổng hợp; manga thật chưa đo — xem TEST_LOG) |
+| M7 | Màn sửa tay: sửa bản dịch, kéo lại khung, đổi font/size | **LIVE** (thao tác thật trên trình duyệt; xem TEST_LOG) |
+| M8 | Xuất chapter PNG/CBZ/ZIP + lưu/mở lại project | **LIVE** (xuất thật 10/12 trang ep39 EN 14-09). Người dùng tải `.cbz` về **không mở được trên Windows** → E40 nói thẳng điều đó và thêm một cú bấm "Xuất lại bằng ZIP". Vẫn **chưa mở bằng app đọc truyện thật lần nào** |
+| M9 | Chạy **cả chapter bằng một mẻ**: tiến độ thật, thử lại lỗi tạm thời, cổng hạn mức, chạy lại trang hỏng | **LIVE** (4 Run bắt buộc trên truyện thật; giao diện chưa bấm tay — xem TEST_LOG §M9) |
+| E13 | Chốt cách dịch thuật ngữ cho cả chapter, ghi hồ sơ giọng nhân vật, rà soát từng chỗ chưa theo thuật ngữ đã chốt — máy chỉ ra chỗ kèm lý do, **không tự sửa** | **LIVE** (Run A–D trên truyện thật + Chromium 17/17 — xem TEST_LOG §E13) |
+| E14 | Tìm **lòng bong bóng thật** rồi căn chữ vào đó thay vì vào khung chữ nhật; không chắc thì nói thẳng là đang dùng khung dự phòng | **LIVE** (5/5 bong bóng thật, 0 chọn nhầm, 5/5 chữ nằm trọn trong bong bóng — xem TEST_LOG §E14) |
+| E15 | Nhận biết **hướng chữ** (ngang/dọc/nghiêng/chưa rõ) kèm bằng chứng, hiện nhãn + bộ lọc + lý do đọc được, và đưa vùng khó vào rà soát thay vì lặng lẽ căn ngang | **LIVE phần nhận biết + giao diện** (Run A/C/D + 14/14 trên Chromium, dữ liệu thật) · ⛔ **dựng chữ dọc BLOCKED** — xem REPORT_E15 §9 |
+| E1 | **Tiện ích Chrome** mở nhanh Translation từ trình duyệt: nút tạo chapter, xem trạng thái chapter đã ghim, nhảy thẳng vào màn rà soát/xuất — **không** đọc trang web bạn đang xem, **không** xin quyền website nào | **LIVE** (nạp thật vào Chromium 151, 41/41 mục đo — xem REPORT_E1) |
+| M10 | Khai báo mục đích sử dụng (bắt buộc, không mặc định) + nhắc trách nhiệm bản quyền & chất lượng trước khi xuất | **LIVE** (chạy thật đầu-cuối; giao diện chưa bấm tay — xem TEST_LOG §M10) |
+| E11 | Làm lại giao diện: bố cục, bộ màu, vùng kéo-thả, dòng thời gian pipeline, diễn giải trạng thái trung thực, dùng được bằng bàn phím và trên điện thoại | **LIVE** (kiểm thật trên Chromium ở 4 kích thước — xem TEST_LOG §E11) |
+| A1+E18 | Chữ Việt vừa bong bóng manga: nới khung tới khi chạm nét vẽ, và dịch lại ngắn hơn cho vừa khi bản dịch dài hơn chỗ chứa | **LIVE một phần** (A1 đo trên trang thật: tràn 3→2; E18 test xong, chưa chạy thật) |
+| F1 | Dấu câu kiểu Nhật trong bản dịch không còn làm hỏng cả trang; vùng font không vẽ được thì đánh dấu riêng thay vì giết cả trang; việc hỏng tự hiện lý do | **BUILT** (test tự động xanh; chưa chạy lại chapter thật trên bản chạy) |
+| E12 | Chỉ ra vùng nào cần rà soát trước khi xuất, kèm lý do đọc được — không tự xoá vùng nào | **LIVE** (Run A–D 15/15 trên trang thật + Chromium 10/10 — xem TEST_LOG §E12) |
+| E19 | Tiện ích riêng "Dịch truyện đang đọc": bấm một cái, phủ chữ dịch lên bong bóng của **bất kỳ trang web nào** đang mở — không chỉnh sửa, không xuất file | **LIVE** (nạp thật vào Chrome, sửa qua 3 lượt trên `reddit.com/r/translator` tới khi lớp phủ khớp đúng bong bóng — xem ARCH.md §E19.5, REPORT_E19_0) |
+| E21 | Màn sửa tay (M7): gõ đè `raw_text` khi OCR đọc sai (đo được ở E20a/E20b: không path OCR tự động nào tự sửa được) + phóng to đối chiếu ảnh gốc chưa xoá chữ | **LIVE** (1176 test backend + 315 test frontend xanh; live-verify trên Chromium thật ở E21-LV 2026-09-09, 25/25 đạt kể cả khung đỏ đo bằng pixel canvas thật, xem `REPORT_E21-LV.md`) |
+| E21b | Sửa dở chữ gốc rồi bấm sang vùng khác không còn mất im lặng (hỏi Lưu / Bỏ / Ở lại); thêm nút Trước-Sau và bộ lọc theo trạng thái rà soát; sửa chữ gốc không còn kéo theo một lượt căn chữ vô ích | **LIVE** (deploy 2026-09-10, web v32→33 rồi api v57→58 — thứ tự frontend-trước là bắt buộc, xem `REPORT_E21b.md §11.1`; 3/3 smoke test đạt trên production; audit bác bỏ 2/3 đề bài vì đã có sẵn từ E12; backend 1193 passed/6 skipped/0 failed + frontend 331 xanh) |
+| E22 | Job đứng `running` sau khi worker chết giữa chừng giờ hiện đúng "worker gián đoạn" thay vì im lặng nói "đang xử lý"; lý do job hỏng vì worker chết được phân loại có bằng chứng (`worker_lost`/`resource_limit_suspected`) thay vì một câu đoán cứng "chắc chắn hết bộ nhớ" | **LIVE** (deploy 2026-09-10 cùng E21b: web v32→33 rồi api v57→58; bản THU HẸP theo audit — xem `REPORT_E22.md`; audit tìm ra cơ chế dọn job mồ côi có từ trước đã giải quyết phần lõi, không cần Redis capacity-gate/`JobAttempt`/watchdog định kỳ như bản nháp gốc; backend 1189 passed/6 skipped/0 failed + 322 test frontend xanh; nối vào panel "Vì sao?" của màn tiến độ chapter — chỗ trước đây báo "không có bước nào hỏng, đang chờ tới lượt" trong khi worker đã chết) |
+| E23 | Chạy thật một chapter **24 trang** để kiểm con số "54 phút" của E25 — và nó tìm ra 7 lỗi mà lượt 6 trang không thể tìm, vì nó chạy đủ lâu để worker bị giết 3 lần: bàn thử dùng pool khác production nên SIGKILL không kích hoạt quét job mồ côi; trang kẹt vĩnh viễn khi thiếu ảnh đã xoá chữ (12 job typeset hỏng, mọi nút bấm vô ích); mục mẻ kẹt `running` làm mẻ đứng im 40 phút; ô đếm "trang xong" đứng 0 gần hết lượt chạy nên nhìn như treo; một trang giết worker 4 lần vì cụm gộp phình thành cả trang; cờ "cần rà soát" bật oan 29% số trang (cả 11 vùng chỉ đọc ra MỘT ký tự nhiễu); mẻ không tự chạy tiếp sau sự cố | **LIVE** (deploy 2026-09-11, web v33→34 rồi api v58→59, build từ commit `44fcb854` — xem `REPORT_E23.md`; backend 1248 passed/6 skipped/0 failed + 361 test frontend xanh; 5/7 bản sửa kiểm live trên bàn thử, 1 lỗi **cố ý không sửa** với bằng chứng bác bỏ cả hai cách thử, và câu hỏi khởi đầu đã trả lời: trung vị 107,3s/trang ⇒ ~54 phút, nhưng p90 ⇒ ~99 phút nên hứa "khoảng một tiếng" mới đúng) |
+| E24 | Tab mở sẵn từ trước lúc deploy chạy frontend CŨ trên backend MỚI — lưu chữ gốc OCR **thành công** mà giao diện báo lỗi `/jobs/null`, người dùng không biết đã lưu hay chưa. Nay có banner "có bản mới — tải lại đi", phát hiện bằng cách tự hỏi "bundle tôi đang chạy có còn được `index.html` tham chiếu không" | **LIVE** (deploy 2026-09-11 cùng E23; live-verified bằng Chromium thật: build A không banner, deploy build B vào thư mục đang phục vụ ⇒ banner hiện kèm nút "Tải lại ngay" và tab VẪN ở bundle A — bằng chứng nó không tự tải lại, vì tự tải lại sẽ xoá chữ đang gõ dở mà E21b vừa dựng để bảo vệ. Giới hạn bản chất: **không cứu được tab đang chạy bundle cũ hiện tại** — bundle cũ không chứa mã này; chỉ có tác dụng từ lần deploy SAU) |
+| E16 | Đặt **chữ nghiêng** theo đúng góc E15 đo được, thay vì luôn căn ngang | **LIVE nửa NGHIÊNG** (deploy 2026-09-11, api v59→v60, build `36d02767`) · ⛔ **nửa DỌC vẫn BỊ CHẶN** — xem `REPORT_E16.md`. Chưa có mẫu thoại nghiêng thật nào: cả 11 mẫu đo được đều là SFX hoặc bảng chữ |
+| E17 | Gợi ý thuật ngữ & xưng hô rút từ chính chapter, đối chiếu CSDL nhân vật AniList (E17b) | **ĐÃ kiểm thật 14-09** trên ep39 EN: quét 132/135 vùng, chạy được. Nhưng lượt chạy đó phơi ra lỗi E39 (trang bạt tài trợ đẻ ra `David`/`Alex`/`Christian`… toàn là tên ê-kíp) → **đã sửa, chờ deploy**. Tầng 3 (AniList) vẫn CHƯA kiểm thật |
+| E25 | Truy tìm chỗ tối ưu thời gian inference | **KHÔNG SHIP GÌ** — 4 giả thuyết đều bị **bác bỏ bằng số đo**, cần gạt còn lại bị chặn ở tầng nền tảng. Báo cáo của một cuộc truy tìm ra kết quả âm (`REPORT_E25.md`) |
+| E26+D | Ba lỗi dịch hay gặp nhất: câu bị ngắt giữa dòng nay dịch nguyên câu, không chèn hai lần một câu lên cùng chỗ, tiếng động giữ nguyên — và bật được **dịch theo ngữ cảnh cả trang** | **LIVE** (deploy 2026-09-11, api v60→v61, build `1656eb1a`; frontend KHÔNG deploy vì không đổi dòng nào). Production **đã có khoá Gemini** (`/healthz` → `llm_configured: true`) ⇒ ô **Cách dịch → "Dịch theo ngữ cảnh"** bấm được ngay. Giới hạn: chống chèn trùng **giảm hẳn nhưng chưa hết**; chưa kiểm thị giác trên production — xem `REPORT_E26.md` |
+| E26-B2 | Nhận thêm kiểu chèn trùng thứ hai: **vùng lớn đọc lại nguyên văn chữ của vùng nhỏ** nằm trong nó (dấu hiệu nội dung, không chỉ hình học) | **BUILT, chưa deploy** (2026-09-12). Đo trước khi viết: 34 trang/220 vùng → 8 cặp, **0 báo oan**, bắt THÊM 4 vùng trên 3 trang; ảnh xác nhận khối chữ rác biến mất. Có ngưỡng riêng cho chữ Nhật/Trung (`超毛生え薬` chỉ 5 ký tự nhưng là cả một từ) — con số đó **suy ra, chưa đo trên dữ liệu Nhật thật** |
+| E27 | **Chữ chồng do ô đặt chữ tự nới tràn trên nền phẳng** — và `fit_ok` báo sai cho chữ không vừa khung | **ĐÃ SỬA** (E27). Gốc: A1 nới ô tới khi chạm nét vẽ, nền phẳng (trời, tường trắng) không có nét nào cản nên nới tràn, và A1 **không coi vùng chữ khác là vật cản**; `392e16e2` khung `173x27` → ô `497x156`. Vá ở `safearea/apply.nap_o_dat_chu` (một chỗ duy nhất trả ra ô đặt chữ, nên cả ba đường canh-chữ/xem-thử/xuất-file đều đi qua) bằng `cat_o_dat_chu`: cắt để ô của vùng này không trùm KHUNG CHỮ của vùng khác. Đo lại trên trang thật: `(399,3,497,156)`→`(399,3,497,65)`, khung `y25–52` còn trọn; ảnh xác nhận ba bong bóng tách bạch. 16 bài test (`test_e27_cat_o_dat_chu_unit.py`). ⚠️ Dòng này TRƯỚC 27-09 ghi "CHƯA SỬA" — sai, và sai kiểu tệ: người đọc sẽ đi sửa lại một thứ đã sửa, hoặc tránh vùng mã đang lành |
+| E27 | Ô đặt chữ không còn trùm lên khung chữ của vùng khác — hết chồng chữ trên nền phẳng, và nhãn "Vừa khung" mới có nghĩa | **BUILT, chờ deploy** (12-09). Đo trên trang thật: ô `497x156` → `497x65`, ảnh xác nhận 3 nhãn thuốc tách bạch hoàn toàn |
+| E28 | Màn rà soát bớt "kỹ thuật": chip cảnh báo vô nghĩa thành trung tính, thu gọn chẩn đoán, và **sửa câu nói SAI** rằng máy chưa tự xoay chữ | **BUILT, chờ deploy** (12-09). 363 test frontend xanh |
+| E29 | Câu thoại ngắn tiếng Nhật không còn bị bỏ không dịch (`それでも、`, `ちなみに、`) | **BUILT, chờ deploy** (12-09). Ngưỡng "chữ ngắn" tính riêng cho từng hệ chữ |
+| E30 | **Vá MẤT CHỮ**: `llm_context` từng trả về `"Whoo!"` thay cho cả câu khi vùng có dấu xuống dòng | **BUILT, chờ deploy** (12-09) — **bản vá gấp nhất**; đo trên trang `29ab3d86` |
+| E31 | Dịch nhất quán **xuyên trang**: nối bảng thuật ngữ + hồ sơ giọng nhân vật đã chốt vào prompt | **BUILT, chờ deploy** (12-09). Chỉ nạp mục người dùng đã duyệt |
+| E32 | **Cho mô hình xem chính trang truyện** khi dịch — sửa được chữ OCR đọc rác và biết câu nào của nhân vật nào | **BUILT, TẮT mặc định** (14-09). Đo thật: chi phí ảnh gần như CỐ ĐỊNH **+1166 token/trang** (EN ×3,0 · JA ×5,7) ⇒ một chapter 24 trang tốn thêm ~28.000 token. Bật hay không là **quyết định chi phí của người dùng** — xem TEST_LOG 14-09 |
+| E38 | **Trang không có chữ nay NẰM TRONG file xuất** — trang tranh thuần trước đây bị xếp "Hỏng" và bị loại, nên chapter xuất ra **thiếu trang** | **LIVE** (api v67, 14-09). Dùng lại phân biệt đã có: `detected` + 0 vùng = máy đã xem và xác nhận không có chữ; `detection_failed` vẫn bị loại. Sửa cả nội dung file **và** con số xem trước |
+| E39 | **Trang bạt tài trợ không còn đẻ ra danh xưng rác** — `David`/`Alex`/`Christian` (toàn tên người tài trợ ở trang 12) từng chôn mất ứng viên thật `AXE` | **LIVE** (api v67 + web v36, 14-09). Đo 211 vùng thật: 726 ứng viên → **25**, và 25 cái còn lại đúng là thuật ngữ truyện. Hai chapter không có trang bạt: **không đổi gì**. Trần đầu (20 từ) loại oan một lời thoại thật — phép đo bắt được trước khi deploy |
+| E40 | **File xuất mở được**: nói thẳng Windows/macOS không mở sẵn `.cbz`, thêm một cú bấm "Xuất lại bằng ZIP" | **LIVE** (web v36, 14-09). Không endpoint mới — `ExportFormat.zip` có từ M8, đây là lỗi **chỉ đường** |
+| E41 | **Hạ trần bộ nhớ xoá chữ 2,6 → 1,6 Mpx** sau khi worker production bị SIGKILL/137 hai lần | Người dùng chốt **không nâng RAM** nên trần là lớp bảo vệ duy nhất. Đo lại: ở 2,6 Mpx đỉnh 3710–3912 MB = **96–102% ngân sách** ⇒ không vừa. Ở 1,6: **62%**, mất thêm đúng **1 trang trên 38**. Phải hạ **cả hai** trần — hạ một cái thì trang cỡ đọc 2,16 Mpx hỏng hết |
+| E42 | **Không đẩy job trùng nữa** — một trang từng bị dịch 2 lần (lãng phí 959 token) và căn chữ 4 lần cho đúng cùng một nội dung | Đo hai bộ dữ liệu: production (E35) và 38 trang DB dev (`typeset 2,92 · translate 1,68 · inpaint 1,42 · ocr 1,13 · detect 1,11` job/trang — `detect` là bước duy nhất có trạng thái "đang chạy" và trùng ít nhất). Chắn chỉ đặt ở đường **tự động**; 15 đường người dùng bấm và đường refit theo vùng **không** bị chắn |
+| ĐX-1 | **Đường "Dịch nhanh"**: một màn — chọn ngôn ngữ + cách dịch + mục đích, thả ảnh **hoặc cả gói**, xong **tự tải về**. Không đặt tên chapter, không tải từng trang, không tự bấm xuất | **LIVE** (22-09) — chạy TRỌN VẸN qua Chromium thật: thả gói `.cbz` → bấm Dịch ngay → **230 giây** → "Dịch xong 3/3 trang · bỏ qua 1 mục trong gói không phải ảnh" → **"File đã tải về máy bạn"**, 0 lỗi console. File nhận được là ZIP hợp lệ 9,7MB, 3 trang `001/002/003` đúng thứ tự, mở được thật. Nhìn tận mắt trang đã dịch: chữ gốc xoá sạch, chữ Việt **có dấu render đúng không có ô vuông**, nằm gọn trong bong bóng, tiếng động giữ nguyên. ⛔ Chưa chạy chapter DÀI (24 trang) qua đường này. 20 test frontend xanh. Giữ NGUYÊN hai cổng M10 (khai mục đích, **không chọn sẵn**) và đăng nhập — công cụ đối thủ không có hai cổng này, nhưng bỏ đi để cho giống thì mất đúng phần nhắc trách nhiệm bản quyền. Đường đầy đủ **không bị thay thế**, chỉ đổi tab. Xuất bằng **ZIP** chứ không CBZ (E40: `.cbz` không mở được trên Windows). **KHÔNG có bước tick xác nhận trách nhiệm trước khi xuất** — chủ dự án chốt chấp nhận (22-09); hệ thống không tick hộ, nên không có bước đó nghĩa là KHÔNG CÓ, không phải "máy làm thay". Đường đầy đủ vẫn còn bước này |
+| ĐX-2 | **Nhận cả gói `.zip`/`.cbz`** làm đầu vào — một chapter 24 trang từ 24 lượt thao tác xuống còn 1 | **LIVE cho ZIP/CBZ** (22-09), đã chạy hết chuỗi tới file xuất: gói `.cbz` THẬT (Pepper&Carrot CC BY-SA, tên cố ý lộn xộn `p1/p2/p10` + metadata + rác macOS) → `HTTP 202` trong **0,85 giây**, `so_trang:3 · bo_qua:1`, CSDL ghi `order` 1/2/3 **đúng thứ tự tự nhiên**, 3 file ảnh thật trên đĩa. 23 test thuần + 15 test tích hợp xanh. Chặn: bom giải nén (cộng `file_size` khai trong header **trước khi** bung byte nào), đường dẫn thoát thư mục, quá số trang, gói lồng gói. Thứ tự trang theo **khoá tự nhiên** (`p2` trước `p10`) — sắp sai là hỏng im lặng vì file vẫn xuất ra bình thường. Thất bại thì **lùi sạch**, không để lại chapter dở dang. **PDF nhận từ ĐX-2b** (22-09, `pypdfium2`): dựng lại ảnh cả trang chứ không trích ảnh nhúng (trích ảnh sẽ MẤT CHỮ im lặng với trang có chữ vector); dựng theo cạnh dài cố định 1600px chứ không theo DPI. Đo thật: bộ test ĐX-2b xanh trên CẢ `pypdfium2` 4.30.0 lẫn 5.13.0 |
+| ĐX-3 | **Chọn engine dịch ngay trên màn upload**, kèm nhãn cái nào tốn tiền — thay vì phải gọi `POST /pages/{id}/retry-translate?engine=…` | **LIVE nửa GHI** (22-09): CSDL thật có `translate_engine_override = google_fast` trên cả 3 trang. ⛔ **Nửa ĐỌC vẫn CHƯA được lượt chạy thật chứng minh** — trong lượt chạy, engine người dùng chọn (`google_fast`) TRÙNG với mặc định hệ thống, nên hai đường cho cùng kết quả và không phân biệt được "đã đọc cột" với "rơi về mặc định". Nửa đó hiện chỉ có test + đối chứng âm (engine `llm_context`, khác hẳn mặc định). Sửa một lỗi **có thật, chưa từng lộ**: cột `Page.translate_engine_override` có chỗ GHI từ E19 nhưng pipeline đầy đủ **cố ý không ĐỌC** — mọi lựa chọn engine cho chapter thường rơi vào hư không, không một thông báo lỗi nào. Nay `enqueue_translate_after_inpaint` đọc cột đó. Đã **đối chứng âm**: gỡ bản vá ⇒ 2 test đỏ đúng chữ ký lỗi (`None` thay vì engine đã chọn). Mặc định vẫn là bản **miễn phí** |
+| E49 | **Hạn mức sử dụng**: khách lạ 6 trang/ngày (cookie + IP đã băm), có tài khoản 10, reset 00:00 giờ VN. Chặn ở **tầng máy chủ** bằng 429 nói rõ còn bao nhiêu và bao giờ có lại; tệp hỏng không mất lượt; worker chết thì **hoàn lượt**. Khách lạ nay **tải lên được mà không cần đăng ký** (chế độ chỉ-chữ) | **LIVE — đã chạy thật đầu-cuối 27-09**: một trang qua trang chủ trên Chrome thật, giữ chỗ → pipeline → **tiêu lượt** (`da_dung` 0→1, cả hai chốt tăng). 76 bài test + 4 đối chứng âm, bộ test đầy đủ xanh; nhưng **chưa deploy** (workspace bị chặn mạng tới Vibe Host). Rủi ro số một khi lên thật: `request.client` có thể ra IP của Traefik thay vì IP người dùng ⇒ mọi khách chung một chốt ⇒ chặn oan hàng loạt. Xem `REPORT_E49.md` §8 |
+| E50 | **Chapter tự xoá sau khi xong** (30 phút, cấu hình được): ảnh gốc, ảnh đã xoá chữ, bản dịch, tệp xuất — tất cả. Đồng hồ đếm từ lúc **cả chapter xong**, không phải lúc tải lên. Không đụng chapter còn việc chạy dở. Hết hạn **không** hoàn lượt hạn mức | **BUILT, MẶC ĐỊNH TẮT** (`BAT_LICH_DON_TEP=false`). 19 bài test + 1 đối chứng âm. ⛔ **ĐỪNG BẬT** trước khi có **tự động tải về** — đặc tả §3 nói thẳng: làm luật 30 phút mà không có tự tải về là bày ra một cái bẫy, người dùng đóng tab là mất hẳn. Còn một câu chưa chốt: luật này có áp cho tài khoản đã đăng ký không (`TU_XOA_CHO_TAI_KHOAN`, mặc định `true` theo đặc tả). Xem `REPORT_E50.md` |
+| E51 | **Khách lạ nhận ảnh ĐÃ DỊCH**: gửi kèm `che_do=day_du` thì chapter chạy hết pipeline (xoá chữ gốc + căn chữ Việt vào bong bóng) ⇒ có ảnh tải về được, và nhiều trang gói thành **một** tệp `.cbz`/`.zip`. Bề mặt cho khách lên 7 đường, an toàn dựa vào `chu_khach` chứ không dựa vào cổng đăng nhập | **BUILT, CHƯA CHẠY THẬT.** 15 bài test + 1 đối chứng âm. Vá một lỗi sẽ phát sinh ngay khi mở chế độ đầy đủ: cờ `xong` trước đây là danh sách trạng thái CỨNG nên chế độ đầy đủ báo xong sớm một bước (lúc `translated`, chưa căn chữ) và client đi lấy ảnh chưa tồn tại. Mặc định vẫn `chi_chu` để tiện ích E19 không bị đổi hành vi. Xem `REPORT_E51.md` |
+| E52 | **Người lạ tự đăng ký được** — bỏ cổng khoá chung ở `/auth/register` (vẫn giữ cho tài khoản ĐẦU TIÊN vì nó thành quản trị), kèm trần **3 tài khoản mỗi địa chỉ mạng mỗi ngày** | **BUILT, CHƯA CHẠY THẬT.** 13 bài test backend + 1 frontend, 2 đối chứng âm. Trần IP là phần đặc tả KHÔNG nhắc mà thiếu nó là tự vô hiệu hoá E49: khách hết 6 trang chỉ cần tạo tài khoản mới để có 10. Không có migration. **Chưa có xác minh email** — trần IP chặn tạo hàng loạt, không chặn email giả. Xem `REPORT_E52.md` |
+| E53 | **TRANG CHỦ cho khách lạ + tự động tải về** — mở trang là thấy vùng thả tệp chứ không phải màn đăng nhập; nói trước còn bao nhiêu lượt / bao giờ có lại / tệp chỉ giữ 30 phút / mỗi trang ~30 giây; xong thì thử tải tự động và LUÔN có nút tải thủ công | **LIVE — đã bấm tay trên Chrome thật 27-09** (hạn mức đọc được "6/6 trang còn lại", đếm ngược đúng, console sạch, cookie khách quay vòng thật qua CORS). CHƯA chạy một trang thật đầu-cuối (tốn token Gemini). 14 bài test mới, frontend 411 bài xanh, build ra bundle thật (CSS 24,63→26,95 kB). Nối hai đầu phơi ra **4 lỗi** mà bộ test backend không thể bắt: cookie khách chưa bao giờ tới được API (`allow_credentials=False` + `fetch` mặc định `same-origin`); khách không có đường nào biết `project_id` nên đường gói nhiều trang vô dụng; `a.download` bị bỏ qua với href khác nguồn nên trình duyệt MỞ ảnh thay vì lưu; `doc()` biến thân lỗi 429 thành `[object Object]`. §3.2 ("bị chặn thì nói ra") làm bản TRUNG THỰC: JavaScript không dò được lượt tải bị chặn, nên nút thủ công luôn hiện kèm câu nói rõ. Xem `REPORT_E53.md` |
+| E54 | **Nói đúng chính sách giữ tệp + màn tài khoản** — giao diện thôi gõ cứng "30 phút", máy chủ nói con số và nói THEO TỪNG NGƯỜI GỌI; màn tài khoản hiện email/tên/hạn mức/mốc reset | **BUILT.** Vá một câu SAI trên màn của bản đang chạy: E50 ship với lịch dọn TẮT nhưng trang chủ vẫn hứa xoá sau 30 phút — tệp không hề bị xoá. Màn tài khoản cố ý NGẮN: có bài test quét toàn bộ chữ để chặn việc thêm hạng thành viên hay số liệu hệ thống không lưu. 16 bài test. Xem `REPORT_E54.md` |
+| E55 | **Worker thôi báo `starting` vĩnh viễn** — `/healthz` thêm `trang_thai_thuc` + `san_sang_luc`, suy từ dấu hiệu do CHÍNH worker ghi ở tín hiệu `worker_ready` | **BUILT + ĐÃ kiểm trên production 27-09** (`trang_thai: starting` nhưng `trang_thai_thuc: running`, lệch 1 giây). Đo được 26-09: `trang_thai: starting` suốt **42 giờ** trong khi `rss_moc` chứng minh worker đã chạy xong một bước xoá chữ — hai trường trong cùng một phản hồi nói ngược nhau. Gốc: `deploy-start.sh` nhánh `ROLE=all` ghi `starting` một lần rồi chỉ ghi `restarting` khi chết. KHÔNG sửa trường `trang_thai` cũ (có thứ đang đọc nó). 8 bài test + 1 đối chứng âm. Xem `REPORT_E55.md` |
+| E56 | **Tự đổi tên hiển thị và mật khẩu** — `PATCH /auth/me`, màn tài khoản từ chỉ đọc thành sửa được | **BUILT.** Audit tìm ra lỗ nặng hơn dự kiến: `PATCH /users/{id}` của quản trị **cố ý** không nhận `ten_hien`/`mat_khau` ("không được hoá trang thành họ"), nên trước E56 **một mật khẩu đã lộ là không thể xoay** — không ai làm hộ được. Đổi mật khẩu đòi mật khẩu cũ (phiên bị mượn không chiếm được tài khoản) và **thu hồi mọi phiên khác** trừ phiên đang dùng. Ô nhập lại mật khẩu là BẮT BUỘC vì không có đường lấy lại mật khẩu quên. 18 bài backend + 9 bài giao diện + 4 đối chứng âm. Xem `REPORT_E56.md` |
+| E57 | **Tự nhận ngôn ngữ gốc** — lựa chọn "Tự nhận" ở ô ngôn ngữ; máy đọc thử trang đầu rồi đoán, kèm BẰNG CHỨNG số đo | **LIVE (cách A), đã bấm tay trên production.** Mở nút thắt con-gà-quả-trứng bằng một phép đo: từ điển `PP-OCRv6_medium_rec` — model pipeline **đã nạp sẵn** cho zh/en — có 86/96 hiragana + 94/96 katakana, và paddleocr 3.7.0 cho `ch`/`en`/`japan` **cùng một model**. Nên chạy offline, không tải model mới, không tốn tiền. **Đã chạy trên ảnh thật**: Nhật→ja (12 kana), Trung→zh (15 Hán, 0 kana), Anh→en. Bộ đếm RIÊNG (trần 20), KHÔNG trừ hạn mức trang — trừ vào đó là tự phá tính năng. Không đủ chữ ⇒ **hỏi lại**, không chọn bừa. Ảnh tạm xoá ngay. 32 bài backend + 8 bài giao diện + 5 đối chứng âm. Xem `REPORT_E57.md` |
+| E57b | **Hiệu chỉnh ngưỡng nhận dạng trên dữ liệu THẬT** — 93 mẫu có nhãn gom thành 37 trang | **XONG: 37/37 đúng** (trước khi vá: 36/37). Lấy được mẫu ja/zh mà repo không có: Pepper&Carrot **có bản dịch Nhật/Trung** của đúng những trang Run C đã dùng (CC BY-SA 4.0) — 28 trang truyện thật. Ba bẫy khi lấy đều bắt việc, nặng nhất: mã tiếng Trung là **`cn` không phải `zh`**, và `/zh/` trả HTTP **200** kèm ảnh tiền tố `en_` (chưa dịch) ⇒ tin 200 là tải ảnh Anh dán nhãn Trung, một tập dữ liệu BỊA. **Thứ tự kana-trước-Hán từ suy luận thành số đo**: 6/17 trang Nhật thật có tỉ lệ Hán ≥20% (cao nhất 35,1%), đảo thứ tự là gán cả sáu thành tiếng Trung. **Lỗi thật dữ liệu bắt được**: trang ghi công bản Trung có 121 chữ Hán giữa 1097 chữ Latin ⇒ tỉ lệ 9,9% ⇒ ra `en`; bản Nhật cùng trang ĐÚNG vì ngưỡng kana đếm số tuyệt đối. Vá: thêm `SO_HAN_TOI_THIEU = 8` (trang Trung ít Hán nhất = 10; mọi trang Anh = 0). Ba ngưỡng còn lại giữ nguyên, kèm biên thật. 28 bài test. Xem `REPORT_E57b.md` |
+| E58 | **Xin engine miễn phí thì phải chạy engine miễn phí** | **BUILT.** Đo được trên production: tiện ích gửi `engine=google_fast` (mặc định của chính nó, chú thích "không tự tốn token Gemini khi người dùng chưa từng bật"), máy chủ lưu `override=None`, pipeline lùi về `TRANSLATE_DEFAULT_ENGINE=llm_context`, và `/pages/{id}/translation` trả `engine: llm_context` — **Gemini trả tiền**. Gốc: `routes.py` mã hoá `google_fast → NULL` với lý do "cả hai đều dùng mặc định hệ thống" — đúng lúc viết, sai ngay khi đổi biến môi trường. Docstring `Page.translate_engine_override` đã cảnh báo BẰNG CHỮ; hai endpoint đường đăng nhập đã sửa từ ĐX-3, chỉ endpoint trang chủ+tiện ích còn sót. Một bài canh CŨ phải đảo vì nó khẳng định sai và đang bảo vệ chính lỗi này. 7 bài test đo vào engine THẬT SỰ chạy. Xem `REPORT_E58_E59.md` |
+| E59 | **Dịch cả chapter** trong tiện ích đọc truyện (bản 0.1.15) | **BUILT + kiểm trên trang truyện thật.** `ARCH §E19.6f` từng từ chối hướng này; chủ dự án quyết định làm (28-09). Lý do "không nhanh hơn" VẪN ĐÚNG (1 việc/lúc, 2,6 CPU đã là trần gói) nên popup nói thẳng — nó đổi CHỖ CHỜ, không đổi tổng thời gian. Nhiều lớp phủ cùng lúc + chốt hiệu năng (lớp xa khung nhìn >800px thì ẩn, không thì 24 lớp vẽ lại mỗi lần cuộn). Dừng đúng chỗ: 429/401 là lỗi toàn cục nên dừng hẳn, lỗi lẻ một trang thì đếm rồi đi tiếp. Vá kèm: `doc()` của tiện ích làm mất `detail` dạng object nên 429 chỉ ra "Too Many Requests" — cùng lỗi web đã vá ở E53. Đo thật: *"DỪNG SỚM: hết lượt dịch hôm nay (trần 10), có lại lúc 00:00 29/9"*. ⚠️ Tôi CHẨN SAI một lần trong lượt này — xem REPORT §5.2. Xem `REPORT_E58_E59.md` |
+| E60 | **Chữ thôi vỡ từng ký tự, và khung đỏ thôi lọt vào tệp người đọc** | **BUILT.** Từ một trang manga THẬT chủ dự án gửi. (1) `_run_export` dựng `PagePreviewRenderer` mà không truyền `mark_overflow=False` ⇒ khung đỏ cảnh báo tràn — dấu cho người RÀ SOÁT — bị nướng vào file tải về; tham số có sẵn từ đầu, **không ai từng truyền**. (2) `wrap_to_width` cắt token theo ký tự khi token rộng hơn khung (viết cho URL), mà bong bóng DỌC HẸP kiểu Nhật làm từ tiếng Việt bình thường cũng rơi vào đó: `VÒNG QUA` → `VỌN / G QUA`. Tệ nhất: cắt ký tự làm bề rộng LUÔN vừa nên vòng dò cỡ chữ **không bao giờ thấy** khung quá hẹp — nó trả `fit_ok` cho chữ vỡ vụn. Đo: khung 64×420 trước ra cỡ 38 vỡ 8 mảnh `fit_ok`, sau ra cỡ 18 nguyên từ. 12 bài test + 4 đối chứng âm. Xem `REPORT_E60.md` |
+| E69 | **Bong bóng nền phẳng thì tô màu nền, không chạy LaMa** (ý tưởng từ Koharu) | **BUILT + đo 6 trang thật.** Tô được 8/38 vùng (21%), xem bằng mắt 8/8 sạch, 4/8 sạch hơn LaMa (LaMa để lại bóng mờ/vệt xám). Thời gian CHƯA kết luận (máy bị chia tải). Vùng không chắc vẫn chạy LaMa. Tắt bằng `INPAINT_FLAT_FILL=false`. Xem `REPORT_E69_E70_E71.md` |
+| E70 | **Chữ dịch đúng màu chữ, màu viền, bề dày viền của chữ gốc** (cách đo từ Koharu) | **BUILT.** Test DB thật + font thật xanh, đối chứng âm đạt; **chưa chạy trên trang truyện có chữ màu/viền**. Cột mới `typeset_result.text_color/stroke_color/stroke_width` (NULL = chưa đo ⇒ màu cấu hình như trước). Tắt bằng `E70_MAU_CHU_THEO_VUNG=false` |
+| E71 | **Dịch theo ngữ cảnh trả JSON theo `id`, ép schema** (giao thức Koharu) | **BUILT + A/B 5+5 lượt Gemini thật.** Trên bộ thử 7 câu: hai chế độ ngang nhau (0 câu trống, 0 sót chữ Nhật) — giá trị là chống hỏng giao thức (E30/E46). Đã vá một thụt lùi đo được (bỏ dấu chấm cuối câu). Tắt bằng `LLM_DICH_JSON=false` |
+| E72 | **Dịch bằng LLM qua API kiểu OpenAI**: Ollama / LM Studio / llama.cpp trên máy, hoặc API chính thức OpenAI bằng khoá | **BUILT.** 11 test với máy chủ HTTP thật; chưa chạy với Ollama thật. Lỗi ⇒ lùi `google_fast`. Chưa có trong giao diện. Xem `REPORT_E72.md` |
+| E74 | **Xoá chữ bằng SDXL / FLUX.1 trên GPU** + gói cài Docker có GPU (`docker-compose.gpu.yml`, `docs/CAI_DAT_CUC_BO.md`) | **BUILT.** 17 test (torch/diffusers giả) + kiểm API diffusers 0.41 thật; **chưa chạy trên GPU thật, chưa build image GPU** (workspace không GPU, đĩa đầy). FLUX.2-klein không dùng được qua diffusers. Xem `REPORT_E74.md` |
+| E75 | **Xếp chữ theo hình bong bóng** (dòng giữa rộng, đầu/cuối hẹp, chung một trục) — chỉ nhận khi cho chữ to hơn | **BUILT + đo 8 bong bóng thật**: thắng 6/8, +1 đến +2px; 2 ca hoà giữ cách cũ. 11 test + đối chứng âm. Tắt bằng `E75_XEP_THEO_HINH=false`. Xem `REPORT_E75.md` |
+| E76 | **Màn sửa tay kiểu canvas (WebGPU, lùi 2D)** + **cọ xoá chữ** (`POST /pages/{id}/xoa-vung-to`) | **BUILT + bấm thật trên Chromium với API giả lập.** 495 vitest, 6 test backend + đối chứng âm, phép dò quyền chéo bao trùm. WebGPU chưa chạy trên GPU thật. Màn cũ giữ làm đường lùi. Xem `REPORT_E76.md` |
+| E77 | **Kiểm "còn sót chữ" thôi gắn cờ giả**: vùng trắng trơn không tin lời bộ đọc (manga-ocr bịa `そういえば、` trên ô trắng) | **BUILT + kiểm với manga-ocr thật**: ảnh đã xoá 0/7 vùng báo nhầm (trước 7/7), ảnh còn chữ vẫn bắt 7/7. Ngưỡng `INPAINT_VERIFY_MIN_MUC=0.015`. Xem `REPORT_E77.md` |
+| E79 | **Xoá chữ theo nét chữ** (mặt nạ `seg` của CTD) thay vì cả khung | **BUILT + LaMa thật trên trang thật**: diện tích xoá 82–88% so với cả khung, giữ tranh quanh chữ. Hệ số nở ×2 (×1 của Koharu sót viền chữ tiếng động). Chỉ khi `DETECT_ENGINE=ctd` — production (Gemini) không đổi. Xem `REPORT_E79.md` |
+| E78 | **Xuất PSD nhiều lớp** (`format=psd`): ZIP mỗi trang một `.psd` — "Ảnh gốc" (ẩn), "Đã xoá chữ", mỗi vùng chữ một lớp; mở bằng Photoshop/Photopea | **BUILT, chưa mở bằng Photoshop/Photopea thật.** Bộ ghi PSD tự viết (struct + numpy, không thư viện mới), đọc lại bằng bộ đọc trong test + Pillow; ảnh ghép = ảnh xem thử từng điểm ảnh. Lớp chữ là ẢNH, chưa phải text layer sửa được. Xem `REPORT_E78.md` |
+| E80 | **MCP server** (`tools/mcp-translation/`) — Claude/Cursor điều khiển dịch: 16 công cụ (chapter, tải trang, xem/sửa vùng, ảnh trang, chạy cả chapter, xuất, tải file) | **BUILT.** 25 test với máy chủ HTTP giả; chưa chạy với API thật. Cài trong venv RIÊNG (mcp kéo pydantic/starlette mới, lệch bản ghim của backend). Xem `tools/mcp-translation/README.md` |
+| E81 | **Ngắt dòng đều** trong bong bóng (quy hoạch động, tránh dòng một chữ) cho E75 | **BUILT.** Câu 42 từ 234 ms (tham lam 211 ms). Xem `REPORT_E81_E82.md` |
+| E82 | **Thứ tự đọc theo khung tranh** (cắt XY theo rãnh trắng) | **BUILT + 4 trang thật đúng khung.** Trang không rãnh ⇒ như cũ. Tắt bằng `E82_THU_TU_THEO_KHUNG=false`. Xem `REPORT_E81_E82.md` |
+
+## Những gì dùng được ngay hôm nay (sau E12)
+
+- Tạo project dịch (chọn ngôn ngữ nguồn, mục đích sử dụng) qua API/Swagger.
+- Upload từng trang ảnh: file được lưu thật, trang vào hàng đợi và **worker tự động nhận diện khung chữ**.
+- Xem danh sách khung chữ đã nhận diện của từng trang: toạ độ khung + độ tin cậy + cảnh báo.
+  Khung độ tin cậy thấp vẫn hiện (đánh dấu `low_confidence`), khung chồng nhau bị gắn cờ `overlap_suspect`.
+- Xem trạng thái trang (`queued → detecting → detected | detection_failed`) và trạng thái việc.
+- Chạy lại nhận diện cho 1 trang bằng `POST /pages/{id}/retry-detect` (không tạo khung trùng lặp).
+- **Tự đọc chữ trong từng khung** ngay sau khi nhận diện xong (không phải bấm thêm nút):
+  tiếng Nhật dùng manga-ocr, tiếng Trung/Anh dùng PaddleOCR theo ngôn ngữ nguồn của project.
+- Xem chữ đã đọc được của từng khung qua `GET /pages/{id}/ocr`; vùng đọc không ra chữ được
+  đánh dấu `needs_manual` để sửa tay sau, **không bị giấu đi**.
+- **Tự xoá chữ gốc khỏi ảnh** ngay sau khi đọc xong, tạo ra ảnh "sạch" để lát nữa chèn chữ dịch.
+  Xem/tải ảnh sạch qua `GET /pages/{id}/clean-image`. **Ảnh gốc luôn được giữ nguyên** thành file riêng.
+- Hệ thống tự kiểm lại việc xoá bằng cách đọc lại đúng vùng vừa xoá: còn chữ thì trang bị đánh dấu
+  `inpaint_needs_review` chứ không âm thầm coi là xong.
+- **Dịch cả trang sang tiếng Việt** ngay sau khi xoá chữ xong, theo **đúng thứ tự đọc** của loại truyện
+  (manga Nhật đọc phải→trái, truyện Anh/Trung đọc trái→phải) — thứ tự sai là hỏng mạch văn cả trang.
+- **Chọn được cách dịch, biết trước cái nào tốn tiền:**
+  - `google_fast` — **miễn phí**, dịch từng dòng, không nhìn ngữ cảnh câu trước sau.
+  - `llm_context` — gộp cả trang gửi Gemini nên giữ được mạch văn và tự sửa lỗi đọc chữ, **có tốn token**.
+  - Mặc định là bản **miễn phí**: hệ thống không bao giờ tự tiêu tiền của bạn khi bạn chưa chọn.
+    Đổi bằng `POST /pages/{id}/retry-translate?engine=llm_context`.
+- Xem bản dịch từng khung qua `GET /pages/{id}/translation`, kèm **số token đã tiêu thật** của trang đó.
+- Nếu bên dịch AI hỏng hoặc hết lượt, hệ thống **tự lùi về bản miễn phí và dán nhãn `fallback_used`** —
+  không bao giờ trả về bản dịch rỗng rồi báo là xong. Dòng nào AI không trả thì để `pending`.
+- **Tự chèn chữ dịch vào đúng bong bóng** ngay sau khi dịch xong: hệ thống tự chọn cỡ chữ lớn nhất mà
+  vẫn vừa khung, tự xuống dòng, căn giữa — và **xem được ngay bằng ảnh** qua
+  `GET /pages/{id}/typeset-preview`. Đây là lần đầu có **trang truyện tiếng Việt hoàn chỉnh** để nhìn.
+- **Chữ quá dài không bị bóp bé tí cho vừa**: xuống tới cỡ nhỏ nhất mà vẫn không vừa thì vùng đó được
+  đánh dấu **cảnh báo tràn khung** (viền đỏ trên ảnh xem thử) để người biên tập sửa tay ở bước sau,
+  chứ hệ thống không tự làm chữ bé đến mức không đọc nổi.
+- **Không bao giờ ra ô vuông**: nếu font thiếu chữ có dấu tiếng Việt, hệ thống báo lỗi rõ thay vì vẽ
+  ô vuông rồi báo thành công.
+- **Ảnh gốc và ảnh sạch vẫn nguyên vẹn** — ảnh xem thử là file thứ ba, tách riêng.
+- **Có màn hình để sửa tay** (giao diện đầu tiên của dự án, mở ở cổng 5174): nhìn thấy trang truyện
+  đã chèn chữ, các khung chữ vẽ chồng lên ảnh, và bảng sửa cho từng vùng.
+  - Sửa **bản dịch**, **chữ gốc (OCR)**, đổi **kiểu chữ**, **ghim cỡ chữ** nếu không ưng cỡ máy
+    tự chọn. Gõ đè chữ gốc (E21) dùng khi máy đọc sai (thường ở font mảnh/nền tranh phức tạp,
+    xem `ARCH.md §E21`) — **không** tự dịch lại, phải bấm "Dịch lại" riêng sau khi sửa.
+  - **Phóng to đối chiếu ảnh gốc chưa xoá chữ** (E21) ngay cạnh ô chữ gốc — khung đỏ chỉ đúng
+    vùng máy đang đọc, để so trước khi quyết định có cần gõ lại không.
+  - **Kéo và co giãn khung chữ** ngay trên ảnh bằng chuột.
+  - Bấm lưu là hệ thống **canh lại đúng vùng đó** rồi vẽ lại ảnh — không tính lại cả trang.
+  - Có nút **đọc lại chữ gốc** (ghi đè cả phần vừa gõ tay — đúng hành động tường minh) và
+    **dịch lại** cho riêng từng vùng.
+- **Không giấu cảnh báo**: mỗi vùng hiện nhãn bằng chữ (“Tràn khung”, “Cần đọc lại”,
+  “Khung kém tin cậy”) và có ô bật/tắt để tô cảnh báo lên ảnh.
+- **Biết chỗ nào người sửa, chỗ nào máy làm**: mỗi vùng ghi rõ “máy dịch / đã sửa tay”.
+- **Xuất cả chapter thành file giao được**: chọn **CBZ** (1 file, mở bằng app đọc truyện tranh),
+  **ZIP**, hoặc **PNG** từng trang. Bấm xuất rồi tải về ngay trên màn hình.
+- **Xem trước cảnh báo trước khi xuất**: sẽ xuất mấy trang, bỏ qua mấy trang chưa chèn chữ xong,
+  còn mấy vùng chữ tràn khung — để bạn chọn xuất luôn hay sửa tay trước.
+- **Trang chưa chèn chữ xong thì bỏ qua**, không xuất ảnh trắng không chữ; số trang bỏ qua được nói rõ.
+- **Xuất lại bao nhiêu lần cũng được**, file cũ tự bị dọn, không đầy ổ đĩa. Dữ liệu gốc giữ nguyên
+  nên sửa tiếp rồi xuất lại thoải mái.
+
+## Tiện ích Chrome — mở nhanh từ trình duyệt (E1)
+
+Nạp thủ công từ thư mục `extension/` (`chrome://extensions` → Developer mode → Load unpacked).
+Chưa phát hành lên Chrome Web Store.
+
+**Làm được:**
+
+- Bấm biểu tượng → Side Panel mở cạnh tab, không che web app.
+- Nhập địa chỉ Translation local (chỉ `localhost` / `127.0.0.1` kèm cổng) và kiểm kết nối.
+- **Tạo chapter mới** / **Mở Translation** → mở đúng màn của web app.
+- Ghim tối đa **5 chapter** bằng mã, xem tên + trạng thái + số trang xuất được.
+- **Xem tiến độ** / **Mở rà soát** (M7) / **Xuất** (M8) → nhảy đúng màn, không đi vòng qua M10.
+- Xoá dữ liệu tiện ích — chỉ xoá trong trình duyệt, chapter và ảnh trong app **không** bị đụng.
+
+**Cố ý KHÔNG làm** (đây là sự thật về sản phẩm, không phải thiếu sót tạm thời):
+
+| Không làm | Vì sao |
+|---|---|
+| Đọc nội dung trang web đang xem | Không content script, `host_permissions` rỗng |
+| Tải ảnh từ URL | Thuộc E2 — cần audit SSRF/nguồn/bản quyền riêng |
+| Phủ bản dịch lên trang truyện | Thuộc E3 — cần content script + quyền từng site |
+| Tải ảnh lên thẳng từ tiện ích | Upload vẫn đi qua form của web app |
+| Nhớ API key / ảnh / chữ OCR / bản dịch | Xem `extension/PRIVACY.md` |
+| Nối tới server LAN hoặc từ xa | Chỉ loopback |
+
+**Hai giới hạn cần biết:**
+
+- **Không tự thấy chapter.** Backend chưa có API liệt kê project (`GET /api/v1/projects` → 405),
+  nên phải ghim bằng mã chép từ địa chỉ web app.
+- **Bản dựng prod (nginx) chỉ mở link được.** nginx không chuyển tiếp `/api`, nên tiện ích không
+  đọc được trạng thái — nó nói thẳng điều đó thay vì hiện danh sách rỗng. Bản docker dev
+  (`127.0.0.1:5174`) thì đọc được ngay, không cần cấu hình gì.
+
+## E15 — hai tầng kết luận (chốt 2026-08-30)
+
+### E15-A — Orientation routing & UI: **CLOSED**
+
+- Giao diện trạng thái/điều hướng hướng chữ hoàn chỉnh, dùng lại `StatusBadge` của E11 + khối
+  giải thích theo khuôn E14.
+- Huy hiệu hướng chữ **tách riêng** khỏi fit status (M6), quality (E12), consistency (E13) và
+  safe-area (E14) — không gộp thành một icon.
+- Có bộ lọc theo hướng chữ và bảng dịch mã lý do → diễn giải tiếng Việt (15 mã, khớp 1:1 với
+  `LyDo.TAT_CA` của backend).
+- Trạng thái "chưa kiểm / chưa xác định" hiển thị **riêng**, không bị gộp thành thành công.
+- Run A (chữ ngang không hồi quy) và Run D (sửa tay + cảnh báo xuất) đạt.
+- Đo giao diện trên Chromium đạt, số hiển thị **khớp CSDL**.
+- Bộ hồi quy giữ xanh theo số đo thực tế tại thời điểm đóng (xem `TEST_LOG § E15.14`).
+
+### E15-B — Dựng chữ dọc tiếng Việt: **BLOCKED (giới hạn bằng chứng ở tầng cấu trúc)**
+
+Đây **không** phải chuyện thiếu ảnh mẫu. Chặn nằm ở tầng bằng chứng/hình học:
+
+- `MangaOCREngine.recognize()` hiện chỉ trả `(text, None)`. Lớp này **không có**
+  `recognize_with_layout`, nên hợp đồng OCR cho tiếng Nhật không mang theo hình học dòng chữ,
+  metadata hướng chữ hay đa giác dòng nào.
+- `analyzer` chỉ tới được `vertical_ttb` qua mã `ocr_line_geometry_vertical`. Không có nguồn đó
+  thì **không có đường nào** đặt được `vertical_ttb + ready` — kể cả với ảnh tiếng Nhật hoàn hảo.
+- Adapter CTD đang triển khai **không có** đường ghi kết quả hình học nào đã được kiểm chứng để
+  thay thế nguồn trên.
+
+**Phát hiện về môi trường:**
+
+- RAQM trong worker: `False`.
+- RAQM trong virtualenv của máy dev: `True`.
+
+⇒ **Bất kỳ bộ dựng chữ dọc nào chỉ được kiểm trong virtualenv của máy dev đều KHÔNG có giá trị**
+đối với đường dựng chữ thật đang chạy trong worker.
+
+### Bảng năng lực
+
+| Năng lực | Trạng thái |
+|---|---|
+| Thoại ngang (horizontal dialogue) | **Supported** |
+| Nhận biết & điều hướng hướng chữ + giao diện | **Supported** |
+| Điều hướng/rà soát SFX | **Supported**, nhưng mẫu thật hiện quá nhỏ để khẳng định rộng (n=9, `rotated_horizontal=0`) |
+| Nhận biết/điều hướng chữ dọc có đủ bằng chứng | **Partial / chỉ để rà soát** |
+| Dựng chữ dọc tiếng Việt | **Blocked** về mặt cấu trúc |
+| Dựng chữ nghiêng/cách điệu | **Không hỗ trợ**; chỉ rà soát |
+| E16 đặt chữ xoay | **Nửa NGHIÊNG: LIVE** (deploy 2026-09-11, api v59→v60, commit `36d02767`) (11 mẫu thật của E23 mở được cổng chặn mà E15 đặt ra — xem `REPORT_E16.md`). **Nửa DỌC: vẫn BỊ CHẶN** ở tầng hợp đồng OCR (`MangaOCREngine` không trả hình học dòng chữ), và 3 mẫu `vertical_ttb` hiện có đều là dương tính giả |
+
+> **Run C là pass RỖNG.** 3/3 assertion đạt nhưng dữ liệu thật có **0** vùng chữ nghiêng trên
+> n=9 — chúng chỉ chứng minh "không vùng nào vi phạm", **không** chứng minh đường xử lý chữ
+> nghiêng đã được test thành công. Không được đọc thành "rotated text đã test xong".
+
+## Lưu trữ ảnh: ảnh KHÔNG còn biến mất sau mỗi lần cập nhật (P3c → P3g)
+
+Trước đây ảnh gốc, ảnh đã xoá chữ và ảnh xem thử **mất sạch mỗi lần hệ thống được cập nhật**,
+trong khi dữ liệu chữ nghĩa thì còn nguyên — nên một trang ghi là "đã canh chữ xong" mà bấm xem
+ảnh thì báo không còn. **Đã sửa xong và đã bật trên máy chủ** (31/08).
+
+Đã dò ra nguyên nhân (P3c): nền tảng đang chạy **không cấp được ổ đĩa bền** để gắn vào chỗ chứa
+ảnh. Đây là giới hạn của nền tảng, không phải lỗi cấu hình.
+
+Đã làm được gì (P3d + P3e): **đã viết xong kho ảnh mới, đặt ảnh vào thẳng cơ sở dữ liệu** — nơi
+duy nhất trên nền tảng này sống sót qua mỗi lần cập nhật. Gói dịch vụ 20 GB, hiện dùng 1,26 GB,
+đủ chỗ cho khoảng **1.400 trang** nữa.
+
+✅ **Đã bật trên máy chủ và đã thử đúng cách chắc chắn nhất:** tải một trang lên, chạy hết, rồi
+**cập nhật lại hệ thống** — thao tác vốn xoá sạch ảnh — xong mở lại thì ảnh **vẫn còn**.
+
+Nhưng chỉ cứu được **ảnh từ đó trở đi**. Những trang đã mất ảnh thì **không dựng lại được** vì ảnh
+gốc đã không còn. Đã dọn riêng một lượt (P3f): **5 trang** cũ bị ảnh hưởng, nay được đưa về đúng
+trạng thái thật (lùi về "đã đọc chữ xong", bỏ khai báo ảnh không tồn tại) — tức chúng **thôi nói
+dối là đã xong**. Bản dịch và chữ đã đọc của những trang đó vẫn còn nguyên.
+
+Kèm theo, hai thứ đã tốt lên ngay:
+
+- **Xem ảnh đỡ tốn dữ liệu.** Mỗi lần mở lại ảnh xem thử, trình duyệt hỏi lại máy chủ; trước đây
+  lần nào cũng tải nguyên ảnh ~3MB, nay nếu ảnh chưa đổi thì máy chủ chỉ trả lời "chưa đổi".
+- **Không còn ảnh ghi dở.** Nếu quá trình ghi ảnh hỏng giữa chừng, bản cũ được giữ nguyên thay vì
+  để lại một tệp cụt trông như ảnh thật.
+
+~~Một đánh đổi: tải gói CBZ lớn mà đứt mạng giữa chừng thì phải tải lại từ đầu.~~ → **đã sửa**:
+tải tiếp được như cũ. Đã thử thật trên máy chủ: tải một nửa, tải nốt nửa sau, ghép lại ra đúng
+từng byte của tệp gốc và mở được thành ảnh.
+
+Tốc độ thì đã đo trên máy chủ thật với một trang cỡ 6,7 MB: mở ảnh mất khoảng **0,11 giây**, mà
+phần lớn là thời gian truyền qua mạng chứ không phải thời gian lấy ảnh ra khỏi cơ sở dữ liệu
+(việc lấy chỉ tốn khoảng **0,005 giây**). Xem lại một ảnh đã xem rồi thì gần như tức thì vì máy
+chủ chỉ trả lời "chưa đổi".
+
+## Khỏi phải ngồi gõ tay từng thuật ngữ (E17)
+
+Trước đây màn **Thuật ngữ của chapter** và **Giọng nhân vật** là hai ô trống: bạn phải tự nhớ
+trong chapter có tên nhân vật nào, rồi gõ lại đúng nguyên văn từng cái. Với chapter 20 trang thì
+đó là vài chục lượt gõ trước khi rà soát chạy được lần đầu.
+
+Nay có nút **“Tìm trong chapter”**: máy đọc lại chữ đã nhận được rồi liệt kê những danh xưng lặp
+lại, kèm **số lần xuất hiện, số trang, và câu trích nguyên văn**. Bấm một mục là mở luôn form
+thêm thuật ngữ đã điền sẵn phần máy biết.
+
+**Máy làm nửa việc, bạn giữ nửa còn lại:**
+
+| Việc | Ai làm |
+|---|---|
+| Tìm ra trong chapter có danh xưng nào, ở đâu, bao nhiêu lần | **Máy** |
+| Quyết dịch nó thành gì, xưng hô thế nào | **Bạn** |
+
+Vì thế **cố ý không có nút “Duyệt tất cả”** — cách dịch là quyết định biên tập, máy điền vào đó
+là chỗ bắt đầu của mọi sai lầm.
+
+**Cái gì KHÔNG được tính là danh xưng (E39):** chạy thật ep39 bản tiếng Anh cho thấy trang bạt
+liệt kê người tài trợ làm ngập cả danh sách — `David` 8 lần, `Alex` 7, `Christian` 7, toàn bộ đều
+ở trang đó và không một lần nào trong truyện; ứng viên thật duy nhất (`AXE`, 7 lần, trang 3/5/6/7)
+bị chôn giữa chúng. Nay máy nhận ra khối chữ nào là **danh sách chứ không phải lời người nói** và
+bỏ qua, rồi **nói ra đã bỏ bao nhiêu khối** chứ không lặng lẽ giấu.
+
+Dấu hiệu dùng để nhận ra là **tỉ lệ từ nối**: người nói thì có *and / you / the / that*, danh sách
+tên thì không. Tín hiệu “viết hoa” vô dụng ở đây — cả hai đều ~100%.
+
+Số đo trên **211 vùng chữ tiếng Anh thật** (3 chapter): khối trang bạt **0–5,7%** từ nối, lời
+thoại **19,2–54,2%**. Và quan trọng hơn, số từ của hai loại cách nhau một khoảng trống rỗng hoàn
+toàn: lời thoại dài nhất **26 từ**, khối trang bạt nhỏ nhất **146 từ**. Nên máy chỉ xét khối **từ
+100 từ trở lên** — một bong bóng thoại 100 từ không tồn tại.
+
+Kết quả đo lại trên một chapter thật có trang bạt: **726 ứng viên xuống còn 25**, và 25 cái còn
+lại đúng là thuật ngữ của truyện (Chaosah, Pepper, Carrot, Potions, King). Trên hai chapter không
+có trang bạt: **không đổi một mục nào** — luật không chạm vào chapter bình thường.
+
+Trích dẫn cũng được **cắt còn một câu ngắn quanh đúng chỗ có danh xưng** (trước đây in nguyên cả
+vùng chữ 1389 ký tự, ba lần cho mỗi mục — không ai tìm nổi chỗ nào chứa cái tên đang xét).
+
+Giới hạn còn lại, nói thẳng: luật **chỉ chạy cho tiếng Anh** (dựa vào từ nối tiếng Anh), và dòng
+ghi công ngắn (dưới 100 từ) **vẫn lọt**. Chọn về phía đó vì bỏ oan một lời thoại thật tệ hơn —
+mà chuyện đó có thật: bản đầu đặt trần 20 từ và nó loại oan một câu thoại kiểu nhân vật đọc danh
+sách (21 từ, không từ nối nào). Phép đo bắt được trước khi đưa lên máy chủ.
+
+**Tìm cách xưng hô:** ở màn Giọng nhân vật có nút **“Tìm tín hiệu xưng hô”**. Máy chỉ ra những
+tín hiệu **có thật trong bản gốc** — hậu tố kính ngữ tiếng Nhật (様, さん, ちゃん), đại từ nhân
+xưng (俺, 僕, 私), chức danh tiếng Anh (Sir, Lord) — kèm câu gốc chứa nó, và gợi ý cách xưng hô
+tiếng Việt tương ứng. Hệ thống **chưa biết ai nói câu nào**, nên đây là “trong chapter có tín
+hiệu này”, không phải “nhân vật X xưng thế này với Y”.
+
+**Nhập tên bộ truyện để được gợi ý cách dịch:** có, nhưng nó hoạt động khác cách bạn nghĩ, và
+khác vì một lý do quan trọng. Hệ thống **không hỏi** mô hình “truyện này có nhân vật nào” — hỏi
+thế thì mô hình **luôn trả lời, kể cả khi nó không biết**, và bạn sẽ nhận một dàn nhân vật nghe
+rất thật nhưng không có trong chapter của bạn. Thay vào đó nó đưa mô hình **đúng danh sách danh
+xưng vừa tìm được trong chapter bạn** và hỏi cách dịch quen thuộc. Mục nào mô hình trả về mà
+chapter không có sẽ **bị loại thẳng**, và số mục bị loại được hiện ra cho bạn thấy.
+
+Mọi gợi ý của mô hình đều mang nhãn **“gợi ý · chưa duyệt”** và không bao giờ tự thành thuật ngữ.
+
+**Ba câu trả lời khác nhau khi không có gì hiện ra** — đọc kỹ, chúng không giống nhau:
+
+| Máy nói | Nghĩa là |
+|---|---|
+| “Chưa đọc được chữ trong chapter” | Bước đọc chữ chưa xong. **Chưa kết luận được gì cả** |
+| “Đã tìm, không thấy danh xưng nào lặp lại” | Đã quét thật, chapter không có |
+| “Mọi danh xưng tìm được đều đã có trong danh sách” | Không còn gì mới để thêm |
+
+⚠️ **Chưa cập nhật lên máy chủ.** Phần này mới xong trên máy phát triển, và **chưa từng chạy thử
+với chữ của một chapter thật** — mới kiểm bằng dữ liệu dựng sẵn. Riêng phần gợi ý theo tên bộ
+truyện thì **chưa từng gọi mô hình thật lần nào**.
+
+Vài giới hạn nói trước cho khỏi bất ngờ:
+
+- **Tiếng Trung nhiễu hơn hẳn** tiếng Nhật/Anh, vì không có khoảng trắng và không có chữ hoa.
+- **Tên chỉ từng đứng đầu câu** (trong truyện tiếng Anh chữ thường) sẽ không tìm ra — đầu câu thì
+  từ nào cũng viết hoa, không phân biệt được với danh từ thường.
+- **Chữ đọc sai thì gợi ý sai.** Những vùng máy tự khai đọc chưa chắc chắn bị bỏ qua, và số vùng
+  bị bỏ được hiện ra chứ không giấu.
+
+## Vì sao chạy nhiều trang liên tiếp lại làm hệ thống "đứng hình" (P3h)
+
+Chạy thử **6 trang liên tiếp** trên máy chủ ngày 31/08: bộ phận xử lý ảnh bị hệ điều hành **giết
+vì hết bộ nhớ**, hệ thống chậm dần từ vài mili-giây lên hàng chục giây rồi im hẳn. Một trang thì
+không sao — đúng sáu trang liên tiếp mới lộ.
+
+**Nguyên nhân đã tìm ra, không phải "máy yếu":** phần xoá chữ xử lý từng cụm bong bóng một, mỗi
+cụm một kích thước khác nhau, và thư viện AI **giữ lại một vùng nhớ riêng cho mỗi kích thước mới
+mà không bao giờ trả lại**. Càng nhiều bong bóng, càng nhiều trang thì càng phình, tới lúc bị giết.
+
+Đã sửa: tắt cơ chế giữ nhớ đó cho phần xoá chữ (giữ nguyên cho phần nhận diện khung chữ vì ở đó
+nó vô hại và còn nhanh hơn), ghép ảnh theo từng dải ngang thay vì cả trang một lúc (**giảm 80 %
+bộ nhớ đỉnh, ảnh ra giống nhau từng điểm ảnh**), và thêm chỗ **nhìn thấy mức bộ nhớ** — trước đây
+hệ thống không có một chỉ số bộ nhớ nào, nên không ai thấy gì cho tới lúc nó chết.
+
+⚠️ **Chưa cập nhật lên máy chủ, nên chưa dùng được.** Bản sửa mới xong và mới kiểm trên máy phát
+triển. Tính tới **31/08 19:10, máy chủ đang không phản hồi** (cả trang web lẫn phần xử lý, kể cả
+trang tĩnh không dính AI) — đây là sự cố ở tầng nhà cung cấp máy chủ, không phải hệ thống lại hết
+bộ nhớ lần nữa. Chừng nào máy chủ chưa sống lại và chưa chạy lại đúng bài thử 6 trang thì
+**không được coi là đã chữa xong**.
+
+Trong lúc đó, **chạy cả chapter nhiều trang trên máy chủ vẫn là việc nên tránh.**
+
+## Những gì **chưa** dùng được (nói thẳng để không hiểu nhầm)
+
+- **Chưa có đăng nhập**: ai mở được đường link là sửa được, và hệ thống chỉ ghi “có người sửa”
+  chứ không ghi **ai** sửa.
+- **Chưa lùi lại được**: sửa là đè lên bản cũ, không có lịch sử phiên bản. Dữ liệu gốc (khung chữ,
+  chữ OCR, bản dịch máy) thì vẫn giữ để đối chiếu.
+- **Chưa sửa được nhiều vùng cùng lúc.**
+- **Chưa kéo khung được bằng bàn phím** — thao tác kéo khung hiện chỉ dùng chuột được.
+- **File CBZ chưa được mở thử bằng app đọc truyện thật** (Tachiyomi/Perfect Viewer) — mới kiểm bằng
+  công cụ giải nén, đúng cấu trúc và đúng thứ tự trang.
+- **Xuất bằng bản dịch miễn phí có thể ra chữ chưa dịch**: nếu bước đọc chữ dính hai từ vào nhau
+  (`IT IS` → `ITIS`), bản miễn phí sẽ để nguyên tiếng Anh. Hệ thống **chưa cảnh báo** điều này trước
+  khi xuất — muốn chắc thì dịch lại bằng bản có ngữ cảnh rồi hãy xuất.
+- **Nếu máy chủ hết bộ nhớ giữa chừng**, việc đang chạy vẫn treo mãi ở trạng thái “đang chạy” mà
+  không báo lỗi. P3h **chưa sửa điều này** — nó chỉ làm cho việc hết bộ nhớ **ít xảy ra hơn** và
+  **nhìn thấy được** (số lần bộ phận xử lý bị giết nay hiện ở đường kiểm tra sức khoẻ). Trang bị
+  kẹt vẫn phải xử bằng tay.
+- Chưa có giao diện người dùng — mới chỉ có Swagger để thao tác tay; chưa có ảnh vẽ khung để nhìn bằng mắt (M7).
+- **Đã đo trên truyện tranh thật** (Pepper&Carrot, giấy phép mở): tìm đúng 3/3 bong bóng thoại,
+  đọc chữ đúng 3/3, chèn chữ vừa khung 5/5. **Nhưng chưa thử manga Nhật** (chữ dọc, đọc phải→trái).
+- **Nhận nhầm khoảng 2/7 vùng** trên ảnh thật (cây chổi, vệt sáng bị tưởng là chữ). Không lọt vào
+  bản dịch vì độ tin cậy thấp, nhưng người biên tập vẫn phải bỏ qua bằng tay.
+- **Dòng ghi công của tác giả bị coi là chữ cần dịch** — cần luật loại trừ vùng ở rìa trang.
+- **Chữ chỉ nằm ngang**: chưa hỗ trợ chữ dọc, chữ xoay nghiêng hay chữ tượng thanh (SFX) cách điệu.
+- **Bong bóng dẹt có thể bị chạm mép**: hệ thống tính theo khung chữ nhật bao quanh bong bóng, nên với
+  bong bóng rất dẹt chữ vẫn có thể chạm mép cong. Chưa gặp trên ảnh mẫu, cần thử ảnh thật.
+- **Đường dịch tiếng Nhật (phải→trái) chưa chạy thật đầu-cuối** — mới verify bằng test tự động.
+- Nhiều API key **không** làm tăng hạn mức nếu các key thuộc cùng một project Google
+  (Gemini tính giới hạn theo project, không theo key).
+- Tự thử lại **chỉ** với lỗi tạm thời (mạng, quá nhịp, 5xx) và **có trần** 3 lần. Lỗi vĩnh viễn
+  (thiếu font, thiếu model, mất ảnh) hỏng ngay — thử lại chỉ tốn thời gian.
+- Chưa tự thử lại khi **chất lượng** kém (đọc sai, dịch sai, xoá chữ chưa sạch) — đó không phải
+  lỗi hạ tầng, vẫn phải sửa tay ở màn sửa.
+- Chưa lưu ảnh lên Supabase Storage. Ảnh **không** còn nằm trên ổ đĩa máy chủ nữa mà nằm trong
+  cơ sở dữ liệu (P3e) — đó là nơi duy nhất trên nền tảng này sống sót qua mỗi lần cập nhật.
+
+## Chỉ ra chỗ cần rà soát (E12)
+
+- Sau khi căn chữ xong, hệ thống **tự chấm từng vùng chữ** rồi nói rõ vùng nào nên xem lại và
+  **vì sao** — bằng câu tiếng Việt, không phải mã kỹ thuật.
+- Ví dụ lý do: *"OCR không đọc được nội dung"*, *"Khung chữ có điểm nhận diện thấp"*,
+  *"Bản dịch dài bất thường so với chữ gốc"*, *"Chữ dịch chưa vừa khung"*,
+  *"Có thể là số hoặc ký hiệu trang trí"*.
+- Mỗi vùng được xếp vào một trong bốn nhóm: **có khả năng là chữ cần dịch**, *có thể là hiệu ứng
+  âm thanh*, *có thể là số/trang trí*, *chưa chắc*. Máy chỉ nói "có thể" — **quyết định là của bạn**.
+- Hai nút ở màn sửa tay: **Giữ để dịch** và **Bỏ qua vùng này**. Bỏ qua chỉ ghi lại quyết định —
+  khung chữ, chữ gốc và bản dịch **vẫn được giữ nguyên**, không xoá gì.
+- **Không tự bỏ** tiếng động, số trang hay chữ viết hoa. `NO!`, `PHEW!`, `18` đều có thể là chữ
+  cần dịch tuỳ truyện.
+- Vùng **chưa được đánh giá** được đếm riêng, không bao giờ bị coi là "sạch".
+- Với engine OCR không trả điểm tin cậy (tiếng Nhật), hệ thống nói đúng là *"engine không cung cấp
+  điểm tin cậy"* — **không** hiện thành 0%.
+- Hộp thoại xuất hiện thêm ba số: bao nhiêu vùng cần rà soát, bao nhiêu chưa đánh giá, bao nhiêu
+  bạn đã chủ động bỏ qua — **tách riêng** khỏi phần nhắc trách nhiệm bản quyền.
+- Đây là kết quả của một **bộ luật đọc bằng chứng**, không phải lời bảo đảm dịch đúng nghĩa.
+
+## Giao diện & luồng thao tác (E11)
+
+- **Trang chủ nói rõ tool làm gì**: tiêu đề, mô tả một câu, và form tạo chapter chia **3 bước
+  đánh số** (thông tin → chọn trang → bắt đầu).
+- **Chọn ảnh bằng cách kéo-thả hoặc bấm**, kèm danh sách trang có số thứ tự, dung lượng và nút bỏ
+  từng trang. Dùng được **hoàn toàn bằng bàn phím** (Enter/Space mở hộp chọn tệp).
+- **Nút bị mờ luôn nói vì sao** ngay bên dưới: "Cần đặt tên cho chapter", "Cần chọn ít nhất một
+  ảnh PNG hoặc JPG"…
+- **Dòng thời gian xử lý** cho cả chapter: tải lên → nhận diện → đọc chữ → xoá chữ → dịch → căn
+  chữ, mỗi bước ghi rõ **bao nhiêu/bao nhiêu trang** đã qua. Không có thanh phần trăm giả.
+- **Mọi trạng thái có nhãn tiếng Việt + icon**, không chỉ dựa vào màu. Trạng thái mà giao diện
+  chưa biết thì hiện "Trạng thái chưa được hỗ trợ" chứ không bị coi là đã xong.
+- **Căn chữ xong mà còn vùng lỗi thì KHÔNG gọi là hoàn tất** — hiện "Đã căn chữ, còn vùng cần sửa"
+  kèm số vùng, và nút "Mở để rà soát" được ưu tiên hơn nút xuất.
+- **Chờ việc chạy nền một cách trung thực**: nói rõ "đang chờ tới lượt — máy chủ đang bận việc
+  khác", và nếu quá lâu thì nói "vẫn đang chạy" chứ không báo hỏng.
+- **Dùng được trên điện thoại** (360px) tới màn rộng (1600px), không phải cuộn ngang.
+- Khi sửa tay có **đường dẫn phân cấp** và nút chuyển **trang trước / trang sau**.
+
+## Khai báo mục đích & nhắc trách nhiệm (M10)
+
+- Tạo chapter **bắt buộc tự khai mục đích sử dụng** (đọc cá nhân / học tập / khác). Hệ thống
+  **không chọn hộ** — ô này để trống tới khi bạn chọn, và nút tạo chưa bấm được.
+- Khai báo hiện ở màn chapter và **không sửa được** về sau.
+- Lần đầu xuất một chapter, hệ thống hiện một nhắc gọn: bạn chịu trách nhiệm về bản quyền nội
+  dung gốc, công cụ dành cho mục đích cá nhân/học tập, file chỉ nằm trên máy bạn — hệ thống
+  **không** tự đăng công khai hay chia sẻ cho ai.
+- Cùng lúc đó hiện luôn **chất lượng bản sắp xuất**: bao nhiêu vùng chữ tràn ra ngoài bong bóng,
+  bao nhiêu bong bóng sẽ **trống** vì chưa đọc được chữ gốc.
+- Tick ô xác nhận thì nút xuất mới sáng. **Không chặn** bạn — tick là xuất được ngay, và việc tick
+  được ghi lại kèm đúng những con số vừa hiện.
+- Nhắc chỉ hiện **một lần cho mỗi chapter**, lần sau xuất đi thẳng.
+- Nhật ký chỉ lưu **số liệu** (mục đích đã khai, số vùng lỗi, thời điểm xác nhận) — **không** lưu
+  nội dung, ảnh hay bản dịch của bạn.
+- **Không** watermark, **không** khoá file: chúng không giúp gì cho việc tuân thủ bản quyền thật,
+  chỉ làm hỏng ảnh của chính bạn.
+
+## Chạy cả chapter (M9)
+
+- Một nút **Chạy cả chapter**: chọn cách dịch (nhanh & miễn phí, hoặc theo ngữ cảnh), hệ thống
+  chạy lần lượt mọi trang qua đủ các bước.
+- **Danh sách trang được chụp lại ngay lúc bấm** — trang tải lên sau đó không lẫn vào mẻ đang chạy,
+  nên tổng số trang không nhảy lung tung giữa chừng.
+- Mỗi trang **tiếp tục từ đúng bước nó đang dừng**; trang đã xong được bỏ qua chứ không làm lại.
+- Tiến độ nói thật: bao nhiêu trang xong / hỏng / bị chặn vì hết lượt gọi, đang làm tới trang nào.
+  **Không bao giờ hiện 100% khi còn trang chưa xong.**
+- Lỗi tạm thời (mạng chập chờn, nhà cung cấp quá tải) tự thử lại, có chờ giãn dần, tối đa 3 lần.
+- Hết lượt gọi ⇒ báo rõ **"bị chặn vì hạn mức"** chứ không báo hỏng, và **không** gọi thêm lần nào
+  ra nhà cung cấp. Hạn mức hồi thì bấm **Chạy lại** là chạy tiếp đúng những trang đó.
+- Máy chủ bị khởi động lại giữa chừng vẫn cứu được: bấm Chạy lại là mẻ đi tiếp, không làm lại
+  trang đã xong và không tạo file trùng.
+- **Dừng mẻ**: không đẩy thêm trang mới, trang đang chạy vẫn chạy nốt cho khỏi dở dang.
+- Mẻ **không tự xuất chapter** — xuất vẫn là việc bạn chủ động bấm, để không phát hành nhầm bản
+  còn tràn khung.
+
+## Nhắc thuật ngữ trước khi mang file đi (P3i)
+
+Trước đây, nếu bạn chưa khai thuật ngữ nào thì màn hình trước khi tải file **không nói gì cả** —
+và tên riêng có thể đã bị dịch theo nghĩa đen từ lâu mà bạn không biết. Chạy thử thật trên máy chủ
+ngày 03/09 bắt được đúng chuyện đó: một nhân vật tên **Pepper** biến thành **"Hạt tiêu"**.
+
+Nay màn hình đó nói thẳng: *"Chưa chốt thuật ngữ nào cho chapter này — tên nhân vật, vật phẩm,
+chiêu thức có thể đang bị dịch theo nghĩa đen"*, kèm luôn ví dụ để bạn nhận ra vấn đề mà không
+phải đọc tài liệu.
+
+Nó **không chặn** bạn xuất file — chỉ nói cho bạn biết trước khi mang đi.
+
+## Chữ Việt vừa bong bóng manga (A1 + E18)
+
+Trang manga tiếng Nhật đầu tiên chạy thật cho ra kết quả không dùng được: chữ Việt bị nhét vào
+những **cột dọc hẹp**, mỗi dòng 2–3 ký tự, có vùng bị **cắt cụt** ("NÓ SI / ỰC R / PHẢI / HÔNG").
+Không job nào hỏng — hỏng ở hình học và ở độ dài câu.
+
+- **Nới khung ra tới khi chạm nét vẽ (A1).** Bong bóng trắng nằm trên trang cũng trắng thì phép
+  tách theo độ sáng bó tay (0/8 vùng dựng được hình). Nay không cần tách nữa: cứ nới khung tới
+  khi chạm nét mực — viền bong bóng chính là nét mực. Đo trên trang dựng thử: ô đặt chữ
+  36×230 → **232×320**, cỡ chữ **10 → 28**, ngắt dòng từ 15 mẩu vụn còn 5 dòng đọc được. Trên
+  trang thật: **tràn 3 → 2 vùng**, và vùng bị cắt cụt trở lại đọc được trọn câu.
+- **Dịch lại ngắn hơn cho vừa (E18).** Bong bóng vẽ vừa ~30 ký tự tiếng Nhật mà bản dịch tiếng
+  Việt về 105 ký tự thì không cách xếp chữ nào cứu được. Nút **"Rút gọn cho vừa khung"** đo sức
+  chứa thật của từng bong bóng rồi nhờ mô hình viết lại gọn hơn theo **chữ gốc** — không phải
+  cắt cụt câu tiếng Việt. Vùng bạn đã sửa tay **không bị đụng tới**.
+- **Nút "Tính lại bố cục cả trang"** để áp bố cục mới cho trang đã chạy từ trước, khỏi phải tải
+  ảnh lên lại từ đầu.
+
+Vẫn còn: hướng chữ dọc chưa dựng được (E15 BLOCKED) — chữ Việt đọc ngang trong bong bóng vốn
+dành cho chữ dọc; và bong bóng quá nhỏ so với câu thoại thì rút gọn cũng không cứu nổi.
+
+## Một dấu chấm kiểu Nhật không còn giết cả trang (F1)
+
+Đo trên bản chạy thật 04/09, chapter "test 2": 8 vùng, dịch xong hết, rồi bước căn chữ **chết sau
+0,034 giây** vì bản dịch còn dấu `．` (dấu chấm toàn rộng của tiếng Nhật, U+FF0E) mà không font
+truyện tranh nào có glyph. Màn hình vẫn quay *"đang cập nhật…"*, người dùng đợi **10 phút** một
+việc đã chết. Ba chỗ đã sửa:
+
+- **Gấp dấu câu kiểu Nhật về dạng thường trước khi đo và vẽ** (`．`→`.`, `。`→`.`, `、`→`,`,
+  `！？：；（）「」〜　`…). Bản dịch trong CSDL **giữ nguyên**; chỉ chuỗi đem đi vẽ được gấp. Chữ Nhật
+  thật (kana/kanji) **không** bị đụng tới — đổi nó thành ký tự Latin gần giống là dịch hộ.
+- **Một vùng font không vẽ được KHÔNG còn giết cả trang.** Vùng đó nhận trạng thái riêng
+  `font_missing_glyph`, các vùng còn lại vẫn căn xong. Vùng hỏng được **đếm riêng**, hiện gạch
+  chéo đỏ trên ảnh, vào danh sách cần rà soát, và **cảnh báo ở cổng xuất file** — vì bong bóng đó
+  đang trống. Cả trang không vùng nào vẽ được thì vẫn báo hỏng như cũ, không công bố trang trắng.
+- **Việc hỏng tự hiện ra** ở màn tiến độ (bước nào hỏng + lý do), không còn nằm sau nút "Vì sao?"
+  phải bấm mới biết. Trang có việc hỏng thì **thôi quay** — quay vòng quanh một cái xác là nói
+  dối bằng hoạt hình.
+
+## Cho người khác cùng dùng, mà không ai đụng vào chapter của ai (B1)
+
+Trước đây hệ thống chỉ có **một khoá chung**. Đưa khoá cho người khác nghĩa là đưa luôn quyền
+đọc, sửa và **xoá** mọi chapter — kể cả của bạn. Nên thực tế là không đưa được cho ai.
+
+Giờ mỗi người một tài khoản riêng:
+
+- **Đăng nhập bằng email + mật khẩu.** Nhớ trong 14 ngày, không phải gõ lại mỗi lần.
+- **Chapter bạn tạo là của bạn.** Người khác đăng nhập vào cùng hệ thống sẽ không thấy nó, và
+  cũng không mở được kể cả khi có đường dẫn đầy đủ.
+- **Đăng xuất là mất hiệu lực ngay**, kể cả trên máy khác.
+
+### Tạo tài khoản cho người khác
+
+Tự đăng ký thì cần **khoá chung của hệ thống** — hỏi người quản trị. Chủ ý là vậy: không có nó
+thì ai mở được địa chỉ web cũng tự tạo tài khoản và dùng hạ tầng của bạn.
+
+Tài khoản **đầu tiên** của hệ thống là tài khoản quản trị.
+
+## Tiện ích "Dịch truyện đang đọc" — phủ chữ lên bất kỳ trang nào (E19)
+
+Khác hẳn E1: tiện ích **này** đọc trang bạn đang xem, tải ảnh, và phủ nội dung lên trang — ba
+điều E1 hứa **không bao giờ làm**. Nên đây là tiện ích riêng (`extension-doc-truyen/`), cài và
+gỡ độc lập với E1, có `PRIVACY.md` riêng nói đúng ba điều đó. Cài cái này không đổi hành vi E1.
+
+**Làm được:**
+
+- Mở bất kỳ trang truyện nào, bấm biểu tượng tiện ích → hiện **popup**: chọn ngôn ngữ chữ trên
+  trang (Nhật/Trung/Anh — sai ngôn ngữ thì OCR đọc ra chữ vô nghĩa, không báo lỗi gì) và chọn
+  **chất lượng dịch** (miễn phí, rời rạc từng dòng / Gemini, giữ mạch văn + tự sửa lỗi đọc chữ
+  nhưng tốn token) rồi bấm "Dịch trang này". Đổi ngay tại popup, không cần mở trang Tuỳ chọn.
+- Tự dò ảnh trang truyện đang xem lớn nhất trên màn hình (loại banner, icon, ảnh thu nhỏ trong
+  danh sách, ảnh nền mờ trang trí của lightbox) — kể cả ảnh trang tự giải mã thành `blob:` cục bộ
+  (đọc bằng canvas ngay tại trang, không qua service worker).
+- Gửi ảnh đó tới **máy chủ Translation của chính bạn** (tự nhập địa chỉ + đăng nhập trong tiện
+  ích, dùng đúng mã phiên như bản web — không có đường tắt qua khoá chung).
+- Sau ~45 giây (chủ yếu chờ bước nhận diện, đo `docs/REPORT_E19_0_DO_COND_CHAN.md`): phủ một lớp
+  chữ Việt trong suốt lên đúng từng bong bóng, **giữ nguyên ảnh gốc** (không xoá chữ Nhật, không
+  chỉnh sửa được như bản web) — nền hộp dịch đục hoàn toàn nên không chồng hai lớp chữ.
+- Chữ tự co cỡ vừa khung bong bóng; dịch dài hơn khung mấy cũng chỉ cuộn trong ô, không tràn ra
+  ngoài hay bị cắt mất.
+- Bấm lại đúng trang đã dịch thì phủ lại ngay (nhớ theo URL ảnh), không tốn lại 45 giây.
+- **Tự xếp hàng trước đúng 1 trang kế tiếp** trong lúc bạn đang đọc trang hiện tại (nếu trang đó
+  đã nạp sẵn trong DOM — trang cuộn dọc liên tục như MangaPlus). Vẫn phải bấm cho mỗi trang, nhưng
+  thường hiện gần như ngay khi bấm thay vì chờ lại 45 giây.
+- Lớp phủ tự bám theo khi cuộn trang / đổi cỡ cửa sổ.
+
+**Cố ý KHÔNG làm:**
+
+| Không làm | Vì sao |
+|---|---|
+| Xoá chữ gốc khỏi ảnh | Thuộc pipeline đầy đủ (LaMa) — tốn CPU nhất và không cần cho việc phủ chữ |
+| Căn chữ vào lòng bong bóng như bản web (M6/E14) | Chế độ `chi_chu` cố ý bỏ bước này để nhanh hơn (xem ARCH.md §E19.3); đổi lại là tự co cỡ chữ + cuộn trong ô |
+| Tự động dịch cả chapter | Mỗi lần một trang, do người bấm — không âm thầm quét cả site |
+| Hỗ trợ trang vẽ bằng canvas / chống sao chép | Không có `<img>` để lấy — nói thẳng "không tìm thấy trang truyện", không âm thầm thất bại |
+| Xuất file | Không có màn xuất trong tiện ích — cổng M10 vì vậy không áp dụng ở đây |
+
+**Giới hạn đã biết:** máy chủ xử lý **một trang một lúc** (hàng đợi chung với mọi tài khoản khác),
+nên cách dùng đúng là bấm dịch trang kế **trong lúc đang đọc trang hiện tại**, không phải bấm rồi
+ngồi chờ.
+
+### Chapter làm từ trước thì sao
+
+Chapter tạo trước bản này **không thuộc về ai cả** — lúc đó chưa có tài khoản nào để ghi vào.
+Chúng không bị giấu đi và cũng không bị gán bừa cho ai: mọi người đăng nhập đều thấy, kèm nhãn
+*chưa có chủ*, và bấm **nhận** là về mình. Nhận rồi thì người khác không mở được nữa.
+
+### Nhận nhầm chapter thì nhả ra được
+
+Chapter của bạn có nút **Nhả về chưa có chủ**. Nhả xong thì mọi người đăng nhập lại thấy nó và
+nhận được — dùng khi bạn nhận nhầm, hoặc muốn giao lại việc cho người khác.
+
+Không có nút này thì nhận nhầm một cái là chapter khoá cứng vào tài khoản đó vĩnh viễn. (Đúng
+chuyện đã xảy ra lúc chạy thử bản này.)
+
+### Quản trị: khoá hoặc gỡ tài khoản
+
+Tài khoản quản trị thấy thêm bảng **Tài khoản** ở trang chủ.
+
+- **Khoá** — người đó không vào được nữa, **kể cả đang mở sẵn trên máy họ**. Chapter của họ giữ
+  nguyên chủ. Đây là cách đúng để cho ai đó nghỉ.
+- **Xoá** — gỡ hẳn tài khoản. **Chapter của họ không bị xoá theo**, chúng trở về *chưa có chủ* và
+  người khác nhận được.
+
+- **Phong quản trị** — cho người khác quyền quản lý tài khoản.
+
+Không tự khoá, tự xoá hay tự thu quyền của chính mình được.
+
+> **Nên có ít nhất hai quản trị.** Mất tài khoản quản trị duy nhất là không ai quản lý được
+> người dùng nữa, và không sửa được nếu không can thiệp thẳng vào cơ sở dữ liệu.
+
+### Những gì bản này CHƯA có
+
+- **Đổi mật khẩu và quên mật khẩu.** Quản trị phát mật khẩu cho người mới, và người đó không đổi
+  được. Đây là thiếu sót nặng nhất còn lại.
+- **Chia sẻ một chapter cho hai người cùng làm.** Mỗi chapter đúng một chủ. Muốn giao việc thì
+  nhả ra cho người kia nhận.
+- **Chặn dò mật khẩu.** Mỗi lần thử tốn 83ms nên dò rất chậm, nhưng chưa có khoá tạm sau N lần sai.
+
+## Bản dịch sát nghĩa hơn ở ba chỗ hay sai nhất (E26)
+
+Sau một lượt đối chiếu bản dịch máy với bản tiếng Việt **do người dịch** của cùng bộ truyện, ba lỗi
+lặp lại nhiều nhất đã được sửa.
+
+### Câu bị ngắt giữa dòng nay được dịch nguyên câu
+
+Chữ trong bong bóng phải ngắt dòng cho vừa khung — nhưng chỗ ngắt đó **không phải chỗ hết câu**.
+Trước đây mỗi dòng được đem đi dịch riêng, nên một câu bị chặt làm hai và ra nghĩa khác:
+
+| Gốc | Trước | Nay |
+|---|---|---|
+| `I need to go to the` / `market in Komona.` | *Tôi cần phải đi đến / chợ ở Komona.* | *Tôi cần đi chợ ở Komona.* |
+| `私はコモナの市場に` / `行かねばならぬ` | *Tôi đang ở chợ ở Komona / phải đi* | *Tôi phải đi chợ ở Komona.* |
+| `... to name just` / `a few!` | *... chỉ kể tên thôi / một vài!* | *... chỉ kể tên một vài!* |
+
+Nặng nhất là tiếng Nhật: chỗ ngắt dòng làm **đảo thứ tự mệnh đề**, ra một nghĩa khác hẳn.
+
+Trên trang đo được, **7/14 vùng là nhiều dòng** — nên việc này ảnh hưởng khoảng một nửa số thoại.
+
+Dòng **thật sự** hết câu (kết thúc bằng `.` `!` `?` `:` `;` `…`) vẫn được giữ tách, để hai câu rời
+không bị dính thành một.
+
+**Chữ bạn thấy trong phần sửa OCR không đổi.** Việc gộp chỉ xảy ra trên đường gửi đi dịch, còn chữ
+gốc trong cơ sở dữ liệu giữ y nguyên — nếu không thì bạn sẽ thấy chữ khác cái mình đã gõ.
+
+### Không còn chèn hai lần một câu lên cùng một chỗ
+
+Đôi khi bộ nhận diện cho ra một vùng lớn **trùm hẳn** lên vài vùng nhỏ và đọc lại đúng nội dung của
+chúng. Chèn chữ cho cả vùng lớn lẫn vùng nhỏ thì cùng một câu bị vẽ hai lần chồng nhau, đọc không
+ra chữ nào.
+
+Nay bước chèn chữ **bỏ qua vùng trùm** khi nó chứa trọn ít nhất hai vùng khác nhỏ hơn hẳn. Vùng đó
+**không bị xoá**: dòng dữ liệu và kết quả đọc chữ vẫn còn, bạn vẫn xem và sửa được — chỉ là không
+vẽ nó lên ảnh.
+
+Điều kiện "ít nhất hai vùng" là để **không bỏ oan** một bong bóng lớn hợp lệ chỉ vì nó chồng nhẹ
+một vùng khác. Mất một câu thoại tệ hơn nhiều so với vẽ trùng một câu.
+
+Từ 12-09, hệ thống còn nhận ra một kiểu trùng thứ hai mà cách trên không thấy: **vùng lớn đọc
+lại đúng nguyên văn chữ của một vùng nhỏ** nằm trong nó. Đo trên 34 trang thật: bắt đúng 8 cặp,
+**không bỏ oan cặp nào**, và bắt thêm được 4 vùng mà cách cũ bỏ sót.
+
+Nó **không bao giờ bỏ hết mọi bản** của một câu: chỉ vùng lớn hơn hẳn bị bỏ, nên bản gọn nhất luôn
+được giữ.
+
+**Còn một kiểu chữ chồng khác, và nguyên nhân đã tìm ra.** Trên nền phẳng (trời, tường trắng),
+chỗ đặt chữ tự nới ra tới khi chạm nét vẽ — nhưng nền phẳng thì không có gì cản, nên nó nới quá
+rộng và **chỗ đặt chữ của hai bong bóng cạnh nhau chồng lên nhau**. Kéo theo việc hệ thống báo
+"vừa khung" cho chữ thật ra không vừa. Đây là việc khác, cần sửa riêng — gặp chỗ chữ chồng, bạn
+sửa tay được trong màn hình rà soát.
+
+### Tiếng động giữ nguyên, không dịch thành từ
+
+`Clang` từng thành *"Kêu vang"*, `Cling` thành *"Bám vào"*, `Clong` thành *"tiếng kêu"* — dịch đúng
+từ điển nhưng **sai thể loại**: đó là tiếng kim loại chạm nhau, không phải động từ. Tiếng động
+trong truyện tranh Việt thường để nguyên.
+
+Nay những vùng hệ thống đã đánh dấu *"có thể là tiếng động"* được **giữ nguyên chữ gốc**.
+
+**Nói thẳng hai giới hạn:**
+
+- Cơ chế này **bắt được khoảng một nửa** số tiếng động. `Shhshh`, `Shklak!`, `CRACK!! KLING!!` vẫn
+  bị dịch như trước, vì hệ thống không đánh dấu chúng là tiếng động.
+- Dấu hiệu nhận biết hiện dựa vào **độ dài chữ**, nên một câu thoại rất ngắn (`NO!`, `Yes!`) có thể
+  bị giữ nguyên không dịch. Trên 24 trang đã chạy thật thì **chưa xảy ra lần nào** (13/13 trường
+  hợp đều đúng là tiếng động), nhưng khả năng đó có thật.
+
+Nếu bạn gặp một câu ngắn không được dịch, dùng nút **dịch lại vùng** — nó sẽ dịch bình thường.
+
+### Dịch kỹ hơn theo ngữ cảnh cả trang (D)
+
+Trong bảng chạy cả mẻ có ô **Cách dịch**. Hai lựa chọn:
+
+| | **Dịch nhanh (miễn phí)** — mặc định | **Dịch theo ngữ cảnh** |
+|---|---|---|
+| Chi phí | miễn phí | tốn token, **đo được ~550 token/trang** |
+| Cách dịch | từng dòng, rời nhau | đọc **cả trang** rồi mới dịch |
+
+Đo thật trên một trang 14 vùng, **11/11 câu ra khác nhau**. Bốn việc `llm_context` làm được mà
+`google_fast` không:
+
+- **Tự sửa lỗi đọc chữ.** Máy đọc nhầm `Laughing Potions` thành `Luughing Fotlons`; bản thường để
+  nguyên cụm rác đó, bản ngữ cảnh suy ra đúng và dịch **Thuốc Cười**.
+- **Không bỏ sót tiếng Anh.** `"Bright-Side" Potions` → bản thường giữ nguyên `"Bright-Side"`, bản
+  ngữ cảnh dịch **Thuốc "Lạc Quan"**.
+- **Dịch cùng một thứ giống nhau ở mọi chỗ trong trang.** `Mega-Hairgrowth` xuất hiện hai lần, bản
+  thường cho *"mọc tóc cực mạnh"* ở chỗ này và *"mọc tóc siêu lớn"* ở chỗ kia; bản ngữ cảnh dùng
+  **một cách gọi duy nhất**.
+- **Giữ giọng nhân vật.** Bà phù thuỷ nói văn cổ bề trên; bản thường cho *"Tôi phải đi chợ"*, bản
+  ngữ cảnh cho ***"Ta** phải đến chợ Komona ngay."*
+
+Nó cũng gỡ được ca tiếng Nhật khó nhất: máy đọc dính hai nhãn thành `笑い薬超毛生え薬`, bản thường ra
+*"Thuốc cười siêu mọc tóc"* (một thứ không có thật), bản ngữ cảnh tách đúng thành **"Thuốc cười,
+thuốc mọc tóc siêu tốc."**
+
+**Cần gì để dùng:** một khoá Gemini đặt trong cấu hình máy chủ. Chưa có thì mục đó hiện thành
+**"Dịch theo ngữ cảnh — chưa cấu hình khoá dịch"** và không bấm được. Đó là cố ý: thà nói trước
+còn hơn để bạn bấm rồi mới báo lỗi.
+
+Chọn mục này xong, bảng còn cho biết **giới hạn lượt gọi mỗi phút** của cả dự án — vượt thì mẻ
+nằm chờ chứ không đập thêm vào nhà cung cấp.
+
+**Không có khoá cũng không hỏng gì.** Nếu hệ thống lỡ chạy bộ dịch ngữ cảnh mà khoá rỗng hoặc hết
+lượt, nó **tự quay về bản thường** và đánh dấu *"đã dùng bản dự phòng"* — trang vẫn dịch xong, chứ
+không đứng lại hay trả về trang trắng.
+
+**Một chỗ nó KHÔNG giúp:** nó đọc ngữ cảnh trong **một trang**, không phải cả chapter. Muốn một
+nhân vật hay thuật ngữ được gọi giống nhau **xuyên suốt nhiều trang** thì vẫn phải dùng bảng
+thuật ngữ.
+
+### Dịch nhất quán xuyên suốt cả bộ truyện (E31)
+
+Bản dịch theo ngữ cảnh đọc **cả một trang** cùng lúc, nên trong trang đó nó gọi tên nhân vật và
+thuật ngữ giống nhau. Nhưng nó **không thấy trang khác** — nên `Air Dragon` có thể thành *"Rồng
+Gió"* ở trang này và *"Rồng Không Khí"* ở trang sau.
+
+Từ 12-09, mỗi lượt dịch được kèm theo **bảng thuật ngữ và hồ sơ giọng nhân vật bạn đã chốt**. Máy
+bắt buộc dùng đúng cách dịch đó, và giữ đúng cách xưng hô của từng nhân vật.
+
+**Chỉ những mục bạn đã duyệt được dùng.** Gợi ý máy tự sinh mà bạn chưa duyệt thì **không** được
+đưa vào — nếu không, một gợi ý sai sẽ được máy tự xác nhận rồi lặp lại trên cả chapter.
+
+Chưa chốt thuật ngữ nào thì mọi thứ chạy y như trước, không có gì đổi.
+
+Việc này áp cho **cả** lượt dịch tự động **và** nút *dịch lại vùng* — hai đường phải giống nhau,
+nếu không bấm dịch lại sẽ ra cách gọi tên khác.
+
+### Câu thoại ngắn tiếng Nhật không còn bị bỏ sót (E29)
+
+Trước đây câu rất ngắn bị coi là tiếng động và giữ nguyên. Ngưỡng "rất ngắn" đó tính theo **chữ
+Latin**, nơi 5 chữ cái mới là một từ như *just*. Trong tiếng Nhật, 5 ký tự là **cả một mệnh đề** —
+nên `それでも、` ("Dù vậy,") và `ちなみに、` ("Nhân tiện,") bị bỏ không dịch.
+
+Nay ngưỡng tính riêng cho từng hệ chữ. Tiếng động thật như `ドン` vẫn được giữ nguyên, còn câu
+thoại thì được dịch.
+
+---
+
+# Dành cho người hỗ trợ: gặp lỗi thì trả lời thế nào
+
+Phần này viết để trả lời trực tiếp cho người dùng. Mỗi mục nói **hiện tượng họ thấy**, **có phải
+lỗi không**, và **làm gì**.
+
+## "Chữ dịch đè lên nhau, không đọc được"
+
+**Có thật, và đã giảm hẳn qua ba đợt sửa.** Ba nguyên nhân khác nhau:
+
+1. **Máy đọc gộp nhiều bong bóng thành một khối** rồi vẽ cả khối lẫn từng bong bóng → cùng một câu
+   vẽ hai lần. Đã xử lý: bỏ qua khối gộp khi vẽ, dữ liệu vẫn còn nguyên để bạn xem.
+2. **Vùng lớn đọc lại nguyên văn chữ của vùng nhỏ** nằm trong nó. Đã xử lý từ 12-09.
+3. **Chỗ đặt chữ tự nới quá rộng trên nền phẳng** (trời, tường trắng) nên hai bong bóng cạnh nhau
+   lấn vào nhau. Đã xử lý từ 12-09.
+
+**Nếu vẫn gặp:** sửa tay trong màn rà soát — kéo lại khung hoặc đổi cỡ chữ. Chụp ảnh lại giúp đội
+phát triển, vì mỗi kiểu chồng chữ là một nguyên nhân khác nhau.
+
+## "Có câu không được dịch, vẫn là chữ gốc"
+
+**Đây có thể là cố ý.** Tiếng động trong truyện (`Clang`, `ドン`) được **giữ nguyên** vì dịch
+nghĩa ra sẽ sai thể loại — `Cling` không phải "Bám vào".
+
+Nhưng câu thoại **ngắn** cũng từng bị giữ nhầm. Với tiếng Nhật đã sửa từ 12-09 (`それでも、`,
+`ちなみに、` nay được dịch). Với tiếng Anh, câu rất ngắn như `NO!` vẫn có thể bị giữ.
+
+**Làm gì:** bấm **dịch lại vùng** — đường đó cố ý không áp luật giữ tiếng động, nên sẽ dịch bình
+thường.
+
+## "Trang bị lỗi, báo worker gián đoạn"
+
+**Bước xoá chữ gốc là bước ngốn bộ nhớ nhất**, và nó có thể làm tiến trình xử lý bị dừng. Hệ thống
+nói thẳng `worker_died` kèm câu *"Dữ liệu của bạn KHÔNG mất"*.
+
+**Làm gì:** bấm chạy lại trang đó. Không cần tải ảnh lên lại. Nếu một trang hỏng nhiều lần liên
+tiếp thì ảnh đó có vùng chữ quá lớn — cắt nhỏ ảnh hoặc bỏ qua trang đó.
+
+## "Mọi vùng đều báo Chưa xác định hướng chữ"
+
+**Không phải lỗi.** Với truyện Nhật, hệ thống **luôn** trả lời như vậy vì bộ đọc chữ tiếng Nhật
+không cung cấp hình dạng dòng. Chữ vẫn được căn ngang bình thường, và **tiếng Việt vốn viết ngang**
+nên đó là kết quả đúng.
+
+Từ 12-09 nhãn này hiện màu xám trung tính thay vì màu cảnh báo, để không gây hiểu nhầm.
+
+## "Máy đọc sai chữ gốc"
+
+**Có thật và đo được** — `Laughing Potions` từng đọc thành `Luughing Fotlons`, chữ Nhật bị nhân đôi
+ký tự.
+
+**Hai cách xử lý:**
+- Dùng **Dịch theo ngữ cảnh**: nó tự suy ra chữ đúng trong phần lớn trường hợp (`Luughing Fotlons`
+  → `Thuốc Cười`).
+- Gõ đè chữ gốc trong màn sửa tay, rồi dịch lại.
+
+## "Chạy cả chapter mất bao lâu"
+
+**Khoảng một tiếng cho 24 trang.** Đo thật: trung vị 107 giây/trang, nhưng trang chậm thì lâu hơn
+nhiều — nên đừng tính theo 54 phút.
+
+Ô đếm "trang xong" **đứng ở 0 khá lâu** là bình thường: trang đầu phải chạy hết mọi bước mới nhảy số.
+
+## "Nên chọn Dịch nhanh hay Dịch theo ngữ cảnh"
+
+**Dịch theo ngữ cảnh**, nếu đã cấu hình khoá. Đo thật trên cả tiếng Anh và tiếng Nhật:
+
+| Gốc | Dịch nhanh | Dịch theo ngữ cảnh |
+|---|---|---|
+| `Air Dragon!` | để nguyên tiếng Anh | `Rồng Gió` |
+| `は、はぁ．．．` | `Hà, Hà. ．． ．．` | `H-hả...` |
+| `ダメ！…` | `Bạn không nên…` | `Cậu không được làm thế đâu` |
+| `Luughing Fotlons` | để nguyên rác | `Thuốc Cười` |
+
+Giá: khoảng **300 token mỗi trang**, tức ~7.000 token cho một chapter 24 trang.
+
+## Kiểm hệ thống đang chạy gì (không cần đăng nhập)
+
+```
+https://translation-api.cmc-1.vibenode.matbao.ai/healthz
+```
+
+- `llm_configured: true` → chọn được **Dịch theo ngữ cảnh**
+- `translate_default_engine` → engine mặc định **tiến trình đang chạy thật sự đọc được**
+
+Trường thứ hai quan trọng: đổi biến trên bảng cấu hình **chỉ có hiệu lực sau khi deploy lại**, nên
+"đã đổi trên bảng" không đồng nghĩa "đang chạy".
+
+---
+
+# Kế hoạch tiếp theo
+
+Xếp theo giá trị đo được, không theo độ khó.
+
+## 1. Cho mô hình xem chính trang truyện — bước nhảy lớn nhất còn lại
+
+Hiện mô hình **chỉ nhận chữ do máy đọc**, không thấy hình. Nên nó không biết ai đang nói, và phải
+đoán khi chữ bị đọc sai. Đo được lỗi đọc thật: `どなどは` là rác, `足りなかったかかも` nhân đôi ký tự.
+
+Có hình thì mô hình tự sửa được và biết nhân vật nào đang thoại.
+
+**Cần đo trước khi bật:** một ảnh tốn nhiều token hơn chữ rất nhiều, nên phải đo chi phí thật rồi
+mới quyết — không bật mặc định.
+
+## 2. Gộp nhiều chapter — thứ DUY NHẤT còn thiếu trong luồng tự động
+
+Bốn phần còn lại đã có: tải nhiều ảnh một lúc, tự nhận diện sau khi tải lên, năm bước nối tự động,
+và chạy cả chapter một mẻ.
+
+## 3. Đổi sang model lớn hơn — để dành
+
+Chỉ là một biến cấu hình (`LLM_MODEL_NAME`, đang dùng bản nhẹ). Rẻ nhất để thử nhưng lợi ích ít
+chắc chắn nhất, nên **chỉ dùng khi 1 và 2 vẫn chưa đủ**.
+
+## Đã cân nhắc và quyết định BỎ
+
+**Dựng chữ dọc kiểu tiếng Nhật.** Ba vật cản kỹ thuật còn nguyên (thiếu libraqm, không font nào có
+chữ kanji, bộ đọc không trả hình dạng dòng) — nhưng cả ba **chỉ cản việc vẽ chữ Nhật**, mà hệ thống
+luôn vẽ **tiếng Việt**, và tiếng Việt viết ngang. Bỏ mục này tiết kiệm nhiều công nhất trong cả
+danh sách.
+
+### Cho mô hình xem chính trang truyện (E32) — có, nhưng đang TẮT
+
+Bình thường mô hình dịch **chỉ đọc chữ mà máy đọc ra được**, không thấy hình. Nên khi máy đọc sai,
+nó phải đoán; và nó không biết câu nào là của nhân vật nào.
+
+Bật tính năng này thì mô hình **xem cả trang truyện**. Đo thật trên hai trang:
+
+| | Không xem ảnh | Có xem ảnh |
+|---|---|---|
+| Máy đọc rác `どなどは` | *"Chẳng hạn như..."* — đoán sai | **"Đổ ào ào."** — nhận ra đó là tiếng động vẽ trong tranh |
+| `Yeah, I know:` | *"Ừ, tôi biết mà:"* | **"Vâng, con biết:"** — biết người nói là học việc |
+| `I need to go...` | *"Tôi cần..."* | **"Ta cần..."** — biết người nói là bà phù thuỷ |
+
+**Vì sao đang tắt:** chi phí. Ảnh tốn gần như **cố định +1166 token mỗi trang**, bất kể trang nhiều
+hay ít chữ. Một chapter 24 trang tốn thêm khoảng **28.000 token** — gấp 4–5 lần so với chỉ gửi chữ.
+
+Đây là **quyết định chi phí của bạn**, không phải quyết định kỹ thuật. Muốn bật thì đặt
+`E32_KEM_ANH_TRANG=true` rồi deploy lại.
+
+**Một phương án rẻ hơn chưa làm:** chỉ gửi ảnh cho những trang **có vùng bị đánh dấu cần rà soát**
+— vì lợi ích của ảnh tập trung đúng vào các trang máy đọc kém, chứ không rải đều.
+
+### Gộp nhiều chapter vào một file (E33)
+
+Trước đây mỗi lần xuất chỉ ra **một** chapter. Nay chọn được nhiều chapter và tải về **một file duy
+nhất**, xếp theo đúng thứ tự bạn chọn.
+
+File ra có cấu trúc thư mục theo chapter:
+
+```
+01_chuong_mot/001.png  002.png  003.png
+02_chuong_hai/001.png  002.png
+```
+
+Số thứ tự nằm ở đầu tên vì ứng dụng đọc truyện **sắp trang theo tên file** — không có số thì chương
+10 sẽ đứng trước chương 2.
+
+**Chỉ gộp được chapter của chính bạn.** Chapter của người khác thì hệ thống báo không tìm thấy, y
+như mọi chỗ khác. Và nếu một chapter trong danh sách không tồn tại, **cả lượt xuất bị từ chối** —
+thà báo lỗi còn hơn lặng lẽ xuất thiếu một chương mà bạn tưởng đã có.
+
+**Chọn trùng một chapter hai lần** thì nó chỉ vào file một lần, ở vị trí bạn chọn đầu tiên.
+
+**Tối đa 50 chapter một lần.** Nhiều hơn thì file quá lớn và lượt xuất chạy quá lâu.

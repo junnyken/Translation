@@ -1,0 +1,1690 @@
+# API.md — Translation (prefix `/api/v1`)
+
+Swagger tự sinh: `http://localhost:8010/docs` · OpenAPI JSON: `/openapi.json`
+
+Nguyên tắc:
+- Response **luôn** qua Pydantic schema (không trả SQLAlchemy object).
+- Lỗi validate → `422` theo format mặc định FastAPI (không tự chế error format).
+- Endpoint kích hoạt bước AI → `202 Accepted` + `job_id`, không trả kết quả trực tiếp.
+- **Mọi đường đòi đăng nhập**, trừ `/auth/*` và hai đường ở §E49 dưới đây. Cổng gắn ở **tầng
+  router** chứ không từng endpoint, nên mặc định là ĐÓNG.
+- **Hạn mức (E49):** ba đường tải lên trả `429` khi hết lượt — xem §E49.
+
+## 1. `POST /api/v1/projects` → 201
+
+Request:
+```json
+{ "name": "Chapter 01", "source_lang": "ja", "target_lang": "vi", "intended_use": "personal" }
+```
+- `source_lang`: `ja` | `zh` | `en` (bắt buộc)
+- `target_lang`: `vi` (mặc định `vi`)
+- `intended_use`: `personal` | `study` | `other` (**bắt buộc** — guardrail bản quyền của M10)
+
+Response 201:
+```json
+{ "id": "…uuid…", "name": "Chapter 01", "source_lang": "ja", "target_lang": "vi",
+  "intended_use": "personal", "status": "active", "created_at": "…", "updated_at": "…" }
+```
+Thiếu `name` / `source_lang` / `intended_use`, hoặc giá trị ngoài enum → `422`.
+
+## 2. `GET /api/v1/projects/{project_id}` → 200
+
+Trả project kèm tóm tắt page:
+```json
+{ "id": "…", "name": "…", "…": "…",
+  "pages": [ { "id": "…", "order": 1, "status": "queued" } ] }
+```
+Không tồn tại → `404`.
+
+## 3. `POST /api/v1/projects/{project_id}/pages` → 202
+
+`multipart/form-data`, field `file` = ảnh trang (JPEG/PNG/WEBP, mặc định ≤ 25MB).
+
+Field `engine` (**ĐX-3**, tuỳ chọn): `google_fast` | `llm_context`. Ghi vào
+`Page.translate_engine_override`; bỏ trống ⇒ `NULL` ⇒ dùng `settings.translate_default_engine`
+như trước. Chọn `llm_context` mà chưa cấu hình `GEMINI_API_KEYS` ⇒ `422 llm_not_configured`,
+chặn ngay lúc tải lên chứ không để hỏng ở bước dịch mấy chục giây sau.
+
+> Lựa chọn `google_fast` được lưu **tường minh**, không quy về `NULL`. Khác biệt có thật:
+> `NULL` nghĩa là "theo mặc định hệ thống", nên đổi `translate_default_engine` một ngày nào đó
+> sẽ âm thầm biến lựa chọn *miễn phí* của người dùng thành engine tốn token.
+
+Hành vi: lưu file xuống storage → tạo `Page(status=queued, order=max+1)` →
+tạo `Job(type=detect, status=queued)` → **đẩy job sang worker (M2)**. **Không** chạy detect trong request.
+
+Nếu broker (Redis) chết: vẫn trả 202 (ảnh đã lưu), job đứng ở `queued` và `error_log` ghi
+`enqueue_failed: …` — không giả vờ đã gửi. Chạy lại bằng `POST /pages/{id}/retry-detect`.
+
+Response 202:
+```json
+{ "page_id": "…uuid…", "status": "queued", "job_id": "…uuid…" }
+```
+| Lỗi | Mã |
+|---|---|
+| project không tồn tại | 404 |
+| file rỗng / không phải ảnh thật (kiểm magic bytes) | 422 |
+| ảnh vượt `MAX_UPLOAD_MB` | 413 |
+
+> `job_id` là field **thêm** so với bảng contract gốc của M1 (gốc: `{page_id, status}`) —
+> thêm để client polling `GET /jobs/{id}` được ngay, không phải dò job của page. Ghi rõ ở báo cáo M1.
+
+## 3b. `POST /api/v1/projects/{project_id}/pages/archive` → 202  *(ĐX-2)*
+
+Nhận **cả chapter trong một gói** thay vì tải từng trang. `multipart/form-data`:
+field `file` = gói `.zip`/`.cbz`, field `engine` (tuỳ chọn) như mục 3 — áp cho **mọi** trang
+trong gói.
+
+**Thứ tự trang sắp bằng khoá tự nhiên** (`p2.png` trước `p10.png`), không theo thứ tự lưu trong
+gói. Sắp sai là hỏng im lặng: file vẫn xuất ra bình thường, chỉ nội dung lộn trang — nên phản hồi
+trả kèm `ten_trong_goi` của từng trang để đối chiếu được ngay.
+
+Mục **không phải ảnh** (`ComicInfo.xml`, `Thumbs.db`, gói lồng gói) bị bỏ qua lặng lẽ và đếm vào
+`bo_qua`. Rác hệ điều hành (`__MACOSX/`, dotfile) không tính là "bỏ qua" — đó không phải file của
+người dùng.
+
+Response 202:
+```json
+{ "project_id": "…uuid…", "so_trang": 3, "bo_qua": 1,
+  "trang": [ { "page_id": "…", "job_id": "…", "order": 1, "ten_trong_goi": "p1.png" } ] }
+```
+
+| Lỗi | Mã |
+|---|---|
+| project không tồn tại / không phải của mình | 404 |
+| không phải ZIP/CBZ hợp lệ, gói hỏng, gói không có ảnh nào | 422 |
+| gói chứa đường dẫn thoát thư mục (`../`, đường tuyệt đối) | 422 |
+| PDF hỏng / đặt mật khẩu | 422 |
+| `llm_context` mà chưa cấu hình khoá | 422 |
+| quá `ARCHIVE_MAX_PAGES` trang, bung quá `ARCHIVE_MAX_TOTAL_MB`, hoặc một trang quá `MAX_UPLOAD_MB` | 413 |
+
+**Thất bại thì lùi sạch** — không để lại trang nào trong CSDL. Nhận một phần rồi báo lỗi sẽ để
+lại chapter dở dang trông như đã nhận việc.
+
+**PDF cũng nhận** (ĐX-2b, 22-09). Mỗi trang được **dựng lại thành ảnh** ở cạnh dài
+`PDF_RENDER_MAX_PX` (mặc định 1600px), **không** phải trích ảnh nhúng: trang truyện trong PDF có
+thể là ảnh nền cộng chữ vector, và trích ảnh nhúng sẽ **mất chữ mà không báo lỗi**. Tên trang đặt
+`pdf/0001.png`… nên thứ tự chuỗi trùng luôn thứ tự trang gốc. PDF đặt mật khẩu báo riêng và
+**không** thử đoán mật khẩu. Thư viện: `pypdfium2` (wheel thuần ~3MB, nằm ở `requirements.txt`).
+
+## 4. `GET /api/v1/pages/{page_id}` → 200
+
+```json
+{ "id": "…", "project_id": "…", "image_path": "projects/<pid>/pages/<page_id>.png",
+  "clean_image_path": null, "order": 1, "status": "queued", "created_at": "…", "updated_at": "…" }
+```
+`clean_image_path` = `null` cho tới khi M4 (inpaint) chạy thật.
+
+## 5. `GET /api/v1/pages/{page_id}/regions` → 200
+
+```json
+[ { "id": "…", "page_id": "…", "bbox": { "x": 0, "y": 0, "w": 0, "h": 0 },
+    "confidence": null, "overlap_suspect": false, "reading_order": null, "status": "pending" } ]
+```
+Từ **M2** endpoint này trả dữ liệu thật sau khi job detect chạy xong (trước đó là `[]`, không bịa region).
+Sắp xếp theo `reading_order` (NULL xuống cuối) rồi `created_at`.
+
+- `confidence` < `CTD_CONF_THRESHOLD` → `status = "low_confidence"` (**vẫn trả về**, không bị lọc bỏ).
+- 2 region chồng nhau > `CTD_OVERLAP_SUSPECT_RATIO` (so với box nhỏ hơn) → cả hai có `overlap_suspect = true`;
+  hệ thống **chỉ gắn cờ**, không tự merge/xóa.
+- `reading_order` là `null` cho tới khi job **translate (M5)** chạy; M5 là bước điền cột này
+  (`ja` đọc phải→trái, `en`/`zh` trái→phải).
+
+## 6. `POST /api/v1/pages/{page_id}/retry-detect` → 202 *(M2)*
+
+Xếp lại việc detect cho 1 page (sau `detection_failed`, hoặc muốn chạy lại sau khi đổi tham số).
+Tạo `Job(type=detect)` mới rồi enqueue — vẫn không chạy detect trong request.
+
+```json
+{ "page_id": "…", "status": "detected", "job_id": "…job mới…" }
+```
+| Lỗi | Mã |
+|---|---|
+| page không tồn tại | 404 |
+| page đang `detecting` (tránh chạy trùng) | 409 |
+
+Chạy lại là **idempotent**: region cũ của page bị xóa trước khi ghi region mới, không nhân đôi.
+
+## 7. `GET /api/v1/pages/{page_id}/ocr` → 200 *(M3)*
+
+Kết quả OCR theo từng vùng chữ của trang.
+
+```json
+[ { "region_id": "…", "raw_text": "こんにちは", "ocr_engine": "manga_ocr",
+    "confidence": null, "status": "ok" } ]
+```
+- Trả `[]` khi job OCR chưa chạy — **không bịa text**.
+- `ocr_engine`: `manga_ocr` (source_lang `ja`) hoặc `paddle_ocr` (`zh`/`en`).
+- **`confidence: null` là bình thường với `manga_ocr`** — thư viện không cung cấp điểm tin cậy
+  (xem ARCH.md §6). Với `paddle_ocr` đây là số thật, trung bình các dòng trong vùng.
+- `status`: `ok` · `needs_manual` (text rỗng/không có ký tự có nghĩa, hoặc confidence dưới ngưỡng).
+  Region `needs_manual` **vẫn được lưu**, không bị bỏ.
+- Thứ tự giống `GET /pages/{id}/regions`.
+
+## 8. `POST /api/v1/pages/{page_id}/retry-ocr` → 202 *(M3)*
+
+Xếp lại việc OCR cho 1 page (sau khi sửa tham số, hoặc job trước lỗi). Chỉ enqueue.
+
+| Lỗi | Mã |
+|---|---|
+| page không tồn tại | 404 |
+| page chưa có vùng chữ nào (chưa detect) | 409 |
+
+Chạy lại là **idempotent**: kết quả OCR cũ của đúng các region đó bị xóa trước khi ghi mới.
+
+> Bình thường **không cần gọi tay**: detect xong hệ thống tự xếp việc OCR (`OCR_AUTO_CHAIN=true`).
+
+## 9. `GET /api/v1/pages/{page_id}/clean-image` → 200 *(M4)*
+
+Trả **file ảnh** đã xoá chữ gốc (`image/png`, binary).
+
+| Lỗi | Mã |
+|---|---|
+| page không tồn tại | 404 |
+| chưa chạy xoá chữ (chưa có `clean_image_path`) | 404 kèm lý do rõ |
+| DB có đường dẫn nhưng file đã mất | 404 kèm đường dẫn để truy vết |
+| `If-None-Match` khớp ETag | **304** (không gửi lại thân) |
+
+> Ảnh **gốc không bao giờ bị thay** — ảnh clean là file riêng (`<tên gốc>_clean.png`).
+> `GET /pages/{id}` vẫn trả `image_path` (gốc) và `clean_image_path` (clean) tách bạch.
+
+**Phục vụ hiện vật (P3d).** Ba endpoint trả tệp (`clean-image`, `typeset-preview`,
+`export-jobs/{id}/download`) nay đọc qua **luồng** thay vì mở tệp theo đường dẫn tuyệt đối, để
+kho lưu trữ có thể không phải là hệ tệp. Kèm theo:
+
+- `ETag` dựng từ `(kích thước, thời điểm ghi)` của hiện vật;
+- gửi lại `If-None-Match` khớp ⇒ **`304 Not Modified`** (thân rỗng);
+- `Content-Length` vẫn có ở mọi lượt trả 200.
+
+Đây **không phải** tính năng thêm mà là giữ nguyên hành vi cũ: `typeset-preview` đặt
+`Cache-Control: no-cache, must-revalidate`, tức trình duyệt hỏi lại server mỗi lượt xem —
+không có ETag thì mỗi lượt hỏi lại là tải nguyên ~3MB thay vì một cái 304 rỗng.
+
+**`Range` (P3g)** — đã có lại, và không cần kho phải là hệ tệp:
+
+| Yêu cầu | Trả về |
+|---|---|
+| (mọi lượt 200) | `Accept-Ranges: bytes` |
+| `Range: bytes=10-19` | **206** + `Content-Range: bytes 10-19/<size>` |
+| `Range: bytes=<n>-` · `bytes=-<n>` | **206** (tới hết tệp · n byte cuối) |
+| Xin quá cuối tệp | **416** + `Content-Range: bytes */<size>` |
+| Cú pháp hỏng, hoặc đa đoạn `a-b, c-d` | **200** nguyên tệp (RFC 9110 cho bỏ qua header) |
+| `If-Range` **lệch** ETag | **200** nguyên tệp — hiện vật đã đổi, nối đoạn của bản cũ vào phần đã tải sẽ tạo một tệp lai không của ai cả |
+| `If-None-Match` khớp | **304**, kể cả khi có `Range` |
+
+Đoạn dài cũng phát theo khối, không nằm trọn trong RAM.
+
+## 9b. `GET /api/v1/pages/{page_id}/original-image` → 200 *(E21)*
+
+Trả **file ảnh GỐC lúc upload** — chưa xoá chữ, chưa chèn gì. Cùng cơ chế phục vụ hiện vật/ETag/
+`Range` như mục 9 ở trên (`_phuc_vu_hien_vat` dùng chung).
+
+Khác `clean-image`: **luôn có ngay sau upload**, không cần đợi M4 chạy xong — vì đây chính là
+ảnh CHƯA qua bước nào cả. `Content-Type` suy từ đuôi file thật (`image/png`/`image/jpeg`/
+`image/webp`, theo `sniff_image` lúc upload), không hardcode `image/png` như hai endpoint kia.
+
+Dùng để **phóng to đối chiếu** khi nghi ngờ `raw_text` (M3) đọc sai — `typeset-preview`/
+`clean-image` đều đã xoá chữ gốc nên không đối chiếu được (xem `ARCH.md §E21`).
+
+| Lỗi | Mã |
+|---|---|
+| page không tồn tại | 404 |
+| DB có đường dẫn nhưng file đã mất | 404 kèm đường dẫn để truy vết |
+
+## 10. `POST /api/v1/pages/{page_id}/retry-inpaint` → 202 *(M4)*
+
+Xếp lại việc xoá chữ. Chỉ enqueue.
+
+| Lỗi | Mã |
+|---|---|
+| page không tồn tại | 404 |
+| page chưa OCR xong (không ở `ocr_done`/`inpainted`/`inpaint_needs_review`) | 409 |
+
+Chạy lại là **idempotent**: ảnh clean cũ bị xoá trước khi ghi ảnh mới, không để file rác.
+
+> Bình thường **không cần gọi tay**: OCR xong hệ thống tự xếp việc xoá chữ (`INPAINT_AUTO_CHAIN=true`).
+
+## 11. `GET /api/v1/pages/{page_id}/translation` → 200 *(M5)*
+
+```json
+[ { "region_id": "…", "translated_text": "Chào buổi sáng.", "engine": "llm_context",
+    "model_name": "gemini-3.1-flash-lite", "token_cost": 227,
+    "edited_by_user": false, "status": "ok" } ]
+```
+Trả bản dịch của từng vùng chữ, **sắp theo đúng thứ tự đọc** (`reading_order` NULL xuống cuối).
+Chưa dịch → `[]`, **không bịa bản dịch**.
+
+- `status`: `ok` · `fallback_used` (LLM lỗi nên đã lùi về `google_fast`) · `pending` (model không trả
+  dòng này ⇒ **chưa có bản dịch**, không phải "đã xong").
+- `token_cost` là chi phí của **cả trang** (`llm_context` gọi 1 request/trang) nên chỉ ghi ở **đúng 1
+  dòng đầu trang**, các dòng còn lại `null` — cộng `token_cost` toàn bảng vẫn ra tổng thật.
+  `google_fast` miễn phí ⇒ luôn `null`.
+- `edited_by_user` dành cho M7 (sửa tay), tới M5 luôn `false`.
+
+## 12. `POST /api/v1/pages/{page_id}/retry-translate` → 202 *(M5)*
+
+Xếp lại việc dịch. Query param `engine` (tuỳ chọn): `google_fast` | `llm_context`.
+Không truyền → dùng `TRANSLATE_DEFAULT_ENGINE` (**mặc định `google_fast`, miễn phí** — hệ thống không
+tự tiêu token khi user chưa chọn). Chỉ enqueue, không dịch trong request.
+
+```json
+{ "page_id": "…", "status": "inpainted", "job_id": "…job mới…" }
+```
+| Lỗi | Mã |
+|---|---|
+| page không tồn tại | 404 |
+| page chưa xoá chữ xong (không ở `inpainted`/`inpaint_needs_review`/`translated`) | 409 |
+| `engine` không thuộc 2 giá trị đã chốt | 422 |
+
+Chạy lại là **idempotent**: bản dịch cũ của page bị xoá trước khi ghi bản mới, không nhân đôi.
+`reading_order` của `TextRegion` được **điền ở bước này** (từ M1 tới M4 cột này còn NULL).
+
+## 13. `GET /api/v1/pages/{page_id}/typeset` → 200 *(M6)*
+
+```json
+[ { "region_id": "…", "font_family": "Bangers", "font_size": 30.0,
+    "wrapped_text": "Chào buổi\nsáng.", "padding_ratio": 0.09,
+    "fit_status": "fit_ok", "edited_by_user": false } ]
+```
+Kết quả canh chữ theo từng vùng, **sắp theo đúng thứ tự đọc**. Chưa canh → `[]`.
+
+- `fit_status`: `fit_ok` · `overflow_warning` (không vừa dù đã xuống `TYPESET_MIN_FONT_SIZE` —
+  **hệ thống không co chữ nhỏ hơn min**, để M7 sửa tay) · `pending` (vùng chưa có bản dịch nên
+  chưa có gì để canh; `font_size` = `null`) · `font_missing_glyph` *(F1)* (font **không có glyph**
+  cho một ký tự trong bản dịch — thường là chữ Nhật còn sót; vùng bị **bỏ trống**, `font_size` và
+  `wrapped_text` = `null`).
+- `font_missing_glyph` **không** phải `pending`: `pending` là "không có chữ để chèn", còn đây là
+  "có chữ mà chèn không được". Gộp hai thứ thì một bong bóng **mất chữ** trông y hệt một bong
+  bóng vốn dĩ trống.
+- Cảnh báo tràn khung **phải đọc được ở đây** — không bị ảnh preview đẹp che mất.
+- `wrapped_text` là văn bản đã chèn ký tự xuống dòng; **nội dung bản dịch không bị sửa**.
+- `edited_by_user` dành cho M7, kết quả tự động của M6 luôn `false`.
+
+## 14. `GET /api/v1/pages/{page_id}/typeset-preview` → 200 *(M6)*
+
+Ảnh xem thử: ảnh clean của M4 + chữ dịch đã canh. Kích thước **bằng đúng ảnh clean**.
+Vùng `overflow_warning` được vẽ **khung đỏ** để cảnh báo nhìn thấy được.
+
+| Lỗi | Mã |
+|---|---|
+| page không tồn tại | 404 |
+| chưa render preview (typeset chưa chạy xong) | 404 |
+| `If-None-Match` khớp ETag | **304** (không gửi lại thân) |
+
+Endpoint này **chỉ phục vụ file đã render sẵn** — không bao giờ tự render (việc nặng thuộc worker,
+và tiến trình API không nạp engine render).
+
+Đây là **file thứ ba**, không đụng tới `image_path` (ảnh gốc) hay `clean_image_path` (ảnh sạch):
+`previews/<page_id>/typeset.png`. Đường dẫn ổn định theo page nên chạy lại là ghi đè đúng file.
+
+## 15. `POST /api/v1/pages/{page_id}/retry-typeset` → 202 *(M6)*
+
+Xếp lại việc canh chữ. Chỉ enqueue, không render trong request.
+
+```json
+{ "page_id": "…", "status": "translated", "job_id": "…job mới…" }
+```
+| Lỗi | Mã |
+|---|---|
+| page không tồn tại | 404 |
+| page chưa dịch xong (không ở `translated`/`typeset_done`) | 409 |
+
+Chạy lại là **idempotent**: kết quả cũ bị xoá trước khi ghi mới, preview ghi đè đúng đường dẫn cũ
+(ghi ra file tạm rồi đổi chỗ nguyên tử) — không nhân bản bản ghi, không để lại file rác.
+
+## 16. `GET /api/v1/pages/{page_id}/detail` → 200 *(M7)*
+
+Gom **tất cả** dữ liệu của 1 trang cho màn sửa tay — 1 lần gọi thay vì 5 lần.
+
+```json
+{ "page": { "…": "như mục 4" },
+  "preview_url": "/api/v1/pages/…/typeset-preview",
+  "font_families": ["Bangers", "Mansalva", "ShantellSans", "…"],
+  "min_font_size": 10, "max_font_size": 40,
+  "regions": [ { "id": "…", "bbox": {"x":240,"y":164,"w":192,"h":85},
+     "confidence": 0.91, "overlap_suspect": false, "reading_order": 1, "status": "ok",
+     "raw_text": "GOOD MORNING", "ocr_confidence": null, "ocr_status": "ok",
+     "ocr_edited_by_user": false,
+     "translated_text": "Chào buổi sáng.", "translation_status": "ok",
+     "translation_edited_by_user": false,
+     "font_family": "Bangers", "font_size": 30.0, "wrapped_text": "Chào buổi\nsáng.",
+     "fit_status": "fit_ok", "typeset_edited_by_user": false } ] }
+```
+
+- `preview_url` là `null` khi **file preview chưa có thật** — không trả link chết.
+- `font_families` lấy từ whitelist của M6; giao diện **chỉ được chọn trong danh sách này**.
+- Mọi cảnh báo đều lộ ra và không bị ẩn: `status` (`low_confidence`), `ocr_status`
+  (`needs_manual`), `translation_status` (`fallback_used`), `fit_status` (`overflow_warning`).
+- Ba cờ `*_edited_by_user` (`ocr_`, `translation_`, `typeset_`) cho biết chỗ nào người sửa, chỗ
+  nào máy làm — `ocr_edited_by_user` mới thêm ở E21 (xem mục 17b).
+
+## 17. `PATCH /api/v1/regions/{region_id}` → 200 *(M7)*
+
+Sửa tay 1 vùng rồi **canh lại đúng vùng đó** (không tính lại cả trang).
+
+```json
+{ "translated_text": "Chào cậu nhé!", "raw_text": "Hey there!",
+  "bbox": {"x":240,"y":164,"w":192,"h":85}, "font_family": "Mansalva", "font_size": 16 }
+```
+Trường nào bỏ trống thì giữ nguyên trường đó. Body rỗng → `422`.
+
+```json
+{ "region_id": "…", "page_id": "…", "fit_status": "pending",
+  "refit_job_id": "…", "edited_fields": ["translated_text"], "edited_by_user": true }
+```
+`refit_job_id` là `null` khi lượt sửa không cần canh lại (xem gạch đầu dòng E21b bên dưới):
+```json
+{ "region_id": "…", "page_id": "…", "fit_status": "fit_ok",
+  "refit_job_id": null, "edited_fields": ["raw_text"], "edited_by_user": true }
+```
+
+- **`fit_status` trả `pending`** khi có canh lại, không phải trạng thái cũ: bản canh cũ đã không
+  còn đúng với nội dung vừa sửa, báo `fit_ok` lúc này là nói sai. Theo dõi `refit_job_id` để biết
+  khi nào xong.
+- **E21b — lượt sửa CHỈ đụng `raw_text` thì KHÔNG xếp việc canh lại**: `refit_job_id` trả `null`
+  và `fit_status` giữ nguyên giá trị THẬT đang có. Chữ được vẽ vào bong bóng là `translated_text`;
+  sửa chữ gốc OCR không đổi bản vẽ một pixel nào, nên canh lại chỉ tổ chiếm suất của worker
+  (`--pool=solo`, mỗi lúc đúng một việc — `REPORT_E22`) và hạ nhầm `fit_ok` xuống `pending`.
+  Canh lại vẫn chạy như cũ khi lượt sửa có `bbox`/`translated_text`/`font_family`/`font_size`,
+  kể cả khi gộp chung với `raw_text`.
+  **Máy khách phải kiểm `refit_job_id` khác `null` trước khi đem đi hỏi `/jobs/{id}`.**
+- **`font_size` = ghim cỡ chữ**: canh lại dùng **đúng** cỡ đó thay vì tự dò. Cỡ đó tràn khung thì
+  vẫn giữ cỡ nhưng gắn `overflow_warning` — không giả vờ vừa. Bỏ trống = quay lại tự dò như M6.
+- Ghi `edited_by_user=true` lên `OCRResult`/`TranslationResult`/`TypesetResult` tương ứng với
+  từng trường đã sửa — ba cờ **độc lập**, sửa `raw_text` không đụng cờ của bản dịch.
+- `raw_text` (**E21**): gõ đè chữ OCR đọc sai. **Không tự dịch lại** — bản dịch cũ (dựa trên chữ
+  gốc sai) vẫn còn nguyên tới khi gọi `POST /regions/{id}/re-translate`. Xem `docs/ARCH.md §E21`
+  vì sao (đo được ở `REPORT_E20a`/`REPORT_E20b`: không path OCR tự động nào tự sửa được chữ mảnh
+  trên nền tranh phức tạp).
+- **Không đụng** ảnh gốc/ảnh clean.
+
+| Lỗi | Mã |
+|---|---|
+| vùng không tồn tại | 404 |
+| không có trường nào để sửa / bbox rộng-cao ≤ 0 / trường lạ | 422 |
+| `font_family` ngoài whitelist (`font_not_found`) | 422 |
+| sửa bản dịch khi vùng chưa từng được dịch | 409 |
+| sửa `raw_text` khi vùng chưa từng OCR (`ocr_result` rỗng) | 409 |
+
+## 18. `POST /api/v1/regions/{region_id}/re-fit` → 202 *(M7)*
+
+Canh lại 1 vùng mà không sửa gì (dùng khi đổi cấu hình font/padding).
+Query `font_size` (tuỳ chọn) để ghim cỡ.
+
+## 19. `POST /api/v1/regions/{region_id}/re-ocr` → 202 *(M7)*
+
+Đọc lại chữ gốc của 1 vùng từ **ảnh gốc** (ảnh clean đã bị xoá chữ nên không dùng được).
+**Không** tự dịch lại và **không** tự canh lại — vì cả hai đều ghi đè, có thể xoá mất phần người
+dùng vừa sửa tay.
+
+**Ghi đè cả `raw_text` đã gõ tay** (E21) — xoá bản ghi `OCRResult` cũ, tạo mới hoàn toàn nên
+`ocr_edited_by_user` tự về `false`. Đây là hành động NGƯỜI DÙNG BẤM RÕ RÀNG (không phải tự động),
+cùng nguyên tắc với `re-translate` bên dưới: hành động tường minh trên một vùng được phép ghi đè
+kể cả phần đã sửa tay khác — chỉ các lượt CHẠY HÀNG LOẠT/TỰ ĐỘNG mới phải tôn trọng `edited_by_user`.
+
+## 20. `POST /api/v1/regions/{region_id}/re-translate` → 202 *(M7)*
+
+Dịch lại 1 vùng từ chữ gốc hiện tại. Query `engine` (tuỳ chọn): `google_fast` | `llm_context`.
+**Ghi đè bản dịch**, kể cả bản đã sửa tay. Lưu ý: dịch lại một dòng lẻ thì `llm_context` mất lợi
+thế ngữ cảnh cả trang.
+
+Cả ba endpoint trên trả `{ "job_id": "…", "page_id": "…", "status": "queued" }`, `404` nếu vùng
+không tồn tại, và **không bao giờ chạy đồng bộ trong request**.
+
+## 21. `GET /api/v1/projects/{project_id}/export-preview` → 200 *(M8)*
+
+Xem trước **trước khi** xuất, để quyết định xuất luôn hay quay lại sửa tay.
+
+```json
+{ "page_count": 4, "total_page_count": 5, "skipped_page_count": 1, "overflow_warning_count": 2,
+  "font_missing_count": 0 }
+```
+- `skipped_page_count`: trang chưa canh chữ xong sẽ **bị bỏ qua**, không xuất ảnh chưa có chữ.
+- `overflow_warning_count`: vùng còn tràn khung. **Không chặn** xuất, nhưng phải hiện rõ ở đây.
+- `font_missing_count` *(F1)*: vùng bị **bỏ trống** vì font thiếu glyph. Nặng hơn tràn khung —
+  tràn khung là chữ lộ ra ngoài, còn đây là bong bóng không có chữ nào.
+
+## 22. `POST /api/v1/projects/{project_id}/export` → 202 *(M8)*
+
+```json
+{ "format": "cbz" }
+```
+`format`: `cbz` (1 file, ứng dụng đọc truyện mở được) · `zip` (giống cbz, đuôi `.zip`) ·
+`png_single` (mỗi trang 1 ảnh trong một thư mục) · `psd` (E78 — 1 file `.zip` chứa `<thứ tự>.psd`
+mỗi trang, nhiều lớp: "Ảnh gốc" ẩn, "Đã xoá chữ", mỗi vùng chữ một lớp raster; mở bằng
+Photoshop/Photopea).
+
+```json
+{ "job_id": "…", "project_id": "…", "status": "queued" }
+```
+Chỉ enqueue — render nhiều trang là việc của worker. `404` nếu project không tồn tại,
+`422` nếu `format` lạ hoặc body có trường lạ.
+
+## 23. `GET /api/v1/export-jobs/{job_id}` → 200 *(M8)*
+
+```json
+{ "id": "…", "project_id": "…", "format": "cbz", "status": "done",
+  "output_path": "exports/<project_id>/truyen_hay_chapter.cbz",
+  "page_count": 4, "overflow_warning_count": 2,
+  "error_log": "overflow_warning: 2 vùng còn tràn khung",
+  "created_at": "…", "updated_at": "…" }
+```
+`status` đi `queued → running → done | failed`.
+
+**`status=done` mà `error_log` khác `null` nghĩa là xuất được NHƯNG có cảnh báo** — đọc kỹ trước khi
+giao file. Hai loại cảnh báo: `skipped_pages` (bỏ qua trang chưa canh chữ) và `overflow_warning`.
+Không trang nào xuất được ⇒ `failed` với `no_page_ready`.
+
+## 24. `GET /api/v1/export-jobs/{job_id}/download` → 200 *(M8)*
+
+Tải file đã xuất. **Chỉ phục vụ file có sẵn** — không bao giờ tự render ở đây.
+
+| Lỗi | Mã |
+|---|---|
+| job không tồn tại | 404 |
+| chưa xuất xong, hoặc file không còn trên đĩa | 404 |
+| `format=png_single` (nhiều file trong 1 thư mục, không tải một lần được) | 409 kèm hướng dẫn dùng `cbz`/`zip` |
+| `If-None-Match` khớp ETag | **304** (không gửi lại thân) |
+
+## 25. `GET /api/v1/jobs/{job_id}` → 200
+
+```json
+{ "id": "…", "type": "detect", "page_id": "…", "status": "queued",
+  "retry_count": 0, "error_log": null, "created_at": "…", "updated_at": "…",
+  "heartbeat_at": null, "error_class": null, "exit_signal": null,
+  "processing_state": "queued" }
+```
+Dùng chung cho mọi loại job xuyên suốt Phase (và cho `GET /pages/{id}/jobs`,
+`GET /projects/{id}/failed-jobs` — cùng schema `JobRead`). Không tồn tại → `404`.
+
+**E22 (thu hẹp theo audit — xem `REPORT_E22.md`)** — 4 field mới, chỉ có ý nghĩa cho job
+`detect`/`ocr`/`inpaint` (topology hiện tại chỉ có **một** worker, `--pool=solo`):
+- `heartbeat_at`: đặt CÙNG lúc `started_at` khi job bắt đầu chạy (`danh_dau_dang_chay()`). `NULL`
+  cho job tạo trước E22 hoặc chưa từng chạy.
+- `error_class`/`exit_signal`: CHỈ khác `NULL` khi `app/workers/hoi_phuc.py` (P3j — dọn job mồ côi
+  lúc worker khởi động lại) đánh dấu job này hỏng vì worker chết giữa chừng. Giá trị
+  `error_class`: `worker_lost` (worker chết, mã thoát khác 137 hoặc không rõ) hoặc
+  `resource_limit_suspected` (mã thoát 137/SIGKILL — **NGHI NGỜ** hết bộ nhớ, KHÔNG phải bằng
+  chứng nền tảng xác nhận; cố ý không có `resource_limit_confirmed` vì hệ thống chưa có nguồn nào
+  xác nhận được điều đó). Job hỏng vì lý do khác (timeout, lỗi input…) vẫn chỉ dùng `error_log` tự
+  do như trước — không đổi hành vi cũ.
+- `processing_state`: suy luận **LÚC ĐỌC**, KHÔNG phải cột DB (xem `app/services/job_status.py`).
+  Một trong `queued|running|worker_interrupted|done|failed`. `worker_interrupted` nghĩa là:
+  `status` DB vẫn ghi `running`, nhưng đã lâu hơn hẳn trần thời gian thật của loại việc đó
+  (`*_timeout_seconds` + 20s đệm) mà không có nhịp tim mới — rất có thể worker đã chết và đang chờ
+  tới lượt quét mồ côi ở lần khởi động lại kế tiếp (thường vài chục giây), KHÔNG phải "đang xử lý
+  bình thường". Frontend map field này qua bảng `TT_XU_LY` riêng (`status-presentation.js`) —
+  **không** gộp vào bảng `VIEC`/`job_status` vì đó không phải giá trị DB thật.
+Job detect/ocr/inpaint/translate/typeset: `status` đi `queued → running → done | failed`; khi `failed`, `error_log` ghi
+nguyên nhân (`timeout: vượt Ns`, `FileNotFoundError: …`, `enqueue_failed: …`, `no_region: …`,
+`precondition_failed: …`, `missing_ocr: …`).
+
+Khi job OCR lỗi, `Page.status` **giữ nguyên `detected`** (không nhảy `ocr_done`) để còn chạy lại được.
+Khi job inpaint lỗi, `Page.status` giữ nguyên `ocr_done` và `clean_image_path` **không** được ghi.
+Khi job translate lỗi, `Page.status` giữ nguyên `inpainted` để còn chạy lại được.
+Khi job typeset lỗi (thiếu font, timeout…), `Page.status` giữ nguyên `translated` và **không có preview
+nửa vời** — ảnh chỉ được đổi chỗ sau khi vẽ xong.
+Job translate lùi về `google_fast` vẫn là `done`, nhưng `error_log` ghi `fallback_used: <lý do gốc>`
+và mọi dòng của trang mang `status=fallback_used` — thành công **có dán nhãn**, không im lặng.
+
+`Page.status` sau khi xoá chữ: `inpainted` (OCR lại vùng đã xoá không còn chữ) hoặc
+`inpaint_needs_review` (còn đọc ra chữ ⇒ xoá chưa sạch, cần xem lại).
+
+## 26. `POST /api/v1/projects/{project_id}/batch-runs` → 202 *(M9)*
+
+Chạy **cả chapter** bằng một mẻ theo dõi được.
+
+```json
+{ "requested_pipeline": "full_pipeline", "translation_engine": "google_fast" }
+```
+→ `202 { "batch_run_id": "…", "status": "queued", "total_pages": 3 }`
+
+- Danh sách trang được **chụp lại ngay lúc tạo** theo `Page.order`. Trang tải lên sau đó **không**
+  lẫn vào mẻ đang chạy — tổng số trang không nhảy giữa chừng.
+- `translation_engine` cũng được **chốt lúc tạo**; đổi cấu hình giữa chừng không làm các trang
+  trong cùng một mẻ dịch bằng hai engine khác nhau.
+- Mỗi trang tiếp tục **từ đúng bước nó đang đứng** (`queued`→detect, `detected`→ocr,
+  `ocr_done`→inpaint, `inpainted`/`inpaint_needs_review`→translate, `translated`→typeset).
+  Trang đã `typeset_done`/`ready_for_export` được đánh `skipped`, **không** chạy lại (chạy lại là
+  xoá mất kết quả đã có).
+- `requested_pipeline=retry_failed`: chỉ lấy các trang **chưa** xong.
+
+| Lỗi | Mã |
+|---|---|
+| project không tồn tại | 404 |
+| project chưa có trang nào (`no_page`) | 422 |
+| `retry_failed` mà mọi trang đã xong (`no_page_to_retry`) | 422 |
+| chọn `llm_context` khi chưa cấu hình khoá dịch (`llm_not_configured`) | 422 — chặn **trước** khi xếp việc |
+
+## 27. `GET /api/v1/batch-runs/{batch_run_id}` → 200 *(M9)*
+
+```json
+{ "id": "…", "project_id": "…", "requested_pipeline": "full_pipeline",
+  "translation_engine": "google_fast", "status": "running",
+  "total_pages": 3, "completed_pages": 1, "failed_pages": 0, "blocked_pages": 0,
+  "started_at": "…", "finished_at": null, "error_summary": null, "created_at": "…", "updated_at": "…" }
+```
+
+`status` **luôn được suy ra từ các `BatchItem`**, không bao giờ đặt tay:
+
+| Tình trạng các mục | `status` |
+|---|---|
+| còn mục `pending`/`running` | `running` (kể cả khi đã có mục hỏng) |
+| tất cả xong/bỏ qua | `completed` |
+| có xong + có hỏng | `partial_failed` |
+| phần chưa xong đều kẹt quota | `blocked_quota` |
+| hỏng sạch | `failed` |
+| bị dừng tay | `cancelled` |
+
+Không tồn tại → `404`.
+
+## 28. `GET /api/v1/batch-runs/{batch_run_id}/items` → 200 *(M9)*
+
+`?status=&limit=&cursor=` — lọc theo trạng thái mục, sắp theo `page_order` đã chụp lúc tạo mẻ.
+
+```json
+{ "items": [ { "id": "…", "page_id": "…", "page_order": 1, "status": "completed",
+               "current_job_id": "…", "retry_count": 0, "error_code": null,
+               "error_message": null, "started_at": "…", "finished_at": "…" } ],
+  "next_cursor": null }
+```
+
+`error_message` **đã lọc** thứ trông giống khoá bí mật (`AIza…`, `Bearer …`) và cắt còn 2000 ký tự.
+`error_code` là loại lỗi đã phân: `quota_exhausted`, `transient_rate_limit`, `transient_provider`,
+`transient_network`, `transient_broker`, `permanent_input`, `permanent_config`, `permanent_model`,
+`unknown`, `stale_reclaimed`, `stale_page`, `da_xong`, `dang_chay`, `cancelled`.
+
+## 29. `POST /api/v1/batch-runs/{batch_run_id}/resume` → 202 *(M9)*
+
+```json
+{ "item_ids": ["…"] }        // bỏ trống = chạy lại MỌI mục failed/blocked_quota
+```
+→ `202 { "batch_run_id": "…", "resumed_count": 2, "status": "running" }`
+
+- **Chỉ** nhận mục `failed`/`blocked_quota`. Mục đã `completed` giữ nguyên kết quả, không bị chạy lại.
+- Chọn nhầm mục `completed` hoặc mục của mẻ khác → **422**, không im lặng bỏ qua (im lặng bỏ qua
+  khiến người dùng tưởng đã chạy lại).
+- Gọi không kèm `item_ids` còn **thu hồi** các mục kẹt `running` quá lâu vì worker chết.
+
+| Lỗi | Mã |
+|---|---|
+| mẻ không tồn tại | 404 |
+| `item_not_in_batch` / `item_not_resumable` | 422 |
+
+## 30. `POST /api/v1/batch-runs/{batch_run_id}/cancel` → 202 *(M9)*
+
+Trả về **cả đối tượng mẻ** (dạng như §27) với `status="cancelled"` — rộng hơn hợp đồng tối thiểu
+`{batch_run_id, status}` của mini-spec, không thiếu trường nào.
+
+Dừng **đẩy việc mới**; việc đang chạy **được chạy nốt** — cắt ngang giữa chừng dễ để lại kết quả
+dở dang. Mục còn `pending` chuyển `skipped` với `error_code=cancelled`.
+
+Không tồn tại → `404`.
+
+## 31. `GET /api/v1/batch-config` → 200 *(M9 — thêm ngoài hợp đồng mini-spec)*
+
+```json
+{ "llm_configured": false, "llm_project_rpm": 10, "batch_max_concurrent_pages": 1,
+  "batch_max_retries": 3, "batch_retry_backoff_base_seconds": 2.0,
+  "batch_retry_backoff_max_seconds": 120.0 }
+```
+
+Vì sao cần: §4D của mini-spec buộc giao diện phải **tắt lựa chọn LLM kèm lý do rõ** khi chưa cấu
+hình. Không có endpoint này thì giao diện phải đoán — hoặc để người dùng bấm rồi nhận 422.
+`llm_configured` **chỉ là true/false**; không có khoá, không có tên khoá, không có độ dài khoá.
+
+## 32. `GET /api/v1/projects/{project_id}/batch-runs` → 200 *(M9 — thêm ngoài hợp đồng mini-spec)*
+
+`?limit=` (mặc định 10) → `{ "runs": [ …như §27…, mới nhất trước ] }`
+
+Vì sao cần: không có nó thì giao diện phải tự nhớ mã mẻ trong trình duyệt — tải lại trang là mất
+dấu mẻ đang chạy và người vận hành không còn cách nào nhìn thấy tiến độ.
+
+Project không tồn tại → `404`.
+
+## 33. `GET /api/v1/projects/{project_id}/export-warnings` → 200 *(M10)*
+
+Những gì người dùng **phải nhìn thấy trước** khi mang file đi.
+
+```json
+{ "overflow_warning_count": 1, "needs_manual_count": 2, "font_missing_count": 0,
+  "acknowledged": true, "acknowledged_at": "2026-08-28T16:30:23.592881Z",
+  "glossary_approved_count": 0 }
+```
+
+- Chỉ đếm trên các trang **sẽ được xuất** (`typeset_done`/`ready_for_export`). Vùng lỗi ở trang
+  chưa chèn chữ xong không nằm trong file giao đi — đếm vào chỉ làm người dùng bỏ qua cả cảnh
+  báo thật.
+- `overflow_warning_count`: chữ dịch **tràn ra ngoài** bong bóng.
+- `needs_manual_count`: vùng **chưa đọc được chữ gốc** ⇒ bong bóng đó sẽ **trống** trong file xuất.
+- `font_missing_count` *(F1)*: vùng **đã dịch xong** nhưng font không vẽ được một ký tự trong bản
+  dịch ⇒ bong bóng cũng **trống**. Tách khỏi `needs_manual_count` vì cách sửa khác hẳn: cái kia
+  phải đọc lại chữ gốc, cái này chỉ cần sửa lại chữ dịch rồi căn lại.
+- `acknowledged`: chapter này đã xác nhận trách nhiệm bản quyền lần nào chưa — để giao diện hiện
+  nhắc **một lần**, không lải nhải mỗi lần xuất.
+- `glossary_approved_count` *(P3i)*: số thuật ngữ **đã duyệt** của chapter. **Bằng 0 là một cảnh
+  báo thật**, không phải "không có gì để báo": chưa chốt thuật ngữ nào thì tên riêng bị dịch
+  **nghĩa đen**. Chỉ đếm mục **đã duyệt** — bản nháp không được dùng khi rà soát nên không tính.
+
+  Vì sao thêm: pilot hosted 03/09 đo được nhân vật *Pepper* ra thành **"Hạt tiêu"** (tên gia vị),
+  mà cổng xuất **im lặng** — khối cảnh báo E13 cũ chỉ hiện khi **có việc rà soát**, mà không có
+  thuật ngữ thì không sinh việc nào. Hệ thống im lặng đúng lúc rủi ro cao nhất.
+
+Project không tồn tại → `404`.
+
+## 34. `POST /api/v1/export-jobs/{job_id}/acknowledge` → 200 *(M10)*
+
+```json
+{ "user_acknowledged": true }
+```
+→ `200` bản ghi tuân thủ: `{id, project_id, export_job_id, intended_use,
+overflow_warning_count, needs_manual_count, font_missing_count, user_acknowledged,
+acknowledged_at}`
+
+- **Không chặn xuất.** Đây là công cụ cá nhân; chặn cứng chỉ khiến người ta đi đường vòng mà
+  chẳng bảo vệ được ai. Cổng chặn nằm ở **giao diện** (nút xuất mờ tới khi tick); máy chủ **ghi
+  nhận**, không cấm.
+- Số cảnh báo được **đếm lại tại máy chủ**, không nhận từ máy khách gửi lên — số do trình duyệt
+  gửi thì không còn là bằng chứng. Gửi kèm trường lạ → `422`.
+- `user_acknowledged=false` **vẫn được ghi** (có người mở cảnh báo rồi bỏ đi cũng là sự thật đáng
+  lưu), nhưng `acknowledged_at` để `null` và chapter **không** được coi là đã xác nhận.
+- Việc xuất không tồn tại → `404`.
+
+## 35. `GET /api/v1/pages/{page_id}/quality` → 200 *(E12)*
+
+Đánh giá chất lượng từng vùng của một trang, sắp theo thứ tự đọc.
+
+```json
+{ "page_id": "…", "assessment_version": "e12-rules-v1",
+  "summary": { "tong_vung": 4, "ro_rang": 2, "can_ra_soat": 2, "chua_danh_gia": 0,
+               "da_bo_qua": 0, "vung_tran_khung": 0,
+               "theo_phan_loai": { "likely_translatable": 2, "uncertain": 2 } },
+  "regions": [ { "region_id": "…", "reading_order": 3,
+                 "relevance": "uncertain", "review_status": "needs_review",
+                 "overall_band": "attention",
+                 "detector_confidence_state": "available",
+                 "ocr_confidence_state": "unavailable",
+                 "translation_state": "missing",
+                 "ly_do": [ { "ma": "ocr_empty",
+                              "nhan": "OCR không đọc được nội dung nào." } ],
+                 "evidence_snapshot": { "so_ky_tu_goc": 0, "ty_le_dien_tich": 0.00566 },
+                 "assessed_at": "…" } ] }
+```
+
+- Mỗi lý do luôn có **cả mã lẫn câu tiếng Việt** — mã để đếm, câu để đọc.
+- `chua_danh_gia` đếm riêng, **không** gộp vào `ro_rang`: chưa chấm khác với chấm sạch.
+- `ocr_confidence_state: "unavailable"` nghĩa là engine **không cung cấp** điểm (manga-ocr),
+  **không** phải điểm 0.
+- Trang không tồn tại → `404`.
+
+## 36. `GET /api/v1/projects/{project_id}/quality-summary` → 200 *(E12)*
+
+Cùng cấu trúc `summary` của §35, gộp cho cả chapter. Dùng ở màn chapter và hộp thoại xuất.
+Project không tồn tại → `404`.
+
+## 37. `POST /api/v1/regions/{region_id}/quality-review` → 200 *(E12)*
+
+```json
+{ "decision": "keep" }     // hoặc "skip"
+```
+→ `200 { region_id, review_status, relevance, overall_band }`
+
+- Chỉ nhận đúng hai giá trị. Gửi kèm `overall_band`/`reason_codes`/`evidence` → **422**:
+  mức và lý do là kết luận của bộ luật, máy khách không được tự đặt.
+- `skip` là **quyết định**, không phải xoá: `TextRegion`, `OCRResult`, `TranslationResult`,
+  `TypesetResult` giữ nguyên. Có test canh đúng điều này.
+- Vùng chưa được chấm → **409** kèm hướng dẫn chạy lại bước căn chữ (không tự tạo đánh giá rỗng).
+
+`GET /projects/{id}/export-warnings` (§33) **thêm 3 trường**, giữ nguyên các trường cũ:
+`quality_needs_review_count`, `quality_unassessed_count`, `quality_reviewed_skip_count`.
+Ba số này để **riêng** khỏi phần bản quyền của M10 — trộn vào nhau sẽ khiến người dùng tưởng
+tick một ô là xong cả hai chuyện.
+
+## Bảng enum (chốt ở M1, M2–M10 không đổi âm thầm)
+
+| Enum | Giá trị |
+|---|---|
+| `source_lang` | ja, zh, en |
+| `target_lang` | vi |
+| `intended_use` | personal, study, other |
+| `project_status` | active, archived |
+| `page_status` | queued, detecting, detected, detection_failed, ocr_done, inpainted, inpaint_needs_review, translated, typeset_done, ready_for_export |
+| `region_status` | pending, low_confidence, confirmed |
+| `ocr_engine` | manga_ocr, paddle_ocr |
+| `ocr_status` | pending, ok, needs_manual |
+| `translation_engine` | google_fast, llm_context |
+| `translation_status` | pending, ok, fallback_used |
+| `fit_status` | pending, fit_ok, overflow_warning, font_missing_glyph *(F1)* |
+| `job_type` | detect, ocr, inpaint, translate, typeset, export |
+| `export_format` | png_single, cbz, zip, psd (E78) |
+| `job_status` | queued, running, done, failed |
+| `batch_pipeline` *(M9)* | full_pipeline, retry_failed |
+| `batch_status` *(M9)* | queued, running, completed, partial_failed, blocked_quota, failed, cancelled |
+| `batch_item_status` *(M9)* | pending, running, completed, failed, blocked_quota, skipped |
+| `region_relevance` *(E12)* | likely_translatable, possible_sfx, possible_number_or_decoration, uncertain |
+| `review_status` *(E12)* | not_required, needs_review, reviewed_keep, reviewed_skip |
+| `overall_band` *(E12)* | clear, attention, blocked |
+| `confidence_state` *(E12)* | available, low, unavailable |
+| `translation_state` *(E12)* | present, missing, fallback_used, not_attempted |
+
+## Endpoint sẽ thêm ở mini-spec sau (chưa tồn tại)
+
+M8 và M9 đã xong — xem §21–24 (xuất chapter) và §26–32 (chạy cả mẻ).
+
+Tên endpoint mẻ **khác** phác thảo cũ (`run-batch` / `batch-status`): mẻ là một **tài nguyên** có
+mã riêng, chạy lại và dừng được, nên đặt theo lối tài nguyên `batch-runs/{id}` thay vì hai động từ
+rời. Lý do đầy đủ: `docs/REPORT_M9.md` §Design Choice.
+
+M10 đã xong — xem §33–34. `POST /projects` (§1) **bắt buộc** `intended_use`, không có giá trị
+mặc định; thiếu hoặc sai giá trị → `422`. Không có endpoint nào sửa `intended_use` sau khi tạo:
+khai báo sửa được thì bằng chứng vô nghĩa.
+
+M11 (nếu cần) — auth & nhiều người dùng: chưa có endpoint nào.
+
+
+## E14 — vùng an toàn theo hình bong bóng
+
+| Method | Path | Ghi chú |
+|---|---|---|
+| GET | `/api/v1/regions/{region_id}/safe-area` | Hình học + mã lý do + ô đặt chữ. **404 nếu chưa tính** — không trả hình rỗng để khỏi bị đọc nhầm thành "vừa khít" |
+| GET | `/api/v1/pages/{page_id}/safe-area-summary` | Đếm theo trạng thái; `not_computed_count` để RIÊNG |
+| POST | `/api/v1/pages/{page_id}/retry-safe-area` | 202 — xoá bản cũ rồi xếp lại việc căn chữ (bước này tự tính lại vùng nào thiếu) |
+
+`export-warnings` thêm hai số **tách riêng** khỏi tràn khung và khỏi chất lượng E12:
+`shape_fallback_count`, `shape_needs_review_count`.
+
+Tầng HTTP **không** chạm xử lý ảnh: ô đặt chữ được worker tính sẵn và lưu vào bản ghi.
+
+
+## E15 — hướng chữ
+
+| Method | Path | Ghi chú |
+|---|---|---|
+| GET | `/api/v1/regions/{region_id}/orientation` | Hướng + nguồn + mã lý do + bằng chứng. **404 nếu chưa phân tích** |
+| GET | `/api/v1/pages/{page_id}/orientation-summary` | Đếm theo hướng; `not_analyzed_count` để RIÊNG |
+| POST | `/api/v1/pages/{page_id}/retry-orientation` | 202 — xoá kết quả cũ rồi xếp lại việc căn chữ |
+
+`export-warnings` thêm ba số, **tách riêng** khỏi tràn khung, bố cục E14, chất lượng E12 và
+nhất quán E13: `orientation_vertical_rendered_count`, `orientation_review_count`,
+`orientation_unknown_count`.
+
+`OCRResult` thêm `line_polygons` (JSONB, toạ độ ảnh gốc): `null` = engine không cung cấp,
+`[]` = có hỏi nhưng không có dòng nào. Hai thứ đó **khác nhau** và không được gộp.
+
+**Không** có endpoint nào cho phép người dùng tự đặt hướng chữ — ngoài phạm vi E15 v1.
+
+
+---
+
+## E1 — Tiện ích Chrome: KHÔNG có endpoint mới
+
+E1 **không thêm, không sửa, không bỏ** một endpoint nào. Nó chỉ tiêu thụ hai đường đã có:
+
+| Dùng để | Endpoint | Ghi chú |
+|---|---|---|
+| Kiểm máy chủ sống chưa | `GET /api/v1/health` | đã có sẵn, `include_in_schema=False`, có kiểm CSDL |
+| Lấy chi tiết + tiến độ chapter | `GET /api/v1/projects/{project_id}` | `ProjectDetail` |
+
+Tiện ích **chỉ đọc**: không `POST`, không `PATCH`, không upload. Mọi lượt ghi vẫn đi qua giao diện
+web app như cũ, nên các cổng chặn của M10 (khai báo mục đích) và M8 (điều kiện xuất) không có
+đường nào bị đi vòng.
+
+**Không dùng `/healthz`.** Đo ngày 2026-08-30: `/healthz` ở cổng **giao diện** trả về trang HTML
+của SPA kèm `200` và `Access-Control-Allow-Origin: *` — tức "200 OK" ngay cả khi API đã chết. Chỉ
+các đường `/api/v1/*` mới thật sự đi xuống backend qua proxy.
+
+**Không có `/api/v1/extension/*`.** Backend hiện **không** có endpoint liệt kê project
+(`GET /api/v1/projects` → 405 Method Not Allowed). Tiện ích chấp nhận giới hạn đó (người dùng ghim
+chapter bằng mã) thay vì đẻ ra một mặt API riêng cho tiện ích. Nếu muốn bỏ bước ghim tay thì đó là
+một mini-spec backend riêng: `GET /api/v1/projects` chỉ-đọc, có phân trang.
+
+## P3h — `GET /healthz` thêm `rss_mb` (2026-08-31)
+
+**Không** endpoint mới, **không** đổi schema nào đã chốt, **không** đụng `/api/v1/*`. Chỉ thêm
+**một** trường vào endpoint ops đã có (`include_in_schema` theo cấu hình cũ, ngoài prefix `/api/v1`
+vì nền tảng hosting thăm dò đường này).
+
+```json
+{
+  "status": "ok",
+  "worker": { "trang_thai": "starting", "so_lan_chet": 0, "ma_thoat_gan_nhat": null, "luc": "2026-08-31T…Z" },
+  "rss_mb": 412.7
+}
+```
+
+| Trường | Ý nghĩa |
+|---|---|
+| `rss_mb` | Bộ nhớ thường trú của **tiến trình API**, MB, làm tròn 1 chữ số |
+| `rss_mb: null` | **Không đo được** — KHÁC `0` (`0` nghĩa là đo được và bằng không). Không được gộp hai thứ này khi vẽ biểu đồ hay đặt cảnh báo |
+| `worker.so_lan_chet` | Số lần worker chết kể từ khi container khởi động (do `deploy-start.sh` ghi) |
+| `worker.ma_thoat_gan_nhat` | Mã thoát lần chết gần nhất. **`137` = bị SIGKILL, gần như luôn là hết bộ nhớ** |
+
+⚠️ **`rss_mb` KHÔNG phải bộ nhớ của worker.** Trên host `ROLE=all`, celery chạy ở một **tiến
+trình nền riêng** — và đó mới là tiến trình bị OOM giết. Muốn biết worker có đang phình không thì
+đọc `worker.so_lan_chet` / `ma_thoat_gan_nhat`, không đọc `rss_mb`. Xem `docs/ARCH.md` §8d.
+
+⚠️ Nhắc lại cảnh báo của E1 ở trên và **vẫn còn đúng**: `/healthz` gọi qua **cổng giao diện** trả
+trang SPA kèm `200` — chỉ gọi thẳng vào host của API mới có ý nghĩa.
+
+## D — `GET /healthz` thêm `llm_configured` (2026-09-11)
+
+Lại **chỉ thêm một trường**, không đụng trường nào đang có, không endpoint mới.
+
+```json
+{ "status": "ok", "llm_configured": true, "worker": { … }, "rss_mb": 93.4 }
+```
+
+| Trường | Ý nghĩa |
+|---|---|
+| `llm_configured` | `GEMINI_API_KEYS` có **ít nhất một khoá không rỗng** hay không ⇒ chọn được engine `llm_context` |
+
+**Vì sao đặt ở đây chứ không chỉ ở `/batch-config`.** `/batch-config` đòi đăng nhập, nên câu hỏi
+*"production bật dịch theo ngữ cảnh được chưa"* không ai trả lời được từ ngoài — kể cả lúc đang dò
+sự cố. Và **biến môi trường CÓ TÊN không có nghĩa là nó có giá trị**: bảng quản trị của nền tảng
+hosting liệt kê tên biến chứ không nói biến rỗng hay không. Trường này nói đúng sự khác nhau đó.
+
+**Chỉ `true`/`false`, không bao giờ là mảnh khoá.** Endpoint này mở (nền tảng hosting thăm dò
+được), nên có test soi toàn bộ thân phản hồi để chắc không lộ cả khoá lẫn tiền tố `AIza`.
+
+`false` **không** làm hỏng gì: engine mặc định vẫn `google_fast`, và nếu ai đó chọn `llm_context`
+khi khoá rỗng thì job **lùi về `google_fast` và dán nhãn `fallback_used`**, chứ không đỏ — tính
+chất này có test riêng (`test_d_khoa_rong_van_co_duong_lui_unit.py`).
+
+## E33 — `POST /projects/{id}/export` nhận `gop_project_ids` (2026-09-14)
+
+```json
+{ "format": "cbz", "gop_project_ids": ["<id-1>", "<id-2>", "<id-3>"] }
+```
+
+| Trường | Ý nghĩa |
+|---|---|
+| `gop_project_ids` | Danh sách chapter gộp vào MỘT file, theo **đúng thứ tự** trong danh sách. Bỏ trống ⇒ xuất một chapter như trước E33. Trần **50**. |
+
+**Chapter trên URL luôn được tính**, kể cả khi không có trong danh sách — nó là chapter *chính*
+(chỗ nghẽn kiểm quyền).
+
+⚠️ **MỌI id trong danh sách bị kiểm quyền RIÊNG.** Gộp chapter của người khác vào file của mình là
+lỗ IDOR, nên không có đường nào bỏ qua phép kiểm đó. Một id lạ hoặc không thuộc bạn ⇒ **404 cho cả
+lượt xuất**, không lặng lẽ bỏ qua id đó rồi xuất thiếu.
+
+**Thứ tự được lưu, không bị sắp lại.** Gộp chapter 3 rồi 1 ra file khác hẳn gộp 1 rồi 3. Id trùng
+bị bỏ nhưng giữ vị trí lần xuất hiện đầu.
+
+**Cấu trúc file ra:** `01_ten_chapter/001.png`, `02_ten_khac/001.png`… Số thứ tự chapter nằm trong
+tên vì ứng dụng đọc CBZ sắp trang theo **tên file**, và vì hai chapter đều có trang 1 — không có
+tiền tố thì trang này ghi đè trang kia.
+
+## E30 — `GET /healthz` thêm `translate_default_engine` (2026-09-12)
+
+```json
+{ "status": "ok", "llm_configured": true, "translate_default_engine": "llm_context", … }
+```
+
+| Trường | Ý nghĩa |
+|---|---|
+| `translate_default_engine` | Engine dịch mặc định **tiến trình đang chạy thật sự đọc được** — `google_fast` hoặc `llm_context` |
+
+**Vì sao cần, dù đã có bảng cấu hình.** Bảng biến môi trường của nền tảng hosting **không trả giá
+trị**, chỉ trả tên biến. Nên sau khi đổi `TRANSLATE_DEFAULT_ENGINE` thì không ai kiểm chứng được nó
+đã có hiệu lực. Và **"đã đổi trên bảng" KHÁC "container đang chạy đọc được giá trị mới"** — thay
+đổi chỉ áp ở lượt deploy kế tiếp. Trường này trả lời đúng câu đó.
+
+Không phải bí mật: chỉ là một trong hai tên engine.
+
+## E41 — `GET /healthz` thêm `inpaint_tran_mpx` (2026-09-14)
+
+```json
+{ "status": "ok", …, "inpaint_tran_mpx": { "ca_trang": 1.6, "o_cat": 1.6 } }
+```
+
+| Trường | Ý nghĩa |
+|---|---|
+| `inpaint_tran_mpx.ca_trang` | Trang từ bao nhiêu triệu điểm trở xuống thì xoá chữ **cả trang** một lượt |
+| `inpaint_tran_mpx.o_cat` | Trần diện tích một **ô cắt** mà bước xoá chữ dám chạy |
+
+**Vì sao cần.** Hai số này là **lớp bảo vệ duy nhất** chống worker bị SIGKILL/137 — người dùng
+chốt KHÔNG nâng RAM (14-09), nên không còn lớp nào khác. Cùng lý do như `translate_default_engine`:
+bảng biến môi trường chỉ trả tên biến, nên sau khi hạ trần thì không có cách nào kiểm chứng
+container đang chạy đọc được số mới. Đây cũng là **tín hiệu tự chứng** cho chính lượt deploy đó.
+
+**Bất biến phải giữ: `ca_trang` ≤ `o_cat`.** Đường xoá cả trang cũng đi qua phép kiểm trần và nộp
+diện tích **CẢ TRANG** (`lama.py:275`). Nếu trần trang lớn hơn trần ô thì **mọi trang nằm giữa hai
+số bị từ chối thẳng** thay vì được chia cụm — trang truyện cỡ đọc 1200×1800 (2,16 Mpx) hỏng hết.
+Có test canh cả bất biến này lẫn ca cấu hình lệch.
+
+Không phải bí mật: chỉ là hai con số vận hành.
+
+## E17 — gợi ý thuật ngữ & xưng hô (2026-09-01)
+
+Bốn endpoint. Hai cái đầu **chỉ đọc và không gọi AI** nên `200`; cái thứ ba có gọi mô hình nên
+`202` theo nguyên tắc số 4.
+
+### `GET /api/v1/projects/{project_id}/term-candidates` → 200
+
+```json
+{ "ung_vien": [
+    { "source_term": "ペッパー", "term_key": "ペッパー", "count": 7, "pages": [1, 2, 5],
+      "quotes": [{ "page_order": 1, "region_id": "…", "text": "ペッパーさん、待って!" }],
+      "type_guess": "character_name",
+      "reasons": ["chuỗi katakana", "đứng trước hậu tố さん"] } ],
+  "so_vung_da_quet": 42, "so_vung_co_chu": 38, "so_vung_khong_chac": 2,
+  "so_vung_liet_ke": 1,
+  "trang_thai": "co_ung_vien", "so_bi_loc_vi_da_co": 3,
+  "ghi_chu_ngon_ngu": null }
+```
+
+| Trường | Ý nghĩa |
+|---|---|
+| `count` | Số lần **xuất hiện**, không phải số lần khớp luật (xem `ARCH.md` §E17.4) |
+| `quotes` | **Nguyên văn** trong `raw_text`, tối đa 3 — không phải chuỗi dựng lại. **E39**: cắt còn ≤160 ký tự quanh đúng chỗ khớp, chỗ cắt đánh dấu `…` |
+| `type_guess` | GỢI Ý để điền sẵn ô "Loại". `character_name` chỉ khi có bằng chứng danh xưng |
+| `so_vung_khong_chac` | Vùng OCR `needs_manual` bị bỏ — nói ra chứ không giấu |
+| `so_vung_liet_ke` | **E39** — khối chữ bị bỏ vì là danh sách/trang bạt chứ không phải lời thoại. Chỉ khác 0 với `en` (xem `ARCH.md` §E39) |
+| `ghi_chu_ngon_ngu` | Với `en`: tỉ lệ chữ hoa và luật đang dùng. Với `zh`: cảnh báo nhiễu cao |
+
+**`trang_thai` có 4 giá trị và KHÔNG được gộp:**
+
+| Giá trị | Nghĩa |
+|---|---|
+| `chua_doc_chu` | Chưa chạy bước đọc chữ (hoặc chữ đọc được đều chưa chắc). **Chưa kết luận được gì** |
+| `khong_thay` | Đã quét, không có danh xưng nào |
+| `deu_da_co` | Tìm được nhưng đều đã nằm trong `glossary_entry` |
+| `co_ung_vien` | Có ứng viên mới |
+
+### `GET /api/v1/projects/{project_id}/voice-signals` → 200
+
+Tín hiệu xưng hô **có thật trong bản gốc**. `ten_lien_quan` chỉ có với hậu tố kính ngữ gắn vào
+tên; đại từ nhân xưng thì rỗng — hệ thống **chưa biết ai nói câu nào**.
+
+```json
+{ "tin_hieu": [
+    { "ma": "ja_sama", "nhan": "hậu tố 様/さま", "goi_y_xung_ho": "ngài / đại nhân",
+      "speech_register_goi_y": "formal", "count": 4, "ten_lien_quan": ["ペッパー"],
+      "quotes": [{ "page_order": 1, "region_id": "…", "text": "ペッパー様、お待ちください" }] } ],
+  "so_vung_da_quet": 42, "so_vung_co_chu": 38, "so_vung_khong_chac": 0,
+  "so_vung_liet_ke": 0, "trang_thai": "co_tin_hieu" }
+```
+
+`trang_thai`: `chua_doc_chu` · `khong_thay` · `co_tin_hieu`.
+
+### `POST /api/v1/projects/{project_id}/term-suggestions` → 202
+
+Body: `{ "series_name": "Pepper&Carrot" }`. Trả về `TermSuggestionRun` ở trạng thái `queued`.
+
+**Câu hỏi gửi cho mô hình không phải "truyện này có nhân vật nào"** — nó là "đây là danh xưng
+trích từ chính chapter này, người ta thường dịch thế nào". Mọi dòng trả về bị đối chiếu ngược với
+danh sách đã hỏi; nhắc sai thì loại thẳng.
+
+### `GET /api/v1/term-suggestion-runs/{run_id}` → 200
+
+```json
+{ "id": "…", "project_id": "…", "series_name": "Pepper&Carrot", "status": "done",
+  "model_name": "gemini-3.1-flash-lite",
+  "suggestions": [ { "source_term": "Pepper", "target_term": "Pepper",
+                     "term_type": "character_name", "note": "cô phù thuỷ nhỏ",
+                     "nguon": "goi_y_mo_hinh_chua_duyet" } ],
+  "asked_count": 12, "dropped_count": 2, "error_log": null }
+```
+
+| Trường | Ý nghĩa |
+|---|---|
+| `suggestions: null` | **Chưa chạy xong** |
+| `suggestions: []` | Chạy xong, **không mục nào qua được cổng đối chiếu**. Khác hẳn `null` |
+| `dropped_count` | Số mục model đưa ra mà chapter **không có** ⇒ bị loại. `> 0` nghĩa là model có bịa |
+| `nguon` | Luôn là `goi_y_mo_hinh_chua_duyet` — giao diện phải hiện nhãn này |
+
+⚠️ **Không endpoint nào của E17 tạo thuật ngữ hay hồ sơ nhân vật.** Muốn lưu thì vẫn đi qua
+`POST /projects/{id}/glossary` và `POST /projects/{id}/voice-profiles` như cũ.
+
+## `GET /api/v1/pages/{page_id}/jobs` → 200 *(P3j)*
+
+Lịch sử job của một trang, **mới nhất trước**.
+
+```json
+[{ "id": "…", "type": "inpaint", "page_id": "…", "status": "failed",
+   "retry_count": 0, "error_log": "worker_died: tiến trình xử lý bị dừng giữa chừng…",
+   "created_at": "…", "updated_at": "…" }]
+```
+
+Vì sao cần: trước P3j chỉ tra được job **theo id**, mà id chỉ có ngay lúc bấm. Trang đứng im vì
+worker chết giữa chừng nhìn từ giao diện **y hệt** trang đang chạy chậm — không có đường nào biết
+lý do. `error_log` của job hỏng là chỗ chứa lý do đọc được.
+
+Trang không tồn tại → `404`.
+
+## `POST /api/v1/pages/{page_id}/fit-translation` → 202 *(E18)*
+
+Dịch lại **ngắn hơn** những vùng đang tràn khung, rồi căn chữ lại cả trang.
+
+```json
+{ "job_id": "…", "page_id": "…", "so_vung_tran": 2, "status": "queued", "detail": null }
+```
+
+Job xong trả thêm: `so_vung_rut_gon` · `bo_qua_sua_tay` (id các vùng **người dùng đã sửa tay**,
+cố ý không đụng tới) · `con_tran` / `vua_khung` sau khi căn lại · `suc_chua_nho_nhat` /
+`suc_chua_lon_nhat` · `token_cost`.
+
+Vì sao cần: bong bóng manga vẽ vừa đúng lượng chữ **tiếng Nhật**, mà bản dịch tiếng Việt dài gấp
+hai ba lần. Đo trên trang thật 04/09: một bong bóng chứa ~30 ký tự Nhật nhận về bản dịch **105
+ký tự**, tràn khung kể cả sau khi đã nới khung hết cỡ (A1). Tới đó không cách xếp chữ nào cứu
+được — chỗ duy nhất còn sửa được là chính bản dịch.
+
+**Phải bấm tay, không tự chạy.** Rút gọn là làm mất chữ của bản dịch đầy đủ; máy tự quyết định
+bỏ bớt lời thoại của người khác là việc không ai xin.
+
+| Lỗi | Mã |
+|---|---|
+| Trang không tồn tại / không thuộc tài khoản | `404` |
+| Trang **không có vùng nào tràn** | `422 khong_co_vung_tran` — hỏi suông vẫn tốn token |
+
+Chỉ chạy trên đường LLM (cần `GEMINI_API_KEYS`). Model hỏng/hết quota ⇒ job `failed` và **không
+vùng nào bị đổi**.
+
+## `GET /api/v1/projects/{project_id}/failed-jobs` → 200 *(F1)*
+
+Việc **hỏng mới nhất của mỗi trang** trong chapter — một lời gọi cho cả chapter.
+
+```json
+[{ "id": "…", "type": "typeset", "page_id": "…", "status": "failed", "retry_count": 0,
+   "error_log": "MissingGlyph: font thiếu glyph cho '．' — sẽ render ra ô vuông…",
+   "created_at": "…", "updated_at": "…" }]
+```
+
+Vì sao thêm khi đã có `/pages/{id}/jobs`: đường cũ hỏi **từng trang**, nên màn tiến độ chỉ dám
+hỏi khi người dùng bấm "Vì sao?". Đo được 04/09: bước căn chữ chết sau **0,034 giây**, màn hình
+vẫn quay *"đang cập nhật…"* và người dùng ngồi đợi **10 phút** một việc đã chết — vì không ai
+nghĩ tới chuyện phải bấm mới biết.
+
+Một trang chạy lại 5 lần rồi hỏng 5 lần chỉ trả **lần cuối**: thứ người dùng cần là lý do hiện
+tại, không phải cả tập lịch sử.
+
+Chapter không tồn tại (hoặc không thuộc tài khoản) → `404`.
+
+## `POST /api/v1/projects/{project_id}/term-official-names` → 200 *(E17b)*
+
+Đối chiếu danh xưng **của chapter** với CSDL nhân vật AniList.
+
+```json
+{ "ten_bo_truyen": "One Piece" }
+```
+→
+```json
+{ "tim_thay_bo_truyen": "ONE PIECE",
+  "khop": [{ "danh_xung": "Nami", "ten_day_du": "Nami", "ten_goc": "ナミ",
+             "ten_khac": [], "ly_do": "khớp tên đầy đủ trong CSDL AniList" }],
+  "bo_qua": 22, "khong_dung_duoc": null }
+```
+
+- **Chapter quyết định cần gì, CSDL chỉ trả lời viết thế nào.** Danh sách đem đi hỏi là danh xưng
+  rút từ chính chapter (tầng 1). Nhân vật nào CSDL có mà chapter không có ⇒ **loại thẳng**, đếm
+  vào `bo_qua`. Đo thật: One Piece khớp 3 / bỏ qua 22.
+- `danh_xung` giữ **nguyên cách chapter viết**, không thay bằng dạng của CSDL.
+- `khong_dung_duoc` phân biệt ba loại hỏng — *"không có bộ truyện nào tên X"*, *"không kết nối
+  được"*, *"đang giới hạn số lượt hỏi, thử lại sau một phút"*. Gộp lại là nói dối, vì người dùng
+  sẽ đi sửa sai chỗ.
+- `200` chứ không `202`: một lượt tra CSDL, **không gọi AI** (khác `term-suggestions`).
+- Chưa có danh xưng nào ⇒ trả `khong_dung_duoc` và **không** làm phiền nguồn ngoài.
+
+Project không tồn tại → `404`. Thiếu `ten_bo_truyen` → `422` (hệ thống **không đoán hộ**: đoán sai
+là đối chiếu chapter này với nhân vật của một bộ hoàn toàn khác).
+
+## B1 — tài khoản & phiên đăng nhập (2026-09-04)
+
+### Thay đổi PHÁ VỠ tương thích
+
+Từ bản này, **mọi** đường `/api/v1` (trừ `/auth/*` dưới đây) đòi header:
+
+```
+Authorization: Bearer <mã phiên>
+```
+
+Thiếu ⇒ `401`. **Khoá chung `X-API-Key` không còn mở được dữ liệu** — nó chỉ còn gác
+`POST /auth/register`. Máy khách cũ chỉ gửi `X-API-Key` sẽ nhận `401` ở mọi endpoint.
+
+Ngoài ra, "không tìm thấy" và "không phải của bạn" trả **cùng một** `404` với cùng câu chữ:
+
+```json
+{"detail": "Không tìm thấy, hoặc không thuộc về tài khoản của bạn."}
+```
+
+Phân biệt hai trường hợp là xác nhận cho người dò biết id nào có thật.
+
+### `POST /api/v1/auth/register` → 201
+
+Đòi `X-API-Key`. Người **đầu tiên** đăng ký trở thành quản trị.
+
+```json
+{"email": "ban@vidu.com", "ten_hien": "Tên hiển thị", "mat_khau": "ít nhất 8 ký tự"}
+```
+
+Trả `NguoiDungRead` — **không bao giờ** có `mat_khau_bam`, kể cả đã băm.
+`400` nếu email đã tồn tại hoặc mật khẩu ngắn hơn 8 ký tự.
+
+### `POST /api/v1/auth/login` → 200
+
+```json
+{"email": "ban@vidu.com", "mat_khau": "…"}
+```
+
+```json
+{
+  "ma_phien": "chuỗi ngẫu nhiên 256 bit",
+  "het_han": "2026-09-18T00:00:00Z",
+  "nguoi_dung": {"id": "…", "email": "…", "ten_hien": "…", "la_quan_tri": false}
+}
+```
+
+`ma_phien` **chỉ xuất hiện đúng ở đây** — trong CSDL chỉ có bản băm của nó. Mất là phải đăng
+nhập lại, không có cách lấy lại.
+
+`401` cho **cả ba** trường hợp email không tồn tại / sai mật khẩu / tài khoản bị khoá, với cùng
+một câu: `"Email hoặc mật khẩu không đúng."`
+
+### `POST /api/v1/auth/logout` → 204
+
+Thu hồi phiên trong header. **Luôn trả 204**, kể cả mã sai hoặc thiếu — trả lỗi không giúp gì
+cho người dùng (họ muốn đăng xuất, và họ đã đăng xuất) mà lại cho người dò biết mã nào có thật.
+
+### `GET /api/v1/auth/me` → 200
+
+Trả `NguoiDungRead` của phiên hiện tại. `401` nếu phiên hỏng/hết hạn. Giao diện gọi lúc mở app
+để biết mã lưu trong máy còn dùng được không.
+
+### `POST /api/v1/nhan-dang-ngon-ngu` → 202 *(E57 — đọc thử để đoán ngôn ngữ)*
+
+`multipart/form-data`, một `file` ảnh. Trả `202` + `id`, hỏi lại bằng `GET`.
+
+```json
+{"id": "…", "trang_thai": "queued", "xong": false, "ngon_ngu": null,
+ "ly_do": null, "bang_chung": null, "con_lai_hom_nay": 19}
+```
+
+**Bộ đếm RIÊNG, không trừ hạn mức trang.** Trần `SO_LAN_NHAN_DANG_NGON_NGU_MOT_NGAY` (mặc định 20),
+đếm trên **mọi chốt** của người gọi. Trừ vào hạn mức trang sẽ làm khách 6 lượt mất 1 lượt chỉ vì bấm
+"Tự nhận" — tính năng càng dùng càng đắt, người ta tránh nó rồi quay lại chọn tay sai.
+
+**Ảnh bị xoá ngay sau khi đọc**, kể cả khi lỗi. Nó là rác tạm, không ai tải về.
+
+| Mã | Khi nào |
+|---|---|
+| `413` | ảnh vượt `MAX_UPLOAD_MB` |
+| `422` | tệp rỗng · không phải ảnh |
+| `429` | hết lượt đọc thử. `detail.tran` là trần của **bộ đếm này**, không phải trần trang |
+
+Tệp hỏng **không** mất lượt (giữ lượt sau khi kiểm tệp). Hết lượt thì **không ghi tệp nào** và bản ghi
+cũng không được tạo.
+
+### `GET /api/v1/nhan-dang-ngon-ngu/{id}` → 200
+
+```json
+{"id": "…", "trang_thai": "done", "xong": true, "ngon_ngu": "ja",
+ "ly_do": "co_11_kana",
+ "bang_chung": {"kana": 11, "han": 5, "latin": 0, "hangul": 0, "chu_cai_khac": 0,
+                "tong_co_nghia": 16, "so_vung_doc_duoc": 3, "so_vung_da_thu": 3}}
+```
+
+⚠️ **Đọc `xong`, đừng tự suy từ `trang_thai`.**
+
+⚠️ **`ngon_ngu: null` KHÔNG phải lỗi.** Nó nghĩa là *đã đọc xong và không đủ căn cứ* — ảnh không có
+chữ, quá ít chữ, hoặc hệ chữ không hỗ trợ (Hàn, Nga). Giao diện phải **hỏi lại người dùng**, không
+được chọn bừa một trong ba. Phân biệt với `trang_thai: "failed"`, nghĩa là *không đọc được* (engine
+hỏng). Trộn hai cái là làm người dùng không biết "ảnh của tôi không có chữ" khác "hệ thống đang lỗi".
+
+`bang_chung` có để giao diện **hiện số đo ra**: một kết luận không kèm bằng chứng thì người dùng không
+có cách nào biết nên tin bao nhiêu. Đây cũng là thứ duy nhất để đối chiếu khi có người báo nhận sai.
+
+`404` nếu không có **hoặc không phải của người gọi** (không dùng `403` — nó xác nhận "id này tồn tại",
+tức một đường dò).
+
+### `PATCH /api/v1/auth/me` → 200 *(E56 — tự sửa tài khoản CỦA MÌNH)*
+
+Gửi cái nào thì đổi cái đó. Đổi mật khẩu phải gửi **cả hai** trường mật khẩu.
+
+```json
+{"ten_hien": "An", "mat_khau_cu": "…", "mat_khau_moi": "…"}
+→ {"nguoi_dung": {…}, "da_doi_mat_khau": true, "so_phien_khac_da_thu_hoi": 2}
+```
+
+**Cố ý KHÔNG có `{id}`**: không có id thì về cấu trúc đã không nhắm được vào ai khác, nên không cần
+một phép kiểm quyền có thể viết sai. Đổi tên/mật khẩu của **người khác** là việc không ai làm được,
+kể cả quản trị — xem `PATCH /auth/users/{id}`.
+
+**Cố ý KHÔNG nhận** `email` (là danh tính đăng nhập, chưa có hạ tầng xác minh địa chỉ mới) và
+`la_quan_tri`/`dang_hoat_dong` (tự phong quyền cho mình).
+
+Đổi mật khẩu **thu hồi mọi phiên khác** và **giữ lại phiên đang gọi**. `so_phien_khac_da_thu_hoi`
+có để giao diện nói ra hệ quả — thiếu nó thì người dùng thấy điện thoại đòi đăng nhập lại và tưởng
+hệ thống lỗi.
+
+| Mã | Khi nào |
+|---|---|
+| `400` | sai mật khẩu hiện tại · mật khẩu mới < 8 ký tự · mật khẩu mới trùng cũ |
+| `422` | gửi nửa cặp mật khẩu · body rỗng |
+| `401` | chưa đăng nhập |
+
+### `GET /api/v1/auth/co-tai-khoan-chua` → 200
+
+```json
+{"da_co": true}
+```
+
+Không đòi đăng nhập. Chỉ `true`/`false` — **không** trả số lượng hay danh sách email.
+
+### `GET /api/v1/projects` → 200 *(mới)*
+
+Chapter của tôi **+ chapter chưa có chủ**. Trước B1 endpoint này không tồn tại: giao diện tự nhớ
+id trong máy, nên đăng nhập trên máy khác sẽ không thấy gì.
+
+`ProjectRead` có thêm `chu_so_huu_id`; `null` = chưa có chủ (chapter tạo trước B1). Giao diện
+phải gắn nhãn phân biệt, không im lặng coi như của người đang xem.
+
+### `POST /api/v1/projects/{project_id}/claim` → 200
+
+Nhận một chapter **chưa có chủ** về mình.
+
+- `409` nếu chapter đã có chủ (kể cả chính bạn).
+- `404` nếu chapter của người khác — không có đường nào cướp chapter đang có chủ.
+
+## B1a — nhả chapter & quản trị tài khoản (2026-09-04)
+
+### `POST /api/v1/projects/{project_id}/release` → 200
+
+Đường **ngược** của `claim`: chủ nhả chapter về *chưa có chủ*.
+
+Vì sao cần: có `claim` mà không có đường ngược lại là bẫy một chiều — nhận nhầm một chapter là
+nó khoá cứng vào tài khoản đó, và người khác **không có cách nào** lấy lại vì
+`_get_project_or_404` đã chặn từ trước. Gặp thật trong lượt kiểm chứng B1 trên bản chạy thật.
+
+- `409` nếu chapter vốn đã chưa có chủ.
+- `404` nếu không phải chapter của bạn — không nhả hộ chapter người khác được (nhả hộ rồi nhận
+  lại chính là cướp gián tiếp).
+
+Đây **không** phải chuyển chủ cho một người cụ thể: chuyển chủ cần biết tên người nhận, tức là
+cần một danh bạ người dùng mở cho mọi người — chuyện khác.
+
+### `GET /api/v1/auth/users` → 200 *(chỉ quản trị)*
+
+Danh bạ tài khoản. Không phải quản trị ⇒ **404**, không phải 403 — 403 xác nhận hệ thống có
+phần quản trị để mà nhắm vào.
+
+Trả `NguoiDungRead`, **không bao giờ** có `mat_khau_bam` kể cả cho quản trị.
+
+### `PATCH /api/v1/auth/users/{nguoi_id}` → 200 *(chỉ quản trị)*
+
+```json
+{"dang_hoat_dong": false, "la_quan_tri": true}
+```
+
+Cả hai trường đều **tuỳ chọn** — gửi cái nào đổi cái đó. Gửi thân rỗng ⇒ `422`, không giả vờ
+thành công.
+
+Chỉ nhận đúng hai trường này (`extra="forbid"`). Cố ý **không** có `email`, `ten_hien`,
+`mat_khau`: quản trị được phép chặn người khác, nhưng không được phép **hoá trang thành họ**.
+
+`la_quan_tri` là bắt buộc phải có, nếu không thì quản trị đầu tiên là quản trị **duy nhất mãi
+mãi** — mất tài khoản đó là không ai quản lý được người dùng nữa, và không sửa được ngoài can
+thiệp thẳng vào CSDL. (Đúng tình huống đã xảy ra khi kiểm chứng B1: một tài khoản **thử** chiếm
+mất suất "người đầu tiên", còn tài khoản thật của chủ hệ thống thì không phải quản trị.)
+
+**Khoá thì cắt luôn mọi phiên đang mở** của tài khoản đó. Khoá mà để phiên cũ sống tiếp là khoá
+trên giấy: người đó vẫn thao tác bình thường tới khi phiên hết hạn, tối đa 14 ngày.
+
+- `409` nếu tự khoá hoặc tự thu quyền của chính mình.
+- `404` nếu không tìm thấy, hoặc người gọi không phải quản trị.
+
+### `DELETE /api/v1/auth/users/{nguoi_id}` → 204 *(chỉ quản trị)*
+
+Xoá hẳn tài khoản. **Chapter của họ KHÔNG bị xoá theo** — khoá ngoại là `ON DELETE SET NULL` nên
+chapter về *chưa có chủ* và người khác nhận được. Xoá kèm chapter là xoá việc của người khác chỉ
+vì gỡ một tài khoản.
+
+Muốn giữ nguyên chủ sở hữu thì dùng `PATCH` (khoá) chứ đừng xoá.
+
+`409` nếu tự xoá chính mình.
+
+## E19 — tiện ích đọc truyện: endpoint gộp (2026-09-05..07)
+
+Dùng riêng cho `extension-doc-truyen/` (khác `extension/` của E1). Cả hai đòi `Authorization:
+Bearer <mã phiên>` như mọi endpoint khác từ B1 — tiện ích không được gọi API trần.
+
+### `POST /api/v1/doc-truyen/trang` → 202
+
+Nhận thẳng file ảnh (`multipart/form-data`, field `file`) + 2 field text:
+
+- `source_lang` (`ja` | `zh` | `en`, **mặc định `ja`**) — ngôn ngữ CHỮ TRÊN ẢNH, quyết định engine
+  OCR. Chọn sai không báo lỗi gì — cả OCR lẫn dịch đều "chạy xong bình thường", chỉ là chạy sai
+  engine (đo được 07/09: đưa trang tiếng Anh của MangaPlus vào với `source_lang=ja` mặc định ⇒
+  manga-ocr đọc chữ Latin ra rác, bước dịch dịch tiếp rác đó). Mỗi giá trị là **một chapter
+  riêng** — `source_lang` chốt lúc tạo chapter, đổi giữa chừng là dữ liệu sai.
+- `engine` (`google_fast` | `llm_context`, **mặc định `google_fast`**) — engine DỊCH cho đúng
+  trang này. `google_fast` miễn phí nhưng dịch RỜI RẠC từng dòng, không tự sửa được lỗi OCR đọc
+  dính/sai (đo 08/09: vài dòng ra nguyên tiếng Anh hoặc dịch sai nghĩa trên font chữ hoa cách
+  điệu). `llm_context` (Gemini) giữ mạch văn cả trang + được yêu cầu tự suy luận sửa lỗi OCR khi
+  dịch, tốn token — `422 llm_not_configured` nếu chưa cấu hình `GEMINI_API_KEYS`. Lưu vào
+  `Page.translate_engine_override` (`NULL` khi mặc định). **Từ ĐX-3 (22-09) cả `chi_chu` lẫn
+  pipeline đầy đủ đều đọc cột này** — xem `POST /projects/{id}/pages` và
+  `POST /projects/{id}/pages/archive`.
+
+Tự tạo/tái dùng chapter ẩn `"Đọc nhanh (tiện ích) — {source_lang}"` của tài khoản gọi API
+(`che_do_pipeline=chi_chu`, `intended_use=personal` — xem `ARCH.md §E19.4` vì sao đây không phải
+né cổng M10), xếp việc nhận diện rồi trả `page_id` ngay. **Không lọc trùng ảnh** — bấm dịch hai
+lần cùng ảnh chạy hai lần; việc nhớ "ảnh này dịch rồi" thuộc về tiện ích (khoá bằng URL ảnh).
+
+Response 202:
+```json
+{ "page_id": "…", "trang_thai": "queued", "xong": false,
+  "tien_do": { "buoc": null, "dang_chay": false, "so_viec_cho_truoc": null } }
+```
+
+| Lỗi | Mã |
+|---|---|
+| Chưa đăng nhập / phiên hết hạn | `401` |
+| File rỗng | `422` |
+| `source_lang` không thuộc `ja`/`zh`/`en` | `422` |
+| `engine=llm_context` mà chưa cấu hình `GEMINI_API_KEYS` | `422 llm_not_configured` |
+| Ảnh vượt `MAX_UPLOAD_MB` | `413` |
+| Định dạng ảnh không nhận ra (`sniff_image`) | `422` |
+
+### `GET /api/v1/doc-truyen/trang/{page_id}` → 200
+
+Trả **vùng đã có kể cả khi trang chưa dịch xong hết** — dịch xong bong bóng nào tiện ích phủ được
+bong bóng đó, không phải đợi cả trang. Gọi lặp lại (poll) tới khi `xong: true`.
+
+```json
+{
+  "page_id": "…", "trang_thai": "translated", "xong": true,
+  "tien_do": { "buoc": "translate", "dang_chay": true, "so_viec_cho_truoc": 0 },
+  "vung": [
+    { "region_id": "…", "x": 120, "y": 40, "w": 300, "h": 220,
+      "thu_tu_doc": 1, "chu_goc": "うむ…", "ban_dich": "Hmm…", "kem_tin_cay": false }
+  ],
+  "loi": null
+}
+```
+
+- `x/y/w/h` theo **pixel ảnh gốc** đã gửi lên — tiện ích tự quy đổi sang pixel hiển thị bằng
+  `naturalWidth` vs `clientWidth` (máy chủ không biết trang web co ảnh bao nhiêu).
+- `chu_goc`/`ban_dich` là `null` khi bước tương ứng chưa chạy tới — khác chuỗi rỗng (đã chạy mà
+  không có chữ).
+- `xong` bám theo `translated`/`typeset_done`/`ready_for_export` — **không đợi `typeset_done`**,
+  chế độ `chi_chu` không bao giờ tới trạng thái đó (xem `ARCH.md §E19.3`).
+- `loi`: lấy nguyên văn `error_log` của job hỏng gần nhất trên trang này, `null` nếu không hỏng.
+
+| Lỗi | Mã |
+|---|---|
+| Chưa đăng nhập / phiên hết hạn | `401` |
+| Trang không tồn tại, hoặc chapter chứa nó không phải của tài khoản gọi | `404` |
+
+---
+
+# E49 — Hạn mức sử dụng và đường cho khách lạ
+
+## E49.1. Lỗi `429 Too Many Requests` — mẫu MỚI
+
+Trả ở **ba** đường tải lên: `POST /projects/{id}/pages`, `POST /projects/{id}/pages/archive`,
+`POST /doc-truyen/trang`.
+
+```json
+{"detail": {
+  "loi": "vuot_han_muc",
+  "can": 1,
+  "con_lai": 0,
+  "tran": 6,
+  "co_tai_khoan": false,
+  "chot": "khach_ip",
+  "reset_luc": "2026-09-26T00:00:00+07:00",
+  "reset_sau_giay": 12345
+}}
+```
+
+| Trường | Nghĩa |
+|---|---|
+| `can` | Số trang lượt gọi này cần |
+| `con_lai` | Còn dùng được bao nhiêu trang hôm nay |
+| `tran` | Trần của chốt đang chặn |
+| `chot` | `nguoi_dung` · `khach_cookie` · `khach_ip` |
+| `reset_luc` | Mốc làm mới, **có sẵn phần bù `+07:00`** — client không phải tự tính |
+| `reset_sau_giay` | Còn bao nhiêu giây, để đếm ngược |
+
+Header kèm theo: `Retry-After` (giây), và `Set-Cookie: ma_khach=…` khi khách chưa có cookie.
+
+⚠️ `chot: "khach_ip"` nghĩa là bị chặn vì **dùng chung địa chỉ mạng** (văn phòng, trường học,
+quán cà phê), **không** phải vì chính người này dùng nhiều. Giao diện phải nói đúng điều đó —
+người chưa dùng lượt nào mà bị chặn sẽ không hiểu nổi nếu chỉ thấy "bạn đã hết lượt".
+
+**Hạn mức KHÔNG bị trừ** khi tệp bị từ chối vì định dạng (`422`) hoặc kích thước (`413`).
+
+## E49.2. Ba đường KHÔNG đòi đăng nhập
+
+| Đường | Ghi chú |
+|---|---|
+| `GET /api/v1/han-muc` | Còn bao nhiêu lượt, bao giờ có lại — xem §E49.3 |
+| `POST /api/v1/doc-truyen/trang` | Khách lạ gửi được. Trả `Set-Cookie: ma_khach` ở lượt đầu |
+| `GET /api/v1/doc-truyen/trang/{page_id}` | Chỉ đọc được trang của **chính mình** (theo cookie) |
+| `GET /api/v1/doc-truyen/trang/{page_id}/anh` | Ảnh ĐÃ DỊCH (chỉ chế độ `day_du`) — xem §E51 |
+| `POST /api/v1/projects/{project_id}/export` | Gói nhiều trang thành MỘT tệp |
+| `GET /api/v1/export-jobs/{job_id}` | Trạng thái lượt xuất |
+| `GET /api/v1/export-jobs/{job_id}/download` | Tải tệp đã gói |
+
+Bốn đường cuối mở cho khách vì **khách phải lấy được kết quả** — không có chúng thì cả tính năng
+chỉ là chạy cho vui, và §3 (tự động tải về) chẳng có gì để tải. An toàn **không** dựa vào cổng
+đăng nhập mà dựa vào `bao_dam_quyen`: `ExportJob` lần được về chapter, và chapter của khách mang
+`chu_khach` riêng ⇒ hỏi của người khác là `404`.
+
+Đây là danh sách đóng, khoá bằng `tests/test_e49f_khach_la_tai_len.py::test_CHI_hai_duong_nay_mo_cho_khach`.
+Mọi đường khác vẫn `401` khi chưa đăng nhập.
+
+Khách lạ phải **giữ cookie `ma_khach`** thì mới đọc lại được kết quả của mình. Xoá cookie là mất
+đường vào những trang đã gửi (và vẫn bị chốt IP tính hạn mức).
+
+## E49.3. `GET /api/v1/han-muc` → 200
+
+Hạn mức hôm nay của **người đang gọi**. Không nhận tham số, không tốn lượt, không giữ chỗ.
+
+```json
+{
+  "co_tai_khoan": false,
+  "tran": 6,
+  "da_dung": 2,
+  "con_lai": 0,
+  "reset_luc": "2026-09-27T00:00:00+07:00",
+  "reset_sau_giay": 34567,
+  "chot": [
+    {"loai": "khach_cookie", "da_dung": 2, "con_lai": 4, "tran": 6},
+    {"loai": "khach_ip",     "da_dung": 25, "con_lai": 0, "tran": 25}
+  ]
+}
+```
+
+| Trường | Nghĩa |
+|---|---|
+| `tran` · `da_dung` | Của **chốt chính** (tài khoản, hoặc cookie) — con số "tôi được dùng / tôi đã dùng" |
+| `con_lai` | **Nhỏ nhất** trong các chốt — phần THẬT SỰ còn gửi được |
+| `chot[]` | Chi tiết từng cổng, để giao diện giải thích đúng lý do khi `con_lai = 0` |
+
+⚠️ `con_lai` **không** bằng `tran - da_dung`. Ví dụ ở trên: chốt cookie còn 4 nhưng chốt IP đã
+hết, nên thật sự còn **0**. Lấy `tran - da_dung` mà hiện lên là mời người dùng thả 4 trang rồi
+nhận `429` — tệ hơn hẳn nói thật ngay từ đầu. Khi `con_lai = 0` mà `chot` cho thấy chốt chặn là
+`khach_ip`, giao diện phải nói rõ **"địa chỉ mạng này đã dùng hết lượt chung"**, không phải "bạn
+đã hết lượt".
+
+`tran` cố ý **không** phải trần IP: trần IP là hàng rào chống lạm dụng dùng chung, hiện nó lên
+chỉ làm người dùng bối rối vì con số không khớp thứ họ thật sự được dùng.
+
+---
+
+# E51 — Khách lạ nhận ảnh đã dịch
+
+## E51.1. `POST /api/v1/doc-truyen/trang` — thêm trường `che_do`
+
+| `che_do` | Chạy gì | Kết quả |
+|---|---|---|
+| `chi_chu` *(mặc định)* | nhận diện → đọc chữ → dịch | **Toạ độ + chữ dịch**. Client tự phủ lên ảnh gốc. KHÔNG có tệp nào |
+| `day_du` | thêm **xoá chữ gốc** (LaMa) + **căn chữ Việt vào bong bóng** | **Ảnh đã dịch**, tải về được |
+
+Mặc định cố ý giữ `chi_chu`: tiện ích Chrome (E19) đang chạy thật và không gửi trường này. Đổi
+mặc định là bắt nó chạy thêm hai bước đắt nhất — hai bước duy nhất cần mô hình LaMa 1,5 GB — cho
+một thứ nó không dùng tới.
+
+Hai chế độ sinh **hai chapter riêng** cho cùng một người ("Đọc nhanh (tiện ích) — ja" và "Dịch
+nhanh — ja"). Để chung thì trang phủ-chữ và trang đã-căn-chữ lẫn vào nhau, mà hai loại có đích
+khác nhau nên cổng xuất không biết trang nào xuất được.
+
+## E51.2. `GET /api/v1/doc-truyen/trang/{page_id}` — hai trường mới
+
+```json
+{
+  "page_id": "...", "trang_thai": "typeset_done", "xong": true,
+  "che_do": "day_du",
+  "anh_da_dich": "/api/v1/doc-truyen/trang/.../anh",
+  "tien_do": {...}, "vung": [...], "loi": null
+}
+```
+
+⚠️ **`xong` phụ thuộc `che_do`, không phải một danh sách trạng thái cứng.**
+
+| `che_do` | `xong` = true khi |
+|---|---|
+| `chi_chu` | `translated` · `typeset_done` · `ready_for_export` |
+| `day_du` | **chỉ** `typeset_done` · `ready_for_export` |
+
+`translated` là **đích** của `chi_chu` (nó không bao giờ tới `typeset_done`, chờ là chờ mãi) nhưng
+là **giữa đường** của `day_du` — lúc đó chưa căn chữ, chưa có ảnh nào. Client đừng tự suy `xong`
+từ `trang_thai`; đọc đúng trường `xong`.
+
+`anh_da_dich` là `null` khi chưa có, **không** phải một đường dẫn sẽ trả 404: client không có cách
+nào phân biệt "chưa xong" với "hỏng" nếu cả hai đều là 404. Chế độ `chi_chu` **luôn** `null`.
+
+## E51.3. `GET /api/v1/doc-truyen/trang/{page_id}/anh` → 200 `image/png`
+
+Ảnh đã xoá chữ gốc + chữ Việt đã căn vào bong bóng. CHỈ phục vụ tệp đã render sẵn, **không bao
+giờ tự render** — việc nặng thuộc worker.
+
+| Lỗi | Mã | Khi nào |
+|---|---|---|
+| Chưa căn chữ xong | `404` | Thân lỗi nói rõ "chưa chạy xong" + bảo hỏi lại `GET .../{page_id}` |
+| Chapter chạy `chi_chu` | `404` | Thân lỗi nêu đúng lý do là **chế độ**, không phải "chưa xong" |
+| Trang của người khác | `404` | Không phân biệt với "không tồn tại" |
+
+Hai lý do 404 đầu cố ý **nói khác nhau**: "không có ảnh vì chế độ" khác hẳn "chưa xong" — nói gộp
+thì người dùng chờ vô ích.
+
+## E51.4. Nhiều trang thì gói thành MỘT tệp
+
+Dùng lại đường xuất có sẵn: `POST /projects/{id}/export` (`format`: `cbz` | `zip`) →
+`GET /export-jobs/{job_id}` → `GET /export-jobs/{job_id}/download`.
+
+§3.3 đặc tả: tải 24 tệp rời là 24 lần bị trình duyệt hỏi, gần như chắc chắn bị chặn. Một tệp nén
+là một lần.
+
+---
+
+# E52 — Tự đăng ký (27-09)
+
+`POST /api/v1/auth/register` — **không còn đòi `X-API-Key`**, trừ khi hệ thống chưa có tài khoản
+nào (tài khoản đầu tiên thành quản trị, nên chỗ đó vẫn phải có khoá).
+
+| Lỗi | Mã | Khi nào |
+|---|---|---|
+| Thiếu/sai khoá chung | `401` | **Chỉ** khi hệ thống chưa có tài khoản nào |
+| Email đã có / mật khẩu yếu | `400` | **Không** tiêu suất đăng ký |
+| Địa chỉ mạng đã tạo đủ số tài khoản hôm nay | `429` | Xem thân lỗi dưới |
+| Không xác định được địa chỉ mạng | `503` | Thà chặn còn hơn mở một đường không có trần |
+
+```json
+{"detail": {
+  "loi": "vuot_tran_dang_ky", "tran_moi_ngay": 3,
+  "reset_luc": "2026-09-28T00:00:00+07:00",
+  "thong_diep": "Địa chỉ mạng này đã tạo đủ số tài khoản cho phép trong hôm nay. Thử lại sau, hoặc liên hệ người quản trị."
+}}
+```
+
+Kèm header `Retry-After`.
+
+⚠️ Thông điệp cố ý nói **"địa chỉ mạng này"**, không nói "bạn": người ở văn phòng hay quán cà phê
+có thể bị chặn dù chính họ chưa tạo tài khoản nào, và không có cách nào tự đoán ra.
+
+## Vì sao có trần này
+
+Không có nó thì hạn mức trang của E49 **vô nghĩa**: khách hết 6 trang chỉ cần tạo tài khoản mới để
+có 10, rồi lặp vô hạn. Trần đặt ở `SO_TAI_KHOAN_MOI_MOI_IP_MOT_NGAY` (mặc định 3).
+
+**Không** có xác minh email — trần theo IP chặn được việc tạo hàng loạt, **không** chặn được email
+giả. Muốn chặn cần hạ tầng gửi thư, chưa có.
+
+---
+
+# E53 — Hai thay đổi hợp đồng cho trang chủ (27-09)
+
+## E53.1. `TrangDocTruyen` thêm `project_id`
+
+```json
+{"page_id": "...", "project_id": "...", "trang_thai": "typeset_done", "xong": true,
+ "che_do": "day_du", "anh_da_dich": "/api/v1/doc-truyen/trang/.../anh", "tien_do": {…}}
+```
+
+Khách lạ cần nó để xin **gói nhiều trang thành MỘT tệp** (`POST /projects/{id}/export`, §3.3).
+Thiếu trường này thì khách chỉ có `page_id`, mà mọi endpoint trả chapter đều đòi đăng nhập ⇒ đường
+xuất đã mở ở E51 nhưng **không dùng được**.
+
+## E53.2. CORS nay cho phép CREDENTIALS
+
+`allow_credentials=True`. **Bắt buộc**: khách lạ được nhận diện bằng **cookie**, mà giao diện và
+API ở hai tên miền khác nhau — `fetch` mặc định `same-origin` nên **không gửi cookie sang**.
+
+⇒ Client gọi API **phải** dùng `credentials: 'include'`. Thiếu nó thì:
+
+* mỗi request là một "khách mới" ⇒ chốt cookie không bao giờ cộng dồn;
+* khách **không đọc lại được trang của chính mình** (404).
+
+Lỗi này **không lộ ra khi thử bằng `curl`** (ở đó cookie được gửi tay). Chỉ trình duyệt thật mới
+thấy.
+
+An toàn không dựa vào cờ này mà dựa vào: `allow_origins` là danh sách **tường minh** (không phải
+`*`), và cookie khách đặt `SameSite=Lax`.
+
+---
+
+# E54 · E55 — Hai trường mới (27-09)
+
+## E54.1. `GET /api/v1/han-muc` thêm `giu_ket_qua_phut`
+
+```json
+{"…": "…", "giu_ket_qua_phut": 30}
+```
+
+Số **phút** giữ kết quả sau khi dịch xong. **`null` = không tự xoá.**
+
+⚠️ Client **đừng gõ cứng 30**. Con số phụ thuộc hai biến môi trường **và** phụ thuộc người gọi:
+
+| `BAT_LICH_DON_TEP` | `TU_XOA_CHO_TAI_KHOAN` | Khách lạ | Đã đăng nhập |
+|---|---|---|---|
+| `false` | bất kỳ | `null` | `null` |
+| `true` | `true` | số phút | số phút |
+| `true` | `false` | số phút | **`null`** |
+
+Gõ cứng là nói SAI với người dùng ngay khi lịch dọn tắt — và nó đã sai thật: E50 ship với lịch mặc
+định tắt trong khi màn hình vẫn hứa xoá sau 30 phút.
+
+## E55.1. `GET /healthz` thêm `worker.trang_thai_thuc` và `worker.san_sang_luc`
+
+```json
+"worker": {
+  "trang_thai": "starting",        ← thứ SHELL nghĩ (giữ nguyên nghĩa cũ)
+  "trang_thai_thuc": "running",    ← thứ THẬT
+  "san_sang_luc": "2026-09-27T16:20:11+00:00"
+}
+```
+
+`trang_thai` cũ **không đổi nghĩa** (có thứ đang đọc nó): nó nói thứ `deploy-start.sh` nghĩ. Và
+shell nhánh `ROLE=all` ghi `starting` **một lần** rồi chỉ ghi `restarting` khi worker chết — nên
+worker chạy tốt hai ngày vẫn báo `starting` (đo được **42 giờ** ngày 26-09).
+
+`trang_thai_thuc` suy từ ba nhánh, **thứ tự có ý nghĩa**:
+
+1. shell nói `restarting` ⇒ **tin shell** (nó vừa quan sát một lần thoát — bằng chứng mạnh hơn một
+   dấu sẵn sàng còn sót từ lần chạy trước);
+2. có `san_sang_luc` ⇒ `running`;
+3. còn lại ⇒ giữ nguyên thứ shell nói.
+
+`san_sang_luc` do **chính worker** ghi ở tín hiệu `worker_ready` của Celery — shell không có cách
+nào biết worker đã nạp xong model.

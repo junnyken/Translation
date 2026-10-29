@@ -1,0 +1,86 @@
+{
+  "manifest_version": 3,
+  "name": "Dịch truyện đang đọc",
+  "version": "0.3.0",
+  "description": "Bấm một cái để phủ chữ dịch tiếng Việt lên trang truyện bạn đang đọc. Gửi ảnh tới máy chủ Translation của chính bạn.",
+  "minimum_chrome_version": "114",
+  "icons": {
+    "16": "src/icons/icon-16.png",
+    "48": "src/icons/icon-48.png",
+    "128": "src/icons/icon-128.png"
+  },
+  "permissions": [
+    "storage",
+    "scripting",
+    "activeTab"
+  ],
+  "commands": {
+    "dich-trang-nay": {
+      "suggested_key": {
+        "default": "Alt+Q"
+      },
+      "description": "Dịch 1 trang truyện đang nhìn thấy"
+    },
+    "dich-ca-chapter": {
+      "suggested_key": {
+        "default": "Alt+A"
+      },
+      "description": "Tự động dịch toàn bộ chapter"
+    },
+    "tu-dich-khi-cuon": {
+      "suggested_key": {
+        "default": "Alt+W"
+      },
+      "description": "Bật/tắt tự động dịch khi cuộn trang"
+    },
+    "khoanh-vung-dich": {
+      "suggested_key": {
+        "default": "Alt+S"
+      },
+      "description": "Khoanh vùng dịch trên màn hình (trang canvas/DRM)"
+    }
+  },
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "src/service-worker.js",
+    "type": "module"
+  },
+  "options_page": "src/options/index.html",
+  "action": {
+    "default_title": "Dịch trang truyện này",
+    "default_popup": "src/popup/index.html",
+    "default_icon": {
+      "16": "src/icons/icon-16.png",
+      "48": "src/icons/icon-48.png",
+      "128": "src/icons/icon-128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "src/phim-tat.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/lib/chon-anh.js",
+        "src/lib/toa-do.js",
+        "src/fonts/Bangers-Regular.ttf",
+        "src/fonts/ShantellSans-Regular.ttf",
+        "src/fonts/Mansalva-Regular.ttf",
+        "src/fonts/SigmarOne-Regular.ttf"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ]
+}

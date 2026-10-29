@@ -4216,8 +4216,8 @@ class AppDichTruyenWindows(tk.Tk):
             if hasattr(self, "lbl_mo_ta_engine"):
                 self.lbl_mo_ta_engine.config(
                     text=(
-                        f"🧠 Chế độ Chuyên sâu ({so_luot} lượt/trang): Quét OCR 2 tầng làm nét chữ viết tay + "
-                        f"Giải mã ký tự lệch + Bộ nhớ tự học ({so_cau_hoc} cụm đã nhớ)."
+                        f"🧠 Chế độ Chuyên sâu ({so_luot} lượt/trang): Tăng cường nhận diện chữ viết tay + "
+                        f"Chuẩn hoá thoại khó + Bộ nhớ tự học ({so_cau_hoc} cụm đã nhớ)."
                     ),
                     fg="#38BDF8",
                 )
@@ -4241,12 +4241,12 @@ class AppDichTruyenWindows(tk.Tk):
             )
         else:
             self.lbl_kpi_cost.config(
-                text=f"{so_luot} lượt / trang (✨ Gemini Cloud)",
+                text=f"{so_luot} lượt / trang (✨ AI Ngữ Cảnh Cloud)",
                 fg=MANGA_UI_TOKENS["status_warn"],
             )
             if hasattr(self, "lbl_mo_ta_engine"):
                 self.lbl_mo_ta_engine.config(
-                    text=f"✨ Chế độ Đám mây ({so_luot} lượt/trang): Xử lý ngữ cảnh bằng Gemini Vision trên Server (dành cho máy không có GPU).",
+                    text=f"✨ Chế độ Đám mây ({so_luot} lượt/trang): Xử lý ngữ cảnh toàn trang trên máy chủ đám mây (dành cho máy không có GPU).",
                     fg=MANGA_UI_TOKENS["status_warn"],
                 )
 
@@ -4729,7 +4729,7 @@ class AppDichTruyenWindows(tk.Tk):
             values=[
                 "local_ocr_gpu (⚡ OCR + GPU Nhanh)",
                 "local_hybrid_pro (🧠 OCR + GPU Pro — Tự Học & Chữ Viết Tay · 2 lượt/trang)",
-                "llm_context (✨ Gemini AI — Chuẩn Ngữ Cảnh Cloud)",
+                "llm_context (✨ AI Ngữ Cảnh Đám Mây)",
             ]
         )
         self.cmb_engine.set("local_ocr_gpu (⚡ OCR + GPU Nhanh)")
@@ -5446,13 +5446,13 @@ class AppDichTruyenWindows(tk.Tk):
 
                 noi_dung = (
                     "====================================================================================================\n"
-                    "  PHÂN LOẠI TÀI KHOẢN & HẠN MỨC MIỄN PHÍ MỖI NGÀY (PHƯƠNG ÁN A + GÓI MỒI KÉO KHÁCH)\n"
+                    "  PHÂN LOẠI TÀI KHOẢN & HẠN MỨC MIỄN PHÍ MỖI NGÀY\n"
                     "====================================================================================================\n"
-                    "  • Khách vãng lai (Nhận diện theo Mã máy HWID) : 02 trang / ngày  (Giá vốn vận hành: ~16đ - 27đ/ngày)\n"
-                    "  • Tài khoản Đăng ký Miễn phí (Free Account)   : 10 trang / ngày  (Đọc nửa chap gây nghiện, tự hồi 00:00)\n"
-                    "  • Chế độ Local Offline (ONNX + Ollama GGUF)   : KHÔNG GIỚI HẠN   (0đ/trang — chạy bằng GPU/CPU máy bạn)\n\n"
+                    "  • Khách vãng lai (Nhận diện theo Mã máy HWID) : 02 trang / ngày  (Dùng thử nhanh không cần đăng ký)\n"
+                    "  • Tài khoản Đăng ký Miễn phí (Free Account)   : 10 trang / ngày  (Tự động hồi lại vào 00:00 mỗi ngày)\n"
+                    "  • Đồng bộ 1 Ví duy nhất                       : Dùng chung trên Web, Tiện ích Chrome, App Windows & API\n\n"
                     "====================================================================================================\n"
-                    "  BẢNG GIÁ PHƯƠNG ÁN A KÈM GÓI MỒI 20K (MUA NHIỀU LẦN TỰ ĐỘNG CỘNG DỒN VĨNH VIỄN VÀO VÍ)\n"
+                    "  BẢNG GIÁ GÓI LƯỢT TÍCH LUỸ (MUA NHIỀU LẦN TỰ ĐỘNG CỘNG DỒN VĨNH VIỄN VÀO VÍ — KHÔNG HẾT HẠN)\n"
                     "====================================================================================================\n"
                     f"  [MỒI] 🎯 GÓI MỒI ĐỌC NHANH (CỘNG DỒN) : {40 * don_gia:>10,} đ  -> Nhận     40 trang (~2 chap)    | {don_gia:,}đ/trang (Mua nhiều lần cộng dồn)\n"
                     f"  [1]   🌱 GÓI KHỞI ĐẦU (STARTER)       : {100 * don_gia:>10,} đ  -> Nhận    105 trang (~5.5 chap)  | {round(100 * don_gia / 105):,}đ/trang (+5% Bonus)\n"
@@ -5461,14 +5461,11 @@ class AppDichTruyenWindows(tk.Tk):
                     f"  [4]   🏢 GÓI DOANH NGHIỆP API PRO     : {5000 * don_gia:>10,} đ  -> Nhận  6.500 trang (~325 chap)  | {round(5000 * don_gia / 6500):,}đ/trang (+30% Bonus + tr_live_)\n"
                     f"  [5]   🏛️ GÓI ENTERPRISE CỔNG TRUYỆN   : {20000 * don_gia:>10,} đ  -> Nhận 28.000 trang (~1.400 chap)| {round(20000 * don_gia / 28000):,}đ/trang (+40% Bonus)\n\n"
                     "====================================================================================================\n"
-                    "  SO SÁNH GIÁ THỊ TRƯỜNG QUỐC TẾ 2026 & GIÁ VỐN VẬN HÀNH (COGS)\n"
+                    "  BẢNG QUY ĐỔI LƯỢT THEO BỘ MÁY AI ĐỘC QUYỀN\n"
                     "====================================================================================================\n"
-                    "  • Đối thủ quốc tế: ScanTranslator (~1.250đ/trang), Ichigo Reader (~152.000đ - 508.000đ/tháng, hết hạn cuối tháng),\n"
-                    "                     ToriTranslate (~152.000đ - 760.000đ/gói).\n"
-                    "  • Giá vốn thực tế (COGS) của hệ thống bạn:\n"
-                    "      - Trang dịch mới qua Gemini Flash Vision + Context LLM : ~13.5 VNĐ / trang\n"
-                    "      - Trang trùng Bảng Cache Cộng đồng SHA-256 (0.15 giây) :  0.0 VNĐ / trang\n"
-                    "      - Giá vốn trung bình thực tế (Blended COGS)            : ~6.5 - 8.0 VNĐ / trang (Biên lợi nhuận gộp >95%)\n"
+                    "  • ⚡ OCR + GPU Nhanh (local_ocr_gpu)          : 01 lượt / trang (Khuyên dùng cho 90% truyện chữ in rõ, siêu tốc)\n"
+                    "  • ✨ AI Ngữ Cảnh Đám Mây (llm_context)        : 01 lượt / trang (Xử lý trên máy chủ đám mây cho máy không có GPU)\n"
+                    "  • 🧠 OCR + GPU Pro Tự Học (local_hybrid_pro)  : 02 lượt / trang (Chuyên trị chữ viết tay, SFX & tự học từ điển)\n"
                 )
 
                 def _cap_nhat_ui():

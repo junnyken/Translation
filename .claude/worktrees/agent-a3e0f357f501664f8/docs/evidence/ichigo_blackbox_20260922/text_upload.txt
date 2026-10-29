@@ -1,0 +1,16 @@
+URL=https://ichigoreader.com/upload
+HTTP=200
+AT_UTC=2026-09-22T07:50:06.616Z
+TITLE=Manga Translator🍓
+
+Ichigo
+Contact
+Leaderboard
+Platforms
+Account
+translate to English
+GPT-5.6 Luna
+auto-download
+Drag and drop or select files
+pdf, zip, and images are supported
+remaining: 20

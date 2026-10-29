@@ -125,13 +125,13 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
             'Includes +30% bonus pages (5,000 + 1,500 free)',
             'Personal Developer API Key (tr_live_...) — no 14-day expiry',
             '1-call Translate Image & Batch Chapter URL endpoints',
-            'Automatic Anti-Hotlink bypass & SHA-256 Cache',
+            'Automatic Anti-Hotlink bypass & 0.15s High-Speed Cache',
           ]
         : [
             'Tặng thêm +30% số trang (mua 5.000 nhận 6.500 trang)',
             'Cấp Khoá Developer API cố định (tr_live_...) cho Tool/Web',
             'Đẩy cả Chapter qua URL + Tự động vượt chặn Hotlink',
-            'Tích hợp Bảng Cache Cộng đồng SHA-256 (0.15s)',
+            'Tích hợp Bộ nhớ đệm tốc độ cao (0.15s)',
           ],
       noiBat: true,
     },
@@ -149,13 +149,13 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
         ? [
             'Includes +40% bonus pages (20,000 + 8,000 free)',
             `Lowest cost per page (~${Math.round((20000 * donGia) / 28000).toLocaleString('vi-VN')} VND / page)`,
-            'Multi-worker concurrency + 0.15s Community Cache',
+            'Multi-worker concurrency + 0.15s High-Speed Cache',
             'Unlimited integration with WordPress/Madara CMS & Bots',
           ]
         : [
             'Tặng thêm +40% số trang (mua 20.000 nhận 28.000 trang)',
             `Đơn giá tối ưu nhất hệ thống (chỉ ~${Math.round((20000 * donGia) / 28000).toLocaleString('vi-VN')}đ / trang)`,
-            'Luồng Worker đa nhân + Cache Cộng đồng SHA-256 siêu tốc',
+            'Luồng xử lý đa nhân + Bộ nhớ đệm tốc độ cao 0.15s',
             'Đấu nối không giới hạn vào CMS WordPress/Madara & Bot',
           ],
       noiBat: true,

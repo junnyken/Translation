@@ -6362,3 +6362,132 @@ Chi tiết và bảng số đo: `REPORT_E69_E70_E71.md`.
 - **E70**: 13 test, có chạy trọn bước căn chữ trên Postgres thật. Chưa chạy trên trang truyện thật.
 - **E71**: A/B 5+5 lượt `gemini-3.1-flash-lite`, 7 câu tiếng Nhật. Hai chế độ cùng 0/35 câu trống và
   0/35 sót chữ Nhật. Lượt JSON đầu bỏ dấu chấm cuối câu; thêm luật rồi đo lại thì 5/5 có dấu câu.
+
+## PRODUCTION-01 — 27/10/2026 (BUILT, chưa LIVE)
+
+- `python3 -m pytest windows-app/tests -q`: **43 passed** trên Linux, gồm core recovery,
+  ZIP/CBZ, lỗi HTTP, preflight riêng tư, bbox và controller với widget giả.
+- Compile Python và kiểm whitespace trong phần diff của đợt nâng cấp: đạt.
+- `cd backend && python3 -m pytest tests/test_production_private_context.py -q`:
+  **chưa chạy 5 test**, dừng khi nạp conftest vì `ModuleNotFoundError: asyncpg`.
+- Docker không truy cập được; hai lần auto-review yêu cầu quyền hết thời gian.
+- ZIP candidate `/tmp/Translation-Windows-production-candidate.zip`: đã kiểm CRC/hash,
+  chưa phải bản phát hành đã thử trên Windows.
+- Không chạy AI/provider, chapter thật, migration upgrade/downgrade hoặc UI Tk thật.
+  Không dùng kết quả mock để tuyên bố tích hợp đã đạt.
+
+### PRODUCTION-01 — kiểm tiếp đầu vào và thời hạn chờ, cùng ngày
+
+`python3 -m pytest windows-app/tests -q`: **62 passed in 1.23s** (tăng 19 bài).
+Bổ sung kiểm chapter previous/next, ranh giới marker, srcset rỗng, ảnh chưa hỗ trợ,
+limits thư mục, thư mục rỗng và không gọi mạng mới sau deadline.
+Compile `sources.py`, `production.py` và đóng candidate ZIP kiểm CRC/hash: đạt.
+Docker quyền thường lỗi socket; automatic approval review cho quyền kiểm tra trả 503,
+chưa chạy được lệnh có quyền. Các giới hạn tích hợp/Windows của lượt trước vẫn còn.
+
+## PRODUCTION-02 — 27/10/2026 (BUILT, chưa LIVE)
+
+- `python3 -m pytest windows-app/tests -q`: **87 passed in 3.97s**.
+- 25 bài bổ sung: 24 bài review/delivery và 1 bài controller kiểm tên CBZ/PDF/longstrip bản nháp.
+  Bao phủ duyệt từng trang, partial/reject/resume, thay output/config/regions/source, khoá,
+  hồ sơ hỏng/mất giữa lúc mở, không ghi đè, hard link không hỗ trợ, TOCTOU bytes,
+  lỗi ghi ledger/ZIP, privacy receipt và CLI subprocess status→approve→export.
+- Reviewer độc lập chạy riêng 22 bài review đầu tiên: đạt, không thấy blocker trong code đã review.
+- Đây là test local/headless trên Linux; chưa Windows/NTFS, chưa backend/AI/worker thật.
+  Blocker Docker/dependencies ở PRODUCTION-01 vẫn còn; lượt này không thử bypass hoặc deploy.
+
+## PRODUCTION-03 — 27/10/2026 (BUILT, chưa LIVE)
+
+- `python3 -m pytest windows-app/tests -q`: **102 passed in 3.81s** (tăng 15 bài).
+  Bao phủ loss→restart→lookup/replay, key/payload snapshot, backend cũ, ACK sai, lỗi lookup,
+  source/context thay đổi và controller thật với HTTP giả.
+- `python3 -m pytest backend/isolated_tests -o addopts='' -q`:
+  **19 passed, 2 warnings in 0.13s**. 11 bài fingerprint/lock-ID, 8 bài quyết định cleanup.
+  Warnings: config asyncio không được nhận do thiếu pytest-asyncio. Scheduling thread ở cleanup
+  unit được stub: thử thread thật bị treo callback trong sandbox và đã ngắt, không tính đạt.
+- `cd backend && python3 -m pytest tests/test_production_upload_requests.py tests/test_production_private_context.py -q`:
+  dừng conftest vì **ModuleNotFoundError: asyncpg**. 16 scenarios integration mới và 5 bài privacy
+  cũ **chưa chạy**. Thiếu cả alembic/pytest-asyncio trong Python hiện tại; không đổi tests để giả đạt DB.
+- Thăm dò TCP localhost5433/5432 bị sandbox PermissionError; không bypass quyền.
+- Review độc lập phát hiện glossary orphan sau quota/rollback; đã chuyển ghi sau quota và thêm
+  guard cleanup với probe commit outcome. Review lại không thấy blocker mới bằng đọc code;
+  các bài real PostgreSQL commit/concurrency/cleanup vẫn bắt buộc trước LIVE.
+- Python compile touched modules/tests/migration và scoped diff whitespace: đạt.
+  Candidate ZIP được đóng lại và kiểm CRC/hash; không thay public bundle, chưa Windows UAT.
+
+
+## Bổ sung PRODUCTION-04
+
+28/10/2026 — PRODUCTION-04: desktop102 passed; isolated32 passed (2 config warnings); compile scoped modules/migration. Integration bị chặn bởi thiếu asyncpg; chưa kiểm PostgreSQL concurrency/migration/broker/Windows. Policy replay và AST wrapper unit tests không chứng minh end-to-end. Xem REPORT_PRODUCTION_04.md.
+
+
+## Bổ sung kiểm thử 28/10/2026
+
+43 isolated tests đạt, gồm 11 case bảo vệ DB test trước downgrade/TRUNCATE.
+Bổ sung integration concurrent publisher và publish accepted→commit failed→replay/claim.
+Các integration chưa chạy: thiếu asyncpg; cài dependency bị chặn mạng và approval review503.
+Runner: `bash scripts/test_production_backend.sh`; hướng dẫn [TEST_PRODUCTION_BACKEND.md](TEST_PRODUCTION_BACKEND.md).
+Không deploy hoặc xác nhận broker/worker thật.
+
+
+### Bộ chạy nghiệm thu cách ly — 28/10/2026
+
+Thêm Dockerfile.integration, deploy/docker-compose.production-tests.yml và
+scripts/test_production_docker.sh: DB tmpfs riêng, không port/.env/volume app,
+network internal, exit code test được giữ khi dọn tài nguyên. Docker compose config,
+Bash syntax đạt; isolated tests vẫn43 đạt. Thử chạy bị chặn Docker socket; lần xin
+tải dependency tiếp tục không thực thi do approval review503. Chưa build hoặc chạy
+PostgreSQL/broker. Xem TEST_PRODUCTION_BACKEND.md.
+
+
+### Log tích hợp người dùng gửi — 28/10/2026
+
+Log Docker do người dùng cung cấp: **19 passed, 7 failed trong 14.75s**.
+Năm failure do counts đã thêm DetectOutbox (6 bảng) nhưng expected còn5 bảng.
+Hai failure do fault injection kiểm UploadRequest trong session.new sau khi đã flush,
+nên không gây lỗi commit như dự định. Đã cập nhật expected đủ6 bảng; fault injection
+truy vấn đúng request_key trong transaction, thêm assert xác nhận fault đã kích hoạt.
+Không giảm yêu cầu rollback/chống trùng, không thay logic ứng dụng theo các failure này.
+Compile và43 isolated tests đạt sau sửa. **Chưa có kết quả Docker chạy lại sau bản sửa**;
+không đánh dấu integration pass. Chạy lại `bash scripts/test_production_docker.sh`.
+
+
+### Xác nhận chạy lại từ log người dùng — 28/10/2026
+
+Log người dùng cung cấp ghi `26 passed in 13.93s`, `tests-1 exited with code 0`
+(project translation-integration-t6uwym). Toàn bộ26 test API/PostgreSQL trong bộ chạy
+production đã đạt sau sửa test. Có kiểm migration trên PostgreSQL test, upload idempotency,
+rollback/reconciliation và outbox SQL claim/publish giả lập. Broker/provider vẫn giả lập;
+chưa xác nhận Redis/Celery/AI hoặc Windows end-to-end, chưa deploy/LIVE.
+Bằng chứng: attachment84df740c-00a7-4fde-9bb7-dbbd636558e1/Pasted text.txt do user gửi.
+
+
+### Bổ sung phép kiểm broker — 28/10/2026
+
+Thêm Redis tạm vào stack test và2 case Celery worker thật (threads/concurrency2):
+duplicate trong lúc xử lý/sau hoàn tất và outbox→Redis→consumer claim. Provider/callback
+được thay ở ranh giới kiểm thử; startup hooks được cô lập. Đã compile/config validation,
+43 isolated đạt; 2 case broker mới CHƯA CHẠY do quyền Docker trong agent. 26 case SQL/API
+cũ đã đạt theo log user. Chưa kiểm beat/restart/AI thật/Windows hoặc deploy.
+Hướng dẫn và tiêu chí ảnh mẫu: TEST_PRODUCTION_BACKEND.md.
+
+
+### Log Redis/Celery người dùng gửi — 28/10/2026
+
+Project translation-integration-uekhlp: **27 passed, 1 failed trong27.42s**.
+Test duplicate đang chạy/sau hoàn tất đã đạt với Redis/Celery thật. Test outbox đã
+publish và worker nhận thành công, lỗi tại đọc persisted published_at từ session
+fixture giữ row cũ (expire_on_commit=False; rollback khi không còn transaction
+không expire cache). Đã đổi xác nhận sang AsyncSession mới, vẫn yêu cầu published_at
+khácNULL. Chưa có log chạy lại sau sửa; chưa đánh dấu28/28.
+Bằng chứng: attachment87953237-4117-40ab-8c1f-70ef002bca41/Pasted text.txt do user gửi.
+
+
+### Kết quả xác nhận cuối từ người dùng — 28/10/2026
+
+Log attachment cdd91401-2be6-4fc1-b63c-7739068c1b11/Pasted text.txt ghi
+**28 passed in 27.65s**, `tests-1 exited with code 0`. Bộ test API/PostgreSQL
+và2 test Redis/Celery thật đã đạt. Xác minh duplicate đang chạy/sau hoàn tất và
+outbox publish→consumer claim trong môi trường cách ly, provider/callback giả lập.
+Chưa kiểm beat, process/broker restart, OCR/dịch thật, Windows hoặc deploy/LIVE.
+Kết quả này thay thế trạng thái chờ chạy lại của các mục log trước đó.
