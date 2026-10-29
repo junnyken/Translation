@@ -1655,8 +1655,8 @@ _CACHE_RAPIDOCR_HF: dict[str, object] = {}
 
 def tai_goi_ocr_huggingface(ngon_ngu: str = "all") -> dict[str, bool]:
     """
-    Tải tự động mô hình ONNX OCR đa ngôn ngữ (Tiếng Nhật PP-OCRv4, Tiếng Hàn PP-OCRv3, Tiếng Trung PP-OCRv4)
-    từ HuggingFace về thư mục `windows-app/models/ocr_hf/` để chạy không cần quyền Admin Windows.
+    Tải tự động mô hình ONNX OCR đa ngôn ngữ (Tiếng Nhật, Tiếng Hàn, Tiếng Trung, Tiếng Anh)
+    về thư mục `windows-app/models/ocr_hf/` để chạy tự động trên máy mới không cần quyền Admin Windows.
     """
     THU_MUC_OCR_HF.mkdir(parents=True, exist_ok=True)
     co_rapidocr = False
@@ -1664,7 +1664,18 @@ def tai_goi_ocr_huggingface(ngon_ngu: str = "all") -> dict[str, bool]:
         import rapidocr_onnxruntime  # noqa: F401
         co_rapidocr = True
     except Exception:
-        co_rapidocr = False
+        try:
+            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", "rapidocr-onnxruntime", "--quiet"],
+                timeout=120,
+                check=False,
+                creationflags=creationflags,
+            )
+            import rapidocr_onnxruntime  # noqa: F401
+            co_rapidocr = True
+        except Exception:
+            co_rapidocr = False
 
     targets = ["ja", "ko"] if ngon_ngu == "all" else ([ngon_ngu] if ngon_ngu in CAUHINH_OCR_HF else [])
     for lang in targets:
@@ -4077,6 +4088,17 @@ class AppDichTruyenWindows(tk.Tk):
         self._luu_cau_hinh()
         khoi_dong_may_chu_bridge_cuc_bo(ghi_log_fn=self.ghi_log)
         threading.Thread(target=self._cap_nhat_han_muc, kwargs={"ghi_nhat_ky": True}, daemon=True).start()
+        threading.Thread(target=self._tu_dong_dong_bo_ocr_may_moi, daemon=True).start()
+
+    def _tu_dong_dong_bo_ocr_may_moi(self):
+        """Tự động kiểm tra và tải ngầm trọng số nhận diện 4 ngôn ngữ (JA/KO/ZH/EN) khi chạy trên máy mới."""
+        try:
+            ja_ok = (THU_MUC_OCR_HF / "ja_rec.onnx").is_file() and (THU_MUC_OCR_HF / "ja_dict.txt").is_file()
+            ko_ok = (THU_MUC_OCR_HF / "ko_rec.onnx").is_file() and (THU_MUC_OCR_HF / "ko_dict.txt").is_file()
+            if not (ja_ok and ko_ok):
+                tai_goi_ocr_huggingface("all")
+        except Exception:
+            pass
 
     def _doc_cau_hinh(self) -> dict:
         if CAU_HINH_FILE.is_file():
