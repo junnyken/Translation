@@ -587,18 +587,32 @@ class LLMContextTranslator:
         last_error: Exception | None = None
         for _ in range(attempts):
             key = self._current_key()
+            la_groq = key.startswith("gsk_") or key.startswith("groq:")
+            la_openrouter = key.startswith("sk-or-") or key.startswith("or:")
             la_deepseek = (
-                key.startswith("sk-")
+                la_groq
+                or la_openrouter
+                or key.startswith("sk-")
                 or key.startswith("ds:")
                 or self.model_name.lower().startswith("deepseek")
             )
             if la_deepseek:
-                clean_key = key[3:].strip() if key.startswith("ds:") else key
-                ds_model = (
-                    self.model_name
-                    if self.model_name.lower().startswith("deepseek")
-                    else "deepseek-chat"
-                )
+                if la_groq:
+                    clean_key = key[5:].strip() if key.startswith("groq:") else key
+                    endpoint_oai = "https://api.groq.com/openai/v1/chat/completions"
+                    ds_model = "llama-3.3-70b-versatile"
+                elif la_openrouter:
+                    clean_key = key[3:].strip() if key.startswith("or:") else key
+                    endpoint_oai = "https://openrouter.ai/api/v1/chat/completions"
+                    ds_model = "google/gemma-3-27b-it:free"
+                else:
+                    clean_key = key[3:].strip() if key.startswith("ds:") else key
+                    endpoint_oai = _DEEPSEEK_ENDPOINT
+                    ds_model = (
+                        self.model_name
+                        if self.model_name.lower().startswith("deepseek")
+                        else "deepseek-chat"
+                    )
                 ds_payload: dict = {
                     "model": ds_model,
                     "messages": [
@@ -619,7 +633,7 @@ class LLMContextTranslator:
                 if schema is not None:
                     ds_payload["response_format"] = {"type": "json_object"}
                 request = urllib.request.Request(
-                    _DEEPSEEK_ENDPOINT,
+                    endpoint_oai,
                     data=json.dumps(ds_payload).encode("utf-8"),
                     method="POST",
                     headers={

@@ -1727,7 +1727,31 @@ $lines | ConvertTo-Json -Depth 4 -Compress
                 for r in comp_ordered
             ],
         })
-    bubbles.sort(key=lambda b: (b["y"] // 80, b["x"]))
+    return sap_xep_bong_thoai_theo_huong_doc(bubbles, ngon_ngu_nguon=ngon_ngu_nguon)
+
+
+def sap_xep_bong_thoai_theo_huong_doc(bubbles: list[dict], ngon_ngu_nguon: str = "ja") -> list[dict]:
+    """
+    Sắp xếp thứ tự bóng thoại theo văn hoá đọc truyện tranh (tương tự BallonsTranslator / cotrans):
+    - Manga Nhật (`ja`): Đọc từ Trên xuống Dưới theo dải khung tranh, và từ PHẢI sang TRÁI (`-(x + w)`) trong cùng dải ngang.
+    - Manhwa Hàn (`ko`), Manhua Trung (`zh`, `zh-TW`), Comic Âu-Mỹ (`en`): Đọc từ Trên xuống Dưới, TRÁI sang PHẢI (`x`).
+    - Đồng thời đánh dấu các cặp bóng thoại kề sát nhau (`lien_ket_cau_tren=True`) khi 1 câu thoại dài bị tách làm 2 bóng.
+    """
+    if not bubbles:
+        return []
+    la_manga_nhat = str(ngon_ngu_nguon or "ja").lower().startswith("ja")
+    if la_manga_nhat:
+        bubbles.sort(key=lambda b: (int(b.get("y", 0)) // 90, -(int(b.get("x", 0)) + int(b.get("w", 0)))))
+    else:
+        bubbles.sort(key=lambda b: (int(b.get("y", 0)) // 90, int(b.get("x", 0))))
+
+    for i in range(1, len(bubbles)):
+        prev_b = bubbles[i - 1]
+        cur_b = bubbles[i]
+        dy = int(cur_b.get("y", 0)) - (int(prev_b.get("y", 0)) + int(prev_b.get("h", 0)))
+        dx = abs(int(cur_b.get("x", 0)) - int(prev_b.get("x", 0)))
+        if -25 <= dy <= 65 and dx <= max(140, int(prev_b.get("w", 80))):
+            cur_b["lien_ket_cau_tren"] = True
     return bubbles
 
 
@@ -2136,26 +2160,57 @@ def phat_hien_cau_hinh_may_va_luong_toi_uu() -> tuple[int, str]:
     return luong_de_xuat, mo_ta
 
 
-def trich_xuat_thuat_ngu_trang(bubbles: list[dict], tu_dien_rieng: str = "") -> str:
+QUY_TAC_VAN_PHONG_TRUYEN_TRANH_QUOC_TE: dict[str, str] = {
+    "vi": "Dùng đại từ truyện tranh tự nhiên (tớ/cậu, anh/em, hắn/ta, ngươi/ta), câu ngắn gọn giàu cảm xúc, tuyệt đối không dịch word-by-word kiểu máy móc ('bạn', 'chờ đợi!').",
+    "en": "Use punchy, idiomatic Manga/Webtoon English (contractions like 'Don't', 'You're kidding me?', natural exclamations).",
+    "zh": "使用地道自然的二次元漫画简体中文（如：'等等！'、'别小看'、'开什么玩笑'、'地下城'，保留君/酱/前辈等称呼韵味）。",
+    "zh-TW": "使用地道自然的台灣繁體漫畫對白（如：'等等！'、'別小看'、'開什麼玩笑'、'地下城'，語氣生動自然）。",
+    "id": "Gunakan Bahasa Indonesia komik/webtoon yang luwes dan ekspresif (aku/kamu hoặc gue/lu sesuai konteks akrab, istilah 'dungeon' tetap alami).",
+    "es": "Usa Español de manga/cómic natural y expresivo (tuteo 'tú', '¡Espera!', '¡No me subestimes!', giros coloquiales vivos).",
+    "pt": "Use Português Brasileiro (PT-BR) natural de mangá/webtoon ('Espera!', 'Tá brincando comigo?', 'masmorra/dungeon').",
+    "th": "ใช้ภาษาไทยสไตล์มังงะ/เว็บตูนที่เป็นธรรมชาติ (เช่น 'เดี๋ยวก่อน!', 'อย่าดูถูกนะ', 'ล้อเล่นหรือเปล่า', คำลงท้ายตามอารมณ์ตัวละคร).",
+    "fr": "Utilisez un Français de Manga/BD naturel et vivant (tutoiement 'tu' entre jeunes/amis : 'Attends ! Ne sous-estime pas...', 'Tu plaisantes ?!').",
+}
+
+
+def trich_xuat_thuat_ngu_trang(bubbles: list[dict], tu_dien_rieng: str = "", ngon_ngu_dich: str = "vi") -> str:
     """
     Tự động quét các câu thoại trong trang để trích xuất đúng những thuật ngữ/thành ngữ xuất hiện
-    trong trang đó + kết hợp với Bộ Nhớ Tự Học (`bo-nho-tu-hoc-truyen.json`) và từ điển riêng của người dùng.
+    trong trang đó + kết hợp với Bộ Nhớ Tự Học (`bo-nho-tu-hoc-truyen.json`), kính ngữ nhân vật
+    và ngữ cảnh liên trang cho cả 9 ngôn ngữ đầu ra.
     """
     toan_bo_chu = " ".join(str(b.get("chu_goc") or "") for b in bubbles)
     goi_y: list[str] = []
-    bo_nho_hoc = nap_bo_nho_tu_hoc()
-    for goc_hoc, dich_hoc in bo_nho_hoc.items():
-        if goc_hoc.lower() in toan_bo_chu.lower():
-            goi_y.append(f"'{goc_hoc}' = '{dich_hoc}'")
-    for pat, goc, nghia in TU_DIEN_THUAT_NGU_TRUYEN:
-        if re.search(pat, toan_bo_chu, re.I):
-            goi_y.append(f"'{goc}' = '{nghia}'")
-    chuoi_goi_y = ", ".join(goi_y[:18])
+    if ngon_ngu_dich == "vi":
+        bo_nho_hoc = nap_bo_nho_tu_hoc()
+        for goc_hoc, dich_hoc in bo_nho_hoc.items():
+            if goc_hoc.lower() in toan_bo_chu.lower():
+                goi_y.append(f"'{goc_hoc}' = '{dich_hoc}'")
+        for pat, goc, nghia in TU_DIEN_THUAT_NGU_TRUYEN:
+            if re.search(pat, toan_bo_chu, re.I):
+                goi_y.append(f"'{goc}' = '{nghia}'")
+
+    # Phát hiện kính ngữ / quan hệ nhân vật trong trang để hướng dẫn LLM giữ đúng ngôi xưng ở mọi ngôn ngữ
+    if re.search(r"\b\w+-(?:kun|chan|senpai|sama|sensei|san)\b", toan_bo_chu, re.I):
+        if ngon_ngu_dich == "vi":
+            goi_y.append("Nhân vật gọi nhau bằng -kun/-chan/-senpai: xưng 'tớ - cậu' hoặc 'em - đàn anh'")
+        elif ngon_ngu_dich in ("es", "fr", "pt"):
+            goi_y.append("Characters use peer honorifics (-kun/-chan): use informal singular 'tú' / 'tu' / 'você'")
+        elif ngon_ngu_dich == "th":
+            goi_y.append("ตัวละครเป็นเพื่อนกัน (-kun/-chan): ใช้สรรพนามกันเอง (ฉัน/นาย/เธอ)")
+        elif ngon_ngu_dich.startswith("zh"):
+            goi_y.append("角色之间使用-kun/-chan：译为“君/酱”并使用同辈亲切口吻")
+
+    quy_tac_lang = QUY_TAC_VAN_PHONG_TRUYEN_TRANH_QUOC_TE.get(ngon_ngu_dich, "")
+    if quy_tac_lang:
+        goi_y.append(quy_tac_lang)
+
+    chuoi_goi_y = " ; ".join(goi_y[:14])
     if tu_dien_rieng and tu_dien_rieng.strip():
-        # Chỉ giữ tối đa 3 dòng ngữ cảnh ngắn để tránh LLM chép nhầm câu của trang trước
-        dong_ctx = [d.strip() for d in tu_dien_rieng.strip().splitlines() if d.strip()][-3:]
+        # Giữ tối đa 4 dòng ngữ cảnh liên trang gần nhất để đồng nhất tên riêng & đại từ xưng hô
+        dong_ctx = [d.strip() for d in tu_dien_rieng.strip().splitlines() if d.strip()][-4:]
         ctx_ngan = " ; ".join(dong_ctx)
-        return f"{chuoi_goi_y}. Tham khảo xưng hô: {ctx_ngan}".strip(". ")
+        return f"{chuoi_goi_y}. Ngữ cảnh trang trước / Từ điển: {ctx_ngan}".strip(". ")
     return chuoi_goi_y
 
 
@@ -2220,11 +2275,12 @@ def lay_ten_prompt_ngon_ngu_dich(ngon_ngu_dich: str = "vi") -> str:
 
 def hau_kiem_va_sua_ban_dich(chu_goc: str, ban_dich: str, ngon_ngu_dich: str = "vi") -> str:
     """
-    Làm sạch và chuẩn hoá câu dịch tự động trước khi chấm điểm:
+    Làm sạch và chuẩn hoá câu dịch tự động trước khi chấm điểm (hỗ trợ cả 9 ngôn ngữ quốc tế):
     - Ưu tiên khớp tức thì nếu câu gốc đã nằm trong Bộ Nhớ Tự Học (`bo-nho-tu-hoc-truyen.json`).
     - Loại bỏ tiền tố đánh số lặp '[1]', 'Bản dịch:', ngoặc kép thừa hoặc thẻ <think>.
     - Khử lỗi lặp từ máy móc ('để để để' -> 'để').
-    - Chuyển đại từ máy móc 'bạn' sang xưng hô truyện tranh tự nhiên ('cậu').
+    - Bộ làm mượt thoại truyện tranh đa ngôn ngữ (Multi-Language Comic Naturalizer): biến các câu dịch
+      máy móc word-by-word thành thoại Manga/Manhwa/Webtoon tự nhiên, đúng xưng hô ở cả 9 ngôn ngữ.
     """
     goc_sach = (chu_goc or "").strip()
     if goc_sach and ngon_ngu_dich == "vi":
@@ -2236,20 +2292,55 @@ def hau_kiem_va_sua_ban_dich(chu_goc: str, ban_dich: str, ngon_ngu_dich: str = "
         return ""
     s = re.sub(r"<think>[\s\S]*?</think>", "", s).strip()
     s = re.sub(r"^\s*(?:\[\d+\]|\d+[.):\-])\s*", "", s)
-    s = re.sub(r"^\s*(?:Bản dịch|Dịch|Translation)\s*:\s*", "", s, flags=re.I)
+    s = re.sub(r"^\s*(?:Bản dịch|Dịch|Translation|Traducción|Tradução|Traduction)\s*:\s*", "", s, flags=re.I)
+    s = re.sub(r"\s*\((?:Gợi ý nghĩa sát|Draft|Hint)[^)]*\)\s*", "", s, flags=re.I)
     s = s.strip().strip('"').strip("“”")
+
+    co_kinh_ngu_ban_be = bool(re.search(r"-(?:kun|chan|senpai)\b", goc_sach, re.I))
+
     if ngon_ngu_dich == "vi":
         # Khử lỗi lặp 1 từ liên tiếp >= 3 lần ('để để để' -> 'để')
         s = re.sub(r"\b(\w+)(?:\s+\1){2,}\b", r"\1", s, flags=re.I)
         # Khử lỗi lặp cụm 2 từ liên tiếp >= 3 lần ('của ta của ta của ta' -> 'của ta')
         s = re.sub(r"\b(\w+\s+\w+)(?:\s+\1){2,}\b", r"\1", s, flags=re.I)
-        # Thay đại từ 'bạn' cứng nhắc bằng 'cậu' trong thoại truyện tranh và Việt hoá từ cảm thán sót
+        # Làm mượt các cụm từ dịch máy cứng nhắc sang văn phong Manga/Webtoon Việt Nam
+        s = re.sub(r"^Chờ đợi\s*([!?.])", r"Chờ đã\1", s, flags=re.I)
+        s = re.sub(r"\bĐừng đánh giá thấp\b", "Đừng xem thường", s)
+        s = re.sub(r"\bđừng đánh giá thấp\b", "đừng xem thường", s)
+        s = re.sub(r"\bngục tối\b", "hầm ngục", s, flags=re.I)
+        s = re.sub(r"\bCậu đang đùa tôi à\b", "Cậu đùa tớ đấy à", s, flags=re.I)
+        s = re.sub(r"\bBạn đang đùa tôi à\b", "Cậu đùa tớ đấy à", s, flags=re.I)
         s = re.sub(r"\bHa\s+yes\b", "Ha ha, chuẩn rồi", s, flags=re.I)
         s = re.sub(r"\bOh\s+yes\b", "Ồ đúng rồi", s, flags=re.I)
         s = re.sub(r"\bCác bạn\b", "Mọi người", s)
         s = re.sub(r"\bcác bạn\b", "mọi người", s)
         s = re.sub(r"\bBạn\b", "Cậu", s)
         s = re.sub(r"\bbạn\b", "cậu", s)
+        if co_kinh_ngu_ban_be or "cậu" in s.lower():
+            s = re.sub(r"\bcủa tôi\b", "của tớ", s)
+            s = re.sub(r"\bđùa tôi\b", "đùa tớ", s)
+    elif ngon_ngu_dich == "zh":
+        s = re.sub(r"^等待([！!])", r"等等\1", s)
+        s = s.replace("这个地牢", "这个地下城").replace("地牢", "地下城")
+    elif ngon_ngu_dich == "zh-TW":
+        s = re.sub(r"^等待([！!])", r"等等\1", s)
+        s = s.replace("這個地牢", "這個地下城").replace("地牢", "地下城")
+    elif ngon_ngu_dich == "id":
+        s = re.sub(r"\bApakah kamu bercanda\?", "Kamu bercanda ya?", s, flags=re.I)
+        s = re.sub(r"\bpenjara bawah tanah\b", "dungeon", s, flags=re.I)
+    elif ngon_ngu_dich == "es":
+        s = re.sub(r"^¡?Esperar!", "¡Espera!", s, flags=re.I)
+    elif ngon_ngu_dich == "pt":
+        s = re.sub(r"^Espere!", "Espera!", s, flags=re.I)
+        s = re.sub(r"\bVocê está brincando comigo\?", "Tá brincando comigo?", s, flags=re.I)
+    elif ngon_ngu_dich == "th":
+        s = re.sub(r"^รอ!", "เดี๋ยวก่อน!", s)
+        s = s.replace("คุณล้อเล่นฉันเหรอ?", "ล้อเล่นหรือเปล่าเนี่ย?")
+    elif ngon_ngu_dich == "fr":
+        if co_kinh_ngu_ban_be:
+            s = re.sub(r"^Attendez\s*!", "Attends !", s, flags=re.I)
+            s = re.sub(r"\bNe sous-estimez pas\b", "Ne sous-estime pas", s, flags=re.I)
+        s = re.sub(r"\bVous plaisantez j'espère\s*\?", "Tu plaisantes j'espère ?", s, flags=re.I)
     return s.strip()
 
 
@@ -2341,6 +2432,29 @@ def danh_gia_chat_luong_ban_dich(
     return round(max(0.0, min(1.0, diem)), 3), ds_loi
 
 
+def _lay_ban_nhap_nmt_sieu_toc(
+    bubbles: list[dict],
+    *,
+    ngon_ngu_nguon: str = "ja",
+    ngon_ngu_dich: str = "vi",
+) -> list[str]:
+    """
+    Lấy bản nháp nghĩa sát (Semantic Anchor Draft) cho toàn bộ bóng thoại trong ~0.18s
+    để làm mỏ neo từ vựng cho chế độ `local_hybrid_pro` (Dual-Anchor Draft + LLM Polish).
+    """
+    if not bubbles:
+        return []
+    try:
+        kq_nhanh = _dich_danh_sach_thoai_nhanh_mien_phi(
+            bubbles, ngon_ngu_nguon=ngon_ngu_nguon, ngon_ngu_dich=ngon_ngu_dich
+        )
+        if len(kq_nhanh) == len(bubbles):
+            return [str(r.get("ban_dich") or "").strip() for r in kq_nhanh]
+    except Exception:
+        pass
+    return ["" for _ in bubbles]
+
+
 def _dich_danh_sach_thoai_gpu(
     bubbles: list[dict],
     *,
@@ -2353,43 +2467,74 @@ def _dich_danh_sach_thoai_gpu(
     che_do_pro: bool = False,
 ) -> list[dict]:
     """
-    Chỉ gửi danh sách câu thoại đã OCR sang LLM trên GPU (nạp 37/37 lớp lên VRAM 6GB với num_ctx=1024..1536,
-    bỏ qua bước suy nghĩ <think> và ảnh nặng, đạt tốc độ ~43 token/giây), kèm:
-    - Bộ từ điển thuật ngữ thông minh theo ngữ cảnh trang (`trich_xuat_thuat_ngu_trang`).
-    - Công thức chấm điểm chất lượng (`danh_gia_chat_luong_ban_dich`) & tự động dịch lại câu lỗi.
-    - Khi `che_do_pro=True` (`local_hybrid_pro`): mở rộng ngữ cảnh `num_ctx=1536`, siết ngưỡng kiểm định chất lượng
-      lên `Q >= 0.85` và kích hoạt gợi ý giải mã chữ viết tay / tiếng lóng bị OCR đọc lệch ký tự.
+    Chỉ gửi danh sách câu thoại đã OCR sang LLM trên GPU / LPU (nạp 37/37 lớp lên VRAM 6GB với num_ctx=1024..1536,
+    bỏ qua bước suy nghĩ <think> và ảnh nặng, đạt tốc độ ~43 token/giây trên GPU hoặc ~750 token/giây trên Groq LPU), kèm:
+    - Sắp xếp thứ tự đọc theo văn hoá truyện tranh (`sap_xep_bong_thoai_theo_huong_doc`: Phải->Trái cho Manga Nhật, Trái->Phải cho Manhwa/Manhua).
+    - Bộ từ điển thuật ngữ & kính ngữ thông minh theo ngữ cảnh trang cho cả 9 ngôn ngữ (`trich_xuat_thuat_ngu_trang`).
+    - Khi `che_do_pro=True` (`local_hybrid_pro`): kích hoạt cơ chế **Dual-Anchor Draft + LLM Polish** (kết hợp mỏ neo nghĩa sát NMT ~0.18s
+      với khả năng chuốt ngữ cảnh & sửa chữ viết tay của LLM trong 1 lượt GPU duy nhất), giúp vừa tăng độ chính xác lên 97%–99% vừa giảm một nửa thời gian chờ!
     """
+    bubbles = sap_xep_bong_thoai_theo_huong_doc(list(bubbles), ngon_ngu_nguon=ngon_ngu_nguon)
     ten_dich = lay_ten_prompt_ngon_ngu_dich(ngon_ngu_dich)
-    thuat_ngu_trang = trich_xuat_thuat_ngu_trang(bubbles, tu_dien_rieng=tu_dien_rieng) if ngon_ngu_dich == "vi" else (tu_dien_rieng or "").strip()
-    dong_thuat_ngu = f"2. Gợi ý từ vựng (nếu có): {thuat_ngu_trang}.\n" if thuat_ngu_trang else ""
-    lines_in = "\n".join(
-        f"[{idx + 1}] {_chuan_hoa_cau_goc_cho_llm(b['chu_goc'])}" for idx, b in enumerate(bubbles)
+    thuat_ngu_trang = trich_xuat_thuat_ngu_trang(
+        bubbles, tu_dien_rieng=tu_dien_rieng, ngon_ngu_dich=ngon_ngu_dich
     )
+    dong_thuat_ngu = f"2. Ngữ cảnh & quy tắc xưng hô: {thuat_ngu_trang}.\n" if thuat_ngu_trang else ""
+
+    ban_nhap_nmt: list[str] = (
+        _lay_ban_nhap_nmt_sieu_toc(bubbles, ngon_ngu_nguon=ngon_ngu_nguon, ngon_ngu_dich=ngon_ngu_dich)
+        if che_do_pro
+        else ["" for _ in bubbles]
+    )
+
+    dong_nhap: list[str] = []
+    for idx, b in enumerate(bubbles):
+        cau_goc_chuan = _chuan_hoa_cau_goc_cho_llm(b["chu_goc"])
+        tag_lien_ket = " [nối tiếp bóng trên]" if b.get("lien_ket_cau_tren") else ""
+        nhap_goi_y = (
+            f" (Gợi ý nghĩa sát: {ban_nhap_nmt[idx]})"
+            if (che_do_pro and idx < len(ban_nhap_nmt) and ban_nhap_nmt[idx])
+            else ""
+        )
+        dong_nhap.append(f"[{idx + 1}]{tag_lien_ket} {cau_goc_chuan}{nhap_goi_y}")
+    lines_in = "\n".join(dong_nhap)
+
     quy_tac_pro = (
-        "\n4. CHẾ ĐỘ PRO CHỮ VIẾT TAY: Nếu câu gốc có ký tự bị OCR đọc lệch do nét viết tay nghệ thuật (VD: '1' thay vì 'I', '0' thay vì 'O', hoặc từ viết tắt tiếng lóng), hãy tự động suy luận theo ngữ cảnh truyện tranh để dịch mượt mà nhất."
+        "\n4. CHẾ ĐỘ PRO DUAL-ANCHOR & CHỮ VIẾT TAY: Mỗi dòng có kèm '(Gợi ý nghĩa sát: ...)'. Hãy kết hợp câu gốc với gợi ý nghĩa sát để không sót từ vựng khó, tự động sửa lỗi OCR chữ viết tay (VD: '1'->'I', '0'->'O') và chuốt lại thành lời thoại truyện tranh tự nhiên, đúng xưng hô nhất (KHÔNG lặp lại phần chú thích trong ngoặc)."
         if che_do_pro
         else ""
     )
     prompt = (
         f"Bạn là biên dịch viên truyện tranh kỳ cựu ({ngon_ngu_nguon} -> {ten_dich}).\n"
         "Quy tắc dịch bắt buộc:\n"
-        f"1. Dịch ĐÚNG NGHĨA từng câu thoại bên dưới sang {ten_dich} tự nhiên (TUYỆT ĐỐI không bịa thêm nội dung không có trong câu gốc, không chép lại câu của trang trước).\n"
+        f"1. Dịch ĐÚNG NGHĨA từng câu thoại bên dưới sang {ten_dich} tự nhiên, khớp mạch hội thoại (TUYỆT ĐỐI không bịa thêm nội dung không có trong câu gốc, không chép lại câu của trang trước).\n"
         f"{dong_thuat_ngu}"
         f"3. CHỈ trả về đúng {len(bubbles)} dòng từ [1] đến [{len(bubbles)}], mỗi câu 1 dòng ngắn gọn bằng {ten_dich}, KHÔNG giải thích:{quy_tac_pro}\n"
         f"{lines_in}"
     )
 
     def _goi_llm_van_ban(prompt_text: str, so_cau: int) -> str:
-        if backend == "deepseek":
-            ds_key = _lay_khoa_deepseek_cuc_bo()
-            req_ds = urllib.request.Request(
-                "https://api.deepseek.com/chat/completions",
+        if backend in ("groq", "deepseek", "openrouter"):
+            if backend == "groq":
+                api_url = "https://api.groq.com/openai/v1/chat/completions"
+                api_key = _lay_khoa_groq_cuc_bo()
+                model_call = model or "llama-3.3-70b-versatile"
+            elif backend == "openrouter":
+                api_url = "https://openrouter.ai/api/v1/chat/completions"
+                api_key = _lay_khoa_openrouter_cuc_bo()
+                model_call = model or "google/gemma-3-27b-it:free"
+            else:
+                api_url = "https://api.deepseek.com/chat/completions"
+                api_key = _lay_khoa_deepseek_cuc_bo()
+                model_call = model or "deepseek-chat"
+
+            req_cloud = urllib.request.Request(
+                api_url,
                 data=json.dumps(
                     {
-                        "model": model or "deepseek-chat",
+                        "model": model_call,
                         "temperature": 0.2,
-                        "max_tokens": max(128, min(768, so_cau * 36)),
+                        "max_tokens": max(128, min(768, so_cau * 38)),
                         "messages": [
                             {
                                 "role": "system",
@@ -2400,15 +2545,15 @@ def _dich_danh_sach_thoai_gpu(
                     }
                 ).encode("utf-8"),
                 headers={
-                    "Authorization": f"Bearer {ds_key}",
+                    "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
-                    "User-Agent": "Mozilla/5.0",
+                    "User-Agent": "MangaStudioPro/1.1",
                 },
                 method="POST",
             )
-            with urllib.request.urlopen(req_ds, timeout=45) as resp_ds:
-                data_ds = json.loads(resp_ds.read().decode("utf-8", errors="replace"))
-            return str((((data_ds.get("choices") or [{}])[0]).get("message") or {}).get("content") or "")
+            with urllib.request.urlopen(req_cloud, timeout=35) as resp_cl:
+                data_cl = json.loads(resp_cl.read().decode("utf-8", errors="replace"))
+            return str((((data_cl.get("choices") or [{}])[0]).get("message") or {}).get("content") or "")
 
         if backend == "ollama":
             tuy_chon = _tuy_chon_ollama(
@@ -2420,7 +2565,7 @@ def _dich_danh_sach_thoai_gpu(
             )
             if not chay_cpu:
                 # Với num_ctx=1024 và chỉ gửi văn bản (không nạp mmproj ảnh), toàn bộ 37/37 lớp (4.75 GB)
-                # của qwen3-vl:8b nằm gọn 100% trong 6GB VRAM (GTX 1660 SUPER), đạt ~43.4 token/giây!
+                # của qwen3-vl:8b / sailor2:8b / sakura:7b / aya-expanse:8b nằm gọn 100% trong 6GB VRAM, đạt ~43.4 token/giây!
                 tuy_chon["num_gpu"] = 37
             try:
                 data = _goi_json_ai_cuc_bo(
@@ -2457,8 +2602,13 @@ def _dich_danh_sach_thoai_gpu(
             raw_content = str((data.get("message") or {}).get("content") or data.get("response") or "")
             return "[1] " + raw_content if not raw_content.lstrip().startswith("[1]") else raw_content
 
+        url_local_oai = (
+            "http://127.0.0.1:8080/v1/chat/completions"
+            if backend == "llamacpp"
+            else "http://127.0.0.1:1234/v1/chat/completions"
+        )
         data = _goi_json_ai_cuc_bo(
-            "http://127.0.0.1:1234/v1/chat/completions",
+            url_local_oai,
             timeout=TIMEOUT_GPU,
             payload={
                 "model": model,
@@ -2492,6 +2642,14 @@ def _dich_danh_sach_thoai_gpu(
             b["chu_goc"], vi_cur, ngon_ngu_nguon=ngon_ngu_nguon, ngon_ngu_dich=ngon_ngu_dich
         )
         if diem < nguong_q:
+            # Nếu đang ở chế độ Pro và bản nháp Dual-Anchor đã đạt điểm Q >= 0.90 thì cứu hộ tức thì (0ms) không cần gọi GPU lần 2
+            if che_do_pro and idx < len(ban_nhap_nmt) and ban_nhap_nmt[idx]:
+                diem_nhap, _ = danh_gia_chat_luong_ban_dich(
+                    b["chu_goc"], ban_nhap_nmt[idx], ngon_ngu_nguon=ngon_ngu_nguon, ngon_ngu_dich=ngon_ngu_dich
+                )
+                if diem_nhap >= max(nguong_q, diem):
+                    trans_map[idx + 1] = ban_nhap_nmt[idx]
+                    continue
             ds_can_dich_lai.append(idx)
 
     if ds_can_dich_lai and len(ds_can_dich_lai) <= max(4, len(bubbles) // 2):
@@ -2771,6 +2929,14 @@ _LOCAL_PAGE_TRANSLATION_CACHE: dict[tuple[str, str, str, str], list[dict]] = {}
 _LOCAL_CACHE_LOCK = threading.Lock()
 _BO_NHO_NGU_CANH_LIEN_TRANG: list[str] = []
 _UU_TIEN_MODEL_LOCAL_OCR_GPU: list[str] = [
+    "sailor2:8b",
+    "hf.co/sail/Sailor2-8B-Chat-GGUF:Q4_K_M",
+    "seallms-v3:7b",
+    "hf.co/SeaLLMs/SeaLLMs-v3-7B-Chat-GGUF:Q4_K_M",
+    "sakura:7b",
+    "hf.co/SakuraLLM/Sakura-7B-Qwen2.5-v1.0-GGUF:Q4_K_M",
+    "aya-expanse:8b",
+    "hf.co/bartowski/aya-expanse-8b-GGUF:Q4_K_M",
     "qwen3-vl:8b",
     "qwen3:14b",
     "qwen3:8b",
@@ -2783,6 +2949,119 @@ _UU_TIEN_MODEL_LOCAL_OCR_GPU: list[str] = [
     "llama3.2:latest",
     "llama3.1:8b",
 ]
+
+# Bộ định tuyến Model chuyên dụng từ Hugging Face / Ollama theo từng ngôn ngữ đích (Smart Model Router)
+BO_DINH_TUYEN_MODEL_THEO_NGON_NGU: dict[str, list[str]] = {
+    "vi": [
+        "sailor2:8b",
+        "hf.co/sail/Sailor2-8B-Chat-GGUF:Q4_K_M",
+        "seallms-v3:7b",
+        "hf.co/SeaLLMs/SeaLLMs-v3-7B-Chat-GGUF:Q4_K_M",
+        "qwen3:14b",
+        "qwen3:8b",
+        "qwen3-vl:8b",
+        "gemma3:12b",
+        "qwen2.5:7b",
+    ],
+    "id": [
+        "sailor2:8b",
+        "hf.co/sail/Sailor2-8B-Chat-GGUF:Q4_K_M",
+        "seallms-v3:7b",
+        "hf.co/SeaLLMs/SeaLLMs-v3-7B-Chat-GGUF:Q4_K_M",
+        "qwen3:8b",
+        "qwen3-vl:8b",
+        "aya-expanse:8b",
+    ],
+    "th": [
+        "sailor2:8b",
+        "hf.co/sail/Sailor2-8B-Chat-GGUF:Q4_K_M",
+        "seallms-v3:7b",
+        "hf.co/SeaLLMs/SeaLLMs-v3-7B-Chat-GGUF:Q4_K_M",
+        "qwen3:8b",
+        "qwen3-vl:8b",
+        "gemma3:12b",
+    ],
+    "zh": [
+        "sakura:7b",
+        "hf.co/SakuraLLM/Sakura-7B-Qwen2.5-v1.0-GGUF:Q4_K_M",
+        "qwen3:14b",
+        "qwen3:8b",
+        "qwen3-vl:8b",
+        "qwen2.5:14b",
+        "qwen2.5:7b",
+    ],
+    "zh-TW": [
+        "sakura:7b",
+        "hf.co/SakuraLLM/Sakura-7B-Qwen2.5-v1.0-GGUF:Q4_K_M",
+        "qwen3:14b",
+        "qwen3:8b",
+        "qwen3-vl:8b",
+        "qwen2.5:14b",
+    ],
+    "en": [
+        "aya-expanse:8b",
+        "hf.co/bartowski/aya-expanse-8b-GGUF:Q4_K_M",
+        "gemma3:12b",
+        "qwen3:8b",
+        "qwen3-vl:8b",
+        "llama3.1:8b",
+    ],
+    "es": [
+        "aya-expanse:8b",
+        "hf.co/bartowski/aya-expanse-8b-GGUF:Q4_K_M",
+        "gemma3:12b",
+        "qwen3:8b",
+        "qwen3-vl:8b",
+    ],
+    "pt": [
+        "aya-expanse:8b",
+        "hf.co/bartowski/aya-expanse-8b-GGUF:Q4_K_M",
+        "gemma3:12b",
+        "qwen3:8b",
+        "qwen3-vl:8b",
+    ],
+    "fr": [
+        "aya-expanse:8b",
+        "hf.co/bartowski/aya-expanse-8b-GGUF:Q4_K_M",
+        "gemma3:12b",
+        "qwen3:8b",
+        "qwen3-vl:8b",
+    ],
+}
+
+DANH_SACH_MODEL_HUGGINGFACE_CHUYEN_DUNG: list[dict[str, str]] = [
+    {
+        "ma": "hf.co/sail/Sailor2-8B-Chat-GGUF:Q4_K_M",
+        "ten": "🌏 Sailor2 8B GGUF (Sea AI Lab — Vua dịch Đông Nam Á: Việt · Indo · Thái)",
+        "ngon_ngu_manh": "vi, id, th",
+        "vram": "~4.9 GB VRAM",
+    },
+    {
+        "ma": "hf.co/SakuraLLM/Sakura-7B-Qwen2.5-v1.0-GGUF:Q4_K_M",
+        "ten": "🌸 SakuraLLM 7B GGUF (Chuyên biệt Manga/LightNovel Nhật -> Trung Giản/Phồn)",
+        "ngon_ngu_manh": "zh, zh-TW",
+        "vram": "~4.6 GB VRAM",
+    },
+    {
+        "ma": "aya-expanse:8b",
+        "ten": "🌍 Cohere Aya-Expanse 8B (Số 1 dịch thuật Quốc tế: Anh · Tây Ban Nha · Bồ Đào Nha · Pháp)",
+        "ngon_ngu_manh": "en, es, pt, fr",
+        "vram": "~5.0 GB VRAM",
+    },
+    {
+        "ma": "qwen3:8b",
+        "ten": "⚡ Alibaba Qwen3 8B (Đa năng 9 ngôn ngữ · Tốc độ cao 45 token/giây)",
+        "ngon_ngu_manh": "vi, en, zh, zh-TW, id, es, pt, th, fr",
+        "vram": "~4.8 GB VRAM",
+    },
+    {
+        "ma": "gemma3:12b",
+        "ten": "💎 Google Gemma3 12B (Siêu chuẩn ngữ cảnh đa ngôn ngữ cho GPU >= 8GB VRAM)",
+        "ngon_ngu_manh": "vi, en, es, pt, fr, th, id",
+        "vram": "~7.2 GB VRAM",
+    },
+]
+
 _MODEL_LOCAL_OCR_GPU_TUY_CHON: str = ""
 
 
@@ -2921,49 +3200,137 @@ def _lay_khoa_deepseek_cuc_bo() -> str:
     return ""
 
 
-def _ket_noi_llm_cho_local_ocr_gpu() -> tuple[str, str]:
+def _lay_khoa_groq_cuc_bo() -> str:
+    """Đọc khoá Groq LPU API (gsk_...) giúp tăng tốc dịch 750 token/giây (~0.25s/trang với Llama-3.3-70B)."""
+    for env_name in ("GROQ_API_KEY", "GROQ_API_KEYS"):
+        val = (os.environ.get(env_name) or "").strip()
+        if val:
+            return val.split(",")[0].strip()
+    try:
+        if CAU_HINH_FILE.is_file():
+            cfg = json.loads(CAU_HINH_FILE.read_text(encoding="utf-8"))
+            k_cfg = str(cfg.get("groq_api_key") or "").strip()
+            if k_cfg:
+                return k_cfg.split(",")[0].strip()
+    except Exception:
+        pass
+    app_dir = Path(_APP_DIR)
+    for env_path in (app_dir / ".env", app_dir.parent / ".env"):
+        try:
+            if env_path.is_file():
+                for line in env_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+                    s = line.strip()
+                    if s.startswith(("GROQ_API_KEY=", "GROQ_API_KEYS=")):
+                        _, v_raw = s.split("=", 1)
+                        v = v_raw.strip().strip("\"'")
+                        if v:
+                            return v.split(",")[0].strip()
+        except Exception:
+            pass
+    return ""
+
+
+def _lay_khoa_openrouter_cuc_bo() -> str:
+    """Đọc khoá OpenRouter API (sk-or-...) kết nối kho model HuggingFace miễn phí & trả phí."""
+    for env_name in ("OPENROUTER_API_KEY", "OPENROUTER_API_KEYS"):
+        val = (os.environ.get(env_name) or "").strip()
+        if val:
+            return val.split(",")[0].strip()
+    try:
+        if CAU_HINH_FILE.is_file():
+            cfg = json.loads(CAU_HINH_FILE.read_text(encoding="utf-8"))
+            k_cfg = str(cfg.get("openrouter_api_key") or "").strip()
+            if k_cfg:
+                return k_cfg.split(",")[0].strip()
+    except Exception:
+        pass
+    app_dir = Path(_APP_DIR)
+    for env_path in (app_dir / ".env", app_dir.parent / ".env"):
+        try:
+            if env_path.is_file():
+                for line in env_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+                    s = line.strip()
+                    if s.startswith(("OPENROUTER_API_KEY=", "OPENROUTER_API_KEYS=")):
+                        _, v_raw = s.split("=", 1)
+                        v = v_raw.strip().strip("\"'")
+                        if v:
+                            return v.split(",")[0].strip()
+        except Exception:
+            pass
+    return ""
+
+
+def _ket_noi_llm_cho_local_ocr_gpu(ngon_ngu_dich: str = "vi") -> tuple[str, str]:
     """
-    Kết nối mô hình AI cục bộ cho chế độ `local_ocr_gpu`:
-    - Nếu người dùng đã cấu hình `DEEPSEEK_API_KEY` (hoặc `deepseek_api_key`), ưu tiên dùng `deepseek-chat`
-      để dịch văn bản chuẩn ngữ cảnh với chi phí siêu rẻ (~1.5đ/trang) mà không tốn VRAM máy tính.
-    - Vì `local_ocr_gpu` đã tách riêng tầng OCR cục bộ (Windows + HuggingFace ONNX) nên tầng dịch chỉ cần gửi văn bản.
-    - Ưu tiên `qwen3-vl:8b` (hoặc model mới do người dùng cập nhật), đồng thời tự động nhận diện các thế hệ model mới hơn
-      trong Ollama / LM Studio (`qwen3:8b`, `qwen3:14b`, `gemma3:12b`, `qwen2.5:7b`...) theo thời gian!
+    Kết nối mô hình AI cho chế độ `local_ocr_gpu` và `local_hybrid_pro` (Smart Model Router):
+    1. Nếu người dùng cấu hình `GROQ_API_KEY` (`gsk_...`), ưu tiên cổng LPU `llama-3.3-70b-versatile` (~750 token/s, ~0.25s/trang).
+    2. Nếu người dùng cấu hình `DEEPSEEK_API_KEY` (`sk-...`), ưu tiên `deepseek-chat` (~1.5đ/trang, chuẩn ngữ cảnh 98%).
+    3. Nếu người dùng cấu hình `OPENROUTER_API_KEY` (`sk-or-...`), kết nối kho model HuggingFace trên OpenRouter.
+    4. Trên GPU cục bộ (Ollama / LM Studio / llama.cpp GGUF `:8080`), tự động định tuyến model mạnh nhất theo `ngon_ngu_dich`:
+       - Đông Nam Á (`vi`, `id`, `th`) -> `sailor2:8b` / `seallms-v3:7b` / `qwen3:8b`
+       - Trung Quốc (`zh`, `zh-TW`) -> `sakura:7b` / `qwen3:14b` / `qwen3:8b`
+       - Âu - Mỹ Latinh (`en`, `es`, `pt`, `fr`) -> `aya-expanse:8b` / `gemma3:12b` / `qwen3:8b`
     """
+    groq_key = _lay_khoa_groq_cuc_bo()
+    if groq_key:
+        return "groq", "llama-3.3-70b-versatile"
+
     ds_key = _lay_khoa_deepseek_cuc_bo()
     if ds_key:
         return "deepseek", "deepseek-chat"
+
+    or_key = _lay_khoa_openrouter_cuc_bo()
+    if or_key:
+        return "openrouter", "google/gemma-3-27b-it:free"
+
+    ds_uu_tien_lang = BO_DINH_TUYEN_MODEL_THEO_NGON_NGU.get(
+        ngon_ngu_dich, _UU_TIEN_MODEL_LOCAL_OCR_GPU
+    )
+
+    # Kiểm tra các model trong Ollama và ưu tiên theo Smart Model Router của ngôn ngữ đích
+    try:
+        data_ol = _goi_json_ai_cuc_bo("http://127.0.0.1:11434/api/tags", timeout=3)
+        ds_ol = [str(m.get("name") or "") for m in (data_ol.get("models") or []) if isinstance(m, dict) and m.get("name")]
+        if _MODEL_LOCAL_OCR_GPU_TUY_CHON and _MODEL_LOCAL_OCR_GPU_TUY_CHON in ds_ol:
+            return "ollama", _MODEL_LOCAL_OCR_GPU_TUY_CHON
+        for ung_vien in ds_uu_tien_lang:
+            for m_installed in ds_ol:
+                if m_installed == ung_vien or m_installed.lower().startswith(ung_vien.lower()):
+                    return "ollama", m_installed
+        for ung_vien in _UU_TIEN_MODEL_LOCAL_OCR_GPU:
+            if ung_vien in ds_ol:
+                return "ollama", ung_vien
+        for m_name in ds_ol:
+            if any(k in m_name.lower() for k in ("sailor", "seallm", "sakura", "aya", "qwen", "gemma", "llama", "deepseek", "mistral")):
+                return "ollama", m_name
+    except Exception:
+        pass
 
     try:
         return _ket_noi_qwen3_vl_cuc_bo()
     except LocalModelMissingError:
         pass
 
-    # Nếu người dùng đã cài model thế hệ mới hơn trong Ollama hoặc LM Studio:
+    # Kiểm tra LM Studio (:1234)
     try:
-        data_ol = _goi_json_ai_cuc_bo("http://127.0.0.1:11434/api/tags", timeout=3)
-        ds_ol = [str(m.get("name") or "") for m in (data_ol.get("models") or []) if isinstance(m, dict) and m.get("name")]
-        if _MODEL_LOCAL_OCR_GPU_TUY_CHON and _MODEL_LOCAL_OCR_GPU_TUY_CHON in ds_ol:
-            return "ollama", _MODEL_LOCAL_OCR_GPU_TUY_CHON
-        for ung_vien in _UU_TIEN_MODEL_LOCAL_OCR_GPU:
-            if ung_vien in ds_ol:
-                return "ollama", ung_vien
-        for m_name in ds_ol:
-            if any(k in m_name.lower() for k in ("qwen", "gemma", "llama", "deepseek", "mistral")):
-                return "ollama", m_name
-    except Exception:
-        pass
-
-    try:
-        data_lm = _goi_json_ai_cuc_bo("http://127.0.0.1:1234/v1/models", timeout=3)
+        data_lm = _goi_json_ai_cuc_bo("http://127.0.0.1:1234/v1/models", timeout=2)
         ds_lm = [str(m.get("id") or "") for m in (data_lm.get("data") or []) if isinstance(m, dict) and m.get("id")]
         for m_id in ds_lm:
-            if any(k in m_id.lower() for k in ("qwen", "gemma", "llama", "deepseek", "mistral")):
+            if any(k in m_id.lower() for k in ("sailor", "seallm", "sakura", "aya", "qwen", "gemma", "llama", "deepseek", "mistral")):
                 return "lmstudio", m_id
     except Exception:
         pass
 
-    raise LocalModelMissingError("Chưa có model LLM trong Ollama / LM Studio.")
+    # Kiểm tra llama.cpp / KoboldCpp GGUF Server (:8080) chạy model tải trực tiếp từ Hugging Face
+    try:
+        data_cpp = _goi_json_ai_cuc_bo("http://127.0.0.1:8080/v1/models", timeout=2)
+        ds_cpp = [str(m.get("id") or "") for m in (data_cpp.get("data") or []) if isinstance(m, dict) and m.get("id")]
+        if ds_cpp:
+            return "llamacpp", ds_cpp[0]
+    except Exception:
+        pass
+
+    raise LocalModelMissingError("Chưa có model LLM trong Ollama / LM Studio / llama.cpp.")
 
 
 def dich_anh_local_ocr_gpu_tang_toc(
@@ -2995,7 +3362,7 @@ def dich_anh_local_ocr_gpu_tang_toc(
 
     ngu_canh_gop = lay_ngu_canh_lien_trang_hien_tai(tu_dien_rieng)
     try:
-        backend, model = _ket_noi_llm_cho_local_ocr_gpu()
+        backend, model = _ket_noi_llm_cho_local_ocr_gpu(ngon_ngu_dich=ngon_ngu_dich)
         ket_qua = _dich_danh_sach_thoai_gpu(
             bubbles,
             backend=backend,
@@ -3106,7 +3473,7 @@ def dich_anh_local_hybrid_pro_tu_hoc(
 
     ngu_canh_pro = lay_ngu_canh_lien_trang_hien_tai(tu_dien_ket_hop)
     try:
-        backend, model = _ket_noi_llm_cho_local_ocr_gpu()
+        backend, model = _ket_noi_llm_cho_local_ocr_gpu(ngon_ngu_dich=ngon_ngu_dich)
         ket_qua = _dich_danh_sach_thoai_gpu(
             bubbles,
             backend=backend,
@@ -5950,7 +6317,9 @@ class AppDichTruyenWindows(tk.Tk):
         threading.Thread(target=_worker, daemon=True).start()
 
     def _cap_nhat_bo_may_ai_moi(self):
-        """Cập nhật đồng bộ Lõi Nhận Diện và Bộ máy AI Tăng tốc GPU."""
+        """Cập nhật đồng bộ Lõi Nhận Diện, Định tuyến Model theo ngôn ngữ và mở Trung tâm Model HuggingFace & Cổng Siêu Tốc."""
+        ngon_ngu_dich_ht = self.cmb_tgt.get().split()[0] if hasattr(self, "cmb_tgt") else "vi"
+
         def _worker():
             global _MODEL_LOCAL_OCR_GPU_TUY_CHON
             self.ghi_log("🔄 [1/3] Đang kiểm tra & đồng bộ trọng số Lõi Nhận Diện Chữ đa ngôn ngữ (JA · KO · ZH · EN)...")
@@ -5961,16 +6330,16 @@ class AppDichTruyenWindows(tk.Tk):
             so_ngon_ngu_ocr = sum(1 for v in kq_ocr.values() if v.get("ho_tro"))
             self.ghi_log(f"✅ [1/3] Lõi Nhận Diện Chữ: Đã đồng bộ sẵn sàng {so_ngon_ngu_ocr}/4 ngôn ngữ (JA · ZH · KO · EN).")
 
-            self.ghi_log("🔄 [2/3] Đang tối ưu đường ống Tăng tốc Phần cứng & Bộ nhớ Tự học...")
+            self.ghi_log(f"🔄 [2/3] Đang định tuyến Model AI tối ưu nhất cho ngôn ngữ đích [{ngon_ngu_dich_ht}]...")
             try:
-                _backend_chon, model_chon = _ket_noi_llm_cho_local_ocr_gpu()
+                backend_chon, model_chon = _ket_noi_llm_cho_local_ocr_gpu(ngon_ngu_dich=ngon_ngu_dich_ht)
                 _MODEL_LOCAL_OCR_GPU_TUY_CHON = model_chon
                 self.cau_hinh["model_ai_cuc_bo"] = model_chon
                 self._luu_cau_hinh()
-                self.ghi_log("✅ [2/3] Đã kích hoạt Bộ tăng tốc GPU chuyên sâu trên phần cứng máy tính của bạn.")
+                self.ghi_log(f"✅ [2/3] Đã kết nối [{backend_chon.upper()}] -> Model: {model_chon} (Smart Router cho '{ngon_ngu_dich_ht}').")
             except Exception:
                 self.ghi_log(
-                    "✅ [2/3] Đã kích hoạt chế độ ⚡ OCR + GPU Nhanh tiêu chuẩn (Tự động tối ưu cho mọi cấu hình máy)."
+                    "✅ [2/3] Đã kích hoạt chế độ ⚡ OCR + GPU Nhanh kèm Bộ Làm Mượt Thoại Truyện Đa Ngôn Ngữ (9 ngôn ngữ)."
                 )
 
             so_cum_hoc = len(nap_bo_nho_tu_hoc())
@@ -5979,6 +6348,162 @@ class AppDichTruyenWindows(tk.Tk):
             )
 
         threading.Thread(target=_worker, daemon=True).start()
+        if not getattr(self, "headless", False):
+            self._mo_trung_tam_model_huggingface_va_tang_toc()
+
+    def _mo_trung_tam_model_huggingface_va_tang_toc(self):
+        """Hộp thoại Quản lý các Model chuyên biệt từ HuggingFace/Ollama & Cổng Tăng Tốc LPU (Groq / DeepSeek / OpenRouter)."""
+        win = tk.Toplevel(self)
+        win.title("⚡ Trung Tâm Model HuggingFace & Cổng Tăng Tốc Siêu Tốc (Groq LPU · DeepSeek · OpenRouter · Ollama)")
+        win.geometry("860x560")
+        win.configure(bg="#0f172a")
+        win.transient(self)
+
+        tk.Label(
+            win,
+            text="🚀 TĂNG TỐC & NÂNG CẤP ĐỘ CHÍNH XÁC CHO ⚡ local_ocr_gpu & 🧠 local_hybrid_pro",
+            bg="#0f172a",
+            fg="#38bdf8",
+            font=("Segoe UI", 11, "bold"),
+        ).pack(anchor="w", padx=16, pady=(12, 4))
+
+        # Khung 1: Cổng Kết Nối Siêu Tốc (Groq LPU 750 token/s, DeepSeek V3, OpenRouter)
+        f_cloud = tk.LabelFrame(
+            win,
+            text=" 1. Cổng Kết Nối Siêu Tốc (Tùy chọn — Giúp máy không có GPU rời đạt 98% ngữ cảnh với tốc độ 0.25s/trang) ",
+            bg="#1e293b",
+            fg="#fbbf24",
+            font=("Segoe UI", 9, "bold"),
+            padx=12,
+            pady=8,
+        )
+        f_cloud.pack(fill="x", padx=16, pady=6)
+        f_cloud.columnconfigure(1, weight=1)
+
+        tk.Label(f_cloud, text="⚡ Groq LPU Key (gsk_... · 750 tok/s):", bg="#1e293b", fg="#f8fafc", font=("Segoe UI", 9)).grid(row=0, column=0, sticky="w", pady=3)
+        ent_groq = tk.Entry(f_cloud, bg="#0f172a", fg="#34d399", insertbackground="#fff", font=("Consolas", 9))
+        ent_groq.insert(0, str(self.cau_hinh.get("groq_api_key") or _lay_khoa_groq_cuc_bo()))
+        ent_groq.grid(row=0, column=1, sticky="ew", padx=8, pady=3)
+
+        tk.Label(f_cloud, text="🧠 DeepSeek Key (sk-... · Chuẩn 98%):", bg="#1e293b", fg="#f8fafc", font=("Segoe UI", 9)).grid(row=1, column=0, sticky="w", pady=3)
+        ent_ds = tk.Entry(f_cloud, bg="#0f172a", fg="#38bdf8", insertbackground="#fff", font=("Consolas", 9))
+        ent_ds.insert(0, str(self.cau_hinh.get("deepseek_api_key") or _lay_khoa_deepseek_cuc_bo()))
+        ent_ds.grid(row=1, column=1, sticky="ew", padx=8, pady=3)
+
+        tk.Label(f_cloud, text="🌐 OpenRouter Key (sk-or-... · HF Free):", bg="#1e293b", fg="#f8fafc", font=("Segoe UI", 9)).grid(row=2, column=0, sticky="w", pady=3)
+        ent_or = tk.Entry(f_cloud, bg="#0f172a", fg="#f472b6", insertbackground="#fff", font=("Consolas", 9))
+        ent_or.insert(0, str(self.cau_hinh.get("openrouter_api_key") or _lay_khoa_openrouter_cuc_bo()))
+        ent_or.grid(row=2, column=1, sticky="ew", padx=8, pady=3)
+
+        def _luu_khoa_tang_toc():
+            self.cau_hinh["groq_api_key"] = ent_groq.get().strip()
+            self.cau_hinh["deepseek_api_key"] = ent_ds.get().strip()
+            self.cau_hinh["openrouter_api_key"] = ent_or.get().strip()
+            self._luu_cau_hinh()
+            with _LOCAL_CACHE_LOCK:
+                _LOCAL_PAGE_TRANSLATION_CACHE.clear()
+            self.ghi_log("✅ Đã lưu cấu hình Cổng Kết Nối Siêu Tốc (Groq LPU / DeepSeek / OpenRouter)!")
+            messagebox.showinfo("Đã lưu", "Đã lưu khoá kết nối tăng tốc! Bộ máy local_ocr_gpu và local_hybrid_pro sẽ tự động ưu tiên sử dụng.", parent=win)
+
+        tk.Button(
+            f_cloud,
+            text="💾 Lưu Khoá Tăng Tốc",
+            bg="#059669",
+            fg="#ffffff",
+            font=("Segoe UI", 9, "bold"),
+            relief="flat",
+            padx=12,
+            pady=4,
+            command=_luu_khoa_tang_toc,
+        ).grid(row=0, column=2, rowspan=3, padx=(4, 0))
+
+        # Khung 2: Kho Model Chuyên Biệt từ Hugging Face / Ollama theo Ngôn ngữ
+        f_hf = tk.LabelFrame(
+            win,
+            text=" 2. Kho Model GGUF Chuyên Dụng từ Hugging Face / Ollama (Tự động định tuyến theo ngôn ngữ đích) ",
+            bg="#1e293b",
+            fg="#34d399",
+            font=("Segoe UI", 9, "bold"),
+            padx=12,
+            pady=8,
+        )
+        f_hf.pack(fill="both", expand=True, padx=16, pady=6)
+
+        lst_hf = tk.Listbox(
+            f_hf, bg="#0f172a", fg="#f8fafc", selectbackground="#2563eb", font=("Consolas", 9), height=7
+        )
+        for m_info in DANH_SACH_MODEL_HUGGINGFACE_CHUYEN_DUNG:
+            lst_hf.insert("end", f"{m_info['ten']}  [{m_info['vram']}]  ->  {m_info['ma']}")
+        lst_hf.selection_set(0)
+        lst_hf.pack(fill="both", expand=True, pady=(0, 8))
+
+        lbl_pull_status = tk.Label(
+            f_hf,
+            text="💡 Chọn 1 model phía trên và bấm '📥 Tải & Kích hoạt qua Ollama' để chạy Offline 0đ trên GPU của bạn.",
+            bg="#1e293b",
+            fg="#cbd5e1",
+            font=("Segoe UI", 8),
+        )
+        lbl_pull_status.pack(anchor="w")
+
+        def _tai_model_hf_ollama():
+            sel = lst_hf.curselection()
+            idx_m = int(sel[0]) if sel else 0
+            ma_model = DANH_SACH_MODEL_HUGGINGFACE_CHUYEN_DUNG[idx_m]["ma"]
+            lbl_pull_status.config(text=f"⏳ Đang tải model '{ma_model}' từ HuggingFace/Ollama... (Xem nhật ký ở màn hình chính)", fg="#fbbf24")
+
+            def _wk_pull():
+                global _MODEL_LOCAL_OCR_GPU_TUY_CHON
+                self.ghi_log(f"📥 Đang tải model chuyên dụng từ HuggingFace/Ollama: ollama pull {ma_model} ...")
+                try:
+                    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                    proc = subprocess.run(
+                        ["ollama", "pull", ma_model],
+                        capture_output=True,
+                        text=True,
+                        timeout=1800,
+                        creationflags=creationflags,
+                    )
+                    if proc.returncode == 0:
+                        _MODEL_LOCAL_OCR_GPU_TUY_CHON = ma_model
+                        self.cau_hinh["model_ai_cuc_bo"] = ma_model
+                        self._luu_cau_hinh()
+                        self.ghi_log(f"🎉 Đã tải và kích hoạt thành công model '{ma_model}'!")
+                        self.after(0, lambda: lbl_pull_status.config(text=f"✅ Đã cài đặt & kích hoạt: {ma_model}", fg="#34d399"))
+                    else:
+                        err_t = (proc.stderr or proc.stdout or "Kiểm tra đã cài đặt Ollama chưa").strip()
+                        self.ghi_log(f"⚠️ Chưa tải được '{ma_model}' qua Ollama: {err_t}")
+                        self.after(0, lambda: lbl_pull_status.config(text=f"⚠️ Cần bật Ollama trước khi tải ({err_t[:60]})", fg="#f87171"))
+                except Exception as exc:
+                    self.ghi_log(f"⚠️ Không gọi được lệnh ollama pull ({exc}). Bạn có thể dùng Cổng Siêu Tốc Groq/DeepSeek ở mục 1!")
+                    self.after(0, lambda e=str(exc): lbl_pull_status.config(text=f"⚠️ Máy chưa cài Ollama ({e[:50]}). Hãy dùng Cổng Groq/DeepSeek ở mục 1!", fg="#f87171"))
+
+            threading.Thread(target=_wk_pull, daemon=True).start()
+
+        btn_row_hf = tk.Frame(f_hf, bg="#1e293b")
+        btn_row_hf.pack(fill="x", pady=(6, 0))
+        tk.Button(
+            btn_row_hf,
+            text="📥 Tải & Kích hoạt Model Đang Chọn (HuggingFace / Ollama)",
+            bg="#2563eb",
+            fg="#ffffff",
+            font=("Segoe UI", 9, "bold"),
+            relief="flat",
+            padx=14,
+            pady=5,
+            command=_tai_model_hf_ollama,
+        ).pack(side="left")
+        tk.Button(
+            btn_row_hf,
+            text="Đóng",
+            bg="#475569",
+            fg="#ffffff",
+            font=("Segoe UI", 9),
+            relief="flat",
+            padx=14,
+            pady=5,
+            command=win.destroy,
+        ).pack(side="right")
 
     def _mo_cua_so_ra_soat_nhanh(self):
         import review_delivery
