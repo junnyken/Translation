@@ -1000,3 +1000,39 @@ def kiem_tra_ket_noi_khoa_ai(settings: Settings, khoa_thu: str | None = None) ->
             "thong_diep": chi_tiet,
         }
 
+
+def dich_danh_sach_thoai_ngu_canh_dong(
+    settings: Settings,
+    texts: list[str],
+    *,
+    source_lang: str = "ja",
+    target_lang: str = "vi",
+    boi_canh: str | None = None,
+) -> tuple[list[str], str]:
+    """Dịch danh sách câu thoại đã OCR của 1 trang bằng DeepSeek / AI trên máy chủ (kèm dự phòng tự động)."""
+    from app.services.translate.engines import GoogleTranslateEngine, LLMContextTranslator
+
+    dong_bo_khoa_ai_dong(settings)
+    clean_texts = [str(t or "").strip() for t in texts[:60]]
+    if not any(clean_texts):
+        return ["" for _ in clean_texts], "empty"
+
+    if settings.llm_configured:
+        try:
+            tr = LLMContextTranslator(
+                api_keys=settings.gemini_api_key_list,
+                model_name=settings.llm_model_name,
+                timeout=max(12.0, float(settings.translate_timeout_seconds or 25.0)),
+                boi_canh=(boi_canh or "").strip() or None,
+                json_mode=True,
+            )
+            kq = tr.translate(clean_texts, source_lang=source_lang, target_lang=target_lang)
+            if len(kq) == len(clean_texts):
+                return kq, "llm_context"
+        except Exception:  # noqa: BLE001
+            pass
+
+    tr_free = GoogleTranslateEngine()
+    return tr_free.translate(clean_texts, source_lang=source_lang, target_lang=target_lang), "google_fast"
+
+

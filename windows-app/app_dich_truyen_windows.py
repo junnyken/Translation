@@ -2646,6 +2646,7 @@ def _dich_danh_sach_thoai_nhanh_mien_phi(
 
 _LOCAL_PAGE_TRANSLATION_CACHE: dict[tuple[str, str, str, str], list[dict]] = {}
 _LOCAL_CACHE_LOCK = threading.Lock()
+_BO_NHO_NGU_CANH_LIEN_TRANG: list[str] = []
 _UU_TIEN_MODEL_LOCAL_OCR_GPU: list[str] = [
     "qwen3-vl:8b",
     "qwen3:14b",
@@ -2660,6 +2661,102 @@ _UU_TIEN_MODEL_LOCAL_OCR_GPU: list[str] = [
     "llama3.1:8b",
 ]
 _MODEL_LOCAL_OCR_GPU_TUY_CHON: str = ""
+
+
+def lay_ngu_canh_lien_trang_hien_tai(tu_dien_rieng: str = "") -> str:
+    """Gộp từ điển riêng của người dùng với 8 cặp thoại gần nhất từ các trang vừa dịch trong cùng chapter."""
+    with _LOCAL_CACHE_LOCK:
+        gan_nhat = list(_BO_NHO_NGU_CANH_LIEN_TRANG[-8:])
+    phan_trang_truoc = "\n".join(gan_nhat)
+    return "\n".join(p for p in (tu_dien_rieng.strip(), phan_trang_truoc) if p)
+
+
+def cap_nhat_ngu_canh_lien_trang(ket_qua: list[dict]) -> None:
+    """Lưu tự động các cặp câu thoại vừa dịch để trang kế tiếp giữ đồng nhất đại từ xưng hô."""
+    if not ket_qua:
+        return
+    with _LOCAL_CACHE_LOCK:
+        for item in ket_qua:
+            goc = str(item.get("chu_goc") or "").strip().replace("\n", " ")
+            dich = str(item.get("ban_dich") or "").strip().replace("\n", " ")
+            if 3 <= len(goc) <= 85 and 2 <= len(dich) <= 130:
+                dong = f"{goc} = {dich}"
+                if dong not in _BO_NHO_NGU_CANH_LIEN_TRANG:
+                    _BO_NHO_NGU_CANH_LIEN_TRANG.append(dong)
+        if len(_BO_NHO_NGU_CANH_LIEN_TRANG) > 16:
+            del _BO_NHO_NGU_CANH_LIEN_TRANG[:-16]
+
+
+def _dich_danh_sach_thoai_qua_server_deepseek(
+    bubbles: list[dict],
+    *,
+    ngon_ngu_nguon: str = "ja",
+    ngon_ngu_dich: str = "vi",
+    tu_dien_rieng: str = "",
+) -> list[dict]:
+    """
+    Khi máy khách đã quét OCR cục bộ xong mà không bật LLM nội bộ, ưu tiên gửi danh sách câu thoại
+    lên endpoint `/api/v1/doc-truyen/dich-thoai-ngu-canh` của máy chủ để DeepSeek (do Admin cấu hình)
+    dịch chuẩn ngữ cảnh; nếu không có kết nối hoặc chạy test offline thì lùi về `_dich_danh_sach_thoai_nhanh_mien_phi`.
+    """
+    if not bubbles:
+        return []
+    try:
+        if CAU_HINH_FILE.is_file():
+            cfg = json.loads(CAU_HINH_FILE.read_text(encoding="utf-8"))
+            may_chu = chuan_hoa_dia_chi_may_chu(str(cfg.get("may_chu") or ""))
+            token = str(cfg.get("api_key") or cfg.get("ma_phien") or "").strip()
+            if may_chu and token:
+                texts_in = [_chuan_hoa_cau_goc_cho_llm(b["chu_goc"]) for b in bubbles]
+                hdrs = {
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {token}",
+                    "X-Ma-May-Tinh": lay_ma_may_tinh_hwid(),
+                    "User-Agent": "MangaStudioWindows/1.1",
+                }
+                body_bytes = json.dumps(
+                    {
+                        "texts": texts_in,
+                        "source_lang": ngon_ngu_nguon if ngon_ngu_nguon in ("ja", "ko", "zh", "en") else "ja",
+                        "target_lang": "en" if ngon_ngu_dich == "en" else "vi",
+                        "boi_canh": (tu_dien_rieng or "")[:2000] or None,
+                    },
+                    ensure_ascii=False,
+                ).encode("utf-8")
+                req = urllib.request.Request(
+                    f"{may_chu}/api/v1/doc-truyen/dich-thoai-ngu-canh",
+                    data=body_bytes,
+                    headers=hdrs,
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=18) as resp:
+                    res_data = json.loads(resp.read().decode("utf-8", errors="replace"))
+                ds_dich = res_data.get("translations") if isinstance(res_data, dict) else None
+                if isinstance(ds_dich, list) and len(ds_dich) == len(bubbles):
+                    vung_out: list[dict] = []
+                    for idx, b in enumerate(bubbles):
+                        vi = hau_kiem_va_sua_ban_dich(b["chu_goc"], str(ds_dich[idx] or ""), ngon_ngu_dich=ngon_ngu_dich)
+                        if vi and b["w"] >= 12 and b["h"] >= 12:
+                            muc = {
+                                "x": int(b["x"]),
+                                "y": int(b["y"]),
+                                "w": int(b["w"]),
+                                "h": int(b["h"]),
+                                "chu_goc": b["chu_goc"],
+                                "ban_dich": vi,
+                            }
+                            if b.get("dong_con"):
+                                muc["dong_con"] = b["dong_con"]
+                            vung_out.append(muc)
+                    if vung_out:
+                        return vung_out
+    except Exception:
+        pass
+    return _dich_danh_sach_thoai_nhanh_mien_phi(
+        bubbles,
+        ngon_ngu_nguon=ngon_ngu_nguon,
+        ngon_ngu_dich=ngon_ngu_dich,
+    )
 
 
 def _lay_khoa_deepseek_cuc_bo() -> str:
@@ -2769,6 +2866,7 @@ def dich_anh_local_ocr_gpu_tang_toc(
     if not bubbles:
         return []
 
+    ngu_canh_gop = lay_ngu_canh_lien_trang_hien_tai(tu_dien_rieng)
     try:
         backend, model = _ket_noi_llm_cho_local_ocr_gpu()
         ket_qua = _dich_danh_sach_thoai_gpu(
@@ -2777,17 +2875,19 @@ def dich_anh_local_ocr_gpu_tang_toc(
             model=model,
             ngon_ngu_nguon=ngon_ngu_nguon,
             ngon_ngu_dich=ngon_ngu_dich,
-            tu_dien_rieng=tu_dien_rieng,
+            tu_dien_rieng=ngu_canh_gop,
             chay_cpu=chay_cpu,
         )
     except (LocalServerUnavailableError, LocalModelMissingError, LocalRuntimeCrashError, RuntimeError, OSError, TimeoutError):
-        ket_qua = _dich_danh_sach_thoai_nhanh_mien_phi(
+        ket_qua = _dich_danh_sach_thoai_qua_server_deepseek(
             bubbles,
             ngon_ngu_nguon=ngon_ngu_nguon,
             ngon_ngu_dich=ngon_ngu_dich,
+            tu_dien_rieng=ngu_canh_gop,
         )
 
     if ket_qua:
+        cap_nhat_ngu_canh_lien_trang(ket_qua)
         with _LOCAL_CACHE_LOCK:
             if len(_LOCAL_PAGE_TRANSLATION_CACHE) >= 128:
                 _LOCAL_PAGE_TRANSLATION_CACHE.pop(next(iter(_LOCAL_PAGE_TRANSLATION_CACHE)), None)
@@ -2875,6 +2975,7 @@ def dich_anh_local_hybrid_pro_tu_hoc(
     if not bubbles:
         return []
 
+    ngu_canh_pro = lay_ngu_canh_lien_trang_hien_tai(tu_dien_ket_hop)
     try:
         backend, model = _ket_noi_llm_cho_local_ocr_gpu()
         ket_qua = _dich_danh_sach_thoai_gpu(
@@ -2883,18 +2984,20 @@ def dich_anh_local_hybrid_pro_tu_hoc(
             model=model,
             ngon_ngu_nguon=ngon_ngu_nguon,
             ngon_ngu_dich=ngon_ngu_dich,
-            tu_dien_rieng=tu_dien_ket_hop,
+            tu_dien_rieng=ngu_canh_pro,
             chay_cpu=chay_cpu,
             che_do_pro=True,
         )
     except (LocalServerUnavailableError, LocalModelMissingError, LocalRuntimeCrashError, RuntimeError, OSError, TimeoutError):
-        ket_qua = _dich_danh_sach_thoai_nhanh_mien_phi(
+        ket_qua = _dich_danh_sach_thoai_qua_server_deepseek(
             bubbles,
             ngon_ngu_nguon=ngon_ngu_nguon,
             ngon_ngu_dich=ngon_ngu_dich,
+            tu_dien_rieng=ngu_canh_pro,
         )
 
     if ket_qua:
+        cap_nhat_ngu_canh_lien_trang(ket_qua)
         with _LOCAL_CACHE_LOCK:
             if len(_LOCAL_PAGE_TRANSLATION_CACHE) >= 128:
                 _LOCAL_PAGE_TRANSLATION_CACHE.pop(next(iter(_LOCAL_PAGE_TRANSLATION_CACHE)), None)

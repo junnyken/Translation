@@ -33,6 +33,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import (
     Settings,
+    dich_danh_sach_thoai_ngu_canh_dong,
     dong_bo_khoa_ai_dong,
     get_settings,
     kiem_tra_ket_noi_khoa_ai,
@@ -117,6 +118,8 @@ from app.schemas.common import (
     DuyetDonNapRequest,
     GoiNapLuotRead,
     HanMucRead,
+    DichThoaiNguCanhRequest,
+    DichThoaiNguCanhResponse,
     QuanTriCauHinhAiRequest,
     QuanTriCauHinhAiResponse,
     QuanTriKiemTraAiRequest,
@@ -1007,6 +1010,30 @@ async def quan_tri_kiem_tra_ket_noi_ai(
         raise HTTPException(status_code=403, detail="Chỉ quản trị viên mới được kiểm tra khoá AI.")
     kq = await run_in_threadpool(kiem_tra_ket_noi_khoa_ai, settings, body.khoa_thu)
     return QuanTriKiemTraAiResponse(**kq)
+
+
+@router_khach.post("/doc-truyen/dich-thoai-ngu-canh", response_model=DichThoaiNguCanhResponse, tags=["doc-truyen"])
+async def dich_thoai_ngu_canh_cho_app_va_tien_ich(
+    body: DichThoaiNguCanhRequest,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    danh_tinh: DanhTinhHanMuc = Depends(danh_tinh_han_muc),
+) -> DichThoaiNguCanhResponse:
+    """Cầu nối dịch danh sách câu thoại đã OCR trên App Windows / Tiện ích bằng DeepSeek (deepseek-chat) trên máy chủ."""
+    if not body.texts:
+        return DichThoaiNguCanhResponse(translations=[], engine_used="empty")
+    chot_het = await con_du_khong(session, danh_tinh, settings)
+    if chot_het is not None:
+        raise loi_vuot_han_muc(chot_het, settings)
+    ban_dich, eng_used = await run_in_threadpool(
+        dich_danh_sach_thoai_ngu_canh_dong,
+        settings,
+        body.texts,
+        source_lang=body.source_lang.value,
+        target_lang=body.target_lang.value,
+        boi_canh=body.boi_canh,
+    )
+    return DichThoaiNguCanhResponse(translations=ban_dich, engine_used=eng_used)
 
 
 @router.get("/quan-tri/thong-ke", response_model=QuanTriThongKeRead, tags=["han-muc"])

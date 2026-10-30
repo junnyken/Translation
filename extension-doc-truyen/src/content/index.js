@@ -3562,6 +3562,24 @@ void (async () => {
 
     noi(`Đang chuẩn bị ảnh trang truyện…\n(${chon.ly_do})`)
 
+    if (anh.el?.tagName === 'IMG' && (!anh.el.complete || (anh.el.naturalWidth || 0) < 160)) {
+      const lazySrc = anh.el.getAttribute('data-src') || anh.el.getAttribute('data-original') || anh.el.getAttribute('data-lazy-src')
+      if (lazySrc && (!anh.el.src || anh.el.src.startsWith('data:'))) {
+        anh.el.src = lazySrc
+      }
+      await new Promise((resolve) => {
+        let xongCho = false
+        const ketThuc = () => {
+          if (xongCho) return
+          xongCho = true
+          resolve()
+        }
+        anh.el.addEventListener('load', ketThuc, { once: true })
+        anh.el.addEventListener('error', ketThuc, { once: true })
+        setTimeout(ketThuc, 1500)
+      })
+    }
+
     const { anh_base64, anh_mime } = await docByteAnh(anh.el)
     window[CO].anhDangDich = anh.el
     window[CO].srcDangDich = anh.src

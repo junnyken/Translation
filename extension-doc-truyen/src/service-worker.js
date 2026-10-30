@@ -83,8 +83,19 @@ const viecDangChayTheoUrl = new Map()
 const boNhoNguCanhTheoTab = new Map()
 const REGEX_DAU_TIENG_VIET = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i
 
-function layChuoiNguCanhTab(tabId) {
-  const ds = boNhoNguCanhTheoTab.get(tabId ?? 0) || []
+async function layChuoiNguCanhTab(tabId) {
+  const khoa = String(tabId ?? 0)
+  let ds = boNhoNguCanhTheoTab.get(tabId ?? 0) || []
+  if (!ds.length && chrome?.storage?.session) {
+    try {
+      const luu = await chrome.storage.session.get({ boNhoNguCanhTheoTab: {} })
+      const mangLuu = luu?.boNhoNguCanhTheoTab?.[khoa]
+      if (Array.isArray(mangLuu) && mangLuu.length) {
+        ds = mangLuu
+        boNhoNguCanhTheoTab.set(tabId ?? 0, ds)
+      }
+    } catch {}
+  }
   if (!ds.length) return ''
   return ds.slice(-10).join('\n')
 }
@@ -101,10 +112,13 @@ function capNhatNguCanhTab(tabId, dsVung) {
       if (!hienTai.includes(dong)) hienTai.push(dong)
     }
   }
-  if (hienTai.length > 12) {
-    boNhoNguCanhTheoTab.set(khoa, hienTai.slice(-12))
-  } else {
-    boNhoNguCanhTheoTab.set(khoa, hienTai)
+  const rutGon = hienTai.length > 12 ? hienTai.slice(-12) : hienTai
+  boNhoNguCanhTheoTab.set(khoa, rutGon)
+  if (chrome?.storage?.session) {
+    chrome.storage.session.get({ boNhoNguCanhTheoTab: {} }).then((luu) => {
+      const tatCa = { ...(luu?.boNhoNguCanhTheoTab || {}), [String(khoa)]: rutGon }
+      return chrome.storage.session.set({ boNhoNguCanhTheoTab: tatCa })
+    }).catch(() => {})
   }
 }
 
@@ -159,7 +173,8 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false,
       tuDienTuHoc = entries.map(([k, v]) => `${k} = ${v}`).join('\n')
     }
   } catch {}
-  const tuDienRieng = [layChuoiNguCanhTab(tabId), tuDienTuHoc].filter(Boolean).join('\n')
+  const chuoiNguCanhTab = await layChuoiNguCanhTab(tabId)
+  const tuDienRieng = [chuoiNguCanhTab, tuDienTuHoc].filter(Boolean).join('\n')
   bao({ giai_doan: 'dang-gui', url, che_do: cheDo, anh_goc_data_url })
 
   // Chế độ Offline 100% trên máy khách bằng model GGUF cục bộ (Ollama 127.0.0.1:11434 / LM Studio 127.0.0.1:1234):
@@ -202,7 +217,14 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false,
     }
   }
 
-  const kqGui = await guiTrang(blob, ngonNgu, engine, cheDo, ngonNguDich, tuDienRieng)
+  let kqGui
+  try {
+    kqGui = await guiTrang(blob, ngonNgu, engine, cheDo, ngonNguDich, tuDienRieng)
+  } catch (errGui) {
+    if (errGui instanceof LoiApi && [401, 402, 403, 429].includes(errGui.ma)) throw errGui
+    await new Promise((r) => setTimeout(r, 1200))
+    kqGui = await guiTrang(blob, ngonNgu, engine, cheDo, ngonNguDich, tuDienRieng)
+  }
   const { page_id } = kqGui
 
   // E110 — Nếu trúng Bảng Cache Cộng Đồng trên máy chủ (`kqGui.xong === true`), trả kết quả tức thì (0,15s)

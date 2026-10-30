@@ -1357,3 +1357,18 @@ class QuanTriKiemTraAiResponse(BaseModel):
     thong_diep: str = ""
 
 
+class DichThoaiNguCanhRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    texts: list[str] = Field(default_factory=list, max_length=60)
+    source_lang: SourceLang = SourceLang.ja
+    target_lang: TargetLang = TargetLang.vi
+    boi_canh: str | None = Field(default=None, max_length=3000)
+
+
+class DichThoaiNguCanhResponse(BaseModel):
+    translations: list[str] = []
+    engine_used: str = "llm_context"
+
+
+
