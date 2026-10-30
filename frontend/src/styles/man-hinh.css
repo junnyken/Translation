@@ -606,11 +606,17 @@ button.lien-ket { border: 0; background: none; box-shadow: none; }
 
 .luoi-cong-cu-manga {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 22px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1024px) {
+  .luoi-cong-cu-manga {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
   .luoi-cong-cu-manga {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -756,6 +762,82 @@ button.lien-ket { border: 0; background: none; box-shadow: none; }
   background: linear-gradient(135deg, #059669, #0d9488);
   color: #ffffff;
   flex: 1;
+}
+
+.nut-manga-video {
+  background: linear-gradient(135deg, #db2777, #7c3aed);
+  color: #ffffff;
+  flex: 1;
+}
+
+.bong-thoai-goc.bong-thoai-hong {
+  background: #f472b6;
+  color: #0f172a;
+  transform: rotate(1.5deg);
+}
+
+.nhan-phien-ban.nhan-video {
+  color: #db2777;
+}
+
+.panel-video .ds-tinh-nang-cong-cu li {
+  border-left-color: #db2777;
+}
+
+/* Lưới 3 hộp giới thiệu ấn tượng ngay dưới 3 nút Hero Banner */
+.luoi-hero-3-cot {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+  text-align: left;
+}
+
+@media (max-width: 920px) {
+  .luoi-hero-3-cot {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.the-hero-goi-y {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 2px solid #0f172a;
+  box-shadow: 3px 3px 0 #0f172a;
+  font-size: 12.8px;
+  line-height: 1.48;
+  color: #1e293b;
+}
+
+.the-hero-goi-y strong {
+  display: block;
+  font-size: 13.5px;
+  color: #0f172a;
+  margin-bottom: 4px;
+}
+
+.the-hero-goi-y .day-link-nhanh {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px dashed #cbd5e1;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.the-hero-goi-y .day-link-nhanh a {
+  text-decoration: none;
+  color: #2563eb;
+}
+
+.the-hero-goi-y .day-link-nhanh a:hover {
+  text-decoration: underline;
 }
 
 .nut-manga-phu {

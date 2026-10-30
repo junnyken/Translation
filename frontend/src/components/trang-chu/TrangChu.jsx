@@ -512,11 +512,72 @@ export default function TrangChu() {
           <a href="#ket-noi-api" className="nut-manga nut-manga-win">
             ⚡ {laEn ? 'Developer API Integration' : 'Kết Nối API Cho Tool / Web'}
           </a>
-          {false && (
-            <a href="#bang-gia" className="nut-manga nut-manga-phu">
-              💎 {laEn ? 'Pricing & VIP Top-up' : 'Bảng Giá & Nạp Lượt VIP'}
-            </a>
-          )}
+          <a href="#he-sinh-thai-video" className="nut-manga nut-manga-video">
+            🎬 {laEn ? 'Auto AI Video Review Studio' : 'Phần Mềm Dựng Video Review Truyện Tự Động'}
+          </a>
+        </div>
+
+        {/* 3 hộp gợi ý tính năng ngắn gọn tạo ấn tượng ngay dưới 3 nút chính */}
+        <div className="luoi-hero-3-cot" aria-label={laEn ? 'Featured Ecosystem Tools' : '3 Công cụ nổi bật'}>
+          <div className="the-hero-goi-y">
+            <div>
+              <strong>🧩 {laEn ? 'Live Browser Extension & Auto Windows App' : 'Tiện Ích Dịch Trực Tiếp & App Windows Tự Động'}</strong>
+              <span>
+                {laEn
+                  ? 'Translate live while reading on any comic site (Alt+Q), or paste 1 series link on Windows to auto-crawl & batch-translate chapters into clean folders.'
+                  : 'Đọc tới đâu dịch tới đó ngay trên web đang coi (Alt+Q), hoặc dán 1 Link vào App Windows để tự động tải & dịch cả bộ truyện chia sẵn thư mục Chapter.'}
+              </span>
+            </div>
+            <div className="day-link-nhanh">
+              <a href={api.urlTaiTienIchChrome()} download="dich-truyen-chrome-extension-v0.3.1.zip">
+                ⬇️ {laEn ? 'Extension (.ZIP)' : 'Tải Tiện Ích (.ZIP)'}
+              </a>
+              <span>·</span>
+              <a href={api.urlTaiBoCaiWindowsExe()} download="Manga-Studio-Pro-Setup-v1.1.exe" style={{ color: '#059669' }}>
+                🚀 {laEn ? 'Windows App (.EXE)' : 'Tải App Windows (.EXE)'}
+              </a>
+              <span>·</span>
+              <a href="#tien-ich">{laEn ? 'Guide →' : 'Hướng dẫn →'}</a>
+            </div>
+          </div>
+
+          <div className="the-hero-goi-y">
+            <div>
+              <strong>⚡ {laEn ? 'High-Speed Developer API (tr_live_...)' : 'Kết Nối API Cho Tool / Web Truyện (tr_live_...)'}</strong>
+              <span>
+                {laEn
+                  ? 'Plug-and-play REST API for comic websites, apps & automation tools: bubble detection, LaMa text removal & Dual-Anchor context translation in 9 languages.'
+                  : 'Đấu nối REST API siêu tốc cho Web truyện, App đọc truyện & Tool tự động: tự xóa chữ gốc LaMa, dàn chữ chuẩn & dịch ngữ cảnh Dual-Anchor ra 9 ngôn ngữ.'}
+              </span>
+            </div>
+            <div className="day-link-nhanh">
+              <a href="#ket-noi-api" style={{ color: '#0d9488' }}>
+                🔑 {laEn ? 'Get API Key & Docs →' : 'Lấy Mã API Key & Xem Tài Liệu Đấu Nối →'}
+              </a>
+            </div>
+          </div>
+
+          <div className="the-hero-goi-y">
+            <div>
+              <strong>🎬 {laEn ? 'AI Comic Video Review Studio (DeepSeek + Voice)' : 'Phần Mềm Dựng Video Review Truyện (Kịch Bản DeepSeek)'}</strong>
+              <span>
+                {laEn
+                  ? 'Turn comic chapters into viral TikTok/Shorts/YouTube Recap videos: DeepSeek V3 dramatic scriptwriter + ElevenLabs & 36 expressive voices + Ken Burns MP4!'
+                  : 'Biến chapter truyện thành Video Review triệu view (TikTok / Shorts / YouTube): Biên kịch DeepSeek V3 bám sát cốt truyện + Giọng đọc ElevenLabs cảm xúc & hiệu ứng Ken Burns!'}
+              </span>
+            </div>
+            <div className="day-link-nhanh">
+              <a href={api.urlTaiVideoReviewExe()} download="Manga-Video-Review-Studio-Setup-v1.0.exe" style={{ color: '#db2777' }}>
+                🎬 {laEn ? 'Download Setup (.EXE)' : 'Tải Bộ Cài Video (.EXE)'}
+              </a>
+              <span>·</span>
+              <a href={api.urlTaiVideoReviewZip()} download="Manga-Video-Review-Studio-v1.0.zip">
+                📦 {laEn ? 'Portable (.ZIP)' : 'Bản .ZIP'}
+              </a>
+              <span>·</span>
+              <a href="#he-sinh-thai-video">{laEn ? 'Details →' : 'Chi tiết →'}</a>
+            </div>
+          </div>
         </div>
       </header>
 
@@ -1199,6 +1260,174 @@ export default function TrangChu() {
             </span>
           </li>
         </ol>
+      </section>
+
+      {/* Khu vực Hệ Sinh Thái 3 Công Cụ Độc Quyền (Tiện ích Chrome · App Windows Tự Động · Video Review Studio) */}
+      <section id="he-sinh-thai-cong-cu" className="manga-ecosystem" aria-labelledby="tieu-de-he-sinh-thai">
+        <div className="manga-ecosystem-dau">
+          <span className="manga-sfx-badge">
+            {laEn ? '★ ALL-IN-ONE COMIC & VIDEO AI ECOSYSTEM ★' : '★ HỆ SINH THÁI 3 CÔNG CỤ DỊCH TRUYỆN & DỰNG VIDEO TỰ ĐỘNG ★'}
+          </span>
+          <h2 id="tieu-de-he-sinh-thai" style={{ margin: '4px 0 8px', fontSize: 26 }}>
+            {laEn
+              ? '1 VIP Account — Use Across Web, Browser Extension, Windows App & Video Studio'
+              : 'Bộ 3 Vũ Khí Tự Động Hóa Cho Độc Giả, Nhóm Dịch & Kênh Review Triệu View'}
+          </h2>
+          <p style={{ margin: 0, color: 'var(--mo)', fontSize: 14.5 }}>
+            {laEn
+              ? 'Synchronized quota & permanent credit wallet across all platforms with 9 international target languages.'
+              : 'Đồng bộ chung 1 tài khoản & 1 ví lượt duy nhất — Hỗ trợ dịch chuẩn ngữ cảnh ra 9 ngôn ngữ quốc tế.'}
+          </p>
+        </div>
+
+        <div className="luoi-cong-cu-manga">
+          {/* KHUNG 1: TIỆN ÍCH DỊCH TRỰC TIẾP TRÊN WEB ĐANG COI */}
+          <article className="khung-tranh-cong-cu">
+            <span className="bong-thoai-goc">
+              {laEn ? '🔥 Read & Translate Live!' : '🔥 Đọc tới đâu dịch tới đó!'}
+            </span>
+            <div className="dau-khung-cong-cu">
+              <div className="icon-cong-cu" aria-hidden="true">🧩</div>
+              <div>
+                <span className="nhan-phien-ban">CHROME / EDGE / BRAVE / CỐC CỐC · v0.3.1</span>
+                <h3>{laEn ? 'Live Browser Comic Translator' : 'Tiện Ích Dịch Trực Tiếp Trên Web Đang Coi'}</h3>
+              </div>
+            </div>
+            <p className="mo-ta-cong-cu">
+              {laEn
+                ? 'Overlay crisp translations right on the Manga, Manhwa, Manhua, or Webtoon site you are reading without leaving the tab.'
+                : 'Phủ chữ dịch sắc nét ngay lên trang Manga, Manhwa, Manhua, Webtoon bạn đang đọc mà không cần tải ảnh về máy.'}
+            </p>
+            <ul className="ds-tinh-nang-cong-cu">
+              <li>
+                ⚡ <b>{laEn ? '1-Click & Auto-Scroll (Alt+Q / Alt+W):' : 'Dịch siêu tốc & Tự dịch khi cuộn (Alt+Q / Alt+W):'}</b>{' '}
+                {laEn ? 'Translates current page in 2–3s or auto-translates as you scroll down.' : 'Dịch trang đang xem chỉ 2–3 giây hoặc bật tự động dịch đón đầu khi cuộn chuột.'}
+              </li>
+              <li>
+                ✏️ <b>{laEn ? 'Double-Click Live Editor + Brush Tool:' : 'Nhấp đúp sửa câu trực tiếp + Cọ xóa (🖌️):'}</b>{' '}
+                {laEn ? 'Edit any dialog on the fly, drag text boxes, and permanently remember custom terms.' : 'Nhấp đúp vào bóng thoại để sửa chữ, kéo vị trí và tự học vĩnh viễn từ vựng bạn sửa.'}
+              </li>
+              <li>
+                🌍 <b>{laEn ? '9 Target Languages + 4 Genre Fonts:' : 'Hỗ trợ 9 Ngôn ngữ Quốc tế + 4 Font thể loại:'}</b>{' '}
+                {laEn ? 'Switch between Action, Romance, Historical & Comedy fonts instantly.' : 'Đổi tức thì font Hành động, Ngôn tình, Cổ trang, Hài hước ngay trên thanh nổi.'}
+              </li>
+            </ul>
+            <div className="chan-khung-cong-cu">
+              <a
+                href={api.urlTaiTienIchChrome()}
+                download="dich-truyen-chrome-extension-v0.3.1.zip"
+                className="nut-manga nut-manga-chinh"
+              >
+                ⬇️ {laEn ? 'Download Extension (.ZIP)' : 'Tải Tiện Ích Chrome (.ZIP)'}
+              </a>
+              <a href="#tien-ich" className="nut-manga nut-manga-phu">
+                📖 {laEn ? '10s Install Guide' : 'Hướng dẫn cài 10s'}
+              </a>
+            </div>
+          </article>
+
+          {/* KHUNG 2: APP WINDOWS CHẠY TỰ ĐỘNG THEO LINK */}
+          <article className="khung-tranh-cong-cu panel-win">
+            <span className="bong-thoai-goc bong-thoai-vang">
+              {laEn ? '⚡ Batch Crawl Chapters!' : '⚡ Cày 100 Chapter Tự Động!'}
+            </span>
+            <div className="dau-khung-cong-cu">
+              <div className="icon-cong-cu" aria-hidden="true">🖥️</div>
+              <div>
+                <span className="nhan-phien-ban nhan-win">WINDOWS 10 / 11 DESKTOP · v1.1 (.EXE)</span>
+                <h3>{laEn ? 'Windows App: Auto-Crawl & Batch Translate' : 'App Windows: Chạy Tự Động Theo Link Truyện'}</h3>
+              </div>
+            </div>
+            <p className="mo-ta-cong-cu">
+              {laEn
+                ? 'Paste 1 series URL to automatically scan chapters, download images, erase text, translate, and organize into chapter folders.'
+                : 'Dán 1 Link mục lục bộ truyện là máy tự quét danh sách chương, tải ảnh, xóa chữ, dịch hàng loạt và chia sẵn thư mục từng Chapter.'}
+            </p>
+            <ul className="ds-tinh-nang-cong-cu">
+              <li>
+                🔗 <b>{laEn ? 'Batch Translate Chapter A → B:' : 'Quét & Dịch tự động từ Chapter A → B:'}</b>{' '}
+                {laEn ? 'Runs 1–8 chapters in parallel, auto-saves to Series/Chapter-001/001.jpg.' : 'Chạy song song 1–8 Chapter theo cấu hình máy, lưu gọn vào Tên_Truyện/Chapter-001/.'}
+              </li>
+              <li>
+                🧠 <b>{laEn ? 'Dual-Anchor AI + HuggingFace / Groq LPU:' : 'Lõi AI Dual-Anchor + HuggingFace / Groq LPU:'}</b>{' '}
+                {laEn ? 'Culture-aware reading order (R-to-L Manga / L-to-R Manhwa) with ~95–97% accuracy.' : 'Sắp xếp bóng thoại chuẩn văn hóa (Manga Phải→Trái / Manhwa Trái→Phải), chính xác ~95–97%.'}
+              </li>
+              <li>
+                📦 <b>{laEn ? 'Export .CBZ, .PDF & Webtoon Long-Strip:' : 'Xuất đủ định dạng .CBZ, .PDF & Ảnh Dọc Webtoon:'}</b>{' '}
+                {laEn ? '1-click .EXE installer with Desktop shortcut — no .bat needed.' : 'Bộ cài đặt .EXE 1-Click tạo biểu tượng ngoài Desktop cực kỳ chuyên nghiệp.'}
+              </li>
+            </ul>
+            <div className="chan-khung-cong-cu">
+              <a
+                href={api.urlTaiBoCaiWindowsExe()}
+                download="Manga-Studio-Pro-Setup-v1.1.exe"
+                className="nut-manga nut-manga-win"
+              >
+                🚀 {laEn ? 'Download Installer (.EXE)' : 'Tải Bộ Cài Đặt (.EXE — v1.1)'}
+              </a>
+              <a
+                href={api.urlTaiAppWindows()}
+                download="App-Windows-Dich-Truyen-Tu-Dong-v1.1.zip"
+                className="nut-manga nut-manga-phu"
+              >
+                📦 {laEn ? 'Portable (.ZIP)' : 'Bản .ZIP'}
+              </a>
+            </div>
+          </article>
+
+          {/* KHUNG 3 (ĐẶC BIỆT): PHẦN MỀM DỰNG VIDEO REVIEW TRUYỆN TỰ ĐỘNG */}
+          <article id="he-sinh-thai-video" className="khung-tranh-cong-cu panel-video">
+            <span className="bong-thoai-goc bong-thoai-hong">
+              {laEn ? '✨ DeepSeek Script + Expressive Voice!' : '✨ Kịch Bản DeepSeek + Giọng Cảm Xúc!'}
+            </span>
+            <div className="dau-khung-cong-cu">
+              <div className="icon-cong-cu" aria-hidden="true">🎬</div>
+              <div>
+                <span className="nhan-phien-ban nhan-video">VIDEO REVIEW STUDIO · v1.0 (.EXE)</span>
+                <h3>
+                  {laEn
+                    ? 'Auto Comic Video Review Studio (DeepSeek + Voice)'
+                    : 'Phần Mềm Dựng Video Review Truyện Tự Động (Kịch Bản DeepSeek + Giọng Đọc Cảm Xúc)'}
+                </h3>
+              </div>
+            </div>
+            <p className="mo-ta-cong-cu">
+              {laEn
+                ? 'Turn translated comic chapters into engaging TikTok, Reels, Shorts & YouTube Recap videos with dramatic storytelling and dynamic camera motion.'
+                : 'Biến thư mục ảnh truyện thành Video Review cuốn hút cho TikTok, Reels, Shorts & YouTube với kịch bản bám sát nội dung và chuyển động camera mượt mà.'}
+            </p>
+            <ul className="ds-tinh-nang-cong-cu">
+              <li>
+                🧠 <b>{laEn ? 'DeepSeek V3 Context Scriptwriter:' : 'Biên kịch DeepSeek V3 bám sát cốt truyện:'}</b>{' '}
+                {laEn ? 'Analyzes characters & dialogs on every page to craft dramatic, comedy, or martial-arts scripts.' : 'Đọc hiểu từng trang, nhân vật & ngữ cảnh để viết lời bình Kịch tính, Hài hước, Tu tiên hoặc Ngôn tình.'}
+              </li>
+              <li>
+                🎙️ <b>{laEn ? 'ElevenLabs API + 36 Expressive Voices (9 Languages):' : 'Giọng đọc ElevenLabs + 36 Giọng Đa Quốc Gia (Chống buồn ngủ):'}</b>{' '}
+                {laEn ? 'Auto-adjusts pitch, speed & dramatic pauses per scene emotion.' : 'Tự động nhấn nhá ngữ điệu, tốc độ & khoảng nghỉ hồi hộp theo cảm xúc từng phân cảnh.'}
+              </li>
+              <li>
+                🎞️ <b>{laEn ? 'Ken Burns Pan/Zoom MP4 + Auto BGM Ducking:' : 'Hiệu ứng Ken Burns MP4 + Nhạc nền Auto-Ducking:'}</b>{' '}
+                {laEn ? 'Renders crisp 1080p MP4 (9:16 vertical or 16:9 horizontal) with burned-in subtitles.' : 'Xuất MP4 1080p nét căng (dọc 9:16 hoặc ngang 16:9) kèm phụ đề & tự hạ nhạc nền khi có giọng đọc.'}
+              </li>
+            </ul>
+            <div className="chan-khung-cong-cu">
+              <a
+                href={api.urlTaiVideoReviewExe()}
+                download="Manga-Video-Review-Studio-Setup-v1.0.exe"
+                className="nut-manga nut-manga-video"
+              >
+                🎬 {laEn ? 'Download Video Studio (.EXE)' : 'Tải Bộ Cài Video (.EXE — v1.0)'}
+              </a>
+              <a
+                href={api.urlTaiVideoReviewZip()}
+                download="Manga-Video-Review-Studio-v1.0.zip"
+                className="nut-manga nut-manga-phu"
+              >
+                📦 {laEn ? 'Portable (.ZIP)' : 'Bản .ZIP'}
+              </a>
+            </div>
+          </article>
+        </div>
       </section>
 
       <ChanTrangManga />

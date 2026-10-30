@@ -48,6 +48,11 @@ export default function ChanTrangManga() {
                 ⚡ {laEn ? 'Developer REST API Integration' : 'Trang Hướng Dẫn Kết Nối API (tr_live_...)'}
               </a>
             </li>
+            <li>
+              <a href="#he-sinh-thai-video">
+                🎬 {laEn ? 'Auto AI Video Review Studio (.EXE)' : 'Phần Mềm Dựng Video Review Truyện (.EXE)'}
+              </a>
+            </li>
             {false && (
               <li>
                 <a href="#bang-gia">
