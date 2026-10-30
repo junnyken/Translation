@@ -50,6 +50,14 @@ export default function QuanTriNguoiDung({ toi }) {
   const [nhChuTk, setNhChuTk] = useState('')
   const [dangLuuNh, setDangLuuNh] = useState(false)
 
+  // Form quản lý Khoá AI (DeepSeek API Key & Khoá dự phòng) ngay trong Admin
+  const [khoaDeepseekInput, setKhoaDeepseekInput] = useState('')
+  const [khoaDuPhongInput, setKhoaDuPhongInput] = useState('')
+  const [hienKhoaAi, setHienKhoaAi] = useState(false)
+  const [dangLuuAi, setDangLuuAi] = useState(false)
+  const [dangKiemTraAi, setDangKiemTraAi] = useState(false)
+  const [ketQuaKiemTraAi, setKetQuaKiemTraAi] = useState(null)
+
   async function nap() {
     setDangTaiLai(true)
     try {
@@ -137,6 +145,58 @@ export default function QuanTriNguoiDung({ toi }) {
       setLoi(String(err?.message || err).replace(/^\d+:\s*/, ''))
     } finally {
       setDangLuuNh(false)
+    }
+  }
+
+  async function xuLyLuuKhoaAi(e) {
+    e.preventDefault()
+    if (!khoaDeepseekInput.trim() && !khoaDuPhongInput.trim()) {
+      setLoi('Vui lòng dán ít nhất 1 khoá DeepSeek (bắt đầu bằng sk-...) vào ô bên dưới trước khi bấm Lưu.')
+      return
+    }
+    setDangLuuAi(true); setLoi(null); setThongBaoOk(null); setKetQuaKiemTraAi(null)
+    try {
+      const payload = {}
+      if (khoaDeepseekInput.trim()) payload.khoaDeepseek = khoaDeepseekInput.trim()
+      if (khoaDuPhongInput.trim()) payload.khoaDuPhong = khoaDuPhongInput.trim()
+      const kq = await api.quanTriLuuCauHinhAi(payload)
+      setThongBaoOk(kq?.thong_diep || 'Đã lưu & kích hoạt khoá DeepSeek thành công!')
+      setKhoaDeepseekInput('')
+      setKhoaDuPhongInput('')
+      await nap()
+    } catch (err) {
+      setLoi(String(err?.message || err).replace(/^\d+:\s*/, ''))
+    } finally {
+      setDangLuuAi(false)
+    }
+  }
+
+  async function xuLyKiemTraKetNoiAi() {
+    setDangKiemTraAi(true); setLoi(null); setKetQuaKiemTraAi(null)
+    try {
+      const kq = await api.quanTriKiemTraKetNoiAi(khoaDeepseekInput.trim() || khoaDuPhongInput.trim() || null)
+      setKetQuaKiemTraAi(kq)
+    } catch (err) {
+      setKetQuaKiemTraAi({
+        ok: false,
+        thong_diep: String(err?.message || err).replace(/^\d+:\s*/, ''),
+      })
+    } finally {
+      setDangKiemTraAi(false)
+    }
+  }
+
+  async function xuLyXoaKhoaAi() {
+    if (!window.confirm('Bạn có chắc muốn xoá khoá AI đã lưu trên trang Quản trị?')) return
+    setDangLuuAi(true); setLoi(null); setThongBaoOk(null); setKetQuaKiemTraAi(null)
+    try {
+      const kq = await api.quanTriLuuCauHinhAi({ khoaDeepseek: '', khoaDuPhong: '' })
+      setThongBaoOk(kq?.thong_diep || 'Đã xoá khoá AI động.')
+      await nap()
+    } catch (err) {
+      setLoi(String(err?.message || err).replace(/^\d+:\s*/, ''))
+    } finally {
+      setDangLuuAi(false)
     }
   }
 
@@ -343,6 +403,16 @@ export default function QuanTriNguoiDung({ toi }) {
             <button
               type="button"
               role="tab"
+              aria-selected={tabAdmin === 'cau-hinh-ai'}
+              className={`nut-tab-admin ${tabAdmin === 'cau-hinh-ai' ? 'dang-chon' : ''}`}
+              onClick={() => setTabAdmin('cau-hinh-ai')}
+            >
+              🤖 {laEn ? 'DeepSeek & AI Keys' : 'Quản lý Key DeepSeek & AI'}{' '}
+              ({(heThong.deepseek_so_key || 0) + (heThong.du_phong_so_key || 0)})
+            </button>
+            <button
+              type="button"
+              role="tab"
               aria-selected={tabAdmin === 'hoat-dong'}
               className={`nut-tab-admin ${tabAdmin === 'hoat-dong' ? 'dang-chon' : ''}`}
               onClick={() => setTabAdmin('hoat-dong')}
@@ -350,6 +420,177 @@ export default function QuanTriNguoiDung({ toi }) {
               📚 {laEn ? 'Recent Chapters Monitor' : 'Nhật ký Chapter gần đây'} ({chapterGanDay.length})
             </button>
           </div>
+
+          {/* KHUNG QUẢN LÝ KEY DEEPSEEK & AI (Hiện ở tab 'cau-hinh-ai' và hiện trực tiếp ở 'tong-quan' để thao tác nhanh) */}
+          {(tabAdmin === 'cau-hinh-ai' || tabAdmin === 'tong-quan') && (
+            <div
+              className="khung-cap-goi-admin"
+              style={{
+                marginBottom: 18,
+                border: heThong.deepseek_configured
+                  ? '1.5px solid rgba(16, 185, 129, 0.45)'
+                  : '1.5px solid rgba(59, 130, 246, 0.35)',
+                background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.03), rgba(37, 99, 235, 0.04))',
+              }}
+            >
+              <div className="tieu-de-cap-goi" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10 }}>
+                <div>
+                  <strong style={{ fontSize: 15 }}>
+                    🤖 Quản lý Khoá API DeepSeek (deepseek-chat) &amp; Động cơ Dịch Ngữ Cảnh
+                  </strong>
+                  <span className="ghi-chu" style={{ display: 'block', marginTop: 3 }}>
+                    Thêm hoặc thay thế trực tiếp khoá DeepSeek (<code>sk-...</code>) ngay tại đây — tự động đồng bộ tức thì cho Web, Tiện ích Chrome, App Windows &amp; Worker mà không cần sửa file <code>.env</code>.
+                  </span>
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span
+                    className="nhan-vip-nho"
+                    style={{
+                      background: heThong.deepseek_configured
+                        ? '#dcfce7'
+                        : heThong.llm_configured
+                        ? '#fef3c7'
+                        : '#f1f5f9',
+                      color: heThong.deepseek_configured
+                        ? '#15803d'
+                        : heThong.llm_configured
+                        ? '#b45309'
+                        : '#475569',
+                      padding: '4px 10px',
+                      fontSize: 12,
+                    }}
+                  >
+                    {heThong.deepseek_configured
+                      ? `🟢 Đang chạy DeepSeek (${heThong.deepseek_so_key} key)`
+                      : heThong.llm_configured
+                      ? `🟡 Đang chạy AI dự phòng (${heThong.du_phong_so_key || 1} key)`
+                      : '⚪ Chưa gắn Key AI (Đang dùng dịch nhanh miễn phí)'}
+                  </span>
+                  <Button
+                    type="button"
+                    kieu="phu"
+                    disabled={dangKiemTraAi}
+                    onClick={xuLyKiemTraKetNoiAi}
+                  >
+                    {dangKiemTraAi ? '⏳ Đang ping DeepSeek…' : '🧪 Kiểm tra kết nối Key'}
+                  </Button>
+                </div>
+              </div>
+
+              {/* HIỂN THỊ DANH SÁCH KEY ĐANG LƯU (ĐÃ CHE BẢO MẬT) */}
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 10,
+                  alignItems: 'center',
+                  margin: '10px 0 12px',
+                  padding: '8px 12px',
+                  borderRadius: 8,
+                  background: 'rgba(15, 23, 42, 0.03)',
+                  fontSize: 13,
+                }}
+              >
+                <span>
+                  <b>Nhà cung cấp ưu tiên:</b> {heThong.nha_cung_cap_uu_tien || (heThong.llm_configured ? heThong.llm_model_name : 'Dịch nhanh miễn phí')}
+                </span>
+                <span>·</span>
+                <span>
+                  <b>Nguồn nạp:</b> {heThong.nguon_cau_hinh || 'Mặc định'}
+                </span>
+                {Array.isArray(heThong.deepseek_keys_masked) && heThong.deepseek_keys_masked.length > 0 && (
+                  <>
+                    <span>·</span>
+                    <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <b>Key DeepSeek đang dùng:</b>
+                      {heThong.deepseek_keys_masked.map((k, idx) => (
+                        <code key={idx} style={{ background: '#dcfce7', color: '#166534', padding: '2px 6px', borderRadius: 4, fontWeight: 700 }}>
+                          🔑 {k}
+                        </code>
+                      ))}
+                    </span>
+                  </>
+                )}
+                {Array.isArray(heThong.du_phong_keys_masked) && heThong.du_phong_keys_masked.length > 0 && (
+                  <>
+                    <span>·</span>
+                    <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <b>Key dự phòng:</b>
+                      {heThong.du_phong_keys_masked.map((k, idx) => (
+                        <code key={idx} style={{ background: '#e0f2fe', color: '#0369a1', padding: '2px 6px', borderRadius: 4 }}>
+                          🛡️ {k}
+                        </code>
+                      ))}
+                    </span>
+                  </>
+                )}
+              </div>
+
+              {ketQuaKiemTraAi && (
+                <div
+                  style={{
+                    marginBottom: 12,
+                    padding: '10px 12px',
+                    borderRadius: 8,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    background: ketQuaKiemTraAi.ok ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+                    color: ketQuaKiemTraAi.ok ? '#065f46' : '#991b1b',
+                    border: ketQuaKiemTraAi.ok ? '1px solid rgba(16, 185, 129, 0.35)' : '1px solid rgba(239, 68, 68, 0.35)',
+                  }}
+                >
+                  {ketQuaKiemTraAi.ok ? '✅ ' : '⚠️ '}
+                  {ketQuaKiemTraAi.thong_diep}
+                </div>
+              )}
+
+              <form onSubmit={xuLyLuuKhoaAi} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div className="hang-o-cap-goi" style={{ gridTemplateColumns: '2fr 1.4fr auto auto auto' }}>
+                  <input
+                    type={hienKhoaAi ? 'text' : 'password'}
+                    className="o"
+                    placeholder="Dán DeepSeek API Key vào đây (VD: sk-xxxx..., có thể nhập nhiều key cách nhau dấu phẩy)"
+                    value={khoaDeepseekInput}
+                    onChange={(e) => setKhoaDeepseekInput(e.target.value)}
+                    autoComplete="off"
+                  />
+                  <input
+                    type={hienKhoaAi ? 'text' : 'password'}
+                    className="o"
+                    placeholder="Khoá AI dự phòng khi DeepSeek bảo trì (tuỳ chọn, để trống nếu giữ nguyên)"
+                    value={khoaDuPhongInput}
+                    onChange={(e) => setKhoaDuPhongInput(e.target.value)}
+                    autoComplete="off"
+                  />
+                  <Button
+                    type="button"
+                    kieu="ghost"
+                    onClick={() => setHienKhoaAi((v) => !v)}
+                    title="Hiện hoặc ẩn ký tự khoá đang nhập"
+                  >
+                    {hienKhoaAi ? '🙈 Ẩn' : '👁️ Hiện'}
+                  </Button>
+                  <Button type="submit" kieu="chinh" disabled={dangLuuAi}>
+                    {dangLuuAi ? '⏳ Đang lưu…' : '💾 Lưu & Kích hoạt DeepSeek'}
+                  </Button>
+                  {(heThong.deepseek_configured || heThong.du_phong_configured) && (
+                    <Button
+                      type="button"
+                      kieu="phu"
+                      disabled={dangLuuAi}
+                      onClick={xuLyXoaKhoaAi}
+                      title="Xoá khoá AI đã lưu trên Admin"
+                    >
+                      🗑️ Xoá key
+                    </Button>
+                  )}
+                </div>
+                <span className="ghi-chu" style={{ fontSize: 12 }}>
+                  💡 <b>Mẹo vận hành:</b> Bạn có thể lấy khoá tại <code>platform.deepseek.com/api_keys</code>. Nếu dán nhiều khoá cách nhau bằng dấu phẩy (<code>sk-key1, sk-key2</code>), hệ thống sẽ tự động xoay vòng sang khoá tiếp theo ngay khi 1 khoá chạm giới hạn hoặc hết số dư (HTTP 402/429).
+                </span>
+              </form>
+            </div>
+          )}
 
           {/* PHÂN KHU BIỂU ĐỒ 7 NGÀY & PHÂN BỔ NGÔN NGỮ (Hiện ở tab 'bieu-do' hoặc tóm tắt ở 'tong-quan') */}
           {(tabAdmin === 'bieu-do' || tabAdmin === 'tong-quan') && bieuDo7Ngay.length > 0 && (

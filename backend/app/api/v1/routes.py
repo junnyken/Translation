@@ -31,7 +31,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.config import Settings, get_settings
+from app.core.config import (
+    Settings,
+    dong_bo_khoa_ai_dong,
+    get_settings,
+    kiem_tra_ket_noi_khoa_ai,
+    lay_thong_tin_khoa_ai_che,
+    luu_cau_hinh_khoa_ai_dong,
+)
 from app.core.db import get_session
 from app.core.cong_han_muc import con_du_khong, giu_cho_moi_chot, loi_vuot_han_muc
 from app.core.danh_tinh_khach import DanhTinhHanMuc, danh_tinh_han_muc
@@ -110,6 +117,10 @@ from app.schemas.common import (
     DuyetDonNapRequest,
     GoiNapLuotRead,
     HanMucRead,
+    QuanTriCauHinhAiRequest,
+    QuanTriCauHinhAiResponse,
+    QuanTriKiemTraAiRequest,
+    QuanTriKiemTraAiResponse,
     QuanTriNguoiDungChiTietRead,
     QuanTriThongKeRead,
     ThongTinNapLuotRead,
@@ -302,6 +313,8 @@ def _kiem_engine(
       ChatGPT của một người cho người khác. Khách lạ chưa đăng nhập ⇒ 403 kể cả ở bản cài cục bộ.
       Worker vẫn tự từ chối lần nữa (`cho_phep`) — đây chỉ là báo sớm.
     """
+    if engine is TranslationEngine.llm_context and not settings.llm_configured:
+        dong_bo_khoa_ai_dong(settings)
     if engine is TranslationEngine.llm_context and not settings.llm_configured:
         raise HTTPException(
             status_code=422,
@@ -937,6 +950,65 @@ async def quan_tri_cap_luot(
     )
 
 
+@router.post("/quan-tri/cau-hinh-ai", response_model=QuanTriCauHinhAiResponse, tags=["han-muc"])
+async def quan_tri_luu_cau_hinh_ai(
+    body: QuanTriCauHinhAiRequest,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    nguoi: NguoiDung = Depends(nguoi_dung_phien_dang_nhap),
+) -> QuanTriCauHinhAiResponse:
+    """Quản trị viên lưu & kích hoạt trực tiếp khoá DeepSeek (sk-...) và khoá AI dự phòng ngay từ trang Admin."""
+    if not nguoi.la_quan_tri:
+        raise HTTPException(status_code=403, detail="Chỉ quản trị viên mới được cấu hình khoá AI.")
+
+    tt_che = await run_in_threadpool(
+        luu_cau_hinh_khoa_ai_dong,
+        settings,
+        khoa_deepseek=body.khoa_deepseek,
+        khoa_du_phong=body.khoa_du_phong,
+        email_quan_tri=nguoi.email,
+    )
+    ghi_nhat_ky(
+        session,
+        nguoi,
+        "cap_nhat_khoa_ai",
+        tt_che.get("nha_cung_cap_uu_tien", ""),
+        so_key_deepseek=tt_che.get("deepseek_so_key", 0),
+        so_key_du_phong=tt_che.get("du_phong_so_key", 0),
+    )
+    await session.commit()
+
+    so_ds = int(tt_che.get("deepseek_so_key", 0))
+    so_dp = int(tt_che.get("du_phong_so_key", 0))
+    if so_ds > 0:
+        thong_diep = (
+            f"Đã lưu & kích hoạt {so_ds} khoá DeepSeek (deepseek-chat) thành công"
+            + (f" kèm {so_dp} khoá AI dự phòng." if so_dp > 0 else ".")
+        )
+    elif so_dp > 0:
+        thong_diep = f"Đã lưu {so_dp} khoá AI dự phòng (hiện chưa có khoá DeepSeek)."
+    else:
+        thong_diep = "Đã xoá cấu hình khoá AI động (hệ thống quay về dịch nhanh miễn phí)."
+
+    return QuanTriCauHinhAiResponse(
+        thong_diep=thong_diep,
+        **tt_che,
+    )
+
+
+@router.post("/quan-tri/kiem-tra-ai", response_model=QuanTriKiemTraAiResponse, tags=["han-muc"])
+async def quan_tri_kiem_tra_ket_noi_ai(
+    body: QuanTriKiemTraAiRequest,
+    settings: Settings = Depends(get_settings),
+    nguoi: NguoiDung = Depends(nguoi_dung_phien_dang_nhap),
+) -> QuanTriKiemTraAiResponse:
+    """Quản trị viên bấm nút kiểm tra kết nối trực tiếp tới DeepSeek / AI."""
+    if not nguoi.la_quan_tri:
+        raise HTTPException(status_code=403, detail="Chỉ quản trị viên mới được kiểm tra khoá AI.")
+    kq = await run_in_threadpool(kiem_tra_ket_noi_khoa_ai, settings, body.khoa_thu)
+    return QuanTriKiemTraAiResponse(**kq)
+
+
 @router.get("/quan-tri/thong-ke", response_model=QuanTriThongKeRead, tags=["han-muc"])
 async def quan_tri_thong_ke(
     session: AsyncSession = Depends(get_session),
@@ -1228,17 +1300,19 @@ async def quan_tri_thong_ke(
     except Exception:
         pass
 
+    tt_khoa_ai = await run_in_threadpool(lay_thong_tin_khoa_ai_che, settings)
     he_thong_info = {
         "worker_trang_thai": worker_tt,
         "rss_api_mb": rss_api,
         "rss_worker_mb": rss_worker,
         "llm_configured": settings.llm_configured,
-        "llm_model_name": settings.llm_model_name,
+        "llm_model_name": "deepseek-chat" if tt_khoa_ai.get("deepseek_configured") else settings.llm_model_name,
         "detect_engine": settings.detect_engine,
         "translate_default_engine": settings.translate_default_engine,
         "han_muc_khach_la": settings.han_muc_khach_la,
         "han_muc_co_tai_khoan": settings.han_muc_co_tai_khoan,
         "han_muc_ip_khach_la": settings.han_muc_ip_khach_la,
+        **tt_khoa_ai,
     }
 
     nh_ten, nh_stk, nh_chu = await run_in_threadpool(_doc_cau_hinh_ngan_hang_dong, settings)
@@ -4310,6 +4384,8 @@ async def get_batch_config(settings: Settings = Depends(get_settings), nguoi: Ng
     `llm_configured` chỉ là true/false: giao diện cần biết có bật được lựa chọn dịch bằng LLM
     hay không, và nếu không thì nói rõ lý do ngay lúc chọn, thay vì để người dùng bấm rồi nhận 422.
     """
+    if not settings.llm_configured:
+        await run_in_threadpool(dong_bo_khoa_ai_dong, settings)
     return BatchConfigRead(
         llm_configured=settings.llm_configured,
         llm_project_rpm=settings.llm_project_rpm,

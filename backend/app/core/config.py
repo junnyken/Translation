@@ -825,3 +825,178 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+REL_CAU_HINH_KHOA_AI = "quan_tri/cau_hinh_ai_keys.json"
+
+
+def _che_mot_khoa_ai(k: str) -> str:
+    """Che khoá bí mật khi hiển thị trên trang Quản trị (không lộ khoá thật, không lộ tiền tố nhạy cảm)."""
+    s = (k or "").strip()
+    if not s:
+        return ""
+    if len(s) <= 10:
+        return s[:2] + "***" + s[-2:]
+    dau = s[:5]
+    if dau.startswith("AIz"):
+        dau = "AIz**"
+    return f"{dau}...{s[-4:]}"
+
+
+def doc_cau_hinh_khoa_ai_dong() -> dict:
+    """Đọc cấu hình khoá AI do Quản trị viên lưu trong kho lưu trữ chung (chia sẻ giữa API và Worker)."""
+    import json
+
+    try:
+        from app.services.storage import get_storage
+
+        storage = get_storage()
+        if not storage.exists(REL_CAU_HINH_KHOA_AI):
+            return {}
+        raw = storage.read_bytes(REL_CAU_HINH_KHOA_AI).decode("utf-8")
+        data = json.loads(raw)
+        return data if isinstance(data, dict) else {}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def dong_bo_khoa_ai_dong(settings: Settings) -> dict:
+    """Đồng bộ khoá AI từ kho lưu trữ động (nếu quản trị viên đã thiết lập) vào đối tượng `settings`."""
+    data = doc_cau_hinh_khoa_ai_dong()
+    if not data:
+        return {}
+    if "khoa_deepseek" in data and data["khoa_deepseek"] is not None:
+        settings.deepseek_api_keys = str(data["khoa_deepseek"]).strip()
+        settings.deepseek_api_key = ""
+    if "khoa_du_phong" in data and data["khoa_du_phong"] is not None:
+        settings.gemini_api_keys = str(data["khoa_du_phong"]).strip()
+    return data
+
+
+def lay_thong_tin_khoa_ai_che(settings: Settings, data_dong: dict | None = None) -> dict:
+    """Trả thông tin trạng thái khoá AI đã được che mật mã cho trang Quản trị."""
+    data = data_dong if data_dong is not None else dong_bo_khoa_ai_dong(settings)
+    ds_list = settings.deepseek_api_key_list
+    all_list = settings.gemini_api_key_list
+    gm_list = [k for k in all_list if k not in ds_list]
+    return {
+        "deepseek_configured": bool(ds_list),
+        "deepseek_so_key": len(ds_list),
+        "deepseek_keys_masked": [_che_mot_khoa_ai(k) for k in ds_list],
+        "du_phong_configured": bool(gm_list),
+        "du_phong_so_key": len(gm_list),
+        "du_phong_keys_masked": [_che_mot_khoa_ai(k) for k in gm_list],
+        "nha_cung_cap_uu_tien": (
+            "DeepSeek (deepseek-chat)"
+            if ds_list
+            else ("AI Dự phòng" if gm_list else "Chưa cấu hình (Đang dùng bản dịch nhanh miễn phí)")
+        ),
+        "nguon_cau_hinh": (
+            f"Quản trị viên ({data.get('nguoi_cap_nhat') or 'Admin'})"
+            if data.get("cap_nhat_luc")
+            else ("Biến môi trường máy chủ (.env)" if (ds_list or gm_list) else "Chưa thiết lập")
+        ),
+        "cap_nhat_luc": data.get("cap_nhat_luc") or "",
+    }
+
+
+def luu_cau_hinh_khoa_ai_dong(
+    settings: Settings,
+    *,
+    khoa_deepseek: str | None = None,
+    khoa_du_phong: str | None = None,
+    email_quan_tri: str = "",
+) -> dict:
+    """Lưu khoá DeepSeek / dự phòng vào kho chung và áp dụng ngay cho tiến trình hiện tại."""
+    import json
+    import re
+    from datetime import datetime, timezone
+    from app.services.storage import get_storage
+
+    data = doc_cau_hinh_khoa_ai_dong()
+    if khoa_deepseek is not None:
+        clean_ds = ",".join(
+            k.strip() for k in re.split(r"[,;\n\r]+", str(khoa_deepseek)) if k.strip()
+        )
+        data["khoa_deepseek"] = clean_ds
+        settings.deepseek_api_keys = clean_ds
+        settings.deepseek_api_key = ""
+    if khoa_du_phong is not None:
+        clean_gm = ",".join(
+            k.strip() for k in re.split(r"[,;\n\r]+", str(khoa_du_phong)) if k.strip()
+        )
+        data["khoa_du_phong"] = clean_gm
+        settings.gemini_api_keys = clean_gm
+
+    data["cap_nhat_luc"] = datetime.now(timezone.utc).isoformat()
+    data["nguoi_cap_nhat"] = email_quan_tri
+
+    storage = get_storage()
+    storage.save(REL_CAU_HINH_KHOA_AI, json.dumps(data, ensure_ascii=False).encode("utf-8"))
+    return lay_thong_tin_khoa_ai_che(settings, data)
+
+
+def kiem_tra_ket_noi_khoa_ai(settings: Settings, khoa_thu: str | None = None) -> dict:
+    """Kiểm tra nhanh kết nối thật tới DeepSeek / AI bằng một câu ngắn."""
+    import re
+    import time
+    from app.services.translate.engines import LLMContextTranslator
+
+    dong_bo_khoa_ai_dong(settings)
+    ds_thu: list[str] = []
+    if khoa_thu and str(khoa_thu).strip():
+        ds_thu = [k.strip() for k in re.split(r"[,;\n\r]+", str(khoa_thu)) if k.strip()]
+    if not ds_thu:
+        ds_thu = settings.gemini_api_key_list
+    if not ds_thu:
+        return {
+            "ok": False,
+            "nha_cung_cap": "Chưa có khoá",
+            "khoa_che": "",
+            "do_tre_ms": 0,
+            "ket_qua_mau": "",
+            "thong_diep": "Chưa có khoá AI nào để kiểm tra. Hãy dán khoá sk-... vào ô bên dưới trước.",
+        }
+
+    key_dau = ds_thu[0]
+    la_ds = LLMContextTranslator._la_khoa_deepseek(key_dau, settings.llm_model_name)
+    ten_ncc = "DeepSeek (deepseek-chat)" if la_ds else "AI Dự phòng"
+    t0 = time.monotonic()
+    try:
+        tr = LLMContextTranslator(
+            api_keys=[key_dau],
+            model_name=settings.llm_model_name,
+            timeout=15.0,
+            max_output_tokens=64,
+        )
+        kq = tr.translate(["Hello, nice to meet you!"], source_lang="en", target_lang="vi")
+        ms = int((time.monotonic() - t0) * 1000)
+        mau = (kq[0] if kq else "").strip()
+        return {
+            "ok": True,
+            "nha_cung_cap": ten_ncc,
+            "khoa_che": _che_mot_khoa_ai(key_dau),
+            "do_tre_ms": ms,
+            "ket_qua_mau": mau,
+            "thong_diep": f"Kết nối {ten_ncc} thành công ({ms} ms)! Bản dịch thử: \"{mau}\"",
+        }
+    except Exception as exc:  # noqa: BLE001
+        ms = int((time.monotonic() - t0) * 1000)
+        loi_str = str(exc)
+        if "402" in loi_str:
+            chi_tiet = "Khoá DeepSeek hợp lệ nhưng tài khoản đang hết số dư (HTTP 402 Insufficient Balance). Vui lòng nạp thêm trên platform.deepseek.com."
+        elif "401" in loi_str or "403" in loi_str:
+            chi_tiet = "Khoá API không hợp lệ hoặc đã bị thu hồi (HTTP 401/403). Vui lòng kiểm tra lại chuỗi sk-..."
+        elif "429" in loi_str:
+            chi_tiet = "Khoá đang chạm giới hạn tốc độ (HTTP 429 Rate Limit)."
+        else:
+            chi_tiet = f"Không kết nối được ({loi_str[:160]})."
+        return {
+            "ok": False,
+            "nha_cung_cap": ten_ncc,
+            "khoa_che": _che_mot_khoa_ai(key_dau),
+            "do_tre_ms": ms,
+            "ket_qua_mau": "",
+            "thong_diep": chi_tiet,
+        }
+

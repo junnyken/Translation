@@ -1321,3 +1321,39 @@ class QuanTriThongKeRead(BaseModel):
     nguoi_dung_chi_tiet: list[QuanTriNguoiDungChiTietRead] = []
     don_nap_gan_day: list[DonNapLuotRead] = []
 
+
+class QuanTriCauHinhAiRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    khoa_deepseek: str | None = Field(default=None, max_length=4000)
+    khoa_du_phong: str | None = Field(default=None, max_length=4000)
+
+
+class QuanTriCauHinhAiResponse(BaseModel):
+    thong_diep: str
+    deepseek_configured: bool = False
+    deepseek_so_key: int = 0
+    deepseek_keys_masked: list[str] = []
+    du_phong_configured: bool = False
+    du_phong_so_key: int = 0
+    du_phong_keys_masked: list[str] = []
+    nha_cung_cap_uu_tien: str = ""
+    nguon_cau_hinh: str = ""
+    cap_nhat_luc: str = ""
+
+
+class QuanTriKiemTraAiRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    khoa_thu: str | None = Field(default=None, max_length=2000)
+
+
+class QuanTriKiemTraAiResponse(BaseModel):
+    ok: bool
+    nha_cung_cap: str = ""
+    khoa_che: str = ""
+    do_tre_ms: int = 0
+    ket_qua_mau: str = ""
+    thong_diep: str = ""
+
+

@@ -1048,6 +1048,8 @@ async def developer_dich_van_ban(
     from app.services.translate.engines import GoogleTranslateEngine, LLMContextTranslator
 
     def _dich_dong_bo() -> list[str]:
+        from app.core.config import dong_bo_khoa_ai_dong
+        dong_bo_khoa_ai_dong(settings)
         if body.engine is TranslationEngine.llm_context and settings.llm_configured:
             try:
                 tr = LLMContextTranslator(

@@ -166,6 +166,9 @@ async def healthz(request: Request) -> dict:
     # Đặt sau `status` và trước phần worker: thêm trường là thay đổi CỘNG THÊM, không đụng
     # trường nào đang có (API.md §healthz).
     _s = get_settings()
+    if not _s.llm_configured:
+        from app.core.config import dong_bo_khoa_ai_dong
+        dong_bo_khoa_ai_dong(_s)
     ket_qua["llm_configured"] = _s.llm_configured
 
     # Engine dịch MẶC ĐỊNH đang có hiệu lực. Không phải bí mật — chỉ là `google_fast` hoặc

@@ -1591,6 +1591,8 @@ def build_translator(engine: str, boi_canh: str = "", anh_trang: tuple | None = 
     from app.services.translate.engines import get_translator
 
     if engine == TranslationEngine.llm_context.value:
+        from app.core.config import dong_bo_khoa_ai_dong
+        dong_bo_khoa_ai_dong(settings)
         return get_translator(
             engine,
             api_keys=settings.gemini_api_key_list,

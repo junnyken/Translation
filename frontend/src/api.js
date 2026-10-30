@@ -709,6 +709,26 @@ export const quanTriCapLuot = ({
 /** E107 — Lấy thống kê tổng hợp hệ thống & chi tiết hạn mức từng người dùng cho Dashboard Quản trị. */
 export const layThongKeQuanTri = () => fetch(`${BASE}/quan-tri/thong-ke`).then(doc)
 
+/** Quản trị viên lưu & kích hoạt khoá DeepSeek (sk-...) hoặc khoá AI dự phòng ngay từ trang Admin. */
+export const quanTriLuuCauHinhAi = ({ khoaDeepseek = undefined, khoaDuPhong = undefined }) => {
+  const payload = {}
+  if (khoaDeepseek !== undefined) payload.khoa_deepseek = khoaDeepseek
+  if (khoaDuPhong !== undefined) payload.khoa_du_phong = khoaDuPhong
+  return fetch(`${BASE}/quan-tri/cau-hinh-ai`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).then(doc)
+}
+
+/** Quản trị viên kiểm tra kết nối trực tiếp tới DeepSeek / AI. */
+export const quanTriKiemTraKetNoiAi = (khoaThu = null) =>
+  fetch(`${BASE}/quan-tri/kiem-tra-ai`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ khoa_thu: khoaThu || null }),
+  }).then(doc)
+
 /** Đường dẫn tải trực tiếp gói Tiện ích Chrome (.zip) và App Windows (.zip). */
 export const urlTaiTienIchChrome = () => '/tai-ve/dich-truyen-chrome-extension-v0.3.1.zip'
 export const urlTaiAppWindows = () => '/tai-ve/App-Windows-Dich-Truyen-Tu-Dong-v1.1.zip'
