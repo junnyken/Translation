@@ -55,6 +55,8 @@ export function chuanHoaDiaChi(raw) {
   return s.replace(/^https?:\/\/translation\.vibe1\.tinhgon\.xyz$/i, 'https://translation-api.vibe1.tinhgon.xyz')
 }
 
+export const CAC_ENGINE_HOP_LE = ['local_ocr_gpu', 'local_hybrid_pro', 'llm_context']
+
 export async function docCauHinh() {
   const d = await chrome.storage.local.get(Object.values(KHOA_LUU))
   let maKhach = d[KHOA_LUU.ma_khach] || ''
@@ -62,6 +64,8 @@ export async function docCauHinh() {
     maKhach = sinhMaKhachNgauNhien()
     await chrome.storage.local.set({ [KHOA_LUU.ma_khach]: maKhach })
   }
+  const engLuu = d[KHOA_LUU.engine] || ENGINE_MAC_DINH
+  const engine = CAC_ENGINE_HOP_LE.includes(engLuu) ? engLuu : ENGINE_MAC_DINH
   return {
     diaChi: chuanHoaDiaChi(d[KHOA_LUU.dia_chi] || DIA_CHI_MAC_DINH || ''),
     maPhien: d[KHOA_LUU.ma_phien] || '',
@@ -69,7 +73,7 @@ export async function docCauHinh() {
     maKhach,
     ngonNgu: d[KHOA_LUU.ngon_ngu] || NGON_NGU_MAC_DINH,
     ngonNguDich: d[KHOA_LUU.ngon_ngu_dich] || NGON_NGU_DICH_MAC_DINH,
-    engine: d[KHOA_LUU.engine] || ENGINE_MAC_DINH,
+    engine,
     cheDo: d[KHOA_LUU.che_do] || CHE_DO_MAC_DINH,
     fontChu: d[KHOA_LUU.font_chu] || FONT_CHU_MAC_DINH,
   }

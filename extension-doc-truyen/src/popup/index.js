@@ -44,8 +44,6 @@ function dongBoNutEngine(eng) {
       nhanPhu.textContent = '🧠 2 lượt/trang · Tự học & Chữ viết tay'
     } else if (eng === 'local_ocr_gpu') {
       nhanPhu.textContent = '⚡ 1 lượt/trang · Khuyên dùng'
-    } else if (eng === 'local_gguf') {
-      nhanPhu.textContent = '💻 0 lượt/trang · Offline'
     } else {
       nhanPhu.textContent = '✨ 1 lượt/trang · Cloud AI'
     }
