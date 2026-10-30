@@ -148,7 +148,7 @@
       font-weight: 600;
       font-size: 11.5px;
       color: #334155;
-      margin: 0 0 6px;
+      margin: 0 0 4px;
     }
 
     .nhan-muc span.phu {
@@ -157,168 +157,55 @@
       color: var(--muted);
     }
 
-    /* Lưới chọn ngôn ngữ 2x2 */
-    .luoi-ngon-ngu {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 5px;
-      margin-bottom: 9px;
+    /* Ô chọn dạng đổ xuống (Dropdown Select) gọn gàng, hiện đại */
+    .nhom-chon-popup {
+      margin-bottom: 8px;
     }
 
-    .nut-nn {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 6px 8px;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-      background: #f8fafc;
-      color: #334155;
+    .nhom-chon-popup:last-of-type {
+      margin-bottom: 0;
+    }
+
+    .o-chon-popup {
+      width: 100%;
+      appearance: none;
+      -webkit-appearance: none;
+      padding: 7px 30px 7px 10px;
+      border-radius: 9px;
+      border: 1px solid #cbd5e1;
+      background-color: #f8fafc;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%234f46e5' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 9px center;
+      background-size: 14px 14px;
+      color: #0f172a;
       font-size: 12px;
       font-weight: 600;
+      line-height: 1.35;
       cursor: pointer;
-      transition: all 0.14s ease;
-      text-align: left;
+      transition: all 0.15s ease;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
     }
 
-    .nut-nn:hover {
-      background: #f1f5f9;
-      border-color: #cbd5e1;
-    }
-
-    .nut-nn.dang-chon {
-      background: var(--brand-soft);
+    .o-chon-popup:hover {
+      background-color: #ffffff;
       border-color: #818cf8;
-      color: var(--brand);
-      box-shadow: 0 0 0 1px rgba(79, 70, 229, 0.15);
     }
 
-    .nut-nn .co {
-      font-size: 14px;
-      line-height: 1;
+    .o-chon-popup:focus {
+      outline: none;
+      background-color: #ffffff;
+      border-color: var(--brand);
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
     }
 
-    /* Thanh chọn Ngôn ngữ dịch ra (9 Ngôn ngữ Quốc tế) */
-    .thanh-dich-ra {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 4px;
-      margin-bottom: 8px;
-    }
-
-    .nut-dich-ra {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 4px;
-      padding: 4px 5px;
-      border-radius: 7px;
-      border: 1px solid var(--border);
-      background: #f8fafc;
-      color: #334155;
-      font-size: 10.5px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.14s ease;
-      white-space: nowrap;
-    }
-
-    .nut-dich-ra:hover {
-      background: #f1f5f9;
-      border-color: #cbd5e1;
-    }
-
-    .nut-dich-ra.dang-chon {
-      background: var(--brand-soft);
-      border-color: #818cf8;
-      color: var(--brand);
-      box-shadow: 0 0 0 1px rgba(79, 70, 229, 0.15);
-    }
-
-    /* Thanh chọn Engine AI */
-    .thanh-engine {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 5px;
-      margin-bottom: 8px;
-    }
-
-    .nut-eng.nut-eng-local {
-      grid-column: 1 / -1;
-      background: #f0fdf4;
-      border-color: #bbf7d0;
-      color: #166534;
-    }
-
-    .nut-eng.nut-eng-local.dang-chon {
-      background: #dcfce7;
-      border-color: #22c55e;
-      color: #14532d;
-      box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.25);
-    }
-
-    .nut-eng {
-      padding: 5px 8px;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-      background: #f8fafc;
-      color: #475569;
-      font-size: 11.5px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.14s ease;
-      text-align: center;
-      white-space: nowrap;
-    }
-
-    .nut-eng.dang-chon {
-      background: var(--brand-soft);
-      border-color: #818cf8;
-      color: var(--brand);
-    }
-
-    /* Kho Font theo thể loại truyện (2x2) */
-    .luoi-font {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 5px;
-    }
-
-    .nut-font {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 5px 8px;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-      background: #f8fafc;
-      color: #334155;
-      font-size: 11px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.14s ease;
-    }
-
-    .nut-font:hover {
-      background: #f1f5f9;
-      border-color: #cbd5e1;
-    }
-
-    .nut-font.dang-chon {
-      background: var(--brand-soft);
-      border-color: #818cf8;
-      color: var(--brand);
-      box-shadow: 0 0 0 1px rgba(79, 70, 229, 0.15);
-    }
-
-    .nut-font .mau-chu {
-      font-size: 10px;
-      font-weight: 500;
-      color: var(--muted);
-    }
-
-    .nut-font.dang-chon .mau-chu {
-      color: #6366f1;
+    /* Ẩn các lưới nút cũ nhưng giữ DOM tương thích */
+    .luoi-ngon-ngu,
+    .thanh-dich-ra,
+    .thanh-engine,
+    .luoi-font,
+    .select-an {
+      display: none !important;
     }
 
     /* Huy hiệu chế độ GPU máy khách + Sửa bóng thoại tức thì */
@@ -340,11 +227,6 @@
       font-weight: 500;
       color: #6366f1;
       font-size: 10px;
-    }
-
-    /* Ẩn select gốc nhưng giữ nguyên ID cho tương thích */
-    .select-an {
-      display: none !important;
     }
 
     /* Nút hành động chính (Hero CTA) */
@@ -471,7 +353,7 @@
       <div class="ten-ung-dung">
         <h1>
           Dịch Truyện AI
-          <span class="nhan-ver">v0.3.0</span>
+          <span class="nhan-ver">v0.3.1</span>
         </h1>
         <p>Manga · Manhwa · Manhua · Comic</p>
       </div>
@@ -484,18 +366,18 @@
   <div id="han-muc" class="hop canh-bao" hidden></div>
 
   <section class="the-cau-hinh">
-    <div class="nhan-muc">
-      <span>Ngôn ngữ gốc trên trang</span>
-      <span class="phu">Đổi tức thì</span>
+    <div class="nhom-chon-popup">
+      <label class="nhan-muc" for="ngon-ngu">
+        <span>Ngôn ngữ gốc trên trang</span>
+        <span class="phu">Đổi tức thì</span>
+      </label>
+      <select id="ngon-ngu" class="o-chon-popup">
+        <option value="ja">🇯🇵 Tiếng Nhật (Manga)</option>
+        <option value="ko">🇰🇷 Tiếng Hàn (Manhwa / Webtoon)</option>
+        <option value="zh">🇨🇳 Tiếng Trung (Manhua)</option>
+        <option value="en">🇬🇧 Tiếng Anh (Comic)</option>
+      </select>
     </div>
-
-    <!-- Select ẩn giữ tương thích 100% với logic/test -->
-    <select id="ngon-ngu" class="select-an">
-      <option value="ja">Tiếng Nhật (Manga)</option>
-      <option value="ko">Tiếng Hàn (Manhwa / Webtoon)</option>
-      <option value="zh">Tiếng Trung (Manhua)</option>
-      <option value="en">Tiếng Anh (Comic)</option>
-    </select>
 
     <div class="luoi-ngon-ngu" id="nhom-nut-nn">
       <button type="button" class="nut-nn dang-chon" data-nn="ja">
@@ -512,22 +394,23 @@
       </button>
     </div>
 
-    <div class="nhan-muc">
-      <span>Ngôn ngữ dịch ra</span>
-      <span class="phu">9 Ngôn ngữ Quốc tế</span>
+    <div class="nhom-chon-popup">
+      <label class="nhan-muc" for="ngon-ngu-dich">
+        <span>Ngôn ngữ dịch ra</span>
+        <span class="phu">9 Ngôn ngữ Quốc tế</span>
+      </label>
+      <select id="ngon-ngu-dich" class="o-chon-popup">
+        <option value="vi" selected>🇻🇳 Tiếng Việt (Vietnamese)</option>
+        <option value="en">🇺🇸 English (Tiếng Anh Quốc tế)</option>
+        <option value="zh">🇨🇳 简体中文 (Trung Giản thể)</option>
+        <option value="zh-TW">🇹🇼 繁體中文 (Trung Phồn thể · Đài Loan/HK)</option>
+        <option value="id">🇮🇩 Bahasa Indonesia (Tiếng Indonesia)</option>
+        <option value="es">🇪🇸 Español (Tiếng Tây Ban Nha)</option>
+        <option value="pt">🇧🇷 Português (Tiếng Bồ Đào Nha / Brazil)</option>
+        <option value="th">🇹🇭 ภาษาไทย (Tiếng Thái)</option>
+        <option value="fr">🇫🇷 Français (Tiếng Pháp)</option>
+      </select>
     </div>
-
-    <select id="ngon-ngu-dich" class="select-an">
-      <option value="vi" selected>Tiếng Việt</option>
-      <option value="en">English (Quốc tế)</option>
-      <option value="zh">简体中文 (Trung Giản thể)</option>
-      <option value="zh-TW">繁體中文 (Đài Loan / HK)</option>
-      <option value="id">Bahasa Indonesia</option>
-      <option value="es">Español (Tây Ban Nha)</option>
-      <option value="pt">Português (Bồ Đào Nha / Brazil)</option>
-      <option value="th">ภาษาไทย (Tiếng Thái)</option>
-      <option value="fr">Français (Tiếng Pháp)</option>
-    </select>
 
     <div class="thanh-dich-ra" id="nhom-nut-dich">
       <button type="button" class="nut-dich-ra dang-chon" data-dich="vi">
@@ -559,18 +442,19 @@
       </button>
     </div>
 
-    <div class="nhan-muc">
-      <span>Bộ máy dịch thuật</span>
-      <span class="phu" id="nhan-phu-eng">⚡ 1 lượt/trang · Khuyên dùng</span>
+    <div class="nhom-chon-popup">
+      <label class="nhan-muc" for="engine">
+        <span>Bộ máy dịch thuật</span>
+        <span class="phu" id="nhan-phu-eng">⚡ 1 lượt/trang · Khuyên dùng</span>
+      </label>
+      <select id="engine" class="o-chon-popup">
+        <option value="local_ocr_gpu" selected>⚡ OCR + GPU Nhanh — Khuyên dùng (1 lượt/trang)</option>
+        <option value="local_hybrid_pro">🧠 OCR + GPU Pro — Tự Học &amp; Chữ Viết Tay (2 lượt/trang)</option>
+        <option value="llm_context">✨ AI Ngữ Cảnh Đám Mây — Cloud AI (1 lượt/trang)</option>
+        <option value="google_fast">🚀 Dịch Nhanh — Google Fast (1 lượt/trang)</option>
+        <option value="local_gguf">💻 AI Cục Bộ — Offline trên máy (0 lượt/trang)</option>
+      </select>
     </div>
-
-    <select id="engine" class="select-an">
-      <option value="local_ocr_gpu" selected>⚡ OCR + GPU Nhanh (1 lượt/trang)</option>
-      <option value="local_hybrid_pro">🧠 OCR + GPU Pro — Tự Học &amp; Chữ Viết Tay (2 lượt/trang)</option>
-      <option value="llm_context">✨ AI Ngữ Cảnh Đám Mây (1 lượt/trang)</option>
-      <option value="google_fast">Dịch Nhanh</option>
-      <option value="local_gguf">AI Cục Bộ (Offline)</option>
-    </select>
 
     <div class="thanh-engine" id="nhom-nut-eng">
       <button type="button" class="nut-eng dang-chon" data-eng="local_ocr_gpu" title="⚡ OCR + GPU Nhanh (1 lượt/trang): Tốc độ siêu nhanh, tiết kiệm 50% lượt, tối ưu cho 90% truyện chữ rõ">
@@ -584,17 +468,18 @@
       </button>
     </div>
 
-    <div class="nhan-muc">
-      <span>Font chữ theo thể loại truyện</span>
-      <span class="phu">Đổi trực tiếp trên trang</span>
+    <div class="nhom-chon-popup">
+      <label class="nhan-muc" for="font-chu">
+        <span>Font chữ theo thể loại truyện</span>
+        <span class="phu">Đổi trực tiếp trên trang</span>
+      </label>
+      <select id="font-chu" class="o-chon-popup">
+        <option value="bangers" selected>⚔️ Hành động / Shounen — Nét đậm mạnh mẽ</option>
+        <option value="shantell">🌸 Ngôn tình / Đời thường — Nét tròn mềm mại</option>
+        <option value="mansalva">🏮 Cổ trang / Kiếm hiệp — Nét bút phóng khoáng</option>
+        <option value="sigmar">💥 Hài hước / Chibi — Nét dày vui nhộn</option>
+      </select>
     </div>
-
-    <select id="font-chu" class="select-an">
-      <option value="bangers" selected>Hành động / Shounen</option>
-      <option value="shantell">Ngôn tình mềm mại</option>
-      <option value="mansalva">Cổ trang kiếm hiệp</option>
-      <option value="sigmar">Hài hước / Chibi</option>
-    </select>
 
     <div class="luoi-font" id="nhom-nut-font">
       <button type="button" class="nut-font dang-chon" data-font="bangers" title="Font Bangers — mạnh mẽ, hợp truyện hành động / shounen">

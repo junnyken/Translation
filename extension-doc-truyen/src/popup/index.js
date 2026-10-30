@@ -32,10 +32,6 @@ function dongBoNutDichRa(dich) {
   document.querySelectorAll('#nhom-nut-dich .nut-dich-ra').forEach((btn) => {
     btn.classList.toggle('dang-chon', btn.dataset.dich === dich)
   })
-  const nhanPhu = $('nhan-phu-eng')
-  if (nhanPhu) {
-    nhanPhu.textContent = NHAN_NGON_NGU_DICH[dich] || 'Sang Tiếng Việt'
-  }
 }
 
 function dongBoNutEngine(eng) {
@@ -48,6 +44,8 @@ function dongBoNutEngine(eng) {
       nhanPhu.textContent = '🧠 2 lượt/trang · Tự học & Chữ viết tay'
     } else if (eng === 'local_ocr_gpu') {
       nhanPhu.textContent = '⚡ 1 lượt/trang · Khuyên dùng'
+    } else if (eng === 'local_gguf') {
+      nhanPhu.textContent = '💻 0 lượt/trang · Offline'
     } else {
       nhanPhu.textContent = '✨ 1 lượt/trang · Cloud AI'
     }
