@@ -469,6 +469,17 @@ class AppVideoReviewStudio(tk.Tk):
             command=self._xuat_video_mp4,
         ).pack(fill="x", pady=3)
 
+        tk.Button(
+            left_col,
+            text="▶️ MỞ XEM VIDEO MP4 VỪA XUẤT (ĐẦY ĐỦ HÌNH & TIẾNG)",
+            bg="#059669",
+            fg="#ffffff",
+            font=("Segoe UI", 9, "bold"),
+            relief="flat",
+            pady=6,
+            command=self._mo_xem_video_mp4_vua_xuat,
+        ).pack(fill="x", pady=2)
+
         # --- CỘT PHẢI: STORYBOARD EDITOR & NHẬT KÝ ---
         sb_frame = tk.LabelFrame(
             right_col,
@@ -862,11 +873,12 @@ class AppVideoReviewStudio(tk.Tk):
                     elevenlabs_api_key=el_key_val or None,
                     elevenlabs_voice_id=el_vid_val or None,
                 )
+                self.last_video_mp4_path = str(kq["video_path"])
                 self.ghi_log(
                     f"🎉 HOÀN TẤT! Đã xuất Video Review ({kq['tong_thoi_luong_giay']}s):\n"
-                    f"   • Video MP4: {kq['video_path']}\n"
-                    f"   • Audio Master WAV: {kq['audio_master_path']}\n"
-                    f"   • Phụ đề SRT: {kq['srt_path']}"
+                    f"   • Video MP4 (Hình + Tiếng + Phụ đề): {kq['video_path']}\n"
+                    f"   • Phụ đề SRT: {kq['srt_path']}\n"
+                    f"   👉 Bấm nút '▶️ MỞ XEM VIDEO MP4 VỪA XUẤT' để phát ngay!"
                 )
             except Exception as exc:
                 self.ghi_log(f"❌ Lỗi xuất Video: {exc}")
@@ -874,6 +886,25 @@ class AppVideoReviewStudio(tk.Tk):
                 self.dang_xu_ly = False
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    def _mo_xem_video_mp4_vua_xuat(self):
+        mp4_p = getattr(self, "last_video_mp4_path", "") or ""
+        if not mp4_p or not Path(mp4_p).is_file():
+            src_str = self.ent_folder.get().strip()
+            if src_str:
+                src_p = Path(src_str)
+                out_folder = src_p.parent if src_p.is_file() else src_p
+                cands = sorted(out_folder.glob("*_Video_Review_*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True)
+                if cands:
+                    mp4_p = str(cands[0])
+        if not mp4_p or not Path(mp4_p).is_file():
+            messagebox.showinfo("Chưa có file MP4", "Hãy bấm '🎬 BƯỚC 2: LỒNG TIẾNG & XUẤT VIDEO MP4' trước khi mở xem!")
+            return
+        try:
+            os.startfile(mp4_p)
+            self.ghi_log(f"▶️ Đang mở phát file Video MP4: {mp4_p}")
+        except Exception as exc:
+            self.ghi_log(f"⚠️ Không thể tự mở trình phát video: {exc}")
 
 
 if __name__ == "__main__":

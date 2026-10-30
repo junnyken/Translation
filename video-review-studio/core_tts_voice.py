@@ -229,6 +229,77 @@ DANH_SACH_GIONG_DOC: dict[str, dict[str, Any]] = {
         "vung_mien": "Miền Nam",
         "toc_do_mac_dinh": 1.10,
     },
+    # --- NHÓM GIỌNG QUỐC TẾ ĐA QUỐC GIA (DÀNH CHO KÊNH RECAP QUỐC TẾ CPM CAO) ---
+    "global_en_christopher": {
+        "ten": "🇺🇸 [English US] Christopher — Nam Kịch Tính (Chuẩn Kênh Manga/Manhwa Recap Quốc Tế CPM Cao)",
+        "voice_id": "en-US-ChristopherNeural",
+        "preset_hf": "en_us_m",
+        "pitch_hz": "+0Hz",
+        "atempo_mod": 1.0,
+        "gioi_tinh": "nam",
+        "vung_mien": "Global English",
+        "toc_do_mac_dinh": 1.12,
+    },
+    "global_en_aria": {
+        "ten": "🇺🇸 [English US] Aria — Nữ Truyền Cảm Sắc Sảo (Chuẩn Kênh Webtoon / Romance Quốc Tế)",
+        "voice_id": "en-US-AriaNeural",
+        "preset_hf": "en_us_f",
+        "pitch_hz": "+0Hz",
+        "atempo_mod": 1.0,
+        "gioi_tinh": "nu",
+        "vung_mien": "Global English",
+        "toc_do_mac_dinh": 1.12,
+    },
+    "global_id_ardi": {
+        "ten": "🇮🇩 [Indonesia] Ardi — Nam Thuyết Minh Komik/Manhwa (Thị trường Indonesia 275 triệu dân)",
+        "voice_id": "id-ID-ArdiNeural",
+        "preset_hf": "id_m",
+        "pitch_hz": "+0Hz",
+        "atempo_mod": 1.0,
+        "gioi_tinh": "nam",
+        "vung_mien": "Indonesia",
+        "toc_do_mac_dinh": 1.12,
+    },
+    "global_es_jorge": {
+        "ten": "🇪🇸 [Español LatAm] Jorge — Nam Thuyết Minh Manga/Manhwa (Tây Ban Nha & Mỹ Latinh 500M dân)",
+        "voice_id": "es-MX-JorgeNeural",
+        "preset_hf": "es_m",
+        "pitch_hz": "+0Hz",
+        "atempo_mod": 1.0,
+        "gioi_tinh": "nam",
+        "vung_mien": "Español",
+        "toc_do_mac_dinh": 1.12,
+    },
+    "global_pt_antonio": {
+        "ten": "🇧🇷 [Português Brasil] Antonio — Nam Thuyết Minh Manga/Webtoon (Thị trường Brazil)",
+        "voice_id": "pt-BR-AntonioNeural",
+        "preset_hf": "pt_m",
+        "pitch_hz": "+0Hz",
+        "atempo_mod": 1.0,
+        "gioi_tinh": "nam",
+        "vung_mien": "Português",
+        "toc_do_mac_dinh": 1.12,
+    },
+    "global_th_niwat": {
+        "ten": "🇹🇭 [ภาษาไทย] Niwat — Nam Thuyết Minh มังงะ/มันฮวา (Thị trường Thái Lan)",
+        "voice_id": "th-TH-NiwatNeural",
+        "preset_hf": "th_m",
+        "pitch_hz": "+0Hz",
+        "atempo_mod": 1.0,
+        "gioi_tinh": "nam",
+        "vung_mien": "Thailand",
+        "toc_do_mac_dinh": 1.12,
+    },
+    "global_fr_henri": {
+        "ten": "🇫🇷 [Français] Henri — Nam Thuyết Minh Manga (Thị trường Pháp & Châu Âu — CPM Cao)",
+        "voice_id": "fr-FR-HenriNeural",
+        "preset_hf": "fr_m",
+        "pitch_hz": "+0Hz",
+        "atempo_mod": 1.0,
+        "gioi_tinh": "nam",
+        "vung_mien": "Français",
+        "toc_do_mac_dinh": 1.12,
+    },
 }
 
 
@@ -291,14 +362,52 @@ def chuan_hoa_van_ban_thuan_viet_cho_tts(van_ban: str) -> str:
 
 def tim_ffmpeg_he_thong() -> str | None:
     ff = shutil.which("ffmpeg")
-    if ff:
+    if ff and os.path.isfile(ff):
         return ff
     try:
         import imageio_ffmpeg  # type: ignore
 
-        return imageio_ffmpeg.get_ffmpeg_exe()
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+        if exe and os.path.isfile(exe):
+            return exe
     except Exception:
-        return None
+        pass
+
+    # Quét toàn bộ các bản Python trên máy (Python310, Python311, Python312...) để tận dụng ffmpeg có sẵn
+    local_app = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData/Local")
+    roots_to_scan = [
+        Path(local_app) / "Programs" / "Python",
+        Path("C:/"),
+    ]
+    for rdir in roots_to_scan:
+        if not rdir.is_dir():
+            continue
+        try:
+            for cand in sorted(rdir.glob("Python*/Lib/site-packages/imageio_ffmpeg/binaries/ffmpeg-*.exe"), reverse=True):
+                if cand.is_file():
+                    return str(cand)
+        except Exception:
+            continue
+
+    # Tự động cài đặt imageio-ffmpeg nếu môi trường Python hiện tại chưa có
+    try:
+        import sys
+
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "imageio-ffmpeg", "--quiet"],
+            timeout=90,
+            check=False,
+            creationflags=flags,
+        )
+        import imageio_ffmpeg  # type: ignore
+
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+        if exe and os.path.isfile(exe):
+            return exe
+    except Exception:
+        pass
+    return None
 
 
 def kiem_tra_ha_tang_giong_doc_va_video() -> dict[str, Any]:
@@ -622,7 +731,9 @@ def _thu_goi_elevenlabs_tts(
                 },
             }
             if m_id == "eleven_flash_v2_5":
-                body_dict["language_code"] = "vi"
+                # Nếu văn bản có dấu tiếng Việt thì khoá language_code='vi', nếu kịch bản quốc tế (EN/ES/ID/PT/FR...) thì để ElevenLabs tự nhận diện đa ngôn ngữ
+                if re.search(r"[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]", van_ban_sach, flags=re.I):
+                    body_dict["language_code"] = "vi"
             req = urllib.request.Request(
                 f"https://api.elevenlabs.io/v1/text-to-speech/{vid}?output_format=mp3_44100_128",
                 data=json.dumps(body_dict).encode("utf-8"),

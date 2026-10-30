@@ -23,7 +23,7 @@ except Exception:  # pragma: no cover
     ImageFilter = None
     ImageFont = None
 
-from core_tts_voice import tong_hop_giong_doc_phan_canh, xuat_phu_de_srt
+from core_tts_voice import tim_ffmpeg_he_thong, tong_hop_giong_doc_phan_canh, xuat_phu_de_srt
 
 
 DINH_DANG_VIDEO = {
@@ -261,14 +261,33 @@ def ghep_cac_file_wav_thanh_master(wav_paths: list[Path], out_master_wav: Path) 
     frames_all: list[bytes] = []
     mp3_chunks: list[bytes] = []
     params = None
+    ff_exe = tim_ffmpeg_he_thong()
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
     for wp in wav_paths:
         if not wp.is_file():
             continue
-        if wp.suffix.lower() == ".mp3":
-            mp3_chunks.append(wp.read_bytes())
+        cur_p = wp
+        if cur_p.suffix.lower() == ".mp3" and ff_exe:
+            conv_wav = cur_p.with_suffix(".wav")
+            try:
+                subprocess.run(
+                    [ff_exe, "-y", "-i", str(cur_p), "-ar", "24000", "-ac", "1", "-c:a", "pcm_s16le", str(conv_wav)],
+                    timeout=20,
+                    check=True,
+                    creationflags=flags,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                if conv_wav.is_file() and conv_wav.stat().st_size > 128:
+                    cur_p = conv_wav
+            except Exception:
+                pass
+        if cur_p.suffix.lower() == ".mp3":
+            mp3_chunks.append(cur_p.read_bytes())
             continue
         try:
-            with wave.open(str(wp), "rb") as rf:
+            with wave.open(str(cur_p), "rb") as rf:
                 if params is None:
                     params = rf.getparams()
                 frames_all.append(rf.readframes(rf.getnframes()))
@@ -409,15 +428,7 @@ def pha_tron_nhac_nen_va_hieu_ung_chuyen_canh(
 
 
 def _tim_ffmpeg_exe() -> str | None:
-    ff = shutil.which("ffmpeg")
-    if ff:
-        return ff
-    try:
-        import imageio_ffmpeg  # type: ignore
-
-        return imageio_ffmpeg.get_ffmpeg_exe()
-    except Exception:
-        return None
+    return tim_ffmpeg_he_thong()
 
 
 def _tao_container_mp4_hop_le_du_phong(frames_jpeg: list[bytes], out_mp4: Path) -> None:
@@ -509,14 +520,51 @@ def xuat_video_review_mp4(
             frames_jpeg.append(frame_b)
             frame_file = work_dir / f"frame_{idx + 1:03d}_{step_idx}.jpg"
             frame_file.write_bytes(frame_b)
-            dur_step = round(thoi_luong / 3.0, 3)
+            dur_step = round(max(0.35, thoi_luong / 3.0), 3)
             safe_fp = str(frame_file.resolve()).replace("\\", "/")
             concat_lines.append(f"file '{safe_fp}'\nduration {dur_step}")
+            last_safe_fp = safe_fp
 
-    # Ghép track âm thanh thuyết minh tổng (.wav) và trộn nhạc nền + hiệu ứng chuyển cảnh Whoosh
+    if concat_lines and locals().get("last_safe_fp"):
+        # Quy chuẩn FFmpeg concat demuxer: lặp lại dòng file cuối cùng (không kèm duration) để giữ trọn vẹn khung hình cuối
+        concat_lines.append(f"file '{last_safe_fp}'")
+
+    # Dọn dẹp file _voice.mp3 / _voice.wav cũ ngoài thư mục chính để tránh người dùng mở nhầm file âm thanh thay vì file .mp4
+    for old_ext in (".mp3", ".wav"):
+        old_voice = out_mp4_path.with_name(f"{out_mp4_path.stem}_voice{old_ext}")
+        if old_voice.is_file():
+            try:
+                old_voice.unlink()
+            except Exception:
+                pass
+
+    # Ghép track âm thanh thuyết minh tổng (.wav) trong thư mục tạm và trộn nhạc nền + hiệu ứng chuyển cảnh Whoosh
     out_audio_master = ghep_cac_file_wav_thanh_master(
-        wav_files, out_mp4_path.with_name(f"{out_mp4_path.stem}_voice.wav")
+        wav_files, work_dir / f"{out_mp4_path.stem}_voice.wav"
     )
+    # Đồng bộ lại chính xác thời lượng từng phân cảnh theo file .wav thực tế sau chuyển đổi để khớp 100% hình và tiếng
+    concat_lines = []
+    last_safe_fp = ""
+    tong_thoi_luong = 0.0
+    for idx, sc in enumerate(scenes):
+        cand_wav = work_dir / f"scene_{idx + 1:03d}.wav"
+        if cand_wav.is_file():
+            try:
+                with wave.open(str(cand_wav), "rb") as rf:
+                    sc["thoi_luong_giay"] = round(max(0.8, rf.getnframes() / float(rf.getframerate() or 24000)), 3)
+            except Exception:
+                pass
+        dur_sc = float(sc.get("thoi_luong_giay") or 3.0)
+        tong_thoi_luong += dur_sc
+        dur_step = round(max(0.30, dur_sc / 3.0), 3)
+        for step_idx in range(3):
+            frame_file = work_dir / f"frame_{idx + 1:03d}_{step_idx}.jpg"
+            safe_fp = str(frame_file.resolve()).replace("\\", "/")
+            concat_lines.append(f"file '{safe_fp}'\nduration {dur_step}")
+            last_safe_fp = safe_fp
+    if concat_lines and last_safe_fp:
+        concat_lines.append(f"file '{last_safe_fp}'")
+
     out_audio_master = pha_tron_nhac_nen_va_hieu_ung_chuyen_canh(
         out_audio_master,
         scenes,
@@ -555,25 +603,31 @@ def xuat_video_review_mp4(
                     "-i",
                     str(out_audio_master),
                     "-vf",
-                    "fps=24,format=yuv420p",
+                    "fps=24,scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
                     "-c:v",
                     "libx264",
                     "-preset",
-                    "ultrafast",
+                    "veryfast",
+                    "-crf",
+                    "21",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-movflags",
+                    "+faststart",
                     "-c:a",
                     "aac",
                     "-b:a",
-                    "128k",
+                    "160k",
                     "-shortest",
                     str(out_mp4_path),
                 ],
-                timeout=120,
+                timeout=240,
                 check=True,
                 creationflags=flags,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-            da_xuat_ffmpeg = out_mp4_path.is_file() and out_mp4_path.stat().st_size > 512
+            da_xuat_ffmpeg = out_mp4_path.is_file() and out_mp4_path.stat().st_size > 1024
         except Exception:
             da_xuat_ffmpeg = False
 
