@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import math
 import os
 import re
@@ -15,6 +16,57 @@ from typing import Any
 
 
 DANH_SACH_GIONG_DOC: dict[str, dict[str, Any]] = {
+    # --- NHÓM GIỌNG ELEVENLABS AI BIỂU CẢM CAO CẤP (CHỐNG BUỒN NGỦ · TỰ ĐIỀU CHỈNH NGỮ ĐIỆU THEO CẢNH) ---
+    "elevenlabs_auto_cam_xuc": {
+        "ten": "🔥 [ElevenLabs AI] Tự Động Đổi Ngữ Điệu & Cảm Xúc Theo Từng Cảnh (Khuyên dùng khi có Key ElevenLabs)",
+        "voice_id": "elevenlabs:nPczCjzI2devNBz1zQrb",
+        "preset_hf": "eleven_flash_v2_5",
+        "pitch_hz": "+0Hz",
+        "atempo_mod": 1.0,
+        "gioi_tinh": "auto",
+        "vung_mien": "ElevenLabs Studio",
+        "toc_do_mac_dinh": 1.15,
+    },
+    "elevenlabs_brian_kich_tinh": {
+        "ten": "🎙️ [ElevenLabs] Brian — Nam Trầm Hùng, Kịch Tính (Chuẩn Review Hành Động / Tu Tiên / Hệ Thống)",
+        "voice_id": "elevenlabs:nPczCjzI2devNBz1zQrb",
+        "preset_hf": "eleven_flash_v2_5",
+        "pitch_hz": "+0Hz",
+        "atempo_mod": 1.0,
+        "gioi_tinh": "nam",
+        "vung_mien": "ElevenLabs Studio",
+        "toc_do_mac_dinh": 1.15,
+    },
+    "elevenlabs_adam_cuon_hut": {
+        "ten": "⚡ [ElevenLabs] Adam — Nam Mạnh Mẽ, Nhịp Nhanh Cuốn Hút (Chuẩn TikTok / YouTube Recap)",
+        "voice_id": "elevenlabs:pNInz6obpgDQGcFmaJgB",
+        "preset_hf": "eleven_flash_v2_5",
+        "pitch_hz": "+0Hz",
+        "atempo_mod": 1.03,
+        "gioi_tinh": "nam",
+        "vung_mien": "ElevenLabs Studio",
+        "toc_do_mac_dinh": 1.18,
+    },
+    "elevenlabs_rachel_truyen_cam": {
+        "ten": "🌟 [ElevenLabs] Rachel — Nữ Sắc Sảo, Giàu Cảm Xúc (Review Ngôn Tình / Drama / Học Đường)",
+        "voice_id": "elevenlabs:21m00Tcm4TlvDq8ikWAM",
+        "preset_hf": "eleven_flash_v2_5",
+        "pitch_hz": "+0Hz",
+        "atempo_mod": 1.0,
+        "gioi_tinh": "nu",
+        "vung_mien": "ElevenLabs Studio",
+        "toc_do_mac_dinh": 1.15,
+    },
+    "elevenlabs_sarah_nang_dong": {
+        "ten": "😂 [ElevenLabs] Sarah — Nữ Trẻ Trung, Hài Hước & Sôi Nổi (Review Tấu Hài TikTok)",
+        "voice_id": "elevenlabs:EXAVITQu4vr4xnSDxMaL",
+        "preset_hf": "eleven_flash_v2_5",
+        "pitch_hz": "+0Hz",
+        "atempo_mod": 1.04,
+        "gioi_tinh": "nu",
+        "vung_mien": "ElevenLabs Studio",
+        "toc_do_mac_dinh": 1.20,
+    },
     # --- NHÓM GIỌNG THUẦN VIỆT CHUẨN REVIEW TRUYỆN (KHÔNG BAO GIỜ LỚ GIỌNG NƯỚC NGOÀI) ---
     "chi_google_review_chuan": {
         "ten": "🌟 Chị Google Review Truyện — Nữ Miền Bắc Quốc Dân (Chuẩn 100% Tiếng Việt · TikTok/YouTube Recap)",
@@ -328,13 +380,48 @@ def do_thoi_luong_wav_thuc_te(wav_path: Path) -> float | None:
     return None
 
 
-def _chuyen_mp3_sang_wav_chuan(mp3_path: Path, out_wav: Path, *, atempo: float = 1.0) -> bool:
+def _chuyen_mp3_sang_wav_chuan(
+    mp3_path: Path,
+    out_wav: Path,
+    *,
+    atempo: float = 1.0,
+    cat_khoang_lang_buon_ngu: bool = True,
+) -> bool:
     ff = tim_ffmpeg_he_thong()
     if not ff or not mp3_path.is_file():
         return False
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    atempo_clamped = max(0.75, min(1.65, float(atempo or 1.0)))
+
+    # Bộ lọc Mastering chống buồn ngủ: cắt khoảng lặng thừa >0.22s giữa các vế câu + nén động lực học giúp giọng đọc sáng, dứt khoát và cuốn hút
+    if cat_khoang_lang_buon_ngu:
+        filters: list[str] = [
+            "silenceremove=stop_periods=-1:stop_duration=0.22:stop_threshold=-42dB",
+            "highpass=f=75",
+            "acompressor=threshold=-18dB:ratio=2.2:attack=12:release=140:makeup=1.5dB",
+        ]
+        if abs(atempo_clamped - 1.0) >= 0.03:
+            filters.append(f"atempo={atempo_clamped:.2f}")
+        try:
+            cmd_pro = [
+                ff, "-y", "-i", str(mp3_path),
+                "-filter:a", ",".join(filters),
+                "-ar", "24000", "-ac", "1", "-c:a", "pcm_s16le", str(out_wav),
+            ]
+            subprocess.run(
+                cmd_pro,
+                timeout=25,
+                check=True,
+                creationflags=flags,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            if out_wav.is_file() and out_wav.stat().st_size > 512:
+                return True
+        except Exception:
+            pass
+
     try:
-        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        atempo_clamped = max(0.75, min(1.65, float(atempo or 1.0)))
         cmd = [ff, "-y", "-i", str(mp3_path)]
         if abs(atempo_clamped - 1.0) >= 0.03:
             cmd.extend(["-filter:a", f"atempo={atempo_clamped:.2f}"])
@@ -350,6 +437,220 @@ def _chuyen_mp3_sang_wav_chuan(mp3_path: Path, out_wav: Path, *, atempo: float =
         return out_wav.is_file() and out_wav.stat().st_size > 512
     except Exception:
         return False
+
+
+def _lay_khoa_elevenlabs(api_key_override: str | None = None) -> str:
+    """Đọc khoá ElevenLabs API (xi-api-key) từ tham số truyền vào, biến môi trường hoặc file cấu hình."""
+    if api_key_override and str(api_key_override).strip():
+        return str(api_key_override).strip()
+    for env_name in ("ELEVENLABS_API_KEY", "XI_API_KEY"):
+        val = (os.environ.get(env_name) or "").strip()
+        if val:
+            return val
+    for cfg_path in (
+        Path.home() / ".manga_video_review_studio_config.json",
+        Path(__file__).resolve().parent / "cau-hinh-video-studio.json",
+    ):
+        try:
+            if cfg_path.is_file():
+                cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+                k = str(cfg.get("elevenlabs_api_key") or "").strip()
+                if k:
+                    return k
+        except Exception:
+            pass
+    return ""
+
+
+def lay_danh_sach_giong_elevenlabs(api_key: str | None = None) -> list[dict[str, str]]:
+    """
+    Kết nối tới tài khoản ElevenLabs của người dùng (`GET /v1/voices`) để lấy toàn bộ danh sách giọng đọc
+    (bao gồm cả giọng Tiếng Việt đã thêm vào VoiceLab, giọng Clone cá nhân và giọng Studio)
+    và tự động đăng ký vào `DANH_SACH_GIONG_DOC`.
+    """
+    key = _lay_khoa_elevenlabs(api_key)
+    if not key:
+        raise ValueError("Chưa nhập ElevenLabs API Key (xi-api-key).")
+    req = urllib.request.Request(
+        "https://api.elevenlabs.io/v1/voices",
+        headers={
+            "xi-api-key": key,
+            "Accept": "application/json",
+            "User-Agent": "MangaVideoReviewStudio/1.1",
+        },
+        method="GET",
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        data = json.loads(resp.read().decode("utf-8", errors="replace"))
+    voices = data.get("voices") or []
+    ket_qua: list[dict[str, str]] = []
+    for v in voices:
+        if not isinstance(v, dict) or not v.get("voice_id"):
+            continue
+        vid = str(v["voice_id"]).strip()
+        vname = str(v.get("name") or vid).strip()
+        vcat = str(v.get("category") or "premade").strip()
+        labels = v.get("labels") or {}
+        accent = str(labels.get("accent") or labels.get("language") or vcat).strip()
+        ma_key = f"elevenlabs_user_{vid[:10]}"
+        ten_hien_thi = f"💎 [ElevenLabs Của Bạn] {vname} ({accent} · ID: {vid[:8]})"
+        DANH_SACH_GIONG_DOC[ma_key] = {
+            "ten": ten_hien_thi,
+            "voice_id": f"elevenlabs:{vid}",
+            "preset_hf": "eleven_flash_v2_5",
+            "pitch_hz": "+0Hz",
+            "atempo_mod": 1.0,
+            "gioi_tinh": str(labels.get("gender") or "auto"),
+            "vung_mien": "ElevenLabs Account",
+            "toc_do_mac_dinh": 1.15,
+        }
+        ket_qua.append({"ma_giong": ma_key, "voice_id": vid, "ten": ten_hien_thi})
+    return ket_qua
+
+
+def _lay_cau_hinh_cam_xuc_giong(cam_xuc: str, toc_do: float | str = 1.15) -> dict[str, Any]:
+    """
+    Ánh xạ cảm xúc của phân cảnh (`cam_xuc`) sang thông số biểu cảm giọng đọc (ElevenLabs `stability`/`style`
+    và Edge-TTS `pitch`/`rate_boost`) để giọng đọc giàu năng lượng, nhấn nhá cuốn hút, KHÔNG bị buồn ngủ!
+    """
+    cx = (cam_xuc or "kich_tinh").strip().lower()
+    if isinstance(toc_do, str) and toc_do.strip().endswith("%"):
+        try:
+            pct = float(toc_do.strip().rstrip("%"))
+            val_spd = 1.0 + (pct / 100.0)
+        except Exception:
+            val_spd = 1.15
+    else:
+        try:
+            val_spd = float(toc_do or 1.15)
+        except Exception:
+            val_spd = 1.15
+    base_spd = max(0.85, min(1.20, val_spd))
+    bang_cam_xuc = {
+        "kich_tinh": {
+            "stability": 0.34,
+            "similarity_boost": 0.82,
+            "style": 0.78,
+            "speed_el": min(1.20, base_spd * 1.03),
+            "atempo_boost": 1.04,
+            "pitch_edge": "+3Hz",
+        },
+        "hai_huoc": {
+            "stability": 0.36,
+            "similarity_boost": 0.80,
+            "style": 0.74,
+            "speed_el": min(1.20, base_spd * 1.04),
+            "atempo_boost": 1.05,
+            "pitch_edge": "+4Hz",
+        },
+        "hoi_hop": {
+            "stability": 0.42,
+            "similarity_boost": 0.85,
+            "style": 0.65,
+            "speed_el": min(1.18, base_spd * 1.00),
+            "atempo_boost": 1.01,
+            "pitch_edge": "+1Hz",
+        },
+        "uy_ap": {
+            "stability": 0.48,
+            "similarity_boost": 0.88,
+            "style": 0.70,
+            "speed_el": max(0.92, min(1.15, base_spd * 0.96)),
+            "atempo_boost": 0.97,
+            "pitch_edge": "-3Hz",
+        },
+        "cam_xuc": {
+            "stability": 0.45,
+            "similarity_boost": 0.84,
+            "style": 0.60,
+            "speed_el": max(0.94, min(1.15, base_spd * 0.97)),
+            "atempo_boost": 0.98,
+            "pitch_edge": "+0Hz",
+        },
+        "mo_dau": {
+            "stability": 0.35,
+            "similarity_boost": 0.82,
+            "style": 0.76,
+            "speed_el": min(1.20, base_spd * 1.03),
+            "atempo_boost": 1.04,
+            "pitch_edge": "+3Hz",
+        },
+    }
+    return bang_cam_xuc.get(cx, bang_cam_xuc["kich_tinh"])
+
+
+def _thu_goi_elevenlabs_tts(
+    van_ban: str,
+    voice_id_raw: str,
+    toc_do: float,
+    out_wav: Path,
+    *,
+    cam_xuc: str = "kich_tinh",
+    api_key_override: str | None = None,
+    custom_voice_id: str | None = None,
+    model_id: str = "eleven_flash_v2_5",
+) -> tuple[bool, Path]:
+    """
+    Gọi trực tiếp ElevenLabs API (`eleven_flash_v2_5` hỗ trợ 32 ngôn ngữ trong đó có Tiếng Việt siêu tốc,
+    hoặc `eleven_multilingual_v2`) với bộ thông số biểu cảm động (`stability`, `style`, `speed`) theo từng phân cảnh!
+    """
+    key = _lay_khoa_elevenlabs(api_key_override)
+    if not key:
+        return False, out_wav
+
+    vid = (custom_voice_id or "").strip()
+    if not vid:
+        vid = voice_id_raw.split(":", 1)[1].strip() if ":" in voice_id_raw else "nPczCjzI2devNBz1zQrb"
+
+    emo = _lay_cau_hinh_cam_xuc_giong(cam_xuc, toc_do=toc_do)
+    van_ban_sach = chuan_hoa_van_ban_thuan_viet_cho_tts(van_ban)
+    if not van_ban_sach:
+        return False, out_wav
+
+    # Thử ưu tiên model được chọn (eleven_flash_v2_5), nếu cần lùi về eleven_multilingual_v2
+    for m_id in (model_id or "eleven_flash_v2_5", "eleven_multilingual_v2"):
+        try:
+            body_dict: dict[str, Any] = {
+                "text": van_ban_sach,
+                "model_id": m_id,
+                "voice_settings": {
+                    "stability": emo["stability"],
+                    "similarity_boost": emo["similarity_boost"],
+                    "style": emo["style"],
+                    "use_speaker_boost": True,
+                    "speed": round(emo["speed_el"], 2),
+                },
+            }
+            if m_id == "eleven_flash_v2_5":
+                body_dict["language_code"] = "vi"
+            req = urllib.request.Request(
+                f"https://api.elevenlabs.io/v1/text-to-speech/{vid}?output_format=mp3_44100_128",
+                data=json.dumps(body_dict).encode("utf-8"),
+                headers={
+                    "xi-api-key": key,
+                    "Content-Type": "application/json",
+                    "Accept": "audio/mpeg",
+                    "User-Agent": "MangaVideoReviewStudio/1.1",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=25) as resp:
+                mp3_bytes = resp.read()
+            if mp3_bytes and len(mp3_bytes) > 256:
+                mp3_tmp = out_wav.with_suffix(".mp3")
+                mp3_tmp.write_bytes(mp3_bytes)
+                # Nếu tốc độ > 1.20x (vượt trần speed của ElevenLabs), bù phần dư qua FFmpeg atempo + cắt khoảng lặng
+                extra_atempo = max(1.0, float(toc_do or 1.15) / max(1.0, emo["speed_el"]))
+                if _chuyen_mp3_sang_wav_chuan(mp3_tmp, out_wav, atempo=extra_atempo, cat_khoang_lang_buon_ngu=True):
+                    try:
+                        mp3_tmp.unlink()
+                    except Exception:
+                        pass
+                    return True, out_wav
+                return True, mp3_tmp
+        except Exception:
+            continue
+    return False, out_wav
 
 
 def _tao_wav_pcm_chuan(thoi_luong_giay: float, sample_rate: int = 24000, tan_so_goi_y: float = 0.0) -> bytes:
@@ -488,12 +789,12 @@ def _thu_goi_edge_neural(
         mp3_tmp = out_wav.with_suffix(".mp3")
 
         async def _run():
-            comm = edge_tts.Communicate(van_ban_viet, voice=voice_id, rate=rate_str, pitch="+0Hz")
+            comm = edge_tts.Communicate(van_ban_viet, voice=voice_id, rate=rate_str, pitch=pitch_hz or "+0Hz")
             await comm.save(str(mp3_tmp))
 
         asyncio.run(_run())
         if mp3_tmp.is_file() and mp3_tmp.stat().st_size > 256:
-            if _chuyen_mp3_sang_wav_chuan(mp3_tmp, out_wav):
+            if _chuyen_mp3_sang_wav_chuan(mp3_tmp, out_wav, cat_khoang_lang_buon_ngu=True):
                 try:
                     mp3_tmp.unlink()
                 except Exception:
@@ -512,17 +813,22 @@ def tong_hop_giong_doc_phan_canh(
     scene_index: int = 1,
     ma_giong: str = "chi_google_review_chuan",
     toc_do: float = 1.15,
+    cam_xuc: str = "kich_tinh",
     vai_tro_nhan_vat: str = "",
     ten_nhan_vat: str = "",
     file_giong_mau_clone: str | Path | None = None,
+    elevenlabs_api_key: str | None = None,
+    elevenlabs_voice_id: str | None = None,
     che_do_nhanh_offline: bool = False,
 ) -> dict[str, Any]:
     """
-    Tổng hợp file âm thanh thuyết minh Thuần Việt cho 1 phân cảnh Storyboard:
-    - Tự động chuẩn hoá phiên âm Tiếng Việt (`chuan_hoa_van_ban_thuan_viet_cho_tts`) để tuyệt đối không bị giọng Tây đọc Tiếng Việt.
-    - Hỗ trợ giọng Chị Google Review Quốc Dân (`chi_google_review_chuan`), Giọng Nam Minh / Hoài My Thuần Việt, và Nhái giọng 5s.
+    Tổng hợp file âm thanh thuyết minh cho 1 phân cảnh Storyboard:
+    - Nếu người dùng nhập `elevenlabs_api_key` (hoặc chọn giọng `elevenlabs_*`), ưu tiên tổng hợp bằng ElevenLabs AI
+      với ngữ điệu cảm xúc động (`stability`, `style`, `speed`) bám sát `cam_xuc` của phân cảnh.
+    - Tự động cắt khoảng lặng thừa (>0.22s) và cân chỉnh độ nảy giọng (Anti-Sleepy Prosody) cho mọi bộ đọc.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
+    emo = _lay_cau_hinh_cam_xuc_giong(cam_xuc, toc_do=toc_do)
     ma_giong_thuc = ma_giong
     if ma_giong == "da_nhan_vat_thong_minh":
         ma_giong_thuc = chon_giong_theo_vai_tro_nhan_vat(vai_tro_nhan_vat, ten_nhan_vat, scene_index)
@@ -531,17 +837,32 @@ def tong_hop_giong_doc_phan_canh(
     voice_id = str(info.get("voice_id") or "google_vi_native")
     preset_hf = str(info.get("preset_hf") or "ngoc")
     pitch_hz = str(info.get("pitch_hz") or "+0Hz")
-    atempo_mod = float(info.get("atempo_mod") or 1.0)
-    toc_do_thuc = round(max(0.8, min(1.55, float(toc_do or 1.15) * atempo_mod)), 2)
+    if pitch_hz == "+0Hz" and emo.get("pitch_edge"):
+        pitch_hz = str(emo["pitch_edge"])
+    atempo_mod = float(info.get("atempo_mod") or 1.0) * float(emo.get("atempo_boost") or 1.0)
+    toc_do_thuc = round(max(0.85, min(1.60, float(toc_do or 1.15) * atempo_mod)), 2)
 
     thoi_luong = uoc_tinh_thoi_luong_cau(van_ban, toc_do=toc_do_thuc)
     wav_path = out_dir / f"scene_{scene_index:03d}.wav"
     actual_audio_path = wav_path
 
     da_tao = False
+    co_khoa_el = bool(_lay_khoa_elevenlabs(elevenlabs_api_key))
     if not che_do_nhanh_offline:
+        # 0. Ưu tiên số 1: ElevenLabs AI nếu chọn giọng ElevenLabs hoặc đã nhập khoá ElevenLabs API Key
+        if voice_id.startswith("elevenlabs:") or (co_khoa_el and elevenlabs_voice_id):
+            da_tao, actual_audio_path = _thu_goi_elevenlabs_tts(
+                van_ban,
+                voice_id,
+                toc_do_thuc,
+                wav_path,
+                cam_xuc=cam_xuc,
+                api_key_override=elevenlabs_api_key,
+                custom_voice_id=elevenlabs_voice_id,
+                model_id=preset_hf if preset_hf.startswith("eleven_") else "eleven_flash_v2_5",
+            )
         # 1. Nếu chọn Nhái giọng 5s hoặc máy đã cài Lõi ONNX (VieNeu)
-        if ma_giong == "clone_giong_mau_5s" or file_giong_mau_clone:
+        if not da_tao and (ma_giong == "clone_giong_mau_5s" or file_giong_mau_clone):
             da_tao = _thu_goi_vieneu_onnx(
                 van_ban, wav_path, preset_voice=preset_hf, ref_audio_path=file_giong_mau_clone
             )
@@ -553,7 +874,7 @@ def tong_hop_giong_doc_phan_canh(
             da_tao, actual_audio_path = _thu_goi_edge_neural(
                 van_ban, voice_id, toc_do_thuc, wav_path, pitch_hz=pitch_hz
             )
-        # 4. Dự phòng an toàn luôn dùng giọng Chị Google Thuần Việt (TUYỆT ĐỐI không gọi Windows SAPI tiếng Anh)
+        # 4. Dự phòng an toàn luôn dùng giọng Chị Google Thuần Việt
         if not da_tao:
             da_tao, actual_audio_path = _thu_goi_google_viet_native(van_ban, toc_do_thuc, wav_path)
 

@@ -443,6 +443,8 @@ def xuat_video_review_mp4(
     ma_nhac_nen: str = "tu_dong_theo_phong_cach",
     toc_do_doc: float = 1.15,
     file_giong_mau_clone: str | Path | None = None,
+    elevenlabs_api_key: str | None = None,
+    elevenlabs_voice_id: str | None = None,
     che_do_nhanh_offline: bool = False,
 ) -> dict[str, Any]:
     """
@@ -481,9 +483,12 @@ def xuat_video_review_mp4(
             scene_index=idx + 1,
             ma_giong=ma_giong,
             toc_do=toc_do_doc,
+            cam_xuc=str(sc.get("cam_xuc") or kich_ban.get("phong_cach") or "kich_tinh"),
             vai_tro_nhan_vat=str(sc.get("vai_tro") or ""),
             ten_nhan_vat=nhan_vat,
             file_giong_mau_clone=file_giong_mau_clone,
+            elevenlabs_api_key=elevenlabs_api_key,
+            elevenlabs_voice_id=elevenlabs_voice_id,
             che_do_nhanh_offline=che_do_nhanh_offline,
         )
         thoi_luong = float(tts_info["thoi_luong_giay"])

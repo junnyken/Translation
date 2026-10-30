@@ -204,6 +204,8 @@ MIEN_TRU_DANG_NHAP = {
     "/api/v1/tai-ve/app-windows",       # tệp cài đặt công khai
     "/api/v1/doc-truyen/goi",           # gói zip/cbz của khách — cùng cổng hạn mức với trang lẻ
     "/api/v1/doc-truyen/trang/{page_id}/anh-goc",  # cùng `_get_page_or_404` với `/anh`
+    "/api/v1/doc-truyen/dich-thoai-ngu-canh",      # cầu nối dịch ngữ cảnh DeepSeek có giữ chỗ hạn mức
+    "/api/v1/doc-truyen/viet-kich-ban-review",     # cầu nối biên kịch Video Review có giữ chỗ hạn mức
 }
 
 

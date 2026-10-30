@@ -1075,3 +1075,116 @@ def dich_danh_sach_thoai_ngu_canh_dong(
     return tr_free.translate(clean_texts, source_lang=source_lang, target_lang=target_lang), "google_fast"
 
 
+def viet_kich_ban_review_chuong_dong(
+    settings: Settings,
+    *,
+    ten_truyen: str,
+    ten_chap: str,
+    phong_cach: str,
+    ho_so_nhan_vat: str,
+    tom_tat_mach_chuong: str,
+    pages_input: list[dict],
+) -> tuple[list[dict], str, str]:
+    """Biên kịch kịch bản Review Truyện toàn Chapter bằng DeepSeek (deepseek-chat) bám sát từng trang, nhân vật và ngữ cảnh."""
+    import json
+    import re
+    import urllib.request
+
+    dong_bo_khoa_ai_dong(settings)
+    if not pages_input:
+        return [], "", "empty"
+
+    ds_keys = settings.deepseek_api_key_list or [
+        k for k in settings.gemini_api_key_list if k.startswith("sk-")
+    ]
+    if not ds_keys:
+        return [], "", "no_deepseek_key"
+
+    pc_map = {
+        "kich_tinh": "Kịch tính, gay cấn, nhịp nhanh lôi cuốn như kênh Review Anime/Manga triệu view",
+        "hai_huoc": "Hài hước, duyên dáng, bắt trọn các pha tấu hài, cà khịa và phản ứng khó đỡ của nhân vật",
+        "tu_tien": "Hào sảng, nhấn mạnh khí chất cường giả, uy áp, chiêu thức và bước ngoặt thực lực",
+        "ngon_tinh": "Giàu cảm xúc, tinh tế, xoáy sâu vào ánh mắt, nội tâm và tương tác giữa các nhân vật",
+    }
+    mo_ta_pc = pc_map.get(phong_cach, pc_map["kich_tinh"])
+
+    dong_trang = []
+    for item in pages_input[:40]:
+        sid = int(item.get("scene_index") or 1)
+        nv_goi_y = str(item.get("nhan_vat") or "Nhân vật chính").strip()
+        khong_khi = str(item.get("khong_khi_anh") or "dien_bien_chinh").strip()
+        thoai_list = item.get("thoai") or []
+        if thoai_list:
+            chuoi_thoai = " | ".join(str(x).strip() for x in thoai_list[:8] if str(x).strip())[:420]
+        else:
+            chuoi_thoai = "(Khung tranh hành động / biểu cảm chuyển cảnh không có bóng thoại)"
+        dong_trang.append(
+            f"- Cảnh #{sid} [Nhân vật trọng tâm: {nv_goi_y} | Không khí tranh: {khong_khi}]: {chuoi_thoai}"
+        )
+
+    system_prompt = (
+        "Bạn là Tổng Biên Kịch chuyên nghiệp cho kênh YouTube/TikTok Review Truyện Tranh (Manga/Manhwa/Manhua) bằng Tiếng Việt.\n"
+        "NHIỆM VỤ CỐT LÕI:\n"
+        "Từ hồ sơ nhân vật, bối cảnh tổng thể của chương và danh sách hội thoại thực tế của từng trang, hãy viết kịch bản thuyết minh ngôi thứ 3 liên kết chặt chẽ từ Cảnh đầu đến Cảnh cuối.\n\n"
+        "6 QUY TẮC THÉP BẮT BUỘC TUÂN THỦ:\n"
+        "1. BÁM SÁT 100% NỘI DUNG TRANG: Lời thuyết minh của Cảnh #i PHẢI kể đúng sự việc, ý nghĩa câu thoại và phản ứng nhân vật có trong Cảnh #i. Tuyệt đối KHÔNG bịa đặt tình tiết ngoài lề.\n"
+        "2. CHUẨN XÁC VAI TRÒ & NHÂN VẬT: Phân biệt rõ ai là người nói, ai là người nghe, giữ đúng tên riêng và quan hệ (đàn chị, đàn em, đối thủ, nhân vật chính) theo Hồ sơ nhân vật.\n"
+        "3. MẠCH TRUYỆN LIỀN MẠCH XUYÊN SUỐT: Cảnh sau phải nối tiếp tự nhiên mạch diễn biến của cảnh trước. CẤM dùng các cụm từ lặp lại nhàm chán như 'Mở đầu phân cảnh', 'Ở phân cảnh này', 'Trong khung hình này'.\n"
+        "4. NGỮ ĐIỆU SỐNG ĐỘNG (CHỐNG BUỒN NGỦ CHO TTS): Viết câu văn gọn, giàu nhịp điệu, dùng dấu phẩy (,), dấu ba chấm (...) tạo khoảng nghỉ hồi hộp và dấu chấm than (!) ở câu chốt cao trào/tấu hài để giọng đọc AI (ElevenLabs) nhấn nhá truyền cảm.\n"
+        "5. GÁN NHÃN CẢM XÚC GIỌNG ĐỌC (`cam_xuc`): Với mỗi cảnh, chọn đúng 1 nhãn trong: `kich_tinh` (cao trào/hành động), `hai_huoc` (tấu hài/cà khịa), `hoi_hop` (căng thẳng/bất ngờ), `uy_ap` (bá đạo/ngầu), `cam_xuc` (nội tâm/sâu lắng), `mo_dau` (dẫn nhập cuốn hút).\n"
+        "6. CHỈ TRẢ VỀ JSON HỢP LỆ theo đúng cấu trúc: "
+        '{"tom_tat_chuong": "...", "scenes": [{"scene_index": 1, "nhan_vat": "...", "cam_xuc": "kich_tinh", "loi_thuyet_minh": "..."}]}'
+    )
+
+    user_prompt = (
+        f"=== THÔNG TIN CHƯƠNG TRUYỆN ===\n"
+        f"- Bộ truyện: {ten_truyen or 'Manga'}\n"
+        f"- Chương: {ten_chap or 'Chapter mới'}\n"
+        f"- Phong cách biên kịch yêu cầu: {mo_ta_pc}\n\n"
+        f"=== HỒ SƠ NHÂN VẬT & QUAN HỆ XƯNG HÔ ===\n{ho_so_nhan_vat or 'Theo hội thoại thực tế'}\n\n"
+        f"=== TÓM TẮT MẠCH DIỄN BIẾN TOÀN CHƯƠNG ===\n{tom_tat_mach_chuong or 'Theo chuỗi cảnh bên dưới'}\n\n"
+        f"=== CHI TIẾT HỘI THOẠI & BỐI CẢNH TỪNG TRANG ({len(dong_trang)} CẢNH) ===\n"
+        + "\n".join(dong_trang)
+        + f"\n\nHãy viết lời bình thuyết minh Tiếng Việt ngôi thứ 3 bám sát nội dung cho toàn bộ {len(dong_trang)} cảnh trên và trả về JSON."
+    )
+
+    for api_key in ds_keys:
+        try:
+            payload = json.dumps(
+                {
+                    "model": "deepseek-chat",
+                    "temperature": 0.35,
+                    "max_tokens": min(4096, max(800, len(dong_trang) * 160)),
+                    "response_format": {"type": "json_object"},
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                }
+            ).encode("utf-8")
+            req = urllib.request.Request(
+                "https://api.deepseek.com/chat/completions",
+                data=payload,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                    "User-Agent": "MangaStudioBackend/1.1",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=45) as resp:
+                data = json.loads(resp.read().decode("utf-8", errors="replace"))
+            raw_content = str((((data.get("choices") or [{}])[0]).get("message") or {}).get("content") or "")
+            raw_content = re.sub(r"<think>[\s\S]*?</think>", "", raw_content).strip()
+            parsed = json.loads(raw_content)
+            scenes_out = parsed.get("scenes") if isinstance(parsed, dict) else None
+            tom_tat = str(parsed.get("tom_tat_chuong") or "") if isinstance(parsed, dict) else ""
+            if isinstance(scenes_out, list) and scenes_out:
+                return scenes_out, tom_tat, "deepseek-chat"
+        except Exception:  # noqa: BLE001
+            continue
+
+    return [], "", "fallback"
+
+
+

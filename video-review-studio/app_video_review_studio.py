@@ -24,6 +24,7 @@ from core_tts_voice import (
     DANH_SACH_GIONG_DOC,
     cai_dat_tu_dong_goi_giong_doc_va_mp4,
     kiem_tra_ha_tang_giong_doc_va_video,
+    lay_danh_sach_giong_elevenlabs,
     tong_hop_giong_doc_phan_canh,
 )
 from core_video_renderer import (
@@ -54,9 +55,11 @@ def doc_cau_hinh_studio() -> dict[str, Any]:
         "token": "",
         "phong_cach": "hai_huoc",
         "dinh_dang": "tiktok_9_16",
-        "ma_giong": "chi_google_review_chuan",
+        "ma_giong": "elevenlabs_auto_cam_xuc",
         "goi_luot": "review_standard",
         "toc_do_doc": 1.20,
+        "elevenlabs_api_key": "",
+        "elevenlabs_voice_id": "",
     }
     if CAU_HINH_APP_DICH_PATH.is_file():
         try:
@@ -336,11 +339,35 @@ class AppVideoReviewStudio(tk.Tk):
         self.cmb_dinh_dang.current(0)
         self.cmb_dinh_dang.pack(fill="x", pady=(2, 5))
 
+        f_el_key = tk.Frame(left_col, bg="#111827")
+        f_el_key.pack(fill="x", pady=(2, 3))
+        tk.Label(f_el_key, text="ElevenLabs Key:", bg="#111827", fg="#f97316", width=14, anchor="w", font=("Segoe UI", 8, "bold")).pack(side="left")
+        self.ent_elevenlabs_key = tk.Entry(f_el_key, bg="#1e293b", fg="#f8fafc", insertbackground="#fff", show="•")
+        self.ent_elevenlabs_key.insert(0, str(self.cau_hinh.get("elevenlabs_api_key") or ""))
+        self.ent_elevenlabs_key.pack(side="left", fill="x", expand=True, padx=4)
+        tk.Button(
+            f_el_key,
+            text="🔄 Nạp Giọng",
+            bg="#ea580c",
+            fg="#fff",
+            font=("Segoe UI", 8, "bold"),
+            relief="flat",
+            padx=6,
+            command=self._nap_danh_sach_giong_elevenlabs,
+        ).pack(side="left")
+
+        f_el_vid = tk.Frame(left_col, bg="#111827")
+        f_el_vid.pack(fill="x", pady=(0, 4))
+        tk.Label(f_el_vid, text="Voice ID (tuỳ chọn):", bg="#111827", fg="#94a3b8", width=16, anchor="w").pack(side="left")
+        self.ent_elevenlabs_vid = tk.Entry(f_el_vid, bg="#1e293b", fg="#38bdf8", insertbackground="#fff")
+        self.ent_elevenlabs_vid.insert(0, str(self.cau_hinh.get("elevenlabs_voice_id") or ""))
+        self.ent_elevenlabs_vid.pack(side="left", fill="x", expand=True, padx=(4, 0))
+
         f_voice_row = tk.Frame(left_col, bg="#111827")
         f_voice_row.pack(fill="x", pady=(2, 5))
         tk.Label(
             f_voice_row,
-            text=f"Kho Giọng Đọc AI ({len(DANH_SACH_GIONG_DOC)} giọng Thuần Việt + Đa nhân vật + Nhái giọng):",
+            text=f"Kho Giọng Đọc AI (ElevenLabs Biểu Cảm + {len(DANH_SACH_GIONG_DOC)} Giọng Thuần Việt):",
             bg="#111827",
             fg="#cbd5e1",
         ).pack(anchor="w")
@@ -349,7 +376,7 @@ class AppVideoReviewStudio(tk.Tk):
             values=[f"{k} — {v['ten']}" for k, v in DANH_SACH_GIONG_DOC.items()],
             state="readonly",
         )
-        self.cmb_giong.current(0)  # Mặc định chọn Chị Google Review Chuẩn Thuần Việt
+        self.cmb_giong.current(0)  # Mặc định ưu tiên ElevenLabs Auto Cảm Xúc (tự lùi về Thuần Việt nếu chưa điền Key)
         self.cmb_giong.pack(fill="x", pady=(2, 4))
 
         tk.Label(left_col, text="Nhạc nền không bản quyền (BGM -18dB) & Hiệu ứng chuyển cảnh:", bg="#111827", fg="#38bdf8").pack(anchor="w")
@@ -460,11 +487,20 @@ class AppVideoReviewStudio(tk.Tk):
 
         f_edit = tk.Frame(sb_frame, bg="#111827")
         f_edit.pack(fill="x")
-        tk.Label(f_edit, text="Nhân vật cảnh này:", bg="#111827", fg="#fbbf24").pack(side="left")
-        self.ent_nv_canh = tk.Entry(f_edit, width=22, bg="#1e293b", fg="#fbbf24", insertbackground="#fff")
-        self.ent_nv_canh.pack(side="left", padx=6)
-        tk.Button(f_edit, text="💾 Lưu sửa cảnh này", bg="#059669", fg="#fff", relief="flat", padx=10, command=self._luu_sua_phan_canh).pack(side="left", padx=4)
-        tk.Button(f_edit, text="👁️ Xem Trước Khung Hình Video", bg="#2563eb", fg="#fff", relief="flat", padx=10, command=self._xem_truoc_khung_hinh_canh).pack(side="left")
+        tk.Label(f_edit, text="Nhân vật:", bg="#111827", fg="#fbbf24").pack(side="left")
+        self.ent_nv_canh = tk.Entry(f_edit, width=18, bg="#1e293b", fg="#fbbf24", insertbackground="#fff")
+        self.ent_nv_canh.pack(side="left", padx=4)
+        tk.Label(f_edit, text="Ngữ điệu:", bg="#111827", fg="#38bdf8").pack(side="left", padx=(4, 2))
+        self.cmb_cam_xuc_canh = ttk.Combobox(
+            f_edit,
+            values=["kich_tinh", "hai_huoc", "hoi_hop", "uy_ap", "cam_xuc", "mo_dau"],
+            state="readonly",
+            width=11,
+        )
+        self.cmb_cam_xuc_canh.current(0)
+        self.cmb_cam_xuc_canh.pack(side="left", padx=4)
+        tk.Button(f_edit, text="💾 Lưu sửa cảnh này", bg="#059669", fg="#fff", relief="flat", padx=8, command=self._luu_sua_phan_canh).pack(side="left", padx=4)
+        tk.Button(f_edit, text="👁️ Xem Trước Khung Hình", bg="#2563eb", fg="#fff", relief="flat", padx=8, command=self._xem_truoc_khung_hinh_canh).pack(side="left")
 
         self.txt_loi_binh = scrolledtext.ScrolledText(sb_frame, height=5, bg="#1e293b", fg="#fde047", insertbackground="#fff", font=("Segoe UI", 10))
         self.txt_loi_binh.pack(fill="x", pady=6)
@@ -570,17 +606,48 @@ class AppVideoReviewStudio(tk.Tk):
 
         tk.Button(win, text="➕ Lưu Nhân Vật Vào Bộ Nhớ Truyện", bg="#059669", fg="#fff", relief="flat", padx=14, pady=6, command=_them).pack(pady=10)
 
+    def _nap_danh_sach_giong_elevenlabs(self):
+        el_key = self.ent_elevenlabs_key.get().strip()
+        if not el_key:
+            messagebox.showwarning("Chưa nhập ElevenLabs Key", "Hãy dán khoá ElevenLabs API Key (xi-api-key) vào ô trước khi nạp giọng!")
+            return
+        self.cau_hinh["elevenlabs_api_key"] = el_key
+        luu_cau_hinh_studio(self.cau_hinh)
+
+        def _worker():
+            self.ghi_log("🔄 Đang kết nối ElevenLabs API để tải danh sách giọng đọc trong tài khoản của bạn...")
+            try:
+                ds_v = lay_danh_sach_giong_elevenlabs(el_key)
+                ds_hien_thi = [f"{k} — {v['ten']}" for k, v in DANH_SACH_GIONG_DOC.items()]
+                self.cmb_giong["values"] = ds_hien_thi
+                if ds_v:
+                    ma_dau = ds_v[0]["ma_giong"]
+                    for idx_v, item_str in enumerate(ds_hien_thi):
+                        if item_str.startswith(ma_dau + " —"):
+                            self.cmb_giong.current(idx_v)
+                            break
+                self.ghi_log(f"✅ Đã nạp thành công {len(ds_v)} giọng đọc từ tài khoản ElevenLabs của bạn! Hãy chọn trong danh sách Kho Giọng Đọc AI.")
+            except Exception as exc:
+                self.ghi_log(f"❌ Không nạp được giọng ElevenLabs: {exc}")
+
+        threading.Thread(target=_worker, daemon=True).start()
+
     def _tao_kich_ban_storyboard(self):
         folder_str = self.ent_folder.get().strip()
         if not folder_str or not Path(folder_str).exists():
             messagebox.showwarning("Chưa chọn nguồn Chapter", "Hãy chọn thư mục hoặc file ZIP chứa ảnh Chapter trước!")
             return
         try:
+            self.cau_hinh["token"] = self.ent_token.get().strip()
+            self.cau_hinh["elevenlabs_api_key"] = self.ent_elevenlabs_key.get().strip()
+            self.cau_hinh["elevenlabs_voice_id"] = self.ent_elevenlabs_vid.get().strip()
+            luu_cau_hinh_studio(self.cau_hinh)
+
             p_folder = Path(folder_str)
+            self.ghi_log("🧠 Đang quét thoại từng trang, nhận diện nhân vật & gọi DeepSeek biên kịch toàn Chapter...")
             self.panels_bytes, self.ocr_per_panel = nap_danh_sach_anh_va_thoai_tu_thu_muc(p_folder)
             tu_dong_quet_ho_so_nhan_vat_tu_thoai(self.ocr_per_panel, self.cast_memory)
             pc_key = self.cmb_phong_cach.get().split(" — ", 1)[0].strip()
-            goi_key = self.cmb_goi_luot.get().split(" — ", 1)[0].strip()
             self.kich_ban_hien_tai = sinh_kich_ban_review_chuong(
                 self.panels_bytes,
                 self.ocr_per_panel,
@@ -588,18 +655,18 @@ class AppVideoReviewStudio(tk.Tk):
                 phong_cach=pc_key,
                 ten_truyen=self.ent_ten_truyen.get().strip(),
                 ten_chap=p_folder.stem if p_folder.is_file() else p_folder.name,
-                thu_ket_noi_vision_cuc_bo=(goi_key == "review_pro_character"),
+                thu_ket_noi_vision_cuc_bo=True,
             )
             self.lst_scenes.delete(0, "end")
             for sc in self.kich_ban_hien_tai.get("scenes") or []:
-                loai = "[Hành động]" if sc.get("la_canh_hanh_dong") else "[Có thoại]"
+                cx_tag = sc.get("cam_xuc") or "kich_tinh"
                 self.lst_scenes.insert(
                     "end",
-                    f"Cảnh #{sc['scene_index']:02d} {loai} · 🎭 {sc['nhan_vat']}: {sc['loi_thuyet_minh'][:75]}...",
+                    f"Cảnh #{sc['scene_index']:02d} [{cx_tag}] · 🎭 {sc['nhan_vat']}: {sc['loi_thuyet_minh'][:72]}...",
                 )
             self.ghi_log(
-                f"✨ Đã sinh xong Kịch bản Storyboard ({self.kich_ban_hien_tai['so_khung_tranh']} khung tranh, "
-                f"{self.kich_ban_hien_tai['so_luoi_storyboard_2x2']} lưới 2x2). Bạn có thể bấm vào từng cảnh để duyệt/sửa nhanh!"
+                f"✨ Đã sinh xong Kịch bản Storyboard bằng DeepSeek ({self.kich_ban_hien_tai['so_khung_tranh']} khung tranh, "
+                f"đã gắn ngữ điệu cảm xúc từng cảnh). Bấm vào từng cảnh để duyệt/sửa hoặc nghe thử!"
             )
         except Exception as exc:
             messagebox.showerror("Lỗi tạo kịch bản", str(exc))
@@ -612,6 +679,9 @@ class AppVideoReviewStudio(tk.Tk):
         sc = self.kich_ban_hien_tai["scenes"][idx]
         self.ent_nv_canh.delete(0, "end")
         self.ent_nv_canh.insert(0, sc.get("nhan_vat") or "")
+        cx_val = sc.get("cam_xuc") or "kich_tinh"
+        if cx_val in self.cmb_cam_xuc_canh["values"]:
+            self.cmb_cam_xuc_canh.set(cx_val)
         self.txt_loi_binh.delete("1.0", "end")
         self.txt_loi_binh.insert("1.0", sc.get("loi_thuyet_minh") or "")
 
@@ -622,14 +692,15 @@ class AppVideoReviewStudio(tk.Tk):
         idx = sel[0]
         sc = self.kich_ban_hien_tai["scenes"][idx]
         sc["nhan_vat"] = self.ent_nv_canh.get().strip() or sc["nhan_vat"]
+        sc["cam_xuc"] = self.cmb_cam_xuc_canh.get().strip() or sc.get("cam_xuc") or "kich_tinh"
         sc["loi_thuyet_minh"] = self.txt_loi_binh.get("1.0", "end").strip()
-        loai = "[Hành động]" if sc.get("la_canh_hanh_dong") else "[Có thoại]"
+        cx_tag = sc["cam_xuc"]
         self.lst_scenes.delete(idx)
         self.lst_scenes.insert(
             idx,
-            f"Cảnh #{sc['scene_index']:02d} {loai} · 🎭 {sc['nhan_vat']}: {sc['loi_thuyet_minh'][:75]}...",
+            f"Cảnh #{sc['scene_index']:02d} [{cx_tag}] · 🎭 {sc['nhan_vat']}: {sc['loi_thuyet_minh'][:72]}...",
         )
-        self.ghi_log(f"💾 Đã cập nhật lời thuyết minh Cảnh #{sc['scene_index']:02d}.")
+        self.ghi_log(f"💾 Đã cập nhật lời thuyết minh & ngữ điệu [{cx_tag}] cho Cảnh #{sc['scene_index']:02d}.")
 
     def _xem_truoc_khung_hinh_canh(self):
         sel = self.lst_scenes.curselection()
@@ -676,15 +747,18 @@ class AppVideoReviewStudio(tk.Tk):
     def _nghe_thu_giong_doc(self):
         giong_key = self.cmb_giong.get().split(" — ", 1)[0].strip()
         toc_do_val = self._lay_toc_do_doc()
+        el_key = self.ent_elevenlabs_key.get().strip()
+        el_vid = self.ent_elevenlabs_vid.get().strip()
+        cam_xuc_val = self.cmb_cam_xuc_canh.get().strip() if hasattr(self, "cmb_cam_xuc_canh") else "kich_tinh"
         cau_thu = self.txt_loi_binh.get("1.0", "end").strip()
         if not cau_thu:
             cau_thu = (
-                "Chào mừng các bạn đến với kênh Review Truyện Tranh. "
-                "Tưởng chừng đã rơi vào tuyệt cảnh, nhưng khoảnh khắc tiếp theo của thanh niên lại khiến tất cả chấn động!"
+                "Chào mừng các bạn đến với kênh Review Truyện Tranh! "
+                "Tưởng chừng đã rơi vào tuyệt cảnh... nhưng khoảnh khắc tiếp theo của thanh niên lại khiến tất cả phải chấn động!"
             )
 
         def _worker():
-            self.ghi_log(f"🔊 Đang tạo mẫu giọng thử '{giong_key}' ({toc_do_val:.2f}x)...")
+            self.ghi_log(f"🔊 Đang tạo mẫu giọng thử '{giong_key}' (Ngữ điệu: {cam_xuc_val} · {toc_do_val:.2f}x)...")
             try:
                 tmp_dir = Path(tempfile.gettempdir()) / "manga_video_voice_preview"
                 kq = tong_hop_giong_doc_phan_canh(
@@ -693,9 +767,12 @@ class AppVideoReviewStudio(tk.Tk):
                     scene_index=999,
                     ma_giong=giong_key,
                     toc_do=toc_do_val,
+                    cam_xuc=cam_xuc_val,
                     vai_tro_nhan_vat=self.ent_nv_canh.get().strip(),
                     ten_nhan_vat=self.ent_nv_canh.get().strip(),
                     file_giong_mau_clone=self.ent_ref_audio.get().strip() or None,
+                    elevenlabs_api_key=el_key or None,
+                    elevenlabs_voice_id=el_vid or None,
                 )
                 audio_p = kq["audio_path"]
                 if os.name == "nt" and os.path.isfile(audio_p):
@@ -739,6 +816,8 @@ class AppVideoReviewStudio(tk.Tk):
         goi_key = self.cmb_goi_luot.get().split(" — ", 1)[0].strip()
         toc_do_val = self._lay_toc_do_doc()
         token_val = self.ent_token.get().strip()
+        el_key_val = self.ent_elevenlabs_key.get().strip()
+        el_vid_val = self.ent_elevenlabs_vid.get().strip()
 
         self.cau_hinh.update(
             {
@@ -748,6 +827,8 @@ class AppVideoReviewStudio(tk.Tk):
                 "ma_nhac_nen": nhac_nen_key,
                 "goi_luot": goi_key,
                 "toc_do_doc": toc_do_val,
+                "elevenlabs_api_key": el_key_val,
+                "elevenlabs_voice_id": el_vid_val,
             }
         )
         luu_cau_hinh_studio(self.cau_hinh)
@@ -778,6 +859,8 @@ class AppVideoReviewStudio(tk.Tk):
                     ma_nhac_nen=nhac_nen_key,
                     toc_do_doc=toc_do_val,
                     file_giong_mau_clone=self.ent_ref_audio.get().strip() or None,
+                    elevenlabs_api_key=el_key_val or None,
+                    elevenlabs_voice_id=el_vid_val or None,
                 )
                 self.ghi_log(
                     f"🎉 HOÀN TẤT! Đã xuất Video Review ({kq['tong_thoi_luong_giay']}s):\n"

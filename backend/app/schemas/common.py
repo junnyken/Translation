@@ -1373,4 +1373,37 @@ class DichThoaiNguCanhResponse(BaseModel):
     engine_used: str = "llm_context"
 
 
+class CanhKichBanReviewIn(BaseModel):
+    scene_index: int = 1
+    nhan_vat: str = ""
+    khong_khi_anh: str = "dien_bien_chinh"
+    thoai: list[str] = Field(default_factory=list, max_length=20)
+
+
+class VietKichBanReviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ten_truyen: str = Field(default="", max_length=200)
+    ten_chap: str = Field(default="", max_length=200)
+    phong_cach: str = Field(default="kich_tinh", max_length=64)
+    ho_so_nhan_vat: str = Field(default="", max_length=4000)
+    tom_tat_mach_chuong: str = Field(default="", max_length=4000)
+    pages: list[CanhKichBanReviewIn] = Field(default_factory=list, max_length=45)
+    chapter_key: str | None = Field(default=None, max_length=128)
+
+
+class CanhKichBanReviewOut(BaseModel):
+    scene_index: int = 1
+    nhan_vat: str = ""
+    cam_xuc: str = "kich_tinh"
+    loi_thuyet_minh: str = ""
+
+
+class VietKichBanReviewResponse(BaseModel):
+    tom_tat_chuong: str = ""
+    scenes: list[CanhKichBanReviewOut] = []
+    engine_used: str = "deepseek-chat"
+
+
+
 

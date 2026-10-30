@@ -649,7 +649,7 @@ def phan_tich_bo_cuc_anh_khung_tranh(panel_bytes: bytes) -> dict[str, Any]:
 
 
 def _lay_khoa_deepseek_review() -> str:
-    """Đọc khoá DeepSeek API (sk-...) từ biến môi trường, cau-hinh-video-studio.json hoặc .env."""
+    """Đọc khoá DeepSeek API (sk-...) từ biến môi trường, cấu hình Video Studio hoặc .env."""
     for env_name in ("DEEPSEEK_API_KEY", "DEEPSEEK_API_KEYS", "GEMINI_API_KEYS", "GEMINI_API_KEY"):
         val = (os.environ.get(env_name) or "").strip()
         if val:
@@ -659,6 +659,7 @@ def _lay_khoa_deepseek_review() -> str:
                     return p
     base_dir = Path(__file__).resolve().parent
     for cfg_path in (
+        Path.home() / ".manga_video_review_studio_config.json",
         base_dir / "cau-hinh-video-studio.json",
         base_dir.parent / "windows-app" / "cau-hinh-nguoi-dung.json",
     ):
@@ -685,6 +686,28 @@ def _lay_khoa_deepseek_review() -> str:
         except Exception:
             pass
     return ""
+
+
+def _lay_thong_tin_ket_noi_server_review() -> tuple[str, str]:
+    """Lấy (server_url, token) từ cấu hình Video Studio hoặc App Dịch Truyện để gọi cầu nối DeepSeek trên máy chủ."""
+    server_url = "https://translation-api.vibe1.tinhgon.xyz"
+    token = ""
+    for cfg_path in (
+        Path.home() / ".manga_video_review_studio_config.json",
+        Path.home() / ".manga_translator_win_config.json",
+        Path.home() / ".dich_truyen_windows_config.json",
+    ):
+        try:
+            if cfg_path.is_file():
+                cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+                if isinstance(cfg, dict):
+                    if cfg.get("server_url"):
+                        server_url = str(cfg["server_url"]).strip().rstrip("/")
+                    if not token and (cfg.get("token") or cfg.get("api_key")):
+                        token = str(cfg.get("token") or cfg.get("api_key")).strip()
+        except Exception:
+            pass
+    return server_url, token
 
 
 def _tim_model_llm_cuc_bo() -> tuple[str, str] | None:
@@ -901,10 +924,8 @@ def _bien_tap_cau_review_tu_cap_thoai_viet(
 
 
 def _kiem_tra_cau_ai_hop_le(cau: str) -> bool:
-    """Đảm bảo câu do LLM sinh ra là văn kể chuyện ngôi thứ 3 chuẩn Tiếng Việt, không chép nguyên văn hội thoại trực tiếp."""
-    if not cau or len(cau.strip()) < 22:
-        return False
-    if ":" in cau or "?" in cau or "!" in cau:
+    """Đảm bảo câu do LLM sinh ra là văn kể chuyện ngôi thứ 3 chuẩn Tiếng Việt, cho phép dấu cảm thán (!, ...) để giọng đọc truyền cảm."""
+    if not cau or len(cau.strip()) < 18:
         return False
     low = cau.lower()
     if any(
@@ -912,12 +933,51 @@ def _kiem_tra_cau_ai_hop_le(cau: str) -> bool:
         for bad in (
             "theoretical framework", "research questions", "methodology", "social capital",
             "that was a serious move", "let's play singles", "when does the match",
-            "100%", "ví dụ:", "trong ngoặc", "mày đang làm gì",
+            "100%", "ví dụ:", "trong ngoặc",
         )
     ):
         return False
     so_dau_viet = sum(1 for ch in cau if ord(ch) > 127)
-    return so_dau_viet >= 5
+    return so_dau_viet >= 4
+
+
+def _tong_hop_mach_truyen_toan_chuong(
+    trang_da_gan_va_dich: list[tuple[str, list[tuple[str, str]]]],
+    ds_khong_khi: list[str],
+) -> str:
+    """
+    Tổng hợp toàn bộ dòng chảy sự kiện từ Trang 1 đến Trang cuối thành Bản đồ Ngữ cảnh Chương (Chapter Story Arc)
+    để DeepSeek hiểu toàn cảnh mở đầu -> xung đột -> cao trào -> kết thúc trước khi viết lời bình từng trang.
+    """
+    tom_tat_lines: list[str] = []
+    for idx, (nv_trang, cap_nv_cau) in enumerate(trang_da_gan_va_dich):
+        kk = ds_khong_khi[idx] if idx < len(ds_khong_khi) else "dien_bien_chinh"
+        if cap_nv_cau:
+            noi_dung = " ; ".join(f"{nv}: {cau}" for nv, cau in cap_nv_cau[:5])[:220]
+        else:
+            noi_dung = f"(Khung tranh hành động/biểu cảm không lời - không khí: {kk})"
+        tom_tat_lines.append(f"Trang #{idx + 1} [{nv_trang}]: {noi_dung}")
+    return "\n".join(tom_tat_lines[:36])
+
+
+def _suy_luan_cam_xuc_canh(loi_binh: str, khong_khi_anh: str, panel_idx: int, phong_cach: str) -> str:
+    """Suy luận nhãn cảm xúc âm giọng (`cam_xuc`) cho từng phân cảnh dựa trên lời bình và không khí tranh."""
+    low = (loi_binh or "").lower()
+    if panel_idx == 0:
+        return "mo_dau"
+    if any(w in low for w in ("bất ngờ", "chấn động", "sấm sét", "tuyệt kỹ", "tung cú", "bùng nổ", "hét lên", "uy lực", "quyết định tung")):
+        return "kich_tinh"
+    if any(w in low for w in ("đổ thừa", "ngơ ngác", "tấu hài", "cười", "quá lố", "làm gương xấu", "oẳn tù tì", "tự ái")):
+        return "hai_huoc"
+    if any(w in low for w in ("uy áp", "lạnh lùng", "bá đạo", "thống trị", "nghiền nát", "cường giả")):
+        return "uy_ap"
+    if any(w in low for w in ("sốt ruột", "hồi hộp", "căng thẳng", "nghi ngờ", "thầm nghĩ", "chờ đợi")):
+        return "hoi_hop"
+    if khong_khi_anh == "soi_noi_cao_trao":
+        return "kich_tinh"
+    if khong_khi_anh == "tram_lang":
+        return "cam_xuc"
+    return "hai_huoc" if phong_cach == "hai_huoc" else "kich_tinh"
 
 
 def _viet_kich_ban_toan_chuong_bang_ai(
@@ -927,54 +987,134 @@ def _viet_kich_ban_toan_chuong_bang_ai(
     ten_truyen: str,
     ten_chap: str,
     phong_cach: str,
+    ds_khong_khi: list[str] | None = None,
 ) -> list[dict[str, str]] | None:
     """
-    Gửi từng cụm 3 trang (đã dịch 100% sang Tiếng Việt và gắn đúng tên Người nói) vào Bộ máy AI
-    để biên tập thành câu văn kể chuyện ngôi thứ 3 mượt mà.
+    Xây dựng kịch bản thuyết minh toàn Chapter bằng DeepSeek (`deepseek-chat`) với Prompt đa tầng chặt chẽ:
+    1. Nạp Hồ sơ Nhân vật (`ho_so_nv`) + Tóm tắt Mạch Diễn Biến Toàn Chương (`tom_tat_mach_chuong`).
+    2. Gửi theo cụm lớn (tới 15 trang/lượt) kèm ngữ cảnh trang liền trước để mạch kể liền mạch 100%,
+       bám sát từng câu thoại thực tế trên từng trang và gán nhãn cảm xúc (`cam_xuc`) cho giọng đọc ElevenLabs/Neural TTS.
+    3. Hỗ trợ gọi trực tiếp DeepSeek API (`sk-...`), Cầu nối DeepSeek trên Server (`comic.io.vn`), hoặc Ollama cục bộ.
     """
-    found = _tim_model_llm_cuc_bo()
-    if not found:
-        return None
-    backend, model_name = found
     tong = len(trang_da_gan_va_dich)
     if tong == 0:
         return None
 
+    kk_list = ds_khong_khi or ["dien_bien_chinh"] * tong
     ho_so_nv = cast_memory.tao_mo_ta_ho_so_cho_ai()
+    tom_tat_mach_chuong = _tong_hop_mach_truyen_toan_chuong(trang_da_gan_va_dich, kk_list)
     ket_qua_toan_bo: list[dict[str, str]] = [{} for _ in range(tong)]
 
-    for start_idx in range(0, tong, 3):
-        batch = trang_da_gan_va_dich[start_idx : start_idx + 3]
+    pc_mo_ta = (PHONG_CACH_KICH_BAN.get(phong_cach) or PHONG_CACH_KICH_BAN["kich_tinh"])["mo_ta"]
+    ds_key = _lay_khoa_deepseek_review()
+    server_url, server_token = _lay_thong_tin_ket_noi_server_review()
+
+    # Ưu tiên 1: Nếu chưa có DeepSeek key cục bộ nhưng có kết nối Server comic.io.vn -> gọi thẳng cầu nối DeepSeek trên Server!
+    if not ds_key and server_url:
+        try:
+            pages_payload = []
+            for idx, (nv_trang, cap_nv_cau) in enumerate(trang_da_gan_va_dich):
+                pages_payload.append(
+                    {
+                        "scene_index": idx + 1,
+                        "nhan_vat": nv_trang,
+                        "khong_khi_anh": kk_list[idx] if idx < len(kk_list) else "dien_bien_chinh",
+                        "thoai": [f"{nv}: {cau}" for nv, cau in cap_nv_cau[:8]],
+                    }
+                )
+            req_body = json.dumps(
+                {
+                    "ten_truyen": ten_truyen or "Manga",
+                    "ten_chap": ten_chap or "Chapter",
+                    "phong_cach": phong_cach,
+                    "ho_so_nhan_vat": ho_so_nv[:3800],
+                    "tom_tat_mach_chuong": tom_tat_mach_chuong[:3800],
+                    "pages": pages_payload[:40],
+                    "chapter_key": f"{ten_truyen}:{ten_chap}",
+                }
+            ).encode("utf-8")
+            headers_srv = {
+                "Content-Type": "application/json",
+                "User-Agent": "MangaVideoReviewStudio/1.1",
+            }
+            if server_token:
+                if server_token.startswith("tr_live_"):
+                    headers_srv["X-API-Key"] = server_token
+                else:
+                    headers_srv["Authorization"] = f"Bearer {server_token}"
+            req_srv = urllib.request.Request(
+                f"{server_url}/api/v1/doc-truyen/viet-kich-ban-review",
+                data=req_body,
+                headers=headers_srv,
+                method="POST",
+            )
+            with urllib.request.urlopen(req_srv, timeout=50) as resp_srv:
+                data_srv = json.loads(resp_srv.read().decode("utf-8", errors="replace"))
+            for sc in data_srv.get("scenes") or []:
+                s_idx = int(sc.get("scene_index") or 0) - 1
+                loi_clean = str(sc.get("loi_thuyet_minh") or "").strip().strip("\"“”")
+                if 0 <= s_idx < tong and _kiem_tra_cau_ai_hop_le(loi_clean):
+                    ket_qua_toan_bo[s_idx] = {
+                        "nhan_vat": str(sc.get("nhan_vat") or trang_da_gan_va_dich[s_idx][0]).strip(),
+                        "cam_xuc": str(sc.get("cam_xuc") or "kich_tinh").strip(),
+                        "loi_thuyet_minh": loi_clean,
+                    }
+            if any(ket_qua_toan_bo):
+                return ket_qua_toan_bo
+        except Exception:
+            pass
+
+    found = _tim_model_llm_cuc_bo()
+    if not found:
+        return None
+    backend, model_name = found
+
+    kich_thuoc_cum = 15 if backend == "deepseek" else 4
+    boi_canh_cum_truoc = ""
+
+    for start_idx in range(0, tong, kich_thuoc_cum):
+        batch = trang_da_gan_va_dich[start_idx : start_idx + kich_thuoc_cum]
         so_canh_batch = len(batch)
         dong_mo_ta = []
         for k, (nv_trang, cap_nv_cau) in enumerate(batch):
+            g_idx = start_idx + k
+            kk = kk_list[g_idx] if g_idx < len(kk_list) else "dien_bien_chinh"
             if cap_nv_cau:
-                chuoi_thoai = " ; ".join(f"{nv}: {cau}" for nv, cau in cap_nv_cau[:6])[:280]
+                chuoi_thoai = " | ".join(f"{nv}: {cau}" for nv, cau in cap_nv_cau[:8])[:380]
             else:
-                chuoi_thoai = "Khung tranh kết thúc chương truyện"
-            dong_mo_ta.append(f"[{k + 1}] ({nv_trang}): {chuoi_thoai}")
+                chuoi_thoai = f"(Khung tranh hành động/chuyển cảnh không có bóng thoại - không khí: {kk})"
+            dong_mo_ta.append(f"[{k + 1}] Trang #{g_idx + 1} (Nhân vật: {nv_trang} | Không khí: {kk}): {chuoi_thoai}")
+
+        system_msg = (
+            "Bạn là Tổng Biên Kịch chuyên nghiệp của kênh Review Truyện Tranh triệu view bằng Tiếng Việt.\n"
+            "QUY TẮC BẮT BUỘC:\n"
+            "1. BÁM SÁT 100% NỘI DUNG TỪNG TRANG: Lời bình mục [k] phải kể đúng tình huống, hành động và ý nghĩa câu thoại thực tế của Trang đó. Không bịa tình tiết ngoài lề.\n"
+            "2. ĐÚNG VAI TRÒ NHÂN VẬT: Giữ đúng tên riêng và quan hệ nhân vật theo Hồ sơ nhân vật (ai nói, ai nghe, ai thách đấu, ai quan sát).\n"
+            "3. LIÊN KẾT MẠCH KỂ CHẶT CHẼ: Các câu nối tiếp nhau thành một câu chuyện liền mạch. CẤM dùng các cụm lặp nhàm chán như 'Mở đầu phân cảnh', 'Ở phân cảnh này'.\n"
+            "4. NGỮ ĐIỆU GIÀU CẢM XÚC (CHỐNG BUỒN NGỦ): Câu văn gọn, lôi cuốn, có dấu phẩy (,), dấu ba chấm (...) và dấu chấm than (!) hợp lý để giọng đọc AI nhấn nhá sống động."
+        )
 
         prompt = (
-            f"Bạn là người dẫn chuyện kênh Review Truyện Tranh ({ten_truyen or 'Manga'} - {ten_chap or 'Chapter'}).\n"
-            f"Vai trò nhân vật:\n{ho_so_nv}\n"
-            f"Hãy viết lại {so_canh_batch} mục dưới đây thành {so_canh_batch} câu người dẫn chuyện kể lại diễn biến ngôi thứ 3 bằng TIẾNG VIỆT mượt mà, tự nhiên, giữ đúng tên nhân vật và nội dung:\n"
+            f"=== BỘ TRUYỆN: {ten_truyen or 'Manga'} — {ten_chap or 'Chapter'} ===\n"
+            f"Phong cách kể: {pc_mo_ta}\n"
+            f"Hồ sơ nhân vật:\n{ho_so_nv}\n\n"
+            f"Tóm tắt mạch diễn biến toàn chương:\n{tom_tat_mach_chuong[:1800]}\n"
+            + (f"\nDiễn biến liền trước: {boi_canh_cum_truoc}\n" if boi_canh_cum_truoc else "")
+            + f"\nHãy viết lời bình thuyết minh ngôi thứ 3 bằng TIẾNG VIỆT bám sát nội dung cho {so_canh_batch} trang dưới đây.\n"
             + "\n".join(dong_mo_ta)
-            + f"\nChỉ trả về đúng {so_canh_batch} dòng từ [1] đến [{so_canh_batch}] hoàn toàn bằng Tiếng Việt (không dùng ngoặc kép):"
+            + f"\n\nChỉ trả về đúng {so_canh_batch} dòng đánh số từ [1] đến [{so_canh_batch}] theo định dạng: "
+            "[Số] <Lời thuyết minh Tiếng Việt ngôi thứ 3 giàu cảm xúc (không dùng ngoặc kép)>:"
         )
 
         try:
             if backend == "deepseek":
-                ds_key = _lay_khoa_deepseek_review()
                 payload = json.dumps(
                     {
                         "model": model_name or "deepseek-chat",
-                        "temperature": 0.2,
-                        "max_tokens": 320,
+                        "temperature": 0.35,
+                        "max_tokens": max(450, so_canh_batch * 140),
                         "messages": [
-                            {
-                                "role": "system",
-                                "content": "Bạn là biên kịch kênh Review Truyện Tranh chuyên nghiệp bằng Tiếng Việt ngôi thứ 3.",
-                            },
+                            {"role": "system", "content": system_msg},
                             {"role": "user", "content": prompt},
                         ],
                     }
@@ -989,7 +1129,7 @@ def _viet_kich_ban_toan_chuong_bang_ai(
                     },
                     method="POST",
                 )
-                with urllib.request.urlopen(req, timeout=25) as resp:
+                with urllib.request.urlopen(req, timeout=35) as resp:
                     data = json.loads(resp.read().decode("utf-8", errors="replace"))
                 raw_out = str((((data.get("choices") or [{}])[0]).get("message") or {}).get("content") or "")
             elif backend == "ollama":
@@ -998,13 +1138,14 @@ def _viet_kich_ban_toan_chuong_bang_ai(
                         "model": model_name,
                         "stream": False,
                         "options": {
-                            "temperature": 0.15,
-                            "num_ctx": 1024,
-                            "num_predict": 240,
+                            "temperature": 0.2,
+                            "num_ctx": 2048,
+                            "num_predict": max(320, so_canh_batch * 110),
                             "num_gpu": 37,
                             "stop": [f"[{so_canh_batch + 1}]"],
                         },
                         "messages": [
+                            {"role": "system", "content": system_msg},
                             {"role": "user", "content": prompt},
                             {"role": "assistant", "content": "<think>\n\n</think>\n[1] "},
                         ],
@@ -1016,7 +1157,7 @@ def _viet_kich_ban_toan_chuong_bang_ai(
                     headers={"Content-Type": "application/json"},
                     method="POST",
                 )
-                with urllib.request.urlopen(req, timeout=18) as resp:
+                with urllib.request.urlopen(req, timeout=22) as resp:
                     data = json.loads(resp.read().decode("utf-8", errors="replace"))
                 raw_out = str((data.get("message") or {}).get("content") or "")
                 if not raw_out.lstrip().startswith("[1]"):
@@ -1025,9 +1166,12 @@ def _viet_kich_ban_toan_chuong_bang_ai(
                 payload = json.dumps(
                     {
                         "model": model_name,
-                        "temperature": 0.15,
-                        "max_tokens": 240,
-                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": 0.2,
+                        "max_tokens": max(320, so_canh_batch * 110),
+                        "messages": [
+                            {"role": "system", "content": system_msg},
+                            {"role": "user", "content": prompt},
+                        ],
                     }
                 ).encode("utf-8")
                 req = urllib.request.Request(
@@ -1036,7 +1180,7 @@ def _viet_kich_ban_toan_chuong_bang_ai(
                     headers={"Content-Type": "application/json"},
                     method="POST",
                 )
-                with urllib.request.urlopen(req, timeout=18) as resp:
+                with urllib.request.urlopen(req, timeout=22) as resp:
                     data = json.loads(resp.read().decode("utf-8", errors="replace"))
                 raw_out = str((((data.get("choices") or [{}])[0]).get("message") or {}).get("content") or "")
 
@@ -1050,12 +1194,19 @@ def _viet_kich_ban_toan_chuong_bang_ai(
                     continue
                 loi_clean = m.group(2).strip(" -*\"'“”")
                 loi_clean = re.sub(r"^\([^)]+\)\s*:\s*", "", loi_clean)
+                loi_clean = re.sub(r"^Trang\s*#?\d+\s*[:\-]\s*", "", loi_clean, flags=re.I)
                 loi_clean = re.sub(r"[\"“”]", "", loi_clean)
                 loi_clean = re.sub(r"[\U00010000-\U0010ffff]", "", loi_clean).strip()
                 global_idx = start_idx + k_num
                 if _kiem_tra_cau_ai_hop_le(loi_clean) and not ket_qua_toan_bo[global_idx]:
                     nv_trang = batch[k_num][0]
-                    ket_qua_toan_bo[global_idx] = {"nhan_vat": nv_trang, "loi_thuyet_minh": loi_clean}
+                    kk_trang = kk_list[global_idx] if global_idx < len(kk_list) else "dien_bien_chinh"
+                    ket_qua_toan_bo[global_idx] = {
+                        "nhan_vat": nv_trang,
+                        "cam_xuc": _suy_luan_cam_xuc_canh(loi_clean, kk_trang, global_idx, phong_cach),
+                        "loi_thuyet_minh": loi_clean,
+                    }
+                    boi_canh_cum_truoc = loi_clean
         except Exception:
             continue
 
@@ -1095,8 +1246,11 @@ def sinh_kich_ban_review_chuong(
     so_luoi_2x2 = (tong + 3) // 4
     scenes: list[dict[str, Any]] = []
 
+    ds_bo_cuc = [phan_tich_bo_cuc_anh_khung_tranh(pb) for pb in panels_bytes]
+    ds_khong_khi = [bc["khong_khi"] for bc in ds_bo_cuc]
+
     trang_da_gan_va_dich = _gan_nhan_nguoi_noi_va_dich_trang(normalized_ocr, cast)
-    co_thoai_phan_vai = any(cap for _, cap in trang_da_gan_va_dich)
+    # Luôn ưu tiên gọi DeepSeek (cục bộ hoặc qua cầu nối Server) để viết kịch bản xuyên suốt bám sát từng trang!
     ai_scenes = (
         _viet_kich_ban_toan_chuong_bang_ai(
             trang_da_gan_va_dich,
@@ -1104,8 +1258,9 @@ def sinh_kich_ban_review_chuong(
             ten_truyen=ten_truyen,
             ten_chap=ten_chap,
             phong_cach=phong_cach,
+            ds_khong_khi=ds_khong_khi,
         )
-        if (thu_ket_noi_vision_cuc_bo and not co_thoai_phan_vai)
+        if thu_ket_noi_vision_cuc_bo
         else None
     )
 
@@ -1113,7 +1268,7 @@ def sinh_kich_ban_review_chuong(
         ds_thoai = normalized_ocr[idx]
         nv_trang_ten, cap_nv_cau = trang_da_gan_va_dich[idx]
         nv = next((c for c in cast.characters if c["ten"] == nv_trang_ten), None) or cast.xac_dinh_nguoi_noi_cau_thoai(" ".join(ds_thoai), panel_idx=idx)
-        bo_cuc = phan_tich_bo_cuc_anh_khung_tranh(p_bytes)
+        bo_cuc = ds_bo_cuc[idx]
 
         ai_sc = ai_scenes[idx] if ai_scenes and idx < len(ai_scenes) else {}
         ten_nv_vis = str((ai_sc or {}).get("nhan_vat") or nv["ten"]).strip()
@@ -1131,6 +1286,10 @@ def sinh_kich_ban_review_chuong(
         if idx == 0 and tieu_de.lower() not in loi_binh.lower():
             loi_binh = f"Chào mừng các bạn đến với {tieu_de}. {loi_binh}"
 
+        cam_xuc_canh = str((ai_sc or {}).get("cam_xuc") or "").strip() or _suy_luan_cam_xuc_canh(
+            loi_binh, bo_cuc["khong_khi"], idx, phong_cach
+        )
+
         scenes.append(
             {
                 "scene_index": idx + 1,
@@ -1140,8 +1299,9 @@ def sinh_kich_ban_review_chuong(
                 "thoai_goc": [cau for _, cau in cap_nv_cau] or ds_thoai,
                 "la_canh_hanh_dong": len(ds_thoai) == 0,
                 "khong_khi_anh": bo_cuc["khong_khi"],
+                "cam_xuc": cam_xuc_canh,
                 "loi_thuyet_minh": loi_binh,
-                "hieu_ung_camera": "pan_down" if idx % 2 == 0 else "zoom_in",
+                "hieu_ung_camera": "zoom_in" if cam_xuc_canh in ("kich_tinh", "uy_ap") or idx % 2 == 1 else "pan_down",
             }
         )
 

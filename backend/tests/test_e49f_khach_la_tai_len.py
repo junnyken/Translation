@@ -77,11 +77,13 @@ class TestDanhSachDuongMo:
             # Luồng dịch: gửi trang → hỏi tiến độ → lấy ảnh đã dịch
             # `goi` (cả gói zip/cbz) qua cùng cổng hạn mức với trang lẻ; `anh-goc` chỉ trả ảnh
             # của chính trang khách đó (cùng `duoc_dung_project`). Rà lại ngày 26/10/2026.
+            ("/api/v1/doc-truyen/dich-thoai-ngu-canh", "POST"),
             ("/api/v1/doc-truyen/goi", "POST"),
             ("/api/v1/doc-truyen/trang", "POST"),
             ("/api/v1/doc-truyen/trang/{page_id}", "GET"),
             ("/api/v1/doc-truyen/trang/{page_id}/anh", "GET"),
             ("/api/v1/doc-truyen/trang/{page_id}/anh-goc", "GET"),
+            ("/api/v1/doc-truyen/viet-kich-ban-review", "POST"),
             # Gói nhiều trang thành MỘT tệp (§3.3): 24 tệp rời là 24 lần bị trình duyệt hỏi
             ("/api/v1/export-jobs/{job_id}", "GET"),
             ("/api/v1/export-jobs/{job_id}/download", "GET"),

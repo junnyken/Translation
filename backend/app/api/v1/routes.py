@@ -39,6 +39,7 @@ from app.core.config import (
     kiem_tra_ket_noi_khoa_ai,
     lay_thong_tin_khoa_ai_che,
     luu_cau_hinh_khoa_ai_dong,
+    viet_kich_ban_review_chuong_dong,
 )
 from app.core.db import get_session
 from app.core.cong_han_muc import con_du_khong, giu_cho_moi_chot, loi_vuot_han_muc
@@ -120,6 +121,8 @@ from app.schemas.common import (
     HanMucRead,
     DichThoaiNguCanhRequest,
     DichThoaiNguCanhResponse,
+    VietKichBanReviewRequest,
+    VietKichBanReviewResponse,
     QuanTriCauHinhAiRequest,
     QuanTriCauHinhAiResponse,
     QuanTriKiemTraAiRequest,
@@ -1047,6 +1050,46 @@ async def dich_thoai_ngu_canh_cho_app_va_tien_ich(
         boi_canh=body.boi_canh,
     )
     return DichThoaiNguCanhResponse(translations=ban_dich, engine_used=eng_used)
+
+
+@router_khach.post("/doc-truyen/viet-kich-ban-review", response_model=VietKichBanReviewResponse, tags=["doc-truyen"])
+async def viet_kich_ban_review_cho_video_studio(
+    body: VietKichBanReviewRequest,
+    session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    danh_tinh: DanhTinhHanMuc = Depends(danh_tinh_han_muc),
+) -> VietKichBanReviewResponse:
+    """Biên kịch kịch bản Review Truyện toàn Chapter bằng DeepSeek (deepseek-chat) trên máy chủ."""
+    if not body.pages:
+        return VietKichBanReviewResponse(tom_tat_chuong="", scenes=[], engine_used="empty")
+    la_admin = (
+        danh_tinh.co_tai_khoan
+        and not danh_tinh.nguoi_goi.la_khach
+        and getattr(danh_tinh.nguoi_goi.nguoi, "la_quan_tri", False)
+    )
+    if not la_admin:
+        chu_the_chinh = danh_tinh.chot[0].chu_the if danh_tinh.chot else "guest"
+        ckey = (body.chapter_key or f"{body.ten_truyen}:{body.ten_chap}").strip()
+        trang_uid = uuid.uuid5(uuid.NAMESPACE_URL, f"video-review-script:{chu_the_chinh}:{ckey}")
+        await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=trang_uid)
+        await session.commit()
+
+    pages_dict = [p.model_dump() for p in body.pages]
+    scenes_raw, tom_tat, eng_used = await run_in_threadpool(
+        viet_kich_ban_review_chuong_dong,
+        settings,
+        ten_truyen=body.ten_truyen,
+        ten_chap=body.ten_chap,
+        phong_cach=body.phong_cach,
+        ho_so_nhan_vat=body.ho_so_nhan_vat,
+        tom_tat_mach_chuong=body.tom_tat_mach_chuong,
+        pages_input=pages_dict,
+    )
+    return VietKichBanReviewResponse(
+        tom_tat_chuong=tom_tat,
+        scenes=scenes_raw,
+        engine_used=eng_used,
+    )
 
 
 @router.get("/quan-tri/thong-ke", response_model=QuanTriThongKeRead, tags=["han-muc"])
