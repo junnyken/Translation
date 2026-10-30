@@ -323,6 +323,12 @@ class Settings(BaseSettings):
     translate_default_engine: str = "google_fast"
     #: Nhiều key ngăn cách bằng dấu phẩy, chỉ đọc từ .env — KHÔNG bao giờ lưu vào DB/git.
     gemini_api_keys: str = ""
+    #: Khoá DeepSeek API (ngăn cách bằng dấu phẩy). Nếu được cấu hình, hệ thống ưu tiên gọi
+    #: DeepSeek (`deepseek-chat`) cho bước dịch văn bản ngữ cảnh (siêu tiết kiệm & mượt thoại Á Đông),
+    #: và tự động xoay sang Gemini / Google Fast nếu hết số dư.
+    deepseek_api_keys: str = ""
+    deepseek_api_key: str = ""
+    deepseek_model_name: str = "deepseek-chat"
     #: gemini-2.5-flash đã bị Google chặn với key mới (404 "no longer available to new users").
     llm_model_name: str = "gemini-3.1-flash-lite"
     #: 0 = TẮT thinking. Đo thật: không tắt thì 938 token suy nghĩ cho 6 dòng (đắt gấp ~7,7 lần).
@@ -758,9 +764,25 @@ class Settings(BaseSettings):
         return bool(self.gemini_api_key_list)
 
     @property
+    def deepseek_api_key_list(self) -> list[str]:
+        """Tách chuỗi key DeepSeek thành list (ưu tiên trước Gemini khi dịch văn bản)."""
+        raw = ",".join(p for p in (self.deepseek_api_keys, self.deepseek_api_key) if p)
+        return [k.strip() for k in raw.split(",") if k.strip()]
+
+    @property
     def gemini_api_key_list(self) -> list[str]:
-        """Tách chuỗi key thành list. Không log, không trả ra API."""
-        return [k.strip() for k in self.gemini_api_keys.split(",") if k.strip()]
+        """Tách chuỗi key thành list (gồm DeepSeek ưu tiên đầu + Gemini). Không log, không trả ra API."""
+        ds_keys = self.deepseek_api_key_list
+        gm_keys = [k.strip() for k in self.gemini_api_keys.split(",") if k.strip()]
+        ket_qua: list[str] = []
+        for k in [*ds_keys, *gm_keys]:
+            if k not in ket_qua:
+                ket_qua.append(k)
+        return ket_qua
+
+    @property
+    def llm_api_keys_list(self) -> list[str]:
+        return self.gemini_api_key_list
 
     @staticmethod
     def _doi_driver(url: str, driver: str) -> str:

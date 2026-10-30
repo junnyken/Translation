@@ -2270,6 +2270,35 @@ def _dich_danh_sach_thoai_gpu(
     )
 
     def _goi_llm_van_ban(prompt_text: str, so_cau: int) -> str:
+        if backend == "deepseek":
+            ds_key = _lay_khoa_deepseek_cuc_bo()
+            req_ds = urllib.request.Request(
+                "https://api.deepseek.com/chat/completions",
+                data=json.dumps(
+                    {
+                        "model": model or "deepseek-chat",
+                        "temperature": 0.2,
+                        "max_tokens": max(128, min(768, so_cau * 36)),
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": "Bạn là chuyên gia dịch truyện tranh sang Tiếng Việt tự nhiên, chuẩn xưng hô.",
+                            },
+                            {"role": "user", "content": prompt_text},
+                        ],
+                    }
+                ).encode("utf-8"),
+                headers={
+                    "Authorization": f"Bearer {ds_key}",
+                    "Content-Type": "application/json",
+                    "User-Agent": "Mozilla/5.0",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req_ds, timeout=45) as resp_ds:
+                data_ds = json.loads(resp_ds.read().decode("utf-8", errors="replace"))
+            return str((((data_ds.get("choices") or [{}])[0]).get("message") or {}).get("content") or "")
+
         if backend == "ollama":
             tuy_chon = _tuy_chon_ollama(
                 chay_cpu,
@@ -2633,13 +2662,54 @@ _UU_TIEN_MODEL_LOCAL_OCR_GPU: list[str] = [
 _MODEL_LOCAL_OCR_GPU_TUY_CHON: str = ""
 
 
+def _lay_khoa_deepseek_cuc_bo() -> str:
+    """Đọc khoá DeepSeek API (sk-...) từ biến môi trường, CAU_HINH_FILE hoặc .env."""
+    for env_name in ("DEEPSEEK_API_KEY", "DEEPSEEK_API_KEYS", "GEMINI_API_KEYS", "GEMINI_API_KEY"):
+        val = (os.environ.get(env_name) or "").strip()
+        if val:
+            for part in val.split(","):
+                p = part.strip()
+                if p.startswith("sk-") or env_name.startswith("DEEPSEEK"):
+                    return p
+    try:
+        if CAU_HINH_FILE.is_file():
+            cfg = json.loads(CAU_HINH_FILE.read_text(encoding="utf-8"))
+            k_cfg = str(cfg.get("deepseek_api_key") or "").strip()
+            if k_cfg:
+                return k_cfg.split(",")[0].strip()
+    except Exception:
+        pass
+    app_dir = Path(_APP_DIR)
+    for env_path in (app_dir / ".env", app_dir.parent / ".env"):
+        try:
+            if env_path.is_file():
+                for line in env_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+                    s = line.strip()
+                    if s.startswith(("DEEPSEEK_API_KEY=", "DEEPSEEK_API_KEYS=", "GEMINI_API_KEYS=", "GEMINI_API_KEY=")):
+                        k_name, v_raw = s.split("=", 1)
+                        v = v_raw.strip().strip("\"'")
+                        for part in v.split(","):
+                            p = part.strip()
+                            if p and (p.startswith("sk-") or k_name.startswith("DEEPSEEK")):
+                                return p
+        except Exception:
+            pass
+    return ""
+
+
 def _ket_noi_llm_cho_local_ocr_gpu() -> tuple[str, str]:
     """
     Kết nối mô hình AI cục bộ cho chế độ `local_ocr_gpu`:
+    - Nếu người dùng đã cấu hình `DEEPSEEK_API_KEY` (hoặc `deepseek_api_key`), ưu tiên dùng `deepseek-chat`
+      để dịch văn bản chuẩn ngữ cảnh với chi phí siêu rẻ (~1.5đ/trang) mà không tốn VRAM máy tính.
     - Vì `local_ocr_gpu` đã tách riêng tầng OCR cục bộ (Windows + HuggingFace ONNX) nên tầng dịch chỉ cần gửi văn bản.
     - Ưu tiên `qwen3-vl:8b` (hoặc model mới do người dùng cập nhật), đồng thời tự động nhận diện các thế hệ model mới hơn
       trong Ollama / LM Studio (`qwen3:8b`, `qwen3:14b`, `gemma3:12b`, `qwen2.5:7b`...) theo thời gian!
     """
+    ds_key = _lay_khoa_deepseek_cuc_bo()
+    if ds_key:
+        return "deepseek", "deepseek-chat"
+
     try:
         return _ket_noi_qwen3_vl_cuc_bo()
     except LocalModelMissingError:

@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 DAU_KHONG_CHAC = "[?]"
 
 _GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+_DEEPSEEK_ENDPOINT = "https://api.deepseek.com/chat/completions"
 
 #: E71 — schema ép đầu ra của chế độ JSON (`LLMContextTranslator(json_mode=True)`).
 #:
@@ -195,8 +196,8 @@ class LLMContextTranslator:
 
     engine_enum = TranslationEngine.llm_context
 
-    #: Mã lỗi coi là "hết quota / quá nhịp" -> xoay sang key kế tiếp.
-    QUOTA_STATUS = (429,)
+    #: Mã lỗi coi là "hết quota / quá nhịp / hết số dư" -> xoay sang key kế tiếp.
+    QUOTA_STATUS = (429, 402)
 
     def __init__(
         self,
@@ -540,14 +541,60 @@ class LLMContextTranslator:
         last_error: Exception | None = None
         for _ in range(attempts):
             key = self._current_key()
-            request = urllib.request.Request(
-                _GEMINI_ENDPOINT.format(model=self.model_name),
-                data=body,
-                method="POST",
-                headers={"x-goog-api-key": key, "Content-Type": "application/json"},
+            la_deepseek = (
+                key.startswith("sk-")
+                or key.startswith("ds:")
+                or self.model_name.lower().startswith("deepseek")
             )
+            if la_deepseek:
+                clean_key = key[3:].strip() if key.startswith("ds:") else key
+                ds_model = (
+                    self.model_name
+                    if self.model_name.lower().startswith("deepseek")
+                    else "deepseek-chat"
+                )
+                ds_payload: dict = {
+                    "model": ds_model,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": "Bạn là chuyên gia dịch truyện tranh sang tiếng Việt tự nhiên, chuẩn xưng hô.",
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                    "temperature": self.temperature,
+                    "max_tokens": min(self.max_output_tokens, 8192),
+                    "stream": False,
+                }
+                if schema is not None:
+                    ds_payload["response_format"] = {"type": "json_object"}
+                request = urllib.request.Request(
+                    _DEEPSEEK_ENDPOINT,
+                    data=json.dumps(ds_payload).encode("utf-8"),
+                    method="POST",
+                    headers={
+                        "Authorization": f"Bearer {clean_key}",
+                        "Content-Type": "application/json",
+                    },
+                )
+            else:
+                request = urllib.request.Request(
+                    _GEMINI_ENDPOINT.format(model=self.model_name),
+                    data=body,
+                    method="POST",
+                    headers={"x-goog-api-key": key, "Content-Type": "application/json"},
+                )
             try:
                 data = _http_json(request, self.timeout)
+                if la_deepseek:
+                    choice = (data.get("choices") or [{}])[0]
+                    msg = choice.get("message") or {}
+                    usage_ds = data.get("usage") or {}
+                    return str(msg.get("content") or ""), {
+                        "promptTokenCount": usage_ds.get("prompt_tokens"),
+                        "candidatesTokenCount": usage_ds.get("completion_tokens"),
+                        "totalTokenCount": usage_ds.get("total_tokens"),
+                    }
                 candidate = (data.get("candidates") or [{}])[0]
                 parts = (candidate.get("content") or {}).get("parts") or []
                 return "".join(p.get("text", "") for p in parts), data.get("usageMetadata", {})

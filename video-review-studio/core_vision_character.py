@@ -4,6 +4,7 @@ import base64
 import hashlib
 import io
 import json
+import os
 import re
 import urllib.parse
 import urllib.request
@@ -168,6 +169,47 @@ def dich_thoai_anh_sang_viet_chuan_ngu_canh(ds_cau: list[str]) -> list[str]:
 
     if not cau_can_dich:
         return [k for k in ket_qua if k]
+
+    ds_key = _lay_khoa_deepseek_review()
+    if ds_key:
+        try:
+            numbered = "\n".join(f"[{idx + 1}] {c}" for idx, c in enumerate(cau_can_dich))
+            prompt_ds = (
+                f"Dịch chính xác {len(cau_can_dich)} câu thoại truyện tranh sau sang Tiếng Việt tự nhiên "
+                "(xưng Cậu - Mình, đàn chị Hiyori-senpai, giữ nguyên tên riêng Haruka-chan, Hiyori, Lai-chan). "
+                f"Chỉ trả về đúng {len(cau_can_dich)} dòng từ [1] đến [{len(cau_can_dich)}]:\n{numbered}"
+            )
+            req_ds = urllib.request.Request(
+                "https://api.deepseek.com/chat/completions",
+                data=json.dumps(
+                    {
+                        "model": "deepseek-chat",
+                        "temperature": 0.2,
+                        "max_tokens": max(128, len(cau_can_dich) * 40),
+                        "messages": [{"role": "user", "content": prompt_ds}],
+                    }
+                ).encode("utf-8"),
+                headers={
+                    "Authorization": f"Bearer {ds_key}",
+                    "Content-Type": "application/json",
+                    "User-Agent": "Mozilla/5.0",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req_ds, timeout=20) as resp_ds:
+                data_ds = json.loads(resp_ds.read().decode("utf-8", errors="replace"))
+            raw_ds = str((((data_ds.get("choices") or [{}])[0]).get("message") or {}).get("content") or "")
+            parsed_ds: dict[int, str] = {}
+            for line in raw_ds.splitlines():
+                m = re.match(r"^\s*\[?(\d+)[\].:\-)\s]+(.+?)\s*$", line.strip())
+                if m:
+                    parsed_ds[int(m.group(1)) - 1] = m.group(2).strip()
+            if len(parsed_ds) == len(cau_can_dich):
+                for k_i, orig_idx in enumerate(idx_can_dich):
+                    ket_qua[orig_idx] = parsed_ds[k_i]
+                return [k for k in ket_qua if k]
+        except Exception:
+            pass
 
     try:
         q = urllib.parse.quote("\n ||| \n".join(cau_can_dich))
@@ -606,7 +648,48 @@ def phan_tich_bo_cuc_anh_khung_tranh(panel_bytes: bytes) -> dict[str, Any]:
         return {"do_sang": 128.0, "do_tuong_phan": 45.0, "khong_khi": "binh_thuong"}
 
 
+def _lay_khoa_deepseek_review() -> str:
+    """Đọc khoá DeepSeek API (sk-...) từ biến môi trường, cau-hinh-video-studio.json hoặc .env."""
+    for env_name in ("DEEPSEEK_API_KEY", "DEEPSEEK_API_KEYS", "GEMINI_API_KEYS", "GEMINI_API_KEY"):
+        val = (os.environ.get(env_name) or "").strip()
+        if val:
+            for part in val.split(","):
+                p = part.strip()
+                if p.startswith("sk-") or env_name.startswith("DEEPSEEK"):
+                    return p
+    base_dir = Path(__file__).resolve().parent
+    for cfg_path in (
+        base_dir / "cau-hinh-video-studio.json",
+        base_dir.parent / "windows-app" / "cau-hinh-nguoi-dung.json",
+    ):
+        try:
+            if cfg_path.is_file():
+                cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+                k = str(cfg.get("deepseek_api_key") or "").strip()
+                if k:
+                    return k.split(",")[0].strip()
+        except Exception:
+            pass
+    for env_path in (base_dir / ".env", base_dir.parent / ".env"):
+        try:
+            if env_path.is_file():
+                for line in env_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+                    s = line.strip()
+                    if s.startswith(("DEEPSEEK_API_KEY=", "DEEPSEEK_API_KEYS=", "GEMINI_API_KEYS=", "GEMINI_API_KEY=")):
+                        k_name, v_raw = s.split("=", 1)
+                        v = v_raw.strip().strip("\"'")
+                        for part in v.split(","):
+                            p = part.strip()
+                            if p and (p.startswith("sk-") or k_name.startswith("DEEPSEEK")):
+                                return p
+        except Exception:
+            pass
+    return ""
+
+
 def _tim_model_llm_cuc_bo() -> tuple[str, str] | None:
+    if _lay_khoa_deepseek_review():
+        return "deepseek", "deepseek-chat"
     try:
         req = urllib.request.Request("http://127.0.0.1:11434/api/tags", method="GET")
         with urllib.request.urlopen(req, timeout=1.5) as r:
@@ -880,7 +963,36 @@ def _viet_kich_ban_toan_chuong_bang_ai(
         )
 
         try:
-            if backend == "ollama":
+            if backend == "deepseek":
+                ds_key = _lay_khoa_deepseek_review()
+                payload = json.dumps(
+                    {
+                        "model": model_name or "deepseek-chat",
+                        "temperature": 0.2,
+                        "max_tokens": 320,
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": "Bạn là biên kịch kênh Review Truyện Tranh chuyên nghiệp bằng Tiếng Việt ngôi thứ 3.",
+                            },
+                            {"role": "user", "content": prompt},
+                        ],
+                    }
+                ).encode("utf-8")
+                req = urllib.request.Request(
+                    "https://api.deepseek.com/chat/completions",
+                    data=payload,
+                    headers={
+                        "Authorization": f"Bearer {ds_key}",
+                        "Content-Type": "application/json",
+                        "User-Agent": "Mozilla/5.0",
+                    },
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=25) as resp:
+                    data = json.loads(resp.read().decode("utf-8", errors="replace"))
+                raw_out = str((((data.get("choices") or [{}])[0]).get("message") or {}).get("content") or "")
+            elif backend == "ollama":
                 payload = json.dumps(
                     {
                         "model": model_name,
