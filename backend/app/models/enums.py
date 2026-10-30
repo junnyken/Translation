@@ -12,6 +12,13 @@ class SourceLang(str, Enum):
 class TargetLang(str, Enum):
     vi = "vi"
     en = "en"
+    zh = "zh"
+    zh_tw = "zh-TW"
+    id = "id"
+    es = "es"
+    pt = "pt"
+    th = "th"
+    fr = "fr"
 
 
 class IntendedUse(str, Enum):

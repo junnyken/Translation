@@ -250,6 +250,26 @@ DANH_SACH_GIONG_DOC: dict[str, dict[str, Any]] = {
         "vung_mien": "Global English",
         "toc_do_mac_dinh": 1.12,
     },
+    "global_zh_yunxi": {
+        "ten": "🇨🇳 [中文简体 - China] Yunxi — Nam Thuyết Minh 漫画解说 (Thị trường Trung Quốc Đại Lục / Douyin / Bilibili)",
+        "voice_id": "zh-CN-YunxiNeural",
+        "preset_hf": "zh_cn_m",
+        "pitch_hz": "+0Hz",
+        "atempo_mod": 1.0,
+        "gioi_tinh": "nam",
+        "vung_mien": "China (Simplified)",
+        "toc_do_mac_dinh": 1.12,
+    },
+    "global_zh_tw_yunjhe": {
+        "ten": "🇹🇼 [繁體中文 - Đài Loan/HK] YunJhe — Nam Thuyết Minh 漫畫解說 (Thị trường Đài Loan / Hồng Kông)",
+        "voice_id": "zh-TW-YunJheNeural",
+        "preset_hf": "zh_tw_m",
+        "pitch_hz": "+0Hz",
+        "atempo_mod": 1.0,
+        "gioi_tinh": "nam",
+        "vung_mien": "Taiwan / HK (Traditional)",
+        "toc_do_mac_dinh": 1.12,
+    },
     "global_id_ardi": {
         "ten": "🇮🇩 [Indonesia] Ardi — Nam Thuyết Minh Komik/Manhwa (Thị trường Indonesia 275 triệu dân)",
         "voice_id": "id-ID-ArdiNeural",
@@ -894,13 +914,17 @@ def _thu_goi_edge_neural(
         import asyncio
         import edge_tts  # type: ignore
 
-        van_ban_viet = chuan_hoa_van_ban_thuan_viet_cho_tts(van_ban)
+        van_ban_doc = (
+            chuan_hoa_van_ban_thuan_viet_cho_tts(van_ban)
+            if str(voice_id).startswith("vi-VN-")
+            else (van_ban or "").strip()
+        )
         pct = int(round((toc_do - 1.0) * 100))
         rate_str = f"+{pct}%" if pct >= 0 else f"{pct}%"
         mp3_tmp = out_wav.with_suffix(".mp3")
 
         async def _run():
-            comm = edge_tts.Communicate(van_ban_viet, voice=voice_id, rate=rate_str, pitch=pitch_hz or "+0Hz")
+            comm = edge_tts.Communicate(van_ban_doc, voice=voice_id, rate=rate_str, pitch=pitch_hz or "+0Hz")
             await comm.save(str(mp3_tmp))
 
         asyncio.run(_run())
@@ -980,8 +1004,8 @@ def tong_hop_giong_doc_phan_canh(
         # 2. Nếu chọn dòng giọng Chị Google Review Chuẩn Thuần Việt (hoặc Ngọc Huyền / Trúc Ly)
         if not da_tao and voice_id == "google_vi_native":
             da_tao, actual_audio_path = _thu_goi_google_viet_native(van_ban, toc_do_thuc, wav_path)
-        # 3. Nếu chọn giọng Neural đã khoá phiên âm Thuần Việt (Nam Minh / Hoài My)
-        if not da_tao and voice_id.startswith("vi-VN-"):
+        # 3. Nếu chọn giọng Neural (Nam Minh / Hoài My hoặc giọng Quốc tế EN/ZH/ZH-TW/ID/ES/PT/TH/FR)
+        if not da_tao and ("Neural" in voice_id or voice_id.startswith("vi-VN-")):
             da_tao, actual_audio_path = _thu_goi_edge_neural(
                 van_ban, voice_id, toc_do_thuc, wav_path, pitch_hz=pitch_hz
             )

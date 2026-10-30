@@ -153,9 +153,24 @@ def xac_thuc_va_tru_luot_video_cloud(
     }
 
 
-def _nap_font_phu_de(co_chu: int = 28):
+def _nap_font_phu_de(co_chu: int = 28, van_ban: str = ""):
     if ImageFont is None:
         return None
+    import re
+    if van_ban and re.search(r"[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]", van_ban):
+        for fp in ("C:/Windows/Fonts/msyhbd.ttc", "C:/Windows/Fonts/msjhbd.ttc", "C:/Windows/Fonts/simhei.ttf", "C:/Windows/Fonts/msyh.ttc"):
+            if os.path.isfile(fp):
+                try:
+                    return ImageFont.truetype(fp, co_chu)
+                except Exception:
+                    continue
+    if van_ban and re.search(r"[\u0e00-\u0e7f]", van_ban):
+        for fp in ("C:/Windows/Fonts/leelawdb.ttf", "C:/Windows/Fonts/leelawui.ttf", "C:/Windows/Fonts/tahomabd.ttf"):
+            if os.path.isfile(fp):
+                try:
+                    return ImageFont.truetype(fp, co_chu)
+                except Exception:
+                    continue
     ds_font = [
         "C:/Windows/Fonts/arialbd.ttf",
         "C:/Windows/Fonts/segoeui.ttf",
@@ -228,8 +243,8 @@ def ve_khung_hinh_pan_zoom_va_phu_de(
     canvas.paste(fg, (px, py))
 
     draw = ImageDraw.Draw(canvas)
-    font_sub = _nap_font_phu_de(co_chu=26 if vw <= 720 else 30)
-    font_tag = _nap_font_phu_de(co_chu=20)
+    font_sub = _nap_font_phu_de(co_chu=26 if vw <= 720 else 30, van_ban=loi_thuyet_minh)
+    font_tag = _nap_font_phu_de(co_chu=20, van_ban=nhan_vat)
 
     if nhan_vat:
         nhan_txt = f"🎭 {nhan_vat}"

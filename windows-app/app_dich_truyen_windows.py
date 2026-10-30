@@ -103,11 +103,30 @@ def chuan_hoa_may_chu(raw: str) -> str:
 # 1. THUẬT TOÁN XOÁ CHỮ 2D & CĂN CHỮ BONG BÓNG TRÊN MÁY KHÁCH WINDOWS (PILLOW)
 # ==============================================================================
 
-def tim_font_he_thong(loai_font: str, co_chu: int):
-    """Tìm font chữ tiếng Việt có sẵn trên Windows theo phong cách thể loại (đủ dấu Unicode Tiếng Việt)."""
+def tim_font_he_thong(loai_font: str, co_chu: int, van_ban: str = ""):
+    """Tìm font chữ đa ngôn ngữ có sẵn trên Windows theo phong cách thể loại (hỗ trợ Tiếng Việt, Anh, Trung Giản/Phồn, Thái, Indo, Tây Ban Nha, Pháp, Bồ Đào Nha)."""
     if ImageFont is None:
         return None
     win_fonts = Path(os.environ.get("WINDIR", "C:\\Windows")) / "Fonts"
+    # Tự động chọn bộ font CJK (Trung/Nhật/Hàn) hoặc Thái Lan nếu bản dịch chứa ký tự tượng hình/Thái để không bao giờ bị ô vuông □
+    if van_ban and re.search(r"[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]", van_ban):
+        ds_cjk = ["msyhbd.ttc", "msjhbd.ttc", "simhei.ttf", "msyh.ttc", "msjh.ttc", "malgunbd.ttf", "YuGothB.ttc", "msgothic.ttc"]
+        for ten in ds_cjk:
+            p = win_fonts / ten
+            if p.is_file():
+                try:
+                    return ImageFont.truetype(str(p), co_chu)
+                except Exception:
+                    continue
+    if van_ban and re.search(r"[\u0e00-\u0e7f]", van_ban):
+        ds_thai = ["leelawdb.ttf", "leelawui.ttf", "tahomabd.ttf", "tahoma.ttf", "cordiab.ttf"]
+        for ten in ds_thai:
+            p = win_fonts / ten
+            if p.is_file():
+                try:
+                    return ImageFont.truetype(str(p), co_chu)
+                except Exception:
+                    continue
     # Lưu ý: impact.ttf, Gabriola.ttf, comicbd.ttf trên Windows thiếu dấu Tiếng Việt (Ạ, Ấ, Ư, Ỡ -> hiện ô vuông □)
     ung_vien_theo_loai = {
         "bangers": ["tahomabd.ttf", "segoeuib.ttf", "arialbd.ttf", "verdanab.ttf"],
@@ -585,7 +604,8 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
     # Bước B: Đo biên dạng thực tế lòng bóng thoại theo từng hàng pixel (Pixel-Exact Contour Typesetting)
     draw = ImageDraw.Draw(anh)
     for hop in hop_ve_chu:
-        chu = hop["text"].upper() if loai_font == "bangers" else hop["text"]
+        la_chu_cjk_thai = bool(re.search(r"[\u0e00-\u0e7f\u3040-\u9fff\uac00-\ud7af]", hop["text"]))
+        chu = hop["text"].upper() if (loai_font == "bangers" and not la_chu_cjk_thai) else hop["text"]
         bx, by, bw, bh = hop["x"], hop["y"], hop["w"], hop["h"]
         bg_r, bg_g, bg_b = hop["bg"]
         nen_mau_tb = bool(hop.get("nen_mau_trung_binh"))
@@ -683,15 +703,24 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
 
         co_max = min(32, max(14, int(min(bw, safe_h * 1.35) * 0.42)))
         co_min = 8
-        font_chon = tim_font_he_thong(loai_font, co_min)
+        font_chon = tim_font_he_thong(loai_font, co_min, van_ban=chu)
         dong_chon = [chu]
         vi_tri_dong_chon: list[tuple[str, int, int, int]] = []
+        la_khong_dau_cach = bool(re.search(r"[\u4e00-\u9fff\u3040-\u30ff]", chu)) or (
+            bool(re.search(r"[\u0e00-\u0e7f]", chu)) and len(chu.split()) <= 2
+        )
 
         for co in range(co_max, co_min - 1, -1):
-            f = tim_font_he_thong(loai_font, co)
-            bbox_mau_f = draw.textbbox((0, 0), "Ág", font=f)
+            f = tim_font_he_thong(loai_font, co, van_ban=chu)
+            bbox_mau_f = draw.textbbox((0, 0), "国g" if la_khong_dau_cach else "Ág", font=f)
             cao_dong = max(10, int((bbox_mau_f[3] - bbox_mau_f[1]) * 1.15))
-            tu = chu.split()
+            if la_khong_dau_cach:
+                chu_sach_cjk = re.sub(r"\s+", "", chu)
+                tu = [chu_sach_cjk[i : i + 2] for i in range(0, len(chu_sach_cjk), 2)]
+                dau_noi = ""
+            else:
+                tu = chu.split()
+                dau_noi = " "
             if not tu:
                 break
 
@@ -708,7 +737,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                 y_est_0 = safe_y0 + max(0, (safe_h - n_est * cao_dong) // 2) + idx_d * cao_dong
                 lx0_d, lx1_d = _khoang_ngang_cho_dong(y_est_0, y_est_0 + cao_dong)
                 gioi_han_dong = max(16, lx1_d - lx0_d - 2)
-                thu = f"{hien_tai} {w_tu}"
+                thu = f"{hien_tai}{dau_noi}{w_tu}"
                 bbox_thu = draw.textbbox((0, 0), thu, font=f)
                 if (bbox_thu[2] - bbox_thu[0]) <= gioi_han_dong:
                     hien_tai = thu
@@ -718,7 +747,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
             dong.append(hien_tai)
 
             # Cân bằng 2 dòng cuối nếu dòng cuối chỉ có 1 từ ngắn
-            if len(dong) >= 2 and len(dong[-1].split()) == 1 and len(dong[-2].split()) >= 3:
+            if not la_khong_dau_cach and len(dong) >= 2 and len(dong[-1].split()) == 1 and len(dong[-2].split()) >= 3:
                 tu_cuoi = dong[-2].split()
                 thu_gop = f"{tu_cuoi[-1]} {dong[-1]}"
                 thu_truoc = " ".join(tu_cuoi[:-1])
@@ -2130,6 +2159,65 @@ def trich_xuat_thuat_ngu_trang(bubbles: list[dict], tu_dien_rieng: str = "") -> 
     return chuoi_goi_y
 
 
+DANH_SACH_NGON_NGU_DICH_QUOC_TE: dict[str, dict[str, str]] = {
+    "vi": {
+        "nhan_ui": "vi (🇻🇳 Tiếng Việt)",
+        "ten_prompt": "Tiếng Việt tự nhiên, sống động, chuẩn thoại truyện tranh",
+        "google_tl": "vi",
+    },
+    "en": {
+        "nhan_ui": "en (🇺🇸 English — Quốc tế)",
+        "ten_prompt": "natural, expressive Comic/Manga English",
+        "google_tl": "en",
+    },
+    "zh": {
+        "nhan_ui": "zh (🇨🇳 中文简体 — Trung Quốc Giản thể)",
+        "ten_prompt": "地道自然的简体中文漫画对白 (Simplified Chinese)",
+        "google_tl": "zh-CN",
+    },
+    "zh-TW": {
+        "nhan_ui": "zh-TW (🇹🇼 繁體中文 — Đài Loan / HK Phồn thể)",
+        "ten_prompt": "地道自然的繁體中文漫畫對白 (Traditional Chinese)",
+        "google_tl": "zh-TW",
+    },
+    "id": {
+        "nhan_ui": "id (🇮🇩 Bahasa Indonesia — Đông Nam Á)",
+        "ten_prompt": "Bahasa Indonesia alami gaya Komik/Manhwa",
+        "google_tl": "id",
+    },
+    "es": {
+        "nhan_ui": "es (🇪🇸 Español — Tây Ban Nha & Mỹ Latinh)",
+        "ten_prompt": "Español natural y expresivo de Manga/Cómic",
+        "google_tl": "es",
+    },
+    "pt": {
+        "nhan_ui": "pt (🇧🇷 Português — Brazil & Bồ Đào Nha)",
+        "ten_prompt": "Português brasileiro natural de Mangá/Webtoon",
+        "google_tl": "pt",
+    },
+    "th": {
+        "nhan_ui": "th (🇹🇭 ภาษาไทย — Thái Lan)",
+        "ten_prompt": "ภาษาไทยธรรมชาติสไตล์มังงะ/เว็บตูน (Thai)",
+        "google_tl": "th",
+    },
+    "fr": {
+        "nhan_ui": "fr (🇫🇷 Français — Pháp & Châu Âu)",
+        "ten_prompt": "Français naturel et expressif de Manga/BD",
+        "google_tl": "fr",
+    },
+}
+
+
+def lay_ten_prompt_ngon_ngu_dich(ngon_ngu_dich: str = "vi") -> str:
+    ma = (ngon_ngu_dich or "vi").strip()
+    if ma in DANH_SACH_NGON_NGU_DICH_QUOC_TE:
+        return DANH_SACH_NGON_NGU_DICH_QUOC_TE[ma]["ten_prompt"]
+    for k, v in DANH_SACH_NGON_NGU_DICH_QUOC_TE.items():
+        if k.lower() == ma.lower():
+            return v["ten_prompt"]
+    return DANH_SACH_NGON_NGU_DICH_QUOC_TE["vi"]["ten_prompt"]
+
+
 def hau_kiem_va_sua_ban_dich(chu_goc: str, ban_dich: str, ngon_ngu_dich: str = "vi") -> str:
     """
     Làm sạch và chuẩn hoá câu dịch tự động trước khi chấm điểm:
@@ -2226,6 +2314,29 @@ def danh_gia_chat_luong_ban_dich(
             if ty_le_dai < 0.28 or ty_le_dai > 3.2:
                 diem -= 0.30
                 ds_loi.append("loi_ty_le_do_dai")
+    elif ngon_ngu_dich != ngon_ngu_nguon:
+        # Chấm điểm chất lượng cho các ngôn ngữ đích quốc tế (EN, ZH, ZH-TW, ID, ES, PT, TH, FR)
+        if len(goc) >= 4 and goc.lower() == dich.lower() and goc.lower() not in TEN_RIENG_GIU_NGUYEN:
+            diem -= 0.70
+            ds_loi.append("loi_chua_dich")
+        if ngon_ngu_dich.lower().startswith("zh") and len(goc) >= 4 and not re.search(r"[\u4e00-\u9fff]", dich):
+            diem -= 0.65
+            ds_loi.append("loi_thieu_chu_han")
+        if ngon_ngu_dich.lower() == "th" and len(goc) >= 4 and not re.search(r"[\u0e00-\u0e7f]", dich):
+            diem -= 0.65
+            ds_loi.append("loi_thieu_chu_thai")
+        if ngon_ngu_dich.lower().startswith(("zh", "th")) and ngon_ngu_nguon == "en":
+            tu_anh_sot_qt = [
+                w.lower()
+                for w in re.findall(r"[A-Za-z']+", dich)
+                if w.lower() in TU_TIENG_ANH_PHO_BIEN_CAN_DICH and w.lower() not in TEN_RIENG_GIU_NGUYEN
+            ]
+            if tu_anh_sot_qt:
+                diem -= min(0.60, 0.25 + 0.12 * len(tu_anh_sot_qt))
+                ds_loi.append(f"loi_sot_tieng_goc:{','.join(tu_anh_sot_qt[:3])}")
+        if re.search(r"\b(\w+)(?:\s+\1){2,}\b", dich, re.I):
+            diem -= 0.50
+            ds_loi.append("loi_lap_tu")
 
     return round(max(0.0, min(1.0, diem)), 3), ds_loi
 
@@ -2249,8 +2360,8 @@ def _dich_danh_sach_thoai_gpu(
     - Khi `che_do_pro=True` (`local_hybrid_pro`): mở rộng ngữ cảnh `num_ctx=1536`, siết ngưỡng kiểm định chất lượng
       lên `Q >= 0.85` và kích hoạt gợi ý giải mã chữ viết tay / tiếng lóng bị OCR đọc lệch ký tự.
     """
-    ten_dich = "English" if ngon_ngu_dich == "en" else "Tiếng Việt tự nhiên, sống động, chuẩn thoại truyện tranh"
-    thuat_ngu_trang = trich_xuat_thuat_ngu_trang(bubbles, tu_dien_rieng=tu_dien_rieng)
+    ten_dich = lay_ten_prompt_ngon_ngu_dich(ngon_ngu_dich)
+    thuat_ngu_trang = trich_xuat_thuat_ngu_trang(bubbles, tu_dien_rieng=tu_dien_rieng) if ngon_ngu_dich == "vi" else (tu_dien_rieng or "").strip()
     dong_thuat_ngu = f"2. Gợi ý từ vựng (nếu có): {thuat_ngu_trang}.\n" if thuat_ngu_trang else ""
     lines_in = "\n".join(
         f"[{idx + 1}] {_chuan_hoa_cau_goc_cho_llm(b['chu_goc'])}" for idx, b in enumerate(bubbles)
@@ -2263,9 +2374,9 @@ def _dich_danh_sach_thoai_gpu(
     prompt = (
         f"Bạn là biên dịch viên truyện tranh kỳ cựu ({ngon_ngu_nguon} -> {ten_dich}).\n"
         "Quy tắc dịch bắt buộc:\n"
-        "1. Dịch ĐÚNG NGHĨA từng câu thoại bên dưới sang văn phong truyện tranh tự nhiên (TUYỆT ĐỐI không bịa thêm nội dung không có trong câu gốc, không chép lại câu của trang trước).\n"
+        f"1. Dịch ĐÚNG NGHĨA từng câu thoại bên dưới sang {ten_dich} tự nhiên (TUYỆT ĐỐI không bịa thêm nội dung không có trong câu gốc, không chép lại câu của trang trước).\n"
         f"{dong_thuat_ngu}"
-        f"3. CHỈ trả về đúng {len(bubbles)} dòng từ [1] đến [{len(bubbles)}], mỗi câu 1 dòng ngắn gọn, KHÔNG giải thích:{quy_tac_pro}\n"
+        f"3. CHỈ trả về đúng {len(bubbles)} dòng từ [1] đến [{len(bubbles)}], mỗi câu 1 dòng ngắn gọn bằng {ten_dich}, KHÔNG giải thích:{quy_tac_pro}\n"
         f"{lines_in}"
     )
 
@@ -2282,7 +2393,7 @@ def _dich_danh_sach_thoai_gpu(
                         "messages": [
                             {
                                 "role": "system",
-                                "content": "Bạn là chuyên gia dịch truyện tranh sang Tiếng Việt tự nhiên, chuẩn xưng hô.",
+                                "content": f"Bạn là chuyên gia dịch truyện tranh đa ngôn ngữ sang {ten_dich} tự nhiên, chuẩn ngữ cảnh.",
                             },
                             {"role": "user", "content": prompt_text},
                         ],
@@ -2390,7 +2501,7 @@ def _dich_danh_sach_thoai_gpu(
         )
         prompt_retry = (
             f"Dịch chính xác {len(ds_can_dich_lai)} câu thoại truyện tranh sau sang {ten_dich}.\n"
-            f"Bắt buộc dịch hết 100% từ tiếng Anh sang Tiếng Việt tự nhiên, ngắn gọn, không lặp từ ({thuat_ngu_trang}):\n"
+            f"Bắt buộc dịch hết 100% từ ngôn ngữ gốc ({ngon_ngu_nguon}) sang {ten_dich} tự nhiên, ngắn gọn, không lặp từ ({thuat_ngu_trang}):\n"
             f"{lines_retry}"
         )
         try:
@@ -2490,7 +2601,7 @@ def dich_anh_local_gguf_tren_may_khach(
 
     # Nhánh 2: Gửi ảnh cho Qwen3-VL 8B (giữ tương thích đầy đủ với kiểm thử và các ngôn ngữ chưa cài gói OCR)
     anh_b64 = base64.b64encode(img_bytes).decode("ascii")
-    ten_dich = "English" if ngon_ngu_dich == "en" else "Tiếng Việt tự nhiên, chuẩn phong cách truyện tranh"
+    ten_dich = lay_ten_prompt_ngon_ngu_dich(ngon_ngu_dich)
     doan_ngu_canh = (
         f"\nNgữ cảnh xưng hô & thuật ngữ từ các trang trước (hãy giữ đồng nhất):\n{tu_dien_rieng}\n"
         if tu_dien_rieng
@@ -2612,23 +2723,35 @@ def _dich_danh_sach_thoai_nhanh_mien_phi(
     """
     if not bubbles:
         return []
-    sl = {"ja": "ja", "ko": "ko", "zh": "zh-CN", "en": "en"}.get(ngon_ngu_nguon, "auto")
-    tl = "en" if ngon_ngu_dich == "en" else "vi"
-    lines_in = [_chuan_hoa_cau_goc_cho_llm(b["chu_goc"]) for b in bubbles]
-    sep = "\n ||| \n"
-    joined = sep.join(lines_in)
-    url = (
-        "https://translate.googleapis.com/translate_a/single?client=gtx"
-        f"&sl={urllib.parse.quote(sl)}&tl={urllib.parse.quote(tl)}&dt=t&q={urllib.parse.quote(joined)}"
-    )
-    raw = goi_http(url, timeout=15, nguon_ngoai=True).decode("utf-8", errors="replace")
-    data = json.loads(raw)
-    full_trans = "".join( str(seg[0]) for seg in (data[0] or []) if seg and seg[0] )
-    parts = [p.strip() for p in re.split(r"\s*\|\|\|\s*", full_trans)]
+    sl = {"ja": "ja", "ko": "ko", "zh": "zh-CN", "zh-TW": "zh-TW", "en": "en"}.get(ngon_ngu_nguon, "auto")
+    tl = DANH_SACH_NGON_NGU_DICH_QUOC_TE.get(ngon_ngu_dich, {}).get("google_tl", ngon_ngu_dich or "vi")
+    lines_in = [re.sub(r"\s+", " ", _chuan_hoa_cau_goc_cho_llm(b["chu_goc"])).strip() for b in bubbles]
+
+    def _goi_gtx(text_q: str) -> str:
+        url_q = (
+            "https://translate.googleapis.com/translate_a/single?client=gtx"
+            f"&sl={urllib.parse.quote(sl)}&tl={urllib.parse.quote(tl)}&dt=t&q={urllib.parse.quote(text_q)}"
+        )
+        raw_q = goi_http(url_q, timeout=15, nguon_ngoai=True).decode("utf-8", errors="replace")
+        data_q = json.loads(raw_q)
+        return "".join(str(seg[0]) for seg in (data_q[0] or []) if seg and seg[0])
+
+    joined = "\n".join(lines_in)
+    full_trans = _goi_gtx(joined)
+    parts = [p.strip() for p in full_trans.splitlines() if p.strip()]
     vung_out: list[dict] = []
     for idx, b in enumerate(bubbles):
-        vi_raw = parts[idx] if idx < len(parts) else ""
+        vi_raw = parts[idx] if len(parts) == len(bubbles) and idx < len(parts) else ""
         vi = hau_kiem_va_sua_ban_dich(b["chu_goc"], vi_raw, ngon_ngu_dich=ngon_ngu_dich)
+        diem_q, _ = danh_gia_chat_luong_ban_dich(
+            b["chu_goc"], vi, ngon_ngu_nguon=ngon_ngu_nguon, ngon_ngu_dich=ngon_ngu_dich
+        )
+        if not vi or diem_q < 0.85:
+            try:
+                vi_don = _goi_gtx(lines_in[idx])
+                vi = hau_kiem_va_sua_ban_dich(b["chu_goc"], vi_don, ngon_ngu_dich=ngon_ngu_dich)
+            except Exception:
+                pass
         if vi and b["w"] >= 12 and b["h"] >= 12:
             muc = {
                 "x": int(b["x"]),
@@ -2720,7 +2843,7 @@ def _dich_danh_sach_thoai_qua_server_deepseek(
                     {
                         "texts": texts_in,
                         "source_lang": ngon_ngu_nguon if ngon_ngu_nguon in ("ja", "ko", "zh", "en") else "ja",
-                        "target_lang": "en" if ngon_ngu_dich == "en" else "vi",
+                        "target_lang": ngon_ngu_dich if ngon_ngu_dich in DANH_SACH_NGON_NGU_DICH_QUOC_TE else "vi",
                         "boi_canh": (tu_dien_rieng or "")[:2000] or None,
                         "page_key": (page_key or "")[:128] or None,
                         "engine": (engine or "local_ocr_gpu")[:64],
@@ -4873,12 +4996,25 @@ class AppDichTruyenWindows(tk.Tk):
         grid_cfg.columnconfigure(3, weight=1)
 
         tk.Label(grid_cfg, text="Ngôn ngữ gốc:", bg=T["bg_surface"], fg=T["text_secondary"], font=("Segoe UI", 9)).grid(row=0, column=0, sticky="w", pady=(0, 5))
-        self.cmb_src = ttk.Combobox(grid_cfg, values=["ja (Nhật)", "ko (Hàn)", "zh (Trung)", "en (Anh)"], state="readonly")
+        self.cmb_src = ttk.Combobox(
+            grid_cfg,
+            values=[
+                "ja (🇯🇵 Nhật - Manga)",
+                "ko (🇰🇷 Hàn - Manhwa)",
+                "zh (🇨🇳 Trung - Manhua Giản/Phồn)",
+                "en (🇺🇸 Anh - Comic)",
+            ],
+            state="readonly",
+        )
         self.cmb_src.current(0)
         self.cmb_src.grid(row=0, column=1, sticky="ew", padx=(6, 12), pady=(0, 5))
 
         tk.Label(grid_cfg, text="Dịch sang:", bg=T["bg_surface"], fg=T["text_secondary"], font=("Segoe UI", 9)).grid(row=0, column=2, sticky="w", pady=(0, 5))
-        self.cmb_tgt = ttk.Combobox(grid_cfg, values=["vi (Tiếng Việt)", "en (English Quốc tế)"], state="readonly")
+        self.cmb_tgt = ttk.Combobox(
+            grid_cfg,
+            values=[v["nhan_ui"] for v in DANH_SACH_NGON_NGU_DICH_QUOC_TE.values()],
+            state="readonly",
+        )
         self.cmb_tgt.current(0)
         self.cmb_tgt.grid(row=0, column=3, sticky="ew", padx=(6, 0), pady=(0, 5))
 

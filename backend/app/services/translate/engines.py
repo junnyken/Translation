@@ -120,12 +120,15 @@ class GoogleTranslateEngine:
     def _translate_one(self, text: str, source_lang: str, target_lang: str) -> str:
         if not text.strip():
             return ""
+        tl_map = {"zh": "zh-CN", "zh-tw": "zh-TW", "zh_tw": "zh-TW"}
+        tl_norm = tl_map.get((target_lang or "vi").lower(), target_lang or "vi")
+        sl_norm = "zh-CN" if source_lang == "zh" else (source_lang or "auto")
         last_error: Exception | None = None
         for name, base in _GOOGLE_ENDPOINTS:
             try:
                 if name == "clients5":
                     query = urllib.parse.urlencode(
-                        {"client": "dict-chrome-ex", "sl": source_lang, "tl": target_lang, "q": text}
+                        {"client": "dict-chrome-ex", "sl": sl_norm, "tl": tl_norm, "q": text}
                     )
                     data = _http_json(
                         urllib.request.Request(f"{base}?{query}", headers={"User-Agent": self.user_agent}),
@@ -137,7 +140,7 @@ class GoogleTranslateEngine:
                     raise TranslationFailed(f"Định dạng trả về lạ từ {name}: {str(data)[:100]}")
 
                 query = urllib.parse.urlencode(
-                    {"client": "gtx", "sl": source_lang, "tl": target_lang, "dt": "t", "q": text}
+                    {"client": "gtx", "sl": sl_norm, "tl": tl_norm, "dt": "t", "q": text}
                 )
                 data = _http_json(
                     urllib.request.Request(f"{base}?{query}", headers={"User-Agent": self.user_agent}),
@@ -250,6 +253,18 @@ class LLMContextTranslator:
             self._index = (self._index + 1) % max(len(self._api_keys), 1)
             self.usage.key_rotations += 1
 
+    _TEN_NGON_NGU_QUOC_TE = {
+        "vi": "Tiếng Việt",
+        "en": "natural Comic/Manga English",
+        "zh": "Simplified Chinese (中文简体漫画对白)",
+        "zh-tw": "Traditional Chinese (繁體中文漫畫對白)",
+        "id": "natural Bahasa Indonesia (Komik/Manhwa)",
+        "es": "natural Spanish (Español para Manga/Manhwa)",
+        "pt": "natural Brazilian Portuguese (Português para Manga/Webtoon)",
+        "th": "natural Thai (ภาษาไทยสำหรับการ์ตูน/มังงะ)",
+        "fr": "natural French (Français pour Manga/BD)",
+    }
+
     # ---------- prompt ----------
     def build_prompt_json(self, texts: list[str], source_lang: str, target_lang: str) -> str:
         """E71 — cùng các luật nội dung với `build_prompt`, khác ở GIAO THỨC vào/ra.
@@ -264,6 +279,23 @@ class LLMContextTranslator:
             {"id": i + 1, "text": " ".join((t or "").splitlines()).strip()}
             for i, t in enumerate(texts)
         ]
+        tl_norm = (target_lang or "vi").strip()
+        if tl_norm.lower() != "vi":
+            ten_dich = self._TEN_NGON_NGU_QUOC_TE.get(tl_norm.lower(), tl_norm)
+            return (
+                f"You are an expert comic/manga/manhwa/manhua translator. Translate the following dialogue lines "
+                f"from {source_lang} into {ten_dich}.\n"
+                "Mandatory rules:\n"
+                f"- Input has {len(texts)} items, each with an `id`. Return a JSON object with a `translations` array: "
+                "EACH input `id` must appear EXACTLY ONCE. Never merge two items or split one item.\n"
+                f"- Translate cohesively across the whole page into natural, expressive comic dialogue in {ten_dich}.\n"
+                "- Stay 100% faithful to the original meaning and character tone; keep lines concise so they fit inside speech bubbles.\n"
+                "- If OCR input has minor character recognition typos, infer the intended word from context.\n"
+                "- Set `doan` = true ONLY when the source text is truly illegible/ambiguous; otherwise `doan` = false.\n"
+                f"- `text` MUST contain ONLY the final translation in {ten_dich} (no explanations, no source text, no notes).\n"
+                + (f"\n{self.boi_canh}\n" if self.boi_canh else "")
+                + f"\n### {self.page_label}\n{json.dumps(doan_vao, ensure_ascii=False)}"
+            )
         return (
             "Bạn là người dịch truyện tranh chuyên nghiệp. Dịch các đoạn thoại dưới đây "
             f"từ {source_lang} sang {target_lang}.\n"
@@ -369,6 +401,20 @@ class LLMContextTranslator:
         numbered = "\n".join(
             f"{i + 1}. {' '.join((t or '').splitlines()).strip()}" for i, t in enumerate(texts)
         )
+        tl_norm = (target_lang or "vi").strip()
+        if tl_norm.lower() != "vi":
+            ten_dich = self._TEN_NGON_NGU_QUOC_TE.get(tl_norm.lower(), tl_norm)
+            return (
+                f"You are an expert comic/manga/manhwa/manhua translator. Translate the following dialogue lines "
+                f"from {source_lang} into {ten_dich}.\n"
+                "Mandatory rules:\n"
+                f"- Return EXACTLY {len(texts)} lines, numbered 1..{len(texts)} matching the input.\n"
+                f"- Translate cohesively across the whole page into natural, expressive comic dialogue in {ten_dich}.\n"
+                "- Stay 100% faithful to the original meaning and character tone; keep lines concise so they fit inside speech bubbles.\n"
+                "- Return ONLY the numbered translations without explanations or notes.\n"
+                + (f"\n{self.boi_canh}\n" if self.boi_canh else "")
+                + f"\n### {self.page_label}\n{numbered}"
+            )
         return (
             "Bạn là người dịch truyện tranh chuyên nghiệp. Dịch các dòng thoại dưới đây "
             f"từ {source_lang} sang {target_lang}.\n"
@@ -558,7 +604,11 @@ class LLMContextTranslator:
                     "messages": [
                         {
                             "role": "system",
-                            "content": "Bạn là chuyên gia dịch truyện tranh sang tiếng Việt tự nhiên, chuẩn xưng hô.",
+                            "content": (
+                                "Bạn là chuyên gia dịch truyện tranh đa ngôn ngữ (You are an expert multilingual "
+                                "comic/manga/manhwa/manhua translator). Hãy dịch chính xác sang đúng ngôn ngữ đích "
+                                "và định dạng được yêu cầu trong user prompt."
+                            ),
                         },
                         {"role": "user", "content": prompt},
                     ],
