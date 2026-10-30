@@ -33,15 +33,22 @@ const MO_TA_ENGINE = {
 }
 
 const PILL_NGON_NGU_GOC = [
-  { ma: 'ja', co: 'JP', nhan: 'Tiếng Nhật', nhanEn: 'Japanese' },
-  { ma: 'ko', co: 'KR', nhan: 'Tiếng Hàn', nhanEn: 'Korean' },
-  { ma: 'zh', co: 'CN', nhan: 'Tiếng Trung', nhanEn: 'Chinese' },
-  { ma: 'en', co: 'GB', nhan: 'Tiếng Anh', nhanEn: 'English' },
+  { ma: 'ja', co: '🇯🇵', nhan: 'Tiếng Nhật (Manga)', nhanEn: 'Japanese (Manga)' },
+  { ma: 'ko', co: '🇰🇷', nhan: 'Tiếng Hàn (Manhwa / Webtoon)', nhanEn: 'Korean (Manhwa / Webtoon)' },
+  { ma: 'zh', co: '🇨🇳', nhan: 'Tiếng Trung (Manhua)', nhanEn: 'Chinese (Manhua)' },
+  { ma: 'en', co: '🇬🇧', nhan: 'Tiếng Anh (Comic)', nhanEn: 'English (Comic)' },
 ]
 
 const PILL_NGON_NGU_DICH = [
-  { ma: 'vi', co: 'VN', nhan: 'Sang Tiếng Việt', nhanEn: 'To Vietnamese' },
-  { ma: 'en', co: 'US', nhan: 'To English', nhanEn: 'To English' },
+  { ma: 'vi', co: '🇻🇳', nhan: 'Sang Tiếng Việt', nhanEn: 'To Vietnamese' },
+  { ma: 'en', co: '🇺🇸', nhan: 'To English', nhanEn: 'To English' },
+  { ma: 'zh', co: '🇨🇳', nhan: '简体中文 (Trung Giản thể)', nhanEn: 'Simplified Chinese (简体)' },
+  { ma: 'zh-TW', co: '🇹🇼', nhan: '繁體中文 (Đài Loan/HK)', nhanEn: 'Traditional Chinese (繁體)' },
+  { ma: 'id', co: '🇮🇩', nhan: 'Bahasa Indonesia', nhanEn: 'Indonesian' },
+  { ma: 'es', co: '🇪🇸', nhan: 'Español (Tây Ban Nha)', nhanEn: 'Spanish (Español)' },
+  { ma: 'pt', co: '🇧🇷', nhan: 'Português (Brazil)', nhanEn: 'Portuguese (Português)' },
+  { ma: 'th', co: '🇹🇭', nhan: 'ภาษาไทย (Tiếng Thái)', nhanEn: 'Thai (ภาษาไทย)' },
+  { ma: 'fr', co: '🇫🇷', nhan: 'Français (Tiếng Pháp)', nhanEn: 'French (Français)' },
 ]
 
 const PILL_FONT_THE_LOAI = [
@@ -176,110 +183,82 @@ export default function DichChapter({ onMoChapter }) {
         <div className="cot-phai-dich-chapter">
           <fieldset className="khoi" disabled={dangChay}>
             <div className="bo-chon-manga">
-              <div className="nhom-chon-manga">
-                <span className="nhan-nhom-chon">
-                  {laEn ? 'Source Language on Page (Instant switch):' : 'Ngôn ngữ gốc trên trang (Đổi tức thì):'}
-                </span>
-                <div className="luoi-nut-chon luoi-4-cot" role="radiogroup" aria-label="Ngôn ngữ gốc trên trang">
-                  {PILL_NGON_NGU_GOC.map((item) => {
-                    const dangChon = nguon === item.ma
-                    return (
-                      <button
-                        key={item.ma}
-                        type="button"
-                        role="radio"
-                        aria-checked={dangChon}
-                        disabled={dangChay}
-                        className={`nut-chon-pill ${dangChon ? 'dang-chon' : ''}`}
-                        onClick={() => setNguon(item.ma)}
-                      >
-                        <span className="pill-co">{item.co}</span>
-                        <span>{laEn ? item.nhanEn : item.nhan}</span>
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-
-              <div className="hang-nhom-doi-manga">
+              <div className="luoi-dropdown-manga">
                 <div className="nhom-chon-manga">
-                  <span className="nhan-nhom-chon">
-                    {laEn ? 'Target Language:' : 'Ngôn ngữ dịch ra:'}
-                  </span>
-                  <div className="luoi-nut-chon luoi-2-cot" role="radiogroup" aria-label="Ngôn ngữ dịch ra">
-                    {PILL_NGON_NGU_DICH.map((item) => {
-                      const dangChon = dich === item.ma
-                      return (
-                        <button
-                          key={item.ma}
-                          type="button"
-                          role="radio"
-                          aria-checked={dangChon}
-                          disabled={dangChay}
-                          className={`nut-chon-pill ${dangChon ? 'dang-chon' : ''}`}
-                          onClick={() => setDich(item.ma)}
-                        >
-                          <span className="pill-co">{item.co}</span>
-                          <span>{laEn ? item.nhanEn : item.nhan}</span>
-                        </button>
-                      )
-                    })}
-                  </div>
+                  <label className="nhan-nhom-chon" htmlFor="select-chapter-nn-goc">
+                    <span>{laEn ? 'Source Language on Page:' : 'Ngôn ngữ gốc trên trang:'}</span>
+                  </label>
+                  <select
+                    id="select-chapter-nn-goc"
+                    className="o-select-manga"
+                    value={nguon}
+                    disabled={dangChay}
+                    onChange={(e) => setNguon(e.target.value)}
+                  >
+                    {PILL_NGON_NGU_GOC.map((item) => (
+                      <option key={item.ma} value={item.ma}>
+                        {item.co} {laEn ? item.nhanEn : item.nhan}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div className="nhom-chon-manga">
-                  <span className="nhan-nhom-chon">
-                    {laEn ? 'Translation Engine:' : 'Bộ máy dịch thuật:'}
-                  </span>
-                  <div className="luoi-nut-chon luoi-2-cot" role="radiogroup" aria-label="Bộ máy dịch thuật">
-                    <button
-                      type="button"
-                      role="radio"
-                      aria-checked={engine === 'llm_context'}
-                      disabled={dangChay}
-                      className={`nut-chon-pill ${engine === 'llm_context' ? 'dang-chon' : ''}`}
-                      onClick={() => doiEngine('llm_context')}
-                    >
-                      <span className="pill-co">✨</span>
-                      <span>{laEn ? 'Context AI Pro' : 'AI Chuẩn Ngữ Cảnh'}</span>
-                    </button>
-                    <button
-                      type="button"
-                      role="radio"
-                      aria-checked={engine === 'google_fast'}
-                      disabled={dangChay}
-                      className={`nut-chon-pill ${engine === 'google_fast' ? 'dang-chon' : ''}`}
-                      onClick={() => doiEngine('google_fast')}
-                    >
-                      <span className="pill-co">⚡</span>
-                      <span>{laEn ? 'Fast Cloud' : 'Dịch Nhanh Tốc Độ Cao'}</span>
-                    </button>
-                  </div>
+                  <label className="nhan-nhom-chon" htmlFor="select-chapter-nn-dich">
+                    <span>{laEn ? 'Target Language (9 Global):' : 'Ngôn ngữ dịch ra (9 Ngôn ngữ):'}</span>
+                  </label>
+                  <select
+                    id="select-chapter-nn-dich"
+                    className="o-select-manga"
+                    value={dich}
+                    disabled={dangChay}
+                    onChange={(e) => setDich(e.target.value)}
+                  >
+                    {PILL_NGON_NGU_DICH.map((item) => (
+                      <option key={item.ma} value={item.ma}>
+                        {item.co} {laEn ? item.nhanEn : item.nhan}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-              </div>
 
-              <div className="nhom-chon-manga">
-                <span className="nhan-nhom-chon">
-                  {laEn ? 'Genre Font Style (Direct typesetting):' : 'Font chữ theo thể loại truyện (Đổi trực tiếp trên trang):'}
-                </span>
-                <div className="luoi-nut-chon luoi-4-cot" role="radiogroup" aria-label="Font chữ theo thể loại">
-                  {PILL_FONT_THE_LOAI.map((item) => {
-                    const dangChon = fontChu === item.ma
-                    return (
-                      <button
-                        key={item.ma}
-                        type="button"
-                        role="radio"
-                        aria-checked={dangChon}
-                        disabled={dangChay}
-                        className={`nut-chon-pill ${dangChon ? 'dang-chon' : ''}`}
-                        onClick={() => setFontChu(item.ma)}
-                      >
-                        <span className="pill-co">{item.bieuTuong}</span>
-                        <span>{laEn ? item.nhanEn : item.nhan}</span>
-                      </button>
-                    )
-                  })}
+                <div className="nhom-chon-manga">
+                  <label className="nhan-nhom-chon" htmlFor="select-chapter-engine">
+                    <span>{laEn ? 'Translation Engine:' : 'Bộ máy dịch thuật:'}</span>
+                  </label>
+                  <select
+                    id="select-chapter-engine"
+                    className="o-select-manga"
+                    value={engine}
+                    disabled={dangChay}
+                    onChange={(e) => doiEngine(e.target.value)}
+                  >
+                    <option value="llm_context">
+                      {laEn ? '✨ Context AI Pro (Context-Aware)' : '✨ AI Chuẩn Ngữ Cảnh (Đọc mạch văn cả trang)'}
+                    </option>
+                    <option value="google_fast">
+                      {laEn ? '⚡ Fast Cloud (High Speed)' : '⚡ Dịch Nhanh Tốc Độ Cao (Miễn phí token)'}
+                    </option>
+                  </select>
+                </div>
+
+                <div className="nhom-chon-manga">
+                  <label className="nhan-nhom-chon" htmlFor="select-chapter-font">
+                    <span>{laEn ? 'Genre Font Style:' : 'Font chữ theo thể loại truyện:'}</span>
+                  </label>
+                  <select
+                    id="select-chapter-font"
+                    className="o-select-manga"
+                    value={fontChu}
+                    disabled={dangChay}
+                    onChange={(e) => setFontChu(e.target.value)}
+                  >
+                    {PILL_FONT_THE_LOAI.map((item) => (
+                      <option key={item.ma} value={item.ma}>
+                        {item.bieuTuong} {laEn ? item.nhanEn : item.nhan}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 

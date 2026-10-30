@@ -31,11 +31,11 @@ const NGON_NGU = [
 ]
 
 const PILL_NGON_NGU_GOC = [
-  { ma: 'ja', co: 'JP', nhan: 'Tiếng Nhật', nhanEn: 'Japanese' },
-  { ma: 'ko', co: 'KR', nhan: 'Tiếng Hàn', nhanEn: 'Korean' },
-  { ma: 'zh', co: 'CN', nhan: 'Tiếng Trung', nhanEn: 'Chinese' },
-  { ma: 'en', co: 'GB', nhan: 'Tiếng Anh', nhanEn: 'English' },
-  { ma: TU_NHAN, co: '🔍', nhan: 'Tự nhận diện', nhanEn: 'Auto Detect' },
+  { ma: 'ja', co: '🇯🇵', nhan: 'Tiếng Nhật (Manga)', nhanEn: 'Japanese (Manga)' },
+  { ma: 'ko', co: '🇰🇷', nhan: 'Tiếng Hàn (Manhwa / Webtoon)', nhanEn: 'Korean (Manhwa / Webtoon)' },
+  { ma: 'zh', co: '🇨🇳', nhan: 'Tiếng Trung (Manhua)', nhanEn: 'Chinese (Manhua)' },
+  { ma: 'en', co: '🇬🇧', nhan: 'Tiếng Anh (Comic)', nhanEn: 'English (Comic)' },
+  { ma: TU_NHAN, co: '🔍', nhan: 'Tự nhận diện (Đọc thử trang đầu)', nhanEn: 'Auto Detect (Sample 1st page)' },
 ]
 
 const PILL_NGON_NGU_DICH = [
@@ -599,110 +599,84 @@ export default function TrangChu() {
 
         <Dropzone files={files} onDoi={setFiles} chapNhanGoi id="tha-trang-chu" />
 
-        {/* Bảng điều khiển nhanh kiểu Pill-Grid (Chuẩn Tiện Ích v0.4.0 / Hình 3) */}
+        {/* Bảng điều khiển nhanh kiểu Dropdown gọn gàng (Đồng bộ Tiện Ích v0.3.1) */}
         <div className="bo-chon-manga">
-          <div className="nhom-chon-manga">
-            <span className="nhan-nhom-chon">
-              {laEn ? 'Source Language on Page (Instant switch):' : 'Ngôn ngữ gốc trên trang (Đổi tức thì):'}
-            </span>
-            <div className="luoi-nut-chon" role="radiogroup" aria-label="Ngôn ngữ gốc trên trang">
-              {PILL_NGON_NGU_GOC.map((item) => {
-                const dangChon = ngonNgu === item.ma
-                return (
-                  <button
-                    key={item.ma}
-                    type="button"
-                    role="radio"
-                    aria-checked={dangChon}
-                    disabled={dangChay}
-                    className={`nut-chon-pill ${dangChon ? 'dang-chon' : ''}`}
-                    onClick={() => setNgonNgu(item.ma)}
-                  >
-                    <span className="pill-co">{item.co}</span>
-                    <span>{laEn ? item.nhanEn : item.nhan}</span>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          <div className="nhom-chon-manga">
-            <span className="nhan-nhom-chon">
-              {laEn ? 'Target Language (9 International Languages):' : 'Ngôn ngữ dịch ra (9 Ngôn ngữ Quốc tế):'}
-            </span>
-            <div className="luoi-nut-chon luoi-3-cot" role="radiogroup" aria-label="Ngôn ngữ dịch ra">
-              {PILL_NGON_NGU_DICH.map((item) => {
-                const dangChon = ngonNguDich === item.ma
-                return (
-                  <button
-                    key={item.ma}
-                    type="button"
-                    role="radio"
-                    aria-checked={dangChon}
-                    disabled={dangChay}
-                    className={`nut-chon-pill ${dangChon ? 'dang-chon' : ''}`}
-                    onClick={() => setNgonNguDich(item.ma)}
-                  >
-                    <span className="pill-co">{item.co}</span>
-                    <span>{laEn ? item.nhanEn : item.nhan}</span>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          <div className="nhom-chon-manga">
-            <span className="nhan-nhom-chon">
-              {laEn ? 'Translation Engine:' : 'Bộ máy dịch thuật:'}
-            </span>
-            <div className="luoi-nut-chon luoi-2-cot" role="radiogroup" aria-label="Bộ máy dịch thuật">
-              <button
-                type="button"
-                role="radio"
-                aria-checked={cachDich === 'llm_context'}
+          <div className="luoi-dropdown-manga">
+            <div className="nhom-chon-manga">
+              <label className="nhan-nhom-chon" htmlFor="select-nn-goc-nhanh">
+                <span>{laEn ? 'Source Language on Page:' : 'Ngôn ngữ gốc trên trang:'}</span>
+              </label>
+              <select
+                id="select-nn-goc-nhanh"
+                className="o-select-manga"
+                value={ngonNgu}
                 disabled={dangChay}
-                className={`nut-chon-pill ${cachDich === 'llm_context' ? 'dang-chon' : ''}`}
-                onClick={() => setCachDich('llm_context')}
+                onChange={(e) => setNgonNgu(e.target.value)}
               >
-                <span className="pill-co">✨</span>
-                <span>{laEn ? 'Context AI Pro (Context-Aware)' : 'AI Chuẩn Ngữ Cảnh'}</span>
-              </button>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={cachDich === 'google_fast'}
-                disabled={dangChay}
-                className={`nut-chon-pill ${cachDich === 'google_fast' ? 'dang-chon' : ''}`}
-                onClick={() => setCachDich('google_fast')}
-              >
-                <span className="pill-co">⚡</span>
-                <span>{laEn ? 'Fast Cloud' : 'Dịch Nhanh Tốc Độ Cao'}</span>
-              </button>
+                {PILL_NGON_NGU_GOC.map((item) => (
+                  <option key={item.ma} value={item.ma}>
+                    {item.co} {laEn ? item.nhanEn : item.nhan}
+                  </option>
+                ))}
+              </select>
             </div>
-          </div>
 
-          <div className="nhom-chon-manga">
-            <span className="nhan-nhom-chon">
-              {laEn ? 'Genre Font Style (Direct typesetting):' : 'Font chữ theo thể loại truyện (Đổi trực tiếp trên trang):'}
-            </span>
-            <div className="luoi-nut-chon luoi-2-cot" role="radiogroup" aria-label="Font chữ theo thể loại">
-              {PILL_FONT_THE_LOAI.map((item) => {
-                const dangChon = fontChu === item.ma
-                return (
-                  <button
-                    key={item.ma}
-                    type="button"
-                    role="radio"
-                    aria-checked={dangChon}
-                    disabled={dangChay}
-                    className={`nut-chon-pill ${dangChon ? 'dang-chon' : ''}`}
-                    onClick={() => setFontChu(item.ma)}
-                  >
-                    <span className="pill-co">{item.bieuTuong}</span>
-                    <span>{laEn ? item.nhanEn : item.nhan}</span>
-                  </button>
-                )
-              })}
+            <div className="nhom-chon-manga">
+              <label className="nhan-nhom-chon" htmlFor="select-nn-dich-nhanh">
+                <span>{laEn ? 'Target Language (9 Global):' : 'Ngôn ngữ dịch ra (9 Ngôn ngữ):'}</span>
+              </label>
+              <select
+                id="select-nn-dich-nhanh"
+                className="o-select-manga"
+                value={ngonNguDich}
+                disabled={dangChay}
+                onChange={(e) => setNgonNguDich(e.target.value)}
+              >
+                {PILL_NGON_NGU_DICH.map((item) => (
+                  <option key={item.ma} value={item.ma}>
+                    {item.co} {laEn ? item.nhanEn : item.nhan}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="nhom-chon-manga">
+              <label className="nhan-nhom-chon" htmlFor="select-engine-nhanh">
+                <span>{laEn ? 'Translation Engine:' : 'Bộ máy dịch thuật:'}</span>
+              </label>
+              <select
+                id="select-engine-nhanh"
+                className="o-select-manga"
+                value={cachDich}
+                disabled={dangChay}
+                onChange={(e) => setCachDich(e.target.value)}
+              >
+                <option value="llm_context">
+                  {laEn ? '✨ Context AI Pro (Context-Aware)' : '✨ AI Chuẩn Ngữ Cảnh (Đọc mạch văn cả trang)'}
+                </option>
+                <option value="google_fast">
+                  {laEn ? '⚡ Fast Cloud (High Speed)' : '⚡ Dịch Nhanh Tốc Độ Cao (Miễn phí token)'}
+                </option>
+              </select>
+            </div>
+
+            <div className="nhom-chon-manga">
+              <label className="nhan-nhom-chon" htmlFor="select-font-nhanh">
+                <span>{laEn ? 'Genre Font Style:' : 'Font chữ theo thể loại truyện:'}</span>
+              </label>
+              <select
+                id="select-font-nhanh"
+                className="o-select-manga"
+                value={fontChu}
+                disabled={dangChay}
+                onChange={(e) => setFontChu(e.target.value)}
+              >
+                {PILL_FONT_THE_LOAI.map((item) => (
+                  <option key={item.ma} value={item.ma}>
+                    {item.bieuTuong} {laEn ? item.nhanEn : item.nhan}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
