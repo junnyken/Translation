@@ -2693,6 +2693,8 @@ def _dich_danh_sach_thoai_qua_server_deepseek(
     ngon_ngu_nguon: str = "ja",
     ngon_ngu_dich: str = "vi",
     tu_dien_rieng: str = "",
+    page_key: str = "",
+    engine: str = "local_ocr_gpu",
 ) -> list[dict]:
     """
     Khi máy khách đã quét OCR cục bộ xong mà không bật LLM nội bộ, ưu tiên gửi danh sách câu thoại
@@ -2704,14 +2706,14 @@ def _dich_danh_sach_thoai_qua_server_deepseek(
     try:
         if CAU_HINH_FILE.is_file():
             cfg = json.loads(CAU_HINH_FILE.read_text(encoding="utf-8"))
-            may_chu = chuan_hoa_dia_chi_may_chu(str(cfg.get("may_chu") or ""))
-            token = str(cfg.get("api_key") or cfg.get("ma_phien") or "").strip()
-            if may_chu and token:
+            may_chu = chuan_hoa_may_chu(str(cfg.get("may_chu") or ""))
+            token = str(cfg.get("token") or cfg.get("api_key") or cfg.get("ma_phien") or "").strip()
+            if may_chu and token and "api.invalid" not in may_chu:
                 texts_in = [_chuan_hoa_cau_goc_cho_llm(b["chu_goc"]) for b in bubbles]
                 hdrs = {
                     "Content-Type": "application/json",
                     "Authorization": f"Bearer {token}",
-                    "X-Ma-May-Tinh": lay_ma_may_tinh_hwid(),
+                    "X-Ma-May-Tinh": MA_MAY_HIEN_THI,
                     "User-Agent": "MangaStudioWindows/1.1",
                 }
                 body_bytes = json.dumps(
@@ -2720,6 +2722,8 @@ def _dich_danh_sach_thoai_qua_server_deepseek(
                         "source_lang": ngon_ngu_nguon if ngon_ngu_nguon in ("ja", "ko", "zh", "en") else "ja",
                         "target_lang": "en" if ngon_ngu_dich == "en" else "vi",
                         "boi_canh": (tu_dien_rieng or "")[:2000] or None,
+                        "page_key": (page_key or "")[:128] or None,
+                        "engine": (engine or "local_ocr_gpu")[:64],
                     },
                     ensure_ascii=False,
                 ).encode("utf-8")
@@ -2884,6 +2888,8 @@ def dich_anh_local_ocr_gpu_tang_toc(
             ngon_ngu_nguon=ngon_ngu_nguon,
             ngon_ngu_dich=ngon_ngu_dich,
             tu_dien_rieng=ngu_canh_gop,
+            page_key=ma_anh,
+            engine="local_ocr_gpu",
         )
 
     if ket_qua:
@@ -2994,6 +3000,8 @@ def dich_anh_local_hybrid_pro_tu_hoc(
             ngon_ngu_nguon=ngon_ngu_nguon,
             ngon_ngu_dich=ngon_ngu_dich,
             tu_dien_rieng=ngu_canh_pro,
+            page_key=ma_anh,
+            engine="local_hybrid_pro",
         )
 
     if ket_qua:

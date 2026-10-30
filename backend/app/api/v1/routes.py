@@ -1022,9 +1022,22 @@ async def dich_thoai_ngu_canh_cho_app_va_tien_ich(
     """Cầu nối dịch danh sách câu thoại đã OCR trên App Windows / Tiện ích bằng DeepSeek (deepseek-chat) trên máy chủ."""
     if not body.texts:
         return DichThoaiNguCanhResponse(translations=[], engine_used="empty")
-    chot_het = await con_du_khong(session, danh_tinh, settings)
-    if chot_het is not None:
-        raise loi_vuot_han_muc(chot_het, settings)
+    la_admin = (
+        danh_tinh.co_tai_khoan
+        and not danh_tinh.nguoi_goi.la_khach
+        and getattr(danh_tinh.nguoi_goi.nguoi, "la_quan_tri", False)
+    )
+    if not la_admin:
+        chu_the_chinh = danh_tinh.chot[0].chu_the if danh_tinh.chot else "guest"
+        eng_name = (body.engine or "local_ocr_gpu").strip() or "local_ocr_gpu"
+        pkey = (body.page_key or "").strip()
+        trang_uid = (
+            uuid.uuid5(uuid.NAMESPACE_URL, f"local-ocr-gpu:{eng_name}:{chu_the_chinh}:{pkey}:0")
+            if pkey
+            else uuid.uuid4()
+        )
+        await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=trang_uid)
+        await session.commit()
     ban_dich, eng_used = await run_in_threadpool(
         dich_danh_sach_thoai_ngu_canh_dong,
         settings,

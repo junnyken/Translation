@@ -1364,6 +1364,8 @@ class DichThoaiNguCanhRequest(BaseModel):
     source_lang: SourceLang = SourceLang.ja
     target_lang: TargetLang = TargetLang.vi
     boi_canh: str | None = Field(default=None, max_length=3000)
+    page_key: str | None = Field(default=None, max_length=128)
+    engine: str | None = Field(default="local_ocr_gpu", max_length=64)
 
 
 class DichThoaiNguCanhResponse(BaseModel):

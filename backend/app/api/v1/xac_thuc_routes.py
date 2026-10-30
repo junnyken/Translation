@@ -73,8 +73,9 @@ _CF_TURNSTILE_SITE_KEY_MAC_DINH = "0x4AAAAAAFjgaHej0056M8hW"
 
 
 def _khoa_ky_thach_thuc(settings: Settings) -> bytes:
-    goc = settings.muoi_bam_khach or settings.api_access_key or "chong-bot-mac-dinh-comic-io-vn"
-    return hashlib.sha256(f"anti-bot:{goc}".encode("utf-8")).digest()
+    from app.core.config import lay_khoa_bi_mat_noi_bo
+
+    return lay_khoa_bi_mat_noi_bo(settings, nhan="anti-bot")
 
 
 def _ky_thach_thuc(iat: int, nonce: str, dap_an: str, settings: Settings) -> str:

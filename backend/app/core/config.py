@@ -828,6 +828,45 @@ def get_settings() -> Settings:
 
 
 REL_CAU_HINH_KHOA_AI = "quan_tri/cau_hinh_ai_keys.json"
+REL_KHOA_HMAC_NOI_BO = "quan_tri/hmac_internal_secret.json"
+_KHOA_NOI_BO_DONG_CACHE: str = ""
+
+
+def lay_khoa_bi_mat_noi_bo(settings: Settings, nhan: str = "hmac-v1") -> bytes:
+    """Trả về khoá bí mật 256-bit cho chữ ký HMAC nội bộ (PoW, URL ảnh Developer, Execution Ticket).
+
+    Ưu tiên đọc từ `MUOI_BAM_KHACH` hoặc `API_ACCESS_KEY`. Nếu cả hai đang để trống, tự động
+    sinh một khoá ngẫu nhiên 256-bit lưu vào kho lưu trữ chung (`quan_tri/hmac_internal_secret.json`)
+    thay vì dùng chuỗi hằng cố định công khai trong mã nguồn.
+    """
+    import hashlib
+    import json
+    import secrets
+
+    global _KHOA_NOI_BO_DONG_CACHE
+    goc = (settings.muoi_bam_khach or settings.api_access_key or "").strip()
+    if not goc:
+        if _KHOA_NOI_BO_DONG_CACHE:
+            goc = _KHOA_NOI_BO_DONG_CACHE
+        else:
+            try:
+                from app.services.storage import get_storage
+
+                storage = get_storage()
+                if storage.exists(REL_KHOA_HMAC_NOI_BO):
+                    data = json.loads(storage.read_bytes(REL_KHOA_HMAC_NOI_BO).decode("utf-8"))
+                    goc = str(data.get("secret") or "").strip()
+                if not goc:
+                    goc = secrets.token_hex(32)
+                    storage.save(
+                        REL_KHOA_HMAC_NOI_BO,
+                        json.dumps({"secret": goc}).encode("utf-8"),
+                    )
+                _KHOA_NOI_BO_DONG_CACHE = goc
+            except Exception:  # noqa: BLE001
+                _KHOA_NOI_BO_DONG_CACHE = secrets.token_hex(32)
+                goc = _KHOA_NOI_BO_DONG_CACHE
+    return hashlib.sha256(f"{nhan}:{goc}".encode("utf-8")).digest()
 
 
 def _che_mot_khoa_ai(k: str) -> str:

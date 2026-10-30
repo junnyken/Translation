@@ -88,10 +88,9 @@ router = APIRouter(prefix="/api/v1/developer", tags=["developer-api"])
 
 def _khoa_bi_mat_chu_ky_anh(settings: Settings) -> bytes:
     """Khoá HMAC riêng để ký URL tải ảnh từng trang (`?sig=...&exp=...`), tránh lộ `tr_live_...`."""
-    goc = (settings.muoi_bam_khach or settings.api_key or "comic-developer-img-hmac-v1").encode("utf-8")
-    import hashlib
+    from app.core.config import lay_khoa_bi_mat_noi_bo
 
-    return hashlib.sha256(b"developer-image-url-v1:" + goc).digest()
+    return lay_khoa_bi_mat_noi_bo(settings, nhan="developer-image-url-v1")
 
 
 def _ky_url_anh_developer(
@@ -217,8 +216,8 @@ class LoiTaiAnh(ValueError):
     """Lỗi tải ảnh có câu báo AN TOÀN để trả cho người gọi (không kèm chi tiết mạng nội bộ)."""
 
 
-def _kiem_tra_url_an_toan_ssrf(url: str) -> None:
-    """Chặn SSRF: chỉ cho tải ảnh từ địa chỉ IP công cộng (`is_global`).
+def _kiem_tra_url_an_toan_ssrf(url: str) -> str:
+    """Chặn SSRF: chỉ cho tải ảnh từ địa chỉ IP công cộng (`is_global`) và trả về IP đã kiểm để ghim kết nối.
 
     `is_global` thay cho danh sách `is_private/is_loopback/...`: danh sách cũ để lọt dải CGNAT
     100.64.0.0/10 và NAT64 64:ff9b::/96 — cả hai đều có thể trỏ vào mạng nội bộ của nền tảng.
@@ -237,12 +236,18 @@ def _kiem_tra_url_an_toan_ssrf(url: str) -> None:
         infos = socket.getaddrinfo(host, None)
     except OSError as exc:
         raise LoiTaiAnh(f"Không phân giải được tên miền ảnh: {host}") from exc
+    ip_hop_le: list[str] = []
     for info in infos:
-        ip_obj = ipaddress.ip_address(info[4][0].split("%")[0])
+        raw_ip = info[4][0].split("%")[0]
+        ip_obj = ipaddress.ip_address(raw_ip)
         if getattr(ip_obj, "ipv4_mapped", None):
             ip_obj = ip_obj.ipv4_mapped
         if not ip_obj.is_global or ip_obj.is_multicast:
             raise LoiTaiAnh("Từ chối kết nối tới địa chỉ IP nội bộ / đặc quyền.")
+        ip_hop_le.append(str(ip_obj))
+    if not ip_hop_le:
+        raise LoiTaiAnh(f"Không tìm thấy địa chỉ IP công cộng hợp lệ cho: {host}")
+    return ip_hop_le[0]
 
 
 class _KhongTuChuyenHuong(urllib.request.HTTPRedirectHandler):
@@ -251,6 +256,34 @@ class _KhongTuChuyenHuong(urllib.request.HTTPRedirectHandler):
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D401
         return None
+
+
+def _tao_opener_ghim_ip_chong_dns_rebinding(ip_da_kiem: str) -> urllib.request.OpenerDirector:
+    """Tạo OpenerDirector ghim chặt kết nối TCP vào `ip_da_kiem` đã qua kiểm tra SSRF,
+    nhưng vẫn giữ nguyên `Host` header và TLS SNI `server_hostname` của tên miền gốc."""
+    import http.client
+    import socket
+    import ssl
+
+    class _PinnedHTTPConnection(http.client.HTTPConnection):
+        def connect(self):
+            self.sock = socket.create_connection((ip_da_kiem, self.port), self.timeout)
+
+    class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+        def connect(self):
+            raw_sock = socket.create_connection((ip_da_kiem, self.port), self.timeout)
+            ctx = self._context if hasattr(self, "_context") and self._context else ssl.create_default_context()
+            self.sock = ctx.wrap_socket(raw_sock, server_hostname=self.host)
+
+    class _PinnedHTTPHandler(urllib.request.HTTPHandler):
+        def http_open(self, req):
+            return self.do_open(_PinnedHTTPConnection, req)
+
+    class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
+        def https_open(self, req):
+            return self.do_open(_PinnedHTTPSConnection, req)
+
+    return urllib.request.build_opener(_PinnedHTTPHandler, _PinnedHTTPSHandler, _KhongTuChuyenHuong)
 
 
 _SO_LAN_CHUYEN_HUONG_TOI_DA = 5
@@ -274,9 +307,9 @@ def _tai_anh_url_chong_chan(url: str, referer: str | None = None, max_bytes: int
         "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
         "Referer": origin_ref,
     }
-    opener = urllib.request.build_opener(_KhongTuChuyenHuong)
     for _ in range(_SO_LAN_CHUYEN_HUONG_TOI_DA + 1):
-        _kiem_tra_url_an_toan_ssrf(u)
+        ip_da_kiem = _kiem_tra_url_an_toan_ssrf(u)
+        opener = _tao_opener_ghim_ip_chong_dns_rebinding(ip_da_kiem)
         try:
             with opener.open(urllib.request.Request(u, headers=headers), timeout=25) as resp:
                 data = resp.read(max_bytes + 1)
@@ -426,6 +459,7 @@ async def developer_kiem_tra_quota(
 async def developer_khau_tru_trang_cuc_bo(
     request: Request,
     session: AsyncSession = Depends(get_session),
+    settings: Settings = Depends(get_settings),
     danh_tinh: DanhTinhHanMuc = Depends(danh_tinh_han_muc),
 ) -> dict[str, Any]:
     """Khấu trừ 1 lượt/trang trên sổ cái Server khi khách hàng chạy Bộ máy AI Cục bộ (`local_ocr_gpu`) trên App Windows:
@@ -446,7 +480,7 @@ async def developer_khau_tru_trang_cuc_bo(
     if not danh_tinh.co_tai_khoan:
         api_hdr = (request.headers.get("X-Customer-Api-Key") or request.headers.get("X-API-Key") or "").strip()
         if api_hdr:
-            nguoi_k = await tai_khoan.nguoi_dung_cua_khoa_api(session, api_hdr)
+            nguoi_k = await tai_khoan.lay_theo_ma_phien(session, api_hdr)
             if nguoi_k is not None:
                 danh_tinh = _danh_tinh_tu_nguoi_dung(nguoi_k)
 
@@ -472,13 +506,16 @@ async def developer_khau_tru_trang_cuc_bo(
             if idx_c == 0
             else uuid.uuid5(uuid.NAMESPACE_URL, f"local-ocr-gpu:{engine_name}:{chu_the_chinh}:{page_key}:{idx_c}")
         )
-        await giu_cho_moi_chot(session, danh_tinh, uid_c)
+        await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=uid_c)
     await session.commit()
 
+    import hashlib
+    import hmac
     import time as _time
+    from app.core.config import lay_khoa_bi_mat_noi_bo
 
     ts_ticket = int(_time.time())
-    khoa_ky = (get_settings().muoi_bam_khach or "manga-studio-ticket-secret").encode("utf-8")
+    khoa_ky = lay_khoa_bi_mat_noi_bo(settings, nhan="execution-ticket-v1")
     sig_ticket = hmac.new(
         khoa_ky,
         f"{page_uuid}:{engine_name}:{so_luot_can}:{ts_ticket}".encode("utf-8"),
