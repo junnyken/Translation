@@ -16,13 +16,25 @@ function dongBoNutNgonNgu(nn) {
   })
 }
 
+const NHAN_NGON_NGU_DICH = {
+  vi: 'Sang Tiếng Việt',
+  en: 'Sang Tiếng Anh',
+  zh: 'Sang Trung Giản thể (简体)',
+  'zh-TW': 'Sang Trung Phồn thể (繁體)',
+  id: 'Sang Tiếng Indonesia',
+  es: 'Sang Tiếng Tây Ban Nha',
+  pt: 'Sang Tiếng Bồ Đào Nha',
+  th: 'Sang Tiếng Thái (ไทย)',
+  fr: 'Sang Tiếng Pháp',
+}
+
 function dongBoNutDichRa(dich) {
   document.querySelectorAll('#nhom-nut-dich .nut-dich-ra').forEach((btn) => {
     btn.classList.toggle('dang-chon', btn.dataset.dich === dich)
   })
   const nhanPhu = $('nhan-phu-eng')
   if (nhanPhu) {
-    nhanPhu.textContent = dich === 'en' ? 'Sang Tiếng Anh' : 'Sang Tiếng Việt'
+    nhanPhu.textContent = NHAN_NGON_NGU_DICH[dich] || 'Sang Tiếng Việt'
   }
 }
 

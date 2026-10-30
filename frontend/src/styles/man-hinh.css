@@ -1438,9 +1438,20 @@ button.lien-ket { border: 0; background: none; box-shadow: none; }
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.luoi-nut-chon.luoi-3-cot {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media (max-width: 720px) {
+  .luoi-nut-chon.luoi-3-cot {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 540px) {
   .luoi-nut-chon,
-  .luoi-nut-chon.luoi-2-cot {
+  .luoi-nut-chon.luoi-2-cot,
+  .luoi-nut-chon.luoi-3-cot {
     grid-template-columns: 1fr;
   }
 }

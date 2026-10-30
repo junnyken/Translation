@@ -130,10 +130,10 @@ export default function TrangTienIch({ onQuayLai }) {
                 : 'Nhấp đúp vào bất kỳ vùng chữ nào để sửa câu, bật ⬛ Phủ hộp chữ, ✥ Kéo vị trí hoặc dùng 🖌️ Công cụ tinh chỉnh trực tiếp ngay trên trang.'}
             </div>
             <div style={featureItemStyle}>
-              🌍 <b>{laEn ? '3 Smart Translation Modes (Standard · Context · Self-Learning Pro):' : '3 Chế độ dịch thông minh (Tiêu Chuẩn · Ngữ Cảnh · Pro Tự Học):'}</b>{' '}
+              🌍 <b>{laEn ? '9 Target Languages + 3 Dual-Anchor AI Modes:' : 'Hỗ trợ 9 Ngôn ngữ Quốc tế + 3 Chế độ AI Dual-Anchor:'}</b>{' '}
               {laEn
-                ? 'Choose ⚡ Standard High-Speed (1 credit/page), ✨ Cloud Context Mode (1 credit/page), or 🧠 Pro Self-Learning Mode for stylized text & permanent vocabulary memory (2 credits/page).'
-                : 'Chọn ⚡ Chế độ Tiêu Chuẩn Siêu Tốc (1 lượt/trang · khuyên dùng), ✨ Chế độ Đám Mây Ngữ Cảnh (1 lượt/trang) hoặc 🧠 Chế độ Pro Tự Học chuyên trị chữ cách điệu & tự học vĩnh viễn các câu bạn sửa (2 lượt/trang).'}
+                ? 'Translate into 9 languages (VI, EN, ZH, ZH-TW, ID, ES, PT, TH, FR) with ⚡ Fast OCR+GPU Dual-Anchor (1 credit/page), ✨ Cloud Context AI (1 credit/page), or 🧠 Pro Self-Learning + Glossary Memory (2 credits/page).'
+                : 'Dịch ra 9 ngôn ngữ (Việt, Anh, Trung Giản/Phồn, Indo, Tây Ban Nha, Bồ Đào Nha, Thái, Pháp) với ⚡ OCR + GPU Nhanh Dual-Anchor (1 lượt/trang), ✨ AI Ngữ Cảnh Cloud (1 lượt/trang) hoặc 🧠 OCR + GPU Pro Tự Học & Glossary (2 lượt/trang).'}
             </div>
           </div>
 
@@ -246,10 +246,10 @@ export default function TrangTienIch({ onQuayLai }) {
                 : <>Tự động lưu gọn gàng theo cấu trúc <code>Tên_Truyện / Chapter-001 / 001.jpg, 002.jpg...</code> kèm chế độ Resume (bỏ qua trang đã dịch).</>}
             </div>
             <div style={{ ...featureItemStyle, borderLeftColor: '#10b981' }}>
-              📦 <b>{laEn ? 'Hardware-Adaptive Parallelism (1–8 Chapters) & Self-Learning Mode:' : 'Chạy song song tự động theo cấu hình máy (1–8 Chap) & Chế độ Tự Học:'}</b>{' '}
+              📦 <b>{laEn ? 'Dual-Anchor AI + HuggingFace / Groq LPU Accelerator (9 Languages):' : 'Kiến trúc Dual-Anchor AI + Tăng tốc HuggingFace / Groq LPU (9 Ngôn ngữ):'}</b>{' '}
               {laEn
-                ? 'Auto-detects system resources to translate multiple chapters simultaneously, exports .CBZ/.PDF/Long-Strip, and includes ⚡ Standard High-Speed (1 credit/page) + 🧠 Pro Self-Learning Mode (2 credits/page).'
-                : 'Tự nhận diện cấu hình máy để chạy song song nhiều Chapter cùng lúc, xuất .CBZ/.PDF/Long-Strip, tích hợp ⚡ Chế độ Tiêu Chuẩn Siêu Tốc (1 lượt/trang) và 🧠 Chế độ Pro Tự Học (2 lượt/trang).'}
+                ? 'Culture-aware reading order (R-to-L Manga / L-to-R Manhwa), NMT + LLM Polish Dual-Anchor (~95–97% accuracy), HuggingFace specialized models (Sailor2, SakuraLLM, Aya-Expanse), and Groq LPU / DeepSeek hybrid acceleration.'
+                : 'Sắp xếp thứ tự đọc thông minh (Phải sang Trái cho Manga Nhật / Trái sang Phải cho Manhwa-Manhua), Dual-Anchor NMT + LLM Polish đạt ~95–97% sát nghĩa, tích hợp kho model HuggingFace (Sailor2, SakuraLLM, Aya-Expanse) & tăng tốc Groq LPU.'}
             </div>
           </div>
 
@@ -328,6 +328,57 @@ export default function TrangTienIch({ onQuayLai }) {
           </div>
         </section>
       </div>
+
+      {/* CỘT 3: MANGA VIDEO REVIEW STUDIO v1.0 */}
+      <section style={{ ...cardStyle, marginTop: 24, borderColor: 'rgba(236, 72, 153, 0.38)' }} aria-labelledby="tieu-de-video-studio">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div style={{
+              width: 52, height: 52, borderRadius: 14,
+              background: 'linear-gradient(135deg, #db2777, #9333ea)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 26, flexShrink: 0,
+            }}>
+              🎬
+            </div>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#f472b6', letterSpacing: '0.04em' }}>
+                MANGA VIDEO REVIEW STUDIO · v1.0 (TIKTOK / REELS / SHORTS / YOUTUBE)
+              </div>
+              <h2 id="tieu-de-video-studio" style={{ margin: '2px 0 0', fontSize: 22, color: '#ffffff' }}>
+                {laEn
+                  ? 'AI Comic-to-Video Studio (DeepSeek Script + ElevenLabs Voice + Ken Burns MP4)'
+                  : 'Phần Mềm Dựng Video Review Truyện Tự Động (Kịch Bản DeepSeek + Giọng Đọc Cảm Xúc)'}
+              </h2>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <a
+              href={api.urlTaiVideoReviewExe()}
+              download="Manga-Video-Review-Studio-Setup-v1.0.exe"
+              className="nut-manga nut-manga-chinh"
+              style={{ fontSize: 14.5, padding: '11px 18px', background: 'linear-gradient(135deg, #db2777, #7c3aed)' }}
+            >
+              🎬 {laEn ? 'Download Video Studio Installer (.EXE — v1.0)' : 'Tải Bộ Cài Video Review Studio (.EXE — v1.0)'}
+            </a>
+            <a
+              href={api.urlTaiVideoReviewZip()}
+              download="Manga-Video-Review-Studio-v1.0.zip"
+              className="nut-manga nut-manga-phu"
+              style={{ fontSize: 13.5, padding: '10px 14px' }}
+            >
+              📦 {laEn ? 'Portable (.ZIP)' : 'Bản Giải Nén (.ZIP)'}
+            </a>
+          </div>
+        </div>
+
+        <p style={{ color: '#cbd5e1', fontSize: 14.5, lineHeight: 1.6, margin: '14px 0 0' }}>
+          {laEn
+            ? 'Turn translated comic chapters into viral TikTok/Shorts/YouTube Recap videos in 1 click: DeepSeek V3 dramatic storytelling scriptwriter across 9 international languages, ElevenLabs expressive voices + Edge-TTS multi-language narration (36+ voices), and hardware-accelerated Ken Burns MP4 rendering.'
+            : 'Biến thư mục ảnh truyện đã dịch thành video Review triệu view cho TikTok / Reels / Shorts / YouTube chỉ với 1 cú nhấp: biên kịch DeepSeek V3 bám sát cốt truyện & nhân vật trên 9 ngôn ngữ quốc tế, kết nối ElevenLabs giàu cảm xúc + 36 giọng đọc Đa Quốc Gia miễn phí, xuất MP4 hiệu ứng Ken Burns + phụ đề tự động.'}
+        </p>
+      </section>
 
       <div style={{ marginTop: 36 }}>
         <ChanTrangManga />

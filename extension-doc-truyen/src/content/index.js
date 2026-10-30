@@ -27,7 +27,7 @@ void (async () => {
       ten: '⚔️ Hành động',
       fontFace: 'TranslationBangers',
       tep: 'src/fonts/Bangers-Regular.ttf',
-      css: "'TranslationBangers', 'Bangers', system-ui, -apple-system, sans-serif",
+      css: "'TranslationBangers', 'Bangers', 'Microsoft YaHei', 'Microsoft JhengHei', 'Leelawadee UI', 'Tahoma', system-ui, -apple-system, sans-serif",
       lineHeight: '1.25',
       letterSpacing: '0.055em',
       wordSpacing: '0.11em',
@@ -36,7 +36,7 @@ void (async () => {
       ten: '🌸 Ngôn tình',
       fontFace: 'TranslationShantell',
       tep: 'src/fonts/ShantellSans-Regular.ttf',
-      css: "'TranslationShantell', 'Shantell Sans', system-ui, -apple-system, sans-serif",
+      css: "'TranslationShantell', 'Shantell Sans', 'Microsoft YaHei', 'Microsoft JhengHei', 'Leelawadee UI', 'Tahoma', system-ui, -apple-system, sans-serif",
       lineHeight: '1.26',
       letterSpacing: '0.032em',
       wordSpacing: '0.085em',
@@ -45,7 +45,7 @@ void (async () => {
       ten: '🏮 Cổ trang',
       fontFace: 'TranslationMansalva',
       tep: 'src/fonts/Mansalva-Regular.ttf',
-      css: "'TranslationMansalva', 'Mansalva', cursive, system-ui, sans-serif",
+      css: "'TranslationMansalva', 'Mansalva', 'KaiTi', 'STKaiti', 'Microsoft JhengHei', 'Leelawadee UI', cursive, system-ui, sans-serif",
       lineHeight: '1.25',
       letterSpacing: '0.036em',
       wordSpacing: '0.09em',
@@ -54,12 +54,24 @@ void (async () => {
       ten: '💥 Hài hước',
       fontFace: 'TranslationSigmar',
       tep: 'src/fonts/SigmarOne-Regular.ttf',
-      css: "'TranslationSigmar', 'Sigmar One', system-ui, sans-serif",
+      css: "'TranslationSigmar', 'Sigmar One', 'Microsoft YaHei', 'Microsoft JhengHei', 'Leelawadee UI', 'Tahoma', system-ui, sans-serif",
       lineHeight: '1.22',
       letterSpacing: '0.042em',
       wordSpacing: '0.09em',
     },
   }
+  const NHAN_NGON_NGU_DICH_NOI = {
+    vi: '🇻🇳 VI',
+    en: '🇺🇸 EN',
+    zh: '🇨🇳 ZH',
+    'zh-TW': '🇹🇼 TW',
+    id: '🇮🇩 ID',
+    es: '🇪🇸 ES',
+    pt: '🇧🇷 PT',
+    th: '🇹🇭 TH',
+    fr: '🇫🇷 FR',
+  }
+  const DS_MA_NGON_NGU_DICH = Object.keys(NHAN_NGON_NGU_DICH_NOI)
   const layThongSoFont = (maFont) => KHO_FONT_TRUYEN[maFont] || KHO_FONT_TRUYEN.bangers
 
   if (!window[CO].daNapFont && typeof FontFace !== 'undefined') {
@@ -91,7 +103,7 @@ void (async () => {
       if (thayDoi.ngonNguDich?.newValue) {
         window[CO].ngonNguDichHienTai = thayDoi.ngonNguDich.newValue
         const nutNnDich = document.getElementById('translation-nut-ngon-ngu-dich')
-        if (nutNnDich) nutNnDich.textContent = thayDoi.ngonNguDich.newValue === 'en' ? '🇺🇸 EN' : '🇻🇳 VI'
+        if (nutNnDich) nutNnDich.textContent = NHAN_NGON_NGU_DICH_NOI[thayDoi.ngonNguDich.newValue] || '🇻🇳 VI'
       }
     })
   }
@@ -1653,19 +1665,21 @@ void (async () => {
         }
       })
 
-      // Nút đổi nhanh Ngôn ngữ dịch ra (VI ⇄ EN) ngay trên thanh nổi
+      // Nút đổi nhanh Ngôn ngữ dịch ra (9 Ngôn ngữ Quốc tế) ngay trên thanh nổi
       const nutDichRa = document.createElement('button')
       nutDichRa.id = 'translation-nut-ngon-ngu-dich'
       nutDichRa.type = 'button'
-      nutDichRa.title = 'Bấm để đổi nhanh Ngôn ngữ dịch ra: Tiếng Việt (VI) ⇄ Tiếng Anh Quốc tế (EN)'
+      nutDichRa.title = 'Bấm để đổi nhanh Ngôn ngữ dịch ra (9 Ngôn ngữ: VI, EN, ZH, TW, ID, ES, PT, TH, FR)'
       const capNhatNutDichRa = () => {
-        const laEnDich = (window[CO].ngonNguDichHienTai || 'vi') === 'en'
-        nutDichRa.textContent = laEnDich ? '🇺🇸 EN' : '🇻🇳 VI'
+        const maDich = window[CO].ngonNguDichHienTai || 'vi'
+        nutDichRa.textContent = NHAN_NGON_NGU_DICH_NOI[maDich] || '🇻🇳 VI'
         nutDichRa.style.cssText = `${kieuNut};background:rgba(14,116,144,.45);border-color:rgba(56,189,248,.5);font-weight:700`
       }
       capNhatNutDichRa()
       nutDichRa.addEventListener('click', async () => {
-        const tiep = (window[CO].ngonNguDichHienTai || 'vi') === 'en' ? 'vi' : 'en'
+        const hienTaiDich = window[CO].ngonNguDichHienTai || 'vi'
+        const idxDich = DS_MA_NGON_NGU_DICH.indexOf(hienTaiDich)
+        const tiep = DS_MA_NGON_NGU_DICH[(idxDich + 1) % DS_MA_NGON_NGU_DICH.length]
         window[CO].ngonNguDichHienTai = tiep
         capNhatNutDichRa()
         try {

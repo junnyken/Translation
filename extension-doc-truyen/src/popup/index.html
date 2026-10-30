@@ -198,11 +198,11 @@
       line-height: 1;
     }
 
-    /* Thanh chọn Ngôn ngữ dịch ra (Việt / Anh quốc tế) */
+    /* Thanh chọn Ngôn ngữ dịch ra (9 Ngôn ngữ Quốc tế) */
     .thanh-dich-ra {
       display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 5px;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4px;
       margin-bottom: 8px;
     }
 
@@ -210,16 +210,17 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 5px;
-      padding: 5px 8px;
-      border-radius: 8px;
+      gap: 4px;
+      padding: 4px 5px;
+      border-radius: 7px;
       border: 1px solid var(--border);
       background: #f8fafc;
       color: #334155;
-      font-size: 11.5px;
+      font-size: 10.5px;
       font-weight: 600;
       cursor: pointer;
       transition: all 0.14s ease;
+      white-space: nowrap;
     }
 
     .nut-dich-ra:hover {
@@ -513,20 +514,48 @@
 
     <div class="nhan-muc">
       <span>Ngôn ngữ dịch ra</span>
-      <span class="phu">Việt Nam &amp; Quốc tế</span>
+      <span class="phu">9 Ngôn ngữ Quốc tế</span>
     </div>
 
     <select id="ngon-ngu-dich" class="select-an">
       <option value="vi" selected>Tiếng Việt</option>
       <option value="en">English (Quốc tế)</option>
+      <option value="zh">简体中文 (Trung Giản thể)</option>
+      <option value="zh-TW">繁體中文 (Đài Loan / HK)</option>
+      <option value="id">Bahasa Indonesia</option>
+      <option value="es">Español (Tây Ban Nha)</option>
+      <option value="pt">Português (Bồ Đào Nha / Brazil)</option>
+      <option value="th">ภาษาไทย (Tiếng Thái)</option>
+      <option value="fr">Français (Tiếng Pháp)</option>
     </select>
 
     <div class="thanh-dich-ra" id="nhom-nut-dich">
       <button type="button" class="nut-dich-ra dang-chon" data-dich="vi">
-        <span>🇻🇳</span><span>Sang Tiếng Việt</span>
+        <span>🇻🇳</span><span>Tiếng Việt</span>
       </button>
       <button type="button" class="nut-dich-ra" data-dich="en">
-        <span>🇺🇸</span><span>To English</span>
+        <span>🇺🇸</span><span>English</span>
+      </button>
+      <button type="button" class="nut-dich-ra" data-dich="zh">
+        <span>🇨🇳</span><span>简体中文</span>
+      </button>
+      <button type="button" class="nut-dich-ra" data-dich="zh-TW">
+        <span>🇹🇼</span><span>繁體中文</span>
+      </button>
+      <button type="button" class="nut-dich-ra" data-dich="id">
+        <span>🇮🇩</span><span>Indonesia</span>
+      </button>
+      <button type="button" class="nut-dich-ra" data-dich="es">
+        <span>🇪🇸</span><span>Español</span>
+      </button>
+      <button type="button" class="nut-dich-ra" data-dich="pt">
+        <span>🇧🇷</span><span>Português</span>
+      </button>
+      <button type="button" class="nut-dich-ra" data-dich="th">
+        <span>🇹🇭</span><span>ภาษาไทย</span>
+      </button>
+      <button type="button" class="nut-dich-ra" data-dich="fr">
+        <span>🇫🇷</span><span>Français</span>
       </button>
     </div>
 

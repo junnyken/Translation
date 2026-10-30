@@ -39,8 +39,15 @@ const PILL_NGON_NGU_GOC = [
 ]
 
 const PILL_NGON_NGU_DICH = [
-  { ma: 'vi', co: 'VN', nhan: 'Sang Tiếng Việt', nhanEn: 'To Vietnamese' },
-  { ma: 'en', co: 'US', nhan: 'To English', nhanEn: 'To English' },
+  { ma: 'vi', co: '🇻🇳', nhan: 'Sang Tiếng Việt', nhanEn: 'To Vietnamese' },
+  { ma: 'en', co: '🇺🇸', nhan: 'To English', nhanEn: 'To English' },
+  { ma: 'zh', co: '🇨🇳', nhan: '简体中文 (Trung Giản thể)', nhanEn: 'Simplified Chinese (简体)' },
+  { ma: 'zh-TW', co: '🇹🇼', nhan: '繁體中文 (Đài Loan/HK)', nhanEn: 'Traditional Chinese (繁體)' },
+  { ma: 'id', co: '🇮🇩', nhan: 'Bahasa Indonesia', nhanEn: 'Indonesian' },
+  { ma: 'es', co: '🇪🇸', nhan: 'Español (Tây Ban Nha)', nhanEn: 'Spanish (Español)' },
+  { ma: 'pt', co: '🇧🇷', nhan: 'Português (Brazil)', nhanEn: 'Portuguese (Português)' },
+  { ma: 'th', co: '🇹🇭', nhan: 'ภาษาไทย (Tiếng Thái)', nhanEn: 'Thai (ภาษาไทย)' },
+  { ma: 'fr', co: '🇫🇷', nhan: 'Français (Tiếng Pháp)', nhanEn: 'French (Français)' },
 ]
 
 const PILL_FONT_THE_LOAI = [
@@ -560,9 +567,9 @@ export default function TrangChu() {
 
           <div className="nhom-chon-manga">
             <span className="nhan-nhom-chon">
-              {laEn ? 'Target Language (Vietnamese & International):' : 'Ngôn ngữ dịch ra (Việt Nam & Quốc tế):'}
+              {laEn ? 'Target Language (9 International Languages):' : 'Ngôn ngữ dịch ra (9 Ngôn ngữ Quốc tế):'}
             </span>
-            <div className="luoi-nut-chon luoi-2-cot" role="radiogroup" aria-label="Ngôn ngữ dịch ra">
+            <div className="luoi-nut-chon luoi-3-cot" role="radiogroup" aria-label="Ngôn ngữ dịch ra">
               {PILL_NGON_NGU_DICH.map((item) => {
                 const dangChon = ngonNguDich === item.ma
                 return (

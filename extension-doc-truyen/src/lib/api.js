@@ -286,7 +286,18 @@ export async function dichTrangLocalGguf(blob, { ngonNgu = 'ja', ngonNguDich = '
     } catch {}
   }
 
-  const tenNgonNguDich = ngonNguDich === 'en' ? 'English' : 'Tiếng Việt tự nhiên, chuẩn phong cách truyện tranh'
+  const BANG_TEN_NGON_NGU_DICH = {
+    vi: 'Tiếng Việt tự nhiên, chuẩn phong cách truyện tranh',
+    en: 'natural comic English',
+    zh: '简体中文 (natural Simplified Chinese comic style)',
+    'zh-TW': '繁體中文 (natural Traditional Chinese Taiwan/HK comic style)',
+    id: 'Bahasa Indonesia (natural comic dialog)',
+    es: 'Español neutro (natural Spanish comic dialog)',
+    pt: 'Português do Brasil (natural Brazilian Portuguese comic dialog)',
+    th: 'ภาษาไทย (natural Thai comic dialog with proper particles ครับ/ค่ะ/นะ/ว่ะ)',
+    fr: 'Français (natural French BD/Manga dialog)',
+  }
+  const tenNgonNguDich = BANG_TEN_NGON_NGU_DICH[ngonNguDich] || BANG_TEN_NGON_NGU_DICH.vi
   const doanNguCanh = tuDienRieng
     ? `\nNgữ cảnh xưng hô & thuật ngữ từ các trang trước (hãy giữ đồng nhất):\n${tuDienRieng}\n`
     : ''
