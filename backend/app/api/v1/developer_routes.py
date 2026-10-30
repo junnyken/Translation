@@ -442,7 +442,7 @@ async def developer_kiem_tra_quota(
     xac_thuc: tuple[NguoiDung, str] = Depends(_xac_thuc_developer),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
-    """Kiểm tra thông tin tài khoản & số dư lượt dịch bằng Developer API Key."""
+    """Kiểm tra thông tin tài khoản, số dư lượt dịch & danh sách tính năng hỗ trợ bằng Developer API Key."""
     nguoi, _ = xac_thuc
     return {
         "ok": True,
@@ -452,6 +452,17 @@ async def developer_kiem_tra_quota(
             "display_name": nguoi.ten_hien,
         },
         "quota": await _thong_tin_quota(session, nguoi),
+        "capabilities": {
+            "source_langs": [e.value for e in SourceLang],
+            "target_langs": [e.value for e in TargetLang],
+            "engines": {
+                "local_ocr_gpu": {"credits_per_page": 1, "dual_anchor": True},
+                "local_hybrid_pro": {"credits_per_page": 2, "dual_anchor": True, "self_learning_glossary": True},
+                "llm_context": {"credits_per_page": 1, "dual_anchor": True},
+                "google_fast": {"credits_per_page": 1, "dual_anchor": False},
+            },
+            "modes": [m.value for m in ChePipeline],
+        },
     }
 
 
@@ -462,10 +473,10 @@ async def developer_khau_tru_trang_cuc_bo(
     settings: Settings = Depends(get_settings),
     danh_tinh: DanhTinhHanMuc = Depends(danh_tinh_han_muc),
 ) -> dict[str, Any]:
-    """Khấu trừ 1 lượt/trang trên sổ cái Server khi khách hàng chạy Bộ máy AI Cục bộ (`local_ocr_gpu`) trên App Windows:
+    """Khấu trừ đúng số lượt/trang trên sổ cái Server khi khách hàng chạy Bộ máy AI Cục bộ (`local_ocr_gpu` = 1 lượt, `local_hybrid_pro` = 2 lượt) trên App Windows / Tiện ích Chrome / Video Studio:
     - Máy khách tự gánh 100% tải OCR + Dịch bằng CPU/GPU của khách (chi phí vận hành Server = 0 VNĐ).
-    - Sổ cái Server vẫn kiểm tra & trừ đúng 1 lượt/trang vào hạn mức ngày (10 trang/ngày) hoặc ví mua thêm (`so_luot_mua_them`).
-    - Chống trừ trùng (Idempotent) theo `page_key` / `sha256` của bức ảnh.
+    - Sổ cái Server vẫn kiểm tra & trừ đúng số lượt/trang vào hạn mức ngày (10 trang/ngày) hoặc ví mua thêm (`so_luot_mua_them`).
+    - Chống trừ trùng (Idempotent) theo `page_key` / `page_hash` / `sha256` của bức ảnh.
     - Riêng tài khoản Quản trị viên (`la_quan_tri = True`) được miễn trừ không giới hạn.
     """
     try:
@@ -474,7 +485,13 @@ async def developer_khau_tru_trang_cuc_bo(
         body = {}
     if not isinstance(body, dict):
         body = {}
-    page_key = str(body.get("page_key") or body.get("request_key") or body.get("sha256") or uuid.uuid4().hex).strip()
+    page_key = str(
+        body.get("page_key")
+        or body.get("page_hash")
+        or body.get("request_key")
+        or body.get("sha256")
+        or uuid.uuid4().hex
+    ).strip()
 
     # Nếu gửi kèm X-Customer-Api-Key (tr_live_...) mà chưa qua danh_tinh_han_muc
     if not danh_tinh.co_tai_khoan:
@@ -484,21 +501,36 @@ async def developer_khau_tru_trang_cuc_bo(
             if nguoi_k is not None:
                 danh_tinh = _danh_tinh_tu_nguoi_dung(nguoi_k)
 
+    engine_name = str(body.get("engine") or "local_ocr_gpu").strip()
+    mac_dinh_luot = 2 if engine_name == "local_hybrid_pro" else 1
+    so_luot_can = max(1, min(3, int(body.get("credits") or mac_dinh_luot)))
+
     # Quản trị viên (Chủ hệ thống) chạy tự động không bị giới hạn lượt
     if (
         danh_tinh.co_tai_khoan
         and not danh_tinh.nguoi_goi.la_khach
         and getattr(danh_tinh.nguoi_goi.nguoi, "la_quan_tri", False)
     ):
+        import hashlib as _hl_adm
+        import hmac as _hm_adm
+        import time as _tm_adm
+        from app.core.config import lay_khoa_bi_mat_noi_bo as _lay_khoa_adm
+
+        ts_adm = int(_tm_adm.time())
+        sig_adm = _hm_adm.new(
+            _lay_khoa_adm(settings, nhan="execution-ticket-v1"),
+            f"admin:{engine_name}:{so_luot_can}:{ts_adm}".encode("utf-8"),
+            _hl_adm.sha256,
+        ).hexdigest()[:32]
         return {
             "ok": True,
             "admin_bypass": True,
+            "engine": engine_name,
             "deducted": 0,
+            "execution_ticket": f"{ts_adm}.{sig_adm}",
         }
 
     chu_the_chinh = danh_tinh.chot[0].chu_the if danh_tinh.chot else "guest"
-    so_luot_can = max(1, min(3, int(body.get("credits") or 1)))
-    engine_name = str(body.get("engine") or "local_ocr_gpu").strip()
     page_uuid = uuid.uuid5(uuid.NAMESPACE_URL, f"local-ocr-gpu:{engine_name}:{chu_the_chinh}:{page_key}:0")
     for idx_c in range(so_luot_can):
         uid_c = (
@@ -522,13 +554,16 @@ async def developer_khau_tru_trang_cuc_bo(
         hashlib.sha256,
     ).hexdigest()[:32]
 
-    return {
+    kq_out: dict[str, Any] = {
         "ok": True,
         "page_id": str(page_uuid),
         "engine": engine_name,
         "deducted": so_luot_can,
         "execution_ticket": f"{ts_ticket}.{sig_ticket}",
     }
+    if danh_tinh.co_tai_khoan and not danh_tinh.nguoi_goi.la_khach and danh_tinh.nguoi_goi.nguoi is not None:
+        kq_out["quota"] = await _thong_tin_quota(session, danh_tinh.nguoi_goi.nguoi)
+    return kq_out
 
 
 @router.post("/translate-image", response_model=dict)
@@ -539,10 +574,10 @@ async def developer_dich_anh(
     image_base64: str | None = Form(default=None, description="Hoặc truyền chuỗi Base64 của ảnh"),
     referer: str | None = Form(default=None, description="Referer tuỳ chọn để vượt chống hotlink khi tải từ image_url"),
     source_lang: SourceLang = Form(SourceLang.ja, description="Ngôn ngữ gốc: ja | ko | zh | en"),
-    target_lang: TargetLang = Form(TargetLang.vi, description="Ngôn ngữ đích: vi | en"),
-    engine: TranslationEngine = Form(
-        TranslationEngine.google_fast,
-        description="google_fast (nhanh) hoặc llm_context (AI đọc ngữ cảnh cả trang)",
+    target_lang: TargetLang = Form(TargetLang.vi, description="Ngôn ngữ đích: vi | en | zh | zh-TW | id | es | pt | th | fr"),
+    engine: str = Form(
+        "google_fast",
+        description="google_fast (nhanh), llm_context (AI ngữ cảnh), local_ocr_gpu (1 lượt) hoặc local_hybrid_pro (2 lượt)",
     ),
     mode: ChePipeline = Form(
         ChePipeline.day_du,
@@ -579,7 +614,7 @@ async def developer_dich_anh(
             if "target_lang" in body_json and body_json["target_lang"]:
                 target_lang = TargetLang(str(body_json["target_lang"]))
             if "engine" in body_json and body_json["engine"]:
-                engine = TranslationEngine(str(body_json["engine"]))
+                engine = str(body_json["engine"]).strip()
             if "mode" in body_json and body_json["mode"]:
                 mode = ChePipeline(str(body_json["mode"]))
             if "font_style" in body_json:
@@ -593,7 +628,17 @@ async def developer_dich_anh(
             if "include_base64" in body_json:
                 include_base64 = bool(body_json["include_base64"])
 
-    _kiem_engine(engine, settings, co_tai_khoan=True)
+    raw_engine_str = str(engine.value if hasattr(engine, "value") else engine).strip()
+    la_pro_2_luot = raw_engine_str == "local_hybrid_pro"
+    if raw_engine_str in ("local_ocr_gpu", "local_hybrid_pro", "local_gguf"):
+        engine_enum = TranslationEngine.llm_context
+    else:
+        engine_enum = TranslationEngine(raw_engine_str)
+    if la_pro_2_luot:
+        chi_dan_pro = "[CHẾ ĐỘ PRO 2 LƯỢT: Tự động sửa lỗi OCR chữ viết tay & giữ đồng nhất thuật ngữ]"
+        glossary = f"{chi_dan_pro}\n{glossary or ''}".strip()
+
+    _kiem_engine(engine_enum, settings, co_tai_khoan=True)
 
     if file is not None:
         data = await file.read()
@@ -659,12 +704,15 @@ async def developer_dich_anh(
         image_path="",
         order=next_order,
         status=PageStatus.queued,
-        translate_engine_override=engine,
+        translate_engine_override=engine_enum,
     )
     session.add(page)
     await session.flush()
 
     await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=page.id)
+    if la_pro_2_luot:
+        uid_pro_2 = uuid.uuid5(uuid.NAMESPACE_URL, f"pro-extra-credit:{page.id}")
+        await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=uid_pro_2)
 
     storage = get_storage()
     data = await run_in_threadpool(thu_nho_anh_trang, data, ext, settings.anh_trang_canh_dai_toi_da)
@@ -679,14 +727,14 @@ async def developer_dich_anh(
             bam_anh=bam_anh,
             source_lang=source_lang,
             target_lang=target_lang,
-            engine=engine,
+            engine=engine_enum,
             che_do=mode,
             dich_page=page,
             storage=storage,
         )
         if trung_cache:
             ghi_nhan_trang_anh(
-                bam_anh, source_lang, engine, mode, page.id, target_lang=target_lang
+                bam_anh, source_lang, engine_enum, mode, page.id, target_lang=target_lang
             )
             await session.commit()
             await session.refresh(page)
@@ -700,7 +748,7 @@ async def developer_dich_anh(
                 include_base64=include_base64,
             )
 
-    ghi_nhan_trang_anh(bam_anh, source_lang, engine, mode, page.id, target_lang=target_lang)
+    ghi_nhan_trang_anh(bam_anh, source_lang, engine_enum, mode, page.id, target_lang=target_lang)
     job = Job(type=JobType.detect, page_id=page.id, status=JobStatus.queued)
     session.add(job)
     await session.commit()

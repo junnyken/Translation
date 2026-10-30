@@ -7040,6 +7040,10 @@ class AppDichTruyenWindows(tk.Tk):
                 threading.Thread(target=self._cap_nhat_han_muc, daemon=True).start()
             return
         except urllib.error.HTTPError as exc:
+            if exc.code == 401:
+                raise NeedsAttention(
+                    "⛔ PHIÊN ĐĂNG NHẬP / API KEY KHÔNG HỢP LỆ (HTTP 401): Vui lòng đăng nhập lại bằng Email/Mật khẩu hoặc dán lại API Key (tr_live_...) ở Khung số 1!"
+                ) from exc
             if exc.code in (402, 403, 429):
                 try:
                     err_body = json.loads(exc.read().decode("utf-8", errors="replace"))
@@ -7212,10 +7216,15 @@ class AppDichTruyenWindows(tk.Tk):
 
                     def submit(data, index, context):
                         glossary = "\n".join(filter(None, [options["glossary"], "\n".join(context)]))
+                        eng_cloud = (
+                            "llm_context"
+                            if options["engine"] in ("local_ocr_gpu", "local_hybrid_pro", "local_gguf")
+                            else options["engine"]
+                        )
                         fields = {
                             "source_lang": options["source_lang"],
                             "target_lang": options["target_lang"],
-                            "engine": options["engine"],
+                            "engine": eng_cloud,
                             "che_do": "chi_chu",
                             "font_style": options["font"],
                             "tu_dien_rieng": glossary,

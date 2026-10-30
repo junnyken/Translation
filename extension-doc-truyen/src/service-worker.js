@@ -136,17 +136,17 @@ async function dichCauNhanhGtx(chu, sl = 'auto', tl = 'vi') {
 
 async function damBaoNgonNguDich(dsVung, ngonNguGoc, ngonNguDich) {
   if (!Array.isArray(dsVung) || !dsVung.length) return dsVung
-  if (ngonNguDich !== 'en') return dsVung
-  // Nếu máy chủ đã cập nhật trả thẳng tiếng Anh (không còn dấu tiếng Việt) thì giữ nguyên.
-  // Nếu máy chủ từ xa chưa redeploy nên vẫn trả tiếng Việt khi khách chọn `en`, dịch tức thì sang tiếng Anh (~180ms).
-  const canChuyenAnh = dsVung.some((v) => v?.ban_dich && REGEX_DAU_TIENG_VIET.test(v.ban_dich))
-  if (!canChuyenAnh) return dsVung
+  if (!ngonNguDich || ngonNguDich === 'vi') return dsVung
+  // Nếu máy chủ đã cập nhật trả thẳng ngôn ngữ đích (không còn dấu tiếng Việt) thì giữ nguyên.
+  // Nếu máy chủ từ xa chưa redeploy hoặc dính cache tiếng Việt cũ khi khách chọn ngôn ngữ quốc tế, dịch tức thì sang ngôn ngữ đích (~180ms).
+  const canChuyen = dsVung.some((v) => v?.ban_dich && REGEX_DAU_TIENG_VIET.test(v.ban_dich))
+  if (!canChuyen) return dsVung
   await Promise.all(dsVung.map(async (v) => {
     if (!v || (!v.chu_goc && !v.ban_dich)) return
     try {
       const nguon = v.chu_goc ? (ngonNguGoc || 'auto') : 'vi'
       const goc = v.chu_goc || v.ban_dich
-      v.ban_dich = await dichCauNhanhGtx(goc, nguon, 'en')
+      v.ban_dich = await dichCauNhanhGtx(goc, nguon, ngonNguDich)
     } catch {
       // Giữ nguyên nếu mạng lỗi
     }
@@ -197,7 +197,7 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false,
       const kqLocal = await dichTrangLocalGguf(blob, { ngonNgu, ngonNguDich, tuDienRieng, engine })
       if (daBiHuy()) throw new LoiApi(0, 'Đã chuyển sang dịch trang mới.')
       await khauTruLuotLocal(blob, engine, url).catch((errTru) => {
-        if (errTru instanceof LoiApi && [402, 403, 429].includes(errTru.ma)) throw errTru
+        if (errTru instanceof LoiApi && [401, 402, 403, 429].includes(errTru.ma)) throw errTru
       })
       capNhatNguCanhTab(tabId, kqLocal.vung)
       return {
@@ -206,13 +206,15 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false,
         anh_goc_data_url,
       }
     } catch (errLocal) {
-      if (errLocal instanceof LoiApi && [402, 403, 429].includes(errLocal.ma)) {
+      if (errLocal instanceof LoiApi && [401, 402, 403, 429].includes(errLocal.ma)) {
         throw errLocal
       }
       // Nếu chưa mở App Windows / Ollama ở máy khách, tự động chạy qua Cloud Server:
       // Nếu là `local_hybrid_pro` (2 lượt/trang), trừ thêm 1 lượt phụ ngoài 1 lượt mặc định của guiTrang.
       if (engine === 'local_hybrid_pro') {
-        await khauTruLuotLocal(blob, 'local_ocr_gpu', `pro-extra::${url}`).catch(() => {})
+        await khauTruLuotLocal(blob, 'local_ocr_gpu', `pro-extra::${url}`).catch((errPro) => {
+          if (errPro instanceof LoiApi && [401, 402, 403, 429].includes(errPro.ma)) throw errPro
+        })
       }
     }
   }
@@ -230,12 +232,12 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false,
   // E110 — Nếu trúng Bảng Cache Cộng Đồng trên máy chủ (`kqGui.xong === true`), trả kết quả tức thì (0,15s)
   // không cần chờ 900ms hỏi lại!
   if (kqGui?.xong && Array.isArray(kqGui.vung) && kqGui.vung.length > 0) {
-    if (ngonNguDich === 'en') {
+    if (ngonNguDich && ngonNguDich !== 'vi') {
       await damBaoNgonNguDich(kqGui.vung, ngonNgu, ngonNguDich)
     }
     capNhatNguCanhTab(tabId, kqGui.vung)
     let anh_da_dich_data_url = null
-    if (kqGui.che_do === 'day_du' && kqGui.anh_da_dich && ngonNguDich !== 'en') {
+    if (kqGui.che_do === 'day_du' && kqGui.anh_da_dich && (!ngonNguDich || ngonNguDich === 'vi')) {
       try {
         anh_da_dich_data_url = await taiAnhDaDichDataUrl(page_id)
       } catch {
@@ -254,7 +256,7 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false,
     if (daBiHuy()) throw new LoiApi(0, 'Đã chuyển sang dịch trang mới.')
     const d = await layTrang(page_id)
     if (daBiHuy()) throw new LoiApi(0, 'Đã chuyển sang dịch trang mới.')
-    if (Array.isArray(d.vung) && d.vung.length && ngonNguDich === 'en') {
+    if (Array.isArray(d.vung) && d.vung.length && ngonNguDich && ngonNguDich !== 'vi') {
       await damBaoNgonNguDich(d.vung, ngonNgu, ngonNguDich)
     }
     bao({ giai_doan: 'dang-xu-ly', url, che_do: d.che_do || cheDo, tien_do: d.tien_do, vung: d.vung })
@@ -262,7 +264,7 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false,
     if (d.xong) {
       capNhatNguCanhTab(tabId, d.vung)
       let anh_da_dich_data_url = null
-      if (d.che_do === 'day_du' && d.anh_da_dich && ngonNguDich !== 'en') {
+      if (d.che_do === 'day_du' && d.anh_da_dich && (!ngonNguDich || ngonNguDich === 'vi')) {
         try {
           anh_da_dich_data_url = await taiAnhDaDichDataUrl(page_id)
         } catch {

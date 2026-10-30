@@ -1033,13 +1033,15 @@ async def dich_thoai_ngu_canh_cho_app_va_tien_ich(
     if not la_admin:
         chu_the_chinh = danh_tinh.chot[0].chu_the if danh_tinh.chot else "guest"
         eng_name = (body.engine or "local_ocr_gpu").strip() or "local_ocr_gpu"
+        so_luot_can = 2 if eng_name == "local_hybrid_pro" else 1
         pkey = (body.page_key or "").strip()
-        trang_uid = (
-            uuid.uuid5(uuid.NAMESPACE_URL, f"local-ocr-gpu:{eng_name}:{chu_the_chinh}:{pkey}:0")
-            if pkey
-            else uuid.uuid4()
-        )
-        await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=trang_uid)
+        for idx_c in range(so_luot_can):
+            trang_uid = (
+                uuid.uuid5(uuid.NAMESPACE_URL, f"local-ocr-gpu:{eng_name}:{chu_the_chinh}:{pkey}:{idx_c}")
+                if pkey
+                else uuid.uuid4()
+            )
+            await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=trang_uid)
         await session.commit()
     ban_dich, eng_used = await run_in_threadpool(
         dich_danh_sach_thoai_ngu_canh_dong,
@@ -1048,6 +1050,7 @@ async def dich_thoai_ngu_canh_cho_app_va_tien_ich(
         source_lang=body.source_lang.value,
         target_lang=body.target_lang.value,
         boi_canh=body.boi_canh,
+        engine=body.engine or "local_ocr_gpu",
     )
     return DichThoaiNguCanhResponse(translations=ban_dich, engine_used=eng_used)
 

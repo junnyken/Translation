@@ -1047,6 +1047,7 @@ def dich_danh_sach_thoai_ngu_canh_dong(
     source_lang: str = "ja",
     target_lang: str = "vi",
     boi_canh: str | None = None,
+    engine: str = "local_ocr_gpu",
 ) -> tuple[list[str], str]:
     """Dịch danh sách câu thoại đã OCR của 1 trang bằng DeepSeek / AI trên máy chủ (kèm dự phòng tự động)."""
     from app.services.translate.engines import GoogleTranslateEngine, LLMContextTranslator
@@ -1056,13 +1057,21 @@ def dich_danh_sach_thoai_ngu_canh_dong(
     if not any(clean_texts):
         return ["" for _ in clean_texts], "empty"
 
+    boi_canh_gop = (boi_canh or "").strip()
+    if engine == "local_hybrid_pro":
+        chi_dan_pro = (
+            "[CHẾ ĐỘ PRO 2 LƯỢT: Đặc biệt chú ý tự suy luận sửa các chữ viết tay bị OCR đọc dính nét, "
+            "giữ đồng nhất tuyệt đối đại từ xưng hô và thuật ngữ xuyên trang]"
+        )
+        boi_canh_gop = f"{chi_dan_pro}\n{boi_canh_gop}".strip()
+
     if settings.llm_configured:
         try:
             tr = LLMContextTranslator(
                 api_keys=settings.gemini_api_key_list,
                 model_name=settings.llm_model_name,
                 timeout=max(12.0, float(settings.translate_timeout_seconds or 25.0)),
-                boi_canh=(boi_canh or "").strip() or None,
+                boi_canh=boi_canh_gop or None,
                 json_mode=True,
             )
             kq = tr.translate(clean_texts, source_lang=source_lang, target_lang=target_lang)
