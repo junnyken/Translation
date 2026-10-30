@@ -175,13 +175,20 @@ export default function HeSinhThaiCongCu() {
             </li>
           </ul>
 
-          <div className="chan-khung-cong-cu">
+          <div className="chan-khung-cong-cu" style={{ flexWrap: 'wrap', gap: 8 }}>
+            <a
+              href={api.urlTaiBoCaiWindowsExe()}
+              download="Manga-Studio-Pro-Setup-v1.1.exe"
+              className="nut-manga nut-manga-win"
+            >
+              {laEn ? '🚀 Download Installer (.EXE)' : '🚀 Tải Bộ Cài Đặt (.EXE)'}
+            </a>
             <a
               href={api.urlTaiAppWindows()}
               download="App-Windows-Dich-Truyen-Tu-Dong-v1.1.zip"
-              className="nut-manga nut-manga-win"
+              className="nut-manga nut-manga-phu"
             >
-              {laEn ? '⬇️ Download Windows App (.ZIP)' : '⬇️ Tải App Windows (.ZIP)'}
+              {laEn ? '📦 Portable (.ZIP)' : '📦 Bản Giải Nén (.ZIP)'}
             </a>
             <button
               type="button"
@@ -190,16 +197,16 @@ export default function HeSinhThaiCongCu() {
             >
               {moHuongDanWin
                 ? (laEn ? '▲ Hide guide' : '▲ Ẩn hướng dẫn')
-                : (laEn ? '📖 How to run on Windows' : '📖 Cách chạy trên Windows')}
+                : (laEn ? '📖 How to run' : '📖 Cách chạy')}
             </button>
           </div>
 
           {moHuongDanWin && (
             <div className="hop-huong-dan-nhanh">
-              <b>{laEn ? 'How to launch on Windows 10/11:' : 'Cách mở App trên máy tính Windows:'}</b>
+              <b>{laEn ? 'How to install & launch on Windows 10/11:' : 'Cách cài đặt & mở App trên máy tính Windows:'}</b>
               <ol>
-                <li>{laEn ? <>Unzip <code>App-Windows-Dich-Truyen-Tu-Dong-v1.1.zip</code> on your PC.</> : <>Giải nén file <code>App-Windows-Dich-Truyen-Tu-Dong-v1.1.zip</code> ra máy tính.</>}</li>
-                <li>{laEn ? <>Double-click <code>Chay-App-Dich-Truyen-Windows.bat</code> to open the Manga Studio GUI.</> : <>Nhấp đúp chuột vào file <code>Chay-App-Dich-Truyen-Windows.bat</code> để mở giao diện Manga Studio.</>}</li>
+                <li>{laEn ? <>Run <code>Manga-Studio-Pro-Setup-v1.1.exe</code> (or unzip <code>.zip</code> and double-click <code>Manga-Studio-Pro.exe</code>).</> : <>Chạy file <code>Manga-Studio-Pro-Setup-v1.1.exe</code> (hoặc giải nén bản <code>.zip</code> rồi nhấp đúp <code>Manga-Studio-Pro.exe</code>).</>}</li>
+                <li>{laEn ? <>Click <b>Install &amp; Launch</b> to automatically create a Desktop Shortcut and open the Manga Studio GUI.</> : <>Bấm <b>Cài đặt &amp; Mở ngay</b> để tự tạo biểu tượng ngoài màn hình Desktop và mở thẳng giao diện Manga Studio Pro.</>}</li>
                 <li>{laEn ? <>Verify your PC ID / VIP token, paste the comic URL, select chapters, and click <b>Start</b>!</> : <>Xác nhận Mã máy tính / tài khoản VIP, dán Link truyện, chọn Chapter muốn dịch và bấm <b>Bắt đầu</b>!</>}</li>
               </ol>
             </div>

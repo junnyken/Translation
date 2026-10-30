@@ -1,30 +1,17 @@
-================================================================================
-   HƯỚNG DẪN SỬ DỤNG APP WINDOWS: DỊCH TRUYỆN TỰ ĐỘNG THEO LINK & CHIA CHAPTER
-================================================================================
+========================================================================
+   MANGA STUDIO PRO v1.1 - APP WINDOWS DỊCH TRUYỆN THEO LINK & CHIA CHAPTER
+   Trang chủ chính thức: https://comic.io.vn
+========================================================================
 
-1. CÁCH MỞ APP:
-   - Nhấp đúp chuột vào file: `Chay-App-Dich-Truyen-Windows.bat`
-   - (Yêu cầu máy tính Windows đã cài Python 3.9+ cơ bản; file .bat sẽ tự động kiểm tra
-     thư viện xử lý ảnh Pillow và mở ngay giao diện).
+CÁCH CHẠY CỰC NHANH (CHỈ CẦN NHẤP ĐÚP .EXE — KHÔNG CẦN CHẠY .BAT):
+------------------------------------------------------------------
+1. Nhấp đúp chuột trực tiếp vào file:  Manga-Studio-Pro.exe
+   (Hoặc chạy file cài đặt tự động:   Manga-Studio-Pro-Setup-v1.1.exe
+    để cài vào máy và tự tạo biểu tượng ngoài màn hình Desktop).
 
-2. CÁCH DÙNG CHỈ TRONG 3 BƯỚC:
-   - BƯỚC 1: Đăng nhập tài khoản VIP của bạn (hoặc dán API Key `tr_live_...` lấy từ trang chủ
-     https://comic.io.vn) ở khung số 1. Dùng chung 1 tài khoản trên cả Web (https://comic.io.vn),
-     Tiện ích Chrome và App Windows.
-   - BƯỚC 2: Dán Link trang chủ bộ truyện (hoặc Link 1 Chapter) vào khung số 2 rồi bấm
-     nút "🔍 Quét danh sách Chapter". Chọn dịch từ Chapter A đến Chapter B.
-   - BƯỚC 3: Chọn Ngôn ngữ (Nhật/Hàn/Trung/Anh -> Việt/Anh), chọn Font chữ theo thể loại
-     và bấm "🚀 BẮT ĐẦU TỰ ĐỘNG TẢI & DỊCH THEO CHAPTER".
+2. Ở lần mở đầu tiên, ứng dụng sẽ tự động kiểm tra thư viện xử lý ảnh &
+   model nhận diện 4 ngôn ngữ (Nhật / Hàn / Trung / Anh) rồi mở thẳng
+   bàn làm việc Manga Studio Pro (từ lần thứ 2 mở lên ngay trong 0.2 giây!).
 
-3. CẤU TRÚC THƯ MỤC KẾT QUẢ TRÊN MÁY TÍNH:
-   App tự động chia sẵn từng thư mục Chapter chuẩn chỉnh để đăng Web hoặc làm Video:
-   📁 Downloads\Truyen_Da_Dich\
-    └── 📁 Ten-Bo-Truyen\
-         ├── 📁 Chapter-001\
-         │    ├── 🖼️ 001.jpg
-         │    ├── 🖼️ 002.jpg
-         │    └── 🖼️ 003.jpg
-         └── 📁 Chapter-002\
-              ├── 🖼️ 001.jpg
-              └── 🖼️ 002.jpg
-================================================================================
+3. Đăng nhập tài khoản VIP comic.io.vn (hoặc dán API Key tr_live_...),
+   dán Link bộ truyện -> Quét danh sách Chapter -> Bấm BẮT ĐẦU!

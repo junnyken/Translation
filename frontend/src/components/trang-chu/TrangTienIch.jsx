@@ -253,33 +253,43 @@ export default function TrangTienIch({ onQuayLai }) {
             </div>
           </div>
 
-          <a
-            href={api.urlTaiAppWindows()}
-            download="App-Windows-Dich-Truyen-Tu-Dong-v1.1.zip"
-            className="nut-manga nut-manga-win"
-            style={{ width: '100%', justifyContent: 'center', fontSize: 15, padding: '12px 18px' }}
-          >
-            ⬇️ {laEn ? 'Download Windows App (.ZIP — v1.1)' : 'Tải App Windows Chia Chapter (.ZIP — v1.1)'}
-          </a>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <a
+              href={api.urlTaiBoCaiWindowsExe()}
+              download="Manga-Studio-Pro-Setup-v1.1.exe"
+              className="nut-manga nut-manga-win"
+              style={{ width: '100%', justifyContent: 'center', fontSize: 15, padding: '12px 18px' }}
+            >
+              🚀 {laEn ? 'Download 1-Click Installer (.EXE — v1.1)' : 'Tải Bộ Cài Đặt Tự Động (.EXE — v1.1 · Khuyên dùng)'}
+            </a>
+            <a
+              href={api.urlTaiAppWindows()}
+              download="App-Windows-Dich-Truyen-Tu-Dong-v1.1.zip"
+              className="nut-manga nut-manga-phu"
+              style={{ width: '100%', justifyContent: 'center', fontSize: 13.5, padding: '9px 14px' }}
+            >
+              📦 {laEn ? 'Or Download Portable Package (.ZIP — includes Manga-Studio-Pro.exe)' : 'Hoặc tải bản Giải Nén (.ZIP — kèm sẵn Manga-Studio-Pro.exe)'}
+            </a>
+          </div>
 
           {/* Hướng dẫn cài đặt App Windows */}
           <div style={{ ...stepBoxStyle, borderColor: 'rgba(16, 185, 129, 0.35)' }}>
             <h3 style={{ margin: '0 0 10px', fontSize: 16, color: '#34d399' }}>
-              🚀 {laEn ? 'How to Run on Windows 10 / 11 (3 Simple Steps):' : 'Hướng dẫn khởi chạy trên Windows 10 / 11 (3 bước):'}
+              🚀 {laEn ? 'How to Run on Windows 10 / 11 (3 Simple Steps):' : 'Hướng dẫn cài đặt & khởi chạy trên Windows 10 / 11 (3 bước):'}
             </h3>
             <ol style={{ margin: 0, paddingLeft: 20, color: '#e2e8f0', fontSize: 13.8, lineHeight: 1.75 }}>
               <li>
                 {laEn ? (
-                  <>Unzip <code>App-Windows-Dich-Truyen-Tu-Dong-v1.1.zip</code> on your Windows PC (requires Python 3.9+ installed).</>
+                  <>Download and run <code>Manga-Studio-Pro-Setup-v1.1.exe</code> (or unzip the <code>.zip</code> package and open <code>Manga-Studio-Pro.exe</code>).</>
                 ) : (
-                  <>Giải nén file <code>App-Windows-Dich-Truyen-Tu-Dong-v1.1.zip</code> ra máy tính Windows (máy có cài Python 3.9+ cơ bản).</>
+                  <>Tải và nhấp đúp chạy <code>Manga-Studio-Pro-Setup-v1.1.exe</code> (hoặc giải nén bản <code>.zip</code> và mở <code>Manga-Studio-Pro.exe</code>).</>
                 )}
               </li>
               <li>
                 {laEn ? (
-                  <>Double-click <code>CHAY-NGAY-DICH-TRUYEN.bat</code> — it automatically checks libraries and opens the Manga Studio GUI.</>
+                  <>Click <b>Install &amp; Launch</b> — the app automatically configures dependencies, creates a <b>Desktop Shortcut</b>, and opens the Manga Studio Pro GUI.</>
                 ) : (
-                  <>Nhấp đúp chuột vào file <code>CHAY-NGAY-DICH-TRUYEN.bat</code> (tự động kiểm tra thư viện và mở ngay bàn làm việc Manga Studio).</>
+                  <>Bấm <b>🚀 Cài đặt &amp; Mở ngay</b> — trình cài đặt tự động thiết lập môi trường, tạo biểu tượng <b>Manga Studio Pro</b> ngoài màn hình Desktop và mở thẳng giao diện làm việc.</>
                 )}
               </li>
               <li>

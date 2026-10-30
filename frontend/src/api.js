@@ -729,9 +729,10 @@ export const quanTriKiemTraKetNoiAi = (khoaThu = null) =>
     body: JSON.stringify({ khoa_thu: khoaThu || null }),
   }).then(doc)
 
-/** Đường dẫn tải trực tiếp gói Tiện ích Chrome (.zip) và App Windows (.zip). */
+/** Đường dẫn tải trực tiếp gói Tiện ích Chrome (.zip) và App Windows (.exe / .zip). */
 export const urlTaiTienIchChrome = () => '/tai-ve/dich-truyen-chrome-extension-v0.3.1.zip'
 export const urlTaiAppWindows = () => '/tai-ve/App-Windows-Dich-Truyen-Tu-Dong-v1.1.zip'
+export const urlTaiBoCaiWindowsExe = () => '/tai-ve/Manga-Studio-Pro-Setup-v1.1.exe'
 
 /** Chốt nào đang chặn, hoặc `null` nếu còn lượt.
  *
