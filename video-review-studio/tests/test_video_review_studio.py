@@ -25,6 +25,8 @@ from core_video_renderer import (
 )
 from core_vision_character import (
     CharacterCastMemory,
+    _co_chua_tieng_anh_hoac_rac_ocr,
+    la_ten_nhan_vat_hop_le,
     phan_tich_bo_cuc_anh_khung_tranh,
     sinh_kich_ban_review_chuong,
     tach_khung_tranh_thong_minh,
@@ -233,6 +235,68 @@ def test_5_cloud_wallet_ticket_deduction_for_video_studio(monkeypatch=None):
         urllib.request.urlopen = old_urlopen
 
 
+def test_7_no_english_or_ocr_garbage_in_vietnamese_review_script():
+    """Đảm bảo kịch bản Review luôn 100% Tiếng Việt thuần khiết, không lọt rác OCR hay tên nhân vật ảo ('And', 'You', 'Occult')."""
+    assert la_ten_nhan_vat_hop_le("And") is False
+    assert la_ten_nhan_vat_hop_le("You") is False
+    assert la_ten_nhan_vat_hop_le("Occult") is False
+    assert la_ten_nhan_vat_hop_le("Lâm Phong") is True
+    assert la_ten_nhan_vat_hop_le("Momo Ayase") is True
+
+    with tempfile.TemporaryDirectory() as tmp:
+        bible_path = Path(tmp) / "character_bible.json"
+        bible_path.write_text(
+            json.dumps(
+                {
+                    "characters": [
+                        {"ten": "And", "vai_tro": "Nam chính", "xung_ho": "And", "tu_khoa_nhan_dien": ""},
+                        {"ten": "Occult", "vai_tro": "Phụ", "xung_ho": "Occult", "tu_khoa_nhan_dien": ""},
+                        {"ten": "You", "vai_tro": "Phụ", "xung_ho": "You", "tu_khoa_nhan_dien": ""},
+                        {"ten": "Momo Ayase", "vai_tro": "Nữ chính", "xung_ho": "cô", "tu_khoa_nhan_dien": "Ayase, Momo"},
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        cast = CharacterCastMemory(bible_path)
+        loaded_names = [c["ten"] for c in cast.characters]
+        assert "And" not in loaded_names
+        assert "Occult" not in loaded_names
+        assert "You" not in loaded_names
+        assert "Momo Ayase" in loaded_names
+
+        raw_strip = _tao_anh_webtoon_dai_co_ranh()
+        panels = (tach_khung_tranh_thong_minh(raw_strip) * 2)[:5]
+        noisy_ocr = [
+            ["5HL2PERNé ...AT ..."],
+            ["dANDADAN....", "And you say ghosts don't exist!"],
+            ["you're", "To be com- fortin meee"],
+            ["quit lookin at me, you're cgeepltqe me out", "Try"],
+            ["what're you reapin ljmm, well", "Ghosts aren't real, Occult boy!"],
+        ]
+        tu_dong_quet_ho_so_nhan_vat_tu_thoai(noisy_ocr, cast)
+        scanned_names = [c["ten"] for c in cast.characters]
+        assert "And" not in scanned_names
+        assert "Occult" not in scanned_names
+        assert "You" not in scanned_names
+
+        kb = sinh_kich_ban_review_chuong(
+            panels,
+            noisy_ocr,
+            cast_memory=cast,
+            phong_cach="kich_tinh",
+            ten_truyen="Dandadan",
+            ten_chap="Chapter 001",
+            thu_ket_noi_vision_cuc_bo=False,
+        )
+        for sc in kb["scenes"]:
+            loi = sc["loi_thuyet_minh"]
+            assert sc["nhan_vat"] not in ("And", "You", "Occult"), f"Bogus character: {sc['nhan_vat']}"
+            assert "rằng rằng" not in loi.lower(), f"Double rằng in: {loi}"
+            assert "trên sân" not in loi.lower(), f"Badminton phrase leaked in: {loi}"
+            assert not _co_chua_tieng_anh_hoac_rac_ocr(loi), f"English/OCR leaked into narration: {loi}"
+
+
 if __name__ == "__main__":
     test_1_character_cast_memory_persist_and_speaker_attribution()
     test_2_smart_webtoon_panel_cutter_and_2x2_storyboard_grid()
@@ -240,4 +304,5 @@ if __name__ == "__main__":
     test_4_tts_audio_and_mp4_video_export_end_to_end()
     test_5_cloud_wallet_ticket_deduction_for_video_studio()
     test_6_auto_character_scanner_and_visual_atmosphere()
-    print("ALL 6 VIDEO REVIEW STUDIO TESTS PASSED!")
+    test_7_no_english_or_ocr_garbage_in_vietnamese_review_script()
+    print("ALL 7 VIDEO REVIEW STUDIO TESTS PASSED!")

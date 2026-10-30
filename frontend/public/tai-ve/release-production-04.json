@@ -1,9 +1,9 @@
 {
   "windows_app_version": "1.1",
-  "windows_app_sha256": "1db10a123804da635958c4847b0160b78367c2f68444a148bb9c5a23c346334f",
-  "windows_setup_exe_sha256": "9eb9d22287b57505af0dd1cbe82722ca69680c019101d5745f8c4f8c9bc645df",
+  "windows_app_sha256": "d322e4e7b6df2c6834dcef2bb780019153f702838fc7aede7fe6c11c67c53d5e",
+  "windows_setup_exe_sha256": "7a48a65ae7555f930f14dcaed777f1a99a52274c4c2987d1e1a8bb3b0e3c3827",
   "chrome_extension_version": "0.3.1",
-  "chrome_extension_sha256": "1cc544028411332d3d004c92d0eacf5daeeae5a226a2c72517913e03eb1b633b",
+  "chrome_extension_sha256": "34c9f3a21ae6e20783fa20454b875b34664537f8a17db85a4100c0c1706604f7",
   "video_studio_version": "1.0",
-  "video_studio_sha256": "8828c8154e367909b28bd9ca09324e70c75f9ac92410d0abf78ed159b355b530"
+  "video_studio_sha256": "4578afe0703e1d525386676434ae6ef9b746355e1123509043e7cd204b36f28c"
 }

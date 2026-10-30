@@ -141,8 +141,13 @@ def nap_danh_sach_anh_va_thoai_tu_thu_muc(folder_path: Path) -> tuple[list[bytes
         raise ValueError(f"Không tìm thấy ảnh (.jpg/.png/.webp) trong thư mục: {folder_path}")
 
     thoai_theo_file: dict[str, list[str]] = {}
-    for ten_ledger in ("trang-thai.json", "_translation_ledger.json"):
-        ledger_file = folder_path / ten_ledger
+    ung_vien_ledger = [
+        folder_path / "trang-thai.json",
+        folder_path / "_translation_ledger.json",
+        folder_path.parent / "trang-thai.json",
+        folder_path.parent / "_translation_ledger.json",
+    ]
+    for ledger_file in ung_vien_ledger:
         if not ledger_file.is_file():
             continue
         try:
@@ -153,52 +158,26 @@ def nap_danh_sach_anh_va_thoai_tu_thu_muc(folder_path: Path) -> tuple[list[bytes
                 # Sắp xếp bóng thoại theo từng tầng khung tranh (mỗi tầng ~1100px trên trang chuẩn) và từ PHẢI sang TRÁI (-x) chuẩn Manga
                 regs.sort(key=lambda r: (int(r.get("y") or 0) // 1100, -int(r.get("x") or 0), int(r.get("y") or 0)))
 
-                # Gom các mảnh chữ ngắn (<= 22 ký tự) nằm trong cùng một tầng khung tranh bị tách rời
-                merged_raw_goc: list[tuple[str, str]] = []
-                cur_parts: list[tuple[int, int, str]] = []
-                cur_dich: str = ""
+                ds_cau: list[str] = []
                 for r in regs:
-                    rx = int(r.get("x") or 0)
-                    ry = int(r.get("y") or 0)
                     rgoc = str(r.get("chu_goc") or "").strip()
                     rdich = str(r.get("ban_dich") or "").strip()
-                    if not rgoc and not rdich:
+                    # Luôn ưu tiên bản dịch Tiếng Việt (`ban_dich`) đã được dịch sạch trên trang!
+                    dich_sach = lam_sach_thoai_ocr_cho_review(rdich)
+                    if dich_sach:
+                        ds_cau.append(dich_sach)
                         continue
-                    if cur_parts:
-                        last_x, last_y, last_txt = cur_parts[-1]
-                        if (ry // 1100 == last_y // 1100) and (len(last_txt) <= 22 and len(rgoc) <= 22):
-                            cur_parts.append((rx, ry, rgoc))
-                            if not cur_dich and rdich:
-                                cur_dich = rdich
-                            continue
-                        else:
-                            merged_raw_goc.append((" ".join(pt[2] for pt in cur_parts if pt[2]), cur_dich))
-                            cur_parts = []
-                            cur_dich = ""
-                    cur_parts = [(rx, ry, rgoc)]
-                    cur_dich = rdich
-                if cur_parts:
-                    merged_raw_goc.append((" ".join(pt[2] for pt in cur_parts if pt[2]), cur_dich))
-
-                ds_cau: list[str] = []
-                for raw_goc, raw_dich in merged_raw_goc:
-                    goc = lam_sach_thoai_ocr_cho_review(raw_goc)
-                    if raw_goc and not goc:
-                        # Bỏ qua các vùng ký tự SFX / mảnh chữ rác đã bị bộ lọc loại bỏ
-                        continue
-                    if goc:
-                        ds_cau.append(goc)
-                    else:
-                        dich = lam_sach_thoai_ocr_cho_review(raw_dich)
-                        if dich:
-                            ds_cau.append(dich)
+                    goc_sach = lam_sach_thoai_ocr_cho_review(rgoc)
+                    if goc_sach:
+                        ds_cau.append(goc_sach)
                 fname = str(p.get("output_name") or "")
                 if fname:
                     thoai_theo_file[Path(fname).name] = ds_cau
                 if p_idx < len(files):
                     thoai_theo_file[files[p_idx].name] = ds_cau
                 thoai_theo_file[f"{p_idx + 1:03d}.jpg"] = ds_cau
-            break
+            if thoai_theo_file:
+                break
         except Exception:
             pass
 
