@@ -367,6 +367,16 @@ BANG_PHIEN_AM_THUAN_VIET: list[tuple[str, str]] = [
     (r"\bMomo\b", "Mô mô"),
     (r"\bOkarun\b", "Ô ka run"),
     (r"\bDandadan\b", "Đan đa đan"),
+    (r"\bTomie\b", "Tô mi ê"),
+    (r"\bGodai\b", "Gô đai"),
+    (r"\bKatano\b", "Ka ta nô"),
+    (r"\bHidaka\b", "Hi đa ka"),
+    (r"\bKaori\b", "Ka ô ri"),
+    (r"\bYamamoto\b", "Gia ma mô tô"),
+    (r"\bTakagi\b", "Ta ka ghi"),
+    (r"\bReiko\b", "Rây cô"),
+    (r"\bTsukiko\b", "Xu ki cô"),
+    (r"\bYamazaki\b", "Gia ma da ki"),
 ]
 
 

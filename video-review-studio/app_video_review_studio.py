@@ -313,7 +313,7 @@ class AppVideoReviewStudio(tk.Tk):
 
         tk.Button(
             left_col,
-            text="🎓 Học Phong Cách Từ Link YouTube / Kịch Bản Mẫu (Đã nạp 5 kênh lớn)",
+            text="🎓 Học Phong Cách Từ Link YouTube / Kịch Bản Mẫu (Đã nạp 6 kênh lớn)",
             bg="#7c3aed",
             fg="#ffffff",
             font=("Segoe UI", 8, "bold"),

@@ -22,16 +22,24 @@ except Exception:  # pragma: no cover
 
 PHONG_CACH_KICH_BAN = {
     "tu_dong_thich_ung": {
-        "ten": "🧠 Tự Động Thích Ứng Đa Thể Loại + Kho Học Hỏi 5 Kênh (Mèo Gầy / Lucifer / Gấu Xàm / Genz / Lười Tắm — Khuyên dùng)",
+        "ten": "🧠 Tự Động Thích Ứng Đa Thể Loại + Kho Học Hỏi 6 Kênh (Anime Rewind / Mèo Gầy / Lucifer / Gấu Xàm / Genz / Lười Tắm — Khuyên dùng)",
         "mo_ta": (
-            "TỰ ĐỘNG PHÂN TÍCH THỂ LOẠI, XÂY DỰNG BỐ CỤC NHÂN - QUẢ MƯỢT MÀ & BIẾN HÓA THEO TỪNG KHUNG TRANH: "
-            "Kết hợp tinh hoa dẫn chuyện của 5 kênh lớn (Mèo Gầy TV, Lucifer Sama, Gấu Xàm Anime, Genz Tóm Tắt, Lười Tắm Anime) "
-            "cùng Kho Học Hỏi Phong Cách của người dùng: Mở đầu đi thẳng vào hoàn cảnh nhân vật (không chào hỏi sáo rỗng), "
-            "luân phiên danh xưng đa dạng ('nam chính, nữ chính, thanh niên, cô nàng, nhỏ, cậu ta, đối phương' thay vì lặp tên riêng), "
-            "nối cảnh bằng mạch Nhân - Quả tự nhiên ('Đúng lúc này, Nghe vậy, Tưởng rằng..., Đang tính... thì...'), "
-            "dùng ngôn từ đời thường hóm hỉnh ('nhìn phát biết luôn, chạy mất dép, chỉ biết cạn lời, đứng hình') sát đúng thể loại truyện."
+            "TỰ ĐỘNG PHÂN TÍCH THỂ LOẠI, ĐỊNH DANH TÊN RIÊNG RÕ RÀNG (CHUẨN ANIME REWIND) & XÂY DỰNG BỐ CỤC NHÂN - QUẢ MƯỢT MÀ: "
+            "Kết hợp tinh hoa dẫn chuyện cực kỳ dễ hiểu của Anime Rewind cùng 5 kênh lớn (Mèo Gầy TV, Lucifer Sama, Gấu Xàm Anime, Genz Tóm Tắt, Lười Tắm Anime): "
+            "1) Mở đầu tóm gọn ngay hoàn cảnh/biến cố của nhân vật chính; "
+            "2) BẮT BUỘC nêu rõ TÊN RIÊNG của nhân vật ở vế đầu hoặc khi 2 nhân vật tương tác để người nghe biết chính xác ai làm gì, sau đó vế phụ mới luân phiên đại từ ('anh, cô, cậu, thanh niên, cô nàng'); "
+            "3) Định vị rõ không gian/thời gian và chèn câu hỏi nội tâm ngắn gọn ('Không lẽ...?', 'Chuyện gì đang xảy ra?') giúp mạch truyện cực kỳ dễ hiểu."
         ),
-        "cau_hook_mau": "Hãy cùng theo dõi ngay những diễn biến đầy bất ngờ và cuốn hút trong chương truyện hôm nay!",
+        "cau_hook_mau": "Hãy cùng khám phá ngay những diễn biến đầy bất ngờ và cuốn hút trong chương truyện hôm nay!",
+    },
+    "anime_rewind_de_hieu": {
+        "ten": "🎯 Rõ Ràng Dễ Hiểu & Định Danh Tên Riêng Chuẩn Xác (Chuẩn style Anime Rewind — Rất dễ nghe)",
+        "mo_ta": (
+            "Phong cách dẫn chuyện mạch lạc, câu văn gọn gàng sắc nét, cực kỳ dễ hiểu cho người nghe (như kênh Anime Rewind): "
+            "luôn gọi rõ Tên riêng nhân vật kèm vai trò ('người đồng nghiệp Katano', 'nữ cảnh sát Kaori', 'cô bạn thân Reiko') khi mở cảnh hoặc khi có 2 người tương tác để không bao giờ bị rối ai là ai; "
+            "định vị rõ không gian - thời gian ('Ở lớp học...', 'Quay về hiện tại...', 'Đi được một hồi thì...') và xen câu tự vấn nội tâm ngắn gọn ('Không lẽ anh đã đến muộn rồi sao?', 'Đúng là không có gì miễn phí')."
+        ),
+        "cau_hook_mau": "Liệu nhân vật chính có thể vượt qua tình thế ngặt nghèo này? Hãy cùng khám phá ngay những diễn biến mới nhất nhé!",
     },
     "meo_gay_drama": {
         "ten": "🌸 Ngôn Tình / Lọ Lem / Drama Gia Đình & Quý Tộc Mượt Mà (Chuẩn style Mèo Gầy TV)",
@@ -1230,6 +1238,16 @@ def _tong_hop_mach_truyen_toan_chuong(
 
 _KHO_PHONG_CACH_MAU_MAC_DINH: list[dict[str, Any]] = [
     {
+        "ma_kenh": "anime_rewind",
+        "ten_kenh": "Anime Rewind (Mạch Lạc, Dễ Hiểu, Định Danh Tên Riêng Chuẩn Xác)",
+        "nguon_url": "https://www.youtube.com/watch?v=WrQjFMQDwi0 | https://www.youtube.com/watch?v=TnZGW88NqxY",
+        "cach_mo_dau": "Mở đầu bằng bối cảnh nguy cấp hoặc tóm gọn mối liên kết trực tiếp với sự kiện trước ('Ở chương trước, [Tên riêng] đã...', 'Bộ truyện bắt đầu với...').",
+        "cach_goi_nhan_vat": ["Tên riêng + vai trò (người đồng nghiệp Katano, nữ cảnh sát Kaori, bạn thân Reiko)", "anh", "cô", "cậu", "cậu ta", "hắn"],
+        "tu_noi_bo_cuc": ["Ở chương trước", "Quay về hiện tại", "Tuy nhiên", "Ngay lập tức", "Không còn cách nào khác", "Đi được một hồi thì", "Ngay lúc nguy cấp nhất", "Giữa lúc tranh cãi nảy lửa"],
+        "cum_tu_dat_gia": ["buồn ngủ gặp chiếu manh", "đúng là không có gì là miễn phí", "không lẽ anh đã đến muộn rồi sao", "quái lạ, có thể là ai được chứ", "nhận ra tên này ngay lập tức"],
+        "quy_tac_ke_chuyen": "LUÔN nêu rõ TÊN RIÊNG nhân vật ở vế đầu của cảnh hoặc khi có 2 nhân vật tương tác (kèm vai trò ngắn gọn) để người nghe biết chính xác ai làm gì với ai, vế sau mới dùng đại từ ('anh, cô, cậu, hắn'). Câu văn gọn gàng, định vị rõ không gian/thời gian và xen câu hỏi suy luận nội tâm ngắn gọn.",
+    },
+    {
         "ma_kenh": "meo_gay_tv",
         "ten_kenh": "Mèo Gầy TV (Ngôn Tình / Lọ Lem / Drama Quý Tộc)",
         "nguon_url": "https://www.youtube.com/watch?v=wG-Ws8Waklo",
@@ -1652,20 +1670,21 @@ def _viet_kich_ban_toan_chuong_bang_ai(
 
         chi_dan_hoc_hoi = lay_kho_hoc_hoi_phong_cach().tao_chi_dan_cho_prompt(phong_cach)
         system_msg = (
-            "Bạn là Tổng Biên Kịch Vàng của các kênh YouTube Review Truyện Tranh triệu view (như Mèo Gầy TV, Lucifer Sama, Gấu Xàm Anime, Genz Tóm Tắt, Lười Tắm Anime).\n"
-            "BÍ QUYẾT KỂ CHUYỆN & BỐ CỤC TRIỆU VIEW BẮT BUỘC TUÂN THỦ:\n"
-            "1. BỐ CỤC MỞ ĐẦU TRỰC DIỆN (NHƯ MÈO GẦY TV & LUCIFER SAMA):\n"
-            "   - Ở Trang #1, đi thẳng vào hoàn cảnh, thân phận nhân vật chính hoặc tình huống éo le đang diễn ra ('Nhân vật chính của câu chuyện là...', 'Mở màn câu chuyện, thanh niên...').\n"
-            "   - TUYỆT ĐỐI CẤM mở đầu bằng câu chào MC sáo rỗng kiểu 'Chào mừng các bạn đến với... Hãy cùng theo dõi...'.\n"
-            "2. ĐA DẠNG HÓA CÁCH GỌI NHÂN VẬT (CẤM LẶP TÊN RIÊNG ĐẦU CÂU LIÊN TỤC):\n"
-            "   - Không bắt đầu mọi câu bằng cùng một tên riêng cứng nhắc. Hãy luân phiên tự nhiên giữa Tên riêng <-> Vai trò ('nam chính, nữ chính, nhân vật chính') <-> Đại từ/Đặc điểm ('thanh niên này, cậu ta, anh chàng, cô nàng, nhỏ, đối phương, bà chị, ông anh').\n"
-            "3. TRÌNH TỰ NHÂN - QUẢ LIÊN HOÀN GIỮA CÁC TRANG:\n"
-            "   - Đầu mỗi cảnh phải có từ nối dẫn mạch thời gian hoặc nguyên nhân - kết quả để người nghe chỉ cắm tai nghe cũng hiểu toàn bộ tiến trình: 'Đúng lúc này...', 'Nghe vậy...', 'Thấy phản ứng đó...', 'Tưởng rằng mọi thứ tới đây là hết, nhưng...', 'Đang tính... thì bất ngờ...', 'Đôi bên lời qua tiếng lại...'.\n"
-            "   - Kể theo công thức 3 nhịp: [Bối cảnh/Hành động đang diễn ra] -> [Ý thoại/Tâm lý giấu nghề hoặc hiểu lầm của nhân vật] -> [Kết quả/Câu bình duyên dáng của Reviewer].\n"
-            "4. NGÔN NGỮ ĐỜI THƯỜNG BÌNH DÂN, SÁT THỂ LOẠI & KHÔNG SƯỢNG TRÂN:\n"
-            "   - Dùng ngôn từ gần gũi, giàu hình ảnh đời thường ('nhìn phát biết luôn', 'chạy mất dép', 'chỉ biết cạn lời mà thôi', 'đứng hình', 'quay xe', 'mừng phát khóc', 'vã cho cái vào đầu').\n"
-            "   - CẤM dùng văn mẫu báo cáo ('Ở phân cảnh này', 'điềm tĩnh đáp lại rằng') và CẤM dùng từ văn chương kịch cỡm sáo rỗng ('không gian đặc quánh lại', 'ánh mắt cháy bỏng') khi đang review truyện hài hước/đời thường/học đường.\n"
-            "5. 100% TIẾNG VIỆT TỰ NHIÊN & NHỊP THỞ GIỌNG ĐỌC AI: Không chèn từ tiếng Anh hay ký tự lạ. Chia câu thành các vế gọn 8-15 chữ bằng dấu phẩy (,), dùng dấu chấm than (!) ở câu chốt.\n\n"
+            "Bạn là Tổng Biên Kịch Vàng của các kênh YouTube Review Truyện Tranh triệu view (như Anime Rewind, Mèo Gầy TV, Lucifer Sama, Gấu Xàm Anime, Genz Tóm Tắt, Lười Tắm Anime).\n"
+            "BÍ QUYẾT KỂ CHUYỆN DỄ HIỂU & BỐ CỤC TRIỆU VIEW BẮT BUỘC TUÂN THỦ:\n"
+            "1. BỐ CỤC MỞ ĐẦU TRỰC DIỆN & RÕ HOÀN CẢNH (NHƯ ANIME REWIND & MÈO GẦY TV):\n"
+            "   - Ở Trang #1, đi thẳng vào hoàn cảnh, thân phận nhân vật chính hoặc biến cố đang diễn ra (CẤM mở đầu bằng câu chào MC sáo rỗng kiểu 'Chào mừng các bạn đến với...').\n"
+            "2. QUY TẮC VÀNG VỀ TÊN RIÊNG NHÂN VẬT (CHUẨN ANIME REWIND — NGHE CỰC KỲ DỄ HIỂU, KHÔNG BỊ RỐI AI VỚI AI):\n"
+            "   - BẮT BUỘC nêu rõ TÊN RIÊNG của nhân vật (ví dụ: Maibara, Kawase, Godai, Tomie...) ở mệnh đề chính đầu tiên của cảnh hoặc bất cứ khi nào có 2 nhân vật tương tác với nhau (có thể kèm vai trò ngắn gọn như 'cô bạn Kawase', 'thanh niên Maibara', 'người đồng nghiệp Katano').\n"
+            "   - Sau khi đã gọi rõ TÊN RIÊNG để người nghe định vị chính xác ai đang làm gì, ở các vế phụ tiếp theo trong cùng câu mới luân phiên dùng đại từ ('anh, cô, cậu, cậu ta, cô nàng, nhỏ, hắn, đối phương') để câu văn mượt mà mà không bị lặp từ.\n"
+            "   - TUYỆT ĐỐI KHÔNG dùng toàn đại từ chung chung ('thanh niên, cô nàng, đối phương') suốt cả câu mà bỏ quên Tên riêng khiến người nghe không biết nhân vật nào đang hành động!\n"
+            "3. ĐỊNH VỊ RÕ KHÔNG GIAN / THỜI GIAN & TRÌNH TỰ NHÂN - QUẢ LIÊN HOÀN:\n"
+            "   - Đầu mỗi cảnh phải có từ nối dẫn mạch không gian/thời gian hoặc nguyên nhân - kết quả rõ ràng ('Ngay lập tức...', 'Tuy nhiên...', 'Nghe vậy...', 'Ở trong lớp học...', 'Đúng lúc này...', 'Không còn cách nào khác...', 'Đi được một hồi thì...').\n"
+            "   - Đan xen câu hỏi suy luận nội tâm ngắn gọn của nhân vật ('Không lẽ...?', 'Chuyện quái gì đang xảy ra thế này?') rồi chốt bằng kết quả hoặc lời bình duyên dáng ('Đúng là không có gì miễn phí', 'Buồn ngủ gặp chiếu manh', 'Chỉ biết cạn lời').\n"
+            "4. CÂU VĂN GỌN GÀNG, SÁT THỂ LOẠI & KHÔNG SƯỢNG TRÂN:\n"
+            "   - Câu văn rõ chủ ngữ - vị ngữ, ngắn gọn súc tích, dễ nghe dễ hiểu ngay lần đầu.\n"
+            "   - CẤM dùng văn mẫu báo cáo ('Ở phân cảnh này', 'điềm tĩnh đáp lại rằng') và CẤM dùng từ văn chương kịch cỡm sáo rỗng ('không gian đặc quánh lại', 'ánh mắt cháy bỏng') khi đang review truyện đời thường/học đường.\n"
+            "5. 100% TIẾNG VIỆT TỰ NHIÊN & NHỊP THỞ GIỌNG ĐỌC AI: Không chèn từ tiếng Anh hay ký tự lạ. Chia câu thành các vế gọn 8-15 chữ bằng dấu phẩy (,), dùng dấu chấm than (!) hoặc chấm hỏi (?) tự nhiên.\n\n"
             + chi_dan_hoc_hoi
         )
 

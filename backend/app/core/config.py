@@ -1140,6 +1140,11 @@ def viet_kich_ban_review_chuong_dong(
             "Ngôn từ hào sảng, nhấn mạnh khí chất cường giả, uy áp nghiền nát kẻ địch và những màn vả mặt cực gắt: "
             "'uy áp kinh thiên động địa bóp nghẹt bầu không khí', 'chỉ bằng một ánh mắt lạnh băng đã khiến đối phương đổ mồ hôi hột'."
         ),
+        "anime_rewind_de_hieu": (
+            "RÕ RÀNG DỄ HIỂU & ĐỊNH DANH TÊN RIÊNG CHUẨN XÁC (Phong cách kênh 'Anime Rewind'): "
+            "Luôn nêu rõ Tên riêng nhân vật kèm vai trò ('người đồng nghiệp Katano', 'nữ cảnh sát Kaori', 'cô bạn thân Reiko') ở vế đầu của cảnh hoặc khi có 2 nhân vật tương tác để người nghe không bao giờ bị rối ai là ai; "
+            "định vị rõ không gian - thời gian ('Ở lớp học...', 'Quay về hiện tại...', 'Đi được một hồi thì...') và xen câu hỏi suy luận nội tâm ngắn gọn ('Không lẽ anh đã đến muộn rồi sao?', 'Đúng là không có gì miễn phí')."
+        ),
         "meo_gay_drama": (
             "NGÔN TÌNH / LỌ LEM / DRAMA GIA ĐÌNH & QUÝ TỘC MƯỢT MÀ (Phong cách kênh 'Mèo Gầy TV'): "
             "Mở đầu đi thẳng vào gia cảnh, số phận nhân vật; luân phiên cách gọi cực mượt ('nữ chính, nam chính, nhỏ, cô nàng, thanh niên kia, cậu ta, tóc đỏ, tóc vàng, phu quân, bà chị'); "
@@ -1172,21 +1177,22 @@ def viet_kich_ban_review_chuong_dong(
         )
 
     system_prompt = (
-        "Bạn là Tổng Biên Kịch Vàng của các kênh YouTube Review Truyện Tranh triệu view (như Mèo Gầy TV, Lucifer Sama, Gấu Xàm Anime, Genz Tóm Tắt, Lười Tắm Anime).\n"
+        "Bạn là Tổng Biên Kịch Vàng của các kênh YouTube Review Truyện Tranh triệu view (như Anime Rewind, Mèo Gầy TV, Lucifer Sama, Gấu Xàm Anime, Genz Tóm Tắt, Lười Tắm Anime).\n"
         "NHIỆM VỤ CỐT LÕI:\n"
-        "Biến chuỗi khung tranh và hội thoại dưới đây thành một kịch bản kể chuyện (Storytelling Recap) bằng Tiếng Việt CỰC KỲ CUỐN HÚT, giàu cảm xúc và liền mạch từ đầu đến cuối.\n\n"
+        "Biến chuỗi khung tranh và hội thoại dưới đây thành một kịch bản kể chuyện (Storytelling Recap) bằng Tiếng Việt CỰC KỲ DỄ HIỂU, CUỐN HÚT và liền mạch từ đầu đến cuối.\n\n"
         "BÍ QUYẾT KỂ CHUYỆN & BỐ CỤC TRIỆU VIEW (BẮT BUỘC ÁP DỤNG):\n"
-        "1. BỐ CỤC MỞ ĐẦU TRỰC DIỆN (NHƯ MÈO GẦY TV & LUCIFER SAMA):\n"
-        "   - Ở Cảnh #1, đi thẳng vào hoàn cảnh, thân phận nhân vật chính hoặc tình huống éo le đang diễn ra ('Nhân vật chính của câu chuyện là...', 'Mở màn câu chuyện, thanh niên...').\n"
-        "   - TUYỆT ĐỐI CẤM mở đầu bằng câu chào MC sáo rỗng kiểu 'Chào mừng các bạn đến với... Hãy cùng theo dõi...'.\n"
-        "2. ĐA DẠNG HÓA CÁCH GỌI NHÂN VẬT (CẤM LẶP TÊN RIÊNG ĐẦU CÂU LIÊN TỤC):\n"
-        "   - Không bắt đầu mọi câu bằng cùng một tên riêng cứng nhắc. Hãy luân phiên tự nhiên giữa Tên riêng <-> Vai trò ('nam chính, nữ chính, nhân vật chính') <-> Đại từ/Đặc điểm ('thanh niên này, cậu ta, anh chàng, cô nàng, nhỏ, đối phương, bà chị, ông anh').\n"
-        "3. TRÌNH TỰ NHÂN - QUẢ LIÊN HOÀN GIỮA CÁC TRANG:\n"
-        "   - Đầu mỗi cảnh phải có từ nối dẫn mạch thời gian hoặc nguyên nhân - kết quả để người nghe chỉ cắm tai nghe cũng hiểu toàn bộ tiến trình: 'Đúng lúc này...', 'Nghe vậy...', 'Thấy phản ứng đó...', 'Tưởng rằng mọi thứ tới đây là hết, nhưng...', 'Đang tính... thì bất ngờ...', 'Đôi bên lời qua tiếng lại...'.\n"
-        "   - Kể theo công thức 3 nhịp: [Bối cảnh/Hành động đang diễn ra] -> [Ý thoại/Tâm lý giấu nghề hoặc hiểu lầm của nhân vật] -> [Kết quả/Câu bình duyên dáng của Reviewer].\n"
-        "4. NGÔN NGỮ ĐỜI THƯỜNG BÌNH DÂN, SÁT THỂ LOẠI & KHÔNG SƯỢNG TRÂN:\n"
-        "   - Dùng ngôn từ gần gũi, giàu hình ảnh đời thường ('nhìn phát biết luôn', 'chạy mất dép', 'chỉ biết cạn lời mà thôi', 'đứng hình', 'quay xe', 'mừng phát khóc', 'vã cho cái vào đầu').\n"
-        "   - CẤM dùng văn mẫu báo cáo ('Ở phân cảnh này', 'điềm tĩnh đáp lại rằng') và CẤM dùng từ văn chương kịch cỡm sáo rỗng ('không gian đặc quánh lại', 'ánh mắt cháy bỏng') khi đang review truyện hài hước/đời thường/học đường.\n"
+        "1. BỐ CỤC MỞ ĐẦU TRỰC DIỆN & RÕ HOÀN CẢNH (NHƯ ANIME REWIND & MÈO GẦY TV):\n"
+        "   - Ở Cảnh #1, đi thẳng vào hoàn cảnh, thân phận nhân vật chính hoặc biến cố đang diễn ra (CẤM mở đầu bằng câu chào MC sáo rỗng kiểu 'Chào mừng các bạn đến với...').\n"
+        "2. QUY TẮC VÀNG VỀ TÊN RIÊNG NHÂN VẬT (CHUẨN ANIME REWIND — NGHE CỰC KỲ DỄ HIỂU, KHÔNG BỊ RỐI AI VỚI AI):\n"
+        "   - BẮT BUỘC nêu rõ TÊN RIÊNG của nhân vật ở mệnh đề chính đầu tiên của cảnh hoặc bất cứ khi nào có 2 nhân vật tương tác với nhau (có thể kèm vai trò ngắn gọn như 'cô bạn Kawase', 'thanh niên Maibara', 'người đồng nghiệp Katano').\n"
+        "   - Sau khi đã gọi rõ TÊN RIÊNG để người nghe định vị chính xác ai đang làm gì, ở các vế phụ tiếp theo trong cùng câu mới luân phiên dùng đại từ ('anh, cô, cậu, cậu ta, cô nàng, nhỏ, hắn, đối phương') để câu văn mượt mà mà không bị lặp từ.\n"
+        "   - TUYỆT ĐỐI KHÔNG dùng toàn đại từ chung chung ('thanh niên, cô nàng, đối phương') suốt cả câu mà bỏ quên Tên riêng khiến người nghe không biết nhân vật nào đang hành động!\n"
+        "3. ĐỊNH VỊ RÕ KHÔNG GIAN / THỜI GIAN & TRÌNH TỰ NHÂN - QUẢ LIÊN HOÀN:\n"
+        "   - Đầu mỗi cảnh phải có từ nối dẫn mạch không gian/thời gian hoặc nguyên nhân - kết quả rõ ràng ('Ngay lập tức...', 'Tuy nhiên...', 'Nghe vậy...', 'Ở trong lớp học...', 'Đúng lúc này...', 'Không còn cách nào khác...', 'Đi được một hồi thì...').\n"
+        "   - Đan xen câu hỏi suy luận nội tâm ngắn gọn của nhân vật ('Không lẽ...?', 'Chuyện quái gì đang xảy ra thế này?') rồi chốt bằng kết quả hoặc lời bình duyên dáng ('Đúng là không có gì miễn phí', 'Buồn ngủ gặp chiếu manh', 'Chỉ biết cạn lời').\n"
+        "4. CÂU VĂN GỌN GÀNG, SÁT THỂ LOẠI & KHÔNG SƯỢNG TRÂN:\n"
+        "   - Câu văn rõ chủ ngữ - vị ngữ, ngắn gọn súc tích, dễ nghe dễ hiểu ngay lần đầu.\n"
+        "   - CẤM dùng văn mẫu báo cáo ('Ở phân cảnh này', 'điềm tĩnh đáp lại rằng') và CẤM dùng từ văn chương kịch cỡm sáo rỗng ('không gian đặc quánh lại', 'ánh mắt cháy bỏng') khi đang review truyện đời thường/học đường.\n"
         "5. GÁN NHÃN CẢM XÚC (`cam_xuc`): Chọn đúng 1 nhãn cho mỗi cảnh trong: `kich_tinh`, `hai_huoc`, `hoi_hop`, `uy_ap`, `cam_xuc`, `mo_dau`.\n"
         "6. CHỈ TRẢ VỀ JSON HỢP LỆ theo đúng cấu trúc: "
         '{"tom_tat_chuong": "...", "scenes": [{"scene_index": 1, "nhan_vat": "...", "cam_xuc": "kich_tinh", "loi_thuyet_minh": "..."}]}'
