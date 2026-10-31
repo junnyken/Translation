@@ -38,7 +38,9 @@ from core_video_renderer import (
 from core_vision_character import (
     PHONG_CACH_KICH_BAN,
     CharacterCastMemory,
+    hoc_phong_cach_tu_youtube_hoac_van_ban,
     lam_sach_thoai_ocr_cho_review,
+    lay_kho_hoc_hoi_phong_cach,
     sinh_kich_ban_review_chuong,
     tach_khung_tranh_thong_minh,
     tu_dong_quet_ho_so_nhan_vat_tu_thoai,
@@ -307,7 +309,18 @@ class AppVideoReviewStudio(tk.Tk):
             state="readonly",
         )
         self.cmb_phong_cach.current(0)
-        self.cmb_phong_cach.pack(fill="x", pady=(2, 5))
+        self.cmb_phong_cach.pack(fill="x", pady=(2, 3))
+
+        tk.Button(
+            left_col,
+            text="🎓 Học Phong Cách Từ Link YouTube / Kịch Bản Mẫu (Đã nạp 5 kênh lớn)",
+            bg="#7c3aed",
+            fg="#ffffff",
+            font=("Segoe UI", 8, "bold"),
+            relief="flat",
+            pady=4,
+            command=self._mo_hop_thoai_hoc_phong_cach_youtube,
+        ).pack(fill="x", pady=(0, 5))
 
         tk.Label(left_col, text="Khung hình Video xuất bản:", bg="#111827", fg="#cbd5e1").pack(anchor="w")
         self.cmb_dinh_dang = ttk.Combobox(
@@ -884,6 +897,98 @@ class AppVideoReviewStudio(tk.Tk):
             self.ghi_log(f"▶️ Đang mở phát file Video MP4: {mp4_p}")
         except Exception as exc:
             self.ghi_log(f"⚠️ Không thể tự mở trình phát video: {exc}")
+
+    def _mo_hop_thoai_hoc_phong_cach_youtube(self):
+        mem = lay_kho_hoc_hoi_phong_cach()
+        win = tk.Toplevel(self)
+        win.title("🎓 Học Phong Cách Kể Chuyện Từ Link YouTube / Kịch Bản Mẫu")
+        win.geometry("760x580")
+        win.configure(bg="#0f172a")
+
+        tk.Label(
+            win,
+            text="🎓 KHO HỌC HỎI NGÔN NGỮ & BỐ CỤC REVIEW TRIỆU VIEW (TỰ NÂNG CẤP PROMPT)",
+            bg="#0f172a",
+            fg="#38bdf8",
+            font=("Segoe UI", 11, "bold"),
+            pady=8,
+        ).pack(anchor="w", padx=14)
+
+        tk.Label(
+            win,
+            text="Dán bất kỳ link YouTube Review Truyện/Anime (hoặc đoạn kịch bản mẫu) vào ô dưới đây để AI tự động tách phụ đề,\nhọc cách mở bài, cách gọi nhân vật ('nữ chính, nhỏ, thanh niên...'), từ nối bố cục và cụm từ đắt giá:",
+            bg="#0f172a",
+            fg="#cbd5e1",
+            justify="left",
+        ).pack(anchor="w", padx=14)
+
+        f_in = tk.Frame(win, bg="#0f172a")
+        f_in.pack(fill="x", padx=14, pady=8)
+        ent_url = tk.Entry(f_in, bg="#1e293b", fg="#f8fafc", insertbackground="#fff", font=("Segoe UI", 10))
+        ent_url.insert(0, "https://www.youtube.com/watch?v=")
+        ent_url.pack(side="left", fill="x", expand=True, padx=(0, 8), ipady=5)
+
+        txt_info = scrolledtext.ScrolledText(
+            win,
+            bg="#111827",
+            fg="#e2e8f0",
+            font=("Consolas", 9),
+            height=22,
+        )
+        txt_info.pack(fill="both", expand=True, padx=14, pady=(4, 12))
+
+        def _cap_nhat_hien_thi():
+            txt_info.delete("1.0", "end")
+            txt_info.insert(
+                "end",
+                f"=== ĐÃ NẠP {len(mem.learned_profiles)} PHONG CÁCH KÊNH REVIEW VÀO BỘ NHỚ AI ===\n\n",
+            )
+            for idx, p in enumerate(reversed(mem.learned_profiles), start=1):
+                txt_info.insert(
+                    "end",
+                    f"[{idx}] 📺 {p.get('ten_kenh')}\n"
+                    f"    • Nguồn: {p.get('nguon_url')}\n"
+                    f"    • Cách gọi nhân vật: {', '.join(p.get('cach_goi_nhan_vat') or [])}\n"
+                    f"    • Từ nối bố cục: {', '.join(p.get('tu_noi_bo_cuc') or [])}\n"
+                    f"    • Cụm từ đắt giá: {', '.join(p.get('cum_tu_dat_gia') or [])}\n"
+                    f"    • Quy tắc kể chuyện: {p.get('quy_tac_ke_chuyen')}\n\n",
+                )
+
+        def _bam_hoc_ngay():
+            nguon = ent_url.get().strip()
+            if not nguon or nguon == "https://www.youtube.com/watch?v=":
+                messagebox.showwarning("Thiếu thông tin", "Hãy dán link YouTube hoặc đoạn văn bản kịch bản mẫu vào ô!", parent=win)
+                return
+            self.ghi_log(f"🎓 Đang tải phụ đề & phân tích cấu trúc ngôn ngữ từ: {nguon} ...")
+
+            def _worker_learn():
+                try:
+                    prof = hoc_phong_cach_tu_youtube_hoac_van_ban(nguon)
+                    self.ghi_log(
+                        f"✅ Đã học thành công phong cách kênh '{prof['ten_kenh']}'!\n"
+                        f"   • Danh xưng học được: {', '.join(prof.get('cach_goi_nhan_vat') or [])}\n"
+                        f"   • Từ nối bố cục: {', '.join(prof.get('tu_noi_bo_cuc') or [])}\n"
+                        f"   • Cụm từ đắt giá: {', '.join(prof.get('cum_tu_dat_gia') or [])}"
+                    )
+                    win.after(0, _cap_nhat_hien_thi)
+                except Exception as exc:
+                    self.ghi_log(f"❌ Lỗi khi học phong cách từ link: {exc}")
+
+            threading.Thread(target=_worker_learn, daemon=True).start()
+
+        tk.Button(
+            f_in,
+            text="🧠 Phân Tích & Học Ngay",
+            bg="#10b981",
+            fg="#ffffff",
+            font=("Segoe UI", 9, "bold"),
+            relief="flat",
+            padx=12,
+            pady=5,
+            command=_bam_hoc_ngay,
+        ).pack(side="right")
+
+        _cap_nhat_hien_thi()
 
 
 if __name__ == "__main__":

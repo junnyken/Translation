@@ -25,7 +25,9 @@ from core_video_renderer import (
 )
 from core_vision_character import (
     CharacterCastMemory,
+    StyleLearningMemory,
     _co_chua_tieng_anh_hoac_rac_ocr,
+    hoc_phong_cach_tu_youtube_hoac_van_ban,
     la_ten_nhan_vat_hop_le,
     phan_tich_bo_cuc_anh_khung_tranh,
     sinh_kich_ban_review_chuong,
@@ -297,6 +299,24 @@ def test_7_no_english_or_ocr_garbage_in_vietnamese_review_script():
             assert not _co_chua_tieng_anh_hoac_rac_ocr(loi), f"English/OCR leaked into narration: {loi}"
 
 
+def test_8_style_learning_memory_from_youtube_or_text():
+    with tempfile.TemporaryDirectory() as tmp:
+        mem_path = Path(tmp) / "learned_styles.json"
+        mem = StyleLearningMemory(mem_path)
+        assert len(mem.learned_profiles) >= 5
+        chi_dan = mem.tao_chi_dan_cho_prompt("tu_dong_thich_ung")
+        assert "Mèo Gầy TV" in chi_dan
+        assert "Lucifer Sama" in chi_dan
+        assert "nhìn phát biết luôn" in chi_dan or "chạy mất dép" in chi_dan
+
+        prof = hoc_phong_cach_tu_youtube_hoac_van_ban(
+            "Đúng lúc này nữ chính nhìn phát biết luôn thanh niên kia đang bốc phét, thế là vã cho cái vào đầu khiến cậu ta chỉ biết cạn lời mà thôi.",
+            ten_kenh_goi_y="Kênh Test Học Hỏi",
+        )
+        assert "nữ chính" in prof["cach_goi_nhan_vat"]
+        assert "Đúng lúc này" in prof["tu_noi_bo_cuc"]
+
+
 if __name__ == "__main__":
     test_1_character_cast_memory_persist_and_speaker_attribution()
     test_2_smart_webtoon_panel_cutter_and_2x2_storyboard_grid()
@@ -305,4 +325,5 @@ if __name__ == "__main__":
     test_5_cloud_wallet_ticket_deduction_for_video_studio()
     test_6_auto_character_scanner_and_visual_atmosphere()
     test_7_no_english_or_ocr_garbage_in_vietnamese_review_script()
-    print("ALL 7 VIDEO REVIEW STUDIO TESTS PASSED!")
+    test_8_style_learning_memory_from_youtube_or_text()
+    print("ALL 8 VIDEO REVIEW STUDIO TESTS PASSED!")

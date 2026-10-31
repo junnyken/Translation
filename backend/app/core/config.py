@@ -1140,12 +1140,22 @@ def viet_kich_ban_review_chuong_dong(
             "Ngôn từ hào sảng, nhấn mạnh khí chất cường giả, uy áp nghiền nát kẻ địch và những màn vả mặt cực gắt: "
             "'uy áp kinh thiên động địa bóp nghẹt bầu không khí', 'chỉ bằng một ánh mắt lạnh băng đã khiến đối phương đổ mồ hôi hột'."
         ),
+        "meo_gay_drama": (
+            "NGÔN TÌNH / LỌ LEM / DRAMA GIA ĐÌNH & QUÝ TỘC MƯỢT MÀ (Phong cách kênh 'Mèo Gầy TV'): "
+            "Mở đầu đi thẳng vào gia cảnh, số phận nhân vật; luân phiên cách gọi cực mượt ('nữ chính, nam chính, nhỏ, cô nàng, thanh niên kia, cậu ta, tóc đỏ, tóc vàng, phu quân, bà chị'); "
+            "dẫn dắt tâm lý và hiểu lầm dở khóc dở cười ('nhìn phát biết luôn', 'đôi bên nói chuyện qua lại tự dưng lại thấy hợp', 'vã cho cái vào đầu', 'mừng phát khóc')."
+        ),
+        "lucifer_isekai": (
+            "CHUYỂN SINH / ISEKAI / PHÉP THUẬT HÀI ĐỜI THƯỜNG (Phong cách kênh 'Lucifer Sama'): "
+            "Kể theo chuỗi Sự việc -> Suy nghĩ giấu nghề/tâm lý thật của main -> Kết quả bất ngờ khiến mọi người cạn lời; "
+            "dùng ngôn từ bình dân vui nhộn ('Tưởng rằng mọi thứ tới đây là hết nhưng...', 'chạy mất dép luôn', 'tội cãi lại nóc nhà thì không thể tha thứ được', 'chỉ biết cạn lời mà thôi')."
+        ),
         "ngon_tinh": (
             "HỌC ĐƯỜNG / CẢM XÚC / DRAMA ĐỜI THƯỜNG: "
             "Giàu cảm xúc, tinh tế, bắt trọn những khoảnh khắc rung động, hiểu lầm dở khóc dở cười và tương tác tự nhiên giữa các nhân vật."
         ),
     }
-    mo_ta_pc = pc_map.get(phong_cach, pc_map["kich_tinh"])
+    mo_ta_pc = pc_map.get(phong_cach, pc_map["tu_dong_thich_ung"])
 
     dong_trang = []
     for item in pages_input[:40]:
@@ -1162,18 +1172,21 @@ def viet_kich_ban_review_chuong_dong(
         )
 
     system_prompt = (
-        "Bạn là Tổng Biên Kịch Vàng của các kênh YouTube Review Truyện Tranh triệu view (như Gấu Xàm Anime, Genz Tóm Tắt, Lười Tắm Anime).\n"
+        "Bạn là Tổng Biên Kịch Vàng của các kênh YouTube Review Truyện Tranh triệu view (như Mèo Gầy TV, Lucifer Sama, Gấu Xàm Anime, Genz Tóm Tắt, Lười Tắm Anime).\n"
         "NHIỆM VỤ CỐT LÕI:\n"
         "Biến chuỗi khung tranh và hội thoại dưới đây thành một kịch bản kể chuyện (Storytelling Recap) bằng Tiếng Việt CỰC KỲ CUỐN HÚT, giàu cảm xúc và liền mạch từ đầu đến cuối.\n\n"
-        "BÍ QUYẾT KỂ CHUYỆN TRIỆU VIEW (BẮT BUỘC ÁP DỤNG):\n"
-        "1. CẤM TUYỆT ĐỐI VĂN PHONG BÁO CÁO KHÔ KHAN: Tuyệt đối CẤM viết kiểu liệt kê máy móc như 'Mở đầu phân cảnh, A điềm tĩnh đáp lại rằng..., trong khi đó B nhận xét rằng...'. Không dùng lặp từ 'rằng', không dùng 'Ở phân cảnh này', 'Trong khung hình này'.\n"
-        "2. CÔNG THỨC 3 NHỊP MỖI CẢNH (HÀNH ĐỘNG -> PHẢN ỨNG/THOẠI CHỐT -> BÌNH LUẬN ĐẨY NHỊP):\n"
-        "   - Thay vì chỉ đọc lại bóng thoại, hãy KỂ HÀNH ĐỘNG & THÁI ĐỘ của nhân vật trước, sau đó lồng ý thoại một cách tự nhiên hoặc trích câu chốt ngắn đắt giá, rồi thêm lời bình sắc sảo của Reviewer.\n"
-        "   - Ví dụ chuẩn Gấu Xàm Anime: 'Bị dồn vào thế bí, gã kẻ địch gầm lên bảo đừng có xem thường hắn! Cơ mà hắn lại không ngờ được rằng, dù dính đòn hiểm nhưng thanh niên vẫn tỉnh bơ rồi lạnh lùng buông một câu xanh rờn khiến đối phương đứng hình.'\n"
-        "   - Ví dụ chuẩn Genz Tóm Tắt: 'Chưa kịp để cô nữ sinh định thần, gã bạn cùng bàn đã ghé sát mặt nhìn chằm chằm với ánh mắt kỳ dị. Quá hoảng hốt trước hành động quái đản ấy, cô vội gắt lên bảo cậu ta đừng nhìn mình kiểu nổi da gà như thế nữa!'\n"
-        "   - Ví dụ chuẩn Lười Tắm Anime: 'Mới giây trước còn cao ngạo nắm thế chủ động, thì ngay giây sau hắn đã bị lật kèo cực gắt! Ai cũng ngỡ cú ra đòn vừa rồi là sát chiêu, nhưng hóa ra tất cả chỉ là miếng mồi nhử nằm trong tính toán từ đầu.'\n"
-        "3. BÁM SÁT 100% DIỄN BIẾN & ĐÚNG VAI TRÒ NHÂN VẬT: Kể đúng nội dung sự việc và ý nghĩa câu thoại của từng cảnh, giữ đúng tên nhân vật, tuyệt đối không chèn từ tiếng Anh hay ký tự lạ.\n"
-        "4. TỐI ƯU NHỊP THỞ GIỌNG ĐỌC AI: Chia câu thành các vế gọn 8-16 chữ ngăn cách bằng dấu phẩy (,), dùng dấu ba chấm (...) tạo khoảng lặng hồi hộp và dấu chấm than (!) ở câu chốt cao trào.\n"
+        "BÍ QUYẾT KỂ CHUYỆN & BỐ CỤC TRIỆU VIEW (BẮT BUỘC ÁP DỤNG):\n"
+        "1. BỐ CỤC MỞ ĐẦU TRỰC DIỆN (NHƯ MÈO GẦY TV & LUCIFER SAMA):\n"
+        "   - Ở Cảnh #1, đi thẳng vào hoàn cảnh, thân phận nhân vật chính hoặc tình huống éo le đang diễn ra ('Nhân vật chính của câu chuyện là...', 'Mở màn câu chuyện, thanh niên...').\n"
+        "   - TUYỆT ĐỐI CẤM mở đầu bằng câu chào MC sáo rỗng kiểu 'Chào mừng các bạn đến với... Hãy cùng theo dõi...'.\n"
+        "2. ĐA DẠNG HÓA CÁCH GỌI NHÂN VẬT (CẤM LẶP TÊN RIÊNG ĐẦU CÂU LIÊN TỤC):\n"
+        "   - Không bắt đầu mọi câu bằng cùng một tên riêng cứng nhắc. Hãy luân phiên tự nhiên giữa Tên riêng <-> Vai trò ('nam chính, nữ chính, nhân vật chính') <-> Đại từ/Đặc điểm ('thanh niên này, cậu ta, anh chàng, cô nàng, nhỏ, đối phương, bà chị, ông anh').\n"
+        "3. TRÌNH TỰ NHÂN - QUẢ LIÊN HOÀN GIỮA CÁC TRANG:\n"
+        "   - Đầu mỗi cảnh phải có từ nối dẫn mạch thời gian hoặc nguyên nhân - kết quả để người nghe chỉ cắm tai nghe cũng hiểu toàn bộ tiến trình: 'Đúng lúc này...', 'Nghe vậy...', 'Thấy phản ứng đó...', 'Tưởng rằng mọi thứ tới đây là hết, nhưng...', 'Đang tính... thì bất ngờ...', 'Đôi bên lời qua tiếng lại...'.\n"
+        "   - Kể theo công thức 3 nhịp: [Bối cảnh/Hành động đang diễn ra] -> [Ý thoại/Tâm lý giấu nghề hoặc hiểu lầm của nhân vật] -> [Kết quả/Câu bình duyên dáng của Reviewer].\n"
+        "4. NGÔN NGỮ ĐỜI THƯỜNG BÌNH DÂN, SÁT THỂ LOẠI & KHÔNG SƯỢNG TRÂN:\n"
+        "   - Dùng ngôn từ gần gũi, giàu hình ảnh đời thường ('nhìn phát biết luôn', 'chạy mất dép', 'chỉ biết cạn lời mà thôi', 'đứng hình', 'quay xe', 'mừng phát khóc', 'vã cho cái vào đầu').\n"
+        "   - CẤM dùng văn mẫu báo cáo ('Ở phân cảnh này', 'điềm tĩnh đáp lại rằng') và CẤM dùng từ văn chương kịch cỡm sáo rỗng ('không gian đặc quánh lại', 'ánh mắt cháy bỏng') khi đang review truyện hài hước/đời thường/học đường.\n"
         "5. GÁN NHÃN CẢM XÚC (`cam_xuc`): Chọn đúng 1 nhãn cho mỗi cảnh trong: `kich_tinh`, `hai_huoc`, `hoi_hop`, `uy_ap`, `cam_xuc`, `mo_dau`.\n"
         "6. CHỈ TRẢ VỀ JSON HỢP LỆ theo đúng cấu trúc: "
         '{"tom_tat_chuong": "...", "scenes": [{"scene_index": 1, "nhan_vat": "...", "cam_xuc": "kich_tinh", "loi_thuyet_minh": "..."}]}'

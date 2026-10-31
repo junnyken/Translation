@@ -22,14 +22,36 @@ except Exception:  # pragma: no cover
 
 PHONG_CACH_KICH_BAN = {
     "tu_dong_thich_ung": {
-        "ten": "🧠 Tự Động Thích Ứng Đa Thể Loại (AI tự nhận diện cốt truyện & đổi giọng kể linh hoạt theo từng cảnh — Khuyên dùng)",
+        "ten": "🧠 Tự Động Thích Ứng Đa Thể Loại + Kho Học Hỏi 5 Kênh (Mèo Gầy / Lucifer / Gấu Xàm / Genz / Lười Tắm — Khuyên dùng)",
         "mo_ta": (
-            "TỰ ĐỘNG PHÂN TÍCH THỂ LOẠI & BIẾN HÓA THEO TỪNG KHUNG TRANH: "
-            "Tự động đọc mạch truyện của chương để nhận diện thể loại (Hành động, Siêu nhiên, Hệ thống, Tu tiên, Thể thao, Kinh dị, Học đường, Ngôn tình...) "
-            "và linh hoạt đổi giọng văn ngay trong cùng một chương: cảnh đời thường/đấu khẩu thì duyên dáng mặn mòi, "
-            "cảnh bí ẩn thì hồi hộp cuốn hút, cảnh giao tranh/cao trào thì dồn dập bùng nổ."
+            "TỰ ĐỘNG PHÂN TÍCH THỂ LOẠI, XÂY DỰNG BỐ CỤC NHÂN - QUẢ MƯỢT MÀ & BIẾN HÓA THEO TỪNG KHUNG TRANH: "
+            "Kết hợp tinh hoa dẫn chuyện của 5 kênh lớn (Mèo Gầy TV, Lucifer Sama, Gấu Xàm Anime, Genz Tóm Tắt, Lười Tắm Anime) "
+            "cùng Kho Học Hỏi Phong Cách của người dùng: Mở đầu đi thẳng vào hoàn cảnh nhân vật (không chào hỏi sáo rỗng), "
+            "luân phiên danh xưng đa dạng ('nam chính, nữ chính, thanh niên, cô nàng, nhỏ, cậu ta, đối phương' thay vì lặp tên riêng), "
+            "nối cảnh bằng mạch Nhân - Quả tự nhiên ('Đúng lúc này, Nghe vậy, Tưởng rằng..., Đang tính... thì...'), "
+            "dùng ngôn từ đời thường hóm hỉnh ('nhìn phát biết luôn, chạy mất dép, chỉ biết cạn lời, đứng hình') sát đúng thể loại truyện."
         ),
         "cau_hook_mau": "Hãy cùng theo dõi ngay những diễn biến đầy bất ngờ và cuốn hút trong chương truyện hôm nay!",
+    },
+    "meo_gay_drama": {
+        "ten": "🌸 Ngôn Tình / Lọ Lem / Drama Gia Đình & Quý Tộc Mượt Mà (Chuẩn style Mèo Gầy TV)",
+        "mo_ta": (
+            "Phong cách kể chuyện mạch lạc, giàu cảm xúc và duyên dáng (như kênh Mèo Gầy TV): "
+            "mở đầu vào thẳng số phận/gia cảnh nhân vật, luân phiên cách gọi cực mượt ('nữ chính, nam chính, nhỏ, cô nàng, thanh niên kia, cậu ta, tóc đỏ, tóc vàng, phu quân, bà chị'), "
+            "dẫn dắt tâm lý và hiểu lầm dở khóc dở cười ('nhìn phát biết luôn', 'đôi bên nói chuyện qua lại tự dưng lại thấy hợp', "
+            "'vã cho cái vào đầu', 'mừng phát khóc', 'bịt mõm lại', 'ghi điểm tuyệt đối')."
+        ),
+        "cau_hook_mau": "Từ một hoàn cảnh trớ trêu không ai ngờ tới, cuộc gặp gỡ định mệnh này đã làm đảo lộn hoàn toàn số phận của nhân vật chính!",
+    },
+    "lucifer_isekai": {
+        "ten": "✨ Chuyển Sinh / Isekai / Phép Thuật Hài Đời Thường (Chuẩn style Lucifer Sama)",
+        "mo_ta": (
+            "Phong cách tóm tắt mạch truyện nhanh, rõ ràng, pha hài đời thường cực cuốn (như kênh Lucifer Sama): "
+            "kể theo chuỗi Sự việc -> Suy nghĩ ngầm của main -> Kết quả bất ngờ khiến mọi người ngỡ ngàng, "
+            "dùng ngôn từ bình dân vui nhộn ('Tưởng rằng mọi thứ tới đây là hết nhưng...', 'chạy mất dép luôn', "
+            "'tội cãi lại nóc nhà thì không thể tha thứ được', 'đang bốc phét thì...', 'chỉ biết cạn lời mà thôi', 'gặp thằng nào là bem luôn thằng đó')."
+        ),
+        "cau_hook_mau": "Tưởng rằng mọi thứ tới đây là kết thúc, nhưng biến cố bất ngờ này đã mở ra một hành trình bá đạo khiến ai nấy chỉ biết cạn lời!",
     },
     "kich_tinh": {
         "ten": "🔥 Đại Chiến Kịch Tính & Lật Kèo (Chuẩn style Lười Tắm Anime / Solo Đỉnh Cao)",
@@ -66,13 +88,6 @@ PHONG_CACH_KICH_BAN = {
             "('uy áp kinh thiên động địa bóp nghẹt bầu không khí', 'chỉ bằng một ánh mắt lạnh băng đã khiến đối phương đổ mồ hôi hột')."
         ),
         "cau_hook_mau": "Đối mặt với kẻ địch ngạo mạn trước mắt, thanh niên chỉ nhếch môi lạnh lùng trước khi tung ra chiêu thức chấn động toàn trường!",
-    },
-    "ngon_tinh": {
-        "ten": "💕 Học Đường / Cảm Xúc / Drama Đời Thường (Tinh Tế & Cuốn Hút)",
-        "mo_ta": (
-            "Giàu cảm xúc, tinh tế, bắt trọn những khoảnh khắc rung động, hiểu lầm dở khóc dở cười và tương tác tâm lý tự nhiên giữa các nhân vật."
-        ),
-        "cau_hook_mau": "Mỗi ánh nhìn và câu nói trong chương này đều đẩy mối quan hệ của các nhân vật sang một bước ngoặt không ngờ tới!",
     },
 }
 
@@ -1213,6 +1228,298 @@ def _tong_hop_mach_truyen_toan_chuong(
     return "\n".join(tom_tat_lines[:36])
 
 
+_KHO_PHONG_CACH_MAU_MAC_DINH: list[dict[str, Any]] = [
+    {
+        "ma_kenh": "meo_gay_tv",
+        "ten_kenh": "Mèo Gầy TV (Ngôn Tình / Lọ Lem / Drama Quý Tộc)",
+        "nguon_url": "https://www.youtube.com/watch?v=wG-Ws8Waklo",
+        "cach_mo_dau": "Vào thẳng gia cảnh, số phận hoặc tình huống éo le của nhân vật ngay câu đầu tiên (không chào hỏi rườm rà).",
+        "cach_goi_nhan_vat": ["nữ chính", "nam chính", "nhỏ", "cô nàng", "thanh niên kia", "cậu ta", "tóc đỏ", "tóc vàng", "phu quân", "bà chị", "đối phương"],
+        "tu_noi_bo_cuc": ["Sáng hôm sau", "Qua hôm sau", "Đúng lúc có", "Nghe vậy", "Đôi bên nói chuyện qua lại tự dưng lại thấy hợp", "Kể tới đây, đột nhiên", "Đang tính đi thì", "Hiểu ra vấn đề"],
+        "cum_tu_dat_gia": ["nhìn phát biết luôn", "bị vây kín", "hỏi cưới nhầm ngay cô chị", "hỏng mất một đời hoa", "bịt mõm lại", "vã cho cái vào đầu", "mừng phát khóc", "ghi điểm trong mắt"],
+        "quy_tac_ke_chuyen": "Luân phiên gọi tên riêng với đặc điểm ngoại hình/vai trò ('nữ chính, nhỏ, thanh niên kia, cậu ta') để câu văn mềm mại, nối các cảnh bằng chuỗi nguyên nhân - hiểu lầm - kết quả tự nhiên.",
+    },
+    {
+        "ma_kenh": "lucifer_sama",
+        "ten_kenh": "Lucifer Sama (Isekai / Chuyển Sinh / Phép Thuật Hài Đời Thường)",
+        "nguon_url": "https://www.youtube.com/watch?v=lam3nJ1Yjgs",
+        "cach_mo_dau": "Giới thiệu trực diện nhân vật chính là ai, đang làm gì và biến cố mở màn ('Nhân vật chính của câu chuyện là một thanh niên...').",
+        "cach_goi_nhan_vat": ["nhân vật chính", "thanh niên", "cậu nhóc", "cậu", "thằng cu", "ông anh", "cô tiếp tân", "tên cầm đầu", "nóc nhà"],
+        "tu_noi_bo_cuc": ["Tưởng rằng mọi thứ tới đây là hết, nhưng", "Lúc này", "Nghe xong thì", "Nhưng thật ra là", "Cơ mà", "Đúng lúc này", "Đang hớn hở... thì lại", "Vừa nhận được... thì"],
+        "cum_tu_dat_gia": ["chạy mất dép luôn", "đang bốc phét thì bị gõ vào đầu", "tội cãi lại nóc nhà thì không thể tha thứ được", "chỉ biết cạn lời mà thôi", "gặp thằng nào thì bem luôn thằng đó", "bốc hơi từ bao giờ"],
+        "quy_tac_ke_chuyen": "Trình tự Sự việc -> Suy nghĩ giấu nghề/tâm lý thật của main -> Kết quả bá đạo khiến người xung quanh ngỡ ngàng hoặc cạn lời. Dùng ngôn từ đời thường bình dân, vui nhộn.",
+    },
+    {
+        "ma_kenh": "gau_xam_anime",
+        "ten_kenh": "Gấu Xàm Anime (Manhwa / Hệ Thống / Học Viện Mặn Mà)",
+        "nguon_url": "https://www.youtube.com/watch?v=BquVo9-nYLQ",
+        "cach_mo_dau": "Mở màn bằng tình huống nhân vật bị dồn ép hoặc vừa trải qua màn hành hạ/thử thách rồi bật dậy.",
+        "cach_goi_nhan_vat": ["thanh niên", "anh chàng", "gã", "hắn", "con hàng này", "đối phương", "sư phụ"],
+        "tu_noi_bo_cuc": ["Sau màn...", "Cơ mà hắn lại không ngờ được rằng", "Vừa dứt lời", "Thấy thế", "Chẳng nói chẳng rằng"],
+        "cum_tu_dat_gia": ["múa thử vài đường cơ bản mà ai cũng tưởng đang bật hack", "vẫn chưa hẹo", "quay xe khét lẹt", "đứng hình mất 5 giây", "xanh mặt"],
+        "quy_tac_ke_chuyen": "Kể hành động trước -> Lồng ý thoại ngắn gọn -> Chốt bằng câu bình luận cà khịa GenZ duyên dáng.",
+    },
+    {
+        "ma_kenh": "genz_tom_tat",
+        "ten_kenh": "Genz Tóm Tắt (Trinh Thám / Kinh Dị / Sinh Tồn)",
+        "nguon_url": "https://www.youtube.com/watch?v=i0PBFI9uRIA",
+        "cach_mo_dau": "Dựng bầu không khí tương phản giữa đời thường yên ả và chi tiết bất thường gây tò mò.",
+        "cach_goi_nhan_vat": ["gã", "thanh niên", "nạn nhân", "cô nữ sinh", "kẻ lạ mặt", "đối phương"],
+        "tu_noi_bo_cuc": ["Chưa kịp định thần", "Theo phản xạ tự vệ", "Nào ngờ", "Càng tiến lại gần", "Trước cảnh tượng quá đỗi kinh hãi"],
+        "cum_tu_dat_gia": ["từng cơn ớn lạnh chạy dọc sống lưng", "ánh mắt kỳ dị", "nổi da gà", "chết lặng tại chỗ"],
+        "quy_tac_ke_chuyen": "Xoáy sâu vào chi tiết thị giác bất thường trên tranh và phản ứng tâm lý hoảng sợ/nghi ngờ của nhân vật.",
+    },
+    {
+        "ma_kenh": "luoi_tam_anime",
+        "ten_kenh": "Lười Tắm Anime (Đại Chiến / Combat / Đối Kháng Đỉnh Cao)",
+        "nguon_url": "https://www.youtube.com/watch?v=7fNSsrridfc",
+        "cach_mo_dau": "Đẩy thẳng vào sức nóng của sàn đấu hoặc màn chạm trán giữa hai thế lực.",
+        "cach_goi_nhan_vat": ["chiến thần", "hắn", "gã", "thanh niên", "đối thủ", "kẻ địch"],
+        "tu_noi_bo_cuc": ["Mới giây trước còn... thì ngay giây sau", "Ai cũng ngỡ... nhưng hóa ra", "Không để đối phương kịp thở", "Ngay khoảnh khắc giao锋"],
+        "cum_tu_dat_gia": ["một hit tiễn đối thủ bay màu", "lật kèo cực gắt", "miếng mồi nhử nằm trong tính toán", "ăn trọn đòn chí mạng", "đến lúc này người xem mới ngã ngửa"],
+        "quy_tac_ke_chuyen": "Phân tích thế trận theo nhịp Mồi nhử -> Sát chiêu -> Phản đòn -> Lật kèo, tạo cảm giác bình luận viên trực tiếp.",
+    },
+]
+
+
+class StyleLearningMemory:
+    """
+    Kho Học Hỏi Phong Cách Kể Chuyện Tự Cải Tiến (`~/.manga_video_review_learned_styles.json`).
+    Cho phép người dùng dán bất kỳ link YouTube hoặc kịch bản mẫu nào để AI trích xuất:
+    - Cách mở bài & dẫn nhập hoàn cảnh
+    - Cách gọi nhân vật linh hoạt (tránh lặp tên riêng)
+    - Từ nối bố cục & trình tự nhân quả
+    - Cụm từ đắt giá / ngôn ngữ đời thường đặc trưng
+    """
+
+    def __init__(self, storage_path: Path | None = None) -> None:
+        self.storage_path = storage_path or (Path.home() / ".manga_video_review_learned_styles.json")
+        self.learned_profiles: list[dict[str, Any]] = []
+        self.load()
+
+    def load(self) -> None:
+        if self.storage_path.is_file():
+            try:
+                data = json.loads(self.storage_path.read_text(encoding="utf-8"))
+                if isinstance(data, list) and data:
+                    self.learned_profiles = data
+            except Exception:
+                self.learned_profiles = []
+        existing_ids = {p.get("ma_kenh") for p in self.learned_profiles}
+        changed = False
+        for default_p in _KHO_PHONG_CACH_MAU_MAC_DINH:
+            if default_p["ma_kenh"] not in existing_ids:
+                self.learned_profiles.append(dict(default_p))
+                changed = True
+        if changed or not self.storage_path.is_file():
+            self.save()
+
+    def save(self) -> None:
+        try:
+            self.storage_path.write_text(
+                json.dumps(self.learned_profiles, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+
+    def tao_chi_dan_cho_prompt(self, phong_cach: str = "tu_dong_thich_ung") -> str:
+        """Tổng hợp toàn bộ tinh hoa ngôn ngữ & bố cục đã học để bơm vào System Prompt."""
+        ds_goi_nv: list[str] = []
+        ds_tu_noi: list[str] = []
+        ds_cum_tu: list[str] = []
+        ds_quy_tac: list[str] = []
+        for p in self.learned_profiles[-10:]:
+            for x in p.get("cach_goi_nhan_vat") or []:
+                if x not in ds_goi_nv:
+                    ds_goi_nv.append(x)
+            for x in p.get("tu_noi_bo_cuc") or []:
+                if x not in ds_tu_noi:
+                    ds_tu_noi.append(x)
+            for x in p.get("cum_tu_dat_gia") or []:
+                if x not in ds_cum_tu:
+                    ds_cum_tu.append(x)
+            qt = str(p.get("quy_tac_ke_chuyen") or "").strip()
+            tk = str(p.get("ten_kenh") or "").strip()
+            if qt:
+                ds_quy_tac.append(f"  + [{tk}]: {qt}")
+
+        return (
+            "KHO TRI THỨC HỌC HỎI TỪ CÁC KÊNH YOUTUBE REVIEW TRIỆU VIEW:\n"
+            f"- Cách gọi nhân vật luân phiên (dùng thay thế tên riêng để không bị lặp): {', '.join(ds_goi_nv[:18])}.\n"
+            f"- Từ nối dẫn dắt bố cục & trình tự thời gian/nhân quả: {', '.join(ds_tu_noi[:16])}.\n"
+            f"- Cụm từ đời thường duyên dáng (dùng đúng ngữ cảnh): {', '.join(ds_cum_tu[:18])}.\n"
+            "- Quy tắc bố cục rút ra từ các kênh mẫu:\n" + "\n".join(ds_quy_tac[:8])
+        )
+
+
+def _trich_xuat_youtube_id(text: str) -> str | None:
+    m = re.search(r"(?:v=|youtu\.be/|shorts/)([A-Za-z0-9_-]{11})", (text or "").strip())
+    return m.group(1) if m else None
+
+
+def _tai_phu_de_youtube(video_id: str) -> tuple[str, str, str]:
+    """Tải tiêu đề, tên kênh và toàn bộ lời thoại tiếng Việt từ video YouTube."""
+    title = f"YouTube Video ({video_id})"
+    author = f"Kênh YouTube ({video_id})"
+    transcript_text = ""
+    try:
+        req = urllib.request.Request(
+            f"https://www.youtube.com/watch?v={video_id}",
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+        html = urllib.request.urlopen(req, timeout=15).read().decode("utf-8", errors="ignore")
+        m_title = re.search(r"<title>(.*?)</title>", html)
+        m_author = re.search(r'"author":"([^"]+)"', html)
+        if m_title:
+            title = re.sub(r"\s*-\s*YouTube\s*$", "", m_title.group(1)).strip()
+        if m_author:
+            author = m_author.group(1).strip()
+    except Exception:
+        pass
+
+    try:
+        from youtube_transcript_api import YouTubeTranscriptApi
+
+        ytt = YouTubeTranscriptApi()
+        tlist = ytt.list(video_id)
+        langs = [t.language_code for t in tlist]
+        fetched = ytt.fetch(video_id, languages=["vi", "vi-VN", "en"] + langs)
+        transcript_text = " ".join(s.text for s in fetched)
+    except Exception:
+        pass
+
+    return title, author, transcript_text.strip()
+
+
+def hoc_phong_cach_tu_youtube_hoac_van_ban(nguon: str, ten_kenh_goi_y: str = "") -> dict[str, Any]:
+    """
+    Học tự động cách dùng ngôn ngữ, cách gọi nhân vật, từ nối bố cục và trình tự kể chuyện
+    từ 1 link YouTube (hoặc nhiều link / đoạn văn bản kịch bản mẫu) và lưu vào StyleLearningMemory.
+    """
+    raw = (nguon or "").strip()
+    if not raw:
+        raise ValueError("Vui lòng nhập link YouTube hoặc dán kịch bản mẫu để học.")
+
+    vid = _trich_xuat_youtube_id(raw)
+    title = ten_kenh_goi_y.strip() or "Kịch Bản Mẫu Người Dùng"
+    author = ten_kenh_goi_y.strip() or "Phong Cách Học Mới"
+    text_mau = raw
+    nguon_url = ""
+
+    if vid:
+        nguon_url = f"https://www.youtube.com/watch?v={vid}"
+        yt_title, yt_author, yt_text = _tai_phu_de_youtube(vid)
+        title = yt_title or title
+        author = ten_kenh_goi_y.strip() or yt_author or author
+        if yt_text:
+            text_mau = yt_text
+
+    # 1. Phân tích định lượng ngôn ngữ học trên văn bản mẫu
+    low_text = text_mau.lower()
+    ung_vien_goi_nv = [
+        "nữ chính", "nam chính", "nhân vật chính", "thanh niên", "cô nàng", "anh chàng",
+        "nhỏ", "cậu ta", "cậu nhóc", "tóc đỏ", "tóc vàng", "tóc đen", "tóc bạc",
+        "phu quân", "bà chị", "ông anh", "cô em", "nóc nhà", "đối phương", "tên cầm đầu",
+    ]
+    cach_goi_tim_thay = [w for w in ung_vien_goi_nv if w in low_text][:10] or ["thanh niên", "cô nàng", "nam chính", "nữ chính", "đối phương"]
+
+    ung_vien_tu_noi = [
+        "Đúng lúc này", "Nghe vậy", "Thấy thế", "Qua hôm sau", "Sáng hôm sau",
+        "Chẳng mấy chốc", "Tưởng rằng", "Nhưng thật ra", "Cơ mà", "Đang tính",
+        "Vừa dứt lời", "Chưa kịp định thần", "Không để đối phương kịp", "Hóa ra là",
+    ]
+    tu_noi_tim_thay = [w for w in ung_vien_tu_noi if w.lower() in low_text][:10] or ["Đúng lúc này", "Nghe vậy", "Cơ mà", "Thấy thế"]
+
+    ung_vien_cum_tu = [
+        "nhìn phát biết luôn", "chạy mất dép", "chỉ biết cạn lời", "cãi lại nóc nhà",
+        "bốc phét", "vã cho cái vào đầu", "mừng phát khóc", "đứng hình", "quay xe",
+        "bật hack", "bay màu", "lật kèo", "xanh mặt", "ghi điểm", "bốc hơi",
+    ]
+    cum_tu_tim_thay = [w for w in ung_vien_cum_tu if w in low_text][:10]
+
+    quy_tac_rut_ra = (
+        f"Học từ '{author}' ({title[:60]}): Mở đầu trực diện vào hoàn cảnh nhân vật, "
+        f"luân phiên danh xưng ({', '.join(cach_goi_tim_thay[:6])}), "
+        f"dẫn mạch nhân quả bằng ({', '.join(tu_noi_tim_thay[:5])})."
+    )
+
+    # 2. Nếu có AI (Gemini / DeepSeek / Groq / Ollama), dùng AI đúc kết thêm cụm từ đắt giá & bố cục riêng của kênh
+    found = _tim_model_llm_cuc_bo()
+    loai_ai, key_ai = _lay_khoa_ai_review()
+    if found and len(text_mau) >= 120:
+        backend, model_name = found
+        prompt_learn = (
+            f"Phân tích kịch bản review truyện/anime dưới đây của kênh '{author}' ({title}) và trích xuất JSON:\n"
+            f"Đoạn mẫu:\n{text_mau[:3500]}\n\n"
+            "Hãy trả về đúng 1 JSON object có các khóa:\n"
+            '{"cach_mo_dau": "...", "cach_goi_nhan_vat": ["..."], "tu_noi_bo_cuc": ["..."], "cum_tu_dat_gia": ["..."], "quy_tac_ke_chuyen": "..."}'
+        )
+        try:
+            raw_ai = ""
+            if backend == "gemini" and key_ai:
+                gem_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+                payload = json.dumps(
+                    {
+                        "contents": [{"parts": [{"text": prompt_learn}]}],
+                        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 600, "thinkingConfig": {"thinkingBudget": 0}},
+                    }
+                ).encode("utf-8")
+                req = urllib.request.Request(gem_url, data=payload, headers={"x-goog-api-key": key_ai, "Content-Type": "application/json"}, method="POST")
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    data = json.loads(resp.read().decode("utf-8", errors="replace"))
+                parts_out = (((data.get("candidates") or [{}])[0]).get("content") or {}).get("parts") or []
+                raw_ai = "".join(str(p.get("text") or "") for p in parts_out)
+            elif backend in ("deepseek", "groq") and key_ai:
+                ep = "https://api.groq.com/openai/v1/chat/completions" if backend == "groq" else "https://api.deepseek.com/chat/completions"
+                payload = json.dumps({"model": model_name, "temperature": 0.2, "max_tokens": 500, "messages": [{"role": "user", "content": prompt_learn}]}).encode("utf-8")
+                req = urllib.request.Request(ep, data=payload, headers={"Authorization": f"Bearer {key_ai}", "Content-Type": "application/json"}, method="POST")
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    data = json.loads(resp.read().decode("utf-8", errors="replace"))
+                raw_ai = str((((data.get("choices") or [{}])[0]).get("message") or {}).get("content") or "")
+            m_json = re.search(r"\{[\s\S]*\}", raw_ai)
+            if m_json:
+                parsed = json.loads(m_json.group(0))
+                if isinstance(parsed.get("cach_goi_nhan_vat"), list) and parsed["cach_goi_nhan_vat"]:
+                    cach_goi_tim_thay = [str(x) for x in parsed["cach_goi_nhan_vat"][:10]]
+                if isinstance(parsed.get("tu_noi_bo_cuc"), list) and parsed["tu_noi_bo_cuc"]:
+                    tu_noi_tim_thay = [str(x) for x in parsed["tu_noi_bo_cuc"][:10]]
+                if isinstance(parsed.get("cum_tu_dat_gia"), list) and parsed["cum_tu_dat_gia"]:
+                    cum_tu_tim_thay = [str(x) for x in parsed["cum_tu_dat_gia"][:12]]
+                if parsed.get("quy_tac_ke_chuyen"):
+                    quy_tac_rut_ra = str(parsed["quy_tac_ke_chuyen"]).strip()
+        except Exception:
+            pass
+
+    ma_kenh = re.sub(r"[^a-z0-9_]+", "_", (vid or author).lower()).strip("_") or "learned_style"
+    profile_moi = {
+        "ma_kenh": ma_kenh,
+        "ten_kenh": f"{author} — {title[:48]}",
+        "nguon_url": nguon_url or "Văn bản kịch bản mẫu",
+        "cach_mo_dau": "Đi thẳng vào hoàn cảnh và hành động của nhân vật chính ngay từ khung tranh mở màn.",
+        "cach_goi_nhan_vat": cach_goi_tim_thay,
+        "tu_noi_bo_cuc": tu_noi_tim_thay,
+        "cum_tu_dat_gia": cum_tu_tim_thay or ["nhìn phát biết luôn", "chỉ biết cạn lời", "đứng hình"],
+        "quy_tac_ke_chuyen": quy_tac_rut_ra,
+    }
+
+    mem = lay_kho_hoc_hoi_phong_cach()
+    mem.learned_profiles = [p for p in mem.learned_profiles if p.get("ma_kenh") != ma_kenh]
+    mem.learned_profiles.append(profile_moi)
+    mem.save()
+    return profile_moi
+
+
+_SINGLETON_STYLE_MEMORY: StyleLearningMemory | None = None
+
+
+def lay_kho_hoc_hoi_phong_cach() -> StyleLearningMemory:
+    global _SINGLETON_STYLE_MEMORY
+    if _SINGLETON_STYLE_MEMORY is None:
+        _SINGLETON_STYLE_MEMORY = StyleLearningMemory()
+    return _SINGLETON_STYLE_MEMORY
+
+
 def _suy_luan_cam_xuc_canh(loi_binh: str, khong_khi_anh: str, panel_idx: int, phong_cach: str) -> str:
     """Suy luận nhãn cảm xúc âm giọng (`cam_xuc`) cho từng phân cảnh dựa trên lời bình và không khí tranh."""
     low = (loi_binh or "").lower()
@@ -1343,20 +1650,23 @@ def _viet_kich_ban_toan_chuong_bang_ai(
                 chuoi_thoai = f"(Khung tranh hành động/biểu cảm không có bóng thoại - không khí: {kk})"
             dong_mo_ta.append(f"[{k + 1}] Trang #{g_idx + 1} (Nhân vật: {nv_trang} | Không khí: {kk}): {chuoi_thoai}")
 
+        chi_dan_hoc_hoi = lay_kho_hoc_hoi_phong_cach().tao_chi_dan_cho_prompt(phong_cach)
         system_msg = (
-            "Bạn là Tổng Biên Kịch Vàng của các kênh YouTube Review Truyện Tranh triệu view (như Gấu Xàm Anime, Genz Tóm Tắt, Lười Tắm Anime).\n"
-            "BÍ QUYẾT KỂ CHUYỆN TRIỆU VIEW BẮT BUỘC TUÂN THỦ:\n"
-            "1. CẤM VĂN PHONG BÁO CÁO KHÔ KHAN: Tuyệt đối CẤM viết kiểu liệt kê máy móc như 'Mở đầu phân cảnh, A điềm tĩnh đáp lại rằng..., trong khi đó B nhận xét rằng...'. Không lặp từ 'rằng', không dùng 'Ở phân cảnh này'.\n"
-            "2. TỰ ĐỘNG THÍCH ỨNG ĐA THỂ LOẠI & BIẾN HÓA THEO TỪNG CẢNH:\n"
-            "   - Dựa vào nội dung thoại và tóm tắt toàn chương, tự nhận diện đúng thể loại truyện (Hành động, Siêu nhiên, Hệ thống, Tu tiên, Thể thao, Trinh thám/Kinh dị, Học đường, Ngôn tình...) để dùng hệ từ vựng chuẩn xác nhất.\n"
-            "   - Linh hoạt chuyển tông ngay trong cùng một chương: cảnh đấu khẩu/đời thường thì kể duyên dáng, mặn mòi; cảnh bí ẩn thì dẫn dắt hồi hộp; cảnh giao tranh/cao trào thì dồn dập, gắt và bùng nổ.\n"
-            "3. CÔNG THỨC 3 NHỊP MỖI CẢNH (HÀNH ĐỘNG -> PHẢN ỨNG/THOẠI CHỐT -> BÌNH LUẬN ĐẨY NHỊP):\n"
-            "   - Kể HÀNH ĐỘNG & THÁI ĐỘ của nhân vật trước, sau đó lồng ý thoại một cách sống động rồi chốt bằng câu bình sắc sảo của Reviewer.\n"
-            "   - Mẫu tham khảo nhịp hài hước/hệ thống: 'Bị dồn vào thế bí, gã kẻ địch gầm lên bảo đừng xem thường hắn! Cơ mà hắn lại không ngờ được rằng, dù dính đòn hiểm nhưng thanh niên vẫn tỉnh bơ rồi lạnh lùng buông một câu xanh rờn khiến đối phương đứng hình.'\n"
-            "   - Mẫu tham khảo nhịp kỳ bí/căng thẳng: 'Chưa kịp để cô nữ sinh định thần, gã bạn cùng bàn đã ghé sát mặt nhìn chằm chằm với ánh mắt kỳ dị. Quá hoảng hốt trước hành động quái đản ấy, cô vội gắt lên bảo cậu ta đừng nhìn mình kiểu nổi da gà như thế nữa!'\n"
-            "   - Mẫu tham khảo nhịp đại chiến/đối kháng: 'Mới giây trước còn cao ngạo nắm thế chủ động, thì ngay giây sau hắn đã bị lật kèo cực gắt! Ai cũng ngỡ cú ra đòn vừa rồi là sát chiêu, nhưng hóa ra tất cả chỉ là miếng mồi nhử nằm trong tính toán từ đầu.'\n"
-            "4. 100% TIẾNG VIỆT TỰ NHIÊN & BÁM SÁT NỘI DUNG TRANG: Tuyệt đối không chèn từ tiếng Anh hay ký tự lạ. Kể đúng sự việc và vai trò nhân vật của từng trang.\n"
-            "5. TỐI ƯU NHỊP THỞ GIỌNG ĐỌC AI: Chia câu thành các vế gọn 8-16 chữ bằng dấu phẩy (,), dùng dấu ba chấm (...) tạo khoảng lặng hồi hộp và dấu chấm than (!) ở câu chốt cao trào."
+            "Bạn là Tổng Biên Kịch Vàng của các kênh YouTube Review Truyện Tranh triệu view (như Mèo Gầy TV, Lucifer Sama, Gấu Xàm Anime, Genz Tóm Tắt, Lười Tắm Anime).\n"
+            "BÍ QUYẾT KỂ CHUYỆN & BỐ CỤC TRIỆU VIEW BẮT BUỘC TUÂN THỦ:\n"
+            "1. BỐ CỤC MỞ ĐẦU TRỰC DIỆN (NHƯ MÈO GẦY TV & LUCIFER SAMA):\n"
+            "   - Ở Trang #1, đi thẳng vào hoàn cảnh, thân phận nhân vật chính hoặc tình huống éo le đang diễn ra ('Nhân vật chính của câu chuyện là...', 'Mở màn câu chuyện, thanh niên...').\n"
+            "   - TUYỆT ĐỐI CẤM mở đầu bằng câu chào MC sáo rỗng kiểu 'Chào mừng các bạn đến với... Hãy cùng theo dõi...'.\n"
+            "2. ĐA DẠNG HÓA CÁCH GỌI NHÂN VẬT (CẤM LẶP TÊN RIÊNG ĐẦU CÂU LIÊN TỤC):\n"
+            "   - Không bắt đầu mọi câu bằng cùng một tên riêng cứng nhắc. Hãy luân phiên tự nhiên giữa Tên riêng <-> Vai trò ('nam chính, nữ chính, nhân vật chính') <-> Đại từ/Đặc điểm ('thanh niên này, cậu ta, anh chàng, cô nàng, nhỏ, đối phương, bà chị, ông anh').\n"
+            "3. TRÌNH TỰ NHÂN - QUẢ LIÊN HOÀN GIỮA CÁC TRANG:\n"
+            "   - Đầu mỗi cảnh phải có từ nối dẫn mạch thời gian hoặc nguyên nhân - kết quả để người nghe chỉ cắm tai nghe cũng hiểu toàn bộ tiến trình: 'Đúng lúc này...', 'Nghe vậy...', 'Thấy phản ứng đó...', 'Tưởng rằng mọi thứ tới đây là hết, nhưng...', 'Đang tính... thì bất ngờ...', 'Đôi bên lời qua tiếng lại...'.\n"
+            "   - Kể theo công thức 3 nhịp: [Bối cảnh/Hành động đang diễn ra] -> [Ý thoại/Tâm lý giấu nghề hoặc hiểu lầm của nhân vật] -> [Kết quả/Câu bình duyên dáng của Reviewer].\n"
+            "4. NGÔN NGỮ ĐỜI THƯỜNG BÌNH DÂN, SÁT THỂ LOẠI & KHÔNG SƯỢNG TRÂN:\n"
+            "   - Dùng ngôn từ gần gũi, giàu hình ảnh đời thường ('nhìn phát biết luôn', 'chạy mất dép', 'chỉ biết cạn lời mà thôi', 'đứng hình', 'quay xe', 'mừng phát khóc', 'vã cho cái vào đầu').\n"
+            "   - CẤM dùng văn mẫu báo cáo ('Ở phân cảnh này', 'điềm tĩnh đáp lại rằng') và CẤM dùng từ văn chương kịch cỡm sáo rỗng ('không gian đặc quánh lại', 'ánh mắt cháy bỏng') khi đang review truyện hài hước/đời thường/học đường.\n"
+            "5. 100% TIẾNG VIỆT TỰ NHIÊN & NHỊP THỞ GIỌNG ĐỌC AI: Không chèn từ tiếng Anh hay ký tự lạ. Chia câu thành các vế gọn 8-15 chữ bằng dấu phẩy (,), dùng dấu chấm than (!) ở câu chốt.\n\n"
+            + chi_dan_hoc_hoi
         )
 
         prompt = (
@@ -1583,9 +1893,6 @@ def sinh_kich_ban_review_chuong(
                 boi_canh_chung=tieu_de,
                 phong_cach=phong_cach,
             )
-
-        if idx == 0 and tieu_de.lower() not in loi_binh.lower() and (ten_truyen or "").strip().lower() not in loi_binh.lower():
-            loi_binh = f"Chào mừng các bạn đến với {tieu_de}! {loi_binh}"
 
         cam_xuc_canh = str((ai_sc or {}).get("cam_xuc") or "").strip() or _suy_luan_cam_xuc_canh(
             loi_binh, bo_cuc["khong_khi"], idx, phong_cach
