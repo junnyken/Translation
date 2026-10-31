@@ -357,6 +357,16 @@ BANG_PHIEN_AM_THUAN_VIET: list[tuple[str, str]] = [
     (r"\bLuffy\b", "Lúp phi"),
     (r"\bZoro\b", "Dô rô"),
     (r"\bGoku\b", "Gô ku"),
+    (r"\bMaibara\b", "Mai ba ra"),
+    (r"\bKawase\b", "Ka goa sê"),
+    (r"\bIchigo\b", "I chi gô"),
+    (r"\bSerikawa\b", "Sê ri ka goa"),
+    (r"\bAiri\b", "Ai ri"),
+    (r"\bGyaru\b", "Ga ru"),
+    (r"\bAyase\b", "A da sê"),
+    (r"\bMomo\b", "Mô mô"),
+    (r"\bOkarun\b", "Ô ka run"),
+    (r"\bDandadan\b", "Đan đa đan"),
 ]
 
 
