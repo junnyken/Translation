@@ -28,9 +28,9 @@ void (async () => {
       fontFace: 'TranslationBangers',
       tep: 'src/fonts/Bangers-Regular.ttf',
       css: "'TranslationBangers', 'Bangers', 'Microsoft YaHei', 'Microsoft JhengHei', 'Leelawadee UI', 'Tahoma', system-ui, -apple-system, sans-serif",
-      lineHeight: '1.25',
-      letterSpacing: '0.055em',
-      wordSpacing: '0.11em',
+      lineHeight: '1.18',
+      letterSpacing: '0.035em',
+      wordSpacing: '0.075em',
     },
     shantell: {
       ten: '🌸 Ngôn tình',
@@ -528,8 +528,8 @@ void (async () => {
       // Mở ROI đủ rộng quanh bbox chữ gốc để bao trọn cả các chữ cái/dấu câu bị Gemini khoanh hụt 15-25%
       const padCheX = Math.max(12, Math.min(38, Math.round(wGoc * 0.25)))
       const padCheY = Math.max(12, Math.min(38, Math.round(hGoc * 0.25)))
-      const moX = Math.max(padCheX + 12, Math.min(Math.max(Math.round(canhDai * 0.62), Math.round(W * 0.06)), Math.round(W * 0.16)))
-      const moY = Math.max(padCheY + 12, Math.min(Math.max(Math.round(canhDai * 0.62), Math.round(H * 0.05)), Math.round(H * 0.16)))
+      const moX = Math.max(padCheX + 16, Math.min(Math.max(Math.round(canhDai * 0.85), Math.round(W * 0.09)), Math.round(W * 0.18)))
+      const moY = Math.max(padCheY + 16, Math.min(Math.max(Math.round(canhDai * 0.95), Math.round(H * 0.10)), Math.round(H * 0.20)))
       let rx0 = Math.max(2, xGoc - moX)
       let ry0 = Math.max(2, yGoc - moY)
       let rx1 = Math.min(W - 2, xGoc + wGoc + moX)
@@ -1572,6 +1572,8 @@ void (async () => {
         const tamY = demTrong > 0 ? Math.round((tongY / demTrong) * 0.65 + ((cy0 + cy1) * 0.5) * 0.35) : Math.round((cy0 + cy1) * 0.5)
         const banRongHat = Math.max(8, Math.round(wGoc * 0.42))
         const banCaoHat = Math.max(8, Math.round(hGoc * 0.42))
+        const banRongNho = Math.max(6, Math.round(wGoc * 0.28))
+        const banCaoNho = Math.max(6, Math.round(hGoc * 0.28))
         const dsHatGiong = [
           [
             Math.max(0, Math.min(cx0, tamX - banRongHat)),
@@ -1585,13 +1587,20 @@ void (async () => {
             Math.min(rw, tamX + banRongHat),
             Math.min(rh, tamY + banCaoHat),
           ],
+          [
+            Math.max(0, tamX - banRongNho),
+            Math.max(0, tamY - banCaoNho),
+            Math.min(rw, tamX + banRongNho),
+            Math.min(rh, tamY + banCaoNho),
+          ],
         ]
 
-        const buoc = Math.max(2, Math.round(Math.max(wGoc, hGoc) / 28))
+        const buocLon = Math.max(2, Math.round(Math.max(wGoc, hGoc) / 28))
         const CACH_NO = [
           ['trai', 'phai', 'tren', 'duoi'],
           ['trai', 'phai', 'trai', 'phai', 'tren', 'duoi'],
           ['tren', 'duoi', 'trai', 'phai'],
+          ['tren', 'duoi', 'tren', 'duoi', 'trai', 'phai'],
         ]
 
         let tot = dsHatGiong[0]
@@ -1600,22 +1609,24 @@ void (async () => {
         for (const hat of dsHatGiong) {
           for (const thuTu of CACH_NO) {
             let [x0, y0, x1, y1] = hat
-            let conNhich = true
-            while (conNhich) {
-              conNhich = false
-              for (const phia of thuTu) {
-                if (phia === 'trai') {
-                  const moi = Math.max(0, x0 - buoc)
-                  if (moi < x0 && daiTrongBong(moi, y0, x0, y1, 0.90, 0.16) && vanhElipTrongBong(moi, y0, x1, y1)) { x0 = moi; conNhich = true }
-                } else if (phia === 'phai') {
-                  const moi = Math.min(rw, x1 + buoc)
-                  if (moi > x1 && daiTrongBong(x1, y0, moi, y1, 0.90, 0.16) && vanhElipTrongBong(x0, y0, moi, y1)) { x1 = moi; conNhich = true }
-                } else if (phia === 'tren') {
-                  const moi = Math.max(0, y0 - buoc)
-                  if (moi < y0 && daiTrongBong(x0, moi, x1, y0, 0.90, 0.16) && vanhElipTrongBong(x0, moi, x1, y1)) { y0 = moi; conNhich = true }
-                } else {
-                  const moi = Math.min(rh, y1 + buoc)
-                  if (moi > y1 && daiTrongBong(x0, y1, x1, moi, 0.90, 0.16) && vanhElipTrongBong(x0, y0, x1, moi)) { y1 = moi; conNhich = true }
+            for (const buoc of [buocLon, 1]) {
+              let conNhich = true
+              while (conNhich) {
+                conNhich = false
+                for (const phia of thuTu) {
+                  if (phia === 'trai') {
+                    const moi = Math.max(0, x0 - buoc)
+                    if (moi < x0 && daiTrongBong(moi, y0, x0, y1, 0.90, 0.16) && vanhElipTrongBong(moi, y0, x1, y1)) { x0 = moi; conNhich = true }
+                  } else if (phia === 'phai') {
+                    const moi = Math.min(rw, x1 + buoc)
+                    if (moi > x1 && daiTrongBong(x1, y0, moi, y1, 0.90, 0.16) && vanhElipTrongBong(x0, y0, moi, y1)) { x1 = moi; conNhich = true }
+                  } else if (phia === 'tren') {
+                    const moi = Math.max(0, y0 - buoc)
+                    if (moi < y0 && daiTrongBong(x0, moi, x1, y0, 0.90, 0.16) && vanhElipTrongBong(x0, moi, x1, y1)) { y0 = moi; conNhich = true }
+                  } else {
+                    const moi = Math.min(rh, y1 + buoc)
+                    if (moi > y1 && daiTrongBong(x0, y1, x1, moi, 0.90, 0.16) && vanhElipTrongBong(x0, y0, x1, moi)) { y1 = moi; conNhich = true }
+                  }
                 }
               }
             }
@@ -1632,37 +1643,44 @@ void (async () => {
         }
 
         ;[bx0, by0, bx1, by1] = tot
-        const leTrongX = Math.max(2, Math.round((bx1 - bx0) * 0.025))
-        const leTrongY = Math.max(2, Math.round((by1 - by0) * 0.025))
-        if (bx1 - bx0 > wGoc + leTrongX * 2) {
+        // Lùi nhẹ lề an toàn bên trong lòng bong bóng (~4.5%) để chữ không chạm sát đường viền đen
+        const leTrongX = Math.max(3, Math.round((bx1 - bx0) * 0.045))
+        const leTrongY = Math.max(3, Math.round((by1 - by0) * 0.045))
+        if (bx1 - bx0 > Math.min(wGoc, 24) + leTrongX * 2) {
           bx0 += leTrongX
           bx1 -= leTrongX
         }
-        if (by1 - by0 > hGoc + leTrongY * 2) {
+        if (by1 - by0 > Math.min(hGoc, 24) + leTrongY * 2) {
           by0 += leTrongY
           by1 -= leTrongY
         }
       } else {
-        // Khi bong bóng có hình gai nhọn hở viền, hình đa giác đặc biệt hoặc đè trên nền screentone:
+        // Khi bong bóng có hình gai nhọn hở viền, hình đa giác đặc biệt hoặc bong bóng rất cao chạm 1 cạnh ROI:
         // Nới từng bước sang hai bên/trên/dưới nếu vùng kế cận thực sự là nền bong bóng sạch (`longTrang === 1`)
-        const gioiHanLeX = Math.max(6, Math.round(wGoc * 0.22))
-        const gioiHanLeY = Math.max(4, Math.round(hGoc * 0.16))
-        const buocNhe = Math.max(2, Math.round(Math.min(wGoc, hGoc) / 18))
+        const gioiHanLeX = Math.max(18, Math.round(wGoc * 0.55))
+        const gioiHanLeY = Math.max(24, Math.round(hGoc * 0.85))
+        const buocLon = Math.max(2, Math.round(Math.min(wGoc, hGoc) / 18))
         bx0 = cx0
         bx1 = cx1
         by0 = cy0
         by1 = cy1
-        while (bx0 - buocNhe >= Math.max(0, cx0 - gioiHanLeX) && daiTrongBong(bx0 - buocNhe, by0, bx0, by1, 0.88, 0.14)) {
-          bx0 -= buocNhe
-        }
-        while (bx1 + buocNhe <= Math.min(rw, cx1 + gioiHanLeX) && daiTrongBong(bx1, by0, bx1 + buocNhe, by1, 0.88, 0.14)) {
-          bx1 += buocNhe
-        }
-        while (by0 - buocNhe >= Math.max(0, cy0 - gioiHanLeY) && daiTrongBong(bx0, by0 - buocNhe, bx1, by0, 0.88, 0.14)) {
-          by0 -= buocNhe
-        }
-        while (by1 + buocNhe <= Math.min(rh, cy1 + gioiHanLeY) && daiTrongBong(bx0, by1, bx1, by1 + buocNhe, 0.88, 0.14)) {
-          by1 += buocNhe
+        for (const buocNhe of [buocLon, 1]) {
+          let conNhich = true
+          while (conNhich) {
+            conNhich = false
+            if (bx0 - buocNhe >= Math.max(0, cx0 - gioiHanLeX) && daiTrongBong(bx0 - buocNhe, by0, bx0, by1, 0.90, 0.14)) {
+              bx0 -= buocNhe; conNhich = true
+            }
+            if (bx1 + buocNhe <= Math.min(rw, cx1 + gioiHanLeX) && daiTrongBong(bx1, by0, bx1 + buocNhe, by1, 0.90, 0.14)) {
+              bx1 += buocNhe; conNhich = true
+            }
+            if (by0 - buocNhe >= Math.max(0, cy0 - gioiHanLeY) && daiTrongBong(bx0, by0 - buocNhe, bx1, by0, 0.90, 0.14)) {
+              by0 -= buocNhe; conNhich = true
+            }
+            if (by1 + buocNhe <= Math.min(rh, cy1 + gioiHanLeY) && daiTrongBong(bx0, by1, bx1, by1 + buocNhe, 0.90, 0.14)) {
+              by1 += buocNhe; conNhich = true
+            }
+          }
         }
       }
 
@@ -2777,8 +2795,8 @@ void (async () => {
         }
         lop.appendChild(lopChe)
 
-        const padY = Math.max(2, Math.round(o.height * 0.035))
-        const padX = Math.max(3, Math.round(o.width * 0.045))
+        const padY = Math.max(2, Math.round(o.height * 0.02))
+        const padX = Math.max(2, Math.round(o.width * 0.025))
         // Khi đã có `anhChe` phủ sạch nền bong bóng, dùng bóng sáng dịu `0 0 2px` thay vì viền cứng 1.5px
         // để các chữ in hoa sát nhau của font Hành động (Bangers) như "THUỘC", "CẤP" không bị viền trắng cắt lẹm vào nhau.
         const vienSangChu = (anhChe && !v._laNenPhucTap)
@@ -2808,7 +2826,7 @@ void (async () => {
           textShadow: vienSangChu,
           // Không vẽ viền vàng nét đứt cho vùng kém tin cậy nữa (người đọc thấy rối mắt); thông tin chuyển vào tooltip.
           border: 'none',
-          borderRadius: v._laHopChuNhat ? '12%' : '46%',
+          borderRadius: '8px',
           fontFamily: thongSoFont.css,
           lineHeight: thongSoFont.lineHeight,
           letterSpacing: thongSoFont.letterSpacing,
@@ -2826,23 +2844,34 @@ void (async () => {
         hop.appendChild(noiDung)
         lop.appendChild(hop)
 
+        const dtGoc = (v.w || 0) * (v.h || 0)
+        const laChieuThucLon = (dtGoc >= nw * nh * 0.022) || ((v.w || 0) >= nw * 0.24 && (v.h || 0) >= nh * 0.08)
+        const tranThoaiChuan = Math.max(13, Math.min(28, Math.round(r.width * 0.026)))
+        const tranChieuThuc = Math.max(22, Math.min(44, Math.round(r.width * 0.044)))
+
         const coChuVuaKhung = () => {
           const doDaiChu = Math.max(1, (noiDung.textContent || v.ban_dich || '').length)
           const heSo = (window[CO].heSoCoChu || 1) * (v._heSoRieng || 1)
           const uocLuong = coChu(o, doDaiChu)
-          const tranTren = Math.min(
-            30,
-            Math.max(uocLuong + 8, Math.round(Math.min(o.width, o.height) * 0.48)),
-          )
+          const uocLuongThuc = Math.sqrt((o.height * o.width) / Math.max(doDaiChu, 1)) * 1.38
+          const tranTren = laChieuThucLon
+            ? tranChieuThuc
+            : Math.min(
+                tranThoaiChuan,
+                Math.max(uocLuong + 6, Math.round(uocLuongThuc + 4)),
+              )
           const coChuBanDau = Math.max(9, Math.round(tranTren * heSo))
           const sanPx = Math.max(8, Math.round(9 * Math.min(heSo, 1)))
           const rongNoiDungToiDa = Math.max(18, Math.floor(o.width - padX * 2))
           const caoNoiDungToiDa = Math.max(14, Math.floor(o.height - padY * 2))
-          const laElip = !v._laHopChuNhat
+          // Khi đã có `v._khungCanvas`, khung `o` đã được nội tiếp sẵn bên trong lòng elip của bong bóng (`vanhElipTrongBong`),
+          // tuyệt đối không phạt kép `tranGocElip` làm mất 35% chiều cao của các bong bóng dọc!
+          const laElipChuaNoiTiep = !v._khungCanvas && !v._laHopChuNhat
 
-          // Giữ `overflow-wrap: normal` trong suốt vòng đo cỡ chữ và dùng ngưỡng chặt (`> rongNoiDungToiDa`, không cộng `+ 1`)
-          // để các từ đơn có dấu câu như "CÁI..." không bao giờ bị ngắt lẻ dấu "." xuống dòng hai!
+          // Đo cỡ chữ tối đa bằng `text-wrap: wrap` trước để `balance` không tự ý ngắt thêm dòng làm co nhỏ cỡ chữ,
+          // sau khi tìm được `px` lớn nhất vừa khung mới bật lại `balance` nếu không bị tràn chiều cao.
           noiDung.style.overflowWrap = 'normal'
+          noiDung.style.textWrap = 'wrap'
           let px = coChuBanDau
           hop.style.fontSize = `${px}px`
           while (px > sanPx) {
@@ -2854,10 +2883,19 @@ void (async () => {
             )
             const tyLeRong = noiDung.offsetWidth / Math.max(1, o.width)
             const tyLeCao = noiDung.offsetHeight / Math.max(1, o.height)
-            const tranGocElip = laElip && noiDung.offsetHeight > px * 1.75 && (tyLeRong * tyLeRong + tyLeCao * tyLeCao) > 1.24
+            const tranGocElip = laElipChuaNoiTiep && noiDung.offsetHeight > px * 1.75 && (tyLeRong * tyLeRong + tyLeCao * tyLeCao) > 1.58
             if (!tranKhung && !tranGocElip) break
             px -= 1
             hop.style.fontSize = `${px}px`
+          }
+          noiDung.style.textWrap = 'balance'
+          if (
+            hop.scrollHeight > hop.clientHeight ||
+            hop.scrollWidth > hop.clientWidth ||
+            noiDung.scrollWidth > rongNoiDungToiDa ||
+            noiDung.offsetHeight > caoNoiDungToiDa
+          ) {
+            noiDung.style.textWrap = 'wrap'
           }
           if (noiDung.scrollWidth > rongNoiDungToiDa || hop.scrollWidth > hop.clientWidth) {
             noiDung.style.overflowWrap = 'break-word'
@@ -2866,7 +2904,7 @@ void (async () => {
         }
 
         const pxDatDuoc = coChuVuaKhung()
-        dsHopDaVe.push({ hop, v, px: pxDatDuoc, doDai: (v.ban_dich || '').length })
+        dsHopDaVe.push({ hop, v, px: pxDatDuoc, doDai: (v.ban_dich || '').length, laChieuThucLon })
 
         // E105 (#6) — Nhấp đúp chuột vào bất kỳ bóng thoại nào để sửa chữ / phóng to / dịch lại / phủ kín / cọ xoá tức thì
         hop.addEventListener('dblclick', (e) => {
@@ -2965,19 +3003,18 @@ void (async () => {
       }
 
       // Đồng bộ cỡ chữ hài hoà toàn trang (`dongBoCoChuToanTrang`):
-      // Giữ cho các bóng thoại hội thoại thông thường trên cùng 1 trang có kích thước chữ đồng đều,
-      // tránh hiện tượng 1 bóng thoại trống trải phình chữ quá to so với bóng thoại bên cạnh.
+      // Giữ các bóng thoại thường trong dải đồng nhất xoay quanh P75 của trang (không bị bóng rộng phình quá cỡ so với bóng kế bên),
+      // nhưng TUYỆT ĐỐI KHÔNG lấy bóng thoại hẹp làm chuẩn ép nhỏ cả trang, và KHÔNG đụng vào đại chiêu thức lớn (`laChieuThucLon`, ví dụ "CUỒNG SA ĐỊA NGỤC"!)
       const dsPxThoai = dsHopDaVe
-        .filter((m) => !m.v._heSoRieng && m.doDai >= 10)
+        .filter((m) => !m.v._heSoRieng && !m.laChieuThucLon && m.doDai >= 12)
         .map((m) => m.px)
         .sort((a, b) => a - b)
       if (dsPxThoai.length >= 2) {
-        const pxTrungVi = dsPxThoai[Math.floor(dsPxThoai.length * 0.5)]
-        const tranThoai = Math.max(12, Math.round(pxTrungVi * 1.18))
-        const tranCamThan = Math.max(14, Math.round(pxTrungVi * 1.32))
+        const pxP75 = dsPxThoai[Math.min(dsPxThoai.length - 1, Math.floor(dsPxThoai.length * 0.75))]
+        const tranThoaiChuanTrang = Math.max(13, Math.min(28, Math.round(r.width * 0.026)))
+        const tran = Math.max(Math.round(r.width * 0.023), Math.min(tranThoaiChuanTrang, Math.round(pxP75 * 1.15)))
         for (const m of dsHopDaVe) {
-          if (m.v._heSoRieng) continue
-          const tran = m.doDai >= 10 ? tranThoai : tranCamThan
+          if (m.v._heSoRieng || m.laChieuThucLon) continue
           if (m.px > tran) {
             m.px = tran
             m.hop.style.fontSize = `${tran}px`

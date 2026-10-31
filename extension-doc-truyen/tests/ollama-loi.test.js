@@ -21,7 +21,7 @@ describe('dịch cục bộ bằng Ollama', () => {
     expect(loi).toBeInstanceOf(LoiApi)
     expect(loi.ma).toBe(500)
     expect(loi.message).toMatch(/0xc0000409/)
-    expect(loi.message).toMatch(/server\.log/)
+    expect(loi.message).toMatch(/Lõi AI Cục Bộ/)
     expect(loi.message).not.toMatch(/chưa phát hiện/i)
     expect(goi.some((u) => u.includes(':1234'))).toBe(false)
   })
