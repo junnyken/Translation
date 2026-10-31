@@ -83,7 +83,7 @@ const viecDangChayTheoUrl = new Map()
 const boNhoNguCanhTheoTab = new Map()
 const REGEX_DAU_TIENG_VIET = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i
 
-async function layChuoiNguCanhTab(tabId) {
+async function layChuoiNguCanhTab(tabId, gioiHanDong = 10) {
   const khoa = String(tabId ?? 0)
   let ds = boNhoNguCanhTheoTab.get(tabId ?? 0) || []
   if (!ds.length && chrome?.storage?.session) {
@@ -97,7 +97,7 @@ async function layChuoiNguCanhTab(tabId) {
     } catch {}
   }
   if (!ds.length) return ''
-  return ds.slice(-10).join('\n')
+  return ds.slice(-Math.max(1, gioiHanDong)).join('\n')
 }
 
 function capNhatNguCanhTab(tabId, dsVung) {
@@ -112,7 +112,7 @@ function capNhatNguCanhTab(tabId, dsVung) {
       if (!hienTai.includes(dong)) hienTai.push(dong)
     }
   }
-  const rutGon = hienTai.length > 12 ? hienTai.slice(-12) : hienTai
+  const rutGon = hienTai.length > 24 ? hienTai.slice(-24) : hienTai
   boNhoNguCanhTheoTab.set(khoa, rutGon)
   if (chrome?.storage?.session) {
     chrome.storage.session.get({ boNhoNguCanhTheoTab: {} }).then((luu) => {
@@ -165,27 +165,36 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false,
   const anh_goc_data_url = anhBase64 ? null : await blobThanhDataUrl(blob)
 
   const { ngonNgu, ngonNguDich, engine, cheDo } = await docCauHinh()
-  const laCheDoPro = engine === 'local_hybrid_pro'
+  const laCheDoUltra = engine === 'llm_context'
+  const laCheDoPro = engine === 'local_hybrid_pro' || laCheDoUltra
   let tuDienTuHoc = ''
   try {
     const dHoc = await chrome.storage.local.get({ boNhoTuHocTruyen: {} })
-    const gioiHanTuHoc = laCheDoPro ? 60 : 15
+    const gioiHanTuHoc = laCheDoUltra ? 120 : (laCheDoPro ? 60 : 15)
     const entries = Object.entries(dHoc?.boNhoTuHocTruyen || {}).slice(-gioiHanTuHoc)
     if (entries.length) {
       tuDienTuHoc = entries.map(([k, v]) => `${k} = ${v}`).join('\n')
     }
   } catch {}
-  const chuoiNguCanhTab = await layChuoiNguCanhTab(tabId)
-  const chiDanPro = laCheDoPro
+  const soDongNguCanh = laCheDoUltra ? 24 : (laCheDoPro ? 12 : 5)
+  const chuoiNguCanhTab = await layChuoiNguCanhTab(tabId, soDongNguCanh)
+  const chiDanCapDo = laCheDoUltra
     ? [
-        '[CHẾ ĐỘ AI PRO 2 LƯỢT — BẢO VỆ TRANH GỐC & DỊCH SÂU CHUẨN SCANLATION]:',
-        '1) KHÔNG khoanh vùng các chữ hiệu ứng âm thanh (SFX) cỡ lớn vẽ cách điệu đè lên nhân vật/khói lửa (như SPLRRRSH, ドジュウウウウ, STOMP, ズシン, BOOM) để bảo vệ nguyên vẹn nét vẽ tranh gốc.',
-        '2) Đọc kỹ 100% chữ viết tay mảnh, lời lẩm bẩm nhỏ cạnh bóng thoại và tự suy luận sửa lỗi chữ dính nét.',
-        '3) Dịch mượt mà, giàu cảm xúc, giữ đồng nhất tuyệt đối đại từ xưng hô theo cá tính nhân vật và ngữ cảnh các trang trước.',
+        '[CHẾ ĐỘ ULTRA CLOUD AI 3 LƯỢT — ĐÔI MẮT GEMINI VISION 2K & DEEPSEEK SCANLATION]:',
+        '1) QUAN SÁT TRỰC TIẾP BIỂU CẢM & NGOẠI HÌNH TRÊN TRANH: Phân tích kỹ giới tính, độ tuổi, trang phục, cấp bậc và cảm xúc khuôn mặt của từng nhân vật đang mở miệng nói để chọn đại từ xưng hô chuẩn xác 100% (Ta - Ngươi, Huynh - Muội, Anh - Em, Thần - Bệ hạ, Mày - Tao, Lão phu - Tiểu tử).',
+        '2) BẢO VỆ TRANH GỐC TUYỆT ĐỐI: KHÔNG khoanh vùng các chữ hiệu ứng âm thanh (SFX) cỡ lớn vẽ cách điệu đè lên mặt/đầu nhân vật hoặc khói lửa (như SPLRRRSH, ドジュウウウウ, STOMP, ズシン, BOOM).',
+        '3) QUÉT ĐỘ PHÂN GIẢI 2K & TRAU CHUỐT VĂN PHONG SCANLATION: Đọc trọn vẹn chữ viết tay nhỏ, chữ cổ trang/thư pháp, chữ bị che khuất một phần và biên tập lời thoại mượt mà, giàu cảm xúc như nhóm dịch truyện chuyên nghiệp.',
       ].join('\n')
-    : ''
-  const tuDienRieng = [chiDanPro, chuoiNguCanhTab, tuDienTuHoc].filter(Boolean).join('\n')
-  bao({ giai_doan: 'dang-gui', url, che_do: cheDo, anh_goc_data_url, che_do_pro: laCheDoPro })
+    : (laCheDoPro
+      ? [
+          '[CHẾ ĐỘ AI PRO 2 LƯỢT — BẢO VỆ TRANH GỐC & DỊCH SÂU CHUẨN SCANLATION]:',
+          '1) KHÔNG khoanh vùng các chữ hiệu ứng âm thanh (SFX) cỡ lớn vẽ cách điệu đè lên nhân vật/khói lửa (như SPLRRRSH, ドジュウウウウ, STOMP, ズシン, BOOM) để bảo vệ nguyên vẹn nét vẽ tranh gốc.',
+          '2) Đọc kỹ 100% chữ viết tay mảnh, lời lẩm bẩm nhỏ cạnh bóng thoại và tự suy luận sửa lỗi chữ dính nét.',
+          '3) Dịch mượt mà, giàu cảm xúc, giữ đồng nhất tuyệt đối đại từ xưng hô theo cá tính nhân vật và ngữ cảnh các trang trước.',
+        ].join('\n')
+      : '')
+  const tuDienRieng = [chiDanCapDo, chuoiNguCanhTab, tuDienTuHoc].filter(Boolean).join('\n')
+  bao({ giai_doan: 'dang-gui', url, che_do: cheDo, anh_goc_data_url, che_do_pro: laCheDoPro, che_do_ultra: laCheDoUltra })
 
   // Chế độ Offline 100% trên máy khách bằng model GGUF cục bộ (Ollama 127.0.0.1:11434 / LM Studio 127.0.0.1:1234):
   if (engine === 'local_gguf') {
@@ -195,6 +204,7 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false,
     return {
       ...kqLocal,
       che_do_pro: laCheDoPro,
+      che_do_ultra: laCheDoUltra,
       anh_da_dich_data_url: kqLocal.anh_da_dich_data_url || null,
       anh_goc_data_url,
     }
@@ -214,6 +224,7 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false,
       return {
         ...kqLocal,
         che_do_pro: laCheDoPro,
+        che_do_ultra: laCheDoUltra,
         anh_da_dich_data_url: kqLocal.anh_da_dich_data_url || null,
         anh_goc_data_url,
       }
@@ -222,13 +233,19 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false,
         throw errLocal
       }
       // Nếu chưa mở App Windows / Ollama ở máy khách, tự động chạy qua Cloud Server:
-      // Nếu là `local_hybrid_pro` (2 lượt/trang), trừ thêm 1 lượt phụ ngoài 1 lượt mặc định của guiTrang.
+      // Nếu là `local_hybrid_pro` (2 lượt/trang), trừ thêm 1 lượt phụ ngoài 1 lượt mặc định của guiTrang (tổng = 2 lượt).
       if (engine === 'local_hybrid_pro') {
-        await khauTruLuotLocal(blob, 'local_ocr_gpu', `pro-extra::${url}`).catch((errPro) => {
+        await khauTruLuotLocal(blob, 'local_hybrid_pro', `pro-extra::${url}`, 1).catch((errPro) => {
           if (errPro instanceof LoiApi && [401, 402, 403, 429].includes(errPro.ma)) throw errPro
         })
       }
     }
+  } else if (engine === 'llm_context') {
+    // Model 3 (`llm_context` — ✨ AI Ngữ Cảnh Đám Mây · Gemini & DeepSeek Ultra):
+    // Tốn 3 lượt/trang (1 lượt gốc trong guiTrang + 2 lượt phụ Ultra AI) để bù đắp chi phí token Gemini Vision 2K & DeepSeek.
+    await khauTruLuotLocal(blob, 'llm_context', `ultra-extra::${url}`, 2).catch((errUltra) => {
+      if (errUltra instanceof LoiApi && [401, 402, 403, 429].includes(errUltra.ma)) throw errUltra
+    })
   }
 
   let kqGui

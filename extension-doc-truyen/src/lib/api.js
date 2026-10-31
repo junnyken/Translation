@@ -250,10 +250,14 @@ export async function guiTrang(blob, ngonNgu, engine, cheDo, ngonNguDich = NGON_
 }
 
 /**
- * Khấu trừ số lượt trên sổ cái Server khi chạy `local_ocr_gpu` (1 lượt/trang) hoặc `local_hybrid_pro` (2 lượt/trang).
+ * Khấu trừ số lượt trên sổ cái Server theo 3 bậc:
+ * - Model 1 (`local_ocr_gpu`)    : 1 lượt/trang
+ * - Model 2 (`local_hybrid_pro`) : 2 lượt/trang
+ * - Model 3 (`llm_context`)      : 3 lượt/trang
  */
-export async function khauTruLuotLocal(blob, engine = 'local_ocr_gpu', pageKey = '') {
-  const soLuot = engine === 'local_hybrid_pro' ? 2 : 1
+export async function khauTruLuotLocal(blob, engine = 'local_ocr_gpu', pageKey = '', soLuotTuyChon = null) {
+  const macDinh = engine === 'llm_context' ? 3 : (engine === 'local_hybrid_pro' ? 2 : 1)
+  const soLuot = typeof soLuotTuyChon === 'number' && soLuotTuyChon > 0 ? soLuotTuyChon : macDinh
   const khoaTrang = pageKey || `ext-${blob?.size || 0}-${Date.now()}`
   return goi('/developer/consume-local-page', {
     method: 'POST',

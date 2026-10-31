@@ -3391,14 +3391,14 @@ def dich_anh_local_ocr_gpu_tang_toc(
     return ket_qua
 
 
-# Bảng cấu hình số lượt trừ mỗi trang theo từng Bộ máy AI:
-# - local_ocr_gpu: 1 lượt/trang (hút khách tập trung vào bản tiêu chuẩn nhanh & tiết kiệm)
-# - local_hybrid_pro: 2 lượt/trang (bản nâng cấp Tự Học & Chữ Viết Tay đa tầng cho truyện khó)
-# - llm_context: 1 lượt/trang (Cloud Gemini AI)
+# Bảng cấu hình số lượt trừ mỗi trang theo từng Bộ máy AI (Phân tầng 1 - 2 - 3 lượt/trang):
+# - local_ocr_gpu    : 1 lượt/trang (hút khách tập trung vào bản tiêu chuẩn nhanh & tiết kiệm)
+# - local_hybrid_pro : 2 lượt/trang (bản nâng cấp Tự Học 60 từ & Chữ Viết Tay 2 tầng cho truyện khó)
+# - llm_context      : 3 lượt/trang (Mắt thần Đám mây Gemini Vision 2K & DeepSeek Ultra chuẩn Scanlation)
 SO_LUOT_MOI_TRANG_THEO_ENGINE: dict[str, int] = {
     "local_ocr_gpu": 1,
     "local_hybrid_pro": 2,
-    "llm_context": 1,
+    "llm_context": 3,
     "google_fast": 1,
     "local_gguf": 1,
 }
@@ -4912,12 +4912,15 @@ class AppDichTruyenWindows(tk.Tk):
             )
         else:
             self.lbl_kpi_cost.config(
-                text=f"{so_luot} lượt / trang (✨ AI Ngữ Cảnh Cloud)",
+                text=f"{so_luot} lượt / trang (✨ Gemini & DeepSeek Ultra)",
                 fg=MANGA_UI_TOKENS["status_warn"],
             )
             if hasattr(self, "lbl_mo_ta_engine"):
                 self.lbl_mo_ta_engine.config(
-                    text=f"✨ Chế độ Đám mây ({so_luot} lượt/trang): Xử lý ngữ cảnh toàn trang trên máy chủ đám mây (dành cho máy không có GPU).",
+                    text=(
+                        f"✨ Chế độ Đỉnh Cao Đám Mây ({so_luot} lượt/trang): Đôi mắt Gemini Vision 2K & DeepSeek "
+                        f"nhìn biểu cảm tranh phân vai xưng hô chuẩn Scanlation ({so_cau_hoc} cụm tự học)."
+                    ),
                     fg=MANGA_UI_TOKENS["status_warn"],
                 )
 
@@ -5407,15 +5410,15 @@ class AppDichTruyenWindows(tk.Tk):
             width=48,
         )
         self.cmb_engine.current(0)
-        # Ẩn 2 model thừa (google_fast & local_gguf) trên giao diện, giữ nguyên local_ocr_gpu và thêm model nâng cấp local_hybrid_pro
+        # Ẩn 2 model thừa (google_fast & local_gguf) trên giao diện, giữ 3 model phân tầng 1 - 2 - 3 lượt/trang
         self.cmb_engine.configure(
             values=[
-                "local_ocr_gpu (⚡ OCR + GPU Nhanh)",
+                "local_ocr_gpu (⚡ OCR + GPU Nhanh · 1 lượt/trang)",
                 "local_hybrid_pro (🧠 OCR + GPU Pro — Tự Học & Chữ Viết Tay · 2 lượt/trang)",
-                "llm_context (✨ AI Ngữ Cảnh Đám Mây)",
+                "llm_context (✨ AI Ngữ Cảnh Đám Mây — Gemini & DeepSeek Ultra · 3 lượt/trang)",
             ]
         )
-        self.cmb_engine.set("local_ocr_gpu (⚡ OCR + GPU Nhanh)")
+        self.cmb_engine.set("local_ocr_gpu (⚡ OCR + GPU Nhanh · 1 lượt/trang)")
         self.cmb_engine.grid(row=2, column=1, columnspan=3, sticky="ew", padx=(6, 0))
         self.cmb_engine.bind("<<ComboboxSelected>>", self._cap_nhat_the_chi_phi)
 
@@ -6121,11 +6124,11 @@ class AppDichTruyenWindows(tk.Tk):
                     f"  [4]   🏢 GÓI DOANH NGHIỆP API PRO     : {5000 * don_gia:>10,} đ  -> Nhận  6.500 trang (~325 chap)  | {round(5000 * don_gia / 6500):,}đ/trang (+30% Bonus + tr_live_)\n"
                     f"  [5]   🏛️ GÓI ENTERPRISE CỔNG TRUYỆN   : {20000 * don_gia:>10,} đ  -> Nhận 28.000 trang (~1.400 chap)| {round(20000 * don_gia / 28000):,}đ/trang (+40% Bonus)\n\n"
                     "====================================================================================================\n"
-                    "  BẢNG QUY ĐỔI LƯỢT THEO BỘ MÁY AI ĐỘC QUYỀN\n"
+                    "  BẢNG QUY ĐỔI LƯỢT THEO BỘ MÁY AI ĐỘC QUYỀN (PHÂN TẦNG 1 - 2 - 3 LƯỢT)\n"
                     "====================================================================================================\n"
-                    "  • ⚡ OCR + GPU Nhanh (local_ocr_gpu)          : 01 lượt / trang (Khuyên dùng cho 90% truyện chữ in rõ, siêu tốc)\n"
-                    "  • ✨ AI Ngữ Cảnh Đám Mây (llm_context)        : 01 lượt / trang (Xử lý trên máy chủ đám mây cho máy không có GPU)\n"
-                    "  • 🧠 OCR + GPU Pro Tự Học (local_hybrid_pro)  : 02 lượt / trang (Chuyên trị chữ viết tay, SFX & tự học từ điển)\n"
+                    "  • ⚡ Model 1 — OCR + GPU Nhanh (local_ocr_gpu)          : 01 lượt / trang (Siêu tốc, tiết kiệm cho 85% truyện chữ rõ)\n"
+                    "  • 🧠 Model 2 — OCR + GPU Pro Tự Học (local_hybrid_pro)  : 02 lượt / trang (Quét 2 tầng chữ viết tay, bảo vệ tranh & tự học 60 từ)\n"
+                    "  • ✨ Model 3 — AI Đám Mây Ultra (llm_context)           : 03 lượt / trang (Mắt thần Gemini 2K & DeepSeek nhìn tranh phân vai xưng hô)\n"
                 )
 
                 def _cap_nhat_ui():
@@ -7215,7 +7218,25 @@ class AppDichTruyenWindows(tk.Tk):
                     co_token = bool(str(options.get("token") or "").strip())
 
                     def submit(data, index, context):
-                        glossary = "\n".join(filter(None, [options["glossary"], "\n".join(context)]))
+                        bo_nho_hoc = nap_bo_nho_tu_hoc()
+                        so_tu_hoc = 120 if options["engine"] == "llm_context" else (60 if options["engine"] == "local_hybrid_pro" else 15)
+                        goi_y_hoc = ", ".join(f"{k}={v}" for k, v in list(bo_nho_hoc.items())[-so_tu_hoc:])
+                        chi_dan_tier = (
+                            "[CHẾ ĐỘ ULTRA CLOUD AI 3 LƯỢT — ĐÔI MẮT GEMINI VISION 2K & DEEPSEEK SCANLATION]"
+                            if options["engine"] == "llm_context"
+                            else (
+                                "[CHẾ ĐỘ AI PRO 2 LƯỢT — BẢO VỆ TRANH GỐC & DỊCH SÂU CHUẨN SCANLATION]"
+                                if options["engine"] == "local_hybrid_pro"
+                                else ""
+                            )
+                        )
+                        glossary = "\n".join(filter(None, [chi_dan_tier, options["glossary"], goi_y_hoc, "\n".join(context)]))
+                        # Nếu chọn Model 3 (`llm_context`: 3 lượt/trang) hoặc Model 2 (`local_hybrid_pro`: 2 lượt/trang) chạy qua Cloud,
+                        # trừ phần lượt phụ (ngoài 1 lượt gốc của /doc-truyen/trang) để đảm bảo đúng 2 lượt hoặc 3 lượt/trang:
+                        if options["engine"] == "llm_context":
+                            self._khau_tru_luot_cuc_bo(data, {**options, "engine": "local_hybrid_pro"})
+                        elif options["engine"] == "local_hybrid_pro":
+                            self._khau_tru_luot_cuc_bo(data, {**options, "engine": "local_ocr_gpu"})
                         eng_cloud = (
                             "llm_context"
                             if options["engine"] in ("local_ocr_gpu", "local_hybrid_pro", "local_gguf")

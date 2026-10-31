@@ -2551,8 +2551,9 @@ void (async () => {
 
       const vungCoDich = vung.filter((v) => Boolean(v.ban_dich))
       const laCheDoPro = Boolean(
-        (!Array.isArray(dulieu) && dulieu?.che_do_pro) ||
-        window[CO].engineHienTai === 'local_hybrid_pro'
+        (!Array.isArray(dulieu) && (dulieu?.che_do_pro || dulieu?.che_do_ultra)) ||
+        window[CO].engineHienTai === 'local_hybrid_pro' ||
+        window[CO].engineHienTai === 'llm_context'
       )
       for (let i = 0; i < vungCoDich.length; i += 1) {
         vungCoDich[i]._cheDoPro = laCheDoPro

@@ -1033,7 +1033,7 @@ async def dich_thoai_ngu_canh_cho_app_va_tien_ich(
     if not la_admin:
         chu_the_chinh = danh_tinh.chot[0].chu_the if danh_tinh.chot else "guest"
         eng_name = (body.engine or "local_ocr_gpu").strip() or "local_ocr_gpu"
-        so_luot_can = 2 if eng_name == "local_hybrid_pro" else 1
+        so_luot_can = 3 if eng_name == "llm_context" else (2 if eng_name == "local_hybrid_pro" else 1)
         pkey = (body.page_key or "").strip()
         for idx_c in range(so_luot_can):
             trang_uid = (

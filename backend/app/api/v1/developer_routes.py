@@ -458,7 +458,7 @@ async def developer_kiem_tra_quota(
             "engines": {
                 "local_ocr_gpu": {"credits_per_page": 1, "dual_anchor": True},
                 "local_hybrid_pro": {"credits_per_page": 2, "dual_anchor": True, "self_learning_glossary": True},
-                "llm_context": {"credits_per_page": 1, "dual_anchor": True},
+                "llm_context": {"credits_per_page": 3, "dual_anchor": True, "multimodal_vision_2k": True},
                 "google_fast": {"credits_per_page": 1, "dual_anchor": False},
             },
             "modes": [m.value for m in ChePipeline],
@@ -502,7 +502,7 @@ async def developer_khau_tru_trang_cuc_bo(
                 danh_tinh = _danh_tinh_tu_nguoi_dung(nguoi_k)
 
     engine_name = str(body.get("engine") or "local_ocr_gpu").strip()
-    mac_dinh_luot = 2 if engine_name == "local_hybrid_pro" else 1
+    mac_dinh_luot = 3 if engine_name == "llm_context" else (2 if engine_name == "local_hybrid_pro" else 1)
     so_luot_can = max(1, min(3, int(body.get("credits") or mac_dinh_luot)))
 
     # Quản trị viên (Chủ hệ thống) chạy tự động không bị giới hạn lượt
@@ -629,12 +629,16 @@ async def developer_dich_anh(
                 include_base64 = bool(body_json["include_base64"])
 
     raw_engine_str = str(engine.value if hasattr(engine, "value") else engine).strip()
+    la_ultra_3_luot = raw_engine_str == "llm_context"
     la_pro_2_luot = raw_engine_str == "local_hybrid_pro"
     if raw_engine_str in ("local_ocr_gpu", "local_hybrid_pro", "local_gguf"):
         engine_enum = TranslationEngine.llm_context
     else:
         engine_enum = TranslationEngine(raw_engine_str)
-    if la_pro_2_luot:
+    if la_ultra_3_luot:
+        chi_dan_ultra = "[CHẾ ĐỘ ULTRA CLOUD AI 3 LƯỢT — ĐÔI MẮT GEMINI VISION 2K & DEEPSEEK SCANLATION]"
+        glossary = f"{chi_dan_ultra}\n{glossary or ''}".strip()
+    elif la_pro_2_luot:
         chi_dan_pro = "[CHẾ ĐỘ PRO 2 LƯỢT: Tự động sửa lỗi OCR chữ viết tay & giữ đồng nhất thuật ngữ]"
         glossary = f"{chi_dan_pro}\n{glossary or ''}".strip()
 
@@ -710,7 +714,11 @@ async def developer_dich_anh(
     await session.flush()
 
     await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=page.id)
-    if la_pro_2_luot:
+    if la_ultra_3_luot:
+        for idx_extra in (1, 2):
+            uid_ultra = uuid.uuid5(uuid.NAMESPACE_URL, f"ultra-extra-credit:{page.id}:{idx_extra}")
+            await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=uid_ultra)
+    elif la_pro_2_luot:
         uid_pro_2 = uuid.uuid5(uuid.NAMESPACE_URL, f"pro-extra-credit:{page.id}")
         await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=uid_pro_2)
 

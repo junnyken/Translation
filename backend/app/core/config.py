@@ -1058,7 +1058,14 @@ def dich_danh_sach_thoai_ngu_canh_dong(
         return ["" for _ in clean_texts], "empty"
 
     boi_canh_gop = (boi_canh or "").strip()
-    if engine == "local_hybrid_pro":
+    if engine == "llm_context":
+        chi_dan_ultra = (
+            "[CHẾ ĐỘ ULTRA CLOUD AI 3 LƯỢT: Phân tích sâu mối quan hệ & sắc thái cảm xúc nhân vật, "
+            "tự suy luận sửa mọi lỗi chữ nghệ thuật/dính nét, dịch văn phong tiểu thuyết/Scanlation mượt mà "
+            "và giữ đồng nhất tuyệt đối đại từ xưng hô xuyên suốt chương]"
+        )
+        boi_canh_gop = f"{chi_dan_ultra}\n{boi_canh_gop}".strip()
+    elif engine == "local_hybrid_pro":
         chi_dan_pro = (
             "[CHẾ ĐỘ PRO 2 LƯỢT: Đặc biệt chú ý tự suy luận sửa các chữ viết tay bị OCR đọc dính nét, "
             "giữ đồng nhất tuyệt đối đại từ xưng hô và thuật ngữ xuyên trang]"

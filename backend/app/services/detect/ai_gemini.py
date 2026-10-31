@@ -312,7 +312,14 @@ class AIGeminiDetector:
 
         with open(image_path, "rb") as f:
             goc = f.read()
-        da_chuan = chuan_bi_anh(goc, self.canh_toi_da)
+        la_ultra_3_luot = "[CHẾ ĐỘ ULTRA CLOUD AI 3 LƯỢT" in (boi_canh or "")
+        la_pro_2_luot = "[CHẾ ĐỘ AI PRO 2 LƯỢT" in (boi_canh or "")
+        canh_dung = (
+            max(self.canh_toi_da, 2048)
+            if la_ultra_3_luot
+            else (max(self.canh_toi_da, 1600) if la_pro_2_luot else self.canh_toi_da)
+        )
+        da_chuan = chuan_bi_anh(goc, canh_dung)
         if da_chuan is None:
             raise AIDetectError(f"Không chuẩn bị được ảnh để gửi: {image_path}")
         anh, mime = da_chuan

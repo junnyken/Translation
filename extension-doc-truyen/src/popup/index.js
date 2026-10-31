@@ -42,10 +42,10 @@ function dongBoNutEngine(eng) {
   if (nhanPhu) {
     if (eng === 'local_hybrid_pro') {
       nhanPhu.textContent = '🧠 2 lượt/trang · Tự học & Chữ viết tay'
-    } else if (eng === 'local_ocr_gpu') {
-      nhanPhu.textContent = '⚡ 1 lượt/trang · Khuyên dùng'
+    } else if (eng === 'llm_context') {
+      nhanPhu.textContent = '✨ 3 lượt/trang · Gemini & DeepSeek Ultra'
     } else {
-      nhanPhu.textContent = '✨ 1 lượt/trang · Cloud AI'
+      nhanPhu.textContent = '⚡ 1 lượt/trang · Nhanh & Tiết kiệm'
     }
   }
 }
@@ -97,14 +97,17 @@ async function veHanMuc() {
     const muaThem = Number(hm.so_luot_mua_them || 0)
     const conLaiNgay = Math.max(0, Number(hm.con_lai || 0) - muaThem)
     const vaiTro = hm.co_tai_khoan ? '✅ Đã đăng nhập' : '👤 Khách (đăng nhập nhận 10 trang/ngày)'
-    const tichLuy = muaThem > 0 ? ` + Ví VIP: ${muaThem} trang (Tổng ${hm.con_lai})` : ''
-    const nhanChiPhi = engine === 'local_hybrid_pro' ? ' · [Pro: 2 lượt/trang]' : ' · [1 lượt/trang]'
-    o.textContent = `${vaiTro} · Hôm nay: ${conLaiNgay}/${hm.tran} trang${tichLuy}${nhanChiPhi}`
-    o.className = hm.con_lai <= 0
+    const tichLuy = muaThem > 0 ? ` + Ví VIP: ${muaThem} lượt (Tổng ${hm.con_lai})` : ''
+    const soLuotMoiTrang = engine === 'llm_context' ? 3 : (engine === 'local_hybrid_pro' ? 2 : 1)
+    const nhanChiPhi = engine === 'llm_context'
+      ? ' · [Ultra AI: 3 lượt/trang]'
+      : (engine === 'local_hybrid_pro' ? ' · [Pro: 2 lượt/trang]' : ' · [1 lượt/trang]')
+    o.textContent = `${vaiTro} · Hôm nay: ${conLaiNgay}/${hm.tran} lượt${tichLuy}${nhanChiPhi}`
+    o.className = hm.con_lai < soLuotMoiTrang
       ? 'hop loi'
-      : (hm.con_lai < hm.tran && hm.con_lai <= 2) ? 'hop canh-bao' : 'hop ok'
+      : (hm.con_lai < hm.tran && hm.con_lai <= soLuotMoiTrang * 2) ? 'hop canh-bao' : 'hop ok'
     o.hidden = false
-    if (hm.con_lai <= 0) {
+    if (hm.con_lai < soLuotMoiTrang) {
       $('nut-dich').disabled = true
       $('nut-dich-chapter').disabled = true
       if ($('nut-tu-dich-cuon')) $('nut-tu-dich-cuon').disabled = true
@@ -131,12 +134,17 @@ async function veMayChu() {
       return
     }
     if (engine === 'local_ocr_gpu') {
-      o.textContent = '⚡ OCR + GPU Nhanh (1 lượt/trang): Tự động kết nối App Windows (127.0.0.1:17890) hoặc Cloud.'
+      o.textContent = '⚡ Model 1 (1 lượt/trang): Tốc độ siêu tốc, tiết kiệm lượt tối đa, tối ưu cho 85% truyện chữ in rõ.'
       o.hidden = false
       return
     }
     if (engine === 'local_hybrid_pro') {
-      o.textContent = '🧠 OCR + GPU Pro (2 lượt/trang): Tăng cường nét chữ viết tay + Tự học vĩnh viễn các câu bạn sửa.'
+      o.textContent = '🧠 Model 2 (2 lượt/trang): Quét 2 tầng chữ viết tay + Bảo vệ nét vẽ nhân vật khỏi SFX + Tự học 60 từ điển.'
+      o.hidden = false
+      return
+    }
+    if (engine === 'llm_context') {
+      o.textContent = '✨ Model 3 (3 lượt/trang): Mắt thần Gemini Vision 2K & DeepSeek nhìn biểu cảm tranh phân vai xưng hô chuẩn Scanlation.'
       o.hidden = false
       return
     }
