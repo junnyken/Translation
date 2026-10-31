@@ -329,6 +329,52 @@ def dich_thoai_anh_sang_viet_chuan_ngu_canh(ds_cau: list[str]) -> list[str]:
             pass
 
     if not da_dich_xong:
+        # Ưu tiên 2: Gọi cầu nối DeepSeek (`deepseek-chat`) trên máy chủ comic.io.vn trước khi lùi về Google GTX
+        server_url, server_token = _lay_thong_tin_ket_noi_server_review()
+        if server_url in ("https://comic.io.vn", "http://comic.io.vn"):
+            server_url = "https://translation-api.vibe1.tinhgon.xyz"
+        if server_url:
+            try:
+                headers_srv = {
+                    "Content-Type": "application/json",
+                    "User-Agent": "MangaVideoReviewStudio/1.1",
+                }
+                if server_token:
+                    if server_token.startswith("tr_live_"):
+                        headers_srv["X-API-Key"] = server_token
+                    else:
+                        headers_srv["Authorization"] = f"Bearer {server_token}"
+                for start_s in range(0, len(cau_can_dich), 24):
+                    sub_s = cau_can_dich[start_s : start_s + 24]
+                    sub_i = idx_can_dich[start_s : start_s + 24]
+                    req_srv = urllib.request.Request(
+                        f"{server_url}/api/v1/doc-truyen/dich-thoai-ngu-canh",
+                        data=json.dumps(
+                            {
+                                "lines": sub_s,
+                                "source_lang": "auto",
+                                "target_lang": "vi",
+                                "engine": "local_hybrid_pro",
+                                "boi_canh": "Thoại truyện tranh, dịch tự nhiên 100% Tiếng Việt chuẩn ngữ cảnh nhân vật.",
+                            }
+                        ).encode("utf-8"),
+                        headers=headers_srv,
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(req_srv, timeout=22) as resp_srv:
+                        data_srv = json.loads(resp_srv.read().decode("utf-8", errors="replace"))
+                    tr_list = data_srv.get("translations") or []
+                    if len(tr_list) == len(sub_s) and any(tr_list):
+                        for k_i, orig_idx in enumerate(sub_i):
+                            ket_qua[orig_idx] = _khu_sach_tieng_anh_con_sot(str(tr_list[k_i] or sub_s[k_i]))
+                        da_dich_xong = True
+                    else:
+                        da_dich_xong = False
+                        break
+            except Exception:
+                da_dich_xong = False
+
+    if not da_dich_xong:
         # Dịch theo lô (tối đa 12 câu/lượt) qua Google GTX để không bị cắt cụt hay lỗi giới hạn URL
         for start_b in range(0, len(cau_can_dich), 12):
             sub_cau = cau_can_dich[start_b : start_b + 12]

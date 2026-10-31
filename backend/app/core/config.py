@@ -269,8 +269,8 @@ class Settings(BaseSettings):
     #: là đốt token vô ích; 1024 là mức E32 đã chốt (giữ được chữ còn đọc được).
     detect_ai_canh_toi_da: int = 1024
     #: E93 — gọi nhận diện N lượt SONG SONG rồi gộp khung bị sót (model dao động giữa các lượt).
-    #: Gấp N chi phí bước nhận diện, gần như không thêm thời gian. 1 = một lượt như trước.
-    detect_ai_so_luot: int = 2
+    #: Gấp N chi phí bước nhận diện, gần như không thêm thời gian. 1 = một lượt tiết kiệm 50% phí Gemini.
+    detect_ai_so_luot: int = 1
     #: Model cho engine nhận diện AI. **Tách riêng khỏi `llm_model_name` có chủ ý.**
     #:
     #: Mượn chung một thiết lập cho hai quyết định khác nhau là bẫy thật, không phải lo xa:

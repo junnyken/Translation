@@ -152,17 +152,17 @@ def _xoa_chu_trong_bong_thoai_trang(raw_b: bytes, regs: list[dict[str, Any]]) ->
 
             if rw < 10 or rh < 10 or rx >= w_img or ry >= h_img:
                 continue
-            x1 = max(2, rx - 6)
-            y1 = max(2, ry - 6)
-            x2 = min(w_img - 2, rx + rw + 6)
-            y2 = min(h_img - 2, ry + rh + 6)
+            x1 = max(2, rx - 14)
+            y1 = max(2, ry - 14)
+            x2 = min(w_img - 2, rx + rw + 14)
+            y2 = min(h_img - 2, ry + rh + 14)
 
             crop_box = gray.crop((x1, y1, x2, y2))
             mean_val = ImageStat.Stat(crop_box).mean[0]
             if mean_val < 140.0:
                 continue
 
-            # Dò mở rộng lên trên và xuống dưới trong lòng bóng thoại trắng (tối đa 56px) để xóa sạch chữ tràn dòng
+            # Dò mở rộng lên trên và xuống dưới trong lòng bóng thoại trắng (tối đa 56px) để xóa sạch chữ tràn dòng hoặc chữ sát góc ('TRUE!')
             def _dong_nam_trong_bong_trang(y_check: int) -> bool:
                 if y_check <= 2 or y_check >= h_img - 2:
                     return False
@@ -174,12 +174,35 @@ def _xoa_chu_trong_bong_thoai_trang(raw_b: bytes, regs: list[dict[str, Any]]) ->
                     val = px_g[xx, y_check]
                     so_mau += 1
                     tong_sang += val
-                    if val >= 225:
+                    if val >= 200:
                         so_trang += 1
                 if so_mau == 0:
                     return False
                 # Dừng ngay nếu gặp đường viền đen ngang của khung tranh/bóng thoại
-                return (tong_sang / so_mau) >= 175.0 and (so_trang / so_mau) >= 0.55
+                return (tong_sang / so_mau) >= 172.0 and (so_trang / so_mau) >= 0.55
+
+            def _cot_nam_trong_bong_trang(x_check: int) -> bool:
+                if x_check <= 2 or x_check >= w_img - 2:
+                    return False
+                so_mau = 0
+                so_trang = 0
+                tong_sang = 0
+                step_y = max(1, (y2 - y1) // 20)
+                for yy in range(y1, y2, step_y):
+                    val = px_g[x_check, yy]
+                    so_mau += 1
+                    tong_sang += val
+                    if val >= 200:
+                        so_trang += 1
+                if so_mau == 0:
+                    return False
+                return (tong_sang / so_mau) >= 172.0 and (so_trang / so_mau) >= 0.55
+
+            # Nếu biên ngang x1/x2 chạm vào viền bóng thoại thì thu hẹp nhẹ vào trong lòng trắng
+            while x1 < rx and not _cot_nam_trong_bong_trang(x1):
+                x1 += 1
+            while x2 > rx + rw and not _cot_nam_trong_bong_trang(x2):
+                x2 -= 1
 
             for _ in range(56):
                 if _dong_nam_trong_bong_trang(y1 - 1):

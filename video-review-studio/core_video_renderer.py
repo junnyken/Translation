@@ -69,14 +69,19 @@ DANH_SACH_NHAC_NEN = {
 
 GOI_LUOT_VIDEO_REVIEW = {
     "review_standard": {
-        "ten": "⚡ Review Tiêu Chuẩn (Tự động tách cảnh + Thuyết minh nhanh · 10 lượt/video)",
+        "ten": "⚡ Review Tiêu Chuẩn (Model 1 · Tự động tách cảnh + Thuyết minh nhanh · 10 lượt/video)",
         "so_luot": 10,
         "engine_ticket": "local_ocr_gpu",
     },
     "review_pro_character": {
-        "ten": "🧠 Review Pro — Nhận Diện Sâu Nhân Vật & Lưới 2x2 (15 lượt/video)",
+        "ten": "🧠 Review Pro — Nhận Diện Sâu Nhân Vật & DeepSeek Ngữ Cảnh (Model 2 · 15 lượt/video)",
         "so_luot": 15,
         "engine_ticket": "local_hybrid_pro",
+    },
+    "review_ultra_cloud": {
+        "ten": "✨ Review Ultra Cloud — Đa Phương Thức Gemini & DeepSeek Biên Kịch Sâu (Model 3 · 20 lượt/video)",
+        "so_luot": 20,
+        "engine_ticket": "llm_context",
     },
 }
 

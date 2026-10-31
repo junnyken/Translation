@@ -340,30 +340,29 @@ class AIGeminiDetector:
             raise AIDetectError(f"Không chuẩn bị được ảnh để gửi: {image_path}")
         anh, mime = da_chuan
 
-        # Khi chạy Model 1 hoặc Model 2 (không phải Ultra 3 lượt) và máy chủ có cấu hình khoá DeepSeek:
-        # - Bước 1: Gemini chỉ nhận diện toạ độ `box` + đọc chữ gốc `text` (không gửi kèm 60 từ điển/ngữ cảnh dài, không sinh `ban_dich` tốn Output token Gemini).
-        # - Bước 2: Chuyển toàn bộ chữ gốc + 60 từ điển + 16 dòng ngữ cảnh sang DeepSeek (`deepseek-chat`) để dịch với chi phí siêu tiết kiệm.
+        # Khi máy chủ có cấu hình khoá DeepSeek (cho cả 3 Model: Model 1 1024px, Model 2 1024px, Model 3 1280px):
+        # - Bước 1: Gemini chỉ nhận diện toạ độ `box` + đọc chữ gốc `text` (không gửi kèm 60-120 từ điển/ngữ cảnh dài vào Gemini, không sinh `ban_dich` tốn Output token Gemini đắt gấp 4 lần).
+        # - Bước 2: Chuyển toàn bộ chữ gốc + từ điển nhân vật + dòng ngữ cảnh sang DeepSeek (`deepseek-chat`) để dịch chuẩn văn phong truyện tranh với chi phí siêu tiết kiệm & tự động Context Caching.
         ds_keys: list[str] = []
-        if not la_ultra_3_luot:
-            try:
-                from app.core.config import dong_bo_khoa_ai_dong, get_settings
+        try:
+            from app.core.config import dong_bo_khoa_ai_dong, get_settings
 
-                st = get_settings()
-                dong_bo_khoa_ai_dong(st)
-                ds_keys = list(st.deepseek_api_key_list or [])
-            except Exception:  # noqa: BLE001
-                ds_keys = []
-            if not ds_keys:
-                ds_keys = [
-                    k for k in self.api_keys
-                    if str(k).startswith(("sk-", "ds:", "gsk_", "groq:", "or:"))
-                ]
+            st = get_settings()
+            dong_bo_khoa_ai_dong(st)
+            ds_keys = list(st.deepseek_api_key_list or [])
+        except Exception:  # noqa: BLE001
+            ds_keys = []
+        if not ds_keys:
+            ds_keys = [
+                k for k in self.api_keys
+                if str(k).startswith(("sk-", "ds:", "gsk_", "groq:", "or:"))
+            ]
 
         tho: list[dict] | None = None
-        if ds_keys and not la_ultra_3_luot:
+        if ds_keys:
             try:
                 loi_nhac_ocr = LOI_NHAC
-                if la_pro_2_luot:
+                if la_ultra_3_luot or la_pro_2_luot:
                     loi_nhac_ocr = (
                         f"{LOI_NHAC} Carefully read small handwritten notes, whispers outside speech bubbles, "
                         "and stylized fonts. Do NOT box giant decorative sound effects (SFX) drawn over character faces."
@@ -387,7 +386,7 @@ class AIGeminiDetector:
                         api_keys=ds_keys,
                         model_name="deepseek-chat",
                         timeout=max(20, int(self.timeout)),
-                        temperature=0.25,
+                        temperature=0.20 if la_ultra_3_luot else 0.25,
                         boi_canh=(boi_canh or "").strip(),
                         json_mode=True,
                     )
@@ -404,8 +403,8 @@ class AIGeminiDetector:
                             for idx, m in enumerate(ds_hop_le)
                         ]
                         logger.info(
-                            "ai_gemini + deepseek-chat hybrid: %s -> %d khung (Gemini 1-tile OCR + DeepSeek translate)",
-                            image_path, len(tho),
+                            "ai_gemini + deepseek-chat hybrid (%spx): %s -> %d khung (Gemini OCR + DeepSeek translate)",
+                            canh_dung, image_path, len(tho),
                         )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Nhánh hybrid Gemini OCR + DeepSeek lỗi (%s) -> lùi về gộp 1 lượt", exc)
