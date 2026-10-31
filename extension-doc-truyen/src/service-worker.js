@@ -170,13 +170,15 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false,
   let tuDienTuHoc = ''
   try {
     const dHoc = await chrome.storage.local.get({ boNhoTuHocTruyen: {} })
-    const gioiHanTuHoc = laCheDoUltra ? 120 : (laCheDoPro ? 60 : 15)
+    // Giữ nguyên 100% sức mạnh gốc cho Model 1 (30 từ điển + 10 dòng ngữ cảnh trang trước);
+    // nâng cấp cộng thêm cho Model 2 Pro (60 từ + 16 dòng) và Model 3 Ultra (120 từ + 24 dòng).
+    const gioiHanTuHoc = laCheDoUltra ? 120 : (laCheDoPro ? 60 : 30)
     const entries = Object.entries(dHoc?.boNhoTuHocTruyen || {}).slice(-gioiHanTuHoc)
     if (entries.length) {
       tuDienTuHoc = entries.map(([k, v]) => `${k} = ${v}`).join('\n')
     }
   } catch {}
-  const soDongNguCanh = laCheDoUltra ? 24 : (laCheDoPro ? 12 : 5)
+  const soDongNguCanh = laCheDoUltra ? 24 : (laCheDoPro ? 16 : 10)
   const chuoiNguCanhTab = await layChuoiNguCanhTab(tabId, soDongNguCanh)
   const chiDanCapDo = laCheDoUltra
     ? [

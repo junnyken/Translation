@@ -7219,7 +7219,7 @@ class AppDichTruyenWindows(tk.Tk):
 
                     def submit(data, index, context):
                         bo_nho_hoc = nap_bo_nho_tu_hoc()
-                        so_tu_hoc = 120 if options["engine"] == "llm_context" else (60 if options["engine"] == "local_hybrid_pro" else 15)
+                        so_tu_hoc = 120 if options["engine"] == "llm_context" else (60 if options["engine"] == "local_hybrid_pro" else 30)
                         goi_y_hoc = ", ".join(f"{k}={v}" for k, v in list(bo_nho_hoc.items())[-so_tu_hoc:])
                         chi_dan_tier = (
                             "[CHẾ ĐỘ ULTRA CLOUD AI 3 LƯỢT — ĐÔI MẮT GEMINI VISION 2K & DEEPSEEK SCANLATION]"

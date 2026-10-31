@@ -1776,13 +1776,6 @@ async def doc_truyen_gui_trang(
         la_ultra_3_luot = "[CHẾ ĐỘ ULTRA CLOUD AI 3 LƯỢT" in (tu_dien_rieng or "")
         la_pro_2_luot = "[CHẾ ĐỘ AI PRO 2 LƯỢT" in (tu_dien_rieng or "")
         await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=page.id)
-        if la_ultra_3_luot:
-            for idx_extra in (1, 2):
-                uid_ultra = uuid.uuid5(uuid.NAMESPACE_URL, f"ultra-extra-credit:{page.id}:{idx_extra}")
-                await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=uid_ultra)
-        elif la_pro_2_luot:
-            uid_pro_2 = uuid.uuid5(uuid.NAMESPACE_URL, f"pro-extra-credit:{page.id}")
-            await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=uid_pro_2)
         if request_key is not None:
             session.add(UploadRequest(owner_id=owner_id, request_key=request_key,
                                       request_hash=request_hash, page_id=page.id))
