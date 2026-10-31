@@ -65,12 +65,13 @@ def luu_tuy_chon_du_an(
     *,
     font_style: str | None = None,
     tu_dien_rieng: str | None = None,
+    xoa_tu_dien_neu_rong: bool = False,
     strict: bool = False,
 ) -> None:
     """Cập nhật `font_family` hoặc `tu_dien_rieng` vào `projects/{project_id}/tuy_chon_dich.json`."""
     family = chuan_hoa_font_family(font_style)
     tu_dien = (tu_dien_rieng or "").strip()
-    if not family and not tu_dien:
+    if not family and not tu_dien and not xoa_tu_dien_neu_rong:
         return
     try:
         from app.services.storage import get_storage
@@ -82,6 +83,8 @@ def luu_tuy_chon_du_an(
             hien_tai["font_family"] = family
         if tu_dien:
             hien_tai["tu_dien_rieng"] = tu_dien[:4000]
+        elif xoa_tu_dien_neu_rong and "tu_dien_rieng" in hien_tai:
+            hien_tai.pop("tu_dien_rieng", None)
         storage.save(rel, json.dumps(hien_tai, ensure_ascii=False).encode("utf-8"))
     except Exception as exc:  # noqa: BLE001
         logger.warning("Không lưu được tuỳ chọn dịch cho project %s: %s", project_id, exc)

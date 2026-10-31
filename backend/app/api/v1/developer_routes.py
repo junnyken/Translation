@@ -728,7 +728,12 @@ async def developer_dich_anh(
         storage.save_page_image, project.id, page.id, data, ext
     )
 
-    bam_anh = tinh_bam_anh(data)
+    bam_anh_goc = tinh_bam_anh(data)
+    bam_anh = (
+        f"{bam_anh_goc}_ultra3"
+        if la_ultra_3_luot
+        else (f"{bam_anh_goc}_pro2" if la_pro_2_luot else bam_anh_goc)
+    )
     if settings.doc_truyen_dung_cache_anh:
         trung_cache = await thu_sao_chep_tu_cache(
             session,

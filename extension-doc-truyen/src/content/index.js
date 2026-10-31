@@ -72,6 +72,12 @@ void (async () => {
     fr: '🇫🇷 FR',
   }
   const DS_MA_NGON_NGU_DICH = Object.keys(NHAN_NGON_NGU_DICH_NOI)
+  const NHAN_ENGINE_AI_NOI = {
+    local_ocr_gpu: '⚡ 1 Lượt',
+    local_hybrid_pro: '🧠 2 Lượt Pro',
+    llm_context: '✨ 3 Lượt Ultra',
+  }
+  const DS_MA_ENGINE_AI = Object.keys(NHAN_ENGINE_AI_NOI)
   const layThongSoFont = (maFont) => KHO_FONT_TRUYEN[maFont] || KHO_FONT_TRUYEN.bangers
 
   if (!window[CO].daNapFont && typeof FontFace !== 'undefined') {
@@ -104,6 +110,11 @@ void (async () => {
         window[CO].ngonNguDichHienTai = thayDoi.ngonNguDich.newValue
         const nutNnDich = document.getElementById('translation-nut-ngon-ngu-dich')
         if (nutNnDich) nutNnDich.textContent = NHAN_NGON_NGU_DICH_NOI[thayDoi.ngonNguDich.newValue] || '🇻🇳 VI'
+      }
+      if (thayDoi.engine?.newValue) {
+        window[CO].engineHienTai = thayDoi.engine.newValue
+        const nutModel = document.getElementById('translation-nut-doi-model')
+        if (nutModel) nutModel.textContent = NHAN_ENGINE_AI_NOI[thayDoi.engine.newValue] || '⚡ 1 Lượt'
       }
       if (thayDoi.cheDoSfx?.newValue) {
         window[CO].cheDoSfx = thayDoi.cheDoSfx.newValue
@@ -1834,6 +1845,45 @@ void (async () => {
         }
       })
 
+      // Nút đổi nhanh Cấp độ Model AI (1 lượt / 2 lượt Pro / 3 lượt Ultra) ngay trên thanh nổi
+      const nutModel = document.createElement('button')
+      nutModel.id = 'translation-nut-doi-model'
+      nutModel.type = 'button'
+      nutModel.title = 'Bấm để đổi nhanh cấp độ Model AI:\n• ⚡ 1 Lượt: Nhanh & tiết kiệm\n• 🧠 2 Lượt Pro: Chữ viết tay & Sổ tay 60 từ\n• ✨ 3 Lượt Ultra: 2K Đa phương thức Gemini & DeepSeek'
+      const capNhatNutModel = () => {
+        const eng = window[CO].engineHienTai || 'local_ocr_gpu'
+        nutModel.textContent = NHAN_ENGINE_AI_NOI[eng] || '⚡ 1 Lượt'
+        const bg = eng === 'llm_context'
+          ? 'rgba(217,119,6,.45)'
+          : (eng === 'local_hybrid_pro' ? 'rgba(124,58,237,.42)' : 'rgba(14,165,233,.32)')
+        const bd = eng === 'llm_context'
+          ? 'rgba(251,191,36,.65)'
+          : (eng === 'local_hybrid_pro' ? 'rgba(167,139,250,.55)' : 'rgba(56,189,248,.45)')
+        nutModel.style.cssText = `${kieuNut};background:${bg};border-color:${bd}`
+      }
+      capNhatNutModel()
+      chrome.storage?.local?.get?.({ engine: 'local_ocr_gpu' })
+        ?.then?.((d) => {
+          if (d?.engine && NHAN_ENGINE_AI_NOI[d.engine]) {
+            window[CO].engineHienTai = d.engine
+            capNhatNutModel()
+          }
+        })
+        ?.catch?.(() => {})
+      nutModel.addEventListener('click', async () => {
+        const hienTaiEng = window[CO].engineHienTai || 'local_ocr_gpu'
+        const idxEng = DS_MA_ENGINE_AI.indexOf(hienTaiEng)
+        const tiepEng = DS_MA_ENGINE_AI[(idxEng + 1) % DS_MA_ENGINE_AI.length]
+        window[CO].engineHienTai = tiepEng
+        capNhatNutModel()
+        try {
+          await chrome.storage?.local?.set?.({ engine: tiepEng })
+        } catch {}
+        if (!window[CO].dangChay) {
+          ;(window[CO].dichTrangHienTai || dichTrangHienTai)()
+        }
+      })
+
       // Nút đổi nhanh Font theo thể loại ngay trên thanh nổi
       const dsMaFont = Object.keys(KHO_FONT_TRUYEN)
       const nutFont = document.createElement('button')
@@ -2095,7 +2145,7 @@ void (async () => {
       nutThuGon.id = 'translation-nut-thu-gon'
       nutThuGon.type = 'button'
       nutThuGon.style.cssText = `${kieuNut};padding:5px 9px;font-weight:700`
-      const dsNutChinh = [nutDich, nutChapter, nutCuon, nutSnip, nutDichRa, nutFont, nutChuNho, nutChuTo, nutSfx, nutCoVe, nutHoanTacCo, nutLuuAnh, nut]
+      const dsNutChinh = [nutDich, nutChapter, nutCuon, nutSnip, nutModel, nutDichRa, nutFont, nutChuNho, nutChuTo, nutSfx, nutCoVe, nutHoanTacCo, nutLuuAnh, nut]
       const apDungThuGon = (thuGon) => {
         window[CO].thanhThuGon = thuGon
         // Khi thu gọn chỉ giữ nút Dịch trang + nút mở rộng để không che nội dung truyện

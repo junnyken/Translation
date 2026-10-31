@@ -124,6 +124,23 @@ LOI_NHAC = (
 def xay_loi_nhac_gop_dich(source_lang: str, target_lang: str, boi_canh: str = "") -> str:
     """E96 + E104 — Lời nhắc gộp Nhận diện + Đọc chữ + Dịch ngữ cảnh trong 1 lượt gọi (hỗ trợ đích `vi` và `en`)."""
     boi_canh_sach = (boi_canh or "").strip()
+    la_ultra_3_luot = "[CHẾ ĐỘ ULTRA CLOUD AI 3 LƯỢT" in boi_canh_sach
+    la_pro_2_luot = "[CHẾ ĐỘ AI PRO 2 LƯỢT" in boi_canh_sach
+    chi_dan_cap_do_vi = ""
+    if la_ultra_3_luot:
+        chi_dan_cap_do_vi = (
+            "- [CHẾ ĐỘ ULTRA 3 LƯỢT · 2K MULTIMODAL SCANLATION]: Quan sát kỹ nét vẽ 2K (biểu cảm gương mặt, "
+            "trang phục, tuổi tác, vị thế trên-dưới của từng nhân vật trong khung tranh) để suy luận chính xác "
+            "đại từ xưng hô (Ta-Ngươi, Huynh-Đệ, Sư phụ-Đệ tử, Bệ hạ-Thuộc hạ, Tiền bối-Hậu bối, Anh-Em, Mày-Tao). "
+            "Trau chuốt câu văn mượt mà, giàu cảm xúc chuẩn nhóm dịch Scanlation chuyên nghiệp; đọc sạch cả chữ "
+            "viết tay siêu nhỏ, lời lầm bầm góc khung và biển hiệu quan trọng.\n"
+        )
+    elif la_pro_2_luot:
+        chi_dan_cap_do_vi = (
+            "- [CHẾ ĐỘ AI PRO 2 LƯỢT · CHỮ VIẾT TAY & TỰ HỌC]: Quét kỹ các dòng chữ viết tay (handwritten), "
+            "chữ chibi lầm bầm bên ngoài bong bóng thoại và chú thích lề trang; giữ đồng nhất 100% đại từ xưng hô "
+            "và thuật ngữ theo sổ tay từ điển đính kèm.\n"
+        )
     if str(target_lang).lower() == "en":
         return (
             f"{LOI_NHAC}\n\n"
@@ -146,6 +163,7 @@ def xay_loi_nhac_gop_dich(source_lang: str, target_lang: str, boi_canh: str = ""
         "- Dịch theo mạch văn và hình ảnh của cả trang, không dịch rời rạc từng khung.\n"
         "- Bám sát nghĩa gốc, giữ giọng điệu nhân vật; đại từ xưng hô tiếng Việt (Ta/Bà/Tôi/Cậu/Anh/Em…) "
         "phải khớp với ngoại hình, độ tuổi, biểu cảm nhân vật trên tranh và ngữ cảnh trang trước.\n"
+        f"{chi_dan_cap_do_vi}"
         "- Chữ tượng thanh / tiếng động vẽ cách điệu (SFX như カラン, コロン, ドン…): dịch sang từ tượng "
         "thanh tiếng Việt tự nhiên (Keng, Cộp, Rầm, Ực…), không phiên âm thành tên người. LƯU Ý QUAN TRỌNG: "
         "TUYỆT ĐỐI KHÔNG khoanh hộp đè lên các chữ SFX vẽ cọ khổng lồ chạy chéo qua mặt/đầu nhân vật hoặc "

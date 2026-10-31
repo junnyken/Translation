@@ -1773,19 +1773,28 @@ async def doc_truyen_gui_trang(
         artifacts.page_id = page.id
         # Giữ chỗ SAU khi tệp đã qua kiểm (tệp hỏng không được mất lượt) và TRƯỚC khi ghi xuống kho
         # (hết lượt thì không ghi tệp nào). Ném 429 ở đây ⇒ giao dịch huỷ ⇒ trang vừa flush biến mất.
+        la_ultra_3_luot = "[CHẾ ĐỘ ULTRA CLOUD AI 3 LƯỢT" in (tu_dien_rieng or "")
+        la_pro_2_luot = "[CHẾ ĐỘ AI PRO 2 LƯỢT" in (tu_dien_rieng or "")
         await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=page.id)
+        if la_ultra_3_luot:
+            for idx_extra in (1, 2):
+                uid_ultra = uuid.uuid5(uuid.NAMESPACE_URL, f"ultra-extra-credit:{page.id}:{idx_extra}")
+                await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=uid_ultra)
+        elif la_pro_2_luot:
+            uid_pro_2 = uuid.uuid5(uuid.NAMESPACE_URL, f"pro-extra-credit:{page.id}")
+            await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=uid_pro_2)
         if request_key is not None:
             session.add(UploadRequest(owner_id=owner_id, request_key=request_key,
                                       request_hash=request_hash, page_id=page.id))
 
         storage = get_storage()
         artifacts.storage = storage
-        if font_style or tu_dien_rieng:
-            from app.services.typeset.chon_font import luu_tuy_chon_du_an
-            await run_in_threadpool(
-                luu_tuy_chon_du_an, project.id, font_style=font_style, tu_dien_rieng=tu_dien_rieng,
-                **({"strict": True} if project.cau_hinh_rieng else {}),
-            )
+        from app.services.typeset.chon_font import luu_tuy_chon_du_an
+        await run_in_threadpool(
+            luu_tuy_chon_du_an, project.id, font_style=font_style, tu_dien_rieng=tu_dien_rieng,
+            xoa_tu_dien_neu_rong=not bool((tu_dien_rieng or "").strip()),
+            **({"strict": True} if project.cau_hinh_rieng else {}),
+        )
 
         data = await run_in_threadpool(thu_nho_anh_trang, data, ext, settings.anh_trang_canh_dai_toi_da)
         page.image_path = await run_in_threadpool(
@@ -1798,7 +1807,12 @@ async def doc_truyen_gui_trang(
             tinh_bam_anh,
         )
 
-        bam_anh = tinh_bam_anh(data)
+        bam_anh_goc = tinh_bam_anh(data)
+        bam_anh = (
+            f"{bam_anh_goc}_ultra3"
+            if la_ultra_3_luot
+            else (f"{bam_anh_goc}_pro2" if la_pro_2_luot else bam_anh_goc)
+        )
         if settings.doc_truyen_dung_cache_anh:
             trung_cache = await thu_sao_chep_tu_cache(
                 session,
@@ -1940,8 +1954,16 @@ async def doc_truyen_lay_trang(
 
             st_cache = get_storage()
             if await run_in_threadpool(st_cache.exists, page.image_path):
+                from app.services.typeset.chon_font import doc_tu_dien_du_an
+
                 raw_img = await run_in_threadpool(st_cache.read, page.image_path)
-                bam_anh = tinh_bam_anh(raw_img)
+                bam_anh_goc = tinh_bam_anh(raw_img)
+                td_cache = await run_in_threadpool(doc_tu_dien_du_an, project.id)
+                bam_anh = (
+                    f"{bam_anh_goc}_ultra3"
+                    if "[CHẾ ĐỘ ULTRA CLOUD AI 3 LƯỢT" in td_cache
+                    else (f"{bam_anh_goc}_pro2" if "[CHẾ ĐỘ AI PRO 2 LƯỢT" in td_cache else bam_anh_goc)
+                )
                 eng_cache = page.translate_engine_override or TranslationEngine.llm_context
                 ghi_nhan_trang_anh(
                     bam_anh,
