@@ -112,58 +112,79 @@ void (async () => {
     })
   }
 
-  // Chế độ xử lý chữ tượng thanh (SFX) vẽ thẳng lên tranh như STOMP, ズシン, BOOM...:
-  // - `ghi_chu`   (mặc định): GIỮ NGUYÊN nét vẽ gốc, chỉ gắn 1 nhãn dịch nhỏ bên cạnh — chuẩn nhóm dịch scanlation.
-  // - `giu_nguyen`: Không đụng vào SFX (không xoá, không dịch).
-  // - `dich_de`  : Xoá chữ gốc rồi đè chữ dịch lên như bóng thoại (cách cũ — dễ nhoè trên nền tranh phức tạp).
-  const DS_CHE_DO_SFX = ['ghi_chu', 'giu_nguyen', 'dich_de']
+  // Chế độ xử lý chữ tượng thanh (SFX) vẽ thẳng lên tranh như STOMP, SPLRRRSH, ズシン, ドジュウウウウ...:
+  // - `giu_nguyen` (mặc định): Không xoá, không dịch đè lên chữ SFX vẽ cách điệu để giữ nguyên 100% nét vẽ tranh gốc, không bị nhoè hay mất hình.
+  // - `ghi_chu`   : Giữ nguyên nét vẽ gốc, chỉ gắn 1 nhãn dịch nhỏ bên cạnh.
+  // - `dich_de`   : Xoá chữ gốc rồi đè chữ dịch lên như bóng thoại.
+  const DS_CHE_DO_SFX = ['giu_nguyen', 'ghi_chu', 'dich_de']
   const NHAN_CHE_DO_SFX = {
-    ghi_chu: '💥 SFX: Ghi chú',
     giu_nguyen: '💥 SFX: Giữ gốc',
+    ghi_chu: '💥 SFX: Ghi chú',
     dich_de: '💥 SFX: Dịch đè',
   }
   if (!window[CO].cheDoSfx) {
-    window[CO].cheDoSfx = 'ghi_chu'
-    chrome.storage?.local?.get?.({ cheDoSfx: 'ghi_chu' })
+    window[CO].cheDoSfx = 'giu_nguyen'
+    chrome.storage?.local?.get?.({ cheDoSfx: 'giu_nguyen' })
       ?.then?.((d) => {
         if (d?.cheDoSfx && DS_CHE_DO_SFX.includes(d.cheDoSfx)) window[CO].cheDoSfx = d.cheDoSfx
       })
       ?.catch?.(() => {})
   }
 
-  const TU_TUONG_THANH_SFX = /^(?:stomp|bam|boom|ba-?boom|bang|blam|clang|cling|clong|clank|crack|crash|crunch|thud|thump|whoosh|fwoosh|woosh|swish|swoosh|slash|shing|zoom|zap|zip|wham|whack|smack|slam|pow|kaboom|rumble|grr+|rrr+|doki|ba-?dump|dun|don|gogo+|zuzu+|kra+k|krak|shwa|fwip|tap|tak|thwack|splash|drip|tick|tock|ding|dong|ring|beep|snap|pop|poof|puff|rustle|creak|clatter|vrr+|brr+|wobble|ripple|flash|flap|flutter|sway|shake|tremble|gasp|huff|pant|sniff|sob|gulp|ba-?dum|thump-?thump)[!.?~]*$/i
+  const TU_TUONG_THANH_SFX = /^(?:splr*sh|splash|spurt|splat|stomp|bam|boom|ba-?boom|bang|blam|clang|cling|clong|clank|clink|crack|crackle|crash|crunch|thud|thump|whoosh|fwoosh|woosh|swish|swoosh|slash|slice|shing|zoom|zap|zip|zzt+|bzz+|wham|whack|smack|slam|pow|kaboom|rumble|roar+|screech|shriek|grr+|rrr+|krr+|skrr+|doki|ba-?dump|dun|don|gogo+|zuzu+|kra+k|krak|shwa+|fwip|fump|tap|tak|thwack|drip|drop|tick|tock|ding|dong|ring|beep|snap|pop|poof|puff|rustle|creak|clatter|shatter|sizzle|hiss+|fizz+|whirr+|vrr+|brr+|wobble|ripple|flash|flap|flutter|sway|shake|tremble|gasp|huff|pant|sniff|sob|gulp|ba-?dum|thump-?thump)[!.?~]*$/i
 
-  const TU_TUONG_THANH_VI = /^(?:dậm|thình\s*thịch|keng(?:\s*keng)?|leng\s*keng|vụt|vù(?:\s*vù)?|ầm(?:\s*ầm)?|đùng(?:\s*đùng)?|rầm|xoẹt|bốp|chát|rắc|uỳnh|ào(?:\s*ào)?|roạt|soạt|phập|phụt|két|rít|gừ+|rừ+|vút|xẹt|cạch|cộp(?:\s*cộp)?|lộp\s*cộp|loảng\s*xoảng)[!?.…~]*$/i
+  const TU_TUONG_THANH_VI = /^(?:xè+|xèo+|xẹt+|xoẹt+|vụt+|vù+|vút+|vèo+|keng(?:\s*keng)?|leng\s*keng|loảng\s*xoảng|dậm+|thình\s*thịch|bịch+|bốp+|cốp+|chát+|rắc+|krắc+|crắc+|uỳnh+|đùng(?:\s*đùng|\s*đoàng)?|ầm(?:\s*ầm|\s*ĩ)?|rầm+|bùm+|ào(?:\s*ào)?|rào(?:\s*rào)?|roạt+|soạt+|sột\s*soạt|phập+|phụt+|phịch+|phựt+|bựt+|phạch+|bạch+|két+|kít+|rít+|gừ+|rừ+|grừ+|cạch+|cộp(?:\s*cộp)?|lộp\s*cộp|lộp\s*bộp|tách+|tí\s*tách|tõm+|ủm+|ùng\s*ục|khè+|phù+|u+|ù+|rè+|zè+|xì+|xì\s*xèo)[!?.…~]*$/i
 
   /**
-   * Nhận diện vùng chữ là TIẾNG ĐỘNG (SFX) vẽ cách điệu thẳng lên nền tranh, không nằm trong bong bóng thoại.
-   * Cần CẢ HAI điều kiện để tránh bắt nhầm câu thoại/lời dẫn:
-   * 1. Hình học: không phải bong bóng khép kín (`!_laBongKhepKin`) VÀ nằm trên nền phức tạp hoặc rò rỉ biên.
-   * 2. Nội dung: chữ gốc hoặc bản dịch rất ngắn kiểu tượng thanh (toàn kana ≤ 6 ký tự, hoặc 1–2 từ Latin/Việt trong danh sách SFX,
-   *    hoặc 1 từ in hoa ≤ 10 chữ cái lặp âm như "KRAAAK").
+   * Nhận diện vùng chữ là TIẾNG ĐỘNG (SFX) vẽ cách điệu thẳng lên tranh (như SPLRRRSH, ドジュウウウウ, STOMP, XÈÈÈÈ!).
+   * Mặc định ở chế độ `giu_nguyen`, các vùng SFX này sẽ được giữ nguyên 100% nét vẽ gốc, tuyệt đối không xoá nền
+   * để tránh làm mất hình nhân vật hoặc gây vệt nhoè trên tranh.
    */
   function laVungSfx(v) {
     if (!v || v._sfxDichDe) return false
-    if (v._laBongKhepKin === undefined) return false
-    if (v._laBongKhepKin) return false
-    if (!(v._laNenPhucTap || v._roRiBien)) return false
     const dich = String(v.ban_dich || '').trim()
+    const goc = String(v.chu_goc || '').trim()
+
+    // 1. Kiểm tra trực tiếp từ tượng thanh rõ ràng trong bản dịch Tiếng Việt (vd: "XÈÈÈÈ!", "DẬM. THÌNH THỊCH.", "KENG KENG.", "VỤT.")
     if (dich) {
-      const cauDich = dich.split(/[.!?…]+/).map((s) => s.trim()).filter(Boolean)
-      if (cauDich.length >= 1 && cauDich.length <= 2 && cauDich.every((c) => TU_TUONG_THANH_VI.test(c))) {
+      const cauDich = dich.split(/[.!?…~]+/).map((s) => s.trim()).filter(Boolean)
+      if (cauDich.length >= 1 && cauDich.length <= 3 && cauDich.every((c) => TU_TUONG_THANH_VI.test(c))) {
+        return true
+      }
+      const tuDich = dich.replace(/[.!?…~]+/g, '').trim().split(/\s+/).filter(Boolean)
+      if (tuDich.length >= 1 && tuDich.length <= 2 && /(.)\1{2,}/iu.test(dich)) {
         return true
       }
     }
-    const goc = String(v.chu_goc || '').trim()
-    if (!goc) return false
-    const gocGon = goc.replace(/[\s!！?？.…~〜ー―\-・♡♥]+/g, '')
-    if (!gocGon) return false
-    if (/^[\u3040-\u30ff\uff66-\uff9f]+$/.test(gocGon) && gocGon.length <= 6) return true
-    if (/^[\uac00-\ud7af]+$/.test(gocGon) && gocGon.length <= 4) return true
-    const tu = goc.split(/\s+/).filter(Boolean)
-    if (tu.length > 2) return false
-    if (tu.every((t) => TU_TUONG_THANH_SFX.test(t))) return true
-    if (tu.length === 1 && /^[A-Z]{2,10}[!.?]*$/.test(goc) && /([A-Z])\1{1,}/.test(goc)) return true
+
+    // 2. Kiểm tra trực tiếp từ tượng thanh trong chữ gốc (vd: "SPLRRRSH", "STOMP", "KRAAAK", "ドジュウウウウ")
+    if (goc) {
+      const tuGoc = goc.replace(/[.!！?？…~〜ー―\-・]+/g, ' ').trim().split(/\s+/).filter(Boolean)
+      if (tuGoc.length >= 1 && tuGoc.length <= 3 && tuGoc.every((t) => TU_TUONG_THANH_SFX.test(t))) {
+        return true
+      }
+      if (tuGoc.length >= 1 && tuGoc.length <= 2 && /([A-Za-z])\1{2,}/.test(goc)) {
+        return true
+      }
+    }
+
+    // 3. Kiểm tra kết hợp hình học (không phải bong bóng thoại khép kín) + đặc trưng chữ SFX ngắn
+    if (v._laBongKhepKin) return false
+    if (goc) {
+      const gocGon = goc.replace(/[\s!！?？.…~〜ー―\-・♡♥]+/g, '')
+      if (/^[\u3040-\u30ff\uff66-\uff9f]+$/.test(gocGon) && gocGon.length <= 10) return true
+      if (/^[\uac00-\ud7af]+$/.test(gocGon) && gocGon.length <= 6) return true
+      const tu = goc.split(/\s+/).filter(Boolean)
+      if (tu.length === 1 && /^[A-Z]{2,10}[!.?]*$/.test(goc) && /([A-Z])\1{1,}/.test(goc)) return true
+    }
+    // 4. [Chế độ AI Pro 2 lượt]: Bảo vệ tuyệt đối tranh gốc đối với vùng chữ lớn/nền phức tạp không có khung bong bóng
+    if (v._cheDoPro && (v._laNenPhucTap || ((v.w || 0) * (v.h || 0) > 14000))) {
+      const tuDich = dich.replace(/[.!?…~]+/g, '').trim().split(/\s+/).filter(Boolean)
+      const coDaiTu = /\b(ta|ngươi|tôi|cậu|anh|em|cô|ông|bà|mày|tao|chúng|hắn|nàng|chị|bọn|cháu|bác|chú|thầy|ngài|ai|gì|sao|đâu|nào)\b/iu.test(dich)
+      if (tuDich.length >= 1 && tuDich.length <= 2 && !coDaiTu && /[A-ZÀÁẢÃẠĂẮẰẲẴẶÂẤẦẨẪẬĐÈÉẺẼẸÊẾỀỂỄỆÌÍỈĨỊÒÓỎÕỌÔỐỒỔỖỘƠỚỜỞỠỢÙÚỦŨỤƯỨỪỬỮỰỲÝỶỸỴ]{2,}/.test(dich)) {
+        return true
+      }
+    }
     return false
   }
 
@@ -914,7 +935,7 @@ void (async () => {
         demLongTrang > dienTichHopGoc * 5.2
       )
       const laNenPhucTap = (tyLeNenTrongHop < 0.28) || (roRiBien && !laBongMauDongNhat) || (doLechMauNen > 44)
-      const laBongKhepKin = !roRiBien && !laNenPhucTap && laBongMauDongNhat
+      const laBongKhepKin = !roRiBien && !laNenPhucTap && laBongMauDongNhat && (demLongTrang >= dienTichHopGoc * 0.36)
       v._laNenPhucTap = laNenPhucTap
       // Lưu thêm 2 cờ để `laVungSfx` nhận ra chữ tượng thanh vẽ thẳng lên nền tranh (không có bong bóng)
       v._laBongKhepKin = laBongKhepKin
@@ -1012,6 +1033,64 @@ void (async () => {
         }
       }
 
+      // [Bảo vệ nét vẽ nhân vật nâng cao — đặc biệt cho Chế độ AI Pro 2 lượt]:
+      // Khi KHÔNG phải bong bóng thoại khép kín (`!laBongKhepKin`), nếu hộp chữ rộng đè lên đầu/mặt nhân vật hoặc
+      // mảng mực lớn không chạm biên `ex0..ey1`, lọc bỏ các mảng đặc khổng lồ khỏi `laChuGoc` để không xoá mất đầu nhân vật.
+      if (!laBongKhepKin && (v._cheDoPro || laNenPhucTap || dienTichHopGoc > 10000)) {
+        const daKiemCoLap = new Uint8Array(N)
+        const nguongMangDacToiDa = v._cheDoPro
+          ? Math.max(260, Math.round(dienTichHopGoc * 0.16))
+          : Math.max(380, Math.round(dienTichHopGoc * 0.24))
+        const maxRongCoLap = Math.max(42, Math.round(wGoc * (v._cheDoPro ? 0.48 : 0.58)))
+        const maxCaoCoLap = Math.max(42, Math.round(hGoc * (v._cheDoPro ? 0.48 : 0.58)))
+        for (let py = ey0; py < ey1; py += 1) {
+          const base = py * rw
+          for (let px = ex0; px < ex1; px += 1) {
+            const sPos = base + px
+            if (!laChuGoc[sPos] || daKiemCoLap[sPos]) continue
+            dau = 0
+            cuoi = 0
+            daKiemCoLap[sPos] = 1
+            hangDoi[cuoi++] = sPos
+            let minX = px, maxX = px, minY = py, maxY = py
+            while (dau < cuoi) {
+              const p = hangDoi[dau++]
+              const x = p % rw
+              const y = (p - x) / rw
+              if (x < minX) minX = x
+              if (x > maxX) maxX = x
+              if (y < minY) minY = y
+              if (y > maxY) maxY = y
+              for (let dy = -1; dy <= 1; dy += 1) {
+                const ny = y + dy
+                if (ny < ey0 || ny >= ey1) continue
+                const nBase = ny * rw
+                for (let dx = -1; dx <= 1; dx += 1) {
+                  if (dx === 0 && dy === 0) continue
+                  const nx = x + dx
+                  if (nx < ex0 || nx >= ex1) continue
+                  const np = nBase + nx
+                  if (!laChuGoc[np] || daKiemCoLap[np]) continue
+                  daKiemCoLap[np] = 1
+                  hangDoi[cuoi++] = np
+                }
+              }
+            }
+            const cW = maxX - minX + 1
+            const cH = maxY - minY + 1
+            if (cuoi > nguongMangDacToiDa || (cW > maxRongCoLap && cH > maxCaoCoLap)) {
+              for (let k = 0; k < cuoi; k += 1) {
+                const p = hangDoi[k]
+                laChuGoc[p] = 0
+                const x = p % rw
+                const y = (p - x) / rw
+                if (x >= cx0 && x < cx1 && y >= cy0 && y < cy1 && demChuCoLap > 0) demChuCoLap -= 1
+              }
+            }
+          }
+        }
+      }
+
       // Phân tích thành phần liên thông 2D (CCA) cho các cụm nét mực bị chạm mép `ex0..ey1` (`ketNoiBienHop === 1`):
       // Một ký tự / dấu câu / chữ Hán / chữ Hàn bị Gemini khoanh thiếu và cắt qua biên `ex0..ey1` sẽ có kích thước
       // bao quanh `(compW, compH)` nhỏ gọn (không bao giờ dài bằng cả khung viền bong bóng) và không chạm biên ngoài ROI.
@@ -1101,8 +1180,9 @@ void (async () => {
       // Xử lý trường hợp chữ đè lên nền kẻ sọc/screentone hoặc chữ in đậm chạm nhẹ vào đường viền bong bóng
       // trong vùng mở rộng quanh lõi chữ `[cx0 - padRescue .. cx1 + padRescue]`:
       const tyLeChuCoLap = demChuCoLap / Math.max(1, demNetTrongHop)
-      const banKinhLoiChoPhep = tyLeChuCoLap < 0.72 ? 1.08 : 0.86
-      const doDayNetToiDa = tyLeChuCoLap < 0.72 ? 11 : 8
+      const baoVeNetTranhPro = !laBongKhepKin && laNenPhucTap && v._cheDoPro
+      const banKinhLoiChoPhep = baoVeNetTranhPro ? 0.76 : (tyLeChuCoLap < 0.72 ? 1.08 : 0.86)
+      const doDayNetToiDa = baoVeNetTranhPro ? 5 : (tyLeChuCoLap < 0.72 ? 11 : 8)
       const rxRescue0 = Math.max(ex0 + 1, cx0 - Math.round(padCheX * 0.45))
       const ryRescue0 = Math.max(ey0 + 1, cy0 - Math.round(padCheY * 0.45))
       const rxRescue1 = Math.min(ex1 - 1, cx1 + Math.round(padCheX * 0.45))
@@ -1997,12 +2077,12 @@ void (async () => {
       nutSfx.type = 'button'
       nutSfx.title = 'Cách xử lý chữ tiếng động vẽ trên tranh (STOMP, ズシン, BOOM...):\n• Ghi chú: giữ nét vẽ gốc + nhãn dịch nhỏ (khuyên dùng)\n• Giữ gốc: không dịch SFX\n• Dịch đè: xoá chữ gốc rồi đè chữ dịch (dễ nhoè)'
       const capNhatNutSfx = () => {
-        nutSfx.textContent = NHAN_CHE_DO_SFX[window[CO].cheDoSfx || 'ghi_chu']
+        nutSfx.textContent = NHAN_CHE_DO_SFX[window[CO].cheDoSfx || 'giu_nguyen']
         nutSfx.style.cssText = kieuNut
       }
       capNhatNutSfx()
       nutSfx.addEventListener('click', () => {
-        const hienTai = window[CO].cheDoSfx || 'ghi_chu'
+        const hienTai = window[CO].cheDoSfx || 'giu_nguyen'
         const tiep = DS_CHE_DO_SFX[(DS_CHE_DO_SFX.indexOf(hienTai) + 1) % DS_CHE_DO_SFX.length]
         window[CO].cheDoSfx = tiep
         capNhatNutSfx()
@@ -2470,6 +2550,13 @@ void (async () => {
       })
 
       const vungCoDich = vung.filter((v) => Boolean(v.ban_dich))
+      const laCheDoPro = Boolean(
+        (!Array.isArray(dulieu) && dulieu?.che_do_pro) ||
+        window[CO].engineHienTai === 'local_hybrid_pro'
+      )
+      for (let i = 0; i < vungCoDich.length; i += 1) {
+        vungCoDich[i]._cheDoPro = laCheDoPro
+      }
       if (anh_da_dich && !vungCoDich.length) {
         const anhPhu = document.createElement('img')
         anhPhu.src = anh_da_dich
@@ -2509,7 +2596,7 @@ void (async () => {
 
         // Chữ tượng thanh (SFX) vẽ trên nền tranh: KHÔNG xoá nét vẽ gốc (xoá trên nền phức tạp sẽ để lại vệt nhoè),
         // chỉ gắn nhãn dịch nhỏ bên cạnh (hoặc bỏ qua hẳn) tuỳ `cheDoSfx`. Nhấp đúp nhãn để chuyển vùng đó sang dịch đè.
-        const cheDoSfx = window[CO].cheDoSfx || 'ghi_chu'
+        const cheDoSfx = window[CO].cheDoSfx || 'giu_nguyen'
         if (cheDoSfx !== 'dich_de' && laVungSfx(v)) {
           if (cheDoSfx === 'ghi_chu' && v.ban_dich) {
             const nhan = document.createElement('div')

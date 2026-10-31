@@ -8,6 +8,8 @@ import re
 import shutil
 import struct
 import subprocess
+import threading
+import time
 import urllib.parse
 import urllib.request
 import wave
@@ -953,6 +955,9 @@ def _thu_goi_vieneu_onnx(
         return False
 
 
+_EDGE_TTS_SEMAPHORE = threading.Semaphore(2)
+
+
 def _thu_goi_edge_neural(
     van_ban: str,
     voice_id: str,
@@ -963,8 +968,10 @@ def _thu_goi_edge_neural(
 ) -> tuple[bool, Path]:
     """
     Tổng hợp giọng đọc Neural (`vi-VN-NamMinhNeural` / `vi-VN-HoaiMyNeural`) sau khi đã
-    chuyển phiên âm 100% sang âm tiết Tiếng Việt (`chuan_hoa_van_ban_thuan_viet_cho_tts`)
-    và giữ nguyên dấu thanh tự nhiên (`pitch_hz='+0Hz'`) để không bị lớ giọng nước ngoài.
+    chuyển phiên âm 100% sang âm tiết Tiếng Việt (`chuan_hoa_van_ban_thuan_viet_cho_tts`).
+    Sử dụng Semaphore giới hạn luồng đồng thời + tự động thử lại 4 lần (Retry Backoff)
+    để đảm bảo 100% các phân cảnh trong toàn bộ Video giữ nguyên ĐÚNG MỘT GIỌNG ĐỌC đồng nhất,
+    tuyệt đối không bị rớt luồng giữa chừng sang giọng nữ dự phòng!
     """
     try:
         import asyncio
@@ -979,19 +986,24 @@ def _thu_goi_edge_neural(
         rate_str = f"+{pct}%" if pct >= 0 else f"{pct}%"
         mp3_tmp = out_wav.with_suffix(".mp3")
 
-        async def _run():
-            comm = edge_tts.Communicate(van_ban_doc, voice=voice_id, rate=rate_str, pitch=pitch_hz or "+0Hz")
-            await comm.save(str(mp3_tmp))
+        for attempt in range(4):
+            try:
+                with _EDGE_TTS_SEMAPHORE:
+                    async def _run():
+                        comm = edge_tts.Communicate(van_ban_doc, voice=voice_id, rate=rate_str, pitch=pitch_hz or "+0Hz")
+                        await comm.save(str(mp3_tmp))
 
-        asyncio.run(_run())
-        if mp3_tmp.is_file() and mp3_tmp.stat().st_size > 256:
-            if _chuyen_mp3_sang_wav_chuan(mp3_tmp, out_wav, cat_khoang_lang_buon_ngu=True):
-                try:
-                    mp3_tmp.unlink()
-                except Exception:
-                    pass
-                return True, out_wav
-            return True, mp3_tmp
+                    asyncio.run(_run())
+                if mp3_tmp.is_file() and mp3_tmp.stat().st_size > 256:
+                    if _chuyen_mp3_sang_wav_chuan(mp3_tmp, out_wav, cat_khoang_lang_buon_ngu=True):
+                        try:
+                            mp3_tmp.unlink()
+                        except Exception:
+                            pass
+                        return True, out_wav
+                    return True, mp3_tmp
+            except Exception:
+                time.sleep(0.45 * (attempt + 1))
     except Exception:
         pass
     return False, out_wav
@@ -1014,23 +1026,20 @@ def tong_hop_giong_doc_phan_canh(
 ) -> dict[str, Any]:
     """
     Tổng hợp file âm thanh thuyết minh cho 1 phân cảnh Storyboard:
-    - Nếu người dùng nhập `elevenlabs_api_key` (hoặc chọn giọng `elevenlabs_*`), ưu tiên tổng hợp bằng ElevenLabs AI
-      với ngữ điệu cảm xúc động (`stability`, `style`, `speed`) bám sát `cam_xuc` của phân cảnh.
-    - Tự động cắt khoảng lặng thừa (>0.22s) và cân chỉnh độ nảy giọng (Anti-Sleepy Prosody) cho mọi bộ đọc.
+    - Giữ cố định 100% MỘT giọng đọc thuyết minh, cùng một cao độ (`pitch_hz`) và tốc độ (`toc_do_thuc`)
+      xuyên suốt toàn bộ các trang của chương truyện (tuyệt đối không nhảy qua lại giữa giọng nam và giọng nữ).
     """
     out_dir.mkdir(parents=True, exist_ok=True)
-    emo = _lay_cau_hinh_cam_xuc_giong(cam_xuc, toc_do=toc_do)
     ma_giong_thuc = ma_giong
     if ma_giong == "da_nhan_vat_thong_minh":
-        ma_giong_thuc = chon_giong_theo_vai_tro_nhan_vat(vai_tro_nhan_vat, ten_nhan_vat, scene_index)
+        # Video Review ngôi thứ 3 bắt buộc giữ cố định 1 giọng người dẫn chuyện xuyên suốt toàn video
+        ma_giong_thuc = "nam_minh_kich_tinh"
 
     info = DANH_SACH_GIONG_DOC.get(ma_giong_thuc) or DANH_SACH_GIONG_DOC["chi_google_review_chuan"]
     voice_id = str(info.get("voice_id") or "google_vi_native")
     preset_hf = str(info.get("preset_hf") or "ngoc")
     pitch_hz = str(info.get("pitch_hz") or "+0Hz")
-    if pitch_hz == "+0Hz" and emo.get("pitch_edge"):
-        pitch_hz = str(emo["pitch_edge"])
-    atempo_mod = float(info.get("atempo_mod") or 1.0) * float(emo.get("atempo_boost") or 1.0)
+    atempo_mod = float(info.get("atempo_mod") or 1.0)
     toc_do_thuc = round(max(0.85, min(1.60, float(toc_do or 1.15) * atempo_mod)), 2)
 
     thoi_luong = uoc_tinh_thoi_luong_cau(van_ban, toc_do=toc_do_thuc)

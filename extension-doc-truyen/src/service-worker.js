@@ -165,17 +165,27 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false,
   const anh_goc_data_url = anhBase64 ? null : await blobThanhDataUrl(blob)
 
   const { ngonNgu, ngonNguDich, engine, cheDo } = await docCauHinh()
+  const laCheDoPro = engine === 'local_hybrid_pro'
   let tuDienTuHoc = ''
   try {
     const dHoc = await chrome.storage.local.get({ boNhoTuHocTruyen: {} })
-    const entries = Object.entries(dHoc?.boNhoTuHocTruyen || {}).slice(-30)
+    const gioiHanTuHoc = laCheDoPro ? 60 : 15
+    const entries = Object.entries(dHoc?.boNhoTuHocTruyen || {}).slice(-gioiHanTuHoc)
     if (entries.length) {
       tuDienTuHoc = entries.map(([k, v]) => `${k} = ${v}`).join('\n')
     }
   } catch {}
   const chuoiNguCanhTab = await layChuoiNguCanhTab(tabId)
-  const tuDienRieng = [chuoiNguCanhTab, tuDienTuHoc].filter(Boolean).join('\n')
-  bao({ giai_doan: 'dang-gui', url, che_do: cheDo, anh_goc_data_url })
+  const chiDanPro = laCheDoPro
+    ? [
+        '[CHẾ ĐỘ AI PRO 2 LƯỢT — BẢO VỆ TRANH GỐC & DỊCH SÂU CHUẨN SCANLATION]:',
+        '1) KHÔNG khoanh vùng các chữ hiệu ứng âm thanh (SFX) cỡ lớn vẽ cách điệu đè lên nhân vật/khói lửa (như SPLRRRSH, ドジュウウウウ, STOMP, ズシン, BOOM) để bảo vệ nguyên vẹn nét vẽ tranh gốc.',
+        '2) Đọc kỹ 100% chữ viết tay mảnh, lời lẩm bẩm nhỏ cạnh bóng thoại và tự suy luận sửa lỗi chữ dính nét.',
+        '3) Dịch mượt mà, giàu cảm xúc, giữ đồng nhất tuyệt đối đại từ xưng hô theo cá tính nhân vật và ngữ cảnh các trang trước.',
+      ].join('\n')
+    : ''
+  const tuDienRieng = [chiDanPro, chuoiNguCanhTab, tuDienTuHoc].filter(Boolean).join('\n')
+  bao({ giai_doan: 'dang-gui', url, che_do: cheDo, anh_goc_data_url, che_do_pro: laCheDoPro })
 
   // Chế độ Offline 100% trên máy khách bằng model GGUF cục bộ (Ollama 127.0.0.1:11434 / LM Studio 127.0.0.1:1234):
   if (engine === 'local_gguf') {
@@ -184,6 +194,7 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false,
     capNhatNguCanhTab(tabId, kqLocal.vung)
     return {
       ...kqLocal,
+      che_do_pro: laCheDoPro,
       anh_da_dich_data_url: kqLocal.anh_da_dich_data_url || null,
       anh_goc_data_url,
     }
@@ -202,6 +213,7 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false,
       capNhatNguCanhTab(tabId, kqLocal.vung)
       return {
         ...kqLocal,
+        che_do_pro: laCheDoPro,
         anh_da_dich_data_url: kqLocal.anh_da_dich_data_url || null,
         anh_goc_data_url,
       }
@@ -244,7 +256,7 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false,
         anh_da_dich_data_url = null
       }
     }
-    return { ...kqGui, anh_da_dich_data_url, anh_goc_data_url }
+    return { ...kqGui, che_do_pro: laCheDoPro, anh_da_dich_data_url, anh_goc_data_url }
   }
 
   const lucBatDau = Date.now()
@@ -259,7 +271,7 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false,
     if (Array.isArray(d.vung) && d.vung.length && ngonNguDich && ngonNguDich !== 'vi') {
       await damBaoNgonNguDich(d.vung, ngonNgu, ngonNguDich)
     }
-    bao({ giai_doan: 'dang-xu-ly', url, che_do: d.che_do || cheDo, tien_do: d.tien_do, vung: d.vung })
+    bao({ giai_doan: 'dang-xu-ly', url, che_do: d.che_do || cheDo, tien_do: d.tien_do, vung: d.vung, che_do_pro: laCheDoPro })
     if (d.loi) throw new LoiApi(0, d.loi)
     if (d.xong) {
       capNhatNguCanhTab(tabId, d.vung)
@@ -271,7 +283,7 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false,
           anh_da_dich_data_url = null
         }
       }
-      return { ...d, anh_da_dich_data_url, anh_goc_data_url }
+      return { ...d, che_do_pro: laCheDoPro, anh_da_dich_data_url, anh_goc_data_url }
     }
     if (Date.now() > han) {
       throw new LoiApi(0, 'Quá 5 phút chưa xong — máy chủ đang quá tải hoặc việc bị kẹt.')

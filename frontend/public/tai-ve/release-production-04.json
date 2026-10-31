@@ -1,9 +1,10 @@
 {
-  "windows_app_version": "1.1",
-  "windows_app_sha256": "382ce505b514a9c4e72b1109df2d58f507e4e1eccb7cd826d7c4ce158017656b",
-  "windows_setup_exe_sha256": "3aa0202243171b52c1c693bcb41a380428ec411ce4f208d372d9d9c49404d756",
-  "chrome_extension_version": "0.3.2",
-  "chrome_extension_sha256": "be49e1171ce8937627eaa11d329c401c3701fe255d90e70f0c00fd6147a5c6d4",
-  "video_studio_version": "1.0",
-  "video_studio_sha256": "96f4d2794d0a68f3aead42e638363ade2e4f42be558fbe1cd82cbf89651230a7"
+  "App-Windows-Dich-Truyen-Tu-Dong-v1.1.zip": {
+    "sha256": "652977c3d42a92b97bc8efb579bed68f836539ebbeb302736647b17bcab2a76e",
+    "bytes": 89608
+  },
+  "dich-truyen-chrome-extension-v0.3.1.zip": {
+    "sha256": "88993e1236ff0f9c23449b13d25e10fcec2b97f559247b26253e852b12a095eb",
+    "bytes": 999744
+  }
 }
