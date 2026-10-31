@@ -340,79 +340,12 @@ class AIGeminiDetector:
             raise AIDetectError(f"Không chuẩn bị được ảnh để gửi: {image_path}")
         anh, mime = da_chuan
 
-        # Khi máy chủ có cấu hình khoá DeepSeek (cho cả 3 Model: Model 1 1024px, Model 2 1024px, Model 3 1280px):
-        # - Bước 1: Gemini chỉ nhận diện toạ độ `box` + đọc chữ gốc `text` (không gửi kèm 60-120 từ điển/ngữ cảnh dài vào Gemini, không sinh `ban_dich` tốn Output token Gemini đắt gấp 4 lần).
-        # - Bước 2: Chuyển toàn bộ chữ gốc + từ điển nhân vật + dòng ngữ cảnh sang DeepSeek (`deepseek-chat`) để dịch chuẩn văn phong truyện tranh với chi phí siêu tiết kiệm & tự động Context Caching.
-        ds_keys: list[str] = []
-        try:
-            from app.core.config import dong_bo_khoa_ai_dong, get_settings
-
-            st = get_settings()
-            dong_bo_khoa_ai_dong(st)
-            ds_keys = list(st.deepseek_api_key_list or [])
-        except Exception:  # noqa: BLE001
-            ds_keys = []
-        if not ds_keys:
-            ds_keys = [
-                k for k in self.api_keys
-                if str(k).startswith(("sk-", "ds:", "gsk_", "groq:", "or:"))
-            ]
-
-        tho: list[dict] | None = None
-        if ds_keys:
-            try:
-                loi_nhac_ocr = LOI_NHAC
-                if la_ultra_3_luot or la_pro_2_luot:
-                    loi_nhac_ocr = (
-                        f"{LOI_NHAC} Carefully read small handwritten notes, whispers outside speech bubbles, "
-                        "and stylized fonts. Do NOT box giant decorative sound effects (SFX) drawn over character faces."
-                    )
-                tho_ocr = self._goi(anh, mime, loi_nhac=loi_nhac_ocr, schema=SCHEMA)
-                ds_hop_le: list[dict] = []
-                ds_chu_goc: list[str] = []
-                for muc in tho_ocr:
-                    hop = muc.get("box")
-                    chu_th = muc.get("text")
-                    chu_s = " ".join(chu_th.split()) if isinstance(chu_th, str) else ""
-                    if isinstance(hop, list) and len(hop) == 4 and chu_s and not _CHI_LA_SO.match(chu_s):
-                        ds_hop_le.append({"box": hop, "text": chu_s})
-                        ds_chu_goc.append(chu_s)
-                if not ds_hop_le:
-                    tho = []
-                else:
-                    from app.services.translate.engines import LLMContextTranslator
-
-                    tr_ds = LLMContextTranslator(
-                        api_keys=ds_keys,
-                        model_name="deepseek-chat",
-                        timeout=max(20, int(self.timeout)),
-                        temperature=0.20 if la_ultra_3_luot else 0.25,
-                        boi_canh=(boi_canh or "").strip(),
-                        json_mode=True,
-                    )
-                    ban_dich_list = tr_ds.translate(ds_chu_goc, source_lang=source_lang, target_lang=target_lang)
-                    if len(ban_dich_list) == len(ds_hop_le) and any(ban_dich_list):
-                        vung_doan = getattr(tr_ds, "vung_khong_chac", set()) or set()
-                        tho = [
-                            {
-                                "box": m["box"],
-                                "text": m["text"],
-                                "ban_dich": (ban_dich_list[idx] or m["text"]).strip(),
-                                "doan": idx in vung_doan,
-                            }
-                            for idx, m in enumerate(ds_hop_le)
-                        ]
-                        logger.info(
-                            "ai_gemini + deepseek-chat hybrid (%spx): %s -> %d khung (Gemini OCR + DeepSeek translate)",
-                            canh_dung, image_path, len(tho),
-                        )
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Nhánh hybrid Gemini OCR + DeepSeek lỗi (%s) -> lùi về gộp 1 lượt", exc)
-                tho = None
-
-        if tho is None:
-            loi_nhac = xay_loi_nhac_gop_dich(source_lang, target_lang, boi_canh)
-            tho = self._goi(anh, mime, loi_nhac=loi_nhac, schema=SCHEMA_GOP_DICH)
+        # Chế độ Đa Phương Thức 1-Pass: Gemini vừa NHÌN bức tranh vừa nhận diện tọa độ + đọc chữ gốc + dịch ngữ cảnh
+        # trong DUY NHẤT 1 lượt gọi. Đây là cấu hình cho chất lượng dịch CAO NHẤT (AI thấy biểu cảm nhân vật, bối cảnh
+        # hành động trong tranh để chọn đúng xưng hô và ngữ điệu), đồng thời RẺ HƠN cách tách 2 bước vì Output token
+        # Gemini ($0.40/M) rẻ hơn 2,75 lần Output token DeepSeek ($1.10/M), và NHANH HƠN vì chỉ 1 round-trip API.
+        loi_nhac = xay_loi_nhac_gop_dich(source_lang, target_lang, boi_canh)
+        tho = self._goi(anh, mime, loi_nhac=loi_nhac, schema=SCHEMA_GOP_DICH)
 
         ra: list[DetectedRegion] = []
         for muc in tho:
