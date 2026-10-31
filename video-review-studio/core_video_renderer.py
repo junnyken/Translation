@@ -252,12 +252,12 @@ def ve_khung_hinh_pan_zoom_va_phu_de(
         draw.text((36, 25), nhan_txt, fill=(255, 255, 255), font=font_tag)
 
     if loi_thuyet_minh:
-        so_ky_tu_dong = 36 if vw <= 720 else 58
+        so_ky_tu_dong = 36 if vw <= 720 else 66
         cac_dong = textwrap.wrap(loi_thuyet_minh.strip(), width=so_ky_tu_dong)[:3]
-        sub_y_top = int(vh * 0.82)
-        draw.rectangle([18, sub_y_top, vw - 18, vh - 22], fill=(15, 23, 42), outline=(245, 158, 11), width=2)
+        sub_y_top = int(vh * 0.80) if vw > 720 else int(vh * 0.82)
+        draw.rectangle([18, sub_y_top, vw - 18, vh - 18], fill=(15, 23, 42), outline=(245, 158, 11), width=2)
         for idx_d, dong in enumerate(cac_dong):
-            dy = sub_y_top + 14 + idx_d * 34
+            dy = sub_y_top + 12 + idx_d * 33
             for ox, oy in ((-2, -2), (2, -2), (-2, 2), (2, 2)):
                 draw.text((34 + ox, dy + oy), dong, fill=(0, 0, 0), font=font_sub)
             draw.text((34, dy), dong, fill=(253, 224, 71), font=font_sub)
@@ -279,15 +279,14 @@ def ghep_cac_file_wav_thanh_master(wav_paths: list[Path], out_master_wav: Path) 
     ff_exe = tim_ffmpeg_he_thong()
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
-    for wp in wav_paths:
+    def _chuan_hoa_wav(wp: Path) -> Path:
         if not wp.is_file():
-            continue
-        cur_p = wp
-        if cur_p.suffix.lower() == ".mp3" and ff_exe:
-            conv_wav = cur_p.with_suffix(".wav")
+            return wp
+        if wp.suffix.lower() == ".mp3" and ff_exe:
+            conv_wav = wp.with_suffix(".wav")
             try:
                 subprocess.run(
-                    [ff_exe, "-y", "-i", str(cur_p), "-ar", "24000", "-ac", "1", "-c:a", "pcm_s16le", str(conv_wav)],
+                    [ff_exe, "-y", "-i", str(wp), "-ar", "24000", "-ac", "1", "-c:a", "pcm_s16le", str(conv_wav)],
                     timeout=20,
                     check=True,
                     creationflags=flags,
@@ -295,9 +294,19 @@ def ghep_cac_file_wav_thanh_master(wav_paths: list[Path], out_master_wav: Path) 
                     stderr=subprocess.DEVNULL,
                 )
                 if conv_wav.is_file() and conv_wav.stat().st_size > 128:
-                    cur_p = conv_wav
+                    return conv_wav
             except Exception:
                 pass
+        return wp
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        resolved_paths = list(pool.map(_chuan_hoa_wav, wav_paths))
+
+    for cur_p in resolved_paths:
+        if not cur_p.is_file():
+            continue
         if cur_p.suffix.lower() == ".mp3":
             mp3_chunks.append(cur_p.read_bytes())
             continue
@@ -492,12 +501,15 @@ def xuat_video_review_mp4(
     work_dir = out_dir / "_temp_studio_build"
     work_dir.mkdir(parents=True, exist_ok=True)
 
+    from concurrent.futures import ThreadPoolExecutor
+
     tong_thoi_luong = 0.0
     frames_jpeg: list[bytes] = []
     concat_lines: list[str] = []
     wav_files: list[Path] = []
 
-    for idx, sc in enumerate(scenes):
+    def _xu_ly_mot_canh(idx_and_sc: tuple[int, dict[str, Any]]) -> tuple[int, dict[str, Any], list[bytes]]:
+        idx, sc = idx_and_sc
         p_bytes = panels_bytes[min(idx, len(panels_bytes) - 1)]
         loi = str(sc.get("loi_thuyet_minh") or "").strip()
         nhan_vat = str(sc.get("nhan_vat") or "").strip()
@@ -517,12 +529,7 @@ def xuat_video_review_mp4(
             elevenlabs_voice_id=elevenlabs_voice_id,
             che_do_nhanh_offline=che_do_nhanh_offline,
         )
-        thoi_luong = float(tts_info["thoi_luong_giay"])
-        sc["thoi_luong_giay"] = thoi_luong
-        sc["audio_path"] = tts_info["audio_path"]
-        wav_files.append(Path(tts_info["audio_path"]))
-        tong_thoi_luong += thoi_luong
-
+        sc_frames: list[bytes] = []
         for step_idx, t_ratio in enumerate((0.1, 0.5, 0.9)):
             frame_b = ve_khung_hinh_pan_zoom_va_phu_de(
                 p_bytes,
@@ -532,10 +539,25 @@ def xuat_video_review_mp4(
                 tien_do_canh=t_ratio,
                 kieu_chuyen_dong=kieu_cam,
             )
-            frames_jpeg.append(frame_b)
+            sc_frames.append(frame_b)
             frame_file = work_dir / f"frame_{idx + 1:03d}_{step_idx}.jpg"
             frame_file.write_bytes(frame_b)
-            dur_step = round(max(0.35, thoi_luong / 3.0), 3)
+        return idx, tts_info, sc_frames
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        results_sc = list(pool.map(_xu_ly_mot_canh, enumerate(scenes)))
+
+    for idx, tts_info, sc_frames in sorted(results_sc, key=lambda x: x[0]):
+        sc = scenes[idx]
+        thoi_luong = float(tts_info["thoi_luong_giay"])
+        sc["thoi_luong_giay"] = thoi_luong
+        sc["audio_path"] = tts_info["audio_path"]
+        wav_files.append(Path(tts_info["audio_path"]))
+        tong_thoi_luong += thoi_luong
+        frames_jpeg.extend(sc_frames)
+        dur_step = round(max(0.35, thoi_luong / 3.0), 3)
+        for step_idx in range(3):
+            frame_file = work_dir / f"frame_{idx + 1:03d}_{step_idx}.jpg"
             safe_fp = str(frame_file.resolve()).replace("\\", "/")
             concat_lines.append(f"file '{safe_fp}'\nduration {dur_step}")
             last_safe_fp = safe_fp

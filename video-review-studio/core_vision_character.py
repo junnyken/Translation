@@ -1158,7 +1158,7 @@ def _tong_hop_mach_truyen_toan_chuong(
         else:
             noi_dung = f"(Khung tranh hành động/biểu cảm không lời - không khí: {kk})"
         tom_tat_lines.append(f"Trang #{idx + 1} [{nv_trang}]: {noi_dung}")
-    return "\n".join(tom_tat_lines[:36])
+    return "\n".join(tom_tat_lines[:80])
 
 
 _KHO_PHONG_CACH_MAU_MAC_DINH: list[dict[str, Any]] = [
