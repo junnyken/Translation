@@ -332,18 +332,88 @@ class AIGeminiDetector:
             goc = f.read()
         la_ultra_3_luot = "[CHẾ ĐỘ ULTRA CLOUD AI 3 LƯỢT" in (boi_canh or "")
         la_pro_2_luot = "[CHẾ ĐỘ AI PRO 2 LƯỢT" in (boi_canh or "")
-        canh_dung = (
-            max(self.canh_toi_da, 2048)
-            if la_ultra_3_luot
-            else (max(self.canh_toi_da, 1600) if la_pro_2_luot else self.canh_toi_da)
-        )
+        # Giữ chặt ảnh gửi Gemini ở mức 1024px (1 ô ảnh đơn = 258 token) cho Model 1 & Model 2
+        # để không chạm bẫy chia lưới 6-9 ô 768x768 của Google Gemini (tránh đội phí ảnh gấp 7-9 lần).
+        canh_dung = max(self.canh_toi_da, 1280) if la_ultra_3_luot else self.canh_toi_da
         da_chuan = chuan_bi_anh(goc, canh_dung)
         if da_chuan is None:
             raise AIDetectError(f"Không chuẩn bị được ảnh để gửi: {image_path}")
         anh, mime = da_chuan
 
-        loi_nhac = xay_loi_nhac_gop_dich(source_lang, target_lang, boi_canh)
-        tho = self._goi(anh, mime, loi_nhac=loi_nhac, schema=SCHEMA_GOP_DICH)
+        # Khi chạy Model 1 hoặc Model 2 (không phải Ultra 3 lượt) và máy chủ có cấu hình khoá DeepSeek:
+        # - Bước 1: Gemini chỉ nhận diện toạ độ `box` + đọc chữ gốc `text` (không gửi kèm 60 từ điển/ngữ cảnh dài, không sinh `ban_dich` tốn Output token Gemini).
+        # - Bước 2: Chuyển toàn bộ chữ gốc + 60 từ điển + 16 dòng ngữ cảnh sang DeepSeek (`deepseek-chat`) để dịch với chi phí siêu tiết kiệm.
+        ds_keys: list[str] = []
+        if not la_ultra_3_luot:
+            try:
+                from app.core.config import dong_bo_khoa_ai_dong, get_settings
+
+                st = get_settings()
+                dong_bo_khoa_ai_dong(st)
+                ds_keys = list(st.deepseek_api_key_list or [])
+            except Exception:  # noqa: BLE001
+                ds_keys = []
+            if not ds_keys:
+                ds_keys = [
+                    k for k in self.api_keys
+                    if str(k).startswith(("sk-", "ds:", "gsk_", "groq:", "or:"))
+                ]
+
+        tho: list[dict] | None = None
+        if ds_keys and not la_ultra_3_luot:
+            try:
+                loi_nhac_ocr = LOI_NHAC
+                if la_pro_2_luot:
+                    loi_nhac_ocr = (
+                        f"{LOI_NHAC} Carefully read small handwritten notes, whispers outside speech bubbles, "
+                        "and stylized fonts. Do NOT box giant decorative sound effects (SFX) drawn over character faces."
+                    )
+                tho_ocr = self._goi(anh, mime, loi_nhac=loi_nhac_ocr, schema=SCHEMA)
+                ds_hop_le: list[dict] = []
+                ds_chu_goc: list[str] = []
+                for muc in tho_ocr:
+                    hop = muc.get("box")
+                    chu_th = muc.get("text")
+                    chu_s = " ".join(chu_th.split()) if isinstance(chu_th, str) else ""
+                    if isinstance(hop, list) and len(hop) == 4 and chu_s and not _CHI_LA_SO.match(chu_s):
+                        ds_hop_le.append({"box": hop, "text": chu_s})
+                        ds_chu_goc.append(chu_s)
+                if not ds_hop_le:
+                    tho = []
+                else:
+                    from app.services.translate.engines import LLMContextTranslator
+
+                    tr_ds = LLMContextTranslator(
+                        api_keys=ds_keys,
+                        model_name="deepseek-chat",
+                        timeout=max(20, int(self.timeout)),
+                        temperature=0.25,
+                        boi_canh=(boi_canh or "").strip(),
+                        json_mode=True,
+                    )
+                    ban_dich_list = tr_ds.translate(ds_chu_goc, source_lang=source_lang, target_lang=target_lang)
+                    if len(ban_dich_list) == len(ds_hop_le) and any(ban_dich_list):
+                        vung_doan = getattr(tr_ds, "vung_khong_chac", set()) or set()
+                        tho = [
+                            {
+                                "box": m["box"],
+                                "text": m["text"],
+                                "ban_dich": (ban_dich_list[idx] or m["text"]).strip(),
+                                "doan": idx in vung_doan,
+                            }
+                            for idx, m in enumerate(ds_hop_le)
+                        ]
+                        logger.info(
+                            "ai_gemini + deepseek-chat hybrid: %s -> %d khung (Gemini 1-tile OCR + DeepSeek translate)",
+                            image_path, len(tho),
+                        )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Nhánh hybrid Gemini OCR + DeepSeek lỗi (%s) -> lùi về gộp 1 lượt", exc)
+                tho = None
+
+        if tho is None:
+            loi_nhac = xay_loi_nhac_gop_dich(source_lang, target_lang, boi_canh)
+            tho = self._goi(anh, mime, loi_nhac=loi_nhac, schema=SCHEMA_GOP_DICH)
 
         ra: list[DetectedRegion] = []
         for muc in tho:
@@ -402,7 +472,11 @@ class AIGeminiDetector:
         }).encode()
 
         loi_cuoi: Exception | None = None
-        for key in self.api_keys:
+        ds_khoa_gemini = [
+            k for k in self.api_keys
+            if not str(k).startswith(("sk-", "ds:", "gsk_", "groq:", "or:"))
+        ] or list(self.api_keys)
+        for key in ds_khoa_gemini:
             try:
                 req = urllib.request.Request(
                     "https://generativelanguage.googleapis.com/v1beta/models/"

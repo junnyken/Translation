@@ -88,6 +88,11 @@ def get_detector():
     đúng một đường lấy detector, tránh sinh nguồn sự thật thứ hai.
     """
     global _detector
+    if settings.detect_engine == "ai_gemini":
+        with contextlib.suppress(Exception):
+            from app.core.config import dong_bo_khoa_ai_dong
+
+            dong_bo_khoa_ai_dong(settings)
     if _detector is None:
         if settings.detect_engine == "ai_gemini":
             from app.services.detect.ai_gemini import AIGeminiDetector
@@ -112,6 +117,9 @@ def get_detector():
             intra_op_threads=settings.ctd_intra_op_threads,
             cpu_mem_arena=settings.ctd_cpu_mem_arena,
         )
+    elif settings.detect_engine == "ai_gemini" and hasattr(_detector, "api_keys"):
+        if settings.gemini_api_key_list:
+            _detector.api_keys = settings.gemini_api_key_list
     return _detector
 
 
