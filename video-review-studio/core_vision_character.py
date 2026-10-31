@@ -21,6 +21,16 @@ except Exception:  # pragma: no cover
 
 
 PHONG_CACH_KICH_BAN = {
+    "tu_dong_thich_ung": {
+        "ten": "🧠 Tự Động Thích Ứng Đa Thể Loại (AI tự nhận diện cốt truyện & đổi giọng kể linh hoạt theo từng cảnh — Khuyên dùng)",
+        "mo_ta": (
+            "TỰ ĐỘNG PHÂN TÍCH THỂ LOẠI & BIẾN HÓA THEO TỪNG KHUNG TRANH: "
+            "Tự động đọc mạch truyện của chương để nhận diện thể loại (Hành động, Siêu nhiên, Hệ thống, Tu tiên, Thể thao, Kinh dị, Học đường, Ngôn tình...) "
+            "và linh hoạt đổi giọng văn ngay trong cùng một chương: cảnh đời thường/đấu khẩu thì duyên dáng mặn mòi, "
+            "cảnh bí ẩn thì hồi hộp cuốn hút, cảnh giao tranh/cao trào thì dồn dập bùng nổ."
+        ),
+        "cau_hook_mau": "Hãy cùng theo dõi ngay những diễn biến đầy bất ngờ và cuốn hút trong chương truyện hôm nay!",
+    },
     "kich_tinh": {
         "ten": "🔥 Đại Chiến Kịch Tính & Lật Kèo (Chuẩn style Lười Tắm Anime / Solo Đỉnh Cao)",
         "mo_ta": (
@@ -1337,13 +1347,16 @@ def _viet_kich_ban_toan_chuong_bang_ai(
             "Bạn là Tổng Biên Kịch Vàng của các kênh YouTube Review Truyện Tranh triệu view (như Gấu Xàm Anime, Genz Tóm Tắt, Lười Tắm Anime).\n"
             "BÍ QUYẾT KỂ CHUYỆN TRIỆU VIEW BẮT BUỘC TUÂN THỦ:\n"
             "1. CẤM VĂN PHONG BÁO CÁO KHÔ KHAN: Tuyệt đối CẤM viết kiểu liệt kê máy móc như 'Mở đầu phân cảnh, A điềm tĩnh đáp lại rằng..., trong khi đó B nhận xét rằng...'. Không lặp từ 'rằng', không dùng 'Ở phân cảnh này'.\n"
-            "2. CÔNG THỨC 3 NHỊP MỖI CẢNH (HÀNH ĐỘNG -> PHẢN ỨNG/THOẠI CHỐT -> BÌNH LUẬN ĐẨY NHỊP):\n"
+            "2. TỰ ĐỘNG THÍCH ỨNG ĐA THỂ LOẠI & BIẾN HÓA THEO TỪNG CẢNH:\n"
+            "   - Dựa vào nội dung thoại và tóm tắt toàn chương, tự nhận diện đúng thể loại truyện (Hành động, Siêu nhiên, Hệ thống, Tu tiên, Thể thao, Trinh thám/Kinh dị, Học đường, Ngôn tình...) để dùng hệ từ vựng chuẩn xác nhất.\n"
+            "   - Linh hoạt chuyển tông ngay trong cùng một chương: cảnh đấu khẩu/đời thường thì kể duyên dáng, mặn mòi; cảnh bí ẩn thì dẫn dắt hồi hộp; cảnh giao tranh/cao trào thì dồn dập, gắt và bùng nổ.\n"
+            "3. CÔNG THỨC 3 NHỊP MỖI CẢNH (HÀNH ĐỘNG -> PHẢN ỨNG/THOẠI CHỐT -> BÌNH LUẬN ĐẨY NHỊP):\n"
             "   - Kể HÀNH ĐỘNG & THÁI ĐỘ của nhân vật trước, sau đó lồng ý thoại một cách sống động rồi chốt bằng câu bình sắc sảo của Reviewer.\n"
-            "   - Mẫu chuẩn 1 (Gấu Xàm Anime - Hài hước/Hệ thống): 'Bị dồn vào thế bí, gã kẻ địch gầm lên bảo đừng xem thường hắn! Cơ mà hắn lại không ngờ được rằng, dù dính đòn hiểm nhưng thanh niên vẫn tỉnh bơ rồi lạnh lùng buông một câu xanh rờn khiến đối phương đứng hình.'\n"
-            "   - Mẫu chuẩn 2 (Genz Tóm Tắt - Trinh thám/Kỳ bí): 'Chưa kịp để cô nữ sinh định thần, gã bạn cùng bàn đã ghé sát mặt nhìn chằm chằm với ánh mắt kỳ dị. Quá hoảng hốt trước hành động quái đản ấy, cô vội gắt lên bảo cậu ta đừng nhìn mình kiểu nổi da gà như thế nữa!'\n"
-            "   - Mẫu chuẩn 3 (Lười Tắm Anime - Đại chiến kịch tính): 'Mới giây trước còn cao ngạo nắm thế chủ động, thì ngay giây sau hắn đã bị lật kèo cực gắt! Ai cũng ngỡ cú ra đòn vừa rồi là sát chiêu, nhưng hóa ra tất cả chỉ là miếng mồi nhử nằm trong tính toán từ đầu.'\n"
-            "3. 100% TIẾNG VIỆT TỰ NHIÊN & BÁM SÁT NỘI DUNG TRANG: Tuyệt đối không chèn từ tiếng Anh hay ký tự lạ. Kể đúng sự việc và vai trò nhân vật của từng trang.\n"
-            "4. TỐI ƯU NHỊP THỞ GIỌNG ĐỌC AI: Chia câu thành các vế gọn 8-16 chữ bằng dấu phẩy (,), dùng dấu ba chấm (...) tạo khoảng lặng hồi hộp và dấu chấm than (!) ở câu chốt cao trào."
+            "   - Mẫu tham khảo nhịp hài hước/hệ thống: 'Bị dồn vào thế bí, gã kẻ địch gầm lên bảo đừng xem thường hắn! Cơ mà hắn lại không ngờ được rằng, dù dính đòn hiểm nhưng thanh niên vẫn tỉnh bơ rồi lạnh lùng buông một câu xanh rờn khiến đối phương đứng hình.'\n"
+            "   - Mẫu tham khảo nhịp kỳ bí/căng thẳng: 'Chưa kịp để cô nữ sinh định thần, gã bạn cùng bàn đã ghé sát mặt nhìn chằm chằm với ánh mắt kỳ dị. Quá hoảng hốt trước hành động quái đản ấy, cô vội gắt lên bảo cậu ta đừng nhìn mình kiểu nổi da gà như thế nữa!'\n"
+            "   - Mẫu tham khảo nhịp đại chiến/đối kháng: 'Mới giây trước còn cao ngạo nắm thế chủ động, thì ngay giây sau hắn đã bị lật kèo cực gắt! Ai cũng ngỡ cú ra đòn vừa rồi là sát chiêu, nhưng hóa ra tất cả chỉ là miếng mồi nhử nằm trong tính toán từ đầu.'\n"
+            "4. 100% TIẾNG VIỆT TỰ NHIÊN & BÁM SÁT NỘI DUNG TRANG: Tuyệt đối không chèn từ tiếng Anh hay ký tự lạ. Kể đúng sự việc và vai trò nhân vật của từng trang.\n"
+            "5. TỐI ƯU NHỊP THỞ GIỌNG ĐỌC AI: Chia câu thành các vế gọn 8-16 chữ bằng dấu phẩy (,), dùng dấu ba chấm (...) tạo khoảng lặng hồi hộp và dấu chấm than (!) ở câu chốt cao trào."
         )
 
         prompt = (

@@ -53,7 +53,7 @@ def doc_cau_hinh_studio() -> dict[str, Any]:
     mac_dinh: dict[str, Any] = {
         "server_url": "https://translation-api.vibe1.tinhgon.xyz",
         "token": "",
-        "phong_cach": "hai_huoc",
+        "phong_cach": "tu_dong_thich_ung",
         "dinh_dang": "tiktok_9_16",
         "ma_giong": "elevenlabs_auto_cam_xuc",
         "goi_luot": "review_standard",

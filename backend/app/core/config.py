@@ -1111,6 +1111,12 @@ def viet_kich_ban_review_chuong_dong(
         return [], "", "no_ai_key"
 
     pc_map = {
+        "tu_dong_thich_ung": (
+            "TỰ ĐỘNG NHẬN DIỆN THỂ LOẠI & BIẾN HÓA THEO TỪNG CẢNH: "
+            "Tự động đọc mạch truyện của chương để nhận diện thể loại (Hành động, Siêu nhiên, Hệ thống, Tu tiên, Thể thao, Kinh dị, Học đường, Ngôn tình...) "
+            "và linh hoạt đổi giọng văn ngay trong cùng một chương: cảnh đời thường/đấu khẩu thì duyên dáng mặn mòi, "
+            "cảnh bí ẩn thì hồi hộp cuốn hút, cảnh giao tranh/cao trào thì dồn dập bùng nổ."
+        ),
         "kich_tinh": (
             "ĐẠI CHIẾN KỊCH TÍNH & LẬT KÈO (Phong cách kênh 'Lười Tắm Anime'): "
             "Nhịp đọc dồn dập, bóc tách thế trận (Mồi nhử -> Sát chiêu -> Phản đòn -> Lật kèo). "
