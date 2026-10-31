@@ -19,85 +19,10 @@ except Exception:  # pragma: no cover
     ImageFont = None
     ImageStat = None
 
-
-PHONG_CACH_KICH_BAN = {
-    "tu_dong_thich_ung": {
-        "ten": "🧠 Tự Động Thích Ứng Đa Thể Loại + Kho Học Hỏi 6 Kênh (Anime Rewind / Mèo Gầy / Lucifer / Gấu Xàm / Genz / Lười Tắm — Khuyên dùng)",
-        "mo_ta": (
-            "TỰ ĐỘNG PHÂN TÍCH THỂ LOẠI, ĐỊNH DANH TÊN RIÊNG RÕ RÀNG (CHUẨN ANIME REWIND) & XÂY DỰNG BỐ CỤC NHÂN - QUẢ MƯỢT MÀ: "
-            "Kết hợp tinh hoa dẫn chuyện cực kỳ dễ hiểu của Anime Rewind cùng 5 kênh lớn (Mèo Gầy TV, Lucifer Sama, Gấu Xàm Anime, Genz Tóm Tắt, Lười Tắm Anime): "
-            "1) Mở đầu tóm gọn ngay hoàn cảnh/biến cố của nhân vật chính; "
-            "2) BẮT BUỘC nêu rõ TÊN RIÊNG của nhân vật ở vế đầu hoặc khi 2 nhân vật tương tác để người nghe biết chính xác ai làm gì, sau đó vế phụ mới luân phiên đại từ ('anh, cô, cậu, thanh niên, cô nàng'); "
-            "3) Định vị rõ không gian/thời gian và chèn câu hỏi nội tâm ngắn gọn ('Không lẽ...?', 'Chuyện gì đang xảy ra?') giúp mạch truyện cực kỳ dễ hiểu."
-        ),
-        "cau_hook_mau": "Hãy cùng khám phá ngay những diễn biến đầy bất ngờ và cuốn hút trong chương truyện hôm nay!",
-    },
-    "anime_rewind_de_hieu": {
-        "ten": "🎯 Rõ Ràng Dễ Hiểu & Định Danh Tên Riêng Chuẩn Xác (Chuẩn style Anime Rewind — Rất dễ nghe)",
-        "mo_ta": (
-            "Phong cách dẫn chuyện mạch lạc, câu văn gọn gàng sắc nét, cực kỳ dễ hiểu cho người nghe (như kênh Anime Rewind): "
-            "luôn gọi rõ Tên riêng nhân vật kèm vai trò ('người đồng nghiệp Katano', 'nữ cảnh sát Kaori', 'cô bạn thân Reiko') khi mở cảnh hoặc khi có 2 người tương tác để không bao giờ bị rối ai là ai; "
-            "định vị rõ không gian - thời gian ('Ở lớp học...', 'Quay về hiện tại...', 'Đi được một hồi thì...') và xen câu tự vấn nội tâm ngắn gọn ('Không lẽ anh đã đến muộn rồi sao?', 'Đúng là không có gì miễn phí')."
-        ),
-        "cau_hook_mau": "Liệu nhân vật chính có thể vượt qua tình thế ngặt nghèo này? Hãy cùng khám phá ngay những diễn biến mới nhất nhé!",
-    },
-    "meo_gay_drama": {
-        "ten": "🌸 Ngôn Tình / Lọ Lem / Drama Gia Đình & Quý Tộc Mượt Mà (Chuẩn style Mèo Gầy TV)",
-        "mo_ta": (
-            "Phong cách kể chuyện mạch lạc, giàu cảm xúc và duyên dáng (như kênh Mèo Gầy TV): "
-            "mở đầu vào thẳng số phận/gia cảnh nhân vật, luân phiên cách gọi cực mượt ('nữ chính, nam chính, nhỏ, cô nàng, thanh niên kia, cậu ta, tóc đỏ, tóc vàng, phu quân, bà chị'), "
-            "dẫn dắt tâm lý và hiểu lầm dở khóc dở cười ('nhìn phát biết luôn', 'đôi bên nói chuyện qua lại tự dưng lại thấy hợp', "
-            "'vã cho cái vào đầu', 'mừng phát khóc', 'bịt mõm lại', 'ghi điểm tuyệt đối')."
-        ),
-        "cau_hook_mau": "Từ một hoàn cảnh trớ trêu không ai ngờ tới, cuộc gặp gỡ định mệnh này đã làm đảo lộn hoàn toàn số phận của nhân vật chính!",
-    },
-    "lucifer_isekai": {
-        "ten": "✨ Chuyển Sinh / Isekai / Phép Thuật Hài Đời Thường (Chuẩn style Lucifer Sama)",
-        "mo_ta": (
-            "Phong cách tóm tắt mạch truyện nhanh, rõ ràng, pha hài đời thường cực cuốn (như kênh Lucifer Sama): "
-            "kể theo chuỗi Sự việc -> Suy nghĩ ngầm của main -> Kết quả bất ngờ khiến mọi người ngỡ ngàng, "
-            "dùng ngôn từ bình dân vui nhộn ('Tưởng rằng mọi thứ tới đây là hết nhưng...', 'chạy mất dép luôn', "
-            "'tội cãi lại nóc nhà thì không thể tha thứ được', 'đang bốc phét thì...', 'chỉ biết cạn lời mà thôi', 'gặp thằng nào là bem luôn thằng đó')."
-        ),
-        "cau_hook_mau": "Tưởng rằng mọi thứ tới đây là kết thúc, nhưng biến cố bất ngờ này đã mở ra một hành trình bá đạo khiến ai nấy chỉ biết cạn lời!",
-    },
-    "kich_tinh": {
-        "ten": "🔥 Đại Chiến Kịch Tính & Lật Kèo (Chuẩn style Lười Tắm Anime / Solo Đỉnh Cao)",
-        "mo_ta": (
-            "Phong cách bình luận viên đại chiến cực cháy (như kênh Lười Tắm Anime): "
-            "nhịp kể dồn dập, phân tích thế trận Mồi nhử -> Sát chiêu -> Phản đòn -> Lật kèo, "
-            "dùng từ giàu sức nặng ('một hit tiễn đối thủ bay màu', 'mới giây trước còn cao ngạo thì ngay giây sau đã ăn trọn đòn chí mạng', "
-            "'Đùng! Một tiếng nổ kinh hoàng xé toạc không gian', 'đến lúc này người xem mới ngã ngửa')."
-        ),
-        "cau_hook_mau": "Mới giây trước thế trận còn tưởng chừng đã ngã ngũ, thì ngay khoảnh khắc tiếp theo một màn lật kèo kinh thiên động địa đã nổ ra!",
-    },
-    "hai_huoc": {
-        "ten": "😂 Manhwa Hệ Thống / Trùng Sinh Mặn Mà (Chuẩn style Gấu Xàm Anime / GenZ Bật Hack)",
-        "mo_ta": (
-            "Phong cách kể chuyện mặn mòi, bắt trend GenZ duyên dáng (như kênh Gấu Xàm Anime): "
-            "xen kẽ bình luận cà khịa cực duyên ('thanh niên này', 'vẫn chưa hẹo', 'múa thử vài đường cơ bản mà ai cũng tưởng đang bật hack', "
-            "'Cơ mà hắn lại không ngờ được rằng...', 'quay xe khét lẹt', 'đứng hình mất 5 giây')."
-        ),
-        "cau_hook_mau": "Tưởng chỉ là một pha xử lý cơ bản, thế nào mà khi nhân vật của chúng ta vừa ra tay thì cả đám xung quanh đều ngỡ anh đang bật hack!",
-    },
-    "trinh_tham_kinh_di": {
-        "ten": "🕵️ Trinh Thám / Kinh Dị / Kỳ Bí Cuốn Hút (Chuẩn style Genz Tóm Tắt / Siêu Nhiên)",
-        "mo_ta": (
-            "Phong cách dẫn chuyện điện ảnh, hồi hộp và ớn lạnh vừa đủ (như kênh Genz Tóm Tắt): "
-            "xoáy sâu vào chi tiết thị giác kỳ dị, phản ứng tâm lý nhân vật và chuỗi nhân quả chặt chẽ "
-            "('Chưa kịp định thần...', 'Theo phản xạ tự vệ trước cảnh tượng quá đỗi kinh hãi...', 'Nào ngờ...', 'Từng cơn ớn lạnh chạy dọc sống lưng')."
-        ),
-        "cau_hook_mau": "Kịch tính, bí ẩn và sự ớn lạnh vừa đủ — vậy diễn biến của chương truyện hôm nay ẩn chứa điều gì đặc biệt? Hãy cùng mình tìm hiểu ngay nhé!",
-    },
-    "tu_tien": {
-        "ten": "⚔️ Tu Tiên / Huyền Huyễn / Cường Giả Vả Mặt (Bá Đạo & Ngầu Lòi)",
-        "mo_ta": (
-            "Ngôn từ hào sảng, nhấn mạnh khí chất cường giả, uy áp nghiền nát kẻ địch và những màn vả mặt cực gắt "
-            "('uy áp kinh thiên động địa bóp nghẹt bầu không khí', 'chỉ bằng một ánh mắt lạnh băng đã khiến đối phương đổ mồ hôi hột')."
-        ),
-        "cau_hook_mau": "Đối mặt với kẻ địch ngạo mạn trước mắt, thanh niên chỉ nhếch môi lạnh lùng trước khi tung ra chiêu thức chấn động toàn trường!",
-    },
-}
+from prompt_kich_ban_review_chuan import (
+    CHI_DAN_PHONG_CACH_CHUYEN_SAU as PHONG_CACH_KICH_BAN,
+    tao_system_prompt_review_chuan,
+)
 
 
 _KY_TU_CO_DAU_TIENG_VIET = set(
@@ -1499,11 +1424,20 @@ def hoc_phong_cach_tu_youtube_hoac_van_ban(nguon: str, ten_kenh_goi_y: str = "")
             if m_json:
                 parsed = json.loads(m_json.group(0))
                 if isinstance(parsed.get("cach_goi_nhan_vat"), list) and parsed["cach_goi_nhan_vat"]:
-                    cach_goi_tim_thay = [str(x) for x in parsed["cach_goi_nhan_vat"][:10]]
+                    for x in parsed["cach_goi_nhan_vat"]:
+                        sx = str(x).strip()
+                        if sx and sx not in cach_goi_tim_thay:
+                            cach_goi_tim_thay.append(sx)
                 if isinstance(parsed.get("tu_noi_bo_cuc"), list) and parsed["tu_noi_bo_cuc"]:
-                    tu_noi_tim_thay = [str(x) for x in parsed["tu_noi_bo_cuc"][:10]]
+                    for x in parsed["tu_noi_bo_cuc"]:
+                        sx = str(x).strip()
+                        if sx and sx not in tu_noi_tim_thay:
+                            tu_noi_tim_thay.append(sx)
                 if isinstance(parsed.get("cum_tu_dat_gia"), list) and parsed["cum_tu_dat_gia"]:
-                    cum_tu_tim_thay = [str(x) for x in parsed["cum_tu_dat_gia"][:12]]
+                    for x in parsed["cum_tu_dat_gia"]:
+                        sx = str(x).strip()
+                        if sx and sx not in cum_tu_tim_thay:
+                            cum_tu_tim_thay.append(sx)
                 if parsed.get("quy_tac_ke_chuyen"):
                     quy_tac_rut_ra = str(parsed["quy_tac_ke_chuyen"]).strip()
         except Exception:
@@ -1669,23 +1603,10 @@ def _viet_kich_ban_toan_chuong_bang_ai(
             dong_mo_ta.append(f"[{k + 1}] Trang #{g_idx + 1} (Nhân vật: {nv_trang} | Không khí: {kk}): {chuoi_thoai}")
 
         chi_dan_hoc_hoi = lay_kho_hoc_hoi_phong_cach().tao_chi_dan_cho_prompt(phong_cach)
-        system_msg = (
-            "Bạn là Tổng Biên Kịch Vàng của các kênh YouTube Review Truyện Tranh triệu view (như Anime Rewind, Mèo Gầy TV, Lucifer Sama, Gấu Xàm Anime, Genz Tóm Tắt, Lười Tắm Anime).\n"
-            "BÍ QUYẾT KỂ CHUYỆN DỄ HIỂU & BỐ CỤC TRIỆU VIEW BẮT BUỘC TUÂN THỦ:\n"
-            "1. BỐ CỤC MỞ ĐẦU TRỰC DIỆN & RÕ HOÀN CẢNH (NHƯ ANIME REWIND & MÈO GẦY TV):\n"
-            "   - Ở Trang #1, đi thẳng vào hoàn cảnh, thân phận nhân vật chính hoặc biến cố đang diễn ra (CẤM mở đầu bằng câu chào MC sáo rỗng kiểu 'Chào mừng các bạn đến với...').\n"
-            "2. QUY TẮC VÀNG VỀ TÊN RIÊNG NHÂN VẬT (CHUẨN ANIME REWIND — NGHE CỰC KỲ DỄ HIỂU, KHÔNG BỊ RỐI AI VỚI AI):\n"
-            "   - BẮT BUỘC nêu rõ TÊN RIÊNG của nhân vật (ví dụ: Maibara, Kawase, Godai, Tomie...) ở mệnh đề chính đầu tiên của cảnh hoặc bất cứ khi nào có 2 nhân vật tương tác với nhau (có thể kèm vai trò ngắn gọn như 'cô bạn Kawase', 'thanh niên Maibara', 'người đồng nghiệp Katano').\n"
-            "   - Sau khi đã gọi rõ TÊN RIÊNG để người nghe định vị chính xác ai đang làm gì, ở các vế phụ tiếp theo trong cùng câu mới luân phiên dùng đại từ ('anh, cô, cậu, cậu ta, cô nàng, nhỏ, hắn, đối phương') để câu văn mượt mà mà không bị lặp từ.\n"
-            "   - TUYỆT ĐỐI KHÔNG dùng toàn đại từ chung chung ('thanh niên, cô nàng, đối phương') suốt cả câu mà bỏ quên Tên riêng khiến người nghe không biết nhân vật nào đang hành động!\n"
-            "3. ĐỊNH VỊ RÕ KHÔNG GIAN / THỜI GIAN & TRÌNH TỰ NHÂN - QUẢ LIÊN HOÀN:\n"
-            "   - Đầu mỗi cảnh phải có từ nối dẫn mạch không gian/thời gian hoặc nguyên nhân - kết quả rõ ràng ('Ngay lập tức...', 'Tuy nhiên...', 'Nghe vậy...', 'Ở trong lớp học...', 'Đúng lúc này...', 'Không còn cách nào khác...', 'Đi được một hồi thì...').\n"
-            "   - Đan xen câu hỏi suy luận nội tâm ngắn gọn của nhân vật ('Không lẽ...?', 'Chuyện quái gì đang xảy ra thế này?') rồi chốt bằng kết quả hoặc lời bình duyên dáng ('Đúng là không có gì miễn phí', 'Buồn ngủ gặp chiếu manh', 'Chỉ biết cạn lời').\n"
-            "4. CÂU VĂN GỌN GÀNG, SÁT THỂ LOẠI & KHÔNG SƯỢNG TRÂN:\n"
-            "   - Câu văn rõ chủ ngữ - vị ngữ, ngắn gọn súc tích, dễ nghe dễ hiểu ngay lần đầu.\n"
-            "   - CẤM dùng văn mẫu báo cáo ('Ở phân cảnh này', 'điềm tĩnh đáp lại rằng') và CẤM dùng từ văn chương kịch cỡm sáo rỗng ('không gian đặc quánh lại', 'ánh mắt cháy bỏng') khi đang review truyện đời thường/học đường.\n"
-            "5. 100% TIẾNG VIỆT TỰ NHIÊN & NHỊP THỞ GIỌNG ĐỌC AI: Không chèn từ tiếng Anh hay ký tự lạ. Chia câu thành các vế gọn 8-15 chữ bằng dấu phẩy (,), dùng dấu chấm than (!) hoặc chấm hỏi (?) tự nhiên.\n\n"
-            + chi_dan_hoc_hoi
+        system_msg = tao_system_prompt_review_chuan(
+            phong_cach=phong_cach,
+            chi_dan_hoc_hoi_bo_sung=chi_dan_hoc_hoi,
+            yeu_cau_json_output=False,
         )
 
         prompt = (

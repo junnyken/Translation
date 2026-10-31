@@ -110,12 +110,57 @@ def _quet_ocr_nhanh_tren_anh(img_bytes: bytes) -> list[str]:
         return []
 
 
-def nap_danh_sach_anh_va_thoai_tu_thu_muc(folder_path: Path) -> tuple[list[bytes], list[list[str]]]:
+def _xoa_chu_trong_bong_thoai_trang(raw_b: bytes, regs: list[dict[str, Any]]) -> bytes:
+    """
+    Làm sạch chữ nằm trong bong bóng thoại dựa trên tọa độ vùng chữ (`regions` từ `trang-thai.json`):
+    - Giúp khung hình Video Review sạch chữ như các kênh YouTube triệu view (không bị đụng độ giữa chữ thoại ngôi thứ 1 trên tranh và phụ đề ngôi thứ 3 ở dưới).
+    - Tăng khả năng lách quét bản quyền trang truyện nguyên bản (Content ID) trên YouTube/TikTok.
+    """
+    if not regs:
+        return raw_b
+    try:
+        from PIL import Image, ImageDraw, ImageStat
+
+        with Image.open(io.BytesIO(raw_b)) as im_in:
+            im = im_in.convert("RGB")
+        w_img, h_img = im.size
+        draw = ImageDraw.Draw(im)
+        da_xoa = False
+        for r in regs:
+            rx = max(0, int(r.get("x") or 0) - 4)
+            ry = max(0, int(r.get("y") or 0) - 4)
+            rw = int(r.get("w") or 0) + 8
+            rh = int(r.get("h") or 0) + 8
+            if rw < 10 or rh < 10 or rx >= w_img or ry >= h_img:
+                continue
+            x2 = min(w_img, rx + rw)
+            y2 = min(h_img, ry + rh)
+            crop_box = im.crop((rx, ry, x2, y2))
+            stat = ImageStat.Stat(crop_box)
+            mean_rgb = stat.mean
+            # Chỉ xóa trắng nếu vùng này nằm trong nền bong bóng thoại sáng màu (tránh xóa đè lên tranh vẽ tối màu)
+            if sum(mean_rgb) / 3.0 >= 145.0:
+                draw.rounded_rectangle([rx, ry, x2, y2], radius=min(12, rw // 4, rh // 4), fill=(255, 255, 255))
+                da_xoa = True
+        if not da_xoa:
+            return raw_b
+        buf = io.BytesIO()
+        im.save(buf, format="JPEG", quality=92)
+        return buf.getvalue()
+    except Exception:
+        return raw_b
+
+
+def nap_danh_sach_anh_va_thoai_tu_thu_muc(
+    folder_path: Path,
+    *,
+    an_chu_bong_thoai: bool = True,
+) -> tuple[list[bytes], list[list[str]]]:
     """
     Quét thư mục Chapter (hoặc file .zip/.cbz):
     - Đọc trực tiếp dữ liệu vùng thoại từ `trang-thai.json` (hoặc `_translation_ledger.json`) theo đúng thứ tự trang
       (`001.jpg` -> `pages[0]`, `002.jpg` -> `pages[1]`...) kèm cả `ban_dich` lẫn `chu_goc` để AI biên kịch hiểu đúng 100% cốt truyện!
-    - Nếu thư mục ảnh chưa qua App dịch (chưa có `trang-thai.json`), tự động quét OCR trực tiếp trên ảnh.
+    - Nếu `an_chu_bong_thoai=True` (mặc định chuẩn YouTube Review), tự động xóa sạch chữ trong các bong bóng thoại trên tranh để video không bị rối mắt và tránh bản quyền.
     """
     folder_path = Path(folder_path)
     exts = {".jpg", ".jpeg", ".png", ".webp"}
@@ -143,6 +188,7 @@ def nap_danh_sach_anh_va_thoai_tu_thu_muc(folder_path: Path) -> tuple[list[bytes
         raise ValueError(f"Không tìm thấy ảnh (.jpg/.png/.webp) trong thư mục: {folder_path}")
 
     thoai_theo_file: dict[str, list[str]] = {}
+    regions_theo_file: dict[str, list[dict[str, Any]]] = {}
     ung_vien_ledger = [
         folder_path / "trang-thai.json",
         folder_path / "_translation_ledger.json",
@@ -175,9 +221,12 @@ def nap_danh_sach_anh_va_thoai_tu_thu_muc(folder_path: Path) -> tuple[list[bytes
                 fname = str(p.get("output_name") or "")
                 if fname:
                     thoai_theo_file[Path(fname).name] = ds_cau
+                    regions_theo_file[Path(fname).name] = regs
                 if p_idx < len(files):
                     thoai_theo_file[files[p_idx].name] = ds_cau
+                    regions_theo_file[files[p_idx].name] = regs
                 thoai_theo_file[f"{p_idx + 1:03d}.jpg"] = ds_cau
+                regions_theo_file[f"{p_idx + 1:03d}.jpg"] = regs
             if thoai_theo_file:
                 break
         except Exception:
@@ -187,10 +236,12 @@ def nap_danh_sach_anh_va_thoai_tu_thu_muc(folder_path: Path) -> tuple[list[bytes
     ocr_per_panel: list[list[str]] = []
     for f in files:
         raw_b = f.read_bytes()
-        sub_panels = tach_khung_tranh_thong_minh(raw_b)
         ds_thoai_trang = thoai_theo_file.get(f.name)
         if ds_thoai_trang is None:
             ds_thoai_trang = _quet_ocr_nhanh_tren_anh(raw_b)
+        if an_chu_bong_thoai and f.name in regions_theo_file:
+            raw_b = _xoa_chu_trong_bong_thoai_trang(raw_b, regions_theo_file[f.name])
+        sub_panels = tach_khung_tranh_thong_minh(raw_b)
         so_sub = len(sub_panels)
         for idx_p, pb in enumerate(sub_panels):
             panels_out.append(pb)
@@ -329,7 +380,20 @@ class AppVideoReviewStudio(tk.Tk):
             state="readonly",
         )
         self.cmb_dinh_dang.current(0)
-        self.cmb_dinh_dang.pack(fill="x", pady=(2, 5))
+        self.cmb_dinh_dang.pack(fill="x", pady=(2, 3))
+
+        self.var_an_chu_bong_thoai = tk.BooleanVar(value=bool(self.cau_hinh.get("an_chu_bong_thoai", True)))
+        tk.Checkbutton(
+            left_col,
+            text="✨ Tự xóa chữ bóng thoại trên tranh (Chuẩn YouTube — Đỡ rối mắt & Lách bản quyền)",
+            variable=self.var_an_chu_bong_thoai,
+            bg="#111827",
+            fg="#34d399",
+            selectcolor="#1e293b",
+            activebackground="#111827",
+            activeforeground="#34d399",
+            font=("Segoe UI", 8, "bold"),
+        ).pack(anchor="w", pady=(0, 4))
 
         f_el_key = tk.Frame(left_col, bg="#111827")
         f_el_key.pack(fill="x", pady=(2, 3))
@@ -644,11 +708,16 @@ class AppVideoReviewStudio(tk.Tk):
             self.cau_hinh["token"] = self.ent_token.get().strip()
             self.cau_hinh["elevenlabs_api_key"] = self.ent_elevenlabs_key.get().strip()
             self.cau_hinh["elevenlabs_voice_id"] = self.ent_elevenlabs_vid.get().strip()
+            an_chu = bool(self.var_an_chu_bong_thoai.get()) if hasattr(self, "var_an_chu_bong_thoai") else True
+            self.cau_hinh["an_chu_bong_thoai"] = an_chu
             luu_cau_hinh_studio(self.cau_hinh)
 
             p_folder = Path(folder_str)
-            self.ghi_log("🧠 Đang quét thoại từng trang, nhận diện nhân vật & gọi DeepSeek biên kịch toàn Chapter...")
-            self.panels_bytes, self.ocr_per_panel = nap_danh_sach_anh_va_thoai_tu_thu_muc(p_folder)
+            self.ghi_log("🧠 Đang quét thoại từng trang, nhận diện nhân vật & gọi AI biên kịch toàn Chapter...")
+            self.panels_bytes, self.ocr_per_panel = nap_danh_sach_anh_va_thoai_tu_thu_muc(
+                p_folder,
+                an_chu_bong_thoai=an_chu,
+            )
             tu_dong_quet_ho_so_nhan_vat_tu_thoai(self.ocr_per_panel, self.cast_memory)
             pc_key = self.cmb_phong_cach.get().split(" — ", 1)[0].strip()
             self.kich_ban_hien_tai = sinh_kich_ban_review_chuong(

@@ -10,7 +10,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from PIL import Image, ImageDraw
 
-from app_video_review_studio import nap_danh_sach_anh_va_thoai_tu_thu_muc
+from app_video_review_studio import _xoa_chu_trong_bong_thoai_trang, nap_danh_sach_anh_va_thoai_tu_thu_muc
+from prompt_kich_ban_review_chuan import NGUYEN_TAC_AUDIO_FIRST_CORE, tao_system_prompt_review_chuan
 from core_tts_voice import (
     DANH_SACH_GIONG_DOC,
     chon_giong_theo_vai_tro_nhan_vat,
@@ -317,6 +318,29 @@ def test_8_style_learning_memory_from_youtube_or_text():
         assert "Đúng lúc này" in prof["tu_noi_bo_cuc"]
 
 
+def test_9_standalone_prompt_skill_and_bubble_text_cleaning():
+    sp = tao_system_prompt_review_chuan("anime_rewind_de_hieu", yeu_cau_json_output=True)
+    assert "AUDIO-FIRST" in sp
+    assert "NEO TÊN RIÊNG" in sp
+    assert "Anime Rewind" in sp
+
+    # Tạo ảnh trang truyện có bong bóng thoại trắng (x=100..260, y=100..200) chứa vệt chữ đen ở giữa
+    im = Image.new("RGB", (400, 400), (40, 50, 70))
+    draw = ImageDraw.Draw(im)
+    draw.rectangle([100, 100, 260, 200], fill=(255, 255, 255))
+    draw.rectangle([130, 140, 230, 160], fill=(0, 0, 0))  # Giả lập dòng chữ đen trong bóng thoại
+    buf = io.BytesIO()
+    im.save(buf, format="JPEG", quality=95)
+
+    cleaned_b = _xoa_chu_trong_bong_thoai_trang(
+        buf.getvalue(),
+        [{"x": 110, "y": 115, "w": 140, "h": 70}],
+    )
+    with Image.open(io.BytesIO(cleaned_b)) as im_after:
+        px_center = im_after.getpixel((180, 150))
+        assert sum(px_center) / 3.0 > 240, f"Expected white bubble interior after cleaning, got {px_center}"
+
+
 if __name__ == "__main__":
     test_1_character_cast_memory_persist_and_speaker_attribution()
     test_2_smart_webtoon_panel_cutter_and_2x2_storyboard_grid()
@@ -326,4 +350,5 @@ if __name__ == "__main__":
     test_6_auto_character_scanner_and_visual_atmosphere()
     test_7_no_english_or_ocr_garbage_in_vietnamese_review_script()
     test_8_style_learning_memory_from_youtube_or_text()
-    print("ALL 8 VIDEO REVIEW STUDIO TESTS PASSED!")
+    test_9_standalone_prompt_skill_and_bubble_text_cleaning()
+    print("ALL 9 VIDEO REVIEW STUDIO TESTS PASSED!")
