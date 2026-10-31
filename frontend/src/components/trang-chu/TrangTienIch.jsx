@@ -57,7 +57,7 @@ export default function TrangTienIch({ onQuayLai }) {
             fontWeight: 700,
             letterSpacing: '0.03em',
           }}>
-            {laEn ? '★ CHROME EXTENSION v0.3.1 & WINDOWS APP v1.1 ★' : '★ BỘ CÔNG CỤ TIỆN ÍCH CHROME v0.3.1 & APP WINDOWS v1.1 ★'}
+            {laEn ? '★ CHROME EXTENSION v0.3.2 & WINDOWS APP v1.1 ★' : '★ BỘ CÔNG CỤ TIỆN ÍCH CHROME v0.3.2 & APP WINDOWS v1.1 ★'}
           </span>
           <a
             href="#"
@@ -102,7 +102,7 @@ export default function TrangTienIch({ onQuayLai }) {
             </div>
             <div>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#818cf8', letterSpacing: '0.04em' }}>
-                {laEn ? 'VERSION v0.3.1 · CHROME / EDGE / BRAVE / COC COC' : 'PHIÊN BẢN v0.3.1 · CHROME / EDGE / BRAVE / CỐC CỐC'}
+                {laEn ? 'VERSION v0.3.2 · CHROME / EDGE / BRAVE / COC COC' : 'PHIÊN BẢN v0.3.2 · CHROME / EDGE / BRAVE / CỐC CỐC'}
               </div>
               <h2 id="tieu-de-tien-ich-chrome" style={{ margin: '2px 0 0', fontSize: 22, color: '#ffffff' }}>
                 {laEn ? 'Live Browser Comic & Novel Translator' : 'Tiện Ích Dịch Truyện Trực Tiếp Trên Web'}
@@ -139,11 +139,11 @@ export default function TrangTienIch({ onQuayLai }) {
 
           <a
             href={api.urlTaiTienIchChrome()}
-            download="dich-truyen-chrome-extension-v0.3.1.zip"
+            download="dich-truyen-chrome-extension-v0.3.2.zip"
             className="nut-manga nut-manga-chinh"
             style={{ width: '100%', justifyContent: 'center', fontSize: 15, padding: '12px 18px' }}
           >
-            ⬇️ {laEn ? 'Download Chrome Extension (.ZIP — v0.3.1)' : 'Tải Tiện Ích Chrome / Edge (.ZIP — v0.3.1)'}
+            ⬇️ {laEn ? 'Download Chrome Extension (.ZIP — v0.3.2)' : 'Tải Tiện Ích Chrome / Edge (.ZIP — v0.3.2)'}
           </a>
 
           {/* Hướng dẫn cài đặt từng bước */}
@@ -154,9 +154,9 @@ export default function TrangTienIch({ onQuayLai }) {
             <ol style={{ margin: 0, paddingLeft: 20, color: '#e2e8f0', fontSize: 13.8, lineHeight: 1.75 }}>
               <li>
                 {laEn ? (
-                  <>Download and unzip <code>dich-truyen-chrome-extension-v0.3.1.zip</code> into a folder on your computer.</>
+                  <>Download and unzip <code>dich-truyen-chrome-extension-v0.3.2.zip</code> into a folder on your computer.</>
                 ) : (
-                  <>Tải file <code>dich-truyen-chrome-extension-v0.3.1.zip</code> về máy và <b>Giải nén (Extract)</b> ra một thư mục.</>
+                  <>Tải file <code>dich-truyen-chrome-extension-v0.3.2.zip</code> về máy và <b>Giải nén (Extract)</b> ra một thư mục.</>
                 )}
               </li>
               <li>

@@ -6,6 +6,7 @@ import io
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import textwrap
@@ -28,11 +29,19 @@ from core_tts_voice import tim_ffmpeg_he_thong, tong_hop_giong_doc_phan_canh, xu
 
 DINH_DANG_VIDEO = {
     "tiktok_9_16": {
-        "ten": "📱 Dọc 9:16 — TikTok / Facebook Reels / Shorts (720x1280)",
+        "ten": "📱 Dọc 9:16 — TikTok / YouTube Shorts / Reels (720x1280 · Chuẩn Safe-Zone)",
         "kich_thuoc": (720, 1280),
     },
     "youtube_16_9": {
-        "ten": "📺 Ngang 16:9 — YouTube Review Full (1280x720)",
+        "ten": "📺 Ngang 16:9 — YouTube Review Widescreen (1280x720 · Phóng Rộng & Ghép Đôi)",
+        "kich_thuoc": (1280, 720),
+    },
+    "youtube_fullhd_16_9": {
+        "ten": "🖥️ Ngang 16:9 Full HD — YouTube Chuẩn Nét Cao (1920x1080 · 1080p)",
+        "kich_thuoc": (1920, 1080),
+    },
+    "dual_youtube_va_shorts": {
+        "ten": "🎬 Xuất Kép 1-Click — Cả YouTube Ngang (16:9) + Shorts/TikTok Dọc (9:16)",
         "kich_thuoc": (1280, 720),
     },
 }
@@ -193,17 +202,25 @@ def ve_khung_hinh_pan_zoom_va_phu_de(
     kich_thuoc_video: tuple[int, int] = (720, 1280),
     tien_do_canh: float = 0.5,
     kieu_chuyen_dong: str = "pan_down",
+    chi_so_canh: int = 0,
+    tong_so_canh: int = 0,
 ) -> bytes:
     """
-    Dựng 1 khung hình Video Review chuyên nghiệp:
-    - Nền mờ (Blurred Ambient Background) lấp đầy khung 9:16 hoặc 16:9 không bị viền đen.
-    - Hiệu ứng Camera Pan Down (trượt dọc theo khung tranh) hoặc Zoom In mượt mà theo `tien_do_canh` (0.0 -> 1.0).
-    - Hộp phụ đề chữ vàng viền đen chuẩn kênh Review triệu view + Nhãn tên nhân vật góc trên.
+    Dựng 1 khung hình Video Review chuyên nghiệp cho cả YouTube Ngang (16:9) và Shorts/TikTok Dọc (9:16):
+    - Trên màn hình Ngang 16:9 (`vw > vh`):
+      + Chế độ `dual_split`: Tự động tách trang dọc thành Nửa Trên (Trái) & Nửa Dưới (Phải) đặt song song lấp đầy 92% màn hình,
+        chuyển viền sáng vàng từ Trái (`t < 0.5`) sang Phải (`t >= 0.5`).
+      + Chế độ `pan_down` / `zoom_in`: Phóng rộng trang truyện chiếm 72%–76% chiều ngang màn hình (không bị bé lọt thỏm ở giữa)
+        và trượt dọc mượt mà từ đầu trang xuống cuối trang theo `tien_do_canh`.
+      + Phụ đề Điện Ảnh 2 dòng tự động lật trang theo tiến độ câu nói (`Multi-Page Dynamic Subtitles`), KHÔNG BAO GIỜ cắt cụt chữ!
+    - Trên màn hình Dọc 9:16 (`vh >= vw`):
+      + Hiển thị tràn viền 95% chiều ngang + đặt phụ đề trong Vùng An Toàn (Safe-Zone) của YouTube Shorts / TikTok.
     """
     if Image is None:
         return panel_bytes
 
     vw, vh = kich_thuoc_video
+    la_man_ngang = vw > vh
     t = max(0.0, min(1.0, float(tien_do_canh)))
 
     with Image.open(io.BytesIO(panel_bytes)) as raw_im:
@@ -211,23 +228,86 @@ def ve_khung_hinh_pan_zoom_va_phu_de(
 
     bg = src.resize((vw, vh))
     if ImageFilter is not None:
-        bg = bg.filter(ImageFilter.GaussianBlur(radius=18))
+        bg = bg.filter(ImageFilter.GaussianBlur(radius=20))
     overlay_dark = Image.new("RGB", (vw, vh), (10, 15, 28))
-    canvas = Image.blend(bg, overlay_dark, alpha=0.55)
+    canvas = Image.blend(bg, overlay_dark, alpha=0.58)
+    draw = ImageDraw.Draw(canvas)
 
-    vung_hien_thi_h = int(vh * 0.76)
-    vung_hien_thi_w = int(vw * 0.94)
+    if la_man_ngang:
+        # Màn hình Ngang YouTube 16:9 (1280x720 hoặc 1920x1080)
+        py_top = int(vh * 0.02)
+        vung_hien_thi_h = int(vh * 0.82)
 
-    if kieu_chuyen_dong == "zoom_in":
-        scale = 1.0 + 0.12 * t
-        fg = src.copy()
-        fg.thumbnail((int(vung_hien_thi_w * scale), int(vung_hien_thi_h * scale)))
-        if fg.width > vung_hien_thi_w or fg.height > vung_hien_thi_h:
-            cx, cy = fg.width // 2, fg.height // 2
-            cw = min(fg.width, vung_hien_thi_w)
-            ch = min(fg.height, vung_hien_thi_h)
-            fg = fg.crop((cx - cw // 2, cy - ch // 2, cx + cw // 2, cy + ch // 2))
+        if kieu_chuyen_dong == "dual_split" and src.height >= int(src.width * 1.15):
+            # Bố cục Ghép Đôi 2 Khung Trái - Phải lấp đầy 92% màn hình ngang 16:9
+            col_w = int(vw * 0.44)
+            gap = int(vw * 0.025)
+            h_split_top = int(src.height * 0.55)
+            h_split_bot_start = int(src.height * 0.45)
+
+            img_left = src.crop((0, 0, src.width, h_split_top))
+            img_right = src.crop((0, h_split_bot_start, src.width, src.height))
+
+            def _fit_panel_box(im_part, box_w: int, box_h: int, local_t: float):
+                scale_w = box_w / max(1, im_part.width)
+                nh = max(1, int(im_part.height * scale_w))
+                resized = im_part.resize((box_w, nh))
+                if nh > box_h:
+                    oy = int((nh - box_h) * max(0.0, min(1.0, local_t)))
+                    return resized.crop((0, oy, box_w, oy + box_h))
+                return resized
+
+            fg_left = _fit_panel_box(img_left, col_w, vung_hien_thi_h, min(1.0, t * 1.6))
+            fg_right = _fit_panel_box(img_right, col_w, vung_hien_thi_h, max(0.0, (t - 0.35) * 1.5))
+
+            if t < 0.5:
+                dark_r = Image.new("RGB", fg_right.size, (12, 18, 32))
+                fg_right = Image.blend(fg_right, dark_r, alpha=0.22)
+            else:
+                dark_l = Image.new("RGB", fg_left.size, (12, 18, 32))
+                fg_left = Image.blend(fg_left, dark_l, alpha=0.22)
+
+            total_w = fg_left.width + gap + fg_right.width
+            x_left = (vw - total_w) // 2
+            x_right = x_left + fg_left.width + gap
+            y_left = py_top + max(0, (vung_hien_thi_h - fg_left.height) // 2)
+            y_right = py_top + max(0, (vung_hien_thi_h - fg_right.height) // 2)
+
+            canvas.paste(fg_left, (x_left, y_left))
+            canvas.paste(fg_right, (x_right, y_right))
+
+            border_l = (245, 158, 11) if t < 0.5 else (148, 163, 184)
+            border_r = (245, 158, 11) if t >= 0.5 else (148, 163, 184)
+            draw.rectangle([x_left - 2, y_left - 2, x_left + fg_left.width + 2, y_left + fg_left.height + 2], outline=border_l, width=3 if t < 0.5 else 1)
+            draw.rectangle([x_right - 2, y_right - 2, x_right + fg_right.width + 2, y_right + fg_right.height + 2], outline=border_r, width=3 if t >= 0.5 else 1)
+        else:
+            # Bố cục Smart Wide Focus & Vertical Pan: Phóng rộng trang truyện chiếm 72%-76% chiều ngang màn hình 16:9
+            zoom_factor = (1.0 + 0.07 * t) if kieu_chuyen_dong == "zoom_in" else 1.0
+            vung_hien_thi_w = int(vw * 0.72 * zoom_factor)
+            ty_le_w = vung_hien_thi_w / max(1, src.width)
+            new_h = max(1, int(src.height * ty_le_w))
+            fg_full = src.resize((vung_hien_thi_w, new_h))
+
+            if new_h > vung_hien_thi_h:
+                max_offset_y = new_h - vung_hien_thi_h
+                oy = int(max_offset_y * t)
+                fg = fg_full.crop((0, oy, vung_hien_thi_w, oy + vung_hien_thi_h))
+            else:
+                fg = fg_full
+
+            if fg.width > int(vw * 0.78):
+                cx = fg.width // 2
+                cw = int(vw * 0.78)
+                fg = fg.crop((cx - cw // 2, 0, cx + cw // 2, fg.height))
+
+            px = (vw - fg.width) // 2
+            py = py_top + max(0, (vung_hien_thi_h - fg.height) // 2)
+            canvas.paste(fg, (px, py))
+            draw.rectangle([px - 2, py - 2, px + fg.width + 2, py + fg.height + 2], outline=(226, 232, 240), width=2)
     else:
+        # Màn hình Dọc 9:16 (YouTube Shorts / TikTok / Reels — Full-Bleed Vertical & Safe-Zone)
+        vung_hien_thi_h = int(vh * 0.76)
+        vung_hien_thi_w = int(vw * 0.95)
         ty_le_w = vung_hien_thi_w / max(1, src.width)
         new_h = max(1, int(src.height * ty_le_w))
         fg_full = src.resize((vung_hien_thi_w, new_h))
@@ -236,34 +316,81 @@ def ve_khung_hinh_pan_zoom_va_phu_de(
             oy = int(max_offset_y * t)
             fg = fg_full.crop((0, oy, vung_hien_thi_w, oy + vung_hien_thi_h))
         else:
-            fg = fg_full
+            scale = 1.0 + 0.08 * t
+            fg = src.resize((min(vung_hien_thi_w, int(fg_full.width * scale)), min(vung_hien_thi_h, int(fg_full.height * scale))))
+        px = (vw - fg.width) // 2
+        py = int(vh * 0.045) + max(0, (vung_hien_thi_h - fg.height) // 2)
+        canvas.paste(fg, (px, py))
+        draw.rectangle([px - 1, py - 1, px + fg.width + 1, py + fg.height + 1], outline=(245, 158, 11), width=2)
 
-    px = (vw - fg.width) // 2
-    py = int(vh * 0.05) + max(0, (vung_hien_thi_h - fg.height) // 2)
-    canvas.paste(fg, (px, py))
-
-    draw = ImageDraw.Draw(canvas)
-    font_sub = _nap_font_phu_de(co_chu=26 if vw <= 720 else 30, van_ban=loi_thuyet_minh)
-    font_tag = _nap_font_phu_de(co_chu=20, van_ban=nhan_vat)
+    scale_ui = vw / 1280.0 if la_man_ngang else vw / 720.0
+    font_sub = _nap_font_phu_de(co_chu=max(22, int((28 if la_man_ngang else 25) * scale_ui)), van_ban=loi_thuyet_minh)
+    font_tag = _nap_font_phu_de(co_chu=max(16, int(19 * scale_ui)), van_ban=nhan_vat)
 
     if nhan_vat:
-        nhan_txt = f"🎭 {nhan_vat}"
-        draw.rectangle([24, 18, min(vw - 24, 48 + len(nhan_txt) * 13), 56], fill=(220, 38, 38), outline=(255, 255, 255), width=2)
-        draw.text((36, 25), nhan_txt, fill=(255, 255, 255), font=font_tag)
+        # Không dùng emoji 🎭 để tránh lỗi ô vuông □ trên font Arial Windows
+        nhan_txt = nhan_vat  # chữ thuần: Arial trên Windows không có glyph ◆/🎭 → sẽ hiện ô vuông □
+        tag_w = min(vw - 36, int(36 + len(nhan_txt) * 11.5 * scale_ui))
+        tag_h = int(38 * scale_ui)
+        draw.rounded_rectangle([20, 14, 20 + tag_w, 14 + tag_h], radius=8, fill=(185, 28, 28), outline=(253, 224, 71), width=2)
+        draw.text((32, 19), nhan_txt, fill=(255, 255, 255), font=font_tag)
+
+    if chi_so_canh > 0 and tong_so_canh > 0:
+        sc_txt = f"Cảnh {chi_so_canh}/{tong_so_canh}"
+        sc_w = int(28 + len(sc_txt) * 10.5 * scale_ui)
+        sc_h = int(34 * scale_ui)
+        draw.rounded_rectangle([vw - sc_w - 20, 14, vw - 20, 14 + sc_h], radius=8, fill=(15, 23, 42), outline=(148, 163, 184), width=1)
+        draw.text((vw - sc_w - 8, 19), sc_txt, fill=(226, 232, 240), font=font_tag)
 
     if loi_thuyet_minh:
-        so_ky_tu_dong = 36 if vw <= 720 else 66
-        cac_dong = textwrap.wrap(loi_thuyet_minh.strip(), width=so_ky_tu_dong)[:3]
-        sub_y_top = int(vh * 0.80) if vw > 720 else int(vh * 0.82)
-        draw.rectangle([18, sub_y_top, vw - 18, vh - 18], fill=(15, 23, 42), outline=(245, 158, 11), width=2)
+        so_ky_tu_dong = 72 if la_man_ngang else 34
+        so_dong_moi_trang = 2 if la_man_ngang else 3
+        tat_ca_dong = textwrap.wrap(loi_thuyet_minh.strip(), width=so_ky_tu_dong) or [loi_thuyet_minh.strip()]
+        cac_trang_phu_de = [
+            tat_ca_dong[i : i + so_dong_moi_trang]
+            for i in range(0, len(tat_ca_dong), so_dong_moi_trang)
+        ]
+        idx_trang_sub = min(len(cac_trang_phu_de) - 1, int(t * len(cac_trang_phu_de)))
+        cac_dong = cac_trang_phu_de[idx_trang_sub]
+
+        if la_man_ngang:
+            sub_y_top = int(vh * 0.845)
+            sub_y_bot = vh - 10
+            sub_x_left = int(vw * 0.03)
+            sub_x_right = int(vw * 0.97)
+            line_step = int(34 * scale_ui)
+        else:
+            # Safe-Zone chuẩn Shorts / TikTok: đẩy lên khỏi đáy 6% để không bị thanh caption che
+            sub_y_top = int(vh * 0.815)
+            sub_y_bot = int(vh * 0.945)
+            sub_x_left = 18
+            sub_x_right = vw - 18
+            line_step = int(33 * scale_ui)
+
+        draw.rounded_rectangle(
+            [sub_x_left, sub_y_top, sub_x_right, sub_y_bot],
+            radius=10,
+            fill=(11, 17, 32),
+            outline=(245, 158, 11),
+            width=2,
+        )
         for idx_d, dong in enumerate(cac_dong):
-            dy = sub_y_top + 12 + idx_d * 33
+            dy = sub_y_top + int(10 * scale_ui) + idx_d * line_step
+            tx = sub_x_left + int(18 * scale_ui)
             for ox, oy in ((-2, -2), (2, -2), (-2, 2), (2, 2)):
-                draw.text((34 + ox, dy + oy), dong, fill=(0, 0, 0), font=font_sub)
-            draw.text((34, dy), dong, fill=(253, 224, 71), font=font_sub)
+                draw.text((tx + ox, dy + oy), dong, fill=(0, 0, 0), font=font_sub)
+            draw.text((tx, dy), dong, fill=(253, 224, 71), font=font_sub)
+
+        if len(cac_trang_phu_de) > 1:
+            ind_txt = f"{idx_trang_sub + 1}/{len(cac_trang_phu_de)}"
+            draw.text((sub_x_right - int(44 * scale_ui), sub_y_bot - int(26 * scale_ui)), ind_txt, fill=(148, 163, 184), font=font_tag)
+
+    # Thanh tiến trình thời lượng cảnh ở sát đáy màn hình
+    prog_w = max(4, int(vw * (chi_so_canh - 1 + t) / max(1, tong_so_canh))) if tong_so_canh > 0 else int(vw * t)
+    draw.rectangle([0, vh - 4, prog_w, vh], fill=(249, 115, 22))
 
     buf = io.BytesIO()
-    canvas.save(buf, format="JPEG", quality=90)
+    canvas.save(buf, format="JPEG", quality=91)
     return buf.getvalue()
 
 
@@ -507,6 +634,9 @@ def xuat_video_review_mp4(
     frames_jpeg: list[bytes] = []
     concat_lines: list[str] = []
     wav_files: list[Path] = []
+    so_canh_tong = len(scenes)
+    cac_moc_tien_do = (0.12, 0.38, 0.64, 0.88)
+    so_buoc_canh = len(cac_moc_tien_do)
 
     def _xu_ly_mot_canh(idx_and_sc: tuple[int, dict[str, Any]]) -> tuple[int, dict[str, Any], list[bytes]]:
         idx, sc = idx_and_sc
@@ -530,7 +660,7 @@ def xuat_video_review_mp4(
             che_do_nhanh_offline=che_do_nhanh_offline,
         )
         sc_frames: list[bytes] = []
-        for step_idx, t_ratio in enumerate((0.1, 0.5, 0.9)):
+        for step_idx, t_ratio in enumerate(cac_moc_tien_do):
             frame_b = ve_khung_hinh_pan_zoom_va_phu_de(
                 p_bytes,
                 loi_thuyet_minh=loi,
@@ -538,6 +668,8 @@ def xuat_video_review_mp4(
                 kich_thuoc_video=kich_thuoc,
                 tien_do_canh=t_ratio,
                 kieu_chuyen_dong=kieu_cam,
+                chi_so_canh=idx + 1,
+                tong_so_canh=so_canh_tong,
             )
             sc_frames.append(frame_b)
             frame_file = work_dir / f"frame_{idx + 1:03d}_{step_idx}.jpg"
@@ -555,8 +687,8 @@ def xuat_video_review_mp4(
         wav_files.append(Path(tts_info["audio_path"]))
         tong_thoi_luong += thoi_luong
         frames_jpeg.extend(sc_frames)
-        dur_step = round(max(0.35, thoi_luong / 3.0), 3)
-        for step_idx in range(3):
+        dur_step = round(max(0.25, thoi_luong / float(so_buoc_canh)), 3)
+        for step_idx in range(so_buoc_canh):
             frame_file = work_dir / f"frame_{idx + 1:03d}_{step_idx}.jpg"
             safe_fp = str(frame_file.resolve()).replace("\\", "/")
             concat_lines.append(f"file '{safe_fp}'\nduration {dur_step}")
@@ -593,8 +725,8 @@ def xuat_video_review_mp4(
                 pass
         dur_sc = float(sc.get("thoi_luong_giay") or 3.0)
         tong_thoi_luong += dur_sc
-        dur_step = round(max(0.30, dur_sc / 3.0), 3)
-        for step_idx in range(3):
+        dur_step = round(max(0.25, dur_sc / float(so_buoc_canh)), 3)
+        for step_idx in range(so_buoc_canh):
             frame_file = work_dir / f"frame_{idx + 1:03d}_{step_idx}.jpg"
             safe_fp = str(frame_file.resolve()).replace("\\", "/")
             concat_lines.append(f"file '{safe_fp}'\nduration {dur_step}")
@@ -658,7 +790,7 @@ def xuat_video_review_mp4(
                     "-shortest",
                     str(out_mp4_path),
                 ],
-                timeout=240,
+                timeout=300,
                 check=True,
                 creationflags=flags,
                 stdout=subprocess.DEVNULL,
@@ -671,9 +803,86 @@ def xuat_video_review_mp4(
     if not da_xuat_ffmpeg:
         _tao_container_mp4_hop_le_du_phong(frames_jpeg, out_mp4_path)
 
+    # Giai đoạn 4: Nếu chọn 'dual_youtube_va_shorts', dùng ngay cùng bộ âm thanh tổng (`out_audio_master`)
+    # để render thêm bản Dọc 9:16 (TikTok / YouTube Shorts) mà KHÔNG cần chạy lại TTS!
+    shorts_9_16_path_str = ""
+    if ma_dinh_dang == "dual_youtube_va_shorts":
+        stem_goc = re.sub(r"(_youtube_16_9|_dual_youtube_va_shorts|_tiktok_9_16)$", "", out_mp4_path.stem)
+        shorts_mp4 = out_mp4_path.with_name(f"{stem_goc}_tiktok_9_16.mp4")
+        kich_thuoc_doc = (720, 1280)
+
+        def _ve_canh_doc_9_16(idx_and_sc: tuple[int, dict[str, Any]]) -> tuple[int, list[bytes]]:
+            idx, sc = idx_and_sc
+            p_bytes = panels_bytes[min(idx, len(panels_bytes) - 1)]
+            loi = str(sc.get("loi_thuyet_minh") or "").strip()
+            nhan_vat = str(sc.get("nhan_vat") or "").strip()
+            kieu_cam = str(sc.get("hieu_ung_camera") or "pan_down")
+            sc_f: list[bytes] = []
+            for step_idx, t_ratio in enumerate(cac_moc_tien_do):
+                fb = ve_khung_hinh_pan_zoom_va_phu_de(
+                    p_bytes,
+                    loi_thuyet_minh=loi,
+                    nhan_vat=nhan_vat,
+                    kich_thuoc_video=kich_thuoc_doc,
+                    tien_do_canh=t_ratio,
+                    kieu_chuyen_dong=kieu_cam,
+                    chi_so_canh=idx + 1,
+                    tong_so_canh=so_canh_tong,
+                )
+                sc_f.append(fb)
+                (work_dir / f"vframe_{idx + 1:03d}_{step_idx}.jpg").write_bytes(fb)
+            return idx, sc_f
+
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            res_doc = list(pool.map(_ve_canh_doc_9_16, enumerate(scenes)))
+
+        frames_doc: list[bytes] = []
+        concat_doc: list[str] = []
+        last_vfp = ""
+        for idx, sc_f in sorted(res_doc, key=lambda x: x[0]):
+            frames_doc.extend(sc_f)
+            dur_sc = float(scenes[idx].get("thoi_luong_giay") or 3.0)
+            dur_step = round(max(0.25, dur_sc / float(so_buoc_canh)), 3)
+            for step_idx in range(so_buoc_canh):
+                vfile = work_dir / f"vframe_{idx + 1:03d}_{step_idx}.jpg"
+                safe_vfp = str(vfile.resolve()).replace("\\", "/")
+                concat_doc.append(f"file '{safe_vfp}'\nduration {dur_step}")
+                last_vfp = safe_vfp
+        if concat_doc and last_vfp:
+            concat_doc.append(f"file '{last_vfp}'")
+
+        da_xuat_doc = False
+        if ffmpeg_exe and concat_doc:
+            try:
+                concat_vfile = work_dir / "vframes_concat.txt"
+                concat_vfile.write_text("\n".join(concat_doc) + "\n", encoding="utf-8")
+                flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                subprocess.run(
+                    [
+                        ffmpeg_exe, "-y", "-f", "concat", "-safe", "0",
+                        "-i", str(concat_vfile), "-i", str(out_audio_master),
+                        "-vf", "fps=24,scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
+                        "-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
+                        "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+                        "-c:a", "aac", "-b:a", "160k", "-shortest", str(shorts_mp4),
+                    ],
+                    timeout=300,
+                    check=True,
+                    creationflags=flags,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                da_xuat_doc = shorts_mp4.is_file() and shorts_mp4.stat().st_size > 1024
+            except Exception:
+                da_xuat_doc = False
+        if not da_xuat_doc:
+            _tao_container_mp4_hop_le_du_phong(frames_doc, shorts_mp4)
+        shorts_9_16_path_str = str(shorts_mp4)
+
     return {
         "ok": True,
         "video_path": str(out_mp4_path),
+        "shorts_9_16_video_path": shorts_9_16_path_str,
         "audio_master_path": str(out_audio_master),
         "srt_path": str(out_srt_path),
         "storyboard_json_path": str(out_json_path),

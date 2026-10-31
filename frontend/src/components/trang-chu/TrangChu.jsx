@@ -529,7 +529,7 @@ export default function TrangChu() {
               </span>
             </div>
             <div className="day-link-nhanh">
-              <a href={api.urlTaiTienIchChrome()} download="dich-truyen-chrome-extension-v0.3.1.zip">
+              <a href={api.urlTaiTienIchChrome()} download="dich-truyen-chrome-extension-v0.3.2.zip">
                 ⬇️ {laEn ? 'Extension (.ZIP)' : 'Tải Tiện Ích (.ZIP)'}
               </a>
               <span>·</span>
@@ -1263,7 +1263,7 @@ export default function TrangChu() {
             <div className="dau-khung-cong-cu">
               <div className="icon-cong-cu" aria-hidden="true">🧩</div>
               <div>
-                <span className="nhan-phien-ban">CHROME / EDGE / BRAVE / CỐC CỐC · v0.3.1</span>
+                <span className="nhan-phien-ban">CHROME / EDGE / BRAVE / CỐC CỐC · v0.3.2</span>
                 <h3>{laEn ? 'Live Browser Comic Translator' : 'Tiện Ích Dịch Trực Tiếp Trên Web Đang Coi'}</h3>
               </div>
             </div>
@@ -1289,7 +1289,7 @@ export default function TrangChu() {
             <div className="chan-khung-cong-cu">
               <a
                 href={api.urlTaiTienIchChrome()}
-                download="dich-truyen-chrome-extension-v0.3.1.zip"
+                download="dich-truyen-chrome-extension-v0.3.2.zip"
                 className="nut-manga nut-manga-chinh"
               >
                 ⬇️ {laEn ? 'Download Extension (.ZIP)' : 'Tải Tiện Ích Chrome (.ZIP)'}

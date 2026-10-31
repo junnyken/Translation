@@ -367,6 +367,27 @@ BANG_PHIEN_AM_THUAN_VIET: list[tuple[str, str]] = [
     (r"\bMomo\b", "Mô mô"),
     (r"\bOkarun\b", "Ô ka run"),
     (r"\bDandadan\b", "Đan đa đan"),
+    (r"\bTakakura\s+Ken\b", "Ta ka ku ra Ken"),
+    (r"\bKen\s+Takakura\b", "Ken Ta ka ku ra"),
+    (r"\bTakakura\b", "Ta ka ku ra"),
+    (r"\bSerpo\b", "Sê pô"),
+    (r"\bSeiko\b", "Sây cô"),
+    (r"\bTurbo\b", "Siêu Tốc"),
+    (r"\bOkult\b", "Ô cun"),
+    (r"\bOccult\b", "Ô cun"),
+    (r"\bUAP\b", "vật thể bay không xác định"),
+    (r"\bUFO\b", "đĩa bay u ép ô"),
+    (r"\bOtaku\b", "mọt truyện ô ta ku"),
+    (r"\bObama\b", "Ô ba ma"),
+    (r"\bSkinwalker\b", "Sờ kin guốc cơ"),
+    (r"\bJim\s+Channon\b", "Gim Chan nơn"),
+    (r"\bKamigoe\b", "Ka mi gô ê"),
+    (r"\bAya\b", "A da"),
+    (r"\bZain\b", "quái nhân"),
+    (r"\bVIP\b", "víp"),
+    (r"\bCEO\b", "tổng giám đốc"),
+    (r"\bNPC\b", "nhân vật phụ"),
+    (r"\bboss\b", "trùm"),
     (r"\bTomie\b", "Tô mi ê"),
     (r"\bGodai\b", "Gô đai"),
     (r"\bKatano\b", "Ka ta nô"),
@@ -728,6 +749,14 @@ def _lay_cau_hinh_cam_xuc_giong(cam_xuc: str, toc_do: float | str = 1.15) -> dic
     return bang_cam_xuc.get(cx, bang_cam_xuc["kich_tinh"])
 
 
+_PREMADE_ENGLISH_ELEVENLABS_IDS = {
+    "pNInz6obpgDQGcFmaJgB",  # Adam (US English)
+    "nPczCjzI2devNBz1zQrb",  # Brian (US English)
+    "21m00Tcm4TlvDq8ikWAM",  # Rachel (US English)
+    "EXAVITQu4vr4xnSDxMaL",  # Sarah (US English)
+}
+
+
 def _thu_goi_elevenlabs_tts(
     van_ban: str,
     voice_id_raw: str,
@@ -740,8 +769,12 @@ def _thu_goi_elevenlabs_tts(
     model_id: str = "eleven_flash_v2_5",
 ) -> tuple[bool, Path]:
     """
-    Gọi trực tiếp ElevenLabs API (`eleven_flash_v2_5` hỗ trợ 32 ngôn ngữ trong đó có Tiếng Việt siêu tốc,
-    hoặc `eleven_multilingual_v2`) với bộ thông số biểu cảm động (`stability`, `style`, `speed`) theo từng phân cảnh!
+    Gọi trực tiếp ElevenLabs API (`eleven_flash_v2_5` hỗ trợ 32 ngôn ngữ trong đó có Tiếng Việt siêu tốc)
+    với bộ thông số biểu cảm động (`stability`, `style`, `speed`) theo từng phân cảnh.
+    Lưu ý quan trọng: Nếu văn bản là Tiếng Việt nhưng Voice ID lại là 4 giọng Premade Tiếng Anh Mỹ
+    (Adam/Brian/Rachel/Sarah) và người dùng chưa nhập Voice ID Tiếng Việt riêng (`custom_voice_id`),
+    tự động bỏ qua giọng Mỹ để chuyển sang Giọng Neural Bản Xứ Tiếng Việt (`vi-VN-NamMinhNeural` / `vi-VN-HoaiMyNeural`),
+    tránh triệt để hiện tượng giọng Mỹ đọc lơ lớ sang Tiếng Thái / Tiếng Anh!
     """
     key = _lay_khoa_elevenlabs(api_key_override)
     if not key:
@@ -756,8 +789,14 @@ def _thu_goi_elevenlabs_tts(
     if not van_ban_sach:
         return False, out_wav
 
-    # Thử ưu tiên model được chọn (eleven_flash_v2_5), nếu cần lùi về eleven_multilingual_v2
-    for m_id in (model_id or "eleven_flash_v2_5", "eleven_multilingual_v2"):
+    co_dau_viet = bool(
+        re.search(r"[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]", van_ban_sach, flags=re.I)
+    )
+    if co_dau_viet and vid in _PREMADE_ENGLISH_ELEVENLABS_IDS and not (custom_voice_id or "").strip():
+        return False, out_wav
+
+    ds_models = ("eleven_flash_v2_5", "eleven_turbo_v2_5") if co_dau_viet else (model_id or "eleven_flash_v2_5", "eleven_multilingual_v2")
+    for m_id in ds_models:
         try:
             body_dict: dict[str, Any] = {
                 "text": van_ban_sach,
@@ -770,10 +809,8 @@ def _thu_goi_elevenlabs_tts(
                     "speed": round(emo["speed_el"], 2),
                 },
             }
-            if m_id == "eleven_flash_v2_5":
-                # Nếu văn bản có dấu tiếng Việt thì khoá language_code='vi', nếu kịch bản quốc tế (EN/ES/ID/PT/FR...) thì để ElevenLabs tự nhận diện đa ngôn ngữ
-                if re.search(r"[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]", van_ban_sach, flags=re.I):
-                    body_dict["language_code"] = "vi"
+            if co_dau_viet and m_id in ("eleven_flash_v2_5", "eleven_turbo_v2_5"):
+                body_dict["language_code"] = "vi"
             req = urllib.request.Request(
                 f"https://api.elevenlabs.io/v1/text-to-speech/{vid}?output_format=mp3_44100_128",
                 data=json.dumps(body_dict).encode("utf-8"),
@@ -790,7 +827,6 @@ def _thu_goi_elevenlabs_tts(
             if mp3_bytes and len(mp3_bytes) > 256:
                 mp3_tmp = out_wav.with_suffix(".mp3")
                 mp3_tmp.write_bytes(mp3_bytes)
-                # Nếu tốc độ > 1.20x (vượt trần speed của ElevenLabs), bù phần dư qua FFmpeg atempo + cắt khoảng lặng
                 extra_atempo = max(1.0, float(toc_do or 1.15) / max(1.0, emo["speed_el"]))
                 if _chuyen_mp3_sang_wav_chuan(mp3_tmp, out_wav, atempo=extra_atempo, cat_khoang_lang_buon_ngu=True):
                     try:
@@ -1024,10 +1060,13 @@ def tong_hop_giong_doc_phan_canh(
         # 2. Nếu chọn dòng giọng Chị Google Review Chuẩn Thuần Việt (hoặc Ngọc Huyền / Trúc Ly)
         if not da_tao and voice_id == "google_vi_native":
             da_tao, actual_audio_path = _thu_goi_google_viet_native(van_ban, toc_do_thuc, wav_path)
-        # 3. Nếu chọn giọng Neural (Nam Minh / Hoài My hoặc giọng Quốc tế EN/ZH/ZH-TW/ID/ES/PT/TH/FR)
-        if not da_tao and ("Neural" in voice_id or voice_id.startswith("vi-VN-")):
+        # 3. Nếu chọn giọng Neural (Nam Minh / Hoài My / Quốc tế) hoặc chuyển tiếp từ giọng ElevenLabs sang giọng Neural Bản Xứ Tiếng Việt
+        if not da_tao and ("Neural" in voice_id or voice_id.startswith("vi-VN-") or voice_id.startswith("elevenlabs:")):
+            edge_vid = voice_id
+            if voice_id.startswith("elevenlabs:"):
+                edge_vid = "vi-VN-HoaiMyNeural" if str(info.get("gioi_tinh")) == "nu" else "vi-VN-NamMinhNeural"
             da_tao, actual_audio_path = _thu_goi_edge_neural(
-                van_ban, voice_id, toc_do_thuc, wav_path, pitch_hz=pitch_hz
+                van_ban, edge_vid, toc_do_thuc, wav_path, pitch_hz=pitch_hz
             )
         # 4. Dự phòng an toàn luôn dùng giọng Chị Google Thuần Việt
         if not da_tao:

@@ -112,9 +112,10 @@ def _quet_ocr_nhanh_tren_anh(img_bytes: bytes) -> list[str]:
 
 def _xoa_chu_trong_bong_thoai_trang(raw_b: bytes, regs: list[dict[str, Any]]) -> bytes:
     """
-    Làm sạch chữ nằm trong bong bóng thoại dựa trên tọa độ vùng chữ (`regions` từ `trang-thai.json`):
-    - Giúp khung hình Video Review sạch chữ như các kênh YouTube triệu view (không bị đụng độ giữa chữ thoại ngôi thứ 1 trên tranh và phụ đề ngôi thứ 3 ở dưới).
-    - Tăng khả năng lách quét bản quyền trang truyện nguyên bản (Content ID) trên YouTube/TikTok.
+    Làm sạch triệt để chữ nằm trong lòng bong bóng thoại dựa trên tọa độ vùng chữ (`regions` từ `trang-thai.json`):
+    - Tự động dò mở rộng theo chiều dọc/ngang bên trong lòng bóng thoại trắng (dừng lại trước đường viền đen của bóng thoại)
+      để xóa sạch 100% cả chữ dịch nhiều dòng lẫn chữ gốc còn sót ở rìa trên/dưới (như 'HE WAS', 'CAN', 'YERSELF').
+    - Giữ nguyên đường viền bóng thoại và nét vẽ nhân vật bên ngoài.
     """
     if not regs:
         return raw_b
@@ -123,25 +124,84 @@ def _xoa_chu_trong_bong_thoai_trang(raw_b: bytes, regs: list[dict[str, Any]]) ->
 
         with Image.open(io.BytesIO(raw_b)) as im_in:
             im = im_in.convert("RGB")
+        gray = im.convert("L")
+        px_g = gray.load()
         w_img, h_img = im.size
         draw = ImageDraw.Draw(im)
         da_xoa = False
+
         for r in regs:
-            rx = max(0, int(r.get("x") or 0) - 4)
-            ry = max(0, int(r.get("y") or 0) - 4)
-            rw = int(r.get("w") or 0) + 8
-            rh = int(r.get("h") or 0) + 8
+            rx = max(0, int(r.get("x") or 0))
+            ry = max(0, int(r.get("y") or 0))
+            rw = int(r.get("w") or 0)
+            rh = int(r.get("h") or 0)
+            # Kết hợp cả tọa độ các dòng con (`dong_con`) nếu bản dịch trải rộng hơn khung gốc
+            for dc in r.get("dong_con") or []:
+                if isinstance(dc, dict):
+                    dx = int(dc.get("x") or rx)
+                    dy = int(dc.get("y") or ry)
+                    dw = int(dc.get("w") or 0)
+                    dh = int(dc.get("h") or 0)
+                    if dw > 0 and dh > 0:
+                        x_end = max(rx + rw, dx + dw)
+                        y_end = max(ry + rh, dy + dh)
+                        rx = min(rx, dx)
+                        ry = min(ry, dy)
+                        rw = x_end - rx
+                        rh = y_end - ry
+
             if rw < 10 or rh < 10 or rx >= w_img or ry >= h_img:
                 continue
-            x2 = min(w_img, rx + rw)
-            y2 = min(h_img, ry + rh)
-            crop_box = im.crop((rx, ry, x2, y2))
-            stat = ImageStat.Stat(crop_box)
-            mean_rgb = stat.mean
-            # Chỉ xóa trắng nếu vùng này nằm trong nền bong bóng thoại sáng màu (tránh xóa đè lên tranh vẽ tối màu)
-            if sum(mean_rgb) / 3.0 >= 145.0:
-                draw.rounded_rectangle([rx, ry, x2, y2], radius=min(12, rw // 4, rh // 4), fill=(255, 255, 255))
-                da_xoa = True
+            x1 = max(2, rx - 6)
+            y1 = max(2, ry - 6)
+            x2 = min(w_img - 2, rx + rw + 6)
+            y2 = min(h_img - 2, ry + rh + 6)
+
+            crop_box = gray.crop((x1, y1, x2, y2))
+            mean_val = ImageStat.Stat(crop_box).mean[0]
+            if mean_val < 140.0:
+                continue
+
+            # Dò mở rộng lên trên và xuống dưới trong lòng bóng thoại trắng (tối đa 56px) để xóa sạch chữ tràn dòng
+            def _dong_nam_trong_bong_trang(y_check: int) -> bool:
+                if y_check <= 2 or y_check >= h_img - 2:
+                    return False
+                so_mau = 0
+                so_trang = 0
+                tong_sang = 0
+                step_x = max(1, (x2 - x1) // 24)
+                for xx in range(x1, x2, step_x):
+                    val = px_g[xx, y_check]
+                    so_mau += 1
+                    tong_sang += val
+                    if val >= 225:
+                        so_trang += 1
+                if so_mau == 0:
+                    return False
+                # Dừng ngay nếu gặp đường viền đen ngang của khung tranh/bóng thoại
+                return (tong_sang / so_mau) >= 175.0 and (so_trang / so_mau) >= 0.55
+
+            for _ in range(56):
+                if _dong_nam_trong_bong_trang(y1 - 1):
+                    y1 -= 1
+                else:
+                    break
+            for _ in range(56):
+                if _dong_nam_trong_bong_trang(y2 + 1):
+                    y2 += 1
+                else:
+                    break
+
+            # Thu hẹp nhẹ 3px ở 2 đầu dọc để không chạm vào nét viền đen của bóng thoại
+            y1_fill = min(y1 + 3, ry)
+            y2_fill = max(y2 - 3, min(h_img - 2, ry + rh))
+            draw.rounded_rectangle(
+                [x1, y1_fill, x2, y2_fill],
+                radius=min(10, (x2 - x1) // 5, max(2, (y2_fill - y1_fill) // 5)),
+                fill=(255, 255, 255),
+            )
+            da_xoa = True
+
         if not da_xoa:
             return raw_b
         buf = io.BytesIO()

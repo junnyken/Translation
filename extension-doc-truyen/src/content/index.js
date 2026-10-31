@@ -105,7 +105,66 @@ void (async () => {
         const nutNnDich = document.getElementById('translation-nut-ngon-ngu-dich')
         if (nutNnDich) nutNnDich.textContent = NHAN_NGON_NGU_DICH_NOI[thayDoi.ngonNguDich.newValue] || '🇻🇳 VI'
       }
+      if (thayDoi.cheDoSfx?.newValue) {
+        window[CO].cheDoSfx = thayDoi.cheDoSfx.newValue
+        window.dispatchEvent(new CustomEvent('translation:ve-lai'))
+      }
     })
+  }
+
+  // Chế độ xử lý chữ tượng thanh (SFX) vẽ thẳng lên tranh như STOMP, ズシン, BOOM...:
+  // - `ghi_chu`   (mặc định): GIỮ NGUYÊN nét vẽ gốc, chỉ gắn 1 nhãn dịch nhỏ bên cạnh — chuẩn nhóm dịch scanlation.
+  // - `giu_nguyen`: Không đụng vào SFX (không xoá, không dịch).
+  // - `dich_de`  : Xoá chữ gốc rồi đè chữ dịch lên như bóng thoại (cách cũ — dễ nhoè trên nền tranh phức tạp).
+  const DS_CHE_DO_SFX = ['ghi_chu', 'giu_nguyen', 'dich_de']
+  const NHAN_CHE_DO_SFX = {
+    ghi_chu: '💥 SFX: Ghi chú',
+    giu_nguyen: '💥 SFX: Giữ gốc',
+    dich_de: '💥 SFX: Dịch đè',
+  }
+  if (!window[CO].cheDoSfx) {
+    window[CO].cheDoSfx = 'ghi_chu'
+    chrome.storage?.local?.get?.({ cheDoSfx: 'ghi_chu' })
+      ?.then?.((d) => {
+        if (d?.cheDoSfx && DS_CHE_DO_SFX.includes(d.cheDoSfx)) window[CO].cheDoSfx = d.cheDoSfx
+      })
+      ?.catch?.(() => {})
+  }
+
+  const TU_TUONG_THANH_SFX = /^(?:stomp|bam|boom|ba-?boom|bang|blam|clang|cling|clong|clank|crack|crash|crunch|thud|thump|whoosh|fwoosh|woosh|swish|swoosh|slash|shing|zoom|zap|zip|wham|whack|smack|slam|pow|kaboom|rumble|grr+|rrr+|doki|ba-?dump|dun|don|gogo+|zuzu+|kra+k|krak|shwa|fwip|tap|tak|thwack|splash|drip|tick|tock|ding|dong|ring|beep|snap|pop|poof|puff|rustle|creak|clatter|vrr+|brr+|wobble|ripple|flash|flap|flutter|sway|shake|tremble|gasp|huff|pant|sniff|sob|gulp|ba-?dum|thump-?thump)[!.?~]*$/i
+
+  const TU_TUONG_THANH_VI = /^(?:dậm|thình\s*thịch|keng(?:\s*keng)?|leng\s*keng|vụt|vù(?:\s*vù)?|ầm(?:\s*ầm)?|đùng(?:\s*đùng)?|rầm|xoẹt|bốp|chát|rắc|uỳnh|ào(?:\s*ào)?|roạt|soạt|phập|phụt|két|rít|gừ+|rừ+|vút|xẹt|cạch|cộp(?:\s*cộp)?|lộp\s*cộp|loảng\s*xoảng)[!?.…~]*$/i
+
+  /**
+   * Nhận diện vùng chữ là TIẾNG ĐỘNG (SFX) vẽ cách điệu thẳng lên nền tranh, không nằm trong bong bóng thoại.
+   * Cần CẢ HAI điều kiện để tránh bắt nhầm câu thoại/lời dẫn:
+   * 1. Hình học: không phải bong bóng khép kín (`!_laBongKhepKin`) VÀ nằm trên nền phức tạp hoặc rò rỉ biên.
+   * 2. Nội dung: chữ gốc hoặc bản dịch rất ngắn kiểu tượng thanh (toàn kana ≤ 6 ký tự, hoặc 1–2 từ Latin/Việt trong danh sách SFX,
+   *    hoặc 1 từ in hoa ≤ 10 chữ cái lặp âm như "KRAAAK").
+   */
+  function laVungSfx(v) {
+    if (!v || v._sfxDichDe) return false
+    if (v._laBongKhepKin === undefined) return false
+    if (v._laBongKhepKin) return false
+    if (!(v._laNenPhucTap || v._roRiBien)) return false
+    const dich = String(v.ban_dich || '').trim()
+    if (dich) {
+      const cauDich = dich.split(/[.!?…]+/).map((s) => s.trim()).filter(Boolean)
+      if (cauDich.length >= 1 && cauDich.length <= 2 && cauDich.every((c) => TU_TUONG_THANH_VI.test(c))) {
+        return true
+      }
+    }
+    const goc = String(v.chu_goc || '').trim()
+    if (!goc) return false
+    const gocGon = goc.replace(/[\s!！?？.…~〜ー―\-・♡♥]+/g, '')
+    if (!gocGon) return false
+    if (/^[\u3040-\u30ff\uff66-\uff9f]+$/.test(gocGon) && gocGon.length <= 6) return true
+    if (/^[\uac00-\ud7af]+$/.test(gocGon) && gocGon.length <= 4) return true
+    const tu = goc.split(/\s+/).filter(Boolean)
+    if (tu.length > 2) return false
+    if (tu.every((t) => TU_TUONG_THANH_SFX.test(t))) return true
+    if (tu.length === 1 && /^[A-Z]{2,10}[!.?]*$/.test(goc) && /([A-Z])\1{1,}/.test(goc)) return true
+    return false
   }
 
   let bang = window[CO].bang
@@ -857,6 +916,9 @@ void (async () => {
       const laNenPhucTap = (tyLeNenTrongHop < 0.28) || (roRiBien && !laBongMauDongNhat) || (doLechMauNen > 44)
       const laBongKhepKin = !roRiBien && !laNenPhucTap && laBongMauDongNhat
       v._laNenPhucTap = laNenPhucTap
+      // Lưu thêm 2 cờ để `laVungSfx` nhận ra chữ tượng thanh vẽ thẳng lên nền tranh (không có bong bóng)
+      v._laBongKhepKin = laBongKhepKin
+      v._roRiBien = roRiBien
 
       // Bước 2: Loang ngược từ 4 mép ngoài của ROI vào (`ngoaiBongBong = 1`) qua các điểm `longTrang === 0`.
       const ngoaiBongBong = new Uint8Array(N)
@@ -1601,10 +1663,12 @@ void (async () => {
       thanh.id = 'translation-thanh-nhanh'
       thanh.style.cssText = [
         'position:fixed', 'z-index:2147483647', 'left:16px', 'bottom:16px',
-        'display:flex', 'flex-wrap:wrap', 'align-items:center', 'gap:6px',
+        'display:flex', 'flex-wrap:nowrap', 'align-items:center', 'gap:6px',
+        'max-width:calc(100vw - 32px)', 'overflow-x:auto', 'scrollbar-width:none',
         'padding:6px 8px', 'border-radius:999px', 'border:1px solid rgba(255,255,255,.22)',
         'background:rgba(15,23,42,.92)', 'color:#fff', 'font:12px/1.3 system-ui,sans-serif',
         'box-shadow:0 4px 16px rgba(0,0,0,.4)', 'backdrop-filter:blur(6px)',
+        'transition:opacity .25s ease',
       ].join(';')
 
       const kieuNut = [
@@ -1836,6 +1900,33 @@ void (async () => {
               })
               ctxOut.restore()
             }
+
+            // Vẽ nhãn dịch nhỏ của chữ tượng thanh (`translation-nhan-sfx`) — giữ nguyên nét SFX gốc bên dưới
+            for (const nhan of lop.querySelectorAll('.translation-nhan-sfx')) {
+              const text = (nhan.textContent || '').trim()
+              if (!text) continue
+              const rN = nhan.getBoundingClientRect()
+              const nx = (rN.left - rLop.left) * tlX
+              const ny = (rN.top - rLop.top) * tlY
+              const nw = rN.width * tlX
+              const nh = rN.height * tlY
+              const pxN = Math.max(11, Math.round((parseFloat(getComputedStyle(nhan).fontSize) || 12) * tlX))
+              ctxOut.save()
+              ctxOut.fillStyle = 'rgba(255,255,255,0.9)'
+              ctxOut.strokeStyle = 'rgba(17,24,39,0.45)'
+              ctxOut.lineWidth = Math.max(1, tlX)
+              ctxOut.beginPath()
+              if (ctxOut.roundRect) ctxOut.roundRect(nx, ny, nw, nh, 6 * tlX)
+              else ctxOut.rect(nx, ny, nw, nh)
+              ctxOut.fill()
+              ctxOut.stroke()
+              ctxOut.fillStyle = '#111827'
+              ctxOut.font = `${pxN}px ${getComputedStyle(nhan).fontFamily || 'sans-serif'}`
+              ctxOut.textAlign = 'center'
+              ctxOut.textBaseline = 'middle'
+              ctxOut.fillText(text, nx + nw / 2, ny + nh / 2, Math.max(10, nw - 4))
+              ctxOut.restore()
+            }
           }
 
           const urlPng = cOut.toDataURL('image/png')
@@ -1900,8 +1991,77 @@ void (async () => {
       nut.style.cssText = kieuNut
       nut.addEventListener('click', () => datAnLopPhu(!window[CO].dangAnLopPhu))
 
-      thanh.append(nutDich, nutChapter, nutCuon, nutSnip, nutDichRa, nutFont, nutChuNho, nutChuTo, nutCoVe, nutHoanTacCo, nutLuuAnh, nut)
+      // Nút đổi chế độ xử lý chữ tượng thanh (SFX): Ghi chú nhỏ → Giữ gốc → Dịch đè
+      const nutSfx = document.createElement('button')
+      nutSfx.id = 'translation-nut-che-do-sfx'
+      nutSfx.type = 'button'
+      nutSfx.title = 'Cách xử lý chữ tiếng động vẽ trên tranh (STOMP, ズシン, BOOM...):\n• Ghi chú: giữ nét vẽ gốc + nhãn dịch nhỏ (khuyên dùng)\n• Giữ gốc: không dịch SFX\n• Dịch đè: xoá chữ gốc rồi đè chữ dịch (dễ nhoè)'
+      const capNhatNutSfx = () => {
+        nutSfx.textContent = NHAN_CHE_DO_SFX[window[CO].cheDoSfx || 'ghi_chu']
+        nutSfx.style.cssText = kieuNut
+      }
+      capNhatNutSfx()
+      nutSfx.addEventListener('click', () => {
+        const hienTai = window[CO].cheDoSfx || 'ghi_chu'
+        const tiep = DS_CHE_DO_SFX[(DS_CHE_DO_SFX.indexOf(hienTai) + 1) % DS_CHE_DO_SFX.length]
+        window[CO].cheDoSfx = tiep
+        capNhatNutSfx()
+        chrome.storage?.local?.set?.({ cheDoSfx: tiep })?.catch?.(() => {})
+        window.dispatchEvent(new CustomEvent('translation:ve-lai'))
+      })
+
+      // Nút thu gọn / mở rộng thanh công cụ (ghi nhớ trạng thái giữa các lần đọc)
+      const nutThuGon = document.createElement('button')
+      nutThuGon.id = 'translation-nut-thu-gon'
+      nutThuGon.type = 'button'
+      nutThuGon.style.cssText = `${kieuNut};padding:5px 9px;font-weight:700`
+      const dsNutChinh = [nutDich, nutChapter, nutCuon, nutSnip, nutDichRa, nutFont, nutChuNho, nutChuTo, nutSfx, nutCoVe, nutHoanTacCo, nutLuuAnh, nut]
+      const apDungThuGon = (thuGon) => {
+        window[CO].thanhThuGon = thuGon
+        // Khi thu gọn chỉ giữ nút Dịch trang + nút mở rộng để không che nội dung truyện
+        dsNutChinh.forEach((b) => { b.style.display = (thuGon && b !== nutDich) ? 'none' : '' })
+        nutThuGon.textContent = thuGon ? '›' : '‹'
+        nutThuGon.title = thuGon ? 'Mở rộng thanh công cụ' : 'Thu gọn thanh công cụ (Alt+H để ẩn hẳn)'
+        thanh.style.padding = thuGon ? '4px 6px' : '6px 8px'
+      }
+      nutThuGon.addEventListener('click', () => {
+        const moi = !window[CO].thanhThuGon
+        apDungThuGon(moi)
+        chrome.storage?.local?.set?.({ thanhNhanhThuGon: moi })?.catch?.(() => {})
+      })
+      apDungThuGon(Boolean(window[CO].thanhThuGon))
+      chrome.storage?.local?.get?.({ thanhNhanhThuGon: false })
+        ?.then?.((d) => apDungThuGon(Boolean(d?.thanhNhanhThuGon)))
+        ?.catch?.(() => {})
+
+      // Tự làm mờ thanh công cụ sau 3 giây không rê chuột để không làm phiền khi đọc
+      let henMo = null
+      const lamMo = () => {
+        if (henMo) clearTimeout(henMo)
+        henMo = setTimeout(() => { if (!thanh.matches(':hover')) thanh.style.opacity = '0.35' }, 3000)
+      }
+      thanh.addEventListener('mouseenter', () => { if (henMo) clearTimeout(henMo); thanh.style.opacity = '1' })
+      thanh.addEventListener('mouseleave', lamMo)
+      lamMo()
+
+      thanh.append(nutThuGon, ...dsNutChinh)
       document.documentElement.appendChild(thanh)
+    }
+
+    // Alt+H: ẩn / hiện hoàn toàn thanh công cụ nổi
+    if (!window[CO].daCaiPhimAnThanh) {
+      window[CO].daCaiPhimAnThanh = true
+      window.addEventListener('keydown', (e) => {
+        if (window[CO].dangSuaBong) return
+        if (e.altKey && (e.key === 'h' || e.key === 'H')) {
+          e.preventDefault()
+          const t = document.getElementById('translation-thanh-nhanh')
+          if (!t) return
+          const an = t.style.display !== 'none'
+          t.style.display = an ? 'none' : 'flex'
+          xong(an ? 'Đã ẩn thanh công cụ. Bấm Alt+H để hiện lại.' : 'Đã hiện thanh công cụ.', 3)
+        }
+      })
     }
   }
 
@@ -2346,6 +2506,48 @@ void (async () => {
         if (v.nen_toi === undefined) {
           v.nen_toi = laBongBongToi(el, v)
         }
+
+        // Chữ tượng thanh (SFX) vẽ trên nền tranh: KHÔNG xoá nét vẽ gốc (xoá trên nền phức tạp sẽ để lại vệt nhoè),
+        // chỉ gắn nhãn dịch nhỏ bên cạnh (hoặc bỏ qua hẳn) tuỳ `cheDoSfx`. Nhấp đúp nhãn để chuyển vùng đó sang dịch đè.
+        const cheDoSfx = window[CO].cheDoSfx || 'ghi_chu'
+        if (cheDoSfx !== 'dich_de' && laVungSfx(v)) {
+          if (cheDoSfx === 'ghi_chu' && v.ban_dich) {
+            const nhan = document.createElement('div')
+            nhan.className = 'translation-nhan-sfx'
+            nhan.textContent = String(v.ban_dich).replace(/[.。]+$/, '')
+            nhan.title = `💥 Tiếng động (SFX) — gốc: ${v.chu_goc || ''}\nNhấp đúp để xoá chữ gốc và dịch đè lên vùng này`
+            const coNhan = Math.max(10, Math.min(15, Math.round(Math.min(o.width, o.height) * 0.22)))
+            Object.assign(nhan.style, {
+              position: 'absolute',
+              zIndex: '2',
+              left: `${Math.max(0, o.left + o.width * 0.5)}px`,
+              top: `${Math.max(0, o.top + Math.min(o.height * 0.15, 18))}px`,
+              transform: 'translateX(-50%)',
+              maxWidth: `${Math.max(70, o.width * 1.4)}px`,
+              padding: '1px 6px',
+              borderRadius: '6px',
+              background: 'rgba(255,255,255,.9)',
+              color: '#111827',
+              border: '1px solid rgba(17,24,39,.45)',
+              boxShadow: '0 1px 3px rgba(0,0,0,.25)',
+              fontFamily: thongSoFont.css,
+              fontSize: `${coNhan}px`,
+              lineHeight: '1.15',
+              textAlign: 'center',
+              whiteSpace: 'normal',
+              pointerEvents: window[CO].cheDoCoVe ? 'none' : 'auto',
+              cursor: 'pointer',
+            })
+            nhan.addEventListener('dblclick', (e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              v._sfxDichDe = true
+              window.dispatchEvent(new CustomEvent('translation:ve-lai'))
+            })
+            lop.appendChild(nhan)
+          }
+          continue
+        }
         const anhChe = coCanvas ? taoAnhCheChuCanvas(el, v, vungCoDich) : null
         const nenMau = v._mauNenCss || (v.nen_toi ? '#000000' : '#ffffff')
         const chuMau = v.nen_toi ? '#ffffff' : '#000000'
@@ -2415,7 +2617,7 @@ void (async () => {
 
         const hop = document.createElement('div')
         hop.className = 'translation-hop-chu'
-        hop.title = `✏️ Nhấp đúp (Double-click) để sửa câu / phủ kín / cọ xoá / kéo vị trí\nChữ gốc: ${v.chu_goc || '(không rõ)'}`
+        hop.title = `✏️ Nhấp đúp (Double-click) để sửa câu / phủ kín / cọ xoá / kéo vị trí\nChữ gốc: ${v.chu_goc || '(không rõ)'}${v.kem_tin_cay ? '\n⚠️ OCR kém tin cậy — nên kiểm tra lại câu này' : ''}`
         hop.dataset.nenToi = v.nen_toi ? '1' : '0'
         Object.assign(hop.style, {
           position: 'absolute',
@@ -2425,7 +2627,8 @@ void (async () => {
           background: 'transparent',
           color: chuMau,
           textShadow: vienSangChu,
-          border: v.kem_tin_cay ? '1px dashed #e0a800' : 'none',
+          // Không vẽ viền vàng nét đứt cho vùng kém tin cậy nữa (người đọc thấy rối mắt); thông tin chuyển vào tooltip.
+          border: 'none',
           borderRadius: v._laHopChuNhat ? '12%' : '46%',
           fontFamily: thongSoFont.css,
           lineHeight: thongSoFont.lineHeight,

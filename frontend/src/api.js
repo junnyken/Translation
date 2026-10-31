@@ -730,7 +730,7 @@ export const quanTriKiemTraKetNoiAi = (khoaThu = null) =>
   }).then(doc)
 
 /** Đường dẫn tải trực tiếp gói Tiện ích Chrome (.zip), App Windows (.exe / .zip) và Video Review Studio (.exe / .zip). */
-export const urlTaiTienIchChrome = () => '/tai-ve/dich-truyen-chrome-extension-v0.3.1.zip'
+export const urlTaiTienIchChrome = () => '/tai-ve/dich-truyen-chrome-extension-v0.3.2.zip'
 export const urlTaiAppWindows = () => '/tai-ve/App-Windows-Dich-Truyen-Tu-Dong-v1.1.zip'
 export const urlTaiBoCaiWindowsExe = () => '/tai-ve/Manga-Studio-Pro-Setup-v1.1.exe'
 export const urlTaiVideoReviewExe = () => '/tai-ve/Manga-Video-Review-Studio-Setup-v1.0.exe'

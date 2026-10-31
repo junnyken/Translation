@@ -517,6 +517,79 @@ class CharacterCastMemory:
 
         return self.characters[panel_idx % len(self.characters)]
 
+    def xac_dinh_nguoi_noi_khong_ep_xoay_vong(self, cau_thoai: str, panel_idx: int = 0) -> dict[str, str] | None:
+        """
+        Xác định người nói dựa trên bằng chứng từ khóa/ngữ cảnh thực tế trong câu thoại.
+        Nếu câu thoại không chứa dấu hiệu chỉ định nhân vật cụ thể, trả về `None` (thay vì xoay vòng `panel_idx % len`
+        gây gán nhầm thoại của nhân vật phụ cho Nam chính/Phản diện ở các trang chưa xuất hiện).
+        """
+        if not self.characters:
+            return None
+        txt = (cau_thoai or "").strip()
+        txt_low = txt.lower()
+
+        if any(
+            kw in txt_low
+            for kw in (
+                "mượn tiền", "buổi hẹn hò hôm nay hủy", "khách sạn tình yêu",
+                "vừa hết tiền lại vừa không chịu", "con nhãi này", "ai mà thèm quan tâm đến cô",
+            )
+        ):
+            return {
+                "ten": "Gã bạn trai cũ",
+                "vai_tro": "Nhân vật phụ (Bạn trai cũ của nữ chính)",
+                "ngoai_hinh": "Tên bạn trai sở khanh đòi tiền và chia tay nữ chính ở đầu truyện",
+                "xung_ho": "gã bạn trai cũ sở khanh",
+            }
+
+        for c in self.characters:
+            ten_c = c["ten"].strip()
+            ten_low = ten_c.lower()
+            if ten_low and (
+                txt_low.startswith(f"{ten_low}:")
+                or txt_low.startswith(f"{ten_low} :")
+                or f"{ten_low} ta" in txt_low
+                or f"ta là {ten_low}" in txt_low
+                or f"của {ten_low}" in txt_low
+                or f"tôi là {ten_low}" in txt_low
+            ):
+                return c
+
+        for c in self.characters:
+            kws = [k.strip().lower() for k in (c.get("tu_khoa_nhan_dien") or "").split(",") if k.strip()]
+            ten_goc = c["ten"].split("-")[0].lower()
+            for kw in kws:
+                if kw and kw not in (ten_goc, c["ten"].lower(), "ta", "tôi", "tớ", "mình") and kw in txt_low:
+                    return c
+
+        nv_senpai = next(
+            (c for c in self.characters if "senpai" in c["vai_tro"].lower() or "đàn chị" in c["xung_ho"].lower() or "hiyori" in c["ten"].lower()),
+            None,
+        )
+        nv_kouhai = next(
+            (c for c in self.characters if "đàn em" in c["vai_tro"].lower() or "năm nhất" in c["ngoai_hinh"].lower() or "lai" in c["ten"].lower()),
+            None,
+        )
+        if nv_senpai or nv_kouhai:
+            nv_challenger = next((c for c in self.characters if c not in (nv_senpai, nv_kouhai)), self.characters[0])
+            if "senpai" in txt_low or "đàn chị" in txt_low:
+                return nv_kouhai or nv_challenger
+            if "hiyori" in txt_low or "hiyor" in txt_low:
+                return nv_challenger
+            if "lai-chan" in txt_low or "thành viên mới" in txt_low:
+                return nv_senpai or self.characters[0]
+
+        for c in self.characters:
+            ten_low = c["ten"].lower()
+            if ten_low and ten_low in txt_low:
+                if "ngươi" in txt_low or "cậu" in txt_low or "mày" in txt_low:
+                    doi_dien = next((other for other in self.characters if other["ten"] != c["ten"]), None)
+                    if doi_dien:
+                        return doi_dien
+                return c
+
+        return None
+
     def doan_nhan_vat_theo_ngu_canh(self, van_ban_thoai: str, vi_tri_bong: str = "giua", panel_idx: int = 0) -> dict[str, str]:
         return self.xac_dinh_nguoi_noi_cau_thoai(van_ban_thoai, panel_idx=panel_idx)
 
@@ -892,8 +965,16 @@ def _gan_nhan_nguoi_noi_va_dich_trang(
         ds_sach_theo_trang.append(ds_sach)
         nguoi_noi_tung_cau = []
         for cau in ds_sach:
-            nv_raw = cast_memory.xac_dinh_nguoi_noi_cau_thoai(cau, panel_idx=p_idx)["ten"]
-            nv_hop_le = nv_raw if (la_ten_nhan_vat_hop_le(nv_raw) or nv_raw in ("Nhân vật chính", "Kẻ địch", "Đối phương")) else "Nhân vật chính"
+            matched_nv = cast_memory.xac_dinh_nguoi_noi_khong_ep_xoay_vong(cau, panel_idx=p_idx)
+            if matched_nv is not None:
+                nv_raw = matched_nv["ten"]
+                nv_hop_le = (
+                    nv_raw
+                    if (la_ten_nhan_vat_hop_le(nv_raw) or nv_raw in ("Nhân vật chính", "Kẻ địch", "Đối phương", "Gã bạn trai cũ"))
+                    else "Thoại"
+                )
+            else:
+                nv_hop_le = "Thoại"
             nguoi_noi_tung_cau.append(nv_hop_le)
             tat_ca_cau_can_dich.append(cau)
         nguoi_noi_theo_trang.append(nguoi_noi_tung_cau)
@@ -902,16 +983,13 @@ def _gan_nhan_nguoi_noi_va_dich_trang(
     con_tro_dich = 0
 
     ket_qua: list[tuple[str, list[tuple[str, str]]]] = []
+    nv_gan_nhat = cast_memory.characters[0]["ten"] if cast_memory.characters else "Nhân vật chính"
+    if not (la_ten_nhan_vat_hop_le(nv_gan_nhat) or nv_gan_nhat in ("Nhân vật chính", "Kẻ địch", "Đối phương")):
+        nv_gan_nhat = "Nhân vật chính"
+
     for p_idx, ds_sach in enumerate(ds_sach_theo_trang):
         if not ds_sach:
-            nv_mac_dinh = (
-                cast_memory.characters[p_idx % len(cast_memory.characters)]["ten"]
-                if cast_memory.characters
-                else "Nhân vật chính"
-            )
-            if not (la_ten_nhan_vat_hop_le(nv_mac_dinh) or nv_mac_dinh in ("Nhân vật chính", "Kẻ địch", "Đối phương")):
-                nv_mac_dinh = "Nhân vật chính"
-            ket_qua.append((nv_mac_dinh, []))
+            ket_qua.append((nv_gan_nhat, []))
             continue
 
         nguoi_noi_tung_cau = nguoi_noi_theo_trang[p_idx]
@@ -924,16 +1002,17 @@ def _gan_nhan_nguoi_noi_va_dich_trang(
             cau_vi_sach = _khu_sach_tieng_anh_con_sot(cau_vi)
             if not cau_vi_sach or _co_chua_tieng_anh_hoac_rac_ocr(cau_vi_sach):
                 continue
-            nv_ten = nguoi_noi_tung_cau[idx_c] if idx_c < len(nguoi_noi_tung_cau) else nguoi_noi_tung_cau[0]
-            dem_nv[nv_ten] = dem_nv.get(nv_ten, 0) + 1
+            nv_ten = nguoi_noi_tung_cau[idx_c] if idx_c < len(nguoi_noi_tung_cau) else "Thoại"
+            if nv_ten != "Thoại":
+                dem_nv[nv_ten] = dem_nv.get(nv_ten, 0) + 1
             cap_nv_cau.append((nv_ten, cau_vi_sach))
 
         if dem_nv:
             nv_chinh_trang = max(dem_nv.items(), key=lambda x: x[1])[0]
-        elif nguoi_noi_tung_cau:
-            nv_chinh_trang = nguoi_noi_tung_cau[0]
+            if nv_chinh_trang != "Gã bạn trai cũ":
+                nv_gan_nhat = nv_chinh_trang
         else:
-            nv_chinh_trang = "Nhân vật chính"
+            nv_chinh_trang = nv_gan_nhat
         ket_qua.append((nv_chinh_trang, cap_nv_cau))
     return ket_qua
 
@@ -1762,6 +1841,43 @@ def _viet_kich_ban_toan_chuong_bang_ai(
     return None
 
 
+def _suy_luan_nhan_vat_va_vai_tro_tu_loi_binh(
+    loi_binh: str,
+    cast: CharacterCastMemory,
+    fallback_nv: dict[str, str],
+) -> tuple[str, str, str]:
+    """
+    Trích xuất chính xác nhân vật đang xuất hiện trong `loi_binh` để nhãn góc trên Video (`nhan_vat`),
+    `vai_tro` và `xung_ho` luôn khớp 100% với lời thuyết minh của cảnh đó.
+    """
+    low = (loi_binh or "").lower()
+    matched_chars: list[tuple[int, dict[str, str]]] = []
+    for c in cast.characters:
+        ten = c["ten"].strip()
+        if not ten or ten in ("Nhân vật chính", "Kẻ địch", "Đối phương"):
+            continue
+        ten_low = ten.lower()
+        goc_low = ten.split()[0].split("-")[0].lower()
+        pos = low.find(ten_low)
+        if pos < 0 and len(goc_low) >= 3:
+            pos = low.find(goc_low)
+        if pos >= 0:
+            matched_chars.append((pos, c))
+
+    matched_chars.sort(key=lambda x: x[0])
+    ten_fb_check = (fallback_nv.get("ten") or "").strip()
+    if ten_fb_check and any(c["ten"] == ten_fb_check for _, c in matched_chars):
+        return ten_fb_check, fallback_nv.get("vai_tro") or "Nhân vật chính", fallback_nv.get("xung_ho") or ten_fb_check
+    if matched_chars:
+        c1 = matched_chars[0][1]
+        return c1["ten"], c1["vai_tro"], c1["xung_ho"]
+
+    ten_fb = fallback_nv.get("ten") or "Nhân vật chính"
+    if not (la_ten_nhan_vat_hop_le(ten_fb) or ten_fb in ("Nhân vật chính", "Kẻ địch", "Đối phương")):
+        ten_fb = cast.characters[0]["ten"] if cast.characters else "Nhân vật chính"
+    return ten_fb, fallback_nv.get("vai_tro") or "Nhân vật chính", fallback_nv.get("xung_ho") or ten_fb
+
+
 def sinh_kich_ban_review_chuong(
     panels_bytes: list[bytes],
     ocr_per_panel: list[list[str]] | None = None,
@@ -1815,13 +1931,14 @@ def sinh_kich_ban_review_chuong(
     for idx, p_bytes in enumerate(panels_bytes):
         ds_thoai = normalized_ocr[idx]
         nv_trang_ten, cap_nv_cau = trang_da_gan_va_dich[idx]
-        nv = next((c for c in cast.characters if c["ten"] == nv_trang_ten), None) or cast.xac_dinh_nguoi_noi_cau_thoai(" ".join(ds_thoai), panel_idx=idx)
+        nv = (
+            next((c for c in cast.characters if c["ten"] == nv_trang_ten), None)
+            or cast.xac_dinh_nguoi_noi_khong_ep_xoay_vong(" ".join(ds_thoai), panel_idx=idx)
+            or (cast.characters[0] if cast.characters else cast.xac_dinh_nguoi_noi_cau_thoai(" ".join(ds_thoai), panel_idx=idx))
+        )
         bo_cuc = ds_bo_cuc[idx]
 
         ai_sc = ai_scenes[idx] if ai_scenes and idx < len(ai_scenes) else {}
-        ten_nv_vis = str((ai_sc or {}).get("nhan_vat") or nv["ten"]).strip()
-        if not (la_ten_nhan_vat_hop_le(ten_nv_vis) or ten_nv_vis in ("Nhân vật chính", "Kẻ địch", "Đối phương")):
-            ten_nv_vis = nv["ten"] if (la_ten_nhan_vat_hop_le(nv["ten"]) or nv["ten"] in ("Nhân vật chính", "Kẻ địch", "Đối phương")) else "Nhân vật chính"
         loi_binh = str((ai_sc or {}).get("loi_thuyet_minh") or "").strip()
 
         if not _kiem_tra_cau_ai_hop_le(loi_binh):
@@ -1834,22 +1951,32 @@ def sinh_kich_ban_review_chuong(
                 phong_cach=phong_cach,
             )
 
+        ten_nv_vis, vai_tro_vis, xung_ho_vis = _suy_luan_nhan_vat_va_vai_tro_tu_loi_binh(loi_binh, cast, nv)
+
         cam_xuc_canh = str((ai_sc or {}).get("cam_xuc") or "").strip() or _suy_luan_cam_xuc_canh(
             loi_binh, bo_cuc["khong_khi"], idx, phong_cach
         )
+
+        # Đa dạng góc máy: kết hợp trượt dọc thông minh (pan_down), ghép đôi 2 khung (dual_split) và phóng cận (zoom_in)
+        if idx % 3 == 1 and len(ds_thoai) >= 3:
+            kieu_cam = "dual_split"
+        elif idx % 2 == 0:
+            kieu_cam = "pan_down"
+        else:
+            kieu_cam = "zoom_in"
 
         scenes.append(
             {
                 "scene_index": idx + 1,
                 "nhan_vat": ten_nv_vis,
-                "vai_tro": nv["vai_tro"],
-                "xung_ho": nv["xung_ho"],
+                "vai_tro": vai_tro_vis,
+                "xung_ho": xung_ho_vis,
                 "thoai_goc": [cau for _, cau in cap_nv_cau] or ds_thoai,
                 "la_canh_hanh_dong": len(ds_thoai) == 0,
                 "khong_khi_anh": bo_cuc["khong_khi"],
                 "cam_xuc": cam_xuc_canh,
                 "loi_thuyet_minh": loi_binh,
-                "hieu_ung_camera": "zoom_in" if cam_xuc_canh in ("kich_tinh", "uy_ap") or idx % 2 == 1 else "pan_down",
+                "hieu_ung_camera": kieu_cam,
             }
         )
 

@@ -54,7 +54,7 @@ export default function HeSinhThaiCongCu() {
           <div className="dau-khung-cong-cu">
             <span className="icon-cong-cu" aria-hidden="true">🧩</span>
             <div>
-              <span className="nhan-phien-ban">{laEn ? 'VERSION v0.3.1 · CHROME / EDGE / BRAVE' : 'PHIÊN BẢN v0.3.1 · CHROME / EDGE / BRAVE'}</span>
+              <span className="nhan-phien-ban">{laEn ? 'VERSION v0.3.2 · CHROME / EDGE / BRAVE' : 'PHIÊN BẢN v0.3.2 · CHROME / EDGE / BRAVE'}</span>
               <h3>{laEn ? 'Live Browser Comic & Novel Translator' : 'Tiện Ích Dịch Truyện Trực Tiếp Trên Web'}</h3>
             </div>
           </div>
@@ -99,7 +99,7 @@ export default function HeSinhThaiCongCu() {
           <div className="chan-khung-cong-cu">
             <a
               href={api.urlTaiTienIchChrome()}
-              download="dich-truyen-chrome-extension-v0.3.1.zip"
+              download="dich-truyen-chrome-extension-v0.3.2.zip"
               className="nut-manga nut-manga-chinh"
             >
               {laEn ? '⬇️ Download Chrome Extension (.ZIP)' : '⬇️ Tải Tiện Ích Chrome (.ZIP)'}
@@ -119,7 +119,7 @@ export default function HeSinhThaiCongCu() {
             <div className="hop-huong-dan-nhanh">
               <b>{laEn ? 'How to install on Chrome / Edge / Brave:' : 'Cách cài đặt vào Chrome / Edge / Cốc Cốc:'}</b>
               <ol>
-                <li>{laEn ? <>Unzip <code>dich-truyen-chrome-extension-v0.3.1.zip</code>.</> : <>Giải nén file <code>dich-truyen-chrome-extension-v0.3.1.zip</code> vừa tải về.</>}</li>
+                <li>{laEn ? <>Unzip <code>dich-truyen-chrome-extension-v0.3.2.zip</code>.</> : <>Giải nén file <code>dich-truyen-chrome-extension-v0.3.2.zip</code> vừa tải về.</>}</li>
                 <li>{laEn ? <>Open <code>chrome://extensions</code> and enable <b>Developer mode</b> at the top right.</> : <>Mở trình duyệt, gõ <code>chrome://extensions</code> và bật công tắc <b>Chế độ nhà phát triển (Developer mode)</b> ở góc phải trên.</>}</li>
                 <li>{laEn ? <>Click <b>Load unpacked</b> and select the unzipped folder!</> : <>Bấm <b>Tải tiện ích đã giải nén (Load unpacked)</b> và chọn thư mục vừa giải nén là xong!</>}</li>
               </ol>
