@@ -1094,26 +1094,50 @@ def viet_kich_ban_review_chuong_dong(
     tom_tat_mach_chuong: str,
     pages_input: list[dict],
 ) -> tuple[list[dict], str, str]:
-    """Biên kịch kịch bản Review Truyện toàn Chapter bằng DeepSeek (deepseek-chat) bám sát từng trang, nhân vật và ngữ cảnh."""
+    """Biên kịch kịch bản Review Truyện toàn Chapter bằng AI (DeepSeek / Gemini 3.1 / Groq) theo chuẩn kênh YouTube triệu view."""
     import json
     import re
-    import urllib.request
+    from app.services.translate.engines import LLMContextTranslator
 
     dong_bo_khoa_ai_dong(settings)
     if not pages_input:
         return [], "", "empty"
 
-    ds_keys = settings.deepseek_api_key_list or [
-        k for k in settings.gemini_api_key_list if k.startswith("sk-")
-    ]
-    if not ds_keys:
-        return [], "", "no_deepseek_key"
+    tat_ca_keys: list[str] = []
+    for k in (settings.deepseek_api_key_list + settings.gemini_api_key_list):
+        if k and k not in tat_ca_keys:
+            tat_ca_keys.append(k)
+    if not tat_ca_keys:
+        return [], "", "no_ai_key"
 
     pc_map = {
-        "kich_tinh": "Kịch tính, gay cấn, nhịp nhanh lôi cuốn như kênh Review Anime/Manga triệu view",
-        "hai_huoc": "Hài hước, duyên dáng, bắt trọn các pha tấu hài, cà khịa và phản ứng khó đỡ của nhân vật",
-        "tu_tien": "Hào sảng, nhấn mạnh khí chất cường giả, uy áp, chiêu thức và bước ngoặt thực lực",
-        "ngon_tinh": "Giàu cảm xúc, tinh tế, xoáy sâu vào ánh mắt, nội tâm và tương tác giữa các nhân vật",
+        "kich_tinh": (
+            "ĐẠI CHIẾN KỊCH TÍNH & LẬT KÈO (Phong cách kênh 'Lười Tắm Anime'): "
+            "Nhịp đọc dồn dập, bóc tách thế trận (Mồi nhử -> Sát chiêu -> Phản đòn -> Lật kèo). "
+            "Dùng từ giàu sức nặng và hình ảnh: 'mới giây trước còn cao ngạo nắm thế chủ động thì ngay giây sau đã ăn trọn cú đòn chí mạng', "
+            "'một hit tiễn đối thủ bay màu', 'Đùng! Một tiếng nổ kinh hoàng vang lên', 'đến lúc này người xem mới ngã ngửa'."
+        ),
+        "hai_huoc": (
+            "MANHWA HỆ THỐNG / TRÙNG SINH MẶN MÀ (Phong cách kênh 'Gấu Xàm Anime'): "
+            "Giọng kể duyên dáng, bắt trend trẻ trung, cà khịa cực mặn. "
+            "Dùng linh hoạt các cụm tự nhiên: 'thanh niên này', 'vẫn chưa hẹo', 'múa thử vài đường cơ bản mà ai cũng tưởng đang bật hack', "
+            "'Cơ mà hắn lại không ngờ được rằng...', 'quay xe khét lẹt', 'đứng hình mất 5 giây'."
+        ),
+        "trinh_tham_kinh_di": (
+            "TRINH THÁM / KINH DỊ / KỲ BÍ CUỐN HÚT (Phong cách kênh 'Genz Tóm Tắt'): "
+            "Văn phong điện ảnh, miêu tả sâu sắc bầu không khí ớn lạnh, phản ứng tâm lý và hành động theo chuỗi nhân quả chặt chẽ. "
+            "Dùng các cụm chuyển mạch mượt mà: 'Chưa kịp định thần...', 'Theo phản xạ tự vệ trước cảnh tượng kỳ dị...', "
+            "'Nào ngờ...', 'Đầu óc trống rỗng, từng cơn ớn lạnh chạy dọc sống lưng...'."
+        ),
+        "tu_tien": (
+            "TU TIÊN / HUYỀN HUYỄN / CƯỜNG GIẢ BÁ ĐẠO: "
+            "Ngôn từ hào sảng, nhấn mạnh khí chất cường giả, uy áp nghiền nát kẻ địch và những màn vả mặt cực gắt: "
+            "'uy áp kinh thiên động địa bóp nghẹt bầu không khí', 'chỉ bằng một ánh mắt lạnh băng đã khiến đối phương đổ mồ hôi hột'."
+        ),
+        "ngon_tinh": (
+            "HỌC ĐƯỜNG / CẢM XÚC / DRAMA ĐỜI THƯỜNG: "
+            "Giàu cảm xúc, tinh tế, bắt trọn những khoảnh khắc rung động, hiểu lầm dở khóc dở cười và tương tác tự nhiên giữa các nhân vật."
+        ),
     }
     mo_ta_pc = pc_map.get(phong_cach, pc_map["kich_tinh"])
 
@@ -1132,66 +1156,59 @@ def viet_kich_ban_review_chuong_dong(
         )
 
     system_prompt = (
-        "Bạn là Tổng Biên Kịch chuyên nghiệp cho kênh YouTube/TikTok Review Truyện Tranh (Manga/Manhwa/Manhua) bằng Tiếng Việt.\n"
+        "Bạn là Tổng Biên Kịch Vàng của các kênh YouTube Review Truyện Tranh triệu view (như Gấu Xàm Anime, Genz Tóm Tắt, Lười Tắm Anime).\n"
         "NHIỆM VỤ CỐT LÕI:\n"
-        "Từ hồ sơ nhân vật, bối cảnh tổng thể của chương và danh sách hội thoại thực tế của từng trang, hãy viết kịch bản thuyết minh ngôi thứ 3 liên kết chặt chẽ từ Cảnh đầu đến Cảnh cuối.\n\n"
-        "6 QUY TẮC THÉP BẮT BUỘC TUÂN THỦ:\n"
-        "1. BÁM SÁT 100% NỘI DUNG TRANG: Lời thuyết minh của Cảnh #i PHẢI kể đúng sự việc, ý nghĩa câu thoại và phản ứng nhân vật có trong Cảnh #i. Tuyệt đối KHÔNG bịa đặt tình tiết ngoài lề.\n"
-        "2. CHUẨN XÁC VAI TRÒ & NHÂN VẬT: Phân biệt rõ ai là người nói, ai là người nghe, giữ đúng tên riêng và quan hệ (đàn chị, đàn em, đối thủ, nhân vật chính) theo Hồ sơ nhân vật.\n"
-        "3. MẠCH TRUYỆN LIỀN MẠCH XUYÊN SUỐT: Cảnh sau phải nối tiếp tự nhiên mạch diễn biến của cảnh trước. CẤM dùng các cụm từ lặp lại nhàm chán như 'Mở đầu phân cảnh', 'Ở phân cảnh này', 'Trong khung hình này'.\n"
-        "4. NGỮ ĐIỆU SỐNG ĐỘNG (CHỐNG BUỒN NGỦ CHO TTS): Viết câu văn gọn, giàu nhịp điệu, dùng dấu phẩy (,), dấu ba chấm (...) tạo khoảng nghỉ hồi hộp và dấu chấm than (!) ở câu chốt cao trào/tấu hài để giọng đọc AI (ElevenLabs) nhấn nhá truyền cảm.\n"
-        "5. GÁN NHÃN CẢM XÚC GIỌNG ĐỌC (`cam_xuc`): Với mỗi cảnh, chọn đúng 1 nhãn trong: `kich_tinh` (cao trào/hành động), `hai_huoc` (tấu hài/cà khịa), `hoi_hop` (căng thẳng/bất ngờ), `uy_ap` (bá đạo/ngầu), `cam_xuc` (nội tâm/sâu lắng), `mo_dau` (dẫn nhập cuốn hút).\n"
+        "Biến chuỗi khung tranh và hội thoại dưới đây thành một kịch bản kể chuyện (Storytelling Recap) bằng Tiếng Việt CỰC KỲ CUỐN HÚT, giàu cảm xúc và liền mạch từ đầu đến cuối.\n\n"
+        "BÍ QUYẾT KỂ CHUYỆN TRIỆU VIEW (BẮT BUỘC ÁP DỤNG):\n"
+        "1. CẤM TUYỆT ĐỐI VĂN PHONG BÁO CÁO KHÔ KHAN: Tuyệt đối CẤM viết kiểu liệt kê máy móc như 'Mở đầu phân cảnh, A điềm tĩnh đáp lại rằng..., trong khi đó B nhận xét rằng...'. Không dùng lặp từ 'rằng', không dùng 'Ở phân cảnh này', 'Trong khung hình này'.\n"
+        "2. CÔNG THỨC 3 NHỊP MỖI CẢNH (HÀNH ĐỘNG -> PHẢN ỨNG/THOẠI CHỐT -> BÌNH LUẬN ĐẨY NHỊP):\n"
+        "   - Thay vì chỉ đọc lại bóng thoại, hãy KỂ HÀNH ĐỘNG & THÁI ĐỘ của nhân vật trước, sau đó lồng ý thoại một cách tự nhiên hoặc trích câu chốt ngắn đắt giá, rồi thêm lời bình sắc sảo của Reviewer.\n"
+        "   - Ví dụ chuẩn Gấu Xàm Anime: 'Bị dồn vào thế bí, gã kẻ địch gầm lên bảo đừng có xem thường hắn! Cơ mà hắn lại không ngờ được rằng, dù dính đòn hiểm nhưng thanh niên vẫn tỉnh bơ rồi lạnh lùng buông một câu xanh rờn khiến đối phương đứng hình.'\n"
+        "   - Ví dụ chuẩn Genz Tóm Tắt: 'Chưa kịp để cô nữ sinh định thần, gã bạn cùng bàn đã ghé sát mặt nhìn chằm chằm với ánh mắt kỳ dị. Quá hoảng hốt trước hành động quái đản ấy, cô vội gắt lên bảo cậu ta đừng nhìn mình kiểu nổi da gà như thế nữa!'\n"
+        "   - Ví dụ chuẩn Lười Tắm Anime: 'Mới giây trước còn cao ngạo nắm thế chủ động, thì ngay giây sau hắn đã bị lật kèo cực gắt! Ai cũng ngỡ cú ra đòn vừa rồi là sát chiêu, nhưng hóa ra tất cả chỉ là miếng mồi nhử nằm trong tính toán từ đầu.'\n"
+        "3. BÁM SÁT 100% DIỄN BIẾN & ĐÚNG VAI TRÒ NHÂN VẬT: Kể đúng nội dung sự việc và ý nghĩa câu thoại của từng cảnh, giữ đúng tên nhân vật, tuyệt đối không chèn từ tiếng Anh hay ký tự lạ.\n"
+        "4. TỐI ƯU NHỊP THỞ GIỌNG ĐỌC AI: Chia câu thành các vế gọn 8-16 chữ ngăn cách bằng dấu phẩy (,), dùng dấu ba chấm (...) tạo khoảng lặng hồi hộp và dấu chấm than (!) ở câu chốt cao trào.\n"
+        "5. GÁN NHÃN CẢM XÚC (`cam_xuc`): Chọn đúng 1 nhãn cho mỗi cảnh trong: `kich_tinh`, `hai_huoc`, `hoi_hop`, `uy_ap`, `cam_xuc`, `mo_dau`.\n"
         "6. CHỈ TRẢ VỀ JSON HỢP LỆ theo đúng cấu trúc: "
         '{"tom_tat_chuong": "...", "scenes": [{"scene_index": 1, "nhan_vat": "...", "cam_xuc": "kich_tinh", "loi_thuyet_minh": "..."}]}'
     )
 
     user_prompt = (
+        f"{system_prompt}\n\n"
         f"=== THÔNG TIN CHƯƠNG TRUYỆN ===\n"
         f"- Bộ truyện: {ten_truyen or 'Manga'}\n"
-        f"- Chương: {ten_chap or 'Chapter mới'}\n"
-        f"- Phong cách biên kịch yêu cầu: {mo_ta_pc}\n\n"
+        f"- Chương: {ten_chap or 'Chương mới'}\n"
+        f"- Phong cách kênh Review yêu cầu: {mo_ta_pc}\n\n"
         f"=== HỒ SƠ NHÂN VẬT & QUAN HỆ XƯNG HÔ ===\n{ho_so_nhan_vat or 'Theo hội thoại thực tế'}\n\n"
         f"=== TÓM TẮT MẠCH DIỄN BIẾN TOÀN CHƯƠNG ===\n{tom_tat_mach_chuong or 'Theo chuỗi cảnh bên dưới'}\n\n"
         f"=== CHI TIẾT HỘI THOẠI & BỐI CẢNH TỪNG TRANG ({len(dong_trang)} CẢNH) ===\n"
         + "\n".join(dong_trang)
-        + f"\n\nHãy viết lời bình thuyết minh Tiếng Việt ngôi thứ 3 bám sát nội dung cho toàn bộ {len(dong_trang)} cảnh trên và trả về JSON."
+        + f"\n\nHãy viết lời bình thuyết minh Tiếng Việt chuẩn kênh Review triệu view cho toàn bộ {len(dong_trang)} cảnh trên và CHỈ trả về JSON hợp lệ."
     )
 
-    for api_key in ds_keys:
-        try:
-            payload = json.dumps(
-                {
-                    "model": "deepseek-chat",
-                    "temperature": 0.35,
-                    "max_tokens": min(4096, max(800, len(dong_trang) * 160)),
-                    "response_format": {"type": "json_object"},
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                }
-            ).encode("utf-8")
-            req = urllib.request.Request(
-                "https://api.deepseek.com/chat/completions",
-                data=payload,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                    "User-Agent": "MangaStudioBackend/1.1",
-                },
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=45) as resp:
-                data = json.loads(resp.read().decode("utf-8", errors="replace"))
-            raw_content = str((((data.get("choices") or [{}])[0]).get("message") or {}).get("content") or "")
-            raw_content = re.sub(r"<think>[\s\S]*?</think>", "", raw_content).strip()
-            parsed = json.loads(raw_content)
-            scenes_out = parsed.get("scenes") if isinstance(parsed, dict) else None
-            tom_tat = str(parsed.get("tom_tat_chuong") or "") if isinstance(parsed, dict) else ""
-            if isinstance(scenes_out, list) and scenes_out:
-                return scenes_out, tom_tat, "deepseek-chat"
-        except Exception:  # noqa: BLE001
-            continue
+    try:
+        tr = LLMContextTranslator(
+            api_keys=tat_ca_keys,
+            model_name=settings.llm_model_name or "gemini-3.1-flash-lite",
+            timeout=45,
+            temperature=0.4,
+            max_output_tokens=min(8192, max(1024, len(dong_trang) * 180)),
+            thinking_budget=0,
+        )
+        raw_content, _ = tr.goi_prompt_tho(user_prompt)
+        raw_content = re.sub(r"<think>[\s\S]*?</think>", "", raw_content or "").strip()
+        raw_content = re.sub(r"^```(?:json)?\s*", "", raw_content, flags=re.I)
+        raw_content = re.sub(r"\s*```$", "", raw_content).strip()
+        m_json = re.search(r"\{[\s\S]*\}", raw_content)
+        if m_json:
+            raw_content = m_json.group(0)
+        parsed = json.loads(raw_content)
+        scenes_out = parsed.get("scenes") if isinstance(parsed, dict) else None
+        tom_tat = str(parsed.get("tom_tat_chuong") or "") if isinstance(parsed, dict) else ""
+        if isinstance(scenes_out, list) and scenes_out:
+            return scenes_out, tom_tat, "ai-storyteller"
+    except Exception:  # noqa: BLE001
+        pass
 
     return [], "", "fallback"
 

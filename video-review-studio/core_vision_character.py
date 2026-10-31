@@ -22,24 +22,47 @@ except Exception:  # pragma: no cover
 
 PHONG_CACH_KICH_BAN = {
     "kich_tinh": {
-        "ten": "🔥 Kịch tính / Cuốn hút (Chuẩn Review Truyện YouTube/TikTok)",
-        "mo_ta": "Nhịp kể lôi cuốn, bám sát diễn biến cốt truyện và cảm xúc nhân vật trong từng khung tranh.",
-        "cau_hook_mau": "Hãy cùng theo dõi ngay những diễn biến đầy bất ngờ trong chương truyện này!",
+        "ten": "🔥 Đại Chiến Kịch Tính & Lật Kèo (Chuẩn style Lười Tắm Anime / Solo Đỉnh Cao)",
+        "mo_ta": (
+            "Phong cách bình luận viên đại chiến cực cháy (như kênh Lười Tắm Anime): "
+            "nhịp kể dồn dập, phân tích thế trận Mồi nhử -> Sát chiêu -> Phản đòn -> Lật kèo, "
+            "dùng từ giàu sức nặng ('một hit tiễn đối thủ bay màu', 'mới giây trước còn cao ngạo thì ngay giây sau đã ăn trọn đòn chí mạng', "
+            "'Đùng! Một tiếng nổ kinh hoàng xé toạc không gian', 'đến lúc này người xem mới ngã ngửa')."
+        ),
+        "cau_hook_mau": "Mới giây trước thế trận còn tưởng chừng đã ngã ngũ, thì ngay khoảnh khắc tiếp theo một màn lật kèo kinh thiên động địa đã nổ ra!",
     },
     "hai_huoc": {
-        "ten": "😂 Hài hước / Dí dỏm (Chuẩn TikTok / Reels triệu view)",
-        "mo_ta": "Giọng văn duyên dáng, trẻ trung, bắt trọn những khoảnh khắc tấu hài và màn đối đáp khó đỡ của nhân vật.",
-        "cau_hook_mau": "Tưởng sẽ có một màn thể hiện cực ngầu, ai ngờ diễn biến tiếp theo lại khiến người xem cười ra nước mắt!",
+        "ten": "😂 Manhwa Hệ Thống / Trùng Sinh Mặn Mà (Chuẩn style Gấu Xàm Anime / GenZ Bật Hack)",
+        "mo_ta": (
+            "Phong cách kể chuyện mặn mòi, bắt trend GenZ duyên dáng (như kênh Gấu Xàm Anime): "
+            "xen kẽ bình luận cà khịa cực duyên ('thanh niên này', 'vẫn chưa hẹo', 'múa thử vài đường cơ bản mà ai cũng tưởng đang bật hack', "
+            "'Cơ mà hắn lại không ngờ được rằng...', 'quay xe khét lẹt', 'đứng hình mất 5 giây')."
+        ),
+        "cau_hook_mau": "Tưởng chỉ là một pha xử lý cơ bản, thế nào mà khi nhân vật của chúng ta vừa ra tay thì cả đám xung quanh đều ngỡ anh đang bật hack!",
+    },
+    "trinh_tham_kinh_di": {
+        "ten": "🕵️ Trinh Thám / Kinh Dị / Kỳ Bí Cuốn Hút (Chuẩn style Genz Tóm Tắt / Siêu Nhiên)",
+        "mo_ta": (
+            "Phong cách dẫn chuyện điện ảnh, hồi hộp và ớn lạnh vừa đủ (như kênh Genz Tóm Tắt): "
+            "xoáy sâu vào chi tiết thị giác kỳ dị, phản ứng tâm lý nhân vật và chuỗi nhân quả chặt chẽ "
+            "('Chưa kịp định thần...', 'Theo phản xạ tự vệ trước cảnh tượng quá đỗi kinh hãi...', 'Nào ngờ...', 'Từng cơn ớn lạnh chạy dọc sống lưng')."
+        ),
+        "cau_hook_mau": "Kịch tính, bí ẩn và sự ớn lạnh vừa đủ — vậy diễn biến của chương truyện hôm nay ẩn chứa điều gì đặc biệt? Hãy cùng mình tìm hiểu ngay nhé!",
     },
     "tu_tien": {
-        "ten": "⚔️ Hành động / Tu tiên / Hệ thống",
-        "mo_ta": "Ngôn từ hào sảng, nhấn mạnh khí chất nhân vật, các màn giao tranh và bước ngoặt sức mạnh.",
-        "cau_hook_mau": "Đối mặt với thử thách trước mắt, nhân vật của chúng ta sẽ tung ra nước đi nào tiếp theo?",
+        "ten": "⚔️ Tu Tiên / Huyền Huyễn / Cường Giả Vả Mặt (Bá Đạo & Ngầu Lòi)",
+        "mo_ta": (
+            "Ngôn từ hào sảng, nhấn mạnh khí chất cường giả, uy áp nghiền nát kẻ địch và những màn vả mặt cực gắt "
+            "('uy áp kinh thiên động địa bóp nghẹt bầu không khí', 'chỉ bằng một ánh mắt lạnh băng đã khiến đối phương đổ mồ hôi hột')."
+        ),
+        "cau_hook_mau": "Đối mặt với kẻ địch ngạo mạn trước mắt, thanh niên chỉ nhếch môi lạnh lùng trước khi tung ra chiêu thức chấn động toàn trường!",
     },
     "ngon_tinh": {
-        "ten": "💕 Cảm xúc / Đời thường / Drama",
-        "mo_ta": "Giàu cảm xúc, xoáy sâu vào tâm lý, biểu cảm và mối quan hệ giữa các nhân vật.",
-        "cau_hook_mau": "Mỗi ánh nhìn và lời nói trong chương này đều ẩn chứa những tâm tư vô cùng thú vị!",
+        "ten": "💕 Học Đường / Cảm Xúc / Drama Đời Thường (Tinh Tế & Cuốn Hút)",
+        "mo_ta": (
+            "Giàu cảm xúc, tinh tế, bắt trọn những khoảnh khắc rung động, hiểu lầm dở khóc dở cười và tương tác tâm lý tự nhiên giữa các nhân vật."
+        ),
+        "cau_hook_mau": "Mỗi ánh nhìn và câu nói trong chương này đều đẩy mối quan hệ của các nhân vật sang một bước ngoặt không ngờ tới!",
     },
 }
 
@@ -484,12 +507,14 @@ class CharacterCastMemory:
         txt = (cau_thoai or "").strip()
         txt_low = txt.lower()
 
-        # 1. Xưng danh trực tiếp ("<Tên> ta", "của <Tên>", "Ta là <Tên>")
+        # 1. Nhãn người nói ở đầu câu ("<Tên>:") hoặc xưng danh trực tiếp ("<Tên> ta", "của <Tên>", "Ta là <Tên>")
         for c in self.characters:
             ten_c = c["ten"].strip()
             ten_low = ten_c.lower()
             if ten_low and (
-                f"{ten_low} ta" in txt_low
+                txt_low.startswith(f"{ten_low}:")
+                or txt_low.startswith(f"{ten_low} :")
+                or f"{ten_low} ta" in txt_low
                 or f"ta là {ten_low}" in txt_low
                 or f"của {ten_low}" in txt_low
                 or f"tôi là {ten_low}" in txt_low
@@ -769,15 +794,20 @@ def phan_tich_bo_cuc_anh_khung_tranh(panel_bytes: bytes) -> dict[str, Any]:
         return {"do_sang": 128.0, "do_tuong_phan": 45.0, "khong_khi": "binh_thuong"}
 
 
-def _lay_khoa_deepseek_review() -> str:
-    """Đọc khoá DeepSeek API (sk-...) từ biến môi trường, cấu hình Video Studio hoặc .env."""
-    for env_name in ("DEEPSEEK_API_KEY", "DEEPSEEK_API_KEYS", "GEMINI_API_KEYS", "GEMINI_API_KEY"):
+def _lay_khoa_ai_review() -> tuple[str, str]:
+    """
+    Tìm khoá AI tốt nhất để biên kịch kịch bản Review:
+    Trả về `(loai_backend, api_key)` trong đó `loai_backend` thuộc `('deepseek', 'groq', 'gemini')`.
+    """
+    ung_vien_keys: list[tuple[str, str]] = []
+    for env_name in ("DEEPSEEK_API_KEY", "DEEPSEEK_API_KEYS", "GROQ_API_KEYS", "GROQ_API_KEY", "GEMINI_API_KEYS", "GEMINI_API_KEY"):
         val = (os.environ.get(env_name) or "").strip()
         if val:
             for part in val.split(","):
                 p = part.strip()
-                if p.startswith("sk-") or env_name.startswith("DEEPSEEK"):
-                    return p
+                if p:
+                    ung_vien_keys.append((env_name, p))
+
     base_dir = Path(__file__).resolve().parent
     for cfg_path in (
         Path.home() / ".manga_video_review_studio_config.json",
@@ -787,30 +817,52 @@ def _lay_khoa_deepseek_review() -> str:
         try:
             if cfg_path.is_file():
                 cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
-                k = str(cfg.get("deepseek_api_key") or "").strip()
-                if k:
-                    return k.split(",")[0].strip()
+                for k_field in ("deepseek_api_key", "gemini_api_key", "ai_api_key"):
+                    k = str(cfg.get(k_field) or "").strip()
+                    if k:
+                        ung_vien_keys.append((k_field.upper(), k.split(",")[0].strip()))
         except Exception:
             pass
-    for env_path in (base_dir / ".env", base_dir.parent / ".env"):
+
+    env_candidates = [
+        base_dir / ".env",
+        base_dir.parent / ".env",
+        Path.home() / "Documents" / "Tool" / "Translation" / ".env",
+    ]
+    for env_path in env_candidates:
         try:
             if env_path.is_file():
                 for line in env_path.read_text(encoding="utf-8", errors="ignore").splitlines():
                     s = line.strip()
-                    if s.startswith(("DEEPSEEK_API_KEY=", "DEEPSEEK_API_KEYS=", "GEMINI_API_KEYS=", "GEMINI_API_KEY=")):
+                    if s.startswith(("DEEPSEEK_API_KEY=", "DEEPSEEK_API_KEYS=", "GROQ_API_KEYS=", "GROQ_API_KEY=", "GEMINI_API_KEYS=", "GEMINI_API_KEY=")):
                         k_name, v_raw = s.split("=", 1)
                         v = v_raw.strip().strip("\"'")
                         for part in v.split(","):
                             p = part.strip()
-                            if p and (p.startswith("sk-") or k_name.startswith("DEEPSEEK")):
-                                return p
+                            if p:
+                                ung_vien_keys.append((k_name.strip(), p))
         except Exception:
             pass
-    return ""
+
+    for k_name, p in ung_vien_keys:
+        if p.startswith("sk-") or k_name.startswith("DEEPSEEK"):
+            return "deepseek", p
+    for k_name, p in ung_vien_keys:
+        if p.startswith("gsk_") or k_name.startswith("GROQ"):
+            return "groq", p
+    for k_name, p in ung_vien_keys:
+        if len(p) >= 20:
+            return "gemini", p
+    return "", ""
+
+
+def _lay_khoa_deepseek_review() -> str:
+    loai, key = _lay_khoa_ai_review()
+    return key if loai == "deepseek" else ""
 
 
 def _lay_thong_tin_ket_noi_server_review() -> tuple[str, str]:
-    """Lấy (server_url, token) từ cấu hình Video Studio hoặc App Dịch Truyện để gọi cầu nối DeepSeek trên máy chủ."""
+    """Lấy (server_url, token) từ cấu hình Video Studio hoặc App Dịch Truyện để gọi cầu nối DeepSeek/AI trên máy chủ."""
     server_url = "https://translation-api.vibe1.tinhgon.xyz"
     token = ""
     for cfg_path in (
@@ -832,8 +884,13 @@ def _lay_thong_tin_ket_noi_server_review() -> tuple[str, str]:
 
 
 def _tim_model_llm_cuc_bo() -> tuple[str, str] | None:
-    if _lay_khoa_deepseek_review():
+    loai_ai, key_ai = _lay_khoa_ai_review()
+    if loai_ai == "deepseek" and key_ai:
         return "deepseek", "deepseek-chat"
+    if loai_ai == "groq" and key_ai:
+        return "groq", "llama-3.3-70b-versatile"
+    if loai_ai == "gemini" and key_ai:
+        return "gemini", "gemini-3.1-flash-lite"
     try:
         req = urllib.request.Request("http://127.0.0.1:11434/api/tags", method="GET")
         with urllib.request.urlopen(req, timeout=1.5) as r:
@@ -987,10 +1044,11 @@ def _bien_tap_cau_review_tu_cap_thoai_viet(
     panel_idx: int,
     tong_panel: int,
     boi_canh_chung: str = "",
+    phong_cach: str = "kich_tinh",
 ) -> str:
     """
-    Dệt trực tiếp danh sách `(ten_nguoi_noi, cau_tieng_viet)` trong trang thành lời dẫn chuyện
-    ngôi thứ 3 mượt mà, chuẩn 100% vai trò từng nhân vật và hoàn toàn bằng Tiếng Việt!
+    Bộ biên kịch kể chuyện dự phòng (Offline Storyteller) theo chuẩn 3 kênh YouTube mẫu
+    (Gấu Xàm Anime, Genz Tóm Tắt, Lười Tắm Anime) — hoàn toàn loại bỏ lối liệt kê khô khan!
     """
     ten_chinh = nv_chinh.get("ten") or "Nhân vật chính"
     if not (la_ten_nhan_vat_hop_le(ten_chinh) or ten_chinh in ("Nhân vật chính", "Kẻ địch", "Đối phương")):
@@ -1000,18 +1058,32 @@ def _bien_tap_cau_review_tu_cap_thoai_viet(
     if not cap_nv_cau:
         if panel_idx == tong_panel - 1:
             return (
-                f"Khép lại những diễn biến vô cùng thú vị và cuốn hút của {boi_canh_chung or 'chương truyện hôm nay'}. "
-                "Hãy cùng đón xem những tình huống tiếp theo ở chương sau nhé!"
+                f"Khép lại những diễn biến đầy kịch tính và bất ngờ của {boi_canh_chung or 'chương truyện hôm nay'}! "
+                "Liệu cục diện tiếp theo sẽ bùng nổ ra sao, hãy cùng đón xem ở chương sau nhé!"
             )
-        mau_khong_loi = [
-            f"Ở khung hình chuyển cảnh này, biểu cảm và thần thái của {xung_chinh} khiến người xem không khỏi chú ý.",
-            f"Ngay lúc này, bầu không khí trở nên căng thẳng hơn qua ánh mắt và cử chỉ của {xung_chinh}.",
-            f"Tiếp nối mạch truyện, từng khung hình hành động của {xung_chinh} được khắc họa vô cùng sống động.",
-            f"Chứng kiến tình huống vừa diễn ra, phản ứng của {xung_chinh} càng làm mạch truyện thêm phần cuốn hút.",
-        ]
-        return mau_khong_loi[panel_idx % len(mau_khong_loi)]
+        mau_khong_loi_theo_pc = {
+            "hai_huoc": [
+                f"Chưa kịp định thần, biểu cảm đứng hình mất 5 giây của {xung_chinh} khiến người xem không khỏi bật cười!",
+                f"Tưởng sẽ có một pha xử lý cực ngầu, thế nào mà thái độ tỉnh bơ của {xung_chinh} lại làm đối phương cứng họng.",
+                f"Giữa tình huống dở khóc dở cười ấy, {xung_chinh} chỉ biết thở dài ngán ngẩm trước độ lầy lội của đối phương.",
+                f"Cơ mà đời không như là mơ, ánh mắt ngơ ngác của {xung_chinh} ngay khoảnh khắc này đã nói lên tất cả!",
+            ],
+            "trinh_tham_kinh_di": [
+                f"Giữa bầu không khí tĩnh lặng đến rợn người, ánh mắt sững sờ của {xung_chinh} báo hiệu một biến cố bất thường sắp ập đến...",
+                f"Chưa kịp để {xung_chinh} định thần, từng chi tiết kỳ dị trước mắt đã khiến từng cơn ớn lạnh chạy dọc sống lưng.",
+                f"Theo phản xạ tự nhiên trước cảnh tượng khó tin ấy, {xung_chinh} lập tức khựng lại với vẻ mặt đầy hoang mang.",
+                f"Không một lời thoại nào vang lên, nhưng sự căng thẳng nghẹt thở quanh {xung_chinh} đã đẩy kịch tính lên tột độ!",
+            ],
+            "kich_tinh": [
+                f"Mới giây trước thế trận còn giằng co, thì ngay khoảnh khắc này thần thái sắc lạnh của {xung_chinh} đã làm bùng nổ bầu không khí!",
+                f"Giữa áp lực nghẹt thở, {xung_chinh} lập tức siết chặt tay, sẵn sàng tung ra nước đi quyết định để lật ngược thế cờ!",
+                f"Chứng kiến cảnh tượng chấn động trước mắt, ngay cả những người xung quanh cũng phải đổ mồ hôi hột trước khí thế của {xung_chinh}.",
+                f"Đùng! Cục diện bất ngờ xoay chuyển cực gắt chỉ qua một ánh nhìn đầy sát khí của {xung_chinh}!",
+            ],
+        }
+        ds_mau = mau_khong_loi_theo_pc.get(phong_cach) or mau_khong_loi_theo_pc["kich_tinh"]
+        return ds_mau[panel_idx % len(ds_mau)]
 
-    # Gom các câu của cùng 1 nhân vật trong trang (tránh lặp ý trùng nhau trên toàn trang) để tạo mạch kể tự nhiên
     nhom_luot_noi: list[tuple[str, list[str]]] = []
     da_dung_cau: set[str] = set()
     for nv_ten, cau_vi in cap_nv_cau:
@@ -1028,58 +1100,72 @@ def _bien_tap_cau_review_tu_cap_thoai_viet(
                 nhom_luot_noi.append((nv_hop_le, [cau_clean]))
 
     if not nhom_luot_noi:
-        return f"Trong phân cảnh này, {xung_chinh} tiếp tục màn thể hiện đầy cuốn hút của mình."
+        return f"Giữa bầu không khí ngày càng nóng lên, {xung_chinh} lập tức có màn thể hiện khiến ai nấy đều phải ngoái nhìn!"
 
-    dong_tu_noi = [
-        "hào hứng lên tiếng",
-        "điềm tĩnh đáp lại",
-        "thẳng thắn chia sẻ",
-        "bất ngờ thốt lên",
-        "nhận xét",
-        "tự tin tuyên bố",
-    ]
     tu_bat_dau_dong_tu = (
         "hào hứng ", "hỏi xem ", "nhắc ", "đề nghị ", "sốt ruột ", "quyết định ", "tự ái ",
         "suy diễn ", "điềm tĩnh ", "phát cầu ", "cố gắng ", "trầm trồ ", "lập tức ",
         "ngơ ngác ", "thầm nghĩ ", "cảm kích ", "tung ", "quay sang ", "nhận xét ",
         "nhắc nhở ", "tâm đắc ", "nhận thấy ", "vô tình ", "vẫn hào hứng ", "muốn ", "dặn ", "tự hỏi ",
     )
+
+    # Nhịp dẫn chuyện kiểu Gấu Xàm / Genz Tóm Tắt / Lười Tắm Anime
+    dan_nhap_sinh_dong = [
+        "Không để đối phương kịp trở tay,",
+        "Mới giây trước còn giữ vẻ bình thản, ngay khoảnh khắc này",
+        "Chưa kịp để mọi người xung quanh hết bất ngờ,",
+        "Đứng trước tình thế đầy gay cấn,",
+        "Nào ngờ ngay giây tiếp theo,",
+        "Cơ mà đời không như là mơ, ngay lúc ấy",
+        "Nhận thấy bầu không khí bắt đầu căng như dây đàn,",
+        "Chẳng hề nao núng trước áp lực trước mắt,",
+    ]
+    cum_hanh_dong_noi = [
+        "lập tức lên tiếng chất vấn,",
+        "thẳng thừng tuyên bố một câu cực gắt:",
+        "không ngần ngại đáp trả ngay lập tức:",
+        "bất ngờ thốt lên đầy sửng sốt:",
+        "lạnh lùng chốt hạ một câu xanh rờn:",
+        "vội vàng lên tiếng cảnh báo:",
+    ]
+    cum_phan_ung_nguoi_hai = [
+        "Nghe vậy, {nv} cũng chẳng vừa khi lập tức phản pháo",
+        "Cơ mà {nv} lại không hề nao núng, liền đáp trả",
+        "Chứng kiến màn thể hiện đó, {nv} chỉ biết thốt lên",
+        "Ngay lập tức, {nv} quay xe cực gắt và tuyên bố",
+    ]
+
     cac_ve: list[str] = []
     for i_luot, (nv_ten, ds_c) in enumerate(nhom_luot_noi):
-        gop_y = " và ".join(ds_c) if len(ds_c) == 2 else ", ".join(ds_c)
+        gop_y = " rồi ".join(ds_c) if len(ds_c) == 2 else ", ".join(ds_c)
         if gop_y:
             gop_y = gop_y[0].lower() + gop_y[1:]
         for proper in ("Hiyori-senpai", "Hiyori", "Haruka-chan", "Haruka", "Lai-chan"):
             gop_y = re.sub(re.escape(proper.lower()), proper, gop_y, flags=re.I)
         bat_dau_bang_dong_tu = any(gop_y.startswith(v) for v in tu_bat_dau_dong_tu)
-        dt = "" if bat_dau_bang_dong_tu else (dong_tu_noi[(panel_idx + i_luot) % len(dong_tu_noi)] + " rằng ")
         if i_luot == 0:
-            cac_ve.append(f"{nv_ten} {dt}{gop_y}")
-        elif i_luot == 1:
-            cac_ve.append(f"trong khi đó {nv_ten} {dt}{gop_y}")
+            tien_to = dan_nhap_sinh_dong[panel_idx % len(dan_nhap_sinh_dong)]
+            if bat_dau_bang_dong_tu:
+                cac_ve.append(f"{tien_to} {nv_ten} {gop_y}")
+            else:
+                hd = cum_hanh_dong_noi[(panel_idx + i_luot) % len(cum_hanh_dong_noi)]
+                cac_ve.append(f"{tien_to} {nv_ten} {hd} {gop_y}")
         else:
-            cac_ve.append(f"còn {nv_ten} thì {dt}{gop_y}")
+            mau_p2 = cum_phan_ung_nguoi_hai[(panel_idx + i_luot) % len(cum_phan_ung_nguoi_hai)].format(nv=nv_ten)
+            if bat_dau_bang_dong_tu:
+                cac_ve.append(f"Khiến {nv_ten} {gop_y}")
+            else:
+                cac_ve.append(f"{mau_p2}: {gop_y}")
 
-    mo_dau_canh = [
-        "Mở đầu phân cảnh,",
-        "Ngay lúc này,",
-        "Ngay sau đó,",
-        "Trước tình huống bất ngờ ấy,",
-        "Chứng kiến cảnh tượng trước mắt,",
-        "Ở diễn biến tiếp theo,",
-        "Không dừng lại ở đó,",
-        "Tiếp nối mạch truyện,",
-    ]
-    tien_to = mo_dau_canh[panel_idx % len(mo_dau_canh)]
-    cau_hoan_chinh = f"{tien_to} {', '.join(cac_ve)}."
+    cau_hoan_chinh = ". ".join(cac_ve).strip().rstrip(".") + "!"
     cau_hoan_chinh = re.sub(r"\brằng\s+rằng\b", "rằng", cau_hoan_chinh, flags=re.I)
     if panel_idx == tong_panel - 1:
-        cau_hoan_chinh += " Hãy cùng đón xem những diễn biến thú vị tiếp theo nhé!"
+        cau_hoan_chinh += " Hãy cùng đón xem những diễn biến bùng nổ tiếp theo nhé!"
     return cau_hoan_chinh
 
 
 def _kiem_tra_cau_ai_hop_le(cau: str) -> bool:
-    """Đảm bảo câu do LLM sinh ra là văn kể chuyện ngôi thứ 3 chuẩn 100% Tiếng Việt, không lẫn tiếng Anh hay rác OCR."""
+    """Đảm bảo câu do LLM sinh ra là văn kể chuyện ngôi thứ 3 chuẩn 100% Tiếng Việt, không lẫn tiếng Anh, rác OCR hay văn mẫu máy móc."""
     if not cau or len(cau.strip()) < 18:
         return False
     low = cau.lower()
@@ -1090,7 +1176,7 @@ def _kiem_tra_cau_ai_hop_le(cau: str) -> bool:
         for bad in (
             "theoretical framework", "research questions", "methodology", "social capital",
             "that was a serious move", "let's play singles", "when does the match",
-            "100%", "ví dụ:", "trong ngoặc",
+            "100%", "ví dụ:", "trong ngoặc", "mở đầu phân cảnh", "điềm tĩnh đáp lại rằng",
         )
     ):
         return False
@@ -1104,7 +1190,7 @@ def _tong_hop_mach_truyen_toan_chuong(
 ) -> str:
     """
     Tổng hợp toàn bộ dòng chảy sự kiện từ Trang 1 đến Trang cuối thành Bản đồ Ngữ cảnh Chương (Chapter Story Arc)
-    để DeepSeek hiểu toàn cảnh mở đầu -> xung đột -> cao trào -> kết thúc trước khi viết lời bình từng trang.
+    để AI hiểu toàn cảnh mở đầu -> xung đột -> cao trào -> kết thúc trước khi viết lời bình từng trang.
     """
     tom_tat_lines: list[str] = []
     for idx, (nv_trang, cap_nv_cau) in enumerate(trang_da_gan_va_dich):
@@ -1122,13 +1208,13 @@ def _suy_luan_cam_xuc_canh(loi_binh: str, khong_khi_anh: str, panel_idx: int, ph
     low = (loi_binh or "").lower()
     if panel_idx == 0:
         return "mo_dau"
-    if any(w in low for w in ("bất ngờ", "chấn động", "sấm sét", "tuyệt kỹ", "tung cú", "bùng nổ", "hét lên", "uy lực", "quyết định tung")):
+    if any(w in low for w in ("bất ngờ", "chấn động", "sấm sét", "tuyệt kỹ", "tung cú", "bùng nổ", "hét lên", "uy lực", "lật kèo", "đùng!")):
         return "kich_tinh"
-    if any(w in low for w in ("đổ thừa", "ngơ ngác", "tấu hài", "cười", "quá lố", "làm gương xấu", "oẳn tù tì", "tự ái")):
+    if any(w in low for w in ("đổ thừa", "ngơ ngác", "tấu hài", "cười", "quá lố", "bật hack", "oẳn tù tì", "tự ái", "cơ mà", "quay xe")):
         return "hai_huoc"
-    if any(w in low for w in ("uy áp", "lạnh lùng", "bá đạo", "thống trị", "nghiền nát", "cường giả")):
+    if any(w in low for w in ("uy áp", "lạnh lùng", "bá đạo", "thống trị", "nghiền nát", "cường giả", "sát khí")):
         return "uy_ap"
-    if any(w in low for w in ("sốt ruột", "hồi hộp", "căng thẳng", "nghi ngờ", "thầm nghĩ", "chờ đợi")):
+    if any(w in low for w in ("sốt ruột", "hồi hộp", "căng thẳng", "ớn lạnh", "hoang mang", "rợn người", "chưa kịp định thần")):
         return "hoi_hop"
     if khong_khi_anh == "soi_noi_cao_trao":
         return "kich_tinh"
@@ -1147,11 +1233,8 @@ def _viet_kich_ban_toan_chuong_bang_ai(
     ds_khong_khi: list[str] | None = None,
 ) -> list[dict[str, str]] | None:
     """
-    Xây dựng kịch bản thuyết minh toàn Chapter bằng DeepSeek (`deepseek-chat`) với Prompt đa tầng chặt chẽ:
-    1. Nạp Hồ sơ Nhân vật (`ho_so_nv`) + Tóm tắt Mạch Diễn Biến Toàn Chương (`tom_tat_mach_chuong`).
-    2. Gửi theo cụm vừa phải (12 trang/lượt) kèm ngữ cảnh trang liền trước để mạch kể liền mạch 100%,
-       bám sát từng câu thoại thực tế trên từng trang và gán nhãn cảm xúc (`cam_xuc`) cho giọng đọc ElevenLabs/Neural TTS.
-    3. Hỗ trợ gọi trực tiếp DeepSeek API (`sk-...`), Cầu nối DeepSeek trên Server (`comic.io.vn`), hoặc Ollama cục bộ.
+    Xây dựng kịch bản thuyết minh toàn Chapter bằng AI (DeepSeek / Gemini 3.1 / Groq / Ollama)
+    với Bộ Prompt Biên Kịch Triệu View (học từ 3 kênh Gấu Xàm Anime, Genz Tóm Tắt, Lười Tắm Anime).
     """
     tong = len(trang_da_gan_va_dich)
     if tong == 0:
@@ -1163,13 +1246,13 @@ def _viet_kich_ban_toan_chuong_bang_ai(
     ket_qua_toan_bo: list[dict[str, str]] = [{} for _ in range(tong)]
 
     pc_mo_ta = (PHONG_CACH_KICH_BAN.get(phong_cach) or PHONG_CACH_KICH_BAN["kich_tinh"])["mo_ta"]
-    ds_key = _lay_khoa_deepseek_review()
+    loai_ai, key_ai = _lay_khoa_ai_review()
     server_url, server_token = _lay_thong_tin_ket_noi_server_review()
     if server_url in ("https://comic.io.vn", "http://comic.io.vn"):
         server_url = "https://translation-api.vibe1.tinhgon.xyz"
 
-    # Ưu tiên 1: Nếu chưa có DeepSeek key cục bộ nhưng có kết nối Server comic.io.vn -> gọi thẳng cầu nối DeepSeek trên Server theo từng cụm 12 trang!
-    if not ds_key and server_url:
+    # Ưu tiên 1: Nếu chưa có key AI cục bộ nhưng có kết nối Server comic.io.vn -> gọi cầu nối AI trên Server theo cụm 12 trang
+    if not key_ai and server_url:
         try:
             pages_payload = []
             for idx, (nv_trang, cap_nv_cau) in enumerate(trang_da_gan_va_dich):
@@ -1234,7 +1317,7 @@ def _viet_kich_ban_toan_chuong_bang_ai(
         return None
     backend, model_name = found
 
-    kich_thuoc_cum = 15 if backend == "deepseek" else 4
+    kich_thuoc_cum = 12 if backend in ("deepseek", "gemini", "groq") else 4
     boi_canh_cum_truoc = ""
 
     for start_idx in range(0, tong, kich_thuoc_cum):
@@ -1247,38 +1330,46 @@ def _viet_kich_ban_toan_chuong_bang_ai(
             if cap_nv_cau:
                 chuoi_thoai = " | ".join(f"{nv}: {cau}" for nv, cau in cap_nv_cau[:8])[:380]
             else:
-                chuoi_thoai = f"(Khung tranh hành động/chuyển cảnh không có bóng thoại - không khí: {kk})"
+                chuoi_thoai = f"(Khung tranh hành động/biểu cảm không có bóng thoại - không khí: {kk})"
             dong_mo_ta.append(f"[{k + 1}] Trang #{g_idx + 1} (Nhân vật: {nv_trang} | Không khí: {kk}): {chuoi_thoai}")
 
         system_msg = (
-            "Bạn là Tổng Biên Kịch chuyên nghiệp của kênh Review Truyện Tranh triệu view bằng Tiếng Việt.\n"
-            "QUY TẮC BẮT BUỘC:\n"
-            "1. 100% TIẾNG VIỆT TỰ NHIÊN: Tuyệt đối KHÔNG chèn từ tiếng Anh hay ký tự lạ vào lời bình. Mọi câu thoại phải được diễn đạt hoàn toàn bằng Tiếng Việt chuẩn.\n"
-            "2. BÁM SÁT 100% NỘI DUNG TỪNG TRANG: Lời bình mục [k] phải kể đúng tình huống, hành động và ý nghĩa câu thoại thực tế của Trang đó. Không bịa tình tiết ngoài lề.\n"
-            "3. ĐÚNG VAI TRÒ NHÂN VẬT: Giữ đúng tên riêng và quan hệ nhân vật theo Hồ sơ nhân vật (ai nói, ai nghe, ai thách đấu, ai quan sát).\n"
-            "4. LIÊN KẾT MẠCH KỂ CHẶT CHẼ: Các câu nối tiếp nhau thành một câu chuyện liền mạch. CẤM dùng các cụm lặp nhàm chán như 'Mở đầu phân cảnh', 'Ở phân cảnh này'.\n"
-            "5. NGỮ ĐIỆU GIÀU CẢM XÚC (CHỐNG BUỒN NGỦ): Câu văn gọn, lôi cuốn, có dấu phẩy (,), dấu ba chấm (...) và dấu chấm than (!) hợp lý để giọng đọc AI nhấn nhá sống động."
+            "Bạn là Tổng Biên Kịch Vàng của các kênh YouTube Review Truyện Tranh triệu view (như Gấu Xàm Anime, Genz Tóm Tắt, Lười Tắm Anime).\n"
+            "BÍ QUYẾT KỂ CHUYỆN TRIỆU VIEW BẮT BUỘC TUÂN THỦ:\n"
+            "1. CẤM VĂN PHONG BÁO CÁO KHÔ KHAN: Tuyệt đối CẤM viết kiểu liệt kê máy móc như 'Mở đầu phân cảnh, A điềm tĩnh đáp lại rằng..., trong khi đó B nhận xét rằng...'. Không lặp từ 'rằng', không dùng 'Ở phân cảnh này'.\n"
+            "2. CÔNG THỨC 3 NHỊP MỖI CẢNH (HÀNH ĐỘNG -> PHẢN ỨNG/THOẠI CHỐT -> BÌNH LUẬN ĐẨY NHỊP):\n"
+            "   - Kể HÀNH ĐỘNG & THÁI ĐỘ của nhân vật trước, sau đó lồng ý thoại một cách sống động rồi chốt bằng câu bình sắc sảo của Reviewer.\n"
+            "   - Mẫu chuẩn 1 (Gấu Xàm Anime - Hài hước/Hệ thống): 'Bị dồn vào thế bí, gã kẻ địch gầm lên bảo đừng xem thường hắn! Cơ mà hắn lại không ngờ được rằng, dù dính đòn hiểm nhưng thanh niên vẫn tỉnh bơ rồi lạnh lùng buông một câu xanh rờn khiến đối phương đứng hình.'\n"
+            "   - Mẫu chuẩn 2 (Genz Tóm Tắt - Trinh thám/Kỳ bí): 'Chưa kịp để cô nữ sinh định thần, gã bạn cùng bàn đã ghé sát mặt nhìn chằm chằm với ánh mắt kỳ dị. Quá hoảng hốt trước hành động quái đản ấy, cô vội gắt lên bảo cậu ta đừng nhìn mình kiểu nổi da gà như thế nữa!'\n"
+            "   - Mẫu chuẩn 3 (Lười Tắm Anime - Đại chiến kịch tính): 'Mới giây trước còn cao ngạo nắm thế chủ động, thì ngay giây sau hắn đã bị lật kèo cực gắt! Ai cũng ngỡ cú ra đòn vừa rồi là sát chiêu, nhưng hóa ra tất cả chỉ là miếng mồi nhử nằm trong tính toán từ đầu.'\n"
+            "3. 100% TIẾNG VIỆT TỰ NHIÊN & BÁM SÁT NỘI DUNG TRANG: Tuyệt đối không chèn từ tiếng Anh hay ký tự lạ. Kể đúng sự việc và vai trò nhân vật của từng trang.\n"
+            "4. TỐI ƯU NHỊP THỞ GIỌNG ĐỌC AI: Chia câu thành các vế gọn 8-16 chữ bằng dấu phẩy (,), dùng dấu ba chấm (...) tạo khoảng lặng hồi hộp và dấu chấm than (!) ở câu chốt cao trào."
         )
 
         prompt = (
-            f"=== BỘ TRUYỆN: {ten_truyen or 'Manga'} — {ten_chap or 'Chapter'} ===\n"
-            f"Phong cách kể: {pc_mo_ta}\n"
+            f"=== BỘ TRUYỆN: {ten_truyen or 'Manga'} — {ten_chap or 'Chương mới'} ===\n"
+            f"Phong cách kênh Review: {pc_mo_ta}\n"
             f"Hồ sơ nhân vật:\n{ho_so_nv}\n\n"
             f"Tóm tắt mạch diễn biến toàn chương:\n{tom_tat_mach_chuong[:1800]}\n"
             + (f"\nDiễn biến liền trước: {boi_canh_cum_truoc}\n" if boi_canh_cum_truoc else "")
-            + f"\nHãy viết lời bình thuyết minh ngôi thứ 3 bằng TIẾNG VIỆT 100% bám sát nội dung cho {so_canh_batch} trang dưới đây.\n"
+            + f"\nHãy viết lời bình thuyết minh ngôi thứ 3 bằng TIẾNG VIỆT 100% chuẩn kênh Review triệu view cho {so_canh_batch} trang dưới đây.\n"
             + "\n".join(dong_mo_ta)
-            + f"\n\nChỉ trả về đúng {so_canh_batch} dòng đánh số từ [1] đến [{so_canh_batch}] theo định dạng: "
-            "[Số] <Lời thuyết minh Tiếng Việt ngôi thứ 3 giàu cảm xúc (không dùng ngoặc kép)>:"
+            + f"\n\nChỉ trả về đúng {so_canh_batch} dòng đánh số từ [1] đến [{so_canh_batch}] theo định dạng:\n"
+            "[1] <Lời thuyết minh Tiếng Việt giàu cảm xúc (không dùng ngoặc kép)>"
         )
 
         try:
-            if backend == "deepseek":
+            if backend in ("deepseek", "groq"):
+                endpoint_url = (
+                    "https://api.groq.com/openai/v1/chat/completions"
+                    if backend == "groq"
+                    else "https://api.deepseek.com/chat/completions"
+                )
                 payload = json.dumps(
                     {
-                        "model": model_name or "deepseek-chat",
-                        "temperature": 0.35,
-                        "max_tokens": max(450, so_canh_batch * 140),
+                        "model": model_name,
+                        "temperature": 0.4,
+                        "max_tokens": max(500, so_canh_batch * 160),
                         "messages": [
                             {"role": "system", "content": system_msg},
                             {"role": "user", "content": prompt},
@@ -1286,10 +1377,10 @@ def _viet_kich_ban_toan_chuong_bang_ai(
                     }
                 ).encode("utf-8")
                 req = urllib.request.Request(
-                    "https://api.deepseek.com/chat/completions",
+                    endpoint_url,
                     data=payload,
                     headers={
-                        "Authorization": f"Bearer {ds_key}",
+                        "Authorization": f"Bearer {key_ai}",
                         "Content-Type": "application/json",
                         "User-Agent": "Mozilla/5.0",
                     },
@@ -1298,22 +1389,49 @@ def _viet_kich_ban_toan_chuong_bang_ai(
                 with urllib.request.urlopen(req, timeout=35) as resp:
                     data = json.loads(resp.read().decode("utf-8", errors="replace"))
                 raw_out = str((((data.get("choices") or [{}])[0]).get("message") or {}).get("content") or "")
+            elif backend == "gemini":
+                gem_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+                payload = json.dumps(
+                    {
+                        "contents": [{"parts": [{"text": f"{system_msg}\n\n{prompt}"}]}],
+                        "generationConfig": {
+                            "temperature": 0.4,
+                            "maxOutputTokens": max(600, so_canh_batch * 170),
+                            "thinkingConfig": {"thinkingBudget": 0},
+                        },
+                    }
+                ).encode("utf-8")
+                req = urllib.request.Request(
+                    gem_url,
+                    data=payload,
+                    headers={
+                        "x-goog-api-key": key_ai,
+                        "Content-Type": "application/json",
+                    },
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    data = json.loads(resp.read().decode("utf-8", errors="replace"))
+                cand = (data.get("candidates") or [{}])[0]
+                parts_out = (cand.get("content") or {}).get("parts") or []
+                raw_out = "".join(str(p.get("text") or "") for p in parts_out)
             elif backend == "ollama":
                 payload = json.dumps(
                     {
                         "model": model_name,
                         "stream": False,
+                        "think": False,
                         "options": {
-                            "temperature": 0.2,
-                            "num_ctx": 2048,
-                            "num_predict": max(320, so_canh_batch * 110),
+                            "temperature": 0.3,
+                            "num_ctx": 4096,
+                            "num_predict": max(360, so_canh_batch * 130),
                             "num_gpu": 37,
                             "stop": [f"[{so_canh_batch + 1}]"],
                         },
                         "messages": [
                             {"role": "system", "content": system_msg},
                             {"role": "user", "content": prompt},
-                            {"role": "assistant", "content": "<think>\n\n</think>\n[1] "},
+                            {"role": "assistant", "content": "[1] "},
                         ],
                     }
                 ).encode("utf-8")
@@ -1323,7 +1441,7 @@ def _viet_kich_ban_toan_chuong_bang_ai(
                     headers={"Content-Type": "application/json"},
                     method="POST",
                 )
-                with urllib.request.urlopen(req, timeout=22) as resp:
+                with urllib.request.urlopen(req, timeout=25) as resp:
                     data = json.loads(resp.read().decode("utf-8", errors="replace"))
                 raw_out = str((data.get("message") or {}).get("content") or "")
                 if not raw_out.lstrip().startswith("[1]"):
@@ -1332,8 +1450,8 @@ def _viet_kich_ban_toan_chuong_bang_ai(
                 payload = json.dumps(
                     {
                         "model": model_name,
-                        "temperature": 0.2,
-                        "max_tokens": max(320, so_canh_batch * 110),
+                        "temperature": 0.3,
+                        "max_tokens": max(360, so_canh_batch * 130),
                         "messages": [
                             {"role": "system", "content": system_msg},
                             {"role": "user", "content": prompt},
@@ -1346,7 +1464,7 @@ def _viet_kich_ban_toan_chuong_bang_ai(
                     headers={"Content-Type": "application/json"},
                     method="POST",
                 )
-                with urllib.request.urlopen(req, timeout=22) as resp:
+                with urllib.request.urlopen(req, timeout=25) as resp:
                     data = json.loads(resp.read().decode("utf-8", errors="replace"))
                 raw_out = str((((data.get("choices") or [{}])[0]).get("message") or {}).get("content") or "")
 
@@ -1417,13 +1535,13 @@ def sinh_kich_ban_review_chuong(
     ds_khong_khi = [bc["khong_khi"] for bc in ds_bo_cuc]
 
     trang_da_gan_va_dich = _gan_nhan_nguoi_noi_va_dich_trang(normalized_ocr, cast)
-    # Luôn ưu tiên gọi DeepSeek (cục bộ hoặc qua cầu nối Server) để viết kịch bản xuyên suốt bám sát từng trang!
+    # Luôn ưu tiên gọi AI (DeepSeek / Gemini 3.1 / Groq / Server) để viết kịch bản chuẩn kênh Review triệu view!
     ai_scenes = (
         _viet_kich_ban_toan_chuong_bang_ai(
             trang_da_gan_va_dich,
             cast,
             ten_truyen=ten_truyen,
-            ten_chap=ten_chap,
+            ten_chap=ten_chap_vi,
             phong_cach=phong_cach,
             ds_khong_khi=ds_khong_khi,
         )
@@ -1450,10 +1568,11 @@ def sinh_kich_ban_review_chuong(
                 panel_idx=idx,
                 tong_panel=tong,
                 boi_canh_chung=tieu_de,
+                phong_cach=phong_cach,
             )
 
-        if idx == 0 and tieu_de.lower() not in loi_binh.lower():
-            loi_binh = f"Chào mừng các bạn đến với {tieu_de}. {loi_binh}"
+        if idx == 0 and tieu_de.lower() not in loi_binh.lower() and (ten_truyen or "").strip().lower() not in loi_binh.lower():
+            loi_binh = f"Chào mừng các bạn đến với {tieu_de}! {loi_binh}"
 
         cam_xuc_canh = str((ai_sc or {}).get("cam_xuc") or "").strip() or _suy_luan_cam_xuc_canh(
             loi_binh, bo_cuc["khong_khi"], idx, phong_cach
