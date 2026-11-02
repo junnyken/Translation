@@ -41,8 +41,8 @@ from app.api.v1.routes import (
     doc_truyen_lay_trang,
 )
 from app.core.config import Settings, get_settings
-from app.core.cong_han_muc import danh_tinh_han_muc, giu_cho_moi_chot
-from app.core.danh_tinh_khach import Chot, DanhTinhHanMuc, bam, ip_cua
+from app.core.cong_han_muc import giu_cho_moi_chot
+from app.core.danh_tinh_khach import Chot, DanhTinhHanMuc, bam, danh_tinh_han_muc, ip_cua
 from app.core.db import get_session
 from app.core.quyen import NguoiGoi, ma_phien_tu_header
 from app.services.han_muc_dang_nhap import da_sai_bao_nhieu, ghi_nhan_dang_nhap_sai
