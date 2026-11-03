@@ -1240,6 +1240,7 @@ class CapLuotRequest(BaseModel):
     paypal_client_id: str | None = Field(default=None, max_length=200)
     rapidapi_url: str | None = Field(default=None, max_length=300)
     rapidapi_proxy_secret: str | None = Field(default=None, max_length=200)
+    webhook_bi_mat: str | None = Field(default=None, max_length=200)
 
 
 class CapLuotResponse(BaseModel):
@@ -1331,6 +1332,8 @@ class QuanTriThongKeRead(BaseModel):
     paypal_client_id: str = ""
     rapidapi_url: str = ""
     rapidapi_proxy_secret_configured: bool = False
+    webhook_bi_mat_configured: bool = False
+    webhook_bi_mat_hien_tai: str = ""
     bieu_do_7_ngay: list[dict] = []
     phan_bo_ngon_ngu: dict[str, int] = {}
     chapter_gan_day: list[dict] = []

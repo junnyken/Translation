@@ -17,6 +17,7 @@ export default function AdminThanhToan({ thongKe, onNap, setLoi, setThongBaoOk }
   const [paypalClientId, setPaypalClientId] = useState(thongKe?.paypal_client_id || '')
   const [rapidapiUrl, setRapidapiUrl] = useState(thongKe?.rapidapi_url || '')
   const [rapidapiProxySecret, setRapidapiProxySecret] = useState('')
+  const [webhookBiMat, setWebhookBiMat] = useState(thongKe?.webhook_bi_mat_hien_tai || 'comic_sepay_webhook_2026')
   const [dangLuuNh, setDangLuuNh] = useState(false)
   const [dangLam, setDangLam] = useState(null)
 
@@ -28,6 +29,7 @@ export default function AdminThanhToan({ thongKe, onNap, setLoi, setThongBaoOk }
     setPaypalEmail(thongKe.paypal_email || '')
     setPaypalClientId(thongKe.paypal_client_id || '')
     setRapidapiUrl(thongKe.rapidapi_url || '')
+    if (thongKe.webhook_bi_mat_hien_tai) setWebhookBiMat(thongKe.webhook_bi_mat_hien_tai)
   }, [thongKe])
 
   const donNapGanDay = Array.isArray(thongKe?.don_nap_gan_day) ? thongKe.don_nap_gan_day : []
@@ -47,6 +49,7 @@ export default function AdminThanhToan({ thongKe, onNap, setLoi, setThongBaoOk }
         paypalClientId: paypalClientId.trim(),
         rapidapiUrl: rapidapiUrl.trim(),
         ...(rapidapiProxySecret.trim() ? { rapidapiProxySecret: rapidapiProxySecret.trim() } : {}),
+        ...(webhookBiMat.trim() ? { webhookBiMat: webhookBiMat.trim() } : {}),
       })
       setThongBaoOk(
         kq?.thong_diep ||
@@ -93,9 +96,25 @@ export default function AdminThanhToan({ thongKe, onNap, setLoi, setThongBaoOk }
           </div>
         </div>
         <div className="admin-khung-than">
-          <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 12px' }}>
-            Webhook: <code>{typeof window !== 'undefined' ? `${window.location.origin}/api/v1/nap-luot/webhook` : '/api/v1/nap-luot/webhook'}</code>
-          </p>
+          <div style={{
+            padding: '10px 14px',
+            borderRadius: 10,
+            background: 'rgba(16,185,129,0.08)',
+            border: '1px solid rgba(16,185,129,0.28)',
+            marginBottom: 14,
+            fontSize: 12.5,
+            color: '#cbd5e1',
+            lineHeight: 1.6,
+          }}>
+            <div>
+              ⚡ <strong>Webhook Ngân hàng Tự động (SePay / Casso / PayOS):</strong>{' '}
+              <code style={{ color: '#34d399', fontWeight: 700 }}>https://translation-api.vibe1.tinhgon.xyz/api/v1/nap-luot/webhook</code>
+            </div>
+            <div>
+              🅿️ <strong>PayPal IPN Tự động (USD):</strong>{' '}
+              <code style={{ color: '#38bdf8', fontWeight: 700 }}>https://translation-api.vibe1.tinhgon.xyz/api/v1/nap-luot/paypal-ipn</code>
+            </div>
+          </div>
           <form className="admin-form-hang" onSubmit={xuLyLuuNganHang}>
             <div className="admin-form-nhom">
               <label>{laEn ? 'Bank Code' : 'Mã NH'}</label>
@@ -122,6 +141,17 @@ export default function AdminThanhToan({ thongKe, onNap, setLoi, setThongBaoOk }
                 placeholder={laEn ? 'ACCOUNT HOLDER NAME' : 'TÊN CHỦ TÀI KHOẢN'}
                 value={nhChuTk}
                 onChange={(e) => setNhChuTk(e.target.value)}
+              />
+            </div>
+            <div className="admin-form-nhom" style={{ flex: '1 1 220px' }}>
+              <label>
+                🔐 {laEn ? 'Bank Webhook Secret (SePay/Casso API Key)' : 'Khoá Bí Mật Webhook NH (SePay/Casso)'}
+              </label>
+              <input
+                type="text"
+                placeholder="comic_sepay_webhook_2026"
+                value={webhookBiMat}
+                onChange={(e) => setWebhookBiMat(e.target.value)}
               />
             </div>
             <Button type="submit" kieu="chinh" disabled={dangLuuNh}>

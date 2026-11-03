@@ -272,6 +272,8 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nhomGoi, lang])
 
+  const [daNhanThanhToanTuDong, setDaNhanThanhToanTuDong] = useState(null)
+
   useEffect(() => {
     let huy = false
     api.layThongTinNapLuot()
@@ -281,6 +283,35 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
       .catch(() => {})
     return () => { huy = true }
   }, [])
+
+  // Tự động kiểm tra định kỳ 5 giây/lần khi khách đang ở trang Bảng giá để phát hiện
+  // ngay khoảnh khắc Webhook VietQR / PayPal IPN / Admin vừa cộng lượt thành công.
+  useEffect(() => {
+    if (!nguoiDung) return undefined
+    let huy = false
+    const luotBanDau = Number(thongTinNap?.so_luot_mua_them ?? -1)
+    if (luotBanDau < 0) return undefined
+    const timer = setInterval(async () => {
+      try {
+        const ttMoi = await api.layThongTinNapLuot()
+        if (huy || !ttMoi) return
+        const luotMoi = Number(ttMoi.so_luot_mua_them || 0)
+        if (luotMoi > luotBanDau) {
+          setThongTinNap(ttMoi)
+          setDaNhanThanhToanTuDong({
+            congThem: luotMoi - luotBanDau,
+            tongMoi: luotMoi,
+          })
+        }
+      } catch {
+        // Bỏ qua lỗi mạng tạm thời khi polling
+      }
+    }, 5000)
+    return () => {
+      huy = true
+      clearInterval(timer)
+    }
+  }, [nguoiDung, thongTinNap?.so_luot_mua_them])
 
   useEffect(() => {
     if (nguoiDung?.email) setEmailNhapTay(nguoiDung.email)
@@ -301,6 +332,9 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
     ? `https://img.vietqr.io/image/${encodeURIComponent(nganHangTen)}-${encodeURIComponent(nganHangSoTk)}-compact2.png?amount=${goiDangChon.giaVnd}&addInfo=${encodeURIComponent(noiDungChuyenKhoan)}&accountName=${encodeURIComponent(nganHangChuTk)}`
     : ''
 
+  const notifyUrlPayPal = 'https://translation-api.vibe1.tinhgon.xyz/api/v1/nap-luot/paypal-ipn'
+  const customPayPal = `${emailHienTai}|${goiDangChon.ma}`
+
   const urlPayPal = (() => {
     if (!paypalEmail) return ''
     if (/paypal\.me\//i.test(paypalEmail)) {
@@ -308,7 +342,7 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
       return `https://${clean}/${goiDangChon.giaUsd}USD`
     }
     if (paypalEmail.includes('@')) {
-      return `https://www.paypal.com/cgi-bin/webscr?cmd=_xclick&business=${encodeURIComponent(paypalEmail)}&item_name=${encodeURIComponent(`${goiDangChon.ten} (${noiDungChuyenKhoan})`)}&amount=${encodeURIComponent(goiDangChon.giaUsd)}&currency_code=USD`
+      return `https://www.paypal.com/cgi-bin/webscr?cmd=_xclick&business=${encodeURIComponent(paypalEmail)}&item_name=${encodeURIComponent(`${goiDangChon.ten} (${noiDungChuyenKhoan})`)}&item_number=${encodeURIComponent(goiDangChon.ma)}&custom=${encodeURIComponent(customPayPal)}&notify_url=${encodeURIComponent(notifyUrlPayPal)}&amount=${encodeURIComponent(goiDangChon.giaUsd)}&currency_code=USD`
     }
     return `https://paypal.me/${encodeURIComponent(paypalEmail)}/${goiDangChon.giaUsd}USD`
   })()
@@ -734,6 +768,17 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
                 href={urlPayPal}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={() => {
+                  if (nguoiDung) {
+                    api.xacNhanChuyenKhoanGoi({
+                      ma_goi: goiDangChon.ma,
+                      ten_goi: goiDangChon.ten,
+                      so_tien_vnd: goiDangChon.giaVnd,
+                      so_trang: goiDangChon.soTrang,
+                      noi_dung_chuyen_khoan: `PAYPAL $${goiDangChon.giaUsd} ${noiDungChuyenKhoan}`,
+                    }).then((kq) => setKetQuaDon(kq)).catch(() => {})
+                  }
+                }}
                 style={{
                   padding: '12px 20px',
                   borderRadius: 10,
@@ -796,6 +841,24 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
               ⚡ {laEn ? 'Subscribe B2B API on RapidAPI Hub ↗' : 'Thuê API Quốc tế qua RapidAPI Hub ↗'}
             </a>
           </div>
+
+          {daNhanThanhToanTuDong && (
+            <div style={{
+              marginTop: 12,
+              padding: '14px 16px',
+              borderRadius: 12,
+              background: 'rgba(16, 185, 129, 0.24)',
+              border: '2px solid #34d399',
+              color: '#ecfdf5',
+              fontSize: 14.5,
+              fontWeight: 700,
+              lineHeight: 1.65,
+            }}>
+              🎉 {laEn
+                ? `PAYMENT CONFIRMED AUTOMATICALLY! +${daNhanThanhToanTuDong.congThem.toLocaleString('vi-VN')} pages added. New balance: ${daNhanThanhToanTuDong.tongMoi.toLocaleString('vi-VN')} pages.`
+                : `ĐÃ NHẬN THANH TOÁN & NÂNG CẤP GÓI TỰ ĐỘNG THÀNH CÔNG! Hệ thống vừa cộng thêm +${daNhanThanhToanTuDong.congThem.toLocaleString('vi-VN')} trang. Số dư tích luỹ hiện tại: ${daNhanThanhToanTuDong.tongMoi.toLocaleString('vi-VN')} trang.`}
+            </div>
+          )}
 
           {loiXacNhan && (
             <div style={{

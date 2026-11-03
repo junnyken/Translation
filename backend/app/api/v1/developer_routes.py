@@ -170,21 +170,66 @@ async def _xac_thuc_developer(
     nguoi = await tai_khoan.lay_theo_ma_phien(session, ma) if ma else None
 
     # Hỗ trợ xác thực trực tiếp bằng X-RapidAPI-Proxy-Secret do RapidAPI cấp (đã lưu trong Admin hoặc .env)
+    # Tự động nhận diện từng khách hàng theo `X-RapidAPI-User` và gói cước theo `X-RapidAPI-Subscription`
+    # (BASIC / PRO / ULTRA / MEGA) để cấp đúng hạn mức gói họ đã mua trên RapidAPI mà không cần gửi key thủ công.
     if nguoi is None and x_rapidapi_proxy_secret and x_rapidapi_proxy_secret.strip():
         try:
+            import re as _re_rapid
             from app.api.v1.routes import _doc_cau_hinh_thanh_toan_day_du
 
             tt_cfg = await run_in_threadpool(_doc_cau_hinh_thanh_toan_day_du, settings)
             secret_goc = (tt_cfg.get("rapidapi_proxy_secret") or settings.rapidapi_proxy_secret or "").strip()
             if secret_goc and hmac.compare_digest(x_rapidapi_proxy_secret.strip(), secret_goc):
-                nguoi = (
-                    await session.execute(
-                        select(NguoiDung)
-                        .where(NguoiDung.dang_hoat_dong.is_(True))
-                        .order_by(NguoiDung.la_quan_tri.desc(), NguoiDung.so_luot_mua_them.desc())
-                        .limit(1)
-                    )
-                ).scalar_one_or_none()
+                rapid_user_raw = (request.headers.get("x-rapidapi-user") or "").strip().lower()
+                rapid_sub_raw = (request.headers.get("x-rapidapi-subscription") or "BASIC").strip().upper()
+
+                if "MEGA" in rapid_sub_raw:
+                    tran_rapid = 8000
+                    ten_goi_rapid = "RapidAPI MEGA"
+                elif "ULTRA" in rapid_sub_raw:
+                    tran_rapid = 2000
+                    ten_goi_rapid = "RapidAPI ULTRA"
+                elif "PRO" in rapid_sub_raw:
+                    tran_rapid = 600
+                    ten_goi_rapid = "RapidAPI PRO"
+                else:
+                    tran_rapid = 20
+                    ten_goi_rapid = "RapidAPI BASIC"
+
+                clean_user = _re_rapid.sub(r"[^a-z0-9_.-]", "", rapid_user_raw)[:64]
+                if clean_user:
+                    email_rapid = f"{clean_user}@rapidapi.hub"
+                    nguoi = (
+                        await session.execute(select(NguoiDung).where(NguoiDung.email == email_rapid))
+                    ).scalar_one_or_none()
+                    ten_hien_moi = f"RapidAPI: {rapid_user_raw} ({ten_goi_rapid})"
+                    if nguoi is None:
+                        nguoi = NguoiDung(
+                            email=email_rapid,
+                            ten_hien=ten_hien_moi[:120],
+                            mat_khau_bam="rapidapi_sso_managed",
+                            dang_hoat_dong=True,
+                            la_quan_tri=False,
+                            tran_hang_ngay_rieng=tran_rapid,
+                            so_luot_mua_them=0,
+                        )
+                        session.add(nguoi)
+                        await session.commit()
+                        await session.refresh(nguoi)
+                    elif nguoi.tran_hang_ngay_rieng != tran_rapid or nguoi.ten_hien != ten_hien_moi[:120]:
+                        nguoi.tran_hang_ngay_rieng = tran_rapid
+                        nguoi.ten_hien = ten_hien_moi[:120]
+                        await session.commit()
+                        await session.refresh(nguoi)
+                else:
+                    nguoi = (
+                        await session.execute(
+                            select(NguoiDung)
+                            .where(NguoiDung.dang_hoat_dong.is_(True))
+                            .order_by(NguoiDung.la_quan_tri.desc(), NguoiDung.so_luot_mua_them.desc())
+                            .limit(1)
+                        )
+                    ).scalar_one_or_none()
         except Exception:
             pass
 
@@ -1041,14 +1086,16 @@ async def developer_dich_ca_chapter_urls(
 
     nguoi, ma_api = xac_thuc
     danh_tinh = _danh_tinh_tu_nguoi_dung(nguoi)
-    if danh_tinh.cap_do < 5:
+    la_rapid_user = str(getattr(nguoi, "email", "") or "").endswith("@rapidapi.hub")
+    cap_toi_thieu = 3 if la_rapid_user else 5
+    if danh_tinh.cap_do < cap_toi_thieu:
         raise loi_can_nang_cap(
             cap_hien_tai=danh_tinh.cap_do,
-            cap_yeu_cau=5,
+            cap_yeu_cau=cap_toi_thieu,
             tinh_nang="chapter_url_api",
             thong_bao=(
                 "Tính năng đẩy danh sách URL dịch trọn bộ Chapter qua API (translate-chapter) "
-                "yêu cầu gói Unlimited (Cấp 5). Vui lòng nâng cấp tại https://comic.io.vn/#bang-gia"
+                "yêu cầu gói PRO / ULTRA / MEGA trên RapidAPI hoặc gói Unlimited (Cấp 5) tại https://comic.io.vn/#bang-gia"
             ),
         )
     _kiem_engine(body.engine, settings, co_tai_khoan=True)

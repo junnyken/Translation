@@ -63,7 +63,15 @@ TEN_CAP_DO = {
 
 
 def tinh_cap_do(nguoi) -> int:
-    """Tính cấp độ VIP (0..5) dựa trên quyền quản trị, trần ngày riêng và ví lượt mua thêm."""
+    """Tính cấp độ VIP (0..5) dựa trên quyền quản trị, trần ngày riêng và ví lượt mua thêm.
+
+    Khớp chính xác với 5 gói trên TrangBangGia.jsx:
+    - Trial (50 trang / 19k / $0.99)         -> Cấp 1 (Trial)
+    - Starter (105..200 trang / 49k / $2.99) -> Cấp 2 (Starter)
+    - Pro (550..600 trang / 99k / $4.99)     -> Cấp 3 (Pro)
+    - Studio (1200..2000 trang / 199k / $9.99)-> Cấp 4 (Studio)
+    - Unlimited (5000+ trang / 399k / $14.99) -> Cấp 5 (Unlimited)
+    """
     if nguoi is None:
         return 0
     if getattr(nguoi, "la_quan_tri", False):
@@ -71,13 +79,13 @@ def tinh_cap_do(nguoi) -> int:
     tran = int(getattr(nguoi, "tran_hang_ngay_rieng", 0) or 0)
     vi = int(getattr(nguoi, "so_luot_mua_them", 0) or 0)
 
-    if tran >= 5000 or vi >= 5000:
+    if tran >= 5000 or vi >= 3500:
         return 5  # Unlimited
-    if tran >= 2000 or vi >= 2000:
+    if tran >= 2000 or vi >= 1200:
         return 4  # Studio
-    if tran >= 600 or vi >= 200:
+    if tran >= 600 or vi >= 300:
         return 3  # Pro
-    if tran >= 200 or vi >= 50:
+    if tran >= 200 or vi >= 100:
         return 2  # Starter
     if vi > 0 or tran > 10:
         return 1  # Trial
