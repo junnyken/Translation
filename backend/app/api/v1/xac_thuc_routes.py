@@ -621,3 +621,47 @@ async def xoa_nguoi_dung(
     ghi_nhat_ky(session, quan_tri, "xoa_nguoi_dung", muc_tieu.email)
     await session.delete(muc_tieu)
     await session.commit()
+
+
+@router.post("/users/{nguoi_id}/api-key", response_model=dict, status_code=status.HTTP_201_CREATED)
+async def quan_tri_tao_api_key_cho_khach(
+    nguoi_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    quan_tri: NguoiDung = Depends(quan_tri_hien_tai),
+) -> dict:
+    """Quản trị viên cấp mới hoặc xoay (rotate) Developer API Key (`tr_live_...`) cho bất kỳ tài khoản khách hàng nào."""
+    muc_tieu = await session.get(NguoiDung, nguoi_id)
+    if muc_tieu is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy tài khoản.")
+    ma_tho, ban_ghi = await tai_khoan.tao_moi_api_key(session, muc_tieu.id)
+    ghi_nhat_ky(session, quan_tri, "quan_tri_cap_api_key", muc_tieu.email)
+    await session.commit()
+    return {
+        "api_key": ma_tho,
+        "email": muc_tieu.email,
+        "nguoi_id": str(muc_tieu.id),
+        "co_api_key": True,
+        "tao_luc": ban_ghi.created_at.isoformat() if ban_ghi.created_at else None,
+        "thong_diep": f"Đã tạo Developer API Key (tr_live_...) cho {muc_tieu.email}. Hãy sao chép gửi cho khách (chỉ hiển thị 1 lần).",
+    }
+
+
+@router.delete("/users/{nguoi_id}/api-key", response_model=dict)
+async def quan_tri_thu_hoi_api_key_khach(
+    nguoi_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    quan_tri: NguoiDung = Depends(quan_tri_hien_tai),
+) -> dict:
+    """Quản trị viên thu hồi ngay lập tức Developer API Key (`tr_live_...`) của tài khoản khách hàng."""
+    muc_tieu = await session.get(NguoiDung, nguoi_id)
+    if muc_tieu is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy tài khoản.")
+    so_xoa = await tai_khoan.thu_hoi_api_key(session, muc_tieu.id)
+    ghi_nhat_ky(session, quan_tri, "quan_tri_thu_hoi_api_key", muc_tieu.email)
+    await session.commit()
+    return {
+        "da_thu_hoi": so_xoa > 0,
+        "email": muc_tieu.email,
+        "co_api_key": False,
+        "thong_diep": f"Đã thu hồi Developer API Key của {muc_tieu.email}.",
+    }

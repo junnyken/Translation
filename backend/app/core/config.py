@@ -98,6 +98,18 @@ class Settings(BaseSettings):
     #: (tỉ lệ 1:5 khuyến khích đăng ký và chống spam, bảo vệ biên lợi nhuận gói cước).
     han_muc_khach_la: int = 2
     han_muc_co_tai_khoan: int = 10
+
+    @field_validator("han_muc_co_tai_khoan", mode="before")
+    @classmethod
+    def _chuan_hoa_han_muc_co_tai_khoan(cls, v: object) -> int:
+        # Chuẩn hoá giá trị cũ `HAN_MUC_CO_TAI_KHOAN=20` còn sót trong tệp `.env` trên VPS về 10 trang/ngày.
+        try:
+            so = int(v)  # type: ignore[arg-type]
+            if so == 20:
+                return 10
+            return so
+        except (TypeError, ValueError):
+            return 10
     #: Trần theo IP cho khách lạ. **PHẢI lớn hơn `han_muc_khach_la`**: văn phòng, trường học,
     #: quán cà phê dùng chung một IP — đặt bằng nhau là chặn oan hàng loạt người dùng thật.
     #: Đây là hàng rào chống xoá cookie lấy lượt mới, KHÔNG phải định danh người dùng.

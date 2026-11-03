@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import * as api from '../../api'
 import { useNgonNguUI } from '../../lib/ngon-ngu-ui'
 import ChanTrangManga from './ChanTrangManga'
@@ -11,7 +11,68 @@ export default function TrangKetNoiApi({ onQuayLai, onMoTaiKhoan }) {
   const [dangTestApi, setDangTestApi] = useState(false)
   const [ketQuaTest, setKetQuaTest] = useState(null)
   const [loiTest, setLoiTest] = useState('')
+
+  // Trạng thái & tạo trực tiếp Developer API Key (tr_live_...) ngay trên trang Kết Nối API
+  const [ttKey, setTtKey] = useState(null) // null = đang tải hoặc chưa đăng nhập
+  const [daDangNhap, setDaDangNhap] = useState(false)
+  const [keyMoiTao, setKeyMoiTao] = useState('')
+  const [dangTaoKey, setDangTaoKey] = useState(false)
+  const [daCopyKeyMoi, setDaCopyKeyMoi] = useState(false)
+  const [loiTaoKey, setLoiTaoKey] = useState('')
+
   const apiOrigin = api.API_BASE || 'https://translation-api.vibe1.tinhgon.xyz'
+
+  useEffect(() => {
+    let huy = false
+    api.xemTrangThaiApiKey()
+      .then((d) => {
+        if (!huy && d && typeof d === 'object') {
+          setTtKey(d)
+          setDaDangNhap(true)
+        }
+      })
+      .catch(() => {
+        if (!huy) setDaDangNhap(false)
+      })
+    return () => { huy = true }
+  }, [])
+
+  async function xuLyTaoKeyTrucTiep() {
+    setDangTaoKey(true)
+    setLoiTaoKey('')
+    setDaCopyKeyMoi(false)
+    try {
+      const kq = await api.taoMoiApiKey()
+      const k = kq.api_key || ''
+      setKeyMoiTao(k)
+      if (k) setKhoaThuNghiem(k)
+      setTtKey({
+        co_api_key: true,
+        tao_luc: kq.tao_luc,
+        dung_lan_cuoi: null,
+      })
+      setDaDangNhap(true)
+    } catch (e) {
+      setLoiTaoKey(String(e?.cauNguoiDoc || e?.message || e).replace(/^\d+:\s*/, ''))
+    } finally {
+      setDangTaoKey(false)
+    }
+  }
+
+  async function xuLyThuHoiKeyTrucTiep() {
+    if (!window.confirm(laEn ? 'Revoke your current Developer API Key (tr_live_...)?' : 'Bạn có chắc muốn thu hồi Developer API Key (tr_live_...) hiện tại?')) return
+    setDangTaoKey(true)
+    setLoiTaoKey('')
+    try {
+      await api.thuHoiApiKey()
+      setKeyMoiTao('')
+      setTtKey({ co_api_key: false, tao_luc: null, dung_lan_cuoi: null })
+    } catch (e) {
+      setLoiTaoKey(String(e?.cauNguoiDoc || e?.message || e).replace(/^\d+:\s*/, ''))
+    } finally {
+      setDangTaoKey(false)
+    }
+  }
 
   async function kiemTraKetNoiApiTrucTiep(e) {
     if (e) e.preventDefault()
@@ -280,15 +341,28 @@ curl -X POST "${apiOrigin}/api/v1/developer/translate-text" \\
         </p>
 
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          {onMoTaiKhoan && (
+          {daDangNhap ? (
+            <button
+              type="button"
+              className="nut-manga nut-manga-chinh"
+              disabled={dangTaoKey}
+              onClick={xuLyTaoKeyTrucTiep}
+            >
+              🔑 {dangTaoKey
+                ? (laEn ? 'Generating Key…' : 'Đang khởi tạo Key…')
+                : ttKey?.co_api_key
+                  ? (laEn ? 'Rotate / Generate New API Key (tr_live_...)' : 'Đổi / Tạo Mới Mã API Key (tr_live_...)')
+                  : (laEn ? 'Generate API Key Now (tr_live_...)' : 'Tạo Mã API Key Ngay (tr_live_...)')}
+            </button>
+          ) : onMoTaiKhoan ? (
             <button
               type="button"
               className="nut-manga nut-manga-chinh"
               onClick={onMoTaiKhoan}
             >
-              🔑 {laEn ? 'Open Account to Get API Key (tr_live_...)' : 'Mở Tài Khoản Lấy Mã API Key (tr_live_...)'}
+              🔑 {laEn ? 'Sign In to Generate API Key (tr_live_...)' : 'Đăng Nhập Để Tạo Mã API Key (tr_live_...)'}
             </button>
-          )}
+          ) : null}
           <a
             href="#tien-ich"
             className="nut-manga nut-manga-phu"
@@ -297,6 +371,156 @@ curl -X POST "${apiOrigin}/api/v1/developer/translate-text" \\
           </a>
         </div>
       </div>
+
+      {/* Khung Tạo & Quản Lý Trực Tiếp Developer API Key (tr_live_...) */}
+      <section style={{
+        padding: '22px 24px',
+        marginBottom: 26,
+        borderRadius: 18,
+        background: 'var(--the, #1e293b)',
+        border: '1.5px solid rgba(16, 185, 129, 0.45)',
+        boxShadow: '0 10px 28px rgba(15, 23, 42, 0.08)',
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>
+          <div>
+            <h2 style={{ fontSize: 19, margin: '0 0 4px' }}>
+              🔑 {laEn ? 'Your Personal Developer API Key (tr_live_...)' : 'Quản Lý & Khởi Tạo Khoá Developer API (tr_live_...) Của Bạn'}
+            </h2>
+            <p className="ghi-chu" style={{ margin: 0, fontSize: 13.5 }}>
+              {laEn
+                ? 'Generate your permanent API Key right here to connect your comic website, auto-leech tool, Chrome Extension, or Windows App.'
+                : 'Tạo trực tiếp mã tr_live_... tại đây để gắn vào Website đọc truyện, Tool leech truyện, Tiện ích Chrome hoặc App Windows.'}
+            </p>
+          </div>
+          {ttKey && (
+            <span style={{
+              padding: '5px 12px',
+              borderRadius: 999,
+              fontSize: 12.5,
+              fontWeight: 700,
+              background: ttKey.co_api_key ? 'rgba(16, 185, 129, 0.15)' : 'rgba(148, 163, 184, 0.15)',
+              color: ttKey.co_api_key ? '#10b981' : '#64748b',
+              border: `1px solid ${ttKey.co_api_key ? 'rgba(16, 185, 129, 0.4)' : 'rgba(148, 163, 184, 0.3)'}`,
+            }}>
+              {ttKey.co_api_key
+                ? (laEn ? '🟢 Active (tr_live_••••••••)' : '🟢 Đang kích hoạt (tr_live_••••••••)')
+                : (laEn ? '⚪ Not generated yet' : '⚪ Chưa khởi tạo API Key')}
+            </span>
+          )}
+        </div>
+
+        {loiTaoKey && (
+          <div style={{
+            padding: '10px 14px',
+            borderRadius: 10,
+            background: 'rgba(239, 68, 68, 0.12)',
+            border: '1px solid rgba(239, 68, 68, 0.35)',
+            color: '#ef4444',
+            fontSize: 13,
+            marginBottom: 12,
+          }}>
+            ⚠️ {loiTaoKey}
+          </div>
+        )}
+
+        {keyMoiTao && (
+          <div style={{
+            padding: '14px 16px',
+            borderRadius: 12,
+            background: 'rgba(16, 185, 129, 0.1)',
+            border: '1.5px solid rgba(16, 185, 129, 0.45)',
+            marginBottom: 14,
+          }}>
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: '#059669', marginBottom: 8 }}>
+              ✅ {laEn
+                ? 'Your new Developer API Key is ready! Copy and save it now (full key shown once):'
+                : 'Đã khởi tạo thành công Developer API Key! Hãy sao chép và lưu lại ngay (chỉ hiện đầy đủ 1 lần):'}
+            </div>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <code style={{
+                flex: 1,
+                minWidth: 240,
+                padding: '10px 14px',
+                borderRadius: 8,
+                background: '#0f172a',
+                color: '#34d399',
+                fontSize: 14,
+                fontWeight: 700,
+                wordBreak: 'break-all',
+              }}>
+                {keyMoiTao}
+              </code>
+              <button
+                type="button"
+                className="nut nut-chinh"
+                onClick={() => {
+                  navigator.clipboard?.writeText(keyMoiTao)
+                  setDaCopyKeyMoi(true)
+                }}
+              >
+                {daCopyKeyMoi ? (laEn ? '✅ Copied!' : '✅ Đã Copy!') : (laEn ? '📋 Copy API Key' : '📋 Sao Chép Mã Key')}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {daDangNhap ? (
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="nut nut-chinh"
+              disabled={dangTaoKey}
+              onClick={xuLyTaoKeyTrucTiep}
+            >
+              {dangTaoKey
+                ? (laEn ? '⏳ Generating…' : '⏳ Đang tạo…')
+                : ttKey?.co_api_key
+                  ? (laEn ? '🔄 Rotate / Generate New API Key (tr_live_)' : '🔄 Đổi Mã API Key Mới (tr_live_)')
+                  : (laEn ? '🔑 Generate API Key (tr_live_)' : '🔑 Tạo Mã API Key (tr_live_)')}
+            </button>
+            {ttKey?.co_api_key && (
+              <button
+                type="button"
+                className="nut nut-phu"
+                disabled={dangTaoKey}
+                onClick={xuLyThuHoiKeyTrucTiep}
+              >
+                🗑️ {laEn ? 'Revoke Key' : 'Thu Hồi Key'}
+              </button>
+            )}
+            {onMoTaiKhoan && (
+              <button
+                type="button"
+                className="nut nut-phu"
+                onClick={onMoTaiKhoan}
+              >
+                👤 {laEn ? 'Account & Quota Details' : 'Xem Chi Tiết Ví Lượt & Tài Khoản'}
+              </button>
+            )}
+            {ttKey?.dung_lan_cuoi && (
+              <span className="ghi-chu" style={{ fontSize: 12.5 }}>
+                {laEn ? 'Last API call:' : 'Gọi API lần cuối:'}{' '}
+                <b>{new Date(ttKey.dung_lan_cuoi).toLocaleString('vi-VN')}</b>
+              </span>
+            )}
+          </div>
+        ) : (
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="nut nut-chinh"
+              onClick={onMoTaiKhoan}
+            >
+              🔐 {laEn ? 'Sign In / Register to Create API Key' : 'Đăng Nhập / Đăng Ký Để Tạo Mã API Key (tr_live_...)'}
+            </button>
+            <span className="ghi-chu" style={{ fontSize: 13 }}>
+              {laEn
+                ? 'Free accounts get 10 pages/day + purchased credit packages never expire.'
+                : 'Tài khoản miễn phí có sẵn 10 trang/ngày + các gói mua thêm cộng dồn vĩnh viễn.'}
+            </span>
+          </div>
+        )}
+      </section>
 
       {/* 3 bước đấu nối nhanh */}
       <section style={{

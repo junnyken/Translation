@@ -1252,6 +1252,9 @@ class QuanTriNguoiDungChiTietRead(BaseModel):
     so_luot_mua_them: int = 0
     tong_trang_da_dich: int = 0
     so_chapter: int = 0
+    co_api_key: bool = False
+    api_key_tao_luc: datetime | None = None
+    api_key_dung_lan_cuoi: datetime | None = None
     created_at: datetime
 
 

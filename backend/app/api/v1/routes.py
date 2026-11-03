@@ -1320,6 +1320,23 @@ async def quan_tri_thong_ke(
     map_chap = {str(uid): int(cnt) for uid, cnt in rows_chap}
     map_email_theo_uid = {str(u.id): u.email for u in ds_nguoi}
 
+    # Gom trạng thái Developer API Key (tr_live_...) theo từng user
+    from app.models import Phien
+    from app.services import tai_khoan as _tk_svc
+
+    rows_api_key = (
+        await session.execute(
+            select(Phien)
+            .where(Phien.het_han >= _tk_svc.MOC_NAM_API_KEY)
+            .order_by(Phien.created_at.desc())
+        )
+    ).scalars().all()
+    map_api_key: dict[str, Phien] = {}
+    for pk in rows_api_key:
+        uid_pk = str(pk.nguoi_dung_id)
+        if uid_pk not in map_api_key:
+            map_api_key[uid_pk] = pk
+
     tran_mac_dinh = settings.han_muc_co_tai_khoan
     chi_tiet: list[QuanTriNguoiDungChiTietRead] = []
     tong_tich_luy = 0
@@ -1347,6 +1364,7 @@ async def quan_tri_thong_ke(
         tran_u = u.tran_hang_ngay_rieng if (u.tran_hang_ngay_rieng and u.tran_hang_ngay_rieng > 0) else tran_mac_dinh
         da_dung_u = map_hom_nay.get(uid_str, 0)
         con_lai_ngay = max(0, tran_u - da_dung_u)
+        pk_u = map_api_key.get(uid_str)
         chi_tiet.append(
             QuanTriNguoiDungChiTietRead(
                 id=u.id,
@@ -1361,6 +1379,9 @@ async def quan_tri_thong_ke(
                 so_luot_mua_them=mua_them,
                 tong_trang_da_dich=map_all.get(uid_str, 0),
                 so_chapter=map_chap.get(uid_str, 0),
+                co_api_key=pk_u is not None,
+                api_key_tao_luc=pk_u.created_at if pk_u else None,
+                api_key_dung_lan_cuoi=pk_u.dung_lan_cuoi if pk_u else None,
                 created_at=u.created_at,
             )
         )
