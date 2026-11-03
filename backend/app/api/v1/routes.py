@@ -495,26 +495,90 @@ async def xem_han_muc(
     )
 
 
-def _doc_cau_hinh_ngan_hang_dong(settings: Settings) -> tuple[str, str, str]:
-    """Đọc cấu hình VietQR động (hiện tạm ẩn thông tin tài khoản ngân hàng mặc định theo yêu cầu)."""
-    return (
-        (settings.ngan_hang_ten or "").strip(),
-        (settings.ngan_hang_so_tk or "").strip(),
-        (settings.ngan_hang_chu_tk or "").strip(),
-    )
+_CAU_HINH_THANH_TOAN_MEM_CACHE: dict[str, str] = {}
 
 
-def _luu_cau_hinh_ngan_hang_dong(ten: str, stk: str, chu: str) -> None:
+def _doc_cau_hinh_thanh_toan_day_du(settings: Settings) -> dict[str, str]:
+    """Đọc cấu hình Thanh toán động (VietQR VNĐ + PayPal USD + RapidAPI Hub) từ bộ nhớ/tệp/kho đối tượng."""
     import json
+    from pathlib import Path
 
-    storage = get_storage()
-    rel = "quan_tri/cau_hinh_ngan_hang.json"
-    payload = {
-        "ngan_hang_ten": (ten or "").strip(),
-        "ngan_hang_so_tk": (stk or "").strip(),
-        "ngan_hang_chu_tk": (chu or "").strip(),
+    data: dict[str, str] = {}
+    if _CAU_HINH_THANH_TOAN_MEM_CACHE:
+        data.update(_CAU_HINH_THANH_TOAN_MEM_CACHE)
+
+    if not data:
+        try:
+            tmp_p = Path("/tmp/cau_hinh_ngan_hang.json")
+            if tmp_p.is_file():
+                parsed = json.loads(tmp_p.read_text(encoding="utf-8"))
+                if isinstance(parsed, dict):
+                    data.update({str(k): str(v or "") for k, v in parsed.items()})
+        except Exception:
+            pass
+
+    if not data:
+        try:
+            storage = get_storage()
+            raw = storage.read("quan_tri/cau_hinh_ngan_hang.json")
+            if raw:
+                parsed = json.loads(raw.decode("utf-8"))
+                if isinstance(parsed, dict):
+                    data.update({str(k): str(v or "") for k, v in parsed.items()})
+                    _CAU_HINH_THANH_TOAN_MEM_CACHE.update(data)
+        except Exception:
+            pass
+
+    return {
+        "ngan_hang_ten": (data.get("ngan_hang_ten") or settings.ngan_hang_ten or "").strip(),
+        "ngan_hang_so_tk": (data.get("ngan_hang_so_tk") or settings.ngan_hang_so_tk or "").strip(),
+        "ngan_hang_chu_tk": (data.get("ngan_hang_chu_tk") or settings.ngan_hang_chu_tk or "").strip(),
+        "paypal_email": (data.get("paypal_email") or "").strip(),
+        "paypal_client_id": (data.get("paypal_client_id") or "").strip(),
+        "rapidapi_url": (data.get("rapidapi_url") or "").strip(),
     }
-    storage.save(rel, json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+
+
+def _doc_cau_hinh_ngan_hang_dong(settings: Settings) -> tuple[str, str, str]:
+    """Đọc cấu hình VietQR động."""
+    d = _doc_cau_hinh_thanh_toan_day_du(settings)
+    return (d["ngan_hang_ten"], d["ngan_hang_so_tk"], d["ngan_hang_chu_tk"])
+
+
+def _luu_cau_hinh_ngan_hang_dong(
+    ten: str | None = None,
+    stk: str | None = None,
+    chu: str | None = None,
+    paypal_email: str | None = None,
+    paypal_client_id: str | None = None,
+    rapidapi_url: str | None = None,
+) -> dict[str, str]:
+    import json
+    from pathlib import Path
+
+    settings = get_settings()
+    hien = _doc_cau_hinh_thanh_toan_day_du(settings)
+    payload = {
+        "ngan_hang_ten": (ten if ten is not None else hien["ngan_hang_ten"]).strip(),
+        "ngan_hang_so_tk": (stk if stk is not None else hien["ngan_hang_so_tk"]).strip(),
+        "ngan_hang_chu_tk": (chu if chu is not None else hien["ngan_hang_chu_tk"]).strip(),
+        "paypal_email": (paypal_email if paypal_email is not None else hien["paypal_email"]).strip(),
+        "paypal_client_id": (paypal_client_id if paypal_client_id is not None else hien["paypal_client_id"]).strip(),
+        "rapidapi_url": (rapidapi_url if rapidapi_url is not None else hien["rapidapi_url"]).strip(),
+    }
+    _CAU_HINH_THANH_TOAN_MEM_CACHE.clear()
+    _CAU_HINH_THANH_TOAN_MEM_CACHE.update(payload)
+    raw_bytes = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    try:
+        Path("/tmp/cau_hinh_ngan_hang.json").write_bytes(raw_bytes)
+    except Exception:
+        pass
+    try:
+        storage = get_storage()
+        storage.save("quan_tri/cau_hinh_ngan_hang.json", raw_bytes)
+    except Exception:
+        pass
+    return payload
 
 
 def _danh_sach_goi_nap_chuan(don_gia: int) -> list[GoiNapLuotRead]:
@@ -617,7 +681,7 @@ async def xem_thong_tin_nap_luot(
     email = nguoi.email if nguoi is not None else None
     ma_noi_dung = f"NAP {str(nguoi.id).split('-')[0].upper()}" if nguoi is not None else "NAP <EMAIL_CUA_BAN>"
     don_gia = max(1, settings.ty_le_vnd_moi_trang)
-    nh_ten, nh_stk, nh_chu = await run_in_threadpool(_doc_cau_hinh_ngan_hang_dong, settings)
+    tt_tt = await run_in_threadpool(_doc_cau_hinh_thanh_toan_day_du, settings)
 
     return ThongTinNapLuotRead(
         co_tai_khoan=danh_tinh.co_tai_khoan,
@@ -625,9 +689,12 @@ async def xem_thong_tin_nap_luot(
         la_quan_tri=bool(nguoi and nguoi.la_quan_tri),
         so_luot_mua_them=danh_tinh.so_luot_mua_them if danh_tinh.co_tai_khoan else 0,
         tran_hang_ngay=danh_tinh.tran_hien,
-        ngan_hang_ten=nh_ten,
-        ngan_hang_so_tk=nh_stk,
-        ngan_hang_chu_tk=nh_chu,
+        ngan_hang_ten=tt_tt["ngan_hang_ten"],
+        ngan_hang_so_tk=tt_tt["ngan_hang_so_tk"],
+        ngan_hang_chu_tk=tt_tt["ngan_hang_chu_tk"],
+        paypal_email=tt_tt["paypal_email"],
+        paypal_client_id=tt_tt["paypal_client_id"],
+        rapidapi_url=tt_tt["rapidapi_url"],
         noi_dung_chuyen_khoan=ma_noi_dung,
         ty_le_vnd_moi_trang=don_gia,
         goi_goi_y=_danh_sach_goi_nap_chuan(don_gia),
@@ -974,24 +1041,36 @@ async def quan_tri_cap_luot(
         body.ngan_hang_ten is not None
         or body.ngan_hang_so_tk is not None
         or body.ngan_hang_chu_tk is not None
+        or body.paypal_email is not None
+        or body.paypal_client_id is not None
+        or body.rapidapi_url is not None
     ) and not body.email.strip():
-        await run_in_threadpool(
+        da_luu = await run_in_threadpool(
             _luu_cau_hinh_ngan_hang_dong,
-            body.ngan_hang_ten or "",
-            body.ngan_hang_so_tk or "",
-            body.ngan_hang_chu_tk or "",
+            body.ngan_hang_ten,
+            body.ngan_hang_so_tk,
+            body.ngan_hang_chu_tk,
+            body.paypal_email,
+            body.paypal_client_id,
+            body.rapidapi_url,
         )
-        ghi_nhat_ky(session, nguoi, "doi_cau_hinh_ngan_hang", body.ngan_hang_ten or "",
-                    so_tk=body.ngan_hang_so_tk, chu_tk=body.ngan_hang_chu_tk)
+        ghi_nhat_ky(
+            session,
+            nguoi,
+            "doi_cau_hinh_ngan_hang",
+            da_luu["ngan_hang_ten"] or da_luu["paypal_email"] or "thanh_toan",
+            so_tk=da_luu["ngan_hang_so_tk"],
+            chu_tk=da_luu["ngan_hang_chu_tk"],
+        )
         await session.commit()
         return CapLuotResponse(
             email=nguoi.email,
             so_luot_mua_them=int(nguoi.so_luot_mua_them or 0),
             tran_hang_ngay_rieng=nguoi.tran_hang_ngay_rieng,
-            # Thông tin ngân hàng đang TẠM ẨN theo yêu cầu (trang khách chỉ đọc từ biến môi trường),
-            # nên báo đúng: đã lưu nhưng khách CHƯA thấy.
-            thong_diep=f"Đã lưu cấu hình VietQR ({body.ngan_hang_ten} - {body.ngan_hang_so_tk}). "
-            "Thông tin ngân hàng đang tạm ẩn trên trang khách — khách chưa thấy mã QR này.",
+            thong_diep=(
+                f"Đã lưu cấu hình Thanh toán: VietQR ({da_luu['ngan_hang_ten'] or 'Chưa đặt'} - {da_luu['ngan_hang_so_tk'] or 'Chưa đặt'}) "
+                f"· PayPal ({da_luu['paypal_email'] or 'Chưa đặt'}) · RapidAPI ({'Đã gắn link' if da_luu['rapidapi_url'] else 'Mặc định'})."
+            ),
         )
 
     email_tim = body.email.strip().lower()
@@ -1524,7 +1603,7 @@ async def quan_tri_thong_ke(
         **tt_khoa_ai,
     }
 
-    nh_ten, nh_stk, nh_chu = await run_in_threadpool(_doc_cau_hinh_ngan_hang_dong, settings)
+    tt_tt_admin = await run_in_threadpool(_doc_cau_hinh_thanh_toan_day_du, settings)
     ds_don_out = [don_nap.sang_read(d) for d in await don_nap.ds_don_moi_nhat(session, 50)]
 
     return QuanTriThongKeRead(
@@ -1546,9 +1625,12 @@ async def quan_tri_thong_ke(
         han_muc_co_tai_khoan=settings.han_muc_co_tai_khoan,
         han_muc_ip_khach_la=settings.han_muc_ip_khach_la,
         ty_le_vnd_moi_trang=max(1, settings.ty_le_vnd_moi_trang),
-        ngan_hang_ten=nh_ten,
-        ngan_hang_so_tk=nh_stk,
-        ngan_hang_chu_tk=nh_chu,
+        ngan_hang_ten=tt_tt_admin["ngan_hang_ten"],
+        ngan_hang_so_tk=tt_tt_admin["ngan_hang_so_tk"],
+        ngan_hang_chu_tk=tt_tt_admin["ngan_hang_chu_tk"],
+        paypal_email=tt_tt_admin["paypal_email"],
+        paypal_client_id=tt_tt_admin["paypal_client_id"],
+        rapidapi_url=tt_tt_admin["rapidapi_url"],
         bieu_do_7_ngay=bieu_do_7_ngay,
         phan_bo_ngon_ngu=phan_bo_ngon_ngu,
         chapter_gan_day=chapter_gan_day,

@@ -295,9 +295,23 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
   const nganHangTen = thongTinNap?.ngan_hang_ten || ''
   const nganHangSoTk = thongTinNap?.ngan_hang_so_tk || ''
   const nganHangChuTk = thongTinNap?.ngan_hang_chu_tk || ''
+  const paypalEmail = (thongTinNap?.paypal_email || '').trim()
+  const rapidapiUrl = (thongTinNap?.rapidapi_url || 'https://rapidapi.com/hub').trim()
   const urlQr = nganHangTen && nganHangSoTk
     ? `https://img.vietqr.io/image/${encodeURIComponent(nganHangTen)}-${encodeURIComponent(nganHangSoTk)}-compact2.png?amount=${goiDangChon.giaVnd}&addInfo=${encodeURIComponent(noiDungChuyenKhoan)}&accountName=${encodeURIComponent(nganHangChuTk)}`
     : ''
+
+  const urlPayPal = (() => {
+    if (!paypalEmail) return ''
+    if (/paypal\.me\//i.test(paypalEmail)) {
+      const clean = paypalEmail.replace(/^https?:\/\//i, '').replace(/\/+$/, '')
+      return `https://${clean}/${goiDangChon.giaUsd}USD`
+    }
+    if (paypalEmail.includes('@')) {
+      return `https://www.paypal.com/cgi-bin/webscr?cmd=_xclick&business=${encodeURIComponent(paypalEmail)}&item_name=${encodeURIComponent(`${goiDangChon.ten} (${noiDungChuyenKhoan})`)}&amount=${encodeURIComponent(goiDangChon.giaUsd)}&currency_code=USD`
+    }
+    return `https://paypal.me/${encodeURIComponent(paypalEmail)}/${goiDangChon.giaUsd}USD`
+  })()
 
   function saoChepNoiDung() {
     navigator.clipboard?.writeText(noiDungChuyenKhoan)
@@ -715,6 +729,29 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
           </div>
 
           <div style={{ marginTop: 14, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
+            {urlPayPal && (
+              <a
+                href={urlPayPal}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  padding: '12px 20px',
+                  borderRadius: 10,
+                  border: '1px solid #38bdf8',
+                  background: 'linear-gradient(135deg, #003087, #0070ba)',
+                  color: '#ffffff',
+                  fontSize: 14.5,
+                  fontWeight: 800,
+                  textDecoration: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  boxShadow: '0 8px 20px rgba(0, 112, 186, 0.35)',
+                }}
+              >
+                🅿️ {laEn ? `Pay $${goiDangChon.giaUsd} USD via PayPal` : `Thanh toán $${goiDangChon.giaUsd} USD qua PayPal`} ↗
+              </a>
+            )}
             <button
               type="button"
               disabled={dangXacNhan}
@@ -735,12 +772,29 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
                 ? (laEn ? '⏳ Recording & activating plan...' : '⏳ Đang ghi nhận & kích hoạt gói...')
                 : (nguoiDung
                   ? (laEn
-                      ? `✅ I have transferred ${tienTe === 'USD' ? `$${goiDangChon.giaUsd}` : `${goiDangChon.giaVnd.toLocaleString('vi-VN')}đ`} — Activate Now`
+                      ? `✅ I have paid ${tienTe === 'USD' ? `$${goiDangChon.giaUsd}` : `${goiDangChon.giaVnd.toLocaleString('vi-VN')}đ`} — Activate Now`
                       : `✅ Tôi đã chuyển khoản ${goiDangChon.giaVnd.toLocaleString('vi-VN')}đ — Nhận Gói Ngay`)
                   : (laEn
                       ? '🔐 Sign In to Confirm Payment & Activate Plan'
                       : '🔐 Đăng nhập để Xác nhận Chuyển khoản & Nhận Gói Ngay'))}
             </button>
+            <a
+              href={rapidapiUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                padding: '11px 16px',
+                borderRadius: 10,
+                border: '1px solid rgba(148, 163, 184, 0.4)',
+                background: 'rgba(30, 41, 59, 0.85)',
+                color: '#e2e8f0',
+                fontSize: 13.5,
+                fontWeight: 700,
+                textDecoration: 'none',
+              }}
+            >
+              ⚡ {laEn ? 'Subscribe B2B API on RapidAPI Hub ↗' : 'Thuê API Quốc tế qua RapidAPI Hub ↗'}
+            </a>
           </div>
 
           {loiXacNhan && (

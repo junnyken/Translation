@@ -1,20 +1,33 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import * as api from '../../api.js'
 import { useNgonNguUI } from '../../lib/ngon-ngu-ui.jsx'
 import Button from '../ui/Button.jsx'
 
 /**
- * AdminThanhToan — Quản lý VietQR bank config & lịch sử đơn chuyển khoản.
+ * AdminThanhToan — Quản lý VietQR (VNĐ), PayPal Quốc tế (USD), Chợ RapidAPI B2B & lịch sử đơn nạp.
  */
 export default function AdminThanhToan({ thongKe, onNap, setLoi, setThongBaoOk }) {
   const { laEn } = useNgonNguUI()
 
-  // Bank config
+  // VietQR Bank + PayPal + RapidAPI config
   const [nhTen, setNhTen] = useState(thongKe?.ngan_hang_ten || '')
   const [nhSoTk, setNhSoTk] = useState(thongKe?.ngan_hang_so_tk || '')
   const [nhChuTk, setNhChuTk] = useState(thongKe?.ngan_hang_chu_tk || '')
+  const [paypalEmail, setPaypalEmail] = useState(thongKe?.paypal_email || '')
+  const [paypalClientId, setPaypalClientId] = useState(thongKe?.paypal_client_id || '')
+  const [rapidapiUrl, setRapidapiUrl] = useState(thongKe?.rapidapi_url || '')
   const [dangLuuNh, setDangLuuNh] = useState(false)
   const [dangLam, setDangLam] = useState(null)
+
+  useEffect(() => {
+    if (!thongKe) return
+    setNhTen(thongKe.ngan_hang_ten || '')
+    setNhSoTk(thongKe.ngan_hang_so_tk || '')
+    setNhChuTk(thongKe.ngan_hang_chu_tk || '')
+    setPaypalEmail(thongKe.paypal_email || '')
+    setPaypalClientId(thongKe.paypal_client_id || '')
+    setRapidapiUrl(thongKe.rapidapi_url || '')
+  }, [thongKe])
 
   const donNapGanDay = Array.isArray(thongKe?.don_nap_gan_day) ? thongKe.don_nap_gan_day : []
 
@@ -29,8 +42,14 @@ export default function AdminThanhToan({ thongKe, onNap, setLoi, setThongBaoOk }
         nganHangTen: nhTen.trim(),
         nganHangSoTk: nhSoTk.trim(),
         nganHangChuTk: nhChuTk.trim(),
+        paypalEmail: paypalEmail.trim(),
+        paypalClientId: paypalClientId.trim(),
+        rapidapiUrl: rapidapiUrl.trim(),
       })
-      setThongBaoOk(kq?.thong_diep || (laEn ? 'VietQR config saved.' : 'Đã lưu cấu hình VietQR.'))
+      setThongBaoOk(
+        kq?.thong_diep ||
+          (laEn ? 'Payment & RapidAPI config saved.' : 'Đã lưu cấu hình VietQR, PayPal & RapidAPI.'),
+      )
       await onNap()
     } catch (err) {
       setLoi(String(err?.message || err).replace(/^\d+:\s*/, ''))
@@ -103,10 +122,65 @@ export default function AdminThanhToan({ thongKe, onNap, setLoi, setThongBaoOk }
                 onChange={(e) => setNhChuTk(e.target.value)}
               />
             </div>
-            <Button type="submit" kieu="phu" disabled={dangLuuNh}>
-              {dangLuuNh ? '⏳…' : `💾 ${laEn ? 'Save' : 'Lưu VietQR'}`}
+            <Button type="submit" kieu="chinh" disabled={dangLuuNh}>
+              {dangLuuNh ? '⏳…' : `💾 ${laEn ? 'Save All Gateways' : 'Lưu VietQR & PayPal'}`}
             </Button>
           </form>
+
+          {/* ── PayPal USD & RapidAPI Hub Configuration ─────────────────── */}
+          <div style={{ marginTop: 18, paddingTop: 16, borderTop: '1px dashed rgba(148,163,184,0.25)' }}>
+            <h4 style={{ margin: '0 0 10px', fontSize: 14, color: '#38bdf8' }}>
+              🌍 {laEn ? 'Global USD Checkout (PayPal) & RapidAPI Hub B2B' : 'Cổng Thanh Toán Quốc Tế PayPal (USD) & Chợ RapidAPI B2B'}
+            </h4>
+            <form className="admin-form-hang" onSubmit={xuLyLuuNganHang}>
+              <div className="admin-form-nhom" style={{ flex: '1 1 240px' }}>
+                <label>🅿️ {laEn ? 'PayPal.Me Username or Email' : 'Link PayPal.Me hoặc Email PayPal'}</label>
+                <input
+                  type="text"
+                  placeholder="paypal.me/tenban hoặc business@gmail.com"
+                  value={paypalEmail}
+                  onChange={(e) => setPaypalEmail(e.target.value)}
+                />
+              </div>
+              <div className="admin-form-nhom" style={{ flex: '1 1 220px' }}>
+                <label>🔑 {laEn ? 'PayPal Client ID (Optional)' : 'PayPal Client ID (Tuỳ chọn)'}</label>
+                <input
+                  type="text"
+                  placeholder="Live Client ID (nếu dùng Smart Buttons)"
+                  value={paypalClientId}
+                  onChange={(e) => setPaypalClientId(e.target.value)}
+                />
+              </div>
+              <div className="admin-form-nhom" style={{ flex: '1 1 260px' }}>
+                <label>⚡ {laEn ? 'RapidAPI Listing URL' : 'Link API trên chợ RapidAPI'}</label>
+                <input
+                  type="text"
+                  placeholder="https://rapidapi.com/your-org/api/ai-comic-translator"
+                  value={rapidapiUrl}
+                  onChange={(e) => setRapidapiUrl(e.target.value)}
+                />
+              </div>
+              <Button type="submit" kieu="phu" disabled={dangLuuNh}>
+                {dangLuuNh ? '⏳…' : `💾 ${laEn ? 'Save Global Config' : 'Lưu PayPal & RapidAPI'}`}
+              </Button>
+            </form>
+            <div style={{ marginTop: 10, fontSize: 12.5, color: '#94a3b8', display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center' }}>
+              <span>
+                📦 File OpenAPI 3.0 nạp lên RapidAPI Studio:{' '}
+                <a href="/tai-ve/openapi-rapidapi.json" download="openapi-rapidapi.json" style={{ color: '#34d399', fontWeight: 700 }}>
+                  ⬇️ Tải openapi-rapidapi.json
+                </a>
+              </span>
+              <span>
+                🔗 Base URL điền trên RapidAPI:{' '}
+                <code style={{ color: '#f8fafc' }}>https://translation-api.vibe1.tinhgon.xyz</code>
+              </span>
+              <span>
+                🔐 Header bảo mật RapidAPI:{' '}
+                <code style={{ color: '#fbbf24' }}>X-Customer-Api-Key: tr_live_...</code>
+              </span>
+            </div>
+          </div>
         </div>
       </div>
 

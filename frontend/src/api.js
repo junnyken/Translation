@@ -691,6 +691,9 @@ export const quanTriCapLuot = ({
   nganHangTen = undefined,
   nganHangSoTk = undefined,
   nganHangChuTk = undefined,
+  paypalEmail = undefined,
+  paypalClientId = undefined,
+  rapidapiUrl = undefined,
 }) => {
   const payload = {
     email,
@@ -701,6 +704,9 @@ export const quanTriCapLuot = ({
   if (nganHangTen !== undefined) payload.ngan_hang_ten = nganHangTen
   if (nganHangSoTk !== undefined) payload.ngan_hang_so_tk = nganHangSoTk
   if (nganHangChuTk !== undefined) payload.ngan_hang_chu_tk = nganHangChuTk
+  if (paypalEmail !== undefined) payload.paypal_email = paypalEmail
+  if (paypalClientId !== undefined) payload.paypal_client_id = paypalClientId
+  if (rapidapiUrl !== undefined) payload.rapidapi_url = rapidapiUrl
   return fetch(`${BASE}/quan-tri/cap-luot`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

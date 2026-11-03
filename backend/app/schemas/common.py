@@ -1216,6 +1216,9 @@ class ThongTinNapLuotRead(BaseModel):
     ngan_hang_ten: str = ""
     ngan_hang_so_tk: str = ""
     ngan_hang_chu_tk: str = ""
+    paypal_email: str = ""
+    paypal_client_id: str = ""
+    rapidapi_url: str = ""
     noi_dung_chuyen_khoan: str = ""
     ty_le_vnd_moi_trang: int = 500
     goi_goi_y: list[GoiNapLuotRead] = []
@@ -1230,6 +1233,9 @@ class CapLuotRequest(BaseModel):
     ngan_hang_ten: str | None = Field(default=None, max_length=80)
     ngan_hang_so_tk: str | None = Field(default=None, max_length=60)
     ngan_hang_chu_tk: str | None = Field(default=None, max_length=120)
+    paypal_email: str | None = Field(default=None, max_length=200)
+    paypal_client_id: str | None = Field(default=None, max_length=200)
+    rapidapi_url: str | None = Field(default=None, max_length=300)
 
 
 class CapLuotResponse(BaseModel):
@@ -1317,6 +1323,9 @@ class QuanTriThongKeRead(BaseModel):
     ngan_hang_ten: str = ""
     ngan_hang_so_tk: str = ""
     ngan_hang_chu_tk: str = ""
+    paypal_email: str = ""
+    paypal_client_id: str = ""
+    rapidapi_url: str = ""
     bieu_do_7_ngay: list[dict] = []
     phan_bo_ngon_ngu: dict[str, int] = {}
     chapter_gan_day: list[dict] = []
