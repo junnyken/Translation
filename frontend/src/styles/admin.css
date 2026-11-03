@@ -1,0 +1,1173 @@
+/* ═══════════════════════════════════════════════════════════════════════════════
+ * Admin Panel — Professional Dashboard Styles
+ * Inspired by Stripe Dashboard, Filament Admin, WordPress Admin
+ * ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Layout ─────────────────────────────────────────────────────────────────── */
+
+.admin-bo-cuc {
+  display: flex;
+  min-height: 100vh;
+  background: #f1f5f9;
+}
+
+/* ── Sidebar ────────────────────────────────────────────────────────────────── */
+
+.admin-thanh-ben {
+  width: 268px;
+  min-width: 268px;
+  background: #1e293b;
+  color: #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 100;
+  overflow-y: auto;
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.admin-thanh-ben-hieu {
+  padding: 20px 20px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.admin-hieu-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 800;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.admin-hieu-chu {
+  display: flex;
+  flex-direction: column;
+}
+
+.admin-hieu-chu strong {
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.3px;
+}
+
+.admin-hieu-chu small {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 1px;
+}
+
+/* Navigation Items */
+
+.admin-menu {
+  flex: 1;
+  padding: 12px 0;
+  list-style: none;
+  margin: 0;
+}
+
+.admin-menu-nhan {
+  padding: 12px 20px 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: #64748b;
+}
+
+.admin-menu-muc {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 20px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: #cbd5e1;
+  cursor: pointer;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  border-left: 3px solid transparent;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.admin-menu-muc:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #f1f5f9;
+}
+
+.admin-menu-muc.dang-chon {
+  background: rgba(99, 102, 241, 0.15);
+  color: #fff;
+  border-left-color: #6366f1;
+  font-weight: 600;
+}
+
+.admin-menu-muc .admin-menu-icon {
+  font-size: 17px;
+  width: 22px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.admin-phan-cach {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 8px 16px;
+}
+
+/* User info at bottom */
+
+.admin-nguoi-dung {
+  padding: 14px 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.admin-nd-ten {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e2e8f0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-nd-email {
+  font-size: 11px;
+  color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-nd-hanh-dong {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.admin-nd-hanh-dong a,
+.admin-nd-hanh-dong button {
+  font-size: 12px;
+  color: #94a3b8;
+  text-decoration: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 0;
+  transition: color 0.15s;
+}
+
+.admin-nd-hanh-dong a:hover,
+.admin-nd-hanh-dong button:hover {
+  color: #f1f5f9;
+}
+
+/* ── Content Area ───────────────────────────────────────────────────────────── */
+
+.admin-noi-dung {
+  flex: 1;
+  margin-left: 268px;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.admin-thanh-tren {
+  background: #fff;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 14px 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  flex-wrap: wrap;
+}
+
+.admin-thanh-tren h1 {
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+  letter-spacing: -0.3px;
+}
+
+.admin-thanh-tren-phai {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.admin-huy-hieu {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.admin-huy-hieu.xanh {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.admin-huy-hieu.cam {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.admin-huy-hieu.xam {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.admin-huy-hieu.tim {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+
+.admin-ruot {
+  flex: 1;
+  padding: 24px 28px;
+}
+
+/* ── Cards & KPI ────────────────────────────────────────────────────────────── */
+
+.admin-luoi-kpi {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.admin-the-kpi {
+  background: #fff;
+  border-radius: 12px;
+  padding: 18px 20px;
+  border: 1px solid #e2e8f0;
+  border-left: 4px solid #6366f1;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  transition: box-shadow 0.2s, transform 0.15s;
+}
+
+.admin-the-kpi:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  transform: translateY(-1px);
+}
+
+.admin-the-kpi.xanh { border-left-color: #10b981; }
+.admin-the-kpi.cam { border-left-color: #f59e0b; }
+.admin-the-kpi.do { border-left-color: #ef4444; }
+.admin-the-kpi.tim { border-left-color: #8b5cf6; }
+.admin-the-kpi.xanh-duong { border-left-color: #3b82f6; }
+
+.admin-kpi-dau {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.admin-kpi-nhan {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.admin-kpi-icon {
+  font-size: 20px;
+}
+
+.admin-kpi-gia-tri {
+  font-size: 28px;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.1;
+  margin-bottom: 6px;
+  letter-spacing: -0.5px;
+}
+
+.admin-kpi-phu {
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+.admin-kpi-phu strong {
+  color: #334155;
+}
+
+/* ── Section Cards ──────────────────────────────────────────────────────────── */
+
+.admin-khung {
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  margin-bottom: 20px;
+  overflow: hidden;
+}
+
+.admin-khung-dau {
+  padding: 16px 20px;
+  border-bottom: 1px solid #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.admin-khung-dau h3 {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+
+.admin-khung-dau .ghi-chu {
+  font-size: 12px;
+  color: #94a3b8;
+  margin: 2px 0 0;
+}
+
+.admin-khung-than {
+  padding: 16px 20px;
+}
+
+/* ── Tables ──────────────────────────────────────────────────────────────────── */
+
+.admin-bang {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.admin-bang thead th {
+  text-align: left;
+  padding: 10px 12px;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #64748b;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  white-space: nowrap;
+}
+
+.admin-bang tbody tr {
+  border-bottom: 1px solid #f1f5f9;
+  transition: background 0.1s;
+}
+
+.admin-bang tbody tr:hover {
+  background: #f8fafc;
+}
+
+.admin-bang tbody tr.noi-bat {
+  background: rgba(99, 102, 241, 0.04);
+}
+
+.admin-bang tbody td {
+  padding: 10px 12px;
+  vertical-align: middle;
+}
+
+.admin-bang code {
+  font-size: 12px;
+  background: #f1f5f9;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #334155;
+}
+
+.admin-hang-cong-cu {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* ── Filter Pills ───────────────────────────────────────────────────────────── */
+
+.admin-loc {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.admin-pill {
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 12.5px;
+  font-weight: 600;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.admin-pill:hover {
+  border-color: #6366f1;
+  color: #6366f1;
+}
+
+.admin-pill.dang-chon {
+  background: #6366f1;
+  color: #fff;
+  border-color: #6366f1;
+}
+
+/* ── Search & Sort Bar ──────────────────────────────────────────────────────── */
+
+.admin-thanh-tim {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.admin-o-tim {
+  flex: 1;
+  min-width: 240px;
+  padding: 8px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 13px;
+  background: #fff;
+  color: #0f172a;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.admin-o-tim:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+}
+
+.admin-chon {
+  padding: 8px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 13px;
+  background: #fff;
+  color: #0f172a;
+  cursor: pointer;
+  outline: none;
+}
+
+.admin-chon:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+}
+
+.admin-so-ket-qua {
+  font-size: 12.5px;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+/* ── Forms ───────────────────────────────────────────────────────────────────── */
+
+.admin-form-hang {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.admin-form-nhom {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 180px;
+}
+
+.admin-form-nhom label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.admin-form-nhom input,
+.admin-form-nhom select {
+  padding: 8px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 13px;
+  background: #fff;
+  color: #0f172a;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.admin-form-nhom input:focus,
+.admin-form-nhom select:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+}
+
+/* ── Quick Action Chips (Package Presets) ────────────────────────────────────── */
+
+.admin-goi-nhanh {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.admin-chip-goi {
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  border: 1.5px solid #e2e8f0;
+  background: #fff;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.admin-chip-goi:hover {
+  border-color: #6366f1;
+  color: #6366f1;
+  background: rgba(99, 102, 241, 0.04);
+}
+
+.admin-chip-goi.dang-chon {
+  border-color: #6366f1;
+  background: rgba(99, 102, 241, 0.08);
+  color: #4f46e5;
+}
+
+/* ── Charts ──────────────────────────────────────────────────────────────────── */
+
+.admin-luoi-bieu-do {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.admin-bieu-do-7ngay {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  height: 200px;
+  padding: 16px 0 0;
+}
+
+.admin-cot-ngay {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+}
+
+.admin-cot-so {
+  font-size: 11px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.admin-cot-than {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 2px;
+  border-radius: 6px 6px 0 0;
+  overflow: hidden;
+}
+
+.admin-cot-phan {
+  border-radius: 4px 4px 0 0;
+  min-height: 4px;
+  transition: height 0.3s ease;
+}
+
+.admin-cot-phan.tk {
+  background: linear-gradient(180deg, #6366f1, #818cf8);
+}
+
+.admin-cot-phan.khach {
+  background: linear-gradient(180deg, #f59e0b, #fbbf24);
+}
+
+.admin-cot-phan.rong {
+  background: #e2e8f0;
+  min-height: 6px;
+  border-radius: 4px;
+}
+
+.admin-cot-nhan {
+  font-size: 10.5px;
+  color: #64748b;
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.admin-chu-thich-bieu-do {
+  display: flex;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.admin-chu-thich-bieu-do span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: #64748b;
+}
+
+.admin-cham-mau {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  display: inline-block;
+}
+
+.admin-cham-mau.tk { background: #6366f1; }
+.admin-cham-mau.khach { background: #f59e0b; }
+
+/* Language Breakdown */
+
+.admin-dong-nn {
+  margin-bottom: 12px;
+}
+
+.admin-dong-nn-dau {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+
+.admin-dong-nn-dau strong {
+  font-size: 12px;
+  color: #334155;
+}
+
+.admin-thanh-nn-nen {
+  height: 8px;
+  background: #f1f5f9;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.admin-thanh-nn-ruot {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.4s ease;
+}
+
+/* Policy Summary */
+
+.admin-chinh-sach {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.admin-chinh-sach span {
+  font-size: 12.5px;
+  color: #475569;
+  line-height: 1.5;
+}
+
+/* ── Status Badges ──────────────────────────────────────────────────────────── */
+
+.admin-nhan-vip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #fef3c7, #fde68a);
+  color: #92400e;
+  letter-spacing: 0.3px;
+}
+
+.admin-nhan-vai-tro {
+  display: inline-flex;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.admin-nhan-vai-tro.quan-tri {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+
+.admin-nhan-vai-tro.thuong {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.admin-trang-thai {
+  display: inline-flex;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.admin-trang-thai.ok {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.admin-trang-thai.khoa {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+/* Progress bar (usage) */
+
+.admin-thanh-tien {
+  height: 6px;
+  background: #f1f5f9;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 4px;
+  width: 100%;
+  max-width: 120px;
+}
+
+.admin-thanh-tien-ruot {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.admin-nut-cong-nhanh {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.admin-nut-cong-nhanh:hover {
+  border-color: #10b981;
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.04);
+}
+
+.admin-nut-cong-nhanh:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── AI Config ──────────────────────────────────────────────────────────────── */
+
+.admin-ai-trang-thai {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #f8fafc;
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+
+.admin-ai-key-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: 'SF Mono', Consolas, monospace;
+}
+
+.admin-ai-key-badge.deepseek {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.admin-ai-key-badge.du-phong {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.admin-ket-qua-kiem-tra {
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 14px;
+}
+
+.admin-ket-qua-kiem-tra.ok {
+  background: rgba(16, 185, 129, 0.1);
+  color: #065f46;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.admin-ket-qua-kiem-tra.loi {
+  background: rgba(239, 68, 68, 0.1);
+  color: #991b1b;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+/* ── Login Page ──────────────────────────────────────────────────────────────── */
+
+.admin-dang-nhap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #334155 100%);
+  padding: 20px;
+}
+
+.admin-dang-nhap-hop {
+  width: 100%;
+  max-width: 400px;
+  background: #fff;
+  border-radius: 16px;
+  padding: 36px 32px;
+  box-shadow: 0 25px 50px rgba(0, 0, 0, 0.25);
+}
+
+.admin-dang-nhap-hieu {
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+.admin-dang-nhap-hieu .admin-hieu-icon {
+  width: 52px;
+  height: 52px;
+  font-size: 24px;
+  margin: 0 auto 14px;
+}
+
+.admin-dang-nhap-hieu h1 {
+  font-size: 20px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0 0 4px;
+}
+
+.admin-dang-nhap-hieu p {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0;
+}
+
+.admin-dang-nhap-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.admin-dang-nhap-form label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.admin-dang-nhap-form input {
+  padding: 10px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.admin-dang-nhap-form input:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+.admin-dang-nhap-loi {
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.admin-dang-nhap-chan {
+  text-align: center;
+  margin-top: 20px;
+}
+
+.admin-dang-nhap-chan a {
+  font-size: 13px;
+  color: #6366f1;
+  text-decoration: none;
+}
+
+.admin-dang-nhap-chan a:hover {
+  text-decoration: underline;
+}
+
+/* ── Payment Statuses ───────────────────────────────────────────────────────── */
+
+.admin-don-tt {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.admin-don-tt.da-xac-nhan { color: #059669; }
+.admin-don-tt.tu-dong { color: #0284c7; }
+.admin-don-tt.cho-duyet { color: #d97706; }
+.admin-don-tt.thu-hoi { color: #dc2626; }
+
+/* ── Alert overrides inside admin ────────────────────────────────────────────── */
+
+.admin-ruot .bao {
+  margin-bottom: 14px;
+}
+
+/* ── Mobile toggle ──────────────────────────────────────────────────────────── */
+
+.admin-nut-menu-dt {
+  display: none;
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 200;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: #1e293b;
+  color: #fff;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.admin-overlay-dt {
+  display: none;
+}
+
+/* ── Responsive ─────────────────────────────────────────────────────────────── */
+
+@media (max-width: 1024px) {
+  .admin-luoi-kpi {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .admin-luoi-bieu-do {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .admin-nut-menu-dt {
+    display: flex;
+  }
+
+  .admin-thanh-ben {
+    transform: translateX(-100%);
+  }
+
+  .admin-thanh-ben.mo {
+    transform: translateX(0);
+  }
+
+  .admin-overlay-dt.mo {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 90;
+  }
+
+  .admin-noi-dung {
+    margin-left: 0;
+  }
+
+  .admin-thanh-tren {
+    padding: 12px 16px;
+    padding-left: 56px;
+  }
+
+  .admin-ruot {
+    padding: 16px;
+  }
+
+  .admin-luoi-kpi {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-luoi-bieu-do {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Dark Theme Support ─────────────────────────────────────────────────────── */
+
+[data-theme='toi'] .admin-bo-cuc {
+  background: #0f172a;
+}
+
+[data-theme='toi'] .admin-thanh-ben {
+  background: #0a0f1a;
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+[data-theme='toi'] .admin-thanh-tren {
+  background: #1e293b;
+  border-bottom-color: #334155;
+}
+
+[data-theme='toi'] .admin-thanh-tren h1 {
+  color: #f1f5f9;
+}
+
+[data-theme='toi'] .admin-khung {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+[data-theme='toi'] .admin-khung-dau {
+  border-bottom-color: #334155;
+}
+
+[data-theme='toi'] .admin-khung-dau h3 {
+  color: #f1f5f9;
+}
+
+[data-theme='toi'] .admin-the-kpi {
+  background: #1e293b;
+  border-color: #334155;
+}
+
+[data-theme='toi'] .admin-kpi-gia-tri {
+  color: #f1f5f9;
+}
+
+[data-theme='toi'] .admin-kpi-nhan {
+  color: #94a3b8;
+}
+
+[data-theme='toi'] .admin-bang thead th {
+  background: #0f172a;
+  color: #94a3b8;
+  border-bottom-color: #334155;
+}
+
+[data-theme='toi'] .admin-bang tbody tr {
+  border-bottom-color: #1e293b;
+}
+
+[data-theme='toi'] .admin-bang tbody tr:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+[data-theme='toi'] .admin-bang code {
+  background: #334155;
+  color: #e2e8f0;
+}
+
+[data-theme='toi'] .admin-pill {
+  background: #1e293b;
+  border-color: #334155;
+  color: #94a3b8;
+}
+
+[data-theme='toi'] .admin-o-tim,
+[data-theme='toi'] .admin-chon,
+[data-theme='toi'] .admin-form-nhom input,
+[data-theme='toi'] .admin-form-nhom select {
+  background: #1e293b;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+
+[data-theme='toi'] .admin-dang-nhap-hop {
+  background: #1e293b;
+  box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+}
+
+[data-theme='toi'] .admin-dang-nhap-hieu h1 {
+  color: #f1f5f9;
+}
+
+[data-theme='toi'] .admin-dang-nhap-form input {
+  background: #0f172a;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+
+[data-theme='toi'] .admin-ai-trang-thai {
+  background: #0f172a;
+}
+
+[data-theme='toi'] .admin-thanh-nn-nen {
+  background: #334155;
+}
+
+[data-theme='toi'] .admin-thanh-tien {
+  background: #334155;
+}
+
+[data-theme='toi'] .admin-chinh-sach span {
+  color: #94a3b8;
+}

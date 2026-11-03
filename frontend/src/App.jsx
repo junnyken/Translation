@@ -32,6 +32,8 @@ import ManTaiKhoan from './components/auth/ManTaiKhoan.jsx'
 import BangChuaCoChu from './components/auth/BangChuaCoChu.jsx'
 import QuanTriNguoiDung from './components/auth/QuanTriNguoiDung.jsx'
 import DangNhapChatGPT from './components/auth/DangNhapChatGPT.jsx'
+import AdminApp from './components/admin/AdminApp.jsx'
+import AdminDangNhap from './components/admin/AdminDangNhap.jsx'
 import Alert from './components/ui/Alert.jsx'
 import Button from './components/ui/Button.jsx'
 import Dialog from './components/ui/Dialog.jsx'
@@ -82,6 +84,8 @@ function docDiaChi() {
     trangTinh = 'ket-noi-api'
   } else if (pathClean === 'bang-gia' || hashRaw === 'bang-gia' || p.has('bang-gia')) {
     trangTinh = 'bang-gia'
+  } else if (pathClean === 'admin' || hashRaw === 'admin' || hashRaw.startsWith('admin') || p.has('admin')) {
+    trangTinh = 'admin'
   }
   const laPrivacy = trangTinh === 'privacy-policy'
   // E76 — `#canvas=<page_id>` mở màn sửa tay kiểu canvas. `#canvas=&project=<id>` (không có trang)
@@ -531,6 +535,27 @@ function AppRuot({ urlBundle } = {}) {
   if (nguoiDung === undefined) {
     return <div className="app"><main className="than-trang"><p>Đang kiểm phiên đăng nhập…</p></main></div>
   }
+  // Admin Panel — dedicated route, rendered as full page (check BEFORE guest homepage)
+  if (trangTinh === 'admin') {
+    if (!nguoiDung?.la_quan_tri) {
+      // Chưa đăng nhập HOẶC non-admin → show admin login
+      return (
+        <div className="app">
+          <AdminDangNhap onXong={(nd) => { setNguoiDung(nd); window.location.hash = 'admin' }} />
+        </div>
+      )
+    }
+    return (
+      <div className="app">
+        <BangBanMoi urlBundle={urlBundle} />
+        <AdminApp
+          nguoiDung={nguoiDung}
+          onDangXuat={async () => { await api.dangXuat(); setNguoiDung(null); window.location.hash = '' }}
+        />
+      </div>
+    )
+  }
+
   if (nguoiDung === null) {
     // E53 — CHƯA ĐĂNG NHẬP thì thấy TRANG CHỦ, không phải màn đăng nhập.
     //
@@ -735,8 +760,16 @@ function AppRuot({ urlBundle } = {}) {
           <>
             {/* Danh bạ tài khoản chỉ hiện với quản trị. Máy chủ cũng chặn (404 với người
                 thường), nhưng hiện một mục chắc chắn báo lỗi là thiết kế tồi. */}
-            {nguoiDung.la_quan_tri && <QuanTriNguoiDung toi={nguoiDung} />}
-            {nguoiDung.la_quan_tri && <DangNhapChatGPT />}
+            {/* Admin Panel đã chuyển sang trang riêng tại #admin — không hiện inline nữa.
+                QuanTriNguoiDung vẫn giữ file gốc cho test, chỉ ngưng render ở đây. */}
+            {nguoiDung.la_quan_tri && (
+              <div style={{ margin: '12px 0', padding: '12px 16px', background: 'rgba(99,102,241,0.06)', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 20 }}>🛡️</span>
+                <a href="#admin" style={{ fontWeight: 700, fontSize: 14 }}>
+                  {laEn ? 'Open Admin Panel →' : 'Mở Trung tâm Quản trị →'}
+                </a>
+              </div>
+            )}
 
             <div className="mo-dau-lam-viec manga-hero-banner">
               <div className="manga-genre-strip" aria-hidden="true">
