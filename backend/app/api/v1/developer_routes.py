@@ -139,11 +139,12 @@ async def _xac_thuc_developer(
     authorization: str | None = Header(default=None, alias="Authorization"),
     x_customer_api_key: str | None = Header(default=None, alias="X-Customer-Api-Key"),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    x_rapidapi_proxy_secret: str | None = Header(default=None, alias="X-RapidAPI-Proxy-Secret"),
     api_key_query: str | None = Query(default=None, alias="api_key"),
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ) -> tuple[NguoiDung, str]:
-    """Xác thực API Key của khách hàng từ Header hoặc Query param, kèm chống dò khoá theo IP."""
+    """Xác thực API Key của khách hàng từ Header, RapidAPI Proxy Secret hoặc Query param, kèm chống dò khoá theo IP."""
     tran = settings.so_lan_dang_nhap_sai_moi_ip_mot_ngay
     ip = ip_cua(request, settings) if tran > 0 else None
     ip_bam = bam(ip, settings) if ip is not None else None
@@ -162,6 +163,8 @@ async def _xac_thuc_developer(
             )
 
     ma = ma_phien_tu_header(authorization, x_customer_api_key, x_api_key)
+    if not ma and x_rapidapi_proxy_secret and x_rapidapi_proxy_secret.strip():
+        ma = x_rapidapi_proxy_secret.strip()
     if not ma and api_key_query and api_key_query.strip():
         ma = api_key_query.strip()
     nguoi = await tai_khoan.lay_theo_ma_phien(session, ma) if ma else None

@@ -20,6 +20,25 @@ export default function TrangKetNoiApi({ onQuayLai, onMoTaiKhoan }) {
   const [daCopyKeyMoi, setDaCopyKeyMoi] = useState(false)
   const [loiTaoKey, setLoiTaoKey] = useState('')
 
+  // Trạng thái Chương trình Affiliate & Giới thiệu nhận thưởng
+  const [ttAffiliate, setTtAffiliate] = useState(null)
+  const [maRefNhap, setMaRefNhap] = useState(() => {
+    try {
+      const urlRef = new URLSearchParams(window.location.search).get('ref')
+      if (urlRef) {
+        localStorage.setItem('ma_gioi_thieu_ref', urlRef.trim().toUpperCase())
+        return urlRef.trim().toUpperCase()
+      }
+      return localStorage.getItem('ma_gioi_thieu_ref') || ''
+    } catch {
+      return ''
+    }
+  })
+  const [dangNhapRef, setDangNhapRef] = useState(false)
+  const [thongBaoRefOk, setThongBaoRefOk] = useState('')
+  const [loiRef, setLoiRef] = useState('')
+  const [daCopyLinkRef, setDaCopyLinkRef] = useState(false)
+
   const apiOrigin = api.API_BASE || 'https://translation-api.vibe1.tinhgon.xyz'
 
   useEffect(() => {
@@ -34,8 +53,34 @@ export default function TrangKetNoiApi({ onQuayLai, onMoTaiKhoan }) {
       .catch(() => {
         if (!huy) setDaDangNhap(false)
       })
+    api.xemThongTinAffiliate()
+      .then((aff) => {
+        if (!huy && aff && typeof aff === 'object') {
+          setTtAffiliate(aff)
+        }
+      })
+      .catch(() => {})
     return () => { huy = true }
   }, [])
+
+  async function xuLyNhanThuongAffiliate(e) {
+    if (e) e.preventDefault()
+    if (!maRefNhap.trim()) return
+    setDangNhapRef(true)
+    setLoiRef('')
+    setThongBaoRefOk('')
+    try {
+      const kq = await api.nhapMaGioiThieuAffiliate(maRefNhap.trim())
+      setThongBaoRefOk(kq.thong_diep || 'Đã nhận thưởng +15 trang miễn phí!')
+      try { localStorage.removeItem('ma_gioi_thieu_ref') } catch {}
+      const affMoi = await api.xemThongTinAffiliate().catch(() => null)
+      if (affMoi) setTtAffiliate(affMoi)
+    } catch (err) {
+      setLoiRef(String(err?.cauNguoiDoc || err?.message || err).replace(/^\d+:\s*/, ''))
+    } finally {
+      setDangNhapRef(false)
+    }
+  }
 
   async function xuLyTaoKeyTrucTiep() {
     setDangTaoKey(true)
@@ -972,6 +1017,239 @@ curl -X POST "${apiOrigin}/api/v1/developer/translate-text" \\
         }}>
           {CODE_MAU[tabCode]}
         </pre>
+      </section>
+
+      {/* ── CHƯƠNG TRÌNH AFFILIATE (TIẾP THỊ LIÊN KẾT) & CHỢ RAPIDAPI / CHROME WEB STORE ── */}
+      <section style={{
+        marginTop: 26,
+        background: 'linear-gradient(135deg, rgba(15, 23, 42, 0.96) 0%, rgba(30, 27, 75, 0.96) 100%)',
+        border: '1px solid rgba(129, 140, 248, 0.4)',
+        borderRadius: 18,
+        padding: '24px 22px',
+        color: '#f8fafc',
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 14, marginBottom: 18 }}>
+          <div>
+            <span style={{
+              display: 'inline-block',
+              padding: '4px 12px',
+              borderRadius: 999,
+              fontSize: 11.5,
+              fontWeight: 800,
+              background: 'rgba(16, 185, 129, 0.18)',
+              color: '#34d399',
+              border: '1px solid rgba(52, 211, 153, 0.4)',
+              marginBottom: 8,
+            }}>
+              🤝 {laEn ? 'PARTNER & B2B ECOSYSTEM' : 'HỆ SINH THÁI ĐỐI TÁC & THƯƠNG MẠI HOÁ B2B'}
+            </span>
+            <h2 style={{ margin: '0 0 6px', fontSize: 21, color: '#ffffff' }}>
+              🎁 {laEn
+                ? 'Affiliate Referral Program & RapidAPI / Chrome Web Store Kit'
+                : 'Chương Trình Affiliate Nhận Lượt & Đấu Nối Chợ Quốc Tế (RapidAPI & Chrome Store)'}
+            </h2>
+            <p style={{ margin: 0, fontSize: 14, color: '#cbd5e1', lineHeight: 1.55 }}>
+              {laEn
+                ? 'Earn +25 free pages per friend invited + 15% recurring bonus pages whenever they top up VIP packages. Ready-to-import OpenAPI 3.0 spec for RapidAPI included.'
+                : 'Giới thiệu bạn bè/nhóm dịch nhận ngay +25 trang miễn phí/người + Hoa hồng 15% số trang trọn đời mỗi khi bạn bè nạp gói VIP. Người được giới thiệu cũng nhận ngay +15 trang thưởng!'}
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <a
+              href={api.urlTaiOpenApiRapidApi()}
+              download="openapi-rapidapi.json"
+              style={{
+                padding: '9px 15px',
+                borderRadius: 10,
+                background: '#0ea5e9',
+                color: '#ffffff',
+                fontWeight: 700,
+                fontSize: 13,
+                textDecoration: 'none',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              🌐 {laEn ? 'Download RapidAPI OpenAPI (.JSON)' : 'Tải File Đặc Tả RapidAPI (.JSON)'}
+            </a>
+            <a
+              href={api.urlTaiTienIchChrome()}
+              download
+              style={{
+                padding: '9px 15px',
+                borderRadius: 10,
+                background: 'rgba(255, 255, 255, 0.12)',
+                border: '1px solid rgba(255, 255, 255, 0.25)',
+                color: '#ffffff',
+                fontWeight: 700,
+                fontSize: 13,
+                textDecoration: 'none',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              🧩 {laEn ? 'Download Chrome Extension MV3 (.ZIP)' : 'Tải Gói Chrome Extension MV3 (.ZIP)'}
+            </a>
+          </div>
+        </div>
+
+        {/* Khối Link Giới Thiệu & Nhập Mã Thưởng */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+          gap: 16,
+        }}>
+          {/* Cột 1: Mã & Link giới thiệu của bạn */}
+          <div style={{
+            background: 'rgba(15, 23, 42, 0.78)',
+            border: '1px solid rgba(148, 163, 184, 0.28)',
+            borderRadius: 14,
+            padding: 16,
+          }}>
+            <div style={{ fontWeight: 700, fontSize: 15, color: '#ffffff', marginBottom: 6 }}>
+              🔗 {laEn ? 'Your Affiliate Link & Referral Stats' : 'Link Tiếp Thị Liên Kết (Affiliate) Của Bạn'}
+            </div>
+            {daDangNhap && ttAffiliate ? (
+              <>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
+                  <code style={{
+                    flex: 1,
+                    padding: '9px 12px',
+                    borderRadius: 8,
+                    background: '#020617',
+                    border: '1px solid #334155',
+                    color: '#38bdf8',
+                    fontWeight: 700,
+                    fontSize: 13,
+                    wordBreak: 'break-all',
+                  }}>
+                    {ttAffiliate.link_gioi_thieu}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard?.writeText(ttAffiliate.link_gioi_thieu)
+                      setDaCopyLinkRef(true)
+                      setTimeout(() => setDaCopyLinkRef(false), 2500)
+                    }}
+                    style={{
+                      padding: '9px 14px',
+                      borderRadius: 8,
+                      border: 'none',
+                      background: daCopyLinkRef ? '#059669' : '#6366f1',
+                      color: '#fff',
+                      fontWeight: 700,
+                      fontSize: 12.5,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {daCopyLinkRef ? '✅ Đã chép Link' : '📋 Sao chép Link'}
+                  </button>
+                </div>
+                <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 13, color: '#cbd5e1' }}>
+                  <span>🏷️ Mã: <strong style={{ color: '#fbbf24' }}>{ttAffiliate.ma_gioi_thieu}</strong></span>
+                  <span>👥 Đã giới thiệu: <strong style={{ color: '#34d399' }}>{ttAffiliate.so_nguoi_da_gioi_thieu} người</strong></span>
+                  <span>🎉 Tổng trang thưởng: <strong style={{ color: '#38bdf8' }}>+{ttAffiliate.tong_luot_thuong} trang</strong></span>
+                </div>
+              </>
+            ) : (
+              <div style={{ fontSize: 13.5, color: '#94a3b8' }}>
+                {laEn
+                  ? 'Sign in to get your personal REF code and earn +25 free pages per referral + 15% VIP commission.'
+                  : 'Hãy đăng nhập tài khoản để lấy mã REF cá nhân và nhận +25 trang/lượt giới thiệu + 15% hoa hồng nạp VIP.'}{' '}
+                {onMoTaiKhoan && (
+                  <button
+                    type="button"
+                    onClick={onMoTaiKhoan}
+                    style={{
+                      marginLeft: 6,
+                      padding: '5px 12px',
+                      borderRadius: 7,
+                      border: '1px solid #6366f1',
+                      background: '#4f46e5',
+                      color: '#fff',
+                      fontWeight: 700,
+                      fontSize: 12.5,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    🔑 {laEn ? 'Sign In Now' : 'Đăng nhập ngay'}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Cột 2: Nhập mã giới thiệu nhận ngay +15 trang */}
+          <div style={{
+            background: 'rgba(15, 23, 42, 0.78)',
+            border: '1px solid rgba(148, 163, 184, 0.28)',
+            borderRadius: 14,
+            padding: 16,
+          }}>
+            <div style={{ fontWeight: 700, fontSize: 15, color: '#ffffff', marginBottom: 6 }}>
+              🎁 {laEn ? 'Redeem Partner Referral Code (+15 Free Pages)' : 'Nhập Mã Giới Thiệu Nhận Ngay +15 Trang Miễn Phí'}
+            </div>
+            {ttAffiliate?.da_nhap_ma ? (
+              <div style={{ fontSize: 13.5, color: '#34d399', fontWeight: 600 }}>
+                ✅ {laEn
+                  ? `You have already redeemed referral code ${ttAffiliate.ma_da_nhap} (+15 bonus pages credited).`
+                  : `Bạn đã kích hoạt thành công mã giới thiệu ${ttAffiliate.ma_da_nhap} (+15 trang thưởng đã cộng vào ví).`}
+              </div>
+            ) : (
+              <form onSubmit={xuLyNhanThuongAffiliate} style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <input
+                  type="text"
+                  placeholder={laEn ? 'Enter code (e.g. REF-8A9B2C1D)' : 'Nhập mã giới thiệu (VD: REF-8A9B2C1D)'}
+                  value={maRefNhap}
+                  onChange={(e) => setMaRefNhap(e.target.value.toUpperCase())}
+                  style={{
+                    flex: 1,
+                    minWidth: 180,
+                    padding: '9px 12px',
+                    borderRadius: 8,
+                    border: '1px solid #334155',
+                    background: '#020617',
+                    color: '#ffffff',
+                    fontWeight: 700,
+                    fontSize: 13,
+                  }}
+                />
+                <button
+                  type="submit"
+                  disabled={dangNhapRef || !daDangNhap}
+                  style={{
+                    padding: '9px 15px',
+                    borderRadius: 8,
+                    border: 'none',
+                    background: daDangNhap ? '#10b981' : '#475569',
+                    color: '#ffffff',
+                    fontWeight: 700,
+                    fontSize: 13,
+                    cursor: daDangNhap ? 'pointer' : 'not-allowed',
+                  }}
+                >
+                  {dangNhapRef
+                    ? '⏳ Đang cộng...'
+                    : (laEn ? '🎉 Claim +15 Pages' : '🎉 Nhận +15 Trang')}
+                </button>
+              </form>
+            )}
+            {thongBaoRefOk && (
+              <div style={{ marginTop: 8, fontSize: 12.5, color: '#34d399', fontWeight: 600 }}>
+                {thongBaoRefOk}
+              </div>
+            )}
+            {loiRef && (
+              <div style={{ marginTop: 8, fontSize: 12.5, color: '#f87171', fontWeight: 600 }}>
+                ⚠️ {loiRef}
+              </div>
+            )}
+          </div>
+        </div>
       </section>
 
       <div style={{ marginTop: 36 }}>

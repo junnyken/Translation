@@ -665,3 +665,181 @@ async def quan_tri_thu_hoi_api_key_khach(
         "co_api_key": False,
         "thong_diep": f"Đã thu hồi Developer API Key của {muc_tieu.email}.",
     }
+
+
+REL_SO_CAI_AFFILIATE = "quan_tri/so_cai_affiliate.json"
+
+
+def _doc_so_cai_affiliate() -> dict:
+    import json
+    from app.services.storage import get_storage
+
+    try:
+        storage = get_storage()
+        if not storage.exists(REL_SO_CAI_AFFILIATE):
+            return {"claims": {}, "history": []}
+        raw = storage.read_bytes(REL_SO_CAI_AFFILIATE).decode("utf-8")
+        d = json.loads(raw)
+        if not isinstance(d, dict):
+            return {"claims": {}, "history": []}
+        d.setdefault("claims", {})
+        d.setdefault("history", [])
+        return d
+    except Exception:
+        return {"claims": {}, "history": []}
+
+
+def _luu_so_cai_affiliate(data: dict) -> None:
+    import json
+    from app.services.storage import get_storage
+
+    try:
+        storage = get_storage()
+        storage.save(REL_SO_CAI_AFFILIATE, json.dumps(data, ensure_ascii=False).encode("utf-8"))
+    except Exception:
+        pass
+
+
+def _ma_ref_cua(nguoi_id: uuid.UUID | str) -> str:
+    s = str(nguoi_id).replace("-", "").upper()
+    return f"REF-{s[:8]}"
+
+
+@router.get("/affiliate", response_model=dict)
+async def xem_thong_tin_affiliate(
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
+) -> dict:
+    """Xem mã giới thiệu Affiliate của tài khoản hiện tại, số người đã giới thiệu và tổng số trang thưởng nhận được."""
+    from fastapi.concurrency import run_in_threadpool
+
+    data = await run_in_threadpool(_doc_so_cai_affiliate)
+    uid = str(nguoi.id)
+    ma_ref = _ma_ref_cua(nguoi.id)
+    claims = data.get("claims") or {}
+    history = data.get("history") or []
+
+    so_nguoi_gt = sum(1 for v in claims.values() if isinstance(v, dict) and v.get("referrer_id") == uid)
+    tong_thuong = sum(
+        int(h.get("bonus_pages") or 0)
+        for h in history
+        if isinstance(h, dict) and h.get("beneficiary_id") == uid
+    )
+    claim_cua_toi = claims.get(uid)
+    lich_su_cua_toi = [
+        h for h in reversed(history) if isinstance(h, dict) and h.get("beneficiary_id") == uid
+    ][:15]
+
+    return {
+        "ma_gioi_thieu": ma_ref,
+        "link_gioi_thieu": f"https://comic.io.vn/?ref={ma_ref}",
+        "so_nguoi_da_gioi_thieu": so_nguoi_gt,
+        "tong_luot_thuong": tong_thuong,
+        "da_nhap_ma": bool(claim_cua_toi),
+        "ma_da_nhap": claim_cua_toi.get("ref_code") if isinstance(claim_cua_toi, dict) else None,
+        "thuong_nguoi_moi": 15,
+        "thuong_nguoi_gioi_thieu": 25,
+        "hoa_hong_nap_vip_phan_tram": 15,
+        "lich_su_thuong": lich_su_cua_toi,
+    }
+
+
+@router.post("/affiliate/claim", response_model=dict)
+async def nhap_ma_gioi_thieu_affiliate(
+    body: dict,
+    session: AsyncSession = Depends(get_session),
+    nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
+) -> dict:
+    """Nhập mã giới thiệu (`REF-XXXXXXXX`) để nhận ngay +15 trang miễn phí cho người mới và +25 trang cho người giới thiệu."""
+    import re
+    from datetime import datetime, timezone
+    from fastapi.concurrency import run_in_threadpool
+    from sqlalchemy import String, cast as sa_cast
+    from app.services import don_nap
+
+    raw_code = str((body or {}).get("ma_gioi_thieu") or "").strip().upper()
+    m = re.match(r"^(?:REF-)?([0-9A-F]{8})$", raw_code)
+    if not m:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Mã giới thiệu không đúng định dạng (ví dụ hợp lệ: REF-8A9B2C1D).",
+        )
+    prefix_hex = m.group(1).lower()
+    ref_code_norm = f"REF-{prefix_hex.upper()}"
+
+    data = await run_in_threadpool(_doc_so_cai_affiliate)
+    uid = str(nguoi.id)
+    claims = data.setdefault("claims", {})
+    if uid in claims:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Tài khoản của bạn đã nhận thưởng mã giới thiệu trước đó rồi.",
+        )
+
+    ung_vien = (
+        await session.execute(
+            select(NguoiDung).where(sa_cast(NguoiDung.id, String).like(f"{prefix_hex}%"))
+        )
+    ).scalars().all()
+    if not ung_vien:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Không tìm thấy đối tác sở hữu mã giới thiệu này.",
+        )
+    referrer = ung_vien[0]
+    if referrer.id == nguoi.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Bạn không thể tự nhập mã giới thiệu của chính mình.",
+        )
+
+    thuong_moi = 15
+    thuong_ref = 25
+    await don_nap.cong_luot(session, nguoi.id, thuong_moi)
+    await don_nap.cong_luot(session, referrer.id, thuong_ref)
+    ghi_nhat_ky(
+        session,
+        nguoi,
+        "nhan_thuong_affiliate",
+        referrer.email,
+        ref_code=ref_code_norm,
+        thuong_nguoi_moi=thuong_moi,
+        thuong_nguoi_gioi_thieu=thuong_ref,
+    )
+    await session.commit()
+    await session.refresh(nguoi)
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    claims[uid] = {
+        "referrer_id": str(referrer.id),
+        "referrer_email": referrer.email,
+        "ref_code": ref_code_norm,
+        "claimed_at": now_iso,
+    }
+    history = data.setdefault("history", [])
+    history.append(
+        {
+            "beneficiary_id": uid,
+            "type": "welcome_bonus",
+            "bonus_pages": thuong_moi,
+            "note": f"Nhận thưởng nhập mã giới thiệu {ref_code_norm}",
+            "created_at": now_iso,
+        }
+    )
+    history.append(
+        {
+            "beneficiary_id": str(referrer.id),
+            "type": "referral_signup",
+            "bonus_pages": thuong_ref,
+            "note": f"Giới thiệu thành viên mới ({nguoi.email[:3]}***)",
+            "created_at": now_iso,
+        }
+    )
+    await run_in_threadpool(_luu_so_cai_affiliate, data)
+
+    return {
+        "ok": True,
+        "ma_da_nhap": ref_code_norm,
+        "da_cong_them": thuong_moi,
+        "so_luot_mua_them_moi": int(nguoi.so_luot_mua_them or 0),
+        "thong_diep": f"Chúc mừng! Bạn đã nhận ngay +{thuong_moi} trang dịch miễn phí vào ví tích luỹ (và đối tác giới thiệu nhận +{thuong_ref} trang)!",
+    }

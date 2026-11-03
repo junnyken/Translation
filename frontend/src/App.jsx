@@ -74,6 +74,13 @@ const docTabChapter = () => {
 function docDiaChi() {
   const hashRaw = window.location.hash.slice(1)
   const p = new URLSearchParams(hashRaw)
+  const q = new URLSearchParams(window.location.search)
+  try {
+    const refParam = q.get('ref') || p.get('ref')
+    if (refParam && refParam.trim()) {
+      window.localStorage.setItem('ma_gioi_thieu_ref', refParam.trim().toUpperCase())
+    }
+  } catch {}
   const rawSegments = window.location.pathname
     .replace(/^\/+|\/+$/g, '')
     .split('/')
@@ -82,8 +89,15 @@ function docDiaChi() {
     rawSegments.shift()
   }
   const pathClean = rawSegments.join('/').toLowerCase()
+  const trangQuery = (q.get('trang') || '').toLowerCase()
   let trangTinh = ''
-  if (pathClean === 'privacy-policy' || hashRaw === 'privacy-policy' || p.has('privacy-policy')) {
+  if (
+    pathClean === 'privacy-policy' ||
+    hashRaw === 'privacy-policy' ||
+    p.has('privacy-policy') ||
+    trangQuery === 'chinh-sach' ||
+    trangQuery === 'privacy'
+  ) {
     trangTinh = 'privacy-policy'
   } else if (pathClean === 'tien-ich' || pathClean === 'extensions' || hashRaw === 'tien-ich' || p.has('tien-ich')) {
     trangTinh = 'tien-ich'

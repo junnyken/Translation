@@ -937,3 +937,17 @@ export const quanTriDuyetDonNap = (body) =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   }).then(doc)
+
+// ---------- Chương trình Affiliate (Tiếp thị liên kết) & Đặc tả RapidAPI ----------
+
+export const xemThongTinAffiliate = () => fetch(`${BASE}/auth/affiliate`).then(doc)
+
+export const nhapMaGioiThieuAffiliate = (maGioiThieu) =>
+  fetch(`${BASE}/auth/affiliate/claim`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ma_gioi_thieu: maGioiThieu }),
+  }).then(doc)
+
+export const urlTaiOpenApiRapidApi = () => '/tai-ve/openapi-rapidapi.json'
+

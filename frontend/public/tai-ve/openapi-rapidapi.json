@@ -1,0 +1,263 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Comic.io.vn — AI Comic, Manga, Manhwa & Webtoon Translation API",
+    "version": "2.0.0",
+    "description": "Enterprise B2B REST API for automated Manga, Manhwa, Manhua, Webtoon, and Web Novel translation. Features speech bubble detection, smart background inpainting (text removal), automatic comic typesetting, and context-aware AI translation across 9+ languages (JA, KO, ZH, EN -> VI, EN, ES, PT, FR, ID, TH)."
+  },
+  "servers": [
+    {
+      "url": "https://translation-api.vibe1.tinhgon.xyz",
+      "description": "Primary Production API Server (Comic.io.vn)"
+    }
+  ],
+  "security": [
+    {
+      "CustomerApiKeyAuth": []
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "CustomerApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Customer-Api-Key",
+        "description": "Your Developer API Key (starts with tr_live_...) generated at https://comic.io.vn"
+      }
+    }
+  },
+  "paths": {
+    "/api/v1/developer/quota": {
+      "get": {
+        "operationId": "getDeveloperQuota",
+        "summary": "Check Account Quota & Remaining Credits",
+        "description": "Returns daily free pages remaining, VIP purchased credits, and total usable pages for the authenticated API key.",
+        "responses": {
+          "200": {
+            "description": "Quota details returned successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "email": { "type": "string" },
+                    "daily_limit": { "type": "integer" },
+                    "daily_used": { "type": "integer" },
+                    "daily_remaining": { "type": "integer" },
+                    "vip_purchased_pages": { "type": "integer" },
+                    "total_usable_pages": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/developer/translate-image": {
+      "post": {
+        "operationId": "translateComicPage",
+        "summary": "Translate a Single Comic / Manga / Webtoon Page",
+        "description": "Detects speech bubbles, removes original text (inpainting), translates dialogue in context, and renders translated text into speech bubbles. Accepts image file upload, image_url (with anti-hotlink bypass), or image_base64.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Comic page image file (PNG, JPG, WEBP)"
+                  },
+                  "image_url": {
+                    "type": "string",
+                    "description": "Direct URL of the comic page image (alternative to file)"
+                  },
+                  "source_lang": {
+                    "type": "string",
+                    "enum": ["ja", "ko", "zh", "en"],
+                    "default": "ja"
+                  },
+                  "target_lang": {
+                    "type": "string",
+                    "enum": ["vi", "en", "es", "pt", "fr", "id", "th", "zh", "zh-tw"],
+                    "default": "en"
+                  },
+                  "engine": {
+                    "type": "string",
+                    "enum": ["llm_context", "google_fast"],
+                    "default": "llm_context"
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": ["day_du", "chi_chu"],
+                    "default": "day_du",
+                    "description": "day_du = full inpainting & typeset image; chi_chu = JSON bounding boxes & text only"
+                  },
+                  "font_style": {
+                    "type": "string",
+                    "enum": ["bangers", "romance", "historical", "comic"],
+                    "default": "bangers"
+                  },
+                  "wait": {
+                    "type": "boolean",
+                    "default": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Translated page image URLs and speech bubble regions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "page_id": { "type": "string" },
+                    "done": { "type": "boolean" },
+                    "rendered_image_url": { "type": "string" },
+                    "inpainted_image_url": { "type": "string" },
+                    "regions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "reading_order": { "type": "integer" },
+                          "bbox": { "type": "object" },
+                          "source_text": { "type": "string" },
+                          "translated_text": { "type": "string" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/developer/translate-chapter": {
+      "post": {
+        "operationId": "translateFullChapter",
+        "summary": "Batch Translate a Full Chapter from Image URLs",
+        "description": "Submits up to 150 page image URLs in one request. The server fetches all images (bypassing CDN hotlink protection) and queues the entire chapter for translation.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["image_urls"],
+                "properties": {
+                  "chapter_name": { "type": "string", "example": "Solo Leveling - Chapter 150" },
+                  "image_urls": {
+                    "type": "array",
+                    "items": { "type": "string" }
+                  },
+                  "source_lang": { "type": "string", "default": "ko" },
+                  "target_lang": { "type": "string", "default": "en" },
+                  "engine": { "type": "string", "default": "llm_context" },
+                  "mode": { "type": "string", "default": "day_du" },
+                  "font_style": { "type": "string", "default": "bangers" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Chapter queued with polling URL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "project_id": { "type": "string" },
+                    "accepted_pages": { "type": "integer" },
+                    "poll_chapter_url": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/developer/projects/{project_id}": {
+      "get": {
+        "operationId": "getChapterStatus",
+        "summary": "Get Full Chapter Translation Status & Rendered Image URLs",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Chapter progress and per-page results"
+          }
+        }
+      }
+    },
+    "/api/v1/developer/pages/{page_id}": {
+      "get": {
+        "operationId": "getPageStatus",
+        "summary": "Get Single Page Translation Status & Regions",
+        "parameters": [
+          {
+            "name": "page_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Page status, rendered_image_url, and regions"
+          }
+        }
+      }
+    },
+    "/api/v1/developer/translate-text": {
+      "post": {
+        "operationId": "translateNovelText",
+        "summary": "Batch Translate Dialogue / Web Novel Paragraphs with AI Context",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["texts"],
+                "properties": {
+                  "texts": {
+                    "type": "array",
+                    "items": { "type": "string" }
+                  },
+                  "source_lang": { "type": "string", "default": "ja" },
+                  "target_lang": { "type": "string", "default": "en" },
+                  "engine": { "type": "string", "default": "llm_context" },
+                  "glossary_context": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Translated text array in exact order"
+          }
+        }
+      }
+    }
+  }
+}

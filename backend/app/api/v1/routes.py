@@ -920,6 +920,28 @@ async def quan_tri_duyet_don_nap(
         ):
             if khach_id is not None:
                 await don_nap.cong_luot(session, khach_id, don.so_trang_cong)
+                # Hoa hồng Affiliate 15% số lượt cho người giới thiệu (nếu khách này từng nhập mã REF)
+                try:
+                    from app.api.v1.xac_thuc_routes import _doc_so_cai_affiliate, _luu_so_cai_affiliate
+
+                    aff_data = await run_in_threadpool(_doc_so_cai_affiliate)
+                    claim_info = (aff_data.get("claims") or {}).get(str(khach_id))
+                    if isinstance(claim_info, dict) and claim_info.get("referrer_id"):
+                        ref_uid = uuid.UUID(str(claim_info["referrer_id"]))
+                        hoa_hong = max(1, int(round(don.so_trang_cong * 0.15)))
+                        await don_nap.cong_luot(session, ref_uid, hoa_hong)
+                        aff_data.setdefault("history", []).append(
+                            {
+                                "beneficiary_id": str(ref_uid),
+                                "type": "vip_commission_15pct",
+                                "bonus_pages": hoa_hong,
+                                "note": f"Hoa hồng 15% từ đơn nạp {don.ma_don} (+{don.so_trang_cong} trang)",
+                                "created_at": bay_gio().isoformat(),
+                            }
+                        )
+                        await run_in_threadpool(_luu_so_cai_affiliate, aff_data)
+                except Exception:
+                    pass
             ghi_nhat_ky(session, nguoi, "duyet_don_nap", don.ma_don,
                         email=don.email, so_trang=don.so_trang_cong)
     elif body.hanh_dong == "thu_hoi":
