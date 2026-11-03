@@ -7,8 +7,12 @@
   },
   "servers": [
     {
+      "url": "https://comic.io.vn",
+      "description": "Primary Global Production API Server (Comic.io.vn)"
+    },
+    {
       "url": "https://translation-api.vibe1.tinhgon.xyz",
-      "description": "Primary Production API Server (Comic.io.vn)"
+      "description": "Direct Edge API Node"
     }
   ],
   "security": [
