@@ -903,9 +903,20 @@ async def _tu_dong_cap_api_key_va_hoa_hong(
     ma_don: str,
     so_trang_cong: int,
     ma_goi: str,
+    so_luot_truoc_do: int = 0,
 ) -> None:
-    """Tự động khởi tạo Developer API Key (tr_live_...) khi khách mua gói Unlimited/API
+    """Ghi nhận cấp độ gói khách vừa mua (giữ nguyên hạng suốt thời gian còn lượt, chống lách bằng gói thấp),
+    tự động khởi tạo Developer API Key (tr_live_...) khi khách mua gói Unlimited/API
     và tự động cộng 15% hoa hồng Affiliate cho người giới thiệu."""
+    try:
+        from app.core.danh_tinh_khach import ghi_nhan_cap_do_goi_mua
+
+        await run_in_threadpool(
+            ghi_nhan_cap_do_goi_mua, khach_id, ma_goi, so_trang_cong, so_luot_truoc_do
+        )
+    except Exception:
+        pass
+
     # 1. Tự động tạo Developer API Key nếu nâng cấp gói Unlimited / 5000+ trang mà chưa có key
     if so_trang_cong >= 5000 or ma_goi in ("unlimited_plan", "doanh_nghiep_api", "enterprise_scale"):
         try:
@@ -1048,8 +1059,11 @@ async def webhook_nap_luot_ngan_hang(
             session.add(don_moi)
             await session.flush()
             ma_don = don_moi.ma_don
+        luot_truoc = max(0, int(nguoi.so_luot_mua_them or 0))
         await don_nap.cong_luot(session, nguoi.id, so_trang_cong)
-        await _tu_dong_cap_api_key_va_hoa_hong(session, nguoi.id, ma_don, so_trang_cong, ma_goi_nhan)
+        await _tu_dong_cap_api_key_va_hoa_hong(
+            session, nguoi.id, ma_don, so_trang_cong, ma_goi_nhan, so_luot_truoc_do=luot_truoc
+        )
         await session.commit()
     except IntegrityError:
         await session.rollback()
@@ -1190,8 +1204,11 @@ async def webhook_nap_luot_paypal_ipn(
             session.add(don_moi)
             await session.flush()
             ma_don = don_moi.ma_don
+        luot_truoc = max(0, int(nguoi.so_luot_mua_them or 0))
         await don_nap.cong_luot(session, nguoi.id, so_trang_cong)
-        await _tu_dong_cap_api_key_va_hoa_hong(session, nguoi.id, ma_don, so_trang_cong, ma_goi_nhan)
+        await _tu_dong_cap_api_key_va_hoa_hong(
+            session, nguoi.id, ma_don, so_trang_cong, ma_goi_nhan, so_luot_truoc_do=luot_truoc
+        )
         await session.commit()
     except IntegrityError:
         await session.rollback()
@@ -1245,9 +1262,11 @@ async def quan_tri_duyet_don_nap(
             session, don.id, tu=("cho_duyet", "da_thu_hoi"), sang="da_xac_nhan"
         ):
             if khach_id is not None:
+                khach_obj = await session.get(NguoiDung, khach_id)
+                luot_truoc_khach = max(0, int(getattr(khach_obj, "so_luot_mua_them", 0) or 0))
                 await don_nap.cong_luot(session, khach_id, don.so_trang_cong)
                 await _tu_dong_cap_api_key_va_hoa_hong(
-                    session, khach_id, don.ma_don, don.so_trang_cong, don.ma_goi
+                    session, khach_id, don.ma_don, don.so_trang_cong, don.ma_goi, so_luot_truoc_do=luot_truoc_khach
                 )
             ghi_nhat_ky(session, nguoi, "duyet_don_nap", don.ma_don,
                         email=don.email, so_trang=don.so_trang_cong)
@@ -1327,6 +1346,15 @@ async def quan_tri_cap_luot(
     truoc = (int(dich.so_luot_mua_them or 0), dich.tran_hang_ngay_rieng)
     if body.cong_them_luot != 0:
         await don_nap.cong_luot(session, dich.id, body.cong_them_luot)
+        if body.cong_them_luot > 0:
+            try:
+                from app.core.danh_tinh_khach import ghi_nhan_cap_do_goi_mua
+
+                await run_in_threadpool(
+                    ghi_nhan_cap_do_goi_mua, dich.id, "", body.cong_them_luot, max(0, truoc[0])
+                )
+            except Exception:
+                pass
     if body.tran_hang_ngay_rieng is not None:
         dich.tran_hang_ngay_rieng = body.tran_hang_ngay_rieng if body.tran_hang_ngay_rieng > 0 else None
     ghi_nhat_ky(session, nguoi, "cap_luot", dich.email, cong_them=body.cong_them_luot,

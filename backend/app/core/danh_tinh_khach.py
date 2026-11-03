@@ -61,16 +61,113 @@ TEN_CAP_DO = {
     5: "Unlimited",
 }
 
+_CAP_DO_GOI_MEM_CACHE: dict[str, int] = {}
+_DA_NAP_CAP_DO_GOI = False
+
+
+def cap_do_tu_ma_goi(ma_goi: str, so_trang_don: int = 0) -> int:
+    """Xác định cấp độ VIP (1..5) của ĐƠN GÓI CƯỚC mà khách vừa mua.
+
+    Đảm bảo:
+    - Khách mua gói nào thì hưởng đúng cấp độ của gói đó suốt thời gian còn lượt (không bị tụt hạng
+      khi đang xài dở từ 5.000 trang xuống 3.000 trang, hay từ 600 trang xuống 200 trang).
+    - Khách chỉ mua lặp lại gói thấp (Trial 19k / Starter 49k) thì chỉ ở Cấp 1 / Cấp 2, KHÔNG thể
+      lách để mở khoá tính năng Pro (99k) hay Unlimited API (399k).
+    """
+    ma = (ma_goi or "").strip().lower()
+    if ma in ("unlimited_plan", "doanh_nghiep_api", "enterprise_scale") or so_trang_don >= 5000:
+        return 5
+    if ma in ("studio_monthly", "pack_2000", "nhom_dich") or so_trang_don >= 1200:
+        return 4
+    if ma in ("pro_monthly", "tieu_chuan") or so_trang_don >= 500:
+        return 3
+    if ma in ("starter_monthly", "co_ban") or so_trang_don >= 100:
+        return 2
+    if ma in ("trial_pack_50", "goi_moi") or so_trang_don > 0:
+        return 1
+    return 0
+
+
+def _nap_cache_cap_do_goi() -> dict[str, int]:
+    global _DA_NAP_CAP_DO_GOI
+    if _DA_NAP_CAP_DO_GOI:
+        return _CAP_DO_GOI_MEM_CACHE
+    import json
+    from pathlib import Path
+
+    data: dict[str, int] = {}
+    try:
+        p = Path("/tmp/cap_do_goi_khach.json")
+        if p.is_file():
+            raw = json.loads(p.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                data.update({str(k): int(v or 0) for k, v in raw.items()})
+    except Exception:
+        pass
+    if not data:
+        try:
+            from app.services.storage import get_storage
+
+            st = get_storage()
+            raw_bytes = st.read("quan_tri/cap_do_goi_khach.json")
+            if raw_bytes:
+                raw = json.loads(raw_bytes.decode("utf-8"))
+                if isinstance(raw, dict):
+                    data.update({str(k): int(v or 0) for k, v in raw.items()})
+        except Exception:
+            pass
+    _CAP_DO_GOI_MEM_CACHE.update(data)
+    _DA_NAP_CAP_DO_GOI = True
+    return _CAP_DO_GOI_MEM_CACHE
+
+
+def ghi_nhan_cap_do_goi_mua(
+    nguoi_id, ma_goi: str, so_trang_don: int = 0, so_luot_con_lai_truoc_do: int = 0
+) -> int:
+    """Lưu cấp độ gói khách vừa mua.
+
+    - Nếu khách vẫn còn lượt của gói cao hơn trước đó (`so_luot_con_lai_truoc_do > 0`), giữ cấp cao nhất
+      giữa gói cũ và gói mới.
+    - Nếu khách đã dùng hết sạch lượt cũ (`so_luot_con_lai_truoc_do <= 0`), áp đúng cấp của gói mới mua.
+    """
+    import json
+    from pathlib import Path
+
+    uid_str = str(nguoi_id or "").strip()
+    if not uid_str:
+        return 0
+    cache = _nap_cache_cap_do_goi()
+    cap_moi = cap_do_tu_ma_goi(ma_goi, so_trang_don)
+    cap_cu = int(cache.get(uid_str, 0) or 0) if so_luot_con_lai_truoc_do > 0 else 0
+    cap_chot = max(cap_cu, cap_moi)
+    cache[uid_str] = cap_chot
+
+    raw_bytes = json.dumps(cache, ensure_ascii=False).encode("utf-8")
+    try:
+        Path("/tmp/cap_do_goi_khach.json").write_bytes(raw_bytes)
+    except Exception:
+        pass
+    try:
+        from app.services.storage import get_storage
+
+        get_storage().save("quan_tri/cap_do_goi_khach.json", raw_bytes)
+    except Exception:
+        pass
+    return cap_chot
+
 
 def tinh_cap_do(nguoi) -> int:
-    """Tính cấp độ VIP (0..5) dựa trên quyền quản trị, trần ngày riêng và ví lượt mua thêm.
+    """Tính cấp độ VIP (0..5) dựa trên quyền quản trị, trần ngày riêng và GÓI CƯỚC ĐÃ MUA.
 
-    Khớp chính xác với 5 gói trên TrangBangGia.jsx:
-    - Trial (50 trang / 19k / $0.99)         -> Cấp 1 (Trial)
-    - Starter (105..200 trang / 49k / $2.99) -> Cấp 2 (Starter)
-    - Pro (550..600 trang / 99k / $4.99)     -> Cấp 3 (Pro)
-    - Studio (1200..2000 trang / 199k / $9.99)-> Cấp 4 (Studio)
-    - Unlimited (5000+ trang / 399k / $14.99) -> Cấp 5 (Unlimited)
+    1. KHÔNG BỊ HẠ HẠNG GIỮA CHỪNG:
+       - Khách mua gói Unlimited (5.000 trang), dùng xuống còn 3.000 trang hay 10 trang vẫn giữ nguyên
+         Cấp 5 (Unlimited) cho đến khi dùng hết sạch về 0 trang.
+       - Khách mua gói Pro (600 trang), dùng xuống còn 200 trang hay 5 trang vẫn giữ nguyên
+         Cấp 3 (Pro) cho đến khi dùng hết sạch về 0 trang.
+    2. CHỐNG LÁCH BẰNG GÓI THẤP:
+       - Khách chỉ mua gói Trial (19k) hoặc Starter (49k) nhiều lần thì `cap_goi_da_mua` chỉ là
+         Cấp 1 (Trial) hoặc Cấp 2 (Starter) — muốn mở khoá tính năng Pro (99k) hoặc Unlimited API (399k)
+         bắt buộc phải mua đúng gói Pro / Studio / Unlimited.
     """
     if nguoi is None:
         return 0
@@ -79,17 +176,37 @@ def tinh_cap_do(nguoi) -> int:
     tran = int(getattr(nguoi, "tran_hang_ngay_rieng", 0) or 0)
     vi = int(getattr(nguoi, "so_luot_mua_them", 0) or 0)
 
-    if tran >= 5000 or vi >= 3500:
-        return 5  # Unlimited
-    if tran >= 2000 or vi >= 1200:
-        return 4  # Studio
-    if tran >= 600 or vi >= 300:
-        return 3  # Pro
-    if tran >= 200 or vi >= 100:
-        return 2  # Starter
-    if vi > 0 or tran > 10:
-        return 1  # Trial
-    return 0  # Free
+    cap_tran = 0
+    if tran >= 5000:
+        cap_tran = 5
+    elif tran >= 2000:
+        cap_tran = 4
+    elif tran >= 600:
+        cap_tran = 3
+    elif tran >= 200:
+        cap_tran = 2
+    elif tran > 10:
+        cap_tran = 1
+
+    if vi <= 0:
+        return cap_tran
+
+    uid_str = str(getattr(nguoi, "id", "") or "").strip()
+    cache = _nap_cache_cap_do_goi()
+    cap_goi_da_mua = int(cache.get(uid_str, 0) or 0) if uid_str else 0
+    if cap_goi_da_mua > 0:
+        return max(cap_tran, cap_goi_da_mua)
+
+    # Dự phòng cho tài khoản được cộng lượt trước khi có sổ lưu gói:
+    if vi >= 3500:
+        return max(cap_tran, 5)
+    if vi >= 1200:
+        return max(cap_tran, 4)
+    if vi >= 300:
+        return max(cap_tran, 3)
+    if vi >= 100:
+        return max(cap_tran, 2)
+    return max(cap_tran, 1)
 
 
 def ten_cap_do(cap: int) -> str:
