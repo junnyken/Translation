@@ -658,6 +658,7 @@ class LLMContextTranslator:
                         "promptTokenCount": usage_ds.get("prompt_tokens"),
                         "candidatesTokenCount": usage_ds.get("completion_tokens"),
                         "totalTokenCount": usage_ds.get("total_tokens"),
+                        "cachedContentTokenCount": usage_ds.get("prompt_cache_hit_tokens"),
                     }
                 candidate = (data.get("candidates") or [{}])[0]
                 parts = (candidate.get("content") or {}).get("parts") or []
@@ -721,6 +722,14 @@ class LLMContextTranslator:
             logger.info(
                 "E66: %d/%d dòng mô hình tự báo là ĐOÁN", len(self.vung_khong_chac), len(dong),
             )
+        # Bổ sung từ điển SFX tĩnh đa ngôn ngữ cho các dòng chữ tượng thanh bị bỏ trống hoặc giữ nguyên CJK
+        from app.services.translate.sfx import tra_cuu_sfx_nhanh
+
+        for idx_d, goc_d in enumerate(texts):
+            if idx_d < len(dong) and (not dong[idx_d] or dong[idx_d].strip() == (goc_d or "").strip()):
+                sfx_dich = tra_cuu_sfx_nhanh(goc_d, target_lang)
+                if sfx_dich:
+                    dong[idx_d] = sfx_dich
         return dong
 
 

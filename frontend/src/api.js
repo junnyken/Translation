@@ -41,6 +41,8 @@ const MA_KHACH_LUU = 'translation:ma-khach'
 export function docMaPhien() {
   try { return localStorage.getItem(PHIEN_LUU) || '' } catch { return '' }
 }
+export const layMaPhien = docMaPhien
+export const layTokenXacThuc = docMaPhien
 export function luuMaPhien(ma) {
   try { localStorage.setItem(PHIEN_LUU, ma) } catch { /* trình duyệt chặn thì thôi */ }
 }

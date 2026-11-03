@@ -121,11 +121,54 @@ LOI_NHAC = (
 )
 
 
+_TEN_NGON_NGU_1PASS = {
+    "en": "natural, idiomatic Comic/Manga English",
+    "es": "natural, expressive Spanish (Español neutro/latino para Manga/Manhwa)",
+    "pt": "natural Brazilian Portuguese (Português brasileiro para Manga/Webtoon)",
+    "fr": "natural French (Français fluide pour Manga/Webtoon)",
+    "id": "natural Bahasa Indonesia (Bahasa Indonesia luwes untuk Komik/Manhwa)",
+    "th": "natural Thai (ภาษาไทยธรรมชาติสำหรับการ์ตูน/มังงะ)",
+    "zh": "natural Simplified Chinese (自然流畅的简体中文漫画对白)",
+    "zh-tw": "natural Traditional Chinese (自然流暢的繁體中文漫畫對白)",
+}
+
+
 def xay_loi_nhac_gop_dich(source_lang: str, target_lang: str, boi_canh: str = "") -> str:
-    """E96 + E104 — Lời nhắc gộp Nhận diện + Đọc chữ + Dịch ngữ cảnh trong 1 lượt gọi (hỗ trợ đích `vi` và `en`)."""
+    """E96 + E104 — Lời nhắc gộp Nhận diện + Đọc chữ + Dịch ngữ cảnh trong 1 lượt gọi (hỗ trợ đầy đủ 9 ngôn ngữ đích quốc tế)."""
     boi_canh_sach = (boi_canh or "").strip()
     la_ultra_3_luot = "[CHẾ ĐỘ ULTRA CLOUD AI 3 LƯỢT" in boi_canh_sach
     la_pro_2_luot = "[CHẾ ĐỘ AI PRO 2 LƯỢT" in boi_canh_sach
+    tl_norm = str(target_lang or "vi").strip().lower()
+    if tl_norm != "vi":
+        ten_dich = _TEN_NGON_NGU_1PASS.get(tl_norm, tl_norm)
+        chi_dan_cap_do_qt = ""
+        if la_ultra_3_luot:
+            chi_dan_cap_do_qt = (
+                "- [ULTRA 3-PASS · 2K MULTIMODAL SCANLATION]: Carefully inspect 2K visual cues (facial expressions, "
+                "costumes, age, social hierarchy, and character dynamics) to choose natural register, honorifics, and "
+                "pronouns. Polish dialogue to professional scanlation quality and capture tiny handwritten notes/whispers.\n"
+            )
+        elif la_pro_2_luot:
+            chi_dan_cap_do_qt = (
+                "- [PRO 2-PASS · HANDWRITTEN & SELF-LEARNING GLOSSARY]: Carefully read handwritten side-notes and chibi "
+                "whispers outside speech bubbles; strictly enforce 100% glossary & character name consistency.\n"
+            )
+        return (
+            f"{LOI_NHAC}\n\n"
+            f"At the same time, you are a professional comic/manga/manhwa/manhua translator. Translate each detected "
+            f"text block from {source_lang} into {ten_dich} in the \"ban_dich\" field:\n"
+            "- Translate in the context of the whole page and visual scene, not isolated fragments.\n"
+            "- Match each character's tone, age, social status, and emotion shown in the artwork.\n"
+            f"{chi_dan_cap_do_qt}"
+            f"- Sound effects (SFX like カラン, ドン, 두근, 轰隆…): localize into natural comic SFX in {ten_dich} "
+            "(e.g. Clang, Thud, Boom, Thump / ¡Bum!, ¡Clac! / Boum !), never transliterate them as person names. "
+            "IMPORTANT: Do NOT draw bounding boxes over giant brush-stroke SFX overlapping characters' faces/bodies.\n"
+            "- Proper nouns (character names, places): romanize/localize accurately and keep consistent across pages.\n"
+            f"- Each \"ban_dich\" must be a complete, natural sentence/phrase in {ten_dich} "
+            "(leave zero untranslated source characters).\n"
+            "- Set \"doan\" = true ONLY when the original text is blurry/occluded and required guessing; otherwise false."
+            + (f"\n\n{boi_canh_sach}" if boi_canh_sach else "")
+        )
     chi_dan_cap_do_vi = ""
     if la_ultra_3_luot:
         chi_dan_cap_do_vi = (
@@ -140,21 +183,6 @@ def xay_loi_nhac_gop_dich(source_lang: str, target_lang: str, boi_canh: str = ""
             "- [CHẾ ĐỘ AI PRO 2 LƯỢT · CHỮ VIẾT TAY & TỰ HỌC]: Quét kỹ các dòng chữ viết tay (handwritten), "
             "chữ chibi lầm bầm bên ngoài bong bóng thoại và chú thích lề trang; giữ đồng nhất 100% đại từ xưng hô "
             "và thuật ngữ theo sổ tay từ điển đính kèm.\n"
-        )
-    if str(target_lang).lower() == "en":
-        return (
-            f"{LOI_NHAC}\n\n"
-            f"At the same time, you are a professional comic/manga translator. Translate each detected "
-            f"text block from {source_lang} into natural, idiomatic English in the \"ban_dich\" field:\n"
-            "- Translate in the context of the whole page and visual scene, not isolated fragments.\n"
-            "- Match each character's tone, age, and emotion shown in the artwork.\n"
-            "- Sound effects (SFX like カラン, ドン, 두근…): translate into natural English comic SFX "
-            "(Clang, Thud, Boom, Thump…), never transliterate them as person names.\n"
-            "- Proper nouns (character names, places): romanize accurately and consistently.\n"
-            "- Each \"ban_dich\" must be a complete, natural English sentence/phrase using only English "
-            "letters, numbers, and punctuation (leave zero untranslated CJK characters).\n"
-            "- Set \"doan\" = true ONLY when the original text is blurry/occluded and required guessing; otherwise false."
-            + (f"\n\n{boi_canh_sach}" if boi_canh_sach else "")
         )
     return (
         f"{LOI_NHAC}\n\n"

@@ -291,6 +291,11 @@ class Settings(BaseSettings):
 
     # ---- M3: OCR ----
     ocr_device: str = "cpu"
+    #: Model HuggingFace cho tiếng Nhật (`kha-white/manga-ocr-base` hoặc biến thể nâng cấp
+    #: `manga-ocr-base-CPT-flex` chuyên trị chữ viết tay/furigana mờ).
+    manga_ocr_model_id: str = "kha-white/manga-ocr-base"
+    #: Tiền xử lý làm nét & phóng đại thông minh vùng chữ nhỏ trước khi đưa vào OCR.
+    ocr_preprocess_crop: bool = True
     #: Chỉ áp cho engine CÓ confidence thật (PaddleOCR). manga-ocr không trả confidence
     #: -> confidence=NULL, tiêu chí needs_manual dựa vào text rỗng/không có ký tự có nghĩa.
     ocr_conf_threshold: float = 0.5

@@ -38,7 +38,7 @@ import Alert from './components/ui/Alert.jsx'
 import Button from './components/ui/Button.jsx'
 import Dialog from './components/ui/Dialog.jsx'
 import DoiTheme from './components/ui/DoiTheme.jsx'
-import { DoiNgonNguUI, NgonNguUIProvider, useNgonNguUI } from './lib/ngon-ngu-ui.jsx'
+import { CAC_NGON_NGU_HO_TRO, DoiNgonNguUI, HERO_I18N, NgonNguUIProvider, useNgonNguUI } from './lib/ngon-ngu-ui.jsx'
 import Icon from './components/ui/Icon.jsx'
 import Skeleton from './components/ui/Skeleton.jsx'
 import StatusBadge from './components/ui/StatusBadge.jsx'
@@ -46,8 +46,8 @@ import Tabs from './components/ui/Tabs.jsx'
 import { tinhTienDoChapter } from './lib/chapter-progress.js'
 import { LOC_HUONG_CHU, LOC_RA_SOAT, nhanHuongChu } from './lib/status-presentation.js'
 
-// Tạm ẩn menu "💎 Bảng Giá" trên thanh điều hướng theo yêu cầu. Đổi thành `true` khi muốn mở lại.
-export const HIEN_MENU_BANG_GIA = false
+// Mở menu "💎 Bảng Giá / Pricing" cho cả khách Việt Nam & Quốc tế.
+export const HIEN_MENU_BANG_GIA = true
 import { MUC_DICH } from './lib/status-presentation.js'
 
 // wording: BA review — nút ở đầu màn chapter (mockup-v2 ghi "Chạy mẻ"; giữ tên khối hiện có)
@@ -69,20 +69,27 @@ const docTabChapter = () => {
   } catch { return 'trang' }
 }
 
-/** Lấy id trang/chapter từ địa chỉ (#page=… hoặc #project=…) để chia sẻ link được.
+/** Lấy id trang/chapter từ địa chỉ (#page=… hoặc #project=…) hoặc đường dẫn SEO quốc tế (/en, /es, /pt, /fr).
  *  Giữ nguyên dạng địa chỉ cũ: link đã gửi cho nhau vẫn phải mở được. */
 function docDiaChi() {
   const hashRaw = window.location.hash.slice(1)
   const p = new URLSearchParams(hashRaw)
-  const pathClean = window.location.pathname.replace(/^\/+|\/+$/g, '')
+  const rawSegments = window.location.pathname
+    .replace(/^\/+|\/+$/g, '')
+    .split('/')
+    .filter(Boolean)
+  if (rawSegments.length > 0 && CAC_NGON_NGU_HO_TRO.includes(rawSegments[0].toLowerCase())) {
+    rawSegments.shift()
+  }
+  const pathClean = rawSegments.join('/').toLowerCase()
   let trangTinh = ''
   if (pathClean === 'privacy-policy' || hashRaw === 'privacy-policy' || p.has('privacy-policy')) {
     trangTinh = 'privacy-policy'
-  } else if (pathClean === 'tien-ich' || hashRaw === 'tien-ich' || p.has('tien-ich')) {
+  } else if (pathClean === 'tien-ich' || pathClean === 'extensions' || hashRaw === 'tien-ich' || p.has('tien-ich')) {
     trangTinh = 'tien-ich'
-  } else if (pathClean === 'ket-noi-api' || hashRaw === 'ket-noi-api' || p.has('ket-noi-api')) {
+  } else if (pathClean === 'ket-noi-api' || pathClean === 'api-docs' || hashRaw === 'ket-noi-api' || p.has('ket-noi-api')) {
     trangTinh = 'ket-noi-api'
-  } else if (pathClean === 'bang-gia' || hashRaw === 'bang-gia' || p.has('bang-gia')) {
+  } else if (pathClean === 'bang-gia' || pathClean === 'pricing' || hashRaw === 'bang-gia' || p.has('bang-gia')) {
     trangTinh = 'bang-gia'
   } else if (pathClean === 'admin' || hashRaw === 'admin' || hashRaw.startsWith('admin') || p.has('admin')) {
     trangTinh = 'admin'
@@ -121,7 +128,8 @@ export default function App(props = {}) {
 }
 
 function AppRuot({ urlBundle } = {}) {
-  const { laEn } = useNgonNguUI()
+  const { lang, laEn } = useNgonNguUI()
+  const navI18n = HERO_I18N[lang] || HERO_I18N.en
   // Auth slice B — ba trạng thái, KHÔNG phải hai:
   //   undefined = đang hỏi máy chủ xem mã phiên trong máy còn dùng được không
   //   null      = chưa đăng nhập
@@ -202,7 +210,11 @@ function AppRuot({ urlBundle } = {}) {
   useEffect(() => {
     const doi = () => setDiaChi(docDiaChi())
     window.addEventListener('hashchange', doi)
-    return () => window.removeEventListener('hashchange', doi)
+    window.addEventListener('popstate', doi)
+    return () => {
+      window.removeEventListener('hashchange', doi)
+      window.removeEventListener('popstate', doi)
+    }
   }, [])
 
   const napTrang = useCallback(async (id) => {
@@ -587,21 +599,21 @@ function AppRuot({ urlBundle } = {}) {
                 className={!trangTinh && !muonDangNhap ? 'dang-o' : ''}
                 onClick={() => setMuonDangNhap(false)}
               >
-                {laEn ? '🏠 Translate' : '🏠 Dịch Truyện'}
+                {navI18n.navTranslate}
               </a>
               <a
                 href="#tien-ich"
                 className={trangTinh === 'tien-ich' ? 'dang-o' : ''}
                 onClick={() => setMuonDangNhap(false)}
               >
-                {laEn ? '🧩 Extensions & App' : '🧩 Tiện Ích'}
+                {navI18n.navExt}
               </a>
               <a
                 href="#ket-noi-api"
                 className={trangTinh === 'ket-noi-api' ? 'dang-o' : ''}
                 onClick={() => setMuonDangNhap(false)}
               >
-                {laEn ? '⚡ Developer API' : '⚡ Kết Nối API'}
+                {navI18n.navApi}
               </a>
               {HIEN_MENU_BANG_GIA && (
                 <a
@@ -609,7 +621,7 @@ function AppRuot({ urlBundle } = {}) {
                   className={trangTinh === 'bang-gia' ? 'dang-o' : ''}
                   onClick={() => setMuonDangNhap(false)}
                 >
-                  {laEn ? '💎 Pricing' : '💎 Bảng Giá'}
+                  {navI18n.navPricing}
                 </a>
               )}
             </nav>
@@ -618,7 +630,7 @@ function AppRuot({ urlBundle } = {}) {
               <DoiTheme />
               {!muonDangNhap && (
                 <Button kieu="phu" onClick={() => setMuonDangNhap(true)}>
-                  {laEn ? 'Sign In' : 'Đăng nhập'}
+                  {navI18n.signIn}
                 </Button>
               )}
             </div>
@@ -685,16 +697,16 @@ function AppRuot({ urlBundle } = {}) {
             setTimeout(
               () => document.getElementById('nut-tao')?.scrollIntoView({ block: 'center' }), 80,
             )
-          }}>{laEn ? 'New Chapter' : 'Tạo chapter'}</a>
+          }}>{navI18n.newChapter}</a>
           <a href="#tien-ich" className={trangTinh === 'tien-ich' ? 'dang-o' : ''}>
-            {laEn ? '🧩 Extensions & App' : '🧩 Tiện Ích'}
+            {navI18n.navExt}
           </a>
           <a href="#ket-noi-api" className={trangTinh === 'ket-noi-api' ? 'dang-o' : ''}>
-            {laEn ? '⚡ Developer API' : '⚡ Kết Nối API'}
+            {navI18n.navApi}
           </a>
           {HIEN_MENU_BANG_GIA && (
             <a href="#bang-gia" className={trangTinh === 'bang-gia' ? 'dang-o' : ''}>
-              {laEn ? '💎 Pricing' : '💎 Bảng Giá'}
+              {navI18n.navPricing}
             </a>
           )}
           <span className="tai-khoan">

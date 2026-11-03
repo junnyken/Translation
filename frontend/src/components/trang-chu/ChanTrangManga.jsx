@@ -53,13 +53,11 @@ export default function ChanTrangManga() {
                 🎬 {laEn ? 'Auto AI Video Review Studio (.EXE)' : 'Phần Mềm Dựng Video Review Truyện (.EXE)'}
               </a>
             </li>
-            {false && (
-              <li>
-                <a href="#bang-gia">
-                  💎 {laEn ? 'Pricing & Enterprise API Plans' : 'Trang Bảng Giá & Gói Cước Doanh Nghiệp'}
-                </a>
-              </li>
-            )}
+            <li>
+              <a href="#bang-gia">
+                💎 {laEn ? 'Pricing & Global Plans (VND / USD)' : 'Trang Bảng Giá & Gói Cước (VNĐ / USD)'}
+              </a>
+            </li>
             <li>
               <a href="#privacy-policy">
                 🛡️ {laEn ? 'Privacy Policy (/privacy-policy)' : 'Chính sách quyền riêng tư (/privacy-policy)'}

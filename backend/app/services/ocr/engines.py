@@ -12,13 +12,55 @@ import logging
 import re
 import threading
 
-from PIL import Image
+from PIL import Image, ImageFilter, ImageOps
 
 from app.models.enums import OCREngine, SourceLang
 from app.services.interfaces import BBox
 from app.services.ocr.crop import crop_region
 
 logger = logging.getLogger(__name__)
+
+#: Bảng quy đổi chữ số & dấu câu Full-width (Nhật/Trung) sang Half-width chuẩn để dịch thuật chính xác hơn.
+_BANG_CHUAN_HOA_FULLWIDTH = str.maketrans(
+    "０１２３４５６７８９ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚ！？",
+    "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!?",
+)
+
+
+def chuan_hoa_van_ban_ocr(text: str) -> str:
+    """Hậu xử lý văn bản OCR: chuẩn hoá chữ số/chữ cái full-width, gộp dấu chấm lửng và khoảng trắng thừa."""
+    if not text:
+        return ""
+    cleaned = text.translate(_BANG_CHUAN_HOA_FULLWIDTH)
+    cleaned = re.sub(r"[・･]{3,}", "…", cleaned)
+    cleaned = re.sub(r"\.{3,}", "…", cleaned)
+    cleaned = re.sub(r"[ \t\u3000]+", " ", cleaned)
+    return "\n".join(line.strip() for line in cleaned.splitlines() if line.strip()).strip()
+
+
+def tien_xu_ly_crop_ocr(crop: Image.Image, *, for_layout: bool = False) -> Image.Image:
+    """Tiền xử lý thông minh vùng chữ nhỏ/mờ trước khi đưa vào bộ nhận diện OCR.
+
+    - Giữ nguyên kích thước nếu `for_layout=True` (để không làm lệch toạ độ đa giác dòng chữ của PaddleOCR)
+      hoặc nếu ảnh thử nghiệm quá nhỏ (< 16px).
+    - Với vùng chữ thật có cạnh ngắn nhỏ (16..42px — thường là chữ lầm bầm, chú thích lề trang),
+      phóng đại 2× bằng bộ lọc Lanczos kèm làm nét nhẹ (UnsharpMask) và cân bằng tương phản tự động
+      để giảm tỷ lệ đọc nhầm nét kanji/hangul dính nhau.
+    """
+    w, h = crop.size
+    if w < 16 or h < 16:
+        return crop
+    out = crop
+    if not for_layout and min(w, h) < 42 and max(w, h) <= 600:
+        resample = getattr(Image, "Resampling", Image).LANCZOS
+        out = out.resize((w * 2, h * 2), resample=resample)
+    try:
+        out = ImageOps.autocontrast(out, cutoff=1)
+        if not for_layout and min(w, h) < 64:
+            out = out.filter(ImageFilter.UnsharpMask(radius=1.0, percent=115, threshold=3))
+    except Exception:  # noqa: BLE001
+        return crop
+    return out
 
 #: Ký tự "rác" thường gặp khi model đoán bừa trên vùng không có chữ.
 _MEANINGFUL = re.compile(r"[0-9A-Za-z぀-ヿ㐀-鿿＀-￯À-ỹ가-힣ㄱ-ㆎᄀ-ᇿ]")
@@ -115,23 +157,50 @@ class MangaOCREngine(_BaseOCREngine):
     manga-ocr KHÔNG trả confidence (đã kiểm source 0.1.16: `__call__` chỉ trả chuỗi text).
     → confidence = None. Không bịa số. Tiêu chí `needs_manual` dựa vào text rỗng/không có
     ký tự có nghĩa. Xem docs/ARCH.md § OCR.
+    Hỗ trợ nâng cấp biến thể model `manga-ocr-base-CPT-flex` (hoặc checkpoint tuỳ chỉnh) qua cấu hình.
     """
 
     engine_enum = OCREngine.manga_ocr
+
+    def __init__(
+        self,
+        device: str = "cpu",
+        pretrained_model_name_or_path: str | None = None,
+        preprocess_crop: bool = True,
+    ) -> None:
+        super().__init__(device=device)
+        self.pretrained_model_name_or_path = pretrained_model_name_or_path
+        self.preprocess_crop = preprocess_crop
 
     def _load(self):
         try:
             from manga_ocr import MangaOcr
         except ImportError as exc:  # pragma: no cover - phụ thuộc môi trường
             raise OCREngineUnavailable(f"Chưa cài manga-ocr: {exc}") from exc
+        custom_model = (self.pretrained_model_name_or_path or "").strip()
+        if custom_model and custom_model != "kha-white/manga-ocr-base":
+            logger.info("Nạp manga-ocr nâng cấp %s (device=%s)", custom_model, self.device)
+            try:
+                return MangaOcr(
+                    pretrained_model_name_or_path=custom_model,
+                    force_cpu=self.device == "cpu",
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Không nạp được model %s (%s) -> lùi về manga-ocr chuẩn",
+                    custom_model,
+                    exc,
+                )
         logger.info("Nạp manga-ocr (device=%s)", self.device)
         return MangaOcr(force_cpu=self.device == "cpu")
 
     def recognize(self, image_path: str, bbox: BBox) -> tuple[str, float | None]:
         with Image.open(image_path) as im:
             crop = crop_region(im.convert("RGB"), bbox)
+        if self.preprocess_crop:
+            crop = tien_xu_ly_crop_ocr(crop, for_layout=False)
         text = self._get_model()(crop)
-        return (text or "").strip(), None
+        return chuan_hoa_van_ban_ocr(text or ""), None
 
 
 class PaddleOCREngine(_BaseOCREngine):
@@ -285,12 +354,18 @@ class PaddleOCREngine(_BaseOCREngine):
 
 
 def get_ocr_engine(
-    source_lang: str | SourceLang, device: str = "cpu", paddle_enable_mkldnn: bool = False
+    source_lang: str | SourceLang,
+    device: str = "cpu",
+    paddle_enable_mkldnn: bool = False,
+    manga_ocr_model_id: str | None = None,
 ) -> _BaseOCREngine:
     """Factory theo source_lang. Giá trị lạ → raise rõ ràng, không fallback âm thầm."""
     value = source_lang.value if isinstance(source_lang, SourceLang) else str(source_lang)
     if value == SourceLang.ja.value:
-        return MangaOCREngine(device=device)
+        return MangaOCREngine(
+            device=device,
+            pretrained_model_name_or_path=manga_ocr_model_id,
+        )
     if value in (SourceLang.zh.value, SourceLang.en.value, SourceLang.ko.value):
         paddle_lang = {"zh": "ch", "en": "en", "ko": "korean"}[value]
         return PaddleOCREngine(

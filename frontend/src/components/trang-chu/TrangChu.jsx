@@ -7,9 +7,10 @@ import Alert from '../ui/Alert'
 import Button from '../ui/Button'
 import Dropzone from '../ui/Dropzone'
 import { chuThoiGianGiu } from '../../lib/thoi-gian-giu.js'
-import { useNgonNguUI } from '../../lib/ngon-ngu-ui.jsx'
+import { HERO_I18N, useNgonNguUI } from '../../lib/ngon-ngu-ui.jsx'
 import Icon from '../ui/Icon'
 import ChanTrangManga from './ChanTrangManga'
+import ShowcaseTruocSau from './ShowcaseTruocSau'
 import TheHanMuc from './TheHanMuc'
 
 /** Ngôn ngữ chữ TRÊN ẢNH. Sai ngôn ngữ ra chữ vô nghĩa chứ không phải lỗi rõ ràng, nên phải để
@@ -147,7 +148,7 @@ function tinhBuocCaMe(trang, laEn = false) {
   })
 }
 
-const DUOI_GOI = /\.(zip|cbz|pdf)$/i
+const DUOI_GOI = /\.(zip|cbz|epub|pdf)$/i
 
 /** Ảnh GỐC người dùng vừa chọn, dựng từ chính tệp trong máy (không gọi máy chủ). Nếu trang đến từ
  *  gói zip/cbz/pdf (không có tệp ảnh rời trong RAM), lấy qua đường dẫn ảnh gốc của trang dịch nhanh. */
@@ -219,7 +220,8 @@ function TienDoTrang({ tienDo, laEn = false }) {
    trang web đặt nó. Trước đây nó là một liên kết gạch chân đứng trơ giữa khoảng trắng, dưới khối
    hạn mức, và trang này không hề có thanh đầu trang nào để neo nó vào. */
 export default function TrangChu() {
-  const { laEn } = useNgonNguUI()
+  const { lang, laEn } = useNgonNguUI()
+  const heroText = HERO_I18N[lang] || HERO_I18N.en
   const [files, setFiles] = useState([])
   const [ngonNgu, setNgonNgu] = useState('ja')
   const [ngonNguDich, setNgonNguDich] = useState('vi')
@@ -228,8 +230,12 @@ export default function TrangChu() {
   const [moTuDien, setMoTuDien] = useState(false)
 
   useEffect(() => {
-    setNgonNguDich(laEn ? 'en' : 'vi')
-  }, [laEn])
+    if (['vi', 'en', 'es', 'pt', 'fr'].includes(lang)) {
+      setNgonNguDich(lang)
+    } else {
+      setNgonNguDich(laEn ? 'en' : 'vi')
+    }
+  }, [lang, laEn])
   // E67 — mặc định MIỄN PHÍ. Chủ dự án chốt: người dùng tự chọn, không ai bị tính tiền ngoài ý
   // muốn. Đây là lựa chọn của TRANG CHỦ, gửi thẳng lên máy chủ — E58 đã chốt rằng lựa chọn này
   // phải được LƯU chứ không để `NULL` thừa hưởng mặc định hệ thống.
@@ -484,7 +490,7 @@ export default function TrangChu() {
       <header className="trang-chu-dau manga-hero-banner">
         <div className="manga-hero-fx" aria-hidden="true">
           <span className="manga-bubble-tag tag-trai">
-            💬 &ldquo;{laEn ? 'Instant Comic Translation — Natural Layout & Genre Fonts!' : 'Dịch Tự Động Siêu Tốc — Chuẩn Phong Cách Truyện Tranh!'}&rdquo;
+            💬 &ldquo;{heroText.bubbleLeft}&rdquo;
           </span>
           <span className="manga-bubble-tag tag-phai">⚡ &ldquo;Manga · Manhwa · Manhua · Comic!&rdquo;</span>
         </div>
@@ -493,18 +499,10 @@ export default function TrangChu() {
           <span>🌸 {laEn ? 'Romance' : 'Ngôn tình'}</span>
           <span>📜 {laEn ? 'Historical' : 'Cổ trang'}</span>
           <span>💬 {laEn ? 'Comics & Webtoon' : 'Truyện tranh'}</span>
-          <span>🌍 {laEn ? 'VN & Global English' : 'Việt & Quốc tế'}</span>
+          <span>🌍 {laEn ? '9 Global Languages' : 'Việt & Quốc tế'}</span>
         </div>
-        <h1>
-          {laEn
-            ? 'AI Manga, Manhwa & Webtoon Translator'
-            : 'Dịch truyện tranh sang tiếng Việt'}
-        </h1>
-        <p className="dan">
-          {laEn
-            ? 'Drop comic pages or chapter archives (.zip / .cbz / .pdf) here to translate instantly — no sign-up required.'
-            : 'Thả ảnh trang truyện vào đây là chạy — không cần đăng ký trước.'}
-        </p>
+        <h1>{heroText.h1}</h1>
+        <p className="dan">{heroText.subtitle}</p>
         <div className="manga-hero-actions">
           <a href="#tien-ich" className="nut-manga nut-manga-chinh">
             🧩 {laEn ? 'Install Chrome Extension & Windows App' : 'Cài Tiện Ích Chrome & App Windows'}
@@ -1235,6 +1233,9 @@ export default function TrangChu() {
           </li>
         </ol>
       </section>
+
+      {/* E110 — Trình kéo so sánh Trước – Sau (Before/After Showcase) & FAQ Đa ngôn ngữ Quốc tế */}
+      <ShowcaseTruocSau />
 
       {/* Khu vực Hệ Sinh Thái 3 Công Cụ Độc Quyền (Tiện ích Chrome · App Windows Tự Động · Video Review Studio) */}
       <section id="he-sinh-thai-cong-cu" className="manga-ecosystem" aria-labelledby="tieu-de-he-sinh-thai">

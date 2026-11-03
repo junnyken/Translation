@@ -4,165 +4,273 @@ import { useNgonNguUI } from '../../lib/ngon-ngu-ui'
 import ChanTrangManga from './ChanTrangManga'
 
 export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
-  const { laEn } = useNgonNguUI()
+  const { lang, laEn } = useNgonNguUI()
   const [thongTinNap, setThongTinNap] = useState(null)
   const [emailNhapTay, setEmailNhapTay] = useState(nguoiDung?.email || '')
   const [daChepNoiDung, setDaChepNoiDung] = useState(false)
   const [dangXacNhan, setDangXacNhan] = useState(false)
   const [ketQuaDon, setKetQuaDon] = useState(null)
   const [loiXacNhan, setLoiXacNhan] = useState('')
-  const donGia = thongTinNap?.ty_le_vnd_moi_trang || 500
+  const [tienTe, setTienTe] = useState(laEn ? 'USD' : 'VND')
+  const [nhomGoi, setNhomGoi] = useState('subscription') // 'subscription' | 'credits'
 
-  const DANH_SACH_GOI = [
+  useEffect(() => {
+    setTienTe(laEn ? 'USD' : 'VND')
+  }, [laEn])
+
+  const GOI_SUBSCRIPTION = [
     {
-      ma: 'goi_moi',
+      ma: 'trial_pack_50',
       maNgan: 'MOI',
-      nhan: laEn ? '🎯 MINI HOOK PACK' : '🎯 GÓI MỒI ĐỌC NHANH',
-      ten: laEn ? 'Mini Hook Pack (40 Pages)' : 'Gói Mồi Trải Nghiệm (40 trang)',
-      giaVnd: 40 * donGia,
-      soTrang: 40,
-      uocChap: '~2 chapter',
-      khuyenMai: 'Cộng dồn',
-      donGiaThuc: `${donGia.toLocaleString('vi-VN')}đ/trang`,
+      nhan: laEn ? '🌱 TRIAL PACK' : '🌱 GÓI MỒI TRẢI NGHIỆM',
+      ten: laEn ? 'Trial Pack (50 Pages)' : 'Gói Mồi (50 trang)',
+      giaVnd: 19000,
+      giaUsd: '0.99',
+      chuKy: laEn ? 'no expiry' : 'không hết hạn',
+      soTrang: 50,
+      uocChap: '~2.5 chapters',
+      khuyenMai: laEn ? 'Never expires' : 'Không hết hạn',
+      donGiaVnd: '380đ/trang',
+      donGiaUsd: '$0.020/page',
       diemManh: laEn
         ? [
-            '40 translated comic pages (~2 full chapters)',
-            'Buy multiple times — stacks forever in your wallet',
-            'Instant 5s VietQR activation on Web & Extension',
+            '50 AI-translated comic pages (never expires)',
+            '60% cheaper than Western tools ($0.05/page)',
+            'Full LaMa text removal & 9 target languages',
           ]
         : [
-            'Nhận ngay 40 trang đọc tiếp 2 chapter đang gay cấn',
-            'Mua nhiều lần tự động CỘNG DỒN vĩnh viễn vào ví',
-            'Kích hoạt VietQR tự động 5 giây — không bao giờ hết hạn',
+            '50 trang dịch AI chất lượng cao (không bao giờ hết hạn)',
+            'Chỉ 380đ/trang — rẻ hơn 60% so với thị trường quốc tế',
+            'Đầy đủ xoá chữ LaMa & dàn chữ 9 ngôn ngữ',
+          ],
+      noiBat: false,
+    },
+    {
+      ma: 'starter_monthly',
+      maNgan: 'STARTER',
+      nhan: laEn ? '⭐ STARTER' : '⭐ GÓI STARTER',
+      ten: laEn ? 'Starter Plan (200 Pages)' : 'Gói Starter (200 trang)',
+      giaVnd: 49000,
+      giaUsd: '2.99',
+      chuKy: laEn ? '/ month' : '/ tháng',
+      soTrang: 200,
+      uocChap: '~10 chapters',
+      khuyenMai: '-50% vs market',
+      donGiaVnd: '245đ/trang',
+      donGiaUsd: '$0.015/page',
+      diemManh: laEn
+        ? [
+            '200 high-speed AI pages (~10 full chapters)',
+            'Use across Web + Chrome Extension + Windows App',
+            'Double-click live bubble editor & 4 genre fonts',
+          ]
+        : [
+            '200 trang dịch AI siêu tốc (~10 chapter truyện)',
+            'Dùng đồng bộ trên Web + Tiện ích Chrome + App Windows',
+            'Nhấp đúp sửa câu trực tiếp & 4 bộ Font thể loại',
+          ],
+      noiBat: false,
+    },
+    {
+      ma: 'pro_monthly',
+      maNgan: 'PRO',
+      nhan: laEn ? '🔥 PRO BEST SELLER' : '🔥 GÓI PRO BÁN CHẠY',
+      ten: laEn ? 'Pro Reader (600 Pages)' : 'Gói Pro Cày Truyện (600 trang)',
+      giaVnd: 99000,
+      giaUsd: '4.99',
+      chuKy: laEn ? '/ month' : '/ tháng',
+      soTrang: 600,
+      uocChap: '~30 chapters',
+      khuyenMai: 'Best Value',
+      donGiaVnd: '165đ/trang',
+      donGiaUsd: '$0.008/page',
+      diemManh: laEn
+        ? [
+            '600 AI pages (~30 chapters) at only $0.008/page',
+            'Context AI Pro + Character & Pronoun Glossary',
+            'Batch upload .ZIP, .CBZ, .PDF & vertical Webtoon mode',
+            'Windows App auto-crawl series links',
+          ]
+        : [
+            '600 trang dịch AI (~30 chapter) — chỉ 165đ/trang',
+            'AI Chuẩn Ngữ Cảnh + Sổ tay Nhân vật & Xưng hô cố định',
+            'Tải gói .ZIP, .CBZ, .PDF & đọc dọc Webtoon liền mạch',
+            'Mở App Windows tự động tải & dịch theo Link truyện',
           ],
       noiBat: true,
     },
     {
-      ma: 'co_ban',
-      maNgan: 'STARTER',
-      nhan: laEn ? 'STARTER' : 'KHỞI ĐỘNG',
-      ten: laEn ? 'Starter Pack (105 Pages)' : 'Gói Khởi Đầu (105 trang)',
-      giaVnd: 100 * donGia,
-      soTrang: 105,
-      uocChap: '~5.5 chapter',
-      khuyenMai: '+5%',
-      donGiaThuc: `${Math.round((100 * donGia) / 105).toLocaleString('vi-VN')}đ/trang`,
+      ma: 'studio_monthly',
+      maNgan: 'STUDIO',
+      nhan: laEn ? '💎 SCANLATION STUDIO' : '💎 GÓI STUDIO NHÓM DỊCH',
+      ten: laEn ? 'Studio Plan (2,000 Pages)' : 'Gói Studio (2.000 trang)',
+      giaVnd: 199000,
+      giaUsd: '9.99',
+      chuKy: laEn ? '/ month' : '/ tháng',
+      soTrang: 2000,
+      uocChap: '~100 chapters',
+      khuyenMai: '-67% vs market',
+      donGiaVnd: '99đ/trang',
+      donGiaUsd: '$0.005/page',
       diemManh: laEn
         ? [
-            'Includes +5% bonus pages (100 + 5 free)',
-            'Use on Web (comic.io.vn) + Chrome Extension',
-            'Purchased pages stack & never expire overnight',
+            '2,000 AI pages (~100 chapters) for teams & creators',
+            'Full Windows App batch crawler + Video Review Studio',
+            'Export high-res PNG/JPG, .CBZ, .ZIP & .PDF',
+            'Cross-chapter consistency & glossary checker',
           ]
         : [
-            'Tặng thêm +5% số trang (mua 100 nhận 105 trang)',
-            'Dùng trên Web (comic.io.vn) + Tiện ích Chrome',
-            'Lượt mua cộng dồn vĩnh viễn, không hết hạn qua đêm',
+            '2.000 trang dịch AI (~100 chapter) cho Nhóm dịch & Creator',
+            'Full App Windows cày link + Phần mềm Dựng Video Review',
+            'Xuất ảnh rời chất lượng cao, .CBZ, .ZIP & .PDF',
+            'Bộ kiểm tra nhất quán thuật ngữ & xưng hô toàn chương',
+          ],
+      noiBat: true,
+    },
+    {
+      ma: 'unlimited_plan',
+      maNgan: 'UNLIMITED',
+      nhan: laEn ? '🏢 UNLIMITED + API' : '🏢 UNLIMITED + CỔNG API',
+      ten: laEn ? 'Unlimited Plan (5,000 FUP)' : 'Gói Unlimited (5.000 trang)',
+      giaVnd: 399000,
+      giaUsd: '14.99',
+      chuKy: laEn ? '/ month' : '/ tháng',
+      soTrang: 5000,
+      uocChap: '~250 chapters',
+      khuyenMai: 'API Included',
+      donGiaVnd: '~80đ/trang',
+      donGiaUsd: '$0.003/page',
+      diemManh: laEn
+        ? [
+            'Unlimited reading (Fair Use: 5,000 pages/mo)',
+            'Includes Personal Developer API Key (tr_live_...)',
+            'Batch Chapter URL API + Anti-Hotlink bypass',
+            '0.15s High-Speed Image Cache for CMS/Websites',
+          ]
+        : [
+            'Đọc & dịch thả ga (FUP: 5.000 trang/tháng — chỉ ~80đ/trang)',
+            'Cấp Khoá Developer API riêng (tr_live_...) cho Web/Tool',
+            'API dịch cả Chapter qua URL + Tự vượt chặn Anti-Hotlink',
+            'Bộ nhớ đệm siêu tốc 0.15s cho CMS WordPress/Madara',
+          ],
+      noiBat: true,
+    },
+  ]
+
+  const GOI_CREDITS = [
+    {
+      ma: 'co_ban',
+      maNgan: 'PACK100',
+      nhan: laEn ? '📦 100 PAGES PACK' : '📦 GÓI TÍCH LUỸ 100 TRANG',
+      ten: laEn ? '100 Pages Credit Pack' : 'Gói 100 Trang Vĩnh Viễn',
+      giaVnd: 50000,
+      giaUsd: '2.49',
+      chuKy: laEn ? 'never expires' : 'vĩnh viễn',
+      soTrang: 100,
+      uocChap: '~5 chapters',
+      khuyenMai: 'No Expiry',
+      donGiaVnd: '500đ/trang',
+      donGiaUsd: '$0.025/page',
+      diemManh: laEn
+        ? [
+            '100 pages stored forever in your account wallet',
+            'Use anytime on Web, Chrome Extension & Windows App',
+            'Stacks with your 10 free daily pages',
+          ]
+        : [
+            '100 trang cộng dồn vĩnh viễn trong ví tài khoản',
+            'Dùng bất cứ lúc nào trên Web, Extension & App Windows',
+            'Cộng thêm vào 10 trang miễn phí mỗi ngày',
           ],
       noiBat: false,
     },
     {
       ma: 'tieu_chuan',
-      maNgan: 'VIP',
-      nhan: laEn ? '⭐ POPULAR VIP' : '⭐ ĐỘC GIẢ CÀY TRUYỆN',
-      ten: laEn ? 'Reader VIP (550 Pages)' : 'Gói Cày Truyện (550 trang)',
-      giaVnd: 500 * donGia,
-      soTrang: 550,
-      uocChap: '~28 chapter',
-      khuyenMai: '+10%',
-      donGiaThuc: `${Math.round((500 * donGia) / 550).toLocaleString('vi-VN')}đ/trang`,
+      maNgan: 'PACK500',
+      nhan: laEn ? '⭐ 500 PAGES PACK' : '⭐ GÓI TÍCH LUỸ 500 TRANG',
+      ten: laEn ? '500 Pages Credit Pack' : 'Gói 500 Trang Vĩnh Viễn',
+      giaVnd: 200000,
+      giaUsd: '8.99',
+      chuKy: laEn ? 'never expires' : 'vĩnh viễn',
+      soTrang: 500,
+      uocChap: '~25 chapters',
+      khuyenMai: 'Save 20%',
+      donGiaVnd: '400đ/trang',
+      donGiaUsd: '$0.018/page',
       diemManh: laEn
         ? [
-            'Includes +10% bonus pages (500 + 50 free)',
+            '500 pages stored forever — save 20% per page',
             'Sync across Web + Chrome Extension + Windows App',
             'Double-click bubble editor & 4 genre fonts',
-            'Purchased quota never expires',
           ]
         : [
-            'Tặng thêm +10% số trang (mua 500 nhận 550 trang)',
+            '500 trang tích luỹ vĩnh viễn — tiết kiệm 20%',
             'Đồng bộ trên Web + Tiện ích Chrome + App Windows',
-            'Nhấp đúp sửa thoại & chọn 4 bộ Font thể loại',
-            'Lượt mua tích luỹ vĩnh viễn theo tài khoản',
+            'Nhấp đúp sửa câu & 4 bộ Font thể loại',
           ],
-      noiBat: false,
+      noiBat: true,
     },
     {
-      ma: 'nhom_dich',
-      maNgan: 'STUDIO',
-      nhan: laEn ? '🎨 SCANLATION STUDIO' : '🎨 NHÓM DỊCH / STUDIO',
-      ten: laEn ? 'Studio Pack (1,200 Pages)' : 'Gói Studio (1.200 trang)',
-      giaVnd: 1000 * donGia,
-      soTrang: 1200,
-      uocChap: '~60 chapter',
-      khuyenMai: '+20%',
-      donGiaThuc: `${Math.round((1000 * donGia) / 1200).toLocaleString('vi-VN')}đ/trang`,
+      ma: 'pack_2000',
+      maNgan: 'PACK2000',
+      nhan: laEn ? '🔥 2,000 PAGES PACK' : '🔥 GÓI TÍCH LUỸ 2.000 TRANG',
+      ten: laEn ? '2,000 Pages Credit Pack' : 'Gói 2.000 Trang Vĩnh Viễn',
+      giaVnd: 600000,
+      giaUsd: '24.99',
+      chuKy: laEn ? 'never expires' : 'vĩnh viễn',
+      soTrang: 2000,
+      uocChap: '~100 chapters',
+      khuyenMai: 'Save 40%',
+      donGiaVnd: '300đ/trang',
+      donGiaUsd: '$0.012/page',
       diemManh: laEn
         ? [
-            'Includes +20% bonus pages (1,000 + 200 free)',
-            'Full Windows App auto-crawl & chapter folder split',
-            'Export high-res JPG, .CBZ, .ZIP, .PDF & Long-Strip',
+            '2,000 permanent pages — save 40% per page',
+            'Full Windows App batch crawl & Video Review Studio',
             'Character & pronoun consistency glossary',
           ]
         : [
-            'Tặng thêm +20% số trang (mua 1.000 nhận 1.200 trang)',
-            'Mở toàn bộ App Windows cày link & chia thư mục Chapter',
-            'Xuất ảnh rời, gói .CBZ, .ZIP, .PDF & dải Webtoon dài',
-            'Sổ tay nhân vật & xưng hô nhất quán xuyên suốt bộ truyện',
+            '2.000 trang tích luỹ vĩnh viễn — tiết kiệm 40%',
+            'Full App Windows cày link & Phần mềm Video Review',
+            'Sổ tay nhân vật & xưng hô nhất quán xuyên suốt',
           ],
       noiBat: true,
     },
     {
       ma: 'doanh_nghiep_api',
       maNgan: 'APIPRO',
-      nhan: laEn ? '🏢 BUSINESS API PRO' : '🏢 DOANH NGHIỆP / WEB API PRO',
-      ten: laEn ? 'Business API (6,500 Pages)' : 'Gói Doanh Nghiệp API (6.500 trang)',
-      giaVnd: 5000 * donGia,
-      soTrang: 6500,
-      uocChap: '~325 chapter',
-      khuyenMai: '+30%',
-      donGiaThuc: `${Math.round((5000 * donGia) / 6500).toLocaleString('vi-VN')}đ/trang`,
+      nhan: laEn ? '🏢 5,000 PAGES + API' : '🏢 GÓI 5.000 TRANG + API',
+      ten: laEn ? '5,000 Pages + Developer API' : 'Gói 5.000 Trang + Cổng API',
+      giaVnd: 1000000,
+      giaUsd: '49.99',
+      chuKy: laEn ? 'never expires' : 'vĩnh viễn',
+      soTrang: 5000,
+      uocChap: '~250 chapters',
+      khuyenMai: 'Save 60%',
+      donGiaVnd: '200đ/trang',
+      donGiaUsd: '$0.010/page',
       diemManh: laEn
         ? [
-            'Includes +30% bonus pages (5,000 + 1,500 free)',
-            'Personal Developer API Key (tr_live_...) — no 14-day expiry',
-            '1-call Translate Image & Batch Chapter URL endpoints',
-            'Automatic Anti-Hotlink bypass & 0.15s High-Speed Cache',
+            '5,000 permanent pages — save 60% per page',
+            'Permanent Developer API Key (tr_live_...)',
+            'Batch Chapter URL API & 0.15s High-Speed Cache',
           ]
         : [
-            'Tặng thêm +30% số trang (mua 5.000 nhận 6.500 trang)',
-            'Cấp Khoá Developer API cố định (tr_live_...) cho Tool/Web',
-            'Đẩy cả Chapter qua URL + Tự động vượt chặn Hotlink',
-            'Tích hợp Bộ nhớ đệm tốc độ cao (0.15s)',
-          ],
-      noiBat: true,
-    },
-    {
-      ma: 'enterprise_scale',
-      maNgan: 'ENTERPRISE',
-      nhan: laEn ? '🏛️ ENTERPRISE SCALE' : '🏛️ HỆ THỐNG CỔNG TRUYỆN LỚN',
-      ten: laEn ? 'Enterprise (28,000 Pages)' : 'Gói Enterprise (28.000 trang)',
-      giaVnd: 20000 * donGia,
-      soTrang: 28000,
-      uocChap: '~1.400 chapter',
-      khuyenMai: '+40%',
-      donGiaThuc: `${Math.round((20000 * donGia) / 28000).toLocaleString('vi-VN')}đ/trang`,
-      diemManh: laEn
-        ? [
-            'Includes +40% bonus pages (20,000 + 8,000 free)',
-            `Lowest cost per page (~${Math.round((20000 * donGia) / 28000).toLocaleString('vi-VN')} VND / page)`,
-            'Multi-worker concurrency + 0.15s High-Speed Cache',
-            'Unlimited integration with WordPress/Madara CMS & Bots',
-          ]
-        : [
-            'Tặng thêm +40% số trang (mua 20.000 nhận 28.000 trang)',
-            `Đơn giá tối ưu nhất hệ thống (chỉ ~${Math.round((20000 * donGia) / 28000).toLocaleString('vi-VN')}đ / trang)`,
-            'Luồng xử lý đa nhân + Bộ nhớ đệm tốc độ cao 0.15s',
-            'Đấu nối không giới hạn vào CMS WordPress/Madara & Bot',
+            '5.000 trang vĩnh viễn — tiết kiệm 60% (chỉ 200đ/trang)',
+            'Cấp Khoá Developer API cố định (tr_live_...) vĩnh viễn',
+            'Đẩy cả Chapter qua URL + Cache tốc độ cao 0.15s',
           ],
       noiBat: true,
     },
   ]
 
-  const [goiDangChon, setGoiDangChon] = useState(DANH_SACH_GOI[1])
+  const DANH_SACH_GOI = nhomGoi === 'credits' ? GOI_CREDITS : GOI_SUBSCRIPTION
+  const [goiDangChon, setGoiDangChon] = useState(GOI_SUBSCRIPTION[2])
+
+  useEffect(() => {
+    setGoiDangChon((nhomGoi === 'credits' ? GOI_CREDITS[1] : GOI_SUBSCRIPTION[2]))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nhomGoi, lang])
 
   useEffect(() => {
     let huy = false
@@ -179,7 +287,7 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
   }, [nguoiDung?.email])
 
   const emailHienTai = (nguoiDung?.email || emailNhapTay || '').trim()
-  const maGoiNgan = goiDangChon.maNgan || 'VIP'
+  const maGoiNgan = goiDangChon.maNgan || 'PRO'
   const noiDungChuyenKhoan = emailHienTai
     ? `NAP ${maGoiNgan} ${emailHienTai}`
     : `NAP ${maGoiNgan} <EMAIL_CUA_BAN>`
@@ -223,7 +331,7 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
   }
 
   return (
-    <main className="than-trang" style={{ maxWidth: 1160, margin: '0 auto', padding: '24px 16px 48px' }}>
+    <main className="than-trang" style={{ maxWidth: 1180, margin: '0 auto', padding: '24px 16px 48px' }}>
       {/* Hero Banner */}
       <div style={{
         textAlign: 'center',
@@ -246,7 +354,7 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
             fontSize: 12.5,
             fontWeight: 700,
           }}>
-            💎 {laEn ? 'PRICING & 24/7 INSTANT VIETQR TOP-UP' : 'BẢNG GIÁ GÓI CƯỚC CÁ NHÂN, STUDIO & DOANH NGHIỆP (API)'}
+            💎 {laEn ? 'GLOBAL & VIETNAM PRICING (USD / VND)' : 'BẢNG GIÁ GÓI CƯỚC VIỆT NAM & QUỐC TẾ (VNĐ / USD)'}
           </span>
           <a
             href="#"
@@ -262,16 +370,89 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
           </a>
         </div>
 
-        <h1 style={{ fontSize: 30, margin: '4px 0 10px', color: '#ffffff' }}>
+        <h1 style={{ fontSize: 28, margin: '4px 0 10px', color: '#ffffff' }}>
           {laEn
-            ? 'Purchased Pages Never Expire — Shared Across Web, Extension, App & API'
-            : 'Lượt Mua Tích Luỹ Không Bao Giờ Hết Hạn — Dùng Chung Web, App & Cổng API'}
+            ? 'Up to 60% Cheaper Than Western Tools — Shared Across Web, Extension, App & API'
+            : 'Chi Phí Siêu Tối Ưu — Dùng Chung Cho Web, Tiện Ích Chrome, App Windows & API'}
         </h1>
-        <p style={{ maxWidth: 820, margin: '0 auto', fontSize: 15.5, color: '#cbd5e1', lineHeight: 1.6 }}>
+        <p style={{ maxWidth: 820, margin: '0 auto 18px', fontSize: 15, color: '#cbd5e1', lineHeight: 1.6 }}>
           {laEn
-            ? 'Automatic 24/7 VietQR activation in 5–15 seconds. Enterprise plans include up to +40% bonus pages and full Developer REST API access.'
-            : 'Nạp tự động 24/7 qua mã VietQR, cộng lượt tức thì sau 5–15 giây. Gói Studio & Doanh nghiệp tặng thêm tới +40% số trang và mở toàn bộ Cổng Developer API (tr_live_...).'}
+            ? 'Choose between flexible Monthly Plans (from $2.99/mo) or Never-Expire Credit Packs (from $0.99). Instant 24/7 activation.'
+            : 'Linh hoạt chọn Gói Tháng tiết kiệm (từ 49.000đ) hoặc Gói Lượt Vĩnh Viễn không hết hạn (từ 19.000đ). Kích hoạt tự động 24/7.'}
         </p>
+
+        {/* Thanh chuyển đổi: Gói Tháng vs Gói Lượt Vĩnh Viễn + Tiền tệ VNĐ vs USD */}
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ display: 'inline-flex', background: 'rgba(2, 6, 23, 0.65)', padding: 4, borderRadius: 999, border: '1px solid rgba(148,163,184,0.3)' }}>
+            <button
+              type="button"
+              onClick={() => setNhomGoi('subscription')}
+              style={{
+                border: 'none',
+                borderRadius: 999,
+                padding: '7px 16px',
+                fontSize: 13,
+                fontWeight: 800,
+                cursor: 'pointer',
+                background: nhomGoi === 'subscription' ? '#10b981' : 'transparent',
+                color: nhomGoi === 'subscription' ? '#022c22' : '#e2e8f0',
+              }}
+            >
+              📅 {laEn ? 'Monthly & Trial Plans' : 'Gói Mồi & Gói Tháng'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setNhomGoi('credits')}
+              style={{
+                border: 'none',
+                borderRadius: 999,
+                padding: '7px 16px',
+                fontSize: 13,
+                fontWeight: 800,
+                cursor: 'pointer',
+                background: nhomGoi === 'credits' ? '#10b981' : 'transparent',
+                color: nhomGoi === 'credits' ? '#022c22' : '#e2e8f0',
+              }}
+            >
+              📦 {laEn ? 'Never-Expire Credit Packs' : 'Gói Lượt Vĩnh Viễn (Credits)'}
+            </button>
+          </div>
+
+          <div style={{ display: 'inline-flex', background: 'rgba(2, 6, 23, 0.65)', padding: 4, borderRadius: 999, border: '1px solid rgba(148,163,184,0.3)' }}>
+            <button
+              type="button"
+              onClick={() => setTienTe('VND')}
+              style={{
+                border: 'none',
+                borderRadius: 999,
+                padding: '7px 14px',
+                fontSize: 13,
+                fontWeight: 800,
+                cursor: 'pointer',
+                background: tienTe === 'VND' ? '#38bdf8' : 'transparent',
+                color: tienTe === 'VND' ? '#0f172a' : '#e2e8f0',
+              }}
+            >
+              🇻🇳 VNĐ (VietQR)
+            </button>
+            <button
+              type="button"
+              onClick={() => setTienTe('USD')}
+              style={{
+                border: 'none',
+                borderRadius: 999,
+                padding: '7px 14px',
+                fontSize: 13,
+                fontWeight: 800,
+                cursor: 'pointer',
+                background: tienTe === 'USD' ? '#38bdf8' : 'transparent',
+                color: tienTe === 'USD' ? '#0f172a' : '#e2e8f0',
+              }}
+            >
+              🌍 USD ($ Global)
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Tầng miễn phí mỗi ngày */}
@@ -293,7 +474,9 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
           gap: 12,
         }}>
           <div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8' }}>👤 KHÁCH VÃNG LAI (KHÔNG CẦN ĐĂNG KÝ)</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8' }}>
+              👤 {laEn ? 'GUEST USER (NO SIGN-UP)' : 'KHÁCH VÃNG LAI (KHÔNG CẦN ĐĂNG KÝ)'}
+            </div>
             <div style={{ fontSize: 16, fontWeight: 700, color: '#ffffff', marginTop: 2 }}>
               {laEn ? 'Free 2 Pages / Day' : 'Miễn phí 2 trang / ngày'}
             </div>
@@ -301,7 +484,9 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
               {laEn ? 'Test translation quality immediately on Web or Extension.' : 'Dùng thử ngay trên Web hoặc Tiện ích Chrome không cần tạo tài khoản.'}
             </div>
           </div>
-          <span style={{ fontSize: 22, fontWeight: 800, color: '#94a3b8' }}>0đ</span>
+          <span style={{ fontSize: 22, fontWeight: 800, color: '#94a3b8' }}>
+            {tienTe === 'USD' ? '$0' : '0đ'}
+          </span>
         </div>
 
         <div style={{
@@ -316,12 +501,14 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
           gap: 12,
         }}>
           <div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#818cf8' }}>✨ TÀI KHOẢN ĐĂNG KÝ MIỄN PHÍ</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#818cf8' }}>
+              ✨ {laEn ? 'FREE REGISTERED ACCOUNT' : 'TÀI KHOẢN ĐĂNG KÝ MIỄN PHÍ'}
+            </div>
             <div style={{ fontSize: 16, fontWeight: 700, color: '#ffffff', marginTop: 2 }}>
               {laEn ? 'Free 10 Pages / Day' : 'Miễn phí 10 trang / ngày'}
             </div>
             <div style={{ fontSize: 13, color: '#cbd5e1' }}>
-              {laEn ? 'Resets automatically at 00:00 Vietnam time every day.' : 'Tự động hồi lại 10 trang mới vào 00:00 mỗi ngày. Chỉ mất 5 giây đăng ký.'}
+              {laEn ? 'Resets automatically at 00:00 GMT+7 every day.' : 'Tự động hồi lại 10 trang mới vào 00:00 mỗi ngày. Chỉ mất 5 giây đăng ký.'}
             </div>
           </div>
           {!nguoiDung && onMoDangNhap ? (
@@ -329,12 +516,14 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
               {laEn ? 'Sign Up Free' : 'Đăng ký nhận 10 trang'}
             </button>
           ) : (
-            <span style={{ fontSize: 14, fontWeight: 700, color: '#34d399', whiteSpace: 'nowrap' }}>✅ Đang kích hoạt</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: '#34d399', whiteSpace: 'nowrap' }}>
+              ✅ {laEn ? 'Active' : 'Đang kích hoạt'}
+            </span>
           )}
         </div>
       </div>
 
-      {/* Lưới 5 gói cước trả phí */}
+      {/* Lưới gói cước trả phí */}
       <div style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(215px, 1fr))',
@@ -343,6 +532,10 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
       }}>
         {DANH_SACH_GOI.map((g) => {
           const dangChon = goiDangChon.ma === g.ma
+          const hienGia = tienTe === 'USD'
+            ? `$${g.giaUsd}`
+            : `${g.giaVnd.toLocaleString('vi-VN')}đ`
+          const hienDonGia = tienTe === 'USD' ? g.donGiaUsd : g.donGiaVnd
           return (
             <div
               key={g.ma}
@@ -375,26 +568,25 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
                   }}>
                     {g.nhan}
                   </span>
-                  {g.khuyenMai !== '0%' && (
-                    <span style={{
-                      fontSize: 11,
-                      fontWeight: 800,
-                      color: '#34d399',
-                      background: 'rgba(16, 185, 129, 0.16)',
-                      padding: '2px 7px',
-                      borderRadius: 999,
-                    }}>
-                      {g.khuyenMai}
-                    </span>
-                  )}
+                  <span style={{
+                    fontSize: 11,
+                    fontWeight: 800,
+                    color: '#34d399',
+                    background: 'rgba(16, 185, 129, 0.16)',
+                    padding: '2px 7px',
+                    borderRadius: 999,
+                  }}>
+                    {g.khuyenMai}
+                  </span>
                 </div>
 
                 <h2 style={{ margin: '0 0 6px', fontSize: 16.5, color: '#ffffff' }}>{g.ten}</h2>
-                <div style={{ fontSize: 23, fontWeight: 800, color: '#38bdf8', marginBottom: 2 }}>
-                  {g.giaVnd.toLocaleString('vi-VN')}đ
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 2 }}>
+                  <span style={{ fontSize: 24, fontWeight: 800, color: '#38bdf8' }}>{hienGia}</span>
+                  <span style={{ fontSize: 12, color: '#94a3b8' }}>{g.chuKy}</span>
                 </div>
                 <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 12 }}>
-                  ⚡ <b>{g.soTrang.toLocaleString('vi-VN')} trang</b> ({g.uocChap}) · {g.donGiaThuc}
+                  ⚡ <b>{g.soTrang.toLocaleString('vi-VN')} {laEn ? 'pages' : 'trang'}</b> ({g.uocChap}) · {hienDonGia}
                 </div>
 
                 <ul style={{ margin: '0 0 16px', paddingLeft: 18, fontSize: 12.8, lineHeight: 1.6, color: '#e2e8f0' }}>
@@ -415,14 +607,14 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
               >
                 {dangChon
                   ? (laEn ? '✅ Selected below' : '✅ Đang chọn gói này')
-                  : (laEn ? '💳 Select & Get VietQR' : '💳 Chọn Gói & Lấy Mã QR')}
+                  : (laEn ? '💳 Select Plan' : '💳 Chọn Gói & Thanh Toán')}
               </button>
             </div>
           )
         })}
       </div>
 
-      {/* Khung thanh toán VietQR tự động 24/7 */}
+      {/* Khung thanh toán 24/7 */}
       <section
         id="khung-thanh-toan-qr"
         style={{
@@ -441,18 +633,18 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
       >
         <div style={{ flex: '1 1 380px' }}>
           <div style={{ color: '#34d399', fontWeight: 800, fontSize: 15, marginBottom: 6 }}>
-            ⚡ {laEn ? '24/7 AUTOMATIC VIETQR ACTIVATION:' : 'THANH TOÁN & CỘNG LƯỢT TỰ ĐỘNG 24/7:'} {goiDangChon.ten}
+            ⚡ {laEn ? '24/7 AUTOMATIC ACTIVATION:' : 'THANH TOÁN & KÍCH HOẠT TỰ ĐỘNG 24/7:'} {goiDangChon.ten} ({tienTe === 'USD' ? `$${goiDangChon.giaUsd} USD` : `${goiDangChon.giaVnd.toLocaleString('vi-VN')} VNĐ`})
           </div>
           <p style={{ margin: '0 0 12px', fontSize: 14, color: '#cbd5e1', lineHeight: 1.6 }}>
             {laEn
-              ? 'Scan the VietQR code with any banking app. Our Webhook system automatically credits your account within 5–15 seconds after transfer!'
-              : 'Quét mã VietQR bên phải bằng ứng dụng Ngân hàng bất kỳ. Hệ thống Webhook sẽ tự động cộng ngay số trang (kèm % khuyến mãi) vào tài khoản của bạn chỉ sau 5–15 giây!'}
+              ? 'Scan the VietQR code or complete transfer below. Our automated webhook credits your account within 5–15 seconds!'
+              : 'Quét mã VietQR bên phải hoặc chuyển khoản theo đúng nội dung bên dưới. Hệ thống Webhook sẽ tự động cộng ngay số trang vào tài khoản của bạn chỉ sau 5–15 giây!'}
           </p>
 
           {!nguoiDung && (
             <div style={{ marginBottom: 12 }}>
               <label htmlFor="o-email-nap" style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#fbbf24', marginBottom: 4 }}>
-                📧 {laEn ? 'Enter your Account Email to generate your personal QR code:' : 'Nhập Email tài khoản của bạn để mã QR tự điền đúng nội dung:'}
+                📧 {laEn ? 'Enter your Account Email to generate your personal payment memo:' : 'Nhập Email tài khoản của bạn để mã QR tự điền đúng nội dung:'}
               </label>
               <input
                 id="o-email-nap"
@@ -483,14 +675,18 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
             lineHeight: 1.75,
           }}>
             <div>
-              🏦 {laEn ? 'Bank:' : 'Ngân hàng:'} <b>{nganHangTen}</b>
+              🏦 {laEn ? 'Bank / Gateway:' : 'Ngân hàng:'} <b>{nganHangTen || 'VietQR / International Transfer'}</b>
               {nganHangSoTk ? <> · STK: <b style={{ color: '#38bdf8' }}>{nganHangSoTk}</b></> : null}
               {nganHangChuTk ? <> ({nganHangChuTk})</> : null}
             </div>
             <div>
-              💰 {laEn ? 'Amount:' : 'Số tiền chuyển khoản:'}{' '}
-              <strong style={{ color: '#38bdf8', fontSize: 16 }}>{goiDangChon.giaVnd.toLocaleString('vi-VN')} VNĐ</strong>{' '}
-              (Nhận <b>{goiDangChon.soTrang.toLocaleString('vi-VN')} trang</b>)
+              💰 {laEn ? 'Amount:' : 'Số tiền:'}{' '}
+              <strong style={{ color: '#38bdf8', fontSize: 16 }}>
+                {tienTe === 'USD'
+                  ? `$${goiDangChon.giaUsd} USD (${goiDangChon.giaVnd.toLocaleString('vi-VN')} VNĐ)`
+                  : `${goiDangChon.giaVnd.toLocaleString('vi-VN')} VNĐ ($${goiDangChon.giaUsd})`}
+              </strong>{' '}
+              ({laEn ? 'Receive' : 'Nhận'} <b>{goiDangChon.soTrang.toLocaleString('vi-VN')} {laEn ? 'pages' : 'trang'}</b>)
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 4 }}>
               <span>
@@ -513,7 +709,7 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
                   cursor: 'pointer',
                 }}
               >
-                {daChepNoiDung ? '✅ Đã chép' : '📋 Sao chép nội dung'}
+                {daChepNoiDung ? (laEn ? '✅ Copied' : '✅ Đã chép') : (laEn ? '📋 Copy Memo' : '📋 Sao chép nội dung')}
               </button>
             </div>
           </div>
@@ -536,10 +732,14 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
               }}
             >
               {dangXacNhan
-                ? '⏳ Đang ghi nhận & kích hoạt gói...'
+                ? (laEn ? '⏳ Recording & activating plan...' : '⏳ Đang ghi nhận & kích hoạt gói...')
                 : (nguoiDung
-                  ? `✅ Tôi đã chuyển khoản ${goiDangChon.giaVnd.toLocaleString('vi-VN')}đ — Nhận Gói Ngay`
-                  : '🔐 Đăng nhập để Xác nhận Chuyển khoản & Nhận Gói Ngay')}
+                  ? (laEn
+                      ? `✅ I have transferred ${tienTe === 'USD' ? `$${goiDangChon.giaUsd}` : `${goiDangChon.giaVnd.toLocaleString('vi-VN')}đ`} — Activate Now`
+                      : `✅ Tôi đã chuyển khoản ${goiDangChon.giaVnd.toLocaleString('vi-VN')}đ — Nhận Gói Ngay`)
+                  : (laEn
+                      ? '🔐 Sign In to Confirm Payment & Activate Plan'
+                      : '🔐 Đăng nhập để Xác nhận Chuyển khoản & Nhận Gói Ngay'))}
             </button>
           </div>
 
@@ -599,7 +799,7 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
               style={{ width: 210, height: 'auto', display: 'block', borderRadius: 8 }}
             />
             <div style={{ color: '#0f172a', fontWeight: 700, fontSize: 12, marginTop: 6 }}>
-              Quét mã bằng App Ngân hàng
+              {laEn ? 'Scan with Banking App (VietQR)' : 'Quét mã bằng App Ngân hàng'}
             </div>
           </div>
         )}

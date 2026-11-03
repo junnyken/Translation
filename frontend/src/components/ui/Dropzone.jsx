@@ -18,7 +18,7 @@ const LOAI_HO_TRO = ['image/png', 'image/jpeg', 'image/webp']
  * cái gói người dùng vừa thả vào, và họ không hiểu vì sao. Phía máy chủ vẫn xét chữ ký đầu file
  * nên đuôi file sai cũng không lọt được.
  */
-const DUOI_GOI = /\.(zip|cbz|pdf)$/i
+const DUOI_GOI = /\.(zip|cbz|epub|pdf)$/i
 
 export function locFileHopLe(files, chapNhanGoi = false) {
   const nhan = [], loai = []
@@ -107,7 +107,7 @@ export default function Dropzone({
         type="file"
         className="o-file-an"
         accept={chapNhanGoi
-          ? 'image/png,image/jpeg,image/webp,.zip,.cbz,.pdf'
+          ? 'image/png,image/jpeg,image/webp,.zip,.cbz,.epub,.pdf'
           : 'image/png,image/jpeg,image/webp'}
         multiple
         tabIndex={-1}

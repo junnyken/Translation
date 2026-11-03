@@ -1,0 +1,15 @@
+User-agent: *
+Allow: /
+Allow: /en
+Allow: /es
+Allow: /pt
+Allow: /fr
+Allow: /id
+Allow: /tien-ich
+Allow: /ket-noi-api
+Allow: /bang-gia
+Allow: /privacy-policy
+Disallow: /api/
+Disallow: /admin
+
+Sitemap: https://comic.io.vn/sitemap.xml

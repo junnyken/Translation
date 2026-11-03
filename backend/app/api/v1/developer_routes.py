@@ -212,6 +212,21 @@ async def _thong_tin_quota(session: AsyncSession, nguoi: NguoiDung) -> dict[str,
     }
 
 
+def _gan_header_rate_limit(response: Response | None, quota: dict[str, Any]) -> None:
+    """Đính kèm bộ HTTP Header chuẩn quốc tế `X-RateLimit-*` cho Developer REST API."""
+    if response is None or not isinstance(quota, dict):
+        return
+    try:
+        limit_val = int(quota.get("daily_limit") or 0) + int(quota.get("purchased_remaining") or 0)
+        rem_val = int(quota.get("total_usable_pages") or 0)
+        response.headers["X-RateLimit-Limit"] = str(limit_val)
+        response.headers["X-RateLimit-Remaining"] = str(rem_val)
+        if quota.get("reset_at"):
+            response.headers["X-RateLimit-Reset"] = str(quota["reset_at"])
+    except Exception:  # noqa: BLE001
+        pass
+
+
 class LoiTaiAnh(ValueError):
     """Lỗi tải ảnh có câu báo AN TOÀN để trả cho người gọi (không kèm chi tiết mạng nội bộ)."""
 
@@ -439,11 +454,14 @@ async def _dong_goi_ket_qua_trang_developer(
 @router.get("/me", response_model=dict)
 @router.get("/quota", response_model=dict)
 async def developer_kiem_tra_quota(
+    response: Response,
     xac_thuc: tuple[NguoiDung, str] = Depends(_xac_thuc_developer),
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     """Kiểm tra thông tin tài khoản, số dư lượt dịch & danh sách tính năng hỗ trợ bằng Developer API Key."""
     nguoi, _ = xac_thuc
+    quota_info = await _thong_tin_quota(session, nguoi)
+    _gan_header_rate_limit(response, quota_info)
     return {
         "ok": True,
         "account": {
@@ -451,7 +469,7 @@ async def developer_kiem_tra_quota(
             "email": nguoi.email,
             "display_name": nguoi.ten_hien,
         },
-        "quota": await _thong_tin_quota(session, nguoi),
+        "quota": quota_info,
         "capabilities": {
             "source_langs": [e.value for e in SourceLang],
             "target_langs": [e.value for e in TargetLang],

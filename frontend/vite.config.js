@@ -47,6 +47,7 @@ export default defineConfig({
     // Bảo mật mã nguồn Production: Tắt xuất file .map để không ai mở F12 khôi phục lại code React gốc
     sourcemap: false,
     minify: 'esbuild',
+    chunkSizeWarningLimit: 800,
   },
   esbuild: {
     legalComments: 'none',
