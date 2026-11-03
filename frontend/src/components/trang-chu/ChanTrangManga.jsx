@@ -8,7 +8,7 @@ import { useNgonNguUI } from '../../lib/ngon-ngu-ui'
 export default function ChanTrangManga() {
   const namHienTai = new Date().getFullYear()
   const { laEn } = useNgonNguUI()
-  const daDangNhap = typeof api.coMaPhien === 'function' && api.coMaPhien()
+  const daDangNhap = Boolean(typeof api.docMaPhien === 'function' && api.docMaPhien())
 
   return (
     <footer className="chan-trang-manga" role="contentinfo" aria-label={laEn ? 'System footer' : 'Chân trang hệ thống'}>
