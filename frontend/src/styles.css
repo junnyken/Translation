@@ -145,7 +145,7 @@ a { color: var(--mau-chinh-dam); }
    không thể tự gỡ viền bằng `border: 0` ở luật của mình.
    `.nut-chu` (liên kết chữ) đã viết `border: 0; padding: 0` từ lâu mà chưa bao giờ có tác dụng:
    nó hiện ra thành viên thuốc có viền ở cả 7 chỗ dùng — thấy được khi dựng lại màn đăng nhập. */
-button:not(.nut):not(.the-vung):not(.nut-bo):not(.nut-chu):not(.nut-trong-o):not(.doi-theme-nut) {
+button:not(.nut):not(.the-vung):not(.nut-bo):not(.nut-chu):not(.nut-trong-o):not(.doi-theme-nut):not([class^="admin-"]):not([class*=" admin-"]) {
   padding: var(--s-2) 14px; font-size: var(--cc-md); font-family: inherit; cursor: pointer;
   border-radius: var(--bo-nho); border: 1px solid var(--vien-dam);
   background: var(--the); color: var(--chu);

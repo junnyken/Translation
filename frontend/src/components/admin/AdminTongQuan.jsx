@@ -148,8 +148,8 @@ export default function AdminTongQuan({
             </span>
             <span className="admin-kpi-icon">⚙️</span>
           </div>
-          <div className="admin-kpi-gia-tri" style={{ fontSize: 22 }}>
-            {tranMacDinh} <small style={{ fontSize: 13, fontWeight: 600 }}>{laEn ? 'pages/day' : 'trang/ngày'}</small>
+          <div className="admin-kpi-gia-tri">
+            {tranMacDinh} <small>{laEn ? 'pages/day' : 'trang/ngày'}</small>
           </div>
           <div className="admin-kpi-phu">
             {laEn ? 'Running' : 'Đang xử lý'}: <strong>{thongKe?.viec_dang_chay ?? 0}</strong> job

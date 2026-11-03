@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import * as api from '../../api.js'
+import { useCodex } from '../../lib/dung-codex.js'
 import { useNgonNguUI } from '../../lib/ngon-ngu-ui.jsx'
 import Alert from '../ui/Alert.jsx'
 import Button from '../ui/Button.jsx'
@@ -20,19 +21,20 @@ import '../../styles/admin.css'
  */
 
 const CAC_TRANG = [
-  { ma: 'tong-quan', nhan: 'Tổng quan', nhanEn: 'Overview', icon: '📊' },
-  { ma: 'tai-khoan', nhan: 'Tài khoản', nhanEn: 'Accounts', icon: '👥' },
-  { ma: 'bieu-do', nhan: 'Biểu đồ & Phân tích', nhanEn: 'Charts & Analytics', icon: '📈' },
-  { ma: 'thanh-toan', nhan: 'Thanh toán & VietQR', nhanEn: 'Payments & VietQR', icon: '💳' },
-  { ma: 'cau-hinh-ai', nhan: 'Cấu hình AI', nhanEn: 'AI Config', icon: '🤖' },
-  { ma: 'chapter', nhan: 'Nhật ký Chapter', nhanEn: 'Chapter Logs', icon: '📚' },
-  { ma: 'codex', nhan: 'ChatGPT Codex', nhanEn: 'ChatGPT Codex', icon: '🔑' },
+  { ma: 'tong-quan', nhom: 'chinh', nhan: 'Tổng quan', nhanEn: 'Overview', icon: '📊' },
+  { ma: 'tai-khoan', nhom: 'chinh', nhan: 'Tài khoản', nhanEn: 'Accounts', icon: '👥' },
+  { ma: 'bieu-do', nhom: 'chinh', nhan: 'Biểu đồ & Phân tích', nhanEn: 'Charts & Analytics', icon: '📈' },
+  { ma: 'thanh-toan', nhom: 'chinh', nhan: 'Thanh toán & VietQR', nhanEn: 'Payments & VietQR', icon: '💳' },
+  { ma: 'cau-hinh-ai', nhom: 'he-thong', nhan: 'Cấu hình AI', nhanEn: 'AI Config', icon: '🤖' },
+  { ma: 'chapter', nhom: 'he-thong', nhan: 'Nhật ký Chapter', nhanEn: 'Chapter Logs', icon: '📚' },
+  { ma: 'codex', nhom: 'he-thong', nhan: 'ChatGPT Codex', nhanEn: 'ChatGPT Codex', icon: '🔑', chiKhiCodex: true },
 ]
 
 const TIEU_DE = Object.fromEntries(CAC_TRANG.map((t) => [t.ma, { vi: t.nhan, en: t.nhanEn }]))
 
-export default function AdminApp({ nguoiDung, onDangXuat }) {
+export default function AdminApp({ nguoiDung, onDangXuat, onVeTrangChu }) {
   const { laEn } = useNgonNguUI()
+  const codex = useCodex()
   const [trangAdmin, setTrangAdmin] = useState('tong-quan')
   const [ds, setDs] = useState(null)
   const [thongKe, setThongKe] = useState(null)
@@ -72,6 +74,37 @@ export default function AdminApp({ nguoiDung, onDangXuat }) {
     ? (laEn ? TIEU_DE[trangAdmin].en : TIEU_DE[trangAdmin].vi)
     : ''
 
+  const soTaiKhoan = thongKe?.tong_nguoi_dung ?? (ds ? ds.length : null)
+  const soDonNap = Array.isArray(thongKe?.don_nap_gan_day) ? thongKe.don_nap_gan_day.length : null
+  const soChapter = Array.isArray(thongKe?.chapter_gan_day) ? thongKe.chapter_gan_day.length : null
+  const soKeyAi = (heThong.deepseek_so_key || 0) + (heThong.du_phong_so_key || (heThong.llm_configured ? 1 : 0))
+
+  function layHuyHieuMenu(ma) {
+    if (ma === 'tai-khoan' && soTaiKhoan !== null) return soTaiKhoan
+    if (ma === 'thanh-toan' && soDonNap !== null) return soDonNap
+    if (ma === 'cau-hinh-ai' && soKeyAi > 0) return `${soKeyAi} key`
+    if (ma === 'chapter' && soChapter !== null) return soChapter
+    return null
+  }
+
+  function xuLyVeTrangChu(e) {
+    if (e) e.preventDefault()
+    if (onVeTrangChu) {
+      onVeTrangChu()
+      return
+    }
+    if (window.location.pathname !== '/') {
+      window.history.pushState({}, '', '/')
+    }
+    window.location.hash = ''
+    window.dispatchEvent(new HashChangeEvent('hashchange'))
+  }
+
+  const dsTrangHien = CAC_TRANG.filter((t) => !t.chiKhiCodex || codex?.bat)
+  const nhomChinh = dsTrangHien.filter((t) => t.nhom === 'chinh')
+  const nhomHeThong = dsTrangHien.filter((t) => t.nhom === 'he-thong')
+  const chuCaiDau = String(nguoiDung?.ten_hien || nguoiDung?.email || 'A').trim().charAt(0).toUpperCase()
+
   return (
     <div className="admin-bo-cuc">
       {/* ── Mobile menu toggle ──────────────────────────────────────────── */}
@@ -94,38 +127,74 @@ export default function AdminApp({ nguoiDung, onDangXuat }) {
         <div className="admin-thanh-ben-hieu">
           <div className="admin-hieu-icon">T</div>
           <div className="admin-hieu-chu">
-            <strong>Translation</strong>
-            <small>Admin Panel</small>
+            <strong>
+              Translation
+              <span className="admin-hieu-badge">ADMIN</span>
+            </strong>
+            <small>{laEn ? 'Management Console' : 'Trung tâm Quản trị'}</small>
           </div>
         </div>
 
         {/* Navigation */}
         <nav className="admin-menu">
-          <div className="admin-menu-nhan">{laEn ? 'Navigation' : 'Điều hướng'}</div>
-          {CAC_TRANG.map((t) => (
-            <button
-              key={t.ma}
-              type="button"
-              className={`admin-menu-muc ${trangAdmin === t.ma ? 'dang-chon' : ''}`}
-              onClick={() => { setTrangAdmin(t.ma); setMoMenuDt(false) }}
-            >
-              <span className="admin-menu-icon">{t.icon}</span>
-              {laEn ? t.nhanEn : t.nhan}
-            </button>
-          ))}
-        </nav>
+          <div className="admin-menu-nhan">{laEn ? 'Main Management' : 'Quản trị chính'}</div>
+          {nhomChinh.map((t) => {
+            const dem = layHuyHieuMenu(t.ma)
+            return (
+              <button
+                key={t.ma}
+                type="button"
+                className={`admin-menu-muc ${trangAdmin === t.ma ? 'dang-chon' : ''}`}
+                onClick={() => { setTrangAdmin(t.ma); setMoMenuDt(false) }}
+              >
+                <span className="admin-menu-trai">
+                  <span className="admin-menu-icon">{t.icon}</span>
+                  <span>{laEn ? t.nhanEn : t.nhan}</span>
+                </span>
+                {dem !== null && <span className="admin-menu-dem">{dem}</span>}
+              </button>
+            )
+          })}
 
-        <div className="admin-phan-cach" />
+          <div className="admin-phan-cach" />
+          <div className="admin-menu-nhan">{laEn ? 'System & AI' : 'Hệ thống & Vận hành'}</div>
+          {nhomHeThong.map((t) => {
+            const dem = layHuyHieuMenu(t.ma)
+            return (
+              <button
+                key={t.ma}
+                type="button"
+                className={`admin-menu-muc ${trangAdmin === t.ma ? 'dang-chon' : ''}`}
+                onClick={() => { setTrangAdmin(t.ma); setMoMenuDt(false) }}
+              >
+                <span className="admin-menu-trai">
+                  <span className="admin-menu-icon">{t.icon}</span>
+                  <span>{laEn ? t.nhanEn : t.nhan}</span>
+                </span>
+                {dem !== null && <span className="admin-menu-dem">{dem}</span>}
+              </button>
+            )
+          })}
+        </nav>
 
         {/* User info */}
         <div className="admin-nguoi-dung">
-          <div className="admin-nd-ten">{nguoiDung.ten_hien || nguoiDung.email}</div>
-          <div className="admin-nd-email">{nguoiDung.email}</div>
+          <div className="admin-nd-dau">
+            <div className="admin-nd-avatar">{chuCaiDau}</div>
+            <div className="admin-nd-info">
+              <div className="admin-nd-ten">{nguoiDung.ten_hien || nguoiDung.email}</div>
+              <div className="admin-nd-email">{nguoiDung.email}</div>
+            </div>
+          </div>
           <div className="admin-nd-hanh-dong">
-            <a href="#" onClick={(e) => { e.preventDefault(); window.location.hash = '' }}>
-              ← {laEn ? 'Main Site' : 'Về trang chủ'}
+            <a href="/" onClick={xuLyVeTrangChu}>
+              ← {laEn ? 'Main Site' : 'Trang chủ'}
             </a>
-            <button type="button" onClick={onDangXuat}>
+            <button
+              type="button"
+              className="admin-nut-chan dang-xuat"
+              onClick={onDangXuat}
+            >
               {laEn ? 'Sign Out' : 'Đăng xuất'}
             </button>
           </div>

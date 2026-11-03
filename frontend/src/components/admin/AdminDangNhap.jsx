@@ -8,7 +8,7 @@ import { useNgonNguUI } from '../../lib/ngon-ngu-ui.jsx'
  * Hiển thị khi truy cập `#admin` mà chưa đăng nhập hoặc không có quyền quản trị.
  * Sau khi đăng nhập thành công VÀ xác nhận là quản trị, gọi `onXong(nguoiDung)`.
  */
-export default function AdminDangNhap({ onXong }) {
+export default function AdminDangNhap({ onXong, onVeTrangChu }) {
   const { laEn } = useNgonNguUI()
   const [email, setEmail] = useState('')
   const [matKhau, setMatKhau] = useState('')
@@ -91,7 +91,21 @@ export default function AdminDangNhap({ onXong }) {
 
         {/* Footer link */}
         <div className="admin-dang-nhap-chan">
-          <a href="#">← {laEn ? 'Back to main site' : 'Về trang chủ'}</a>
+          <a
+            href="/"
+            onClick={(e) => {
+              e.preventDefault()
+              if (onVeTrangChu) {
+                onVeTrangChu()
+              } else {
+                if (window.location.pathname !== '/') window.history.pushState({}, '', '/')
+                window.location.hash = ''
+                window.dispatchEvent(new HashChangeEvent('hashchange'))
+              }
+            }}
+          >
+            ← {laEn ? 'Back to main site' : 'Về trang chủ'}
+          </a>
         </div>
       </div>
     </div>

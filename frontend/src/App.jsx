@@ -549,11 +549,26 @@ function AppRuot({ urlBundle } = {}) {
   }
   // Admin Panel — dedicated route, rendered as full page (check BEFORE guest homepage)
   if (trangTinh === 'admin') {
+    if (window.location.pathname.replace(/^\/+|\/+$/g, '').toLowerCase() === 'admin' && window.location.hash === '#admin') {
+      window.history.replaceState({}, '', '/admin')
+    }
     if (!nguoiDung?.la_quan_tri) {
       // Chưa đăng nhập HOẶC non-admin → show admin login
       return (
         <div className="app">
-          <AdminDangNhap onXong={(nd) => { setNguoiDung(nd); window.location.hash = 'admin' }} />
+          <AdminDangNhap
+            onXong={(nd) => {
+              setNguoiDung(nd)
+              if (window.location.pathname.replace(/^\/+|\/+$/g, '').toLowerCase() !== 'admin') {
+                window.history.pushState({}, '', '/admin')
+              }
+              if (window.location.hash) {
+                window.history.replaceState({}, '', '/admin')
+              }
+              setDiaChi(docDiaChi())
+            }}
+            onVeTrangChu={veTrangChu}
+          />
         </div>
       )
     }
@@ -562,7 +577,14 @@ function AppRuot({ urlBundle } = {}) {
         <BangBanMoi urlBundle={urlBundle} />
         <AdminApp
           nguoiDung={nguoiDung}
-          onDangXuat={async () => { await api.dangXuat(); setNguoiDung(null); window.location.hash = '' }}
+          onVeTrangChu={veTrangChu}
+          onDangXuat={async () => {
+            await api.dangXuat()
+            setNguoiDung(null)
+            if (window.location.hash) {
+              window.history.replaceState({}, '', window.location.pathname)
+            }
+          }}
         />
       </div>
     )

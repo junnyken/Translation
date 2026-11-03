@@ -70,7 +70,14 @@ export default function AdminChapter({ thongKe }) {
                   <td>
                     <Button
                       kieu="phu"
-                      onClick={() => { window.location.hash = `project=${ch.id}` }}
+                      onClick={() => {
+                        if (window.location.pathname !== '/') {
+                          window.history.pushState({}, '', `/#project=${ch.id}`)
+                          window.dispatchEvent(new HashChangeEvent('hashchange'))
+                        } else {
+                          window.location.hash = `project=${ch.id}`
+                        }
+                      }}
                     >
                       🔍 {laEn ? 'Open' : 'Mở xem'}
                     </Button>
