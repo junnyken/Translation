@@ -208,6 +208,35 @@ async def danh_tinh_han_muc(
         if q_key.startswith("tr_live_"):
             ma = q_key
     nguoi = await tai_khoan.lay_theo_ma_phien(session, ma) if ma else None
+    if nguoi is None and (
+        (ma and ma.startswith("tr_live_"))
+        or bool(x_customer_api_key and x_customer_api_key.strip())
+    ):
+        # Chặn tuyệt đối việc giả mạo hoặc dùng Developer API Key (tr_live_...) đã bị thu hồi:
+        # KHÔNG cho phép rớt âm thầm về chế độ khách vãng lai, đồng thời tính điểm chống dò khoá theo IP.
+        from fastapi import HTTPException, status
+        from app.services.han_muc import bay_gio, moc_reset_ke_tiep, ngay_han_muc
+        from app.services.han_muc_dang_nhap import da_sai_bao_nhieu, ghi_nhan_dang_nhap_sai
+
+        tran_sai = settings.so_lan_dang_nhap_sai_moi_ip_mot_ngay
+        ip_k = ip_cua(request, settings) if tran_sai > 0 else None
+        ip_bam_k = bam(ip_k, settings) if ip_k is not None else None
+        ngay_k = ngay_han_muc() if ip_bam_k is not None else None
+        if ip_bam_k is not None and ngay_k is not None:
+            if await da_sai_bao_nhieu(session, ip_bam_k, ngay_k) >= tran_sai:
+                reset_k = moc_reset_ke_tiep()
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    headers={"Retry-After": str(max(0, int((reset_k - bay_gio()).total_seconds())))},
+                    detail="Quá nhiều lần gửi sai Developer API Key từ địa chỉ mạng này trong hôm nay.",
+                )
+            await ghi_nhan_dang_nhap_sai(session, ip_da_bam=ip_bam_k, ngay=ngay_k, tran=tran_sai)
+            await session.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Developer API Key (tr_live_...) không hợp lệ, bị giả mạo hoặc đã bị thu hồi.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     if nguoi is not None:
         tran_ngay = (
             int(nguoi.tran_hang_ngay_rieng)

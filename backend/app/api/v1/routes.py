@@ -1073,10 +1073,14 @@ async def dich_thoai_ngu_canh_cho_app_va_tien_ich(
         and getattr(danh_tinh.nguoi_goi.nguoi, "la_quan_tri", False)
     )
     if not la_admin:
+        from sqlalchemy import update as _sql_upd
+        from app.models.enums import TrangThaiHanMuc
+
         chu_the_chinh = danh_tinh.chot[0].chu_the if danh_tinh.chot else "guest"
         eng_name = (body.engine or "local_ocr_gpu").strip() or "local_ocr_gpu"
         so_luot_can = 3 if eng_name == "llm_context" else (2 if eng_name == "local_hybrid_pro" else 1)
         pkey = (body.page_key or "").strip()
+        ds_uid_tieu: list[uuid.UUID] = []
         for idx_c in range(so_luot_can):
             trang_uid = (
                 uuid.uuid5(uuid.NAMESPACE_URL, f"local-ocr-gpu:{eng_name}:{chu_the_chinh}:{pkey}:{idx_c}")
@@ -1084,6 +1088,12 @@ async def dich_thoai_ngu_canh_cho_app_va_tien_ich(
                 else uuid.uuid4()
             )
             await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=trang_uid)
+            ds_uid_tieu.append(trang_uid)
+        await session.execute(
+            _sql_upd(SoCaiHanMuc)
+            .where(SoCaiHanMuc.trang_id.in_(ds_uid_tieu), SoCaiHanMuc.trang_thai == TrangThaiHanMuc.giu_cho)
+            .values(trang_thai=TrangThaiHanMuc.da_tieu)
+        )
         await session.commit()
     ban_dich, eng_used = await run_in_threadpool(
         dich_danh_sach_thoai_ngu_canh_dong,
@@ -1113,10 +1123,18 @@ async def viet_kich_ban_review_cho_video_studio(
         and getattr(danh_tinh.nguoi_goi.nguoi, "la_quan_tri", False)
     )
     if not la_admin:
+        from sqlalchemy import update as _sql_upd_rv
+        from app.models.enums import TrangThaiHanMuc
+
         chu_the_chinh = danh_tinh.chot[0].chu_the if danh_tinh.chot else "guest"
         ckey = (body.chapter_key or f"{body.ten_truyen}:{body.ten_chap}").strip()
         trang_uid = uuid.uuid5(uuid.NAMESPACE_URL, f"video-review-script:{chu_the_chinh}:{ckey}")
         await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=trang_uid)
+        await session.execute(
+            _sql_upd_rv(SoCaiHanMuc)
+            .where(SoCaiHanMuc.trang_id == trang_uid, SoCaiHanMuc.trang_thai == TrangThaiHanMuc.giu_cho)
+            .values(trang_thai=TrangThaiHanMuc.da_tieu)
+        )
         await session.commit()
 
     pages_dict = [p.model_dump() for p in body.pages]

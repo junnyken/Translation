@@ -227,6 +227,24 @@ def _gan_header_rate_limit(response: Response | None, quota: dict[str, Any]) -> 
         pass
 
 
+async def _chot_tieu_cac_trang(session: AsyncSession, ds_trang_id: list[uuid.UUID]) -> None:
+    """Chuyển trạng thái giữ chỗ (`giu_cho`) sang đã tiêu (`da_tieu`) cho các lượt dịch tức thì / trúng cache."""
+    if not ds_trang_id:
+        return
+    from sqlalchemy import update
+    from app.models import SoCaiHanMuc
+    from app.models.enums import TrangThaiHanMuc
+
+    await session.execute(
+        update(SoCaiHanMuc)
+        .where(
+            SoCaiHanMuc.trang_id.in_(ds_trang_id),
+            SoCaiHanMuc.trang_thai == TrangThaiHanMuc.giu_cho,
+        )
+        .values(trang_thai=TrangThaiHanMuc.da_tieu)
+    )
+
+
 class LoiTaiAnh(ValueError):
     """Lỗi tải ảnh có câu báo AN TOÀN để trả cho người gọi (không kèm chi tiết mạng nội bộ)."""
 
@@ -550,6 +568,7 @@ async def developer_khau_tru_trang_cuc_bo(
 
     chu_the_chinh = danh_tinh.chot[0].chu_the if danh_tinh.chot else "guest"
     page_uuid = uuid.uuid5(uuid.NAMESPACE_URL, f"local-ocr-gpu:{engine_name}:{chu_the_chinh}:{page_key}:0")
+    ds_uid_tieu: list[uuid.UUID] = []
     for idx_c in range(so_luot_can):
         uid_c = (
             page_uuid
@@ -557,6 +576,8 @@ async def developer_khau_tru_trang_cuc_bo(
             else uuid.uuid5(uuid.NAMESPACE_URL, f"local-ocr-gpu:{engine_name}:{chu_the_chinh}:{page_key}:{idx_c}")
         )
         await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=uid_c)
+        ds_uid_tieu.append(uid_c)
+    await _chot_tieu_cac_trang(session, ds_uid_tieu)
     await session.commit()
 
     import hashlib
@@ -731,14 +752,17 @@ async def developer_dich_anh(
     session.add(page)
     await session.flush()
 
+    ds_uid_trang: list[uuid.UUID] = [page.id]
     await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=page.id)
     if la_ultra_3_luot:
         for idx_extra in (1, 2):
             uid_ultra = uuid.uuid5(uuid.NAMESPACE_URL, f"ultra-extra-credit:{page.id}:{idx_extra}")
             await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=uid_ultra)
+            ds_uid_trang.append(uid_ultra)
     elif la_pro_2_luot:
         uid_pro_2 = uuid.uuid5(uuid.NAMESPACE_URL, f"pro-extra-credit:{page.id}")
         await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=uid_pro_2)
+        ds_uid_trang.append(uid_pro_2)
 
     storage = get_storage()
     data = await run_in_threadpool(thu_nho_anh_trang, data, ext, settings.anh_trang_canh_dai_toi_da)
@@ -767,6 +791,7 @@ async def developer_dich_anh(
             ghi_nhan_trang_anh(
                 bam_anh, source_lang, engine_enum, mode, page.id, target_lang=target_lang
             )
+            await _chot_tieu_cac_trang(session, ds_uid_trang)
             await session.commit()
             await session.refresh(page)
             return await _dong_goi_ket_qua_trang_developer(
@@ -976,7 +1001,9 @@ async def developer_dich_ca_chapter_urls(
     if not urls:
         raise HTTPException(status_code=422, detail="Danh sách image_urls rỗng.")
 
-    await con_du_khong(session, danh_tinh, settings, so_trang=len(urls))
+    la_ultra_chap = body.engine == TranslationEngine.llm_context
+    so_luot_moi_trang = 3 if la_ultra_chap else 1
+    await con_du_khong(session, danh_tinh, settings, so_trang=len(urls) * so_luot_moi_trang)
 
     project = Project(
         name=body.chapter_name.strip() or "Chapter API",
@@ -1002,6 +1029,7 @@ async def developer_dich_ca_chapter_urls(
     storage = get_storage()
     pages_out = []
     jobs_to_dispatch: list[uuid.UUID] = []
+    ds_uid_cache_tieu: list[uuid.UUID] = []
 
     for idx, url in enumerate(urls, start=1):
         try:
@@ -1025,7 +1053,13 @@ async def developer_dich_ca_chapter_urls(
         session.add(page)
         await session.flush()
 
+        ds_uid_p: list[uuid.UUID] = [page.id]
         await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=page.id)
+        if la_ultra_chap:
+            for idx_extra in (1, 2):
+                uid_ultra = uuid.uuid5(uuid.NAMESPACE_URL, f"ultra-extra-credit:{page.id}:{idx_extra}")
+                await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=uid_ultra)
+                ds_uid_p.append(uid_ultra)
 
         du_lieu = await run_in_threadpool(
             thu_nho_anh_trang, raw_data, ext, settings.anh_trang_canh_dai_toi_da
@@ -1034,7 +1068,8 @@ async def developer_dich_ca_chapter_urls(
             storage.save_page_image, project.id, page.id, du_lieu, ext
         )
 
-        bam_anh = tinh_bam_anh(du_lieu)
+        bam_anh_goc = tinh_bam_anh(du_lieu)
+        bam_anh = f"{bam_anh_goc}_ultra3" if la_ultra_chap else bam_anh_goc
         trung_cache = False
         if settings.doc_truyen_dung_cache_anh:
             trung_cache = await thu_sao_chep_tu_cache(
@@ -1051,7 +1086,9 @@ async def developer_dich_ca_chapter_urls(
             bam_anh, body.source_lang, body.engine, body.mode, page.id, target_lang=body.target_lang
         )
 
-        if not trung_cache:
+        if trung_cache:
+            ds_uid_cache_tieu.extend(ds_uid_p)
+        else:
             job = Job(type=JobType.detect, page_id=page.id, status=JobStatus.queued)
             session.add(job)
             await session.flush()
@@ -1067,6 +1104,8 @@ async def developer_dich_ca_chapter_urls(
             }
         )
 
+    if ds_uid_cache_tieu:
+        await _chot_tieu_cac_trang(session, ds_uid_cache_tieu)
     await session.commit()
 
     for jid in jobs_to_dispatch:
@@ -1157,8 +1196,12 @@ async def developer_dich_van_ban(
 
     # Mỗi 30 đoạn văn bản tính 1 lượt trang
     so_luot_can = max(1, (len(doan_sach) + 29) // 30)
+    ds_uid_txt: list[uuid.UUID] = []
     for _ in range(so_luot_can):
-        await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=uuid.uuid4())
+        uid_t = uuid.uuid4()
+        await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=uid_t)
+        ds_uid_txt.append(uid_t)
+    await _chot_tieu_cac_trang(session, ds_uid_txt)
     await session.commit()
 
     from app.services.translate.engines import GoogleTranslateEngine, LLMContextTranslator
