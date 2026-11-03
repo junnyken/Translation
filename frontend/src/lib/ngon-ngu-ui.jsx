@@ -307,7 +307,7 @@ const DANH_SACH_NUT_LANG = [
 ]
 
 /**
- * Công tắc chuyển đổi ngôn ngữ giao diện Website: 🇻🇳 VN | 🇺🇸 EN | 🇪🇸 ES | 🇧🇷 PT | 🇫🇷 FR
+ * Công tắc chuyển đổi ngôn ngữ giao diện Website: 🇻🇳 VN | 🇺🇸 EN
  * Dùng `role="radio"` trong `role="radiogroup"` để hỗ trợ trợ năng và không đụng các bài test
  * tìm `getByRole('button')`.
  */

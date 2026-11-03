@@ -146,10 +146,10 @@ class Settings(BaseSettings):
     #: Số TÀI KHOẢN mới được tạo từ cùng một địa chỉ mạng trong một ngày.
     #:
     #: ⚠️ Không có trần này thì hạn mức trang trở thành VÔ NGHĨA: khách hết 2 trang chỉ cần tạo
-    #: tài khoản mới để có 20, rồi lặp vô hạn. Mở đường tự đăng ký mà quên con số này là tự tay
+    #: tài khoản mới để có 10, rồi lặp vô hạn. Mở đường tự đăng ký mà quên con số này là tự tay
     #: vô hiệu hoá cả E49.
     #:
-    #: 2 là con số thận trọng khi mỗi tài khoản có 20 trang/ngày: đủ cho hai người cùng nhà, mà
+    #: 2 là con số thận trọng khi mỗi tài khoản có 10 trang/ngày: đủ cho hai người cùng nhà, mà
     #: không đủ để biến việc tạo tài khoản thành cách lách hạn mức.
     so_tai_khoan_moi_moi_ip_mot_ngay: int = 2
 
