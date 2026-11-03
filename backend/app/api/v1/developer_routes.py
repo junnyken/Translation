@@ -244,6 +244,24 @@ async def _xac_thuc_developer(
                 "message": "Thiếu hoặc sai Developer API Key. Hãy tạo key tại mục Tài khoản trên Website (tr_live_...) và gửi qua header 'X-Customer-Api-Key' hoặc 'Authorization: Bearer tr_live_...'.",
             },
         )
+
+    # Nếu khách gọi bằng khoá cố định `tr_live_...` nhưng đã dùng hết sạch giỏ lượt gói Unlimited (Cấp 5)
+    # và chỉ nạp gói lẻ thấp (Trial 19k / Starter 49k), chặn ngay để chống lách luật duy trì API bằng gói rẻ.
+    if ma and ma.startswith("tr_live_") and not getattr(nguoi, "la_quan_tri", False):
+        from app.core.danh_tinh_khach import loi_can_nang_cap, tinh_cap_do
+
+        cap_hien = tinh_cap_do(nguoi)
+        if cap_hien < 5:
+            raise loi_can_nang_cap(
+                cap_hien_tai=cap_hien,
+                cap_yeu_cau=5,
+                tinh_nang="developer_api_key",
+                thong_bao=(
+                    "Số trang thuộc gói Unlimited (Cấp 5) của bạn đã dùng hết. "
+                    "Các gói thấp hơn (Trial / Starter / Pro) không áp dụng cho cổng Developer API (tr_live_...). "
+                    "Vui lòng gia hạn gói Unlimited tại https://comic.io.vn/#bang-gia"
+                ),
+            )
     return nguoi, ma or ""
 
 

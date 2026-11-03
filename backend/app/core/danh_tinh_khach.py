@@ -61,7 +61,7 @@ TEN_CAP_DO = {
     5: "Unlimited",
 }
 
-_CAP_DO_GOI_MEM_CACHE: dict[str, int] = {}
+_CAP_DO_GOI_MEM_CACHE: dict[str, dict] = {}
 _DA_NAP_CAP_DO_GOI = False
 
 
@@ -69,10 +69,9 @@ def cap_do_tu_ma_goi(ma_goi: str, so_trang_don: int = 0) -> int:
     """Xác định cấp độ VIP (1..5) của ĐƠN GÓI CƯỚC mà khách vừa mua.
 
     Đảm bảo:
-    - Khách mua gói nào thì hưởng đúng cấp độ của gói đó suốt thời gian còn lượt (không bị tụt hạng
-      khi đang xài dở từ 5.000 trang xuống 3.000 trang, hay từ 600 trang xuống 200 trang).
-    - Khách chỉ mua lặp lại gói thấp (Trial 19k / Starter 49k) thì chỉ ở Cấp 1 / Cấp 2, KHÔNG thể
-      lách để mở khoá tính năng Pro (99k) hay Unlimited API (399k).
+    - Khách mua gói nào thì đúng số trang của gói đó mang cấp độ tương ứng.
+    - Khách chỉ mua gói thấp (Trial 19k / Starter 49k) thì giỏ lượt đó chỉ ở Cấp 1 / Cấp 2,
+      KHÔNG thể dùng gói 19k để nuôi tài khoản Unlimited hay mở khoá tính năng Pro/Unlimited.
     """
     ma = (ma_goi or "").strip().lower()
     if ma in ("unlimited_plan", "doanh_nghiep_api", "enterprise_scale") or so_trang_don >= 5000:
@@ -88,59 +87,33 @@ def cap_do_tu_ma_goi(ma_goi: str, so_trang_don: int = 0) -> int:
     return 0
 
 
-def _nap_cache_cap_do_goi() -> dict[str, int]:
-    global _DA_NAP_CAP_DO_GOI
-    if _DA_NAP_CAP_DO_GOI:
-        return _CAP_DO_GOI_MEM_CACHE
+def _chuan_hoa_ban_ghi_gio(val, vi_hien_tai: int = 0) -> dict:
+    """Chuẩn hoá dữ liệu giỏ lượt theo cấp của 1 user."""
+    if isinstance(val, int):
+        cap_cu = max(0, min(5, val))
+        return {
+            "tong": max(0, vi_hien_tai),
+            "gio": [{"cap": cap_cu, "trang": max(0, vi_hien_tai)}] if (cap_cu > 0 and vi_hien_tai > 0) else [],
+        }
+    if isinstance(val, dict):
+        tong = max(0, int(val.get("tong", 0) or 0))
+        gio_raw = val.get("gio")
+        gio_sach: list[dict[str, int]] = []
+        if isinstance(gio_raw, list):
+            for item in gio_raw:
+                if isinstance(item, dict):
+                    c = max(1, min(5, int(item.get("cap", 1) or 1)))
+                    tr = max(0, int(item.get("trang", 0) or 0))
+                    if tr > 0:
+                        gio_sach.append({"cap": c, "trang": tr})
+        gio_sach.sort(key=lambda x: x["cap"], reverse=True)
+        return {"tong": tong, "gio": gio_sach}
+    return {"tong": 0, "gio": []}
+
+
+def _luu_cache_cap_do_goi_xuong_dia(cache: dict[str, dict]) -> None:
     import json
     from pathlib import Path
-
-    data: dict[str, int] = {}
-    try:
-        p = Path("/tmp/cap_do_goi_khach.json")
-        if p.is_file():
-            raw = json.loads(p.read_text(encoding="utf-8"))
-            if isinstance(raw, dict):
-                data.update({str(k): int(v or 0) for k, v in raw.items()})
-    except Exception:
-        pass
-    if not data:
-        try:
-            from app.services.storage import get_storage
-
-            st = get_storage()
-            raw_bytes = st.read("quan_tri/cap_do_goi_khach.json")
-            if raw_bytes:
-                raw = json.loads(raw_bytes.decode("utf-8"))
-                if isinstance(raw, dict):
-                    data.update({str(k): int(v or 0) for k, v in raw.items()})
-        except Exception:
-            pass
-    _CAP_DO_GOI_MEM_CACHE.update(data)
-    _DA_NAP_CAP_DO_GOI = True
-    return _CAP_DO_GOI_MEM_CACHE
-
-
-def ghi_nhan_cap_do_goi_mua(
-    nguoi_id, ma_goi: str, so_trang_don: int = 0, so_luot_con_lai_truoc_do: int = 0
-) -> int:
-    """Lưu cấp độ gói khách vừa mua.
-
-    - Nếu khách vẫn còn lượt của gói cao hơn trước đó (`so_luot_con_lai_truoc_do > 0`), giữ cấp cao nhất
-      giữa gói cũ và gói mới.
-    - Nếu khách đã dùng hết sạch lượt cũ (`so_luot_con_lai_truoc_do <= 0`), áp đúng cấp của gói mới mua.
-    """
-    import json
-    from pathlib import Path
-
-    uid_str = str(nguoi_id or "").strip()
-    if not uid_str:
-        return 0
-    cache = _nap_cache_cap_do_goi()
-    cap_moi = cap_do_tu_ma_goi(ma_goi, so_trang_don)
-    cap_cu = int(cache.get(uid_str, 0) or 0) if so_luot_con_lai_truoc_do > 0 else 0
-    cap_chot = max(cap_cu, cap_moi)
-    cache[uid_str] = cap_chot
 
     raw_bytes = json.dumps(cache, ensure_ascii=False).encode("utf-8")
     try:
@@ -153,21 +126,144 @@ def ghi_nhan_cap_do_goi_mua(
         get_storage().save("quan_tri/cap_do_goi_khach.json", raw_bytes)
     except Exception:
         pass
-    return cap_chot
+
+
+def _nap_cache_cap_do_goi() -> dict[str, dict]:
+    global _DA_NAP_CAP_DO_GOI
+    if _DA_NAP_CAP_DO_GOI:
+        return _CAP_DO_GOI_MEM_CACHE
+    import json
+    from pathlib import Path
+
+    data: dict[str, dict] = {}
+    try:
+        p = Path("/tmp/cap_do_goi_khach.json")
+        if p.is_file():
+            raw = json.loads(p.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                for k, v in raw.items():
+                    data[str(k)] = _chuan_hoa_ban_ghi_gio(v)
+    except Exception:
+        pass
+    if not data:
+        try:
+            from app.services.storage import get_storage
+
+            st = get_storage()
+            raw_bytes = st.read("quan_tri/cap_do_goi_khach.json")
+            if raw_bytes:
+                raw = json.loads(raw_bytes.decode("utf-8"))
+                if isinstance(raw, dict):
+                    for k, v in raw.items():
+                        data[str(k)] = _chuan_hoa_ban_ghi_gio(v)
+        except Exception:
+            pass
+    _CAP_DO_GOI_MEM_CACHE.update(data)
+    _DA_NAP_CAP_DO_GOI = True
+    return _CAP_DO_GOI_MEM_CACHE
+
+
+def _dong_bo_gio_theo_so_du(uid_str: str, vi_hien_tai: int) -> list[dict[str, int]]:
+    """Đồng bộ số trang đã tiêu vào giỏ lượt theo nguyên tắc:
+    - Ưu tiên dùng lượt của gói cấp cao nhất trước (vì khách đang hưởng quyền lợi của cấp đó).
+    - Khi dùng hết số trang của gói cấp cao (vd hết 300 trang Unlimited còn lại), giỏ đó tự xoá
+      và tài khoản tự động chuyển về đúng cấp của gói thấp hơn còn lại (vd 50 trang Trial Cấp 1).
+    """
+    cache = _nap_cache_cap_do_goi()
+    if vi_hien_tai <= 0:
+        if uid_str in cache and cache[uid_str].get("gio"):
+            cache[uid_str] = {"tong": 0, "gio": []}
+            _luu_cache_cap_do_goi_xuong_dia(cache)
+        return []
+
+    ban_ghi = _chuan_hoa_ban_ghi_gio(cache.get(uid_str), vi_hien_tai)
+    gio = ban_ghi["gio"]
+    if not gio:
+        return []
+
+    tong_gio = sum(x["trang"] for x in gio)
+    if tong_gio > vi_hien_tai:
+        # Khách đã tiêu (tong_gio - vi_hien_tai) trang -> trừ từ giỏ cấp cao nhất trước
+        can_tru = tong_gio - vi_hien_tai
+        gio_moi: list[dict[str, int]] = []
+        for item in gio:
+            if can_tru > 0:
+                tru_muc = min(item["trang"], can_tru)
+                con_muc = item["trang"] - tru_muc
+                can_tru -= tru_muc
+                if con_muc > 0:
+                    gio_moi.append({"cap": item["cap"], "trang": con_muc})
+            else:
+                gio_moi.append(item)
+        ban_ghi = {"tong": vi_hien_tai, "gio": gio_moi}
+        cache[uid_str] = ban_ghi
+        _luu_cache_cap_do_goi_xuong_dia(cache)
+    elif tong_gio < vi_hien_tai:
+        # Có lượt cộng thêm ngoài luồng (vd thưởng Affiliate) -> cộng vào giỏ hiện hành
+        chenh = vi_hien_tai - tong_gio
+        gio[-1]["trang"] += chenh
+        ban_ghi = {"tong": vi_hien_tai, "gio": gio}
+        cache[uid_str] = ban_ghi
+    return ban_ghi["gio"]
+
+
+def ghi_nhan_cap_do_goi_mua(
+    nguoi_id, ma_goi: str, so_trang_don: int = 0, so_luot_con_lai_truoc_do: int = 0
+) -> int:
+    """Bỏ số trang của gói vừa mua vào đúng Giỏ Cấp Độ (Bucket) của gói đó.
+
+    Ví dụ thực tế:
+    1. Khách mua gói Unlimited (5.000 trang - Cấp 5), dùng còn 300 trang, rồi mua thêm gói Trial (50 trang - Cấp 1):
+       - Giỏ của khách gồm: [300 trang Cấp 5 (Unlimited), 50 trang Cấp 1 (Trial)].
+       - Trong 300 trang tiếp theo, khách vẫn là Unlimited (Cấp 5).
+       - Ngay khi dùng hết 300 trang Unlimited đó (số dư còn 50 trang của gói Trial), giỏ Cấp 5 bằng 0
+         và tài khoản lập tức hạ về đúng Cấp 1 (Trial)! Không thể mua gói 50 trang để nuôi Unlimited mãi.
+    2. Khách đang còn 50 trang Trial (Cấp 1), mua thêm gói Pro (600 trang - Cấp 3):
+       - Giỏ của khách gồm: [600 trang Cấp 3 (Pro), 50 trang Cấp 1 (Trial)].
+       - Vì giỏ cấp cao đứng đầu, khách được THĂNG HẠNG NGAY LẬP TỨC lên Cấp 3 (Pro)!
+    """
+    uid_str = str(nguoi_id or "").strip()
+    if not uid_str or so_trang_don <= 0:
+        return 0
+    cache = _nap_cache_cap_do_goi()
+    vi_truoc = max(0, int(so_luot_con_lai_truoc_do or 0))
+    gio_hien = _dong_bo_gio_theo_so_du(uid_str, vi_truoc)
+    if vi_truoc > 0 and not gio_hien:
+        # Tài khoản cũ đã có sẵn số dư trước khi bật giỏ -> quy đổi số dư cũ theo bậc tương ứng
+        cap_cu_suy_luan = (
+            5 if vi_truoc >= 3500 else (4 if vi_truoc >= 1200 else (3 if vi_truoc >= 300 else (2 if vi_truoc >= 100 else 1)))
+        )
+        gio_hien = [{"cap": cap_cu_suy_luan, "trang": vi_truoc}]
+
+    cap_moi = cap_do_tu_ma_goi(ma_goi, so_trang_don)
+    da_gop = False
+    for item in gio_hien:
+        if item["cap"] == cap_moi:
+            item["trang"] += so_trang_don
+            da_gop = True
+            break
+    if not da_gop:
+        gio_hien.append({"cap": cap_moi, "trang": so_trang_don})
+
+    gio_hien.sort(key=lambda x: x["cap"], reverse=True)
+    tong_moi = sum(x["trang"] for x in gio_hien)
+    cache[uid_str] = {"tong": tong_moi, "gio": gio_hien}
+    _luu_cache_cap_do_goi_xuong_dia(cache)
+    return gio_hien[0]["cap"] if gio_hien else 0
 
 
 def tinh_cap_do(nguoi) -> int:
-    """Tính cấp độ VIP (0..5) dựa trên quyền quản trị, trần ngày riêng và GÓI CƯỚC ĐÃ MUA.
+    """Tính cấp độ VIP (0..5) dựa trên quyền quản trị, trần ngày riêng và GIỎ LƯỢT THEO GÓI ĐÃ MUA.
 
     1. KHÔNG BỊ HẠ HẠNG GIỮA CHỪNG:
-       - Khách mua gói Unlimited (5.000 trang), dùng xuống còn 3.000 trang hay 10 trang vẫn giữ nguyên
-         Cấp 5 (Unlimited) cho đến khi dùng hết sạch về 0 trang.
-       - Khách mua gói Pro (600 trang), dùng xuống còn 200 trang hay 5 trang vẫn giữ nguyên
-         Cấp 3 (Pro) cho đến khi dùng hết sạch về 0 trang.
-    2. CHỐNG LÁCH BẰNG GÓI THẤP:
-       - Khách chỉ mua gói Trial (19k) hoặc Starter (49k) nhiều lần thì `cap_goi_da_mua` chỉ là
-         Cấp 1 (Trial) hoặc Cấp 2 (Starter) — muốn mở khoá tính năng Pro (99k) hoặc Unlimited API (399k)
-         bắt buộc phải mua đúng gói Pro / Studio / Unlimited.
+       - Mua gói 5.000 trang (Unlimited) hay 600 trang (Pro) thì hưởng trọn vẹn cấp đó cho hết sạch
+         5.000 trang / 600 trang đã mua.
+    2. CHỐNG LÁCH BẰNG CÁCH MUA GÓI 50 TRANG ĐỂ DUY TRÌ UNLIMITED:
+       - Nếu còn 300 trang Unlimited mà mua thêm gói 50 trang (Trial 19k): chỉ 300 trang đầu là Unlimited,
+         khi dùng hết 300 trang đó (còn lại 50 trang Trial) thì tự động hạ về đúng Cấp 1 (Trial).
+    3. GIỮ NGUYÊN TÍNH NĂNG NÂNG CẤP HẠNG TỨC THÌ:
+       - Đang ở gói thấp (Trial/Starter) mà mua thêm gói cao (Pro/Studio/Unlimited) thì lập tức thăng hạng
+         lên gói cao ngay giây phút thanh toán!
     """
     if nguoi is None:
         return 0
@@ -189,15 +285,18 @@ def tinh_cap_do(nguoi) -> int:
         cap_tran = 1
 
     if vi <= 0:
+        uid_zero = str(getattr(nguoi, "id", "") or "").strip()
+        if uid_zero:
+            _dong_bo_gio_theo_so_du(uid_zero, 0)
         return cap_tran
 
     uid_str = str(getattr(nguoi, "id", "") or "").strip()
-    cache = _nap_cache_cap_do_goi()
-    cap_goi_da_mua = int(cache.get(uid_str, 0) or 0) if uid_str else 0
-    if cap_goi_da_mua > 0:
-        return max(cap_tran, cap_goi_da_mua)
+    if uid_str:
+        gio = _dong_bo_gio_theo_so_du(uid_str, vi)
+        if gio:
+            return max(cap_tran, int(gio[0]["cap"]))
 
-    # Dự phòng cho tài khoản được cộng lượt trước khi có sổ lưu gói:
+    # Dự phòng cho tài khoản được cộng lượt trước khi có sổ lưu giỏ:
     if vi >= 3500:
         return max(cap_tran, 5)
     if vi >= 1200:
