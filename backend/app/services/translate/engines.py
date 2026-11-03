@@ -546,6 +546,163 @@ class LLMContextTranslator:
         return [result.get(i + 1, "") for i in range(expected)]
 
     # ---------- gọi API ----------
+    @staticmethod
+    def _phan_tich_khoa_ai(raw_key: str, default_model: str = "gemini-3.1-flash-lite") -> dict:
+        """Phân tích tiền tố hoặc định dạng khoá để định tuyến tới đúng nhà cung cấp AI.
+
+        Hỗ trợ:
+        - `custom|<base_url>|<model>|<api_key>`: Mọi API chuẩn OpenAI-compatible (Together, DashScope/Qwen, Mistral, xAI, vLLM...)
+        - `oai|<model>|<api_key>` hoặc `oai:<api_key>` hoặc `sk-proj-...`: OpenAI / ChatGPT API
+        - `groq|<model>|<api_key>` hoặc `groq:<api_key>` hoặc `gsk_...`: Groq LPU
+        - `or|<model>|<api_key>` hoặc `or:<api_key>` hoặc `sk-or-...`: OpenRouter
+        - `ds|<model>|<api_key>` hoặc `ds:<api_key>` hoặc `sk-...`: DeepSeek API
+        - `gm|<model>|<api_key>` hoặc `gm:<api_key>` hoặc khoá khác (`AIza...`, `AQ.Ab...`): Google Gemini
+        """
+        s = (raw_key or "").strip()
+        def_m = (default_model or "gemini-3.1-flash-lite").strip()
+
+        if s.startswith("custom|"):
+            parts = s.split("|", 3)
+            if len(parts) == 4:
+                _, base_url, model_c, clean_k = parts
+                base_clean = base_url.strip().rstrip("/")
+                if not base_clean.endswith("/chat/completions"):
+                    endpoint = f"{base_clean}/chat/completions"
+                else:
+                    endpoint = base_clean
+                m_final = model_c.strip() or "gpt-4o-mini"
+                return {
+                    "provider": "custom",
+                    "ten_ncc": f"Model mở rộng ({m_final})",
+                    "endpoint": endpoint,
+                    "base_url": base_clean,
+                    "model": m_final,
+                    "api_key": clean_k.strip(),
+                    "is_openai_compat": True,
+                }
+
+        if s.startswith("oai|"):
+            parts = s.split("|", 2)
+            if len(parts) == 3:
+                m_final = parts[1].strip() or "gpt-4o-mini"
+                return {
+                    "provider": "openai",
+                    "ten_ncc": f"OpenAI ({m_final})",
+                    "endpoint": "https://api.openai.com/v1/chat/completions",
+                    "model": m_final,
+                    "api_key": parts[2].strip(),
+                    "is_openai_compat": True,
+                }
+        if s.startswith("oai:") or s.startswith("sk-proj-") or s.startswith("sk-svcacct-"):
+            clean_k = s[4:].strip() if s.startswith("oai:") else s
+            m_final = def_m if def_m.lower().startswith(("gpt-", "o1", "o3", "o4")) else "gpt-4o-mini"
+            return {
+                "provider": "openai",
+                "ten_ncc": f"OpenAI ({m_final})",
+                "endpoint": "https://api.openai.com/v1/chat/completions",
+                "model": m_final,
+                "api_key": clean_k,
+                "is_openai_compat": True,
+            }
+
+        if s.startswith("groq|"):
+            parts = s.split("|", 2)
+            if len(parts) == 3:
+                m_final = parts[1].strip() or "llama-3.3-70b-versatile"
+                return {
+                    "provider": "groq",
+                    "ten_ncc": f"Groq LPU ({m_final})",
+                    "endpoint": "https://api.groq.com/openai/v1/chat/completions",
+                    "model": m_final,
+                    "api_key": parts[2].strip(),
+                    "is_openai_compat": True,
+                }
+        if s.startswith("groq:") or s.startswith("gsk_"):
+            clean_k = s[5:].strip() if s.startswith("groq:") else s
+            return {
+                "provider": "groq",
+                "ten_ncc": "Groq LPU (llama-3.3-70b-versatile)",
+                "endpoint": "https://api.groq.com/openai/v1/chat/completions",
+                "model": "llama-3.3-70b-versatile",
+                "api_key": clean_k,
+                "is_openai_compat": True,
+            }
+
+        if s.startswith("or|"):
+            parts = s.split("|", 2)
+            if len(parts) == 3:
+                m_final = parts[1].strip() or "google/gemini-2.5-flash"
+                return {
+                    "provider": "openrouter",
+                    "ten_ncc": f"OpenRouter ({m_final})",
+                    "endpoint": "https://openrouter.ai/api/v1/chat/completions",
+                    "model": m_final,
+                    "api_key": parts[2].strip(),
+                    "is_openai_compat": True,
+                }
+        if s.startswith("or:") or s.startswith("sk-or-"):
+            clean_k = s[3:].strip() if s.startswith("or:") else s
+            return {
+                "provider": "openrouter",
+                "ten_ncc": "OpenRouter (google/gemini-2.5-flash)",
+                "endpoint": "https://openrouter.ai/api/v1/chat/completions",
+                "model": "google/gemini-2.5-flash",
+                "api_key": clean_k,
+                "is_openai_compat": True,
+            }
+
+        if s.startswith("ds|"):
+            parts = s.split("|", 2)
+            if len(parts) == 3:
+                m_final = parts[1].strip() or "deepseek-chat"
+                return {
+                    "provider": "deepseek",
+                    "ten_ncc": f"DeepSeek ({m_final})",
+                    "endpoint": _DEEPSEEK_ENDPOINT,
+                    "model": m_final,
+                    "api_key": parts[2].strip(),
+                    "is_openai_compat": True,
+                }
+        if s.startswith("ds:") or s.startswith("sk-") or def_m.lower().startswith("deepseek"):
+            clean_k = s[3:].strip() if s.startswith("ds:") else s
+            m_final = def_m if def_m.lower().startswith("deepseek") else "deepseek-chat"
+            return {
+                "provider": "deepseek",
+                "ten_ncc": f"DeepSeek ({m_final})",
+                "endpoint": _DEEPSEEK_ENDPOINT,
+                "model": m_final,
+                "api_key": clean_k,
+                "is_openai_compat": True,
+            }
+
+        if s.startswith("gm|"):
+            parts = s.split("|", 2)
+            if len(parts) == 3:
+                m_final = parts[1].strip() or "gemini-2.5-flash"
+                return {
+                    "provider": "gemini",
+                    "ten_ncc": f"Google Gemini ({m_final})",
+                    "endpoint": _GEMINI_ENDPOINT.format(model=m_final),
+                    "model": m_final,
+                    "api_key": parts[2].strip(),
+                    "is_openai_compat": False,
+                }
+        clean_gm = s[3:].strip() if s.startswith("gm:") else s
+        m_gm = def_m if not def_m.lower().startswith("deepseek") else "gemini-2.5-flash"
+        return {
+            "provider": "gemini",
+            "ten_ncc": f"Google Gemini ({m_gm})",
+            "endpoint": _GEMINI_ENDPOINT.format(model=m_gm),
+            "model": m_gm,
+            "api_key": clean_gm,
+            "is_openai_compat": False,
+        }
+
+    @classmethod
+    def _la_khoa_deepseek(cls, key: str, model_name: str = "") -> bool:
+        info = cls._phan_tich_khoa_ai(key, model_name)
+        return bool(info.get("is_openai_compat"))
+
     def _generation_config(self, schema: dict | None = None) -> dict:
         cfg: dict = {
             "temperature": self.temperature,
@@ -587,32 +744,12 @@ class LLMContextTranslator:
         last_error: Exception | None = None
         for _ in range(attempts):
             key = self._current_key()
-            la_groq = key.startswith("gsk_") or key.startswith("groq:")
-            la_openrouter = key.startswith("sk-or-") or key.startswith("or:")
-            la_deepseek = (
-                la_groq
-                or la_openrouter
-                or key.startswith("sk-")
-                or key.startswith("ds:")
-                or self.model_name.lower().startswith("deepseek")
-            )
-            if la_deepseek:
-                if la_groq:
-                    clean_key = key[5:].strip() if key.startswith("groq:") else key
-                    endpoint_oai = "https://api.groq.com/openai/v1/chat/completions"
-                    ds_model = "llama-3.3-70b-versatile"
-                elif la_openrouter:
-                    clean_key = key[3:].strip() if key.startswith("or:") else key
-                    endpoint_oai = "https://openrouter.ai/api/v1/chat/completions"
-                    ds_model = "google/gemma-3-27b-it:free"
-                else:
-                    clean_key = key[3:].strip() if key.startswith("ds:") else key
-                    endpoint_oai = _DEEPSEEK_ENDPOINT
-                    ds_model = (
-                        self.model_name
-                        if self.model_name.lower().startswith("deepseek")
-                        else "deepseek-chat"
-                    )
+            info_k = self._phan_tich_khoa_ai(key, self.model_name)
+            la_oai_compat = bool(info_k.get("is_openai_compat"))
+            if la_oai_compat:
+                clean_key = info_k["api_key"]
+                endpoint_oai = info_k["endpoint"]
+                ds_model = info_k["model"]
                 ds_payload: dict = {
                     "model": ds_model,
                     "messages": [
@@ -639,18 +776,19 @@ class LLMContextTranslator:
                     headers={
                         "Authorization": f"Bearer {clean_key}",
                         "Content-Type": "application/json",
+                        "User-Agent": "ComicTranslator/2.0",
                     },
                 )
             else:
                 request = urllib.request.Request(
-                    _GEMINI_ENDPOINT.format(model=self.model_name),
+                    info_k["endpoint"],
                     data=body,
                     method="POST",
-                    headers={"x-goog-api-key": key, "Content-Type": "application/json"},
+                    headers={"x-goog-api-key": info_k["api_key"], "Content-Type": "application/json"},
                 )
             try:
                 data = _http_json(request, self.timeout)
-                if la_deepseek:
+                if la_oai_compat:
                     choice = (data.get("choices") or [{}])[0]
                     msg = choice.get("message") or {}
                     usage_ds = data.get("usage") or {}

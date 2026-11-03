@@ -432,10 +432,19 @@ class AIGeminiDetector:
         }).encode()
 
         loi_cuoi: Exception | None = None
-        ds_khoa_gemini = [
-            k for k in self.api_keys
-            if not str(k).startswith(("sk-", "ds:", "gsk_", "groq:", "or:"))
-        ] or list(self.api_keys)
+        ds_khoa_gemini: list[str] = []
+        for raw_k in self.api_keys:
+            s_k = str(raw_k or "").strip()
+            if not s_k or s_k.startswith(("sk-", "ds:", "ds|", "gsk_", "groq:", "groq|", "or:", "or|", "oai:", "oai|", "custom|")):
+                continue
+            if s_k.startswith("gm|"):
+                s_k = s_k.split("|")[-1].strip()
+            elif s_k.startswith("gm:"):
+                s_k = s_k[3:].strip()
+            if s_k and s_k not in ds_khoa_gemini:
+                ds_khoa_gemini.append(s_k)
+        if not ds_khoa_gemini:
+            ds_khoa_gemini = [str(k).split("|")[-1].strip() for k in self.api_keys if str(k).strip()]
         for key in ds_khoa_gemini:
             try:
                 req = urllib.request.Request(

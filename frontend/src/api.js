@@ -711,11 +711,42 @@ export const quanTriCapLuot = ({
 /** E107 — Lấy thống kê tổng hợp hệ thống & chi tiết hạn mức từng người dùng cho Dashboard Quản trị. */
 export const layThongKeQuanTri = () => fetch(`${BASE}/quan-tri/thong-ke`).then(doc)
 
-/** Quản trị viên lưu & kích hoạt khoá DeepSeek (sk-...) hoặc khoá AI dự phòng ngay từ trang Admin. */
-export const quanTriLuuCauHinhAi = ({ khoaDeepseek = undefined, khoaDuPhong = undefined }) => {
+/** Quản trị viên lưu & kích hoạt cấu hình AI đa mô hình (DeepSeek, Gemini, OpenAI, OpenRouter, Groq, Custom) ngay từ trang Admin. */
+export const quanTriLuuCauHinhAi = ({
+  khoaDeepseek = undefined,
+  modelDeepseek = undefined,
+  khoaGemini = undefined,
+  modelGemini = undefined,
+  khoaDuPhong = undefined,
+  khoaOpenai = undefined,
+  modelOpenai = undefined,
+  khoaOpenrouter = undefined,
+  modelOpenrouter = undefined,
+  khoaGroq = undefined,
+  modelGroq = undefined,
+  customTen = undefined,
+  customBaseUrl = undefined,
+  customApiKey = undefined,
+  customModel = undefined,
+  nhaCungCapChinh = undefined,
+} = {}) => {
   const payload = {}
   if (khoaDeepseek !== undefined) payload.khoa_deepseek = khoaDeepseek
+  if (modelDeepseek !== undefined) payload.model_deepseek = modelDeepseek
+  if (khoaGemini !== undefined) payload.khoa_gemini = khoaGemini
+  if (modelGemini !== undefined) payload.model_gemini = modelGemini
   if (khoaDuPhong !== undefined) payload.khoa_du_phong = khoaDuPhong
+  if (khoaOpenai !== undefined) payload.khoa_openai = khoaOpenai
+  if (modelOpenai !== undefined) payload.model_openai = modelOpenai
+  if (khoaOpenrouter !== undefined) payload.khoa_openrouter = khoaOpenrouter
+  if (modelOpenrouter !== undefined) payload.model_openrouter = modelOpenrouter
+  if (khoaGroq !== undefined) payload.khoa_groq = khoaGroq
+  if (modelGroq !== undefined) payload.model_groq = modelGroq
+  if (customTen !== undefined) payload.custom_ten = customTen
+  if (customBaseUrl !== undefined) payload.custom_base_url = customBaseUrl
+  if (customApiKey !== undefined) payload.custom_api_key = customApiKey
+  if (customModel !== undefined) payload.custom_model = customModel
+  if (nhaCungCapChinh !== undefined) payload.nha_cung_cap_chinh = nhaCungCapChinh
   return fetch(`${BASE}/quan-tri/cau-hinh-ai`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

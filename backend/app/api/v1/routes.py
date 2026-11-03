@@ -1013,7 +1013,21 @@ async def quan_tri_luu_cau_hinh_ai(
         luu_cau_hinh_khoa_ai_dong,
         settings,
         khoa_deepseek=body.khoa_deepseek,
+        model_deepseek=body.model_deepseek,
+        khoa_gemini=body.khoa_gemini,
+        model_gemini=body.model_gemini,
         khoa_du_phong=body.khoa_du_phong,
+        khoa_openai=body.khoa_openai,
+        model_openai=body.model_openai,
+        khoa_openrouter=body.khoa_openrouter,
+        model_openrouter=body.model_openrouter,
+        khoa_groq=body.khoa_groq,
+        model_groq=body.model_groq,
+        custom_ten=body.custom_ten,
+        custom_base_url=body.custom_base_url,
+        custom_api_key=body.custom_api_key,
+        custom_model=body.custom_model,
+        nha_cung_cap_chinh=body.nha_cung_cap_chinh,
         email_quan_tri=nguoi.email,
     )
     ghi_nhat_ky(
@@ -1027,16 +1041,22 @@ async def quan_tri_luu_cau_hinh_ai(
     await session.commit()
 
     so_ds = int(tt_che.get("deepseek_so_key", 0))
+    so_gm = int(tt_che.get("gemini_so_key", 0))
     so_dp = int(tt_che.get("du_phong_so_key", 0))
-    if so_ds > 0:
+    ds_active = [
+        f"{m['ten']} ({m['so_key']} key)"
+        for m in (tt_che.get("danh_sach_model_ai") or [])
+        if m.get("da_ket_noi")
+    ]
+    if ds_active:
         thong_diep = (
-            f"Đã lưu & kích hoạt {so_ds} khoá DeepSeek (deepseek-chat) thành công"
-            + (f" kèm {so_dp} khoá AI dự phòng." if so_dp > 0 else ".")
+            f"Đã lưu & đồng bộ cấu hình AI đa mô hình: {', '.join(ds_active)}. "
+            f"Ưu tiên chính: {tt_che.get('nha_cung_cap_uu_tien', '')}."
         )
-    elif so_dp > 0:
-        thong_diep = f"Đã lưu {so_dp} khoá AI dự phòng (hiện chưa có khoá DeepSeek)."
+    elif so_ds > 0 or so_gm > 0 or so_dp > 0:
+        thong_diep = f"Đã lưu cấu hình AI ({tt_che.get('nha_cung_cap_uu_tien', '')})."
     else:
-        thong_diep = "Đã xoá cấu hình khoá AI động (hệ thống quay về dịch nhanh miễn phí)."
+        thong_diep = "Đã xoá cấu hình khoá AI động trên Admin."
 
     return QuanTriCauHinhAiResponse(
         thong_diep=thong_diep,

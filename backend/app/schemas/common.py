@@ -1329,7 +1329,21 @@ class QuanTriCauHinhAiRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     khoa_deepseek: str | None = Field(default=None, max_length=4000)
+    model_deepseek: str | None = Field(default=None, max_length=120)
+    khoa_gemini: str | None = Field(default=None, max_length=4000)
+    model_gemini: str | None = Field(default=None, max_length=120)
     khoa_du_phong: str | None = Field(default=None, max_length=4000)
+    khoa_openai: str | None = Field(default=None, max_length=4000)
+    model_openai: str | None = Field(default=None, max_length=120)
+    khoa_openrouter: str | None = Field(default=None, max_length=4000)
+    model_openrouter: str | None = Field(default=None, max_length=160)
+    khoa_groq: str | None = Field(default=None, max_length=4000)
+    model_groq: str | None = Field(default=None, max_length=120)
+    custom_ten: str | None = Field(default=None, max_length=120)
+    custom_base_url: str | None = Field(default=None, max_length=500)
+    custom_api_key: str | None = Field(default=None, max_length=4000)
+    custom_model: str | None = Field(default=None, max_length=160)
+    nha_cung_cap_chinh: str | None = Field(default=None, max_length=64)
 
 
 class QuanTriCauHinhAiResponse(BaseModel):
@@ -1337,12 +1351,20 @@ class QuanTriCauHinhAiResponse(BaseModel):
     deepseek_configured: bool = False
     deepseek_so_key: int = 0
     deepseek_keys_masked: list[str] = []
+    deepseek_model: str = "deepseek-chat"
+    gemini_configured: bool = False
+    gemini_so_key: int = 0
+    gemini_keys_masked: list[str] = []
+    gemini_model: str = "gemini-2.5-flash"
+    gemini_nguon: str = ""
     du_phong_configured: bool = False
     du_phong_so_key: int = 0
     du_phong_keys_masked: list[str] = []
+    nha_cung_cap_chinh: str = "tu_dong"
     nha_cung_cap_uu_tien: str = ""
     nguon_cau_hinh: str = ""
     cap_nhat_luc: str = ""
+    danh_sach_model_ai: list[dict] = []
 
 
 class QuanTriKiemTraAiRequest(BaseModel):
@@ -1357,6 +1379,8 @@ class QuanTriKiemTraAiResponse(BaseModel):
     khoa_che: str = ""
     do_tre_ms: int = 0
     ket_qua_mau: str = ""
+    so_du_hien_thi: str = ""
+    chi_tiet_models: list[dict] = []
     thong_diep: str = ""
 
 

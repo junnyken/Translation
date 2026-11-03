@@ -886,9 +886,21 @@ def lay_khoa_bi_mat_noi_bo(settings: Settings, nhan: str = "hmac-v1") -> bytes:
     return hashlib.sha256(f"{nhan}:{goc}".encode("utf-8")).digest()
 
 
+def _tach_khoa_sach(k: str) -> str:
+    """Lấy chuỗi khoá gốc (bỏ các tiền tố định tuyến `ds|model|`, `gm|model|`, `custom|url|model|`...)."""
+    s = (k or "").strip()
+    if "|" in s:
+        s = s.split("|")[-1].strip()
+    for pfx in ("ds:", "gm:", "oai:", "groq:", "or:"):
+        if s.startswith(pfx):
+            s = s[len(pfx):].strip()
+            break
+    return s
+
+
 def _che_mot_khoa_ai(k: str) -> str:
     """Che khoá bí mật khi hiển thị trên trang Quản trị (không lộ khoá thật, không lộ tiền tố nhạy cảm)."""
-    s = (k or "").strip()
+    s = _tach_khoa_sach(k)
     if not s:
         return ""
     if len(s) <= 10:
@@ -897,6 +909,14 @@ def _che_mot_khoa_ai(k: str) -> str:
     if dau.startswith("AIz"):
         dau = "AIz**"
     return f"{dau}...{s[-4:]}"
+
+
+def _tach_danh_sach_khoa(raw: str | None) -> list[str]:
+    import re
+
+    if not raw:
+        return []
+    return [k.strip() for k in re.split(r"[,;\n\r]+", str(raw)) if k and k.strip()]
 
 
 def doc_cau_hinh_khoa_ai_dong() -> dict:
@@ -916,43 +936,305 @@ def doc_cau_hinh_khoa_ai_dong() -> dict:
         return {}
 
 
+def _luu_ban_sao_env_goc(settings: Settings) -> tuple[str, str, str]:
+    """Lưu lại bản sao khoá `.env` ban đầu trên `settings` để khi thêm khoá mới trên Admin không làm mất khoá Gemini `.env`."""
+    if not hasattr(settings, "_env_deepseek_goc"):
+        raw_ds = ",".join(p for p in (settings.deepseek_api_keys, settings.deepseek_api_key) if p)
+        object.__setattr__(settings, "_env_deepseek_goc", raw_ds)
+    if not hasattr(settings, "_env_gemini_goc"):
+        object.__setattr__(settings, "_env_gemini_goc", str(settings.gemini_api_keys or ""))
+    if not hasattr(settings, "_env_model_goc"):
+        object.__setattr__(settings, "_env_model_goc", str(settings.llm_model_name or "gemini-2.5-flash"))
+    return (
+        getattr(settings, "_env_deepseek_goc", ""),
+        getattr(settings, "_env_gemini_goc", ""),
+        getattr(settings, "_env_model_goc", "gemini-2.5-flash"),
+    )
+
+
 def dong_bo_khoa_ai_dong(settings: Settings) -> dict:
-    """Đồng bộ khoá AI từ kho lưu trữ động (nếu quản trị viên đã thiết lập) vào đối tượng `settings`."""
+    """Đồng bộ toàn bộ khoá AI đa mô hình (DeepSeek, Gemini, OpenAI, OpenRouter, Groq, Custom) vào `settings`."""
+    env_ds_raw, env_gm_raw, env_model_goc = _luu_ban_sao_env_goc(settings)
     data = doc_cau_hinh_khoa_ai_dong()
     if not data:
         return {}
-    if "khoa_deepseek" in data and data["khoa_deepseek"] is not None:
-        settings.deepseek_api_keys = str(data["khoa_deepseek"]).strip()
+
+    # 1. DeepSeek
+    ds_admin = _tach_danh_sach_khoa(data.get("khoa_deepseek")) if "khoa_deepseek" in data else None
+    ds_env = _tach_danh_sach_khoa(env_ds_raw)
+    ds_keys_raw = ds_admin if (ds_admin is not None and len(ds_admin) > 0) else (
+        [] if data.get("xoa_tat_ca_admin") else ds_env
+    )
+    if ds_admin is not None and len(ds_admin) == 0 and "khoa_deepseek" in data:
+        # Nếu quản trị xoá trắng ô DeepSeek trên Admin nhưng .env có thì chỉ lấy .env khi không chủ đích xoá
+        ds_keys_raw = ds_env
+    model_ds = str(data.get("model_deepseek") or "deepseek-chat").strip() or "deepseek-chat"
+    ds_encoded = [
+        (f"ds|{model_ds}|{_tach_khoa_sach(k)}" if model_ds != "deepseek-chat" else _tach_khoa_sach(k))
+        for k in ds_keys_raw
+        if _tach_khoa_sach(k)
+    ]
+
+    # 2. Google Gemini (luôn giữ khoá Gemini từ .env hiển thị & dự phòng trừ khi bị ghi đè rõ ràng)
+    gm_admin_raw = data.get("khoa_gemini") if "khoa_gemini" in data else data.get("khoa_du_phong")
+    gm_admin = _tach_danh_sach_khoa(gm_admin_raw)
+    gm_env = _tach_danh_sach_khoa(env_gm_raw)
+    gm_keys_raw: list[str] = []
+    for k in [*gm_admin, *gm_env]:
+        ks = _tach_khoa_sach(k)
+        if ks and ks not in gm_keys_raw and not ks.startswith("sk-"):
+            gm_keys_raw.append(ks)
+    # Nếu người dùng từng dán khoá sk-... hoặc gsk_... vào ô "khoá dự phòng" cũ:
+    dp_khac_raw = [
+        _tach_khoa_sach(k)
+        for k in gm_admin
+        if _tach_khoa_sach(k).startswith(("sk-", "gsk_"))
+    ]
+    model_gm = str(data.get("model_gemini") or env_model_goc or "gemini-2.5-flash").strip()
+    if model_gm.lower().startswith("deepseek"):
+        model_gm = "gemini-2.5-flash"
+    gm_encoded = [f"gm|{model_gm}|{k}" for k in gm_keys_raw if k]
+
+    # 3. OpenAI (ChatGPT API)
+    oai_admin = _tach_danh_sach_khoa(data.get("khoa_openai"))
+    model_oai = str(data.get("model_openai") or "gpt-4o-mini").strip() or "gpt-4o-mini"
+    oai_encoded = [f"oai|{model_oai}|{_tach_khoa_sach(k)}" for k in oai_admin if _tach_khoa_sach(k)]
+
+    # 4. OpenRouter
+    or_admin = _tach_danh_sach_khoa(data.get("khoa_openrouter"))
+    model_or = str(data.get("model_openrouter") or "google/gemini-2.5-flash").strip() or "google/gemini-2.5-flash"
+    or_encoded = [f"or|{model_or}|{_tach_khoa_sach(k)}" for k in or_admin if _tach_khoa_sach(k)]
+
+    # 5. Groq LPU
+    groq_admin = _tach_danh_sach_khoa(data.get("khoa_groq"))
+    model_groq = str(data.get("model_groq") or "llama-3.3-70b-versatile").strip() or "llama-3.3-70b-versatile"
+    groq_encoded = [f"groq|{model_groq}|{_tach_khoa_sach(k)}" for k in groq_admin if _tach_khoa_sach(k)]
+
+    # 6. Custom OpenAI-Compatible Model
+    custom_url = str(data.get("custom_base_url") or "").strip()
+    custom_model = str(data.get("custom_model") or "").strip()
+    custom_keys = _tach_danh_sach_khoa(data.get("custom_api_key"))
+    custom_encoded: list[str] = []
+    if custom_url and custom_keys:
+        m_c = custom_model or "gpt-4o-mini"
+        custom_encoded = [
+            f"custom|{custom_url}|{m_c}|{_tach_khoa_sach(k)}"
+            for k in custom_keys
+            if _tach_khoa_sach(k)
+        ]
+
+    # Sắp xếp thứ tự ưu tiên theo `nha_cung_cap_chinh`
+    uu_tien = str(data.get("nha_cung_cap_chinh") or "tu_dong").strip().lower()
+    nhom_map = {
+        "deepseek": ds_encoded,
+        "gemini": gm_encoded,
+        "openai": oai_encoded,
+        "openrouter": or_encoded,
+        "groq": groq_encoded,
+        "custom": custom_encoded,
+    }
+    thu_tu_mac_dinh = ["deepseek", "gemini", "openai", "openrouter", "groq", "custom"]
+    if uu_tien in nhom_map:
+        thu_tu = [uu_tien] + [x for x in thu_tu_mac_dinh if x != uu_tien]
+    else:
+        thu_tu = thu_tu_mac_dinh
+
+     # Nạp vào settings để LLMContextTranslator xoay vòng theo đúng thứ tự ưu tiên
+    if uu_tien == "gemini" and gm_encoded:
+        settings.deepseek_api_keys = ""
         settings.deepseek_api_key = ""
-    if "khoa_du_phong" in data and data["khoa_du_phong"] is not None:
-        settings.gemini_api_keys = str(data["khoa_du_phong"]).strip()
+    else:
+        settings.deepseek_api_keys = ",".join(ds_encoded)
+        settings.deepseek_api_key = ""
+
+    tat_ca_theo_thu_tu: list[str] = []
+    for nhom_k in thu_tu:
+        for k_enc in nhom_map.get(nhom_k, []):
+            if k_enc not in tat_ca_theo_thu_tu:
+                tat_ca_theo_thu_tu.append(k_enc)
+    for k_dp in dp_khac_raw:
+        if k_dp not in tat_ca_theo_thu_tu:
+            tat_ca_theo_thu_tu.append(k_dp)
+
+    # Giữ tương thích cho các chỗ chỉ cần Gemini raw key (như Vision OCR `ai_gemini`)
+    object.__setattr__(settings, "_gemini_raw_keys_list", gm_keys_raw)
+    settings.gemini_api_keys = ",".join(tat_ca_theo_thu_tu)
     return data
 
 
 def lay_thong_tin_khoa_ai_che(settings: Settings, data_dong: dict | None = None) -> dict:
-    """Trả thông tin trạng thái khoá AI đã được che mật mã cho trang Quản trị."""
+    """Trả thông tin trạng thái toàn bộ các Model AI đã được che mật mã cho trang Quản trị."""
+    env_ds_raw, env_gm_raw, env_model_goc = _luu_ban_sao_env_goc(settings)
     data = data_dong if data_dong is not None else dong_bo_khoa_ai_dong(settings)
-    ds_list = settings.deepseek_api_key_list
-    all_list = settings.gemini_api_key_list
-    gm_list = [k for k in all_list if k not in ds_list]
+
+    # Tách danh sách từng nhà cung cấp rõ ràng để hiển thị đầy đủ cả DeepSeek, Gemini và các Model khác
+    ds_admin = _tach_danh_sach_khoa(data.get("khoa_deepseek"))
+    ds_env = _tach_danh_sach_khoa(env_ds_raw)
+    ds_list = ds_admin if ds_admin else ds_env
+    ds_nguon = "Admin" if ds_admin else (".env" if ds_env else "Chưa gắn")
+    model_ds = str(data.get("model_deepseek") or "deepseek-chat").strip() or "deepseek-chat"
+
+    gm_admin = [
+        _tach_khoa_sach(k)
+        for k in _tach_danh_sach_khoa(data.get("khoa_gemini") or data.get("khoa_du_phong"))
+        if not _tach_khoa_sach(k).startswith(("sk-", "gsk_"))
+    ]
+    gm_env = [
+        _tach_khoa_sach(k)
+        for k in _tach_danh_sach_khoa(env_gm_raw)
+        if not _tach_khoa_sach(k).startswith(("sk-", "gsk_"))
+    ]
+    gm_list: list[str] = []
+    for k in [*gm_admin, *gm_env]:
+        if k and k not in gm_list:
+            gm_list.append(k)
+    gm_nguon = (
+        "Admin + .env"
+        if (gm_admin and gm_env)
+        else ("Admin" if gm_admin else (".env" if gm_env else "Chưa gắn"))
+    )
+    model_gm = str(data.get("model_gemini") or env_model_goc or "gemini-2.5-flash").strip()
+    if model_gm.lower().startswith("deepseek"):
+        model_gm = "gemini-2.5-flash"
+
+    oai_list = _tach_danh_sach_khoa(data.get("khoa_openai"))
+    model_oai = str(data.get("model_openai") or "gpt-4o-mini").strip() or "gpt-4o-mini"
+
+    or_list = _tach_danh_sach_khoa(data.get("khoa_openrouter"))
+    model_or = str(data.get("model_openrouter") or "google/gemini-2.5-flash").strip() or "google/gemini-2.5-flash"
+
+    groq_list = _tach_danh_sach_khoa(data.get("khoa_groq"))
+    model_groq = str(data.get("model_groq") or "llama-3.3-70b-versatile").strip() or "llama-3.3-70b-versatile"
+
+    custom_ten = str(data.get("custom_ten") or "Model Mở Rộng (OpenAI-Compatible)").strip()
+    custom_url = str(data.get("custom_base_url") or "").strip()
+    custom_model = str(data.get("custom_model") or "").strip()
+    custom_list = _tach_danh_sach_khoa(data.get("custom_api_key")) if custom_url else []
+
+    uu_tien = str(data.get("nha_cung_cap_chinh") or "tu_dong").strip().lower()
+
+    danh_sach_model_ai = [
+        {
+            "id": "deepseek",
+            "ten": "DeepSeek AI",
+            "mo_ta": "Dịch ngữ cảnh truyện tranh & Biên kịch Review",
+            "model": model_ds,
+            "da_ket_noi": bool(ds_list),
+            "so_key": len(ds_list),
+            "keys_masked": [_che_mot_khoa_ai(k) for k in ds_list],
+            "nguon": ds_nguon,
+            "ho_tro_so_du_tien": True,
+            "link_quan_ly": "https://platform.deepseek.com/usage",
+        },
+        {
+            "id": "gemini",
+            "ten": "Google Gemini",
+            "mo_ta": "Vision OCR Đọc chữ phức tạp & Dịch ngữ cảnh đa phương thức",
+            "model": model_gm,
+            "da_ket_noi": bool(gm_list),
+            "so_key": len(gm_list),
+            "keys_masked": [_che_mot_khoa_ai(k) for k in gm_list],
+            "nguon": gm_nguon,
+            "ho_tro_so_du_tien": False,
+            "link_quan_ly": "https://aistudio.google.com/apikey",
+        },
+        {
+            "id": "openai",
+            "ten": "OpenAI (ChatGPT API)",
+            "mo_ta": "GPT-4o / GPT-4.1 Mini chuẩn quốc tế",
+            "model": model_oai,
+            "da_ket_noi": bool(oai_list),
+            "so_key": len(oai_list),
+            "keys_masked": [_che_mot_khoa_ai(k) for k in oai_list],
+            "nguon": "Admin" if oai_list else "Chưa gắn",
+            "ho_tro_so_du_tien": False,
+            "link_quan_ly": "https://platform.openai.com/usage",
+        },
+        {
+            "id": "openrouter",
+            "ten": "OpenRouter (200+ Model)",
+            "mo_ta": "Claude 3.7, Gemini, Qwen, DeepSeek qua 1 cổng",
+            "model": model_or,
+            "da_ket_noi": bool(or_list),
+            "so_key": len(or_list),
+            "keys_masked": [_che_mot_khoa_ai(k) for k in or_list],
+            "nguon": "Admin" if or_list else "Chưa gắn",
+            "ho_tro_so_du_tien": True,
+            "link_quan_ly": "https://openrouter.ai/settings/credits",
+        },
+        {
+            "id": "groq",
+            "ten": "Groq LPU Siêu Tốc",
+            "mo_ta": "Llama 3.3 70B tốc độ phản hồi ~200ms",
+            "model": model_groq,
+            "da_ket_noi": bool(groq_list),
+            "so_key": len(groq_list),
+            "keys_masked": [_che_mot_khoa_ai(k) for k in groq_list],
+            "nguon": "Admin" if groq_list else "Chưa gắn",
+            "ho_tro_so_du_tien": False,
+            "link_quan_ly": "https://console.groq.com/keys",
+        },
+        {
+            "id": "custom",
+            "ten": custom_ten,
+            "mo_ta": custom_url or "Kết nối bất kỳ API chuẩn OpenAI nào trong tương lai",
+            "base_url": custom_url,
+            "model": custom_model or "custom-model",
+            "da_ket_noi": bool(custom_list and custom_url),
+            "so_key": len(custom_list),
+            "keys_masked": [_che_mot_khoa_ai(k) for k in custom_list],
+            "nguon": "Admin" if custom_list else "Chưa gắn",
+            "ho_tro_so_du_tien": False,
+            "link_quan_ly": custom_url,
+        },
+    ]
+
+    du_phong_all = [*gm_list, *oai_list, *or_list, *groq_list, *custom_list]
+    ten_uu_tien_map = {
+        "deepseek": f"DeepSeek ({model_ds})",
+        "gemini": f"Google Gemini ({model_gm})",
+        "openai": f"OpenAI ({model_oai})",
+        "openrouter": f"OpenRouter ({model_or})",
+        "groq": f"Groq LPU ({model_groq})",
+        "custom": f"{custom_ten} ({custom_model})",
+    }
+    if uu_tien in ten_uu_tien_map and any(m["id"] == uu_tien and m["da_ket_noi"] for m in danh_sach_model_ai):
+        nha_cung_cap_uu_tien = ten_uu_tien_map[uu_tien]
+    elif ds_list:
+        nha_cung_cap_uu_tien = f"DeepSeek ({model_ds})" + (f" + Gemini ({model_gm})" if gm_list else "")
+    elif gm_list:
+        nha_cung_cap_uu_tien = f"Google Gemini ({model_gm})"
+    elif du_phong_all:
+        nha_cung_cap_uu_tien = next((m["ten"] for m in danh_sach_model_ai if m["da_ket_noi"]), "AI Đa mô hình")
+    else:
+        nha_cung_cap_uu_tien = "Chưa cấu hình (Đang dùng bản dịch nhanh miễn phí)"
+
     return {
         "deepseek_configured": bool(ds_list),
         "deepseek_so_key": len(ds_list),
         "deepseek_keys_masked": [_che_mot_khoa_ai(k) for k in ds_list],
-        "du_phong_configured": bool(gm_list),
-        "du_phong_so_key": len(gm_list),
-        "du_phong_keys_masked": [_che_mot_khoa_ai(k) for k in gm_list],
-        "nha_cung_cap_uu_tien": (
-            "DeepSeek (deepseek-chat)"
-            if ds_list
-            else ("AI Dự phòng" if gm_list else "Chưa cấu hình (Đang dùng bản dịch nhanh miễn phí)")
-        ),
+        "deepseek_model": model_ds,
+        "gemini_configured": bool(gm_list),
+        "gemini_so_key": len(gm_list),
+        "gemini_keys_masked": [_che_mot_khoa_ai(k) for k in gm_list],
+        "gemini_model": model_gm,
+        "gemini_nguon": gm_nguon,
+        "du_phong_configured": bool(du_phong_all),
+        "du_phong_so_key": len(du_phong_all),
+        "du_phong_keys_masked": [_che_mot_khoa_ai(k) for k in du_phong_all],
+        "nha_cung_cap_chinh": uu_tien,
+        "nha_cung_cap_uu_tien": nha_cung_cap_uu_tien,
         "nguon_cau_hinh": (
-            f"Quản trị viên ({data.get('nguoi_cap_nhat') or 'Admin'})"
-            if data.get("cap_nhat_luc")
-            else ("Biến môi trường máy chủ (.env)" if (ds_list or gm_list) else "Chưa thiết lập")
+            f"Quản trị viên ({data.get('nguoi_cap_nhat') or 'Admin'}) + .env"
+            if (data.get("cap_nhat_luc") and (ds_env or gm_env))
+            else (
+                f"Quản trị viên ({data.get('nguoi_cap_nhat') or 'Admin'})"
+                if data.get("cap_nhat_luc")
+                else ("Biến môi trường máy chủ (.env)" if (ds_list or gm_list) else "Chưa thiết lập")
+            )
         ),
         "cap_nhat_luc": data.get("cap_nhat_luc") or "",
+        "danh_sach_model_ai": danh_sach_model_ai,
     }
 
 
@@ -960,48 +1242,263 @@ def luu_cau_hinh_khoa_ai_dong(
     settings: Settings,
     *,
     khoa_deepseek: str | None = None,
+    model_deepseek: str | None = None,
+    khoa_gemini: str | None = None,
+    model_gemini: str | None = None,
     khoa_du_phong: str | None = None,
+    khoa_openai: str | None = None,
+    model_openai: str | None = None,
+    khoa_openrouter: str | None = None,
+    model_openrouter: str | None = None,
+    khoa_groq: str | None = None,
+    model_groq: str | None = None,
+    custom_ten: str | None = None,
+    custom_base_url: str | None = None,
+    custom_api_key: str | None = None,
+    custom_model: str | None = None,
+    nha_cung_cap_chinh: str | None = None,
     email_quan_tri: str = "",
 ) -> dict:
-    """Lưu khoá DeepSeek / dự phòng vào kho chung và áp dụng ngay cho tiến trình hiện tại."""
+    """Lưu cấu hình đa mô hình AI vào kho chung và áp dụng ngay cho tiến trình hiện tại."""
     import json
-    import re
     from datetime import datetime, timezone
     from app.services.storage import get_storage
 
+    _luu_ban_sao_env_goc(settings)
     data = doc_cau_hinh_khoa_ai_dong()
+
+    def _clean_csv(val: str | None) -> str:
+        return ",".join(_tach_danh_sach_khoa(val))
+
     if khoa_deepseek is not None:
-        clean_ds = ",".join(
-            k.strip() for k in re.split(r"[,;\n\r]+", str(khoa_deepseek)) if k.strip()
-        )
-        data["khoa_deepseek"] = clean_ds
-        settings.deepseek_api_keys = clean_ds
-        settings.deepseek_api_key = ""
+        data["khoa_deepseek"] = _clean_csv(khoa_deepseek)
+    if model_deepseek is not None and model_deepseek.strip():
+        data["model_deepseek"] = model_deepseek.strip()
+    if khoa_gemini is not None:
+        data["khoa_gemini"] = _clean_csv(khoa_gemini)
+    if model_gemini is not None and model_gemini.strip():
+        data["model_gemini"] = model_gemini.strip()
     if khoa_du_phong is not None:
-        clean_gm = ",".join(
-            k.strip() for k in re.split(r"[,;\n\r]+", str(khoa_du_phong)) if k.strip()
-        )
-        data["khoa_du_phong"] = clean_gm
-        settings.gemini_api_keys = clean_gm
+        data["khoa_du_phong"] = _clean_csv(khoa_du_phong)
+        if khoa_gemini is None:
+            data["khoa_gemini"] = _clean_csv(khoa_du_phong)
+    if khoa_openai is not None:
+        data["khoa_openai"] = _clean_csv(khoa_openai)
+    if model_openai is not None and model_openai.strip():
+        data["model_openai"] = model_openai.strip()
+    if khoa_openrouter is not None:
+        data["khoa_openrouter"] = _clean_csv(khoa_openrouter)
+    if model_openrouter is not None and model_openrouter.strip():
+        data["model_openrouter"] = model_openrouter.strip()
+    if khoa_groq is not None:
+        data["khoa_groq"] = _clean_csv(khoa_groq)
+    if model_groq is not None and model_groq.strip():
+        data["model_groq"] = model_groq.strip()
+    if custom_ten is not None:
+        data["custom_ten"] = custom_ten.strip()
+    if custom_base_url is not None:
+        data["custom_base_url"] = custom_base_url.strip()
+    if custom_api_key is not None:
+        data["custom_api_key"] = _clean_csv(custom_api_key)
+    if custom_model is not None:
+        data["custom_model"] = custom_model.strip()
+    if nha_cung_cap_chinh is not None and nha_cung_cap_chinh.strip():
+        data["nha_cung_cap_chinh"] = nha_cung_cap_chinh.strip().lower()
 
     data["cap_nhat_luc"] = datetime.now(timezone.utc).isoformat()
     data["nguoi_cap_nhat"] = email_quan_tri
 
     storage = get_storage()
     storage.save(REL_CAU_HINH_KHOA_AI, json.dumps(data, ensure_ascii=False).encode("utf-8"))
+    dong_bo_khoa_ai_dong(settings)
     return lay_thong_tin_khoa_ai_che(settings, data)
 
 
-def kiem_tra_ket_noi_khoa_ai(settings: Settings, khoa_thu: str | None = None) -> dict:
-    """Kiểm tra nhanh kết nối thật tới DeepSeek / AI bằng một câu ngắn."""
-    import re
+def _tra_cuu_so_du_deepseek(api_key: str) -> dict:
+    """Gọi `GET https://api.deepseek.com/user/balance` để lấy chính xác số tiền còn lại của khoá DeepSeek."""
+    import json
+    import urllib.request
+
+    clean_k = _tach_khoa_sach(api_key)
+    req = urllib.request.Request(
+        "https://api.deepseek.com/user/balance",
+        method="GET",
+        headers={
+            "Authorization": f"Bearer {clean_k}",
+            "Accept": "application/json",
+            "User-Agent": "ComicTranslator/2.0",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=8.0) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+        is_avail = bool(body.get("is_available", False))
+        infos = body.get("balance_infos") or []
+        if infos and isinstance(infos, list):
+            # Ưu tiên USD hoặc bản ghi có số dư > 0
+            chon = infos[0]
+            for item in infos:
+                try:
+                    if float(item.get("total_balance") or 0) > 0:
+                        chon = item
+                        break
+                except Exception:
+                    pass
+            cur = str(chon.get("currency") or "USD").upper()
+            ky_hieu = "$" if cur == "USD" else ("¥" if cur in ("CNY", "RMB") else f"{cur} ")
+            tong = float(chon.get("total_balance") or 0)
+            nap = float(chon.get("topped_up_balance") or 0)
+            tang = float(chon.get("granted_balance") or 0)
+            con_tien = is_avail and tong > 0
+            chuoi = f"{ky_hieu}{tong:.2f} {cur} (Nạp: {ky_hieu}{nap:.2f} · Tặng: {ky_hieu}{tang:.2f})"
+            return {
+                "co_so_du_tien": True,
+                "con_tien": con_tien,
+                "so_du_so": round(tong, 4),
+                "don_vi_tien": cur,
+                "so_du_hien_thi": chuoi if con_tien else f"{ky_hieu}{tong:.2f} {cur} (Hết số dư - Cần nạp thêm)",
+            }
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "co_so_du_tien": False,
+            "con_tien": None,
+            "so_du_so": None,
+            "don_vi_tien": "",
+            "so_du_hien_thi": f"Không đọc được số dư ({str(exc)[:60]})",
+        }
+    return {
+        "co_so_du_tien": False,
+        "con_tien": None,
+        "so_du_so": None,
+        "don_vi_tien": "",
+        "so_du_hien_thi": "Không có thông tin số dư",
+    }
+
+
+def _tra_cuu_so_du_openrouter(api_key: str) -> dict:
+    """Gọi `GET https://openrouter.ai/api/v1/credits` để lấy số tiền USD còn lại trên OpenRouter."""
+    import json
+    import urllib.request
+
+    clean_k = _tach_khoa_sach(api_key)
+    req = urllib.request.Request(
+        "https://openrouter.ai/api/v1/credits",
+        method="GET",
+        headers={
+            "Authorization": f"Bearer {clean_k}",
+            "Accept": "application/json",
+            "User-Agent": "ComicTranslator/2.0",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=8.0) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+        d = body.get("data") or {}
+        tong_nap = float(d.get("total_credits") or 0)
+        da_dung = float(d.get("total_usage") or 0)
+        con_lai = max(0.0, tong_nap - da_dung)
+        return {
+            "co_so_du_tien": True,
+            "con_tien": con_lai > 0,
+            "so_du_so": round(con_lai, 4),
+            "don_vi_tien": "USD",
+            "so_du_hien_thi": f"${con_lai:.2f} USD (Đã dùng: ${da_dung:.2f} / Tổng: ${tong_nap:.2f})",
+        }
+    except Exception:  # noqa: BLE001
+        return {
+            "co_so_du_tien": False,
+            "con_tien": None,
+            "so_du_so": None,
+            "don_vi_tien": "USD",
+            "so_du_hien_thi": "Tính theo hạn mức khoá OpenRouter",
+        }
+
+
+def _kiem_tra_mot_khoa_ai(raw_key: str, default_model: str) -> dict:
+    """Kiểm tra kết nối thực tế + số dư (nếu nhà cung cấp hỗ trợ) cho 1 khoá AI."""
     import time
     from app.services.translate.engines import LLMContextTranslator
+
+    info = LLMContextTranslator._phan_tich_khoa_ai(raw_key, default_model)
+    provider = info["provider"]
+    ten_ncc = info["ten_ncc"]
+    model_used = info["model"]
+    clean_k = info["api_key"]
+    khoa_che = _che_mot_khoa_ai(clean_k)
+
+    # Tra cứu số dư tiền cho DeepSeek / OpenRouter
+    tt_tien = {
+        "co_so_du_tien": False,
+        "con_tien": None,
+        "so_du_so": None,
+        "don_vi_tien": "",
+        "so_du_hien_thi": (
+            "Theo gói Google AI Studio / Cloud Billing"
+            if provider == "gemini"
+            else ("Theo hạn mức Billing OpenAI" if provider == "openai" else "Theo hạn mức Rate-limit của hãng")
+        ),
+    }
+    if provider == "deepseek":
+        tt_tien = _tra_cuu_so_du_deepseek(clean_k)
+    elif provider == "openrouter":
+        tt_tien = _tra_cuu_so_du_openrouter(clean_k)
+
+    t0 = time.monotonic()
+    try:
+        tr = LLMContextTranslator(
+            api_keys=[raw_key],
+            model_name=model_used,
+            timeout=15.0,
+            max_output_tokens=64,
+        )
+        kq = tr.translate(["Hello, nice to meet you!"], source_lang="en", target_lang="vi")
+        ms = int((time.monotonic() - t0) * 1000)
+        mau = (kq[0] if kq else "").strip()
+        so_du_str = f" · Số dư: {tt_tien['so_du_hien_thi']}" if tt_tien.get("co_so_du_tien") else ""
+        return {
+            "id": provider,
+            "ok": True,
+            "nha_cung_cap": ten_ncc,
+            "model": model_used,
+            "khoa_che": khoa_che,
+            "do_tre_ms": ms,
+            "ket_qua_mau": mau,
+            **tt_tien,
+            "thong_diep": f"Kết nối {ten_ncc} thành công ({ms} ms){so_du_str}! Bản dịch thử: \"{mau}\"",
+        }
+    except Exception as exc:  # noqa: BLE001
+        ms = int((time.monotonic() - t0) * 1000)
+        loi_str = str(exc)
+        if "402" in loi_str:
+            chi_tiet = f"Khoá {ten_ncc} hợp lệ nhưng tài khoản đang HẾT SỐ DƯ (HTTP 402 Insufficient Balance)."
+            tt_tien["con_tien"] = False
+        elif "401" in loi_str or "403" in loi_str:
+            chi_tiet = f"Khoá {ten_ncc} không hợp lệ hoặc bị từ chối quyền truy cập (HTTP 401/403)."
+        elif "429" in loi_str:
+            chi_tiet = f"Khoá {ten_ncc} đang chạm giới hạn tốc độ / hạn mức phút (HTTP 429 Rate Limit)."
+        else:
+            chi_tiet = f"Không kết nối được {ten_ncc} ({loi_str[:160]})."
+        return {
+            "id": provider,
+            "ok": False,
+            "nha_cung_cap": ten_ncc,
+            "model": model_used,
+            "khoa_che": khoa_che,
+            "do_tre_ms": ms,
+            "ket_qua_mau": "",
+            **tt_tien,
+            "thong_diep": chi_tiet,
+        }
+
+
+def kiem_tra_ket_noi_khoa_ai(settings: Settings, khoa_thu: str | None = None) -> dict:
+    """Kiểm tra kết nối & số dư tiền trực tiếp của khoá đang thử VÀ toàn bộ các Model AI đã gắn."""
+    from concurrent.futures import ThreadPoolExecutor
 
     dong_bo_khoa_ai_dong(settings)
     ds_thu: list[str] = []
     if khoa_thu and str(khoa_thu).strip():
-        ds_thu = [k.strip() for k in re.split(r"[,;\n\r]+", str(khoa_thu)) if k.strip()]
+        ds_thu = _tach_danh_sach_khoa(khoa_thu)
     if not ds_thu:
         ds_thu = settings.gemini_api_key_list
     if not ds_thu:
@@ -1011,50 +1508,40 @@ def kiem_tra_ket_noi_khoa_ai(settings: Settings, khoa_thu: str | None = None) ->
             "khoa_che": "",
             "do_tre_ms": 0,
             "ket_qua_mau": "",
-            "thong_diep": "Chưa có khoá AI nào để kiểm tra. Hãy dán khoá sk-... vào ô bên dưới trước.",
+            "so_du_hien_thi": "",
+            "chi_tiet_models": [],
+            "thong_diep": "Chưa có khoá AI nào để kiểm tra. Hãy dán khoá vào ô cấu hình trước.",
         }
 
-    key_dau = ds_thu[0]
-    la_ds = LLMContextTranslator._la_khoa_deepseek(key_dau, settings.llm_model_name)
-    ten_ncc = "DeepSeek (deepseek-chat)" if la_ds else "AI Dự phòng"
-    t0 = time.monotonic()
-    try:
-        tr = LLMContextTranslator(
-            api_keys=[key_dau],
-            model_name=settings.llm_model_name,
-            timeout=15.0,
-            max_output_tokens=64,
+    # Kiểm tra song song tất cả các khoá đã cấu hình (tối đa 6 khoá đại diện) để bảng Admin hiện đủ cả DeepSeek + Gemini + Model khác
+    danh_sach_kiem = ds_thu[:6]
+    with ThreadPoolExecutor(max_workers=min(4, len(danh_sach_kiem))) as ex:
+        ket_qua_list = list(
+            ex.map(lambda k: _kiem_tra_mot_khoa_ai(k, settings.llm_model_name), danh_sach_kiem)
         )
-        kq = tr.translate(["Hello, nice to meet you!"], source_lang="en", target_lang="vi")
-        ms = int((time.monotonic() - t0) * 1000)
-        mau = (kq[0] if kq else "").strip()
-        return {
-            "ok": True,
-            "nha_cung_cap": ten_ncc,
-            "khoa_che": _che_mot_khoa_ai(key_dau),
-            "do_tre_ms": ms,
-            "ket_qua_mau": mau,
-            "thong_diep": f"Kết nối {ten_ncc} thành công ({ms} ms)! Bản dịch thử: \"{mau}\"",
-        }
-    except Exception as exc:  # noqa: BLE001
-        ms = int((time.monotonic() - t0) * 1000)
-        loi_str = str(exc)
-        if "402" in loi_str:
-            chi_tiet = "Khoá DeepSeek hợp lệ nhưng tài khoản đang hết số dư (HTTP 402 Insufficient Balance). Vui lòng nạp thêm trên platform.deepseek.com."
-        elif "401" in loi_str or "403" in loi_str:
-            chi_tiet = "Khoá API không hợp lệ hoặc đã bị thu hồi (HTTP 401/403). Vui lòng kiểm tra lại chuỗi sk-..."
-        elif "429" in loi_str:
-            chi_tiet = "Khoá đang chạm giới hạn tốc độ (HTTP 429 Rate Limit)."
-        else:
-            chi_tiet = f"Không kết nối được ({loi_str[:160]})."
-        return {
-            "ok": False,
-            "nha_cung_cap": ten_ncc,
-            "khoa_che": _che_mot_khoa_ai(key_dau),
-            "do_tre_ms": ms,
-            "ket_qua_mau": "",
-            "thong_diep": chi_tiet,
-        }
+
+    chinh = ket_qua_list[0]
+    ok_count = sum(1 for item in ket_qua_list if item.get("ok"))
+    if len(ket_qua_list) > 1:
+        tom_tat = " | ".join(
+            f"{item['nha_cung_cap']}: {'🟢 OK' if item['ok'] else '🔴 Lỗi'}"
+            + (f" ({item['so_du_hien_thi']})" if item.get("co_so_du_tien") else f" ({item['do_tre_ms']}ms)")
+            for item in ket_qua_list
+        )
+        thong_diep_gop = f"Đã kiểm tra {len(ket_qua_list)} khoá AI ({ok_count}/{len(ket_qua_list)} hoạt động): {tom_tat}"
+    else:
+        thong_diep_gop = chinh["thong_diep"]
+
+    return {
+        "ok": any(item.get("ok") for item in ket_qua_list),
+        "nha_cung_cap": chinh["nha_cung_cap"],
+        "khoa_che": chinh["khoa_che"],
+        "do_tre_ms": chinh["do_tre_ms"],
+        "ket_qua_mau": chinh["ket_qua_mau"],
+        "so_du_hien_thi": chinh.get("so_du_hien_thi") or "",
+        "chi_tiet_models": ket_qua_list,
+        "thong_diep": thong_diep_gop,
+    }
 
 
 def dich_danh_sach_thoai_ngu_canh_dong(
