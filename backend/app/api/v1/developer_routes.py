@@ -168,6 +168,26 @@ async def _xac_thuc_developer(
     if not ma and api_key_query and api_key_query.strip():
         ma = api_key_query.strip()
     nguoi = await tai_khoan.lay_theo_ma_phien(session, ma) if ma else None
+
+    # Hỗ trợ xác thực trực tiếp bằng X-RapidAPI-Proxy-Secret do RapidAPI cấp (đã lưu trong Admin hoặc .env)
+    if nguoi is None and x_rapidapi_proxy_secret and x_rapidapi_proxy_secret.strip():
+        try:
+            from app.api.v1.routes import _doc_cau_hinh_thanh_toan_day_du
+
+            tt_cfg = await run_in_threadpool(_doc_cau_hinh_thanh_toan_day_du, settings)
+            secret_goc = (tt_cfg.get("rapidapi_proxy_secret") or settings.rapidapi_proxy_secret or "").strip()
+            if secret_goc and hmac.compare_digest(x_rapidapi_proxy_secret.strip(), secret_goc):
+                nguoi = (
+                    await session.execute(
+                        select(NguoiDung)
+                        .where(NguoiDung.dang_hoat_dong.is_(True))
+                        .order_by(NguoiDung.la_quan_tri.desc(), NguoiDung.so_luot_mua_them.desc())
+                        .limit(1)
+                    )
+                ).scalar_one_or_none()
+        except Exception:
+            pass
+
     if nguoi is None:
         if ma and ip_bam is not None and ngay is not None:
             await ghi_nhan_dang_nhap_sai(session, ip_da_bam=ip_bam, ngay=ngay, tran=tran)

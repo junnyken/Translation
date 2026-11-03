@@ -175,6 +175,8 @@ class Settings(BaseSettings):
     ngan_hang_chu_tk: str = ""
     #: Email hỗ trợ hệ thống (tạm ẩn).
     email_quan_tri_he_thong: str = ""
+    #: Khoá bí mật X-RapidAPI-Proxy-Secret do RapidAPI cấp (để xác thực request từ chợ RapidAPI).
+    rapidapi_proxy_secret: str = ""
     #: Đơn giá VNĐ chuẩn theo Phương án A (500 VNĐ/trang ⇒ 50.000đ = 100 trang, kèm Gói Mồi 19.000đ = 50 trang).
     ty_le_vnd_moi_trang: int = 500
 

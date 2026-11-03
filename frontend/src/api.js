@@ -694,6 +694,7 @@ export const quanTriCapLuot = ({
   paypalEmail = undefined,
   paypalClientId = undefined,
   rapidapiUrl = undefined,
+  rapidapiProxySecret = undefined,
 }) => {
   const payload = {
     email,
@@ -707,6 +708,7 @@ export const quanTriCapLuot = ({
   if (paypalEmail !== undefined) payload.paypal_email = paypalEmail
   if (paypalClientId !== undefined) payload.paypal_client_id = paypalClientId
   if (rapidapiUrl !== undefined) payload.rapidapi_url = rapidapiUrl
+  if (rapidapiProxySecret !== undefined) payload.rapidapi_proxy_secret = rapidapiProxySecret
   return fetch(`${BASE}/quan-tri/cap-luot`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

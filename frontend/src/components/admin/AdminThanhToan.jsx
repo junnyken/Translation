@@ -16,6 +16,7 @@ export default function AdminThanhToan({ thongKe, onNap, setLoi, setThongBaoOk }
   const [paypalEmail, setPaypalEmail] = useState(thongKe?.paypal_email || '')
   const [paypalClientId, setPaypalClientId] = useState(thongKe?.paypal_client_id || '')
   const [rapidapiUrl, setRapidapiUrl] = useState(thongKe?.rapidapi_url || '')
+  const [rapidapiProxySecret, setRapidapiProxySecret] = useState('')
   const [dangLuuNh, setDangLuuNh] = useState(false)
   const [dangLam, setDangLam] = useState(null)
 
@@ -45,6 +46,7 @@ export default function AdminThanhToan({ thongKe, onNap, setLoi, setThongBaoOk }
         paypalEmail: paypalEmail.trim(),
         paypalClientId: paypalClientId.trim(),
         rapidapiUrl: rapidapiUrl.trim(),
+        ...(rapidapiProxySecret.trim() ? { rapidapiProxySecret: rapidapiProxySecret.trim() } : {}),
       })
       setThongBaoOk(
         kq?.thong_diep ||
@@ -158,6 +160,24 @@ export default function AdminThanhToan({ thongKe, onNap, setLoi, setThongBaoOk }
                   placeholder="https://rapidapi.com/your-org/api/ai-comic-translator"
                   value={rapidapiUrl}
                   onChange={(e) => setRapidapiUrl(e.target.value)}
+                />
+              </div>
+              <div className="admin-form-nhom" style={{ flex: '1 1 240px' }}>
+                <label>
+                  🛡️ X-RapidAPI-Proxy-Secret{' '}
+                  {thongKe?.rapidapi_proxy_secret_configured ? (
+                    <span style={{ color: '#34d399', fontSize: 11 }}>(✅ Đã kết nối)</span>
+                  ) : null}
+                </label>
+                <input
+                  type="password"
+                  placeholder={
+                    thongKe?.rapidapi_proxy_secret_configured
+                      ? 'Đã lưu — dán mã mới nếu muốn đổi'
+                      : 'Dán mã X-RapidAPI-Proxy-Secret từ tab Gateway'
+                  }
+                  value={rapidapiProxySecret}
+                  onChange={(e) => setRapidapiProxySecret(e.target.value)}
                 />
               </div>
               <Button type="submit" kieu="phu" disabled={dangLuuNh}>

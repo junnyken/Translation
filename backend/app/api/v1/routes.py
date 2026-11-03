@@ -536,6 +536,7 @@ def _doc_cau_hinh_thanh_toan_day_du(settings: Settings) -> dict[str, str]:
         "paypal_email": (data.get("paypal_email") or "").strip(),
         "paypal_client_id": (data.get("paypal_client_id") or "").strip(),
         "rapidapi_url": (data.get("rapidapi_url") or "").strip(),
+        "rapidapi_proxy_secret": (data.get("rapidapi_proxy_secret") or settings.rapidapi_proxy_secret or "").strip(),
     }
 
 
@@ -552,6 +553,7 @@ def _luu_cau_hinh_ngan_hang_dong(
     paypal_email: str | None = None,
     paypal_client_id: str | None = None,
     rapidapi_url: str | None = None,
+    rapidapi_proxy_secret: str | None = None,
 ) -> dict[str, str]:
     import json
     from pathlib import Path
@@ -565,6 +567,9 @@ def _luu_cau_hinh_ngan_hang_dong(
         "paypal_email": (paypal_email if paypal_email is not None else hien["paypal_email"]).strip(),
         "paypal_client_id": (paypal_client_id if paypal_client_id is not None else hien["paypal_client_id"]).strip(),
         "rapidapi_url": (rapidapi_url if rapidapi_url is not None else hien["rapidapi_url"]).strip(),
+        "rapidapi_proxy_secret": (
+            rapidapi_proxy_secret if rapidapi_proxy_secret is not None else hien["rapidapi_proxy_secret"]
+        ).strip(),
     }
     _CAU_HINH_THANH_TOAN_MEM_CACHE.clear()
     _CAU_HINH_THANH_TOAN_MEM_CACHE.update(payload)
@@ -1044,6 +1049,7 @@ async def quan_tri_cap_luot(
         or body.paypal_email is not None
         or body.paypal_client_id is not None
         or body.rapidapi_url is not None
+        or body.rapidapi_proxy_secret is not None
     ) and not body.email.strip():
         da_luu = await run_in_threadpool(
             _luu_cau_hinh_ngan_hang_dong,
@@ -1053,6 +1059,7 @@ async def quan_tri_cap_luot(
             body.paypal_email,
             body.paypal_client_id,
             body.rapidapi_url,
+            body.rapidapi_proxy_secret,
         )
         ghi_nhat_ky(
             session,
@@ -1631,6 +1638,7 @@ async def quan_tri_thong_ke(
         paypal_email=tt_tt_admin["paypal_email"],
         paypal_client_id=tt_tt_admin["paypal_client_id"],
         rapidapi_url=tt_tt_admin["rapidapi_url"],
+        rapidapi_proxy_secret_configured=bool(tt_tt_admin.get("rapidapi_proxy_secret")),
         bieu_do_7_ngay=bieu_do_7_ngay,
         phan_bo_ngon_ngu=phan_bo_ngon_ngu,
         chapter_gan_day=chapter_gan_day,
