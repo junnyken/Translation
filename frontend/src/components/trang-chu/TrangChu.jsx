@@ -579,8 +579,28 @@ export default function TrangChu() {
       </header>
 
       {loiChung && (
-        <Alert sac="loi" tieuDe={loiChung.ma === 429 ? 'Hết lượt' : 'Không chạy được'}>
-          {String(loiChung.message || loiChung).replace(/^\d+:\s*/, '')}
+        <Alert
+          sac="loi"
+          tieuDe={
+            loiChung.ma === 402
+              ? `🔒 Cần nâng cấp gói ${loiChung.chiTiet?.ten_cap_yeu_cau || 'Pro'}`
+              : loiChung.ma === 429
+                ? 'Hết lượt'
+                : 'Không chạy được'
+          }
+        >
+          {String(loiChung.cauNguoiDoc || loiChung.message || loiChung).replace(/^\d+:\s*/, '')}
+          {loiChung.ma === 402 && (
+            <>
+              {' '}
+              <a
+                href="#bang-gia"
+                style={{ fontWeight: 700, textDecoration: 'underline', marginLeft: 6 }}
+              >
+                💎 Xem Bảng Giá & Nâng Cấp Ngay →
+              </a>
+            </>
+          )}
           {loiChung.chiTiet?.reset_luc && (
             <> Có lại sau <strong>{chuDemNguoc(loiChung.chiTiet.reset_luc)}</strong>.</>
           )}

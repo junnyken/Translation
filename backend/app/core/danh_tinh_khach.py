@@ -52,6 +52,68 @@ log = logging.getLogger(__name__)
 
 TEN_COOKIE = "ma_khach"
 
+TEN_CAP_DO = {
+    0: "Free",
+    1: "Trial",
+    2: "Starter",
+    3: "Pro",
+    4: "Studio",
+    5: "Unlimited",
+}
+
+
+def tinh_cap_do(nguoi) -> int:
+    """Tính cấp độ VIP (0..5) dựa trên quyền quản trị, trần ngày riêng và ví lượt mua thêm."""
+    if nguoi is None:
+        return 0
+    if getattr(nguoi, "la_quan_tri", False):
+        return 5  # Admin = Unlimited
+    tran = int(getattr(nguoi, "tran_hang_ngay_rieng", 0) or 0)
+    vi = int(getattr(nguoi, "so_luot_mua_them", 0) or 0)
+
+    if tran >= 5000 or vi >= 5000:
+        return 5  # Unlimited
+    if tran >= 2000 or vi >= 2000:
+        return 4  # Studio
+    if tran >= 600 or vi >= 200:
+        return 3  # Pro
+    if tran >= 200 or vi >= 50:
+        return 2  # Starter
+    if vi > 0 or tran > 10:
+        return 1  # Trial
+    return 0  # Free
+
+
+def ten_cap_do(cap: int) -> str:
+    return TEN_CAP_DO.get(int(cap), "Free")
+
+
+def loi_can_nang_cap(
+    *,
+    cap_hien_tai: int,
+    cap_yeu_cau: int,
+    tinh_nang: str,
+    thong_bao: str,
+):
+    from fastapi import HTTPException
+
+    ten_yc = ten_cap_do(cap_yeu_cau)
+    return HTTPException(
+        status_code=402,
+        detail={
+            "loi": "can_nang_cap",
+            "cap_hien_tai": cap_hien_tai,
+            "ten_cap_hien_tai": ten_cap_do(cap_hien_tai),
+            "cap_yeu_cau": cap_yeu_cau,
+            "ten_cap_yeu_cau": ten_yc,
+            "tinh_nang": tinh_nang,
+            "thong_bao": thong_bao,
+            "thong_diep": thong_bao,
+            "url_nang_cap": "https://comic.io.vn/#bang-gia",
+        },
+    )
+
+
 #: Ghi WARNING muối rỗng đúng MỘT lần mỗi tiến trình. Mỗi request một dòng sẽ thành lụt log và
 #: bị người đọc bỏ qua — đúng thứ làm cảnh báo mất tác dụng.
 _da_canh_bao_muoi = False
@@ -90,6 +152,17 @@ class DanhTinhHanMuc:
         với thứ họ thật sự được dùng.
         """
         return self.chot[0].tran if self.chot else 0
+
+    @property
+    def cap_do(self) -> int:
+        """Cấp độ tài khoản (0=Free .. 5=Unlimited)."""
+        if self.co_tai_khoan and not self.nguoi_goi.la_khach and self.nguoi_goi.nguoi is not None:
+            return tinh_cap_do(self.nguoi_goi.nguoi)
+        return 0
+
+    @property
+    def ten_cap_do(self) -> str:
+        return ten_cap_do(self.cap_do)
 
 
 def _muoi(settings: Settings) -> bytes:

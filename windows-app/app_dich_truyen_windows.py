@@ -7122,9 +7122,22 @@ class AppDichTruyenWindows(tk.Tk):
             if exc.code in (402, 403, 429):
                 try:
                     err_body = json.loads(exc.read().decode("utf-8", errors="replace"))
-                    msg = err_body.get("detail") or "Đã hết lượt dịch trong tài khoản."
-                    if isinstance(msg, dict):
-                        msg = msg.get("thong_diep") or msg.get("ly_do") or str(msg)
+                    detail = err_body.get("detail") or "Đã hết lượt dịch trong tài khoản."
+                    if isinstance(detail, dict):
+                        msg = (
+                            detail.get("thong_bao")
+                            or detail.get("thong_diep")
+                            or detail.get("ly_do")
+                            or str(detail)
+                        )
+                        if detail.get("loi") == "can_nang_cap":
+                            raise NeedsAttention(
+                                f"🔒 CẦN NÂNG CẤP GÓI {detail.get('ten_cap_yeu_cau', 'Pro').upper()}: {msg}"
+                            ) from exc
+                    else:
+                        msg = str(detail)
+                except NeedsAttention:
+                    raise
                 except Exception:
                     msg = "Đã hết lượt dịch miễn phí trong ngày và ví mua thêm đã về 0."
                 raise NeedsAttention(
@@ -7177,6 +7190,27 @@ class AppDichTruyenWindows(tk.Tk):
             selected = chapters[options["from"] - 1:options["to"]]
             if not selected:
                 raise NeedsAttention("Khoảng chapter đã chọn không có dữ liệu.")
+            if len(selected) > 1:
+                srv_chk = str(options.get("server") or "").strip().rstrip("/")
+                tok_chk = str(options.get("token") or "").strip()
+                if srv_chk and "api.invalid" not in srv_chk and "127.0.0.1:17890" not in srv_chk:
+                    try:
+                        raw_hm = goi_http(f"{srv_chk}/api/v1/han-muc", token=tok_chk, timeout=15)
+                        hm_chk = json.loads(raw_hm.decode("utf-8"))
+                        if isinstance(hm_chk, dict) and not hm_chk.get("la_quan_tri", False):
+                            cap_do = int(hm_chk.get("cap_do", 0))
+                            mua_them = int(hm_chk.get("so_luot_mua_them", 0))
+                            tran_ngay = int(hm_chk.get("tran", 10))
+                            if cap_do < 3 and mua_them < 200 and tran_ngay < 600:
+                                raise NeedsAttention(
+                                    "🔒 CẦN NÂNG CẤP GÓI PRO: Tính năng Tự động tải & dịch nối tiếp nhiều Chapter liên tục "
+                                    f"({len(selected)} chapter) dành riêng cho tài khoản gói Pro trở lên. "
+                                    "Tài khoản thường có thể chọn dịch thử từng chapter (10 trang/ngày) hoặc bấm '💎 Gói Cước & Khoá API' để nâng cấp!"
+                                )
+                    except NeedsAttention:
+                        raise
+                    except Exception:
+                        pass
             # Collision must be detected per (series_folder, chapter_folder) before any upload or file write.
             series_and_names = [
                 (

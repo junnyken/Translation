@@ -591,6 +591,28 @@ async def developer_khau_tru_trang_cuc_bo(
 
     chu_the_chinh = danh_tinh.chot[0].chu_the if danh_tinh.chot else "guest"
     page_uuid = uuid.uuid5(uuid.NAMESPACE_URL, f"local-ocr-gpu:{engine_name}:{chu_the_chinh}:{page_key}:0")
+
+    # Gate 1: Nếu tài khoản cấp < 3 (chưa lên Pro) và đã dùng đủ 10 trang miễn phí trong ngày,
+    # trả về HTTP 402 báo cần nâng cấp lên gói Pro trở lên để chạy Auto-Crawl Chapter liên tục trên App Windows.
+    if danh_tinh.cap_do < 3 and danh_tinh.chot:
+        from app.core.danh_tinh_khach import loi_can_nang_cap
+        from app.services.so_cai_han_muc import da_dung_bat_dong_bo
+
+        chot0 = danh_tinh.chot[0]
+        da_dung_hn = await da_dung_bat_dong_bo(session, chot0.loai, chot0.chu_the, ngay_han_muc())
+        luot_mua = danh_tinh.so_luot_mua_them if danh_tinh.co_tai_khoan else 0
+        if da_dung_hn + so_luot_can > chot0.tran and luot_mua < so_luot_can:
+            raise loi_can_nang_cap(
+                cap_hien_tai=danh_tinh.cap_do,
+                cap_yeu_cau=3,
+                tinh_nang="windows_auto_crawl",
+                thong_bao=(
+                    "Bạn đã dùng hết 10 trang trải nghiệm miễn phí. Tính năng Tải & Dịch Hoàn Thiện "
+                    "Các Trang Liên Tục và Tự Động Qua Chapter Tiếp Theo trên App Windows yêu cầu gói "
+                    "Pro trở lên. Hãy nâng cấp tại https://comic.io.vn/#bang-gia để tiếp tục!"
+                ),
+            )
+
     ds_uid_tieu: list[uuid.UUID] = []
     for idx_c in range(so_luot_can):
         uid_c = (
@@ -1014,10 +1036,21 @@ async def developer_dich_ca_chapter_urls(
     kiểm tra Cache Cộng Đồng SHA-256 và xếp hàng dịch toàn bộ chapter.
     """
     from app.core.cong_han_muc import con_du_khong
+    from app.core.danh_tinh_khach import loi_can_nang_cap
     from app.models.enums import IntendedUse
 
     nguoi, ma_api = xac_thuc
     danh_tinh = _danh_tinh_tu_nguoi_dung(nguoi)
+    if danh_tinh.cap_do < 5:
+        raise loi_can_nang_cap(
+            cap_hien_tai=danh_tinh.cap_do,
+            cap_yeu_cau=5,
+            tinh_nang="chapter_url_api",
+            thong_bao=(
+                "Tính năng đẩy danh sách URL dịch trọn bộ Chapter qua API (translate-chapter) "
+                "yêu cầu gói Unlimited (Cấp 5). Vui lòng nâng cấp tại https://comic.io.vn/#bang-gia"
+            ),
+        )
     _kiem_engine(body.engine, settings, co_tai_khoan=True)
 
     urls = [u.strip() for u in body.image_urls if u and u.strip()]

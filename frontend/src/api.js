@@ -223,7 +223,7 @@ async function doc(res) {
       // câu hiển thị nếu máy chủ có gửi.
       if (body && typeof body.detail === 'object' && body.detail !== null) {
         coCauTruc = body.detail
-        chiTiet = body.detail.thong_diep ?? body.detail.loi ?? JSON.stringify(body.detail)
+        chiTiet = body.detail.thong_bao ?? body.detail.thong_diep ?? body.detail.loi ?? JSON.stringify(body.detail)
       } else {
         chiTiet = body.detail ?? JSON.stringify(body)
       }

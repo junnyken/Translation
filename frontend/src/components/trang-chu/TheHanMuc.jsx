@@ -116,9 +116,31 @@ export default function TheHanMuc({ hanMuc, dangTai, loi, onTaiLai }) {
 
   return (
     <section className={`the-han-muc vien-${sacVien}`} aria-labelledby="tieu-de-han-muc">
-      <h2 id="tieu-de-han-muc" className="nho">
-        {laEn ? 'Daily Translation Quota' : 'Lượt dịch hôm nay'}
-      </h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <h2 id="tieu-de-han-muc" className="nho" style={{ margin: 0 }}>
+          {laEn ? 'Daily Translation Quota' : 'Lượt dịch hôm nay'}
+        </h2>
+        <a
+          href="#bang-gia"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+            padding: '2px 8px',
+            borderRadius: 999,
+            fontSize: 11.5,
+            fontWeight: 700,
+            textDecoration: 'none',
+            background: (hanMuc.cap_do || 0) >= 3 ? '#fef3c7' : (hanMuc.cap_do || 0) >= 1 ? '#e0f2fe' : '#f1f5f9',
+            color: (hanMuc.cap_do || 0) >= 3 ? '#b45309' : (hanMuc.cap_do || 0) >= 1 ? '#0369a1' : '#475569',
+            border: '1px solid rgba(15,23,42,0.1)',
+          }}
+        >
+          {(hanMuc.cap_do || 0) >= 5 ? '🏢' : (hanMuc.cap_do || 0) >= 4 ? '💎' : (hanMuc.cap_do || 0) >= 3 ? '🔥' : (hanMuc.cap_do || 0) >= 1 ? '⭐' : '🆓'}{' '}
+          {hanMuc.ten_cap_do || 'Free'}
+          {(hanMuc.cap_do || 0) < 3 && (laEn ? ' · Upgrade →' : ' · Nâng cấp →')}
+        </a>
+      </div>
 
       {/* Màu KHÔNG bao giờ là nguồn thông tin duy nhất: luôn kèm con số và nhãn chữ. */}
       <p className="so-luot">

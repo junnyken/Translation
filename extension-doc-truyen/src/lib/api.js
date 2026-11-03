@@ -116,7 +116,7 @@ async function doc(res) {
     const chi_tiet = than?.detail
     if (chi_tiet && typeof chi_tiet === 'object') {
       // Lấy câu người đọc được nếu máy chủ có gửi, và GIỮ nguyên object cho bên gọi dùng.
-      const cau = chi_tiet.thong_diep ?? chi_tiet.loi ?? (res.statusText || `Lỗi HTTP ${res.status}`)
+      const cau = chi_tiet.thong_bao ?? chi_tiet.thong_diep ?? chi_tiet.loi ?? (res.statusText || `Lỗi HTTP ${res.status}`)
       throw new LoiApi(res.status, String(cau), chi_tiet)
     }
     if (typeof chi_tiet === 'string' && chi_tiet.trim()) {

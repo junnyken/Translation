@@ -492,6 +492,8 @@ async def xem_han_muc(
         chot=chi_tiet,
         so_luot_mua_them=luot_mua,
         la_quan_tri=la_qt,
+        cap_do=danh_tinh.cap_do,
+        ten_cap_do=danh_tinh.ten_cap_do,
     )
 
 
@@ -1953,6 +1955,56 @@ async def doc_truyen_gui_trang(
     async with UploadArtifactGuard(session, owner_id, request_key) as artifacts:
         # Replays above remain readable even if engine or quota is now unavailable.
         _kiem_engine(engine, settings, co_tai_khoan=danh_tinh.co_tai_khoan)
+
+        # Freemium Feature Gate: Kiểm tra cấp độ tài khoản trước khi xếp việc
+        from app.core.danh_tinh_khach import loi_can_nang_cap
+
+        cap_ht = danh_tinh.cap_do
+        if engine is TranslationEngine.llm_context and cap_ht < 3:
+            raise loi_can_nang_cap(
+                cap_hien_tai=cap_ht,
+                cap_yeu_cau=3,
+                tinh_nang="llm_context",
+                thong_bao=(
+                    "Bộ máy dịch Context AI Pro (đọc mạch văn cả trang) yêu cầu gói Pro trở lên. "
+                    "Hãy chọn chế độ Dịch Nhanh (Miễn phí) hoặc nâng cấp gói Pro tại https://comic.io.vn/#bang-gia"
+                ),
+            )
+        if font_style and font_style.strip().lower() not in ("", "bangers") and cap_ht < 1:
+            raise loi_can_nang_cap(
+                cap_hien_tai=cap_ht,
+                cap_yeu_cau=1,
+                tinh_nang="font_style",
+                thong_bao=(
+                    "Tuỳ chọn Font chữ theo thể loại (Ngôn tình / Cổ trang / Hài hước) yêu cầu gói Trial/Starter trở lên. "
+                    "Nâng cấp chỉ từ 19.000đ ($0.99) tại https://comic.io.vn/#bang-gia"
+                ),
+            )
+        if tu_dien_rieng and tu_dien_rieng.strip() and cap_ht < 3:
+            raise loi_can_nang_cap(
+                cap_hien_tai=cap_ht,
+                cap_yeu_cau=3,
+                tinh_nang="glossary",
+                thong_bao=(
+                    "Tính năng Sổ tay Nhân vật & Xưng hô cố định (Character Glossary) yêu cầu gói Pro trở lên. "
+                    "Vui lòng nâng cấp tại https://comic.io.vn/#bang-gia"
+                ),
+            )
+        if che_do is ChePipeline.day_du and cap_ht < 1 and danh_tinh.chot:
+            chot0 = danh_tinh.chot[0]
+            da_dung_hn = await da_dung_bat_dong_bo(session, chot0.loai, chot0.chu_the, ngay_han_muc())
+            if da_dung_hn >= 3:
+                raise loi_can_nang_cap(
+                    cap_hien_tai=cap_ht,
+                    cap_yeu_cau=1,
+                    tinh_nang="day_du_mode",
+                    thong_bao=(
+                        "Bạn đã dùng hết 3 trang trải nghiệm miễn phí chế độ Dịch Đầy Đủ (Tự động xoá chữ & Vẽ lại trang truyện). "
+                        "Bạn vẫn còn lượt dùng miễn phí với Tiện ích Đọc Truyện trực tiếp, hoặc nâng cấp gói Starter "
+                        "(chỉ từ 19.000đ / $0.99) tại https://comic.io.vn/#bang-gia để xuất ảnh hoàn chỉnh không giới hạn!"
+                    ),
+                )
+
         project = await _chapter_doc_nhanh(
             session, danh_tinh.nguoi_goi, source_lang, che_do, target_lang=target_lang,
             rieng=tao_chapter_rieng is True, commit_project=request_key is None,
@@ -2361,6 +2413,20 @@ async def doc_truyen_gui_goi(
     """
     _kiem_engine(engine, settings, co_tai_khoan=danh_tinh.co_tai_khoan)
 
+    # Gate Batch Upload ZIP/CBZ/PDF -> Yêu cầu gói Pro trở lên (Cấp >= 3)
+    from app.core.danh_tinh_khach import loi_can_nang_cap
+
+    if danh_tinh.cap_do < 3:
+        raise loi_can_nang_cap(
+            cap_hien_tai=danh_tinh.cap_do,
+            cap_yeu_cau=3,
+            tinh_nang="batch_archive_upload",
+            thong_bao=(
+                "Tính năng tải lên gói nén trọn bộ Chapter (.ZIP / .CBZ / .PDF) yêu cầu gói Pro trở lên. "
+                "Vui lòng nâng cấp tại https://comic.io.vn/#bang-gia để sử dụng!"
+            ),
+        )
+
     project = await _chapter_doc_nhanh(
         session, danh_tinh.nguoi_goi, source_lang, che_do, target_lang=target_lang
     )
@@ -2687,6 +2753,19 @@ async def upload_page(
     """
     _kiem_engine(engine, settings)
 
+    if engine is TranslationEngine.llm_context and danh_tinh.cap_do < 3:
+        from app.core.danh_tinh_khach import loi_can_nang_cap
+
+        raise loi_can_nang_cap(
+            cap_hien_tai=danh_tinh.cap_do,
+            cap_yeu_cau=3,
+            tinh_nang="llm_context",
+            thong_bao=(
+                "Bộ máy dịch Context AI Pro (đọc mạch văn cả trang) yêu cầu gói Pro trở lên. "
+                "Vui lòng nâng cấp tại https://comic.io.vn/#bang-gia"
+            ),
+        )
+
     project = await _get_project_or_404(session, project_id, nguoi)
 
     data = await file.read()
@@ -2801,6 +2880,20 @@ async def upload_archive(
     ký đầu file, không theo đuôi tệp.
     """
     _kiem_engine(engine, settings)
+
+    # Gate Batch Upload ZIP/CBZ/PDF -> Yêu cầu gói Pro trở lên (Cấp >= 3)
+    from app.core.danh_tinh_khach import loi_can_nang_cap
+
+    if danh_tinh.cap_do < 3:
+        raise loi_can_nang_cap(
+            cap_hien_tai=danh_tinh.cap_do,
+            cap_yeu_cau=3,
+            tinh_nang="batch_archive_upload",
+            thong_bao=(
+                "Tính năng tải lên gói nén trọn bộ Chapter (.ZIP / .CBZ / .PDF) yêu cầu gói Pro trở lên. "
+                "Vui lòng nâng cấp tại https://comic.io.vn/#bang-gia để sử dụng!"
+            ),
+        )
 
     project = await _get_project_or_404(session, project_id, nguoi)
 

@@ -1197,6 +1197,9 @@ class HanMucRead(BaseModel):
     so_luot_mua_them: int = 0
     #: E100 — người gọi có phải quản trị viên không (để bật khung cấp lượt nhanh trên giao diện).
     la_quan_tri: bool = False
+    #: Cấp độ tài khoản (0=Free, 1=Trial, 2=Starter, 3=Pro, 4=Studio, 5=Unlimited).
+    cap_do: int = 0
+    ten_cap_do: str = "Free"
 
 
 class GoiNapLuotRead(BaseModel):

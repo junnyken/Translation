@@ -480,6 +480,19 @@ async def tao_hoac_doi_api_key(
     Mã thô chỉ trả về ĐÚNG MỘT LẦN trong phản hồi này để khách hàng copy vào tool riêng.
     Bắt buộc dùng phiên đăng nhập tương tác (không cho phép dùng chính `tr_live_...` để tự xoay khoá).
     """
+    from app.core.danh_tinh_khach import loi_can_nang_cap, tinh_cap_do
+
+    cap = tinh_cap_do(nguoi)
+    if cap < 5:
+        raise loi_can_nang_cap(
+            cap_hien_tai=cap,
+            cap_yeu_cau=5,
+            tinh_nang="developer_api_key",
+            thong_bao=(
+                "Tính năng tạo Developer API Key (tr_live_...) yêu cầu gói Unlimited (Cấp 5). "
+                "Vui lòng nâng cấp tại https://comic.io.vn/#bang-gia để mở khoá!"
+            ),
+        )
     ma_tho, ban_ghi = await tai_khoan.tao_moi_api_key(session, nguoi.id)
     return {
         "api_key": ma_tho,
