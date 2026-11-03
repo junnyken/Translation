@@ -342,7 +342,8 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
       return `https://${clean}/${goiDangChon.giaUsd}USD`
     }
     if (paypalEmail.includes('@')) {
-      return `https://www.paypal.com/cgi-bin/webscr?cmd=_xclick&business=${encodeURIComponent(paypalEmail)}&item_name=${encodeURIComponent(`${goiDangChon.ten} (${noiDungChuyenKhoan})`)}&item_number=${encodeURIComponent(goiDangChon.ma)}&custom=${encodeURIComponent(customPayPal)}&notify_url=${encodeURIComponent(notifyUrlPayPal)}&amount=${encodeURIComponent(goiDangChon.giaUsd)}&currency_code=USD`
+      const returnUrl = 'https://comic.io.vn/#bang-gia'
+      return `https://www.paypal.com/cgi-bin/webscr?cmd=_xclick&business=${encodeURIComponent(paypalEmail)}&item_name=${encodeURIComponent(`${goiDangChon.ten} (${noiDungChuyenKhoan})`)}&item_number=${encodeURIComponent(goiDangChon.ma)}&custom=${encodeURIComponent(customPayPal)}&notify_url=${encodeURIComponent(notifyUrlPayPal)}&return=${encodeURIComponent(returnUrl)}&cancel_return=${encodeURIComponent(returnUrl)}&no_shipping=1&amount=${encodeURIComponent(goiDangChon.giaUsd)}&currency_code=USD`
     }
     return `https://paypal.me/${encodeURIComponent(paypalEmail)}/${goiDangChon.giaUsd}USD`
   })()

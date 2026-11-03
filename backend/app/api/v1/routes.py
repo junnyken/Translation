@@ -868,14 +868,32 @@ async def _tim_nguoi_dung_tu_noi_dung(
             return ung_vien[0]
 
     noi_dung_sach = re.sub(r"[^a-z0-9]", "", (noi_dung or "").lower())
-    if len(noi_dung_sach) >= 8:
+    if len(noi_dung_sach) >= 6:
+        ds_tat_ca_u = (await session.execute(select(NguoiDung))).scalars().all()
         khop: list[NguoiDung] = []
-        for u in (await session.execute(select(NguoiDung))).scalars().all():
+        for u in ds_tat_ca_u:
             email_rut_gon = re.sub(r"[^a-z0-9]", "", (u.email or "").lower())
             if len(email_rut_gon) >= 8 and email_rut_gon in noi_dung_sach:
                 khop.append(u)
         if len(khop) == 1:
             return khop[0]
+
+        # Dự phòng trường hợp ngân hàng cắt cụt đuôi '@gmail.com' ở cuối nội dung dài
+        # (vd: "NAP UNLIMITED hoangminh1998@gm" hoặc "NAP PRO hoangminh1998"):
+        khop_local: list[NguoiDung] = []
+        for u in ds_tat_ca_u:
+            local_part = (u.email or "").split("@")[0].lower()
+            local_sach = re.sub(r"[^a-z0-9]", "", local_part)
+            if len(local_sach) >= 5 and local_sach in noi_dung_sach:
+                khop_local.append(u)
+        if len(khop_local) == 1:
+            return khop_local[0]
+        if len(khop_local) > 1:
+            # Nếu nhiều người trùng phần đầu email, ưu tiên người đang có đơn chờ duyệt (cho_duyet)
+            for u_cand in khop_local:
+                don_c = await don_nap.tim_don_cho_duyet(session, u_cand.email or "")
+                if don_c is not None:
+                    return u_cand
     return None
 
 
@@ -935,6 +953,7 @@ async def webhook_nap_luot_ngan_hang(
     Bảo vệ bằng khoá bí mật `webhook_bi_mat` (cấu hình trong Admin hoặc `.env`).
     """
     import hmac
+    import re
 
     tt_cfg = await run_in_threadpool(_doc_cau_hinh_thanh_toan_day_du, settings)
     bi_mat = (tt_cfg.get("webhook_bi_mat") or settings.webhook_nap_luot_bi_mat or "").strip()
@@ -945,14 +964,14 @@ async def webhook_nap_luot_ngan_hang(
         )
 
     auth = (request.headers.get("authorization") or request.headers.get("x-webhook-secret") or "").strip()
-    for tien_to in ("Apikey ", "Bearer ", "apikey ", "bearer "):
-        if auth.startswith(tien_to):
-            auth = auth[len(tien_to):].strip()
-            break
+    auth = re.sub(r"^(apikey|bearer|token)\s+", "", auth, flags=re.IGNORECASE).strip()
     if not hmac.compare_digest(auth.encode("utf-8"), bi_mat.encode("utf-8")):
         raise HTTPException(status_code=401, detail="Khoá xác thực webhook không hợp lệ.")
 
-    payload = await request.json()
+    try:
+        payload = await request.json()
+    except Exception:
+        return {"ok": False, "ly_do": "payload_khong_hop_le"}
     if not isinstance(payload, dict):
         return {"ok": False, "ly_do": "payload_khong_hop_le"}
     data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
@@ -962,18 +981,28 @@ async def webhook_nap_luot_ngan_hang(
     ma_giao_dich = _ma_giao_dich_ngan_hang(payload)
     if ma_giao_dich is None:
         return {"ok": False, "ly_do": "thieu_ma_giao_dich"}
-    noi_dung = str(
-        payload.get("content")
-        or payload.get("description")
-        or data.get("description")
-        or ""
+    noi_dung = " ".join(
+        str(x).strip()
+        for x in (
+            payload.get("content"),
+            payload.get("description"),
+            payload.get("code"),
+            data.get("content"),
+            data.get("description"),
+        )
+        if x
     ).strip()
-    so_tien = int(
-        payload.get("transferAmount")
-        or payload.get("amount")
-        or data.get("amount")
-        or 0
-    )
+    try:
+        so_tien = int(
+            float(
+                payload.get("transferAmount")
+                or payload.get("amount")
+                or data.get("amount")
+                or 0
+            )
+        )
+    except (ValueError, TypeError):
+        so_tien = 0
     if so_tien <= 0 or not noi_dung:
         return {"ok": False, "ly_do": "khong_co_so_tien_hoac_noi_dung"}
 
