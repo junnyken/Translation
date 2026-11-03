@@ -599,6 +599,41 @@ def _danh_sach_goi_nap_chuan(don_gia: int) -> list[GoiNapLuotRead]:
     """Danh sách gói cước Phương án A (500đ/trang) kèm Gói Mồi 20.000đ (40 trang, mua nhiều lần cộng dồn thoải mái)."""
     return [
         GoiNapLuotRead(
+            ma="trial_pack_50",
+            ten="🌱 Gói Mồi / Trial Pack (50 trang — Cấp 1)",
+            so_tien_vnd=19000,
+            so_trang=50,
+            ghi_chu="Gói trải nghiệm 19.000đ ($0.99) nhận 50 trang không hết hạn. Mở nâng nét & tẩy chữ tự động.",
+        ),
+        GoiNapLuotRead(
+            ma="starter_monthly",
+            ten="⭐ Gói Starter (200 trang — Cấp 2)",
+            so_tien_vnd=49000,
+            so_trang=200,
+            ghi_chu="Gói Starter 49.000đ ($2.99) nhận 200 trang không hết hạn. Mở cào URL & từ điển nhân vật.",
+        ),
+        GoiNapLuotRead(
+            ma="pro_monthly",
+            ten="🔥 Gói Pro Cày Truyện (600 trang — Cấp 3)",
+            so_tien_vnd=99000,
+            so_trang=600,
+            ghi_chu="Gói Pro 99.000đ ($4.99) nhận 600 trang không hết hạn. Mở xuất ZIP/CBZ/PDF & dịch chương dài.",
+        ),
+        GoiNapLuotRead(
+            ma="studio_monthly",
+            ten="💎 Gói Studio & Nhóm Dịch (2.000 trang — Cấp 4)",
+            so_tien_vnd=199000,
+            so_trang=2000,
+            ghi_chu="Gói Studio 199.000đ ($9.99) nhận 2.000 trang không hết hạn. Mở xuất PSD & Video Review Studio.",
+        ),
+        GoiNapLuotRead(
+            ma="unlimited_plan",
+            ten="🏢 Gói Unlimited + API (5.000 trang — Cấp 5)",
+            so_tien_vnd=399000,
+            so_trang=5000,
+            ghi_chu="Gói Unlimited 399.000đ ($14.99) nhận 5.000 trang không hết hạn kèm tự động cấp Developer API Key (tr_live_...).",
+        ),
+        GoiNapLuotRead(
             ma="goi_moi",
             ten="🎯 Gói Mồi Trải Nghiệm — Đọc Nhanh (40 trang)",
             so_tien_vnd=40 * don_gia,
@@ -639,41 +674,6 @@ def _danh_sach_goi_nap_chuan(don_gia: int) -> list[GoiNapLuotRead]:
             so_tien_vnd=20000 * don_gia,
             so_trang=28000,
             ghi_chu="Tặng thêm 40% số trang (~1.400 chapter). Dành cho hệ thống web truyện lớn & tool tự động hoá 24/7 qua API.",
-        ),
-        GoiNapLuotRead(
-            ma="trial_pack_50",
-            ten="🌱 Gói Mồi / Trial Pack (50 trang)",
-            so_tien_vnd=19000,
-            so_trang=50,
-            ghi_chu="Gói trải nghiệm 19.000đ ($0.99) nhận 50 trang không hết hạn.",
-        ),
-        GoiNapLuotRead(
-            ma="starter_monthly",
-            ten="⭐ Gói Starter (200 trang)",
-            so_tien_vnd=49000,
-            so_trang=200,
-            ghi_chu="Gói Starter 49.000đ ($2.99) nhận 200 trang (~245đ/trang).",
-        ),
-        GoiNapLuotRead(
-            ma="pro_monthly",
-            ten="🔥 Gói Pro Cày Truyện (600 trang)",
-            so_tien_vnd=99000,
-            so_trang=600,
-            ghi_chu="Gói Pro 99.000đ ($4.99) nhận 600 trang (~165đ/trang).",
-        ),
-        GoiNapLuotRead(
-            ma="studio_monthly",
-            ten="💎 Gói Studio (2.000 trang)",
-            so_tien_vnd=199000,
-            so_trang=2000,
-            ghi_chu="Gói Studio 199.000đ ($9.99) nhận 2.000 trang (~99đ/trang).",
-        ),
-        GoiNapLuotRead(
-            ma="unlimited_plan",
-            ten="🏢 Gói Unlimited (5.000 trang + API)",
-            so_tien_vnd=399000,
-            so_trang=5000,
-            ghi_chu="Gói Unlimited 399.000đ ($14.99) nhận 5.000 trang kèm Developer API.",
         ),
         GoiNapLuotRead(
             ma="pack_2000",

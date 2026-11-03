@@ -12,265 +12,157 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
   const [ketQuaDon, setKetQuaDon] = useState(null)
   const [loiXacNhan, setLoiXacNhan] = useState('')
   const [tienTe, setTienTe] = useState(laEn ? 'USD' : 'VND')
-  const [nhomGoi, setNhomGoi] = useState('subscription') // 'subscription' | 'credits'
 
   useEffect(() => {
     setTienTe(laEn ? 'USD' : 'VND')
   }, [laEn])
 
-  const GOI_SUBSCRIPTION = [
+  // Phương án A: 1 Bảng Giá 5 Gói Duy Nhất (Theo Số Trang + Cấp Độ Mở Khoá Tính Năng, Không hết hạn qua đêm)
+  const DANH_SACH_GOI = [
     {
       ma: 'trial_pack_50',
       maNgan: 'MOI',
-      nhan: laEn ? '🌱 TRIAL PACK' : '🌱 GÓI MỒI TRẢI NGHIỆM',
-      ten: laEn ? 'Trial Pack (50 Pages)' : 'Gói Mồi (50 trang)',
+      nhan: laEn ? '🌱 LEVEL 1 — TRIAL' : '🌱 CẤP 1 — GÓI TRIAL',
+      ten: laEn ? 'Trial Pack (50 Pages)' : 'Gói Trial (50 trang)',
       giaVnd: 19000,
       giaUsd: '0.99',
-      chuKy: laEn ? 'no expiry' : 'không hết hạn',
+      chuKy: laEn ? 'never expires' : 'không hết hạn',
       soTrang: 50,
       uocChap: '~2.5 chapters',
-      khuyenMai: laEn ? 'Never expires' : 'Không hết hạn',
+      khuyenMai: laEn ? 'Level 1' : 'Cấp 1 (Trial)',
       donGiaVnd: '380đ/trang',
       donGiaUsd: '$0.020/page',
       diemManh: laEn
         ? [
-            '50 AI-translated comic pages (never expires)',
-            '60% cheaper than Western tools ($0.05/page)',
-            'Full smart background clean & 9 target languages',
+            '50 AI-translated comic pages (never expires overnight)',
+            'Unlocks Full Clean + Typeset mode (`day_du`) & 4 Genre Fonts',
+            'Use on Web Studio & Chrome Extension in 9 target languages',
           ]
         : [
-            '50 trang dịch AI chất lượng cao (không bao giờ hết hạn)',
-            'Chỉ 380đ/trang — rẻ hơn 60% so với thị trường quốc tế',
-            'Đầy đủ tái tạo nền sạch & dàn chữ 9 ngôn ngữ',
+            '50 trang dịch AI tích luỹ (không bao giờ hết hạn qua đêm)',
+            'Mở khoá Xoá chữ Tái tạo nền (`day_du`) & 4 bộ Phông chữ thể loại',
+            'Dùng trên Web Studio & Tiện ích Chrome (9 ngôn ngữ)',
           ],
       noiBat: false,
     },
     {
       ma: 'starter_monthly',
       maNgan: 'STARTER',
-      nhan: laEn ? '⭐ STARTER' : '⭐ GÓI STARTER',
-      ten: laEn ? 'Starter Plan (200 Pages)' : 'Gói Starter (200 trang)',
+      nhan: laEn ? '⭐ LEVEL 2 — STARTER' : '⭐ CẤP 2 — GÓI STARTER',
+      ten: laEn ? 'Starter Pack (200 Pages)' : 'Gói Starter (200 trang)',
       giaVnd: 49000,
       giaUsd: '2.99',
-      chuKy: laEn ? '/ month' : '/ tháng',
+      chuKy: laEn ? 'never expires' : 'không hết hạn',
       soTrang: 200,
       uocChap: '~10 chapters',
-      khuyenMai: '-50% vs market',
+      khuyenMai: laEn ? 'Save 35%' : 'Tiết kiệm 35%',
       donGiaVnd: '245đ/trang',
       donGiaUsd: '$0.015/page',
       diemManh: laEn
         ? [
-            '200 high-speed AI pages (~10 full chapters)',
-            'Use across Web + Chrome Extension + Windows App',
-            'Double-click live bubble editor & 4 genre fonts',
+            '200 permanent AI pages (~10 chapters) — never expires',
+            'Full Clean + Typeset mode & Double-click live bubble editor',
+            '4 Genre Fonts (Action, Romance, Historical, Classic Comic)',
           ]
         : [
-            '200 trang dịch AI siêu tốc (~10 chapter truyện)',
-            'Dùng đồng bộ trên Web + Tiện ích Chrome + App Windows',
-            'Nhấp đúp sửa câu trực tiếp & 4 bộ Font thể loại',
+            '200 trang dịch AI tích luỹ (~10 chapter) — không hết hạn',
+            'Đầy đủ Xoá chữ + Dàn trang & Nhấp đúp sửa câu trực tiếp',
+            '4 bộ Font thể loại (Hành động, Ngôn tình, Cổ trang, Comic)',
           ],
       noiBat: false,
     },
     {
       ma: 'pro_monthly',
       maNgan: 'PRO',
-      nhan: laEn ? '🔥 PRO BEST SELLER' : '🔥 GÓI PRO BÁN CHẠY',
-      ten: laEn ? 'Pro Reader (600 Pages)' : 'Gói Pro Cày Truyện (600 trang)',
+      nhan: laEn ? '🔥 LEVEL 3 — PRO BEST SELLER' : '🔥 CẤP 3 — GÓI PRO BÁN CHẠY',
+      ten: laEn ? 'Pro Pack (600 Pages)' : 'Gói Pro Cày Truyện (600 trang)',
       giaVnd: 99000,
       giaUsd: '4.99',
-      chuKy: laEn ? '/ month' : '/ tháng',
+      chuKy: laEn ? 'never expires' : 'không hết hạn',
       soTrang: 600,
       uocChap: '~30 chapters',
-      khuyenMai: 'Best Value',
+      khuyenMai: laEn ? 'Best Value' : 'Đáng mua nhất',
       donGiaVnd: '165đ/trang',
       donGiaUsd: '$0.008/page',
       diemManh: laEn
         ? [
-            '600 AI pages (~30 chapters) at only $0.008/page',
-            'Context AI Pro + Character & Pronoun Glossary',
-            'Batch upload .ZIP, .CBZ, .PDF & vertical Webtoon mode',
-            'Windows App auto-crawl series links',
+            '600 permanent AI pages (~30 chapters) — only $0.008/page',
+            'Unlocks Windows App Continuous Multi-Chapter Auto-Crawl',
+            'Unlocks Context AI Pro + Character & Pronoun Glossary',
+            'Unlocks Batch Archive Upload (.ZIP, .CBZ, .PDF)',
           ]
         : [
-            '600 trang dịch AI (~30 chapter) — chỉ 165đ/trang',
-            'AI Chuẩn Ngữ Cảnh + Sổ tay Nhân vật & Xưng hô cố định',
-            'Tải gói .ZIP, .CBZ, .PDF & đọc dọc Webtoon liền mạch',
-            'Mở App Windows tự động tải & dịch theo Link truyện',
+            '600 trang tích luỹ vĩnh viễn (~30 chapter) — chỉ 165đ/trang',
+            'Mở khoá App Windows tải & dịch liên tục nhiều Chapter',
+            'Mở khoá AI Chuẩn Ngữ Cảnh Pro + Từ điển Nhân vật & Xưng hô',
+            'Mở khoá tải nguyên tập nén .ZIP, .CBZ, .PDF',
           ],
       noiBat: true,
     },
     {
       ma: 'studio_monthly',
       maNgan: 'STUDIO',
-      nhan: laEn ? '💎 SCANLATION STUDIO' : '💎 GÓI STUDIO NHÓM DỊCH',
-      ten: laEn ? 'Studio Plan (2,000 Pages)' : 'Gói Studio (2.000 trang)',
+      nhan: laEn ? '💎 LEVEL 4 — STUDIO' : '💎 CẤP 4 — GÓI STUDIO NHÓM DỊCH',
+      ten: laEn ? 'Studio Pack (2,000 Pages)' : 'Gói Studio (2.000 trang)',
       giaVnd: 199000,
       giaUsd: '9.99',
-      chuKy: laEn ? '/ month' : '/ tháng',
+      chuKy: laEn ? 'never expires' : 'không hết hạn',
       soTrang: 2000,
       uocChap: '~100 chapters',
-      khuyenMai: '-67% vs market',
+      khuyenMai: laEn ? 'Save 74%' : 'Tiết kiệm 74%',
       donGiaVnd: '99đ/trang',
       donGiaUsd: '$0.005/page',
       diemManh: laEn
         ? [
-            '2,000 AI pages (~100 chapters) for teams & creators',
-            'Full Windows App batch crawler + Video Review Studio',
+            '2,000 permanent AI pages (~100 chapters) for teams & creators',
+            'All Pro features + Windows App Batch Crawler & Video Review Studio',
             'Export high-res PNG/JPG, .CBZ, .ZIP & .PDF',
             'Cross-chapter consistency & glossary checker',
           ]
         : [
-            '2.000 trang dịch AI (~100 chapter) cho Nhóm dịch & Creator',
-            'Full App Windows cày link + Phần mềm Dựng Video Review',
+            '2.000 trang tích luỹ vĩnh viễn (~100 chapter) — chỉ 99đ/trang',
+            'Toàn bộ quyền lợi Pro + App Windows & Phần mềm Video Review',
             'Xuất ảnh rời chất lượng cao, .CBZ, .ZIP & .PDF',
-            'Bộ kiểm tra nhất quán thuật ngữ & xưng hô toàn chương',
+            'Kiểm tra nhất quán thuật ngữ & xưng hô xuyên suốt các chương',
           ],
       noiBat: true,
     },
     {
       ma: 'unlimited_plan',
       maNgan: 'UNLIMITED',
-      nhan: laEn ? '🏢 UNLIMITED + API' : '🏢 UNLIMITED + CỔNG API',
-      ten: laEn ? 'Unlimited Plan (5,000 FUP)' : 'Gói Unlimited (5.000 trang)',
+      nhan: laEn ? '🏢 LEVEL 5 — UNLIMITED + API' : '🏢 CẤP 5 — UNLIMITED + CỔNG API',
+      ten: laEn ? 'Unlimited Pack (5,000 Pages + API)' : 'Gói Unlimited (5.000 trang + API)',
       giaVnd: 399000,
       giaUsd: '14.99',
-      chuKy: laEn ? '/ month' : '/ tháng',
+      chuKy: laEn ? 'never expires' : 'không hết hạn',
       soTrang: 5000,
       uocChap: '~250 chapters',
-      khuyenMai: 'API Included',
-      donGiaVnd: '~80đ/trang',
+      khuyenMai: laEn ? 'API Included' : 'Kèm Cổng API',
+      donGiaVnd: '~79đ/trang',
       donGiaUsd: '$0.003/page',
       diemManh: laEn
         ? [
-            'Unlimited reading (Fair Use: 5,000 pages/mo)',
-            'Includes Personal Developer API Key (tr_live_...)',
-            'Batch Chapter URL API + Anti-Hotlink bypass',
-            '0.15s High-Speed Image Cache for CMS/Websites',
+            '5,000 permanent pages (~250 chapters — only $0.003/page)',
+            'Unlocks Personal Developer REST API Key (tr_live_...)',
+            'Unlocks Batch Chapter URL API (translate-chapter)',
+            '0.15s High-Speed Image Cache for Comic Websites & Tools',
           ]
         : [
-            'Đọc & dịch thả ga (FUP: 5.000 trang/tháng — chỉ ~80đ/trang)',
-            'Cấp Khoá Developer API riêng (tr_live_...) cho Web/Tool',
-            'API dịch cả Chapter qua URL + Tự vượt chặn Anti-Hotlink',
-            'Bộ nhớ đệm siêu tốc 0.15s cho CMS WordPress/Madara',
+            '5.000 trang tích luỹ vĩnh viễn (~250 chapter — chỉ ~79đ/trang)',
+            'Tự động cấp Khoá Developer REST API riêng (tr_live_...)',
+            'Mở khoá API đẩy cả Chapter qua URL (translate-chapter)',
+            'Bộ nhớ đệm siêu tốc 0.15s cho Website truyện & Tool tự động',
           ],
       noiBat: true,
     },
   ]
 
-  const GOI_CREDITS = [
-    {
-      ma: 'co_ban',
-      maNgan: 'PACK100',
-      nhan: laEn ? '📦 100 PAGES PACK' : '📦 GÓI TÍCH LUỸ 100 TRANG',
-      ten: laEn ? '100 Pages Credit Pack' : 'Gói 100 Trang Vĩnh Viễn',
-      giaVnd: 50000,
-      giaUsd: '2.49',
-      chuKy: laEn ? 'never expires' : 'vĩnh viễn',
-      soTrang: 100,
-      uocChap: '~5 chapters',
-      khuyenMai: 'No Expiry',
-      donGiaVnd: '500đ/trang',
-      donGiaUsd: '$0.025/page',
-      diemManh: laEn
-        ? [
-            '100 pages stored forever in your account wallet',
-            'Use anytime on Web, Chrome Extension & Windows App',
-            'Stacks with your 10 free daily pages',
-          ]
-        : [
-            '100 trang cộng dồn vĩnh viễn trong ví tài khoản',
-            'Dùng bất cứ lúc nào trên Web, Extension & App Windows',
-            'Cộng thêm vào 10 trang miễn phí mỗi ngày',
-          ],
-      noiBat: false,
-    },
-    {
-      ma: 'tieu_chuan',
-      maNgan: 'PACK500',
-      nhan: laEn ? '⭐ 500 PAGES PACK' : '⭐ GÓI TÍCH LUỸ 500 TRANG',
-      ten: laEn ? '500 Pages Credit Pack' : 'Gói 500 Trang Vĩnh Viễn',
-      giaVnd: 200000,
-      giaUsd: '8.99',
-      chuKy: laEn ? 'never expires' : 'vĩnh viễn',
-      soTrang: 500,
-      uocChap: '~25 chapters',
-      khuyenMai: 'Save 20%',
-      donGiaVnd: '400đ/trang',
-      donGiaUsd: '$0.018/page',
-      diemManh: laEn
-        ? [
-            '500 pages stored forever — save 20% per page',
-            'Sync across Web + Chrome Extension + Windows App',
-            'Double-click bubble editor & 4 genre fonts',
-          ]
-        : [
-            '500 trang tích luỹ vĩnh viễn — tiết kiệm 20%',
-            'Đồng bộ trên Web + Tiện ích Chrome + App Windows',
-            'Nhấp đúp sửa câu & 4 bộ Font thể loại',
-          ],
-      noiBat: true,
-    },
-    {
-      ma: 'pack_2000',
-      maNgan: 'PACK2000',
-      nhan: laEn ? '🔥 2,000 PAGES PACK' : '🔥 GÓI TÍCH LUỸ 2.000 TRANG',
-      ten: laEn ? '2,000 Pages Credit Pack' : 'Gói 2.000 Trang Vĩnh Viễn',
-      giaVnd: 600000,
-      giaUsd: '24.99',
-      chuKy: laEn ? 'never expires' : 'vĩnh viễn',
-      soTrang: 2000,
-      uocChap: '~100 chapters',
-      khuyenMai: 'Save 40%',
-      donGiaVnd: '300đ/trang',
-      donGiaUsd: '$0.012/page',
-      diemManh: laEn
-        ? [
-            '2,000 permanent pages — save 40% per page',
-            'Full Windows App batch crawl & Video Review Studio',
-            'Character & pronoun consistency glossary',
-          ]
-        : [
-            '2.000 trang tích luỹ vĩnh viễn — tiết kiệm 40%',
-            'Full App Windows cày link & Phần mềm Video Review',
-            'Sổ tay nhân vật & xưng hô nhất quán xuyên suốt',
-          ],
-      noiBat: true,
-    },
-    {
-      ma: 'doanh_nghiep_api',
-      maNgan: 'APIPRO',
-      nhan: laEn ? '🏢 5,000 PAGES + API' : '🏢 GÓI 5.000 TRANG + API',
-      ten: laEn ? '5,000 Pages + Developer API' : 'Gói 5.000 Trang + Cổng API',
-      giaVnd: 1000000,
-      giaUsd: '49.99',
-      chuKy: laEn ? 'never expires' : 'vĩnh viễn',
-      soTrang: 5000,
-      uocChap: '~250 chapters',
-      khuyenMai: 'Save 60%',
-      donGiaVnd: '200đ/trang',
-      donGiaUsd: '$0.010/page',
-      diemManh: laEn
-        ? [
-            '5,000 permanent pages — save 60% per page',
-            'Permanent Developer API Key (tr_live_...)',
-            'Batch Chapter URL API & 0.15s High-Speed Cache',
-          ]
-        : [
-            '5.000 trang vĩnh viễn — tiết kiệm 60% (chỉ 200đ/trang)',
-            'Cấp Khoá Developer API cố định (tr_live_...) vĩnh viễn',
-            'Đẩy cả Chapter qua URL + Cache tốc độ cao 0.15s',
-          ],
-      noiBat: true,
-    },
-  ]
-
-  const DANH_SACH_GOI = nhomGoi === 'credits' ? GOI_CREDITS : GOI_SUBSCRIPTION
-  const [goiDangChon, setGoiDangChon] = useState(GOI_SUBSCRIPTION[2])
+  const [goiDangChon, setGoiDangChon] = useState(DANH_SACH_GOI[2])
 
   useEffect(() => {
-    setGoiDangChon((nhomGoi === 'credits' ? GOI_CREDITS[1] : GOI_SUBSCRIPTION[2]))
+    setGoiDangChon(DANH_SACH_GOI[2])
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nhomGoi, lang])
+  }, [lang])
 
   const [daNhanThanhToanTuDong, setDaNhanThanhToanTuDong] = useState(null)
 
@@ -426,47 +318,12 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
         </h1>
         <p style={{ maxWidth: 820, margin: '0 auto 18px', fontSize: 15, color: '#cbd5e1', lineHeight: 1.6 }}>
           {laEn
-            ? 'Choose between flexible Monthly Plans (from $2.99/mo) or Never-Expire Credit Packs (from $0.99). Instant 24/7 activation.'
-            : 'Linh hoạt chọn Gói Tháng tiết kiệm (từ 49.000đ) hoặc Gói Lượt Vĩnh Viễn không hết hạn (từ 19.000đ). Kích hoạt tự động 24/7.'}
+            ? '5 clear tiers by page volume & feature level (from $0.99 / 50 pages). Pages never expire overnight — only deducted when you translate. Instant 24/7 activation.'
+            : '5 gói nâng cấp rõ ràng theo Số Trang & Cấp Độ Tính Năng (từ 19.000đ / 50 trang). Lượt mua không bao giờ mất qua đêm — dùng hết mới cần nạp tiếp. Kích hoạt tự động 24/7.'}
         </p>
 
-        {/* Thanh chuyển đổi: Gói Tháng vs Gói Lượt Vĩnh Viễn + Tiền tệ VNĐ vs USD */}
+        {/* Thanh chuyển đổi Tiền tệ VNĐ vs USD */}
         <div style={{ display: 'flex', justifyContent: 'center', gap: 14, flexWrap: 'wrap', alignItems: 'center' }}>
-          <div style={{ display: 'inline-flex', background: 'rgba(2, 6, 23, 0.65)', padding: 4, borderRadius: 999, border: '1px solid rgba(148,163,184,0.3)' }}>
-            <button
-              type="button"
-              onClick={() => setNhomGoi('subscription')}
-              style={{
-                border: 'none',
-                borderRadius: 999,
-                padding: '7px 16px',
-                fontSize: 13,
-                fontWeight: 800,
-                cursor: 'pointer',
-                background: nhomGoi === 'subscription' ? '#10b981' : 'transparent',
-                color: nhomGoi === 'subscription' ? '#022c22' : '#e2e8f0',
-              }}
-            >
-              📅 {laEn ? 'Monthly & Trial Plans' : 'Gói Mồi & Gói Tháng'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setNhomGoi('credits')}
-              style={{
-                border: 'none',
-                borderRadius: 999,
-                padding: '7px 16px',
-                fontSize: 13,
-                fontWeight: 800,
-                cursor: 'pointer',
-                background: nhomGoi === 'credits' ? '#10b981' : 'transparent',
-                color: nhomGoi === 'credits' ? '#022c22' : '#e2e8f0',
-              }}
-            >
-              📦 {laEn ? 'Never-Expire Credit Packs' : 'Gói Lượt Vĩnh Viễn (Credits)'}
-            </button>
-          </div>
-
           <div style={{ display: 'inline-flex', background: 'rgba(2, 6, 23, 0.65)', padding: 4, borderRadius: 999, border: '1px solid rgba(148,163,184,0.3)' }}>
             <button
               type="button"
