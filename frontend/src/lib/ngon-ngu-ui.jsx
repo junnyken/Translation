@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 
 const KHOA_NGON_NGU_UI = 'translation:ui-lang'
-export const CAC_NGON_NGU_HO_TRO = ['vi', 'en', 'es', 'pt', 'fr']
+export const CAC_NGON_NGU_HO_TRO = ['vi', 'en']
 
 export const SEO_META_BY_LANG = {
   vi: {
@@ -203,9 +203,6 @@ export function useNgonNguUI() {
 const DANH_SACH_NUT_LANG = [
   { ma: 'vi', nhan: '🇻🇳 VN', title: 'Tiếng Việt' },
   { ma: 'en', nhan: '🇺🇸 EN', title: 'English (International)' },
-  { ma: 'es', nhan: '🇪🇸 ES', title: 'Español (LATAM & España)' },
-  { ma: 'pt', nhan: '🇧🇷 PT', title: 'Português (Brasil)' },
-  { ma: 'fr', nhan: '🇫🇷 FR', title: 'Français' },
 ]
 
 /**

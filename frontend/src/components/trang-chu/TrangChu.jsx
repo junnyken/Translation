@@ -10,7 +10,6 @@ import { chuThoiGianGiu } from '../../lib/thoi-gian-giu.js'
 import { HERO_I18N, useNgonNguUI } from '../../lib/ngon-ngu-ui.jsx'
 import Icon from '../ui/Icon'
 import ChanTrangManga from './ChanTrangManga'
-import ShowcaseTruocSau from './ShowcaseTruocSau'
 import TheHanMuc from './TheHanMuc'
 
 /** Ngôn ngữ chữ TRÊN ẢNH. Sai ngôn ngữ ra chữ vô nghĩa chứ không phải lỗi rõ ràng, nên phải để
@@ -1192,50 +1191,6 @@ export default function TrangChu() {
           )}
         </section>
       )}
-
-      {/* E64 — trang này trước đây KẾT THÚC ngay sau khối `<details>`, ở khoảng 3/4 chiều cao màn,
-          để lại một mảng trắng lớn bên dưới: nhìn như trang tải dở.
-
-          Ba bước dưới đây không phải chữ độn. Chúng trả lời đúng câu hỏi mà một người lần đầu vào
-          đây phải tự đoán: thả ảnh xong thì CHUYỆN GÌ xảy ra, và cuối cùng mình nhận được cái gì.
-
-          Cố ý KHÔNG nhắc lại "khoảng 30 giây mỗi trang" và "tệp giữ 30 phút" — khối `<details>`
-          ngay trên đã nói cả hai, và lặp lại là đúng thứ đang làm màn này rối. */}
-      <section className="cach-chay" aria-labelledby="tieu-de-cach-chay">
-        <h2 id="tieu-de-cach-chay">{laEn ? 'How It Works' : 'Cách hoạt động'}</h2>
-        <ol className="ds-buoc">
-          <li>
-            <span className="so-buoc" aria-hidden="true">01</span>
-            <b>{laEn ? 'Drop comic pages' : 'Thả ảnh trang truyện'}</b>
-            <span>
-              {laEn
-                ? 'Select one or multiple pages (or a .zip/.cbz/.pdf chapter). No account required.'
-                : 'Chọn một hay nhiều trang cùng lúc. Không cần tài khoản.'}
-            </span>
-          </li>
-          <li>
-            <span className="so-buoc" aria-hidden="true">02</span>
-            <b>{laEn ? 'AI OCR & Context Translation' : 'Máy đọc chữ rồi dịch'}</b>
-            <span>
-              {laEn
-                ? 'Detects speech bubbles, erases source text, translates in context, and typesets cleanly.'
-                : 'Nhận ra chữ trên ảnh, dịch sang tiếng Việt, rồi căn vào đúng bong bóng.'}
-            </span>
-          </li>
-          <li>
-            <span className="so-buoc" aria-hidden="true">03</span>
-            <b>{laEn ? 'Download translated pages' : 'Tải ảnh đã dịch về'}</b>
-            <span>
-              {laEn
-                ? 'Preview side-by-side or in vertical Webtoon mode, then download single images or a full archive.'
-                : 'Nhiều trang thì tải một gói. Xem trước ngay trên trang này trước khi tải.'}
-            </span>
-          </li>
-        </ol>
-      </section>
-
-      {/* E110 — Trình kéo so sánh Trước – Sau (Before/After Showcase) & FAQ Đa ngôn ngữ Quốc tế */}
-      <ShowcaseTruocSau />
 
       <ChanTrangManga />
     </main>
