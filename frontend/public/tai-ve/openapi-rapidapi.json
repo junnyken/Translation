@@ -48,7 +48,7 @@
                     "daily_limit": { "type": "integer" },
                     "daily_used": { "type": "integer" },
                     "daily_remaining": { "type": "integer" },
-                    "vip_purchased_pages": { "type": "integer" },
+                    "vip_purchased_pages": { "type": "integer", "description": "Remaining prepaid VIP pages (alias: purchased_remaining)" },
                     "total_usable_pages": { "type": "integer" }
                   }
                 }
@@ -123,7 +123,7 @@
                   "type": "object",
                   "properties": {
                     "page_id": { "type": "string" },
-                    "done": { "type": "boolean" },
+                    "done": { "type": "boolean", "description": "Alias: completed — true when rendering is finished" },
                     "rendered_image_url": { "type": "string" },
                     "inpainted_image_url": { "type": "string" },
                     "regions": {
@@ -131,7 +131,7 @@
                       "items": {
                         "type": "object",
                         "properties": {
-                          "reading_order": { "type": "integer" },
+                          "reading_order": { "type": "integer", "description": "Alias: order — bubble reading sequence index" },
                           "bbox": { "type": "object" },
                           "source_text": { "type": "string" },
                           "translated_text": { "type": "string" }

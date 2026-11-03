@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import * as api from '../../api.js'
-import { useCodex } from '../../lib/dung-codex.js'
 import { useNgonNguUI } from '../../lib/ngon-ngu-ui.jsx'
 import Alert from '../ui/Alert.jsx'
 import Button from '../ui/Button.jsx'
-import DangNhapChatGPT from '../auth/DangNhapChatGPT.jsx'
 import AdminTongQuan from './AdminTongQuan.jsx'
 import AdminTaiKhoan from './AdminTaiKhoan.jsx'
 import AdminBieuDo from './AdminBieuDo.jsx'
@@ -27,14 +25,12 @@ const CAC_TRANG = [
   { ma: 'thanh-toan', nhom: 'chinh', nhan: 'Thanh toán & VietQR', nhanEn: 'Payments & VietQR', icon: '💳' },
   { ma: 'cau-hinh-ai', nhom: 'he-thong', nhan: 'Cấu hình AI', nhanEn: 'AI Config', icon: '🤖' },
   { ma: 'chapter', nhom: 'he-thong', nhan: 'Nhật ký Chapter', nhanEn: 'Chapter Logs', icon: '📚' },
-  { ma: 'codex', nhom: 'he-thong', nhan: 'ChatGPT Codex', nhanEn: 'ChatGPT Codex', icon: '🔑', chiKhiCodex: true },
 ]
 
 const TIEU_DE = Object.fromEntries(CAC_TRANG.map((t) => [t.ma, { vi: t.nhan, en: t.nhanEn }]))
 
 export default function AdminApp({ nguoiDung, onDangXuat, onVeTrangChu }) {
   const { laEn } = useNgonNguUI()
-  const codex = useCodex()
   const [trangAdmin, setTrangAdmin] = useState('tong-quan')
   const [ds, setDs] = useState(null)
   const [thongKe, setThongKe] = useState(null)
@@ -100,7 +96,7 @@ export default function AdminApp({ nguoiDung, onDangXuat, onVeTrangChu }) {
     window.dispatchEvent(new HashChangeEvent('hashchange'))
   }
 
-  const dsTrangHien = CAC_TRANG.filter((t) => !t.chiKhiCodex || codex?.bat)
+  const dsTrangHien = CAC_TRANG
   const nhomChinh = dsTrangHien.filter((t) => t.nhom === 'chinh')
   const nhomHeThong = dsTrangHien.filter((t) => t.nhom === 'he-thong')
   const chuCaiDau = String(nguoiDung?.ten_hien || nguoiDung?.email || 'A').trim().charAt(0).toUpperCase()
@@ -282,23 +278,6 @@ export default function AdminApp({ nguoiDung, onDangXuat, onVeTrangChu }) {
             />
           )}
           {trangAdmin === 'chapter' && <AdminChapter thongKe={thongKe} />}
-          {trangAdmin === 'codex' && (
-            <div className="admin-khung">
-              <div className="admin-khung-dau">
-                <div>
-                  <h3>🔑 {laEn ? 'ChatGPT Codex Login' : 'Đăng nhập ChatGPT Codex'}</h3>
-                  <p className="ghi-chu">
-                    {laEn
-                      ? 'Use your own ChatGPT account for context-aware translation.'
-                      : 'Dùng tài khoản ChatGPT của bạn để dịch ngữ cảnh.'}
-                  </p>
-                </div>
-              </div>
-              <div className="admin-khung-than">
-                <DangNhapChatGPT />
-              </div>
-            </div>
-          )}
         </main>
       </div>
     </div>

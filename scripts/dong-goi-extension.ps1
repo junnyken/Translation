@@ -31,7 +31,7 @@ Copy-Item (Join-Path $ThuMucExt "src") -Destination (Join-Path $ThuMucTam "src")
 if ($DiaChiMayChu -ne "") {
     $ApiFile = Join-Path $ThuMucTam "src\lib\api.js"
     $NoiDung = Get-Content -Raw -Encoding UTF8 $ApiFile
-    $NoiDung = $NoiDung -replace "export const DIA_CHI_MAC_DINH = ''", "export const DIA_CHI_MAC_DINH = '$DiaChiMayChu'"
+    $NoiDung = $NoiDung -replace "export const DIA_CHI_MAC_DINH = '[^']*'", "export const DIA_CHI_MAC_DINH = '$DiaChiMayChu'"
     Set-Content -Path $ApiFile -Value $NoiDung -Encoding UTF8
 }
 

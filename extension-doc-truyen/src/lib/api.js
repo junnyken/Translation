@@ -29,7 +29,7 @@ export const ENGINE_MAC_DINH = 'local_ocr_gpu'
 export const CHE_DO_MAC_DINH = 'chi_chu'
 export const FONT_CHU_MAC_DINH = 'bangers'
 //: Địa chỉ máy chủ mặc định trỏ sẵn vào máy chủ API chính thức để người dùng cài xong là dịch ngay.
-export const DIA_CHI_MAC_DINH = 'https://translation-api.vibe1.tinhgon.xyz'
+export const DIA_CHI_MAC_DINH = 'https://comic.io.vn'
 
 function sinhMaKhachNgauNhien() {
   const mang = new Uint8Array(18)
