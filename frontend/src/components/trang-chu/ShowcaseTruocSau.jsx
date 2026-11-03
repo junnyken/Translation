@@ -4,7 +4,7 @@ import { useNgonNguUI } from '../../lib/ngon-ngu-ui.jsx'
 const NOI_DUNG_SHOWCASE = {
   vi: {
     badge: '✨ TRẢI NGHIỆM CHẤT LƯỢNG THỰC TẾ TRƯỚC & SAU KHI DỊCH',
-    title: 'So Sánh Trực Quan: Xoá Chữ LaMa & Dàn Chữ Thông Minh',
+    title: 'So Sánh Trực Quan: Tái Tạo Nền & Dàn Chữ Thông Minh',
     subtitle:
       'Kéo thanh trượt sang trái/phải để xem cách AI tự động xoá sạch chữ gốc trên nền phức tạp và dàn bản dịch khớp hoàn hảo vào bong bóng.',
     beforeLabel: 'TRƯỚC (RAW GỐC)',
@@ -50,7 +50,7 @@ const NOI_DUNG_SHOWCASE = {
     faqs: [
       {
         q: 'Làm sao để dịch truyện tranh Raw (Nhật, Hàn, Trung) tự động mà không biết ngoại ngữ?',
-        a: 'Bạn chỉ cần kéo thả ảnh trang truyện (PNG, JPG, WebP) hoặc gói cả chương (.ZIP, .CBZ, .PDF) vào ô tải lên, chọn ngôn ngữ gốc và ngôn ngữ đích (Tiếng Việt, Tiếng Anh, Tây Ban Nha, Bồ Đào Nha, Pháp...). AI sẽ tự động nhận diện khung thoại, xoá chữ gốc bằng mô hình LaMa và chèn bản dịch trong ~3 giây.',
+        a: 'Bạn chỉ cần kéo thả ảnh trang truyện (PNG, JPG, WebP) hoặc gói cả chương (.ZIP, .CBZ, .EPUB, .PDF) vào ô tải lên, chọn ngôn ngữ gốc và ngôn ngữ đích (Tiếng Việt, Tiếng Anh, Tây Ban Nha, Bồ Đào Nha, Pháp...). AI sẽ tự động nhận diện khung thoại, tái tạo nền sạch và chèn bản dịch trong ~3 giây.',
       },
       {
         q: 'Làm thế nào để giữ đồng nhất tên nhân vật và đại từ xưng hô xuyên suốt các chương?',
@@ -68,7 +68,7 @@ const NOI_DUNG_SHOWCASE = {
   },
   en: {
     badge: '✨ INTERACTIVE BEFORE & AFTER TRANSLATION SHOWCASE',
-    title: 'Visual Comparison: LaMa Text Removal & Smart Typesetting',
+    title: 'Visual Comparison: Smart Background Clean & Typesetting',
     subtitle:
       'Drag the slider left or right to see how our AI cleanly erases complex vertical/color source text and typesets translations naturally inside speech bubbles.',
     beforeLabel: 'BEFORE (RAW SOURCE)',
@@ -114,7 +114,7 @@ const NOI_DUNG_SHOWCASE = {
     faqs: [
       {
         q: 'How can I read and translate raw manga or webtoons online if I don’t know Japanese or Korean?',
-        a: 'Simply drop your raw manga images (PNG, JPG, WebP) or full chapter archives (.ZIP, .CBZ, .PDF) into the upload box above. Select the source language (Japanese, Korean, Chinese) and your target language (English, Spanish, Portuguese, French, Vietnamese, etc.). Our multimodal AI detects bubbles, removes original text via LaMa inpainting, and typesets the translation in ~3 seconds.',
+        a: 'Simply drop your raw manga images (PNG, JPG, WebP) or full chapter archives (.ZIP, .CBZ, .EPUB, .PDF) into the upload box above. Select the source language (Japanese, Korean, Chinese) and your target language (English, Spanish, Portuguese, French, Vietnamese, etc.). Our multimodal AI detects bubbles, reconstructs clean backgrounds, and typesets the translation in ~3 seconds.',
       },
       {
         q: 'How does the tool keep character names and honorifics consistent across chapters?',
@@ -132,7 +132,7 @@ const NOI_DUNG_SHOWCASE = {
   },
   es: {
     badge: '✨ DEMOSTRACIÓN INTERACTIVA ANTES Y DESPUÉS',
-    title: 'Comparación Visual: Limpieza LaMa y Tipografía Inteligente',
+    title: 'Comparación Visual: Limpieza Inteligente y Tipografía Pro',
     subtitle:
       'Desliza la barra hacia la izquierda o derecha para ver cómo la IA borra el texto original y maqueta la traducción en español dentro de los bocadillos.',
     beforeLabel: 'ANTES (RAW ORIGINAL)',
@@ -178,7 +178,7 @@ const NOI_DUNG_SHOWCASE = {
     faqs: [
       {
         q: '¿Cómo traducir manga raw, manhwa o webtoons al español gratis con IA?',
-        a: 'Solo arrastra tus imágenes (PNG, JPG, WebP) o archivos de capítulo (.ZIP, .CBZ, .PDF) al cuadro de carga, selecciona el idioma original (Japonés, Coreano, Chino) y elige Español como destino. Nuestra IA detecta los bocadillos, borra el texto con LaMa y coloca la traducción en segundos.',
+        a: 'Solo arrastra tus imágenes (PNG, JPG, WebP) o archivos de capítulo (.ZIP, .CBZ, .EPUB, .PDF) al cuadro de carga, selecciona el idioma original (Japonés, Coreano, Chino) y elige Español como destino. Nuestra IA detecta los bocadillos, reconstruye el fondo limpio y coloca la traducción en segundos.',
       },
       {
         q: '¿Puedo traducir páginas directamente mientras leo en sitios web de manga?',
@@ -196,7 +196,7 @@ const NOI_DUNG_SHOWCASE = {
   },
   pt: {
     badge: '✨ DEMONSTRAÇÃO INTERATIVA ANTES E DEPOIS',
-    title: 'Comparação Visual: Limpeza LaMa e Diagramação Inteligente',
+    title: 'Comparação Visual: Limpeza Inteligente e Diagramação Pro',
     subtitle:
       'Arraste o controle deslizante para ver como nossa IA apaga o texto original em japonês/coreano e insere a tradução em português perfeitamente nos balões.',
     beforeLabel: 'ANTES (RAW ORIGINAL)',
@@ -223,7 +223,7 @@ const NOI_DUNG_SHOWCASE = {
         transTop: '[NOTIFICAÇÃO DO SISTEMA]\nA autoridade do Monarca das Sombras despertou.',
         transBot: 'Ergam-se,\nmeus soldados.',
         sfxRaw: '쿠구구궁—!',
-        sfxNote: 'Reconstrução limpa de fundos coloridos com IA LaMa',
+        sfxNote: 'Reconstrução limpa de fundos coloridos com IA',
       },
       {
         id: 'manhua_zh',
@@ -260,7 +260,7 @@ const NOI_DUNG_SHOWCASE = {
   },
   fr: {
     badge: '✨ DÉMONSTRATION INTERACTIVE AVANT / APRÈS',
-    title: 'Comparaison Visuelle : Nettoyage LaMa & Lettrage Intelligent',
+    title: 'Comparaison Visuelle : Nettoyage IA & Lettrage Intelligent',
     subtitle:
       'Faites glisser le curseur pour voir comment notre IA efface le texte japonais/coréen original et intègre la traduction française dans les bulles.',
     beforeLabel: 'AVANT (RAW ORIGINAL)',
@@ -287,7 +287,7 @@ const NOI_DUNG_SHOWCASE = {
         transTop: '[NOTIFICATION SYSTÈME]\nL’autorité du Monarque des Ombres s’éveille.',
         transBot: 'Levez-vous,\nmes soldats.',
         sfxRaw: '쿠구구궁—!',
-        sfxNote: 'Reconstruction nette des fonds colorés par IA LaMa',
+        sfxNote: 'Reconstruction nette des fonds colorés par IA',
       },
       {
         id: 'manhua_zh',
@@ -306,7 +306,7 @@ const NOI_DUNG_SHOWCASE = {
     faqs: [
       {
         q: 'Comment traduire des scans manga raw ou webtoons en ligne gratuitement ?',
-        a: 'Glissez simplement vos images (PNG, JPG, WebP) ou archives de chapitres (.ZIP, .CBZ, .PDF) dans la zone d’envoi, choisissez la langue source (Japonais, Coréen, Chinois) et sélectionnez Français. Notre IA détecte les bulles, efface le texte via LaMa et applique le lettrage en ~3 secondes.',
+        a: 'Glissez simplement vos images (PNG, JPG, WebP) ou archives de chapitres (.ZIP, .CBZ, .EPUB, .PDF) dans la zone d’envoi, choisissez la langue source (Japonais, Coréen, Chinois) et sélectionnez Français. Notre IA détecte les bulles, reconstruit le fond proprement et applique le lettrage en ~3 secondes.',
       },
       {
         q: 'Puis-je traduire directement sur mes sites de lecture de scans ?',
@@ -483,7 +483,7 @@ export default function ShowcaseTruocSau() {
       >
         <span>✨ {mau.sfxNote}</span>
         <span style={{ color: '#38bdf8', fontWeight: 700 }}>
-          {laBanDich ? 'LaMa Inpaint + Smart Fit ✓' : 'Raw Scan'}
+          {laBanDich ? 'Smart Clean + Fit ✓' : 'Raw Scan'}
         </span>
       </div>
     </div>

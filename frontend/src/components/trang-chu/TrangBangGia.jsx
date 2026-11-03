@@ -36,12 +36,12 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
         ? [
             '50 AI-translated comic pages (never expires)',
             '60% cheaper than Western tools ($0.05/page)',
-            'Full LaMa text removal & 9 target languages',
+            'Full smart background clean & 9 target languages',
           ]
         : [
             '50 trang dịch AI chất lượng cao (không bao giờ hết hạn)',
             'Chỉ 380đ/trang — rẻ hơn 60% so với thị trường quốc tế',
-            'Đầy đủ xoá chữ LaMa & dàn chữ 9 ngôn ngữ',
+            'Đầy đủ tái tạo nền sạch & dàn chữ 9 ngôn ngữ',
           ],
       noiBat: false,
     },

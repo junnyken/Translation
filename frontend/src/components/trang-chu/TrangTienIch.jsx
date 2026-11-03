@@ -130,10 +130,10 @@ export default function TrangTienIch({ onQuayLai }) {
                 : 'Nhấp đúp vào bất kỳ vùng chữ nào để sửa câu, bật ⬛ Phủ hộp chữ, ✥ Kéo vị trí hoặc dùng 🖌️ Công cụ tinh chỉnh trực tiếp ngay trên trang.'}
             </div>
             <div style={featureItemStyle}>
-              🌍 <b>{laEn ? '9 Target Languages + 3 Dual-Anchor AI Modes:' : 'Hỗ trợ 9 Ngôn ngữ Quốc tế + 3 Chế độ AI Dual-Anchor:'}</b>{' '}
+              🌍 <b>{laEn ? '9 Target Languages + 3 Smart AI Modes:' : 'Hỗ trợ 9 Ngôn ngữ Quốc tế + 3 Chế độ AI Thông Minh:'}</b>{' '}
               {laEn
-                ? 'Translate into 9 languages (VI, EN, ZH, ZH-TW, ID, ES, PT, TH, FR) with ⚡ Fast OCR+GPU Dual-Anchor (1 credit/page), ✨ Cloud Context AI (1 credit/page), or 🧠 Pro Self-Learning + Glossary Memory (2 credits/page).'
-                : 'Dịch ra 9 ngôn ngữ (Việt, Anh, Trung Giản/Phồn, Indo, Tây Ban Nha, Bồ Đào Nha, Thái, Pháp) với ⚡ OCR + GPU Nhanh Dual-Anchor (1 lượt/trang), ✨ AI Ngữ Cảnh Cloud (1 lượt/trang) hoặc 🧠 OCR + GPU Pro Tự Học & Glossary (2 lượt/trang).'}
+                ? 'Translate into 9 languages (VI, EN, ZH, ZH-TW, ID, ES, PT, TH, FR) with ⚡ Fast AI Mode (1 credit/page), ✨ Context AI Mode (1 credit/page), or 🧠 Pro Self-Learning + Glossary Memory (2 credits/page).'
+                : 'Dịch ra 9 ngôn ngữ (Việt, Anh, Trung Giản/Phồn, Indo, Tây Ban Nha, Bồ Đào Nha, Thái, Pháp) với ⚡ Chế độ AI Nhanh (1 lượt/trang), ✨ Chế độ AI Ngữ Cảnh (1 lượt/trang) hoặc 🧠 Chế độ AI Pro Tự Học & Từ Điển (2 lượt/trang).'}
             </div>
           </div>
 
@@ -246,10 +246,10 @@ export default function TrangTienIch({ onQuayLai }) {
                 : <>Tự động lưu gọn gàng theo cấu trúc <code>Tên_Truyện / Chapter-001 / 001.jpg, 002.jpg...</code> kèm chế độ Resume (bỏ qua trang đã dịch).</>}
             </div>
             <div style={{ ...featureItemStyle, borderLeftColor: '#10b981' }}>
-              📦 <b>{laEn ? 'Dual-Anchor AI + HuggingFace / Groq LPU Accelerator (9 Languages):' : 'Kiến trúc Dual-Anchor AI + Tăng tốc HuggingFace / Groq LPU (9 Ngôn ngữ):'}</b>{' '}
+              📦 <b>{laEn ? 'Proprietary Context AI + High-Speed Accelerator (9 Languages):' : 'Kiến trúc AI Ngữ Cảnh Độc Quyền + Tăng tốc Đa Luồng (9 Ngôn ngữ):'}</b>{' '}
               {laEn
-                ? 'Culture-aware reading order (R-to-L Manga / L-to-R Manhwa), NMT + LLM Polish Dual-Anchor (~95–97% accuracy), HuggingFace specialized models (Sailor2, SakuraLLM, Aya-Expanse), and Groq LPU / DeepSeek hybrid acceleration.'
-                : 'Sắp xếp thứ tự đọc thông minh (Phải sang Trái cho Manga Nhật / Trái sang Phải cho Manhwa-Manhua), Dual-Anchor NMT + LLM Polish đạt ~95–97% sát nghĩa, tích hợp kho model HuggingFace (Sailor2, SakuraLLM, Aya-Expanse) & tăng tốc Groq LPU.'}
+                ? 'Culture-aware reading order (R-to-L Manga / L-to-R Manhwa), high-precision context translation (~95–97% accuracy), character pronoun consistency, and high-speed batch processing.'
+                : 'Sắp xếp thứ tự đọc thông minh (Phải sang Trái cho Manga Nhật / Trái sang Phải cho Manhwa-Manhua), dịch ngữ cảnh chuẩn xác ~95–97%, giữ đồng nhất xưng hô nhân vật & xử lý đa luồng siêu tốc.'}
             </div>
           </div>
 
@@ -347,8 +347,8 @@ export default function TrangTienIch({ onQuayLai }) {
               </div>
               <h2 id="tieu-de-video-studio" style={{ margin: '2px 0 0', fontSize: 22, color: '#ffffff' }}>
                 {laEn
-                  ? 'AI Comic-to-Video Studio (DeepSeek Script + ElevenLabs Voice + Ken Burns MP4)'
-                  : 'Phần Mềm Dựng Video Review Truyện Tự Động (Kịch Bản DeepSeek + Giọng Đọc Cảm Xúc)'}
+                  ? 'Auto AI Comic-to-Video Review Studio'
+                  : 'Phần Mềm Dựng Video Review Truyện Tự Động (Kịch Bản AI + Giọng Đọc Cảm Xúc)'}
               </h2>
             </div>
           </div>
@@ -375,8 +375,8 @@ export default function TrangTienIch({ onQuayLai }) {
 
         <p style={{ color: '#cbd5e1', fontSize: 14.5, lineHeight: 1.6, margin: '14px 0 0' }}>
           {laEn
-            ? 'Turn translated comic chapters into viral TikTok/Shorts/YouTube Recap videos in 1 click: DeepSeek V3 dramatic storytelling scriptwriter across 9 international languages, ElevenLabs expressive voices + Edge-TTS multi-language narration (36+ voices), and hardware-accelerated Ken Burns MP4 rendering.'
-            : 'Biến thư mục ảnh truyện đã dịch thành video Review triệu view cho TikTok / Reels / Shorts / YouTube chỉ với 1 cú nhấp: biên kịch DeepSeek V3 bám sát cốt truyện & nhân vật trên 9 ngôn ngữ quốc tế, kết nối ElevenLabs giàu cảm xúc + 36 giọng đọc Đa Quốc Gia miễn phí, xuất MP4 hiệu ứng Ken Burns + phụ đề tự động.'}
+            ? 'Turn translated comic chapters into viral TikTok/Shorts/YouTube Recap videos in 1 click: AI dramatic storytelling scriptwriter across 9 international languages, 36+ expressive studio voices, and hardware-accelerated cinematic MP4 rendering.'
+            : 'Biến thư mục ảnh truyện đã dịch thành video Review triệu view cho TikTok / Reels / Shorts / YouTube chỉ với 1 cú nhấp: AI biên kịch bám sát cốt truyện & nhân vật trên 9 ngôn ngữ quốc tế, tích hợp hơn 36 giọng thuyết minh giàu cảm xúc, xuất MP4 chuyển động điện ảnh mượt mà + phụ đề tự động.'}
         </p>
       </section>
 

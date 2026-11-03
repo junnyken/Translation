@@ -7,31 +7,31 @@ export const SEO_META_BY_LANG = {
   vi: {
     title: 'comic.io.vn — Dịch Truyện Tranh AI Miễn Phí | Manga, Manhwa, Webtoon',
     description:
-      'Nền tảng dịch truyện tranh tự động bằng AI (Manga, Manhwa, Manhua, Comic) sang 9 ngôn ngữ. Tự xoá chữ gốc LaMa, dàn chữ chuẩn thẩm mỹ, hỗ trợ Tiện ích Chrome, App Windows & API.',
+      'Nền tảng dịch truyện tranh tự động bằng AI (Manga, Manhwa, Manhua, Comic) sang 9 ngôn ngữ. Tự tái tạo nền sạch, dàn chữ chuẩn thẩm mỹ, hỗ trợ Tiện ích Chrome, App Windows & API.',
     canonical: 'https://comic.io.vn/',
   },
   en: {
     title: 'comic.io.vn — Free AI Manga, Manhwa & Webtoon Translator Online',
     description:
-      'Translate raw Japanese Manga, Korean Manhwa, Chinese Manhua & Webtoons online in 3 seconds. AI bubble detection, LaMa background inpainting & smart typesetting in 9 languages.',
+      'Translate raw Japanese Manga, Korean Manhwa, Chinese Manhua & Webtoons online in 3 seconds. AI bubble detection, smart background clean & studio typesetting in 9 languages.',
     canonical: 'https://comic.io.vn/en',
   },
   es: {
     title: 'comic.io.vn — Traductor de Manga, Manhwa y Webtoon con IA Gratis',
     description:
-      'Traduce manga raw, manhwa coreano y cómics online en segundos con IA. Detección de bocadillos, limpieza de texto LaMa y tipografía automática en 9 idiomas.',
+      'Traduce manga raw, manhwa coreano y cómics online en segundos con IA. Detección de bocadillos, limpieza inteligente de texto y tipografía automática en 9 idiomas.',
     canonical: 'https://comic.io.vn/es',
   },
   pt: {
     title: 'comic.io.vn — Tradutor de Mangá, Manhwa e Webtoon com IA Grátis',
     description:
-      'Traduza mangá raw, manhwa e quadrinhos online em segundos com Inteligência Artificial. Limpeza de balões LaMa, OCR inteligente e diagramação automática.',
+      'Traduza mangá raw, manhwa e quadrinhos online em segundos com Inteligência Artificial. Limpeza inteligente de balões, OCR avançado e diagramação automática.',
     canonical: 'https://comic.io.vn/pt',
   },
   fr: {
     title: 'comic.io.vn — Traducteur de Manga, Manhwa et Webtoon par IA Gratuit',
     description:
-      'Traduisez vos scans manga raw, manhwa et webtoons en ligne en quelques secondes grâce à l’IA. Nettoyage LaMa, OCR précis et lettrage automatique.',
+      'Traduisez vos scans manga raw, manhwa et webtoons en ligne en quelques secondes grâce à l’IA. Nettoyage intelligent, OCR précis et lettrage automatique.',
     canonical: 'https://comic.io.vn/fr',
   },
 }
@@ -62,7 +62,7 @@ export const HERO_I18N = {
   es: {
     h1: 'Traductor de Manga, Manhwa y Webtoon con IA',
     subtitle: 'Suelta páginas de cómic o capítulos (.zip / .cbz / .pdf) aquí para traducir al instante — sin registro obligatorio.',
-    bubbleLeft: '¡Traducción Instantánea de Cómics — Limpieza LaMa y Fuentes por Género!',
+    bubbleLeft: '¡Traducción Instantánea de Cómics — Limpieza IA y Fuentes por Género!',
     navTranslate: '🏠 Traducir',
     navExt: '🧩 Extensión y App',
     navApi: '⚡ API Desarrollador',
@@ -73,7 +73,7 @@ export const HERO_I18N = {
   pt: {
     h1: 'Tradutor de Mangá, Manhwa e Webtoon com IA',
     subtitle: 'Arraste páginas ou capítulos (.zip / .cbz / .pdf) aqui para traduzir instantaneamente — sem necessidade de cadastro.',
-    bubbleLeft: 'Tradução Instantânea de Quadrinhos — Limpeza LaMa e Fontes de Estúdio!',
+    bubbleLeft: 'Tradução Instantânea de Quadrinhos — Limpeza IA e Fontes de Estúdio!',
     navTranslate: '🏠 Traduzir',
     navExt: '🧩 Extensão e App',
     navApi: '⚡ API Developer',
@@ -84,7 +84,7 @@ export const HERO_I18N = {
   fr: {
     h1: 'Traducteur de Manga, Manhwa & Webtoon par IA',
     subtitle: 'Glissez vos pages ou chapitres (.zip / .cbz / .pdf) ici pour traduire instantanément — sans inscription requise.',
-    bubbleLeft: 'Traduction Instantanée de Scans — Nettoyage LaMa & Lettrage Pro !',
+    bubbleLeft: 'Traduction Instantanée de Scans — Nettoyage IA & Lettrage Pro !',
     navTranslate: '🏠 Traduire',
     navExt: '🧩 Extension & App',
     navApi: '⚡ API Développeur',
