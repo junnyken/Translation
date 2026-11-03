@@ -91,10 +91,15 @@ export default function ChanTrangManga() {
 
       <div className="chan-trang-day">
         <span>
-          © {namHienTai} <a href="https://comic.io.vn" style={{ color: 'inherit', fontWeight: 700, textDecoration: 'none' }}>comic.io.vn</a> — Manga Translation Studio · {laEn ? 'Version v0.3.0' : 'Phiên bản v0.3.0'}
+          © {namHienTai} <a href="https://comic.io.vn" style={{ color: 'inherit', fontWeight: 700, textDecoration: 'none' }}>comic.io.vn</a> — Manga Translation Studio · {laEn ? 'Version v0.3.2' : 'Phiên bản v0.3.2'}
         </span>
         <span className="cham-ngan" aria-hidden="true">•</span>
-        <span>{laEn ? 'Supported: Manga (JP) · Manhwa (KR) · Manhua (ZH) · Comic (EN) · Web Novel' : 'Hỗ trợ: Manga (Nhật) · Manhwa (Hàn) · Manhua (Trung) · Comic (Anh) · Truyện chữ'}</span>
+        <span>
+          <a href="/en" style={{ color: 'inherit', textDecoration: 'none', marginRight: 8 }}>🇺🇸 English</a>
+          <a href="/api-docs" style={{ color: 'inherit', textDecoration: 'none', marginRight: 8 }}>⚡ REST API</a>
+          <a href="/pricing" style={{ color: 'inherit', textDecoration: 'none', marginRight: 8 }}>💎 Pricing</a>
+          <a href="/extensions" style={{ color: 'inherit', textDecoration: 'none' }}>🧩 Chrome Extension</a>
+        </span>
         <span className="cham-ngan" aria-hidden="true">•</span>
         <a href="#privacy-policy" style={{ color: '#f97316', fontWeight: 600 }}>
           🛡️ {laEn ? 'Privacy Policy' : 'Chính sách quyền riêng tư (/privacy-policy)'}

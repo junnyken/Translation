@@ -6,8 +6,15 @@ Allow: /pt
 Allow: /fr
 Allow: /id
 Allow: /tien-ich
+Allow: /extensions
+Allow: /en/extensions
 Allow: /ket-noi-api
+Allow: /api-docs
+Allow: /en/api-docs
 Allow: /bang-gia
+Allow: /pricing
+Allow: /en/pricing
+Allow: /tai-ve/openapi-rapidapi.json
 Allow: /privacy-policy
 Disallow: /api/
 Disallow: /admin

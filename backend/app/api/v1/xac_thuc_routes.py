@@ -678,7 +678,7 @@ def _doc_so_cai_affiliate() -> dict:
         storage = get_storage()
         if not storage.exists(REL_SO_CAI_AFFILIATE):
             return {"claims": {}, "history": []}
-        raw = storage.read_bytes(REL_SO_CAI_AFFILIATE).decode("utf-8")
+        raw = storage.read(REL_SO_CAI_AFFILIATE).decode("utf-8")
         d = json.loads(raw)
         if not isinstance(d, dict):
             return {"claims": {}, "history": []}

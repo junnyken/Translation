@@ -67,23 +67,77 @@
     <priority>0.9</priority>
   </url>
 
-  <!-- Feature & Pricing Pages -->
-  <url>
-    <loc>https://comic.io.vn/tien-ich</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>
-
+  <!-- B2B REST API & RapidAPI Documentation Pages (VI & EN) -->
   <url>
     <loc>https://comic.io.vn/ket-noi-api</loc>
+    <xhtml:link rel="alternate" hreflang="vi" href="https://comic.io.vn/ket-noi-api" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://comic.io.vn/en/api-docs" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://comic.io.vn/api-docs" />
     <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
+    <priority>0.9</priority>
   </url>
 
   <url>
-    <loc>https://comic.io.vn/bang-gia</loc>
+    <loc>https://comic.io.vn/api-docs</loc>
+    <xhtml:link rel="alternate" hreflang="vi" href="https://comic.io.vn/ket-noi-api" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://comic.io.vn/en/api-docs" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://comic.io.vn/api-docs" />
     <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
+    <priority>0.9</priority>
+  </url>
+
+  <url>
+    <loc>https://comic.io.vn/en/api-docs</loc>
+    <xhtml:link rel="alternate" hreflang="vi" href="https://comic.io.vn/ket-noi-api" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://comic.io.vn/en/api-docs" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://comic.io.vn/api-docs" />
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+
+  <!-- Global Pricing & Credit Plans (VI & EN) -->
+  <url>
+    <loc>https://comic.io.vn/bang-gia</loc>
+    <xhtml:link rel="alternate" hreflang="vi" href="https://comic.io.vn/bang-gia" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://comic.io.vn/en/pricing" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://comic.io.vn/pricing" />
+    <changefreq>weekly</changefreq>
+    <priority>0.85</priority>
+  </url>
+
+  <url>
+    <loc>https://comic.io.vn/pricing</loc>
+    <xhtml:link rel="alternate" hreflang="vi" href="https://comic.io.vn/bang-gia" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://comic.io.vn/en/pricing" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://comic.io.vn/pricing" />
+    <changefreq>weekly</changefreq>
+    <priority>0.85</priority>
+  </url>
+
+  <!-- Chrome Extension & Windows Desktop App (VI & EN) -->
+  <url>
+    <loc>https://comic.io.vn/tien-ich</loc>
+    <xhtml:link rel="alternate" hreflang="vi" href="https://comic.io.vn/tien-ich" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://comic.io.vn/en/extensions" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://comic.io.vn/extensions" />
+    <changefreq>weekly</changefreq>
+    <priority>0.85</priority>
+  </url>
+
+  <url>
+    <loc>https://comic.io.vn/extensions</loc>
+    <xhtml:link rel="alternate" hreflang="vi" href="https://comic.io.vn/tien-ich" />
+    <xhtml:link rel="alternate" hreflang="en" href="https://comic.io.vn/en/extensions" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://comic.io.vn/extensions" />
+    <changefreq>weekly</changefreq>
+    <priority>0.85</priority>
+  </url>
+
+  <!-- OpenAPI 3.0 Spec for API Directories & RapidAPI Crawlers -->
+  <url>
+    <loc>https://comic.io.vn/tai-ve/openapi-rapidapi.json</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
   </url>
 
   <url>

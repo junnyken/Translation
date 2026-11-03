@@ -53,7 +53,8 @@ const BIEN_THE_ICON = {
  */
 export default function AdminCauHinhAi({ thongKe, onNap, setLoi, setThongBaoOk }) {
   const { laEn } = useNgonNguUI()
-  const heThong = thongKe?.he_thong || {}
+  const [cauHinhOverride, setCauHinhOverride] = useState(null)
+  const heThong = { ...(thongKe?.he_thong || {}), ...(cauHinhOverride || {}) }
 
   // Tab cấu hình: 'chinh' (DeepSeek + Gemini), 'pho-bien' (OpenAI + OpenRouter + Groq), 'mo-rong' (Custom Endpoint)
   const [tabCauHinh, setTabCauHinh] = useState('chinh')
@@ -186,6 +187,9 @@ export default function AdminCauHinhAi({ thongKe, onNap, setLoi, setThongBaoOk }
       if (customApiKey.trim()) payload.customApiKey = customApiKey.trim()
 
       const kq = await api.quanTriLuuCauHinhAi(payload)
+      if (kq && typeof kq === 'object') {
+        setCauHinhOverride(kq)
+      }
       setThongBaoOk(
         kq?.thong_diep ||
           (laEn ? 'AI Multi-Model configuration saved & synced!' : 'Đã lưu & đồng bộ cấu hình Đa Mô Hình AI!'),
@@ -197,7 +201,7 @@ export default function AdminCauHinhAi({ thongKe, onNap, setLoi, setThongBaoOk }
       setKhoaGroqInput('')
       setCustomApiKey('')
       await onNap()
-      await xuLyKiemTraKetNoiAi(null)
+      await xuLyKiemTraKetNoiAi(null, true)
     } catch (err) {
       setLoi(String(err?.message || err).replace(/^\d+:\s*/, ''))
     } finally {
@@ -205,19 +209,56 @@ export default function AdminCauHinhAi({ thongKe, onNap, setLoi, setThongBaoOk }
     }
   }
 
-  async function xuLyKiemTraKetNoiAi(khoaTuyChon = null) {
+  async function xuLyKiemTraKetNoiAi(khoaTuyChon = null, boQuaTuLuu = false) {
     setDangKiemTraAi(true)
     setLoi(null)
     try {
-      const thu =
-        typeof khoaTuyChon === 'string' && khoaTuyChon.trim()
-          ? khoaTuyChon.trim()
-          : khoaDeepseekInput.trim() ||
+      const coKhoaMoiDangNhap =
+        !boQuaTuLuu &&
+        Boolean(
+          khoaDeepseekInput.trim() ||
             khoaGeminiInput.trim() ||
             khoaOpenaiInput.trim() ||
             khoaOpenrouterInput.trim() ||
             khoaGroqInput.trim() ||
-            null
+            customApiKey.trim(),
+        )
+      if (coKhoaMoiDangNhap) {
+        const payload = {
+          nhaCungCapChinh,
+          modelDeepseek: modelDeepseek.trim() || 'deepseek-chat',
+          modelGemini: modelGemini.trim() || 'gemini-2.5-flash',
+          modelOpenai: modelOpenai.trim() || 'gpt-4o-mini',
+          modelOpenrouter: modelOpenrouter.trim() || 'google/gemini-2.5-flash',
+          modelGroq: modelGroq.trim() || 'llama-3.3-70b-versatile',
+        }
+        if (khoaDeepseekInput.trim()) payload.khoaDeepseek = khoaDeepseekInput.trim()
+        if (khoaGeminiInput.trim()) payload.khoaGemini = khoaGeminiInput.trim()
+        if (khoaOpenaiInput.trim()) payload.khoaOpenai = khoaOpenaiInput.trim()
+        if (khoaOpenrouterInput.trim()) payload.khoaOpenrouter = khoaOpenrouterInput.trim()
+        if (khoaGroqInput.trim()) payload.khoaGroq = khoaGroqInput.trim()
+        if (customTen.trim()) payload.customTen = customTen.trim()
+        if (customBaseUrl.trim()) payload.customBaseUrl = customBaseUrl.trim()
+        if (customModel.trim()) payload.customModel = customModel.trim()
+        if (customApiKey.trim()) payload.customApiKey = customApiKey.trim()
+
+        const kqLuu = await api.quanTriLuuCauHinhAi(payload)
+        if (kqLuu && typeof kqLuu === 'object') {
+          setCauHinhOverride(kqLuu)
+        }
+        setKhoaDeepseekInput('')
+        setKhoaGeminiInput('')
+        setKhoaOpenaiInput('')
+        setKhoaOpenrouterInput('')
+        setKhoaGroqInput('')
+        setCustomApiKey('')
+        await onNap()
+      }
+
+      const thu =
+        typeof khoaTuyChon === 'string' && khoaTuyChon.trim()
+          ? khoaTuyChon.trim()
+          : null
       const kq = await api.quanTriKiemTraKetNoiAi(thu)
       setKetQuaKiemTraAi(kq)
     } catch (err) {
@@ -254,9 +295,12 @@ export default function AdminCauHinhAi({ thongKe, onNap, setLoi, setThongBaoOk }
       if (providerId === 'groq') payload.khoaGroq = ''
       if (providerId === 'custom') payload.customApiKey = ''
       const kq = await api.quanTriLuuCauHinhAi(payload)
+      if (kq && typeof kq === 'object') {
+        setCauHinhOverride(kq)
+      }
       setThongBaoOk(kq?.thong_diep || `Đã gỡ khoá ${tenProvider} trên Admin.`)
       await onNap()
-      await xuLyKiemTraKetNoiAi(null)
+      await xuLyKiemTraKetNoiAi(null, true)
     } catch (err) {
       setLoi(String(err?.message || err).replace(/^\d+:\s*/, ''))
     } finally {

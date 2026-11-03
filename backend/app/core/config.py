@@ -847,6 +847,7 @@ def get_settings() -> Settings:
 REL_CAU_HINH_KHOA_AI = "quan_tri/cau_hinh_ai_keys.json"
 REL_KHOA_HMAC_NOI_BO = "quan_tri/hmac_internal_secret.json"
 _KHOA_NOI_BO_DONG_CACHE: str = ""
+_CAU_HINH_KHOA_AI_MEM_CACHE: dict = {}
 
 
 def lay_khoa_bi_mat_noi_bo(settings: Settings, nhan: str = "hmac-v1") -> bytes:
@@ -871,7 +872,7 @@ def lay_khoa_bi_mat_noi_bo(settings: Settings, nhan: str = "hmac-v1") -> bytes:
 
                 storage = get_storage()
                 if storage.exists(REL_KHOA_HMAC_NOI_BO):
-                    data = json.loads(storage.read_bytes(REL_KHOA_HMAC_NOI_BO).decode("utf-8"))
+                    data = json.loads(storage.read(REL_KHOA_HMAC_NOI_BO).decode("utf-8"))
                     goc = str(data.get("secret") or "").strip()
                 if not goc:
                     goc = secrets.token_hex(32)
@@ -922,18 +923,33 @@ def _tach_danh_sach_khoa(raw: str | None) -> list[str]:
 def doc_cau_hinh_khoa_ai_dong() -> dict:
     """Đọc cấu hình khoá AI do Quản trị viên lưu trong kho lưu trữ chung (chia sẻ giữa API và Worker)."""
     import json
+    from pathlib import Path
 
+    global _CAU_HINH_KHOA_AI_MEM_CACHE
     try:
         from app.services.storage import get_storage
 
         storage = get_storage()
-        if not storage.exists(REL_CAU_HINH_KHOA_AI):
-            return {}
-        raw = storage.read_bytes(REL_CAU_HINH_KHOA_AI).decode("utf-8")
-        data = json.loads(raw)
-        return data if isinstance(data, dict) else {}
+        if storage.exists(REL_CAU_HINH_KHOA_AI):
+            raw = storage.read(REL_CAU_HINH_KHOA_AI).decode("utf-8")
+            data = json.loads(raw)
+            if isinstance(data, dict) and data:
+                _CAU_HINH_KHOA_AI_MEM_CACHE = dict(data)
+                return data
     except Exception:  # noqa: BLE001
-        return {}
+        pass
+
+    try:
+        tep_tam = Path("/tmp/cau_hinh_ai_keys.json")
+        if tep_tam.is_file():
+            data = json.loads(tep_tam.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and data:
+                _CAU_HINH_KHOA_AI_MEM_CACHE = dict(data)
+                return data
+    except Exception:  # noqa: BLE001
+        pass
+
+    return dict(_CAU_HINH_KHOA_AI_MEM_CACHE) if _CAU_HINH_KHOA_AI_MEM_CACHE else {}
 
 
 def _luu_ban_sao_env_goc(settings: Settings) -> tuple[str, str, str]:
@@ -1308,8 +1324,20 @@ def luu_cau_hinh_khoa_ai_dong(
     data["cap_nhat_luc"] = datetime.now(timezone.utc).isoformat()
     data["nguoi_cap_nhat"] = email_quan_tri
 
-    storage = get_storage()
-    storage.save(REL_CAU_HINH_KHOA_AI, json.dumps(data, ensure_ascii=False).encode("utf-8"))
+    global _CAU_HINH_KHOA_AI_MEM_CACHE
+    _CAU_HINH_KHOA_AI_MEM_CACHE = dict(data)
+    raw_bytes = json.dumps(data, ensure_ascii=False).encode("utf-8")
+    try:
+        from pathlib import Path
+
+        Path("/tmp/cau_hinh_ai_keys.json").write_bytes(raw_bytes)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        storage = get_storage()
+        storage.save(REL_CAU_HINH_KHOA_AI, raw_bytes)
+    except Exception:  # noqa: BLE001
+        pass
     dong_bo_khoa_ai_dong(settings)
     return lay_thong_tin_khoa_ai_che(settings, data)
 
@@ -1495,12 +1523,43 @@ def kiem_tra_ket_noi_khoa_ai(settings: Settings, khoa_thu: str | None = None) ->
     """Kiểm tra kết nối & số dư tiền trực tiếp của khoá đang thử VÀ toàn bộ các Model AI đã gắn."""
     from concurrent.futures import ThreadPoolExecutor
 
+    # Nếu quản trị viên dán khoá mới vào ô và bấm thẳng "Kiểm tra" / "Test", tự động lưu vào đúng nhà cung cấp
+    if khoa_thu and str(khoa_thu).strip():
+        ds_moi = _tach_danh_sach_khoa(khoa_thu)
+        ds_ds, ds_gm, ds_oai, ds_or, ds_groq = [], [], [], [], []
+        for k_m in ds_moi:
+            ks = _tach_khoa_sach(k_m)
+            if not ks:
+                continue
+            if ks.startswith("sk-or-"):
+                ds_or.append(ks)
+            elif ks.startswith("sk-proj-"):
+                ds_oai.append(ks)
+            elif ks.startswith("gsk_"):
+                ds_groq.append(ks)
+            elif ks.startswith(("AIza", "AQ.")):
+                ds_gm.append(ks)
+            elif ks.startswith("sk-"):
+                ds_ds.append(ks)
+        if any((ds_ds, ds_gm, ds_oai, ds_or, ds_groq)):
+            luu_cau_hinh_khoa_ai_dong(
+                settings,
+                khoa_deepseek=",".join(ds_ds) if ds_ds else None,
+                khoa_gemini=",".join(ds_gm) if ds_gm else None,
+                khoa_openai=",".join(ds_oai) if ds_oai else None,
+                khoa_openrouter=",".join(ds_or) if ds_or else None,
+                khoa_groq=",".join(ds_groq) if ds_groq else None,
+                email_quan_tri="Admin",
+            )
+
     dong_bo_khoa_ai_dong(settings)
     ds_thu: list[str] = []
     if khoa_thu and str(khoa_thu).strip():
-        ds_thu = _tach_danh_sach_khoa(khoa_thu)
-    if not ds_thu:
-        ds_thu = settings.gemini_api_key_list
+        ds_thu.extend(_tach_danh_sach_khoa(khoa_thu))
+    for k_cfg in settings.gemini_api_key_list:
+        raw_cfg = _tach_khoa_sach(k_cfg)
+        if raw_cfg and not any(_tach_khoa_sach(x) == raw_cfg for x in ds_thu):
+            ds_thu.append(k_cfg)
     if not ds_thu:
         return {
             "ok": False,

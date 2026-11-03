@@ -38,7 +38,7 @@ import Alert from './components/ui/Alert.jsx'
 import Button from './components/ui/Button.jsx'
 import Dialog from './components/ui/Dialog.jsx'
 import DoiTheme from './components/ui/DoiTheme.jsx'
-import { CAC_NGON_NGU_HO_TRO, DoiNgonNguUI, HERO_I18N, NgonNguUIProvider, useNgonNguUI } from './lib/ngon-ngu-ui.jsx'
+import { CAC_NGON_NGU_HO_TRO, capNhatSeoTheoTrang, DoiNgonNguUI, HERO_I18N, NgonNguUIProvider, useNgonNguUI } from './lib/ngon-ngu-ui.jsx'
 import Icon from './components/ui/Icon.jsx'
 import Skeleton from './components/ui/Skeleton.jsx'
 import StatusBadge from './components/ui/StatusBadge.jsx'
@@ -168,6 +168,9 @@ function AppRuot({ urlBundle } = {}) {
     setTimeout(() => khuTabRef.current?.scrollIntoView?.({ block: 'nearest' }), 0)
   }, [chuyenTab])
   const [{ pageId, projectId, coCanvas, canvasId, laPrivacy, trangTinh }, setDiaChi] = useState(docDiaChi)
+  useEffect(() => {
+    capNhatSeoTheoTrang(trangTinh, lang)
+  }, [trangTinh, lang])
   const veTrangChu = useCallback(() => {
     if (window.location.pathname !== '/') {
       window.history.pushState({}, '', '/')

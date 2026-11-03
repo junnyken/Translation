@@ -3,6 +3,105 @@ import { createContext, useContext, useEffect, useState } from 'react'
 const KHOA_NGON_NGU_UI = 'translation:ui-lang'
 export const CAC_NGON_NGU_HO_TRO = ['vi', 'en']
 
+export const SEO_META_BY_PAGE = {
+  home: {
+    vi: {
+      title: 'comic.io.vn — Dịch Truyện Tranh AI Miễn Phí | Manga, Manhwa, Webtoon & API',
+      description:
+        'Nền tảng dịch truyện tranh tự động bằng AI (Manga, Manhwa, Manhua, Comic) sang 9 ngôn ngữ quốc tế. Tự tái tạo nền sạch, dàn chữ chuẩn thẩm mỹ, hỗ trợ Tiện ích Chrome, App Windows & B2B REST API.',
+      canonical: 'https://comic.io.vn/',
+    },
+    en: {
+      title: 'comic.io.vn — Free AI Manga, Manhwa & Webtoon Translator Online + REST API',
+      description:
+        'Translate raw Japanese Manga, Korean Manhwa, Chinese Manhua & Webtoons online in ~3 seconds. AI bubble detection, smart background inpainting & studio typesetting in 9 languages.',
+      canonical: 'https://comic.io.vn/en',
+    },
+  },
+  'ket-noi-api': {
+    vi: {
+      title: 'API Dịch Truyện Tranh AI (B2B REST API & RapidAPI) — comic.io.vn',
+      description:
+        'Tích hợp REST API dịch truyện tranh tự động (OCR, xoá chữ tái tạo nền, dịch ngữ cảnh 9 ngôn ngữ) vào Website đọc truyện, App Mobile & công cụ Scanlation với khoá tr_live_... bảo mật.',
+      canonical: 'https://comic.io.vn/ket-noi-api',
+    },
+    en: {
+      title: 'AI Manga & Webtoon Translation REST API (OpenAPI 3.0 & RapidAPI) — comic.io.vn',
+      description:
+        'Enterprise B2B REST API for automated Manga, Manhwa & Webtoon OCR, speech bubble detection, clean background inpainting & 9-language translation. Ready for RapidAPI, Python, Node.js & cURL.',
+      canonical: 'https://comic.io.vn/api-docs',
+    },
+  },
+  'bang-gia': {
+    vi: {
+      title: 'Bảng Giá Dịch Truyện Tranh AI & Gói API B2B (VNĐ / USD) — comic.io.vn',
+      description:
+        'Tặng miễn phí 10 trang/ngày cho mọi tài khoản. Gói lượt dịch tích luỹ không giới hạn thời gian và gói API B2B cho nhóm dịch, Website đọc truyện chỉ từ 19.000đ ($0.99 USD).',
+      canonical: 'https://comic.io.vn/bang-gia',
+    },
+    en: {
+      title: 'Pricing & B2B API Plans — AI Manga & Webtoon Translator | comic.io.vn',
+      description:
+        'Get 10 free translated pages every day. Flexible non-expiring credit packs and high-volume B2B API plans for readers, scanlation teams, and platforms starting at $0.99 USD.',
+      canonical: 'https://comic.io.vn/pricing',
+    },
+  },
+  'tien-ich': {
+    vi: {
+      title: 'Tiện Ích Chrome Dịch Truyện Trực Tiếp & App Windows Tự Động — comic.io.vn',
+      description:
+        'Tải Tiện ích Chrome (Manifest V3) dịch trực tiếp trên mọi web truyện Raw và Phần mềm Windows (.EXE) tự động tải & dịch hàng loạt 100 Chapter chuẩn ngữ cảnh.',
+      canonical: 'https://comic.io.vn/tien-ich',
+    },
+    en: {
+      title: 'Chrome Extension & Windows Batch App for AI Manga Translation — comic.io.vn',
+      description:
+        'Translate raw Manga, Manhwa & Webtoons directly in your browser with our Manifest V3 Chrome Extension, or batch-translate 100+ chapters automatically on Windows 10/11.',
+      canonical: 'https://comic.io.vn/extensions',
+    },
+  },
+  'privacy-policy': {
+    vi: {
+      title: 'Chính Sách Quyền Riêng Tư & Bảo Mật Dữ Liệu — comic.io.vn',
+      description:
+        'Chính sách bảo mật dữ liệu, quyền riêng tư người dùng và tiêu chuẩn an toàn thông tin cho Website, Tiện ích Chrome và REST API tại comic.io.vn.',
+      canonical: 'https://comic.io.vn/privacy-policy',
+    },
+    en: {
+      title: 'Privacy Policy & Data Security — Manga Translation Studio (comic.io.vn)',
+      description:
+        'Official privacy policy and data handling commitments for comic.io.vn Web Studio, Chrome Web Store Extension, and Developer REST API.',
+      canonical: 'https://comic.io.vn/privacy-policy',
+    },
+  },
+}
+
+export function capNhatSeoTheoTrang(trangTinh = '', lang = 'vi') {
+  try {
+    const key = trangTinh && SEO_META_BY_PAGE[trangTinh] ? trangTinh : 'home'
+    const nhom = SEO_META_BY_PAGE[key] || SEO_META_BY_PAGE.home
+    const seo = (lang !== 'vi' ? nhom.en : nhom.vi) || SEO_META_BY_LANG[lang] || SEO_META_BY_LANG.en
+    if (!seo) return
+    document.title = seo.title
+    const metaDesc = document.querySelector('meta[name="description"]')
+    if (metaDesc) metaDesc.setAttribute('content', seo.description)
+    const canonical = document.getElementById('seo-canonical')
+    if (canonical) canonical.setAttribute('href', seo.canonical)
+    const ogTitle = document.getElementById('seo-og-title')
+    if (ogTitle) ogTitle.setAttribute('content', seo.title)
+    const ogDesc = document.getElementById('seo-og-desc')
+    if (ogDesc) ogDesc.setAttribute('content', seo.description)
+    const ogUrl = document.getElementById('seo-og-url')
+    if (ogUrl) ogUrl.setAttribute('content', seo.canonical)
+    const twTitle = document.getElementById('seo-tw-title')
+    if (twTitle) twTitle.setAttribute('content', seo.title)
+    const twDesc = document.getElementById('seo-tw-desc')
+    if (twDesc) twDesc.setAttribute('content', seo.description)
+  } catch {
+    /* bỏ qua */
+  }
+}
+
 export const SEO_META_BY_LANG = {
   vi: {
     title: 'comic.io.vn — Dịch Truyện Tranh AI Miễn Phí | Manga, Manhwa, Webtoon',
@@ -116,11 +215,13 @@ export function docNgonNguTuUrl() {
     const qLang = chuanHoaNgonNguUI(params.get('lang'))
     if (qLang) return qLang
 
-    const seg = (window.location.pathname || '')
-      .replace(/^\/+|\/+$/g, '')
-      .split('/')[0]
+    const rawPath = (window.location.pathname || '').replace(/^\/+|\/+$/g, '').toLowerCase()
+    const seg = rawPath.split('/')[0]
     const pLang = chuanHoaNgonNguUI(seg)
     if (pLang && seg.length <= 5) return pLang
+    if (rawPath === 'api-docs' || rawPath === 'pricing' || rawPath === 'extensions') {
+      return 'en'
+    }
   } catch {
     /* bỏ qua */
   }

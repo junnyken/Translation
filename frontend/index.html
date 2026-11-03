@@ -22,15 +22,19 @@
         if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t)
       } catch (e) {}
     </script>
-    <title>comic.io.vn — AI Manga, Manhwa &amp; Webtoon Translator | Dịch Truyện Tranh AI</title>
+    <title>comic.io.vn — AI Manga, Manhwa &amp; Webtoon Translator | Comic Translation API</title>
     <meta
       name="description"
-      content="Translate raw Manga, Manhwa, Manhua &amp; Webtoons online with AI OCR, smart background reconstruction &amp; studio typesetting in 9 languages. Nền tảng dịch truyện tranh AI tự động siêu tốc."
+      content="Translate raw Japanese Manga, Korean Manhwa, Chinese Manhua &amp; Webtoons online in 3 seconds with AI OCR, clean background reconstruction &amp; studio typesetting in 9 languages. Includes Chrome Extension, Windows Batch App &amp; B2B REST API."
     />
     <meta
       name="keywords"
-      content="AI manga translator, translate raw manga online, manhwa translator, webtoon translation, traductor de manga IA, tradutor de mangá IA, traducteur de manga IA, dịch truyện tranh AI, comic translator extension"
+      content="AI manga translator, manhwa translator online, raw webtoon translator, comic translation API, manga OCR inpainting API, scanlation automation tool, translate raw manga to english, traductor de manga IA, tradutor de mangá IA, traducteur de manga IA, dịch truyện tranh AI, comic translator chrome extension"
     />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <meta name="author" content="Manga Translation Studio (comic.io.vn)" />
+    <meta name="application-name" content="Manga Translation Studio" />
+    <meta name="theme-color" content="#0f172a" />
     <link rel="canonical" id="seo-canonical" href="https://comic.io.vn/" />
 
     <!-- International SEO Hreflang Annotations -->
@@ -44,14 +48,17 @@
 
     <!-- Open Graph / Social Sharing -->
     <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="Manga Translation Studio" />
-    <meta property="og:title" id="seo-og-title" content="comic.io.vn — AI Manga, Manhwa &amp; Webtoon Translator Studio" />
+    <meta property="og:site_name" content="Manga Translation Studio (comic.io.vn)" />
+    <meta property="og:title" id="seo-og-title" content="comic.io.vn — AI Manga, Manhwa &amp; Webtoon Translator + B2B API" />
     <meta
       property="og:description"
       id="seo-og-desc"
-      content="Instant AI comic translation with smart OCR, background reconstruction &amp; studio typesetting. Supports Chrome Extension, Windows Batch App &amp; Developer API."
+      content="Instant AI comic translation with smart OCR, background reconstruction &amp; studio typesetting in 9 global languages. Web Studio, Chrome Extension, Windows App &amp; Developer REST API."
     />
     <meta property="og:url" id="seo-og-url" content="https://comic.io.vn/" />
+    <meta property="og:image" content="https://comic.io.vn/og-preview-international.svg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
     <meta property="og:locale" content="vi_VN" />
     <meta property="og:locale:alternate" content="en_US" />
     <meta property="og:locale:alternate" content="es_ES" />
@@ -60,24 +67,46 @@
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="comic.io.vn — Free AI Manga &amp; Webtoon Translator" />
+    <meta name="twitter:title" id="seo-tw-title" content="comic.io.vn — Free AI Manga &amp; Webtoon Translator + REST API" />
     <meta
       name="twitter:description"
-      content="Translate raw Japanese Manga, Korean Manhwa &amp; Chinese Manhua in seconds. Smart bubble detection, clean background reconstruction &amp; 9 target languages."
+      id="seo-tw-desc"
+      content="Translate raw Japanese Manga, Korean Manhwa &amp; Chinese Manhua in ~3 seconds. Smart bubble detection, clean background reconstruction &amp; 9 target languages."
     />
+    <meta name="twitter:image" content="https://comic.io.vn/og-preview-international.svg" />
 
-    <!-- Schema.org Structured Data (SoftwareApplication + FAQPage for International Rich Snippets) -->
+    <!-- Schema.org Structured Data (SoftwareApplication + WebAPI + Organization + FAQPage for International Rich Snippets) -->
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
         "@graph": [
           {
+            "@type": "Organization",
+            "@id": "https://comic.io.vn/#organization",
+            "name": "Manga Translation Studio",
+            "url": "https://comic.io.vn",
+            "logo": "https://comic.io.vn/favicon.svg",
+            "sameAs": [
+              "https://comic.io.vn/en",
+              "https://comic.io.vn/api-docs"
+            ]
+          },
+          {
             "@type": "SoftwareApplication",
+            "@id": "https://comic.io.vn/#software",
             "name": "Manga Translation Studio (comic.io.vn)",
             "applicationCategory": "MultimediaApplication",
             "operatingSystem": "Web, Chrome Extension, Windows 10/11",
             "url": "https://comic.io.vn",
             "inLanguage": ["vi", "en", "es", "pt", "fr", "id", "th", "zh", "ja", "ko"],
+            "featureList": [
+              "Automatic Comic Speech Bubble & Text Detection",
+              "Smart Background Reconstruction & Inpainting",
+              "Context-Aware Translation across 9 Global Languages",
+              "Studio-Grade Genre Font Typesetting & Vertical Webtoon Reader",
+              "Chrome Extension for Live In-Browser Manga Reading",
+              "REST API (tr_live_...) for Scanlation & Reader Platforms"
+            ],
             "description": "AI-powered Manga, Manhwa, Manhua, and Webtoon translator featuring automatic bubble detection, smart background reconstruction, context-aware translation, and genre-specific typesetting.",
             "offers": [
               {
@@ -89,20 +118,32 @@
               },
               {
                 "@type": "Offer",
-                "name": "Trial & Pro Plans",
+                "name": "Pro, Studio & B2B API Plans",
                 "price": "0.99",
                 "priceCurrency": "USD",
-                "description": "Flexible credit packs and monthly subscriptions starting at $0.99 USD / 19,000 VND."
+                "description": "Flexible non-expiring credit packs and B2B API plans starting at $0.99 USD / 19,000 VND."
               }
             ],
             "aggregateRating": {
               "@type": "AggregateRating",
-              "ratingValue": "4.8",
-              "ratingCount": "320"
+              "ratingValue": "4.9",
+              "ratingCount": "480"
+            }
+          },
+          {
+            "@type": "WebAPI",
+            "@id": "https://comic.io.vn/#webapi",
+            "name": "Comic.io.vn AI Manga & Webtoon Translation REST API",
+            "description": "Enterprise B2B REST API for automated Manga, Manhwa, Manhua, and Webtoon OCR, speech bubble detection, background inpainting, and multi-language typesetting.",
+            "documentation": "https://comic.io.vn/api-docs",
+            "termsOfService": "https://comic.io.vn/privacy-policy",
+            "provider": {
+              "@id": "https://comic.io.vn/#organization"
             }
           },
           {
             "@type": "FAQPage",
+            "@id": "https://comic.io.vn/#faq",
             "mainEntity": [
               {
                 "@type": "Question",
@@ -110,6 +151,14 @@
                 "acceptedAnswer": {
                   "@type": "Answer",
                   "text": "Simply drag and drop your raw manga images (PNG, JPG, WebP) or chapter archives (.ZIP, .CBZ, .PDF) onto comic.io.vn, select your source language (Japanese, Korean, Chinese, English) and target language (9 global languages), and click Translate. Our AI automatically detects speech bubbles, reconstructs clean backgrounds, and typesets the translation in ~3 seconds."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Does comic.io.vn provide a REST API for manga reader websites and mobile apps?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. Developers and scanlation teams can generate personal API keys (tr_live_...) at comic.io.vn/api-docs or subscribe via RapidAPI to integrate automated comic OCR, background cleaning, and translation into any web or mobile application."
                 }
               },
               {

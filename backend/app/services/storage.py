@@ -311,6 +311,9 @@ class LocalObjectStorage:
     def read(self, path: str) -> bytes:
         return self._abs(path).read_bytes()
 
+    def read_bytes(self, path: str) -> bytes:
+        return self.read(path)
+
     def open_read(self, path: str) -> BinaryIO:
         # Tệp trên đĩa vốn đã lười và tua được — không cần bọc thêm gì.
         return self._abs(path).open("rb")
@@ -460,6 +463,9 @@ class PostgresObjectStorage:
         if data is None:
             raise FileNotFoundError(f"Không có hiện vật {sach!r} trong kho")
         return bytes(data)
+
+    def read_bytes(self, path: str) -> bytes:
+        return self.read(path)
 
     def read_range(self, path: str, offset: int, length: int) -> bytes:
         """Đọc đúng một đoạn bằng `substr()` phía máy chủ — KHÔNG kéo cả hiện vật về.
