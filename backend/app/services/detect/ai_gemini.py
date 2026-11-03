@@ -417,9 +417,10 @@ class AIGeminiDetector:
         schema: dict = SCHEMA,
     ) -> list[dict]:
         """Gọi API, xoay key khi gặp lỗi có thể do key. Hết key thì ném lỗi cuối cùng."""
+        b64_anh = base64.b64encode(anh).decode()
         than = json.dumps({
             "contents": [{"parts": [
-                {"inline_data": {"mime_type": mime, "data": base64.b64encode(anh).decode()}},
+                {"inline_data": {"mime_type": mime, "data": b64_anh}},
                 {"text": loi_nhac},
             ]}],
             "generationConfig": {
@@ -430,44 +431,113 @@ class AIGeminiDetector:
                 "responseSchema": schema,
             },
         }).encode()
+        than_vertex = json.dumps({
+            "contents": [{"role": "user", "parts": [
+                {"inlineData": {"mimeType": mime, "data": b64_anh}},
+                {"text": loi_nhac},
+            ]}],
+            "generationConfig": {
+                "temperature": 0.0,
+                "maxOutputTokens": 4096,
+                "thinkingConfig": {"thinkingBudget": 0},
+                "responseMimeType": "application/json",
+                "responseSchema": schema,
+            },
+        }).encode()
+        than_vertex_no_think = json.dumps({
+            "contents": [{"role": "user", "parts": [
+                {"inlineData": {"mimeType": mime, "data": b64_anh}},
+                {"text": loi_nhac},
+            ]}],
+            "generationConfig": {
+                "temperature": 0.0,
+                "maxOutputTokens": 4096,
+                "responseMimeType": "application/json",
+                "responseSchema": schema,
+            },
+        }).encode()
 
         loi_cuoi: Exception | None = None
-        ds_khoa_gemini: list[str] = []
+        ds_khoa_gemini: list[tuple[str, str]] = []
+        model_goc = (self.model_name or "gemini-2.5-flash").strip()
+        if model_goc.lower() == "gemini-3.5-flash":
+            model_goc = "gemini-2.5-flash"
         for raw_k in self.api_keys:
             s_k = str(raw_k or "").strip()
             if not s_k or s_k.startswith(("sk-", "ds:", "ds|", "gsk_", "groq:", "groq|", "or:", "or|", "oai:", "oai|", "custom|")):
                 continue
+            m_k = model_goc
             if s_k.startswith("gm|"):
-                s_k = s_k.split("|")[-1].strip()
+                parts_gm = s_k.split("|", 2)
+                if len(parts_gm) == 3 and parts_gm[1].strip():
+                    m_k = parts_gm[1].strip()
+                    if m_k.lower() == "gemini-3.5-flash":
+                        m_k = "gemini-2.5-flash"
+                s_k = parts_gm[-1].strip()
             elif s_k.startswith("gm:"):
                 s_k = s_k[3:].strip()
-            if s_k and s_k not in ds_khoa_gemini:
-                ds_khoa_gemini.append(s_k)
+            if s_k and not any(k_existing == s_k for _, k_existing in ds_khoa_gemini):
+                ds_khoa_gemini.append((m_k, s_k))
         if not ds_khoa_gemini:
-            ds_khoa_gemini = [str(k).split("|")[-1].strip() for k in self.api_keys if str(k).strip()]
-        for key in ds_khoa_gemini:
-            try:
-                req = urllib.request.Request(
-                    "https://generativelanguage.googleapis.com/v1beta/models/"
-                    f"{self.model_name}:generateContent?key={key}",
-                    data=than,
-                    headers={"Content-Type": "application/json"},
-                )
-                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                    d = json.load(resp)
-                break
-            except urllib.error.HTTPError as exc:
-                # Đọc THÂN lỗi: thông điệp thật nằm ở đó. Đoán theo mã HTTP là cách chắc chắn
-                # chẩn sai — 400 của bậc pro hoá ra là "model only works in thinking mode".
+            ds_khoa_gemini = [(model_goc, str(k).split("|")[-1].strip()) for k in self.api_keys if str(k).strip()]
+
+        d = None
+        for m_key, key in ds_khoa_gemini:
+            la_vertex_aq = key.startswith("AQ.")
+            if la_vertex_aq:
+                m_vertex = "gemini-2.5-flash" if m_key in ("gemini-3.1-flash-lite", "gemini-3.5-flash") else m_key
+                ds_ung_vien_url = [
+                    (f"https://aiplatform.googleapis.com/v1/publishers/google/models/{m_vertex}:generateContent?key={key}", than_vertex),
+                    (f"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-flash:generateContent?key={key}", than_vertex_no_think),
+                    (f"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.0-flash:generateContent?key={key}", than_vertex_no_think),
+                    (f"https://generativelanguage.googleapis.com/v1beta/models/{m_vertex}:generateContent?key={key}", than),
+                ]
+            else:
+                ds_ung_vien_url = [
+                    (
+                        "https://generativelanguage.googleapis.com/v1beta/models/"
+                        f"{m_key}:generateContent?key={key}",
+                        than,
+                    )
+                ]
+
+            thanh_cong_key = False
+            for url_goi, payload_bytes in ds_ung_vien_url:
                 try:
-                    chi_tiet = json.loads(exc.read()).get("error", {}).get("message", "")
-                except Exception:
-                    chi_tiet = ""
-                loi_cuoi = AIDetectError(f"Gemini HTTP {exc.code}: {chi_tiet[:300]}")
-                if exc.code in (400, 404):
-                    raise loi_cuoi from exc   # lỗi cấu hình: xoay key không cứu được
-            except Exception as exc:
-                loi_cuoi = AIDetectError(f"Gọi Gemini thất bại: {type(exc).__name__}: {exc}")
+                    req = urllib.request.Request(
+                        url_goi,
+                        data=payload_bytes,
+                        headers={"Content-Type": "application/json"},
+                    )
+                    with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                        d = json.load(resp)
+                    thanh_cong_key = True
+                    break
+                except urllib.error.HTTPError as exc:
+                    # Đọc THÂN lỗi: thông điệp thật nằm ở đó. Đoán theo mã HTTP là cách chắc chắn
+                    # chẩn sai — 400 của bậc pro hoá ra là "model only works in thinking mode".
+                    try:
+                        chi_tiet = json.loads(exc.read()).get("error", {}).get("message", "")
+                    except Exception:
+                        chi_tiet = ""
+                    loi_cuoi = AIDetectError(f"Gemini HTTP {exc.code}: {chi_tiet[:300]}")
+                    chi_tiet_lower = chi_tiet.lower()
+                    la_loi_key = (
+                        "api key not valid" in chi_tiet_lower
+                        or "api_key_invalid" in chi_tiet_lower
+                        or "key expired" in chi_tiet_lower
+                        or exc.code in (401, 403)
+                    )
+                    if la_vertex_aq and not la_loi_key and exc.code in (400, 404):
+                        # Với khoá Vertex AI AQ., thử tiếp biến thể model/payload kế tiếp trong ds_ung_vien_url
+                        continue
+                    if exc.code in (400, 404) and not la_loi_key:
+                        raise loi_cuoi from exc   # lỗi cấu hình: xoay key không cứu được
+                except Exception as exc:
+                    loi_cuoi = AIDetectError(f"Gọi Gemini thất bại: {type(exc).__name__}: {exc}")
+                    break
+            if thanh_cong_key and d is not None:
+                break
         else:
             raise loi_cuoi or AIDetectError("Gọi Gemini thất bại, không rõ lý do")
 

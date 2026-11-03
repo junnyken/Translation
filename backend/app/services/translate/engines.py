@@ -679,23 +679,46 @@ class LLMContextTranslator:
             parts = s.split("|", 2)
             if len(parts) == 3:
                 m_final = parts[1].strip() or "gemini-2.5-flash"
+                if m_final.lower() == "gemini-3.5-flash":
+                    m_final = "gemini-2.5-flash"
+                clean_k = parts[2].strip()
+                la_vertex_aq = clean_k.startswith("AQ.")
+                if la_vertex_aq and m_final in ("gemini-3.1-flash-lite", "gemini-3.5-flash"):
+                    m_final = "gemini-2.5-flash"
+                endpoint = (
+                    f"https://aiplatform.googleapis.com/v1/publishers/google/models/{m_final}:generateContent?key={clean_k}"
+                    if la_vertex_aq
+                    else _GEMINI_ENDPOINT.format(model=m_final)
+                )
                 return {
                     "provider": "gemini",
                     "ten_ncc": f"Google Gemini ({m_final})",
-                    "endpoint": _GEMINI_ENDPOINT.format(model=m_final),
+                    "endpoint": endpoint,
                     "model": m_final,
-                    "api_key": parts[2].strip(),
+                    "api_key": clean_k,
                     "is_openai_compat": False,
+                    "is_vertex_aq": la_vertex_aq,
                 }
         clean_gm = s[3:].strip() if s.startswith("gm:") else s
         m_gm = def_m if not def_m.lower().startswith("deepseek") else "gemini-2.5-flash"
+        if m_gm.lower() == "gemini-3.5-flash":
+            m_gm = "gemini-2.5-flash"
+        la_vertex_aq = clean_gm.startswith("AQ.")
+        if la_vertex_aq and m_gm in ("gemini-3.1-flash-lite", "gemini-3.5-flash"):
+            m_gm = "gemini-2.5-flash"
+        endpoint = (
+            f"https://aiplatform.googleapis.com/v1/publishers/google/models/{m_gm}:generateContent?key={clean_gm}"
+            if la_vertex_aq
+            else _GEMINI_ENDPOINT.format(model=m_gm)
+        )
         return {
             "provider": "gemini",
             "ten_ncc": f"Google Gemini ({m_gm})",
-            "endpoint": _GEMINI_ENDPOINT.format(model=m_gm),
+            "endpoint": endpoint,
             "model": m_gm,
             "api_key": clean_gm,
             "is_openai_compat": False,
+            "is_vertex_aq": la_vertex_aq,
         }
 
     @classmethod
@@ -733,10 +756,24 @@ class LLMContextTranslator:
                 }
             })
         parts.append({"text": prompt})
+        gen_cfg = self._generation_config(schema)
         body = json.dumps(
             {
                 "contents": [{"parts": parts}],
-                "generationConfig": self._generation_config(schema),
+                "generationConfig": gen_cfg,
+            }
+        ).encode("utf-8")
+        body_vertex = json.dumps(
+            {
+                "contents": [{"role": "user", "parts": parts}],
+                "generationConfig": gen_cfg,
+            }
+        ).encode("utf-8")
+        gen_cfg_no_think = {k: v for k, v in gen_cfg.items() if k != "thinkingConfig"}
+        body_vertex_no_think = json.dumps(
+            {
+                "contents": [{"role": "user", "parts": parts}],
+                "generationConfig": gen_cfg_no_think,
             }
         ).encode("utf-8")
 
@@ -746,6 +783,7 @@ class LLMContextTranslator:
             key = self._current_key()
             info_k = self._phan_tich_khoa_ai(key, self.model_name)
             la_oai_compat = bool(info_k.get("is_openai_compat"))
+            la_vertex_aq = bool(info_k.get("is_vertex_aq"))
             if la_oai_compat:
                 clean_key = info_k["api_key"]
                 endpoint_oai = info_k["endpoint"]
@@ -782,7 +820,7 @@ class LLMContextTranslator:
             else:
                 request = urllib.request.Request(
                     info_k["endpoint"],
-                    data=body,
+                    data=body_vertex if la_vertex_aq else body,
                     method="POST",
                     headers={"x-goog-api-key": info_k["api_key"], "Content-Type": "application/json"},
                 )
@@ -799,14 +837,50 @@ class LLMContextTranslator:
                         "cachedContentTokenCount": usage_ds.get("prompt_cache_hit_tokens"),
                     }
                 candidate = (data.get("candidates") or [{}])[0]
-                parts = (candidate.get("content") or {}).get("parts") or []
-                return "".join(p.get("text", "") for p in parts), data.get("usageMetadata", {})
+                parts_out = (candidate.get("content") or {}).get("parts") or []
+                return "".join(p.get("text", "") for p in parts_out), data.get("usageMetadata", {})
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode("utf-8", "replace")[:300] if hasattr(exc, "read") else ""
+                if la_vertex_aq and exc.code in (400, 404):
+                    # Với khoá Vertex AI AQ., thử tiếp gemini-2.5-flash / gemini-2.0-flash (bỏ thinkingConfig) hoặc generativelanguage
+                    ck = info_k["api_key"]
+                    for fb_url, fb_body in (
+                        (f"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-flash:generateContent?key={ck}", body_vertex_no_think),
+                        (f"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.0-flash:generateContent?key={ck}", body_vertex_no_think),
+                        (_GEMINI_ENDPOINT.format(model=info_k["model"]), body),
+                    ):
+                        try:
+                            fb_req = urllib.request.Request(
+                                fb_url,
+                                data=fb_body,
+                                method="POST",
+                                headers={"x-goog-api-key": ck, "Content-Type": "application/json"},
+                            )
+                            data = _http_json(fb_req, self.timeout)
+                            candidate = (data.get("candidates") or [{}])[0]
+                            parts_out = (candidate.get("content") or {}).get("parts") or []
+                            return "".join(p.get("text", "") for p in parts_out), data.get("usageMetadata", {})
+                        except urllib.error.HTTPError as fb_exc:
+                            detail = fb_exc.read().decode("utf-8", "replace")[:300] if hasattr(fb_exc, "read") else detail
+                        except Exception:
+                            pass
                 last_error = TranslationFailed(f"HTTP {exc.code}: {detail}")
                 self.usage.errors.append(f"HTTP {exc.code}")
-                if exc.code in self.QUOTA_STATUS:
-                    logger.warning("Key hiện tại hết nhịp/quota (HTTP %s) -> xoay key", exc.code)
+                detail_lower = detail.lower()
+                la_loi_khoa_xoay_duoc = (
+                    exc.code in self.QUOTA_STATUS
+                    or (
+                        self.key_count > 1
+                        and (
+                            exc.code in (401, 403)
+                            or "api key not valid" in detail_lower
+                            or "api_key_invalid" in detail_lower
+                            or "key expired" in detail_lower
+                        )
+                    )
+                )
+                if la_loi_khoa_xoay_duoc:
+                    logger.warning("Key hiện tại lỗi/hết nhịp (HTTP %s) -> xoay key", exc.code)
                     self._rotate_key()
                     continue
                 raise last_error from exc

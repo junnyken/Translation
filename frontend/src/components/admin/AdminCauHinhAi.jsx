@@ -156,7 +156,7 @@ export default function AdminCauHinhAi({ thongKe, onNap, setLoi, setThongBaoOk }
   const mapKetQuaTheoId = {}
   if (Array.isArray(ketQuaKiemTraAi?.chi_tiet_models)) {
     for (const item of ketQuaKiemTraAi.chi_tiet_models) {
-      if (item.id && !mapKetQuaTheoId[item.id]) {
+      if (item.id && (!mapKetQuaTheoId[item.id] || (!mapKetQuaTheoId[item.id].ok && item.ok))) {
         mapKetQuaTheoId[item.id] = item
       }
     }
@@ -831,8 +831,7 @@ export default function AdminCauHinhAi({ thongKe, onNap, setLoi, setThongBaoOk }
                         <option value="gemini-2.5-flash" />
                         <option value="gemini-2.5-pro" />
                         <option value="gemini-2.0-flash" />
-                        <option value="gemini-3.1-flash-lite" />
-                        <option value="gemini-3.5-flash" />
+                        <option value="gemini-2.5-flash-lite" />
                       </datalist>
                     </div>
                   </div>

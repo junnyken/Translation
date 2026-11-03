@@ -370,29 +370,54 @@ def _run_detect(job_id: uuid.UUID, *, outbox_claimed: bool = False) -> dict:
     detector = get_detector()
     da_gop_1_luot = False
     with anh_cuc_bo(image_rel) as image_path:
-        if du_dieu_kien_gop_1_luot and hasattr(detector, "detect_va_dich_regions"):
-            regions = detector.detect_va_dich_regions(
-                image_path,
-                source_lang=du_an_source_lang,
-                target_lang=du_an_target_lang,
-                boi_canh=boi_canh_gop,
-            )
-            regions = [
-                r
-                for r in regions
-                if bool((getattr(r, "chu", None) or "").strip())
-                or bool((getattr(r, "ban_dich", None) or "").strip())
-            ]
-            for r in regions:
-                chu_r = (getattr(r, "chu", None) or "").strip()
-                dich_r = (getattr(r, "ban_dich", None) or "").strip()
-                if not chu_r and dich_r:
-                    r.chu = dich_r
-                elif chu_r and not dich_r:
-                    r.ban_dich = chu_r
-            da_gop_1_luot = True
-        else:
-            regions = detector.detect_regions(image_path)
+        try:
+            if du_dieu_kien_gop_1_luot and hasattr(detector, "detect_va_dich_regions"):
+                regions = detector.detect_va_dich_regions(
+                    image_path,
+                    source_lang=du_an_source_lang,
+                    target_lang=du_an_target_lang,
+                    boi_canh=boi_canh_gop,
+                )
+                regions = [
+                    r
+                    for r in regions
+                    if bool((getattr(r, "chu", None) or "").strip())
+                    or bool((getattr(r, "ban_dich", None) or "").strip())
+                ]
+                for r in regions:
+                    chu_r = (getattr(r, "chu", None) or "").strip()
+                    dich_r = (getattr(r, "ban_dich", None) or "").strip()
+                    if not chu_r and dich_r:
+                        r.chu = dich_r
+                    elif chu_r and not dich_r:
+                        r.ban_dich = chu_r
+                da_gop_1_luot = True
+            else:
+                regions = detector.detect_regions(image_path)
+        except Exception as exc_ai_det:
+            from app.services.detect.ai_gemini import AIDetectError
+
+            if isinstance(exc_ai_det, AIDetectError):
+                logger.warning(
+                    "ai_gemini lỗi (%s) -> tự động dự phòng sang CTDDetector cục bộ + DeepSeek/Google",
+                    exc_ai_det,
+                )
+                from app.services.detect.ctd import CTDDetector
+
+                ctd_fallback = CTDDetector(
+                    weights_path=settings.model_weights_path,
+                    device=settings.ctd_device,
+                    conf_threshold=settings.ctd_conf_threshold,
+                    raw_min_conf=settings.ctd_raw_min_conf,
+                    nms_iou=settings.ctd_nms_iou,
+                    input_size=settings.ctd_input_size,
+                    intra_op_threads=settings.ctd_intra_op_threads,
+                    cpu_mem_arena=settings.ctd_cpu_mem_arena,
+                )
+                regions = ctd_fallback.detect_regions(image_path)
+                da_gop_1_luot = False
+            else:
+                raise
     elapsed = time.perf_counter() - started
     _luu_mat_na_chu(image_rel, getattr(detector, "mat_na_chu", None))
 
