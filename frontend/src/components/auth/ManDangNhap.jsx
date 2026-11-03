@@ -287,8 +287,8 @@ export default function ManDangNhap({ onXong, onQuayLai }) {
             {dangKy && !loiEmailSpam && email.includes('@') && email.split('@')[1]?.includes('.') && (
               <p className="ghi-chu" style={{ color: 'var(--ok)', fontWeight: 600 }}>
                 {laEn
-                  ? '✓ Official email provider accepted — a confirmation link will be sent to this inbox'
-                  : '✓ Nhà cung cấp email hợp lệ — hệ thống sẽ gửi liên kết xác nhận về hộp thư này'}
+                  ? '✓ Official email provider accepted (Gmail / Outlook / iCloud / Yahoo / ProtonMail)'
+                  : '✓ Nhà cung cấp email chính thống hợp lệ (Gmail / Outlook / iCloud / Yahoo / ProtonMail)'}
               </p>
             )}
           </div>

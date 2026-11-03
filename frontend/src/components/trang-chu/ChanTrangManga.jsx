@@ -8,6 +8,7 @@ import { useNgonNguUI } from '../../lib/ngon-ngu-ui'
 export default function ChanTrangManga() {
   const namHienTai = new Date().getFullYear()
   const { laEn } = useNgonNguUI()
+  const daDangNhap = typeof api.coMaPhien === 'function' && api.coMaPhien()
 
   return (
     <footer className="chan-trang-manga" role="contentinfo" aria-label={laEn ? 'System footer' : 'Chân trang hệ thống'}>
@@ -53,11 +54,13 @@ export default function ChanTrangManga() {
                 🎬 {laEn ? 'Auto AI Video Review Studio (.EXE)' : 'Phần Mềm Dựng Video Review Truyện (.EXE)'}
               </a>
             </li>
-            <li>
-              <a href="#bang-gia">
-                💎 {laEn ? 'Pricing & Global Plans (VND / USD)' : 'Trang Bảng Giá & Gói Cước (VNĐ / USD)'}
-              </a>
-            </li>
+            {daDangNhap && (
+              <li>
+                <a href="#bang-gia">
+                  💎 {laEn ? 'Pricing & Global Plans (VND / USD)' : 'Trang Bảng Giá & Gói Cước (VNĐ / USD)'}
+                </a>
+              </li>
+            )}
             <li>
               <a href="#privacy-policy">
                 🛡️ {laEn ? 'Privacy Policy (/privacy-policy)' : 'Chính sách quyền riêng tư (/privacy-policy)'}
@@ -97,7 +100,9 @@ export default function ChanTrangManga() {
         <span>
           <a href="/en" style={{ color: 'inherit', textDecoration: 'none', marginRight: 8 }}>🇺🇸 English</a>
           <a href="/api-docs" style={{ color: 'inherit', textDecoration: 'none', marginRight: 8 }}>⚡ REST API</a>
-          <a href="/pricing" style={{ color: 'inherit', textDecoration: 'none', marginRight: 8 }}>💎 Pricing</a>
+          {daDangNhap && (
+            <a href="#bang-gia" style={{ color: 'inherit', textDecoration: 'none', marginRight: 8 }}>💎 Pricing</a>
+          )}
           <a href="/extensions" style={{ color: 'inherit', textDecoration: 'none' }}>🧩 Chrome Extension</a>
         </span>
         <span className="cham-ngan" aria-hidden="true">•</span>

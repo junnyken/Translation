@@ -654,20 +654,11 @@ function AppRuot({ urlBundle } = {}) {
               >
                 {navI18n.navApi}
               </a>
-              {HIEN_MENU_BANG_GIA && (
-                <a
-                  href="#bang-gia"
-                  className={trangTinh === 'bang-gia' ? 'dang-o' : ''}
-                  onClick={() => setMuonDangNhap(false)}
-                >
-                  {navI18n.navPricing}
-                </a>
-              )}
             </nav>
             <div className="dau-phai hang">
               <DoiNgonNguUI />
               <DoiTheme />
-              {!muonDangNhap && (
+              {!muonDangNhap && trangTinh !== 'bang-gia' && (
                 <Button kieu="phu" onClick={() => setMuonDangNhap(true)}>
                   {navI18n.signIn}
                 </Button>
@@ -678,9 +669,9 @@ function AppRuot({ urlBundle } = {}) {
         {/* `TrangChu` TỰ nó là một `<main>`. Bọc nó trong `<main className="than-trang">` như bản
             cũ là lồng hai `<main>` vào nhau — HTML không hợp lệ, và trình đọc màn hình mất mốc
             "nội dung chính". Chỉ màn đăng nhập mới cần lớp bọc đó. */}
-        {muonDangNhap ? (
+        {(muonDangNhap || trangTinh === 'bang-gia') ? (
           <main className="than-trang">
-            <ManDangNhap onXong={setNguoiDung} onQuayLai={() => setMuonDangNhap(false)} />
+            <ManDangNhap onXong={setNguoiDung} onQuayLai={veTrangChu} />
           </main>
         ) : laPrivacy ? (
           <ChinhSachBaoMat onQuayLai={veTrangChu} />
@@ -688,8 +679,6 @@ function AppRuot({ urlBundle } = {}) {
           <TrangTienIch onQuayLai={veTrangChu} />
         ) : trangTinh === 'ket-noi-api' ? (
           <TrangKetNoiApi onQuayLai={veTrangChu} onMoTaiKhoan={() => setMuonDangNhap(true)} />
-        ) : trangTinh === 'bang-gia' ? (
-          <TrangBangGia nguoiDung={null} onQuayLai={veTrangChu} onMoDangNhap={() => setMuonDangNhap(true)} />
         ) : (
           <TrangChu />
         )}
