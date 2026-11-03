@@ -1057,6 +1057,26 @@ curl -X POST "${apiOrigin}/api/v1/developer/translate-text" \\
 
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <a
+              href="https://rapidapi.com/thientrieu753/api/ai-comic-manga-webtoon-translator"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                padding: '9px 15px',
+                borderRadius: 10,
+                background: 'linear-gradient(135deg, #2563eb, #0ea5e9)',
+                color: '#ffffff',
+                fontWeight: 800,
+                fontSize: 13,
+                textDecoration: 'none',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                boxShadow: '0 8px 20px rgba(37, 99, 235, 0.35)',
+              }}
+            >
+              ⚡ {laEn ? 'Subscribe on RapidAPI Hub ↗' : 'Thuê API trên Chợ RapidAPI Hub ↗'}
+            </a>
+            <a
               href={api.urlTaiOpenApiRapidApi()}
               download="openapi-rapidapi.json"
               style={{

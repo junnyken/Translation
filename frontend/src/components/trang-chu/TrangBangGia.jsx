@@ -296,7 +296,7 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
   const nganHangSoTk = thongTinNap?.ngan_hang_so_tk || ''
   const nganHangChuTk = thongTinNap?.ngan_hang_chu_tk || ''
   const paypalEmail = (thongTinNap?.paypal_email || '').trim()
-  const rapidapiUrl = (thongTinNap?.rapidapi_url || 'https://rapidapi.com/hub').trim()
+  const rapidapiUrl = (thongTinNap?.rapidapi_url || 'https://rapidapi.com/thientrieu753/api/ai-comic-manga-webtoon-translator').trim()
   const urlQr = nganHangTen && nganHangSoTk
     ? `https://img.vietqr.io/image/${encodeURIComponent(nganHangTen)}-${encodeURIComponent(nganHangSoTk)}-compact2.png?amount=${goiDangChon.giaVnd}&addInfo=${encodeURIComponent(noiDungChuyenKhoan)}&accountName=${encodeURIComponent(nganHangChuTk)}`
     : ''
