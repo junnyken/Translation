@@ -600,10 +600,10 @@ def _danh_sach_goi_nap_chuan(don_gia: int) -> list[GoiNapLuotRead]:
     return [
         GoiNapLuotRead(
             ma="trial_pack_50",
-            ten="🌱 Gói Trial (100 Credits / tháng — Cấp 1)",
+            ten="🎁 Gói Trải Nghiệm Lần Đầu (150 Credits / tháng — Giảm 50%)",
             so_tien_vnd=25000,
-            so_trang=100,
-            ghi_chu="Gói Trial $1.99/tháng (25.000đ) nhận 100 trang/credits (chu kỳ 30 ngày). Mở nâng nét & tẩy chữ tự động.",
+            so_trang=150,
+            ghi_chu="Gói Ưu Đãi Lần Đầu $1.99/tháng (giá gốc $3.99) nhận 150 trang/credits (100 + tặng 50 Credits). Mở nâng nét & tẩy chữ tự động.",
         ),
         GoiNapLuotRead(
             ma="starter_monthly",
@@ -839,7 +839,7 @@ def _tinh_goi_nap_tu_so_tien_vnd(so_tien: int, noi_dung: str, don_gia: int) -> t
             return (105, "co_ban", "🌱 Gói Khởi Đầu — Starter (105 trang)")
         return (500, "starter_monthly", "⭐ Gói Lite (500 Credits / tháng)")
     if so_tien >= 19000:
-        return (100, "trial_pack_50", "🌱 Gói Trial (100 Credits / tháng)")
+        return (150, "trial_pack_50", "🎁 Gói Trải Nghiệm Lần Đầu (150 Credits / tháng)")
     so_trang_goc = max(1, so_tien // max(1, don_gia))
     return (so_trang_goc, "goi_moi", f"🎯 Gói Trải Nghiệm ({so_trang_goc} trang)")
 
@@ -872,7 +872,7 @@ def _tinh_goi_nap_tu_usd(so_usd: float, noi_dung: str = "") -> tuple[int, int, s
     if so_usd >= 2.8:
         return (500, 59000, "starter_monthly", "⭐ Gói Lite 500 Credits / tháng (PayPal USD)")
     if so_usd >= 0.8:
-        return (100, 25000, "trial_pack_50", "🌱 Gói Trial 100 Credits / tháng (PayPal USD)")
+        return (150, 25000, "trial_pack_50", "🎁 Gói Trải Nghiệm Lần Đầu 150 Credits (PayPal USD)")
     so_trang = max(1, int(round(so_usd * 50)))
     return (so_trang, int(so_usd * 25000), "goi_moi", f"🎯 Gói PayPal ({so_trang} Credits)")
 

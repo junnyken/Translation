@@ -16,32 +16,34 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
 
   const laNam = chuKyGoi === 'NAM'
 
-  // Bảng Giá Chuẩn Quốc Tế Theo Tháng / Năm (1 Credit = 1 Trang truyện, số lượng tròn trịa dễ tính: 100 / 500 / 1,500 / 4,000 / 10,000)
-  // Cổng Developer API (tr_live_...) mở từ Gói Cấp 4 (Studio - $14.99/mo) và Cấp 5 (Pro Max - $19.99/mo) trở lên.
+  // Bảng Giá Chuẩn Quốc Tế Theo Tháng / Năm kèm Hiệu ứng Mỏ Neo (Price Anchoring) & Ưu Đãi Lần Đầu (-50% OFF)
+  // Đã loại bỏ gói Free khỏi bảng giá (vì đăng ký đã tự có), tập trung 100% vào chuyển đổi trả phí.
   const DANH_SACH_GOI = [
     {
       ma: 'trial_pack_50',
       maNgan: 'TRIAL',
-      nhan: laEn ? '🌱 LEVEL 1 — TRIAL' : '🌱 CẤP 1 — GÓI TRIAL',
-      ten: laEn ? 'Trial Plan (100 Credits)' : 'Gói Trial (100 Credits)',
+      nhan: laEn ? '🎁 FIRST-TIME OFFER (-50%)' : '🎁 ƯU ĐÃI LẦN ĐẦU (-50%)',
+      ten: laEn ? 'Starter Welcome (150 Credits)' : 'Gói Trải Nghiệm Lần Đầu (150 Credits)',
+      giaGocVnd: 50000,
       giaVnd: 25000,
+      giaGocUsd: '3.99',
       giaUsd: '1.99',
       giaHienUsd: '1.99',
       chuKy: laEn ? '/ month' : '/ tháng',
-      phuChuKy: laEn ? 'Billed monthly (30 days)' : 'Chu kỳ 30 ngày · Cộng dồn nếu gia hạn',
-      soTrang: 100,
-      uocChap: '~5 chapters',
-      khuyenMai: laEn ? 'Starter' : 'Khởi đầu',
-      donGiaVnd: '250đ/credit',
-      donGiaUsd: '$0.020/credit',
+      phuChuKy: laEn ? '🔥 50% OFF First Month (+50 Bonus Credits)' : '🔥 Giảm 50% lần đầu (100 + Tặng 50 Credits)',
+      soTrang: 150,
+      uocChap: '~8 chapters',
+      khuyenMai: laEn ? '50% OFF' : 'Giảm 50%',
+      donGiaVnd: '166đ/credit',
+      donGiaUsd: '$0.013/credit',
       diemManh: laEn
         ? [
-            '100 Credits (100 comic pages / month — unused credits roll over on renewal)',
+            '150 Credits (100 + 50 First-Time Bonus Credits · 1 Credit = 1 Page)',
             'Unlocks Full Clean + Typeset mode (`day_du`) & 4 Genre Fonts',
             'Use on Web Studio & Chrome Extension in 9 target languages',
           ]
         : [
-            '100 Credits (100 trang truyện / tháng — bảo lưu cộng dồn nếu gia hạn đúng hạn)',
+            '150 Credits (100 + Tặng 50 Credits ưu đãi lần đầu · 1 Credit = 1 Trang)',
             'Mở khoá Xoá chữ Tái tạo nền (`day_du`) & 4 bộ Phông chữ thể loại',
             'Dùng trên Web Studio & Tiện ích Chrome (9 ngôn ngữ)',
           ],
@@ -54,7 +56,9 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
       ten: laEn
         ? (laNam ? 'Lite Yearly (6,000 Credits)' : 'Lite Monthly (500 Credits)')
         : (laNam ? 'Gói Lite Năm (6.000 Credits)' : 'Gói Lite (500 Credits / tháng)'),
+      giaGocVnd: laNam ? 708000 : 89000,
       giaVnd: laNam ? 530000 : 59000,
+      giaGocUsd: laNam ? '5.99' : '6.99',
       giaUsd: laNam ? '44.99' : '4.99',
       giaHienUsd: laNam ? '3.75' : '4.99',
       chuKy: laEn ? '/ month' : '/ tháng',
@@ -63,7 +67,7 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
         : (laEn ? 'Billed monthly (30 days)' : 'Thanh toán hàng tháng (30 ngày)'),
       soTrang: laNam ? 6000 : 500,
       uocChap: laNam ? '~300 chapters' : '~25 chapters',
-      khuyenMai: laNam ? (laEn ? 'Save 25%' : 'Tiết kiệm 25%') : (laEn ? '500 Credits' : '500 Credits'),
+      khuyenMai: laNam ? (laEn ? 'Save 25%' : 'Tiết kiệm 25%') : (laEn ? 'Save 29%' : 'Giảm 29%'),
       donGiaVnd: laNam ? '88đ/credit' : '118đ/credit',
       donGiaUsd: laNam ? '$0.0075/credit' : '$0.010/credit',
       diemManh: laEn
@@ -86,7 +90,9 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
       ten: laEn
         ? (laNam ? 'Pro Yearly (18,000 Credits)' : 'Pro Monthly (1,500 Credits)')
         : (laNam ? 'Gói Pro Năm (18.000 Credits)' : 'Gói Pro (1.500 Credits / tháng)'),
+      giaGocVnd: laNam ? 1428000 : 179000,
       giaVnd: laNam ? 1070000 : 119000,
+      giaGocUsd: laNam ? '9.99' : '14.99',
       giaUsd: laNam ? '89.99' : '9.99',
       giaHienUsd: laNam ? '7.49' : '9.99',
       chuKy: laEn ? '/ month' : '/ tháng',
@@ -95,18 +101,18 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
         : (laEn ? 'Billed monthly (30 days)' : 'Thanh toán hàng tháng (30 ngày)'),
       soTrang: laNam ? 18000 : 1500,
       uocChap: laNam ? '~900 chapters' : '~75 chapters',
-      khuyenMai: laNam ? (laEn ? 'Save 25%' : 'Tiết kiệm 25%') : (laEn ? 'Popular' : 'Phổ biến'),
+      khuyenMai: laNam ? (laEn ? 'Save 25%' : 'Tiết kiệm 25%') : (laEn ? 'Popular (-33%)' : 'Phổ biến (-33%)'),
       donGiaVnd: laNam ? '59đ/credit' : '79đ/credit',
       donGiaUsd: laNam ? '$0.0050/credit' : '$0.0067/credit',
       diemManh: laEn
         ? [
-            `${laNam ? '18,000 Credits / year' : '1,500 Credits / month'} (~75 chapters/mo · Rollover included)`,
+            `${laNam ? '18,000 Credits / year' : '1,500 Credits / month'} (3x Lite credits · Rollover included)`,
             'Unlocks Windows App Continuous Multi-Chapter Auto-Crawl',
             'Unlocks Context AI Pro + Character & Pronoun Glossary',
             'Unlocks Batch Archive Upload (.ZIP, .CBZ, .PDF)',
           ]
         : [
-            `${laNam ? '18.000 Credits / năm' : '1.500 Credits / tháng'} (~75 chapter/tháng · Cộng dồn khi gia hạn)`,
+            `${laNam ? '18.000 Credits / năm' : '1.500 Credits / tháng'} (Gấp 3 lần gói Lite · Cộng dồn khi gia hạn)`,
             'Mở khoá App Windows tải & dịch liên tục nhiều Chapter',
             'Mở khoá AI Chuẩn Ngữ Cảnh Pro + Từ điển Nhân vật & Xưng hô',
             'Mở khoá tải nguyên tập nén .ZIP, .CBZ, .PDF',
@@ -116,31 +122,33 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
     {
       ma: laNam ? 'studio_yearly' : 'studio_monthly',
       maNgan: laNam ? 'STUDIOYR' : 'STUDIO',
-      nhan: laEn ? '💎 LEVEL 4 — STUDIO + API (RECOMMENDED)' : '💎 CẤP 4 — STUDIO + API (ĐỀ XUẤT)',
+      nhan: laEn ? '💎 LEVEL 4 — STUDIO + API (BEST VALUE)' : '💎 CẤP 4 — STUDIO + API (HỜI NHẤT)',
       ten: laEn
         ? (laNam ? 'Studio + API Yearly (48,000 Credits)' : 'Studio + API (4,000 Credits)')
         : (laNam ? 'Gói Studio + API Năm (48.000 Credits)' : 'Gói Studio + API (4.000 Credits / tháng)'),
+      giaGocVnd: laNam ? 2988000 : 399000,
       giaVnd: laNam ? 2240000 : 249000,
+      giaGocUsd: laNam ? '14.99' : '24.99',
       giaUsd: laNam ? '134.99' : '14.99',
       giaHienUsd: laNam ? '11.25' : '14.99',
       chuKy: laEn ? '/ month' : '/ tháng',
       phuChuKy: laNam
-        ? (laEn ? 'Billed $134.99 yearly (Save 25%)' : 'Thanh toán 2.240k/năm (~186k/tháng · Giảm 25%)')
-        : (laEn ? 'Billed monthly (30 days)' : 'Thanh toán hàng tháng (30 ngày)'),
+        ? (laEn ? 'Billed $134.99 yearly (Save 40%)' : 'Thanh toán 2.240k/năm (~186k/tháng · Giảm 40%)')
+        : (laEn ? '⚡ Only +$5 over Pro for 2.7x Credits + Free API!' : '⚡ Chỉ thêm $5 so với Pro nhưng nhận gấp 2.7 lần Credits + Mở API!'),
       soTrang: laNam ? 48000 : 4000,
       uocChap: laNam ? '~2,400 chapters' : '~200 chapters',
-      khuyenMai: laEn ? 'Recommended + API' : 'Đề xuất + Mở API',
+      khuyenMai: laEn ? '40% OFF + API' : 'Giảm 40% + API',
       donGiaVnd: laNam ? '46đ/credit' : '62đ/credit',
       donGiaUsd: laNam ? '$0.0028/credit' : '$0.0037/credit',
       diemManh: laEn
         ? [
-            `${laNam ? '48,000 Credits / year' : '4,000 Credits / month'} (~200 chapters/mo) for teams & devs`,
+            `${laNam ? '48,000 Credits / year' : '4,000 Credits / month'} (2.7x Pro credits for just +$5/mo!)`,
             '✅ Unlocks Personal Developer REST API Key (tr_live_...)',
             '✅ Unlocks Layered Photoshop (.PSD) Export & Video Review Studio',
             '✅ Priority Support + Cross-chapter Glossary consistency',
           ]
         : [
-            `${laNam ? '48.000 Credits / năm' : '4.000 Credits / tháng'} (~200 chapter/tháng) cho nhóm dịch & Dev`,
+            `${laNam ? '48.000 Credits / năm' : '4.000 Credits / tháng'} (Gấp 2.7 lần gói Pro dù chỉ chênh $5!)`,
             '✅ Mở khoá Khoá Developer REST API riêng (tr_live_...)',
             '✅ Mở khoá Xuất file Photoshop (.PSD) tách lớp & Video Review Studio',
             '✅ Hỗ trợ ưu tiên + Đồng bộ thuật ngữ xuyên suốt các chương',
@@ -154,16 +162,18 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
       ten: laEn
         ? (laNam ? 'Pro Max API Yearly (120,000 Credits)' : 'Pro Max API (10,000 Credits)')
         : (laNam ? 'Gói Pro Max API Năm (120.000 Credits)' : 'Gói Pro Max (10.000 Credits / tháng)'),
+      giaGocVnd: laNam ? 5988000 : 799000,
       giaVnd: laNam ? 4490000 : 499000,
+      giaGocUsd: laNam ? '19.99' : '39.99',
       giaUsd: laNam ? '179.99' : '19.99',
       giaHienUsd: laNam ? '14.99' : '19.99',
       chuKy: laEn ? '/ month' : '/ tháng',
       phuChuKy: laNam
-        ? (laEn ? 'Billed $179.99 yearly (Save 25%)' : 'Thanh toán 4.490k/năm (~374k/tháng · Giảm 25%)')
-        : (laEn ? 'Billed monthly (30 days)' : 'Thanh toán hàng tháng (30 ngày)'),
+        ? (laEn ? 'Billed $179.99 yearly (Save 50%)' : 'Thanh toán 4.490k/năm (~374k/tháng · Giảm 50%)')
+        : (laEn ? '50% OFF Anchor Deal (10,000 Credits + VIP GPU)' : 'Ưu đãi giảm 50% (10.000 Credits + Luồng GPU VIP)'),
       soTrang: laNam ? 120000 : 10000,
       uocChap: laNam ? '~6,000 chapters' : '~500 chapters',
-      khuyenMai: laEn ? '10,000 Credits + API' : '10.000 Credits + API',
+      khuyenMai: laEn ? '50% OFF + VIP API' : 'Giảm 50% + VIP API',
       donGiaVnd: laNam ? '37đ/credit' : '50đ/credit',
       donGiaUsd: laNam ? '$0.0015/credit' : '$0.0020/credit',
       diemManh: laEn
@@ -435,75 +445,7 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
         </div>
       </div>
 
-      {/* Tầng miễn phí mỗi ngày */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-        gap: 16,
-        marginBottom: 24,
-      }}>
-        <div style={{
-          background: 'rgba(15, 23, 42, 0.9)',
-          border: '1px solid rgba(148, 163, 184, 0.28)',
-          borderRadius: 14,
-          padding: '16px 18px',
-          color: '#e2e8f0',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 12,
-        }}>
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8' }}>
-              👤 {laEn ? 'GUEST USER (NO SIGN-UP)' : 'KHÁCH VÃNG LAI (KHÔNG CẦN ĐĂNG KÝ)'}
-            </div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: '#ffffff', marginTop: 2 }}>
-              {laEn ? 'Free 2 Pages / Day' : 'Miễn phí 2 trang / ngày'}
-            </div>
-            <div style={{ fontSize: 13, color: '#cbd5e1' }}>
-              {laEn ? 'Test translation quality immediately on Web or Extension.' : 'Dùng thử ngay trên Web hoặc Tiện ích Chrome không cần tạo tài khoản.'}
-            </div>
-          </div>
-          <span style={{ fontSize: 22, fontWeight: 800, color: '#94a3b8' }}>
-            {tienTe === 'USD' ? '$0' : '0đ'}
-          </span>
-        </div>
-
-        <div style={{
-          background: 'linear-gradient(135deg, rgba(30, 27, 75, 0.92), rgba(15, 23, 42, 0.94))',
-          border: '1px solid rgba(129, 140, 248, 0.45)',
-          borderRadius: 14,
-          padding: '16px 18px',
-          color: '#e2e8f0',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 12,
-        }}>
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#818cf8' }}>
-              ✨ {laEn ? 'FREE REGISTERED ACCOUNT' : 'TÀI KHOẢN ĐĂNG KÝ MIỄN PHÍ'}
-            </div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: '#ffffff', marginTop: 2 }}>
-              {laEn ? 'Free 10 Pages / Day' : 'Miễn phí 10 trang / ngày'}
-            </div>
-            <div style={{ fontSize: 13, color: '#cbd5e1' }}>
-              {laEn ? 'Resets automatically at 00:00 GMT+7 every day.' : 'Tự động hồi lại 10 trang mới vào 00:00 mỗi ngày. Chỉ mất 5 giây đăng ký.'}
-            </div>
-          </div>
-          {!nguoiDung && onMoDangNhap ? (
-            <button type="button" className="nut-manga nut-manga-chinh" onClick={onMoDangNhap} style={{ whiteSpace: 'nowrap' }}>
-              {laEn ? 'Sign Up Free' : 'Đăng ký nhận 10 trang'}
-            </button>
-          ) : (
-            <span style={{ fontSize: 14, fontWeight: 700, color: '#34d399', whiteSpace: 'nowrap' }}>
-              ✅ {laEn ? 'Active' : 'Đang kích hoạt'}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Lưới gói cước trả phí */}
+      {/* Lưới gói cước trả phí (Đã bỏ khối Free vì đăng ký đã tự có, hiển thị Giá gốc gạch ngang làm Mỏ neo) */}
       <div style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(215px, 1fr))',
@@ -515,19 +457,28 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
           const hienGia = tienTe === 'USD'
             ? `$${g.giaHienUsd || g.giaUsd}`
             : `${g.giaVnd.toLocaleString('vi-VN')}đ`
+          const hienGiaGoc = tienTe === 'USD'
+            ? (g.giaGocUsd ? `$${g.giaGocUsd}` : '')
+            : (g.giaGocVnd ? `${g.giaGocVnd.toLocaleString('vi-VN')}đ` : '')
           const hienDonGia = tienTe === 'USD' ? g.donGiaUsd : g.donGiaVnd
+          const laMoNeoChinh = g.ma.includes('studio')
           return (
             <div
               key={g.ma}
               style={{
                 borderRadius: 16,
                 padding: '20px 16px',
+                position: 'relative',
                 background: dangChon
                   ? 'linear-gradient(160deg, rgba(15, 23, 42, 0.98), rgba(30, 58, 138, 0.92))'
-                  : 'rgba(15, 23, 42, 0.92)',
+                  : (laMoNeoChinh
+                      ? 'linear-gradient(160deg, rgba(6, 78, 59, 0.45), rgba(15, 23, 42, 0.96))'
+                      : 'rgba(15, 23, 42, 0.92)'),
                 border: dangChon
                   ? '2px solid #38bdf8'
-                  : (g.noiBat ? '2px solid rgba(249, 115, 22, 0.7)' : '1px solid rgba(148, 163, 184, 0.28)'),
+                  : (laMoNeoChinh
+                      ? '2px solid #10b981'
+                      : (g.noiBat ? '2px solid rgba(249, 115, 22, 0.7)' : '1px solid rgba(148, 163, 184, 0.28)')),
                 color: '#f8fafc',
                 display: 'flex',
                 flexDirection: 'column',
@@ -561,7 +512,17 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
                 </div>
 
                 <h2 style={{ margin: '0 0 6px', fontSize: 16.5, color: '#ffffff' }}>{g.ten}</h2>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 2 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 2, flexWrap: 'wrap' }}>
+                  {hienGiaGoc && (
+                    <span style={{
+                      fontSize: 14,
+                      fontWeight: 700,
+                      color: '#64748b',
+                      textDecoration: 'line-through',
+                    }}>
+                      {hienGiaGoc}
+                    </span>
+                  )}
                   <span style={{ fontSize: 24, fontWeight: 800, color: '#38bdf8' }}>{hienGia}</span>
                   <span style={{ fontSize: 12, color: '#94a3b8' }}>
                     {tienTe === 'USD' ? g.chuKy : (g.ma.includes('yearly') ? '/ năm' : '/ tháng')}
