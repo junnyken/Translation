@@ -98,12 +98,30 @@ def mat_na_net_tren_tranh(anh: np.ndarray, o: tuple[int, int, int, int]) -> np.n
     sac = vung.max(axis=2) - vung.min(axis=2)
     trang = (sang >= SANG_TRANG) & (sac <= SAC_DO_TRANG_TOI_DA)
     den = sang <= TOI_DEN
-    vien = trang if trang.mean() >= den.mean() else den
-    if vien.mean() < TI_LE_VIEN_TOI_THIEU:
-        return None
+
     cao, rong = anh.shape[:2]
     r = max(2, round(max(rong, cao) / 1024 * 2.8))
     k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1))
+
+    # Trường hợp chữ nổi có cặp Ruột đen + Viền halo trắng (hoặc Ruột trắng + Viền đen) trên nền screentone / tóc đen:
+    # Nếu chọn đơn thuần `trang if trang.mean() >= den.mean() else den`, trên nền tóc đen (`den.mean() ≈ 0.75`)
+    # thuật toán sẽ chọn nhầm cả mảng tóc đen làm chữ rồi vượt trần `TI_LE_MAT_NA_TOI_DA`.
+    if trang.mean() >= TI_LE_VIEN_TOI_THIEU and den.mean() >= TI_LE_VIEN_TOI_THIEU:
+        k_sat = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 3, 2 * r + 3))
+        trang_no = cv2.dilate(trang.astype(np.uint8), k_sat) > 0
+        den_no = cv2.dilate(den.astype(np.uint8), k_sat) > 0
+        # Chỉ giữ các điểm đen nằm sát viền trắng VÀ các điểm viền trắng nằm sát ruột chữ đen
+        loi_den_co_vien = den & trang_no
+        vien_trang_co_loi = trang & cv2.dilate(loi_den_co_vien.astype(np.uint8), k_sat) > 0
+        cap_net = loi_den_co_vien | vien_trang_co_loi
+        if cap_net.mean() >= TI_LE_VIEN_TOI_THIEU:
+            m_cap = cv2.morphologyEx(cv2.dilate(cap_net.astype(np.uint8), k), cv2.MORPH_CLOSE, k) > 0
+            if m_cap.mean() <= TI_LE_MAT_NA_TOI_DA:
+                return m_cap
+
+    vien = trang if (trang.mean() >= TI_LE_VIEN_TOI_THIEU and (trang.mean() >= den.mean() or den.mean() > 0.45)) else den
+    if vien.mean() < TI_LE_VIEN_TOI_THIEU:
+        return None
     m = cv2.morphologyEx(cv2.dilate(vien.astype(np.uint8), k), cv2.MORPH_CLOSE, k) > 0
     if m.mean() > TI_LE_MAT_NA_TOI_DA:
         return None

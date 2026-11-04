@@ -109,10 +109,15 @@ SCHEMA_GOP_DICH = {
 
 #: Xem §2 ở docstring đầu tệp. Mỗi câu ở đây đều đang gánh một con số đo được.
 LOI_NHAC = (
-    "Find every block of written text in this comic page. For each one give a TIGHT bounding box "
-    "around the TEXT CHARACTERS THEMSELVES as [ymin, xmin, ymax, xmax] normalized 0-1000. "
-    "Do NOT include the speech balloon, bubble outline, or the blank space around the text. "
-    "The box edges must touch the outermost letters."
+    "Find every block of written text in this comic page — including text inside speech bubbles, "
+    "narration boxes, AND borderless floating text with white/black outlines drawn directly over "
+    "screentones, dark hair, shadows, or panel corners (even short 1-3 word phrases like '...And yet,' "
+    "or 'Why...?'). For each block, give a TIGHT bounding box around ALL lines and punctuation of that "
+    "text block as [ymin, xmin, ymax, xmax] normalized 0-1000. "
+    "Do NOT include the speech balloon, bubble outline, or the blank space around the text, "
+    "but MUST include every line from the first word down to the very last line and trailing punctuation "
+    "(never clip the bottom line or '?/...' of a multi-line block). "
+    "The box edges must touch the outermost letters/strokes."
     # E90 — đọc chữ luôn trong lượt này (xem `CHU_THICH_E90`). A/B 16-10-2026, 5 trang × 2 lượt:
     # khung lời thoại trùng lời nhắc cũ (lệch 1–2/1000), chữ Nhật đúng từng ký tự, đọc đúng cả chữ
     # tượng thanh mà PaddleOCR/manga-ocr đọc bậy.
@@ -188,7 +193,8 @@ def xay_loi_nhac_gop_dich(source_lang: str, target_lang: str, boi_canh: str = ""
         f"{LOI_NHAC}\n\n"
         f"Đồng thời, bạn là người dịch truyện tranh chuyên nghiệp. Hãy dịch từng khối chữ vừa tìm "
         f"được từ {source_lang} sang {target_lang} vào trường \"ban_dich\" theo đúng yêu cầu:\n"
-        "- Dịch theo mạch văn và hình ảnh của cả trang, không dịch rời rạc từng khung.\n"
+        "- Dịch theo mạch văn và hình ảnh của cả trang (đặc biệt lưu ý thứ tự đọc Manga từ PHẢI sang TRÁI "
+        "trong từng khung tranh khi một câu được tách làm 2 cụm chữ nổi bên phải và bên trái), không dịch rời rạc từng khung.\n"
         "- Bám sát nghĩa gốc, giữ giọng điệu nhân vật; đại từ xưng hô tiếng Việt (Ta/Bà/Tôi/Cậu/Anh/Em…) "
         "phải khớp với ngoại hình, độ tuổi, biểu cảm nhân vật trên tranh và ngữ cảnh trang trước.\n"
         f"{chi_dan_cap_do_vi}"
