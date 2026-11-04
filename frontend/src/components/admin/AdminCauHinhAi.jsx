@@ -65,7 +65,13 @@ export default function AdminCauHinhAi({ thongKe, onNap, setLoi, setThongBaoOk }
   const [modelDeepseek, setModelDeepseek] = useState(heThong.deepseek_model || 'deepseek-chat')
 
   const [khoaGeminiInput, setKhoaGeminiInput] = useState('')
-  const [modelGemini, setModelGemini] = useState(heThong.gemini_model || 'gemini-2.5-flash')
+  const [modelGemini, setModelGemini] = useState(
+    heThong.gemini_model === 'gemini-3.5-flash'
+      ? 'gemini-3.5-flash-lite'
+      : heThong.gemini_model === 'gemini-2.5-flash'
+        ? 'gemini-3.1-flash-lite'
+        : heThong.gemini_model || 'gemini-3.1-flash-lite',
+  )
 
   const [khoaOpenaiInput, setKhoaOpenaiInput] = useState('')
   const [modelOpenai, setModelOpenai] = useState('gpt-4o-mini')
@@ -91,7 +97,15 @@ export default function AdminCauHinhAi({ thongKe, onNap, setLoi, setThongBaoOk }
   useEffect(() => {
     if (heThong.nha_cung_cap_chinh) setNhaCungCapChinh(heThong.nha_cung_cap_chinh)
     if (heThong.deepseek_model) setModelDeepseek(heThong.deepseek_model)
-    if (heThong.gemini_model) setModelGemini(heThong.gemini_model)
+    if (heThong.gemini_model) {
+      const gmNorm =
+        heThong.gemini_model === 'gemini-3.5-flash'
+          ? 'gemini-3.5-flash-lite'
+          : heThong.gemini_model === 'gemini-2.5-flash'
+            ? 'gemini-3.1-flash-lite'
+            : heThong.gemini_model
+      setModelGemini(gmNorm)
+    }
     const dsModels = Array.isArray(heThong.danh_sach_model_ai) ? heThong.danh_sach_model_ai : []
     const mOai = dsModels.find((m) => m.id === 'openai')
     if (mOai?.model) setModelOpenai(mOai.model)
@@ -143,7 +157,7 @@ export default function AdminCauHinhAi({ thongKe, onNap, setLoi, setThongBaoOk }
           id: 'gemini',
           ten: 'Google Gemini',
           mo_ta: 'Vision OCR Đọc chữ phức tạp & Dịch ngữ cảnh đa phương thức',
-          model: heThong.gemini_model || heThong.llm_model_name || 'gemini-2.5-flash',
+          model: heThong.gemini_model || heThong.llm_model_name || 'gemini-3.1-flash-lite',
           da_ket_noi: Boolean(heThong.gemini_configured || heThong.du_phong_configured),
           so_key: heThong.gemini_so_key || heThong.du_phong_so_key || 0,
           keys_masked: heThong.gemini_keys_masked || heThong.du_phong_keys_masked || [],
@@ -171,7 +185,7 @@ export default function AdminCauHinhAi({ thongKe, onNap, setLoi, setThongBaoOk }
       const payload = {
         nhaCungCapChinh,
         modelDeepseek: modelDeepseek.trim() || 'deepseek-chat',
-        modelGemini: modelGemini.trim() || 'gemini-2.5-flash',
+        modelGemini: modelGemini.trim() || 'gemini-3.1-flash-lite',
         modelOpenai: modelOpenai.trim() || 'gpt-4o-mini',
         modelOpenrouter: modelOpenrouter.trim() || 'google/gemini-2.5-flash',
         modelGroq: modelGroq.trim() || 'llama-3.3-70b-versatile',
@@ -819,20 +833,36 @@ export default function AdminCauHinhAi({ thongKe, onNap, setLoi, setThongBaoOk }
                       />
                     </div>
                     <div className="admin-form-nhom" style={{ flex: 1 }}>
-                      <label>Model Google Gemini</label>
-                      <input
-                        type="text"
-                        list="gemini-models-list"
+                      <label>Model Google Gemini (Chọn model tối ưu)</label>
+                      <select
                         value={modelGemini}
                         onChange={(e) => setModelGemini(e.target.value)}
-                        placeholder="gemini-2.5-flash"
-                      />
-                      <datalist id="gemini-models-list">
-                        <option value="gemini-2.5-flash" />
-                        <option value="gemini-2.5-pro" />
-                        <option value="gemini-2.0-flash" />
-                        <option value="gemini-2.5-flash-lite" />
-                      </datalist>
+                        style={{
+                          padding: '9px 12px',
+                          borderRadius: 8,
+                          border: '1px solid #cbd5e1',
+                          fontSize: 13.5,
+                        }}
+                      >
+                        <option value="gemini-3.1-flash-lite">
+                          ⭐ gemini-3.1-flash-lite (Mặc định Tối ưu nhất · $0.25/$1.50 · Chuyên Dịch &amp; OCR)
+                        </option>
+                        <option value="gemini-3.5-flash-lite">
+                          ⚡ gemini-3.5-flash-lite (Nhanh &amp; Rẻ thế hệ 3.5 · $0.30/$2.50)
+                        </option>
+                        <option value="gemini-3.8-flash">
+                          🧠 gemini-3.8-flash (Thông minh nhất dòng Flash · $0.75/$3.75)
+                        </option>
+                        <option value="gemini-3-flash-preview">
+                          🔥 gemini-3-flash-preview (Bản ổn định · $0.50/$3.00 · Paid)
+                        </option>
+                        <option value="gemini-3.6-flash">
+                          🚀 gemini-3.6-flash (Cân bằng đa phương thức · $0.75/$3.75 · Paid)
+                        </option>
+                        <option value="gemini-3.1-pro-preview">
+                          💎 gemini-3.1-pro-preview (Dòng Pro cao cấp · $2.00/$12.00)
+                        </option>
+                      </select>
                     </div>
                   </div>
                   <div style={{ fontSize: 12, color: '#64748b', marginTop: 6 }}>

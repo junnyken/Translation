@@ -459,9 +459,11 @@ class AIGeminiDetector:
 
         loi_cuoi: Exception | None = None
         ds_khoa_gemini: list[tuple[str, str]] = []
-        model_goc = (self.model_name or "gemini-2.5-flash").strip()
+        model_goc = (self.model_name or "gemini-3.1-flash-lite").strip()
         if model_goc.lower() == "gemini-3.5-flash":
-            model_goc = "gemini-2.5-flash"
+            model_goc = "gemini-3.5-flash-lite"
+        elif model_goc.lower() == "gemini-2.5-flash":
+            model_goc = "gemini-3.1-flash-lite"
         for raw_k in self.api_keys:
             s_k = str(raw_k or "").strip()
             if not s_k or s_k.startswith(("sk-", "ds:", "ds|", "gsk_", "groq:", "groq|", "or:", "or|", "oai:", "oai|", "custom|")):
@@ -472,7 +474,9 @@ class AIGeminiDetector:
                 if len(parts_gm) == 3 and parts_gm[1].strip():
                     m_k = parts_gm[1].strip()
                     if m_k.lower() == "gemini-3.5-flash":
-                        m_k = "gemini-2.5-flash"
+                        m_k = "gemini-3.5-flash-lite"
+                    elif m_k.lower() == "gemini-2.5-flash":
+                        m_k = "gemini-3.1-flash-lite"
                 s_k = parts_gm[-1].strip()
             elif s_k.startswith("gm:"):
                 s_k = s_k[3:].strip()
@@ -485,12 +489,12 @@ class AIGeminiDetector:
         for m_key, key in ds_khoa_gemini:
             la_vertex_aq = key.startswith("AQ.")
             if la_vertex_aq:
-                m_vertex = "gemini-2.5-flash" if m_key in ("gemini-3.1-flash-lite", "gemini-3.5-flash") else m_key
                 ds_ung_vien_url = [
-                    (f"https://aiplatform.googleapis.com/v1/publishers/google/models/{m_vertex}:generateContent?key={key}", than_vertex),
-                    (f"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-flash:generateContent?key={key}", than_vertex_no_think),
-                    (f"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.0-flash:generateContent?key={key}", than_vertex_no_think),
-                    (f"https://generativelanguage.googleapis.com/v1beta/models/{m_vertex}:generateContent?key={key}", than),
+                    (f"https://generativelanguage.googleapis.com/v1beta/models/{m_key}:generateContent?key={key}", than),
+                    (f"https://aiplatform.googleapis.com/v1/publishers/google/models/{m_key}:generateContent?key={key}", than_vertex),
+                    (f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={key}", than),
+                    (f"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-3.1-flash-lite:generateContent?key={key}", than_vertex_no_think),
+                    (f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key={key}", than),
                 ]
             else:
                 ds_ung_vien_url = [
@@ -528,8 +532,8 @@ class AIGeminiDetector:
                         or "key expired" in chi_tiet_lower
                         or exc.code in (401, 403)
                     )
-                    if la_vertex_aq and not la_loi_key and exc.code in (400, 404):
-                        # Với khoá Vertex AI AQ., thử tiếp biến thể model/payload kế tiếp trong ds_ung_vien_url
+                    if la_vertex_aq and exc.code in (400, 404):
+                        # Với khoá AQ., thử tiếp endpoint generativelanguage / aiplatform hoặc model kế tiếp trong ds_ung_vien_url
                         continue
                     if exc.code in (400, 404) and not la_loi_key:
                         raise loi_cuoi from exc   # lỗi cấu hình: xoay key không cứu được

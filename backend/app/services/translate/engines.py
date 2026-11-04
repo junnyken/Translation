@@ -678,43 +678,33 @@ class LLMContextTranslator:
         if s.startswith("gm|"):
             parts = s.split("|", 2)
             if len(parts) == 3:
-                m_final = parts[1].strip() or "gemini-2.5-flash"
+                m_final = parts[1].strip() or "gemini-3.1-flash-lite"
                 if m_final.lower() == "gemini-3.5-flash":
-                    m_final = "gemini-2.5-flash"
+                    m_final = "gemini-3.5-flash-lite"
+                elif m_final.lower() == "gemini-2.5-flash":
+                    m_final = "gemini-3.1-flash-lite"
                 clean_k = parts[2].strip()
                 la_vertex_aq = clean_k.startswith("AQ.")
-                if la_vertex_aq and m_final in ("gemini-3.1-flash-lite", "gemini-3.5-flash"):
-                    m_final = "gemini-2.5-flash"
-                endpoint = (
-                    f"https://aiplatform.googleapis.com/v1/publishers/google/models/{m_final}:generateContent?key={clean_k}"
-                    if la_vertex_aq
-                    else _GEMINI_ENDPOINT.format(model=m_final)
-                )
                 return {
                     "provider": "gemini",
                     "ten_ncc": f"Google Gemini ({m_final})",
-                    "endpoint": endpoint,
+                    "endpoint": _GEMINI_ENDPOINT.format(model=m_final),
                     "model": m_final,
                     "api_key": clean_k,
                     "is_openai_compat": False,
                     "is_vertex_aq": la_vertex_aq,
                 }
         clean_gm = s[3:].strip() if s.startswith("gm:") else s
-        m_gm = def_m if not def_m.lower().startswith("deepseek") else "gemini-2.5-flash"
+        m_gm = def_m if not def_m.lower().startswith("deepseek") else "gemini-3.1-flash-lite"
         if m_gm.lower() == "gemini-3.5-flash":
-            m_gm = "gemini-2.5-flash"
+            m_gm = "gemini-3.5-flash-lite"
+        elif m_gm.lower() == "gemini-2.5-flash":
+            m_gm = "gemini-3.1-flash-lite"
         la_vertex_aq = clean_gm.startswith("AQ.")
-        if la_vertex_aq and m_gm in ("gemini-3.1-flash-lite", "gemini-3.5-flash"):
-            m_gm = "gemini-2.5-flash"
-        endpoint = (
-            f"https://aiplatform.googleapis.com/v1/publishers/google/models/{m_gm}:generateContent?key={clean_gm}"
-            if la_vertex_aq
-            else _GEMINI_ENDPOINT.format(model=m_gm)
-        )
         return {
             "provider": "gemini",
             "ten_ncc": f"Google Gemini ({m_gm})",
-            "endpoint": endpoint,
+            "endpoint": _GEMINI_ENDPOINT.format(model=m_gm),
             "model": m_gm,
             "api_key": clean_gm,
             "is_openai_compat": False,
@@ -820,7 +810,7 @@ class LLMContextTranslator:
             else:
                 request = urllib.request.Request(
                     info_k["endpoint"],
-                    data=body_vertex if la_vertex_aq else body,
+                    data=body,
                     method="POST",
                     headers={"x-goog-api-key": info_k["api_key"], "Content-Type": "application/json"},
                 )
@@ -841,14 +831,20 @@ class LLMContextTranslator:
                 return "".join(p.get("text", "") for p in parts_out), data.get("usageMetadata", {})
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode("utf-8", "replace")[:300] if hasattr(exc, "read") else ""
-                if la_vertex_aq and exc.code in (400, 404):
-                    # Với khoá Vertex AI AQ., thử tiếp gemini-2.5-flash / gemini-2.0-flash (bỏ thinkingConfig) hoặc generativelanguage
+                if (la_vertex_aq or not la_oai_compat) and exc.code in (400, 404) and self.key_count >= 1:
                     ck = info_k["api_key"]
-                    for fb_url, fb_body in (
-                        (f"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-flash:generateContent?key={ck}", body_vertex_no_think),
-                        (f"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.0-flash:generateContent?key={ck}", body_vertex_no_think),
-                        (_GEMINI_ENDPOINT.format(model=info_k["model"]), body),
-                    ):
+                    m_cur = info_k["model"]
+                    ds_thu_tiep = (
+                        [
+                            (f"https://aiplatform.googleapis.com/v1/publishers/google/models/{m_cur}:generateContent?key={ck}", body_vertex),
+                            (_GEMINI_ENDPOINT.format(model="gemini-3.1-flash-lite"), body),
+                            (f"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-3.1-flash-lite:generateContent?key={ck}", body_vertex_no_think),
+                            (_GEMINI_ENDPOINT.format(model="gemini-3.5-flash-lite"), body),
+                        ]
+                        if la_vertex_aq
+                        else []
+                    )
+                    for fb_url, fb_body in ds_thu_tiep:
                         try:
                             fb_req = urllib.request.Request(
                                 fb_url,

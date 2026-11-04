@@ -963,11 +963,11 @@ def _luu_ban_sao_env_goc(settings: Settings) -> tuple[str, str, str]:
     if not hasattr(settings, "_env_gemini_goc"):
         object.__setattr__(settings, "_env_gemini_goc", str(settings.gemini_api_keys or ""))
     if not hasattr(settings, "_env_model_goc"):
-        object.__setattr__(settings, "_env_model_goc", str(settings.llm_model_name or "gemini-2.5-flash"))
+        object.__setattr__(settings, "_env_model_goc", str(settings.llm_model_name or "gemini-3.1-flash-lite"))
     return (
         getattr(settings, "_env_deepseek_goc", ""),
         getattr(settings, "_env_gemini_goc", ""),
-        getattr(settings, "_env_model_goc", "gemini-2.5-flash"),
+        getattr(settings, "_env_model_goc", "gemini-3.1-flash-lite"),
     )
 
 
@@ -1016,9 +1016,11 @@ def dong_bo_khoa_ai_dong(settings: Settings) -> dict:
         for k in _tach_danh_sach_khoa(gm_admin_raw)
         if _tach_khoa_sach(k).startswith(("sk-", "gsk_"))
     ]
-    model_gm = str(data.get("model_gemini") or env_model_goc or "gemini-2.5-flash").strip()
-    if model_gm.lower().startswith("deepseek") or model_gm.lower() == "gemini-3.5-flash":
-        model_gm = "gemini-2.5-flash"
+    model_gm = str(data.get("model_gemini") or env_model_goc or "gemini-3.1-flash-lite").strip()
+    if model_gm.lower().startswith("deepseek") or model_gm.lower() == "gemini-2.5-flash":
+        model_gm = "gemini-3.1-flash-lite"
+    elif model_gm.lower() == "gemini-3.5-flash":
+        model_gm = "gemini-3.5-flash-lite"
     gm_encoded = [f"gm|{model_gm}|{k}" for k in gm_keys_raw if k]
 
     # 3. OpenAI (ChatGPT API)
@@ -1115,9 +1117,11 @@ def lay_thong_tin_khoa_ai_che(settings: Settings, data_dong: dict | None = None)
         if k and k not in gm_list:
             gm_list.append(k)
     gm_nguon = "Admin" if gm_admin else (".env" if gm_env else "Chưa gắn")
-    model_gm = str(data.get("model_gemini") or env_model_goc or "gemini-2.5-flash").strip()
-    if model_gm.lower().startswith("deepseek") or model_gm.lower() == "gemini-3.5-flash":
-        model_gm = "gemini-2.5-flash"
+    model_gm = str(data.get("model_gemini") or env_model_goc or "gemini-3.1-flash-lite").strip()
+    if model_gm.lower().startswith("deepseek") or model_gm.lower() == "gemini-2.5-flash":
+        model_gm = "gemini-3.1-flash-lite"
+    elif model_gm.lower() == "gemini-3.5-flash":
+        model_gm = "gemini-3.5-flash-lite"
 
     oai_list = _tach_danh_sach_khoa(data.get("khoa_openai"))
     model_oai = str(data.get("model_openai") or "gpt-4o-mini").strip() or "gpt-4o-mini"
