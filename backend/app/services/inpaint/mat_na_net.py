@@ -103,21 +103,36 @@ def mat_na_net_tren_tranh(anh: np.ndarray, o: tuple[int, int, int, int]) -> np.n
     r = max(2, round(max(rong, cao) / 1024 * 2.8))
     k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1))
 
-    # Trường hợp chữ nổi có cặp Ruột đen + Viền halo trắng (hoặc Ruột trắng + Viền đen) trên nền screentone / tóc đen:
+    # 1. Trường hợp chữ nổi có cặp [Ruột đen/màu + Viền halo trắng] hoặc [Ruột trắng/màu + Viền halo đen]
+    # trên nền screentone / tóc đen / nền tranh màu:
     # Nếu chọn đơn thuần `trang if trang.mean() >= den.mean() else den`, trên nền tóc đen (`den.mean() ≈ 0.75`)
     # thuật toán sẽ chọn nhầm cả mảng tóc đen làm chữ rồi vượt trần `TI_LE_MAT_NA_TOI_DA`.
-    if trang.mean() >= TI_LE_VIEN_TOI_THIEU and den.mean() >= TI_LE_VIEN_TOI_THIEU:
-        k_sat = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 3, 2 * r + 3))
+    mau_sac_dam = sac >= 48
+    k_sat = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 3, 2 * r + 3))
+    if trang.mean() >= TI_LE_VIEN_TOI_THIEU and (den.mean() >= TI_LE_VIEN_TOI_THIEU or mau_sac_dam.mean() >= TI_LE_VIEN_TOI_THIEU):
         trang_no = cv2.dilate(trang.astype(np.uint8), k_sat) > 0
         den_no = cv2.dilate(den.astype(np.uint8), k_sat) > 0
-        # Chỉ giữ các điểm đen nằm sát viền trắng VÀ các điểm viền trắng nằm sát ruột chữ đen
-        loi_den_co_vien = den & trang_no
-        vien_trang_co_loi = trang & cv2.dilate(loi_den_co_vien.astype(np.uint8), k_sat) > 0
-        cap_net = loi_den_co_vien | vien_trang_co_loi
+        # Chỉ giữ các điểm ruột (đen hoặc màu đậm) nằm sát viền trắng VÀ các điểm viền trắng/đen nằm sát nhau
+        loi_co_vien_trang = (den | mau_sac_dam) & trang_no
+        vien_trang_co_loi = trang & (cv2.dilate(loi_co_vien_trang.astype(np.uint8), k_sat) > 0)
+        loi_sang_co_vien_den = (trang | mau_sac_dam) & den_no
+        vien_den_co_loi = den & (cv2.dilate(loi_sang_co_vien_den.astype(np.uint8), k_sat) > 0)
+        cap_net = loi_co_vien_trang | vien_trang_co_loi | loi_sang_co_vien_den | vien_den_co_loi
         if cap_net.mean() >= TI_LE_VIEN_TOI_THIEU:
             m_cap = cv2.morphologyEx(cv2.dilate(cap_net.astype(np.uint8), k), cv2.MORPH_CLOSE, k) > 0
             if m_cap.mean() <= TI_LE_MAT_NA_TOI_DA:
                 return m_cap
+
+    # 2. Trường hợp chữ nổi không viền (hoặc chữ màu) đặt trên nền màu chuyển sắc (gradient) / đám mây màu:
+    # So sánh độ lệch màu RGB của từng điểm ảnh với màu nền làm mượt cục bộ (15x15).
+    k_blur = max(9, (min(vung.shape[0], vung.shape[1]) // 4) | 1)
+    nen_muot = cv2.GaussianBlur(vung.astype(np.float32), (k_blur, k_blur), 0)
+    lech_mau_cuc_bo = np.abs(vung.astype(np.float32) - nen_muot).sum(axis=2)
+    net_tuong_phan_mau = lech_mau_cuc_bo >= 62.0
+    if TI_LE_VIEN_TOI_THIEU <= net_tuong_phan_mau.mean() <= 0.38:
+        m_mau = cv2.morphologyEx(cv2.dilate(net_tuong_phan_mau.astype(np.uint8), k), cv2.MORPH_CLOSE, k) > 0
+        if TI_LE_VIEN_TOI_THIEU <= m_mau.mean() <= TI_LE_MAT_NA_TOI_DA:
+            return m_mau
 
     vien = trang if (trang.mean() >= TI_LE_VIEN_TOI_THIEU and (trang.mean() >= den.mean() or den.mean() > 0.45)) else den
     if vien.mean() < TI_LE_VIEN_TOI_THIEU:

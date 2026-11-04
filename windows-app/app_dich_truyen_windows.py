@@ -334,6 +334,173 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
         la_nen = bytearray(N)
         vung_cam = bytearray(N)
 
+        # Tiền tính toán độ sáng, độ bão hoà & trung bình 3x3 trên ROI để nhận diện chính xác
+        # cả 6 tình huống: Bong bóng kín, Bong bóng gai, Nền cát Screentone, Tóc đen, Nền màu có Halo (thuận/đảo) & Nền màu Gradient
+        lum_px = [0.0] * N
+        sat_px = [0] * N
+        r_roi = [0] * N
+        g_roi = [0] * N
+        b_roi = [0] * N
+        for py in range(rh):
+            base = py * rw
+            for px in range(rw):
+                idx_p = base + px
+                r_p, g_p, b_p = px_anh[rx0 + px, ry0 + py]
+                r_roi[idx_p] = r_p
+                g_roi[idx_p] = g_p
+                b_roi[idx_p] = b_p
+                lum_px[idx_p] = 0.299 * r_p + 0.587 * g_p + 0.114 * b_p
+                sat_px[idx_p] = max(r_p, g_p, b_p) - min(r_p, g_p, b_p)
+
+        la_trang_dac = bytearray(N)
+        la_sang_dac = bytearray(N)
+        la_toi_net = bytearray(N)
+        la_mau_dam_net = bytearray(N)
+        for py in range(rh):
+            y0n = max(0, py - 1)
+            y1n = min(rh - 1, py + 1)
+            base = py * rw
+            for px in range(rw):
+                x0n = max(0, px - 1)
+                x1n = min(rw - 1, px + 1)
+                s_lum = 0.0
+                cnt_n = 0
+                dem_trang_n = 0
+                dem_sang_n = 0
+                for yy in range(y0n, y1n + 1):
+                    by_n = yy * rw
+                    for xx in range(x0n, x1n + 1):
+                        lp = lum_px[by_n + xx]
+                        s_lum += lp
+                        cnt_n += 1
+                        if lp >= 212.0 and sat_px[by_n + xx] <= 48:
+                            dem_trang_n += 1
+                        if lp >= 198.0:
+                            dem_sang_n += 1
+                pos = base + px
+                tb_lum = s_lum / max(1, cnt_n)
+                if lum_px[pos] >= 210.0 and sat_px[pos] <= 48 and (tb_lum >= 214.0 or dem_trang_n >= 5):
+                    la_trang_dac[pos] = 1
+                if lum_px[pos] >= 198.0 and (tb_lum >= 202.0 or dem_sang_n >= 5):
+                    la_sang_dac[pos] = 1
+                if lum_px[pos] <= 145.0:
+                    la_toi_net[pos] = 1
+                if sat_px[pos] >= 52 and 42.0 <= lum_px[pos] <= 232.0:
+                    la_mau_dam_net[pos] = 1
+
+        # Đo tỷ lệ cặp Halo (thuận: Lõi tối/màu + Halo trắng/sáng; đảo: Lõi trắng/sáng/màu + Halo tối) và mẫu nền thực tế ngoài chữ
+        dem_trang_dac_hop = 0
+        dem_toi_hop = 0
+        dem_sang_hop = 0
+        dem_cap_toi_trang = 0
+        dem_cap_trang_toi = 0
+        dt_hop = max(1, (cx1 - cx0) * (cy1 - cy0))
+        for py in range(cy0, cy1):
+            base = py * rw
+            for px in range(cx0, cx1):
+                pos = base + px
+                if la_trang_dac[pos]:
+                    dem_trang_dac_hop += 1
+                if la_toi_net[pos] or la_mau_dam_net[pos]:
+                    dem_toi_hop += 1
+                    for d_h in range(1, 5):
+                        if (
+                            (px - d_h >= 0 and (la_trang_dac[pos - d_h] or la_sang_dac[pos - d_h]))
+                            or (px + d_h < rw and (la_trang_dac[pos + d_h] or la_sang_dac[pos + d_h]))
+                            or (py - d_h >= 0 and (la_trang_dac[pos - d_h * rw] or la_sang_dac[pos - d_h * rw]))
+                            or (py + d_h < rh and (la_trang_dac[pos + d_h * rw] or la_sang_dac[pos + d_h * rw]))
+                        ):
+                            dem_cap_toi_trang += 1
+                            break
+                if la_sang_dac[pos] or la_mau_dam_net[pos]:
+                    dem_sang_hop += 1
+                    for d_h in range(1, 5):
+                        if (
+                            (px - d_h >= 0 and la_toi_net[pos - d_h] and lum_px[pos - d_h] <= 115.0)
+                            or (px + d_h < rw and la_toi_net[pos + d_h] and lum_px[pos + d_h] <= 115.0)
+                            or (py - d_h >= 0 and la_toi_net[pos - d_h * rw] and lum_px[pos - d_h * rw] <= 115.0)
+                            or (py + d_h < rh and la_toi_net[pos + d_h * rw] and lum_px[pos + d_h * rw] <= 115.0)
+                        ):
+                            dem_cap_trang_toi += 1
+                            break
+
+        ty_le_trang_dac = dem_trang_dac_hop / dt_hop
+        ty_le_cap_toi_trang = dem_cap_toi_trang / max(1, dem_toi_hop)
+        ty_le_cap_trang_toi = dem_cap_trang_toi / max(1, dem_sang_hop)
+        ty_le_cap_halo = max(ty_le_cap_toi_trang, ty_le_cap_trang_toi)
+
+        ds_lum_nen_thuc = []
+        ds_r_nen_thuc = []
+        ds_g_nen_thuc = []
+        ds_b_nen_thuc = []
+        ds_sat_nen_thuc = []
+        tong_contrast_hat = 0.0
+        dem_contrast_hat = 0
+        for py in range(0, rh, 2):
+            base = py * rw
+            for px in range(0, rw, 2):
+                pos = base + px
+                trong_hop = (cx0 <= px < cx1) and (cy0 <= py < cy1)
+                if trong_hop and (la_trang_dac[pos] or la_sang_dac[pos] or la_toi_net[pos] or la_mau_dam_net[pos]):
+                    continue
+                if not trong_hop and (la_trang_dac[pos] or la_sang_dac[pos]):
+                    sat_net_toi = False
+                    for d_h in range(1, 6):
+                        if (
+                            (px - d_h >= 0 and la_toi_net[pos - d_h])
+                            or (px + d_h < rw and la_toi_net[pos + d_h])
+                            or (py - d_h >= 0 and la_toi_net[pos - d_h * rw])
+                            or (py + d_h < rh and la_toi_net[pos + d_h * rw])
+                        ):
+                            sat_net_toi = True
+                            break
+                    if sat_net_toi:
+                        continue
+                ds_r_nen_thuc.append(r_roi[pos])
+                ds_g_nen_thuc.append(g_roi[pos])
+                ds_b_nen_thuc.append(b_roi[pos])
+                ds_lum_nen_thuc.append(lum_px[pos])
+                ds_sat_nen_thuc.append(sat_px[pos])
+                if px + 1 < rw and py + 1 < rh:
+                    tong_contrast_hat += abs(lum_px[pos] - lum_px[pos + 1]) + abs(lum_px[pos] - lum_px[pos + rw])
+                    dem_contrast_hat += 2
+
+        ds_lum_nen_thuc.sort()
+        ds_r_nen_thuc.sort()
+        ds_g_nen_thuc.sort()
+        ds_b_nen_thuc.sort()
+        ds_sat_nen_thuc.sort()
+        mid_n = len(ds_lum_nen_thuc) // 2
+        lum_nen_trung_vi = ds_lum_nen_thuc[mid_n] if ds_lum_nen_thuc else med_lum
+        lum_nen_p30 = ds_lum_nen_thuc[int(len(ds_lum_nen_thuc) * 0.3)] if ds_lum_nen_thuc else med_lum
+        r_nen_trung_vi = ds_r_nen_thuc[mid_n] if ds_r_nen_thuc else bg_r
+        g_nen_trung_vi = ds_g_nen_thuc[mid_n] if ds_g_nen_thuc else bg_g
+        b_nen_trung_vi = ds_b_nen_thuc[mid_n] if ds_b_nen_thuc else bg_b
+        sat_nen_trung_vi = ds_sat_nen_thuc[mid_n] if ds_sat_nen_thuc else (max(bg_r, bg_g, bg_b) - min(bg_r, bg_g, bg_b))
+        do_nhieu_hat = (tong_contrast_hat / dem_contrast_hat) if dem_contrast_hat > 0 else 0.0
+        la_nen_mau_thuc = (sat_nen_trung_vi >= 18) or ((max(r_nen_trung_vi, g_nen_trung_vi, b_nen_trung_vi) - min(r_nen_trung_vi, g_nen_trung_vi, b_nen_trung_vi)) >= 18)
+
+        # Kiểm tra xem vùng chữ có nằm trong bong bóng trắng/đen khép kín hay là chữ nổi trên nền cát screentone / tóc đen / nền màu
+        la_chu_noi_tren_nen = bool(
+            nen_mau_trung_binh
+            or (
+                (ty_le_cap_halo >= 0.20 or dem_trang_dac_hop >= dt_hop * 0.05)
+                and (ty_le_trang_dac < 0.62 or lum_nen_trung_vi < 222.0 or lum_nen_p30 < 208.0 or do_nhieu_hat >= 11.5 or la_nen_mau_thuc)
+                and not (ty_le_trang_dac >= 0.65 and lum_nen_trung_vi >= 228.0 and not la_nen_mau_thuc)
+            )
+        )
+        la_dao_chieu_halo = (
+            la_chu_noi_tren_nen
+            and dem_cap_trang_toi > dem_cap_toi_trang * 1.12
+            and ty_le_cap_trang_toi >= 0.22
+            and lum_nen_trung_vi >= 52.0
+            and ty_le_trang_dac < 0.48
+        )
+        if la_chu_noi_tren_nen:
+            nen_mau_trung_binh = True
+            bg_r, bg_g, bg_b = int(r_nen_trung_vi), int(g_nen_trung_vi), int(b_nen_trung_vi)
+            nen_toi = bool(la_dao_chieu_halo or (lum_nen_trung_vi < 82.0 and not la_nen_mau_thuc))
+
         row_bg: list[tuple[int, int, int, float]] = []
         sx_r0 = max(0, cx0 - min(16, max(6, w_goc // 6)))
         sx_r1 = min(rw, cx1 + min(16, max(6, w_goc // 6)))
@@ -448,23 +615,346 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
         can_xoa = bytearray(N)
         dien_tich_max_net = max(400, int(round((sx1 - sx0) * (sy1 - sy0) * 0.65)))
 
-        if nen_mau_trung_binh:
-            # Chữ nổi trên nền tranh màu (lõi đen + viền trắng, không có khung bóng thoại):
-            # Quét trực tiếp trong dải dòng chữ mở rộng (lx0-12..lx1+14, ly0-7..ly1+7) để bắt trọn lõi chữ và viền trắng
-            for lx0, ly0, lx1, ly1 in ds_hop_dong:
-                for py_d in range(max(3, ly0 - 7), min(rh - 3, ly1 + 7)):
-                    base_d = py_d * rw
-                    rr_d, gg_d, bb_d, _ = row_bg[py_d]
-                    for px_d in range(max(3, lx0 - 12), min(rw - 3, lx1 + 14)):
-                        pos_d = base_d + px_d
-                        if vung_cam[pos_d]:
-                            continue
-                        r_p, g_p, b_p = px_anh[rx0 + px_d, ry0 + py_d]
-                        lum_p = 0.299 * r_p + 0.587 * g_p + 0.114 * b_p
-                        sat_p = max(r_p, g_p, b_p) - min(r_p, g_p, b_p)
-                        sai_so_d = abs(r_p - rr_d) + abs(g_p - gg_d) + abs(b_p - bb_d)
-                        if (lum_p <= 115.0 and sat_p <= 42) or (lum_p >= 185.0 and sat_p <= 48) or (sai_so_d > 65 and sat_p <= 38):
+        mau_chu_goc = None
+        mau_vien_goc = None
+        min_x_xoa, min_y_xoa = cx0, cy0
+        max_x_xoa, max_y_xoa = cx1, cy1
+        co_diem_xoa_chu_noi = False
+
+        if la_chu_noi_tren_nen:
+            # === NHÁNH ĐA TÌNH HUỐNG CHO CHỮ NỔI KHÔNG BONG BÓNG TRÊN WINDOWS APP ===
+            # Bao phủ: Nền cát Screentone, Tóc đen/Bóng đổ, Nền tranh màu có Halo (thuận/đảo) & Nền màu chuyển sắc (Gradient)
+            la_loi_chu = bytearray(N)
+            qx0 = max(2, cx0 - 16)
+            qy0 = max(2, cy0 - 18)
+            qx1 = min(rw - 2, cx1 + 16)
+            qy1 = min(rh - 2, cy1 + 20)
+
+            def _la_ung_vien_loi(pos_p: int) -> bool:
+                if la_dao_chieu_halo:
+                    return bool(la_sang_dac[pos_p] or la_trang_dac[pos_p] or (la_mau_dam_net[pos_p] and lum_px[pos_p] >= 115.0))
+                if la_nen_mau_thuc and ty_le_cap_halo < 0.20:
+                    py_p = pos_p // rw
+                    rr_p, gg_p, bb_p, _ = row_bg[py_p]
+                    sai_med = abs(r_roi[pos_p] - r_nen_trung_vi) + abs(g_roi[pos_p] - g_nen_trung_vi) + abs(b_roi[pos_p] - b_nen_trung_vi)
+                    sai_row = abs(r_roi[pos_p] - rr_p) + abs(g_roi[pos_p] - gg_p) + abs(b_roi[pos_p] - bb_p)
+                    return sai_med >= 54 and sai_row >= 42
+                if la_toi_net[pos_p]:
+                    return True
+                if la_nen_mau_thuc and la_mau_dam_net[pos_p]:
+                    sai_med = abs(r_roi[pos_p] - r_nen_trung_vi) + abs(g_roi[pos_p] - g_nen_trung_vi) + abs(b_roi[pos_p] - b_nen_trung_vi)
+                    return sai_med >= 52
+                return False
+
+            def _la_ung_vien_halo(pos_p: int) -> bool:
+                if la_dao_chieu_halo:
+                    return bool(la_toi_net[pos_p] and lum_px[pos_p] <= 120.0)
+                return bool(la_trang_dac[pos_p] or (la_nen_mau_thuc and la_sang_dac[pos_p]))
+
+            for py_d in range(qy0, qy1):
+                base_d = py_d * rw
+                for px_d in range(qx0, qx1):
+                    pos_d = base_d + px_d
+                    if vung_cam[pos_d] or not _la_ung_vien_loi(pos_d):
+                        continue
+                    d_l = d_r = d_u = d_d = 0
+                    while d_l < 16 and px_d - d_l - 1 >= 0 and _la_ung_vien_loi(pos_d - d_l - 1):
+                        d_l += 1
+                    while d_r < 16 and px_d + d_r + 1 < rw and _la_ung_vien_loi(pos_d + d_r + 1):
+                        d_r += 1
+                    while d_u < 16 and py_d - d_u - 1 >= 0 and _la_ung_vien_loi(pos_d - (d_u + 1) * rw):
+                        d_u += 1
+                    while d_d < 16 and py_d + d_d + 1 < rh and _la_ung_vien_loi(pos_d + (d_d + 1) * rw):
+                        d_d += 1
+                    day_ngang = d_l + d_r + 1
+                    day_doc = d_u + d_d + 1
+                    if min(day_ngang, day_doc) > 14 or max(day_ngang, day_doc) > 28:
+                        continue
+
+                    if la_nen_mau_thuc and ty_le_cap_halo < 0.20:
+                        if min(day_ngang, day_doc) <= 12 and trong_dong_mo[pos_d]:
+                            la_loi_chu[pos_d] = 1
                             can_xoa[pos_d] = 1
+                        continue
+
+                    h_trai = h_phai = h_tren = h_duoi = False
+                    h_c1 = h_c2 = h_c3 = h_c4 = False
+                    for d_h in range(1, 8):
+                        if not h_trai and px_d - d_h >= 0 and _la_ung_vien_halo(pos_d - d_h):
+                            h_trai = True
+                        if not h_phai and px_d + d_h < rw and _la_ung_vien_halo(pos_d + d_h):
+                            h_phai = True
+                        if not h_tren and py_d - d_h >= 0 and _la_ung_vien_halo(pos_d - d_h * rw):
+                            h_tren = True
+                        if not h_duoi and py_d + d_h < rh and _la_ung_vien_halo(pos_d + d_h * rw):
+                            h_duoi = True
+                        if not h_c1 and px_d - d_h >= 0 and py_d - d_h >= 0 and _la_ung_vien_halo(pos_d - d_h * rw - d_h):
+                            h_c1 = True
+                        if not h_c2 and px_d + d_h < rw and py_d - d_h >= 0 and _la_ung_vien_halo(pos_d - d_h * rw + d_h):
+                            h_c2 = True
+                        if not h_c3 and px_d - d_h >= 0 and py_d + d_h < rh and _la_ung_vien_halo(pos_d + d_h * rw - d_h):
+                            h_c3 = True
+                        if not h_c4 and px_d + d_h < rw and py_d + d_h < rh and _la_ung_vien_halo(pos_d + d_h * rw + d_h):
+                            h_c4 = True
+                    so_huong = int(h_trai) + int(h_phai) + int(h_tren) + int(h_duoi) + int(h_c1) + int(h_c2) + int(h_c3) + int(h_c4)
+                    if (h_trai and h_phai) or (h_tren and h_duoi) or so_huong >= 3:
+                        la_loi_chu[pos_d] = 1
+                        can_xoa[pos_d] = 1
+
+            # Lan truyền thêm 2 bước dọc theo nét chữ mảnh (`day <= 11px`) nối liền với `la_loi_chu`
+            for _ in range(2):
+                for py_d in range(qy0, qy1):
+                    base_d = py_d * rw
+                    for px_d in range(qx0, qx1):
+                        pos_d = base_d + px_d
+                        if la_loi_chu[pos_d] or vung_cam[pos_d] or not _la_ung_vien_loi(pos_d):
+                            continue
+                        if (
+                            la_loi_chu[pos_d - 1]
+                            or la_loi_chu[pos_d + 1]
+                            or la_loi_chu[pos_d - rw]
+                            or la_loi_chu[pos_d + rw]
+                        ):
+                            d_l = d_r = d_u = d_d = 0
+                            while d_l < 12 and px_d - d_l - 1 >= 0 and _la_ung_vien_loi(pos_d - d_l - 1):
+                                d_l += 1
+                            while d_r < 12 and px_d + d_r + 1 < rw and _la_ung_vien_loi(pos_d + d_r + 1):
+                                d_r += 1
+                            while d_u < 12 and py_d - d_u - 1 >= 0 and _la_ung_vien_loi(pos_d - (d_u + 1) * rw):
+                                d_u += 1
+                            while d_d < 12 and py_d + d_d + 1 < rh and _la_ung_vien_loi(pos_d + (d_d + 1) * rw):
+                                d_d += 1
+                            if min(d_l + d_r + 1, d_u + d_d + 1) <= 11:
+                                la_loi_chu[pos_d] = 1
+                                can_xoa[pos_d] = 1
+
+            # Gom toàn bộ Viền Halo bao quanh `la_loi_chu` trong bán kính 6px
+            kc_loi = bytearray(N)
+            q_halo = []
+            for py_d in range(qy0, qy1):
+                base_d = py_d * rw
+                for px_d in range(qx0, qx1):
+                    pos_d = base_d + px_d
+                    if la_loi_chu[pos_d]:
+                        kc_loi[pos_d] = 1
+                        q_halo.append(pos_d)
+            head_h = 0
+            while head_h < len(q_halo):
+                pos_h = q_halo[head_h]
+                head_h += 1
+                buoc_h = kc_loi[pos_h]
+                if buoc_h > 6:
+                    continue
+                px_h = pos_h % rw
+                py_h = pos_h // rw
+                for dy_h in (-1, 0, 1):
+                    ny_h = py_h + dy_h
+                    if ny_h < 1 or ny_h >= rh - 1:
+                        continue
+                    nb_h = ny_h * rw
+                    for dx_h in (-1, 0, 1):
+                        if dx_h == 0 and dy_h == 0:
+                            continue
+                        nx_h = px_h + dx_h
+                        if nx_h < 1 or nx_h >= rw - 1:
+                            continue
+                        npos_h = nb_h + nx_h
+                        if kc_loi[npos_h] or vung_cam[npos_h]:
+                            continue
+                        la_diem_halo = (
+                            (la_toi_net[npos_h] and (buoc_h <= 4 or lum_px[npos_h] <= 95.0))
+                            if la_dao_chieu_halo
+                            else (
+                                la_trang_dac[npos_h]
+                                or (la_nen_mau_thuc and la_sang_dac[npos_h])
+                                or (buoc_h <= 3 and lum_px[npos_h] >= 175.0 and (sat_px[npos_h] <= 52 or la_nen_mau_thuc))
+                            )
+                        )
+                        if la_diem_halo:
+                            kc_loi[npos_h] = buoc_h + 1
+                            can_xoa[npos_h] = 1
+                            q_halo.append(npos_h)
+
+            # Đo màu chữ gốc & màu viền halo gốc trên nền màu để giữ nguyên độ tương phản nguyên bản
+            ds_r_loi, ds_g_loi, ds_b_loi = [], [], []
+            for py_d in range(cy0, cy1):
+                base_d = py_d * rw
+                for px_d in range(cx0, cx1):
+                    pos_d = base_d + px_d
+                    if la_loi_chu[pos_d]:
+                        ds_r_loi.append(r_roi[pos_d])
+                        ds_g_loi.append(g_roi[pos_d])
+                        ds_b_loi.append(b_roi[pos_d])
+            if len(ds_r_loi) >= 6:
+                ds_r_loi.sort()
+                ds_g_loi.sort()
+                ds_b_loi.sort()
+                m_i = len(ds_r_loi) // 2
+                rl_m, gl_m, bl_m = ds_r_loi[m_i], ds_g_loi[m_i], ds_b_loi[m_i]
+                lum_l = 0.299 * rl_m + 0.587 * gl_m + 0.114 * bl_m
+                sat_l = max(rl_m, gl_m, bl_m) - min(rl_m, gl_m, bl_m)
+                if la_dao_chieu_halo or (la_nen_mau_thuc and lum_l >= 175.0 and lum_nen_trung_vi < 175.0):
+                    mau_chu_goc = (rl_m, gl_m, bl_m) if sat_l >= 48 else (255, 255, 255)
+                    mau_vien_goc = (0, 0, 0)
+                elif la_nen_mau_thuc and sat_l >= 58:
+                    mau_chu_goc = (rl_m, gl_m, bl_m)
+                    mau_vien_goc = (0, 0, 0) if lum_l >= 135.0 else (255, 255, 255)
+            if mau_chu_goc is None:
+                if nen_toi:
+                    mau_chu_goc = (255, 255, 255)
+                    mau_vien_goc = (0, 0, 0)
+                else:
+                    mau_chu_goc = (15, 23, 42)
+                    mau_vien_goc = (255, 255, 255)
+
+            # Nở nhẹ 2px quanh `can_xoa` để xoá sạch viền khử răng cưa JPEG của halo mà không ăn vào bóng đen lớn của quân bài
+            can_xoa_goc = bytearray(can_xoa)
+            for py_d in range(2, rh - 2):
+                base_d = py_d * rw
+                for px_d in range(2, rw - 2):
+                    pos_d = base_d + px_d
+                    if not can_xoa_goc[pos_d]:
+                        continue
+                    for dy_n in range(-2, 3):
+                        nb_n = (py_d + dy_n) * rw
+                        for dx_n in range(-2, 3):
+                            if dx_n * dx_n + dy_n * dy_n > 5:
+                                continue
+                            npos_n = nb_n + (px_d + dx_n)
+                            if vung_cam[npos_n]:
+                                continue
+                            if not la_dao_chieu_halo and la_toi_net[npos_n] and not la_loi_chu[npos_n] and lum_px[npos_n] < 95.0:
+                                continue
+                            can_xoa[npos_n] = 1
+
+            # Lấp các lỗ nhỏ bên trong bụng chữ cái ('O', 'P', 'a', 'e', '6', '3', 'B') có diện tích <= 90px
+            da_duyet_lo = bytearray(N)
+            for py_d in range(2, rh - 2):
+                base_d = py_d * rw
+                for px_d in range(2, rw - 2):
+                    s_pos = base_d + px_d
+                    if can_xoa[s_pos] or da_duyet_lo[s_pos] or vung_cam[s_pos]:
+                        continue
+                    da_duyet_lo[s_pos] = 1
+                    q_lo = [s_pos]
+                    cham_bien_lo = False
+                    head_lo = 0
+                    while head_lo < len(q_lo):
+                        p_lo = q_lo[head_lo]
+                        head_lo += 1
+                        xl = p_lo % rw
+                        yl = p_lo // rw
+                        if xl <= 2 or xl >= rw - 3 or yl <= 2 or yl >= rh - 3:
+                            cham_bien_lo = True
+                        if xl > 1 and not can_xoa[p_lo - 1] and not da_duyet_lo[p_lo - 1]:
+                            da_duyet_lo[p_lo - 1] = 1
+                            q_lo.append(p_lo - 1)
+                        if xl + 1 < rw - 1 and not can_xoa[p_lo + 1] and not da_duyet_lo[p_lo + 1]:
+                            da_duyet_lo[p_lo + 1] = 1
+                            q_lo.append(p_lo + 1)
+                        if yl > 1 and not can_xoa[p_lo - rw] and not da_duyet_lo[p_lo - rw]:
+                            da_duyet_lo[p_lo - rw] = 1
+                            q_lo.append(p_lo - rw)
+                        if yl + 1 < rh - 1 and not can_xoa[p_lo + rw] and not da_duyet_lo[p_lo + rw]:
+                            da_duyet_lo[p_lo + rw] = 1
+                            q_lo.append(p_lo + rw)
+                    if not cham_bien_lo and len(q_lo) <= 90:
+                        for p_lo in q_lo:
+                            can_xoa[p_lo] = 1
+
+            # Tái tạo nền Screentone / Tóc đen / Nền Màu đa hướng (4-Directional Interpolation + Halftone Phase Cloning)
+            def _la_diem_nen_sach(pos_s: int) -> bool:
+                if pos_s < 0 or pos_s >= N or can_xoa[pos_s]:
+                    return False
+                if not la_nen_mau_thuc and not la_dao_chieu_halo and la_trang_dac[pos_s] and lum_nen_trung_vi < 218.0:
+                    return False
+                if la_dao_chieu_halo and la_toi_net[pos_s] and lum_px[pos_s] <= 95.0 and lum_nen_trung_vi > 110.0:
+                    return False
+                return True
+
+            huong_4 = ((-1, 0), (1, 0), (0, -1), (0, 1))
+            for py_d in range(1, rh - 1):
+                base_d = py_d * rw
+                pha_y = py_d & 3
+                for px_d in range(1, rw - 1):
+                    pos_d = base_d + px_d
+                    if not can_xoa[pos_d] or vung_cam[pos_d]:
+                        continue
+                    if not co_diem_xoa_chu_noi:
+                        min_x_xoa = max_x_xoa = px_d
+                        min_y_xoa = max_y_xoa = py_d
+                        co_diem_xoa_chu_noi = True
+                    else:
+                        if px_d < min_x_xoa:
+                            min_x_xoa = px_d
+                        if px_d + 1 > max_x_xoa:
+                            max_x_xoa = px_d + 1
+                        if py_d < min_y_xoa:
+                            min_y_xoa = py_d
+                        if py_d + 1 > max_y_xoa:
+                            max_y_xoa = py_d + 1
+
+                    sum_w = 0.0
+                    sum_r = 0.0
+                    sum_g = 0.0
+                    sum_b = 0.0
+                    mau_pha_r = -1
+                    mau_pha_g = -1
+                    mau_pha_b = -1
+                    kc_pha_tot = 999
+                    pha_x = px_d & 3
+
+                    for dx_h, dy_h in huong_4:
+                        for d_step in range(2, 35):
+                            nx_s = px_d + dx_h * d_step
+                            ny_s = py_d + dy_h * d_step
+                            if nx_s < 0 or nx_s >= rw or ny_s < 0 or ny_s >= rh:
+                                break
+                            npos_s = ny_s * rw + nx_s
+                            if not _la_diem_nen_sach(npos_s):
+                                continue
+                            nx_s2 = nx_s + dx_h
+                            ny_s2 = ny_s + dy_h
+                            npos_s2 = (
+                                (ny_s2 * rw + nx_s2)
+                                if (0 <= nx_s2 < rw and 0 <= ny_s2 < rh and _la_diem_nen_sach(ny_s2 * rw + nx_s2))
+                                else npos_s
+                            )
+                            w_s = 1.0 / (d_step + 1.5)
+                            sum_w += w_s
+                            sum_r += ((r_roi[npos_s] + r_roi[npos_s2]) * 0.5) * w_s
+                            sum_g += ((g_roi[npos_s] + g_roi[npos_s2]) * 0.5) * w_s
+                            sum_b += ((b_roi[npos_s] + b_roi[npos_s2]) * 0.5) * w_s
+
+                            if not la_nen_mau_thuc:
+                                for step_p in range(d_step, min(37, d_step + 8)):
+                                    sx_p = px_d + dx_h * step_p
+                                    sy_p = py_d + dy_h * step_p
+                                    if sx_p < 0 or sx_p >= rw or sy_p < 0 or sy_p >= rh:
+                                        break
+                                    spos_p = sy_p * rw + sx_p
+                                    if not _la_diem_nen_sach(spos_p):
+                                        continue
+                                    if ((sx_p & 3) == pha_x or (sy_p & 3) == pha_y) and step_p < kc_pha_tot:
+                                        kc_pha_tot = step_p
+                                        mau_pha_r = r_roi[spos_p]
+                                        mau_pha_g = g_roi[spos_p]
+                                        mau_pha_b = b_roi[spos_p]
+                                        break
+                            break
+
+                    r_out = int(round(r_nen_trung_vi))
+                    g_out = int(round(g_nen_trung_vi))
+                    b_out = int(round(b_nen_trung_vi))
+                    if sum_w > 0:
+                        r_out = int(round(sum_r / sum_w))
+                        g_out = int(round(sum_g / sum_w))
+                        b_out = int(round(sum_b / sum_w))
+                        if not la_nen_mau_thuc and mau_pha_r >= 0 and do_nhieu_hat >= 9.5:
+                            r_out = int(round(mau_pha_r * 0.58 + r_out * 0.42))
+                            g_out = int(round(mau_pha_g * 0.58 + g_out * 0.42))
+                            b_out = int(round(mau_pha_b * 0.58 + b_out * 0.42))
+                    px_anh[rx0 + px_d, ry0 + py_d] = (r_out, g_out, b_out)
         else:
             for sy in range(sy0, sy1):
                 base_s = sy * rw
@@ -522,23 +1012,22 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                         for p_idx in comp:
                             can_xoa[p_idx] = 1
 
-        # Bước 2: Nở viền (Dilation 2px cho bóng thường, 3px cho chữ nổi có viền trắng) quanh `can_xoa` và tô bằng `row_bg[py]`
-        ban_kinh_no = 3 if nen_mau_trung_binh else 2
-        y_no_0 = max(ban_kinh_no, sy0 - 10 if nen_mau_trung_binh else sy0 - ban_kinh_no)
-        y_no_1 = min(rh - ban_kinh_no, sy1 + 10 if nen_mau_trung_binh else sy1 + ban_kinh_no)
-        x_no_0 = max(ban_kinh_no, sx0 - 12 if nen_mau_trung_binh else sx0 - ban_kinh_no)
-        x_no_1 = min(rw - ban_kinh_no, sx1 + 14 if nen_mau_trung_binh else sx1 + ban_kinh_no)
-        for py in range(y_no_0, y_no_1):
-            base = py * rw
-            rr, gg, bb, _ = row_bg[py]
-            for px in range(x_no_0, x_no_1):
-                pos = base + px
-                if vung_cam[pos]:
-                    continue
-                if can_xoa[pos]:
-                    px_anh[rx0 + px, ry0 + py] = (rr, gg, bb)
-                    continue
-                if not nen_mau_trung_binh:
+            # Bước 2: Nở viền 2px cho bóng thường quanh `can_xoa` và tô bằng `row_bg[py]`
+            ban_kinh_no = 2
+            y_no_0 = max(ban_kinh_no, sy0 - ban_kinh_no)
+            y_no_1 = min(rh - ban_kinh_no, sy1 + ban_kinh_no)
+            x_no_0 = max(ban_kinh_no, sx0 - ban_kinh_no)
+            x_no_1 = min(rw - ban_kinh_no, sx1 + ban_kinh_no)
+            for py in range(y_no_0, y_no_1):
+                base = py * rw
+                rr, gg, bb, _ = row_bg[py]
+                for px in range(x_no_0, x_no_1):
+                    pos = base + px
+                    if vung_cam[pos]:
+                        continue
+                    if can_xoa[pos]:
+                        px_anh[rx0 + px, ry0 + py] = (rr, gg, bb)
+                        continue
                     # Kiểm tra lân cận 2px để xoá sạch viền răng cưa JPEG quanh nét chữ
                     if (
                         can_xoa[pos - 1]
@@ -555,26 +1044,23 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                         or can_xoa[pos + 2 * rw]
                     ):
                         px_anh[rx0 + px, ry0 + py] = (rr, gg, bb)
-                else:
-                    # Chữ nổi trên nền màu: nở bán kính 3px quanh vùng chữ+viền trắng để xoá sạch bóng mờ JPEG
-                    co_lan_can = False
-                    for dy_n in range(-3, 4):
-                        b_n = (py + dy_n) * rw + px
-                        for dx_n in range(-3, 4):
-                            if dx_n * dx_n + dy_n * dy_n <= 10 and can_xoa[b_n + dx_n]:
-                                co_lan_can = True
-                                break
-                        if co_lan_can:
-                            break
-                    if co_lan_can:
-                        px_anh[rx0 + px, ry0 + py] = (rr, gg, bb)
 
-        # Giữ nguyên bề ngang `w_goc` của chữ gốc để chữ dịch không tràn ra chạm vào gai nhọn hai bên bóng thoại
+        # Với chữ nổi trên nền (`la_chu_noi_tren_nen`), bao trọn cả vùng chữ thực tế đã xoá (kể cả dòng cuối "Tenpai..." hoặc "...?")
         pad_box_y = min(4, max(1, int(h_goc * 0.03)))
-        bx = x_goc
-        by = max(ry0, y_goc - pad_box_y)
-        bw = w_goc
-        bh = min(ry1 - by, h_goc + pad_box_y * 2)
+        if la_chu_noi_tren_nen and co_diem_xoa_chu_noi:
+            bx0_thuc = min(x_goc, rx0 + min_x_xoa)
+            by0_thuc = min(y_goc, ry0 + min_y_xoa)
+            bx1_thuc = max(x_goc + w_goc, rx0 + max_x_xoa)
+            by1_thuc = max(y_goc + h_goc, ry0 + max_y_xoa)
+            bx = bx0_thuc
+            by = max(ry0, by0_thuc - pad_box_y)
+            bw = bx1_thuc - bx0_thuc
+            bh = min(ry1 - by, (by1_thuc - by0_thuc) + pad_box_y * 2)
+        else:
+            bx = x_goc
+            by = max(ry0, y_goc - pad_box_y)
+            bw = w_goc
+            bh = min(ry1 - by, h_goc + pad_box_y * 2)
 
         hop_ve_chu.append(
             {
@@ -585,6 +1071,8 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                 "h": max(16, bh),
                 "nen_toi": nen_toi,
                 "nen_mau_trung_binh": nen_mau_trung_binh,
+                "mau_chu_goc": mau_chu_goc,
+                "mau_vien_goc": mau_vien_goc,
                 "bg": (bg_r, bg_g, bg_b),
                 "dong_con": ds_dong_con,
             }
@@ -851,15 +1339,15 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
         nen_mau_tb = item["nen_mau_tb"]
         font_chon = item["font_chon"]
         vi_tri_dong_chon = item["vi_tri_dong_chon"]
-        mau_chu = (255, 255, 255) if hop["nen_toi"] else (15, 23, 42)
-        mau_vien = (255, 255, 255) if nen_mau_tb else hop["bg"]
+        mau_chu = hop.get("mau_chu_goc") or ((255, 255, 255) if hop["nen_toi"] else (15, 23, 42))
+        mau_vien = hop.get("mau_vien_goc") or (((0, 0, 0) if hop["nen_toi"] else (255, 255, 255)) if nen_mau_tb else hop["bg"])
 
         for d, cur_x, cur_y, _ in vi_tri_dong_chon:
             # Viền hào quang giúp chữ nổi bật sắc nét trên cả nền bóng thoại lẫn chữ nổi không khung
             if nen_mau_tb:
                 for dx in (-2, -1, 0, 1, 2):
                     for dy in (-2, -1, 0, 1, 2):
-                        if dx != 0 or dy != 0:
+                        if (dx != 0 or dy != 0) and (dx * dx + dy * dy <= 6):
                             draw.text((cur_x + dx, cur_y + dy), d, font=font_chon, fill=mau_vien)
             else:
                 for dx, dy in ((-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)):

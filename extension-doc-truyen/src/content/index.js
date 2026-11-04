@@ -1031,7 +1031,9 @@ void (async () => {
       }
       const lum3x3 = new Float32Array(N)
       const laTrangDac = new Uint8Array(N)
+      const laSangDac = new Uint8Array(N)
       const laToiNet = new Uint8Array(N)
+      const laMauDamNet = new Uint8Array(N)
       for (let py = 0; py < rh; py += 1) {
         const y0n = Math.max(0, py - 1)
         const y1n = Math.min(rh - 1, py + 1)
@@ -1039,7 +1041,7 @@ void (async () => {
         for (let px = 0; px < rw; px += 1) {
           const x0n = Math.max(0, px - 1)
           const x1n = Math.min(rw - 1, px + 1)
-          let sLum = 0, cnt = 0, demTrangLanCan = 0
+          let sLum = 0, cnt = 0, demTrangLanCan = 0, demSangLanCan = 0
           for (let yy = y0n; yy <= y1n; yy += 1) {
             const bY = yy * rw
             for (let xx = x0n; xx <= x1n; xx += 1) {
@@ -1047,6 +1049,7 @@ void (async () => {
               sLum += l
               cnt += 1
               if (l >= 212 && satPx[bY + xx] <= 48) demTrangLanCan += 1
+              if (l >= 198) demSangLanCan += 1
             }
           }
           const pos = base + px
@@ -1055,45 +1058,78 @@ void (async () => {
           if (lumPx[pos] >= 210 && satPx[pos] <= 48 && (tb >= 214 || demTrangLanCan >= 5)) {
             laTrangDac[pos] = 1
           }
+          if (lumPx[pos] >= 198 && (tb >= 202 || demSangLanCan >= 5)) {
+            laSangDac[pos] = 1
+          }
           if (lumPx[pos] <= 145) {
             laToiNet[pos] = 1
+          }
+          if (satPx[pos] >= 52 && lumPx[pos] >= 42 && lumPx[pos] <= 232) {
+            laMauDamNet[pos] = 1
           }
         }
       }
 
       // Đo đặc trưng nền thực sự ở vùng hộp chữ và vành đai xung quanh để phát hiện chữ nổi không bong bóng (`laChuNoiTrenNen`)
+      // Bao phủ cả 4 kịch bản chữ nổi:
+      // - Kịch bản A: Lõi tối/màu đậm + Viền Halo trắng/sáng (trên nền cát screentone, bóng đổ, tóc đen hoặc nền màu)
+      // - Kịch bản B: Lõi trắng/sáng/màu tươi + Viền Halo đen/tối (rất phổ biến trên nền tranh màu Manhwa/Manhua)
+      // - Kịch bản C: Chữ nổi không viền có độ tương phản màu cao đặt trực tiếp trên nền màu chuyển sắc (gradient)
       let demTrangDacTrongHop = 0
       let demToiTrongHop = 0
-      let demCapHaloTrongHop = 0
+      let demSangTrongHop = 0
+      let demCapToiTrang = 0
+      let demCapTrangToi = 0
       for (let py = cy0; py < cy1; py += 1) {
         const base = py * rw
         for (let px = cx0; px < cx1; px += 1) {
           const pos = base + px
           if (laTrangDac[pos]) demTrangDacTrongHop += 1
-          if (laToiNet[pos]) {
+          if (laToiNet[pos] || laMauDamNet[pos]) {
             demToiTrongHop += 1
-            // Kiểm tra xem điểm tối này có nằm sát viền trắng đặc (`laTrangDac`) trong bán kính 4px không
             let ganTrang = false
             for (let d = 1; d <= 4; d += 1) {
               if (
-                (px - d >= 0 && laTrangDac[pos - d]) ||
-                (px + d < rw && laTrangDac[pos + d]) ||
-                (py - d >= 0 && laTrangDac[pos - d * rw]) ||
-                (py + d < rh && laTrangDac[pos + d * rw])
+                (px - d >= 0 && (laTrangDac[pos - d] || laSangDac[pos - d])) ||
+                (px + d < rw && (laTrangDac[pos + d] || laSangDac[pos + d])) ||
+                (py - d >= 0 && (laTrangDac[pos - d * rw] || laSangDac[pos - d * rw])) ||
+                (py + d < rh && (laTrangDac[pos + d * rw] || laSangDac[pos + d * rw]))
               ) {
                 ganTrang = true
                 break
               }
             }
-            if (ganTrang) demCapHaloTrongHop += 1
+            if (ganTrang) demCapToiTrang += 1
+          }
+          if (laSangDac[pos] || laMauDamNet[pos]) {
+            demSangTrongHop += 1
+            let ganToi = false
+            for (let d = 1; d <= 4; d += 1) {
+              if (
+                (px - d >= 0 && laToiNet[pos - d] && lumPx[pos - d] <= 115) ||
+                (px + d < rw && laToiNet[pos + d] && lumPx[pos + d] <= 115) ||
+                (py - d >= 0 && laToiNet[pos - d * rw] && lumPx[pos - d * rw] <= 115) ||
+                (py + d < rh && laToiNet[pos + d * rw] && lumPx[pos + d * rw] <= 115)
+              ) {
+                ganToi = true
+                break
+              }
+            }
+            if (ganToi) demCapTrangToi += 1
           }
         }
       }
       const tyLeTrangDacTrongHop = demTrangDacTrongHop / dienTichHopGoc
-      const tyLeCapHalo = demCapHaloTrongHop / Math.max(1, demToiTrongHop)
+      const tyLeCapToiTrang = demCapToiTrang / Math.max(1, demToiTrongHop)
+      const tyLeCapTrangToi = demCapTrangToi / Math.max(1, demSangTrongHop)
+      const tyLeCapHalo = Math.max(tyLeCapToiTrang, tyLeCapTrangToi)
 
-      // Lấy mẫu các điểm nền bên ngoài viền chữ (cách điểm cặp Halo > 5px) để đo độ sáng trung vị & độ nhiễu hạt screentone
+      // Lấy mẫu các điểm nền bên ngoài viền chữ để đo màu trung vị 3 kênh RGB, độ bão hoà màu nền & độ nhiễu hạt screentone
       const dsLumNenThuc = []
+      const dsRNenThuc = []
+      const dsGNenThuc = []
+      const dsBNenThuc = []
+      const dsSatNenThuc = []
       let tongContrastHat = 0
       let demContrastHat = 0
       for (let py = ey0; py < ey1; py += 2) {
@@ -1101,11 +1137,9 @@ void (async () => {
         for (let px = ex0; px < ex1; px += 2) {
           const pos = base + px
           if (vungBienBaoVe[pos]) continue
-          // Bỏ qua các điểm thuộc lõi chữ + viền trắng đặc bên trong hộp chính
           const trongHop = px >= cx0 && px < cx1 && py >= cy0 && py < cy1
-          if (trongHop && (laTrangDac[pos] || laToiNet[pos])) continue
-          if (!trongHop && laTrangDac[pos]) {
-            // Nếu ở ngoài hộp mà là điểm trắng đặc, kiểm tra xem có phải viền halo của chữ thò ra không
+          if (trongHop && (laTrangDac[pos] || laSangDac[pos] || laToiNet[pos] || laMauDamNet[pos])) continue
+          if (!trongHop && (laTrangDac[pos] || laSangDac[pos])) {
             let satNetToi = false
             for (let d = 1; d <= 5; d += 1) {
               if (
@@ -1120,7 +1154,12 @@ void (async () => {
             }
             if (satNetToi) continue
           }
+          const idx4 = pos * 4
+          dsRNenThuc.push(data[idx4])
+          dsGNenThuc.push(data[idx4 + 1])
+          dsBNenThuc.push(data[idx4 + 2])
           dsLumNenThuc.push(lumPx[pos])
+          dsSatNenThuc.push(satPx[pos])
           if (px + 1 < rw && py + 1 < rh) {
             tongContrastHat += Math.abs(lumPx[pos] - lumPx[pos + 1]) + Math.abs(lumPx[pos] - lumPx[pos + rw])
             demContrastHat += 2
@@ -1128,21 +1167,64 @@ void (async () => {
         }
       }
       dsLumNenThuc.sort((a, b) => a - b)
-      const lumNenTrungVi = dsLumNenThuc.length > 0 ? dsLumNenThuc[Math.floor(dsLumNenThuc.length * 0.5)] : bgLum
+      dsRNenThuc.sort((a, b) => a - b)
+      dsGNenThuc.sort((a, b) => a - b)
+      dsBNenThuc.sort((a, b) => a - b)
+      dsSatNenThuc.sort((a, b) => a - b)
+      const midNen = Math.floor(dsLumNenThuc.length * 0.5)
+      const lumNenTrungVi = dsLumNenThuc.length > 0 ? dsLumNenThuc[midNen] : bgLum
       const lumNenP30 = dsLumNenThuc.length > 0 ? dsLumNenThuc[Math.floor(dsLumNenThuc.length * 0.3)] : bgLum
+      const rNenTrungVi = dsRNenThuc.length > 0 ? dsRNenThuc[midNen] : bgR
+      const gNenTrungVi = dsGNenThuc.length > 0 ? dsGNenThuc[midNen] : bgG
+      const bNenTrungVi = dsBNenThuc.length > 0 ? dsBNenThuc[midNen] : bgB
+      const satNenTrungVi = dsSatNenThuc.length > 0 ? dsSatNenThuc[midNen] : (Math.max(bgR, bgG, bgB) - Math.min(bgR, bgG, bgB))
       const doNhieuHat = demContrastHat > 0 ? (tongContrastHat / demContrastHat) : 0
+      const laNenMauThuc = (satNenTrungVi >= 18) || (Math.max(rNenTrungVi, gNenTrungVi, bNenTrungVi) - Math.min(rNenTrungVi, gNenTrungVi, bNenTrungVi) >= 18)
+
+      // Kiểm tra chữ không viền đặt trên nền màu chuyển sắc (gradient) / đám mây màu hở viền (`!laBongKhepKin && roRiBien && laNenMauThuc`)
+      let demNetTuongPhanNenMau = 0
+      if (!laBongKhepKin && laNenMauThuc) {
+        for (let py = cy0; py < cy1; py += 1) {
+          const base = py * rw
+          for (let px = cx0; px < cx1; px += 1) {
+            const pos = base + px
+            const i4 = pos * 4
+            const saiSoNen = Math.abs(data[i4] - rNenTrungVi) + Math.abs(data[i4 + 1] - gNenTrungVi) + Math.abs(data[i4 + 2] - bNenTrungVi)
+            if (saiSoNen >= 56) demNetTuongPhanNenMau += 1
+          }
+        }
+      }
+      const tyLeNetTrenNenMau = demNetTuongPhanNenMau / dienTichHopGoc
+      const laChuKhongVienTrenNenMau = (
+        !laBongKhepKin &&
+        roRiBien &&
+        laNenMauThuc &&
+        tyLeTrangDacTrongHop < 0.58 &&
+        tyLeNetTrenNenMau >= 0.04 &&
+        tyLeNetTrenNenMau <= 0.52
+      )
 
       // Vùng chữ được xác nhận là Chữ Nổi Không Bong Bóng (`laChuNoiTrenNen = true`) khi:
       // 1) Không phải bong bóng khép kín (`!laBongKhepKin`), VÀ
-      // 2) Có viền halo quanh chữ (`tyLeCapHalo >= 0.22` hoặc `demTrangDacTrongHop >= dienTichHopGoc * 0.06`), VÀ
-      // 3) Nền xung quanh không phải lòng giấy trắng phẳng (`tyLeTrangDacTrongHop < 0.62` hoặc `lumNenTrungVi < 224` hoặc `lumNenP30 < 208` hoặc `doNhieuHat >= 11.5`).
+      // 2) Có viền halo quanh chữ (thuận hoặc đảo) HOẶC là chữ nổi tương phản trên nền màu chuyển sắc (`laChuKhongVienTrenNenMau`), VÀ
+      // 3) Nền xung quanh không phải lòng giấy trắng phẳng (`tyLeTrangDacTrongHop < 0.64` hoặc `lumNenTrungVi < 224` hoặc `laNenMauThuc`...).
       const laChuNoiTrenNen = (
         !laBongKhepKin &&
-        (tyLeCapHalo >= 0.20 || demTrangDacTrongHop >= dienTichHopGoc * 0.05) &&
-        (tyLeTrangDacTrongHop < 0.64 || lumNenTrungVi < 224 || lumNenP30 < 210 || doNhieuHat >= 11.5 || nenToiThuc)
+        (tyLeCapHalo >= 0.20 || demTrangDacTrongHop >= dienTichHopGoc * 0.05 || laChuKhongVienTrenNenMau) &&
+        (tyLeTrangDacTrongHop < 0.64 || lumNenTrungVi < 224 || lumNenP30 < 210 || doNhieuHat >= 11.5 || nenToiThuc || laNenMauThuc)
+      )
+      const laDaoChieuHalo = (
+        laChuNoiTrenNen &&
+        demCapTrangToi > demCapToiTrang * 1.12 &&
+        tyLeCapTrangToi >= 0.22 &&
+        lumNenTrungVi >= 52 &&
+        tyLeTrangDacTrongHop < 0.48
       )
       v._laChuNoiTrenNen = laChuNoiTrenNen
-      v._nenScreentone = laChuNoiTrenNen && (lumNenTrungVi >= 82)
+      v._nenScreentone = laChuNoiTrenNen && !laNenMauThuc && (lumNenTrungVi >= 82)
+      v._nenMauChuNoi = laChuNoiTrenNen && laNenMauThuc
+      v._lumNenTrungVi = lumNenTrungVi
+      v._mauNenChuNoiCss = `rgb(${Math.round(rNenTrungVi)}, ${Math.round(gNenTrungVi)}, ${Math.round(bNenTrungVi)})`
 
       const ketNoiBienHop = new Uint8Array(N)
       dau = 0
@@ -1182,12 +1264,7 @@ void (async () => {
       let zx0 = ex0, zy0 = ey0, zx1 = ex1, zy1 = ey1
 
       if (laChuNoiTrenNen) {
-        // === NHÁNH TỐI ƯU CHO CHỮ NỔI KHÔNG BONG BÓNG (TRÊN NỀN SCREENTONE / TÓC ĐEN / BÓNG ĐỔ) ===
-        // Tuyệt đối KHÔNG tô trắng cả vùng elip và KHÔNG chạy bộ lọc xoá mảng liên thông lớn làm mất chữ "Why...?" hay "Tenpai...".
-        // Chỉ trích xuất chính xác cặp [Lõi chữ mảnh <= 14px + Viền Halo trắng bao quanh] để:
-        // 1) Xoá sạch 100% cả dòng cuối "Tenpai..." và "...?" ở đáy hộp mở rộng `ex0..ey1`.
-        // 2) Bảo toàn nguyên vẹn 100% bóng đen quân mạt chược (vì bóng quân bài dày > 18px và không có viền halo trắng bao 2 phía)
-        //    cũng như toàn bộ nền hạt screentone xung quanh!
+        // === NHÁNH ĐA TÌNH HUỐNG CHO CHỮ NỔI KHÔNG BONG BÓNG (SCREENTONE / TÓC ĐEN / NỀN MÀU CÓ HALO / NỀN MÀU CHUYỂN SẮC) ===
         const laLoiChu = new Uint8Array(N)
         const padQuetX = Math.max(8, Math.round(padCheX * 0.85))
         const padQuetY = Math.max(12, Math.round(padCheY * 0.92))
@@ -1196,35 +1273,77 @@ void (async () => {
         const qx1 = Math.min(rw - 1, cx1 + padQuetX)
         const qy1 = Math.min(rh - 1, cy1 + padQuetY)
 
+        // Hàm kiểm tra điểm ứng viên Lõi chữ & Viền Halo theo từng kịch bản
+        const laUngVienLoi = (pos) => {
+          if (laDaoChieuHalo) {
+            // Chữ sáng/trắng hoặc chữ màu tươi có viền Halo tối
+            if (laSangDac[pos] || laTrangDac[pos]) return true
+            if (laMauDamNet[pos] && lumPx[pos] >= 115) return true
+            return false
+          }
+          if (laChuKhongVienTrenNenMau && tyLeCapHalo < 0.20) {
+            // Chữ không viền trên nền màu chuyển sắc: lệch màu mạnh so với nền màu trung vị và hàng ngang
+            const i4 = pos * 4
+            const py = Math.floor(pos / rw)
+            const saiSoMed = Math.abs(data[i4] - rNenTrungVi) + Math.abs(data[i4 + 1] - gNenTrungVi) + Math.abs(data[i4 + 2] - bNenTrungVi)
+            const saiSoRow = Math.abs(data[i4] - bgRowR[py]) + Math.abs(data[i4 + 1] - bgRowG[py]) + Math.abs(data[i4 + 2] - bgRowB[py])
+            return saiSoMed >= 54 && saiSoRow >= 42
+          }
+          // Mặc định: Lõi tối (`laToiNet`) hoặc Lõi màu đậm lệch hẳn màu nền
+          if (laToiNet[pos]) return true
+          if (laNenMauThuc && laMauDamNet[pos]) {
+            const i4 = pos * 4
+            const saiSoMed = Math.abs(data[i4] - rNenTrungVi) + Math.abs(data[i4 + 1] - gNenTrungVi) + Math.abs(data[i4 + 2] - bNenTrungVi)
+            return saiSoMed >= 52
+          }
+          return false
+        }
+
+        const laUngVienHalo = (pos) => {
+          if (laDaoChieuHalo) {
+            return laToiNet[pos] && lumPx[pos] <= 120
+          }
+          return Boolean(laTrangDac[pos] || (laNenMauThuc && laSangDac[pos]))
+        }
+
         for (let py = qy0; py < qy1; py += 1) {
           const base = py * rw
           for (let px = qx0; px < qx1; px += 1) {
             const pos = base + px
-            if (vungBienBaoVe[pos] || !laToiNet[pos]) continue
+            if (vungBienBaoVe[pos] || !laUngVienLoi(pos)) continue
 
-            // Đo bề dày nét tối theo chiều ngang & dọc qua `(px, py)` để loại trừ mảng bóng đổ đặc lớn (như bóng quân mạt chược)
+            // Đo bề dày nét ứng viên theo chiều ngang & dọc qua `(px, py)` để loại trừ mảng bóng đổ / mảng màu lớn
             let dL = 0, dR = 0, dU = 0, dD = 0
-            while (dL < 16 && px - dL - 1 >= 0 && laToiNet[pos - dL - 1]) dL += 1
-            while (dR < 16 && px + dR + 1 < rw && laToiNet[pos + dR + 1]) dR += 1
-            while (dU < 16 && py - dU - 1 >= 0 && laToiNet[pos - (dU + 1) * rw]) dU += 1
-            while (dD < 16 && py + dD + 1 < rh && laToiNet[pos + (dD + 1) * rw]) dD += 1
+            while (dL < 16 && px - dL - 1 >= 0 && laUngVienLoi(pos - dL - 1)) dL += 1
+            while (dR < 16 && px + dR + 1 < rw && laUngVienLoi(pos + dR + 1)) dR += 1
+            while (dU < 16 && py - dU - 1 >= 0 && laUngVienLoi(pos - (dU + 1) * rw)) dU += 1
+            while (dD < 16 && py + dD + 1 < rh && laUngVienLoi(pos + (dD + 1) * rw)) dD += 1
             const dayNgang = dL + dR + 1
             const dayDoc = dU + dD + 1
             if (Math.min(dayNgang, dayDoc) > 14 || Math.max(dayNgang, dayDoc) > 28) continue
 
-            // Kiểm tra ngay bên ngoài nét tối ở 4 hướng chính + 4 hướng chéo có phải là Viền Halo Trắng Đặc (`laTrangDac`) không
+            if (laChuKhongVienTrenNenMau && tyLeCapHalo < 0.20) {
+              // Với chữ không viền trên nền màu chuyển sắc: chỉ lấy nét mảnh nằm trong vùng chữ và không thông ra biên ROI
+              if (!ketNoiBienHop[pos] && Math.min(dayNgang, dayDoc) <= 12) {
+                laLoiChu[pos] = 1
+                laChuGoc[pos] = 1
+              }
+              continue
+            }
+
+            // Kiểm tra ngay bên ngoài lõi chữ ở 4 hướng chính + 4 hướng chéo có phải là Viền Halo không
             const BK_HALO = 7
             let hTrai = false, hPhai = false, hTren = false, hDuoi = false
             let hCheo1 = false, hCheo2 = false, hCheo3 = false, hCheo4 = false
             for (let d = 1; d <= BK_HALO; d += 1) {
-              if (!hTrai && px - d >= 0 && laTrangDac[pos - d]) hTrai = true
-              if (!hPhai && px + d < rw && laTrangDac[pos + d]) hPhai = true
-              if (!hTren && py - d >= 0 && laTrangDac[pos - d * rw]) hTren = true
-              if (!hDuoi && py + d < rh && laTrangDac[pos + d * rw]) hDuoi = true
-              if (!hCheo1 && px - d >= 0 && py - d >= 0 && laTrangDac[pos - d * rw - d]) hCheo1 = true
-              if (!hCheo2 && px + d < rw && py - d >= 0 && laTrangDac[pos - d * rw + d]) hCheo2 = true
-              if (!hCheo3 && px - d >= 0 && py + d < rh && laTrangDac[pos + d * rw - d]) hCheo3 = true
-              if (!hCheo4 && px + d < rw && py + d < rh && laTrangDac[pos + d * rw + d]) hCheo4 = true
+              if (!hTrai && px - d >= 0 && laUngVienHalo(pos - d)) hTrai = true
+              if (!hPhai && px + d < rw && laUngVienHalo(pos + d)) hPhai = true
+              if (!hTren && py - d >= 0 && laUngVienHalo(pos - d * rw)) hTren = true
+              if (!hDuoi && py + d < rh && laUngVienHalo(pos + d * rw)) hDuoi = true
+              if (!hCheo1 && px - d >= 0 && py - d >= 0 && laUngVienHalo(pos - d * rw - d)) hCheo1 = true
+              if (!hCheo2 && px + d < rw && py - d >= 0 && laUngVienHalo(pos - d * rw + d)) hCheo2 = true
+              if (!hCheo3 && px - d >= 0 && py + d < rh && laUngVienHalo(pos + d * rw - d)) hCheo3 = true
+              if (!hCheo4 && px + d < rw && py + d < rh && laUngVienHalo(pos + d * rw + d)) hCheo4 = true
             }
             const soHuong = (hTrai ? 1 : 0) + (hPhai ? 1 : 0) + (hTren ? 1 : 0) + (hDuoi ? 1 : 0) +
               (hCheo1 ? 1 : 0) + (hCheo2 ? 1 : 0) + (hCheo3 ? 1 : 0) + (hCheo4 ? 1 : 0)
@@ -1235,23 +1354,22 @@ void (async () => {
           }
         }
 
-        // Lan truyền thêm 2 bước dọc theo nét chữ tối mảnh (`day <= 12px`) nối liền với `laLoiChu`
-        // để bắt trọn 100% đầu nét chữ hoặc dấu chấm câu ("Tenpai...", "...?")
+        // Lan truyền thêm 2 bước dọc theo nét chữ mảnh (`day <= 12px`) nối liền với `laLoiChu`
         for (let buoc = 0; buoc < 2; buoc += 1) {
           for (let py = qy0; py < qy1; py += 1) {
             const base = py * rw
             for (let px = qx0; px < qx1; px += 1) {
               const pos = base + px
-              if (laLoiChu[pos] || !laToiNet[pos] || vungBienBaoVe[pos]) continue
+              if (laLoiChu[pos] || !laUngVienLoi(pos) || vungBienBaoVe[pos]) continue
               if (
                 laLoiChu[pos - 1] || laLoiChu[pos + 1] ||
                 laLoiChu[pos - rw] || laLoiChu[pos + rw]
               ) {
                 let dL = 0, dR = 0, dU = 0, dD = 0
-                while (dL < 12 && px - dL - 1 >= 0 && laToiNet[pos - dL - 1]) dL += 1
-                while (dR < 12 && px + dR + 1 < rw && laToiNet[pos + dR + 1]) dR += 1
-                while (dU < 12 && py - dU - 1 >= 0 && laToiNet[pos - (dU + 1) * rw]) dU += 1
-                while (dD < 12 && py + dD + 1 < rh && laToiNet[pos + (dD + 1) * rw]) dD += 1
+                while (dL < 12 && px - dL - 1 >= 0 && laUngVienLoi(pos - dL - 1)) dL += 1
+                while (dR < 12 && px + dR + 1 < rw && laUngVienLoi(pos + dR + 1)) dR += 1
+                while (dU < 12 && py - dU - 1 >= 0 && laUngVienLoi(pos - (dU + 1) * rw)) dU += 1
+                while (dD < 12 && py + dD + 1 < rh && laUngVienLoi(pos + (dD + 1) * rw)) dD += 1
                 if (Math.min(dL + dR + 1, dU + dD + 1) <= 11) {
                   laLoiChu[pos] = 1
                   laChuGoc[pos] = 1
@@ -1261,8 +1379,7 @@ void (async () => {
           }
         }
 
-        // Gom toàn bộ Viền Halo Trắng (`laTrangDac` hoặc điểm sáng chuyển tiếp `lum >= 180 && sat <= 52`)
-        // bao quanh `laLoiChu` trong bán kính 6px để xoá sạch cả chữ đen lẫn viền halo trắng của chữ cũ!
+        // Gom toàn bộ Viền Halo bao quanh `laLoiChu` trong bán kính 6px để xoá sạch cả ruột chữ lẫn viền halo của chữ cũ!
         dau = 0
         cuoi = 0
         const kcLoi = new Uint8Array(N)
@@ -1276,16 +1393,16 @@ void (async () => {
             }
           }
         }
-        const BK_VIEN_TRANG = 6
+        const BK_VIEN_HALO = 6
         while (dau < cuoi) {
           const pos = hangDoi[dau++]
           const buocHienTai = kcLoi[pos]
-          if (buocHienTai > BK_VIEN_TRANG) continue
+          if (buocHienTai > BK_VIEN_HALO) continue
           const px = pos % rw
           const py = (pos - px) / rw
           for (let dy = -1; dy <= 1; dy += 1) {
             const ny = py + dy
-            if (ny < ex0 || ny >= ey1) continue
+            if (ny < ey0 || ny >= ey1) continue
             const nBase = ny * rw
             for (let dx = -1; dx <= 1; dx += 1) {
               if (dx === 0 && dy === 0) continue
@@ -1293,8 +1410,10 @@ void (async () => {
               if (nx < ex0 || nx >= ex1) continue
               const npos = nBase + nx
               if (kcLoi[npos] || vungBienBaoVe[npos]) continue
-              const laDiemVienTrang = laTrangDac[npos] || (buocHienTai <= 3 && lumPx[npos] >= 175 && satPx[npos] <= 52)
-              if (laDiemVienTrang) {
+              const laDiemHalo = laDaoChieuHalo
+                ? (laToiNet[npos] && (buocHienTai <= 4 || lumPx[npos] <= 95))
+                : (laTrangDac[npos] || (laNenMauThuc && laSangDac[npos]) || (buocHienTai <= 3 && lumPx[npos] >= 175 && (satPx[npos] <= 52 || laNenMauThuc)))
+              if (laDiemHalo) {
                 kcLoi[npos] = buocHienTai + 1
                 laChuGoc[npos] = 1
                 hangDoi[cuoi++] = npos
@@ -1303,7 +1422,37 @@ void (async () => {
           }
         }
 
-        // Nở nhẹ 2px quanh `laChuGoc` để xoá sạch viền khử răng cưa JPEG của halo mà không ăn rộng ra nền screentone
+        // Đo màu chữ gốc (`_mauChuGocCss`) & màu viền halo gốc (`_mauHaloGocCss`) để giữ nguyên phong cách màu sắc trên nền màu
+        const dsRLoi = [], dsGLoi = [], dsBLoi = []
+        for (let py = cy0; py < cy1; py += 1) {
+          const base = py * rw
+          for (let px = cx0; px < cx1; px += 1) {
+            const pos = base + px
+            if (!laLoiChu[pos]) continue
+            const i4 = pos * 4
+            dsRLoi.push(data[i4])
+            dsGLoi.push(data[i4 + 1])
+            dsBLoi.push(data[i4 + 2])
+          }
+        }
+        if (dsRLoi.length >= 6) {
+          dsRLoi.sort((a, b) => a - b)
+          dsGLoi.sort((a, b) => a - b)
+          dsBLoi.sort((a, b) => a - b)
+          const mIdx = Math.floor(dsRLoi.length * 0.5)
+          const rLoi = dsRLoi[mIdx], gLoi = dsGLoi[mIdx], bLoi = dsBLoi[mIdx]
+          const lumLoi = 0.299 * rLoi + 0.587 * gLoi + 0.114 * bLoi
+          const satLoi = Math.max(rLoi, gLoi, bLoi) - Math.min(rLoi, gLoi, bLoi)
+          if (laDaoChieuHalo || (laNenMauThuc && lumLoi >= 175 && lumNenTrungVi < 175)) {
+            v._mauChuGocCss = satLoi >= 48 ? `rgb(${rLoi}, ${gLoi}, ${bLoi})` : '#ffffff'
+            v._mauHaloGocCss = '#000000'
+          } else if (laNenMauThuc && satLoi >= 58) {
+            v._mauChuGocCss = `rgb(${rLoi}, ${gLoi}, ${bLoi})`
+            v._mauHaloGocCss = lumLoi >= 135 ? '#000000' : '#ffffff'
+          }
+        }
+
+        // Nở nhẹ 2px quanh `laChuGoc` để xoá sạch viền khử răng cưa JPEG của halo mà không ăn rộng ra nền screentone/nền màu
         for (let py = ey0; py < ey1; py += 1) {
           const base = py * rw
           for (let px = ex0; px < ex1; px += 1) {
@@ -1320,8 +1469,8 @@ void (async () => {
                 if (nx < ex0 || nx >= ex1) continue
                 const npos = nBase + nx
                 if (vungBienBaoVe[npos]) continue
-                // Không nở đè vào bóng đen lớn của quân bài (điểm tối không phải lõi chữ)
-                if (laToiNet[npos] && !laLoiChu[npos] && lumPx[npos] < 95) continue
+                // Không nở đè vào bóng đen lớn của quân bài (điểm tối không phải lõi chữ cũng không phải halo tối)
+                if (!laDaoChieuHalo && laToiNet[npos] && !laLoiChu[npos] && lumPx[npos] < 95) continue
                 vungXoaChu[npos] = 1
               }
             }
@@ -1718,10 +1867,12 @@ void (async () => {
       const outData = outImg.data
 
       if (laChuNoiTrenNen) {
-        // Tái tạo nền Screentone / Tóc đen / Bóng đổ đa hướng + Giữ nguyên pha hạt chấm bi (Halftone Phase Cloning):
-        // Tuyệt đối không dùng màu trắng `bgRowR/G/B` (255,255,255) vốn tạo ra mảng trắng đục xoá mất nền cát và bóng quân bài!
+        // Tái tạo nền Screentone / Tóc đen / Nền Màu đa hướng + Giữ nguyên pha hạt chấm bi (Halftone Phase Cloning cho nền cát):
+        // Tuyệt đối không dùng màu trắng `bgRowR/G/B` (255,255,255) vốn tạo ra mảng trắng đục xoá mất nền tranh màu hoặc nền cát!
         const laDiemNenSach = (pos) => {
-          if (pos < 0 || pos >= N || vungXoaChu[pos] || laTrangDac[pos]) return false
+          if (pos < 0 || pos >= N || vungXoaChu[pos]) return false
+          if (!laNenMauThuc && !laDaoChieuHalo && laTrangDac[pos] && lumNenTrungVi < 218) return false
+          if (laDaoChieuHalo && laToiNet[pos] && lumPx[pos] <= 95 && lumNenTrungVi > 110) return false
           return true
         }
         for (let py = 0; py < chChe; py += 1) {
@@ -1760,34 +1911,36 @@ void (async () => {
                 sumG += ((data[i1 + 1] + data[i2 + 1]) * 0.5) * w
                 sumB += ((data[i1 + 2] + data[i2 + 2]) * 0.5) * w
 
-                // Tìm điểm mẫu nền screentone đồng pha lưới 4x4 `(sx & 3 === phaX, sy & 3 === phaY)` gần nhất
-                for (let step = d; step <= Math.min(36, d + 7); step += 1) {
-                  const sx = roiX + dx * step
-                  const sy = roiY + dy * step
-                  if (sx < 0 || sx >= rw || sy < 0 || sy >= rh) break
-                  const spos = sy * rw + sx
-                  if (!laDiemNenSach(spos)) continue
-                  if (((sx & 3) === phaX || (sy & 3) === phaY) && step < kcPhaTot) {
-                    kcPhaTot = step
-                    const isrc = spos * 4
-                    mauPhaR = data[isrc]
-                    mauPhaG = data[isrc + 1]
-                    mauPhaB = data[isrc + 2]
-                    break
+                if (!laNenMauThuc) {
+                  // Tìm điểm mẫu nền screentone đồng pha lưới 4x4 `(sx & 3 === phaX, sy & 3 === phaY)` gần nhất
+                  for (let step = d; step <= Math.min(36, d + 7); step += 1) {
+                    const sx = roiX + dx * step
+                    const sy = roiY + dy * step
+                    if (sx < 0 || sx >= rw || sy < 0 || sy >= rh) break
+                    const spos = sy * rw + sx
+                    if (!laDiemNenSach(spos)) continue
+                    if (((sx & 3) === phaX || (sy & 3) === phaY) && step < kcPhaTot) {
+                      kcPhaTot = step
+                      const isrc = spos * 4
+                      mauPhaR = data[isrc]
+                      mauPhaG = data[isrc + 1]
+                      mauPhaB = data[isrc + 2]
+                      break
+                    }
                   }
                 }
                 break
               }
             }
 
-            let rOut = Math.round(lumNenTrungVi)
-            let gOut = rOut
-            let bOut = rOut
+            let rOut = Math.round(rNenTrungVi)
+            let gOut = Math.round(gNenTrungVi)
+            let bOut = Math.round(bNenTrungVi)
             if (sumW > 0) {
               rOut = Math.round(sumR / sumW)
               gOut = Math.round(sumG / sumW)
               bOut = Math.round(sumB / sumW)
-              if (mauPhaR >= 0 && doNhieuHat >= 9.5) {
+              if (!laNenMauThuc && mauPhaR >= 0 && doNhieuHat >= 9.5) {
                 // Pha trộn 58% hạt screentone đồng pha + 42% màu nội suy đa hướng để tái tạo hạt cát tự nhiên như tranh gốc
                 rOut = Math.round(mauPhaR * 0.58 + rOut * 0.42)
                 gOut = Math.round(mauPhaG * 0.58 + gOut * 0.42)
@@ -3136,12 +3289,16 @@ void (async () => {
         }
         const anhChe = coCanvas ? taoAnhCheChuCanvas(el, v, vungCoDich) : null
         if (v._laChuNoiTrenNen) {
-          v.nen_toi = !v._nenScreentone
+          v.nen_toi = v._mauHaloGocCss
+            ? (v._mauHaloGocCss === '#000000')
+            : (!v._nenScreentone && !(v._nenMauChuNoi && (v._lumNenTrungVi ?? 128) >= 95))
         }
         const nenMau = v._laChuNoiTrenNen
-          ? (v.nen_toi ? '#000000' : '#ffffff')
+          ? (v._mauNenChuNoiCss || (v.nen_toi ? '#000000' : '#ffffff'))
           : (v._mauNenCss || (v.nen_toi ? '#000000' : '#ffffff'))
-        const chuMau = v.nen_toi ? '#ffffff' : '#000000'
+        const chuMau = (v._laChuNoiTrenNen && v._mauChuGocCss)
+          ? v._mauChuGocCss
+          : (v.nen_toi ? '#ffffff' : '#000000')
 
         // Lớp 1 (`lopChe` / Clean-Image trên GPU/Canvas máy khách):
         // Xoá sạch 100% nét chữ gốc trên `oChe` trong khi bảo toàn mọi gai nhọn/đường viền của bong bóng.
@@ -3194,7 +3351,9 @@ void (async () => {
         // Với chữ nổi không có bong bóng (`v._laChuNoiTrenNen`, ví dụ chữ đè trên nền cát screentone hoặc tóc đen),
         // tạo viền Halo sắc nét dày 2.5px ôm sát từng con chữ (giống hệt phong cách chữ nổi nguyên bản của manga)
         // mà KHÔNG tạo mảng trắng đục đè mất nền tranh!
-        const mauHaloChuNoi = v.nen_toi ? '#000000' : '#ffffff'
+        const mauHaloChuNoi = (v._laChuNoiTrenNen && v._mauHaloGocCss)
+          ? v._mauHaloGocCss
+          : (v.nen_toi ? '#000000' : '#ffffff')
         const vienSangChu = v._laChuNoiTrenNen
           ? [
               `-1.5px -1.5px 0 ${mauHaloChuNoi}`,
