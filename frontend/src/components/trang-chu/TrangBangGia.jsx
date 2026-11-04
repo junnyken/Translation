@@ -15,31 +15,36 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
   const [chuKyGoi, setChuKyGoi] = useState('THANG')
 
   const laNam = chuKyGoi === 'NAM'
+  const daTungNap = Boolean(thongTinNap?.da_tung_nap)
 
   // Bảng Giá Chuẩn Quốc Tế 4 Gói (Theo Tháng / Năm) kèm Mỏ Neo Giá (Price Anchoring) & Ưu Đãi Lần Đầu (-50% OFF)
-  // Cổng Developer API (tr_live_...) mở từ Gói thứ 3 (Standard/Studio - $9.99/mo) và Gói thứ 4 (Pro Max - $19.99/mo).
+  // CHỈ THANH TOÁN ĐẦU TIÊN ĐƯỢC GIẢM GIÁ: Khi gia hạn (`daTungNap === true`), hệ thống tự động tính lại Giá Gốc chuẩn!
   const DANH_SACH_GOI = [
     {
       ma: laNam ? 'starter_yearly' : 'starter_monthly',
       maNgan: laNam ? 'STARTYR' : 'STARTER',
-      nhan: laEn ? '🎁 FIRST-TIME OFFER (-50%)' : '🎁 ƯU ĐÃI LẦN ĐẦU (-50%)',
+      nhan: daTungNap
+        ? (laEn ? '🌱 STARTER' : '🌱 GÓI STARTER')
+        : (laEn ? '🎁 FIRST-TIME OFFER (-50%)' : '🎁 ƯU ĐÃI LẦN ĐẦU (-50%)'),
       ten: laEn
         ? (laNam ? 'Starter Yearly (3,600 Credits)' : 'Starter (300 Credits)')
         : (laNam ? 'Gói Starter Năm (3.600 Credits)' : 'Gói Starter (300 Credits / tháng)'),
       giaGocVnd: laNam ? 708000 : 99000,
-      giaVnd: laNam ? 450000 : 49000,
+      giaVnd: daTungNap ? (laNam ? 708000 : 99000) : (laNam ? 450000 : 49000),
       giaGocUsd: laNam ? '4.99' : '5.99',
-      giaUsd: laNam ? '29.99' : '2.99',
-      giaHienUsd: laNam ? '2.49' : '2.99',
+      giaUsd: daTungNap ? (laNam ? '59.88' : '5.99') : (laNam ? '29.99' : '2.99'),
+      giaHienUsd: daTungNap ? (laNam ? '4.99' : '5.99') : (laNam ? '2.49' : '2.99'),
       chuKy: laEn ? '/ month' : '/ tháng',
-      phuChuKy: laNam
-        ? (laEn ? 'Billed $29.99 yearly (Save 50%)' : 'Thanh toán 450k/năm (~37k/tháng · Giảm 50%)')
-        : (laEn ? '🔥 50% OFF First Month (200 + 100 Bonus Credits)' : '🔥 Giảm 50% tháng đầu (200 + Tặng 100 Credits)'),
+      phuChuKy: daTungNap
+        ? (laEn ? '🔄 Standard Renewal Rate (30 days)' : '🔄 Giá gốc khi gia hạn (chu kỳ 30 ngày)')
+        : (laNam
+            ? (laEn ? '🎁 1st Year $29.99 · Renews at $59.88/yr' : '🎁 Năm đầu 450k · Gia hạn tính giá gốc 708k/năm')
+            : (laEn ? '🎁 1st Month $2.99 · Renews at $5.99/mo' : '🎁 Tháng đầu 49k · Khi gia hạn tính lại giá gốc 99k')),
       soTrang: laNam ? 3600 : 300,
       uocChap: laNam ? '~180 chapters' : '~15 chapters',
-      khuyenMai: laEn ? '50% OFF' : 'Giảm 50%',
-      donGiaVnd: laNam ? '125đ/credit' : '163đ/credit',
-      donGiaUsd: laNam ? '$0.0083/credit' : '$0.010/credit',
+      khuyenMai: daTungNap ? (laEn ? '300 Credits' : '300 Credits') : (laEn ? '1st Payment -50%' : 'Lần đầu -50%'),
+      donGiaVnd: daTungNap ? (laNam ? '196đ/credit' : '330đ/credit') : (laNam ? '125đ/credit' : '163đ/credit'),
+      donGiaUsd: daTungNap ? (laNam ? '$0.016/credit' : '$0.020/credit') : (laNam ? '$0.0083/credit' : '$0.010/credit'),
       diemManh: laEn
         ? [
             `${laNam ? '3,600 Credits / year' : '300 Credits / month'} (1 Credit = 1 Page · Rollover included)`,
@@ -61,19 +66,21 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
         ? (laNam ? 'Lite Yearly (9,600 Credits)' : 'Lite Monthly (800 Credits)')
         : (laNam ? 'Gói Lite Năm (9.600 Credits)' : 'Gói Lite (800 Credits / tháng)'),
       giaGocVnd: laNam ? 1428000 : 149000,
-      giaVnd: laNam ? 890000 : 99000,
+      giaVnd: daTungNap ? (laNam ? 1428000 : 149000) : (laNam ? 890000 : 99000),
       giaGocUsd: laNam ? '7.99' : '8.99',
-      giaUsd: laNam ? '53.99' : '5.99',
-      giaHienUsd: laNam ? '4.49' : '5.99',
+      giaUsd: daTungNap ? (laNam ? '95.88' : '8.99') : (laNam ? '53.99' : '5.99'),
+      giaHienUsd: daTungNap ? (laNam ? '7.99' : '8.99') : (laNam ? '4.49' : '5.99'),
       chuKy: laEn ? '/ month' : '/ tháng',
-      phuChuKy: laNam
-        ? (laEn ? 'Billed $53.99 yearly (Save 25%)' : 'Thanh toán 890k/năm (~74k/tháng · Giảm 25%)')
-        : (laEn ? 'Billed monthly (30 days)' : 'Thanh toán hàng tháng (30 ngày)'),
+      phuChuKy: daTungNap
+        ? (laEn ? '🔄 Standard Renewal Rate (30 days)' : '🔄 Giá gốc khi gia hạn (chu kỳ 30 ngày)')
+        : (laNam
+            ? (laEn ? '🎁 1st Year $53.99 · Renews at $95.88/yr' : '🎁 Năm đầu 890k · Gia hạn tính giá gốc 1.428k/năm')
+            : (laEn ? '🎁 1st Month $5.99 · Renews at $8.99/mo' : '🎁 Tháng đầu 99k · Khi gia hạn tính lại giá gốc 149k')),
       soTrang: laNam ? 9600 : 800,
       uocChap: laNam ? '~480 chapters' : '~40 chapters',
-      khuyenMai: laNam ? (laEn ? 'Save 25%' : 'Tiết kiệm 25%') : (laEn ? '800 Credits' : '800 Credits'),
-      donGiaVnd: laNam ? '92đ/credit' : '123đ/credit',
-      donGiaUsd: laNam ? '$0.0056/credit' : '$0.0075/credit',
+      khuyenMai: daTungNap ? (laEn ? '800 Credits' : '800 Credits') : (laEn ? '1st Payment -33%' : 'Lần đầu -33%'),
+      donGiaVnd: daTungNap ? (laNam ? '148đ/credit' : '186đ/credit') : (laNam ? '92đ/credit' : '123đ/credit'),
+      donGiaUsd: daTungNap ? (laNam ? '$0.010/credit' : '$0.011/credit') : (laNam ? '$0.0056/credit' : '$0.0075/credit'),
       diemManh: laEn
         ? [
             `${laNam ? '9,600 Credits / year' : '800 Credits / month'} (~40 chapters/mo · Rollover included)`,
@@ -97,28 +104,30 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
         ? (laNam ? 'Standard + API Yearly (36,000 Credits)' : 'Standard + API (3,000 Credits)')
         : (laNam ? 'Gói Tiêu Chuẩn + API Năm (36.000 Credits)' : 'Gói Tiêu Chuẩn + API (3.000 Credits)'),
       giaGocVnd: laNam ? 2988000 : 399000,
-      giaVnd: laNam ? 1790000 : 199000,
+      giaVnd: daTungNap ? (laNam ? 2988000 : 399000) : (laNam ? 1790000 : 199000),
       giaGocUsd: laNam ? '14.99' : '19.99',
-      giaUsd: laNam ? '89.99' : '9.99',
-      giaHienUsd: laNam ? '7.49' : '9.99',
+      giaUsd: daTungNap ? (laNam ? '179.88' : '19.99') : (laNam ? '89.99' : '9.99'),
+      giaHienUsd: daTungNap ? (laNam ? '14.99' : '19.99') : (laNam ? '7.49' : '9.99'),
       chuKy: laEn ? '/ month' : '/ tháng',
-      phuChuKy: laNam
-        ? (laEn ? 'Billed $89.99 yearly (Save 50%)' : 'Thanh toán 1.790k/năm (~149k/tháng · Giảm 50%)')
-        : (laEn ? '⚡ Only +$4 over Lite for 3.7x Credits + Free API!' : '⚡ Chỉ thêm $4 so với Lite nhưng nhận gấp 3.7 lần Credits + Mở API!'),
+      phuChuKy: daTungNap
+        ? (laEn ? '🔄 Standard Renewal Rate (+API Included)' : '🔄 Giá gốc khi gia hạn (+Kèm Cổng API)')
+        : (laNam
+            ? (laEn ? '🎁 1st Year $89.99 · Renews at $179.88/yr' : '🎁 Năm đầu 1.790k · Gia hạn tính giá gốc 2.988k/năm')
+            : (laEn ? '⚡ 1st Month $9.99 (3.7x Credits + API) · Renews at $19.99' : '⚡ Tháng đầu 199k (Gấp 3.7x Credits + Mở API) · Gia hạn 399k')),
       soTrang: laNam ? 36000 : 3000,
       uocChap: laNam ? '~1,800 chapters' : '~150 chapters',
       khuyenMai: laEn ? 'Recommended + API' : 'Đề xuất + Mở API',
-      donGiaVnd: laNam ? '49đ/credit' : '66đ/credit',
-      donGiaUsd: laNam ? '$0.0025/credit' : '$0.0033/credit',
+      donGiaVnd: daTungNap ? (laNam ? '83đ/credit' : '133đ/credit') : (laNam ? '49đ/credit' : '66đ/credit'),
+      donGiaUsd: daTungNap ? (laNam ? '$0.0050/credit' : '$0.0066/credit') : (laNam ? '$0.0025/credit' : '$0.0033/credit'),
       diemManh: laEn
         ? [
-            `${laNam ? '36,000 Credits / year' : '3,000 Credits / month'} (3.7x Lite credits for just +$4/mo!)`,
+            `${laNam ? '36,000 Credits / year' : '3,000 Credits / month'} (3.7x Lite credits + Developer API!)`,
             '✅ Unlocks Personal Developer REST API Key (tr_live_...)',
             '✅ Unlocks Layered Photoshop (.PSD) Export & Video Review Studio',
             '✅ Priority Support + Cross-chapter Glossary consistency',
           ]
         : [
-            `${laNam ? '36.000 Credits / năm' : '3.000 Credits / tháng'} (Gấp 3.7 lần gói Lite dù chỉ chênh $4!)`,
+            `${laNam ? '36.000 Credits / năm' : '3.000 Credits / tháng'} (Gấp 3.7 lần gói Lite + Mở Cổng API!)`,
             '✅ Mở khoá Khoá Developer REST API riêng (tr_live_...)',
             '✅ Mở khoá Xuất file Photoshop (.PSD) tách lớp & Video Review Studio',
             '✅ Hỗ trợ ưu tiên + Đồng bộ thuật ngữ xuyên suốt các chương',
@@ -133,28 +142,30 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
         ? (laNam ? 'Pro Max API Yearly (120,000 Credits)' : 'Pro Max API (10,000 Credits)')
         : (laNam ? 'Gói Pro Max API Năm (120.000 Credits)' : 'Gói Pro Max (10.000 Credits)'),
       giaGocVnd: laNam ? 5988000 : 799000,
-      giaVnd: laNam ? 3590000 : 399000,
+      giaVnd: daTungNap ? (laNam ? 5988000 : 799000) : (laNam ? 3590000 : 399000),
       giaGocUsd: laNam ? '29.99' : '39.99',
-      giaUsd: laNam ? '179.99' : '19.99',
-      giaHienUsd: laNam ? '14.99' : '19.99',
+      giaUsd: daTungNap ? (laNam ? '359.88' : '39.99') : (laNam ? '179.99' : '19.99'),
+      giaHienUsd: daTungNap ? (laNam ? '29.99' : '39.99') : (laNam ? '14.99' : '19.99'),
       chuKy: laEn ? '/ month' : '/ tháng',
-      phuChuKy: laNam
-        ? (laEn ? 'Billed $179.99 yearly (Save 50%)' : 'Thanh toán 3.590k/năm (~299k/tháng · Giảm 50%)')
-        : (laEn ? '50% OFF Anchor Deal (10,000 Credits + VIP GPU)' : 'Ưu đãi giảm 50% (10.000 Credits + Luồng GPU VIP)'),
+      phuChuKy: daTungNap
+        ? (laEn ? '🔄 Standard Renewal Rate (10,000 Credits + VIP GPU)' : '🔄 Giá gốc khi gia hạn (10.000 Credits + Luồng GPU VIP)')
+        : (laNam
+            ? (laEn ? '🎁 1st Year $179.99 · Renews at $359.88/yr' : '🎁 Năm đầu 3.590k · Gia hạn tính giá gốc 5.988k/năm')
+            : (laEn ? '🎁 1st Month $19.99 (-50% OFF) · Renews at $39.99/mo' : '🎁 Tháng đầu 399k (-50%) · Khi gia hạn tính lại giá gốc 799k')),
       soTrang: laNam ? 120000 : 10000,
       uocChap: laNam ? '~6,000 chapters' : '~500 chapters',
-      khuyenMai: laEn ? '50% OFF + VIP API' : 'Giảm 50% + VIP API',
-      donGiaVnd: laNam ? '29đ/credit' : '39đ/credit',
-      donGiaUsd: laNam ? '$0.0015/credit' : '$0.0020/credit',
+      khuyenMai: daTungNap ? (laEn ? 'Full VIP API' : 'Full VIP API') : (laEn ? '1st Payment -50%' : 'Lần đầu -50%'),
+      donGiaVnd: daTungNap ? (laNam ? '49đ/credit' : '79đ/credit') : (laNam ? '29đ/credit' : '39đ/credit'),
+      donGiaUsd: daTungNap ? (laNam ? '$0.0030/credit' : '$0.0040/credit') : (laNam ? '$0.0015/credit' : '$0.0020/credit'),
       diemManh: laEn
         ? [
-            `${laNam ? '120,000 Credits / year' : '10,000 Credits / month'} (only $0.002/credit — 5 pages per cent!)`,
+            `${laNam ? '120,000 Credits / year' : '10,000 Credits / month'} (Highest volume for comic sites & teams)`,
             '✅ Full Developer REST API Key (tr_live_...) + Highest GPU Priority',
             '✅ Unlocks Batch Chapter URL API (translate-chapter, up to 100 ch)',
             '✅ 0.15s High-Speed Image Cache + 1-on-1 Priority Engineering Support',
           ]
         : [
-            `${laNam ? '120.000 Credits / năm' : '10.000 Credits / tháng'} (~500 chapter/tháng — chỉ 39đ/credit!)`,
+            `${laNam ? '120.000 Credits / năm' : '10.000 Credits / tháng'} (~500 chapter/tháng cho Web truyện & Nhóm dịch)`,
             '✅ Full Khoá Developer REST API (tr_live_...) + Luồng GPU VIP cao nhất',
             '✅ Mở khoá API đẩy cả Chapter qua URL (translate-chapter, tới 100 chap)',
             '✅ Bộ nhớ đệm siêu tốc 0.15s + Hỗ trợ kỹ thuật 1-1 ưu tiên',
@@ -166,9 +177,9 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
   const [goiDangChon, setGoiDangChon] = useState(DANH_SACH_GOI[2])
 
   useEffect(() => {
-    setGoiDangChon(DANH_SACH_GOI[2])
+    setGoiDangChon((hien) => DANH_SACH_GOI.find((x) => x.ma === hien?.ma) || DANH_SACH_GOI[2])
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lang, chuKyGoi])
+  }, [lang, chuKyGoi, daTungNap])
 
   const [daNhanThanhToanTuDong, setDaNhanThanhToanTuDong] = useState(null)
 
@@ -427,9 +438,11 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
           const hienGia = tienTe === 'USD'
             ? `$${g.giaHienUsd || g.giaUsd}`
             : `${g.giaVnd.toLocaleString('vi-VN')}đ`
-          const hienGiaGoc = tienTe === 'USD'
-            ? (g.giaGocUsd ? `$${g.giaGocUsd}` : '')
-            : (g.giaGocVnd ? `${g.giaGocVnd.toLocaleString('vi-VN')}đ` : '')
+          const hienGiaGoc = !daTungNap
+            ? (tienTe === 'USD'
+                ? (g.giaGocUsd ? `$${g.giaGocUsd}` : '')
+                : (g.giaGocVnd ? `${g.giaGocVnd.toLocaleString('vi-VN')}đ` : ''))
+            : ''
           const hienDonGia = tienTe === 'USD' ? g.donGiaUsd : g.donGiaVnd
           const laMoNeoChinh = g.ma.includes('studio')
           return (

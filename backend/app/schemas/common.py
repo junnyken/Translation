@@ -1214,6 +1214,7 @@ class ThongTinNapLuotRead(BaseModel):
     co_tai_khoan: bool
     email: str | None = None
     la_quan_tri: bool = False
+    da_tung_nap: bool = False
     so_luot_mua_them: int = 0
     tran_hang_ngay: int
     ngan_hang_ten: str = ""

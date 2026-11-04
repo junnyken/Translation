@@ -595,71 +595,114 @@ def _luu_cau_hinh_ngan_hang_dong(
     return payload
 
 
-def _danh_sach_goi_nap_chuan(don_gia: int) -> list[GoiNapLuotRead]:
-    """Danh sách gói cước Phương án A (500đ/trang) kèm Gói Mồi 20.000đ (40 trang, mua nhiều lần cộng dồn thoải mái)."""
+def _danh_sach_goi_nap_chuan(don_gia: int, da_tung_nap: bool = False) -> list[GoiNapLuotRead]:
+    """Danh sách gói cước Quốc tế 4 Gói:
+    - Nếu `da_tung_nap == False` (thanh toán lần đầu): áp dụng Giá Ưu Đãi Lần Đầu (-50% OFF).
+    - Nếu `da_tung_nap == True` (khi gia hạn từ lần thứ 2 trở đi): tự động tính lại Giá Gốc chuẩn!
+    """
     return [
         GoiNapLuotRead(
             ma="trial_pack_50",
-            ten="🎁 Gói Trải Nghiệm Lần Đầu (150 Credits / tháng — Giảm 50%)",
-            so_tien_vnd=25000,
+            ten="🎁 Gói Trải Nghiệm (150 Credits / tháng)",
+            so_tien_vnd=50000 if da_tung_nap else 25000,
             so_trang=150,
-            ghi_chu="Gói Ưu Đãi Lần Đầu $1.99/tháng (giá gốc $3.99) nhận 150 trang/credits (100 + tặng 50 Credits). Mở nâng nét & tẩy chữ tự động.",
+            ghi_chu=(
+                "Giá gốc gia hạn $3.99/tháng (50.000đ) nhận 150 Credits."
+                if da_tung_nap
+                else "Ưu đãi thanh toán lần đầu $1.99/tháng (25.000đ · giá gốc $3.99) nhận 150 Credits."
+            ),
         ),
         GoiNapLuotRead(
             ma="starter_monthly",
-            ten="🎁 Gói Starter Ưu Đãi Lần Đầu (300 Credits / tháng — Giảm 50%)",
-            so_tien_vnd=49000,
+            ten=(
+                "⭐ Gói Starter Gia Hạn (300 Credits / tháng)"
+                if da_tung_nap
+                else "🎁 Gói Starter Ưu Đãi Lần Đầu (300 Credits / tháng — Giảm 50%)"
+            ),
+            so_tien_vnd=99000 if da_tung_nap else 49000,
             so_trang=300,
-            ghi_chu="Gói Starter $2.99/tháng (giá gốc $5.99 · 49.000đ) nhận 300 trang/credits (chu kỳ 30 ngày). Mở nâng nét, tẩy chữ, cào URL & từ điển nhân vật.",
+            ghi_chu=(
+                "Giá gốc gia hạn $5.99/tháng (99.000đ) nhận 300 Credits (chu kỳ 30 ngày)."
+                if da_tung_nap
+                else "Ưu đãi lần đầu $2.99/tháng (49.000đ · khi gia hạn tính giá gốc $5.99 / 99.000đ) nhận 300 Credits."
+            ),
         ),
         GoiNapLuotRead(
             ma="pro_monthly",
             ten="⭐ Gói Lite / Reader (800 Credits / tháng)",
-            so_tien_vnd=99000,
+            so_tien_vnd=149000 if da_tung_nap else 99000,
             so_trang=800,
-            ghi_chu="Gói Lite $5.99/tháng (99.000đ) nhận 800 trang/credits (chu kỳ 30 ngày). Mở xuất ZIP/CBZ/PDF & App Windows.",
+            ghi_chu=(
+                "Giá gốc gia hạn $8.99/tháng (149.000đ) nhận 800 Credits (chu kỳ 30 ngày)."
+                if da_tung_nap
+                else "Ưu đãi lần đầu $5.99/tháng (99.000đ · khi gia hạn tính giá gốc $8.99 / 149.000đ) nhận 800 Credits."
+            ),
         ),
         GoiNapLuotRead(
             ma="studio_monthly",
             ten="💎 Gói Tiêu Chuẩn / Studio + API (3.000 Credits / tháng — Đề xuất)",
-            so_tien_vnd=199000,
+            so_tien_vnd=399000 if da_tung_nap else 199000,
             so_trang=3000,
-            ghi_chu="Gói Tiêu Chuẩn / Studio $9.99/tháng (giá gốc $19.99 · 199.000đ) nhận 3.000 trang/credits (chu kỳ 30 ngày). Mở Developer API Key (tr_live_...), xuất PSD & Video Review Studio.",
+            ghi_chu=(
+                "Giá gốc gia hạn $19.99/tháng (399.000đ) nhận 3.000 Credits + Developer API Key (tr_live_...)."
+                if da_tung_nap
+                else "Ưu đãi lần đầu $9.99/tháng (199.000đ · khi gia hạn tính giá gốc $19.99 / 399.000đ) nhận 3.000 Credits + Mở API."
+            ),
         ),
         GoiNapLuotRead(
             ma="unlimited_plan",
             ten="🏢 Gói Pro Max / Unlimited API (10.000 Credits / tháng)",
-            so_tien_vnd=399000,
+            so_tien_vnd=799000 if da_tung_nap else 399000,
             so_trang=10000,
-            ghi_chu="Gói Pro Max $19.99/tháng (giá gốc $39.99 · 399.000đ) nhận 10.000 trang/credits (chu kỳ 30 ngày) kèm tự động cấp Developer API Key (tr_live_...) & luồng GPU VIP.",
+            ghi_chu=(
+                "Giá gốc gia hạn $39.99/tháng (799.000đ) nhận 10.000 Credits + Full Developer API Key (tr_live_...)."
+                if da_tung_nap
+                else "Ưu đãi lần đầu $19.99/tháng (399.000đ · khi gia hạn tính giá gốc $39.99 / 799.000đ) nhận 10.000 Credits + Full API."
+            ),
         ),
         GoiNapLuotRead(
             ma="starter_yearly",
-            ten="🎁 Gói Starter Năm (3.600 Credits / năm — Giảm 50%)",
-            so_tien_vnd=450000,
+            ten="🎁 Gói Starter Năm (3.600 Credits / năm)",
+            so_tien_vnd=708000 if da_tung_nap else 450000,
             so_trang=3600,
-            ghi_chu="Gói Starter Năm $29.99/năm ($2.49/tháng) nhận 3.600 trang/credits (chu kỳ 365 ngày).",
+            ghi_chu=(
+                "Giá gốc gia hạn $59.88/năm (708.000đ) nhận 3.600 Credits."
+                if da_tung_nap
+                else "Ưu đãi lần đầu $29.99/năm (450.000đ · gia hạn tính giá gốc $59.88) nhận 3.600 Credits."
+            ),
         ),
         GoiNapLuotRead(
             ma="pro_yearly",
-            ten="⭐ Gói Lite Năm (9.600 Credits / năm — Tiết kiệm 25%)",
-            so_tien_vnd=890000,
+            ten="⭐ Gói Lite Năm (9.600 Credits / năm)",
+            so_tien_vnd=1428000 if da_tung_nap else 890000,
             so_trang=9600,
-            ghi_chu="Gói Lite Năm $53.99/năm ($4.49/tháng) nhận 9.600 trang/credits (chu kỳ 365 ngày).",
+            ghi_chu=(
+                "Giá gốc gia hạn $95.88/năm (1.428.000đ) nhận 9.600 Credits."
+                if da_tung_nap
+                else "Ưu đãi lần đầu $53.99/năm (890.000đ · gia hạn tính giá gốc $95.88) nhận 9.600 Credits."
+            ),
         ),
         GoiNapLuotRead(
             ma="studio_yearly",
-            ten="💎 Gói Tiêu Chuẩn / Studio + API Năm (36.000 Credits / năm — Giảm 50%)",
-            so_tien_vnd=1790000,
+            ten="💎 Gói Tiêu Chuẩn / Studio + API Năm (36.000 Credits / năm)",
+            so_tien_vnd=2988000 if da_tung_nap else 1790000,
             so_trang=36000,
-            ghi_chu="Gói Studio + API Năm $89.99/năm ($7.49/tháng) nhận 36.000 trang/credits kèm Developer API Key (tr_live_...).",
+            ghi_chu=(
+                "Giá gốc gia hạn $179.88/năm (2.988.000đ) nhận 36.000 Credits + API."
+                if da_tung_nap
+                else "Ưu đãi lần đầu $89.99/năm (1.790.000đ · gia hạn tính giá gốc $179.88) nhận 36.000 Credits + API."
+            ),
         ),
         GoiNapLuotRead(
             ma="unlimited_yearly",
-            ten="🏢 Gói Pro Max API Năm (120.000 Credits / năm — Giảm 50%)",
-            so_tien_vnd=3590000,
+            ten="🏢 Gói Pro Max API Năm (120.000 Credits / năm)",
+            so_tien_vnd=5988000 if da_tung_nap else 3590000,
             so_trang=120000,
-            ghi_chu="Gói Pro Max API Năm $179.99/năm ($14.99/tháng) nhận 120.000 trang/credits kèm Full Developer API Key (tr_live_...).",
+            ghi_chu=(
+                "Giá gốc gia hạn $359.88/năm (5.988.000đ) nhận 120.000 Credits + Full API."
+                if da_tung_nap
+                else "Ưu đãi lần đầu $179.99/năm (3.590.000đ · gia hạn tính giá gốc $359.88) nhận 120.000 Credits + Full API."
+            ),
         ),
         GoiNapLuotRead(
             ma="goi_moi",
@@ -715,12 +758,14 @@ def _danh_sach_goi_nap_chuan(don_gia: int) -> list[GoiNapLuotRead]:
 
 @router_khach.get("/nap-luot/thong-tin", response_model=ThongTinNapLuotRead, tags=["han-muc"])
 async def xem_thong_tin_nap_luot(
+    session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
     danh_tinh: DanhTinhHanMuc = Depends(danh_tinh_han_muc),
 ) -> ThongTinNapLuotRead:
-    """E100 — Thông tin gói nạp lượt & mã chuyển khoản VietQR tự động."""
+    """E100 — Thông tin gói nạp lượt & mã chuyển khoản VietQR tự động (tự động chuyển về Giá gốc khi gia hạn)."""
     nguoi = danh_tinh.nguoi_goi.nguoi if (danh_tinh.co_tai_khoan and not danh_tinh.nguoi_goi.la_khach) else None
     email = nguoi.email if nguoi is not None else None
+    da_tung_nap = await don_nap.da_tung_nap_thanh_cong(session, email or "") if email else False
     ma_noi_dung = f"NAP {str(nguoi.id).split('-')[0].upper()}" if nguoi is not None else "NAP <EMAIL_CUA_BAN>"
     don_gia = max(1, settings.ty_le_vnd_moi_trang)
     tt_tt = await run_in_threadpool(_doc_cau_hinh_thanh_toan_day_du, settings)
@@ -729,6 +774,7 @@ async def xem_thong_tin_nap_luot(
         co_tai_khoan=danh_tinh.co_tai_khoan,
         email=email,
         la_quan_tri=bool(nguoi and nguoi.la_quan_tri),
+        da_tung_nap=da_tung_nap,
         so_luot_mua_them=danh_tinh.so_luot_mua_them if danh_tinh.co_tai_khoan else 0,
         tran_hang_ngay=danh_tinh.tran_hien,
         ngan_hang_ten=tt_tt["ngan_hang_ten"],
@@ -739,7 +785,7 @@ async def xem_thong_tin_nap_luot(
         rapidapi_url=tt_tt["rapidapi_url"],
         noi_dung_chuyen_khoan=ma_noi_dung,
         ty_le_vnd_moi_trang=don_gia,
-        goi_goi_y=_danh_sach_goi_nap_chuan(don_gia),
+        goi_goi_y=_danh_sach_goi_nap_chuan(don_gia, da_tung_nap=da_tung_nap),
     )
 
 
@@ -752,15 +798,13 @@ async def xac_nhan_chuyen_khoan_goi(
 ) -> DonNapLuotRead:
     """Ghi nhận đơn khách đã chọn để chờ Webhook ngân hàng hoặc quản trị xác nhận đối soát.
 
-    CHỐT BẢO MẬT CHỐNG HACK SỐ LẦN GÓI CƯỚC:
+    CHỐT BẢO MẬT CHỐNG HACK SỐ LẦN GÓI CƯỚC & KIỂM SOÁT GIÁ GIA HẠN:
     - Tuyệt đối KHÔNG nhận `so_tien_vnd` hay `so_trang` do phía client gửi lên để tự tính lượt.
-    - Chỉ chấp nhận `ma_goi` nằm trong 5 gói chính thức của hệ thống (`_danh_sach_goi_nap_chuan`);
-      nếu gửi `ma_goi` lạ hoặc giả mạo ⇒ từ chối thẳng 422.
-    - Mọi đơn tạo qua đường này đều ở trạng thái `cho_duyet` và chỉ được cộng lượt khi có chữ ký
-      Webhook ngân hàng (`WEBHOOK_NAP_LUOT_BI_MAT`) hoặc quản trị viên duyệt đối soát.
+    - Nếu tài khoản đã từng thanh toán lần đầu (`da_tung_nap == True`), tự động áp dụng Giá Gốc khi gia hạn.
     """
     don_gia = max(1, settings.ty_le_vnd_moi_trang)
-    ds_goi = {g.ma: g for g in _danh_sach_goi_nap_chuan(don_gia)}
+    da_tung_nap = await don_nap.da_tung_nap_thanh_cong(session, nguoi.email or "")
+    ds_goi = {g.ma: g for g in _danh_sach_goi_nap_chuan(don_gia, da_tung_nap=da_tung_nap)}
     ma_goi_gui = (body.ma_goi or "").strip()
     goi = ds_goi.get(ma_goi_gui)
     if goi is None:
@@ -808,11 +852,40 @@ def _ma_giao_dich_ngan_hang(payload: dict) -> str | None:
     return None
 
 
-def _tinh_goi_nap_tu_so_tien_vnd(so_tien: int, noi_dung: str, don_gia: int) -> tuple[int, str, str]:
-    """Khớp chính xác số tiền VNĐ (và mã gói trong nội dung) sang số trang/credits + mã gói trên TrangBangGia.jsx."""
+def _tinh_goi_nap_tu_so_tien_vnd(
+    so_tien: int, noi_dung: str, don_gia: int, da_tung_nap: bool = False
+) -> tuple[int, str, str]:
+    """Khớp chính xác số tiền VNĐ (và mã gói trong nội dung) sang số trang/credits + mã gói trên TrangBangGia.jsx.
+    - Nếu `da_tung_nap == False`: áp dụng bảng giá Ưu đãi thanh toán lần đầu.
+    - Nếu `da_tung_nap == True`: áp dụng bảng Giá Gốc khi gia hạn!
+    """
     nd_upper = (noi_dung or "").upper()
     if so_tien >= 10000000:
         return (max(28000, int((so_tien // don_gia) * 1.4)), "enterprise_scale", "🏛️ Gói Doanh Nghiệp Lớn / Hệ Thống Cổng Truyện")
+
+    if da_tung_nap:
+        # Bảng Giá Gốc khi gia hạn (từ lần thanh toán thứ 2 trở đi)
+        if so_tien >= 5900000:
+            return (120000, "unlimited_yearly", "🏢 Gói Pro Max API Năm — Gia Hạn Giá Gốc (120.000 Credits)")
+        if so_tien >= 2900000:
+            return (36000, "studio_yearly", "💎 Gói Tiêu Chuẩn / Studio + API Năm — Gia Hạn Giá Gốc (36.000 Credits)")
+        if so_tien >= 1400000:
+            return (9600, "pro_yearly", "⭐ Gói Lite Năm — Gia Hạn Giá Gốc (9.600 Credits)")
+        if so_tien >= 780000:
+            return (10000, "unlimited_plan", "🏢 Gói Pro Max — Gia Hạn Giá Gốc (10.000 Credits / tháng + API)")
+        if so_tien >= 700000:
+            return (3600, "starter_yearly", "🎁 Gói Starter Năm — Gia Hạn Giá Gốc (3.600 Credits)")
+        if so_tien >= 390000:
+            return (3000, "studio_monthly", "💎 Gói Tiêu Chuẩn / Studio + API — Gia Hạn Giá Gốc (3.000 Credits / tháng)")
+        if so_tien >= 145000:
+            return (800, "pro_monthly", "⭐ Gói Lite / Reader — Gia Hạn Giá Gốc (800 Credits / tháng)")
+        if so_tien >= 95000:
+            return (300, "starter_monthly", "⭐ Gói Starter — Gia Hạn Giá Gốc (300 Credits / tháng)")
+        if so_tien >= 49000:
+            return (150, "trial_pack_50", "🎁 Gói Trial — Gia Hạn Giá Gốc (150 Credits / tháng)")
+        so_trang_goc = max(1, so_tien // max(1, don_gia))
+        return (so_trang_goc, "goi_moi", f"🎯 Gói Gia Hạn Lẻ ({so_trang_goc} Credits)")
+
     if so_tien >= 3500000:
         return (120000, "unlimited_yearly", "🏢 Gói Pro Max API Năm (120.000 Credits / năm)")
     if so_tien >= 1750000:
@@ -844,9 +917,36 @@ def _tinh_goi_nap_tu_so_tien_vnd(so_tien: int, noi_dung: str, don_gia: int) -> t
     return (so_trang_goc, "goi_moi", f"🎯 Gói Trải Nghiệm ({so_trang_goc} trang)")
 
 
-def _tinh_goi_nap_tu_usd(so_usd: float, noi_dung: str = "") -> tuple[int, int, str, str]:
-    """Khớp số tiền USD thanh toán qua PayPal sang (so_trang_cong, so_tien_vnd_quy_doi, ma_goi, ten_goi)."""
+def _tinh_goi_nap_tu_usd(
+    so_usd: float, noi_dung: str = "", da_tung_nap: bool = False
+) -> tuple[int, int, str, str]:
+    """Khớp số tiền USD thanh toán qua PayPal sang (so_trang_cong, so_tien_vnd_quy_doi, ma_goi, ten_goi).
+    - Nếu `da_tung_nap == False`: áp dụng giá Ưu đãi thanh toán lần đầu.
+    - Nếu `da_tung_nap == True`: áp dụng Giá Gốc khi gia hạn!
+    """
     nd_upper = (noi_dung or "").upper()
+    if da_tung_nap:
+        if so_usd >= 340.0:
+            return (120000, 5988000, "unlimited_yearly", "🏢 Gói Pro Max API Năm — Gia Hạn Giá Gốc (PayPal USD)")
+        if so_usd >= 170.0:
+            return (36000, 2988000, "studio_yearly", "💎 Gói Tiêu Chuẩn / Studio + API Năm — Gia Hạn Giá Gốc (PayPal USD)")
+        if so_usd >= 90.0:
+            return (9600, 1428000, "pro_yearly", "⭐ Gói Lite Năm — Gia Hạn Giá Gốc (PayPal USD)")
+        if so_usd >= 55.0:
+            return (3600, 708000, "starter_yearly", "🎁 Gói Starter Năm — Gia Hạn Giá Gốc (PayPal USD)")
+        if so_usd >= 38.0:
+            return (10000, 799000, "unlimited_plan", "🏢 Gói Pro Max 10.000 Credits — Gia Hạn Giá Gốc (PayPal USD)")
+        if so_usd >= 19.0:
+            return (3000, 399000, "studio_monthly", "💎 Gói Tiêu Chuẩn / Studio + API 3.000 Credits — Gia Hạn Giá Gốc (PayPal USD)")
+        if so_usd >= 8.5:
+            return (800, 149000, "pro_monthly", "⭐ Gói Lite / Reader 800 Credits — Gia Hạn Giá Gốc (PayPal USD)")
+        if so_usd >= 5.5:
+            return (300, 99000, "starter_monthly", "⭐ Gói Starter 300 Credits — Gia Hạn Giá Gốc (PayPal USD)")
+        if so_usd >= 3.5:
+            return (150, 50000, "trial_pack_50", "🎁 Gói Trial 150 Credits — Gia Hạn Giá Gốc (PayPal USD)")
+        so_trang_gh = max(1, int(round(so_usd * 50)))
+        return (so_trang_gh, int(so_usd * 25000), "goi_moi", f"🎯 Gói Gia Hạn PayPal ({so_trang_gh} Credits)")
+
     if so_usd >= 165.0:
         return (120000, 3590000, "unlimited_yearly", "🏢 Gói Pro Max API Năm 120.000 Credits (PayPal USD)")
     if so_usd >= 85.0:
@@ -1061,14 +1161,17 @@ async def webhook_nap_luot_ngan_hang(
     if da_xu_ly is not None:
         return {"ok": True, "trung_lap": True, "ma_don": da_xu_ly}
 
-    don_gia = max(1, settings.ty_le_vnd_moi_trang)
-    so_trang_cong, ma_goi_nhan, ten_goi_nhan = _tinh_goi_nap_tu_so_tien_vnd(so_tien, noi_dung, don_gia)
-    if so_trang_cong <= 0:
-        return {"ok": False, "ly_do": "so_tien_nho_hon_1_trang"}
-
     nguoi = await _tim_nguoi_dung_tu_noi_dung(session, noi_dung)
     if nguoi is None:
         return {"ok": False, "ly_do": "khong_tim_thay_tai_khoan_tu_noi_dung"}
+
+    don_gia = max(1, settings.ty_le_vnd_moi_trang)
+    da_tung_nap_ck = await don_nap.da_tung_nap_thanh_cong(session, nguoi.email or "")
+    so_trang_cong, ma_goi_nhan, ten_goi_nhan = _tinh_goi_nap_tu_so_tien_vnd(
+        so_tien, noi_dung, don_gia, da_tung_nap=da_tung_nap_ck
+    )
+    if so_trang_cong <= 0:
+        return {"ok": False, "ly_do": "so_tien_nho_hon_1_trang"}
 
     don_cho = await don_nap.tim_don_cho_duyet(session, nguoi.email or "")
     try:
@@ -1214,7 +1317,10 @@ async def webhook_nap_luot_paypal_ipn(
     if nguoi is None:
         return {"ok": False, "ly_do": "khong_tim_thay_tai_khoan_tu_paypal"}
 
-    so_trang_cong, so_tien_vnd_qd, ma_goi_nhan, ten_goi_nhan = _tinh_goi_nap_tu_usd(mc_gross, noi_dung_gop)
+    da_tung_nap_pp = await don_nap.da_tung_nap_thanh_cong(session, nguoi.email or "")
+    so_trang_cong, so_tien_vnd_qd, ma_goi_nhan, ten_goi_nhan = _tinh_goi_nap_tu_usd(
+        mc_gross, noi_dung_gop, da_tung_nap=da_tung_nap_pp
+    )
     don_cho = await don_nap.tim_don_cho_duyet(session, nguoi.email or "")
     try:
         if don_cho is not None and await don_nap.chuyen_trang_thai(

@@ -130,6 +130,25 @@ async def tim_don_cho_duyet(
     return (await session.execute(cau.order_by(DonNapLuot.created_at.desc()))).scalars().first()
 
 
+async def da_tung_nap_thanh_cong(session: AsyncSession, email: str) -> bool:
+    """Kiểm tra tài khoản đã từng có đơn nạp thành công (đã dùng ưu đãi thanh toán lần đầu) hay chưa.
+    Chỉ tính các gói cước chính thức (bỏ qua `goi_moi` dùng trong bài test cộng dồn).
+    """
+    if not email:
+        return False
+    await nhap_json_cu_neu_co(session)
+    cau = (
+        select(DonNapLuot.id)
+        .where(
+            func.lower(DonNapLuot.email) == email.strip().lower(),
+            DonNapLuot.trang_thai.in_(("da_xac_nhan", "da_cong_tu_dong")),
+            DonNapLuot.ma_goi != "goi_moi",
+        )
+        .limit(1)
+    )
+    return (await session.execute(cau)).first() is not None
+
+
 async def chuyen_trang_thai(
     session: AsyncSession,
     don_id: uuid.UUID,
