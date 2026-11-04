@@ -66,21 +66,21 @@ _DA_NAP_CAP_DO_GOI = False
 
 
 def cap_do_tu_ma_goi(ma_goi: str, so_trang_don: int = 0) -> int:
-    """Xác định cấp độ VIP (1..5) của ĐƠN GÓI CƯỚC mà khách vừa mua.
+    """Xác định cấp độ VIP (1..5) của ĐƠN GÓI CƯỚC mà khách vừa mua (chu kỳ theo tháng 30 ngày / năm).
 
     Đảm bảo:
-    - Khách mua gói nào thì đúng số trang của gói đó mang cấp độ tương ứng.
-    - Khách chỉ mua gói thấp (Trial 19k / Starter 49k) thì giỏ lượt đó chỉ ở Cấp 1 / Cấp 2,
-      KHÔNG thể dùng gói 19k để nuôi tài khoản Unlimited hay mở khoá tính năng Pro/Unlimited.
+    - Khách mua gói nào thì đúng số trang/credits của gói đó mang cấp độ tương ứng.
+    - Khách chỉ mua gói thấp (Trial / Lite) thì giỏ lượt đó chỉ ở Cấp 1 / Cấp 2,
+      KHÔNG thể dùng gói rẻ để nuôi tài khoản Studio/Unlimited hay mở khoá tính năng API.
     """
     ma = (ma_goi or "").strip().lower()
-    if ma in ("unlimited_plan", "doanh_nghiep_api", "enterprise_scale") or so_trang_don >= 5000:
+    if ma in ("unlimited_plan", "unlimited_yearly", "doanh_nghiep_api", "enterprise_scale") or so_trang_don >= 5000:
         return 5
-    if ma in ("studio_monthly", "pack_2000", "nhom_dich") or so_trang_don >= 1200:
+    if ma in ("studio_monthly", "studio_yearly", "pack_2000", "nhom_dich") or so_trang_don >= 2000:
         return 4
-    if ma in ("pro_monthly", "tieu_chuan") or so_trang_don >= 500:
+    if ma in ("pro_monthly", "pro_yearly", "tieu_chuan") or so_trang_don >= 600:
         return 3
-    if ma in ("starter_monthly", "co_ban") or so_trang_don >= 100:
+    if ma in ("starter_monthly", "starter_yearly", "co_ban") or so_trang_don >= 200:
         return 2
     if ma in ("trial_pack_50", "goi_moi") or so_trang_don > 0:
         return 1
@@ -88,7 +88,10 @@ def cap_do_tu_ma_goi(ma_goi: str, so_trang_don: int = 0) -> int:
 
 
 def _chuan_hoa_ban_ghi_gio(val, vi_hien_tai: int = 0) -> dict:
-    """Chuẩn hoá dữ liệu giỏ lượt theo cấp của 1 user."""
+    """Chuẩn hoá dữ liệu giỏ lượt theo cấp của 1 user (kèm hạn sử dụng theo tháng `het_han_ts`)."""
+    import time
+
+    now_ts = int(time.time())
     if isinstance(val, int):
         cap_cu = max(0, min(5, val))
         return {
@@ -104,8 +107,15 @@ def _chuan_hoa_ban_ghi_gio(val, vi_hien_tai: int = 0) -> dict:
                 if isinstance(item, dict):
                     c = max(1, min(5, int(item.get("cap", 1) or 1)))
                     tr = max(0, int(item.get("trang", 0) or 0))
+                    exp_ts = int(item.get("het_han_ts", 0) or 0)
+                    # Nếu giỏ có hạn sử dụng theo tháng/năm và đã quá hạn -> tự động hết hiệu lực cấp độ đó
+                    if exp_ts > 0 and now_ts > exp_ts:
+                        continue
                     if tr > 0:
-                        gio_sach.append({"cap": c, "trang": tr})
+                        rec = {"cap": c, "trang": tr}
+                        if exp_ts > 0:
+                            rec["het_han_ts"] = exp_ts
+                        gio_sach.append(rec)
         gio_sach.sort(key=lambda x: x["cap"], reverse=True)
         return {"tong": tong, "gio": gio_sach}
     return {"tong": 0, "gio": []}
@@ -192,7 +202,10 @@ def _dong_bo_gio_theo_so_du(uid_str: str, vi_hien_tai: int) -> list[dict[str, in
                 con_muc = item["trang"] - tru_muc
                 can_tru -= tru_muc
                 if con_muc > 0:
-                    gio_moi.append({"cap": item["cap"], "trang": con_muc})
+                    rec = {"cap": item["cap"], "trang": con_muc}
+                    if item.get("het_han_ts"):
+                        rec["het_han_ts"] = item["het_han_ts"]
+                    gio_moi.append(rec)
             else:
                 gio_moi.append(item)
         ban_ghi = {"tong": vi_hien_tai, "gio": gio_moi}
@@ -235,15 +248,22 @@ def ghi_nhan_cap_do_goi_mua(
         )
         gio_hien = [{"cap": cap_cu_suy_luan, "trang": vi_truoc}]
 
+    import time
+
+    now_ts = int(time.time())
+    so_ngay_han = 365 if "yearly" in (ma_goi or "").lower() else 30
+    het_han_moi = now_ts + so_ngay_han * 86400
+
     cap_moi = cap_do_tu_ma_goi(ma_goi, so_trang_don)
     da_gop = False
     for item in gio_hien:
         if item["cap"] == cap_moi:
             item["trang"] += so_trang_don
+            item["het_han_ts"] = max(int(item.get("het_han_ts", 0) or 0), het_han_moi)
             da_gop = True
             break
     if not da_gop:
-        gio_hien.append({"cap": cap_moi, "trang": so_trang_don})
+        gio_hien.append({"cap": cap_moi, "trang": so_trang_don, "het_han_ts": het_han_moi})
 
     gio_hien.sort(key=lambda x: x["cap"], reverse=True)
     tong_moi = sum(x["trang"] for x in gio_hien)
@@ -292,9 +312,13 @@ def tinh_cap_do(nguoi) -> int:
 
     uid_str = str(getattr(nguoi, "id", "") or "").strip()
     if uid_str:
+        cache = _nap_cache_cap_do_goi()
         gio = _dong_bo_gio_theo_so_du(uid_str, vi)
         if gio:
             return max(cap_tran, int(gio[0]["cap"]))
+        if uid_str in cache:
+            # Đã có sổ giỏ lượt nhưng toàn bộ các giỏ theo tháng đều đã hết hạn 30 ngày -> hạ về cap_tran
+            return cap_tran
 
     # Dự phòng cho tài khoản được cộng lượt trước khi có sổ lưu giỏ:
     if vi >= 3500:

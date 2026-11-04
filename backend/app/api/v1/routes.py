@@ -600,38 +600,66 @@ def _danh_sach_goi_nap_chuan(don_gia: int) -> list[GoiNapLuotRead]:
     return [
         GoiNapLuotRead(
             ma="trial_pack_50",
-            ten="🌱 Gói Mồi / Trial Pack (50 trang — Cấp 1)",
-            so_tien_vnd=19000,
-            so_trang=50,
-            ghi_chu="Gói trải nghiệm $1.99 (19.000đ) nhận 50 trang không hết hạn. Mở nâng nét & tẩy chữ tự động.",
+            ten="🌱 Gói Trial (100 Credits / tháng — Cấp 1)",
+            so_tien_vnd=25000,
+            so_trang=100,
+            ghi_chu="Gói Trial $1.99/tháng (25.000đ) nhận 100 trang/credits (chu kỳ 30 ngày). Mở nâng nét & tẩy chữ tự động.",
         ),
         GoiNapLuotRead(
             ma="starter_monthly",
-            ten="⭐ Gói Lite / Starter (200 trang — Cấp 2)",
-            so_tien_vnd=49000,
-            so_trang=200,
-            ghi_chu="Gói Lite / Starter $4.99 (49.000đ) nhận 200 trang không hết hạn. Mở cào URL & từ điển nhân vật.",
+            ten="⭐ Gói Lite (500 Credits / tháng — Cấp 2)",
+            so_tien_vnd=59000,
+            so_trang=500,
+            ghi_chu="Gói Lite $4.99/tháng (59.000đ) nhận 500 trang/credits (chu kỳ 30 ngày). Mở cào URL & từ điển nhân vật.",
         ),
         GoiNapLuotRead(
             ma="pro_monthly",
-            ten="🔥 Gói Pro Reader (600 trang — Cấp 3)",
-            so_tien_vnd=99000,
-            so_trang=600,
-            ghi_chu="Gói Pro $9.99 (99.000đ) nhận 600 trang không hết hạn. Mở xuất ZIP/CBZ/PDF & dịch chương dài.",
+            ten="🔥 Gói Pro (1.500 Credits / tháng — Cấp 3)",
+            so_tien_vnd=119000,
+            so_trang=1500,
+            ghi_chu="Gói Pro $9.99/tháng (119.000đ) nhận 1.500 trang/credits (chu kỳ 30 ngày). Mở xuất ZIP/CBZ/PDF & App Windows.",
         ),
         GoiNapLuotRead(
             ma="studio_monthly",
-            ten="💎 Gói Studio + API (2.000 trang — Cấp 4)",
-            so_tien_vnd=199000,
-            so_trang=2000,
-            ghi_chu="Gói Studio $14.99 (199.000đ) nhận 2.000 trang không hết hạn. Mở Developer API Key (tr_live_...), xuất PSD & Video Review Studio.",
+            ten="💎 Gói Studio + API (4.000 Credits / tháng — Cấp 4)",
+            so_tien_vnd=249000,
+            so_trang=4000,
+            ghi_chu="Gói Studio $14.99/tháng (249.000đ) nhận 4.000 trang/credits (chu kỳ 30 ngày). Mở Developer API Key (tr_live_...), xuất PSD & Video Review Studio.",
         ),
         GoiNapLuotRead(
             ma="unlimited_plan",
-            ten="🏢 Gói Unlimited + Full API (5.000 trang — Cấp 5)",
-            so_tien_vnd=399000,
-            so_trang=5000,
-            ghi_chu="Gói Unlimited $19.99 (399.000đ) nhận 5.000 trang không hết hạn kèm tự động cấp Developer API Key (tr_live_...) & luồng GPU VIP.",
+            ten="🏢 Gói Pro Max / Unlimited API (10.000 Credits / tháng — Cấp 5)",
+            so_tien_vnd=499000,
+            so_trang=10000,
+            ghi_chu="Gói Pro Max $19.99/tháng (499.000đ) nhận 10.000 trang/credits (chu kỳ 30 ngày) kèm tự động cấp Developer API Key (tr_live_...) & luồng GPU VIP.",
+        ),
+        GoiNapLuotRead(
+            ma="starter_yearly",
+            ten="⭐ Gói Lite Năm (6.000 Credits / năm — Tiết kiệm 25%)",
+            so_tien_vnd=530000,
+            so_trang=6000,
+            ghi_chu="Gói Lite Năm $44.99/năm ($3.75/tháng) nhận 6.000 trang/credits (chu kỳ 365 ngày).",
+        ),
+        GoiNapLuotRead(
+            ma="pro_yearly",
+            ten="🔥 Gói Pro Năm (18.000 Credits / năm — Tiết kiệm 25%)",
+            so_tien_vnd=1070000,
+            so_trang=18000,
+            ghi_chu="Gói Pro Năm $89.99/năm ($7.49/tháng) nhận 18.000 trang/credits (chu kỳ 365 ngày).",
+        ),
+        GoiNapLuotRead(
+            ma="studio_yearly",
+            ten="💎 Gói Studio + API Năm (48.000 Credits / năm — Tiết kiệm 25%)",
+            so_tien_vnd=2240000,
+            so_trang=48000,
+            ghi_chu="Gói Studio + API Năm $134.99/năm ($11.25/tháng) nhận 48.000 trang/credits kèm Developer API Key (tr_live_...).",
+        ),
+        GoiNapLuotRead(
+            ma="unlimited_yearly",
+            ten="🏢 Gói Pro Max API Năm (120.000 Credits / năm — Tiết kiệm 25%)",
+            so_tien_vnd=4490000,
+            so_trang=120000,
+            ghi_chu="Gói Pro Max API Năm $179.99/năm ($14.99/tháng) nhận 120.000 trang/credits kèm Full Developer API Key (tr_live_...).",
         ),
         GoiNapLuotRead(
             ma="goi_moi",
@@ -781,64 +809,72 @@ def _ma_giao_dich_ngan_hang(payload: dict) -> str | None:
 
 
 def _tinh_goi_nap_tu_so_tien_vnd(so_tien: int, noi_dung: str, don_gia: int) -> tuple[int, str, str]:
-    """Khớp chính xác số tiền VNĐ (và mã gói trong nội dung) sang số trang + mã gói trên TrangBangGia.jsx.
-
-    Đảm bảo khách chuyển khoản đúng giá niêm yết (19k, 49k, 99k, 199k, 399k, 50k, 200k, 600k, 1tr)
-    đều nhận ĐÚNG hoặc NHIỀU HƠN số trang cam kết trên bảng giá.
-    """
+    """Khớp chính xác số tiền VNĐ (và mã gói trong nội dung) sang số trang/credits + mã gói trên TrangBangGia.jsx."""
     nd_upper = (noi_dung or "").upper()
     if so_tien >= 10000000:
         return (max(28000, int((so_tien // don_gia) * 1.4)), "enterprise_scale", "🏛️ Gói Doanh Nghiệp Lớn / Hệ Thống Cổng Truyện")
+    if so_tien >= 4400000:
+        return (120000, "unlimited_yearly", "🏢 Gói Pro Max API Năm (120.000 Credits / năm)")
+    if so_tien >= 2200000:
+        return (48000, "studio_yearly", "💎 Gói Studio + API Năm (48.000 Credits / năm)")
+    if so_tien >= 1050000:
+        return (18000, "pro_yearly", "🔥 Gói Pro Năm (18.000 Credits / năm)")
     if so_tien >= 1000000:
-        so_tr = max(5000, int((so_tien // 200)))
-        return (so_tr, "doanh_nghiep_api", f"🏢 Gói Doanh Nghiệp / Web Truyện API Pro ({so_tr} trang)")
-    if so_tien >= 600000:
-        return (2000, "pack_2000", "🔥 Gói Tích Luỹ 2.000 Trang Vĩnh Viễn")
+        so_tr = max(10000, int((so_tien // 100)))
+        return (so_tr, "doanh_nghiep_api", f"🏢 Gói Doanh Nghiệp / Web Truyện API Pro ({so_tr} Credits)")
+    if so_tien >= 530000:
+        if "YEAR" in nd_upper or "NAM" in nd_upper or so_tien < 580000:
+            return (6000, "starter_yearly", "⭐ Gói Lite Năm (6.000 Credits / năm)")
+        return (2000, "pack_2000", "🔥 Gói Tích Luỹ 2.000 Trang")
     if so_tien >= 399000:
-        return (5000, "unlimited_plan", "🏢 Gói Unlimited (5.000 trang + API)")
+        return (10000, "unlimited_plan", "🏢 Gói Pro Max / Unlimited (10.000 Credits / tháng + API)")
     if so_tien >= 199000:
         if so_tien == 200000 and ("READER" in nd_upper or "TIEU_CHUAN" in nd_upper or "500" in nd_upper):
             return (550, "tieu_chuan", "🔥 Gói Độc Giả VIP — Reader (550 trang)")
-        return (2000, "studio_monthly", "💎 Gói Studio (2.000 trang)")
+        return (4000, "studio_monthly", "💎 Gói Studio + API (4.000 Credits / tháng)")
     if so_tien >= 99000:
-        return (600, "pro_monthly", "🔥 Gói Pro Cày Truyện (600 trang)")
+        return (1500, "pro_monthly", "🔥 Gói Pro (1.500 Credits / tháng)")
     if so_tien >= 49000:
         if so_tien == 50000 and ("CO_BAN" in nd_upper or "100" in nd_upper):
             return (105, "co_ban", "🌱 Gói Khởi Đầu — Starter (105 trang)")
-        return (200, "starter_monthly", "⭐ Gói Starter (200 trang)")
+        return (500, "starter_monthly", "⭐ Gói Lite (500 Credits / tháng)")
     if so_tien >= 19000:
-        return (50, "trial_pack_50", "🌱 Gói Mồi / Trial Pack (50 trang)")
+        return (100, "trial_pack_50", "🌱 Gói Trial (100 Credits / tháng)")
     so_trang_goc = max(1, so_tien // max(1, don_gia))
-    return (so_trang_goc, "goi_moi", f"🎯 Gói Mồi Trải Nghiệm ({so_trang_goc} trang)")
+    return (so_trang_goc, "goi_moi", f"🎯 Gói Trải Nghiệm ({so_trang_goc} trang)")
 
 
 def _tinh_goi_nap_tu_usd(so_usd: float, noi_dung: str = "") -> tuple[int, int, str, str]:
     """Khớp số tiền USD thanh toán qua PayPal sang (so_trang_cong, so_tien_vnd_quy_doi, ma_goi, ten_goi)."""
     nd_upper = (noi_dung or "").upper()
-    if so_usd >= 45.0:
-        return (5000, 1000000, "doanh_nghiep_api", "🏢 Gói 5.000 Trang + Cổng API (PayPal USD)")
+    if so_usd >= 165.0:
+        return (120000, 4490000, "unlimited_yearly", "🏢 Gói Pro Max API Năm 120.000 Credits (PayPal USD)")
+    if so_usd >= 125.0:
+        return (48000, 2240000, "studio_yearly", "💎 Gói Studio + API Năm 48.000 Credits (PayPal USD)")
+    if so_usd >= 80.0:
+        return (18000, 1070000, "pro_yearly", "🔥 Gói Pro Năm 18.000 Credits (PayPal USD)")
+    if so_usd >= 40.0:
+        if "YEAR" in nd_upper or so_usd < 46.0:
+            return (6000, 530000, "starter_yearly", "⭐ Gói Lite Năm 6.000 Credits (PayPal USD)")
+        return (10000, 1000000, "doanh_nghiep_api", "🏢 Gói Doanh Nghiệp + Cổng API (PayPal USD)")
     if so_usd >= 22.0:
-        return (2000, 600000, "pack_2000", "🔥 Gói Tích Luỹ 2.000 Trang Vĩnh Viễn (PayPal USD)")
+        return (4000, 600000, "pack_2000", "🔥 Gói 4.000 Credits (PayPal USD)")
     if so_usd >= 18.5 or (so_usd >= 14.0 and "UNLIMITED" in nd_upper):
-        return (5000, 399000, "unlimited_plan", "🏢 Gói Unlimited 5.000 trang + API (PayPal USD)")
+        return (10000, 499000, "unlimited_plan", "🏢 Gói Pro Max 10.000 Credits / tháng + API (PayPal USD)")
     if so_usd >= 13.5 or (so_usd >= 9.5 and "STUDIO" in nd_upper):
-        return (2000, 199000, "studio_monthly", "💎 Gói Studio + API 2.000 trang (PayPal USD)")
+        return (4000, 249000, "studio_monthly", "💎 Gói Studio + API 4.000 Credits / tháng (PayPal USD)")
     if so_usd >= 8.5:
-        if "TIEU_CHUAN" in nd_upper or "550" in nd_upper:
-            return (550, 200000, "tieu_chuan", "🔥 Gói 550 Trang Vĩnh Viễn (PayPal USD)")
-        return (600, 99000, "pro_monthly", "🔥 Gói Pro Reader 600 trang (PayPal USD)")
+        return (1500, 119000, "pro_monthly", "🔥 Gói Pro 1.500 Credits / tháng (PayPal USD)")
     if so_usd >= 4.5:
         if "PRO" in nd_upper and so_usd < 6.0:
-            return (600, 99000, "pro_monthly", "🔥 Gói Pro Reader 600 trang (PayPal USD)")
-        return (200, 49000, "starter_monthly", "⭐ Gói Lite / Starter 200 trang (PayPal USD)")
+            return (1500, 119000, "pro_monthly", "🔥 Gói Pro 1.500 Credits / tháng (PayPal USD)")
+        return (500, 59000, "starter_monthly", "⭐ Gói Lite 500 Credits / tháng (PayPal USD)")
     if so_usd >= 2.8:
-        return (200, 49000, "starter_monthly", "⭐ Gói Lite / Starter 200 trang (PayPal USD)")
-    if so_usd >= 2.2:
-        return (105, 50000, "co_ban", "🌱 Gói 105 Trang Vĩnh Viễn (PayPal USD)")
+        return (500, 59000, "starter_monthly", "⭐ Gói Lite 500 Credits / tháng (PayPal USD)")
     if so_usd >= 0.8:
-        return (50, 19000, "trial_pack_50", "🌱 Gói Trial Pack 50 trang (PayPal USD)")
+        return (100, 25000, "trial_pack_50", "🌱 Gói Trial 100 Credits / tháng (PayPal USD)")
     so_trang = max(1, int(round(so_usd * 50)))
-    return (so_trang, int(so_usd * 25000), "goi_moi", f"🎯 Gói PayPal ({so_trang} trang)")
+    return (so_trang, int(so_usd * 25000), "goi_moi", f"🎯 Gói PayPal ({so_trang} Credits)")
 
 
 async def _tim_nguoi_dung_tu_noi_dung(
@@ -922,7 +958,7 @@ async def _tu_dong_cap_api_key_va_hoa_hong(
         pass
 
     # 1. Tự động tạo Developer API Key nếu nâng cấp gói Studio (Cấp 4) hoặc Unlimited (Cấp 5) mà chưa có key
-    if so_trang_cong >= 1200 or ma_goi in ("studio_monthly", "pack_2000", "nhom_dich", "unlimited_plan", "doanh_nghiep_api", "enterprise_scale"):
+    if so_trang_cong >= 4000 or ma_goi in ("studio_monthly", "studio_yearly", "pack_2000", "nhom_dich", "unlimited_plan", "unlimited_yearly", "doanh_nghiep_api", "enterprise_scale"):
         try:
             from app.services import tai_khoan as _tk_auto
 
