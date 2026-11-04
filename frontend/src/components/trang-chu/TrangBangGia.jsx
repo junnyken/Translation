@@ -11,13 +11,10 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
   const [dangXacNhan, setDangXacNhan] = useState(false)
   const [ketQuaDon, setKetQuaDon] = useState(null)
   const [loiXacNhan, setLoiXacNhan] = useState('')
-  const [tienTe, setTienTe] = useState(laEn ? 'USD' : 'VND')
+  const [tienTe, setTienTe] = useState('USD')
 
-  useEffect(() => {
-    setTienTe(laEn ? 'USD' : 'VND')
-  }, [laEn])
-
-  // Phương án A: 1 Bảng Giá 5 Gói Duy Nhất (Theo Số Trang + Cấp Độ Mở Khoá Tính Năng, Không hết hạn qua đêm)
+  // Phương án A (International-First): 1 Bảng Giá 5 Gói Chuẩn Quốc Tế (USD hiển thị mặc định, lượt không hết hạn qua đêm)
+  // Cổng Developer API (tr_live_...) mở từ Gói Cấp 4 (Studio - $14.99) và Cấp 5 (Unlimited - $19.99) trở lên.
   const DANH_SACH_GOI = [
     {
       ma: 'trial_pack_50',
@@ -25,13 +22,13 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
       nhan: laEn ? '🌱 LEVEL 1 — TRIAL' : '🌱 CẤP 1 — GÓI TRIAL',
       ten: laEn ? 'Trial Pack (50 Pages)' : 'Gói Trial (50 trang)',
       giaVnd: 19000,
-      giaUsd: '0.99',
+      giaUsd: '1.99',
       chuKy: laEn ? 'never expires' : 'không hết hạn',
       soTrang: 50,
       uocChap: '~2.5 chapters',
       khuyenMai: laEn ? 'Level 1' : 'Cấp 1 (Trial)',
       donGiaVnd: '380đ/trang',
-      donGiaUsd: '$0.020/page',
+      donGiaUsd: '$0.040/page',
       diemManh: laEn
         ? [
             '50 AI-translated comic pages (never expires overnight)',
@@ -48,16 +45,16 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
     {
       ma: 'starter_monthly',
       maNgan: 'STARTER',
-      nhan: laEn ? '⭐ LEVEL 2 — STARTER' : '⭐ CẤP 2 — GÓI STARTER',
-      ten: laEn ? 'Starter Pack (200 Pages)' : 'Gói Starter (200 trang)',
+      nhan: laEn ? '⭐ LEVEL 2 — LITE / STARTER' : '⭐ CẤP 2 — GÓI LITE / STARTER',
+      ten: laEn ? 'Lite Pack (200 Pages)' : 'Gói Lite / Starter (200 trang)',
       giaVnd: 49000,
-      giaUsd: '2.99',
+      giaUsd: '4.99',
       chuKy: laEn ? 'never expires' : 'không hết hạn',
       soTrang: 200,
       uocChap: '~10 chapters',
-      khuyenMai: laEn ? 'Save 35%' : 'Tiết kiệm 35%',
+      khuyenMai: laEn ? 'Save 38%' : 'Tiết kiệm 38%',
       donGiaVnd: '245đ/trang',
-      donGiaUsd: '$0.015/page',
+      donGiaUsd: '$0.025/page',
       diemManh: laEn
         ? [
             '200 permanent AI pages (~10 chapters) — never expires',
@@ -74,19 +71,19 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
     {
       ma: 'pro_monthly',
       maNgan: 'PRO',
-      nhan: laEn ? '🔥 LEVEL 3 — PRO BEST SELLER' : '🔥 CẤP 3 — GÓI PRO BÁN CHẠY',
+      nhan: laEn ? '🔥 LEVEL 3 — PRO READER' : '🔥 CẤP 3 — GÓI PRO CÀY TRUYỆN',
       ten: laEn ? 'Pro Pack (600 Pages)' : 'Gói Pro Cày Truyện (600 trang)',
       giaVnd: 99000,
-      giaUsd: '4.99',
+      giaUsd: '9.99',
       chuKy: laEn ? 'never expires' : 'không hết hạn',
       soTrang: 600,
       uocChap: '~30 chapters',
-      khuyenMai: laEn ? 'Best Value' : 'Đáng mua nhất',
+      khuyenMai: laEn ? 'Popular' : 'Phổ biến',
       donGiaVnd: '165đ/trang',
-      donGiaUsd: '$0.008/page',
+      donGiaUsd: '$0.016/page',
       diemManh: laEn
         ? [
-            '600 permanent AI pages (~30 chapters) — only $0.008/page',
+            '600 permanent AI pages (~30 chapters) — only $0.016/page',
             'Unlocks Windows App Continuous Multi-Chapter Auto-Crawl',
             'Unlocks Context AI Pro + Character & Pronoun Glossary',
             'Unlocks Batch Archive Upload (.ZIP, .CBZ, .PDF)',
@@ -102,65 +99,65 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
     {
       ma: 'studio_monthly',
       maNgan: 'STUDIO',
-      nhan: laEn ? '💎 LEVEL 4 — STUDIO' : '💎 CẤP 4 — GÓI STUDIO NHÓM DỊCH',
-      ten: laEn ? 'Studio Pack (2,000 Pages)' : 'Gói Studio (2.000 trang)',
+      nhan: laEn ? '💎 LEVEL 4 — STUDIO + API (RECOMMENDED)' : '💎 CẤP 4 — STUDIO + API (ĐỀ XUẤT)',
+      ten: laEn ? 'Studio + API (2,000 Pages)' : 'Gói Studio + API (2.000 trang)',
       giaVnd: 199000,
-      giaUsd: '9.99',
+      giaUsd: '14.99',
       chuKy: laEn ? 'never expires' : 'không hết hạn',
       soTrang: 2000,
       uocChap: '~100 chapters',
-      khuyenMai: laEn ? 'Save 74%' : 'Tiết kiệm 74%',
+      khuyenMai: laEn ? 'API + Best Value' : 'Đề xuất + Mở API',
       donGiaVnd: '99đ/trang',
-      donGiaUsd: '$0.005/page',
+      donGiaUsd: '$0.007/page',
       diemManh: laEn
         ? [
-            '2,000 permanent AI pages (~100 chapters) for teams & creators',
-            'All Pro features + Windows App Batch Crawler & Video Review Studio',
-            'Export high-res PNG/JPG, .CBZ, .ZIP & .PDF',
-            'Cross-chapter consistency & glossary checker',
+            '2,000 permanent AI pages (~100 chapters) for teams & developers',
+            '✅ Unlocks Personal Developer REST API Key (tr_live_...)',
+            '✅ Unlocks Layered Photoshop (.PSD) Export & Video Review Studio',
+            '✅ Priority Support + Cross-chapter Glossary consistency',
           ]
         : [
             '2.000 trang tích luỹ vĩnh viễn (~100 chapter) — chỉ 99đ/trang',
-            'Toàn bộ quyền lợi Pro + App Windows & Phần mềm Video Review',
-            'Xuất ảnh rời chất lượng cao, .CBZ, .ZIP & .PDF',
-            'Kiểm tra nhất quán thuật ngữ & xưng hô xuyên suốt các chương',
+            '✅ Mở khoá Khoá Developer REST API riêng (tr_live_...)',
+            '✅ Mở khoá Xuất file Photoshop (.PSD) tách lớp & Video Review Studio',
+            '✅ Hỗ trợ ưu tiên + Đồng bộ thuật ngữ xuyên suốt các chương',
           ],
       noiBat: true,
     },
     {
       ma: 'unlimited_plan',
       maNgan: 'UNLIMITED',
-      nhan: laEn ? '🏢 LEVEL 5 — UNLIMITED + API' : '🏢 CẤP 5 — UNLIMITED + CỔNG API',
-      ten: laEn ? 'Unlimited Pack (5,000 Pages + API)' : 'Gói Unlimited (5.000 trang + API)',
+      nhan: laEn ? '🏢 LEVEL 5 — PRO MAX / UNLIMITED API' : '🏢 CẤP 5 — UNLIMITED + FULL API PRO',
+      ten: laEn ? 'Unlimited API (5,000 Pages)' : 'Gói Unlimited (5.000 trang + API)',
       giaVnd: 399000,
-      giaUsd: '14.99',
+      giaUsd: '19.99',
       chuKy: laEn ? 'never expires' : 'không hết hạn',
       soTrang: 5000,
       uocChap: '~250 chapters',
-      khuyenMai: laEn ? 'API Included' : 'Kèm Cổng API',
+      khuyenMai: laEn ? 'Save 90% + Full API' : 'Full API + GPU VIP',
       donGiaVnd: '~79đ/trang',
-      donGiaUsd: '$0.003/page',
+      donGiaUsd: '$0.004/page',
       diemManh: laEn
         ? [
-            '5,000 permanent pages (~250 chapters — only $0.003/page)',
-            'Unlocks Personal Developer REST API Key (tr_live_...)',
-            'Unlocks Batch Chapter URL API (translate-chapter)',
-            '0.15s High-Speed Image Cache for Comic Websites & Tools',
+            '5,000 permanent pages (~250 chapters — only $0.004/page)',
+            '✅ Full Developer REST API Key (tr_live_...) + Highest GPU Priority',
+            '✅ Unlocks Batch Chapter URL API (translate-chapter, up to 100 ch)',
+            '✅ 0.15s High-Speed Image Cache + 1-on-1 Priority Engineering Support',
           ]
         : [
             '5.000 trang tích luỹ vĩnh viễn (~250 chapter — chỉ ~79đ/trang)',
-            'Tự động cấp Khoá Developer REST API riêng (tr_live_...)',
-            'Mở khoá API đẩy cả Chapter qua URL (translate-chapter)',
-            'Bộ nhớ đệm siêu tốc 0.15s cho Website truyện & Tool tự động',
+            '✅ Full Khoá Developer REST API (tr_live_...) + Luồng GPU VIP cao nhất',
+            '✅ Mở khoá API đẩy cả Chapter qua URL (translate-chapter, tới 100 chap)',
+            '✅ Bộ nhớ đệm siêu tốc 0.15s + Hỗ trợ kỹ thuật 1-1 ưu tiên',
           ],
       noiBat: true,
     },
   ]
 
-  const [goiDangChon, setGoiDangChon] = useState(DANH_SACH_GOI[2])
+  const [goiDangChon, setGoiDangChon] = useState(DANH_SACH_GOI[3])
 
   useEffect(() => {
-    setGoiDangChon(DANH_SACH_GOI[2])
+    setGoiDangChon(DANH_SACH_GOI[3])
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lang])
 
@@ -318,29 +315,13 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
         </h1>
         <p style={{ maxWidth: 820, margin: '0 auto 18px', fontSize: 15, color: '#cbd5e1', lineHeight: 1.6 }}>
           {laEn
-            ? '5 clear tiers by page volume & feature level (from $0.99 / 50 pages). Pages never expire overnight — only deducted when you translate. Instant 24/7 activation.'
-            : '5 gói nâng cấp rõ ràng theo Số Trang & Cấp Độ Tính Năng (từ 19.000đ / 50 trang). Lượt mua không bao giờ mất qua đêm — dùng hết mới cần nạp tiếp. Kích hoạt tự động 24/7.'}
+            ? '5 clear tiers by page volume & feature level (from $1.99 / 50 pages, API access from Studio $14.99+). Pages never expire overnight — only deducted when you translate. Instant 24/7 activation.'
+            : '5 gói nâng cấp rõ ràng theo Số Trang & Cấp Độ Tính Năng (hiển thị chuẩn Quốc tế USD, mở khoá Developer API từ gói Studio trở lên). Lượt mua không bao giờ mất qua đêm — kích hoạt tự động 24/7.'}
         </p>
 
-        {/* Thanh chuyển đổi Tiền tệ VNĐ vs USD */}
+        {/* Thanh chuyển đổi Tiền tệ: Ưu tiên USD ($ Global) đứng trước */}
         <div style={{ display: 'flex', justifyContent: 'center', gap: 14, flexWrap: 'wrap', alignItems: 'center' }}>
           <div style={{ display: 'inline-flex', background: 'rgba(2, 6, 23, 0.65)', padding: 4, borderRadius: 999, border: '1px solid rgba(148,163,184,0.3)' }}>
-            <button
-              type="button"
-              onClick={() => setTienTe('VND')}
-              style={{
-                border: 'none',
-                borderRadius: 999,
-                padding: '7px 14px',
-                fontSize: 13,
-                fontWeight: 800,
-                cursor: 'pointer',
-                background: tienTe === 'VND' ? '#38bdf8' : 'transparent',
-                color: tienTe === 'VND' ? '#0f172a' : '#e2e8f0',
-              }}
-            >
-              🇻🇳 VNĐ (VietQR)
-            </button>
             <button
               type="button"
               onClick={() => setTienTe('USD')}
@@ -356,6 +337,22 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
               }}
             >
               🌍 USD ($ Global)
+            </button>
+            <button
+              type="button"
+              onClick={() => setTienTe('VND')}
+              style={{
+                border: 'none',
+                borderRadius: 999,
+                padding: '7px 14px',
+                fontSize: 13,
+                fontWeight: 800,
+                cursor: 'pointer',
+                background: tienTe === 'VND' ? '#38bdf8' : 'transparent',
+                color: tienTe === 'VND' ? '#0f172a' : '#e2e8f0',
+              }}
+            >
+              🇻🇳 VNĐ (VietQR)
             </button>
           </div>
         </div>

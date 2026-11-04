@@ -483,13 +483,13 @@ async def tao_hoac_doi_api_key(
     from app.core.danh_tinh_khach import loi_can_nang_cap, tinh_cap_do
 
     cap = tinh_cap_do(nguoi)
-    if cap < 5:
+    if cap < 4:
         raise loi_can_nang_cap(
             cap_hien_tai=cap,
-            cap_yeu_cau=5,
+            cap_yeu_cau=4,
             tinh_nang="developer_api_key",
             thong_bao=(
-                "Tính năng tạo Developer API Key (tr_live_...) yêu cầu gói Unlimited (Cấp 5). "
+                "Tính năng tạo Developer API Key (tr_live_...) yêu cầu gói Studio (Cấp 4 — $14.99) hoặc Unlimited (Cấp 5 — $19.99) trở lên. "
                 "Vui lòng nâng cấp tại https://comic.io.vn/#bang-gia để mở khoá!"
             ),
         )

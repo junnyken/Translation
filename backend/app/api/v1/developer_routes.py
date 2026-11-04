@@ -245,21 +245,21 @@ async def _xac_thuc_developer(
             },
         )
 
-    # Nếu khách gọi bằng khoá cố định `tr_live_...` nhưng đã dùng hết sạch giỏ lượt gói Unlimited (Cấp 5)
-    # và chỉ nạp gói lẻ thấp (Trial 19k / Starter 49k), chặn ngay để chống lách luật duy trì API bằng gói rẻ.
+    # Nếu khách gọi bằng khoá cố định `tr_live_...` nhưng đã dùng hết sạch giỏ lượt gói Studio / Unlimited (Cấp 4–5)
+    # và chỉ nạp gói lẻ thấp (Trial / Starter / Pro), chặn ngay để chống lách luật duy trì API bằng gói rẻ.
     if ma and ma.startswith("tr_live_") and not getattr(nguoi, "la_quan_tri", False):
         from app.core.danh_tinh_khach import loi_can_nang_cap, tinh_cap_do
 
         cap_hien = tinh_cap_do(nguoi)
-        if cap_hien < 5:
+        if cap_hien < 4:
             raise loi_can_nang_cap(
                 cap_hien_tai=cap_hien,
-                cap_yeu_cau=5,
+                cap_yeu_cau=4,
                 tinh_nang="developer_api_key",
                 thong_bao=(
-                    "Số trang thuộc gói Unlimited (Cấp 5) của bạn đã dùng hết. "
-                    "Các gói thấp hơn (Trial / Starter / Pro) không áp dụng cho cổng Developer API (tr_live_...). "
-                    "Vui lòng gia hạn gói Unlimited tại https://comic.io.vn/#bang-gia"
+                    "Số trang thuộc gói Studio / Unlimited (Cấp 4–5) của bạn đã dùng hết. "
+                    "Các gói thấp hơn (Free / Trial / Lite / Pro) không áp dụng cho cổng Developer API (tr_live_...). "
+                    "Vui lòng nâng cấp hoặc gia hạn gói Studio ($14.99) hoặc Unlimited ($19.99) tại https://comic.io.vn/#bang-gia"
                 ),
             )
     return nguoi, ma or ""

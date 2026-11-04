@@ -603,35 +603,35 @@ def _danh_sach_goi_nap_chuan(don_gia: int) -> list[GoiNapLuotRead]:
             ten="🌱 Gói Mồi / Trial Pack (50 trang — Cấp 1)",
             so_tien_vnd=19000,
             so_trang=50,
-            ghi_chu="Gói trải nghiệm 19.000đ ($0.99) nhận 50 trang không hết hạn. Mở nâng nét & tẩy chữ tự động.",
+            ghi_chu="Gói trải nghiệm $1.99 (19.000đ) nhận 50 trang không hết hạn. Mở nâng nét & tẩy chữ tự động.",
         ),
         GoiNapLuotRead(
             ma="starter_monthly",
-            ten="⭐ Gói Starter (200 trang — Cấp 2)",
+            ten="⭐ Gói Lite / Starter (200 trang — Cấp 2)",
             so_tien_vnd=49000,
             so_trang=200,
-            ghi_chu="Gói Starter 49.000đ ($2.99) nhận 200 trang không hết hạn. Mở cào URL & từ điển nhân vật.",
+            ghi_chu="Gói Lite / Starter $4.99 (49.000đ) nhận 200 trang không hết hạn. Mở cào URL & từ điển nhân vật.",
         ),
         GoiNapLuotRead(
             ma="pro_monthly",
-            ten="🔥 Gói Pro Cày Truyện (600 trang — Cấp 3)",
+            ten="🔥 Gói Pro Reader (600 trang — Cấp 3)",
             so_tien_vnd=99000,
             so_trang=600,
-            ghi_chu="Gói Pro 99.000đ ($4.99) nhận 600 trang không hết hạn. Mở xuất ZIP/CBZ/PDF & dịch chương dài.",
+            ghi_chu="Gói Pro $9.99 (99.000đ) nhận 600 trang không hết hạn. Mở xuất ZIP/CBZ/PDF & dịch chương dài.",
         ),
         GoiNapLuotRead(
             ma="studio_monthly",
-            ten="💎 Gói Studio & Nhóm Dịch (2.000 trang — Cấp 4)",
+            ten="💎 Gói Studio + API (2.000 trang — Cấp 4)",
             so_tien_vnd=199000,
             so_trang=2000,
-            ghi_chu="Gói Studio 199.000đ ($9.99) nhận 2.000 trang không hết hạn. Mở xuất PSD & Video Review Studio.",
+            ghi_chu="Gói Studio $14.99 (199.000đ) nhận 2.000 trang không hết hạn. Mở Developer API Key (tr_live_...), xuất PSD & Video Review Studio.",
         ),
         GoiNapLuotRead(
             ma="unlimited_plan",
-            ten="🏢 Gói Unlimited + API (5.000 trang — Cấp 5)",
+            ten="🏢 Gói Unlimited + Full API (5.000 trang — Cấp 5)",
             so_tien_vnd=399000,
             so_trang=5000,
-            ghi_chu="Gói Unlimited 399.000đ ($14.99) nhận 5.000 trang không hết hạn kèm tự động cấp Developer API Key (tr_live_...).",
+            ghi_chu="Gói Unlimited $19.99 (399.000đ) nhận 5.000 trang không hết hạn kèm tự động cấp Developer API Key (tr_live_...) & luồng GPU VIP.",
         ),
         GoiNapLuotRead(
             ma="goi_moi",
@@ -819,16 +819,20 @@ def _tinh_goi_nap_tu_usd(so_usd: float, noi_dung: str = "") -> tuple[int, int, s
         return (5000, 1000000, "doanh_nghiep_api", "🏢 Gói 5.000 Trang + Cổng API (PayPal USD)")
     if so_usd >= 22.0:
         return (2000, 600000, "pack_2000", "🔥 Gói Tích Luỹ 2.000 Trang Vĩnh Viễn (PayPal USD)")
-    if so_usd >= 14.0:
+    if so_usd >= 18.5 or (so_usd >= 14.0 and "UNLIMITED" in nd_upper):
         return (5000, 399000, "unlimited_plan", "🏢 Gói Unlimited 5.000 trang + API (PayPal USD)")
-    if so_usd >= 9.5:
-        return (2000, 199000, "studio_monthly", "💎 Gói Studio 2.000 trang (PayPal USD)")
-    if so_usd >= 8.0:
-        return (550, 200000, "tieu_chuan", "🔥 Gói 550 Trang Vĩnh Viễn (PayPal USD)")
+    if so_usd >= 13.5 or (so_usd >= 9.5 and "STUDIO" in nd_upper):
+        return (2000, 199000, "studio_monthly", "💎 Gói Studio + API 2.000 trang (PayPal USD)")
+    if so_usd >= 8.5:
+        if "TIEU_CHUAN" in nd_upper or "550" in nd_upper:
+            return (550, 200000, "tieu_chuan", "🔥 Gói 550 Trang Vĩnh Viễn (PayPal USD)")
+        return (600, 99000, "pro_monthly", "🔥 Gói Pro Reader 600 trang (PayPal USD)")
     if so_usd >= 4.5:
-        return (600, 99000, "pro_monthly", "🔥 Gói Pro Cày Truyện 600 trang (PayPal USD)")
+        if "PRO" in nd_upper and so_usd < 6.0:
+            return (600, 99000, "pro_monthly", "🔥 Gói Pro Reader 600 trang (PayPal USD)")
+        return (200, 49000, "starter_monthly", "⭐ Gói Lite / Starter 200 trang (PayPal USD)")
     if so_usd >= 2.8:
-        return (200, 49000, "starter_monthly", "⭐ Gói Starter 200 trang (PayPal USD)")
+        return (200, 49000, "starter_monthly", "⭐ Gói Lite / Starter 200 trang (PayPal USD)")
     if so_usd >= 2.2:
         return (105, 50000, "co_ban", "🌱 Gói 105 Trang Vĩnh Viễn (PayPal USD)")
     if so_usd >= 0.8:
@@ -917,8 +921,8 @@ async def _tu_dong_cap_api_key_va_hoa_hong(
     except Exception:
         pass
 
-    # 1. Tự động tạo Developer API Key nếu nâng cấp gói Unlimited / 5000+ trang mà chưa có key
-    if so_trang_cong >= 5000 or ma_goi in ("unlimited_plan", "doanh_nghiep_api", "enterprise_scale"):
+    # 1. Tự động tạo Developer API Key nếu nâng cấp gói Studio (Cấp 4) hoặc Unlimited (Cấp 5) mà chưa có key
+    if so_trang_cong >= 1200 or ma_goi in ("studio_monthly", "pack_2000", "nhom_dich", "unlimited_plan", "doanh_nghiep_api", "enterprise_scale"):
         try:
             from app.services import tai_khoan as _tk_auto
 
