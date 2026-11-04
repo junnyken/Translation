@@ -517,9 +517,9 @@ void (async () => {
       const hGoc = Math.max(4, Math.min(H - yGoc, Math.round(v.h)))
       const canhDai = Math.max(wGoc, hGoc)
 
-      // Mở ROI đủ rộng quanh bbox chữ gốc để bao trọn cả các chữ cái/dấu câu/dòng cuối bị Gemini khoanh hụt 15-38%
-      const padCheX = Math.max(14, Math.min(48, Math.round(wGoc * 0.30)))
-      const padCheY = Math.max(16, Math.min(64, Math.round(hGoc * 0.38)))
+      // Mở ROI đủ rộng quanh bbox chữ gốc để bao trọn cả các chữ cái/dấu câu/dòng cuối bị Gemini khoanh hụt ("ness...", "Tenpai...", "k-", "be")
+      const padCheX = Math.max(24, Math.min(52, Math.round(wGoc * 0.44)))
+      const padCheY = Math.max(38, Math.min(68, Math.round(hGoc * 0.52)))
       const moX = Math.max(padCheX + 16, Math.min(Math.max(Math.round(canhDai * 0.85), Math.round(W * 0.09)), Math.round(W * 0.18)))
       const moY = Math.max(padCheY + 16, Math.min(Math.max(Math.round(canhDai * 0.95), Math.round(H * 0.10)), Math.round(H * 0.20)))
       let rx0 = Math.max(2, xGoc - moX)
@@ -1059,8 +1059,8 @@ void (async () => {
           lum3x3[pos] = tb
           // Tách biệt dứt khoát giữa Viền Halo Trắng Đặc và Hạt Cát Screentone:
           // - Khi không chạm nét chữ đen (`!coHatDen`): bắt buộc `tb >= 222 || demTrangLanCan >= 7` để loại trừ 100% chấm cát screentone.
-          // - Khi nằm sát cạnh nét chữ đen (`coHatDen === true`): 3-5 ô trong cửa sổ 3x3 là nét chữ đen, nên `demTrangLanCan >= 3` bắt trọn cả viền halo mảnh 2-3px!
-          if (lumPx[pos] >= 220 && satPx[pos] <= 45 && (tb >= 222 || demTrangLanCan >= 7)) {
+          // - Khi nằm sát cạnh nét chữ đen (`coHatDen === true`): 3-5 ô trong cửa sổ 3x3 là nét chữ đen, nên `demTrangLanCan >= 4` bắt trọn cả viền halo mảnh 2-3px!
+          if (lumPx[pos] >= 220 && satPx[pos] <= 45 && (tb >= 222 || demTrangLanCan >= 7 || (coHatDen && demTrangLanCan >= 4))) {
             laTrangDac[pos] = 1
           }
           if (
@@ -1126,7 +1126,66 @@ void (async () => {
       }
       const tyLeTrangDacTrongHop = demTrangDacTrongHop / dienTichHopGoc
 
-      // Lấy mẫu các điểm nền bên ngoài viền chữ để đo màu trung vị 3 kênh RGB, độ bão hoà màu nền & độ nhiễu hạt screentone
+      // Đánh dấu trước mảng tối đặc (`laMangToiDacPre`, bề dày >= 5px như tóc đen/bóng đổ lớn)
+      // và dải halo trắng mảnh (`laDaiTrangManh`, bề dày <= 9px) để tách biệt hoàn toàn với hành lang tường trắng kẻ sọc 1-2px:
+      const laMangToiDacPre = new Uint8Array(N)
+      for (let py = 0; py < rh; py += 1) {
+        const base = py * rw
+        for (let px = 0; px < rw; px += 1) {
+          const pos = base + px
+          if (lumPx[pos] <= 90) {
+            let dlT = 0, drT = 0, duT = 0, ddT = 0
+            while (dlT < 6 && px - dlT - 1 >= 0 && lumPx[pos - dlT - 1] <= 95) dlT += 1
+            while (drT < 6 && px + drT + 1 < rw && lumPx[pos + drT + 1] <= 95) drT += 1
+            while (duT < 6 && py - duT - 1 >= 0 && lumPx[pos - (duT + 1) * rw] <= 95) duT += 1
+            while (ddT < 6 && py + ddT + 1 < rh && lumPx[pos + (ddT + 1) * rw] <= 95) ddT += 1
+            if (Math.min(dlT + drT + 1, duT + ddT + 1) >= 5) laMangToiDacPre[pos] = 1
+          }
+        }
+      }
+      const laDaiTrangManh = new Uint8Array(N)
+      for (let py = 0; py < rh; py += 1) {
+        const base = py * rw
+        for (let px = 0; px < rw; px += 1) {
+          const pos = base + px
+          if (lumPx[pos] >= 195 && (lum3x3[pos] >= 190 || laTrangDac[pos]) && satPx[pos] <= 55) {
+            let dlW = 0, drW = 0, duW = 0, ddW = 0
+            while (dlW < 11 && px - dlW - 1 >= 0 && (lum3x3[pos - dlW - 1] >= 190 || laTrangDac[pos - dlW - 1]) && satPx[pos - dlW - 1] <= 55) dlW += 1
+            while (drW < 11 && px + drW + 1 < rw && (lum3x3[pos + drW + 1] >= 190 || laTrangDac[pos + drW + 1]) && satPx[pos + drW + 1] <= 55) drW += 1
+            while (duW < 11 && py - duW - 1 >= 0 && (lum3x3[pos - (duW + 1) * rw] >= 190 || laTrangDac[pos - (duW + 1) * rw]) && satPx[pos - (duW + 1) * rw] <= 55) duW += 1
+            while (ddW < 11 && py + ddW + 1 < rh && (lum3x3[pos + (ddW + 1) * rw] >= 190 || laTrangDac[pos + (ddW + 1) * rw]) && satPx[pos + (ddW + 1) * rw] <= 55) ddW += 1
+            const wTr = dlW + drW + 1
+            const hTr = duW + ddW + 1
+            if (Math.min(wTr, hTr) >= 2 && Math.min(wTr, hTr) <= 9 && Math.max(wTr, hTr) >= 4) {
+              if (Math.max(wTr, hTr) <= 15) {
+                laDaiTrangManh[pos] = 1
+              } else {
+                let ganMangToiHoacXam = false
+                for (let dM = 1; dM <= 7; dM += 1) {
+                  const nList = [
+                    px - dM >= 0 ? pos - dM : -1,
+                    px + dM < rw ? pos + dM : -1,
+                    py - dM >= 0 ? pos - dM * rw : -1,
+                    py + dM < rh ? pos + dM * rw : -1
+                  ]
+                  for (let k = 0; k < 4; k += 1) {
+                    const npM = nList[k]
+                    if (npM < 0) continue
+                    if (laMangToiDacPre[npM] || (lum3x3[npM] >= 90 && lum3x3[npM] <= 206 && !laToiNet[npM] && lumPx[npM] >= 85)) {
+                      ganMangToiHoacXam = true
+                      break
+                    }
+                  }
+                  if (ganMangToiHoacXam) break
+                }
+                if (ganMangToiHoacXam) laDaiTrangManh[pos] = 1
+              }
+            }
+          }
+        }
+      }
+
+      // Lấy mẫu các điểm nền trong phạm vi hộp chữ + vành đai 14px để đo màu trung vị 3 kênh RGB, độ bão hoà & độ nhiễu hạt screentone
       const dsLumNenThuc = []
       const dsTbNenThuc = []
       const dsRNenThuc = []
@@ -1135,14 +1194,18 @@ void (async () => {
       const dsSatNenThuc = []
       let tongContrastHat = 0
       let demContrastHat = 0
-      for (let py = ey0; py < ey1; py += 2) {
+      const ny0M = Math.max(0, cy0 - 14)
+      const ny1M = Math.min(rh, cy1 + 14)
+      const nx0M = Math.max(0, cx0 - 14)
+      const nx1M = Math.min(rw, cx1 + 14)
+      for (let py = ny0M; py < ny1M; py += 2) {
         const base = py * rw
-        for (let px = ex0; px < ex1; px += 2) {
+        for (let px = nx0M; px < nx1M; px += 2) {
           const pos = base + px
           if (vungBienBaoVe[pos]) continue
           const trongHop = px >= cx0 && px < cx1 && py >= cy0 && py < cy1
-          if (trongHop && (laTrangDac[pos] || laSangDac[pos] || laToiNet[pos] || laMauDamNet[pos])) continue
-          if (!trongHop && (laTrangDac[pos] || laSangDac[pos])) {
+          if (trongHop && (laToiNet[pos] || laMauDamNet[pos])) continue
+          if (laTrangDac[pos] || laSangDac[pos] || laDaiTrangManh[pos]) {
             let satNetToi = false
             for (let d = 1; d <= 5; d += 1) {
               if (
@@ -1155,7 +1218,7 @@ void (async () => {
                 break
               }
             }
-            if (satNetToi) continue
+            if (satNetToi && laDaiTrangManh[pos]) continue
           }
           const idx4 = pos * 4
           dsRNenThuc.push(data[idx4])
@@ -1180,13 +1243,13 @@ void (async () => {
       const lumNenTrungVi = dsLumNenThuc.length > 0 ? dsLumNenThuc[midNen] : bgLum
       const tbNenTrungVi = dsTbNenThuc.length > 0 ? dsTbNenThuc[midNen] : lumNenTrungVi
       const lumNenP30 = dsLumNenThuc.length > 0 ? dsLumNenThuc[Math.floor(dsLumNenThuc.length * 0.3)] : bgLum
+      const lumNenP10 = dsLumNenThuc.length > 0 ? dsLumNenThuc[Math.floor(dsLumNenThuc.length * 0.1)] : bgLum
       const rNenTrungVi = dsRNenThuc.length > 0 ? dsRNenThuc[midNen] : bgR
       const gNenTrungVi = dsGNenThuc.length > 0 ? dsGNenThuc[midNen] : bgG
       const bNenTrungVi = dsBNenThuc.length > 0 ? dsBNenThuc[midNen] : bgB
       const satNenTrungVi = dsSatNenThuc.length > 0 ? dsSatNenThuc[midNen] : (Math.max(bgR, bgG, bgB) - Math.min(bgR, bgG, bgB))
       const doNhieuHat = demContrastHat > 0 ? (tongContrastHat / demContrastHat) : 0
       const laNenMauThuc = (satNenTrungVi >= 18) || (Math.max(rNenTrungVi, gNenTrungVi, bNenTrungVi) - Math.min(rNenTrungVi, gNenTrungVi, bNenTrungVi) >= 18)
-      const laNenTrangPhang = !laNenMauThuc && lumNenTrungVi >= 234 && lumNenP30 >= 220
 
       // Sau khi đã biết màu nền thực sự `(rNenTrungVi, gNenTrungVi, bNenTrungVi)`,
       // đo đối xứng tỷ lệ Kẹp 2 Phía Đối Diện trên vùng màu để phân biệt chính xác Chữ tối + Halo trắng với Chữ sáng/màu + Halo đen:
@@ -1253,30 +1316,6 @@ void (async () => {
         tyLeNetTrenNenMau <= 0.52
       )
 
-      // Vùng chữ được xác nhận là Chữ Nổi Không Bong Bóng (`laChuNoiTrenNen = true`) khi:
-      // 1) Không phải bong bóng khép kín (`!laBongKhepKin`) và không phải nền bong bóng trắng phẳng (`!laNenTrangPhang`), VÀ
-      // 2) Có viền halo quanh chữ (thuận hoặc đảo) HOẶC là chữ nổi tương phản trên nền màu chuyển sắc (`laChuKhongVienTrenNenMau`), VÀ
-      // 3) Nền xung quanh không phải lòng giấy trắng phẳng (`tyLeTrangDacTrongHop < 0.64` hoặc `lumNenTrungVi < 224` hoặc `laNenMauThuc`...).
-      const laChuNoiTrenNen = (
-        !laBongKhepKin &&
-        !laNenTrangPhang &&
-        (tyLeCapHalo >= 0.20 || demTrangDacTrongHop >= dienTichHopGoc * 0.05 || laChuKhongVienTrenNenMau) &&
-        (tyLeTrangDacTrongHop < 0.64 || lumNenTrungVi < 224 || lumNenP30 < 210 || doNhieuHat >= 11.5 || nenToiThuc || laNenMauThuc)
-      )
-      const laDaoChieuHalo = (
-        laChuNoiTrenNen &&
-        laNenMauThuc &&
-        tyLeCapTrangToi > tyLeCapToiTrang * 1.15 &&
-        tyLeCapTrangToi >= 0.28 &&
-        lumNenTrungVi >= 48 &&
-        tyLeTrangDacTrongHop < 0.45
-      )
-      v._laChuNoiTrenNen = laChuNoiTrenNen
-      v._nenScreentone = laChuNoiTrenNen && !laNenMauThuc && (lumNenTrungVi >= 82)
-      v._nenMauChuNoi = laChuNoiTrenNen && laNenMauThuc
-      v._lumNenTrungVi = lumNenTrungVi
-      v._mauNenChuNoiCss = `rgb(${Math.round(rNenTrungVi)}, ${Math.round(gNenTrungVi)}, ${Math.round(bNenTrungVi)})`
-
       const ketNoiBienHop = new Uint8Array(N)
       dau = 0
       cuoi = 0
@@ -1305,23 +1344,155 @@ void (async () => {
             if (dx === 0 && dy === 0) continue
             const nx = px + dx
             if (nx < ex0 || nx >= ex1) continue
-            dayBienHop(baseY + nx)
+            const npk = baseY + nx
+            if (dx !== 0 && nx >= cx0 + 2 && nx < cx1 - 2 && ny >= cy0 + 6 && ny < cy1 - 6 && !laNenMask[npk]) {
+              let duP = 0, ddP = 0
+              while (duP < 18 && py - duP - 1 >= 0 && !laNenMask[pos - (duP + 1) * rw]) duP += 1
+              while (ddP < 18 && py + ddP + 1 < rh && !laNenMask[pos + (ddP + 1) * rw]) ddP += 1
+              if (duP + ddP + 1 >= 18) {
+                let duK = 0, ddK = 0
+                while (duK < 10 && ny - duK - 1 >= 0 && !laNenMask[npk - (duK + 1) * rw]) duK += 1
+                while (ddK < 10 && ny + ddK + 1 < rh && !laNenMask[npk + (ddK + 1) * rw]) ddK += 1
+                if (duK + ddK + 1 <= 7) {
+                  const trTren = (ny - duK - 1 >= 0 && lumPx[npk - (duK + 1) * rw] >= 220) || (ny - duK - 2 >= 0 && lumPx[npk - (duK + 2) * rw] >= 220)
+                  const trDuoi = (ny + ddK + 1 < rh && lumPx[npk + (ddK + 1) * rw] >= 220) || (ny + ddK + 2 < rh && lumPx[npk + (ddK + 2) * rw] >= 220)
+                  if (trTren && trDuoi) continue
+                }
+              }
+            }
+            dayBienHop(npk)
           }
         }
       }
+      let demNetXuyenHop = 0
+      const ix0K = Math.min(rw, Math.min(cx1, cx0 + Math.max(5, Math.round((cx1 - cx0) * 0.16))))
+      const ix1K = Math.min(rw, Math.max(ix0K, cx1 - Math.max(5, Math.round((cx1 - cx0) * 0.16))))
+      const iy0K = Math.min(rh, Math.min(cy1, cy0 + Math.max(5, Math.round((cy1 - cy0) * 0.16))))
+      const iy1K = Math.min(rh, Math.max(iy0K, cy1 - Math.max(5, Math.round((cy1 - cy0) * 0.16))))
+      for (let py = iy0K; py < iy1K; py += 1) {
+        const bK = py * rw
+        for (let px = ix0K; px < ix1K; px += 1) {
+          if (ketNoiBienHop[bK + px]) demNetXuyenHop += 1
+        }
+      }
+      let demKhongToiHop = 0
+      let demTrangTinhHop = 0
+      for (let py = cy0; py < cy1; py += 1) {
+        const bW = py * rw
+        for (let px = cx0; px < cx1; px += 1) {
+          const lw = lumPx[bW + px]
+          if (lw > 120) {
+            demKhongToiHop += 1
+            if (lw >= 240 && satPx[bW + px] <= 36) demTrangTinhHop += 1
+          }
+        }
+      }
+      const tyLeTrangTrenNenSang = demTrangTinhHop / Math.max(1, demKhongToiHop)
+      const laBongDaiHep = (
+        chamBien < Math.floor(chuVi * 0.08) &&
+        demLongTrang <= dienTichHopGoc * 1.75 &&
+        demNetXuyenHop < 10 &&
+        tyLeTrangDacTrongHop >= 0.62 &&
+        tyLeTrangTrenNenSang >= 0.84
+      )
+      const roRiBienThuc = !laBongDaiHep && roRiBien
+      const nguongTltBong = doNhieuHat >= 22 ? 0.84 : 0.78
+      const coNetTranhXuyenHop = !laBongKhepKin && ((roRiBienThuc && demNetXuyenHop >= 10) || demNetXuyenHop >= 24)
+      const laNenTrangPhang = (
+        !laNenMauThuc &&
+        !coNetTranhXuyenHop &&
+        lumNenTrungVi >= 234 &&
+        tyLeTrangTrenNenSang >= nguongTltBong &&
+        (
+          (lumNenP30 >= 218 && (lumNenP10 >= 205 || ((laBongKhepKin || !roRiBienThuc) && tyLeTrangDacTrongHop >= 0.48))) ||
+          ((laBongKhepKin || !roRiBienThuc) && tyLeTrangDacTrongHop >= 0.55) ||
+          (tyLeTrangTrenNenSang >= 0.83 && tyLeTrangDacTrongHop >= 0.55 && doNhieuHat < 18)
+        )
+      )
+
+      // Vùng chữ được xác nhận là Chữ Nổi Không Bong Bóng (`laChuNoiTrenNen = true`) khi:
+      // 1) Không phải bong bóng khép kín (`!laBongKhepKin`) và không phải nền bong bóng trắng phẳng (`!laNenTrangPhang`), VÀ
+      // 2) Có đường kẻ nền xuyên hộp (`coNetTranhXuyenHop`) hoặc viền halo quanh chữ (thuận/đảo) hoặc chữ nổi trên nền màu chuyển sắc (`laChuKhongVienTrenNenMau`).
+      const laBongKhepKinThuc = laBongKhepKin && (tyLeTrangTrenNenSang >= nguongTltBong) && (demNetXuyenHop < 10)
+      const laChuNoiTrenNen = (
+        !laBongKhepKinThuc &&
+        !laNenTrangPhang &&
+        (coNetTranhXuyenHop || tyLeCapHalo >= 0.20 || demTrangDacTrongHop >= dienTichHopGoc * 0.05 || laChuKhongVienTrenNenMau) &&
+        (coNetTranhXuyenHop || tyLeTrangDacTrongHop < 0.65 || lumNenTrungVi < 224 || lumNenP30 < 214 || lumNenP10 < 205 || doNhieuHat >= 8.5 || nenToiThuc || laNenMauThuc)
+      )
+      const laDaoChieuHalo = (
+        laChuNoiTrenNen &&
+        laNenMauThuc &&
+        tyLeCapTrangToi > tyLeCapToiTrang * 1.15 &&
+        tyLeCapTrangToi >= 0.28 &&
+        lumNenTrungVi >= 48 &&
+        tyLeTrangDacTrongHop < 0.45
+      )
+      v._laChuNoiTrenNen = laChuNoiTrenNen
+      v._nenScreentone = laChuNoiTrenNen && !laNenMauThuc && (lumNenTrungVi >= 82)
+      v._nenMauChuNoi = laChuNoiTrenNen && laNenMauThuc
+      v._lumNenTrungVi = lumNenTrungVi
+      v._mauNenChuNoiCss = `rgb(${Math.round(rNenTrungVi)}, ${Math.round(gNenTrungVi)}, ${Math.round(bNenTrungVi)})`
 
       const laChuGoc = new Uint8Array(N)
       const vungXoaChu = new Uint8Array(N)
       let zx0 = ex0, zy0 = ey0, zx1 = ex1, zy1 = ey1
 
       if (laChuNoiTrenNen) {
-        // === NHÁNH ĐA TÌNH HUỐNG CHO CHỮ NỔI KHÔNG BONG BÓNG (SCREENTONE / TÓC ĐEN / NỀN MÀU CÓ HALO / NỀN MÀU CHUYỂN SẮC) ===
+        // === NHÁNH ĐA TÌNH HUỐNG CHO CHỮ NỔI KHÔNG BONG BÓNG (SCREENTONE / TÓC ĐEN / TƯỜNG TRẮNG KẺ SỌC / NỀN HỖN HỢP / NỀN MÀU) ===
         const laLoiChu = new Uint8Array(N)
-        // Giới hạn vùng quét lõi chữ nằm gọn quanh hộp chữ gốc để không chạm vào cạnh quân mạt chược hay đường viền khung tranh kế bên!
-        const qx0 = Math.max(2, cx0 - 6)
-        const qy0 = Math.max(2, cy0 - 6)
-        const qx1 = Math.min(rw - 2, cx1 + 6)
-        const qy1 = Math.min(rh - 2, cy1 + 8)
+        const ungVienNet = new Uint8Array(N)
+        const netMongLoi = new Uint8Array(N)
+        let qx0 = Math.max(2, cx0 - Math.min(32, padCheX))
+        let qy0 = Math.max(2, cy0 - Math.min(38, padCheY))
+        let qx1 = Math.min(rw - 2, cx1 + Math.min(32, padCheX))
+        let qy1 = Math.min(rh - 2, cy1 + Math.min(58, padCheY))
+        // Cắt chặn `qx0, qy0, qx1, qy1` tại đường viền khung tranh (panel border) để tuyệt đối không tràn sang khung tranh kế bên:
+        const spanWB = Math.max(1, cx1 - cx0)
+        const spanHB = Math.max(1, cy1 - cy0)
+        for (let pyB = cy0 - 1; pyB >= qy0; pyB -= 1) {
+          const baseB = pyB * rw
+          let demToiB = 0
+          for (let pxB = cx0; pxB < cx1; pxB += 1) {
+            if (lumPx[baseB + pxB] <= 105) demToiB += 1
+          }
+          if (demToiB >= spanWB * 0.62) {
+            qy0 = Math.min(cy0, pyB + 2)
+            break
+          }
+        }
+        for (let pyB = cy1; pyB < qy1; pyB += 1) {
+          const baseB = pyB * rw
+          let demToiB = 0
+          for (let pxB = cx0; pxB < cx1; pxB += 1) {
+            if (lumPx[baseB + pxB] <= 105) demToiB += 1
+          }
+          if (demToiB >= spanWB * 0.62) {
+            qy1 = Math.max(cy1, pyB - 1)
+            break
+          }
+        }
+        for (let pxB = cx0 - 1; pxB >= qx0; pxB -= 1) {
+          let demToiB = 0
+          for (let pyB = cy0; pyB < cy1; pyB += 1) {
+            if (lumPx[pyB * rw + pxB] <= 105) demToiB += 1
+          }
+          if (demToiB >= spanHB * 0.62) {
+            qx0 = Math.min(cx0, pxB + 2)
+            break
+          }
+        }
+        for (let pxB = cx1; pxB < qx1; pxB += 1) {
+          let demToiB = 0
+          for (let pyB = cy0; pyB < cy1; pyB += 1) {
+            if (lumPx[pyB * rw + pxB] <= 105) demToiB += 1
+          }
+          if (demToiB >= spanHB * 0.62) {
+            qx1 = Math.max(cx1, pxB - 1)
+            break
+          }
+        }
+
         const laNenToiChuNoi = !laNenMauThuc && lumNenTrungVi < 82
 
         // Hàm kiểm tra điểm ứng viên Lõi chữ & Viền Halo theo từng kịch bản
@@ -1331,15 +1502,12 @@ void (async () => {
           const saiSoMed = Math.abs(data[i4] - rNenTrungVi) + Math.abs(data[i4 + 1] - gNenTrungVi) + Math.abs(data[i4 + 2] - bNenTrungVi)
           const saiSoRow = Math.abs(data[i4] - bgRowR[py]) + Math.abs(data[i4 + 1] - bgRowG[py]) + Math.abs(data[i4 + 2] - bgRowB[py])
           if (laDaoChieuHalo) {
-            // Chữ sáng/trắng hoặc chữ màu tươi có viền Halo tối: bắt buộc phải lệch màu rõ so với bầu trời màu!
             if (laTrangDac[pos]) return true
             return saiSoMed >= 62 && saiSoRow >= 52 && Boolean(laSangDac[pos] || (laMauDamNet[pos] && lumPx[pos] >= 115))
           }
           if (laChuKhongVienTrenNenMau && tyLeCapHalo < 0.20) {
-            // Chữ không viền trên nền màu chuyển sắc: lệch màu mạnh so với nền màu trung vị và hàng ngang
             return saiSoMed >= 58 && saiSoRow >= 48
           }
-          // Mặc định: Lõi tối (`laToiNet`) hoặc Lõi màu đậm lệch hẳn cả màu nền trung vị lẫn hàng ngang (chống nhận nhầm nền gradient)
           if (laToiNet[pos]) return true
           if (laNenMauThuc && laMauDamNet[pos]) {
             return saiSoMed >= 68 && saiSoRow >= 62
@@ -1354,98 +1522,296 @@ void (async () => {
           if (laNenToiChuNoi) {
             return Boolean(laTrangDac[pos] || (lumPx[pos] >= 145 && satPx[pos] <= 55))
           }
-          return Boolean(laTrangDac[pos] || (laNenMauThuc && laSangDac[pos]))
+          return Boolean(laTrangDac[pos] || laDaiTrangManh[pos] || (laNenMauThuc && laSangDac[pos]))
         }
 
-        for (let py = qy0; py < qy1; py += 1) {
+        const maxDayNet = Math.max(16, Math.min(32, Math.round(Math.min(wGoc, hGoc) * 0.24)))
+        const maxScanD = Math.max(28, maxDayNet + 4)
+        const BK_HALO = Math.max(10, Math.floor(maxDayNet / 2) + 4)
+        for (let py = 1; py < rh - 1; py += 1) {
           const base = py * rw
-          for (let px = qx0; px < qx1; px += 1) {
+          for (let px = 1; px < rw - 1; px += 1) {
             const pos = base + px
             if (vungBienBaoVe[pos] || !laUngVienLoi(pos)) continue
-
-            // Đo bề dày nét ứng viên theo chiều ngang & dọc qua `(px, py)` để loại trừ đường viền khung tranh dài hoặc mảng bóng đổ lớn
             let dL = 0, dR = 0, dU = 0, dD = 0
-            while (dL < 24 && px - dL - 1 >= 0 && laUngVienLoi(pos - dL - 1)) dL += 1
-            while (dR < 24 && px + dR + 1 < rw && laUngVienLoi(pos + dR + 1)) dR += 1
-            while (dU < 24 && py - dU - 1 >= 0 && laUngVienLoi(pos - (dU + 1) * rw)) dU += 1
-            while (dD < 24 && py + dD + 1 < rh && laUngVienLoi(pos + (dD + 1) * rw)) dD += 1
+            while (dL < maxScanD && px - dL - 1 >= 0 && laUngVienLoi(pos - dL - 1)) dL += 1
+            while (dR < maxScanD && px + dR + 1 < rw && laUngVienLoi(pos + dR + 1)) dR += 1
+            while (dU < maxScanD && py - dU - 1 >= 0 && laUngVienLoi(pos - (dU + 1) * rw)) dU += 1
+            while (dD < maxScanD && py + dD + 1 < rh && laUngVienLoi(pos + (dD + 1) * rw)) dD += 1
             const dayNgang = dL + dR + 1
             const dayDoc = dU + dD + 1
-            if (Math.min(dayNgang, dayDoc) > 15 || Math.max(dayNgang, dayDoc) >= 26) continue
+            if (Math.min(dayNgang, dayDoc) <= maxDayNet) {
+              netMongLoi[pos] = 1
+            }
+            if (px < qx0 || px >= qx1 || py < qy0 || py >= qy1) continue
+            if (Math.min(dayNgang, dayDoc) > maxDayNet || (Math.min(dayNgang, dayDoc) <= 3 && Math.max(dayNgang, dayDoc) >= 24)) continue
 
             if (laChuKhongVienTrenNenMau && tyLeCapHalo < 0.20) {
-              // Với chữ không viền trên nền màu chuyển sắc: chỉ lấy nét mảnh nằm trong vùng chữ và không thông ra biên ROI
               if (!ketNoiBienHop[pos] && Math.min(dayNgang, dayDoc) <= 13) {
-                laLoiChu[pos] = 1
-                laChuGoc[pos] = 1
+                ungVienNet[pos] = 1
               }
               continue
             }
 
-            // Kiểm tra cặp Halo kẹp 2 phía đối diện (Opposite-Side Sandwiching):
-            // Tránh tuyệt đối việc nhận nhầm đường viền khung tranh tiếp giáp rãnh trắng ở 1 phía!
-            const BK_HALO = 9
-            let hTrai = false, hPhai = false, hTren = false, hDuoi = false
-            let hCheo1 = false, hCheo2 = false, hCheo3 = false, hCheo4 = false
-            for (let d = 1; d <= BK_HALO; d += 1) {
-              if (!hTrai && px - d >= 0 && laUngVienHalo(pos - d)) hTrai = true
-              if (!hPhai && px + d < rw && laUngVienHalo(pos + d)) hPhai = true
-              if (!hTren && py - d >= 0 && laUngVienHalo(pos - d * rw)) hTren = true
-              if (!hDuoi && py + d < rh && laUngVienHalo(pos + d * rw)) hDuoi = true
-              if (!hCheo1 && px - d >= 0 && py - d >= 0 && laUngVienHalo(pos - d * rw - d)) hCheo1 = true
-              if (!hCheo2 && px + d < rw && py - d >= 0 && laUngVienHalo(pos - d * rw + d)) hCheo2 = true
-              if (!hCheo3 && px - d >= 0 && py + d < rh && laUngVienHalo(pos + d * rw - d)) hCheo3 = true
-              if (!hCheo4 && px + d < rw && py + d < rh && laUngVienHalo(pos + d * rw + d)) hCheo4 = true
-            }
-            const kepDoiDien = (
-              (dayNgang <= 15 && hTrai && hPhai) ||
-              (dayDoc <= 15 && hTren && hDuoi) ||
-              (hCheo1 && hCheo4) ||
-              (hCheo2 && hCheo3)
+            // Kiểm tra Halo 2px liên tiếp ngay sát rìa ngoài của nét chữ (1..3px tính từ mép nét dL, dR, dU, dD)
+            // để tuyệt đối không nhảy qua khe hở giữa 2 dòng chữ bắt nhầm nét gạch chéo / speedline nền:
+            const hTrai = (
+              dayNgang <= 36 &&
+              px - dL - 2 >= 0 &&
+              (
+                (laUngVienHalo(pos - dL - 1) && laUngVienHalo(pos - dL - 2)) ||
+                (px - dL - 3 >= 0 && laUngVienHalo(pos - dL - 2) && laUngVienHalo(pos - dL - 3))
+              )
             )
+            const hPhai = (
+              dayNgang <= 36 &&
+              px + dR + 2 < rw &&
+              (
+                (laUngVienHalo(pos + dR + 1) && laUngVienHalo(pos + dR + 2)) ||
+                (px + dR + 3 < rw && laUngVienHalo(pos + dR + 2) && laUngVienHalo(pos + dR + 3))
+              )
+            )
+            const hTren = (
+              dayDoc <= 42 &&
+              py - dU - 2 >= 0 &&
+              (
+                (laUngVienHalo(pos - (dU + 1) * rw) && laUngVienHalo(pos - (dU + 2) * rw)) ||
+                (py - dU - 3 >= 0 && laUngVienHalo(pos - (dU + 2) * rw) && laUngVienHalo(pos - (dU + 3) * rw))
+              )
+            )
+            const hDuoi = (
+              dayDoc <= 42 &&
+              py + dD + 2 < rh &&
+              (
+                (laUngVienHalo(pos + (dD + 1) * rw) && laUngVienHalo(pos + (dD + 2) * rw)) ||
+                (py + dD + 3 < rh && laUngVienHalo(pos + (dD + 2) * rw) && laUngVienHalo(pos + (dD + 3) * rw))
+              )
+            )
+            const kepDoiDien = (hTrai && hPhai) || (hTren && hDuoi)
             if (kepDoiDien) {
-              laLoiChu[pos] = 1
-              laChuGoc[pos] = 1
+              ungVienNet[pos] = 1
             }
           }
         }
 
-        // Lan truyền thêm 2 bước dọc theo nét chữ mảnh (`day <= 14px`) nối liền với `laLoiChu`
-        for (let buoc = 0; buoc < 2; buoc += 1) {
+        // Lan truyền 4 bước dọc theo nét chữ (`netMongLoi`) nối liền với `ungVienNet`
+        for (let buoc = 0; buoc < 4; buoc += 1) {
           for (let py = qy0; py < qy1; py += 1) {
             const base = py * rw
             for (let px = qx0; px < qx1; px += 1) {
               const pos = base + px
-              if (laLoiChu[pos] || !laUngVienLoi(pos) || vungBienBaoVe[pos]) continue
-              if (
-                laLoiChu[pos - 1] || laLoiChu[pos + 1] ||
-                laLoiChu[pos - rw] || laLoiChu[pos + rw]
-              ) {
-                let dL = 0, dR = 0, dU = 0, dD = 0
-                while (dL < 15 && px - dL - 1 >= 0 && laUngVienLoi(pos - dL - 1)) dL += 1
-                while (dR < 15 && px + dR + 1 < rw && laUngVienLoi(pos + dR + 1)) dR += 1
-                while (dU < 15 && py - dU - 1 >= 0 && laUngVienLoi(pos - (dU + 1) * rw)) dU += 1
-                while (dD < 15 && py + dD + 1 < rh && laUngVienLoi(pos + (dD + 1) * rw)) dD += 1
-                if (Math.min(dL + dR + 1, dU + dD + 1) <= 14) {
-                  laLoiChu[pos] = 1
-                  laChuGoc[pos] = 1
-                }
+              if (ungVienNet[pos] || !netMongLoi[pos] || vungBienBaoVe[pos]) continue
+              if (ungVienNet[pos - 1] || ungVienNet[pos + 1] || ungVienNet[pos - rw] || ungVienNet[pos + rw]) {
+                ungVienNet[pos] = 1
               }
             }
           }
         }
 
-        // Gom toàn bộ Viền Halo bao quanh `laLoiChu` trong bán kính 6px (chỉ trong vùng `qx0-4..qx1+4, qy0-4..qy1+4`)
-        const hx0 = Math.max(1, qx0 - 4)
-        const hy0 = Math.max(1, qy0 - 4)
-        const hx1 = Math.min(rw - 1, qx1 + 4)
-        const hy1 = Math.min(rh - 1, qy1 + 4)
-        dau = 0
-        cuoi = 0
-        const kcLoi = new Uint8Array(N)
+        // Phân tích thành phần liên thông 2D (8-connected CCA) trên `ungVienNet`
+        // kết hợp Mật độ nét trung bình (`rho = area / max(w, h)`) và Liên kết chuỗi Từ/Dòng (Word/Line Chaining):
+        const daDuyetComp = new Uint8Array(N)
+        const dsCompChu = []
+        const maxCompW = Math.max(56, Math.round(wGoc * 1.05))
+        const maxCompH = Math.max(56, Math.round(hGoc * 0.65))
+        const maxCompDt = Math.max(1450, Math.round(dienTichHopGoc * 0.46))
+
         for (let py = qy0; py < qy1; py += 1) {
           const base = py * rw
           for (let px = qx0; px < qx1; px += 1) {
+            const sPos = base + px
+            if (!ungVienNet[sPos] || daDuyetComp[sPos] || vungBienBaoVe[sPos]) continue
+            daDuyetComp[sPos] = 1
+            const pts = [sPos]
+            let cMinX = px, cMaxX = px, cMinY = py, cMaxY = py
+            let chamBienC = false
+            let demUv = 0
+            let headC = 0
+            while (headC < pts.length) {
+              const pC = pts[headC++]
+              if (ungVienNet[pC]) demUv += 1
+              const xc = pC % rw
+              const yc = (pC - xc) / rw
+              if (xc <= qx0 + 1 || xc >= qx1 - 2 || yc <= qy0 + 1 || yc >= qy1 - 2 || ketNoiBienHop[pC]) chamBienC = true
+              if (xc < cMinX) cMinX = xc
+              if (xc > cMaxX) cMaxX = xc
+              if (yc < cMinY) cMinY = yc
+              if (yc > cMaxY) cMaxY = yc
+              for (let dyC = -1; dyC <= 1; dyC += 1) {
+                const nyc = yc + dyC
+                if (nyc <= 0 || nyc >= rh - 1) continue
+                const nbc = nyc * rw
+                for (let dxC = -1; dxC <= 1; dxC += 1) {
+                  if (dxC === 0 && dyC === 0) continue
+                  const nxc = xc + dxC
+                  if (nxc <= 0 || nxc >= rw - 1) continue
+                  const npc = nbc + nxc
+                  if (ketNoiBienHop[npc]) chamBienC = true
+                  if (!daDuyetComp[npc] && ungVienNet[npc] && !vungBienBaoVe[npc]) {
+                    daDuyetComp[npc] = 1
+                    pts.push(npc)
+                  }
+                }
+              }
+            }
+            const cwC = cMaxX - cMinX + 1
+            const chC = cMaxY - cMinY + 1
+            const dtC = pts.length
+            const maxD = Math.max(cwC, chC)
+            const minD = Math.min(cwC, chC)
+            const rhoC = dtC / Math.max(1, maxD)
+            if (chamBienC || dtC > maxCompDt || cwC > maxCompW || chC > maxCompH) continue
+            if (cwC >= wGoc * 0.82 && chC >= hGoc * 0.72) continue
+            if (demUv < dtC * 0.35) continue
+            const laDauCauNho = (dtC >= 3 && maxD <= 11) || (cwC <= 22 && chC >= 2 && chC <= 8 && dtC >= 6)
+            const laChuIDoc = (cwC >= 1 && cwC <= 3 && chC >= 8 && chC <= 22 && dtC >= 8 && dtC >= chC * 0.75)
+            if (!laDauCauNho && !laChuIDoc) {
+              if (dtC < 9 || minD <= 2) continue
+              if (minD <= 4 && maxD >= 10 && rhoC < 2.20) continue
+              if (maxD >= 13 && rhoC < 1.95) continue
+            }
+
+            const trongHatGiong = (
+              dtC >= 18 &&
+              minD >= 4 &&
+              rhoC >= 2.10 &&
+              cMaxX >= cx0 - 8 &&
+              cMinX <= cx1 + 8 &&
+              cMaxY >= cy0 - 12 &&
+              cMinY <= cy1 + 12
+            )
+            dsCompChu.push({
+              pts,
+              x0: cMinX,
+              y0: cMinY,
+              x1: cMaxX,
+              y1: cMaxY,
+              w: cwC,
+              h: chC,
+              chon: trongHatGiong
+            })
+          }
+        }
+
+        let curX0 = cx0, curY0 = cy0, curX1 = cx1, curY1 = cy1
+        for (let i = 0; i < dsCompChu.length; i += 1) {
+          const c = dsCompChu[i]
+          if (c.chon) {
+            if (c.x0 < curX0) curX0 = c.x0
+            if (c.y0 < curY0) curY0 = c.y0
+            if (c.x1 > curX1) curX1 = c.x1
+            if (c.y1 > curY1) curY1 = c.y1
+          }
+        }
+        for (let iter = 0; iter < 4; iter += 1) {
+          let coThem = false
+          const daChon = dsCompChu.filter((c) => c.chon)
+          if (daChon.length === 0) break
+          for (let i = 0; i < dsCompChu.length; i += 1) {
+            const cUng = dsCompChu[i]
+            if (cUng.chon) continue
+            const ux0 = cUng.x0, uy0 = cUng.y0, ux1 = cUng.x1, uy1 = cUng.y1
+            let hopLeChain = false
+            for (let j = 0; j < daChon.length; j += 1) {
+              const cGoc = daChon[j]
+              const ax0 = cGoc.x0, ay0 = cGoc.y0, ax1 = cGoc.x1, ay1 = cGoc.y1
+              const giaoY = Math.min(uy1, ay1) - Math.max(uy0, ay0)
+              const kcX = Math.max(0, Math.max(ux0 - ax1, ax0 - ux1))
+              const kcY = Math.max(0, Math.max(uy0 - ay1, ay0 - uy1))
+              if (giaoY >= -2 && kcX <= 11 && uy0 >= curY0 - 16 && uy1 <= curY1 + 24) {
+                hopLeChain = true
+                break
+              }
+              if (kcY <= 18 && kcX <= 16 && ux0 >= curX0 - 14 && ux1 <= curX1 + 18) {
+                hopLeChain = true
+                break
+              }
+            }
+            if (hopLeChain) {
+              cUng.chon = true
+              if (ux0 < curX0) curX0 = ux0
+              if (uy0 < curY0) curY0 = uy0
+              if (ux1 > curX1) curX1 = ux1
+              if (uy1 > curY1) curY1 = uy1
+              coThem = true
+            }
+          }
+          if (!coThem) break
+        }
+
+        let hx0 = cx0, hy0 = cy0, hx1 = cx1, hy1 = cy1
+        let coCompChon = false
+        for (let i = 0; i < dsCompChu.length; i += 1) {
+          const c = dsCompChu[i]
+          if (!c.chon) continue
+          coCompChon = true
+          if (c.x0 < hx0) hx0 = c.x0
+          if (c.y0 < hy0) hy0 = c.y0
+          if (c.x1 + 1 > hx1) hx1 = c.x1 + 1
+          if (c.y1 + 1 > hy1) hy1 = c.y1 + 1
+          for (let k = 0; k < c.pts.length; k += 1) {
+            const pC = c.pts[k]
+            laLoiChu[pC] = 1
+            laChuGoc[pC] = 1
+          }
+        }
+        const choPhepCuuMangToi = Boolean(
+          !laNenMauThuc &&
+          (lumNenTrungVi < 212 || tyLeTrangDacTrongHop < 0.38 || doNhieuHat >= 18)
+        )
+        for (let pyFb = Math.max(2, cy0 - 4); pyFb < Math.min(rh - 2, cy1 + 4); pyFb += 1) {
+          const bFb = pyFb * rw
+          for (let pxFb = Math.max(2, cx0 - 4); pxFb < Math.min(rw - 2, cx1 + 4); pxFb += 1) {
+            const pFb = bFb + pxFb
+            if (!ungVienNet[pFb] || laLoiChu[pFb] || vungBienBaoVe[pFb]) continue
+            let chonFb = !coCompChon
+            if (!chonFb && choPhepCuuMangToi) {
+              let coHaloFb = false
+              let coToiFb = false
+              for (let dyF = -4; dyF <= 4; dyF += 1) {
+                const nyF = pyFb + dyF
+                if (nyF < 0 || nyF >= rh) continue
+                const nbF = nyF * rw
+                for (let dxF = -4; dxF <= 4; dxF += 1) {
+                  const nxF = pxFb + dxF
+                  if (nxF < 0 || nxF >= rw) continue
+                  const npF = nbF + nxF
+                  if (Math.abs(dxF) <= 3 && Math.abs(dyF) <= 3 && (laTrangDac[npF] || laDaiTrangManh[npF])) {
+                    coHaloFb = true
+                  }
+                  if (laMangToiDacPre[npF]) {
+                    coToiFb = true
+                  }
+                }
+                if (coHaloFb && coToiFb) break
+              }
+              chonFb = coHaloFb && coToiFb
+            }
+            if (chonFb) {
+              laLoiChu[pFb] = 1
+              laChuGoc[pFb] = 1
+              if (pxFb < hx0) hx0 = pxFb
+              if (pyFb < hy0) hy0 = pyFb
+              if (pxFb + 1 > hx1) hx1 = pxFb + 1
+              if (pyFb + 1 > hy1) hy1 = pyFb + 1
+            }
+          }
+        }
+        hx0 = Math.max(1, hx0 - 8)
+        hy0 = Math.max(1, hy0 - 8)
+        hx1 = Math.min(rw - 1, hx1 + 8)
+        hy1 = Math.min(rh - 1, hy1 + 8)
+        zx0 = Math.min(zx0, hx0)
+        zy0 = Math.min(zy0, hy0)
+        zx1 = Math.max(zx1, hx1)
+        zy1 = Math.max(zy1, hy1)
+
+        dau = 0
+        cuoi = 0
+        const kcLoi = new Uint8Array(N)
+        for (let py = hy0; py < hy1; py += 1) {
+          const base = py * rw
+          for (let px = hx0; px < hx1; px += 1) {
             const pos = base + px
             if (laLoiChu[pos]) {
               kcLoi[pos] = 1
@@ -1453,7 +1819,7 @@ void (async () => {
             }
           }
         }
-        const BK_VIEN_HALO = 6
+        const BK_VIEN_HALO = (doNhieuHat >= 14 && !laNenToiChuNoi && !laNenMauThuc && maxDayNet <= 20) ? 2 : (maxDayNet >= 22 ? 5 : 4)
         while (dau < cuoi) {
           const pos = hangDoi[dau++]
           const buocHienTai = kcLoi[pos]
@@ -1471,25 +1837,21 @@ void (async () => {
               const npos = nBase + nx
               if (kcLoi[npos] || vungBienBaoVe[npos]) continue
               let laDiemHalo = false
-              if (laNenToiChuNoi && !laDaoChieuHalo) {
-                // Trên nền tóc đen: gom cả quầng xám khử răng cưa (`lum >= max(30, lumNenTrungVi + 16)`) quanh viền halo trắng mảnh,
-                // đồng thời bảo vệ tuyệt đối vùng tai/mặt trắng lớn của nhân vật (`min(wS, hS) > 8`)!
-                const nguongSangNenToi = Math.max(30, lumNenTrungVi + 16)
-                if (lumPx[npos] >= nguongSangNenToi && satPx[npos] <= 55) {
-                  let dlS = 0, drS = 0, duS = 0, ddS = 0
-                  while (dlS < 10 && nx - dlS - 1 >= 0 && lumPx[nBase + nx - dlS - 1] >= 165) dlS += 1
-                  while (drS < 10 && nx + drS + 1 < rw && lumPx[nBase + nx + drS + 1] >= 165) drS += 1
-                  while (duS < 10 && ny - duS - 1 >= 0 && lumPx[(ny - duS - 1) * rw + nx] >= 165) duS += 1
-                  while (ddS < 10 && ny + ddS + 1 < rh && lumPx[(ny + ddS + 1) * rw + nx] >= 165) ddS += 1
-                  laDiemHalo = Math.min(dlS + drS + 1, duS + ddS + 1) <= 8
-                }
-              } else if (laDaoChieuHalo) {
+              if (laDaoChieuHalo) {
                 laDiemHalo = Boolean(laToiNet[npos] || (buocHienTai <= 4 && lumPx[npos] <= 115))
+              } else if (laNenToiChuNoi && !laNenMauThuc) {
+                const nguongSangNenToi = Math.max(30, lumNenTrungVi + 16)
+                laDiemHalo = Boolean(
+                  laDaiTrangManh[npos] ||
+                  laTrangDac[npos] ||
+                  (buocHienTai <= 2 && lumPx[npos] >= nguongSangNenToi && satPx[npos] <= 55)
+                )
               } else {
                 laDiemHalo = Boolean(
-                  laTrangDac[npos] ||
-                  (laNenMauThuc && laSangDac[npos]) ||
-                  (buocHienTai <= 3 && lumPx[npos] >= 216 && lum3x3[npos] >= 214 && (satPx[npos] <= 48 || laNenMauThuc))
+                  (laTrangDac[npos] && buocHienTai <= BK_VIEN_HALO) ||
+                  (laDaiTrangManh[npos] && buocHienTai <= (doNhieuHat >= 14 ? 3 : BK_VIEN_HALO)) ||
+                  (buocHienTai <= 2 && (laTrangDac[npos] || laSangDac[npos])) ||
+                  (laNenMauThuc && laSangDac[npos])
                 )
               }
               if (laDiemHalo) {
@@ -1503,9 +1865,9 @@ void (async () => {
 
         // Đo màu chữ gốc (`_mauChuGocCss`) & màu viền halo gốc (`_mauHaloGocCss`) để giữ nguyên phong cách màu sắc trên nền màu
         const dsRLoi = [], dsGLoi = [], dsBLoi = []
-        for (let py = cy0; py < cy1; py += 1) {
+        for (let py = hy0; py < hy1; py += 1) {
           const base = py * rw
-          for (let px = cx0; px < cx1; px += 1) {
+          for (let px = hx0; px < hx1; px += 1) {
             const pos = base + px
             if (!laLoiChu[pos]) continue
             const i4 = pos * 4
@@ -1528,39 +1890,43 @@ void (async () => {
           } else if (laNenMauThuc && satLoi >= 58) {
             v._mauChuGocCss = `rgb(${rLoi}, ${gLoi}, ${bLoi})`
             v._mauHaloGocCss = lumLoi >= 135 ? '#000000' : '#ffffff'
+          } else if (!laDaoChieuHalo && lumLoi <= 88 && demTrangDacTrongHop >= Math.max(18, Math.round(dienTichHopGoc * 0.04))) {
+            v._mauChuGocCss = '#0f172a'
+            v._mauHaloGocCss = '#ffffff'
           }
         }
 
-        // Nở nhẹ 2px quanh `laChuGoc` để xoá sạch viền khử răng cưa JPEG của halo mà không ăn rộng ra nền screentone/nền màu
-        for (let py = ey0; py < ey1; py += 1) {
+        // Nở nhẹ quanh `laChuGoc` để xoá sạch viền khử răng cưa JPEG của halo mà không ăn rộng ra nền screentone/nền màu
+        const maxR2Dil = (doNhieuHat >= 14 && !laNenToiChuNoi && !laNenMauThuc) ? 1 : 4
+        for (let py = zy0; py < zy1; py += 1) {
           const base = py * rw
-          for (let px = ex0; px < ex1; px += 1) {
+          for (let px = zx0; px < zx1; px += 1) {
             const pos = base + px
             if (!laChuGoc[pos]) continue
             vungXoaChu[pos] = 1
             for (let dy = -2; dy <= 2; dy += 1) {
               const ny = py + dy
-              if (ny < ey0 || ny >= ey1) continue
+              if (ny < zy0 || ny >= zy1) continue
               const nBase = ny * rw
               for (let dx = -2; dx <= 2; dx += 1) {
-                if (dx * dx + dy * dy > 5) continue
+                if (dx * dx + dy * dy > maxR2Dil) continue
                 const nx = px + dx
-                if (nx < ex0 || nx >= ex1) continue
+                if (nx < zx0 || nx >= zx1) continue
                 const npos = nBase + nx
                 if (vungBienBaoVe[npos]) continue
-                // Không nở đè vào bóng đen lớn của quân bài (điểm tối không phải lõi chữ cũng không phải halo tối)
-                if (!laDaoChieuHalo && laToiNet[npos] && !laLoiChu[npos] && lumPx[npos] < 95) continue
+                if (!laDaoChieuHalo && laToiNet[npos] && !laLoiChu[npos] && lumPx[npos] < 105) continue
                 vungXoaChu[npos] = 1
               }
             }
           }
         }
 
-        // Chỉ lấp các lỗ nhỏ bên trong bụng chữ cái ('O', 'P', 'a', 'e', '6', '3', 'B') có diện tích <= 90px
+        // Lấp các lỗ nhỏ bên trong bụng chữ cái ('O', 'P', 'a', 'e', '6', '3', 'B')
+        const maxLoBung = (doNhieuHat >= 14 && !laNenToiChuNoi && !laNenMauThuc) ? 68 : (maxDayNet >= 22 ? 160 : 95)
         const daDuyetLo = new Uint8Array(N)
-        for (let py = ey0 + 1; py < ey1 - 1; py += 1) {
+        for (let py = zy0 + 1; py < zy1 - 1; py += 1) {
           const base = py * rw
-          for (let px = ex0 + 1; px < ex1 - 1; px += 1) {
+          for (let px = zx0 + 1; px < zx1 - 1; px += 1) {
             const sPos = base + px
             if (vungXoaChu[sPos] || daDuyetLo[sPos] || vungBienBaoVe[sPos]) continue
             dau = 0
@@ -1568,18 +1934,136 @@ void (async () => {
             daDuyetLo[sPos] = 1
             hangDoi[cuoi++] = sPos
             let chamBien = false
+            let loX0 = px, loX1 = px, loY0 = py, loY1 = py
             while (dau < cuoi) {
               const p = hangDoi[dau++]
               const x = p % rw
               const y = (p - x) / rw
-              if (x <= ex0 + 1 || x >= ex1 - 2 || y <= ey0 + 1 || y >= ey1 - 2) chamBien = true
-              if (x > ex0 && !vungXoaChu[p - 1] && !daDuyetLo[p - 1]) { daDuyetLo[p - 1] = 1; hangDoi[cuoi++] = p - 1 }
-              if (x + 1 < ex1 && !vungXoaChu[p + 1] && !daDuyetLo[p + 1]) { daDuyetLo[p + 1] = 1; hangDoi[cuoi++] = p + 1 }
-              if (y > ey0 && !vungXoaChu[p - rw] && !daDuyetLo[p - rw]) { daDuyetLo[p - rw] = 1; hangDoi[cuoi++] = p - rw }
-              if (y + 1 < ey1 && !vungXoaChu[p + rw] && !daDuyetLo[p + rw]) { daDuyetLo[p + rw] = 1; hangDoi[cuoi++] = p + rw }
+              if (x < loX0) loX0 = x
+              if (x > loX1) loX1 = x
+              if (y < loY0) loY0 = y
+              if (y > loY1) loY1 = y
+              if (x <= zx0 + 1 || x >= zx1 - 2 || y <= zy0 + 1 || y >= zy1 - 2) chamBien = true
+              if (x > zx0 && !vungXoaChu[p - 1] && !daDuyetLo[p - 1]) { daDuyetLo[p - 1] = 1; hangDoi[cuoi++] = p - 1 }
+              if (x + 1 < zx1 && !vungXoaChu[p + 1] && !daDuyetLo[p + 1]) { daDuyetLo[p + 1] = 1; hangDoi[cuoi++] = p + 1 }
+              if (y > zy0 && !vungXoaChu[p - rw] && !daDuyetLo[p - rw]) { daDuyetLo[p - rw] = 1; hangDoi[cuoi++] = p - rw }
+              if (y + 1 < zy1 && !vungXoaChu[p + rw] && !daDuyetLo[p + rw]) { daDuyetLo[p + rw] = 1; hangDoi[cuoi++] = p + rw }
             }
-            if (!chamBien && cuoi <= 90) {
+            if (!chamBien && cuoi <= maxLoBung && (loX1 - loX0 + 1) <= 22 && (loY1 - loY0 + 1) <= 22) {
               for (let k = 0; k < cuoi; k += 1) vungXoaChu[hangDoi[k]] = 1
+            }
+          }
+        }
+
+        const laTuongTrangPre = Boolean(!laNenMauThuc && tyLeTrangDacTrongHop >= 0.38 && lumNenTrungVi >= 212 && doNhieuHat < 18)
+        for (let passS = 0; passS < 2; passS += 1) {
+          const snapXoa = new Uint8Array(vungXoaChu)
+          for (let pyS = Math.max(4, hy0); pyS < Math.min(rh - 4, hy1); pyS += 1) {
+            const baseS = pyS * rw
+            for (let pxS = Math.max(4, hx0); pxS < Math.min(rw - 4, hx1); pxS += 1) {
+              const posS = baseS + pxS
+              if (snapXoa[posS] || vungBienBaoVe[posS]) continue
+              const kepX4 = (snapXoa[posS - 1] || snapXoa[posS - 2] || snapXoa[posS - 3] || snapXoa[posS - 4]) &&
+                (snapXoa[posS + 1] || snapXoa[posS + 2] || snapXoa[posS + 3] || snapXoa[posS + 4])
+              const kepY4 = (snapXoa[posS - rw] || snapXoa[posS - 2 * rw] || snapXoa[posS - 3 * rw] || snapXoa[posS - 4 * rw]) &&
+                (snapXoa[posS + rw] || snapXoa[posS + 2 * rw] || snapXoa[posS + 3 * rw] || snapXoa[posS + 4 * rw])
+              const kepX7 = kepX4 || (
+                (snapXoa[posS - 5] || snapXoa[posS - 6] || snapXoa[posS - 7]) &&
+                (snapXoa[posS + 1] || snapXoa[posS + 2] || snapXoa[posS + 3] || snapXoa[posS + 4] || snapXoa[posS + 5] || snapXoa[posS + 6] || snapXoa[posS + 7])
+              ) || (
+                (snapXoa[posS - 1] || snapXoa[posS - 2] || snapXoa[posS - 3] || snapXoa[posS - 4]) &&
+                (snapXoa[posS + 5] || snapXoa[posS + 6] || snapXoa[posS + 7])
+              )
+              const kepY7 = kepY4 || (
+                (snapXoa[posS - 5 * rw] || snapXoa[posS - 6 * rw] || snapXoa[posS - 7 * rw]) &&
+                (snapXoa[posS + rw] || snapXoa[posS + 2 * rw] || snapXoa[posS + 3 * rw] || snapXoa[posS + 4 * rw] || snapXoa[posS + 5 * rw] || snapXoa[posS + 6 * rw] || snapXoa[posS + 7 * rw])
+              ) || (
+                (snapXoa[posS - rw] || snapXoa[posS - 2 * rw] || snapXoa[posS - 3 * rw] || snapXoa[posS - 4 * rw]) &&
+                (snapXoa[posS + 5 * rw] || snapXoa[posS + 6 * rw] || snapXoa[posS + 7 * rw])
+              )
+              if (
+                (kepX7 && kepY7) ||
+                (!laTuongTrangPre && (kepX4 || kepY4) && (lumPx[posS] <= 135 || laTrangDac[posS] || laSangDac[posS] || laDaiTrangManh[posS]))
+              ) {
+                vungXoaChu[posS] = 1
+              }
+            }
+          }
+        }
+
+        // Hấp thụ phần lõi mực đen dày còn sót bên trong chữ in đậm lớn ("BUT WHAT A MIRROR SHOWED HIM!!", "3-Sou", "NOOOOOO!!")
+        const daDuyetLoiDam = new Uint8Array(N)
+        const maxLoiDam = Math.max(850, Math.round(dienTichHopGoc * 0.08))
+        for (let py = qy0 + 1; py < qy1 - 1; py += 1) {
+          const base = py * rw
+          for (let px = qx0 + 1; px < qx1 - 1; px += 1) {
+            const sPos = base + px
+            if (vungXoaChu[sPos] || daDuyetLoiDam[sPos] || lumPx[sPos] > 102) continue
+            dau = 0
+            cuoi = 0
+            daDuyetLoiDam[sPos] = 1
+            hangDoi[cuoi++] = sPos
+            let chamBienToi = false
+            let chamXoaToi = false
+            let chamLoiToi = false
+            let vienXoaToi = 0
+            let vienNenToi = 0
+            while (dau < cuoi) {
+              const pT = hangDoi[dau++]
+              const xt = pT % rw
+              const yt = (pT - xt) / rw
+              if (xt <= qx0 + 1 || xt >= qx1 - 2 || yt <= qy0 + 1 || yt >= qy1 - 2 || ketNoiBienHop[pT]) chamBienToi = true
+              for (let dyT = -1; dyT <= 1; dyT += 1) {
+                const nyt = yt + dyT
+                if (nyt <= 0 || nyt >= rh - 1) continue
+                const nbt = nyt * rw
+                for (let dxT = -1; dxT <= 1; dxT += 1) {
+                  if (dxT === 0 && dyT === 0) continue
+                  const nxt = xt + dxT
+                  if (nxt <= 0 || nxt >= rw - 1) continue
+                  const npt = nbt + nxt
+                  if (vungXoaChu[npt]) {
+                    chamXoaToi = true
+                    vienXoaToi += 1
+                    if (laLoiChu[npt]) chamLoiToi = true
+                  } else if (!daDuyetLoiDam[npt]) {
+                    if (lumPx[npt] <= 102) {
+                      daDuyetLoiDam[npt] = 1
+                      hangDoi[cuoi++] = npt
+                    } else {
+                      vienNenToi += 1
+                    }
+                  }
+                }
+              }
+            }
+            if (
+              !chamBienToi &&
+              chamXoaToi &&
+              chamLoiToi &&
+              vienXoaToi >= (vienXoaToi + vienNenToi) * 0.80 &&
+              cuoi <= maxLoiDam
+            ) {
+              for (let k = 0; k < cuoi; k += 1) {
+                const pT = hangDoi[k]
+                if (vungBienBaoVe[pT]) continue
+                vungXoaChu[pT] = 1
+                const xt = pT % rw
+                const yt = (pT - xt) / rw
+                for (let dyN = -2; dyN <= 2; dyN += 1) {
+                  const nyn = yt + dyN
+                  if (nyn <= 1 || nyn >= rh - 2) continue
+                  const nbn = nyn * rw
+                  for (let dxN = -2; dxN <= 2; dxN += 1) {
+                    const nxn = xt + dxN
+                    if (nxn <= 1 || nxn >= rw - 2) continue
+                    const npn = nbn + nxn
+                    if (!vungBienBaoVe[npn] && (laTrangDac[npn] || laSangDac[npn] || lumPx[npn] <= 125)) {
+                      vungXoaChu[npn] = 1
+                    }
+                  }
+                }
+              }
             }
           }
         }
@@ -1946,78 +2430,288 @@ void (async () => {
       const outData = outImg.data
 
       if (laChuNoiTrenNen) {
-        // Tái tạo nền Screentone / Tóc đen / Nền Màu đa hướng + Giữ nguyên pha hạt chấm bi (Halftone Phase Cloning cho nền cát):
-        // Tuyệt đối không dùng màu trắng `bgRowR/G/B` (255,255,255) vốn tạo ra mảng trắng đục xoá mất nền tranh màu hoặc nền cát!
+        // Tái tạo nền Đa Hướng Phân Cụm Cục Bộ (Mode-Consistent 4-Directional Ray Reconstruction + Halftone Phase Cloning):
+        // - Tự động thích ứng từng điểm ảnh trên hộp hỗn hợp (nửa Tường trắng kẻ sọc + nửa Tóc đen hoặc Screentone + Tóc đen).
+        // - Không bao giờ lấy mẫu đường kẻ tường 1-4px làm nhòe nền trắng, và không bao giờ lấy mẫu viền halo trắng mảnh (`laDaiTrangManh`).
         const laNenToiChuNoi = !laNenMauThuc && lumNenTrungVi < 82
-        const laVachChanTia = (pos) => {
-          if (!laNenToiChuNoi && lum3x3[pos] < 68 && lumNenTrungVi >= 95) return true
-          return false
-        }
-        const laDiemNenSach = (pos) => {
-          if (pos < 0 || pos >= N || vungXoaChu[pos]) return false
-          if (laNenToiChuNoi) {
-            // Trên nền tóc đen: chỉ lấy mẫu nền tóc tối (`lum <= 85`), không lấy mẫu vào các sợi bóng tóc trắng!
-            return lumPx[pos] <= 85
+        const laMangToiDac = new Uint8Array(N)
+        const daDuyetMangToi = new Uint8Array(N)
+        for (let py = 0; py < rh; py += 1) {
+          const base = py * rw
+          for (let px = 0; px < rw; px += 1) {
+            const sPos = base + px
+            if (vungXoaChu[sPos] || daDuyetMangToi[sPos] || lumPx[sPos] > 102) continue
+            dau = 0
+            cuoi = 0
+            daDuyetMangToi[sPos] = 1
+            hangDoi[cuoi++] = sPos
+            let chamBienToi = false
+            while (dau < cuoi) {
+              const pT = hangDoi[dau++]
+              const xt = pT % rw
+              const yt = (pT - xt) / rw
+              if (xt <= 2 || xt >= rw - 3 || yt <= 2 || yt >= rh - 3 || ketNoiBienHop[pT]) chamBienToi = true
+              for (let dyT = -1; dyT <= 1; dyT += 1) {
+                const nyt = yt + dyT
+                if (nyt < 0 || nyt >= rh) continue
+                const nbt = nyt * rw
+                for (let dxT = -1; dxT <= 1; dxT += 1) {
+                  if (dxT === 0 && dyT === 0) continue
+                  const nxt = xt + dxT
+                  if (nxt < 0 || nxt >= rw) continue
+                  const npt = nbt + nxt
+                  if (!vungXoaChu[npt] && !daDuyetMangToi[npt] && lumPx[npt] <= 102) {
+                    daDuyetMangToi[npt] = 1
+                    hangDoi[cuoi++] = npt
+                  }
+                }
+              }
+            }
+            if (cuoi >= 650 || (chamBienToi && cuoi >= 180)) {
+              for (let k = 0; k < cuoi; k += 1) {
+                const pos = hangDoi[k]
+                if (lumPx[pos] <= 90 && !vungXoaChu[pos]) {
+                  const xt = pos % rw
+                  const yt = (pos - xt) / rw
+                  let dlT = 0, drT = 0, duT = 0, ddT = 0
+                  let dlR = 0, drR = 0, duR = 0, ddR = 0
+                  while (dlR < 5 && xt - dlR - 1 >= 0 && lumPx[pos - dlR - 1] <= 95 && !vungXoaChu[pos - dlR - 1]) dlR += 1
+                  while (drR < 5 && xt + drR + 1 < rw && lumPx[pos + drR + 1] <= 95 && !vungXoaChu[pos + drR + 1]) drR += 1
+                  while (duR < 5 && yt - duR - 1 >= 0 && lumPx[pos - (duR + 1) * rw] <= 95 && !vungXoaChu[pos - (duR + 1) * rw]) duR += 1
+                  while (ddR < 5 && yt + ddR + 1 < rh && lumPx[pos + (ddR + 1) * rw] <= 95 && !vungXoaChu[pos + (ddR + 1) * rw]) ddR += 1
+                  while (dlT < 6 && xt - dlT - 1 >= 0 && (lumPx[pos - dlT - 1] <= 95 || vungXoaChu[pos - dlT - 1])) dlT += 1
+                  while (drT < 6 && xt + drT + 1 < rw && (lumPx[pos + drT + 1] <= 95 || vungXoaChu[pos + drT + 1])) drT += 1
+                  while (duT < 6 && yt - duT - 1 >= 0 && (lumPx[pos - (duT + 1) * rw] <= 95 || vungXoaChu[pos - (duT + 1) * rw])) duT += 1
+                  while (ddT < 6 && yt + ddT + 1 < rh && (lumPx[pos + (ddT + 1) * rw] <= 95 || vungXoaChu[pos + (ddT + 1) * rw])) ddT += 1
+                  const wR = dlR + drR + 1
+                  const hR = duR + ddR + 1
+                  if ((dlT + drT + 1) >= 5 && (duT + ddT + 1) >= 5 && Math.min(wR, hR) >= 3 && Math.max(wR, hR) >= 5) laMangToiDac[pos] = 1
+                }
+              }
+            }
           }
-          if (!laDaoChieuHalo && (laTrangDac[pos] || (laNenMauThuc && laSangDac[pos])) && lumNenTrungVi < 218) return false
-          if (!laNenToiChuNoi && tbNenTrungVi >= 95) {
-            if (lum3x3[pos] < 85 || Math.abs(lum3x3[pos] - tbNenTrungVi) > 48) return false
+        }
+        for (let idx = 0; idx < N; idx += 1) {
+          if (laMangToiDacPre[idx] && !vungXoaChu[idx]) laMangToiDac[idx] = 1
+        }
+        // Hấp thụ nốt mọi mảnh viền halo trắng (`lum >= 180`) còn sót nằm kẹp cô lập
+        // giữa `vungXoaChu` và mảng tóc đen `laMangToiDac` (không chạm biên ROI, diện tích <= 95px):
+        const daDuyetRem = new Uint8Array(N)
+        for (let py = 2; py < rh - 2; py += 1) {
+          const base = py * rw
+          for (let px = 2; px < rw - 2; px += 1) {
+            const sPos = base + px
+            if (vungXoaChu[sPos] || laMangToiDac[sPos] || daDuyetRem[sPos] || vungBienBaoVe[sPos] || lumPx[sPos] < 180) continue
+            dau = 0
+            cuoi = 0
+            daDuyetRem[sPos] = 1
+            hangDoi[cuoi++] = sPos
+            let chamBienRem = false
+            let chamXoaRem = false
+            let chamToiRem = false
+            while (dau < cuoi) {
+              const pR = hangDoi[dau++]
+              const xr = pR % rw
+              const yr = (pR - xr) / rw
+              if (xr <= zx0 + 1 || xr >= zx1 - 2 || yr <= zy0 + 1 || yr >= zy1 - 2) chamBienRem = true
+              for (let dyR = -1; dyR <= 1; dyR += 1) {
+                const nyr = yr + dyR
+                if (nyr <= 0 || nyr >= rh - 1) continue
+                const nbr = nyr * rw
+                for (let dxR = -1; dxR <= 1; dxR += 1) {
+                  if (dxR === 0 && dyR === 0) continue
+                  const nxr = xr + dxR
+                  if (nxr <= 0 || nxr >= rw - 1) continue
+                  const npr = nbr + nxr
+                  if (vungXoaChu[npr]) chamXoaRem = true
+                  if (laMangToiDac[npr]) chamToiRem = true
+                  if (!vungXoaChu[npr] && !laMangToiDac[npr] && !daDuyetRem[npr] && !vungBienBaoVe[npr] && lumPx[npr] >= 180) {
+                    daDuyetRem[npr] = 1
+                    hangDoi[cuoi++] = npr
+                  }
+                }
+              }
+            }
+            if (!chamBienRem && chamXoaRem && chamToiRem && cuoi <= 95) {
+              for (let k = 0; k < cuoi; k += 1) {
+                const pR = hangDoi[k]
+                vungXoaChu[pR] = 1
+                const xr = pR % rw
+                const yr = (pR - xr) / rw
+                if (xr < minX) minX = xr
+                if (xr + 1 > maxX) maxX = xr + 1
+                if (yr < minY) minY = yr
+                if (yr + 1 > maxY) maxY = yr + 1
+              }
+            }
+          }
+        }
+        const laTuongTrangSach = !laNenMauThuc && tyLeTrangDacTrongHop >= 0.38 && lumNenTrungVi >= 212 && doNhieuHat < 18
+        const laDiemNenSach = (pos, dxR = 0, dyR = 0) => {
+          if (pos < 0 || pos >= N || vungXoaChu[pos]) return false
+          const pxS = pos % rw
+          const pyS = (pos - pxS) / rw
+          if (!laDaoChieuHalo && lumPx[pos] >= 185) {
+            if (
+              (pxS > 0 && vungXoaChu[pos - 1]) ||
+              (pxS + 1 < rw && vungXoaChu[pos + 1]) ||
+              (pyS > 0 && vungXoaChu[pos - rw]) ||
+              (pyS + 1 < rh && vungXoaChu[pos + rw])
+            ) {
+              return false
+            }
+          }
+          if (!laDaoChieuHalo && laDaiTrangManh[pos]) {
+            if (laTuongTrangSach || kcLoi[pos] > 0) return false
+            if (
+              (pxS > 1 && vungXoaChu[pos - 2]) ||
+              (pxS + 2 < rw && vungXoaChu[pos + 2]) ||
+              (pyS > 1 && vungXoaChu[pos - 2 * rw]) ||
+              (pyS + 2 < rh && vungXoaChu[pos + 2 * rw]) ||
+              (pxS > 0 && pyS > 0 && vungXoaChu[pos - rw - 1]) ||
+              (pxS + 1 < rw && pyS > 0 && vungXoaChu[pos - rw + 1]) ||
+              (pxS > 0 && pyS + 1 < rh && vungXoaChu[pos + rw - 1]) ||
+              (pxS + 1 < rw && pyS + 1 < rh && vungXoaChu[pos + rw + 1])
+            ) {
+              return false
+            }
+          }
+          if (!laDaoChieuHalo && laNenMauThuc && laSangDac[pos] && lumNenTrungVi < 218) return false
+          if (lumPx[pos] <= 90 && !laNenMauThuc) {
+            if (laMangToiDac[pos]) {
+              if (dxR !== 0 || dyR !== 0) {
+                const nxM = pxS + dxR
+                const nyM = pyS + dyR
+                if (nxM >= 0 && nxM < rw && nyM >= 0 && nyM < rh && !laMangToiDac[nyM * rw + nxM]) return false
+              }
+              return true
+            }
+            if (dyR !== 0 && dxR === 0 && tyLeTrangDacTrongHop < 0.42 && lumNenP30 < 205) {
+              let dlV = 0, drV = 0, duV = 0, ddV = 0
+              while (dlV < 6 && pxS - dlV - 1 >= 0 && lumPx[pos - dlV - 1] <= 105) dlV += 1
+              while (drV < 6 && pxS + drV + 1 < rw && lumPx[pos + drV + 1] <= 105) drV += 1
+              if (dlV + drV + 1 <= 5) {
+                while (duV < 12 && pyS - duV - 1 >= 0 && !vungXoaChu[pos - (duV + 1) * rw] && lumPx[pos - (duV + 1) * rw] <= 105) duV += 1
+                while (ddV < 12 && pyS + ddV + 1 < rh && !vungXoaChu[pos + (ddV + 1) * rw] && lumPx[pos + (ddV + 1) * rw] <= 105) ddV += 1
+                if (duV + ddV + 1 >= 9) return true
+              }
+            }
+            return false
+          }
+          if (!laNenMauThuc && lumPx[pos] < 228) {
+            if (
+              (pxS > 0 && laMangToiDac[pos - 1]) ||
+              (pxS + 1 < rw && laMangToiDac[pos + 1]) ||
+              (pyS > 0 && laMangToiDac[pos - rw]) ||
+              (pyS + 1 < rh && laMangToiDac[pos + rw])
+            ) {
+              return false
+            }
+          }
+          if (laTuongTrangSach && lumPx[pos] < 236) {
+            if (
+              (pxS > 0 && laToiNet[pos - 1] && !laMangToiDac[pos - 1]) ||
+              (pxS + 1 < rw && laToiNet[pos + 1] && !laMangToiDac[pos + 1]) ||
+              (pyS > 0 && laToiNet[pos - rw] && !laMangToiDac[pos - rw]) ||
+              (pyS + 1 < rh && laToiNet[pos + rw] && !laMangToiDac[pos + rw])
+            ) {
+              return false
+            }
           }
           if (laDaoChieuHalo && laToiNet[pos] && lumPx[pos] <= 95 && lumNenTrungVi > 110) return false
           return true
         }
+        const HUONG = [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [1, -1], [-1, 1], [1, 1]]
+        const maxTiaStep = Math.max(96, Math.min(140, Math.max(rw, rh)))
+        const nChe = cwChe * chChe
+        const rBuf = new Int16Array(nChe)
+        const gBuf = new Int16Array(nChe)
+        const bBuf = new Int16Array(nChe)
+        const rSangFb = new Int16Array(nChe).fill(-1)
+        const gSangFb = new Int16Array(nChe).fill(-1)
+        const bSangFb = new Int16Array(nChe).fill(-1)
+        const cumToiMask = new Uint8Array(nChe)
         for (let py = 0; py < chChe; py += 1) {
           const roiY = minY + py
           const baseY = roiY * rw
+          const phaY = roiY & 3
           for (let px = 0; px < cwChe; px += 1) {
             const roiX = minX + px
             const pos = baseY + roiX
             if (!vungXoaChu[pos]) continue
 
-            let sumW = 0, sumR = 0, sumG = 0, sumB = 0
+            let wSang = 0, rSang = 0, gSang = 0, bSang = 0
+            let wToi = 0, rToi = 0, gToi = 0, bToi = 0
+            const tiaToi = [false, false, false, false, false, false, false, false]
             let mauPhaR = -1, mauPhaG = -1, mauPhaB = -1, kcPhaTot = 999
             const phaX = roiX & 3
-            const phaY = roiY & 3
 
-            // Dò 4 hướng (Trái, Phải, Trên, Dưới) ra ngoài biên `vungXoaChu` để lấy mẫu nền thật sự ngay sát viền halo
-            const HUONG = [[-1, 0], [1, 0], [0, -1], [0, 1]]
-            for (let hIdx = 0; hIdx < 4; hIdx += 1) {
+            for (let hIdx = 0; hIdx < 8; hIdx += 1) {
               const dx = HUONG[hIdx][0]
               const dy = HUONG[hIdx][1]
-              for (let d = 2; d <= 34; d += 1) {
+              const heSoCheo = (dx !== 0 && dy !== 0) ? 1.4142 : 1.0
+              let daQuaVungTrang = false
+              for (let d = 2; d < maxTiaStep; d += 1) {
                 const nx = roiX + dx * d
                 const ny = roiY + dy * d
-                if (nx < 0 || nx >= rw || ny < 0 || ny >= rh) break
+                if (nx < zx0 - 2 || nx >= zx1 + 2 || ny < zy0 - 2 || ny >= zy1 + 2) break
                 const npos = ny * rw + nx
-                if (!vungXoaChu[npos] && laVachChanTia(npos)) break
-                if (!laDiemNenSach(npos)) continue
-                // Lấy trung bình 2 điểm liên tiếp ngoài biên để ổn định màu nền cơ sở
-                const npos2 = (nx + dx >= 0 && nx + dx < rw && ny + dy >= 0 && ny + dy < rh && laDiemNenSach((ny + dy) * rw + (nx + dx)))
+                if (!vungXoaChu[npos] && lumPx[npos] >= 210 && (laTuongTrangSach || !laDaiTrangManh[npos])) daQuaVungTrang = true
+                if (daQuaVungTrang && lumPx[npos] <= 90 && !laNenMauThuc) break
+                if (!laDiemNenSach(npos, dx, dy)) continue
+                const npos2 = (nx + dx >= 0 && nx + dx < rw && ny + dy >= 0 && ny + dy < rh && laDiemNenSach((ny + dy) * rw + (nx + dx), dx, dy))
                   ? ((ny + dy) * rw + (nx + dx))
                   : npos
                 const i1 = npos * 4
                 const i2 = npos2 * 4
-                const w = 1 / (d + 1.5)
-                sumW += w
-                sumR += ((data[i1] + data[i2]) * 0.5) * w
-                sumG += ((data[i1 + 1] + data[i2 + 1]) * 0.5) * w
-                sumB += ((data[i1 + 2] + data[i2 + 2]) * 0.5) * w
-
-                if (!laNenMauThuc) {
-                  // Tìm điểm mẫu nền screentone đồng pha lưới 4x4 2 chiều `(sx & 3 === phaX && sy & 3 === phaY)` gần nhất
-                  for (let step = d; step <= Math.min(36, d + 7); step += 1) {
-                    const sx = roiX + dx * step
-                    const sy = roiY + dy * step
-                    if (sx < 0 || sx >= rw || sy < 0 || sy >= rh) break
-                    const spos = sy * rw + sx
-                    if (!laDiemNenSach(spos)) continue
-                    if (((sx & 3) === phaX && (sy & 3) === phaY) && step < kcPhaTot) {
-                      kcPhaTot = step
-                      const isrc = spos * 4
-                      mauPhaR = data[isrc]
-                      mauPhaG = data[isrc + 1]
-                      mauPhaB = data[isrc + 2]
-                      break
+                const kcThuc = d * heSoCheo
+                const w = 1 / Math.pow(kcThuc + 1.0, 1.65)
+                let rm, gm, bm, lm
+                if (!laNenMauThuc && !laTuongTrangSach && !laMangToiDac[npos] && doNhieuHat >= 11.5) {
+                  rm = gm = bm = (lum3x3[npos] + lum3x3[npos2]) * 0.5
+                  lm = rm
+                } else {
+                  rm = (data[i1] + data[i2]) * 0.5
+                  gm = (data[i1 + 1] + data[i2 + 1]) * 0.5
+                  bm = (data[i1 + 2] + data[i2 + 2]) * 0.5
+                  lm = 0.299 * rm + 0.587 * gm + 0.114 * bm
+                }
+                if (lm < 92 && !laNenMauThuc && (laMangToiDac[npos] || laNenToiChuNoi || laTuongTrangSach || lumNenTrungVi < 125)) {
+                  wToi += w
+                  rToi += rm * w
+                  gToi += gm * w
+                  bToi += bm * w
+                  tiaToi[hIdx] = true
+                } else {
+                  wSang += w
+                  rSang += rm * w
+                  gSang += gm * w
+                  bSang += bm * w
+                  if (hIdx < 4 && !laNenMauThuc && !laTuongTrangSach && lm >= 90 && lm <= 225) {
+                    for (let step = d; step <= Math.min(maxTiaStep, d + 7); step += 1) {
+                      const sx = roiX + dx * step
+                      const sy = roiY + dy * step
+                      if (sx < 0 || sx >= rw || sy < 0 || sy >= rh) break
+                      const spos = sy * rw + sx
+                      if (ketNoiBienHop[spos] || laMangToiDac[spos] || lum3x3[spos] < 95) break
+                      if (
+                        vungXoaChu[spos] ||
+                        !laDiemNenSach(spos) ||
+                        lumPx[spos] < 98 ||
+                        lum3x3[spos] > 235 ||
+                        (sx > 0 && vungXoaChu[spos - 1]) ||
+                        (sx + 1 < rw && vungXoaChu[spos + 1]) ||
+                        (sy > 0 && vungXoaChu[spos - rw]) ||
+                        (sy + 1 < rh && vungXoaChu[spos + rw])
+                      ) continue
+                      if (((sx & 3) === phaX && (sy & 3) === phaY) && step < kcPhaTot) {
+                        kcPhaTot = step
+                        const isrc = spos * 4
+                        mauPhaR = data[isrc]
+                        mauPhaG = data[isrc + 1]
+                        mauPhaB = data[isrc + 2]
+                        break
+                      }
                     }
                   }
                 }
@@ -2028,22 +2722,174 @@ void (async () => {
             let rOut = Math.round(rNenTrungVi)
             let gOut = Math.round(gNenTrungVi)
             let bOut = Math.round(bNenTrungVi)
-            if (sumW > 0) {
-              rOut = Math.round(sumR / sumW)
-              gOut = Math.round(sumG / sumW)
-              bOut = Math.round(sumB / sumW)
-              if (!laNenMauThuc && mauPhaR >= 0 && doNhieuHat >= 9.5) {
-                // Pha trộn 58% hạt screentone đồng pha + 42% màu nội suy đa hướng để tái tạo hạt cát tự nhiên như tranh gốc
-                rOut = Math.round(mauPhaR * 0.58 + rOut * 0.42)
-                gOut = Math.round(mauPhaG * 0.58 + gOut * 0.42)
-                bOut = Math.round(mauPhaB * 0.58 + bOut * 0.42)
+            let demTiaToi = 0
+            for (let k = 0; k < 8; k += 1) {
+              if (tiaToi[k]) demTiaToi += 1
+            }
+            const kepNgangToi = Boolean(tiaToi[0] && tiaToi[1] && wToi >= wSang * 0.78)
+            const kepDocToi = Boolean(tiaToi[2] && tiaToi[3] && wToi >= wSang * 0.78)
+            const kepCheoToi = Boolean(((tiaToi[4] && tiaToi[7]) || (tiaToi[5] && tiaToi[6])) && wToi >= wSang * 0.82)
+            const namTrongMangToi = Boolean(
+              (laNenToiChuNoi && (wToi >= wSang * 0.65 || (demTiaToi >= 4 && wToi >= wSang * 0.55))) ||
+              wSang === 0 ||
+              (demTiaToi >= 5 && wToi >= wSang * 0.68) ||
+              kepNgangToi ||
+              kepDocToi ||
+              (!laTuongTrangSach && kepCheoToi && demTiaToi >= 3) ||
+              (!laTuongTrangSach && demTiaToi >= 3 && wToi >= wSang * 1.15) ||
+              (lumNenTrungVi < 115 && wToi >= wSang * 0.80)
+            )
+            const idxChe = py * cwChe + px
+            if (wSang > 0) {
+              let rsC = Math.round(rSang / wSang)
+              let gsC = Math.round(gSang / wSang)
+              let bsC = Math.round(bSang / wSang)
+              const lumOutS = 0.299 * rsC + 0.587 * gsC + 0.114 * bsC
+              if (!laNenMauThuc && mauPhaR >= 0 && doNhieuHat >= 16 && lumOutS >= 115 && lumOutS <= 212) {
+                const heSoPha = doNhieuHat >= 24 ? 0.26 : 0.16
+                rsC = Math.round(mauPhaR * heSoPha + rsC * (1 - heSoPha))
+                gsC = Math.round(mauPhaG * heSoPha + gsC * (1 - heSoPha))
+                bsC = Math.round(mauPhaB * heSoPha + bsC * (1 - heSoPha))
+              }
+              rSangFb[idxChe] = rsC
+              gSangFb[idxChe] = gsC
+              bSangFb[idxChe] = bsC
+            }
+            if (namTrongMangToi && wToi > 0 && (wSang === 0 || wToi >= wSang * 0.55)) {
+              rOut = Math.round(rToi / wToi)
+              gOut = Math.round(gToi / wToi)
+              bOut = Math.round(bToi / wToi)
+              cumToiMask[idxChe] = 1
+            } else if (wSang > 0) {
+              rOut = rSangFb[idxChe]
+              gOut = gSangFb[idxChe]
+              bOut = bSangFb[idxChe]
+            } else if (namTrongMangToi && wToi > 0) {
+              rOut = Math.round(rToi / wToi)
+              gOut = Math.round(gToi / wToi)
+              bOut = Math.round(bToi / wToi)
+              cumToiMask[idxChe] = 1
+            }
+            rBuf[idxChe] = rOut
+            gBuf[idxChe] = gOut
+            bBuf[idxChe] = bOut
+          }
+        }
+
+        const nguongNbToi = laTuongTrangSach ? 3 : 4
+        for (let passM = 0; passM < 3; passM += 1) {
+          const snapToi = new Uint8Array(cumToiMask)
+          let coThayDoiToi = false
+          for (let py = 0; py < chChe; py += 1) {
+            const roiY = minY + py
+            for (let px = 0; px < cwChe; px += 1) {
+              const idxChe = py * cwChe + px
+              if (!snapToi[idxChe] || rSangFb[idxChe] < 0) continue
+              const roiX = minX + px
+              let demNbToi = 0
+              for (let dyM = -1; dyM <= 1; dyM += 1) {
+                const nym = roiY + dyM
+                if (nym < 0 || nym >= rh) continue
+                const nbm = nym * rw
+                for (let dxM = -1; dxM <= 1; dxM += 1) {
+                  if (dxM === 0 && dyM === 0) continue
+                  const nxm = roiX + dxM
+                  if (nxm < 0 || nxm >= rw) continue
+                  const npm = nbm + nxm
+                  if (vungXoaChu[npm]) {
+                    const nxChe = px + dxM
+                    const nyChe = py + dyM
+                    if (nxChe >= 0 && nxChe < cwChe && nyChe >= 0 && nyChe < chChe && snapToi[nyChe * cwChe + nxChe]) {
+                      demNbToi += 1
+                    }
+                  } else if (laMangToiDac[npm]) {
+                    demNbToi += 1
+                  }
+                }
+              }
+              if (demNbToi <= nguongNbToi) {
+                cumToiMask[idxChe] = 0
+                rBuf[idxChe] = rSangFb[idxChe]
+                gBuf[idxChe] = gSangFb[idxChe]
+                bBuf[idxChe] = bSangFb[idxChe]
+                coThayDoiToi = true
               }
             }
+          }
+          if (!coThayDoiToi) break
+        }
 
-            const pOut = (py * cwChe + px) * 4
-            outData[pOut] = rOut
-            outData[pOut + 1] = gOut
-            outData[pOut + 2] = bOut
+        // Làm mượt đẳng hướng 2D (3 vòng Laplace/Harmonic Relaxation trong từng cụm Sáng/Tối)
+        // để xoá sạch 100% vệt sọc ngang/dọc kiểu bàn cờ (plaid/crossbar artifacts) trên vùng gạch chéo & screentone:
+        let rCur = rBuf, gCur = gBuf, bCur = bBuf
+        for (let iter = 0; iter < 3; iter += 1) {
+          const rNext = new Int16Array(rCur)
+          const gNext = new Int16Array(gCur)
+          const bNext = new Int16Array(bCur)
+          for (let py = 0; py < chChe; py += 1) {
+            const roiY = minY + py
+            for (let px = 0; px < cwChe; px += 1) {
+              const roiX = minX + px
+              const pos = roiY * rw + roiX
+              if (!vungXoaChu[pos]) continue
+              const idxChe = py * cwChe + px
+              const cMode = cumToiMask[idxChe]
+              let sr = rCur[idxChe] * 2
+              let sg = gCur[idxChe] * 2
+              let sb = bCur[idxChe] * 2
+              let sw = 2
+              for (let dyN = -1; dyN <= 1; dyN += 1) {
+                const ny = roiY + dyN
+                if (ny < 0 || ny >= rh) continue
+                for (let dxN = -1; dxN <= 1; dxN += 1) {
+                  if (dxN === 0 && dyN === 0) continue
+                  const nx = roiX + dxN
+                  if (nx < 0 || nx >= rw) continue
+                  const npos = ny * rw + nx
+                  if (vungXoaChu[npos]) {
+                    const npy = ny - minY
+                    const npx = nx - minX
+                    if (npy >= 0 && npy < chChe && npx >= 0 && npx < cwChe) {
+                      const nIdxChe = npy * cwChe + npx
+                      if (cumToiMask[nIdxChe] === cMode) {
+                        sr += rCur[nIdxChe]
+                        sg += gCur[nIdxChe]
+                        sb += bCur[nIdxChe]
+                        sw += 1
+                      }
+                    }
+                  } else if (laDiemNenSach(npos)) {
+                    const isDarkN = (lumPx[npos] < 92 && !laNenMauThuc) ? 1 : 0
+                    if (isDarkN === cMode) {
+                      const i4 = npos * 4
+                      const dungTb = !laNenMauThuc && !laTuongTrangSach && !isDarkN
+                      sr += dungTb ? Math.round(lum3x3[npos]) : data[i4]
+                      sg += dungTb ? Math.round(lum3x3[npos]) : data[i4 + 1]
+                      sb += dungTb ? Math.round(lum3x3[npos]) : data[i4 + 2]
+                      sw += 1
+                    }
+                  }
+                }
+              }
+              rNext[idxChe] = Math.round(sr / sw)
+              gNext[idxChe] = Math.round(sg / sw)
+              bNext[idxChe] = Math.round(sb / sw)
+            }
+          }
+          rCur = rNext; gCur = gNext; bCur = bNext
+        }
+
+        for (let py = 0; py < chChe; py += 1) {
+          const roiY = minY + py
+          const baseY = roiY * rw
+          for (let px = 0; px < cwChe; px += 1) {
+            const pos = baseY + minX + px
+            if (!vungXoaChu[pos]) continue
+            const idxChe = py * cwChe + px
+            const pOut = idxChe * 4
+            outData[pOut] = rCur[idxChe]
+            outData[pOut + 1] = gCur[idxChe]
+            outData[pOut + 2] = bCur[idxChe]
             outData[pOut + 3] = 255
           }
         }
@@ -2278,13 +3124,13 @@ void (async () => {
         // Với chữ nổi không có bong bóng (trên nền screentone / tóc đen / bóng đổ):
         // Khung đặt chữ bao trọn hợp của hộp chữ gốc `[cx0..cy1]` và toàn bộ mặt nạ chữ + halo thực tế `[minX..maxY]`
         // (nhờ đó bao phủ cả dòng cuối bị thụt như "Tenpai..." hay "...?"), tuyệt đối không nở mù quáng theo `longTrang`.
-        bx0 = coDiemXoa ? Math.min(cx0, minX) : cx0
+        bx0 = coDiemXoa ? Math.max(cx0 - 16, Math.min(cx0, minX)) : cx0
         by0 = coDiemXoa ? Math.min(cy0, minY) : cy0
-        bx1 = coDiemXoa ? Math.max(cx1, maxX) : cx1
+        bx1 = coDiemXoa ? Math.min(cx1 + 16, Math.max(cx1, maxX)) : cx1
         by1 = coDiemXoa ? Math.max(cy1, maxY) : cy1
-        const nheX = Math.max(4, Math.round((bx1 - bx0) * 0.08))
-        bx0 = Math.max(ex0, bx0 - nheX)
-        bx1 = Math.min(ex1, bx1 + nheX)
+        const nheX = Math.min(6, Math.max(2, Math.round((bx1 - bx0) * 0.04)))
+        bx0 = Math.max(Math.max(0, cx0 - 16), bx0 - nheX)
+        bx1 = Math.min(Math.min(rw, cx1 + 16), bx1 + nheX)
       } else {
         // Khi bong bóng có hình gai nhọn hở viền, hình đa giác đặc biệt hoặc bong bóng rất cao chạm 1 cạnh ROI:
         // Nới từng bước sang hai bên/trên/dưới nếu vùng kế cận thực sự là nền bong bóng sạch (`longTrang === 1`)
@@ -3448,15 +4294,15 @@ void (async () => {
           : (v.nen_toi ? '#000000' : '#ffffff')
         const vienSangChu = v._laChuNoiTrenNen
           ? [
-              `-1.5px -1.5px 0 ${mauHaloChuNoi}`,
-              `1.5px -1.5px 0 ${mauHaloChuNoi}`,
-              `-1.5px 1.5px 0 ${mauHaloChuNoi}`,
-              `1.5px 1.5px 0 ${mauHaloChuNoi}`,
-              `-2px 0 0 ${mauHaloChuNoi}`,
-              `2px 0 0 ${mauHaloChuNoi}`,
-              `0 -2px 0 ${mauHaloChuNoi}`,
-              `0 2px 0 ${mauHaloChuNoi}`,
-              `0 0 3px ${mauHaloChuNoi}`,
+              `-2px -2px 0 ${mauHaloChuNoi}`,
+              `2px -2px 0 ${mauHaloChuNoi}`,
+              `-2px 2px 0 ${mauHaloChuNoi}`,
+              `2px 2px 0 ${mauHaloChuNoi}`,
+              `-2.5px 0 0 ${mauHaloChuNoi}`,
+              `2.5px 0 0 ${mauHaloChuNoi}`,
+              `0 -2.5px 0 ${mauHaloChuNoi}`,
+              `0 2.5px 0 ${mauHaloChuNoi}`,
+              `0 0 3.5px ${mauHaloChuNoi}`,
             ].join(', ')
           : ((anhChe && !v._laNenPhucTap)
               ? `0 0 2px ${nenMau}, 0 0 3px ${nenMau}`
@@ -3484,6 +4330,9 @@ void (async () => {
           background: 'transparent',
           color: chuMau,
           textShadow: vienSangChu,
+          webkitTextStroke: v._laChuNoiTrenNen ? `3px ${mauHaloChuNoi}` : '0px transparent',
+          paintOrder: 'stroke fill',
+          webkitFontSmoothing: 'antialiased',
           // Không vẽ viền vàng nét đứt cho vùng kém tin cậy nữa (người đọc thấy rối mắt); thông tin chuyển vào tooltip.
           border: 'none',
           borderRadius: '8px',
