@@ -3322,6 +3322,9 @@ def _lam_sach_chu_ocr_truyen(text: str) -> str:
     # 3. Sửa lỗi nhận diện font chữ truyện tranh của PP-OCRv4 / RapidOCR (F <-> P, V <-> U, chữ dính nhau ở khung hẹp)
     comic_ocr_subs = [
         (r"^\.\.\.ll\s+the\s+way\b", "All the way"),
+        (r"\brt's\b", "It's"),
+        (r"AS!'M\s*DRAGGED\b", "AS I'M DRAGGED"),
+        (r"\bI'MDRAGGED\b", "I'M DRAGGED"),
         (r"^\.\.Say\.\s+Shin\b", "...Say, Shin"),
         (r"\bIP\s+youg?\b", "If you"),
         (r"\bIP\s+(?=he\b|she\b|they\b|we\b|I\b|it\b)", "If "),
@@ -3422,6 +3425,12 @@ def _lam_sach_chu_ocr_truyen(text: str) -> str:
         (r"\bCOULDN\s*T\b", "COULDN'T"),
         (r"\bWOULDN\s*T\b", "WOULDN'T"),
         (r"\bSHOULDN\s*T\b", "SHOULDN'T"),
+        (r"\bOUTFROMTHIS\b", "OUT FROM THIS"),
+        (r"\bMEOUT!ASSOON\b", "ME OUT! AS SOON"),
+        (r"\bROCK,I'MDONE\b", "ROCK, I'M DONE"),
+        (r"\bTHATFELLOFF\b", "THAT FELL OFF"),
+        (r"\bANDSTROHEIM\b", "AND STROHEIM"),
+        (r"([,!?:;])([A-Za-z])", r"\1 \2"),
         (r"\bI\.{2,3}I\b", "I... I"),
         (r"\bdon't\s*[,，]\s*do\b", "don't do"),
         (r"\b([a-z]{2,}):([a-z]{2,})\b", r"\1 \2"),
@@ -3727,6 +3736,7 @@ def nhan_dien_bong_thoai_ocr_cuc_bo(img_bytes: bytes, ngon_ngu_nguon: str = "en"
     W_goc, H_goc = im.size
     if W_goc < 100 or H_goc < 100:
         return []
+    im_goc_ctd = im
     im_950_phu = None
     if W_goc < 1050 or (W_goc > H_goc and H_goc <= 1450 and W_goc <= 1800):
         he_so_ocr = 2.0
@@ -3749,6 +3759,8 @@ def nhan_dien_bong_thoai_ocr_cuc_bo(img_bytes: bytes, ngon_ngu_nguon: str = "en"
     W, H = im.size
 
     # Ưu tiên số 1: Hệ thống nhận diện thông minh PP-OCRv4 ONNX thích ứng theo từng khung hình
+    # Ưu tiên số 1: Hệ thống nhận diện thông minh PP-OCRv4 ONNX thích ứng theo từng khung hình + Hợp nhất khung CTD (comic-text-detector.onnx)
+    ctd_blocks, ctd_sfx_blocks = _quet_khung_ctd_onnx(im_goc_ctd, he_so_ocr=he_so_ocr)
     raw_lines: list[dict] = _nhan_dien_dong_rapidocr_hf(im, ngon_ngu_nguon=ngon_ngu_nguon)
     so_dai_chinh = 8
 
@@ -3945,7 +3957,7 @@ $lines | ConvertTo-Json -Depth 4 -Compress
             continue
         raw_valid.append(dict(seg, text=t))
 
-    if not raw_valid:
+    if not raw_valid and not ctd_blocks:
         return []
 
     # Hợp nhất thông minh giữa các dải cắt ngang: nếu dải phóng to bắt được dòng đầy đủ hơn dải toàn trang thì cập nhật khung rộng hơn
@@ -3977,6 +3989,63 @@ $lines | ConvertTo-Json -Depth 4 -Compress
         if not bi_trung:
             valid.append(cand)
 
+    # Hợp nhất với mô hình chuyên dụng comic-text-detector.onnx (CTD):
+    # 1) Khử nhiễu chữ rác trên vùng SFX nền (cls == 1)
+    # 2) Gắn nhãn khối bóng thoại (_ctd_id) để gom dòng chuẩn xác 100% không gộp nhầm bóng kề nhau
+    # 3) Cứu hộ per-crop OCR (_ocr_crop_khung_ctd) cho các bóng thoại nhỏ ('RUSTLE') hoặc dòng đầu bóng ('I... I') bị quét toàn trang bỏ sót
+    if ctd_sfx_blocks:
+        valid = [
+            v for v in valid
+            if _la_nen_bong_trang(px, W, H, v) or not any(
+                max(0, min(v["x"] + v["w"], sb["x"] + sb["w"]) - max(v["x"], sb["x"]))
+                * max(0, min(v["y"] + v["h"], sb["y"] + sb["h"]) - max(v["y"], sb["y"]))
+                >= max(1, v["w"] * v["h"]) * 0.45
+                for sb in ctd_sfx_blocks
+            )
+        ]
+
+    if ctd_blocks:
+        for idx_cb, cb in enumerate(ctd_blocks):
+            cb["_id"] = idx_cb
+        for v in valid:
+            best_cid = None
+            best_ov = 0.0
+            v_area = max(1, v["w"] * v["h"])
+            for cb in ctd_blocks:
+                ix = max(0, min(v["x"] + v["w"], cb["x"] + cb["w"]) - max(v["x"], cb["x"]))
+                iy = max(0, min(v["y"] + v["h"], cb["y"] + cb["h"]) - max(v["y"], cb["y"]))
+                ov = (ix * iy) / float(v_area)
+                if ov >= 0.35 and ov > best_ov:
+                    best_ov = ov
+                    best_cid = cb["_id"]
+            if best_cid is not None:
+                v["_ctd_id"] = best_cid
+
+        for cb in ctd_blocks:
+            cid = cb["_id"]
+            matched = [v for v in valid if v.get("_ctd_id") == cid]
+            can_crop_rescue = False
+            if not matched and cb["conf"] >= 0.44:
+                can_crop_rescue = True
+            elif matched and cb["h"] >= 34:
+                my0 = min(v["y"] for v in matched)
+                my1 = max(v["y"] + v["h"] for v in matched)
+                if (my1 - my0) < cb["h"] * 0.68:
+                    can_crop_rescue = True
+            if can_crop_rescue:
+                rescued = _ocr_crop_khung_ctd(im, cb, ngon_ngu_nguon=ngon_ngu_nguon)
+                if rescued:
+                    if not matched:
+                        valid.extend(rescued)
+                    else:
+                        chars_old = sum(len(v["text"]) for v in matched)
+                        chars_new = sum(len(v["text"]) for v in rescued)
+                        if chars_new > chars_old or len(rescued) > len(matched):
+                            valid = [v for v in valid if v.get("_ctd_id") != cid] + rescued
+
+    if not valid:
+        return []
+
     valid.sort(key=lambda r: (r["y"], r["x"]))
     n = len(valid)
     parent = list(range(n))
@@ -3998,6 +4067,13 @@ $lines | ConvertTo-Json -Depth 4 -Compress
         for j in range(i + 1, n):
             b = valid[j]
             bcx = b["x"] + b["w"] * 0.5
+            if a.get("_ctd_id") is not None and b.get("_ctd_id") is not None:
+                if a["_ctd_id"] == b["_ctd_id"]:
+                    if not _co_vach_ngan_doc(px, W, H, a, b):
+                        union(i, j)
+                continue
+            if (a.get("_ctd_id") is not None) != (b.get("_ctd_id") is not None):
+                continue
             max_h = max(a["h"], b["h"])
             min_h = min(a["h"], b["h"])
             if min_h / max(1, max_h) < 0.45:
@@ -4038,7 +4114,7 @@ $lines | ConvertTo-Json -Depth 4 -Compress
         # Bỏ các tiếng rên / SFX nền vụn hoặc dòng chữ khắc mờ trên đạo cụ nền ('Gh', 'Ggh', 'A.', 'D', 'MHAyH', 'myympa')
         text_alnum = "".join(c for c in text if c.isalnum())
         if not co_cjk:
-            if (text_alnum.lower() in {"a", "d", "j", "s", "x", "gh", "ggh", "ghhr", "ghhhhn", "mhayh", "myympa", "armnflammab", "it"} or re.fullmatch(r"[xXvViIlL1|]{2,12}", text_alnum)) or (len(text_alnum) == 1 and text_alnum.upper() not in {"I", "O"} and not text.endswith(("!", "?"))) or (len(text_alnum) == 2 and text_alnum.isalpha() and not any(ch in "AEIOUYaeiouy" for ch in text_alnum) and text_alnum.upper() not in {"SH", "HM", "MM", "MR", "MS", "DR", "ST", "VS", "TV"}):
+            if (text_alnum.lower() in {"a", "d", "j", "s", "x", "gh", "ggh", "ghhr", "ghhhhn", "mhayh", "myympa", "armnflammab", "it", "walan"} or re.fullmatch(r"[xXvViIlL1|]{2,12}", text_alnum)) or (len(text_alnum) == 1 and text_alnum.upper() not in {"I", "O"} and not text.endswith(("!", "?"))) or (len(text_alnum) == 2 and text_alnum.isalpha() and not any(ch in "AEIOUYaeiouy" for ch in text_alnum) and text_alnum.upper() not in {"SH", "HM", "MM", "MR", "MS", "DR", "ST", "VS", "TV"}):
                 continue
         if not co_cjk and sum(1 for c in text if c.isascii() and c.isupper()) == 0:
             if (
@@ -4126,6 +4202,8 @@ $lines | ConvertTo-Json -Depth 4 -Compress
                 continue
             t1 = str(cur["chu_goc"]).strip()
             t2 = str(b2["chu_goc"]).strip()
+            if t1.upper() == t2.upper() or (" " not in t1 and " " not in t2 and t1.isupper() and t2.isupper()):
+                continue
             if not t1.endswith((".", "!", "?", "…")) or t2[:1].islower():
                 if t1.lower().endswith("spit") and t2.lower().startswith("out"):
                     cur["chu_goc"] = f"{t1} it {t2}"
@@ -4235,6 +4313,179 @@ def tai_goi_ocr_huggingface(ngon_ngu: str = "all") -> dict[str, bool]:
         "ko": co_rapidocr and (THU_MUC_OCR_HF / "ko_rec.onnx").exists() and (THU_MUC_OCR_HF / "ko_dict.txt").exists(),
     }
     return kq
+
+
+def _quet_khung_ctd_onnx(im_goc, he_so_ocr: float = 1.0) -> tuple[list[dict], list[dict]]:
+    """
+    Chạy mô hình chuyên dụng `comic-text-detector.onnx` (SOTA Comic/Manga Text Detector của manga-image-translator / BallonsTranslator)
+    để khoanh vùng chính xác từng khối bóng thoại (`cls == 0`) và tách biệt hoàn toàn với tiếng động SFX vẽ trên nền (`cls == 1`).
+    """
+    try:
+        import numpy as np
+        import onnxruntime as ort
+    except Exception:
+        return [], []
+
+    ung_vien_ctd = [
+        Path(__file__).resolve().parent.parent / "models" / "comic-text-detector.onnx",
+        Path(__file__).resolve().parent / "models" / "comic-text-detector.onnx",
+        THU_MUC_OCR_HF / "comic-text-detector.onnx",
+    ]
+    ctd_path = next((p for p in ung_vien_ctd if p.is_file() and p.stat().st_size > 1_000_000), None)
+    if ctd_path is None:
+        return [], []
+
+    try:
+        sess = _CACHE_RAPIDOCR_HF.get("__ctd_session__")
+        if sess is None:
+            opts = ort.SessionOptions()
+            opts.enable_cpu_mem_arena = True
+            sess = ort.InferenceSession(str(ctd_path), sess_options=opts, providers=["CPUExecutionProvider"])
+            _CACHE_RAPIDOCR_HF["__ctd_session__"] = sess
+
+        img_w, img_h = im_goc.size
+        size = 1024
+        scale = min(size / max(1, img_w), size / max(1, img_h))
+        new_w, new_h = max(1, int(round(img_w * scale))), max(1, int(round(img_h * scale)))
+        canvas = Image.new("RGB", (size, size), (114, 114, 114))
+        pad_x, pad_y = (size - new_w) // 2, (size - new_h) // 2
+        bilinear = getattr(getattr(Image, "Resampling", Image), "BILINEAR", 2)
+        canvas.paste(im_goc.resize((new_w, new_h), bilinear), (pad_x, pad_y))
+        tensor = np.asarray(canvas, dtype=np.float32).transpose(2, 0, 1)[None] / 255.0
+
+        input_name = sess.get_inputs()[0].name
+        outputs = sess.run(None, {input_name: tensor})
+        pred = outputs[0][0]
+        obj = pred[:, 4]
+        cls_scores = pred[:, 5:]
+        conf = obj * cls_scores.max(axis=1)
+        keep = conf >= 0.36
+        if not keep.any():
+            return [], []
+
+        pred, conf = pred[keep], conf[keep]
+        cls_idx = cls_scores[keep].argmax(axis=1)
+        cx, cy, bw, bh = pred[:, 0], pred[:, 1], pred[:, 2], pred[:, 3]
+        x1 = (cx - bw * 0.5 - pad_x) / scale
+        y1 = (cy - bh * 0.5 - pad_y) / scale
+        x2 = (cx + bw * 0.5 - pad_x) / scale
+        y2 = (cy + bh * 0.5 - pad_y) / scale
+
+        raw_boxes: list[dict] = []
+        for i in range(len(conf)):
+            bx0 = max(0.0, min(float(img_w - 1), float(x1[i])))
+            by0 = max(0.0, min(float(img_h - 1), float(y1[i])))
+            bx1 = max(bx0 + 1.0, min(float(img_w), float(x2[i])))
+            by1 = max(by0 + 1.0, min(float(img_h), float(y2[i])))
+            if (bx1 - bx0) < 8 or (by1 - by0) < 8:
+                continue
+            raw_boxes.append({
+                "x": int(round(bx0 * he_so_ocr)),
+                "y": int(round(by0 * he_so_ocr)),
+                "w": max(4, int(round((bx1 - bx0) * he_so_ocr))),
+                "h": max(4, int(round((by1 - by0) * he_so_ocr))),
+                "conf": float(conf[i]),
+                "cls": int(cls_idx[i]),
+            })
+
+        raw_boxes.sort(key=lambda b: b["conf"], reverse=True)
+        kept_boxes: list[dict] = []
+        for cand in raw_boxes:
+            bi_de = False
+            for k in kept_boxes:
+                ix = max(0, min(cand["x"] + cand["w"], k["x"] + k["w"]) - max(cand["x"], k["x"]))
+                iy = max(0, min(cand["y"] + cand["h"], k["y"] + k["h"]) - max(cand["y"], k["y"]))
+                inter = ix * iy
+                if inter > 0:
+                    union_a = cand["w"] * cand["h"] + k["w"] * k["h"] - inter
+                    if inter / max(1, union_a) >= 0.45 or inter / max(1, min(cand["w"] * cand["h"], k["w"] * k["h"])) >= 0.75:
+                        bi_de = True
+                        break
+            if not bi_de:
+                kept_boxes.append(cand)
+
+        text_blocks = [b for b in kept_boxes if b["cls"] == 0 and b["conf"] >= 0.40]
+        sfx_blocks = [b for b in kept_boxes if b["cls"] == 1 and b["conf"] >= 0.50]
+        return text_blocks, sfx_blocks
+    except Exception:
+        return [], []
+
+
+def _ocr_crop_khung_ctd(im, cb: dict, ngon_ngu_nguon: str = "en") -> list[dict]:
+    """
+    Nhận diện chữ trực tiếp trên vùng cắt của từng bóng thoại (`cb`) do `comic-text-detector` phát hiện:
+    - Cắt riêng bóng thoại kèm đệm 10px, phóng đại 2× Lanczos + làm nét nếu bóng nhỏ, tự động đảo cực nếu khung dẫn chuyện nền tối.
+    - Bắt trọn 100% các bóng thoại nhỏ ('RUSTLE', 'AAH!', 'UWO!') và các dòng ngắn ở đầu bóng ('I... I') mà quét toàn trang bỏ sót.
+    """
+    lang = (ngon_ngu_nguon or "en").lower()
+    engine = _CACHE_RAPIDOCR_HF.get(lang if lang in CAUHINH_OCR_HF else "zh_en")
+    if engine is None:
+        return []
+    W, H = im.size
+    pad_c = 10
+    cx0 = max(0, cb["x"] - pad_c)
+    cy0 = max(0, cb["y"] - pad_c)
+    cx1 = min(W, cb["x"] + cb["w"] + pad_c)
+    cy1 = min(H, cb["y"] + cb["h"] + pad_c)
+    if cx1 - cx0 < 8 or cy1 - cy0 < 8:
+        return []
+    crop = im.crop((cx0, cy0, cx1, cy1))
+    sc_crop = 1.0
+    if min(crop.width, crop.height) < 110 and max(crop.width, crop.height) <= 520:
+        sc_crop = 2.0
+        resample = getattr(getattr(Image, "Resampling", Image), "LANCZOS", 1)
+        crop = crop.resize((crop.width * 2, crop.height * 2), resample)
+        try:
+            from PIL import ImageEnhance
+            crop = ImageEnhance.Sharpness(crop).enhance(1.35)
+        except Exception:
+            pass
+    try:
+        res, _ = engine(crop, use_cls=False, box_thresh=0.18, unclip_ratio=1.85, text_score=0.38)
+        if not res:
+            from PIL import ImageOps
+            gray_c = ImageOps.autocontrast(crop.convert("L"), cutoff=1)
+            hist_c = gray_c.histogram()
+            tot_c = max(1, sum(hist_c))
+            mean_c = sum(i * c for i, c in enumerate(hist_c)) / float(tot_c)
+            if mean_c < 105:
+                gray_c = ImageOps.invert(gray_c)
+            res, _ = engine(gray_c.convert("RGB"), use_cls=False, box_thresh=0.16, unclip_ratio=1.90, text_score=0.36)
+    except Exception:
+        res = None
+    if not res:
+        return []
+    out_lines: list[dict] = []
+    for item in res:
+        if not isinstance(item, (list, tuple)) or len(item) < 3:
+            continue
+        box, txt, score = item[0], str(item[1] or "").strip(), float(item[2] or 0.0)
+        if not txt or score < 0.42:
+            continue
+        t_clean = _lam_sach_chu_ocr_truyen(txt)
+        if not t_clean or sum(c.isalnum() for c in t_clean) == 0:
+            continue
+        if lang == "en":
+            if any("\u2e80" <= c <= "\u9fff" for c in t_clean):
+                continue
+            if not any(c.isascii() and c.isalpha() for c in t_clean):
+                continue
+        xs = [float(pt[0]) / sc_crop for pt in box]
+        ys = [float(pt[1]) / sc_crop for pt in box]
+        lx0 = max(cb["x"] - 4, int(round(min(xs))) + cx0)
+        ly0 = max(cb["y"] - 4, int(round(min(ys))) + cy0)
+        lx1 = min(cb["x"] + cb["w"] + 4, int(round(max(xs))) + cx0)
+        ly1 = min(cb["y"] + cb["h"] + 4, int(round(max(ys))) + cy0)
+        out_lines.append({
+            "band": 0,
+            "text": t_clean,
+            "x": lx0,
+            "y": ly0,
+            "w": max(4, lx1 - lx0),
+            "h": max(4, ly1 - ly0),
+            "_ctd_id": cb.get("_id"),
+        })
+    return out_lines
 
 
 def _nhan_dien_dong_rapidocr_hf(im, ngon_ngu_nguon: str = "ja") -> list[dict]:
