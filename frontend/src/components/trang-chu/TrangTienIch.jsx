@@ -137,14 +137,25 @@ export default function TrangTienIch({ onQuayLai }) {
             </div>
           </div>
 
-          <a
-            href={api.urlTaiTienIchChrome()}
-            download="dich-truyen-chrome-extension-v0.3.2.zip"
-            className="nut-manga nut-manga-chinh"
-            style={{ width: '100%', justifyContent: 'center', fontSize: 15, padding: '12px 18px' }}
-          >
-            ⬇️ {laEn ? 'Download Chrome Extension (.ZIP — v0.3.2)' : 'Tải Tiện Ích Chrome / Edge (.ZIP — v0.3.2)'}
-          </a>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <a
+              href={api.urlTaiTienIchChrome()}
+              download="dich-truyen-chrome-extension-v0.3.2.zip"
+              className="nut-manga nut-manga-chinh"
+              style={{ width: '100%', justifyContent: 'center', fontSize: 15, padding: '12px 18px' }}
+            >
+              ⬇️ {laEn ? 'Download Chrome Extension (.ZIP — v0.3.2)' : 'Tải Tiện Ích Chrome / Edge (.ZIP — v0.3.2)'}
+            </a>
+            <a
+              href={api.urlChromeWebStore()}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="nut-manga nut-manga-phu"
+              style={{ width: '100%', justifyContent: 'center', fontSize: 14, padding: '10px 16px' }}
+            >
+              🌐 {laEn ? 'Open on Chrome Web Store (ID: ejhblbmljocengmbfojheibfplmekhom)' : 'Mở Trên Cửa Hàng Chrome Web Store (ID: ejhblbmljocengmbfojheibfplmekhom)'}
+            </a>
+          </div>
 
           {/* Hướng dẫn cài đặt từng bước */}
           <div style={stepBoxStyle}>

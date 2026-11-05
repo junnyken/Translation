@@ -96,13 +96,22 @@ export default function HeSinhThaiCongCu() {
             </li>
           </ul>
 
-          <div className="chan-khung-cong-cu">
+          <div className="chan-khung-cong-cu" style={{ flexWrap: 'wrap', gap: 8 }}>
             <a
               href={api.urlTaiTienIchChrome()}
               download="dich-truyen-chrome-extension-v0.3.2.zip"
               className="nut-manga nut-manga-chinh"
             >
               {laEn ? '⬇️ Download Chrome Extension (.ZIP)' : '⬇️ Tải Tiện Ích Chrome (.ZIP)'}
+            </a>
+            <a
+              href={api.urlChromeWebStore()}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="nut-manga nut-manga-phu"
+              title="Chrome Web Store ID: ejhblbmljocengmbfojheibfplmekhom"
+            >
+              {laEn ? '🌐 Chrome Web Store' : '🌐 Cửa Hàng Chrome'}
             </a>
             <button
               type="button"

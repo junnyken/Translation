@@ -769,6 +769,7 @@ class Settings(BaseSettings):
                 "http://comic.io.vn",
                 "http://www.comic.io.vn",
                 "https://translation.vibe1.tinhgon.xyz",
+                "chrome-extension://ejhblbmljocengmbfojheibfplmekhom",
             ):
                 if ten_mien_chinh not in ds:
                     ds.append(ten_mien_chinh)
