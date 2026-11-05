@@ -8157,7 +8157,7 @@ class AppDichTruyenWindows(tk.Tk):
                     self.cau_hinh["ma_phien_dang_nhap"] = ma_phien
                     self._luu_cau_hinh()
                     self.after(0, lambda: (self.ent_email.delete(0, "end"), self.ent_email.insert(0, em)))
-                    self.ghi_log(f"✨ Đăng ký tài khoản mới thành công: {em} (Tặng 10 trang miễn phí/ngày!)")
+                    self.ghi_log(f"✨ Đăng ký tài khoản mới thành công: {em} (Tặng 20 Credits miễn phí!)")
                     self._cap_nhat_han_muc(ghi_nhat_ky=True)
                     _tai_thong_tin_bang_gia()
                 except Exception as e:
@@ -8216,7 +8216,7 @@ class AppDichTruyenWindows(tk.Tk):
 
         tk.Button(
             row_acc,
-            text="✨ Đăng ký mới (+10 trang/ngày)",
+            text="✨ Đăng ký mới (+20 Credits miễn phí)",
             bg=T["bg_elevated"],
             fg=T["status_ok"],
             font=("Segoe UI", 8, "bold"),
@@ -8338,20 +8338,18 @@ class AppDichTruyenWindows(tk.Tk):
 
                 noi_dung = (
                     "====================================================================================================\n"
-                    "  PHÂN LOẠI TÀI KHOẢN & HẠN MỨC MIỄN PHÍ MỖI NGÀY\n"
+                    "  PHÂN LOẠI TÀI KHOẢN & 20 CREDITS ĐĂNG KÝ MIỄN PHÍ\n"
                     "====================================================================================================\n"
-                    "  • Khách vãng lai (Nhận diện theo Mã máy HWID) : 02 trang / ngày  (Dùng thử nhanh không cần đăng ký)\n"
-                    "  • Tài khoản Đăng ký Miễn phí (Free Account)   : 10 trang / ngày  (Tự động hồi lại vào 00:00 mỗi ngày)\n"
+                    "  • Khách vãng lai (Nhận diện theo Mã máy HWID) : 02 Credits miễn phí (Dùng thử nhanh không cần đăng ký)\n"
+                    "  • Tài khoản Đăng ký Miễn phí (Free Account)   : 20 Credits miễn phí (1 Credit = 1 Trang dịch)\n"
                     "  • Đồng bộ 1 Ví duy nhất                       : Dùng chung trên Web, Tiện ích Chrome, App Windows & API\n\n"
                     "====================================================================================================\n"
-                    "  BẢNG GIÁ GÓI LƯỢT TÍCH LUỸ (MUA NHIỀU LẦN TỰ ĐỘNG CỘNG DỒN VĨNH VIỄN VÀO VÍ — KHÔNG HẾT HẠN)\n"
+                    "  BẢNG GIÁ 4 GÓI THEO THÁNG CHUẨN QUỐC TẾ (ƯU ĐÃI LẦN ĐẦU -50% · GIA HẠN TÍNH GIÁ GỐC)\n"
                     "====================================================================================================\n"
-                    f"  [MỒI] 🎯 GÓI MỒI ĐỌC NHANH (CỘNG DỒN) : {40 * don_gia:>10,} đ  -> Nhận     40 trang (~2 chap)    | {don_gia:,}đ/trang (Mua nhiều lần cộng dồn)\n"
-                    f"  [1]   🌱 GÓI KHỞI ĐẦU (STARTER)       : {100 * don_gia:>10,} đ  -> Nhận    105 trang (~5.5 chap)  | {round(100 * don_gia / 105):,}đ/trang (+5% Bonus)\n"
-                    f"  [2]   🔥 GÓI ĐỘC GIẢ VIP (READER)     : {500 * don_gia:>10,} đ  -> Nhận    550 trang (~28 chap)   | {round(500 * don_gia / 550):,}đ/trang (+10% Bonus)\n"
-                    f"  [3]   🎬 GÓI NHÓM DỊCH / STUDIO       : {1000 * don_gia:>10,} đ  -> Nhận  1.200 trang (~60 chap)   | {round(1000 * don_gia / 1200):,}đ/trang (+20% Bonus) ⭐\n"
-                    f"  [4]   🏢 GÓI DOANH NGHIỆP API PRO     : {5000 * don_gia:>10,} đ  -> Nhận  6.500 trang (~325 chap)  | {round(5000 * don_gia / 6500):,}đ/trang (+30% Bonus + tr_live_)\n"
-                    f"  [5]   🏛️ GÓI ENTERPRISE CỔNG TRUYỆN   : {20000 * don_gia:>10,} đ  -> Nhận 28.000 trang (~1.400 chap)| {round(20000 * don_gia / 28000):,}đ/trang (+40% Bonus)\n\n"
+                    "  [1] 🌱 STARTER (300 Credits/tháng)            :  49.000 đ ($2.99) lần đầu | Gia hạn:  99.000 đ ($5.99)\n"
+                    "  [2] ⭐ LITE / READER (800 Credits/tháng)      :  99.000 đ ($5.99) lần đầu | Gia hạn: 149.000 đ ($8.99)\n"
+                    "  [3] 💎 STANDARD + API (3.000 Credits/tháng)   : 199.000 đ ($9.99) lần đầu | Gia hạn: 399.000 đ ($19.99) ⭐ ĐỀ XUẤT\n"
+                    "  [4] 🏢 PRO MAX FULL API (10.000 Credits/tháng): 399.000 đ ($19.99) lần đầu| Gia hạn: 799.000 đ ($39.99)\n\n"
                     "====================================================================================================\n"
                     "  BẢNG QUY ĐỔI LƯỢT THEO BỘ MÁY AI ĐỘC QUYỀN (PHÂN TẦNG 1 - 2 - 3 LƯỢT)\n"
                     "====================================================================================================\n"
@@ -9360,9 +9358,9 @@ class AppDichTruyenWindows(tk.Tk):
                             tran_ngay = int(hm_chk.get("tran", 10))
                             if cap_do < 3 and mua_them < 200 and tran_ngay < 600:
                                 raise NeedsAttention(
-                                    "🔒 CẦN NÂNG CẤP GÓI PRO: Tính năng Tự động tải & dịch nối tiếp nhiều Chapter liên tục "
-                                    f"({len(selected)} chapter) dành riêng cho tài khoản gói Pro trở lên. "
-                                    "Tài khoản thường có thể chọn dịch thử từng chapter (10 trang/ngày) hoặc bấm '💎 Gói Cước & Khoá API' để nâng cấp!"
+                                    "🔒 CẦN NÂNG CẤP GÓI LITE / STANDARD: Tính năng Tự động tải & dịch nối tiếp nhiều Chapter liên tục "
+                                    f"({len(selected)} chapter) dành riêng cho tài khoản trả phí. "
+                                    "Tài khoản thường có thể chọn dịch thử từng chapter (20 Credits miễn phí) hoặc bấm '💎 Gói Cước & Khoá API' để nâng cấp!"
                                 )
                     except NeedsAttention:
                         raise

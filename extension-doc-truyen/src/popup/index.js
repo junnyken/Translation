@@ -96,7 +96,7 @@ async function veHanMuc() {
     const hm = await layHanMuc()
     const muaThem = Number(hm.so_luot_mua_them || 0)
     const conLaiNgay = Math.max(0, Number(hm.con_lai || 0) - muaThem)
-    const vaiTro = hm.co_tai_khoan ? '✅ Đã đăng nhập' : '👤 Khách (đăng nhập nhận 10 trang/ngày)'
+    const vaiTro = hm.co_tai_khoan ? '✅ Đã đăng nhập' : '👤 Khách (đăng ký nhận 20 Credits miễn phí)'
     const tichLuy = muaThem > 0 ? ` + Ví VIP: ${muaThem} lượt (Tổng ${hm.con_lai})` : ''
     const soLuotMoiTrang = engine === 'llm_context' ? 3 : (engine === 'local_hybrid_pro' ? 2 : 1)
     const nhanChiPhi = engine === 'llm_context'

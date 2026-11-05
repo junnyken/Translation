@@ -1,8 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "Dịch truyện đang đọc",
+  "name": "__MSG_extName__",
   "version": "0.3.2",
-  "description": "Bấm một cái để phủ chữ dịch tiếng Việt lên trang truyện bạn đang đọc. Gửi ảnh tới máy chủ Translation của chính bạn.",
+  "default_locale": "en",
+  "description": "__MSG_extDescription__",
+  "homepage_url": "https://comic.io.vn",
   "minimum_chrome_version": "114",
   "icons": {
     "16": "src/icons/icon-16.png",
@@ -19,25 +21,25 @@
       "suggested_key": {
         "default": "Alt+Q"
       },
-      "description": "Dịch 1 trang truyện đang nhìn thấy"
+      "description": "Translate current visible comic page / Dịch trang đang xem"
     },
     "dich-ca-chapter": {
       "suggested_key": {
         "default": "Alt+A"
       },
-      "description": "Tự động dịch toàn bộ chapter"
+      "description": "Auto-translate entire chapter / Tự động dịch cả chapter"
     },
     "tu-dich-khi-cuon": {
       "suggested_key": {
         "default": "Alt+W"
       },
-      "description": "Bật/tắt tự động dịch khi cuộn trang"
+      "description": "Toggle auto-translate on scroll / Bật tắt tự dịch khi cuộn"
     },
     "khoanh-vung-dich": {
       "suggested_key": {
         "default": "Alt+S"
       },
-      "description": "Khoanh vùng dịch trên màn hình (trang canvas/DRM)"
+      "description": "Snip & translate area (Canvas/DRM) / Khoanh vùng dịch"
     }
   },
   "host_permissions": [
@@ -49,7 +51,7 @@
   },
   "options_page": "src/options/index.html",
   "action": {
-    "default_title": "Dịch trang truyện này",
+    "default_title": "__MSG_actionTitle__",
     "default_popup": "src/popup/index.html",
     "default_icon": {
       "16": "src/icons/icon-16.png",

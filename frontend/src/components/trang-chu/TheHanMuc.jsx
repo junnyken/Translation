@@ -204,8 +204,8 @@ export default function TheHanMuc({ hanMuc, dangTai, loi, onTaiLai }) {
           )}
           {!hanMuc.co_tai_khoan && (
             laEn
-              ? <> Sign in or create a free account to get more pages per day (10 pages/day).</>
-              : <> Tạo tài khoản thì được nhiều lượt hơn mỗi ngày (10 trang/ngày).</>
+              ? <> Sign in or create a free account to receive 20 Free Credits (20 pages).</>
+              : <> Tạo tài khoản để nhận ngay 20 Credits miễn phí (20 trang).</>
           )}
         </Alert>
       )}
@@ -213,9 +213,9 @@ export default function TheHanMuc({ hanMuc, dangTai, loi, onTaiLai }) {
       {conLai > 0 && !hanMuc.co_tai_khoan && (
         <p className="ghi-chu">
           {laEn ? (
-            <>Create a free account to get more pages per day (<strong>10 pages/day</strong> instead of {hanMuc.tran} pages).</>
+            <>Create a free account to receive <strong>20 Free Credits</strong> instead of {hanMuc.tran} guest pages.</>
           ) : (
-            <>Tạo tài khoản để được nhiều lượt hơn mỗi ngày (<strong>10 trang/ngày</strong> thay vì {hanMuc.tran} trang).</>
+            <>Tạo tài khoản miễn phí để nhận ngay <strong>20 Credits miễn phí</strong> thay vì {hanMuc.tran} trang khách.</>
           )}
         </p>
       )}

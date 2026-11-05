@@ -1,0 +1,14 @@
+{
+  "extName": {
+    "message": "Comic & Manga AI Translator — Auto Webtoon & Raw Translator",
+    "description": "Extension name on Chrome Web Store (max 75 chars)"
+  },
+  "extDescription": {
+    "message": "1-click AI Manga, Manhwa & Webtoon translator. Auto-clean speech bubbles & typeset into 9 languages directly on any comic site.",
+    "description": "Extension short description on Chrome Web Store (max 132 chars)"
+  },
+  "actionTitle": {
+    "message": "Translate this comic/manga page (Alt+Q)",
+    "description": "Browser action tooltip"
+  }
+}

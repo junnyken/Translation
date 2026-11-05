@@ -62,7 +62,7 @@ export default function AdminApp({ nguoiDung, onDangXuat, onVeTrangChu }) {
 
   useEffect(() => { nap() }, [nap])
 
-  const tranMacDinh = thongKe?.han_muc_co_tai_khoan ?? 10
+  const tranMacDinh = thongKe?.han_muc_co_tai_khoan ?? 20
   const tranKhachLa = thongKe?.han_muc_khach_la ?? 2
   const heThong = thongKe?.he_thong || {}
 

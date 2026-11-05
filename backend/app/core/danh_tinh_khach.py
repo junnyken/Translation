@@ -301,7 +301,7 @@ def tinh_cap_do(nguoi) -> int:
         cap_tran = 3
     elif tran >= 200:
         cap_tran = 2
-    elif tran > 10:
+    elif tran > 20:
         cap_tran = 1
 
     if vi <= 0:

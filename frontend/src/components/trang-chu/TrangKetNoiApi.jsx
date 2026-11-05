@@ -560,8 +560,8 @@ curl -X POST "${apiOrigin}/api/v1/developer/translate-text" \\
             </button>
             <span className="ghi-chu" style={{ fontSize: 13 }}>
               {laEn
-                ? 'Free accounts get 10 pages/day + purchased credit packages never expire.'
-                : 'Tài khoản miễn phí có sẵn 10 trang/ngày + các gói mua thêm cộng dồn vĩnh viễn.'}
+                ? 'Free accounts receive 20 Free Credits + monthly credit plans roll over on renewal.'
+                : 'Tài khoản đăng ký có sẵn 20 Credits miễn phí + các gói tháng bảo lưu cộng dồn khi gia hạn.'}
             </span>
           </div>
         )}

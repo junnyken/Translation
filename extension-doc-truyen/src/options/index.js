@@ -91,7 +91,7 @@ $('dang-nhap').addEventListener('submit', async (e) => {
     $('dia-chi').value = diaChi
     const nguoi = await dangNhap(diaChi, $('email').value.trim(), $('mat-khau').value)
     $('mat-khau').value = ''
-    bao(`Đã đăng nhập: ${nguoi.email} (hạn mức 10 trang/ngày)`, 'ok')
+    bao(`Đã đăng nhập: ${nguoi.email} (Tài khoản có 20 Credits miễn phí)`, 'ok')
     await ve()
   } catch (err) {
     bao(String(err?.message || err), 'loi')
@@ -111,7 +111,7 @@ $('nut-dang-ky')?.addEventListener('click', async () => {
   try {
     const nguoi = await dangKy(diaChi, email, tenHien, matKhau)
     $('mat-khau').value = ''
-    bao(`Đã tạo tài khoản và đăng nhập: ${nguoi.email} (hạn mức 10 trang/ngày)`, 'ok')
+    bao(`Đã tạo tài khoản và đăng nhập: ${nguoi.email} (Đã nhận 20 Credits miễn phí!)`, 'ok')
     await ve()
   } catch (err) {
     bao(String(err?.message || err), 'loi')

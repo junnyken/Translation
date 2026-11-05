@@ -655,9 +655,9 @@ async def developer_khau_tru_trang_cuc_bo(
     chu_the_chinh = danh_tinh.chot[0].chu_the if danh_tinh.chot else "guest"
     page_uuid = uuid.uuid5(uuid.NAMESPACE_URL, f"local-ocr-gpu:{engine_name}:{chu_the_chinh}:{page_key}:0")
 
-    # Gate 1: Nếu tài khoản cấp < 3 (chưa lên Pro) và đã dùng đủ 10 trang miễn phí trong ngày,
-    # trả về HTTP 402 báo cần nâng cấp lên gói Pro trở lên để chạy Auto-Crawl Chapter liên tục trên App Windows.
-    if danh_tinh.cap_do < 3 and danh_tinh.chot:
+    # Gate 1: Nếu tài khoản cấp < 2 (chưa lên Lite/Standard/Pro Max) và đã dùng đủ 20 Credits miễn phí,
+    # trả về HTTP 402 báo cần nâng cấp để chạy Auto-Crawl Chapter liên tục trên App Windows.
+    if danh_tinh.cap_do < 2 and danh_tinh.chot:
         from app.core.danh_tinh_khach import loi_can_nang_cap
         from app.services.so_cai_han_muc import da_dung_bat_dong_bo
 
@@ -667,12 +667,12 @@ async def developer_khau_tru_trang_cuc_bo(
         if da_dung_hn + so_luot_can > chot0.tran and luot_mua < so_luot_can:
             raise loi_can_nang_cap(
                 cap_hien_tai=danh_tinh.cap_do,
-                cap_yeu_cau=3,
+                cap_yeu_cau=2,
                 tinh_nang="windows_auto_crawl",
                 thong_bao=(
-                    "Bạn đã dùng hết 10 trang trải nghiệm miễn phí. Tính năng Tải & Dịch Hoàn Thiện "
+                    "Bạn đã dùng hết 20 Credits trải nghiệm miễn phí. Tính năng Tải & Dịch Hoàn Thiện "
                     "Các Trang Liên Tục và Tự Động Qua Chapter Tiếp Theo trên App Windows yêu cầu gói "
-                    "Pro trở lên. Hãy nâng cấp tại https://comic.io.vn/#bang-gia để tiếp tục!"
+                    "Lite ($5.99) hoặc Standard ($9.99) trở lên. Hãy nâng cấp tại https://comic.io.vn/#bang-gia để tiếp tục!"
                 ),
             )
 

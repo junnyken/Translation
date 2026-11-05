@@ -1323,7 +1323,7 @@ class QuanTriThongKeRead(BaseModel):
     viec_dang_chay: int = 0
     viec_loi_hom_nay: int = 0
     han_muc_khach_la: int = 2
-    han_muc_co_tai_khoan: int = 10
+    han_muc_co_tai_khoan: int = 20
     han_muc_ip_khach_la: int = 8
     ty_le_vnd_moi_trang: int = 500
     ngan_hang_ten: str = ""

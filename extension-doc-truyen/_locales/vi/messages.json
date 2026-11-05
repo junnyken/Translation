@@ -1,0 +1,14 @@
+{
+  "extName": {
+    "message": "Dịch Truyện AI Tự Động — Comic, Manga & Webtoon Translator",
+    "description": "Tên tiện ích hiển thị trên Chrome Web Store tiếng Việt"
+  },
+  "extDescription": {
+    "message": "1 chạm dịch trực tiếp Manga, Manhwa, Manhua, Webtoon sang 9 ngôn ngữ. Tự xoá chữ, tái tạo nền và khớp phông chữ truyện tranh.",
+    "description": "Mô tả ngắn trên Chrome Web Store tiếng Việt (tối đa 132 ký tự)"
+  },
+  "actionTitle": {
+    "message": "Dịch trang truyện này (Alt+Q)",
+    "description": "Chú thích khi rê chuột vào biểu tượng tiện ích"
+  }
+}
