@@ -28,33 +28,70 @@ _BANG_CHUAN_HOA_FULLWIDTH = str.maketrans(
 
 
 def chuan_hoa_van_ban_ocr(text: str) -> str:
-    """Hậu xử lý văn bản OCR: chuẩn hoá chữ số/chữ cái full-width, gộp dấu chấm lửng và khoảng trắng thừa."""
+    """Hậu xử lý văn bản OCR: chuẩn hoá chữ số/chữ cái full-width, nối từ gạch ngang xuống dòng, gộp dấu chấm lửng và khoảng trắng thừa."""
     if not text:
         return ""
     cleaned = text.translate(_BANG_CHUAN_HOA_FULLWIDTH)
+    # Khử gạch nối tách âm tiết khi xuống dòng trong bóng thoại hẹp (VD: "some-\nthing" -> "something")
+    cleaned = re.sub(r"([A-Za-z]{2,})-\s*\n\s*([a-z]{2,})", r"\1\2", cleaned)
     cleaned = re.sub(r"[・･]{3,}", "…", cleaned)
     cleaned = re.sub(r"\.{3,}", "…", cleaned)
     cleaned = re.sub(r"[ \t\u3000]+", " ", cleaned)
     return "\n".join(line.strip() for line in cleaned.splitlines() if line.strip()).strip()
 
 
-def tien_xu_ly_crop_ocr(crop: Image.Image, *, for_layout: bool = False) -> Image.Image:
-    """Tiền xử lý thông minh vùng chữ nhỏ/mờ trước khi đưa vào bộ nhận diện OCR.
+def _la_bong_thoai_nen_toi(crop_rgb: Image.Image) -> bool:
+    """Phát hiện khung thoại nền tối / đen có chữ sáng (narration box, suy nghĩ nội tâm, hồi tưởng)."""
+    w, h = crop_rgb.size
+    if w < 16 or h < 16:
+        return False
+    px = crop_rgb.load()
+    step_x = max(1, w // 24)
+    step_y = max(1, h // 24)
+    total = 0
+    dark = 0
+    bright = 0
+    sum_lum = 0.0
+    for y in range(0, h, step_y):
+        for x in range(0, w, step_x):
+            r, g, b = px[x, y]
+            lum = 0.299 * r + 0.587 * g + 0.114 * b
+            sum_lum += lum
+            total += 1
+            if lum <= 85:
+                dark += 1
+            elif lum >= 175:
+                bright += 1
+    if total == 0:
+        return False
+    mean_lum = sum_lum / total
+    return mean_lum < 105.0 and (dark / total) >= 0.52 and 0.04 <= (bright / total) <= 0.42
 
+
+def tien_xu_ly_crop_ocr(
+    crop: Image.Image, *, for_layout: bool = False, dao_cuc_nen_toi: bool = True
+) -> Image.Image:
+    """Tiền xử lý thích ứng theo từng khung hình (Per-Frame Adaptive OCR Preprocessing).
+
+    - Đảm bảo ảnh ở hệ màu `RGB` hoặc `L` trước khi cân bằng tương phản (tránh lỗi `mode P` của PIL).
+    - Tự động phát hiện khung dẫn chuyện nền tối chữ trắng (`_la_bong_thoai_nen_toi`) và đảo cực
+      (`ImageOps.invert`) để mô hình OCR đọc chữ đen trên nền sáng chuẩn xác mà không làm lệch toạ độ.
     - Giữ nguyên kích thước nếu `for_layout=True` (để không làm lệch toạ độ đa giác dòng chữ của PaddleOCR)
       hoặc nếu ảnh thử nghiệm quá nhỏ (< 16px).
     - Với vùng chữ thật có cạnh ngắn nhỏ (16..42px — thường là chữ lầm bầm, chú thích lề trang),
       phóng đại 2× bằng bộ lọc Lanczos kèm làm nét nhẹ (UnsharpMask) và cân bằng tương phản tự động
-      để giảm tỷ lệ đọc nhầm nét kanji/hangul dính nhau.
+      để giảm tỷ lệ đọc nhầm nét kanji/hangul/comic font dính nhau.
     """
     w, h = crop.size
     if w < 16 or h < 16:
         return crop
-    out = crop
+    out = crop.convert("RGB") if crop.mode not in ("RGB", "L") else crop
     if not for_layout and min(w, h) < 42 and max(w, h) <= 600:
         resample = getattr(Image, "Resampling", Image).LANCZOS
         out = out.resize((w * 2, h * 2), resample=resample)
     try:
+        if dao_cuc_nen_toi and _la_bong_thoai_nen_toi(out.convert("RGB") if out.mode != "RGB" else out):
+            out = ImageOps.invert(out.convert("RGB"))
         out = ImageOps.autocontrast(out, cutoff=1)
         if not for_layout and min(w, h) < 64:
             out = out.filter(ImageFilter.UnsharpMask(radius=1.0, percent=115, threshold=3))
@@ -317,6 +354,20 @@ class PaddleOCREngine(_BaseOCREngine):
         predict = getattr(model, "predict", None) or model.ocr
         result = predict(np.asarray(crop))
         text, conf, polys = self._parse_with_polys(result)
+        # Nếu khung hình là nền tối chữ trắng hoặc tương phản thấp khiến độ tự tin thấp (< 0.78),
+        # tự động kích hoạt bước tăng cường thích ứng theo khung hình (giữ nguyên kích thước w, h)
+        if not text or (conf is not None and conf < 0.78):
+            crop_enh = tien_xu_ly_crop_ocr(crop, for_layout=True, dao_cuc_nen_toi=True)
+            if crop_enh is not crop:
+                res_enh = predict(np.asarray(crop_enh))
+                text_enh, conf_enh, polys_enh = self._parse_with_polys(res_enh)
+                if text_enh and (
+                    not text
+                    or (conf_enh or 0.0) > (conf or 0.0) + 0.04
+                    or dem_ky_tu_co_nghia(text_enh) > dem_ky_tu_co_nghia(text) + 2
+                ):
+                    text, conf, polys = text_enh, conf_enh, polys_enh
+        text = chuan_hoa_van_ban_ocr(text)
         # Đổi về toạ độ ảnh gốc để bên dùng khỏi phải nhớ cộng offset — quên cộng là lệch cả trang.
         doi = [[[px + bbox.x, py + bbox.y] for px, py in poly] for poly in polys]
         return text, conf, doi

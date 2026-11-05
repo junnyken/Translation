@@ -251,15 +251,15 @@ async def _xac_thuc_developer(
         from app.core.danh_tinh_khach import loi_can_nang_cap, tinh_cap_do
 
         cap_hien = tinh_cap_do(nguoi)
-        if cap_hien < 4:
+        if cap_hien < 3:
             raise loi_can_nang_cap(
                 cap_hien_tai=cap_hien,
-                cap_yeu_cau=4,
+                cap_yeu_cau=3,
                 tinh_nang="developer_api_key",
                 thong_bao=(
-                    "Số trang thuộc gói Studio / Unlimited (Cấp 4–5) của bạn đã dùng hết. "
-                    "Các gói thấp hơn (Free / Trial / Lite / Pro) không áp dụng cho cổng Developer API (tr_live_...). "
-                    "Vui lòng nâng cấp hoặc gia hạn gói Studio ($14.99) hoặc Unlimited ($19.99) tại https://comic.io.vn/#bang-gia"
+                    "Số Credits thuộc gói Standard / Pro / Ultra (Cấp 3–5) của bạn đã dùng hết. "
+                    "Các gói thấp hơn (Free / Starter) không áp dụng cho cổng Developer API (tr_live_...). "
+                    "Vui lòng nâng cấp hoặc gia hạn gói Standard ($9.99), Pro ($19.99) hoặc Ultra ($49.99) tại https://comic.io.vn/#bang-gia"
                 ),
             )
     return nguoi, ma or ""

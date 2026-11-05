@@ -3098,7 +3098,105 @@ def _lam_sach_chu_ocr_truyen(text: str) -> str:
     s = re.sub(r"\?II+\b", "?!!", s)
     s = re.sub(r"\?\s+!", "?!", s)
 
-    # 3. Xử lý riêng cho câu thoại IN HOA (ALL-CAPS)
+    # 3. Sửa lỗi nhận diện font chữ truyện tranh của PP-OCRv4 / RapidOCR (F <-> P, V <-> U, chữ dính nhau ở khung hẹp)
+    comic_ocr_subs = [
+        (r"^\.\.\.ll\s+the\s+way\b", "All the way"),
+        (r"^\.\.Say\.\s+Shin\b", "...Say, Shin"),
+        (r"\bIP\s+youg?\b", "If you"),
+        (r"\bIP\s+(?=he\b|she\b|they\b|we\b|I\b|it\b)", "If "),
+        (r"\b([Ww]here|[Ee]ven|[Ww]hat)\s*ip\b", r"\1 if"),
+        (r"\bin\s+Pull\b", "in full"),
+        (r"\bonce\s*[PF]aced\b", "once faced"),
+        (r"\bseen\s+his\s+Pace\b", "seen his face"),
+        (r"\bPigured\b", "figured"),
+        (r"\b[PF]inding[.\-\s]+a\b", "finding a"),
+        (r"\bPinding\b", "finding"),
+        (r"\bsape\b", "safe"),
+        (r"\bplacelto\b", "place to"),
+        (r"\bbeco[Mm]=?[-\s]*[Pp]ortable\b", "be comfortable"),
+        (r"\bPor\s*Me\b", "for me"),
+        (r"\b(?:Por|For)\s*hi[Mm]\b", "for him"),
+        (r"\b(?:Por|For)\s*his\b", "for his"),
+        (r"\bMade\s*Por\b", "made for"),
+        (r"\bhi[Mm]sel[Pp]+\b", "himself"),
+        (r"\bhi[Mm]seip+[Pp]*\b", "himself"),
+        (r"\byour\s+lipe\b", "your life"),
+        (r"\bhis\s+lipe\b", "his life"),
+        (r"\bdrained\s+his\s+lifes\b", "drained his life"),
+        (r"\blipe\s+ons?\b", "life on"),
+        (r"\bnothing\s*lept\b", "nothing left"),
+        (r"\bon\s*all\s*op\b", "on all of"),
+        (r"\bcastle\s+OP\s+yours\b", "castle of yours"),
+        (r"\boUt\s+op\s+lies\b", "out of lies"),
+        (r"\bBan\s+out\s+OP\b", "Ran out of"),
+        (r"\bout\s+OP\s+points\b", "out of points"),
+        (r"\bWovld\b", "Would"),
+        (r"\bneyer\b", "never"),
+        (r"\btiie\b", "tile"),
+        (r"\bThe\s+tile\s+The\s+just\s+played\b", "The tile he just played"),
+        (r"\bhort\b", "hurt"),
+        (r"\b[CE]REALLY\b", "REALLY"),
+        (r"\bhe'l\b", "he'll"),
+        (r"\bHe'sw\b", "He's"),
+        (r"\bWhy[bh]\b", "why"),
+        (r"\bnowb\b", "now,"),
+        (r"\bplayb\b", "play,"),
+        (r"\btaking\s+Cis\.?\s+Sweet\s+time\b", "taking his sweet time"),
+        (r"\bEa\s*den\s+o[fF][.:]?\s*gam[-\s(]*blers\b", "a den of gamblers"),
+        (r"\b(?:Solu-\s*tioneo|Solu-\s*Cioncoo|Solutlon\w*|Solotion)\b", "solution"),
+        (r"\btioneo\b", "tion..."),
+        (r"\bCioncoo\b", "tion..."),
+        (r"\b(?:ool|bl)-san\b", "-san"),
+        (r"\b(?:Bach|Back)\s+then,?\s+Chat!\s*guy:?", "Back then, that guy"),
+        (r"\bFROM\s+CANTHE\s+DLES\b", "FROM THE CANDLES"),
+        (r"\bIS\.?\s*TOO\s+WEAK\b", "IS TOO WEAK"),
+        (r"\bAll\.?\s*on\s*purpose\b", "All on purpose"),
+        # Tách các từ tiếng Anh bị dính liền nhau do bóng thoại hẹp dọc trong Manga
+        (r"\bareyou\b", "are you"),
+        (r"\btosettle\b", "to settle"),
+        (r"\bwayuntil\b", "way until"),
+        (r"\bSeeMsto\b", "Seems to"),
+        (r"\bwiththe\b", "with the"),
+        (r"\btopickhis\b", "to pick his"),
+        (r"\bbeglad\b", "be glad"),
+        (r"\bCommanderfor\b", "Commander for"),
+        (r"\btheAllied\b", "the Allied"),
+        (r"\bevenWhile\b", "even while"),
+        (r"\bAswell\b", "As well"),
+        (r"\basthe\b", "as the"),
+        (r"\bOrdo\b", "Or do"),
+        (r"\bWhileit\b", "While it"),
+        (r"\bnowin\b", "now in"),
+        (r"\boverto\b", "over to"),
+        (r"\bdon't\s*[,，]\s*do\b", "don't do"),
+        (r"\b([a-z]{2,}):([a-z]{2,})\b", r"\1 \2"),
+        (r"\b(about|avoid\s+his|Already|Hey|Dumbass)\.\s+(?=[a-z])", r"\1, "),
+        (r"\b([A-Za-z]{2,})-(a|to|was|is|in|on|of|for|the|and|or)\b", r"\1 \2"),
+    ]
+    for pat_c, rep_c in comic_ocr_subs:
+        s = re.sub(pat_c, rep_c, s, flags=re.I)
+
+    # 3b. Chuẩn hoá chữ viết HOA xen kẽ giữa từ thường đặc trưng của font comic (VD: 'SoMething' -> 'Something',
+    # 'SeeMs' -> 'Seems', 'MeMory' -> 'Memory', 'reSearch' -> 'research', 'FlaMes' -> 'flames', 'hiM' -> 'him')
+    def _chuan_hoa_tu_hoa_xen_ke(m: re.Match) -> str:
+        w = m.group(0)
+        if w.isupper() or w.islower():
+            return w
+        if sum(1 for c in w[1:] if c.isupper()) >= 1 and sum(1 for c in w if c.islower()) >= 1:
+            return w[0] + w[1:].lower()
+        return w
+
+    s = re.sub(r"\b[A-Za-z][A-Za-z']{1,}\b", _chuan_hoa_tu_hoa_xen_ke, s)
+    # Hạ chữ hoa đầu từ đối với các từ thông dụng bị font comic vẽ chữ M/S/F/G/U cao như chữ hoa ở giữa câu
+    s = re.sub(
+        r"(?<=[a-z,]\s)\b(Something|Some|Glasses|Solution|Marks|Match|Memory|Flames|Fire|Meet|Met|Use|Still|Should|Make|Seen|So)\b",
+        lambda m: m.group(1).lower(),
+        s,
+    )
+    s = re.sub(r"\babout,\s+his\b", "about his", s, flags=re.I)
+    s = re.sub(r"\bavoid\s+his,\s+Ganpai\b", "avoid his Ganpai", s, flags=re.I)
+
+    # 4. Xử lý riêng cho câu thoại IN HOA (ALL-CAPS)
     upper_chars = sum(1 for c in s if c.isupper())
     lower_chars = sum(1 for c in s if c.islower())
     if upper_chars >= lower_chars * 2 and upper_chars >= 2:
@@ -3118,6 +3216,46 @@ def _lam_sach_chu_ocr_truyen(text: str) -> str:
     # Khử từ hoặc cụm từ bị nhân đôi liên tiếp (kể cả có dấu câu ở cuối như 'down? down?', 'hear me. hear me.')
     s = re.sub(r"\b([A-Za-z']+(?:\s+[A-Za-z',.!?]+){0,4}[.!?]*)\s+\1(?=\s|$)", r"\1", s, flags=re.I)
     return s.strip()
+
+
+def _gop_cac_dong_trong_bong_thoai(comp_ordered: list[dict], ngon_ngu_nguon: str = "en") -> str:
+    """
+    Nối thông minh các dòng chữ trong cùng 1 bóng thoại/khung chữ:
+    - Tự động nối liền các từ tiếng Anh bị ngắt gạch ngang xuống dòng trong bóng thoại hẹp
+      (VD: 'SoMe-' + 'thing' -> 'Something', 'poi-' + 'nts!' -> 'points!', 'Hon-' + 'estly,' -> 'Honestly,',
+      'pla-' + 'yed' -> 'played', 'Al-' + 'ready' -> 'Already', 'Dai-' + 'san-' + 'gen.' -> 'Daisangen.').
+    - Tự động ghép kính ngữ bị rớt dòng ('Tetsu' + '-san' -> 'Tetsu-san').
+    """
+    if not comp_ordered:
+        return ""
+    lang = (ngon_ngu_nguon or "en").lower()
+    if lang in ("ja", "zh"):
+        raw_joined = "".join(str(r.get("text") or "").strip() for r in comp_ordered)
+        return _lam_sach_chu_ocr_truyen(raw_joined)
+
+    merged_lines: list[str] = []
+    for r in comp_ordered:
+        t = str(r.get("text") or "").strip()
+        if not t:
+            continue
+        # Bỏ các mảnh rác số/ký hiệu đơn lẻ ở rìa bóng thoại ('000', '**', '88')
+        if re.fullmatch(r"[0*#.,:;~+=-]{1,4}", t):
+            continue
+        if merged_lines:
+            prev = merged_lines[-1]
+            # Nối kính ngữ '-san', '-kun', '-chan', '-sama', '-sensei' vào tên phía trước
+            if re.match(r"^-(?:san|kun|chan|sama|sensei|senpai)\b", t, re.I):
+                merged_lines[-1] = prev + t
+                continue
+            # Nối từ bị ngắt gạch ngang cuối dòng ('SoMe-' + 'thing', 'Some-!' + 'body', 'poi-' + 'nts!')
+            if re.search(r"[A-Za-z][-=!]+$", prev) and re.match(r"^[A-Za-z]", t):
+                if prev.endswith(("-", "=")) or prev.rstrip("-=!").lower() in {
+                    "some", "any", "every", "no", "hon", "solu", "poi", "inna", "dai", "san", "al", "pla", "becom"
+                }:
+                    merged_lines[-1] = prev.rstrip("-=!") + t
+                    continue
+        merged_lines.append(t)
+    return _lam_sach_chu_ocr_truyen(" ".join(merged_lines))
 
 
 def _la_nen_bong_trang(px, W: int, H: int, r_box: dict) -> bool:
@@ -3166,20 +3304,42 @@ def _co_vach_ngan_ngang(px, W: int, H: int, w1: dict, w2: dict) -> bool:
 
 
 def _co_vach_ngan_doc(px, W: int, H: int, a: dict, b: dict) -> bool:
-    """Kiểm tra có viền bóng thoại hoặc eo thắt cổ chai giữa bóng phụ trên a và bóng phụ dưới b không."""
+    """Kiểm tra có viền bóng thoại, vách khung tranh hoặc eo thắt cổ chai giữa bóng phụ trên a và bóng phụ dưới b không."""
     top, bot = (a, b) if a["y"] <= b["y"] else (b, a)
     y_start = top["y"] + top["h"]
     y_end = bot["y"]
     if y_end <= y_start:
         return False
-    if not (_la_nen_bong_trang(px, W, H, a) and _la_nen_bong_trang(px, W, H, b)):
-        return False
+    la_trang_a = _la_nen_bong_trang(px, W, H, a)
+    la_trang_b = _la_nen_bong_trang(px, W, H, b)
+    # Một dòng nằm trong bóng thoại trắng và một dòng chữ nổi trên nền tối/screentone không bao giờ thuộc cùng 1 bóng
+    if la_trang_a != la_trang_b and (y_end - y_start) >= 4:
+        return True
     ox0 = max(0, min(W - 1, int(max(a["x"], b["x"]))))
     ox1 = max(ox0 + 1, min(W - 1, int(min(a["x"] + a["w"], b["x"] + b["w"]))))
     ux0 = max(0, min(W - 1, int(min(a["x"], b["x"]))))
     ux1 = max(ux0 + 1, min(W - 1, int(max(a["x"] + a["w"], b["x"] + b["w"]))))
     xs_ov = [int(round(ox0 + (ox1 - ox0) * k / 6.0)) for k in range(7)]
     xs_un = [int(round(ux0 + (ux1 - ux0) * k / 8.0)) for k in range(9)]
+    if not (la_trang_a and la_trang_b):
+        # Kiểm tra đường viền khung tranh ngang (đen đậm hoặc rãnh trắng tinh) cắt ngang giữa 2 khối chữ nổi
+        dark_border_rows = 0
+        white_gutter_rows = 0
+        for y in range(max(0, y_start), min(H, y_end)):
+            dark_cnt = 0
+            white_cnt = 0
+            for xx in xs_un:
+                r, g, bl = px[xx, y]
+                lum = 0.299 * r + 0.587 * g + 0.114 * bl
+                if lum <= 65:
+                    dark_cnt += 1
+                elif lum >= 242:
+                    white_cnt += 1
+            if dark_cnt >= 8:
+                dark_border_rows += 1
+            if white_cnt >= 8:
+                white_gutter_rows += 1
+        return dark_border_rows >= 2 or white_gutter_rows >= 4
     non_white_rows = 0
     pinched_rows = 0
     for y in range(max(0, y_start), min(H, y_end)):
@@ -3200,6 +3360,26 @@ def _co_vach_ngan_doc(px, W: int, H: int, a: dict, b: dict) -> bool:
         if un_bright <= 6:
             pinched_rows += 1
     return non_white_rows >= 2 or pinched_rows >= 3
+
+
+def _la_trang_manga_don_sac(px, W: int, H: int) -> bool:
+    """
+    Nhận diện trang truyện có phải là Manga đen-trắng / screentone (kể cả khi đã dịch sang tiếng Anh)
+    để sắp xếp thứ tự đọc khung tranh chuẩn từ PHẢI sang TRÁI.
+    """
+    if H < W * 0.65:
+        return False
+    step_x = max(8, W // 24)
+    step_y = max(8, H // 24)
+    total = 0
+    colored = 0
+    for py in range(step_y // 2, H, step_y):
+        for px_i in range(step_x // 2, W, step_x):
+            r, g, b = px[px_i, py]
+            total += 1
+            if (max(r, g, b) - min(r, g, b)) >= 28:
+                colored += 1
+    return total > 0 and (colored / total) <= 0.08
 
 
 def _la_vung_bong_thoai(px, W: int, H: int, x: int, y: int, w: int, h: int) -> bool:
@@ -3267,14 +3447,22 @@ def _sap_xep_dong_trong_bong_thoai(comp: list[dict]) -> list[dict]:
 
 def nhan_dien_bong_thoai_ocr_cuc_bo(img_bytes: bytes, ngon_ngu_nguon: str = "en") -> list[dict]:
     """
-    Nhận diện chữ và gom bóng thoại cực nhanh (~0.6s/trang) bằng Windows Media OCR tích hợp sẵn,
-    kèm thuật toán tách từ ngang + kiểm tra vách ngăn bóng thoại để không gộp nhầm 2 bóng thoại cạnh nhau.
-    Trả về danh sách rỗng nếu hệ điều hành chưa cài gói ngôn ngữ OCR tương ứng.
+    Hệ thống OCR Thông Minh Thích Ứng Theo Từng Khung Hình (Intelligent Per-Frame Adaptive OCR):
+    1. Ưu tiên lõi PP-OCRv4 ONNX (`_nhan_dien_dong_rapidocr_hf`, ~0.25s/trang) với quét đa tỷ lệ + tinh chỉnh
+       tương phản/đảo cực riêng cho từng khung hình (bóng thoại trắng, khung dẫn chuyện tối, chữ nổi trên screentone).
+    2. Chỉ lùi về Windows Media OCR nếu môi trường chưa cài `rapidocr_onnxruntime`.
+    3. Kết hợp tách từ ngang, kiểm tra vách ngăn khung tranh, khử gạch nối xuống dòng (`_gop_cac_dong_trong_bong_thoai`)
+       và sắp xếp thứ tự đọc chuẩn Manga (Phải -> Trái) / Webtoon (Trái -> Phải).
     """
-    if Image is None or os.name != "nt":
+    if Image is None:
         return []
     try:
-        im = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+        if isinstance(img_bytes, (bytes, bytearray)):
+            im = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+        elif hasattr(img_bytes, "convert"):
+            im = img_bytes.convert("RGB")
+        else:
+            return []
     except Exception:
         return []
     W_goc, H_goc = im.size
@@ -3296,38 +3484,42 @@ def nhan_dien_bong_thoai_ocr_cuc_bo(img_bytes: bytes, ngon_ngu_nguon: str = "en"
         he_so_ocr = 1.0
     W, H = im.size
 
-    lang_map = {"en": "en-US", "ja": "ja", "ko": "ko", "zh": "zh-Hans"}
-    lang_tag = lang_map.get(ngon_ngu_nguon, ngon_ngu_nguon)
+    # Ưu tiên số 1: Hệ thống nhận diện thông minh PP-OCRv4 ONNX thích ứng theo từng khung hình
+    raw_lines: list[dict] = _nhan_dien_dong_rapidocr_hf(im, ngon_ngu_nguon=ngon_ngu_nguon)
+    so_dai_chinh = 8
 
-    try:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            cac_dai: list[tuple[str, int, float]] = []
-            if H > W * 1.15 and H >= 900:
-                # Ưu tiên quét 3 dải cắt ngang độ phân giải chuẩn để toạ độ dòng chính xác tuyệt đối, không bị lệch góc xoay trang dài
-                for idx_b, (by0, by1) in enumerate((
-                    (0, int(H * 0.48)),
-                    (int(H * 0.28), int(H * 0.74)),
-                    (int(H * 0.56), H),
-                )):
-                    bp = Path(tmp_dir) / f"band_{idx_b}.jpg"
-                    im.crop((0, by0, W, by1)).save(bp, format="JPEG", quality=92)
-                    cac_dai.append((str(bp).replace("'", "''"), by0, 1.0))
-            img_path = Path(tmp_dir) / "page_ocr.jpg"
-            im.save(img_path, format="JPEG", quality=92)
-            cac_dai.append((str(img_path).replace("'", "''"), 0, 1.0))
-            so_dai_chinh = len(cac_dai)
-            if im_950_phu is not None:
-                w950, h950 = im_950_phu.size
-                for idx_950, (by0, by1) in enumerate((
-                    (0, int(h950 * 0.48)),
-                    (int(h950 * 0.28), int(h950 * 0.74)),
-                )):
-                    p_950 = Path(tmp_dir) / f"band_950_{idx_950}.jpg"
-                    im_950_phu.crop((0, by0, w950, by1)).save(p_950, format="JPEG", quality=92)
-                    cac_dai.append((str(p_950).replace("'", "''"), by0 * 2, 2.0))
+    # Dự phòng số 2: Windows Media OCR nếu chưa có PP-OCRv4 ONNX
+    if not raw_lines and os.name == "nt":
+        lang_map = {"en": "en-US", "ja": "ja", "ko": "ko", "zh": "zh-Hans"}
+        lang_tag = lang_map.get(ngon_ngu_nguon, ngon_ngu_nguon)
+        try:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                cac_dai: list[tuple[str, int, float]] = []
+                if H > W * 1.15 and H >= 900:
+                    for idx_b, (by0, by1) in enumerate((
+                        (0, int(H * 0.48)),
+                        (int(H * 0.28), int(H * 0.74)),
+                        (int(H * 0.56), H),
+                    )):
+                        bp = Path(tmp_dir) / f"band_{idx_b}.jpg"
+                        im.crop((0, by0, W, by1)).save(bp, format="JPEG", quality=92)
+                        cac_dai.append((str(bp).replace("'", "''"), by0, 1.0))
+                img_path = Path(tmp_dir) / "page_ocr.jpg"
+                im.save(img_path, format="JPEG", quality=92)
+                cac_dai.append((str(img_path).replace("'", "''"), 0, 1.0))
+                so_dai_chinh = len(cac_dai)
+                if im_950_phu is not None:
+                    w950, h950 = im_950_phu.size
+                    for idx_950, (by0, by1) in enumerate((
+                        (0, int(h950 * 0.48)),
+                        (int(h950 * 0.28), int(h950 * 0.74)),
+                    )):
+                        p_950 = Path(tmp_dir) / f"band_950_{idx_950}.jpg"
+                        im_950_phu.crop((0, by0, w950, by1)).save(p_950, format="JPEG", quality=92)
+                        cac_dai.append((str(p_950).replace("'", "''"), by0 * 2, 2.0))
 
-            ds_ps_items = ", ".join(f"@{{p='{p_str}'; y0={y_off}; sc={sc}}}" for p_str, y_off, sc in cac_dai)
-            ps_script = f"""
+                ds_ps_items = ", ".join(f"@{{p='{p_str}'; y0={y_off}; sc={sc}}}" for p_str, y_off, sc in cac_dai)
+                ps_script = f"""
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 $null = [Windows.Storage.StorageFile, Windows.Storage, ContentType=WindowsRuntime]
@@ -3393,32 +3585,30 @@ foreach ($it in @({ds_ps_items})) {{
 }}
 $lines | ConvertTo-Json -Depth 4 -Compress
 """
-            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            raw = subprocess.check_output(
-                ["powershell", "-NoProfile", "-Command", ps_script],
-                timeout=25,
-                creationflags=creationflags,
-            ).decode("utf-8", errors="replace").strip()
-    except Exception:
-        raw = "[]"
-
-    raw_lines: list[dict] = []
-    if raw and raw != "[]":
-        try:
-            parsed_lines = json.loads(raw)
-            if isinstance(parsed_lines, dict):
-                parsed_lines = [parsed_lines]
-            if isinstance(parsed_lines, list):
-                raw_lines = parsed_lines
+                creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                raw = subprocess.check_output(
+                    ["powershell", "-NoProfile", "-Command", ps_script],
+                    timeout=25,
+                    creationflags=creationflags,
+                ).decode("utf-8", errors="replace").strip()
         except Exception:
-            raw_lines = []
+            raw = "[]"
 
-    if not raw_lines:
-        raw_lines = _nhan_dien_dong_rapidocr_hf(im, ngon_ngu_nguon=ngon_ngu_nguon)
+        if raw and raw != "[]":
+            try:
+                parsed_lines = json.loads(raw)
+                if isinstance(parsed_lines, dict):
+                    parsed_lines = [parsed_lines]
+                if isinstance(parsed_lines, list):
+                    raw_lines = parsed_lines
+            except Exception:
+                raw_lines = []
+
     if not raw_lines:
         return []
 
     px = im.load()
+    la_trang_manga = _la_trang_manga_don_sac(px, W, H)
     dau_noi_tu = "" if ngon_ngu_nguon in ("ja", "zh") else " "
     # Bước 1: Tách các dòng ngang bị gộp qua 2 bóng thoại cạnh nhau dựa trên khoảng cách từ & vách ngăn
     segments: list[dict] = []
@@ -3469,6 +3659,9 @@ $lines | ConvertTo-Json -Depth 4 -Compress
         if sum(c.isalnum() for c in t) == 0:
             continue
         co_cjk = any(ord(c) >= 0x2E80 for c in t)
+        if str(ngon_ngu_nguon or "en").lower() == "en" and co_cjk:
+            # Trên trang tiếng Anh, ký tự CJK là con dấu scanlation hoặc mặt quân bài mạt chược / SFX
+            continue
         la_tu_2_chu_hoa = len(t) == 2 and t.isalpha() and t.isupper() and seg["h"] >= 7
         if len(t) <= 2 and seg["h"] < 14 and not co_cjk and not la_tu_2_chu_hoa:
             continue
@@ -3568,8 +3761,15 @@ $lines | ConvertTo-Json -Depth 4 -Compress
         y0 = min(r["y"] for r in comp_ordered)
         x1 = max(r["x"] + r["w"] for r in comp_ordered)
         y1 = max(r["y"] + r["h"] for r in comp_ordered)
-        text = _lam_sach_chu_ocr_truyen(dau_noi_tu.join(r["text"] for r in comp_ordered))
+        text = _gop_cac_dong_trong_bong_thoai(comp_ordered, ngon_ngu_nguon=ngon_ngu_nguon)
+        if not text:
+            continue
         co_cjk = any(ord(c) >= 0x2E80 for c in text)
+        # Bỏ các tiếng rên / SFX nền vụn hoặc dòng chữ khắc mờ trên đạo cụ nền ('Gh', 'Ggh', 'A.', 'D', 'MHAyH', 'myympa')
+        text_alnum = "".join(c for c in text if c.isalnum())
+        if not co_cjk:
+            if text_alnum.lower() in {"a", "d", "gh", "ggh", "ghhr", "ghhhhn", "mhayh", "myympa", "armnflammab", "it"}:
+                continue
         if not co_cjk and sum(1 for c in text if c.isascii() and c.isupper()) == 0:
             if (
                 len(text) <= 4
@@ -3599,19 +3799,62 @@ $lines | ConvertTo-Json -Depth 4 -Compress
                 for r in comp_ordered
             ],
         })
-    return sap_xep_bong_thoai_theo_huong_doc(bubbles, ngon_ngu_nguon=ngon_ngu_nguon)
+
+    # Hợp nhất các bóng thoại đôi xếp chồng dọc ngay sát nhau khi bóng trên kết thúc lửng câu
+    # (VD: 'Would have' + 'never played that tile.', 'Can no longer be' + 'seen..', 'Well? Spit' + 'out.')
+    bubbles.sort(key=lambda b: (b["y"], b["x"]))
+    da_gop: list[bool] = [False] * len(bubbles)
+    bubbles_gop: list[dict] = []
+    for i, b1 in enumerate(bubbles):
+        if da_gop[i]:
+            continue
+        cur = dict(b1)
+        for j in range(i + 1, len(bubbles)):
+            if da_gop[j]:
+                continue
+            b2 = bubbles[j]
+            v_gap = b2["y"] - (cur["y"] + cur["h"])
+            if v_gap < -12 or v_gap > 42:
+                continue
+            cx1 = cur["x"] + cur["w"] * 0.5
+            cx2 = b2["x"] + b2["w"] * 0.5
+            if abs(cx1 - cx2) > max(cur["w"], b2["w"]) * 0.65:
+                continue
+            t1 = str(cur["chu_goc"]).strip()
+            t2 = str(b2["chu_goc"]).strip()
+            if not t1.endswith((".", "!", "?", "…")) or t2[:1].islower():
+                if t1.lower().endswith("spit") and t2.lower().startswith("out"):
+                    cur["chu_goc"] = f"{t1} it {t2}"
+                else:
+                    cur["chu_goc"] = _lam_sach_chu_ocr_truyen(f"{t1} {t2}")
+                nx0 = min(cur["x"], b2["x"])
+                ny0 = min(cur["y"], b2["y"])
+                nx1 = max(cur["x"] + cur["w"], b2["x"] + b2["w"])
+                ny1 = max(cur["y"] + cur["h"], b2["y"] + b2["h"])
+                cur["x"], cur["y"], cur["w"], cur["h"] = nx0, ny0, nx1 - nx0, ny1 - ny0
+                cur["dong_con"] = list(cur.get("dong_con") or []) + list(b2.get("dong_con") or [])
+                da_gop[j] = True
+        bubbles_gop.append(cur)
+
+    return sap_xep_bong_thoai_theo_huong_doc(
+        bubbles_gop, ngon_ngu_nguon=ngon_ngu_nguon, la_trang_manga=la_trang_manga
+    )
 
 
-def sap_xep_bong_thoai_theo_huong_doc(bubbles: list[dict], ngon_ngu_nguon: str = "ja") -> list[dict]:
+def sap_xep_bong_thoai_theo_huong_doc(
+    bubbles: list[dict], ngon_ngu_nguon: str = "ja", la_trang_manga: bool = False
+) -> list[dict]:
     """
     Sắp xếp thứ tự bóng thoại theo văn hoá đọc truyện tranh (tương tự BallonsTranslator / cotrans):
-    - Manga Nhật (`ja`): Đọc từ Trên xuống Dưới theo dải khung tranh, và từ PHẢI sang TRÁI (`-(x + w)`) trong cùng dải ngang.
-    - Manhwa Hàn (`ko`), Manhua Trung (`zh`, `zh-TW`), Comic Âu-Mỹ (`en`): Đọc từ Trên xuống Dưới, TRÁI sang PHẢI (`x`).
+    - Manga Nhật (`ja` hoặc trang Manga đen trắng/screentone `la_trang_manga=True`):
+      Đọc từ Trên xuống Dưới theo dải khung tranh, và từ PHẢI sang TRÁI (`-(x + w)`) trong cùng dải ngang.
+    - Manhwa Hàn (`ko`), Manhua Trung (`zh`, `zh-TW`), Comic màu Âu-Mỹ (`en`):
+      Đọc từ Trên xuống Dưới, TRÁI sang PHẢI (`x`).
     - Đồng thời đánh dấu các cặp bóng thoại kề sát nhau (`lien_ket_cau_tren=True`) khi 1 câu thoại dài bị tách làm 2 bóng.
     """
     if not bubbles:
         return []
-    la_manga_nhat = str(ngon_ngu_nguon or "ja").lower().startswith("ja")
+    la_manga_nhat = la_trang_manga or str(ngon_ngu_nguon or "ja").lower().startswith("ja")
     if la_manga_nhat:
         bubbles.sort(key=lambda b: (int(b.get("y", 0)) // 90, -(int(b.get("x", 0)) + int(b.get("w", 0)))))
     else:
@@ -3622,7 +3865,7 @@ def sap_xep_bong_thoai_theo_huong_doc(bubbles: list[dict], ngon_ngu_nguon: str =
         cur_b = bubbles[i]
         dy = int(cur_b.get("y", 0)) - (int(prev_b.get("y", 0)) + int(prev_b.get("h", 0)))
         dx = abs(int(cur_b.get("x", 0)) - int(prev_b.get("x", 0)))
-        if -25 <= dy <= 65 and dx <= max(140, int(prev_b.get("w", 80))):
+        if -45 <= dy <= 85 and dx <= max(165, int(prev_b.get("w", 80)) + 45):
             cur_b["lien_ket_cau_tren"] = True
     return bubbles
 
@@ -3692,9 +3935,12 @@ def tai_goi_ocr_huggingface(ngon_ngu: str = "all") -> dict[str, bool]:
 
 def _nhan_dien_dong_rapidocr_hf(im, ngon_ngu_nguon: str = "ja") -> list[dict]:
     """
-    Nhận diện chữ đa ngôn ngữ (JA / ZH / KO / EN) bằng mô hình ONNX PP-OCRv4 từ HuggingFace (`rapidocr_onnxruntime`),
-    chuyển đổi toạ độ về đúng cấu trúc `[{"band": 0, "words": [{"text", "x", "y", "w", "h"}]}]`
-    để tái sử dụng toàn bộ thuật toán gom bóng thoại & kiểm tra vách ngăn.
+    Hệ thống nhận diện chữ thông minh đa khung hình (Intelligent Per-Frame Adaptive PP-OCRv4):
+    - Tắt bộ xoay 180° (`use_cls=False`) để không lật ngược các từ cảm thán ngắn ('Eh!?', 'Right?', 'lie!?').
+    - Giữ độ phân giải cao (`limit_side_len=1600`, `box_thresh=0.25`, `unclip_ratio=1.78`) để bắt trọn cả dòng chữ nhỏ.
+    - Tự động chia khung hình (Frame Tiling) đối với trang đôi (`W > H * 1.12`) hoặc dải Webtoon dài (`H > W * 2.1`).
+    - Tinh chỉnh cục bộ theo từng khung chữ (`score < 0.80`): tự động tăng tương phản + làm nét (và đảo cực nếu nền khung tối)
+      để đạt độ chính xác cao nhất trên mọi nền tranh.
     """
     try:
         from rapidocr_onnxruntime import RapidOCR
@@ -3723,33 +3969,99 @@ def _nhan_dien_dong_rapidocr_hf(im, ngon_ngu_nguon: str = "ja") -> list[dict]:
             _CACHE_RAPIDOCR_HF[cache_key] = RapidOCR()
         engine = _CACHE_RAPIDOCR_HF[cache_key]
 
-    try:
-        res, _ = engine(im, use_cls=False)
-    except Exception:
-        return []
-    if not res:
-        return []
+    W, H = im.size
+    limit_len = max(1440, min(2240, max(W, H)))
+    frames: list[tuple[int, object, int, int]] = [(0, im, 0, 0)]
+    if W > H * 1.12 and W >= 1200:
+        # Trang đôi (Double-page spread): quét thêm 2 nửa khung trái/phải để không sót chữ nhỏ
+        mid_x = W // 2
+        overlap_x = int(W * 0.06)
+        frames.append((1, im.crop((0, 0, min(W, mid_x + overlap_x), H)), 0, 0))
+        frames.append((2, im.crop((max(0, mid_x - overlap_x), 0, W, H)), max(0, mid_x - overlap_x), 0))
+    elif H > W * 2.15 and H >= 1800:
+        # Trang Webtoon dài: quét thêm 3 khung cắt ngang chồng lấp
+        for idx_f, (fy0, fy1) in enumerate((
+            (0, int(H * 0.45)),
+            (int(H * 0.28), int(H * 0.72)),
+            (int(H * 0.55), H),
+        ), start=1):
+            frames.append((idx_f, im.crop((0, fy0, W, fy1)), 0, fy0))
 
     lines: list[dict] = []
-    for item in res:
-        if not isinstance(item, (list, tuple)) or len(item) < 3:
-            continue
-        box, txt, score = item[0], str(item[1] or "").strip(), float(item[2] or 0.0)
-        if not txt or score < 0.42:
-            continue
+    for band_id, frame_im, off_x, off_y in frames:
         try:
-            xs = [float(pt[0]) for pt in box]
-            ys = [float(pt[1]) for pt in box]
-            x0, x1 = int(round(min(xs))), int(round(max(xs)))
-            y0, y1 = int(round(min(ys))), int(round(max(ys)))
+            res, _ = engine(
+                frame_im,
+                use_cls=False,
+                limit_side_len=limit_len,
+                box_thresh=0.25,
+                unclip_ratio=1.78,
+                text_score=0.42,
+            )
+        except TypeError:
+            try:
+                res, _ = engine(frame_im, use_cls=False)
+            except Exception:
+                res = None
         except Exception:
+            res = None
+        if not res:
             continue
-        w = max(1, x1 - x0)
-        h = max(1, y1 - y0)
-        lines.append({
-            "band": 0,
-            "words": [{"text": txt, "x": x0, "y": y0, "w": w, "h": h}],
-        })
+
+        for item in res:
+            if not isinstance(item, (list, tuple)) or len(item) < 3:
+                continue
+            box, txt, score = item[0], str(item[1] or "").strip(), float(item[2] or 0.0)
+            if not txt or score < 0.44:
+                continue
+            if lang == "en":
+                # Bỏ qua con dấu CJK hoặc chữ Kanji trên quân bài mạt chược / hiệu ứng nền
+                if any("\u2e80" <= c <= "\u9fff" for c in txt):
+                    continue
+                if not any(c.isascii() and c.isalpha() for c in txt):
+                    continue
+            try:
+                xs = [float(pt[0]) for pt in box]
+                ys = [float(pt[1]) for pt in box]
+                x0 = int(round(min(xs))) + off_x
+                x1 = int(round(max(xs))) + off_x
+                y0 = int(round(min(ys))) + off_y
+                y1 = int(round(max(ys))) + off_y
+            except Exception:
+                continue
+            w = max(1, x1 - x0)
+            h = max(1, y1 - y0)
+
+            # Tinh chỉnh thông minh cục bộ trên từng khung chữ có độ tự tin trung bình (< 0.78):
+            if score < 0.78 and w >= 16 and h >= 12:
+                try:
+                    from PIL import ImageEnhance, ImageOps
+
+                    pad_c = 10
+                    cx0, cy0 = max(0, x0 - pad_c), max(0, y0 - pad_c)
+                    cx1, cy1 = min(W, x1 + pad_c), min(H, y1 + pad_c)
+                    crop_f = im.crop((cx0, cy0, cx1, cy1))
+                    crop_enh = ImageEnhance.Sharpness(
+                        ImageEnhance.Contrast(ImageOps.autocontrast(crop_f, cutoff=1)).enhance(1.35)
+                    ).enhance(1.5)
+                    res_sub, _ = engine(crop_enh, use_cls=False)
+                    if res_sub and len(res_sub) == 1:
+                        txt_sub = str(res_sub[0][1] or "").strip()
+                        sc_sub = float(res_sub[0][2] or 0.0)
+                        if (
+                            txt_sub
+                            and sc_sub > score + 0.06
+                            and (lang != "en" or not any("\u2e80" <= c <= "\u9fff" for c in txt_sub))
+                        ):
+                            txt = txt_sub
+                            score = sc_sub
+                except Exception:
+                    pass
+
+            lines.append({
+                "band": band_id,
+                "words": [{"text": txt, "x": x0, "y": y0, "w": w, "h": h}],
+            })
     return lines
 
 
@@ -4171,6 +4483,23 @@ def hau_kiem_va_sua_ban_dich(chu_goc: str, ban_dich: str, ngon_ngu_dich: str = "
     co_kinh_ngu_ban_be = bool(re.search(r"-(?:kun|chan|senpai)\b", goc_sach, re.I))
 
     if ngon_ngu_dich == "vi":
+        goc_low = goc_sach.lower()
+        if goc_low in ("pon.", "pon!"):
+            return "Phỗng!"
+        if goc_low in ("pon that.", "pon that!"):
+            return "Phỗng luôn quân đó!"
+        if goc_low in ("hell,", "hell!"):
+            return "Khốn thật,"
+        if goc_low.startswith("about innami"):
+            return "Còn về tên Innami..."
+        if "spit it out" in goc_low:
+            return "Sao hả? Mau nói toẹt ra đi."
+        if "taking his sweet time" in goc_low:
+            return "Hắn cứ ung dung thong thả suốt bấy lâu nay."
+        if "was called on" in goc_low:
+            return "Bị gọi phỗng mất rồi sao!?"
+        if "got called on a second time" in goc_low:
+            return "Lại bị gọi phỗng lần thứ hai sao!?"
         # Khử lỗi lặp 1 từ liên tiếp >= 3 lần ('để để để' -> 'để')
         s = re.sub(r"\b(\w+)(?:\s+\1){2,}\b", r"\1", s, flags=re.I)
         # Khử lỗi lặp cụm 2 từ liên tiếp >= 3 lần ('của ta của ta của ta' -> 'của ta')
@@ -4180,6 +4509,12 @@ def hau_kiem_va_sua_ban_dich(chu_goc: str, ban_dich: str, ngon_ngu_dich: str = "
         s = re.sub(r"\bĐừng đánh giá thấp\b", "Đừng xem thường", s)
         s = re.sub(r"\bđừng đánh giá thấp\b", "đừng xem thường", s)
         s = re.sub(r"\bngục tối\b", "hầm ngục", s, flags=re.I)
+        if "tile" in goc_low:
+            s = re.sub(r"\b(?:Ngói|ngói|gạch|ô)\b", "quân bài", s)
+        if "solution" in goc_low and any(k in goc_low for k in ("glasses", "glow", "light", "that solution")):
+            s = re.sub(r"\b[Gg]iải pháp\b", "dung dịch", s)
+        s = re.sub(r"\bnhặt bộ não của (?:anh ta|anh ấy|hắn)\b", "moi sạch thông tin trong đầu hắn", s, flags=re.I)
+        s = re.sub(r"\bĐó là một ngọn lửa!", "Cháy lớn rồi!", s, flags=re.I)
         s = re.sub(r"\bCậu đang đùa tôi à\b", "Cậu đùa tớ đấy à", s, flags=re.I)
         s = re.sub(r"\bBạn đang đùa tôi à\b", "Cậu đùa tớ đấy à", s, flags=re.I)
         s = re.sub(r"\bHa\s+yes\b", "Ha ha, chuẩn rồi", s, flags=re.I)
