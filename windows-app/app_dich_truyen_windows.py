@@ -535,6 +535,8 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                 if vung_cam[pos]:
                     continue
                 trong_hop = (cx0 <= px < cx1) and (cy0 <= py < cy1)
+                if not trong_hop and ty_le_trang_dac >= 0.48 and lum_px[pos] < 185.0:
+                    continue
                 if trong_hop and (la_toi_net[pos] or la_mau_dam_net[pos]):
                     continue
                 if la_trang_dac[pos] or la_sang_dac[pos] or la_dai_trang_manh[pos]:
@@ -548,7 +550,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                         ):
                             sat_net_toi = True
                             break
-                    if sat_net_toi and la_dai_trang_manh[pos]:
+                    if sat_net_toi and la_dai_trang_manh[pos] and ty_le_trang_dac < 0.48:
                         continue
                 ds_r_nen_thuc.append(r_roi[pos])
                 ds_g_nen_thuc.append(g_roi[pos])
@@ -899,7 +901,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
             and (
                 (lum_nen_p30 >= 218.0 and (lum_nen_p10 >= 205.0 or ((la_bong_khep_kin or not ro_ri_bien_rong) and ty_le_trang_dac >= 0.48)))
                 or ((la_bong_khep_kin or not ro_ri_bien_rong) and ty_le_trang_dac >= 0.55)
-                or (ty_le_trang_tren_nen_sang >= 0.83 and ty_le_trang_dac >= 0.55 and do_nhieu_hat < 18.0)
+                or ((la_bong_khep_kin or not ro_ri_bien_rong or lum_nen_p10 >= 205.0) and not nen_mau_trung_binh and ty_le_trang_tren_nen_sang >= 0.83 and ty_le_trang_dac >= 0.55 and do_nhieu_hat < 18.0)
             )
         )
         la_chu_noi_tren_nen = bool(
@@ -926,6 +928,9 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
             nen_mau_trung_binh = True
             bg_r, bg_g, bg_b = int(r_nen_trung_vi), int(g_nen_trung_vi), int(b_nen_trung_vi)
             nen_toi = bool(la_dao_chieu_halo or (lum_nen_trung_vi < 82.0))
+        elif la_bong_khep_kin or la_nen_trang_phang:
+            nen_mau_trung_binh = False
+            bg_r, bg_g, bg_b = int(r_nen_trung_vi), int(g_nen_trung_vi), int(b_nen_trung_vi)
 
         row_bg: list[tuple[int, int, int, float]] = []
         sx_r0 = max(0, cx0 - min(16, max(6, w_goc // 6)))
@@ -1578,9 +1583,9 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
             la_tuong_trang_pre = bool(not la_nen_mau_thuc and ty_le_trang_dac >= 0.38 and lum_nen_trung_vi >= 212.0 and do_nhieu_hat < 18.0)
             for _ in range(2):
                 snap_xoa = bytearray(can_xoa)
-                for py_s in range(max(4, hy0), min(rh - 4, hy1)):
+                for py_s in range(max(7, hy0), min(rh - 7, hy1)):
                     base_s = py_s * rw
-                    for px_s in range(max(4, hx0), min(rw - 4, hx1)):
+                    for px_s in range(max(7, hx0), min(rw - 7, hx1)):
                         pos_s = base_s + px_s
                         if snap_xoa[pos_s] or vung_cam[pos_s]:
                             continue
@@ -2260,30 +2265,70 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                 con_nhich = True
                 while con_nhich:
                     con_nhich = False
-                    if bx0_k - buoc_k >= 0 and _dai_trong_bong_py(bx0_k - buoc_k, by0_k, bx0_k, by1_k) and _vanh_elip_trong_bong_py(bx0_k - buoc_k, by0_k, bx1_k, by1_k):
+                    if bx0_k - buoc_k >= 0 and _dai_trong_bong_py(bx0_k - buoc_k, by0_k, bx0_k, by1_k, 0.88, 0.20):
                         bx0_k -= buoc_k
                         con_nhich = True
-                    if bx1_k + buoc_k <= rw and _dai_trong_bong_py(bx1_k, by0_k, bx1_k + buoc_k, by1_k) and _vanh_elip_trong_bong_py(bx0_k, by0_k, bx1_k + buoc_k, by1_k):
+                    if bx1_k + buoc_k <= rw and _dai_trong_bong_py(bx1_k, by0_k, bx1_k + buoc_k, by1_k, 0.88, 0.20):
                         bx1_k += buoc_k
                         con_nhich = True
-                    if by0_k - buoc_k >= 0 and _dai_trong_bong_py(bx0_k, by0_k - buoc_k, bx1_k, by0_k) and _vanh_elip_trong_bong_py(bx0_k, by0_k - buoc_k, bx1_k, by1_k):
+                    if by0_k - buoc_k >= 0 and _dai_trong_bong_py(bx0_k, by0_k - buoc_k, bx1_k, by0_k, 0.88, 0.24):
                         by0_k -= buoc_k
                         con_nhich = True
-                    if by1_k + buoc_k <= rh and _dai_trong_bong_py(bx0_k, by1_k, bx1_k, by1_k + buoc_k) and _vanh_elip_trong_bong_py(bx0_k, by0_k, bx1_k, by1_k + buoc_k):
+                    if by1_k + buoc_k <= rh and _dai_trong_bong_py(bx0_k, by1_k, bx1_k, by1_k + buoc_k, 0.88, 0.24):
                         by1_k += buoc_k
                         con_nhich = True
-            le_x_k = max(3, int(round((bx1_k - bx0_k) * 0.045)))
-            le_y_k = max(3, int(round((by1_k - by0_k) * 0.045)))
-            if bx1_k - bx0_k > min(w_goc, 24) + le_x_k * 2:
-                bx0_k += le_x_k
-                bx1_k -= le_x_k
-            if by1_k - by0_k > min(h_goc, 24) + le_y_k * 2:
-                by0_k += le_y_k
-                by1_k -= le_y_k
+            le_x_k = max(2, int(round((bx1_k - bx0_k) * 0.03)))
+            le_y_k = max(2, int(round((by1_k - by0_k) * 0.03)))
+            if bx1_k - bx0_k > w_goc + le_x_k * 2:
+                pass
+                pass
+            bx0_k = min(cx0, bx0_k)
+            bx1_k = max(cx1, bx1_k)
+            by0_k = min(cy0, by0_k)
+            by1_k = max(cy1, by1_k)
+            by0_k = min(cy0, by0_k)
+            by1_k = max(cy1, by1_k)
             bx = rx0 + bx0_k
             bw = max(20, bx1_k - bx0_k)
             by = ry0 + by0_k
             bh = max(16, by1_k - by0_k)
+        elif not la_chu_noi_tren_nen and not nen_mau_trung_binh and len(q_lt) >= 24:
+            def _dai_lt_py(x_a: int, y_a: int, x_b: int, y_b: int) -> bool:
+                ax0_b, ay0_b, ax1_b, ay1_b = max(0, x_a), max(0, y_a), min(rw, x_b), min(rh, y_b)
+                if ax1_b - ax0_b > 16:
+                    cx_cut = int((ax1_b - ax0_b) * 0.14)
+                    ax0_b += cx_cut; ax1_b -= cx_cut
+                if ay1_b - ay0_b > 16:
+                    cy_cut = int((ay1_b - ay0_b) * 0.14)
+                    ay0_b += cy_cut; ay1_b -= cy_cut
+                if ax1_b <= ax0_b or ay1_b <= ay0_b:
+                    return False
+                trong_b = sum(
+                    1
+                    for py_b in range(ay0_b, ay1_b)
+                    for px_b in range(ax0_b, ax1_b)
+                    if long_trang_roi[py_b * rw + px_b] or can_xoa[py_b * rw + px_b]
+                )
+                return (trong_b / max(1, (ay1_b - ay0_b) * (ax1_b - ax0_b))) >= 0.88
+            bx0_lt, by0_lt, bx1_lt, by1_lt = cx0, cy0, cx1, cy1
+            gh_x = max(24, int(max(w_goc * 0.55, h_goc * 0.45)))
+            gh_y = max(64, int(max(h_goc * 0.95, w_goc * 0.85)))
+            for buoc_lt in (max(2, int(min(w_goc, h_goc) / 18)), 1):
+                con_lt = True
+                while con_lt:
+                    con_lt = False
+                    if bx0_lt - buoc_lt >= max(0, cx0 - gh_x) and _dai_lt_py(bx0_lt - buoc_lt, by0_lt, bx0_lt, by1_lt):
+                        bx0_lt -= buoc_lt; con_lt = True
+                    if bx1_lt + buoc_lt <= min(rw, cx1 + gh_x) and _dai_lt_py(bx1_lt, by0_lt, bx1_lt + buoc_lt, by1_lt):
+                        bx1_lt += buoc_lt; con_lt = True
+                    if by0_lt - buoc_lt >= max(0, cy0 - gh_y) and _dai_lt_py(bx0_lt, by0_lt - buoc_lt, bx1_lt, by0_lt):
+                        by0_lt -= buoc_lt; con_lt = True
+                    if by1_lt + buoc_lt <= min(rh, cy1 + gh_y) and _dai_lt_py(bx0_lt, by1_lt, bx1_lt, by1_lt + buoc_lt):
+                        by1_lt += buoc_lt; con_lt = True
+            bx = rx0 + bx0_lt
+            bw = max(20, bx1_lt - bx0_lt)
+            by = ry0 + by0_lt
+            bh = max(16, by1_lt - by0_lt)
         elif co_diem_xoa_chu_noi:
             if la_chu_noi_tren_nen:
                 bx0_thuc = max(x_goc - 16, min(x_goc, rx0 + min_x_xoa))
@@ -2335,8 +2380,10 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
     # & Đồng bộ cỡ chữ hài hoà toàn trang (tránh bóng chữ khổng lồ sát cạnh bóng chữ tí hon)
     draw = ImageDraw.Draw(anh)
     ket_qua_dan_trang: list[dict] = []
-    tran_thoai_chuan = max(14, min(28, int(round(W * 0.026))))
-    tran_chieu_thuc = max(24, min(42, int(round(W * 0.044))))
+    W_chuan = min(W, int(round(H * 0.72))) if W > H * 1.05 else W
+    tran_thoai_chuan = max(14, min(28, int(round(W_chuan * 0.026))))
+    co_san_doc_ro = max(14, min(18, int(round(W_chuan * 0.0185))))
+    tran_chieu_thuc = max(24, min(42, int(round(W_chuan * 0.044))))
 
     for idx_hop, hop in enumerate(hop_ve_chu):
         la_chu_cjk_thai = bool(re.search(r"[\u0e00-\u0e7f\u3040-\u9fff\uac00-\ud7af]", hop["text"]))
@@ -2361,8 +2408,8 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
         # (Khắc phục triệt để lỗi chữ gốc tiếng Anh ngắn nằm giữa bóng thoại cao khiến chữ Việt bị ép bé tí)
         cy_mid = max(0, min(H - 1, by + bh // 2))
         cx_mid = max(0, min(W - 1, bx + bw // 2))
-        x_scan_l = max(0, bx + int(bw * 0.25))
-        x_scan_r = min(W - 1, bx + int(bw * 0.75))
+        x_scan_l = max(0, bx + int(bw * 0.32))
+        x_scan_r = min(W - 1, bx + int(bw * 0.68))
         xs_vert = list(range(x_scan_l, max(x_scan_l + 1, x_scan_r + 1), max(1, (x_scan_r - x_scan_l) // 6 or 1)))
 
         mo_rong_doc_max = 4 if nen_mau_tb else max(48, min(int(H * 0.14), int(max(bh * 0.95, bw * 0.85))))
@@ -2382,19 +2429,19 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
         if not nen_mau_tb:
             for yy in range(cy_mid, lim_top_scan - 1, -1):
                 bad = sum(1 for xx in xs_vert if not _la_pixel_nen(xx, yy))
-                if bad >= 1:
-                    safe_y0 = min(cy_mid - 6, yy + 8)
+                if bad >= max(2, len(xs_vert) // 2):
+                    safe_y0 = min(cy_mid - 6, yy + 5)
                     break
         safe_y1 = lim_bot_scan if not nen_mau_tb else (by + bh)
         if not nen_mau_tb:
             for yy in range(cy_mid, lim_bot_scan + 1):
                 bad = sum(1 for xx in xs_vert if not _la_pixel_nen(xx, yy))
-                if bad >= 1:
-                    safe_y1 = max(cy_mid + 6, yy - 8)
+                if bad >= max(2, len(xs_vert) // 2):
+                    safe_y1 = max(cy_mid + 6, yy - 5)
                     break
 
         raw_safe_h = max(14, safe_y1 - safe_y0)
-        le_trong_y = max(3, int(round(raw_safe_h * 0.045))) if not nen_mau_tb else 1
+        le_trong_y = max(2, int(round(raw_safe_h * 0.03))) if not nen_mau_tb else 1
         safe_y0 = min(cy_mid - 6, safe_y0 + le_trong_y)
         safe_y1 = max(safe_y0 + 14, safe_y1 - le_trong_y)
         safe_h = max(14, safe_y1 - safe_y0)
@@ -2419,12 +2466,12 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
             wall_l = None
             for xx in range(max(lim_left_scan, bx - 2), lim_left_scan - 1, -1):
                 if sum(1 for yy_h in ys_horiz if not _la_pixel_nen(xx, yy_h)) >= 1:
-                    wall_l = xx + 8
+                    wall_l = xx + 4
                     break
             wall_r = None
             for xx in range(min(lim_right_scan, bx + bw + 2), lim_right_scan + 1):
                 if sum(1 for yy_h in ys_horiz if not _la_pixel_nen(xx, yy_h)) >= 1:
-                    wall_r = xx - 8
+                    wall_r = xx - 4
                     break
             if wall_l is not None and wall_r is not None and wall_r - wall_l > bw + 6:
                 bx_moi = max(lim_left_scan, min(bx, wall_l))
@@ -2435,7 +2482,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                     cx_mid = max(0, min(W - 1, bx + bw // 2))
                     hop["x"], hop["w"] = bx, bw
 
-        le_trong_x = max(4, int(round(bw * 0.045))) if not nen_mau_tb else 2
+        le_trong_x = max(2, int(round(bw * 0.025))) if not nen_mau_tb else 1
 
         # Tính biên ngang [x_trai[y], x_phai[y]] cho từng hàng y trong bóng thoại
         x_trai: dict[int, int] = {}
@@ -2444,7 +2491,13 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
             rel_y = (yy - safe_y0) / max(1.0, float(safe_h))
             taper = 1.0
             if not nen_mau_tb:
-                if rel_y < 0.18:
+                if rel_y < 0.12:
+                    taper = 0.92 + 0.08 * (rel_y / 0.12)
+                elif rel_y > 0.88:
+                    taper = 0.92 + 0.08 * ((1.0 - rel_y) / 0.12)
+                else:
+                    taper = 1.0
+                if False:
                     taper = 0.84 + 0.16 * (rel_y / 0.18)
                 elif rel_y > 0.82:
                     taper = 0.84 + 0.16 * ((1.0 - rel_y) / 0.18)
@@ -2459,12 +2512,12 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                 # Quét từ tâm sang trái tìm gai/viền bóng thoại
                 for xx in range(row_cx, max(0, lim_l - 6) - 1, -1):
                     if not _la_pixel_nen(xx, yy) and not _la_pixel_nen(max(0, xx - 1), yy):
-                        cur_l = max(lim_l, xx + 7)
+                        cur_l = max(lim_l, xx + 4)
                         break
                 # Quét từ tâm sang phải tìm gai/viền bóng thoại
                 for xx in range(row_cx, min(W - 1, lim_r + 6) + 1):
                     if not _la_pixel_nen(xx, yy) and not _la_pixel_nen(min(W - 1, xx + 1), yy):
-                        cur_r = min(lim_r, xx - 7)
+                        cur_r = min(lim_r, xx - 4)
                         break
             if cur_r - cur_l < 18:
                 mid_x = (lim_l + lim_r) // 2
@@ -2494,7 +2547,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
 
         la_het_doc = safe_h >= bw * 2.5 and (len(chu) <= 28 or "\n" in chu)
         la_chieu_thuc_lon = la_het_doc or (
-            (bw >= W * 0.16 and safe_h >= H * 0.075)
+            (bw >= W_chuan * 0.16 and safe_h >= H * 0.075)
             and (len(chu) <= 28 or "!" in chu or "؟" in chu or "?" in chu)
         )
         tran_co = (
@@ -2553,7 +2606,18 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                     tu = [chu_sach_cjk[i : i + 2] for i in range(0, len(chu_sach_cjk), 2)]
                     dau_noi = ""
                 else:
-                    tu = doan_str.split()
+                    tu = []
+                    gioi_han_tu_hep = max(24, int(_bw * 0.88))
+                    for wt_item in doan_str.split():
+                        bb_wt = draw.textbbox((0, 0), wt_item, font=f_t)
+                        if (bb_wt[2] - bb_wt[0]) > gioi_han_tu_hep and len(wt_item) >= 9 and "-" not in wt_item:
+                            core_w = wt_item.rstrip(".,!?;:'\"…)]}")
+                            tail_w = wt_item[len(core_w):]
+                            if len(core_w) >= 8:
+                                mid_w = len(core_w) // 2
+                                tu.extend([core_w[:mid_w] + "-", core_w[mid_w:] + tail_w])
+                                continue
+                        tu.append(wt_item)
                     dau_noi = " "
                 if not tu:
                     continue
@@ -2601,7 +2665,8 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                 lx0_k, lx1_k = _knd(yk0, yk1)
                 bb_d = draw.textbbox((0, 0), d_str, font=f_t)
                 w_d = bb_d[2] - bb_d[0]
-                if w_d > (lx1_k - lx0_k):
+                dung_sai_ngang = min(6, max(2, int(_bw * 0.04)))
+                if w_d > min(_bw - 2, (lx1_k - lx0_k) + dung_sai_ngang):
                     vua_khit = False
                 cur_x_k = lx0_k + ((lx1_k - lx0_k) - w_d) // 2
                 cur_x_k = max(_bx, min(_bx + _bw - w_d, cur_x_k))
@@ -2618,6 +2683,82 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
             co_chon = co
             if vua_khit:
                 break
+
+        # Cứu hộ chống chữ nhỏ: nếu cỡ chữ chọn được vẫn thấp hơn ngưỡng đọc rõ (`co_san_doc_ro`),
+        # tự động nới biên dọc `safe_y0..safe_y1` (và nới biên ngang nhẹ trong lòng hộp) để câu văn xuống thêm dòng với chữ to rõ
+        if co_chon < co_san_doc_ro and len(chu) >= 6:
+            mo_y_them = max(14, int(round(co_san_doc_ro * 1.15)))
+            lim_y0_cuu = max(2, by - mo_y_them) if nen_mau_tb else lim_top_scan
+            lim_y1_cuu = min(H - 3, by + bh + mo_y_them) if nen_mau_tb else lim_bot_scan
+            for j_other, other_h in enumerate(hop_ve_chu):
+                if j_other == idx_hop:
+                    continue
+                ox = min(bx + bw, other_h["x"] + other_h["w"]) - max(bx, other_h["x"])
+                if ox > min(bw, other_h["w"]) * 0.15:
+                    if other_h["y"] + other_h["h"] <= cy_mid:
+                        lim_y0_cuu = max(lim_y0_cuu, other_h["y"] + other_h["h"] + 3)
+                    elif other_h["y"] >= cy_mid:
+                        lim_y1_cuu = min(lim_y1_cuu, other_h["y"] - 3)
+            sy0_moi = max(lim_y0_cuu, safe_y0 - mo_y_them)
+            sy1_moi = min(lim_y1_cuu, safe_y1 + mo_y_them)
+            if not nen_mau_tb:
+                for yy in range(safe_y0, sy0_moi - 1, -1):
+                    if sum(1 for xx in xs_vert if not _la_pixel_nen(xx, yy)) >= 2:
+                        sy0_moi = min(safe_y0, yy + 4)
+                        break
+                for yy in range(safe_y1, sy1_moi + 1):
+                    if sum(1 for xx in xs_vert if not _la_pixel_nen(xx, yy)) >= 2:
+                        sy1_moi = max(safe_y1, yy - 4)
+                        break
+            sh_moi = max(safe_h, sy1_moi - sy0_moi)
+            xt_cuu: dict[int, int] = {}
+            xp_cuu: dict[int, int] = {}
+            mo_x_them = max(12, int(round(co_san_doc_ro * 0.95))) if (nen_mau_tb or hop.get("la_chu_noi_tren_nen")) else 3
+            bx_cuu_l = max(2, bx - mo_x_them) if (nen_mau_tb or hop.get("la_chu_noi_tren_nen")) else (bx + 2)
+            bx_cuu_r = min(W - 3, bx + bw + mo_x_them) if (nen_mau_tb or hop.get("la_chu_noi_tren_nen")) else (bx + bw - 2)
+            for j_other, other_h in enumerate(hop_ve_chu):
+                if j_other == idx_hop:
+                    continue
+                oy_c = min(sy1_moi, other_h["y"] + other_h["h"]) - max(sy0_moi, other_h["y"])
+                if oy_c > 0:
+                    if other_h["x"] + other_h["w"] <= cx_mid:
+                        bx_cuu_l = max(bx_cuu_l, other_h["x"] + other_h["w"] + 3)
+                    elif other_h["x"] >= cx_mid:
+                        bx_cuu_r = min(bx_cuu_r, other_h["x"] - 3)
+            bw_cuu = max(bw, bx_cuu_r - bx_cuu_l)
+            for yy in range(sy0_moi, sy1_moi + 1):
+                base_l = x_trai.get(yy, bx + 2)
+                base_r = x_phai.get(yy, bx + bw - 2)
+                xt_cuu[yy] = max(bx_cuu_l, base_l - mo_x_them)
+                xp_cuu[yy] = min(bx_cuu_r, base_r + mo_x_them)
+
+            def _knd_cuu(
+                y_top: int,
+                y_bot: int,
+                _s0: int = sy0_moi,
+                _s1: int = sy1_moi,
+                _xt: dict[int, int] = xt_cuu,
+                _xp: dict[int, int] = xp_cuu,
+                _bx: int = bx,
+                _bw: int = bw,
+            ) -> tuple[int, int]:
+                y_a = max(_s0, min(_s1, y_top))
+                y_b = max(y_a, min(_s1, y_bot))
+                l_max = max(_xt.get(yy, _bx + 2) for yy in range(y_a, y_b + 1))
+                r_min = min(_xp.get(yy, _bx + _bw - 2) for yy in range(y_a, y_b + 1))
+                if r_min - l_max < 16:
+                    mid_x = (l_max + r_min) // 2
+                    return max(_bx, mid_x - 8), min(_bx + _bw, mid_x + 8)
+                return l_max, r_min
+
+            co_muc_tieu = min(tran_co, max(co_san_doc_ro, co_max, int(min(bw_cuu * 0.48, sh_moi * 0.66))))
+            for co_c in range(co_muc_tieu, co_chon, -1):
+                f_c, _, ds_vt_c, ok_c = _thu_dan_dong_voi_co(co_c, _bx=bx_cuu_l, _bw=bw_cuu, _s0=sy0_moi, _sh=sh_moi, _knd=_knd_cuu)
+                if ok_c:
+                    font_chon = f_c
+                    vi_tri_dong_chon = ds_vt_c
+                    co_chon = co_c
+                    break
 
         ket_qua_dan_trang.append(
             {
@@ -3254,6 +3395,33 @@ def _lam_sach_chu_ocr_truyen(text: str) -> str:
         (r"\bASSOON\b", "AS SOON"),
         (r"\bAS[!'1]M\s*DRAGGED\b", "AS I'M DRAGGED"),
         (r"\bOUTFROM\s*THIS\b", "OUT FROM THIS"),
+        (r"\bBECOMEA\b", "BECOME A"),
+        (r"\bAFEATHER\b", "A FEATHER"),
+        (r"\bTHATFELL\b", "THAT FELL"),
+        (r"\bTHOSEBIRDS\b", "THOSE BIRDS"),
+        (r"\bTHATWERE\b", "THAT WERE"),
+        (r"\bFLYINGBY\b", "FLYING BY"),
+        (r"\bHOWDID\b", "HOW DID"),
+        (r"\bITCAME\b", "IT CAME"),
+        (r"\bOUTOF\b", "OUT OF"),
+        (r"\bNOWTHERE'S\b", "NOW THERE'S"),
+        (r"\bTWOHOOKS\b", "TWO HOOKS"),
+        (r"\bFROMTWO\b", "FROM TWO"),
+        (r"\bITWAS\b", "IT WAS"),
+        (r"\bWEWERE\b", "WE WERE"),
+        (r"\bTHEYWERE\b", "THEY WERE"),
+        (r"\bTOMAKE\b", "TO MAKE"),
+        (r"\bFROMTHE\b", "FROM THE"),
+        (r"\bHAVETO\b", "HAVE TO"),
+        (r"\bIT'SA\b", "IT'S A"),
+        (r"\bIHAD\b", "I HAD"),
+        (r"\bWASN\s*T\b", "WASN'T"),
+        (r"\bAREN\s*T\b", "AREN'T"),
+        (r"\bDIDN\s*T\b", "DIDN'T"),
+        (r"\bDOESN\s*T\b", "DOESN'T"),
+        (r"\bCOULDN\s*T\b", "COULDN'T"),
+        (r"\bWOULDN\s*T\b", "WOULDN'T"),
+        (r"\bSHOULDN\s*T\b", "SHOULDN'T"),
         (r"\bI\.{2,3}I\b", "I... I"),
         (r"\bdon't\s*[,，]\s*do\b", "don't do"),
         (r"\b([a-z]{2,}):([a-z]{2,})\b", r"\1 \2"),
@@ -3316,7 +3484,8 @@ def _gop_cac_dong_trong_bong_thoai(comp_ordered: list[dict], ngon_ngu_nguon: str
     if not comp_ordered:
         return ""
     lang = (ngon_ngu_nguon or "en").lower()
-    if lang in ("ja", "zh"):
+    co_ky_tu_cjk = any(ord(c) >= 0x2E80 for r in comp_ordered for c in str(r.get("text") or ""))
+    if lang in ("ja", "zh") and co_ky_tu_cjk:
         raw_joined = "".join(str(r.get("text") or "").strip() for r in comp_ordered)
         return _lam_sach_chu_ocr_truyen(raw_joined)
 
@@ -3559,7 +3728,7 @@ def nhan_dien_bong_thoai_ocr_cuc_bo(img_bytes: bytes, ngon_ngu_nguon: str = "en"
     if W_goc < 100 or H_goc < 100:
         return []
     im_950_phu = None
-    if W_goc < 1050:
+    if W_goc < 1050 or (W_goc > H_goc and H_goc <= 1450 and W_goc <= 1800):
         he_so_ocr = 2.0
         resample = getattr(getattr(Image, "Resampling", Image), "LANCZOS", 1)
         im = im.resize((int(round(W_goc * he_so_ocr)), int(round(H_goc * he_so_ocr))), resample)
@@ -3704,7 +3873,13 @@ $lines | ConvertTo-Json -Depth 4 -Compress
 
     px = im.load()
     la_trang_manga = _la_trang_manga_don_sac(px, W, H)
-    dau_noi_tu = "" if ngon_ngu_nguon in ("ja", "zh") else " "
+    co_cjk_toan_trang = any(
+        ord(c) >= 0x2E80
+        for it in raw_lines if isinstance(it, dict)
+        for w_it in (it.get("words") if isinstance(it.get("words"), list) else ([it["words"]] if isinstance(it.get("words"), dict) else []))
+        for c in str(w_it.get("text") or "")
+    )
+    dau_noi_tu = "" if (ngon_ngu_nguon in ("ja", "zh") and co_cjk_toan_trang) else " "
     # Bước 1: Tách các dòng ngang bị gộp qua 2 bóng thoại cạnh nhau dựa trên khoảng cách từ & vách ngăn
     segments: list[dict] = []
     for item in raw_lines:
@@ -3863,7 +4038,7 @@ $lines | ConvertTo-Json -Depth 4 -Compress
         # Bỏ các tiếng rên / SFX nền vụn hoặc dòng chữ khắc mờ trên đạo cụ nền ('Gh', 'Ggh', 'A.', 'D', 'MHAyH', 'myympa')
         text_alnum = "".join(c for c in text if c.isalnum())
         if not co_cjk:
-            if text_alnum.lower() in {"a", "d", "gh", "ggh", "ghhr", "ghhhhn", "mhayh", "myympa", "armnflammab", "it"}:
+            if (text_alnum.lower() in {"a", "d", "j", "s", "x", "gh", "ggh", "ghhr", "ghhhhn", "mhayh", "myympa", "armnflammab", "it"} or re.fullmatch(r"[xXvViIlL1|]{2,12}", text_alnum)) or (len(text_alnum) == 1 and text_alnum.upper() not in {"I", "O"} and not text.endswith(("!", "?"))) or (len(text_alnum) == 2 and text_alnum.isalpha() and not any(ch in "AEIOUYaeiouy" for ch in text_alnum) and text_alnum.upper() not in {"SH", "HM", "MM", "MR", "MS", "DR", "ST", "VS", "TV"}):
                 continue
         if not co_cjk and sum(1 for c in text if c.isascii() and c.isupper()) == 0:
             if (

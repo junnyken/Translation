@@ -1205,6 +1205,7 @@ void (async () => {
           if (vungBienBaoVe[pos]) continue
           const trongHop = px >= cx0 && px < cx1 && py >= cy0 && py < cy1
           if (trongHop && (laToiNet[pos] || laMauDamNet[pos])) continue
+          if (!trongHop && tyLeTrangDacTrongHop >= 0.48 && lumPx[pos] < 185) continue
           if (laTrangDac[pos] || laSangDac[pos] || laDaiTrangManh[pos]) {
             let satNetToi = false
             for (let d = 1; d <= 5; d += 1) {
@@ -1218,7 +1219,7 @@ void (async () => {
                 break
               }
             }
-            if (satNetToi && laDaiTrangManh[pos]) continue
+            if (satNetToi && laDaiTrangManh[pos] && tyLeTrangDacTrongHop < 0.48) continue
           }
           const idx4 = pos * 4
           dsRNenThuc.push(data[idx4])
@@ -1419,7 +1420,7 @@ void (async () => {
         (
           (lumNenP30 >= 218 && (lumNenP10 >= 205 || ((laBongKhepKin || !roRiBienThuc) && (tyLeTrangDacTrongHop >= 0.48 || laNenKemSangPhang)))) ||
           ((laBongKhepKin || !roRiBienThuc) && (tyLeTrangDacTrongHop >= 0.55 || laNenKemSangPhang)) ||
-          (tyLeTrangTrenNenSang >= 0.83 && tyLeTrangDacTrongHop >= 0.55 && doNhieuHat < 18)
+          ((laBongKhepKin || !roRiBienThuc || lumNenP10 >= 205) && !laNenMauThuc && tyLeTrangTrenNenSang >= 0.83 && tyLeTrangDacTrongHop >= 0.55 && doNhieuHat < 18)
         )
       )
 
@@ -3123,8 +3124,8 @@ void (async () => {
 
         ;[bx0, by0, bx1, by1] = tot
         // Lùi nhẹ lề an toàn bên trong lòng bong bóng (~4.5%) để chữ không chạm sát đường viền đen
-        const leTrongX = Math.max(3, Math.round((bx1 - bx0) * 0.045))
-        const leTrongY = Math.max(3, Math.round((by1 - by0) * 0.045))
+        const leTrongX = Math.max(2, Math.round((bx1 - bx0) * 0.03))
+        const leTrongY = Math.max(2, Math.round((by1 - by0) * 0.03))
         if (bx1 - bx0 > Math.min(wGoc, 24) + leTrongX * 2) {
           bx0 += leTrongX
           bx1 -= leTrongX
@@ -4186,7 +4187,8 @@ void (async () => {
           soKyTu: v.ban_dich.length,
         }
       })
-      const dsOMoRong = dsOGoc
+      const dsOMoRongFallback = moRongKhungBongBong(dsOGoc, { width: r.width, height: r.height })
+      const dsOMoRong = dsOGoc.map((og, i) => (vungCoDich[i]?._khungCanvas ? og : (dsOMoRongFallback[i] || og)))
 
       const dsHopDaVe = []
       for (let idx = 0; idx < vungCoDich.length; idx += 1) {
@@ -4366,10 +4368,12 @@ void (async () => {
         hop.appendChild(noiDung)
         lop.appendChild(hop)
 
+        const rWidthChuan = r.width > r.height * 1.05 ? Math.min(r.width, Math.round(r.height * 0.72)) : r.width
         const dtGoc = (v.w || 0) * (v.h || 0)
         const laChieuThucLon = (dtGoc >= nw * nh * 0.022) || ((v.w || 0) >= nw * 0.24 && (v.h || 0) >= nh * 0.08)
-        const tranThoaiChuan = Math.max(13, Math.min(28, Math.round(r.width * 0.026)))
-        const tranChieuThuc = Math.max(22, Math.min(44, Math.round(r.width * 0.044)))
+        const tranThoaiChuan = Math.max(13, Math.min(28, Math.round(rWidthChuan * 0.026)))
+        const tranChieuThuc = Math.max(22, Math.min(44, Math.round(rWidthChuan * 0.044)))
+        const coSanDocRo = Math.max(12, Math.min(16, Math.round(rWidthChuan * 0.017)))
 
         const coChuVuaKhung = () => {
           const doDaiChu = Math.max(1, (noiDung.textContent || v.ban_dich || '').length)
@@ -4425,7 +4429,31 @@ void (async () => {
           return px
         }
 
-        const pxDatDuoc = coChuVuaKhung()
+        // Cứu hộ chống chữ nhỏ khi khung xếp chữ quá lùn/hẹp làm `pxDatDuoc < coSanDocRo`
+        let pxDatDuoc = coChuVuaKhung()
+        if (pxDatDuoc < coSanDocRo && (v.ban_dich || '').length >= 6 && o.height < o.width * 1.45) {
+          const moCao = Math.min(Math.round(coSanDocRo * 1.35), Math.round(r.height * 0.06))
+          let topMoi = Math.max(2, o.top - Math.round(moCao * 0.5))
+          let botMoi = Math.min(r.height - 2, o.top + o.height + Math.round(moCao * 0.5))
+          for (let j = 0; j < dsOMoRong.length; j += 1) {
+            if (j === idx) continue
+            const ok = dsOMoRong[j] || dsOGoc[j]
+            if (!ok) continue
+            const giaoX = Math.min(o.left + o.width, ok.left + ok.width) - Math.max(o.left, ok.left)
+            if (giaoX > Math.min(o.width, ok.width) * 0.15) {
+              const cyO = o.top + o.height * 0.5
+              if (ok.top + ok.height <= cyO) topMoi = Math.max(topMoi, ok.top + ok.height + 2)
+              else if (ok.top >= cyO) botMoi = Math.min(botMoi, ok.top - 2)
+            }
+          }
+          if (botMoi - topMoi > o.height + 4) {
+            o.top = topMoi
+            o.height = botMoi - topMoi
+            hop.style.top = `${o.top + lechY}px`
+            hop.style.height = `${o.height}px`
+            pxDatDuoc = coChuVuaKhung()
+          }
+        }
         dsHopDaVe.push({ hop, v, px: pxDatDuoc, doDai: (v.ban_dich || '').length, laChieuThucLon })
 
         // E105 (#6) — Nhấp đúp chuột vào bất kỳ bóng thoại nào để sửa chữ / phóng to / dịch lại / phủ kín / cọ xoá tức thì
