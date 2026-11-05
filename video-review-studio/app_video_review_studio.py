@@ -993,17 +993,16 @@ class AppVideoReviewStudio(tk.Tk):
 
         def _worker():
             try:
-                if token_val:
-                    self.ghi_log("🔐 Đang kiểm tra hạn mức & cấp vé thực thi tạo Video trên Ví Cloud...")
-                    kq_ve = xac_thuc_va_tru_luot_video_cloud(
-                        self.cau_hinh.get("server_url") or "https://translation-api.vibe1.tinhgon.xyz",
-                        token_val,
-                        ma_goi=goi_key,
-                        ma_dinh_danh_video=f"{ten_goc}:{dinh_dang_key}",
-                    )
-                    self.ghi_log(
-                        f"✅ Đã xác thực gói '{goi_key}' (-{kq_ve['so_luot_da_tru']} lượt · Số dư còn {kq_ve['con_lai_sau_tru']} lượt)."
-                    )
+                self.ghi_log("🔐 Đang kiểm tra gói trả phí & cấp vé thực thi tạo Video trên Ví Cloud...")
+                kq_ve = xac_thuc_va_tru_luot_video_cloud(
+                    self.cau_hinh.get("server_url") or "https://translation-api.vibe1.tinhgon.xyz",
+                    token_val,
+                    ma_goi=goi_key,
+                    ma_dinh_danh_video=f"{ten_goc}:{dinh_dang_key}",
+                )
+                self.ghi_log(
+                    f"✅ Đã xác thực gói trả phí '{goi_key}' (-{kq_ve['so_luot_da_tru']} lượt · Số dư còn {kq_ve['con_lai_sau_tru']} lượt)."
+                )
                 self.ghi_log(f"🎙️ Đang tổng hợp giọng đọc ({toc_do_val:.2f}x), trộn nhạc nền ({nhac_nen_key}) & dựng MP4...")
                 kq = xuat_video_review_mp4(
                     self.panels_bytes,

@@ -6828,35 +6828,57 @@ def _quet_chapter_mangadex(url: str, mo_rong_ca_bo: bool = False) -> list[dict]:
 
 
 def _quet_danh_sach_feed_mangadex(manga_id: str, ten_truyen: str, lang: str, goi_fn) -> list[dict]:
-    feed = goi_fn(
-        f"https://api.mangadex.org/manga/{manga_id}/feed?translatedLanguage[]={lang}&order[chapter]=asc&limit=500"
-    )
+    """
+    Quét toàn bộ 100+ chapter của bộ truyện trên MangaDex:
+    - Tự động phân trang (`offset=0, 500, 1000...`) để lấy trọn bộ truyện dài hàng trăm chương.
+    - Tự động mở rộng đa ngôn ngữ (`en`, `ja`, `ko`, `zh`, `zh-hk`, `vi`) nếu ngôn ngữ mặc định không có bản dịch.
+    """
+    ds_ngon_ngu_thu = [lang] if lang else ["en"]
+    for lg_phu in ("en", "ja", "ko", "zh", "zh-hk", "vi"):
+        if lg_phu not in ds_ngon_ngu_thu:
+            ds_ngon_ngu_thu.append(lg_phu)
+
     ds: list[dict] = []
     seen_so: set[float] = set()
-    for item in feed.get("data") or []:
-        if not isinstance(item, dict):
-            continue
-        cid = item.get("id")
-        attrs = item.get("attributes") or {}
-        if int(attrs.get("pages") or 0) <= 0 and attrs.get("externalUrl"):
-            continue
-        try:
-            so_c = float(attrs.get("chapter") or (len(ds) + 1))
-        except (TypeError, ValueError):
-            so_c = float(len(ds) + 1)
-        if so_c in seen_so:
-            continue
-        seen_so.add(so_c)
-        ten_c = f"Chapter-{int(so_c):03d}" if so_c.is_integer() else f"Chapter-{so_c}"
-        ds.append(
-            {
-                "ten_truyen": ten_truyen,
-                "so": so_c,
-                "ten": ten_c,
-                "url": f"https://mangadex.org/chapter/{cid}",
-                "nhan": f"{ten_truyen} / {ten_c}",
-            }
-        )
+
+    for lg in ds_ngon_ngu_thu:
+        for offset in (0, 500, 1000):
+            feed = goi_fn(
+                f"https://api.mangadex.org/manga/{manga_id}/feed?translatedLanguage[]={lg}&order[chapter]=asc&limit=500&offset={offset}"
+            )
+            items = feed.get("data") or []
+            if not items:
+                break
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                cid = item.get("id")
+                attrs = item.get("attributes") or {}
+                if int(attrs.get("pages") or 0) <= 0 and attrs.get("externalUrl"):
+                    continue
+                try:
+                    so_c = float(attrs.get("chapter") or (len(ds) + 1))
+                except (TypeError, ValueError):
+                    so_c = float(len(ds) + 1)
+                if so_c in seen_so:
+                    continue
+                seen_so.add(so_c)
+                ten_c = f"Chapter-{int(so_c):03d}" if so_c.is_integer() else f"Chapter-{so_c}"
+                ds.append(
+                    {
+                        "ten_truyen": ten_truyen,
+                        "so": so_c,
+                        "ten": ten_c,
+                        "url": f"https://mangadex.org/chapter/{cid}",
+                        "nhan": f"{ten_truyen} / {ten_c} [{lg.upper()}]",
+                    }
+                )
+            total_items_api = int(feed.get("total") or len(items))
+            if offset + 500 >= total_items_api:
+                break
+        if ds:
+            break
+
     if not ds:
         raise NeedsAttention("Không tìm thấy chapter khả dụng trên MangaDex cho bộ truyện này.")
     return sorted(ds, key=lambda c: float(c.get("so", 1.0)))
@@ -6905,6 +6927,30 @@ def _quet_mot_url_truyen(u_don: str, mo_rong_ca_bo: bool = False) -> list[dict]:
     html = goi_http(u_don, referer=u_don, nguon_ngoai=True).decode("utf-8", errors="ignore")
     ten_tr = suy_doan_ten_truyen_tu_url(u_don, html)
     ds = chapter_links(html, u_don)
+
+    # Tự động kích hoạt API ẩn WordPress Madara (`POST <url>/ajax/chapters/`) nếu trang mục lục tải danh sách chương bằng AJAX:
+    if len(ds) <= 1:
+        try:
+            u_clean = u_don.split("?", 1)[0].rstrip("/")
+            ajax_url = f"{u_clean}/ajax/chapters/"
+            req_ajax = urllib.request.Request(
+                ajax_url,
+                data=b"",
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    "Referer": u_don,
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req_ajax, timeout=12) as resp_aj:
+                html_ajax = resp_aj.read().decode("utf-8", errors="ignore")
+            if html_ajax and ("wp-manga-chapter" in html_ajax or "<a " in html_ajax):
+                ds_ajax = chapter_links(html_ajax, u_don)
+                if len(ds_ajax) > len(ds):
+                    ds = ds_ajax
+        except Exception:
+            pass
 
     # Nếu người dùng dán link của 1 chapter cụ thể (VD: .../steel-ball-run-chapter-25/) và chọn mở rộng cả bộ truyện:
     if mo_rong_ca_bo and len(ds) == 1:
@@ -7045,6 +7091,206 @@ MANGA_UI_TOKENS = {
     "status_err": "#EF4444",      # Đỏ lỗi / dừng
     "status_info": "#38BDF8",     # Xanh thông tin
 }
+
+
+
+def ghep_va_cat_dai_anh_webtoon_thong_minh(ds_anh_bytes: list[bytes]) -> list[bytes]:
+    """
+    [B.1] Smart Webtoon Strip Stitcher & Gutter-Aware OCR Slicer:
+    - Tự động phát hiện khi các trang ảnh tải về là những mảnh cắt ngang của dải Webtoon/Manhwa (`H < 1150px` và cùng chiều rộng `W`,
+      hoặc mép cắt đi ngang qua vùng bóng thoại sáng màu làm đứt đôi chữ).
+    - Tự động nối liền các mảnh cắt liên tiếp theo chiều dọc rồi tìm "rãnh an toàn" (Gutter — dòng ngang đồng nhất màu trắng/đen
+      không có nét chữ tương phản) ở khoảng chiều cao lý tưởng `1200px - 2200px` để cắt lại trang chuẩn trước khi đưa vào OCR.
+    - Nếu là trang Manga tiêu chuẩn (tỷ lệ trang sách rời), giữ nguyên 100% không thay đổi số trang.
+    """
+    if Image is None or len(ds_anh_bytes) < 2:
+        return ds_anh_bytes
+    try:
+        ims: list[Image.Image] = []
+        for raw_b in ds_anh_bytes:
+            with Image.open(io.BytesIO(raw_b)) as im_in:
+                ims.append(im_in.convert("RGB"))
+
+        # Kiểm tra xem có phải các dải Webtoon bị cắt mảnh không (chiều rộng đồng nhất và có mảnh thấp hoặc mép cắt qua vùng sáng)
+        widths = [im.width for im in ims]
+        heights = [im.height for im in ims]
+        w_pho_bien = max(set(widths), key=widths.count)
+        ty_le_cung_w = sum(1 for w in widths if abs(w - w_pho_bien) <= 4) / float(len(widths))
+        co_manh_cat_ngan = sum(1 for h in heights if h < 1150) >= max(2, len(heights) // 3)
+        if ty_le_cung_w < 0.8 or not co_manh_cat_ngan:
+            return ds_anh_bytes
+
+        # Ghép dọc các mảnh cùng chiều rộng và cắt lại tại các dòng Gutter an toàn (không cắt ngang bóng thoại)
+        ket_qua: list[bytes] = []
+        idx = 0
+        n = len(ims)
+        while idx < n:
+            im_cur = ims[idx]
+            if abs(im_cur.width - w_pho_bien) > 4:
+                buf = io.BytesIO()
+                im_cur.save(buf, format="JPEG", quality=93)
+                ket_qua.append(buf.getvalue())
+                idx += 1
+                continue
+
+            # Gom một cụm dải liên tiếp (tối đa tổng chiều cao ~12000px mỗi cụm để tiết kiệm RAM)
+            cum_ims: list[Image.Image] = []
+            tong_h = 0
+            while idx < n and abs(ims[idx].width - w_pho_bien) <= 4 and tong_h < 12000:
+                im_part = ims[idx]
+                if im_part.width != w_pho_bien:
+                    im_part = im_part.resize((w_pho_bien, im_part.height))
+                cum_ims.append(im_part)
+                tong_h += im_part.height
+                idx += 1
+
+            canvas = Image.new("RGB", (w_pho_bien, tong_h))
+            y_off = 0
+            for im_p in cum_ims:
+                canvas.paste(im_p, (0, y_off))
+                y_off += im_p.height
+
+            gray = canvas.convert("L")
+            px_g = gray.load()
+
+            def _do_lech_dong(y_row: int) -> float:
+                step_x = max(2, w_pho_bien // 64)
+                vals = [px_g[x, y_row] for x in range(8, w_pho_bien - 8, step_x)]
+                if not vals:
+                    return 999.0
+                tb = sum(vals) / float(len(vals))
+                phuong_sai = sum(abs(v - tb) for v in vals) / float(len(vals))
+                return phuong_sai
+
+            y_start = 0
+            target_h = 1650
+            min_h = 1150
+            max_h = 2250
+            while y_start < tong_h:
+                con_lai_h = tong_h - y_start
+                if con_lai_h <= max_h:
+                    crop_im = canvas.crop((0, y_start, w_pho_bien, tong_h))
+                    buf = io.BytesIO()
+                    crop_im.save(buf, format="JPEG", quality=93)
+                    ket_qua.append(buf.getvalue())
+                    break
+
+                y_ideal = min(tong_h - 1, y_start + target_h)
+                y_low = max(y_start + min_h, y_ideal - 420)
+                y_high = min(tong_h - 60, y_ideal + 420)
+
+                best_y = y_ideal
+                best_score = 9999.0
+                for y_cand in range(y_low, y_high, 4):
+                    score = _do_lech_dong(y_cand)
+                    if score < best_score:
+                        best_score = score
+                        best_y = y_cand
+                        if score <= 1.5:
+                            break
+
+                crop_im = canvas.crop((0, y_start, w_pho_bien, best_y))
+                buf = io.BytesIO()
+                crop_im.save(buf, format="JPEG", quality=93)
+                ket_qua.append(buf.getvalue())
+                y_start = best_y
+
+        return ket_qua if ket_qua else ds_anh_bytes
+    except Exception:
+        return ds_anh_bytes
+
+
+def tu_dong_dung_video_review_cho_chapter(
+    thu_muc_chapter: Path,
+    *,
+    ten_truyen: str,
+    ten_chapter: str,
+    server_url: str,
+    token: str,
+    log_fn=None,
+) -> dict:
+    """
+    [B.3] Tự động dựng Video Review (.MP4 + .SRT) ngay sau khi 1 Chapter vừa dịch xong:
+    - Chạy hoàn toàn tự động nối tiếp qua từng Chapter mà KHÔNG cần người dùng bấm xác nhận thủ công.
+    - Đọc trực tiếp các trang ảnh đã dịch và `trang-thai.json` trong `thu_muc_chapter`.
+    - Kiểm tra gói trả phí (`cap_do >= 1` hoặc có lượt mua thêm, không có gói Free dùng thử) trước khi render.
+    """
+    def _log(msg: str):
+        if callable(log_fn):
+            log_fn(msg)
+
+    studio_dir = None
+    for cand in (
+        Path(__file__).resolve().parent.parent / "video-review-studio",
+        Path(__file__).resolve().parent / "video-review-studio",
+        Path.cwd() / "video-review-studio",
+    ):
+        if (cand / "core_video_renderer.py").is_file():
+            studio_dir = cand
+            break
+
+    if studio_dir is None:
+        raise NeedsAttention("Không tìm thấy thư mục `video-review-studio` để dựng Video Review tự động.")
+
+    if str(studio_dir) not in sys.path:
+        sys.path.insert(0, str(studio_dir))
+
+    import app_video_review_studio as vstudio
+    import core_script_generator as vscript
+    import core_video_renderer as vrender
+
+    cau_hinh_v = vstudio.doc_cau_hinh_studio()
+    dinh_dang_key = str(cau_hinh_v.get("dinh_dang") or "dual_youtube_va_shorts")
+    giong_key = str(cau_hinh_v.get("ma_giong") or "chi_google_review_chuan")
+    nhac_nen_key = str(cau_hinh_v.get("ma_nhac_nen") or "tu_dong_theo_phong_cach")
+    goi_key = str(cau_hinh_v.get("goi_luot") or "review_standard")
+    phong_cach_key = str(cau_hinh_v.get("phong_cach") or "kich_tinh")
+    toc_do_val = float(cau_hinh_v.get("toc_do_doc") or 1.15)
+    tok_use = (token or cau_hinh_v.get("token") or "").strip()
+    srv_use = (server_url or cau_hinh_v.get("server_url") or "https://translation-api.vibe1.tinhgon.xyz").strip()
+
+    _log(f"🎬 [Auto-Video] Đang kiểm tra gói trả phí & cấp vé dựng Video Review cho {ten_truyen} / {ten_chapter}...")
+    kq_ve = vrender.xac_thuc_va_tru_luot_video_cloud(
+        srv_use,
+        tok_use,
+        ma_goi=goi_key,
+        ma_dinh_danh_video=f"{ten_truyen}:{ten_chapter}:{dinh_dang_key}",
+    )
+    _log(
+        f"✅ [Auto-Video] Đã xác thực gói '{goi_key}' (-{kq_ve['so_luot_da_tru']} lượt · Số dư còn {kq_ve['con_lai_sau_tru']} lượt). Đang biên kịch & lồng tiếng..."
+    )
+
+    panels_bytes, ocr_per_panel = vstudio.nap_danh_sach_anh_va_thoai_tu_thu_muc(
+        thu_muc_chapter,
+        an_chu_bong_thoai=True,
+    )
+    cast_mem = vscript.CharacterCastMemory(Path.home() / ".manga_video_character_bible.json")
+    vscript.tu_dong_quet_ho_so_nhan_vat_tu_thoai(ocr_per_panel, cast_mem)
+    kich_ban = vscript.sinh_kich_ban_review_chuong(
+        panels_bytes,
+        ocr_per_panel,
+        cast_memory=cast_mem,
+        phong_cach=phong_cach_key,
+        ten_truyen=ten_truyen,
+        ten_chap=ten_chapter,
+        thu_ket_noi_vision_cuc_bo=True,
+    )
+    out_mp4 = thu_muc_chapter / f"{ten_chapter}_Video_Review_{dinh_dang_key}.mp4"
+    kq_video = vrender.xuat_video_review_mp4(
+        panels_bytes,
+        kich_ban,
+        out_mp4,
+        ma_dinh_dang=dinh_dang_key,
+        ma_giong=giong_key,
+        ma_nhac_nen=nhac_nen_key,
+        toc_do_doc=toc_do_val,
+        elevenlabs_api_key=cau_hinh_v.get("elevenlabs_api_key") or None,
+        elevenlabs_voice_id=cau_hinh_v.get("elevenlabs_voice_id") or None,
+    )
+    _log(
+        f"🎉 [Auto-Video] Đã dựng xong Video Review ({kq_video['tong_thoi_luong_giay']}s) cho {ten_chapter} -> MP4: {kq_video['video_path']} | SRT: {kq_video['srt_path']}"
+    )
+    return kq_video
 
 
 class AppDichTruyenWindows(tk.Tk):
@@ -7744,7 +7990,34 @@ class AppDichTruyenWindows(tk.Tk):
             selectcolor=T["bg_canvas"],
             activebackground=T["bg_surface"],
             font=("Segoe UI", 9),
+        ).pack(side="left", padx=(0, 10))
+
+        bar_vid_auto = tk.Frame(f_step2, bg=T["bg_surface"])
+        bar_vid_auto.pack(fill="x", pady=(2, 0))
+        self.var_auto_video_review = tk.BooleanVar(value=bool(self.cau_hinh.get("auto_video_review", False)))
+        tk.Checkbutton(
+            bar_vid_auto,
+            text="🎬 Tự động dựng Video Review (.MP4) nối tiếp ngay khi dịch xong mỗi Chapter",
+            variable=self.var_auto_video_review,
+            bg=T["bg_surface"],
+            fg="#38BDF8",
+            selectcolor=T["bg_canvas"],
+            activebackground=T["bg_surface"],
+            font=("Segoe UI", 9, "bold"),
         ).pack(side="left")
+        tk.Button(
+            bar_vid_auto,
+            text="🎬 Mở Video Studio",
+            bg="#162033",
+            fg="#FBBF24",
+            activebackground="#0284C7",
+            activeforeground="#ffffff",
+            font=("Segoe UI", 8, "bold"),
+            relief="flat",
+            padx=8,
+            pady=2,
+            command=self._mo_video_review_studio,
+        ).pack(side="right")
 
         # --- BƯỚC 3: THƯ MỤC LƯU, CHẠY DỊCH & RÀ SOÁT NHANH ---
         f_step3 = _tao_khung_buoc(left_col, "BƯỚC 03", "THƯ MỤC KẾT QUẢ & ĐIỀU KHIỂN VẬN HÀNH")
@@ -7937,6 +8210,21 @@ class AppDichTruyenWindows(tk.Tk):
         if d:
             self.ent_out.delete(0, "end")
             self.ent_out.insert(0, d)
+
+    def _mo_video_review_studio(self):
+        for cand in (
+            Path(__file__).resolve().parent.parent / "video-review-studio" / "app_video_review_studio.py",
+            Path(__file__).resolve().parent / "video-review-studio" / "app_video_review_studio.py",
+            Path.cwd() / "video-review-studio" / "app_video_review_studio.py",
+        ):
+            if cand.is_file():
+                subprocess.Popen([sys.executable, str(cand)], cwd=str(cand.parent))
+                self.ghi_log(f"🎬 Đã mở Phần Mềm Dựng Video Review Truyện Tự Động: {cand}")
+                return
+        messagebox.showinfo(
+            "Video Review Studio",
+            "Không tìm thấy `video-review-studio/app_video_review_studio.py` trong thư mục cài đặt.",
+        )
 
     def _mo_thu_muc_xuat(self):
         p = Path(self.ent_out.get().strip())
@@ -9219,6 +9507,7 @@ class AppDichTruyenWindows(tk.Tk):
                 "glossary": self.ent_tu_dien.get().strip(),
                 "cbz": bool(self.var_cbz.get()), "pdf": bool(self.var_pdf.get()),
                 "longstrip": bool(self.var_longstrip.get()),
+                "auto_video_review": bool(self.var_auto_video_review.get()) if hasattr(self, "var_auto_video_review") else False,
                 "ollama_cpu": bool(self.var_cpu_ollama.get()),
                 "auto_confirm_link_pages": tu_dong_link,
                 "mo_rong_ca_bo": bool(self.var_mo_rong_ca_bo.get()) if hasattr(self, "var_mo_rong_ca_bo") else True,
@@ -9230,6 +9519,7 @@ class AppDichTruyenWindows(tk.Tk):
             self.cau_hinh["ollama_cpu"] = self.run_options["ollama_cpu"]
             self.cau_hinh["tu_dong_duyet_link"] = tu_dong_link
             self.cau_hinh["so_luong_song_song"] = so_luong_song_song
+            self.cau_hinh["auto_video_review"] = self.run_options.get("auto_video_review", False)
             self._luu_cau_hinh()
             if not self.run_options["output"] or self.run_options["to"] < self.run_options["from"]:
                 raise ValueError("Kiểm tra thư mục xuất và khoảng chapter.")
@@ -9418,6 +9708,29 @@ class AppDichTruyenWindows(tk.Tk):
                     if len(sources) > 200:
                         raise NeedsAttention("Chapter vượt 200 trang; chia nhỏ trước khi dịch.")
                     self.after(0, lambda lb=nhan_day_du: self.lbl_tien_do.config(text=f"Đang xử lý {lb}"))
+
+                    # [B.1] Smart Webtoon Strip Stitcher & Gutter-Aware OCR Slicer:
+                    # Nếu chapter tải từ nguồn local hoặc có dải ảnh Webtoon cắt vụn, tự động nối & cắt lại tại rãnh Gutter sạch
+                    # trước khi khởi tạo ChapterLedger để không bao giờ bị cắt đứt bóng thoại ở mép 2 ảnh:
+                    if len(sources) >= 3 and all(s.startswith("local_file::") for s in sources):
+                        try:
+                            raw_list = [read_local_source(s) for s in sources]
+                            stitched_list = ghep_va_cat_dai_anh_webtoon_thong_minh(raw_list)
+                            if len(stitched_list) != len(raw_list):
+                                stitch_dir = root / name / "_webtoon_stitched"
+                                stitch_dir.mkdir(parents=True, exist_ok=True)
+                                new_sources = []
+                                for s_idx, sb in enumerate(stitched_list, start=1):
+                                    sp = stitch_dir / f"strip_{s_idx:03d}.jpg"
+                                    sp.write_bytes(sb)
+                                    new_sources.append(f"local_file::{sp}")
+                                self.ghi_log(
+                                    f"🧩 [Smart Webtoon Stitcher] Đã nối & cắt lại {len(raw_list)} mảnh cắt thành {len(new_sources)} trang chuẩn theo rãnh Gutter (không đứt bóng thoại)."
+                                )
+                                sources = new_sources
+                        except Exception:
+                            pass
+
                     ledger = ChapterLedger(root / name, sources, config)
 
                     prefetch_cache: dict[str, bytes] = {}
@@ -9582,6 +9895,18 @@ class AppDichTruyenWindows(tk.Tk):
                             root / name, f"{name}-ban-nhap", root, xuat_pdf=options["pdf"],
                             xuat_longstrip=options["longstrip"], trang_da_kiem=files,
                         )
+                    if options.get("auto_video_review"):
+                        try:
+                            tu_dong_dung_video_review_cho_chapter(
+                                root / name,
+                                ten_truyen=series_name,
+                                ten_chapter=name,
+                                server_url=options["server"],
+                                token=options["token"],
+                                log_fn=self.ghi_log,
+                            )
+                        except Exception as exc_vid:
+                            self.ghi_log(f"⚠️ [Auto-Video] Chưa dựng được Video cho {name}: {exc_vid}")
                     with state_lock:
                         done += 1
                         ho_so_da_xuat.append(

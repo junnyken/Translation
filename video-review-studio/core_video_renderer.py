@@ -128,10 +128,18 @@ def xac_thuc_va_tru_luot_video_cloud(
 
     con_lai = int(hm_data.get("con_lai") or 0)
     la_quan_tri = bool(hm_data.get("la_quan_tri"))
+    cap_do = int(hm_data.get("cap_do") or 0)
+    mua_them = int(hm_data.get("so_luot_mua_them") or 0)
+    if not la_quan_tri and cap_do < 1 and mua_them < tong_luot_can:
+        raise RuntimeError(
+            "Tính năng Dựng Video Review Truyện Tự Động không hỗ trợ gói Free dùng thử.\n"
+            "Vui lòng nâng cấp lên gói trả phí hàng tháng (Starter $2.99 / Lite $5.99 / Standard $9.99 / Pro Max $19.99) "
+            "tại https://comic.io.vn/#bang-gia để sử dụng Video Review Studio!"
+        )
     if not la_quan_tri and con_lai < tong_luot_can:
         raise RuntimeError(
             f"Số dư tài khoản còn {con_lai} lượt, không đủ {tong_luot_can} lượt cho gói '{goi['ten']}'. "
-            "Vui lòng nạp thêm lượt trên comic.io.vn!"
+            "Vui lòng nạp thêm lượt trên https://comic.io.vn/#bang-gia!"
         )
 
     seed = ma_dinh_danh_video or hashlib.sha256(os.urandom(16)).hexdigest()
