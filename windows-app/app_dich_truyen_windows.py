@@ -251,6 +251,10 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
         # hoặc chữ sát lề ("be", "k-") khi Gemini khoanh hụt 15-48px mà không tràn ra ngoài khung tranh
         mo_x = max(34, min(int(w_goc * 0.48), int(W * 0.09)))
         mo_y = max(62, min(int(h_goc * 0.55), int(H * 0.11)))
+        hb_pre = v.get("hop_bong_thoai")
+        if isinstance(hb_pre, dict):
+            mo_x = max(mo_x, min(int(W * 0.14), max(0, x_goc - int(hb_pre.get("x", x_goc)) + 14, int(hb_pre.get("x", x_goc)) + int(hb_pre.get("w", w_goc)) - (x_goc + w_goc) + 14)))
+            mo_y = max(mo_y, min(int(H * 0.14), max(0, y_goc - int(hb_pre.get("y", y_goc)) + 14, int(hb_pre.get("y", y_goc)) + int(hb_pre.get("h", h_goc)) - (y_goc + h_goc) + 14)))
         rx0 = max(1, min(W - 5, x_goc - mo_x))
         ry0 = max(1, min(H - 5, y_goc - mo_y))
         rx1 = max(rx0 + 4, min(W - 1, x_goc + w_goc + mo_x))
@@ -2296,6 +2300,8 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                 "nen_mau_trung_binh": nen_mau_trung_binh,
                 "mau_chu_goc": mau_chu_goc,
                 "mau_vien_goc": mau_vien_goc,
+                "la_chu_noi_tren_nen": la_chu_noi_tren_nen,
+                "hop_bong_thoai": v.get("hop_bong_thoai"),
                 "bg": (bg_r, bg_g, bg_b),
                 "dong_con": ds_dong_con,
             }
@@ -2385,7 +2391,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
         safe_h = max(14, safe_y1 - safe_y0)
         # Quét mở rộng biên ngang an toàn [bx, bx + bw] vào khoảng trắng sạch trái/phải trong lòng bóng thoại
         # khi câu gốc hẹp (VD: cột dọc tiếng Nhật/Trung hoặc từ tiếng Anh ngắn 1-2 chữ) và có vách bóng thoại bao quanh 2 bên:
-        if not nen_mau_tb:
+        if not nen_mau_tb and not hop.get("la_chu_noi_tren_nen"):
             y_scan_t = max(0, cy_mid - max(4, int(safe_h * 0.22)))
             y_scan_b = min(H - 1, cy_mid + max(4, int(safe_h * 0.22)))
             ys_horiz = list(range(y_scan_t, max(y_scan_t + 1, y_scan_b + 1), max(1, (y_scan_b - y_scan_t) // 4 or 1)))
@@ -5015,6 +5021,8 @@ def _dich_danh_sach_thoai_gpu(
                 muc["canh_bao_chat_luong"] = loi_q
             if b.get("dong_con"):
                 muc["dong_con"] = b["dong_con"]
+            if b.get("hop_bong_thoai"):
+                muc["hop_bong_thoai"] = b["hop_bong_thoai"]
             vung_out.append(muc)
     return vung_out
 
@@ -5227,6 +5235,8 @@ def _dich_danh_sach_thoai_nhanh_mien_phi(
             }
             if b.get("dong_con"):
                 muc["dong_con"] = b["dong_con"]
+            if b.get("hop_bong_thoai"):
+                muc["hop_bong_thoai"] = b["hop_bong_thoai"]
             vung_out.append(muc)
     return vung_out
 
@@ -5459,6 +5469,8 @@ def _dich_danh_sach_thoai_qua_server_deepseek(
                             }
                             if b.get("dong_con"):
                                 muc["dong_con"] = b["dong_con"]
+                            if b.get("hop_bong_thoai"):
+                                muc["hop_bong_thoai"] = b["hop_bong_thoai"]
                             vung_out.append(muc)
                     if vung_out:
                         return vung_out
