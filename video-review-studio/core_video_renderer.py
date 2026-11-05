@@ -671,6 +671,8 @@ def xuat_video_review_mp4(
             elevenlabs_api_key=elevenlabs_api_key,
             elevenlabs_voice_id=elevenlabs_voice_id,
             che_do_nhanh_offline=che_do_nhanh_offline,
+            voice_instruct=str(sc.get("voice_instruct") or ""),
+            directed_lines=sc.get("directed_lines"),
         )
         sc_frames: list[bytes] = []
         for step_idx, t_ratio in enumerate(cac_moc_tien_do):
@@ -697,6 +699,8 @@ def xuat_video_review_mp4(
         thoi_luong = float(tts_info["thoi_luong_giay"])
         sc["thoi_luong_giay"] = thoi_luong
         sc["audio_path"] = tts_info["audio_path"]
+        if tts_info.get("directed_lines"):
+            sc["directed_lines"] = tts_info["directed_lines"]
         wav_files.append(Path(tts_info["audio_path"]))
         tong_thoi_luong += thoi_luong
         frames_jpeg.extend(sc_frames)

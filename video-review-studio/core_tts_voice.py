@@ -15,9 +15,142 @@ import urllib.request
 import wave
 from pathlib import Path
 from typing import Any
+import hashlib
+
+OMNIVOICE_MODEL_CONFIGS: dict[str, dict[str, Any]] = {
+    "omnivoice_ultra": {
+        "ten_model": "OmniVoice Ultra Neural (48 Steps · Phòng Thu)",
+        "num_step": 48,
+        "guidance": 2.0,
+        "position_temperature": 5.0,
+        "temperature": 0.0,
+        "denoise": True,
+    },
+    "omnivoice_balanced": {
+        "ten_model": "OmniVoice Balanced (32 Steps · Cân Bằng)",
+        "num_step": 32,
+        "guidance": 2.0,
+        "position_temperature": 5.0,
+        "temperature": 0.0,
+        "denoise": True,
+    },
+    "omnivoice_turbo": {
+        "ten_model": "OmniVoice Turbo (16 Steps · Siêu Tốc)",
+        "num_step": 16,
+        "guidance": 2.0,
+        "position_temperature": 5.0,
+        "temperature": 0.0,
+        "denoise": True,
+    },
+}
+
+OMNIVOICE_VOICE_DESIGN_PRESETS: dict[str, dict[str, Any]] = {
+    "tu_dong_theo_canh": {
+        "ten": "🎭 Tự Động Đạo Diễn Theo Cảnh & Vai (Narrator / Nam Ngầu / Nữ Dễ Thương)",
+        "instruct": "auto",
+        "gioi_tinh": "nam",
+        "pitch_hz": "+0Hz",
+        "rate_offset": 0.0,
+        "ref_sample": "nam_mienbac_01.wav",
+    },
+    "tram_ngau": {
+        "ten": "🔥 Trầm Ngầu / Bá Đạo (male, middle-aged, very low pitch)",
+        "instruct": "male, middle-aged, very low pitch",
+        "gioi_tinh": "nam",
+        "pitch_hz": "-4Hz",
+        "rate_offset": -0.03,
+        "ref_sample": "nam_mienbac_01.wav",
+    },
+    "nam_tre_nang_dong": {
+        "ten": "⚡ Nam Chính Trẻ Trung / Hệ Thống (male, young adult, medium pitch)",
+        "instruct": "male, young adult, medium pitch",
+        "gioi_tinh": "nam",
+        "pitch_hz": "+1Hz",
+        "rate_offset": 0.03,
+        "ref_sample": "nam_mienbac_01.wav",
+    },
+    "ke_chuyen_tram_am": {
+        "ten": "🎙️ Người Dẫn Chuyện Trầm Ấm (male, middle-aged, low pitch)",
+        "instruct": "male, middle-aged, low pitch",
+        "gioi_tinh": "nam",
+        "pitch_hz": "-2Hz",
+        "rate_offset": 0.0,
+        "ref_sample": "nam_miennam_01.wav",
+    },
+    "de_thuong": {
+        "ten": "🌸 Dễ Thương / Thanh Xuân (female, young adult, high pitch)",
+        "instruct": "female, young adult, high pitch",
+        "gioi_tinh": "nu",
+        "pitch_hz": "+4Hz",
+        "rate_offset": 0.04,
+        "ref_sample": "nu_mienbac_01.wav",
+    },
+    "nu_lanh_lung": {
+        "ten": "❄️ Nữ Cường Sắc Sảo (female, young adult, low pitch)",
+        "instruct": "female, young adult, low pitch",
+        "gioi_tinh": "nu",
+        "pitch_hz": "-2Hz",
+        "rate_offset": 0.0,
+        "ref_sample": "nu_miennam_01.wav",
+    },
+    "lao_to_uy_ap": {
+        "ten": "👑 Lão Tổ / Cường Giả (male, elderly, very low pitch)",
+        "instruct": "male, elderly, very low pitch",
+        "gioi_tinh": "nam",
+        "pitch_hz": "-6Hz",
+        "rate_offset": -0.05,
+        "ref_sample": "nam_mienbac_01.wav",
+    },
+}
 
 
 DANH_SACH_GIONG_DOC: dict[str, dict[str, Any]] = {
+    # --- NHÓM GIỌNG OMNIVOICE (K2-FSA) + BÀN ĐẠO DIỄN TỪNG CÂU (MIỄN PHÍ $0 · CHUẨN PHÒNG THU) ---
+    "omnivoice_ultra": {
+        "ten": "💎 [OmniVoice Ultra Neural · 48 Steps] Đạo Diễn Từng Câu + Thiết Kế Giọng AI (Miễn Phí $0 · Khuyên Dùng)",
+        "voice_id": "omnivoice:ultra",
+        "preset_hf": "omnivoice_ultra",
+        "pitch_hz": "-2Hz",
+        "atempo_mod": 1.0,
+        "gioi_tinh": "nam",
+        "vung_mien": "OmniVoice Studio (Đa Miền)",
+        "toc_do_mac_dinh": 1.15,
+        "num_step": 48,
+        "guidance": 2.0,
+        "position_temperature": 5.0,
+        "temperature": 0.0,
+        "denoise": True,
+    },
+    "omnivoice_balanced": {
+        "ten": "⚖️ [OmniVoice Balanced · 32 Steps] Đạo Diễn Giọng Cân Bằng & Nhịp Thở Tự Nhiên (Miễn Phí $0)",
+        "voice_id": "omnivoice:balanced",
+        "preset_hf": "omnivoice_balanced",
+        "pitch_hz": "+0Hz",
+        "atempo_mod": 1.0,
+        "gioi_tinh": "nam",
+        "vung_mien": "OmniVoice Studio (Đa Miền)",
+        "toc_do_mac_dinh": 1.18,
+        "num_step": 32,
+        "guidance": 2.0,
+        "position_temperature": 5.0,
+        "temperature": 0.0,
+        "denoise": True,
+    },
+    "omnivoice_turbo": {
+        "ten": "⚡ [OmniVoice Turbo · 16 Steps] Đạo Diễn Giọng Siêu Tốc Cho Video Review Dài (Miễn Phí $0)",
+        "voice_id": "omnivoice:turbo",
+        "preset_hf": "omnivoice_turbo",
+        "pitch_hz": "+1Hz",
+        "atempo_mod": 1.03,
+        "gioi_tinh": "nu",
+        "vung_mien": "OmniVoice Studio (Đa Miền)",
+        "toc_do_mac_dinh": 1.22,
+        "num_step": 16,
+        "guidance": 2.0,
+        "position_temperature": 5.0,
+        "temperature": 0.0,
+        "denoise": True,
+    },
     # --- NHÓM GIỌNG ELEVENLABS AI BIỂU CẢM CAO CẤP (CHỐNG BUỒN NGỦ · TỰ ĐIỀU CHỈNH NGỮ ĐIỆU THEO CẢNH) ---
     "elevenlabs_auto_cam_xuc": {
         "ten": "🔥 [ElevenLabs AI] Tự Động Đổi Ngữ Điệu & Cảm Xúc Theo Từng Cảnh (Khuyên dùng khi có Key ElevenLabs)",
@@ -1009,6 +1142,511 @@ def _thu_goi_edge_neural(
     return False, out_wav
 
 
+def lam_sach_van_ban_truoc_khi_doc_omnivoice(van_ban: str) -> str:
+    """
+    Chặn và làm sạch văn bản lỗi / ký tự rác trước khi đưa vào bộ đọc OmniVoice & TTS:
+    - Loại bỏ dấu ngoặc kép thừa, ký tự điều khiển, chuỗi ký tự lặp vô nghĩa (như 'aaaaaaa', '?!?!?!').
+    - Chuẩn hóa dấu câu để bộ tách câu hoạt động chính xác 100%.
+    """
+    s = (van_ban or "").strip()
+    if not s:
+        return ""
+    s = re.sub(r"[\U00010000-\U0010ffff]", " ", s)
+    s = re.sub(r"[\"*`~^|<>{}\[\]\\]", " ", s)
+    s = re.sub(r"([!?.,])\1{2,}", r"\1", s)
+    s = re.sub(r"\b([a-zA-Z])\1{3,}\b", r"\1", s)
+    s = re.sub(r"\s+", " ", s).strip(" -—")
+    return s
+
+
+def suy_luan_voice_instruct_omnivoice(
+    cam_xuc: str = "kich_tinh",
+    vai_tro: str = "",
+    gioi_tinh_uu_tien: str = "nam",
+    voice_instruct_chon: str = "",
+) -> str:
+    """
+    Trả về chuỗi cú pháp thiết kế giọng chuẩn OmniVoice (`gender, age, pitch`)
+    tương ứng với thiết kế người dùng chọn hoặc tự động suy luận theo cảm xúc cảnh.
+    """
+    vi_raw = (voice_instruct_chon or "").strip()
+    if vi_raw and vi_raw != "tu_dong_theo_canh" and vi_raw != "auto":
+        if vi_raw in OMNIVOICE_VOICE_DESIGN_PRESETS:
+            return str(OMNIVOICE_VOICE_DESIGN_PRESETS[vi_raw]["instruct"])
+        if "," in vi_raw:
+            return vi_raw
+
+    gt = "female" if str(gioi_tinh_uu_tien).lower().startswith("nu") else "male"
+    vt_low = (vai_tro or "").lower()
+    cx_low = (cam_xuc or "kich_tinh").lower()
+
+    if any(k in vt_low for k in ("lão", "tổ", "trưởng lão", "sư phụ", "phản diện", "kẻ địch", "trùm")):
+        return f"{gt}, middle-aged, very low pitch"
+    if cx_low in ("uy_ap", "hoi_hop"):
+        return f"{gt}, middle-aged, very low pitch" if gt == "male" else f"{gt}, young adult, low pitch"
+    if cx_low == "hai_huoc":
+        return f"{gt}, young adult, high pitch" if gt == "female" else f"{gt}, young adult, medium pitch"
+    if cx_low == "cam_xuc":
+        return f"{gt}, middle-aged, low pitch" if gt == "male" else f"{gt}, young adult, medium pitch"
+    return f"{gt}, young adult, medium pitch"
+
+
+def tach_kich_ban_thanh_tung_cau_dao_dien(
+    van_ban: str,
+    *,
+    nhan_vat: str = "Narrator",
+    vai_tro: str = "",
+    cam_xuc: str = "kich_tinh",
+    toc_do: float = 1.15,
+    voice_instruct: str = "",
+    gioi_tinh_uu_tien: str = "nam",
+) -> list[dict[str, Any]]:
+    """
+    Bàn Đạo Diễn Từng Câu (Per-Sentence Voice Direction Studio):
+    Tách kịch bản của 1 phân cảnh thành từng câu/vế ngắn và gắn đầy đủ siêu dữ liệu đạo diễn:
+    `text` · `character_name` · `voice_instruct` · `emotion_tokens` · `speed` · `pause_ms`.
+    """
+    sach = lam_sach_van_ban_truoc_khi_doc_omnivoice(van_ban)
+    if not sach:
+        return []
+
+    raw_parts = re.split(r"(?<=[.!?…;])\s+", sach)
+    cau_hop_le: list[str] = []
+    for p in raw_parts:
+        p_clean = p.strip()
+        if not p_clean:
+            continue
+        if len(p_clean) > 155 and "," in p_clean:
+            sub_clauses = [c.strip() for c in p_clean.split(",") if c.strip()]
+            if len(sub_clauses) >= 2:
+                mid = len(sub_clauses) // 2
+                v1 = ", ".join(sub_clauses[:mid]) + ","
+                v2 = ", ".join(sub_clauses[mid:])
+                cau_hop_le.extend([v1, v2])
+                continue
+        cau_hop_le.append(p_clean)
+
+    if not cau_hop_le:
+        cau_hop_le = [sach]
+
+    base_instruct = suy_luan_voice_instruct_omnivoice(
+        cam_xuc=cam_xuc,
+        vai_tro=vai_tro,
+        gioi_tinh_uu_tien=gioi_tinh_uu_tien,
+        voice_instruct_chon=voice_instruct,
+    )
+    char_label = (nhan_vat or "Narrator").strip() or "Narrator"
+    base_speed = round(max(0.85, min(1.55, float(toc_do or 1.15))), 2)
+
+    directed_lines: list[dict[str, Any]] = []
+    for idx, cau in enumerate(cau_hop_le, 1):
+        low_c = cau.lower()
+        emo = cam_xuc or "kich_tinh"
+        if any(w in low_c for w in ("bất ngờ", "đùng", "chấn động", "tuyệt kỹ", "tung đòn", "hét lên", "lật kèo", "ngay lập tức")):
+            emo = "kich_tinh"
+        elif any(w in low_c for w in ("cười", "ngơ ngác", "tấu hài", "đổ thừa", "quay xe", "toang", "cạn lời")):
+            emo = "hai_huoc"
+        elif any(w in low_c for w in ("uy áp", "lạnh lùng", "sát khí", "nghiền nát", "bá đạo", "run rẩy")):
+            emo = "uy_ap"
+        elif any(w in low_c for w in ("nhưng", "liệu", "bí ẩn", "không ngờ", "chưa dừng lại", "rốt cuộc")):
+            emo = "hoi_hop"
+
+        spd_line = base_speed
+        if emo == "kich_tinh":
+            spd_line = round(min(1.55, base_speed * 1.03), 2)
+        elif emo in ("uy_ap", "hoi_hop"):
+            spd_line = round(max(0.88, base_speed * 0.97), 2)
+        elif emo == "hai_huoc":
+            spd_line = round(min(1.55, base_speed * 1.04), 2)
+
+        if cau.endswith(("!", "?!", "...")):
+            pause_ms = 280
+        elif cau.endswith(","):
+            pause_ms = 150
+        elif idx == len(cau_hop_le):
+            pause_ms = 240
+        else:
+            pause_ms = 210
+
+        directed_lines.append(
+            {
+                "line_index": idx,
+                "text": cau,
+                "character_name": char_label,
+                "voice_instruct": base_instruct,
+                "emotion_tokens": emo,
+                "speed": spd_line,
+                "pause_ms": pause_ms,
+            }
+        )
+    return directed_lines
+
+
+def khoi_tao_kho_giong_mau_omnivoice(thu_muc_mau: Path | None = None) -> dict[str, str]:
+    """
+    Khởi tạo thư viện file giọng mẫu tham chiếu sạch (`nam_mienbac_01.wav`, `nam_miennam_01.wav`,
+    `nu_mienbac_01.wav`, `nu_miennam_01.wav`) trong `video-review-studio/voice_samples/`
+    để phục vụ Zero-Shot Voice Cloning của OmniVoice / VieNeu hoàn toàn miễn phí ($0).
+    """
+    sample_dir = Path(thu_muc_mau) if thu_muc_mau else (Path(__file__).resolve().parent / "voice_samples")
+    sample_dir.mkdir(parents=True, exist_ok=True)
+    mau_cauhinh = {
+        "nam_mienbac_01.wav": (
+            "vi-VN-NamMinhNeural",
+            "-2Hz",
+            "Chào mừng các bạn đã quay trở lại với siêu phẩm truyện tranh hôm nay, nơi những trận chiến đỉnh cao bắt đầu.",
+        ),
+        "nam_miennam_01.wav": (
+            "vi-VN-NamMinhNeural",
+            "+1Hz",
+            "Không ai có thể ngờ được cú lật kèo chấn động ngay tại khoảnh khắc quyết định này.",
+        ),
+        "nu_mienbac_01.wav": (
+            "vi-VN-HoaiMyNeural",
+            "+3Hz",
+            "Chào mừng các bạn đến với chuyên mục tóm tắt truyện tranh siêu cuốn và đầy bất ngờ.",
+        ),
+        "nu_miennam_01.wav": (
+            "vi-VN-HoaiMyNeural",
+            "+0Hz",
+            "Ánh mắt sắc lạnh của cô nàng khiến toàn bộ đối thủ xung quanh đều phải đứng hình.",
+        ),
+    }
+    ket_qua: dict[str, str] = {}
+    for fname, (vid, pitch, sample_txt) in mau_cauhinh.items():
+        fpath = sample_dir / fname
+        if not fpath.is_file() or fpath.stat().st_size < 1024:
+            ok, out_p = _thu_goi_edge_neural(sample_txt, vid, 1.05, fpath, pitch_hz=pitch)
+            if not ok or not out_p.is_file():
+                fpath.write_bytes(_tao_wav_pcm_chuan(2.5, sample_rate=24000, tan_so_goi_y=0.0))
+        ket_qua[fname] = str(fpath)
+    return ket_qua
+
+
+def _ap_dung_hau_ky_omnivoice_dsp(
+    in_wav: Path,
+    out_wav: Path,
+    *,
+    voice_instruct: str = "male, young adult, medium pitch",
+    denoise: bool = True,
+) -> bool:
+    """
+    Hậu kỳ phòng thu chuẩn OmniVoice (`denoise=True`, định hình âm sắc theo `voice_instruct`,
+    nén dải động `acompressor` và chuẩn hóa âm lượng sạch sẽ).
+    """
+    ff_exe = tim_ffmpeg_he_thong()
+    if not ff_exe or not in_wav.is_file():
+        return False
+    vi_low = (voice_instruct or "").lower()
+    filters: list[str] = ["highpass=f=75", "lowpass=f=11500"]
+    if denoise:
+        filters.append("afftdn=nf=-25")
+    if "very low pitch" in vi_low:
+        filters.append("equalizer=f=160:t=q:w=1.1:g=4.5,equalizer=f=3200:t=q:w=1.2:g=2.0")
+    elif "low pitch" in vi_low:
+        filters.append("equalizer=f=190:t=q:w=1.2:g=3.2,equalizer=f=3400:t=q:w=1.2:g=1.8")
+    elif "high pitch" in vi_low:
+        filters.append("equalizer=f=280:t=q:w=1.2:g=1.5,equalizer=f=4200:t=q:w=1.1:g=3.2")
+    else:
+        filters.append("equalizer=f=220:t=q:w=1.2:g=2.5,equalizer=f=3600:t=q:w=1.2:g=2.2")
+    filters.append("acompressor=threshold=-16dB:ratio=2.6:attack=8:release=90:makeup=2.2")
+
+    tmp_dsp = out_wav.with_name(f"{out_wav.stem}_dsp_tmp.wav")
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        subprocess.run(
+            [
+                ff_exe,
+                "-y",
+                "-i",
+                str(in_wav),
+                "-af",
+                ",".join(filters),
+                "-ar",
+                "24000",
+                "-ac",
+                "1",
+                "-c:a",
+                "pcm_s16le",
+                str(tmp_dsp),
+            ],
+            timeout=20,
+            check=True,
+            creationflags=flags,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        if tmp_dsp.is_file() and tmp_dsp.stat().st_size > 256:
+            shutil.move(str(tmp_dsp), str(out_wav))
+            return True
+    except Exception:
+        try:
+            if tmp_dsp.is_file():
+                tmp_dsp.unlink()
+        except Exception:
+            pass
+    return False
+
+
+def _thu_goi_omnivoice_tts(
+    van_ban: str,
+    out_wav: Path,
+    *,
+    ma_giong: str = "omnivoice_ultra",
+    voice_instruct: str = "male, young adult, medium pitch",
+    emotion_tokens: str = "kich_tinh",
+    toc_do: float = 1.15,
+    file_giong_mau_clone: str | Path | None = None,
+) -> tuple[bool, Path]:
+    """
+    Thực thi mô hình OmniVoice (`k2-fsa/OmniVoice`) với bộ tham số:
+    `num_step` (16 / 32 / 48), `guidance=2.0`, `position_temperature=5.0`, `temperature=0.0`, `denoise=True`.
+    """
+    cfg = OMNIVOICE_MODEL_CONFIGS.get(ma_giong) or OMNIVOICE_MODEL_CONFIGS["omnivoice_ultra"]
+    num_step = int(cfg["num_step"])
+    guidance = float(cfg["guidance"])
+    pos_temp = float(cfg["position_temperature"])
+    cls_temp = float(cfg["temperature"])
+    denoise = bool(cfg["denoise"])
+
+    van_ban_sach = lam_sach_van_ban_truoc_khi_doc_omnivoice(van_ban)
+    if not van_ban_sach:
+        return False, out_wav
+
+    try:
+        import omnivoice  # type: ignore
+
+        ov_engine = getattr(omnivoice, "OmniVoice", None)
+        if ov_engine is not None:
+            model_inst = ov_engine()
+            ref_wav = str(file_giong_mau_clone) if file_giong_mau_clone and Path(file_giong_mau_clone).is_file() else None
+            model_inst.synthesize(
+                text=van_ban_sach,
+                output_path=str(out_wav),
+                voice_instruct=voice_instruct,
+                ref_audio=ref_wav,
+                num_step=num_step,
+                guidance=guidance,
+                position_temperature=pos_temp,
+                temperature=cls_temp,
+                denoise=denoise,
+                speed=toc_do,
+            )
+            if out_wav.is_file() and out_wav.stat().st_size > 512:
+                return True, out_wav
+    except Exception:
+        pass
+
+    ov_api_url = (os.environ.get("OMNIVOICE_API_URL") or "").strip().rstrip("/")
+    if ov_api_url:
+        try:
+            payload = json.dumps(
+                {
+                    "text": van_ban_sach,
+                    "voice_instruct": voice_instruct,
+                    "emotion_tokens": emotion_tokens,
+                    "num_step": num_step,
+                    "guidance": guidance,
+                    "position_temperature": pos_temp,
+                    "temperature": cls_temp,
+                    "denoise": denoise,
+                    "speed": toc_do,
+                }
+            ).encode("utf-8")
+            req = urllib.request.Request(
+                f"{ov_api_url}/v1/tts",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                audio_data = resp.read()
+            if len(audio_data) > 512:
+                out_wav.write_bytes(audio_data)
+                return True, out_wav
+        except Exception:
+            pass
+
+    vi_low = (voice_instruct or "").lower()
+    la_giong_nu = "female" in vi_low or ma_giong == "omnivoice_turbo"
+    neural_vid = "vi-VN-HoaiMyNeural" if la_giong_nu else "vi-VN-NamMinhNeural"
+
+    if "very low pitch" in vi_low:
+        pitch_hz = "-5Hz"
+    elif "low pitch" in vi_low:
+        pitch_hz = "-3Hz"
+    elif "very high pitch" in vi_low:
+        pitch_hz = "+6Hz"
+    elif "high pitch" in vi_low:
+        pitch_hz = "+4Hz"
+    else:
+        pitch_hz = "+0Hz"
+
+    emo_low = (emotion_tokens or "").lower()
+    if emo_low == "kich_tinh" and pitch_hz == "+0Hz":
+        pitch_hz = "-1Hz" if not la_giong_nu else "+2Hz"
+    elif emo_low == "uy_ap":
+        pitch_hz = "-5Hz" if not la_giong_nu else "-2Hz"
+    elif emo_low == "hai_huoc":
+        pitch_hz = "+2Hz" if not la_giong_nu else "+4Hz"
+
+    ok, actual_p = _thu_goi_edge_neural(
+        van_ban_sach,
+        neural_vid,
+        toc_do,
+        out_wav,
+        pitch_hz=pitch_hz,
+    )
+    if not ok:
+        ok, actual_p = _thu_goi_google_viet_native(van_ban_sach, toc_do, out_wav)
+
+    if ok and actual_p.is_file() and actual_p.suffix.lower() == ".wav":
+        _ap_dung_hau_ky_omnivoice_dsp(actual_p, actual_p, voice_instruct=voice_instruct, denoise=denoise)
+    return ok, actual_p
+
+
+def _ghep_cac_cau_wav_co_khoang_nghi(
+    danh_sach_wav_va_pause: list[tuple[Path, int]],
+    out_scene_wav: Path,
+) -> bool:
+    """
+    Ghép các file `.wav` của từng câu nhỏ trong 1 phân cảnh kèm khoảng lặng thở (`pause_ms`)
+    chính xác giữa các câu để tạo nhịp điệu thuyết minh tự nhiên như người thật.
+    """
+    if not danh_sach_wav_va_pause:
+        return False
+    out_scene_wav.parent.mkdir(parents=True, exist_ok=True)
+    frames_out: list[bytes] = []
+    sample_rate = 24000
+    n_channels = 1
+    sampwidth = 2
+
+    for wav_p, pause_ms in danh_sach_wav_va_pause:
+        if not wav_p.is_file():
+            continue
+        try:
+            with wave.open(str(wav_p), "rb") as rf:
+                sample_rate = rf.getframerate() or 24000
+                n_channels = rf.getnchannels() or 1
+                sampwidth = rf.getsampwidth() or 2
+                frames_out.append(rf.readframes(rf.getnframes()))
+            if pause_ms > 0:
+                so_mau_lang = max(1, int(sample_rate * (pause_ms / 1000.0)))
+                frames_out.append(b"\x00" * (so_mau_lang * n_channels * sampwidth))
+        except Exception:
+            continue
+
+    if not frames_out:
+        return False
+
+    with wave.open(str(out_scene_wav), "wb") as wf:
+        wf.setnchannels(n_channels)
+        wf.setsampwidth(sampwidth)
+        wf.setframerate(sample_rate)
+        for chunk in frames_out:
+            wf.writeframes(chunk)
+    return out_scene_wav.is_file() and out_scene_wav.stat().st_size > 256
+
+
+def tong_hop_giong_doc_dao_dien_tung_cau(
+    van_ban: str,
+    out_dir: Path,
+    *,
+    scene_index: int = 1,
+    ma_giong: str = "omnivoice_ultra",
+    toc_do: float = 1.15,
+    cam_xuc: str = "kich_tinh",
+    vai_tro_nhan_vat: str = "",
+    ten_nhan_vat: str = "Narrator",
+    voice_instruct: str = "",
+    directed_lines: list[dict[str, Any]] | None = None,
+    file_giong_mau_clone: str | Path | None = None,
+    buoc_sinh_lai: bool = False,
+) -> tuple[bool, Path, list[dict[str, Any]]]:
+    """
+    Tổng hợp âm thanh theo kiến trúc Bàn Đạo Diễn Từng Câu (Voice Direction Studio):
+    1. Tách kịch bản cảnh thành từng câu nhỏ (`directed_lines`).
+    2. Sinh âm thanh riêng cho từng câu theo `voice_instruct`, `emotion_tokens`, `speed`
+       (có bộ nhớ đệm hash theo từng câu để câu nào sửa mới phải sinh lại, tiết kiệm 90% thời gian).
+    3. Chèn khoảng lặng tự nhiên (`pause_ms`) giữa các câu và xuất ra `scene_XXX.wav`.
+    """
+    info_g = DANH_SACH_GIONG_DOC.get(ma_giong) or DANH_SACH_GIONG_DOC["omnivoice_ultra"]
+    gt_uu_tien = str(info_g.get("gioi_tinh") or "nam")
+
+    lines = directed_lines
+    if not lines:
+        lines = tach_kich_ban_thanh_tung_cau_dao_dien(
+            van_ban,
+            nhan_vat=ten_nhan_vat or "Narrator",
+            vai_tro=vai_tro_nhan_vat,
+            cam_xuc=cam_xuc,
+            toc_do=toc_do,
+            voice_instruct=voice_instruct,
+            gioi_tinh_uu_tien=gt_uu_tien,
+        )
+    if not lines:
+        return False, out_dir / f"scene_{scene_index:03d}.wav", []
+
+    chunks_dir = out_dir / "directed_chunks"
+    chunks_dir.mkdir(parents=True, exist_ok=True)
+    wav_va_pause: list[tuple[Path, int]] = []
+    updated_lines: list[dict[str, Any]] = []
+
+    for idx_l, item in enumerate(lines, 1):
+        txt_l = lam_sach_van_ban_truoc_khi_doc_omnivoice(str(item.get("text") or ""))
+        if not txt_l:
+            continue
+        vi_l = str(item.get("voice_instruct") or voice_instruct or "").strip()
+        if not vi_l or vi_l in ("auto", "tu_dong_theo_canh"):
+            vi_l = suy_luan_voice_instruct_omnivoice(
+                cam_xuc=str(item.get("emotion_tokens") or cam_xuc),
+                vai_tro=vai_tro_nhan_vat,
+                gioi_tinh_uu_tien=gt_uu_tien,
+                voice_instruct_chon=voice_instruct,
+            )
+        emo_l = str(item.get("emotion_tokens") or cam_xuc or "kich_tinh").strip()
+        spd_l = float(item.get("speed") or toc_do or 1.15)
+        pause_ms = int(item.get("pause_ms") if item.get("pause_ms") is not None else 210)
+
+        sig = f"{ma_giong}|{vi_l}|{emo_l}|{spd_l:.2f}|{file_giong_mau_clone or ''}|{txt_l}"
+        chunk_hash = hashlib.md5(sig.encode("utf-8")).hexdigest()[:12]
+        chunk_wav = chunks_dir / f"sc{scene_index:03d}_l{idx_l:02d}_{chunk_hash}.wav"
+
+        if buoc_sinh_lai and chunk_wav.is_file():
+            try:
+                chunk_wav.unlink()
+            except Exception:
+                pass
+
+        if not chunk_wav.is_file() or chunk_wav.stat().st_size < 256:
+            _thu_goi_omnivoice_tts(
+                txt_l,
+                chunk_wav,
+                ma_giong=ma_giong if ma_giong in OMNIVOICE_MODEL_CONFIGS else "omnivoice_ultra",
+                voice_instruct=vi_l,
+                emotion_tokens=emo_l,
+                toc_do=spd_l,
+                file_giong_mau_clone=file_giong_mau_clone,
+            )
+
+        if chunk_wav.is_file() and chunk_wav.stat().st_size >= 256:
+            wav_va_pause.append((chunk_wav, pause_ms if idx_l < len(lines) else 120))
+
+        item_copy = dict(item)
+        item_copy["line_index"] = idx_l
+        item_copy["text"] = txt_l
+        item_copy["voice_instruct"] = vi_l
+        item_copy["emotion_tokens"] = emo_l
+        item_copy["speed"] = spd_l
+        item_copy["pause_ms"] = pause_ms
+        item_copy["chunk_audio_path"] = str(chunk_wav)
+        updated_lines.append(item_copy)
+
+    out_scene_wav = out_dir / f"scene_{scene_index:03d}.wav"
+    ok_stitch = _ghep_cac_cau_wav_co_khoang_nghi(wav_va_pause, out_scene_wav)
+    return ok_stitch, out_scene_wav, updated_lines
+
+
 def tong_hop_giong_doc_phan_canh(
     van_ban: str,
     out_dir: Path,
@@ -1023,6 +1661,9 @@ def tong_hop_giong_doc_phan_canh(
     elevenlabs_api_key: str | None = None,
     elevenlabs_voice_id: str | None = None,
     che_do_nhanh_offline: bool = False,
+    voice_instruct: str = "",
+    directed_lines: list[dict[str, Any]] | None = None,
+    buoc_sinh_lai: bool = False,
 ) -> dict[str, Any]:
     """
     Tổng hợp file âm thanh thuyết minh cho 1 phân cảnh Storyboard:
@@ -1047,10 +1688,31 @@ def tong_hop_giong_doc_phan_canh(
     actual_audio_path = wav_path
 
     da_tao = False
+    directed_lines_out: list[dict[str, Any]] = []
     co_khoa_el = bool(_lay_khoa_elevenlabs(elevenlabs_api_key))
+    if not che_do_nhanh_offline and (
+        voice_id.startswith("omnivoice:")
+        or ma_giong_thuc in OMNIVOICE_MODEL_CONFIGS
+        or bool(directed_lines)
+        or (voice_instruct and voice_instruct not in ("", "auto", "tu_dong_theo_canh"))
+    ):
+        da_tao, actual_audio_path, directed_lines_out = tong_hop_giong_doc_dao_dien_tung_cau(
+            van_ban,
+            out_dir,
+            scene_index=scene_index,
+            ma_giong=ma_giong_thuc if ma_giong_thuc in OMNIVOICE_MODEL_CONFIGS else "omnivoice_ultra",
+            toc_do=toc_do_thuc,
+            cam_xuc=cam_xuc,
+            vai_tro_nhan_vat=vai_tro_nhan_vat,
+            ten_nhan_vat=ten_nhan_vat or "Narrator",
+            voice_instruct=voice_instruct,
+            directed_lines=directed_lines,
+            file_giong_mau_clone=file_giong_mau_clone,
+            buoc_sinh_lai=buoc_sinh_lai,
+        )
     if not che_do_nhanh_offline:
         # 0. Ưu tiên số 1: ElevenLabs AI nếu chọn giọng ElevenLabs hoặc đã nhập khoá ElevenLabs API Key
-        if voice_id.startswith("elevenlabs:") or (co_khoa_el and elevenlabs_voice_id):
+        if not da_tao and (voice_id.startswith("elevenlabs:") or (co_khoa_el and elevenlabs_voice_id)):
             da_tao, actual_audio_path = _thu_goi_elevenlabs_tts(
                 van_ban,
                 voice_id,
@@ -1097,6 +1759,8 @@ def tong_hop_giong_doc_phan_canh(
         "ma_giong": ma_giong_thuc,
         "voice_id": voice_id,
         "preset_hf": preset_hf,
+        "voice_instruct": voice_instruct,
+        "directed_lines": directed_lines_out,
     }
 
 

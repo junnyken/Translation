@@ -19,6 +19,7 @@ except Exception:  # pragma: no cover
     ImageFont = None
     ImageStat = None
 
+from core_tts_voice import suy_luan_voice_instruct_omnivoice, tach_kich_ban_thanh_tung_cau_dao_dien
 from prompt_kich_ban_review_chuan import (
     CHI_DAN_PHONG_CACH_CHUYEN_SAU as PHONG_CACH_KICH_BAN,
     tao_system_prompt_review_chuan,
@@ -106,7 +107,7 @@ def _co_chua_tieng_anh_hoac_rac_ocr(text: str) -> bool:
             return True
     # Nếu có từ 2 từ ASCII trở lên mà toàn câu có quá ít dấu tiếng Việt
     so_dau_viet = sum(1 for ch in s if ch in _KY_TU_CO_DAU_TIENG_VIET)
-    if len(words_ascii) >= 3 and so_dau_viet < 2:
+    if (len(words_ascii) >= 1 and so_dau_viet == 0) or (len(words_ascii) >= 3 and so_dau_viet < 2):
         return True
     return False
 
@@ -2023,6 +2024,19 @@ def sinh_kich_ban_review_chuong(
                 "cam_xuc": cam_xuc_canh,
                 "loi_thuyet_minh": loi_binh,
                 "hieu_ung_camera": kieu_cam,
+                "voice_instruct": suy_luan_voice_instruct_omnivoice(
+                    cam_xuc=cam_xuc_canh,
+                    vai_tro=vai_tro_vis,
+                    gioi_tinh_uu_tien="nam",
+                ),
+                "directed_lines": tach_kich_ban_thanh_tung_cau_dao_dien(
+                    loi_binh,
+                    nhan_vat=ten_nv_vis or "Narrator",
+                    vai_tro=vai_tro_vis,
+                    cam_xuc=cam_xuc_canh,
+                    toc_do=1.15,
+                    gioi_tinh_uu_tien="nam",
+                ),
             }
         )
 

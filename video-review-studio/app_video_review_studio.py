@@ -22,6 +22,9 @@ if sys.stderr is None:
 
 from core_tts_voice import (
     DANH_SACH_GIONG_DOC,
+    OMNIVOICE_VOICE_DESIGN_PRESETS,
+    suy_luan_voice_instruct_omnivoice,
+    tach_kich_ban_thanh_tung_cau_dao_dien,
     cai_dat_tu_dong_goi_giong_doc_va_mp4,
     kiem_tra_ha_tang_giong_doc_va_video,
     lay_danh_sach_giong_elevenlabs,
@@ -57,7 +60,7 @@ def doc_cau_hinh_studio() -> dict[str, Any]:
         "token": "",
         "phong_cach": "tu_dong_thich_ung",
         "dinh_dang": "tiktok_9_16",
-        "ma_giong": "elevenlabs_auto_cam_xuc",
+        "ma_giong": "omnivoice_ultra",
         "goi_luot": "review_standard",
         "toc_do_doc": 1.20,
         "elevenlabs_api_key": "",
@@ -652,6 +655,38 @@ class AppVideoReviewStudio(tk.Tk):
         tk.Button(f_edit, text="💾 Lưu sửa cảnh này", bg="#059669", fg="#fff", relief="flat", padx=8, command=self._luu_sua_phan_canh).pack(side="left", padx=4)
         tk.Button(f_edit, text="👁️ Xem Trước Khung Hình", bg="#2563eb", fg="#fff", relief="flat", padx=8, command=self._xem_truoc_khung_hinh_canh).pack(side="left")
 
+        f_ov_dir = tk.Frame(sb_frame, bg="#111827")
+        f_ov_dir.pack(fill="x", pady=(4, 0))
+        tk.Label(f_ov_dir, text="🎛️ Thiết kế giọng OmniVoice:", bg="#111827", fg="#a78bfa", font=("Segoe UI", 8, "bold")).pack(side="left")
+        self.cmb_voice_instruct_canh = ttk.Combobox(
+            f_ov_dir,
+            values=[f"{k} — {v['ten']}" for k, v in OMNIVOICE_VOICE_DESIGN_PRESETS.items()],
+            state="readonly",
+            width=42,
+        )
+        self.cmb_voice_instruct_canh.current(0)
+        self.cmb_voice_instruct_canh.pack(side="left", padx=4)
+        tk.Button(
+            f_ov_dir,
+            text="🔊 Đọc Thử Cảnh Này",
+            bg="#7c3aed",
+            fg="#fff",
+            font=("Segoe UI", 8, "bold"),
+            relief="flat",
+            padx=8,
+            command=self._doc_thu_canh_dang_chon,
+        ).pack(side="left", padx=3)
+        tk.Button(
+            f_ov_dir,
+            text="🔄 Sinh Lại Riêng Cảnh Này",
+            bg="#ea580c",
+            fg="#fff",
+            font=("Segoe UI", 8, "bold"),
+            relief="flat",
+            padx=8,
+            command=lambda: self._doc_thu_canh_dang_chon(buoc_sinh_lai=True),
+        ).pack(side="left", padx=2)
+
         self.txt_loi_binh = scrolledtext.ScrolledText(sb_frame, height=5, bg="#1e293b", fg="#fde047", insertbackground="#fff", font=("Segoe UI", 10))
         self.txt_loi_binh.pack(fill="x", pady=6)
 
@@ -839,6 +874,18 @@ class AppVideoReviewStudio(tk.Tk):
             self.cmb_cam_xuc_canh.set(cx_val)
         self.txt_loi_binh.delete("1.0", "end")
         self.txt_loi_binh.insert("1.0", sc.get("loi_thuyet_minh") or "")
+        vi_cur = str(sc.get("voice_instruct") or "")
+        if hasattr(self, "cmb_voice_instruct_canh"):
+            da_chon_vi = False
+            for i_v, val_v in enumerate(self.cmb_voice_instruct_canh["values"]):
+                k_v = val_v.split(" — ", 1)[0].strip()
+                preset_inst = (OMNIVOICE_VOICE_DESIGN_PRESETS.get(k_v) or {}).get("instruct")
+                if vi_cur and (k_v == vi_cur or preset_inst == vi_cur):
+                    self.cmb_voice_instruct_canh.current(i_v)
+                    da_chon_vi = True
+                    break
+            if not da_chon_vi:
+                self.cmb_voice_instruct_canh.current(0)
 
     def _luu_sua_phan_canh(self):
         sel = self.lst_scenes.curselection()
@@ -856,6 +903,75 @@ class AppVideoReviewStudio(tk.Tk):
             f"Cảnh #{sc['scene_index']:02d} [{cx_tag}] · 🎭 {sc['nhan_vat']}: {sc['loi_thuyet_minh'][:72]}...",
         )
         self.ghi_log(f"💾 Đã cập nhật lời thuyết minh & ngữ điệu [{cx_tag}] cho Cảnh #{sc['scene_index']:02d}.")
+        vi_key = (
+            self.cmb_voice_instruct_canh.get().split(" — ", 1)[0].strip()
+            if hasattr(self, "cmb_voice_instruct_canh")
+            else "tu_dong_theo_canh"
+        )
+        sc["voice_instruct"] = suy_luan_voice_instruct_omnivoice(
+            cam_xuc=cx_tag,
+            vai_tro=str(sc.get("vai_tro") or ""),
+            gioi_tinh_uu_tien="nam",
+            voice_instruct_chon=vi_key,
+        )
+        sc["directed_lines"] = tach_kich_ban_thanh_tung_cau_dao_dien(
+            sc["loi_thuyet_minh"],
+            nhan_vat=sc["nhan_vat"] or "Narrator",
+            vai_tro=str(sc.get("vai_tro") or ""),
+            cam_xuc=cx_tag,
+            toc_do=self._lay_toc_do_doc(),
+            voice_instruct=sc["voice_instruct"],
+        )
+
+    def _doc_thu_canh_dang_chon(self, buoc_sinh_lai: bool = False):
+        sel = self.lst_scenes.curselection()
+        if not sel or not self.kich_ban_hien_tai:
+            self._nghe_thu_giong_doc()
+            return
+        idx = sel[0]
+        self._luu_sua_phan_canh()
+        sc = self.kich_ban_hien_tai["scenes"][idx]
+        giong_key = self.cmb_giong.get().split(" — ", 1)[0].strip()
+        toc_do_val = self._lay_toc_do_doc()
+        el_key = self.ent_elevenlabs_key.get().strip()
+        el_vid = self.ent_elevenlabs_vid.get().strip()
+
+        def _worker():
+            che_do_txt = "Sinh lại mới" if buoc_sinh_lai else "Đọc thử"
+            self.ghi_log(
+                f"🎙️ [{che_do_txt}] Cảnh #{sc['scene_index']:02d} bằng '{giong_key}' "
+                f"(Thiết kế giọng: {sc.get('voice_instruct')} · {len(sc.get('directed_lines') or [])} câu đạo diễn)..."
+            )
+            try:
+                tmp_dir = Path(tempfile.gettempdir()) / "manga_video_voice_preview"
+                kq = tong_hop_giong_doc_phan_canh(
+                    str(sc.get("loi_thuyet_minh") or ""),
+                    tmp_dir,
+                    scene_index=int(sc.get("scene_index") or (idx + 1)),
+                    ma_giong=giong_key,
+                    toc_do=toc_do_val,
+                    cam_xuc=str(sc.get("cam_xuc") or "kich_tinh"),
+                    vai_tro_nhan_vat=str(sc.get("vai_tro") or ""),
+                    ten_nhan_vat=str(sc.get("nhan_vat") or "Narrator"),
+                    file_giong_mau_clone=self.ent_ref_audio.get().strip() or None,
+                    elevenlabs_api_key=el_key or None,
+                    elevenlabs_voice_id=el_vid or None,
+                    voice_instruct=str(sc.get("voice_instruct") or ""),
+                    directed_lines=sc.get("directed_lines"),
+                    buoc_sinh_lai=buoc_sinh_lai,
+                )
+                audio_p = kq["audio_path"]
+                sc["audio_path"] = audio_p
+                sc["thoi_luong_giay"] = kq["thoi_luong_giay"]
+                if kq.get("directed_lines"):
+                    sc["directed_lines"] = kq["directed_lines"]
+                if os.name == "nt" and os.path.isfile(audio_p):
+                    os.startfile(audio_p)
+                self.ghi_log(f"✅ Đã phát Cảnh #{sc['scene_index']:02d} ({kq['thoi_luong_giay']}s): {audio_p}")
+            except Exception as exc:
+                self.ghi_log(f"⚠️ Lỗi khi đọc thử Cảnh #{sc['scene_index']:02d}: {exc}")
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _xem_truoc_khung_hinh_canh(self):
         sel = self.lst_scenes.curselection()
