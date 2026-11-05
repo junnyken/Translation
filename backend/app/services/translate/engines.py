@@ -219,7 +219,10 @@ class LLMContextTranslator:
         #: E71 — True: gửi đoạn dạng JSON có `id`, ép đầu ra theo `SCHEMA_DICH`, ghép theo `id`.
         #: False: giao thức dòng đánh số như trước E71 (giữ nguyên từng ký tự của prompt).
         self.json_mode = json_mode
-        self._api_keys = [k.strip() for k in api_keys if k and k.strip()]
+        from app.services.tu_chua_lanh import sap_xep_khoa_ai_uu_tien_khoe_manh
+
+        raw_keys = [k.strip() for k in api_keys if k and k.strip()]
+        self._api_keys = sap_xep_khoa_ai_uu_tien_khoe_manh(raw_keys)
         self.model_name = model_name
         self.timeout = timeout
         self.temperature = temperature
@@ -357,6 +360,12 @@ class LLMContextTranslator:
             if not isinstance(muc, list):
                 raise TypeError("translations không phải mảng")
         except (ValueError, KeyError, TypeError) as exc:
+            from app.services.tu_chua_lanh import tu_sua_json_ban_dich
+
+            dong_cuu_ho = tu_sua_json_ban_dich(text or "", expected)
+            if dong_cuu_ho is not None:
+                dong_sach, co_dau_cuu = LLMContextTranslator.tach_dau_khong_chac(dong_cuu_ho)
+                return dong_sach, co_dau_cuu
             raise TranslationFailed(
                 f"llm_json_invalid: không đọc được JSON bản dịch ({type(exc).__name__}): "
                 f"{(text or '')[:200]!r}"
@@ -876,6 +885,14 @@ class LLMContextTranslator:
                     )
                 )
                 if la_loi_khoa_xoay_duoc:
+                    from app.services.tu_chua_lanh import danh_dau_khoa_ai_tam_ngung
+
+                    danh_dau_khoa_ai_tam_ngung(
+                        api_key=key,
+                        nha_cung_cap=info_k.get("provider", self.model_name),
+                        ly_do=f"HTTP {exc.code}: {detail[:80]}",
+                        thoi_gian_giay=60.0 if exc.code == 429 else 180.0,
+                    )
                     logger.warning("Key hiện tại lỗi/hết nhịp (HTTP %s) -> xoay key", exc.code)
                     self._rotate_key()
                     continue

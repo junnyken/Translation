@@ -139,7 +139,34 @@ async function goi(duong, opts = {}) {
   const headers = { ...(opts.headers || {}) }
   if (maPhien) headers.Authorization = `Bearer ${maPhien}`
   else if (maKhach) headers['X-Ma-Khach'] = maKhach
-  return doc(await fetch(`${diaChi}/api/v1${duong}`, { ...opts, headers }))
+
+  const danhSachDiaChi = [diaChi]
+  const duPhong = 'https://translation-api.vibe1.tinhgon.xyz'
+  if (diaChi !== duPhong && !diaChi.includes('127.0.0.1') && !diaChi.includes('localhost')) {
+    danhSachDiaChi.push(duPhong)
+  }
+
+  let loiCuoi = null
+  for (let i = 0; i < danhSachDiaChi.length; i++) {
+    const goc = danhSachDiaChi[i]
+    try {
+      const res = await fetch(`${goc}/api/v1${duong}`, { ...opts, headers })
+      if ((res.status === 502 || res.status === 503 || res.status === 504) && i + 1 < danhSachDiaChi.length) {
+        await new Promise((r) => setTimeout(r, 500))
+        continue
+      }
+      return await doc(res)
+    } catch (err) {
+      loiCuoi = err
+      const laLoiMangHoac5xx = !(err instanceof LoiApi) || err.ma === 502 || err.ma === 503 || err.ma === 504
+      if (laLoiMangHoac5xx && i + 1 < danhSachDiaChi.length) {
+        await new Promise((r) => setTimeout(r, 500))
+        continue
+      }
+      throw err
+    }
+  }
+  throw loiCuoi || new LoiApi(0, 'Không kết nối được máy chủ Translation.')
 }
 
 export async function dangNhap(diaChi, email, matKhau) {
@@ -233,20 +260,55 @@ export async function dangXuat() {
  * token — người dùng tự bật ở popup). Bản miễn phí không tự sửa được lỗi đọc chữ dính/sai trên
  * font cách điệu (đo 08/09 trên MangaPlus: vài dòng ra nguyên tiếng Anh hoặc dịch sai nghĩa).
  */
+async function nenAnhDuPhongKhiLoi(blob, maxCanh = 1600) {
+  if (!blob || typeof createImageBitmap !== 'function' || typeof OffscreenCanvas === 'undefined') {
+    return null
+  }
+  try {
+    const bmp = await createImageBitmap(blob)
+    const w0 = bmp.width || 1
+    const h0 = bmp.height || 1
+    const tyLe = Math.min(1, maxCanh / Math.max(w0, h0))
+    const w = Math.max(1, Math.round(w0 * tyLe))
+    const h = Math.max(1, Math.round(h0 * tyLe))
+    const canvas = new OffscreenCanvas(w, h)
+    const ctx = canvas.getContext('2d')
+    ctx.drawImage(bmp, 0, 0, w, h)
+    bmp.close?.()
+    return await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.82 })
+  } catch {
+    return null
+  }
+}
+
 export async function guiTrang(blob, ngonNgu, engine, cheDo, ngonNguDich = NGON_NGU_DICH_MAC_DINH, tuDienRieng = '') {
   const engineCloud = (engine === 'local_ocr_gpu' || engine === 'local_hybrid_pro' || engine === 'local_gguf')
     ? 'llm_context'
     : (engine || 'llm_context')
-  const form = new FormData()
-  form.append('file', blob, 'trang.png')
-  form.append('source_lang', ngonNgu || NGON_NGU_MAC_DINH)
-  form.append('target_lang', ngonNguDich || NGON_NGU_DICH_MAC_DINH)
-  form.append('engine', engineCloud)
-  form.append('che_do', cheDo || CHE_DO_MAC_DINH)
-  if (tuDienRieng && String(tuDienRieng).trim()) {
-    form.append('tu_dien_rieng', String(tuDienRieng).trim())
+  const taoForm = (tepBlob, tenTep = 'trang.png') => {
+    const form = new FormData()
+    form.append('file', tepBlob, tenTep)
+    form.append('source_lang', ngonNgu || NGON_NGU_MAC_DINH)
+    form.append('target_lang', ngonNguDich || NGON_NGU_DICH_MAC_DINH)
+    form.append('engine', engineCloud)
+    form.append('che_do', cheDo || CHE_DO_MAC_DINH)
+    if (tuDienRieng && String(tuDienRieng).trim()) {
+      form.append('tu_dien_rieng', String(tuDienRieng).trim())
+    }
+    return form
   }
-  return goi('/doc-truyen/trang', { method: 'POST', body: form })
+  try {
+    return await goi('/doc-truyen/trang', { method: 'POST', body: taoForm(blob, 'trang.png') })
+  } catch (err) {
+    const maLoi = err instanceof LoiApi ? err.ma : 0
+    if (maLoi === 0 || maLoi === 413 || maLoi === 500 || maLoi === 502 || maLoi === 503 || maLoi === 504) {
+      const blobNen = await nenAnhDuPhongKhiLoi(blob, 1600)
+      if (blobNen) {
+        return await goi('/doc-truyen/trang', { method: 'POST', body: taoForm(blobNen, 'trang.jpg') })
+      }
+    }
+    throw err
+  }
 }
 
 /**

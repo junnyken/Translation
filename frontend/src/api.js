@@ -721,6 +721,13 @@ export const quanTriCapLuot = ({
 /** E107 — Lấy thống kê tổng hợp hệ thống & chi tiết hạn mức từng người dùng cho Dashboard Quản trị. */
 export const layThongKeQuanTri = () => fetch(`${BASE}/quan-tri/thong-ke`).then(doc)
 
+/** Lấy trạng thái Bác Sĩ Hệ Thống Tự Chữa Lành 24/7 & danh sách sự cố đã tự động khắc phục. */
+export const layTrangThaiTuChuaLanh = () => fetch(`${BASE}/quan-tri/tu-chua-lanh`).then(doc)
+
+/** Kích hoạt quy trình tự chẩn đoán, giải phóng RAM (GC), mở khóa AI hết hạn cách ly và làm sạch vùng đệm. */
+export const chayTuChuaLanhNgay = () =>
+  fetch(`${BASE}/quan-tri/tu-chua-lanh/chay-ngay`, { method: 'POST' }).then(doc)
+
 /** Quản trị viên lưu & kích hoạt cấu hình AI đa mô hình (DeepSeek, Gemini, OpenAI, OpenRouter, Groq, Custom) ngay từ trang Admin. */
 export const quanTriLuuCauHinhAi = ({
   khoaDeepseek = undefined,

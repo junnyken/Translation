@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import * as api from '../../api.js'
 import { useNgonNguUI } from '../../lib/ngon-ngu-ui.jsx'
 import Button from '../ui/Button.jsx'
@@ -23,6 +23,34 @@ export default function AdminTongQuan({
   const [congLuot, setCongLuot] = useState('100')
   const [tranVip, setTranVip] = useState('')
   const [dangCap, setDangCap] = useState(false)
+  const [tuChuaLanh, setTuChuaLanh] = useState(null)
+  const [dangChayChuaLanh, setDangChayChuaLanh] = useState(false)
+
+  useEffect(() => {
+    let huy = false
+    api.layTrangThaiTuChuaLanh()
+      .then((d) => { if (!huy && d) setTuChuaLanh(d) })
+      .catch(() => {})
+    return () => { huy = true }
+  }, [thongKe])
+
+  async function xuLyChayTuChuaLanh() {
+    setDangChayChuaLanh(true)
+    setLoi(null)
+    try {
+      const kq = await api.chayTuChuaLanhNgay()
+      if (kq) setTuChuaLanh(kq)
+      setThongBaoOk(
+        laEn
+          ? 'Self-healing diagnostic completed: freed memory (GC), refreshed AI key cooldowns & verified temp storage.'
+          : 'Đã chạy Bác Sĩ Hệ Thống: giải phóng bộ nhớ rác (GC), mở khóa AI hết hạn cách ly & làm sạch vùng đệm!',
+      )
+    } catch (err) {
+      setLoi(String(err?.message || err))
+    } finally {
+      setDangChayChuaLanh(false)
+    }
+  }
 
   const heThong = thongKe?.he_thong || {}
   const bieuDo7Ngay = Array.isArray(thongKe?.bieu_do_7_ngay) ? thongKe.bieu_do_7_ngay : []
@@ -321,6 +349,130 @@ export default function AdminTongQuan({
           </div>
         </div>
       )}
+
+      {/* ── Trung Tâm Tự Khắc Phục Lỗi 24/7 (Autonomous Self-Healing Doctor) ── */}
+      <div className="admin-khung" style={{ marginTop: 18 }}>
+        <div className="admin-khung-dau" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+          <div>
+            <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              🛡️ {laEn ? '24/7 Autonomous Self-Healing Doctor' : 'Bác Sĩ Hệ Thống Tự Khắc Phục Lỗi 24/7'}
+              <span
+                style={{
+                  fontSize: 11,
+                  padding: '3px 9px',
+                  borderRadius: 999,
+                  background: 'rgba(16, 185, 129, 0.16)',
+                  color: '#34d399',
+                  border: '1px solid rgba(16, 185, 129, 0.35)',
+                  fontWeight: 700,
+                }}
+              >
+                {laEn ? 'ACTIVE 24/7' : 'ĐANG BẢO VỆ TỰ ĐỘNG'}
+              </span>
+            </h3>
+            <p className="ghi-chu">
+              {laEn
+                ? 'Automatically detects runtime errors, rotates rate-limited AI keys, repairs malformed JSON, downscales heavy images, and cleans server RAM without waiting for manual fixes.'
+                : 'Tự động phát hiện lỗi phát sinh, cách ly khóa AI quá tải 60s để xoay sang khóa khỏe mạnh, tự vá lỗi cú pháp JSON, tự nén ảnh nặng trên Tiện ích và giải phóng RAM máy chủ mà không cần chờ can thiệp thủ công.'}
+            </p>
+          </div>
+          <Button type="button" kieu="chinh" onClick={xuLyChayTuChuaLanh} disabled={dangChayChuaLanh}>
+            {dangChayChuaLanh
+              ? '⏳ Đang chẩn đoán & sửa...'
+              : (laEn ? '🛠️ Run Self-Heal Now' : '🛠️ Chẩn Đoán & Tự Khắc Phục Ngay')}
+          </Button>
+        </div>
+
+        <div className="admin-khung-than">
+          {/* 4 chỉ số tự chữa lành */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(175px, 1fr))', gap: 10, marginBottom: 14 }}>
+            <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.25)' }}>
+              <div style={{ fontSize: 12, opacity: 0.8 }}>{laEn ? 'Total Auto-Fixed Incidents' : 'Tổng sự cố đã tự khắc phục'}</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: '#34d399', marginTop: 2 }}>
+                {tuChuaLanh?.thong_ke?.tong_so_lan_tu_sua ?? 0}
+              </div>
+            </div>
+            <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.25)' }}>
+              <div style={{ fontSize: 12, opacity: 0.8 }}>{laEn ? 'AI Key Auto-Rotations' : 'Xoay vòng khóa AI & Dự phòng'}</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: '#60a5fa', marginTop: 2 }}>
+                {(tuChuaLanh?.thong_ke?.xoay_vong_khoa_ai ?? 0) + (tuChuaLanh?.thong_ke?.du_phong_google_translate ?? 0)}
+              </div>
+            </div>
+            <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.25)' }}>
+              <div style={{ fontSize: 12, opacity: 0.8 }}>{laEn ? 'Malformed JSON Repaired' : 'Tự cứu bản dịch JSON lỗi'}</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: '#fbbf24', marginTop: 2 }}>
+                {tuChuaLanh?.thong_ke?.tu_sua_json_ai ?? 0}
+              </div>
+            </div>
+            <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(168, 85, 247, 0.08)', border: '1px solid rgba(168, 85, 247, 0.25)' }}>
+              <div style={{ fontSize: 12, opacity: 0.8 }}>{laEn ? 'RAM & GC Cleanups' : 'Dọn rác bộ nhớ RAM (GC)'}</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: '#c084fc', marginTop: 2 }}>
+                {tuChuaLanh?.thong_ke?.don_rac_bo_nho ?? 0}
+                {tuChuaLanh?.bo_nho?.rss_mb > 0 && (
+                  <span style={{ fontSize: 12, fontWeight: 500, marginLeft: 6, opacity: 0.85 }}>
+                    ({tuChuaLanh.bo_nho.rss_mb} MB)
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* 4 lớp lá chắn tự động */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10, marginBottom: 14 }}>
+            {(tuChuaLanh?.co_che_bao_ve || []).map((cc) => (
+              <div
+                key={cc.ma}
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: 10,
+                  background: 'rgba(255,255,255,0.03)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                }}
+              >
+                <div style={{ fontWeight: 700, fontSize: 13, color: '#e2e8f0', display: 'flex', justifyContent: 'space-between', gap: 6 }}>
+                  <span>✅ {cc.ten}</span>
+                </div>
+                <div style={{ fontSize: 12, opacity: 0.76, marginTop: 4, lineHeight: 1.45 }}>
+                  {cc.mo_ta}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Nhật ký sự cố đã tự động sửa gần đây */}
+          {Array.isArray(tuChuaLanh?.su_co_gan_day) && tuChuaLanh.su_co_gan_day.length > 0 && (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6, opacity: 0.9 }}>
+                📋 {laEn ? 'Recent Auto-Repaired Incidents' : 'Nhật ký sự cố đã được hệ thống tự động phát hiện & sửa chữa gần đây'}
+              </div>
+              <div style={{ maxHeight: 210, overflowY: 'auto', borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)' }}>
+                {tuChuaLanh.su_co_gan_day.slice(0, 12).map((sc) => (
+                  <div
+                    key={sc.id}
+                    style={{
+                      padding: '8px 12px',
+                      borderBottom: '1px solid rgba(255,255,255,0.06)',
+                      fontSize: 12,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 2,
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                      <strong style={{ color: '#38bdf8' }}>🔧 {sc.thanh_phan}</strong>
+                      <span style={{ opacity: 0.65, fontSize: 11 }}>
+                        {sc.thoi_gian ? new Date(sc.thoi_gian).toLocaleString('vi-VN') : ''}
+                      </span>
+                    </div>
+                    <div style={{ opacity: 0.85 }}>⚠️ <em>{sc.su_co}</em></div>
+                    <div style={{ color: '#34d399' }}>✔ {sc.hanh_dong}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </>
   )
 }

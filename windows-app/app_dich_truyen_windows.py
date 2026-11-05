@@ -2820,6 +2820,34 @@ def goi_http(url: str, method: str = "GET", body: dict | None = None, token: str
             content = resp.read(20 * 1024 * 1024 + 1)
             if len(content) > 20 * 1024 * 1024:
                 raise NeedsAttention("Phản hồi vượt giới hạn 20 MB.")
+    except urllib.error.HTTPError as http_exc:
+        if nguon_ngoai and method.upper() == "GET" and http_exc.code in (403, 429, 502, 503, 504):
+            origin_goc = f"{parsed_u.scheme}://{parsed_u.netloc}/"
+            ua_du_phong = [
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15",
+            ]
+            content = b""
+            loi_cuoi_http = http_exc
+            for idx_retry, ua_alt in enumerate(ua_du_phong):
+                time.sleep(0.55 * (idx_retry + 1))
+                hdr_retry = dict(headers)
+                hdr_retry["User-Agent"] = ua_alt
+                hdr_retry.setdefault("Referer", referer or origin_goc)
+                hdr_retry.setdefault("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
+                try:
+                    req_retry = urllib.request.Request(url, data=data, headers=hdr_retry, method=method)
+                    with urllib.request.urlopen(req_retry, timeout=timeout) as resp_r:
+                        content = resp_r.read(20 * 1024 * 1024 + 1)
+                        break
+                except urllib.error.HTTPError as e2:
+                    loi_cuoi_http = e2
+                except Exception:
+                    pass
+            if not content:
+                raise loi_cuoi_http
+        else:
+            raise
     except (ConnectionResetError, urllib.error.URLError) as exc:
         msg = str(exc)
         if (

@@ -6121,3 +6121,28 @@ async def get_term_suggestion(
         raise HTTPException(status_code=404, detail="term_suggestion_run_not_found")
     await bao_dam_quyen(session, nguoi, run)
     return run
+
+
+@router.get("/quan-tri/tu-chua-lanh", tags=["quan-tri"])
+async def quan_tri_lay_trang_thai_tu_chua_lanh(
+    nguoi: NguoiDung = Depends(nguoi_dung_phien_dang_nhap),
+) -> dict:
+    """Trả về trạng thái Bác Sĩ Hệ Thống Tự Chữa Lành 24/7 và nhật ký các sự cố đã tự động khắc phục."""
+    if not nguoi.la_quan_tri:
+        raise HTTPException(status_code=403, detail="Chỉ quản trị viên mới được xem trung tâm tự chữa lành.")
+    from app.services.tu_chua_lanh import lay_trang_thai_tu_chua_lanh
+
+    return await run_in_threadpool(lay_trang_thai_tu_chua_lanh)
+
+
+@router.post("/quan-tri/tu-chua-lanh/chay-ngay", tags=["quan-tri"])
+async def quan_tri_chay_tu_chua_lanh_ngay(
+    nguoi: NguoiDung = Depends(nguoi_dung_phien_dang_nhap),
+) -> dict:
+    """Kích hoạt quy trình tự chẩn đoán, thu hồi bộ nhớ rác (GC), mở khóa AI hết hạn cách ly và làm sạch vùng đệm."""
+    if not nguoi.la_quan_tri:
+        raise HTTPException(status_code=403, detail="Chỉ quản trị viên mới được kích hoạt tự chữa lành.")
+    from app.services.tu_chua_lanh import chay_chan_doan_va_tu_chua_lanh
+
+    return await run_in_threadpool(chay_chan_doan_va_tu_chua_lanh, True)
+

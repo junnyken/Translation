@@ -1646,10 +1646,15 @@ def dich_danh_sach_thoai_ngu_canh_dong(
         )
         boi_canh_gop = f"{chi_dan_pro}\n{boi_canh_gop}".strip()
 
-    if settings.llm_configured:
+    tat_ca_keys: list[str] = []
+    for k in (settings.deepseek_api_key_list + settings.gemini_api_key_list):
+        if k and k not in tat_ca_keys:
+            tat_ca_keys.append(k)
+
+    if tat_ca_keys:
         try:
             tr = LLMContextTranslator(
-                api_keys=settings.gemini_api_key_list,
+                api_keys=tat_ca_keys,
                 model_name=settings.llm_model_name,
                 timeout=max(12.0, float(settings.translate_timeout_seconds or 25.0)),
                 boi_canh=boi_canh_gop or None,
@@ -1658,8 +1663,16 @@ def dich_danh_sach_thoai_ngu_canh_dong(
             kq = tr.translate(clean_texts, source_lang=source_lang, target_lang=target_lang)
             if len(kq) == len(clean_texts):
                 return kq, "llm_context"
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            from app.services.tu_chua_lanh import ghi_nhan_tu_chua_lanh
+
+            ghi_nhan_tu_chua_lanh(
+                thanh_phan="AI Translation Failover",
+                su_co=f"Engine LLM gặp sự cố khi dịch {len(clean_texts)} câu ({type(exc).__name__})",
+                hanh_dong="Tự động chuyển sang Google Translate dự phòng để không làm gián đoạn trang truyện",
+                ket_qua="da_khac_phuc",
+                loai_thong_ke="du_phong_google_translate",
+            )
 
     tr_free = GoogleTranslateEngine()
     return tr_free.translate(clean_texts, source_lang=source_lang, target_lang=target_lang), "google_fast"
