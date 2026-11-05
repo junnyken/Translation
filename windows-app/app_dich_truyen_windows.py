@@ -7508,12 +7508,12 @@ class AppDichTruyenWindows(tk.Tk):
         if not hasattr(self, "lbl_kpi_cost"):
             return
         eng = self.cmb_engine.get() if hasattr(self, "cmb_engine") else ""
-        ma_eng = eng.split()[0] if eng else "local_ocr_gpu"
+        ma_eng = ("local_hybrid_pro" if ("local_hybrid_pro" in eng or "GPU Pro" in eng) else ("llm_context" if ("llm_context" in eng or "Đám Mây" in eng) else ("google_fast" if "google_fast" in eng else ("local_gguf" if "local_gguf" in eng else "local_ocr_gpu"))))
         so_luot = SO_LUOT_MOI_TRANG_THEO_ENGINE.get(ma_eng, 1)
         so_cau_hoc = len(nap_bo_nho_tu_hoc())
-        if "local_hybrid_pro" in eng:
+        if ma_eng == "local_hybrid_pro":
             self.lbl_kpi_cost.config(
-                text=f"{so_luot} lượt / trang (🧠 GPU Pro Tự Học)",
+                text=f"{so_luot} lượt / trang (🧠 OCR + GPU Pro)",
                 fg="#38BDF8",
             )
             if hasattr(self, "lbl_mo_ta_engine"):
@@ -7524,7 +7524,7 @@ class AppDichTruyenWindows(tk.Tk):
                     ),
                     fg="#38BDF8",
                 )
-        elif "local_" in eng:
+        elif ma_eng in ("local_ocr_gpu", "local_gguf"):
             self.lbl_kpi_cost.config(
                 text=f"{so_luot} lượt / trang (⚡ OCR + GPU Nhanh)",
                 fg=MANGA_UI_TOKENS["status_ok"],
@@ -7544,13 +7544,13 @@ class AppDichTruyenWindows(tk.Tk):
             )
         else:
             self.lbl_kpi_cost.config(
-                text=f"{so_luot} lượt / trang (✨ Gemini & DeepSeek Ultra)",
+                text=f"{so_luot} lượt / trang (✨ AI Ngữ Cảnh Đám Mây)",
                 fg=MANGA_UI_TOKENS["status_warn"],
             )
             if hasattr(self, "lbl_mo_ta_engine"):
                 self.lbl_mo_ta_engine.config(
                     text=(
-                        f"✨ Chế độ Đỉnh Cao Đám Mây ({so_luot} lượt/trang): Đôi mắt Gemini Vision 2K & DeepSeek "
+                        f"✨ Chế độ AI Ngữ Cảnh Đám Mây ({so_luot} lượt/trang): Nhận diện biểu cảm tranh "
                         f"nhìn biểu cảm tranh phân vai xưng hô chuẩn Scanlation ({so_cau_hoc} cụm tự học)."
                     ),
                     fg=MANGA_UI_TOKENS["status_warn"],
@@ -8045,12 +8045,12 @@ class AppDichTruyenWindows(tk.Tk):
         # Ẩn 2 model thừa (google_fast & local_gguf) trên giao diện, giữ 3 model phân tầng 1 - 2 - 3 lượt/trang
         self.cmb_engine.configure(
             values=[
-                "local_ocr_gpu (⚡ OCR + GPU Nhanh · 1 lượt/trang)",
-                "local_hybrid_pro (🧠 OCR + GPU Pro — Tự Học & Chữ Viết Tay · 2 lượt/trang)",
-                "llm_context (✨ AI Ngữ Cảnh Đám Mây — Gemini & DeepSeek Ultra · 3 lượt/trang)",
+                "⚡ OCR + GPU Nhanh · 1 lượt/trang",
+                "🧠 OCR + GPU Pro · 2 lượt/trang",
+                "✨ AI Ngữ Cảnh Đám Mây",
             ]
         )
-        self.cmb_engine.set("local_ocr_gpu (⚡ OCR + GPU Nhanh · 1 lượt/trang)")
+        self.cmb_engine.set("⚡ OCR + GPU Nhanh · 1 lượt/trang")
         self.cmb_engine.grid(row=2, column=1, columnspan=3, sticky="ew", padx=(6, 0))
         self.cmb_engine.bind("<<ComboboxSelected>>", self._cap_nhat_the_chi_phi)
 
@@ -9660,7 +9660,7 @@ class AppDichTruyenWindows(tk.Tk):
                 "name": lam_sach_ten_thu_muc(self.ent_ten_truyen.get() or "Truyen-Da-Dich"),
                 "output": self.ent_out.get().strip(), "url": url_chinh,
                 "source_lang": self.cmb_src.get().split()[0], "target_lang": self.cmb_tgt.get().split()[0],
-                "font": self.cmb_font.get().split()[0], "engine": self.cmb_engine.get().split()[0],
+                "font": self.cmb_font.get().split()[0], "engine": ("local_hybrid_pro" if ("local_hybrid_pro" in self.cmb_engine.get() or "GPU Pro" in self.cmb_engine.get()) else ("llm_context" if ("llm_context" in self.cmb_engine.get() or "Đám Mây" in self.cmb_engine.get()) else (self.cmb_engine.get().split()[0] if self.cmb_engine.get().startswith(("google_fast", "local_gguf", "local_ocr_gpu")) else "local_ocr_gpu"))),
                 "glossary": self.ent_tu_dien.get().strip(),
                 "cbz": bool(self.var_cbz.get()), "pdf": bool(self.var_pdf.get()),
                 "longstrip": bool(self.var_longstrip.get()),

@@ -41,9 +41,9 @@ function dongBoNutEngine(eng) {
   const nhanPhu = $('nhan-phu-eng')
   if (nhanPhu) {
     if (eng === 'local_hybrid_pro') {
-      nhanPhu.textContent = '🧠 2 lượt/trang · Tự học & Chữ viết tay'
+      nhanPhu.textContent = '🧠 2 lượt/trang'
     } else if (eng === 'llm_context') {
-      nhanPhu.textContent = '✨ 3 lượt/trang · Gemini & DeepSeek Ultra'
+      nhanPhu.textContent = '✨ AI Ngữ Cảnh Đám Mây'
     } else {
       nhanPhu.textContent = '⚡ 1 lượt/trang · Nhanh & Tiết kiệm'
     }
@@ -144,7 +144,7 @@ async function veMayChu() {
       return
     }
     if (engine === 'llm_context') {
-      o.textContent = '✨ Model 3 (3 lượt/trang): Mắt thần Gemini Vision 2K & DeepSeek nhìn biểu cảm tranh phân vai xưng hô chuẩn Scanlation.'
+      o.textContent = '✨ AI Ngữ Cảnh Đám Mây: Nhận diện biểu cảm tranh & phân vai xưng hô chuẩn Scanlation.'
       o.hidden = false
       return
     }
