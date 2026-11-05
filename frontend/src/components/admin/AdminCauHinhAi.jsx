@@ -65,6 +65,7 @@ export default function AdminCauHinhAi({ thongKe, onNap, setLoi, setThongBaoOk }
   const [modelDeepseek, setModelDeepseek] = useState(heThong.deepseek_model || 'deepseek-chat')
 
   const [khoaGeminiInput, setKhoaGeminiInput] = useState('')
+  const [khoaDuPhongInput, setKhoaDuPhongInput] = useState('')
   const [modelGemini, setModelGemini] = useState(
     heThong.gemini_model === 'gemini-3.5-flash'
       ? 'gemini-3.5-flash-lite'
@@ -192,6 +193,7 @@ export default function AdminCauHinhAi({ thongKe, onNap, setLoi, setThongBaoOk }
       }
       if (khoaDeepseekInput.trim()) payload.khoaDeepseek = khoaDeepseekInput.trim()
       if (khoaGeminiInput.trim()) payload.khoaGemini = khoaGeminiInput.trim()
+      if (khoaDuPhongInput.trim()) payload.khoaDuPhong = khoaDuPhongInput.trim()
       if (khoaOpenaiInput.trim()) payload.khoaOpenai = khoaOpenaiInput.trim()
       if (khoaOpenrouterInput.trim()) payload.khoaOpenrouter = khoaOpenrouterInput.trim()
       if (khoaGroqInput.trim()) payload.khoaGroq = khoaGroqInput.trim()
@@ -210,6 +212,7 @@ export default function AdminCauHinhAi({ thongKe, onNap, setLoi, setThongBaoOk }
       )
       setKhoaDeepseekInput('')
       setKhoaGeminiInput('')
+      setKhoaDuPhongInput('')
       setKhoaOpenaiInput('')
       setKhoaOpenrouterInput('')
       setKhoaGroqInput('')
@@ -232,6 +235,7 @@ export default function AdminCauHinhAi({ thongKe, onNap, setLoi, setThongBaoOk }
         Boolean(
           khoaDeepseekInput.trim() ||
             khoaGeminiInput.trim() ||
+            khoaDuPhongInput.trim() ||
             khoaOpenaiInput.trim() ||
             khoaOpenrouterInput.trim() ||
             khoaGroqInput.trim() ||
@@ -248,6 +252,7 @@ export default function AdminCauHinhAi({ thongKe, onNap, setLoi, setThongBaoOk }
         }
         if (khoaDeepseekInput.trim()) payload.khoaDeepseek = khoaDeepseekInput.trim()
         if (khoaGeminiInput.trim()) payload.khoaGemini = khoaGeminiInput.trim()
+        if (khoaDuPhongInput.trim()) payload.khoaDuPhong = khoaDuPhongInput.trim()
         if (khoaOpenaiInput.trim()) payload.khoaOpenai = khoaOpenaiInput.trim()
         if (khoaOpenrouterInput.trim()) payload.khoaOpenrouter = khoaOpenrouterInput.trim()
         if (khoaGroqInput.trim()) payload.khoaGroq = khoaGroqInput.trim()
@@ -262,6 +267,7 @@ export default function AdminCauHinhAi({ thongKe, onNap, setLoi, setThongBaoOk }
         }
         setKhoaDeepseekInput('')
         setKhoaGeminiInput('')
+        setKhoaDuPhongInput('')
         setKhoaOpenaiInput('')
         setKhoaOpenrouterInput('')
         setKhoaGroqInput('')
@@ -867,6 +873,54 @@ export default function AdminCauHinhAi({ thongKe, onNap, setLoi, setThongBaoOk }
                   </div>
                   <div style={{ fontSize: 12, color: '#64748b', marginTop: 6 }}>
                     ℹ️ Khoá Gemini trong <code>.env</code> của máy chủ luôn được giữ tự động và hiển thị ở bảng trên ngay cả khi bạn để trống ô này.
+                  </div>
+                </div>
+
+                {/* Khối Kho Khóa AI Dự Phòng (Self-Healing Backup Keys Pool) */}
+                <div
+                  style={{
+                    border: '1px solid #a7f3d0',
+                    borderRadius: 10,
+                    padding: 14,
+                    background: '#f0fdf4',
+                  }}
+                >
+                  <div style={{ fontWeight: 700, fontSize: 14, color: '#065f46', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <span>🛡️ 3. Kho Khóa AI Dự Phòng (Backup Keys Pool — Bác Sĩ Hệ Thống Tự Xoay Vòng 24/7)</span>
+                    {heThong.du_phong_so_key > 0 && (
+                      <span
+                        style={{
+                          fontSize: 11.5,
+                          padding: '2px 8px',
+                          borderRadius: 999,
+                          background: '#059669',
+                          color: '#ffffff',
+                        }}
+                      >
+                        Đang có {heThong.du_phong_so_key} khóa trong bể xoay vòng
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 12.5, color: '#047857', marginBottom: 8, lineHeight: 1.45 }}>
+                    Khi bất kỳ khóa chính nào bị chạm giới hạn nhịp (HTTP 429) hoặc hết hạn mức (HTTP 402/403), hệ thống tự động cách ly khóa đó 60 giây và nhảy ngay sang các khóa dự phòng dưới đây mà không làm gián đoạn người đọc.
+                  </div>
+                  <div className="admin-form-hang">
+                    <div className="admin-form-nhom" style={{ flex: 1 }}>
+                      <label style={{ color: '#065f46' }}>
+                        Danh sách Khóa Dự Phòng (Gemini <code>AIza...</code> / <code>AQ...</code>, DeepSeek <code>sk-...</code>, Groq <code>gsk_...</code> — ngăn cách bằng dấu phẩy)
+                      </label>
+                      <input
+                        type={hienKhoaAi ? 'text' : 'password'}
+                        placeholder={
+                          Array.isArray(heThong.du_phong_keys_masked) && heThong.du_phong_keys_masked.length > 0
+                            ? `Đang có: ${heThong.du_phong_keys_masked.join(', ')} — Dán danh sách khóa dự phòng mới cách nhau dấu phẩy`
+                            : 'Ví dụ: AIzaSyKeyDuPhong1..., AIzaSyKeyDuPhong2..., sk-KeyDeepSeekDuPhong...'
+                        }
+                        value={khoaDuPhongInput}
+                        onChange={(e) => setKhoaDuPhongInput(e.target.value)}
+                        autoComplete="off"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>

@@ -995,26 +995,28 @@ def dong_bo_khoa_ai_dong(settings: Settings) -> dict:
         if _tach_khoa_sach(k)
     ]
 
-    # 2. Google Gemini (nếu Admin đã cấu hình khoá mới thì ưu tiên dùng khoá Admin thay cho khoá .env cũ)
-    gm_admin_raw = data.get("khoa_gemini") if "khoa_gemini" in data else data.get("khoa_du_phong")
+    # 2. Google Gemini + Kho Khóa Dự Phòng (kết hợp khoá chính Admin -> khoá dự phòng Admin -> khoá .env)
+    gm_chinh_raw = data.get("khoa_gemini") or ""
+    gm_dp_raw = data.get("khoa_du_phong") or ""
+    gm_hop_raw = f"{gm_chinh_raw},{gm_dp_raw}".strip(",")
     gm_admin = [
         _tach_khoa_sach(k)
-        for k in _tach_danh_sach_khoa(gm_admin_raw)
-        if _tach_khoa_sach(k) and not _tach_khoa_sach(k).startswith("sk-")
+        for k in _tach_danh_sach_khoa(gm_hop_raw)
+        if _tach_khoa_sach(k) and not _tach_khoa_sach(k).startswith(("sk-", "gsk_"))
     ]
     gm_env = [
         _tach_khoa_sach(k)
         for k in _tach_danh_sach_khoa(env_gm_raw)
-        if _tach_khoa_sach(k) and not _tach_khoa_sach(k).startswith("sk-")
+        if _tach_khoa_sach(k) and not _tach_khoa_sach(k).startswith(("sk-", "gsk_"))
     ]
     gm_keys_raw: list[str] = []
-    for k in (gm_admin if gm_admin else gm_env):
+    for k in [*gm_admin, *gm_env]:
         if k and k not in gm_keys_raw:
             gm_keys_raw.append(k)
-    # Nếu người dùng từng dán khoá sk-... hoặc gsk_... vào ô "khoá dự phòng" cũ:
+    # Nếu người dùng dán thêm khoá sk-... hoặc gsk_... vào ô "Khoá dự phòng":
     dp_khac_raw = [
         _tach_khoa_sach(k)
-        for k in _tach_danh_sach_khoa(gm_admin_raw)
+        for k in _tach_danh_sach_khoa(gm_hop_raw)
         if _tach_khoa_sach(k).startswith(("sk-", "gsk_"))
     ]
     model_gm = str(data.get("model_gemini") or env_model_goc or "gemini-3.1-flash-lite").strip()
@@ -1103,9 +1105,10 @@ def lay_thong_tin_khoa_ai_che(settings: Settings, data_dong: dict | None = None)
     ds_nguon = "Admin" if ds_admin else (".env" if ds_env else "Chưa gắn")
     model_ds = str(data.get("model_deepseek") or "deepseek-chat").strip() or "deepseek-chat"
 
+    gm_hop_che = f"{data.get('khoa_gemini') or ''},{data.get('khoa_du_phong') or ''}".strip(",")
     gm_admin = [
         _tach_khoa_sach(k)
-        for k in _tach_danh_sach_khoa(data.get("khoa_gemini") or data.get("khoa_du_phong"))
+        for k in _tach_danh_sach_khoa(gm_hop_che)
         if not _tach_khoa_sach(k).startswith(("sk-", "gsk_"))
     ]
     gm_env = [
@@ -1114,10 +1117,10 @@ def lay_thong_tin_khoa_ai_che(settings: Settings, data_dong: dict | None = None)
         if not _tach_khoa_sach(k).startswith(("sk-", "gsk_"))
     ]
     gm_list: list[str] = []
-    for k in (gm_admin if gm_admin else gm_env):
+    for k in [*gm_admin, *gm_env]:
         if k and k not in gm_list:
             gm_list.append(k)
-    gm_nguon = "Admin" if gm_admin else (".env" if gm_env else "Chưa gắn")
+    gm_nguon = "Admin + .env" if (gm_admin and gm_env) else ("Admin" if gm_admin else (".env" if gm_env else "Chưa gắn"))
     model_gm = str(data.get("model_gemini") or env_model_goc or "gemini-3.1-flash-lite").strip()
     if model_gm.lower().startswith("deepseek") or model_gm.lower() == "gemini-2.5-flash":
         model_gm = "gemini-3.1-flash-lite"
@@ -1307,8 +1310,6 @@ def luu_cau_hinh_khoa_ai_dong(
         data["model_gemini"] = model_gemini.strip()
     if khoa_du_phong is not None:
         data["khoa_du_phong"] = _clean_csv(khoa_du_phong)
-        if khoa_gemini is None:
-            data["khoa_gemini"] = _clean_csv(khoa_du_phong)
     if khoa_openai is not None:
         data["khoa_openai"] = _clean_csv(khoa_openai)
     if model_openai is not None and model_openai.strip():
