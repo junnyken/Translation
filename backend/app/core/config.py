@@ -1300,26 +1300,38 @@ def luu_cau_hinh_khoa_ai_dong(
     def _clean_csv(val: str | None) -> str:
         return ",".join(_tach_danh_sach_khoa(val))
 
+    def _gop_them_csv(cu: str | None, moi: str | None) -> str:
+        """Nếu `moi` rỗng ('') thì là lệnh Gỡ khoá -> xoá sạch. Nếu `moi` có key mới -> nối thêm vào danh sách cũ (không trùng lặp)."""
+        if not moi or not moi.strip():
+            return ""
+        ds_cu = _tach_danh_sach_khoa(cu)
+        ds_moi = _tach_danh_sach_khoa(moi)
+        ket_qua: list[str] = []
+        for k in [*ds_cu, *ds_moi]:
+            if k and k not in ket_qua:
+                ket_qua.append(k)
+        return ",".join(ket_qua)
+
     if khoa_deepseek is not None:
-        data["khoa_deepseek"] = _clean_csv(khoa_deepseek)
+        data["khoa_deepseek"] = _gop_them_csv(data.get("khoa_deepseek"), khoa_deepseek)
     if model_deepseek is not None and model_deepseek.strip():
         data["model_deepseek"] = model_deepseek.strip()
     if khoa_gemini is not None:
-        data["khoa_gemini"] = _clean_csv(khoa_gemini)
+        data["khoa_gemini"] = _gop_them_csv(data.get("khoa_gemini"), khoa_gemini)
     if model_gemini is not None and model_gemini.strip():
         data["model_gemini"] = model_gemini.strip()
     if khoa_du_phong is not None:
-        data["khoa_du_phong"] = _clean_csv(khoa_du_phong)
+        data["khoa_du_phong"] = _gop_them_csv(data.get("khoa_du_phong"), khoa_du_phong)
     if khoa_openai is not None:
-        data["khoa_openai"] = _clean_csv(khoa_openai)
+        data["khoa_openai"] = _gop_them_csv(data.get("khoa_openai"), khoa_openai)
     if model_openai is not None and model_openai.strip():
         data["model_openai"] = model_openai.strip()
     if khoa_openrouter is not None:
-        data["khoa_openrouter"] = _clean_csv(khoa_openrouter)
+        data["khoa_openrouter"] = _gop_them_csv(data.get("khoa_openrouter"), khoa_openrouter)
     if model_openrouter is not None and model_openrouter.strip():
         data["model_openrouter"] = model_openrouter.strip()
     if khoa_groq is not None:
-        data["khoa_groq"] = _clean_csv(khoa_groq)
+        data["khoa_groq"] = _gop_them_csv(data.get("khoa_groq"), khoa_groq)
     if model_groq is not None and model_groq.strip():
         data["model_groq"] = model_groq.strip()
     if custom_ten is not None:
@@ -1327,7 +1339,7 @@ def luu_cau_hinh_khoa_ai_dong(
     if custom_base_url is not None:
         data["custom_base_url"] = custom_base_url.strip()
     if custom_api_key is not None:
-        data["custom_api_key"] = _clean_csv(custom_api_key)
+        data["custom_api_key"] = _gop_them_csv(data.get("custom_api_key"), custom_api_key)
     if custom_model is not None:
         data["custom_model"] = custom_model.strip()
     if nha_cung_cap_chinh is not None and nha_cung_cap_chinh.strip():
