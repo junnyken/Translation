@@ -28,15 +28,15 @@ class _Document(HTMLParser):
         attrs = dict(attrs)
         if tag == "img":
             # Prefer the real lazy image to src=placeholder, irrespective of attribute order.
-            source = next((attrs[k] for k in ("data-src", "data-original", "data-lazy-src", "data-url")
-                           if attrs.get(k) and not attrs[k].startswith("data:")), None)
+            source = next((attrs[k].strip() for k in ("data-src", "data-original", "data-lazy-src", "data-url", "data-cdn", "data-cfsrc", "data-echo", "data-pagespeed-lazy-src", "data-img")
+                           if attrs.get(k) and attrs[k].strip() and not attrs[k].strip().startswith("data:")), None)
             if not source:
                 srcset = attrs.get("data-srcset") or attrs.get("srcset")
                 if srcset:
                     candidates = [item.strip().split() for item in srcset.split(",") if item.strip()]
                     if candidates:
                         source = candidates[-1][0]
-            self.images.append(source or attrs.get("src", ""))
+            self.images.append((source or attrs.get("src", "")).strip())
         if tag == "a":
             self.active = [attrs.get("href", ""), ""]
 
@@ -90,7 +90,7 @@ def image_links(html: str, page_url: str):
         parts = urlsplit(url)
         if not raw or parts.scheme not in ("http", "https"):
             continue
-        if any(word in parts.path.lower() for word in ("logo", "avatar", "banner", "icon", "placeholder")):
+        if any(word in parts.path.lower() for word in ("logo", "avatar", "banner", "icon", "placeholder", "loading", "spinner")):
             continue
         # An image CDN may use /image/123 or a signed endpoint with no extension.
         # Keep it; the downloaded bytes, not the URL suffix, decide if it is an image.

@@ -2383,6 +2383,43 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
         safe_y0 = min(cy_mid - 6, safe_y0 + le_trong_y)
         safe_y1 = max(safe_y0 + 14, safe_y1 - le_trong_y)
         safe_h = max(14, safe_y1 - safe_y0)
+        # Quét mở rộng biên ngang an toàn [bx, bx + bw] vào khoảng trắng sạch trái/phải trong lòng bóng thoại
+        # khi câu gốc hẹp (VD: cột dọc tiếng Nhật/Trung hoặc từ tiếng Anh ngắn 1-2 chữ) và có vách bóng thoại bao quanh 2 bên:
+        if not nen_mau_tb:
+            y_scan_t = max(0, cy_mid - max(4, int(safe_h * 0.22)))
+            y_scan_b = min(H - 1, cy_mid + max(4, int(safe_h * 0.22)))
+            ys_horiz = list(range(y_scan_t, max(y_scan_t + 1, y_scan_b + 1), max(1, (y_scan_b - y_scan_t) // 4 or 1)))
+            mo_rong_ngang_max = max(36, min(int(W * 0.13), int(max(bw, safe_h) * 0.85)))
+            lim_left_scan = max(2, bx - mo_rong_ngang_max)
+            lim_right_scan = min(W - 3, bx + bw + mo_rong_ngang_max)
+            for j_other, other_h in enumerate(hop_ve_chu):
+                if j_other == idx_hop:
+                    continue
+                oy = min(safe_y1, other_h["y"] + other_h["h"]) - max(safe_y0, other_h["y"])
+                if oy > min(safe_h, other_h["h"]) * 0.20:
+                    if other_h["x"] + other_h["w"] <= cx_mid:
+                        lim_left_scan = max(lim_left_scan, other_h["x"] + other_h["w"] + 4)
+                    elif other_h["x"] >= cx_mid:
+                        lim_right_scan = min(lim_right_scan, other_h["x"] - 4)
+            wall_l = None
+            for xx in range(max(lim_left_scan, bx - 2), lim_left_scan - 1, -1):
+                if sum(1 for yy_h in ys_horiz if not _la_pixel_nen(xx, yy_h)) >= 1:
+                    wall_l = xx + 8
+                    break
+            wall_r = None
+            for xx in range(min(lim_right_scan, bx + bw + 2), lim_right_scan + 1):
+                if sum(1 for yy_h in ys_horiz if not _la_pixel_nen(xx, yy_h)) >= 1:
+                    wall_r = xx - 8
+                    break
+            if wall_l is not None and wall_r is not None and wall_r - wall_l > bw + 6:
+                bx_moi = max(lim_left_scan, min(bx, wall_l))
+                bx1_moi = min(lim_right_scan, max(bx + bw, wall_r))
+                if bx1_moi - bx_moi > bw:
+                    bx = bx_moi
+                    bw = bx1_moi - bx_moi
+                    cx_mid = max(0, min(W - 1, bx + bw // 2))
+                    hop["x"], hop["w"] = bx, bw
+
         le_trong_x = max(4, int(round(bw * 0.045))) if not nen_mau_tb else 2
 
         # Tính biên ngang [x_trai[y], x_phai[y]] cho từng hàng y trong bóng thoại
@@ -3829,6 +3866,40 @@ $lines | ConvertTo-Json -Depth 4 -Compress
         })
 
     # Hợp nhất các bóng thoại đôi xếp chồng dọc ngay sát nhau khi bóng trên kết thúc lửng câu
+    for b_item in bubbles:
+        if _la_nen_bong_trang(px, W, H, {"x": int(b_item["x"] * he_so_ocr), "y": int(b_item["y"] * he_so_ocr), "w": int(b_item["w"] * he_so_ocr), "h": int(b_item["h"] * he_so_ocr)}):
+            cx_b = int(round((b_item["x"] + b_item["w"] * 0.5) * he_so_ocr))
+            cy_b = int(round((b_item["y"] + b_item["h"] * 0.5) * he_so_ocr))
+            wx0, wy0 = int(round(b_item["x"] * he_so_ocr)), int(round(b_item["y"] * he_so_ocr))
+            wx1, wy1 = int(round((b_item["x"] + b_item["w"]) * he_so_ocr)), int(round((b_item["y"] + b_item["h"]) * he_so_ocr))
+            max_sx = max(32, int(W * 0.10))
+            max_sy = max(32, int(H * 0.10))
+            for xx in range(wx0, max(2, wx0 - max_sx), -2):
+                r_p, g_p, b_p = px[xx, max(0, min(H - 1, cy_b))]
+                if 0.299 * r_p + 0.587 * g_p + 0.114 * b_p < 185:
+                    wx0 = min(wx0, xx + 6)
+                    break
+            for xx in range(wx1, min(W - 3, wx1 + max_sx), 2):
+                r_p, g_p, b_p = px[xx, max(0, min(H - 1, cy_b))]
+                if 0.299 * r_p + 0.587 * g_p + 0.114 * b_p < 185:
+                    wx1 = max(wx1, xx - 6)
+                    break
+            for yy in range(wy0, max(2, wy0 - max_sy), -2):
+                r_p, g_p, b_p = px[max(0, min(W - 1, cx_b)), yy]
+                if 0.299 * r_p + 0.587 * g_p + 0.114 * b_p < 185:
+                    wy0 = min(wy0, yy + 6)
+                    break
+            for yy in range(wy1, min(H - 3, wy1 + max_sy), 2):
+                r_p, g_p, b_p = px[max(0, min(W - 1, cx_b)), yy]
+                if 0.299 * r_p + 0.587 * g_p + 0.114 * b_p < 185:
+                    wy1 = max(wy1, yy - 6)
+                    break
+            b_item["hop_bong_thoai"] = {
+                "x": int(round(wx0 / he_so_ocr)),
+                "y": int(round(wy0 / he_so_ocr)),
+                "w": max(b_item["w"], int(round((wx1 - wx0) / he_so_ocr))),
+                "h": max(b_item["h"], int(round((wy1 - wy0) / he_so_ocr))),
+            }
     # (VD: 'Would have' + 'never played that tile.', 'Can no longer be' + 'seen..', 'Well? Spit' + 'out.')
     bubbles.sort(key=lambda b: (b["y"], b["x"]))
     da_gop: list[bool] = [False] * len(bubbles)
@@ -6983,9 +7054,51 @@ def _quet_mot_url_truyen(u_don: str, mo_rong_ca_bo: bool = False) -> list[dict]:
     # Nếu người dùng dán link của 1 chapter cụ thể (VD: .../steel-ball-run-chapter-25/) và chọn mở rộng cả bộ truyện:
     if mo_rong_ca_bo and len(ds) == 1:
         parts = urllib.parse.urlsplit(u_don)
-        # Quét toàn bộ link chapter cùng bộ ngay trong HTML hiện tại (xóa số chapter khỏi page_url giả định để lấy full list)
+        # Quét toàn bộ link chapter cùng bộ trong HTML hiện tại + tự động mở rộng lên trang Mục lục bộ truyện (Series TOC) + Madara AJAX:
+        path_no_chap = re.sub(
+            r"(?:/|-|_)(?:chapter|chap|chuong|chương|episode|ep)[-_/\s.]*\d+(?:\.\d+)?.*$",
+            "/",
+            parts.path,
+            flags=re.I,
+        )
+        slug_hint = path_no_chap.strip("/").split("/")[-1].lower() if path_no_chap.strip("/") else ""
+        u_series_cands: list[str] = []
+        if path_no_chap and path_no_chap != parts.path and len(path_no_chap.strip("/")) >= 2:
+            u_series_cands.append(urllib.parse.urljoin(f"{parts.scheme}://{parts.netloc}/", path_no_chap))
+            if not path_no_chap.endswith("/"):
+                u_series_cands.append(urllib.parse.urljoin(f"{parts.scheme}://{parts.netloc}/", path_no_chap.rstrip("/")))
         base_root = f"{parts.scheme}://{parts.netloc}/"
         ung_vien_mo_rong: dict[float, dict] = {float(ds[0]["so"]): dict(ds[0])}
+        for u_toc in u_series_cands:
+            try:
+                html_toc = goi_http(u_toc, referer=u_don, nguon_ngoai=True).decode("utf-8", errors="ignore")
+                ds_toc = chapter_links(html_toc, u_toc)
+                if slug_hint and len(slug_hint) >= 3:
+                    ds_toc_bo = [c for c in ds_toc if slug_hint in c.get("url", "").lower()]
+                    if len(ds_toc_bo) >= 2:
+                        ds_toc = ds_toc_bo
+                for ch_toc in ds_toc:
+                    ung_vien_mo_rong.setdefault(float(ch_toc["so"]), dict(ch_toc))
+            except Exception:
+                pass
+            try:
+                req_aj2 = urllib.request.Request(
+                    f"{u_toc.rstrip('/')}/ajax/chapters/",
+                    data=b"",
+                    headers={
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                        "Referer": u_toc,
+                        "X-Requested-With": "XMLHttpRequest",
+                    },
+                    method="POST",
+                )
+                with urllib.request.urlopen(req_aj2, timeout=12) as resp_aj2:
+                    html_aj2 = resp_aj2.read().decode("utf-8", errors="ignore")
+                if html_aj2 and "<a " in html_aj2:
+                    for ch_aj2 in chapter_links(html_aj2, u_toc):
+                        ung_vien_mo_rong.setdefault(float(ch_aj2["so"]), dict(ch_aj2))
+            except Exception:
+                pass
         for html_ung_vien, base_uv in ((html, base_root),):
             try:
                 for ch_more in chapter_links(html_ung_vien, base_uv):
@@ -7264,12 +7377,12 @@ def tu_dong_dung_video_review_cho_chapter(
         sys.path.insert(0, str(studio_dir))
 
     import app_video_review_studio as vstudio
-    import core_script_generator as vscript
+    import core_vision_character as vscript
     import core_video_renderer as vrender
 
     cau_hinh_v = vstudio.doc_cau_hinh_studio()
     dinh_dang_key = str(cau_hinh_v.get("dinh_dang") or "dual_youtube_va_shorts")
-    giong_key = str(cau_hinh_v.get("ma_giong") or "chi_google_review_chuan")
+    giong_key = str(cau_hinh_v.get("ma_giong") or "omnivoice_ultra")
     nhac_nen_key = str(cau_hinh_v.get("ma_nhac_nen") or "tu_dong_theo_phong_cach")
     goi_key = str(cau_hinh_v.get("goi_luot") or "review_standard")
     phong_cach_key = str(cau_hinh_v.get("phong_cach") or "kich_tinh")
