@@ -233,8 +233,9 @@ def khung_du_phong_co_noi(
 
 
 def tinh_roi(bbox: BBox, image_w: int, image_h: int, cfg: SafeAreaConfig) -> tuple[int, int, int, int]:
-    ex = min(bbox.w * cfg.roi_expand_ratio, cfg.roi_expand_max_px)
-    ey = min(bbox.h * cfg.roi_expand_ratio, cfg.roi_expand_max_px)
+    canh_dai = max(bbox.w, bbox.h)
+    ex = min(max(bbox.w * cfg.roi_expand_ratio, canh_dai * 1.15), cfg.roi_expand_max_px)
+    ey = min(max(bbox.h * cfg.roi_expand_ratio, canh_dai * 1.45), cfg.roi_expand_max_px)
     x0 = max(int(bbox.x - ex), 0)
     y0 = max(int(bbox.y - ey), 0)
     x1 = min(int(bbox.x + bbox.w + ex), image_w)

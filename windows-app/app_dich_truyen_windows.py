@@ -249,8 +249,9 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
 
         # Mở rộng ROI đủ rộng quanh hộp chữ gốc để bao trọn cả các dòng cuối ("ness...", "Tenpai...")
         # hoặc chữ sát lề ("be", "k-") khi Gemini khoanh hụt 15-48px mà không tràn ra ngoài khung tranh
-        mo_x = max(34, min(int(w_goc * 0.48), int(W * 0.09)))
-        mo_y = max(62, min(int(h_goc * 0.55), int(H * 0.11)))
+        canh_dai_goc = max(w_goc, h_goc)
+        mo_x = max(38, min(max(int(canh_dai_goc * 0.85), int(W * 0.11)), int(W * 0.20)))
+        mo_y = max(68, min(max(int(canh_dai_goc * 1.05), int(H * 0.14)), int(H * 0.22)))
         hb_pre = v.get("hop_bong_thoai")
         if isinstance(hb_pre, dict):
             mo_x = max(mo_x, min(int(W * 0.14), max(0, x_goc - int(hb_pre.get("x", x_goc)) + 14, int(hb_pre.get("x", x_goc)) + int(hb_pre.get("w", w_goc)) - (x_goc + w_goc) + 14)))
@@ -749,9 +750,13 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                 lw = lum_px[bw + px_w]
                 if lw > 120.0:
                     dem_khong_toi_hop += 1
-                    if lw >= 240.0 and sat_px[bw + px_w] <= 36:
+                    if (lw >= 240.0 and sat_px[bw + px_w] <= 36) or (lw >= 224.0 and sat_px[bw + px_w] <= 48 and lum_nen_trung_vi >= 222.0 and sat_nen_trung_vi <= 48):
                         dem_trang_tinh_hop += 1
         ty_le_trang_tren_nen_sang = dem_trang_tinh_hop / max(1, dem_khong_toi_hop)
+        p80_nen_thuc = ds_lum_nen_thuc[min(len(ds_lum_nen_thuc) - 1, int(len(ds_lum_nen_thuc) * 0.8))] if ds_lum_nen_thuc else med_lum
+        p20_nen_thuc = ds_lum_nen_thuc[int(len(ds_lum_nen_thuc) * 0.2)] if ds_lum_nen_thuc else med_lum
+        do_lech_nen_thuc = p80_nen_thuc - p20_nen_thuc
+        la_nen_kem_sang_phang = (not nen_toi) and (lum_nen_trung_vi >= 222.0) and (sat_nen_trung_vi <= 48) and (do_lech_nen_thuc <= 26.0) and (do_nhieu_hat < 18.0 or do_lech_nen_thuc <= 12.0) and (ty_le_trang_dac >= 0.45)
 
         cham_bien_lt = 0
         chu_vi_roi = max(1, (rw + rh) * 2)
@@ -776,18 +781,18 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
             cham_bien_lt >= max(4, int(chu_vi_roi * 0.02))
             or (cham_bien_lt >= 2 and len(q_lt) > dt_hop * 3.4)
             or (cham_bien_lt >= 1 and len(q_lt) > dt_hop * 5.2)
-            or len(q_lt) > dt_hop * 14.0
+            or len(q_lt) > max(dt_hop * 22.0, N * 0.72)
         )
         nguong_tlt_bong = 0.84 if do_nhieu_hat >= 22.0 else 0.78
         nguong_p30_bong = 216.0 if (ty_le_trang_dac >= 0.62 and ty_le_trang_tren_nen_sang >= 0.84 and dem_net_xuyen_hop == 0) else (240.0 if do_nhieu_hat >= 22.0 else 224.0)
         la_bong_khep_kin = (
             (not ro_ri_bien_rong)
-            and (not la_nen_mau_thuc)
-            and (lum_nen_trung_vi >= 234.0)
-            and (lum_nen_p30 >= nguong_p30_bong)
-            and (ty_le_trang_dac >= 0.52)
-            and (ty_le_trang_tren_nen_sang >= nguong_tlt_bong)
-            and (dem_net_xuyen_hop < 10)
+            and (not la_nen_mau_thuc or la_nen_kem_sang_phang)
+            and (lum_nen_trung_vi >= (222.0 if la_nen_kem_sang_phang else 234.0))
+            and (lum_nen_p30 >= (214.0 if la_nen_kem_sang_phang else nguong_p30_bong))
+            and (ty_le_trang_dac >= (0.45 if la_nen_kem_sang_phang else 0.52))
+            and (ty_le_trang_tren_nen_sang >= nguong_tlt_bong or la_nen_kem_sang_phang)
+            and (dem_net_xuyen_hop < 10 or (la_nen_kem_sang_phang and cham_bien_lt == 0))
             and (len(q_lt) >= dt_hop * 0.36)
         )
         if la_bong_khep_kin:
@@ -887,10 +892,10 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
         # và KHÔNG bị rò rỉ kèm đường kẻ tường/vân gỗ/tóc đen xuyên vào lòng hộp (`dem_net_xuyen_hop >= 10`):
         co_net_tranh_xuyen_hop = (not la_bong_khep_kin) and ((ro_ri_bien_rong and dem_net_xuyen_hop >= 10) or dem_net_xuyen_hop >= 24)
         la_nen_trang_phang = (
-            (not la_nen_mau_thuc)
+            (not la_nen_mau_thuc or la_nen_kem_sang_phang)
             and (not co_net_tranh_xuyen_hop)
-            and (lum_nen_trung_vi >= 234.0)
-            and (ty_le_trang_tren_nen_sang >= nguong_tlt_bong)
+            and (lum_nen_trung_vi >= (222.0 if la_nen_kem_sang_phang else 234.0))
+            and (ty_le_trang_tren_nen_sang >= nguong_tlt_bong or la_nen_kem_sang_phang)
             and (
                 (lum_nen_p30 >= 218.0 and (lum_nen_p10 >= 205.0 or ((la_bong_khep_kin or not ro_ri_bien_rong) and ty_le_trang_dac >= 0.48)))
                 or ((la_bong_khep_kin or not ro_ri_bien_rong) and ty_le_trang_dac >= 0.55)
@@ -905,7 +910,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                 or co_net_tranh_xuyen_hop
                 or (
                     (ty_le_cap_halo >= 0.20 or dem_trang_dac_hop >= dt_hop * 0.05)
-                    and (ty_le_trang_dac < 0.65 or lum_nen_trung_vi < 224.0 or lum_nen_p30 < 214.0 or lum_nen_p10 < 205.0 or do_nhieu_hat >= 8.5 or la_nen_mau_thuc)
+                    and (ty_le_trang_dac < 0.65 or lum_nen_trung_vi < 224.0 or lum_nen_p30 < 214.0 or lum_nen_p10 < 205.0 or do_nhieu_hat >= 8.5 or (la_nen_mau_thuc and not la_nen_kem_sang_phang))
                 )
             )
         )
@@ -2163,6 +2168,10 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                             max_y_xoa = max(max_y_xoa, max_cy + 1)
 
             # Bước 2: Nở viền 2px cho bóng thường quanh `can_xoa` và tô bằng `row_bg[py]`
+            if la_bong_khep_kin:
+                for idx_kk in range(N):
+                    if not la_nen[idx_kk] and not vung_cam[idx_kk] and ngoai_bong_bong[idx_kk] == 0:
+                        can_xoa[idx_kk] = 1
             ban_kinh_no = 2
             y_no_0 = 2 if la_bong_khep_kin else max(ban_kinh_no, sy0 - ban_kinh_no)
             y_no_1 = (rh - 2) if la_bong_khep_kin else min(rh - ban_kinh_no, sy1 + ban_kinh_no)
@@ -2356,7 +2365,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
         x_scan_r = min(W - 1, bx + int(bw * 0.75))
         xs_vert = list(range(x_scan_l, max(x_scan_l + 1, x_scan_r + 1), max(1, (x_scan_r - x_scan_l) // 6 or 1)))
 
-        mo_rong_doc_max = 4 if nen_mau_tb else max(24, min(int(H * 0.14), int(bh * 0.90)))
+        mo_rong_doc_max = 4 if nen_mau_tb else max(48, min(int(H * 0.14), int(max(bh * 0.95, bw * 0.85))))
         lim_top_scan = max(2, by - mo_rong_doc_max)
         lim_bot_scan = min(H - 3, by + bh + mo_rong_doc_max)
         for j_other, other_h in enumerate(hop_ve_chu):
@@ -3239,6 +3248,13 @@ def _lam_sach_chu_ocr_truyen(text: str) -> str:
         (r"\bWhileit\b", "While it"),
         (r"\bnowin\b", "now in"),
         (r"\boverto\b", "over to"),
+        (r"\bTOREMOVE\b", "TO REMOVE"),
+        (r"\bIT'SPULLING\b", "IT'S PULLING"),
+        (r"\bMEOUT\b", "ME OUT"),
+        (r"\bASSOON\b", "AS SOON"),
+        (r"\bAS[!'1]M\s*DRAGGED\b", "AS I'M DRAGGED"),
+        (r"\bOUTFROM\s*THIS\b", "OUT FROM THIS"),
+        (r"\bI\.{2,3}I\b", "I... I"),
         (r"\bdon't\s*[,，]\s*do\b", "don't do"),
         (r"\b([a-z]{2,}):([a-z]{2,})\b", r"\1 \2"),
         (r"\b(about|avoid\s+his|Already|Hey|Dumbass)\.\s+(?=[a-z])", r"\1, "),
@@ -3342,7 +3358,7 @@ def _la_nen_bong_trang(px, W: int, H: int, r_box: dict) -> bool:
             r, g, b = px[px_i, py]
             lum = 0.299 * r + 0.587 * g + 0.114 * b
             total += 1
-            if lum >= 200 and (max(r, g, b) - min(r, g, b)) <= 45:
+            if lum >= 195 and (max(r, g, b) - min(r, g, b)) <= 55:
                 bright += 1
     return total > 0 and (bright / total) >= 0.52
 
@@ -3466,6 +3482,7 @@ def _la_vung_bong_thoai(px, W: int, H: int, x: int, y: int, w: int, h: int) -> b
     total = 0
     bright_bg = 0
     very_dark = 0
+    dark_ink = 0
     lums = []
     for py in range(y0, y1 + 1, 2):
         for px_i in range(x0, x1 + 1, 2):
@@ -3473,13 +3490,15 @@ def _la_vung_bong_thoai(px, W: int, H: int, x: int, y: int, w: int, h: int) -> b
             lum = 0.299 * r + 0.587 * g + 0.114 * b
             lums.append(lum)
             total += 1
-            if lum >= 200 and (max(r, g, b) - min(r, g, b)) <= 45:
+            if lum >= 195 and (max(r, g, b) - min(r, g, b)) <= 55:
                 bright_bg += 1
-            elif lum <= 70:
+            elif lum <= 75:
                 very_dark += 1
+            if lum <= 115:
+                dark_ink += 1
     if total == 0:
         return False
-    if (bright_bg / total) >= 0.18 and (very_dark / total) >= 0.06:
+    if (bright_bg / total) >= 0.18 and ((very_dark / total) >= 0.032 or ((dark_ink / total) >= 0.065 and (max(lums) - min(lums)) >= 115.0)):
         return True
     # Hỗ trợ chữ nổi có viền trắng/đen trên nền màu (ví dụ câu thoại không khung ở cuối trang):
     lums.sort()
@@ -3544,6 +3563,11 @@ def nhan_dien_bong_thoai_ocr_cuc_bo(img_bytes: bytes, ngon_ngu_nguon: str = "en"
         he_so_ocr = 2.0
         resample = getattr(getattr(Image, "Resampling", Image), "LANCZOS", 1)
         im = im.resize((int(round(W_goc * he_so_ocr)), int(round(H_goc * he_so_ocr))), resample)
+        try:
+            from PIL import ImageEnhance
+            im = ImageEnhance.Sharpness(im).enhance(1.38)
+        except Exception:
+            pass
     elif W_goc > 2000:
         # Khử răng cưa halftone trên trang scan 4K (2508x3600) bằng bước làm mượt 950px -> 1900px
         lanczos = getattr(getattr(Image, "Resampling", Image), "LANCZOS", 1)

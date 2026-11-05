@@ -520,8 +520,8 @@ void (async () => {
       // Mở ROI đủ rộng quanh bbox chữ gốc để bao trọn cả các chữ cái/dấu câu/dòng cuối bị Gemini khoanh hụt ("ness...", "Tenpai...", "k-", "be")
       const padCheX = Math.max(24, Math.min(52, Math.round(wGoc * 0.44)))
       const padCheY = Math.max(38, Math.min(68, Math.round(hGoc * 0.52)))
-      const moX = Math.max(padCheX + 16, Math.min(Math.max(Math.round(canhDai * 0.85), Math.round(W * 0.09)), Math.round(W * 0.18)))
-      const moY = Math.max(padCheY + 16, Math.min(Math.max(Math.round(canhDai * 0.95), Math.round(H * 0.10)), Math.round(H * 0.20)))
+      const moX = Math.max(padCheX + 20, Math.min(Math.max(Math.round(canhDai * 0.95), Math.round(W * 0.12)), Math.round(W * 0.22)))
+      const moY = Math.max(padCheY + 24, Math.min(Math.max(Math.round(canhDai * 1.15), Math.round(H * 0.14)), Math.round(H * 0.24)))
       let rx0 = Math.max(2, xGoc - moX)
       let ry0 = Math.max(2, yGoc - moY)
       let rx1 = Math.min(W - 2, xGoc + wGoc + moX)
@@ -943,7 +943,7 @@ void (async () => {
         chamBienNhieu ||
         (chamBien >= 2 && demLongTrang > dienTichHopGoc * 3.4) ||
         (chamBien >= 1 && demLongTrang > dienTichHopGoc * 5.2) ||
-        demLongTrang > dienTichHopGoc * 14.0
+        demLongTrang > Math.max(dienTichHopGoc * 22.0, N * 0.72)
       )
       const laNenPhucTap = (tyLeNenTrongHop < 0.28) || (roRiBien && !laBongMauDongNhat) || (doLechMauNen > 44)
       const laBongKhepKin = !roRiBien && !laNenPhucTap && laBongMauDongNhat && (demLongTrang >= dienTichHopGoc * 0.36)
@@ -1372,7 +1372,7 @@ void (async () => {
       for (let py = iy0K; py < iy1K; py += 1) {
         const bK = py * rw
         for (let px = ix0K; px < ix1K; px += 1) {
-          if (ketNoiBienHop[bK + px]) demNetXuyenHop += 1
+          if (ketNoiBienHop[bK + px] && (!laBongKhepKin || ngoaiBongBong[bK + px] === 0)) demNetXuyenHop += 1
         }
       }
       let demKhongToiHop = 0
@@ -1383,11 +1383,24 @@ void (async () => {
           const lw = lumPx[bW + px]
           if (lw > 120) {
             demKhongToiHop += 1
-            if (lw >= 240 && satPx[bW + px] <= 36) demTrangTinhHop += 1
+            if (
+              (lw >= 240 && satPx[bW + px] <= 36) ||
+              (laNenTrangChuan && lw >= 224 && satPx[bW + px] <= Math.max(48, bgSat + 16))
+            ) {
+              demTrangTinhHop += 1
+            }
           }
         }
       }
       const tyLeTrangTrenNenSang = demTrangTinhHop / Math.max(1, demKhongToiHop)
+      const laNenKemSangPhang = (
+        !nenToiThuc &&
+        lumNenTrungVi >= 222 &&
+        satNenTrungVi <= 48 &&
+        doLechMauNen <= 28 &&
+        (doNhieuHat < 18 || doLechMauNen <= 12) &&
+        tyLeNenTrongHop >= 0.45
+      )
       const laBongDaiHep = (
         chamBien < Math.floor(chuVi * 0.08) &&
         demLongTrang <= dienTichHopGoc * 1.75 &&
@@ -1399,13 +1412,13 @@ void (async () => {
       const nguongTltBong = doNhieuHat >= 22 ? 0.84 : 0.78
       const coNetTranhXuyenHop = !laBongKhepKin && ((roRiBienThuc && demNetXuyenHop >= 10) || demNetXuyenHop >= 24)
       const laNenTrangPhang = (
-        !laNenMauThuc &&
+        (!laNenMauThuc || laNenKemSangPhang) &&
         !coNetTranhXuyenHop &&
-        lumNenTrungVi >= 234 &&
-        tyLeTrangTrenNenSang >= nguongTltBong &&
+        lumNenTrungVi >= 224 &&
+        (tyLeTrangTrenNenSang >= nguongTltBong || laNenKemSangPhang) &&
         (
-          (lumNenP30 >= 218 && (lumNenP10 >= 205 || ((laBongKhepKin || !roRiBienThuc) && tyLeTrangDacTrongHop >= 0.48))) ||
-          ((laBongKhepKin || !roRiBienThuc) && tyLeTrangDacTrongHop >= 0.55) ||
+          (lumNenP30 >= 218 && (lumNenP10 >= 205 || ((laBongKhepKin || !roRiBienThuc) && (tyLeTrangDacTrongHop >= 0.48 || laNenKemSangPhang)))) ||
+          ((laBongKhepKin || !roRiBienThuc) && (tyLeTrangDacTrongHop >= 0.55 || laNenKemSangPhang)) ||
           (tyLeTrangTrenNenSang >= 0.83 && tyLeTrangDacTrongHop >= 0.55 && doNhieuHat < 18)
         )
       )
@@ -1413,12 +1426,12 @@ void (async () => {
       // Vùng chữ được xác nhận là Chữ Nổi Không Bong Bóng (`laChuNoiTrenNen = true`) khi:
       // 1) Không phải bong bóng khép kín (`!laBongKhepKin`) và không phải nền bong bóng trắng phẳng (`!laNenTrangPhang`), VÀ
       // 2) Có đường kẻ nền xuyên hộp (`coNetTranhXuyenHop`) hoặc viền halo quanh chữ (thuận/đảo) hoặc chữ nổi trên nền màu chuyển sắc (`laChuKhongVienTrenNenMau`).
-      const laBongKhepKinThuc = laBongKhepKin && (tyLeTrangTrenNenSang >= nguongTltBong) && (demNetXuyenHop < 10)
+      const laBongKhepKinThuc = laBongKhepKin && (tyLeTrangTrenNenSang >= nguongTltBong || laNenKemSangPhang || (laBongMauDongNhat && doLechMauNen <= 24 && doNhieuHat < 14)) && (demNetXuyenHop < 10)
       const laChuNoiTrenNen = (
         !laBongKhepKinThuc &&
         !laNenTrangPhang &&
         (coNetTranhXuyenHop || tyLeCapHalo >= 0.20 || demTrangDacTrongHop >= dienTichHopGoc * 0.05 || laChuKhongVienTrenNenMau) &&
-        (coNetTranhXuyenHop || tyLeTrangDacTrongHop < 0.65 || lumNenTrungVi < 224 || lumNenP30 < 214 || lumNenP10 < 205 || doNhieuHat >= 8.5 || nenToiThuc || laNenMauThuc)
+        (coNetTranhXuyenHop || tyLeTrangDacTrongHop < 0.65 || lumNenTrungVi < 224 || lumNenP30 < 214 || lumNenP10 < 205 || doNhieuHat >= 8.5 || nenToiThuc || (laNenMauThuc && !laNenKemSangPhang))
       )
       const laDaoChieuHalo = (
         laChuNoiTrenNen &&
@@ -1436,6 +1449,7 @@ void (async () => {
 
       const laChuGoc = new Uint8Array(N)
       const vungXoaChu = new Uint8Array(N)
+      const kcLoi = new Uint8Array(N)
       let zx0 = ex0, zy0 = ey0, zx1 = ex1, zy1 = ey1
 
       if (laChuNoiTrenNen) {
@@ -1808,7 +1822,6 @@ void (async () => {
 
         dau = 0
         cuoi = 0
-        const kcLoi = new Uint8Array(N)
         for (let py = hy0; py < hy1; py += 1) {
           const base = py * rw
           for (let px = hx0; px < hx1; px += 1) {
@@ -3134,8 +3147,8 @@ void (async () => {
       } else {
         // Khi bong bóng có hình gai nhọn hở viền, hình đa giác đặc biệt hoặc bong bóng rất cao chạm 1 cạnh ROI:
         // Nới từng bước sang hai bên/trên/dưới nếu vùng kế cận thực sự là nền bong bóng sạch (`longTrang === 1`)
-        const gioiHanLeX = Math.max(18, Math.round(wGoc * 0.55))
-        const gioiHanLeY = Math.max(24, Math.round(hGoc * 0.85))
+        const gioiHanLeX = Math.max(24, Math.round(Math.max(wGoc * 0.55, hGoc * 0.45)))
+        const gioiHanLeY = Math.max(64, Math.round(Math.max(hGoc * 0.95, wGoc * 0.85)))
         const buocLon = Math.max(2, Math.round(Math.min(wGoc, hGoc) / 18))
         bx0 = coDiemXoa ? Math.min(cx0, minX) : cx0
         bx1 = coDiemXoa ? Math.max(cx1, maxX) : cx1
