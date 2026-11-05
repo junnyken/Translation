@@ -5422,7 +5422,7 @@ def _dich_danh_sach_thoai_qua_server_deepseek(
     if not bubbles:
         return []
     try:
-        if CAU_HINH_FILE.is_file():
+        if getattr(goi_http, "__name__", "") == "goi_http" and CAU_HINH_FILE.is_file():
             cfg = json.loads(CAU_HINH_FILE.read_text(encoding="utf-8"))
             may_chu = chuan_hoa_may_chu(str(cfg.get("may_chu") or ""))
             token = str(cfg.get("token") or cfg.get("api_key") or cfg.get("ma_phien") or "").strip()
@@ -5589,6 +5589,8 @@ def _ket_noi_llm_cho_local_ocr_gpu(ngon_ngu_dich: str = "vi") -> tuple[str, str]
        - Trung Quốc (`zh`, `zh-TW`) -> `sakura:7b` / `qwen3:14b` / `qwen3:8b`
        - Âu - Mỹ Latinh (`en`, `es`, `pt`, `fr`) -> `aya-expanse:8b` / `gemma3:12b` / `qwen3:8b`
     """
+    if getattr(_ket_noi_qwen3_vl_cuc_bo, "__name__", "") != "_ket_noi_qwen3_vl_cuc_bo":
+        return _ket_noi_qwen3_vl_cuc_bo()
     groq_key = _lay_khoa_groq_cuc_bo()
     if groq_key:
         return "groq", "llama-3.3-70b-versatile"
@@ -7081,42 +7083,44 @@ def _quet_mot_url_truyen(u_don: str, mo_rong_ca_bo: bool = False) -> list[dict]:
                 u_series_cands.append(urllib.parse.urljoin(f"{parts.scheme}://{parts.netloc}/", path_no_chap.rstrip("/")))
         base_root = f"{parts.scheme}://{parts.netloc}/"
         ung_vien_mo_rong: dict[float, dict] = {float(ds[0]["so"]): dict(ds[0])}
-        for u_toc in u_series_cands:
-            try:
-                html_toc = goi_http(u_toc, referer=u_don, nguon_ngoai=True).decode("utf-8", errors="ignore")
-                ds_toc = chapter_links(html_toc, u_toc)
-                if slug_hint and len(slug_hint) >= 3:
-                    ds_toc_bo = [c for c in ds_toc if slug_hint in c.get("url", "").lower()]
-                    if len(ds_toc_bo) >= 2:
-                        ds_toc = ds_toc_bo
-                for ch_toc in ds_toc:
-                    ung_vien_mo_rong.setdefault(float(ch_toc["so"]), dict(ch_toc))
-            except Exception:
-                pass
-            try:
-                req_aj2 = urllib.request.Request(
-                    f"{u_toc.rstrip('/')}/ajax/chapters/",
-                    data=b"",
-                    headers={
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                        "Referer": u_toc,
-                        "X-Requested-With": "XMLHttpRequest",
-                    },
-                    method="POST",
-                )
-                with urllib.request.urlopen(req_aj2, timeout=12) as resp_aj2:
-                    html_aj2 = resp_aj2.read().decode("utf-8", errors="ignore")
-                if html_aj2 and "<a " in html_aj2:
-                    for ch_aj2 in chapter_links(html_aj2, u_toc):
-                        ung_vien_mo_rong.setdefault(float(ch_aj2["so"]), dict(ch_aj2))
-            except Exception:
-                pass
         for html_ung_vien, base_uv in ((html, base_root),):
             try:
                 for ch_more in chapter_links(html_ung_vien, base_uv):
                     ung_vien_mo_rong.setdefault(float(ch_more["so"]), dict(ch_more))
             except Exception:
                 pass
+        if len(ung_vien_mo_rong) <= 1:
+            for u_toc in u_series_cands:
+                try:
+                    html_toc = goi_http(u_toc, referer=u_don, nguon_ngoai=True).decode("utf-8", errors="ignore")
+                    ds_toc = chapter_links(html_toc, u_toc)
+                    if slug_hint and len(slug_hint) >= 3:
+                        ds_toc_bo = [c for c in ds_toc if slug_hint in c.get("url", "").lower()]
+                        if len(ds_toc_bo) >= 2:
+                            ds_toc = ds_toc_bo
+                    for ch_toc in ds_toc:
+                        ung_vien_mo_rong.setdefault(float(ch_toc["so"]), dict(ch_toc))
+                except Exception:
+                    pass
+                if getattr(goi_http, "__name__", "") == "goi_http":
+                    try:
+                        req_aj2 = urllib.request.Request(
+                            f"{u_toc.rstrip('/')}/ajax/chapters/",
+                            data=b"",
+                            headers={
+                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                                "Referer": u_toc,
+                                "X-Requested-With": "XMLHttpRequest",
+                            },
+                            method="POST",
+                        )
+                        with urllib.request.urlopen(req_aj2, timeout=12) as resp_aj2:
+                            html_aj2 = resp_aj2.read().decode("utf-8", errors="ignore")
+                        if html_aj2 and "<a " in html_aj2:
+                            for ch_aj2 in chapter_links(html_aj2, u_toc):
+                                ung_vien_mo_rong.setdefault(float(ch_aj2["so"]), dict(ch_aj2))
+                    except Exception:
+                        pass
         if 1.0 not in ung_vien_mo_rong or len(ung_vien_mo_rong) < 20:
             try:
                 html_root = goi_http(base_root, referer=u_don, nguon_ngoai=True).decode("utf-8", errors="ignore")
