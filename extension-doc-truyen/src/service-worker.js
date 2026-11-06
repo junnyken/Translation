@@ -304,10 +304,29 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false,
       }
       return { ...d, che_do_pro: laCheDoPro, anh_da_dich_data_url, anh_goc_data_url }
     }
+    const daCho = Date.now() - lucBatDau
+    // Giải cứu tức thì nếu hàng đợi máy chủ Cloud đang bận/chờ (`!dang_chay` sau 2.5s):
+    // Tự động chuyển sang Cầu nối Cục bộ (127.0.0.1:17891 / Ollama) nếu có trên máy để trả kết quả ngay lập tức!
+    if (d.tien_do && !d.tien_do.dang_chay && daCho >= 2500) {
+      try {
+        const kqCuuHo = await dichTrangLocalGguf(blob, { ngonNgu, ngonNguDich, tuDienRieng, engine })
+        if (kqCuuHo && Array.isArray(kqCuuHo.vung) && kqCuuHo.vung.length > 0) {
+          capNhatNguCanhTab(tabId, kqCuuHo.vung)
+          return {
+            ...kqCuuHo,
+            che_do_pro: laCheDoPro,
+            che_do_ultra: laCheDoUltra,
+            anh_da_dich_data_url: kqCuuHo.anh_da_dich_data_url || null,
+            anh_goc_data_url,
+          }
+        }
+      } catch {
+        // Nếu máy khách không bật cầu nối cục bộ, tiếp tục chờ máy chủ Cloud xử lý.
+      }
+    }
     if (Date.now() > han) {
       throw new LoiApi(0, 'Quá 5 phút chưa xong — máy chủ đang quá tải hoặc việc bị kẹt.')
     }
-    const daCho = Date.now() - lucBatDau
     const nhip = daCho < 20000 ? NHIP_HOI_NHANH_MS : NHIP_HOI_THUONG_MS
     await new Promise((r) => setTimeout(r, nhip))
   }

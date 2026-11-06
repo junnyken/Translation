@@ -386,33 +386,35 @@ export async function dichTrangLocalGguf(blob, { ngonNgu = 'ja', ngonNguDich = '
 
   let rawText = ''
 
-  // 0. Ưu tiên Cầu nối App Windows cục bộ (http://127.0.0.1:17890) nếu người dùng đang mở App Manga Studio trên PC:
+  // 0. Ưu tiên Cầu nối App Windows cục bộ (http://127.0.0.1:17891 / 17890) nếu người dùng đang mở App Manga Studio trên PC:
   //    Tự động kích hoạt đúng `local_ocr_gpu` hoặc `local_hybrid_pro` (Quét OCR 2 tầng chữ viết tay + Bộ nhớ tự học).
-  try {
-    const rBridge = await fetch('http://127.0.0.1:17890/api/v1/local-bridge/dich-trang', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        image_base64: anhBase64,
-        source_lang: ngonNgu,
-        target_lang: ngonNguDich,
-        tu_dien_rieng: tuDienRieng,
-        engine,
-        che_do: 've_anh',
-      }),
-    })
-    if (rBridge.ok) {
-      const dBridge = await rBridge.json().catch(() => null)
-      if (dBridge && dBridge.engine === 'local_bridge_windows_app' && Array.isArray(dBridge.vung)) {
-        return {
-          vung: dBridge.vung,
-          che_do: dBridge.anh_da_dich_data_url ? 'day_du' : 'chi_chu',
-          anh_da_dich_data_url: dBridge.anh_da_dich_data_url || null,
+  for (const bridgeBase of ['http://127.0.0.1:17891', 'http://127.0.0.1:17890']) {
+    try {
+      const rBridge = await fetch(`${bridgeBase}/api/v1/local-bridge/dich-trang`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image_base64: anhBase64,
+          source_lang: ngonNgu,
+          target_lang: ngonNguDich,
+          tu_dien_rieng: tuDienRieng,
+          engine,
+          che_do: 've_anh',
+        }),
+      })
+      if (rBridge.ok) {
+        const dBridge = await rBridge.json().catch(() => null)
+        if (dBridge && dBridge.engine === 'local_bridge_windows_app' && Array.isArray(dBridge.vung)) {
+          return {
+            vung: dBridge.vung,
+            che_do: dBridge.anh_da_dich_data_url ? 'day_du' : 'chi_chu',
+            anh_da_dich_data_url: dBridge.anh_da_dich_data_url || null,
+          }
         }
       }
+    } catch {
+      // Thử cổng tiếp theo hoặc chuyển xuống gọi trực tiếp Ollama / LM Studio bên dưới.
     }
-  } catch {
-    // Nếu App Windows chưa bật trên máy, tự động chuyển xuống gọi trực tiếp Ollama / LM Studio bên dưới.
   }
 
   // 1. Thử kết nối Ollama cục bộ trên máy khách (http://127.0.0.1:11434)

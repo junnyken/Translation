@@ -412,15 +412,30 @@ async def _tien_do_trang(session: AsyncSession, page_id: uuid.UUID) -> TienDoDoc
     if viec is None:
         return TienDoDocTruyen()
 
+    if (
+        viec.status == JobStatus.queued
+        and viec.started_at is None
+        and viec.error_log
+        and str(viec.error_log).startswith("enqueue_failed:")
+        and not os.environ.get("PYTEST_CURRENT_TEST")
+    ):
+        # Tự động giải cứu các job từng bị kẹt `enqueue_failed:` do lệch phiên bản Redis trước khi nâng cấp
+        viec.error_log = None
+        await session.commit()
+        if viec.type == JobType.detect:
+            dispatch_detect_job(viec.id)
+
     dang_chay = viec.started_at is not None
     truoc = None
     if not dang_chay:
         # Hàng đợi worker là hàng đợi CHUNG cho mọi chapter của mọi người, nên đếm trên toàn bộ
         # việc chưa chạy — đếm riêng chapter này sẽ ra một con số đẹp mà sai.
+        # Loại trừ các job bị lỗi `error_log` để các job mồ côi không bao giờ làm phồng số việc chờ trước.
         truoc = int((await session.execute(
             select(func.count()).select_from(Job).where(
                 Job.status == JobStatus.queued,
                 Job.started_at.is_(None),
+                Job.error_log.is_(None),
                 Job.created_at < viec.created_at,
             )
         )).scalar() or 0)

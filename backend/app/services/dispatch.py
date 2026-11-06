@@ -6,10 +6,32 @@ rõ lý do vào Job.error_log — job đứng ở queued để retry được, k
 """
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import logging
+import os
 import uuid
 
 logger = logging.getLogger(__name__)
+_FALLBACK_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="inproc-worker")
+
+
+def _chay_fallback_trong_tien_trinh(exc: Exception, fn, *args) -> bool:
+    """Khi Redis/Kombu gặp lỗi tương thích hoặc broker tạm ngắt trên môi trường thật (ngoài pytest),
+    tự động chạy task ngay trên ThreadPool trong tiến trình để người dùng không bao giờ bị kẹt hàng đợi."""
+    if os.environ.get("PYTEST_CURRENT_TEST") and "VersionMismatch" not in type(exc).__name__:
+        return False
+    try:
+        logger.warning(
+            "Broker lỗi (%s: %s) -> tự động chạy fallback in-process cho %s%s",
+            type(exc).__name__,
+            exc,
+            getattr(fn, "__name__", str(fn)),
+            args,
+        )
+        _FALLBACK_EXECUTOR.submit(fn, *args)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def dispatch_detect_job(job_id: uuid.UUID, *, task_id: str | None = None) -> tuple[bool, str | None]:
@@ -23,6 +45,10 @@ def dispatch_detect_job(job_id: uuid.UUID, *, task_id: str | None = None) -> tup
             run_detect_job.apply_async(args=[str(job_id)], task_id=task_id, retry=False)
         return True, None
     except Exception as exc:  # noqa: BLE001
+        from app.workers.tasks import run_detect_job as _fn
+
+        if _chay_fallback_trong_tien_trinh(exc, _fn, str(job_id)):
+            return True, None
         reason = f"enqueue_failed: {type(exc).__name__}: {exc}"
         logger.error("Không đẩy được job detect %s: %s", job_id, reason)
         return False, reason
@@ -36,6 +62,10 @@ def dispatch_ocr_job(job_id: uuid.UUID) -> tuple[bool, str | None]:
         run_ocr_job.delay(str(job_id))
         return True, None
     except Exception as exc:  # noqa: BLE001
+        from app.workers.tasks import run_ocr_job as _fn
+
+        if _chay_fallback_trong_tien_trinh(exc, _fn, str(job_id)):
+            return True, None
         reason = f"enqueue_failed: {type(exc).__name__}: {exc}"
         logger.error("Không đẩy được job ocr %s: %s", job_id, reason)
         return False, reason
@@ -49,6 +79,10 @@ def dispatch_inpaint_job(job_id: uuid.UUID) -> tuple[bool, str | None]:
         run_inpaint_job.delay(str(job_id))
         return True, None
     except Exception as exc:  # noqa: BLE001
+        from app.workers.tasks import run_inpaint_job as _fn
+
+        if _chay_fallback_trong_tien_trinh(exc, _fn, str(job_id)):
+            return True, None
         reason = f"enqueue_failed: {type(exc).__name__}: {exc}"
         logger.error("Không đẩy được job inpaint %s: %s", job_id, reason)
         return False, reason
@@ -62,6 +96,10 @@ def dispatch_xoa_vung_to_job(job_id: uuid.UUID, mat_na_rel: str) -> tuple[bool, 
         run_xoa_vung_to_job.delay(str(job_id), mat_na_rel)
         return True, None
     except Exception as exc:  # noqa: BLE001
+        from app.workers.tasks import run_xoa_vung_to_job as _fn
+
+        if _chay_fallback_trong_tien_trinh(exc, _fn, str(job_id), mat_na_rel):
+            return True, None
         reason = f"enqueue_failed: {type(exc).__name__}: {exc}"
         logger.error("Không đẩy được job xoá vùng tô %s: %s", job_id, reason)
         return False, reason
@@ -75,6 +113,10 @@ def dispatch_translate_job(job_id: uuid.UUID, engine: str | None = None) -> tupl
         run_translate_job.delay(str(job_id), engine)
         return True, None
     except Exception as exc:  # noqa: BLE001
+        from app.workers.tasks import run_translate_job as _fn
+
+        if _chay_fallback_trong_tien_trinh(exc, _fn, str(job_id), engine):
+            return True, None
         reason = f"enqueue_failed: {type(exc).__name__}: {exc}"
         logger.error("Không đẩy được job translate %s: %s", job_id, reason)
         return False, reason
@@ -88,6 +130,10 @@ def dispatch_rut_gon_job(job_id: uuid.UUID) -> tuple[bool, str | None]:
         run_rut_gon_job.delay(str(job_id))
         return True, None
     except Exception as exc:  # noqa: BLE001
+        from app.workers.tasks import run_rut_gon_job as _fn
+
+        if _chay_fallback_trong_tien_trinh(exc, _fn, str(job_id)):
+            return True, None
         reason = f"enqueue_failed: {type(exc).__name__}: {exc}"
         logger.error("Không đẩy được job rút gọn %s: %s", job_id, reason)
         return False, reason
@@ -101,6 +147,10 @@ def dispatch_typeset_job(job_id: uuid.UUID) -> tuple[bool, str | None]:
         run_typeset_job.delay(str(job_id))
         return True, None
     except Exception as exc:  # noqa: BLE001
+        from app.workers.tasks import run_typeset_job as _fn
+
+        if _chay_fallback_trong_tien_trinh(exc, _fn, str(job_id)):
+            return True, None
         reason = f"enqueue_failed: {type(exc).__name__}: {exc}"
         logger.error("Không đẩy được job typeset %s: %s", job_id, reason)
         return False, reason

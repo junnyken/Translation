@@ -5281,8 +5281,23 @@ def _nhan_dien_dong_rapidocr_hf(im, ngon_ngu_nguon: str = "ja") -> list[dict]:
 
             lines.append({
                 "band": band_id,
+                "score": score,
                 "words": [{"text": txt, "x": x0, "y": y0, "w": w, "h": h}],
             })
+
+    if lang == "ja" and lines:
+        all_txt_ja = "".join(w["text"] for ln in lines for w in ln.get("words", []))
+        so_hiragana = sum(1 for c in all_txt_ja if "぀" <= c <= "ゟ")
+        so_cjk = sum(1 for c in all_txt_ja if "一" <= c <= "鿿" or "぀" <= c <= "ヿ")
+        avg_ja = sum(float(ln.get("score") or 0.7) for ln in lines) / max(1, len(lines))
+        if so_cjk >= 4 and (so_hiragana / max(1, so_cjk) < 0.18 or avg_ja < 0.86):
+            lines_zh = _nhan_dien_dong_rapidocr_hf(im, ngon_ngu_nguon="zh")
+            if lines_zh:
+                all_txt_zh = "".join(w["text"] for ln in lines_zh for w in ln.get("words", []))
+                dau_hieu_zh = sum(1 for c in all_txt_zh if c in "么这谢对们吗呢吧没个说觉得爱还让给着过为什怎她他你我")
+                avg_zh = sum(float(ln.get("score") or 0.7) for ln in lines_zh) / max(1, len(lines_zh))
+                if dau_hieu_zh >= 2 and avg_zh >= avg_ja - 0.02:
+                    return lines_zh
     return lines
 
 
@@ -7073,7 +7088,8 @@ def dich_anh_local_hybrid_pro_tu_hoc(
     return ket_qua
 
 
-LOCAL_BRIDGE_PORT = 17890
+LOCAL_BRIDGE_PORT = 17891
+LOCAL_BRIDGE_FALLBACK_PORTS = (17891, 17890)
 _LOCAL_BRIDGE_SERVER = None
 _BRIDGE_PAGES_STORE: dict[str, dict] = {}
 _BRIDGE_IMAGES_STORE: dict[str, bytes] = {}
@@ -7434,19 +7450,23 @@ def khoi_dong_may_chu_bridge_cuc_bo(port: int = LOCAL_BRIDGE_PORT, ghi_log_fn=No
             except Exception as exc:
                 self._send_json(500, {"detail": str(exc)})
 
-    for bind_addr in ("127.0.0.1",):
-        try:
-            server = http.server.ThreadingHTTPServer((bind_addr, port), _BridgeHandler)
-            _LOCAL_BRIDGE_SERVER = server
-            threading.Thread(target=server.serve_forever, daemon=True).start()
-            if callable(ghi_log_fn):
-                ghi_log_fn(
-                    f"🔌 Đã kết nối Cổng Đồng Bộ Tiện Ích Nội Bộ (127.0.0.1:{port} — Bảo mật cục bộ)"
-                )
-            return True
-        except OSError:
-            continue
-    return False
+    ports_to_try = [port] + [p for p in LOCAL_BRIDGE_FALLBACK_PORTS if p != port]
+    started_any = False
+    for p_try in ports_to_try:
+        for bind_addr in ("127.0.0.1",):
+            try:
+                server = http.server.ThreadingHTTPServer((bind_addr, p_try), _BridgeHandler)
+                if _LOCAL_BRIDGE_SERVER is None:
+                    _LOCAL_BRIDGE_SERVER = server
+                threading.Thread(target=server.serve_forever, daemon=True).start()
+                started_any = True
+                if callable(ghi_log_fn):
+                    ghi_log_fn(
+                        f"Local Bridge Online (127.0.0.1:{p_try})"
+                    )
+            except OSError:
+                continue
+    return started_any
 
 
 def xuat_pdf_va_longstrip_chapter(

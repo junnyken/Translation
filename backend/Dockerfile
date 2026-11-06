@@ -85,7 +85,8 @@ RUN mkdir -p /models \
 # Font chèn chữ (SIL OFL, có trong git).
 COPY fonts /fonts
 COPY deploy-start.sh /usr/local/bin/deploy-start.sh
-RUN chmod +x /usr/local/bin/deploy-start.sh
+RUN chmod +x /usr/local/bin/deploy-start.sh \
+    && pip install --no-cache-dir "redis>=6.1.0"
 
 # Đặt COPY . . ở CUỐI stage app để khi sửa mã Python trong app/, Docker tái sử dụng 100% cache
 # của các tầng nặng phía trên (torch, paddleocr, manga-ocr, 289MB model ONNX) thay vì tải lại từ đầu!

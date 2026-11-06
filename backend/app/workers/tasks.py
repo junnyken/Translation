@@ -654,6 +654,10 @@ def enqueue_ocr_after_detect(page_id: uuid.UUID) -> uuid.UUID | None:
     try:
         run_ocr_job.delay(str(job_id))
     except Exception as exc:  # noqa: BLE001
+        from app.services.dispatch import _chay_fallback_trong_tien_trinh
+
+        if _chay_fallback_trong_tien_trinh(exc, run_ocr_job, str(job_id)):
+            return job_id
         reason = f"enqueue_failed: {type(exc).__name__}: {exc}"
         logger.error("Không đẩy được job ocr %s: %s", job_id, reason)
         with sync_session() as session:
@@ -1106,6 +1110,10 @@ def enqueue_inpaint_after_ocr(page_id: uuid.UUID) -> uuid.UUID | None:
     try:
         run_inpaint_job.delay(str(job_id))
     except Exception as exc:  # noqa: BLE001
+        from app.services.dispatch import _chay_fallback_trong_tien_trinh
+
+        if _chay_fallback_trong_tien_trinh(exc, run_inpaint_job, str(job_id)):
+            return job_id
         reason = f"enqueue_failed: {type(exc).__name__}: {exc}"
         logger.error("Không đẩy được job inpaint %s: %s", job_id, reason)
         with sync_session() as session:
@@ -1597,6 +1605,10 @@ def enqueue_translate_after_inpaint(page_id: uuid.UUID, engine: str | None = Non
     try:
         run_translate_job.delay(str(job_id), engine)
     except Exception as exc:  # noqa: BLE001
+        from app.services.dispatch import _chay_fallback_trong_tien_trinh
+
+        if _chay_fallback_trong_tien_trinh(exc, run_translate_job, str(job_id), engine):
+            return job_id
         reason = f"enqueue_failed: {type(exc).__name__}: {exc}"
         logger.error("Không đẩy được job translate %s: %s", job_id, reason)
         with sync_session() as session:
@@ -2071,6 +2083,10 @@ def enqueue_typeset_after_translate(page_id: uuid.UUID) -> uuid.UUID | None:
     try:
         run_typeset_job.delay(str(job_id))
     except Exception as exc:  # noqa: BLE001
+        from app.services.dispatch import _chay_fallback_trong_tien_trinh
+
+        if _chay_fallback_trong_tien_trinh(exc, run_typeset_job, str(job_id)):
+            return job_id
         reason = f"enqueue_failed: {type(exc).__name__}: {exc}"
         logger.error("Không đẩy được job typeset %s: %s", job_id, reason)
         with sync_session() as session:
