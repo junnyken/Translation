@@ -16,6 +16,7 @@ Allow: /bang-gia
 Allow: /pricing
 Allow: /en/pricing
 Allow: /tai-ve/openapi-rapidapi.json
+Allow: /llms.txt
 Allow: /privacy-policy
 Disallow: /api/
 Disallow: /admin

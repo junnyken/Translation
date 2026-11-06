@@ -1,0 +1,24 @@
+# comic.io.vn — AI Manga, Manhwa & Webtoon Translation Studio
+
+> Free online AI comic translator, Chrome Extension (Manifest V3), Windows Batch App (.EXE), Auto Video Review Studio, and B2B Developer REST API (`tr_live_...`).
+
+## Overview
+- **Website**: https://comic.io.vn/
+- **English Portal**: https://comic.io.vn/en
+- **Vietnamese Portal**: https://comic.io.vn/vi
+- **Developer REST API Docs**: https://comic.io.vn/api-docs
+- **OpenAPI 3.0 Spec**: https://comic.io.vn/tai-ve/openapi-rapidapi.json
+- **Pricing & Credit Plans**: https://comic.io.vn/pricing
+- **Chrome Extension & Windows App**: https://comic.io.vn/extensions
+- **Privacy Policy**: https://comic.io.vn/privacy-policy
+
+## Key Capabilities
+1. **Automatic Speech Bubble & SFX Detection**: Detects comic speech bubbles, narration boxes, and floating text across Japanese Manga, Korean Manhwa, Chinese Manhua, and Western Comics.
+2. **Smart Background Inpainting**: Removes source characters while preserving screentones, gradients, and line art.
+3. **Context-Aware AI Translation (9 Global Languages)**: Translates between Japanese, Korean, Chinese, English, Vietnamese, Spanish, Portuguese (Brazil), French, Indonesian, and Thai.
+4. **Genre-Specific Studio Typesetting**: Automatic word-wrapping, dynamic font sizing, and comic lettering fonts.
+5. **Multi-Platform Ecosystem**:
+   - **Web Studio**: Drag-and-drop image or `.zip` / `.cbz` / `.pdf` chapter translation in ~3 seconds.
+   - **Chrome Extension**: Live in-browser translation (`Alt+Q` or auto-scroll) on raw comic reader sites.
+   - **Windows Desktop App**: Batch download and translate 100+ chapters automatically with local GPU or cloud AI.
+   - **B2B REST API**: Production API (`POST /api/v1/doc-truyen/dich-trang`, `POST /api/v1/doc-truyen/dich-van-ban`) for scanlation groups and reader platforms.
