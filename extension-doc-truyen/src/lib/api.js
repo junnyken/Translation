@@ -303,7 +303,7 @@ export async function guiTrang(blob, ngonNgu, engine, cheDo, ngonNguDich = NGON_
     const maLoi = err instanceof LoiApi ? err.ma : 0
     // Nếu tài khoản khách / gói miễn phí chọn `local_ocr_gpu` hoặc `google_fast` mà bị chặn 402 do `llm_context` / `tu_dien_rieng`,
     // tự động lùi mượt về `google_fast` để dịch ngay lập tức mà không báo lỗi.
-    if (maLoi === 402 && engine !== 'llm_context') {
+    if (maLoi === 402) {
       return await goi('/doc-truyen/trang', { method: 'POST', body: taoForm(blob, 'trang.png', 'google_fast', false) })
     }
     if (maLoi === 0 || maLoi === 413 || maLoi === 500 || maLoi === 502 || maLoi === 503 || maLoi === 504) {

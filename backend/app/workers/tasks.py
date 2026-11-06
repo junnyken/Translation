@@ -338,7 +338,10 @@ def _run_detect(job_id: uuid.UUID, *, outbox_claimed: bool = False) -> dict:
             and settings.translate_auto_chain
             and du_an is not None
             and du_an.che_do_pipeline is ChePipeline.chi_chu
-            and engine_dich_hieu_luc == TranslationEngine.llm_context.value
+            and engine_dich_hieu_luc in (
+                TranslationEngine.llm_context.value,
+                TranslationEngine.google_fast.value,
+            )
         )
         du_an_source_lang = du_an.source_lang.value if du_an is not None else "ja"
         du_an_target_lang = du_an.target_lang.value if du_an is not None else "vi"

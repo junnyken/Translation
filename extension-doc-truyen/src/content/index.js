@@ -490,6 +490,416 @@ void (async () => {
   }
 
   /**
+   * E118 — Tự động dò các lòng bong bóng trắng có chứa cụm chữ trên toàn trang Canvas (`timBongBongChuaChuTrenTrang`)
+   * và căn chỉnh toạ độ `v.x, v.y, v.w, v.h` về đúng cụm chữ thật trong lòng bong bóng (`canChinhToaDoVungTrenCanvas`).
+   *
+   * Khắc phục triệt để 2 hiện tượng của AI nhận diện khung chữ:
+   * 1. Khoanh hụt dòng đầu/dòng cuối hoặc lề trái/phải của cụm chữ trong bong bóng (Pass A: mở rộng khớp trọn `tx0..ty1`).
+   * 2. Đặt lệch tâm hộp chữ sang vùng tóc đen / đám đông / khói bụi kế bên bong bóng thoại trong cùng khung tranh
+   *    (Pass B: tự động hút hộp chữ bị lệch về đúng cụm chữ trong lòng bong bóng chưa có chủ ở cùng khung tranh).
+   */
+  const MAU_SFX_LOAI_TRU_SNAP = /^(?:WHO+M+|BO+M+|KA-?RO+M+|KRA+K+|CRA+SH+|BA+M+|SLA+M+|THU+D+|ZWO+SH+|SPLA+SH+|BÙM+|ẦM+|RẦM+|XOẸT+|KENG+|VÙ+)[!?.\s]*$/i
+
+  function timBongBongChuaChuTrenTrang(el) {
+    const ctx = layCtxMau(el)
+    if (!ctx) return null
+    const srcHienTai = el.currentSrc || el.src || el.dataset?.translationCanvasId || ''
+    if (el.__translationBongThuc && el.__translationBongThucSrc === srcHienTai) {
+      return el.__translationBongThuc
+    }
+    try {
+      const W = el.naturalWidth || el.width || 0
+      const H = el.naturalHeight || el.height || 0
+      if (W < 64 || H < 64) return null
+      const S = Math.max(0.75, Math.min(W, H) / 960)
+      const N = W * H
+      const imgData = ctx.getImageData(0, 0, W, H).data
+      const lum = new Uint8Array(N)
+      const white = new Uint8Array(N)
+      for (let i = 0, p = 0; p < N; p += 1, i += 4) {
+        if (imgData[i + 3] < 128) continue
+        const r = imgData[i], g = imgData[i + 1], b = imgData[i + 2]
+        const l = (r * 77 + g * 150 + b * 29) >> 8
+        const sat = Math.max(r, g, b) - Math.min(r, g, b)
+        lum[p] = l
+        if (l > 205 && sat <= 48) white[p] = 1
+      }
+
+      const daDuyet = new Uint8Array(N)
+      const hangDoi = new Int32Array(N)
+      const bubbles = []
+      const maxBw = Math.round(W * 0.72)
+      const maxBh = Math.round(H * 0.72)
+      const minHaChar = Math.round(14 * S * S)
+      const minWChar = Math.max(2, Math.round(3 * S))
+      const maxWChar = Math.round(42 * S)
+      const minHChar = Math.max(6, Math.round(7 * S))
+      const maxHChar = Math.round(42 * S)
+      const maxHoleDim = Math.round(48 * S)
+      const maxGapX = Math.round(18 * S)
+      const maxGapY = Math.round(28 * S)
+      const minClusterArea = Math.round(150 * S * S)
+
+      for (let start = 0; start < N; start += 1) {
+        if (!white[start] || daDuyet[start]) continue
+        let dau = 0
+        let cuoi = 0
+        daDuyet[start] = 1
+        hangDoi[cuoi++] = start
+        let x0 = start % W, x1 = x0
+        let y0 = (start - x0) / W, y1 = y0
+
+        while (dau < cuoi) {
+          const p = hangDoi[dau++]
+          const x = p % W
+          const y = (p - x) / W
+          if (x < x0) x0 = x
+          if (x > x1) x1 = x
+          if (y < y0) y0 = y
+          if (y > y1) y1 = y
+          if (x > 0 && white[p - 1] && !daDuyet[p - 1]) { daDuyet[p - 1] = 1; hangDoi[cuoi++] = p - 1 }
+          if (x + 1 < W && white[p + 1] && !daDuyet[p + 1]) { daDuyet[p + 1] = 1; hangDoi[cuoi++] = p + 1 }
+          if (y > 0 && white[p - W] && !daDuyet[p - W]) { daDuyet[p - W] = 1; hangDoi[cuoi++] = p - W }
+          if (y + 1 < H && white[p + W] && !daDuyet[p + W]) { daDuyet[p + W] = 1; hangDoi[cuoi++] = p + W }
+        }
+
+        const bw = x1 - x0 + 1
+        const bh = y1 - y0 + 1
+        if (cuoi < 450 || bw < 22 || bh < 18 || bw > maxBw || bh > maxBh) continue
+
+        const pw = bw + 2
+        const ph = bh + 2
+        const pN = pw * ph
+        const pad = new Uint8Array(pN)
+        for (let k = 0; k < cuoi; k += 1) {
+          const p = hangDoi[k]
+          const x = p % W
+          const y = (p - x) / W
+          pad[(y - y0 + 1) * pw + (x - x0 + 1)] = 1
+        }
+
+        // Loang 8 hướng từ viền ngoài (0,0) qua các điểm `pad === 0` để tách miền ngoài bong bóng
+        const ngoai = new Uint8Array(pN)
+        const qSub = new Int32Array(pN)
+        let dSub = 0, cSub = 0
+        ngoai[0] = 1
+        qSub[cSub++] = 0
+        while (dSub < cSub) {
+          const sp = qSub[dSub++]
+          const sx = sp % pw
+          const sy = (sp - sx) / pw
+          for (let dy = -1; dy <= 1; dy += 1) {
+            const ny = sy + dy
+            if (ny < 0 || ny >= ph) continue
+            const nb = ny * pw
+            for (let dx = -1; dx <= 1; dx += 1) {
+              if (dx === 0 && dy === 0) continue
+              const nx = sx + dx
+              if (nx < 0 || nx >= pw) continue
+              const np = nb + nx
+              if (!pad[np] && !ngoai[np]) {
+                ngoai[np] = 1
+                qSub[cSub++] = np
+              }
+            }
+          }
+        }
+
+        // Các điểm `pad === 0 && ngoai === 0` là lỗ khép kín bên trong lòng bong bóng trắng (nét chữ!)
+        const daLo = new Uint8Array(pN)
+        const chars = []
+        const allHoles = []
+        for (let sy = 1; sy <= bh; sy += 1) {
+          const bSub = sy * pw
+          for (let sx = 1; sx <= bw; sx += 1) {
+            const sp0 = bSub + sx
+            if (pad[sp0] || ngoai[sp0] || daLo[sp0]) continue
+            dSub = 0; cSub = 0
+            daLo[sp0] = 1
+            qSub[cSub++] = sp0
+            let hx0 = sx, hx1 = sx, hy0 = sy, hy1 = sy
+            let minVal = 255
+            while (dSub < cSub) {
+              const sp = qSub[dSub++]
+              const x = sp % pw
+              const y = (sp - x) / pw
+              if (x < hx0) hx0 = x
+              if (x > hx1) hx1 = x
+              if (y < hy0) hy0 = y
+              if (y > hy1) hy1 = y
+              const gx = x0 + x - 1
+              const gy = y0 + y - 1
+              const lv = lum[gy * W + gx]
+              if (lv < minVal) minVal = lv
+              for (let dy = -1; dy <= 1; dy += 1) {
+                const ny = y + dy
+                if (ny < 1 || ny > bh) continue
+                const nb = ny * pw
+                for (let dx = -1; dx <= 1; dx += 1) {
+                  if (dx === 0 && dy === 0) continue
+                  const nx = x + dx
+                  if (nx < 1 || nx > bw) continue
+                  const np = nb + nx
+                  if (!pad[np] && !ngoai[np] && !daLo[np]) {
+                    daLo[np] = 1
+                    qSub[cSub++] = np
+                  }
+                }
+              }
+            }
+            const hw = hx1 - hx0 + 1
+            const hh = hy1 - hy0 + 1
+            const ha = cSub
+            const gx0 = x0 + hx0 - 1
+            const gy0 = y0 + hy0 - 1
+            if (minVal <= 115 && ha >= 4 && hw <= maxHoleDim && hh <= maxHoleDim) {
+              allHoles.push([gx0, gy0, gx0 + hw, gy0 + hh, ha, hw, hh])
+            }
+            if (minVal <= 105 && ha >= minHaChar && hw >= minWChar && hw <= maxWChar && hh >= minHChar && hh <= maxHChar) {
+              chars.push([gx0, gy0, gx0 + hw, gy0 + hh, ha, hw, hh])
+            }
+          }
+        }
+
+        if (chars.length < 3) continue
+        const nC = chars.length
+        const visited = new Uint8Array(nC)
+        for (let i = 0; i < nC; i += 1) {
+          if (visited[i]) continue
+          const comp = [i]
+          visited[i] = 1
+          const qC = [i]
+          while (qC.length > 0) {
+            const cur = qC.pop()
+            const [cx0, cy0, cx1, cy1] = chars[cur]
+            for (let j = 0; j < nC; j += 1) {
+              if (visited[j]) continue
+              const [jx0, jy0, jx1, jy1] = chars[j]
+              const gx = Math.max(0, Math.max(cx0 - jx1, jx0 - cx1))
+              const gy = Math.max(0, Math.max(cy0 - jy1, jy0 - cy1))
+              if (gx <= maxGapX && gy <= maxGapY) {
+                visited[j] = 1
+                comp.push(j)
+                qC.push(j)
+              }
+            }
+          }
+          if (comp.length < 3) continue
+          const hs = comp.map((k) => chars[k][6]).sort((a, b) => a - b)
+          const hRatio = hs[Math.floor(hs.length * 0.75)] / Math.max(1, hs[Math.floor(hs.length * 0.25)])
+          if (hRatio > 1.72) continue
+          let cArea = 0
+          let tx0 = W, ty0 = H, tx1 = 0, ty1 = 0
+          for (let k = 0; k < comp.length; k += 1) {
+            const ch = chars[comp[k]]
+            cArea += ch[4]
+            if (ch[0] < tx0) tx0 = ch[0]
+            if (ch[1] < ty0) ty0 = ch[1]
+            if (ch[2] > tx1) tx1 = ch[2]
+            if (ch[3] > ty1) ty1 = ch[3]
+          }
+          const padAbsX = Math.round(10 * S)
+          const padAbsY = Math.round(12 * S)
+          for (let k = 0; k < allHoles.length; k += 1) {
+            const h = allHoles[k]
+            if (h[0] >= tx0 - padAbsX && h[2] <= tx1 + padAbsX && h[1] >= ty0 - padAbsY && h[3] <= ty1 + padAbsY) {
+              if (h[0] < tx0) tx0 = h[0]
+              if (h[1] < ty0) ty0 = h[1]
+              if (h[2] > tx1) tx1 = h[2]
+              if (h[3] > ty1) ty1 = h[3]
+            }
+          }
+          const tw = tx1 - tx0
+          const th = ty1 - ty0
+          const fill = cArea / Math.max(1, tw * th)
+          let cntW = 0, cntTot = 0
+          const wy0 = Math.max(0, ty0 - 4), wy1 = Math.min(H, ty1 + 4)
+          const wx0 = Math.max(0, tx0 - 4), wx1 = Math.min(W, tx1 + 4)
+          for (let py = wy0; py < wy1; py += 1) {
+            const bW = py * W
+            for (let px = wx0; px < wx1; px += 1) {
+              cntTot += 1
+              if (lum[bW + px] > 210) cntW += 1
+            }
+          }
+          const whiteRatio = cntTot > 0 ? (cntW / cntTot) : 0
+          if (cArea >= minClusterArea && fill >= 0.14 && whiteRatio >= 0.48) {
+            bubbles.push({
+              bx0: x0, by0: y0, bx1: x1 + 1, by1: y1 + 1,
+              tx0, ty0, tx1, ty1,
+              chars: comp.length,
+              cArea,
+            })
+          }
+        }
+      }
+
+      const ketQua = { W, H, S, lum, bubbles }
+      el.__translationBongThuc = ketQua
+      el.__translationBongThucSrc = srcHienTai
+      return ketQua
+    } catch {
+      return null
+    }
+  }
+
+  function canChinhToaDoVungTrenCanvas(el, dsVung) {
+    if (!Array.isArray(dsVung) || dsVung.length === 0) return
+    const info = timBongBongChuaChuTrenTrang(el)
+    if (!info || !info.bubbles.length) return
+    const { W, H, S, lum, bubbles } = info
+    const daGanB = new Uint8Array(bubbles.length)
+    const daGanV = new Uint8Array(dsVung.length)
+
+    const laSfxNgan = (v) => {
+      const goc = String(v.chu_goc || '').trim()
+      const dich = String(v.ban_dich || '').trim()
+      return Boolean((goc && MAU_SFX_LOAI_TRU_SNAP.test(goc)) || (dich && MAU_SFX_LOAI_TRU_SNAP.test(dich)))
+    }
+
+    const coRanhKhungTranhDoc = (xA, xB, yTop, yBot) => {
+      const xa = Math.max(0, Math.min(W - 1, Math.round(Math.min(xA, xB))))
+      const xb = Math.max(0, Math.min(W - 1, Math.round(Math.max(xA, xB))))
+      const ya = Math.max(0, Math.min(H - 1, Math.round(yTop)))
+      const yb = Math.max(0, Math.min(H, Math.round(yBot)))
+      const nCols = xb - xa
+      const chieuCao = yb - ya
+      if (nCols < 16 || chieuCao < 40) return false
+      const colWhite = new Uint8Array(nCols)
+      const colDark = new Uint8Array(nCols)
+      const nguongTrang = chieuCao * 0.94
+      const nguongToi = chieuCao * 0.78
+      for (let c = 0; c < nCols; c += 1) {
+        const px = xa + c
+        let trang = 0, toi = 0
+        for (let py = ya; py < yb; py += 1) {
+          const lv = lum[py * W + px]
+          if (lv > 238) trang += 1
+          else if (lv < 95) toi += 1
+        }
+        if (trang >= nguongTrang) colWhite[c] = 1
+        if (toi >= nguongToi) colDark[c] = 1
+      }
+      let iC = 0
+      while (iC < nCols) {
+        if (colWhite[iC]) {
+          let jC = iC
+          while (jC < nCols && colWhite[jC]) jC += 1
+          if (jC - iC >= 5) {
+            let vienTrai = false, vienPhai = false
+            for (let k = Math.max(0, iC - 5); k < iC; k += 1) {
+              if (colDark[k]) { vienTrai = true; break }
+            }
+            for (let k = jC; k < Math.min(nCols, jC + 5); k += 1) {
+              if (colDark[k]) { vienPhai = true; break }
+            }
+            if (vienTrai && vienPhai) return true
+          }
+          iC = jC
+        } else {
+          iC += 1
+        }
+      }
+      return false
+    }
+
+    const apDungToaDo = (v, b) => {
+      const nx = b.tx0
+      const ny = b.ty0
+      const nw = Math.max(12, b.tx1 - b.tx0)
+      const nh = Math.max(12, b.ty1 - b.ty0)
+      if (Math.abs(v.x - nx) > 1 || Math.abs(v.y - ny) > 1 || Math.abs(v.w - nw) > 1 || Math.abs(v.h - nh) > 1) {
+        v.x = nx
+        v.y = ny
+        v.w = nw
+        v.h = nh
+        delete v._khungCanvas
+        delete v._khungCheCanvas
+        delete v._anhCheDataUrl
+        delete v._laChuNoiTrenNen
+        delete v.nen_toi
+      }
+    }
+
+    // Pass A: Khớp trực tiếp các hộp chữ đã giao cắt hoặc nằm trong lòng bong bóng
+    for (let i = 0; i < dsVung.length; i += 1) {
+      const v = dsVung[i]
+      if (v._daCanChinhBongThuc) { daGanV[i] = 1; continue }
+      if (laSfxNgan(v)) continue
+      const vx0 = v.x, vy0 = v.y, vx1 = v.x + v.w, vy1 = v.y + v.h
+      const vcx = (vx0 + vx1) * 0.5, vcy = (vy0 + vy1) * 0.5
+      let bestIdx = -1
+      let bestScore = 0
+      for (let bIdx = 0; bIdx < bubbles.length; bIdx += 1) {
+        if (daGanB[bIdx]) continue
+        const b = bubbles[bIdx]
+        const ix0 = Math.max(vx0, b.tx0), iy0 = Math.max(vy0, b.ty0)
+        const ix1 = Math.min(vx1, b.tx1), iy1 = Math.min(vy1, b.ty1)
+        const inter = Math.max(0, ix1 - ix0) * Math.max(0, iy1 - iy0)
+        const minA = Math.max(1, Math.min(v.w * v.h, (b.tx1 - b.tx0) * (b.ty1 - b.ty0)))
+        const ov = inter / minA
+        const btcy = (b.ty0 + b.ty1) * 0.5
+        const inBub = (
+          vcx >= b.bx0 && vcx <= b.bx1 &&
+          vcy >= b.by0 && vcy <= b.by1 &&
+          Math.abs(vcy - btcy) <= Math.max(v.h, b.ty1 - b.ty0, 65 * S)
+        )
+        if (ov >= 0.18 || inBub) {
+          const score = ov + (inBub ? 0.5 : 0)
+          if (score > bestScore) {
+            bestScore = score
+            bestIdx = bIdx
+          }
+        }
+      }
+      if (bestIdx >= 0) {
+        daGanB[bestIdx] = 1
+        daGanV[i] = 1
+        v._daCanChinhBongThuc = true
+        apDungToaDo(v, bubbles[bestIdx])
+      }
+    }
+
+    // Pass B: Khôi phục hộp thoại bị AI đặt lệch ra ngoài bong bóng (đè lên tóc đen / đám đông trong cùng khung tranh)
+    for (let i = 0; i < dsVung.length; i += 1) {
+      const v = dsVung[i]
+      if (daGanV[i] || laSfxNgan(v)) continue
+      const vx0 = v.x, vy0 = v.y, vx1 = v.x + v.w, vy1 = v.y + v.h
+      const vcx = (vx0 + vx1) * 0.5, vcy = (vy0 + vy1) * 0.5
+      const doDaiChu = Math.max(String(v.chu_goc || '').trim().length, String(v.ban_dich || '').trim().length)
+      let bestIdx = -1
+      let bestDist = 1e9
+      for (let bIdx = 0; bIdx < bubbles.length; bIdx += 1) {
+        if (daGanB[bIdx]) continue
+        const b = bubbles[bIdx]
+        if (doDaiChu > 0) {
+          if (b.chars >= 14 && doDaiChu <= 7) continue
+          if (b.chars <= 6 && doDaiChu >= 22) continue
+        }
+        const btcx = (b.tx0 + b.tx1) * 0.5
+        const btcy = (b.ty0 + b.ty1) * 0.5
+        const vyOv = Math.min(vy1, b.by1) - Math.max(vy0, b.by0)
+        if (vyOv < -20 * S && Math.abs(vcy - btcy) > Math.max(v.h, b.ty1 - b.ty0, 90 * S)) continue
+        const dx = Math.abs(vcx - btcx)
+        const dy = Math.abs(vcy - btcy)
+        if (dx > W * 0.34) continue
+        if (coRanhKhungTranhDoc(vcx, btcx, Math.max(vy0, b.by0), Math.min(vy1, b.by1))) continue
+        const dist = dx + dy * 1.5
+        if (dist < bestDist) {
+          bestDist = dist
+          bestIdx = bIdx
+        }
+      }
+      if (bestIdx >= 0) {
+        daGanB[bestIdx] = 1
+        daGanV[i] = 1
+        v._daCanChinhBongThuc = true
+        apDungToaDo(v, bubbles[bestIdx])
+      }
+    }
+  }
+
+  /**
    * E106 + E112 — Dò lòng bong bóng 2D chống rò rỉ gai nhọn & Xoá chính xác từng nét chữ gốc (`vungXoaChu`) trên Canvas.
    *
    * Khắc phục triệt để lỗi tạo mảng trắng đè mất chi tiết tranh vẽ ở các bong bóng hình gai nhọn,
@@ -4171,6 +4581,7 @@ void (async () => {
       }
 
       const coCanvas = Boolean(layCtxMau(el))
+      if (coCanvas) canChinhToaDoVungTrenCanvas(el, vungCoDich)
       const thongSoFont = layThongSoFont(window[CO].fontChuHienTai)
       const thongSoAnh = {
         naturalWidth: nw, naturalHeight: nh,

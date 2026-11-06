@@ -59,7 +59,7 @@ import json
 import logging
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from app.services.detect.ctd import DetectedRegion
 from app.services.interfaces import BBox
@@ -117,7 +117,10 @@ LOI_NHAC = (
     "Do NOT include the speech balloon, bubble outline, or the blank space around the text, "
     "but MUST include every line from the first word down to the very last line and trailing punctuation "
     "(never clip the bottom line or '?/...' of a multi-line block). "
-    "The box edges must touch the outermost letters/strokes."
+    "The box edges must touch the outermost letters/strokes. "
+    "CRITICAL SPATIAL RULE: Each box [ymin, xmin, ymax, xmax] MUST sit strictly over the actual letters "
+    "inside the speech bubble or caption where that text is written — NEVER shift the box onto the adjacent "
+    "character's hair, face, crowd, or background next to the speech bubble."
     # E90 — đọc chữ luôn trong lượt này (xem `CHU_THICH_E90`). A/B 16-10-2026, 5 trang × 2 lượt:
     # khung lời thoại trùng lời nhắc cũ (lệch 1–2/1000), chữ Nhật đúng từng ký tự, đọc đúng cả chữ
     # tượng thanh mà PaddleOCR/manga-ocr đọc bậy.
@@ -212,6 +215,269 @@ def xay_loi_nhac_gop_dich(source_lang: str, target_lang: str, boi_canh: str = ""
 #: E90 — khung chỉ chứa chữ số (số trang, số in trên nhãn chai…) KHÔNG phải lời cần dịch. Lời nhắc
 #: đọc chữ làm model khoanh thêm chúng (A/B: "18" xuất hiện 3 lần trên trang Pepper&Carrot).
 _CHI_LA_SO = __import__("re").compile(r"^(?=.*\d)[\s\d.,:/\-–—#]+$")
+_MAU_SFX_NGAN = __import__("re").compile(
+    r"^(?:WHO+M+|BO+M+|KA-?RO+M+|KRA+K+|CRA+SH+|BA+M+|SLA+M+|THU+D+|ZWO+SH+|SPLA+SH+|BÙM+|ẦM+|RẦM+|XOẸT+|KENG+|VÙ+)[!?.\s]*$",
+    __import__("re").IGNORECASE,
+)
+
+
+def can_chinh_khung_theo_bong_bong(
+    image_path: str,
+    regions: list[DetectedRegion],
+) -> list[DetectedRegion]:
+    """Căn chỉnh chính xác toạ độ khung chữ `regions` của Gemini vào đúng cụm chữ bên trong lòng bong bóng trắng.
+
+    Khắc phục triệt để 2 hiện tượng của `gemini-3.1-flash-lite` trên trang truyện nhiều khung phức tạp:
+    1. Khoanh hụt dòng đầu/dòng cuối hoặc lề trái/phải của cụm chữ trong bong bóng (Pass A: mở rộng khớp trọn `tx0..ty1`).
+    2. Đặt lệch tâm hộp chữ sang vùng tóc đen / đám đông / khói bụi kế bên bong bóng thoại trong cùng khung tranh
+       (Pass B: tự động hút hộp chữ bị lệch về đúng cụm chữ trong lòng bong bóng chưa có chủ ở cùng dải ngang).
+    """
+    if not regions:
+        return regions
+    try:
+        import cv2
+        import numpy as np
+
+        a = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+        if a is None or a.size == 0:
+            return regions
+        H, W = a.shape
+        if W < 64 or H < 64:
+            return regions
+
+        S = max(0.75, min(W, H) / 960.0)
+        white = (a > 205).astype(np.uint8)
+        num, labels, stats, _ = cv2.connectedComponentsWithStats(white, connectivity=4)
+
+        bubbles: list[dict] = []
+        for idx in range(1, num):
+            x0, y0, bw, bh, area = (int(v) for v in stats[idx])
+            x1, y1 = x0 + bw, y0 + bh
+            if bw < 22 or bh < 18 or bw > W * 0.72 or bh > H * 0.72 or area < 450:
+                continue
+            pad = np.zeros((bh + 2, bw + 2), dtype=np.uint8)
+            pad[1 : bh + 1, 1 : bw + 1] = (labels[y0:y1, x0:x1] == idx).astype(np.uint8)
+            inv = (1 - pad).astype(np.uint8)
+            n_inv, l_inv, s_inv, _ = cv2.connectedComponentsWithStats(inv, connectivity=8)
+            ext_lbl = int(l_inv[0, 0])
+            chars = []
+            all_holes = []
+            for h_idx in range(1, n_inv):
+                if h_idx == ext_lbl:
+                    continue
+                hx, hy, hw, hh, ha = (int(v) for v in s_inv[h_idx])
+                hx -= 1
+                hy -= 1
+                if hx < 0 or hy < 0 or hx + hw > bw or hy + hh > bh:
+                    continue
+                min_val = int(a[y0 + hy : y0 + hy + hh, x0 + hx : x0 + hx + hw].min())
+                if min_val <= 115 and ha >= 4 and hw <= round(48 * S) and hh <= round(48 * S):
+                    all_holes.append([x0 + hx, y0 + hy, x0 + hx + hw, y0 + hy + hh, ha, hw, hh])
+                if (
+                    min_val <= 105
+                    and ha >= round(14 * S * S)
+                    and round(3 * S) <= hw <= round(42 * S)
+                    and round(7 * S) <= hh <= round(42 * S)
+                ):
+                    chars.append([x0 + hx, y0 + hy, x0 + hx + hw, y0 + hy + hh, ha, hw, hh])
+            if len(chars) < 3:
+                continue
+
+            n_c = len(chars)
+            visited = [False] * n_c
+            for i in range(n_c):
+                if visited[i]:
+                    continue
+                comp = [i]
+                visited[i] = True
+                q = [i]
+                while q:
+                    cur = q.pop()
+                    cx0, cy0, cx1, cy1 = chars[cur][:4]
+                    for j in range(n_c):
+                        if visited[j]:
+                            continue
+                        jx0, jy0, jx1, jy1 = chars[j][:4]
+                        gx = max(0, max(cx0 - jx1, jx0 - cx1))
+                        gy = max(0, max(cy0 - jy1, jy0 - cy1))
+                        if gx <= round(18 * S) and gy <= round(28 * S):
+                            visited[j] = True
+                            comp.append(j)
+                            q.append(j)
+                if len(comp) < 3:
+                    continue
+                hs = sorted(chars[k][6] for k in comp)
+                h_ratio = hs[int(len(hs) * 0.75)] / max(1, hs[int(len(hs) * 0.25)])
+                if h_ratio > 1.72:
+                    continue
+                c_area = sum(chars[k][4] for k in comp)
+                tx0 = min(chars[k][0] for k in comp)
+                ty0 = min(chars[k][1] for k in comp)
+                tx1 = max(chars[k][2] for k in comp)
+                ty1 = max(chars[k][3] for k in comp)
+                for h in all_holes:
+                    hx0, hy0, hx1, hy1 = h[:4]
+                    if (
+                        hx0 >= tx0 - round(10 * S)
+                        and hx1 <= tx1 + round(10 * S)
+                        and hy0 >= ty0 - round(12 * S)
+                        and hy1 <= ty1 + round(12 * S)
+                    ):
+                        tx0, ty0 = min(tx0, hx0), min(ty0, hy0)
+                        tx1, ty1 = max(tx1, hx1), max(ty1, hy1)
+                tw, th = tx1 - tx0, ty1 - ty0
+                fill = c_area / max(1, tw * th)
+                sub_box = a[max(0, ty0 - 4) : min(H, ty1 + 4), max(0, tx0 - 4) : min(W, tx1 + 4)]
+                white_ratio = float((sub_box > 210).mean()) if sub_box.size > 0 else 0.0
+                if c_area >= round(150 * S * S) and fill >= 0.14 and white_ratio >= 0.48:
+                    bubbles.append(
+                        {
+                            "bx0": float(x0),
+                            "by0": float(y0),
+                            "bx1": float(x1),
+                            "by1": float(y1),
+                            "tx0": float(tx0),
+                            "ty0": float(ty0),
+                            "tx1": float(tx1),
+                            "ty1": float(ty1),
+                            "chars": len(comp),
+                            "c_area": c_area,
+                            "da_gan": False,
+                        }
+                    )
+
+        if not bubbles:
+            return regions
+
+        def _la_sfx_ngan(r: DetectedRegion) -> bool:
+            chu_goc = (r.chu or "").strip()
+            ban_dich = (r.ban_dich or "").strip()
+            if chu_goc and _MAU_SFX_NGAN.match(chu_goc):
+                return True
+            if ban_dich and _MAU_SFX_NGAN.match(ban_dich):
+                return True
+            return False
+
+        def _co_ranh_khung_tranh_doc(x_a: float, x_b: float, y_top: float, y_bot: float) -> bool:
+            xa = int(max(0, min(W - 1, min(x_a, x_b))))
+            xb = int(max(0, min(W - 1, max(x_a, x_b))))
+            ya = int(max(0, min(H - 1, y_top)))
+            yb = int(max(0, min(H, y_bot)))
+            if xb - xa < 16 or yb - ya < 40:
+                return False
+            strip = a[ya:yb, xa:xb]
+            col_white = (strip > 238).mean(axis=0)
+            col_dark = (strip < 95).mean(axis=0)
+            # Rãnh ngăn cách 2 khung tranh: phải có vách mực đen dọc (>= 80% chiều cao) kẹp hai bên dải trắng (>= 5px)
+            n_cols = len(col_white)
+            i_c = 0
+            while i_c < n_cols:
+                if col_white[i_c] >= 0.94:
+                    j_c = i_c
+                    while j_c < n_cols and col_white[j_c] >= 0.94:
+                        j_c += 1
+                    if j_c - i_c >= 5:
+                        co_vien_trai = any(col_dark[k] >= 0.78 for k in range(max(0, i_c - 5), i_c))
+                        co_vien_phai = any(col_dark[k] >= 0.78 for k in range(j_c, min(n_cols, j_c + 5)))
+                        if co_vien_trai and co_vien_phai:
+                            return True
+                    i_c = j_c
+                else:
+                    i_c += 1
+            return False
+
+        da_gan_r = [False] * len(regions)
+
+        # Pass A: Khớp trực tiếp các hộp chữ đã giao cắt hoặc nằm trong lòng bong bóng
+        for r_idx, r in enumerate(regions):
+            if _la_sfx_ngan(r):
+                continue
+            vx0, vy0 = float(r.bbox.x), float(r.bbox.y)
+            vx1, vy1 = vx0 + float(r.bbox.w), vy0 + float(r.bbox.h)
+            vcx, vcy = (vx0 + vx1) * 0.5, (vy0 + vy1) * 0.5
+            best_b = None
+            best_score = 0.0
+            for b in bubbles:
+                if b["da_gan"]:
+                    continue
+                ix0, iy0 = max(vx0, b["tx0"]), max(vy0, b["ty0"])
+                ix1, iy1 = min(vx1, b["tx1"]), min(vy1, b["ty1"])
+                inter = max(0.0, ix1 - ix0) * max(0.0, iy1 - iy0)
+                min_a = max(1.0, min(r.bbox.w * r.bbox.h, (b["tx1"] - b["tx0"]) * (b["ty1"] - b["ty0"])))
+                ov = inter / min_a
+                btcy = (b["ty0"] + b["ty1"]) * 0.5
+                in_bub = (
+                    b["bx0"] <= vcx <= b["bx1"]
+                    and b["by0"] <= vcy <= b["by1"]
+                    and abs(vcy - btcy) <= max(r.bbox.h, b["ty1"] - b["ty0"], 65.0 * S)
+                )
+                if ov >= 0.18 or in_bub:
+                    score = ov + (0.5 if in_bub else 0.0)
+                    if score > best_score:
+                        best_score = score
+                        best_b = b
+            if best_b is not None:
+                best_b["da_gan"] = True
+                da_gan_r[r_idx] = True
+                regions[r_idx] = replace(
+                    r,
+                    bbox=BBox(
+                        x=best_b["tx0"],
+                        y=best_b["ty0"],
+                        w=best_b["tx1"] - best_b["tx0"],
+                        h=best_b["ty1"] - best_b["ty0"],
+                    ),
+                )
+
+        # Pass B: Khôi phục hộp thoại bị AI đặt lệch ra ngoài bong bóng (đè lên tóc đen / đám đông trong cùng khung tranh)
+        for r_idx, r in enumerate(regions):
+            if da_gan_r[r_idx] or _la_sfx_ngan(r):
+                continue
+            vx0, vy0 = float(r.bbox.x), float(r.bbox.y)
+            vx1, vy1 = vx0 + float(r.bbox.w), vy0 + float(r.bbox.h)
+            vcx, vcy = (vx0 + vx1) * 0.5, (vy0 + vy1) * 0.5
+            do_dai_chu = max(len((r.chu or "").strip()), len((r.ban_dich or "").strip()))
+            best_b = None
+            best_dist = 1e9
+            for b in bubbles:
+                if b["da_gan"]:
+                    continue
+                if do_dai_chu > 0:
+                    if b["chars"] >= 14 and do_dai_chu <= 7:
+                        continue
+                    if b["chars"] <= 6 and do_dai_chu >= 22:
+                        continue
+                btcx = (b["tx0"] + b["tx1"]) * 0.5
+                btcy = (b["ty0"] + b["ty1"]) * 0.5
+                vy_ov = min(vy1, b["by1"]) - max(vy0, b["by0"])
+                if vy_ov < -20.0 * S and abs(vcy - btcy) > max(r.bbox.h, b["ty1"] - b["ty0"], 90.0 * S):
+                    continue
+                dx = abs(vcx - btcx)
+                dy = abs(vcy - btcy)
+                if dx > W * 0.34:
+                    continue
+                if _co_ranh_khung_tranh_doc(vcx, btcx, max(vy0, b["by0"]), min(vy1, b["by1"])):
+                    continue
+                dist = dx + dy * 1.5
+                if dist < best_dist:
+                    best_dist = dist
+                    best_b = b
+            if best_b is not None:
+                best_b["da_gan"] = True
+                da_gan_r[r_idx] = True
+                regions[r_idx] = replace(
+                    r,
+                    bbox=BBox(
+                        x=best_b["tx0"],
+                        y=best_b["ty0"],
+                        w=best_b["tx1"] - best_b["tx0"],
+                        h=best_b["ty1"] - best_b["ty0"],
+                    ),
+                )
+        return regions
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("can_chinh_khung_theo_bong_bong bo qua do loi: %s", exc)
+        return regions
 
 
 def _giao(a, b) -> float:
@@ -331,6 +597,7 @@ class AIGeminiDetector:
                 doan=bool(muc.get("doan")),
             ))
 
+        ra = can_chinh_khung_theo_bong_bong(image_path, ra)
         logger.info(
             "ai_gemini detect: %s -> %d khung (model %s)", image_path, len(ra), self.model_name
         )
@@ -408,6 +675,7 @@ class AIGeminiDetector:
                 doan=bool(muc.get("doan")),
             ))
 
+        ra = can_chinh_khung_theo_bong_bong(image_path, ra)
         logger.info(
             "ai_gemini detect_va_dich (1-pass): %s -> %d khung (model %s)",
             image_path, len(ra), self.model_name,
