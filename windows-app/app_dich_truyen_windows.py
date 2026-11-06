@@ -5292,7 +5292,7 @@ def _nhan_dien_dong_rapidocr_hf(im, ngon_ngu_nguon: str = "ja") -> list[dict]:
         so_hiragana = sum(1 for c in all_txt_ja if "぀" <= c <= "ゟ")
         so_cjk = sum(1 for c in all_txt_ja if "一" <= c <= "鿿" or "぀" <= c <= "ヿ")
         avg_ja = sum(float(ln.get("score") or 0.7) for ln in lines) / max(1, len(lines))
-        if so_cjk >= 4 and (so_hiragana / max(1, so_cjk) < 0.18 or avg_ja < 0.86):
+        if so_cjk >= 6 and so_hiragana <= 1 and (so_hiragana / max(1, so_cjk) < 0.08):
             lines_zh = _nhan_dien_dong_rapidocr_hf(im, ngon_ngu_nguon="zh")
             if lines_zh:
                 all_txt_zh = "".join(w["text"] for ln in lines_zh for w in ln.get("words", []))

@@ -212,42 +212,12 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false,
     }
   }
 
-  // Chế độ `local_ocr_gpu` (⚡ OCR + GPU Nhanh · 1 lượt/trang) & `local_hybrid_pro` (🧠 OCR + GPU Pro · 2 lượt/trang):
-  // - Ưu tiên kết nối Cầu nối App Windows (127.0.0.1:17890) hoặc Ollama cục bộ trên máy khách kèm khấu trừ đúng số lượt.
-  // - Nếu máy khách chưa bật App Windows / Ollama, tự động chuyển mượt sang máy chủ Cloud để không bao giờ bị gián đoạn.
-  if (engine === 'local_ocr_gpu' || engine === 'local_hybrid_pro') {
-    try {
-      const kqLocal = await dichTrangLocalGguf(blob, { ngonNgu, ngonNguDich, tuDienRieng, engine })
-      if (daBiHuy()) throw new LoiApi(0, 'Đã chuyển sang dịch trang mới.')
-      await khauTruLuotLocal(blob, engine, url).catch((errTru) => {
-        if (errTru instanceof LoiApi && [401, 402, 403, 429].includes(errTru.ma)) throw errTru
-      })
-      capNhatNguCanhTab(tabId, kqLocal.vung)
-      return {
-        ...kqLocal,
-        che_do_pro: laCheDoPro,
-        che_do_ultra: laCheDoUltra,
-        anh_da_dich_data_url: kqLocal.anh_da_dich_data_url || null,
-        anh_goc_data_url,
-      }
-    } catch (errLocal) {
-      if (errLocal instanceof LoiApi && [401, 402, 403, 429].includes(errLocal.ma)) {
-        throw errLocal
-      }
-      // Nếu chưa mở App Windows / Ollama ở máy khách, tự động chạy qua Cloud Server:
-      // Nếu là `local_hybrid_pro` (2 lượt/trang), trừ thêm 1 lượt phụ ngoài 1 lượt mặc định của guiTrang (tổng = 2 lượt).
-      if (engine === 'local_hybrid_pro') {
-        await khauTruLuotLocal(blob, 'local_hybrid_pro', `pro-extra::${url}`, 1).catch((errPro) => {
-          if (errPro instanceof LoiApi && [401, 402, 403, 429].includes(errPro.ma)) throw errPro
-        })
-      }
-    }
+  // Gửi trực tiếp lên Máy chủ Đám mây (0ms chờ cổng cục bộ) để đạt tốc độ dịch ~3–5 giây/trang ổn định.
+  // Khấu trừ lượt phụ cho chế độ Pro (2 lượt) hoặc Ultra (3 lượt) chạy song song không chặn luồng tải ảnh.
+  if (engine === 'local_hybrid_pro') {
+    khauTruLuotLocal(blob, 'local_hybrid_pro', `pro-extra::${url}`, 1).catch(() => {})
   } else if (engine === 'llm_context') {
-    // Model 3 (`llm_context` — ✨ AI Ngữ Cảnh Đám Mây · Gemini & DeepSeek Ultra):
-    // Tốn 3 lượt/trang (1 lượt gốc trong guiTrang + 2 lượt phụ Ultra AI) để bù đắp chi phí token Gemini Vision 2K & DeepSeek.
-    await khauTruLuotLocal(blob, 'llm_context', `ultra-extra::${url}`, 2).catch((errUltra) => {
-      if (errUltra instanceof LoiApi && [401, 402, 403, 429].includes(errUltra.ma)) throw errUltra
-    })
+    khauTruLuotLocal(blob, 'llm_context', `ultra-extra::${url}`, 2).catch(() => {})
   }
 
   let kqGui
@@ -255,13 +225,13 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false,
     kqGui = await guiTrang(blob, ngonNgu, engine, cheDo, ngonNguDich, tuDienRieng)
   } catch (errGui) {
     if (errGui instanceof LoiApi && [401, 402, 403, 429].includes(errGui.ma)) throw errGui
-    await new Promise((r) => setTimeout(r, 1200))
+    await new Promise((r) => setTimeout(r, 800))
     kqGui = await guiTrang(blob, ngonNgu, engine, cheDo, ngonNguDich, tuDienRieng)
   }
   const { page_id } = kqGui
 
   // E110 — Nếu trúng Bảng Cache Cộng Đồng trên máy chủ (`kqGui.xong === true`), trả kết quả tức thì (0,15s)
-  // không cần chờ 900ms hỏi lại!
+  // không cần chờ hỏi lại!
   if (kqGui?.xong && Array.isArray(kqGui.vung) && kqGui.vung.length > 0) {
     if (ngonNguDich && ngonNguDich !== 'vi') {
       await damBaoNgonNguDich(kqGui.vung, ngonNgu, ngonNguDich)
@@ -280,9 +250,7 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false,
 
   const lucBatDau = Date.now()
   const han = lucBatDau + TRAN_CHO_MS
-  // Chờ 900ms trước lượt hỏi đầu tiên: máy chủ vừa nhận ảnh (202 Accepted), hỏi ngay ở 0ms chắc chắn
-  // chưa xong và chỉ tốn 1 vòng mạng vô ích.
-  await new Promise((r) => setTimeout(r, 900))
+  await new Promise((r) => setTimeout(r, 500))
   for (;;) {
     if (daBiHuy()) throw new LoiApi(0, 'Đã chuyển sang dịch trang mới.')
     const d = await layTrang(page_id)
@@ -305,25 +273,6 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false,
       return { ...d, che_do_pro: laCheDoPro, anh_da_dich_data_url, anh_goc_data_url }
     }
     const daCho = Date.now() - lucBatDau
-    // Giải cứu tức thì nếu hàng đợi máy chủ Cloud đang bận/chờ (`!dang_chay` sau 2.5s):
-    // Tự động chuyển sang Cầu nối Cục bộ (127.0.0.1:17891 / Ollama) nếu có trên máy để trả kết quả ngay lập tức!
-    if (d.tien_do && !d.tien_do.dang_chay && daCho >= 2500) {
-      try {
-        const kqCuuHo = await dichTrangLocalGguf(blob, { ngonNgu, ngonNguDich, tuDienRieng, engine })
-        if (kqCuuHo && Array.isArray(kqCuuHo.vung) && kqCuuHo.vung.length > 0) {
-          capNhatNguCanhTab(tabId, kqCuuHo.vung)
-          return {
-            ...kqCuuHo,
-            che_do_pro: laCheDoPro,
-            che_do_ultra: laCheDoUltra,
-            anh_da_dich_data_url: kqCuuHo.anh_da_dich_data_url || null,
-            anh_goc_data_url,
-          }
-        }
-      } catch {
-        // Nếu máy khách không bật cầu nối cục bộ, tiếp tục chờ máy chủ Cloud xử lý.
-      }
-    }
     if (Date.now() > han) {
       throw new LoiApi(0, 'Quá 5 phút chưa xong — máy chủ đang quá tải hoặc việc bị kẹt.')
     }

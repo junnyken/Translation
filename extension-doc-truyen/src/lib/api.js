@@ -285,14 +285,14 @@ export async function guiTrang(blob, ngonNgu, engine, cheDo, ngonNguDich = NGON_
   const engineCloud = (engine === 'local_ocr_gpu' || engine === 'local_hybrid_pro' || engine === 'local_gguf')
     ? 'llm_context'
     : (engine || 'llm_context')
-  const taoForm = (tepBlob, tenTep = 'trang.png') => {
+  const taoForm = (tepBlob, tenTep = 'trang.png', engGui = engineCloud, kemTuDien = true) => {
     const form = new FormData()
     form.append('file', tepBlob, tenTep)
     form.append('source_lang', ngonNgu || NGON_NGU_MAC_DINH)
     form.append('target_lang', ngonNguDich || NGON_NGU_DICH_MAC_DINH)
-    form.append('engine', engineCloud)
+    form.append('engine', engGui)
     form.append('che_do', cheDo || CHE_DO_MAC_DINH)
-    if (tuDienRieng && String(tuDienRieng).trim()) {
+    if (kemTuDien && tuDienRieng && String(tuDienRieng).trim()) {
       form.append('tu_dien_rieng', String(tuDienRieng).trim())
     }
     return form
@@ -301,6 +301,11 @@ export async function guiTrang(blob, ngonNgu, engine, cheDo, ngonNguDich = NGON_
     return await goi('/doc-truyen/trang', { method: 'POST', body: taoForm(blob, 'trang.png') })
   } catch (err) {
     const maLoi = err instanceof LoiApi ? err.ma : 0
+    // Nếu tài khoản khách / gói miễn phí chọn `local_ocr_gpu` hoặc `google_fast` mà bị chặn 402 do `llm_context` / `tu_dien_rieng`,
+    // tự động lùi mượt về `google_fast` để dịch ngay lập tức mà không báo lỗi.
+    if (maLoi === 402 && engine !== 'llm_context') {
+      return await goi('/doc-truyen/trang', { method: 'POST', body: taoForm(blob, 'trang.png', 'google_fast', false) })
+    }
     if (maLoi === 0 || maLoi === 413 || maLoi === 500 || maLoi === 502 || maLoi === 503 || maLoi === 504) {
       const blobNen = await nenAnhDuPhongKhiLoi(blob, 1600)
       if (blobNen) {
