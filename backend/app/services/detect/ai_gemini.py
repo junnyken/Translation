@@ -109,23 +109,14 @@ SCHEMA_GOP_DICH = {
 
 #: Xem §2 ở docstring đầu tệp. Mỗi câu ở đây đều đang gánh một con số đo được.
 LOI_NHAC = (
-    "Find every block of written text in this comic page — including text inside speech bubbles, "
-    "narration boxes, AND borderless floating text with white/black outlines drawn directly over "
-    "screentones, dark hair, shadows, or panel corners (even short 1-3 word phrases like '...And yet,' "
-    "or 'Why...?'). For each block, give a TIGHT bounding box around ALL lines and punctuation of that "
-    "text block as [ymin, xmin, ymax, xmax] normalized 0-1000. "
-    "Do NOT include the speech balloon, bubble outline, or the blank space around the text, "
-    "but MUST include every line from the first word down to the very last line and trailing punctuation "
-    "(never clip the bottom line or '?/...' of a multi-line block). "
-    "The box edges must touch the outermost letters/strokes. "
-    "CRITICAL SPATIAL RULE: Each box [ymin, xmin, ymax, xmax] MUST sit strictly over the actual letters "
-    "inside the speech bubble or caption where that text is written — NEVER shift the box onto the adjacent "
-    "character's hair, face, crowd, or background next to the speech bubble."
-    # E90 — đọc chữ luôn trong lượt này (xem `CHU_THICH_E90`). A/B 16-10-2026, 5 trang × 2 lượt:
-    # khung lời thoại trùng lời nhắc cũ (lệch 1–2/1000), chữ Nhật đúng từng ký tự, đọc đúng cả chữ
-    # tượng thanh mà PaddleOCR/manga-ocr đọc bậy.
-    " Also return the exact text written inside each box in \"text\", copied character by "
-    "character in its original language (keep line breaks as spaces)."
+    "Find every block of dialogue, narration, and caption text in this comic page (including borderless "
+    "floating text with white/black outlines). "
+    "For each block, give a TIGHT bounding box [ymin, xmin, ymax, xmax] normalized 0-1000 around ALL lines "
+    "and punctuation of that text block. "
+    "Do NOT include the speech balloon, bubble outline, or blank padding, and NEVER shift the box onto "
+    "adjacent hair, faces, or artwork outside the letters. "
+    "Do NOT box giant stylized brush-stroke SFX overlapping characters or explosions. "
+    "Return the exact original characters in \"text\" (join line breaks with spaces)."
 )
 
 
@@ -142,7 +133,7 @@ _TEN_NGON_NGU_1PASS = {
 
 
 def xay_loi_nhac_gop_dich(source_lang: str, target_lang: str, boi_canh: str = "") -> str:
-    """E96 + E104 — Lời nhắc gộp Nhận diện + Đọc chữ + Dịch ngữ cảnh trong 1 lượt gọi (hỗ trợ đầy đủ 9 ngôn ngữ đích quốc tế)."""
+    """E96 + E104 — Lời nhắc gộp Nhận diện + Đọc chữ + Dịch ngữ cảnh trong 1 lượt gọi (rút gọn chuẩn kỹ thuật)."""
     boi_canh_sach = (boi_canh or "").strip()
     la_ultra_3_luot = "[CHẾ ĐỘ ULTRA CLOUD AI 3 LƯỢT" in boi_canh_sach
     la_pro_2_luot = "[CHẾ ĐỘ AI PRO 2 LƯỢT" in boi_canh_sach
@@ -151,64 +142,37 @@ def xay_loi_nhac_gop_dich(source_lang: str, target_lang: str, boi_canh: str = ""
         ten_dich = _TEN_NGON_NGU_1PASS.get(tl_norm, tl_norm)
         chi_dan_cap_do_qt = ""
         if la_ultra_3_luot:
-            chi_dan_cap_do_qt = (
-                "- [ULTRA 3-PASS · 2K MULTIMODAL SCANLATION]: Carefully inspect 2K visual cues (facial expressions, "
-                "costumes, age, social hierarchy, and character dynamics) to choose natural register, honorifics, and "
-                "pronouns. Polish dialogue to professional scanlation quality and capture tiny handwritten notes/whispers.\n"
-            )
+            chi_dan_cap_do_qt = "- [ULTRA 2K SCANLATION]: Inspect facial expressions, age, and hierarchy for natural register; capture tiny handwritten whispers.\n"
         elif la_pro_2_luot:
-            chi_dan_cap_do_qt = (
-                "- [PRO 2-PASS · HANDWRITTEN & SELF-LEARNING GLOSSARY]: Carefully read handwritten side-notes and chibi "
-                "whispers outside speech bubbles; strictly enforce 100% glossary & character name consistency.\n"
-            )
+            chi_dan_cap_do_qt = "- [PRO SCANLATION]: Capture handwritten side-notes and enforce 100% glossary consistency.\n"
         return (
             f"{LOI_NHAC}\n\n"
-            f"At the same time, you are a professional comic/manga/manhwa/manhua translator. Translate each detected "
-            f"text block from {source_lang} into {ten_dich} in the \"ban_dich\" field:\n"
-            "- Translate in the context of the whole page and visual scene, not isolated fragments.\n"
-            "- Match each character's tone, age, social status, and emotion shown in the artwork.\n"
+            f"Translate each block from {source_lang} into {ten_dich} in \"ban_dich\":\n"
+            "- Translate in full-page context matching character tone, emotion, and relationship.\n"
             f"{chi_dan_cap_do_qt}"
-            f"- Sound effects (SFX like カラン, ドン, 두근, 轰隆…): localize into natural comic SFX in {ten_dich} "
-            "(e.g. Clang, Thud, Boom, Thump / ¡Bum!, ¡Clac! / Boum !), never transliterate them as person names. "
-            "IMPORTANT: Do NOT draw bounding boxes over giant brush-stroke SFX overlapping characters' faces/bodies.\n"
-            "- Proper nouns (character names, places): romanize/localize accurately and keep consistent across pages.\n"
-            f"- Each \"ban_dich\" must be a complete, natural sentence/phrase in {ten_dich} "
-            "(leave zero untranslated source characters).\n"
-            "- Set \"doan\" = true ONLY when the original text is blurry/occluded and required guessing; otherwise false."
+            f"- Small text SFX: localize into natural {ten_dich} SFX (never transliterate as names).\n"
+            f"- Complete, natural sentences in {ten_dich} with zero untranslated source characters.\n"
+            "- Set \"doan\" = true ONLY if text is occluded/blurry; otherwise false."
             + (f"\n\n{boi_canh_sach}" if boi_canh_sach else "")
         )
     chi_dan_cap_do_vi = ""
     if la_ultra_3_luot:
         chi_dan_cap_do_vi = (
-            "- [CHẾ ĐỘ ULTRA 3 LƯỢT · 2K MULTIMODAL SCANLATION]: Quan sát kỹ nét vẽ 2K (biểu cảm gương mặt, "
-            "trang phục, tuổi tác, vị thế trên-dưới của từng nhân vật trong khung tranh) để suy luận chính xác "
-            "đại từ xưng hô (Ta-Ngươi, Huynh-Đệ, Sư phụ-Đệ tử, Bệ hạ-Thuộc hạ, Tiền bối-Hậu bối, Anh-Em, Mày-Tao). "
-            "Trau chuốt câu văn mượt mà, giàu cảm xúc chuẩn nhóm dịch Scanlation chuyên nghiệp; đọc sạch cả chữ "
-            "viết tay siêu nhỏ, lời lầm bầm góc khung và biển hiệu quan trọng.\n"
+            "- [ULTRA 2K SCANLATION]: Quan sát biểu cảm, trang phục, tuổi tác và vị thế nhân vật để chọn chuẩn đại từ "
+            "(Ta-Ngươi, Huynh-Muội, Thần-Bệ hạ, Anh-Em, Mày-Tao); đọc sạch chữ viết tay nhỏ cạnh khung.\n"
         )
     elif la_pro_2_luot:
         chi_dan_cap_do_vi = (
-            "- [CHẾ ĐỘ AI PRO 2 LƯỢT · CHỮ VIẾT TAY & TỰ HỌC]: Quét kỹ các dòng chữ viết tay (handwritten), "
-            "chữ chibi lầm bầm bên ngoài bong bóng thoại và chú thích lề trang; giữ đồng nhất 100% đại từ xưng hô "
-            "và thuật ngữ theo sổ tay từ điển đính kèm.\n"
+            "- [PRO SCANLATION]: Đọc kỹ chữ viết tay/lẩm bẩm ngoài bóng thoại và đồng nhất 100% đại từ theo từ điển.\n"
         )
     return (
         f"{LOI_NHAC}\n\n"
-        f"Đồng thời, bạn là người dịch truyện tranh chuyên nghiệp. Hãy dịch từng khối chữ vừa tìm "
-        f"được từ {source_lang} sang {target_lang} vào trường \"ban_dich\" theo đúng yêu cầu:\n"
-        "- Dịch theo mạch văn và hình ảnh của cả trang (đặc biệt lưu ý thứ tự đọc Manga từ PHẢI sang TRÁI "
-        "trong từng khung tranh khi một câu được tách làm 2 cụm chữ nổi bên phải và bên trái), không dịch rời rạc từng khung.\n"
-        "- Bám sát nghĩa gốc, giữ giọng điệu nhân vật; đại từ xưng hô tiếng Việt (Ta/Bà/Tôi/Cậu/Anh/Em…) "
-        "phải khớp với ngoại hình, độ tuổi, biểu cảm nhân vật trên tranh và ngữ cảnh trang trước.\n"
+        f"Dịch từng khối chữ từ {source_lang} sang {target_lang} vào trường \"ban_dich\":\n"
+        "- Dịch theo ngữ cảnh toàn trang (lưu ý thứ tự đọc phải-sang-trái của Manga), khớp cảm xúc và quan hệ nhân vật.\n"
         f"{chi_dan_cap_do_vi}"
-        "- Chữ tượng thanh / tiếng động vẽ cách điệu (SFX như カラン, コロン, ドン…): dịch sang từ tượng "
-        "thanh tiếng Việt tự nhiên (Keng, Cộp, Rầm, Ực…), không phiên âm thành tên người. LƯU Ý QUAN TRỌNG: "
-        "TUYỆT ĐỐI KHÔNG khoanh hộp đè lên các chữ SFX vẽ cọ khổng lồ chạy chéo qua mặt/đầu nhân vật hoặc "
-        "khói bụi (như SPLRRRSH, ドジュウウウウ, STOMP, KRAAAK, BÙM) để tránh xoá mất nét vẽ nhân vật.\n"
-        "- TÊN RIÊNG (người, địa danh): phiên âm theo cách đọc và giữ nguyên là tên riêng.\n"
-        "- Mỗi \"ban_dich\" là một câu hoàn chỉnh: viết hoa chữ đầu, có dấu câu kết thúc (. ! ? …), "
-        "chỉ chứa chữ Việt, số và dấu câu (tuyệt đối không để sót ký tự Nhật/Trung/Hàn).\n"
-        "- Đặt \"doan\" = true CHỈ KHI chữ gốc bị mờ/che khuất phải đoán mới dịch được; còn lại đặt false."
+        "- Từ tượng thanh nhỏ: dịch sang tiếng động tiếng Việt tự nhiên (Keng, Rầm, Ực…), không phiên âm thành tên người.\n"
+        "- Tên riêng: phiên âm chuẩn và giữ đồng nhất. Câu dịch hoàn chỉnh, có dấu câu, không sót ký tự gốc.\n"
+        "- Đặt \"doan\" = true CHỈ KHI chữ gốc bị mờ/che khuất; còn lại false."
         + (f"\n\n{boi_canh_sach}" if boi_canh_sach else "")
     )
 
@@ -280,11 +244,12 @@ def can_chinh_khung_theo_bong_bong(
                     and round(7 * S) <= hh <= round(42 * S)
                 ):
                     chars.append([x0 + hx, y0 + hy, x0 + hx + hw, y0 + hy + hh, ha, hw, hh])
-            if len(chars) < 3:
+            if len(chars) < 2:
                 continue
 
             n_c = len(chars)
             visited = [False] * n_c
+            sub_clusters: list[dict] = []
             for i in range(n_c):
                 if visited[i]:
                     continue
@@ -304,11 +269,11 @@ def can_chinh_khung_theo_bong_bong(
                             visited[j] = True
                             comp.append(j)
                             q.append(j)
-                if len(comp) < 3:
+                if len(comp) < 2:
                     continue
                 hs = sorted(chars[k][6] for k in comp)
                 h_ratio = hs[int(len(hs) * 0.75)] / max(1, hs[int(len(hs) * 0.25)])
-                if h_ratio > 1.72:
+                if h_ratio > 1.78:
                     continue
                 c_area = sum(chars[k][4] for k in comp)
                 tx0 = min(chars[k][0] for k in comp)
@@ -329,8 +294,10 @@ def can_chinh_khung_theo_bong_bong(
                 fill = c_area / max(1, tw * th)
                 sub_box = a[max(0, ty0 - 4) : min(H, ty1 + 4), max(0, tx0 - 4) : min(W, tx1 + 4)]
                 white_ratio = float((sub_box > 210).mean()) if sub_box.size > 0 else 0.0
-                if c_area >= round(150 * S * S) and fill >= 0.14 and white_ratio >= 0.48:
-                    bubbles.append(
+                min_area_need = round(90 * S * S) if len(comp) == 2 else round(150 * S * S)
+                min_white_need = 0.56 if len(comp) == 2 else 0.48
+                if c_area >= min_area_need and fill >= 0.13 and white_ratio >= min_white_need:
+                    sub_clusters.append(
                         {
                             "bx0": float(x0),
                             "by0": float(y0),
@@ -345,6 +312,29 @@ def can_chinh_khung_theo_bong_bong(
                             "da_gan": False,
                         }
                     )
+            if len(sub_clusters) > 1 and bw <= W * 0.36 and bh <= H * 0.42:
+                merged = True
+                while merged and len(sub_clusters) > 1:
+                    merged = False
+                    for a_i in range(len(sub_clusters)):
+                        for b_i in range(a_i + 1, len(sub_clusters)):
+                            A = sub_clusters[a_i]
+                            B = sub_clusters[b_i]
+                            x_ov = min(A["tx1"], B["tx1"]) - max(A["tx0"], B["tx0"])
+                            y_gap = max(0.0, max(A["ty0"] - B["ty1"], B["ty0"] - A["ty1"]))
+                            if x_ov >= -round(14 * S) and y_gap <= round(48 * S):
+                                A["tx0"] = min(A["tx0"], B["tx0"])
+                                A["ty0"] = min(A["ty0"], B["ty0"])
+                                A["tx1"] = max(A["tx1"], B["tx1"])
+                                A["ty1"] = max(A["ty1"], B["ty1"])
+                                A["chars"] += B["chars"]
+                                A["c_area"] += B["c_area"]
+                                sub_clusters.pop(b_i)
+                                merged = True
+                                break
+                        if merged:
+                            break
+            bubbles.extend(sub_clusters)
 
         if not bubbles:
             return regions
@@ -733,14 +723,40 @@ class AIGeminiDetector:
 
         loi_cuoi: Exception | None = None
         ds_khoa_gemini: list[tuple[str, str]] = []
+        ds_khoa_vision_oai: list[tuple[str, str, str]] = []  # (endpoint_url, model, api_key)
         model_goc = (self.model_name or "gemini-3.1-flash-lite").strip()
         if model_goc.lower() == "gemini-3.5-flash":
             model_goc = "gemini-3.5-flash-lite"
-        elif model_goc.lower() == "gemini-2.5-flash":
-            model_goc = "gemini-3.1-flash-lite"
         for raw_k in self.api_keys:
             s_k = str(raw_k or "").strip()
-            if not s_k or s_k.startswith(("sk-", "ds:", "ds|", "gsk_", "groq:", "groq|", "or:", "or|", "oai:", "oai|", "custom|")):
+            if not s_k or s_k.startswith(("sk-", "ds:", "ds|", "gsk_")):
+                continue
+            if s_k.startswith(("or|", "or:", "oai|", "oai:", "groq|", "groq:", "custom|")):
+                if s_k.startswith("custom|"):
+                    parts_c = s_k.split("|", 3)
+                    if len(parts_c) == 4 and parts_c[1].strip() and parts_c[3].strip():
+                        u_c = parts_c[1].strip().rstrip("/")
+                        if not u_c.endswith("/chat/completions"):
+                            u_c = f"{u_c}/chat/completions"
+                        ds_khoa_vision_oai.append((u_c, parts_c[2].strip() or "gpt-4o-mini", parts_c[3].strip()))
+                elif s_k.startswith(("or|", "or:")):
+                    parts_or = s_k.split("|", 2) if "|" in s_k else ["or", "google/gemini-2.5-flash", s_k[3:]]
+                    m_or = parts_or[1].strip() if len(parts_or) == 3 and parts_or[1].strip() else "google/gemini-2.5-flash"
+                    k_or = parts_or[-1].strip()
+                    if k_or:
+                        ds_khoa_vision_oai.append(("https://openrouter.ai/api/v1/chat/completions", m_or, k_or))
+                elif s_k.startswith(("oai|", "oai:")):
+                    parts_oa = s_k.split("|", 2) if "|" in s_k else ["oai", "gpt-4o-mini", s_k[4:]]
+                    m_oa = parts_oa[1].strip() if len(parts_oa) == 3 and parts_oa[1].strip() else "gpt-4o-mini"
+                    k_oa = parts_oa[-1].strip()
+                    if k_oa:
+                        ds_khoa_vision_oai.append(("https://api.openai.com/v1/chat/completions", m_oa, k_oa))
+                elif s_k.startswith(("groq|", "groq:")):
+                    parts_gq = s_k.split("|", 2) if "|" in s_k else ["groq", "meta-llama/llama-4-scout-17b-16e-instruct", s_k[5:]]
+                    m_gq = parts_gq[1].strip() if len(parts_gq) == 3 and parts_gq[1].strip() else "meta-llama/llama-4-scout-17b-16e-instruct"
+                    k_gq = parts_gq[-1].strip()
+                    if k_gq and ("vision" in m_gq.lower() or "llama-4" in m_gq.lower()):
+                        ds_khoa_vision_oai.append(("https://api.groq.com/openai/v1/chat/completions", m_gq, k_gq))
                 continue
             m_k = model_goc
             if s_k.startswith("gm|"):
@@ -749,14 +765,12 @@ class AIGeminiDetector:
                     m_k = parts_gm[1].strip()
                     if m_k.lower() == "gemini-3.5-flash":
                         m_k = "gemini-3.5-flash-lite"
-                    elif m_k.lower() == "gemini-2.5-flash":
-                        m_k = "gemini-3.1-flash-lite"
                 s_k = parts_gm[-1].strip()
             elif s_k.startswith("gm:"):
                 s_k = s_k[3:].strip()
-            if s_k and not any(k_existing == s_k for _, k_existing in ds_khoa_gemini):
+            if s_k and not any(k_existing == s_k and m_existing == m_k for m_existing, k_existing in ds_khoa_gemini):
                 ds_khoa_gemini.append((m_k, s_k))
-        if not ds_khoa_gemini:
+        if not ds_khoa_gemini and not ds_khoa_vision_oai:
             ds_khoa_gemini = [(model_goc, str(k).split("|")[-1].strip()) for k in self.api_keys if str(k).strip()]
 
         d = None
@@ -778,6 +792,14 @@ class AIGeminiDetector:
                         than,
                     )
                 ]
+                if m_key != "gemini-3.1-flash-lite":
+                    ds_ung_vien_url.append(
+                        (
+                            "https://generativelanguage.googleapis.com/v1beta/models/"
+                            f"gemini-3.1-flash-lite:generateContent?key={key}",
+                            than,
+                        )
+                    )
 
             thanh_cong_key = False
             for url_goi, payload_bytes in ds_ung_vien_url:
@@ -806,8 +828,11 @@ class AIGeminiDetector:
                         or "key expired" in chi_tiet_lower
                         or exc.code in (401, 403)
                     )
+                    if la_loi_key:
+                        break
                     if la_vertex_aq and exc.code in (400, 404):
-                        # Với khoá AQ., thử tiếp endpoint generativelanguage / aiplatform hoặc model kế tiếp trong ds_ung_vien_url
+                        continue
+                    if len(ds_ung_vien_url) > 1 and exc.code in (404, 429):
                         continue
                     if exc.code in (400, 404) and not la_loi_key:
                         raise loi_cuoi from exc   # lỗi cấu hình: xoay key không cứu được
@@ -816,7 +841,50 @@ class AIGeminiDetector:
                     break
             if thanh_cong_key and d is not None:
                 break
-        else:
+
+        if d is None and ds_khoa_vision_oai:
+            chi_dan_json = (
+                "\n\nReturn ONLY a raw JSON array (no markdown fences) where each item has "
+                '{"box_2d": [ymin, xmin, ymax, xmax], "text": "...", "ban_dich": "...", "doan": false}.'
+            )
+            for url_oai, m_oai, k_oai in ds_khoa_vision_oai:
+                try:
+                    than_oai = json.dumps({
+                        "model": m_oai,
+                        "temperature": 0.0,
+                        "max_tokens": 4096,
+                        "messages": [{
+                            "role": "user",
+                            "content": [
+                                {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64_anh}"}},
+                                {"type": "text", "text": loi_nhac + chi_dan_json},
+                            ],
+                        }],
+                    }).encode()
+                    req_oai = urllib.request.Request(
+                        url_oai,
+                        data=than_oai,
+                        headers={
+                            "Content-Type": "application/json",
+                            "Authorization": f"Bearer {k_oai}",
+                            "User-Agent": "ComicTranslator/1.0",
+                        },
+                    )
+                    with urllib.request.urlopen(req_oai, timeout=self.timeout) as resp_oai:
+                        d_oai = json.load(resp_oai)
+                    chu_oai = (d_oai.get("choices") or [{}])[0].get("message", {}).get("content", "").strip()
+                    if chu_oai.startswith("```"):
+                        chu_oai = chu_oai.strip("`").removeprefix("json").strip()
+                    tho_oai = json.loads(chu_oai)
+                    if isinstance(tho_oai, dict) and isinstance(tho_oai.get("items"), list):
+                        tho_oai = tho_oai["items"]
+                    if isinstance(tho_oai, list):
+                        self.last_usage = d_oai.get("usage") or {}
+                        return tho_oai
+                except Exception as exc_oai:
+                    loi_cuoi = AIDetectError(f"Gọi Vision AI ({m_oai}) thất bại: {exc_oai}")
+
+        if d is None:
             raise loi_cuoi or AIDetectError("Gọi Gemini thất bại, không rõ lý do")
 
         try:

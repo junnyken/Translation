@@ -181,20 +181,8 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false,
   const soDongNguCanh = laCheDoUltra ? 24 : (laCheDoPro ? 16 : 10)
   const chuoiNguCanhTab = await layChuoiNguCanhTab(tabId, soDongNguCanh)
   const chiDanCapDo = laCheDoUltra
-    ? [
-        '[CHẾ ĐỘ ULTRA CLOUD AI 3 LƯỢT — ĐÔI MẮT GEMINI VISION 2K & DEEPSEEK SCANLATION]:',
-        '1) QUAN SÁT TRỰC TIẾP BIỂU CẢM & NGOẠI HÌNH TRÊN TRANH: Phân tích kỹ giới tính, độ tuổi, trang phục, cấp bậc và cảm xúc khuôn mặt của từng nhân vật đang mở miệng nói để chọn đại từ xưng hô chuẩn xác 100% (Ta - Ngươi, Huynh - Muội, Anh - Em, Thần - Bệ hạ, Mày - Tao, Lão phu - Tiểu tử).',
-        '2) BẢO VỆ TRANH GỐC TUYỆT ĐỐI: KHÔNG khoanh vùng các chữ hiệu ứng âm thanh (SFX) cỡ lớn vẽ cách điệu đè lên mặt/đầu nhân vật hoặc khói lửa (như SPLRRRSH, ドジュウウウウ, STOMP, ズシン, BOOM).',
-        '3) QUÉT ĐỘ PHÂN GIẢI 2K & TRAU CHUỐT VĂN PHONG SCANLATION: Đọc trọn vẹn chữ viết tay nhỏ, chữ cổ trang/thư pháp, chữ bị che khuất một phần và biên tập lời thoại mượt mà, giàu cảm xúc như nhóm dịch truyện chuyên nghiệp.',
-      ].join('\n')
-    : (laCheDoPro
-      ? [
-          '[CHẾ ĐỘ AI PRO 2 LƯỢT — BẢO VỆ TRANH GỐC & DỊCH SÂU CHUẨN SCANLATION]:',
-          '1) KHÔNG khoanh vùng các chữ hiệu ứng âm thanh (SFX) cỡ lớn vẽ cách điệu đè lên nhân vật/khói lửa (như SPLRRRSH, ドジュウウウウ, STOMP, ズシン, BOOM) để bảo vệ nguyên vẹn nét vẽ tranh gốc.',
-          '2) Đọc kỹ 100% chữ viết tay mảnh, lời lẩm bẩm nhỏ cạnh bóng thoại và tự suy luận sửa lỗi chữ dính nét.',
-          '3) Dịch mượt mà, giàu cảm xúc, giữ đồng nhất tuyệt đối đại từ xưng hô theo cá tính nhân vật và ngữ cảnh các trang trước.',
-        ].join('\n')
-      : '')
+    ? '[CHẾ ĐỘ ULTRA CLOUD AI 3 LƯỢT]'
+    : (laCheDoPro ? '[CHẾ ĐỘ AI PRO 2 LƯỢT]' : '')
   const tuDienRieng = [chiDanCapDo, chuoiNguCanhTab, tuDienTuHoc].filter(Boolean).join('\n')
   bao({ giai_doan: 'dang-gui', url, che_do: cheDo, anh_goc_data_url, che_do_pro: laCheDoPro, che_do_ultra: laCheDoUltra })
 

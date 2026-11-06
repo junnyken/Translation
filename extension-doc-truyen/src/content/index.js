@@ -661,9 +661,10 @@ void (async () => {
           }
         }
 
-        if (chars.length < 3) continue
+        if (chars.length < 2) continue
         const nC = chars.length
         const visited = new Uint8Array(nC)
+        const subClusters = []
         for (let i = 0; i < nC; i += 1) {
           if (visited[i]) continue
           const comp = [i]
@@ -684,10 +685,10 @@ void (async () => {
               }
             }
           }
-          if (comp.length < 3) continue
+          if (comp.length < 2) continue
           const hs = comp.map((k) => chars[k][6]).sort((a, b) => a - b)
           const hRatio = hs[Math.floor(hs.length * 0.75)] / Math.max(1, hs[Math.floor(hs.length * 0.25)])
-          if (hRatio > 1.72) continue
+          if (hRatio > 1.78) continue
           let cArea = 0
           let tx0 = W, ty0 = H, tx1 = 0, ty1 = 0
           for (let k = 0; k < comp.length; k += 1) {
@@ -723,14 +724,46 @@ void (async () => {
             }
           }
           const whiteRatio = cntTot > 0 ? (cntW / cntTot) : 0
-          if (cArea >= minClusterArea && fill >= 0.14 && whiteRatio >= 0.48) {
-            bubbles.push({
+          const minAreaNeed = comp.length === 2 ? Math.round(90 * S * S) : minClusterArea
+          const minWhiteNeed = comp.length === 2 ? 0.56 : 0.48
+          if (cArea >= minAreaNeed && fill >= 0.13 && whiteRatio >= minWhiteNeed) {
+            subClusters.push({
               bx0: x0, by0: y0, bx1: x1 + 1, by1: y1 + 1,
               tx0, ty0, tx1, ty1,
               chars: comp.length,
               cArea,
             })
           }
+        }
+        // Nếu bong bóng đơn khép kín (`bw <= W * 0.36 && bh <= H * 0.42`) có nhiều cụm dòng chữ rời nhau, hợp nhất các cụm thẳng hàng dọc
+        if (subClusters.length > 1 && bw <= W * 0.36 && bh <= H * 0.42) {
+          let merged = true
+          while (merged && subClusters.length > 1) {
+            merged = false
+            for (let aIdx = 0; aIdx < subClusters.length; aIdx += 1) {
+              for (let bIdx = aIdx + 1; bIdx < subClusters.length; bIdx += 1) {
+                const A = subClusters[aIdx]
+                const B = subClusters[bIdx]
+                const xOv = Math.min(A.tx1, B.tx1) - Math.max(A.tx0, B.tx0)
+                const yGap = Math.max(0, Math.max(A.ty0 - B.ty1, B.ty0 - A.ty1))
+                if (xOv >= -Math.round(14 * S) && yGap <= Math.round(48 * S)) {
+                  A.tx0 = Math.min(A.tx0, B.tx0)
+                  A.ty0 = Math.min(A.ty0, B.ty0)
+                  A.tx1 = Math.max(A.tx1, B.tx1)
+                  A.ty1 = Math.max(A.ty1, B.ty1)
+                  A.chars += B.chars
+                  A.cArea += B.cArea
+                  subClusters.splice(bIdx, 1)
+                  merged = true
+                  break
+                }
+              }
+              if (merged) break
+            }
+          }
+        }
+        for (let sIdx = 0; sIdx < subClusters.length; sIdx += 1) {
+          bubbles.push(subClusters[sIdx])
         }
       }
 
@@ -1237,11 +1270,90 @@ void (async () => {
         }
       }
 
-      // Bước 1: Dò lòng bong bóng 2D (`longTrang`) có kiểm soát khe hở gai nhọn (`laNenRong`).
+      // Bước 1: Tách cấu trúc Tô-pô "Nét Chữ Cô Lập Nội Tại" (`laNetChuCoLap`) khỏi "Vách Biên Bong Bóng / Nét Vẽ Tranh"
+      // để chữ nằm sát mép bong bóng không bao giờ làm nghẽn dòng loang `longTrang` hoặc bị bỏ sót khi xoá chữ cũ.
       const tamGocX = (cx0 + cx1) * 0.5
       const tamGocY = (cy0 + cy1) * 0.5
       const banRongGoc = Math.max(3, (cx1 - cx0) * 0.5)
       const banCaoGoc = Math.max(3, (cy1 - cy0) * 0.5)
+
+      const hangDoi = new Int32Array(N)
+      let dau = 0
+      let cuoi = 0
+      const laNetChuCoLap = new Uint8Array(N)
+      const daDuyetCoLapPre = new Uint8Array(N)
+      const dsCumChuCoLap = []
+      const maxWCoLapPre = Math.max(54, Math.round(wGoc * 0.88))
+      const maxHCoLapPre = Math.max(54, Math.round(hGoc * 0.88))
+      const maxAreaCoLapPre = Math.max(360, Math.round(dienTichHopGoc * 0.48))
+
+      for (let py = 2; py < rh - 2; py += 1) {
+        const base = py * rw
+        for (let px = 2; px < rw - 2; px += 1) {
+          const sPos = base + px
+          if (laNenMask[sPos] || vungBienBaoVe[sPos] || daDuyetCoLapPre[sPos]) continue
+          dau = 0
+          cuoi = 0
+          daDuyetCoLapPre[sPos] = 1
+          hangDoi[cuoi++] = sPos
+          let cMinX = px, cMaxX = px, cMinY = py, cMaxY = py
+          let chamBienRoi = false
+          while (dau < cuoi) {
+            const p = hangDoi[dau++]
+            const x = p % rw
+            const y = (p - x) / rw
+            if (x < cMinX) cMinX = x
+            if (x > cMaxX) cMaxX = x
+            if (y < cMinY) cMinY = y
+            if (y > cMaxY) cMaxY = y
+            if (x <= 1 || x >= rw - 2 || y <= 1 || y >= rh - 2 || vungBienBaoVe[p]) {
+              chamBienRoi = true
+            }
+            for (let dy = -1; dy <= 1; dy += 1) {
+              const ny = y + dy
+              if (ny < 0 || ny >= rh) continue
+              const nBase = ny * rw
+              for (let dx = -1; dx <= 1; dx += 1) {
+                if (dx === 0 && dy === 0) continue
+                const nx = x + dx
+                if (nx < 0 || nx >= rw) continue
+                const np = nBase + nx
+                if (daDuyetCoLapPre[np] || laNenMask[np]) continue
+                if (vungBienBaoVe[np]) {
+                  chamBienRoi = true
+                  continue
+                }
+                daDuyetCoLapPre[np] = 1
+                hangDoi[cuoi++] = np
+              }
+            }
+          }
+          const compW = cMaxX - cMinX + 1
+          const compH = cMaxY - cMinY + 1
+          if (
+            !chamBienRoi &&
+            cuoi <= maxAreaCoLapPre &&
+            compW <= maxWCoLapPre &&
+            compH <= maxHCoLapPre &&
+            !(compW >= wGoc * 0.72 && compH >= hGoc * 0.72)
+          ) {
+            const pixels = new Int32Array(cuoi)
+            for (let k = 0; k < cuoi; k += 1) {
+              const p = hangDoi[k]
+              laNetChuCoLap[p] = 1
+              pixels[k] = p
+            }
+            dsCumChuCoLap.push({
+              pixels,
+              minX: cMinX,
+              maxX: cMaxX,
+              minY: cMinY,
+              maxY: cMaxY,
+              chon: false,
+            })
+          }
+        }
+      }
 
       const laNenRong = new Uint8Array(N)
       for (let py = 2; py < rh - 2; py += 1) {
@@ -1249,15 +1361,16 @@ void (async () => {
         for (let px = 2; px < rw - 2; px += 1) {
           const pos = base + px
           if (!laNenMask[pos] || vungBienBaoVe[pos]) continue
-          // Dùng đệm 3x3 cho bong bóng màu đồng nhất (để dòng loang dễ lách qua khe hẹp giữa chữ dày đặc và viền bong bóng),
-          // và 5x5 ở vùng ngoài hộp chữ để chặn rò rỉ qua tia gai nhọn
+          // Cho phép các nét chữ cô lập (`laNetChuCoLap`) không làm nghẽn đệm an toàn `sach3x3`,
+          // trong khi vách viền bong bóng thực sự (`!laNenMask && !laNetChuCoLap`) vẫn chặn tuyệt đối rò rỉ
           const trongVungChuMoRong = px >= Math.max(2, cx0 - padCheX) && px < Math.min(rw - 2, cx1 + padCheX) &&
             py >= Math.max(2, cy0 - padCheY) && py < Math.min(rh - 2, cy1 + padCheY)
+          const okNb = (p) => (laNenMask[p] || (trongVungChuMoRong && laNetChuCoLap[p])) && !vungBienBaoVe[p]
           const sach3x3 = (
-            laNenMask[pos - 1] && laNenMask[pos + 1] &&
-            laNenMask[pos - rw] && laNenMask[pos + rw] &&
-            laNenMask[pos - rw - 1] && laNenMask[pos - rw + 1] &&
-            laNenMask[pos + rw - 1] && laNenMask[pos + rw + 1]
+            okNb(pos - 1) && okNb(pos + 1) &&
+            okNb(pos - rw) && okNb(pos + rw) &&
+            okNb(pos - rw - 1) && okNb(pos - rw + 1) &&
+            okNb(pos + rw - 1) && okNb(pos + rw + 1)
           )
           if (sach3x3 && (trongVungChuMoRong || (
             laNenMask[pos - 2] && laNenMask[pos + 2] &&
@@ -1269,9 +1382,8 @@ void (async () => {
       }
 
       const longTrang = new Uint8Array(N)
-      const hangDoi = new Int32Array(N)
-      let dau = 0
-      let cuoi = 0
+      dau = 0
+      cuoi = 0
 
       // Khởi tạo hạt giống `longTrang` từ vùng lõi trung tâm (`bkHat = 0.22`, dự phòng `0.48` nếu chữ quá dày)
       // để tuyệt đối không nhảy cóc qua đường viền bong bóng uốn lượn / lồi lõm ở sát biên `cx0..cx1`:
@@ -2647,6 +2759,71 @@ void (async () => {
           }
         }
 
+        // Lan truyền chuỗi cụm chữ cô lập (`dsCumChuCoLap`) từ vùng lõi hộp chữ `[cx0..cx1, cy0..cy1]`
+        // và lòng bong bóng `longTrang` để thu gom 100% các chữ cái ở dòng đầu / dòng cuối / sát mép bong bóng:
+        if (dsCumChuCoLap.length > 0) {
+          let actX0 = Math.max(0, cx0 - 6)
+          let actY0 = Math.max(0, cy0 - 6)
+          let actX1 = Math.min(rw, cx1 + 6)
+          let actY1 = Math.min(rh, cy1 + 6)
+          for (let i = 0; i < dsCumChuCoLap.length; i += 1) {
+            const c = dsCumChuCoLap[i]
+            const ovCore = c.maxX >= actX0 && c.minX <= actX1 && c.maxY >= actY0 && c.minY <= actY1
+            let trongLong = false
+            if (!ovCore) {
+              for (let k = 0; k < c.pixels.length; k += 1) {
+                const p = c.pixels[k]
+                if (laChuGoc[p] || (laBongKhepKin && ngoaiBongBong[p] === 0)) {
+                  trongLong = true
+                  break
+                }
+              }
+            }
+            if (ovCore || trongLong) {
+              c.chon = true
+              if (c.minX < actX0) actX0 = c.minX
+              if (c.maxX > actX1) actX1 = c.maxX
+              if (c.minY < actY0) actY0 = c.minY
+              if (c.maxY > actY1) actY1 = c.maxY
+            }
+          }
+          let coMoRongChuoi = true
+          while (coMoRongChuoi) {
+            coMoRongChuoi = false
+            for (let i = 0; i < dsCumChuCoLap.length; i += 1) {
+              const c = dsCumChuCoLap[i]
+              if (c.chon) continue
+              const dx = Math.max(0, Math.max(actX0 - c.maxX, c.minX - actX1))
+              const dy = Math.max(0, Math.max(actY0 - c.maxY, c.minY - actY1))
+              if (dx <= 18 && dy <= 24) {
+                // Kiểm tra điểm giữa cụm và hộp hiện tại có thuộc vùng nền bong bóng (`longTrang` hoặc `laNenMask`) không
+                const midX = Math.max(0, Math.min(rw - 1, Math.round(((c.minX + c.maxX) * 0.5 + (actX0 + actX1) * 0.5) * 0.5)))
+                const midY = Math.max(0, Math.min(rh - 1, Math.round(((c.minY + c.maxY) * 0.5 + (actY0 + actY1) * 0.5) * 0.5)))
+                const midPos = midY * rw + midX
+                if (longTrang[midPos] || laNenMask[midPos] || laNetChuCoLap[midPos]) {
+                  c.chon = true
+                  if (c.minX < actX0) actX0 = c.minX
+                  if (c.maxX > actX1) actX1 = c.maxX
+                  if (c.minY < actY0) actY0 = c.minY
+                  if (c.maxY > actY1) actY1 = c.maxY
+                  coMoRongChuoi = true
+                }
+              }
+            }
+          }
+          for (let i = 0; i < dsCumChuCoLap.length; i += 1) {
+            const c = dsCumChuCoLap[i]
+            if (!c.chon) continue
+            for (let k = 0; k < c.pixels.length; k += 1) {
+              laChuGoc[c.pixels[k]] = 1
+            }
+            if (c.minX - 6 < zx0) zx0 = Math.max(0, c.minX - 6)
+            if (c.maxX + 7 > zx1) zx1 = Math.min(rw, c.maxX + 7)
+            if (c.minY - 6 < zy0) zy0 = Math.max(0, c.minY - 6)
+            if (c.maxY + 7 > zy1) zy1 = Math.min(rh, c.maxY + 7)
+          }
+        }
+
         const tyLeChuCoLap = demChuCoLap / Math.max(1, demNetTrongHop)
         const baoVeNetTranhPro = !laBongKhepKin && laNenPhucTap && v._cheDoPro
         const banKinhLoiChoPhep = baoVeNetTranhPro ? 0.76 : (tyLeChuCoLap < 0.72 ? 1.08 : 0.86)
@@ -2701,18 +2878,18 @@ void (async () => {
             const pos = base + px
             if (!laChuGoc[pos]) continue
             vungXoaChu[pos] = 1
-            for (let dy = -4; dy <= 4; dy += 1) {
+            for (let dy = -5; dy <= 5; dy += 1) {
               const ny = py + dy
               if (ny < zy0 || ny >= zy1) continue
               const nBase = ny * rw
-              for (let dx = -4; dx <= 4; dx += 1) {
-                if (dx * dx + dy * dy > 18) continue
+              for (let dx = -5; dx <= 5; dx += 1) {
+                if (dx * dx + dy * dy > 26) continue
                 const nx = px + dx
                 if (nx < zx0 || nx >= zx1) continue
                 const npos = nBase + nx
                 if (vungBienBaoVe[npos]) continue
                 if (laBongKhepKin && ngoaiBongBong[npos] === 1 && !laChuGoc[npos]) continue
-                if (!laNenMask[npos] && ketNoiBienHop[npos] === 1 && !laChuGoc[npos]) continue
+                if (!laNenMask[npos] && !laChuGoc[npos] && !laNetChuCoLap[npos] && ketNoiBienHop[npos] === 1) continue
                 vungXoaChu[npos] = 1
               }
             }
@@ -2803,7 +2980,7 @@ void (async () => {
           let prevX = -1
           for (let px = zx0; px < zx1; px += 1) {
             if (vungXoaChu[base + px]) {
-              if (prevX >= 0 && px - prevX > 1 && px - prevX <= 14) {
+              if (prevX >= 0 && px - prevX > 1 && px - prevX <= 20) {
                 let deuLaNenBong = true
                 for (let kx = prevX + 1; kx < px; kx += 1) {
                   const kpos = base + kx
@@ -2824,7 +3001,7 @@ void (async () => {
           let prevY = -1
           for (let py = zy0; py < zy1; py += 1) {
             if (vungXoaChu[py * rw + px]) {
-              if (prevY >= 0 && py - prevY > 1 && py - prevY <= 10) {
+              if (prevY >= 0 && py - prevY > 1 && py - prevY <= 14) {
                 let deuLaNenBong = true
                 for (let ky = prevY + 1; ky < py; ky += 1) {
                   const kpos = ky * rw + px
@@ -3464,12 +3641,16 @@ void (async () => {
         const banCaoHat = Math.max(8, Math.round(hGoc * 0.42))
         const banRongNho = Math.max(6, Math.round(wGoc * 0.28))
         const banCaoNho = Math.max(6, Math.round(hGoc * 0.28))
+        const xHat0 = coDiemXoa ? Math.min(cx0, minX) : cx0
+        const yHat0 = coDiemXoa ? Math.min(cy0, minY) : cy0
+        const xHat1 = coDiemXoa ? Math.max(cx1, maxX) : cx1
+        const yHat1 = coDiemXoa ? Math.max(cy1, maxY) : cy1
         const dsHatGiong = [
           [
-            Math.max(0, Math.min(cx0, tamX - banRongHat)),
-            Math.max(0, Math.min(cy0, tamY - banCaoHat)),
-            Math.min(rw, Math.max(cx1, tamX + banRongHat)),
-            Math.min(rh, Math.max(cy1, tamY + banCaoHat)),
+            Math.max(0, Math.min(xHat0, tamX - banRongHat)),
+            Math.max(0, Math.min(yHat0, tamY - banCaoHat)),
+            Math.min(rw, Math.max(xHat1, tamX + banRongHat)),
+            Math.min(rh, Math.max(yHat1, tamY + banCaoHat)),
           ],
           [
             Math.max(0, tamX - banRongHat),
