@@ -1,6 +1,7 @@
 User-agent: *
 Allow: /
 Allow: /en
+Allow: /vi
 Allow: /es
 Allow: /pt
 Allow: /fr

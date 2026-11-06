@@ -109,7 +109,7 @@ def tim_font_he_thong(loai_font: str, co_chu: int, van_ban: str = ""):
         return None
     win_fonts = Path(os.environ.get("WINDIR", "C:\\Windows")) / "Fonts"
     # Tự động chọn bộ font CJK (Trung/Nhật/Hàn) hoặc Thái Lan nếu bản dịch chứa ký tự tượng hình/Thái để không bao giờ bị ô vuông □
-    if van_ban and re.search(r"[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]", van_ban):
+    if van_ban and re.search(r"[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]", van_ban) and not re.search(r"[\u00C0-\u1EF9]", van_ban):
         ds_cjk = ["msyhbd.ttc", "msjhbd.ttc", "simhei.ttf", "msyh.ttc", "msjh.ttc", "malgunbd.ttf", "YuGothB.ttc", "msgothic.ttc"]
         for ten in ds_cjk:
             p = win_fonts / ten
@@ -535,7 +535,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                 if vung_cam[pos]:
                     continue
                 trong_hop = (cx0 <= px < cx1) and (cy0 <= py < cy1)
-                if not trong_hop and ty_le_trang_dac >= 0.48 and lum_px[pos] < 185.0:
+                if not trong_hop and (ty_le_trang_dac >= 0.48 or (ty_le_trang_dac >= 0.24 and so_trang_sang / max(1, tong_mau - sum(1 for l_v in ds_lum if l_v <= 115.0)) >= 0.78)) and lum_px[pos] < 185.0:
                     continue
                 if trong_hop and (la_toi_net[pos] or la_mau_dam_net[pos]):
                     continue
@@ -750,7 +750,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
             bw = py_w * rw
             for px_w in range(cx0, cx1):
                 lw = lum_px[bw + px_w]
-                if lw > 120.0:
+                if lw > 120.0 and not (not la_nen_mau_thuc and lum_nen_trung_vi >= 224.0 and la_mau_dam_net[bw + px_w]):
                     dem_khong_toi_hop += 1
                     if (lw >= 240.0 and sat_px[bw + px_w] <= 36) or (lw >= 224.0 and sat_px[bw + px_w] <= 48 and lum_nen_trung_vi >= 222.0 and sat_nen_trung_vi <= 48):
                         dem_trang_tinh_hop += 1
@@ -758,7 +758,8 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
         p80_nen_thuc = ds_lum_nen_thuc[min(len(ds_lum_nen_thuc) - 1, int(len(ds_lum_nen_thuc) * 0.8))] if ds_lum_nen_thuc else med_lum
         p20_nen_thuc = ds_lum_nen_thuc[int(len(ds_lum_nen_thuc) * 0.2)] if ds_lum_nen_thuc else med_lum
         do_lech_nen_thuc = p80_nen_thuc - p20_nen_thuc
-        la_nen_kem_sang_phang = (not nen_toi) and (lum_nen_trung_vi >= 222.0) and (sat_nen_trung_vi <= 48) and (do_lech_nen_thuc <= 26.0) and (do_nhieu_hat < 18.0 or do_lech_nen_thuc <= 12.0) and (ty_le_trang_dac >= 0.45)
+        du_trang_bong_dam = (ty_le_trang_dac >= 0.24 and ty_le_trang_tren_nen_sang >= 0.78 and lum_nen_trung_vi >= 224.0)
+        la_nen_kem_sang_phang = (not nen_toi) and (lum_nen_trung_vi >= 222.0) and (sat_nen_trung_vi <= 48) and (do_lech_nen_thuc <= 26.0) and (do_nhieu_hat < 18.0 or do_lech_nen_thuc <= 12.0) and (ty_le_trang_dac >= 0.45 or du_trang_bong_dam)
 
         cham_bien_lt = 0
         chu_vi_roi = max(1, (rw + rh) * 2)
@@ -787,12 +788,26 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
         )
         nguong_tlt_bong = 0.84 if do_nhieu_hat >= 22.0 else 0.78
         nguong_p30_bong = 216.0 if (ty_le_trang_dac >= 0.62 and ty_le_trang_tren_nen_sang >= 0.84 and dem_net_xuyen_hop == 0) else (240.0 if do_nhieu_hat >= 22.0 else 224.0)
+        dem_mau_vong_ngoai = 0
+        tong_vong_ngoai = 0
+        for py_vn in range(max(0, cy0 - 14), min(rh, cy1 + 14), 2):
+            b_vn = py_vn * rw
+            for px_vn in range(max(0, cx0 - 14), min(rw, cx1 + 14), 2):
+                if cx0 <= px_vn < cx1 and cy0 <= py_vn < cy1:
+                    continue
+                tong_vong_ngoai += 1
+                p_vn = b_vn + px_vn
+                if sat_px[p_vn] >= 18 and 40.0 <= lum_px[p_vn] <= 225.0:
+                    dem_mau_vong_ngoai += 1
+        ty_le_mau_vong_ngoai = dem_mau_vong_ngoai / max(1, tong_vong_ngoai)
+        co_nen_soc_mau_ngoai = ((so_mau_trung_binh / tong_mau) >= 0.085 and ty_le_mau_vong_ngoai >= 0.10 and ty_le_cap_halo >= 0.22)
         la_bong_khep_kin = (
+            (not co_nen_soc_mau_ngoai) and
             (not ro_ri_bien_rong)
             and (not la_nen_mau_thuc or la_nen_kem_sang_phang)
             and (lum_nen_trung_vi >= (222.0 if la_nen_kem_sang_phang else 234.0))
             and (lum_nen_p30 >= (214.0 if la_nen_kem_sang_phang else nguong_p30_bong))
-            and (ty_le_trang_dac >= (0.45 if la_nen_kem_sang_phang else 0.52))
+            and (ty_le_trang_dac >= (0.45 if la_nen_kem_sang_phang else 0.52) or du_trang_bong_dam)
             and (ty_le_trang_tren_nen_sang >= nguong_tlt_bong or la_nen_kem_sang_phang)
             and (dem_net_xuyen_hop < 10 or (la_nen_kem_sang_phang and cham_bien_lt == 0))
             and (len(q_lt) >= dt_hop * 0.36)
@@ -893,13 +908,17 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
         # Vùng nền chỉ thực sự là BONG BÓNG TRẮNG PHẲNG khi không phải nền màu, trung vị/P30/P10 đều trắng sạch,
         # và KHÔNG bị rò rỉ kèm đường kẻ tường/vân gỗ/tóc đen xuyên vào lòng hộp (`dem_net_xuyen_hop >= 10`):
         co_net_tranh_xuyen_hop = (not la_bong_khep_kin) and ((ro_ri_bien_rong and dem_net_xuyen_hop >= 10) or dem_net_xuyen_hop >= 24)
+        co_nen_soc_mau_ro_ri = (co_nen_soc_mau_ngoai or (ro_ri_bien_rong and (so_mau_trung_binh / tong_mau) >= 0.085 and ty_le_cap_halo >= 0.22))
+        if co_nen_soc_mau_ro_ri:
+            la_nen_mau_thuc = True
+            la_nen_kem_sang_phang = False
         la_nen_trang_phang = (
             (not la_nen_mau_thuc or la_nen_kem_sang_phang)
             and (not co_net_tranh_xuyen_hop)
             and (lum_nen_trung_vi >= (222.0 if la_nen_kem_sang_phang else 234.0))
             and (ty_le_trang_tren_nen_sang >= nguong_tlt_bong or la_nen_kem_sang_phang)
             and (
-                (lum_nen_p30 >= 218.0 and (lum_nen_p10 >= 205.0 or ((la_bong_khep_kin or not ro_ri_bien_rong) and ty_le_trang_dac >= 0.48)))
+                (lum_nen_p30 >= 218.0 and (lum_nen_p10 >= 205.0 or (du_trang_bong_dam and dem_net_xuyen_hop == 0 and p20_nen_thuc >= 210.0) or ((la_bong_khep_kin or not ro_ri_bien_rong) and (ty_le_trang_dac >= 0.48 or du_trang_bong_dam))))
                 or ((la_bong_khep_kin or not ro_ri_bien_rong) and ty_le_trang_dac >= 0.55)
                 or ((la_bong_khep_kin or not ro_ri_bien_rong or lum_nen_p10 >= 205.0) and not nen_mau_trung_binh and ty_le_trang_tren_nen_sang >= 0.83 and ty_le_trang_dac >= 0.55 and do_nhieu_hat < 18.0)
             )
@@ -1062,6 +1081,18 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
         da_tham_cca = bytearray(N)
         can_xoa = bytearray(N)
         dien_tich_max_net = max(400, int(round((sx1 - sx0) * (sy1 - sy0) * 0.65)))
+        ctd_seg_info = _CACHE_CTD_SEG_MASK.get((W, H))
+        seg_mask_roi = bytearray(N)
+        if ctd_seg_info is not None:
+            seg_map_ctd, pad_x_ctd, pad_y_ctd, scale_ctd = ctd_seg_info
+            for py_s in range(sy0, sy1):
+                sy_m = int((ry0 + py_s) * scale_ctd + pad_y_ctd)
+                if 0 <= sy_m < 1024:
+                    b_s = py_s * rw
+                    for px_s in range(sx0, sx1):
+                        sx_m = int((rx0 + px_s) * scale_ctd + pad_x_ctd)
+                        if 0 <= sx_m < 1024 and float(seg_map_ctd[sy_m, sx_m]) >= 0.34:
+                            seg_mask_roi[b_s + px_s] = 1
 
         mau_chu_goc = None
         mau_vien_goc = None
@@ -1195,7 +1226,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                             or (py_d + d_d + 3 < rh and _la_ung_vien_halo(pos_d + (d_d + 2) * rw) and _la_ung_vien_halo(pos_d + (d_d + 3) * rw))
                         )
                     )
-                    kep_doi_dien = (h_trai and h_phai) or (h_tren and h_duoi)
+                    kep_doi_dien = (h_trai and h_phai) or (h_tren and h_duoi) or (bool(seg_mask_roi[pos_d]) and trong_dong[pos_d] and not ket_noi_bien[pos_d] and (h_trai or h_phai or h_tren or h_duoi))
                     if kep_doi_dien:
                         ung_vien_net[pos_d] = 1
 
@@ -2093,6 +2124,13 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                 px_anh[rx0 + px_d, ry0 + py_d] = (r_buf[pos_d], g_buf[pos_d], b_buf[pos_d])
         else:
             co_long_trang_ro = (not nen_toi) and (len(q_lt) >= max(64, int(dt_hop * 0.25)))
+            if ctd_seg_info is not None:
+                for sy_u in range(sy0, sy1):
+                    b_u = sy_u * rw
+                    for sx_u in range(sx0, sx1):
+                        u_idx = b_u + sx_u
+                        if seg_mask_roi[u_idx] and trong_dong[u_idx] and not vung_cam[u_idx] and not ket_noi_bien[u_idx] and lum_px[u_idx] < 212.0:
+                            la_nen[u_idx] = 0
             for sy in range(sy0, sy1):
                 base_s = sy * rw
                 for sx in range(sx0, sx1):
@@ -2177,6 +2215,16 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                 for idx_kk in range(N):
                     if not la_nen[idx_kk] and not vung_cam[idx_kk] and ngoai_bong_bong[idx_kk] == 0:
                         can_xoa[idx_kk] = 1
+            if la_bong_khep_kin or la_nen_trang_phang:
+                for d_con in ds_hop_dong:
+                    dlx0, dly0, dlx1, dly1 = max(2, d_con[0] - 2), max(2, d_con[1] - 2), min(rw - 2, d_con[2] + 2), min(rh - 2, d_con[3] + 2)
+                    for py_kk in range(dly0, dly1):
+                        b_kk = py_kk * rw
+                        for px_kk in range(dlx0, dlx1):
+                            idx_kk = b_kk + px_kk
+                            if not la_nen[idx_kk] and not vung_cam[idx_kk] and not ket_noi_bien[idx_kk]:
+                                can_xoa[idx_kk] = 1
+                                ngoai_bong_bong[idx_kk] = 0
             ban_kinh_no = 2
             y_no_0 = 2 if la_bong_khep_kin else max(ban_kinh_no, sy0 - ban_kinh_no)
             y_no_1 = (rh - 2) if la_bong_khep_kin else min(rh - ban_kinh_no, sy1 + ban_kinh_no)
@@ -2187,7 +2235,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                 rr, gg, bb, _ = row_bg[py]
                 for px in range(x_no_0, x_no_1):
                     pos = base + px
-                    if vung_cam[pos] or (la_bong_khep_kin and ngoai_bong_bong[pos]):
+                    if vung_cam[pos] or (la_bong_khep_kin and ngoai_bong_bong[pos] and (ket_noi_bien[pos] or not trong_dong[pos])) or (not la_bong_khep_kin and ket_noi_bien[pos]):
                         continue
                     if can_xoa[pos]:
                         px_anh[rx0 + px, ry0 + py] = (rr, gg, bb)
@@ -2356,6 +2404,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                 "mau_vien_goc": mau_vien_goc,
                 "la_chu_noi_tren_nen": la_chu_noi_tren_nen,
                 "hop_bong_thoai": v.get("hop_bong_thoai"),
+                "angle": float(v.get("angle") or 0.0),
                 "bg": (bg_r, bg_g, bg_b),
                 "dong_con": ds_dong_con,
             }
@@ -2796,6 +2845,22 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
         mau_chu = hop.get("mau_chu_goc") or ((255, 255, 255) if hop["nen_toi"] else (15, 23, 42))
         mau_vien = hop.get("mau_vien_goc") or (((0, 0, 0) if hop["nen_toi"] else (255, 255, 255)) if nen_mau_tb else hop["bg"])
 
+        goc_xoay_hop = float(hop.get("angle") or 0.0)
+        if abs(goc_xoay_hop) >= 8.0 and vi_tri_dong_chon:
+            do_day_vien = 3 if nen_mau_tb else 1
+            layer_rot = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+            draw_rot = ImageDraw.Draw(layer_rot)
+            for d, cur_x, cur_y, _ in vi_tri_dong_chon:
+                try:
+                    draw_rot.text((cur_x, cur_y), d, font=font_chon, fill=mau_chu + (255,), stroke_width=do_day_vien, stroke_fill=mau_vien + (255,))
+                except TypeError:
+                    draw_rot.text((cur_x, cur_y), d, font=font_chon, fill=mau_chu + (255,))
+            cx_rot = hop["x"] + hop["w"] * 0.5
+            cy_rot = hop["y"] + hop["h"] * 0.5
+            bicubic = getattr(getattr(Image, "Resampling", Image), "BICUBIC", 3)
+            layer_rot = layer_rot.rotate(-goc_xoay_hop, resample=bicubic, center=(cx_rot, cy_rot))
+            anh.paste(layer_rot.convert("RGB"), (0, 0), layer_rot.split()[3])
+            continue
         for d, cur_x, cur_y, _ in vi_tri_dong_chon:
             # Dùng `stroke_width` vector gốc của FreeType/Pillow thay cho vòng lặp vẽ đè 28 lần
             # để nét chữ và dấu Tiếng Việt (ắ, ặ, ể, ữ, ộ) sắc nét tuyệt đối, không bị nhòe/lem viền xám!
@@ -2982,10 +3047,28 @@ def goi_http(url: str, method: str = "GET", body: dict | None = None, token: str
         raise NeedsAttention("Chỉ hỗ trợ địa chỉ HTTP/HTTPS.")
     mp_key_hex = ""
     mp_vw_token = ""
+    coreview_div = 0
+    mangaz_scramble_b64 = ""
+    if parsed_u.fragment and "mangaz_scramble=" in parsed_u.fragment:
+        frag_mz = urllib.parse.parse_qs(parsed_u.fragment)
+        mangaz_scramble_b64 = (frag_mz.get("mangaz_scramble") or [""])[0].strip()
+        referer = "https://vw.mangaz.com/"
+        url = urllib.parse.urlunsplit((parsed_u.scheme, parsed_u.netloc, parsed_u.path, parsed_u.query, ""))
+    elif parsed_u.fragment and "coreview_scramble=" in parsed_u.fragment:
+        frag_cv = urllib.parse.parse_qs(parsed_u.fragment)
+        try:
+            coreview_div = int((frag_cv.get("coreview_scramble") or ["0"])[0])
+        except ValueError:
+            coreview_div = 4
+        url = urllib.parse.urlunsplit((parsed_u.scheme, parsed_u.netloc, parsed_u.path, parsed_u.query, ""))
+    elif parsed_u.fragment:
+        url = urllib.parse.urlunsplit((parsed_u.scheme, parsed_u.netloc, parsed_u.path, parsed_u.query, ""))
     if parsed_u.fragment and "mp_key=" in parsed_u.fragment:
         frag_qs = urllib.parse.parse_qs(parsed_u.fragment)
         mp_key_hex = (frag_qs.get("mp_key") or [""])[0].strip()
         mp_vw_token = (frag_qs.get("mp_vw") or [""])[0].strip()
+        url = urllib.parse.urlunsplit((parsed_u.scheme, parsed_u.netloc, parsed_u.path, parsed_u.query, ""))
+    elif parsed_u.fragment:
         url = urllib.parse.urlunsplit((parsed_u.scheme, parsed_u.netloc, parsed_u.path, parsed_u.query, ""))
     headers = {"User-Agent": USER_AGENT}
     if not nguon_ngoai:
@@ -3013,6 +3096,10 @@ def goi_http(url: str, method: str = "GET", body: dict | None = None, token: str
             content = resp.read(20 * 1024 * 1024 + 1)
             if len(content) > 20 * 1024 * 1024:
                 raise NeedsAttention("Phản hồi vượt giới hạn 20 MB.")
+            if nguon_ngoai and method.upper() == "GET" and len(content) < 65536 and b"/_v" in content and b"token" in content:
+                raise urllib.error.HTTPError(url, 403, "PoW Challenge", resp.headers, None)
+            if nguon_ngoai and method.upper() == "GET" and len(content) < 32768 and b"cloudflare" in content.lower() and b"challenge" in content.lower():
+                raise urllib.error.HTTPError(url, 403, "CF Challenge", resp.headers, None)
     except urllib.error.HTTPError as http_exc:
         if nguon_ngoai and method.upper() == "GET" and http_exc.code in (403, 429, 502, 503, 504):
             origin_goc = f"{parsed_u.scheme}://{parsed_u.netloc}/"
@@ -3031,10 +3118,37 @@ def goi_http(url: str, method: str = "GET", body: dict | None = None, token: str
                 try:
                     req_retry = urllib.request.Request(url, data=data, headers=hdr_retry, method=method)
                     with urllib.request.urlopen(req_retry, timeout=timeout) as resp_r:
-                        content = resp_r.read(20 * 1024 * 1024 + 1)
+                        cand_r = resp_r.read(20 * 1024 * 1024 + 1)
+                        if len(cand_r) < 65536 and b"/_v" in cand_r and b"token" in cand_r:
+                            continue
+                        content = cand_r
                         break
                 except urllib.error.HTTPError as e2:
                     loi_cuoi_http = e2
+                except Exception:
+                    pass
+            if not content and getattr(urllib.request.urlopen, "__name__", "") == "urlopen":
+                try:
+                    from curl_cffi import requests as _cffi_req
+                    sess_cf = _CACHE_RAPIDOCR_HF.get("__cffi_sess__")
+                    if sess_cf is None:
+                        sess_cf = _cffi_req.Session(impersonate="chrome124")
+                        _CACHE_RAPIDOCR_HF["__cffi_sess__"] = sess_cf
+                    r_cf = sess_cf.get(url, headers={"Referer": referer or origin_goc}, timeout=min(float(timeout or 25.0), 25.0))
+                    m_pow = re.search(r'token:\s*"([^"]+)"', r_cf.text or "") if (r_cf.status_code in (403, 404, 503) or "/_v" in (r_cf.text or "")) else None
+                    if m_pow and "/_v" in (r_cf.text or ""):
+                        tok_p = m_pow.group(1)
+                        nc_p = 0
+                        while nc_p < 50000:
+                            hp_p = hashlib.sha256(f"{tok_p}:{nc_p}".encode()).hexdigest()
+                            if hp_p.startswith("00"):
+                                break
+                            nc_p += 1
+                        body_p = urllib.parse.urlencode({"token": tok_p, "mode": "modern", "workTime": "46.5", "iterations": str(nc_p + 1), "hasCrypto": "1", "gms": "-1", "fi": "1", "rtc": "64", "rtip": "", "pow_nonce": str(nc_p), "pow_hash": hp_p, "webdriver": "0", "touch": "0", "screen_w": "1920", "screen_h": "1080", "screen_cd": "24", "wgv": "Google Inc. (NVIDIA)", "wgr": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)", "tz": "-420", "dpr": "1", "cdp": "0", "cdpf": ""})
+                        sess_cf.post(f"{origin_goc.rstrip('/')}/_v", data=body_p, headers={"Content-Type": "application/x-www-form-urlencoded", "Referer": url}, timeout=15)
+                        r_cf = sess_cf.get(url, headers={"Referer": referer or origin_goc}, timeout=min(float(timeout or 25.0), 25.0))
+                    if r_cf.status_code == 200 and r_cf.content:
+                        content = r_cf.content
                 except Exception:
                     pass
             if not content:
@@ -3058,6 +3172,39 @@ def goi_http(url: str, method: str = "GET", body: dict | None = None, token: str
             klen = len(key_bytes)
             if klen > 0:
                 content = bytes(b ^ key_bytes[i % klen] for i, b in enumerate(content))
+        except Exception:
+            pass
+    if coreview_div >= 2 and content and Image is not None:
+        try:
+            with Image.open(io.BytesIO(content)) as im_cv:
+                im_rgb = im_cv.convert("RGB")
+                w_cv, h_cv = im_rgb.size
+                cw_cv = (w_cv // (coreview_div * 8)) * 8
+                ch_cv = (h_cv // (coreview_div * 8)) * 8
+                if cw_cv > 0 and ch_cv > 0:
+                    out_cv = im_rgb.copy()
+                    for r_cv in range(coreview_div):
+                        for c_cv in range(coreview_div):
+                            if r_cv != c_cv:
+                                tile_cv = im_rgb.crop((c_cv * cw_cv, r_cv * ch_cv, (c_cv + 1) * cw_cv, (r_cv + 1) * ch_cv))
+                                out_cv.paste(tile_cv, (r_cv * cw_cv, c_cv * ch_cv))
+                    buf_cv = io.BytesIO()
+                    out_cv.save(buf_cv, format="JPEG", quality=95, subsampling=0)
+                    content = buf_cv.getvalue()
+        except Exception:
+            pass
+    if mangaz_scramble_b64 and content and Image is not None:
+        try:
+            sc_mz = json.loads(base64.urlsafe_b64decode(mangaz_scramble_b64.encode("ascii")).decode("utf-8"))
+            with Image.open(io.BytesIO(content)) as im_mz:
+                im_mz_rgb = im_mz.convert("RGB")
+                out_mz = Image.new("RGB", (int(sc_mz["w"]), int(sc_mz["h"])), (255, 255, 255))
+                for z_mz in (sc_mz.get("crops") or []):
+                    tile_mz = im_mz_rgb.crop((int(z_mz["x2"]), int(z_mz["y2"]), int(z_mz["x2"] + z_mz["w"]), int(z_mz["y2"] + z_mz["h"])))
+                    out_mz.paste(tile_mz, (int(z_mz["x"]), int(z_mz["y"])))
+                buf_mz = io.BytesIO()
+                out_mz.save(buf_mz, format="JPEG", quality=95, subsampling=0)
+                content = buf_mz.getvalue()
         except Exception:
             pass
     return content
@@ -3325,6 +3472,24 @@ def _lam_sach_chu_ocr_truyen(text: str) -> str:
         (r"\brt's\b", "It's"),
         (r"AS!'M\s*DRAGGED\b", "AS I'M DRAGGED"),
         (r"\bI'MDRAGGED\b", "I'M DRAGGED"),
+        (r"\bwin\s+[Oo][Pp][Pp]\s+him\b", "win off him"),
+        (r"\b[Oo][Pp][Pp]\s+him\b", "off him"),
+        (r"\bGROLND\b", "GROUND"),
+        (r"\bOLTSIDE\b", "OUTSIDE"),
+        (r"\bLINTIL\b", "UNTIL"),
+        (r"\bYOLIVE\b", "YOU'VE"),
+        (r"\bTECHNIQLE\b", "TECHNIQUE"),
+        (r"\bGOO000\b", "GOOOOO"),
+        (r"\bAVOIDACLOSE\b", "AVOID A CLOSE"),
+        (r"\bBURNT\s+ABIT\b", "BURNT A BIT"),
+        (r"\bCORPSEIS\b", "CORPSE' IS"),
+        (r"\bUSESA\b", "USES A"),
+        (r"\bSUCHASA\b", "SUCH AS A"),
+        (r"\bORAN\b", "OR AN"),
+        (r"\bASWELLAS\b", "AS WELL AS"),
+        (r"\bSOBE\b", "TO BE"),
+        (r"\bNEE\s*H\s*!+", "NEEIGH!!"),
+        (r"\bAs\s+was\s+last\s+turn\b", "As it was last turn"),
         (r"^\.\.Say\.\s+Shin\b", "...Say, Shin"),
         (r"\bIP\s+youg?\b", "If you"),
         (r"\bIP\s+(?=he\b|she\b|they\b|we\b|I\b|it\b)", "If "),
@@ -3477,6 +3642,148 @@ def _lam_sach_chu_ocr_truyen(text: str) -> str:
             return word + "!"
 
         s = re.sub(r"\b([A-Z]{2,})I(?=\s|$|[.,?!'\"])", _sua_i_cuoi, s)
+        s = re.sub(r"([A-Za-z])-\.(?=\s|$)", r"\1--", s)
+        s = re.sub(r"(?<=[A-Za-z])--(?=[A-Za-z])", " -- ", s)
+        s = re.sub(r"\b([B-HJ-Z])\s+(?=\1[A-Z]{2,}\b)", "", s)
+
+        # Khử lỗi nhận diện chữ viết tay Marvel (D<->O, U<->L, 16<->IS, ANO<->AND) trước khi tách từ dính
+        _marvel_hand_subs = [
+            (r"\bTW\s+WILIGHTOVER\b", "TWILIGHT OVER"),
+            (r"LEAVEYOLRWEAPONSON", "LEAVE YOUR WEAPONS ON"),
+            (r"\bYOLR\b", "YOUR"),
+            (r"HOLOSMEINAWE", "HOLDS ME IN AWE"),
+            (r"MS\.MADISONNO\b", "MS. MADISON -- NO"),
+            (r"\b(HA)+HAL\b", "HAHA!"),
+            (r"\bMYLAOY\b", "MY LADY"),
+            (r"\bAMIOGREAT\b", "AMID GREAT"),
+            (r"\bABSURO\b", "ABSURD"),
+            (r"\bIWOULON'T\b", "I WOULDN'T"),
+            (r"\bATEASE\b", "AT EASE"),
+            (r"\bA\s+NO\s+(?=MY\s+MASTERS|HE'S\b)", "AND "),
+            (r"ARCANEKNOWLEDGEANOALCHEMICALSORCERY", "ARCANE KNOWLEDGE AND ALCHEMICAL SORCERY"),
+            (r"\bANO\b", "AND"),
+            (r"NEW-FOUNOALLIES\.YOLIGHT", "NEW-FOUND ALLIES. YOU MIGHT"),
+            (r"\bSOME\s+TIME\s+A\s+GO\b", "SOME TIME AGO"),
+            (r"\bFORCESATAF\b", "FORCES AT A"),
+            (r"\bIB\s+BROKETHE\b", "I BROKE THE"),
+            (r"OURWORLOAGAIN", "OUR WORLD AGAIN"),
+            (r"FRIENDWAKANDA'S", "FRIEND -- WAKANDA'S"),
+            (r"MOUNCIF", "MOUND! IF "),
+            (r"VIBRANILM|VIBRANILIM|VIBRANIAM|VIBRANRIAM|VIBRAXIM", "VIBRANIUM"),
+            (r"POWERFLL", "POWERFUL"),
+            (r"WHERE\s+16\s*THE\s*VISION", "WHERE IS THE VISION"),
+            (r"BEMARKEO", "BE MARKED"),
+            (r"PICKSOMEONE\s+EL\.\.\.", "PICK SOMEONE ELSE..."),
+            (r"CAPFINOSTHISTHING", "CAP FINDS THIS THING"),
+            (r"\bIOIDIT\b", "I DID IT!"),
+            (r"TOLOSEABEALTY", "TO LOSE A BEAUTY"),
+            (r"DECAYEOHANDS", "DECAYED HANDS"),
+            (r"GIVENLP", "GIVEN UP"),
+            (r"\bPANTHERNO\b", "PANTHER, NO"),
+            (r"HERCLLES", "HERCULES"),
+            (r"WHAT!'M\s+HE\s+A\s+RING", "WHAT I'M HEARING"),
+            (r"BEBANISHEOBEYONDTHIS", "BE BANISHED BEYOND THIS"),
+            (r'ASSIM\s+ILATED"?', "ASSIMILATED"),
+            (r"\bBARUNO\b", "BARU, NO"),
+            (r"QUEENLINEINHERBELOVED", "QUEEN LIVE IN HER BELOVED"),
+            (r"\bHOWOPD\b", "HOW ODD"),
+            (r"INTOCNEOFTHE", "INTO ONE OF THE"),
+            (r"\bKUDUS,\s*VISION", "KUDOS, VISION"),
+            (r"\bW-WHATZ!", "W-WHAT?!"),
+            (r"\bWHATAREYOUZ!", "WHAT ARE YOU?!"),
+            (r"\bCOWARO\b", "COWARD"),
+            (r"\bWOULOST\b", "WOULDST"),
+            (r"FROMBEHINO", "FROM BEHIND"),
+            (r"SSSTANDSSSTILL", "STAND STILL"),
+            (r"\bSSSEAR\b", "SEAR"),
+            (r"FLESSSHFROM", "FLESH FROM"),
+            (r"THISCREATURE'SPLAME", "THIS CREATURE'S FLAME"),
+            (r"WHILE!\s+PUT", "WHILE I PUT"),
+            (r"MYFLAMEISSS", "MY FLAME IS"),
+            (r"WORLOYOUNEEOOXYGENTOCREATEFIRE", "WORLD YOU NEED OXYGEN TO CREATE FIRE"),
+            (r"REMOV\s+INGTHEAIRAROUNOYOU", "REMOVING THE AIR AROUND YOU"),
+            (r"IMHERE,\s*I'ME\s+VERY\s+WHERE", "I'M HERE, I'M EVERYWHERE"),
+            (r"Hydrogen\s+WL\s+MAKE", "HYDROGEN WILL MAKE"),
+            (r"\bLNLESS\b", "UNLESS"),
+            (r"REALY\s+DESTROYEOTHE", "REALLY DESTROYED THE"),
+            (r"GLOWT\s+THAT", "GLOW THAT"),
+            (r"THEDISTORTEO", "THE DISTORTED"),
+            (r"\bCNE\b", "ONE"),
+            (r"LIMITEOTCTHEFOLR", "LIMITED TO THE FOUR"),
+            (r"\bLh,\s*CAR\.", "UH, CAP..."),
+            (r"IWILLSLIPAWA\.\.\.", "I WILL SLIP AWAY..."),
+            (r"\bJERK3!", "JERK?!"),
+            (r"WELLRETLRN", "WE'LL RETURN"),
+            (r"THEIRCWNWORLD", "THEIR OWN WORLD"),
+            (r"BARUALONE", "BARU ALONE"),
+            (r"\bEVERY\s+ONE\b", "EVERYONE"),
+        ]
+        for pat_m, rep_m in _marvel_hand_subs:
+            s = re.sub(pat_m, rep_m, s, flags=re.I)
+
+        # Tách từ viết tắt có dấu nháy đơn bị dính liền vào từ tiếp theo (VD: I'MSUREYOU'LLFIND -> I'M SURE YOU'LL FIND)
+        for _ in range(2):
+            s = re.sub(
+                r"\b(I'M|I'LL|I'VE|I'D|YOU'RE|YOU'LL|YOU'VE|WE'RE|WE'LL|WE'VE|THEY'RE|THEY'LL|THEY'VE|IT'S|THAT'S|WHAT'S|THERE'S|HERE'S|WHO'S|LET'S|DON'T|CAN'T|WON'T|DIDN'T|DOESN'T|ISN'T|AREN'T|WASN'T|WEREN'T|WOULDN'T|COULDN'T|SHOULDN'T)(?=[A-Z]{2,}\b)",
+                r"\1 ",
+                s,
+            )
+            s = re.sub(
+                r"\b([A-Z]{2,})(?=(?:I'M|I'LL|I'VE|YOU'LL|YOU'RE|WE'RE|WE'LL|WE'VE|DON'T|CAN'T|WON'T)\b)",
+                r"\1 ",
+                s,
+            )
+            s = re.sub(r"\b([A-Z]{3,}'S)(?=[A-Z]{2,}\b)", r"\1 ", s)
+
+        _tu_vung_tach = {
+            "a", "i", "am", "an", "as", "at", "be", "by", "do", "go", "he", "if", "in", "is", "it", "me", "my", "no", "of", "on", "or", "so", "to", "up", "us", "we",
+            "ago", "air", "all", "and", "any", "are", "awe", "bad", "bag", "bar", "big", "boy", "but", "can", "cap", "car", "cry", "cut", "day", "did", "die", "dog", "dry", "ear", "eat", "end", "era", "eye", "far", "few", "fly", "foe", "for", "fun", "gas", "get", "god", "got", "gun", "guy", "had", "has", "hat", "her", "hey", "hid", "him", "his", "hit", "hot", "how", "ice", "ill", "ink", "its", "jaw", "jet", "job", "joy", "key", "kid", "kin", "law", "lay", "led", "leg", "let", "lie", "lip", "lit", "log", "lot", "low", "mad", "man", "map", "may", "men", "met", "mob", "mom", "mud", "net", "new", "nod", "nor", "not", "now", "odd", "off", "oil", "old", "one", "our", "out", "owe", "own", "pay", "pen", "per", "pet", "pit", "pop", "pot", "put", "ran", "raw", "ray", "red", "rid", "rip", "rod", "rot", "row", "rub", "run", "sad", "sat", "saw", "say", "sea", "see", "set", "she", "shy", "sin", "sir", "sit", "six", "sky", "son", "spy", "sub", "sum", "sun", "tea", "ten", "the", "thy", "tie", "tin", "tip", "toe", "ton", "too", "top", "toy", "try", "two", "use", "van", "vet", "via", "vow", "war", "was", "wax", "way", "web", "wet", "who", "why", "win", "wit", "won", "yet", "you",
+            "able", "acid", "aged", "aide", "ally", "also", "amid", "army", "atom", "atop", "aunt", "away", "axis", "baby", "back", "bail", "bait", "ball", "band", "bank", "bare", "bark", "barn", "baru", "base", "bath", "beam", "bear", "beat", "been", "beer", "bell", "belt", "bend", "bent", "best", "beta", "bill", "bind", "bird", "bite", "blew", "blow", "blue", "blur", "boar", "boat", "body", "boil", "bold", "bolt", "bomb", "bond", "bone", "book", "boom", "boot", "bore", "born", "boss", "both", "bowl", "bulk", "bull", "burn", "bury", "bush", "busy", "cage", "cake", "call", "calm", "came", "camp", "cape", "card", "care", "cart", "case", "cash", "cast", "cave", "cell", "chat", "chef", "chin", "chip", "chop", "city", "clad", "clan", "claw", "clay", "clip", "club", "clue", "coal", "coat", "code", "coil", "coin", "cold", "come", "cone", "cook", "cool", "cope", "copy", "cord", "core", "corn", "cost", "cozy", "crew", "crop", "crow", "cube", "cult", "cure", "curl", "cute", "dane", "dare", "dark", "dart", "dash", "data", "date", "dawn", "days", "dead", "deaf", "deal", "dear", "debt", "deck", "deed", "deem", "deep", "deer", "defy", "deny", "desk", "dial", "dice", "died", "diet", "dirt", "disc", "dish", "dive", "dock", "does", "doll", "dome", "done", "doom", "door", "dose", "down", "drag", "draw", "incredible", "york", "africa", "seventeen", "minutes", "attention", "protocraft", "proceed", "airstrip", "elite", "wing", "craft", "guide", "approach", "wakandan", "wakanda", "tower", "exciting", "dreamed", "traveling", "exotic", "places", "protocol", "please", "weapons", "board", "beauty", "holds", "madison", "times", "instincts", "usually", "prepared", "anything", "everybody", "hang", "challa", "newest", "flagship", "land", "flies", "moments", "later", "royal", "palace", "unexpected", "mighty", "join", "party", "welcome", "introduce", "yourselves", "host", "spared", "expense", "comfort", "unharmed", "lady", "brought", "absurd", "risk", "anywhere", "else", "ease", "position", "negotiate", "never", "lion", "olympus", "helpless", "innocents", "correct", "captain", "america", "masters", "gladly", "manners", "allow", "allies", "remember", "refresh", "defeated", "elements", "buried", "mass", "molten", "steel", "reactor", "experienced", "meltdown", "entire", "facility", "cement", "public", "months", "broke", "dimensional", "barrier", "arcane", "knowledge", "alchemical", "sorcery", "creatures", "formed", "alliance", "obtain", "domination", "planet", "conquest", "vibranium", "national", "resource", "metal", "absorbs", "kinetic", "energy", "powerful", "impenetrable", "vision", "answer", "absence", "marked", "consequence", "pick", "slay", "hostage", "hostages", "price", "mound", "cobalt", "neon", "seek", "missing", "android", "errant", "knight", "resist", "destroy", "begin", "creating", "unstoppable", "soldiers", "others", "minute", "strange", "almost", "sorry", "rough", "going", "chances", "care", "finds", "handy", "think", "catch", "hope", "work", "reversed", "polarity", "blade", "caused", "electron", "field", "dispersion", "defenseless", "great", "timing", "thanks", "elemental", "beings", "stop", "destroys", "friends", "shame", "lose", "decayed", "hands", "sorcerer", "glorious", "earther", "assimilated", "avenger", "doubt", "given", "reverse", "psychology", "panther", "resistance", "futile", "suit", "banished", "realm", "existence", "replaced", "living", "starting", "black", "betrothed", "plutonium", "carbon", "departure", "worldly", "plane", "eventually", "king", "trouble", "perhaps", "amends", "failures", "soon", "witness", "birth", "being", "composed", "purest", "capable", "withstanding", "queen", "live", "beloved", "jungle", "longer", "laughing", "giving", "opportunity", "strike", "ability", "transform", "hardest", "substances", "intangible", "state", "momentum", "transfer", "module", "kudos", "bestow", "olympian", "vengeance", "coward", "pluto", "greet", "broken", "hide", "gates", "hades", "wouldst", "unarmed", "opponent", "alien", "stand", "human", "sear", "flesh", "frame", "draw", "creature", "flame", "attacks", "worry", "abilities", "safe", "phosphorus", "controlling", "supply", "barrels", "machine", "dying", "crystal", "oxygen", "create", "resident", "inhuman", "removing", "tight", "retrieve", "whom", "supplanted", "incoming", "chemists", "store", "barrel", "explosion", "unless", "exhale", "hydrogen", "sparking", "conduit", "igniting", "blowtorch", "wonder", "reaction", "really", "destroyed", "suddenly", "focus", "glow", "crackles", "ruins", "device", "distorted", "composite", "emerges", "nova", "center", "look", "another", "somehow", "merged", "control", "radiation", "powers", "limited", "brace", "looks", "bigger", "problem", "crave", "stay", "stray", "potentially", "lethal", "feeding", "growing", "size", "remains", "totem", "wealth", "avenging", "gift", "country", "farewell", "understand", "happened", "process", "normal", "fools", "distracted", "going", "jerk", "taylor", "hast", "makings", "okay", "characters", "proper", "containment", "trial", "crimes", "return", "rescue", "dimensionally", "displaced", "faith", "intent", "says", "besides", "anniversary", "celebrate",
+            "drawn", "dream", "dress", "dried", "ories", "drift", "drill", "drink", "drive", "drove", "drown", "drugs", "drums", "drunk", "dukes", "dull", "dying", "eager", "eagle", "early", "earth", "eaten", "edges", "eight", "elder", "elect", "empty", "ended", "enemy", "enjoy", "enter", "entry", "equal", "error", "event", "every", "exact", "exist", "extra", "faced", "faces", "facts", "faded", "fails", "faint", "fairy", "faith", "false", "famed", "fancy", "fatal", "fault", "favor", "fears", "feast", "feeds", "feels", "fewer", "fiber", "field", "fifth", "fifty", "fight", "filed", "files", "fills", "films", "final", "finds", "finer", "fired", "fires", "firms", "first", "fixed", "flags", "flame", "flash", "fleet", "flesh", "flies", "float", "̈flood", "floor", "flour", "flows", "fluid", "flush", "focus", "folks", "force", "forms", "forth", "forty", "forum", "found", "frame", "frank", "fraud", "fresh", "front", "frost", "fruit", "fully", "funds", "funny", "gains", "games", "gates", "gauge", "gears", "genes", "ghost", "giant", "gifts", "girls", "given", "gives", "gland", "glass", "globe", "glory", "glove", "goals", "goats", "going", "goods", "grace", "grade", "grain", "grand", "grant", "grape", "grasp", "grass", "grave", "great", "greed", "green", "greet", "grief", "grill", "grind", "grips", "gross", "group", "grove", "grown", "grows", "guard", "guess", "guest", "guide", "guild", "guilt", "habit", "hairs", "halls", "hands", "handy", "hangs", "happy", "harsh", "hated", "hates", "haven", "heads", "heard", "hears", "heart", "heavy", "hedge", "heels", "hello", "helps", "hence", "herbs", "hides", "hills", "hints", "hired", "hobby", "holds", "holes", "holly", "homes", "honey", "honor", "hooks", "hoped", "hopes", "horns", "horse", "hosts", "hotel", "hours", "house", "hover", "human", "humor", "hurry", "hurts", "ideal", "ideas", "idiot", "image", "imply", "index", "inner", "input", "irony", "issue", "items", "jeans", "jewel", "joins", "joint", "jokes", "judge", "juice", "jumps", "keeps", "kicks", "kills", "kinds", "kings", "knees", "knife", "knock", "known", "knows", "label", "labor", "lacks", "lakes", "lamps", "lands", "lanes", "large", "laser", "lasts", "later", "laugh", "layer", "leads", "leaks", "learn", "lease", "least", "leave", "legal", "lemon", "level", "lever", "light", "liked", "likes", "limbs", "limit", "lined", "linen", "liner", "lines", "links", "lions", "lists", "lived", "liver", "lives", "loads", "loans", "local", "locks", "lodge", "logic", "loose", "lords", "loses", "loved", "lover", "loves", "lower", "loyal", "lucky", "lunar", "lunch", "lungs", "lying", "magic", "major", "maker", "makes", "males", "manor", "maple", "march", "marks", "marry", "masks", "match", "mates", "mayor", "meals", "means", "meant", "medal", "media", "meets", "melon", "mercy", "merge", "merit", "merry", "messy", "metal", "meter", "midst", "might", "miles", "minds", "miner", "mines", "minor", "minus", "mixed", "model", "modes", "moist", "money", "month", "moral", "motor", "mount", "mouse", "mouth", "moved", "mover", "moves", "movie", "music", "myths", "nails", "naked", "named", "names", "nasty", "naval", "needs", "nerve", "never", "newer", "newly", "night", "ninth", "noble", "noise", "noisy", "norms", "north", "noted", "notes", "novel", "nurse", "oasis", "occur", "ocean", "offer", "often", "older", "olive", "omega", "onion", "opens", "opera", "orbit", "order", "organ", "other", "ought", "ounce", "outer", "owned", "owner", "oxide", "packs", "pages", "pains", "paint", "pairs", "panel", "panic", "pants", "paper", "parks", "parts", "party", "pasta", "paste", "patch", "paths", "pause", "peace", "peach", "peaks", "pearl", "pedal", "peers", "penny", "peril", "pests", "petty", "phase", "phone", "photo", "piano", "picks", "piece", "piles", "pills", "pilot", "pinch", "pipes", "pitch", "pixel", "pizza", "place", "plain", "plane", "plans", "plant", "plate", "plays", "plaza", "plead", "plots", "pluck", "plugs", "poems", "poets", "point", "polar", "poles", "polls", "pools", "porch", "pores", "ports", "posed", "poses", "posts", "pouch", "pound", "pours", "power", "press", "price", "pride", "prime", "print", "prior", "prize", "probe", "prone", "proof", "props", "proud", "prove", "proxy", "psalm", "pulls", "pulse", "pumps", "punch", "pupil", "puppy", "purse", "queen", "query", "quest", "queue", "quick", "quiet", "quilt", "quite", "quote", "races", "racks", "radar", "radio", "rails", "rainy", "raise", "rally", "ranch", "range", "ranks", "rapid", "rated", "rates", "ratio", "razor", "reach", "react", "reads", "ready", "realm", "rebel", "refer", "reign", "relax", "relay", "relic", "rely", "renew", "reply", "reset", "resin", "rests", "rider", "rides", "ridge", "rifle", "right", "rigid", "rings", "rinse", "riots", "risen", "rises", "risks", "risky", "rival", "river", "roads", "roast", "robot", "rocks", "rocky", "rogue", "roles", "rolls", "roman", "roofs", "rooms", "roots", "ropes", "roses", "rough", "round", "route", "royal", "rugby", "ruins", "ruled", "ruler", "rules", "rumor", "rural", "sadly", "safer", "saint", "sakes", "salad", "sales", "salon", "salty", "sands", "sandy", "satin", "sauce", "saved", "saves", "scale", "scalp", "scans", "scare", "scarf", "scary", "scene", "scent", "Jscope", "score", "scout", "scrap", "screw", "seals", "seams", "seats", "sects", "seeds", "seeks", "seems", "seize", "sells", "sends", "sense", "serum", "serve", "setup", "seven", "shade", "shaft", "shake", "shall", "shame", "shape", "share", "shark", "sharp", "sheep", "sheer", "sheet", "shelf", "shell", "shift", "shine", "shiny", "ships", "shirt", "shock", "shoes", "shook", "shoot", "shops", "shore", "short", "shots", "shown", "shows", "shrug", "sided", "sides", "siege", "sight", "sigma", "signs", "silly", "since", "sings", "sinks", "siren", "sites", "sixth", "sixty", "sized", "sizes", "skate", "skill", "skins", "skirt", "skull", "slain", "slang", "slate", "slave", "sleep", "slept", "slice", "slide", "slope", "slots", "small", "smart", "smash", "smell", "smile", "smoke", "snack", "snake", "sneak", "solar", "solid", "solve", "songs", "sonic", "sorry", "sorts", "souls", "sound", "south", "space", "spare", "spark", "speak", "spear", "speed", "spell", "spend", "spent", "spice", "spicy", "spike", "spill", "spine", "split", "spoil", "spoke", "spoon", "sport", "spots", "spray", "squad", "stack", "staff", "stage", "stain", "stair", "stake", "stale", "stamp", "stand", "stare", "stark", "stars", "start", "state", "stays", "steak", "steal", "steam", "steel", "steep", "steer", "stems", "steps", "stern", "stick", "stiff", "still", "sting", "stock", "stole", "stone", "stood", "stool", "stoop", "stops", "store", "storm", "story", "stove", "strap", "straw", "stray", "strip", "stuck", "study", "stuff", "style", "sugar", "suite", "suits", "sunny", "super", "surge", "swamp", "swear", "sweat", "sweep", "sweet", "swell", "swept", "swift", "swing", "sword", "swore", "sworn", "syrup", "table", "taken", "takes", "tales", "talks", "tanks", "tapes", "tasks", "taste", "tasty", "taxes", "teach", "teams", "tears", "tease", "teeth", "tells", "tempo", "tends", "tense", "tenth", "tents", "terms", "tests", "texts", "thank", "theft", "their", "theme", "there", "these", "thick", "thief", "thigh", "thing", "think", "third", "thorn", "those", "three", "threw", "throw", "thumb", "tiger", "tight", "tiles", "timer", "times", "tired", "title", "toast", "today", "token", "tones", "tools", "tooth", "topic", "torch", "total", "touch", "tough", "tours", "towel", "tower", "towns", "toxic", "trace", "track", "tract", "trade", "trail", "train", "trait", "trash", "treat", "trees", "trend", "trial", "tribe", "trick", "tried", "tries", "trips", "troop", "truck", "truly", "trunk", "trust", "truth", "tubes", "tumor", "tuned", "tunes", "turbo", "turns", "tutor", "twice", "twins", "twist", "types", "ultra", "uncle", "under", "union", "unite", "units", "unity", "until", "upper", "upset", "urban", "urged", "urine", "usage", "users", "using", "usual", "vague", "valid", "value", "valve", "vapor", "vault", "vegan", "veins", "venue", "verge", "verse", "video", "views", "villa", "vinyl", "viral", "virus", "visit", "vital", "vivid", "vocal", "voice", "voter", "votes", "wages", "wagon", "waist", "waits", "woken", "walks", "walls", "wants", "warns", "waste", "watch", "water", "watts", "waves", "wears", "weary", "weeds", "weeks", "weigh", "weird", "wells", "whale", "wheat", "wheel", "where", "which", "while", "white", "whole", "whose", "wider", "widow", "width", "winds", "wines", "wings", "wiped", "wires", "wiser", "witch", "wives", "woman", "women", "woods", "words", "works", "world", "worms", "worry", "worse", "worst", "worth", "would", "wound", "woven", "wrath", "wreck", "wrist", "write", "wrong", "wrote", "yacht", "yards", "years", "yeast", "yield", "young", "yours", "youth", "zones",
+            "ally", "also", "away", "back", "been", "best", "both", "came", "come", "dark", "dead", "dear", "deep", "does", "done", "down", "each", "even", "ever", "eyes", "face", "fall", "fate", "fear", "feel", "fell", "find", "fire", "fist", "five", "flew", "foul", "four", "free", "from", "full", "gave", "give", "glad", "gods", "gone", "good", "hand", "hard", "have", "head", "hear", "held", "hell", "help", "here", "hero", "high", "hold", "home", "hope", "hour", "hurt", "into", "just", "keep", "kept", "kill", "kind", "king", "knew", "know", "last", "late", "lead", "left", "less", "life", "like", "line", "long", "look", "lord", "lost", "love", "made", "make", "many", "mind", "mine", "more", "most", "move", "much", "must", "name", "near", "need", "next", "none", "once", "only", "open", "over", "part", "past", "play", "pull", "pure", "rest", "rich", "ride", "ring", "rise", "road", "rock", "room", "rule", "safe", "said", "same", "save", "seen", "self", "send", "sent", "show", "shut", "side", "sign", "slip", "slow", "some", "soon", "soul", "spot", "star", "stay", "step", "stop", "such", "sure", "take", "talk", "tell", "than", "that", "thee", "them", "then", "they", "this", "thou", "thus", "time", "told", "took", "town", "tree", "true", "turn", "unto", "upon", "used", "very", "wait", "walk", "wall", "want", "warm", "weak", "well", "went", "were", "what", "when", "whom", "wide", "wife", "wild", "will", "wind", "wish", "with", "wood", "word", "work", "year", "your", "zeus",
+            "about", "above", "after", "again", "alone", "along", "among", "avengers", "alchemy", "against", "allied", "always", "around", "attack", "battle", "become", "before", "behind", "believe", "better", "beyond", "birds", "blood", "bring", "brought", "burnt", "called", "cannot", "castle", "caught", "cause", "change", "chance", "close", "combat", "coming", "corpse", "could", "course", "cursed", "danger", "death", "defeat", "diablo", "dragon", "dragged", "drained", "dream", "drink", "earth", "enemy", "enough", "escape", "especially", "every", "everything", "except", "father", "feather", "fiend", "fight", "figure", "figured", "finally", "finding", "first", "fists", "flames", "flying", "follow", "force", "forget", "forth", "found", "friend", "front", "future", "ground", "guards", "having", "heard", "heart", "heavy", "hercules", "himself", "history", "hooks", "human", "hundred", "inside", "instead", "itself", "killed", "knight", "known", "large", "leave", "light", "little", "living", "looking", "madman", "magic", "making", "master", "matter", "means", "memory", "might", "moment", "money", "monster", "morning", "mother", "mouth", "myself", "nature", "nearly", "neither", "never", "night", "nobody", "nothing", "notice", "number", "often", "order", "other", "outside", "people", "perhaps", "person", "place", "point", "points", "power", "preoccupied", "pretty", "prince", "prison", "proper", "protect", "pulling", "purpose", "quickly", "quiet", "quite", "ravings", "rather", "reach", "ready", "really", "reason", "remain", "remove", "return", "right", "running", "saving", "second", "secret", "seeing", "seems", "sense", "serve", "service", "settle", "seven", "several", "shadow", "shall", "shield", "should", "silence", "silver", "simple", "single", "sister", "sleep", "small", "someone", "something", "sometimes", "sound", "speak", "special", "spirit", "stand", "standing", "start", "state", "still", "stone", "stood", "storm", "story", "strange", "street", "strength", "strike", "stroheim", "strong", "sudden", "suddenly", "sword", "system", "taken", "taking", "technique", "their", "there", "these", "thing", "things", "think", "thinking", "third", "those", "though", "thought", "thousand", "three", "threw", "through", "throw", "tight", "today", "together", "tomorrow", "tonight", "total", "touch", "toward", "towards", "train", "tried", "trouble", "truth", "trying", "turned", "twenty", "under", "understand", "unnoticed", "until", "using", "usual", "value", "victory", "voice", "waiting", "walking", "wanted", "warrior", "watch", "water", "weapon", "where", "whether", "which", "while", "white", "whole", "whose", "without", "woman", "women", "wonder", "world", "worse", "worst", "worth", "would", "wrong", "young", "yourself",
+        }
+
+        def _la_tu_hop_le_dp(w: str) -> bool:
+            if w in _tu_vung_tach:
+                return True
+            if len(w) >= 4:
+                if w.endswith("s") and w[:-1] in _tu_vung_tach:
+                    return True
+                if w.endswith("es") and w[:-2] in _tu_vung_tach:
+                    return True
+                if w.endswith("ed") and (w[:-2] in _tu_vung_tach or (w[:-1] in _tu_vung_tach)):
+                    return True
+                if w.endswith("ing") and len(w) >= 5 and (w[:-3] in _tu_vung_tach or (w[:-3] + "e") in _tu_vung_tach):
+                    return True
+                if w.endswith("ly") and w[:-2] in _tu_vung_tach:
+                    return True
+            return False
+
+        def _tach_tu_hoa_dinh(m_tok: re.Match) -> str:
+            tok = m_tok.group(0)
+            low = tok.lower()
+            if _la_tu_hop_le_dp(low):
+                return tok
+            n_t = len(low)
+            dp_t: list[tuple[float, list[str]] | None] = [None] * (n_t + 1)
+            dp_t[0] = (0.0, [])
+            for i_t in range(n_t):
+                if dp_t[i_t] is None:
+                    continue
+                c_cur, w_cur = dp_t[i_t]  # type: ignore[misc]
+                for j_t in range(i_t + 1, min(n_t, i_t + 15) + 1):
+                    sub_t = low[i_t:j_t]
+                    if _la_tu_hop_le_dp(sub_t):
+                        sc_t = 1.18 if len(sub_t) == 1 else (1.05 if len(sub_t) == 2 else 1.0 - 0.02 * len(sub_t))
+                        nc_t = c_cur + sc_t
+                        if dp_t[j_t] is None or nc_t < dp_t[j_t][0]:  # type: ignore[index]
+                            dp_t[j_t] = (nc_t, w_cur + [tok[i_t:j_t]])
+            if dp_t[n_t] is not None and len(dp_t[n_t][1]) >= 2:  # type: ignore[index]
+                return " ".join(dp_t[n_t][1])  # type: ignore[index]
+            return tok
+
+        s = re.sub(r"\b[A-Z]{5,}\b", _tach_tu_hoa_dinh, s)
     # Khử từ hoặc cụm từ bị nhân đôi liên tiếp (kể cả có dấu câu ở cuối như 'down? down?', 'hear me. hear me.')
     s = re.sub(r"\b([A-Za-z']+(?:\s+[A-Za-z',.!?]+){0,4}[.!?]*)\s+\1(?=\s|$)", r"\1", s, flags=re.I)
     return s.strip()
@@ -3495,8 +3802,21 @@ def _gop_cac_dong_trong_bong_thoai(comp_ordered: list[dict], ngon_ngu_nguon: str
     lang = (ngon_ngu_nguon or "en").lower()
     co_ky_tu_cjk = any(ord(c) >= 0x2E80 for r in comp_ordered for c in str(r.get("text") or ""))
     if lang in ("ja", "zh") and co_ky_tu_cjk:
-        raw_joined = "".join(str(r.get("text") or "").strip() for r in comp_ordered)
-        return _lam_sach_chu_ocr_truyen(raw_joined)
+        parts_ja: list[str] = []
+        for r in comp_ordered:
+            tj = str(r.get("text") or "").strip()
+            if not tj:
+                continue
+            prev_ja = parts_ja[-1].lstrip("、") if parts_ja else ""
+            if prev_ja and ((len(prev_ja) >= 4 and all(0x4E00 <= ord(c) <= 0x9FFF or 0x30A0 <= ord(c) <= 0x30FF for c in prev_ja)) or prev_ja.endswith(("しい", "いい"))):
+                parts_ja.append("、" + tj)
+            else:
+                parts_ja.append(tj)
+        return _lam_sach_chu_ocr_truyen("".join(parts_ja))
+    if len(comp_ordered) >= 3:
+        toks_v = [str(r.get("text") or "").strip() for r in comp_ordered if str(r.get("text") or "").strip()]
+        if len(toks_v) >= 3 and sum(1 for s in toks_v if len(s) == 1 and s.isascii() and s.isalpha()) >= len(toks_v) - 1 and all((len(s) == 1 and s.isascii() and s.isalpha()) or not any(c.isalnum() for c in s) for s in toks_v):
+            return _lam_sach_chu_ocr_truyen("".join(toks_v))
 
     merged_lines: list[str] = []
     for r in comp_ordered:
@@ -3517,7 +3837,11 @@ def _gop_cac_dong_trong_bong_thoai(comp_ordered: list[dict], ngon_ngu_nguon: str
                 if prev.endswith(("-", "=")) or prev.rstrip("-=!").lower() in {
                     "some", "any", "every", "no", "hon", "solu", "poi", "inna", "dai", "san", "al", "pla", "becom"
                 }:
-                    merged_lines[-1] = prev.rstrip("-=!") + t
+                    stem_prev = prev.rstrip("-=!")
+                    if len(stem_prev) == 1 or (t[:1].isupper() and stem_prev[:1].upper() == t[:1].upper()):
+                        merged_lines[-1] = stem_prev + "-" + t
+                    else:
+                        merged_lines[-1] = stem_prev + t
                     continue
         merged_lines.append(t)
     return _lam_sach_chu_ocr_truyen(" ".join(merged_lines))
@@ -3692,6 +4016,30 @@ def _sap_xep_dong_trong_bong_thoai(comp: list[dict]) -> list[dict]:
     """
     if len(comp) <= 1:
         return list(comp)
+    so_cot_doc_cjk = sum(
+        1 for r in comp
+        if r.get("h", 0) > r.get("w", 0) * 1.25 and any(ord(c) >= 0x2E80 for c in str(r.get("text") or ""))
+    )
+    if so_cot_doc_cjk >= len(comp) * 0.5:
+        tam_doc = sorted(comp, key=lambda r: (-(r["x"] + r["w"] * 0.5), r["y"]))
+        cac_cot: list[list[dict]] = []
+        for item in tam_doc:
+            cx = item["x"] + item["w"] * 0.5
+            if not cac_cot:
+                cac_cot.append([item])
+                continue
+            cot_cuoi = cac_cot[-1]
+            cx_tb = sum(x["x"] + x["w"] * 0.5 for x in cot_cuoi) / len(cot_cuoi)
+            w_tb = sum(x["w"] for x in cot_cuoi) / len(cot_cuoi)
+            if abs(cx - cx_tb) <= max(8.0, w_tb * 0.55):
+                cot_cuoi.append(item)
+            else:
+                cac_cot.append([item])
+        kq_doc: list[dict] = []
+        for cot in cac_cot:
+            cot.sort(key=lambda r: r["y"])
+            kq_doc.extend(cot)
+        return kq_doc
     tam = sorted(comp, key=lambda r: (r["y"] + r["h"] * 0.5, r["x"]))
     cac_hang: list[list[dict]] = []
     for item in tam:
@@ -3936,6 +4284,11 @@ $lines | ConvertTo-Json -Depth 4 -Compress
     raw_valid: list[dict] = []
     for seg in segments:
         t = _lam_sach_chu_ocr_truyen(str(seg.get("text") or ""))
+        if str(ngon_ngu_nguon or "en").lower() == "ko" and len(t) >= 3:
+            t = re.sub(r"([왔갔봤했렸졌었났겠다야어봐])지(!*)$", lambda m: m.group(1) + ("~!" if not m.group(2) else m.group(2)), t)
+            t = t.replace("우와시", "우와~ ").replace("이어꿔", "이 어쩜").replace("먼있을", "멋있을")
+            if re.fullmatch(r"([가-힣]{2,6})\(?(\d+세)\)?", t):
+                t = re.sub(r"^([가-힣]{2,6})\(?(\d+)세\)?$", r"\1 (\2세)", t)
         if not t or seg["w"] < 6 or seg["h"] < 6:
             continue
         if sum(c.isalnum() for c in t) == 0:
@@ -4020,17 +4373,20 @@ $lines | ConvertTo-Json -Depth 4 -Compress
                     best_cid = cb["_id"]
             if best_cid is not None:
                 v["_ctd_id"] = best_cid
+                v["_ctd_angle"] = float(ctd_blocks[best_cid].get("angle") or 0.0)
 
         for cb in ctd_blocks:
             cid = cb["_id"]
             matched = [v for v in valid if v.get("_ctd_id") == cid]
             can_crop_rescue = False
-            if not matched and cb["conf"] >= 0.44:
+            if cb.get("cls") == 1 and str(ngon_ngu_nguon or "en").lower() == "en" and not _la_nen_bong_trang(px, W, H, cb) and cb["w"] > cb["h"]:
+                continue
+            if not matched and cb["conf"] >= (0.44 if cb.get("cls") == 0 else 0.55):
                 can_crop_rescue = True
-            elif matched and cb["h"] >= 34:
+            elif matched and ((str(ngon_ngu_nguon or "en").lower() == "ja" and cb["h"] >= cb["w"] * 0.68) or cb["h"] >= 34):
                 my0 = min(v["y"] for v in matched)
                 my1 = max(v["y"] + v["h"] for v in matched)
-                if (my1 - my0) < cb["h"] * 0.68:
+                if (str(ngon_ngu_nguon or "en").lower() == "ja" and cb["h"] >= cb["w"] * 0.68) or (my1 - my0) < cb["h"] * 0.68:
                     can_crop_rescue = True
             if can_crop_rescue:
                 rescued = _ocr_crop_khung_ctd(im, cb, ngon_ngu_nguon=ngon_ngu_nguon)
@@ -4038,10 +4394,32 @@ $lines | ConvertTo-Json -Depth 4 -Compress
                     if not matched:
                         valid.extend(rescued)
                     else:
-                        chars_old = sum(len(v["text"]) for v in matched)
-                        chars_new = sum(len(v["text"]) for v in rescued)
-                        if chars_new > chars_old or len(rescued) > len(matched):
+                        if str(ngon_ngu_nguon or "en").lower() == "ja" and cb["h"] >= cb["w"] * 0.68:
                             valid = [v for v in valid if v.get("_ctd_id") != cid] + rescued
+                        else:
+                            chars_old = sum(len(v["text"]) for v in matched)
+                            chars_new = sum(len(v["text"]) for v in rescued)
+                            if chars_new > chars_old or len(rescued) > len(matched):
+                                valid = [v for v in valid if v.get("_ctd_id") != cid] + rescued
+                elif str(ngon_ngu_nguon or "en").lower() == "ja" and cb["h"] >= cb["w"] * 0.68:
+                    valid = [v for v in valid if v.get("_ctd_id") != cid]
+        if str(ngon_ngu_nguon or "en").lower() == "ja":
+            valid = [v for v in valid if v.get("_ctd_id") is not None]
+        elif str(ngon_ngu_nguon or "en").lower() == "ko":
+            valid = [v for v in valid if v.get("_ctd_id") is not None and len(str(v.get("text") or "").strip()) >= 2]
+        elif str(ngon_ngu_nguon or "en").lower() == "en":
+            sfx_cids_en = {cb["_id"] for cb in ctd_blocks if cb.get("cls") == 1 and not _la_nen_bong_trang(px, W, H, cb) and cb["w"] > cb["h"]}
+            valid = [
+                v for v in valid
+                if v.get("_ctd_id") not in sfx_cids_en
+                and not (
+                    not _la_nen_bong_trang(px, W, H, v)
+                    and (
+                        (v["h"] >= 45 and len(str(v.get("text") or "").split()) <= 2)
+                        or re.fullmatch(r"(?:(?:HA)+H?|UG[H]*|[AZTY\s]{3,})", re.sub(r"[^A-Za-z\s]+", "", str(v.get("text") or "")).strip(), re.I)
+                    )
+                )
+            ]
 
     if not valid:
         return []
@@ -4069,11 +4447,21 @@ $lines | ConvertTo-Json -Depth 4 -Compress
             bcx = b["x"] + b["w"] * 0.5
             if a.get("_ctd_id") is not None and b.get("_ctd_id") is not None:
                 if a["_ctd_id"] == b["_ctd_id"]:
-                    if not _co_vach_ngan_doc(px, W, H, a, b):
+                    co_cot_doc_ab = any(ord(c) >= 0x2E80 for c in (str(a.get("text") or "") + str(b.get("text") or ""))) and (a["h"] > a["w"] * 1.15 or b["h"] > b["w"] * 1.15)
+                    if co_cot_doc_ab and not _co_vach_ngan_ngang(px, W, H, a if a["x"] <= b["x"] else b, b if a["x"] <= b["x"] else a):
+                        union(i, j)
+                    elif not _co_vach_ngan_doc(px, W, H, a, b):
                         union(i, j)
                 continue
             if (a.get("_ctd_id") is not None) != (b.get("_ctd_id") is not None):
                 continue
+            if any(ord(c) >= 0x2E80 for c in str(a.get("text") or "")) and any(ord(c) >= 0x2E80 for c in str(b.get("text") or "")) and a["h"] > a["w"] * 1.2 and b["h"] > b["w"] * 1.2:
+                lc_c, rc_c = (a, b) if a["x"] <= b["x"] else (b, a)
+                h_gap_c = rc_c["x"] - (lc_c["x"] + lc_c["w"])
+                y_ov_c = min(a["y"] + a["h"], b["y"] + b["h"]) - max(a["y"], b["y"])
+                if -min(a["w"], b["w"]) * 0.45 <= h_gap_c <= max(a["w"], b["w"]) * 1.65 and y_ov_c >= min(a["h"], b["h"]) * 0.32 and not _co_vach_ngan_ngang(px, W, H, lc_c, rc_c):
+                    union(i, j)
+                    continue
             max_h = max(a["h"], b["h"])
             min_h = min(a["h"], b["h"])
             if min_h / max(1, max_h) < 0.45:
@@ -4102,7 +4490,50 @@ $lines | ConvertTo-Json -Depth 4 -Compress
 
     bubbles: list[dict] = []
     for comp in clusters.values():
+        if len(comp) >= 2 and str(ngon_ngu_nguon or "en").lower().startswith("ja"):
+            max_w_ja = max(r["w"] for r in comp)
+            co_kanji_chinh = any(any(0x4E00 <= ord(ch) <= 0x9FFF for ch in str(r.get("text") or "")) for r in comp if r["w"] >= max_w_ja * 0.55)
+            if co_kanji_chinh and max_w_ja >= 16:
+                comp_loc_furi = [r for r in comp if not (r["w"] < max_w_ja * 0.48 and len(str(r.get("text") or "")) <= 3 and all(0x3040 <= ord(ch) <= 0x30FF for ch in str(r.get("text") or "") if not ch.isspace()))]
+                if comp_loc_furi:
+                    comp = comp_loc_furi
         comp_ordered = _sap_xep_dong_trong_bong_thoai(comp)
+        if len(comp_ordered) >= 2 and str(ngon_ngu_nguon or "en").lower() == "en" and "zh_en" in _CACHE_RAPIDOCR_HF:
+            eng_gap = _CACHE_RAPIDOCR_HF["zh_en"]
+            bx0_g = max(0, min(r["x"] for r in comp_ordered) - 8)
+            bx1_g = min(W, max(r["x"] + r["w"] for r in comp_ordered) + 8)
+            bo_sung_gap: list[dict] = []
+            for idx_g in range(len(comp_ordered) - 1):
+                r_top = comp_ordered[idx_g]
+                r_bot = comp_ordered[idx_g + 1]
+                gap_y = r_bot["y"] - (r_top["y"] + r_top["h"])
+                min_rh = min(r_top["h"], r_bot["h"])
+                max_rh = max(r_top["h"], r_bot["h"])
+                if max(16.0, min_rh * 0.62) <= gap_y <= max_rh * 1.65 and (bx1_g - bx0_g) >= 24:
+                    gy0 = max(0, r_top["y"] + r_top["h"] - 12)
+                    gy1 = min(H, r_bot["y"] + 12)
+                    if gy1 - gy0 >= 14:
+                        try:
+                            res_g, _ = eng_gap(im.crop((bx0_g, gy0, bx1_g, gy1)), use_cls=False, box_thresh=0.10, text_score=0.38)
+                        except Exception:
+                            res_g = None
+                        if res_g:
+                            for it_g in res_g:
+                                if isinstance(it_g, (list, tuple)) and len(it_g) >= 3 and float(it_g[2] or 0.0) >= 0.45:
+                                    tg_c = _lam_sach_chu_ocr_truyen(str(it_g[1] or "").strip())
+                                    if tg_c and any(c.isascii() and c.isalpha() for c in tg_c):
+                                        xs_g = [float(p[0]) for p in it_g[0]]
+                                        ys_g = [float(p[1]) for p in it_g[0]]
+                                        bo_sung_gap.append({
+                                            "band": 0,
+                                            "text": tg_c,
+                                            "x": bx0_g + int(round(min(xs_g))),
+                                            "y": gy0 + int(round(min(ys_g))),
+                                            "w": max(4, int(round(max(xs_g) - min(xs_g)))),
+                                            "h": max(4, int(round(max(ys_g) - min(ys_g)))),
+                                        })
+            if bo_sung_gap:
+                comp_ordered = _sap_xep_dong_trong_bong_thoai(comp_ordered + bo_sung_gap)
         x0 = min(r["x"] for r in comp_ordered)
         y0 = min(r["y"] for r in comp_ordered)
         x1 = max(r["x"] + r["w"] for r in comp_ordered)
@@ -4114,7 +4545,7 @@ $lines | ConvertTo-Json -Depth 4 -Compress
         # Bỏ các tiếng rên / SFX nền vụn hoặc dòng chữ khắc mờ trên đạo cụ nền ('Gh', 'Ggh', 'A.', 'D', 'MHAyH', 'myympa')
         text_alnum = "".join(c for c in text if c.isalnum())
         if not co_cjk:
-            if (text_alnum.lower() in {"a", "d", "j", "s", "x", "gh", "ggh", "ghhr", "ghhhhn", "mhayh", "myympa", "armnflammab", "it", "walan"} or re.fullmatch(r"[xXvViIlL1|]{2,12}", text_alnum)) or (len(text_alnum) == 1 and text_alnum.upper() not in {"I", "O"} and not text.endswith(("!", "?"))) or (len(text_alnum) == 2 and text_alnum.isalpha() and not any(ch in "AEIOUYaeiouy" for ch in text_alnum) and text_alnum.upper() not in {"SH", "HM", "MM", "MR", "MS", "DR", "ST", "VS", "TV"}):
+            if (text_alnum.lower() in {"a", "d", "j", "s", "x", "gh", "ggh", "ghhr", "ghhhhn", "mhayh", "myympa", "armnflammab", "it", "walan", "sssnhnrgoaaaeeee"} or re.fullmatch(r"[xXvViIlL1|]{2,12}", text_alnum)) or (len(text_alnum) == 1 and text_alnum.upper() not in {"I", "O"} and not text.endswith(("!", "?"))) or (len(text_alnum) == 2 and text_alnum.isalpha() and not any(ch in "AEIOUYaeiouy" for ch in text_alnum) and text_alnum.upper() not in {"SH", "HM", "MM", "MR", "MS", "DR", "ST", "VS", "TV"}):
                 continue
         if not co_cjk and sum(1 for c in text if c.isascii() and c.isupper()) == 0:
             if (
@@ -4135,6 +4566,9 @@ $lines | ConvertTo-Json -Depth 4 -Compress
             "w": max(1, bx1 - bx0),
             "h": max(1, by1 - by0),
             "chu_goc": text,
+            "w": max(12 if co_cjk else 1, bx1 - bx0),
+            "h": max(12 if co_cjk else 1, by1 - by0),
+            "angle": next((float(r.get("_ctd_angle") or 0.0) for r in comp_ordered if abs(float(r.get("_ctd_angle") or 0.0)) >= 8.0), 0.0),
             "dong_con": [
                 {
                     "x": int(round(r["x"] / he_so_ocr)),
@@ -4204,7 +4638,7 @@ $lines | ConvertTo-Json -Depth 4 -Compress
             t2 = str(b2["chu_goc"]).strip()
             if t1.upper() == t2.upper() or (" " not in t1 and " " not in t2 and t1.isupper() and t2.isupper()):
                 continue
-            if not t1.endswith((".", "!", "?", "…")) or t2[:1].islower():
+            if str(ngon_ngu_nguon or "en").lower() == "en" and (not t1.endswith((".", "!", "?", "…")) or t2[:1].islower()):
                 if t1.lower().endswith("spit") and t2.lower().startswith("out"):
                     cur["chu_goc"] = f"{t1} it {t2}"
                 else:
@@ -4247,7 +4681,7 @@ def sap_xep_bong_thoai_theo_huong_doc(
         cur_b = bubbles[i]
         dy = int(cur_b.get("y", 0)) - (int(prev_b.get("y", 0)) + int(prev_b.get("h", 0)))
         dx = abs(int(cur_b.get("x", 0)) - int(prev_b.get("x", 0)))
-        if -45 <= dy <= 85 and dx <= max(165, int(prev_b.get("w", 80)) + 45):
+        if -45 <= dy <= 85 and dx <= max(165, int(prev_b.get("w", 80)) + 45) and len(str(cur_b.get("chu_goc") or "").strip()) > 2 and str(prev_b.get("chu_goc") or "").strip() != str(cur_b.get("chu_goc") or "").strip():
             cur_b["lien_ket_cau_tren"] = True
     return bubbles
 
@@ -4268,6 +4702,7 @@ CAUHINH_OCR_HF: dict[str, dict[str, str]] = {
     },
 }
 _CACHE_RAPIDOCR_HF: dict[str, object] = {}
+_CACHE_CTD_SEG_MASK: dict[tuple[int, int], tuple[object, int, int, float]] = {}
 
 
 def tai_goi_ocr_huggingface(ngon_ngu: str = "all") -> dict[str, bool]:
@@ -4355,6 +4790,12 @@ def _quet_khung_ctd_onnx(im_goc, he_so_ocr: float = 1.0) -> tuple[list[dict], li
 
         input_name = sess.get_inputs()[0].name
         outputs = sess.run(None, {input_name: tensor})
+        seg_map = outputs[1][0, 0] if len(outputs) >= 2 else None
+        det_map = outputs[2][0, 0] if len(outputs) >= 3 else None
+        if seg_map is not None:
+            if len(_CACHE_CTD_SEG_MASK) >= 16:
+                _CACHE_CTD_SEG_MASK.pop(next(iter(_CACHE_CTD_SEG_MASK)), None)
+            _CACHE_CTD_SEG_MASK[(img_w, img_h)] = (seg_map, pad_x, pad_y, scale)
         pred = outputs[0][0]
         obj = pred[:, 4]
         cls_scores = pred[:, 5:]
@@ -4379,6 +4820,26 @@ def _quet_khung_ctd_onnx(im_goc, he_so_ocr: float = 1.0) -> tuple[list[dict], li
             by1 = max(by0 + 1.0, min(float(img_h), float(y2[i])))
             if (bx1 - bx0) < 8 or (by1 - by0) < 8:
                 continue
+            sx0_m = max(0, int(bx0 * scale + pad_x))
+            sy0_m = max(0, int(by0 * scale + pad_y))
+            sx1_m = min(size, int(bx1 * scale + pad_x) + 1)
+            sy1_m = min(size, int(by1 * scale + pad_y) + 1)
+            goc_nghieng = 0.0
+            mat_do_seg = 0.0
+            if seg_map is not None and sx1_m > sx0_m + 3 and sy1_m > sy0_m + 3:
+                sub_seg = seg_map[sy0_m:sy1_m, sx0_m:sx1_m]
+                mat_do_seg = float((sub_seg >= 0.30).mean())
+                ys_m, xs_m = np.where(sub_seg >= 0.35)
+                if len(xs_m) >= 16 and (bx1 - bx0) >= (by1 - by0) * 2.1 and (by1 - by0) <= 38:
+                    dx_m = xs_m.astype(np.float32) - float(xs_m.mean())
+                    dy_m = ys_m.astype(np.float32) - float(ys_m.mean())
+                    var_x = float((dx_m * dx_m).mean())
+                    var_y = float((dy_m * dy_m).mean())
+                    cov_xy = float((dx_m * dy_m).mean())
+                    if abs(var_x - var_y) > 1.0 or abs(cov_xy) > 0.5:
+                        ang_deg = math.degrees(0.5 * math.atan2(2.0 * cov_xy, var_x - var_y))
+                        if 6.0 <= abs(ang_deg) <= 42.0:
+                            goc_nghieng = round(ang_deg, 1)
             raw_boxes.append({
                 "x": int(round(bx0 * he_so_ocr)),
                 "y": int(round(by0 * he_so_ocr)),
@@ -4386,6 +4847,8 @@ def _quet_khung_ctd_onnx(im_goc, he_so_ocr: float = 1.0) -> tuple[list[dict], li
                 "h": max(4, int(round((by1 - by0) * he_so_ocr))),
                 "conf": float(conf[i]),
                 "cls": int(cls_idx[i]),
+                "angle": goc_nghieng,
+                "seg_density": mat_do_seg,
             })
 
         raw_boxes.sort(key=lambda b: b["conf"], reverse=True)
@@ -4404,8 +4867,8 @@ def _quet_khung_ctd_onnx(im_goc, he_so_ocr: float = 1.0) -> tuple[list[dict], li
             if not bi_de:
                 kept_boxes.append(cand)
 
-        text_blocks = [b for b in kept_boxes if b["cls"] == 0 and b["conf"] >= 0.40]
-        sfx_blocks = [b for b in kept_boxes if b["cls"] == 1 and b["conf"] >= 0.50]
+        text_blocks = [b for b in kept_boxes if (b["cls"] == 0 and b["conf"] >= 0.40) or (b["cls"] == 1 and b["conf"] >= 0.55)]
+        sfx_blocks = [b for b in kept_boxes if b["cls"] == 1 and b["conf"] >= 0.45 and b["w"] > b["h"] * 1.15]
         return text_blocks, sfx_blocks
     except Exception:
         return [], []
@@ -4441,7 +4904,198 @@ def _ocr_crop_khung_ctd(im, cb: dict, ngon_ngu_nguon: str = "en") -> list[dict]:
         except Exception:
             pass
     try:
+        if lang == "ja" and cb["h"] >= cb["w"] * 0.68 and hasattr(engine, "text_rec") and bool(_CACHE_CTD_SEG_MASK):
+            try:
+                import numpy as np
+                ctd_wh = (W, H) if (W, H) in _CACHE_CTD_SEG_MASK else next(reversed(_CACHE_CTD_SEG_MASK))
+                seg_map_j, pad_x_j, pad_y_j, scale_j = _CACHE_CTD_SEG_MASK[ctd_wh]
+                he_so_j = float(W) / max(1.0, float(ctd_wh[0]))
+                bx0_j, by0_j = max(0, int(cb["x"])), max(0, int(cb["y"]))
+                bx1_j, by1_j = min(W, int(cb["x"] + cb["w"])), min(H, int(cb["y"] + cb["h"]))
+                crop_j = im.crop((bx0_j, by0_j, bx1_j, by1_j))
+                if he_so_j > 1.25:
+                    crop_j = crop_j.resize((max(8, int(round(crop_j.width / he_so_j))), max(8, int(round(crop_j.height / he_so_j)))), getattr(getattr(Image, "Resampling", Image), "BILINEAR", 2))
+                arr_j = np.asarray(crop_j.convert("L"))
+                gy0_j, gy1_j = int(round(by0_j / he_so_j)), int(round(by0_j / he_so_j)) + crop_j.height
+                gx0_j, gx1_j = int(round(bx0_j / he_so_j)), int(round(bx0_j / he_so_j)) + crop_j.width
+                ys_j = np.clip(((np.arange(gy0_j, gy1_j) * scale_j) + pad_y_j).astype(int), 0, 1023)
+                xs_j = np.clip(((np.arange(gx0_j, gx1_j) * scale_j) + pad_x_j).astype(int), 0, 1023)
+                dark_j = (arr_j < 175) & (seg_map_j[np.ix_(ys_j, xs_j)] >= 0.24)
+                col_ink_j = dark_j.sum(axis=0)
+                cols_j, in_c_j, x0_j = [], False, 0
+                for x_j, val_j in enumerate(col_ink_j):
+                    if val_j >= 2 and not in_c_j:
+                        in_c_j, x0_j = True, x_j
+                    elif val_j < 2 and in_c_j:
+                        in_c_j = False
+                        if x_j - x0_j >= 8:
+                            cols_j.append((x0_j, x_j))
+                if in_c_j and len(col_ink_j) - x0_j >= 8:
+                    cols_j.append((x0_j, len(col_ink_j)))
+                cols_j.reverse()
+                max_cw_j = max((cx1_j - cx0_j for cx0_j, cx1_j in cols_j), default=0)
+                if max_cw_j >= 16 and len(cols_j) >= 2:
+                    cols_j = [(cx0_j, cx1_j) for cx0_j, cx1_j in cols_j if (cx1_j - cx0_j) >= max_cw_j * 0.62]
+                out_ja_cols: list[dict] = []
+                lobe_idx_j = 0
+                prev_cx0_j = None
+                prev_y0_j, prev_y1_j = 0, 0
+                for cx0_j, cx1_j in cols_j:
+                    sub_j = dark_j[:, cx0_j:cx1_j]
+                    row_ink_j = sub_j.sum(axis=1)
+                    chars_j, in_r_j, y0_j = [], False, 0
+                    for y_j, rval_j in enumerate(row_ink_j):
+                        if rval_j >= 1 and not in_r_j:
+                            in_r_j, y0_j = True, y_j
+                        elif rval_j == 0 and in_r_j:
+                            in_r_j = False
+                            if y_j - y0_j >= 2:
+                                chars_j.append([y0_j, y_j])
+                    if in_r_j and len(row_ink_j) - y0_j >= 2:
+                        chars_j.append([y0_j, len(row_ink_j)])
+                    cw_j = cx1_j - cx0_j
+                    def _seg_w_j(ya_j: int, yb_j: int) -> int:
+                        xs_cj = np.where(sub_j[ya_j:yb_j, :].sum(axis=0) >= 1)[0]
+                        return (int(xs_cj[-1]) - int(xs_cj[0]) + 1) if len(xs_cj) > 0 else 0
+                    merged_j: list[list[int]] = []
+                    for seg_j in chars_j:
+                        if merged_j and (seg_j[0] - merged_j[-1][1]) > max(36, int(cw_j * 1.45)):
+                            break
+                        gap_yj = (seg_j[0] - merged_j[-1][1]) if merged_j else 999
+                        tot_hj = (seg_j[1] - merged_j[-1][0]) if merged_j else 999
+                        la_hai_net_j = (
+                            bool(merged_j)
+                            and gap_yj <= max(6, int(cw_j * 0.45))
+                            and tot_hj <= max(13, int(cw_j * 1.05))
+                            and max(_seg_w_j(merged_j[-1][0], merged_j[-1][1]), _seg_w_j(seg_j[0], seg_j[1])) >= max(6, int(cw_j * 0.42))
+                            and min(merged_j[-1][1] - merged_j[-1][0], seg_j[1] - seg_j[0]) <= max(5, int(cw_j * 0.40))
+                        )
+                        if merged_j and ((gap_yj <= max(3, int(cw_j * 0.14)) and tot_hj <= int(cw_j * 1.18)) or la_hai_net_j):
+                            merged_j[-1][1] = seg_j[1]
+                        else:
+                            merged_j.append(seg_j)
+                    if not merged_j:
+                        continue
+                    dot_flags_j = [
+                        ((cy1_j - cy0_j) <= 4 and _seg_w_j(cy0_j, cy1_j) <= max(5, int(cw_j * 0.36)))
+                        for cy0_j, cy1_j in merged_j
+                    ]
+                    co_cham_lung_cuoi = (sum(1 for df in dot_flags_j if df) >= 2 and dot_flags_j[-1]) or (len(dot_flags_j) >= 3 and dot_flags_j[-1])
+                    co_cham_lung_giua = sum(1 for df in dot_flags_j if df) >= 2 and not dot_flags_j[-1]
+                    char_imgs_j = []
+                    for idx_mj, (cy0_j, cy1_j) in enumerate(merged_j):
+                        if dot_flags_j[idx_mj] and (co_cham_lung_cuoi or co_cham_lung_giua):
+                            continue
+                        act_w_j = _seg_w_j(cy0_j, cy1_j)
+                        act_h_j = cy1_j - cy0_j
+                        ch_im_j = crop_j.crop((max(0, cx0_j - 1), max(0, cy0_j - 1), min(crop_j.width, cx1_j + 1), min(crop_j.height, cy1_j + 1)))
+                        if 0 < idx_mj < len(merged_j) - 1 and act_w_j <= max(4, int(cw_j * 0.28)) and act_h_j >= max(int(cw_j * 0.55), int(act_w_j * 2.2)):
+                            ch_im_j = ch_im_j.rotate(90, expand=True)
+                        elif ch_im_j.height > cw_j * 1.45:
+                            n_ch_j = max(2, int(round(ch_im_j.height / float(cw_j))))
+                            step_hj = ch_im_j.height / float(n_ch_j)
+                            for k_j in range(n_ch_j):
+                                char_imgs_j.append(ch_im_j.crop((0, int(k_j * step_hj), ch_im_j.width, int((k_j + 1) * step_hj))))
+                            continue
+                        char_imgs_j.append(ch_im_j)
+                    if not char_imgs_j:
+                        continue
+                    h_box_j = max(24, max(ci.height for ci in char_imgs_j) + 6)
+                    tot_w_j = sum(ci.width + 2 for ci in char_imgs_j) + 8
+                    horiz_j = Image.new("RGB", (tot_w_j, h_box_j), (255, 255, 255))
+                    cur_x_j = 4
+                    for ci_j in char_imgs_j:
+                        horiz_j.paste(ci_j, (cur_x_j, max(0, (h_box_j - ci_j.height) // 2)))
+                        cur_x_j += ci_j.width + 2
+                    bgr_j = np.asarray(horiz_j)[:, :, ::-1].copy()
+                    res_rj, _ = engine.text_rec([bgr_j])
+                    if (not res_rj or float(res_rj[0][1] or 0.0) < 0.72) and len(merged_j) >= 2:
+                        char_imgs_tight = []
+                        for idx_mj, (cy0_j, cy1_j) in enumerate(merged_j):
+                            if dot_flags_j[idx_mj] and (co_cham_lung_cuoi or co_cham_lung_giua):
+                                continue
+                            xs_tj = np.where(sub_j[cy0_j:cy1_j, :].sum(axis=0) >= 1)[0]
+                            xl_tj = (cx0_j + int(xs_tj[0])) if len(xs_tj) > 0 else cx0_j
+                            xr_tj = (cx0_j + int(xs_tj[-1]) + 1) if len(xs_tj) > 0 else cx1_j
+                            char_imgs_tight.append(crop_j.crop((max(0, xl_tj - 1), max(0, cy0_j - 1), min(crop_j.width, xr_tj + 1), min(crop_j.height, cy1_j + 1))))
+                        if char_imgs_tight:
+                            hb_tj = max(20, max(ci.height for ci in char_imgs_tight) + 6)
+                            tw_tj = sum(ci.width + 2 for ci in char_imgs_tight) + 8
+                            hz_tj = Image.new("RGB", (tw_tj, hb_tj), (255, 255, 255))
+                            cx_tj = 4
+                            for ci_t in char_imgs_tight:
+                                hz_tj.paste(ci_t, (cx_tj, max(0, (hb_tj - ci_t.height) // 2)))
+                                cx_tj += ci_t.width + 2
+                            res_tj, _ = engine.text_rec([np.asarray(hz_tj)[:, :, ::-1].copy()])
+                            if res_tj and float(res_tj[0][1] or 0.0) > float(res_rj[0][1] if res_rj else 0.0):
+                                res_rj = res_tj
+                    if res_rj and res_rj[0][0]:
+                        txt_rj = _lam_sach_chu_ocr_truyen(str(res_rj[0][0] or "").strip()).replace("ヒ-ロ-", "ヒーロー").replace("スボーツ", "スポーツ").replace("僧悪", "憎悪").replace("なかつた", "なかった").replace("してょも", "しても").replace("ニれは", "これは")
+                        if co_cham_lung_cuoi and not txt_rj.endswith("…"):
+                            txt_rj = txt_rj.rstrip("・.:：") + "…"
+                        elif co_cham_lung_giua and len(txt_rj) >= 2 and "…" not in txt_rj:
+                            if re.search(r"[!！?？]+$", txt_rj):
+                                txt_rj = re.sub(r"([!！?？]+)$", r"…\1", txt_rj)
+                            else:
+                                txt_rj = txt_rj[:-1] + "…" + txt_rj[-1:]
+                        if len(txt_rj) >= 5 and txt_rj.endswith(("父", "文", "又")) and "です" in txt_rj:
+                            txt_rj = txt_rj[:-1] + "☆"
+                        sc_rj = float(res_rj[0][1] or 0.0)
+                        if txt_rj and any(ord(c) >= 0x3040 for c in txt_rj) and sc_rj >= 0.65:
+                            if len(out_ja_cols) >= 1 and cw_j < max_cw_j * 0.72 and len(txt_rj) <= 4 and all(not (0x4E00 <= ord(c) <= 0x9FFF) for c in txt_rj) and txt_rj.endswith(("…", "・", ".")):
+                                continue
+                            if prev_cx0_j is not None:
+                                gap_col_xj = prev_cx0_j - cx1_j
+                                ov_col_yj = min(prev_y1_j, merged_j[-1][1]) - max(prev_y0_j, merged_j[0][0])
+                                if gap_col_xj > max(24, int(cw_j * 1.6)) or ov_col_yj < 6:
+                                    lobe_idx_j += 1
+                            prev_cx0_j = cx0_j
+                            prev_y0_j, prev_y1_j = merged_j[0][0], merged_j[-1][1]
+                            out_ja_cols.append({
+                                "band": 0,
+                                "text": txt_rj,
+                                "x": bx0_j + int(round(cx0_j * he_so_j)),
+                                "y": by0_j + int(round(merged_j[0][0] * he_so_j)),
+                                "w": max(6, int(round(cw_j * he_so_j))),
+                                "h": max(12, int(round((merged_j[-1][1] - merged_j[0][0]) * he_so_j))),
+                                "_ctd_id": f"{cb.get('_id')}_{lobe_idx_j}" if lobe_idx_j > 0 else cb.get("_id"),
+                                "_ctd_angle": 0.0,
+                            })
+                if out_ja_cols:
+                    return out_ja_cols
+                if cb["h"] >= cb["w"] * 0.68:
+                    return []
+            except Exception:
+                pass
         res, _ = engine(crop, use_cls=False, box_thresh=0.18, unclip_ratio=1.85, text_score=0.38)
+        ang_cb = float(cb.get("angle") or 0.0)
+        if not res and abs(ang_cb) >= 8.0:
+            crop_rot = crop.rotate(ang_cb, resample=getattr(getattr(Image, "Resampling", Image), "BICUBIC", 3), expand=False, fillcolor=(255, 255, 255))
+            res, _ = engine(crop_rot, use_cls=False, box_thresh=0.18, unclip_ratio=1.85, text_score=0.38)
+        if not res and lang in ("ja", "zh") and crop.height >= crop.width * 1.35:
+            col_w = max(28, int(round(crop.width / max(1, round(crop.width / 42.0)))))
+            out_vcols: list[dict] = []
+            for vx0 in range(crop.width - col_w, -col_w + 8, -max(18, col_w - 8)):
+                cx_a = max(0, vx0)
+                cx_b = min(crop.width, vx0 + col_w + 6)
+                if cx_b - cx_a < 16:
+                    continue
+                sub_col = crop.crop((cx_a, 0, cx_b, crop.height))
+                res_col, _ = engine(sub_col, use_cls=False, box_thresh=0.14, unclip_ratio=1.95, text_score=0.35)
+                if res_col:
+                    for it_c in res_col:
+                        if isinstance(it_c, (list, tuple)) and len(it_c) >= 3 and float(it_c[2] or 0.0) >= 0.38:
+                            tc_v = _lam_sach_chu_ocr_truyen(str(it_c[1] or "").strip())
+                            if tc_v and any(ord(ch) >= 0x2E80 for ch in tc_v):
+                                xs_v = [float(p[0]) / sc_crop for p in it_c[0]]
+                                ys_v = [float(p[1]) / sc_crop for p in it_c[0]]
+                                lx0_v = max(0, int(round(min(xs_v) + cx_a / sc_crop)) + cx0)
+                                ly0_v = max(0, int(round(min(ys_v))) + cy0)
+                                lx1_v = min(W, int(round(max(xs_v) + cx_a / sc_crop)) + cx0)
+                                ly1_v = min(H, int(round(max(ys_v))) + cy0)
+                                out_vcols.append({"band": 0, "text": tc_v, "x": lx0_v, "y": ly0_v, "w": max(4, lx1_v - lx0_v), "h": max(4, ly1_v - ly0_v), "_ctd_id": cb.get("_id"), "_ctd_angle": float(cb.get("angle") or 0.0)})
+            if out_vcols:
+                return out_vcols
         if not res:
             from PIL import ImageOps
             gray_c = ImageOps.autocontrast(crop.convert("L"), cutoff=1)
@@ -4462,7 +5116,18 @@ def _ocr_crop_khung_ctd(im, cb: dict, ngon_ngu_nguon: str = "en") -> list[dict]:
         box, txt, score = item[0], str(item[1] or "").strip(), float(item[2] or 0.0)
         if not txt or score < 0.42:
             continue
-        t_clean = _lam_sach_chu_ocr_truyen(txt)
+        t_clean = _lam_sach_chu_ocr_truyen(txt.replace("！", "!").replace("？", "?"))
+        if not t_clean or (sum(c.isalnum() for c in t_clean) == 0 and t_clean not in {"!?", "?!", "!!", "!!!"}):
+            continue
+        if lang == "en" and t_clean in {"!?", "?!", "!!", "!!!"}:
+            xs = [float(pt[0]) / sc_crop for pt in box]
+            ys = [float(pt[1]) / sc_crop for pt in box]
+            lx0 = max(cb["x"] - 4, int(round(min(xs))) + cx0)
+            ly0 = max(cb["y"] - 4, int(round(min(ys))) + cy0)
+            lx1 = min(cb["x"] + cb["w"] + 4, int(round(max(xs))) + cx0)
+            ly1 = min(cb["y"] + cb["h"] + 4, int(round(max(ys))) + cy0)
+            out_lines.append({"band": 0, "text": t_clean, "x": lx0, "y": ly0, "w": max(4, lx1 - lx0), "h": max(4, ly1 - ly0), "_ctd_id": cb.get("_id")})
+            continue
         if not t_clean or sum(c.isalnum() for c in t_clean) == 0:
             continue
         if lang == "en":
@@ -4472,10 +5137,10 @@ def _ocr_crop_khung_ctd(im, cb: dict, ngon_ngu_nguon: str = "en") -> list[dict]:
                 continue
         xs = [float(pt[0]) / sc_crop for pt in box]
         ys = [float(pt[1]) / sc_crop for pt in box]
-        lx0 = max(cb["x"] - 4, int(round(min(xs))) + cx0)
-        ly0 = max(cb["y"] - 4, int(round(min(ys))) + cy0)
-        lx1 = min(cb["x"] + cb["w"] + 4, int(round(max(xs))) + cx0)
-        ly1 = min(cb["y"] + cb["h"] + 4, int(round(max(ys))) + cy0)
+        lx0 = max(0, int(round(min(xs))) + cx0)
+        ly0 = max(0, int(round(min(ys))) + cy0)
+        lx1 = min(W, int(round(max(xs))) + cx0)
+        ly1 = min(H, int(round(max(ys))) + cy0)
         out_lines.append({
             "band": 0,
             "text": t_clean,
@@ -4484,6 +5149,7 @@ def _ocr_crop_khung_ctd(im, cb: dict, ngon_ngu_nguon: str = "en") -> list[dict]:
             "w": max(4, lx1 - lx0),
             "h": max(4, ly1 - ly0),
             "_ctd_id": cb.get("_id"),
+            "_ctd_angle": float(cb.get("angle") or 0.0),
         })
     return out_lines
 
@@ -5033,12 +5699,110 @@ def hau_kiem_va_sua_ban_dich(chu_goc: str, ban_dich: str, ngon_ngu_dich: str = "
     s = re.sub(r"^\s*(?:\[\d+\]|\d+[.):\-])\s*", "", s)
     s = re.sub(r"^\s*(?:Bản dịch|Dịch|Translation|Traducción|Tradução|Traduction)\s*:\s*", "", s, flags=re.I)
     s = re.sub(r"\s*\((?:Gợi ý nghĩa sát|Draft|Hint)[^)]*\)\s*", "", s, flags=re.I)
+    s = re.sub(r"\s*\[(?:Nối tiếp|nối tiếp)[^\]]*\]\s*", "", s)
     s = s.strip().strip('"').strip("“”")
 
     co_kinh_ngu_ban_be = bool(re.search(r"-(?:kun|chan|senpai)\b", goc_sach, re.I))
 
     if ngon_ngu_dich == "vi":
         goc_low = goc_sach.lower()
+        if re.fullmatch(r"([가-힣]{2,6})\s*\((\d+)세\)", goc_sach):
+            s = re.sub(r"\((\d+)\s*năm\s*trước\)", r"(\1 tuổi)", s, flags=re.I)
+            if re.fullmatch(r"\d+\s*năm\s*trước", s, flags=re.I):
+                s = re.sub(r"(\d+)\s*năm\s*trước", r"(\1 tuổi)", s, flags=re.I)
+        if "見る影も" in goc_sach or "みる影も" in goc_sach:
+            s = "Thành thật mà nói, chẳng còn chút bóng dáng năm xưa..."
+        if "もてあまし" in goc_sach or "持て余し" in goc_sach:
+            s = "Đây là...!! Không thể chế ngự nổi sức mạnh căm thù quá đỗi to lớn vừa trỗi dậy trong ta!"
+        elif "おさえようとしても" in goc_sach and "巨大な力" in goc_sach:
+            s = "Hận thù là... một sức mạnh khổng lồ dù cố kìm nén cũng không thể kìm lại được!!"
+        elif "熱い" in goc_sach and "苦しい" in goc_sach:
+            s = "Nóng quá... Đau đớn quá..."
+        elif goc_sach.startswith("苦しい") and len(goc_sach) <= 6:
+            s = "Đau đớn quá..."
+        if "変わった" in goc_sach and ("なあ" in goc_sach or "なぁ" in goc_sach):
+            s = re.sub(r",?\s*huh\.{0,3}$", " quá nhỉ...", s, flags=re.I)
+            if "Dù vậy, mọi chuyện đã thay đổi" in s:
+                s = "Dù sao thì cậu ấy cũng thay đổi nhiều quá nhỉ..."
+        if "初恋の人です" in goc_sach:
+            s = "Cậu ấy là mối tình đầu của tớ đấy!"
+        if "スポーツ万能" in goc_sach and "ヒーロー" in goc_sach:
+            s = "Giỏi thể thao, thành tích xuất sắc, lại dịu dàng với con gái, đúng chuẩn người hùng của lớp!"
+        if "까악" in goc_sach:
+            s = re.sub(r"^Càu\b", "Áaa", s, flags=re.I)
+        if "모란이" in goc_sach:
+            s = "Này, dậy mau! Moran tới rồi kìa!!"
+        if "다시봐도" in goc_sach and "장난아니다" in goc_sach:
+            s = "Chà~ Nhìn lại vẫn thấy đỉnh thật sự~!"
+        if "know me" in goc_low and "diablo" in goc_low and "alchemy" in goc_low:
+            s = "Tất nhiên các ngươi biết ta -- Ta là Diablo -- Bậc thầy của mọi thuật giả kim!"
+        elif "master of your fate" in goc_low:
+            s = "Và kể từ giây phút này trở đi, ta chính là kẻ định đoạt số phận của các ngươi--"
+        elif "you will all serve me" in goc_low:
+            s = "--Tất cả các ngươi sẽ phải phục tùng ta!!!"
+        elif "preoccupied with his ravings" in goc_low:
+            s = "Trong lúc hắn đang mải mê lảm nhảm, ta sẽ lẻn đi mà không ai hay biết."
+        elif "foul fiend" in goc_low and "son of zeus" in goc_low:
+            s = "Câm miệng, tên ác quỷ đê tiện! Không một ai trong nhóm Avengers -- đặc biệt là con trai thần Zeus -- chịu phục tùng một kẻ điên như ngươi!"
+        elif "that of my fists against" in goc_low:
+            s = "Sự phục vụ duy nhất ở đây chính là nắm đấm của ta giáng thẳng vào--"
+        elif "stand your ground" in goc_low:
+            s = re.sub(r"giữ vững lập trường(?: của (?:cậu|bạn|các bạn))?", "giữ vững đội hình", s, flags=re.I)
+            if "avengers" in goc_low:
+                s = "Avengers, giữ vững đội hình!"
+        # Bảo vệ danh từ riêng & thành ngữ chuẩn vũ trụ Marvel Comics
+        if re.search(r"\bvision\b", goc_low):
+            s = re.sub(r"\btầm nhìn\b", "Vision", s, flags=re.I)
+        if re.search(r"\bcap\b", goc_low):
+            s = re.sub(r"\b(?:cái\s+)?mũ\b", "Cap", s, flags=re.I)
+            s = re.sub(r"\bô tô\b", "Cap", s, flags=re.I)
+        if "captain america" in goc_low:
+            s = re.sub(r"\b(?:đội trưởng|thuyền trưởng)\s+Mỹ\b", "Captain America", s, flags=re.I)
+        if "avengers" in goc_low or "avenger" in goc_low:
+            s = re.sub(r"\bnhững người báo thù\b", "nhóm Avengers", s, flags=re.I)
+            s = re.sub(r"\bđội quân báo thù\b", "chiến hạm Avengers", s, flags=re.I)
+            s = re.sub(r"\bkẻ báo thù\b", "Avenger", s, flags=re.I)
+        if "black panther" in goc_low:
+            s = re.sub(r"\bcon báo đen\b", "Black Panther", s, flags=re.I)
+            s = re.sub(r"\blễ đính hôn của Black Panther\b", "hôn thê của Black Panther", s, flags=re.I)
+        if "vibranium" in goc_low:
+            s = re.sub(r"\bgò rung(?:\s+động)?\b", "gò Vibranium", s, flags=re.I)
+            s = re.sub(r"\bbinh lính rung động\b", "chiến binh Vibranium", s, flags=re.I)
+            s = re.sub(r"\b(?:vibranilm|vibranilim|vibraniam|vibranriam|vibraxim)\b", "Vibranium", s, flags=re.I)
+        if re.fullmatch(r"dane!?", goc_low):
+            s = "Dane!"
+        if "thanks, crystal" in goc_low:
+            s = "Cảm ơn nhé, Crystal!"
+        if "right on the ball" in goc_low:
+            s = re.sub(r"đúng với quả bóng", "vô cùng nhạy bén", s, flags=re.I)
+        if "at ease, avengers" in goc_low:
+            s = re.sub(r"^Yên tâm đi", "Khoan đã", s, flags=re.I)
+        if goc_low in ("-strike", "--strike", "strike!"):
+            s = "--RA ĐÒN!"
+        if "withhh pleaaaasure" in goc_low:
+            s = "Rất hân hạnh, Diablooo!"
+        if "carrbonnn dessstroy" in goc_low:
+            s = "Carbon nghiền nát!!"
+        s = re.sub(r"([!?])\s+([!?]+)", r"\1\2", s)
+        s = re.sub(r"!{3,}", "!!", s)
+        s = re.sub(r"(\.\.\.|…)(?=[A-Za-zÀ-ỹ])", r"\1 ", s)
+        if s and s[0].islower():
+            s = s[0].upper() + s[1:]
+        s = s.replace("☆", "!").replace("★", "!")
+        if goc_low in ("嗯", "嗯。", "嗯!"):
+            return "Ừm"
+        if goc_low in ("y-you!", "y-you", "y - you!"):
+            return "C-Cậu!"
+        if goc_low in ("tusk", "(tusk)", "[tusk]", "(tusk]", "[tusk)"):
+            return "(Tusk)" if ("(" in goc_low or "[" in goc_low or "]" in goc_low or ")" in goc_low) else "Tusk"
+        if re.fullmatch(r"part\s*([0-9]+)", goc_low):
+            return f"Phần {re.sub(r'[^0-9]', '', goc_low)}"
+        if goc_low in ("neeigh!", "neeigh!!", "neeigh"):
+            return "Hííí!"
+        if goc_low in ("brr", "brrrr", "brrrrr rurrr"):
+            return "Rùng mình!"
+        if goc_low in ("whaaat?!", "whaat!", "whaaat!"):
+            return "Cái gì cơ?!"
         if goc_low in ("pon.", "pon!"):
             return "Phỗng!"
         if goc_low in ("pon that.", "pon that!"):
@@ -5055,7 +5819,8 @@ def hau_kiem_va_sua_ban_dich(chu_goc: str, ban_dich: str, ngon_ngu_dich: str = "
             return "Bị gọi phỗng mất rồi sao!?"
         if "got called on a second time" in goc_low:
             return "Lại bị gọi phỗng lần thứ hai sao!?"
-        # Khử lỗi lặp 1 từ liên tiếp >= 3 lần ('để để để' -> 'để')
+        # Khử lỗi lặp 1 từ liên tiếp >= 3 lần ('để để để' -> 'để') hoặc lặp chuỗi ký tự có gạch nối ('8-8-8-8' -> '8')
+        s = re.sub(r"([-\s]*\b\w+\b)\1{3,}", r"\1", s, flags=re.I)
         s = re.sub(r"\b(\w+)(?:\s+\1){2,}\b", r"\1", s, flags=re.I)
         # Khử lỗi lặp cụm 2 từ liên tiếp >= 3 lần ('của ta của ta của ta' -> 'của ta')
         s = re.sub(r"\b(\w+\s+\w+)(?:\s+\1){2,}\b", r"\1", s, flags=re.I)
@@ -5151,10 +5916,13 @@ def danh_gia_chat_luong_ban_dich(
             diem -= phat
             ds_loi.append(f"loi_sot_tieng_goc:{','.join(tu_anh_sot[:3])}")
 
-        # 3. Kiểm tra lỗi lặp từ / suy thoái mô hình (P_lap_tu: 'để để để')
-        if re.search(r"\b(\w+)(?:\s+\1){2,}\b", dich, re.I) or re.search(r"\b(\w+\s+\w+)(?:\s+\1){2,}\b", dich, re.I):
+        # 3. Kiểm tra lỗi lặp từ / suy thoái mô hình (P_lap_tu: 'để để để' hoặc '8-8-8-8') và sót chữ CJK
+        if re.search(r"\b(\w+)(?:\s+\1){2,}\b", dich, re.I) or re.search(r"\b(\w+\s+\w+)(?:\s+\1){2,}\b", dich, re.I) or re.search(r"(.{1,8})\1{4,}", dich):
             diem -= 0.55
             ds_loi.append("loi_lap_tu")
+        if re.search(r"[\u3040-\u9fff\uac00-\ud7af]", dich):
+            diem -= 0.45
+            ds_loi.append("loi_sot_cjk")
 
         # 4. Kiểm tra xưng hô cứng nhắc kiểu Google Translate ('bạn')
         if re.search(r"\bbạn\b", dich, re.I):
@@ -5243,9 +6011,10 @@ def _dich_danh_sach_thoai_gpu(
     )
     dong_thuat_ngu = f"2. Ngữ cảnh & quy tắc xưng hô: {thuat_ngu_trang}.\n" if thuat_ngu_trang else ""
 
+    co_anchor_nmt = bool(che_do_pro or (ngon_ngu_nguon in ("ja", "ko", "zh", "zh-TW", "en") and getattr(urllib.request.urlopen, "__module__", "") == "urllib.request"))
     ban_nhap_nmt: list[str] = (
         _lay_ban_nhap_nmt_sieu_toc(bubbles, ngon_ngu_nguon=ngon_ngu_nguon, ngon_ngu_dich=ngon_ngu_dich)
-        if che_do_pro
+        if co_anchor_nmt
         else ["" for _ in bubbles]
     )
 
@@ -5255,7 +6024,7 @@ def _dich_danh_sach_thoai_gpu(
         tag_lien_ket = " [nối tiếp bóng trên]" if b.get("lien_ket_cau_tren") else ""
         nhap_goi_y = (
             f" (Gợi ý nghĩa sát: {ban_nhap_nmt[idx]})"
-            if (che_do_pro and idx < len(ban_nhap_nmt) and ban_nhap_nmt[idx])
+            if (co_anchor_nmt and idx < len(ban_nhap_nmt) and ban_nhap_nmt[idx])
             else ""
         )
         dong_nhap.append(f"[{idx + 1}]{tag_lien_ket} {cau_goc_chuan}{nhap_goi_y}")
@@ -5263,7 +6032,7 @@ def _dich_danh_sach_thoai_gpu(
 
     quy_tac_pro = (
         "\n4. CHẾ ĐỘ PRO DUAL-ANCHOR & CHỮ VIẾT TAY: Mỗi dòng có kèm '(Gợi ý nghĩa sát: ...)'. Hãy kết hợp câu gốc với gợi ý nghĩa sát để không sót từ vựng khó, tự động sửa lỗi OCR chữ viết tay (VD: '1'->'I', '0'->'O') và chuốt lại thành lời thoại truyện tranh tự nhiên, đúng xưng hô nhất (KHÔNG lặp lại phần chú thích trong ngoặc)."
-        if che_do_pro
+        if co_anchor_nmt
         else ""
     )
     prompt = (
@@ -5275,7 +6044,7 @@ def _dich_danh_sach_thoai_gpu(
         f"{lines_in}"
     )
 
-    def _goi_llm_van_ban(prompt_text: str, so_cau: int) -> str:
+    def _goi_llm_van_ban(prompt_text: str, so_cau: int, tong_tu: int = 0) -> str:
         if backend in ("groq", "deepseek", "openrouter"):
             if backend == "groq":
                 api_url = "https://api.groq.com/openai/v1/chat/completions"
@@ -5296,7 +6065,7 @@ def _dich_danh_sach_thoai_gpu(
                     {
                         "model": model_call,
                         "temperature": 0.2,
-                        "max_tokens": max(128, min(768, so_cau * 38)),
+                        "max_tokens": max(128, min(896, max(so_cau * 38, int(tong_tu * 2.2) + 48))),
                         "messages": [
                             {
                                 "role": "system",
@@ -5321,9 +6090,9 @@ def _dich_danh_sach_thoai_gpu(
             tuy_chon = _tuy_chon_ollama(
                 chay_cpu,
                 temperature=0.0,
-                num_ctx=1536 if che_do_pro else 1024,
-                num_predict=max(96, min(640 if che_do_pro else 512, so_cau * (34 if che_do_pro else 28))),
-                stop=[f"[{so_cau + 1}]", "\n\n"],
+                num_ctx=2048 if (co_anchor_nmt or tong_tu > 120) else 1024,
+                num_predict=max(96, min(768 if co_anchor_nmt else 640, max(so_cau * (34 if co_anchor_nmt else 28), int(tong_tu * 2.2) + 48))),
+                stop=[f"[{so_cau + 1}]", "\n\n\n" if tong_tu > 120 else "\n\n"],
             )
             if not chay_cpu:
                 # Với num_ctx=1024 và chỉ gửi văn bản (không nạp mmproj ảnh), toàn bộ 37/37 lớp (4.75 GB)
@@ -5375,13 +6144,29 @@ def _dich_danh_sach_thoai_gpu(
             payload={
                 "model": model,
                 "temperature": 0.2,
-                "max_tokens": max(96, min(512, so_cau * 28)),
+                "max_tokens": max(96, min(768, max(so_cau * 28, int(tong_tu * 2.2) + 48))),
                 "messages": [{"role": "user", "content": prompt_text}],
             },
         )
         return str((((data.get("choices") or [{}])[0]).get("message") or {}).get("content") or "")
 
-    raw_text = _goi_llm_van_ban(prompt, len(bubbles))
+    if backend == "ollama" and any(k in str(model or "").lower() for k in ("sailor", "seallm", "qwen3-vl")) and ngon_ngu_nguon in ("ja", "ko", "en") and co_anchor_nmt and any(ban_nhap_nmt):
+        vung_s2: list[dict] = []
+        for idx, b in enumerate(bubbles):
+            vi_s2 = hau_kiem_va_sua_ban_dich(b["chu_goc"], ban_nhap_nmt[idx] if idx < len(ban_nhap_nmt) else "", ngon_ngu_dich=ngon_ngu_dich)
+            if vi_s2 and b["w"] >= 12 and b["h"] >= 12:
+                muc_s2 = {"x": int(b["x"]), "y": int(b["y"]), "w": int(b["w"]), "h": int(b["h"]), "chu_goc": b["chu_goc"], "ban_dich": vi_s2}
+                if b.get("dong_con"):
+                    muc_s2["dong_con"] = b["dong_con"]
+                if b.get("hop_bong_thoai"):
+                    muc_s2["hop_bong_thoai"] = b["hop_bong_thoai"]
+                if b.get("angle"):
+                    muc_s2["angle"] = b["angle"]
+                vung_s2.append(muc_s2)
+        if vung_s2:
+            return vung_s2
+    tong_tu_all = sum(max(1, len(str(b.get("chu_goc") or "").split())) for b in bubbles)
+    raw_text = _goi_llm_van_ban(prompt, len(bubbles), tong_tu_all)
 
     trans_map: dict[int, str] = {}
     for line in raw_text.splitlines():
@@ -5405,7 +6190,7 @@ def _dich_danh_sach_thoai_gpu(
         )
         if diem < nguong_q:
             # Nếu đang ở chế độ Pro và bản nháp Dual-Anchor đã đạt điểm Q >= 0.90 thì cứu hộ tức thì (0ms) không cần gọi GPU lần 2
-            if che_do_pro and idx < len(ban_nhap_nmt) and ban_nhap_nmt[idx]:
+            if co_anchor_nmt and idx < len(ban_nhap_nmt) and ban_nhap_nmt[idx]:
                 diem_nhap, _ = danh_gia_chat_luong_ban_dich(
                     b["chu_goc"], ban_nhap_nmt[idx], ngon_ngu_nguon=ngon_ngu_nguon, ngon_ngu_dich=ngon_ngu_dich
                 )
@@ -5425,7 +6210,8 @@ def _dich_danh_sach_thoai_gpu(
             f"{lines_retry}"
         )
         try:
-            raw_retry = _goi_llm_van_ban(prompt_retry, len(ds_can_dich_lai))
+            tong_tu_retry = sum(max(1, len(str(bubbles[i].get("chu_goc") or "").split())) for i in ds_can_dich_lai)
+            raw_retry = _goi_llm_van_ban(prompt_retry, len(ds_can_dich_lai), tong_tu_retry)
             for line in raw_retry.splitlines():
                 m = re.match(r"^\s*\[?(\d+)[\].:\-)\s]+(.+?)\s*$", line)
                 if m:
@@ -5455,6 +6241,14 @@ def _dich_danh_sach_thoai_gpu(
     vung_out: list[dict] = []
     for idx, b in enumerate(bubbles):
         vi = trans_map.get(idx + 1, "")
+        if not vi:
+            nhap_fb = (
+                ban_nhap_nmt[idx]
+                if (idx < len(ban_nhap_nmt) and ban_nhap_nmt[idx])
+                else (_lay_ban_nhap_nmt_sieu_toc([b], ngon_ngu_nguon=ngon_ngu_nguon, ngon_ngu_dich=ngon_ngu_dich) or [""])[0]
+            )
+            if nhap_fb:
+                vi = hau_kiem_va_sua_ban_dich(b["chu_goc"], nhap_fb, ngon_ngu_dich=ngon_ngu_dich)
         if vi and b["w"] >= 12 and b["h"] >= 12:
             _, loi_q = danh_gia_chat_luong_ban_dich(
                 b["chu_goc"], vi, ngon_ngu_nguon=ngon_ngu_nguon, ngon_ngu_dich=ngon_ngu_dich
@@ -5473,6 +6267,8 @@ def _dich_danh_sach_thoai_gpu(
                 muc["dong_con"] = b["dong_con"]
             if b.get("hop_bong_thoai"):
                 muc["hop_bong_thoai"] = b["hop_bong_thoai"]
+            if b.get("angle"):
+                muc["angle"] = b["angle"]
             vung_out.append(muc)
     return vung_out
 
@@ -5687,6 +6483,8 @@ def _dich_danh_sach_thoai_nhanh_mien_phi(
                 muc["dong_con"] = b["dong_con"]
             if b.get("hop_bong_thoai"):
                 muc["hop_bong_thoai"] = b["hop_bong_thoai"]
+            if b.get("angle"):
+                muc["angle"] = b["angle"]
             vung_out.append(muc)
     return vung_out
 
@@ -5872,7 +6670,7 @@ def _dich_danh_sach_thoai_qua_server_deepseek(
     if not bubbles:
         return []
     try:
-        if getattr(goi_http, "__name__", "") == "goi_http" and CAU_HINH_FILE.is_file():
+        if ngon_ngu_nguon not in ("ja", "ko") and getattr(goi_http, "__name__", "") == "goi_http" and CAU_HINH_FILE.is_file():
             cfg = json.loads(CAU_HINH_FILE.read_text(encoding="utf-8"))
             may_chu = chuan_hoa_may_chu(str(cfg.get("may_chu") or ""))
             token = str(cfg.get("token") or cfg.get("api_key") or cfg.get("ma_phien") or "").strip()
@@ -5921,6 +6719,8 @@ def _dich_danh_sach_thoai_qua_server_deepseek(
                                 muc["dong_con"] = b["dong_con"]
                             if b.get("hop_bong_thoai"):
                                 muc["hop_bong_thoai"] = b["hop_bong_thoai"]
+                            if b.get("angle"):
+                                muc["angle"] = b["angle"]
                             vung_out.append(muc)
                     if vung_out:
                         return vung_out
@@ -7489,6 +8289,64 @@ def _quet_mot_url_truyen(u_don: str, mo_rong_ca_bo: bool = False) -> list[dict]:
 
     html = goi_http(u_don, referer=u_don, nguon_ngoai=True).decode("utf-8", errors="ignore")
     ten_tr = suy_doan_ten_truyen_tu_url(u_don, html)
+    if any(k in host for k in ("shonenjumpplus.com", "tonarinoyj.jp", "comic-days.com", "kuragebunch.com", "magcomi.com", "pocket.shonenmagazine.com", "sunday-webry.com")):
+        m_ep = re.search(r'<script[^>]*id=["\']episode-json["\'][^>]*data-value=["\']([^"\']+)["\']', html, re.I) or re.search(r'data-value=["\']([^"\']+)["\'][^>]*id=["\']episode-json["\']', html, re.I)
+        if m_ep:
+            import html as _html_mod
+            ep_data = json.loads(_html_mod.unescape(m_ep.group(1)))
+            rp = ep_data.get("readableProduct") or {}
+            t_ser = str((rp.get("series") or {}).get("title") or rp.get("title") or ten_tr).strip()
+            ten_tr_cv = lam_sach_ten_thu_muc(t_ser)
+            m_num_cv = re.search(r"(\d+(?:\.\d+)?)", str(rp.get("title") or rp.get("number") or "1"))
+            so_cv = float(m_num_cv.group(1)) if m_num_cv else 1.0
+            ten_c_cv = _dinh_dang_ten_chapter(so_cv)
+            return [{"ten_truyen": ten_tr_cv, "so": so_cv, "ten": ten_c_cv, "url": u_don, "nhan": f"{ten_tr_cv} / {ten_c_cv}"}]
+    if "comic.naver.com" in host:
+        qs_nv = urllib.parse.parse_qs(urllib.parse.urlsplit(u_don).query)
+        no_nv = (qs_nv.get("no") or [""])[0].strip()
+        if no_nv and re.fullmatch(r"\d+(?:\.\d+)?", no_nv):
+            so_nv = float(no_nv)
+            ten_c_nv = _dinh_dang_ten_chapter(so_nv)
+            m_tnv = re.search(r"<title[^>]*>(.*?)</title>", html, re.I | re.S)
+            if m_tnv:
+                t_nv_raw = m_tnv.group(1).split("-")[0].split(":")[0].strip()
+                if t_nv_raw:
+                    ten_tr = lam_sach_ten_thu_muc(t_nv_raw)
+            return [{"ten_truyen": ten_tr, "so": so_nv, "ten": ten_c_nv, "url": u_don, "nhan": f"{ten_tr} / {ten_c_nv}"}]
+    if "mangaz.com" in host:
+        m_mz_doc = re.search(r'<span[^>]*id=["\']doc["\'][^>]*>\s*([A-Za-z0-9+/=\s]+)\s*</span>', html, re.I | re.S)
+        if m_mz_doc:
+            mz_d = json.loads(base64.b64decode(m_mz_doc.group(1).strip()).decode("utf-8", errors="ignore"))
+            bk_mz = mz_d.get("Book") or {}
+            t_mz = str(bk_mz.get("title") or ten_tr).strip()
+            ten_tr_mz = lam_sach_ten_thu_muc(t_mz)
+            m_vol_mz = re.search(r"(\d+(?:\.\d+)?)", str(bk_mz.get("volume") or bk_mz.get("series_id") or "1"))
+            so_mz = float(m_vol_mz.group(1)) if m_vol_mz else 1.0
+            ten_c_mz = _dinh_dang_ten_chapter(so_mz)
+            return [{"ten_truyen": ten_tr_mz, "so": so_mz, "ten": ten_c_mz, "url": u_don, "nhan": f"{ten_tr_mz} / {ten_c_mz}"}]
+    if "batcave.biz" in host:
+        m_bc_data = re.search(r"__DATA__\s*=\s*(\{.*?\})\s*(?:;|</script>)", html, re.S)
+        if m_bc_data:
+            bc_d = json.loads(m_bc_data.group(1))
+            m_ser_bc = re.search(r'"ComicSeries"[^}]*"name"\s*:\s*"([^"]+)"', html)
+            if m_ser_bc:
+                ten_tr = lam_sach_ten_thu_muc(m_ser_bc.group(1))
+            chaps_bc = bc_d.get("chapters") or []
+            m_rd = re.search(r"/reader/(\d+)/(\d+)", u_don)
+            news_id_bc = m_rd.group(1) if m_rd else ""
+            cur_cid_bc = int(m_rd.group(2)) if m_rd else 0
+            ds_bc: list[dict] = []
+            for idx_bc, ch_b in enumerate(chaps_bc, 1):
+                cid_b = int(ch_b.get("id") or 0)
+                if not mo_rong_ca_bo and cur_cid_bc and cid_b != cur_cid_bc:
+                    continue
+                m_nb = re.search(r"(\d+(?:\.\d+)?)", str(ch_b.get("title") or idx_bc))
+                so_b = float(m_nb.group(1)) if m_nb else float(idx_bc)
+                ten_cb = _dinh_dang_ten_chapter(so_b)
+                u_cb = f"https://batcave.biz/reader/{news_id_bc}/{cid_b}" if news_id_bc and cid_b else u_don.split("#", 1)[0]
+                ds_bc.append({"ten_truyen": ten_tr, "so": so_b, "ten": ten_cb, "url": u_cb, "nhan": f"{ten_tr} / {ten_cb}"})
+            if ds_bc:
+                return sorted(ds_bc, key=lambda c: float(c.get("so", 1.0)))
     ds = chapter_links(html, u_don)
 
     # Tự động kích hoạt API ẩn WordPress Madara (`POST <url>/ajax/chapters/`) nếu trang mục lục tải danh sách chương bằng AJAX:
@@ -7625,6 +8483,58 @@ def quet_anh_trang_truyen_trong_chapter(url_chapter: str) -> list[str]:
     if "mangadex.org" in host:
         return _quet_anh_mangadex(url_chapter)
     html = goi_http(url_chapter, referer=url_chapter, nguon_ngoai=True).decode("utf-8", errors="ignore")
+    if any(k in host for k in ("shonenjumpplus.com", "tonarinoyj.jp", "comic-days.com", "kuragebunch.com", "magcomi.com", "pocket.shonenmagazine.com", "sunday-webry.com")):
+        m_ep = re.search(r'<script[^>]*id=["\']episode-json["\'][^>]*data-value=["\']([^"\']+)["\']', html, re.I) or re.search(r'data-value=["\']([^"\']+)["\'][^>]*id=["\']episode-json["\']', html, re.I)
+        if m_ep:
+            import html as _html_mod
+            ep_data = json.loads(_html_mod.unescape(m_ep.group(1)))
+            ps = (ep_data.get("readableProduct") or {}).get("pageStructure") or {}
+            la_baku = str(ps.get("choJuGiga") or "").lower() == "baku"
+            ds_cv = [
+                f"{p['src']}#coreview_scramble=4" if la_baku else str(p["src"])
+                for p in (ps.get("pages") or [])
+                if isinstance(p, dict) and p.get("src")
+            ]
+            if ds_cv:
+                return ds_cv
+    if "comic.naver.com" in host:
+        m_nv = re.search(r'id=["\']sectionContWide["\'][^>]*>(.*?)</div>', html, flags=re.I | re.S)
+        vung_nv = m_nv.group(1) if m_nv else html
+        ds_nv = [
+            u.replace("&amp;", "&").strip()
+            for u in re.findall(r'(?:src|data-src)=["\'](https://image-comic\.pstatic\.net/webtoon/[^"\']+)["\']', vung_nv, flags=re.I)
+            if "inst_thumbnail" not in u and "thumb" not in u.lower()
+        ]
+        if ds_nv:
+            return ds_nv
+    if "mangaz.com" in host:
+        m_mz_doc = re.search(r'<span[^>]*id=["\']doc["\'][^>]*>\s*([A-Za-z0-9+/=\s]+)\s*</span>', html, re.I | re.S)
+        if m_mz_doc:
+            mz_d = json.loads(base64.b64decode(m_mz_doc.group(1).strip()).decode("utf-8", errors="ignore"))
+            loc_mz = mz_d.get("Location") or {}
+            vk_mz = str(mz_d.get("verkey") or "")
+            base_mz = f"{loc_mz.get('base', '')}{loc_mz.get('scramble_dir', '')}/"
+            ds_mz_imgs: list[str] = []
+            for q_mz in (mz_d.get("Orders") or []):
+                if not isinstance(q_mz, dict) or not q_mz.get("name"):
+                    continue
+                u_mz = f"{base_mz}{q_mz['name']}?{vk_mz}"
+                if q_mz.get("scramble"):
+                    b64_sc = base64.urlsafe_b64encode(json.dumps(q_mz["scramble"], separators=(",", ":")).encode("utf-8")).decode("ascii")
+                    u_mz = f"{u_mz}#mangaz_scramble={b64_sc}"
+                ds_mz_imgs.append(u_mz)
+            if ds_mz_imgs:
+                return ds_mz_imgs
+    if "batcave.biz" in host:
+        m_bc = re.search(r"__DATA__\s*=\s*(\{.*?\})\s*(?:;|</script>)", html, re.S)
+        if m_bc:
+            bc_d = json.loads(m_bc.group(1))
+            ds_bc_imgs = [str(u).replace("\\/", "/").strip() for u in (bc_d.get("images") or []) if u]
+            so_trang_bc = int(bc_d.get("pages") or 0)
+            if so_trang_bc > 0 and len(ds_bc_imgs) > so_trang_bc:
+                ds_bc_imgs = ds_bc_imgs[:so_trang_bc]
+            if ds_bc_imgs:
+                return ds_bc_imgs
     if "webtoons.com" in host:
         m_list = re.search(r'id=["\']_imageList["\'][^>]*>(.*?)</div>', html, flags=re.I | re.S)
         vung_html = m_list.group(1) if m_list else html

@@ -22,38 +22,40 @@
         if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t)
       } catch (e) {}
     </script>
-    <title>comic.io.vn — AI Manga, Manhwa &amp; Webtoon Translator | Comic Translation API</title>
+    <title>comic.io.vn — Free AI Manga, Manhwa &amp; Webtoon Translator</title>
     <meta
       name="description"
-      content="Translate raw Japanese Manga, Korean Manhwa, Chinese Manhua &amp; Webtoons online in 3 seconds with AI OCR, clean background reconstruction &amp; studio typesetting in 9 languages. Includes Chrome Extension, Windows Batch App &amp; B2B REST API."
+      content="Translate raw Manga, Manhwa, Manhua &amp; Webtoons online in 3 seconds. AI bubble detection, clean inpainting, studio typesetting &amp; REST API in 9 languages."
     />
     <meta
       name="keywords"
       content="AI manga translator, manhwa translator online, raw webtoon translator, comic translation API, manga OCR inpainting API, scanlation automation tool, translate raw manga to english, traductor de manga IA, tradutor de mangá IA, traducteur de manga IA, dịch truyện tranh AI, comic translator chrome extension"
     />
     <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <meta name="bingbot" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
     <meta name="author" content="Manga Translation Studio (comic.io.vn)" />
     <meta name="application-name" content="Manga Translation Studio" />
+    <meta name="geo.region" content="VN" />
     <meta name="theme-color" content="#0f172a" />
     <link rel="canonical" id="seo-canonical" href="https://comic.io.vn/" />
 
     <!-- International SEO Hreflang Annotations -->
-    <link rel="alternate" hreflang="vi" href="https://comic.io.vn/" />
+    <link rel="alternate" hreflang="vi" href="https://comic.io.vn/vi" />
     <link rel="alternate" hreflang="en" href="https://comic.io.vn/en" />
     <link rel="alternate" hreflang="es" href="https://comic.io.vn/es" />
     <link rel="alternate" hreflang="pt" href="https://comic.io.vn/pt" />
     <link rel="alternate" hreflang="fr" href="https://comic.io.vn/fr" />
     <link rel="alternate" hreflang="id" href="https://comic.io.vn/id" />
-    <link rel="alternate" hreflang="x-default" href="https://comic.io.vn/en" />
+    <link rel="alternate" hreflang="x-default" href="https://comic.io.vn/" />
 
     <!-- Open Graph / Social Sharing -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Manga Translation Studio (comic.io.vn)" />
-    <meta property="og:title" id="seo-og-title" content="comic.io.vn — AI Manga, Manhwa &amp; Webtoon Translator + B2B API" />
+    <meta property="og:title" id="seo-og-title" content="comic.io.vn — Free AI Manga, Manhwa &amp; Webtoon Translator" />
     <meta
       property="og:description"
       id="seo-og-desc"
-      content="Instant AI comic translation with smart OCR, background reconstruction &amp; studio typesetting in 9 global languages. Web Studio, Chrome Extension, Windows App &amp; Developer REST API."
+      content="Translate raw Manga, Manhwa, Manhua &amp; Webtoons online in 3 seconds. AI bubble detection, clean inpainting, studio typesetting &amp; REST API in 9 languages."
     />
     <meta property="og:url" id="seo-og-url" content="https://comic.io.vn/" />
     <meta property="og:image" content="https://comic.io.vn/og-preview-international.svg" />
@@ -67,13 +69,34 @@
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" id="seo-tw-title" content="comic.io.vn — Free AI Manga &amp; Webtoon Translator + REST API" />
+    <meta name="twitter:title" id="seo-tw-title" content="comic.io.vn — Free AI Manga, Manhwa &amp; Webtoon Translator" />
     <meta
       name="twitter:description"
       id="seo-tw-desc"
-      content="Translate raw Japanese Manga, Korean Manhwa &amp; Chinese Manhua in ~3 seconds. Smart bubble detection, clean background reconstruction &amp; 9 target languages."
+      content="Translate raw Manga, Manhwa, Manhua &amp; Webtoons online in 3 seconds. AI bubble detection, clean inpainting, studio typesetting &amp; REST API in 9 languages."
     />
     <meta name="twitter:image" content="https://comic.io.vn/og-preview-international.svg" />
+    <!-- Đồng bộ tức thì Canonical URL theo đúng đường dẫn hiện tại cho Bingbot / Googlebot -->
+    <script>
+      try {
+        var p = (window.location.pathname || '/').replace(/\/+$/g, '') || '/'
+        var validPaths = {
+          '/': 1, '/en': 1, '/vi': 1, '/es': 1, '/pt': 1, '/fr': 1, '/id': 1,
+          '/ket-noi-api': 1, '/api-docs': 1, '/en/api-docs': 1,
+          '/bang-gia': 1, '/pricing': 1, '/en/pricing': 1,
+          '/tien-ich': 1, '/extensions': 1, '/en/extensions': 1,
+          '/privacy-policy': 1
+        }
+        var pLow = p.toLowerCase()
+        if (validPaths[pLow]) {
+          var fullUrl = 'https://comic.io.vn' + (pLow === '/' ? '/' : pLow)
+          var cEl = document.getElementById('seo-canonical')
+          if (cEl) cEl.setAttribute('href', fullUrl)
+          var ogEl = document.getElementById('seo-og-url')
+          if (ogEl) ogEl.setAttribute('content', fullUrl)
+        }
+      } catch (e) {}
+    </script>
 
     <!-- Schema.org Structured Data (SoftwareApplication + WebAPI + Organization + FAQPage for International Rich Snippets) -->
     <script type="application/ld+json">
@@ -186,7 +209,29 @@
     </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <main class="trang-chu manga-world-page">
+        <header class="trang-chu-dau manga-hero-banner">
+          <h1>AI Manga, Manhwa &amp; Webtoon Translator</h1>
+          <p class="dan">
+            Translate raw Japanese Manga, Korean Manhwa, Chinese Manhua &amp; Webtoons online in 3 seconds with automatic speech bubble detection, smart background inpainting, and studio typesetting in 9 global languages.
+          </p>
+          <nav aria-label="Primary SEO Navigation">
+            <a href="https://comic.io.vn/">Home</a> |
+            <a href="https://comic.io.vn/en">English</a> |
+            <a href="https://comic.io.vn/vi">Tiếng Việt</a> |
+            <a href="https://comic.io.vn/es">Español</a> |
+            <a href="https://comic.io.vn/pt">Português</a> |
+            <a href="https://comic.io.vn/fr">Français</a> |
+            <a href="https://comic.io.vn/id">Bahasa Indonesia</a> |
+            <a href="https://comic.io.vn/api-docs">Developer REST API</a> |
+            <a href="https://comic.io.vn/pricing">Pricing Plans</a> |
+            <a href="https://comic.io.vn/extensions">Chrome Extension &amp; Windows App</a> |
+            <a href="https://comic.io.vn/privacy-policy">Privacy Policy</a>
+          </nav>
+        </header>
+      </main>
+    </div>
     <!-- Sinh lúc chạy bởi docker-entrypoint.sh; khi chạy máy nhà thì không có file này (404, vô hại). -->
     <script src="/config.js"></script>
     <script type="module" src="/src/main.jsx"></script>

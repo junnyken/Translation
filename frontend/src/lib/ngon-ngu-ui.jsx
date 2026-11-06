@@ -1,62 +1,98 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 
 const KHOA_NGON_NGU_UI = 'translation:ui-lang'
-export const CAC_NGON_NGU_HO_TRO = ['en', 'vi']
+export const CAC_NGON_NGU_HO_TRO = ['en', 'vi', 'es', 'pt', 'fr', 'id']
+
+const CAC_DUONG_DAN_CANONICAL_HOP_LE = new Set([
+  '/',
+  '/en',
+  '/vi',
+  '/es',
+  '/pt',
+  '/fr',
+  '/id',
+  '/ket-noi-api',
+  '/api-docs',
+  '/en/api-docs',
+  '/bang-gia',
+  '/pricing',
+  '/en/pricing',
+  '/tien-ich',
+  '/extensions',
+  '/en/extensions',
+  '/privacy-policy',
+])
+
+export function xacDinhCanonicalUrl(trangTinh = '', lang = 'en', seoFallback = 'https://comic.io.vn/') {
+  try {
+    const rawPath = (window.location.pathname || '/').replace(/\/+$/g, '') || '/'
+    const pathLower = rawPath.toLowerCase()
+    if (trangTinh && trangTinh !== 'home' && pathLower === '/') {
+      return seoFallback
+    }
+    if (CAC_DUONG_DAN_CANONICAL_HOP_LE.has(pathLower)) {
+      return `https://comic.io.vn${pathLower === '/' ? '/' : pathLower}`
+    }
+  } catch {
+    /* bỏ qua */
+  }
+  return seoFallback
+}
 
 export const SEO_META_BY_PAGE = {
   home: {
     vi: {
-      title: 'comic.io.vn — Dịch Truyện Tranh AI Miễn Phí | Manga, Manhwa, Webtoon & API',
+      title: 'comic.io.vn — Dịch Truyện Tranh AI | Manga, Manhwa & Webtoon',
       description:
-        'Nền tảng dịch truyện tranh tự động bằng AI (Manga, Manhwa, Manhua, Comic) sang 9 ngôn ngữ quốc tế. Tự tái tạo nền sạch, dàn chữ chuẩn thẩm mỹ, hỗ trợ Tiện ích Chrome, App Windows & B2B REST API.',
-      canonical: 'https://comic.io.vn/',
+        'Dịch truyện tranh AI miễn phí (Manga, Manhwa, Manhua, Webtoon) sang 9 ngôn ngữ trong 3 giây. Tự xoá chữ, tái tạo nền sạch, hỗ trợ Chrome, Windows & API.',
+      canonical: 'https://comic.io.vn/vi',
     },
     en: {
-      title: 'comic.io.vn — Free AI Manga, Manhwa & Webtoon Translator Online + REST API',
+      title: 'comic.io.vn — Free AI Manga, Manhwa & Webtoon Translator',
       description:
-        'Translate raw Japanese Manga, Korean Manhwa, Chinese Manhua & Webtoons online in ~3 seconds. AI bubble detection, smart background inpainting & studio typesetting in 9 languages.',
-      canonical: 'https://comic.io.vn/en',
+        'Translate raw Manga, Manhwa, Manhua & Webtoons online in 3 seconds. AI bubble detection, clean inpainting, studio typesetting & REST API in 9 languages.',
+      canonical: 'https://comic.io.vn/',
     },
   },
   'ket-noi-api': {
     vi: {
-      title: 'API Dịch Truyện Tranh AI (B2B REST API & RapidAPI) — comic.io.vn',
+      title: 'API Dịch Truyện Tranh AI (REST API & RapidAPI) — comic.io.vn',
       description:
-        'Tích hợp REST API dịch truyện tranh tự động (OCR, xoá chữ tái tạo nền, dịch ngữ cảnh 9 ngôn ngữ) vào Website đọc truyện, App Mobile & công cụ Scanlation với khoá tr_live_... bảo mật.',
+        'Tích hợp REST API dịch truyện tranh AI (OCR, xoá chữ tái tạo nền, dịch 9 ngôn ngữ) vào web đọc truyện, app mobile & công cụ Scanlation với khoá tr_live.',
       canonical: 'https://comic.io.vn/ket-noi-api',
     },
     en: {
-      title: 'AI Manga & Webtoon Translation REST API (OpenAPI 3.0 & RapidAPI) — comic.io.vn',
+      title: 'AI Manga & Webtoon Translation REST API — comic.io.vn',
       description:
-        'Enterprise B2B REST API for automated Manga, Manhwa & Webtoon OCR, speech bubble detection, clean background inpainting & 9-language translation. Ready for RapidAPI, Python, Node.js & cURL.',
+        'Enterprise B2B REST API for automated Manga, Manhwa & Webtoon OCR, speech bubble detection, clean inpainting & 9-language translation via RapidAPI.',
       canonical: 'https://comic.io.vn/api-docs',
     },
   },
   'bang-gia': {
     vi: {
-      title: 'Bảng Giá Dịch Truyện Tranh AI & Gói API B2B (USD / VNĐ) — comic.io.vn',
+      title: 'Bảng Giá Dịch Truyện Tranh AI & Gói API B2B — comic.io.vn',
       description:
-        'Đăng ký nhận ngay 20 Credits miễn phí. 4 gói Tháng & Năm chuẩn quốc tế (300 / 800 / 3.000 / 10.000 Credits) kèm ưu đãi lần đầu giảm 50% từ $2.99 (49.000đ).',
+        'Đăng ký nhận ngay 20 Credits miễn phí. 4 gói Tháng & Năm quốc tế (300 đến 10.000 Credits) kèm ưu đãi lần đầu giảm 50% chỉ từ $2.99 USD (49.000 VNĐ).',
       canonical: 'https://comic.io.vn/bang-gia',
     },
     en: {
-      title: 'Pricing & B2B API Plans — AI Manga & Webtoon Translator | comic.io.vn',
+      title: 'Pricing & B2B API Plans — AI Manga Translator | comic.io.vn',
       description:
-        'Sign up for 20 Free Credits. 4 simple Monthly & Yearly plans (300 / 800 / 3,000 / 10,000 Credits) with 50% OFF first-time offer starting at $2.99 USD.',
+        'Sign up for 20 Free Credits. 4 flexible Monthly & Yearly plans (300 to 10,000 Credits) with 50% OFF first-time offer starting at $2.99 USD for AI manga.',
       canonical: 'https://comic.io.vn/pricing',
     },
   },
   'tien-ich': {
     vi: {
-      title: 'Tiện Ích Chrome Dịch Truyện Trực Tiếp & App Windows Tự Động — comic.io.vn',
+      title: 'Tiện Ích Chrome & App Windows Dịch Truyện AI — comic.io.vn',
       description:
-        'Tải Tiện ích Chrome (Manifest V3) dịch trực tiếp trên mọi web truyện Raw và Phần mềm Windows (.EXE) tự động tải & dịch hàng loạt 100 Chapter chuẩn ngữ cảnh.',
+        'Tải Tiện ích Chrome (Manifest V3) dịch trực tiếp trên web truyện Raw và App Windows (.EXE) tự động tải, xoá chữ & dịch hàng loạt 100 Chapter truyện.',
       canonical: 'https://comic.io.vn/tien-ich',
     },
     en: {
-      title: 'Chrome Extension & Windows Batch App for AI Manga Translation — comic.io.vn',
+      title: 'Chrome Extension & Windows App for AI Manga — comic.io.vn',
       description:
-        'Translate raw Manga, Manhwa & Webtoons directly in your browser with our Manifest V3 Chrome Extension, or batch-translate 100+ chapters automatically on Windows 10/11.',
+        'Translate raw Manga, Manhwa & Webtoons live in your browser with our Chrome Extension, or batch-translate 100+ chapters automatically on Windows 10/11.',
       canonical: 'https://comic.io.vn/extensions',
     },
   },
@@ -68,9 +104,9 @@ export const SEO_META_BY_PAGE = {
       canonical: 'https://comic.io.vn/privacy-policy',
     },
     en: {
-      title: 'Privacy Policy & Data Security — Manga Translation Studio (comic.io.vn)',
+      title: 'Privacy Policy & Data Security — comic.io.vn Studio',
       description:
-        'Official privacy policy and data handling commitments for comic.io.vn Web Studio, Chrome Web Store Extension, and Developer REST API.',
+        'Official privacy policy, user data protection, and security commitments for comic.io.vn Web Studio, Chrome Web Store Extension, and Developer REST API.',
       canonical: 'https://comic.io.vn/privacy-policy',
     },
   },
@@ -80,19 +116,24 @@ export function capNhatSeoTheoTrang(trangTinh = '', lang = 'vi') {
   try {
     const key = trangTinh && SEO_META_BY_PAGE[trangTinh] ? trangTinh : 'home'
     const nhom = SEO_META_BY_PAGE[key] || SEO_META_BY_PAGE.home
-    const seo = (lang !== 'vi' ? nhom.en : nhom.vi) || SEO_META_BY_LANG[lang] || SEO_META_BY_LANG.en
+    const seo =
+      (key === 'home' && SEO_META_BY_LANG[lang]) ||
+      (lang === 'vi' ? nhom.vi : nhom.en) ||
+      SEO_META_BY_LANG[lang] ||
+      SEO_META_BY_LANG.en
     if (!seo) return
+    const canonicalUrl = xacDinhCanonicalUrl(trangTinh, lang, seo.canonical)
     document.title = seo.title
     const metaDesc = document.querySelector('meta[name="description"]')
     if (metaDesc) metaDesc.setAttribute('content', seo.description)
     const canonical = document.getElementById('seo-canonical')
-    if (canonical) canonical.setAttribute('href', seo.canonical)
+    if (canonical) canonical.setAttribute('href', canonicalUrl)
     const ogTitle = document.getElementById('seo-og-title')
     if (ogTitle) ogTitle.setAttribute('content', seo.title)
     const ogDesc = document.getElementById('seo-og-desc')
     if (ogDesc) ogDesc.setAttribute('content', seo.description)
     const ogUrl = document.getElementById('seo-og-url')
-    if (ogUrl) ogUrl.setAttribute('content', seo.canonical)
+    if (ogUrl) ogUrl.setAttribute('content', canonicalUrl)
     const twTitle = document.getElementById('seo-tw-title')
     if (twTitle) twTitle.setAttribute('content', seo.title)
     const twDesc = document.getElementById('seo-tw-desc')
@@ -104,34 +145,40 @@ export function capNhatSeoTheoTrang(trangTinh = '', lang = 'vi') {
 
 export const SEO_META_BY_LANG = {
   vi: {
-    title: 'comic.io.vn — Dịch Truyện Tranh AI Miễn Phí | Manga, Manhwa, Webtoon',
+    title: 'comic.io.vn — Dịch Truyện Tranh AI | Manga, Manhwa & Webtoon',
     description:
-      'Nền tảng dịch truyện tranh tự động bằng AI (Manga, Manhwa, Manhua, Comic) sang 9 ngôn ngữ. Tự tái tạo nền sạch, dàn chữ chuẩn thẩm mỹ, hỗ trợ Tiện ích Chrome, App Windows & API.',
-    canonical: 'https://comic.io.vn/',
+      'Dịch truyện tranh AI miễn phí (Manga, Manhwa, Manhua, Webtoon) sang 9 ngôn ngữ trong 3 giây. Tự xoá chữ, tái tạo nền sạch, hỗ trợ Chrome, Windows & API.',
+    canonical: 'https://comic.io.vn/vi',
   },
   en: {
-    title: 'comic.io.vn — Free AI Manga, Manhwa & Webtoon Translator Online',
+    title: 'comic.io.vn — Free AI Manga, Manhwa & Webtoon Translator',
     description:
-      'Translate raw Japanese Manga, Korean Manhwa, Chinese Manhua & Webtoons online in 3 seconds. AI bubble detection, smart background clean & studio typesetting in 9 languages.',
+      'Translate raw Manga, Manhwa, Manhua & Webtoons online in 3 seconds. AI bubble detection, clean inpainting, studio typesetting & REST API in 9 languages.',
     canonical: 'https://comic.io.vn/en',
   },
   es: {
-    title: 'comic.io.vn — Traductor de Manga, Manhwa y Webtoon con IA Gratis',
+    title: 'comic.io.vn — Traductor de Manga, Manhwa y Webtoon con IA',
     description:
-      'Traduce manga raw, manhwa coreano y cómics online en segundos con IA. Detección de bocadillos, limpieza inteligente de texto y tipografía automática en 9 idiomas.',
+      'Traduce manga raw, manhwa coreano y webtoons online en 3 segundos con IA. Detección de bocadillos, limpieza inteligente y tipografía en 9 idiomas.',
     canonical: 'https://comic.io.vn/es',
   },
   pt: {
-    title: 'comic.io.vn — Tradutor de Mangá, Manhwa e Webtoon com IA Grátis',
+    title: 'comic.io.vn — Tradutor de Mangá, Manhwa e Webtoon com IA',
     description:
-      'Traduza mangá raw, manhwa e quadrinhos online em segundos com Inteligência Artificial. Limpeza inteligente de balões, OCR avançado e diagramação automática.',
+      'Traduza mangá raw, manhwa e webtoons online em 3 segundos com IA. Limpeza inteligente de balões, OCR avançado e diagramação automática em 9 idiomas.',
     canonical: 'https://comic.io.vn/pt',
   },
   fr: {
-    title: 'comic.io.vn — Traducteur de Manga, Manhwa et Webtoon par IA Gratuit',
+    title: 'comic.io.vn — Traducteur de Manga, Manhwa et Webtoon IA',
     description:
-      'Traduisez vos scans manga raw, manhwa et webtoons en ligne en quelques secondes grâce à l’IA. Nettoyage intelligent, OCR précis et lettrage automatique.',
+      'Traduisez vos scans manga raw, manhwa et webtoons en ligne en 3 secondes par IA. Nettoyage intelligent des bulles, OCR précis et lettrage en 9 langues.',
     canonical: 'https://comic.io.vn/fr',
+  },
+  id: {
+    title: 'comic.io.vn — Penerjemah Manga, Manhwa & Webtoon AI Gratis',
+    description:
+      'Terjemahkan manga raw, manhwa Korea & webtoon online dalam 3 detik dengan AI. Deteksi balon teks otomatis, hapus teks bersih & typesetting 9 bahasa.',
+    canonical: 'https://comic.io.vn/id',
   },
 }
 
@@ -204,6 +251,7 @@ export function chuanHoaNgonNguUI(ma) {
   if (s.startsWith('pt')) return 'pt'
   if (s.startsWith('es')) return 'es'
   if (s.startsWith('fr')) return 'fr'
+  if (s.startsWith('id')) return 'id'
   if (s.startsWith('en')) return 'en'
   if (s.startsWith('vi')) return 'vi'
   return ''
@@ -279,15 +327,18 @@ export function NgonNguUIProvider({ children }) {
       document.documentElement.lang = lang
       const seo = SEO_META_BY_LANG[lang] || SEO_META_BY_LANG.en
       if (seo) {
+        const canonicalUrl = xacDinhCanonicalUrl('', lang, seo.canonical)
         document.title = seo.title
         const metaDesc = document.querySelector('meta[name="description"]')
         if (metaDesc) metaDesc.setAttribute('content', seo.description)
         const canonical = document.getElementById('seo-canonical')
-        if (canonical) canonical.setAttribute('href', seo.canonical)
+        if (canonical) canonical.setAttribute('href', canonicalUrl)
         const ogTitle = document.getElementById('seo-og-title')
         if (ogTitle) ogTitle.setAttribute('content', seo.title)
         const ogDesc = document.getElementById('seo-og-desc')
         if (ogDesc) ogDesc.setAttribute('content', seo.description)
+        const ogUrl = document.getElementById('seo-og-url')
+        if (ogUrl) ogUrl.setAttribute('content', canonicalUrl)
       }
     } catch {
       /* bỏ qua */
