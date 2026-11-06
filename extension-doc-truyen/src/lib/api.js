@@ -399,7 +399,7 @@ export async function dichTrangLocalGguf(blob, { ngonNgu = 'ja', ngonNguDich = '
           target_lang: ngonNguDich,
           tu_dien_rieng: tuDienRieng,
           engine,
-          che_do: 've_anh',
+          che_do: 'chi_chu',
         }),
       })
       if (rBridge.ok) {

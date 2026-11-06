@@ -4110,6 +4110,8 @@ def nhan_dien_bong_thoai_ocr_cuc_bo(img_bytes: bytes, ngon_ngu_nguon: str = "en"
     # Ưu tiên số 1: Hệ thống nhận diện thông minh PP-OCRv4 ONNX thích ứng theo từng khung hình + Hợp nhất khung CTD (comic-text-detector.onnx)
     ctd_blocks, ctd_sfx_blocks = _quet_khung_ctd_onnx(im_goc_ctd, he_so_ocr=he_so_ocr)
     raw_lines: list[dict] = _nhan_dien_dong_rapidocr_hf(im, ngon_ngu_nguon=ngon_ngu_nguon)
+    if raw_lines and isinstance(raw_lines[0], dict) and raw_lines[0].get("_auto_lang"):
+        ngon_ngu_nguon = str(raw_lines[0]["_auto_lang"])
     so_dai_chinh = 8
 
     # Dự phòng số 2: Windows Media OCR nếu chưa có PP-OCRv4 ONNX
@@ -5297,6 +5299,8 @@ def _nhan_dien_dong_rapidocr_hf(im, ngon_ngu_nguon: str = "ja") -> list[dict]:
                 dau_hieu_zh = sum(1 for c in all_txt_zh if c in "么这谢对们吗呢吧没个说觉得爱还让给着过为什怎她他你我")
                 avg_zh = sum(float(ln.get("score") or 0.7) for ln in lines_zh) / max(1, len(lines_zh))
                 if dau_hieu_zh >= 2 and avg_zh >= avg_ja - 0.02:
+                    for _ln in lines_zh:
+                        _ln["_auto_lang"] = "zh"
                     return lines_zh
     return lines
 
@@ -6871,6 +6875,10 @@ def _ket_noi_llm_cho_local_ocr_gpu(ngon_ngu_dich: str = "vi") -> tuple[str, str]
     ds_uu_tien_lang = BO_DINH_TUYEN_MODEL_THEO_NGON_NGU.get(
         ngon_ngu_dich, _UU_TIEN_MODEL_LOCAL_OCR_GPU
     )
+    if not os.environ.get("PYTEST_CURRENT_TEST") and getattr(_goi_json_ai_cuc_bo, "__name__", "") == "_goi_json_ai_cuc_bo":
+        now_probe = time.time()
+        if now_probe - getattr(_ket_noi_llm_cho_local_ocr_gpu, "_last_fail_ts", 0.0) < 25.0:
+            raise LocalModelMissingError("Cached: No local LLM running.")
 
     # Kiểm tra các model trong Ollama và ưu tiên theo Smart Model Router của ngôn ngữ đích
     try:
@@ -6915,6 +6923,8 @@ def _ket_noi_llm_cho_local_ocr_gpu(ngon_ngu_dich: str = "vi") -> tuple[str, str]
     except Exception:
         pass
 
+    if not os.environ.get("PYTEST_CURRENT_TEST"):
+        _ket_noi_llm_cho_local_ocr_gpu._last_fail_ts = time.time()
     raise LocalModelMissingError("Chưa có model LLM trong Ollama / LM Studio / llama.cpp.")
 
 
