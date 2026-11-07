@@ -115,6 +115,8 @@ LOI_NHAC = (
     "and punctuation of that text block. "
     "Do NOT include the speech balloon, bubble outline, or blank padding, and NEVER shift the box onto "
     "adjacent hair, faces, or artwork outside the letters. "
+    "MUST include every line from the first word down to the very last line and trailing punctuation "
+    "(never clip the bottom line or '?/...' of a multi-line block). "
     "Do NOT box giant stylized brush-stroke SFX overlapping characters or explosions. "
     "Return the exact original characters in \"text\" (join line breaks with spaces)."
 )
@@ -792,14 +794,6 @@ class AIGeminiDetector:
                         than,
                     )
                 ]
-                if m_key != "gemini-3.1-flash-lite":
-                    ds_ung_vien_url.append(
-                        (
-                            "https://generativelanguage.googleapis.com/v1beta/models/"
-                            f"gemini-3.1-flash-lite:generateContent?key={key}",
-                            than,
-                        )
-                    )
 
             thanh_cong_key = False
             for url_goi, payload_bytes in ds_ung_vien_url:
@@ -831,8 +825,7 @@ class AIGeminiDetector:
                     if la_loi_key:
                         break
                     if la_vertex_aq and exc.code in (400, 404):
-                        continue
-                    if len(ds_ung_vien_url) > 1 and exc.code in (404, 429):
+                        # Với khoá AQ., thử tiếp endpoint/model kế tiếp trong ds_ung_vien_url
                         continue
                     if exc.code in (400, 404) and not la_loi_key:
                         raise loi_cuoi from exc   # lỗi cấu hình: xoay key không cứu được

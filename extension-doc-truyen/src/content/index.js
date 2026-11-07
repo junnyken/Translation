@@ -2793,21 +2793,27 @@ void (async () => {
             for (let i = 0; i < dsCumChuCoLap.length; i += 1) {
               const c = dsCumChuCoLap[i]
               if (c.chon) continue
-              const dx = Math.max(0, Math.max(actX0 - c.maxX, c.minX - actX1))
-              const dy = Math.max(0, Math.max(actY0 - c.maxY, c.minY - actY1))
-              if (dx <= 18 && dy <= 24) {
-                // Kiểm tra điểm giữa cụm và hộp hiện tại có thuộc vùng nền bong bóng (`longTrang` hoặc `laNenMask`) không
-                const midX = Math.max(0, Math.min(rw - 1, Math.round(((c.minX + c.maxX) * 0.5 + (actX0 + actX1) * 0.5) * 0.5)))
-                const midY = Math.max(0, Math.min(rh - 1, Math.round(((c.minY + c.maxY) * 0.5 + (actY0 + actY1) * 0.5) * 0.5)))
-                const midPos = midY * rw + midX
-                if (longTrang[midPos] || laNenMask[midPos] || laNetChuCoLap[midPos]) {
-                  c.chon = true
-                  if (c.minX < actX0) actX0 = c.minX
-                  if (c.maxX > actX1) actX1 = c.maxX
-                  if (c.minY < actY0) actY0 = c.minY
-                  if (c.maxY > actY1) actY1 = c.maxY
-                  coMoRongChuoi = true
+              if (!laBongKhepKin && (c.minX < ex0 || c.maxX >= ex1 || c.minY < ey0 || c.maxY >= ey1)) continue
+              if (laBongKhepKin && ngoaiBongBong[c.pixels[0]] === 1) continue
+              let keCumDaChon = false
+              for (let j = 0; j < dsCumChuCoLap.length; j += 1) {
+                const s = dsCumChuCoLap[j]
+                if (!s.chon) continue
+                const dx = Math.max(0, Math.max(s.minX - c.maxX, c.minX - s.maxX))
+                const dy = Math.max(0, Math.max(s.minY - c.maxY, c.minY - s.maxY))
+                if (dx <= 14 && dy <= 20) {
+                  const mx = Math.max(0, Math.min(rw - 1, Math.round(((c.minX + c.maxX) + (s.minX + s.maxX)) * 0.25)))
+                  const my = Math.max(0, Math.min(rh - 1, Math.round(((c.minY + c.maxY) + (s.minY + s.maxY)) * 0.25)))
+                  const mPos = my * rw + mx
+                  if (longTrang[mPos] || (laBongKhepKin && ngoaiBongBong[mPos] === 0)) {
+                    keCumDaChon = true
+                    break
+                  }
                 }
+              }
+              if (keCumDaChon) {
+                c.chon = true
+                coMoRongChuoi = true
               }
             }
           }
@@ -2878,12 +2884,12 @@ void (async () => {
             const pos = base + px
             if (!laChuGoc[pos]) continue
             vungXoaChu[pos] = 1
-            for (let dy = -5; dy <= 5; dy += 1) {
+            for (let dy = -4; dy <= 4; dy += 1) {
               const ny = py + dy
               if (ny < zy0 || ny >= zy1) continue
               const nBase = ny * rw
-              for (let dx = -5; dx <= 5; dx += 1) {
-                if (dx * dx + dy * dy > 26) continue
+              for (let dx = -4; dx <= 4; dx += 1) {
+                if (dx * dx + dy * dy > 18) continue
                 const nx = px + dx
                 if (nx < zx0 || nx >= zx1) continue
                 const npos = nBase + nx
