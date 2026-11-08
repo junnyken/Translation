@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="index, follow" />
+  <title>Privacy Policy — Dịch Truyện AI Tự Động — Comic, Manga &amp; Webtoon Translator (comic.io.vn)</title>
+  <link rel="canonical" href="https://comic.io.vn/privacy-policy" />
+  <style>
+    :root { --bg: #0f172a; --card: #1e293b; --text: #f8fafc; --muted: #94a3b8; --accent: #f97316; --border: #334155; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.65; padding: 32px 16px; }
+    .container { max-width: 900px; margin: 0 auto; background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 36px; box-shadow: 0 20px 40px rgba(0,0,0,0.35); }
+    .badge { display: inline-block; background: rgba(249,115,22,0.15); color: var(--accent); border: 1px solid rgba(249,115,22,0.4); padding: 5px 14px; border-radius: 999px; font-size: 13px; font-weight: 600; margin-bottom: 12px; }
+    h1 { margin: 0 0 10px; font-size: 28px; color: #ffffff; }
+    h2 { color: var(--accent); font-size: 20px; margin-top: 28px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+    h3 { color: #f1f5f9; font-size: 16px; margin-top: 18px; margin-bottom: 6px; }
+    p, li { color: #e2e8f0; font-size: 15px; }
+    ul { padding-left: 22px; }
+    li { margin-bottom: 8px; }
+    .muted { color: var(--muted); font-size: 14px; }
+    .lang-box { background: rgba(15,23,42,0.6); border: 1px solid var(--border); border-radius: 12px; padding: 22px 26px; margin-top: 24px; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code { background: rgba(15,23,42,0.8); padding: 2px 6px; border-radius: 4px; font-size: 13px; color: #7dd3fc; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <span class="badge">Official Chrome Web Store &amp; Web Platform Privacy Policy</span>
+    <h1>Privacy Policy / Chính Sách Quyền Riêng Tư</h1>
+    <p class="muted">
+      <strong>Effective Date / Ngày có hiệu lực:</strong> November 7, 2026<br />
+      <strong>Product / Sản phẩm áp dụng:</strong> Chrome Extension <strong>"Dịch Truyện AI Tự Động — Comic, Manga &amp; Webtoon Translator"</strong> (ID: <code>ejhbibmljocengmbfojheibfplmekhom</code>) &amp; Web Platform <a href="https://comic.io.vn">https://comic.io.vn</a>
+    </p>
+
+    <div class="lang-box">
+      <h2>1. English Version — Chrome Web Store User Data Privacy Policy</h2>
+      <p>
+        This Privacy Policy explains how <strong>Dịch Truyện AI Tự Động — Comic, Manga &amp; Webtoon Translator</strong> ("the Extension") and <strong>comic.io.vn</strong> ("we", "us", or "our") collect, use, handle, and protect user data in strict compliance with the Chrome Web Store Developer Program Policies.
+      </p>
+
+      <h3>1.1. Single Purpose &amp; When Data is Processed</h3>
+      <p>
+        The Extension has a single purpose: detecting speech bubbles, erasing original text, and overlaying translated text onto comic, manga, manhwa, and webtoon images on the webpage the user is actively reading. <strong>The Extension remains completely dormant until explicitly triggered by the user</strong> (by clicking the "Translate" button in the popup or pressing the keyboard shortcut <code>Alt+Q</code> / <code>Alt+S</code> / <code>Alt+A</code> / <code>Alt+W</code>).
+      </p>
+
+      <h3>1.2. Data Collected &amp; How It Is Used</h3>
+      <ul>
+        <li>
+          <strong>Comic Images &amp; Story Text (User-Initiated Only):</strong> When you trigger translation on a comic page, the Extension extracts only the comic image(s) on the active tab and transmits them securely over HTTPS (`TLS 1.2+`) to our translation API (<code>https://comic.io.vn/api/v1/</code> / <code>https://translation-api.vibe1.tinhgon.xyz</code>) to perform Optical Character Recognition (OCR), speech bubble detection, and AI contextual translation.
+        </li>
+        <li>
+          <strong>Local Preferences (<code>chrome.storage.local</code>):</strong> The Extension stores your selected source language, target language, font style, translation engine mode, and optional account session token (`tr_live_...` or JWT) locally inside your browser using <code>chrome.storage.local</code>.
+        </li>
+        <li>
+          <strong>Optional Account Synchronization:</strong> If you sign in on <a href="https://comic.io.vn">https://comic.io.vn</a>, your email address and remaining page quota are used solely to authenticate your requests and synchronize your translation balance across the Web Studio and Chrome Extension.
+        </li>
+      </ul>
+
+      <h3>1.3. Chrome Permissions Justification</h3>
+      <ul>
+        <li><code>activeTab</code>: Used to access the currently active tab when the user clicks the extension or presses the translation shortcut to capture and translate the comic image being viewed.</li>
+        <li><code>scripting</code>: Used to inject the on-page translation overlay script (<code>src/content/index.js</code>) so translated speech bubbles are rendered directly over the comic images.</li>
+        <li><code>storage</code>: Used to save user preferences (language pair, comic font, AI mode, and optional API/session token) locally in the browser.</li>
+        <li><code>&lt;all_urls&gt;</code> (Host Permission): Required because users read comics, manga, and webtoons across thousands of independent scanlation and publisher websites and CDN image domains worldwide.</li>
+      </ul>
+
+      <h3>1.4. Data Retention, Sharing &amp; Google Limited Use Disclosure</h3>
+      <ul>
+        <li><strong>No Browsing History Tracking:</strong> We do <strong>NOT</strong> collect, log, or monitor your general web browsing history, search queries, form inputs, passwords, or payment card details.</li>
+        <li><strong>No Sale of User Data:</strong> We do <strong>NOT</strong> sell, rent, license, or trade any user data to third parties, data brokers, or advertising networks.</li>
+        <li><strong>Google Limited Use Compliance:</strong> The use of information received from Google APIs and Chrome Extension APIs adheres strictly to the <em>Chrome Web Store User Data Policy</em>, including the <strong>Limited Use</strong> requirements. User data is never used for personalized advertising, creditworthiness lending, or unrelated analytics.</li>
+      </ul>
+
+      <h3>1.5. Contact Us</h3>
+      <p>
+        If you have any questions or requests regarding your privacy or data deletion, please contact us at:<br />
+        <strong>Website:</strong> <a href="https://comic.io.vn">https://comic.io.vn</a><br />
+        <strong>Support Email:</strong> <code>trieunt1@matbao.com</code>
+      </p>
+    </div>
+
+    <div class="lang-box">
+      <h2>2. Phiên Bản Tiếng Việt — Chính Sách Bảo Mật Dữ Liệu Người Dùng</h2>
+      <p>
+        Chính sách quyền riêng tư này quy định cách thức tiện ích mở rộng <strong>"Dịch Truyện AI Tự Động — Comic, Manga &amp; Webtoon Translator"</strong> (Mã tiện ích: <code>ejhbibmljocengmbfojheibfplmekhom</code>) và nền tảng <a href="https://comic.io.vn">https://comic.io.vn</a> thu thập, xử lý và bảo vệ dữ liệu của người dùng theo đúng Chính sách Chương trình Nhà phát triển của Cửa hàng Chrome trực tuyến.
+      </p>
+
+      <h3>2.1. Nguyên tắc hoạt động &amp; Dữ liệu xử lý</h3>
+      <ul>
+        <li><strong>Chỉ hoạt động khi người dùng bấm dịch:</strong> Tiện ích chỉ trích xuất hình ảnh trang truyện trên tab hiện tại khi bạn chủ động bấm nút Dịch hoặc nhấn phím tắt (<code>Alt+Q</code> / <code>Alt+S</code> / <code>Alt+A</code> / <code>Alt+W</code>) để gửi qua giao thức mã hoá HTTPS tới máy chủ dịch thuật (<code>https://comic.io.vn/api/v1/</code>) nhằm nhận diện khung thoại, xoá chữ gốc và dịch sang ngôn ngữ đích.</li>
+        <li><strong>Lưu trữ cục bộ (<code>chrome.storage.local</code>):</strong> Tiện ích chỉ lưu trữ ngôn ngữ nguồn, ngôn ngữ đích, kiểu font chữ truyện tranh, chế độ AI và mã phiên đăng nhập (nếu có) ngay trên trình duyệt của bạn.</li>
+        <li><strong>Bộ nhớ đệm ẩn danh:</strong> Các vùng chữ đã dịch có thể được lưu đệm theo mã băm hình ảnh một chiều ẩn danh để tăng tốc độ hiển thị, hoàn toàn không gắn với danh tính cá nhân hay lịch sử duyệt web của bạn.</li>
+      </ul>
+
+      <h3>2.2. Cam kết Không Theo Dõi &amp; Không Bán Dữ Liệu</h3>
+      <ul>
+        <li>Chúng tôi <strong>KHÔNG</strong> thu thập lịch sử duyệt web, không đọc mật khẩu, dữ liệu biểu mẫu hay thông tin thanh toán của người dùng.</li>
+        <li>Chúng tôi <strong>KHÔNG</strong> bán, trao đổi hoặc chia sẻ dữ liệu người dùng cho bất kỳ bên thứ ba hay mạng quảng cáo nào.</li>
+        <li>Mọi yêu cầu hỗ trợ hoặc xoá dữ liệu tài khoản, vui lòng liên hệ qua email: <code>trieunt1@matbao.com</code> hoặc trang chủ <a href="https://comic.io.vn">https://comic.io.vn</a>.</li>
+      </ul>
+    </div>
+  </div>
+</body>
+</html>

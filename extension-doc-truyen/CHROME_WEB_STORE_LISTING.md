@@ -83,5 +83,8 @@ This extension has a single purpose: translating comic, manga, manhwa, and webto
    Users read comics, manga, and webtoons across thousands of independent scanlation and publisher domains worldwide, and comic images are served from diverse CDN subdomains. `<all_urls>` is required only when the user triggers translation so the extension can fetch the comic image and overlay the translated text on any comic website the user visits.
    ```
 
-### Privacy Policy URL:
-`https://comic.io.vn/#bao-mat`
+### Privacy Policy URL (Đường liên kết chính sách quyền riêng tư hợp lệ — trang độc lập không qua SPA):
+- **URL chính (Khuyên dùng):** `https://comic.io.vn/privacy-policy.html`
+- **URL ngắn gọn:** `https://comic.io.vn/privacy-policy`
+- **URL API trực tiếp:** `https://comic.io.vn/api/v1/privacy-policy` (hoặc `https://translation-api.vibe1.tinhgon.xyz/privacy-policy`)
+*(Lưu ý: Không dùng `https://comic.io.vn` hay `https://comic.io.vn/#bao-mat` vì bot kiểm duyệt của Google Chrome Web Store coi URL có dấu `#` là trang chủ của chủ sở hữu chứ không phải trang chính sách quyền riêng tư độc lập — lỗi Purple Nickel).*
