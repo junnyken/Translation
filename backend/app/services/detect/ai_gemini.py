@@ -701,7 +701,7 @@ class AIGeminiDetector:
 
         ra: list[DetectedRegion] = []
         for muc in tho:
-            hop = muc.get("box")
+            hop = muc.get("box") or muc.get("box_2d")
             if not (isinstance(hop, list) and len(hop) == 4):
                 continue
             y0, x0, y1, x1 = (float(v) for v in hop)
@@ -789,7 +789,7 @@ class AIGeminiDetector:
 
         ra: list[DetectedRegion] = []
         for muc in tho:
-            hop = muc.get("box")
+            hop = muc.get("box") or muc.get("box_2d")
             if not (isinstance(hop, list) and len(hop) == 4):
                 continue
             y0, x0, y1, x1 = (float(v) for v in hop)
@@ -997,7 +997,7 @@ class AIGeminiDetector:
         if d is None and ds_khoa_vision_oai:
             chi_dan_json = (
                 "\n\nReturn ONLY a raw JSON array (no markdown fences) where each item has "
-                '{"box_2d": [ymin, xmin, ymax, xmax], "text": "...", "ban_dich": "...", "doan": false}.'
+                '{"box": [ymin, xmin, ymax, xmax], "text": "...", "ban_dich": "...", "doan": false}.'
             )
             for url_oai, m_oai, k_oai in ds_khoa_vision_oai:
                 try:
