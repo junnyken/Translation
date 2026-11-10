@@ -694,10 +694,15 @@ class LLMContextTranslator:
                     m_final = "gemini-3.1-flash-lite"
                 clean_k = parts[2].strip()
                 la_vertex_aq = clean_k.startswith("AQ.")
+                ep_gm = (
+                    f"https://aiplatform.googleapis.com/v1/publishers/google/models/{m_final}:generateContent?key={clean_k}"
+                    if la_vertex_aq
+                    else _GEMINI_ENDPOINT.format(model=m_final)
+                )
                 return {
                     "provider": "gemini",
                     "ten_ncc": f"Google Gemini ({m_final})",
-                    "endpoint": _GEMINI_ENDPOINT.format(model=m_final),
+                    "endpoint": ep_gm,
                     "model": m_final,
                     "api_key": clean_k,
                     "is_openai_compat": False,
@@ -710,10 +715,15 @@ class LLMContextTranslator:
         elif m_gm.lower() == "gemini-2.5-flash":
             m_gm = "gemini-3.1-flash-lite"
         la_vertex_aq = clean_gm.startswith("AQ.")
+        ep_gm_def = (
+            f"https://aiplatform.googleapis.com/v1/publishers/google/models/{m_gm}:generateContent?key={clean_gm}"
+            if la_vertex_aq
+            else _GEMINI_ENDPOINT.format(model=m_gm)
+        )
         return {
             "provider": "gemini",
             "ten_ncc": f"Google Gemini ({m_gm})",
-            "endpoint": _GEMINI_ENDPOINT.format(model=m_gm),
+            "endpoint": ep_gm_def,
             "model": m_gm,
             "api_key": clean_gm,
             "is_openai_compat": False,

@@ -927,15 +927,15 @@ class AIGeminiDetector:
             la_vertex_aq = key.startswith("AQ.")
             la_khoa_that = len(key) >= 16
             if la_vertex_aq:
+                m_vertex = "gemini-2.5-flash-lite" if m_key in ("gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-3.5-flash-lite") else m_key
                 ds_ung_vien_url = [
-                    (f"https://generativelanguage.googleapis.com/v1beta/models/{m_key}:generateContent?key={key}", than),
-                    (f"https://aiplatform.googleapis.com/v1/publishers/google/models/{m_key}:generateContent?key={key}", than_vertex),
-                    (f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key={key}", than),
-                    (f"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-3.1-flash-lite-preview:generateContent?key={key}", than_vertex_no_think),
-                    (f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={key}", than),
+                    (f"https://aiplatform.googleapis.com/v1/publishers/google/models/{m_vertex}:generateContent?key={key}", than_vertex),
                     (f"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-flash-lite:generateContent?key={key}", than_vertex_no_think),
-                    (f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key={key}", than_vertex_no_think),
+                    (f"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-flash:generateContent?key={key}", than_vertex_no_think),
+                    (f"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-3.1-flash-lite-preview:generateContent?key={key}", than_vertex_no_think),
                     (f"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-3.1-flash-image-preview:generateContent?key={key}", than_vertex_no_think),
+                    (f"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.0-flash:generateContent?key={key}", than_vertex_no_think),
+                    (f"https://generativelanguage.googleapis.com/v1beta/models/{m_key}:generateContent?key={key}", than),
                 ]
             elif la_khoa_that:
                 ds_ung_vien_url = [
