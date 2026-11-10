@@ -1200,6 +1200,14 @@ class HanMucRead(BaseModel):
     #: Cấp độ tài khoản (0=Free, 1=Trial, 2=Starter, 3=Pro, 4=Studio, 5=Unlimited).
     cap_do: int = 0
     ten_cap_do: str = "Free"
+    #: Chu kỳ reset định hình chi phí theo khung 3 giờ (mặc định 3 giờ/lần) để bảo vệ máy chủ 24/7 và hồi lượt đều đặn.
+    reset_theo_gio_luc: datetime | None = None
+    reset_theo_gio_sau_giay: int = 0
+    chu_ky_reset_gio: int = 3
+    tran_theo_gio: int = 0
+    con_lai_theo_gio: int = 0
+    #: Danh sách các model AI dịch truyện kèm trạng thái mở khóa theo gói (Free / Gói 1 / Gói 2).
+    danh_sach_model: list[dict] = Field(default_factory=list)
 
 
 class GoiNapLuotRead(BaseModel):

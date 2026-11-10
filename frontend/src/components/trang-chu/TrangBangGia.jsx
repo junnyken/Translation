@@ -31,29 +31,31 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
         : (laNam ? 'Gói Starter Năm (3.600 Credits)' : 'Gói Starter (300 Credits / tháng)'),
       giaGocVnd: laNam ? 708000 : 99000,
       giaVnd: daTungNap ? (laNam ? 708000 : 99000) : (laNam ? 450000 : 49000),
-      giaGocUsd: laNam ? '4.99' : '5.99',
-      giaUsd: daTungNap ? (laNam ? '59.88' : '5.99') : (laNam ? '29.99' : '2.99'),
-      giaHienUsd: daTungNap ? (laNam ? '4.99' : '5.99') : (laNam ? '2.49' : '2.99'),
+      giaGocUsd: laNam ? '4.99' : '6.99',
+      giaUsd: daTungNap ? (laNam ? '59.88' : '6.99') : (laNam ? '35.99' : '3.99'),
+      giaHienUsd: daTungNap ? (laNam ? '4.99' : '6.99') : (laNam ? '2.99' : '3.99'),
       chuKy: laEn ? '/ month' : '/ tháng',
       phuChuKy: daTungNap
         ? (laEn ? '🔄 Standard Renewal Rate (30 days)' : '🔄 Giá gốc khi gia hạn (chu kỳ 30 ngày)')
         : (laNam
-            ? (laEn ? '🎁 1st Year $29.99 · Renews at $59.88/yr' : '🎁 Năm đầu 450k · Gia hạn tính giá gốc 708k/năm')
-            : (laEn ? '🎁 1st Month $2.99 · Renews at $5.99/mo' : '🎁 Tháng đầu 49k · Khi gia hạn tính lại giá gốc 99k')),
+            ? (laEn ? '🎁 1st Year $35.99 · Renews at $59.88/yr' : '🎁 Năm đầu 450k · Gia hạn tính giá gốc 708k/năm')
+            : (laEn ? '🎁 1st Month $3.99 · Renews at $6.99/mo' : '🎁 Tháng đầu 49k · Khi gia hạn tính lại giá gốc 99k')),
       soTrang: laNam ? 3600 : 300,
       uocChap: laNam ? '~180 chapters' : '~15 chapters',
-      khuyenMai: daTungNap ? (laEn ? '300 Credits' : '300 Credits') : (laEn ? '1st Payment -50%' : 'Lần đầu -50%'),
+      khuyenMai: daTungNap ? (laEn ? '300 Credits' : '300 Credits') : (laEn ? '1st Payment -43%' : 'Lần đầu -50%'),
       donGiaVnd: daTungNap ? (laNam ? '196đ/credit' : '330đ/credit') : (laNam ? '125đ/credit' : '163đ/credit'),
-      donGiaUsd: daTungNap ? (laNam ? '$0.016/credit' : '$0.020/credit') : (laNam ? '$0.0083/credit' : '$0.010/credit'),
+      donGiaUsd: daTungNap ? (laNam ? '$0.016/credit' : '$0.023/credit') : (laNam ? '$0.010/credit' : '$0.013/credit'),
       diemManh: laEn
         ? [
-            `${laNam ? '3,600 Credits / year' : '300 Credits / month'} (1 Credit = 1 Page · Rollover included)`,
-            'Unlocks Full Clean + Typeset mode (`day_du`) & 4 Genre Fonts',
+            `${laNam ? '3,600 Credits / year' : '300 Credits / month'} (1 Credit = 1 Page · 3h shaping: 90/3h)`,
+            '🔓 Unlocks Context AI Dialogue mode (Local OCR + AI Text Context)',
+            'Smart Speech Bubble Inpainting & 4 Comic Genre Fonts',
             'Use on Web Studio & Chrome Extension in 9 target languages',
           ]
         : [
-            `${laNam ? '3.600 Credits / năm' : '300 Credits / tháng'} (1 Credit = 1 Trang · Cộng dồn khi gia hạn)`,
-            'Mở khoá Xoá chữ Tái tạo nền (`day_du`) & 4 bộ Phông chữ thể loại',
+            `${laNam ? '3.600 Credits / năm' : '300 Credits / tháng'} (1 Credit = 1 Trang · Định hình 90 lượt/3 giờ)`,
+            '🔓 Mở khoá OCR Tách Chữ Trước + Dịch Hội Thoại AI Ngữ Cảnh (siêu tiết kiệm)',
+            'Mở khoá Xoá chữ tái tạo nền bóng thoại & 4 bộ Phông chữ thể loại',
             'Dùng trên Web Studio & Tiện ích Chrome (9 ngôn ngữ)',
           ],
       noiBat: false,
@@ -61,38 +63,38 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
     {
       ma: laNam ? 'pro_yearly' : 'pro_monthly',
       maNgan: laNam ? 'LITEYR' : 'PRO',
-      nhan: laEn ? '⭐ LITE / READER' : '⭐ GÓI LITE / ĐỌC TRUYỆN',
+      nhan: laEn ? '⭐ TIER 2 · PRO / READER' : '⭐ GÓI 2 · LITE / ĐỌC TRUYỆN',
       ten: laEn
         ? (laNam ? 'Lite Yearly (9,600 Credits)' : 'Lite Monthly (800 Credits)')
         : (laNam ? 'Gói Lite Năm (9.600 Credits)' : 'Gói Lite (800 Credits / tháng)'),
       giaGocVnd: laNam ? 1428000 : 149000,
       giaVnd: daTungNap ? (laNam ? 1428000 : 149000) : (laNam ? 890000 : 99000),
-      giaGocUsd: laNam ? '7.99' : '8.99',
-      giaUsd: daTungNap ? (laNam ? '95.88' : '8.99') : (laNam ? '53.99' : '5.99'),
-      giaHienUsd: daTungNap ? (laNam ? '7.99' : '8.99') : (laNam ? '4.49' : '5.99'),
+      giaGocUsd: laNam ? '7.99' : '9.99',
+      giaUsd: daTungNap ? (laNam ? '95.88' : '9.99') : (laNam ? '59.99' : '6.99'),
+      giaHienUsd: daTungNap ? (laNam ? '7.99' : '9.99') : (laNam ? '4.99' : '6.99'),
       chuKy: laEn ? '/ month' : '/ tháng',
       phuChuKy: daTungNap
         ? (laEn ? '🔄 Standard Renewal Rate (30 days)' : '🔄 Giá gốc khi gia hạn (chu kỳ 30 ngày)')
         : (laNam
-            ? (laEn ? '🎁 1st Year $53.99 · Renews at $95.88/yr' : '🎁 Năm đầu 890k · Gia hạn tính giá gốc 1.428k/năm')
-            : (laEn ? '🎁 1st Month $5.99 · Renews at $8.99/mo' : '🎁 Tháng đầu 99k · Khi gia hạn tính lại giá gốc 149k')),
+            ? (laEn ? '🎁 1st Year $59.99 · Renews at $95.88/yr' : '🎁 Năm đầu 890k · Gia hạn tính giá gốc 1.428k/năm')
+            : (laEn ? '🎁 1st Month $6.99 · Renews at $9.99/mo' : '🎁 Tháng đầu 99k · Khi gia hạn tính lại giá gốc 149k')),
       soTrang: laNam ? 9600 : 800,
       uocChap: laNam ? '~480 chapters' : '~40 chapters',
-      khuyenMai: daTungNap ? (laEn ? '800 Credits' : '800 Credits') : (laEn ? '1st Payment -33%' : 'Lần đầu -33%'),
+      khuyenMai: daTungNap ? (laEn ? '800 Credits' : '800 Credits') : (laEn ? '1st Payment -30%' : 'Lần đầu -33%'),
       donGiaVnd: daTungNap ? (laNam ? '148đ/credit' : '186đ/credit') : (laNam ? '92đ/credit' : '123đ/credit'),
-      donGiaUsd: daTungNap ? (laNam ? '$0.010/credit' : '$0.011/credit') : (laNam ? '$0.0056/credit' : '$0.0075/credit'),
+      donGiaUsd: daTungNap ? (laNam ? '$0.010/credit' : '$0.012/credit') : (laNam ? '$0.0062/credit' : '$0.0087/credit'),
       diemManh: laEn
         ? [
-            `${laNam ? '9,600 Credits / year' : '800 Credits / month'} (~40 chapters/mo · Rollover included)`,
+            `${laNam ? '9,600 Credits / year' : '800 Credits / month'} (~40 chapters/mo · 3h shaping: 200/3h)`,
+            '🔓 Unlocks Full Cloud Image Scan + Context AI Studio mode',
             'Unlocks Windows App Continuous Multi-Chapter Auto-Crawl',
-            'Unlocks Context AI Pro + Character & Pronoun Glossary',
-            'Unlocks Batch Archive Upload (.ZIP, .CBZ, .PDF)',
+            'Unlocks Context AI Pro + Character & Pronoun Glossary (.ZIP, .CBZ, .PDF)',
           ]
         : [
-            `${laNam ? '9.600 Credits / năm' : '800 Credits / tháng'} (~40 chapter/tháng · Cộng dồn khi gia hạn)`,
+            `${laNam ? '9.600 Credits / năm' : '800 Credits / tháng'} (~40 chapter/tháng · Định hình 200 lượt/3 giờ)`,
+            '🔓 Mở khoá Quét Ảnh Đám Mây (Scan Hình Ảnh) + AI Ngữ Cảnh Studio',
             'Mở khoá App Windows tải & dịch liên tục nhiều Chapter',
-            'Mở khoá AI Chuẩn Ngữ Cảnh Pro + Từ điển Nhân vật & Xưng hô',
-            'Mở khoá tải nguyên tập nén .ZIP, .CBZ, .PDF',
+            'Mở khoá AI Chuẩn Ngữ Cảnh Pro + Từ điển Nhân vật (.ZIP, .CBZ, .PDF)',
           ],
       noiBat: false,
     },
@@ -106,28 +108,28 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
       giaGocVnd: laNam ? 2988000 : 399000,
       giaVnd: daTungNap ? (laNam ? 2988000 : 399000) : (laNam ? 1790000 : 199000),
       giaGocUsd: laNam ? '14.99' : '19.99',
-      giaUsd: daTungNap ? (laNam ? '179.88' : '19.99') : (laNam ? '89.99' : '9.99'),
-      giaHienUsd: daTungNap ? (laNam ? '14.99' : '19.99') : (laNam ? '7.49' : '9.99'),
+      giaUsd: daTungNap ? (laNam ? '179.88' : '19.99') : (laNam ? '99.99' : '12.99'),
+      giaHienUsd: daTungNap ? (laNam ? '14.99' : '19.99') : (laNam ? '8.33' : '12.99'),
       chuKy: laEn ? '/ month' : '/ tháng',
       phuChuKy: daTungNap
-        ? (laEn ? '🔄 Standard Renewal Rate (+API Included)' : '🔄 Giá gốc khi gia hạn (+Kèm Cổng API)')
+        ? (laEn ? '🔄 Standard Renewal Rate (+API Included · 450/3h)' : '🔄 Giá gốc khi gia hạn (+Kèm Cổng API · 450 lượt/3 giờ)')
         : (laNam
-            ? (laEn ? '🎁 1st Year $89.99 · Renews at $179.88/yr' : '🎁 Năm đầu 1.790k · Gia hạn tính giá gốc 2.988k/năm')
-            : (laEn ? '⚡ 1st Month $9.99 (3.7x Credits + API) · Renews at $19.99' : '⚡ Tháng đầu 199k (Gấp 3.7x Credits + Mở API) · Gia hạn 399k')),
+            ? (laEn ? '🎁 1st Year $99.99 · Renews at $179.88/yr' : '🎁 Năm đầu 1.790k · Gia hạn tính giá gốc 2.988k/năm')
+            : (laEn ? '⚡ 1st Month $12.99 (3.7x Credits + API) · Renews at $19.99' : '⚡ Tháng đầu 199k (Gấp 3.7x Credits + Mở API) · Gia hạn 399k')),
       soTrang: laNam ? 36000 : 3000,
       uocChap: laNam ? '~1,800 chapters' : '~150 chapters',
       khuyenMai: laEn ? 'Recommended + API' : 'Đề xuất + Mở API',
       donGiaVnd: daTungNap ? (laNam ? '83đ/credit' : '133đ/credit') : (laNam ? '49đ/credit' : '66đ/credit'),
-      donGiaUsd: daTungNap ? (laNam ? '$0.0050/credit' : '$0.0066/credit') : (laNam ? '$0.0025/credit' : '$0.0033/credit'),
+      donGiaUsd: daTungNap ? (laNam ? '$0.0050/credit' : '$0.0066/credit') : (laNam ? '$0.0028/credit' : '$0.0043/credit'),
       diemManh: laEn
         ? [
-            `${laNam ? '36,000 Credits / year' : '3,000 Credits / month'} (3.7x Lite credits + Developer API!)`,
+            `${laNam ? '36,000 Credits / year' : '3,000 Credits / month'} (3.7x Lite credits + Developer API · 450/3h)`,
             '✅ Unlocks Personal Developer REST API Key (tr_live_...)',
             '✅ Unlocks Layered Photoshop (.PSD) Export & Video Review Studio',
             '✅ Priority Support + Cross-chapter Glossary consistency',
           ]
         : [
-            `${laNam ? '36.000 Credits / năm' : '3.000 Credits / tháng'} (Gấp 3.7 lần gói Lite + Mở Cổng API!)`,
+            `${laNam ? '36.000 Credits / năm' : '3.000 Credits / tháng'} (Gấp 3.7 lần gói Lite + Mở Cổng API · 450 lượt/3 giờ)`,
             '✅ Mở khoá Khoá Developer REST API riêng (tr_live_...)',
             '✅ Mở khoá Xuất file Photoshop (.PSD) tách lớp & Video Review Studio',
             '✅ Hỗ trợ ưu tiên + Đồng bộ thuật ngữ xuyên suốt các chương',
@@ -144,14 +146,14 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
       giaGocVnd: laNam ? 5988000 : 799000,
       giaVnd: daTungNap ? (laNam ? 5988000 : 799000) : (laNam ? 3590000 : 399000),
       giaGocUsd: laNam ? '29.99' : '39.99',
-      giaUsd: daTungNap ? (laNam ? '359.88' : '39.99') : (laNam ? '179.99' : '19.99'),
-      giaHienUsd: daTungNap ? (laNam ? '29.99' : '39.99') : (laNam ? '14.99' : '19.99'),
+      giaUsd: daTungNap ? (laNam ? '359.88' : '39.99') : (laNam ? '199.99' : '24.99'),
+      giaHienUsd: daTungNap ? (laNam ? '29.99' : '39.99') : (laNam ? '16.66' : '24.99'),
       chuKy: laEn ? '/ month' : '/ tháng',
       phuChuKy: daTungNap
-        ? (laEn ? '🔄 Standard Renewal Rate (10,000 Credits + VIP GPU)' : '🔄 Giá gốc khi gia hạn (10.000 Credits + Luồng GPU VIP)')
+        ? (laEn ? '🔄 Standard Renewal Rate (10,000 Credits + VIP GPU · 900/3h)' : '🔄 Giá gốc khi gia hạn (10.000 Credits + Luồng GPU VIP · 900 lượt/3 giờ)')
         : (laNam
-            ? (laEn ? '🎁 1st Year $179.99 · Renews at $359.88/yr' : '🎁 Năm đầu 3.590k · Gia hạn tính giá gốc 5.988k/năm')
-            : (laEn ? '🎁 1st Month $19.99 (-50% OFF) · Renews at $39.99/mo' : '🎁 Tháng đầu 399k (-50%) · Khi gia hạn tính lại giá gốc 799k')),
+            ? (laEn ? '🎁 1st Year $199.99 · Renews at $359.88/yr' : '🎁 Năm đầu 3.590k · Gia hạn tính giá gốc 5.988k/năm')
+            : (laEn ? '🎁 1st Month $24.99 · Renews at $39.99/mo' : '🎁 Tháng đầu 399k (-50%) · Khi gia hạn tính lại giá gốc 799k')),
       soTrang: laNam ? 120000 : 10000,
       uocChap: laNam ? '~6,000 chapters' : '~500 chapters',
       khuyenMai: daTungNap ? (laEn ? 'Full VIP API' : 'Full VIP API') : (laEn ? '1st Payment -50%' : 'Lần đầu -50%'),

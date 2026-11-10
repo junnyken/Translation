@@ -653,8 +653,17 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
         # Kiểm tra rò rỉ lòng trắng ra 4 cạnh ngoài của ROI (để phân biệt Bong Bóng Khép Kín với Chữ Nổi Trên Tường Trắng):
         # Dùng hạt giống ở tâm hộp chữ + đệm 3x3 (trong vùng chữ) / 5x5 (ngoài vùng chữ) để chặn rò rỉ qua khe hẹp của gai nhọn bóng thoại:
         la_nen_trang_mask = bytearray(N)
+        cho_phep_kem_pastel = (lum_nen_trung_vi >= 210.0 and sat_nen_trung_vi <= 96)
         for idx_m in range(N):
-            if lum_px[idx_m] >= 210.0 and sat_px[idx_m] <= 45 and not vung_cam[idx_m]:
+            if not vung_cam[idx_m] and (
+                (lum_px[idx_m] >= 210.0 and sat_px[idx_m] <= 45)
+                or (
+                    cho_phep_kem_pastel
+                    and lum_px[idx_m] >= 198.0
+                    and sat_px[idx_m] <= 98
+                    and (abs(r_roi[idx_m] - r_nen_trung_vi) + abs(g_roi[idx_m] - g_nen_trung_vi) + abs(b_roi[idx_m] - b_nen_trung_vi)) <= 52
+                )
+            ):
                 la_nen_trang_mask[idx_m] = 1
         la_nen_rong_roi = bytearray(N)
         pad_lt_x = max(12, int(round((cx1 - cx0) * 0.22)))
@@ -752,14 +761,25 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                 lw = lum_px[bw + px_w]
                 if lw > 120.0 and not (not la_nen_mau_thuc and lum_nen_trung_vi >= 224.0 and la_mau_dam_net[bw + px_w]):
                     dem_khong_toi_hop += 1
-                    if (lw >= 240.0 and sat_px[bw + px_w] <= 36) or (lw >= 224.0 and sat_px[bw + px_w] <= 48 and lum_nen_trung_vi >= 222.0 and sat_nen_trung_vi <= 48):
+                    if (
+                        (lw >= 240.0 and sat_px[bw + px_w] <= 36)
+                        or (lw >= 224.0 and sat_px[bw + px_w] <= 48 and lum_nen_trung_vi >= 222.0 and sat_nen_trung_vi <= 48)
+                        or (
+                            cho_phep_kem_pastel
+                            and lw >= 205.0
+                            and sat_px[bw + px_w] <= 98
+                            and (abs(r_roi[bw + px_w] - r_nen_trung_vi) + abs(g_roi[bw + px_w] - g_nen_trung_vi) + abs(b_roi[bw + px_w] - b_nen_trung_vi)) <= 48
+                        )
+                    ):
                         dem_trang_tinh_hop += 1
         ty_le_trang_tren_nen_sang = dem_trang_tinh_hop / max(1, dem_khong_toi_hop)
         p80_nen_thuc = ds_lum_nen_thuc[min(len(ds_lum_nen_thuc) - 1, int(len(ds_lum_nen_thuc) * 0.8))] if ds_lum_nen_thuc else med_lum
         p20_nen_thuc = ds_lum_nen_thuc[int(len(ds_lum_nen_thuc) * 0.2)] if ds_lum_nen_thuc else med_lum
         do_lech_nen_thuc = p80_nen_thuc - p20_nen_thuc
-        du_trang_bong_dam = (ty_le_trang_dac >= 0.24 and ty_le_trang_tren_nen_sang >= 0.78 and lum_nen_trung_vi >= 224.0)
-        la_nen_kem_sang_phang = (not nen_toi) and (lum_nen_trung_vi >= 222.0) and (sat_nen_trung_vi <= 48) and (do_lech_nen_thuc <= 26.0) and (do_nhieu_hat < 18.0 or (sat_nen_trung_vi >= 6 and do_lech_nen_thuc <= 12.0)) and (ty_le_trang_dac >= 0.45 or du_trang_bong_dam)
+        du_trang_bong_dam = (ty_le_trang_dac >= 0.24 and ty_le_trang_tren_nen_sang >= 0.78 and lum_nen_trung_vi >= 224.0) or (
+            cho_phep_kem_pastel and ty_le_trang_tren_nen_sang >= 0.78 and do_lech_nen_thuc <= 22.0 and len(q_lt) >= dt_hop * 0.42
+        )
+        la_nen_kem_sang_phang = (not nen_toi) and (lum_nen_trung_vi >= 212.0) and (sat_nen_trung_vi <= 96) and (do_lech_nen_thuc <= 26.0) and (do_nhieu_hat < 18.0 or (sat_nen_trung_vi >= 6 and do_lech_nen_thuc <= 16.0)) and (ty_le_trang_dac >= 0.45 or du_trang_bong_dam)
 
         cham_bien_lt = 0
         chu_vi_roi = max(1, (rw + rh) * 2)
@@ -1014,10 +1034,13 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                     else:
                         la_nen[base + px] = 1
                 else:
-                    la_trang_sang_sach = (not nen_toi) and (lum >= 198.0) and (max(r, g, b) - min(r, g, b) <= 36)
+                    la_trang_sang_sach = (not nen_toi) and (
+                        (lum >= 198.0 and (max(r, g, b) - min(r, g, b) <= 36))
+                        or (cho_phep_kem_pastel and lum >= 196.0 and (sai_so_row <= 44 or sai_so_bg <= 48))
+                    )
                     if la_trang_sang_sach:
                         la_nen[base + px] = 1
-                    elif trong_hop_mo and ((lum > 55.0) if nen_toi else (lum < 198.0)) and (sai_so_row > 42 or abs(lum - rlum) > 22):
+                    elif trong_hop_mo and ((lum > 55.0) if nen_toi else (lum < 198.0 or (cho_phep_kem_pastel and sai_so_bg > 48))) and (sai_so_row > 42 or abs(lum - rlum) > 22):
                         la_nen[base + px] = 0
                     elif sai_so_row <= 36 or sai_so_bg <= 42 or ((lum <= 45) if nen_toi else (lum >= 224 and max(r, g, b) - min(r, g, b) <= 36)):
                         la_nen[base + px] = 1
@@ -3856,7 +3879,7 @@ def _gop_cac_dong_trong_bong_thoai(comp_ordered: list[dict], ngon_ngu_nguon: str
 
 
 def _la_nen_bong_trang(px, W: int, H: int, r_box: dict) -> bool:
-    """Kiểm tra vùng hộp từ/dòng có nằm trên nền bóng thoại trắng/sáng thực sự hay không (phân biệt với chữ nổi có halo trên nền gạch chéo/speedline)."""
+    """Kiểm tra vùng hộp từ/dòng có nằm trên nền bóng thoại trắng/kem/pastel sáng thực sự hay không (phân biệt với chữ nổi có halo trên nền gạch chéo/speedline)."""
     x0 = max(0, int(r_box["x"]) - 4)
     y0 = max(0, int(r_box["y"]) - 4)
     x1 = min(W - 1, int(r_box["x"] + r_box["w"]) + 4)
@@ -3867,10 +3890,11 @@ def _la_nen_bong_trang(px, W: int, H: int, r_box: dict) -> bool:
         for px_i in range(x0, x1 + 1, 3):
             r, g, b = px[px_i, py]
             lum = 0.299 * r + 0.587 * g + 0.114 * b
+            sat = max(r, g, b) - min(r, g, b)
             total += 1
-            if lum >= 195 and (max(r, g, b) - min(r, g, b)) <= 55:
+            if (lum >= 195 and sat <= 58) or (lum >= 210 and sat <= 96):
                 bright += 1
-    return total > 0 and (bright / total) >= 0.52
+    return total > 0 and (bright / total) >= 0.50
 
 
 def _co_vach_ngan_ngang(px, W: int, H: int, w1: dict, w2: dict) -> bool:
@@ -3998,13 +4022,14 @@ def _la_vung_bong_thoai(px, W: int, H: int, x: int, y: int, w: int, h: int) -> b
         for px_i in range(x0, x1 + 1, 2):
             r, g, b = px[px_i, py]
             lum = 0.299 * r + 0.587 * g + 0.114 * b
+            sat = max(r, g, b) - min(r, g, b)
             lums.append(lum)
             total += 1
-            if lum >= 195 and (max(r, g, b) - min(r, g, b)) <= 55:
+            if (lum >= 195 and sat <= 58) or (lum >= 210 and sat <= 96):
                 bright_bg += 1
-            elif lum <= 75:
+            elif lum <= 75 or (lum <= 115 and sat >= 85):
                 very_dark += 1
-            if lum <= 115:
+            if lum <= 125 or (lum <= 150 and sat >= 80):
                 dark_ink += 1
     if total == 0:
         return False
@@ -4520,6 +4545,17 @@ $lines | ConvertTo-Json -Depth 4 -Compress
                 min_rh = min(r_top["h"], r_bot["h"])
                 max_rh = max(r_top["h"], r_bot["h"])
                 if max(16.0, min_rh * 0.62) <= gap_y <= max_rh * 1.65 and (bx1_g - bx0_g) >= 24:
+                    mid_y0 = max(0, r_top["y"] + r_top["h"] + 2)
+                    mid_y1 = min(H, r_bot["y"] - 2)
+                    co_muc_khe = 0
+                    if mid_y1 > mid_y0 + 3:
+                        for yy_k in range(mid_y0, mid_y1, 2):
+                            for xx_k in range(bx0_g + 4, bx1_g - 4, 3):
+                                rk, gk, bk = px[xx_k, yy_k]
+                                if (0.299 * rk + 0.587 * gk + 0.114 * bk) <= 135.0:
+                                    co_muc_khe += 1
+                    if co_muc_khe < 6:
+                        continue
                     gy0 = max(0, r_top["y"] + r_top["h"] - 12)
                     gy1 = min(H, r_bot["y"] + 12)
                     if gy1 - gy0 >= 14:
@@ -5275,17 +5311,32 @@ def _nhan_dien_dong_rapidocr_hf(im, ngon_ngu_nguon: str = "ja") -> list[dict]:
                     crop_enh = ImageEnhance.Sharpness(
                         ImageEnhance.Contrast(ImageOps.autocontrast(crop_f, cutoff=1)).enhance(1.35)
                     ).enhance(1.5)
-                    res_sub, _ = engine(crop_enh, use_cls=False)
-                    if res_sub and len(res_sub) == 1:
-                        txt_sub = str(res_sub[0][1] or "").strip()
-                        sc_sub = float(res_sub[0][2] or 0.0)
-                        if (
-                            txt_sub
-                            and sc_sub > score + 0.06
-                            and (lang != "en" or not any("\u2e80" <= c <= "\u9fff" for c in txt_sub))
-                        ):
-                            txt = txt_sub
-                            score = sc_sub
+                    if hasattr(engine, "text_rec"):
+                        import numpy as np
+                        bgr_enh = np.asarray(crop_enh.convert("RGB"))[:, :, ::-1].copy()
+                        res_rec, _ = engine.text_rec([bgr_enh])
+                        if res_rec and len(res_rec) == 1:
+                            txt_sub = str(res_rec[0][0] or "").strip()
+                            sc_sub = float(res_rec[0][1] or 0.0)
+                            if (
+                                txt_sub
+                                and sc_sub > score + 0.06
+                                and (lang != "en" or not any("\u2e80" <= c <= "\u9fff" for c in txt_sub))
+                            ):
+                                txt = txt_sub
+                                score = sc_sub
+                    else:
+                        res_sub, _ = engine(crop_enh, use_cls=False)
+                        if res_sub and len(res_sub) == 1:
+                            txt_sub = str(res_sub[0][1] or "").strip()
+                            sc_sub = float(res_sub[0][2] or 0.0)
+                            if (
+                                txt_sub
+                                and sc_sub > score + 0.06
+                                and (lang != "en" or not any("\u2e80" <= c <= "\u9fff" for c in txt_sub))
+                            ):
+                                txt = txt_sub
+                                score = sc_sub
                 except Exception:
                     pass
 

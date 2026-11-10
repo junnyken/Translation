@@ -43,8 +43,20 @@ from app.core.config import (
 )
 from app.core.db import get_session
 from app.core.cong_han_muc import con_du_khong, giu_cho_moi_chot, loi_vuot_han_muc
-from app.core.danh_tinh_khach import DanhTinhHanMuc, danh_tinh_han_muc
-from app.services.han_muc import bay_gio, moc_reset_ke_tiep, ngay_han_muc
+from app.core.danh_tinh_khach import (
+    DanhTinhHanMuc,
+    danh_sach_model_cho_cap_do,
+    danh_tinh_han_muc,
+    loi_can_nang_cap,
+    thong_tin_model_dich,
+)
+from app.services.han_muc import (
+    bay_gio,
+    han_muc_theo_gio_cho,
+    moc_reset_ke_tiep,
+    moc_reset_theo_gio_ke_tiep,
+    ngay_han_muc,
+)
 from app.services import don_nap
 from app.services.han_muc_nhan_dang import giu_mot_luot
 from app.services.nhat_ky_quan_tri import ghi_nhat_ky
@@ -486,7 +498,9 @@ async def xem_han_muc(
             loai=chot.loai.value, da_dung=da, con_lai=max(0, chot.tran - da), tran=chot.tran
         ))
 
-    reset = moc_reset_ke_tiep()
+    now_dt = bay_gio()
+    reset = moc_reset_ke_tiep(now_dt)
+    reset_gio = moc_reset_theo_gio_ke_tiep(now_dt)
     chinh = chi_tiet[0] if chi_tiet else None
     luot_mua = danh_tinh.so_luot_mua_them if danh_tinh.co_tai_khoan else 0
     la_qt = bool(
@@ -494,21 +508,32 @@ async def xem_han_muc(
         and not danh_tinh.nguoi_goi.la_khach
         and getattr(danh_tinh.nguoi_goi.nguoi, "la_quan_tri", False)
     )
+    con_lai_tong = min((c.con_lai for c in chi_tiet), default=0) + luot_mua
+    tran_gio = han_muc_theo_gio_cho(danh_tinh.co_tai_khoan, danh_tinh.cap_do)
+    da_dung_chinh = chinh.da_dung if chinh else 0
+    # Lượt còn lại trong khung định hình 1 giờ hiện tại (tự hồi đầy đầu mỗi giờ khi còn quỹ/hạn mức)
+    con_lai_gio = max(0, min(tran_gio, max(0, tran_gio - (da_dung_chinh % max(1, tran_gio))), con_lai_tong))
     return HanMucRead(
         giu_ket_qua_phut=_giu_ket_qua_phut_cho(danh_tinh.co_tai_khoan, settings),
         co_tai_khoan=danh_tinh.co_tai_khoan,
         tran=danh_tinh.tran_hien,
         # `da_dung` lấy của chốt CHÍNH: đó là con số "tôi đã dùng bao nhiêu", trong khi phần đã
         # dùng của chốt IP là của cả mạng dùng chung — trộn hai thứ đó vào một ô là nói sai.
-        da_dung=chinh.da_dung if chinh else 0,
-        con_lai=min((c.con_lai for c in chi_tiet), default=0) + luot_mua,
+        da_dung=da_dung_chinh,
+        con_lai=con_lai_tong,
         reset_luc=reset,
-        reset_sau_giay=max(0, int((reset - bay_gio()).total_seconds())),
+        reset_sau_giay=max(0, int((reset - now_dt).total_seconds())),
         chot=chi_tiet,
         so_luot_mua_them=luot_mua,
         la_quan_tri=la_qt,
         cap_do=danh_tinh.cap_do,
         ten_cap_do=danh_tinh.ten_cap_do,
+        reset_theo_gio_luc=reset_gio,
+        reset_theo_gio_sau_giay=max(0, int((reset_gio - now_dt).total_seconds())),
+        chu_ky_reset_gio=3,
+        tran_theo_gio=tran_gio,
+        con_lai_theo_gio=con_lai_gio,
+        danh_sach_model=danh_sach_model_cho_cap_do(5 if la_qt else danh_tinh.cap_do),
     )
 
 
@@ -618,39 +643,39 @@ def _danh_sach_goi_nap_chuan(don_gia: int, da_tung_nap: bool = False) -> list[Go
     return [
         GoiNapLuotRead(
             ma="trial_pack_50",
-            ten="🎁 Gói Trải Nghiệm (150 Credits / tháng)",
+            ten="🎁 Gói 1 · Trải Nghiệm (150 Credits / tháng · Mở khóa OCR + AI Hội Thoại)",
             so_tien_vnd=50000 if da_tung_nap else 25000,
             so_trang=150,
             ghi_chu=(
-                "Giá gốc gia hạn $3.99/tháng (50.000đ) nhận 150 Credits."
+                "Mở khóa chế độ OCR tách chữ + AI Hội Thoại Ngữ Cảnh + Định hình hồi 50 lượt/3 giờ · Giá gia hạn $3.99/tháng (50.000đ)."
                 if da_tung_nap
-                else "Ưu đãi thanh toán lần đầu $1.99/tháng (25.000đ · giá gốc $3.99) nhận 150 Credits."
+                else "Ưu đãi lần đầu $1.99/tháng (25.000đ) · Mở khóa OCR tách chữ + AI Hội Thoại Ngữ Cảnh + Hồi 50 lượt/3 giờ."
             ),
         ),
         GoiNapLuotRead(
             ma="starter_monthly",
             ten=(
-                "⭐ Gói Starter Gia Hạn (300 Credits / tháng)"
+                "⭐ Gói 1 · Starter Gia Hạn (300 Credits / tháng)"
                 if da_tung_nap
-                else "🎁 Gói Starter Ưu Đãi Lần Đầu (300 Credits / tháng — Giảm 50%)"
+                else "🎁 Gói 1 · Starter Ưu Đãi Lần Đầu (300 Credits / tháng — Giảm 43%)"
             ),
             so_tien_vnd=99000 if da_tung_nap else 49000,
             so_trang=300,
             ghi_chu=(
-                "Giá gốc gia hạn $5.99/tháng (99.000đ) nhận 300 Credits (chu kỳ 30 ngày)."
+                "Mở khóa chế độ OCR tách chữ + AI Hội Thoại Ngữ Cảnh + Định hình hồi 90 lượt/3 giờ · Giá gia hạn $6.99/tháng (99.000đ)."
                 if da_tung_nap
-                else "Ưu đãi lần đầu $2.99/tháng (49.000đ · khi gia hạn tính giá gốc $5.99 / 99.000đ) nhận 300 Credits."
+                else "Ưu đãi lần đầu $3.99/tháng (49.000đ · gia hạn $6.99) · Mở khóa OCR tách chữ + AI Hội Thoại + Hồi 90 lượt/3 giờ."
             ),
         ),
         GoiNapLuotRead(
             ma="pro_monthly",
-            ten="⭐ Gói Lite / Reader (800 Credits / tháng)",
+            ten="🔥 Gói 2 · Lite / Reader (800 Credits / tháng · Mở khóa Scan Ảnh AI Đám Mây)",
             so_tien_vnd=149000 if da_tung_nap else 99000,
             so_trang=800,
             ghi_chu=(
-                "Giá gốc gia hạn $8.99/tháng (149.000đ) nhận 800 Credits (chu kỳ 30 ngày)."
+                "Mở khóa toàn bộ chế độ Scan Ảnh AI Ngữ Cảnh Đám Mây + Định hình hồi 200 lượt/3 giờ · Giá gia hạn $9.99/tháng (149.000đ)."
                 if da_tung_nap
-                else "Ưu đãi lần đầu $5.99/tháng (99.000đ · khi gia hạn tính giá gốc $8.99 / 149.000đ) nhận 800 Credits."
+                else "Ưu đãi lần đầu $6.99/tháng (99.000đ · gia hạn $9.99) · Mở khóa Scan Ảnh AI Ngữ Cảnh Đám Mây + Hồi 200 lượt/3 giờ."
             ),
         ),
         GoiNapLuotRead(
@@ -659,9 +684,9 @@ def _danh_sach_goi_nap_chuan(don_gia: int, da_tung_nap: bool = False) -> list[Go
             so_tien_vnd=399000 if da_tung_nap else 199000,
             so_trang=3000,
             ghi_chu=(
-                "Giá gốc gia hạn $19.99/tháng (399.000đ) nhận 3.000 Credits + Developer API Key (tr_live_...)."
+                "Giá gốc gia hạn $19.99/tháng (399.000đ) nhận 3.000 Credits + Developer API Key (tr_live_...) + Hồi 450 lượt/3 giờ."
                 if da_tung_nap
-                else "Ưu đãi lần đầu $9.99/tháng (199.000đ · khi gia hạn tính giá gốc $19.99 / 399.000đ) nhận 3.000 Credits + Mở API."
+                else "Ưu đãi lần đầu $12.99/tháng (199.000đ · khi gia hạn tính giá gốc $19.99 / 399.000đ) nhận 3.000 Credits + Mở API."
             ),
         ),
         GoiNapLuotRead(
@@ -670,9 +695,9 @@ def _danh_sach_goi_nap_chuan(don_gia: int, da_tung_nap: bool = False) -> list[Go
             so_tien_vnd=799000 if da_tung_nap else 399000,
             so_trang=10000,
             ghi_chu=(
-                "Giá gốc gia hạn $39.99/tháng (799.000đ) nhận 10.000 Credits + Full Developer API Key (tr_live_...)."
+                "Giá gốc gia hạn $39.99/tháng (799.000đ) nhận 10.000 Credits + Full Developer API Key (tr_live_...) + Hồi 900 lượt/3 giờ."
                 if da_tung_nap
-                else "Ưu đãi lần đầu $19.99/tháng (399.000đ · khi gia hạn tính giá gốc $39.99 / 799.000đ) nhận 10.000 Credits + Full API."
+                else "Ưu đãi lần đầu $24.99/tháng (399.000đ · khi gia hạn tính giá gốc $39.99 / 799.000đ) nhận 10.000 Credits + Full API."
             ),
         ),
         GoiNapLuotRead(
@@ -970,17 +995,15 @@ def _tinh_goi_nap_tu_usd(
         return (9600, 890000, "pro_yearly", "⭐ Gói Lite Năm 9.600 Credits (PayPal USD)")
     if so_usd >= 44.0:
         return (10000, 1000000, "doanh_nghiep_api", "🏢 Gói Doanh Nghiệp + Cổng API (PayPal USD)")
-    if so_usd >= 28.0:
+    if so_usd >= 28.0 and ("STARTYR" in nd_upper or "STARTER_YEARLY" in nd_upper or so_usd >= 34.0):
         return (3600, 450000, "starter_yearly", "🎁 Gói Starter Năm 3.600 Credits (PayPal USD)")
-    if so_usd >= 22.0:
-        return (3000, 600000, "pack_2000", "🔥 Gói 3.000 Credits (PayPal USD)")
     if so_usd >= 18.5 or (so_usd >= 14.0 and "UNLIMITED" in nd_upper):
         return (10000, 399000, "unlimited_plan", "🏢 Gói Pro Max 10.000 Credits / tháng + API (PayPal USD)")
     if so_usd >= 9.5:
         return (3000, 199000, "studio_monthly", "💎 Gói Tiêu Chuẩn / Studio + API 3.000 Credits / tháng (PayPal USD)")
-    if so_usd >= 5.0:
+    if so_usd >= 5.5 or (so_usd >= 5.0 and "PRO" in nd_upper):
         return (800, 99000, "pro_monthly", "⭐ Gói Lite / Reader 800 Credits / tháng (PayPal USD)")
-    if so_usd >= 2.5:
+    if so_usd >= 2.8:
         return (300, 49000, "starter_monthly", "🎁 Gói Starter Ưu Đãi Lần Đầu 300 Credits / tháng (PayPal USD)")
     if so_usd >= 0.8:
         return (150, 25000, "trial_pack_50", "🎁 Gói Trải Nghiệm Lần Đầu 150 Credits (PayPal USD)")

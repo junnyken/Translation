@@ -78,6 +78,25 @@ def moc_reset_ke_tiep(luc: datetime | None = None) -> datetime:
     return datetime.combine(hom_nay + timedelta(days=1), datetime.min.time(), tzinfo=_mui_gio())
 
 
+CHU_KY_RESET_GIO = 3
+
+
+def moc_reset_theo_gio_ke_tiep(luc: datetime | None = None, chu_ky_gio: int = CHU_KY_RESET_GIO) -> datetime:
+    """Thời điểm hạn mức định hình theo khung 3 GIỜ được làm mới kế tiếp (00h, 03h, 06h, 09h, 12h, 15h, 18h, 21h).
+
+    Chu kỳ 3 giờ là khoảng thời gian lý tưởng cho 1 phiên đọc truyện tranh của người dùng Quốc tế & Việt Nam:
+    vừa đủ dài để tránh spam liên tục mỗi giờ, vừa giúp người dùng không bị khóa cứng 24 tiếng.
+    """
+    moc = luc if luc is not None else bay_gio()
+    if moc.tzinfo is None:
+        moc = moc.replace(tzinfo=_mui_gio())
+    moc_tz = moc.astimezone(_mui_gio())
+    ck = max(1, int(chu_ky_gio or CHU_KY_RESET_GIO))
+    gio_dau_khung = (moc_tz.hour // ck) * ck
+    dau_khung_hien_tai = moc_tz.replace(hour=gio_dau_khung, minute=0, second=0, microsecond=0)
+    return dau_khung_hien_tai + timedelta(hours=ck)
+
+
 def han_muc_cho(co_tai_khoan: bool) -> int:
     """Số trang mỗi ngày. Tách ra đây để **không nơi nào gõ số cứng**.
 
@@ -85,3 +104,28 @@ def han_muc_cho(co_tai_khoan: bool) -> int:
     """
     st = get_settings()
     return st.han_muc_co_tai_khoan if co_tai_khoan else st.han_muc_khach_la
+
+
+def han_muc_theo_gio_cho(co_tai_khoan: bool, cap_do: int = 0) -> int:
+    """Số lượt định hình chi phí hồi lại sau mỗi chu kỳ 3 GIỜ đồng hồ.
+
+    - Khách vãng lai: tối thiểu 5 lượt / 3 giờ.
+    - Tài khoản Free (cấp 0): tối thiểu 10 lượt / 3 giờ.
+    - Gói 1 (Trial / Starter - cấp 1..2): 50 - 90 lượt / 3 giờ.
+    - Gói 2 (Pro / Studio / Unlimited - cấp 3..5): 200 - 900 lượt / 3 giờ.
+    """
+    st = get_settings()
+    if cap_do >= 5:
+        return 900
+    if cap_do == 4:
+        return 450
+    if cap_do == 3:
+        return 200
+    if cap_do == 2:
+        return 90
+    if cap_do == 1:
+        return 50
+    if co_tai_khoan:
+        return max(10, int(st.han_muc_co_tai_khoan))
+    return max(5, int(st.han_muc_khach_la))
+

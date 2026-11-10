@@ -61,6 +61,79 @@ TEN_CAP_DO = {
     5: "Unlimited",
 }
 
+#: Danh mục 3 Chế độ Dịch Truyện thực tế của hệ thống (phân tầng thông minh theo Gói):
+#: - Tầng 1 (`local_ocr_gpu` - 1 lượt): OCR tách chữ cục bộ + Dịch nhanh (chi phí máy chủ ~0đ).
+#: - Tầng 2 (`local_hybrid_pro` - 2 lượt, Gói 1): OCR tách chữ trước + Chỉ gửi văn bản hội thoại lên AI Ngữ Cảnh (~2.5đ/trang).
+#: - Tầng 3 (`llm_context` - 3 lượt, Gói 2): Quét hình ảnh (Scan hình ảnh Vision) + AI Ngữ Cảnh Đám Mây (~35đ-60đ/trang).
+DANH_SACH_MODEL_DICH_TRUYEN: tuple[dict, ...] = (
+    {
+        "ma": "local_ocr_gpu",
+        "ten": "OCR + GPU Nhanh (Tách chữ cục bộ)",
+        "nhom_goi": "free",
+        "nhan_goi": "Miễn phí",
+        "cap_yeu_cau": 0,
+        "he_so_luot": 1,
+        "nha_cung_cap": "Local OCR + Fast NMT",
+        "mo_ta": "OCR tách chữ trực tiếp trên máy + dịch siêu tốc (1 lượt/trang, chi phí hạ tầng ~0đ).",
+    },
+    {
+        "ma": "local_hybrid_pro",
+        "ten": "OCR + AI Hội Thoại Pro (Chỉ gửi văn bản thoại)",
+        "nhom_goi": "goi_1",
+        "nhan_goi": "Gói 1",
+        "cap_yeu_cau": 1,
+        "he_so_luot": 2,
+        "nha_cung_cap": "Local OCR + DeepSeek/Gemini Text Context",
+        "mo_ta": "OCR tách chữ trước rồi chỉ gửi văn bản hội thoại lên AI sửa lỗi & chuẩn xưng hô (2 lượt/trang, siêu tiết kiệm API).",
+    },
+    {
+        "ma": "llm_context",
+        "ten": "Scan Hình Ảnh + AI Ngữ Cảnh Đám Mây",
+        "nhom_goi": "goi_2",
+        "nhan_goi": "Gói 2",
+        "cap_yeu_cau": 3,
+        "he_so_luot": 3,
+        "nha_cung_cap": "Cloud Vision + Context AI Studio",
+        "mo_ta": "Quét trực tiếp hình ảnh trang truyện trên đám mây + phân vai biểu cảm nhân vật chuẩn Scanlation (3 lượt/trang).",
+    },
+)
+
+_ANH_XA_MODEL_CU: dict[str, str] = {
+    "google_fast": "local_ocr_gpu",
+}
+
+
+def thong_tin_model_dich(engine_id: str | None) -> dict:
+    """Trả về cấu hình của model AI theo mã `engine_id` (hỗ trợ cả mã mới lẫn mã legacy)."""
+    ma_goc = (engine_id or "").strip().lower()
+    ma_chuan = _ANH_XA_MODEL_CU.get(ma_goc, ma_goc)
+    for item in DANH_SACH_MODEL_DICH_TRUYEN:
+        if item["ma"] == ma_chuan:
+            return dict(item)
+    return dict(DANH_SACH_MODEL_DICH_TRUYEN[0])
+
+
+def danh_sach_model_cho_cap_do(cap_do: int) -> list[dict]:
+    """Trả về danh sách 6 model kèm trạng thái khóa/mở khóa và nhãn hiển thị theo cấp độ hiện tại."""
+    cap = max(0, int(cap_do or 0))
+    ket_qua: list[dict] = []
+    for item in DANH_SACH_MODEL_DICH_TRUYEN:
+        bi_khoa = cap < int(item["cap_yeu_cau"])
+        ten_hien_thi = (
+            f"{item['ten']} (bị khóa: {item['nhan_goi'].lower()})"
+            if bi_khoa
+            else item["ten"]
+        )
+        ket_qua.append(
+            {
+                **item,
+                "bi_khoa": bi_khoa,
+                "ten_hien_thi": ten_hien_thi,
+            }
+        )
+    return ket_qua
+
+
 _CAP_DO_GOI_MEM_CACHE: dict[str, dict] = {}
 _DA_NAP_CAP_DO_GOI = False
 

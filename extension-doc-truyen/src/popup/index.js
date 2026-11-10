@@ -41,13 +41,30 @@ function dongBoNutEngine(eng) {
   const nhanPhu = $('nhan-phu-eng')
   if (nhanPhu) {
     if (eng === 'local_hybrid_pro') {
-      nhanPhu.textContent = '🧠 2 lượt/trang'
+      nhanPhu.textContent = '🧠 2 lượt/trang · Tách chữ OCR + Dịch AI'
     } else if (eng === 'llm_context') {
-      nhanPhu.textContent = '✨ AI Ngữ Cảnh Đám Mây'
+      nhanPhu.textContent = '✨ 3 lượt/trang · AI Ngữ Cảnh Đám Mây'
     } else {
       nhanPhu.textContent = '⚡ 1 lượt/trang · Nhanh & Tiết kiệm'
     }
   }
+}
+
+function capNhatKhoaModelTheoCapDo(capDo = 0) {
+  const sel = $('engine')
+  if (!sel) return
+  const cap = Number(capDo || 0)
+  Array.from(sel.options).forEach((opt) => {
+    const goi = Number(opt.dataset?.goi || 0)
+    const tenGoc = opt.dataset?.tenGoc || ''
+    if (!goi || !tenGoc) return
+    const capYeuCau = goi === 2 ? 3 : 1
+    if (cap >= capYeuCau) {
+      opt.textContent = tenGoc
+    } else {
+      opt.textContent = `${tenGoc} (mở khóa: gói ${goi})`
+    }
+  })
 }
 
 function dongBoNutFont(font) {
@@ -94,15 +111,26 @@ async function veHanMuc() {
       return
     }
     const hm = await layHanMuc()
+    capNhatKhoaModelTheoCapDo(hm.la_quan_tri ? 5 : Number(hm.cap_do || 0))
     const muaThem = Number(hm.so_luot_mua_them || 0)
     const conLaiNgay = Math.max(0, Number(hm.con_lai || 0) - muaThem)
     const vaiTro = hm.co_tai_khoan ? '✅ Đã đăng nhập' : '👤 Khách (đăng ký nhận 20 Credits miễn phí)'
     const tichLuy = muaThem > 0 ? ` + Ví VIP: ${muaThem} lượt (Tổng ${hm.con_lai})` : ''
-    const soLuotMoiTrang = engine === 'llm_context' ? 3 : (engine === 'local_hybrid_pro' ? 2 : 1)
+    const soLuotMoiTrang = engine === 'llm_context'
+      ? 3
+      : (['local_hybrid_pro', 'gpt_6_sol', 'gemini_3_1_pro'].includes(engine) ? 2 : 1)
     const nhanChiPhi = engine === 'llm_context'
       ? ' · [Ultra AI: 3 lượt/trang]'
-      : (engine === 'local_hybrid_pro' ? ' · [Pro: 2 lượt/trang]' : ' · [1 lượt/trang]')
-    o.textContent = `${vaiTro} · Hôm nay: ${conLaiNgay}/${hm.tran} lượt${tichLuy}${nhanChiPhi}`
+      : (soLuotMoiTrang === 2 ? ' · [Gói 2 Pro: 2 lượt/trang]' : ' · [1 lượt/trang]')
+    const phutResetGio = hm.reset_theo_gio_sau_giay
+      ? Math.max(1, Math.ceil(Number(hm.reset_theo_gio_sau_giay) / 60))
+      : null
+    const chuoiThoiGianReset = phutResetGio
+      ? (phutResetGio >= 60 ? `${Math.floor(phutResetGio / 60)}h${phutResetGio % 60 > 0 ? `${phutResetGio % 60}p` : ''}` : `${phutResetGio}p`)
+      : ''
+    const chuKyGio = Number(hm.chu_ky_reset_gio || 3)
+    const chuoiResetGio = chuoiThoiGianReset ? ` · ⏱️ Reset ${chuKyGio}h: ${chuoiThoiGianReset}` : ''
+    o.textContent = `${vaiTro} · Hôm nay: ${conLaiNgay}/${hm.tran} lượt${tichLuy}${nhanChiPhi}${chuoiResetGio}`
     o.className = hm.con_lai < soLuotMoiTrang
       ? 'hop loi'
       : (hm.con_lai < hm.tran && hm.con_lai <= soLuotMoiTrang * 2) ? 'hop canh-bao' : 'hop ok'
