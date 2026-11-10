@@ -104,9 +104,34 @@ def mat_na_net_tren_tranh(anh: np.ndarray, o: tuple[int, int, int, int]) -> np.n
     k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1))
 
     # 1. Trường hợp chữ nổi có cặp [Ruột đen/màu + Viền halo trắng] hoặc [Ruột trắng/màu + Viền halo đen]
-    # trên nền screentone / tóc đen / nền tranh màu:
-    # Nếu chọn đơn thuần `trang if trang.mean() >= den.mean() else den`, trên nền tóc đen (`den.mean() ≈ 0.75`)
-    # thuật toán sẽ chọn nhầm cả mảng tóc đen làm chữ rồi vượt trần `TI_LE_MAT_NA_TOI_DA`.
+    # trên nền screentone / tóc đen / tia tốc độ (speedlines) / nền tranh màu:
+    # Thay vì lấy giao giản đơn `(den & trang_no)` (sẽ bắt nhầm toàn bộ tia tốc độ đen-trắng xen kẽ hoặc nét vẽ trên áo trắng),
+    # lọc theo Thành phần liên thông (Connected Components) của lõi chữ: chiều cao 1 dòng chữ (`2 <= ch <= 27`),
+    # không chạm biên vùng cắt, và có vành đai trắng (`sang >= 180`) bao bọc >= 70% chu vi nét chữ!
+    den_cc = (sang < 135).astype(np.uint8)
+    n_cc, labels_cc, stats_cc, _ = cv2.connectedComponentsWithStats(den_cc, connectivity=8)
+    sh_v, sw_v = sang.shape[:2]
+    char_core = np.zeros_like(den_cc)
+    for i_cc in range(1, n_cc):
+        cx_c, cy_c, cw_c, ch_c, area_c = (int(v) for v in stats_cc[i_cc])
+        if cw_c < 2 or cw_c > 175 or ch_c < 2 or ch_c > 27 or area_c < 3 or area_c > 2200:
+            continue
+        if cx_c <= 1 or cy_c <= 1 or cx_c + cw_c >= sw_v - 1 or cy_c + ch_c >= sh_v - 1:
+            continue
+        comp_m = (labels_cc == i_cc).astype(np.uint8)
+        d1 = cv2.dilate(comp_m, np.ones((3, 3), np.uint8))
+        d2 = cv2.dilate(comp_m, np.ones((7, 7), np.uint8))
+        ring = (d2 > 0) & (d1 == 0) & (den_cc == 0)
+        if ring.sum() >= 6 and float((sang[ring] >= 180).mean()) >= 0.70:
+            char_core[comp_m > 0] = 1
+    if char_core.mean() >= 0.01:
+        k_halo = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+        vung_halo = (cv2.dilate(char_core, k_halo) > 0) & (sang >= 175)
+        m_chu_halo = (char_core > 0) | vung_halo
+        m_chu_halo = cv2.dilate(m_chu_halo.astype(np.uint8), np.ones((3, 3), np.uint8)) > 0
+        if m_chu_halo.mean() <= TI_LE_MAT_NA_TOI_DA:
+            return m_chu_halo
+
     mau_sac_dam = sac >= 48
     k_sat = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 3, 2 * r + 3))
     if trang.mean() >= TI_LE_VIEN_TOI_THIEU and (den.mean() >= TI_LE_VIEN_TOI_THIEU or mau_sac_dam.mean() >= TI_LE_VIEN_TOI_THIEU):
@@ -141,3 +166,175 @@ def mat_na_net_tren_tranh(anh: np.ndarray, o: tuple[int, int, int, int]) -> np.n
     if m.mean() > TI_LE_MAT_NA_TOI_DA:
         return None
     return m
+
+
+def xoa_chu_noi_bao_toan_nen(
+    anh: np.ndarray,
+    o: tuple[int, int, int, int],
+    kieu_nen: str = "auto",
+) -> None:
+    """Xoá chữ nổi có viền halo trực tiếp trên `anh` (in-place RGB uint8) mà KHÔNG làm nhòe hình chữ nhật:
+    - Bảo toàn 100% nét vẽ nhân vật (vai, áo, khuôn mặt, tóc, quân bài mạt chược) nằm ngoài nét chữ.
+    - Nền hạt screentone (`screentone_halo`): nhân bản đúng pha lưới hạt 4×4 (`py & 3, px & 3`) từ vùng screentone sạch.
+    - Nền tia tốc độ (`dark_halo`): nối tiếp sọc tia tốc độ dọc từ phía trên và chuyển mượt (gradient fade) sang nền trắng/áo ở phía dưới.
+    """
+    import cv2
+
+    x1, y1, x2, y2 = o
+    H_full, W_full = anh.shape[:2]
+    x1 = max(0, x1 - 6)
+    y1 = max(0, y1 - 6)
+    x2 = min(W_full, x2 + 6)
+    y2 = min(H_full, y2 + 6)
+    sh, sw = y2 - y1, x2 - x1
+    if sh <= 4 or sw <= 4:
+        return
+    sub_rgb = anh[y1:y2, x1:x2].copy()
+    sub = cv2.cvtColor(sub_rgb, cv2.COLOR_RGB2GRAY)
+    blur3 = cv2.blur(sub, (3, 3))
+    min3 = cv2.erode(sub, np.ones((3, 3), np.uint8))
+
+    dark = (sub < 135).astype(np.uint8)
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(dark, connectivity=8)
+    char_core = np.zeros_like(dark)
+    for i in range(1, n):
+        cx, cy, cw, ch, area = (int(v) for v in stats[i])
+        if cw < 2 or cw > 175 or ch < 2 or ch > 27 or area < 3 or area > 2200:
+            continue
+        if cx <= 1 or cy <= 1 or cx + cw >= sw - 1 or cy + ch >= sh - 1:
+            continue
+        comp = (labels == i).astype(np.uint8)
+        d1 = cv2.dilate(comp, np.ones((3, 3), np.uint8))
+        d2 = cv2.dilate(comp, np.ones((7, 7), np.uint8))
+        ring = (d2 > 0) & (d1 == 0) & (dark == 0)
+        if ring.sum() >= 6 and float((sub[ring] >= 180).mean()) >= 0.72:
+            char_core[comp > 0] = 255
+
+    if kieu_nen == "auto":
+        # Nếu trung vị vùng ngoài chữ nằm trong dải xám 135..220 và ít mảng đen đặc ở đỉnh -> screentone_halo
+        top_med = float(np.median(sub[: max(4, sh // 4), :]))
+        kieu_nen = "dark_halo" if top_med < 120 else "screentone_halo"
+
+    if kieu_nen == "screentone_halo":
+        bright_dots = (sub > 190).astype(np.uint8)
+        nb, lb, sb, _ = cv2.connectedComponentsWithStats(bright_dots, connectivity=8)
+        shadow_dots = np.zeros_like(dark)
+        for i in range(1, nb):
+            cx, cy, cw, ch, area = (int(v) for v in sb[i])
+            if 3 <= cw <= 24 and 3 <= ch <= 12 and 6 <= area <= 180:
+                comp = (lb == i).astype(np.uint8)
+                ring = (cv2.dilate(comp, np.ones((5, 5), np.uint8)) > 0) & (comp == 0)
+                if ring.sum() > 0 and float((sub[ring] < 80).mean()) >= 0.75:
+                    shadow_dots[comp > 0] = 255
+
+        max_halo_zone = (cv2.dilate(char_core, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (23, 23))) > 0) & (sub >= 150)
+        halo_seed = cv2.dilate(char_core, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))) > 0
+        white_cand = max_halo_zone & ((min3 >= 220) | (blur3 >= 230) | (halo_seed & (sub >= 210)))
+        nw, lw, _, _ = cv2.connectedComponentsWithStats(white_cand.astype(np.uint8), connectivity=8)
+        halo_mask = np.zeros_like(char_core, dtype=bool)
+        for i in range(1, nw):
+            comp = lw == i
+            if (comp & halo_seed).any():
+                halo_mask |= comp
+        mask = (char_core > 0) | halo_mask
+        mask_dil = cv2.dilate(mask.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))) > 0
+        mask = mask | (mask_dil & (sub >= 135))
+        inv = (~mask).astype(np.uint8)
+        nh, lh, sh_stats, _ = cv2.connectedComponentsWithStats(inv, connectivity=4)
+        for i in range(1, nh):
+            cx, cy, cw, ch, area = (int(v) for v in sh_stats[i])
+            if cx > 0 and cy > 0 and cx + cw < sw and cy + ch < sh and area <= 120:
+                mask[lh == i] = True
+
+        if shadow_dots.any():
+            sd_mask = cv2.dilate(shadow_dots, np.ones((5, 5), np.uint8)) > 0
+            sub_rgb[sd_mask] = [28, 28, 28]
+
+        clean_donor = (~mask) & (min3 <= 224) & (blur3 >= 145) & (sub >= 115)
+        clean_donor = cv2.erode(clean_donor.astype(np.uint8), np.ones((3, 3), np.uint8)) > 0
+        ys, xs = np.where(mask)
+        for py, px in zip(ys, xs):
+            pha_y, pha_x = int(py) & 3, int(px) & 3
+            best_d = 999999
+            best_val = None
+            for rad in range(4, 110, 4):
+                y0_s, y1_s = max(0, int(py) - rad), min(sh, int(py) + rad + 1)
+                x0_s, x1_s = max(0, int(px) - rad), min(sw, int(px) + rad + 1)
+                for sy in range(y0_s + ((pha_y - y0_s) & 3), y1_s, 4):
+                    for sx in range(x0_s + ((pha_x - x0_s) & 3), x1_s, 4):
+                        if clean_donor[sy, sx]:
+                            d2 = (sy - int(py)) ** 2 + (sx - int(px)) ** 2
+                            if d2 < best_d:
+                                best_d = d2
+                                best_val = sub_rgb[sy, sx]
+                if best_val is not None:
+                    break
+            if best_val is not None:
+                sub_rgb[py, px] = best_val
+    else:
+        n_c, l_c, s_c, _ = cv2.connectedComponentsWithStats(char_core, connectivity=8)
+        lower_letters = np.zeros_like(char_core)
+        speedline_letters = np.zeros_like(char_core)
+        for i in range(1, n_c):
+            cx, cy, cw, ch, area = (int(v) for v in s_c[i])
+            if cy >= sh * 0.58:
+                lower_letters[l_c == i] = 255
+            else:
+                speedline_letters[l_c == i] = 255
+
+        solid_black_hair = cv2.morphologyEx((sub < 50).astype(np.uint8), cv2.MORPH_OPEN, np.ones((9, 9), np.uint8)) > 0
+        near_hair = cv2.dilate(solid_black_hair.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (17, 17))) > 0
+
+        if lower_letters.any():
+            ll_mask = cv2.dilate(lower_letters, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))) > 0
+            ll_halo = (cv2.dilate(lower_letters, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11))) > 0) & (sub >= 140)
+            x_grid = np.arange(sw)[None, :]
+            y_grid = np.arange(sh)[:, None]
+            hair_overlap = (ll_mask | ll_halo) & near_hair & (y_grid < int(sh * 0.74)) & (x_grid >= int(sw * 0.58))
+            sub_rgb[ll_mask & (~hair_overlap)] = [255, 255, 255]
+            sub[ll_mask & (~hair_overlap)] = 255
+            sub_rgb[hair_overlap] = [15, 15, 15]
+            sub[hair_overlap] = 15
+
+        if speedline_letters.any():
+            near_sl = cv2.dilate(speedline_letters, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (23, 23))) > 0
+            sl_halo = near_sl & (sub >= 135)
+            cloud = (speedline_letters > 0) | sl_halo
+            cloud = cv2.morphologyEx(cloud.astype(np.uint8), cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11))) > 0
+            cloud = cv2.dilate(cloud.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))) > 0
+            inv_c = (~cloud).astype(np.uint8)
+            nh, lh, sh_stats, _ = cv2.connectedComponentsWithStats(inv_c, connectivity=4)
+            for i in range(1, nh):
+                cx, cy, cw, ch, area = (int(v) for v in sh_stats[i])
+                if cx > 0 and cy > 0 and cx + cw < sw and cy + ch < sh and area <= 250:
+                    cloud[lh == i] = True
+
+            ys, xs = np.where(cloud)
+            cloud_y_max = int(ys.max()) if ys.size > 0 else sh
+            for py, px in zip(ys, xs):
+                tex_val = None
+                for step in range(2, sh):
+                    sy = int(py) - step
+                    sx = (int(px) + int(round(step * 0.09))) % sw
+                    if sy < 0:
+                        break
+                    if not cloud[sy, sx] and sub[sy, sx] < 210:
+                        band_y = max(1, sy - ((int(py) - sy) % 16))
+                        band_x = min(sw - 1, max(0, sx + int(round((sy - band_y) * 0.09))))
+                        if not cloud[band_y, band_x]:
+                            tex_val = sub_rgb[band_y, band_x].astype(np.float32)
+                        else:
+                            tex_val = sub_rgb[sy, sx].astype(np.float32)
+                        break
+                if tex_val is None:
+                    tex_val = np.array([35.0, 35.0, 35.0], dtype=np.float32)
+                dist_from_bot = cloud_y_max - int(py)
+                if dist_from_bot < 28:
+                    alpha = ((28.0 - dist_from_bot) / 28.0) ** 1.4
+                    if near_hair[py, px] and int(px) >= int(sw * 0.62):
+                        tex_val = tex_val * (1.0 - alpha) + 15.0 * alpha
+                    else:
+                        tex_val = tex_val * (1.0 - alpha) + 255.0 * alpha
+                sub_rgb[py, px] = np.clip(tex_val, 0, 255).astype(np.uint8)
+
+    anh[y1:y2, x1:x2] = sub_rgb

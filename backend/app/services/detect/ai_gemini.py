@@ -471,9 +471,19 @@ def can_chinh_khung_theo_bong_bong(
                     int(max(0, min(W - 1, vx0))) : int(max(1, min(W, vx1))),
                 ]
                 orig_white = float((sub_orig > 205).mean()) if sub_orig.size > 0 else 0.0
-                if orig_white >= 0.55 and (bh_c < r.bbox.h * 0.55 or bw_c < r.bbox.w * 0.45):
+                if orig_white >= 0.38 and (bh_c < r.bbox.h * 0.85 or bw_c < r.bbox.w * 0.82):
+                    hop_muc = _co_khit_muc_trong_hop(r.bbox)
+                    best_b["da_gan"] = True
                     da_gan_r[r_idx] = True
-                    regions[r_idx] = replace(r, bbox=_co_khit_muc_trong_hop(r.bbox))
+                    if orig_white < 0.72:
+                        # Trên nền screentone / halo trắng hở viền: giữ hộp mực đầy đủ để không cắt mất dòng đầu/cuối ('OUR', 'FACT', '...')
+                        regions[r_idx] = replace(r, bbox=hop_muc)
+                    else:
+                        ux0 = min(best_b["tx0"], hop_muc.x)
+                        uy0 = min(best_b["ty0"], hop_muc.y)
+                        ux1 = max(best_b["tx1"], hop_muc.x + hop_muc.w)
+                        uy1 = max(best_b["ty1"], hop_muc.y + hop_muc.h)
+                        regions[r_idx] = replace(r, bbox=BBox(x=ux0, y=uy0, w=ux1 - ux0, h=uy1 - uy0))
                 else:
                     best_b["da_gan"] = True
                     da_gan_r[r_idx] = True
