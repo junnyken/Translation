@@ -652,8 +652,21 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
 
         # Kiểm tra rò rỉ lòng trắng ra 4 cạnh ngoài của ROI (để phân biệt Bong Bóng Khép Kín với Chữ Nổi Trên Tường Trắng):
         # Dùng hạt giống ở tâm hộp chữ + đệm 3x3 (trong vùng chữ) / 5x5 (ngoài vùng chữ) để chặn rò rỉ qua khe hẹp của gai nhọn bóng thoại:
+        p80_nen_thuc = ds_lum_nen_thuc[min(len(ds_lum_nen_thuc) - 1, int(len(ds_lum_nen_thuc) * 0.8))] if ds_lum_nen_thuc else med_lum
+        p20_nen_thuc = ds_lum_nen_thuc[int(len(ds_lum_nen_thuc) * 0.2)] if ds_lum_nen_thuc else med_lum
+        do_lech_nen_thuc = p80_nen_thuc - p20_nen_thuc
+        iqr_rgb_nen_thuc = (
+            (ds_r_nen_thuc[min(len(ds_r_nen_thuc) - 1, int(len(ds_r_nen_thuc) * 0.8))] - ds_r_nen_thuc[int(len(ds_r_nen_thuc) * 0.2)])
+            + (ds_g_nen_thuc[min(len(ds_g_nen_thuc) - 1, int(len(ds_g_nen_thuc) * 0.8))] - ds_g_nen_thuc[int(len(ds_g_nen_thuc) * 0.2)])
+            + (ds_b_nen_thuc[min(len(ds_b_nen_thuc) - 1, int(len(ds_b_nen_thuc) * 0.8))] - ds_b_nen_thuc[int(len(ds_b_nen_thuc) * 0.2)])
+        ) if ds_r_nen_thuc else 0
         la_nen_trang_mask = bytearray(N)
-        cho_phep_kem_pastel = (lum_nen_trung_vi >= 210.0 and sat_nen_trung_vi <= 96)
+        cho_phep_kem_pastel = (
+            lum_nen_trung_vi >= 210.0
+            and sat_nen_trung_vi <= 96
+            and do_lech_nen_thuc <= 16.0
+            and iqr_rgb_nen_thuc <= 68
+        )
         for idx_m in range(N):
             if not vung_cam[idx_m] and (
                 (lum_px[idx_m] >= 210.0 and sat_px[idx_m] <= 45)
@@ -773,13 +786,10 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                     ):
                         dem_trang_tinh_hop += 1
         ty_le_trang_tren_nen_sang = dem_trang_tinh_hop / max(1, dem_khong_toi_hop)
-        p80_nen_thuc = ds_lum_nen_thuc[min(len(ds_lum_nen_thuc) - 1, int(len(ds_lum_nen_thuc) * 0.8))] if ds_lum_nen_thuc else med_lum
-        p20_nen_thuc = ds_lum_nen_thuc[int(len(ds_lum_nen_thuc) * 0.2)] if ds_lum_nen_thuc else med_lum
-        do_lech_nen_thuc = p80_nen_thuc - p20_nen_thuc
         du_trang_bong_dam = (ty_le_trang_dac >= 0.24 and ty_le_trang_tren_nen_sang >= 0.78 and lum_nen_trung_vi >= 224.0) or (
-            cho_phep_kem_pastel and ty_le_trang_tren_nen_sang >= 0.78 and do_lech_nen_thuc <= 22.0 and len(q_lt) >= dt_hop * 0.42
+            cho_phep_kem_pastel and ty_le_trang_tren_nen_sang >= 0.78 and do_lech_nen_thuc <= 16.0 and iqr_rgb_nen_thuc <= 68 and len(q_lt) >= dt_hop * 0.42
         )
-        la_nen_kem_sang_phang = (not nen_toi) and (lum_nen_trung_vi >= 212.0) and (sat_nen_trung_vi <= 96) and (do_lech_nen_thuc <= 26.0) and (do_nhieu_hat < 18.0 or (sat_nen_trung_vi >= 6 and do_lech_nen_thuc <= 16.0)) and (ty_le_trang_dac >= 0.45 or du_trang_bong_dam)
+        la_nen_kem_sang_phang = (not nen_toi) and cho_phep_kem_pastel and (lum_nen_trung_vi >= 212.0) and (do_nhieu_hat < 18.0 or (sat_nen_trung_vi >= 6 and do_lech_nen_thuc <= 14.0)) and (ty_le_trang_dac >= 0.45 or du_trang_bong_dam)
 
         cham_bien_lt = 0
         chu_vi_roi = max(1, (rw + rh) * 2)
@@ -3879,22 +3889,42 @@ def _gop_cac_dong_trong_bong_thoai(comp_ordered: list[dict], ngon_ngu_nguon: str
 
 
 def _la_nen_bong_trang(px, W: int, H: int, r_box: dict) -> bool:
-    """Kiểm tra vùng hộp từ/dòng có nằm trên nền bóng thoại trắng/kem/pastel sáng thực sự hay không (phân biệt với chữ nổi có halo trên nền gạch chéo/speedline)."""
+    """Kiểm tra vùng hộp từ/dòng có nằm trên nền bóng thoại trắng/kem/pastel phẳng thực sự hay không (phân biệt với chữ SFX màu / da mặt nhân vật / speedline)."""
     x0 = max(0, int(r_box["x"]) - 4)
     y0 = max(0, int(r_box["y"]) - 4)
     x1 = min(W - 1, int(r_box["x"] + r_box["w"]) + 4)
     y1 = min(H - 1, int(r_box["y"] + r_box["h"]) + 4)
     total = 0
     bright = 0
+    lums = []
+    rs = []
+    gs = []
+    bs = []
     for py in range(y0, y1 + 1, 3):
         for px_i in range(x0, x1 + 1, 3):
             r, g, b = px[px_i, py]
             lum = 0.299 * r + 0.587 * g + 0.114 * b
             sat = max(r, g, b) - min(r, g, b)
             total += 1
+            if lum >= 175:
+                lums.append(lum)
+                rs.append(r)
+                gs.append(g)
+                bs.append(b)
             if (lum >= 195 and sat <= 58) or (lum >= 210 and sat <= 96):
                 bright += 1
-    return total > 0 and (bright / total) >= 0.50
+    if total == 0 or (bright / total) < 0.50 or len(lums) < 4:
+        return False
+    lums.sort()
+    rs.sort()
+    gs.sort()
+    bs.sort()
+    n = len(lums)
+    i20 = int(n * 0.20)
+    i80 = min(n - 1, int(n * 0.80))
+    iqr_lum = lums[i80] - lums[i20]
+    iqr_rgb = (rs[i80] - rs[i20]) + (gs[i80] - gs[i20]) + (bs[i80] - bs[i20])
+    return iqr_lum <= 16.5 and iqr_rgb <= 65
 
 
 def _co_vach_ngan_ngang(px, W: int, H: int, w1: dict, w2: dict) -> bool:
@@ -4448,10 +4478,17 @@ $lines | ConvertTo-Json -Depth 4 -Compress
                 v for v in valid
                 if v.get("_ctd_id") not in sfx_cids_en
                 and not (
+                    v.get("_ctd_id") is None
+                    and (
+                        not _la_nen_bong_trang(px, W, H, v)
+                        or (len(str(v.get("text") or "").split()) == 1 and len("".join(c for c in str(v.get("text") or "") if c.isalnum())) <= 5)
+                    )
+                )
+                and not (
                     not _la_nen_bong_trang(px, W, H, v)
                     and (
-                        (v["h"] >= 45 and len(str(v.get("text") or "").split()) <= 2)
-                        or re.fullmatch(r"(?:(?:HA)+H?|UG[H]*|[AZTY\s]{3,})", re.sub(r"[^A-Za-z\s]+", "", str(v.get("text") or "")).strip(), re.I)
+                        (v["h"] >= 40 and len(str(v.get("text") or "").split()) <= 2)
+                        or re.fullmatch(r"(?:(?:HA)+H?|UG[H]*|BHA[A]*|[AZTY\s]{3,})", re.sub(r"[^A-Za-z\s]+", "", str(v.get("text") or "")).strip(), re.I)
                     )
                 )
             ]
@@ -4591,11 +4628,14 @@ $lines | ConvertTo-Json -Depth 4 -Compress
         # Bỏ các tiếng rên / SFX nền vụn hoặc dòng chữ khắc mờ trên đạo cụ nền ('Gh', 'Ggh', 'A.', 'D', 'MHAyH', 'myympa')
         text_alnum = "".join(c for c in text if c.isalnum())
         if not co_cjk:
-            if (text_alnum.lower() in {"a", "d", "j", "s", "x", "gh", "ggh", "ghhr", "ghhhhn", "mhayh", "myympa", "armnflammab", "it", "walan", "sssnhnrgoaaaeeee"} or re.fullmatch(r"[xXvViIlL1|]{2,12}", text_alnum)) or (len(text_alnum) == 1 and text_alnum.upper() not in {"I", "O"} and not text.endswith(("!", "?"))) or (len(text_alnum) == 2 and text_alnum.isalpha() and not any(ch in "AEIOUYaeiouy" for ch in text_alnum) and text_alnum.upper() not in {"SH", "HM", "MM", "MR", "MS", "DR", "ST", "VS", "TV"}):
+            if (text_alnum.lower() in {"a", "d", "j", "s", "x", "gh", "ggh", "ghhr", "ghhhhn", "bha", "bhaa", "bhaaa", "crus", "movere", "dnsir", "mhayh", "myympa", "armnflammab", "it", "walan", "sssnhnrgoaaaeeee"} or re.fullmatch(r"[xXvViIlL1|]{2,12}", text_alnum)) or (len(text_alnum) == 1 and text_alnum.upper() not in {"I", "O"} and not text.endswith(("!", "?"))) or (len(text_alnum) == 2 and text_alnum.isalpha() and not any(ch in "AEIOUYaeiouy" for ch in text_alnum) and text_alnum.upper() not in {"SH", "HM", "MM", "MR", "MS", "DR", "ST", "VS", "TV"}):
                 continue
+            if len(text.split()) <= 2 and not _la_nen_bong_trang(px, W, H, {"x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0}):
+                if (y1 - y0) >= 36 * he_so_ocr or len(text_alnum) <= 5 or not any(p in text for p in ("!", "?")):
+                    continue
         if not co_cjk and sum(1 for c in text if c.isascii() and c.isupper()) == 0:
             if (
-                len(text) <= 4
+                (len(text) <= 4 or (len(text.split()) == 1 and len(text_alnum) <= 7))
                 and not text.endswith(("?", "!", "."))
                 and not text.lower().startswith("true")
             ):
