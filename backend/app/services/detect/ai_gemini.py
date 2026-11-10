@@ -250,9 +250,9 @@ def can_chinh_khung_theo_bong_bong(
                     all_holes.append([x0 + hx, y0 + hy, x0 + hx + hw, y0 + hy + hh, ha, hw, hh])
                 if (
                     min_val <= 105
-                    and ha >= round(14 * S * S)
+                    and ha >= round(10 * S * S)
                     and round(3 * S) <= hw <= round(42 * S)
-                    and round(7 * S) <= hh <= round(42 * S)
+                    and (round(7 * S) <= hh <= round(42 * S) or (hh >= round(2 * S) and hw >= round(9 * S)))
                 ):
                     chars.append([x0 + hx, y0 + hy, x0 + hx + hw, y0 + hy + hh, ha, hw, hh])
             if len(chars) < 2:
@@ -404,6 +404,26 @@ def can_chinh_khung_theo_bong_bong(
 
         da_gan_r = [False] * len(regions)
 
+        def _co_khit_muc_trong_hop(hop: BBox) -> BBox:
+            rx0 = int(max(0, min(W - 1, round(hop.x))))
+            ry0 = int(max(0, min(H - 1, round(hop.y))))
+            rx1 = int(max(rx0 + 1, min(W, round(hop.x + hop.w))))
+            ry1 = int(max(ry0 + 1, min(H, round(hop.y + hop.h))))
+            sub = a[ry0:ry1, rx0:rx1]
+            if sub.size == 0 or float((sub > 200).mean()) < 0.42:
+                return hop
+            ys, xs = np.where(sub < 145)
+            if len(xs) < 12:
+                return hop
+            pad_px = max(2, round(3 * S))
+            nx0 = max(rx0, rx0 + int(xs.min()) - pad_px)
+            ny0 = max(ry0, ry0 + int(ys.min()) - pad_px)
+            nx1 = min(rx1, rx0 + int(xs.max()) + 1 + pad_px)
+            ny1 = min(ry1, ry0 + int(ys.max()) + 1 + pad_px)
+            if nx1 - nx0 >= 12 and ny1 - ny0 >= 12:
+                return BBox(x=float(nx0), y=float(ny0), w=float(nx1 - nx0), h=float(ny1 - ny0))
+            return hop
+
         # Pass A: Khớp trực tiếp các hộp chữ đã giao cắt hoặc nằm trong lòng bong bóng
         for r_idx, r in enumerate(regions):
             if _la_sfx_ngan(r):
@@ -415,6 +435,15 @@ def can_chinh_khung_theo_bong_bong(
             best_score = 0.0
             for b in bubbles:
                 if b["da_gan"]:
+                    continue
+                # Không gán cụm chữ gộp chung nếu cụm đó nuốt tâm của >= 2 vùng thoại đầu vào khác nhau (bóng đôi):
+                so_tam_trong_cum = sum(
+                    1
+                    for r_other in regions
+                    if (b["tx0"] - 6 * S) <= (r_other.bbox.x + r_other.bbox.w * 0.5) <= (b["tx1"] + 6 * S)
+                    and (b["ty0"] - 6 * S) <= (r_other.bbox.y + r_other.bbox.h * 0.5) <= (b["ty1"] + 6 * S)
+                )
+                if so_tam_trong_cum >= 2:
                     continue
                 ix0, iy0 = max(vx0, b["tx0"]), max(vy0, b["ty0"])
                 ix1, iy1 = min(vx1, b["tx1"]), min(vy1, b["ty1"])
@@ -433,17 +462,40 @@ def can_chinh_khung_theo_bong_bong(
                         best_score = score
                         best_b = b
             if best_b is not None:
-                best_b["da_gan"] = True
-                da_gan_r[r_idx] = True
-                regions[r_idx] = replace(
-                    r,
-                    bbox=BBox(
-                        x=best_b["tx0"],
-                        y=best_b["ty0"],
-                        w=best_b["tx1"] - best_b["tx0"],
-                        h=best_b["ty1"] - best_b["ty0"],
-                    ),
-                )
+                bw_c = best_b["tx1"] - best_b["tx0"]
+                bh_c = best_b["ty1"] - best_b["ty0"]
+                # Nếu cụm tìm được bị đứt đoạn quá ngắn (< 55% chiều cao hộp gốc vốn đã nằm trong nền trắng),
+                # ưu tiên co khít trực tiếp theo nét mực trong hộp gốc thay vì cắt cụt câu chữ:
+                sub_orig = a[
+                    int(max(0, min(H - 1, vy0))) : int(max(1, min(H, vy1))),
+                    int(max(0, min(W - 1, vx0))) : int(max(1, min(W, vx1))),
+                ]
+                orig_white = float((sub_orig > 205).mean()) if sub_orig.size > 0 else 0.0
+                if orig_white >= 0.55 and (bh_c < r.bbox.h * 0.55 or bw_c < r.bbox.w * 0.45):
+                    da_gan_r[r_idx] = True
+                    regions[r_idx] = replace(r, bbox=_co_khit_muc_trong_hop(r.bbox))
+                else:
+                    best_b["da_gan"] = True
+                    da_gan_r[r_idx] = True
+                    regions[r_idx] = replace(
+                        r,
+                        bbox=BBox(
+                            x=best_b["tx0"],
+                            y=best_b["ty0"],
+                            w=bw_c,
+                            h=bh_c,
+                        ),
+                    )
+            else:
+                # Nếu hộp gốc đã nằm gọn trên nền sáng có chữ đen (vd: tiếng hét cỡ lớn FWEEEEET!, bóng đôi),
+                # đánh dấu đã khớp và co khít theo nét mực để Pass B không di chuyển nhầm:
+                sub_orig = a[
+                    int(max(0, min(H - 1, vy0))) : int(max(1, min(H, vy1))),
+                    int(max(0, min(W - 1, vx0))) : int(max(1, min(W, vx1))),
+                ]
+                if sub_orig.size > 0 and float((sub_orig > 200).mean()) >= 0.45 and float((sub_orig < 140).mean()) >= 0.02:
+                    da_gan_r[r_idx] = True
+                    regions[r_idx] = replace(r, bbox=_co_khit_muc_trong_hop(r.bbox))
 
         # Pass B: Khôi phục hộp thoại bị AI đặt lệch ra ngoài bong bóng (đè lên tóc đen / đám đông trong cùng khung tranh)
         for r_idx, r in enumerate(regions):
