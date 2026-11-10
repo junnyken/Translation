@@ -282,7 +282,7 @@ class Settings(BaseSettings):
     canh_bao_ctd_cho_tieng_nhat: bool = True
     #: Cạnh dài ảnh gửi cho engine AI. Gemini tính tiền theo ô 768×768 nên gửi nguyên cỡ
     #: là đốt token vô ích; 1024 là mức E32 đã chốt (giữ được chữ còn đọc được).
-    detect_ai_canh_toi_da: int = 1024
+    detect_ai_canh_toi_da: int = 768
     #: E93 — gọi nhận diện N lượt SONG SONG rồi gộp khung bị sót (model dao động giữa các lượt).
     #: Gấp N chi phí bước nhận diện, gần như không thêm thời gian. 1 = một lượt tiết kiệm 50% phí Gemini.
     detect_ai_so_luot: int = 1
@@ -407,7 +407,7 @@ class Settings(BaseSettings):
     #: theo ô 768x768, nên thu nhỏ là cách trực tiếp nhất để chặn chi phí. 1024 giữ được chữ trong
     #: bong bóng còn đọc được — nhỏ hơn nữa thì mô hình không đọc nổi chữ gốc, tức mất đúng cái lợi
     #: mà việc gửi ảnh mang lại.
-    e32_anh_max_px: int = 1024
+    e32_anh_max_px: int = 768
 
     #: E34 — bật `e32_kem_anh_trang` thì CHỈ gửi ảnh cho trang có dấu hiệu cần, không gửi mọi
     #: trang. Đây là mặc định có chủ đích: đo được ảnh tốn cố định +1166 token/trang, mà lợi ích
@@ -1020,7 +1020,7 @@ def dong_bo_khoa_ai_dong(settings: Settings) -> dict:
         if _tach_khoa_sach(k).startswith(("sk-", "gsk_"))
     ]
     model_gm = str(data.get("model_gemini") or env_model_goc or "gemini-3.1-flash-lite").strip()
-    if model_gm.lower().startswith("deepseek") or model_gm.lower() == "gemini-2.5-flash":
+    if model_gm.lower().startswith("deepseek") or model_gm.lower() == "gemini-2.5-flash" or "image" in model_gm.lower():
         model_gm = "gemini-3.1-flash-lite"
     elif model_gm.lower() == "gemini-3.5-flash":
         model_gm = "gemini-3.5-flash-lite"
@@ -1122,7 +1122,7 @@ def lay_thong_tin_khoa_ai_che(settings: Settings, data_dong: dict | None = None)
             gm_list.append(k)
     gm_nguon = "Admin + .env" if (gm_admin and gm_env) else ("Admin" if gm_admin else (".env" if gm_env else "Chưa gắn"))
     model_gm = str(data.get("model_gemini") or env_model_goc or "gemini-3.1-flash-lite").strip()
-    if model_gm.lower().startswith("deepseek") or model_gm.lower() == "gemini-2.5-flash":
+    if model_gm.lower().startswith("deepseek") or model_gm.lower() == "gemini-2.5-flash" or "image" in model_gm.lower():
         model_gm = "gemini-3.1-flash-lite"
     elif model_gm.lower() == "gemini-3.5-flash":
         model_gm = "gemini-3.5-flash-lite"

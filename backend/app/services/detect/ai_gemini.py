@@ -512,11 +512,11 @@ class AIGeminiDetector:
     api_keys: list[str]
     model_name: str = "gemini-3.1-flash-lite"
     timeout: int = 120
-    #: Cạnh dài ảnh gửi đi. Gemini tính tiền theo ô 768×768 nên gửi nguyên cỡ là đốt token vô ích;
-    #: 1024 là mức E32 đã chốt (giữ được chữ đọc được). Xem `translate/anh_kem.py`.
-    canh_toi_da: int = 1024
+    #: Cạnh dài ảnh gửi đi. Gemini tính tiền theo ô 768×768 nên giữ mặc định 768px để vừa khít
+    #: 1 ô đơn (258 token), giảm 80% chi phí quét ảnh so với mức >768px (bị chia 4-5 ô).
+    canh_toi_da: int = 768
     #: E93 — số lượt gọi SONG SONG rồi gộp khung (xem `gop_luot`). 1 = như trước; production đặt
-    #: qua `DETECT_AI_SO_LUOT` (mặc định cấu hình 2).
+    #: qua `DETECT_AI_SO_LUOT` (mặc định cấu hình 1).
     so_luot: int = 1
 
     def detect(self, image_path: str) -> list[BBox]:
@@ -538,7 +538,9 @@ class AIGeminiDetector:
 
         with open(image_path, "rb") as f:
             goc = f.read()
-        da_chuan = chuan_bi_anh(goc, self.canh_toi_da)
+        ty_le_khung = max(rong_goc, cao_goc) / max(1, min(rong_goc, cao_goc))
+        canh_dung = max(self.canh_toi_da, 1024) if ty_le_khung > 2.2 else min(self.canh_toi_da, 768)
+        da_chuan = chuan_bi_anh(goc, canh_dung)
         if da_chuan is None:
             raise AIDetectError(f"Không chuẩn bị được ảnh để gửi: {image_path}")
         anh, mime = da_chuan
@@ -625,9 +627,14 @@ class AIGeminiDetector:
             goc = f.read()
         la_ultra_3_luot = "[CHẾ ĐỘ ULTRA CLOUD AI 3 LƯỢT" in (boi_canh or "")
         la_pro_2_luot = "[CHẾ ĐỘ AI PRO 2 LƯỢT" in (boi_canh or "")
-        # Giữ chặt ảnh gửi Gemini ở mức 1024px (1 ô ảnh đơn = 258 token) cho Model 1 & Model 2
-        # để không chạm bẫy chia lưới 6-9 ô 768x768 của Google Gemini (tránh đội phí ảnh gấp 7-9 lần).
-        canh_dung = max(self.canh_toi_da, 1280) if la_ultra_3_luot else self.canh_toi_da
+        # Tối ưu chi phí ô ảnh Gemini (768x768 tiling):
+        # - Chế độ Tiêu chuẩn (1 lượt, trang tỷ lệ thường <= 2.2): dùng đúng ngưỡng 768px (1 ô = 258 token).
+        # - Trang Webtoon dải dọc dài (tỷ lệ > 2.2) hoặc chế độ Pro/Ultra: dùng 1024px để giữ nét chữ nhỏ.
+        ty_le_khung = max(rong_goc, cao_goc) / max(1, min(rong_goc, cao_goc))
+        if la_ultra_3_luot or la_pro_2_luot or ty_le_khung > 2.2:
+            canh_dung = max(self.canh_toi_da, 1024)
+        else:
+            canh_dung = min(self.canh_toi_da, 768)
         da_chuan = chuan_bi_anh(goc, canh_dung)
         if da_chuan is None:
             raise AIDetectError(f"Không chuẩn bị được ảnh để gửi: {image_path}")
@@ -729,6 +736,8 @@ class AIGeminiDetector:
         model_goc = (self.model_name or "gemini-3.1-flash-lite").strip()
         if model_goc.lower() == "gemini-3.5-flash":
             model_goc = "gemini-3.5-flash-lite"
+        elif "image" in model_goc.lower() or model_goc.lower() == "gemini-2.5-flash":
+            model_goc = "gemini-3.1-flash-lite"
         for raw_k in self.api_keys:
             s_k = str(raw_k or "").strip()
             if not s_k or s_k.startswith(("sk-", "ds:", "ds|", "gsk_")):
@@ -767,6 +776,8 @@ class AIGeminiDetector:
                     m_k = parts_gm[1].strip()
                     if m_k.lower() == "gemini-3.5-flash":
                         m_k = "gemini-3.5-flash-lite"
+                    elif "image" in m_k.lower() or m_k.lower() == "gemini-2.5-flash":
+                        m_k = "gemini-3.1-flash-lite"
                 s_k = parts_gm[-1].strip()
             elif s_k.startswith("gm:"):
                 s_k = s_k[3:].strip()

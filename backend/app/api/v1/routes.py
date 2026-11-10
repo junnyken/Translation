@@ -2645,14 +2645,15 @@ async def doc_truyen_lay_trang(
                     else (f"{bam_anh_goc}_pro2" if "[CHẾ ĐỘ AI PRO 2 LƯỢT" in td_cache else bam_anh_goc)
                 )
                 eng_cache = page.translate_engine_override or TranslationEngine.llm_context
-                ghi_nhan_trang_anh(
-                    bam_anh,
-                    project.source_lang,
-                    eng_cache,
-                    project.che_do_pipeline,
-                    page.id,
-                    target_lang=project.target_lang,
-                )
+                for b_luu in dict.fromkeys([bam_anh, bam_anh_goc]):
+                    ghi_nhan_trang_anh(
+                        b_luu,
+                        project.source_lang,
+                        eng_cache,
+                        project.che_do_pipeline,
+                        page.id,
+                        target_lang=project.target_lang,
+                    )
                 vung_snap = [
                     {
                         "x": v.x,
@@ -2666,16 +2667,17 @@ async def doc_truyen_lay_trang(
                     for idx, v in enumerate(vung)
                     if v.ban_dich
                 ]
-                await luu_snapshot_cache_cong_dong(
-                    storage=st_cache,
-                    bam_anh=bam_anh,
-                    source_lang=project.source_lang,
-                    target_lang=project.target_lang,
-                    engine=eng_cache,
-                    che_do=project.che_do_pipeline,
-                    page_id=page.id,
-                    vung_snapshot=vung_snap,
-                )
+                for b_luu in dict.fromkeys([bam_anh, bam_anh_goc]):
+                    await luu_snapshot_cache_cong_dong(
+                        storage=st_cache,
+                        bam_anh=b_luu,
+                        source_lang=project.source_lang,
+                        target_lang=project.target_lang,
+                        engine=eng_cache,
+                        che_do=project.che_do_pipeline,
+                        page_id=page.id,
+                        vung_snapshot=vung_snap,
+                    )
         except Exception:  # noqa: BLE001
             pass
 

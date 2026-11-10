@@ -171,17 +171,33 @@ async def thu_sao_chep_tu_cache(
         return False
     k = _khoa(bam_anh, source_lang, engine, che_do, target_lang=target_lang)
     ung_vien_ids = list(reversed(_BO_NHO_BAM.get(k, [])))
+    bam_anh_goc = bam_anh.removesuffix("_ultra3").removesuffix("_pro2")
+    for b_ung in dict.fromkeys([bam_anh, bam_anh_goc]):
+        for eng_ung in dict.fromkeys([engine, TranslationEngine.llm_context, TranslationEngine.google_fast]):
+            k_ung = _khoa(b_ung, source_lang, eng_ung, che_do, target_lang=target_lang)
+            for pid_ung in reversed(_BO_NHO_BAM.get(k_ung, [])):
+                if pid_ung not in ung_vien_ids:
+                    ung_vien_ids.append(pid_ung)
 
     rel_cache = _duong_dan_cache_cong_dong(bam_anh, source_lang, engine, che_do, target_lang=target_lang)
     du_lieu_file: dict | None = None
     if not ung_vien_ids and storage is not None:
-        du_lieu_file = await run_in_threadpool(_doc_cache_file_dong_bo, storage, rel_cache)
-        if du_lieu_file and du_lieu_file.get("source_page_id"):
-            try:
-                uv_tu_file = uuid.UUID(str(du_lieu_file["source_page_id"]))
-                ung_vien_ids.append(uv_tu_file)
-            except Exception:  # noqa: BLE001
-                pass
+        for b_ung in dict.fromkeys([bam_anh, bam_anh_goc]):
+            for eng_ung in dict.fromkeys([engine, TranslationEngine.llm_context, TranslationEngine.google_fast]):
+                rel_ung = _duong_dan_cache_cong_dong(b_ung, source_lang, eng_ung, che_do, target_lang=target_lang)
+                du_lieu_file = await run_in_threadpool(_doc_cache_file_dong_bo, storage, rel_ung)
+                if du_lieu_file:
+                    rel_cache = rel_ung
+                    if du_lieu_file.get("source_page_id"):
+                        try:
+                            uv_tu_file = uuid.UUID(str(du_lieu_file["source_page_id"]))
+                            if uv_tu_file not in ung_vien_ids:
+                                ung_vien_ids.append(uv_tu_file)
+                        except Exception:  # noqa: BLE001
+                            pass
+                    break
+            if du_lieu_file:
+                break
 
     trang_thai_xong = (
         (PageStatus.translated, PageStatus.typeset_done, PageStatus.ready_for_export)

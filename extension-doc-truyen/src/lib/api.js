@@ -282,10 +282,9 @@ async function nenAnhDuPhongKhiLoi(blob, maxCanh = 1600) {
 }
 
 export async function guiTrang(blob, ngonNgu, engine, cheDo, ngonNguDich = NGON_NGU_DICH_MAC_DINH, tuDienRieng = '') {
-  const engineCloud = (engine === 'local_ocr_gpu' || engine === 'local_hybrid_pro' || engine === 'local_gguf')
-    ? 'llm_context'
-    : (engine || 'llm_context')
-  const taoForm = (tepBlob, tenTep = 'trang.png', engGui = engineCloud, kemTuDien = true) => {
+  const laCapProHoacUltra = engine === 'local_hybrid_pro' || engine === 'llm_context'
+  const engineCloud = laCapProHoacUltra ? 'llm_context' : 'google_fast'
+  const taoForm = (tepBlob, tenTep = 'trang.png', engGui = engineCloud, kemTuDien = laCapProHoacUltra) => {
     const form = new FormData()
     form.append('file', tepBlob, tenTep)
     form.append('source_lang', ngonNgu || NGON_NGU_MAC_DINH)

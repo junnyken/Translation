@@ -331,13 +331,13 @@ def _run_detect(job_id: uuid.UUID, *, outbox_claimed: bool = False) -> dict:
             if page.translate_engine_override is not None
             else settings.translate_default_engine
         )
+        la_che_do_chi_chu = du_an is not None and du_an.che_do_pipeline is ChePipeline.chi_chu
         du_dieu_kien_gop_1_luot = (
             settings.gop_mot_luot_chi_chu
             and settings.detect_engine == "ai_gemini"
             and settings.ocr_auto_chain
             and settings.translate_auto_chain
             and du_an is not None
-            and du_an.che_do_pipeline is ChePipeline.chi_chu
             and engine_dich_hieu_luc in (
                 TranslationEngine.llm_context.value,
                 TranslationEngine.google_fast.value,
@@ -486,16 +486,17 @@ def _run_detect(job_id: uuid.UUID, *, outbox_claimed: bool = False) -> dict:
                     chu_goc = (getattr(reg, "chu", None) or "").strip()
                     ban_dich = (getattr(reg, "ban_dich", None) or "").strip()
                     co_doan = bool(getattr(reg, "doan", False))
-                    session.add(
-                        OCRResult(
-                            region_id=tr.id,
-                            raw_text=chu_goc,
-                            line_polygons=None,
-                            ocr_engine=OCREngine.ai_gemini,
-                            confidence=None,
-                            status=OCRStatus.needs_manual if co_doan else _classify_ocr(chu_goc, None),
+                    if la_che_do_chi_chu:
+                        session.add(
+                            OCRResult(
+                                region_id=tr.id,
+                                raw_text=chu_goc,
+                                line_polygons=None,
+                                ocr_engine=OCREngine.ai_gemini,
+                                confidence=None,
+                                status=OCRStatus.needs_manual if co_doan else _classify_ocr(chu_goc, None),
+                            )
                         )
-                    )
                     session.add(
                         TranslationResult(
                             region_id=tr.id,
@@ -506,16 +507,18 @@ def _run_detect(job_id: uuid.UUID, *, outbox_claimed: bool = False) -> dict:
                             status=TranslationStatus.ok if ban_dich else TranslationStatus.pending,
                         )
                     )
-            assert_transition(page.status, PageStatus.ocr_done)
-            page.status = PageStatus.ocr_done
-            assert_transition(page.status, PageStatus.translated)
-            page.status = PageStatus.translated
+            if la_che_do_chi_chu:
+                assert_transition(page.status, PageStatus.ocr_done)
+                page.status = PageStatus.ocr_done
+                assert_transition(page.status, PageStatus.translated)
+                page.status = PageStatus.translated
 
         job = session.get(Job, job_id)
         job.status = JobStatus.done
         job.error_log = None
         session.commit()
 
+    da_gop_1_luot_chi_chu = da_gop_1_luot and la_che_do_chi_chu
     logger.info(
         "detect job %s%s: %d region (%d low_confidence, %d overlap_suspect), xóa %d region cũ, %.1fs",
         job_id,
@@ -525,7 +528,7 @@ def _run_detect(job_id: uuid.UUID, *, outbox_claimed: bool = False) -> dict:
 
     ocr_job_id = (
         None
-        if da_gop_1_luot
+        if da_gop_1_luot_chi_chu
         else (enqueue_ocr_after_detect(page_id) if settings.ocr_auto_chain else None)
     )
 
@@ -539,7 +542,7 @@ def _run_detect(job_id: uuid.UUID, *, outbox_claimed: bool = False) -> dict:
         "replaced_regions": deleted,
         "elapsed_seconds": round(elapsed, 2),
         "ocr_job_id": str(ocr_job_id) if ocr_job_id else None,
-        "gop_mot_luot": da_gop_1_luot,
+        "gop_mot_luot": da_gop_1_luot_chi_chu,
         # `None` khi không có rủi ro — không bịa ra giá trị mặc định giả.
         "canh_bao": "ja_voi_ctd" if rui_ro_ja_ctd else None,
     }
@@ -1836,13 +1839,43 @@ def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dic
         #
         # Dùng ảnh GỐC chứ không dùng ảnh đã xoá chữ: mục đích là để mô hình ĐỌC LẠI chữ gốc khi
         # OCR đọc sai, mà ảnh clean thì đã xoá hết chữ đi rồi.
+        # Nếu bước `_run_detect` đã chạy gộp 1-pass (`detect_va_dich_regions`) và lưu sẵn `TranslationResult`
+        # cho toàn bộ vùng của trang (khi trang đi từ `inpainted` / `inpaint_needs_review` sang, không phải
+        # người dùng bấm chạy lại `retry-translate`), tái sử dụng ngay bản dịch 1-pass để tốn 0 token lần 2.
+        ban_dich_1pass_map: dict[uuid.UUID, str] = {}
+        ban_dich_1pass_model: str | None = None
+        ban_dich_1pass_tokens: int | None = None
+        if page.status in (PageStatus.inpainted, PageStatus.inpaint_needs_review, PageStatus.ocr_done):
+            existing_tr_rows = list(
+                session.execute(
+                    select(TranslationResult).where(
+                        TranslationResult.region_id.in_([r.id for r in regions]),
+                        TranslationResult.status == TranslationStatus.ok,
+                    )
+                ).scalars()
+            )
+            if len(existing_tr_rows) == len(regions) and all(
+                bool((t.translated_text or "").strip()) for t in existing_tr_rows
+            ):
+                ban_dich_1pass_map = {t.region_id: (t.translated_text or "") for t in existing_tr_rows}
+                ban_dich_1pass_model = next((t.model_name for t in existing_tr_rows if t.model_name), settings.detect_ai_model)
+                ban_dich_1pass_tokens = next((t.token_cost for t in existing_tr_rows if t.token_cost is not None), None)
+
         anh_kem = None
-        if settings.e32_kem_anh_trang and engine_override != TranslationEngine.google_fast.value:
+        da_doc_bang_ai_gemini = any(
+            o.ocr_engine is OCREngine.ai_gemini for o in ocr_map.values()
+        )
+        if (
+            not ban_dich_1pass_map
+            and not da_doc_bang_ai_gemini
+            and settings.e32_kem_anh_trang
+            and engine_override != TranslationEngine.google_fast.value
+        ):
             from app.services.translate.anh_kem import chuan_bi_anh
 
             # E34 — chỉ gửi ảnh cho trang CÓ DẤU HIỆU cần. Ảnh tốn cố định +1166 token/trang mà
             # lợi ích chỉ dồn vào trang bộ đọc chữ làm kém; trả token cho trang đã đọc sạch là
-            # trả cho thứ không đổi gì.
+            # trả cho thứ không đổi gì. Nếu đã đọc bằng `ai_gemini` thì tuyệt đối không gửi ảnh lần 2.
             nen_gui, ly_do_anh = True, "moi_trang"
             if settings.e34_chi_trang_can_anh:
                 from app.services.translate.chon_trang_gui_anh import can_gui_anh
@@ -1871,24 +1904,36 @@ def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dic
 
     used_engine = engine_name
     fallback_reason: str | None = None
-    translator = build_translator(engine_name, boi_canh, anh_kem)
-    try:
-        # Cổng nhịp chỉ áp cho đường TỐN TIỀN (`google_fast` miễn phí nên không qua cổng).
-        # Đặt TRONG khối try có chủ đích: bị chặn thì đi đúng đường lùi-về-google của M5 và
-        # được dán nhãn `fallback_used`, thay vì làm hỏng cả job. Đặt ngoài try là mất đường lùi.
-        _cong_nhip(engine_name)
-        translated = translator.translate(texts, source_lang, target_lang)
-    except (QuotaExhausted, TranslationFailed) as exc:
-        # E72 — mọi engine kiểu LLM đều lùi được (máy chủ cục bộ chưa bật là chuyện thường ngày),
-        # không riêng Gemini.
-        if engine_name not in ENGINE_LLM or not settings.llm_fallback_to_google:
-            raise
-        # Không âm thầm trả bản rỗng: lùi về google_fast và ĐÁNH DẤU fallback_used.
-        fallback_reason = f"{type(exc).__name__}: {exc}"
-        logger.warning("LLM lỗi (%s) -> lùi về google_fast", fallback_reason[:200])
-        used_engine = TranslationEngine.google_fast.value
-        translator = build_translator(used_engine)
-        translated = translator.translate(texts, source_lang, target_lang)
+    translator = None
+    if ban_dich_1pass_map:
+        used_engine = TranslationEngine.llm_context.value
+        translated = [
+            ban_dich_1pass_map.get(ordered_specs[i][0], "")
+            for i in chi_so_dich
+        ]
+        logger.info(
+            "dịch trang %s: tái sử dụng %d bản dịch từ 1-pass detect_va_dich (0 token gọi lại)",
+            page_id, len(translated),
+        )
+    else:
+        translator = build_translator(engine_name, boi_canh, anh_kem)
+        try:
+            # Cổng nhịp chỉ áp cho đường TỐN TIỀN (`google_fast` miễn phí nên không qua cổng).
+            # Đặt TRONG khối try có chủ đích: bị chặn thì đi đúng đường lùi-về-google của M5 và
+            # được dán nhãn `fallback_used`, thay vì làm hỏng cả job. Đặt ngoài try là mất đường lùi.
+            _cong_nhip(engine_name)
+            translated = translator.translate(texts, source_lang, target_lang)
+        except (QuotaExhausted, TranslationFailed) as exc:
+            # E72 — mọi engine kiểu LLM đều lùi được (máy chủ cục bộ chưa bật là chuyện thường ngày),
+            # không riêng Gemini.
+            if engine_name not in ENGINE_LLM or not settings.llm_fallback_to_google:
+                raise
+            # Không âm thầm trả bản rỗng: lùi về google_fast và ĐÁNH DẤU fallback_used.
+            fallback_reason = f"{type(exc).__name__}: {exc}"
+            logger.warning("LLM lỗi (%s) -> lùi về google_fast", fallback_reason[:200])
+            used_engine = TranslationEngine.google_fast.value
+            translator = build_translator(used_engine)
+            translated = translator.translate(texts, source_lang, target_lang)
 
     # Ghép về đúng thứ tự ban đầu: vùng giữ nguyên lấy lại CHỮ GỐC, vùng còn lại lấy bản dịch.
     # Làm ở đây thay vì lúc ghi CSDL để phần bên dưới không phải biết gì về SFX.
@@ -1932,10 +1977,18 @@ def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dic
                     region_id=region_id,
                     translated_text=text or None,
                     engine=TranslationEngine(used_engine),
-                    model_name=getattr(translator, "model_name", None),
+                    model_name=(
+                        ban_dich_1pass_model
+                        if ban_dich_1pass_map
+                        else getattr(translator, "model_name", None)
+                    ),
                     # Chi phí token là của CẢ TRANG (1 request) -> ghi vào đúng 1 dòng đầu
                     # để cộng token_cost toàn bảng vẫn ra tổng thật, không nhân bản.
-                    token_cost=(usage.total_tokens if usage and index == 0 else None),
+                    token_cost=(
+                        (ban_dich_1pass_tokens if index == 0 else None)
+                        if ban_dich_1pass_map
+                        else (usage.total_tokens if usage and index == 0 else None)
+                    ),
                     status=(
                         TranslationStatus.pending
                         if is_empty
