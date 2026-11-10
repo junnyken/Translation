@@ -759,7 +759,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
         p20_nen_thuc = ds_lum_nen_thuc[int(len(ds_lum_nen_thuc) * 0.2)] if ds_lum_nen_thuc else med_lum
         do_lech_nen_thuc = p80_nen_thuc - p20_nen_thuc
         du_trang_bong_dam = (ty_le_trang_dac >= 0.24 and ty_le_trang_tren_nen_sang >= 0.78 and lum_nen_trung_vi >= 224.0)
-        la_nen_kem_sang_phang = (not nen_toi) and (lum_nen_trung_vi >= 222.0) and (sat_nen_trung_vi <= 48) and (do_lech_nen_thuc <= 26.0) and (do_nhieu_hat < 18.0 or do_lech_nen_thuc <= 12.0) and (ty_le_trang_dac >= 0.45 or du_trang_bong_dam)
+        la_nen_kem_sang_phang = (not nen_toi) and (lum_nen_trung_vi >= 222.0) and (sat_nen_trung_vi <= 48) and (do_lech_nen_thuc <= 26.0) and (do_nhieu_hat < 18.0 or (sat_nen_trung_vi >= 6 and do_lech_nen_thuc <= 12.0)) and (ty_le_trang_dac >= 0.45 or du_trang_bong_dam)
 
         cham_bien_lt = 0
         chu_vi_roi = max(1, (rw + rh) * 2)
@@ -809,7 +809,8 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
             and (lum_nen_p30 >= (214.0 if la_nen_kem_sang_phang else nguong_p30_bong))
             and (ty_le_trang_dac >= (0.45 if la_nen_kem_sang_phang else 0.52) or du_trang_bong_dam)
             and (ty_le_trang_tren_nen_sang >= nguong_tlt_bong or la_nen_kem_sang_phang)
-            and (dem_net_xuyen_hop < 10 or (la_nen_kem_sang_phang and cham_bien_lt == 0))
+            and (dem_net_xuyen_hop < 10 or (la_nen_kem_sang_phang and cham_bien_lt == 0 and dem_net_xuyen_hop < 24))
+            and (do_nhieu_hat < 18.0 or ty_le_cap_halo < 0.32 or la_nen_kem_sang_phang)
             and (len(q_lt) >= dt_hop * 0.36)
         )
         if la_bong_khep_kin:
@@ -915,6 +916,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
         la_nen_trang_phang = (
             (not la_nen_mau_thuc or la_nen_kem_sang_phang)
             and (not co_net_tranh_xuyen_hop)
+            and (la_bong_khep_kin or do_nhieu_hat < 18.0 or ty_le_cap_halo < 0.32)
             and (lum_nen_trung_vi >= (222.0 if la_nen_kem_sang_phang else 234.0))
             and (ty_le_trang_tren_nen_sang >= nguong_tlt_bong or la_nen_kem_sang_phang)
             and (
@@ -1106,10 +1108,10 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
             la_loi_chu = bytearray(N)
             ung_vien_net = bytearray(N)
             net_mong_loi = bytearray(N)
-            qx0 = max(2, cx0 - min(32, mo_x - 2))
-            qy0 = max(2, cy0 - min(38, mo_y - 2))
-            qx1 = min(rw - 2, cx1 + min(32, mo_x - 2))
-            qy1 = min(rh - 2, cy1 + min(58, mo_y - 2))
+            qx0 = max(2, cx0 - min(14, mo_x - 2))
+            qy0 = max(2, cy0 - min(16, mo_y - 2))
+            qx1 = min(rw - 2, cx1 + min(14, mo_x - 2))
+            qy1 = min(rh - 2, cy1 + min(18, mo_y - 2))
             # Cắt chặn `qx0, qy0, qx1, qy1` tại đường viền khung tranh (panel border) để tuyệt đối không tràn sang khung tranh kế bên:
             span_w_b = max(1, cx1 - cx0)
             span_h_b = max(1, cy1 - cy0)
@@ -1409,7 +1411,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                 base_fb = py_fb * rw
                 for px_fb in range(max(2, cx0 - 4), min(rw - 2, cx1 + 4)):
                     p_fb = base_fb + px_fb
-                    if not ung_vien_net[p_fb] or la_loi_chu[p_fb] or vung_cam[p_fb]:
+                    if not ung_vien_net[p_fb] or la_loi_chu[p_fb] or vung_cam[p_fb] or ket_noi_bien[p_fb]:
                         continue
                     chon_fb = khong_co_comp
                     if not chon_fb and cho_phep_cuu_mang_toi:
@@ -1454,11 +1456,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                     if la_loi_chu[pos_d]:
                         kc_loi[pos_d] = 1
                         q_halo.append(pos_d)
-            max_buoc_halo = (
-                2
-                if (do_nhieu_hat >= 14.0 and not nen_toi and not la_nen_mau_thuc and max_day_net <= 20)
-                else (5 if max_day_net >= 22 else 4)
-            )
+            max_buoc_halo = 5 if max_day_net >= 20 else 4
             head_h = 0
             while head_h < len(q_halo):
                 pos_h = q_halo[head_h]
@@ -1494,10 +1492,16 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                         else:
                             # Trên nền hỗn hợp (Tường trắng kẻ sọc + Tóc đen) hoặc Nền cát Screentone / Nền màu:
                             # Chỉ nở vào viền halo trắng thực sự quanh lõi chữ, bảo vệ tuyệt đối nét gạch chéo & mặt/tai nhân vật!
+                            gan_toi_dac_h = bool(
+                                (nx_h > 1 and la_mang_toi_dac_pre[npos_h - 2])
+                                or (nx_h + 2 < rw and la_mang_toi_dac_pre[npos_h + 2])
+                                or (ny_h > 1 and la_mang_toi_dac_pre[npos_h - 2 * rw])
+                                or (ny_h + 2 < rh and la_mang_toi_dac_pre[npos_h + 2 * rw])
+                            )
                             la_diem_halo = bool(
                                 (la_trang_dac[npos_h] and buoc_h <= max_buoc_halo)
-                                or (la_dai_trang_manh[npos_h] and buoc_h <= (3 if do_nhieu_hat >= 14.0 else max_buoc_halo))
-                                or (buoc_h <= 2 and (la_trang_dac[npos_h] or la_sang_dac[npos_h]))
+                                or (la_dai_trang_manh[npos_h] and buoc_h <= (max_buoc_halo if (gan_toi_dac_h or do_nhieu_hat < 14.0) else 2))
+                                or (buoc_h <= (3 if gan_toi_dac_h else 2) and (la_trang_dac[npos_h] or la_sang_dac[npos_h]))
                                 or (la_nen_mau_thuc and la_sang_dac[npos_h])
                             )
                         if la_diem_halo:
@@ -1541,7 +1545,8 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                     mau_vien_goc = (255, 255, 255)
 
             # Nở nhẹ quanh `can_xoa` để xoá sạch viền khử răng cưa JPEG của halo mà không ăn vào đường kẻ tường hay nét gạch chéo:
-            max_r2_dil = 1 if (do_nhieu_hat >= 14.0 and not nen_toi and not la_nen_mau_thuc) else 4
+            max_r2_dil = 2 if (do_nhieu_hat >= 14.0 and not nen_toi and not la_nen_mau_thuc and lum_nen_trung_vi >= 175.0) else 4
+            nguong_bao_ve_toi_dil = 32.0 if (nen_toi or lum_nen_trung_vi < 175.0) else 105.0
             can_xoa_goc = bytearray(can_xoa)
             for py_d in range(2, rh - 2):
                 base_d = py_d * rw
@@ -1557,7 +1562,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                             npos_n = nb_n + (px_d + dx_n)
                             if vung_cam[npos_n]:
                                 continue
-                            if not la_dao_chieu_halo and la_toi_net[npos_n] and not la_loi_chu[npos_n] and lum_px[npos_n] < 105.0:
+                            if not la_dao_chieu_halo and la_toi_net[npos_n] and not la_loi_chu[npos_n] and lum_px[npos_n] < nguong_bao_ve_toi_dil:
                                 continue
                             can_xoa[npos_n] = 1
 
@@ -1648,6 +1653,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                     cham_xoa_toi = False
                     cham_loi_toi = False
                     vien_xoa_toi = 0
+                    vien_loi_toi = 0
                     vien_nen_toi = 0
                     head_t = 0
                     while head_t < len(q_toi):
@@ -1674,6 +1680,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                                     vien_xoa_toi += 1
                                     if la_loi_chu[npt]:
                                         cham_loi_toi = True
+                                        vien_loi_toi += 1
                                 elif not da_duyet_toi[npt]:
                                     if lum_px[npt] <= 102.0:
                                         da_duyet_toi[npt] = 1
@@ -1684,8 +1691,9 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                         not cham_bien_toi
                         and cham_xoa_toi
                         and cham_loi_toi
+                        and vien_loi_toi >= (vien_xoa_toi + vien_nen_toi) * 0.55
                         and vien_xoa_toi >= (vien_xoa_toi + vien_nen_toi) * 0.80
-                        and len(q_toi) <= max_loi_dam
+                        and len(q_toi) <= min(260, max_loi_dam)
                     ):
                         for p_t in q_toi:
                             if not vung_cam[p_t]:
@@ -1729,7 +1737,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                                     dd_t += 1
                                 w_r = dl_r + dr_r + 1
                                 h_r = du_r + dd_r + 1
-                                if (dl_t + dr_t + 1) >= 5 and (du_t + dd_t + 1) >= 5 and min(w_r, h_r) >= 3 and max(w_r, h_r) >= 5:
+                                if (dl_t + dr_t + 1) >= 5 and (du_t + dd_t + 1) >= 5 and w_r >= 4 and h_r >= 3 and max(w_r, h_r) >= 5:
                                     la_mang_toi_dac[p_t] = 1
             for p_idx in range(N):
                 if la_mang_toi_dac_pre[p_idx] and not can_xoa[p_idx]:
@@ -1784,7 +1792,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                                 ):
                                     da_duyet_rem[npr] = 1
                                     q_rem.append(npr)
-                    if not cham_bien_rem and cham_xoa_rem and cham_toi_rem and len(q_rem) <= 95:
+                    if not cham_bien_rem and cham_xoa_rem and cham_toi_rem and len(q_rem) <= 36:
                         for p_r in q_rem:
                             can_xoa[p_r] = 1
 
@@ -1953,7 +1961,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                                 gm = (g_roi[npos_s] + g_roi[npos_s2]) * 0.5
                                 bm = (b_roi[npos_s] + b_roi[npos_s2]) * 0.5
                                 lm = 0.299 * rm + 0.587 * gm + 0.114 * bm
-                            if lm < 92.0 and not la_nen_mau_thuc and (la_mang_toi_dac[npos_s] or nen_toi or la_tuong_trang_sach or lum_nen_trung_vi < 125.0):
+                            if lm < 92.0 and not la_nen_mau_thuc and (la_mang_toi_dac[npos_s] or nen_toi or la_tuong_trang_sach):
                                 w_toi += w_s
                                 r_toi += rm * w_s
                                 g_toi += gm * w_s
