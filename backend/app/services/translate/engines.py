@@ -846,12 +846,24 @@ class LLMContextTranslator:
                     ds_thu_tiep = (
                         [
                             (f"https://aiplatform.googleapis.com/v1/publishers/google/models/{m_cur}:generateContent?key={ck}", body_vertex),
-                            (_GEMINI_ENDPOINT.format(model="gemini-3.1-flash-lite"), body),
-                            (f"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-3.1-flash-lite:generateContent?key={ck}", body_vertex_no_think),
-                            (_GEMINI_ENDPOINT.format(model="gemini-3.5-flash-lite"), body),
+                            (_GEMINI_ENDPOINT.format(model="gemini-3.1-flash-lite-preview"), body),
+                            (f"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-3.1-flash-lite-preview:generateContent?key={ck}", body_vertex_no_think),
+                            (_GEMINI_ENDPOINT.format(model="gemini-2.5-flash-lite"), body),
+                            (f"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-flash-lite:generateContent?key={ck}", body_vertex_no_think),
+                            (_GEMINI_ENDPOINT.format(model="gemini-3.1-flash-image-preview"), body_vertex_no_think),
+                            (f"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-3.1-flash-image-preview:generateContent?key={ck}", body_vertex_no_think),
                         ]
                         if la_vertex_aq
-                        else []
+                        else (
+                            [
+                                (_GEMINI_ENDPOINT.format(model="gemini-3.1-flash-lite-preview"), body),
+                                (_GEMINI_ENDPOINT.format(model="gemini-2.5-flash-lite"), body),
+                                (_GEMINI_ENDPOINT.format(model="gemini-2.5-flash"), body),
+                                (_GEMINI_ENDPOINT.format(model="gemini-3.1-flash-image-preview"), body_vertex_no_think),
+                            ]
+                            if len(ck) >= 16
+                            else []
+                        )
                     )
                     for fb_url, fb_body in ds_thu_tiep:
                         try:

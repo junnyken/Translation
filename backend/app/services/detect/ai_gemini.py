@@ -228,7 +228,7 @@ def can_chinh_khung_theo_bong_bong(
         for idx in range(1, num):
             x0, y0, bw, bh, area = (int(v) for v in stats[idx])
             x1, y1 = x0 + bw, y0 + bh
-            if bw < 22 or bh < 18 or bw > W * 0.72 or bh > H * 0.72 or area < 450:
+            if bw < 22 or bh < 18 or bw > W * 0.92 or bh > H * 0.92 or area < 450:
                 continue
             pad = np.zeros((bh + 2, bw + 2), dtype=np.uint8)
             pad[1 : bh + 1, 1 : bw + 1] = (labels[y0:y1, x0:x1] == idx).astype(np.uint8)
@@ -323,7 +323,7 @@ def can_chinh_khung_theo_bong_bong(
                             "da_gan": False,
                         }
                     )
-            if len(sub_clusters) > 1 and bw <= W * 0.36 and bh <= H * 0.42:
+            if len(sub_clusters) > 1:
                 merged = True
                 while merged and len(sub_clusters) > 1:
                     merged = False
@@ -332,8 +332,23 @@ def can_chinh_khung_theo_bong_bong(
                             A = sub_clusters[a_i]
                             B = sub_clusters[b_i]
                             x_ov = min(A["tx1"], B["tx1"]) - max(A["tx0"], B["tx0"])
+                            y_ov = min(A["ty1"], B["ty1"]) - max(A["ty0"], B["ty0"])
+                            x_gap = max(0.0, max(A["tx0"] - B["tx1"], B["tx0"] - A["tx1"]))
                             y_gap = max(0.0, max(A["ty0"] - B["ty1"], B["ty0"] - A["ty1"]))
-                            if x_ov >= -round(14 * S) and y_gap <= round(48 * S):
+                            min_h = max(1.0, min(A["ty1"] - A["ty0"], B["ty1"] - B["ty0"]))
+                            gop_doc = (
+                                bw <= W * 0.36
+                                and bh <= H * 0.42
+                                and x_ov >= -round(14 * S)
+                                and y_gap <= round(48 * S)
+                            )
+                            gop_cot_ngang = (
+                                x_gap <= round(26 * S)
+                                and y_ov >= min_h * 0.35
+                                and (max(A["tx1"], B["tx1"]) - min(A["tx0"], B["tx0"])) <= W * 0.48
+                                and (max(A["ty1"], B["ty1"]) - min(A["ty0"], B["ty0"])) <= H * 0.48
+                            )
+                            if gop_doc or gop_cot_ngang:
                                 A["tx0"] = min(A["tx0"], B["tx0"])
                                 A["ty0"] = min(A["ty0"], B["ty0"])
                                 A["tx1"] = max(A["tx1"], B["tx1"])
@@ -861,8 +876,6 @@ class AIGeminiDetector:
         model_goc = (self.model_name or "gemini-3.1-flash-lite").strip()
         if model_goc.lower() == "gemini-3.5-flash":
             model_goc = "gemini-3.5-flash-lite"
-        elif "image" in model_goc.lower() or model_goc.lower() == "gemini-2.5-flash":
-            model_goc = "gemini-3.1-flash-lite"
         for raw_k in self.api_keys:
             s_k = str(raw_k or "").strip()
             if not s_k or s_k.startswith(("sk-", "ds:", "ds|", "gsk_")):
@@ -901,8 +914,6 @@ class AIGeminiDetector:
                     m_k = parts_gm[1].strip()
                     if m_k.lower() == "gemini-3.5-flash":
                         m_k = "gemini-3.5-flash-lite"
-                    elif "image" in m_k.lower() or m_k.lower() == "gemini-2.5-flash":
-                        m_k = "gemini-3.1-flash-lite"
                 s_k = parts_gm[-1].strip()
             elif s_k.startswith("gm:"):
                 s_k = s_k[3:].strip()
@@ -914,13 +925,25 @@ class AIGeminiDetector:
         d = None
         for m_key, key in ds_khoa_gemini:
             la_vertex_aq = key.startswith("AQ.")
+            la_khoa_that = len(key) >= 16
             if la_vertex_aq:
                 ds_ung_vien_url = [
                     (f"https://generativelanguage.googleapis.com/v1beta/models/{m_key}:generateContent?key={key}", than),
                     (f"https://aiplatform.googleapis.com/v1/publishers/google/models/{m_key}:generateContent?key={key}", than_vertex),
-                    (f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={key}", than),
-                    (f"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-3.1-flash-lite:generateContent?key={key}", than_vertex_no_think),
-                    (f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key={key}", than),
+                    (f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key={key}", than),
+                    (f"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-3.1-flash-lite-preview:generateContent?key={key}", than_vertex_no_think),
+                    (f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={key}", than),
+                    (f"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-2.5-flash-lite:generateContent?key={key}", than_vertex_no_think),
+                    (f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key={key}", than_vertex_no_think),
+                    (f"https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-3.1-flash-image-preview:generateContent?key={key}", than_vertex_no_think),
+                ]
+            elif la_khoa_that:
+                ds_ung_vien_url = [
+                    (f"https://generativelanguage.googleapis.com/v1beta/models/{m_key}:generateContent?key={key}", than),
+                    (f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key={key}", than),
+                    (f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={key}", than),
+                    (f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={key}", than),
+                    (f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key={key}", than_vertex_no_think),
                 ]
             else:
                 ds_ung_vien_url = [
@@ -960,8 +983,8 @@ class AIGeminiDetector:
                     )
                     if la_loi_key:
                         break
-                    if la_vertex_aq and exc.code in (400, 404):
-                        # Với khoá AQ., thử tiếp endpoint/model kế tiếp trong ds_ung_vien_url
+                    if (la_vertex_aq or la_khoa_that) and exc.code in (400, 404):
+                        # Với khoá thực (AQ. hoặc AIza...), thử tiếp endpoint/model kế tiếp trong ds_ung_vien_url
                         continue
                     if exc.code in (400, 404) and not la_loi_key:
                         raise loi_cuoi from exc   # lỗi cấu hình: xoay key không cứu được

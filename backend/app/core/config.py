@@ -1020,7 +1020,7 @@ def dong_bo_khoa_ai_dong(settings: Settings) -> dict:
         if _tach_khoa_sach(k).startswith(("sk-", "gsk_"))
     ]
     model_gm = str(data.get("model_gemini") or env_model_goc or "gemini-3.1-flash-lite").strip()
-    if model_gm.lower().startswith("deepseek") or model_gm.lower() == "gemini-2.5-flash" or "image" in model_gm.lower():
+    if model_gm.lower().startswith("deepseek") or model_gm.lower() == "gemini-2.5-flash":
         model_gm = "gemini-3.1-flash-lite"
     elif model_gm.lower() == "gemini-3.5-flash":
         model_gm = "gemini-3.5-flash-lite"
@@ -1122,7 +1122,7 @@ def lay_thong_tin_khoa_ai_che(settings: Settings, data_dong: dict | None = None)
             gm_list.append(k)
     gm_nguon = "Admin + .env" if (gm_admin and gm_env) else ("Admin" if gm_admin else (".env" if gm_env else "Chưa gắn"))
     model_gm = str(data.get("model_gemini") or env_model_goc or "gemini-3.1-flash-lite").strip()
-    if model_gm.lower().startswith("deepseek") or model_gm.lower() == "gemini-2.5-flash" or "image" in model_gm.lower():
+    if model_gm.lower().startswith("deepseek") or model_gm.lower() == "gemini-2.5-flash":
         model_gm = "gemini-3.1-flash-lite"
     elif model_gm.lower() == "gemini-3.5-flash":
         model_gm = "gemini-3.5-flash-lite"
