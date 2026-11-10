@@ -505,6 +505,31 @@ class AIDetectError(RuntimeError):
     """Nhận diện bằng AI thất bại. Mang lý do đọc được, không nuốt."""
 
 
+def la_anh_khong_co_chu(image_path: str) -> bool:
+    """Bộ lọc Tiền Kiểm (Pre-Flight Blank/Transition Strip Filter) kiểu Cotrans / Ichigo:
+    Kiểm tra siêu nhanh (<2ms bằng NumPy) xem dải ảnh Webtoon/Manhwa có phải là dải chuyển cảnh
+    trắng tinh, đen kịt, hoặc dải màu chuyển sắc (gradient) hoàn toàn không có bất kỳ nét chữ/viền sắc nào không.
+    Nếu không có nét tương phản cục bộ nào (`max_grad < 28` và `std < 5.0` trên ảnh kích thước thực `>= 320px`),
+    bỏ qua ngay lập tức, tốn 0 token Gemini Vision.
+    """
+    try:
+        import numpy as np
+        from PIL import Image
+
+        with Image.open(image_path) as im:
+            w, h = im.size
+            if w < 320 or h < 320:
+                return False
+            a = np.asarray(im.convert("L"), dtype=np.int16)
+        if float(a.std()) >= 5.0:
+            return False
+        dx = int(np.abs(np.diff(a, axis=1)).max()) if a.shape[1] > 1 else 0
+        dy = int(np.abs(np.diff(a, axis=0)).max()) if a.shape[0] > 1 else 0
+        return max(dx, dy) < 28
+    except Exception:  # noqa: BLE001
+        return False
+
+
 @dataclass
 class AIGeminiDetector:
     """Nhận diện khung chữ qua Gemini. Cùng interface với `CTDDetector` nên thay được tại chỗ."""
@@ -528,6 +553,9 @@ class AIGeminiDetector:
                 "Chưa cấu hình GEMINI_API_KEYS — engine nhận diện 'ai_gemini' cần khoá API. "
                 "Đặt khoá, hoặc chuyển DETECT_ENGINE về 'ctd' để chạy model cục bộ."
             )
+        if la_anh_khong_co_chu(image_path):
+            logger.info("ai_gemini bo qua anh chuyen canh khong co chu (0 token): %s", image_path)
+            return []
 
         from PIL import Image
 
@@ -615,6 +643,9 @@ class AIGeminiDetector:
                 "Chưa cấu hình GEMINI_API_KEYS — engine nhận diện 'ai_gemini' cần khoá API. "
                 "Đặt khoá, hoặc chuyển DETECT_ENGINE về 'ctd' để chạy model cục bộ."
             )
+        if la_anh_khong_co_chu(image_path):
+            logger.info("ai_gemini bo qua anh chuyen canh khong co chu (0 token): %s", image_path)
+            return []
 
         from PIL import Image
 

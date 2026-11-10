@@ -45,6 +45,33 @@ def tinh_bam_anh(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def tinh_bam_thi_giac(data: bytes) -> str | None:
+    """Tính mã băm thị giác Perceptual Difference Hash (`dHash` 64-bit, lưới 9x8 xám) kèm tỷ lệ khung.
+
+    Giúp Bảng Cache Cộng Đồng trúng ngay cả khi cùng 1 trang truyện bị các trang web khác nhau
+    nén lại (JPEG 80% vs 92%, WebP vs PNG) hoặc xuất qua Canvas `toBlob('image/jpeg', 0.88)`.
+    """
+    try:
+        import io
+        from PIL import Image
+
+        with Image.open(io.BytesIO(data)) as im:
+            w, h = im.size
+            if w < 32 or h < 32:
+                return None
+            nho = im.convert("L").resize((9, 8), Image.Resampling.BILINEAR)
+            px = list(nho.getdata())
+        bits = 0
+        for row in range(8):
+            base = row * 9
+            for col in range(8):
+                bits = (bits << 1) | (1 if px[base + col] > px[base + col + 1] else 0)
+        ty_le = round((w / max(1, h)) * 20)
+        return f"dhash_{bits:016x}_{ty_le}"
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _chuan_target_lang(target_lang: TargetLang | str | None) -> str:
     if target_lang is None:
         return "vi"
@@ -161,8 +188,9 @@ async def thu_sao_chep_tu_cache(
     dich_page: Page,
     storage,
     target_lang: TargetLang | str | None = None,
+    bam_phu: str | None = None,
 ) -> bool:
-    """Thử tìm một trang đã dịch xong có cùng mã băm SHA-256 + ngôn ngữ đích + cấu hình và chép sang `dich_page`.
+    """Thử tìm một trang đã dịch xong có cùng mã băm SHA-256 (hoặc mã băm thị giác dHash) + ngôn ngữ đích + cấu hình và chép sang `dich_page`.
 
     Trả `True` nếu đã sao chép thành công (không cần đẩy Celery job, tốn 0 token AI), `False` nếu chưa có.
     """
@@ -172,7 +200,8 @@ async def thu_sao_chep_tu_cache(
     k = _khoa(bam_anh, source_lang, engine, che_do, target_lang=target_lang)
     ung_vien_ids = list(reversed(_BO_NHO_BAM.get(k, [])))
     bam_anh_goc = bam_anh.removesuffix("_ultra3").removesuffix("_pro2")
-    for b_ung in dict.fromkeys([bam_anh, bam_anh_goc]):
+    ds_bam_ung = [b for b in dict.fromkeys([bam_anh, bam_anh_goc, bam_phu or ""]) if b]
+    for b_ung in ds_bam_ung:
         for eng_ung in dict.fromkeys([engine, TranslationEngine.llm_context, TranslationEngine.google_fast]):
             k_ung = _khoa(b_ung, source_lang, eng_ung, che_do, target_lang=target_lang)
             for pid_ung in reversed(_BO_NHO_BAM.get(k_ung, [])):
@@ -182,7 +211,7 @@ async def thu_sao_chep_tu_cache(
     rel_cache = _duong_dan_cache_cong_dong(bam_anh, source_lang, engine, che_do, target_lang=target_lang)
     du_lieu_file: dict | None = None
     if not ung_vien_ids and storage is not None:
-        for b_ung in dict.fromkeys([bam_anh, bam_anh_goc]):
+        for b_ung in ds_bam_ung:
             for eng_ung in dict.fromkeys([engine, TranslationEngine.llm_context, TranslationEngine.google_fast]):
                 rel_ung = _duong_dan_cache_cong_dong(b_ung, source_lang, eng_ung, che_do, target_lang=target_lang)
                 du_lieu_file = await run_in_threadpool(_doc_cache_file_dong_bo, storage, rel_ung)

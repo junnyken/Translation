@@ -2485,9 +2485,11 @@ async def doc_truyen_gui_trang(
             ghi_nhan_trang_anh,
             thu_sao_chep_tu_cache,
             tinh_bam_anh,
+            tinh_bam_thi_giac,
         )
 
         bam_anh_goc = tinh_bam_anh(data)
+        bam_thi_giac = await run_in_threadpool(tinh_bam_thi_giac, data)
         bam_anh = (
             f"{bam_anh_goc}_ultra3"
             if la_ultra_3_luot
@@ -2503,11 +2505,16 @@ async def doc_truyen_gui_trang(
                 che_do=che_do,
                 dich_page=page,
                 storage=storage,
+                bam_phu=bam_thi_giac,
             )
             if trung_cache:
                 ghi_nhan_trang_anh(
                     bam_anh, source_lang, engine, che_do, page.id, target_lang=target_lang
                 )
+                if bam_thi_giac:
+                    ghi_nhan_trang_anh(
+                        bam_thi_giac, source_lang, engine, che_do, page.id, target_lang=target_lang
+                    )
                 artifacts.commit_attempted = True
                 await session.commit()
                 artifacts.committed = True
@@ -2516,6 +2523,10 @@ async def doc_truyen_gui_trang(
                 return result.model_copy(update={"request_key": request_key})
 
         ghi_nhan_trang_anh(bam_anh, source_lang, engine, che_do, page.id, target_lang=target_lang)
+        if bam_thi_giac:
+            ghi_nhan_trang_anh(
+                bam_thi_giac, source_lang, engine, che_do, page.id, target_lang=target_lang
+            )
         job = Job(type=JobType.detect, page_id=page.id, status=JobStatus.queued)
         session.add(job)
         if request_key is not None:
@@ -2630,6 +2641,7 @@ async def doc_truyen_lay_trang(
                 ghi_nhan_trang_anh,
                 luu_snapshot_cache_cong_dong,
                 tinh_bam_anh,
+                tinh_bam_thi_giac,
             )
 
             st_cache = get_storage()
@@ -2638,6 +2650,7 @@ async def doc_truyen_lay_trang(
 
                 raw_img = await run_in_threadpool(st_cache.read, page.image_path)
                 bam_anh_goc = tinh_bam_anh(raw_img)
+                bam_thi_giac = await run_in_threadpool(tinh_bam_thi_giac, raw_img)
                 td_cache = await run_in_threadpool(doc_tu_dien_du_an, project.id)
                 bam_anh = (
                     f"{bam_anh_goc}_ultra3"
@@ -2645,7 +2658,8 @@ async def doc_truyen_lay_trang(
                     else (f"{bam_anh_goc}_pro2" if "[CHẾ ĐỘ AI PRO 2 LƯỢT" in td_cache else bam_anh_goc)
                 )
                 eng_cache = page.translate_engine_override or TranslationEngine.llm_context
-                for b_luu in dict.fromkeys([bam_anh, bam_anh_goc]):
+                ds_bam_luu = [b for b in dict.fromkeys([bam_anh, bam_anh_goc, bam_thi_giac or ""]) if b]
+                for b_luu in ds_bam_luu:
                     ghi_nhan_trang_anh(
                         b_luu,
                         project.source_lang,
@@ -2667,7 +2681,7 @@ async def doc_truyen_lay_trang(
                     for idx, v in enumerate(vung)
                     if v.ban_dich
                 ]
-                for b_luu in dict.fromkeys([bam_anh, bam_anh_goc]):
+                for b_luu in ds_bam_luu:
                     await luu_snapshot_cache_cong_dong(
                         storage=st_cache,
                         bam_anh=b_luu,

@@ -3879,20 +3879,27 @@ void (async () => {
       })
 
       // Tự động dịch khi cuộn tới trang mới (chỉ chạy khi người dùng bật công tắc `tuDichKhiCuon`)
-      const henCuon = { id: null }
+      // Áp dụng Viewport Dwell Debounce (420ms + kiểm tra tốc độ dừng cuộn kiểu Ichigo/Torii):
+      // Nếu người dùng đang cuộn lướt nhanh qua 10-15 trang để tìm đoạn đọc dở, hệ thống chờ người dùng
+      // thực sự dừng lại nhìn trang đó (`Math.abs(window.scrollY - yLucBatDauCho) < 48`) mới gửi yêu cầu AI,
+      // giúp tiết kiệm 100% lượt dịch và token AI cho các trang bị cuộn lướt qua!
+      const henCuon = { id: null, yTruoc: window.scrollY }
       window.addEventListener('scroll', () => {
         if (!window[CO].tuDichKhiCuon) return
         if (henCuon.id) clearTimeout(henCuon.id)
+        henCuon.yTruoc = window.scrollY
         henCuon.id = setTimeout(async () => {
           if (!window[CO].tuDichKhiCuon || window[CO].dangChay) return
+          if (Math.abs(window.scrollY - henCuon.yTruoc) > 48) return
           const chon = chonTrangTruyen(layMoTa(), { caoKhungNhin: window.innerHeight })
           if (!chon.anh) return
           const { cheDo, ngonNgu, ngonNguDich, engine } = await layCauHinhHienTai()
+          if (Math.abs(window.scrollY - henCuon.yTruoc) > 48) return
           const khoa = khoaCache(chon.anh.src, cheDo, ngonNgu, engine, ngonNguDich)
           if (!window[CO].daDich.has(khoa) && !window[CO].dangXepHang.has(khoa)) {
             dichTrangHienTai({ tuDongCuon: true })
           }
-        }, 350)
+        }, 420)
       }, { passive: true, capture: true })
     }
 
@@ -5059,6 +5066,22 @@ void (async () => {
           e.preventDefault()
           e.stopPropagation()
           moTrinhSuaBongThoai({ hop, noiDung, v, coChuVuaKhung, rLop: r })
+        })
+
+        // Soi X-Ray chữ gốc từng bóng thoại (kiểu Torii / Ichigo): Giữ phím Shift + rê chuột vào bóng thoại
+        // sẽ làm trong suốt riêng bóng thoại đó và lớp xoá nền bên dưới nó để đối chiếu chữ gốc tức thì.
+        const datSoiGocBong = (soi) => {
+          hop.style.opacity = soi ? '0.06' : '1'
+          lopChe.style.opacity = soi ? '0.06' : (v._phuKinHop ? '0.99' : (anhChe ? '1' : '0.94'))
+        }
+        hop.addEventListener('mouseenter', (e) => {
+          if (e.shiftKey && !window[CO].dangSuaBong) datSoiGocBong(true)
+        })
+        hop.addEventListener('mousemove', (e) => {
+          if (!window[CO].dangSuaBong) datSoiGocBong(Boolean(e.shiftKey))
+        })
+        hop.addEventListener('mouseleave', () => {
+          datSoiGocBong(false)
         })
       }
 

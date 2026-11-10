@@ -154,7 +154,81 @@ async function damBaoNgonNguDich(dsVung, ngonNguGoc, ngonNguDich) {
   return dsVung
 }
 
+function chuanHoaKhoaCacheUrl(url, ngonNgu, ngonNguDich, cheDo) {
+  const s = String(url || '').trim()
+  if (!s || s.startsWith('blob:') || s.startsWith('data:')) return ''
+  let sach = s
+  try {
+    const u = new URL(s)
+    for (const k of ['token', 'expires', 'exp', 'sig', 'signature', 't', 'ts', '_', 'auth']) {
+      u.searchParams.delete(k)
+    }
+    sach = u.toString()
+  } catch {}
+  return `${cheDo || 'chi_chu'}::${ngonNgu || 'ja'}::${ngonNguDich || 'vi'}::${sach}`
+}
+
+async function docCacheTrangCucBo(khoa) {
+  if (!khoa || !chrome?.storage?.local) return null
+  try {
+    const d = await chrome.storage.local.get({ boNhoCacheTrangCucBo: {} })
+    const muc = d?.boNhoCacheTrangCucBo?.[khoa]
+    if (muc && Array.isArray(muc.vung) && muc.vung.length > 0) return muc
+  } catch {}
+  return null
+}
+
+async function luuCacheTrangCucBo(khoa, vung, cheDo) {
+  if (!khoa || !Array.isArray(vung) || !vung.length || cheDo === 'day_du' || !chrome?.storage?.local) return
+  try {
+    const d = await chrome.storage.local.get({ boNhoCacheTrangCucBo: {} })
+    const kho = { ...(d?.boNhoCacheTrangCucBo || {}) }
+    delete kho[khoa]
+    kho[khoa] = {
+      vung: vung.map((v) => ({
+        x: v.x,
+        y: v.y,
+        w: v.w,
+        h: v.h,
+        thu_tu_doc: v.thu_tu_doc,
+        chu_goc: v.chu_goc || '',
+        ban_dich: v.ban_dich || '',
+      })),
+      che_do: cheDo || 'chi_chu',
+      luu_luc: Date.now(),
+    }
+    const keys = Object.keys(kho)
+    while (keys.length > 100) {
+      delete kho[keys.shift()]
+    }
+    await chrome.storage.local.set({ boNhoCacheTrangCucBo: kho })
+  } catch {}
+}
+
 async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false, tabId = 0) {
+  const { ngonNgu, ngonNguDich, engine, cheDo } = await docCauHinh()
+  const khoaCucBo = chuanHoaKhoaCacheUrl(url, ngonNgu, ngonNguDich, cheDo)
+  if (khoaCucBo && cheDo !== 'day_du') {
+    const trungCucBo = await docCacheTrangCucBo(khoaCucBo)
+    if (trungCucBo) {
+      let anh_goc_data_url_cuc_bo = null
+      if (!anhBase64 && url) {
+        try {
+          const blobTam = await taiAnh(url)
+          anh_goc_data_url_cuc_bo = await blobThanhDataUrl(blobTam)
+        } catch {}
+      }
+      capNhatNguCanhTab(tabId, trungCucBo.vung)
+      return {
+        xong: true,
+        che_do: trungCucBo.che_do || cheDo,
+        vung: trungCucBo.vung,
+        anh_da_dich_data_url: null,
+        anh_goc_data_url: anh_goc_data_url_cuc_bo,
+      }
+    }
+  }
+
   bao({ giai_doan: 'dang-tai-anh', url })
   const blob = anhBase64 ? base64ThanhBlob(anhBase64, anhMime) : await taiAnh(url)
   if (daBiHuy()) throw new LoiApi(0, 'Đã chuyển sang dịch trang mới.')
@@ -164,7 +238,6 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false,
   // gốc bằng GPU/Canvas máy khách trên 100% trang web truyện.
   const anh_goc_data_url = anhBase64 ? null : await blobThanhDataUrl(blob)
 
-  const { ngonNgu, ngonNguDich, engine, cheDo } = await docCauHinh()
   const laCheDoUltra = engine === 'llm_context'
   const laCheDoPro = engine === 'local_hybrid_pro' || laCheDoUltra
   let tuDienTuHoc = ''
@@ -225,6 +298,7 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false,
       await damBaoNgonNguDich(kqGui.vung, ngonNgu, ngonNguDich)
     }
     capNhatNguCanhTab(tabId, kqGui.vung)
+    luuCacheTrangCucBo(khoaCucBo, kqGui.vung, kqGui.che_do || cheDo)
     let anh_da_dich_data_url = null
     if (kqGui.che_do === 'day_du' && kqGui.anh_da_dich && (!ngonNguDich || ngonNguDich === 'vi')) {
       try {
@@ -250,6 +324,7 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false,
     if (d.loi) throw new LoiApi(0, d.loi)
     if (d.xong) {
       capNhatNguCanhTab(tabId, d.vung)
+      luuCacheTrangCucBo(khoaCucBo, d.vung, d.che_do || cheDo)
       let anh_da_dich_data_url = null
       if (d.che_do === 'day_du' && d.anh_da_dich && (!ngonNguDich || ngonNguDich === 'vi')) {
         try {
