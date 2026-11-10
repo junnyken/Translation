@@ -109,15 +109,18 @@ SCHEMA_GOP_DICH = {
 
 #: Xem §2 ở docstring đầu tệp. Mỗi câu ở đây đều đang gánh một con số đo được.
 LOI_NHAC = (
-    "Find every block of dialogue, narration, and caption text in this comic page (including borderless "
-    "floating text with white/black outlines). "
+    "Find every block of dialogue, narration, character screams/shouts, and caption text in this comic page "
+    "(including borderless floating dialogue with white/black outlines and spiky scream balloons). "
     "For each block, give a TIGHT bounding box [ymin, xmin, ymax, xmax] normalized 0-1000 around ALL lines "
     "and punctuation of that text block. "
     "Do NOT include the speech balloon, bubble outline, or blank padding, and NEVER shift the box onto "
     "adjacent hair, faces, or artwork outside the letters. "
     "MUST include every line from the first word down to the very last line and trailing punctuation "
     "(never clip the bottom line or '?/...' of a multi-line block). "
-    "Do NOT box giant stylized brush-stroke SFX overlapping characters or explosions. "
+    "CRITICAL SFX RULE: NEVER box stylized brush-stroke sound effects / onomatopoeia (e.g. ドゴォン, ゴゴゴ, ズシン, "
+    "콰아앙, 쿠구구, 轰隆, BOOM, SLASH, SWOOSH, THUD, CRACK) drawn directly over artwork, weapons, characters, or explosions "
+    "outside speech balloons — leave background artwork SFX untouched. "
+    "DO box character screams, yells, and attack/skill names inside spiky/jagged speech balloons. "
     "Return the exact original characters in \"text\" (join line breaks with spaces)."
 )
 
@@ -152,7 +155,8 @@ def xay_loi_nhac_gop_dich(source_lang: str, target_lang: str, boi_canh: str = ""
             f"Translate each block from {source_lang} into {ten_dich} in \"ban_dich\":\n"
             "- Translate in full-page context matching character tone, emotion, and relationship.\n"
             f"{chi_dan_cap_do_qt}"
-            f"- Small text SFX: localize into natural {ten_dich} SFX (never transliterate as names).\n"
+            "- Screams, shouts & skill names in spiky balloons: translate in ALL-CAPS with strong exclamation ('!!') and condense elongated vowels.\n"
+            "- Background artwork SFX outside balloons: do NOT include them (if a tiny inline action note inside a balloon appears, localize naturally).\n"
             f"- Complete, natural sentences in {ten_dich} with zero untranslated source characters.\n"
             "- Set \"doan\" = true ONLY if text is occluded/blurry; otherwise false."
             + (f"\n\n{boi_canh_sach}" if boi_canh_sach else "")
@@ -172,7 +176,8 @@ def xay_loi_nhac_gop_dich(source_lang: str, target_lang: str, boi_canh: str = ""
         f"Dịch từng khối chữ từ {source_lang} sang {target_lang} vào trường \"ban_dich\":\n"
         "- Dịch theo ngữ cảnh toàn trang (lưu ý thứ tự đọc phải-sang-trái của Manga), khớp cảm xúc và quan hệ nhân vật.\n"
         f"{chi_dan_cap_do_vi}"
-        "- Từ tượng thanh nhỏ: dịch sang tiếng động tiếng Việt tự nhiên (Keng, Rầm, Ực…), không phiên âm thành tên người.\n"
+        "- Tiếng hét lớn, tiếng gầm & tên chiêu thức trong bóng thoại gai nhọn: dịch sang chữ IN HOA ĐẬM CẢM XÚC kèm '!!' (vd: 'DỪNG LẠI NGAY!!', 'KHÔNGGG!!', 'THIÊN ĐỊA VÔ CỰC!'), rút gọn nguyên âm kéo dài.\n"
+        "- Chữ tượng thanh/tượng hình (SFX) vẽ cách điệu đè lên nền tranh ngoài bóng thoại: BỎ QUA không khoanh để giữ nguyên nét vẽ gốc.\n"
         "- Tên riêng: phiên âm chuẩn và giữ đồng nhất. Câu dịch hoàn chỉnh, có dấu câu, không sót ký tự gốc.\n"
         "- Đặt \"doan\" = true CHỈ KHI chữ gốc bị mờ/che khuất; còn lại false."
         + (f"\n\n{boi_canh_sach}" if boi_canh_sach else "")
@@ -182,7 +187,11 @@ def xay_loi_nhac_gop_dich(source_lang: str, target_lang: str, boi_canh: str = ""
 #: đọc chữ làm model khoanh thêm chúng (A/B: "18" xuất hiện 3 lần trên trang Pepper&Carrot).
 _CHI_LA_SO = __import__("re").compile(r"^(?=.*\d)[\s\d.,:/\-–—#]+$")
 _MAU_SFX_NGAN = __import__("re").compile(
-    r"^(?:WHO+M+|BO+M+|KA-?RO+M+|KRA+K+|CRA+SH+|BA+M+|SLA+M+|THU+D+|ZWO+SH+|SPLA+SH+|BÙM+|ẦM+|RẦM+|XOẸT+|KENG+|VÙ+)[!?.\s]*$",
+    r"^(?:WHO+M+|BO+M+|KA-?RO+M+|KRA+K+|CRA+SH+|BA+M+|SLA+M+|THU+D+|ZWO+SH+|SPLA+SH+|SPLR+SH+|STOMP+|CLANK+|CLANG+|SWO+SH+|SLI+CE+|"
+    r"BÙM+|ẦM+|RẦM+|XOẸT+|XÈ+|KENG+|VÙ+|VỤT+|BỐP+|BỊCH+|UỲNH+|"
+    r"ドゴ+ン*|ゴゴ+|ズシ+ン*|ザッ+|パァ+ン*|ドォ+ン*|バァ+ン*|ガァ+ン*|シュッ+|ギュッ+|"
+    r"콰아+앙*|쿠구+구*|스윽+|번쩍+|퍼억+|쾅+|쿵+|휙+|"
+    r"轰隆*|砰+|嗖+|咔嚓*)[!?.\s…~〜ー]*$",
     __import__("re").IGNORECASE,
 )
 
@@ -466,7 +475,25 @@ def can_chinh_khung_theo_bong_bong(
                         h=best_b["ty1"] - best_b["ty0"],
                     ),
                 )
-        return regions
+
+        # Pass C: Loại bỏ chữ tượng thanh/tượng hình (SFX) vẽ đè trực tiếp lên nền tranh phức tạp ngoài bong bóng
+        # (giữ nguyên 100% các câu thoại và tiếng hét nằm trong bong bóng trắng/đen khép kín).
+        ket_qua_loc: list[DetectedRegion] = []
+        for r_idx, r in enumerate(regions):
+            if not da_gan_r[r_idx] and _la_sfx_ngan(r):
+                rx0 = int(max(0, min(W - 1, r.bbox.x)))
+                ry0 = int(max(0, min(H - 1, r.bbox.y)))
+                rx1 = int(max(rx0 + 1, min(W, r.bbox.x + r.bbox.w)))
+                ry1 = int(max(ry0 + 1, min(H, r.bbox.y + r.bbox.h)))
+                patch = a[ry0:ry1, rx0:rx1]
+                if patch.size > 0:
+                    ty_le_trang = float((patch > 212).mean())
+                    ty_le_den = float((patch < 42).mean())
+                    if ty_le_trang < 0.58 and ty_le_den < 0.72:
+                        logger.info("ai_gemini bo qua SFX ve de len tranh ngoai bong thoai: %r", r.chu or r.ban_dich)
+                        continue
+            ket_qua_loc.append(r)
+        return ket_qua_loc
     except Exception as exc:  # noqa: BLE001
         logger.warning("can_chinh_khung_theo_bong_bong bo qua do loi: %s", exc)
         return regions
@@ -530,6 +557,72 @@ def la_anh_khong_co_chu(image_path: str) -> bool:
         return False
 
 
+def cat_dai_hoat_dong_co_chu(
+    image_path: str, goc_bytes: bytes, rong_goc: int, cao_goc: int
+) -> tuple[bytes, int, int]:
+    """Tiền định vị vùng có chữ / bóng thoại & Cắt gọn dải hoạt động (ROI Pre-Detection & Active-Band Cropping):
+
+    Học từ kiến trúc BallonsTranslator & Cotrans:
+    - Với các trang/dải Webtoon cao (`cao_goc >= 960` và `cao_goc >= rong_goc * 1.45`), thường 30%-70% chiều cao
+      ở đầu hoặc cuối dải là bầu trời, kiến trúc, cảnh hành động hoặc khoảng chuyển cảnh không có chữ.
+    - Quét nhanh (<5ms bằng OpenCV) tìm các cụm nét chữ trong lòng bong bóng trắng/đen và cụm tương phản cao.
+    - Nếu vùng chứa chữ chỉ nằm gọn trong `<= 75%` chiều cao trang, cắt gọn (`crop`) đúng dải có chữ kèm lề
+      ngữ cảnh 12% rồi mới gửi cho Gemini OCR/Vision.
+    - Lợi ích kép:
+      1. Đưa dải ảnh dài về tỷ lệ chuẩn `<= 2.2` để lọt gọn vào 1 ô đơn `768px` (258 token thay vì 1.290 token).
+      2. Chữ trong bóng thoại sau khi thu về 768px vẫn TO VÀ SẮC NÉT gấp 1,5-2,5 lần so với gửi nguyên dải dài!
+    """
+    if cao_goc < 960 or cao_goc < rong_goc * 1.45:
+        return goc_bytes, 0, cao_goc
+    try:
+        import io
+        import cv2
+        import numpy as np
+        from PIL import Image
+
+        a = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+        if a is None or a.shape[0] != cao_goc or a.shape[1] != rong_goc:
+            return goc_bytes, 0, cao_goc
+
+        # Tìm các cụm nét chữ có độ tương phản cục bộ cao (Black-Hat cho chữ đen nền sáng & Top-Hat cho chữ trắng nền tối)
+        k_w = max(9, min(25, round(rong_goc / 38)))
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (k_w, 3))
+        bhat = cv2.morphologyEx(a, cv2.MORPH_BLACKHAT, kernel)
+        that = cv2.morphologyEx(a, cv2.MORPH_TOPHAT, kernel)
+        text_energy = np.maximum(bhat, that)
+
+        # Bỏ qua 4% viền trái/phải (thường là khung viền dọc của khung tranh)
+        le_x = max(4, round(rong_goc * 0.04))
+        core = text_energy[:, le_x : max(le_x + 1, rong_goc - le_x)]
+        row_active = (core > 85).mean(axis=1)
+
+        # Làm mượt theo cửa sổ dọc ~18px để chỉ giữ các dải thực sự có cụm ký tự (loại bỏ đường kẻ đơn lẻ)
+        win = max(9, round(cao_goc / 90))
+        smooth = np.convolve(row_active, np.ones(win) / win, mode="same")
+        idx_co_chu = np.where(smooth >= 0.018)[0]
+        if idx_co_chu.size < 8:
+            return goc_bytes, 0, cao_goc
+
+        le_y = max(48, round(rong_goc * 0.14))
+        y0_cat = max(0, int(idx_co_chu[0]) - le_y)
+        y1_cat = min(cao_goc, int(idx_co_chu[-1]) + le_y)
+        cao_cat = y1_cat - y0_cat
+        if cao_cat < 320 or cao_cat > cao_goc * 0.76:
+            return goc_bytes, 0, cao_goc
+
+        with Image.open(io.BytesIO(goc_bytes)) as im:
+            im_cat = im.crop((0, y0_cat, rong_goc, y1_cat)).convert("RGB")
+            buf = io.BytesIO()
+            im_cat.save(buf, format="JPEG", quality=88, optimize=True)
+            logger.info(
+                "ai_gemini ROI crop: %s thu gon chieu cao %d -> %d (y=%d..%d)",
+                image_path, cao_goc, cao_cat, y0_cat, y1_cat,
+            )
+            return buf.getvalue(), y0_cat, cao_cat
+    except Exception:  # noqa: BLE001
+        return goc_bytes, 0, cao_goc
+
+
 @dataclass
 class AIGeminiDetector:
     """Nhận diện khung chữ qua Gemini. Cùng interface với `CTDDetector` nên thay được tại chỗ."""
@@ -566,9 +659,10 @@ class AIGeminiDetector:
 
         with open(image_path, "rb") as f:
             goc = f.read()
-        ty_le_khung = max(rong_goc, cao_goc) / max(1, min(rong_goc, cao_goc))
+        goc_gui, y_bat_dau, cao_cat = cat_dai_hoat_dong_co_chu(image_path, goc, rong_goc, cao_goc)
+        ty_le_khung = max(rong_goc, cao_cat) / max(1, min(rong_goc, cao_cat))
         canh_dung = max(self.canh_toi_da, 1024) if ty_le_khung > 2.2 else min(self.canh_toi_da, 768)
-        da_chuan = chuan_bi_anh(goc, canh_dung)
+        da_chuan = chuan_bi_anh(goc_gui, canh_dung)
         if da_chuan is None:
             raise AIDetectError(f"Không chuẩn bị được ảnh để gửi: {image_path}")
         anh, mime = da_chuan
@@ -596,10 +690,9 @@ class AIGeminiDetector:
             if not (isinstance(hop, list) and len(hop) == 4):
                 continue
             y0, x0, y1, x1 = (float(v) for v in hop)
-            # Toạ độ chuẩn hoá theo ẢNH ĐÃ THU NHỎ, nhưng vì là tỷ lệ nên quy thẳng về cỡ GỐC
-            # được — không cần biết ảnh gửi đi to bao nhiêu.
+            # Toạ độ chuẩn hoá theo ẢNH ĐÃ THU NHỎ (hoặc dải hoạt động đã cắt gọn), quy thẳng về cỡ GỐC.
             x0, x1 = x0 / THANG * rong_goc, x1 / THANG * rong_goc
-            y0, y1 = y0 / THANG * cao_goc, y1 / THANG * cao_goc
+            y0, y1 = y_bat_dau + y0 / THANG * cao_cat, y_bat_dau + y1 / THANG * cao_cat
             if x1 <= x0 or y1 <= y0:
                 continue  # khung rỗng/đảo chiều: bỏ, không tự "sửa" thành khung đoán
             x0, y0 = max(0.0, x0), max(0.0, y0)
@@ -656,17 +749,18 @@ class AIGeminiDetector:
 
         with open(image_path, "rb") as f:
             goc = f.read()
+        goc_gui, y_bat_dau, cao_cat = cat_dai_hoat_dong_co_chu(image_path, goc, rong_goc, cao_goc)
         la_ultra_3_luot = "[CHẾ ĐỘ ULTRA CLOUD AI 3 LƯỢT" in (boi_canh or "")
         la_pro_2_luot = "[CHẾ ĐỘ AI PRO 2 LƯỢT" in (boi_canh or "")
         # Tối ưu chi phí ô ảnh Gemini (768x768 tiling):
-        # - Chế độ Tiêu chuẩn (1 lượt, trang tỷ lệ thường <= 2.2): dùng đúng ngưỡng 768px (1 ô = 258 token).
+        # - Chế độ Tiêu chuẩn (1 lượt, trang/dải tỷ lệ thường <= 2.2): dùng đúng ngưỡng 768px (1 ô = 258 token).
         # - Trang Webtoon dải dọc dài (tỷ lệ > 2.2) hoặc chế độ Pro/Ultra: dùng 1024px để giữ nét chữ nhỏ.
-        ty_le_khung = max(rong_goc, cao_goc) / max(1, min(rong_goc, cao_goc))
+        ty_le_khung = max(rong_goc, cao_cat) / max(1, min(rong_goc, cao_cat))
         if la_ultra_3_luot or la_pro_2_luot or ty_le_khung > 2.2:
             canh_dung = max(self.canh_toi_da, 1024)
         else:
             canh_dung = min(self.canh_toi_da, 768)
-        da_chuan = chuan_bi_anh(goc, canh_dung)
+        da_chuan = chuan_bi_anh(goc_gui, canh_dung)
         if da_chuan is None:
             raise AIDetectError(f"Không chuẩn bị được ảnh để gửi: {image_path}")
         anh, mime = da_chuan
@@ -685,7 +779,7 @@ class AIGeminiDetector:
                 continue
             y0, x0, y1, x1 = (float(v) for v in hop)
             x0, x1 = x0 / THANG * rong_goc, x1 / THANG * rong_goc
-            y0, y1 = y0 / THANG * cao_goc, y1 / THANG * cao_goc
+            y0, y1 = y_bat_dau + y0 / THANG * cao_cat, y_bat_dau + y1 / THANG * cao_cat
             if x1 <= x0 or y1 <= y0:
                 continue
             x0, y0 = max(0.0, x0), max(0.0, y0)

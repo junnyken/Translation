@@ -4975,7 +4975,17 @@ void (async () => {
 
         const rWidthChuan = r.width > r.height * 1.05 ? Math.min(r.width, Math.round(r.height * 0.72)) : r.width
         const dtGoc = (v.w || 0) * (v.h || 0)
-        const laChieuThucLon = (dtGoc >= nw * nh * 0.022) || ((v.w || 0) >= nw * 0.24 && (v.h || 0) >= nh * 0.08)
+        const chuDichTrim = String(v.ban_dich || '').trim()
+        const laTiengHetCaoTrao = (
+          chuDichTrim.length >= 2
+          && chuDichTrim.length <= 34
+          && (/[!！]{2,}$/.test(chuDichTrim) || (/[!！?？]$/.test(chuDichTrim) && chuDichTrim === chuDichTrim.toUpperCase() && /[A-ZÀ-Ỵ]/.test(chuDichTrim)))
+        )
+        if (laTiengHetCaoTrao) {
+          noiDung.style.fontWeight = '700'
+          noiDung.style.letterSpacing = '0.045em'
+        }
+        const laChieuThucLon = laTiengHetCaoTrao || (dtGoc >= nw * nh * 0.022) || ((v.w || 0) >= nw * 0.24 && (v.h || 0) >= nh * 0.08)
         const tranThoaiChuan = Math.max(13, Math.min(28, Math.round(rWidthChuan * 0.026)))
         const tranChieuThuc = Math.max(22, Math.min(44, Math.round(rWidthChuan * 0.044)))
         const coSanDocRo = Math.max(12, Math.min(16, Math.round(rWidthChuan * 0.017)))
