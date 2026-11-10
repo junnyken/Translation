@@ -830,7 +830,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                 if sat_px[p_vn] >= 18 and 40.0 <= lum_px[p_vn] <= 225.0:
                     dem_mau_vong_ngoai += 1
         ty_le_mau_vong_ngoai = dem_mau_vong_ngoai / max(1, tong_vong_ngoai)
-        co_nen_soc_mau_ngoai = ((so_mau_trung_binh / tong_mau) >= 0.085 and ty_le_mau_vong_ngoai >= 0.10 and ty_le_cap_halo >= 0.22)
+        co_nen_soc_mau_ngoai = (cham_bien_lt > 0 and (so_mau_trung_binh / tong_mau) >= 0.085 and ty_le_mau_vong_ngoai >= 0.10 and ty_le_cap_halo >= 0.22)
         la_bong_khep_kin = (
             (not co_nen_soc_mau_ngoai) and
             (not ro_ri_bien_rong)
@@ -3636,6 +3636,10 @@ def _lam_sach_chu_ocr_truyen(text: str) -> str:
         (r"\bROCK,I'MDONE\b", "ROCK, I'M DONE"),
         (r"\bTHATFELLOFF\b", "THAT FELL OFF"),
         (r"\bANDSTROHEIM\b", "AND STROHEIM"),
+        (r"\b(SHOULD|COULD|WOULD|DID|DO|CAN|WILL)!\s+(?=[A-Z]{2,})", r"\1 I "),
+        (r"\bSOMETHING'S\s+TRANGE\b", "SOMETHING'S STRANGE"),
+        (r"\bWEGONNA\b", "WE GONNA"),
+        (r"\bINJUREDBACK\b", "INJURED BACK"),
         (r"([,!?:;])([A-Za-z])", r"\1 \2"),
         (r"\bI\.{2,3}I\b", "I... I"),
         (r"\bdon't\s*[,，]\s*do\b", "don't do"),
@@ -4631,7 +4635,7 @@ $lines | ConvertTo-Json -Depth 4 -Compress
             if (text_alnum.lower() in {"a", "d", "j", "s", "x", "gh", "ggh", "ghhr", "ghhhhn", "bha", "bhaa", "bhaaa", "crus", "movere", "dnsir", "mhayh", "myympa", "armnflammab", "it", "walan", "sssnhnrgoaaaeeee"} or re.fullmatch(r"[xXvViIlL1|]{2,12}", text_alnum)) or (len(text_alnum) == 1 and text_alnum.upper() not in {"I", "O"} and not text.endswith(("!", "?"))) or (len(text_alnum) == 2 and text_alnum.isalpha() and not any(ch in "AEIOUYaeiouy" for ch in text_alnum) and text_alnum.upper() not in {"SH", "HM", "MM", "MR", "MS", "DR", "ST", "VS", "TV"}):
                 continue
             if len(text.split()) <= 2 and not _la_nen_bong_trang(px, W, H, {"x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0}):
-                if (y1 - y0) >= 36 * he_so_ocr or len(text_alnum) <= 5 or not any(p in text for p in ("!", "?")):
+                if (y1 - y0) >= 42 * he_so_ocr or not any(p in text for p in ("!", "?")):
                     continue
         if not co_cjk and sum(1 for c in text if c.isascii() and c.isupper()) == 0:
             if (
@@ -6163,6 +6167,39 @@ def _dich_danh_sach_thoai_gpu(
     )
 
     def _goi_llm_van_ban(prompt_text: str, so_cau: int, tong_tu: int = 0) -> str:
+        if backend == "gemini":
+            gem_key = _lay_khoa_gemini_cuc_bo()
+            for gem_model in (model or "gemini-2.5-flash", "gemini-2.0-flash"):
+                try:
+                    gem_url = f"https://generativelanguage.googleapis.com/v1beta/models/{gem_model}:generateContent?key={gem_key}"
+                    gem_body: dict = {
+                        "systemInstruction": {
+                            "parts": [{"text": f"Bạn là chuyên gia dịch truyện tranh đa ngôn ngữ sang {ten_dich} tự nhiên, chuẩn ngữ cảnh."}]
+                        },
+                        "contents": [{"role": "user", "parts": [{"text": prompt_text}]}],
+                        "generationConfig": {
+                            "temperature": 0.2,
+                            "maxOutputTokens": max(192, min(1024, max(so_cau * 42, int(tong_tu * 2.4) + 64))),
+                        },
+                    }
+                    if "2.5" in gem_model:
+                        gem_body["generationConfig"]["thinkingConfig"] = {"thinkingBudget": 0}
+                    req_gem = urllib.request.Request(
+                        gem_url,
+                        data=json.dumps(gem_body).encode("utf-8"),
+                        headers={"Content-Type": "application/json", "User-Agent": "MangaStudioPro/1.1"},
+                        method="POST",
+                    )
+                    with urllib.request.urlopen(req_gem, timeout=25) as resp_gem:
+                        data_gem = json.loads(resp_gem.read().decode("utf-8", errors="replace"))
+                    parts_gem = (((data_gem.get("candidates") or [{}])[0]).get("content") or {}).get("parts") or []
+                    out_gem = "".join(str(p.get("text") or "") for p in parts_gem if isinstance(p, dict)).strip()
+                    if out_gem:
+                        return out_gem
+                except Exception:
+                    continue
+            return ""
+
         if backend in ("groq", "deepseek", "openrouter"):
             if backend == "groq":
                 api_url = "https://api.groq.com/openai/v1/chat/completions"
@@ -6268,7 +6305,7 @@ def _dich_danh_sach_thoai_gpu(
         )
         return str((((data.get("choices") or [{}])[0]).get("message") or {}).get("content") or "")
 
-    if backend == "ollama" and any(k in str(model or "").lower() for k in ("sailor", "seallm", "qwen3-vl")) and ngon_ngu_nguon in ("ja", "ko", "en") and co_anchor_nmt and any(ban_nhap_nmt):
+    if not che_do_pro and backend == "ollama" and any(k in str(model or "").lower() for k in ("sailor", "seallm", "qwen3-vl")) and ngon_ngu_nguon in ("ja", "ko", "en") and co_anchor_nmt and any(ban_nhap_nmt):
         vung_s2: list[dict] = []
         for idx, b in enumerate(bubbles):
             vi_s2 = hau_kiem_va_sua_ban_dich(b["chu_goc"], ban_nhap_nmt[idx] if idx < len(ban_nhap_nmt) else "", ngon_ngu_dich=ngon_ngu_dich)
@@ -6788,7 +6825,7 @@ def _dich_danh_sach_thoai_qua_server_deepseek(
     if not bubbles:
         return []
     try:
-        if ngon_ngu_nguon not in ("ja", "ko") and getattr(goi_http, "__name__", "") == "goi_http" and CAU_HINH_FILE.is_file():
+        if (engine == "local_hybrid_pro" or ngon_ngu_nguon not in ("ja", "ko")) and getattr(goi_http, "__name__", "") == "goi_http" and CAU_HINH_FILE.is_file():
             cfg = json.loads(CAU_HINH_FILE.read_text(encoding="utf-8"))
             may_chu = chuan_hoa_may_chu(str(cfg.get("may_chu") or ""))
             token = str(cfg.get("token") or cfg.get("api_key") or cfg.get("ma_phien") or "").strip()
@@ -6946,13 +6983,51 @@ def _lay_khoa_openrouter_cuc_bo() -> str:
     return ""
 
 
+def _lay_khoa_gemini_cuc_bo() -> str:
+    """Đọc khoá Gemini API hợp lệ (AIza...) cho chế độ chỉ gửi văn bản hội thoại OCR (~0.8s/trang với gemini-2.5-flash)."""
+    for env_name in ("GEMINI_API_KEY", "GEMINI_API_KEYS"):
+        val = (os.environ.get(env_name) or "").strip()
+        if val:
+            for part in val.split(","):
+                p = part.strip()
+                if p.startswith("AIza") and len(p) >= 30:
+                    return p
+    try:
+        if CAU_HINH_FILE.is_file():
+            cfg = json.loads(CAU_HINH_FILE.read_text(encoding="utf-8"))
+            k_cfg = str(cfg.get("gemini_api_key") or "").strip()
+            for part in k_cfg.split(","):
+                p = part.strip()
+                if p.startswith("AIza") and len(p) >= 30:
+                    return p
+    except Exception:
+        pass
+    app_dir = Path(_APP_DIR)
+    for env_path in (app_dir / ".env", app_dir.parent / ".env"):
+        try:
+            if env_path.is_file():
+                for line in env_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+                    s = line.strip()
+                    if s.startswith(("GEMINI_API_KEY=", "GEMINI_API_KEYS=")):
+                        _, v_raw = s.split("=", 1)
+                        v = v_raw.strip().strip("\"'")
+                        for part in v.split(","):
+                            p = part.strip()
+                            if p.startswith("AIza") and len(p) >= 30:
+                                return p
+        except Exception:
+            pass
+    return ""
+
+
 def _ket_noi_llm_cho_local_ocr_gpu(ngon_ngu_dich: str = "vi") -> tuple[str, str]:
     """
     Kết nối mô hình AI cho chế độ `local_ocr_gpu` và `local_hybrid_pro` (Smart Model Router):
     1. Nếu người dùng cấu hình `GROQ_API_KEY` (`gsk_...`), ưu tiên cổng LPU `llama-3.3-70b-versatile` (~750 token/s, ~0.25s/trang).
     2. Nếu người dùng cấu hình `DEEPSEEK_API_KEY` (`sk-...`), ưu tiên `deepseek-chat` (~1.5đ/trang, chuẩn ngữ cảnh 98%).
-    3. Nếu người dùng cấu hình `OPENROUTER_API_KEY` (`sk-or-...`), kết nối kho model HuggingFace trên OpenRouter.
-    4. Trên GPU cục bộ (Ollama / LM Studio / llama.cpp GGUF `:8080`), tự động định tuyến model mạnh nhất theo `ngon_ngu_dich`:
+    3. Nếu người dùng cấu hình `GEMINI_API_KEY` (`AIza...`), kết nối `gemini-2.5-flash` (chỉ gửi text hội thoại OCR, ~0.8s/trang).
+    4. Nếu người dùng cấu hình `OPENROUTER_API_KEY` (`sk-or-...`), kết nối kho model HuggingFace trên OpenRouter.
+    5. Trên GPU cục bộ (Ollama / LM Studio / llama.cpp GGUF `:8080`), tự động định tuyến model mạnh nhất theo `ngon_ngu_dich`:
        - Đông Nam Á (`vi`, `id`, `th`) -> `sailor2:8b` / `seallms-v3:7b` / `qwen3:8b`
        - Trung Quốc (`zh`, `zh-TW`) -> `sakura:7b` / `qwen3:14b` / `qwen3:8b`
        - Âu - Mỹ Latinh (`en`, `es`, `pt`, `fr`) -> `aya-expanse:8b` / `gemma3:12b` / `qwen3:8b`
@@ -6966,6 +7041,10 @@ def _ket_noi_llm_cho_local_ocr_gpu(ngon_ngu_dich: str = "vi") -> tuple[str, str]
     ds_key = _lay_khoa_deepseek_cuc_bo()
     if ds_key:
         return "deepseek", "deepseek-chat"
+
+    gem_key = _lay_khoa_gemini_cuc_bo()
+    if gem_key:
+        return "gemini", "gemini-2.5-flash"
 
     or_key = _lay_khoa_openrouter_cuc_bo()
     if or_key:
@@ -7166,18 +7245,35 @@ def dich_anh_local_hybrid_pro_tu_hoc(
         return []
 
     ngu_canh_pro = lay_ngu_canh_lien_trang_hien_tai(tu_dien_ket_hop)
+    uu_tien_server_pro = (
+        not os.environ.get("PYTEST_CURRENT_TEST")
+        and getattr(_ket_noi_qwen3_vl_cuc_bo, "__name__", "") == "_ket_noi_qwen3_vl_cuc_bo"
+        and getattr(goi_http, "__name__", "") == "goi_http"
+        and CAU_HINH_FILE.is_file()
+    )
+    ket_qua: list[dict] = []
     try:
         backend, model = _ket_noi_llm_cho_local_ocr_gpu(ngon_ngu_dich=ngon_ngu_dich)
-        ket_qua = _dich_danh_sach_thoai_gpu(
-            bubbles,
-            backend=backend,
-            model=model,
-            ngon_ngu_nguon=ngon_ngu_nguon,
-            ngon_ngu_dich=ngon_ngu_dich,
-            tu_dien_rieng=ngu_canh_pro,
-            chay_cpu=chay_cpu,
-            che_do_pro=True,
-        )
+        if uu_tien_server_pro and backend not in ("groq", "deepseek", "gemini"):
+            ket_qua = _dich_danh_sach_thoai_qua_server_deepseek(
+                bubbles,
+                ngon_ngu_nguon=ngon_ngu_nguon,
+                ngon_ngu_dich=ngon_ngu_dich,
+                tu_dien_rieng=ngu_canh_pro,
+                page_key=ma_anh,
+                engine="local_hybrid_pro",
+            )
+        if not ket_qua:
+            ket_qua = _dich_danh_sach_thoai_gpu(
+                bubbles,
+                backend=backend,
+                model=model,
+                ngon_ngu_nguon=ngon_ngu_nguon,
+                ngon_ngu_dich=ngon_ngu_dich,
+                tu_dien_rieng=ngu_canh_pro,
+                chay_cpu=chay_cpu,
+                che_do_pro=True,
+            )
     except (LocalServerUnavailableError, LocalModelMissingError, LocalRuntimeCrashError, RuntimeError, OSError, TimeoutError):
         ket_qua = _dich_danh_sach_thoai_qua_server_deepseek(
             bubbles,
