@@ -488,14 +488,20 @@ def can_chinh_khung_theo_bong_bong(
                     )
             else:
                 # Nếu hộp gốc đã nằm gọn trên nền sáng có chữ đen (vd: tiếng hét cỡ lớn FWEEEEET!, bóng đôi),
-                # đánh dấu đã khớp và co khít theo nét mực để Pass B không di chuyển nhầm:
+                # hoặc chữ có viền trắng nổi trên nền tối (dark/hatched panel), đánh dấu đã khớp để Pass B không di chuyển nhầm:
                 sub_orig = a[
                     int(max(0, min(H - 1, vy0))) : int(max(1, min(H, vy1))),
                     int(max(0, min(W - 1, vx0))) : int(max(1, min(W, vx1))),
                 ]
-                if sub_orig.size > 0 and float((sub_orig > 200).mean()) >= 0.45 and float((sub_orig < 140).mean()) >= 0.02:
-                    da_gan_r[r_idx] = True
-                    regions[r_idx] = replace(r, bbox=_co_khit_muc_trong_hop(r.bbox))
+                if sub_orig.size > 0:
+                    ty_le_sang = float((sub_orig > 200).mean())
+                    ty_le_toi = float((sub_orig < 140).mean())
+                    if ty_le_sang >= 0.45 and ty_le_toi >= 0.02:
+                        da_gan_r[r_idx] = True
+                        regions[r_idx] = replace(r, bbox=_co_khit_muc_trong_hop(r.bbox))
+                    elif ty_le_sang >= 0.12 and ty_le_toi >= 0.12:
+                        # Chữ không viền bóng nằm trên nền tối / screentone có tương phản nét chữ rõ rệt:
+                        da_gan_r[r_idx] = True
 
         # Pass B: Khôi phục hộp thoại bị AI đặt lệch ra ngoài bong bóng (đè lên tóc đen / đám đông trong cùng khung tranh)
         for r_idx, r in enumerate(regions):
@@ -560,6 +566,101 @@ def can_chinh_khung_theo_bong_bong(
                         logger.info("ai_gemini bo qua SFX ve de len tranh ngoai bong thoai: %r", r.chu or r.ban_dich)
                         continue
             ket_qua_loc.append(r)
+
+        # Pass D: Nới rộng thông minh theo phương ngang & dọc trong lòng trắng của bong bóng
+        # cho các cột chữ dọc CJK / hộp chữ hẹp để khi排版 (typeset) chữ ngang tiếng Việt không bị bó hẹp hay cắt chữ.
+        le_bong = max(6, round(8 * S))
+        gap_hop = max(6, round(8 * S))
+        for i_k, r_k in enumerate(ket_qua_loc):
+            bx0 = int(max(0, min(W - 1, round(r_k.bbox.x))))
+            by0 = int(max(0, min(H - 1, round(r_k.bbox.y))))
+            bx1 = int(max(bx0 + 1, min(W, round(r_k.bbox.x + r_k.bbox.w))))
+            by1 = int(max(by0 + 1, min(H, round(r_k.bbox.y + r_k.bbox.h))))
+            bw_k = bx1 - bx0
+            bh_k = by1 - by0
+            sub_k = a[by0:by1, bx0:bx1]
+            if sub_k.size == 0 or float((sub_k > 210).mean()) < 0.48:
+                continue
+
+            # Giới hạn mở rộng ngang tối đa để hộp chữ cân đối trong lòng bóng tròn/bầu dục
+            max_w_expand = int(max(bw_k, min(W * 0.28, max(bh_k * 1.35, 95 * S))))
+            max_each_side_x = max(0, (max_w_expand - bw_k) // 2)
+            max_each_side_y = int(round(16 * S))
+
+            def _cham_hop_khac(nx0: int, ny0: int, nx1: int, ny1: int, idx_self: int) -> bool:
+                for j_k, r_o in enumerate(ket_qua_loc):
+                    if j_k == idx_self:
+                        continue
+                    ox0, oy0 = r_o.bbox.x - gap_hop, r_o.bbox.y - gap_hop
+                    ox1, oy1 = r_o.bbox.x + r_o.bbox.w + gap_hop, r_o.bbox.y + r_o.bbox.h + gap_hop
+                    if min(nx1, ox1) > max(nx0, ox0) and min(ny1, oy1) > max(ny0, oy0):
+                        return True
+                return False
+
+            # Dò mở rộng sang trái và phải trên dải trắng tinh (a > 220)
+            left_free = 0
+            while left_free < max_each_side_x + le_bong and bx0 - left_free - 1 >= 0:
+                col = a[by0:by1, bx0 - left_free - 1]
+                if int(col.min()) < 218:
+                    break
+                left_free += 1
+            right_free = 0
+            while right_free < max_each_side_x + le_bong and bx1 + right_free < W:
+                col = a[by0:by1, bx1 + right_free]
+                if int(col.min()) < 218:
+                    break
+                right_free += 1
+
+            add_l = max(0, min(max_each_side_x, left_free - le_bong))
+            add_r = max(0, min(max_each_side_x, right_free - le_bong))
+            # Giữ đối xứng tương đối quanh tâm chữ gốc để chữ không bị lệch hẳn về 1 phía trong bóng đôi:
+            if left_free < le_bong * 2 or right_free < le_bong * 2:
+                sym_x = min(add_l, add_r) + min(abs(add_l - add_r), int(round(10 * S)))
+                add_l = min(add_l, sym_x)
+                add_r = min(add_r, sym_x)
+
+            nx0 = bx0 - add_l
+            nx1 = bx1 + add_r
+            while (add_l > 0 or add_r > 0) and _cham_hop_khac(nx0, by0, nx1, by1, i_k):
+                if add_l >= add_r and add_l > 0:
+                    add_l -= 1
+                elif add_r > 0:
+                    add_r -= 1
+                nx0 = bx0 - add_l
+                nx1 = bx1 + add_r
+
+            # Dò mở rộng nhẹ lên trên và xuống dưới để dấu tiếng Việt (Ấ, Ể, Ộ) không bị sát mép cắt
+            up_free = 0
+            while up_free < max_each_side_y + le_bong and by0 - up_free - 1 >= 0:
+                row = a[by0 - up_free - 1, nx0:nx1]
+                if int(row.min()) < 218:
+                    break
+                up_free += 1
+            down_free = 0
+            while down_free < max_each_side_y + le_bong and by1 + down_free < H:
+                row = a[by1 + down_free, nx0:nx1]
+                if int(row.min()) < 218:
+                    break
+                down_free += 1
+
+            add_u = max(0, min(max_each_side_y, up_free - le_bong))
+            add_d = max(0, min(max_each_side_y, down_free - le_bong))
+            ny0 = by0 - add_u
+            ny1 = by1 + add_d
+            while (add_u > 0 or add_d > 0) and _cham_hop_khac(nx0, ny0, nx1, ny1, i_k):
+                if add_u >= add_d and add_u > 0:
+                    add_u -= 1
+                elif add_d > 0:
+                    add_d -= 1
+                ny0 = by0 - add_u
+                ny1 = by1 + add_d
+
+            if nx0 != bx0 or nx1 != bx1 or ny0 != by0 or ny1 != by1:
+                ket_qua_loc[i_k] = replace(
+                    r_k,
+                    bbox=BBox(x=float(nx0), y=float(ny0), w=float(nx1 - nx0), h=float(ny1 - ny0)),
+                )
+
         return ket_qua_loc
     except Exception as exc:  # noqa: BLE001
         logger.warning("can_chinh_khung_theo_bong_bong bo qua do loi: %s", exc)

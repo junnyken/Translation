@@ -439,7 +439,7 @@ class Settings(BaseSettings):
     #: trên 40 không đổi gì nữa. Xem REPORT_M6 §3.
     typeset_max_font_size: int = 40
     typeset_padding_ratio: float = 0.09
-    typeset_line_spacing_ratio: float = 0.18
+    typeset_line_spacing_ratio: float = 0.24
     #: Viền chữ (0 = tắt). Bật lên thì phép đo cũng tính viền, không lệch.
     typeset_stroke_width: int = 0
     typeset_text_color: str = "black"
