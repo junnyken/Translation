@@ -1,7 +1,13 @@
 /** Popup khi bấm icon (E19-4 + E104 — Giao diện hiện đại, cố định chế độ Xoá chữ & căn chữ LaMa). */
-import { docCauHinh, layHanMuc, luuCauHinh, moTrangWebThongMinh } from '../lib/api.js'
+import { docCauHinh, kiemTraByok, layHanMuc, luuCauHinh, moTrangWebThongMinh } from '../lib/api.js'
 
 const $ = (id) => document.getElementById(id)
+let _capDoHienTai = 0
+let _choPhepByok = false
+
+function dangCoByokHopLe(byokBat, byokKey, choPhep = _choPhepByok) {
+  return Boolean(choPhep && byokBat && String(byokKey || '').trim().length >= 12)
+}
 const bao = (chu, loai) => {
   const h = $('bao')
   if (!h) return
@@ -34,23 +40,27 @@ function dongBoNutDichRa(dich) {
   })
 }
 
-function dongBoNutEngine(eng) {
+function dongBoNutEngine(eng, coByok = false) {
   document.querySelectorAll('#nhom-nut-eng .nut-eng').forEach((btn) => {
     btn.classList.toggle('dang-chon', btn.dataset.eng === eng)
   })
   const nhanPhu = $('nhan-phu-eng')
   if (nhanPhu) {
     if (eng === 'local_hybrid_pro') {
-      nhanPhu.textContent = '🧠 2 lượt/trang · Tách chữ OCR + Dịch AI'
+      nhanPhu.textContent = coByok
+        ? '🔑 1 lượt/trang (-50% BYOK) · OCR + Dịch AI'
+        : '🧠 2 lượt/trang · Tách chữ OCR + Dịch AI'
     } else if (eng === 'llm_context') {
-      nhanPhu.textContent = '✨ 3 lượt/trang · AI Ngữ Cảnh Đám Mây'
+      nhanPhu.textContent = coByok
+        ? '🔑 1,5 lượt/trang (-50% BYOK) · SoM Vision + LaMa'
+        : '✨ 3 lượt/trang · SoM Vision + LaMa Đám Mây'
     } else {
       nhanPhu.textContent = '⚡ 1 lượt/trang · Nhanh & Tiết kiệm'
     }
   }
 }
 
-function capNhatKhoaModelTheoCapDo(capDo = 0) {
+function capNhatKhoaModelTheoCapDo(capDo = 0, coByok = false) {
   const sel = $('engine')
   if (!sel) return
   const cap = Number(capDo || 0)
@@ -58,6 +68,14 @@ function capNhatKhoaModelTheoCapDo(capDo = 0) {
     const goi = Number(opt.dataset?.goi || 0)
     const tenGoc = opt.dataset?.tenGoc || ''
     if (!goi || !tenGoc) return
+    if (coByok && cap >= 1) {
+      if (opt.value === 'local_hybrid_pro') {
+        opt.textContent = '🧠 OCR + GPU Pro · 1 lượt/trang (🔑 BYOK -50%)'
+      } else if (opt.value === 'llm_context') {
+        opt.textContent = '✨ SoM Vision + LaMa · 1,5 lượt/trang (🔑 BYOK -50%)'
+      }
+      return
+    }
     const capYeuCau = goi === 2 ? 3 : 1
     if (cap >= capYeuCau) {
       opt.textContent = tenGoc
@@ -67,6 +85,33 @@ function capNhatKhoaModelTheoCapDo(capDo = 0) {
   })
 }
 
+function dongBoKhungByok(byokBat, byokProvider, byokKey) {
+  const khoi = $('khoi-byok')
+  const than = $('than-byok')
+  const chk = $('byok-bat')
+  const selProv = $('byok-provider')
+  const inpKey = $('byok-key')
+  const nhan = $('nhan-trang-thai-byok')
+  if (selProv && byokProvider) selProv.value = byokProvider
+  if (inpKey && typeof byokKey === 'string' && document.activeElement !== inpKey) {
+    inpKey.value = byokKey
+  }
+  const duocMo = _choPhepByok || _capDoHienTai >= 1
+  if (chk) chk.checked = Boolean(byokBat)
+  if (than) than.hidden = !byokBat
+  const kichHoat = dangCoByokHopLe(byokBat, byokKey, duocMo)
+  if (khoi) khoi.classList.toggle('dang-bat', kichHoat)
+  if (nhan) {
+    if (!duocMo) {
+      nhan.textContent = '🔒 Mở từ Gói 1'
+    } else if (kichHoat) {
+      nhan.textContent = '✅ Đang giảm 50%'
+    } else {
+      nhan.textContent = 'Giảm 50% lượt'
+    }
+  }
+}
+
 function dongBoNutFont(font) {
   document.querySelectorAll('#nhom-nut-font .nut-font').forEach((btn) => {
     btn.classList.toggle('dang-chon', btn.dataset.font === font)
@@ -74,7 +119,7 @@ function dongBoNutFont(font) {
 }
 
 async function ve() {
-  const { ngonNgu, ngonNguDich, engine, fontChu } = await docCauHinh()
+  const { ngonNgu, ngonNguDich, engine, fontChu, byokBat, byokProvider, byokKey } = await docCauHinh()
   await luuCauHinh({ cheDo: 'chi_chu' })
   if ($('ngon-ngu')) $('ngon-ngu').value = ngonNgu
   if ($('ngon-ngu-dich')) $('ngon-ngu-dich').value = ngonNguDich || 'vi'
@@ -83,9 +128,10 @@ async function ve() {
   if ($('che-do')) $('che-do').value = 'chi_chu'
   dongBoNutNgonNgu(ngonNgu)
   dongBoNutDichRa(ngonNguDich || 'vi')
-  dongBoNutEngine(engine)
+  dongBoKhungByok(byokBat, byokProvider, byokKey)
+  dongBoNutEngine(engine, dangCoByokHopLe(byokBat, byokKey))
   dongBoNutFont(fontChu || 'bangers')
-  veHanMuc()
+  await veHanMuc()
   veMayChu()
 }
 
@@ -93,7 +139,7 @@ async function veHanMuc() {
   const o = $('han-muc')
   if (!o) return
   try {
-    const { diaChi, engine } = await docCauHinh()
+    const { diaChi, engine, byokBat, byokProvider, byokKey } = await docCauHinh()
     if (engine === 'local_gguf') {
       o.textContent = '💻 Chế độ Lõi AI Cục bộ (Xử lý trên phần cứng máy bạn)'
       o.className = 'hop ok'
@@ -111,17 +157,26 @@ async function veHanMuc() {
       return
     }
     const hm = await layHanMuc()
-    capNhatKhoaModelTheoCapDo(hm.la_quan_tri ? 5 : Number(hm.cap_do || 0))
+    _capDoHienTai = hm.la_quan_tri ? 5 : Number(hm.cap_do || 0)
+    _choPhepByok = Boolean(hm.cho_phep_byok ?? (_capDoHienTai >= 1))
+    const coByok = dangCoByokHopLe(byokBat, byokKey, _choPhepByok)
+    dongBoKhungByok(byokBat, byokProvider, byokKey)
+    capNhatKhoaModelTheoCapDo(_capDoHienTai, coByok)
+    dongBoNutEngine(engine, coByok)
     const muaThem = Number(hm.so_luot_mua_them || 0)
     const conLaiNgay = Math.max(0, Number(hm.con_lai || 0) - muaThem)
     const vaiTro = hm.co_tai_khoan ? '✅ Đã đăng nhập' : '👤 Khách (đăng ký nhận 20 Credits miễn phí)'
     const tichLuy = muaThem > 0 ? ` + Ví VIP: ${muaThem} lượt (Tổng ${hm.con_lai})` : ''
-    const soLuotMoiTrang = engine === 'llm_context'
-      ? 3
-      : (['local_hybrid_pro', 'gpt_6_sol', 'gemini_3_1_pro'].includes(engine) ? 2 : 1)
-    const nhanChiPhi = engine === 'llm_context'
-      ? ' · [Ultra AI: 3 lượt/trang]'
-      : (soLuotMoiTrang === 2 ? ' · [Gói 2 Pro: 2 lượt/trang]' : ' · [1 lượt/trang]')
+    const soLuotMoiTrang = coByok
+      ? (engine === 'llm_context' ? 1.5 : 1)
+      : (engine === 'llm_context'
+          ? 3
+          : (['local_hybrid_pro', 'gpt_6_sol', 'gemini_3_1_pro'].includes(engine) ? 2 : 1))
+    const nhanChiPhi = coByok
+      ? (engine === 'llm_context' ? ' · [🔑 BYOK: 1,5 lượt/trang]' : ' · [🔑 BYOK: 1 lượt/trang]')
+      : (engine === 'llm_context'
+          ? ' · [SoM Vision + LaMa: 3 lượt/trang]'
+          : (soLuotMoiTrang === 2 ? ' · [GPU Pro: 2 lượt/trang]' : ' · [1 lượt/trang]'))
     const phutResetGio = hm.reset_theo_gio_sau_giay
       ? Math.max(1, Math.ceil(Number(hm.reset_theo_gio_sau_giay) / 60))
       : null
@@ -167,12 +222,20 @@ async function veMayChu() {
       return
     }
     if (engine === 'local_hybrid_pro') {
-      o.textContent = '🧠 Model 2 (2 lượt/trang): Quét 2 tầng chữ viết tay + Bảo vệ nét vẽ nhân vật khỏi SFX + Tự học 60 từ điển.'
+      const { byokBat, byokKey } = await docCauHinh()
+      const coByok = dangCoByokHopLe(byokBat, byokKey)
+      o.textContent = coByok
+        ? '🔑 Model 2 BYOK (1 lượt/trang): Tách chữ OCR cục bộ + Gọi thẳng API Key của bạn (-50% lượt).'
+        : '🧠 Model 2 (2 lượt/trang): Quét 2 tầng chữ viết tay + Bảo vệ nét vẽ nhân vật khỏi SFX + Tự học 60 từ điển.'
       o.hidden = false
       return
     }
     if (engine === 'llm_context') {
-      o.textContent = '✨ AI Ngữ Cảnh Đám Mây: Nhận diện biểu cảm tranh & phân vai xưng hô chuẩn Scanlation.'
+      const { byokBat, byokKey } = await docCauHinh()
+      const coByok = dangCoByokHopLe(byokBat, byokKey)
+      o.textContent = coByok
+        ? '🔑 Model 3 BYOK (1,5 lượt/trang): Khóa tọa độ Set-of-Mark [#1..#N] + LaMa xóa nét tranh + Vision Key riêng (-50% lượt).'
+        : '✨ Model 3 SoM Vision + LaMa (3 lượt/trang): Khóa tọa độ 0px + AI nhìn biểu cảm tranh & tái tạo nét vẽ LaMa.'
       o.hidden = false
       return
     }
@@ -250,6 +313,65 @@ $('engine')?.addEventListener('change', async (e) => {
 $('font-chu')?.addEventListener('change', async (e) => {
   dongBoNutFont(e.target.value)
   await luuCauHinh({ fontChu: e.target.value, cheDo: 'chi_chu' })
+})
+
+$('byok-bat')?.addEventListener('change', async (e) => {
+  const bat = Boolean(e.target.checked)
+  if (bat && !_choPhepByok && _capDoHienTai < 1) {
+    e.target.checked = false
+    bao('🔒 Tính năng cắm API Key riêng (BYOK — giảm 50% lượt: Model 2 còn 1 lượt, Model 3 còn 1,5 lượt) mở khóa từ Gói 1 trở lên.', 'canh-bao')
+    return
+  }
+  const prov = $('byok-provider')?.value || 'gemini'
+  const key = ($('byok-key')?.value || '').trim()
+  await luuCauHinh({ byokBat: bat, byokProvider: prov, byokKey: key })
+  dongBoKhungByok(bat, prov, key)
+  await veHanMuc()
+  veMayChu()
+})
+
+$('byok-provider')?.addEventListener('change', async (e) => {
+  const prov = e.target.value
+  const bat = Boolean($('byok-bat')?.checked)
+  const key = ($('byok-key')?.value || '').trim()
+  await luuCauHinh({ byokProvider: prov })
+  dongBoKhungByok(bat, prov, key)
+})
+
+$('byok-key')?.addEventListener('input', async (e) => {
+  const key = e.target.value.trim()
+  const bat = Boolean($('byok-bat')?.checked)
+  const prov = $('byok-provider')?.value || 'gemini'
+  await luuCauHinh({ byokKey: key })
+  dongBoKhungByok(bat, prov, key)
+  await veHanMuc()
+  veMayChu()
+})
+
+$('nut-thu-byok')?.addEventListener('click', async () => {
+  const nut = $('nut-thu-byok')
+  const kqEl = $('byok-ket-qua')
+  const prov = $('byok-provider')?.value || 'gemini'
+  const key = ($('byok-key')?.value || '').trim()
+  if (key.length < 12) {
+    if (kqEl) kqEl.textContent = '⚠️ Vui lòng dán API Key hợp lệ (AIza..., sk-..., sk-ant-...).'
+    return
+  }
+  await luuCauHinh({ byokBat: true, byokProvider: prov, byokKey: key })
+  if (nut) nut.disabled = true
+  if (kqEl) kqEl.textContent = '⏳ Đang kiểm tra kết nối trực tiếp tới hãng AI...'
+  try {
+    const res = await kiemTraByok(prov, key, '')
+    if (kqEl) {
+      kqEl.textContent = `✅ ${res.thong_diep || 'Kết nối Key thành công!'} (Model 2 = 1 lượt · Model 3 = 1,5 lượt)`
+    }
+    await veHanMuc()
+    veMayChu()
+  } catch (err) {
+    if (kqEl) kqEl.textContent = `❌ ${err?.message || err}`
+  } finally {
+    if (nut) nut.disabled = false
+  }
 })
 
 $('mo-cai-dat')?.addEventListener('click', (e) => {

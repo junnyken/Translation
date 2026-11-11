@@ -206,7 +206,8 @@ async function luuCacheTrangCucBo(khoa, vung, cheDo) {
 }
 
 async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false, tabId = 0) {
-  const { ngonNgu, ngonNguDich, engine, cheDo } = await docCauHinh()
+  const { ngonNgu, ngonNguDich, engine, cheDo, byokBat, byokKey } = await docCauHinh()
+  const coByokHieuLuc = Boolean(byokBat && byokKey && String(byokKey).trim().length >= 12)
   const khoaCucBo = chuanHoaKhoaCacheUrl(url, ngonNgu, ngonNguDich, cheDo)
   if (khoaCucBo && cheDo !== 'day_du') {
     const trungCucBo = await docCacheTrangCucBo(khoaCucBo)
@@ -274,11 +275,14 @@ async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false,
   }
 
   // Gửi trực tiếp lên Máy chủ Đám mây (0ms chờ cổng cục bộ) để đạt tốc độ dịch ~3–5 giây/trang ổn định.
-  // Khấu trừ lượt phụ cho chế độ Pro (2 lượt) hoặc Ultra (3 lượt) chạy song song không chặn luồng tải ảnh.
-  if (engine === 'local_hybrid_pro') {
-    khauTruLuotLocal(blob, 'local_hybrid_pro', `pro-extra::${url}`, 1).catch(() => {})
-  } else if (engine === 'llm_context') {
-    khauTruLuotLocal(blob, 'llm_context', `ultra-extra::${url}`, 2).catch(() => {})
+  // Khi KHÔNG bật BYOK: Khấu trừ lượt phụ cho chế độ Pro (2 lượt) hoặc Ultra (3 lượt).
+  // Khi BẬT BYOK (từ Gói 1+): Model 2 giảm 50% còn đúng 1 lượt/trang (0 lượt phụ); Model 3 giảm 50% còn 1,5 lượt/trang (do Server tự tính chẵn/lẻ 2-1 nguyên tử)!
+  if (!coByokHieuLuc) {
+    if (engine === 'local_hybrid_pro') {
+      khauTruLuotLocal(blob, 'local_hybrid_pro', `pro-extra::${url}`, 1).catch(() => {})
+    } else if (engine === 'llm_context') {
+      khauTruLuotLocal(blob, 'llm_context', `ultra-extra::${url}`, 2).catch(() => {})
+    }
   }
 
   let kqGui

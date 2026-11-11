@@ -22,6 +22,11 @@ export const KHOA_LUU = {
   che_do: 'cheDoGpuKhach',
   //: Font chữ theo thể loại truyện (`bangers` | `shantell` | `mansalva` | `sigmar`).
   font_chu: 'fontChuTruyen',
+  //: Cấu hình BYOK (Cắm API Key cá nhân từ Gói 1 — Giảm 50% lượt trừ: Model 2 còn 1 lượt, Model 3 còn 1,5 lượt).
+  byok_bat: 'byokBat',
+  byok_provider: 'byokProvider',
+  byok_key: 'byokKey',
+  byok_model: 'byokModel',
 }
 export const NGON_NGU_MAC_DINH = 'ja'
 export const NGON_NGU_DICH_MAC_DINH = 'vi'
@@ -76,6 +81,10 @@ export async function docCauHinh() {
     engine,
     cheDo: d[KHOA_LUU.che_do] || CHE_DO_MAC_DINH,
     fontChu: d[KHOA_LUU.font_chu] || FONT_CHU_MAC_DINH,
+    byokBat: Boolean(d[KHOA_LUU.byok_bat]),
+    byokProvider: d[KHOA_LUU.byok_provider] || 'gemini',
+    byokKey: String(d[KHOA_LUU.byok_key] || '').trim(),
+    byokModel: String(d[KHOA_LUU.byok_model] || '').trim(),
   }
 }
 
@@ -90,6 +99,10 @@ export async function luuCauHinh(c) {
     [KHOA_LUU.engine]: c.engine ?? hien.engine,
     [KHOA_LUU.che_do]: c.cheDo ?? hien.cheDo,
     [KHOA_LUU.font_chu]: c.fontChu ?? hien.fontChu,
+    [KHOA_LUU.byok_bat]: c.byokBat !== undefined ? Boolean(c.byokBat) : hien.byokBat,
+    [KHOA_LUU.byok_provider]: c.byokProvider !== undefined ? String(c.byokProvider || 'gemini') : hien.byokProvider,
+    [KHOA_LUU.byok_key]: c.byokKey !== undefined ? String(c.byokKey || '').trim() : hien.byokKey,
+    [KHOA_LUU.byok_model]: c.byokModel !== undefined ? String(c.byokModel || '').trim() : hien.byokModel,
   })
 }
 
@@ -134,11 +147,17 @@ async function doc(res) {
 }
 
 async function goi(duong, opts = {}) {
-  const { diaChi, maPhien, maKhach } = await docCauHinh()
+  const { diaChi, maPhien, maKhach, byokBat, byokProvider, byokKey, byokModel } = await docCauHinh()
   if (!diaChi) throw new LoiApi(0, 'Chưa đặt địa chỉ máy chủ Translation.')
   const headers = { ...(opts.headers || {}) }
   if (maPhien) headers.Authorization = `Bearer ${maPhien}`
   else if (maKhach) headers['X-Ma-Khach'] = maKhach
+  const laDuongDich = duong.startsWith('/doc-truyen/') || duong.startsWith('/developer/')
+  if (laDuongDich && !opts.boQuaByok && byokBat && byokKey && byokKey.length >= 12) {
+    headers['X-BYOK-Key'] = byokKey
+    headers['X-BYOK-Provider'] = byokProvider || 'gemini'
+    if (byokModel) headers['X-BYOK-Model'] = byokModel
+  }
 
   const danhSachDiaChi = [diaChi]
   const duPhong = 'https://translation-api.vibe1.tinhgon.xyz'
@@ -240,6 +259,19 @@ export async function layHanMuc() {
   return goi('/han-muc')
 }
 
+export async function kiemTraByok({ provider = 'gemini', apiKey = '', model = '' } = {}) {
+  return goi('/doc-truyen/kiem-tra-byok', {
+    method: 'POST',
+    boQuaByok: true,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      provider: String(provider || 'gemini').trim(),
+      api_key: String(apiKey || '').trim(),
+      model: String(model || '').trim() || null,
+    }),
+  })
+}
+
 export async function toiLaAi() {
   return goi('/auth/me')
 }
@@ -300,9 +332,13 @@ export async function guiTrang(blob, ngonNgu, engine, cheDo, ngonNguDich = NGON_
     return await goi('/doc-truyen/trang', { method: 'POST', body: taoForm(blob, 'trang.png') })
   } catch (err) {
     const maLoi = err instanceof LoiApi ? err.ma : 0
+    // Nếu lỗi 402 là do cổng BYOK yêu cầu Gói 1+ thì báo rõ cho khách biết, không âm thầm lùi về google_fast
+    if (maLoi === 402 && err?.chiTiet?.tinh_nang === 'byok_api_key') {
+      throw err
+    }
     // Nếu tài khoản khách / gói miễn phí chọn `local_ocr_gpu` hoặc `google_fast` mà bị chặn 402 do `llm_context` / `tu_dien_rieng`,
     // tự động lùi mượt về `google_fast` để dịch ngay lập tức mà không báo lỗi.
-    if (maLoi === 402) {
+    if (maLoi === 402 && engine === 'local_ocr_gpu') {
       return await goi('/doc-truyen/trang', { method: 'POST', body: taoForm(blob, 'trang.png', 'google_fast', false) })
     }
     if (maLoi === 0 || maLoi === 413 || maLoi === 500 || maLoi === 502 || maLoi === 503 || maLoi === 504) {

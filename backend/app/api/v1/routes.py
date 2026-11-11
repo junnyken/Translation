@@ -534,6 +534,7 @@ async def xem_han_muc(
         tran_theo_gio=tran_gio,
         con_lai_theo_gio=con_lai_gio,
         danh_sach_model=danh_sach_model_cho_cap_do(5 if la_qt else danh_tinh.cap_do),
+        cho_phep_byok=bool(la_qt or int(danh_tinh.cap_do or 0) >= 1),
     )
 
 
@@ -1630,54 +1631,121 @@ async def quan_tri_kiem_tra_ket_noi_ai(
     return QuanTriKiemTraAiResponse(**kq)
 
 
+@router_khach.post("/doc-truyen/kiem-tra-byok", tags=["doc-truyen"])
+async def kiem_tra_ket_noi_byok_khach(
+    request: Request,
+    body: dict | None = None,
+    danh_tinh: DanhTinhHanMuc = Depends(danh_tinh_han_muc),
+) -> dict:
+    """Kiểm tra trực tiếp API Key cá nhân (BYOK) của khách hàng (Yêu cầu từ Gói 1 trở lên, tốn 0 lượt)."""
+    from app.services.byok import kiem_tra_ket_noi_byok, xac_thuc_byok_cho_danh_tinh
+
+    du_lieu = body if isinstance(body, dict) else {}
+    cfg = xac_thuc_byok_cho_danh_tinh(
+        danh_tinh,
+        request,
+        byok_key=str(du_lieu.get("api_key") or "").strip() or None,
+        byok_provider=str(du_lieu.get("provider") or "").strip() or None,
+        byok_model=str(du_lieu.get("model") or "").strip() or None,
+    )
+    if cfg is None:
+        raise HTTPException(status_code=400, detail="Vui lòng nhập API Key cá nhân cần kiểm tra.")
+    return await run_in_threadpool(kiem_tra_ket_noi_byok, cfg)
+
+
 @router_khach.post("/doc-truyen/dich-thoai-ngu-canh", response_model=DichThoaiNguCanhResponse, tags=["doc-truyen"])
 async def dich_thoai_ngu_canh_cho_app_va_tien_ich(
+    request: Request,
     body: DichThoaiNguCanhRequest,
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
     danh_tinh: DanhTinhHanMuc = Depends(danh_tinh_han_muc),
 ) -> DichThoaiNguCanhResponse:
-    """Cầu nối dịch danh sách câu thoại đã OCR trên App Windows / Tiện ích bằng DeepSeek (deepseek-chat) trên máy chủ."""
+    """Cầu nối dịch danh sách câu thoại đã OCR trên App Windows / Tiện ích (hỗ trợ BYOK giảm 50% lượt từ Gói 1)."""
+    from app.services.byok import (
+        BYOKKeyError,
+        he_so_luot_theo_engine,
+        so_luot_nguyen_can_tru_cho_trang,
+        tao_uuid_trang_byok_m3,
+        xac_thuc_byok_cho_danh_tinh,
+    )
+
+    byok_cfg = xac_thuc_byok_cho_danh_tinh(
+        danh_tinh,
+        request,
+        byok_key=body.byok_key,
+        byok_provider=body.byok_provider,
+        byok_model=body.byok_model,
+    )
     if not body.texts:
-        return DichThoaiNguCanhResponse(translations=[], engine_used="empty")
+        return DichThoaiNguCanhResponse(translations=[], engine_used="empty", credits_charged=0.0)
     la_admin = (
         danh_tinh.co_tai_khoan
         and not danh_tinh.nguoi_goi.la_khach
         and getattr(danh_tinh.nguoi_goi.nguoi, "la_quan_tri", False)
     )
+    eng_name = (body.engine or "local_ocr_gpu").strip() or "local_ocr_gpu"
+    co_byok = byok_cfg is not None
+    he_so_hien = 0.0 if la_admin else he_so_luot_theo_engine(eng_name, co_byok=co_byok)
+    ds_uid_tieu: list[uuid.UUID] = []
+
     if not la_admin:
+        chu_the_chinh = danh_tinh.chot[0].chu_the if danh_tinh.chot else "guest"
+        so_luot_can = await so_luot_nguyen_can_tru_cho_trang(
+            session, danh_tinh, eng_name, co_byok=co_byok
+        )
+        pkey = (body.page_key or "").strip()
+        for idx_c in range(so_luot_can):
+            if co_byok and eng_name == "llm_context" and idx_c == 0:
+                trang_uid = tao_uuid_trang_byok_m3(f"{chu_the_chinh}:{pkey}" if pkey else None)
+            else:
+                trang_uid = (
+                    uuid.uuid5(
+                        uuid.NAMESPACE_URL,
+                        f"local-ocr-gpu:{eng_name}:{'byok' if co_byok else 'std'}:{chu_the_chinh}:{pkey}:{idx_c}",
+                    )
+                    if pkey
+                    else uuid.uuid4()
+                )
+            await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=trang_uid)
+            ds_uid_tieu.append(trang_uid)
+        await session.commit()
+
+    try:
+        ban_dich, eng_used = await run_in_threadpool(
+            dich_danh_sach_thoai_ngu_canh_dong,
+            settings,
+            body.texts,
+            source_lang=body.source_lang.value,
+            target_lang=body.target_lang.value,
+            boi_canh=body.boi_canh,
+            engine=eng_name,
+            byok_cfg=byok_cfg,
+        )
+    except BYOKKeyError as exc_byok:
+        if ds_uid_tieu:
+            from sqlalchemy import update as _sql_hoan
+            from app.models.enums import TrangThaiHanMuc
+
+            await session.execute(
+                _sql_hoan(SoCaiHanMuc)
+                .where(SoCaiHanMuc.trang_id.in_(ds_uid_tieu), SoCaiHanMuc.trang_thai == TrangThaiHanMuc.giu_cho)
+                .values(trang_thai=TrangThaiHanMuc.da_hoan, ly_do_hoan="byok_key_error")
+            )
+            await session.commit()
+        raise HTTPException(status_code=400, detail=str(exc_byok)) from exc_byok
+
+    if ds_uid_tieu:
         from sqlalchemy import update as _sql_upd
         from app.models.enums import TrangThaiHanMuc
 
-        chu_the_chinh = danh_tinh.chot[0].chu_the if danh_tinh.chot else "guest"
-        eng_name = (body.engine or "local_ocr_gpu").strip() or "local_ocr_gpu"
-        so_luot_can = 3 if eng_name == "llm_context" else (2 if eng_name == "local_hybrid_pro" else 1)
-        pkey = (body.page_key or "").strip()
-        ds_uid_tieu: list[uuid.UUID] = []
-        for idx_c in range(so_luot_can):
-            trang_uid = (
-                uuid.uuid5(uuid.NAMESPACE_URL, f"local-ocr-gpu:{eng_name}:{chu_the_chinh}:{pkey}:{idx_c}")
-                if pkey
-                else uuid.uuid4()
-            )
-            await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=trang_uid)
-            ds_uid_tieu.append(trang_uid)
         await session.execute(
             _sql_upd(SoCaiHanMuc)
             .where(SoCaiHanMuc.trang_id.in_(ds_uid_tieu), SoCaiHanMuc.trang_thai == TrangThaiHanMuc.giu_cho)
             .values(trang_thai=TrangThaiHanMuc.da_tieu)
         )
         await session.commit()
-    ban_dich, eng_used = await run_in_threadpool(
-        dich_danh_sach_thoai_ngu_canh_dong,
-        settings,
-        body.texts,
-        source_lang=body.source_lang.value,
-        target_lang=body.target_lang.value,
-        boi_canh=body.boi_canh,
-        engine=body.engine or "local_ocr_gpu",
-    )
-    return DichThoaiNguCanhResponse(translations=ban_dich, engine_used=eng_used)
+    return DichThoaiNguCanhResponse(translations=ban_dich, engine_used=eng_used, credits_charged=he_so_hien)
 
 
 @router_khach.post("/doc-truyen/viet-kich-ban-review", response_model=VietKichBanReviewResponse, tags=["doc-truyen"])
@@ -2310,6 +2378,7 @@ def _doc_nhan_dang(
     tags=["doc-truyen"],
 )
 async def doc_truyen_gui_trang(
+    request: Request,
     file: UploadFile = File(..., description="Ảnh trang truyện lấy từ trang web"),
     source_lang: SourceLang = Form(
         SourceLang.ja, description="Ngôn ngữ chữ TRÊN ẢNH — quyết định chọn engine OCR nào"
@@ -2396,23 +2465,36 @@ async def doc_truyen_gui_trang(
             result = await doc_truyen_lay_trang(previous.page_id, session=session, danh_tinh=danh_tinh)
             return result.model_copy(update={"request_key": request_key})
 
+    from app.services.byok import (
+        ma_hoa_byok_tam_thoi,
+        so_luot_nguyen_can_tru_cho_trang,
+        tao_uuid_trang_byok_m3,
+        xac_thuc_byok_cho_danh_tinh,
+    )
     from app.services.upload_artifacts import UploadArtifactGuard
+
+    byok_cfg = xac_thuc_byok_cho_danh_tinh(danh_tinh, request)
+    co_byok = byok_cfg is not None
+
     async with UploadArtifactGuard(session, owner_id, request_key) as artifacts:
         # Replays above remain readable even if engine or quota is now unavailable.
-        _kiem_engine(engine, settings, co_tai_khoan=danh_tinh.co_tai_khoan)
+        if not co_byok:
+            _kiem_engine(engine, settings, co_tai_khoan=danh_tinh.co_tai_khoan)
 
         # Freemium Feature Gate: Kiểm tra cấp độ tài khoản trước khi xếp việc
         from app.core.danh_tinh_khach import loi_can_nang_cap
 
         cap_ht = danh_tinh.cap_do
-        if engine is TranslationEngine.llm_context and cap_ht < 3:
+        # Khi bật BYOK hợp lệ (cap_ht >= 1), khách tự trả chi phí Token nên được mở khoá luôn Model 3 với mức 1,5 lượt/trang!
+        if engine is TranslationEngine.llm_context and cap_ht < 3 and not co_byok:
             raise loi_can_nang_cap(
                 cap_hien_tai=cap_ht,
                 cap_yeu_cau=3,
                 tinh_nang="llm_context",
                 thong_bao=(
-                    "Bộ máy dịch Context AI Pro (đọc mạch văn cả trang) yêu cầu gói Pro trở lên. "
-                    "Hãy chọn chế độ Dịch Nhanh (Miễn phí) hoặc nâng cấp gói Pro tại https://comic.io.vn/#bang-gia"
+                    "Bộ máy Set-of-Mark Vision + LaMa Đám Mây yêu cầu Gói 2 trở lên, "
+                    "hoặc bạn có thể cắm API Key cá nhân (BYOK từ Gói 1) để mở khoá với giá chỉ 1,5 lượt/trang! "
+                    "Xem chi tiết tại https://comic.io.vn/#bang-gia"
                 ),
             )
         if font_style and font_style.strip().lower() not in ("", "bangers") and cap_ht < 1:
@@ -2458,24 +2540,23 @@ async def doc_truyen_gui_trang(
         next_order = (await session.scalar(
             select(func.coalesce(func.max(Page.order), 0) + 1).where(Page.project_id == project.id)
         )) or 1
+        la_ultra_3_luot = "[CHẾ ĐỘ ULTRA CLOUD AI 3 LƯỢT" in (tu_dien_rieng or "") or (
+            co_byok and engine is TranslationEngine.llm_context and "[CHẾ ĐỘ AI PRO 2 LƯỢT" not in (tu_dien_rieng or "")
+        )
+        la_pro_2_luot = "[CHẾ ĐỘ AI PRO 2 LƯỢT" in (tu_dien_rieng or "")
+        so_luot_byok_m3 = (
+            await so_luot_nguyen_can_tru_cho_trang(session, danh_tinh, "llm_context", co_byok=True)
+            if (co_byok and la_ultra_3_luot)
+            else 1
+        )
+        page_kwargs: dict = {}
+        if co_byok and la_ultra_3_luot:
+            page_kwargs["id"] = tao_uuid_trang_byok_m3()
+
         page = Page(
             project_id=project.id, image_path="", order=next_order, status=PageStatus.queued,
-            # E58 — lưu THẲNG lựa chọn, kể cả `google_fast`. Trước đây `google_fast` bị mã hoá thành
-            # `None` với lý do "cả hai đều đọc ra dùng mặc định hệ thống, không khác nhau".
-            #
-            # Câu đó ĐÚNG khi mặc định hệ thống là `google_fast`, và SAI ngay khi ai đó đổi nó. Đo được
-            # trên production 28-09: `TRANSLATE_DEFAULT_ENGINE=llm_context`, nên mọi trang từ trang chủ
-            # và từ tiện ích đọc truyện **đều chạy Gemini trả tiền** — dù tiện ích gửi đúng
-            # `engine=google_fast` với chú thích của chính nó là "để không tự tốn token Gemini khi người
-            # dùng chưa từng bật". Bằng chứng: hai trang dịch qua tiện ích có
-            # `translate_engine_override = None` và `/pages/{id}/translation` trả `engine: llm_context`.
-            #
-            # Đúng cái bẫy mà docstring của `Page.translate_engine_override` đã cảnh báo bằng chữ, và
-            # hai endpoint của đường đăng nhập đã sửa theo từ ĐX-3 — chỉ endpoint này còn sót.
-            #
-            # Tương thích ngược KHÔNG đổi: trang CŨ vẫn `NULL` ⇒ vẫn lùi về mặc định hệ thống y như
-            # trước. Chỉ trang MỚI mang đúng lựa chọn của người gửi.
             translate_engine_override=engine,
+            **page_kwargs,
         )
         session.add(page)
         await session.flush()
@@ -2483,9 +2564,19 @@ async def doc_truyen_gui_trang(
         artifacts.page_id = page.id
         # Giữ chỗ SAU khi tệp đã qua kiểm (tệp hỏng không được mất lượt) và TRƯỚC khi ghi xuống kho
         # (hết lượt thì không ghi tệp nào). Ném 429 ở đây ⇒ giao dịch huỷ ⇒ trang vừa flush biến mất.
-        la_ultra_3_luot = "[CHẾ ĐỘ ULTRA CLOUD AI 3 LƯỢT" in (tu_dien_rieng or "")
-        la_pro_2_luot = "[CHẾ ĐỘ AI PRO 2 LƯỢT" in (tu_dien_rieng or "")
         await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=page.id)
+        if co_byok and la_ultra_3_luot and so_luot_byok_m3 == 2:
+            # Trang lẻ của cặp 1,5 lượt/trang (2 + 1 = 3 lượt / 2 trang): giữ và chốt thêm nửa cặp
+            from sqlalchemy import update as _sql_upd_m3
+            from app.models.enums import TrangThaiHanMuc
+
+            uid_nua_cap = uuid.uuid5(uuid.NAMESPACE_URL, f"byok-m3-half-extra:{page.id}")
+            await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=uid_nua_cap)
+            await session.execute(
+                _sql_upd_m3(SoCaiHanMuc)
+                .where(SoCaiHanMuc.trang_id == uid_nua_cap, SoCaiHanMuc.trang_thai == TrangThaiHanMuc.giu_cho)
+                .values(trang_thai=TrangThaiHanMuc.da_tieu)
+            )
         if request_key is not None:
             session.add(UploadRequest(owner_id=owner_id, request_key=request_key,
                                       request_hash=request_hash, page_id=page.id))
@@ -2493,9 +2584,12 @@ async def doc_truyen_gui_trang(
         storage = get_storage()
         artifacts.storage = storage
         from app.services.typeset.chon_font import luu_tuy_chon_du_an
+        byok_cipher_str = ma_hoa_byok_tam_thoi(byok_cfg, settings) if byok_cfg is not None else None
         await run_in_threadpool(
             luu_tuy_chon_du_an, project.id, font_style=font_style, tu_dien_rieng=tu_dien_rieng,
+            byok_cipher=byok_cipher_str,
             xoa_tu_dien_neu_rong=not bool((tu_dien_rieng or "").strip()),
+            xoa_byok=not co_byok,
             **({"strict": True} if project.cau_hinh_rieng else {}),
         )
 

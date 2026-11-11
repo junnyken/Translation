@@ -328,7 +328,8 @@ class LamaInpainter:
                 khung_noi = dilate_bboxes(masks, width, height, self.dilate_ratio)
                 mask, lui = tinh_mat_na_xoa(mask, mat_na_chu,
                                             [o_nguyen(b, width, height) for b in khung_noi],
-                                            self.he_so_no_net)
+                                            self.he_so_no_net,
+                                            anh_rgb=anh_u8)
                 logger.info("E79: xoá theo nét chữ (%d khung lùi về xoá cả khung)", lui)
 
         trieu_diem = (width * height) / 1e6

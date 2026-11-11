@@ -623,9 +623,29 @@ async def developer_khau_tru_trang_cuc_bo(
             if nguoi_k is not None:
                 danh_tinh = _danh_tinh_tu_nguoi_dung(nguoi_k)
 
+    from app.services.byok import (
+        so_luot_nguyen_can_tru_cho_trang,
+        tao_uuid_trang_byok_m3,
+        xac_thuc_byok_cho_danh_tinh,
+    )
+
+    byok_cfg = xac_thuc_byok_cho_danh_tinh(
+        danh_tinh,
+        request,
+        byok_key=str(body.get("byok_key") or "").strip() or None,
+        byok_provider=str(body.get("byok_provider") or "").strip() or None,
+        byok_model=str(body.get("byok_model") or "").strip() or None,
+    )
+    co_byok = byok_cfg is not None
+
     engine_name = str(body.get("engine") or "local_ocr_gpu").strip()
-    mac_dinh_luot = 3 if engine_name == "llm_context" else (2 if engine_name == "local_hybrid_pro" else 1)
-    so_luot_can = max(1, min(3, int(body.get("credits") or mac_dinh_luot)))
+    if co_byok:
+        so_luot_can = await so_luot_nguyen_can_tru_cho_trang(
+            session, danh_tinh, engine_name, co_byok=True
+        )
+    else:
+        mac_dinh_luot = 3 if engine_name == "llm_context" else (2 if engine_name == "local_hybrid_pro" else 1)
+        so_luot_can = max(1, min(3, int(body.get("credits") or mac_dinh_luot)))
 
     # Quản trị viên (Chủ hệ thống) chạy tự động không bị giới hạn lượt
     if (
@@ -653,7 +673,11 @@ async def developer_khau_tru_trang_cuc_bo(
         }
 
     chu_the_chinh = danh_tinh.chot[0].chu_the if danh_tinh.chot else "guest"
-    page_uuid = uuid.uuid5(uuid.NAMESPACE_URL, f"local-ocr-gpu:{engine_name}:{chu_the_chinh}:{page_key}:0")
+    page_uuid = (
+        tao_uuid_trang_byok_m3(f"{chu_the_chinh}:{page_key}")
+        if (co_byok and engine_name == "llm_context")
+        else uuid.uuid5(uuid.NAMESPACE_URL, f"local-ocr-gpu:{engine_name}:{'byok' if co_byok else 'std'}:{chu_the_chinh}:{page_key}:0")
+    )
 
     # Gate 1: Nếu tài khoản cấp < 2 (chưa lên Lite/Standard/Pro Max) và đã dùng đủ 20 Credits miễn phí,
     # trả về HTTP 402 báo cần nâng cấp để chạy Auto-Crawl Chapter liên tục trên App Windows.
@@ -789,7 +813,17 @@ async def developer_dich_anh(
         chi_dan_pro = "[CHẾ ĐỘ PRO 2 LƯỢT: Tự động sửa lỗi OCR chữ viết tay & giữ đồng nhất thuật ngữ]"
         glossary = f"{chi_dan_pro}\n{glossary or ''}".strip()
 
-    _kiem_engine(engine_enum, settings, co_tai_khoan=True)
+    from app.services.byok import (
+        ma_hoa_byok_tam_thoi,
+        so_luot_nguyen_can_tru_cho_trang,
+        tao_uuid_trang_byok_m3,
+        xac_thuc_byok_cho_danh_tinh,
+    )
+
+    byok_dev = xac_thuc_byok_cho_danh_tinh(danh_tinh, request)
+    co_byok_dev = byok_dev is not None
+    if not co_byok_dev:
+        _kiem_engine(engine_enum, settings, co_tai_khoan=True)
 
     if file is not None:
         data = await file.read()
@@ -834,7 +868,7 @@ async def developer_dich_anh(
     project = await _chapter_doc_nhanh(
         session, danh_tinh.nguoi_goi, source_lang, mode, target_lang=target_lang
     )
-    if font_style or glossary:
+    if font_style or glossary or co_byok_dev:
         from app.services.typeset.chon_font import luu_tuy_chon_du_an
 
         await run_in_threadpool(
@@ -842,6 +876,8 @@ async def developer_dich_anh(
             project.id,
             font_style=font_style,
             tu_dien_rieng=glossary,
+            byok_cipher=ma_hoa_byok_tam_thoi(byok_dev, settings) if byok_dev is not None else None,
+            xoa_byok=not co_byok_dev,
         )
 
     next_order = (
@@ -850,19 +886,32 @@ async def developer_dich_anh(
         )
     ) or 1
 
+    so_luot_m3_dev = (
+        await so_luot_nguyen_can_tru_cho_trang(session, danh_tinh, "llm_context", co_byok=True)
+        if (co_byok_dev and la_ultra_3_luot)
+        else 1
+    )
+    page_dev_kwargs = {"id": tao_uuid_trang_byok_m3()} if (co_byok_dev and la_ultra_3_luot) else {}
+
     page = Page(
         project_id=project.id,
         image_path="",
         order=next_order,
         status=PageStatus.queued,
         translate_engine_override=engine_enum,
+        **page_dev_kwargs,
     )
     session.add(page)
     await session.flush()
 
     ds_uid_trang: list[uuid.UUID] = [page.id]
     await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=page.id)
-    if la_ultra_3_luot:
+    if co_byok_dev:
+        if la_ultra_3_luot and so_luot_m3_dev == 2:
+            uid_ultra = uuid.uuid5(uuid.NAMESPACE_URL, f"byok-dev-extra-credit:{page.id}:1")
+            await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=uid_ultra)
+            ds_uid_trang.append(uid_ultra)
+    elif la_ultra_3_luot:
         for idx_extra in (1, 2):
             uid_ultra = uuid.uuid5(uuid.NAMESPACE_URL, f"ultra-extra-credit:{page.id}:{idx_extra}")
             await giu_cho_moi_chot(session, danh_tinh, settings, trang_id=uid_ultra)

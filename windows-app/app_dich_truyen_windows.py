@@ -193,6 +193,619 @@ def _inpaint_vung_nen_phuc_tap_harmonic(px_anh, W: int, H: int, x0: int, y0: int
     return (255, 255, 255)
 
 
+_LAMA_ONNX_SESSION_CACHE = {"tried": False, "sess": None}
+_CTD_SEG_PAGE_CACHE: dict[str, object] = {}
+_URL_LAMA_MANGA_ONNX = "https://huggingface.co/ogkalu/lama-manga-onnx-dynamic/resolve/main/lama-manga-dynamic.onnx"
+_URL_CTD_ONNX = "https://huggingface.co/mayocream/comic-text-detector-onnx/resolve/main/comic-text-detector.onnx"
+
+
+def _lay_lama_onnx_session():
+    """
+    Nạp và lưu đệm phiên `onnxruntime.InferenceSession` của mô hình `lama-manga-dynamic.onnx`
+    (LaMa finetune trên 300k trang Manga/Anime, hỗ trợ dynamic shape không cần ép 512x512).
+    Tự động tải ngầm một lần về `~/.dich_truyen_models/lama.onnx` nếu máy có mạng mà chưa có file weight.
+    """
+    if not _LAMA_ONNX_SESSION_CACHE["tried"]:
+        _LAMA_ONNX_SESSION_CACHE["tried"] = True
+        try:
+            import onnxruntime as ort  # type: ignore
+
+            candidates = [
+                Path.home() / ".dich_truyen_models" / "lama.onnx",
+                Path.home() / ".dich_truyen_models" / "lama-manga-dynamic.onnx",
+                Path(__file__).resolve().parent.parent / "models" / "lama-manga-dynamic.onnx",
+                Path(__file__).resolve().parent / "models" / "lama-manga-dynamic.onnx",
+                Path(__file__).resolve().parent / "models" / "lama.onnx",
+                Path(__file__).resolve().parent.parent / "backend" / "models" / "lama-manga-dynamic.onnx",
+                Path(__file__).resolve().parent.parent / "backend" / "models" / "lama.onnx",
+            ]
+            model_path = next((p for p in candidates if p.is_file() and p.stat().st_size > 10_000_000), None)
+            if model_path is None:
+                try:
+                    dst_dir = Path.home() / ".dich_truyen_models"
+                    dst_dir.mkdir(parents=True, exist_ok=True)
+                    dst_file = dst_dir / "lama.onnx"
+                    tmp_file = dst_dir / "lama.onnx.part"
+                    urllib.request.urlretrieve(_URL_LAMA_MANGA_ONNX, tmp_file)
+                    if tmp_file.is_file() and tmp_file.stat().st_size > 100_000_000:
+                        tmp_file.replace(dst_file)
+                        model_path = dst_file
+                except Exception:
+                    model_path = None
+
+            if model_path is not None:
+                opts = ort.SessionOptions()
+                opts.enable_cpu_mem_arena = False
+                opts.intra_op_num_threads = min(4, max(2, (os.cpu_count() or 4) // 2))
+                providers = [
+                    pr for pr in ("CUDAExecutionProvider", "DmlExecutionProvider", "CPUExecutionProvider")
+                    if pr in ort.get_available_providers()
+                ]
+                _LAMA_ONNX_SESSION_CACHE["sess"] = ort.InferenceSession(
+                    str(model_path), sess_options=opts, providers=providers or ["CPUExecutionProvider"]
+                )
+        except Exception:
+            _LAMA_ONNX_SESSION_CACHE["sess"] = None
+    return _LAMA_ONNX_SESSION_CACHE["sess"]
+
+
+def _lay_ctd_seg_map_trang(im_goc, img_bytes: bytes | None = None):
+    """
+    Tính mặt nạ phân đoạn nét chữ điểm ảnh (`seg`, float32 `H x W` trong `[0..1]`) bằng UNet của
+    `comic-text-detector.onnx` để tách chính xác 100% nét chữ nổi khỏi speedlines, cánh tay, tóc và mạt chược.
+    """
+    try:
+        import cv2  # type: ignore
+        import numpy as np  # type: ignore
+        import onnxruntime as ort  # type: ignore
+    except Exception:
+        return None
+
+    W_im, H_im = im_goc.size
+    cache_key = hashlib.md5(img_bytes).hexdigest() if img_bytes else f"{W_im}x{H_im}"
+    if cache_key in _CTD_SEG_PAGE_CACHE:
+        return _CTD_SEG_PAGE_CACHE[cache_key]
+
+    try:
+        sess = _CACHE_RAPIDOCR_HF.get("__ctd_session__")
+    except Exception:
+        sess = None
+
+    if sess is None:
+        ung_vien_ctd = [
+            Path(__file__).resolve().parent.parent / "models" / "comic-text-detector.onnx",
+            Path(__file__).resolve().parent / "models" / "comic-text-detector.onnx",
+            Path.home() / ".dich_truyen_models" / "comic-text-detector.onnx",
+        ]
+        try:
+            ung_vien_ctd.append(THU_MUC_OCR_HF / "comic-text-detector.onnx")
+        except Exception:
+            pass
+        ctd_path = next((p for p in ung_vien_ctd if p.is_file() and p.stat().st_size > 1_000_000), None)
+        if ctd_path is None:
+            try:
+                dst_dir = Path.home() / ".dich_truyen_models"
+                dst_dir.mkdir(parents=True, exist_ok=True)
+                dst_ctd = dst_dir / "comic-text-detector.onnx"
+                tmp_ctd = dst_dir / "comic-text-detector.onnx.part"
+                urllib.request.urlretrieve(_URL_CTD_ONNX, tmp_ctd)
+                if tmp_ctd.is_file() and tmp_ctd.stat().st_size > 50_000_000:
+                    tmp_ctd.replace(dst_ctd)
+                    ctd_path = dst_ctd
+            except Exception:
+                ctd_path = None
+        if ctd_path is None:
+            return None
+        try:
+            opts = ort.SessionOptions()
+            opts.enable_cpu_mem_arena = True
+            opts.intra_op_num_threads = min(4, max(2, (os.cpu_count() or 4) // 2))
+            opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
+            sess = ort.InferenceSession(str(ctd_path), sess_options=opts, providers=["CPUExecutionProvider"])
+            try:
+                _CACHE_RAPIDOCR_HF["__ctd_session__"] = sess
+            except Exception:
+                pass
+        except Exception:
+            return None
+
+    try:
+        size = 1024
+        scale = min(size / max(1, W_im), size / max(1, H_im))
+        nw, nh = max(1, int(round(W_im * scale))), max(1, int(round(H_im * scale)))
+        canvas = Image.new("RGB", (size, size), (114, 114, 114))
+        px_pad, py_pad = (size - nw) // 2, (size - nh) // 2
+        bilinear = getattr(getattr(Image, "Resampling", Image), "BILINEAR", 2)
+        canvas.paste(im_goc.resize((nw, nh), bilinear), (px_pad, py_pad))
+        tensor = np.asarray(canvas, dtype=np.float32).transpose(2, 0, 1)[None] / 255.0
+        outs = sess.run(None, {sess.get_inputs()[0].name: tensor})
+        if len(outs) < 2:
+            return None
+        seg_1024 = outs[1][0, 0]
+        try:
+            if len(_CACHE_CTD_SEG_MASK) >= 16:
+                _CACHE_CTD_SEG_MASK.pop(next(iter(_CACHE_CTD_SEG_MASK)), None)
+            _CACHE_CTD_SEG_MASK[(W_im, H_im)] = (seg_1024, px_pad, py_pad, scale)
+        except Exception:
+            pass
+        seg_crop = seg_1024[py_pad : py_pad + nh, px_pad : px_pad + nw].astype(np.float32)
+        seg_full = cv2.resize(seg_crop, (W_im, H_im), interpolation=cv2.INTER_LINEAR)
+        if len(_CTD_SEG_PAGE_CACHE) >= 8:
+            _CTD_SEG_PAGE_CACHE.pop(next(iter(_CTD_SEG_PAGE_CACHE)), None)
+        _CTD_SEG_PAGE_CACHE[cache_key] = seg_full
+        return seg_full
+    except Exception:
+        return None
+
+
+def _tao_mat_na_chu_noi_ctd_chuan(
+    gray_full,
+    seg_full,
+    bx: int,
+    by: int,
+    bw: int,
+    bh: int,
+    la_dao_chieu_halo: bool = False,
+    vung_cam_roi: bytearray | None = None,
+    rx0: int = 0,
+    ry0: int = 0,
+    rw: int = 0,
+    rh: int = 0,
+    mang_muc_bv_roi: bytearray | None = None,
+    vung_trang_tranh_roi: bytearray | None = None,
+    ds_dong_con: list[dict] | None = None,
+):
+    """
+    Tạo mặt nạ phẫu thuật nét chữ + viền halo chuẩn xác đến từng điểm ảnh từ UNet `seg_full` của
+    `comic-text-detector` kết hợp bảo vệ nét vẽ (`mang_muc_bv_roi`) & da/nền trắng (`open_white`):
+    - Giới hạn hạt giống lõi chữ trong phạm vi dòng con OCR (`ds_dong_con`) để không ăn nhầm SFX lân cận (`カチャ`) hay miệng/mắt nhân vật.
+    - Khóa cứng 100% mạng nét vẽ tranh liên thông từ ngoài vào (`art_protect`: ngón tay, xương hàm, vành tai, điếu thuốc, quân mạt chược, speedlines).
+    - Không bao giờ nở halo tràn qua da/ngón tay/mảng trắng hở (`open_white`), chỉ xóa đúng nét chữ + viền halo trên nền xám/tối!
+    """
+    import cv2  # type: ignore
+    import numpy as np  # type: ignore
+
+    H_f, W_f = gray_full.shape
+    x0 = max(0, bx - 18)
+    y0 = max(0, by - 18)
+    x1 = min(W_f, bx + bw + 20)
+    y1 = min(H_f, by + bh + 18)
+    # Chỉ chặn tại đường viền khung tranh thực sự (có khe rãnh trắng `>= 235` phía ngoài đường viền),
+    # tuyệt đối không chặn nhầm vào mảng tóc đen đặc phía trên chữ nổi ('I'M GONNA...', 'A single safe...'):
+    for xx in range(bx - 1, x0 - 1, -1):
+        if float(np.mean(gray_full[by : by + bh, xx] <= 95)) >= 0.75:
+            if xx >= 4 and any(float(np.mean(gray_full[by : by + bh, xx - k_g] >= 235)) >= 0.55 for k_g in range(2, min(7, xx + 1))):
+                x0 = min(bx, xx + 2)
+                break
+    for xx in range(bx + bw, x1):
+        if float(np.mean(gray_full[by : by + bh, xx] <= 95)) >= 0.75:
+            if xx + 4 < W_f and any(float(np.mean(gray_full[by : by + bh, xx + k_g] >= 235)) >= 0.55 for k_g in range(2, min(7, W_f - xx))):
+                x1 = max(bx + bw, xx - 1)
+                break
+    for yy in range(by - 1, y0 - 1, -1):
+        if float(np.mean(gray_full[yy, bx : bx + bw] <= 95)) >= 0.75:
+            if yy >= 4 and any(float(np.mean(gray_full[yy - k_g, bx : bx + bw] >= 235)) >= 0.55 for k_g in range(2, min(7, yy + 1))):
+                y0 = min(by, yy + 2)
+                break
+    for yy in range(by + bh, y1):
+        if float(np.mean(gray_full[yy, bx : bx + bw] <= 95)) >= 0.75:
+            if yy + 4 < H_f and any(float(np.mean(gray_full[yy + k_g, bx : bx + bw] >= 235)) >= 0.55 for k_g in range(2, min(7, H_f - yy))):
+                y1 = max(by + bh, yy - 1)
+                break
+    if x1 - x0 < 6 or y1 - y0 < 6:
+        return x0, y0, x1, y1, None
+
+    s_sub = seg_full[y0:y1, x0:x1]
+    g_sub = gray_full[y0:y1, x0:x1]
+    sh, sw = g_sub.shape
+
+    forbid = np.zeros((sh, sw), dtype=bool)
+    art_protect = np.zeros((sh, sw), dtype=bool)
+    vung_trang_pre = np.zeros((sh, sw), dtype=bool)
+    if rw > 0 and rh > 0 and (vung_cam_roi is not None or mang_muc_bv_roi is not None or vung_trang_tranh_roi is not None):
+        for py_s in range(sh):
+            ry_i = (y0 + py_s) - ry0
+            if 0 <= ry_i < rh:
+                b_r = ry_i * rw
+                for px_s in range(sw):
+                    rx_i = (x0 + px_s) - rx0
+                    if 0 <= rx_i < rw:
+                        p_idx = b_r + rx_i
+                        if vung_cam_roi is not None and vung_cam_roi[p_idx]:
+                            forbid[py_s, px_s] = True
+                        if mang_muc_bv_roi is not None and mang_muc_bv_roi[p_idx]:
+                            art_protect[py_s, px_s] = True
+                        if vung_trang_tranh_roi is not None and vung_trang_tranh_roi[p_idx]:
+                            vung_trang_pre[py_s, px_s] = True
+
+    # Vùng cho phép gieo hạt giống lõi chữ bám sát các dòng con OCR (`ds_dong_con`) để không lan sang SFX (`カチャ`) hay miệng/tai ngoài hộp dòng:
+    line_seed_zone = np.zeros((sh, sw), dtype=bool)
+    line_grow_zone = np.zeros((sh, sw), dtype=bool)
+    dong_list = ds_dong_con if (isinstance(ds_dong_con, list) and len(ds_dong_con) > 0) else [{"x": bx, "y": by, "w": bw, "h": bh}]
+    for dc in dong_list:
+        dx0_s = max(0, int(round(dc.get("x", bx))) - x0 - 4)
+        dy0_s = max(0, int(round(dc.get("y", by))) - y0 - 4)
+        dx1_s = min(sw, int(round(dc.get("x", bx) + dc.get("w", bw))) - x0 + 5)
+        dy1_s = min(sh, int(round(dc.get("y", by) + dc.get("h", bh))) - y0 + 5)
+        if dx1_s > dx0_s and dy1_s > dy0_s:
+            line_seed_zone[dy0_s:dy1_s, dx0_s:dx1_s] = True
+        gx0_s = max(0, dx0_s - 5)
+        gy0_s = max(0, dy0_s - 4)
+        gx1_s = min(sw, dx1_s + 7)
+        gy1_s = min(sh, dy1_s + 5)
+        if gx1_s > gx0_s and gy1_s > gy0_s:
+            line_grow_zone[gy0_s:gy1_s, gx0_s:gx1_s] = True
+
+    # Khóa thêm các đường nét mực tranh liên thông từ ngoài `line_grow_zone` đi xuyên vào (ngón tay, xương hàm, vành tai, cạnh mạt chược, speedlines):
+    if not la_dao_chieu_halo:
+        dark_ink = (g_sub <= 142).astype(np.uint8)
+        nl_ik, lbl_ik, st_ik, _ = cv2.connectedComponentsWithStats(dark_ink, connectivity=8)
+        for ik_id in range(1, nl_ik):
+            ik_m = lbl_ik == ik_id
+            out_cnt = int(np.sum(ik_m & (~line_seed_zone)))
+            ix_l, iy_l = int(st_ik[ik_id, cv2.CC_STAT_LEFT]), int(st_ik[ik_id, cv2.CC_STAT_TOP])
+            iw_l, ih_l = int(st_ik[ik_id, cv2.CC_STAT_WIDTH]), int(st_ik[ik_id, cv2.CC_STAT_HEIGHT])
+            touches_crop_edge = ix_l == 0 or iy_l == 0 or (ix_l + iw_l) >= sw or (iy_l + ih_l) >= sh
+            if (touches_crop_edge and out_cnt >= 6) or out_cnt >= 18:
+                nguong_seg_giu_net = 0.62 if out_cnt >= 28 else 0.45
+                art_line_px = ik_m & ((~line_seed_zone) | (s_sub < nguong_seg_giu_net))
+                art_protect[art_line_px] = True
+
+    art_block = forbid | art_protect
+    core_seed = (s_sub >= 0.24) & line_seed_zone & (~art_block)
+    if int(core_seed.sum()) < 10:
+        return x0, y0, x1, y1, None
+    core = core_seed.astype(np.uint8)
+
+    k3 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    if la_dao_chieu_halo:
+        for _ in range(3):
+            core_d = cv2.dilate(core, k3, iterations=1)
+            core = np.where((core_d > 0) & line_grow_zone & (~art_block) & (g_sub >= 130) & (s_sub >= 0.06), 1, core).astype(np.uint8)
+        non_core_art = ((g_sub >= 225) & (core == 0) & (s_sub < 0.08)) | art_block
+        mask = core.copy()
+        for _ in range(5):
+            d1 = cv2.dilate(mask, k3, iterations=1)
+            valid_h = (d1 > 0) & (mask == 0) & (~non_core_art) & (g_sub <= 118)
+            if not np.any(valid_h):
+                break
+            mask[valid_h] = 1
+        m_aa = cv2.dilate(mask, k3, iterations=1)
+        mask[(m_aa > 0) & (mask == 0) & (~non_core_art) & ((g_sub <= 145) | (s_sub >= 0.12))] = 1
+        return x0, y0, x1, y1, mask * 255
+
+    for _ in range(2):
+        core_d = cv2.dilate(core, k3, iterations=1)
+        core = np.where((core_d > 0) & line_grow_zone & (~art_block) & (g_sub <= 155) & (s_sub >= 0.08), 1, core).astype(np.uint8)
+
+    # Bắt trọn dấu câu nhỏ (`.`, `,`, `!`, `...` ở cuối câu như `hand...`, `DISCARD,`, `TOWN!!`) nằm trong dòng chữ:
+    near_core = cv2.dilate(core, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (27, 13)), iterations=1)
+    dark_cand = ((g_sub <= 118) & (core == 0) & line_grow_zone & (~art_block)).astype(np.uint8)
+    nl_p, lbl_p, st_p, _ = cv2.connectedComponentsWithStats(dark_cand, connectivity=8)
+    for pid in range(1, nl_p):
+        pa = int(st_p[pid, cv2.CC_STAT_AREA])
+        pw_p, ph_p = int(st_p[pid, cv2.CC_STAT_WIDTH]), int(st_p[pid, cv2.CC_STAT_HEIGHT])
+        if 2 <= pa <= 75 and max(pw_p, ph_p) <= 16:
+            comp_m = lbl_p == pid
+            if np.any(near_core[comp_m] > 0):
+                dil_p = cv2.dilate(comp_m.astype(np.uint8), k3, iterations=1) > 0
+                ring_p = dil_p & (~comp_m)
+                if ring_p.any() and float(np.mean(g_sub[ring_p] >= 204)) >= 0.68:
+                    core[comp_m] = 1
+
+    blur3 = cv2.blur(g_sub.astype(np.float32), (3, 3))
+    non_core_dark = ((g_sub <= 142) & (core == 0) & (s_sub < 0.12)) | art_block
+    # Quanh các mảng tóc/áo đen ĐẶC thực sự (`solid_blk_raw`: sống sót sau phép co `3x3`, nên loại bỏ 100% nét viền mảnh 1-2px của ngón tay/khuôn mặt!),
+    # đóng cầu nối hẹp giữa các lọn tóc đen (`solid_blk_closed`) rồi chỉ lấy vành sát 3px (`7x7`) để không bao giờ tràn sang nền/trán trắng bên cạnh:
+    solid_blk_raw = cv2.erode(((g_sub <= 30) & (core == 0)).astype(np.uint8), k3, iterations=1)
+    solid_blk_seed = np.zeros_like(solid_blk_raw)
+    nl_sb, lbl_sb, st_sb, _ = cv2.connectedComponentsWithStats(solid_blk_raw, connectivity=8)
+    for sbid in range(1, nl_sb):
+        if int(st_sb[sbid, cv2.CC_STAT_AREA]) >= 20:
+            solid_blk_seed[lbl_sb == sbid] = 1
+    solid_blk_closed = cv2.morphologyEx(
+        solid_blk_seed, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (23, 19))
+    )
+    near_solid_black = cv2.dilate(solid_blk_closed, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)), iterations=1) > 0
+
+    # Nhận diện mọi mảng trắng thực sự của tranh gốc (`open_white`: da ngón tay, trán, gò má, vành tai, mặt quân mạt chược, nền tường trắng):
+    # Thay tạm `core` bằng `255` khi tính `blur3_nc` để nét chữ đen không tạo rãnh `blur3 < 238` giả quanh từng con chữ, đồng thời vẫn loại bỏ 100% hạt screentone 4x4!
+    core_buf5 = cv2.dilate(core, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11)), iterations=1)
+    g_no_core = np.where(core > 0, 255, g_sub)
+    blur3_nc = cv2.blur(g_no_core.astype(np.float32), (3, 3))
+    white_or_core = (((g_sub >= 242) & (blur3_nc >= 238) & (~non_core_dark)) | (core > 0)).astype(np.uint8)
+    white_or_core[(core_buf5 > 0) & near_solid_black] = 0
+    k9_open = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+    w_eroded = cv2.erode(white_or_core, k9_open, iterations=1)
+    w_opened_seed = np.zeros_like(w_eroded)
+    nl_wo, lbl_wo, st_wo, _ = cv2.connectedComponentsWithStats(w_eroded, connectivity=4)
+    for woid in range(1, nl_wo):
+        if int(st_wo[woid, cv2.CC_STAT_AREA]) >= 6:
+            wm_o = lbl_wo == woid
+            wx_c, wy_c = int(st_wo[woid, cv2.CC_STAT_LEFT]), int(st_wo[woid, cv2.CC_STAT_TOP])
+            ww_c, wh_c = int(st_wo[woid, cv2.CC_STAT_WIDTH]), int(st_wo[woid, cv2.CC_STAT_HEIGHT])
+            touches_edge = wx_c <= 4 or wy_c <= 4 or (wx_c + ww_c) >= sw - 4 or (wy_c + wh_c) >= sh - 4
+            far_px = int(np.sum(wm_o & (core_buf5 == 0)))
+            if touches_edge or far_px >= 6:
+                w_opened_seed[wm_o] = 1
+    open_white = (
+        (cv2.dilate(w_opened_seed, k9_open, iterations=1) > 0)
+        & (g_sub >= 240)
+        & (core == 0)
+        & (~non_core_dark)
+        & (~near_solid_black)
+    ).astype(np.uint8)
+
+    bg_outside = g_sub[(core_buf5 == 0) & (~forbid)]
+    bg_med = float(np.median(bg_outside)) if bg_outside.size >= 16 else 190.0
+    halo_thr = min(210.0, max(182.0, bg_med + 18.0))
+
+    mask = core.copy()
+    # Trên vùng da/nền trắng (`open_white > 0`), chỉ gom đúng 1px viền khử răng cưa xám (`g < 245`) sát lõi chữ, bảo toàn 100% mảng trắng & nét ngón tay/mặt!
+    d1_core = cv2.dilate(core, k3, iterations=1)
+    mask[(d1_core > 0) & (mask == 0) & (~non_core_dark) & (open_white > 0) & (g_sub < 245)] = 1
+
+    # Trên vùng screentone xám / tóc đen (`open_white == 0`), nở tối đa 5-6px để bắt sạch vành halo trắng bao quanh chữ:
+    for _ in range(6):
+        d1 = cv2.dilate(mask, k3, iterations=1)
+        grow = (d1 > 0) & (mask == 0) & (~non_core_dark) & (open_white == 0)
+        cond_halo = (g_sub >= halo_thr) | (near_solid_black & (g_sub >= 82))
+        valid_h = grow & cond_halo
+        if not np.any(valid_h):
+            break
+        mask[valid_h] = 1
+
+    # Lấp lỗ kín nhỏ thực sự nằm trong bụng chữ cái ('O', 'P', 'A', '4', '0', 'B', 'a', 'e') — cấm tuyệt đối lấp qua `open_white` hay `non_core_dark`!
+    inv = (1 - mask).astype(np.uint8)
+    nl_h, lbl_h, st_h, _ = cv2.connectedComponentsWithStats(inv, connectivity=4)
+    for hid in range(1, nl_h):
+        ha = int(st_h[hid, cv2.CC_STAT_AREA])
+        hx, hy = int(st_h[hid, cv2.CC_STAT_LEFT]), int(st_h[hid, cv2.CC_STAT_TOP])
+        hw_c, hh_c = int(st_h[hid, cv2.CC_STAT_WIDTH]), int(st_h[hid, cv2.CC_STAT_HEIGHT])
+        if hx > 0 and hy > 0 and hx + hw_c < sw and hy + hh_c < sh and ha <= 85 and max(hw_c, hh_c) <= 22:
+            hm = lbl_h == hid
+            if not np.any(non_core_dark[hm]) and not np.any(open_white[hm] > 0):
+                mask[hm] = 1
+
+    m_aa = cv2.dilate(mask, k3, iterations=1)
+    ring_aa = (
+        (m_aa > 0)
+        & (mask == 0)
+        & (~non_core_dark)
+        & (open_white == 0)
+        & ((g_sub >= 145) | (s_sub >= 0.14) | (near_solid_black & (g_sub >= 48)))
+    )
+    mask[ring_aa] = 1
+    return x0, y0, x1, y1, mask * 255
+
+
+def _khoi_phuc_hat_screentone_sau_lama(orig_crop, lama_crop, mask_crop):
+    """
+    Giữ nguyên 100% bố cục màu nền, ranh giới sáng/tối, tia tốc độ (speedlines), lọn tóc và nét vẽ do
+    `lama-manga-dynamic.onnx` tái tạo, đồng thời khôi phục hạt screentone `4x4` sắc nét đồng pha trên các
+    mảng xám phẳng để triệt tiêu hoàn toàn hiện tượng mịn/nhòe nhẹ của mạng nơ-ron khi phóng to 200%!
+    """
+    import cv2  # type: ignore
+    import numpy as np  # type: ignore
+
+    sat = orig_crop.max(axis=2).astype(np.int16) - orig_crop.min(axis=2).astype(np.int16)
+    if float(np.percentile(sat, 90)) > 24.0:
+        return lama_crop
+
+    out = lama_crop.copy()
+    ch, cw, _ = out.shape
+    m_bool = mask_crop > 0
+    if not np.any(m_bool):
+        return out
+
+    orig_g = cv2.cvtColor(orig_crop, cv2.COLOR_RGB2GRAY).astype(np.float32)
+    lama_g = cv2.cvtColor(lama_crop, cv2.COLOR_RGB2GRAY).astype(np.float32)
+
+    k3 = np.ones((3, 3), np.uint8)
+    k5 = np.ones((5, 5), np.uint8)
+    unavail = cv2.dilate(m_bool.astype(np.uint8), k5, iterations=1) > 0
+    unavail_5 = cv2.dilate(unavail.astype(np.uint8), k5, iterations=1) > 0
+
+    lama_rng5 = cv2.dilate(lama_g, k5) - cv2.erode(lama_g, k5)
+    lama_mean5 = cv2.blur(lama_g, (5, 5))
+    orig_rng3 = cv2.dilate(orig_g, k3) - cv2.erode(orig_g, k3)
+    orig_mean5 = cv2.blur(orig_g, (5, 5))
+
+    valid_st_src = (~unavail_5) & (orig_rng3 >= 14.0) & (orig_rng3 <= 165.0) & (orig_mean5 >= 62.0) & (orig_mean5 <= 238.0)
+
+    jet_blk_nb = cv2.blur(((orig_g <= 12.0) & (~m_bool)).astype(np.float32), (17, 17)) / np.maximum(0.05, cv2.blur((~m_bool).astype(np.float32), (17, 17)))
+    snap_black = m_bool & (((lama_g <= 18.0) & (lama_rng5 <= 28.0)) | ((lama_g <= 48.0) & (jet_blk_nb >= 0.65)))
+    snap_white = m_bool & (lama_g >= 246.0) & (lama_rng5 <= 22.0)
+    out[snap_black] = 0
+    out[snap_white] = 255
+
+    need_grain = m_bool & (~snap_black) & (~snap_white) & (lama_mean5 >= 68.0) & (lama_mean5 <= 234.0) & (lama_rng5 <= 28.0)
+    ys, xs = np.where(need_grain)
+    if ys.size > 0 and np.any(valid_st_src):
+        dirs_16 = (
+            (0, 1), (0, -1), (1, 0), (-1, 0),
+            (1, 1), (-1, 1), (1, -1), (-1, -1),
+            (2, 1), (-2, 1), (2, -1), (-2, -1),
+            (1, 2), (-1, 2), (1, -2), (-1, -2),
+        )
+        off_x = np.zeros((ch, cw), dtype=np.int16)
+        off_y = np.zeros((ch, cw), dtype=np.int16)
+        has_off = np.zeros((ch, cw), dtype=bool)
+
+        for py, px in zip(ys.tolist(), xs.tolist()):
+            tgt = float(lama_mean5[py, px])
+            best_cost = 1e9
+            bx_o = by_o = 0
+            for ny_n, nx_n in ((py, px - 1), (py - 1, px)):
+                if ny_n >= 0 and nx_n >= 0 and has_off[ny_n, nx_n]:
+                    ox_c = int(off_x[ny_n, nx_n])
+                    oy_c = int(off_y[ny_n, nx_n])
+                    sy_c, sx_c = py + oy_c, px + ox_c
+                    if 2 <= sy_c < ch - 2 and 2 <= sx_c < cw - 2 and valid_st_src[sy_c, sx_c]:
+                        diff_l = abs(float(orig_mean5[sy_c, sx_c]) - tgt)
+                        if diff_l <= 13.0:
+                            c_nb = ((ox_c * ox_c + oy_c * oy_c) ** 0.5) * 0.18 + diff_l * 1.4 - 1.5
+                            if c_nb < best_cost:
+                                best_cost = c_nb
+                                bx_o, by_o = ox_c, oy_c
+
+            if best_cost > 6.0:
+                for dx_d, dy_d in dirs_16:
+                    nd = (dx_d * dx_d + dy_d * dy_d) ** 0.5
+                    for st in range(1, 26):
+                        if st * 4.0 * nd * 0.18 >= best_cost:
+                            break
+                        ox_c = dx_d * 4 * st
+                        oy_c = dy_d * 4 * st
+                        sy_c, sx_c = py + oy_c, px + ox_c
+                        if sy_c < 2 or sy_c >= ch - 2 or sx_c < 2 or sx_c >= cw - 2:
+                            break
+                        if valid_st_src[sy_c, sx_c]:
+                            diff_l = abs(float(orig_mean5[sy_c, sx_c]) - tgt)
+                            if diff_l <= 15.0:
+                                c_cand = (st * 4.0 * nd) * 0.18 + diff_l * 1.4
+                                if c_cand < best_cost:
+                                    best_cost = c_cand
+                                    bx_o, by_o = ox_c, oy_c
+                                    if best_cost <= 4.5:
+                                        break
+
+            if best_cost < 1e8:
+                off_x[py, px] = bx_o
+                off_y[py, px] = by_o
+                has_off[py, px] = True
+                sy_f, sx_f = py + by_o, px + bx_o
+                dot_delta = float(orig_g[sy_f, sx_f]) - float(orig_mean5[sy_f, sx_f])
+                v_new = int(np.clip(round(tgt + dot_delta), 0, 255))
+                out[py, px] = (v_new, v_new, v_new)
+
+    # Nuốt gọn đốm sáng nhỏ cô lập hoàn toàn trong mảng tóc đen tuyền `(0, 0, 0)`:
+    out_g = cv2.cvtColor(out, cv2.COLOR_RGB2GRAY)
+    non_blk = (out_g > 8).astype(np.uint8)
+    nl_b, lbl_b, st_b, _ = cv2.connectedComponentsWithStats(non_blk, connectivity=8)
+    for bid in range(1, nl_b):
+        ba = int(st_b[bid, cv2.CC_STAT_AREA])
+        bx_b, by_b = int(st_b[bid, cv2.CC_STAT_LEFT]), int(st_b[bid, cv2.CC_STAT_TOP])
+        bw_b, bh_b = int(st_b[bid, cv2.CC_STAT_WIDTH]), int(st_b[bid, cv2.CC_STAT_HEIGHT])
+        if bx_b > 1 and by_b > 1 and bx_b + bw_b < cw - 1 and by_b + bh_b < ch - 1 and ba <= 110:
+            bm = lbl_b == bid
+            if np.any(m_bool[bm]):
+                out[bm] = 0
+    return out
+
+
+def _chay_lama_va_khoi_phuc_screentone_chu_noi(sess_lama, rgb_base, full_mask_noi, active_boxes: list[tuple[int, int, int, int]]):
+    """
+    Gom cụm các mặt nạ chữ nổi gần nhau, chạy `lama-manga-dynamic.onnx` ở độ phân giải gốc (pad bội số 8,
+    không resize làm nhòe ảnh) kèm khôi phục hạt screentone `4x4` đồng pha.
+    """
+    import numpy as np  # type: ignore
+
+    H_f, W_f = full_mask_noi.shape
+    clusters = [[max(0, ax0 - 12), max(0, ay0 - 12), min(W_f, ax1 + 12), min(H_f, ay1 + 12)] for (ax0, ay0, ax1, ay1) in active_boxes]
+    merged = True
+    while merged:
+        merged = False
+        nxt = []
+        for c in clusters:
+            for k in nxt:
+                if not (c[2] <= k[0] or c[0] >= k[2] or c[3] <= k[1] or c[1] >= k[3]):
+                    k[0], k[1] = min(k[0], c[0]), min(k[1], c[1])
+                    k[2], k[3] = max(k[2], c[2]), max(k[3], c[3])
+                    merged = True
+                    break
+            else:
+                nxt.append(c)
+        clusters = nxt
+
+    in_names = [i.name for i in sess_lama.get_inputs()]
+    out_rgb = rgb_base.copy()
+    for cx0, cy0, cx1, cy1 in clusters:
+        pad_ctx = max(48, min(72, int(min(cx1 - cx0, cy1 - cy0) * 0.36)))
+        px0, py0 = max(0, cx0 - pad_ctx), max(0, cy0 - pad_ctx)
+        px1, py1 = min(W_f, cx1 + pad_ctx), min(H_f, cy1 + pad_ctx)
+        sub_m = full_mask_noi[py0:py1, px0:px1]
+        if sub_m.max() == 0:
+            continue
+        sub_orig = out_rgb[py0:py1, px0:px1]
+        h_c, w_c = sub_m.shape
+        ph, pw = (-h_c) % 8, (-w_c) % 8
+        img_f = sub_orig.astype(np.float32).transpose(2, 0, 1)[None] / 255.0
+        msk_f = (sub_m > 0).astype(np.float32)[None, None]
+        if ph or pw:
+            img_f = np.pad(img_f, [(0, 0), (0, 0), (0, ph), (0, pw)], mode="edge")
+            msk_f = np.pad(msk_f, [(0, 0), (0, 0), (0, ph), (0, pw)], mode="edge")
+        pred = sess_lama.run(None, {in_names[0]: img_f, in_names[1]: msk_f})[0][0, :, :h_c, :w_c]
+        if pred.max() <= 1.5:
+            pred = pred * 255.0
+        pred_u8 = np.clip(np.round(pred.transpose(1, 2, 0)), 0, 255).astype(np.uint8)
+        comp = sub_orig.copy()
+        mb = sub_m > 0
+        comp[mb] = pred_u8[mb]
+        comp = _khoi_phuc_hat_screentone_sau_lama(sub_orig, comp, sub_m)
+        out_rgb[py0:py1, px0:px1][mb] = comp[mb]
+    return out_rgb
+
+
+def _inpaint_vung_lama_onnx_neu_co(px_anh, W: int, H: int, x_goc: int, y_goc: int, w_goc: int, h_goc: int) -> tuple[int, int, int] | None:
+    """
+    Selective LaMa Neural Inpainting cục bộ (`lama-manga-dynamic.onnx` ở độ phân giải gốc bội số 8):
+    Tái tạo nét tóc, vạt áo, tia tốc độ và screentone dưới vùng chữ nổi / SFX không qua resize làm nhòe.
+    Trả `None` nếu chưa cài đặt `lama.onnx` để tự động chuyển sang 3-Region Harmonic Inpainting.
+    """
+    if Image is None:
+        return None
+    sess = _lay_lama_onnx_session()
+    if sess is None:
+        return None
+    try:
+        import numpy as np  # type: ignore
+
+        pad = max(44, int(max(w_goc, h_goc) * 0.45))
+        cx0, cy0 = max(0, x_goc - pad), max(0, y_goc - pad)
+        cx1, cy1 = min(W, x_goc + w_goc + pad), min(H, y_goc + h_goc + pad)
+        cw, ch = cx1 - cx0, cy1 - cy0
+        if cw < 16 or ch < 16:
+            return None
+
+        crop_arr = np.zeros((ch, cw, 3), dtype=np.uint8)
+        mask_arr = np.zeros((ch, cw), dtype=np.uint8)
+        r_sum = g_sum = b_sum = cnt_bg = 0
+        for yy in range(ch):
+            for xx in range(cw):
+                rgb = px_anh[cx0 + xx, cy0 + yy]
+                crop_arr[yy, xx] = rgb
+                if (x_goc - cx0) <= xx < (x_goc + w_goc - cx0) and (y_goc - cy0) <= yy < (y_goc + h_goc - cy0):
+                    mask_arr[yy, xx] = 255
+                else:
+                    r_sum += rgb[0]
+                    g_sum += rgb[1]
+                    b_sum += rgb[2]
+                    cnt_bg += 1
+
+        ph, pw = (-ch) % 8, (-cw) % 8
+        in_img = crop_arr.astype(np.float32).transpose(2, 0, 1)[None] / 255.0
+        in_msk = (mask_arr > 0).astype(np.float32)[None, None]
+        if ph or pw:
+            in_img = np.pad(in_img, [(0, 0), (0, 0), (0, ph), (0, pw)], mode="edge")
+            in_msk = np.pad(in_msk, [(0, 0), (0, 0), (0, ph), (0, pw)], mode="edge")
+        in_names = [i.name for i in sess.get_inputs()]
+        out_arr = sess.run(None, {in_names[0]: in_img, in_names[1]: in_msk})[0][0, :, :ch, :cw]
+        if out_arr.max() <= 1.5:
+            out_arr = out_arr * 255.0
+        out_u8 = np.clip(np.round(out_arr.transpose(1, 2, 0)), 0, 255).astype(np.uint8)
+        out_u8 = _khoi_phuc_hat_screentone_sau_lama(crop_arr, out_u8, mask_arr)
+        for yy in range(y_goc - cy0, y_goc + h_goc - cy0):
+            for xx in range(x_goc - cx0, x_goc + w_goc - cx0):
+                if 0 <= xx < cw and 0 <= yy < ch:
+                    px_anh[cx0 + xx, cy0 + yy] = (int(out_u8[yy, xx, 0]), int(out_u8[yy, xx, 1]), int(out_u8[yy, xx, 2]))
+        if cnt_bg > 0:
+            return (r_sum // cnt_bg, g_sum // cnt_bg, b_sum // cnt_bg)
+        return (245, 245, 245)
+    except Exception:
+        return None
+
+
 def xoa_chu_va_ve_ban_dich_tren_anh(
     img_bytes: bytes,
     ds_vung: list[dict],
@@ -200,7 +813,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
 ) -> bytes:
     """
     Thực hiện xoá sạch chữ gốc trong lòng bong bóng (2D Connected-Component Flood-Fill +
-    Rào chắn lãnh thổ Voronoi cho bong bóng đôi + 4-Boundary Harmonic Inpainting cho SFX)
+    Rào chắn lãnh thổ Voronoi cho bong bóng đôi + Mask-Guided Manga-LaMa ONNX + Screentone Grain cho chữ nổi)
     và trình bày bản dịch ngay trên máy khách Windows.
     """
     if Image is None:
@@ -219,6 +832,23 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
         anh.save(out, format="JPEG", quality=92)
         return out.getvalue()
 
+    lama_sess_trang = _lay_lama_onnx_session()
+    ctd_seg_full_trang = _lay_ctd_seg_map_trang(anh, img_bytes)
+    anh_goc_rgb_np = None
+    gray_goc_np = None
+    full_mask_lama_noi = None
+    ds_hop_lama_noi: list[tuple[int, int, int, int]] = []
+    if lama_sess_trang is not None:
+        try:
+            import cv2 as _cv2_init  # type: ignore
+            import numpy as _np_init  # type: ignore
+
+            anh_goc_rgb_np = _np_init.asarray(anh, dtype=_np_init.uint8).copy()
+            gray_goc_np = _cv2_init.cvtColor(anh_goc_rgb_np, _cv2_init.COLOR_RGB2GRAY)
+            full_mask_lama_noi = _np_init.zeros((H, W), dtype=_np_init.uint8)
+        except Exception:
+            lama_sess_trang = None
+
     # Bước A: Xoá sạch chữ gốc trong lòng từng bong bóng & xác định hộp xếp chữ nội tiếp
     hop_ve_chu = []
     for idx_v, v in enumerate(vung_hop_le):
@@ -229,7 +859,11 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
         txt_dich = str(v.get("ban_dich") or "").strip()
 
         if v.get("inpaint_sfx") or txt_dich == "[XOA_SFX]":
-            bg_r, bg_g, bg_b = _inpaint_vung_nen_phuc_tap_harmonic(px_anh, W, H, x_goc, y_goc, w_goc, h_goc)
+            lama_bg = _inpaint_vung_lama_onnx_neu_co(px_anh, W, H, x_goc, y_goc, w_goc, h_goc)
+            if lama_bg is not None:
+                bg_r, bg_g, bg_b = lama_bg
+            else:
+                bg_r, bg_g, bg_b = _inpaint_vung_nen_phuc_tap_harmonic(px_anh, W, H, x_goc, y_goc, w_goc, h_goc)
             if txt_dich and txt_dich != "[XOA_SFX]":
                 lum_bg = 0.299 * bg_r + 0.587 * bg_g + 0.114 * bg_b
                 hop_ve_chu.append(
@@ -394,7 +1028,11 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                 # - Khi ở ngoài xa nét chữ (`not co_hat_den`): bắt buộc `tb_lum >= 222` hoặc `dem_trang_n >= 7` để loại trừ 100% hạt cát screentone.
                 # - Khi nằm sát cạnh nét chữ đen (`co_hat_den == True`): 3-5 ô trong cửa sổ 3x3 bị chiếm bởi chính nét chữ đen (`lum <= 78`),
                 #   nên chỉ cần `dem_trang_n >= 4` là xác nhận chính xác viền halo trắng mảnh (2-3px) bao quanh chữ!
-                if lum_px[pos] >= 220.0 and sat_px[pos] <= 45 and (tb_lum >= 222.0 or dem_trang_n >= 7 or (co_hat_den and dem_trang_n >= 4)):
+                if lum_px[pos] >= 216.0 and sat_px[pos] <= 45 and (
+                    tb_lum >= 222.0
+                    or dem_trang_n >= 7
+                    or (co_hat_den and dem_trang_n >= 4)
+                ):
                     la_trang_dac[pos] = 1
                 if (lum_px[pos] >= 202.0 and (tb_lum >= 212.0 or dem_sang_n >= 7 or (co_hat_den and dem_sang_n >= 2))) or (
                     co_hat_den and lum_px[pos] >= 158.0 and sat_px[pos] <= 42
@@ -616,7 +1254,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                         continue
                     npk = nbk + nxk
                     if not ket_noi_bien[npk] and la_toi_net[npk]:
-                        if dx_k != 0 and (cx0 + 2) <= nxk < (cx1 - 2) and (cy0 + 6) <= nyk < (cy1 - 6):
+                        if dx_k != 0 and (cx0 - 8) <= nxk <= (cx1 + 14) and (cy0 - 8) <= nyk <= (cy1 + 10):
                             du_p = dd_p = 0
                             while du_p < 18 and yk - du_p - 1 >= 0 and la_toi_net[p_k - (du_p + 1) * rw]:
                                 du_p += 1
@@ -624,11 +1262,11 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                                 dd_p += 1
                             if du_p + dd_p + 1 >= 18:
                                 du_k = dd_k = 0
-                                while du_k < 10 and nyk - du_k - 1 >= 0 and la_toi_net[npk - (du_k + 1) * rw]:
+                                while du_k < 14 and nyk - du_k - 1 >= 0 and la_toi_net[npk - (du_k + 1) * rw]:
                                     du_k += 1
-                                while dd_k < 10 and nyk + dd_k + 1 < rh and la_toi_net[npk + (dd_k + 1) * rw]:
+                                while dd_k < 14 and nyk + dd_k + 1 < rh and la_toi_net[npk + (dd_k + 1) * rw]:
                                     dd_k += 1
-                                if du_k + dd_k + 1 <= 7:
+                                if du_k + dd_k + 1 <= 13:
                                     tr_tren = (nyk - du_k - 1 >= 0 and lum_px[npk - (du_k + 1) * rw] >= 220.0) or (
                                         nyk - du_k - 2 >= 0 and lum_px[npk - (du_k + 2) * rw] >= 220.0
                                     )
@@ -661,23 +1299,80 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
             + (ds_b_nen_thuc[min(len(ds_b_nen_thuc) - 1, int(len(ds_b_nen_thuc) * 0.8))] - ds_b_nen_thuc[int(len(ds_b_nen_thuc) * 0.2)])
         ) if ds_r_nen_thuc else 0
         la_nen_trang_mask = bytearray(N)
+        # Đo thêm độ phẳng theo TỪNG HÀNG NGANG (`do_lech_hang_med`, `iqr_rgb_hang_med`) để nhận diện chính xác
+        # các bóng thoại màu chuyển sắc dọc (Vertical Gradient Bubbles — ví dụ xanh ngọc -> trắng ở SBR Trang 036):
+        ds_lech_hang = []
+        ds_iqr_hang = []
+        row_ref_rgb: list[tuple[int, int, int]] = [(int(r_nen_trung_vi), int(g_nen_trung_vi), int(b_nen_trung_vi))] * rh
+        for py_m in range(rh):
+            bm_y = py_m * rw
+            rl_s, gl_s, bl_s, ll_s = [], [], [], []
+            # Ưu tiên lấy mẫu nền ít bão hoà (`sat <= 58, lum >= 185`) trong lòng hộp trước để không trộn mực chữ màu cyan/đỏ vào màu nền hàng:
+            for px_m in range(cx0, cx1, 2):
+                pm = bm_y + px_m
+                if not vung_cam[pm] and not la_toi_net[pm] and lum_px[pm] >= 185.0 and sat_px[pm] <= 58:
+                    ll_s.append(lum_px[pm])
+                    rl_s.append(r_roi[pm])
+                    gl_s.append(g_roi[pm])
+                    bl_s.append(b_roi[pm])
+            if len(ll_s) < 4:
+                rl_s, gl_s, bl_s, ll_s = [], [], [], []
+                for px_m in range(max(0, cx0 - 6), min(rw, cx1 + 6), 2):
+                    pm = bm_y + px_m
+                    if not vung_cam[pm] and not la_toi_net[pm] and lum_px[pm] >= 135.0:
+                        ll_s.append(lum_px[pm])
+                        rl_s.append(r_roi[pm])
+                        gl_s.append(g_roi[pm])
+                        bl_s.append(b_roi[pm])
+            if len(ll_s) >= 4:
+                ll_s.sort()
+                rl_s.sort()
+                gl_s.sort()
+                bl_s.sort()
+                mid_h = len(ll_s) // 2
+                row_ref_rgb[py_m] = (rl_s[mid_h], gl_s[mid_h], bl_s[mid_h])
+                if cy0 <= py_m < cy1 and (py_m - cy0) % 2 == 0:
+                    i2_h = int(len(ll_s) * 0.2)
+                    i8_h = min(len(ll_s) - 1, int(len(ll_s) * 0.8))
+                    ds_lech_hang.append(ll_s[i8_h] - ll_s[i2_h])
+                    ds_iqr_hang.append((rl_s[i8_h] - rl_s[i2_h]) + (gl_s[i8_h] - gl_s[i2_h]) + (bl_s[i8_h] - bl_s[i2_h]))
+        ds_lech_hang.sort()
+        ds_iqr_hang.sort()
+        do_lech_hang_med = ds_lech_hang[len(ds_lech_hang) // 2] if ds_lech_hang else do_lech_nen_thuc
+        iqr_rgb_hang_med = ds_iqr_hang[len(ds_iqr_hang) // 2] if ds_iqr_hang else iqr_rgb_nen_thuc
+        la_gradient_bong_muot = (
+            len(ds_lech_hang) >= 3
+            and lum_nen_trung_vi >= 160.0
+            and p20_nen_thuc >= 125.0
+            and do_lech_hang_med <= 14.5
+            and iqr_rgb_hang_med <= 48
+            and dem_net_xuyen_hop < 8
+        )
         cho_phep_kem_pastel = (
-            lum_nen_trung_vi >= 210.0
-            and sat_nen_trung_vi <= 96
-            and do_lech_nen_thuc <= 16.0
-            and iqr_rgb_nen_thuc <= 68
+            lum_nen_trung_vi >= 145.0
+            and sat_nen_trung_vi <= 220
+            and (
+                (do_lech_nen_thuc <= 18.0 and iqr_rgb_nen_thuc <= 72)
+                or la_gradient_bong_muot
+            )
         )
         for idx_m in range(N):
-            if not vung_cam[idx_m] and (
-                (lum_px[idx_m] >= 210.0 and sat_px[idx_m] <= 45)
-                or (
-                    cho_phep_kem_pastel
-                    and lum_px[idx_m] >= 198.0
-                    and sat_px[idx_m] <= 98
-                    and (abs(r_roi[idx_m] - r_nen_trung_vi) + abs(g_roi[idx_m] - g_nen_trung_vi) + abs(b_roi[idx_m] - b_nen_trung_vi)) <= 52
+            if not vung_cam[idx_m]:
+                rr_m, gg_m, bb_m = row_ref_rgb[idx_m // rw]
+                sai_ref = min(
+                    abs(r_roi[idx_m] - r_nen_trung_vi) + abs(g_roi[idx_m] - g_nen_trung_vi) + abs(b_roi[idx_m] - b_nen_trung_vi),
+                    abs(r_roi[idx_m] - rr_m) + abs(g_roi[idx_m] - gg_m) + abs(b_roi[idx_m] - bb_m),
                 )
-            ):
-                la_nen_trang_mask[idx_m] = 1
+                if (
+                    (lum_px[idx_m] >= 204.0 and sat_px[idx_m] <= 58)
+                    or (
+                        cho_phep_kem_pastel
+                        and lum_px[idx_m] >= (138.0 if la_gradient_bong_muot else max(125.0, lum_nen_trung_vi - 28.0))
+                        and sat_px[idx_m] <= min(235, max(sat_nen_trung_vi, 68 if la_gradient_bong_muot else 0) + 38)
+                        and sai_ref <= 58
+                    )
+                ):
+                    la_nen_trang_mask[idx_m] = 1
         la_nen_rong_roi = bytearray(N)
         pad_lt_x = max(12, int(round((cx1 - cx0) * 0.22)))
         pad_lt_y = max(16, int(round((cy1 - cy0) * 0.25)))
@@ -779,17 +1474,61 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                         or (lw >= 224.0 and sat_px[bw + px_w] <= 48 and lum_nen_trung_vi >= 222.0 and sat_nen_trung_vi <= 48)
                         or (
                             cho_phep_kem_pastel
-                            and lw >= 205.0
-                            and sat_px[bw + px_w] <= 98
-                            and (abs(r_roi[bw + px_w] - r_nen_trung_vi) + abs(g_roi[bw + px_w] - g_nen_trung_vi) + abs(b_roi[bw + px_w] - b_nen_trung_vi)) <= 48
+                            and lw >= max(125.0, lum_nen_trung_vi - 26.0)
+                            and sat_px[bw + px_w] <= min(235, sat_nen_trung_vi + 36)
+                            and (abs(r_roi[bw + px_w] - r_nen_trung_vi) + abs(g_roi[bw + px_w] - g_nen_trung_vi) + abs(b_roi[bw + px_w] - b_nen_trung_vi)) <= 52
                         )
                     ):
                         dem_trang_tinh_hop += 1
         ty_le_trang_tren_nen_sang = dem_trang_tinh_hop / max(1, dem_khong_toi_hop)
         du_trang_bong_dam = (ty_le_trang_dac >= 0.24 and ty_le_trang_tren_nen_sang >= 0.78 and lum_nen_trung_vi >= 224.0) or (
-            cho_phep_kem_pastel and ty_le_trang_tren_nen_sang >= 0.78 and do_lech_nen_thuc <= 16.0 and iqr_rgb_nen_thuc <= 68 and len(q_lt) >= dt_hop * 0.42
+            cho_phep_kem_pastel and (ty_le_trang_tren_nen_sang >= 0.76 or la_gradient_bong_muot) and (do_lech_nen_thuc <= 18.0 or la_gradient_bong_muot) and (iqr_rgb_nen_thuc <= 72 or la_gradient_bong_muot) and len(q_lt) >= dt_hop * 0.40
         )
-        la_nen_kem_sang_phang = (not nen_toi) and cho_phep_kem_pastel and (lum_nen_trung_vi >= 212.0) and (do_nhieu_hat < 18.0 or (sat_nen_trung_vi >= 6 and do_lech_nen_thuc <= 14.0)) and (ty_le_trang_dac >= 0.45 or du_trang_bong_dam)
+        la_nen_kem_sang_phang = (not nen_toi) and cho_phep_kem_pastel and (lum_nen_trung_vi >= 145.0) and (do_nhieu_hat < 18.0 or la_gradient_bong_muot or (sat_nen_trung_vi >= 6 and do_lech_nen_thuc <= 16.0)) and (ty_le_trang_dac >= 0.45 or du_trang_bong_dam)
+
+        # Với truyện màu có bóng thoại màu đậm / pastel / chuyển sắc (vàng, hồng, xanh ngọc, xanh dương...):
+        # Nếu mặt nạ trắng mặc định chưa phủ đủ lòng bóng (`len(q_lt) < dt_hop * 0.36`), thử lan truyền miền màu mượt khép kín
+        # từ các hạt giống nền sáng (`lum >= 132, not la_toi_net`) quanh tâm hộp chữ với bước nhảy màu liền kề `<= 26`:
+        if (la_nen_mau_thuc or sat_nen_trung_vi >= 8 or (so_mau_trung_binh / max(1, tong_mau)) >= 0.04) and len(q_lt) < max(75, int(dt_hop * 0.36)) and dem_net_xuyen_hop < 10:
+            sc_vis = bytearray(N)
+            q_sc = []
+            for py_s0 in range(max(2, int(tam_gy - ban_ry * 0.65)), min(rh - 2, int(tam_gy + ban_ry * 0.65) + 1), 2):
+                bs0 = py_s0 * rw
+                for px_s0 in range(max(2, int(tam_gx - ban_rx * 0.65)), min(rw - 2, int(tam_gx + ban_rx * 0.65) + 1), 2):
+                    ps0 = bs0 + px_s0
+                    if not vung_cam[ps0] and not la_toi_net[ps0] and lum_px[ps0] >= 132.0 and not sc_vis[ps0]:
+                        # Chỉ lấy hạt giống mượt cục bộ 3x3 (không nằm ngay mép chữ gắt)
+                        if (
+                            abs(r_roi[ps0] - r_roi[ps0 - 1]) + abs(g_roi[ps0] - g_roi[ps0 - 1]) + abs(b_roi[ps0] - b_roi[ps0 - 1]) <= 22
+                            and abs(r_roi[ps0] - r_roi[ps0 + 1]) + abs(g_roi[ps0] - g_roi[ps0 + 1]) + abs(b_roi[ps0] - b_roi[ps0 + 1]) <= 22
+                        ):
+                            sc_vis[ps0] = 1
+                            q_sc.append(ps0)
+            cham_bien_sc = False
+            hd_sc = 0
+            gh_sc = max(120, int(dt_hop * 4.8))
+            while hd_sc < len(q_sc):
+                psc = q_sc[hd_sc]
+                hd_sc += 1
+                xsc = psc % rw
+                ysc = psc // rw
+                if xsc <= 2 or xsc >= rw - 3 or ysc <= 2 or ysc >= rh - 3 or len(q_sc) > gh_sc:
+                    cham_bien_sc = True
+                    break
+                r0_c, g0_c, b0_c = r_roi[psc], g_roi[psc], b_roi[psc]
+                for npsc in (psc - 1, psc + 1, psc - rw, psc + rw):
+                    if sc_vis[npsc] or vung_cam[npsc] or la_toi_net[npsc] or lum_px[npsc] < 128.0:
+                        continue
+                    if abs(r_roi[npsc] - r0_c) + abs(g_roi[npsc] - g0_c) + abs(b_roi[npsc] - b0_c) <= 26:
+                        sc_vis[npsc] = 1
+                        q_sc.append(npsc)
+            if not cham_bien_sc and len(q_sc) >= max(80, int(dt_hop * 0.36)):
+                for psc in q_sc:
+                    la_nen_trang_mask[psc] = 1
+                    if not long_trang_roi[psc]:
+                        long_trang_roi[psc] = 1
+                        q_lt.append(psc)
+                so_lt_goc = len(q_lt)
 
         cham_bien_lt = 0
         chu_vi_roi = max(1, (rw + rh) * 2)
@@ -803,6 +1542,107 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                 cham_bien_lt += 1
             if long_trang_roi[py_k * rw + (rw - 1)] or (rw > 3 and (long_trang_roi[py_k * rw + (rw - 2)] or long_trang_roi[py_k * rw + (rw - 3)])):
                 cham_bien_lt += 1
+
+        # Nếu `long_trang_roi` khép kín 100% (`cham_bien_lt == 0`) trên truyện màu / bóng màu pastel / bóng chuyển sắc
+        # và được bao quanh bởi viền mực tối của bóng thoại (`ty_le_vien_toi_ngoai >= 0.62`),
+        # cập nhật thống kê nền trực tiếp từ lòng bóng sạch `q_lt` để không bị nhiễu bởi cây cối / quần áo ngoài rìa bóng nhỏ:
+        la_bong_mau_khep_kin = False
+        if (
+            cham_bien_lt == 0
+            and len(q_lt) >= 16
+            and (la_nen_mau_thuc or (so_mau_trung_binh / max(1, tong_mau)) >= 0.04 or sat_nen_trung_vi >= 10)
+        ):
+            # Nở tạm `lt_full` qua `la_nen_trang_mask` đến sát vách mực của bóng thoại trước khi kiểm tra chu vi tối:
+            lt_full = bytearray(long_trang_roi)
+            q_full = list(q_lt)
+            hd_f = 0
+            cham_f = False
+            gh_f = int(max(dt_hop * 6.5, 420))
+            while hd_f < len(q_full):
+                pf = q_full[hd_f]
+                hd_f += 1
+                xf = pf % rw
+                yf = pf // rw
+                if xf <= 2 or xf >= rw - 3 or yf <= 2 or yf >= rh - 3 or len(q_full) > gh_f:
+                    cham_f = True
+                    break
+                for npf in (pf - 1, pf + 1, pf - rw, pf + rw):
+                    if not lt_full[npf] and la_nen_trang_mask[npf]:
+                        lt_full[npf] = 1
+                        q_full.append(npf)
+            if not cham_f and max(70, int(dt_hop * 0.34)) <= len(q_full) <= gh_f:
+                nb_tmp = bytearray(N)
+                q_nbt = []
+                for px_k in range(rw):
+                    for p_nb in (px_k, (rh - 1) * rw + px_k):
+                        if not nb_tmp[p_nb] and not lt_full[p_nb]:
+                            nb_tmp[p_nb] = 1
+                            q_nbt.append(p_nb)
+                for py_k in range(rh):
+                    for p_nb in (py_k * rw, py_k * rw + (rw - 1)):
+                        if not nb_tmp[p_nb] and not lt_full[p_nb]:
+                            nb_tmp[p_nb] = 1
+                            q_nbt.append(p_nb)
+                hd_nbt = 0
+                while hd_nbt < len(q_nbt):
+                    p_nb = q_nbt[hd_nbt]
+                    hd_nbt += 1
+                    x_nb = p_nb % rw
+                    y_nb = p_nb // rw
+                    if x_nb > 0 and not nb_tmp[p_nb - 1] and not lt_full[p_nb - 1]:
+                        nb_tmp[p_nb - 1] = 1; q_nbt.append(p_nb - 1)
+                    if x_nb + 1 < rw and not nb_tmp[p_nb + 1] and not lt_full[p_nb + 1]:
+                        nb_tmp[p_nb + 1] = 1; q_nbt.append(p_nb + 1)
+                    if y_nb > 0 and not nb_tmp[p_nb - rw] and not lt_full[p_nb - rw]:
+                        nb_tmp[p_nb - rw] = 1; q_nbt.append(p_nb - rw)
+                    if y_nb + 1 < rh and not nb_tmp[p_nb + rw] and not lt_full[p_nb + rw]:
+                        nb_tmp[p_nb + rw] = 1; q_nbt.append(p_nb + rw)
+                dem_net_xuyen_trong = sum(1 for p_in in range(N) if not nb_tmp[p_in] and ket_noi_bien[p_in])
+                dem_vien_ngoai = 0
+                dem_vien_toi = 0
+                for p_lt in q_full:
+                    x_lt = p_lt % rw
+                    y_lt = p_lt // rw
+                    for np_v in (
+                        p_lt - 1 if x_lt > 0 else -1,
+                        p_lt + 1 if x_lt + 1 < rw else -1,
+                        p_lt - rw if y_lt > 0 else -1,
+                        p_lt + rw if y_lt + 1 < rh else -1,
+                    ):
+                        if np_v >= 0 and nb_tmp[np_v]:
+                            dem_vien_ngoai += 1
+                            dv_x = (np_v % rw) - x_lt
+                            dv_y = (np_v // rw) - y_lt
+                            np_v2 = np_v + dv_x + dv_y * rw if (0 <= (np_v % rw) + dv_x < rw and 0 <= (np_v // rw) + dv_y < rh) else np_v
+                            if min(lum_px[np_v], lum_px[np_v2]) <= 148.0:
+                                dem_vien_toi += 1
+                            break
+                if dem_net_xuyen_trong < 10 and dem_vien_ngoai >= 18 and (dem_vien_toi / dem_vien_ngoai) >= 0.60:
+                    ds_l_q = sorted(lum_px[p] for p in q_full)
+                    ds_r_q = sorted(r_roi[p] for p in q_full)
+                    ds_g_q = sorted(g_roi[p] for p in q_full)
+                    ds_b_q = sorted(b_roi[p] for p in q_full)
+                    ds_s_q = sorted(sat_px[p] for p in q_full)
+                    mq = len(ds_l_q) // 2
+                    if ds_l_q[mq] >= 135.0:
+                        la_bong_mau_khep_kin = True
+                        long_trang_roi = lt_full
+                        q_lt = q_full
+                        so_lt_goc = len(q_lt)
+                        lum_nen_trung_vi = ds_l_q[mq]
+                        lum_nen_p30 = ds_l_q[int(len(ds_l_q) * 0.3)]
+                        lum_nen_p10 = ds_l_q[int(len(ds_l_q) * 0.1)]
+                        p20_nen_thuc = ds_l_q[int(len(ds_l_q) * 0.2)]
+                        p80_nen_thuc = ds_l_q[min(len(ds_l_q) - 1, int(len(ds_l_q) * 0.8))]
+                        do_lech_nen_thuc = p80_nen_thuc - p20_nen_thuc
+                        r_nen_trung_vi = ds_r_q[mq]
+                        g_nen_trung_vi = ds_g_q[mq]
+                        b_nen_trung_vi = ds_b_q[mq]
+                        sat_nen_trung_vi = ds_s_q[mq]
+                        cho_phep_kem_pastel = True
+                        la_nen_kem_sang_phang = True
+                        du_trang_bong_dam = True
+
         la_bong_dai_hep = (
             cham_bien_lt < int(chu_vi_roi * 0.08)
             and len(q_lt) <= dt_hop * 1.75
@@ -819,24 +1659,65 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
         nguong_tlt_bong = 0.84 if do_nhieu_hat >= 22.0 else 0.78
         nguong_p30_bong = 216.0 if (ty_le_trang_dac >= 0.62 and ty_le_trang_tren_nen_sang >= 0.84 and dem_net_xuyen_hop == 0) else (240.0 if do_nhieu_hat >= 22.0 else 224.0)
         dem_mau_vong_ngoai = 0
+        dem_toi_xam_vong_ngoai = 0
         tong_vong_ngoai = 0
-        for py_vn in range(max(0, cy0 - 14), min(rh, cy1 + 14), 2):
+        for py_vn in range(max(0, cy0 - 16), min(rh, cy1 + 16), 2):
             b_vn = py_vn * rw
-            for px_vn in range(max(0, cx0 - 14), min(rw, cx1 + 14), 2):
-                if cx0 <= px_vn < cx1 and cy0 <= py_vn < cy1:
+            for px_vn in range(max(0, cx0 - 16), min(rw, cx1 + 16), 2):
+                if cx0 - 2 <= px_vn < cx1 + 2 and cy0 - 2 <= py_vn < cy1 + 2:
+                    continue
+                p_vn = b_vn + px_vn
+                if vung_cam[p_vn]:
                     continue
                 tong_vong_ngoai += 1
-                p_vn = b_vn + px_vn
                 if sat_px[p_vn] >= 18 and 40.0 <= lum_px[p_vn] <= 225.0:
                     dem_mau_vong_ngoai += 1
+                if lum_px[p_vn] < 216.0 and not (ket_noi_bien[p_vn] and not la_mang_toi_dac_pre[p_vn]):
+                    dem_toi_xam_vong_ngoai += 1
         ty_le_mau_vong_ngoai = dem_mau_vong_ngoai / max(1, tong_vong_ngoai)
-        co_nen_soc_mau_ngoai = (cham_bien_lt > 0 and (so_mau_trung_binh / tong_mau) >= 0.085 and ty_le_mau_vong_ngoai >= 0.10 and ty_le_cap_halo >= 0.22)
-        la_bong_khep_kin = (
+        ty_le_toi_xam_ngoai = dem_toi_xam_vong_ngoai / max(1, tong_vong_ngoai)
+        # Kiểm tra chu vi ngoài của `long_trang_roi` trên truyện đen trắng:
+        # Bóng thoại trắng thật sự dừng tại đường viền mực tối (`lum <= 118`); ngược lại viền halo trắng của chữ nổi
+        # trên nền gò má/screentone xám (`'And take home...'`, `'To make a comeback...'`) dừng trực tiếp trên nền xám hở (`115 < lum < 218`, không có viền mực)!
+        dem_bien_lt_ngoai = 0
+        dem_bien_lt_xam_ho = 0
+        if not la_nen_mau_thuc and sat_nen_trung_vi < 10 and len(q_lt) >= 16:
+            for p_lt_b in q_lt:
+                xb_lt = p_lt_b % rw
+                yb_lt = p_lt_b // rw
+                if xb_lt <= 2 or xb_lt >= rw - 3 or yb_lt <= 2 or yb_lt >= rh - 3:
+                    continue
+                for dx_lb, dy_lb in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                    np_lb = p_lt_b + dx_lb + dy_lb * rw
+                    if not long_trang_roi[np_lb] and not la_nen_trang_mask[np_lb]:
+                        np_lb2 = np_lb + dx_lb + dy_lb * rw
+                        if 0 <= (xb_lt + dx_lb * 2) < rw and 0 <= (yb_lt + dy_lb * 2) < rh and not la_toi_net[np_lb]:
+                            dem_bien_lt_ngoai += 1
+                            l_out2 = lum_px[np_lb2]
+                            if 112.0 <= l_out2 <= 218.0 and not la_toi_net[np_lb2]:
+                                dem_bien_lt_xam_ho += 1
+                        elif la_toi_net[np_lb]:
+                            dem_bien_lt_ngoai += 1
+                        break
+        ty_le_vien_xam_ho = dem_bien_lt_xam_ho / max(1, dem_bien_lt_ngoai) if dem_bien_lt_ngoai >= 18 else 0.0
+        co_halo_tren_nen_xam_ho = bool(
+            not la_nen_mau_thuc
+            and sat_nen_trung_vi < 10
+            and ty_le_cap_halo >= 0.55
+            and (
+                (ty_le_vien_xam_ho >= 0.28 and ty_le_toi_xam_ngoai >= 0.16)
+                or (do_nhieu_hat >= 19.5 and ty_le_toi_xam_ngoai >= 0.22 and lum_nen_p10 < 204.0)
+            )
+        )
+        la_hop_kem_rat_phang = bool(not co_halo_tren_nen_xam_ho and la_nen_kem_sang_phang and do_lech_nen_thuc <= 11.5 and iqr_rgb_nen_thuc <= 38 and dem_net_xuyen_hop < 8)
+        co_nen_soc_mau_ngoai = (not la_hop_kem_rat_phang) and (cham_bien_lt > 0 and (so_mau_trung_binh / tong_mau) >= 0.085 and ty_le_mau_vong_ngoai >= 0.10 and ty_le_cap_halo >= 0.22)
+        la_bong_khep_kin = la_bong_mau_khep_kin or (
+            (not co_halo_tren_nen_xam_ho) and
             (not co_nen_soc_mau_ngoai) and
             (not ro_ri_bien_rong)
             and (not la_nen_mau_thuc or la_nen_kem_sang_phang)
-            and (lum_nen_trung_vi >= (222.0 if la_nen_kem_sang_phang else 234.0))
-            and (lum_nen_p30 >= (214.0 if la_nen_kem_sang_phang else nguong_p30_bong))
+            and (lum_nen_trung_vi >= (145.0 if la_nen_kem_sang_phang else 234.0))
+            and (lum_nen_p30 >= (max(125.0, lum_nen_trung_vi - 22.0) if la_nen_kem_sang_phang else nguong_p30_bong))
             and (ty_le_trang_dac >= (0.45 if la_nen_kem_sang_phang else 0.52) or du_trang_bong_dam)
             and (ty_le_trang_tren_nen_sang >= nguong_tlt_bong or la_nen_kem_sang_phang)
             and (dem_net_xuyen_hop < 10 or (la_nen_kem_sang_phang and cham_bien_lt == 0 and dem_net_xuyen_hop < 24))
@@ -869,15 +1750,29 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
 
         ngoai_bong_bong = bytearray(N)
         if la_bong_khep_kin:
+            chan_lt = bytearray(long_trang_roi)
+            for py_cl in range(3, rh - 3):
+                b_cl = py_cl * rw
+                for px_cl in range(2, rw - 2):
+                    u_cl = b_cl + px_cl
+                    if not chan_lt[u_cl] and lum_px[u_cl] >= 115.0:
+                        if (
+                            (long_trang_roi[u_cl - rw] or long_trang_roi[u_cl - 2 * rw] or long_trang_roi[u_cl - 3 * rw])
+                            and (long_trang_roi[u_cl + rw] or long_trang_roi[u_cl + 2 * rw] or long_trang_roi[u_cl + 3 * rw])
+                        ) or (
+                            (long_trang_roi[u_cl - 1] or long_trang_roi[u_cl - 2])
+                            and (long_trang_roi[u_cl + 1] or long_trang_roi[u_cl + 2])
+                        ):
+                            chan_lt[u_cl] = 1
             q_nb = []
             for px_k in range(rw):
                 for p_nb in (px_k, (rh - 1) * rw + px_k):
-                    if not ngoai_bong_bong[p_nb] and not long_trang_roi[p_nb]:
+                    if not ngoai_bong_bong[p_nb] and not chan_lt[p_nb]:
                         ngoai_bong_bong[p_nb] = 1
                         q_nb.append(p_nb)
             for py_k in range(rh):
                 for p_nb in (py_k * rw, py_k * rw + (rw - 1)):
-                    if not ngoai_bong_bong[p_nb] and not long_trang_roi[p_nb]:
+                    if not ngoai_bong_bong[p_nb] and not chan_lt[p_nb]:
                         ngoai_bong_bong[p_nb] = 1
                         q_nb.append(p_nb)
             head_nb = 0
@@ -886,16 +1781,16 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                 head_nb += 1
                 x_nb = p_nb % rw
                 y_nb = p_nb // rw
-                if x_nb > 0 and not ngoai_bong_bong[p_nb - 1] and not long_trang_roi[p_nb - 1]:
+                if x_nb > 0 and not ngoai_bong_bong[p_nb - 1] and not chan_lt[p_nb - 1]:
                     ngoai_bong_bong[p_nb - 1] = 1
                     q_nb.append(p_nb - 1)
-                if x_nb + 1 < rw and not ngoai_bong_bong[p_nb + 1] and not long_trang_roi[p_nb + 1]:
+                if x_nb + 1 < rw and not ngoai_bong_bong[p_nb + 1] and not chan_lt[p_nb + 1]:
                     ngoai_bong_bong[p_nb + 1] = 1
                     q_nb.append(p_nb + 1)
-                if y_nb > 0 and not ngoai_bong_bong[p_nb - rw] and not long_trang_roi[p_nb - rw]:
+                if y_nb > 0 and not ngoai_bong_bong[p_nb - rw] and not chan_lt[p_nb - rw]:
                     ngoai_bong_bong[p_nb - rw] = 1
                     q_nb.append(p_nb - rw)
-                if y_nb + 1 < rh and not ngoai_bong_bong[p_nb + rw] and not long_trang_roi[p_nb + rw]:
+                if y_nb + 1 < rh and not ngoai_bong_bong[p_nb + rw] and not chan_lt[p_nb + rw]:
                     ngoai_bong_bong[p_nb + rw] = 1
                     q_nb.append(p_nb + rw)
             for idx_nb in range(N):
@@ -936,21 +1831,47 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
             ty_le_cap_trang_toi = dem_cap_trang_toi / max(1, dem_sang_hop)
             ty_le_cap_halo = max(ty_le_cap_toi_trang, ty_le_cap_trang_toi)
 
+        # Phát hiện BONG BÓNG BÁN TRONG SUỐT (Semi-Transparent Bubble đè một phần lên cổ áo screentone / tóc đen):
+        # Trong bóng trắng đục thật sự, cả dải 28% đỉnh lẫn 28% đáy của hộp chữ đều chủ đạo nền trắng tinh;
+        # còn bóng bán trong suốt sẽ có 1 đầu đè lên mảng screentone xám/đen trong khi chữ được bọc viền halo trắng.
+        if la_bong_khep_kin and not la_bong_mau_khep_kin and (cy1 - cy0) >= 96 and (cx1 - cx0) >= 96:
+            q_st = max(12, (cy1 - cy0) * 28 // 100)
+            sy_top_a = max(2, cy0 - max(8, (cy1 - cy0) // 6))
+            sy_bot_b = min(rh - 2, cy1 + max(12, (cy1 - cy0) // 5))
+            for sy_a, sy_b in ((sy_top_a, cy0 + q_st), (cy1 - q_st, sy_bot_b)):
+                tot_s = white_s = gray_s = 0
+                for py_s in range(sy_a, sy_b, 2):
+                    b_ps = py_s * rw
+                    for px_s in range(cx0 + 4, max(cx0 + 5, cx1 - 4), 2):
+                        p_s = b_ps + px_s
+                        tot_s += 1
+                        lm_s = lum_px[p_s]
+                        if lm_s >= 212.0 and sat_px[p_s] <= 38:
+                            white_s += 1
+                        elif 52.0 <= lm_s <= 196.0 and sat_px[p_s] <= 36:
+                            gray_s += 1
+                if tot_s >= 24 and (white_s / tot_s) <= 0.65 and (gray_s / tot_s) >= 0.14:
+                    la_bong_khep_kin = False
+                    co_halo_tren_nen_xam_ho = True
+                    break
+
         # Vùng nền chỉ thực sự là BONG BÓNG TRẮNG PHẲNG khi không phải nền màu, trung vị/P30/P10 đều trắng sạch,
         # và KHÔNG bị rò rỉ kèm đường kẻ tường/vân gỗ/tóc đen xuyên vào lòng hộp (`dem_net_xuyen_hop >= 10`):
         co_net_tranh_xuyen_hop = (not la_bong_khep_kin) and ((ro_ri_bien_rong and dem_net_xuyen_hop >= 10) or dem_net_xuyen_hop >= 24)
-        co_nen_soc_mau_ro_ri = (co_nen_soc_mau_ngoai or (ro_ri_bien_rong and (so_mau_trung_binh / tong_mau) >= 0.085 and ty_le_cap_halo >= 0.22))
+        co_nen_xam_toi_ngoai_ro = bool(co_halo_tren_nen_xam_ho or (not la_bong_khep_kin and ro_ri_bien_rong and ty_le_toi_xam_ngoai >= 0.16 and ty_le_cap_halo >= 0.22))
+        co_nen_soc_mau_ro_ri = (not la_bong_khep_kin and not la_hop_kem_rat_phang) and (co_nen_soc_mau_ngoai or (ro_ri_bien_rong and (so_mau_trung_binh / tong_mau) >= 0.085 and ty_le_cap_halo >= 0.22))
         if co_nen_soc_mau_ro_ri:
             la_nen_mau_thuc = True
             la_nen_kem_sang_phang = False
-        la_nen_trang_phang = (
-            (not la_nen_mau_thuc or la_nen_kem_sang_phang)
+        la_nen_trang_phang = la_bong_mau_khep_kin or la_hop_kem_rat_phang or (
+            (not co_nen_xam_toi_ngoai_ro)
+            and (not la_nen_mau_thuc or la_nen_kem_sang_phang)
             and (not co_net_tranh_xuyen_hop)
             and (la_bong_khep_kin or do_nhieu_hat < 18.0 or ty_le_cap_halo < 0.32)
-            and (lum_nen_trung_vi >= (222.0 if la_nen_kem_sang_phang else 234.0))
+            and (lum_nen_trung_vi >= (145.0 if la_nen_kem_sang_phang else 234.0))
             and (ty_le_trang_tren_nen_sang >= nguong_tlt_bong or la_nen_kem_sang_phang)
             and (
-                (lum_nen_p30 >= 218.0 and (lum_nen_p10 >= 205.0 or (du_trang_bong_dam and dem_net_xuyen_hop == 0 and p20_nen_thuc >= 210.0) or ((la_bong_khep_kin or not ro_ri_bien_rong) and (ty_le_trang_dac >= 0.48 or du_trang_bong_dam))))
+                (lum_nen_p30 >= (max(125.0, lum_nen_trung_vi - 22.0) if la_nen_kem_sang_phang else 218.0) and (lum_nen_p10 >= (max(115.0, lum_nen_trung_vi - 30.0) if la_nen_kem_sang_phang else 205.0) or (du_trang_bong_dam and dem_net_xuyen_hop == 0 and p20_nen_thuc >= max(125.0, lum_nen_trung_vi - 22.0)) or ((la_bong_khep_kin or not ro_ri_bien_rong) and (ty_le_trang_dac >= 0.48 or du_trang_bong_dam))))
                 or ((la_bong_khep_kin or not ro_ri_bien_rong) and ty_le_trang_dac >= 0.55)
                 or ((la_bong_khep_kin or not ro_ri_bien_rong or lum_nen_p10 >= 205.0) and not nen_mau_trung_binh and ty_le_trang_tren_nen_sang >= 0.83 and ty_le_trang_dac >= 0.55 and do_nhieu_hat < 18.0)
             )
@@ -988,15 +1909,28 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
         sx_r1 = min(rw, cx1 + min(16, max(6, w_goc // 6)))
         for py in range(rh):
             mau_dong = []
-            for px in range(sx_r0, sx_r1, 2):
-                r, g, b = px_anh[rx0 + px, ry0 + py]
-                lum = 0.299 * r + 0.587 * g + 0.114 * b
-                sai_so = abs(r - bg_r) + abs(g - bg_g) + abs(b - bg_b)
-                if nen_mau_trung_binh:
-                    if 45.0 <= lum <= 198.0 and sai_so <= 105:
+            if la_bong_khep_kin:
+                b_py = py * rw
+                for px in range(1, rw - 1):
+                    p_r = b_py + px
+                    if long_trang_roi[p_r] and not ngoai_bong_bong[p_r]:
+                        r, g, b = r_roi[p_r], g_roi[p_r], b_roi[p_r]
+                        lum = lum_px[p_r]
+                        sai_so = abs(r - bg_r) + abs(g - bg_g) + abs(b - bg_b)
                         mau_dong.append((sai_so, r, g, b, lum))
-                elif sai_so <= 80 or (lum <= 60 if nen_toi else lum >= 200):
-                    mau_dong.append((sai_so, r, g, b, lum))
+            if len(mau_dong) < 3:
+                for px in range(sx_r0, sx_r1, 2):
+                    p_r = py * rw + px
+                    if la_bong_khep_kin and ngoai_bong_bong[p_r]:
+                        continue
+                    r, g, b = px_anh[rx0 + px, ry0 + py]
+                    lum = 0.299 * r + 0.587 * g + 0.114 * b
+                    sai_so = abs(r - bg_r) + abs(g - bg_g) + abs(b - bg_b)
+                    if nen_mau_trung_binh:
+                        if 45.0 <= lum <= 198.0 and sai_so <= 105:
+                            mau_dong.append((sai_so, r, g, b, lum))
+                    elif sai_so <= 80 or (lum <= 60 if nen_toi else (lum >= 200 and sat_px[p_r] <= min(62, sat_nen_trung_vi + 28))):
+                        mau_dong.append((sai_so, r, g, b, lum))
             if len(mau_dong) >= 3:
                 mau_dong.sort(key=lambda m: m[0])
                 so_lay = max(2, (len(mau_dong) + 1) // 2)
@@ -1006,6 +1940,19 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
             else:
                 rr, gg, bb = bg_r, bg_g, bg_b
             row_bg.append((rr, gg, bb, 0.299 * rr + 0.587 * gg + 0.114 * bb))
+        # Nội suy mượt `row_bg` cho các hàng nằm giữa lòng bóng bị chữ choán hết bề ngang (`len(mau_dong) < 3`)
+        if la_bong_khep_kin:
+            hang_sach = [py_s for py_s in range(rh) if any(long_trang_roi[py_s * rw + px_s] for px_s in range(1, rw - 1))]
+            if len(hang_sach) >= 2:
+                for py_f in range(hang_sach[0], hang_sach[-1] + 1):
+                    if not any(long_trang_roi[py_f * rw + px_s] for px_s in range(1, rw - 1)):
+                        py_tr = max((h_s for h_s in hang_sach if h_s < py_f), default=hang_sach[0])
+                        py_du = min((h_s for h_s in hang_sach if h_s > py_f), default=hang_sach[-1])
+                        t_f = (py_f - py_tr) / max(1, py_du - py_tr)
+                        rr_i = int(round(row_bg[py_tr][0] * (1.0 - t_f) + row_bg[py_du][0] * t_f))
+                        gg_i = int(round(row_bg[py_tr][1] * (1.0 - t_f) + row_bg[py_du][1] * t_f))
+                        bb_i = int(round(row_bg[py_tr][2] * (1.0 - t_f) + row_bg[py_du][2] * t_f))
+                        row_bg[py_f] = (rr_i, gg_i, bb_i, 0.299 * rr_i + 0.587 * gg_i + 0.114 * bb_i)
 
         pad_hop_x = max(8, int(round((cx1 - cx0) * 0.18)))
         pad_hop_y = max(8, int(round((cy1 - cy0) * 0.18)))
@@ -1037,6 +1984,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                 lum = 0.299 * r + 0.587 * g + 0.114 * b
                 sai_so_row = abs(r - rr) + abs(g - gg) + abs(b - bb)
                 sai_so_bg = abs(r - bg_r) + abs(g - bg_g) + abs(b - bg_b)
+                sat_cur = max(r, g, b) - min(r, g, b)
                 trong_hop_mo = (trong_y and ((cx0 - pad_hop_x) <= px < (cx1 + pad_hop_x))) or bool(gan_long_trang[base + px])
                 if nen_mau_trung_binh:
                     if trong_hop_mo and lum <= 95.0:
@@ -1045,14 +1993,25 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                         la_nen[base + px] = 1
                 else:
                     la_trang_sang_sach = (not nen_toi) and (
-                        (lum >= 198.0 and (max(r, g, b) - min(r, g, b) <= 36))
-                        or (cho_phep_kem_pastel and lum >= 196.0 and (sai_so_row <= 44 or sai_so_bg <= 48))
+                        (lum >= 198.0 and sat_cur <= 36 and sai_so_row <= 42)
+                        or (cho_phep_kem_pastel and lum >= max(125.0, lum_nen_trung_vi - 28.0) and sai_so_row <= 38 and (sai_so_bg <= 54 or la_bong_khep_kin))
                     )
                     if la_trang_sang_sach:
                         la_nen[base + px] = 1
-                    elif trong_hop_mo and ((lum > 55.0) if nen_toi else (lum < 198.0 or (cho_phep_kem_pastel and sai_so_bg > 48))) and (sai_so_row > 42 or abs(lum - rlum) > 22):
+                    elif trong_hop_mo and (
+                        (lum > 55.0)
+                        if nen_toi
+                        else (
+                            (
+                                lum < (max(125.0, lum_nen_trung_vi - 28.0) if cho_phep_kem_pastel else 198.0)
+                                and (sai_so_row > 42 or abs(lum - rlum) > 22)
+                            )
+                            or (sat_cur >= 28 and sai_so_row > 42 and sai_so_bg > 46)
+                            or (la_bong_khep_kin and not ngoai_bong_bong[base + px] and (sai_so_row > 38 or abs(lum - rlum) > 20))
+                        )
+                    ):
                         la_nen[base + px] = 0
-                    elif sai_so_row <= 36 or sai_so_bg <= 42 or ((lum <= 45) if nen_toi else (lum >= 224 and max(r, g, b) - min(r, g, b) <= 36)):
+                    elif sai_so_row <= 36 or sai_so_bg <= 42 or ((lum <= 45) if nen_toi else (lum >= 224 and sat_cur <= 36)):
                         la_nen[base + px] = 1
                 if ds_lang_gieng:
                     dvx = cx0 - px if px < cx0 else (px - cx1 if px > cx1 else 0)
@@ -1118,7 +2077,17 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
         dien_tich_max_net = max(400, int(round((sx1 - sx0) * (sy1 - sy0) * 0.65)))
         ctd_seg_info = _CACHE_CTD_SEG_MASK.get((W, H))
         seg_mask_roi = bytearray(N)
-        if ctd_seg_info is not None:
+        if ctd_seg_full_trang is not None:
+            for py_s in range(sy0, sy1):
+                gy_s = ry0 + py_s
+                if 0 <= gy_s < H:
+                    b_s = py_s * rw
+                    row_seg = ctd_seg_full_trang[gy_s]
+                    for px_s in range(sx0, sx1):
+                        gx_s = rx0 + px_s
+                        if 0 <= gx_s < W and float(row_seg[gx_s]) >= 0.30:
+                            seg_mask_roi[b_s + px_s] = 1
+        elif ctd_seg_info is not None:
             seg_map_ctd, pad_x_ctd, pad_y_ctd, scale_ctd = ctd_seg_info
             for py_s in range(sy0, sy1):
                 sy_m = int((ry0 + py_s) * scale_ctd + pad_y_ctd)
@@ -1141,10 +2110,10 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
             la_loi_chu = bytearray(N)
             ung_vien_net = bytearray(N)
             net_mong_loi = bytearray(N)
-            qx0 = max(2, cx0 - min(14, mo_x - 2))
-            qy0 = max(2, cy0 - min(16, mo_y - 2))
-            qx1 = min(rw - 2, cx1 + min(14, mo_x - 2))
-            qy1 = min(rh - 2, cy1 + min(18, mo_y - 2))
+            qx0 = max(2, cx0 - min(24, mo_x - 2))
+            qy0 = max(2, cy0 - min(22, mo_y - 2))
+            qx1 = min(rw - 2, cx1 + min(24, mo_x - 2))
+            qy1 = min(rh - 2, cy1 + min(24, mo_y - 2))
             # Cắt chặn `qx0, qy0, qx1, qy1` tại đường viền khung tranh (panel border) để tuyệt đối không tràn sang khung tranh kế bên:
             span_w_b = max(1, cx1 - cx0)
             span_h_b = max(1, cy1 - cy0)
@@ -1193,10 +2162,15 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                     return bool(la_toi_net[pos_p] or lum_px[pos_p] <= 105.0)
                 if nen_toi:
                     return bool(la_trang_dac[pos_p] or (lum_px[pos_p] >= 145.0 and sat_px[pos_p] <= 55))
-                return bool(la_trang_dac[pos_p] or la_dai_trang_manh[pos_p] or (la_nen_mau_thuc and la_sang_dac[pos_p]))
+                return bool(
+                    la_trang_dac[pos_p]
+                    or la_dai_trang_manh[pos_p]
+                    or (lum_px[pos_p] >= 224.0 and sat_px[pos_p] <= 42 and la_sang_dac[pos_p])
+                    or (la_nen_mau_thuc and la_sang_dac[pos_p])
+                )
 
-            max_day_net = max(16, min(32, int(round(min(w_goc, h_goc) * 0.24))))
-            max_scan_d = max(28, max_day_net + 4)
+            max_day_net = max(18, min(38, int(round(min(w_goc, h_goc) * 0.28))))
+            max_scan_d = max(58, max_day_net + 24)
             max_dh = max(10, (max_day_net // 2) + 4)
             for py_d in range(1, rh - 1):
                 base_d = py_d * rw
@@ -1219,7 +2193,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                         net_mong_loi[pos_d] = 1
                     if px_d < qx0 or px_d >= qx1 or py_d < qy0 or py_d >= qy1:
                         continue
-                    if min(day_ngang, day_doc) > max_day_net or (min(day_ngang, day_doc) <= 3 and max(day_ngang, day_doc) >= 24):
+                    if min(day_ngang, day_doc) > max_day_net or (min(day_ngang, day_doc) <= 3 and max(day_ngang, day_doc) >= 28):
                         continue
 
                     if la_nen_mau_thuc and ty_le_cap_halo < 0.20:
@@ -1228,37 +2202,41 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                         continue
 
                     # Kiểm tra Halo 2px liên tiếp ngay sát rìa ngoài của nét chữ (1..3px tính từ mép nét d_l, d_r, d_u, d_d)
-                    # để tuyệt đối không nhảy qua khe hở giữa 2 dòng chữ bắt nhầm nét gạch chéo / speedline nền:
+                    # hỗ trợ cả khe hẹp 1-2px giữa các chữ in đậm lớn ('AFTER', 'THIS', 'TOWN!!'):
                     h_trai = (
-                        day_ngang <= 36
+                        day_ngang <= 46
                         and px_d - d_l - 2 >= 0
                         and (
-                            (_la_ung_vien_halo(pos_d - d_l - 1) and _la_ung_vien_halo(pos_d - d_l - 2))
-                            or (px_d - d_l - 3 >= 0 and _la_ung_vien_halo(pos_d - d_l - 2) and _la_ung_vien_halo(pos_d - d_l - 3))
+                            (_la_ung_vien_halo(pos_d - d_l - 1) and (_la_ung_vien_halo(pos_d - d_l - 2) or la_sang_dac[pos_d - d_l - 2]))
+                            or (la_sang_dac[pos_d - d_l - 1] and _la_ung_vien_halo(pos_d - d_l - 2))
+                            or (px_d - d_l - 3 >= 0 and _la_ung_vien_halo(pos_d - d_l - 2) and (_la_ung_vien_halo(pos_d - d_l - 3) or la_sang_dac[pos_d - d_l - 3]))
                         )
                     )
                     h_phai = (
-                        day_ngang <= 36
+                        day_ngang <= 46
                         and px_d + d_r + 2 < rw
                         and (
-                            (_la_ung_vien_halo(pos_d + d_r + 1) and _la_ung_vien_halo(pos_d + d_r + 2))
-                            or (px_d + d_r + 3 < rw and _la_ung_vien_halo(pos_d + d_r + 2) and _la_ung_vien_halo(pos_d + d_r + 3))
+                            (_la_ung_vien_halo(pos_d + d_r + 1) and (_la_ung_vien_halo(pos_d + d_r + 2) or la_sang_dac[pos_d + d_r + 2]))
+                            or (la_sang_dac[pos_d + d_r + 1] and _la_ung_vien_halo(pos_d + d_r + 2))
+                            or (px_d + d_r + 3 < rw and _la_ung_vien_halo(pos_d + d_r + 2) and (_la_ung_vien_halo(pos_d + d_r + 3) or la_sang_dac[pos_d + d_r + 3]))
                         )
                     )
                     h_tren = (
-                        day_doc <= 42
+                        day_doc <= 62
                         and py_d - d_u - 2 >= 0
                         and (
-                            (_la_ung_vien_halo(pos_d - (d_u + 1) * rw) and _la_ung_vien_halo(pos_d - (d_u + 2) * rw))
-                            or (py_d - d_u - 3 >= 0 and _la_ung_vien_halo(pos_d - (d_u + 2) * rw) and _la_ung_vien_halo(pos_d - (d_u + 3) * rw))
+                            (_la_ung_vien_halo(pos_d - (d_u + 1) * rw) and (_la_ung_vien_halo(pos_d - (d_u + 2) * rw) or la_sang_dac[pos_d - (d_u + 2) * rw]))
+                            or (la_sang_dac[pos_d - (d_u + 1) * rw] and _la_ung_vien_halo(pos_d - (d_u + 2) * rw))
+                            or (py_d - d_u - 3 >= 0 and _la_ung_vien_halo(pos_d - (d_u + 2) * rw) and (_la_ung_vien_halo(pos_d - (d_u + 3) * rw) or la_sang_dac[pos_d - (d_u + 3) * rw]))
                         )
                     )
                     h_duoi = (
-                        day_doc <= 42
+                        day_doc <= 62
                         and py_d + d_d + 2 < rh
                         and (
-                            (_la_ung_vien_halo(pos_d + (d_d + 1) * rw) and _la_ung_vien_halo(pos_d + (d_d + 2) * rw))
-                            or (py_d + d_d + 3 < rh and _la_ung_vien_halo(pos_d + (d_d + 2) * rw) and _la_ung_vien_halo(pos_d + (d_d + 3) * rw))
+                            (_la_ung_vien_halo(pos_d + (d_d + 1) * rw) and (_la_ung_vien_halo(pos_d + (d_d + 2) * rw) or la_sang_dac[pos_d + (d_d + 2) * rw]))
+                            or (la_sang_dac[pos_d + (d_d + 1) * rw] and _la_ung_vien_halo(pos_d + (d_d + 2) * rw))
+                            or (py_d + d_d + 3 >= 0 and py_d + d_d + 3 < rh and _la_ung_vien_halo(pos_d + (d_d + 2) * rw) and (_la_ung_vien_halo(pos_d + (d_d + 3) * rw) or la_sang_dac[pos_d + (d_d + 3) * rw]))
                         )
                     )
                     kep_doi_dien = (h_trai and h_phai) or (h_tren and h_duoi) or (bool(seg_mask_roi[pos_d]) and trong_dong[pos_d] and not ket_noi_bien[pos_d] and (h_trai or h_phai or h_tren or h_duoi))
@@ -1280,6 +2258,168 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                             or ung_vien_net[pos_d + rw]
                         ):
                             ung_vien_net[pos_d] = 1
+
+            # Bảo vệ 100% mạng nét vẽ tranh liên tục (`mang_muc_tranh_bao_ve`: viền cánh tay, ngón tay, vành tai,
+            # cạnh quân mạt chược, lọn tóc bóng, speedline xuyên biên) bị halo trắng của chữ nổi chạm lướt qua 1 bên:
+            # Chữ nổi có halo trắng luôn là đảo mực khép kín trong lòng halo; ngược lại nét vẽ nhân vật/đạo cụ nối liền
+            # ra mạng `la_toi_net` lớn bên ngoài halo hoặc chạm thẳng ra biên ROI!
+            mang_muc_tranh_bao_ve = bytearray(N)
+            if not la_dao_chieu_halo and not (la_nen_mau_thuc and ty_le_cap_halo < 0.20):
+                da_duyet_ink = bytearray(N)
+                max_ink_w = max(58, int(round(w_goc * 0.95)))
+                max_ink_h = max(58, int(round(h_goc * 0.62)))
+                max_ink_dt = max(1500, int(round(dt_hop * 0.46)))
+                for py_i in range(1, rh - 1):
+                    bi_y = py_i * rw
+                    for px_i in range(1, rw - 1):
+                        s_ink = bi_y + px_i
+                        if not la_toi_net[s_ink] or da_duyet_ink[s_ink]:
+                            continue
+                        da_duyet_ink[s_ink] = 1
+                        q_ink = [s_ink]
+                        ix0_c = ix1_c = px_i
+                        iy0_c = iy1_c = py_i
+                        cham_roi_ink = False
+                        dem_ngoai_uv = 0
+                        hd_ink = 0
+                        while hd_ink < len(q_ink):
+                            p_ink = q_ink[hd_ink]
+                            hd_ink += 1
+                            xi = p_ink % rw
+                            yi = p_ink // rw
+                            if not ung_vien_net[p_ink]:
+                                dem_ngoai_uv += 1
+                            if xi <= 2 or xi >= rw - 3 or yi <= 2 or yi >= rh - 3:
+                                cham_roi_ink = True
+                            if xi < ix0_c:
+                                ix0_c = xi
+                            if xi > ix1_c:
+                                ix1_c = xi
+                            if yi < iy0_c:
+                                iy0_c = yi
+                            if yi > iy1_c:
+                                iy1_c = yi
+                            for dy_i in (-1, 0, 1):
+                                nyi = yi + dy_i
+                                if nyi <= 0 or nyi >= rh - 1:
+                                    continue
+                                nbi = nyi * rw
+                                for dx_i in (-1, 0, 1):
+                                    if dx_i == 0 and dy_i == 0:
+                                        continue
+                                    nxi = xi + dx_i
+                                    if nxi <= 0 or nxi >= rw - 1:
+                                        continue
+                                    npi = nbi + nxi
+                                    if la_toi_net[npi] and not da_duyet_ink[npi]:
+                                        da_duyet_ink[npi] = 1
+                                        q_ink.append(npi)
+                        iw_c = ix1_c - ix0_c + 1
+                        ih_c = iy1_c - iy0_c + 1
+                        la_mang_tranh_lon = bool(
+                            (cham_roi_ink or iw_c > max_ink_w or ih_c > max_ink_h or len(q_ink) > max_ink_dt)
+                            and dem_ngoai_uv >= max(16, int(len(q_ink) * 0.20))
+                        )
+                        if not la_mang_tranh_lon:
+                            continue
+                        uv_trong_q = []
+                        for p_ink in q_ink:
+                            if not ung_vien_net[p_ink]:
+                                mang_muc_tranh_bao_ve[p_ink] = 1
+                            else:
+                                uv_trong_q.append(p_ink)
+                        if uv_trong_q:
+                            # Kiểm tra từng nhánh `ung_vien_net` dính vào mạng nét tranh lớn:
+                            # Chỉ giữ lại nếu là khối chữ cái đặc (`dt >= 28, min_dim >= 8, rho >= 3.6`) chạm nhẹ vào mảng tối đặc,
+                            # còn mọi đoạn viền cánh tay / ngón tay / cạnh mạt chược / lọn tóc mảnh đều khoá bảo vệ 100%!
+                            set_uv_q = set(uv_trong_q)
+                            da_uv_q = set()
+                            for s_u in uv_trong_q:
+                                if s_u in da_uv_q:
+                                    continue
+                                da_uv_q.add(s_u)
+                                comp_u = [s_u]
+                                ux0_s = ux1_s = s_u % rw
+                                uy0_s = uy1_s = s_u // rw
+                                cham_manh_ngoai = 0
+                                hd_u = 0
+                                while hd_u < len(comp_u):
+                                    cu = comp_u[hd_u]
+                                    hd_u += 1
+                                    cxu = cu % rw
+                                    cyu = cu // rw
+                                    if cxu < ux0_s:
+                                        ux0_s = cxu
+                                    if cxu > ux1_s:
+                                        ux1_s = cxu
+                                    if cyu < uy0_s:
+                                        uy0_s = cyu
+                                    if cyu > uy1_s:
+                                        uy1_s = cyu
+                                    for dy_u in (-1, 0, 1):
+                                        nyu = cyu + dy_u
+                                        if nyu <= 0 or nyu >= rh - 1:
+                                            continue
+                                        nbu = nyu * rw
+                                        for dx_u in (-1, 0, 1):
+                                            if dx_u == 0 and dy_u == 0:
+                                                continue
+                                            nxu = cxu + dx_u
+                                            if nxu <= 0 or nxu >= rw - 1:
+                                                continue
+                                            npu = nbu + nxu
+                                            if npu in set_uv_q:
+                                                if npu not in da_uv_q:
+                                                    da_uv_q.add(npu)
+                                                    comp_u.append(npu)
+                                            elif la_toi_net[npu] and not la_mang_toi_dac_pre[npu]:
+                                                cham_manh_ngoai += 1
+                                sw_u = ux1_s - ux0_s + 1
+                                sh_u = uy1_s - uy0_s + 1
+                                rho_u = len(comp_u) / max(1, max(sw_u, sh_u))
+                                mid_u = ((uy0_s + uy1_s) // 2) * rw + ((ux0_s + ux1_s) // 2)
+                                core_3x3_u = 0
+                                vien_halo_u = 0
+                                vien_tong_u = 0
+                                for pu_c in comp_u:
+                                    xu_c = pu_c % rw
+                                    yu_c = pu_c // rw
+                                    if 0 < xu_c < rw - 1 and 0 < yu_c < rh - 1:
+                                        if (
+                                            la_toi_net[pu_c - 1]
+                                            and la_toi_net[pu_c + 1]
+                                            and la_toi_net[pu_c - rw]
+                                            and la_toi_net[pu_c + rw]
+                                            and la_toi_net[pu_c - rw - 1]
+                                            and la_toi_net[pu_c - rw + 1]
+                                            and la_toi_net[pu_c + rw - 1]
+                                            and la_toi_net[pu_c + rw + 1]
+                                        ):
+                                            core_3x3_u += 1
+                                        for np_uc in (pu_c - 1, pu_c + 1, pu_c - rw, pu_c + rw):
+                                            if not la_toi_net[np_uc]:
+                                                vien_tong_u += 1
+                                                if lum_px[np_uc] >= 205.0 and sat_px[np_uc] <= 45:
+                                                    vien_halo_u += 1
+                                                break
+                                ty_le_halo_u = vien_halo_u / max(1, vien_tong_u)
+                                la_chu_dac_cham_toc = bool(
+                                    trong_dong[mid_u]
+                                    and (
+                                        (cham_manh_ngoai == 0 and len(comp_u) >= 14 and max(sw_u, sh_u) <= 78)
+                                        or (
+                                            core_3x3_u >= 6
+                                            and min(sw_u, sh_u) >= 5
+                                            and max(sw_u, sh_u) <= 74
+                                            and rho_u >= 2.9
+                                            and ty_le_halo_u >= (0.42 if core_3x3_u >= 10 else 0.56)
+                                        )
+                                    )
+                                )
+                                if not la_chu_dac_cham_toc:
+                                    for pu in comp_u:
+                                        ung_vien_net[pu] = 0
+                                        mang_muc_tranh_bao_ve[pu] = 1
 
             # Bước 2: Phân tích thành phần liên thông 2D (8-connected CCA) trên `ung_vien_net`
             # kết hợp Mật độ nét trung bình (`rho = area / max(w, h) >= 2.1`) và Liên kết chuỗi Từ/Dòng (Word/Line Chaining):
@@ -1355,7 +2495,10 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                     # Cho phép giữ lại dấu chấm câu "..." / gạch nối "-" / chữ "I" in hoa (`la_chu_i_hoac_dau_cau`) làm ứng viên chờ nối chuỗi,
                     # nhưng chỉ lấy chữ cái thực sự (`dt_c >= 18 and min_d >= 4 and rho_c >= 2.10`) làm hạt giống (`trong_hat_giong`):
                     la_dau_cau_nho = (dt_c >= 3 and max_d <= 11) or (cw_c <= 22 and 2 <= ch_c <= 8 and dt_c >= 6)
-                    la_chu_i_doc = (1 <= cw_c <= 3 and 8 <= ch_c <= 22 and dt_c >= 8 and dt_c >= ch_c * 0.75)
+                    la_chu_i_doc = (
+                        (1 <= cw_c <= 9 and 8 <= ch_c <= 56 and dt_c >= 8 and dt_c >= ch_c * 0.65)
+                        and not mang_muc_tranh_bao_ve[q_c[0]]
+                    )
                     if not la_dau_cau_nho and not la_chu_i_doc:
                         if dt_c < 9 or min_d <= 2:
                             continue
@@ -1365,7 +2508,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                             continue
 
                     trong_hat_giong = (
-                        (dt_c >= 18 and min_d >= 4 and rho_c >= 2.10)
+                        ((dt_c >= 18 and min_d >= 4 and rho_c >= 2.10) or (la_chu_i_doc and dt_c >= 22 and ch_c >= 14))
                         and c_max_x >= cx0 - 8
                         and c_min_x <= cx1 + 8
                         and c_max_y >= cy0 - 12
@@ -1475,6 +2618,57 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                         cur_x1 = max(cur_x1, px_fb)
                         cur_y1 = max(cur_y1, py_fb)
 
+            # Nhận diện các mảng trắng lớn của tranh gốc (`vung_trang_tranh`: da cánh tay/bàn tay trắng, mặt quân mạt chược trắng,
+            # vành tai trắng, nền trời trắng...) ngăn cách bởi nét mực đen `la_toi_net` để không khoét halo rộng 5-7px vào da nhân vật:
+            vung_trang_tranh = bytearray(N)
+            if not la_dao_chieu_halo and not la_nen_mau_thuc and not nen_toi:
+                gan_loi_5px = bytearray(N)
+                for py_gl in range(max(0, cur_y0 - 6), min(rh, cur_y1 + 7)):
+                    b_gl = py_gl * rw
+                    for px_gl in range(max(0, cur_x0 - 6), min(rw, cur_x1 + 7)):
+                        if la_loi_chu[b_gl + px_gl]:
+                            for dy_g5 in range(-5, 6):
+                                nyg5 = py_gl + dy_g5
+                                if 0 <= nyg5 < rh:
+                                    bg5 = nyg5 * rw
+                                    for dx_g5 in range(-5, 6):
+                                        nxg5 = px_gl + dx_g5
+                                        if 0 <= nxg5 < rw and dx_g5 * dx_g5 + dy_g5 * dy_g5 <= 26:
+                                            gan_loi_5px[bg5 + nxg5] = 1
+                da_duyet_vt = bytearray(N)
+                for py_vt in range(rh):
+                    b_vt = py_vt * rw
+                    for px_vt in range(rw):
+                        s_vt = b_vt + px_vt
+                        if da_duyet_vt[s_vt] or la_loi_chu[s_vt] or la_toi_net[s_vt] or lum_px[s_vt] < 246.0 or tb_lum_3x3[s_vt] < 248.0 or sat_px[s_vt] > 32:
+                            continue
+                        da_duyet_vt[s_vt] = 1
+                        q_vt = [s_vt]
+                        cham_bien_vt = False
+                        dem_xa_loi = 0
+                        hd_vt = 0
+                        while hd_vt < len(q_vt):
+                            p_vt = q_vt[hd_vt]
+                            hd_vt += 1
+                            xvt = p_vt % rw
+                            yvt = p_vt // rw
+                            if not gan_loi_5px[p_vt]:
+                                dem_xa_loi += 1
+                            if xvt <= 1 or xvt >= rw - 2 or yvt <= 1 or yvt >= rh - 2:
+                                cham_bien_vt = True
+                            for nvt in (
+                                p_vt - 1 if xvt > 0 else -1,
+                                p_vt + 1 if xvt + 1 < rw else -1,
+                                p_vt - rw if yvt > 0 else -1,
+                                p_vt + rw if yvt + 1 < rh else -1,
+                            ):
+                                if nvt >= 0 and not da_duyet_vt[nvt] and not la_loi_chu[nvt] and not la_toi_net[nvt] and lum_px[nvt] >= 246.0 and tb_lum_3x3[nvt] >= 248.0 and sat_px[nvt] <= 32:
+                                    da_duyet_vt[nvt] = 1
+                                    q_vt.append(nvt)
+                        if len(q_vt) >= 95 and (cham_bien_vt or dem_xa_loi >= 42):
+                            for p_vt in q_vt:
+                                vung_trang_tranh[p_vt] = 1
+
             # Gom toàn bộ Viền Halo bao quanh `la_loi_chu` trong bán kính 6px
             hx0 = max(1, cur_x0 - 8)
             hy0 = max(1, cur_y0 - 8)
@@ -1489,7 +2683,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                     if la_loi_chu[pos_d]:
                         kc_loi[pos_d] = 1
                         q_halo.append(pos_d)
-            max_buoc_halo = 5 if max_day_net >= 20 else 4
+            max_buoc_halo = 7 if max_day_net >= 26 else (5 if max_day_net >= 20 else 4)
             head_h = 0
             while head_h < len(q_halo):
                 pos_h = q_halo[head_h]
@@ -1511,7 +2705,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                         if nx_h < hx0 or nx_h >= hx1:
                             continue
                         npos_h = nb_h + nx_h
-                        if kc_loi[npos_h] or vung_cam[npos_h]:
+                        if kc_loi[npos_h] or vung_cam[npos_h] or mang_muc_tranh_bao_ve[npos_h]:
                             continue
                         if la_dao_chieu_halo:
                             la_diem_halo = bool(la_toi_net[npos_h] or (buoc_h <= 4 and lum_px[npos_h] <= 115.0))
@@ -1531,10 +2725,18 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                                 or (ny_h > 1 and la_mang_toi_dac_pre[npos_h - 2 * rw])
                                 or (ny_h + 2 < rh and la_mang_toi_dac_pre[npos_h + 2 * rw])
                             )
+                            nguong_halo_nen_xam = min(214.0, max(196.0, min(lum_nen_trung_vi, row_bg[ny_h][3]) + 22.0))
+                            la_vanh_sang_noi = bool(
+                                not la_nen_mau_thuc
+                                and sat_px[npos_h] <= 42
+                                and lum_px[npos_h] >= nguong_halo_nen_xam
+                                and (la_dai_trang_manh[npos_h] or la_sang_dac[npos_h])
+                            )
                             la_diem_halo = bool(
                                 (la_trang_dac[npos_h] and buoc_h <= max_buoc_halo)
-                                or (la_dai_trang_manh[npos_h] and buoc_h <= (max_buoc_halo if (gan_toi_dac_h or do_nhieu_hat < 14.0) else 2))
-                                or (buoc_h <= (3 if gan_toi_dac_h else 2) and (la_trang_dac[npos_h] or la_sang_dac[npos_h]))
+                                or (la_dai_trang_manh[npos_h] and buoc_h <= (max_buoc_halo if (gan_toi_dac_h or do_nhieu_hat < 14.0 or la_vanh_sang_noi) else 3))
+                                or (la_vanh_sang_noi and buoc_h <= max_buoc_halo)
+                                or (buoc_h <= (4 if gan_toi_dac_h else 3) and (la_trang_dac[npos_h] or la_sang_dac[npos_h]))
                                 or (la_nen_mau_thuc and la_sang_dac[npos_h])
                             )
                         if la_diem_halo:
@@ -1593,7 +2795,9 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                             if dx_n * dx_n + dy_n * dy_n > max_r2_dil:
                                 continue
                             npos_n = nb_n + (px_d + dx_n)
-                            if vung_cam[npos_n]:
+                            if vung_cam[npos_n] or mang_muc_tranh_bao_ve[npos_n]:
+                                continue
+                            if vung_trang_tranh[npos_n] and lum_px[npos_n] >= 245.0:
                                 continue
                             if not la_dao_chieu_halo and la_toi_net[npos_n] and not la_loi_chu[npos_n] and lum_px[npos_n] < nguong_bao_ve_toi_dil:
                                 continue
@@ -1643,7 +2847,19 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                         if yl + 1 < rh - 1 and not can_xoa[p_lo + rw] and not da_duyet_lo[p_lo + rw]:
                             da_duyet_lo[p_lo + rw] = 1
                             q_lo.append(p_lo + rw)
-                    if not cham_bien_lo and len(q_lo) <= max_lo_bung and (lo_x1 - lo_x0 + 1) <= 22 and (lo_y1 - lo_y0 + 1) <= 22:
+                    lo_w = lo_x1 - lo_x0 + 1
+                    lo_h = lo_y1 - lo_y0 + 1
+                    la_bung_chu_trang = bool(
+                        len(q_lo) <= 240
+                        and min(lo_w, lo_h) <= 20
+                        and max(lo_w, lo_h) <= 48
+                        and sum(lum_px[p_lo] for p_lo in q_lo) >= len(q_lo) * 206.0
+                    )
+                    if (
+                        not cham_bien_lo
+                        and ((len(q_lo) <= max_lo_bung and lo_w <= 22 and lo_h <= 24) or la_bung_chu_trang)
+                        and not any(mang_muc_tranh_bao_ve[p_lo] for p_lo in q_lo)
+                    ):
                         for p_lo in q_lo:
                             can_xoa[p_lo] = 1
 
@@ -1656,7 +2872,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                     base_s = py_s * rw
                     for px_s in range(max(7, hx0), min(rw - 7, hx1)):
                         pos_s = base_s + px_s
-                        if snap_xoa[pos_s] or vung_cam[pos_s]:
+                        if snap_xoa[pos_s] or vung_cam[pos_s] or mang_muc_tranh_bao_ve[pos_s] or vung_trang_tranh[pos_s]:
                             continue
                         kep_x4 = any(snap_xoa[pos_s - d] for d in range(1, 5)) and any(snap_xoa[pos_s + d] for d in range(1, 5))
                         kep_y4 = any(snap_xoa[pos_s - d * rw] for d in range(1, 5)) and any(snap_xoa[pos_s + d * rw] for d in range(1, 5))
@@ -1843,13 +3059,24 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                     return False
                 px_s = pos_s % rw
                 py_s = pos_s // rw
-                # Không lấy mẫu điểm trắng sáng sát ngay rìa `can_xoa` (viền halo khử răng cưa còn sót)
-                if not la_dao_chieu_halo and lum_px[pos_s] >= 185.0:
+                # Không lấy mẫu điểm chuyển tiếp / nhiễu nén JPEG 8x8 (`6 < lum < 248`) nằm trong bán kính 2px quanh `can_xoa`
+                # (nguyên nhân chính gây vệt kẻ ô vuông mờ trên nền tóc đen đặc `RGB(0,0,0)` và gò má trắng `RGB(255,255,255)`):
+                if not la_dao_chieu_halo and (lum_px[pos_s] >= 185.0 or (not la_nen_mau_thuc and 6.0 < lum_px[pos_s] < 248.0)):
                     if (
                         (px_s > 0 and can_xoa[pos_s - 1])
                         or (px_s + 1 < rw and can_xoa[pos_s + 1])
                         or (py_s > 0 and can_xoa[pos_s - rw])
                         or (py_s + 1 < rh and can_xoa[pos_s + rw])
+                        or (not la_nen_mau_thuc and 6.0 < lum_px[pos_s] < 248.0 and (
+                            (px_s > 1 and can_xoa[pos_s - 2])
+                            or (px_s + 2 < rw and can_xoa[pos_s + 2])
+                            or (py_s > 1 and can_xoa[pos_s - 2 * rw])
+                            or (py_s + 2 < rh and can_xoa[pos_s + 2 * rw])
+                            or (px_s > 0 and py_s > 0 and can_xoa[pos_s - rw - 1])
+                            or (px_s + 1 < rw and py_s > 0 and can_xoa[pos_s - rw + 1])
+                            or (px_s > 0 and py_s + 1 < rh and can_xoa[pos_s + rw - 1])
+                            or (px_s + 1 < rw and py_s + 1 < rh and can_xoa[pos_s + rw + 1])
+                        ))
                     ):
                         return False
                 if not la_dao_chieu_halo and la_dai_trang_manh[pos_s]:
@@ -1916,6 +3143,78 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                     return False
                 return True
 
+            da_giao_lama_noi = False
+            if lama_sess_trang is not None and full_mask_lama_noi is not None and gray_goc_np is not None:
+                try:
+                    import numpy as _np_m  # type: ignore
+
+                    m_sub_ctd = None
+                    mx0 = my0 = mx1 = my1 = 0
+                    if ctd_seg_full_trang is not None:
+                        mx0, my0, mx1, my1, m_sub_ctd = _tao_mat_na_chu_noi_ctd_chuan(
+                            gray_goc_np,
+                            ctd_seg_full_trang,
+                            x_goc,
+                            y_goc,
+                            w_goc,
+                            h_goc,
+                            la_dao_chieu_halo=la_dao_chieu_halo,
+                            vung_cam_roi=vung_cam,
+                            rx0=rx0,
+                            ry0=ry0,
+                            rw=rw,
+                            rh=rh,
+                            mang_muc_bv_roi=mang_muc_tranh_bao_ve,
+                            vung_trang_tranh_roi=vung_trang_tranh,
+                            ds_dong_con=ds_dong_con,
+                        )
+                    if m_sub_ctd is not None and int(m_sub_ctd.max()) > 0:
+                        full_mask_lama_noi[my0:my1, mx0:mx1] = _np_m.maximum(full_mask_lama_noi[my0:my1, mx0:mx1], m_sub_ctd)
+                        ys_l, xs_l = _np_m.where(m_sub_ctd > 0)
+                        gx0_l = mx0 + int(xs_l.min())
+                        gy0_l = my0 + int(ys_l.min())
+                        gx1_l = mx0 + int(xs_l.max()) + 1
+                        gy1_l = my0 + int(ys_l.max()) + 1
+                        min_x_xoa = max(0, gx0_l - rx0)
+                        max_x_xoa = min(rw, gx1_l - rx0)
+                        min_y_xoa = max(0, gy0_l - ry0)
+                        max_y_xoa = min(rh, gy1_l - ry0)
+                        co_diem_xoa_chu_noi = True
+                        ds_hop_lama_noi.append((gx0_l, gy0_l, gx1_l, gy1_l))
+                        da_giao_lama_noi = True
+                    else:
+                        # Dự phòng mặt nạ hình học `can_xoa` vào LaMa khi chữ cách điệu / màu không kích hoạt CTD:
+                        co_px_fb = False
+                        for py_m in range(1, rh - 1):
+                            bm_y = py_m * rw
+                            gy_m = ry0 + py_m
+                            if 0 <= gy_m < H:
+                                for px_m in range(1, rw - 1):
+                                    pm_i = bm_y + px_m
+                                    if can_xoa[pm_i] and not vung_cam[pm_i]:
+                                        gx_m = rx0 + px_m
+                                        if 0 <= gx_m < W:
+                                            full_mask_lama_noi[gy_m, gx_m] = 255
+                                            if not co_px_fb:
+                                                min_x_xoa = max_x_xoa = px_m
+                                                min_y_xoa = max_y_xoa = py_m
+                                                co_px_fb = True
+                                            else:
+                                                if px_m < min_x_xoa:
+                                                    min_x_xoa = px_m
+                                                if px_m + 1 > max_x_xoa:
+                                                    max_x_xoa = px_m + 1
+                                                if py_m < min_y_xoa:
+                                                    min_y_xoa = py_m
+                                                if py_m + 1 > max_y_xoa:
+                                                    max_y_xoa = py_m + 1
+                        if co_px_fb:
+                            co_diem_xoa_chu_noi = True
+                            ds_hop_lama_noi.append((rx0 + min_x_xoa, ry0 + min_y_xoa, rx0 + max_x_xoa, ry0 + max_y_xoa))
+                        da_giao_lama_noi = True
+                except Exception:
+                    da_giao_lama_noi = False
+
             huong_8 = ((-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, -1), (-1, 1), (1, 1))
             max_tia_step = max(96, min(140, max(rw, rh)))
             r_buf = [0] * N
@@ -1926,7 +3225,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
             b_sang_fb = [-1] * N
             cum_toi_mask = bytearray(N)
             ds_diem_xoa_noi = []
-            for py_d in range(1, rh - 1):
+            for py_d in range(1, rh - 1) if not da_giao_lama_noi else ():
                 base_d = py_d * rw
                 pha_y = py_d & 3
                 for px_d in range(1, rw - 1):
@@ -1953,9 +3252,11 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                     # để giữ ranh giới sắc nét giữa tóc đen và tường trắng/screentone, đồng thời tránh vệt kẻ ô vuông chữ thập (+)!
                     w_sang = 0.0
                     r_sang = g_sang = b_sang = 0.0
+                    ds_mau_sang_tia: list[tuple[float, float, float, float, float]] = []
                     w_toi = 0.0
                     r_toi = g_toi = b_toi = 0.0
                     tia_toi = [False] * 8
+                    kc_tia = [999.0] * 8
                     mau_pha_r = -1
                     mau_pha_g = -1
                     mau_pha_b = -1
@@ -1975,6 +3276,24 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                                 da_qua_vung_trang = True
                             if da_qua_vung_trang and lum_px[npos_s] <= 90.0 and not la_nen_mau_thuc:
                                 break
+                            if not la_nen_mau_thuc and not nen_toi:
+                                p_ort1 = ny_s * rw + (nx_s - dx_h)
+                                p_ort2 = (ny_s - dy_h) * rw + nx_s
+                                chan_net_tranh = bool(
+                                    (not can_xoa[npos_s] and (mang_muc_tranh_bao_ve[npos_s] or la_toi_net[npos_s]) and not la_mang_toi_dac[npos_s])
+                                    or (
+                                        dx_h != 0
+                                        and dy_h != 0
+                                        and not can_xoa[p_ort1]
+                                        and not can_xoa[p_ort2]
+                                        and (mang_muc_tranh_bao_ve[p_ort1] or la_toi_net[p_ort1])
+                                        and not la_mang_toi_dac[p_ort1]
+                                        and (mang_muc_tranh_bao_ve[p_ort2] or la_toi_net[p_ort2])
+                                        and not la_mang_toi_dac[p_ort2]
+                                    )
+                                )
+                                if chan_net_tranh and not _la_diem_nen_sach(npos_s, dx_h, dy_h):
+                                    break
                             if not _la_diem_nen_sach(npos_s, dx_h, dy_h):
                                 continue
                             nx_s2 = nx_s + dx_h
@@ -1985,14 +3304,27 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                                 else npos_s
                             )
                             kc_thuc = d_step * he_so_cheo
+                            kc_tia[idx_dir] = kc_thuc
                             w_s = 1.0 / ((kc_thuc + 1.0) ** 1.65)
-                            if not la_nen_mau_thuc and not la_tuong_trang_sach and not la_mang_toi_dac[npos_s] and do_nhieu_hat >= 11.5:
+                            if not la_nen_mau_thuc and vung_trang_tranh[npos_s] and tb_lum_3x3[npos_s] >= 249.0 and tb_lum_3x3[npos_s2] >= 248.0:
+                                rm = gm = bm = 255.0
+                                lm = 255.0
+                            elif not la_nen_mau_thuc and not la_tuong_trang_sach and not la_mang_toi_dac[npos_s] and do_nhieu_hat >= 11.5:
                                 rm = gm = bm = (tb_lum_3x3[npos_s] + tb_lum_3x3[npos_s2]) * 0.5
                                 lm = rm
                             else:
-                                rm = (r_roi[npos_s] + r_roi[npos_s2]) * 0.5
-                                gm = (g_roi[npos_s] + g_roi[npos_s2]) * 0.5
-                                bm = (b_roi[npos_s] + b_roi[npos_s2]) * 0.5
+                                if not la_nen_mau_thuc and min(r_roi[npos_s], r_roi[npos_s2]) <= 14 and max(r_roi[npos_s], r_roi[npos_s2]) <= 36:
+                                    rm = gm = bm = float(min(r_roi[npos_s], r_roi[npos_s2]))
+                                    if rm <= 10.0:
+                                        rm = gm = bm = 0.0
+                                elif not la_nen_mau_thuc and max(r_roi[npos_s], r_roi[npos_s2]) >= 248 and min(r_roi[npos_s], r_roi[npos_s2]) >= 228:
+                                    rm = gm = bm = float(max(r_roi[npos_s], r_roi[npos_s2]))
+                                    if rm >= 250.0:
+                                        rm = gm = bm = 255.0
+                                else:
+                                    rm = (r_roi[npos_s] + r_roi[npos_s2]) * 0.5
+                                    gm = (g_roi[npos_s] + g_roi[npos_s2]) * 0.5
+                                    bm = (b_roi[npos_s] + b_roi[npos_s2]) * 0.5
                                 lm = 0.299 * rm + 0.587 * gm + 0.114 * bm
                             if lm < 92.0 and not la_nen_mau_thuc and (la_mang_toi_dac[npos_s] or nen_toi or la_tuong_trang_sach):
                                 w_toi += w_s
@@ -2005,6 +3337,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                                 r_sang += rm * w_s
                                 g_sang += gm * w_s
                                 b_sang += bm * w_s
+                                ds_mau_sang_tia.append((lm, w_s, rm, gm, bm))
                                 if idx_dir < 4 and not la_nen_mau_thuc and not la_tuong_trang_sach and 90.0 <= lm <= 225.0:
                                     for step_p in range(d_step, min(max_tia_step, d_step + 8)):
                                         sx_p = px_d + dx_h * step_p
@@ -2037,29 +3370,53 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                     g_out = int(round(g_nen_trung_vi))
                     b_out = int(round(b_nen_trung_vi))
                     dem_tia_toi = sum(1 for t_b in tia_toi if t_b)
-                    kep_ngang_toi = bool(tia_toi[0] and tia_toi[1] and w_toi >= w_sang * 0.78)
-                    kep_doc_toi = bool(tia_toi[2] and tia_toi[3] and w_toi >= w_sang * 0.78)
-                    kep_cheo_toi = bool(((tia_toi[4] and tia_toi[7]) or (tia_toi[5] and tia_toi[6])) and w_toi >= w_sang * 0.82)
+                    kep_ngang_toi = bool(tia_toi[0] and tia_toi[1] and (kc_tia[0] + kc_tia[1]) <= 40.0 and w_toi >= w_sang * 0.80)
+                    kep_doc_toi = bool(tia_toi[2] and tia_toi[3] and (kc_tia[2] + kc_tia[3]) <= 40.0 and w_toi >= w_sang * 0.80)
+                    kep_cheo_toi = bool(
+                        ((tia_toi[4] and tia_toi[7] and (kc_tia[4] + kc_tia[7]) <= 42.0) or (tia_toi[5] and tia_toi[6] and (kc_tia[5] + kc_tia[6]) <= 42.0))
+                        and w_toi >= w_sang * 0.84
+                    )
+                    he_so_nen_toi_global = 0.96 if h_goc >= 110 else 0.65
                     nam_trong_mang_toi = bool(
-                        (nen_toi and (w_toi >= w_sang * 0.65 or (dem_tia_toi >= 4 and w_toi >= w_sang * 0.55)))
+                        (nen_toi and (w_toi >= w_sang * he_so_nen_toi_global or (dem_tia_toi >= 5 and w_toi >= w_sang * 0.72)))
                         or w_sang == 0.0
-                        or (dem_tia_toi >= 5 and w_toi >= w_sang * 0.68)
+                        or (dem_tia_toi >= 5 and w_toi >= w_sang * 0.72)
                         or kep_ngang_toi
                         or kep_doc_toi
                         or (not la_tuong_trang_sach and kep_cheo_toi and dem_tia_toi >= 3)
                         or (not la_tuong_trang_sach and dem_tia_toi >= 3 and w_toi >= w_sang * 1.15)
-                        or (lum_nen_trung_vi < 115.0 and w_toi >= w_sang * 0.80)
+                        or (lum_nen_trung_vi < 115.0 and h_goc < 110 and w_toi >= w_sang * 0.82)
                     )
                     if w_sang > 0:
-                        rs_c = int(round(r_sang / w_sang))
-                        gs_c = int(round(g_sang / w_sang))
-                        bs_c = int(round(b_sang / w_sang))
-                        lum_out_s = 0.299 * rs_c + 0.587 * gs_c + 0.114 * bs_c
-                        if not la_nen_mau_thuc and mau_pha_r >= 0 and do_nhieu_hat >= 16.0 and 115.0 <= lum_out_s <= 212.0:
-                            he_so_pha = 0.26 if do_nhieu_hat >= 24.0 else 0.16
-                            rs_c = int(round(mau_pha_r * he_so_pha + rs_c * (1.0 - he_so_pha)))
-                            gs_c = int(round(mau_pha_g * he_so_pha + gs_c * (1.0 - he_so_pha)))
-                            bs_c = int(round(mau_pha_b * he_so_pha + bs_c * (1.0 - he_so_pha)))
+                        if not la_nen_mau_thuc and len(ds_mau_sang_tia) >= 3:
+                            ds_mau_sang_tia.sort(key=lambda item_s: item_s[0])
+                            nua_w_s = w_sang * 0.5
+                            tich_w_s = 0.0
+                            med_l_s = ds_mau_sang_tia[len(ds_mau_sang_tia) // 2][0]
+                            for lm_i, ws_i, _, _, _ in ds_mau_sang_tia:
+                                tich_w_s += ws_i
+                                if tich_w_s >= nua_w_s:
+                                    med_l_s = lm_i
+                                    break
+                            ws_loc = rs_loc = gs_loc = bs_loc = 0.0
+                            for lm_i, ws_i, rm_i, gm_i, bm_i in ds_mau_sang_tia:
+                                if abs(lm_i - med_l_s) <= 20.0:
+                                    ws_loc += ws_i
+                                    rs_loc += rm_i * ws_i
+                                    gs_loc += gm_i * ws_i
+                                    bs_loc += bm_i * ws_i
+                            if ws_loc > 0.0:
+                                rs_c = int(round(rs_loc / ws_loc))
+                                gs_c = int(round(gs_loc / ws_loc))
+                                bs_c = int(round(bs_loc / ws_loc))
+                            else:
+                                rs_c = int(round(med_l_s))
+                                gs_c = rs_c
+                                bs_c = rs_c
+                        else:
+                            rs_c = int(round(r_sang / w_sang))
+                            gs_c = int(round(g_sang / w_sang))
+                            bs_c = int(round(b_sang / w_sang))
                         r_sang_fb[pos_d] = rs_c
                         g_sang_fb[pos_d] = gs_c
                         b_sang_fb[pos_d] = bs_c
@@ -2115,9 +3472,10 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                 if not co_thay_doi_toi:
                     break
 
-            # Làm mượt đẳng hướng 2D (3 vòng Laplace/Harmonic Relaxation trong từng cụm Sáng/Tối)
-            # để xoá sạch 100% vệt sọc ngang/dọc kiểu bàn cờ (plaid/crossbar artifacts) trên vùng gạch chéo & screentone:
-            for _ in range(3):
+            # Làm mượt bảo toàn biên (Edge-Preserving Bilateral Harmonic Relaxation trong từng cụm Sáng/Tối)
+            # để giữ ranh giới sắc nét giữa mảng highlight trắng (255), screentone mặt (192) và screentone áo (156):
+            so_vong_laplace = 8 if (not la_nen_mau_thuc and do_nhieu_hat >= 12.0) else 14
+            for _ in range(so_vong_laplace):
                 r_next = list(r_buf)
                 g_next = list(g_buf)
                 b_next = list(b_buf)
@@ -2125,7 +3483,8 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                     px_d = pos_d % rw
                     py_d = pos_d // rw
                     c_mode = cum_toi_mask[pos_d]
-                    sr = r_buf[pos_d] * 2
+                    r_cur = r_buf[pos_d]
+                    sr = r_cur * 2
                     sg = g_buf[pos_d] * 2
                     sb = b_buf[pos_d] * 2
                     sw = 2
@@ -2134,10 +3493,10 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                         pos_d + 1 if px_d + 1 < rw else -1,
                         pos_d - rw if py_d > 0 else -1,
                         pos_d + rw if py_d + 1 < rh else -1,
-                        pos_d - rw - 1 if (px_d > 0 and py_d > 0) else -1,
-                        pos_d - rw + 1 if (px_d + 1 < rw and py_d > 0) else -1,
-                        pos_d + rw - 1 if (px_d > 0 and py_d + 1 < rh) else -1,
-                        pos_d + rw + 1 if (px_d + 1 < rw and py_d + 1 < rh) else -1,
+                        pos_d - rw - 1 if (px_d > 0 and py_d > 0 and not (mang_muc_tranh_bao_ve[pos_d - 1] and mang_muc_tranh_bao_ve[pos_d - rw])) else -1,
+                        pos_d - rw + 1 if (px_d + 1 < rw and py_d > 0 and not (mang_muc_tranh_bao_ve[pos_d + 1] and mang_muc_tranh_bao_ve[pos_d - rw])) else -1,
+                        pos_d + rw - 1 if (px_d > 0 and py_d + 1 < rh and not (mang_muc_tranh_bao_ve[pos_d - 1] and mang_muc_tranh_bao_ve[pos_d + rw])) else -1,
+                        pos_d + rw + 1 if (px_d + 1 < rw and py_d + 1 < rh and not (mang_muc_tranh_bao_ve[pos_d + 1] and mang_muc_tranh_bao_ve[pos_d + rw])) else -1,
                     ):
                         if npos_n < 0:
                             continue
@@ -2149,8 +3508,9 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                                 sw += 1
                         elif _la_diem_nen_sach(npos_n):
                             is_dark_n = 1 if (lum_px[npos_n] < 92.0 and not la_nen_mau_thuc) else 0
-                            if is_dark_n == c_mode:
-                                sr += int(round(tb_lum_3x3[npos_n])) if (not la_nen_mau_thuc and not la_tuong_trang_sach and not is_dark_n) else r_roi[npos_n]
+                            if is_dark_n == c_mode and not (not la_nen_mau_thuc and not is_dark_n and la_toi_net[npos_n]):
+                                vn_r = int(round(tb_lum_3x3[npos_n])) if (not la_nen_mau_thuc and not la_tuong_trang_sach and not is_dark_n) else r_roi[npos_n]
+                                sr += vn_r
                                 sg += int(round(tb_lum_3x3[npos_n])) if (not la_nen_mau_thuc and not la_tuong_trang_sach and not is_dark_n) else g_roi[npos_n]
                                 sb += int(round(tb_lum_3x3[npos_n])) if (not la_nen_mau_thuc and not la_tuong_trang_sach and not is_dark_n) else b_roi[npos_n]
                                 sw += 1
@@ -2159,10 +3519,371 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                     b_next[pos_d] = (sb + (sw // 2)) // sw
                 r_buf, g_buf, b_buf = r_next, g_next, b_next
 
+            # Tái tạo kết cấu đồng pha liên tục theo điểm ảnh (Pixel-Coherent PatchMatch Screentone Cloning)
+            # cho nhánh dự phòng ngoại tuyến (khi không có `lama.onnx`):
+            if not la_nen_mau_thuc and ds_diem_xoa_noi:
+                gan_xoa_2px = bytearray(N)
+                for py_g in range(rh):
+                    bg_y = py_g * rw
+                    for px_g in range(rw):
+                        pg = bg_y + px_g
+                        if can_xoa[pg] or vung_cam[pg]:
+                            gan_xoa_2px[pg] = 1
+                            for dy_2 in (-2, -1, 0, 1, 2):
+                                ny2 = py_g + dy_2
+                                if 0 <= ny2 < rh:
+                                    b2 = ny2 * rw
+                                    for dx_2 in (-2, -1, 0, 1, 2):
+                                        nx2 = px_g + dx_2
+                                        if 0 <= nx2 < rw:
+                                            gan_xoa_2px[b2 + nx2] = 1
+
+                # 1. Nhận diện miền giấy trắng + tia tốc độ đen lưỡng cực (`la_giay_speedline`: không có hạt screentone xám lân cận)
+                # để trả nền về trắng tinh `255` sắc nét thay vì mây xám nhòe:
+                la_giay_speedline = bytearray(N)
+                for pos_d in ds_diem_xoa_noi:
+                    if cum_toi_mask[pos_d]:
+                        if r_buf[pos_d] <= 24:
+                            r_buf[pos_d] = g_buf[pos_d] = b_buf[pos_d] = 0
+                            la_giay_speedline[pos_d] = 1
+                        continue
+                    px_d = pos_d % rw
+                    py_d = pos_d // rw
+                    if r_buf[pos_d] >= 244 and (
+                        r_buf[pos_d] >= 250
+                        or vung_trang_tranh[pos_d]
+                        or (px_d > 0 and vung_trang_tranh[pos_d - 1])
+                        or (px_d + 1 < rw and vung_trang_tranh[pos_d + 1])
+                        or (py_d > 0 and vung_trang_tranh[pos_d - rw])
+                        or (py_d + 1 < rh and vung_trang_tranh[pos_d + rw])
+                    ):
+                        r_buf[pos_d] = g_buf[pos_d] = b_buf[pos_d] = 255
+                        la_giay_speedline[pos_d] = 1
+                        continue
+                    if r_buf[pos_d] >= 198:
+                        n_tr_sp = n_den_sp = n_xam_sp = 0
+                        for dy_z in range(-18, 19, 3):
+                            nyz = py_d + dy_z
+                            if nyz <= 0 or nyz >= rh - 1:
+                                continue
+                            bz = nyz * rw
+                            for dx_z in range(-18, 19, 3):
+                                nxz = px_d + dx_z
+                                if nxz <= 0 or nxz >= rw - 1:
+                                    continue
+                                pz = bz + nxz
+                                if gan_xoa_2px[pz]:
+                                    continue
+                                lz = lum_px[pz]
+                                if lz >= 242.0:
+                                    n_tr_sp += 1
+                                elif lz <= 85.0:
+                                    n_den_sp += 1
+                                elif 102.0 <= lz <= 224.0 and tb_lum_3x3[pz] <= 232.0:
+                                    n_xam_sp += 1
+                        if n_tr_sp >= 10 and (n_tr_sp + n_den_sp) >= 18 and n_xam_sp <= int((n_tr_sp + n_den_sp) * 0.12):
+                            r_buf[pos_d] = g_buf[pos_d] = b_buf[pos_d] = 255
+                            la_giay_speedline[pos_d] = 1
+
+                # 2. Tiền tính toán trung bình `5x5` & mặt nạ nguồn mẫu screentone sạch `sach_patch_3x3`
+                # (tuyệt đối loại bỏ rìa cổ áo đen / nét viền nhân vật `mang_muc_tranh_bao_ve` để không sinh rác pixel đen):
+                tb_5x5 = list(tb_lum_3x3)
+                range_3x3 = [0.0] * N
+                sach_patch_noi = bytearray(N)
+                sach_patch_toi = bytearray(N)
+                for py_p5 in range(2, rh - 2):
+                    bp5 = py_p5 * rw
+                    for px_p5 in range(2, rw - 2):
+                        pp5 = bp5 + px_p5
+                        if gan_xoa_2px[pp5]:
+                            continue
+                        lmin3 = 255.0
+                        lmax3 = 0.0
+                        co_xoa_3 = False
+                        co_bv_3 = False
+                        co_dac_3 = False
+                        for dy3 in (-1, 0, 1):
+                            r3 = (py_p5 + dy3) * rw + px_p5
+                            for dx3 in (-1, 0, 1):
+                                q3 = r3 + dx3
+                                if gan_xoa_2px[q3]:
+                                    co_xoa_3 = True
+                                    break
+                                if mang_muc_tranh_bao_ve[q3] or ket_noi_bien[q3]:
+                                    co_bv_3 = True
+                                if la_mang_toi_dac[q3]:
+                                    co_dac_3 = True
+                                lq3 = lum_px[q3]
+                                if lq3 < lmin3:
+                                    lmin3 = lq3
+                                if lq3 > lmax3:
+                                    lmax3 = lq3
+                            if co_xoa_3:
+                                break
+                        if co_xoa_3:
+                            continue
+                        rg3 = lmax3 - lmin3
+                        range_3x3[pp5] = rg3
+                        s5 = 0.0
+                        c5 = 0
+                        for dy5 in (-2, -1, 0, 1, 2):
+                            r5 = (py_p5 + dy5) * rw + px_p5
+                            for dx5 in (-2, -1, 0, 1, 2):
+                                q5 = r5 + dx5
+                                if not gan_xoa_2px[q5]:
+                                    s5 += lum_px[q5]
+                                    c5 += 1
+                        if c5 > 0:
+                            tb_5x5[pp5] = s5 / c5
+                        if not co_bv_3 and not co_dac_3 and rg3 <= 142.0:
+                            sach_patch_noi[pp5] = 1
+                        if not mang_muc_tranh_bao_ve[pp5] and lmax3 < 215.0:
+                            sach_patch_toi[pp5] = 1
+
+                # 3. Nhân bản kết cấu đồng pha liên tục (Coherent Shift Field `ox % 4 == 0, oy % 4 == 0` kiểu PatchMatch):
+                # Giữ nguyên độ sắc nét gốc của hạt screentone (`he_so_nen = 0.0` khi khớp tông), không gây nhòe hay ô vuông 4x4!
+                huong_24_pm = (
+                    (0, 1), (0, -1), (1, 0), (-1, 0),
+                    (1, 1), (-1, 1), (1, -1), (-1, -1),
+                    (2, 1), (-2, 1), (2, -1), (-2, -1),
+                    (1, 2), (-1, 2), (1, -2), (-1, -2),
+                    (3, 1), (-3, 1), (3, -1), (-3, -1),
+                    (1, 3), (-1, 3), (1, -3), (-1, -3),
+                )
+                off_x_pm = [0] * N
+                off_y_pm = [0] * N
+                co_off_pm = bytearray(N)
+
+                def _danh_gia_ung_vien_pm(px_t: int, py_t: int, ox_t: int, oy_t: int, target_l: float, dan_toi: bool) -> float:
+                    sx_t = px_t + ox_t
+                    sy_t = py_t + oy_t
+                    if sx_t <= 2 or sx_t >= rw - 2 or sy_t <= 2 or sy_t >= rh - 2:
+                        return 1e9
+                    sp_t = sy_t * rw + sx_t
+                    if dan_toi:
+                        if not sach_patch_toi[sp_t]:
+                            return 1e9
+                        if lum_px[sp_t] <= 16.0 and target_l >= 38.0:
+                            return 1e9
+                    else:
+                        if not sach_patch_noi[sp_t]:
+                            return 1e9
+                    lech_l = abs(tb_5x5[sp_t] - target_l)
+                    nguong_l = 58.0 if dan_toi else 36.0
+                    if lech_l > nguong_l:
+                        return 1e9
+                    kc_pm = (ox_t * ox_t + oy_t * oy_t) ** 0.5
+                    return kc_pm * 0.28 + lech_l * 1.25
+
+                for pos_d in ds_diem_xoa_noi:
+                    if la_giay_speedline[pos_d]:
+                        continue
+                    px_d = pos_d % rw
+                    py_d = pos_d // rw
+                    tile_dark_px = bool(cum_toi_mask[pos_d])
+                    target_l = float(r_buf[pos_d])
+                    if tile_dark_px and target_l <= 54.0:
+                        # Khóa về mực đen tuyền `(0, 0, 0)` nếu lân cận sạch gần nhất là mảng tóc/áo đen đặc:
+                        cham_den_dac = False
+                        for dx_n, dy_n in ((0, -1), (0, 1), (-1, 0), (1, 0), (-1, -1), (1, -1), (-1, 1), (1, 1)):
+                            for st_n in (4, 8, 12):
+                                sx_n = px_d + dx_n * st_n
+                                sy_n = py_d + dy_n * st_n
+                                if sx_n <= 1 or sx_n >= rw - 2 or sy_n <= 1 or sy_n >= rh - 2:
+                                    break
+                                sp_n = sy_n * rw + sx_n
+                                if not gan_xoa_2px[sp_n] and tb_lum_3x3[sp_n] <= 12.0:
+                                    cham_den_dac = True
+                                    break
+                            if cham_den_dac:
+                                break
+                        if cham_den_dac:
+                            r_buf[pos_d] = g_buf[pos_d] = b_buf[pos_d] = 0
+                            la_giay_speedline[pos_d] = 1
+                            continue
+
+                    dan_toi_px = bool(tile_dark_px or target_l < 106.0)
+                    best_c_pm = 1e9
+                    best_ox = 0
+                    best_oy = 0
+
+                    # Lan truyền độ dịch đồng pha `(ox, oy)` từ láng giềng Trái / Trên để ghép nguyên tấm screentone liền mạch:
+                    for nb_pos in (pos_d - 1 if px_d > 0 else -1, pos_d - rw if py_d > 0 else -1):
+                        if nb_pos >= 0 and co_off_pm[nb_pos]:
+                            ox_nb = off_x_pm[nb_pos]
+                            oy_nb = off_y_pm[nb_pos]
+                            c_nb = _danh_gia_ung_vien_pm(px_d, py_d, ox_nb, oy_nb, target_l, dan_toi_px) - 3.5
+                            if c_nb < best_c_pm:
+                                best_c_pm = c_nb
+                                best_ox = ox_nb
+                                best_oy = oy_nb
+
+                    if best_c_pm > 7.5:
+                        for dx_b, dy_b in huong_24_pm:
+                            norm_b = (dx_b * dx_b + dy_b * dy_b) ** 0.5
+                            for st_b in range(1, 38):
+                                if st_b * 4.0 * norm_b * 0.28 >= best_c_pm:
+                                    break
+                                ox_c = dx_b * 4 * st_b
+                                oy_c = dy_b * 4 * st_b
+                                sx_c = px_d + ox_c
+                                sy_c = py_d + oy_c
+                                if sx_c <= 2 or sx_c >= rw - 2 or sy_c <= 2 or sy_c >= rh - 2:
+                                    break
+                                sp_c = sy_c * rw + sx_c
+                                if not dan_toi_px:
+                                    # Không lấy mẫu xuyên qua đường viền nét vẽ nhân vật (`mang_muc_tranh_bao_ve`):
+                                    cat_bv = False
+                                    px_prv = px_d + dx_b * 4 * (st_b - 1)
+                                    py_prv = py_d + dy_b * 4 * (st_b - 1)
+                                    for k_s in (1, 2, 3, 4):
+                                        mx_k = px_prv + dx_b * k_s
+                                        my_k = py_prv + dy_b * k_s
+                                        if 0 <= mx_k < rw and 0 <= my_k < rh:
+                                            mp_k = my_k * rw + mx_k
+                                            if mang_muc_tranh_bao_ve[mp_k] and not la_mang_toi_dac[mp_k]:
+                                                cat_bv = True
+                                                break
+                                    if cat_bv or la_mang_toi_dac[sp_c]:
+                                        break
+                                c_cand = _danh_gia_ung_vien_pm(px_d, py_d, ox_c, oy_c, target_l, dan_toi_px)
+                                if c_cand < best_c_pm:
+                                    best_c_pm = c_cand
+                                    best_ox = ox_c
+                                    best_oy = oy_c
+                                    if best_c_pm <= 6.5:
+                                        break
+
+                    # Pha cứu hộ mở rộng nếu vùng quá hẹp giữa các nét tranh để không bao giờ để sót mảng nhòe Laplace:
+                    if best_c_pm >= 1e8 and not dan_toi_px:
+                        for dx_b, dy_b in huong_24_pm[:8]:
+                            for st_b in range(1, 42):
+                                ox_c = dx_b * 4 * st_b
+                                oy_c = dy_b * 4 * st_b
+                                sx_c = px_d + ox_c
+                                sy_c = py_d + oy_c
+                                if sx_c <= 2 or sx_c >= rw - 2 or sy_c <= 2 or sy_c >= rh - 2:
+                                    break
+                                sp_c = sy_c * rw + sx_c
+                                if sach_patch_noi[sp_c] and abs(tb_5x5[sp_c] - target_l) <= 56.0:
+                                    c_fb = ((ox_c * ox_c + oy_c * oy_c) ** 0.5) * 0.28 + abs(tb_5x5[sp_c] - target_l) * 1.25
+                                    if c_fb < best_c_pm:
+                                        best_c_pm = c_fb
+                                        best_ox = ox_c
+                                        best_oy = oy_c
+                                        break
+
+                    if best_c_pm < 1e8:
+                        off_x_pm[pos_d] = best_ox
+                        off_y_pm[pos_d] = best_oy
+                        co_off_pm[pos_d] = 1
+
+                # Lượt lan truyền ngược (Phải / Dưới -> Trái / Trên) để khử 100% vết nối giữa các tấm screentone:
+                for pos_d in reversed(ds_diem_xoa_noi):
+                    if la_giay_speedline[pos_d] or not co_off_pm[pos_d]:
+                        continue
+                    px_d = pos_d % rw
+                    py_d = pos_d // rw
+                    target_l = float(r_buf[pos_d])
+                    dan_toi_px = bool(cum_toi_mask[pos_d] or target_l < 106.0)
+                    cur_c = _danh_gia_ung_vien_pm(px_d, py_d, off_x_pm[pos_d], off_y_pm[pos_d], target_l, dan_toi_px)
+                    for nb_pos in (pos_d + 1 if px_d + 1 < rw else -1, pos_d + rw if py_d + 1 < rh else -1):
+                        if nb_pos >= 0 and co_off_pm[nb_pos]:
+                            ox_nb = off_x_pm[nb_pos]
+                            oy_nb = off_y_pm[nb_pos]
+                            c_nb = _danh_gia_ung_vien_pm(px_d, py_d, ox_nb, oy_nb, target_l, dan_toi_px) - 2.5
+                            if c_nb < cur_c:
+                                cur_c = c_nb
+                                off_x_pm[pos_d] = ox_nb
+                                off_y_pm[pos_d] = oy_nb
+
+                for pos_d in ds_diem_xoa_noi:
+                    if la_giay_speedline[pos_d]:
+                        continue
+                    if co_off_pm[pos_d]:
+                        px_d = pos_d % rw
+                        py_d = pos_d // rw
+                        sp_f = (py_d + off_y_pm[pos_d]) * rw + (px_d + off_x_pm[pos_d])
+                        if range_3x3[sp_f] >= 8.0:
+                            sai_nen_pm = float(r_buf[pos_d]) - tb_5x5[sp_f]
+                            he_so_bu = 0.0 if abs(sai_nen_pm) <= 24.0 else 0.18
+                            val_pm = max(0, min(255, int(round(r_roi[sp_f] + he_so_bu * sai_nen_pm))))
+                            r_buf[pos_d] = g_buf[pos_d] = b_buf[pos_d] = val_pm
+                    if cum_toi_mask[pos_d] and r_buf[pos_d] <= 18:
+                        r_buf[pos_d] = g_buf[pos_d] = b_buf[pos_d] = 0
+                    elif not cum_toi_mask[pos_d] and r_buf[pos_d] >= 248:
+                        r_buf[pos_d] = g_buf[pos_d] = b_buf[pos_d] = 255
+
             for pos_d in ds_diem_xoa_noi:
                 px_d = pos_d % rw
                 py_d = pos_d // rw
                 px_anh[rx0 + px_d, ry0 + py_d] = (r_buf[pos_d], g_buf[pos_d], b_buf[pos_d])
+
+            # Nuốt trọn 100% các đường kẻ trắng / hạt xám mảnh (`len <= 130` hoặc bề dày `<= 3px`) bị cô lập hoàn toàn
+            # bên trong mảng tóc đen tuyền `RGB(0,0,0)` (triệt tiêu dứt điểm đường kẻ trắng mảnh trên tóc ở `Crop 1`):
+            if not da_giao_lama_noi and not la_nen_mau_thuc and co_diem_xoa_chu_noi:
+                bx_s0 = max(1, min_x_xoa - 4)
+                by_s0 = max(1, min_y_xoa - 4)
+                bx_s1 = min(rw - 1, max_x_xoa + 4)
+                by_s1 = min(rh - 1, max_y_xoa + 4)
+                da_duyet_sp = bytearray(N)
+                for py_sp in range(by_s0, by_s1):
+                    b_sp = py_sp * rw
+                    for px_sp in range(bx_s0, bx_s1):
+                        p_sp = b_sp + px_sp
+                        if da_duyet_sp[p_sp] or vung_cam[p_sp]:
+                            continue
+                        cr0, cg0, cb0 = px_anh[rx0 + px_sp, ry0 + py_sp]
+                        if cr0 <= 8 and cg0 <= 8 and cb0 <= 8:
+                            continue
+                        da_duyet_sp[p_sp] = 1
+                        q_sp = [p_sp]
+                        cham_vung_sang_ngoai = False
+                        cham_den_tuyen = False
+                        sp_x0 = sp_x1 = px_sp
+                        sp_y0 = sp_y1 = py_sp
+                        hd_sp = 0
+                        while hd_sp < len(q_sp):
+                            cur_sp = q_sp[hd_sp]
+                            hd_sp += 1
+                            cx_s = cur_sp % rw
+                            cy_s = cur_sp // rw
+                            if cx_s < sp_x0:
+                                sp_x0 = cx_s
+                            if cx_s > sp_x1:
+                                sp_x1 = cx_s
+                            if cy_s < sp_y0:
+                                sp_y0 = cy_s
+                            if cy_s > sp_y1:
+                                sp_y1 = cy_s
+                            if cx_s <= bx_s0 or cx_s >= bx_s1 - 1 or cy_s <= by_s0 or cy_s >= by_s1 - 1 or len(q_sp) > 150:
+                                cham_vung_sang_ngoai = True
+                            for dy_s in (-1, 0, 1):
+                                nys = cy_s + dy_s
+                                if nys < 0 or nys >= rh:
+                                    continue
+                                nbs = nys * rw
+                                for dx_s in (-1, 0, 1):
+                                    if dx_s == 0 and dy_s == 0:
+                                        continue
+                                    nxs = cx_s + dx_s
+                                    if nxs < 0 or nxs >= rw:
+                                        continue
+                                    nps = nbs + nxs
+                                    nr_s, ng_s, nb_s = px_anh[rx0 + nxs, ry0 + nys]
+                                    if nr_s <= 8 and ng_s <= 8 and nb_s <= 8:
+                                        cham_den_tuyen = True
+                                    elif not da_duyet_sp[nps] and not vung_cam[nps]:
+                                        if nxs < bx_s0 or nxs >= bx_s1 or nys < by_s0 or nys >= by_s1:
+                                            cham_vung_sang_ngoai = True
+                                        elif len(q_sp) <= 150:
+                                            da_duyet_sp[nps] = 1
+                                            q_sp.append(nps)
+                        w_sp = sp_x1 - sp_x0 + 1
+                        h_sp = sp_y1 - sp_y0 + 1
+                        if not cham_vung_sang_ngoai and cham_den_tuyen and (len(q_sp) <= 96 or (min(w_sp, h_sp) <= 3 and len(q_sp) <= 145)):
+                            for p_wipe in q_sp:
+                                px_anh[rx0 + (p_wipe % rw), ry0 + (p_wipe // rw)] = (0, 0, 0)
         else:
             co_long_trang_ro = (not nen_toi) and (len(q_lt) >= max(64, int(dt_hop * 0.25)))
             if ctd_seg_info is not None:
@@ -2172,11 +3893,40 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                         u_idx = b_u + sx_u
                         if seg_mask_roi[u_idx] and trong_dong[u_idx] and not vung_cam[u_idx] and not ket_noi_bien[u_idx] and lum_px[u_idx] < 212.0:
                             la_nen[u_idx] = 0
+            h_dong_max_cca = max((d_hd[3] - d_hd[1] for d_hd in ds_hop_dong), default=20)
+            nguong_dai_vach = max(30, int(round(h_dong_max_cca * 1.45)))
+            vach_khung_bong = bytearray(ket_noi_bien)
+            for px_vk in range(1, rw - 1):
+                run_y0 = -1
+                for py_vk in range(rh):
+                    if py_vk < rh - 1 and la_toi_net[py_vk * rw + px_vk]:
+                        if run_y0 < 0:
+                            run_y0 = py_vk
+                    else:
+                        if run_y0 >= 0 and (py_vk - run_y0) >= nguong_dai_vach:
+                            for ry_v in range(run_y0, py_vk):
+                                vach_khung_bong[ry_v * rw + px_vk] = 1
+                        run_y0 = -1
+            vien_mo_bien = bytearray(N)
+            for py_vb in range(1, rh - 1):
+                b_vb = py_vb * rw
+                for px_vb in range(1, rw - 1):
+                    u_vb = b_vb + px_vb
+                    if vach_khung_bong[u_vb] or (
+                        lum_px[u_vb] > 112.0
+                        and (
+                            vach_khung_bong[u_vb - 1]
+                            or vach_khung_bong[u_vb + 1]
+                            or vach_khung_bong[u_vb - rw]
+                            or vach_khung_bong[u_vb + rw]
+                        )
+                    ):
+                        vien_mo_bien[u_vb] = 1
             for sy in range(sy0, sy1):
                 base_s = sy * rw
                 for sx in range(sx0, sx1):
                     s_idx = base_s + sx
-                    if can_xoa[s_idx] or not trong_dong[s_idx] or da_tham_cca[s_idx] or la_nen[s_idx] or vung_cam[s_idx] or ket_noi_bien[s_idx]:
+                    if can_xoa[s_idx] or not trong_dong[s_idx] or da_tham_cca[s_idx] or la_nen[s_idx] or vung_cam[s_idx] or ket_noi_bien[s_idx] or vien_mo_bien[s_idx]:
                         continue
                     if la_bong_khep_kin and ngoai_bong_bong[s_idx]:
                         continue
@@ -2224,9 +3974,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                                 np = nb + nx
                                 if la_bong_khep_kin and ngoai_bong_bong[np]:
                                     continue
-                                if not da_tham_cca[np] and not la_nen[np] and not vung_cam[np] and not ket_noi_bien[np]:
-                                    if di != 0 and nx > 0 and nx + 1 < rw and (ket_noi_bien[np - 1] or ket_noi_bien[np + 1]) and lum_px[np] > 118.0:
-                                        continue
+                                if not da_tham_cca[np] and not la_nen[np] and not vung_cam[np] and not ket_noi_bien[np] and not vien_mo_bien[np]:
                                     da_tham_cca[np] = 1
                                     comp.append(np)
                     w_c = max_cx - min_cx + 1
@@ -2263,26 +4011,25 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                         b_kk = py_kk * rw
                         for px_kk in range(dlx0, dlx1):
                             idx_kk = b_kk + px_kk
-                            if not la_nen[idx_kk] and not vung_cam[idx_kk] and not ket_noi_bien[idx_kk]:
+                            if not la_nen[idx_kk] and not vung_cam[idx_kk] and not ket_noi_bien[idx_kk] and (not la_bong_khep_kin or not ngoai_bong_bong[idx_kk]):
                                 can_xoa[idx_kk] = 1
-                                ngoai_bong_bong[idx_kk] = 0
             ban_kinh_no = 2
             y_no_0 = 2 if la_bong_khep_kin else max(ban_kinh_no, sy0 - ban_kinh_no)
             y_no_1 = (rh - 2) if la_bong_khep_kin else min(rh - ban_kinh_no, sy1 + ban_kinh_no)
             x_no_0 = 2 if la_bong_khep_kin else max(ban_kinh_no, sx0 - ban_kinh_no)
             x_no_1 = (rw - 2) if la_bong_khep_kin else min(rw - ban_kinh_no, sx1 + ban_kinh_no)
+            mask_xoa_bong = bytearray(N)
+            ds_diem_bong = []
             for py in range(y_no_0, y_no_1):
                 base = py * rw
                 rr, gg, bb, _ = row_bg[py]
                 for px in range(x_no_0, x_no_1):
                     pos = base + px
-                    if vung_cam[pos] or (la_bong_khep_kin and ngoai_bong_bong[pos] and (ket_noi_bien[pos] or not trong_dong[pos])) or (not la_bong_khep_kin and ket_noi_bien[pos]):
-                        continue
-                    if can_xoa[pos]:
-                        px_anh[rx0 + px, ry0 + py] = (rr, gg, bb)
+                    if vung_cam[pos] or (la_bong_khep_kin and ngoai_bong_bong[pos]) or (not la_bong_khep_kin and ket_noi_bien[pos]):
                         continue
                     if (
-                        can_xoa[pos - 1]
+                        can_xoa[pos]
+                        or can_xoa[pos - 1]
                         or can_xoa[pos + 1]
                         or can_xoa[pos - rw]
                         or can_xoa[pos + rw]
@@ -2295,7 +4042,66 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                         or can_xoa[pos - 2 * rw]
                         or can_xoa[pos + 2 * rw]
                     ):
+                        mask_xoa_bong[pos] = 1
+                        ds_diem_bong.append(pos)
                         px_anh[rx0 + px, ry0 + py] = (rr, gg, bb)
+
+            # Với bóng thoại màu / kem / gradient 2D (`cho_phep_kem_pastel`, `la_nen_mau_thuc` hoặc bóng có độ chênh sáng nội bộ),
+            # nội suy Harmonic RGB 2 chiều từ các điểm nền sạch ngay xung quanh để đồng màu 100% với màu nền bóng tại từng toạ độ `(x, y)`
+            # (Bỏ qua lặp Laplace 16 vòng nếu lòng bóng đã trắng tinh đồng nhất `>= 244` để tăng tốc >15x trên trang đôi 4K/5K):
+            la_trang_tinh_dong_nhat = (
+                not cho_phep_kem_pastel
+                and not la_nen_mau_thuc
+                and bg_r >= 244
+                and bg_g >= 244
+                and bg_b >= 244
+                and all(rb_r >= 242 and gb_r >= 242 and bb_r >= 242 for rb_r, gb_r, bb_r, _ in row_bg)
+            )
+            if (cho_phep_kem_pastel or la_nen_mau_thuc or (la_bong_khep_kin and not la_trang_tinh_dong_nhat)) and ds_diem_bong:
+                rb_m = [r_roi[i] for i in range(N)]
+                gb_m = [g_roi[i] for i in range(N)]
+                bb_m = [b_roi[i] for i in range(N)]
+                for pos_b in ds_diem_bong:
+                    py_b = pos_b // rw
+                    rr_b, gg_b, bb_b, _ = row_bg[py_b]
+                    rb_m[pos_b] = rr_b
+                    gb_m[pos_b] = gg_b
+                    bb_m[pos_b] = bb_b
+                for _ in range(16):
+                    rn_b = list(rb_m)
+                    gn_b = list(gb_m)
+                    bn_b = list(bb_m)
+                    for pos_b in ds_diem_bong:
+                        px_b = pos_b % rw
+                        py_b = pos_b // rw
+                        sr_b = rb_m[pos_b] * 2
+                        sg_b = gb_m[pos_b] * 2
+                        sb_b = bb_m[pos_b] * 2
+                        sw_b = 2
+                        for np_b in (
+                            pos_b - 1 if px_b > 0 else -1,
+                            pos_b + 1 if px_b + 1 < rw else -1,
+                            pos_b - rw if py_b > 0 else -1,
+                            pos_b + rw if py_b + 1 < rh else -1,
+                        ):
+                            if np_b < 0:
+                                continue
+                            if mask_xoa_bong[np_b]:
+                                sr_b += rb_m[np_b]
+                                sg_b += gb_m[np_b]
+                                sb_b += bb_m[np_b]
+                                sw_b += 1
+                            elif la_nen[np_b] and (not la_bong_khep_kin or not ngoai_bong_bong[np_b]) and not ket_noi_bien[np_b] and not vung_cam[np_b]:
+                                sr_b += r_roi[np_b]
+                                sg_b += g_roi[np_b]
+                                sb_b += b_roi[np_b]
+                                sw_b += 1
+                        rn_b[pos_b] = (sr_b + (sw_b // 2)) // sw_b
+                        gn_b[pos_b] = (sg_b + (sw_b // 2)) // sw_b
+                        bn_b[pos_b] = (sb_b + (sw_b // 2)) // sw_b
+                    rb_m, gb_m, bb_m = rn_b, gn_b, bn_b
+                for pos_b in ds_diem_bong:
+                    px_anh[rx0 + (pos_b % rw), ry0 + (pos_b // rw)] = (rb_m[pos_b], gb_m[pos_b], bb_m[pos_b])
 
         # Bao trọn cả phần mở rộng ngang/dọc thực tế của mặt nạ chữ nổi ("ness...", "k-", "be", "Tenpai...")
         # hoặc nở hộp nội tiếp 2D (ngang + dọc) bên trong lòng bóng thoại khép kín (`la_bong_khep_kin`):
@@ -2350,6 +4156,16 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                 return tong_e > 0 and (trong_e / tong_e) >= 0.88
 
             bx0_k, by0_k, bx1_k, by1_k = cx0, cy0, cx1, cy1
+            # Nếu hộp OCR lỡ thò mép ra ngoài viền bóng khép kín (`ngoai_bong_bong == 1`), thu gọn mép đó vào đúng lòng bóng trước khi nở đều:
+            while bx1_k - bx0_k > 20 and not _dai_trong_bong_py(bx0_k, by0_k, bx0_k + 1, by1_k, 0.52, 0.16):
+                bx0_k += 1
+            while bx1_k - bx0_k > 20 and not _dai_trong_bong_py(bx1_k - 1, by0_k, bx1_k, by1_k, 0.52, 0.16):
+                bx1_k -= 1
+            while by1_k - by0_k > 16 and not _dai_trong_bong_py(bx0_k, by0_k, bx1_k, by0_k + 1, 0.52, 0.16):
+                by0_k += 1
+            while by1_k - by0_k > 16 and not _dai_trong_bong_py(bx0_k, by1_k - 1, bx1_k, by1_k, 0.52, 0.16):
+                by1_k -= 1
+            cx0_in, cy0_in, cx1_in, cy1_in = bx0_k, by0_k, bx1_k, by1_k
             for buoc_k in (max(2, int(max(w_goc, h_goc) / 24)), 1):
                 con_nhich = True
                 while con_nhich:
@@ -2366,17 +4182,10 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                     if by1_k + buoc_k <= rh and _dai_trong_bong_py(bx0_k, by1_k, bx1_k, by1_k + buoc_k, 0.88, 0.24):
                         by1_k += buoc_k
                         con_nhich = True
-            le_x_k = max(2, int(round((bx1_k - bx0_k) * 0.03)))
-            le_y_k = max(2, int(round((by1_k - by0_k) * 0.03)))
-            if bx1_k - bx0_k > w_goc + le_x_k * 2:
-                pass
-                pass
-            bx0_k = min(cx0, bx0_k)
-            bx1_k = max(cx1, bx1_k)
-            by0_k = min(cy0, by0_k)
-            by1_k = max(cy1, by1_k)
-            by0_k = min(cy0, by0_k)
-            by1_k = max(cy1, by1_k)
+            bx0_k = min(cx0_in, bx0_k)
+            bx1_k = max(cx1_in, bx1_k)
+            by0_k = min(cy0_in, by0_k)
+            by1_k = max(cy1_in, by1_k)
             bx = rx0 + bx0_k
             bw = max(20, bx1_k - bx0_k)
             by = ry0 + by0_k
@@ -2420,8 +4229,16 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
             bh = max(16, by1_lt - by0_lt)
         elif co_diem_xoa_chu_noi:
             if la_chu_noi_tren_nen:
-                bx0_thuc = max(x_goc - 16, min(x_goc, rx0 + min_x_xoa))
-                bx1_thuc = min(x_goc + w_goc + 16, max(x_goc + w_goc, rx0 + max_x_xoa))
+                w_xoa_thuc = max_x_xoa - min_x_xoa
+                h_xoa_thuc = max_y_xoa - min_y_xoa
+                if w_xoa_thuc >= 20 and h_xoa_thuc >= 14:
+                    gx_xoa0 = rx0 + min_x_xoa
+                    gx_xoa1 = rx0 + max_x_xoa
+                    bx0_thuc = max(gx_xoa0 - 8, min(x_goc, gx_xoa0)) if (gx_xoa0 - x_goc) <= 16 else (gx_xoa0 - 6)
+                    bx1_thuc = min(gx_xoa1 + 8, max(x_goc + w_goc, gx_xoa1)) if ((x_goc + w_goc) - gx_xoa1) <= 16 else (gx_xoa1 + 6)
+                else:
+                    bx0_thuc = max(x_goc - 16, min(x_goc, rx0 + min_x_xoa))
+                    bx1_thuc = min(x_goc + w_goc + 16, max(x_goc + w_goc, rx0 + max_x_xoa))
                 bx = max(rx0, bx0_thuc)
                 bw = min(rx1 - bx, bx1_thuc - bx0_thuc)
             by0_thuc = min(y_goc, ry0 + min_y_xoa)
@@ -2432,6 +4249,9 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
             by = max(ry0, y_goc - pad_box_y)
             bh = min(ry1 - by, h_goc + pad_box_y * 2)
 
+        loai_vung_goc = str(v.get("loai_vung") or ("sfx" if v.get("inpaint_sfx") else "thoai"))
+        if loai_vung_goc == "thoai" and _la_mau_system_ui(str(v.get("chu_goc") or v.get("ban_dich") or "")):
+            loai_vung_goc = "system_ui"
         hop_ve_chu.append(
             {
                 "text": str(v["ban_dich"]).strip(),
@@ -2439,6 +4259,10 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                 "y": by,
                 "w": max(20, bw),
                 "h": max(16, bh),
+                "x_goc": x_goc,
+                "y_goc": y_goc,
+                "w_goc": max(1, w_goc),
+                "h_goc": max(1, h_goc),
                 "nen_toi": nen_toi,
                 "nen_mau_trung_binh": nen_mau_trung_binh,
                 "mau_chu_goc": mau_chu_goc,
@@ -2448,43 +4272,105 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                 "angle": float(v.get("angle") or 0.0),
                 "bg": (bg_r, bg_g, bg_b),
                 "dong_con": ds_dong_con,
+                "loai_vung": loai_vung_goc,
+                "inpaint_sfx": bool(v.get("inpaint_sfx")),
             }
         )
 
-    # Tách lề dọc giữa 2 hộp chữ nằm chồng cột dọc để chữ dịch của bóng trên không đè vào bóng dưới
+    # Thực thi tái tạo nền Manga-LaMa ONNX + khôi phục hạt Screentone `4x4` đồng pha cho toàn bộ vùng chữ nổi trên trang:
+    if lama_sess_trang is not None and full_mask_lama_noi is not None and ds_hop_lama_noi and int(full_mask_lama_noi.max()) > 0:
+        try:
+            import numpy as _np_fin  # type: ignore
+
+            rgb_cur_fin = _np_fin.asarray(anh, dtype=_np_fin.uint8).copy()
+            rgb_restored = _chay_lama_va_khoi_phuc_screentone_chu_noi(
+                lama_sess_trang, rgb_cur_fin, full_mask_lama_noi, ds_hop_lama_noi
+            )
+            ys_w, xs_w = _np_fin.where(full_mask_lama_noi > 0)
+            for py_w, px_w in zip(ys_w.tolist(), xs_w.tolist()):
+                px_anh[px_w, py_w] = (
+                    int(rgb_restored[py_w, px_w, 0]),
+                    int(rgb_restored[py_w, px_w, 1]),
+                    int(rgb_restored[py_w, px_w, 2]),
+                )
+        except Exception:
+            pass
+
+    # Tách lề 2 chiều (Ngang + Dọc) giữa 2 hộp chữ nằm cạnh nhau hoặc chồng cột dọc để chữ dịch không bao giờ đè lên nhau
     for i_h in range(len(hop_ve_chu)):
         for j_h in range(i_h + 1, len(hop_ve_chu)):
             ha, hb = hop_ve_chu[i_h], hop_ve_chu[j_h]
             ox = min(ha["x"] + ha["w"], hb["x"] + hb["w"]) - max(ha["x"], hb["x"])
+            oy = min(ha["y"] + ha["h"], hb["y"] + hb["h"]) - max(ha["y"], hb["y"])
+            if ox <= -6 or oy <= -6:
+                continue
+            ox_goc = min(ha["x_goc"] + ha["w_goc"], hb["x_goc"] + hb["w_goc"]) - max(ha["x_goc"], hb["x_goc"])
+            oy_goc = min(ha["y_goc"] + ha["h_goc"], hb["y_goc"] + hb["h_goc"]) - max(ha["y_goc"], hb["y_goc"])
+            cx_ga = ha["x_goc"] + ha["w_goc"] * 0.5
+            cx_gb = hb["x_goc"] + hb["w_goc"] * 0.5
+            cy_ga = ha["y_goc"] + ha["h_goc"] * 0.5
+            cy_gb = hb["y_goc"] + hb["h_goc"] * 0.5
+            la_tach_ngang = (
+                ox_goc <= min(ha["w_goc"], hb["w_goc"]) * 0.22
+                and (oy_goc > 0 or abs(cx_ga - cx_gb) > abs(cy_ga - cy_gb) * 0.85)
+            )
+            if la_tach_ngang:
+                left_h, right_h = (ha, hb) if cx_ga <= cx_gb else (hb, ha)
+                if left_h["x"] + left_h["w"] > right_h["x"] - 6 and oy > -4:
+                    gx_l_end = left_h["x_goc"] + left_h["w_goc"]
+                    gx_r_beg = right_h["x_goc"]
+                    mid_x = (gx_l_end + gx_r_beg) // 2 if gx_r_beg >= gx_l_end else int(round((cx_ga + cx_gb) * 0.5))
+                    left_h["w"] = max(20, mid_x - 3 - left_h["x"])
+                    right_end = max(right_h["x"] + right_h["w"], right_h["x_goc"] + right_h["w_goc"])
+                    right_h["x"] = mid_x + 3
+                    right_h["w"] = max(20, right_end - right_h["x"])
+                continue
             if ox <= min(ha["w"], hb["w"]) * 0.25:
                 continue
-            top_h, bot_h = (ha, hb) if ha["y"] <= hb["y"] else (hb, ha)
+            top_h, bot_h = (ha, hb) if cy_ga <= cy_gb else (hb, ha)
             if top_h["y"] + top_h["h"] > bot_h["y"] - 6:
-                mid_y = (top_h["y"] + top_h["h"] + bot_h["y"]) // 2
+                gy_t_end = top_h["y_goc"] + top_h["h_goc"]
+                gy_b_beg = bot_h["y_goc"]
+                mid_y = (gy_t_end + gy_b_beg) // 2 if gy_b_beg >= gy_t_end else (top_h["y"] + top_h["h"] + bot_h["y"]) // 2
                 top_h["h"] = max(14, mid_y - 3 - top_h["y"])
-                bot_end = bot_h["y"] + bot_h["h"]
+                bot_end = max(bot_h["y"] + bot_h["h"], bot_h["y_goc"] + bot_h["h_goc"])
                 bot_h["y"] = mid_y + 3
                 bot_h["h"] = max(14, bot_end - bot_h["y"])
 
     # Bước B: Đo biên dạng thực tế lòng bóng thoại theo từng hàng pixel (Pixel-Exact Contour Typesetting)
-    # & Đồng bộ cỡ chữ hài hoà toàn trang (tránh bóng chữ khổng lồ sát cạnh bóng chữ tí hon)
+    # & Đồng bộ cỡ chữ hài hoà toàn trang (tự động co giãn chuẩn tỷ lệ trên cả trang đơn 1K lẫn trang đôi 4K/5K)
     draw = ImageDraw.Draw(anh)
     ket_qua_dan_trang: list[dict] = []
     W_chuan = min(W, int(round(H * 0.72))) if W > H * 1.05 else W
-    tran_thoai_chuan = max(14, min(28, int(round(W_chuan * 0.026))))
-    co_san_doc_ro = max(14, min(18, int(round(W_chuan * 0.0185))))
-    tran_chieu_thuc = max(24, min(42, int(round(W_chuan * 0.044))))
+    he_so_res = max(1.0, W_chuan / 1380.0)
+    tran_thoai_chuan = max(14, min(int(round(28 * he_so_res)), int(round(W_chuan * 0.026))))
+    co_san_doc_ro = max(14, min(int(round(18 * he_so_res)), int(round(W_chuan * 0.0185))))
+    tran_chieu_thuc = max(24, min(int(round(42 * he_so_res)), int(round(W_chuan * 0.044))))
 
     for idx_hop, hop in enumerate(hop_ve_chu):
+        loai_vung_hop = str(hop.get("loai_vung") or "thoai")
         la_chu_cjk_thai = bool(re.search(r"[\u0e00-\u0e7f\u3040-\u9fff\uac00-\ud7af]", hop["text"]))
         bx, by, bw, bh = hop["x"], hop["y"], hop["w"], hop["h"]
+        font_hop = (
+            "comic"
+            if loai_vung_hop == "system_ui"
+            else ("bangers" if (loai_vung_hop == "sfx" and not la_chu_cjk_thai and loai_font in ("comic", "bangers")) else loai_font)
+        )
         la_hop_het_hoac_nhan = bool(
             "!" in hop["text"]
             or hop["text"].isupper()
+            or loai_vung_hop == "sfx"
         )
-        chu = hop["text"].upper() if (loai_font == "bangers" and not la_chu_cjk_thai and la_hop_het_hoac_nhan) else hop["text"]
+        chu = (
+            hop["text"].upper()
+            if (font_hop == "bangers" and loai_vung_hop != "system_ui" and not la_chu_cjk_thai and la_hop_het_hoac_nhan)
+            else hop["text"]
+        )
         bg_r, bg_g, bg_b = hop["bg"]
         nen_mau_tb = bool(hop.get("nen_mau_trung_binh"))
+        khoa_bien_chat = loai_vung_hop in ("sign_prop", "margin_note", "aside_mutter", "sfx") or (
+            loai_vung_hop == "system_ui" and not hop.get("hop_bong_thoai")
+        )
 
         def _la_pixel_nen(px_x: int, px_y: int) -> bool:
             if px_x < 0 or px_x >= W or px_y < 0 or px_y >= H:
@@ -2502,7 +4388,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
         x_scan_r = min(W - 1, bx + int(bw * 0.68))
         xs_vert = list(range(x_scan_l, max(x_scan_l + 1, x_scan_r + 1), max(1, (x_scan_r - x_scan_l) // 6 or 1)))
 
-        mo_rong_doc_max = 4 if nen_mau_tb else max(48, min(int(H * 0.14), int(max(bh * 0.95, bw * 0.85))))
+        mo_rong_doc_max = 4 if (nen_mau_tb or khoa_bien_chat) else max(48, min(int(H * 0.14), int(max(bh * 0.95, bw * 0.85))))
         lim_top_scan = max(2, by - mo_rong_doc_max)
         lim_bot_scan = min(H - 3, by + bh + mo_rong_doc_max)
         for j_other, other_h in enumerate(hop_ve_chu):
@@ -2515,15 +4401,15 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                 elif other_h["y"] >= cy_mid:
                     lim_bot_scan = min(lim_bot_scan, other_h["y"] - 4)
 
-        safe_y0 = lim_top_scan if not nen_mau_tb else by
-        if not nen_mau_tb:
+        safe_y0 = lim_top_scan if not (nen_mau_tb or khoa_bien_chat) else by
+        if not (nen_mau_tb or khoa_bien_chat):
             for yy in range(cy_mid, lim_top_scan - 1, -1):
                 bad = sum(1 for xx in xs_vert if not _la_pixel_nen(xx, yy))
                 if bad >= max(2, len(xs_vert) // 2):
                     safe_y0 = min(cy_mid - 6, yy + 5)
                     break
-        safe_y1 = lim_bot_scan if not nen_mau_tb else (by + bh)
-        if not nen_mau_tb:
+        safe_y1 = lim_bot_scan if not (nen_mau_tb or khoa_bien_chat) else (by + bh)
+        if not (nen_mau_tb or khoa_bien_chat):
             for yy in range(cy_mid, lim_bot_scan + 1):
                 bad = sum(1 for xx in xs_vert if not _la_pixel_nen(xx, yy))
                 if bad >= max(2, len(xs_vert) // 2):
@@ -2537,7 +4423,7 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
         safe_h = max(14, safe_y1 - safe_y0)
         # Quét mở rộng biên ngang an toàn [bx, bx + bw] vào khoảng trắng sạch trái/phải trong lòng bóng thoại
         # khi câu gốc hẹp (VD: cột dọc tiếng Nhật/Trung hoặc từ tiếng Anh ngắn 1-2 chữ) và có vách bóng thoại bao quanh 2 bên:
-        if not nen_mau_tb and not hop.get("la_chu_noi_tren_nen"):
+        if not nen_mau_tb and not hop.get("la_chu_noi_tren_nen") and not khoa_bien_chat:
             y_scan_t = max(0, cy_mid - max(4, int(safe_h * 0.22)))
             y_scan_b = min(H - 1, cy_mid + max(4, int(safe_h * 0.22)))
             ys_horiz = list(range(y_scan_t, max(y_scan_t + 1, y_scan_b + 1), max(1, (y_scan_b - y_scan_t) // 4 or 1)))
@@ -2594,11 +4480,19 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
             margin_taper = int(round((1.0 - taper) * bw * 0.45)) + le_trong_x
             lim_l = bx + margin_taper
             lim_r = bx + bw - margin_taper
+            for j_other, other_h in enumerate(hop_ve_chu):
+                if j_other == idx_hop:
+                    continue
+                if other_h["y"] - 2 <= yy <= other_h["y"] + other_h["h"] + 2:
+                    if other_h["x"] + other_h["w"] <= cx_mid:
+                        lim_l = max(lim_l, other_h["x"] + other_h["w"] + 3)
+                    elif other_h["x"] >= cx_mid:
+                        lim_r = min(lim_r, other_h["x"] - 3)
 
             row_cx = max(lim_l + 4, min(lim_r - 4, cx_mid))
             cur_l = lim_l
             cur_r = lim_r
-            if not nen_mau_tb:
+            if not nen_mau_tb and lim_r - lim_l >= 12:
                 # Quét từ tâm sang trái tìm gai/viền bóng thoại
                 for xx in range(row_cx, max(0, lim_l - 6) - 1, -1):
                     if not _la_pixel_nen(xx, yy) and not _la_pixel_nen(max(0, xx - 1), yy):
@@ -2635,18 +4529,34 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                 return max(_bx, mid_x - 8), min(_bx + _bw, mid_x + 8)
             return l_max, r_min
 
-        la_het_doc = safe_h >= bw * 2.5 and (len(chu) <= 28 or "\n" in chu)
-        la_chieu_thuc_lon = la_het_doc or (
-            (bw >= W_chuan * 0.16 and safe_h >= H * 0.075)
-            and (len(chu) <= 28 or "!" in chu or "؟" in chu or "?" in chu)
+        la_het_doc = safe_h >= bw * 2.5 and (len(chu) <= 28 or "\n" in chu) and loai_vung_hop not in ("margin_note", "system_ui")
+        la_chieu_thuc_lon = (
+            loai_vung_hop == "sfx"
+            or la_het_doc
+            or (
+                loai_vung_hop == "thoai"
+                and (bw >= W_chuan * 0.16 and safe_h >= H * 0.075)
+                and (len(chu) <= 28 or "!" in chu or "؟" in chu or "?" in chu)
+            )
         )
-        tran_co = (
-            max(tran_chieu_thuc, min(68, int(bw * 0.65)))
-            if la_het_doc
-            else (tran_chieu_thuc if la_chieu_thuc_lon else tran_thoai_chuan)
-        )
-        co_max = min(tran_co, max(14, int(min(bw * (0.72 if la_het_doc else 0.44), safe_h * 0.64))))
-        co_min = 9
+        if loai_vung_hop in ("aside_mutter", "margin_note"):
+            tran_co = max(int(round(12 * he_so_res)), int(round(tran_thoai_chuan * 0.76)))
+        elif loai_vung_hop == "sign_prop":
+            tran_co = min(tran_thoai_chuan, max(int(round(12 * he_so_res)), int(round(bh * 0.68))))
+        elif loai_vung_hop == "system_ui":
+            tran_co = max(int(round(13 * he_so_res)), min(int(round(22 * he_so_res)), int(round(tran_thoai_chuan * 0.90))))
+        elif loai_vung_hop == "sfx":
+            tran_co = max(tran_chieu_thuc, min(int(round(64 * he_so_res)), int(max(bw, safe_h) * 0.55)))
+        else:
+            tran_co = (
+                max(tran_chieu_thuc, min(int(round(68 * he_so_res)), int(bw * 0.65)))
+                if la_het_doc
+                else (tran_chieu_thuc if la_chieu_thuc_lon else tran_thoai_chuan)
+            )
+        he_so_rong_co = 0.72 if (la_het_doc or loai_vung_hop == "margin_note") else (0.56 if loai_vung_hop == "sfx" else 0.44)
+        san_co_max = int(round((11 if loai_vung_hop in ("aside_mutter", "margin_note", "sign_prop") else 14) * he_so_res))
+        co_max = min(tran_co, max(san_co_max, int(min(bw * he_so_rong_co, safe_h * (0.72 if loai_vung_hop == "sfx" else 0.64)))))
+        co_min = max(9, int(round(9 * he_so_res)))
         la_khong_dau_cach = bool(re.search(r"[\u4e00-\u9fff\u3040-\u30ff]", chu)) or (
             bool(re.search(r"[\u0e00-\u0e7f]", chu)) and len(chu.split()) <= 2
         )
@@ -2661,8 +4571,10 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
             _s0: int = safe_y0,
             _sh: int = safe_h,
             _knd=_khoang_ngang_cho_dong,
+            _font_hop: str = font_hop,
+            _loai_vh: str = loai_vung_hop,
         ):
-            f_t = tim_font_he_thong(loai_font, co_thu, van_ban=_chu)
+            f_t = tim_font_he_thong(_font_hop, co_thu, van_ban=_chu)
             bbox_mau_f = draw.textbbox((0, 0), "国g" if _la_kdc else "Ág", font=f_t)
             cao_dong = max(10, int((bbox_mau_f[3] - bbox_mau_f[1]) * 1.15))
             co_xuong_dong = "\n" in _chu
@@ -2748,6 +4660,17 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
             tong_cao = len(dong) * buoc_dong
             y_bat_dau = _s0 + max(0, (_sh - tong_cao) // 2)
             vua_khit = (len(dong) * cao_dong) <= _sh
+            # Căn lề trái chuẩn cửa sổ Hệ thống Game (`system_ui`) cho các hàng chỉ số `Key: Value`, trong khi giữ tiêu đề `[...]` căn giữa:
+            can_trai_stat_ui = (
+                _loai_vh == "system_ui"
+                and len(dong) >= 2
+                and sum(1 for d_s in dong if ":" in d_s or "：" in d_s or re.match(r"^[-•+]\s*\S", d_s)) >= 1
+            )
+            x_le_trai_ui = _bx + max(4, int(_bw * 0.05))
+            if can_trai_stat_ui:
+                ds_lx0 = [_knd(y_bat_dau + i_u * buoc_dong, y_bat_dau + i_u * buoc_dong + cao_dong)[0] for i_u in range(len(dong))]
+                if ds_lx0:
+                    x_le_trai_ui = max(x_le_trai_ui, max(ds_lx0))
             ds_vi_tri: list[tuple[str, int, int, int]] = []
             for idx_d, d_str in enumerate(dong):
                 yk0 = y_bat_dau + idx_d * buoc_dong
@@ -2758,13 +4681,17 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                 dung_sai_ngang = min(6, max(2, int(_bw * 0.04)))
                 if w_d > min(_bw - 2, (lx1_k - lx0_k) + dung_sai_ngang):
                     vua_khit = False
-                cur_x_k = lx0_k + ((lx1_k - lx0_k) - w_d) // 2
+                la_tieu_de_ngoac = d_str.startswith("[") and d_str.endswith("]") and ":" not in d_str[1:-1]
+                if can_trai_stat_ui and not la_tieu_de_ngoac:
+                    cur_x_k = x_le_trai_ui
+                else:
+                    cur_x_k = lx0_k + ((lx1_k - lx0_k) - w_d) // 2
                 cur_x_k = max(_bx, min(_bx + _bw - w_d, cur_x_k))
                 ds_vi_tri.append((d_str, cur_x_k, yk0, cao_dong))
             return f_t, dong, ds_vi_tri, vua_khit
 
         co_chon = co_min
-        font_chon = tim_font_he_thong(loai_font, co_min, van_ban=chu)
+        font_chon = tim_font_he_thong(font_hop, co_min, van_ban=chu)
         vi_tri_dong_chon: list[tuple[str, int, int, int]] = []
         for co in range(co_max, co_min - 1, -1):
             f_t, _, ds_vi_tri, vua_khit = _thu_dan_dong_voi_co(co)
@@ -2774,9 +4701,13 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
             if vua_khit:
                 break
 
-        # Cứu hộ chống chữ nhỏ: nếu cỡ chữ chọn được vẫn thấp hơn ngưỡng đọc rõ (`co_san_doc_ro`),
-        # tự động nới biên dọc `safe_y0..safe_y1` (và nới biên ngang nhẹ trong lòng hộp) để câu văn xuống thêm dòng với chữ to rõ
-        if co_chon < co_san_doc_ro and len(chu) >= 6:
+        # Cứu hộ chống chữ nhỏ: chỉ áp dụng cho bóng hội thoại thường (`thoai`) để không làm phình chữ lẩm bẩm nhỏ (`aside_mutter`),
+        # ghi chú lề (`margin_note`), biển hiệu hẹp (`sign_prop`) hay bảng hệ thống nhiều hàng (`system_ui`):
+        cho_phep_cuu_ho_co = (
+            loai_vung_hop == "thoai"
+            or (loai_vung_hop == "system_ui" and "\n" not in chu)
+        )
+        if cho_phep_cuu_ho_co and co_chon < co_san_doc_ro and len(chu) >= 6:
             mo_y_them = max(14, int(round(co_san_doc_ro * 1.15)))
             lim_y0_cuu = max(2, by - mo_y_them) if nen_mau_tb else lim_top_scan
             lim_y1_cuu = min(H - 3, by + bh + mo_y_them) if nen_mau_tb else lim_bot_scan
@@ -2848,6 +4779,10 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
                     font_chon = f_c
                     vi_tri_dong_chon = ds_vt_c
                     co_chon = co_c
+                    hop["x"] = bx_cuu_l
+                    hop["w"] = bw_cuu
+                    hop["y"] = sy0_moi
+                    hop["h"] = sh_moi
                     break
 
         ket_qua_dan_trang.append(
@@ -2862,17 +4797,24 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
             }
         )
 
-    # Đồng bộ cỡ chữ hài hoà toàn trang (P75 Harmonization) cho các bóng hội thoại thường trên cùng trang
+    # Đồng bộ cỡ chữ hài hoà toàn trang (P75 Harmonization) CHỈ cho các bóng hội thoại thường (`thoai`),
+    # không để `aside_mutter` / `margin_note` kéo tụt P75 và không ép đồng bộ lên `system_ui` / `sign_prop` / `sfx`:
     ds_co_thuong = sorted(
         item["co_chon"]
         for item in ket_qua_dan_trang
-        if not item["la_chieu_thuc_lon"] and len(item["hop"]["text"]) >= 8
+        if not item["la_chieu_thuc_lon"]
+        and str(item["hop"].get("loai_vung") or "thoai") == "thoai"
+        and len(item["hop"]["text"]) >= 8
     )
     if len(ds_co_thuong) >= 2:
         p75_co = ds_co_thuong[min(len(ds_co_thuong) - 1, int(len(ds_co_thuong) * 0.75))]
-        tran_dong_bo = min(tran_thoai_chuan, max(16, int(round(p75_co + 2))))
+        tran_dong_bo = min(tran_thoai_chuan, max(int(round(16 * he_so_res)), int(round(p75_co + 2 * he_so_res))))
         for item in ket_qua_dan_trang:
-            if not item["la_chieu_thuc_lon"] and item["co_chon"] > tran_dong_bo:
+            if (
+                not item["la_chieu_thuc_lon"]
+                and str(item["hop"].get("loai_vung") or "thoai") == "thoai"
+                and item["co_chon"] > tran_dong_bo
+            ):
                 f_new, _, vt_new, _ = item["thu_dan_dong"](tran_dong_bo)
                 item["co_chon"] = tran_dong_bo
                 item["font_chon"] = f_new
@@ -2880,20 +4822,21 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
 
     for item in ket_qua_dan_trang:
         hop = item["hop"]
+        loai_vh_ve = str(hop.get("loai_vung") or "thoai")
         nen_mau_tb = item["nen_mau_tb"]
         font_chon = item["font_chon"]
         vi_tri_dong_chon = item["vi_tri_dong_chon"]
         mau_chu = hop.get("mau_chu_goc") or ((255, 255, 255) if hop["nen_toi"] else (15, 23, 42))
-        mau_vien = hop.get("mau_vien_goc") or (((0, 0, 0) if hop["nen_toi"] else (255, 255, 255)) if nen_mau_tb else hop["bg"])
+        mau_vien = hop.get("mau_vien_goc") or (((0, 0, 0) if hop["nen_toi"] else (255, 255, 255)) if (nen_mau_tb or loai_vh_ve == "sfx") else hop["bg"])
 
         goc_xoay_hop = float(hop.get("angle") or 0.0)
+        do_day_vien_hop = (3 if item["co_chon"] >= 20 else 2) if (nen_mau_tb or loai_vh_ve == "sfx") else 0
         if abs(goc_xoay_hop) >= 8.0 and vi_tri_dong_chon:
-            do_day_vien = 3 if nen_mau_tb else 1
             layer_rot = Image.new("RGBA", (W, H), (0, 0, 0, 0))
             draw_rot = ImageDraw.Draw(layer_rot)
             for d, cur_x, cur_y, _ in vi_tri_dong_chon:
                 try:
-                    draw_rot.text((cur_x, cur_y), d, font=font_chon, fill=mau_chu + (255,), stroke_width=do_day_vien, stroke_fill=mau_vien + (255,))
+                    draw_rot.text((cur_x, cur_y), d, font=font_chon, fill=mau_chu + (255,), stroke_width=do_day_vien_hop, stroke_fill=mau_vien + (255,))
                 except TypeError:
                     draw_rot.text((cur_x, cur_y), d, font=font_chon, fill=mau_chu + (255,))
             cx_rot = hop["x"] + hop["w"] * 0.5
@@ -2905,14 +4848,13 @@ def xoa_chu_va_ve_ban_dich_tren_anh(
         for d, cur_x, cur_y, _ in vi_tri_dong_chon:
             # Dùng `stroke_width` vector gốc của FreeType/Pillow thay cho vòng lặp vẽ đè 28 lần
             # để nét chữ và dấu Tiếng Việt (ắ, ặ, ể, ữ, ộ) sắc nét tuyệt đối, không bị nhòe/lem viền xám!
-            do_day_vien = 3 if nen_mau_tb else 1
             try:
                 draw.text(
                     (cur_x, cur_y),
                     d,
                     font=font_chon,
                     fill=mau_chu,
-                    stroke_width=do_day_vien,
+                    stroke_width=do_day_vien_hop,
                     stroke_fill=mau_vien,
                 )
             except TypeError:
@@ -3081,6 +5023,39 @@ def _goi_https_phan_manh_sni(url: str, headers: dict, timeout: float = 18.0, so_
     return body_bytes
 
 
+def _lay_headers_byok_tu_cau_hinh(cfg: dict | None = None) -> dict[str, str]:
+    """Đọc cấu hình cắm API Key riêng (BYOK) từ `~/.dich_truyen_windows_cfg.json` để đính kèm `X-BYOK-*`."""
+    try:
+        if cfg is None:
+            if not CAU_HINH_FILE.is_file():
+                return {}
+            cfg = json.loads(CAU_HINH_FILE.read_text(encoding="utf-8"))
+        if not isinstance(cfg, dict) or not cfg.get("byok_enabled"):
+            return {}
+        key = str(cfg.get("byok_key") or "").strip()
+        if len(key) < 12:
+            return {}
+        prov = str(cfg.get("byok_provider") or "gemini").strip().lower()
+        model = str(cfg.get("byok_model") or "").strip()
+        out = {"X-BYOK-Key": key, "X-BYOK-Provider": prov}
+        if model:
+            out["X-BYOK-Model"] = model
+        return out
+    except Exception:
+        return {}
+
+
+import http.cookiejar as _http_cookiejar
+
+_GC_COOKIE_JAR = _http_cookiejar.CookieJar()
+_GC_HTTP_OPENER = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(_GC_COOKIE_JAR))
+_GC_PUBLIC_CLIENT_KEY = "gck_b4d492261ec541eda44ce41de79da424"
+
+
+def _dang_bat_byok_hop_le(cfg: dict | None = None) -> bool:
+    return bool(_lay_headers_byok_tu_cau_hinh(cfg))
+
+
 def goi_http(url: str, method: str = "GET", body: dict | None = None, token: str = "", referer: str = "",
              *, nguon_ngoai: bool = False, timeout: float = 90, extra_headers: dict[str, str] | None = None) -> bytes:
     parsed_u = urllib.parse.urlsplit(url)
@@ -3117,6 +5092,8 @@ def goi_http(url: str, method: str = "GET", body: dict | None = None, token: str
                         "Cookie": f"khach_id={KHACH_ID_MAY_TINH}"})
     if token and not nguon_ngoai:
         headers["Authorization"] = f"Bearer {token}"
+    if not nguon_ngoai and "/kiem-tra-byok" not in url and ("/api/v1/doc-truyen/" in url or "/api/v1/developer/" in url):
+        headers.update(_lay_headers_byok_tu_cau_hinh())
     if referer:
         headers["Referer"] = referer
     if mp_key_hex:
@@ -3126,14 +5103,22 @@ def goi_http(url: str, method: str = "GET", body: dict | None = None, token: str
             headers["Plus-Vw-Token"] = mp_vw_token
     if extra_headers:
         headers.update(extra_headers)
+    if "globalcomix.com" in parsed_u.netloc.lower():
+        headers.setdefault("Origin", "https://globalcomix.com")
+        headers.setdefault("Referer", "https://globalcomix.com/")
     data = None
     if body is not None:
         data = json.dumps(body).encode("utf-8")
         headers["Content-Type"] = "application/json"
     url = str(url or "").strip().replace(" ", "%20")
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    _open_fn = (
+        _GC_HTTP_OPENER.open
+        if ("globalcomix.com" in parsed_u.netloc.lower() and getattr(urllib.request.urlopen, "__name__", "") == "urlopen")
+        else urllib.request.urlopen
+    )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with _open_fn(req, timeout=timeout) as resp:
             content = resp.read(20 * 1024 * 1024 + 1)
             if len(content) > 20 * 1024 * 1024:
                 raise NeedsAttention("Phản hồi vượt giới hạn 20 MB.")
@@ -3287,6 +5272,7 @@ def gui_multipart_trang(
     }
     if token:
         headers["Authorization"] = f"Bearer {token}"
+    headers.update(_lay_headers_byok_tu_cau_hinh())
     req = urllib.request.Request(url, data=body, headers=headers, method="POST")
     with urllib.request.urlopen(req, timeout=120) as resp:
         return resp.read()
@@ -3636,6 +5622,34 @@ def _lam_sach_chu_ocr_truyen(text: str) -> str:
         (r"\bROCK,I'MDONE\b", "ROCK, I'M DONE"),
         (r"\bTHATFELLOFF\b", "THAT FELL OFF"),
         (r"\bANDSTROHEIM\b", "AND STROHEIM"),
+        (r"\b3-S[0Oo][0OoUu]\b", "3-Sou"),
+        (r"\b(\d{1,3})[:.]000\b", r"\1,000"),
+        (r"\(([A-Za-z]{3,}[.!?])\)", r"\1"),
+        (r"\b([A-Za-z]{3,}[.!?])\)(?=\s|$)", r"\1"),
+        (r"\bapter\b", "after"),
+        (r"\b[Pp]ell\s+into\b", "fell into"),
+        (r"\b[Pp]ailed\b", "failed"),
+        (r"\bin\s+[Pp]ront\s+of\b", "in front of"),
+        (r"\b[Ss]are\s+tile\b", "safe tile"),
+        (r"^Single\s+safe\s+tile\b", "A single safe tile"),
+        (r"\bdebtwith\b", "debt with"),
+        (r"\bmeand\b", "me and"),
+        (r"\bthisrs\b", "this is"),
+        (r"\bthisis\b", "this is"),
+        (r"\bIdont\b", "I don't"),
+        (r"^Vthe\b", "The"),
+        (r"\bbes\s+tween\b", "between"),
+        (r"\bGONNAY\b", "GONNA"),
+        (r"\bIM\s+GONNA\b", "I'M GONNA"),
+        (r"\bNEED['’`]TO\b", "NEED TO"),
+        (r"\ba\.come\s+back\b", "a comeback"),
+        (r"\baboutit\b", "about it"),
+        (r"\blooks['’`]\s*so\b", "looks so"),
+        (r"\bNot\s+[Cc]only\b", "...Not only"),
+        (r"\bonly\s+thath\b", "only that,"),
+        (r"\bihereo\b", "here."),
+        (r"\bplay\s+style\b", "playstyle"),
+        (r"\bWall\s+(?=reveal|be\b|make\b|show\b|never\b|have\b|take\b|do\b|get\b|give\b|tell\b)", "Will "),
         (r"\b(SHOULD|COULD|WOULD|DID|DO|CAN|WILL)!\s+(?=[A-Z]{2,})", r"\1 I "),
         (r"\bSOMETHING'S\s+TRANGE\b", "SOMETHING'S STRANGE"),
         (r"\bWEGONNA\b", "WE GONNA"),
@@ -3646,6 +5660,22 @@ def _lam_sach_chu_ocr_truyen(text: str) -> str:
         (r"\b([a-z]{2,}):([a-z]{2,})\b", r"\1 \2"),
         (r"\b(about|avoid\s+his|Already|Hey|Dumbass)\.\s+(?=[a-z])", r"\1, "),
         (r"\b([A-Za-z]{2,})-(a|to|was|is|in|on|of|for|the|and|or)\b", r"\1 \2"),
+        (r"\bop\b", "of"),
+        (r"\blipe\b", "life"),
+        (r"\bitselp\b", "itself"),
+        (r"\bhimselp\b", "himself"),
+        (r"\bmyselp\b", "myself"),
+        (r"\byourselp\b", "yourself"),
+        (r"-?[Pp]igure\b", "figure"),
+        (r"\bLST\s*ME\b", "LET ME"),
+        (r"\bWPORTANT\b", "IMPORTANT"),
+        (r"\bSAWS\s+IT'S\b", "SAYS IT'S"),
+        (r"\bSBORN\s*INDUSTRIES(?=[,\s]|MAIN|$)", "OSBORN INDUSTRIES "),
+        (r"LABORATORYFACILITY", "LABORATORY FACILITY"),
+        (r"\bITOLDYOU\b", "I TOLD YOU"),
+        (r"\bIT\s+OLD\s+YOU\b", "I TOLD YOU"),
+        (r"ADREAM3DID", "A DREAM? DID"),
+        (r"\bTHEIFUCK\b", "THE FUCK"),
     ]
     for pat_c, rep_c in comic_ocr_subs:
         s = re.sub(pat_c, rep_c, s, flags=re.I)
@@ -3663,7 +5693,7 @@ def _lam_sach_chu_ocr_truyen(text: str) -> str:
     s = re.sub(r"\b[A-Za-z][A-Za-z']{1,}\b", _chuan_hoa_tu_hoa_xen_ke, s)
     # Hạ chữ hoa đầu từ đối với các từ thông dụng bị font comic vẽ chữ M/S/F/G/U cao như chữ hoa ở giữa câu
     s = re.sub(
-        r"(?<=[a-z,]\s)\b(Something|Some|Glasses|Solution|Marks|Match|Memory|Flames|Fire|Meet|Met|Use|Still|Should|Make|Seen|So)\b",
+        r"(?<=[a-z,]\s)\b(Something|Some|Much|Mistake|Mean|Shocked|Secret|Style|Glasses|Solution|Marks|Match|Memory|Flames|Fire|Meet|Met|Use|Still|Should|Make|Seen|So)\b",
         lambda m: m.group(1).lower(),
         s,
     )
@@ -3781,6 +5811,9 @@ def _lam_sach_chu_ocr_truyen(text: str) -> str:
             s = re.sub(r"\b([A-Z]{3,}'S)(?=[A-Z]{2,}\b)", r"\1 ", s)
 
         _tu_vung_tach = {
+            "island", "insects", "insect", "mammal", "mammals", "mean", "osborn", "industry", "industries", "laboratory",
+            "lawyer", "important", "invention", "significant", "testing", "extremely", "product", "spider", "fascinating",
+            "subject", "subjects", "logical", "company", "discovery", "bother", "bothered", "disturb", "disturbed", "economy", "lab",
             "a", "i", "am", "an", "as", "at", "be", "by", "do", "go", "he", "if", "in", "is", "it", "me", "my", "no", "of", "on", "or", "so", "to", "up", "us", "we",
             "ago", "air", "all", "and", "any", "are", "awe", "bad", "bag", "bar", "big", "boy", "but", "can", "cap", "car", "cry", "cut", "day", "did", "die", "dog", "dry", "ear", "eat", "end", "era", "eye", "far", "few", "fly", "foe", "for", "fun", "gas", "get", "god", "got", "gun", "guy", "had", "has", "hat", "her", "hey", "hid", "him", "his", "hit", "hot", "how", "ice", "ill", "ink", "its", "jaw", "jet", "job", "joy", "key", "kid", "kin", "law", "lay", "led", "leg", "let", "lie", "lip", "lit", "log", "lot", "low", "mad", "man", "map", "may", "men", "met", "mob", "mom", "mud", "net", "new", "nod", "nor", "not", "now", "odd", "off", "oil", "old", "one", "our", "out", "owe", "own", "pay", "pen", "per", "pet", "pit", "pop", "pot", "put", "ran", "raw", "ray", "red", "rid", "rip", "rod", "rot", "row", "rub", "run", "sad", "sat", "saw", "say", "sea", "see", "set", "she", "shy", "sin", "sir", "sit", "six", "sky", "son", "spy", "sub", "sum", "sun", "tea", "ten", "the", "thy", "tie", "tin", "tip", "toe", "ton", "too", "top", "toy", "try", "two", "use", "van", "vet", "via", "vow", "war", "was", "wax", "way", "web", "wet", "who", "why", "win", "wit", "won", "yet", "you",
             "able", "acid", "aged", "aide", "ally", "also", "amid", "army", "atom", "atop", "aunt", "away", "axis", "baby", "back", "bail", "bait", "ball", "band", "bank", "bare", "bark", "barkeep", "barn", "baru", "base", "bath", "beam", "bear", "beat", "been", "beer", "bell", "belt", "bend", "bent", "best", "beta", "bill", "bind", "bird", "bite", "blew", "blow", "blue", "blur", "boar", "boat", "body", "boil", "bold", "bolt", "bomb", "bond", "bone", "book", "boom", "boot", "bore", "born", "boss", "both", "bowl", "bulk", "bull", "burn", "bury", "bush", "busy", "cage", "cake", "call", "calm", "came", "camp", "cape", "card", "care", "cart", "case", "cash", "cast", "cave", "cell", "chat", "chef", "chin", "chip", "chop", "city", "clad", "clan", "claw", "clay", "clip", "club", "clue", "coal", "coat", "code", "coil", "coin", "cold", "come", "cone", "cook", "cool", "cope", "copy", "cord", "core", "corn", "cost", "cozy", "crew", "crop", "crow", "cube", "cult", "cure", "curl", "cute", "dane", "dare", "dark", "dart", "dash", "data", "date", "dawn", "days", "dead", "deaf", "deal", "dear", "debt", "deck", "deed", "deem", "deep", "deer", "defy", "deny", "desk", "dial", "dice", "died", "diet", "dirt", "disc", "dish", "dive", "dock", "does", "doll", "dome", "done", "doom", "door", "dose", "down", "drag", "draw", "incredible", "york", "africa", "seventeen", "minutes", "attention", "protocraft", "proceed", "airstrip", "elite", "wing", "craft", "guide", "approach", "wakandan", "wakanda", "tower", "exciting", "dreamed", "traveling", "exotic", "places", "protocol", "please", "weapons", "board", "beauty", "holds", "madison", "times", "instincts", "usually", "prepared", "anything", "everybody", "hang", "challa", "newest", "flagship", "land", "flies", "moments", "later", "royal", "palace", "unexpected", "mighty", "join", "party", "welcome", "introduce", "yourselves", "host", "spared", "expense", "comfort", "unharmed", "lady", "brought", "absurd", "risk", "anywhere", "else", "ease", "position", "negotiate", "never", "lion", "olympus", "helpless", "innocents", "correct", "captain", "america", "masters", "gladly", "manners", "allow", "allies", "remember", "refresh", "defeated", "elements", "buried", "mass", "molten", "steel", "reactor", "experienced", "meltdown", "entire", "facility", "cement", "public", "months", "broke", "dimensional", "barrier", "arcane", "knowledge", "alchemical", "sorcery", "creatures", "formed", "alliance", "obtain", "domination", "planet", "conquest", "vibranium", "national", "resource", "metal", "absorbs", "kinetic", "energy", "powerful", "impenetrable", "vision", "answer", "absence", "marked", "consequence", "pick", "slay", "hostage", "hostages", "price", "mound", "cobalt", "neon", "seek", "missing", "android", "errant", "knight", "resist", "destroy", "begin", "creating", "unstoppable", "soldiers", "others", "minute", "strange", "almost", "sorry", "rough", "going", "chances", "care", "finds", "handy", "think", "catch", "hope", "work", "reversed", "polarity", "blade", "caused", "electron", "field", "dispersion", "defenseless", "great", "timing", "thanks", "elemental", "beings", "stop", "destroys", "friends", "shame", "lose", "decayed", "hands", "sorcerer", "glorious", "earther", "assimilated", "avenger", "doubt", "given", "reverse", "psychology", "panther", "resistance", "futile", "suit", "banished", "realm", "existence", "replaced", "living", "starting", "black", "betrothed", "plutonium", "carbon", "departure", "worldly", "plane", "eventually", "king", "trouble", "perhaps", "amends", "failures", "soon", "witness", "birth", "being", "composed", "purest", "capable", "withstanding", "queen", "live", "beloved", "jungle", "longer", "laughing", "giving", "opportunity", "strike", "ability", "transform", "hardest", "substances", "intangible", "state", "momentum", "transfer", "module", "kudos", "bestow", "olympian", "vengeance", "coward", "pluto", "greet", "broken", "hide", "gates", "hades", "wouldst", "unarmed", "opponent", "alien", "stand", "human", "sear", "flesh", "frame", "draw", "creature", "flame", "attacks", "worry", "abilities", "safe", "phosphorus", "controlling", "supply", "barrels", "machine", "dying", "crystal", "oxygen", "create", "resident", "inhuman", "removing", "tight", "retrieve", "whom", "supplanted", "incoming", "chemists", "store", "barrel", "explosion", "unless", "exhale", "hydrogen", "sparking", "conduit", "igniting", "blowtorch", "wonder", "reaction", "really", "destroyed", "suddenly", "focus", "glow", "crackles", "ruins", "device", "distorted", "composite", "emerges", "nova", "center", "look", "another", "somehow", "merged", "control", "radiation", "powers", "limited", "brace", "looks", "bigger", "problem", "crave", "stay", "stray", "potentially", "lethal", "feeding", "growing", "size", "remains", "totem", "wealth", "avenging", "gift", "country", "farewell", "understand", "happened", "process", "normal", "fools", "distracted", "going", "jerk", "taylor", "hast", "makings", "okay", "characters", "proper", "containment", "trial", "crimes", "return", "rescue", "dimensionally", "displaced", "faith", "intent", "says", "besides", "anniversary", "celebrate",
@@ -3863,6 +5896,48 @@ def _gop_cac_dong_trong_bong_thoai(comp_ordered: list[dict], ngon_ngu_nguon: str
         if len(toks_v) >= 3 and sum(1 for s in toks_v if len(s) == 1 and s.isascii() and s.isalpha()) >= len(toks_v) - 1 and all((len(s) == 1 and s.isascii() and s.isalpha()) or not any(c.isalnum() for c in s) for s in toks_v):
             return _lam_sach_chu_ocr_truyen("".join(toks_v))
 
+    # Nhận diện khối Bảng Hệ Thống Game / UI / Khung thông báo kỹ năng có nhiều hàng chỉ số riêng biệt (`[Lv. 99]`, `HP: 1200/1200`, `Kỹ năng: ...`)
+    # để giữ nguyên ngắt dòng `\n` theo từng hàng vật lý thay vì nối phẳng thành 1 đoạn văn:
+    if len(comp_ordered) >= 2:
+        hang_ui: list[list[dict]] = []
+        for r_u in comp_ordered:
+            t_u = str(r_u.get("text") or "").strip()
+            if not t_u or re.fullmatch(r"[0*#.,:;~+=-]{1,4}", t_u):
+                continue
+            cy_u = float(r_u.get("y", 0)) + float(r_u.get("h", 0)) * 0.5
+            if not hang_ui:
+                hang_ui.append([r_u])
+            else:
+                cy_prev_u = sum(float(x.get("y", 0)) + float(x.get("h", 0)) * 0.5 for x in hang_ui[-1]) / len(hang_ui[-1])
+                h_tb_u = sum(float(x.get("h", 12)) for x in hang_ui[-1]) / len(hang_ui[-1])
+                if abs(cy_u - cy_prev_u) <= max(6.0, h_tb_u * 0.52):
+                    hang_ui[-1].append(r_u)
+                else:
+                    hang_ui.append([r_u])
+        dong_ui_str = [
+            _lam_sach_chu_ocr_truyen(" ".join(str(x.get("text") or "").strip() for x in h_row if str(x.get("text") or "").strip()))
+            for h_row in hang_ui
+        ]
+        dong_ui_str = [d_u for d_u in dong_ui_str if d_u]
+        if len(dong_ui_str) >= 2:
+            so_dong_stat = sum(
+                1
+                for d_u in dong_ui_str
+                if re.search(
+                    r"(?:^[\[\【\<]|[\]\】\>]$|\b(?:Lv\.?|Level|HP|MP|SP|EXP|STR|AGI|VIT|INT|LUK|ATK|DEF|Quest|Skill|Status|System|Reward)\b|[A-Za-zÀ-ỹ\u3040-\u9fff\uac00-\ud7af]{2,}\s*[:：]\s*\S)",
+                    d_u,
+                    re.I,
+                )
+            )
+            if so_dong_stat >= 2 or (
+                so_dong_stat >= 1
+                and any(
+                    re.search(r"(?:\[(?:Lv|System|Quest|Skill|Status|Notice|Warning)|【(?:システム|スキル|クエスト|状態|称号)|\[(?:시스템|스킬|퀘스트|상태창|레벨))", d_u, re.I)
+                    for d_u in dong_ui_str
+                )
+            ):
+                return "\n".join(dong_ui_str)
+
     merged_lines: list[str] = []
     for r in comp_ordered:
         t = str(r.get("text") or "").strip()
@@ -3894,9 +5969,11 @@ def _gop_cac_dong_trong_bong_thoai(comp_ordered: list[dict], ngon_ngu_nguon: str
 
 def _la_nen_bong_trang(px, W: int, H: int, r_box: dict) -> bool:
     """Kiểm tra vùng hộp từ/dòng có nằm trên nền bóng thoại trắng/kem/pastel phẳng thực sự hay không (phân biệt với chữ SFX màu / da mặt nhân vật / speedline)."""
-    x0 = max(0, int(r_box["x"]) - 4)
+    w_rb = int(r_box.get("w", 0))
+    pad_x_nb = -2 if w_rb < 110 and w_rb >= 12 else 4
+    x0 = max(0, int(r_box["x"]) - pad_x_nb)
     y0 = max(0, int(r_box["y"]) - 4)
-    x1 = min(W - 1, int(r_box["x"] + r_box["w"]) + 4)
+    x1 = min(W - 1, int(r_box["x"] + w_rb) + pad_x_nb)
     y1 = min(H - 1, int(r_box["y"] + r_box["h"]) + 4)
     total = 0
     bright = 0
@@ -3904,21 +5981,70 @@ def _la_nen_bong_trang(px, W: int, H: int, r_box: dict) -> bool:
     rs = []
     gs = []
     bs = []
+    co_mau_bong_dam = 0
     for py in range(y0, y1 + 1, 3):
         for px_i in range(x0, x1 + 1, 3):
             r, g, b = px[px_i, py]
             lum = 0.299 * r + 0.587 * g + 0.114 * b
             sat = max(r, g, b) - min(r, g, b)
             total += 1
-            if lum >= 175:
+            if lum >= 145:
                 lums.append(lum)
                 rs.append(r)
                 gs.append(g)
                 bs.append(b)
             if (lum >= 195 and sat <= 58) or (lum >= 210 and sat <= 96):
                 bright += 1
-    if total == 0 or (bright / total) < 0.50 or len(lums) < 4:
+            elif lum >= 150 and sat <= 255:
+                co_mau_bong_dam += 1
+    la_bong_mau_dam = (
+        total > 0
+        and ((bright + co_mau_bong_dam) / total) >= 0.50
+        and int(r_box.get("w", 0)) >= 36
+        and int(r_box.get("h", 0)) >= 24
+    )
+    if total == 0 or (((bright / total) < 0.45) and not la_bong_mau_dam) or len(lums) < 4:
         return False
+    # Chặn bóng bán trong suốt hoặc chữ nổi đè trên tia tốc độ (speedlines) / mảng tóc đen / cổ áo screentone
+    if (y1 - y0) >= 110 and (x1 - x0) >= 110 and (co_mau_bong_dam / max(1, total)) < 0.15:
+        q_h = max(10, (y1 - y0) * 28 // 100)
+        sy_ta = max(0, y0 - max(8, (y1 - y0) // 6))
+        sy_bb = min(H - 1, y1 + max(10, (y1 - y0) // 5))
+        for sy_a, sy_b in ((sy_ta, y0 + q_h), (y1 - q_h, sy_bb)):
+            tot_q = br_q = gr_q = dk_q = 0
+            for py_q in range(sy_a, sy_b, 2):
+                for px_q in range(x0 + 4, max(x0 + 5, x1 - 4), 2):
+                    rq, gq, bq = px[px_q, py_q]
+                    lq = 0.299 * rq + 0.587 * gq + 0.114 * bq
+                    sq = max(rq, gq, bq) - min(rq, gq, bq)
+                    tot_q += 1
+                    if lq >= 210 and sq <= 42:
+                        br_q += 1
+                    elif 52 <= lq <= 196 and sq <= 36:
+                        gr_q += 1
+                    elif lq < 52 and sq <= 36:
+                        dk_q += 1
+            if tot_q >= 18 and (br_q / tot_q) <= 0.65 and ((gr_q / tot_q) >= 0.14 or ((gr_q + dk_q) / tot_q) >= 0.34):
+                return False
+        q_w = max(10, (x1 - x0) * 26 // 100)
+        sx_la = max(0, x0 - max(6, (x1 - x0) // 7))
+        sx_rb = min(W - 1, x1 + max(6, (x1 - x0) // 7))
+        for sx_a, sx_b in ((sx_la, x0 + q_w), (x1 - q_w, sx_rb)):
+            tot_q = br_q = gr_q = dk_q = 0
+            for py_q in range(y0 + 4, max(y0 + 5, y1 - 4), 2):
+                for px_q in range(sx_a, sx_b, 2):
+                    rq, gq, bq = px[px_q, py_q]
+                    lq = 0.299 * rq + 0.587 * gq + 0.114 * bq
+                    sq = max(rq, gq, bq) - min(rq, gq, bq)
+                    tot_q += 1
+                    if lq >= 210 and sq <= 42:
+                        br_q += 1
+                    elif 52 <= lq <= 196 and sq <= 36:
+                        gr_q += 1
+                    elif lq < 52 and sq <= 36:
+                        dk_q += 1
+            if tot_q >= 18 and (br_q / tot_q) <= 0.58 and ((gr_q + dk_q) / tot_q) >= 0.38:
+                return False
     lums.sort()
     rs.sort()
     gs.sort()
@@ -3928,6 +6054,10 @@ def _la_nen_bong_trang(px, W: int, H: int, r_box: dict) -> bool:
     i80 = min(n - 1, int(n * 0.80))
     iqr_lum = lums[i80] - lums[i20]
     iqr_rgb = (rs[i80] - rs[i20]) + (gs[i80] - gs[i20]) + (bs[i80] - bs[i20])
+    if la_bong_mau_dam and (co_mau_bong_dam / max(1, total)) >= 0.28:
+        return iqr_lum <= 36.0 and iqr_rgb <= 145
+    if (bright / total) < 0.50:
+        return iqr_lum <= 15.0 and iqr_rgb <= 62
     return iqr_lum <= 16.5 and iqr_rgb <= 65
 
 
@@ -3967,19 +6097,48 @@ def _co_vach_ngan_doc(px, W: int, H: int, a: dict, b: dict) -> bool:
         return False
     la_trang_a = _la_nen_bong_trang(px, W, H, a)
     la_trang_b = _la_nen_bong_trang(px, W, H, b)
-    # Một dòng nằm trong bóng thoại trắng và một dòng chữ nổi trên nền tối/screentone không bao giờ thuộc cùng 1 bóng
-    if la_trang_a != la_trang_b and (y_end - y_start) >= 4:
-        return True
     ox0 = max(0, min(W - 1, int(max(a["x"], b["x"]))))
     ox1 = max(ox0 + 1, min(W - 1, int(min(a["x"] + a["w"], b["x"] + b["w"]))))
     ux0 = max(0, min(W - 1, int(min(a["x"], b["x"]))))
     ux1 = max(ux0 + 1, min(W - 1, int(max(a["x"] + a["w"], b["x"] + b["w"]))))
     xs_ov = [int(round(ox0 + (ox1 - ox0) * k / 6.0)) for k in range(7)]
     xs_un = [int(round(ux0 + (ux1 - ux0) * k / 8.0)) for k in range(9)]
+    # Một dòng nằm trong bóng thoại trắng khép kín (có lề trắng 4 phía) và một dòng chữ nổi ngoài bóng không gộp chung,
+    # NHƯNG giữ liền mạch nếu là cùng 1 khối chữ nổi vắt từ mảng tóc đen xuống má trắng nhân vật ('What / does / it / mean?', 'I'M GONNA / NEED TO...'):
+    if la_trang_a != la_trang_b and (y_end - y_start) >= 4:
+        hop_khong_trang = b if la_trang_a else a
+        # Nếu dòng trên nằm đè lên mảng tóc đen đặc (>42% điểm tối) và dòng dưới thẳng tâm ngay sát bên dưới trên vùng má sáng ('What / does / it / mean?'), không coi là khác bóng:
+        tot_kt = dark_kt = 0
+        for ly_d in range(max(0, hop_khong_trang["y"]), min(H, hop_khong_trang["y"] + hop_khong_trang["h"]), 3):
+            for lx_d in range(max(0, hop_khong_trang["x"]), min(W, hop_khong_trang["x"] + hop_khong_trang["w"]), 3):
+                tot_kt += 1
+                if (0.299 * px[lx_d, ly_d][0] + 0.587 * px[lx_d, ly_d][1] + 0.114 * px[lx_d, ly_d][2]) <= 65:
+                    dark_kt += 1
+        cung_truc_doc = abs((a["x"] + a["w"] * 0.5) - (b["x"] + b["w"] * 0.5)) <= max(a["w"], b["w"]) * 0.22
+        if not (cung_truc_doc and tot_kt > 0 and (dark_kt / tot_kt) >= 0.42 and (y_end - y_start) <= max(a["h"], b["h"]) * 1.65):
+            hop_trang = a if la_trang_a else b
+            ty_le_le_trang = 0
+            tong_le = 0
+            for lx_c in (max(0, hop_trang["x"] - 8), min(W - 1, hop_trang["x"] + hop_trang["w"] + 8)):
+                for ly_c in range(max(0, hop_trang["y"]), min(H, hop_trang["y"] + hop_trang["h"]), 4):
+                    tong_le += 1
+                    if (0.299 * px[lx_c, ly_c][0] + 0.587 * px[lx_c, ly_c][1] + 0.114 * px[lx_c, ly_c][2]) >= 210:
+                        ty_le_le_trang += 1
+            for ly_c in (max(0, hop_trang["y"] - 8), min(H - 1, hop_trang["y"] + hop_trang["h"] + 8)):
+                for lx_c in range(max(0, hop_trang["x"]), min(W, hop_trang["x"] + hop_trang["w"]), 4):
+                    tong_le += 1
+                    if (0.299 * px[lx_c, ly_c][0] + 0.587 * px[lx_c, ly_c][1] + 0.114 * px[lx_c, ly_c][2]) >= 210:
+                        ty_le_le_trang += 1
+            if tong_le > 0 and (ty_le_le_trang / tong_le) >= 0.78:
+                return True
     if not (la_trang_a and la_trang_b):
-        # Kiểm tra đường viền khung tranh ngang (đen đậm hoặc rãnh trắng tinh) cắt ngang giữa 2 khối chữ nổi
+        # Kiểm tra đường viền khung tranh ngang (đen mảnh kéo dài qua ngoài hộp chữ hoặc rãnh trắng tinh) cắt ngang giữa 2 khối chữ nổi
         dark_border_rows = 0
+        wide_dark_rows = 0
         white_gutter_rows = 0
+        wx_l = max(0, ux0 - 96)
+        wx_r = min(W - 1, ux1 + 96)
+        xs_wide = [int(round(wx_l + (wx_r - wx_l) * k / 10.0)) for k in range(11)]
         for y in range(max(0, y_start), min(H, y_end)):
             dark_cnt = 0
             white_cnt = 0
@@ -3992,9 +6151,12 @@ def _co_vach_ngan_doc(px, W: int, H: int, a: dict, b: dict) -> bool:
                     white_cnt += 1
             if dark_cnt >= 8:
                 dark_border_rows += 1
+                wide_cnt = sum(1 for xw in xs_wide if (0.299 * px[xw, y][0] + 0.587 * px[xw, y][1] + 0.114 * px[xw, y][2]) <= 65)
+                if wide_cnt == 11:
+                    wide_dark_rows += 1
             if white_cnt >= 8:
                 white_gutter_rows += 1
-        return dark_border_rows >= 2 or white_gutter_rows >= 4
+        return white_gutter_rows >= 4 or (2 <= dark_border_rows <= 10 and wide_dark_rows >= 2)
     non_white_rows = 0
     pinched_rows = 0
     for y in range(max(0, y_start), min(H, y_end)):
@@ -4014,7 +6176,56 @@ def _co_vach_ngan_doc(px, W: int, H: int, a: dict, b: dict) -> bool:
                 un_bright += 1
         if un_bright <= 6:
             pinched_rows += 1
-    return non_white_rows >= 2 or pinched_rows >= 3
+    if non_white_rows >= 2 or pinched_rows >= 3:
+        return True
+    # Kiểm tra eo thắt cổ chai (Double-Pinched Oval Bubble) giữa 2 bóng bầu dục nối liền:
+    # Mọi bóng thoại đơn (bầu dục/tròn/chữ nhật) đều là hình lồi nên bề ngang lòng trắng ở giữa không bao giờ co hẹp <= 68% min(bề ngang trên, bề ngang dưới).
+    max_scan_w = max(int(top["w"]), int(bot["w"])) + 96
+    cy_t = max(0, min(H - 1, int(top["y"] + top["h"] // 2)))
+    cy_b = max(0, min(H - 1, int(bot["y"] + bot["h"] // 2)))
+    wl_t = max(0, int(top["x"]))
+    for xx in range(wl_t, max(0, wl_t - max_scan_w), -2):
+        if (0.299 * px[xx, cy_t][0] + 0.587 * px[xx, cy_t][1] + 0.114 * px[xx, cy_t][2]) < 180:
+            wl_t = xx
+            break
+    wr_t = min(W - 1, int(top["x"] + top["w"]))
+    for xx in range(wr_t, min(W - 1, wr_t + max_scan_w), 2):
+        if (0.299 * px[xx, cy_t][0] + 0.587 * px[xx, cy_t][1] + 0.114 * px[xx, cy_t][2]) < 180:
+            wr_t = xx
+            break
+    wl_b = max(0, int(bot["x"]))
+    for xx in range(wl_b, max(0, wl_b - max_scan_w), -2):
+        if (0.299 * px[xx, cy_b][0] + 0.587 * px[xx, cy_b][1] + 0.114 * px[xx, cy_b][2]) < 180:
+            wl_b = xx
+            break
+    wr_b = min(W - 1, int(bot["x"] + bot["w"]))
+    for xx in range(wr_b, min(W - 1, wr_b + max_scan_w), 2):
+        if (0.299 * px[xx, cy_b][0] + 0.587 * px[xx, cy_b][1] + 0.114 * px[xx, cy_b][2]) < 180:
+            wr_b = xx
+            break
+    span_t = wr_t - wl_t
+    span_b = wr_b - wl_b
+    if span_t >= 48 and span_b >= 48:
+        cx_neck = max(0, min(W - 1, (ox0 + ox1) // 2))
+        min_neck = max(span_t, span_b)
+        for y_n in range(max(0, y_start), min(H, y_end)):
+            if (0.299 * px[cx_neck, y_n][0] + 0.587 * px[cx_neck, y_n][1] + 0.114 * px[cx_neck, y_n][2]) < 180:
+                continue
+            nl = cx_neck
+            for xx in range(cx_neck, max(0, cx_neck - max_scan_w), -2):
+                if (0.299 * px[xx, y_n][0] + 0.587 * px[xx, y_n][1] + 0.114 * px[xx, y_n][2]) < 180:
+                    nl = xx
+                    break
+            nr = cx_neck
+            for xx in range(cx_neck, min(W - 1, cx_neck + max_scan_w), 2):
+                if (0.299 * px[xx, y_n][0] + 0.587 * px[xx, y_n][1] + 0.114 * px[xx, y_n][2]) < 180:
+                    nr = xx
+                    break
+            if (nr - nl) < min_neck:
+                min_neck = nr - nl
+        if min_neck <= min(span_t, span_b) * 0.68:
+            return True
+    return False
 
 
 def _la_trang_manga_don_sac(px, W: int, H: int) -> bool:
@@ -4049,6 +6260,10 @@ def _la_vung_bong_thoai(px, W: int, H: int, x: int, y: int, w: int, h: int) -> b
     y1 = min(H - 1, y + h + pad)
     total = 0
     bright_bg = 0
+    colored_flat_bg = 0
+    cb_rs: list[int] = []
+    cb_gs: list[int] = []
+    cb_bs: list[int] = []
     very_dark = 0
     dark_ink = 0
     lums = []
@@ -4061,6 +6276,11 @@ def _la_vung_bong_thoai(px, W: int, H: int, x: int, y: int, w: int, h: int) -> b
             total += 1
             if (lum >= 195 and sat <= 58) or (lum >= 210 and sat <= 96):
                 bright_bg += 1
+            elif lum >= 168 and sat > 96:
+                colored_flat_bg += 1
+                cb_rs.append(r)
+                cb_gs.append(g)
+                cb_bs.append(b)
             elif lum <= 75 or (lum <= 115 and sat >= 85):
                 very_dark += 1
             if lum <= 125 or (lum <= 150 and sat >= 80):
@@ -4069,11 +6289,23 @@ def _la_vung_bong_thoai(px, W: int, H: int, x: int, y: int, w: int, h: int) -> b
         return False
     if (bright_bg / total) >= 0.18 and ((very_dark / total) >= 0.032 or ((dark_ink / total) >= 0.065 and (max(lums) - min(lums)) >= 115.0)):
         return True
-    # Hỗ trợ chữ nổi có viền trắng/đen trên nền màu (ví dụ câu thoại không khung ở cuối trang):
+    # Hỗ trợ hộp dẫn chuyện tô màu phẳng đậm (VD: hộp caption màu vàng rực Marvel/DC `RGB(255,232,62)` chữ đen đậm):
+    if len(cb_rs) >= 8 and ((bright_bg + colored_flat_bg) / total) >= 0.28 and (very_dark / total) >= 0.032:
+        cb_rs.sort()
+        cb_gs.sort()
+        cb_bs.sort()
+        i20_c = int(len(cb_rs) * 0.20)
+        i80_c = min(len(cb_rs) - 1, int(len(cb_rs) * 0.80))
+        if (cb_rs[i80_c] - cb_rs[i20_c]) + (cb_gs[i80_c] - cb_gs[i20_c]) + (cb_bs[i80_c] - cb_bs[i20_c]) <= 145:
+            return True
+    # Hỗ trợ chữ nổi có viền trắng/đen trên nền màu hoặc chữ đen viền halo trắng đè lên mảng tóc đen đặc:
     lums.sort()
     p15 = lums[int(len(lums) * 0.15)]
     p85 = lums[int(len(lums) * 0.85)]
-    return (p85 - p15) >= 115.0 and (bright_bg / total) >= 0.08 and (very_dark / total) >= 0.08
+    p92 = lums[min(len(lums) - 1, int(len(lums) * 0.92))]
+    if (p85 - p15) >= 115.0 and p85 >= 195.0 and p15 <= 78.0 and (bright_bg / total) >= 0.08 and (very_dark / total) >= 0.08:
+        return True
+    return (p92 - p15) >= 135.0 and p92 >= 198.0 and (bright_bg / total) >= 0.055 and (very_dark / total) >= 0.42
 
 
 def _sap_xep_dong_trong_bong_thoai(comp: list[dict]) -> list[dict]:
@@ -4128,7 +6360,12 @@ def _sap_xep_dong_trong_bong_thoai(comp: list[dict]) -> list[dict]:
     return ket_qua
 
 
-def nhan_dien_bong_thoai_ocr_cuc_bo(img_bytes: bytes, ngon_ngu_nguon: str = "en") -> list[dict]:
+def nhan_dien_bong_thoai_ocr_cuc_bo(
+    img_bytes: bytes,
+    ngon_ngu_nguon: str = "en",
+    *,
+    che_do_sfx: str = "bo_qua",
+) -> list[dict]:
     """
     Hệ thống OCR Thông Minh Thích Ứng Theo Từng Khung Hình (Intelligent Per-Frame Adaptive OCR):
     1. Ưu tiên lõi PP-OCRv4 ONNX (`_nhan_dien_dong_rapidocr_hf`, ~0.25s/trang) với quét đa tỷ lệ + tinh chỉnh
@@ -4163,19 +6400,29 @@ def nhan_dien_bong_thoai_ocr_cuc_bo(img_bytes: bytes, ngon_ngu_nguon: str = "en"
         except Exception:
             pass
     elif W_goc > 2000:
-        # Khử răng cưa halftone trên trang scan 4K (2508x3600) bằng bước làm mượt 950px -> 1900px
         lanczos = getattr(getattr(Image, "Resampling", Image), "LANCZOS", 1)
-        h_950 = int(round(H_goc * (950.0 / float(W_goc))))
-        im_950_phu = im.resize((950, h_950), lanczos)
-        im = im_950_phu.resize((1900, h_950 * 2), lanczos)
-        he_so_ocr = 1900.0 / float(W_goc)
+        if W_goc > H_goc * 1.05:
+            # Trang đôi ngang (Double-Page Spread 4K/5K như 5114x3932): giữ độ phân giải ~3200px ngang
+            # (tương đương ~1600px mỗi trang đơn) để chữ comic nhỏ không bị bệt nhòe khi OCR:
+            w_ocr_doi = min(W_goc, 3200)
+            h_ocr_doi = max(1, int(round(H_goc * (float(w_ocr_doi) / float(W_goc)))))
+            im = im.resize((w_ocr_doi, h_ocr_doi), lanczos)
+            he_so_ocr = float(w_ocr_doi) / float(W_goc)
+        else:
+            # Khử răng cưa halftone trên trang đơn scan 4K (2508x3600) bằng bước làm mượt 950px -> 1900px
+            h_950 = int(round(H_goc * (950.0 / float(W_goc))))
+            im_950_phu = im.resize((950, h_950), lanczos)
+            im = im_950_phu.resize((1900, h_950 * 2), lanczos)
+            he_so_ocr = 1900.0 / float(W_goc)
     else:
         he_so_ocr = 1.0
     W, H = im.size
 
-    # Ưu tiên số 1: Hệ thống nhận diện thông minh PP-OCRv4 ONNX thích ứng theo từng khung hình
-    # Ưu tiên số 1: Hệ thống nhận diện thông minh PP-OCRv4 ONNX thích ứng theo từng khung hình + Hợp nhất khung CTD (comic-text-detector.onnx)
-    ctd_blocks, ctd_sfx_blocks = _quet_khung_ctd_onnx(im_goc_ctd, he_so_ocr=he_so_ocr)
+    # Ưu tiên số 1: Hệ thống nhận diện thông minh PP-OCRv4 ONNX thích ứng theo từng khung hình + Hợp nhất khung CTD cho CJK/KR (hoặc khi bật dịch SFX)
+    if str(ngon_ngu_nguon or "en").lower() in ("ja", "ko", "zh", "zh-tw") or che_do_sfx == "dich_xoa":
+        ctd_blocks, ctd_sfx_blocks = _quet_khung_ctd_onnx(im_goc_ctd, he_so_ocr=he_so_ocr)
+    else:
+        ctd_blocks, ctd_sfx_blocks = [], []
     raw_lines: list[dict] = _nhan_dien_dong_rapidocr_hf(im, ngon_ngu_nguon=ngon_ngu_nguon)
     if raw_lines and isinstance(raw_lines[0], dict) and raw_lines[0].get("_auto_lang"):
         ngon_ngu_nguon = str(raw_lines[0]["_auto_lang"])
@@ -4477,23 +6724,11 @@ $lines | ConvertTo-Json -Depth 4 -Compress
         elif str(ngon_ngu_nguon or "en").lower() == "ko":
             valid = [v for v in valid if v.get("_ctd_id") is not None and len(str(v.get("text") or "").strip()) >= 2]
         elif str(ngon_ngu_nguon or "en").lower() == "en":
-            sfx_cids_en = {cb["_id"] for cb in ctd_blocks if cb.get("cls") == 1 and not _la_nen_bong_trang(px, W, H, cb) and cb["w"] > cb["h"]}
             valid = [
                 v for v in valid
-                if v.get("_ctd_id") not in sfx_cids_en
-                and not (
-                    v.get("_ctd_id") is None
-                    and (
-                        not _la_nen_bong_trang(px, W, H, v)
-                        or (len(str(v.get("text") or "").split()) == 1 and len("".join(c for c in str(v.get("text") or "") if c.isalnum())) <= 5)
-                    )
-                )
-                and not (
+                if not (
                     not _la_nen_bong_trang(px, W, H, v)
-                    and (
-                        (v["h"] >= 40 and len(str(v.get("text") or "").split()) <= 2)
-                        or re.fullmatch(r"(?:(?:HA)+H?|UG[H]*|BHA[A]*|[AZTY\s]{3,})", re.sub(r"[^A-Za-z\s]+", "", str(v.get("text") or "")).strip(), re.I)
-                    )
+                    and re.fullmatch(r"(?:(?:HA)+H?|UG[H]*|BHA[A]*|[AZTY\s]{3,})", re.sub(r"[^A-Za-z\s]+", "", str(v.get("text") or "")).strip(), re.I)
                 )
             ]
 
@@ -4530,7 +6765,8 @@ $lines | ConvertTo-Json -Depth 4 -Compress
                         union(i, j)
                 continue
             if (a.get("_ctd_id") is not None) != (b.get("_ctd_id") is not None):
-                continue
+                if str(ngon_ngu_nguon or "en").lower() != "en" or _la_nen_bong_trang(px, W, H, a) or _la_nen_bong_trang(px, W, H, b):
+                    continue
             if any(ord(c) >= 0x2E80 for c in str(a.get("text") or "")) and any(ord(c) >= 0x2E80 for c in str(b.get("text") or "")) and a["h"] > a["w"] * 1.2 and b["h"] > b["w"] * 1.2:
                 lc_c, rc_c = (a, b) if a["x"] <= b["x"] else (b, a)
                 h_gap_c = rc_c["x"] - (lc_c["x"] + lc_c["w"])
@@ -4545,7 +6781,7 @@ $lines | ConvertTo-Json -Depth 4 -Compress
             top, bot = (a, b) if a["y"] <= b["y"] else (b, a)
             v_gap = bot["y"] - (top["y"] + top["h"])
             max_w = max(a["w"], b["w"])
-            he_so_vgap = 1.45 if abs(acx - bcx) <= max_w * 0.38 else 0.72
+            he_so_vgap = 1.65 if abs(acx - bcx) <= max_w * 0.28 else (1.45 if abs(acx - bcx) <= max_w * 0.38 else 0.72)
             if v_gap > max(max_h * he_so_vgap, 11.0) or v_gap < -max_h * 0.45:
                 continue
             ox0 = max(a["x"], b["x"])
@@ -4600,17 +6836,61 @@ $lines | ConvertTo-Json -Depth 4 -Compress
                     gy0 = max(0, r_top["y"] + r_top["h"] - 12)
                     gy1 = min(H, r_bot["y"] + 12)
                     if gy1 - gy0 >= 14:
+                        crop_gap = im.crop((bx0_g, gy0, bx1_g, gy1))
                         try:
-                            res_g, _ = eng_gap(im.crop((bx0_g, gy0, bx1_g, gy1)), use_cls=False, box_thresh=0.10, text_score=0.38)
+                            res_g, _ = eng_gap(crop_gap, use_cls=False, box_thresh=0.10, text_score=0.38)
                         except Exception:
                             res_g = None
+                        # Nếu khe chữ nằm trên nền tóc đen đặc có viền halo trắng (VD: từ ngắn 'it' giữa 'does' và 'mean?'),
+                        # tách bỏ nền tối liên thông ra biên ngoài vòng halo trắng (Jordan-curve Halo Isolation) rồi quét lại:
+                        co_tu_khe = bool(res_g and any(
+                            isinstance(it_g, (list, tuple)) and len(it_g) >= 3 and float(it_g[2] or 0.0) >= 0.45
+                            and r_top["y"] + r_top["h"] - 6 <= gy0 + (min(float(p[1]) for p in it_g[0]) + max(float(p[1]) for p in it_g[0])) * 0.5 <= r_bot["y"] + 6
+                            for it_g in res_g
+                        ))
+                        if not co_tu_khe:
+                            try:
+                                import numpy as np
+                                from collections import deque as _deque
+                                g_arr = np.asarray(crop_gap.convert("L")).copy()
+                                gh, gw = g_arr.shape
+                                if int((g_arr < 90).sum()) >= gh * gw * 0.28 and int((g_arr >= 185).sum()) >= gh * gw * 0.05:
+                                    vis_g = np.zeros((gh, gw), dtype=bool)
+                                    qg = _deque()
+                                    for xg in range(gw):
+                                        for yg in (0, gh - 1):
+                                            if g_arr[yg, xg] < 185 and not vis_g[yg, xg]:
+                                                vis_g[yg, xg] = True
+                                                qg.append((yg, xg))
+                                    for yg in range(gh):
+                                        for xg in (0, gw - 1):
+                                            if g_arr[yg, xg] < 185 and not vis_g[yg, xg]:
+                                                vis_g[yg, xg] = True
+                                                qg.append((yg, xg))
+                                    while qg:
+                                        cyg, cxg = qg.popleft()
+                                        for dyg, dxg in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                                            nyg, nxg = cyg + dyg, cxg + dxg
+                                            if 0 <= nyg < gh and 0 <= nxg < gw and not vis_g[nyg, nxg] and g_arr[nyg, nxg] < 185:
+                                                vis_g[nyg, nxg] = True
+                                                qg.append((nyg, nxg))
+                                    g_arr[vis_g] = 255
+                                    rgb_iso = np.stack([g_arr, g_arr, g_arr], axis=-1)
+                                    res_iso, _ = eng_gap(rgb_iso, use_cls=False, box_thresh=0.10, text_score=0.35)
+                                    if res_iso:
+                                        res_g = list(res_g or []) + list(res_iso)
+                            except Exception:
+                                pass
                         if res_g:
                             for it_g in res_g:
-                                if isinstance(it_g, (list, tuple)) and len(it_g) >= 3 and float(it_g[2] or 0.0) >= 0.45:
+                                if isinstance(it_g, (list, tuple)) and len(it_g) >= 3 and float(it_g[2] or 0.0) >= 0.42:
                                     tg_c = _lam_sach_chu_ocr_truyen(str(it_g[1] or "").strip())
                                     if tg_c and any(c.isascii() and c.isalpha() for c in tg_c):
                                         xs_g = [float(p[0]) for p in it_g[0]]
                                         ys_g = [float(p[1]) for p in it_g[0]]
+                                        cy_cand = gy0 + (min(ys_g) + max(ys_g)) * 0.5
+                                        if not (r_top["y"] + r_top["h"] - 6 <= cy_cand <= r_bot["y"] + 6):
+                                            continue
                                         bo_sung_gap.append({
                                             "band": 0,
                                             "text": tg_c,
@@ -4621,6 +6901,253 @@ $lines | ConvertTo-Json -Depth 4 -Compress
                                         })
             if bo_sung_gap:
                 comp_ordered = _sap_xep_dong_trong_bong_thoai(comp_ordered + bo_sung_gap)
+            # Cứu từ ngắn 1-3 chữ cái nằm ngay dòng đầu trên nền tối/viền halo trắng (VD: 'A' trên 'single...', 'Is' trên '14,000...')
+            r0_top = comp_ordered[0]
+            t0_raw = str(r0_top.get("text") or "").strip()
+            t0_first_w = re.split(r"\s+", t0_raw)[0].strip(".,!?:;()\"'").lower() if t0_raw else ""
+            if (
+                t0_raw
+                and (
+                    t0_raw[0].islower()
+                    or t0_raw[0].isdigit()
+                    or t0_first_w in ("single", "little", "few", "couple", "bit", "lot", "moment", "second", "hundred", "thousand", "million")
+                )
+            ):
+                ty0 = max(0, r0_top["y"] - max(42, int(round(r0_top["h"] * 1.95))))
+                ty1 = min(H, r0_top["y"] + 6)
+                tx0 = max(0, bx0_g - 8)
+                tx1 = min(W, bx1_g + 8)
+                da_co_cum_tren = any(
+                    r_o["x"] < tx1 and r_o["x"] + r_o["w"] > tx0 and r_o["y"] < r0_top["y"] and r_o["y"] + r_o["h"] > ty0 + 4
+                    for c_o in clusters.values()
+                    if c_o is not comp
+                    for r_o in c_o
+                )
+                if not da_co_cum_tren and ty1 - ty0 >= 18 and tx1 - tx0 >= 24:
+                    crop_top = im.crop((tx0, ty0, tx1, ty1))
+                    ung_vien_top: list = []
+                    try:
+                        r_t_raw, _ = eng_gap(crop_top, use_cls=False, box_thresh=0.08, text_score=0.30)
+                        if r_t_raw:
+                            ung_vien_top.extend(r_t_raw)
+                    except Exception:
+                        pass
+                    try:
+                        import numpy as np
+                        from collections import deque as _deque
+                        gt_arr = np.asarray(crop_top.convert("L")).copy()
+                        gth, gtw = gt_arr.shape
+                        if int((gt_arr >= 185).sum()) >= gth * gtw * 0.04:
+                            vis_t = np.zeros((gth, gtw), dtype=bool)
+                            qt = _deque()
+                            for xt in range(gtw):
+                                for yt in (0, gth - 1):
+                                    if gt_arr[yt, xt] < 185 and not vis_t[yt, xt]:
+                                        vis_t[yt, xt] = True
+                                        qt.append((yt, xt))
+                            for yt in range(gth):
+                                for xt in (0, gtw - 1):
+                                    if gt_arr[yt, xt] < 185 and not vis_t[yt, xt]:
+                                        vis_t[yt, xt] = True
+                                        qt.append((yt, xt))
+                            while qt:
+                                cyt, cxt = qt.popleft()
+                                for dyt, dxt in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                                    nyt, nxt = cyt + dyt, cxt + dxt
+                                    if 0 <= nyt < gth and 0 <= nxt < gtw and not vis_t[nyt, nxt] and gt_arr[nyt, nxt] < 185:
+                                        vis_t[nyt, nxt] = True
+                                        qt.append((nyt, nxt))
+                            gt_arr[vis_t] = 255
+                            rgb_t_iso = np.stack([gt_arr, gt_arr, gt_arr], axis=-1)
+                            r_t_iso, _ = eng_gap(rgb_t_iso, use_cls=False, box_thresh=0.08, text_score=0.30)
+                            if r_t_iso:
+                                ung_vien_top.extend(r_t_iso)
+                    except Exception:
+                        pass
+                    best_top = None
+                    best_sc_t = 0.0
+                    for it_t in ung_vien_top:
+                        if not (isinstance(it_t, (list, tuple)) and len(it_t) >= 3):
+                            continue
+                        sc_t = float(it_t[2] or 0.0)
+                        tg_t = _lam_sach_chu_ocr_truyen(str(it_t[1] or "").strip())
+                        if not re.fullmatch(r"[A-Za-z']{1,4}", tg_t):
+                            continue
+                        if len(tg_t) == 1 and (tg_t.upper() not in ("A", "I") or sc_t < 0.65):
+                            continue
+                        if sc_t < 0.45:
+                            continue
+                        xs_t = [float(p[0]) for p in it_t[0]]
+                        ys_t = [float(p[1]) for p in it_t[0]]
+                        cand_top = {
+                            "band": 0,
+                            "text": tg_t.capitalize() if len(tg_t) <= 2 else tg_t,
+                            "x": tx0 + int(round(min(xs_t))),
+                            "y": ty0 + int(round(min(ys_t))),
+                            "w": max(6, int(round(max(xs_t) - min(xs_t)))),
+                            "h": max(8, int(round(max(ys_t) - min(ys_t)))),
+                        }
+                        if (
+                            ty0 + (min(ys_t) + max(ys_t)) * 0.5 <= r0_top["y"] + 4
+                            and not _co_vach_ngan_doc(px, W, H, cand_top, r0_top)
+                            and sc_t > best_sc_t
+                        ):
+                            best_sc_t = sc_t
+                            best_top = cand_top
+                    if best_top is not None:
+                        comp_ordered = [best_top] + comp_ordered
+        if not co_cjk_toan_trang:
+            step_ext = max(4, int(round(8 * he_so_ocr)))
+            max_ext = int(round(34 * he_so_ocr))
+            for r_ext in comp_ordered:
+                tr_e = str(r_ext.get("text") or "").strip()
+                if tr_e.endswith((".", "!", "?")) and not _la_nen_bong_trang(px, W, H, r_ext):
+                    cur_x1 = r_ext["x"] + r_ext["w"]
+                    ey0 = max(0, r_ext["y"] + 2)
+                    ey1 = min(H - 1, r_ext["y"] + r_ext["h"] - 2)
+                    ey_top_guard = max(0, r_ext["y"] - max(4, int(round(6 * he_so_ocr))))
+                    ey_bot_guard = min(H - 1, r_ext["y"] + r_ext["h"] + max(4, int(round(6 * he_so_ocr))))
+                    added_e = 0
+                    while added_e < max_ext and cur_x1 + step_ext < W - 2 and ey1 > ey0 + 4:
+                        tot_e = bright_e = dark_e = 0
+                        xuyen_bien_tranh = False
+                        for xx_e in range(cur_x1, cur_x1 + step_ext, 2):
+                            rt_g, gt_g, bt_g = px[xx_e, ey_top_guard]
+                            rb_g, gb_g, bb_g = px[xx_e, ey_bot_guard]
+                            if (0.299 * rt_g + 0.587 * gt_g + 0.114 * bt_g) <= 85.0 or (0.299 * rb_g + 0.587 * gb_g + 0.114 * bb_g) <= 85.0:
+                                xuyen_bien_tranh = True
+                                break
+                        if xuyen_bien_tranh:
+                            break
+                        for yy_e in range(ey0, ey1 + 1, 2):
+                            for xx_e in range(cur_x1, cur_x1 + step_ext, 2):
+                                re_p, ge_p, be_p = px[xx_e, yy_e]
+                                lum_e = 0.299 * re_p + 0.587 * ge_p + 0.114 * be_p
+                                tot_e += 1
+                                if lum_e >= 210.0:
+                                    bright_e += 1
+                                elif lum_e <= 55.0:
+                                    dark_e += 1
+                        if tot_e > 0 and (bright_e / tot_e) >= 0.18 and (dark_e / tot_e) >= 0.08:
+                            cur_x1 += step_ext
+                            added_e += step_ext
+                        else:
+                            break
+                    if added_e == 0 and tr_e.endswith(("?", "!")):
+                        pad_q = min(W - 2 - cur_x1, int(round(7 * he_so_ocr)))
+                        if pad_q > 0:
+                            cur_x1 += pad_q
+                            added_e += pad_q
+                    if added_e > 0:
+                        r_ext["w"] = cur_x1 - r_ext["x"]
+                        if added_e >= int(round(18 * he_so_ocr)) and tr_e.endswith(".") and not tr_e.endswith("...") and "zh_en" in _CACHE_RAPIDOCR_HF:
+                            try:
+                                c_tail = im.crop((max(0, r_ext["x"] - 6), max(0, r_ext["y"] - 6), min(W, cur_x1 + 8), min(H, r_ext["y"] + r_ext["h"] + 6)))
+                                r_tail, _ = _CACHE_RAPIDOCR_HF["zh_en"](c_tail, use_cls=False, box_thresh=0.12, text_score=0.45)
+                                t_tail = " ".join(str(it_tl[1] or "") for it_tl in (r_tail or []) if isinstance(it_tl, (list, tuple)) and len(it_tl) >= 2)
+                                if "!" in t_tail:
+                                    r_ext["text"] = tr_e[:-1] + "...!!"
+                            except Exception:
+                                pass
+            # Tinh lọc chữ nổi có viền halo trắng đè lên tóc đen / vành tai / ngón tay (Jordan-Curve Halo Isolation Re-OCR):
+            # Loại bỏ các nét vẽ tranh tối liên thông ra biên ngoài vòng halo trắng trước khi đọc lại để không dính 'Ww', 'Hiwin', 'Pive', 'oppthe'!
+            if (
+                str(ngon_ngu_nguon or "en").lower() == "en"
+                and "zh_en" in _CACHE_RAPIDOCR_HF
+                and not all(_la_nen_bong_trang(px, W, H, r_c) for r_c in comp_ordered)
+            ):
+                try:
+                    import numpy as np
+                    from collections import deque as _deque
+                    pad_iso = max(24, int(round(22 * he_so_ocr)))
+                    ix0_o = max(0, min(r_c["x"] for r_c in comp_ordered) - pad_iso)
+                    iy0_o = max(0, min(r_c["y"] for r_c in comp_ordered) - pad_iso)
+                    ix1_o = min(W, max(r_c["x"] + r_c["w"] for r_c in comp_ordered) + pad_iso)
+                    iy1_o = min(H, max(r_c["y"] + r_c["h"] for r_c in comp_ordered) + pad_iso)
+                    if (ix1_o - ix0_o) >= 28 and (iy1_o - iy0_o) >= 24:
+                        g_iso = np.asarray(im.crop((ix0_o, iy0_o, ix1_o, iy1_o)).convert("L")).copy()
+                        gh_i, gw_i = g_iso.shape
+                        if int((g_iso >= 205).sum()) >= gh_i * gw_i * 0.06 and int((g_iso < 195).sum()) >= gh_i * gw_i * 0.08:
+                            vis_i = np.zeros((gh_i, gw_i), dtype=bool)
+                            qi = _deque()
+                            for x_i in range(gw_i):
+                                for y_i in (0, gh_i - 1):
+                                    if g_iso[y_i, x_i] < 205 and not vis_i[y_i, x_i]:
+                                        vis_i[y_i, x_i] = True
+                                        qi.append((y_i, x_i))
+                            for y_i in range(gh_i):
+                                for x_i in (0, gw_i - 1):
+                                    if g_iso[y_i, x_i] < 205 and not vis_i[y_i, x_i]:
+                                        vis_i[y_i, x_i] = True
+                                        qi.append((y_i, x_i))
+                            while qi:
+                                cy_i, cx_i = qi.popleft()
+                                for dy_i, dx_i in ((-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)):
+                                    ny_i, nx_i = cy_i + dy_i, cx_i + dx_i
+                                    if 0 <= ny_i < gh_i and 0 <= nx_i < gw_i and not vis_i[ny_i, nx_i] and g_iso[ny_i, nx_i] < 205:
+                                        vis_i[ny_i, nx_i] = True
+                                        qi.append((ny_i, nx_i))
+                            g_iso[vis_i] = 255
+                            rgb_iso_c = np.stack([g_iso, g_iso, g_iso], axis=-1)
+                            res_iso_c, _ = _CACHE_RAPIDOCR_HF["zh_en"](rgb_iso_c, use_cls=False, box_thresh=0.14, text_score=0.44)
+                            if res_iso_c:
+                                ox0_orig = min(r_c["x"] for r_c in comp_ordered)
+                                oy0_orig = min(r_c["y"] for r_c in comp_ordered)
+                                ox1_orig = max(r_c["x"] + r_c["w"] for r_c in comp_ordered)
+                                oy1_orig = max(r_c["y"] + r_c["h"] for r_c in comp_ordered)
+                                tol_iso = max(12, int(round(10 * he_so_ocr)))
+                                dong_iso_moi: list[dict] = []
+                                for it_ic in res_iso_c:
+                                    if not (isinstance(it_ic, (list, tuple)) and len(it_ic) >= 3 and float(it_ic[2] or 0.0) >= 0.48):
+                                        continue
+                                    t_ic = _lam_sach_chu_ocr_truyen(str(it_ic[1] or "").strip())
+                                    if not t_ic or not any(ch.isalnum() for ch in t_ic):
+                                        continue
+                                    t_ic = re.sub(r"\bI'llwin\b", "I'll win", t_ic)
+                                    t_ic = re.sub(r"\bo[pP]{2}[.,i]?\s*the\b", "off the", t_ic)
+                                    t_ic = re.sub(r"\bWherenobody\b", "Where nobody", t_ic, flags=re.I)
+                                    t_ic = re.sub(r"\b[Pp]ive\b", "five", t_ic)
+                                    t_ic = re.sub(r"\blept\b", "left", t_ic, flags=re.I)
+                                    t_ic = re.sub(r"^4\s+(?=[Ss]ingle\b)", "A ", t_ic)
+                                    t_ic = re.sub(r"(?<=[a-z])\.to\b", " to", t_ic)
+                                    xs_ic = [float(p[0]) for p in it_ic[0]]
+                                    ys_ic = [float(p[1]) for p in it_ic[0]]
+                                    gx0_ic = ix0_o + int(round(min(xs_ic)))
+                                    gy0_ic = iy0_o + int(round(min(ys_ic)))
+                                    gw_ic = max(6, int(round(max(xs_ic) - min(xs_ic))))
+                                    gh_ic = max(6, int(round(max(ys_ic) - min(ys_ic))))
+                                    if gx0_ic + gw_ic < ox0_orig - tol_iso or gx0_ic > ox1_orig + tol_iso or gy0_ic + gh_ic < oy0_orig - tol_iso or gy0_ic > oy1_orig + tol_iso:
+                                        continue
+                                    if len(t_ic) <= 3 and not any(ch.isalpha() for ch in t_ic) and float(it_ic[2] or 0.0) < 0.72:
+                                        continue
+                                    dong_iso_moi.append({"band": 0, "text": t_ic, "x": gx0_ic, "y": gy0_ic, "w": gw_ic, "h": gh_ic})
+                                if dong_iso_moi:
+                                    dong_iso_moi = _sap_xep_dong_trong_bong_thoai(dong_iso_moi)
+                                    span_y_old = max(1, oy1_orig - oy0_orig)
+                                    span_y_new = max(d_m["y"] + d_m["h"] for d_m in dong_iso_moi) - min(d_m["y"] for d_m in dong_iso_moi)
+                                    if span_y_new >= span_y_old * 0.78 and len(dong_iso_moi) >= max(1, len(comp_ordered) - 1):
+                                        comp_ordered = dong_iso_moi
+                except Exception:
+                    pass
+        # Khử mảnh nhiễu tóc/nét vẽ 1-2 ký tự thường ('ir', 'll') bị văng lệch ngang khỏi trục cột chữ chính >= 4 dòng:
+        if len(comp_ordered) >= 4:
+            dong_chinh = [
+                r for r in comp_ordered
+                if len("".join(c for c in str(r.get("text") or "") if c.isalnum())) >= 3
+                or any(ord(c) >= 0x2E80 for c in str(r.get("text") or ""))
+                or any(c.isupper() for c in str(r.get("text") or ""))
+            ]
+            if len(dong_chinh) >= 3:
+                cx0_core = min(r["x"] for r in dong_chinh)
+                cx1_core = max(r["x"] + r["w"] for r in dong_chinh)
+                tol_stray = max(14.0, 18.0 * he_so_ocr)
+                comp_loc = [
+                    r for r in comp_ordered
+                    if (r in dong_chinh)
+                    or ((r["x"] + r["w"]) >= cx0_core - tol_stray and r["x"] <= cx1_core + tol_stray)
+                ]
+                if comp_loc:
+                    comp_ordered = comp_loc
         x0 = min(r["x"] for r in comp_ordered)
         y0 = min(r["y"] for r in comp_ordered)
         x1 = max(r["x"] + r["w"] for r in comp_ordered)
@@ -4628,16 +7155,32 @@ $lines | ConvertTo-Json -Depth 4 -Compress
         text = _gop_cac_dong_trong_bong_thoai(comp_ordered, ngon_ngu_nguon=ngon_ngu_nguon)
         if not text:
             continue
+        bx0 = int(round(x0 / he_so_ocr))
+        by0 = int(round(y0 / he_so_ocr))
+        bx1 = int(round(x1 / he_so_ocr))
+        by1 = int(round(y1 / he_so_ocr))
+        # Lọc sạch Watermark nhóm Scan / Web Aggregator / Link mạng xã hội ở rìa trang để không bao giờ xóa đè hay dịch nhầm:
+        if _la_watermark_hoac_credit_rac(text, bx0, by0, max(1, bx1 - bx0), max(1, by1 - by0), W_goc, H_goc):
+            continue
         co_cjk = any(ord(c) >= 0x2E80 for c in text)
+        la_dac_thu_giu = (
+            _la_mau_system_ui(text)
+            or _la_mau_sign_prop_ro(text)
+            or text.lstrip().startswith(("*", "※", "†", "←", "→"))
+            or (che_do_sfx == "dich_xoa" and tra_cuu_sfx_truyen(text) is not None)
+        )
         # Bỏ các tiếng rên / SFX nền vụn hoặc dòng chữ khắc mờ trên đạo cụ nền ('Gh', 'Ggh', 'A.', 'D', 'MHAyH', 'myympa')
         text_alnum = "".join(c for c in text if c.isalnum())
-        if not co_cjk:
+        if not co_cjk and not la_dac_thu_giu:
             if (text_alnum.lower() in {"a", "d", "j", "s", "x", "gh", "ggh", "ghhr", "ghhhhn", "bha", "bhaa", "bhaaa", "crus", "movere", "dnsir", "mhayh", "myympa", "armnflammab", "it", "walan", "sssnhnrgoaaaeeee"} or re.fullmatch(r"[xXvViIlL1|]{2,12}", text_alnum)) or (len(text_alnum) == 1 and text_alnum.upper() not in {"I", "O"} and not text.endswith(("!", "?"))) or (len(text_alnum) == 2 and text_alnum.isalpha() and not any(ch in "AEIOUYaeiouy" for ch in text_alnum) and text_alnum.upper() not in {"SH", "HM", "MM", "MR", "MS", "DR", "ST", "VS", "TV"}):
                 continue
             if len(text.split()) <= 2 and not _la_nen_bong_trang(px, W, H, {"x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0}):
-                if (y1 - y0) >= 42 * he_so_ocr or not any(p in text for p in ("!", "?")):
+                la_in_hoa_sfx = sum(1 for c in text if c.isascii() and c.islower()) == 0
+                if la_in_hoa_sfx and ((y1 - y0) >= 42 * he_so_ocr or not any(p in text for p in ("!", "?"))):
                     continue
-        if not co_cjk and sum(1 for c in text if c.isascii() and c.isupper()) == 0:
+                if len(text.split()) == 1 and len(text_alnum) <= 5 and not any(p in text for p in ("!", "?")):
+                    continue
+        if not co_cjk and not la_dac_thu_giu and sum(1 for c in text if c.isascii() and c.isupper()) == 0:
             if (
                 (len(text) <= 4 or (len(text.split()) == 1 and len(text_alnum) <= 7))
                 and not text.endswith(("?", "!", "."))
@@ -4646,18 +7189,12 @@ $lines | ConvertTo-Json -Depth 4 -Compress
                 continue
             if len(text) <= 6 and any(not c.isascii() for c in text):
                 continue
-        bx0 = int(round(x0 / he_so_ocr))
-        by0 = int(round(y0 / he_so_ocr))
-        bx1 = int(round(x1 / he_so_ocr))
-        by1 = int(round(y1 / he_so_ocr))
         bubbles.append({
             "x": bx0,
             "y": by0,
-            "w": max(1, bx1 - bx0),
-            "h": max(1, by1 - by0),
-            "chu_goc": text,
             "w": max(12 if co_cjk else 1, bx1 - bx0),
             "h": max(12 if co_cjk else 1, by1 - by0),
+            "chu_goc": text,
             "angle": next((float(r.get("_ctd_angle") or 0.0) for r in comp_ordered if abs(float(r.get("_ctd_angle") or 0.0)) >= 8.0), 0.0),
             "dong_con": [
                 {
@@ -4670,34 +7207,97 @@ $lines | ConvertTo-Json -Depth 4 -Compress
             ],
         })
 
-    # Hợp nhất các bóng thoại đôi xếp chồng dọc ngay sát nhau khi bóng trên kết thúc lửng câu
+    # Nếu bật chế độ dịch cả tiếng động nghệ thuật (`che_do_sfx == "dich_xoa"`), thu thập thêm các khối `ctd_sfx_blocks` (`cls == 1`)
+    # chưa trùng với bóng thoại và khớp từ điển SFX hoặc đọc rõ chữ tượng thanh:
+    if che_do_sfx == "dich_xoa" and ctd_sfx_blocks:
+        try:
+            eng_sfx = _lay_engine_rapidocr_hf(ngon_ngu_nguon)
+        except Exception:
+            eng_sfx = None
+        for sb in ctd_sfx_blocks:
+            sx0 = int(round(sb["x"] / he_so_ocr))
+            sy0 = int(round(sb["y"] / he_so_ocr))
+            sw0 = max(12, int(round(sb["w"] / he_so_ocr)))
+            sh0 = max(12, int(round(sb["h"] / he_so_ocr)))
+            da_co = any(
+                max(0, min(sx0 + sw0, b["x"] + b["w"]) - max(sx0, b["x"]))
+                * max(0, min(sy0 + sh0, b["y"] + b["h"]) - max(sy0, b["y"]))
+                >= min(sw0 * sh0, b["w"] * b["h"]) * 0.30
+                for b in bubbles
+            )
+            if da_co or eng_sfx is None:
+                continue
+            try:
+                import numpy as _np_sfx  # type: ignore
+
+                pad_s = 6
+                cx0_s = max(0, int(sb["x"]) - pad_s)
+                cy0_s = max(0, int(sb["y"]) - pad_s)
+                cx1_s = min(W, int(sb["x"] + sb["w"]) + pad_s)
+                cy1_s = min(H, int(sb["y"] + sb["h"]) + pad_s)
+                if cx1_s - cx0_s < 12 or cy1_s - cy0_s < 12:
+                    continue
+                res_sfx, _ = eng_sfx(_np_sfx.asarray(im.crop((cx0_s, cy0_s, cx1_s, cy1_s))))
+                if res_sfx:
+                    txt_sfx = _lam_sach_chu_ocr_truyen(" ".join(str(it[1] or "").strip() for it in res_sfx if len(it) >= 3 and float(it[2] or 0.0) >= 0.42))
+                    if txt_sfx and not _la_watermark_hoac_credit_rac(txt_sfx, sx0, sy0, sw0, sh0, W_goc, H_goc):
+                        if tra_cuu_sfx_truyen(txt_sfx) is not None or _la_mau_sfx_tuong_thanh(txt_sfx):
+                            bubbles.append({
+                                "x": sx0,
+                                "y": sy0,
+                                "w": sw0,
+                                "h": sh0,
+                                "chu_goc": txt_sfx,
+                                "loai_vung": "sfx",
+                                "inpaint_sfx": True,
+                                "angle": float(sb.get("angle") or 0.0),
+                            })
+            except Exception:
+                pass
+
+    # Xác định ranh giới lòng bóng thoại trắng/màu phẳng (`hop_bong_thoai`) trước khi phân loại 5 trường hợp ngữ cảnh & gộp bóng đôi
     for b_item in bubbles:
-        if _la_nen_bong_trang(px, W, H, {"x": int(b_item["x"] * he_so_ocr), "y": int(b_item["y"] * he_so_ocr), "w": int(b_item["w"] * he_so_ocr), "h": int(b_item["h"] * he_so_ocr)}):
+        if not b_item.get("inpaint_sfx") and _la_nen_bong_trang(px, W, H, {"x": int(b_item["x"] * he_so_ocr), "y": int(b_item["y"] * he_so_ocr), "w": int(b_item["w"] * he_so_ocr), "h": int(b_item["h"] * he_so_ocr)}):
             cx_b = int(round((b_item["x"] + b_item["w"] * 0.5) * he_so_ocr))
             cy_b = int(round((b_item["y"] + b_item["h"] * 0.5) * he_so_ocr))
             wx0, wy0 = int(round(b_item["x"] * he_so_ocr)), int(round(b_item["y"] * he_so_ocr))
             wx1, wy1 = int(round((b_item["x"] + b_item["w"]) * he_so_ocr)), int(round((b_item["y"] + b_item["h"]) * he_so_ocr))
+            # Lấy màu nền chuẩn trong hộp chữ để dừng chính xác cả ở viền đen lẫn rìa hộp màu vàng trên nền lề trắng:
+            bg_rs_b, bg_gs_b, bg_bs_b = [], [], []
+            for sy_m in range(max(0, wy0), min(H, wy1 + 1), 3):
+                for sx_m in range(max(0, wx0), min(W, wx1 + 1), 3):
+                    rm_b, gm_b, bm_b = px[sx_m, sy_m]
+                    if 0.299 * rm_b + 0.587 * gm_b + 0.114 * bm_b >= 155:
+                        bg_rs_b.append(rm_b)
+                        bg_gs_b.append(gm_b)
+                        bg_bs_b.append(bm_b)
+            if bg_rs_b:
+                bg_rs_b.sort(); bg_gs_b.sort(); bg_bs_b.sort()
+                mi_b = len(bg_rs_b) // 2
+                rc0_b, gc0_b, bc0_b = bg_rs_b[mi_b], bg_gs_b[mi_b], bg_bs_b[mi_b]
+            else:
+                rc0_b, gc0_b, bc0_b = 255, 255, 255
             max_sx = max(32, int(W * 0.10))
             max_sy = max(32, int(H * 0.10))
             for xx in range(wx0, max(2, wx0 - max_sx), -2):
                 r_p, g_p, b_p = px[xx, max(0, min(H - 1, cy_b))]
-                if 0.299 * r_p + 0.587 * g_p + 0.114 * b_p < 185:
-                    wx0 = min(wx0, xx + 6)
+                if 0.299 * r_p + 0.587 * g_p + 0.114 * b_p < 185 or (abs(r_p - rc0_b) + abs(g_p - gc0_b) + abs(b_p - bc0_b)) > 95:
+                    wx0 = min(wx0, xx + 2)
                     break
             for xx in range(wx1, min(W - 3, wx1 + max_sx), 2):
                 r_p, g_p, b_p = px[xx, max(0, min(H - 1, cy_b))]
-                if 0.299 * r_p + 0.587 * g_p + 0.114 * b_p < 185:
-                    wx1 = max(wx1, xx - 6)
+                if 0.299 * r_p + 0.587 * g_p + 0.114 * b_p < 185 or (abs(r_p - rc0_b) + abs(g_p - gc0_b) + abs(b_p - bc0_b)) > 95:
+                    wx1 = max(wx1, xx - 2)
                     break
             for yy in range(wy0, max(2, wy0 - max_sy), -2):
                 r_p, g_p, b_p = px[max(0, min(W - 1, cx_b)), yy]
-                if 0.299 * r_p + 0.587 * g_p + 0.114 * b_p < 185:
-                    wy0 = min(wy0, yy + 6)
+                if 0.299 * r_p + 0.587 * g_p + 0.114 * b_p < 185 or (abs(r_p - rc0_b) + abs(g_p - gc0_b) + abs(b_p - bc0_b)) > 95:
+                    wy0 = min(wy0, yy + 2)
                     break
             for yy in range(wy1, min(H - 3, wy1 + max_sy), 2):
                 r_p, g_p, b_p = px[max(0, min(W - 1, cx_b)), yy]
-                if 0.299 * r_p + 0.587 * g_p + 0.114 * b_p < 185:
-                    wy1 = max(wy1, yy - 6)
+                if 0.299 * r_p + 0.587 * g_p + 0.114 * b_p < 185 or (abs(r_p - rc0_b) + abs(g_p - gc0_b) + abs(b_p - bc0_b)) > 95:
+                    wy1 = max(wy1, yy - 2)
                     break
             b_item["hop_bong_thoai"] = {
                 "x": int(round(wx0 / he_so_ocr)),
@@ -4705,7 +7305,13 @@ $lines | ConvertTo-Json -Depth 4 -Compress
                 "w": max(b_item["w"], int(round((wx1 - wx0) / he_so_ocr))),
                 "h": max(b_item["h"], int(round((wy1 - wy0) / he_so_ocr))),
             }
+
+    # Phân loại ngữ cảnh cho từng vùng chữ theo 6 nhóm chuẩn (`thoai`, `system_ui`, `aside_mutter`, `sign_prop`, `sfx`, `margin_note`)
+    gan_nhan_ngu_canh_danh_sach_vung(bubbles, px=px, W_px=W, H_px=H, he_so_ocr=he_so_ocr, W_goc=W_goc, H_goc=H_goc)
+
+    # Hợp nhất các bóng thoại đôi xếp chồng dọc ngay sát nhau khi bóng trên kết thúc lửng câu
     # (VD: 'Would have' + 'never played that tile.', 'Can no longer be' + 'seen..', 'Well? Spit' + 'out.')
+    # ĐỒNG THỜI bảo vệ `aside_mutter`, `system_ui`, `sign_prop`, `sfx`, `margin_note` không bao giờ bị nuốt nhầm vào bóng thoại chính!
     bubbles.sort(key=lambda b: (b["y"], b["x"]))
     da_gop: list[bool] = [False] * len(bubbles)
     bubbles_gop: list[dict] = []
@@ -4713,10 +7319,21 @@ $lines | ConvertTo-Json -Depth 4 -Compress
         if da_gop[i]:
             continue
         cur = dict(b1)
+        loai_cur = str(cur.get("loai_vung") or "thoai")
         for j in range(i + 1, len(bubbles)):
             if da_gop[j]:
                 continue
             b2 = bubbles[j]
+            loai_b2 = str(b2.get("loai_vung") or "thoai")
+            # Chỉ gộp khi cả hai đều là hội thoại thường (`thoai`) và cùng trạng thái trong/ngoài bóng thoại trắng:
+            if loai_cur != "thoai" or loai_b2 != "thoai":
+                continue
+            if bool(cur.get("hop_bong_thoai")) != bool(b2.get("hop_bong_thoai")):
+                continue
+            h_dong_1 = _chieu_cao_dong_tb_vung(cur)
+            h_dong_2 = _chieu_cao_dong_tb_vung(b2)
+            if h_dong_1 > 0 and h_dong_2 > 0 and max(h_dong_1, h_dong_2) / max(1.0, min(h_dong_1, h_dong_2)) > 1.42:
+                continue
             v_gap = b2["y"] - (cur["y"] + cur["h"])
             if v_gap < -12 or v_gap > 42:
                 continue
@@ -4742,38 +7359,424 @@ $lines | ConvertTo-Json -Depth 4 -Compress
                 da_gop[j] = True
         bubbles_gop.append(cur)
 
+    bubbles_gop = [
+        b_g
+        for b_g in bubbles_gop
+        if not _la_watermark_hoac_credit_rac(
+            str(b_g.get("chu_goc") or ""),
+            int(b_g["x"]),
+            int(b_g["y"]),
+            max(1, int(b_g["w"])),
+            max(1, int(b_g["h"])),
+            W_goc,
+            H_goc,
+        )
+    ]
+
     return sap_xep_bong_thoai_theo_huong_doc(
         bubbles_gop, ngon_ngu_nguon=ngon_ngu_nguon, la_trang_manga=la_trang_manga
     )
+
+
+# Từ điển Tiếng động / Chữ tượng thanh (SFX) đa ngôn ngữ chuẩn Manga / Manhwa / Manhua / Comic
+TU_DIEN_SFX_CHUAN: dict[str, dict[str, str]] = {
+    "ドキドキ": {"vi": "Thình thịch", "en": "Ba-dump", "es": "Bum-bum", "pt": "Tum-tum", "fr": "Boum-boum", "id": "Deg-degan"},
+    "ドキッ": {"vi": "Thịch!", "en": "Thump!", "es": "¡Pum!", "pt": "Tum!", "fr": "Boum !", "id": "Deg!"},
+    "두근": {"vi": "Thình thịch", "en": "Thump", "es": "Bum-bum", "pt": "Tum-tum", "fr": "Boum", "id": "Deg"},
+    "두근두근": {"vi": "Thình thịch", "en": "Ba-dump", "es": "Bum-bum", "pt": "Tum-tum", "fr": "Boum-boum", "id": "Deg-degan"},
+    "ドドド": {"vi": "Ầm ầm...", "en": "Rumble...", "es": "Retumbar...", "pt": "Estrondo...", "fr": "Gronde...", "id": "Gemuruh..."},
+    "ドドドド": {"vi": "Ầm ầm ầm...", "en": "Rumble...", "es": "Retumbar...", "pt": "Estrondo...", "fr": "Gronde...", "id": "Gemuruh..."},
+    "ドーン": {"vi": "BÙM!", "en": "BOOM!", "es": "¡BUM!", "pt": "CABUM!", "fr": "BOUM !", "id": "DUAR!"},
+    "ドゴォン": {"vi": "ẦM!!", "en": "KABOOM!!", "es": "¡¡BOOOOM!!", "pt": "CABUUM!!", "fr": "KABOUM !!", "id": "BLAAAR!!"},
+    "ドカン": {"vi": "ĐÙNG!", "en": "BANG!", "es": "¡PUM!", "pt": "POW!", "fr": "PAN !", "id": "DOR!"},
+    "バン": {"vi": "ĐOÀNG!", "en": "BANG!", "es": "¡PAM!", "pt": "BANG!", "fr": "PAN !", "id": "DOR!"},
+    "バァン": {"vi": "ĐOÀNG!!", "en": "BAM!!", "es": "¡¡PAM!!", "pt": "BAM!!", "fr": "BAM !!", "id": "BRAK!!"},
+    "ガタッ": {"vi": "Rầm!", "en": "Rattle!", "es": "¡Clac!", "pt": "Clac!", "fr": "Clac !", "id": "Krak!"},
+    "パチッ": {"vi": "Tách!", "en": "Snap!", "es": "¡Chas!", "pt": "Plaft!", "fr": "Clac !", "id": "Tak!"},
+    "スッ": {"vi": "Vút", "en": "Swish", "es": "Fiu", "pt": "Zás", "fr": "Fuit", "id": "Sret"},
+    "ザッ": {"vi": "Soạt!", "en": "Step!", "es": "¡Zas!", "pt": "Zás!", "fr": "Zou !", "id": "Srak!"},
+    "쾅": {"vi": "RẦM!", "en": "SLAM!", "es": "¡PLAF!", "pt": "BLAM!", "fr": "VLAM !", "id": "BRAK!"},
+    "콰앙": {"vi": "ẦM!!", "en": "BOOM!!", "es": "¡¡BUM!!", "pt": "CABUM!!", "fr": "BOUM !!", "id": "DUAR!!"},
+    "쿠구구궁": {"vi": "Ầm ầm ầm...", "en": "Rumble...", "es": "Retumbar...", "pt": "Estrondo...", "fr": "Gronde...", "id": "Gemuruh..."},
+    "스윽": {"vi": "Sột soạt", "en": "Slide", "es": "Fiu", "pt": "Zás", "fr": "Glisse", "id": "Sret"},
+    "덜컥": {"vi": "Cạch!", "en": "Clatter!", "es": "¡Clac!", "pt": "Clac!", "fr": "Clac !", "id": "Klek!"},
+    "轰": {"vi": "ẦM!", "en": "BOOM!", "es": "¡BUM!", "pt": "CABUM!", "fr": "BOUM !", "id": "DUAR!"},
+    "轰隆": {"vi": "ẦM ẦM!", "en": "RUMBLE!", "es": "¡RETUMBAR!", "pt": "ESTRONDO!", "fr": "GRONDE !", "id": "GEMURUH!"},
+    "砰": {"vi": "ĐOÀNG!", "en": "BANG!", "es": "¡PUM!", "pt": "POW!", "fr": "PAN !", "id": "DOR!"},
+    "啪": {"vi": "Bốp!", "en": "Slap!", "es": "¡Zas!", "pt": "Pá!", "fr": "Clac !", "id": "Plak!"},
+    "짝": {"vi": "Bốp!", "en": "Clap!", "es": "¡Plaf!", "pt": "Pá!", "fr": "Clac !", "id": "Plak!"},
+    "カラン": {"vi": "Keng", "en": "Clang", "es": "Clink", "pt": "Plim", "fr": "Dring", "id": "Kling"},
+    "キーン": {"vi": "Keng!", "en": "Shing!", "es": "¡Cling!", "pt": "Plim!", "fr": "Dring !", "id": "Tring!"},
+    "챙": {"vi": "Xoảng!", "en": "Clash!", "es": "¡Clang!", "pt": "Clang!", "fr": "Clang !", "id": "Tring!"},
+    "ゴクッ": {"vi": "Ực!", "en": "Gulp!", "es": "¡Glup!", "pt": "Glup!", "fr": "Gloups !", "id": "Glek!"},
+    "ごくごく": {"vi": "Ực ực", "en": "Gulp gulp", "es": "Glup glup", "pt": "Glup glup", "fr": "Glou glou", "id": "Glek glek"},
+    "꿀꺽": {"vi": "Ực!", "en": "Gulp!", "es": "¡Glup!", "pt": "Glup!", "fr": "Gloups !", "id": "Glek!"},
+    "ゴゴゴ": {"vi": "Rền vang...", "en": "Menacing...", "es": "Amenazante...", "pt": "Ameaçador...", "fr": "Menaçant...", "id": "Mencekam..."},
+    "ゴゴゴゴ": {"vi": "Rền vang...", "en": "Menacing...", "es": "Amenazante...", "pt": "Ameaçador...", "fr": "Menaçant...", "id": "Mencekam..."},
+    "ザワザワ": {"vi": "Xì xào...", "en": "Murmur...", "es": "Murmullo...", "pt": "Murmúrio...", "fr": "Chuchote...", "id": "Bisik-bisik..."},
+    "シーン": {"vi": "Im phắc...", "en": "Silence...", "es": "Silencio...", "pt": "Silêncio...", "fr": "Silence...", "id": "Hening..."},
+    "キラキラ": {"vi": "Lấp lánh", "en": "Sparkle", "es": "Brillo", "pt": "Brilho", "fr": "Scintille", "id": "Berkilau"},
+    "ハァハァ": {"vi": "Hộc... hộc...", "en": "Pant... pant...", "es": "Jadea...", "pt": "Arfa...", "fr": "Halète...", "id": "Hah... hah..."},
+    "BOOM": {"vi": "BÙM!", "en": "BOOM!"},
+    "KABOOM": {"vi": "ẦM!!", "en": "KABOOM!!"},
+    "CRASH": {"vi": "RẦM!", "en": "CRASH!"},
+    "SLAM": {"vi": "SẦM!", "en": "SLAM!"},
+    "THUD": {"vi": "BỊCH!", "en": "THUD!"},
+    "CLANG": {"vi": "KENG!", "en": "CLANG!"},
+    "CLING": {"vi": "LENG KENG!", "en": "CLING!"},
+    "SLASH": {"vi": "XOẸT!", "en": "SLASH!"},
+    "WHOOSH": {"vi": "VÚT!", "en": "WHOOSH!"},
+    "SWISH": {"vi": "VÚT!", "en": "SWISH!"},
+    "GULP": {"vi": "ỰC!", "en": "GULP!"},
+    "BA-DUMP": {"vi": "THÌNH THỊCH", "en": "BA-DUMP"},
+}
+
+
+def tra_cuu_sfx_truyen(text: str, ngon_ngu_dich: str = "vi") -> str | None:
+    """Tra cứu nhanh từ tượng thanh / SFX phổ biến (Nhật, Hàn, Trung, Anh) sang ngôn ngữ đích."""
+    if not text:
+        return None
+    clean = re.sub(r"[!！?？.。…~～\s]+", "", text.strip())
+    if not clean:
+        return None
+    entry = TU_DIEN_SFX_CHUAN.get(clean) or TU_DIEN_SFX_CHUAN.get(clean.upper())
+    if not entry:
+        return None
+    tl = (ngon_ngu_dich or "vi").strip().lower()
+    return entry.get(tl) or entry.get("vi") or entry.get("en")
+
+
+def _la_mau_sfx_tuong_thanh(text: str) -> bool:
+    """Nhận diện chuỗi thuần từ tượng thanh Katakana lặp / Hangul SFX ngắn hoặc chữ in hoa âm thanh."""
+    s = re.sub(r"[!！?？.。…~～\s]+", "", (text or "").strip())
+    if not s:
+        return False
+    if tra_cuu_sfx_truyen(s) is not None:
+        return True
+    # Katakana ngắn lặp âm (VD: ドドド, ザワザワ, バキッ, ズガーン)
+    if 2 <= len(s) <= 6 and all(0x30A0 <= ord(c) <= 0x30FF for c in s):
+        if len(set(s)) <= 2 or s.endswith(("ッ", "ン", "ー")):
+            return True
+    return False
+
+
+def _la_watermark_hoac_credit_rac(text: str, x: int, y: int, w: int, h: int, W: int, H: int) -> bool:
+    """
+    Nhận diện & loại bỏ Watermark nhóm dịch / Web Aggregator / Link mạng xã hội / Dòng credit lề trang
+    để hệ thống KHÔNG xóa đè làm hỏng tranh và KHÔNG dịch nhầm tên web thành hội thoại.
+    """
+    s = (text or "").strip()
+    if not s:
+        return True
+    s_low = s.lower()
+    # 1. Chứa URL hoặc tên miền rõ ràng (.com, .net, .org, .xyz, .gg, .io, .vn, .me, .top, .cc)
+    if re.search(r"(?:https?://|www\.|discord\.gg/|t\.me/|patreon\.com/|ko-fi\.com/)", s_low):
+        return True
+    if re.search(r"\b[a-z0-9][a-z0-9\-]{2,}\.(?:com|net|org|xyz|io|gg|me|vn|top|site|club|vip|cc|to|kr|jp|cn)\b", s_low):
+        return True
+    # 2. Tên các cổng truyện / nhóm aggregator phổ biến
+    tu_khoa_watermark = (
+        "colamanga", "newtoki", "rawkuma", "mangadex", "asurascans", "reaperscans",
+        "flamescans", "luminousscans", "manhuaplus", "manhwaclan", "truyenqq",
+        "nettruyen", "blogtruyen", "chap.vn", "baozimh", "kuaikanmanhua", "ac.qq",
+        "manhuaus", "mangakakalot", "manganato", "bato.to", "webtoons.com",
+        "无断转载", "無断転載", "仅供学习交流", "불법복제", "무단전재",
+    )
+    if any(kw in s_low for kw in tu_khoa_watermark):
+        return True
+    # 3. Dòng chữ nằm sát mép trên/dưới/trái/phải của trang (<= 3.8% lề) mang mẫu credit / handle MXH
+    sat_le_trang = (
+        y <= max(18, int(H * 0.038))
+        or (y + h) >= min(H - 4, int(H * 0.962))
+        or x <= max(14, int(W * 0.024))
+        or (x + w) >= min(W - 4, int(W * 0.976))
+    )
+    if sat_le_trang:
+        if re.search(r"(?:@[a-z0-9_]{3,}|scanlat(?:ed|ion)|translat(?:ed|ion)\s+by|typeset\s+by|cleaned\s+by|read\s+(?:first|free)\s+(?:at|on)|do\s+not\s+repost|credit\s*:)", s_low):
+            return True
+    # 4. Dòng bản quyền pháp lý nhà xuất bản (Publisher Legal Indicia) & bảng danh sách họa sĩ/tác giả (Creator Credits Table) ở chân trang Comic Mỹ:
+    if re.search(
+        r"(?:no\s+similarity\s+between\s+any\s+of\s+the\s+names|living\s+or\s+dead\s+person\s+or\s+institution|previously\s+published\s+content\s+have\s+expired|advertisements\s+and\s+offers\s+contained|all\s+rights\s+reserved\.\s*published\s+by)",
+        s_low,
+    ):
+        return True
+    if re.fullmatch(r"editor[\s\-]+in[\s\-]+chief[a-z.]*", s_low):
+        return True
+    so_vai_tro_credit = sum(
+        1
+        for kw_r in ("story", "script", "pencils", "penciler", "inks", "inker", "colors", "colorist", "letters", "letterer", "editor in chief", "associate editor")
+        if re.search(rf"\b{kw_r}\b", s_low)
+    )
+    if so_vai_tro_credit >= 3 or (so_vai_tro_credit >= 2 and "?" not in s and "!" not in s and sum(1 for c in s if c.isupper()) >= sum(1 for c in s if c.islower()) * 2):
+        return True
+    return False
+
+
+def _la_mau_system_ui(text: str) -> bool:
+    """Nhận diện văn bản thuộc Bảng Hệ Thống Game / Khung thông báo kỹ năng / Màn hình trạng thái (Isekai, Leveling)."""
+    s = (text or "").strip()
+    if not s:
+        return False
+    if re.search(
+        r"(?:\[\s*(?:Lv\.?|Level|Cấp|Hệ\s*thống|System|Quest|Nhiệm\s*vụ|Skill|Kỹ\s*năng|Title|Danh\s*hiệu|Status|Trạng\s*thái|Notice|Thông\s*báo|Warning|Cảnh\s*báo|Reward|Phần\s*thưởng|Item|Vật\s*phẩm)[^\]]*\]"
+        r"|【\s*(?:システム|スキル|クエスト|状態|称号|警告|報酬|アイテム|レベル)[^】]*】"
+        r"|\[\s*(?:시스템|스킬|퀘스트|상태창|레벨|칭호|경고|보상|아이템)[^\]]*\])",
+        s,
+        re.I,
+    ):
+        return True
+    if re.search(r"\b(?:HP|MP|SP|EXP|STR|AGI|VIT|INT|LUK|ATK|DEF)\s*[:/]\s*\d+", s, re.I):
+        return True
+    if re.search(r"\bLv\.?\s*\d+\b", s, re.I) and (":" in s or "[" in s or "\n" in s or "/" in s):
+        return True
+    dong = [d.strip() for d in s.splitlines() if d.strip()]
+    if len(dong) >= 2:
+        so_cap_kv = sum(1 for d in dong if re.match(r"^(?:\[[^\]]+\]|【[^】]+】|[A-Za-zÀ-ỹ\u3040-\u9fff\uac00-\ud7af\s]{2,18}\s*[:：]\s*\S+)", d))
+        if so_cap_kv >= 2:
+            return True
+    return False
+
+
+def _la_mau_sign_prop_ro(text: str) -> bool:
+    """Nhận diện các từ khoá biển báo / bảng hiệu đặc trưng trên đồ vật, cửa hàng, tòa nhà."""
+    s = (text or "").strip()
+    if not s or len(s) > 48:
+        return False
+    if re.fullmatch(
+        r"(?:立入禁止|営業中|準備中|案内|注意|危険|非常口|関係者以外立入禁止|출입금지|영업중|준비중|위험|비상구|禁止通行|营业中|暂停营业|"
+        r"KEEP\s+OUT|NO\s+ENTRY|STAFF\s+ONLY|OPEN|CLOSED|CAUTION|DANGER|WARNING|EXIT|ENTRANCE|HOSPITAL|POLICE|STATION|HOTEL|CAFE)",
+        s.strip("!?. "),
+        re.I,
+    ):
+        return True
+    return False
+
+
+def _chieu_cao_dong_tb_vung(b: dict) -> float:
+    """Tính chiều cao dòng OCR trung bình của vùng chữ để phân biệt chữ lẩm bẩm nhỏ (`aside_mutter`) với thoại chính."""
+    dc = b.get("dong_con")
+    if isinstance(dc, list) and dc:
+        hs = [float(d.get("h") or 0) for d in dc if float(d.get("h") or 0) > 0]
+        if hs:
+            # Với cột dọc CJK (`h > w * 1.6`), độ rộng cột `w` mới là cỡ chữ thực tế!
+            ws = [float(d.get("w") or 0) for d in dc if float(d.get("w") or 0) > 0]
+            if ws and sum(1 for d in dc if float(d.get("h", 0)) > float(d.get("w", 1)) * 1.6) >= len(dc) * 0.5:
+                return sum(ws) / len(ws)
+            return sum(hs) / len(hs)
+    h_v = float(b.get("h") or 0)
+    w_v = float(b.get("w") or 0)
+    if h_v > w_v * 2.2 and any(ord(c) >= 0x2E80 for c in str(b.get("chu_goc") or "")):
+        return w_v
+    so_dong_ut = max(1, len(str(b.get("chu_goc") or "").splitlines()))
+    return h_v / so_dong_ut
+
+
+def gan_nhan_ngu_canh_danh_sach_vung(
+    bubbles: list[dict],
+    *,
+    px=None,
+    W_px: int = 0,
+    H_px: int = 0,
+    he_so_ocr: float = 1.0,
+    W_goc: int = 1000,
+    H_goc: int = 1400,
+) -> list[dict]:
+    """
+    Phân loại tự động từng vùng chữ vào 6 kịch bản chuyên biệt để chuẩn hoá Prompt LLM & Dàn trang Typesetting:
+    - `thoai`        : Lời thoại trong bóng hoặc độc thoại nổi thông thường.
+    - `system_ui`    : Bảng hệ thống Game, khung thông báo kỹ năng/nhiệm vụ, màn hình trạng thái (`[Lv. 99]`, `HP: ...`).
+    - `aside_mutter` : Chữ nhỏ lẩm bẩm / chú thích tay nằm ngoài rìa bóng thoại (`*...`, cỡ chữ nhỏ `<= 0.76x`).
+    - `sign_prop`    : Biển hiệu, bảng tên, chữ in trực tiếp trên đồ vật không có viền halo trắng.
+    - `sfx`          : Tiếng động nghệ thuật / từ tượng thanh (`ドドド`, `쾅`, `BOOM!`).
+    - `margin_note`  : Dòng ghi chú biên tập chạy dọc sát mép lề trái/phải của trang truyện.
+    """
+    if not bubbles:
+        return bubbles
+
+    ds_co_bong = [b for b in bubbles if b.get("hop_bong_thoai")]
+    ds_h_chuan = sorted(_chieu_cao_dong_tb_vung(b) for b in (ds_co_bong or bubbles) if _chieu_cao_dong_tb_vung(b) > 4)
+    median_h_dong = ds_h_chuan[len(ds_h_chuan) // 2] if ds_h_chuan else 22.0
+
+    for b in bubbles:
+        if b.get("loai_vung") in ("system_ui", "aside_mutter", "sign_prop", "sfx", "margin_note"):
+            continue
+        text = str(b.get("chu_goc") or "").strip()
+        bx, by, bw, bh = int(b.get("x", 0)), int(b.get("y", 0)), int(b.get("w", 1)), int(b.get("h", 1))
+        co_bong_trang = bool(b.get("hop_bong_thoai"))
+
+        # 1. Trường hợp 4 (`sfx`): đã gắn cờ `inpaint_sfx` hoặc khớp từ tượng thanh ngoài bóng thoại
+        if b.get("inpaint_sfx") or (not co_bong_trang and _la_mau_sfx_tuong_thanh(text)):
+            b["loai_vung"] = "sfx"
+            continue
+
+        # 2. Trường hợp 1 (`system_ui`): Bảng hệ thống Game / UI kỹ năng / chỉ số
+        if _la_mau_system_ui(text):
+            b["loai_vung"] = "system_ui"
+            continue
+
+        # 3. Trường hợp 5 (`margin_note`): Cột chú thích biên tập hẹp nằm sát mép lề trái/phải trang
+        if (
+            not co_bong_trang
+            and (bx <= max(18, int(W_goc * 0.055)) or (bx + bw) >= min(W_goc - 6, int(W_goc * 0.945)))
+            and bw <= max(48, int(W_goc * 0.085))
+            and bh >= bw * 3.0
+        ):
+            b["loai_vung"] = "margin_note"
+            continue
+
+        # 4. Trường hợp 2 (`aside_mutter`): Chữ nhỏ lẩm bẩm / chú thích tay ngoài rìa bóng thoại
+        if not co_bong_trang:
+            bat_dau_ky_hieu_phu = text.lstrip().startswith(("*", "※", "†", "←", "→"))
+            h_dong = _chieu_cao_dong_tb_vung(b)
+            la_chu_nho = median_h_dong >= 12.0 and 0 < h_dong <= median_h_dong * 0.76 and len(text) <= 68
+            gan_bong_chinh = False
+            if la_chu_nho and ds_co_bong:
+                kc_max = max(56, int(W_goc * 0.085))
+                for bb in ds_co_bong:
+                    hb = bb["hop_bong_thoai"]
+                    dx_b = max(0, max(hb["x"] - (bx + bw), bx - (hb["x"] + hb["w"])))
+                    dy_b = max(0, max(hb["y"] - (by + bh), by - (hb["y"] + hb["h"])))
+                    if dx_b <= kc_max and dy_b <= kc_max:
+                        gan_bong_chinh = True
+                        break
+            if bat_dau_ky_hieu_phu or (la_chu_nho and gan_bong_chinh):
+                b["loai_vung"] = "aside_mutter"
+                continue
+
+        # 5. Trường hợp 3 (`sign_prop`): Biển hiệu / bảng tên / chữ in phẳng trên đồ vật không có viền halo trắng
+        if not co_bong_trang:
+            if _la_mau_sign_prop_ro(text):
+                b["loai_vung"] = "sign_prop"
+                continue
+            if px is not None and W_px > 0 and H_px > 0 and len(text) <= 36 and not any(p in text for p in ("?", "…", "...")):
+                px0 = max(0, int(round(bx * he_so_ocr)) - 3)
+                py0 = max(0, int(round(by * he_so_ocr)) - 3)
+                px1 = min(W_px - 1, int(round((bx + bw) * he_so_ocr)) + 3)
+                py1 = min(H_px - 1, int(round((by + bh) * he_so_ocr)) + 3)
+                lums_p: list[float] = []
+                white_halo_px = 0
+                dark_ink_px = 0
+                for sy_p in range(py0, py1 + 1, 2):
+                    for sx_p in range(px0, px1 + 1, 2):
+                        rp, gp, bp_c = px[sx_p, sy_p]
+                        lp = 0.299 * rp + 0.587 * gp + 0.114 * bp_c
+                        lums_p.append(lp)
+                        if lp >= 236 and (max(rp, gp, bp_c) - min(rp, gp, bp_c)) <= 24:
+                            white_halo_px += 1
+                        elif lp <= 68:
+                            dark_ink_px += 1
+                if len(lums_p) >= 16:
+                    lums_p.sort()
+                    iqr_p = lums_p[int(len(lums_p) * 0.80)] - lums_p[int(len(lums_p) * 0.20)]
+                    med_p = lums_p[len(lums_p) // 2]
+                    ty_le_halo = white_halo_px / len(lums_p)
+                    # Nền vật thể phẳng xám/màu trung tính (90..208), không có halo trắng quanh chữ, câu ngắn kiểu nhãn/biển hiệu:
+                    if (
+                        ty_le_halo <= 0.035
+                        and (dark_ink_px / len(lums_p)) >= 0.05
+                        and 92.0 <= med_p <= 206.0
+                        and iqr_p <= 24.0
+                        and len(text.split()) <= 4
+                    ):
+                        b["loai_vung"] = "sign_prop"
+                        continue
+
+        b["loai_vung"] = "thoai"
+    return bubbles
 
 
 def sap_xep_bong_thoai_theo_huong_doc(
     bubbles: list[dict], ngon_ngu_nguon: str = "ja", la_trang_manga: bool = False
 ) -> list[dict]:
     """
-    Sắp xếp thứ tự bóng thoại theo văn hoá đọc truyện tranh (tương tự BallonsTranslator / cotrans):
-    - Manga Nhật (`ja` hoặc trang Manga đen trắng/screentone `la_trang_manga=True`):
-      Đọc từ Trên xuống Dưới theo dải khung tranh, và từ PHẢI sang TRÁI (`-(x + w)`) trong cùng dải ngang.
-    - Manhwa Hàn (`ko`), Manhua Trung (`zh`, `zh-TW`), Comic màu Âu-Mỹ (`en`):
-      Đọc từ Trên xuống Dưới, TRÁI sang PHẢI (`x`).
+    Sắp xếp thứ tự bóng thoại theo cấu trúc Hàng Khung Tranh 2D & Cột Dọc (2D Panel-Row & Column Topological Sort):
+    - Khắc phục triệt để lỗi phép chia cứng `y // 90` làm đảo thứ tự các cột chữ dọc tiếng Nhật/Trung cao (`h > 2*w`)
+      khi đỉnh 2 cột lệch nhau qua mốc bội số 90px (VD: `y=85` và `y=95` trong cùng 1 khung tranh).
+    - Gom các bóng có độ chồng lấp dọc thực tế vào cùng 1 Hàng Khung Tranh (Panel Row); trong mỗi Hàng,
+      gom các bóng chồng lấp ngang vào từng Cột (sắp từ Trên xuống Dưới trong cột), rồi sắp các Cột:
+      + PHẢI sang TRÁI (`-max(x + w)`) cho Manga Nhật (`ja` hoặc `la_trang_manga=True`).
+      + TRÁI sang PHẢI (`min(x)`) cho Manhwa Hàn (`ko`), Manhua Trung (`zh`, `zh-TW`), Comic Âu-Mỹ (`en`).
+    - Đưa `margin_note` (ghi chú lề trang) xuống cuối hàng tương ứng để không cắt ngang hội thoại nhân vật.
     - Đồng thời đánh dấu các cặp bóng thoại kề sát nhau (`lien_ket_cau_tren=True`) khi 1 câu thoại dài bị tách làm 2 bóng.
     """
     if not bubbles:
         return []
     la_manga_nhat = la_trang_manga or str(ngon_ngu_nguon or "ja").lower().startswith("ja")
-    if la_manga_nhat:
-        bubbles.sort(key=lambda b: (int(b.get("y", 0)) // 90, -(int(b.get("x", 0)) + int(b.get("w", 0)))))
-    else:
-        bubbles.sort(key=lambda b: (int(b.get("y", 0)) // 90, int(b.get("x", 0))))
 
-    for i in range(1, len(bubbles)):
-        prev_b = bubbles[i - 1]
-        cur_b = bubbles[i]
+    def _sap_xep_nhom_cung_loai(ds_vung: list[dict]) -> list[dict]:
+        if len(ds_vung) <= 1:
+            return list(ds_vung)
+        tam_y = sorted(ds_vung, key=lambda b: (int(b.get("y", 0)), -(int(b.get("x", 0)) + int(b.get("w", 0))) if la_manga_nhat else int(b.get("x", 0))))
+        cac_hang_panel: list[list[dict]] = []
+        for item in tam_y:
+            iy0 = int(item.get("y", 0))
+            ih = max(1, int(item.get("h", 1)))
+            iy1 = iy0 + ih
+            icy = iy0 + ih * 0.5
+            da_vao_hang = False
+            for hang in reversed(cac_hang_panel):
+                hy0 = min(int(x.get("y", 0)) for x in hang)
+                hy1 = max(int(x.get("y", 0)) + max(1, int(x.get("h", 1))) for x in hang)
+                hs_hang = sorted(max(1, int(x.get("h", 1))) for x in hang)
+                h_med = hs_hang[len(hs_hang) // 2]
+                hcy = (hy0 + hy1) * 0.5
+                ov_y = min(iy1, hy1) - max(iy0, hy0)
+                cung_hang = (
+                    ov_y >= max(10, int(min(ih, h_med) * 0.28))
+                    or abs(icy - hcy) <= max(28.0, min(ih, h_med) * 0.45)
+                )
+                if cung_hang:
+                    hang.append(item)
+                    da_vao_hang = True
+                    break
+            if not da_vao_hang:
+                cac_hang_panel.append([item])
+
+        kq_out: list[dict] = []
+        for hang in cac_hang_panel:
+            # Gom các bóng nằm thẳng trục dọc trong cùng 1 hàng thành từng Cột để bóng trên luôn đọc trước bóng dưới:
+            cac_cot: list[list[dict]] = []
+            for b_h in sorted(hang, key=lambda b: int(b.get("y", 0))):
+                bx0 = int(b_h.get("x", 0))
+                bw0 = max(1, int(b_h.get("w", 1)))
+                bx1 = bx0 + bw0
+                vao_cot = False
+                for cot in cac_cot:
+                    cx0_c = min(int(c.get("x", 0)) for c in cot)
+                    cx1_c = max(int(c.get("x", 0)) + max(1, int(c.get("w", 1))) for c in cot)
+                    ov_x = min(bx1, cx1_c) - max(bx0, cx0_c)
+                    if ov_x >= min(bw0, cx1_c - cx0_c) * 0.32:
+                        cot.append(b_h)
+                        vao_cot = True
+                        break
+                if not vao_cot:
+                    cac_cot.append([b_h])
+            for cot in cac_cot:
+                cot.sort(key=lambda b: int(b.get("y", 0)))
+            if la_manga_nhat:
+                cac_cot.sort(key=lambda cot: (-max(int(c.get("x", 0)) + int(c.get("w", 0)) for c in cot), min(int(c.get("y", 0)) for c in cot)))
+            else:
+                cac_cot.sort(key=lambda cot: (min(int(c.get("x", 0)) for c in cot), min(int(c.get("y", 0)) for c in cot)))
+            for cot in cac_cot:
+                kq_out.extend(cot)
+        return kq_out
+
+    chinh = [b for b in bubbles if str(b.get("loai_vung") or "thoai") != "margin_note"]
+    ghi_chu_le = [b for b in bubbles if str(b.get("loai_vung") or "thoai") == "margin_note"]
+    bubbles_sorted = _sap_xep_nhom_cung_loai(chinh) + _sap_xep_nhom_cung_loai(ghi_chu_le)
+
+    for b in bubbles_sorted:
+        b.pop("lien_ket_cau_tren", None)
+    for i in range(1, len(bubbles_sorted)):
+        prev_b = bubbles_sorted[i - 1]
+        cur_b = bubbles_sorted[i]
+        if str(prev_b.get("loai_vung") or "thoai") != "thoai" or str(cur_b.get("loai_vung") or "thoai") != "thoai":
+            continue
         dy = int(cur_b.get("y", 0)) - (int(prev_b.get("y", 0)) + int(prev_b.get("h", 0)))
         dx = abs(int(cur_b.get("x", 0)) - int(prev_b.get("x", 0)))
         if -45 <= dy <= 85 and dx <= max(165, int(prev_b.get("w", 80)) + 45) and len(str(cur_b.get("chu_goc") or "").strip()) > 2 and str(prev_b.get("chu_goc") or "").strip() != str(cur_b.get("chu_goc") or "").strip():
             cur_b["lien_ket_cau_tren"] = True
-    return bubbles
+    return bubbles_sorted
 
 
 THU_MUC_OCR_HF = Path(__file__).resolve().parent / "models" / "ocr_hf"
@@ -4865,6 +7868,8 @@ def _quet_khung_ctd_onnx(im_goc, he_so_ocr: float = 1.0) -> tuple[list[dict], li
         if sess is None:
             opts = ort.SessionOptions()
             opts.enable_cpu_mem_arena = True
+            opts.intra_op_num_threads = max(4, os.cpu_count() or 4)
+            opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
             sess = ort.InferenceSession(str(ctd_path), sess_options=opts, providers=["CPUExecutionProvider"])
             _CACHE_RAPIDOCR_HF["__ctd_session__"] = sess
 
@@ -5244,19 +8249,9 @@ def _ocr_crop_khung_ctd(im, cb: dict, ngon_ngu_nguon: str = "en") -> list[dict]:
     return out_lines
 
 
-def _nhan_dien_dong_rapidocr_hf(im, ngon_ngu_nguon: str = "ja") -> list[dict]:
-    """
-    Hệ thống nhận diện chữ thông minh đa khung hình (Intelligent Per-Frame Adaptive PP-OCRv4):
-    - Tắt bộ xoay 180° (`use_cls=False`) để không lật ngược các từ cảm thán ngắn ('Eh!?', 'Right?', 'lie!?').
-    - Giữ độ phân giải cao (`limit_side_len=1600`, `box_thresh=0.25`, `unclip_ratio=1.78`) để bắt trọn cả dòng chữ nhỏ.
-    - Tự động chia khung hình (Frame Tiling) đối với trang đôi (`W > H * 1.12`) hoặc dải Webtoon dài (`H > W * 2.1`).
-    - Tinh chỉnh cục bộ theo từng khung chữ (`score < 0.80`): tự động tăng tương phản + làm nét (và đảo cực nếu nền khung tối)
-      để đạt độ chính xác cao nhất trên mọi nền tranh.
-    """
-    try:
-        from rapidocr_onnxruntime import RapidOCR
-    except Exception:
-        return []
+def _lay_engine_rapidocr_hf(ngon_ngu_nguon: str = "ja"):
+    """Lấy hoặc khởi tạo instance `RapidOCR` theo ngôn ngữ nguồn từ bộ đệm `_CACHE_RAPIDOCR_HF`."""
+    from rapidocr_onnxruntime import RapidOCR
 
     lang = (ngon_ngu_nguon or "ja").lower()
     if lang in CAUHINH_OCR_HF:
@@ -5266,19 +8261,36 @@ def _nhan_dien_dong_rapidocr_hf(im, ngon_ngu_nguon: str = "ja") -> list[dict]:
         if not rec_p.exists() or not dict_p.exists():
             tai_goi_ocr_huggingface(lang)
         if not rec_p.exists() or not dict_p.exists():
-            return []
+            return None
         cache_key = lang
         if cache_key not in _CACHE_RAPIDOCR_HF:
             _CACHE_RAPIDOCR_HF[cache_key] = RapidOCR(
                 rec_model_path=str(rec_p),
                 rec_keys_path=str(dict_p),
             )
-        engine = _CACHE_RAPIDOCR_HF[cache_key]
-    else:
-        cache_key = "zh_en"
-        if cache_key not in _CACHE_RAPIDOCR_HF:
-            _CACHE_RAPIDOCR_HF[cache_key] = RapidOCR()
-        engine = _CACHE_RAPIDOCR_HF[cache_key]
+        return _CACHE_RAPIDOCR_HF[cache_key]
+    cache_key = "zh_en"
+    if cache_key not in _CACHE_RAPIDOCR_HF:
+        _CACHE_RAPIDOCR_HF[cache_key] = RapidOCR()
+    return _CACHE_RAPIDOCR_HF[cache_key]
+
+
+def _nhan_dien_dong_rapidocr_hf(im, ngon_ngu_nguon: str = "ja") -> list[dict]:
+    """
+    Hệ thống nhận diện chữ thông minh đa khung hình (Intelligent Per-Frame Adaptive PP-OCRv4):
+    - Tắt bộ xoay 180° (`use_cls=False`) để không lật ngược các từ cảm thán ngắn ('Eh!?', 'Right?', 'lie!?').
+    - Giữ độ phân giải cao (`limit_side_len=1600`, `box_thresh=0.25`, `unclip_ratio=1.78`) để bắt trọn cả dòng chữ nhỏ.
+    - Tự động chia khung hình (Frame Tiling) đối với trang đôi (`W > H * 1.12`) hoặc dải Webtoon dài (`H > W * 2.1`).
+    - Tinh chỉnh cục bộ theo từng khung chữ (`score < 0.80`): tự động tăng tương phản + làm nét (và đảo cực nếu nền khung tối)
+      để đạt độ chính xác cao nhất trên mọi nền tranh.
+    """
+    lang = (ngon_ngu_nguon or "ja").lower()
+    try:
+        engine = _lay_engine_rapidocr_hf(ngon_ngu_nguon)
+    except Exception:
+        return []
+    if engine is None:
+        return []
 
     W, H = im.size
     limit_len = max(1440, min(2240, max(W, H)))
@@ -5329,7 +8341,7 @@ def _nhan_dien_dong_rapidocr_hf(im, ngon_ngu_nguon: str = "ja") -> list[dict]:
                 # Bỏ qua con dấu CJK hoặc chữ Kanji trên quân bài mạt chược / hiệu ứng nền
                 if any("\u2e80" <= c <= "\u9fff" for c in txt):
                     continue
-                if not any(c.isascii() and c.isalpha() for c in txt):
+                if not any(c.isascii() and c.isalpha() for c in txt) and not re.search(r"\d[\d,.:]{1,}\d", txt):
                     continue
             try:
                 xs = [float(pt[0]) for pt in box]
@@ -5800,29 +8812,89 @@ def lay_ten_prompt_ngon_ngu_dich(ngon_ngu_dich: str = "vi") -> str:
     return DANH_SACH_NGON_NGU_DICH_QUOC_TE["vi"]["ten_prompt"]
 
 
-def hau_kiem_va_sua_ban_dich(chu_goc: str, ban_dich: str, ngon_ngu_dich: str = "vi") -> str:
+def _nhan_ngu_canh_cho_prompt(loai_vung: str) -> str:
+    """Trả về nhãn vai trò ngữ cảnh ngắn gọn đặt trước câu gốc trong Prompt LLM."""
+    bang_nhan = {
+        "system_ui": " [hệ thống Game/UI - giữ ngoặc vuông & dấu | phân dòng]",
+        "aside_mutter": " [lẩm bẩm/chú thích nhỏ ngoài bóng - dịch khẩu ngữ cực gọn]",
+        "sign_prop": " [biển hiệu/chữ trên vật thể - dịch danh ngữ ngắn 2-4 từ]",
+        "sfx": " [tiếng động SFX - dịch từ tượng thanh]",
+        "margin_note": " [ghi chú biên tập lề trang]",
+    }
+    return bang_nhan.get(str(loai_vung or "thoai"), "")
+
+
+def _chuan_hoa_dong_gui_llm(chu_goc: str, loai_vung: str = "thoai") -> str:
+    """Chuẩn hoá văn bản gửi vào giao thức đánh số 1 dòng/mục của LLM mà không làm mất cấu trúc hàng của `system_ui`."""
+    raw = (chu_goc or "").strip()
+    if not raw:
+        return ""
+    if "\n" in raw and (loai_vung == "system_ui" or _la_mau_system_ui(raw)):
+        cac_dong = [_chuan_hoa_cau_goc_cho_llm(d.strip()) for d in raw.splitlines() if d.strip()]
+        return " | ".join(d for d in cac_dong if d)
+    return re.sub(r"\s+", " ", _chuan_hoa_cau_goc_cho_llm(raw)).strip()
+
+
+def _gan_metadata_vung_dich(muc: dict, b: dict) -> dict:
+    """Sao chép đầy đủ metadata hình học & phân loại ngữ cảnh (`loai_vung`, `inpaint_sfx`, `dong_con`, `hop_bong_thoai`, `angle`) sang kết quả dịch."""
+    if b.get("dong_con"):
+        muc["dong_con"] = b["dong_con"]
+    if b.get("hop_bong_thoai"):
+        muc["hop_bong_thoai"] = b["hop_bong_thoai"]
+    if b.get("angle"):
+        muc["angle"] = b["angle"]
+    if b.get("loai_vung"):
+        muc["loai_vung"] = b["loai_vung"]
+    if b.get("inpaint_sfx"):
+        muc["inpaint_sfx"] = True
+    return muc
+
+
+def hau_kiem_va_sua_ban_dich(
+    chu_goc: str,
+    ban_dich: str,
+    ngon_ngu_dich: str = "vi",
+    *,
+    loai_vung: str = "thoai",
+) -> str:
     """
-    Làm sạch và chuẩn hoá câu dịch tự động trước khi chấm điểm (hỗ trợ cả 9 ngôn ngữ quốc tế):
-    - Ưu tiên khớp tức thì nếu câu gốc đã nằm trong Bộ Nhớ Tự Học (`bo-nho-tu-hoc-truyen.json`).
-    - Loại bỏ tiền tố đánh số lặp '[1]', 'Bản dịch:', ngoặc kép thừa hoặc thẻ <think>.
-    - Khử lỗi lặp từ máy móc ('để để để' -> 'để').
-    - Bộ làm mượt thoại truyện tranh đa ngôn ngữ (Multi-Language Comic Naturalizer): biến các câu dịch
-      máy móc word-by-word thành thoại Manga/Manhwa/Webtoon tự nhiên, đúng xưng hô ở cả 9 ngôn ngữ.
+    Làm sạch và chuẩn hoá câu dịch tự động trước khi chấm điểm (hỗ trợ cả 9 ngôn ngữ quốc tế & 5 kịch bản đặc thù):
+    - Ưu tiên khớp tức thì nếu câu gốc đã nằm trong Bộ Nhớ Tự Học (`bo-nho-tu-hoc-truyen.json`) hoặc Từ điển SFX chuẩn.
+    - Loại bỏ tiền tố đánh số lặp '[1]', nhãn ngữ cảnh bị LLM lặp lại, 'Bản dịch:', ngoặc kép thừa hoặc thẻ <think>.
+    - Khôi phục ngắt dòng `\\n` từ dấu `|` cho bảng `system_ui`, chuyển ngoặc CJK `【...】` sang `[...]` để không lỗi font.
+    - Khử lỗi lặp từ máy móc ('để để để' -> 'để') & làm mượt văn phong truyện tranh đa ngôn ngữ.
     """
     goc_sach = (chu_goc or "").strip()
+    if not loai_vung or loai_vung == "thoai":
+        if _la_mau_system_ui(goc_sach):
+            loai_vung = "system_ui"
+        elif _la_mau_sfx_tuong_thanh(goc_sach):
+            loai_vung = "sfx"
     if goc_sach and ngon_ngu_dich == "vi":
         bo_nho = nap_bo_nho_tu_hoc()
         if goc_sach in bo_nho:
             return bo_nho[goc_sach]
+    if loai_vung == "sfx":
+        sfx_tra = tra_cuu_sfx_truyen(goc_sach, ngon_ngu_dich=ngon_ngu_dich)
+        if sfx_tra:
+            return sfx_tra
     s = (ban_dich or "").strip()
     if not s:
-        return ""
+        return sfx_tra if (loai_vung == "sfx" and (sfx_tra := tra_cuu_sfx_truyen(goc_sach, ngon_ngu_dich=ngon_ngu_dich))) else ""
     s = re.sub(r"<think>[\s\S]*?</think>", "", s).strip()
-    s = re.sub(r"^\s*(?:\[\d+\]|\d+[.):\-])\s*", "", s)
-    s = re.sub(r"^\s*(?:Bản dịch|Dịch|Translation|Traducción|Tradução|Traduction)\s*:\s*", "", s, flags=re.I)
+    s = re.sub(r"^\s*(?:\[\d+\]|\d+[.):\-](?!\d{3}\b))\s*", "", s)
+    # Gỡ sạch mọi nhãn ngữ cảnh nếu LLM lỡ chép lại vào đầu/cuối câu trả lời:
+    s = re.sub(
+        r"\s*\[(?:Nối tiếp|nối tiếp|hệ thống Game/UI|hệ thống/UI|lẩm bẩm|chú thích nhỏ|biển hiệu|chữ trên vật thể|tiếng động SFX|ghi chú biên tập|ghi chú lề)[^\]]*\]\s*",
+        " ",
+        s,
+        flags=re.I,
+    ).strip()
+    s = re.sub(r"^\s*(?:Bản dịch|Dịch|Biển hiệu|Hệ thống|SFX|Translation|Traducción|Tradução|Traduction)\s*:\s*", "", s, flags=re.I)
     s = re.sub(r"\s*\((?:Gợi ý nghĩa sát|Draft|Hint)[^)]*\)\s*", "", s, flags=re.I)
-    s = re.sub(r"\s*\[(?:Nối tiếp|nối tiếp)[^\]]*\]\s*", "", s)
     s = s.strip().strip('"').strip("“”")
+    if loai_vung == "system_ui":
+        s = s.replace("【", "[").replace("】", "]")
 
     co_kinh_ngu_ban_be = bool(re.search(r"-(?:kun|chan|senpai)\b", goc_sach, re.I))
 
@@ -5966,8 +9038,16 @@ def hau_kiem_va_sua_ban_dich(chu_goc: str, ban_dich: str, ngon_ngu_dich: str = "
         s = re.sub(r"\bBạn\b", "Cậu", s)
         s = re.sub(r"\bbạn\b", "cậu", s)
         if co_kinh_ngu_ban_be or "cậu" in s.lower():
+            if re.search(r"\btôi\b", s, flags=re.I) and not re.search(r"\btớ\b(?=\s+(?:sẽ|đã|đang|có|không|muốn|cần|biết|thấy|nghĩ|cho|là))", s, flags=re.I):
+                s = re.sub(r"\bcủa tớ\b", "của tôi", s)
+                s = re.sub(r"\bcho tớ\b", "cho tôi", s)
+            else:
+                s = re.sub(r"\bcủa tôi\b", "của tớ", s)
+                s = re.sub(r"\bđùa tôi\b", "đùa tớ", s)
+        if re.search(r"\btôi\b", s, flags=re.I) and re.search(r"\bcủa tớ\b", s, flags=re.I):
+            s = re.sub(r"\bcủa tớ\b", "của tôi", s)
+        elif re.search(r"\btớ\b", s, flags=re.I) and re.search(r"\bcủa tôi\b", s, flags=re.I):
             s = re.sub(r"\bcủa tôi\b", "của tớ", s)
-            s = re.sub(r"\bđùa tôi\b", "đùa tớ", s)
     elif ngon_ngu_dich == "zh":
         s = re.sub(r"^等待([！!])", r"等等\1", s)
         s = s.replace("这个地牢", "这个地下城").replace("地牢", "地下城")
@@ -5990,6 +9070,16 @@ def hau_kiem_va_sua_ban_dich(chu_goc: str, ban_dich: str, ngon_ngu_dich: str = "
             s = re.sub(r"^Attendez\s*!", "Attends !", s, flags=re.I)
             s = re.sub(r"\bNe sous-estimez pas\b", "Ne sous-estime pas", s, flags=re.I)
         s = re.sub(r"\bVous plaisantez j'espère\s*\?", "Tu plaisantes j'espère ?", s, flags=re.I)
+    if loai_vung == "system_ui" or ("\n" in goc_sach and " | " in s):
+        cac_hang_s = [ seg_s.strip() for seg_s in re.split(r"\s*\|\s*|\r?\n", s) if seg_s.strip() ]
+        if len(cac_hang_s) >= 2:
+            s = "\n".join(cac_hang_s)
+    elif loai_vung == "sign_prop":
+        if not goc_sach.endswith((".", "。", "!", "?", "…")) and s.endswith(".") and not s.endswith("..."):
+            s = s[:-1].strip()
+    elif loai_vung == "aside_mutter":
+        if goc_sach.startswith("*") and not s.startswith("*"):
+            s = "* " + s
     return s.strip()
 
 
@@ -6141,15 +9231,23 @@ def _dich_danh_sach_thoai_gpu(
     )
 
     dong_nhap: list[str] = []
+    co_vung_dac_thu = False
     for idx, b in enumerate(bubbles):
-        cau_goc_chuan = _chuan_hoa_cau_goc_cho_llm(b["chu_goc"])
+        loai_v = str(b.get("loai_vung") or "thoai")
+        if loai_v != "thoai":
+            co_vung_dac_thu = True
+        cau_goc_chuan = _chuan_hoa_dong_gui_llm(b["chu_goc"], loai_vung=loai_v)
         tag_lien_ket = " [nối tiếp bóng trên]" if b.get("lien_ket_cau_tren") else ""
-        nhap_goi_y = (
-            f" (Gợi ý nghĩa sát: {ban_nhap_nmt[idx]})"
-            if (co_anchor_nmt and idx < len(ban_nhap_nmt) and ban_nhap_nmt[idx])
-            else ""
-        )
-        dong_nhap.append(f"[{idx + 1}]{tag_lien_ket} {cau_goc_chuan}{nhap_goi_y}")
+        tag_ngu_canh = _nhan_ngu_canh_cho_prompt(loai_v)
+        nhap_goi_y_str = ban_nhap_nmt[idx] if (co_anchor_nmt and idx < len(ban_nhap_nmt) and ban_nhap_nmt[idx]) else ""
+        if loai_v == "sfx":
+            sfx_exact = tra_cuu_sfx_truyen(b["chu_goc"], ngon_ngu_dich=ngon_ngu_dich)
+            if sfx_exact:
+                nhap_goi_y_str = sfx_exact
+        elif "\n" in nhap_goi_y_str:
+            nhap_goi_y_str = " | ".join(s_g.strip() for s_g in nhap_goi_y_str.splitlines() if s_g.strip())
+        nhap_goi_y = f" (Gợi ý nghĩa sát: {nhap_goi_y_str})" if nhap_goi_y_str else ""
+        dong_nhap.append(f"[{idx + 1}]{tag_lien_ket}{tag_ngu_canh} {cau_goc_chuan}{nhap_goi_y}")
     lines_in = "\n".join(dong_nhap)
 
     quy_tac_pro = (
@@ -6157,12 +9255,22 @@ def _dich_danh_sach_thoai_gpu(
         if co_anchor_nmt
         else ""
     )
+    quy_tac_dac_thu = (
+        "\n5. QUY TẮC 5 VỊ TRÍ ĐẶC THÙ (TUYỆT ĐỐI KHÔNG chép lại nhãn [...] hướng dẫn vào bản dịch): "
+        "Với [hệ thống Game/UI]: giữ nguyên ngoặc vuông `[...]` và dấu ` | ` phân cách giữa các hàng chỉ số; "
+        "Với [lẩm bẩm/chú thích nhỏ ngoài bóng]: dịch khẩu ngữ thầm thì cực gọn; "
+        "Với [biển hiệu/chữ trên vật thể]: dịch kiểu bảng tên/danh ngữ súc tích 2-4 từ, không thêm chủ ngữ thừa; "
+        "Với [tiếng động SFX]: dịch sang từ tượng thanh tương ứng (không dịch như động từ thường); "
+        "Với [ghi chú biên tập lề trang]: dịch giọng dẫn chuyện lề trang ngắn gọn."
+        if co_vung_dac_thu
+        else ""
+    )
     prompt = (
         f"Bạn là biên dịch viên truyện tranh kỳ cựu ({ngon_ngu_nguon} -> {ten_dich}).\n"
         "Quy tắc dịch bắt buộc:\n"
         f"1. Dịch ĐÚNG NGHĨA từng câu thoại bên dưới sang {ten_dich} tự nhiên, khớp mạch hội thoại (TUYỆT ĐỐI không bịa thêm nội dung không có trong câu gốc, không chép lại câu của trang trước).\n"
         f"{dong_thuat_ngu}"
-        f"3. CHỈ trả về đúng {len(bubbles)} dòng từ [1] đến [{len(bubbles)}], mỗi câu 1 dòng ngắn gọn bằng {ten_dich}, KHÔNG giải thích:{quy_tac_pro}\n"
+        f"3. CHỈ trả về đúng {len(bubbles)} dòng từ [1] đến [{len(bubbles)}], mỗi câu 1 dòng ngắn gọn bằng {ten_dich}, KHÔNG giải thích:{quy_tac_pro}{quy_tac_dac_thu}\n"
         f"{lines_in}"
     )
 
@@ -6308,16 +9416,15 @@ def _dich_danh_sach_thoai_gpu(
     if not che_do_pro and backend == "ollama" and any(k in str(model or "").lower() for k in ("sailor", "seallm", "qwen3-vl")) and ngon_ngu_nguon in ("ja", "ko", "en") and co_anchor_nmt and any(ban_nhap_nmt):
         vung_s2: list[dict] = []
         for idx, b in enumerate(bubbles):
-            vi_s2 = hau_kiem_va_sua_ban_dich(b["chu_goc"], ban_nhap_nmt[idx] if idx < len(ban_nhap_nmt) else "", ngon_ngu_dich=ngon_ngu_dich)
+            vi_s2 = hau_kiem_va_sua_ban_dich(
+                b["chu_goc"],
+                ban_nhap_nmt[idx] if idx < len(ban_nhap_nmt) else "",
+                ngon_ngu_dich=ngon_ngu_dich,
+                loai_vung=str(b.get("loai_vung") or "thoai"),
+            )
             if vi_s2 and b["w"] >= 12 and b["h"] >= 12:
                 muc_s2 = {"x": int(b["x"]), "y": int(b["y"]), "w": int(b["w"]), "h": int(b["h"]), "chu_goc": b["chu_goc"], "ban_dich": vi_s2}
-                if b.get("dong_con"):
-                    muc_s2["dong_con"] = b["dong_con"]
-                if b.get("hop_bong_thoai"):
-                    muc_s2["hop_bong_thoai"] = b["hop_bong_thoai"]
-                if b.get("angle"):
-                    muc_s2["angle"] = b["angle"]
-                vung_s2.append(muc_s2)
+                vung_s2.append(_gan_metadata_vung_dich(muc_s2, b))
         if vung_s2:
             return vung_s2
     tong_tu_all = sum(max(1, len(str(b.get("chu_goc") or "").split())) for b in bubbles)
@@ -6329,10 +9436,12 @@ def _dich_danh_sach_thoai_gpu(
         if m:
             idx_num = int(m.group(1))
             if idx_num not in trans_map:
+                b_ref = bubbles[idx_num - 1] if 1 <= idx_num <= len(bubbles) else {}
                 trans_map[idx_num] = hau_kiem_va_sua_ban_dich(
-                    bubbles[idx_num - 1]["chu_goc"] if 1 <= idx_num <= len(bubbles) else "",
+                    str(b_ref.get("chu_goc") or ""),
                     m.group(2).strip(),
                     ngon_ngu_dich=ngon_ngu_dich,
+                    loai_vung=str(b_ref.get("loai_vung") or "thoai"),
                 )
 
     # Bước kiểm định chất lượng tự động: phát hiện câu bị sót hoặc điểm chất lượng Q < ngưỡng (0.85 cho Pro, 0.75 cho Nhanh)
@@ -6356,7 +9465,7 @@ def _dich_danh_sach_thoai_gpu(
 
     if ds_can_dich_lai and len(ds_can_dich_lai) <= max(4, len(bubbles) // 2):
         lines_retry = "\n".join(
-            f"[{i + 1}] {_chuan_hoa_cau_goc_cho_llm(bubbles[orig_idx]['chu_goc'])}"
+            f"[{i + 1}]{_nhan_ngu_canh_cho_prompt(str(bubbles[orig_idx].get('loai_vung') or 'thoai'))} {_chuan_hoa_dong_gui_llm(bubbles[orig_idx]['chu_goc'], loai_vung=str(bubbles[orig_idx].get('loai_vung') or 'thoai'))}"
             for i, orig_idx in enumerate(ds_can_dich_lai)
         )
         prompt_retry = (
@@ -6374,7 +9483,10 @@ def _dich_danh_sach_thoai_gpu(
                     if 0 <= r_idx < len(ds_can_dich_lai):
                         orig_idx = ds_can_dich_lai[r_idx]
                         vi_moi = hau_kiem_va_sua_ban_dich(
-                            bubbles[orig_idx]["chu_goc"], m.group(2).strip(), ngon_ngu_dich=ngon_ngu_dich
+                            bubbles[orig_idx]["chu_goc"],
+                            m.group(2).strip(),
+                            ngon_ngu_dich=ngon_ngu_dich,
+                            loai_vung=str(bubbles[orig_idx].get("loai_vung") or "thoai"),
                         )
                         diem_cu, _ = danh_gia_chat_luong_ban_dich(
                             bubbles[orig_idx]["chu_goc"],
@@ -6395,6 +9507,7 @@ def _dich_danh_sach_thoai_gpu(
 
     vung_out: list[dict] = []
     for idx, b in enumerate(bubbles):
+        loai_v_cur = str(b.get("loai_vung") or "thoai")
         vi = trans_map.get(idx + 1, "")
         if not vi:
             nhap_fb = (
@@ -6402,8 +9515,8 @@ def _dich_danh_sach_thoai_gpu(
                 if (idx < len(ban_nhap_nmt) and ban_nhap_nmt[idx])
                 else (_lay_ban_nhap_nmt_sieu_toc([b], ngon_ngu_nguon=ngon_ngu_nguon, ngon_ngu_dich=ngon_ngu_dich) or [""])[0]
             )
-            if nhap_fb:
-                vi = hau_kiem_va_sua_ban_dich(b["chu_goc"], nhap_fb, ngon_ngu_dich=ngon_ngu_dich)
+            if nhap_fb or loai_v_cur == "sfx":
+                vi = hau_kiem_va_sua_ban_dich(b["chu_goc"], nhap_fb, ngon_ngu_dich=ngon_ngu_dich, loai_vung=loai_v_cur)
         if vi and b["w"] >= 12 and b["h"] >= 12:
             _, loi_q = danh_gia_chat_luong_ban_dich(
                 b["chu_goc"], vi, ngon_ngu_nguon=ngon_ngu_nguon, ngon_ngu_dich=ngon_ngu_dich
@@ -6418,13 +9531,7 @@ def _dich_danh_sach_thoai_gpu(
             }
             if loi_q:
                 muc["canh_bao_chat_luong"] = loi_q
-            if b.get("dong_con"):
-                muc["dong_con"] = b["dong_con"]
-            if b.get("hop_bong_thoai"):
-                muc["hop_bong_thoai"] = b["hop_bong_thoai"]
-            if b.get("angle"):
-                muc["angle"] = b["angle"]
-            vung_out.append(muc)
+            vung_out.append(_gan_metadata_vung_dich(muc, b))
     return vung_out
 
 
@@ -6598,7 +9705,7 @@ def _dich_danh_sach_thoai_nhanh_mien_phi(
         return []
     sl = {"ja": "ja", "ko": "ko", "zh": "zh-CN", "zh-TW": "zh-TW", "en": "en"}.get(ngon_ngu_nguon, "auto")
     tl = DANH_SACH_NGON_NGU_DICH_QUOC_TE.get(ngon_ngu_dich, {}).get("google_tl", ngon_ngu_dich or "vi")
-    lines_in = [re.sub(r"\s+", " ", _chuan_hoa_cau_goc_cho_llm(b["chu_goc"])).strip() for b in bubbles]
+    lines_in = [_chuan_hoa_dong_gui_llm(b["chu_goc"], loai_vung=str(b.get("loai_vung") or "thoai")) for b in bubbles]
 
     def _goi_gtx(text_q: str) -> str:
         url_q = (
@@ -6614,15 +9721,17 @@ def _dich_danh_sach_thoai_nhanh_mien_phi(
     parts = [p.strip() for p in full_trans.splitlines() if p.strip()]
     vung_out: list[dict] = []
     for idx, b in enumerate(bubbles):
-        vi_raw = parts[idx] if len(parts) == len(bubbles) and idx < len(parts) else ""
-        vi = hau_kiem_va_sua_ban_dich(b["chu_goc"], vi_raw, ngon_ngu_dich=ngon_ngu_dich)
+        loai_v_f = str(b.get("loai_vung") or "thoai")
+        sfx_hit = tra_cuu_sfx_truyen(b["chu_goc"], ngon_ngu_dich=ngon_ngu_dich) if loai_v_f == "sfx" else None
+        vi_raw = sfx_hit if sfx_hit else (parts[idx] if len(parts) == len(bubbles) and idx < len(parts) else "")
+        vi = hau_kiem_va_sua_ban_dich(b["chu_goc"], vi_raw, ngon_ngu_dich=ngon_ngu_dich, loai_vung=loai_v_f)
         diem_q, _ = danh_gia_chat_luong_ban_dich(
             b["chu_goc"], vi, ngon_ngu_nguon=ngon_ngu_nguon, ngon_ngu_dich=ngon_ngu_dich
         )
-        if not vi or diem_q < 0.85:
+        if not sfx_hit and (not vi or diem_q < 0.85):
             try:
                 vi_don = _goi_gtx(lines_in[idx])
-                vi = hau_kiem_va_sua_ban_dich(b["chu_goc"], vi_don, ngon_ngu_dich=ngon_ngu_dich)
+                vi = hau_kiem_va_sua_ban_dich(b["chu_goc"], vi_don, ngon_ngu_dich=ngon_ngu_dich, loai_vung=loai_v_f)
             except Exception:
                 pass
         if vi and b["w"] >= 12 and b["h"] >= 12:
@@ -6634,13 +9743,7 @@ def _dich_danh_sach_thoai_nhanh_mien_phi(
                 "chu_goc": b["chu_goc"],
                 "ban_dich": vi,
             }
-            if b.get("dong_con"):
-                muc["dong_con"] = b["dong_con"]
-            if b.get("hop_bong_thoai"):
-                muc["hop_bong_thoai"] = b["hop_bong_thoai"]
-            if b.get("angle"):
-                muc["angle"] = b["angle"]
-            vung_out.append(muc)
+            vung_out.append(_gan_metadata_vung_dich(muc, b))
     return vung_out
 
 
@@ -6830,19 +9933,26 @@ def _dich_danh_sach_thoai_qua_server_deepseek(
             may_chu = chuan_hoa_may_chu(str(cfg.get("may_chu") or ""))
             token = str(cfg.get("token") or cfg.get("api_key") or cfg.get("ma_phien") or "").strip()
             if may_chu and token and "api.invalid" not in may_chu:
-                texts_in = [_chuan_hoa_cau_goc_cho_llm(b["chu_goc"]) for b in bubbles]
+                texts_in = [_chuan_hoa_dong_gui_llm(b["chu_goc"], loai_vung=str(b.get("loai_vung") or "thoai")) for b in bubbles]
+                ghi_chu_loai = [
+                    f"Đoạn #{idx_s + 1}:{_nhan_ngu_canh_cho_prompt(str(b_s.get('loai_vung') or 'thoai'))}"
+                    for idx_s, b_s in enumerate(bubbles)
+                    if str(b_s.get("loai_vung") or "thoai") != "thoai"
+                ]
+                boi_canh_gui = "\n".join(filter(None, [(tu_dien_rieng or "").strip(), "; ".join(ghi_chu_loai)]))[:2000] or None
                 hdrs = {
                     "Content-Type": "application/json",
                     "Authorization": f"Bearer {token}",
                     "X-Ma-May-Tinh": MA_MAY_HIEN_THI,
                     "User-Agent": "MangaStudioWindows/1.1",
                 }
+                hdrs.update(_lay_headers_byok_tu_cau_hinh(cfg))
                 body_bytes = json.dumps(
                     {
                         "texts": texts_in,
                         "source_lang": ngon_ngu_nguon if ngon_ngu_nguon in ("ja", "ko", "zh", "en") else "ja",
                         "target_lang": ngon_ngu_dich if ngon_ngu_dich in DANH_SACH_NGON_NGU_DICH_QUOC_TE else "vi",
-                        "boi_canh": (tu_dien_rieng or "")[:2000] or None,
+                        "boi_canh": boi_canh_gui,
                         "page_key": (page_key or "")[:128] or None,
                         "engine": (engine or "local_ocr_gpu")[:64],
                     },
@@ -6860,7 +9970,8 @@ def _dich_danh_sach_thoai_qua_server_deepseek(
                 if isinstance(ds_dich, list) and len(ds_dich) == len(bubbles):
                     vung_out: list[dict] = []
                     for idx, b in enumerate(bubbles):
-                        vi = hau_kiem_va_sua_ban_dich(b["chu_goc"], str(ds_dich[idx] or ""), ngon_ngu_dich=ngon_ngu_dich)
+                        loai_v_srv = str(b.get("loai_vung") or "thoai")
+                        vi = hau_kiem_va_sua_ban_dich(b["chu_goc"], str(ds_dich[idx] or ""), ngon_ngu_dich=ngon_ngu_dich, loai_vung=loai_v_srv)
                         if vi and b["w"] >= 12 and b["h"] >= 12:
                             muc = {
                                 "x": int(b["x"]),
@@ -6870,13 +9981,7 @@ def _dich_danh_sach_thoai_qua_server_deepseek(
                                 "chu_goc": b["chu_goc"],
                                 "ban_dich": vi,
                             }
-                            if b.get("dong_con"):
-                                muc["dong_con"] = b["dong_con"]
-                            if b.get("hop_bong_thoai"):
-                                muc["hop_bong_thoai"] = b["hop_bong_thoai"]
-                            if b.get("angle"):
-                                muc["angle"] = b["angle"]
-                            vung_out.append(muc)
+                            vung_out.append(_gan_metadata_vung_dich(muc, b))
                     if vung_out:
                         return vung_out
     except Exception:
@@ -7176,6 +10281,15 @@ SO_LUOT_MOI_TRANG_THEO_ENGINE: dict[str, int] = {
     "local_gguf": 1,
 }
 
+# Khi khách bật BYOK (cắm API Key riêng từ Gói 1+): giảm 50% số lượt trừ (Model 2 -> 1 lượt, Model 3 -> 1.5 lượt)
+SO_LUOT_MOI_TRANG_THEO_ENGINE_BYOK: dict[str, float] = {
+    "local_ocr_gpu": 1.0,
+    "local_hybrid_pro": 1.0,
+    "llm_context": 1.5,
+    "google_fast": 1.0,
+    "local_gguf": 1.0,
+}
+
 
 def _tang_cuong_anh_chu_viet_tay(img_bytes: bytes) -> bytes:
     """
@@ -7233,6 +10347,7 @@ def dich_anh_local_hybrid_pro_tu_hoc(
     anh_tang_cuong = _tang_cuong_anh_chu_viet_tay(img_bytes)
     if anh_tang_cuong != img_bytes and len(bubbles) < 8:
         bubbles_them = nhan_dien_bong_thoai_ocr_cuc_bo(anh_tang_cuong, ngon_ngu_nguon=ngon_ngu_nguon)
+        da_them_moi = False
         for b_moi in bubbles_them:
             trung_lap = any(
                 abs(int(b_moi["x"]) - int(b_cu["x"])) < 35 and abs(int(b_moi["y"]) - int(b_cu["y"])) < 35
@@ -7240,6 +10355,9 @@ def dich_anh_local_hybrid_pro_tu_hoc(
             )
             if not trung_lap:
                 bubbles.append(b_moi)
+                da_them_moi = True
+        if da_them_moi:
+            bubbles = sap_xep_bong_thoai_theo_huong_doc(bubbles, ngon_ngu_nguon=ngon_ngu_nguon)
 
     if not bubbles:
         return []
@@ -8504,13 +11622,76 @@ def _quet_anh_mangadex(url_chapter: str) -> list[str]:
     return [f"{base_url}/{mode}/{ch_hash}/{fn}" for fn in files]
 
 
+def _goi_api_read_globalcomix(url_gc: str) -> dict:
+    """Gọi API đọc truyện chính thức `/v1/readV3/<release_uuid>` của GlobalComix và lưu cookie phiên CDN."""
+    m_gc = re.search(r"/read/([0-9a-fA-F\-]{32,36})", url_gc or "")
+    if not m_gc:
+        raise NeedsAttention("Hãy dán link đọc GlobalComix có dạng https://globalcomix.com/read/<uuid>/1.")
+    rel_uuid = m_gc.group(1)
+    raw = goi_http(
+        f"https://api.globalcomix.com/v1/readV3/{rel_uuid}",
+        referer="https://globalcomix.com/",
+        nguon_ngoai=True,
+        timeout=20,
+        extra_headers={
+            "X-Gc-Client": _GC_PUBLIC_CLIENT_KEY,
+            "X-Gc-Identmode": "cookie",
+            "Accept": "application/json",
+            "Origin": "https://globalcomix.com",
+        },
+    )
+    data = json.loads(raw.decode("utf-8", errors="replace"))
+    return (data.get("payload") or {}).get("results") or {}
+
+
+def _quet_chapter_globalcomix(u_don: str, mo_rong_ca_bo: bool = False) -> list[dict]:
+    res = _goi_api_read_globalcomix(u_don)
+    comic_obj = res.get("comic") or {}
+    ten_tr = lam_sach_ten_thu_muc(str(res.get("comic_name") or comic_obj.get("name") or res.get("title") or "GlobalComix"))
+    m_so = re.search(r"(\d+(?:\.\d+)?)", str(res.get("chapter") or res.get("order") or res.get("title") or "1"))
+    so_ch = float(m_so.group(1)) if m_so else 1.0
+    ten_ch = _dinh_dang_ten_chapter(so_ch)
+    m_u = re.search(r"(https?://[^/]*globalcomix\.com/read/[0-9a-fA-F\-]{32,36})", u_don)
+    u_clean = m_u.group(1) if m_u else u_don.split("?", 1)[0]
+    return [{"ten_truyen": ten_tr, "so": so_ch, "ten": ten_ch, "url": u_clean, "nhan": f"{ten_tr} / {ten_ch}"}]
+
+
+def _quet_anh_globalcomix(url_chapter: str) -> list[str]:
+    res = _goi_api_read_globalcomix(url_chapter)
+    cdn = res.get("reader_cdn_access") or {}
+    base_url = str(cdn.get("base_url") or "").rstrip("/")
+    rel_key = str(cdn.get("release_key") or res.get("key") or "")
+    tmpl = str(cdn.get("url_template") or "{base_url}/r/{release_key}/p/{order}/{quality}.webp")
+    pages_raw = res.get("page_objects") or res.get("pages") or []
+    tong_trang = int(res.get("page_count") or len(pages_raw) or 0)
+    trang_mien_phi = int(res.get("free_page_count") or 0)
+    so_trang = tong_trang if (res.get("is_free") or trang_mien_phi <= 0) else min(tong_trang, trang_mien_phi)
+    if not base_url or not rel_key or so_trang <= 0:
+        raise NeedsAttention("GlobalComix trả về danh sách trang trống hoặc phát hành này yêu cầu tài khoản trả phí.")
+    ds_urls: list[str] = []
+    for idx_p in range(1, so_trang + 1):
+        ord_p = idx_p
+        if isinstance(pages_raw, list) and idx_p - 1 < len(pages_raw) and isinstance(pages_raw[idx_p - 1], dict):
+            ord_p = int(pages_raw[idx_p - 1].get("order") or pages_raw[idx_p - 1].get("page_number") or idx_p)
+        u_p = (
+            tmpl.replace("{base_url}", base_url)
+            .replace("{release_key}", rel_key)
+            .replace("{order}", str(ord_p))
+            .replace("{quality}", "desktop")
+        )
+        ds_urls.append(u_p)
+    return ds_urls
+
+
 def _quet_mot_url_truyen(u_don: str, mo_rong_ca_bo: bool = False) -> list[dict]:
-    """Quét danh sách chapter cho 1 URL đơn lẻ (hỗ trợ cả web HTML thường, WordPress Manga, MangaDex và MANGA Plus)."""
+    """Quét danh sách chapter cho 1 URL đơn lẻ (hỗ trợ cả web HTML thường, WordPress Manga, MangaDex, GlobalComix và MANGA Plus)."""
     host = urllib.parse.urlsplit(u_don).netloc.lower()
     if "mangaplus.shueisha.co.jp" in host:
         return _quet_chapter_mangaplus(u_don, mo_rong_ca_bo=mo_rong_ca_bo)
     if "mangadex.org" in host:
         return _quet_chapter_mangadex(u_don, mo_rong_ca_bo=mo_rong_ca_bo)
+    if "globalcomix.com" in host:
+        return _quet_chapter_globalcomix(u_don, mo_rong_ca_bo=mo_rong_ca_bo)
 
     html = goi_http(u_don, referer=u_don, nguon_ngoai=True).decode("utf-8", errors="ignore")
     ten_tr = suy_doan_ten_truyen_tu_url(u_don, html)
@@ -8707,6 +11888,8 @@ def quet_anh_trang_truyen_trong_chapter(url_chapter: str) -> list[str]:
         return _quet_anh_mangaplus(url_chapter)
     if "mangadex.org" in host:
         return _quet_anh_mangadex(url_chapter)
+    if "globalcomix.com" in host:
+        return _quet_anh_globalcomix(url_chapter)
     html = goi_http(url_chapter, referer=url_chapter, nguon_ngoai=True).decode("utf-8", errors="ignore")
     if any(k in host for k in ("shonenjumpplus.com", "tonarinoyj.jp", "comic-days.com", "kuragebunch.com", "magcomi.com", "pocket.shonenmagazine.com", "sunday-webry.com")):
         m_ep = re.search(r'<script[^>]*id=["\']episode-json["\'][^>]*data-value=["\']([^"\']+)["\']', html, re.I) or re.search(r'data-value=["\']([^"\']+)["\'][^>]*id=["\']episode-json["\']', html, re.I)
@@ -9094,52 +12277,95 @@ class AppDichTruyenWindows(tk.Tk):
             return
         eng = self.cmb_engine.get() if hasattr(self, "cmb_engine") else ""
         ma_eng = ("local_hybrid_pro" if ("local_hybrid_pro" in eng or "GPU Pro" in eng) else ("llm_context" if ("llm_context" in eng or "Đám Mây" in eng) else ("google_fast" if "google_fast" in eng else ("local_gguf" if "local_gguf" in eng else "local_ocr_gpu"))))
-        so_luot = SO_LUOT_MOI_TRANG_THEO_ENGINE.get(ma_eng, 1)
+        co_byok = _dang_bat_byok_hop_le(self.cau_hinh if hasattr(self, "cau_hinh") else None)
+        so_luot = SO_LUOT_MOI_TRANG_THEO_ENGINE_BYOK.get(ma_eng, 1.0) if co_byok else SO_LUOT_MOI_TRANG_THEO_ENGINE.get(ma_eng, 1)
+        chuoi_luot = "1,5" if so_luot == 1.5 else str(int(so_luot))
+        nhan_byok = " · 🔑 BYOK -50%" if (co_byok and ma_eng in ("local_hybrid_pro", "llm_context")) else ""
         so_cau_hoc = len(nap_bo_nho_tu_hoc())
         if ma_eng == "local_hybrid_pro":
             self.lbl_kpi_cost.config(
-                text=f"{so_luot} lượt / trang (🧠 OCR + GPU Pro)",
+                text=f"{chuoi_luot} lượt / trang (🧠 OCR + GPU Pro{nhan_byok})",
                 fg="#38BDF8",
             )
             if hasattr(self, "lbl_mo_ta_engine"):
                 self.lbl_mo_ta_engine.config(
                     text=(
-                        f"🧠 Chế độ Chuyên sâu ({so_luot} lượt/trang): Tăng cường nhận diện chữ viết tay + "
+                        f"🧠 Chế độ Chuyên sâu ({chuoi_luot} lượt/trang{nhan_byok}): Tăng cường nhận diện chữ viết tay + "
                         f"Chuẩn hoá thoại khó + Bộ nhớ tự học ({so_cau_hoc} cụm đã nhớ)."
                     ),
                     fg="#38BDF8",
                 )
         elif ma_eng in ("local_ocr_gpu", "local_gguf"):
             self.lbl_kpi_cost.config(
-                text=f"{so_luot} lượt / trang (⚡ OCR + GPU Nhanh)",
+                text=f"{chuoi_luot} lượt / trang (⚡ OCR + GPU Nhanh)",
                 fg=MANGA_UI_TOKENS["status_ok"],
             )
             if hasattr(self, "lbl_mo_ta_engine"):
                 self.lbl_mo_ta_engine.config(
                     text=(
-                        f"⚡ Chế độ Chủ lực Khuyên dùng ({so_luot} lượt/trang · ~0.8s–1.8s): "
+                        f"⚡ Chế độ Chủ lực Khuyên dùng ({chuoi_luot} lượt/trang · ~0.8s–1.8s): "
                         f"Tiết kiệm 50% lượt, tối ưu cho 90% truyện chữ rõ (kế thừa {so_cau_hoc} cụm tự học)."
                     ),
                     fg=MANGA_UI_TOKENS["status_ok"],
                 )
         elif "google_fast" in eng:
             self.lbl_kpi_cost.config(
-                text=f"{so_luot} lượt / trang (Cloud Nhanh)",
+                text=f"{chuoi_luot} lượt / trang (Cloud Nhanh)",
                 fg=MANGA_UI_TOKENS["status_info"],
             )
         else:
             self.lbl_kpi_cost.config(
-                text=f"{so_luot} lượt / trang (✨ AI Ngữ Cảnh Đám Mây)",
+                text=f"{chuoi_luot} lượt / trang (✨ SoM Vision + LaMa{nhan_byok})",
                 fg=MANGA_UI_TOKENS["status_warn"],
             )
             if hasattr(self, "lbl_mo_ta_engine"):
                 self.lbl_mo_ta_engine.config(
                     text=(
-                        f"✨ Chế độ AI Ngữ Cảnh Đám Mây ({so_luot} lượt/trang): Nhận diện biểu cảm tranh "
-                        f"nhìn biểu cảm tranh phân vai xưng hô chuẩn Scanlation ({so_cau_hoc} cụm tự học)."
+                        f"✨ Chế độ SoM Vision + LaMa Đám Mây ({chuoi_luot} lượt/trang{nhan_byok}): Khóa tọa độ Set-of-Mark [#1..#N] 0px + "
+                        f"AI nhìn biểu cảm tranh + LaMa vẽ lại nét tranh ({so_cau_hoc} cụm tự học)."
                     ),
                     fg=MANGA_UI_TOKENS["status_warn"],
                 )
+
+    def _luu_va_thu_byok(self):
+        bat = bool(self.var_byok_bat.get()) if hasattr(self, "var_byok_bat") else False
+        prov = (self.cmb_byok_prov.get().split()[0].lower() if hasattr(self, "cmb_byok_prov") else "gemini").strip()
+        key = (self.ent_byok_key.get() if hasattr(self, "ent_byok_key") else "").strip()
+        self.cau_hinh["byok_enabled"] = bat
+        self.cau_hinh["byok_provider"] = prov
+        self.cau_hinh["byok_key"] = key
+        self._luu_cau_hinh()
+        self._cap_nhat_the_chi_phi()
+        if not bat or len(key) < 12:
+            self.ghi_log("💾 Đã lưu cấu hình BYOK trên máy (chế độ BYOK đang tắt hoặc chưa nhập đủ API Key).")
+            return
+        may_chu = chuan_hoa_may_chu(self.ent_server.get().strip() or self.cau_hinh.get("may_chu", ""))
+        tok = str(self.cau_hinh.get("token") or "").strip()
+
+        def _wk_byok():
+            try:
+                raw = goi_http(
+                    f"{may_chu}/api/v1/doc-truyen/kiem-tra-byok",
+                    method="POST",
+                    body={"provider": prov, "api_key": key},
+                    token=tok,
+                    timeout=18,
+                )
+                kq = json.loads(raw.decode("utf-8", errors="replace"))
+                msg = kq.get("thong_diep") or "Kết nối API Key thành công!"
+                self.after(0, lambda: self.ghi_log(f"✅ BYOK ({prov.upper()}): {msg} — Model 2 = 1 lượt/trang, Model 3 = 1,5 lượt/trang!"))
+            except urllib.error.HTTPError as exc:
+                try:
+                    err_b = json.loads(exc.read().decode("utf-8", errors="replace"))
+                    det = err_b.get("detail")
+                    msg = det.get("thong_bao") if isinstance(det, dict) else str(det or exc)
+                except Exception:
+                    msg = str(exc)
+                self.after(0, lambda m=msg: self.ghi_log(f"❌ Kiểm tra BYOK thất bại: {m}"))
+            except Exception as exc:
+                self.after(0, lambda e=exc: self.ghi_log(f"❌ Lỗi kết nối khi kiểm tra BYOK: {e}"))
+
+        threading.Thread(target=_wk_byok, daemon=True).start()
 
     def _bat_tat_khung_tai_khoan(self):
         if not hasattr(self, "f_auth_drawer"):
@@ -9335,6 +12561,57 @@ class AppDichTruyenWindows(tk.Tk):
             anchor="w",
         )
         self.lbl_chi_tiet_luot.pack(fill="x", pady=(4, 0))
+
+        r_byok = tk.Frame(self.f_auth_drawer, bg=T["bg_surface"])
+        r_byok.pack(fill="x", pady=(5, 0))
+        self.var_byok_bat = tk.BooleanVar(value=bool(self.cau_hinh.get("byok_enabled", False)))
+        tk.Checkbutton(
+            r_byok,
+            text="🔑 BYOK (-50% lượt · Gói 1+):",
+            variable=self.var_byok_bat,
+            bg=T["bg_surface"],
+            fg=T["status_ok"],
+            selectcolor=T["bg_elevated"],
+            activebackground=T["bg_surface"],
+            activeforeground=T["status_ok"],
+            font=("Segoe UI", 9, "bold"),
+            command=self._cap_nhat_the_chi_phi,
+        ).pack(side="left")
+        self.cmb_byok_prov = ttk.Combobox(
+            r_byok,
+            width=18,
+            state="readonly",
+            values=[
+                "gemini (Gemini 2.5)",
+                "deepseek (DeepSeek V3)",
+                "openai (GPT-4o mini)",
+                "claude (Claude Sonnet)",
+                "openrouter (OpenRouter)",
+                "groq (Groq Llama 3.3)",
+            ],
+        )
+        prov_luu = str(self.cau_hinh.get("byok_provider") or "gemini").lower()
+        idx_p = next((i for i, v in enumerate(self.cmb_byok_prov["values"]) if v.startswith(prov_luu)), 0)
+        self.cmb_byok_prov.current(idx_p)
+        self.cmb_byok_prov.pack(side="left", padx=6)
+        tk.Label(r_byok, text="API Key AI:", bg=T["bg_surface"], fg=T["text_secondary"], font=("Segoe UI", 9)).pack(side="left")
+        self.ent_byok_key = tk.Entry(
+            r_byok, width=28, show="*", bg=T["bg_elevated"], fg=T["text_primary"], insertbackground="#fff", relief="flat"
+        )
+        if self.cau_hinh.get("byok_key"):
+            self.ent_byok_key.insert(0, str(self.cau_hinh.get("byok_key")))
+        self.ent_byok_key.pack(side="left", padx=6, ipady=2)
+        tk.Button(
+            r_byok,
+            text="🔌 Lưu & Thử Key (-50%)",
+            bg=T["bg_elevated"],
+            fg=T["status_ok"],
+            font=("Segoe UI", 8, "bold"),
+            relief="flat",
+            padx=10,
+            pady=2,
+            command=self._luu_va_thu_byok,
+        ).pack(side="left", padx=4)
 
         # 2. Dải 4 Thẻ Chỉ Số Nhanh (KPI Status Strip — Chuẩn Mục 6.1 & 6.3: Trung thực số liệu, không hiện 0 giả)
         self.f_kpi_strip = tk.Frame(self, bg=T["bg_canvas"], padx=16, pady=6)
@@ -11317,6 +14594,8 @@ class AppDichTruyenWindows(tk.Tk):
                             or detail.get("ly_do")
                             or str(detail)
                         )
+                        if detail.get("loi") == "byok_api_key":
+                            raise NeedsAttention(f"🔑 LỖI API KEY CÁ NHÂN (BYOK): {msg}") from exc
                         if detail.get("loi") == "can_nang_cap":
                             raise NeedsAttention(
                                 f"🔒 CẦN NÂNG CẤP GÓI {detail.get('ten_cap_yeu_cau', 'Pro').upper()}: {msg}"

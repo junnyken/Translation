@@ -498,6 +498,56 @@
       </form>
 
       <div id="bao" class="hop" hidden></div>
+
+      <!-- Khối cấu hình cắm API Key riêng (BYOK — Giảm 50% lượt trừ từ Gói 1+) -->
+      <section style="margin-top:22px;padding-top:18px;border-top:1px dashed var(--border)">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px">
+          <div style="font-weight:700;font-size:14.5px;color:#0f172a">
+            🔑 Cắm API Key cá nhân (BYOK — Giảm 50% lượt)
+          </div>
+          <label style="margin:0;display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:12.5px;color:var(--brand)">
+            <input type="checkbox" id="opt-byok-bat" style="width:auto;margin:0" />
+            <span>Bật BYOK</span>
+          </label>
+        </div>
+        <p class="ghi-chu" style="margin:0 0 12px">
+          Dành cho tài khoản <b>Gói 1 trở lên</b>: Khi dùng API Key AI của chính bạn, chi phí lượt hệ thống giảm một nửa —
+          <b>Model 2 còn 1 lượt/trang</b> và <b>Model 3 (Set-of-Mark Vision + LaMa) mở khóa còn 1,5 lượt/trang</b>.
+          Khoá của bạn chỉ lưu cục bộ trong trình duyệt và không bao giờ ghi xuống ổ cứng máy chủ.
+        </p>
+        <div class="nhom-o">
+          <label for="opt-byok-provider">Nhà cung cấp AI</label>
+          <select
+            id="opt-byok-provider"
+            style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid #cbd5e1;font-size:13.5px;background:#fff"
+          >
+            <option value="gemini">✨ Google Gemini (gemini-2.5-flash — Khuyên dùng)</option>
+            <option value="deepseek">🧠 DeepSeek V3 (deepseek-chat)</option>
+            <option value="openai">🤖 OpenAI (gpt-4o-mini / gpt-4o)</option>
+            <option value="claude">🎭 Anthropic Claude (Sonnet / Haiku)</option>
+            <option value="openrouter">🌐 OpenRouter (Đa mô hình)</option>
+            <option value="groq">⚡ Groq Cloud (llama-3.3-70b)</option>
+          </select>
+        </div>
+        <div class="nhom-o">
+          <label for="opt-byok-key">API Key cá nhân (AIza... / sk-... / sk-ant-...)</label>
+          <div class="boc-input">
+            <input
+              id="opt-byok-key"
+              type="password"
+              autocomplete="off"
+              placeholder="Dán API Key AI của bạn tại đây..."
+              style="padding-right: 64px"
+            />
+            <button type="button" class="nut-hien-mk" id="nut-an-hien-byok">Hiện</button>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <button type="button" id="nut-luu-byok" class="nut-phu" style="margin-top:0">💾 Lưu cấu hình Key</button>
+          <button type="button" id="nut-kiem-tra-byok" class="nut-chinh" style="margin-top:0">🔌 Lưu &amp; Kiểm tra Key</button>
+        </div>
+        <div id="bao-byok" class="hop" hidden></div>
+      </section>
     </main>
   </div>
 

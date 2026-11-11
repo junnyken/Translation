@@ -1635,8 +1635,9 @@ def dich_danh_sach_thoai_ngu_canh_dong(
     target_lang: str = "vi",
     boi_canh: str | None = None,
     engine: str = "local_ocr_gpu",
+    byok_cfg: object | None = None,
 ) -> tuple[list[str], str]:
-    """Dịch danh sách câu thoại đã OCR của 1 trang bằng DeepSeek / AI trên máy chủ (kèm dự phòng tự động)."""
+    """Dịch danh sách câu thoại đã OCR của 1 trang bằng DeepSeek / AI trên máy chủ (hoặc BYOK riêng của khách)."""
     from app.services.translate.engines import GoogleTranslateEngine, LLMContextTranslator
 
     dong_bo_khoa_ai_dong(settings)
@@ -1658,6 +1659,34 @@ def dich_danh_sach_thoai_ngu_canh_dong(
             "giữ đồng nhất tuyệt đối đại từ xưng hô và thuật ngữ xuyên trang]"
         )
         boi_canh_gop = f"{chi_dan_pro}\n{boi_canh_gop}".strip()
+
+    # Chốt chặn BYOK (Strict Non-Fallback): Khi khách bật Key cá nhân, CHỈ gọi bằng Key của khách.
+    if byok_cfg is not None and hasattr(byok_cfg, "khoa_dinh_tuyen"):
+        from app.services.byok import BYOKKeyError
+
+        khoa_byok = byok_cfg.khoa_dinh_tuyen(vision=False)
+        try:
+            tr_byok = LLMContextTranslator(
+                api_keys=[khoa_byok],
+                model_name=getattr(byok_cfg, "model", "") or settings.llm_model_name,
+                timeout=max(12.0, float(settings.translate_timeout_seconds or 25.0)),
+                boi_canh=boi_canh_gop or None,
+                json_mode=True,
+            )
+            kq_byok = tr_byok.translate(clean_texts, source_lang=source_lang, target_lang=target_lang)
+            if len(kq_byok) == len(clean_texts):
+                return kq_byok, f"byok_{getattr(byok_cfg, 'provider', 'custom')}"
+            raise BYOKKeyError("API Key cá nhân trả về số lượng câu không khớp.")
+        except BYOKKeyError:
+            raise
+        except Exception as exc_byok:  # noqa: BLE001
+            chi_tiet = str(exc_byok)
+            raw_k = getattr(byok_cfg, "api_key", "")
+            if raw_k and raw_k in chi_tiet:
+                chi_tiet = chi_tiet.replace(raw_k, "***")
+            raise BYOKKeyError(
+                f"API Key cá nhân ({getattr(byok_cfg, 'ten_nha_cung_cap', 'BYOK')}) báo lỗi hoặc hết hạn mức: {chi_tiet[:220]}"
+            ) from exc_byok
 
     tat_ca_keys: list[str] = []
     for k in (settings.deepseek_api_key_list + settings.gemini_api_key_list):

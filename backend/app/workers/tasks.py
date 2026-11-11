@@ -345,6 +345,7 @@ def _run_detect(job_id: uuid.UUID, *, outbox_claimed: bool = False) -> dict:
         )
         du_an_source_lang = du_an.source_lang.value if du_an is not None else "ja"
         du_an_target_lang = du_an.target_lang.value if du_an is not None else "vi"
+        du_an_id = page.project_id
         boi_canh_gop = ""
         if du_dieu_kien_gop_1_luot:
             from app.services.translate.boi_canh import nap_boi_canh_du_an
@@ -367,20 +368,88 @@ def _run_detect(job_id: uuid.UUID, *, outbox_claimed: bool = False) -> dict:
             page.status = PageStatus.detecting
         session.commit()
 
+    # Đọc cấu hình BYOK tạm thời (nếu người dùng Gói 1+ tự cắm Key cá nhân)
+    from app.services.byok import BYOKKeyError, giai_ma_byok_tam_thoi
+    from app.services.typeset.chon_font import doc_byok_cipher_du_an
+
+    byok_cfg = giai_ma_byok_tam_thoi(doc_byok_cipher_du_an(du_an_id), settings)
+
     # Van xả chống OOM: bước này chỉ cần detector, nên nếu bộ nhớ đã căng thì nhả LaMa/OCR ra.
     ep_giai_phong_neu_cang({"detector"}, settings.worker_rss_soft_limit_mb)
     ghi_moc("detect: trước")
     detector = get_detector()
+    mat_na_chu_luu = None
+    if byok_cfg is not None:
+        if byok_cfg.ho_tro_vision_truc_tiep and engine_dich_hieu_luc == TranslationEngine.llm_context.value:
+            from app.services.detect.ai_gemini import AIGeminiDetector
+
+            detector = AIGeminiDetector(
+                api_keys=[byok_cfg.khoa_dinh_tuyen(vision=True)],
+                model_name=byok_cfg.model or settings.detect_ai_model,
+                timeout=settings.detect_ai_timeout_seconds,
+                canh_toi_da=max(settings.detect_ai_max_px, 1280),
+            )
+            du_dieu_kien_gop_1_luot = bool(settings.ocr_auto_chain and settings.translate_auto_chain and du_an is not None)
+        else:
+            # BYOK chỉ hỗ trợ văn bản (vd DeepSeek) hoặc Model 2: chạy CTD cục bộ (0đ LLM Server), bước dịch sẽ gọi BYOK!
+            du_dieu_kien_gop_1_luot = False
+            if hasattr(detector, "detect_va_dich_regions"):
+                from app.services.detect.ctd import CTDDetector
+
+                detector = CTDDetector(
+                    weights_path=settings.model_weights_path,
+                    device=settings.ctd_device,
+                    conf_threshold=settings.ctd_conf_threshold,
+                    raw_min_conf=settings.ctd_raw_min_conf,
+                    nms_iou=settings.ctd_nms_iou,
+                    input_size=settings.ctd_input_size,
+                    intra_op_threads=settings.ctd_intra_op_threads,
+                    cpu_mem_arena=settings.ctd_cpu_mem_arena,
+                )
+
     da_gop_1_luot = False
+    la_model3_som = (
+        engine_dich_hieu_luc == TranslationEngine.llm_context.value
+        and ("[CHẾ ĐỘ ULTRA CLOUD AI 3 LƯỢT" in (boi_canh_gop or "") or byok_cfg is not None)
+    )
     with anh_cuc_bo(image_rel) as image_path:
         try:
             if du_dieu_kien_gop_1_luot and hasattr(detector, "detect_va_dich_regions"):
-                regions = detector.detect_va_dich_regions(
-                    image_path,
-                    source_lang=du_an_source_lang,
-                    target_lang=du_an_target_lang,
-                    boi_canh=boi_canh_gop,
-                )
+                ctd_som_regions = None
+                if la_model3_som and hasattr(detector, "detect_va_dich_som_regions"):
+                    try:
+                        from app.services.detect.ctd import CTDDetector, ModelWeightsMissing
+
+                        ctd_neo = CTDDetector(
+                            weights_path=settings.model_weights_path,
+                            device=settings.ctd_device,
+                            conf_threshold=settings.ctd_conf_threshold,
+                            raw_min_conf=settings.ctd_raw_min_conf,
+                            nms_iou=settings.ctd_nms_iou,
+                            input_size=settings.ctd_input_size,
+                            intra_op_threads=settings.ctd_intra_op_threads,
+                            cpu_mem_arena=settings.ctd_cpu_mem_arena,
+                        )
+                        ctd_som_regions = ctd_neo.detect_regions(image_path)
+                        mat_na_chu_luu = getattr(ctd_neo, "mat_na_chu", None)
+                    except Exception:
+                        ctd_som_regions = None
+
+                if ctd_som_regions:
+                    regions = detector.detect_va_dich_som_regions(
+                        image_path,
+                        ctd_som_regions,
+                        source_lang=du_an_source_lang,
+                        target_lang=du_an_target_lang,
+                        boi_canh=boi_canh_gop,
+                    )
+                else:
+                    regions = detector.detect_va_dich_regions(
+                        image_path,
+                        source_lang=du_an_source_lang,
+                        target_lang=du_an_target_lang,
+                        boi_canh=boi_canh_gop,
+                    )
                 regions = [
                     r
                     for r in regions
@@ -399,6 +468,15 @@ def _run_detect(job_id: uuid.UUID, *, outbox_claimed: bool = False) -> dict:
                 regions = detector.detect_regions(image_path)
         except Exception as exc_ai_det:
             from app.services.detect.ai_gemini import AIDetectError
+
+            # Chốt chặn BYOK Strict Non-Fallback: KHÔNG tự động lùi sang tài nguyên khác hay đốt Key Server
+            if byok_cfg is not None:
+                chi_tiet_byok = str(exc_ai_det)
+                if byok_cfg.api_key in chi_tiet_byok:
+                    chi_tiet_byok = chi_tiet_byok.replace(byok_cfg.api_key, "***")
+                raise BYOKKeyError(
+                    f"API Key cá nhân ({byok_cfg.ten_nha_cung_cap}) báo lỗi: {chi_tiet_byok[:240]}"
+                ) from exc_ai_det
 
             if isinstance(exc_ai_det, AIDetectError):
                 logger.warning(
@@ -422,7 +500,7 @@ def _run_detect(job_id: uuid.UUID, *, outbox_claimed: bool = False) -> dict:
             else:
                 raise
     elapsed = time.perf_counter() - started
-    _luu_mat_na_chu(image_rel, getattr(detector, "mat_na_chu", None))
+    _luu_mat_na_chu(image_rel, mat_na_chu_luu if mat_na_chu_luu is not None else getattr(detector, "mat_na_chu", None))
 
     from app.services.detect.geometry import mark_overlap_suspects
 
@@ -1916,24 +1994,54 @@ def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dic
             page_id, len(translated),
         )
     else:
-        translator = build_translator(engine_name, boi_canh, anh_kem)
-        try:
-            # Cổng nhịp chỉ áp cho đường TỐN TIỀN (`google_fast` miễn phí nên không qua cổng).
-            # Đặt TRONG khối try có chủ đích: bị chặn thì đi đúng đường lùi-về-google của M5 và
-            # được dán nhãn `fallback_used`, thay vì làm hỏng cả job. Đặt ngoài try là mất đường lùi.
-            _cong_nhip(engine_name)
-            translated = translator.translate(texts, source_lang, target_lang)
-        except (QuotaExhausted, TranslationFailed) as exc:
-            # E72 — mọi engine kiểu LLM đều lùi được (máy chủ cục bộ chưa bật là chuyện thường ngày),
-            # không riêng Gemini.
-            if engine_name not in ENGINE_LLM or not settings.llm_fallback_to_google:
-                raise
-            # Không âm thầm trả bản rỗng: lùi về google_fast và ĐÁNH DẤU fallback_used.
-            fallback_reason = f"{type(exc).__name__}: {exc}"
-            logger.warning("LLM lỗi (%s) -> lùi về google_fast", fallback_reason[:200])
-            used_engine = TranslationEngine.google_fast.value
-            translator = build_translator(used_engine)
-            translated = translator.translate(texts, source_lang, target_lang)
+        from app.services.byok import BYOKKeyError as _BYOKKeyErr, giai_ma_byok_tam_thoi as _giai_ma_byok_tr
+        from app.services.typeset.chon_font import doc_byok_cipher_du_an as _doc_byok_tr
+
+        byok_tr = _giai_ma_byok_tr(_doc_byok_tr(project.id if project else None), settings)
+        if byok_tr is not None:
+            from app.services.translate.engines import LLMContextTranslator
+
+            translator = LLMContextTranslator(
+                api_keys=[byok_tr.khoa_dinh_tuyen(vision=bool(anh_kem))],
+                model_name=byok_tr.model or settings.llm_model_name,
+                timeout=settings.translate_timeout_seconds,
+                temperature=settings.llm_temperature,
+                max_output_tokens=settings.llm_max_output_tokens,
+                thinking_budget=0,
+                boi_canh=boi_canh,
+                anh_trang=anh_kem[0] if (anh_kem and byok_tr.ho_tro_vision_truc_tiep) else None,
+                anh_mime=anh_kem[1] if anh_kem else "image/jpeg",
+                json_mode=settings.llm_dich_json,
+            )
+            try:
+                translated = translator.translate(texts, source_lang, target_lang)
+                used_engine = TranslationEngine.llm_context.value
+            except Exception as exc_byok_tr:
+                ct_err = str(exc_byok_tr)
+                if byok_tr.api_key in ct_err:
+                    ct_err = ct_err.replace(byok_tr.api_key, "***")
+                raise _BYOKKeyErr(
+                    f"API Key cá nhân ({byok_tr.ten_nha_cung_cap}) báo lỗi khi dịch: {ct_err[:240]}"
+                ) from exc_byok_tr
+        else:
+            translator = build_translator(engine_name, boi_canh, anh_kem)
+            try:
+                # Cổng nhịp chỉ áp cho đường TỐN TIỀN (`google_fast` miễn phí nên không qua cổng).
+                # Đặt TRONG khối try có chủ đích: bị chặn thì đi đúng đường lùi-về-google của M5 và
+                # được dán nhãn `fallback_used`, thay vì làm hỏng cả job. Đặt ngoài try là mất đường lùi.
+                _cong_nhip(engine_name)
+                translated = translator.translate(texts, source_lang, target_lang)
+            except (QuotaExhausted, TranslationFailed) as exc:
+                # E72 — mọi engine kiểu LLM đều lùi được (máy chủ cục bộ chưa bật là chuyện thường ngày),
+                # không riêng Gemini.
+                if engine_name not in ENGINE_LLM or not settings.llm_fallback_to_google:
+                    raise
+                # Không âm thầm trả bản rỗng: lùi về google_fast và ĐÁNH DẤU fallback_used.
+                fallback_reason = f"{type(exc).__name__}: {exc}"
+                logger.warning("LLM lỗi (%s) -> lùi về google_fast", fallback_reason[:200])
+                used_engine = TranslationEngine.google_fast.value
+                translator = build_translator(used_engine)
+                translated = translator.translate(texts, source_lang, target_lang)
 
     # Ghép về đúng thứ tự ban đầu: vùng giữ nguyên lấy lại CHỮ GỐC, vùng còn lại lấy bản dịch.
     # Làm ở đây thay vì lúc ghi CSDL để phần bên dưới không phải biết gì về SFX.

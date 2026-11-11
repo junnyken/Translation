@@ -65,13 +65,16 @@ def luu_tuy_chon_du_an(
     *,
     font_style: str | None = None,
     tu_dien_rieng: str | None = None,
+    byok_cipher: str | None = None,
     xoa_tu_dien_neu_rong: bool = False,
+    xoa_byok: bool = False,
     strict: bool = False,
 ) -> None:
-    """Cập nhật `font_family` hoặc `tu_dien_rieng` vào `projects/{project_id}/tuy_chon_dich.json`."""
+    """Cập nhật `font_family`, `tu_dien_rieng` hoặc `byok_cipher` (đã mã hoá TTL) vào `projects/{project_id}/tuy_chon_dich.json`."""
     family = chuan_hoa_font_family(font_style)
     tu_dien = (tu_dien_rieng or "").strip()
-    if not family and not tu_dien and not xoa_tu_dien_neu_rong:
+    byok_tok = (byok_cipher or "").strip()
+    if not family and not tu_dien and not byok_tok and not xoa_tu_dien_neu_rong and not xoa_byok:
         return
     try:
         from app.services.storage import get_storage
@@ -85,6 +88,10 @@ def luu_tuy_chon_du_an(
             hien_tai["tu_dien_rieng"] = tu_dien[:4000]
         elif xoa_tu_dien_neu_rong and "tu_dien_rieng" in hien_tai:
             hien_tai.pop("tu_dien_rieng", None)
+        if byok_tok:
+            hien_tai["byok_cipher"] = byok_tok[:2048]
+        elif xoa_byok and "byok_cipher" in hien_tai:
+            hien_tai.pop("byok_cipher", None)
         storage.save(rel, json.dumps(hien_tai, ensure_ascii=False).encode("utf-8"))
     except Exception as exc:  # noqa: BLE001
         logger.warning("Không lưu được tuỳ chọn dịch cho project %s: %s", project_id, exc)
@@ -110,3 +117,12 @@ def doc_tu_dien_du_an(project_id: uuid.UUID | str | None) -> str:
     tc = doc_tuy_chon_du_an(project_id)
     td = tc.get("tu_dien_rieng")
     return td.strip() if isinstance(td, str) else ""
+
+
+def doc_byok_cipher_du_an(project_id: uuid.UUID | str | None) -> str:
+    """Trả chuỗi `byok_cipher` đã mã hoá tạm thời của project (rỗng nếu không dùng BYOK)."""
+    if not project_id:
+        return ""
+    tc = doc_tuy_chon_du_an(project_id)
+    bc = tc.get("byok_cipher")
+    return bc.strip() if isinstance(bc, str) else ""

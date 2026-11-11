@@ -37,6 +37,40 @@ export function xoaKhoa() {
 // người lạ trên internet không tự tạo tài khoản trên hạ tầng của mình.
 const PHIEN_LUU = 'translation:ma-phien'
 const MA_KHACH_LUU = 'translation:ma-khach'
+const BYOK_LUU = 'translation:byok-config'
+
+export function docCauHinhByok() {
+  const macDinh = { bat: false, provider: 'gemini', key: '', model: '' }
+  try {
+    const raw = localStorage.getItem(BYOK_LUU)
+    if (!raw) return macDinh
+    const parsed = JSON.parse(raw)
+    return {
+      bat: Boolean(parsed?.bat),
+      provider: String(parsed?.provider || 'gemini').trim().toLowerCase(),
+      key: String(parsed?.key || '').trim(),
+      model: String(parsed?.model || '').trim(),
+    }
+  } catch {
+    return macDinh
+  }
+}
+
+export function luuCauHinhByok(thayDoi = {}) {
+  const hienTai = docCauHinhByok()
+  const moi = {
+    bat: thayDoi.bat !== undefined ? Boolean(thayDoi.bat) : hienTai.bat,
+    provider: thayDoi.provider !== undefined ? String(thayDoi.provider || 'gemini').trim().toLowerCase() : hienTai.provider,
+    key: thayDoi.key !== undefined ? String(thayDoi.key || '').trim() : hienTai.key,
+    model: thayDoi.model !== undefined ? String(thayDoi.model || '').trim() : hienTai.model,
+  }
+  try {
+    localStorage.setItem(BYOK_LUU, JSON.stringify(moi))
+  } catch {
+    /* trình duyệt chặn localStorage thì bỏ qua */
+  }
+  return moi
+}
 
 export function docMaPhien() {
   try { return localStorage.getItem(PHIEN_LUU) || '' } catch { return '' }
@@ -97,6 +131,18 @@ function fetch(url, opts = {}) {
   if (ma) headers.Authorization = `Bearer ${ma}`
   const maKhach = docMaKhach()
   if (maKhach) headers['X-Ma-Khach'] = maKhach
+  const byok = docCauHinhByok()
+  const urlStr = String(url || '')
+  if (
+    byok.bat &&
+    byok.key.length >= 12 &&
+    !urlStr.includes('/kiem-tra-byok') &&
+    (urlStr.includes('/doc-truyen/') || urlStr.includes('/developer/') || urlStr.includes('/pages'))
+  ) {
+    headers['X-BYOK-Key'] = byok.key
+    headers['X-BYOK-Provider'] = byok.provider || 'gemini'
+    if (byok.model) headers['X-BYOK-Model'] = byok.model
+  }
   return globalThis.fetch(url, { credentials: 'include', ...opts, headers })
 }
 
@@ -971,4 +1017,17 @@ export const nhapMaGioiThieuAffiliate = (maGioiThieu) =>
   }).then(doc)
 
 export const urlTaiOpenApiRapidApi = () => '/tai-ve/openapi-rapidapi.json'
+
+/** Kiểm tra kết nối trực tiếp API Key cá nhân (BYOK — Gemini / DeepSeek / OpenAI / Claude / OpenRouter / Groq). */
+export const kiemTraByok = ({ provider = 'gemini', apiKey = '', model = '' } = {}) =>
+  fetch(`${BASE}/doc-truyen/kiem-tra-byok`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      provider,
+      api_key: apiKey,
+      model: model || undefined,
+    }),
+  }).then(doc)
+
 

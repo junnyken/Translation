@@ -229,6 +229,93 @@
       font-size: 10px;
     }
 
+    /* Khối cắm API Key cá nhân (BYOK -50% lượt, mở từ Gói 1) */
+    .khoi-byok {
+      margin-top: 8px;
+      padding: 7px 9px;
+      border-radius: 9px;
+      background: #f8fafc;
+      border: 1px dashed #cbd5e1;
+      transition: all 0.15s ease;
+    }
+
+    .khoi-byok.dang-bat {
+      background: #ecfdf5;
+      border: 1px solid #6ee7b7;
+    }
+
+    .dau-byok {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      cursor: pointer;
+    }
+
+    .dau-byok-trai {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #1e293b;
+    }
+
+    .nhan-giam-byok {
+      font-size: 9.5px;
+      font-weight: 700;
+      padding: 1px 5px;
+      border-radius: 999px;
+      background: #dcfce7;
+      color: #047857;
+      border: 1px solid #86efac;
+    }
+
+    .than-byok {
+      margin-top: 7px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .dong-byok-2 {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 5px;
+    }
+
+    .o-input-byok {
+      width: 100%;
+      padding: 5px 8px;
+      border-radius: 7px;
+      border: 1px solid #cbd5e1;
+      font-size: 11.5px;
+      background: #fff;
+      color: #0f172a;
+    }
+
+    .nut-thu-byok {
+      padding: 5px 9px;
+      border-radius: 7px;
+      border: 1px solid #6366f1;
+      background: #eef2ff;
+      color: #4338ca;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .nut-thu-byok:hover:not(:disabled) {
+      background: #e0e7ff;
+    }
+
+    .ghi-chu-byok {
+      font-size: 10.5px;
+      line-height: 1.3;
+      color: #475569;
+    }
+
     /* Nút hành động chính (Hero CTA) */
     .nut-chinh {
       width: 100%;
@@ -450,7 +537,7 @@
       <select id="engine" class="o-chon-popup">
         <option value="local_ocr_gpu" selected>⚡ OCR + GPU Nhanh · 1 lượt/trang (Miễn phí)</option>
         <option value="local_hybrid_pro" data-goi="1" data-ten-goc="🧠 OCR + GPU Pro (DeepSeek Ngữ Cảnh) · 2 lượt/trang">🧠 OCR + GPU Pro · 2 lượt/trang (Gói 1)</option>
-        <option value="llm_context" data-goi="2" data-ten-goc="✨ AI Ngữ Cảnh Đám Mây (Scanlation Pro) · 3 lượt/trang">✨ AI Ngữ Cảnh Đám Mây · 3 lượt/trang (Gói 2)</option>
+        <option value="llm_context" data-goi="2" data-ten-goc="✨ SoM Vision + LaMa Đám Mây · 3 lượt/trang">✨ SoM Vision + LaMa Đám Mây · 3 lượt/trang (Gói 2)</option>
       </select>
     </div>
 
@@ -506,6 +593,39 @@
     <div class="huy-hieu-che-do">
       <span>🚀 Tái tạo nền thông minh · Nhấp đúp sửa câu</span>
       <span class="nho">Siêu tốc ~3s</span>
+    </div>
+
+    <div class="khoi-byok" id="khoi-byok">
+      <label class="dau-byok" for="byok-bat">
+        <span class="dau-byok-trai">
+          <input type="checkbox" id="byok-bat" style="margin:0;cursor:pointer" />
+          <span>🔑 Cắm API Key riêng (BYOK)</span>
+        </span>
+        <span class="nhan-giam-byok" id="nhan-trang-thai-byok">Giảm 50% lượt</span>
+      </label>
+      <div class="than-byok" id="than-byok" hidden>
+        <select id="byok-provider" class="o-chon-popup" style="padding:5px 26px 5px 8px;font-size:11.5px">
+          <option value="gemini">✨ Google Gemini (2.5 Flash — Khuyên dùng)</option>
+          <option value="deepseek">🧠 DeepSeek V3 (deepseek-chat)</option>
+          <option value="openai">🤖 OpenAI GPT-4o mini</option>
+          <option value="claude">🎭 Anthropic Claude Sonnet / Haiku</option>
+          <option value="openrouter">🌐 OpenRouter (Đa mô hình)</option>
+          <option value="groq">⚡ Groq Cloud (Llama 3.3 70B)</option>
+        </select>
+        <div class="dong-byok-2">
+          <input
+            type="password"
+            id="byok-key"
+            class="o-input-byok"
+            autocomplete="off"
+            placeholder="Dán AIza... / sk-... (Lưu cục bộ trên máy)"
+          />
+          <button type="button" id="nut-thu-byok" class="nut-thu-byok">Thử Key</button>
+        </div>
+        <div class="ghi-chu-byok" id="byok-ket-qua">
+          💡 Khi bật Key (từ Gói 1+): <b>Model 2 còn 1 lượt/trang</b>, <b>Model 3 (SoM Vision + LaMa) còn 1,5 lượt/trang</b>.
+        </div>
+      </div>
     </div>
   </section>
 

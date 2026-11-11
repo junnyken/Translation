@@ -1208,6 +1208,8 @@ class HanMucRead(BaseModel):
     con_lai_theo_gio: int = 0
     #: Danh sách các model AI dịch truyện kèm trạng thái mở khóa theo gói (Free / Gói 1 / Gói 2).
     danh_sach_model: list[dict] = Field(default_factory=list)
+    #: Cờ mở khóa tính năng tự cắm API Key cá nhân (BYOK — Giảm 50% lượt trừ, mở từ Gói 1 trở lên).
+    cho_phep_byok: bool = False
 
 
 class GoiNapLuotRead(BaseModel):
@@ -1419,11 +1421,33 @@ class DichThoaiNguCanhRequest(BaseModel):
     boi_canh: str | None = Field(default=None, max_length=3000)
     page_key: str | None = Field(default=None, max_length=128)
     engine: str | None = Field(default="local_ocr_gpu", max_length=64)
+    byok_provider: str | None = Field(default=None, max_length=32)
+    byok_key: str | None = Field(default=None, max_length=512)
+    byok_model: str | None = Field(default=None, max_length=120)
 
 
 class DichThoaiNguCanhResponse(BaseModel):
     translations: list[str] = []
     engine_used: str = "llm_context"
+    credits_charged: float | None = None
+
+
+class KiemTraBYOKRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str = Field(default="gemini", max_length=32)
+    api_key: str = Field(..., min_length=8, max_length=512)
+    model: str | None = Field(default=None, max_length=120)
+
+
+class KiemTraBYOKResponse(BaseModel):
+    ok: bool
+    provider: str
+    ten_nha_cung_cap: str = ""
+    model: str = ""
+    latency_ms: int = 0
+    mau_dich_thu: str = ""
+    thong_diep: str = ""
 
 
 class CanhKichBanReviewIn(BaseModel):

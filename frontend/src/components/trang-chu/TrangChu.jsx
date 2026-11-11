@@ -239,6 +239,13 @@ export default function TrangChu() {
   // muốn. Đây là lựa chọn của TRANG CHỦ, gửi thẳng lên máy chủ — E58 đã chốt rằng lựa chọn này
   // phải được LƯU chứ không để `NULL` thừa hưởng mặc định hệ thống.
   const [cachDich, setCachDich] = useState('google_fast')
+  const [byokCfg, setByokCfg] = useState(() => api.docCauHinhByok())
+  const [moByok, setMoByok] = useState(false)
+  const [dangThuByok, setDangThuByok] = useState(false)
+  const [ketQuaByok, setKetQuaByok] = useState(null)
+  const capDoByok = hanMuc?.la_quan_tri ? 5 : Number(hanMuc?.cap_do || 0)
+  const choPhepByok = Boolean(hanMuc?.cho_phep_byok ?? (capDoByok >= 1))
+  const dangBatByokHieuLuc = Boolean(choPhepByok && byokCfg.bat && byokCfg.key.length >= 12)
   const codex = useCodex()
   const [dangNhanDang, setDangNhanDang] = useState(false)
   const [ketQuaNhanDang, setKetQuaNhanDang] = useState(null)
@@ -669,10 +676,16 @@ export default function TrangChu() {
                 onChange={(e) => setCachDich(e.target.value)}
               >
                 <option value="llm_context">
-                  {laEn ? '✨ Context AI Pro (Context-Aware)' : '✨ AI Chuẩn Ngữ Cảnh (Đọc mạch văn cả trang)'}
+                  {dangBatByokHieuLuc
+                    ? (laEn
+                        ? '✨ SoM Vision + LaMa · 1.5 credits/page (🔑 BYOK -50%)'
+                        : '✨ SoM Vision + LaMa · 1,5 lượt/trang (🔑 BYOK -50%)')
+                    : (laEn
+                        ? '✨ SoM Vision + LaMa Pro · 3 credits/page (Context-Aware)'
+                        : '✨ SoM Vision + LaMa Đám Mây · 3 lượt/trang (Đọc biểu cảm & tái tạo nét tranh)')}
                 </option>
                 <option value="google_fast">
-                  {laEn ? '⚡ Fast Cloud (High Speed)' : '⚡ Dịch Nhanh Tốc Độ Cao (Miễn phí token)'}
+                  {laEn ? '⚡ Fast Cloud · 1 credit/page (High Speed)' : '⚡ Dịch Nhanh Tốc Độ Cao · 1 lượt/trang'}
                 </option>
               </select>
             </div>
@@ -748,6 +761,121 @@ export default function TrangChu() {
                       : 'Ví dụ:\n- Sung Jin-Woo: xưng tôi, gọi cậu\n- Cha Hae-In: xưng em, gọi anh\n- Shadow Monarch = Quân Vương Bóng Tối'
                   }
                 />
+              </div>
+            )}
+          </div>
+
+          <div className="nhom-chon-manga" style={{ marginTop: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+              <span className="nhan-nhom-chon">
+                🔑 {laEn
+                  ? 'Bring Your Own API Key (BYOK — 50% Credit Discount: Model 2 = 1, Model 3 = 1.5):'
+                  : 'Cắm API Key cá nhân (BYOK — Giảm 50% lượt: Model 2 còn 1 lượt, Model 3 còn 1,5 lượt):'}
+              </span>
+              <span
+                role="button"
+                tabIndex={0}
+                className="nut-chu"
+                style={{ fontSize: 12.5, fontWeight: 700, cursor: 'pointer', color: dangBatByokHieuLuc ? '#059669' : undefined }}
+                onClick={() => setMoByok(!moByok)}
+                onKeyDown={(e) => { if (e.key === 'Enter') setMoByok(!moByok) }}
+              >
+                {dangBatByokHieuLuc
+                  ? (laEn ? '✅ BYOK Active (-50% Credits)' : '✅ Đang bật BYOK (-50% lượt)')
+                  : (moByok
+                      ? (laEn ? '▲ Hide BYOK Panel' : '▲ Thu gọn khung BYOK')
+                      : (choPhepByok
+                          ? (laEn ? '🔑 Plug API Key (-50% Credits)' : '🔑 Mở cắm API Key riêng (-50% lượt)')
+                          : (laEn ? '🔒 Unlocks from Starter Tier 1+' : '🔒 Mở khóa từ Gói 1 trở lên')))}
+              </span>
+            </div>
+            {moByok && (
+              <div className="khung-tu-dien-nhanh" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {!choPhepByok && (
+                  <div style={{ fontSize: 12.5, color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', padding: '8px 10px', borderRadius: 8 }}>
+                    🔒 {laEn
+                      ? 'BYOK (50% credit discount: Model 2 drops to 1 credit/page, Model 3 SoM Vision + LaMa unlocks at 1.5 credits/page) is available for Starter Tier 1+ subscribers.'
+                      : 'Quyền lợi cắm API Key cá nhân (giảm 50% lượt: Model 2 còn 1 lượt/trang, mở khóa luôn Model 3 SoM Vision + LaMa chỉ 1,5 lượt/trang) dành riêng cho tài khoản từ Gói 1 trở lên.'}
+                  </div>
+                )}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: 13, cursor: choPhepByok ? 'pointer' : 'not-allowed' }}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(byokCfg.bat && choPhepByok)}
+                      disabled={!choPhepByok || dangChay}
+                      onChange={(e) => {
+                        const moi = api.luuCauHinhByok({ bat: e.target.checked })
+                        setByokCfg(moi)
+                      }}
+                    />
+                    <span>{laEn ? 'Enable Personal API Key (-50% credits)' : 'Bật dùng API Key riêng (-50% số lượt trừ)'}</span>
+                  </label>
+                  <select
+                    className="o-select-manga"
+                    style={{ maxWidth: 260, padding: '6px 28px 6px 10px', fontSize: 12.5 }}
+                    value={byokCfg.provider}
+                    disabled={dangChay}
+                    onChange={(e) => {
+                      const moi = api.luuCauHinhByok({ provider: e.target.value })
+                      setByokCfg(moi)
+                    }}
+                  >
+                    <option value="gemini">✨ Google Gemini (2.5 Flash)</option>
+                    <option value="deepseek">🧠 DeepSeek V3 (deepseek-chat)</option>
+                    <option value="openai">🤖 OpenAI GPT-4o mini</option>
+                    <option value="claude">🎭 Anthropic Claude Sonnet / Haiku</option>
+                    <option value="openrouter">🌐 OpenRouter</option>
+                    <option value="groq">⚡ Groq Cloud (Llama 3.3 70B)</option>
+                  </select>
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <input
+                    type="password"
+                    className="o"
+                    style={{ flex: '1 1 240px', fontSize: 13 }}
+                    disabled={dangChay}
+                    value={byokCfg.key}
+                    placeholder={laEn ? 'Paste AIza... / sk-... / sk-ant-... (stored in browser only)' : 'Dán AIza... / sk-... / sk-ant-... (chỉ lưu trên trình duyệt của bạn)'}
+                    onChange={(e) => {
+                      const moi = api.luuCauHinhByok({ key: e.target.value })
+                      setByokCfg(moi)
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="nut-phu"
+                    style={{ whiteSpace: 'nowrap', padding: '6px 14px', fontSize: 12.5 }}
+                    disabled={dangThuByok || byokCfg.key.length < 12}
+                    onClick={async () => {
+                      setDangThuByok(true)
+                      setKetQuaByok(null)
+                      try {
+                        const kq = await api.kiemTraByok({
+                          provider: byokCfg.provider,
+                          apiKey: byokCfg.key,
+                          model: byokCfg.model,
+                        })
+                        if (choPhepByok) {
+                          const moi = api.luuCauHinhByok({ bat: true })
+                          setByokCfg(moi)
+                        }
+                        setKetQuaByok({ ok: true, msg: kq.thong_diep || 'Kết nối API Key thành công!' })
+                      } catch (err) {
+                        setKetQuaByok({ ok: false, msg: err?.cauNguoiDoc || err?.message || String(err) })
+                      } finally {
+                        setDangThuByok(false)
+                      }
+                    }}
+                  >
+                    {dangThuByok ? (laEn ? '⏳ Testing...' : '⏳ Đang thử...') : (laEn ? '🔌 Test Key' : '🔌 Kiểm tra Key')}
+                  </button>
+                </div>
+                {ketQuaByok && (
+                  <div style={{ fontSize: 12.5, fontWeight: 600, color: ketQuaByok.ok ? '#059669' : '#dc2626' }}>
+                    {ketQuaByok.ok ? '✅ ' : '❌ '}{ketQuaByok.msg}
+                  </div>
+                )}
               </div>
             )}
           </div>

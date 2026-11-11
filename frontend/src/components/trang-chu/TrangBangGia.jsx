@@ -48,15 +48,15 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
       diemManh: laEn
         ? [
             `${laNam ? '3,600 Credits / year' : '300 Credits / month'} (1 Credit = 1 Page · 3h shaping: 90/3h)`,
+            '🔑 Unlocks BYOK (Plug your Gemini/DeepSeek/Claude/GPT key → -50% Credits: Model 2 = 1, Model 3 = 1.5!)',
             '🔓 Unlocks Context AI Dialogue mode (Local OCR + AI Text Context)',
             'Smart Speech Bubble Inpainting & 4 Comic Genre Fonts',
-            'Use on Web Studio & Chrome Extension in 9 target languages',
           ]
         : [
             `${laNam ? '3.600 Credits / năm' : '300 Credits / tháng'} (1 Credit = 1 Trang · Định hình 90 lượt/3 giờ)`,
+            '🔑 Mở khoá cắm API Key riêng (BYOK -50% lượt: Model 2 còn 1 lượt, Model 3 SoM Vision + LaMa còn 1,5 lượt/trang!)',
             '🔓 Mở khoá OCR Tách Chữ Trước + Dịch Hội Thoại AI Ngữ Cảnh (siêu tiết kiệm)',
             'Mở khoá Xoá chữ tái tạo nền bóng thoại & 4 bộ Phông chữ thể loại',
-            'Dùng trên Web Studio & Tiện ích Chrome (9 ngôn ngữ)',
           ],
       noiBat: false,
     },

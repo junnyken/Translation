@@ -49,9 +49,86 @@ def no_va_bit(mat_na: np.ndarray, he_so: float = HE_SO_NO_MAC_DINH) -> np.ndarra
     return cv2.morphologyEx(cv2.dilate(mat_na, k), cv2.MORPH_CLOSE, k)
 
 
+def _bao_ve_net_ve_va_da_trang_trong_o(
+    anh_o: np.ndarray,
+    seg_o: np.ndarray,
+    net_no_o: np.ndarray,
+) -> np.ndarray:
+    """Giới hạn mặt nạ nở `net_no_o` trong ô `anh_o` để bảo toàn 100% nét vẽ nhân vật liên thông từ biên
+    (ngón tay, xương hàm, vành tai, điếu thuốc, tia tốc độ) và không nở rộng viền halo qua da/mảng trắng hở (`open_white`).
+    """
+    import cv2
+
+    sh, sw = seg_o.shape[:2]
+    if sh < 8 or sw < 8:
+        return net_no_o
+    gray = cv2.cvtColor(anh_o, cv2.COLOR_RGB2GRAY) if anh_o.ndim == 3 else anh_o
+    k3 = np.ones((3, 3), np.uint8)
+    core = ((seg_o > 0) & (gray <= 175)).astype(np.uint8)
+    if int(core.sum()) < 4:
+        core = (seg_o > 0).astype(np.uint8)
+    if int(core.sum()) == 0:
+        return net_no_o
+
+    # 1. Nét vẽ đen liên thông chạm biên ô cắt và nằm ngoài vùng lõi chữ -> khoá cứng không xoá:
+    dark_line = ((gray <= 135) & (core == 0)).astype(np.uint8)
+    nl_d, lbl_d, st_d, _ = cv2.connectedComponentsWithStats(dark_line, connectivity=8)
+    art_block = np.zeros((sh, sw), dtype=bool)
+    for did in range(1, nl_d):
+        dx, dy = int(st_d[did, cv2.CC_STAT_LEFT]), int(st_d[did, cv2.CC_STAT_TOP])
+        dw, dh = int(st_d[did, cv2.CC_STAT_WIDTH]), int(st_d[did, cv2.CC_STAT_HEIGHT])
+        da = int(st_d[did, cv2.CC_STAT_AREA])
+        if (dx <= 1 or dy <= 1 or dx + dw >= sw - 1 or dy + dh >= sh - 1) and (da >= 18 or max(dw, dh) >= 12):
+            art_block[lbl_d == did] = True
+
+    # 2. Mảng tóc/áo đen đặc thực sự (sống sót sau co 3x3, loại bỏ viền mảnh 1-2px của ngón tay/mặt):
+    solid_blk_raw = cv2.erode(((gray <= 30) & (core == 0)).astype(np.uint8), k3, iterations=1)
+    solid_blk_seed = np.zeros_like(solid_blk_raw)
+    nl_sb, lbl_sb, st_sb, _ = cv2.connectedComponentsWithStats(solid_blk_raw, connectivity=8)
+    for sbid in range(1, nl_sb):
+        if int(st_sb[sbid, cv2.CC_STAT_AREA]) >= 20:
+            solid_blk_seed[lbl_sb == sbid] = 1
+    solid_blk_closed = cv2.morphologyEx(
+        solid_blk_seed, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (23, 19))
+    )
+    near_solid_black = cv2.dilate(solid_blk_closed, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)), iterations=1) > 0
+
+    # 3. Mảng da/nền trắng hở (`open_white`, dùng `blur3_nc` bỏ qua `core` để không tạo rãnh giả quanh chữ):
+    core_buf5 = cv2.dilate(core, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11)), iterations=1)
+    g_no_core = np.where(core > 0, 255, gray)
+    blur3_nc = cv2.blur(g_no_core.astype(np.float32), (3, 3))
+    white_or_core = (((gray >= 242) & (blur3_nc >= 238) & (~art_block)) | (core > 0)).astype(np.uint8)
+    white_or_core[(core_buf5 > 0) & near_solid_black] = 0
+    k9_open = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+    w_eroded = cv2.erode(white_or_core, k9_open, iterations=1)
+    w_seed = np.zeros_like(w_eroded)
+    nl_wo, lbl_wo, st_wo, _ = cv2.connectedComponentsWithStats(w_eroded, connectivity=4)
+    for woid in range(1, nl_wo):
+        if int(st_wo[woid, cv2.CC_STAT_AREA]) >= 6:
+            wm = lbl_wo == woid
+            wx, wy = int(st_wo[woid, cv2.CC_STAT_LEFT]), int(st_wo[woid, cv2.CC_STAT_TOP])
+            ww, wh = int(st_wo[woid, cv2.CC_STAT_WIDTH]), int(st_wo[woid, cv2.CC_STAT_HEIGHT])
+            touches_edge = wx <= 3 or wy <= 3 or (wx + ww) >= sw - 3 or (wy + wh) >= sh - 3
+            if touches_edge or int(np.sum(wm & (core_buf5 == 0))) >= 6:
+                w_seed[wm] = 1
+    open_white = (
+        (cv2.dilate(w_seed, k9_open, iterations=1) > 0)
+        & (gray >= 240)
+        & (core == 0)
+        & (~art_block)
+        & (~near_solid_black)
+    )
+    d1_core = cv2.dilate(core, k3, iterations=1) > 0
+    cho_phep_tren_trang = (core > 0) | (d1_core & (gray < 245) & (~art_block))
+    ket = net_no_o & (~art_block)
+    ket = np.where(open_white, cho_phep_tren_trang, ket)
+    return ket
+
+
 def tinh_mat_na_xoa(mat_na_khung: np.ndarray, mat_na_chu: np.ndarray,
                     khung: list[tuple[int, int, int, int]],
-                    he_so_no: float = HE_SO_NO_MAC_DINH) -> tuple[np.ndarray, int]:
+                    he_so_no: float = HE_SO_NO_MAC_DINH,
+                    anh_rgb: np.ndarray | None = None) -> tuple[np.ndarray, int]:
     """Mặt nạ xoá cuối cùng (float32 0/1) và số khung phải lùi về xoá cả khung.
 
     `mat_na_khung`: HW float (1 = trong khung đã nới). `mat_na_chu`: HW uint8 0/255 chưa nở.
@@ -68,6 +145,10 @@ def tinh_mat_na_xoa(mat_na_khung: np.ndarray, mat_na_chu: np.ndarray,
             ra[y1:y2, x1:x2] = np.maximum(ra[y1:y2, x1:x2], mat_na_khung[y1:y2, x1:x2])
             lui += 1
         else:
+            if anh_rgb is not None and anh_rgb.shape[:2] == mat_na_khung.shape[:2]:
+                o = _bao_ve_net_ve_va_da_trang_trong_o(
+                    anh_rgb[y1:y2, x1:x2], mat_na_chu[y1:y2, x1:x2], o
+                )
             ra[y1:y2, x1:x2] = np.maximum(ra[y1:y2, x1:x2], o.astype(np.float32))
     return ra * (mat_na_khung > 0), lui
 
@@ -229,22 +310,42 @@ def xoa_chu_noi_bao_toan_nen(
 
         max_halo_zone = (cv2.dilate(char_core, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (23, 23))) > 0) & (sub >= 150)
         halo_seed = cv2.dilate(char_core, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))) > 0
-        white_cand = max_halo_zone & ((min3 >= 220) | (blur3 >= 230) | (halo_seed & (sub >= 210)))
+        near_core_11 = cv2.dilate(char_core, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11))) > 0
+        # Phát hiện mảng da trắng / quân bài trắng mở rộng của tranh gốc (ngăn cách bởi nét mực đen `dark`)
+        # để không nở halo rộng 11px rồi dán nhầm screentone xám lên cánh tay trắng của nhân vật:
+        open_white_cand = (sub >= 246) & (blur3 >= 248) & (dark == 0) & (char_core == 0)
+        n_ow, l_ow, s_ow, _ = cv2.connectedComponentsWithStats(open_white_cand.astype(np.uint8), connectivity=4)
+        vung_trang_tranh = np.zeros_like(char_core, dtype=bool)
+        for i_ow in range(1, n_ow):
+            ox, oy, ow, oh, oarea = (int(v) for v in s_ow[i_ow])
+            if oarea < 95:
+                continue
+            comp_ow = l_ow == i_ow
+            touches_b = ox <= 1 or oy <= 1 or (ox + ow) >= sw - 1 or (oy + oh) >= sh - 1
+            if touches_b or int((comp_ow & (~near_core_11)).sum()) >= 42:
+                vung_trang_tranh |= comp_ow
+
+        white_cand = max_halo_zone & (~vung_trang_tranh) & ((min3 >= 220) | (blur3 >= 230) | (halo_seed & (sub >= 210)))
         nw, lw, _, _ = cv2.connectedComponentsWithStats(white_cand.astype(np.uint8), connectivity=8)
         halo_mask = np.zeros_like(char_core, dtype=bool)
         for i in range(1, nw):
             comp = lw == i
             if (comp & halo_seed).any():
                 halo_mask |= comp
-        mask = (char_core > 0) | halo_mask
+        # Phần nét chữ đè trực tiếp lên vùng da trắng / quân bài trắng được trả thẳng về nền trắng 255:
+        core_on_white_skin = ((char_core > 0) | halo_seed) & (cv2.dilate(vung_trang_tranh.astype(np.uint8), np.ones((3, 3), np.uint8)) > 0) & ((dark == 0) | (char_core > 0))
+        sub_rgb[core_on_white_skin] = [255, 255, 255]
+        mask = ((char_core > 0) | halo_mask) & (~core_on_white_skin)
         mask_dil = cv2.dilate(mask.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))) > 0
-        mask = mask | (mask_dil & (sub >= 135))
+        mask = mask | (mask_dil & (sub >= 135) & (~vung_trang_tranh) & (dark == 0))
         inv = (~mask).astype(np.uint8)
         nh, lh, sh_stats, _ = cv2.connectedComponentsWithStats(inv, connectivity=4)
         for i in range(1, nh):
             cx, cy, cw, ch, area = (int(v) for v in sh_stats[i])
             if cx > 0 and cy > 0 and cx + cw < sw and cy + ch < sh and area <= 120:
-                mask[lh == i] = True
+                hole_m = lh == i
+                if not (hole_m & ((dark > 0) & (char_core == 0))).any() and not (hole_m & vung_trang_tranh).any():
+                    mask[hole_m] = True
 
         if shadow_dots.any():
             sd_mask = cv2.dilate(shadow_dots, np.ones((5, 5), np.uint8)) > 0

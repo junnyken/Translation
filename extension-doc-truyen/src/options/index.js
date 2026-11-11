@@ -4,7 +4,7 @@
  * máy chủ cấp mới nằm lại trong `chrome.storage.local`. Mã phiên thu hồi được (đăng xuất là
  * mất hiệu lực ngay), mật khẩu thì không.
  */
-import { chuanHoaDiaChi, dangKy, dangNhap, dangXuat, docCauHinh, layHanMuc, luuCauHinh, moTrangWebThongMinh, toiLaAi } from '../lib/api.js'
+import { chuanHoaDiaChi, dangKy, dangNhap, dangXuat, docCauHinh, kiemTraByok, layHanMuc, luuCauHinh, moTrangWebThongMinh, toiLaAi } from '../lib/api.js'
 
 const $ = (id) => document.getElementById(id)
 const MAY_CHU_GOI_Y = 'https://translation-api.vibe1.tinhgon.xyz'
@@ -58,9 +58,12 @@ $('nut-an-hien-mk')?.addEventListener('click', () => {
 })
 
 async function ve() {
-  const { diaChi, email } = await docCauHinh()
+  const { diaChi, email, byokBat, byokProvider, byokKey } = await docCauHinh()
   $('dia-chi').value = diaChi || MAY_CHU_GOI_Y
   $('email').value = email
+  if ($('opt-byok-bat')) $('opt-byok-bat').checked = Boolean(byokBat)
+  if ($('opt-byok-provider') && byokProvider) $('opt-byok-provider').value = byokProvider
+  if ($('opt-byok-key') && typeof byokKey === 'string') $('opt-byok-key').value = byokKey
   try {
     const nguoi = await toiLaAi()
     $('email-hien').textContent = nguoi.email
@@ -141,6 +144,58 @@ document.querySelectorAll('a[href^="https://comic.io.vn"]').forEach((a) => {
     e.preventDefault()
     moTrangWebThongMinh()
   })
+})
+
+const baoByok = (chu, loai) => {
+  const h = $('bao-byok')
+  if (!h) return
+  h.textContent = chu
+  h.className = `hop ${loai}`
+  h.hidden = false
+}
+
+$('nut-an-hien-byok')?.addEventListener('click', () => {
+  const o = $('opt-byok-key')
+  const nut = $('nut-an-hien-byok')
+  if (!o || !nut) return
+  const dangAn = o.type === 'password'
+  o.type = dangAn ? 'text' : 'password'
+  nut.textContent = dangAn ? 'Ẩn' : 'Hiện'
+})
+
+$('nut-luu-byok')?.addEventListener('click', async () => {
+  const bat = Boolean($('opt-byok-bat')?.checked)
+  const prov = $('opt-byok-provider')?.value || 'gemini'
+  const key = ($('opt-byok-key')?.value || '').trim()
+  await luuCauHinh({ byokBat: bat, byokProvider: prov, byokKey: key })
+  baoByok(
+    bat && key.length >= 12
+      ? `✅ Đã lưu API Key (${prov.toUpperCase()}) và bật chế độ BYOK (-50% lượt: Model 2 còn 1 lượt, Model 3 còn 1,5 lượt).`
+      : '💾 Đã lưu cấu hình BYOK trên trình duyệt này.',
+    'ok',
+  )
+})
+
+$('nut-kiem-tra-byok')?.addEventListener('click', async () => {
+  const nut = $('nut-kiem-tra-byok')
+  const prov = $('opt-byok-provider')?.value || 'gemini'
+  const key = ($('opt-byok-key')?.value || '').trim()
+  if (key.length < 12) {
+    baoByok('Vui lòng dán API Key hợp lệ (tối thiểu 12 ký tự) trước khi kiểm tra.', 'loi')
+    return
+  }
+  await luuCauHinh({ byokBat: true, byokProvider: prov, byokKey: key })
+  if ($('opt-byok-bat')) $('opt-byok-bat').checked = true
+  if (nut) nut.disabled = true
+  baoByok('⏳ Đang kiểm tra kết nối trực tiếp tới máy chủ AI...', 'ok')
+  try {
+    const kq = await kiemTraByok(prov, key, '')
+    baoByok(`✅ ${kq.thong_diep || 'Kết nối thành công!'} Đã kích hoạt BYOK giảm 50% lượt.`, 'ok')
+  } catch (err) {
+    baoByok(`❌ ${err?.message || err}`, 'loi')
+  } finally {
+    if (nut) nut.disabled = false
+  }
 })
 
 chonTab('dang-nhap')

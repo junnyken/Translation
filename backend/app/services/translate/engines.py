@@ -590,6 +590,32 @@ class LLMContextTranslator:
                     "is_openai_compat": True,
                 }
 
+        if s.startswith("claude|"):
+            parts = s.split("|", 2)
+            if len(parts) == 3:
+                m_final = parts[1].strip() or "claude-3-5-haiku-latest"
+                return {
+                    "provider": "claude",
+                    "ten_ncc": f"Anthropic Claude ({m_final})",
+                    "endpoint": "https://api.anthropic.com/v1/messages",
+                    "model": m_final,
+                    "api_key": parts[2].strip(),
+                    "is_openai_compat": False,
+                    "is_anthropic": True,
+                }
+        if s.startswith("claude:") or s.startswith("sk-ant-"):
+            clean_k = s[7:].strip() if s.startswith("claude:") else s
+            m_final = def_m if def_m.lower().startswith("claude-") else "claude-3-5-haiku-latest"
+            return {
+                "provider": "claude",
+                "ten_ncc": f"Anthropic Claude ({m_final})",
+                "endpoint": "https://api.anthropic.com/v1/messages",
+                "model": m_final,
+                "api_key": clean_k,
+                "is_openai_compat": False,
+                "is_anthropic": True,
+            }
+
         if s.startswith("oai|"):
             parts = s.split("|", 2)
             if len(parts) == 3:
@@ -792,11 +818,64 @@ class LLMContextTranslator:
             key = self._current_key()
             info_k = self._phan_tich_khoa_ai(key, self.model_name)
             la_oai_compat = bool(info_k.get("is_openai_compat"))
+            la_anthropic = bool(info_k.get("is_anthropic"))
             la_vertex_aq = bool(info_k.get("is_vertex_aq"))
-            if la_oai_compat:
+            if la_anthropic:
+                import base64 as _b64_ant
+
+                ant_content: list[dict] = []
+                if self.anh_trang:
+                    ant_content.append({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": self.anh_mime or "image/jpeg",
+                            "data": _b64_ant.b64encode(self.anh_trang).decode("ascii"),
+                        },
+                    })
+                ant_prompt = prompt
+                if schema is not None:
+                    ant_prompt = f"{prompt}\n\nReturn ONLY valid JSON matching the requested schema, with no markdown code fences."
+                ant_content.append({"type": "text", "text": ant_prompt})
+                ant_payload = {
+                    "model": info_k["model"],
+                    "max_tokens": min(self.max_output_tokens, 8192),
+                    "temperature": self.temperature,
+                    "system": (
+                        "Bạn là chuyên gia dịch truyện tranh đa ngôn ngữ (You are an expert multilingual "
+                        "comic/manga/manhwa/manhua translator). Hãy dịch chính xác sang đúng ngôn ngữ đích "
+                        "và định dạng được yêu cầu trong user prompt."
+                    ),
+                    "messages": [{"role": "user", "content": ant_content}],
+                }
+                request = urllib.request.Request(
+                    info_k["endpoint"],
+                    data=json.dumps(ant_payload).encode("utf-8"),
+                    method="POST",
+                    headers={
+                        "x-api-key": info_k["api_key"],
+                        "anthropic-version": "2023-06-01",
+                        "Content-Type": "application/json",
+                        "User-Agent": "ComicTranslator/2.0",
+                    },
+                )
+            elif la_oai_compat:
                 clean_key = info_k["api_key"]
                 endpoint_oai = info_k["endpoint"]
                 ds_model = info_k["model"]
+                user_content: str | list[dict] = prompt
+                if self.anh_trang and info_k.get("provider") != "deepseek":
+                    import base64 as _b64_oai
+
+                    user_content = [
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:{self.anh_mime or 'image/jpeg'};base64,{_b64_oai.b64encode(self.anh_trang).decode('ascii')}",
+                            },
+                        },
+                        {"type": "text", "text": prompt},
+                    ]
                 ds_payload: dict = {
                     "model": ds_model,
                     "messages": [
@@ -808,7 +887,7 @@ class LLMContextTranslator:
                                 "và định dạng được yêu cầu trong user prompt."
                             ),
                         },
-                        {"role": "user", "content": prompt},
+                        {"role": "user", "content": user_content},
                     ],
                     "temperature": self.temperature,
                     "max_tokens": min(self.max_output_tokens, 8192),
@@ -835,6 +914,21 @@ class LLMContextTranslator:
                 )
             try:
                 data = _http_json(request, self.timeout)
+                if la_anthropic:
+                    blocks = data.get("content") or []
+                    txt_ant = "".join(str(b.get("text") or "") for b in blocks if isinstance(b, dict)).strip()
+                    if txt_ant.startswith("```"):
+                        txt_ant = txt_ant.strip("`")
+                        if txt_ant.lower().startswith("json"):
+                            txt_ant = txt_ant[4:].strip()
+                    u_ant = data.get("usage") or {}
+                    in_tok = int(u_ant.get("input_tokens") or 0)
+                    out_tok = int(u_ant.get("output_tokens") or 0)
+                    return txt_ant, {
+                        "promptTokenCount": in_tok,
+                        "candidatesTokenCount": out_tok,
+                        "totalTokenCount": in_tok + out_tok,
+                    }
                 if la_oai_compat:
                     choice = (data.get("choices") or [{}])[0]
                     msg = choice.get("message") or {}
@@ -850,7 +944,7 @@ class LLMContextTranslator:
                 return "".join(p.get("text", "") for p in parts_out), data.get("usageMetadata", {})
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode("utf-8", "replace")[:300] if hasattr(exc, "read") else ""
-                if (la_vertex_aq or not la_oai_compat) and exc.code in (400, 404) and self.key_count >= 1:
+                if (la_vertex_aq or (not la_oai_compat and not la_anthropic)) and exc.code in (400, 404) and self.key_count >= 1:
                     ck = info_k["api_key"]
                     m_cur = info_k["model"]
                     ds_thu_tiep = (

@@ -984,6 +984,66 @@ class AIGeminiDetector:
         )
         return ra
 
+    def detect_va_dich_som_regions(
+        self,
+        image_path: str,
+        ctd_regions: list[DetectedRegion],
+        *,
+        source_lang: str = "ja",
+        target_lang: str = "vi",
+        boi_canh: str | None = None,
+    ) -> list[DetectedRegion]:
+        """Model 3 (Set-of-Mark Hybrid Vision):
+        Nhận các khung toạ độ chuẩn từng pixel từ `CTDDetector`, vẽ thẻ đánh số `[#1..#N]` lên bản sao ảnh,
+        gửi 1 lượt lên Vision LLM để đọc biểu cảm tranh + dịch ngữ cảnh, rồi ghép ngược lại vào toạ độ pixel
+        gốc của CTD (sai số vị trí = 0px, giữ nguyên mặt nạ `mat_na_chu` cho `LaMa` xoá chữ trên nền phức tạp).
+        """
+        if not self.api_keys:
+            raise AIDetectError("Chưa cấu hình khoá AI Vision cho chế độ Set-of-Mark.")
+        if not ctd_regions:
+            return self.detect_va_dich_regions(
+                image_path, source_lang=source_lang, target_lang=target_lang, boi_canh=boi_canh
+            )
+
+        from PIL import Image
+        from app.services.detect.som_vision import (
+            SCHEMA_SOM_GOP_DICH,
+            ghep_ket_qua_som_vao_khung_ctd,
+            sap_xep_khung_som,
+            ve_anh_set_of_mark,
+            xay_loi_nhac_som_gop_dich,
+        )
+
+        with Image.open(image_path) as im:
+            rong_goc, cao_goc = im.size
+        with open(image_path, "rb") as f:
+            goc_bytes = f.read()
+
+        khung_sap_xep = sap_xep_khung_som(ctd_regions, source_lang=source_lang)
+        anh_som, mime_som = ve_anh_set_of_mark(
+            goc_bytes,
+            khung_sap_xep,
+            max_side=max(self.canh_toi_da, 1280),
+        )
+        loi_nhac_som = xay_loi_nhac_som_gop_dich(
+            len(khung_sap_xep),
+            source_lang=source_lang,
+            target_lang=target_lang,
+            boi_canh=boi_canh,
+        )
+        tho_som = self._goi(anh_som, mime_som, loi_nhac=loi_nhac_som, schema=SCHEMA_SOM_GOP_DICH)
+        ra = ghep_ket_qua_som_vao_khung_ctd(khung_sap_xep, tho_som, rong_goc, cao_goc)
+        if not ra:
+            # Nếu model ngoại lai không tuân thủ id Set-of-Mark, lùi mượt về 1-pass chuẩn
+            return self.detect_va_dich_regions(
+                image_path, source_lang=source_lang, target_lang=target_lang, boi_canh=boi_canh
+            )
+        logger.info(
+            "ai_gemini Set-of-Mark Vision: %s -> %d/%d khung CTD khớp 0px lệch (model %s)",
+            image_path, len(ra), len(khung_sap_xep), self.model_name,
+        )
+        return ra
+
     def _goi(
         self,
         anh: bytes,
@@ -1036,12 +1096,32 @@ class AIGeminiDetector:
         loi_cuoi: Exception | None = None
         ds_khoa_gemini: list[tuple[str, str]] = []
         ds_khoa_vision_oai: list[tuple[str, str, str]] = []  # (endpoint_url, model, api_key)
+        ds_khoa_vision_claude: list[tuple[str, str]] = []  # (model, api_key)
         model_goc = (self.model_name or "gemini-3.1-flash-lite").strip()
         if model_goc.lower() == "gemini-3.5-flash":
             model_goc = "gemini-3.5-flash-lite"
         for raw_k in self.api_keys:
             s_k = str(raw_k or "").strip()
-            if not s_k or s_k.startswith(("sk-", "ds:", "ds|", "gsk_")):
+            if not s_k or s_k.startswith(("ds:", "ds|")):
+                continue
+            if s_k.startswith(("claude|", "claude:", "sk-ant-")):
+                if s_k.startswith("claude|"):
+                    parts_cl = s_k.split("|", 2)
+                    m_cl = parts_cl[1].strip() if len(parts_cl) == 3 and parts_cl[1].strip() else "claude-3-5-sonnet-latest"
+                    k_cl = parts_cl[-1].strip()
+                else:
+                    m_cl = "claude-3-5-sonnet-latest"
+                    k_cl = s_k[7:].strip() if s_k.startswith("claude:") else s_k
+                if k_cl:
+                    ds_khoa_vision_claude.append((m_cl, k_cl))
+                continue
+            if s_k.startswith(("sk-proj-", "sk-svcacct-")):
+                ds_khoa_vision_oai.append(("https://api.openai.com/v1/chat/completions", "gpt-4o-mini", s_k))
+                continue
+            if s_k.startswith("sk-or-"):
+                ds_khoa_vision_oai.append(("https://openrouter.ai/api/v1/chat/completions", "google/gemini-2.5-flash", s_k))
+                continue
+            if s_k.startswith(("sk-", "gsk_")):
                 continue
             if s_k.startswith(("or|", "or:", "oai|", "oai:", "groq|", "groq:", "custom|")):
                 if s_k.startswith("custom|"):
@@ -1082,7 +1162,7 @@ class AIGeminiDetector:
                 s_k = s_k[3:].strip()
             if s_k and not any(k_existing == s_k and m_existing == m_k for m_existing, k_existing in ds_khoa_gemini):
                 ds_khoa_gemini.append((m_k, s_k))
-        if not ds_khoa_gemini and not ds_khoa_vision_oai:
+        if not ds_khoa_gemini and not ds_khoa_vision_oai and not ds_khoa_vision_claude:
             ds_khoa_gemini = [(model_goc, str(k).split("|")[-1].strip()) for k in self.api_keys if str(k).strip()]
 
         d = None
@@ -1157,10 +1237,63 @@ class AIGeminiDetector:
             if thanh_cong_key and d is not None:
                 break
 
+        if d is None and ds_khoa_vision_claude:
+            chi_dan_cl = (
+                "\n\nReturn ONLY a raw JSON array (no markdown fences) matching the requested fields "
+                '(each item with "id" if Set-of-Mark tags exist, "box": [ymin, xmin, ymax, xmax], "text", "ban_dich", "doan").'
+            )
+            for m_cl, k_cl in ds_khoa_vision_claude:
+                try:
+                    than_cl = json.dumps({
+                        "model": m_cl,
+                        "max_tokens": 4096,
+                        "temperature": 0.0,
+                        "messages": [{
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "image",
+                                    "source": {"type": "base64", "media_type": mime, "data": b64_anh},
+                                },
+                                {"type": "text", "text": loi_nhac + chi_dan_cl},
+                            ],
+                        }],
+                    }).encode()
+                    req_cl = urllib.request.Request(
+                        "https://api.anthropic.com/v1/messages",
+                        data=than_cl,
+                        headers={
+                            "Content-Type": "application/json",
+                            "x-api-key": k_cl,
+                            "anthropic-version": "2023-06-01",
+                            "User-Agent": "ComicTranslator/2.0",
+                        },
+                    )
+                    with urllib.request.urlopen(req_cl, timeout=self.timeout) as resp_cl:
+                        d_cl = json.load(resp_cl)
+                    chu_cl = "".join(
+                        str(b.get("text") or "") for b in (d_cl.get("content") or []) if isinstance(b, dict)
+                    ).strip()
+                    if chu_cl.startswith("```"):
+                        chu_cl = chu_cl.strip("`").removeprefix("json").strip()
+                    tho_cl = json.loads(chu_cl)
+                    if isinstance(tho_cl, dict) and isinstance(tho_cl.get("items"), list):
+                        tho_cl = tho_cl["items"]
+                    if isinstance(tho_cl, list):
+                        self.last_usage = d_cl.get("usage") or {}
+                        return tho_cl
+                except Exception as exc_cl:
+                    loi_cuoi = AIDetectError(f"Gọi Claude Vision ({m_cl}) thất bại: {exc_cl}")
+
         if d is None and ds_khoa_vision_oai:
+            co_som_id = "id" in ((schema.get("items") or {}).get("properties") or {})
             chi_dan_json = (
                 "\n\nReturn ONLY a raw JSON array (no markdown fences) where each item has "
-                '{"box": [ymin, xmin, ymax, xmax], "text": "...", "ban_dich": "...", "doan": false}.'
+                + (
+                    '{"id": 1, "box": [ymin, xmin, ymax, xmax], "text": "...", "ban_dich": "...", "doan": false}.'
+                    if co_som_id
+                    else '{"box": [ymin, xmin, ymax, xmax], "text": "...", "ban_dich": "...", "doan": false}.'
+                )
             )
             for url_oai, m_oai, k_oai in ds_khoa_vision_oai:
                 try:
