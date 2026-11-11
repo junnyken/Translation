@@ -1030,4 +1030,74 @@ export const kiemTraByok = ({ provider = 'gemini', apiKey = '', model = '' } = {
     }),
   }).then(doc)
 
+// ---------- Thanh toán Online Chuẩn An Toàn (VietQR/SePay HMAC, Stripe, PayPal v2, Duyệt tay) ----------
+
+/** Bảng giá đồng nhất 1 nguồn từ máy chủ + cờ bật/tắt các cổng (`vietqr_enabled`, `stripe_enabled`, `paypal_enabled`). */
+export const layBangGiaThanhToan = () => fetch(`${BASE}/thanh-toan/bang-gia`).then(doc)
+
+/** Tạo đơn nội bộ có chốt số tiền & mã Crockford Base32 (`CIOXXXXXXXX`). */
+export const taoDonThanhToan = ({ plan, rail = 'vietqr' }) =>
+  fetch(`${BASE}/thanh-toan/tao-don`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ plan, rail }),
+  }).then(doc)
+
+/** Hỏi trạng thái đơn nội bộ (chỉ chủ đơn mới đọc được). */
+export const layDonThanhToan = (orderId) =>
+  fetch(`${BASE}/thanh-toan/don/${encodeURIComponent(orderId)}`).then(doc)
+
+/** Huỷ đơn `pending` chưa thanh toán. */
+export const huyDonThanhToan = (orderId) =>
+  fetch(`${BASE}/thanh-toan/don/${encodeURIComponent(orderId)}/huy`, { method: 'POST' }).then(doc)
+
+/** Tạo phiên Stripe Checkout do máy chủ chốt số tiền + `metadata={user_id, plan, order_id, order_code}`. */
+export const taoStripeCheckout = ({ plan, success_url = null, cancel_url = null }) =>
+  fetch(`${BASE}/thanh-toan/stripe/checkout`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ plan, success_url, cancel_url }),
+  }).then(doc)
+
+/** Tạo đơn PayPal Orders API v2 từ máy chủ (`custom_id = order.id`). */
+export const taoPayPalOrder = ({ plan, return_url = null, cancel_url = null }) =>
+  fetch(`${BASE}/thanh-toan/paypal/create-order`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ plan, return_url, cancel_url }),
+  }).then(doc)
+
+/** Capture PayPal theo `order_id` NỘI BỘ của hệ thống (tuyệt đối không truyền PayPal order ID tuỳ ý). */
+export const capturePayPalOrder = (orderId) =>
+  fetch(`${BASE}/thanh-toan/paypal/orders/${encodeURIComponent(orderId)}/capture`, {
+    method: 'POST',
+  }).then(doc)
+
+/** Quản trị đọc cấu hình cổng thanh toán (mọi khoá bí mật đều được che mặt nạ) + kiểm tra schema & bot Telegram. */
+export const quanTriLayCauHinhThanhToan = ({ checkBot = false } = {}) =>
+  fetch(`${BASE}/quan-tri/thanh-toan/cau-hinh${checkBot ? '?check_bot=true' : ''}`).then(doc)
+
+/** Quản trị lưu cấu hình cổng thanh toán (schema chặt `extra='forbid'` + đọc lại từ kho để xác minh). */
+export const quanTriLuuCauHinhThanhToan = (body) =>
+  fetch(`${BASE}/quan-tri/thanh-toan/cau-hinh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).then(doc)
+
+/** Quản trị xem danh sách hàng chờ 'Giao dịch cần duyệt tay' (`payment_reviews`). */
+export const quanTriLayDsDuyetTay = ({ status = 'needs_manual_review', limit = 100 } = {}) =>
+  fetch(
+    `${BASE}/quan-tri/thanh-toan/duyet-tay?status=${encodeURIComponent(status)}&limit=${Number(limit) || 100}`,
+  ).then(doc)
+
+/** Quản trị xử lý giao dịch cần duyệt tay (`kich_hoat` | `da_xu_ly` | `hoan_tien`). */
+export const quanTriXuLyDuyetTay = (reviewId, body) =>
+  fetch(`${BASE}/quan-tri/thanh-toan/duyet-tay/${encodeURIComponent(reviewId)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).then(doc)
+
+
 

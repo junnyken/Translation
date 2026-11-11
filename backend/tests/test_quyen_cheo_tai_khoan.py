@@ -37,6 +37,7 @@ from app.models import (
     NguoiDung,
     OCRResult,
     Page,
+    PaymentOrder,
     Project,
     RegionQualityAssessment,
     RegionSafeArea,
@@ -220,11 +221,26 @@ async def _dung_du_lieu(session, chu_so_huu_id: uuid.UUID) -> dict[str, str]:
         chu_so_huu_id=chu_so_huu_id, duong_anh="", trang_thai=JobStatus.done,
         ngon_ngu=SourceLang.ja, ly_do="co_9_kana", bang_chung={"kana": 9, "tong_co_nghia": 9},
     )
-    session.add(yeu_cau)
+    don_tt = PaymentOrder(
+        user_id=chu_so_huu_id,
+        owner_ref=str(chu_so_huu_id),
+        email="a@test.local",
+        plan="starter_monthly",
+        tier_rank=2,
+        credits=300,
+        duration_days=30,
+        rail="vietqr",
+        currency="VND",
+        amount=49_000,
+        code="CIO23456789",
+        status="pending",
+    )
+    session.add_all([yeu_cau, don_tt])
     await session.commit()
 
     return {
         "yeu_cau_id": str(yeu_cau.id),
+        "order_id": str(don_tt.id),
         "project_id": str(project.id),
         "page_id": str(page.id),
         "region_id": str(region.id),
@@ -309,6 +325,26 @@ MIEN_TRU = {
     "/api/v1/developer/translate-image": "tạo việc dịch mới của chính người gọi",
     "/api/v1/developer/translate-chapter": "tạo việc dịch mới của chính người gọi",
     "/api/v1/developer/translate-text": "dịch chữ gửi kèm, không đụng dữ liệu đã lưu",
+    "/api/v1/doc-truyen/dich-thoai-ngu-canh": "cầu nối dịch thoại của chính người gọi, không nhận id chapter",
+    "/api/v1/doc-truyen/viet-kich-ban-review": "cầu nối biên kịch của chính người gọi, không nhận id chapter",
+    "/api/v1/doc-truyen/kiem-tra-byok": "kiểm tra khoá BYOK gửi kèm trong request, không lưu/đọc tài nguyên của ai",
+    "/api/v1/quan-tri/tu-chua-lanh": "chỉ quản trị; không nhận id chapter",
+    "/api/v1/quan-tri/tu-chua-lanh/chay-ngay": "chỉ quản trị; không nhận id chapter",
+    # Thanh toán Online chuẩn an toàn: các đường tạo đơn mới cho CHÍNH người gọi, bảng giá công khai,
+    # webhook xác thực chữ ký raw body, hoặc trang quản trị — còn 3 đường theo `{order_id}`
+    # (`/thanh-toan/don/{order_id}`, `/huy`, `/paypal/orders/{order_id}/capture`) VẪN ĐƯỢC QUÉT THẬT!
+    "/api/v1/nap-luot/paypal-capture": "đã huỷ bỏ vĩnh viễn -> luôn 410 Gone",
+    "/api/v1/nap-luot/paypal-ipn": "mặc định 410 Gone; khi bật bắt buộc VERIFIED + merchant",
+    "/api/v1/thanh-toan/bang-gia": "bảng giá công khai + trạng thái gói của chính người gọi",
+    "/api/v1/thanh-toan/tao-don": "tạo đơn nội bộ MỚI thuộc chính người gọi, không nhận id của ai",
+    "/api/v1/thanh-toan/stripe/checkout": "tạo phiên Stripe mới của chính người gọi, không nhận id của ai",
+    "/api/v1/thanh-toan/paypal/create-order": "tạo đơn PayPal v2 mới của chính người gọi, không nhận id của ai",
+    "/api/v1/thanh-toan/webhook/sepay": "webhook SePay gác bằng chữ ký HMAC-SHA256 raw body; kiểm ở test_thanh_toan_an_toan",
+    "/api/v1/thanh-toan/webhook/stripe": "webhook Stripe gác bằng Stripe-Signature raw body; kiểm ở test_thanh_toan_an_toan",
+    "/api/v1/thanh-toan/webhook/paypal": "webhook PayPal gác bằng verify-webhook-signature; kiểm ở test_thanh_toan_an_toan",
+    "/api/v1/quan-tri/thanh-toan/cau-hinh": "chỉ quản trị; kiểm ở test_thanh_toan_an_toan",
+    "/api/v1/quan-tri/thanh-toan/duyet-tay": "chỉ quản trị; kiểm ở test_thanh_toan_an_toan",
+    "/api/v1/quan-tri/thanh-toan/duyet-tay/{review_id}": "chỉ quản trị; kiểm ở test_thanh_toan_an_toan",
 }
 
 
@@ -441,6 +477,10 @@ async def test_khong_endpoint_nao_lo_du_lieu_sang_tai_khoan_khac(
             text("UPDATE project SET chu_so_huu_id = :u WHERE id = :p"),
             {"u": uuid.UUID(nguoi_a[0]), "p": uuid.UUID(ids["project_id"])},
         )
+        await session.execute(
+            text("UPDATE payment_orders SET status = 'pending', user_id = :u WHERE id = :oid"),
+            {"u": uuid.UUID(nguoi_a[0]), "oid": uuid.UUID(ids["order_id"])},
+        )
         # E76 — `PATCH /regions` đổi khung thì XOÁ vùng an toàn (hình quanh khung cũ hết đúng). Dựng
         # lại sau mỗi lượt, cùng lý do với dòng đặt lại chủ sở hữu ở trên: không thì lượt dò
         # `GET /regions/{id}/safe-area` phía sau ra 404 ở cả A lẫn B và thành rỗng nghĩa.
@@ -526,6 +566,14 @@ MO_CHO_KHACH = {
     # Webhook ngân hàng gác bằng khoá bí mật riêng, không bằng đăng nhập: test không đặt khoá
     # ⇒ 503 (thiếu cấu hình), khoá sai ⇒ 401. Kiểm ở `test_va_bao_mat_audit_2610`.
     "/api/v1/nap-luot/webhook": 503,
+    "/api/v1/nap-luot/paypal-capture": 410,
+    "/api/v1/nap-luot/paypal-ipn": 410,
+    "/api/v1/thanh-toan/bang-gia": 200,
+    "/api/v1/thanh-toan/webhook/sepay": 503,
+    "/api/v1/thanh-toan/webhook/stripe": 404,
+    "/api/v1/thanh-toan/webhook/paypal": 503,
+    "/api/v1/doc-truyen/dich-thoai-ngu-canh": 422,
+    "/api/v1/doc-truyen/viet-kich-ban-review": 422,
     # Ảnh gốc của trang NGƯỜI KHÁC ⇒ 404 (cùng `_get_page_or_404` với `/anh`).
     "/api/v1/doc-truyen/trang/{page_id}/anh-goc": 404,
     # 422: multipart, FastAPI kiểm thân trước khi vào hàm — cùng điểm mù như `/nhan-dang-ngon-ngu`.

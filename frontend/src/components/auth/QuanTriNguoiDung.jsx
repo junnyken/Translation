@@ -676,7 +676,7 @@ export default function QuanTriNguoiDung({ toi }) {
                 <form onSubmit={xuLyLuuNganHang} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <p className="ghi-chu" style={{ margin: 0 }}>
                     Thông tin tài khoản ngân hàng &amp; email hỗ trợ hiện đang được <strong>tạm ẩn trên trang công khai</strong> theo cấu hình của bạn.
-                    Webhook tự động đối soát: <code>{typeof window !== 'undefined' ? `${window.location.origin}/api/v1/nap-luot/webhook` : '/api/v1/nap-luot/webhook'}</code>
+                    Webhook SePay chuẩn HMAC-SHA256 (`X-SePay-Signature`): <code>{typeof window !== 'undefined' ? `${window.location.origin}/api/v1/thanh-toan/webhook/sepay` : '/api/v1/thanh-toan/webhook/sepay'}</code> (Khuyên dùng trang <strong>Admin → Thanh toán &amp; VietQR</strong> để quản lý đầy đủ SePay, Stripe, PayPal v2 &amp; Hàng chờ đối soát).
                   </p>
                   <div className="hang-o-cap-goi">
                     <input

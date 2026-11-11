@@ -163,22 +163,53 @@ class Settings(BaseSettings):
     #: 0 = không giới hạn.
     so_lan_chay_lai_toi_da_moi_trang: int = 5
 
-    # --- E100: nạp lượt / gói VIP thương mại (VietQR / SePay / Casso / PayOS) -----------------
-    #: Khoá bí mật xác thực Webhook ngân hàng (`Authorization: Apikey <key>` hoặc `Bearer <key>`).
-    #: Để trống = cổng webhook tự động khoá (chỉ quản trị cấp lượt thủ công qua `/quan-tri/cap-luot`).
+    # --- E100: nạp lượt / gói VIP thương mại (VietQR / SePay / Stripe / PayPal) --------------
+    #: Khoá bí mật xác thực Webhook ngân hàng (`X-SePay-Signature` HMAC-SHA256 hoặc `Apikey`).
+    #: Để trống = cổng webhook tự động khoá (503). TUYỆT ĐỐI không đặt secret mặc định trong code.
     webhook_nap_luot_bi_mat: str = ""
-    #: Mã ngân hàng VietQR (tạm để trống theo yêu cầu ẩn thông tin chuyển khoản).
+    sepay_webhook_secret: str = ""
+    #: Khoá cũ trong lúc xoay secret không mất giao dịch (§13). Xoay xong thì để rỗng lại.
+    sepay_webhook_secret_previous: str = ""
+    #: Chỉ cho phép header `Authorization: Apikey` trên `/thanh-toan/webhook/sepay` khi bật rõ.
+    #: Mặc định False: bắt buộc HMAC-SHA256 `X-SePay-Signature` trên raw body.
+    sepay_allow_apikey_auth: bool = False
+    #: Mã ngân hàng VietQR (VD: `ACB`, `MB`, `VCB` hoặc BIN 6 số).
     ngan_hang_ten: str = ""
-    #: Số tài khoản ngân hàng nhận tiền nạp lượt (tạm ẩn).
+    #: Số tài khoản ngân hàng nhận tiền nạp lượt (bắt buộc khớp `accountNumber` trên SePay).
     ngan_hang_so_tk: str = ""
-    #: Tên chủ tài khoản hiển thị bên cạnh mã VietQR (tạm ẩn).
+    #: Tên chủ tài khoản hiển thị bên cạnh mã VietQR.
     ngan_hang_chu_tk: str = ""
-    #: Email hỗ trợ hệ thống (tạm ẩn).
+    #: Email hỗ trợ hệ thống.
     email_quan_tri_he_thong: str = ""
     #: Khoá bí mật X-RapidAPI-Proxy-Secret do RapidAPI cấp (để xác thực request từ chợ RapidAPI).
     rapidapi_proxy_secret: str = ""
-    #: Đơn giá VNĐ chuẩn theo Phương án A (500 VNĐ/trang ⇒ 50.000đ = 100 trang, kèm Gói Mồi 19.000đ = 50 trang).
+    #: Đơn giá VNĐ chuẩn theo Phương án A (500 VNĐ/trang ⇒ 50.000đ = 100 trang, kèm Gói Mồi 20.000đ = 40 trang).
     ty_le_vnd_moi_trang: int = 500
+
+    # --- Thanh toán quốc tế: Stripe Checkout & Billing ---
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+    stripe_webhook_secret_previous: str = ""
+    #: Bản đồ JSON tuỳ chọn `{ma_goi: "price_xxx"}` cho Stripe Subscription/Checkout.
+    stripe_price_map_json: str = ""
+
+    # --- Thanh toán quốc tế: PayPal Orders API v2 ---
+    paypal_client_id: str = ""
+    paypal_client_secret: str = ""
+    paypal_merchant_id: str = ""
+    paypal_email: str = ""
+    paypal_webhook_id: str = ""
+    paypal_mode: Literal["sandbox", "live"] = "live"
+    #: Cổng PayPal IPN cũ mặc định TẮT (410 Gone) theo chuẩn Orders v2 (§3.3).
+    paypal_enable_legacy_ipn: bool = False
+
+    # --- Cảnh báo thanh toán tức thì (Telegram / Slack / Discord) ---
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
+    payment_alert_webhook_url: str = ""
+    #: Số đơn `pending` tối đa cho mỗi tài khoản cùng lúc và thời gian sống (giờ) của đơn.
+    payment_max_pending_orders_per_user: int = 3
+    payment_order_ttl_hours: int = 24
 
     # --- E57: tự nhận ngôn ngữ ---------------------------------------------------------------
     #: Số lượt "đọc thử ảnh để đoán ngôn ngữ" mỗi chủ thể mỗi ngày.

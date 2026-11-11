@@ -13,20 +13,64 @@ export default function HeSinhThaiCongCu() {
   const [tabCode, setTabCode] = useState('python')
   const [thongTinNap, setThongTinNap] = useState(null)
   const [goiChonQr, setGoiChonQr] = useState(null)
+  const [donQrServer, setDonQrServer] = useState(null)
+  const [dangTaoDonQr, setDangTaoDonQr] = useState(false)
+  const [loiTaoDonQr, setLoiTaoDonQr] = useState('')
   const { laEn } = useNgonNguUI()
   const apiOrigin = api.API_BASE || 'https://translation-api.vibe1.tinhgon.xyz'
   const donGia = thongTinNap?.ty_le_vnd_moi_trang || 500
 
   useEffect(() => {
     let huy = false
-    api.layThongTinNapLuot()
+    api.layBangGiaThanhToan()
       .then((tt) => { if (!huy) setThongTinNap(tt) })
-      .catch(() => {})
+      .catch(() => {
+        api.layThongTinNapLuot()
+          .then((ttCu) => { if (!huy) setThongTinNap(ttCu) })
+          .catch(() => {})
+      })
     return () => { huy = true }
   }, [])
 
-  function chonGoiDoanhNghiep(goiTinh) {
+  // Tự động thăm dò trạng thái đơn `CIO...` mỗi 3 giây khi đang chờ chuyển khoản
+  useEffect(() => {
+    if (!donQrServer?.id || donQrServer.status !== 'pending') return undefined
+    let huy = false
+    const timer = setInterval(async () => {
+      try {
+        const capNhat = await api.layDonThanhToan(donQrServer.id)
+        if (!huy && capNhat) setDonQrServer(capNhat)
+      } catch {
+        // Giữ nguyên trạng thái hiển thị nếu mạng chập chờn
+      }
+    }, 3000)
+    return () => {
+      huy = true
+      clearInterval(timer)
+    }
+  }, [donQrServer?.id, donQrServer?.status])
+
+  async function chonGoiDoanhNghiep(goiTinh) {
     setGoiChonQr(goiTinh)
+    setLoiTaoDonQr('')
+    setDangTaoDonQr(true)
+    try {
+      const don = await api.taoDonThanhToan({ plan: goiTinh.ma, rail: 'vietqr' })
+      setDonQrServer(don)
+    } catch (err) {
+      setDonQrServer(null)
+      if (err?.status === 401) {
+        setLoiTaoDonQr(
+          laEn
+            ? 'Please sign in at the top bar first so your purchased credits and API key are bound to your account.'
+            : 'Vui lòng Đăng nhập / Tạo tài khoản trên thanh đầu trang trước khi lấy mã QR để số trang và API Key được gắn đúng vào tài khoản của bạn.',
+        )
+      } else {
+        setLoiTaoDonQr(err?.cauNguoiDoc || err?.message || 'Không thể khởi tạo đơn VietQR lúc này.')
+      }
+    } finally {
+      setDangTaoDonQr(false)
+    }
   }
 
   return (
@@ -579,24 +623,43 @@ curl -X POST "${apiOrigin}/api/v1/developer/translate-text" \\
           }}>
             <div style={{ flex: '1 1 320px' }}>
               <div style={{ color: '#10b981', fontWeight: 700, fontSize: 14, marginBottom: 4 }}>
-                ✅ {laEn ? 'Selected Package:' : 'Đang chọn gói nạp tự động 24/7:'} {goiChonQr.ten}
+                {donQrServer?.status === 'paid'
+                  ? (laEn ? `🎉 Payment Confirmed (+${donQrServer.credits} pages)!` : `🎉 Đã nhận thanh toán thành công (+${donQrServer.credits} trang)!`)
+                  : `✅ ${laEn ? 'Selected Package:' : 'Đang chọn gói nạp tự động 24/7:'} ${goiChonQr.ten}`}
               </div>
-              <p style={{ margin: '0 0 8px', fontSize: 13.5, color: '#cbd5e1' }}>
-                {laEn
-                  ? 'Scan the VietQR code with your banking app. Your pages are credited automatically within 5–15 seconds after transfer!'
-                  : 'Quét mã VietQR bên cạnh bằng ứng dụng Ngân hàng. Hệ thống Webhook sẽ tự động cộng ngay số trang (kèm % khuyến mãi) vào tài khoản của bạn sau 5–15 giây!'}
-              </p>
-              <div style={{ fontSize: 13, background: '#020617', padding: '10px 12px', borderRadius: 8, border: '1px solid #334155' }}>
-                <div>💰 {laEn ? 'Amount:' : 'Số tiền:'} <strong style={{ color: '#38bdf8' }}>{goiChonQr.giaVnd.toLocaleString('vi-VN')} VNĐ</strong> ({goiChonQr.soTrang})</div>
-                <div>📝 {laEn ? 'Transfer Memo:' : 'Nội dung chuyển khoản bắt buộc:'} <code style={{ color: '#f97316', fontWeight: 700 }}>{thongTinNap?.noi_dung_chuyen_khoan || 'NAP <EMAIL_CUA_BAN>'}</code></div>
-              </div>
+              {dangTaoDonQr && (
+                <p style={{ margin: '0 0 8px', fontSize: 13.5, color: '#38bdf8' }}>
+                  {laEn ? '⏳ Creating secure server order (CIO...)...' : '⏳ Đang tạo mã đơn bảo mật (CIO...) từ máy chủ...'}
+                </p>
+              )}
+              {loiTaoDonQr && (
+                <div style={{ margin: '0 0 8px', padding: '10px 12px', borderRadius: 8, background: 'rgba(239, 68, 68, 0.14)', border: '1px solid rgba(239, 68, 68, 0.4)', fontSize: 13, color: '#fecaca' }}>
+                  ⚠️ {loiTaoDonQr}{' '}
+                  <a href="#bang-gia" style={{ color: '#38bdf8', fontWeight: 700, marginLeft: 6 }}>
+                    {laEn ? 'Open Full Checkout →' : 'Mở Bảng Giá Đầy Đủ (VietQR / Stripe / PayPal) →'}
+                  </a>
+                </div>
+              )}
+              {donQrServer && (
+                <>
+                  <p style={{ margin: '0 0 8px', fontSize: 13.5, color: '#cbd5e1' }}>
+                    {laEn
+                      ? 'Scan the server-locked VietQR code with your banking app. Your pages are credited automatically within 5–15 seconds!'
+                      : 'Quét mã VietQR khoá chuẩn bên cạnh bằng ứng dụng Ngân hàng. Webhook SePay HMAC sẽ tự động cộng ngay số trang vào tài khoản sau 5–15 giây!'}
+                  </p>
+                  <div style={{ fontSize: 13, background: '#020617', padding: '10px 12px', borderRadius: 8, border: '1px solid #334155' }}>
+                    <div>💰 {laEn ? 'Exact Amount:' : 'Số tiền khoá chuẩn:'} <strong style={{ color: '#38bdf8' }}>{Number(donQrServer.amount_minor || goiChonQr.giaVnd).toLocaleString('vi-VN')} VNĐ</strong> ({goiChonQr.soTrang})</div>
+                    <div>📝 {laEn ? 'Order Code (Required Memo):' : 'Mã đơn chuyển khoản bắt buộc:'} <code style={{ color: '#f97316', fontWeight: 700 }}>{donQrServer.code}</code></div>
+                  </div>
+                </>
+              )}
             </div>
 
-            {thongTinNap?.ngan_hang_ten && thongTinNap?.ngan_hang_so_tk && (
+            {donQrServer?.vietqr_url && donQrServer.status === 'pending' && (
               <div style={{ background: '#fff', padding: 10, borderRadius: 10, textAlign: 'center' }}>
                 <img
-                  src={`https://img.vietqr.io/image/${encodeURIComponent(thongTinNap.ngan_hang_ten)}-${encodeURIComponent(thongTinNap.ngan_hang_so_tk)}-compact2.png?amount=${goiChonQr.giaVnd}&addInfo=${encodeURIComponent(thongTinNap.noi_dung_chuyen_khoan)}&accountName=${encodeURIComponent(thongTinNap.ngan_hang_chu_tk || '')}`}
-                  alt="VietQR Enterprise"
+                  src={donQrServer.vietqr_url}
+                  alt={`VietQR ${donQrServer.code}`}
                   style={{ width: 180, height: 'auto', display: 'block' }}
                 />
               </div>

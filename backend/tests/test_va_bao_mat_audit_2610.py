@@ -124,19 +124,24 @@ class TestWebhookKhongCongTrung:
         nguoi = await session.get(NguoiDung, uuid.UUID(nguoi_a[0]))
         truoc = int(nguoi.so_luot_mua_them or 0)
         than = {
-            "id": 987654, "transferType": "in", "transferAmount": 50_000,
+            "id": 987654, "transferType": "in", "transferAmount": 49_000,
             "content": f"NAP {nguoi.email}",
         }
         tieu_de = {"Authorization": f"Apikey {bi_mat_webhook}"}
         r1 = await client_chua_dang_nhap.post("/api/v1/nap-luot/webhook", json=than, headers=tieu_de)
         r2 = await client_chua_dang_nhap.post("/api/v1/nap-luot/webhook", json=than, headers=tieu_de)
-        assert r1.json()["ok"] is True and r1.json()["da_cong_them"] == 100, r1.text
+        assert r1.json()["ok"] is True and r1.json()["da_cong_them"] == 300, r1.text
         assert r2.json().get("trung_lap") is True, r2.text
         await session.refresh(nguoi)
         try:
-            assert nguoi.so_luot_mua_them == truoc + 100
+            assert nguoi.so_luot_mua_them == truoc + 300
         finally:
             nguoi.so_luot_mua_them = truoc
+            nguoi.cap_do_goi = 0
+            nguoi.ma_goi_hien_tai = None
+            nguoi.het_han_goi = None
+            nguoi.trang_thai_billing = "free"
+            nguoi.gio_luot_json = []
             await session.commit()
 
     async def test_tien_ra_va_thieu_ma_giao_dich_khong_cong(

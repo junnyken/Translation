@@ -200,12 +200,23 @@ MIEN_TRU_DANG_NHAP = {
     "/api/v1/auth/thach-thuc-bot",      # phát mã chống bot cho trang đăng ký
     "/api/v1/nap-luot/thong-tin",       # bảng giá; có tài khoản thì kèm mã CK của chính mình
     "/api/v1/nap-luot/webhook",         # gác bằng khoá bí mật webhook, không bằng đăng nhập
+    "/api/v1/nap-luot/paypal-capture",  # đã ngừng hoạt động vĩnh viễn -> luôn trả 410 Gone
+    "/api/v1/nap-luot/paypal-ipn",      # mặc định 410 Gone; khi bật bắt buộc xác minh VERIFIED + merchant
+    "/api/v1/thanh-toan/bang-gia",      # bảng giá đồng nhất chỉ đọc cho khách Việt Nam & Quốc tế
+    "/api/v1/thanh-toan/webhook/sepay",   # webhook SePay xác thực chữ ký HMAC-SHA256 raw body (thiếu khoá -> 503)
+    "/api/v1/thanh-toan/webhook/stripe",  # webhook Stripe xác thực chữ ký Stripe-Signature raw body (thiếu khoá -> 404)
+    "/api/v1/thanh-toan/webhook/paypal",  # webhook PayPal xác thực chữ ký verify-webhook-signature (thiếu khoá -> 503)
     "/api/v1/tai-ve/tien-ich-chrome",   # tệp cài đặt công khai
     "/api/v1/tai-ve/app-windows",       # tệp cài đặt công khai
     "/api/v1/doc-truyen/goi",           # gói zip/cbz của khách — cùng cổng hạn mức với trang lẻ
     "/api/v1/doc-truyen/trang/{page_id}/anh-goc",  # cùng `_get_page_or_404` với `/anh`
     "/api/v1/doc-truyen/dich-thoai-ngu-canh",      # cầu nối dịch ngữ cảnh DeepSeek có giữ chỗ hạn mức
     "/api/v1/doc-truyen/viet-kich-ban-review",     # cầu nối biên kịch Video Review có giữ chỗ hạn mức
+    "/api/v1/doc-truyen/kiem-tra-byok",            # kiểm tra BYOK qua `danh_tinh_han_muc` + chặn gói < 1
+    "/api/v1/doc-truyen/yeu-cau/{request_key}",    # tra cứu idempotent theo tài khoản (khách lạ -> 404)
+    "/api/v1/developer/consume-local-page",        # khấu trừ trang cục bộ qua `danh_tinh_han_muc`
+    "/api/v1/developer/pages/{page_id}/rendered-image",   # tải ảnh qua chữ ký HMAC `?sig=&exp=` hoặc `X-Customer-Api-Key`
+    "/api/v1/developer/pages/{page_id}/inpainted-image",  # tải ảnh xoá chữ qua chữ ký HMAC `?sig=&exp=` hoặc `X-Customer-Api-Key`
 }
 
 
@@ -213,9 +224,48 @@ class TestKhongSotDuongNao:
     """Gắn cổng ở tầng router chính là để không sót. Test này chứng minh điều đó."""
 
     def _duong_v1(self):
-        return [r for r in app.routes
-                if getattr(r, "path", "").startswith("/api/v1")
-                and getattr(r, "methods", None)]
+        from types import SimpleNamespace
+
+        out = []
+
+        def _walk(routes, prefix="", extra_deps=()):
+            for r in routes or []:
+                sub = getattr(r, "routes", None)
+                orig = getattr(r, "original_router", None)
+                inc_ctx = getattr(r, "include_context", None)
+                if sub is None and orig is not None:
+                    sub = getattr(orig, "routes", None)
+                if sub is not None:
+                    r_pfx = (
+                        getattr(r, "prefix", "")
+                        or getattr(inc_ctx, "prefix", "")
+                        or getattr(getattr(r, "context", None), "prefix", "")
+                        or ""
+                    )
+                    r_deps = (
+                        tuple(getattr(r, "dependencies", None) or ())
+                        + tuple(getattr(inc_ctx, "dependencies", None) or ())
+                        + tuple(getattr(getattr(r, "context", None), "dependencies", None) or ())
+                        + tuple(getattr(getattr(r, "effective_context", None), "dependencies", None) or ())
+                        + tuple(getattr(orig, "dependencies", None) or ())
+                    )
+                    _walk(sub, prefix + r_pfx, extra_deps + r_deps)
+                elif getattr(r, "methods", None):
+                    full_path = getattr(r, "path", "")
+                    if prefix and not full_path.startswith(prefix):
+                        full_path = prefix.rstrip("/") + "/" + full_path.lstrip("/")
+                    if full_path.startswith("/api/v1"):
+                        out.append(
+                            SimpleNamespace(
+                                path=full_path,
+                                methods=r.methods,
+                                dependant=r.dependant,
+                                router_dependencies=extra_deps,
+                            )
+                        )
+
+        _walk(app.routes)
+        return out
 
     @staticmethod
     def _ten_phu_thuoc(dep, sau=0):
@@ -243,9 +293,16 @@ class TestKhongSotDuongNao:
             if r.path in MIEN_TRU_DANG_NHAP:
                 continue
             phu_thuoc = self._ten_phu_thuoc(r.dependant)
+            for rd in getattr(r, "router_dependencies", ()) or ():
+                phu_thuoc.add(getattr(getattr(rd, "dependency", None), "__name__", ""))
             # Developer API (E100) có cổng RIÊNG: `_xac_thuc_developer` tra cùng bảng phiên
             # (`lay_theo_ma_phien`) qua header `X-Customer-Api-Key`/`Authorization`, thiếu là 401.
-            if "nguoi_dung_hien_tai" not in phu_thuoc and "_xac_thuc_developer" not in phu_thuoc:
+            # Các endpoint quản trị nhạy cảm dùng `nguoi_dung_phien_dang_nhap` (chặt hơn `nguoi_dung_hien_tai`:
+            # thiếu phiên -> 401, dùng `tr_live_...` -> 403).
+            if not (
+                {"nguoi_dung_hien_tai", "nguoi_dung_phien_dang_nhap", "_xac_thuc_developer"}
+                & phu_thuoc
+            ):
                 thieu.append(f"{sorted(r.methods)} {r.path}")
         assert not thieu, f"{len(thieu)} endpoint KHÔNG đòi đăng nhập: {thieu[:5]}"
 

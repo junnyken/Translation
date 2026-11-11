@@ -128,6 +128,10 @@ def test_celery_da_dang_ky_dung_task_detect_cua_m2():
         #
         # KHÔNG tự chạy theo lịch: chỉ khởi động khi người dùng bấm "Đọc thử trang đầu".
         "ngon_ngu.run_nhan_dang_job",
+        # Outbox phát sự kiện upload (không gọi AI provider trực tiếp).
+        "production.dispatch_upload_outbox",
+        # Bảo trì thanh toán hàng ngày (dọn đơn `pending` quá hạn, hạ gói hết hạn có điều kiện, nhắc đối soát; không gọi AI).
+        "thanh_toan.bao_tri_hang_ngay",
     }, user_tasks
 
 

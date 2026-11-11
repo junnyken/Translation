@@ -13601,7 +13601,7 @@ class AppDichTruyenWindows(tk.Tk):
         bar_bot.pack(fill="x", pady=(8, 0))
         tk.Button(
             bar_bot,
-            text="🌐 Mở Trang Thanh Toán VietQR Tự Động",
+            text="🌐 Mở Trang Thanh Toán (VietQR · Stripe · PayPal)",
             bg=T["accent_primary"],
             fg="#ffffff",
             font=("Segoe UI", 9, "bold"),
@@ -13629,19 +13629,28 @@ class AppDichTruyenWindows(tk.Tk):
 
             def _wk():
                 thong_tin = {}
+                bang_gia = {}
+                try:
+                    raw_bg = goi_http(f"{may_chu}/api/v1/thanh-toan/bang-gia", token=tok)
+                    bang_gia = json.loads(raw_bg.decode("utf-8"))
+                except Exception:
+                    bang_gia = {}
                 try:
                     raw = goi_http(f"{may_chu}/api/v1/nap-luot/thong-tin", token=tok)
                     thong_tin = json.loads(raw.decode("utf-8"))
                 except Exception:
                     thong_tin = {}
 
-                don_gia = int(thong_tin.get("ty_le_vnd_moi_trang") or 500)
                 mua_them = int(thong_tin.get("so_luot_mua_them") or self.cau_hinh.get("luot_con_lai_cuoi") or 0)
                 tran_ngay = int(thong_tin.get("tran_hang_ngay") or 10)
-                nh_ten = thong_tin.get("ngan_hang_ten") or "MBBank / VietQR"
-                nh_stk = thong_tin.get("ngan_hang_so_tk") or "Xem trên Web"
-                nh_chu = thong_tin.get("ngan_hang_chu_tk") or "COMIC TRANSLATOR"
-                cu_phap = thong_tin.get("noi_dung_chuyen_khoan") or f"NAP {self.cau_hinh.get('email') or MA_MAY_HIEN_THI}"
+                cac_cong = []
+                if bang_gia.get("vietqr_enabled") or thong_tin.get("ngan_hang_so_tk"):
+                    cac_cong.append("VietQR Tự Động (mã CIO...)")
+                if bang_gia.get("stripe_enabled"):
+                    cac_cong.append("Stripe Card/ApplePay")
+                if bang_gia.get("paypal_enabled"):
+                    cac_cong.append("PayPal v2")
+                chuoi_cong = " · ".join(cac_cong) if cac_cong else "Mở trang Web để tạo mã đơn tự động (CIO...)"
 
                 noi_dung = (
                     "====================================================================================================\n"
@@ -13649,20 +13658,21 @@ class AppDichTruyenWindows(tk.Tk):
                     "====================================================================================================\n"
                     "  • Khách vãng lai (Nhận diện theo Mã máy HWID) : 02 Credits miễn phí (Dùng thử nhanh không cần đăng ký)\n"
                     "  • Tài khoản Đăng ký Miễn phí (Free Account)   : 20 Credits miễn phí (1 Credit = 1 Trang dịch)\n"
-                    "  • Đồng bộ 1 Ví duy nhất                       : Dùng chung trên Web, Tiện ích Chrome, App Windows & API\n\n"
+                    "  • Đồng bộ 1 Ví duy nhất                       : Dùng chung trên Web, Tiện ích Chrome, App Windows & API\n"
+                    "  • Thanh toán an toàn                          : Bấm nút Mở Trang Thanh Toán bên dưới để tạo mã đơn CIO... riêng\n\n"
                     "====================================================================================================\n"
-                    "  BẢNG GIÁ 4 GÓI THEO THÁNG CHUẨN QUỐC TẾ (ƯU ĐÃI LẦN ĐẦU -50% · GIA HẠN TÍNH GIÁ GỐC)\n"
+                    "  BẢNG GIÁ 4 GÓI THEO THÁNG CHUẨN QUỐC TẾ (ƯU ĐÃI LẦN ĐẦU · HỖ TRỢ VIETQR, STRIPE & PAYPAL V2)\n"
                     "====================================================================================================\n"
-                    "  [1] 🌱 STARTER (300 Credits/tháng)            :  49.000 đ ($2.99) lần đầu | Gia hạn:  99.000 đ ($5.99)\n"
-                    "  [2] ⭐ LITE / READER (800 Credits/tháng)      :  99.000 đ ($5.99) lần đầu | Gia hạn: 149.000 đ ($8.99)\n"
-                    "  [3] 💎 STANDARD + API (3.000 Credits/tháng)   : 199.000 đ ($9.99) lần đầu | Gia hạn: 399.000 đ ($19.99) ⭐ ĐỀ XUẤT\n"
-                    "  [4] 🏢 PRO MAX FULL API (10.000 Credits/tháng): 399.000 đ ($19.99) lần đầu| Gia hạn: 799.000 đ ($39.99)\n\n"
+                    "  [1] 🌱 STARTER (300 Credits/tháng)            :  49.000 đ ($3.99) lần đầu | Gia hạn:  89.000 đ ($6.49)\n"
+                    "  [2] ⭐ LITE / READER (800 Credits/tháng)      :  99.000 đ ($6.99) lần đầu | Gia hạn: 149.000 đ ($9.99)\n"
+                    "  [3] 💎 STANDARD + API (3.000 Credits/tháng)   : 199.000 đ ($12.99) lần đầu| Gia hạn: 389.000 đ ($19.99) ⭐ ĐỀ XUẤT\n"
+                    "  [4] 🏢 PRO MAX FULL API (10.000 Credits/tháng): 399.000 đ ($24.99) lần đầu| Gia hạn: 799.000 đ ($39.99)\n\n"
                     "====================================================================================================\n"
-                    "  BẢNG QUY ĐỔI LƯỢT THEO BỘ MÁY AI ĐỘC QUYỀN (PHÂN TẦNG 1 - 2 - 3 LƯỢT)\n"
+                    "  BẢNG QUY ĐỔI LƯỢT THEO BỘ MÁY AI ĐỘC QUYỀN (PHÂN TẦNG 1 - 2 - 3 LƯỢT · BYOK GIẢM 50%)\n"
                     "====================================================================================================\n"
                     "  • ⚡ Model 1 — OCR + GPU Nhanh (local_ocr_gpu)          : 01 lượt / trang (Siêu tốc, tiết kiệm cho 85% truyện chữ rõ)\n"
-                    "  • 🧠 Model 2 — OCR + GPU Pro Tự Học (local_hybrid_pro)  : 02 lượt / trang (Quét 2 tầng chữ viết tay, bảo vệ tranh & tự học 60 từ)\n"
-                    "  • ✨ Model 3 — AI Đám Mây Ultra (llm_context)           : 03 lượt / trang (Mắt thần Gemini 2K & DeepSeek nhìn tranh phân vai xưng hô)\n"
+                    "  • 🧠 Model 2 — OCR + GPU Pro Tự Học (local_hybrid_pro)  : 02 lượt / trang (BYOK còn 1.0 lượt/trang)\n"
+                    "  • ✨ Model 3 — AI Đám Mây Ultra (llm_context)           : 03 lượt / trang (BYOK còn 1.5 lượt/trang)\n"
                 )
 
                 def _cap_nhat_ui():
@@ -13671,7 +13681,7 @@ class AppDichTruyenWindows(tk.Tk):
                         fg=T["status_ok"],
                     )
                     lbl_bank.config(
-                        text=f"🏦 Ngân hàng: {nh_ten}  |  Số TK: {nh_stk} ({nh_chu})  |  Nội dung CK tự động: {cu_phap}"
+                        text=f"💳 Cổng thanh toán trực tuyến đang bật: {chuoi_cong}"
                     )
                     txt_bang_gia.config(state="normal")
                     txt_bang_gia.delete("1.0", "end")

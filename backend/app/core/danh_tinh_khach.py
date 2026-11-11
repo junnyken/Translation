@@ -382,9 +382,55 @@ def tinh_cap_do(nguoi) -> int:
         cap_tran = 1
 
     if vi <= 0:
+        # Nếu có hạn gói thuê bao đang active trên CSDL mà chưa dùng hết kỳ hạn (ví dụ gói Stripe/PayPal có chu kỳ):
+        cap_db = int(getattr(nguoi, "cap_do_goi", 0) or 0)
+        het_han_db = getattr(nguoi, "het_han_goi", None)
+        if cap_db > 0 and het_han_db is not None:
+            from datetime import datetime, timezone
+
+            now_dt = datetime.now(timezone.utc)
+            exp_dt = het_han_db if het_han_db.tzinfo else het_han_db.replace(tzinfo=timezone.utc)
+            if exp_dt <= now_dt:
+                cap_db = 0
         uid_zero = str(getattr(nguoi, "id", "") or "").strip()
         if uid_zero:
             _dong_bo_gio_theo_so_du(uid_zero, 0)
+        return cap_tran
+
+    # Ưu tiên đọc sổ giỏ lượt & cấp độ lưu trực tiếp trong CSDL (`nguoi_dung.gio_luot_json`, `cap_do_goi`, `het_han_goi`)
+    gio_db_raw = getattr(nguoi, "gio_luot_json", None)
+    cap_db = int(getattr(nguoi, "cap_do_goi", 0) or 0)
+    het_han_db = getattr(nguoi, "het_han_goi", None)
+    if isinstance(gio_db_raw, list) and len(gio_db_raw) > 0:
+        ban_ghi_db = _chuan_hoa_ban_ghi_gio({"tong": sum(int(x.get("trang", 0) or 0) for x in gio_db_raw if isinstance(x, dict)), "gio": gio_db_raw}, vi)
+        gio_db = ban_ghi_db["gio"]
+        if not gio_db:
+            return cap_tran
+        tong_db = sum(x["trang"] for x in gio_db)
+        if tong_db > vi:
+            can_tru_db = tong_db - vi
+            gio_sau_tru: list[dict[str, int]] = []
+            for item in gio_db:
+                if can_tru_db > 0:
+                    tru_m = min(item["trang"], can_tru_db)
+                    con_m = item["trang"] - tru_m
+                    can_tru_db -= tru_m
+                    if con_m > 0:
+                        gio_sau_tru.append({"cap": item["cap"], "trang": con_m})
+                else:
+                    gio_sau_tru.append(item)
+            if gio_sau_tru:
+                return max(cap_tran, int(gio_sau_tru[0]["cap"]))
+            return cap_tran
+        return max(cap_tran, int(gio_db[0]["cap"]))
+
+    if cap_db > 0 and het_han_db is not None:
+        from datetime import datetime, timezone
+
+        now_dt = datetime.now(timezone.utc)
+        exp_dt = het_han_db if het_han_db.tzinfo else het_han_db.replace(tzinfo=timezone.utc)
+        if exp_dt > now_dt:
+            return max(cap_tran, cap_db)
         return cap_tran
 
     uid_str = str(getattr(nguoi, "id", "") or "").strip()

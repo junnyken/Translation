@@ -1218,6 +1218,14 @@ class GoiNapLuotRead(BaseModel):
     so_tien_vnd: int
     so_trang: int
     ghi_chu: str
+    so_tien_usd_cents: int = 0
+    gia_goc_vnd: int = 0
+    gia_goc_usd_cents: int = 0
+    cap_do: int = 1
+    ten_cap_do: str = "trial"
+    so_ngay_han: int = 30
+    chu_ky: str = "monthly"
+    uu_dai_lan_dau: bool = False
 
 
 class ThongTinNapLuotRead(BaseModel):
@@ -1227,15 +1235,188 @@ class ThongTinNapLuotRead(BaseModel):
     da_tung_nap: bool = False
     so_luot_mua_them: int = 0
     tran_hang_ngay: int
+    cap_do_hien_tai: int = 0
+    ten_cap_do_hien_tai: str = "Free"
+    het_han_goi: str | None = None
     ngan_hang_ten: str = ""
     ngan_hang_so_tk: str = ""
     ngan_hang_chu_tk: str = ""
     paypal_email: str = ""
     paypal_client_id: str = ""
     rapidapi_url: str = ""
+    vietqr_enabled: bool = False
+    stripe_enabled: bool = False
+    paypal_enabled: bool = False
     noi_dung_chuyen_khoan: str = ""
     ty_le_vnd_moi_trang: int = 500
     goi_goi_y: list[GoiNapLuotRead] = []
+
+
+class TaoDonThanhToanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    plan: str = Field(..., min_length=2, max_length=64)
+    rail: Literal["vietqr", "stripe", "paypal"] = "vietqr"
+
+
+class PaymentOrderRead(BaseModel):
+    id: uuid.UUID
+    code: str
+    plan: str
+    plan_name: str = ""
+    tier_rank: int
+    credits: int
+    duration_days: int
+    rail: str
+    currency: str
+    amount: int
+    amount_display: str
+    status: str
+    customer_message: str = ""
+    vietqr_url: str = ""
+    bank_name: str = ""
+    bank_account: str = ""
+    bank_holder: str = ""
+    provider_ref: str | None = None
+    paid_amount: int | None = None
+    expires_at: str | None = None
+    created_at: str = ""
+
+
+class StripeCheckoutRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    plan: str = Field(..., min_length=2, max_length=64)
+    success_url: str | None = Field(default=None, max_length=500)
+    cancel_url: str | None = Field(default=None, max_length=500)
+
+
+class StripeCheckoutResponse(BaseModel):
+    order: PaymentOrderRead
+    session_id: str
+    checkout_url: str
+
+
+class PayPalCreateOrderRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    plan: str = Field(..., min_length=2, max_length=64)
+    return_url: str | None = Field(default=None, max_length=500)
+    cancel_url: str | None = Field(default=None, max_length=500)
+
+
+class PayPalCreateOrderResponse(BaseModel):
+    order: PaymentOrderRead
+    paypal_order_id: str
+    approve_url: str
+
+
+class PayPalCaptureOrderResponse(BaseModel):
+    ok: bool
+    status: str
+    detail: str
+    order: PaymentOrderRead
+
+
+class GiaGhiDeMotGoiInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    first_vnd: int | None = Field(default=None, ge=1000, le=500_000_000)
+    renew_vnd: int | None = Field(default=None, ge=1000, le=500_000_000)
+    first_usd_cents: int | None = Field(default=None, ge=50, le=50_000_000)
+    renew_usd_cents: int | None = Field(default=None, ge=50, le=50_000_000)
+
+
+class QuanTriCauHinhThanhToanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ngan_hang_ten: str | None = Field(default=None, max_length=80)
+    ngan_hang_so_tk: str | None = Field(default=None, max_length=60)
+    ngan_hang_chu_tk: str | None = Field(default=None, max_length=120)
+    sepay_webhook_secret: str | None = Field(default=None, max_length=256)
+    sepay_webhook_secret_previous: str | None = Field(default=None, max_length=256)
+    sepay_allow_apikey_auth: bool | None = None
+    stripe_secret_key: str | None = Field(default=None, max_length=256)
+    stripe_webhook_secret: str | None = Field(default=None, max_length=256)
+    stripe_webhook_secret_previous: str | None = Field(default=None, max_length=256)
+    stripe_price_map: dict[str, str] | None = None
+    paypal_email: str | None = Field(default=None, max_length=200)
+    paypal_merchant_id: str | None = Field(default=None, max_length=120)
+    paypal_client_id: str | None = Field(default=None, max_length=256)
+    paypal_client_secret: str | None = Field(default=None, max_length=256)
+    paypal_webhook_id: str | None = Field(default=None, max_length=160)
+    paypal_mode: Literal["sandbox", "live"] | None = None
+    rapidapi_url: str | None = Field(default=None, max_length=300)
+    rapidapi_proxy_secret: str | None = Field(default=None, max_length=256)
+    telegram_bot_token: str | None = Field(default=None, max_length=256)
+    telegram_chat_id: str | None = Field(default=None, max_length=120)
+    payment_alert_webhook_url: str | None = Field(default=None, max_length=500)
+    price_overrides: dict[str, GiaGhiDeMotGoiInput] | None = None
+
+
+class QuanTriCauHinhThanhToanResponse(BaseModel):
+    ok: bool = True
+    thong_diep: str = ""
+    ngan_hang_ten: str = ""
+    ngan_hang_so_tk: str = ""
+    ngan_hang_chu_tk: str = ""
+    sepay_configured: bool = False
+    sepay_masked: str = ""
+    sepay_allow_apikey_auth: bool = False
+    stripe_enabled: bool = False
+    stripe_secret_configured: bool = False
+    stripe_secret_masked: str = ""
+    stripe_webhook_configured: bool = False
+    stripe_webhook_masked: str = ""
+    stripe_price_map: dict[str, str] = {}
+    paypal_enabled: bool = False
+    paypal_email: str = ""
+    paypal_merchant_id: str = ""
+    paypal_client_id: str = ""
+    paypal_secret_configured: bool = False
+    paypal_secret_masked: str = ""
+    paypal_webhook_id: str = ""
+    paypal_mode: str = "live"
+    rapidapi_url: str = ""
+    rapidapi_proxy_secret_configured: bool = False
+    telegram_configured: bool = False
+    telegram_chat_id: str = ""
+    vietqr_enabled: bool = False
+    price_overrides: dict[str, dict[str, int]] = {}
+    canh_bao_trung_gia: list[str] = []
+    schema_status: dict = {}
+    telegram_health: dict = {}
+
+
+class PaymentReviewRead(BaseModel):
+    id: uuid.UUID
+    provider: str
+    provider_event_id: str | None = None
+    event_type: str | None = None
+    user_id: str | None = None
+    user_email: str | None = None
+    order_id: str | None = None
+    order_code: str | None = None
+    current_tier: str | None = None
+    target_tier: str | None = None
+    amount: int | None = None
+    currency: str | None = None
+    status: str
+    reason: str | None = None
+    raw_payload: dict = {}
+    resolved_by: str | None = None
+    resolved_at: str | None = None
+    resolution_note: str | None = None
+    created_at: str = ""
+
+
+class XuLyPaymentReviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    hanh_dong: Literal["kich_hoat", "da_xu_ly", "hoan_tien"] = "kich_hoat"
+    ghi_chu: str = Field(default="", max_length=500)
+    plan_override: str | None = Field(default=None, max_length=64)
+    user_email_override: str | None = Field(default=None, max_length=320)
 
 
 class CapLuotRequest(BaseModel):
@@ -1345,6 +1526,7 @@ class QuanTriThongKeRead(BaseModel):
     rapidapi_proxy_secret_configured: bool = False
     webhook_bi_mat_configured: bool = False
     webhook_bi_mat_hien_tai: str = ""
+    so_duyet_tay_cho_xu_ly: int = 0
     bieu_do_7_ngay: list[dict] = []
     phan_bo_ngon_ngu: dict[str, int] = {}
     chapter_gan_day: list[dict] = []

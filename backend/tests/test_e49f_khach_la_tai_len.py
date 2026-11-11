@@ -88,9 +88,11 @@ class TestDanhSachDuongMo:
             ("/api/v1/export-jobs/{job_id}", "GET"),
             ("/api/v1/export-jobs/{job_id}/download", "GET"),
             ("/api/v1/han-muc", "GET"),
-            # E100 — bảng giá (chỉ đọc) và webhook ngân hàng: webhook KHÔNG dùng đăng nhập mà dùng
-            # khoá bí mật `WEBHOOK_NAP_LUOT_BI_MAT` (thiếu khoá ⇒ 503), chống cộng trùng theo mã
-            # giao dịch (vá 26/10/2026).
+            # E100 — bảng giá (chỉ đọc), webhook ngân hàng/quốc tế và hai đường cũ đã đóng 410 Gone:
+            # webhook KHÔNG dùng đăng nhập mà dùng chữ ký HMAC/webhook bí mật (thiếu khoá ⇒ 404/503),
+            # chống cộng trùng qua `payment_events` UNIQUE(provider, provider_event_id).
+            ("/api/v1/nap-luot/paypal-capture", "POST"),
+            ("/api/v1/nap-luot/paypal-ipn", "POST"),
             ("/api/v1/nap-luot/thong-tin", "GET"),
             ("/api/v1/nap-luot/webhook", "POST"),
             # E57 — đọc thử để đoán ngôn ngữ. MỞ CHO KHÁCH có chủ đích: khách lạ là người cần nó
@@ -106,6 +108,11 @@ class TestDanhSachDuongMo:
             # Tải bản cài tiện ích Chrome / App Windows — tệp công khai, không chứa khoá.
             ("/api/v1/tai-ve/app-windows", "GET"),
             ("/api/v1/tai-ve/tien-ich-chrome", "GET"),
+            # Thanh toán Online chuẩn an toàn: bảng giá chỉ đọc + 3 webhook xác thực chữ ký raw body.
+            ("/api/v1/thanh-toan/bang-gia", "GET"),
+            ("/api/v1/thanh-toan/webhook/paypal", "POST"),
+            ("/api/v1/thanh-toan/webhook/sepay", "POST"),
+            ("/api/v1/thanh-toan/webhook/stripe", "POST"),
         ], f"danh sách đường mở cho khách đã đổi: {thuc_te}"
 
     async def test_duong_khac_VAN_doi_dang_nhap(self, client_chua_dang_nhap):

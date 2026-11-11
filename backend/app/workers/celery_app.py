@@ -97,7 +97,12 @@ celery_app.conf.beat_schedule = {
         "task": "production.dispatch_upload_outbox",
         "schedule": 30.0,
         "options": {"expires": 25},
-    }
+    },
+    "payment-daily-maintenance": {
+        "task": "thanh_toan.bao_tri_hang_ngay",
+        "schedule": 3600.0,
+        "options": {"expires": 3500},
+    },
 }
 if settings.bat_lich_don_tep:
     celery_app.conf.beat_schedule.update({

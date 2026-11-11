@@ -538,51 +538,23 @@ async def xem_han_muc(
     )
 
 
-_CAU_HINH_THANH_TOAN_MEM_CACHE: dict[str, str] = {}
+from app.services import thanh_toan as _tt_core
 
 
 def _doc_cau_hinh_thanh_toan_day_du(settings: Settings) -> dict[str, str]:
-    """Đọc cấu hình Thanh toán động (VietQR VNĐ + PayPal USD + RapidAPI Hub) từ bộ nhớ/tệp/kho đối tượng."""
-    import json
-    from pathlib import Path
-
-    data: dict[str, str] = {}
-    if _CAU_HINH_THANH_TOAN_MEM_CACHE:
-        data.update(_CAU_HINH_THANH_TOAN_MEM_CACHE)
-
-    if not data:
-        try:
-            tmp_p = Path("/tmp/cau_hinh_ngan_hang.json")
-            if tmp_p.is_file():
-                parsed = json.loads(tmp_p.read_text(encoding="utf-8"))
-                if isinstance(parsed, dict):
-                    data.update({str(k): str(v or "") for k, v in parsed.items()})
-        except Exception:
-            pass
-
-    if not data:
-        try:
-            storage = get_storage()
-            raw = storage.read("quan_tri/cau_hinh_ngan_hang.json")
-            if raw:
-                parsed = json.loads(raw.decode("utf-8"))
-                if isinstance(parsed, dict):
-                    data.update({str(k): str(v or "") for k, v in parsed.items()})
-                    _CAU_HINH_THANH_TOAN_MEM_CACHE.update(data)
-        except Exception:
-            pass
-
+    """Đọc cấu hình Thanh toán động (TUYỆT ĐỐI không có secret mặc định trong code)."""
+    cfg = _tt_core.resolve_payment_config(settings)
+    sepay_secrets = cfg.get("sepay_secrets") or []
     return {
-        "ngan_hang_ten": (data.get("ngan_hang_ten") or settings.ngan_hang_ten or "").strip(),
-        "ngan_hang_so_tk": (data.get("ngan_hang_so_tk") or settings.ngan_hang_so_tk or "").strip(),
-        "ngan_hang_chu_tk": (data.get("ngan_hang_chu_tk") or settings.ngan_hang_chu_tk or "").strip(),
-        "paypal_email": (data.get("paypal_email") or "").strip(),
-        "paypal_client_id": (data.get("paypal_client_id") or "").strip(),
-        "rapidapi_url": (data.get("rapidapi_url") or "").strip(),
-        "rapidapi_proxy_secret": (data.get("rapidapi_proxy_secret") or settings.rapidapi_proxy_secret or "").strip(),
-        "webhook_bi_mat": (
-            data.get("webhook_bi_mat") or settings.webhook_nap_luot_bi_mat or "comic_sepay_webhook_2026"
-        ).strip(),
+        "ngan_hang_ten": cfg["ngan_hang_ten"],
+        "ngan_hang_so_tk": cfg["ngan_hang_so_tk"],
+        "ngan_hang_chu_tk": cfg["ngan_hang_chu_tk"],
+        "paypal_email": cfg["paypal_email"],
+        "paypal_client_id": cfg["paypal_client_id"],
+        "rapidapi_url": cfg["rapidapi_url"],
+        "rapidapi_proxy_secret": cfg.get("rapidapi_proxy_secret", ""),
+        "webhook_bi_mat": sepay_secrets[0] if sepay_secrets else "",
+        "sepay_masked": cfg.get("sepay_masked", ""),
     }
 
 
@@ -602,198 +574,54 @@ def _luu_cau_hinh_ngan_hang_dong(
     rapidapi_proxy_secret: str | None = None,
     webhook_bi_mat: str | None = None,
 ) -> dict[str, str]:
-    import json
-    from pathlib import Path
-
-    settings = get_settings()
-    hien = _doc_cau_hinh_thanh_toan_day_du(settings)
-    payload = {
-        "ngan_hang_ten": (ten if ten is not None else hien["ngan_hang_ten"]).strip(),
-        "ngan_hang_so_tk": (stk if stk is not None else hien["ngan_hang_so_tk"]).strip(),
-        "ngan_hang_chu_tk": (chu if chu is not None else hien["ngan_hang_chu_tk"]).strip(),
-        "paypal_email": (paypal_email if paypal_email is not None else hien["paypal_email"]).strip(),
-        "paypal_client_id": (paypal_client_id if paypal_client_id is not None else hien["paypal_client_id"]).strip(),
-        "rapidapi_url": (rapidapi_url if rapidapi_url is not None else hien["rapidapi_url"]).strip(),
-        "rapidapi_proxy_secret": (
-            rapidapi_proxy_secret if rapidapi_proxy_secret is not None else hien["rapidapi_proxy_secret"]
-        ).strip(),
-        "webhook_bi_mat": (
-            webhook_bi_mat if webhook_bi_mat is not None else hien["webhook_bi_mat"]
-        ).strip(),
-    }
-    _CAU_HINH_THANH_TOAN_MEM_CACHE.clear()
-    _CAU_HINH_THANH_TOAN_MEM_CACHE.update(payload)
-    raw_bytes = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    try:
-        Path("/tmp/cau_hinh_ngan_hang.json").write_bytes(raw_bytes)
-    except Exception:
-        pass
-    try:
-        storage = get_storage()
-        storage.save("quan_tri/cau_hinh_ngan_hang.json", raw_bytes)
-    except Exception:
-        pass
-    return payload
+    updates: dict[str, object] = {}
+    if ten is not None:
+        updates["ngan_hang_ten"] = ten
+    if stk is not None:
+        updates["ngan_hang_so_tk"] = stk
+    if chu is not None:
+        updates["ngan_hang_chu_tk"] = chu
+    if paypal_email is not None:
+        updates["paypal_email"] = paypal_email
+    if paypal_client_id is not None:
+        updates["paypal_client_id"] = paypal_client_id
+    if rapidapi_url is not None:
+        updates["rapidapi_url"] = rapidapi_url
+    if rapidapi_proxy_secret is not None:
+        updates["rapidapi_proxy_secret"] = rapidapi_proxy_secret
+    if webhook_bi_mat is not None:
+        updates["webhook_bi_mat"] = webhook_bi_mat
+        updates["sepay_webhook_secret"] = webhook_bi_mat
+    _tt_core.write_dynamic_payment_store(updates)
+    return _doc_cau_hinh_thanh_toan_day_du(get_settings())
 
 
 def _danh_sach_goi_nap_chuan(don_gia: int, da_tung_nap: bool = False) -> list[GoiNapLuotRead]:
-    """Danh sách gói cước Quốc tế 4 Gói:
-    - Nếu `da_tung_nap == False` (thanh toán lần đầu): áp dụng Giá Ưu Đãi Lần Đầu (-50% OFF).
-    - Nếu `da_tung_nap == True` (khi gia hạn từ lần thứ 2 trở đi): tự động tính lại Giá Gốc chuẩn!
-    """
+    """Một nguồn giá duy nhất từ `thanh_toan.catalog` (không trùng giá VNĐ trên kênh chuyển khoản)."""
+    cfg = _tt_core.resolve_payment_config()
+    items = _tt_core.catalog(
+        da_tung_nap=da_tung_nap,
+        don_gia_vnd=don_gia,
+        overrides=cfg.get("price_overrides"),
+        include_legacy_packs=True,
+    )
     return [
         GoiNapLuotRead(
-            ma="trial_pack_50",
-            ten="🎁 Gói 1 · Trải Nghiệm (150 Credits / tháng · Mở khóa OCR + AI Hội Thoại)",
-            so_tien_vnd=50000 if da_tung_nap else 25000,
-            so_trang=150,
-            ghi_chu=(
-                "Mở khóa chế độ OCR tách chữ + AI Hội Thoại Ngữ Cảnh + Định hình hồi 50 lượt/3 giờ · Giá gia hạn $3.99/tháng (50.000đ)."
-                if da_tung_nap
-                else "Ưu đãi lần đầu $1.99/tháng (25.000đ) · Mở khóa OCR tách chữ + AI Hội Thoại Ngữ Cảnh + Hồi 50 lượt/3 giờ."
-            ),
-        ),
-        GoiNapLuotRead(
-            ma="starter_monthly",
-            ten=(
-                "⭐ Gói 1 · Starter Gia Hạn (300 Credits / tháng)"
-                if da_tung_nap
-                else "🎁 Gói 1 · Starter Ưu Đãi Lần Đầu (300 Credits / tháng — Giảm 43%)"
-            ),
-            so_tien_vnd=99000 if da_tung_nap else 49000,
-            so_trang=300,
-            ghi_chu=(
-                "Mở khóa chế độ OCR tách chữ + AI Hội Thoại Ngữ Cảnh + Định hình hồi 90 lượt/3 giờ · Giá gia hạn $6.99/tháng (99.000đ)."
-                if da_tung_nap
-                else "Ưu đãi lần đầu $3.99/tháng (49.000đ · gia hạn $6.99) · Mở khóa OCR tách chữ + AI Hội Thoại + Hồi 90 lượt/3 giờ."
-            ),
-        ),
-        GoiNapLuotRead(
-            ma="pro_monthly",
-            ten="🔥 Gói 2 · Lite / Reader (800 Credits / tháng · Mở khóa Scan Ảnh AI Đám Mây)",
-            so_tien_vnd=149000 if da_tung_nap else 99000,
-            so_trang=800,
-            ghi_chu=(
-                "Mở khóa toàn bộ chế độ Scan Ảnh AI Ngữ Cảnh Đám Mây + Định hình hồi 200 lượt/3 giờ · Giá gia hạn $9.99/tháng (149.000đ)."
-                if da_tung_nap
-                else "Ưu đãi lần đầu $6.99/tháng (99.000đ · gia hạn $9.99) · Mở khóa Scan Ảnh AI Ngữ Cảnh Đám Mây + Hồi 200 lượt/3 giờ."
-            ),
-        ),
-        GoiNapLuotRead(
-            ma="studio_monthly",
-            ten="💎 Gói Tiêu Chuẩn / Studio + API (3.000 Credits / tháng — Đề xuất)",
-            so_tien_vnd=399000 if da_tung_nap else 199000,
-            so_trang=3000,
-            ghi_chu=(
-                "Giá gốc gia hạn $19.99/tháng (399.000đ) nhận 3.000 Credits + Developer API Key (tr_live_...) + Hồi 450 lượt/3 giờ."
-                if da_tung_nap
-                else "Ưu đãi lần đầu $12.99/tháng (199.000đ · khi gia hạn tính giá gốc $19.99 / 399.000đ) nhận 3.000 Credits + Mở API."
-            ),
-        ),
-        GoiNapLuotRead(
-            ma="unlimited_plan",
-            ten="🏢 Gói Pro Max / Unlimited API (10.000 Credits / tháng)",
-            so_tien_vnd=799000 if da_tung_nap else 399000,
-            so_trang=10000,
-            ghi_chu=(
-                "Giá gốc gia hạn $39.99/tháng (799.000đ) nhận 10.000 Credits + Full Developer API Key (tr_live_...) + Hồi 900 lượt/3 giờ."
-                if da_tung_nap
-                else "Ưu đãi lần đầu $24.99/tháng (399.000đ · khi gia hạn tính giá gốc $39.99 / 799.000đ) nhận 10.000 Credits + Full API."
-            ),
-        ),
-        GoiNapLuotRead(
-            ma="starter_yearly",
-            ten="🎁 Gói Starter Năm (3.600 Credits / năm)",
-            so_tien_vnd=708000 if da_tung_nap else 450000,
-            so_trang=3600,
-            ghi_chu=(
-                "Giá gốc gia hạn $59.88/năm (708.000đ) nhận 3.600 Credits."
-                if da_tung_nap
-                else "Ưu đãi lần đầu $29.99/năm (450.000đ · gia hạn tính giá gốc $59.88) nhận 3.600 Credits."
-            ),
-        ),
-        GoiNapLuotRead(
-            ma="pro_yearly",
-            ten="⭐ Gói Lite Năm (9.600 Credits / năm)",
-            so_tien_vnd=1428000 if da_tung_nap else 890000,
-            so_trang=9600,
-            ghi_chu=(
-                "Giá gốc gia hạn $95.88/năm (1.428.000đ) nhận 9.600 Credits."
-                if da_tung_nap
-                else "Ưu đãi lần đầu $53.99/năm (890.000đ · gia hạn tính giá gốc $95.88) nhận 9.600 Credits."
-            ),
-        ),
-        GoiNapLuotRead(
-            ma="studio_yearly",
-            ten="💎 Gói Tiêu Chuẩn / Studio + API Năm (36.000 Credits / năm)",
-            so_tien_vnd=2988000 if da_tung_nap else 1790000,
-            so_trang=36000,
-            ghi_chu=(
-                "Giá gốc gia hạn $179.88/năm (2.988.000đ) nhận 36.000 Credits + API."
-                if da_tung_nap
-                else "Ưu đãi lần đầu $89.99/năm (1.790.000đ · gia hạn tính giá gốc $179.88) nhận 36.000 Credits + API."
-            ),
-        ),
-        GoiNapLuotRead(
-            ma="unlimited_yearly",
-            ten="🏢 Gói Pro Max API Năm (120.000 Credits / năm)",
-            so_tien_vnd=5988000 if da_tung_nap else 3590000,
-            so_trang=120000,
-            ghi_chu=(
-                "Giá gốc gia hạn $359.88/năm (5.988.000đ) nhận 120.000 Credits + Full API."
-                if da_tung_nap
-                else "Ưu đãi lần đầu $179.99/năm (3.590.000đ · gia hạn tính giá gốc $359.88) nhận 120.000 Credits + Full API."
-            ),
-        ),
-        GoiNapLuotRead(
-            ma="goi_moi",
-            ten="🎯 Gói Mồi Trải Nghiệm — Đọc Nhanh (40 trang)",
-            so_tien_vnd=40 * don_gia,
-            so_trang=40,
-            ghi_chu="Gói nhỏ 20.000đ đọc trọn ~2 chapter. Mua nhiều lần tự động cộng dồn vĩnh viễn vào tài khoản.",
-        ),
-        GoiNapLuotRead(
-            ma="co_ban",
-            ten="🌱 Gói Khởi Đầu — Starter (105 trang)",
-            so_tien_vnd=100 * don_gia,
-            so_trang=105,
-            ghi_chu="Tặng thêm +5% số trang (~5.5 chapter). Lượt mua cộng dồn vĩnh viễn không bao giờ hết hạn qua đêm.",
-        ),
-        GoiNapLuotRead(
-            ma="tieu_chuan",
-            ten="🔥 Gói Độc Giả VIP — Reader (550 trang)",
-            so_tien_vnd=500 * don_gia,
-            so_trang=550,
-            ghi_chu="Tặng thêm 10% số trang (~28 chapter). Dùng chung Web, Extension & App Windows.",
-        ),
-        GoiNapLuotRead(
-            ma="nhom_dich",
-            ten="🎬 Gói Nhóm Dịch / Studio (1.200 trang)",
-            so_tien_vnd=1000 * don_gia,
-            so_trang=1200,
-            ghi_chu="Tặng thêm 20% số trang (~60 chapter). Phù hợp nhóm scanlation, dịch trọn bộ / làm video.",
-        ),
-        GoiNapLuotRead(
-            ma="doanh_nghiep_api",
-            ten="🏢 Gói Doanh Nghiệp / Web Truyện API Pro (6.500 trang)",
-            so_tien_vnd=5000 * don_gia,
-            so_trang=6500,
-            ghi_chu="Tặng thêm 30% số trang (~325 chapter). Mở toàn bộ Developer REST API (tr_live_...), đẩy cả chapter qua URL & đồng bộ đa máy.",
-        ),
-        GoiNapLuotRead(
-            ma="enterprise_scale",
-            ten="🏛️ Gói Doanh Nghiệp Lớn / Hệ Thống Cổng Truyện (28.000 trang)",
-            so_tien_vnd=20000 * don_gia,
-            so_trang=28000,
-            ghi_chu="Tặng thêm 40% số trang (~1.400 chapter). Dành cho hệ thống web truyện lớn & tool tự động hoá 24/7 qua API.",
-        ),
-        GoiNapLuotRead(
-            ma="pack_2000",
-            ten="🔥 Gói Tích Luỹ 2.000 Trang Vĩnh Viễn",
-            so_tien_vnd=600000,
-            so_trang=2000,
-            ghi_chu="Gói Credits 600.000đ ($24.99) nhận 2.000 trang tích luỹ vĩnh viễn.",
-        ),
+            ma=it.code,
+            ten=it.name,
+            so_tien_vnd=int(it.amount_vnd),
+            so_trang=int(it.credits),
+            ghi_chu=it.note,
+            so_tien_usd_cents=int(it.amount_usd_cents),
+            gia_goc_vnd=int(it.original_vnd),
+            gia_goc_usd_cents=int(it.original_usd_cents),
+            cap_do=int(it.tier_rank),
+            ten_cap_do=it.tier_name,
+            so_ngay_han=int(it.duration_days),
+            chu_ky=it.billing_cycle,
+            uu_dai_lan_dau=bool(it.is_first_time_promo),
+        )
+        for it in items
     ]
 
 
@@ -803,13 +631,25 @@ async def xem_thong_tin_nap_luot(
     settings: Settings = Depends(get_settings),
     danh_tinh: DanhTinhHanMuc = Depends(danh_tinh_han_muc),
 ) -> ThongTinNapLuotRead:
-    """E100 — Thông tin gói nạp lượt & mã chuyển khoản VietQR tự động (tự động chuyển về Giá gốc khi gia hạn)."""
+    """E100 — Thông tin gói nạp lượt & trạng thái cổng thanh toán trực tuyến từ một nguồn giá duy nhất."""
+    from app.core.danh_tinh_khach import ten_cap_do, tinh_cap_do
+
     nguoi = danh_tinh.nguoi_goi.nguoi if (danh_tinh.co_tai_khoan and not danh_tinh.nguoi_goi.la_khach) else None
     email = nguoi.email if nguoi is not None else None
-    da_tung_nap = await don_nap.da_tung_nap_thanh_cong(session, email or "") if email else False
+    da_tung_nap = (
+        await _tt_core.has_prior_paid_purchase(session, user_id=nguoi.id, email=email)
+        if nguoi is not None
+        else False
+    )
     ma_noi_dung = f"NAP {str(nguoi.id).split('-')[0].upper()}" if nguoi is not None else "NAP <EMAIL_CUA_BAN>"
     don_gia = max(1, settings.ty_le_vnd_moi_trang)
-    tt_tt = await run_in_threadpool(_doc_cau_hinh_thanh_toan_day_du, settings)
+    cfg = await run_in_threadpool(_tt_core.resolve_payment_config, settings)
+    cap_hien = tinh_cap_do(nguoi) if nguoi is not None else 0
+    het_han_str = (
+        nguoi.het_han_goi.isoformat()
+        if (nguoi is not None and getattr(nguoi, "het_han_goi", None) is not None)
+        else None
+    )
 
     return ThongTinNapLuotRead(
         co_tai_khoan=danh_tinh.co_tai_khoan,
@@ -818,12 +658,18 @@ async def xem_thong_tin_nap_luot(
         da_tung_nap=da_tung_nap,
         so_luot_mua_them=danh_tinh.so_luot_mua_them if danh_tinh.co_tai_khoan else 0,
         tran_hang_ngay=danh_tinh.tran_hien,
-        ngan_hang_ten=tt_tt["ngan_hang_ten"],
-        ngan_hang_so_tk=tt_tt["ngan_hang_so_tk"],
-        ngan_hang_chu_tk=tt_tt["ngan_hang_chu_tk"],
-        paypal_email=tt_tt["paypal_email"],
-        paypal_client_id=tt_tt["paypal_client_id"],
-        rapidapi_url=tt_tt["rapidapi_url"],
+        cap_do_hien_tai=cap_hien,
+        ten_cap_do_hien_tai=ten_cap_do(cap_hien),
+        het_han_goi=het_han_str,
+        ngan_hang_ten=cfg["ngan_hang_ten"],
+        ngan_hang_so_tk=cfg["ngan_hang_so_tk"],
+        ngan_hang_chu_tk=cfg["ngan_hang_chu_tk"],
+        paypal_email=cfg["paypal_email"],
+        paypal_client_id=cfg["paypal_client_id"],
+        rapidapi_url=cfg["rapidapi_url"],
+        vietqr_enabled=bool(cfg["vietqr_enabled"]),
+        stripe_enabled=bool(cfg["stripe_enabled"]),
+        paypal_enabled=bool(cfg["paypal_enabled"]),
         noi_dung_chuyen_khoan=ma_noi_dung,
         ty_le_vnd_moi_trang=don_gia,
         goi_goi_y=_danh_sach_goi_nap_chuan(don_gia, da_tung_nap=da_tung_nap),
@@ -838,13 +684,11 @@ async def xac_nhan_chuyen_khoan_goi(
     nguoi: NguoiDung = Depends(nguoi_dung_hien_tai),
 ) -> DonNapLuotRead:
     """Ghi nhận đơn khách đã chọn để chờ Webhook ngân hàng hoặc quản trị xác nhận đối soát.
-
-    CHỐT BẢO MẬT CHỐNG HACK SỐ LẦN GÓI CƯỚC & KIỂM SOÁT GIÁ GIA HẠN:
-    - Tuyệt đối KHÔNG nhận `so_tien_vnd` hay `so_trang` do phía client gửi lên để tự tính lượt.
-    - Nếu tài khoản đã từng thanh toán lần đầu (`da_tung_nap == True`), tự động áp dụng Giá Gốc khi gia hạn.
+    - Không nhận `so_tien_vnd` / `so_trang` do client gửi.
+    - Chặn hạ gói khi gói cao còn hạn (HTTP 409).
     """
     don_gia = max(1, settings.ty_le_vnd_moi_trang)
-    da_tung_nap = await don_nap.da_tung_nap_thanh_cong(session, nguoi.email or "")
+    da_tung_nap = await _tt_core.has_prior_paid_purchase(session, user_id=nguoi.id, email=nguoi.email)
     ds_goi = {g.ma: g for g in _danh_sach_goi_nap_chuan(don_gia, da_tung_nap=da_tung_nap)}
     ma_goi_gui = (body.ma_goi or "").strip()
     goi = ds_goi.get(ma_goi_gui)
@@ -854,12 +698,14 @@ async def xac_nhan_chuyen_khoan_goi(
             detail="Mã gói cước không hợp lệ. Chỉ chấp nhận các gói cước chính thức của hệ thống.",
         )
 
+    if goi.ma != "goi_moi":
+        _tt_core.assert_not_downgrade_on_checkout(nguoi, goi.cap_do)
+
     ma_goi = goi.ma
     ten_goi = goi.ten
     so_tien = goi.so_tien_vnd
     so_trang = goi.so_trang
 
-    # Khách đã có đơn chờ duyệt cùng gói ⇒ trả đơn đó, không tạo dòng trùng.
     cho = await don_nap.tim_don_cho_duyet(session, nguoi.email or "", ma_goi)
     if cho is not None:
         return don_nap.sang_read(cho)
@@ -893,129 +739,12 @@ def _ma_giao_dich_ngan_hang(payload: dict) -> str | None:
     return None
 
 
-def _tinh_goi_nap_tu_so_tien_vnd(
-    so_tien: int, noi_dung: str, don_gia: int, da_tung_nap: bool = False
-) -> tuple[int, str, str]:
-    """Khớp chính xác số tiền VNĐ (và mã gói trong nội dung) sang số trang/credits + mã gói trên TrangBangGia.jsx.
-    - Nếu `da_tung_nap == False`: áp dụng bảng giá Ưu đãi thanh toán lần đầu.
-    - Nếu `da_tung_nap == True`: áp dụng bảng Giá Gốc khi gia hạn!
-    """
-    nd_upper = (noi_dung or "").upper()
-    if so_tien >= 10000000:
-        return (max(28000, int((so_tien // don_gia) * 1.4)), "enterprise_scale", "🏛️ Gói Doanh Nghiệp Lớn / Hệ Thống Cổng Truyện")
-
-    if da_tung_nap:
-        # Bảng Giá Gốc khi gia hạn (từ lần thanh toán thứ 2 trở đi)
-        if so_tien >= 5900000:
-            return (120000, "unlimited_yearly", "🏢 Gói Pro Max API Năm — Gia Hạn Giá Gốc (120.000 Credits)")
-        if so_tien >= 2900000:
-            return (36000, "studio_yearly", "💎 Gói Tiêu Chuẩn / Studio + API Năm — Gia Hạn Giá Gốc (36.000 Credits)")
-        if so_tien >= 1400000:
-            return (9600, "pro_yearly", "⭐ Gói Lite Năm — Gia Hạn Giá Gốc (9.600 Credits)")
-        if so_tien >= 780000:
-            return (10000, "unlimited_plan", "🏢 Gói Pro Max — Gia Hạn Giá Gốc (10.000 Credits / tháng + API)")
-        if so_tien >= 700000:
-            return (3600, "starter_yearly", "🎁 Gói Starter Năm — Gia Hạn Giá Gốc (3.600 Credits)")
-        if so_tien >= 390000:
-            return (3000, "studio_monthly", "💎 Gói Tiêu Chuẩn / Studio + API — Gia Hạn Giá Gốc (3.000 Credits / tháng)")
-        if so_tien >= 145000:
-            return (800, "pro_monthly", "⭐ Gói Lite / Reader — Gia Hạn Giá Gốc (800 Credits / tháng)")
-        if so_tien >= 95000:
-            return (300, "starter_monthly", "⭐ Gói Starter — Gia Hạn Giá Gốc (300 Credits / tháng)")
-        if so_tien >= 49000:
-            return (150, "trial_pack_50", "🎁 Gói Trial — Gia Hạn Giá Gốc (150 Credits / tháng)")
-        so_trang_goc = max(1, so_tien // max(1, don_gia))
-        return (so_trang_goc, "goi_moi", f"🎯 Gói Gia Hạn Lẻ ({so_trang_goc} Credits)")
-
-    if so_tien >= 3500000:
-        return (120000, "unlimited_yearly", "🏢 Gói Pro Max API Năm (120.000 Credits / năm)")
-    if so_tien >= 1750000:
-        return (36000, "studio_yearly", "💎 Gói Tiêu Chuẩn / Studio + API Năm (36.000 Credits / năm)")
-    if so_tien >= 1000000:
-        so_tr = max(10000, int((so_tien // 100)))
-        return (so_tr, "doanh_nghiep_api", f"🏢 Gói Doanh Nghiệp / Web Truyện API Pro ({so_tr} Credits)")
-    if so_tien >= 850000:
-        return (9600, "pro_yearly", "⭐ Gói Lite Năm (9.600 Credits / năm)")
-    if so_tien >= 600000:
-        return (2000, "pack_2000", "🔥 Gói Tích Luỹ 2.000 Trang")
-    if so_tien >= 440000:
-        return (3600, "starter_yearly", "🎁 Gói Starter Năm (3.600 Credits / năm)")
-    if so_tien >= 399000:
-        return (10000, "unlimited_plan", "🏢 Gói Pro Max / Unlimited (10.000 Credits / tháng + API)")
-    if so_tien >= 199000:
-        if so_tien == 200000 and ("READER" in nd_upper or "TIEU_CHUAN" in nd_upper or "500" in nd_upper):
-            return (550, "tieu_chuan", "🔥 Gói Độc Giả VIP — Reader (550 trang)")
-        return (3000, "studio_monthly", "💎 Gói Tiêu Chuẩn / Studio + API (3.000 Credits / tháng)")
-    if so_tien >= 99000:
-        return (800, "pro_monthly", "⭐ Gói Lite / Reader (800 Credits / tháng)")
-    if so_tien >= 49000:
-        if so_tien == 50000 and ("CO_BAN" in nd_upper or "100" in nd_upper):
-            return (105, "co_ban", "🌱 Gói Khởi Đầu — Starter (105 trang)")
-        return (300, "starter_monthly", "🎁 Gói Starter Ưu Đãi Lần Đầu (300 Credits / tháng)")
-    if so_tien >= 19000:
-        return (150, "trial_pack_50", "🎁 Gói Trải Nghiệm Lần Đầu (150 Credits / tháng)")
-    so_trang_goc = max(1, so_tien // max(1, don_gia))
-    return (so_trang_goc, "goi_moi", f"🎯 Gói Trải Nghiệm ({so_trang_goc} trang)")
-
-
-def _tinh_goi_nap_tu_usd(
-    so_usd: float, noi_dung: str = "", da_tung_nap: bool = False
-) -> tuple[int, int, str, str]:
-    """Khớp số tiền USD thanh toán qua PayPal sang (so_trang_cong, so_tien_vnd_quy_doi, ma_goi, ten_goi).
-    - Nếu `da_tung_nap == False`: áp dụng giá Ưu đãi thanh toán lần đầu.
-    - Nếu `da_tung_nap == True`: áp dụng Giá Gốc khi gia hạn!
-    """
-    nd_upper = (noi_dung or "").upper()
-    if da_tung_nap:
-        if so_usd >= 340.0:
-            return (120000, 5988000, "unlimited_yearly", "🏢 Gói Pro Max API Năm — Gia Hạn Giá Gốc (PayPal USD)")
-        if so_usd >= 170.0:
-            return (36000, 2988000, "studio_yearly", "💎 Gói Tiêu Chuẩn / Studio + API Năm — Gia Hạn Giá Gốc (PayPal USD)")
-        if so_usd >= 90.0:
-            return (9600, 1428000, "pro_yearly", "⭐ Gói Lite Năm — Gia Hạn Giá Gốc (PayPal USD)")
-        if so_usd >= 55.0:
-            return (3600, 708000, "starter_yearly", "🎁 Gói Starter Năm — Gia Hạn Giá Gốc (PayPal USD)")
-        if so_usd >= 38.0:
-            return (10000, 799000, "unlimited_plan", "🏢 Gói Pro Max 10.000 Credits — Gia Hạn Giá Gốc (PayPal USD)")
-        if so_usd >= 19.0:
-            return (3000, 399000, "studio_monthly", "💎 Gói Tiêu Chuẩn / Studio + API 3.000 Credits — Gia Hạn Giá Gốc (PayPal USD)")
-        if so_usd >= 8.5:
-            return (800, 149000, "pro_monthly", "⭐ Gói Lite / Reader 800 Credits — Gia Hạn Giá Gốc (PayPal USD)")
-        if so_usd >= 5.5:
-            return (300, 99000, "starter_monthly", "⭐ Gói Starter 300 Credits — Gia Hạn Giá Gốc (PayPal USD)")
-        if so_usd >= 3.5:
-            return (150, 50000, "trial_pack_50", "🎁 Gói Trial 150 Credits — Gia Hạn Giá Gốc (PayPal USD)")
-        so_trang_gh = max(1, int(round(so_usd * 50)))
-        return (so_trang_gh, int(so_usd * 25000), "goi_moi", f"🎯 Gói Gia Hạn PayPal ({so_trang_gh} Credits)")
-
-    if so_usd >= 165.0:
-        return (120000, 3590000, "unlimited_yearly", "🏢 Gói Pro Max API Năm 120.000 Credits (PayPal USD)")
-    if so_usd >= 85.0:
-        return (36000, 1790000, "studio_yearly", "💎 Gói Tiêu Chuẩn / Studio + API Năm 36.000 Credits (PayPal USD)")
-    if so_usd >= 50.0:
-        return (9600, 890000, "pro_yearly", "⭐ Gói Lite Năm 9.600 Credits (PayPal USD)")
-    if so_usd >= 44.0:
-        return (10000, 1000000, "doanh_nghiep_api", "🏢 Gói Doanh Nghiệp + Cổng API (PayPal USD)")
-    if so_usd >= 28.0 and ("STARTYR" in nd_upper or "STARTER_YEARLY" in nd_upper or so_usd >= 34.0):
-        return (3600, 450000, "starter_yearly", "🎁 Gói Starter Năm 3.600 Credits (PayPal USD)")
-    if so_usd >= 18.5 or (so_usd >= 14.0 and "UNLIMITED" in nd_upper):
-        return (10000, 399000, "unlimited_plan", "🏢 Gói Pro Max 10.000 Credits / tháng + API (PayPal USD)")
-    if so_usd >= 9.5:
-        return (3000, 199000, "studio_monthly", "💎 Gói Tiêu Chuẩn / Studio + API 3.000 Credits / tháng (PayPal USD)")
-    if so_usd >= 5.5 or (so_usd >= 5.0 and "PRO" in nd_upper):
-        return (800, 99000, "pro_monthly", "⭐ Gói Lite / Reader 800 Credits / tháng (PayPal USD)")
-    if so_usd >= 2.8:
-        return (300, 49000, "starter_monthly", "🎁 Gói Starter Ưu Đãi Lần Đầu 300 Credits / tháng (PayPal USD)")
-    if so_usd >= 0.8:
-        return (150, 25000, "trial_pack_50", "🎁 Gói Trải Nghiệm Lần Đầu 150 Credits (PayPal USD)")
-    so_trang = max(1, int(round(so_usd * 50)))
-    return (so_trang, int(so_usd * 25000), "goi_moi", f"🎯 Gói PayPal ({so_trang} Credits)")
-
-
 async def _tim_nguoi_dung_tu_noi_dung(
     session: AsyncSession, noi_dung: str, email_phu: str = ""
 ) -> NguoiDung | None:
-    """Tìm chính xác tài khoản khách hàng từ nội dung chuyển khoản / custom field / payer_email."""
+    """Tìm tài khoản khách hàng cho luồng chuyển khoản theo mã tài khoản cũ (`NAP <UUID8>` / `<EMAIL>`).
+    CHỈ khớp khi tìm thấy ĐÚNG MỘT ứng viên duy nhất (không đoán mò khi trùng phần đầu email).
+    """
     import re
 
     for chuoi in (noi_dung, email_phu):
@@ -1043,32 +772,16 @@ async def _tim_nguoi_dung_tu_noi_dung(
             return ung_vien[0]
 
     noi_dung_sach = re.sub(r"[^a-z0-9]", "", (noi_dung or "").lower())
-    if len(noi_dung_sach) >= 6:
+    if len(noi_dung_sach) >= 8:
         ds_tat_ca_u = (await session.execute(select(NguoiDung))).scalars().all()
-        khop: list[NguoiDung] = []
-        for u in ds_tat_ca_u:
-            email_rut_gon = re.sub(r"[^a-z0-9]", "", (u.email or "").lower())
-            if len(email_rut_gon) >= 8 and email_rut_gon in noi_dung_sach:
-                khop.append(u)
+        khop = [
+            u
+            for u in ds_tat_ca_u
+            if len(re.sub(r"[^a-z0-9]", "", (u.email or "").lower())) >= 8
+            and re.sub(r"[^a-z0-9]", "", (u.email or "").lower()) in noi_dung_sach
+        ]
         if len(khop) == 1:
             return khop[0]
-
-        # Dự phòng trường hợp ngân hàng cắt cụt đuôi '@gmail.com' ở cuối nội dung dài
-        # (vd: "NAP UNLIMITED hoangminh1998@gm" hoặc "NAP PRO hoangminh1998"):
-        khop_local: list[NguoiDung] = []
-        for u in ds_tat_ca_u:
-            local_part = (u.email or "").split("@")[0].lower()
-            local_sach = re.sub(r"[^a-z0-9]", "", local_part)
-            if len(local_sach) >= 5 and local_sach in noi_dung_sach:
-                khop_local.append(u)
-        if len(khop_local) == 1:
-            return khop_local[0]
-        if len(khop_local) > 1:
-            # Nếu nhiều người trùng phần đầu email, ưu tiên người đang có đơn chờ duyệt (cho_duyet)
-            for u_cand in khop_local:
-                don_c = await don_nap.tim_don_cho_duyet(session, u_cand.email or "")
-                if don_c is not None:
-                    return u_cand
     return None
 
 
@@ -1080,20 +793,42 @@ async def _tu_dong_cap_api_key_va_hoa_hong(
     ma_goi: str,
     so_luot_truoc_do: int = 0,
 ) -> None:
-    """Ghi nhận cấp độ gói khách vừa mua (giữ nguyên hạng suốt thời gian còn lượt, chống lách bằng gói thấp),
-    tự động khởi tạo Developer API Key (tr_live_...) khi khách mua gói Unlimited/API
-    và tự động cộng 15% hoa hồng Affiliate cho người giới thiệu."""
-    try:
-        from app.core.danh_tinh_khach import ghi_nhan_cap_do_goi_mua
+    """Đồng bộ quyền lợi gói trên `NguoiDung`, tự cấp API Key cho gói Studio/Unlimited và thưởng Affiliate idempotent."""
+    from app.core.danh_tinh_khach import cap_do_tu_ma_goi, ghi_nhan_cap_do_goi_mua
 
+    try:
         await run_in_threadpool(
             ghi_nhan_cap_do_goi_mua, khach_id, ma_goi, so_trang_cong, so_luot_truoc_do
         )
     except Exception:
         pass
 
-    # 1. Tự động tạo Developer API Key nếu nâng cấp gói Studio (Cấp 4) hoặc Unlimited (Cấp 5) mà chưa có key
-    if so_trang_cong >= 3000 or ma_goi in ("studio_monthly", "studio_yearly", "pack_2000", "nhom_dich", "unlimited_plan", "unlimited_yearly", "doanh_nghiep_api", "enterprise_scale"):
+    khach_row = await session.get(NguoiDung, khach_id)
+    if khach_row is not None and so_trang_cong > 0:
+        from datetime import timedelta
+
+        cap_m = cap_do_tu_ma_goi(ma_goi, so_trang_cong)
+        days_m = 365 if "yearly" in (ma_goi or "").lower() else 30
+        now_dt = bay_gio()
+        cur_exp = khach_row.het_han_goi
+        if cur_exp is not None and cur_exp.tzinfo is None:
+            cur_exp = cur_exp.replace(tzinfo=now_dt.tzinfo)
+        base_dt = max(now_dt, cur_exp) if (khach_row.cap_do_goi == cap_m and cur_exp and cur_exp > now_dt) else now_dt
+        khach_row.cap_do_goi = max(int(khach_row.cap_do_goi or 0), cap_m)
+        khach_row.ma_goi_hien_tai = (ma_goi or khach_row.ma_goi_hien_tai or "manual")[:64]
+        khach_row.het_han_goi = base_dt + timedelta(days=days_m)
+        khach_row.trang_thai_billing = "active"
+
+    if so_trang_cong >= 3000 or ma_goi in (
+        "studio_monthly",
+        "studio_yearly",
+        "pack_2000",
+        "nhom_dich",
+        "unlimited_plan",
+        "unlimited_yearly",
+        "doanh_nghiep_api",
+        "enterprise_scale",
+    ):
         try:
             from app.services import tai_khoan as _tk_auto
 
@@ -1103,28 +838,12 @@ async def _tu_dong_cap_api_key_va_hoa_hong(
         except Exception:
             pass
 
-    # 2. Tự động cộng hoa hồng Affiliate 15%
-    try:
-        from app.api.v1.xac_thuc_routes import _doc_so_cai_affiliate, _luu_so_cai_affiliate
-
-        aff_data = await run_in_threadpool(_doc_so_cai_affiliate)
-        claim_info = (aff_data.get("claims") or {}).get(str(khach_id))
-        if isinstance(claim_info, dict) and claim_info.get("referrer_id"):
-            ref_uid = uuid.UUID(str(claim_info["referrer_id"]))
-            hoa_hong = max(1, int(round(so_trang_cong * 0.15)))
-            await don_nap.cong_luot(session, ref_uid, hoa_hong)
-            aff_data.setdefault("history", []).append(
-                {
-                    "beneficiary_id": str(ref_uid),
-                    "type": "vip_commission_15pct",
-                    "bonus_pages": hoa_hong,
-                    "note": f"Hoa hồng 15% từ đơn nạp {ma_don} (+{so_trang_cong} trang)",
-                    "created_at": bay_gio().isoformat(),
-                }
-            )
-            await run_in_threadpool(_luu_so_cai_affiliate, aff_data)
-    except Exception:
-        pass
+    await _tt_core._grant_affiliate_bonus_idempotent(
+        session,
+        buyer_id=khach_id,
+        credits=so_trang_cong,
+        source_ref=f"don_nap_{ma_don}",
+    )
 
 
 @router_khach.post("/nap-luot/webhook", tags=["han-muc"])
@@ -1133,40 +852,64 @@ async def webhook_nap_luot_ngan_hang(
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ) -> dict:
-    """E100 — Webhook tự động cộng lượt & nâng cấp gói khi khách chuyển khoản ngân hàng (SePay / Casso / PayOS).
-
-    Cú pháp nội dung chuyển khoản: `NAP <MA_GOI> <EMAIL>` hoặc `NAP <8_KY_TU_DAU_UUID>`.
-    Bảo vệ bằng khoá bí mật `webhook_bi_mat` (cấu hình trong Admin hoặc `.env`).
+    """Webhook ngân hàng tương thích ngược (đã gia cố theo chuẩn `payment-integration-vn-global` §3.1):
+    - KHÔNG có secret mặc định (thiếu -> 503).
+    - Chấp nhận `X-SePay-Signature` HMAC-SHA256 trên raw body hoặc `Authorization: Apikey <secret>`.
+    - Chiếm chỗ `payment_events` TRƯỚC khi đổi quyền lợi (fail-closed 503).
+    - Có mã `CIOXXXXXXXX` -> kích hoạt đơn nội bộ `PaymentOrder` qua `activate_order()`.
+    - Không có mã đơn (CK theo mã user `NAP ...`) -> CHỈ khớp khi số tiền đúng bằng ĐÚNG MỘT gói
+      (sai lệch <= 1.000đ); lệch giá / trùng giá / không khớp user -> đưa vào `payment_reviews` + cảnh báo!
     """
-    import hmac
+    import json
     import re
 
-    tt_cfg = await run_in_threadpool(_doc_cau_hinh_thanh_toan_day_du, settings)
-    bi_mat = (tt_cfg.get("webhook_bi_mat") or settings.webhook_nap_luot_bi_mat or "").strip()
-    if not bi_mat:
+    cfg = await run_in_threadpool(_tt_core.resolve_payment_config, settings)
+    sepay_secrets = cfg.get("sepay_secrets") or []
+    if not sepay_secrets:
         raise HTTPException(
             status_code=503,
             detail="Chưa cấu hình khoá bảo mật Webhook ngân hàng.",
         )
 
-    auth = (request.headers.get("authorization") or request.headers.get("x-webhook-secret") or "").strip()
-    auth = re.sub(r"^(apikey|bearer|token)\s+", "", auth, flags=re.IGNORECASE).strip()
-    if not hmac.compare_digest(auth.encode("utf-8"), bi_mat.encode("utf-8")):
-        raise HTTPException(status_code=401, detail="Khoá xác thực webhook không hợp lệ.")
+    raw_body = await request.body()
+    if len(raw_body) > 262_144:
+        raise HTTPException(status_code=413, detail="Webhook payload quá lớn.")
+
+    ok_sig, _ = _tt_core.verify_sepay_signature(
+        raw_body,
+        request.headers,
+        sepay_secrets,
+        allow_apikey=True,
+    )
+    if not ok_sig:
+        raise HTTPException(status_code=401, detail="Khoá xác thực hoặc chữ ký webhook không hợp lệ.")
 
     try:
-        payload = await request.json()
+        payload = json.loads(raw_body.decode("utf-8"))
     except Exception:
         return {"ok": False, "ly_do": "payload_khong_hop_le"}
     if not isinstance(payload, dict):
         return {"ok": False, "ly_do": "payload_khong_hop_le"}
+
     data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
     loai_ck = str(payload.get("transferType") or data.get("transferType") or "in").lower()
     if loai_ck != "in":
         return {"ok": False, "ly_do": "khong_phai_tien_vao"}
+
     ma_giao_dich = _ma_giao_dich_ngan_hang(payload)
     if ma_giao_dich is None:
         return {"ok": False, "ly_do": "thieu_ma_giao_dich"}
+
+    # Kiểm tài khoản nhận nếu cấu hình STK đã đặt hoặc payload có gửi accountNumber
+    expected_stk = re.sub(r"[^A-Za-z0-9]", "", str(cfg.get("ngan_hang_so_tk") or "")).upper()
+    got_stk = re.sub(
+        r"[^A-Za-z0-9]",
+        "",
+        str(payload.get("accountNumber") or data.get("accountNumber") or ""),
+    ).upper()
+    if expected_stk and got_stk and got_stk != expected_stk:
+        raise HTTPException(status_code=400, detail="Tài khoản nhận chuyển khoản không khớp cấu hình.")
+
     noi_dung = " ".join(
         str(x).strip()
         for x in (
@@ -1178,45 +921,187 @@ async def webhook_nap_luot_ngan_hang(
         )
         if x
     ).strip()
-    try:
-        so_tien = int(
-            float(
-                payload.get("transferAmount")
-                or payload.get("amount")
-                or data.get("amount")
-                or 0
-            )
+
+    raw_amount = (
+        payload.get("transferAmount")
+        if payload.get("transferAmount") is not None
+        else (payload.get("amount") if payload.get("amount") is not None else data.get("amount"))
+    )
+    so_tien = _tt_core.parse_minor_units(raw_amount, exponent=0)
+
+    # Chiếm chỗ idempotency trong `payment_events` TRƯỚC mọi thay đổi quyền lợi!
+    claim_state, event_row_id = await _tt_core.claim_event(
+        session,
+        "sepay_legacy",
+        ma_giao_dich,
+        event_type="bank_transfer_in",
+        amount=so_tien,
+        currency="VND",
+        raw_payload={"tx": ma_giao_dich, "amount": raw_amount},
+        legacy_providers=("sepay",),
+    )
+    if claim_state == "duplicate":
+        return {"ok": True, "trung_lap": True, "ma_giao_dich": ma_giao_dich}
+
+    if so_tien is None or not noi_dung:
+        await _tt_core.record_review_and_alert(
+            session,
+            provider="sepay_legacy",
+            reason="missing_amount_or_content",
+            provider_event_id=ma_giao_dich,
+            amount=so_tien,
+            currency="VND",
+            raw_payload={"tx": ma_giao_dich, "amount": raw_amount},
+            settings=settings,
         )
-    except (ValueError, TypeError):
-        so_tien = 0
-    if so_tien <= 0 or not noi_dung:
+        await _tt_core.finalize_event(session, event_row_id, match_type="failed", processed=True, error="missing_amount_or_content")
         return {"ok": False, "ly_do": "khong_co_so_tien_hoac_noi_dung"}
 
-    da_xu_ly = (
-        await session.execute(
-            select(DonNapLuot.ma_don).where(DonNapLuot.ma_giao_dich_ngan_hang == ma_giao_dich)
-        )
-    ).scalar_one_or_none()
-    if da_xu_ly is not None:
-        return {"ok": True, "trung_lap": True, "ma_don": da_xu_ly}
+    # Ưu tiên 1: Có mã đơn chuẩn `CIOXXXXXXXX` -> đi thẳng qua `activate_order()`!
+    order_code = _tt_core.extract_order_code(noi_dung)
+    if order_code:
+        from app.models import PaymentOrder
 
+        p_order = (
+            await session.execute(select(PaymentOrder).where(PaymentOrder.code == order_code))
+        ).scalar_one_or_none()
+        if p_order is None:
+            await _tt_core.record_review_and_alert(
+                session,
+                provider="sepay_legacy",
+                reason="order_code_not_found",
+                provider_event_id=ma_giao_dich,
+                order_code=order_code,
+                amount=so_tien,
+                currency="VND",
+                raw_payload={"tx": ma_giao_dich, "order_code": order_code},
+                settings=settings,
+            )
+            await _tt_core.finalize_event(session, event_row_id, match_type="unmatched", processed=True, error="order_code_not_found")
+            return {"ok": False, "ly_do": "ma_don_khong_ton_tai", "duyet_tay": True}
+
+        activated, outcome = await _tt_core.activate_order(
+            session,
+            order_id=p_order.id,
+            paid_amount=so_tien,
+            currency="VND",
+            provider="sepay_legacy",
+            provider_event_id=ma_giao_dich,
+            provider_ref=ma_giao_dich,
+            evidence={"tx": ma_giao_dich},
+            settings=settings,
+        )
+        await _tt_core.finalize_event(
+            session,
+            event_row_id,
+            match_type="matched" if activated else outcome,
+            processed=True,
+            order_id=p_order.id,
+            amount=so_tien,
+            currency="VND",
+            error=None if activated else outcome,
+        )
+        if not activated:
+            return {"ok": False, "ly_do": outcome, "ma_don": p_order.code, "duyet_tay": True}
+        nguoi_p = await session.get(NguoiDung, p_order.user_id) if p_order.user_id else None
+        from app.core.danh_tinh_khach import ten_cap_do, tinh_cap_do
+
+        cap_p = tinh_cap_do(nguoi_p) if nguoi_p else p_order.tier_rank
+        return {
+            "ok": True,
+            "email": p_order.email,
+            "ma_don": p_order.code,
+            "ma_goi": p_order.plan,
+            "da_cong_them": p_order.credits,
+            "so_luot_mua_them_moi": int(nguoi_p.so_luot_mua_them or 0) if nguoi_p else p_order.credits,
+            "cap_do_moi": cap_p,
+            "ten_cap_do_moi": ten_cap_do(cap_p),
+        }
+
+    # Ưu tiên 2: Luồng chuyển khoản theo tài khoản (`NAP <EMAIL>`), kiểm chặt 1 gói duy nhất (sai lệch <= 1.000đ)
     nguoi = await _tim_nguoi_dung_tu_noi_dung(session, noi_dung)
     if nguoi is None:
-        return {"ok": False, "ly_do": "khong_tim_thay_tai_khoan_tu_noi_dung"}
+        await _tt_core.record_review_and_alert(
+            session,
+            provider="sepay_legacy",
+            reason="account_not_found_from_memo",
+            provider_event_id=ma_giao_dich,
+            amount=so_tien,
+            currency="VND",
+            raw_payload={"tx": ma_giao_dich},
+            settings=settings,
+        )
+        await _tt_core.finalize_event(session, event_row_id, match_type="unmatched", processed=True, error="account_not_found")
+        return {"ok": False, "ly_do": "khong_tim_thay_tai_khoan_tu_noi_dung", "duyet_tay": True}
 
     don_gia = max(1, settings.ty_le_vnd_moi_trang)
-    da_tung_nap_ck = await don_nap.da_tung_nap_thanh_cong(session, nguoi.email or "")
-    so_trang_cong, ma_goi_nhan, ten_goi_nhan = _tinh_goi_nap_tu_so_tien_vnd(
-        so_tien, noi_dung, don_gia, da_tung_nap=da_tung_nap_ck
+    da_tung_nap_ck = await _tt_core.has_prior_paid_purchase(session, user_id=nguoi.id, email=nguoi.email)
+    sub_items = _tt_core.catalog(
+        da_tung_nap=da_tung_nap_ck,
+        don_gia_vnd=don_gia,
+        overrides=cfg.get("price_overrides"),
+        include_legacy_packs=False,
     )
-    if so_trang_cong <= 0:
-        return {"ok": False, "ly_do": "so_tien_nho_hon_1_trang"}
+    matched_plan = _tt_core.match_exact_single_plan_by_vnd(so_tien, sub_items, tolerance_vnd=1000)
 
     don_cho = await don_nap.tim_don_cho_duyet(session, nguoi.email or "")
+    if matched_plan is None and don_cho is not None and abs(int(don_cho.so_tien_vnd) - so_tien) <= 1000:
+        all_items = {
+            it.code: it
+            for it in _tt_core.catalog(
+                da_tung_nap=da_tung_nap_ck,
+                don_gia_vnd=don_gia,
+                overrides=cfg.get("price_overrides"),
+                include_legacy_packs=True,
+            )
+        }
+        matched_plan = all_items.get(don_cho.ma_goi)
+
+    if matched_plan is None:
+        await _tt_core.record_review_and_alert(
+            session,
+            provider="sepay_legacy",
+            reason="amount_not_matching_unique_plan",
+            provider_event_id=ma_giao_dich,
+            user_id=str(nguoi.id),
+            user_email=nguoi.email,
+            amount=so_tien,
+            currency="VND",
+            raw_payload={"tx": ma_giao_dich, "amount": so_tien},
+            settings=settings,
+        )
+        await _tt_core.finalize_event(session, event_row_id, match_type="needs_manual_review", processed=True, error="amount_not_matching_unique_plan")
+        return {"ok": False, "ly_do": "so_tien_khong_khop_goi_duy_nhat", "duyet_tay": True}
+
+    # Chặn hạ gói trong webhook khi gói cao hơn còn hạn -> chuyển sang duyệt tay!
+    cur_rank, cur_tier_name, _ = _tt_core.active_paid_profile(nguoi)
+    if cur_rank > 0 and matched_plan.tier_rank < cur_rank:
+        await _tt_core.record_review_and_alert(
+            session,
+            provider="sepay_legacy",
+            reason="downgrade_while_higher_tier_active",
+            provider_event_id=ma_giao_dich,
+            user_id=str(nguoi.id),
+            user_email=nguoi.email,
+            current_tier=cur_tier_name,
+            target_tier=matched_plan.tier_name,
+            amount=so_tien,
+            currency="VND",
+            raw_payload={"tx": ma_giao_dich, "plan": matched_plan.code},
+            settings=settings,
+        )
+        await _tt_core.finalize_event(session, event_row_id, match_type="needs_manual_review", processed=True, error="downgrade_while_higher_tier_active")
+        return {"ok": False, "ly_do": "chan_ha_goi_khi_con_han", "duyet_tay": True}
+
     try:
         if don_cho is not None and await don_nap.chuyen_trang_thai(
-            session, don_cho.id, tu=("cho_duyet",), sang="da_cong_tu_dong", ma_giao_dich=ma_giao_dich,
-            so_tien_vnd=so_tien, so_trang_cong=so_trang_cong,
+            session,
+            don_cho.id,
+            tu=("cho_duyet",),
+            sang="da_cong_tu_dong",
+            ma_giao_dich=ma_giao_dich,
+            so_tien_vnd=so_tien,
+            so_trang_cong=matched_plan.credits,
         ):
             ma_don = don_cho.ma_don
         else:
@@ -1225,11 +1110,11 @@ async def webhook_nap_luot_ngan_hang(
                 nguoi_dung_id=nguoi.id,
                 email=nguoi.email,
                 ten_hien=nguoi.ten_hien,
-                ma_goi=ma_goi_nhan,
-                ten_goi=ten_goi_nhan,
+                ma_goi=matched_plan.code,
+                ten_goi=matched_plan.name,
                 so_tien_vnd=so_tien,
-                so_trang_cong=so_trang_cong,
-                noi_dung_chuyen_khoan=noi_dung,
+                so_trang_cong=matched_plan.credits,
+                noi_dung_chuyen_khoan=noi_dung[:240],
                 trang_thai="da_cong_tu_dong",
                 ma_giao_dich_ngan_hang=ma_giao_dich,
                 duyet_luc=bay_gio(),
@@ -1237,12 +1122,25 @@ async def webhook_nap_luot_ngan_hang(
             session.add(don_moi)
             await session.flush()
             ma_don = don_moi.ma_don
-        luot_truoc = max(0, int(nguoi.so_luot_mua_them or 0))
-        await don_nap.cong_luot(session, nguoi.id, so_trang_cong)
-        await _tu_dong_cap_api_key_va_hoa_hong(
-            session, nguoi.id, ma_don, so_trang_cong, ma_goi_nhan, so_luot_truoc_do=luot_truoc
+
+        await _tt_core.grant(
+            session,
+            user_id=nguoi.id,
+            plan_code=matched_plan.code,
+            tier_rank=matched_plan.tier_rank,
+            credits=matched_plan.credits,
+            duration_days=matched_plan.duration_days,
+            source_ref=f"sepay_legacy_{ma_giao_dich}",
         )
         await session.commit()
+        await _tt_core.finalize_event(
+            session,
+            event_row_id,
+            match_type="matched",
+            processed=True,
+            amount=so_tien,
+            currency="VND",
+        )
     except IntegrityError:
         await session.rollback()
         return {"ok": True, "trung_lap": True}
@@ -1255,12 +1153,21 @@ async def webhook_nap_luot_ngan_hang(
         "ok": True,
         "email": nguoi.email,
         "ma_don": ma_don,
-        "ma_goi": ma_goi_nhan,
-        "da_cong_them": so_trang_cong,
+        "ma_goi": matched_plan.code,
+        "da_cong_them": matched_plan.credits,
         "so_luot_mua_them_moi": nguoi.so_luot_mua_them,
         "cap_do_moi": cap_moi,
         "ten_cap_do_moi": ten_cap_do(cap_moi),
     }
+
+
+@router_khach.post("/nap-luot/paypal-capture", tags=["han-muc"])
+async def deprecated_paypal_arbitrary_capture() -> dict:
+    """Endpoint capture PayPal kiểu cũ (nhận PayPal order ID bất kỳ) bị huỷ bỏ vĩnh viễn -> 410 Gone (§3.3 & §9)."""
+    raise HTTPException(
+        status_code=410,
+        detail="Endpoint cũ đã ngừng hoạt động. Vui lòng dùng POST /api/v1/thanh-toan/paypal/orders/{order_id}/capture.",
+    )
 
 
 @router_khach.post("/nap-luot/paypal-ipn", tags=["han-muc"])
@@ -1269,28 +1176,44 @@ async def webhook_nap_luot_paypal_ipn(
     session: AsyncSession = Depends(get_session),
     settings: Settings = Depends(get_settings),
 ) -> dict:
-    """Webhook / IPN tự động xác thực giao dịch PayPal (USD) và nâng cấp gói ngay lập tức.
-
-    Cơ chế bảo mật:
-    - Khi PayPal gửi IPN (application/x-www-form-urlencoded), máy chủ gửi ngược toàn bộ raw body
-      kèm `cmd=_notify-validate` tới `https://ipnpb.paypal.com/cgi-bin/webscr` để xác minh chữ ký
-      trực tiếp với máy chủ PayPal.
-    - Chỉ cộng lượt khi PayPal trả lời `VERIFIED` và `payment_status == 'Completed'`.
-    - Nhận diện tài khoản tự động qua trường `custom` (`email|ma_goi`), `item_name` (`NAP PRO email`),
-      hoặc `payer_email` (nếu email PayPal trùng email đăng ký trên comic.io.vn).
+    """PayPal IPN cũ (§3.3):
+    - Mặc định TẮT (`410 Gone`) để dùng PayPal Orders API v2 (`/thanh-toan/paypal/*`).
+    - Nếu bật tường minh `PAYPAL_ENABLE_LEGACY_IPN=true`: bắt buộc đủ 5 phép kiểm (`VERIFIED`,
+      `paypal_email` bắt buộc cấu hình -> thiếu trả `503`, `mc_currency` khớp, `mc_gross` parse `Decimal`,
+      `custom` phải là `order_id` nội bộ do server tạo; tuyệt đối KHÔNG nhận `email|ma_goi` tự khai).
     """
     import urllib.parse
     import httpx
+    from app.models import PaymentOrder
+
+    if not settings.paypal_enable_legacy_ipn:
+        raise HTTPException(
+            status_code=410,
+            detail="PayPal IPN cũ đã chuyển sang PayPal Orders API v2 (/api/v1/thanh-toan/paypal/*).",
+        )
+
+    cfg = await run_in_threadpool(_tt_core.resolve_payment_config, settings)
+    admin_paypal = (cfg.get("paypal_email") or "").strip().lower()
+    if not admin_paypal or "@" not in admin_paypal:
+        raise HTTPException(
+            status_code=503,
+            detail="Chưa cấu hình email merchant nhận tiền PayPal — từ chối xử lý IPN.",
+        )
 
     raw_body = await request.body()
+    if len(raw_body) > 262_144:
+        raise HTTPException(status_code=413, detail="IPN payload quá lớn.")
     raw_text = raw_body.decode("utf-8", errors="ignore")
     parsed_qs = urllib.parse.parse_qs(raw_text, keep_blank_values=True)
     form_dict = {k: (v[0] if v else "") for k, v in parsed_qs.items()}
 
     if not form_dict or "payment_status" not in form_dict:
-        return {"ok": False, "ly_do": "khong_phai_paypal_ipn"}
+        raise HTTPException(status_code=400, detail="Payload không phải PayPal IPN hợp lệ.")
 
     is_sandbox = form_dict.get("test_ipn") == "1"
+    if is_sandbox and cfg.get("paypal_mode") != "sandbox":
+        raise HTTPException(status_code=400, detail="Từ chối gói tin Sandbox IPN trên môi trường Live.")
+
     verify_url = (
         "https://ipnpb.sandbox.paypal.com/cgi-bin/webscr"
         if is_sandbox
@@ -1304,12 +1227,12 @@ async def webhook_nap_luot_paypal_ipn(
                 content=verify_body,
                 headers={
                     "Content-Type": "application/x-www-form-urlencoded",
-                    "User-Agent": "ComicIoVn-PayPal-IPN-Verifier/2.0",
+                    "User-Agent": "ComicIoVn-PayPal-IPN-Verifier/3.0",
                 },
             )
             verified_text = resp.text.strip()
-    except Exception:
-        raise HTTPException(status_code=502, detail="Không kết nối được máy chủ xác thực PayPal IPN.")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Không kết nối được máy chủ xác thực PayPal IPN.") from exc
 
     if verified_text != "VERIFIED":
         raise HTTPException(status_code=400, detail=f"PayPal IPN không hợp lệ: {verified_text}")
@@ -1320,89 +1243,90 @@ async def webhook_nap_luot_paypal_ipn(
 
     txn_id = (form_dict.get("txn_id") or "").strip()
     if not txn_id:
-        return {"ok": False, "ly_do": "thieu_txn_id"}
-    ma_giao_dich = f"paypal:{txn_id}"[:128]
+        raise HTTPException(status_code=400, detail="Thiếu txn_id trong PayPal IPN.")
 
-    # Kiểm tra email người nhận có khớp cấu hình PayPal của Admin không (nếu Admin cấu hình dạng email)
-    tt_cfg = await run_in_threadpool(_doc_cau_hinh_thanh_toan_day_du, settings)
-    admin_paypal = (tt_cfg.get("paypal_email") or "").strip().lower()
     receiver_email = (form_dict.get("receiver_email") or form_dict.get("business") or "").strip().lower()
-    if admin_paypal and "@" in admin_paypal and receiver_email and receiver_email != admin_paypal:
-        return {"ok": False, "ly_do": "sai_email_nguoi_nhan_paypal"}
+    if not receiver_email or receiver_email != admin_paypal:
+        raise HTTPException(status_code=400, detail="Email người nhận PayPal không khớp merchant.")
 
-    da_xu_ly = (
-        await session.execute(
-            select(DonNapLuot.ma_don).where(DonNapLuot.ma_giao_dich_ngan_hang == ma_giao_dich)
-        )
-    ).scalar_one_or_none()
-    if da_xu_ly is not None:
-        return {"ok": True, "trung_lap": True, "ma_don": da_xu_ly}
-
-    try:
-        mc_gross = float(form_dict.get("mc_gross") or form_dict.get("payment_gross") or 0.0)
-        mc_fee = float(form_dict.get("mc_fee") or 0.0)
-        _ = mc_fee
-    except ValueError:
-        mc_gross = 0.0
-    if mc_gross <= 0:
-        return {"ok": False, "ly_do": "so_tien_usd_khong_hop_le"}
-
-    custom_val = (form_dict.get("custom") or "").strip()
-    item_name = (form_dict.get("item_name") or "").strip()
-    payer_email = (form_dict.get("payer_email") or "").strip()
-    noi_dung_gop = f"{custom_val} {item_name}".strip()
-
-    nguoi = await _tim_nguoi_dung_tu_noi_dung(session, noi_dung_gop, email_phu=payer_email)
-    if nguoi is None:
-        return {"ok": False, "ly_do": "khong_tim_thay_tai_khoan_tu_paypal"}
-
-    da_tung_nap_pp = await don_nap.da_tung_nap_thanh_cong(session, nguoi.email or "")
-    so_trang_cong, so_tien_vnd_qd, ma_goi_nhan, ten_goi_nhan = _tinh_goi_nap_tu_usd(
-        mc_gross, noi_dung_gop, da_tung_nap=da_tung_nap_pp
+    currency = (form_dict.get("mc_currency") or "").strip().upper()
+    paid_cents = _tt_core.parse_minor_units(
+        form_dict.get("mc_gross") or form_dict.get("payment_gross"),
+        exponent=2,
     )
-    don_cho = await don_nap.tim_don_cho_duyet(session, nguoi.email or "")
-    try:
-        if don_cho is not None and await don_nap.chuyen_trang_thai(
-            session, don_cho.id, tu=("cho_duyet",), sang="da_cong_tu_dong", ma_giao_dich=ma_giao_dich,
-            so_tien_vnd=so_tien_vnd_qd, so_trang_cong=so_trang_cong,
-        ):
-            ma_don = don_cho.ma_don
-        else:
-            don_moi = DonNapLuot(
-                ma_don=don_nap.sinh_ma_don(),
-                nguoi_dung_id=nguoi.id,
-                email=nguoi.email,
-                ten_hien=nguoi.ten_hien,
-                ma_goi=ma_goi_nhan,
-                ten_goi=ten_goi_nhan,
-                so_tien_vnd=so_tien_vnd_qd,
-                so_trang_cong=so_trang_cong,
-                noi_dung_chuyen_khoan=f"PAYPAL ${mc_gross:.2f} ({txn_id}) {nguoi.email}"[:160],
-                trang_thai="da_cong_tu_dong",
-                ma_giao_dich_ngan_hang=ma_giao_dich,
-                duyet_luc=bay_gio(),
-            )
-            session.add(don_moi)
-            await session.flush()
-            ma_don = don_moi.ma_don
-        luot_truoc = max(0, int(nguoi.so_luot_mua_them or 0))
-        await don_nap.cong_luot(session, nguoi.id, so_trang_cong)
-        await _tu_dong_cap_api_key_va_hoa_hong(
-            session, nguoi.id, ma_don, so_trang_cong, ma_goi_nhan, so_luot_truoc_do=luot_truoc
-        )
-        await session.commit()
-    except IntegrityError:
-        await session.rollback()
-        return {"ok": True, "trung_lap": True}
+    custom_val = (form_dict.get("custom") or "").strip()
 
-    await session.refresh(nguoi)
-    return {
-        "ok": True,
-        "email": nguoi.email,
-        "ma_don": ma_don,
-        "da_cong_them": so_trang_cong,
-        "so_luot_mua_them_moi": nguoi.so_luot_mua_them,
-    }
+    claim_state, event_row_id = await _tt_core.claim_event(
+        session,
+        "paypal_ipn",
+        txn_id,
+        event_type="ipn_completed",
+        amount=paid_cents,
+        currency=currency or None,
+        raw_payload={"txn_id": txn_id, "custom": custom_val, "mc_currency": currency},
+        legacy_providers=("paypal_capture", "paypal_webhook"),
+    )
+    if claim_state == "duplicate":
+        return {"ok": True, "trung_lap": True, "txn_id": txn_id}
+
+    try:
+        order_uuid = uuid.UUID(custom_val) if custom_val else None
+    except ValueError:
+        order_uuid = None
+
+    if order_uuid is None or paid_cents is None or not currency:
+        await _tt_core.record_review_and_alert(
+            session,
+            provider="paypal_ipn",
+            reason="invalid_custom_order_or_amount",
+            provider_event_id=txn_id,
+            order_id=custom_val or None,
+            amount=paid_cents,
+            currency=currency or None,
+            raw_payload={"txn_id": txn_id, "custom": custom_val, "mc_currency": currency},
+            settings=settings,
+        )
+        await _tt_core.finalize_event(session, event_row_id, match_type="needs_manual_review", processed=True, error="invalid_custom_order_or_amount")
+        return {"ok": False, "ly_do": "can_duyet_tay", "duyet_tay": True}
+
+    order = await session.get(PaymentOrder, order_uuid)
+    if order is None:
+        await _tt_core.record_review_and_alert(
+            session,
+            provider="paypal_ipn",
+            reason="order_not_found",
+            provider_event_id=txn_id,
+            order_id=str(order_uuid),
+            amount=paid_cents,
+            currency=currency,
+            raw_payload={"txn_id": txn_id},
+            settings=settings,
+        )
+        await _tt_core.finalize_event(session, event_row_id, match_type="unmatched", processed=True, error="order_not_found")
+        return {"ok": False, "ly_do": "khong_tim_thay_don", "duyet_tay": True}
+
+    activated, outcome = await _tt_core.activate_order(
+        session,
+        order_id=order.id,
+        paid_amount=paid_cents,
+        currency=currency,
+        provider="paypal_ipn",
+        provider_event_id=txn_id,
+        provider_ref=txn_id,
+        evidence={"txn_id": txn_id},
+        settings=settings,
+    )
+    await _tt_core.finalize_event(
+        session,
+        event_row_id,
+        match_type="matched" if activated else outcome,
+        processed=True,
+        order_id=order.id,
+        amount=paid_cents,
+        currency=currency,
+        error=None if activated else outcome,
+    )
+    return {"ok": activated, "outcome": outcome, "ma_don": order.code}
 
 
 @router.post("/quan-tri/duyet-don-nap", response_model=DonNapLuotRead, tags=["han-muc"])
@@ -2125,6 +2049,22 @@ async def quan_tri_thong_ke(
 
     tt_tt_admin = await run_in_threadpool(_doc_cau_hinh_thanh_toan_day_du, settings)
     ds_don_out = [don_nap.sang_read(d) for d in await don_nap.ds_don_moi_nhat(session, 50)]
+    so_duyet_tay = 0
+    try:
+        from app.models import PaymentReview
+
+        so_duyet_tay = int(
+            (
+                await session.scalar(
+                    select(func.count(PaymentReview.id)).where(
+                        PaymentReview.status == "needs_manual_review"
+                    )
+                )
+            )
+            or 0
+        )
+    except Exception:
+        so_duyet_tay = 0
 
     return QuanTriThongKeRead(
         tong_nguoi_dung=len(ds_nguoi),
@@ -2153,7 +2093,8 @@ async def quan_tri_thong_ke(
         rapidapi_url=tt_tt_admin["rapidapi_url"],
         rapidapi_proxy_secret_configured=bool(tt_tt_admin.get("rapidapi_proxy_secret")),
         webhook_bi_mat_configured=bool(tt_tt_admin.get("webhook_bi_mat")),
-        webhook_bi_mat_hien_tai=tt_tt_admin.get("webhook_bi_mat", ""),
+        webhook_bi_mat_hien_tai=tt_tt_admin.get("sepay_masked", ""),
+        so_duyet_tay_cho_xu_ly=so_duyet_tay,
         bieu_do_7_ngay=bieu_do_7_ngay,
         phan_bo_ngon_ngu=phan_bo_ngon_ngu,
         chapter_gan_day=chapter_gan_day,
@@ -6293,4 +6234,11 @@ async def quan_tri_chay_tu_chua_lanh_ngay(
     from app.services.tu_chua_lanh import chay_chan_doan_va_tu_chua_lanh
 
     return await run_in_threadpool(chay_chan_doan_va_tu_chua_lanh, True)
+
+
+# Gắn các route Thanh toán Online chuẩn an toàn (VietQR + SePay HMAC, Stripe, PayPal v2, Duyệt tay)
+from app.api.v1.thanh_toan_routes import attach_payment_routes  # noqa: E402
+
+attach_payment_routes(router, router_khach)
+
 

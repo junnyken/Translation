@@ -497,4 +497,23 @@ async def _header_bao_mat(request: Request, call_next):
 app.include_router(v1_router_khach)
 app.include_router(developer_router)
 
+
+@app.on_event("startup")
+async def _dam_bao_schema_thanh_toan_khi_khoi_dong() -> None:
+    """§8 `payment-integration-vn-global`: Đảm bảo các bảng thanh toán (`payment_orders`,
+    `payment_events`, `payment_reviews`) và cột gói trên `nguoi_dung` tồn tại idempotent lúc khởi động.
+    Có khoá ngắn tránh nhiều worker chạy chồng; mọi lỗi chỉ ghi log + cảnh báo, KHÔNG làm sập app.
+    """
+    try:
+        from app.core.db import SessionLocal
+        from app.services.thanh_toan import ensure_payment_schema
+
+        async with SessionLocal() as session:
+            await ensure_payment_schema(session)
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).warning("Bỏ qua bước tự đảm bảo schema thanh toán lúc khởi động.", exc_info=True)
+
+
 canh_bao_neu_khong_khoa()

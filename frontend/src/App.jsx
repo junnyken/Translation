@@ -103,7 +103,13 @@ function docDiaChi() {
     trangTinh = 'tien-ich'
   } else if (pathClean === 'ket-noi-api' || pathClean === 'api-docs' || hashRaw === 'ket-noi-api' || p.has('ket-noi-api')) {
     trangTinh = 'ket-noi-api'
-  } else if (pathClean === 'bang-gia' || pathClean === 'pricing' || hashRaw === 'bang-gia' || p.has('bang-gia')) {
+  } else if (
+    pathClean === 'bang-gia' ||
+    pathClean === 'pricing' ||
+    hashRaw === 'bang-gia' ||
+    p.has('bang-gia') ||
+    q.has('payment')
+  ) {
     trangTinh = 'bang-gia'
   } else if (pathClean === 'admin' || hashRaw === 'admin' || hashRaw.startsWith('admin') || p.has('admin')) {
     trangTinh = 'admin'

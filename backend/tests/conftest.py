@@ -42,6 +42,9 @@ from app.core.db import get_session  # noqa: E402
 from app.main import app  # noqa: E402
 
 TABLES = (
+    "payment_reviews",
+    "payment_events",
+    "payment_orders",
     "detect_outbox",
     "upload_request",
     # Sổ cái hạn mức: dọn giữa các test là BẮT BUỘC, không phải cho sạch sẽ. Hạn mức tính theo

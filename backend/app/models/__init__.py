@@ -116,6 +116,22 @@ class NguoiDung(TimestampMixin, Base):
     so_luot_mua_them: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
+    #: Quyền lợi gói trả phí lưu trực tiếp trên CSDL (chỉ server được ghi, đồng bộ cùng transaction với `grant()`).
+    cap_do_goi: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    ma_goi_hien_tai: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None)
+    het_han_goi: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None, index=True
+    )
+    #: free | active | past_due | canceling | canceled | manual
+    trang_thai_billing: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="free", server_default="free"
+    )
+    #: Sổ giỏ lượt theo bậc gói `[{"cap": 3, "trang": 800, "het_han_ts": ...}]` bền vững trên Postgres.
+    gio_luot_json: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
 
     phien: Mapped[list["Phien"]] = relationship(
         back_populates="nguoi_dung", cascade="all, delete-orphan"
@@ -1120,3 +1136,115 @@ class DetectOutbox(TimestampMixin, Base):
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     abandoned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class PaymentOrder(TimestampMixin, Base):
+    """Đơn thanh toán chuẩn an toàn (VietQR/SePay, Stripe Checkout, PayPal Orders v2).
+
+    - Số tiền `amount` luôn là số nguyên ở đơn vị nhỏ nhất (`VND` = đồng, `USD` = cent),
+      được chốt cứng tại thời điểm tạo đơn từ hàm `catalog` duy nhất.
+    - `code` là mã nội dung chuyển khoản duy nhất (`CIO` + 8 ký tự Crockford Base32, không I/L/O/U).
+    - Mọi chuyển trạng thái `pending -> paid | underpaid | expired_late_payment | needs_manual_review`
+      đều đi qua Compare-And-Set (`UPDATE ... WHERE id=:id AND status='pending'`).
+    """
+
+    __tablename__ = "payment_orders"
+    __table_args__ = (
+        UniqueConstraint("code", name="uq_payment_orders_code"),
+        Index("ix_payment_orders_status_expires", "status", "expires_at"),
+        Index("ix_payment_orders_user_created", "user_id", "created_at"),
+        Index("ix_payment_orders_owner_created", "owner_ref", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("nguoi_dung.id", ondelete="SET NULL"), nullable=True
+    )
+    #: Lưu thêm chuỗi id chủ sở hữu bền vững để xoá user không làm mất dấu vết đối soát tài chính.
+    owner_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    email: Mapped[str] = mapped_column(String(320), nullable=False, default="")
+    plan: Mapped[str] = mapped_column(String(64), nullable=False)
+    tier_rank: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    credits: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    duration_days: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
+    #: vietqr | stripe | paypal
+    rail: Mapped[str] = mapped_column(String(32), nullable=False)
+    #: VND | USD
+    currency: Mapped[str] = mapped_column(String(8), nullable=False)
+    #: Đơn vị nhỏ nhất (VND đồng, USD cent).
+    amount: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    code: Mapped[str] = mapped_column(String(32), nullable=False)
+    #: pending | paid | underpaid | expired_late_payment | needs_manual_review | expired | canceled | refunded
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", server_default="pending")
+    paid_amount: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    provider_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
+    evidence: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    admin_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PaymentEvent(Base):
+    """Sổ sự kiện cổng thanh toán = Idempotency fail-closed + dấu vết kiểm toán.
+
+    Chiếm chỗ TRƯỚC mọi thay đổi quyền lợi bằng `INSERT ...` với `UNIQUE(provider, provider_event_id)`.
+    Trùng (`SQLSTATE 23505`) -> trả `duplicate`. Lỗi CSDL khác -> trả `503` để cổng thử lại.
+    """
+
+    __tablename__ = "payment_events"
+    __table_args__ = (
+        UniqueConstraint("provider", "provider_event_id", name="uq_payment_events_provider_event"),
+        Index("ix_payment_events_order_id", "order_id"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    provider: Mapped[str] = mapped_column(String(40), nullable=False)
+    provider_event_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    event_type: Mapped[str | None] = mapped_column(String(96), nullable=True)
+    amount: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    currency: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    order_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
+    #: claiming | matched | underpaid | unmatched | expired_late_payment | needs_manual_review | ignored | failed
+    match_type: Mapped[str] = mapped_column(String(40), nullable=False, default="claiming", server_default="claiming")
+    processed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    raw_payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PaymentReview(Base):
+    """Hàng chờ duyệt tay cho mọi tình huống đã nhận tiền nhưng chưa tự động cấp quyền lợi."""
+
+    __tablename__ = "payment_reviews"
+    __table_args__ = (
+        Index("ix_payment_reviews_status_created", "status", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    provider: Mapped[str] = mapped_column(String(40), nullable=False)
+    provider_event_id: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    event_type: Mapped[str | None] = mapped_column(String(96), nullable=True)
+    user_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    user_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    order_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    order_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    current_tier: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    target_tier: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    amount: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    currency: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    #: needs_manual_review | resolved
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="needs_manual_review", server_default="needs_manual_review"
+    )
+    reason: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    raw_payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    resolved_by: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolution_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

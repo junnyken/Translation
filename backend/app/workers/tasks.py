@@ -4114,3 +4114,82 @@ def dispatch_upload_outbox():
     """Publish committed first-detect intents; never run providers here."""
     from app.services.upload_outbox import publish_due
     return publish_due(limit=20)
+
+
+@celery_app.task(name="thanh_toan.bao_tri_hang_ngay")
+def bao_tri_thanh_toan_hang_ngay_task() -> dict:
+    """§12.5 & §12.6 `payment-integration-vn-global`:
+    - Dọn đơn `pending` đã quá hạn `expires_at` (nhẹ, idempotent).
+    - Dùng khoá ngày Redis `acquire_daily_lock` (fail-closed khi Redis lỗi) để MỖI NGÀY ĐÚNG 1 LẦN:
+      1) Hạ gói hết hạn có điều kiện ngay trong câu `UPDATE ... WHERE het_han_goi < now()` (§12.6).
+      2) Nhắc đối soát nếu có bản ghi `payment_reviews` (`needs_manual_review`) tồn đọng quá 24h (§7).
+    """
+    import asyncio
+    from datetime import datetime, timedelta, timezone
+    import redis
+    from sqlalchemy import func, select
+
+    from app.core.db import SessionLocal
+    from app.models import PaymentReview
+    from app.services import thanh_toan as _tt
+
+    async def _chay_async() -> dict:
+        now = datetime.now(timezone.utc)
+        async with SessionLocal() as session:
+            expired_orders = await _tt.expire_stale_pending_orders(session, now=now)
+
+        r_client = None
+        try:
+            r_client = redis.from_url(settings.redis_url, socket_connect_timeout=2, socket_timeout=2)
+        except Exception:
+            r_client = None
+
+        acquired, lock_key, token = _tt.acquire_daily_lock(r_client, "payment_daily_maintenance")
+        if not acquired:
+            return {
+                "status": "done",
+                "expired_orders": expired_orders,
+                "daily_ran": False,
+            }
+
+        try:
+            async with SessionLocal() as session:
+                downgraded = await _tt.expire_lapsed_subscriptions(session, now=now)
+                stale_cutoff = now - timedelta(hours=24)
+                stale_reviews = int(
+                    (
+                        await session.scalar(
+                            select(func.count(PaymentReview.id)).where(
+                                PaymentReview.status == "needs_manual_review",
+                                PaymentReview.created_at < stale_cutoff,
+                            )
+                        )
+                    )
+                    or 0
+                )
+                if stale_reviews > 0:
+                    await _tt.send_payment_alert(
+                        title="⏰ ĐỐI SOÁT HÀNG NGÀY: Còn giao dịch chờ duyệt tay quá 24h",
+                        details={
+                            "so_giao_dich_ton_dong": stale_reviews,
+                            "hanh_dong": "Vào Quản trị -> Thanh toán -> Giao dịch cần duyệt tay để xử lý.",
+                        },
+                        settings=settings,
+                    )
+            return {
+                "status": "done",
+                "expired_orders": expired_orders,
+                "daily_ran": True,
+                "downgraded_subscriptions": downgraded,
+                "stale_reviews_over_24h": stale_reviews,
+            }
+        except Exception:
+            _tt.release_daily_lock(r_client, lock_key, token)
+            raise
+
+    try:
+        return asyncio.run(_chay_async())
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("bao_tri_thanh_toan_hang_ngay_task lỗi")
+        return {"status": "failed", "error": f"{type(exc).__name__}: {exc}"}
+

@@ -72,12 +72,16 @@ export default function AdminApp({ nguoiDung, onDangXuat, onVeTrangChu }) {
 
   const soTaiKhoan = thongKe?.tong_nguoi_dung ?? (ds ? ds.length : null)
   const soDonNap = Array.isArray(thongKe?.don_nap_gan_day) ? thongKe.don_nap_gan_day.length : null
+  const soDuyetTay = Number(thongKe?.so_duyet_tay_cho_xu_ly || 0)
   const soChapter = Array.isArray(thongKe?.chapter_gan_day) ? thongKe.chapter_gan_day.length : null
   const soKeyAi = (heThong.deepseek_so_key || 0) + (heThong.du_phong_so_key || (heThong.llm_configured ? 1 : 0))
 
   function layHuyHieuMenu(ma) {
     if (ma === 'tai-khoan' && soTaiKhoan !== null) return soTaiKhoan
-    if (ma === 'thanh-toan' && soDonNap !== null) return soDonNap
+    if (ma === 'thanh-toan') {
+      if (soDuyetTay > 0) return `⚠️ ${soDuyetTay}`
+      if (soDonNap !== null) return soDonNap
+    }
     if (ma === 'cau-hinh-ai' && soKeyAi > 0) return `${soKeyAi} key`
     if (ma === 'chapter' && soChapter !== null) return soChapter
     return null
