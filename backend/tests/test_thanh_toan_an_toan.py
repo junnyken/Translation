@@ -631,7 +631,7 @@ class TestStripeAndPayPalFlows:
                 "object": {
                     "id": "in_test_002",
                     "billing_reason": "subscription_cycle",
-                    "amount_paid": 649,
+                    "amount_paid": 699,
                     "currency": "usd",
                     "subscription_details": {
                         "metadata": {
@@ -1034,7 +1034,7 @@ class TestTierRulesAdminAndMaintenance:
         r_bg_after = (await c.get("/api/v1/thanh-toan/bang-gia", headers={"X-Test-Actor": "a"})).json()
         assert r_bg_after["da_tung_nap"] is True
         starter_after = next(x for x in r_bg_after["goi_goi_y"] if x["ma"] == "starter_monthly")
-        assert starter_after["so_tien_vnd"] == 89_000  # Giá gia hạn chuẩn!
+        assert starter_after["so_tien_vnd"] == 99_000  # Giá gia hạn chuẩn!
 
         # Nếu CSDL lỗi khi hỏi `has_prior_paid_purchase` -> fail-closed trả `True` (không bán nhầm giá giảm)
         class _BrokenSession:

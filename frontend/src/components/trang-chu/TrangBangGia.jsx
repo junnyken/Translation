@@ -46,18 +46,18 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
       const soTrang = sv ? Number(sv.so_trang) : fallbackTrang
       const giaUsd = dinhDangUsdTuCents(usdCents)
       const giaGocUsd = dinhDangUsdTuCents(gocUsdCents)
-      const giaHienUsd = laNam ? (usdCents / 100 / 12).toFixed(2) : giaUsd
-      const giaHienGocUsd = laNam ? (gocUsdCents / 100 / 12).toFixed(2) : giaGocUsd
+      const giaHienUsd = laNam ? (Math.floor(usdCents / 12) / 100).toFixed(2) : giaUsd
+      const giaHienGocUsd = laNam ? (Math.floor(gocUsdCents / 12) / 100).toFixed(2) : giaGocUsd
       return { giaVnd, giaGocVnd, giaUsd, giaGocUsd, giaHienUsd, giaHienGocUsd, soTrang }
     }
 
     const maStarter = laNam ? 'starter_yearly' : 'starter_monthly'
     const gStarter = layGia(
       maStarter,
-      daTungNap ? (laNam ? 708000 : 89000) : (laNam ? 450000 : 49000),
-      laNam ? 708000 : 89000,
-      daTungNap ? (laNam ? 5988 : 649) : (laNam ? 2999 : 399),
-      laNam ? 5988 : 649,
+      daTungNap ? (laNam ? 708000 : 99000) : (laNam ? 450000 : 49000),
+      laNam ? 708000 : 99000,
+      daTungNap ? (laNam ? 5988 : 699) : (laNam ? 3599 : 399),
+      laNam ? 5988 : 699,
       laNam ? 3600 : 300,
     )
 
@@ -66,7 +66,7 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
       maPro,
       daTungNap ? (laNam ? 1428000 : 149000) : (laNam ? 890000 : 99000),
       laNam ? 1428000 : 149000,
-      daTungNap ? (laNam ? 9588 : 999) : (laNam ? 5399 : 699),
+      daTungNap ? (laNam ? 9588 : 999) : (laNam ? 5999 : 699),
       laNam ? 9588 : 999,
       laNam ? 9600 : 800,
     )
@@ -74,9 +74,9 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
     const maStudio = laNam ? 'studio_yearly' : 'studio_monthly'
     const gStudio = layGia(
       maStudio,
-      daTungNap ? (laNam ? 2988000 : 389000) : (laNam ? 1790000 : 199000),
-      laNam ? 2988000 : 389000,
-      daTungNap ? (laNam ? 17988 : 1999) : (laNam ? 8999 : 1299),
+      daTungNap ? (laNam ? 2988000 : 399000) : (laNam ? 1790000 : 199000),
+      laNam ? 2988000 : 399000,
+      daTungNap ? (laNam ? 17988 : 1999) : (laNam ? 9999 : 1299),
       laNam ? 17988 : 1999,
       laNam ? 36000 : 3000,
     )
@@ -86,7 +86,7 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
       maMax,
       daTungNap ? (laNam ? 5988000 : 799000) : (laNam ? 3590000 : 399000),
       laNam ? 5988000 : 799000,
-      daTungNap ? (laNam ? 35988 : 3999) : (laNam ? 17999 : 2499),
+      daTungNap ? (laNam ? 35988 : 3999) : (laNam ? 19999 : 2499),
       laNam ? 35988 : 3999,
       laNam ? 120000 : 10000,
     )

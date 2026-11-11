@@ -696,7 +696,7 @@ async def developer_khau_tru_trang_cuc_bo(
                 thong_bao=(
                     "Bạn đã dùng hết 20 Credits trải nghiệm miễn phí. Tính năng Tải & Dịch Hoàn Thiện "
                     "Các Trang Liên Tục và Tự Động Qua Chapter Tiếp Theo trên App Windows yêu cầu gói "
-                    "Lite ($5.99) hoặc Standard ($9.99) trở lên. Hãy nâng cấp tại https://comic.io.vn/#bang-gia để tiếp tục!"
+                    "Lite ($6.99) hoặc Standard ($12.99) trở lên. Hãy nâng cấp tại https://comic.io.vn/#bang-gia để tiếp tục!"
                 ),
             )
 

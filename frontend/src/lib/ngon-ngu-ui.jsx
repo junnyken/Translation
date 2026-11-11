@@ -72,13 +72,13 @@ export const SEO_META_BY_PAGE = {
     vi: {
       title: 'Bảng Giá Dịch Truyện Tranh AI & Gói API B2B — comic.io.vn',
       description:
-        'Đăng ký nhận ngay 20 Credits miễn phí. 4 gói Tháng & Năm quốc tế (300 đến 10.000 Credits) kèm ưu đãi lần đầu giảm 50% chỉ từ $2.99 USD (49.000 VNĐ).',
+        'Đăng ký nhận ngay 20 Credits miễn phí. 4 gói Tháng & Năm quốc tế (300 đến 10.000 Credits) kèm ưu đãi lần đầu chỉ từ $3.99 USD (49.000 VNĐ).',
       canonical: 'https://comic.io.vn/bang-gia',
     },
     en: {
       title: 'Pricing & B2B API Plans — AI Manga Translator | comic.io.vn',
       description:
-        'Sign up for 20 Free Credits. 4 flexible Monthly & Yearly plans (300 to 10,000 Credits) with 50% OFF first-time offer starting at $2.99 USD for AI manga.',
+        'Sign up for 20 Free Credits. 4 flexible Monthly & Yearly plans (300 to 10,000 Credits) with first-time offer starting at $3.99 USD for AI manga.',
       canonical: 'https://comic.io.vn/pricing',
     },
   },

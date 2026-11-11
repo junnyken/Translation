@@ -2445,7 +2445,7 @@ async def doc_truyen_gui_trang(
                 tinh_nang="font_style",
                 thong_bao=(
                     "Tuỳ chọn Font chữ theo thể loại (Ngôn tình / Cổ trang / Hài hước) yêu cầu gói Starter trở lên. "
-                    "Nâng cấp chỉ từ $2.99 (49.000đ) ưu đãi tháng đầu tại https://comic.io.vn/#bang-gia"
+                    "Nâng cấp chỉ từ $3.99 (49.000đ) ưu đãi tháng đầu tại https://comic.io.vn/#bang-gia"
                 ),
             )
         if tu_dien_rieng and tu_dien_rieng.strip() and cap_ht < 3:
@@ -2469,7 +2469,7 @@ async def doc_truyen_gui_trang(
                     thong_bao=(
                         "Bạn đã dùng hết 3 trang trải nghiệm miễn phí chế độ Dịch Đầy Đủ (Tự động xoá chữ & Vẽ lại trang truyện). "
                         "Bạn vẫn còn lượt dùng miễn phí với Tiện ích Đọc Truyện trực tiếp, hoặc nâng cấp gói Starter "
-                        "(chỉ từ $2.99 / 49.000đ ưu đãi tháng đầu) tại https://comic.io.vn/#bang-gia để xuất ảnh hoàn chỉnh không giới hạn!"
+                        "(chỉ từ $3.99 / 49.000đ ưu đãi tháng đầu) tại https://comic.io.vn/#bang-gia để xuất ảnh hoàn chỉnh không giới hạn!"
                     ),
                 )
 
