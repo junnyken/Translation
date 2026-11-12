@@ -174,13 +174,6 @@ export default function TheHanMuc({ hanMuc, dangTai, loi, onTaiLai }) {
         ) : (
           <>Có lại sau <strong>{chuDemNguoc(hanMuc.reset_luc)}</strong> (0h00 giờ Việt Nam)</>
         )}
-        {hanMuc.reset_theo_gio_luc && (
-          <span style={{ marginLeft: 8, color: '#0284c7', fontWeight: 600 }}>
-            · ⏱️ {laEn ? `3h shaping reset:` : `Hồi mỗi ${hanMuc.chu_ky_reset_gio || 3} giờ:`}{' '}
-            <strong>{chuDemNguoc(hanMuc.reset_theo_gio_luc, Date.now(), laEn)}</strong>
-            {hanMuc.tran_theo_gio > 0 && ` (${hanMuc.con_lai_theo_gio ?? hanMuc.tran_theo_gio}/${hanMuc.tran_theo_gio}/${hanMuc.chu_ky_reset_gio || 3}h)`}
-          </span>
-        )}
       </p>
 
       {conLai <= 0 && (

@@ -52,9 +52,7 @@ from app.core.danh_tinh_khach import (
 )
 from app.services.han_muc import (
     bay_gio,
-    han_muc_theo_gio_cho,
     moc_reset_ke_tiep,
-    moc_reset_theo_gio_ke_tiep,
     ngay_han_muc,
 )
 from app.services import don_nap
@@ -500,7 +498,6 @@ async def xem_han_muc(
 
     now_dt = bay_gio()
     reset = moc_reset_ke_tiep(now_dt)
-    reset_gio = moc_reset_theo_gio_ke_tiep(now_dt)
     chinh = chi_tiet[0] if chi_tiet else None
     luot_mua = danh_tinh.so_luot_mua_them if danh_tinh.co_tai_khoan else 0
     la_qt = bool(
@@ -509,10 +506,7 @@ async def xem_han_muc(
         and getattr(danh_tinh.nguoi_goi.nguoi, "la_quan_tri", False)
     )
     con_lai_tong = min((c.con_lai for c in chi_tiet), default=0) + luot_mua
-    tran_gio = han_muc_theo_gio_cho(danh_tinh.co_tai_khoan, danh_tinh.cap_do)
     da_dung_chinh = chinh.da_dung if chinh else 0
-    # Lượt còn lại trong khung định hình 1 giờ hiện tại (tự hồi đầy đầu mỗi giờ khi còn quỹ/hạn mức)
-    con_lai_gio = max(0, min(tran_gio, max(0, tran_gio - (da_dung_chinh % max(1, tran_gio))), con_lai_tong))
     return HanMucRead(
         giu_ket_qua_phut=_giu_ket_qua_phut_cho(danh_tinh.co_tai_khoan, settings),
         co_tai_khoan=danh_tinh.co_tai_khoan,
@@ -528,11 +522,11 @@ async def xem_han_muc(
         la_quan_tri=la_qt,
         cap_do=danh_tinh.cap_do,
         ten_cap_do=danh_tinh.ten_cap_do,
-        reset_theo_gio_luc=reset_gio,
-        reset_theo_gio_sau_giay=max(0, int((reset_gio - now_dt).total_seconds())),
-        chu_ky_reset_gio=3,
-        tran_theo_gio=tran_gio,
-        con_lai_theo_gio=con_lai_gio,
+        reset_theo_gio_luc=None,
+        reset_theo_gio_sau_giay=0,
+        chu_ky_reset_gio=0,
+        tran_theo_gio=0,
+        con_lai_theo_gio=0,
         danh_sach_model=danh_sach_model_cho_cap_do(5 if la_qt else danh_tinh.cap_do),
         cho_phep_byok=bool(la_qt or int(danh_tinh.cap_do or 0) >= 1),
     )

@@ -177,15 +177,7 @@ async function veHanMuc() {
       : (engine === 'llm_context'
           ? ' · [SoM Vision + LaMa: 3 lượt/trang]'
           : (soLuotMoiTrang === 2 ? ' · [GPU Pro: 2 lượt/trang]' : ' · [1 lượt/trang]'))
-    const phutResetGio = hm.reset_theo_gio_sau_giay
-      ? Math.max(1, Math.ceil(Number(hm.reset_theo_gio_sau_giay) / 60))
-      : null
-    const chuoiThoiGianReset = phutResetGio
-      ? (phutResetGio >= 60 ? `${Math.floor(phutResetGio / 60)}h${phutResetGio % 60 > 0 ? `${phutResetGio % 60}p` : ''}` : `${phutResetGio}p`)
-      : ''
-    const chuKyGio = Number(hm.chu_ky_reset_gio || 3)
-    const chuoiResetGio = chuoiThoiGianReset ? ` · ⏱️ Reset ${chuKyGio}h: ${chuoiThoiGianReset}` : ''
-    o.textContent = `${vaiTro} · Hôm nay: ${conLaiNgay}/${hm.tran} lượt${tichLuy}${nhanChiPhi}${chuoiResetGio}`
+    o.textContent = `${vaiTro} · Hôm nay: ${conLaiNgay}/${hm.tran} lượt${tichLuy}${nhanChiPhi}`
     o.className = hm.con_lai < soLuotMoiTrang
       ? 'hop loi'
       : (hm.con_lai < hm.tran && hm.con_lai <= soLuotMoiTrang * 2) ? 'hop canh-bao' : 'hop ok'

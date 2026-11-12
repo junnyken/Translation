@@ -113,13 +113,13 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
         donGiaUsd: `$${(Number(gStarter.giaUsd) / Math.max(1, gStarter.soTrang)).toFixed(3)}/credit`,
         diemManh: laEn
           ? [
-              `${laNam ? '3,600 Credits / year' : '300 Credits / month'} (1 Credit = 1 Page · 3h shaping: 90/3h)`,
+              `${laNam ? '3,600 Credits / year' : '300 Credits / month'} (1 Credit = 1 Page)`,
               '🔑 Unlocks BYOK (Plug your Gemini/DeepSeek/Claude/GPT key → -50% Credits)',
               '🔓 Unlocks Context AI Dialogue mode (Local OCR + AI Text Context)',
               'Smart Speech Bubble Inpainting & 4 Comic Genre Fonts',
             ]
           : [
-              `${laNam ? '3.600 Credits / năm' : '300 Credits / tháng'} (1 Credit = 1 Trang · Định hình 90 lượt/3 giờ)`,
+              `${laNam ? '3.600 Credits / năm' : '300 Credits / tháng'} (1 Credit = 1 Trang truyện)`,
               '🔑 Mở khoá cắm API Key riêng (BYOK -50% lượt tiêu hao)',
               '🔓 Mở khoá OCR Tách Chữ Trước + Dịch Hội Thoại AI Ngữ Cảnh',
               'Mở khoá Xoá chữ tái tạo nền bóng thoại & 4 bộ Phông chữ thể loại',
@@ -145,13 +145,13 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
         donGiaUsd: `$${(Number(gPro.giaUsd) / Math.max(1, gPro.soTrang)).toFixed(4)}/credit`,
         diemManh: laEn
           ? [
-              `${laNam ? '9,600 Credits / year' : '800 Credits / month'} (~40 chapters/mo · 3h shaping: 200/3h)`,
+              `${laNam ? '9,600 Credits / year' : '800 Credits / month'} (~40 chapters/mo)`,
               '🔓 Unlocks Full Cloud Image Scan + Context AI Studio mode',
               'Unlocks Windows App Continuous Multi-Chapter Auto-Crawl',
               'Unlocks Context AI Pro + Character & Pronoun Glossary (.ZIP, .CBZ, .PDF)',
             ]
           : [
-              `${laNam ? '9.600 Credits / năm' : '800 Credits / tháng'} (~40 chapter/tháng · Định hình 200 lượt/3 giờ)`,
+              `${laNam ? '9.600 Credits / năm' : '800 Credits / tháng'} (~40 chapter/tháng)`,
               '🔓 Mở khoá Quét Ảnh Đám Mây (Scan Hình Ảnh) + AI Ngữ Cảnh Studio',
               'Mở khoá App Windows tải & dịch liên tục nhiều Chapter',
               'Mở khoá AI Chuẩn Ngữ Cảnh Pro + Từ điển Nhân vật (.ZIP, .CBZ, .PDF)',
@@ -167,7 +167,7 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
         ...gStudio,
         chuKy: laEn ? '/ month' : '/ tháng',
         phuChuKy: daTungNap
-          ? (laEn ? '🔄 Standard Renewal Rate (+API · 450/3h)' : '🔄 Giá gia hạn tiêu chuẩn (+Mở Cổng API · 450 lượt/3 giờ)')
+          ? (laEn ? '🔄 Standard Renewal Rate (+API)' : '🔄 Giá gia hạn tiêu chuẩn (+Mở Cổng API)')
           : (laNam
               ? (laEn ? `🎁 1st Year $${gStudio.giaUsd} · Renews at $${gStudio.giaGocUsd}/yr` : `🎁 Năm đầu ${(gStudio.giaVnd / 1000).toLocaleString('vi-VN')}k · Gia hạn ${(gStudio.giaGocVnd / 1000).toLocaleString('vi-VN')}k/năm`)
               : (laEn ? `⚡ 1st Month $${gStudio.giaUsd} (+API) · Renews at $${gStudio.giaGocUsd}` : `⚡ Tháng đầu ${(gStudio.giaVnd / 1000).toLocaleString('vi-VN')}k (+Mở API) · Gia hạn ${(gStudio.giaGocVnd / 1000).toLocaleString('vi-VN')}k`)),
@@ -177,13 +177,13 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
         donGiaUsd: `$${(Number(gStudio.giaUsd) / Math.max(1, gStudio.soTrang)).toFixed(4)}/credit`,
         diemManh: laEn
           ? [
-              `${laNam ? '36,000 Credits / year' : '3,000 Credits / month'} (3.7x Lite credits + Developer API · 450/3h)`,
+              `${laNam ? '36,000 Credits / year' : '3,000 Credits / month'} (3.7x Lite credits + Developer API)`,
               '✅ Unlocks Personal Developer REST API Key (tr_live_...)',
               '✅ Unlocks Layered Photoshop (.PSD) Export & Video Review Studio',
               '✅ Priority Support + Cross-chapter Glossary consistency',
             ]
           : [
-              `${laNam ? '36.000 Credits / năm' : '3.000 Credits / tháng'} (Gấp 3.7 lần gói Lite + Mở Cổng API · 450 lượt/3 giờ)`,
+              `${laNam ? '36.000 Credits / năm' : '3.000 Credits / tháng'} (Gấp 3.7 lần gói Lite + Mở Cổng API)`,
               '✅ Mở khoá Khoá Developer REST API riêng (tr_live_...)',
               '✅ Mở khoá Xuất file Photoshop (.PSD) tách lớp & Video Review Studio',
               '✅ Hỗ trợ ưu tiên + Đồng bộ thuật ngữ xuyên suốt các chương',
@@ -199,7 +199,7 @@ export default function TrangBangGia({ nguoiDung, onQuayLai, onMoDangNhap }) {
         ...gMax,
         chuKy: laEn ? '/ month' : '/ tháng',
         phuChuKy: daTungNap
-          ? (laEn ? '🔄 Standard Renewal Rate (10,000 Credits + VIP GPU · 900/3h)' : '🔄 Giá gia hạn tiêu chuẩn (10.000 Credits + GPU VIP · 900 lượt/3 giờ)')
+          ? (laEn ? '🔄 Standard Renewal Rate (10,000 Credits + VIP GPU)' : '🔄 Giá gia hạn tiêu chuẩn (10.000 Credits + GPU VIP)')
           : (laNam
               ? (laEn ? `🎁 1st Year $${gMax.giaUsd} · Renews at $${gMax.giaGocUsd}/yr` : `🎁 Năm đầu ${(gMax.giaVnd / 1000).toLocaleString('vi-VN')}k · Gia hạn ${(gMax.giaGocVnd / 1000).toLocaleString('vi-VN')}k/năm`)
               : (laEn ? `🎁 1st Month $${gMax.giaUsd} · Renews at $${gMax.giaGocUsd}/mo` : `🎁 Tháng đầu ${(gMax.giaVnd / 1000).toLocaleString('vi-VN')}k · Gia hạn ${(gMax.giaGocVnd / 1000).toLocaleString('vi-VN')}k`)),
