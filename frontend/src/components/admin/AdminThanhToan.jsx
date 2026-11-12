@@ -32,6 +32,7 @@ export default function AdminThanhToan({ thongKe, onNap, setLoi, setThongBaoOk }
   const [dangTaiCauHinh, setDangTaiCauHinh] = useState(false)
   const [dangLuu, setDangLuu] = useState(false)
   const [dangKiemBot, setDangKiemBot] = useState(false)
+  const [dangKiemPaypal, setDangKiemPaypal] = useState(false)
 
   // VietQR + SePay HMAC-SHA256
   const [nhTen, setNhTen] = useState(thongKe?.ngan_hang_ten || '')
@@ -67,10 +68,10 @@ export default function AdminThanhToan({ thongKe, onNap, setLoi, setThongBaoOk }
   const [formDuyet, setFormDuyet] = useState({}) // { [reviewId]: { email, plan, note } }
   const [dangLam, setDangLam] = useState(null)
 
-  const napCauHinhThanhToan = useCallback(async (checkBot = false) => {
+  const napCauHinhThanhToan = useCallback(async ({ checkBot = false, checkPaypal = false } = {}) => {
     setDangTaiCauHinh(true)
     try {
-      const cfg = await api.quanTriLayCauHinhThanhToan({ checkBot })
+      const cfg = await api.quanTriLayCauHinhThanhToan({ checkBot, checkPaypal })
       setCauHinhServer(cfg)
       setNhTen(cfg.ngan_hang_ten || '')
       setNhSoTk(cfg.ngan_hang_so_tk || '')
@@ -104,7 +105,7 @@ export default function AdminThanhToan({ thongKe, onNap, setLoi, setThongBaoOk }
   }, [locDuyetTay])
 
   useEffect(() => {
-    napCauHinhThanhToan(false)
+    napCauHinhThanhToan()
   }, [napCauHinhThanhToan])
 
   useEffect(() => {
@@ -174,7 +175,7 @@ export default function AdminThanhToan({ thongKe, onNap, setLoi, setThongBaoOk }
     setLoi(null)
     setThongBaoOk(null)
     try {
-      const kq = await napCauHinhThanhToan(true)
+      const kq = await napCauHinhThanhToan({ checkBot: true })
       const tg = kq?.telegram_health
       if (tg?.valid) {
         setThongBaoOk(`✅ Bot Telegram hoạt động tốt (@${tg.bot_username || 'ok'}).`)
@@ -185,6 +186,28 @@ export default function AdminThanhToan({ thongKe, onNap, setLoi, setThongBaoOk }
       }
     } finally {
       setDangKiemBot(false)
+    }
+  }
+
+  async function bamKiemTraPaypalOAuth() {
+    setDangKiemPaypal(true)
+    setLoi(null)
+    setThongBaoOk(null)
+    try {
+      const kq = await napCauHinhThanhToan({ checkPaypal: true })
+      const pp = kq?.paypal_health
+      if (pp?.ok) {
+        setThongBaoOk(
+          `✅ ${pp.hint || 'Kết nối PayPal OAuth thành công!'} (mode=${pp.mode}, cid=${pp.client_id_source}, secret=${pp.secret_source})`,
+        )
+      } else {
+        const extra = pp?.source_mismatch_warning ? ` [${pp.source_mismatch_warning}]` : ''
+        setLoi(
+          `⚠️ PayPal OAuth thất bại (${pp?.error || 'unknown'}, mode=${pp?.mode || 'live'}, cid=${pp?.client_id_source || '?'}, secret=${pp?.secret_source || '?'}, secret_len=${pp?.secret_len ?? 0}): ${pp?.hint || ''}${extra}`,
+        )
+      }
+    } finally {
+      setDangKiemPaypal(false)
     }
   }
 
@@ -454,9 +477,14 @@ export default function AdminThanhToan({ thongKe, onNap, setLoi, setThongBaoOk }
                 )}
             </p>
           </div>
-          <Button type="button" kieu="phu" disabled={dangKiemBot} onClick={bamKiemTraTelegramBot}>
-            {dangKiemBot ? '⏳…' : '🤖 Kiểm tra Bot Telegram (getMe)'}
-          </Button>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Button type="button" kieu="phu" disabled={dangKiemPaypal} onClick={bamKiemTraPaypalOAuth}>
+              {dangKiemPaypal ? '⏳…' : '🅿️ Kiểm tra PayPal OAuth'}
+            </Button>
+            <Button type="button" kieu="phu" disabled={dangKiemBot} onClick={bamKiemTraTelegramBot}>
+              {dangKiemBot ? '⏳…' : '🤖 Kiểm tra Bot Telegram (getMe)'}
+            </Button>
+          </div>
         </div>
 
         <div className="admin-khung-than">
@@ -535,7 +563,7 @@ export default function AdminThanhToan({ thongKe, onNap, setLoi, setThongBaoOk }
               <div className="admin-form-nhom" style={{ flex: '1 1 230px' }}>
                 <label>
                   🔐 SePay Webhook Secret{' '}
-                  {cauHinhServer?.sepay_secret_configured ? (
+                  {cauHinhServer?.sepay_configured ? (
                     <span style={{ color: '#34d399', fontSize: 11 }}>({cauHinhServer.sepay_masked})</span>
                   ) : (
                     <span style={{ color: '#fbbf24', fontSize: 11 }}>(Chưa đặt — cổng sẽ trả 503)</span>

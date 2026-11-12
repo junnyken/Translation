@@ -23,6 +23,7 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import re
 import secrets
 import time
@@ -340,6 +341,13 @@ def write_dynamic_payment_store(updates: dict[str, Any]) -> dict[str, Any]:
     return read_back
 
 
+def _clean_cfg_val(raw: Any) -> str:
+    s = str(raw or "").strip()
+    if len(s) >= 2 and s[0] == s[-1] and s[0] in ('"', "'"):
+        s = s[1:-1].strip()
+    return s
+
+
 def resolve_payment_config(settings: Settings | None = None) -> dict[str, Any]:
     """Hợp nhất cấu hình Thanh toán theo thứ tự ưu tiên chuẩn §13:
     Biến môi trường -> Cấu hình Admin -> Rỗng (tắt cổng, TUYỆT ĐỐI không có mặc định).
@@ -347,20 +355,43 @@ def resolve_payment_config(settings: Settings | None = None) -> dict[str, Any]:
     st = settings or get_settings()
     dyn = read_dynamic_payment_store()
 
-    def _pick_secret(env_val: str, dyn_key: str) -> str:
-        ev = (env_val or "").strip()
+    def _pick_secret_with_src(env_val: str, dyn_key: str, alt_env_names: tuple[str, ...] = ()) -> tuple[str, str]:
+        ev = _clean_cfg_val(env_val)
+        if not ev:
+            for alt_name in alt_env_names:
+                alt_v = _clean_cfg_val(os.getenv(alt_name) or "")
+                if alt_v:
+                    ev = alt_v
+                    break
         if ev and not _is_revoked_public_secret(ev):
-            return ev
-        dv = str(dyn.get(dyn_key) or "").strip()
+            return ev, "env"
+        dv = _clean_cfg_val(dyn.get(dyn_key))
         if dv and not _is_revoked_public_secret(dv):
-            return dv
-        return ""
+            return dv, "admin"
+        return "", ""
 
-    def _pick_text(env_val: str, dyn_key: str) -> str:
-        ev = (env_val or "").strip()
+    def _pick_secret(env_val: str, dyn_key: str, alt_env_names: tuple[str, ...] = ()) -> str:
+        val, _ = _pick_secret_with_src(env_val, dyn_key, alt_env_names)
+        return val
+
+    def _pick_text_with_src(env_val: str, dyn_key: str, alt_env_names: tuple[str, ...] = ()) -> tuple[str, str]:
+        ev = _clean_cfg_val(env_val)
+        if not ev:
+            for alt_name in alt_env_names:
+                alt_v = _clean_cfg_val(os.getenv(alt_name) or "")
+                if alt_v:
+                    ev = alt_v
+                    break
         if ev:
-            return ev
-        return str(dyn.get(dyn_key) or "").strip()
+            return ev, "env"
+        dv = _clean_cfg_val(dyn.get(dyn_key))
+        if dv:
+            return dv, "admin"
+        return "", ""
+
+    def _pick_text(env_val: str, dyn_key: str, alt_env_names: tuple[str, ...] = ()) -> str:
+        val, _ = _pick_text_with_src(env_val, dyn_key, alt_env_names)
+        return val
 
     sepay_primary = (
         _pick_secret(st.sepay_webhook_secret, "sepay_webhook_secret")
@@ -374,14 +405,29 @@ def resolve_payment_config(settings: Settings | None = None) -> dict[str, Any]:
     stripe_wh_prev = _pick_secret(st.stripe_webhook_secret_previous, "stripe_webhook_secret_previous")
     stripe_wh_secrets = [s for s in (stripe_wh_primary, stripe_wh_prev) if s]
 
-    paypal_client_id = _pick_text(st.paypal_client_id, "paypal_client_id")
-    paypal_client_secret = _pick_secret(st.paypal_client_secret, "paypal_client_secret")
+    paypal_client_id, paypal_client_id_src = _pick_text_with_src(st.paypal_client_id, "paypal_client_id")
+    paypal_client_secret, paypal_secret_src = _pick_secret_with_src(
+        st.paypal_client_secret,
+        "paypal_client_secret",
+        alt_env_names=("PAYPAL_SECRET", "PAYPAL_SECRET_KEY"),
+    )
     paypal_merchant_id = _pick_text(st.paypal_merchant_id, "paypal_merchant_id")
     paypal_email = _pick_text(st.paypal_email, "paypal_email").lower()
     paypal_webhook_id = _pick_text(st.paypal_webhook_id, "paypal_webhook_id")
-    paypal_mode = str(dyn.get("paypal_mode") or st.paypal_mode or "live").strip().lower()
-    if paypal_mode not in ("sandbox", "live"):
-        paypal_mode = "live"
+
+    env_pp_mode = _clean_cfg_val(os.getenv("PAYPAL_MODE") or "").lower()
+    dyn_pp_mode = _clean_cfg_val(dyn.get("paypal_mode")).lower()
+    if env_pp_mode in ("sandbox", "live"):
+        paypal_mode = env_pp_mode
+        paypal_mode_src = "env"
+    elif dyn_pp_mode in ("sandbox", "live"):
+        paypal_mode = dyn_pp_mode
+        paypal_mode_src = "admin"
+    else:
+        paypal_mode = _clean_cfg_val(st.paypal_mode or "live").lower()
+        if paypal_mode not in ("sandbox", "live"):
+            paypal_mode = "live"
+        paypal_mode_src = "default"
 
     ngan_hang_ten = _pick_text(st.ngan_hang_ten, "ngan_hang_ten")
     ngan_hang_so_tk = _pick_text(st.ngan_hang_so_tk, "ngan_hang_so_tk")
@@ -430,13 +476,16 @@ def resolve_payment_config(settings: Settings | None = None) -> dict[str, Any]:
         "stripe_webhook_masked": mask_secret(stripe_wh_primary),
         "stripe_price_map": stripe_price_map,
         "paypal_client_id": paypal_client_id,
+        "paypal_client_id_source": paypal_client_id_src,
         "paypal_client_secret": paypal_client_secret,
         "paypal_secret_configured": bool(paypal_client_secret),
         "paypal_secret_masked": mask_secret(paypal_client_secret),
+        "paypal_secret_source": paypal_secret_src,
         "paypal_merchant_id": paypal_merchant_id,
         "paypal_email": paypal_email,
         "paypal_webhook_id": paypal_webhook_id,
         "paypal_mode": paypal_mode,
+        "paypal_mode_source": paypal_mode_src,
         "paypal_enable_legacy_ipn": bool(st.paypal_enable_legacy_ipn),
         "rapidapi_url": str(dyn.get("rapidapi_url") or "").strip(),
         "rapidapi_proxy_secret": _pick_secret(st.rapidapi_proxy_secret, "rapidapi_proxy_secret"),
@@ -1982,11 +2031,95 @@ async def get_paypal_access_token(cfg: dict[str, Any]) -> str:
     except Exception as exc:
         raise HTTPException(status_code=502, detail="Không kết nối được máy chủ PayPal OAuth.") from exc
     if resp.status_code != 200:
+        logger.warning(
+            "PayPal OAuth thất bại (mode=%s, status=%s, cid_src=%s, sec_src=%s, sec_len=%s, sec_ascii=%s)",
+            cfg.get("paypal_mode", "live"),
+            resp.status_code,
+            cfg.get("paypal_client_id_source", ""),
+            cfg.get("paypal_secret_source", ""),
+            len(client_secret),
+            client_secret.isascii(),
+        )
         raise HTTPException(status_code=502, detail="Xác thực PayPal OAuth thất bại.")
     token = str(resp.json().get("access_token") or "").strip()
     if not token:
         raise HTTPException(status_code=502, detail="Thiếu access_token từ PayPal.")
     return token
+
+
+async def check_paypal_oauth_health(settings: Settings | None = None) -> dict[str, Any]:
+    """Kiểm tra kết nối OAuth PayPal v2 cho trang Quản trị mà không bao giờ lộ khoá bí mật."""
+    cfg = resolve_payment_config(settings)
+    cid = cfg.get("paypal_client_id") or ""
+    sec = cfg.get("paypal_client_secret") or ""
+    mode = cfg.get("paypal_mode", "live")
+    info: dict[str, Any] = {
+        "configured": bool(cid and sec),
+        "ok": False,
+        "mode": mode,
+        "mode_source": cfg.get("paypal_mode_source", ""),
+        "client_id_source": cfg.get("paypal_client_id_source", ""),
+        "secret_source": cfg.get("paypal_secret_source", ""),
+        "client_id_len": len(cid),
+        "secret_len": len(sec),
+        "client_id_ascii": cid.isascii(),
+        "secret_ascii": sec.isascii(),
+    }
+    if not cid or not sec:
+        info["error"] = "missing_credentials"
+        info["hint"] = "Chưa điền đủ PayPal Client ID hoặc PayPal Client Secret."
+        return info
+    if not cid.isascii() or not sec.isascii():
+        info["error"] = "non_ascii_characters"
+        info["hint"] = "Phát hiện ký tự tiếng Việt có dấu (Unikey/EVKey) trong Client ID hoặc Client Secret. Vui lòng tắt bộ gõ và dán lại."
+        return info
+    if (
+        info["client_id_source"]
+        and info["secret_source"]
+        and info["client_id_source"] != info["secret_source"]
+    ):
+        info["source_mismatch_warning"] = (
+            f"Client ID đang đọc từ '{info['client_id_source']}' nhưng Client Secret đọc từ '{info['secret_source']}'."
+        )
+
+    base_url = _paypal_api_base(mode)
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            resp = await client.post(
+                f"{base_url}/v1/oauth2/token",
+                data={"grant_type": "client_credentials"},
+                auth=(cid, sec),
+                headers={"Accept": "application/json"},
+            )
+    except Exception as exc:
+        info["error"] = type(exc).__name__
+        info["hint"] = "Không kết nối được máy chủ PayPal OAuth."
+        return info
+
+    info["http_status"] = resp.status_code
+    if resp.status_code == 200 and str(resp.json().get("access_token") or "").strip():
+        info["ok"] = True
+        info["hint"] = f"Kết nối PayPal OAuth ({mode.upper()}) thành công!"
+        return info
+
+    try:
+        err_json = resp.json()
+        info["error"] = str(err_json.get("error") or f"http_{resp.status_code}")
+    except Exception:
+        info["error"] = f"http_{resp.status_code}"
+
+    if cid.startswith("BAA"):
+        info["hint"] = (
+            "Mã bắt đầu bằng 'BAA...' có thể là Client ID của Hosted Buttons (Pay Links & Buttons) không có OAuth Secret, "
+            "hoặc Client Secret chưa khớp đúng ứng dụng REST API trên developer.paypal.com -> Apps & Credentials ("
+            + mode.upper()
+            + ")."
+        )
+    else:
+        info["hint"] = (
+            f"PayPal từ chối xác thực ở chế độ {mode.upper()} (kiểm tra lại đúng cặp Client ID + Secret key 1 cùng một REST App)."
+        )
+    return info
 
 
 async def create_paypal_v2_order(

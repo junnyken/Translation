@@ -1073,9 +1073,14 @@ export const capturePayPalOrder = (orderId) =>
     method: 'POST',
   }).then(doc)
 
-/** Quản trị đọc cấu hình cổng thanh toán (mọi khoá bí mật đều được che mặt nạ) + kiểm tra schema & bot Telegram. */
-export const quanTriLayCauHinhThanhToan = ({ checkBot = false } = {}) =>
-  fetch(`${BASE}/quan-tri/thanh-toan/cau-hinh${checkBot ? '?check_bot=true' : ''}`).then(doc)
+/** Quản trị đọc cấu hình cổng thanh toán (mọi khoá bí mật đều được che mặt nạ) + kiểm tra schema, PayPal OAuth & bot Telegram. */
+export const quanTriLayCauHinhThanhToan = ({ checkBot = false, checkPaypal = false } = {}) => {
+  const qs = new URLSearchParams()
+  if (checkBot) qs.set('check_bot', 'true')
+  if (checkPaypal) qs.set('check_paypal', 'true')
+  const tail = qs.toString() ? `?${qs.toString()}` : ''
+  return fetch(`${BASE}/quan-tri/thanh-toan/cau-hinh${tail}`).then(doc)
+}
 
 /** Quản trị lưu cấu hình cổng thanh toán (schema chặt `extra='forbid'` + đọc lại từ kho để xác minh). */
 export const quanTriLuuCauHinhThanhToan = (body) =>

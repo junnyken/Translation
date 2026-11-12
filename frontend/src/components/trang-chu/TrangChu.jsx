@@ -243,9 +243,6 @@ export default function TrangChu() {
   const [moByok, setMoByok] = useState(false)
   const [dangThuByok, setDangThuByok] = useState(false)
   const [ketQuaByok, setKetQuaByok] = useState(null)
-  const capDoByok = hanMuc?.la_quan_tri ? 5 : Number(hanMuc?.cap_do || 0)
-  const choPhepByok = Boolean(hanMuc?.cho_phep_byok ?? (capDoByok >= 1))
-  const dangBatByokHieuLuc = Boolean(choPhepByok && byokCfg.bat && byokCfg.key.length >= 12)
   const codex = useCodex()
   const [dangNhanDang, setDangNhanDang] = useState(false)
   const [ketQuaNhanDang, setKetQuaNhanDang] = useState(null)
@@ -266,6 +263,10 @@ export default function TrangChu() {
   const [hanMuc, setHanMuc] = useState(null)
   const [dangTaiHanMuc, setDangTaiHanMuc] = useState(true)
   const [loiHanMuc, setLoiHanMuc] = useState(null)
+
+  const capDoByok = hanMuc?.la_quan_tri ? 5 : Number(hanMuc?.cap_do || 0)
+  const choPhepByok = Boolean(hanMuc?.cho_phep_byok ?? (capDoByok >= 1))
+  const dangBatByokHieuLuc = Boolean(choPhepByok && byokCfg.bat && byokCfg.key.length >= 12)
 
   const huy = useRef(false)
   // Đặt lại `false` lúc gắn: React.StrictMode (chế độ dev) gắn → gỡ → gắn lại, và nếu chỉ có

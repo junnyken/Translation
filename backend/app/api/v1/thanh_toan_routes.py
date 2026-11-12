@@ -1111,6 +1111,7 @@ def attach_payment_routes(router: APIRouter, router_khach: APIRouter) -> None:
         thong_diep: str,
         schema_status: dict[str, Any],
         telegram_health: dict[str, Any],
+        paypal_health: dict[str, Any] | None = None,
         don_gia: int,
     ) -> QuanTriCauHinhThanhToanResponse:
         warnings: list[str] = []
@@ -1156,6 +1157,14 @@ def attach_payment_routes(router: APIRouter, router_khach: APIRouter) -> None:
             canh_bao_trung_gia=warnings,
             schema_status=schema_status,
             telegram_health=telegram_health,
+            paypal_health=paypal_health
+            or {
+                "configured": bool(cfg["paypal_client_id"] and cfg["paypal_secret_configured"]),
+                "mode": cfg["paypal_mode"],
+                "mode_source": cfg.get("paypal_mode_source", ""),
+                "client_id_source": cfg.get("paypal_client_id_source", ""),
+                "secret_source": cfg.get("paypal_secret_source", ""),
+            },
         )
 
     @router.get(
@@ -1165,6 +1174,7 @@ def attach_payment_routes(router: APIRouter, router_khach: APIRouter) -> None:
     )
     async def quan_tri_xem_cau_hinh_thanh_toan(
         check_bot: bool = Query(default=False),
+        check_paypal: bool = Query(default=False),
         session: AsyncSession = Depends(get_session),
         settings: Settings = Depends(get_settings),
         nguoi: NguoiDung = Depends(nguoi_dung_phien_dang_nhap),
@@ -1174,11 +1184,13 @@ def attach_payment_routes(router: APIRouter, router_khach: APIRouter) -> None:
         cfg = tt.resolve_payment_config(settings)
         schema_st = await tt.check_payment_schema_status(session)
         tg_health = await tt.check_telegram_bot_health(settings) if check_bot else {"configured": cfg["telegram_configured"]}
+        pp_health = await tt.check_paypal_oauth_health(settings) if check_paypal else None
         return _build_admin_cfg_response(
             cfg,
             thong_diep="Đã tải cấu hình thanh toán hiện hành.",
             schema_status=schema_st,
             telegram_health=tg_health,
+            paypal_health=pp_health,
             don_gia=max(1, settings.ty_le_vnd_moi_trang),
         )
 

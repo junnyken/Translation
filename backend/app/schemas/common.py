@@ -1386,6 +1386,7 @@ class QuanTriCauHinhThanhToanResponse(BaseModel):
     canh_bao_trung_gia: list[str] = []
     schema_status: dict = {}
     telegram_health: dict = {}
+    paypal_health: dict = {}
 
 
 class PaymentReviewRead(BaseModel):

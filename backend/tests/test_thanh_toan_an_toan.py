@@ -1150,5 +1150,26 @@ class TestGuardrailsAndMigration0039:
             assert "quan-tri" not in path
             assert "/orders/" not in path
 
+    async def test_paypal_env_priority_and_oauth_health_diagnostics(self, pay_env, monkeypatch):
+        # Lưu cấu hình cũ `sandbox` trong kho động Admin, nhưng đặt `PAYPAL_MODE=live` trên biến môi trường -> Env phải thắng!
+        tt.write_dynamic_payment_store({"paypal_mode": "sandbox"})
+        monkeypatch.setenv("PAYPAL_MODE", "live")
+        monkeypatch.setenv("PAYPAL_CLIENT_ID", '"BAAl9l79TEST"')
+        monkeypatch.setenv("PAYPAL_SECRET", "sec_ằ_unikey")
+        get_settings.cache_clear()
+        tt.reset_payment_config_cache()
+
+        cfg = tt.resolve_payment_config()
+        assert cfg["paypal_mode"] == "live"
+        assert cfg["paypal_mode_source"] == "env"
+        assert cfg["paypal_client_id"] == "BAAl9l79TEST"
+        assert cfg["paypal_secret_source"] == "env"
+
+        health = await tt.check_paypal_oauth_health()
+        assert health["ok"] is False
+        assert health["error"] == "non_ascii_characters"
+        assert health["secret_ascii"] is False
+
+
 
 
