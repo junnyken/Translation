@@ -534,8 +534,8 @@ export default function TrangChu() {
               </span>
             </div>
             <div className="day-link-nhanh">
-              <a href={api.urlTaiTienIchChrome()} download="dich-truyen-chrome-extension-v0.3.2.zip">
-                ⬇️ {laEn ? 'Extension (.ZIP)' : 'Tải Tiện Ích (.ZIP)'}
+              <a href={api.urlChromeWebStore()} target="_blank" rel="noopener noreferrer" style={{ fontWeight: 700 }}>
+                🧩 {laEn ? 'Add to Chrome (Web Store)' : 'Cài Từ Chrome Web Store'}
               </a>
               <span>·</span>
               <a href={api.urlTaiBoCaiWindowsExe()} download="Manga-Studio-Pro-Setup-v1.1.exe" style={{ color: '#059669' }}>

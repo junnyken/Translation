@@ -139,56 +139,49 @@ export default function TrangTienIch({ onQuayLai }) {
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <a
-              href={api.urlTaiTienIchChrome()}
-              download="dich-truyen-chrome-extension-v0.3.2.zip"
-              className="nut-manga nut-manga-chinh"
-              style={{ width: '100%', justifyContent: 'center', fontSize: 15, padding: '12px 18px' }}
-            >
-              ⬇️ {laEn ? 'Download Chrome Extension (.ZIP — v0.3.2)' : 'Tải Tiện Ích Chrome / Edge (.ZIP — v0.3.2)'}
-            </a>
-            <a
               href={api.urlChromeWebStore()}
               target="_blank"
               rel="noopener noreferrer"
-              className="nut-manga nut-manga-phu"
-              style={{ width: '100%', justifyContent: 'center', fontSize: 14, padding: '10px 16px' }}
+              className="nut-manga nut-manga-chinh"
+              style={{ width: '100%', justifyContent: 'center', fontSize: 15, padding: '12px 18px' }}
             >
-              🌐 {laEn ? 'Open on Chrome Web Store (ID: ejhblbmljocengmbfojheibfplmekhom)' : 'Mở Trên Cửa Hàng Chrome Web Store (ID: ejhblbmljocengmbfojheibfplmekhom)'}
+              🧩 {laEn ? 'Add to Chrome — Official Chrome Web Store (1-Click)' : 'Cài Trực Tiếp Từ Chrome Web Store (Chính Thức — 1 Chạm)'}
+            </a>
+            <a
+              href={api.urlTaiTienIchChrome()}
+              download="dich-truyen-chrome-extension-v0.3.2.zip"
+              className="nut-manga nut-manga-phu"
+              style={{ width: '100%', justifyContent: 'center', fontSize: 13.5, padding: '10px 16px' }}
+            >
+              ⬇️ {laEn ? 'Backup Manual Package (.ZIP — v0.3.2)' : 'Tải gói dự phòng cài thủ công (.ZIP — v0.3.2)'}
             </a>
           </div>
 
           {/* Hướng dẫn cài đặt từng bước */}
           <div style={stepBoxStyle}>
             <h3 style={{ margin: '0 0 10px', fontSize: 16, color: '#38bdf8' }}>
-              📖 {laEn ? 'Step-by-Step Installation Guide (10 Seconds):' : 'Hướng dẫn cài đặt chi tiết trong 10 giây:'}
+              📖 {laEn ? 'Official 1-Click Installation (Recommended):' : 'Hướng dẫn cài đặt chính thức trong 5 giây (Khuyên dùng):'}
             </h3>
             <ol style={{ margin: 0, paddingLeft: 20, color: '#e2e8f0', fontSize: 13.8, lineHeight: 1.75 }}>
               <li>
                 {laEn ? (
-                  <>Download and unzip <code>dich-truyen-chrome-extension-v0.3.2.zip</code> into a folder on your computer.</>
+                  <>Click <b>Add to Chrome — Official Chrome Web Store</b> above (Works on Chrome, Edge, Brave, Opera &amp; Cốc Cốc).</>
                 ) : (
-                  <>Tải file <code>dich-truyen-chrome-extension-v0.3.2.zip</code> về máy và <b>Giải nén (Extract)</b> ra một thư mục.</>
+                  <>Bấm nút <b>Cài Trực Tiếp Từ Chrome Web Store</b> ở trên (Dùng được cho cả Chrome, Microsoft Edge, Brave và Cốc Cốc).</>
                 )}
               </li>
               <li>
                 {laEn ? (
-                  <>Open Chrome / Edge / Brave, type <code>chrome://extensions</code> in the address bar, and press Enter.</>
+                  <>Click <b>Add to Chrome</b> → <b>Add extension</b>. No unzipping or Developer mode needed!</>
                 ) : (
-                  <>Mở trình duyệt Chrome / Edge / Cốc Cốc, gõ <code>chrome://extensions</code> vào thanh địa chỉ rồi nhấn <b>Enter</b>.</>
+                  <>Bấm nút xanh <b>Thêm vào Chrome (Add to Chrome)</b> → <b>Thêm tiện ích</b>. Không cần giải nén hay bật chế độ nhà phát triển!</>
                 )}
               </li>
               <li>
                 {laEn ? (
-                  <>Turn ON the <b>Developer mode</b> toggle at the top-right corner.</>
+                  <>Click the puzzle icon 🧩 at the top-right of your browser, pin the <b>Comic &amp; Manga AI Translator</b> icon, and press <b>Alt + Q</b> on any comic page!</>
                 ) : (
-                  <>Bật công tắc <b>Chế độ dành cho nhà phát triển (Developer mode)</b> ở góc trên bên phải màn hình.</>
-                )}
-              </li>
-              <li>
-                {laEn ? (
-                  <>Click <b>Load unpacked</b> at the top-left and select the unzipped folder. Pin the <b>T</b> icon to your toolbar!</>
-                ) : (
-                  <>Bấm nút <b>Tải tiện ích đã giải nén (Load unpacked)</b> ở góc trái trên và chọn thư mục vừa giải nén. Ghim biểu tượng chữ <b>T</b> lên thanh trình duyệt để dùng!</>
+                  <>Bấm biểu tượng mảnh ghép 🧩 góc trên phải trình duyệt, ghim <b>Comic &amp; Manga AI Translator</b> lên thanh công cụ rồi mở trang truyện nhấn <b>Alt + Q</b> để dịch ngay!</>
                 )}
               </li>
             </ol>

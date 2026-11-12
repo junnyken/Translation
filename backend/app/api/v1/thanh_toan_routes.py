@@ -1267,11 +1267,28 @@ def attach_payment_routes(router: APIRouter, router_khach: APIRouter) -> None:
         cfg = tt.resolve_payment_config(settings)
         schema_st = await tt.check_payment_schema_status(session)
         tg_health = {"configured": cfg["telegram_configured"]}
+        pp_health = await tt.check_paypal_oauth_health(settings) if cfg.get("paypal_enabled") else None
+
+        overridden_by_env: list[str] = []
+        for k_chk, v_chk in updates.items():
+            if isinstance(v_chk, str) and v_chk.strip() and k_chk in cfg and isinstance(cfg[k_chk], str):
+                cmp_v = v_chk.strip().lower() if k_chk in ("paypal_email", "paypal_mode") else v_chk.strip()
+                if cfg[k_chk] != cmp_v:
+                    overridden_by_env.append(k_chk.upper())
+
+        msg = "Đã lưu và đối chiếu lại cấu hình thanh toán từ kho lưu trữ."
+        if overridden_by_env:
+            msg += (
+                f" ⚠️ Lưu ý: Biến môi trường trên máy chủ ({', '.join(overridden_by_env)}) "
+                "đang ưu tiên đè lên giá trị vừa nhập — hãy cập nhật hoặc xoá biến đó trên VibeHost rồi Redeploy!"
+            )
+
         return _build_admin_cfg_response(
             cfg,
-            thong_diep="Đã lưu và đối chiếu lại cấu hình thanh toán từ kho lưu trữ.",
+            thong_diep=msg,
             schema_status=schema_st,
             telegram_health=tg_health,
+            paypal_health=pp_health,
             don_gia=max(1, settings.ty_le_vnd_moi_trang),
         )
 

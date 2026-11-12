@@ -1095,8 +1095,9 @@ curl -X POST "${apiOrigin}/api/v1/developer/translate-text" \\
               🌐 {laEn ? 'Download RapidAPI OpenAPI (.JSON)' : 'Tải File Đặc Tả RapidAPI (.JSON)'}
             </a>
             <a
-              href={api.urlTaiTienIchChrome()}
-              download
+              href={api.urlChromeWebStore()}
+              target="_blank"
+              rel="noopener noreferrer"
               style={{
                 padding: '9px 15px',
                 borderRadius: 10,
@@ -1111,7 +1112,7 @@ curl -X POST "${apiOrigin}/api/v1/developer/translate-text" \\
                 gap: 6,
               }}
             >
-              🧩 {laEn ? 'Download Chrome Extension MV3 (.ZIP)' : 'Tải Gói Chrome Extension MV3 (.ZIP)'}
+              🧩 {laEn ? 'Install Official Chrome Extension (Web Store)' : 'Cài Tiện Ích Chính Thức Trên Chrome Web Store'}
             </a>
           </div>
         </div>

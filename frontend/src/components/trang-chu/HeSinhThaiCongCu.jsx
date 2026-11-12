@@ -142,20 +142,20 @@ export default function HeSinhThaiCongCu() {
 
           <div className="chan-khung-cong-cu" style={{ flexWrap: 'wrap', gap: 8 }}>
             <a
-              href={api.urlTaiTienIchChrome()}
-              download="dich-truyen-chrome-extension-v0.3.2.zip"
-              className="nut-manga nut-manga-chinh"
-            >
-              {laEn ? '⬇️ Download Chrome Extension (.ZIP)' : '⬇️ Tải Tiện Ích Chrome (.ZIP)'}
-            </a>
-            <a
               href={api.urlChromeWebStore()}
               target="_blank"
               rel="noopener noreferrer"
-              className="nut-manga nut-manga-phu"
-              title="Chrome Web Store ID: ejhblbmljocengmbfojheibfplmekhom"
+              className="nut-manga nut-manga-chinh"
+              title="Chrome Web Store ID: ejhbibmljocengmbfojheibfplmekhom"
             >
-              {laEn ? '🌐 Chrome Web Store' : '🌐 Cửa Hàng Chrome'}
+              {laEn ? '🧩 Add to Chrome — Web Store (Official)' : '🧩 Cài Trực Tiếp Trên Chrome Web Store'}
+            </a>
+            <a
+              href={api.urlTaiTienIchChrome()}
+              download="dich-truyen-chrome-extension-v0.3.2.zip"
+              className="nut-manga nut-manga-phu"
+            >
+              {laEn ? '⬇️ Offline .ZIP' : '⬇️ Gói .ZIP dự phòng'}
             </a>
             <button
               type="button"
@@ -164,17 +164,17 @@ export default function HeSinhThaiCongCu() {
             >
               {moHuongDanExt
                 ? (laEn ? '▲ Hide guide' : '▲ Ẩn cách cài')
-                : (laEn ? '📖 Install in 10 seconds' : '📖 Cách cài trong 10 giây')}
+                : (laEn ? '📖 Install in 1 click' : '📖 Cài đặt 1 chạm')}
             </button>
           </div>
 
           {moHuongDanExt && (
             <div className="hop-huong-dan-nhanh">
-              <b>{laEn ? 'How to install on Chrome / Edge / Brave:' : 'Cách cài đặt vào Chrome / Edge / Cốc Cốc:'}</b>
+              <b>{laEn ? 'Official 1-Click Install (Chrome / Edge / Brave / Cốc Cốc):' : 'Cài đặt chính thức 1 chạm (Chrome / Edge / Brave / Cốc Cốc):'}</b>
               <ol>
-                <li>{laEn ? <>Unzip <code>dich-truyen-chrome-extension-v0.3.2.zip</code>.</> : <>Giải nén file <code>dich-truyen-chrome-extension-v0.3.2.zip</code> vừa tải về.</>}</li>
-                <li>{laEn ? <>Open <code>chrome://extensions</code> and enable <b>Developer mode</b> at the top right.</> : <>Mở trình duyệt, gõ <code>chrome://extensions</code> và bật công tắc <b>Chế độ nhà phát triển (Developer mode)</b> ở góc phải trên.</>}</li>
-                <li>{laEn ? <>Click <b>Load unpacked</b> and select the unzipped folder!</> : <>Bấm <b>Tải tiện ích đã giải nén (Load unpacked)</b> và chọn thư mục vừa giải nén là xong!</>}</li>
+                <li>{laEn ? <>Click <b>Add to Chrome — Web Store</b> above to open the official store page.</> : <>Bấm nút <b>Cài Trực Tiếp Trên Chrome Web Store</b> ở trên để mở trang cửa hàng chính thức.</>}</li>
+                <li>{laEn ? <>Click <b>Add to Chrome</b> → <b>Add extension</b> (auto-updates automatically!).</> : <>Bấm <b>Thêm vào Chrome (Add to Chrome)</b> → xác nhận <b>Thêm tiện ích</b> (tự động cập nhật phiên bản mới!).</>}</li>
+                <li>{laEn ? <>Pin the <b>T</b> icon to your browser toolbar and press <b>Alt+Q</b> on any comic site!</> : <>Ghim biểu tượng chữ <b>T</b> lên thanh công cụ trình duyệt và nhấn <b>Alt+Q</b> trên trang truyện để dịch ngay!</>}</li>
               </ol>
             </div>
           )}

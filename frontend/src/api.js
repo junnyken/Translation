@@ -826,8 +826,9 @@ export const quanTriKiemTraKetNoiAi = (khoaThu = null) =>
   }).then(doc)
 
 /** Mã định danh chính thức của Tiện ích trên Chrome Web Store và đường dẫn cài đặt trực tiếp. */
-export const CHROME_WEB_STORE_ID = 'ejhblbmljocengmbfojheibfplmekhom'
-export const urlChromeWebStore = () => `https://chromewebstore.google.com/detail/${CHROME_WEB_STORE_ID}`
+export const CHROME_WEB_STORE_ID = 'ejhbibmljocengmbfojheibfplmekhom'
+export const urlChromeWebStore = () =>
+  `https://chromewebstore.google.com/detail/comic-manga-ai-translator/${CHROME_WEB_STORE_ID}`
 
 /** Đường dẫn tải trực tiếp gói Tiện ích Chrome (.zip), App Windows (.exe / .zip) và Video Review Studio (.exe / .zip). */
 export const urlTaiTienIchChrome = () => '/tai-ve/dich-truyen-chrome-extension-v0.3.2.zip'
