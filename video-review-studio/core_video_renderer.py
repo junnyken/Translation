@@ -15,6 +15,7 @@ import urllib.request
 import wave
 from pathlib import Path
 from typing import Any
+from xml.sax.saxutils import escape as _xml_escape
 
 try:
     from PIL import Image, ImageDraw, ImageFilter, ImageFont
@@ -31,6 +32,10 @@ DINH_DANG_VIDEO = {
     "tiktok_9_16": {
         "ten": "📱 Dọc 9:16 — TikTok / YouTube Shorts / Reels (720x1280 · Chuẩn Safe-Zone)",
         "kich_thuoc": (720, 1280),
+    },
+    "tiktok_fullhd_9_16": {
+        "ten": "📱 Dọc 9:16 Full HD — TikTok / Shorts / Reels Chuẩn Nét Cao (1080x1920 · 1080p)",
+        "kich_thuoc": (1080, 1920),
     },
     "youtube_16_9": {
         "ten": "📺 Ngang 16:9 — YouTube Review Widescreen (1280x720 · Phóng Rộng & Ghép Đôi)",
@@ -133,7 +138,7 @@ def xac_thuc_va_tru_luot_video_cloud(
     if not la_quan_tri and cap_do < 1 and mua_them < tong_luot_can:
         raise RuntimeError(
             "Tính năng Dựng Video Review Truyện Tự Động không hỗ trợ gói Free dùng thử.\n"
-            "Vui lòng nâng cấp lên gói trả phí hàng tháng (Starter $2.99 / Lite $5.99 / Standard $9.99 / Pro Max $19.99) "
+            "Vui lòng nâng cấp lên gói trả phí hàng tháng (Starter $3.99 / Lite $5.99 / Standard $9.99 / Pro Max $19.99) "
             "tại https://comic.io.vn/#bang-gia để sử dụng Video Review Studio!"
         )
     if not la_quan_tri and con_lai < tong_luot_can:
@@ -407,7 +412,88 @@ def ve_khung_hinh_pan_zoom_va_phu_de(
     return buf.getvalue()
 
 
-def ghep_cac_file_wav_thanh_master(wav_paths: list[Path], out_master_wav: Path) -> Path:
+def cat_khoang_lang_dau_cuoi_wav(
+    wav_path: Path,
+    *,
+    nguong_bien_do: int = 240,
+    dem_dau_giay: float = 0.05,
+    dem_cuoi_giay: float = 0.09,
+    thoi_luong_toi_thieu_giay: float = 0.65,
+) -> Path:
+    """
+    Cắt khoảng lặng thừa đầu/cuối của từng câu TTS (chuẩn `ffmpeg-skill` silence trim)
+    để nhịp review truyện dồn dập, tự nhiên, giữ lại đệm hơi thở mềm (50ms đầu, 90ms cuối).
+    An toàn tuyệt đối với clip ngắn hoặc âm thanh thử nghiệm.
+    """
+    if not wav_path.is_file() or wav_path.suffix.lower() != ".wav":
+        return wav_path
+    try:
+        with wave.open(str(wav_path), "rb") as rf:
+            n_ch = rf.getnchannels()
+            sw = rf.getsampwidth()
+            fr = rf.getframerate()
+            nf = rf.getnframes()
+            raw = rf.readframes(nf)
+        if sw != 2 or n_ch not in (1, 2) or fr <= 0 or nf <= int(fr * thoi_luong_toi_thieu_giay):
+            return wav_path
+
+        samples = array.array("h")
+        samples.frombytes(raw)
+        total_frames = len(samples) // n_ch
+        if total_frames <= int(fr * thoi_luong_toi_thieu_giay):
+            return wav_path
+
+        first_voice = -1
+        last_voice = -1
+        step = max(1, fr // 400)  # lấy mẫu bước ~2.5ms cực nhanh (< 1ms/câu)
+        for f_idx in range(0, total_frames, step):
+            amp = abs(samples[f_idx * n_ch])
+            if n_ch == 2:
+                amp = max(amp, abs(samples[f_idx * 2 + 1]))
+            if amp > nguong_bien_do:
+                first_voice = f_idx
+                break
+
+        if first_voice < 0:
+            # Toàn bộ file là khoảng lặng (ví dụ test offline): giữ nguyên 100%
+            return wav_path
+
+        for f_idx in range(total_frames - 1, -1, -step):
+            amp = abs(samples[f_idx * n_ch])
+            if n_ch == 2:
+                amp = max(amp, abs(samples[f_idx * 2 + 1]))
+            if amp > nguong_bien_do:
+                last_voice = f_idx
+                break
+
+        pad_head = int(fr * dem_dau_giay)
+        pad_tail = int(fr * dem_cuoi_giay)
+        start_f = max(0, first_voice - pad_head)
+        end_f = min(total_frames, last_voice + pad_tail)
+        min_frames = int(fr * thoi_luong_toi_thieu_giay)
+        if end_f - start_f < min_frames:
+            end_f = min(total_frames, start_f + min_frames)
+        # Chỉ ghi lại nếu cắt bớt được ít nhất 120ms khoảng trắng thừa
+        if (start_f + (total_frames - end_f)) < int(fr * 0.12):
+            return wav_path
+
+        trimmed = samples[start_f * n_ch : end_f * n_ch]
+        with wave.open(str(wav_path), "wb") as wf:
+            wf.setnchannels(n_ch)
+            wf.setsampwidth(sw)
+            wf.setframerate(fr)
+            wf.writeframes(trimmed.tobytes())
+    except Exception:
+        pass
+    return wav_path
+
+
+def ghep_cac_file_wav_thanh_master(
+    wav_paths: list[Path],
+    out_master_wav: Path,
+    *,
+    cat_khoang_lang_tts: bool = True,
+) -> Path:
     """
     Ghép nối tuần tự tất cả file âm thanh `.wav` (hoặc `.mp3`) của từng phân cảnh
     thành 1 track âm thanh tổng (`out_master_wav`) để ghép đồng bộ vào luồng Video MP4.
@@ -422,6 +508,7 @@ def ghep_cac_file_wav_thanh_master(wav_paths: list[Path], out_master_wav: Path) 
     def _chuan_hoa_wav(wp: Path) -> Path:
         if not wp.is_file():
             return wp
+        target_wav = wp
         if wp.suffix.lower() == ".mp3" and ff_exe:
             conv_wav = wp.with_suffix(".wav")
             try:
@@ -434,10 +521,12 @@ def ghep_cac_file_wav_thanh_master(wav_paths: list[Path], out_master_wav: Path) 
                     stderr=subprocess.DEVNULL,
                 )
                 if conv_wav.is_file() and conv_wav.stat().st_size > 128:
-                    return conv_wav
+                    target_wav = conv_wav
             except Exception:
                 pass
-        return wp
+        if cat_khoang_lang_tts and target_wav.suffix.lower() == ".wav":
+            cat_khoang_lang_dau_cuoi_wav(target_wav)
+        return target_wav
 
     from concurrent.futures import ThreadPoolExecutor
 
@@ -550,12 +639,19 @@ def pha_tron_nhac_nen_va_hieu_ung_chuyen_canh(
             )
             bgm_cycle[i] = int(950.0 * env_beat * val)
 
-        # Trộn BGM (Auto-Ducking khi có tiếng đọc lớn)
+        # Trộn BGM với bộ Envelope Auto-Ducking mượt (Attack 15ms / Release 220ms chuẩn `sidechaincompress`)
+        # tránh nhấp nhô gắt từng mẫu âm thanh, giữ giọng thuyết minh rõ 100%
+        alpha_att = math.exp(-1.0 / max(1.0, framerate * 0.015))
+        alpha_rel = math.exp(-1.0 / max(1.0, framerate * 0.220))
+        duck_gain = 1.0
         for i in range(total_samples):
             v = samples[i]
-            b = bgm_cycle[i % cycle_len]
-            if abs(v) > 3500:
-                b = (b * 55) // 100
+            target_gain = 0.38 if abs(v) > 2600 else 1.0
+            if target_gain < duck_gain:
+                duck_gain = alpha_att * duck_gain + (1.0 - alpha_att) * target_gain
+            else:
+                duck_gain = alpha_rel * duck_gain + (1.0 - alpha_rel) * target_gain
+            b = int(bgm_cycle[i % cycle_len] * duck_gain)
             mixed = v + b
             if mixed > 32760:
                 mixed = 32760
@@ -595,6 +691,442 @@ def _tim_ffmpeg_exe() -> str | None:
     return tim_ffmpeg_he_thong()
 
 
+_CACHED_VIDEO_ENCODER: dict[str, tuple[str, list[str], str]] = {}
+
+
+def chon_bo_ma_hoa_video_toi_uu(ffmpeg_exe: str | None = None) -> tuple[str, list[str], str]:
+    """
+    Tự động dò và kiểm thử thực tế bộ mã hoá phần cứng GPU (chuẩn `ffmpeg-skill` `--hw`):
+    - Ưu tiên: NVIDIA (`h264_nvenc`) -> Intel QuickSync (`h264_qsv`) -> AMD (`h264_amf`) -> CPU (`libx264`).
+    - Dùng khung thử `256x256` (vượt ngưỡng tối thiểu 145x49 của driver NVENC mới) và lưu cache trong RAM.
+    """
+    ff = ffmpeg_exe or _tim_ffmpeg_exe()
+    if not ff:
+        return "libx264", ["-preset", "veryfast", "-crf", "20"], "CPU (libx264)"
+    if ff in _CACHED_VIDEO_ENCODER:
+        return _CACHED_VIDEO_ENCODER[ff]
+
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    candidates: list[tuple[str, list[str], str]] = [
+        ("h264_nvenc", ["-preset", "p4", "-cq", "21", "-b:v", "0"], "NVIDIA GPU (h264_nvenc)"),
+        ("h264_qsv", ["-global_quality", "21"], "Intel GPU (h264_qsv)"),
+        ("h264_amf", ["-rc", "cqp", "-qp_i", "21", "-qp_p", "21"], "AMD GPU (h264_amf)"),
+    ]
+    for enc_name, enc_args, label in candidates:
+        try:
+            res = subprocess.run(
+                [
+                    ff,
+                    "-hide_banner",
+                    "-nostdin",
+                    "-loglevel",
+                    "error",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "color=c=black:s=256x256:d=0.05",
+                    "-frames:v",
+                    "1",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-c:v",
+                    enc_name,
+                    *enc_args,
+                    "-f",
+                    "null",
+                    "-",
+                ],
+                timeout=6,
+                creationflags=flags,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            if res.returncode == 0:
+                _CACHED_VIDEO_ENCODER[ff] = (enc_name, enc_args, label)
+                return _CACHED_VIDEO_ENCODER[ff]
+        except Exception:
+            continue
+
+    fallback = ("libx264", ["-preset", "veryfast", "-crf", "20"], "CPU (libx264)")
+    _CACHED_VIDEO_ENCODER[ff] = fallback
+    return fallback
+
+
+def chuan_hoa_am_luong_ebu_r128(
+    wav_path: Path,
+    *,
+    ffmpeg_exe: str | None = None,
+    target_lufs: float = -14.0,
+    target_tp: float = -1.0,
+) -> dict[str, Any]:
+    """
+    Chuẩn hoá âm lượng tổng theo tiêu chuẩn phát sóng YouTube / TikTok / Reels (`-14 LUFS`, True Peak `-1.0 dBTP`)
+    dựa trên quy trình 2 bước (Two-pass linear `loudnorm`) của `ffmpeg-skill/scripts/loudness.py`,
+    đảm bảo âm thanh đầy đặn, không bị bơm tiếng (pumping) và không bao giờ rè/vỡ tiếng (clipping).
+    """
+    ff = ffmpeg_exe or _tim_ffmpeg_exe()
+    if not ff or not wav_path.is_file():
+        return {"normalized": False, "lufs": None, "tp": None}
+
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        with wave.open(str(wav_path), "rb") as rf:
+            sr = rf.getframerate() or 24000
+            n_ch = rf.getnchannels() or 1
+            in_dur = rf.getnframes() / float(sr)
+        if in_dur < 0.3:
+            return {"normalized": False, "lufs": None, "tp": None}
+
+        # Bước 1: Đo thông số tích hợp (Integrated LUFS / True Peak / Threshold)
+        p1 = subprocess.run(
+            [
+                ff,
+                "-hide_banner",
+                "-nostdin",
+                "-i",
+                str(wav_path),
+                "-vn",
+                "-af",
+                f"loudnorm=I={target_lufs}:TP={target_tp}:LRA=11:print_format=json",
+                "-f",
+                "null",
+                "-",
+            ],
+            timeout=30,
+            creationflags=flags,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        m = re.search(r"\{[^{}]*\"input_i\"[^{}]*\}", p1.stderr or "", re.S)
+        if p1.returncode != 0 or not m:
+            return {"normalized": False, "lufs": None, "tp": None}
+        stats = json.loads(m.group(0))
+        for k in ("input_i", "input_tp", "input_lra", "input_thresh", "target_offset"):
+            if stats.get(k) in (None, "-inf", "inf", "nan"):
+                return {"normalized": False, "lufs": None, "tp": None, "silent": True}
+
+        # Bước 2: Áp dụng `loudnorm` chế độ tuyến tính (`linear=true`) + `atrim` giữ nguyên độ dài mẫu
+        norm_tmp = wav_path.with_name(f"{wav_path.stem}_r128_tmp.wav")
+        af_linear = (
+            f"loudnorm=I={target_lufs}:TP={target_tp}:LRA=11"
+            f":measured_I={stats['input_i']}:measured_TP={stats['input_tp']}"
+            f":measured_LRA={stats['input_lra']}:measured_thresh={stats['input_thresh']}"
+            f":offset={stats['target_offset']}:linear=true,"
+            f"atrim=duration={in_dur:.6f}"
+        )
+        p2 = subprocess.run(
+            [
+                ff,
+                "-hide_banner",
+                "-nostdin",
+                "-y",
+                "-i",
+                str(wav_path),
+                "-af",
+                af_linear,
+                "-ar",
+                str(sr),
+                "-ac",
+                str(n_ch),
+                "-c:a",
+                "pcm_s16le",
+                str(norm_tmp),
+            ],
+            timeout=45,
+            creationflags=flags,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        if p2.returncode == 0 and norm_tmp.is_file() and norm_tmp.stat().st_size > 256:
+            norm_tmp.replace(wav_path)
+            return {
+                "normalized": True,
+                "target_lufs": target_lufs,
+                "target_tp": target_tp,
+                "measured_before_lufs": float(stats["input_i"]),
+                "measured_before_tp": float(stats["input_tp"]),
+            }
+        if norm_tmp.is_file():
+            norm_tmp.unlink(missing_ok=True)
+    except Exception:
+        pass
+    return {"normalized": False, "lufs": None, "tp": None}
+
+
+def _dinh_dang_moc_ass(seconds: float) -> str:
+    s = max(0.0, float(seconds))
+    h = int(s // 3600)
+    m = int((s % 3600) // 60)
+    sec = int(s % 60)
+    cs = int(round((s - int(s)) * 100))
+    if cs >= 100:
+        cs = 99
+    return f"{h}:{m:02d}:{sec:02d}.{cs:02d}"
+
+
+def xuat_phu_de_ass(
+    scenes: list[dict[str, Any]],
+    out_ass_path: Path,
+    *,
+    kich_thuoc_video: tuple[int, int] = (720, 1280),
+) -> Path:
+    """
+    Xuất tệp phụ đề động `.ass` (Advanced SubStation Alpha) canh chuẩn Safe-Zone TikTok/Shorts (9:16) & YouTube (16:9)
+    theo quy chuẩn `ffmpeg-skill/scripts/caption.py`, hỗ trợ mở/chỉnh sửa trực tiếp trong Aegisub, CapCut, Premiere, Resolve.
+    """
+    vw, vh = kich_thuoc_video
+    la_man_ngang = vw > vh
+    font_size = max(24, int(vh * (0.042 if la_man_ngang else 0.026)))
+    margin_v = int(vh * (0.055 if la_man_ngang else 0.095))  # Safe-Zone tránh thanh caption TikTok/Shorts ở đáy
+    margin_lr = int(vw * (0.05 if la_man_ngang else 0.06))
+    wrap_chars = 68 if la_man_ngang else 34
+    lines_per_page = 2 if la_man_ngang else 3
+
+    header = [
+        "[Script Info]",
+        "ScriptType: v4.00+",
+        "Title: Manga Video Review Studio Subtitles",
+        f"PlayResX: {vw}",
+        f"PlayResY: {vh}",
+        "WrapStyle: 0",
+        "ScaledBorderAndShadow: yes",
+        "",
+        "[V4+ Styles]",
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
+        "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
+        "Alignment, MarginL, MarginR, MarginV, Encoding",
+        f"Style: ReviewMain,Arial,{font_size},&H0047E0FD,&H00FFFFFF,&H00101010,&H80080C18,"
+        f"-1,0,0,0,100,100,0,0,1,3,1.5,2,{margin_lr},{margin_lr},{margin_v},1",
+        "",
+        "[Events]",
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+    ]
+
+    events: list[str] = []
+    t_cur = 0.0
+    for sc in scenes:
+        dur = max(0.5, float(sc.get("thoi_luong_giay") or 3.0))
+        loi = str(sc.get("loi_thuyet_minh") or "").strip()
+        nv = str(sc.get("nhan_vat") or "").strip().replace(",", " ")
+        if loi:
+            wrapped = textwrap.wrap(loi, width=wrap_chars) or [loi]
+            pages = [wrapped[i : i + lines_per_page] for i in range(0, len(wrapped), lines_per_page)]
+            page_dur = dur / float(len(pages))
+            for p_idx, p_lines in enumerate(pages):
+                st = _dinh_dang_moc_ass(t_cur + p_idx * page_dur)
+                ed = _dinh_dang_moc_ass(t_cur + (p_idx + 1) * page_dur)
+                ass_txt = r"\N".join(line.replace("{", "(").replace("}", ")") for line in p_lines)
+                events.append(f"Dialogue: 0,{st},{ed},ReviewMain,{nv},0,0,0,,{ass_txt}")
+        t_cur += dur
+
+    out_ass_path.parent.mkdir(parents=True, exist_ok=True)
+    out_ass_path.write_text("\n".join(header + events) + "\n", encoding="utf-8-sig")
+    return out_ass_path
+
+
+def xuat_timeline_fcpxml(
+    scenes: list[dict[str, Any]],
+    panel_files: list[Path],
+    master_audio_path: Path,
+    out_fcpxml_path: Path,
+    *,
+    kich_thuoc_video: tuple[int, int] = (720, 1280),
+    fps: int = 24,
+    ten_du_an: str = "Manga Video Review",
+) -> Path:
+    """
+    Xuất tệp dựng phim chuyên nghiệp `.fcpxml` (FCPXML 1.9 chuẩn `ffmpeg-skill/scripts/_common/timeline.py`)
+    để mở trực tiếp timeline đa lớp (ảnh khung tranh + track thuyết minh + đánh dấu phân cảnh nhân vật)
+    trong Adobe Premiere Pro, DaVinci Resolve, Final Cut Pro hoặc CapCut PC.
+    """
+    vw, vh = kich_thuoc_video
+    fps_int = max(1, int(fps))
+
+    def _to_file_uri(p: Path) -> str:
+        return p.resolve().as_uri()
+
+    resources_xml: list[str] = [
+        f'    <format id="r1" name="FFVideoFormat{vw}x{vh}p{fps_int}" '
+        f'frameDuration="1/{fps_int}s" width="{vw}" height="{vh}" colorSpace="1-1-1 (Rec. 709)"/>'
+    ]
+    for idx, pf in enumerate(panel_files):
+        aid = f"r_img_{idx + 1}"
+        uri = _xml_escape(_to_file_uri(pf), {'"': "&quot;"})
+        pname = _xml_escape(pf.stem, {'"': "&quot;"})
+        resources_xml.append(
+            f'    <asset id="{aid}" name="{pname}" start="0s" duration="0s" hasVideo="1" format="r1">'
+            f'<media-rep kind="original-media" src="{uri}"/></asset>'
+        )
+
+    total_frames = 0
+    clip_frames_list: list[int] = []
+    for sc in scenes:
+        dur = max(0.5, float(sc.get("thoi_luong_giay") or 3.0))
+        c_frames = max(1, int(round(dur * fps_int)))
+        clip_frames_list.append(c_frames)
+        total_frames += c_frames
+
+    has_audio = master_audio_path.is_file()
+    if has_audio:
+        a_uri = _xml_escape(_to_file_uri(master_audio_path), {'"': "&quot;"})
+        a_name = _xml_escape(master_audio_path.stem, {'"': "&quot;"})
+        resources_xml.append(
+            f'    <asset id="r_master_audio" name="{a_name}" start="0s" '
+            f'duration="{total_frames}/{fps_int}s" hasAudio="1" audioSources="1" audioChannels="1">'
+            f'<media-rep kind="original-media" src="{a_uri}"/></asset>'
+        )
+
+    spine_xml: list[str] = []
+    cur_offset_frames = 0
+    for idx, sc in enumerate(scenes):
+        c_frames = clip_frames_list[idx]
+        p_idx = min(idx, max(0, len(panel_files) - 1))
+        aid = f"r_img_{p_idx + 1}"
+        nv = str(sc.get("nhan_vat") or "").strip()
+        clip_title = f"Cảnh {idx + 1}" + (f" - {nv}" if nv else "")
+        clip_title_esc = _xml_escape(clip_title, {'"': "&quot;"})
+        loi_short = _xml_escape(str(sc.get("loi_thuyet_minh") or "")[:90], {'"': "&quot;"})
+
+        inner_tags: list[str] = ['              <adjust-conform type="fit"/>']
+        if idx == 0 and has_audio:
+            inner_tags.append(
+                f'              <asset-clip name="Master Voiceover &amp; BGM" ref="r_master_audio" '
+                f'lane="-1" offset="0s" start="0s" duration="{total_frames}/{fps_int}s" role="dialogue"/>'
+            )
+        inner_tags.append(
+            f'              <marker start="0s" duration="1/{fps_int}s" value="{clip_title_esc}" note="{loi_short}"/>'
+        )
+        spine_xml.append(
+            f'            <video name="{clip_title_esc}" ref="{aid}" '
+            f'offset="{cur_offset_frames}/{fps_int}s" start="0s" duration="{c_frames}/{fps_int}s">\n'
+            + "\n".join(inner_tags)
+            + "\n            </video>"
+        )
+        cur_offset_frames += c_frames
+
+    proj_esc = _xml_escape(ten_du_an, {'"': "&quot;"})
+    xml_doc = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        "<!DOCTYPE fcpxml>\n"
+        '<fcpxml version="1.9">\n'
+        "  <resources>\n"
+        + "\n".join(resources_xml)
+        + "\n  </resources>\n"
+        '  <library>\n'
+        f'    <event name="{proj_esc}">\n'
+        f'      <project name="{proj_esc}">\n'
+        f'        <sequence format="r1" duration="{total_frames}/{fps_int}s" tcStart="0s" tcFormat="NDF" audioLayout="mono" audioRate="24k">\n'
+        "          <spine>\n"
+        + "\n".join(spine_xml)
+        + "\n          </spine>\n"
+        "        </sequence>\n"
+        "      </project>\n"
+        "    </event>\n"
+        "  </library>\n"
+        "</fcpxml>\n"
+    )
+    out_fcpxml_path.parent.mkdir(parents=True, exist_ok=True)
+    out_fcpxml_path.write_text(xml_doc, encoding="utf-8")
+    return out_fcpxml_path
+
+
+def _chay_lenh_ffmpeg_xuat_mp4(
+    ffmpeg_exe: str,
+    concat_file: Path,
+    audio_path: Path,
+    out_mp4_path: Path,
+    *,
+    srt_path: Path | None = None,
+    fps: int = 24,
+) -> tuple[bool, str]:
+    """
+    Xuất MP4 chuẩn BT.709 TV-range (`yuv420p` tương thích 100% iOS/QuickTime/TikTok/YouTube)
+    + âm thanh `48kHz AAC` + nhúng luồng phụ đề mềm Tiếng Việt (`mov_text` `vie`) + `faststart`
+    bằng bộ mã hoá phần cứng GPU tốt nhất (`h264_nvenc` / `h264_qsv` / `h264_amf`),
+    tự động lùi về `libx264` CPU nếu driver GPU bận/từ chối.
+    """
+    enc_name, enc_args, enc_label = chon_bo_ma_hoa_video_toi_uu(ffmpeg_exe)
+    attempts: list[tuple[str, list[str], str]] = [(enc_name, enc_args, enc_label)]
+    if enc_name != "libx264":
+        attempts.append(("libx264", ["-preset", "veryfast", "-crf", "20"], "CPU (libx264)"))
+
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    # Chuyển từ full-range JPEG (yuvj420p / bt601) sang limited TV-range BT.709 (yuv420p chuẩn iOS/TikTok/YouTube)
+    vf_chain = (
+        f"fps={fps},"
+        "scale=trunc(iw/2)*2:trunc(ih/2)*2:in_color_matrix=bt601:out_color_matrix=bt709:out_range=tv,"
+        "format=yuv420p"
+    )
+    co_srt = bool(srt_path and srt_path.is_file() and srt_path.stat().st_size > 12)
+
+    for cur_enc, cur_args, cur_label in attempts:
+        try:
+            cmd = [
+                ffmpeg_exe,
+                "-hide_banner",
+                "-nostdin",
+                "-y",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(concat_file),
+                "-i",
+                str(audio_path),
+            ]
+            if co_srt and srt_path is not None:
+                cmd += ["-i", str(srt_path)]
+            cmd += ["-map", "0:v:0", "-map", "1:a:0"]
+            if co_srt:
+                cmd += ["-map", "2:s:0"]
+            cmd += [
+                "-vf",
+                vf_chain,
+                "-c:v",
+                cur_enc,
+                *cur_args,
+                "-pix_fmt",
+                "yuv420p",
+                "-color_range",
+                "tv",
+                "-colorspace",
+                "bt709",
+                "-color_primaries",
+                "bt709",
+                "-color_trc",
+                "bt709",
+                "-movflags",
+                "+faststart",
+                "-c:a",
+                "aac",
+                "-ar",
+                "48000",
+                "-b:a",
+                "192k",
+            ]
+            if co_srt:
+                cmd += ["-c:s", "mov_text", "-metadata:s:s:0", "language=vie"]
+            cmd += ["-shortest", str(out_mp4_path)]
+
+            subprocess.run(
+                cmd,
+                timeout=300,
+                check=True,
+                creationflags=flags,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            if out_mp4_path.is_file() and out_mp4_path.stat().st_size > 1024:
+                return True, cur_label
+        except Exception:
+            continue
+    return False, "ISO-BMFF Fallback"
+
+
 def _tao_container_mp4_hop_le_du_phong(frames_jpeg: list[bytes], out_mp4: Path) -> None:
     """
     Đóng gói container ISO-BMFF MP4 chuẩn (`ftypisom` + `mdat` chứa chuỗi khung hình đã dựng)
@@ -606,6 +1138,16 @@ def _tao_container_mp4_hop_le_du_phong(frames_jpeg: list[bytes], out_mp4: Path) 
     mdat_hdr = mdat_len.to_bytes(4, "big") + b"mdat"
     out_mp4.parent.mkdir(parents=True, exist_ok=True)
     out_mp4.write_bytes(ftyp + mdat_hdr + payload)
+
+
+def _tao_moc_chuyen_dong_muot(so_buoc: int) -> tuple[float, ...]:
+    """Nội suy đường cong S-Curve Cosine mượt mà (tăng tốc êm ở đầu cảnh, giảm tốc êm ở cuối cảnh)."""
+    if so_buoc <= 1:
+        return (0.5,)
+    return tuple(
+        round(0.5 - 0.5 * math.cos(math.pi * (i / float(so_buoc - 1))), 4)
+        for i in range(so_buoc)
+    )
 
 
 def xuat_video_review_mp4(
@@ -623,10 +1165,12 @@ def xuat_video_review_mp4(
     che_do_nhanh_offline: bool = False,
 ) -> dict[str, Any]:
     """
-    Quy trình khép kín dựng Video Review Truyện `.mp4` + âm thanh tổng `.wav` + phụ đề `.srt` + `storyboard.json`:
-    1. Tổng hợp giọng đọc thuyết minh cho từng phân cảnh (`scenes`).
-    2. Dựng các khung hình chuyển động Pan & Zoom kèm phụ đề chữ vàng.
-    3. Ghép cả hình lẫn tiếng nói thành file `.mp4` hoàn chỉnh.
+    Quy trình khép kín dựng Video Review Truyện `.mp4` + âm thanh chuẩn `-14 LUFS` `.wav`
+    + phụ đề `.srt`/`.ass` + timeline `.fcpxml` (Premiere/Resolve) + `storyboard.json`:
+    1. Tổng hợp giọng đọc thuyết minh cho từng phân cảnh (`scenes`) & cắt khoảng lặng thừa.
+    2. Dựng chuỗi khung hình Pan & Zoom đường cong S-Curve mượt kèm phụ đề Safe-Zone.
+    3. Trộn BGM Envelope Auto-Ducking + Chuẩn hoá âm lượng phát sóng `-14 LUFS` EBU R128.
+    4. Mã hoá MP4 chuẩn BT.709 ưu tiên GPU (`NVENC`/`QSV`/`AMF`) và xuất kèm `.fcpxml` dựng hậu kỳ.
     """
     scenes = list(kich_ban.get("scenes") or [])
     if not panels_bytes or not scenes:
@@ -641,6 +1185,13 @@ def xuat_video_review_mp4(
     work_dir = out_dir / "_temp_studio_build"
     work_dir.mkdir(parents=True, exist_ok=True)
 
+    # Lưu bản gốc từng khung tranh ra work_dir để liên kết media chính xác trong file `.fcpxml` Premiere/Resolve
+    panel_source_files: list[Path] = []
+    for p_idx, pb in enumerate(panels_bytes):
+        pf = work_dir / f"source_panel_{p_idx + 1:03d}.jpg"
+        pf.write_bytes(pb)
+        panel_source_files.append(pf)
+
     from concurrent.futures import ThreadPoolExecutor
 
     tong_thoi_luong = 0.0
@@ -648,7 +1199,8 @@ def xuat_video_review_mp4(
     concat_lines: list[str] = []
     wav_files: list[Path] = []
     so_canh_tong = len(scenes)
-    cac_moc_tien_do = (0.12, 0.38, 0.64, 0.88)
+    # Chế độ xuất thật dùng 12 bước nội suy S-Curve mượt mà; chế độ test nhanh offline giữ 4 bước siêu tốc
+    cac_moc_tien_do = (0.12, 0.38, 0.64, 0.88) if che_do_nhanh_offline else _tao_moc_chuyen_dong_muot(12)
     so_buoc_canh = len(cac_moc_tien_do)
 
     def _xu_ly_mot_canh(idx_and_sc: tuple[int, dict[str, Any]]) -> tuple[int, dict[str, Any], list[bytes]]:
@@ -687,7 +1239,7 @@ def xuat_video_review_mp4(
                 tong_so_canh=so_canh_tong,
             )
             sc_frames.append(frame_b)
-            frame_file = work_dir / f"frame_{idx + 1:03d}_{step_idx}.jpg"
+            frame_file = work_dir / f"frame_{idx + 1:03d}_{step_idx:02d}.jpg"
             frame_file.write_bytes(frame_b)
         return idx, tts_info, sc_frames
 
@@ -704,16 +1256,6 @@ def xuat_video_review_mp4(
         wav_files.append(Path(tts_info["audio_path"]))
         tong_thoi_luong += thoi_luong
         frames_jpeg.extend(sc_frames)
-        dur_step = round(max(0.25, thoi_luong / float(so_buoc_canh)), 3)
-        for step_idx in range(so_buoc_canh):
-            frame_file = work_dir / f"frame_{idx + 1:03d}_{step_idx}.jpg"
-            safe_fp = str(frame_file.resolve()).replace("\\", "/")
-            concat_lines.append(f"file '{safe_fp}'\nduration {dur_step}")
-            last_safe_fp = safe_fp
-
-    if concat_lines and locals().get("last_safe_fp"):
-        # Quy chuẩn FFmpeg concat demuxer: lặp lại dòng file cuối cùng (không kèm duration) để giữ trọn vẹn khung hình cuối
-        concat_lines.append(f"file '{last_safe_fp}'")
 
     # Dọn dẹp file _voice.mp3 / _voice.wav cũ ngoài thư mục chính để tránh người dùng mở nhầm file âm thanh thay vì file .mp4
     for old_ext in (".mp3", ".wav"):
@@ -724,27 +1266,33 @@ def xuat_video_review_mp4(
             except Exception:
                 pass
 
-    # Ghép track âm thanh thuyết minh tổng (.wav) trong thư mục tạm và trộn nhạc nền + hiệu ứng chuyển cảnh Whoosh
+    # Ghép track âm thanh thuyết minh tổng (.wav) kèm cắt khoảng lặng thừa đầu/cuối câu TTS
     out_audio_master = ghep_cac_file_wav_thanh_master(
-        wav_files, work_dir / f"{out_mp4_path.stem}_voice.wav"
+        wav_files,
+        work_dir / f"{out_mp4_path.stem}_voice.wav",
+        cat_khoang_lang_tts=not che_do_nhanh_offline,
     )
-    # Đồng bộ lại chính xác thời lượng từng phân cảnh theo file .wav thực tế sau chuyển đổi để khớp 100% hình và tiếng
+    # Đồng bộ lại chính xác thời lượng từng phân cảnh theo file .wav thực tế sau khi cắt khoảng lặng để khớp 100% hình và tiếng
     concat_lines = []
     last_safe_fp = ""
     tong_thoi_luong = 0.0
     for idx, sc in enumerate(scenes):
-        cand_wav = work_dir / f"scene_{idx + 1:03d}.wav"
-        if cand_wav.is_file():
+        cand_wav = Path(str(sc.get("audio_path") or (work_dir / f"scene_{idx + 1:03d}.wav")))
+        if not cand_wav.is_file() or cand_wav.suffix.lower() != ".wav":
+            alt_wav = work_dir / f"scene_{idx + 1:03d}.wav"
+            if alt_wav.is_file():
+                cand_wav = alt_wav
+        if cand_wav.is_file() and cand_wav.suffix.lower() == ".wav":
             try:
                 with wave.open(str(cand_wav), "rb") as rf:
-                    sc["thoi_luong_giay"] = round(max(0.8, rf.getnframes() / float(rf.getframerate() or 24000)), 3)
+                    sc["thoi_luong_giay"] = round(max(0.65, rf.getnframes() / float(rf.getframerate() or 24000)), 3)
             except Exception:
                 pass
         dur_sc = float(sc.get("thoi_luong_giay") or 3.0)
         tong_thoi_luong += dur_sc
-        dur_step = round(max(0.25, dur_sc / float(so_buoc_canh)), 3)
+        dur_step = round(max(0.08, dur_sc / float(so_buoc_canh)), 4)
         for step_idx in range(so_buoc_canh):
-            frame_file = work_dir / f"frame_{idx + 1:03d}_{step_idx}.jpg"
+            frame_file = work_dir / f"frame_{idx + 1:03d}_{step_idx:02d}.jpg"
             safe_fp = str(frame_file.resolve()).replace("\\", "/")
             concat_lines.append(f"file '{safe_fp}'\nduration {dur_step}")
             last_safe_fp = safe_fp
@@ -758,8 +1306,44 @@ def xuat_video_review_mp4(
         phong_cach_kich_ban=str(kich_ban.get("phong_cach") or "kich_tinh"),
     )
 
+    ffmpeg_exe = _tim_ffmpeg_exe()
+    loudness_info: dict[str, Any] = {"normalized": False}
+    if ffmpeg_exe and not che_do_nhanh_offline:
+        loudness_info = chuan_hoa_am_luong_ebu_r128(out_audio_master, ffmpeg_exe=ffmpeg_exe)
+
     out_srt_path = out_mp4_path.with_suffix(".srt")
     xuat_phu_de_srt(scenes, out_srt_path)
+
+    out_ass_path = out_mp4_path.with_suffix(".ass")
+    xuat_phu_de_ass(scenes, out_ass_path, kich_thuoc_video=kich_thuoc)
+
+    out_fcpxml_path = out_mp4_path.with_name(f"{out_mp4_path.stem}_timeline.fcpxml")
+    xuat_timeline_fcpxml(
+        scenes,
+        panel_source_files,
+        out_audio_master,
+        out_fcpxml_path,
+        kich_thuoc_video=kich_thuoc,
+        fps=24,
+        ten_du_an=str(kich_ban.get("ten_truyen") or out_mp4_path.stem),
+    )
+
+    da_xuat_ffmpeg = False
+    encoder_used = "ISO-BMFF Fallback"
+    if ffmpeg_exe and concat_lines:
+        concat_file = work_dir / "frames_concat.txt"
+        concat_file.write_text("\n".join(concat_lines) + "\n", encoding="utf-8")
+        da_xuat_ffmpeg, encoder_used = _chay_lenh_ffmpeg_xuat_mp4(
+            ffmpeg_exe,
+            concat_file,
+            out_audio_master,
+            out_mp4_path,
+            srt_path=out_srt_path,
+            fps=24,
+        )
+
+    if not da_xuat_ffmpeg:
+        _tao_container_mp4_hop_le_du_phong(frames_jpeg, out_mp4_path)
 
     out_json_path = out_mp4_path.with_name(f"{out_mp4_path.stem}_storyboard.json")
     kich_ban_luu = dict(kich_ban)
@@ -767,58 +1351,11 @@ def xuat_video_review_mp4(
     kich_ban_luu["dinh_dang_video"] = ma_dinh_dang
     kich_ban_luu["ma_giong"] = ma_giong
     kich_ban_luu["master_audio_path"] = str(out_audio_master)
+    kich_ban_luu["ass_subtitle_path"] = str(out_ass_path)
+    kich_ban_luu["fcpxml_timeline_path"] = str(out_fcpxml_path)
+    kich_ban_luu["encoder_used"] = encoder_used
+    kich_ban_luu["loudness_ebu_r128"] = loudness_info
     out_json_path.write_text(json.dumps(kich_ban_luu, ensure_ascii=False, indent=2), encoding="utf-8")
-
-    ffmpeg_exe = _tim_ffmpeg_exe()
-    da_xuat_ffmpeg = False
-    if ffmpeg_exe and concat_lines:
-        try:
-            concat_file = work_dir / "frames_concat.txt"
-            concat_file.write_text("\n".join(concat_lines) + "\n", encoding="utf-8")
-            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            subprocess.run(
-                [
-                    ffmpeg_exe,
-                    "-y",
-                    "-f",
-                    "concat",
-                    "-safe",
-                    "0",
-                    "-i",
-                    str(concat_file),
-                    "-i",
-                    str(out_audio_master),
-                    "-vf",
-                    "fps=24,scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
-                    "-c:v",
-                    "libx264",
-                    "-preset",
-                    "veryfast",
-                    "-crf",
-                    "21",
-                    "-pix_fmt",
-                    "yuv420p",
-                    "-movflags",
-                    "+faststart",
-                    "-c:a",
-                    "aac",
-                    "-b:a",
-                    "160k",
-                    "-shortest",
-                    str(out_mp4_path),
-                ],
-                timeout=300,
-                check=True,
-                creationflags=flags,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            da_xuat_ffmpeg = out_mp4_path.is_file() and out_mp4_path.stat().st_size > 1024
-        except Exception:
-            da_xuat_ffmpeg = False
-
-    if not da_xuat_ffmpeg:
-        _tao_container_mp4_hop_le_du_phong(frames_jpeg, out_mp4_path)
 
     # Giai đoạn 4: Nếu chọn 'dual_youtube_va_shorts', dùng ngay cùng bộ âm thanh tổng (`out_audio_master`)
     # để render thêm bản Dọc 9:16 (TikTok / YouTube Shorts) mà KHÔNG cần chạy lại TTS!
@@ -847,7 +1384,7 @@ def xuat_video_review_mp4(
                     tong_so_canh=so_canh_tong,
                 )
                 sc_f.append(fb)
-                (work_dir / f"vframe_{idx + 1:03d}_{step_idx}.jpg").write_bytes(fb)
+                (work_dir / f"vframe_{idx + 1:03d}_{step_idx:02d}.jpg").write_bytes(fb)
             return idx, sc_f
 
         with ThreadPoolExecutor(max_workers=6) as pool:
@@ -859,39 +1396,29 @@ def xuat_video_review_mp4(
         for idx, sc_f in sorted(res_doc, key=lambda x: x[0]):
             frames_doc.extend(sc_f)
             dur_sc = float(scenes[idx].get("thoi_luong_giay") or 3.0)
-            dur_step = round(max(0.25, dur_sc / float(so_buoc_canh)), 3)
+            dur_step = round(max(0.08, dur_sc / float(so_buoc_canh)), 4)
             for step_idx in range(so_buoc_canh):
-                vfile = work_dir / f"vframe_{idx + 1:03d}_{step_idx}.jpg"
+                vfile = work_dir / f"vframe_{idx + 1:03d}_{step_idx:02d}.jpg"
                 safe_vfp = str(vfile.resolve()).replace("\\", "/")
                 concat_doc.append(f"file '{safe_vfp}'\nduration {dur_step}")
                 last_vfp = safe_vfp
         if concat_doc and last_vfp:
             concat_doc.append(f"file '{last_vfp}'")
 
+        xuat_phu_de_ass(scenes, shorts_mp4.with_suffix(".ass"), kich_thuoc_video=kich_thuoc_doc)
+
         da_xuat_doc = False
         if ffmpeg_exe and concat_doc:
-            try:
-                concat_vfile = work_dir / "vframes_concat.txt"
-                concat_vfile.write_text("\n".join(concat_doc) + "\n", encoding="utf-8")
-                flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-                subprocess.run(
-                    [
-                        ffmpeg_exe, "-y", "-f", "concat", "-safe", "0",
-                        "-i", str(concat_vfile), "-i", str(out_audio_master),
-                        "-vf", "fps=24,scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
-                        "-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
-                        "-pix_fmt", "yuv420p", "-movflags", "+faststart",
-                        "-c:a", "aac", "-b:a", "160k", "-shortest", str(shorts_mp4),
-                    ],
-                    timeout=300,
-                    check=True,
-                    creationflags=flags,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-                da_xuat_doc = shorts_mp4.is_file() and shorts_mp4.stat().st_size > 1024
-            except Exception:
-                da_xuat_doc = False
+            concat_vfile = work_dir / "vframes_concat.txt"
+            concat_vfile.write_text("\n".join(concat_doc) + "\n", encoding="utf-8")
+            da_xuat_doc, _ = _chay_lenh_ffmpeg_xuat_mp4(
+                ffmpeg_exe,
+                concat_vfile,
+                out_audio_master,
+                shorts_mp4,
+                srt_path=out_srt_path,
+                fps=24,
+            )
         if not da_xuat_doc:
             _tao_container_mp4_hop_le_du_phong(frames_doc, shorts_mp4)
         shorts_9_16_path_str = str(shorts_mp4)
@@ -902,7 +1429,11 @@ def xuat_video_review_mp4(
         "shorts_9_16_video_path": shorts_9_16_path_str,
         "audio_master_path": str(out_audio_master),
         "srt_path": str(out_srt_path),
+        "ass_path": str(out_ass_path),
+        "fcpxml_path": str(out_fcpxml_path),
         "storyboard_json_path": str(out_json_path),
+        "encoder_used": encoder_used,
+        "loudness_ebu_r128": loudness_info,
         "so_phan_canh": len(scenes),
         "tong_thoi_luong_giay": round(tong_thoi_luong, 2),
         "kich_thuoc_video": kich_thuoc,

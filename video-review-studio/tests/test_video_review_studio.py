@@ -20,8 +20,13 @@ from core_tts_voice import (
     xuat_phu_de_srt,
 )
 from core_video_renderer import (
+    cat_khoang_lang_dau_cuoi_wav,
+    chon_bo_ma_hoa_video_toi_uu,
+    chuan_hoa_am_luong_ebu_r128,
     ve_khung_hinh_pan_zoom_va_phu_de,
     xac_thuc_va_tru_luot_video_cloud,
+    xuat_phu_de_ass,
+    xuat_timeline_fcpxml,
     xuat_video_review_mp4,
 )
 from core_vision_character import (
@@ -198,7 +203,7 @@ def test_5_cloud_wallet_ticket_deduction_for_video_studio(monkeypatch=None):
         url = req.full_url
         calls.append(url)
         if url.endswith("/api/v1/han-muc"):
-            body = json.dumps({"con_lai": 50, "la_quan_tri": False}).encode("utf-8")
+            body = json.dumps({"con_lai": 50, "cap_do": 1, "la_quan_tri": False}).encode("utf-8")
         elif url.endswith("/api/v1/developer/consume-local-page"):
             body = json.dumps(
                 {
@@ -341,6 +346,67 @@ def test_9_standalone_prompt_skill_and_bubble_text_cleaning():
         assert sum(px_center) / 3.0 > 240, f"Expected white bubble interior after cleaning, got {px_center}"
 
 
+def test_10_ffmpeg_skill_pro_pipeline_ass_fcpxml_loudnorm_and_hw_encoder():
+    """Kiểm thử bộ nâng cấp chuẩn `ffmpeg-skill`: GPU Encoder Probe, Silence Trim, -14 LUFS EBU R128, ASS Safe-Zone & FCPXML 1.9."""
+    import array
+    import math
+    import wave
+    import xml.etree.ElementTree as ET
+
+    enc_name, enc_args, enc_label = chon_bo_ma_hoa_video_toi_uu()
+    assert enc_name in ("h264_nvenc", "h264_qsv", "h264_amf", "libx264")
+    assert isinstance(enc_args, list) and len(enc_args) >= 2
+    assert enc_label
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_dir = Path(tmp)
+
+        # 1. Tạo file .wav có 0.4s khoảng lặng đầu + 1.0s sóng sin 440Hz + 0.4s khoảng lặng cuối
+        sr = 24000
+        samples = array.array("h")
+        samples.extend([0] * int(sr * 0.4))
+        for i in range(int(sr * 1.0)):
+            samples.append(int(8000 * math.sin(2.0 * math.pi * 440.0 * (i / float(sr)))))
+        samples.extend([0] * int(sr * 0.4))
+
+        wav_p = tmp_dir / "voice_with_silence.wav"
+        with wave.open(str(wav_p), "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(sr)
+            wf.writeframes(samples.tobytes())
+
+        cat_khoang_lang_dau_cuoi_wav(wav_p)
+        with wave.open(str(wav_p), "rb") as rf:
+            dur_after = rf.getnframes() / float(rf.getframerate())
+        assert 1.05 <= dur_after <= 1.25, f"Expected trimmed duration ~1.14s, got {dur_after:.3f}s"
+
+        # 2. Chuẩn hoá EBU R128 -14 LUFS trên file giọng đọc thực tế (nếu máy có FFmpeg)
+        r128_res = chuan_hoa_am_luong_ebu_r128(wav_p)
+        if r128_res.get("normalized"):
+            assert r128_res["target_lufs"] == -14.0
+            assert wav_p.is_file() and wav_p.stat().st_size > 1024
+
+        # 3. Xuất phụ đề .ass Safe-Zone & Timeline .fcpxml hợp lệ XML
+        p_img = tmp_dir / "panel_01.jpg"
+        Image.new("RGB", (720, 1280), (25, 35, 65)).save(p_img, format="JPEG")
+        scenes = [
+            {"nhan_vat": "Lâm Phong", "loi_thuyet_minh": "Thanh niên nhìn phát biết luôn tên trùm đang giấu bài tẩy!", "thoi_luong_giay": 2.5},
+            {"nhan_vat": "Triệu Hổ", "loi_thuyet_minh": "Không thể nào, kiếm khí của hắn mạnh quá!", "thoi_luong_giay": 2.0},
+        ]
+        ass_p = xuat_phu_de_ass(scenes, tmp_dir / "review.ass", kich_thuoc_video=(720, 1280))
+        ass_txt = ass_p.read_text(encoding="utf-8-sig")
+        assert "[V4+ Styles]" in ass_txt and "Dialogue: 0," in ass_txt
+
+        fcpxml_p = xuat_timeline_fcpxml(scenes, [p_img], wav_p, tmp_dir / "review_timeline.fcpxml", kich_thuoc_video=(720, 1280))
+        tree = ET.parse(fcpxml_p)
+        root = tree.getroot()
+        assert root.tag == "fcpxml"
+        assert root.attrib.get("version") == "1.9"
+        videos = root.findall(".//video")
+        assert len(videos) == 2
+
+
 if __name__ == "__main__":
     test_1_character_cast_memory_persist_and_speaker_attribution()
     test_2_smart_webtoon_panel_cutter_and_2x2_storyboard_grid()
@@ -351,4 +417,5 @@ if __name__ == "__main__":
     test_7_no_english_or_ocr_garbage_in_vietnamese_review_script()
     test_8_style_learning_memory_from_youtube_or_text()
     test_9_standalone_prompt_skill_and_bubble_text_cleaning()
-    print("ALL 9 VIDEO REVIEW STUDIO TESTS PASSED!")
+    test_10_ffmpeg_skill_pro_pipeline_ass_fcpxml_loudnorm_and_hw_encoder()
+    print("ALL 10 VIDEO REVIEW STUDIO TESTS PASSED!")

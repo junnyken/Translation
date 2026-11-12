@@ -1133,10 +1133,13 @@ class AppVideoReviewStudio(tk.Tk):
                     elevenlabs_voice_id=el_vid_val or None,
                 )
                 self.last_video_mp4_path = str(kq["video_path"])
+                r128_ok = bool((kq.get("loudness_ebu_r128") or {}).get("normalized"))
+                r128_lbl = "Đã chuẩn hoá -14 LUFS (EBU R128)" if r128_ok else "Chuẩn PCM/AAC"
                 self.ghi_log(
-                    f"🎉 HOÀN TẤT! Đã xuất Video Review ({kq['tong_thoi_luong_giay']}s):\n"
+                    f"🎉 HOÀN TẤT! Đã xuất Video Review ({kq['tong_thoi_luong_giay']}s · Bộ mã hoá: {kq.get('encoder_used', 'FFmpeg')} · Âm thanh: {r128_lbl}):\n"
                     f"   • Video MP4 (Hình + Tiếng + Phụ đề): {kq['video_path']}\n"
-                    f"   • Phụ đề SRT: {kq['srt_path']}\n"
+                    f"   • Phụ đề SRT & ASS Safe-Zone: {kq['srt_path']} | {kq.get('ass_path', '')}\n"
+                    f"   • Timeline Premiere / DaVinci Resolve (.fcpxml): {kq.get('fcpxml_path', '')}\n"
                     f"   👉 Bấm nút '▶️ MỞ XEM VIDEO MP4 VỪA XUẤT' để phát ngay!"
                 )
             except Exception as exc:
