@@ -199,6 +199,8 @@ _MAU_SFX_NGAN = __import__("re").compile(
 def can_chinh_khung_theo_bong_bong(
     image_path: str,
     regions: list[DetectedRegion],
+    *,
+    mo_rong_long_bong: bool = True,
 ) -> list[DetectedRegion]:
     """Căn chỉnh chính xác toạ độ khung chữ `regions` của Gemini vào đúng cụm chữ bên trong lòng bong bóng trắng.
 
@@ -633,6 +635,9 @@ def can_chinh_khung_theo_bong_bong(
                         logger.info("ai_gemini bo qua SFX ve de len tranh ngoai bong thoai: %r", r.chu or r.ban_dich)
                         continue
             ket_qua_loc.append(r)
+
+        if not mo_rong_long_bong:
+            return ket_qua_loc
 
         # Pass D: Nới rộng thông minh theo phương ngang & dọc trong lòng trắng của bong bóng
         # cho các cột chữ dọc CJK / hộp chữ hẹp để khi排版 (typeset) chữ ngang tiếng Việt không bị bó hẹp hay cắt chữ.
@@ -1137,7 +1142,7 @@ class AIGeminiDetector:
                 doan=bool(muc.get("doan")),
             ))
 
-        ra = can_chinh_khung_theo_bong_bong(image_path, ra)
+        ra = can_chinh_khung_theo_bong_bong(image_path, ra, mo_rong_long_bong=False)
         logger.info(
             "ai_gemini detect_va_dich (1-pass): %s -> %d khung (model %s)",
             image_path, len(ra), self.model_name,
@@ -1153,10 +1158,10 @@ class AIGeminiDetector:
         target_lang: str = "vi",
         boi_canh: str | None = None,
     ) -> list[DetectedRegion]:
-        """Model 3 (Set-of-Mark Hybrid Vision):
-        Nhận các khung toạ độ chuẩn từng pixel từ `CTDDetector`, vẽ thẻ đánh số `[#1..#N]` lên bản sao ảnh,
-        gửi 1 lượt lên Vision LLM để đọc biểu cảm tranh + dịch ngữ cảnh, rồi ghép ngược lại vào toạ độ pixel
-        gốc của CTD (sai số vị trí = 0px, giữ nguyên mặt nạ `mat_na_chu` cho `LaMa` xoá chữ trên nền phức tạp).
+        """Model 2 & Model 3 (Set-of-Mark Dual-View Hybrid Vision):
+        Nhận các khung toạ độ chuẩn từng pixel từ `CTDDetector`, vẽ thẻ đánh số `[#1..#N]` lên bản sao ảnh
+        kèm Bảng Cắt Cận Cảnh 1:1 phóng nét chữ nhỏ & đảo cực nền tối, gửi 1 lượt lên Vision LLM để đọc
+        chính xác + hiểu biểu cảm tranh rồi ghép ngược lại vào toạ độ pixel gốc của CTD (sai số vị trí = 0px).
         """
         if not self.api_keys:
             raise AIDetectError("Chưa cấu hình khoá AI Vision cho chế độ Set-of-Mark.")
@@ -1170,6 +1175,7 @@ class AIGeminiDetector:
             SCHEMA_SOM_GOP_DICH,
             ghep_ket_qua_som_vao_khung_ctd,
             sap_xep_khung_som,
+            tao_bang_cat_can_canh_som,
             ve_anh_set_of_mark,
             xay_loi_nhac_som_gop_dich,
         )
@@ -1185,22 +1191,40 @@ class AIGeminiDetector:
             khung_sap_xep,
             max_side=max(self.canh_toi_da, 1280),
         )
+        bang_cat = tao_bang_cat_can_canh_som(goc_bytes, khung_sap_xep, max_side=768)
         loi_nhac_som = xay_loi_nhac_som_gop_dich(
             len(khung_sap_xep),
             source_lang=source_lang,
             target_lang=target_lang,
             boi_canh=boi_canh,
+            co_bang_cat_can_canh=bool(bang_cat),
         )
-        tho_som = self._goi(anh_som, mime_som, loi_nhac=loi_nhac_som, schema=SCHEMA_SOM_GOP_DICH)
+        tho_som = self._goi(
+            anh_som,
+            mime_som,
+            loi_nhac=loi_nhac_som,
+            schema=SCHEMA_SOM_GOP_DICH,
+            anh_phu=[bang_cat] if bang_cat else None,
+        )
         ra = ghep_ket_qua_som_vao_khung_ctd(khung_sap_xep, tho_som, rong_goc, cao_goc)
         if not ra:
             # Nếu model ngoại lai không tuân thủ id Set-of-Mark, lùi mượt về 1-pass chuẩn
             return self.detect_va_dich_regions(
                 image_path, source_lang=source_lang, target_lang=target_lang, boi_canh=boi_canh
             )
+
+        # Chỉ nắn chỉnh các vùng bổ sung `id == 0` (confidence is None) nếu có, giữ 0px sai số cho các khung CTD
+        vung_ctd = [r for r in ra if r.confidence is not None]
+        vung_bo_sung = [r for r in ra if r.confidence is None]
+        if vung_bo_sung:
+            vung_bo_sung = can_chinh_khung_theo_bong_bong(
+                image_path, vung_bo_sung, mo_rong_long_bong=False
+            )
+            ra = sap_xep_khung_som(vung_ctd + vung_bo_sung, source_lang=source_lang)
+
         logger.info(
-            "ai_gemini Set-of-Mark Vision: %s -> %d/%d khung CTD khớp 0px lệch (model %s)",
-            image_path, len(ra), len(khung_sap_xep), self.model_name,
+            "ai_gemini Set-of-Mark Dual-View: %s -> %d/%d khung CTD khớp 0px lệch (model %s)",
+            image_path, len(vung_ctd), len(khung_sap_xep), self.model_name,
         )
         return ra
 
@@ -1211,14 +1235,23 @@ class AIGeminiDetector:
         *,
         loi_nhac: str = LOI_NHAC,
         schema: dict = SCHEMA,
+        anh_phu: list[tuple[bytes, str]] | None = None,
     ) -> list[dict]:
         """Gọi API, xoay key khi gặp lỗi có thể do key. Hết key thì ném lỗi cuối cùng."""
         b64_anh = base64.b64encode(anh).decode()
+        ds_anh_phu = [(base64.b64encode(b).decode(), m) for (b, m) in (anh_phu or []) if b]
+        parts_gemini = [{"inline_data": {"mime_type": mime, "data": b64_anh}}]
+        for b64_p, m_p in ds_anh_phu:
+            parts_gemini.append({"inline_data": {"mime_type": m_p, "data": b64_p}})
+        parts_gemini.append({"text": loi_nhac})
+
+        parts_vertex = [{"inlineData": {"mimeType": mime, "data": b64_anh}}]
+        for b64_p, m_p in ds_anh_phu:
+            parts_vertex.append({"inlineData": {"mimeType": m_p, "data": b64_p}})
+        parts_vertex.append({"text": loi_nhac})
+
         than = json.dumps({
-            "contents": [{"parts": [
-                {"inline_data": {"mime_type": mime, "data": b64_anh}},
-                {"text": loi_nhac},
-            ]}],
+            "contents": [{"parts": parts_gemini}],
             "generationConfig": {
                 "temperature": 0.0,
                 "maxOutputTokens": 4096,
@@ -1228,10 +1261,7 @@ class AIGeminiDetector:
             },
         }).encode()
         than_vertex = json.dumps({
-            "contents": [{"role": "user", "parts": [
-                {"inlineData": {"mimeType": mime, "data": b64_anh}},
-                {"text": loi_nhac},
-            ]}],
+            "contents": [{"role": "user", "parts": parts_vertex}],
             "generationConfig": {
                 "temperature": 0.0,
                 "maxOutputTokens": 4096,
@@ -1241,10 +1271,7 @@ class AIGeminiDetector:
             },
         }).encode()
         than_vertex_no_think = json.dumps({
-            "contents": [{"role": "user", "parts": [
-                {"inlineData": {"mimeType": mime, "data": b64_anh}},
-                {"text": loi_nhac},
-            ]}],
+            "contents": [{"role": "user", "parts": parts_vertex}],
             "generationConfig": {
                 "temperature": 0.0,
                 "maxOutputTokens": 4096,
@@ -1404,20 +1431,23 @@ class AIGeminiDetector:
             )
             for m_cl, k_cl in ds_khoa_vision_claude:
                 try:
+                    content_cl: list[dict] = [
+                        {
+                            "type": "image",
+                            "source": {"type": "base64", "media_type": mime, "data": b64_anh},
+                        }
+                    ]
+                    for b64_p, m_p in ds_anh_phu:
+                        content_cl.append({
+                            "type": "image",
+                            "source": {"type": "base64", "media_type": m_p, "data": b64_p},
+                        })
+                    content_cl.append({"type": "text", "text": loi_nhac + chi_dan_cl})
                     than_cl = json.dumps({
                         "model": m_cl,
                         "max_tokens": 4096,
                         "temperature": 0.0,
-                        "messages": [{
-                            "role": "user",
-                            "content": [
-                                {
-                                    "type": "image",
-                                    "source": {"type": "base64", "media_type": mime, "data": b64_anh},
-                                },
-                                {"type": "text", "text": loi_nhac + chi_dan_cl},
-                            ],
-                        }],
+                        "messages": [{"role": "user", "content": content_cl}],
                     }).encode()
                     req_cl = urllib.request.Request(
                         "https://api.anthropic.com/v1/messages",
@@ -1457,17 +1487,17 @@ class AIGeminiDetector:
             )
             for url_oai, m_oai, k_oai in ds_khoa_vision_oai:
                 try:
+                    content_oai: list[dict] = [
+                        {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64_anh}"}}
+                    ]
+                    for b64_p, m_p in ds_anh_phu:
+                        content_oai.append({"type": "image_url", "image_url": {"url": f"data:{m_p};base64,{b64_p}"}})
+                    content_oai.append({"type": "text", "text": loi_nhac + chi_dan_json})
                     than_oai = json.dumps({
                         "model": m_oai,
                         "temperature": 0.0,
                         "max_tokens": 4096,
-                        "messages": [{
-                            "role": "user",
-                            "content": [
-                                {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64_anh}"}},
-                                {"type": "text", "text": loi_nhac + chi_dan_json},
-                            ],
-                        }],
+                        "messages": [{"role": "user", "content": content_oai}],
                     }).encode()
                     req_oai = urllib.request.Request(
                         url_oai,

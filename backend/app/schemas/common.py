@@ -505,6 +505,8 @@ class VungDocTruyen(BaseModel):
     ban_dich: str | None = None
     #: Vùng máy tự thấy không chắc — tiện ích nên hiện nhạt hơn thay vì im lặng như nhau.
     kem_tin_cay: bool = False
+    #: Mặt nạ nét chữ nén RLE base36 bên trong hộp `(x, y, w, h)` để Extension xoá chữ sạch 0% ăn nền.
+    mat_na_rle: str | None = None
 
 
 class TienDoDocTruyen(BaseModel):

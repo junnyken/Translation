@@ -272,6 +272,77 @@ class TestModel2CacheIsolation(unittest.TestCase):
             {f"cache_cong_dong_v2/{h}_pro2v2_en_vi_llm_context_chi_chu.json"},
         )
 
+    def test_rle_encode_decode_roundtrip_and_empty(self) -> None:
+        from app.services.detect.ctd import giai_ma_mat_na_vung_rle, ma_hoa_mat_na_vung_rle
+
+        mat_na = np.zeros((80, 100), dtype=np.uint8)
+        self.assertIsNone(ma_hoa_mat_na_vung_rle(mat_na, 10, 10, 30, 20))
+
+        mat_na[15:25, 20:42] = 255
+        mat_na[30, 45] = 255
+        rle = ma_hoa_mat_na_vung_rle(mat_na, 10, 10, 40, 30)
+        self.assertIsNotNone(rle)
+        self.assertTrue(rle.startswith("rle1:40x30:"))
+
+        dec = giai_ma_mat_na_vung_rle(rle)
+        self.assertIsNotNone(dec)
+        rw, rh, out = dec
+        self.assertEqual((rw, rh), (40, 30))
+        np.testing.assert_array_equal(out, (mat_na[10:40, 10:50] > 0).astype(np.uint8) * 255)
+
+    def test_loc_va_thu_hep_khung_ctd_filters_zero_mask_and_recovers_orphan_seg(self) -> None:
+        from pathlib import Path
+        from app.services.detect.ctd import loc_va_thu_hep_khung_ctd
+
+        img = np.full((300, 300), 255, dtype=np.uint8)
+        cv2.rectangle(img, (20, 20), (80, 80), 40, -1)  # Vùng nhiễu không phải chữ (conf=0.32, mask=0)
+        mat_na = np.zeros((300, 300), dtype=np.uint8)
+        # Vùng chữ mồ côi đầu `blk` bỏ sót nhưng `seg` bắt được ở [120:160, 130:220]
+        mat_na[130:155, 140:200] = 255
+        cv2.putText(img, "RIICHI", (138, 152), cv2.FONT_HERSHEY_SIMPLEX, 0.7, 0, 2)
+
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tf:
+            p = tf.name
+        try:
+            cv2.imwrite(p, img)
+            false_box = DetectedRegion(bbox=BBox(x=20, y=20, w=60, h=60), confidence=0.32, cls=0)
+            out = loc_va_thu_hep_khung_ctd(p, [false_box], mat_na)
+            # Hộp giả conf=0.32, mask=0 phải bị loại; cụm seg mồ côi phải được phục hồi
+            self.assertEqual(len(out), 1)
+            self.assertGreaterEqual(out[0].bbox.x, 130)
+            self.assertGreaterEqual(out[0].bbox.y, 120)
+            self.assertLessEqual(out[0].bbox.x + out[0].bbox.w, 210)
+        finally:
+            Path(p).unlink(missing_ok=True)
+
+    def test_to_phang_with_mat_na_chu_handles_protruding_stroke_and_defers_touching_art(self) -> None:
+        from app.services.inpaint.to_phang import to_phang
+
+        # Case 1: Nền bong bóng trắng đa số (>60%), cạnh trái dính 1 giải tối chạm ngoài (làm _mau_vien_phang -> None),
+        # đồng thời có 1 nét chữ nhỏ thò 2px qua mép dưới khung (không chạm mép ngoài cửa sổ `ngoai`) -> phải được tô sạch 255.
+        img1 = np.full((120, 120, 3), 255, dtype=np.uint8)
+        img1[20:100, 0:23] = 20  # Dải đen ngoài khung bên trái chạm vào dải viền để kích hoạt _to_net_trong_nen_da_so
+        # Nét chữ bên trong khung (30:70, 30:70) thò xuống y=71 (trong KHE_HO=2 của khung 30..70)
+        img1[42:72, 46:52] = 15
+        mn1 = np.zeros((120, 120), dtype=np.uint8)
+        mn1[42:72, 46:52] = 255
+        res1 = to_phang(img1, [BBox(x=30, y=30, w=40, h=40)], mat_na_chu=mn1)
+        self.assertEqual(res1.da_to, (0,))
+        self.assertGreater(int(img1[71, 49, 0]), 240)
+
+        # Case 2: Chữ nằm trên đường kẻ đen nối liền ra tận ngoài khung (trùng `mat_na_chu`) -> phải trả con_lai=(0,) để LaMa xử lý!
+        img2 = np.full((120, 120, 3), 255, dtype=np.uint8)
+        img2[:, 15:28] = 20  # Mảng tối tạo viền hỗn hợp
+        img2[55:58, 28:119] = 20  # Đường kẻ tranh chạy xuyên từ trong khung ra tận mép ngoài `ngoai`
+        img2[40:60, 42:62] = 15  # Nét chữ dính liền lên đường kẻ đó
+        mn2 = np.zeros((120, 120), dtype=np.uint8)
+        mn2[40:60, 42:62] = 255
+        img2_before = img2.copy()
+        res2 = to_phang(img2, [BBox(x=32, y=32, w=44, h=44)], mat_na_chu=mn2)
+        self.assertEqual(res2.da_to, ())
+        self.assertEqual(res2.con_lai, (0,))
+        np.testing.assert_array_equal(img2, img2_before)
+
 
 if __name__ == "__main__":
     unittest.main()

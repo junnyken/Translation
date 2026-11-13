@@ -2542,7 +2542,12 @@ async def doc_truyen_gui_trang(
 
         bam_anh_goc = tinh_bam_anh(data)
         bam_thi_giac_goc = await run_in_threadpool(tinh_bam_thi_giac, data)
-        hau_to_tier = "_ultra3" if la_ultra_3_luot else ("_pro2v2" if la_pro_2_luot else "")
+        la_som_3 = engine is TranslationEngine.llm_context and not la_ultra_3_luot and not la_pro_2_luot
+        hau_to_tier = (
+            "_ultra3v3"
+            if la_ultra_3_luot
+            else ("_pro2v3" if la_pro_2_luot else ("_som3v3" if la_som_3 else "_m1v3"))
+        )
         bam_anh = f"{bam_anh_goc}{hau_to_tier}"
         bam_thi_giac = f"{bam_thi_giac_goc}{hau_to_tier}" if bam_thi_giac_goc else None
         if settings.doc_truyen_dung_cache_anh:
@@ -2649,6 +2654,33 @@ async def doc_truyen_lay_trang(
         .order_by(TextRegion.reading_order.nulls_last(), TextRegion.created_at)
     )).all()
 
+    mat_na_arr = None
+    if page.image_path and rows and page.status in (
+        PageStatus.translated,
+        PageStatus.typeset_done,
+        PageStatus.ready_for_export,
+    ):
+        def _doc_mat_na_trang():
+            import io
+            from pathlib import PurePosixPath
+            import numpy as _np
+            from PIL import Image as _Image
+
+            st_mn = get_storage()
+            p_mn = PurePosixPath(page.image_path)
+            rel_mn = str(p_mn.parent / f"{p_mn.stem}_mat_na_chu.png")
+            if not st_mn.exists(rel_mn):
+                return None
+            with _Image.open(io.BytesIO(st_mn.read(rel_mn))) as _im_mn:
+                return _np.asarray(_im_mn.convert("L"))
+
+        try:
+            mat_na_arr = await run_in_threadpool(_doc_mat_na_trang)
+        except Exception:  # noqa: BLE001
+            mat_na_arr = None
+
+    from app.services.detect.ctd import ma_hoa_mat_na_vung_rle
+
     vung = [
         VungDocTruyen(
             region_id=r.id, x=r.bbox_x, y=r.bbox_y, w=r.bbox_w, h=r.bbox_h,
@@ -2658,6 +2690,11 @@ async def doc_truyen_lay_trang(
             kem_tin_cay=(
                 r.status is RegionStatus.low_confidence
                 or (o is not None and o.status is OCRStatus.needs_manual)
+            ),
+            mat_na_rle=(
+                ma_hoa_mat_na_vung_rle(mat_na_arr, r.bbox_x, r.bbox_y, r.bbox_w, r.bbox_h)
+                if mat_na_arr is not None
+                else None
             ),
         )
         for r, o, t in rows
@@ -2702,14 +2739,19 @@ async def doc_truyen_lay_trang(
                 bam_anh_goc = tinh_bam_anh(raw_img)
                 bam_thi_giac_goc = await run_in_threadpool(tinh_bam_thi_giac, raw_img)
                 td_cache = await run_in_threadpool(doc_tu_dien_du_an, project.id)
+                eng_cache = page.translate_engine_override or TranslationEngine.llm_context
+                la_som_cache = (
+                    eng_cache is TranslationEngine.llm_context
+                    and "[CHẾ ĐỘ ULTRA CLOUD AI 3 LƯỢT" not in td_cache
+                    and "[CHẾ ĐỘ AI PRO 2 LƯỢT" not in td_cache
+                )
                 hau_to_cache = (
-                    "_ultra3"
+                    "_ultra3v3"
                     if "[CHẾ ĐỘ ULTRA CLOUD AI 3 LƯỢT" in td_cache
-                    else ("_pro2v2" if "[CHẾ ĐỘ AI PRO 2 LƯỢT" in td_cache else "")
+                    else ("_pro2v3" if "[CHẾ ĐỘ AI PRO 2 LƯỢT" in td_cache else ("_som3v3" if la_som_cache else "_m1v3"))
                 )
                 bam_anh = f"{bam_anh_goc}{hau_to_cache}"
                 bam_thi_giac = f"{bam_thi_giac_goc}{hau_to_cache}" if bam_thi_giac_goc else None
-                eng_cache = page.translate_engine_override or TranslationEngine.llm_context
                 ds_bam_luu = (
                     [b for b in dict.fromkeys([bam_anh, bam_thi_giac or ""]) if b]
                     if hau_to_cache
@@ -2733,6 +2775,7 @@ async def doc_truyen_lay_trang(
                         "reading_order": v.thu_tu_doc or (idx + 1),
                         "chu_goc": v.chu_goc or "",
                         "ban_dich": v.ban_dich or "",
+                        **({"mat_na_rle": v.mat_na_rle} if v.mat_na_rle else {}),
                     }
                     for idx, v in enumerate(vung)
                     if v.ban_dich
@@ -2762,6 +2805,8 @@ async def doc_truyen_lay_trang(
                 return image.size
 
         image_width, image_height = await run_in_threadpool(_kich_thuoc_anh_da_luu)
+    elif mat_na_arr is not None:
+        image_width, image_height = int(mat_na_arr.shape[1]), int(mat_na_arr.shape[0])
 
     return TrangDocTruyen(
         page_id=page.id,

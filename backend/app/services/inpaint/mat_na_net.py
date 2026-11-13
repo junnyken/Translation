@@ -63,6 +63,10 @@ def _bao_ve_net_ve_va_da_trang_trong_o(
     if sh < 8 or sw < 8:
         return net_no_o
     gray = cv2.cvtColor(anh_o, cv2.COLOR_RGB2GRAY) if anh_o.ndim == 3 else anh_o
+    if anh_o.ndim == 3:
+        sac = anh_o.max(axis=2).astype(np.int16) - anh_o.min(axis=2).astype(np.int16)
+    else:
+        sac = np.zeros_like(gray, dtype=np.int16)
     k3 = np.ones((3, 3), np.uint8)
     core = ((seg_o > 0) & (gray <= 175)).astype(np.uint8)
     if int(core.sum()) < 4:
@@ -122,6 +126,51 @@ def _bao_ve_net_ve_va_da_trang_trong_o(
     cho_phep_tren_trang = (core > 0) | (d1_core & (gray < 245) & (~art_block))
     ket = net_no_o & (~art_block)
     ket = np.where(open_white, cho_phep_tren_trang, ket)
+
+    # Trường hợp chữ viền sáng trên mảng mực đen đặc (#18): tách nền trắng mở thật bên ngoài seg_o
+    is_halo_on_black = float((gray <= 32).mean()) >= 0.25 and float(((seg_o > 0) & (gray >= 175)).mean()) >= 0.03
+    if is_halo_on_black:
+        k7 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+        w_open_seed = cv2.morphologyEx(
+            ((gray >= 238) & (sac <= 26) & (seg_o == 0)).astype(np.uint8),
+            cv2.MORPH_OPEN,
+            k7,
+        )
+        true_open_white = (
+            (cv2.dilate(w_open_seed, k3, iterations=1) > 0)
+            & (gray >= 235)
+            & (sac <= 26)
+            & (~art_block)
+        )
+        seg_dil = cv2.dilate((seg_o > 0).astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))) > 0
+        halo_w = seg_dil & (gray >= 110) & (~true_open_white)
+        dark_in_seg = (seg_dil & (gray < 110)).astype(np.uint8)
+        nl_dc, lbl_dc, st_dc, _ = cv2.connectedComponentsWithStats(dark_in_seg, connectivity=8)
+        enclosed_core = np.zeros_like(seg_dil, dtype=bool)
+        for dc_id in range(1, nl_dc):
+            da_c = int(st_dc[dc_id, cv2.CC_STAT_AREA])
+            if da_c < 1 or da_c > 950:
+                continue
+            comp_dc = (lbl_dc == dc_id).astype(np.uint8)
+            dil_dc = cv2.dilate(comp_dc, k3, iterations=1) > 0
+            cham_ngoai_seg = bool((dil_dc & (~seg_dil)).any())
+            ring_dc = dil_dc & (comp_dc == 0)
+            ty_le_halo = float(halo_w[ring_dc].mean()) if ring_dc.any() else 0.0
+            if (not cham_ngoai_seg) or ty_le_halo >= 0.55:
+                enclosed_core |= comp_dc > 0
+        mask_on_black = cv2.dilate((halo_w | enclosed_core).astype(np.uint8), k3, iterations=1) > 0
+        near_open_w = cv2.dilate(true_open_white.astype(np.uint8), np.ones((5, 5), np.uint8), iterations=1) > 0
+        ink_on_open_w = cv2.dilate(
+            (seg_dil & (gray < 235) & near_open_w).astype(np.uint8), k3, iterations=1
+        ) > 0
+        return (mask_on_black | ink_on_open_w) & (~true_open_white) & (~art_block)
+
+    # Giữ nền giấy trắng / da trắng sạch giữa các dòng chữ: không đục lỗ lớn qua nền trắng sạch
+    bg_close = cv2.morphologyEx(gray, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11)))
+    already_clean_white = (bg_close >= 238) & (gray >= 240) & (sac <= 26) & (~near_solid_black) & (~art_block)
+    ink_on_white = ((gray < 240) | (sac > 26)) & (seg_o > 0)
+    ink_fringe = (cv2.dilate(ink_on_white.astype(np.uint8), k3, iterations=1) > 0) & (gray < 248) & (~art_block)
+    ket = np.where(already_clean_white, ink_on_white | ink_fringe, ket)
     return ket
 
 

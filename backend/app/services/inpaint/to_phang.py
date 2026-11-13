@@ -122,7 +122,7 @@ def _mau_vien_phang(mau: np.ndarray) -> np.ndarray | None:
 TI_LE_NEN_DA_SO = 0.6
 
 
-def _to_net_trong_nen_da_so(anh, o, ngoai, lay) -> bool:
+def _to_net_trong_nen_da_so(anh, o, ngoai, lay, mat_na_chu: np.ndarray | None = None) -> bool:
     """E86 — dải viền KHÔNG phẳng toàn bộ, nhưng đa số là MỘT màu nền phẳng (bong bóng trắng không
     viền nằm trên nền trời: khung chữ sát mép bong bóng nên dải viền lẫn màu trời).
 
@@ -152,6 +152,10 @@ def _to_net_trong_nen_da_so(anh, o, ngoai, lay) -> bool:
 
     vung = anh[oy1:oy2, ox1:ox2].astype(np.int16)
     gan = (np.abs(vung - mau.astype(np.int16)) <= SAI_SO_GAN_NEN).all(axis=2)
+    ngoai_h, ngoai_w = gan.shape
+    so_ngoai, nhan_ngoai, stats_ngoai, _ = cv2.connectedComponentsWithStats(
+        (~gan).astype(np.uint8), connectivity=8
+    )
     ty1, tx1 = y1 - oy1, x1 - ox1
     trong = ~gan[ty1:ty1 + (y2 - y1), tx1:tx1 + (x2 - x1)]
     if trong.mean() > 0.5 or not trong.any():
@@ -171,6 +175,34 @@ def _to_net_trong_nen_da_so(anh, o, ngoai, lay) -> bool:
             lan.append(gan[gy, gx + 1])
         return all(lan) if lan else True
 
+    def _la_mom_chu_nho_khong_cham_bien_ngoai(ys_b, xs_b, h_t, w_t) -> bool:
+        cids: set[int] = set()
+        for yy, xx in zip(ys_b, xs_b):
+            gy, gx = int(yy) + ty1, int(xx) + tx1
+            if yy == 0 and gy > 0 and not gan[gy - 1, gx]:
+                cids.add(int(nhan_ngoai[gy - 1, gx]))
+            if yy == h_t - 1 and gy + 1 < ngoai_h and not gan[gy + 1, gx]:
+                cids.add(int(nhan_ngoai[gy + 1, gx]))
+            if xx == 0 and gx > 0 and not gan[gy, gx - 1]:
+                cids.add(int(nhan_ngoai[gy, gx - 1]))
+            if xx == w_t - 1 and gx + 1 < ngoai_w and not gan[gy, gx + 1]:
+                cids.add(int(nhan_ngoai[gy, gx + 1]))
+        cids.discard(0)
+        if not cids:
+            return False
+        max_dt_mom = max(64, int(trong.size * 0.30))
+        for cid in cids:
+            bx_c = int(stats_ngoai[cid, cv2.CC_STAT_LEFT])
+            by_c = int(stats_ngoai[cid, cv2.CC_STAT_TOP])
+            bw_c = int(stats_ngoai[cid, cv2.CC_STAT_WIDTH])
+            bh_c = int(stats_ngoai[cid, cv2.CC_STAT_HEIGHT])
+            area_c = int(stats_ngoai[cid, cv2.CC_STAT_AREA])
+            if bx_c <= 0 or by_c <= 0 or (bx_c + bw_c) >= ngoai_w or (by_c + bh_c) >= ngoai_h:
+                return False
+            if area_c > max_dt_mom:
+                return False
+        return True
+
     to = np.zeros_like(trong)
     h, w = trong.shape
     for k in range(1, so):
@@ -178,7 +210,8 @@ def _to_net_trong_nen_da_so(anh, o, ngoai, lay) -> bool:
         ys, xs = np.nonzero(tp)
         bien = (ys == 0) | (ys == h - 1) | (xs == 0) | (xs == w - 1)
         if bien.any() and not all(_ngoai_la_nen(yy, xx) for yy, xx in zip(ys[bien], xs[bien])):
-            continue  # nền khác tràn vào khung — giữ nguyên
+            if not _la_mom_chu_nho_khong_cham_bien_ngoai(ys[bien], xs[bien], h, w):
+                continue  # nền khác tràn vào khung — giữ nguyên
         to |= tp
     if not to.any():
         return False
@@ -186,6 +219,16 @@ def _to_net_trong_nen_da_so(anh, o, ngoai, lay) -> bool:
     # Tô MỌI điểm trong khung trừ phần nền khác (và 1px quanh nó để giữ mép bong bóng): tô riêng nét
     # chữ thì viền khử răng cưa — xám nhạt, vẫn "gần màu nền" — còn lại thành bóng mờ (đo thật).
     nen_khac = trong & ~to
+    if nen_khac.any():
+        if mat_na_chu is not None and mat_na_chu.shape[:2] == anh.shape[:2]:
+            seg_o = mat_na_chu[y1:y2, x1:x2] > 0
+            if int(np.count_nonzero(nen_khac & seg_o)) >= 4:
+                return False
+        else:
+            yc0, yc1 = int(h * 0.15), max(int(h * 0.15) + 1, int(h * 0.85))
+            xc0, xc1 = int(w * 0.15), max(int(w * 0.15) + 1, int(w * 0.85))
+            if int(np.count_nonzero(nen_khac[yc0:yc1, xc0:xc1])) >= 12:
+                return False
     giu = cv2.dilate(nen_khac.astype(np.uint8), np.ones((3, 3), np.uint8)).astype(bool)
     anh[y1:y2, x1:x2][~giu] = mau
     _xoa_net_chu_tho_ra_ngoai(anh, (x1, y1, x2, y2), mau, None)
@@ -260,7 +303,11 @@ def _xoa_net_chu_tho_ra_ngoai(
     anh[ey1:ey2, ex1:ex2][vung_to] = mau
 
 
-def to_phang(anh: np.ndarray, khung_da_noi: list[BBox]) -> KetQuaToPhang:
+def to_phang(
+    anh: np.ndarray,
+    khung_da_noi: list[BBox],
+    mat_na_chu: np.ndarray | None = None,
+) -> KetQuaToPhang:
     """Tô phẳng TẠI CHỖ các khung nằm trên nền một màu.
 
     `anh`: HWC uint8, bị sửa trực tiếp. `khung_da_noi`: các khung ĐÃ nới (cùng khung dựng mặt nạ).
@@ -295,7 +342,7 @@ def to_phang(anh: np.ndarray, khung_da_noi: list[BBox]) -> KetQuaToPhang:
         mau_vien = anh[oy1:oy2, ox1:ox2][lay]
         mau = _mau_vien_phang(mau_vien)
         if mau is None:
-            if _to_net_trong_nen_da_so(anh, (x1, y1, x2, y2), (ox1, oy1, ox2, oy2), lay):
+            if _to_net_trong_nen_da_so(anh, (x1, y1, x2, y2), (ox1, oy1, ox2, oy2), lay, mat_na_chu=mat_na_chu):
                 da_to.append(i)
             else:
                 con_lai.append(i)

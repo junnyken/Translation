@@ -284,7 +284,7 @@ class LamaInpainter:
             # E69 — vùng chữ trên nền một màu: tô màu nền, không cần LaMa. Mặt nạ còn lại CHỈ
             # gồm khung chưa tô, để vùng giao với khung chưa tô vẫn do model vẽ lại.
             khung_noi = dilate_bboxes(masks, width, height, self.dilate_ratio)
-            kq = to_phang(anh_u8, khung_noi)
+            kq = to_phang(anh_u8, khung_noi, mat_na_chu=mat_na_chu)
             if kq.da_to:
                 so_vung_da_to_phang = len(kq.da_to)
                 logger.info("Tô phẳng %d/%d vùng chữ, bỏ qua LaMa cho các vùng đó",
@@ -331,6 +331,63 @@ class LamaInpainter:
                                             self.he_so_no_net,
                                             anh_rgb=anh_u8)
                 logger.info("E79: xoá theo nét chữ (%d khung lùi về xoá cả khung)", lui)
+
+        if mat_na_chu is not None and masks and mask.max() > 0:
+            import cv2
+
+            n_cc, lbl_cc, st_cc, _ = cv2.connectedComponentsWithStats(
+                (mask > 0).astype(np.uint8), connectivity=8
+            )
+            k_ring = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+            dirs8 = ((-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, -1), (-1, 1), (1, 1))
+            for cid in range(1, n_cc):
+                area_c = int(st_cc[cid, cv2.CC_STAT_AREA])
+                if area_c < 4 or area_c > 12000:
+                    continue
+                bx = max(0, int(st_cc[cid, cv2.CC_STAT_LEFT]) - 28)
+                by = max(0, int(st_cc[cid, cv2.CC_STAT_TOP]) - 28)
+                bx2 = min(width, int(st_cc[cid, cv2.CC_STAT_LEFT] + st_cc[cid, cv2.CC_STAT_WIDTH]) + 28)
+                by2 = min(height, int(st_cc[cid, cv2.CC_STAT_TOP] + st_cc[cid, cv2.CC_STAT_HEIGHT]) + 28)
+                comp_sub = lbl_cc[by:by2, bx:bx2] == cid
+                mask_sub = mask[by:by2, bx:bx2] > 0
+                ring_sub = (cv2.dilate(comp_sub.astype(np.uint8), k_ring) > 0) & (~mask_sub)
+                if int(ring_sub.sum()) >= 12:
+                    ring_px = anh_u8[by:by2, bx:bx2][ring_sub]
+                    ring_lum = ring_px.mean(axis=1)
+                    if float(np.percentile(ring_lum, 90)) <= 38.0:
+                        anh_u8[by:by2, bx:bx2][comp_sub] = np.median(ring_px, axis=0).astype(np.uint8)
+                        mask[by:by2, bx:bx2][comp_sub] = 0.0
+                    elif area_c >= 20 and float((ring_lum <= 35.0).mean()) >= 0.28:
+                        black_col = np.median(ring_px[ring_lum <= 35.0], axis=0).astype(np.uint8)
+                        sub_gray = anh_u8[by:by2, bx:bx2].mean(axis=2)
+                        sh_s, sw_s = sub_gray.shape
+                        fill_blk_mask = np.zeros_like(comp_sub, dtype=bool)
+                        for py_s, px_s in np.argwhere(comp_sub):
+                            n_blk = 0
+                            w_blk = 0.0
+                            w_wht = 0.0
+                            for dy_s, dx_s in dirs8:
+                                for step in range(1, 49):
+                                    ny_s = int(py_s) + dy_s * step
+                                    nx_s = int(px_s) + dx_s * step
+                                    if ny_s < 0 or ny_s >= sh_s or nx_s < 0 or nx_s >= sw_s:
+                                        break
+                                    if not mask_sub[ny_s, nx_s]:
+                                        gv = float(sub_gray[ny_s, nx_s])
+                                        w_hit = 1.0 / ((step + 1.0) ** 1.5)
+                                        if gv <= 35.0:
+                                            n_blk += 1
+                                            w_blk += w_hit
+                                        elif gv >= 180.0:
+                                            w_wht += w_hit
+                                        break
+                            if n_blk >= 5 and w_blk >= w_wht * 1.6:
+                                fill_blk_mask[py_s, px_s] = True
+                        if fill_blk_mask.any():
+                            anh_u8[by:by2, bx:bx2][fill_blk_mask] = black_col
+                            mask[by:by2, bx:bx2][fill_blk_mask] = 0.0
+            if mask.max() <= 0:
+                masks = []
 
         trieu_diem = (width * height) / 1e6
         cum_con_lai = gom_cum(masks, width, height, self.tile_margin) if (masks and so_vung_da_to_phang > 0) else []

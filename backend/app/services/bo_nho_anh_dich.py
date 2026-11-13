@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import uuid
 from collections import OrderedDict
@@ -203,12 +204,24 @@ async def thu_sao_chep_tu_cache(
         bam_anh.endswith("_ultra3")
         or bam_anh.endswith("_pro2")
         or bam_anh.endswith("_pro2v2")
+        or bam_anh.endswith("_ultra3v3")
+        or bam_anh.endswith("_pro2v3")
+        or bam_anh.endswith("_som3v3")
+        or bam_anh.endswith("_m1v3")
     )
     if la_cap_cao:
         ds_bam_ung = [b for b in dict.fromkeys([bam_anh, bam_phu or ""]) if b]
         ds_eng_ung = [engine]
     else:
-        bam_anh_goc = bam_anh.removesuffix("_ultra3").removesuffix("_pro2v2").removesuffix("_pro2")
+        bam_anh_goc = (
+            bam_anh.removesuffix("_ultra3v3")
+            .removesuffix("_pro2v3")
+            .removesuffix("_som3v3")
+            .removesuffix("_m1v3")
+            .removesuffix("_ultra3")
+            .removesuffix("_pro2v2")
+            .removesuffix("_pro2")
+        )
         ds_bam_ung = [b for b in dict.fromkeys([bam_anh, bam_anh_goc, bam_phu or ""]) if b]
         ds_eng_ung = list(dict.fromkeys([engine, TranslationEngine.llm_context, TranslationEngine.google_fast]))
 
@@ -278,6 +291,26 @@ async def thu_sao_chep_tu_cache(
         dich_page.he_so_ve = nguon.he_so_ve
         dich_page.status = nguon.status
 
+        mat_na_nguon_arr = None
+        if storage is not None and nguon.image_path and dich_page.image_path:
+            from pathlib import PurePosixPath
+
+            p_ng = PurePosixPath(nguon.image_path)
+            p_dc = PurePosixPath(dich_page.image_path)
+            rel_mn_ng = str(p_ng.parent / f"{p_ng.stem}_mat_na_chu.png")
+            rel_mn_dc = str(p_dc.parent / f"{p_dc.stem}_mat_na_chu.png")
+            if await run_in_threadpool(storage.exists, rel_mn_ng):
+                mn_bytes = await run_in_threadpool(storage.read, rel_mn_ng)
+                await run_in_threadpool(storage.save, rel_mn_dc, mn_bytes)
+                try:
+                    import numpy as _np
+                    from PIL import Image as _Image
+
+                    with _Image.open(io.BytesIO(mn_bytes)) as _im_mn:
+                        mat_na_nguon_arr = _np.asarray(_im_mn.convert("L"))
+                except Exception:  # noqa: BLE001
+                    mat_na_nguon_arr = None
+
         vung_snapshot: list[dict] = []
         for r, o, t, ts in rows:
             r_moi = TextRegion(
@@ -336,17 +369,25 @@ async def thu_sao_chep_tu_cache(
                     )
                 )
             if t is not None and t.translated_text:
-                vung_snapshot.append(
-                    {
-                        "x": r.bbox_x,
-                        "y": r.bbox_y,
-                        "w": r.bbox_w,
-                        "h": r.bbox_h,
-                        "reading_order": r.reading_order,
-                        "chu_goc": o.raw_text if o is not None else (r.chu_nhan_dien or ""),
-                        "ban_dich": t.translated_text,
-                    }
+                from app.services.detect.ctd import ma_hoa_mat_na_vung_rle
+
+                mn_rle = (
+                    ma_hoa_mat_na_vung_rle(mat_na_nguon_arr, r.bbox_x, r.bbox_y, r.bbox_w, r.bbox_h)
+                    if mat_na_nguon_arr is not None
+                    else None
                 )
+                muc_snap = {
+                    "x": r.bbox_x,
+                    "y": r.bbox_y,
+                    "w": r.bbox_w,
+                    "h": r.bbox_h,
+                    "reading_order": r.reading_order,
+                    "chu_goc": o.raw_text if o is not None else (r.chu_nhan_dien or ""),
+                    "ban_dich": t.translated_text,
+                }
+                if mn_rle:
+                    muc_snap["mat_na_rle"] = mn_rle
+                vung_snapshot.append(muc_snap)
 
         if vung_snapshot and storage is not None:
             await luu_snapshot_cache_cong_dong(
@@ -370,6 +411,45 @@ async def thu_sao_chep_tu_cache(
         ds_vung_file = (du_lieu_file or {}).get("vung")
         if isinstance(ds_vung_file, list) and len(ds_vung_file) > 0:
             dich_page.status = PageStatus.translated
+            # Phục hồi file `_mat_na_chu.png` từ `mat_na_rle` trong snapshot (nếu có) để `doc_truyen_lay_trang` trả đầy đủ mask
+            if dich_page.image_path and any(isinstance(vf, dict) and vf.get("mat_na_rle") for vf in ds_vung_file):
+                try:
+                    import numpy as _np
+                    from pathlib import PurePosixPath
+                    from PIL import Image as _Image
+                    from app.services.detect.ctd import giai_ma_mat_na_vung_rle
+
+                    if await run_in_threadpool(storage.exists, dich_page.image_path):
+                        raw_dc = await run_in_threadpool(storage.read, dich_page.image_path)
+                        with _Image.open(io.BytesIO(raw_dc)) as _im_dc:
+                            dc_w, dc_h = _im_dc.size
+                        mat_na_phuc_hoi = _np.zeros((dc_h, dc_w), dtype=_np.uint8)
+                        co_px_mask = False
+                        for vf_m in ds_vung_file:
+                            if not isinstance(vf_m, dict) or not vf_m.get("mat_na_rle"):
+                                continue
+                            dec = giai_ma_mat_na_vung_rle(vf_m.get("mat_na_rle"))
+                            if dec is None:
+                                continue
+                            rw_m, rh_m, sub_m = dec
+                            x0_m = max(0, int(round(vf_m.get("x", 0))))
+                            y0_m = max(0, int(round(vf_m.get("y", 0))))
+                            cw_m = min(rw_m, dc_w - x0_m)
+                            ch_m = min(rh_m, dc_h - y0_m)
+                            if cw_m > 0 and ch_m > 0:
+                                mat_na_phuc_hoi[y0_m : y0_m + ch_m, x0_m : x0_m + cw_m] = _np.maximum(
+                                    mat_na_phuc_hoi[y0_m : y0_m + ch_m, x0_m : x0_m + cw_m],
+                                    sub_m[:ch_m, :cw_m],
+                                )
+                                co_px_mask = True
+                        if co_px_mask:
+                            p_dc = PurePosixPath(dich_page.image_path)
+                            rel_mn_dc = str(p_dc.parent / f"{p_dc.stem}_mat_na_chu.png")
+                            buf_mn = io.BytesIO()
+                            _Image.fromarray(mat_na_phuc_hoi).save(buf_mn, format="PNG", optimize=True)
+                            await run_in_threadpool(storage.save, rel_mn_dc, buf_mn.getvalue())
+                except Exception:  # noqa: BLE001
+                    pass
             for idx, vf in enumerate(ds_vung_file, start=1):
                 if not isinstance(vf, dict) or not vf.get("ban_dich"):
                     continue

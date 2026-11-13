@@ -22,10 +22,12 @@ from __future__ import annotations
 
 import io
 import logging
+import math
 import re
 from typing import Sequence
 
-from PIL import Image, ImageDraw, ImageFont
+import numpy as np
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 
 from app.services.detect.ctd import DetectedRegion
 from app.services.interfaces import BBox
@@ -92,14 +94,24 @@ def sap_xep_khung_som(regions: Sequence[DetectedRegion], source_lang: str = "ja"
     return ket_qua
 
 
+def _dien_tich_giao(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> int:
+    ix1 = max(a[0], b[0])
+    iy1 = max(a[1], b[1])
+    ix2 = min(a[2], b[2])
+    iy2 = min(a[3], b[3])
+    if ix2 <= ix1 or iy2 <= iy1:
+        return 0
+    return (ix2 - ix1) * (iy2 - iy1)
+
+
 def ve_anh_set_of_mark(
     image_bytes: bytes,
     regions: Sequence[DetectedRegion],
     *,
     max_side: int = 1280,
 ) -> tuple[bytes, str]:
-    """Vẽ viền neo mảnh và thẻ số `[#1]..[#N]` ở mép ngoài khung chữ trên BẢN SAO của trang truyện.
-    Đặt thẻ số bên ngoài lòng khung để KHÔNG che khuất bất kỳ nét chữ gốc nào.
+    """Vẽ viền neo mảnh và thẻ số `[#1]..[#N]` tránh va chạm với mọi khung khác và thẻ đã đặt.
+    Giữ thẻ số bên ngoài lòng khung để KHÔNG che khuất nét chữ gốc.
     """
     with Image.open(io.BytesIO(image_bytes)) as im_goc:
         rgb = im_goc.convert("RGB")
@@ -119,42 +131,169 @@ def ve_anh_set_of_mark(
     except Exception:  # noqa: BLE001
         font = None
 
-    for idx, reg in enumerate(regions, start=1):
-        # Nới ra ngoài 2px để đường viền định vị không chạm vào nét mực chữ bên trong
+    tat_ca_hop: list[tuple[int, int, int, int]] = []
+    for reg in regions:
         x1 = max(0, int(round(reg.bbox.x * scale)) - 2)
         y1 = max(0, int(round(reg.bbox.y * scale)) - 2)
         x2 = min(w_m - 1, int(round((reg.bbox.x + reg.bbox.w) * scale)) + 2)
         y2 = min(h_m - 1, int(round((reg.bbox.y + reg.bbox.h) * scale)) + 2)
+        tat_ca_hop.append((x1, y1, x2, y2))
+
+    nhan_da_dat: list[tuple[int, int, int, int]] = []
+
+    for i_reg, (x1, y1, x2, y2) in enumerate(tat_ca_hop):
         if x2 <= x1 or y2 <= y1:
             continue
-
-        # Viền neo màu hồng tím đậm nổi bật trên cả truyện đen trắng lẫn truyện màu
-        draw.rectangle([x1, y1, x2, y2], outline=(219, 39, 119), width=2)
+        idx = i_reg + 1
+        draw.rectangle([x1, y1, x2, y2], outline=(219, 39, 119), width=1)
 
         nhan = f"#{idx}"
         if hasattr(draw, "textbbox"):
             tb = draw.textbbox((0, 0), nhan, font=font)
-            tw = max(14, int(tb[2] - tb[0]) + 6)
+            tw = max(15, int(tb[2] - tb[0]) + 6)
             th = max(13, int(tb[3] - tb[1]) + 4)
         else:
             tw = 8 * len(nhan) + 6
             th = 14
 
-        # Ưu tiên đặt thẻ số ở ngay PHÍA TRÊN mép khung để không che chữ bên trong; nếu chạm mép đỉnh ảnh thì đặt xuống dưới hoặc sang trái
-        bx1 = min(max(0, x1), max(0, w_m - tw))
-        if y1 - th - 1 >= 0:
-            by1 = y1 - th - 1
-        elif y2 + th + 1 <= h_m:
-            by1 = y2 + 1
-        else:
-            by1 = max(0, y1)
-            bx1 = max(0, x1 - tw - 1) if x1 - tw - 1 >= 0 else min(max(0, w_m - tw), x2 + 1)
+        ung_vien = [
+            (x1, y1 - th - 2),               # Trên trái
+            (x1, y2 + 2),                    # Dưới trái
+            (x1 - tw - 2, y1),               # Trái trên
+            (x2 + 2, y1),                    # Phải trên
+            (x2 - tw, y1 - th - 2),          # Trên phải
+            (x2 - tw, y2 + 2),               # Dưới phải
+            (x1 - tw - 2, max(0, y2 - th)),  # Trái dưới
+            (x2 + 2, max(0, y2 - th)),       # Phải dưới
+            (x1 + 2, y1 + 2),                # Dự phòng góc trên trong khung
+        ]
 
-        draw.rectangle([bx1, by1, bx1 + tw, by1 + th], fill=(250, 204, 21), outline=(15, 23, 42), width=1)
+        tot_nhat: tuple[int, int, int, int] | None = None
+        diem_tot_nhat = float("inf")
+        for ux, uy in ung_vien:
+            bx1 = min(max(0, ux), max(0, w_m - tw))
+            by1 = min(max(0, uy), max(0, h_m - th))
+            cand = (bx1, by1, bx1 + tw, by1 + th)
+            va_cham_nhan = sum(_dien_tich_giao(cand, lb) for lb in nhan_da_dat) * 10
+            va_cham_hop_khac = sum(
+                _dien_tich_giao(cand, hb) for j_reg, hb in enumerate(tat_ca_hop) if j_reg != i_reg
+            ) * 4
+            va_cham_chinh_no = _dien_tich_giao(cand, (x1 + 2, y1 + 2, max(x1 + 2, x2 - 2), max(y1 + 2, y2 - 2))) * 6
+            tong_phat = va_cham_nhan + va_cham_hop_khac + va_cham_chinh_no
+            if tong_phat < diem_tot_nhat:
+                diem_tot_nhat = tong_phat
+                tot_nhat = cand
+                if tong_phat == 0:
+                    break
+
+        bx1, by1, bx2, by2 = tot_nhat if tot_nhat is not None else (0, 0, tw, th)
+        nhan_da_dat.append((bx1, by1, bx2, by2))
+        draw.rectangle([bx1, by1, bx2, by2], fill=(250, 204, 21), outline=(15, 23, 42), width=1)
         draw.text((bx1 + 3, by1 + 1), nhan, fill=(15, 23, 42), font=font)
 
     out = io.BytesIO()
-    canvas.save(out, format="JPEG", quality=88, optimize=True)
+    canvas.save(out, format="JPEG", quality=90, optimize=True)
+    return out.getvalue(), "image/jpeg"
+
+
+def tao_bang_cat_can_canh_som(
+    image_bytes: bytes,
+    regions: Sequence[DetectedRegion],
+    *,
+    max_side: int = 768,
+) -> tuple[bytes, str] | None:
+    """Tạo Bảng Cắt Cận Cảnh 1:1 (`#1..#N`) phóng nét chữ nhỏ & tự đảo cực nền tối -> đen/trắng
+    để Vision LLM đọc chính xác 100% từng chữ nhỏ/chữ trắng trên tóc tối mà vẫn giữ chi phí token thấp.
+    """
+    if not regions:
+        return None
+    with Image.open(io.BytesIO(image_bytes)) as im_goc:
+        rgb = im_goc.convert("RGB")
+        w0, h0 = rgb.size
+
+    try:
+        font = ImageFont.load_default()
+    except Exception:  # noqa: BLE001
+        font = None
+
+    header_h = 18
+    margin = 6
+    cells: list[tuple[int, Image.Image]] = []
+    for idx, reg in enumerate(regions, start=1):
+        pad = max(6, min(14, int(round(min(reg.bbox.w, reg.bbox.h) * 0.10))))
+        cx0 = max(0, int(round(reg.bbox.x)) - pad)
+        cy0 = max(0, int(round(reg.bbox.y)) - pad)
+        cx1 = min(w0, int(round(reg.bbox.x + reg.bbox.w)) + pad)
+        cy1 = min(h0, int(round(reg.bbox.y + reg.bbox.h)) + pad)
+        if cx1 - cx0 < 6 or cy1 - cy0 < 6:
+            continue
+
+        crop = rgb.crop((cx0, cy0, cx1, cy1))
+        arr = np.asarray(crop)
+        gray = np.mean(arr, axis=2)
+        border_vals = np.concatenate([gray[0, :], gray[-1, :], gray[:, 0], gray[:, -1]])
+        if float(np.median(gray)) < 95.0 or (float(np.median(border_vals)) < 92.0 and float(np.percentile(gray, 92)) > 185.0):
+            crop = ImageOps.invert(crop)
+        else:
+            p2, p98 = float(np.percentile(gray, 2)), float(np.percentile(gray, 98))
+            if p98 - p2 < 140.0 and p98 > p2 + 12.0:
+                crop = ImageOps.autocontrast(crop, cutoff=1)
+
+        cw, ch = crop.size
+        if min(cw, ch) < 120 or cw < 185:
+            scale_up = min(2.2, 260.0 / max(1, cw))
+            if scale_up > 1.08:
+                crop = crop.resize(
+                    (max(1, int(round(cw * scale_up))), max(1, int(round(ch * scale_up)))),
+                    Image.Resampling.LANCZOS,
+                )
+        crop = crop.filter(ImageFilter.UnsharpMask(radius=1.0, percent=115, threshold=2))
+
+        cell_w, cell_h = crop.size
+        cell = Image.new("RGB", (max(46, cell_w), cell_h + header_h), (241, 245, 249))
+        cell.paste(crop, (0, header_h))
+        cdraw = ImageDraw.Draw(cell)
+        cdraw.rectangle([0, 0, cell.width - 1, header_h - 1], fill=(250, 204, 21), outline=(15, 23, 42), width=1)
+        cdraw.text((4, 2), f"#{idx}", fill=(15, 23, 42), font=font)
+        cdraw.rectangle([0, header_h, cell.width - 1, cell.height - 1], outline=(219, 39, 119), width=1)
+        cells.append((idx, cell))
+
+    if not cells:
+        return None
+
+    so_o = len(cells)
+    so_cot = 2 if so_o <= 4 else (3 if so_o <= 12 else 4)
+    so_hang = math.ceil(so_o / so_cot)
+    cot_w = [0] * so_cot
+    hang_h = [0] * so_hang
+    for i, (_, cell) in enumerate(cells):
+        r, c = divmod(i, so_cot)
+        cot_w[c] = max(cot_w[c], cell.width)
+        hang_h[r] = max(hang_h[r], cell.height)
+
+    tong_w = sum(cot_w) + margin * (so_cot + 1)
+    tong_h = sum(hang_h) + margin * (so_hang + 1)
+    bang = Image.new("RGB", (max(64, tong_w), max(64, tong_h)), (248, 250, 252))
+
+    y_cur = margin
+    for r in range(so_hang):
+        x_cur = margin
+        for c in range(so_cot):
+            pos = r * so_cot + c
+            if pos < so_o:
+                bang.paste(cells[pos][1], (x_cur, y_cur))
+            x_cur += cot_w[c] + margin
+        y_cur += hang_h[r] + margin
+
+    scale_out = min(1.0, float(max_side) / float(max(1, bang.width, bang.height)))
+    if scale_out < 0.999:
+        bang = bang.resize(
+            (max(1, int(round(bang.width * scale_out))), max(1, int(round(bang.height * scale_out)))),
+            Image.Resampling.LANCZOS,
+        )
+
+    out = io.BytesIO()
+    bang.save(out, format="JPEG", quality=92, optimize=True)
     return out.getvalue(), "image/jpeg"
 
 
@@ -184,8 +323,12 @@ def xay_loi_nhac_som_gop_dich(
     source_lang: str,
     target_lang: str = "vi",
     boi_canh: str | None = None,
+    *,
+    co_bang_cat_can_canh: bool = False,
 ) -> str:
-    """Tạo prompt Set-of-Mark yêu cầu Vision LLM nhìn toàn bộ biểu cảm tranh và dịch chuẩn từng thẻ `#1..#N`."""
+    """Tạo prompt Set-of-Mark Dual-View yêu cầu Vision LLM nhìn toàn cảnh biểu cảm (Ảnh 1)
+    kết hợp đọc chính xác nét chữ phóng đại 1:1 (Ảnh 2) và dịch chuẩn từng thẻ `#1..#N`.
+    """
     sl = (source_lang or "ja").strip().lower()
     tl = (target_lang or "vi").strip().lower()
     ten_nguon = _TEN_NGUON_SOM.get(sl, f"source ({source_lang})")
@@ -197,25 +340,31 @@ def xay_loi_nhac_som_gop_dich(
             f"{boi_canh.strip()}\n"
         )
 
+    huong_dan_hai_anh = (
+        f"You are given TWO images:\n"
+        f"- Image 1: Full comic page with yellow tags `#1`..`#{so_khung}` and thin magenta frames (use for panel flow, speaker identity, emotion, and reading order).\n"
+        f"- Image 2: High-resolution zoomed crop sheet of those exact `#1`..`#{so_khung}` regions (dark-background/hair boxes were contrast-inverted to dark text on light paper so every tiny glyph, punctuation, and broken line is crystal clear).\n"
+        if co_bang_cat_can_canh
+        else f"This comic page has {so_khung} pre-detected text regions marked with yellow-black tags `#1` through `#{so_khung}` and thin magenta frames.\n"
+    )
+
     return (
         f"You are an elite multimodal Manga/Manhwa/Comic scanlation director translating from {ten_nguon} into {ten_dich}.\n"
-        f"This comic page has {so_khung} pre-detected text regions marked with yellow-black tags `#1` through `#{so_khung}` "
-        "and thin magenta borders.\n"
+        f"{huong_dan_hai_anh}"
         "Tasks:\n"
         f"1. For EVERY marked region `#1` .. `#{so_khung}` that contains dialogue, narration, caption, note, sign, or meaningful text:\n"
-        "   - Read the exact original text inside that magenta box (`text`).\n"
-        "   - Apply context-specific scanlation tone across all 6 comic text types:\n"
-        "     * Speech & spiky shout bubbles: natural conversational flow, accurate pronouns matching age/gender/status/emotion in the art.\n"
-        "     * Internal monologue / floating haloed thoughts over background or hair: reflective, concise inner-voice phrasing.\n"
-        "     * Rectangular narration / time-location captions: literary, atmospheric storytelling tone.\n"
-        "     * Margin translator/editor notes (`*TN:`, `Note:`, `*`): clear, compact explanatory note (`Chú thích: ...` for Vietnamese).\n"
-        "     * In-world signs / screens / labels / documents: crisp, authentic signage/UI wording.\n"
-        "     * Sound effects (SFX) & publisher/scanner credit blocks: omit decorative raw strokes AND omit publisher/creator credit boxes "
-        "(e.g., `STORY ... PENCILS ... INKS ... LETTERS`) or scanlation watermarks by leaving `ban_dich` empty.\n"
-        "   - Output `id` equal to the tag number (`1` .. `N`). Do NOT drop valid story text tags.\n"
-        "2. Safety check for unmarked text: ONLY IF you clearly see an important dialogue/whisper/narration/note line on the page "
+        "   - Transcribe the exact source text (`text`) faithfully from the zoomed crop / page—check leading ellipses (`...`), hyphens, contractions, and small words carefully so NOTHING is dropped or misread.\n"
+        "   - Translate (`ban_dich`) concisely, naturally, and accurately in scanlation style across all 6 text types:\n"
+        "     * Speech & spiky shout bubbles: natural conversational flow matching speaker age/gender/status/emotion in Image 1. Never add fluff or invent words not in the source text.\n"
+        "     * Internal monologue / floating haloed thoughts over background or hair: crisp, reflective inner voice.\n"
+        "     * Rectangular narration / time-location captions: concise literary storytelling tone.\n"
+        "     * Margin translator/editor notes (`*TN:`, `Note:`, `*`): compact explanatory note (`Chú thích: ...` for Vietnamese).\n"
+        "     * In-world signs / labels / documents: authentic signage wording.\n"
+        "     * Pure decorative SFX strokes outside dialogue OR non-text/credit/watermark boxes: leave `ban_dich` empty (`\"\"`).\n"
+        "   - Output `id` equal to the tag number (`1` .. `N`). Do NOT drop valid dialogue/narration tags.\n"
+        "2. Safety check for unmarked text: ONLY IF you clearly see an important dialogue/whisper/narration/note line on Image 1 "
         "that has NO `#id` tag at all, include an extra entry with `\"id\": 0` and its tight `[ymin, xmin, ymax, xmax]` (0..1000) in `box`.\n"
-        "3. Set `doan: true` only when source characters are partially illegible and inferred from context; otherwise `doan: false`.\n"
+        "3. Set `doan: true` only when source characters are genuinely blurred/occluded; otherwise `doan: false`.\n"
         f"{khung_boi_canh}"
     )
 

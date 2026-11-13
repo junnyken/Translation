@@ -154,7 +154,7 @@ async function damBaoNgonNguDich(dsVung, ngonNguGoc, ngonNguDich) {
   return dsVung
 }
 
-function chuanHoaKhoaCacheUrl(url, ngonNgu, ngonNguDich, cheDo) {
+function chuanHoaKhoaCacheUrl(url, ngonNgu, ngonNguDich, cheDo, engine) {
   const s = String(url || '').trim()
   if (!s || s.startsWith('blob:') || s.startsWith('data:')) return ''
   let sach = s
@@ -165,7 +165,7 @@ function chuanHoaKhoaCacheUrl(url, ngonNgu, ngonNguDich, cheDo) {
     }
     sach = u.toString()
   } catch {}
-  return `${cheDo || 'chi_chu'}::${ngonNgu || 'ja'}::${ngonNguDich || 'vi'}::${sach}`
+  return `v5242::${engine || 'local_ocr_gpu'}::${cheDo || 'chi_chu'}::${ngonNgu || 'ja'}::${ngonNguDich || 'vi'}::${sach}`
 }
 
 async function docCacheTrangCucBo(khoa) {
@@ -193,6 +193,7 @@ async function luuCacheTrangCucBo(khoa, vung, cheDo) {
         thu_tu_doc: v.thu_tu_doc,
         chu_goc: v.chu_goc || '',
         ban_dich: v.ban_dich || '',
+        ...(v.mat_na_rle ? { mat_na_rle: v.mat_na_rle } : {}),
       })),
       che_do: cheDo || 'chi_chu',
       luu_luc: Date.now(),
@@ -208,7 +209,7 @@ async function luuCacheTrangCucBo(khoa, vung, cheDo) {
 async function dichMotTrang(url, anhBase64, anhMime, bao, daBiHuy = () => false, tabId = 0) {
   const { ngonNgu, ngonNguDich, engine, cheDo, byokBat, byokKey } = await docCauHinh()
   const coByokHieuLuc = Boolean(byokBat && byokKey && String(byokKey).trim().length >= 12)
-  const khoaCucBo = chuanHoaKhoaCacheUrl(url, ngonNgu, ngonNguDich, cheDo)
+  const khoaCucBo = chuanHoaKhoaCacheUrl(url, ngonNgu, ngonNguDich, cheDo, engine)
   if (khoaCucBo && cheDo !== 'day_du') {
     const trungCucBo = await docCacheTrangCucBo(khoaCucBo)
     if (trungCucBo) {

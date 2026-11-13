@@ -71,6 +71,7 @@ _OCR_HARD_LIMIT = settings.ocr_timeout_seconds + 30
 
 #: Detector nạp 1 lần/process (weight ~91MB) — nạp lại mỗi ảnh sẽ rất chậm.
 _detector = None
+_ctd_detector = None
 _KHOA_MO_HINH_CUC_BO = threading.Lock()
 
 #: Cảnh báo `ja` + `ctd` chỉ ghi MỘT lần mỗi tiến trình — đây là vấn đề cấu hình, không
@@ -123,10 +124,38 @@ def get_detector():
     return _detector
 
 
+def get_ctd_detector():
+    """Trả `CTDDetector` chia sẻ an toàn luồng trong process để không nạp lại weight 91MB mỗi trang."""
+    global _ctd_detector
+    if _ctd_detector is None:
+        with _KHOA_MO_HINH_CUC_BO:
+            if _ctd_detector is None:
+                from app.services.detect.ctd import CTDDetector
+
+                _ctd_detector = CTDDetector(
+                    weights_path=settings.model_weights_path,
+                    device=settings.ctd_device,
+                    conf_threshold=settings.ctd_conf_threshold,
+                    raw_min_conf=settings.ctd_raw_min_conf,
+                    nms_iou=settings.ctd_nms_iou,
+                    input_size=settings.ctd_input_size,
+                    intra_op_threads=settings.ctd_intra_op_threads,
+                    cpu_mem_arena=settings.ctd_cpu_mem_arena,
+                )
+    return _ctd_detector
+
+
+def reset_ctd_detector() -> None:
+    """Dùng trong test để giải phóng CTD detector cache."""
+    global _ctd_detector
+    _ctd_detector = None
+
+
 def reset_detector() -> None:
     """Dùng trong test để thay detector giả lập."""
     global _detector
     _detector = None
+    reset_ctd_detector()
 
 
 #: Engine OCR nạp 1 lần/process, cache theo (source_lang, device).
@@ -332,9 +361,17 @@ def _run_detect(job_id: uuid.UUID, *, outbox_claimed: bool = False) -> dict:
             else settings.translate_default_engine
         )
         la_che_do_chi_chu = du_an is not None and du_an.che_do_pipeline is ChePipeline.chi_chu
+        with contextlib.suppress(Exception):
+            from app.core.config import dong_bo_khoa_ai_dong
+
+            dong_bo_khoa_ai_dong(settings)
+        co_ai_vision_server = bool(settings.gemini_api_key_list)
         du_dieu_kien_gop_1_luot = (
             settings.gop_mot_luot_chi_chu
-            and settings.detect_engine == "ai_gemini"
+            and (
+                settings.detect_engine == "ai_gemini"
+                or (engine_dich_hieu_luc == TranslationEngine.llm_context.value and co_ai_vision_server)
+            )
             and settings.ocr_auto_chain
             and settings.translate_auto_chain
             and du_an is not None
@@ -394,23 +431,27 @@ def _run_detect(job_id: uuid.UUID, *, outbox_claimed: bool = False) -> dict:
             # BYOK chỉ hỗ trợ văn bản (vd DeepSeek) hoặc Model 2: chạy CTD cục bộ (0đ LLM Server), bước dịch sẽ gọi BYOK!
             du_dieu_kien_gop_1_luot = False
             if hasattr(detector, "detect_va_dich_regions"):
-                from app.services.detect.ctd import CTDDetector
+                detector = get_ctd_detector()
+    elif du_dieu_kien_gop_1_luot and not hasattr(detector, "detect_va_dich_regions") and co_ai_vision_server:
+        # Web chọn `llm_context` ngay cả khi DETECT_ENGINE=ctd vẫn được nâng lên luồng Set-of-Mark Dual-View
+        from app.services.detect.ai_gemini import AIGeminiDetector
 
-                detector = CTDDetector(
-                    weights_path=settings.model_weights_path,
-                    device=settings.ctd_device,
-                    conf_threshold=settings.ctd_conf_threshold,
-                    raw_min_conf=settings.ctd_raw_min_conf,
-                    nms_iou=settings.ctd_nms_iou,
-                    input_size=settings.ctd_input_size,
-                    intra_op_threads=settings.ctd_intra_op_threads,
-                    cpu_mem_arena=settings.ctd_cpu_mem_arena,
-                )
+        detector = AIGeminiDetector(
+            api_keys=settings.gemini_api_key_list,
+            model_name=settings.detect_ai_model,
+            canh_toi_da=settings.detect_ai_canh_toi_da,
+            so_luot=settings.detect_ai_so_luot,
+        )
 
     da_gop_1_luot = False
+    la_model2_pro = "[CHẾ ĐỘ AI PRO 2 LƯỢT" in (boi_canh_gop or "")
     la_model3_som = (
-        engine_dich_hieu_luc == TranslationEngine.llm_context.value
-        and ("[CHẾ ĐỘ ULTRA CLOUD AI 3 LƯỢT" in (boi_canh_gop or "") or byok_cfg is not None)
+        la_model2_pro
+        or "[CHẾ ĐỘ ULTRA CLOUD AI 3 LƯỢT" in (boi_canh_gop or "")
+        or (
+            engine_dich_hieu_luc == TranslationEngine.llm_context.value
+            and (byok_cfg is not None or co_ai_vision_server)
+        )
     )
     with anh_cuc_bo(image_rel) as image_path:
         try:
@@ -418,20 +459,11 @@ def _run_detect(job_id: uuid.UUID, *, outbox_claimed: bool = False) -> dict:
                 ctd_som_regions = None
                 if la_model3_som and hasattr(detector, "detect_va_dich_som_regions"):
                     try:
-                        from app.services.detect.ctd import CTDDetector, ModelWeightsMissing
+                        from app.services.detect.ctd import loc_va_thu_hep_khung_ctd
 
-                        ctd_neo = CTDDetector(
-                            weights_path=settings.model_weights_path,
-                            device=settings.ctd_device,
-                            conf_threshold=settings.ctd_conf_threshold,
-                            raw_min_conf=settings.ctd_raw_min_conf,
-                            nms_iou=settings.ctd_nms_iou,
-                            input_size=settings.ctd_input_size,
-                            intra_op_threads=settings.ctd_intra_op_threads,
-                            cpu_mem_arena=settings.ctd_cpu_mem_arena,
-                        )
-                        ctd_som_regions = ctd_neo.detect_regions(image_path)
-                        mat_na_chu_luu = getattr(ctd_neo, "mat_na_chu", None)
+                        ctd_neo = get_ctd_detector()
+                        ctd_raw, mat_na_chu_luu = ctd_neo.detect_regions_va_mat_na(image_path)
+                        ctd_som_regions = loc_va_thu_hep_khung_ctd(image_path, ctd_raw, mat_na_chu_luu)
                     except Exception:
                         ctd_som_regions = None
 
@@ -443,6 +475,28 @@ def _run_detect(job_id: uuid.UUID, *, outbox_claimed: bool = False) -> dict:
                         target_lang=du_an_target_lang,
                         boi_canh=boi_canh_gop,
                     )
+                    if la_model2_pro and settings.deepseek_api_key_list and regions:
+                        with contextlib.suppress(Exception):
+                            from app.core.config import dich_danh_sach_thoai_ngu_canh_dong
+
+                            ds_goc_m2 = [
+                                (getattr(r, "chu", None) or getattr(r, "ban_dich", None) or "").strip()
+                                for r in regions
+                            ]
+                            if any(ds_goc_m2):
+                                kq_ds, _ = dich_danh_sach_thoai_ngu_canh_dong(
+                                    settings,
+                                    ds_goc_m2,
+                                    source_lang=du_an_source_lang,
+                                    target_lang=du_an_target_lang,
+                                    boi_canh=boi_canh_gop,
+                                    engine="local_hybrid_pro",
+                                )
+                                if len(kq_ds) == len(regions):
+                                    for r_m2, bd_ds in zip(regions, kq_ds):
+                                        bd_clean = (bd_ds or "").strip()
+                                        if bd_clean:
+                                            r_m2.ban_dich = bd_clean
                 else:
                     regions = detector.detect_va_dich_regions(
                         image_path,
@@ -450,22 +504,14 @@ def _run_detect(job_id: uuid.UUID, *, outbox_claimed: bool = False) -> dict:
                         target_lang=du_an_target_lang,
                         boi_canh=boi_canh_gop,
                     )
-                    if "[CHẾ ĐỘ AI PRO 2 LƯỢT" in (boi_canh_gop or ""):
+                    if la_model2_pro:
                         try:
                             from app.services.detect.ai_gemini import neo_khung_gemini_theo_ctd
-                            from app.services.detect.ctd import CTDDetector
+                            from app.services.detect.ctd import loc_va_thu_hep_khung_ctd
 
-                            ctd_pro = CTDDetector(
-                                weights_path=settings.model_weights_path,
-                                device=settings.ctd_device,
-                                conf_threshold=settings.ctd_conf_threshold,
-                                raw_min_conf=settings.ctd_raw_min_conf,
-                                nms_iou=settings.ctd_nms_iou,
-                                input_size=settings.ctd_input_size,
-                                intra_op_threads=settings.ctd_intra_op_threads,
-                                cpu_mem_arena=settings.ctd_cpu_mem_arena,
-                            )
-                            ctd_pro_regions = ctd_pro.detect_regions(image_path)
+                            ctd_pro = get_ctd_detector()
+                            ctd_raw_pro, mat_na_chu_luu = ctd_pro.detect_regions_va_mat_na(image_path)
+                            ctd_pro_regions = loc_va_thu_hep_khung_ctd(image_path, ctd_raw_pro, mat_na_chu_luu)
                             if ctd_pro_regions:
                                 regions = neo_khung_gemini_theo_ctd(regions, ctd_pro_regions, image_path)
                         except Exception:
@@ -485,7 +531,13 @@ def _run_detect(job_id: uuid.UUID, *, outbox_claimed: bool = False) -> dict:
                         r.ban_dich = chu_r
                 da_gop_1_luot = True
             else:
-                regions = detector.detect_regions(image_path)
+                if hasattr(detector, "detect_regions_va_mat_na"):
+                    from app.services.detect.ctd import loc_va_thu_hep_khung_ctd
+
+                    ctd_raw, mat_na_chu_luu = detector.detect_regions_va_mat_na(image_path)
+                    regions = loc_va_thu_hep_khung_ctd(image_path, ctd_raw, mat_na_chu_luu)
+                else:
+                    regions = detector.detect_regions(image_path)
         except Exception as exc_ai_det:
             from app.services.detect.ai_gemini import AIDetectError
 
@@ -503,19 +555,11 @@ def _run_detect(job_id: uuid.UUID, *, outbox_claimed: bool = False) -> dict:
                     "ai_gemini lỗi (%s) -> tự động dự phòng sang CTDDetector cục bộ + DeepSeek/Google",
                     exc_ai_det,
                 )
-                from app.services.detect.ctd import CTDDetector
+                from app.services.detect.ctd import loc_va_thu_hep_khung_ctd
 
-                ctd_fallback = CTDDetector(
-                    weights_path=settings.model_weights_path,
-                    device=settings.ctd_device,
-                    conf_threshold=settings.ctd_conf_threshold,
-                    raw_min_conf=settings.ctd_raw_min_conf,
-                    nms_iou=settings.ctd_nms_iou,
-                    input_size=settings.ctd_input_size,
-                    intra_op_threads=settings.ctd_intra_op_threads,
-                    cpu_mem_arena=settings.ctd_cpu_mem_arena,
-                )
-                regions = ctd_fallback.detect_regions(image_path)
+                ctd_fallback = get_ctd_detector()
+                ctd_raw_fb, mat_na_chu_luu = ctd_fallback.detect_regions_va_mat_na(image_path)
+                regions = loc_va_thu_hep_khung_ctd(image_path, ctd_raw_fb, mat_na_chu_luu)
                 da_gop_1_luot = False
             else:
                 raise

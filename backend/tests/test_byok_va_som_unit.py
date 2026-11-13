@@ -168,3 +168,58 @@ def test_set_of_mark_sap_xep_ve_nhan_ngoai_vien_va_giu_nguyen_0px_toa_do_ctd():
     assert ket_qua[0].ban_dich == "Cái gì cơ!?"
     assert ket_qua[1].ban_dich == "Chết tiệt..."
     assert (ket_qua[1].bbox.x, ket_qua[1].bbox.y, ket_qua[1].bbox.w, ket_qua[1].bbox.h) == (300, 400, 72, 64)
+
+
+def test_tao_bang_cat_can_canh_som_va_goi_hai_anh():
+    import json
+    import numpy as np
+    from PIL import ImageDraw
+    from app.services.detect.ai_gemini import AIGeminiDetector
+    from app.services.detect.som_vision import tao_bang_cat_can_canh_som, xay_loi_nhac_som_gop_dich
+
+    anh = Image.new("RGB", (600, 800), (245, 245, 245))
+    draw = ImageDraw.Draw(anh)
+    draw.rectangle([40, 60, 160, 120], fill=(15, 15, 15))
+    draw.text((55, 80), "STRANGE", fill=(255, 255, 255))
+    buf = io.BytesIO()
+    anh.save(buf, format="PNG")
+    raw_png = buf.getvalue()
+
+    r_dark = DetectedRegion(bbox=BBox(x=40, y=60, w=120, h=60), confidence=0.90, cls=0)
+    bang = tao_bang_cat_can_canh_som(raw_png, [r_dark], max_side=768)
+    assert bang is not None
+    bang_bytes, bang_mime = bang
+    assert bang_mime == "image/jpeg"
+    with Image.open(io.BytesIO(bang_bytes)) as im_b:
+        assert max(im_b.size) <= 768
+        # Nền tối phải được tự động đảo cực sang nền sáng bên trong vùng crop (y >= 24)
+        crop_arr = np.asarray(im_b.crop((8, 26, im_b.width - 8, im_b.height - 8)))
+        assert float(crop_arr.mean()) > 150.0
+
+    prompt = xay_loi_nhac_som_gop_dich(so_khung=1, source_lang="en", target_lang="vi", co_bang_cat_can_canh=True)
+    assert "TWO images" in prompt
+    assert "Image 1:" in prompt and "Image 2:" in prompt
+
+    captured_payloads = []
+
+    class _FakeResp:
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+        def read(self):
+            return json.dumps({"candidates": [{"content": {"parts": [{"text": '[{"id": 1, "text": "STRANGE", "ban_dich": "Kỳ lạ"}]'}]}}]}).encode()
+
+    def _fake_urlopen(req, timeout=0):
+        captured_payloads.append(json.loads(req.data.decode()))
+        return _FakeResp()
+
+    det = AIGeminiDetector(api_keys=["AIzaFakeTestKey1234567890"], model_name="gemini-3.1-flash-lite")
+    with patch("urllib.request.urlopen", side_effect=_fake_urlopen):
+        res = det._goi(b"img1", "image/jpeg", loi_nhac=prompt, anh_phu=[(bang_bytes, bang_mime)])
+    assert len(res) == 1
+    parts = captured_payloads[0]["contents"][0]["parts"]
+    assert len(parts) == 3
+    assert parts[0]["inline_data"]["mime_type"] == "image/jpeg"
+    assert parts[1]["inline_data"]["mime_type"] == "image/jpeg"
+    assert parts[2]["text"] == prompt
