@@ -223,3 +223,128 @@ def test_tao_bang_cat_can_canh_som_va_goi_hai_anh():
     assert parts[0]["inline_data"]["mime_type"] == "image/jpeg"
     assert parts[1]["inline_data"]["mime_type"] == "image/jpeg"
     assert parts[2]["text"] == prompt
+
+
+def test_cong_doc_truyen_mo_khoa_model2_va_byok_cho_goi_1():
+    from app.services.byok import kiem_tra_cong_goi_doc_truyen
+
+    # 1. Free (cap_do=0) dùng Model 1 (google_fast) -> cho phép
+    kiem_tra_cong_goi_doc_truyen(
+        _tao_danh_tinh_gia(cap_do=0),
+        engine_name="google_fast",
+        font_style=None,
+        tu_dien_rieng=None,
+        co_byok=False,
+    )
+
+    # 2. Free (cap_do=0) dùng Model 2 -> bị chặn 402 yêu cầu Gói 1 (cap_yeu_cau == 1)
+    try:
+        kiem_tra_cong_goi_doc_truyen(
+            _tao_danh_tinh_gia(cap_do=0),
+            engine_name="llm_context",
+            font_style=None,
+            tu_dien_rieng="[CHẾ ĐỘ AI PRO 2 LƯỢT]",
+            co_byok=False,
+        )
+        raise AssertionError("Free phải bị chặn 402 khi gọi Model 2!")
+    except Exception as exc:
+        assert getattr(exc, "status_code", None) == 402
+        detail = getattr(exc, "detail", {})
+        assert detail.get("cap_yeu_cau") == 1
+        assert detail.get("tinh_nang") == "local_hybrid_pro"
+
+    # 3. Gói 1 (cap_do=1) dùng Model 2 (kèm ngữ cảnh tự học, không BYOK) -> mở khóa hoàn toàn!
+    kiem_tra_cong_goi_doc_truyen(
+        _tao_danh_tinh_gia(cap_do=1),
+        engine_name="llm_context",
+        font_style="romance",
+        tu_dien_rieng="[CHẾ ĐỘ AI PRO 2 LƯỢT]\nAkagi = Akagi",
+        co_byok=False,
+    )
+
+    # 4. Gói 1 (cap_do=1) dùng Model 3 không BYOK -> chặn 402 yêu cầu Gói 2 (cap_yeu_cau == 3)
+    try:
+        kiem_tra_cong_goi_doc_truyen(
+            _tao_danh_tinh_gia(cap_do=1),
+            engine_name="llm_context",
+            font_style=None,
+            tu_dien_rieng="[CHẾ ĐỘ ULTRA CLOUD AI 3 LƯỢT]",
+            co_byok=False,
+        )
+        raise AssertionError("Gói 1 không BYOK phải bị chặn 402 khi gọi Model 3!")
+    except Exception as exc:
+        assert getattr(exc, "status_code", None) == 402
+        detail = getattr(exc, "detail", {})
+        assert detail.get("cap_yeu_cau") == 3
+        assert detail.get("tinh_nang") == "llm_context"
+
+    # 5. Gói 1 (cap_do=1) dùng Model 3 + BYOK (kèm ngữ cảnh) -> mở khóa hoàn toàn!
+    kiem_tra_cong_goi_doc_truyen(
+        _tao_danh_tinh_gia(cap_do=1),
+        engine_name="llm_context",
+        font_style=None,
+        tu_dien_rieng="[CHẾ ĐỘ ULTRA CLOUD AI 3 LƯỢT]\nAkagi = Akagi",
+        co_byok=True,
+    )
+
+    # 6. Gói 1 (cap_do=1) gửi sổ tay nhân vật thủ công Web (không BYOK, không nhãn Extension) -> vẫn giữ cổng Gói 2
+    try:
+        kiem_tra_cong_goi_doc_truyen(
+            _tao_danh_tinh_gia(cap_do=1),
+            engine_name="google_fast",
+            font_style=None,
+            tu_dien_rieng="Akagi = Akagi",
+            co_byok=False,
+        )
+        raise AssertionError("Sổ tay nhân vật thủ công trên Web ở Gói 1 phải giữ cổng Gói 2!")
+    except Exception as exc:
+        assert getattr(exc, "status_code", None) == 402
+        detail = getattr(exc, "detail", {})
+        assert detail.get("cap_yeu_cau") == 3
+        assert detail.get("tinh_nang") == "glossary"
+
+
+def test_bo_nho_nha_ctd_va_gom_cum_gioi_han_mpx():
+    import sys
+    from types import ModuleType
+    from app.services.inpaint.lama import gom_cum
+
+    # Trang 791x1200 với 4 khung chữ rời nhau nhưng vùng lề 96px chạm nhau:
+    # - tran_gop_px=0: hành vi cũ gộp thành 1 cụm khổng lồ gần cả trang
+    # - tran_gop_px=350_000: giữ tách rời khi phần lõi không giao nhau, diện tích mỗi cụm <= 350k px
+    khung_trang = [
+        BBox(x=60, y=100, w=180, h=120),
+        BBox(x=320, y=120, w=200, h=140),
+        BBox(x=90, y=380, w=220, h=180),
+        BBox(x=460, y=720, w=240, h=220),
+    ]
+    cum_khong_gioi_han = gom_cum(khung_trang, 791, 1200, 96, tran_gop_px=0)
+    assert len(cum_khong_gioi_han) < len(khung_trang)
+
+    cum_tach = gom_cum(khung_trang, 791, 1200, 96, tran_gop_px=350_000)
+    assert len(cum_tach) >= 3
+    for x0, y0, x1, y1 in cum_tach:
+        assert (x1 - x0) * (y1 - y0) <= 350_000
+
+    # Kiểm tra giai_phong_model nhả cả _detector lẫn _ctd_detector khi giữ {"inpainter"}
+    from app.workers import bo_nho
+
+    stub_tasks = ModuleType("app.workers.tasks")
+    stub_tasks._detector = object()
+    stub_tasks._ctd_detector = object()
+    stub_tasks._inpainter = object()
+    stub_tasks._ocr_engines = {("en", "cpu"): object()}
+    with patch.dict(sys.modules, {"app.workers.tasks": stub_tasks}):
+        da_nha = bo_nho.giai_phong_model({"inpainter"})
+        assert da_nha == ["detector", "ocr"]
+        assert stub_tasks._detector is None
+        assert stub_tasks._ctd_detector is None
+        assert stub_tasks._inpainter is not None
+        assert stub_tasks._ocr_engines == {}
+
+
+if __name__ == "__main__":
+    test_funcs = [v for k, v in list(globals().items()) if k.startswith("test_") and callable(v)]
+    for fn in test_funcs:
+        fn()
+    print(f"test_byok_va_som_unit OK: {len(test_funcs)}")

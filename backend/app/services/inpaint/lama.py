@@ -37,7 +37,13 @@ class InpaintFailed(RuntimeError):
     pass
 
 
-def gom_cum(masks: list, rong: int, cao: int, le: int) -> list[tuple[int, int, int, int]]:
+def gom_cum(
+    masks: list,
+    rong: int,
+    cao: int,
+    le: int,
+    tran_gop_px: int = 0,
+) -> list[tuple[int, int, int, int]]:
     """Gom các vùng gần nhau thành từng CỤM, trả các ô cắt (x0, y0, x1, y1) đã nới lề.
 
     Vì sao phải cắt ô thay vì chạy cả trang: bộ nhớ LaMa tỉ lệ THUẬN với diện tích ảnh —
@@ -46,15 +52,21 @@ def gom_cum(masks: list, rong: int, cao: int, le: int) -> list[tuple[int, int, i
     Cắt theo cụm thì bộ nhớ tỉ lệ với ô cắt chứ không với trang.
 
     Lề (`le`) là phần ảnh xung quanh để model có ngữ cảnh mà vẽ lại cho khớp nền.
+    Khi `tran_gop_px > 0`, hai cụm mà phần khung lõi KHÔNG giao nhau và hộp gộp vượt ngưỡng
+    diện tích `tran_gop_px` sẽ được giữ tách rời để tránh gộp thành một ô lớn gây tràn RAM.
     """
-    o = []
+    o: list[tuple[list[int], list[int]]] = []
     for m in masks:
-        x0 = max(0, int(m.x) - le)
-        y0 = max(0, int(m.y) - le)
-        x1 = min(rong, int(m.x + m.w) + le)
-        y1 = min(cao, int(m.y + m.h) + le)
+        cx0 = max(0, int(m.x))
+        cy0 = max(0, int(m.y))
+        cx1 = min(rong, int(m.x + m.w))
+        cy1 = min(cao, int(m.y + m.h))
+        x0 = max(0, cx0 - le)
+        y0 = max(0, cy0 - le)
+        x1 = min(rong, cx1 + le)
+        y1 = min(cao, cy1 + le)
         if x1 > x0 and y1 > y0:
-            o.append([x0, y0, x1, y1])
+            o.append(([x0, y0, x1, y1], [cx0, cy0, cx1, cy1]))
     if not o:
         return []
 
@@ -63,18 +75,36 @@ def gom_cum(masks: list, rong: int, cao: int, le: int) -> list[tuple[int, int, i
     doi = True
     while doi:
         doi = False
-        ket = []
-        for c in o:
-            for k in ket:
-                if not (c[2] <= k[0] or c[0] >= k[2] or c[3] <= k[1] or c[1] >= k[3]):
-                    k[0], k[1] = min(k[0], c[0]), min(k[1], c[1])
-                    k[2], k[3] = max(k[2], c[2]), max(k[3], c[3])
+        ket: list[tuple[list[int], list[int]]] = []
+        for c_pad, c_core in o:
+            for k_pad, k_core in ket:
+                if not (
+                    c_pad[2] <= k_pad[0]
+                    or c_pad[0] >= k_pad[2]
+                    or c_pad[3] <= k_pad[1]
+                    or c_pad[1] >= k_pad[3]
+                ):
+                    loi_tach_roi = (
+                        c_core[2] <= k_core[0]
+                        or c_core[0] >= k_core[2]
+                        or c_core[3] <= k_core[1]
+                        or c_core[1] >= k_core[3]
+                    )
+                    gx0, gy0 = min(k_pad[0], c_pad[0]), min(k_pad[1], c_pad[1])
+                    gx1, gy1 = max(k_pad[2], c_pad[2]), max(k_pad[3], c_pad[3])
+                    if tran_gop_px > 0 and loi_tach_roi and (gx1 - gx0) * (gy1 - gy0) > tran_gop_px:
+                        continue
+                    k_pad[0], k_pad[1], k_pad[2], k_pad[3] = gx0, gy0, gx1, gy1
+                    k_core[0] = min(k_core[0], c_core[0])
+                    k_core[1] = min(k_core[1], c_core[1])
+                    k_core[2] = max(k_core[2], c_core[2])
+                    k_core[3] = max(k_core[3], c_core[3])
                     doi = True
                     break
             else:
-                ket.append(list(c))
+                ket.append((list(c_pad), list(c_core)))
         o = ket
-    return [tuple(c) for c in o]
+    return [tuple(c_pad) for c_pad, _ in o]
 
 
 def _tron_theo_dai(rgb: np.ndarray, pred: np.ndarray, mask: np.ndarray) -> np.ndarray:
@@ -390,7 +420,16 @@ class LamaInpainter:
                 masks = []
 
         trieu_diem = (width * height) / 1e6
-        cum_con_lai = gom_cum(masks, width, height, self.tile_margin) if (masks and so_vung_da_to_phang > 0) else []
+        tran_gop_px = (
+            int(max(self.whole_page_max_mpx, 0.35) * 1_000_000)
+            if 0 < self.whole_page_max_mpx <= 0.5
+            else 0
+        )
+        cum_con_lai = (
+            gom_cum(masks, width, height, self.tile_margin, tran_gop_px=tran_gop_px)
+            if (masks and so_vung_da_to_phang > 0)
+            else []
+        )
         dien_tich_cum = sum((x1 - x0) * (y1 - y0) for x0, y0, x1, y1 in cum_con_lai)
         chay_theo_cum_nhanh = bool(
             cum_con_lai and dien_tich_cum < (width * height * 0.45)
@@ -408,7 +447,7 @@ class LamaInpainter:
         else:
             # Trang lớn (hoặc đa số bong bóng đã tô phẳng, chỉ còn vài cụm nhỏ): chạy theo từng cụm.
             out_arr = anh_u8
-            cum = cum_con_lai or gom_cum(masks, width, height, self.tile_margin)
+            cum = cum_con_lai or gom_cum(masks, width, height, self.tile_margin, tran_gop_px=tran_gop_px)
             logger.info(
                 "Ảnh %dx%d (%.1f triệu điểm) vượt ngưỡng %.1f -> xoá chữ theo %d cụm",
                 width, height, trieu_diem, self.whole_page_max_mpx, len(cum),

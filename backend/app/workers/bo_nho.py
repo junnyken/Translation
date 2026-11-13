@@ -94,9 +94,16 @@ def giai_phong_model(giu: set[str]) -> list[str]:
     from app.workers import tasks  # noqa: PLC0415 - vòng lặp import nếu đưa lên đầu tệp
 
     da_nha: list[str] = []
-    if "detector" not in giu and getattr(tasks, "_detector", None) is not None:
-        tasks._detector = None
-        da_nha.append("detector")
+    if "detector" not in giu:
+        nha_det = False
+        if getattr(tasks, "_detector", None) is not None:
+            tasks._detector = None
+            nha_det = True
+        if getattr(tasks, "_ctd_detector", None) is not None:
+            tasks._ctd_detector = None
+            nha_det = True
+        if nha_det:
+            da_nha.append("detector")
     if "inpainter" not in giu and getattr(tasks, "_inpainter", None) is not None:
         tasks._inpainter = None
         da_nha.append("inpainter")

@@ -2401,6 +2401,7 @@ async def doc_truyen_gui_trang(
             return result.model_copy(update={"request_key": request_key})
 
     from app.services.byok import (
+        kiem_tra_cong_goi_doc_truyen,
         ma_hoa_byok_tam_thoi,
         so_luot_nguyen_can_tru_cho_trang,
         tao_uuid_trang_byok_m3,
@@ -2417,41 +2418,14 @@ async def doc_truyen_gui_trang(
             _kiem_engine(engine, settings, co_tai_khoan=danh_tinh.co_tai_khoan)
 
         # Freemium Feature Gate: Kiểm tra cấp độ tài khoản trước khi xếp việc
-        from app.core.danh_tinh_khach import loi_can_nang_cap
-
         cap_ht = danh_tinh.cap_do
-        # Khi bật BYOK hợp lệ (cap_ht >= 1), khách tự trả chi phí Token nên được mở khoá luôn Model 3 với mức 1,5 lượt/trang!
-        if engine is TranslationEngine.llm_context and cap_ht < 3 and not co_byok:
-            raise loi_can_nang_cap(
-                cap_hien_tai=cap_ht,
-                cap_yeu_cau=3,
-                tinh_nang="llm_context",
-                thong_bao=(
-                    "Bộ máy Set-of-Mark Vision + LaMa Đám Mây yêu cầu Gói 2 trở lên, "
-                    "hoặc bạn có thể cắm API Key cá nhân (BYOK từ Gói 1) để mở khoá với giá chỉ 1,5 lượt/trang! "
-                    "Xem chi tiết tại https://comic.io.vn/#bang-gia"
-                ),
-            )
-        if font_style and font_style.strip().lower() not in ("", "bangers") and cap_ht < 1:
-            raise loi_can_nang_cap(
-                cap_hien_tai=cap_ht,
-                cap_yeu_cau=1,
-                tinh_nang="font_style",
-                thong_bao=(
-                    "Tuỳ chọn Font chữ theo thể loại (Ngôn tình / Cổ trang / Hài hước) yêu cầu gói Starter trở lên. "
-                    "Nâng cấp chỉ từ $3.99 (49.000đ) ưu đãi tháng đầu tại https://comic.io.vn/#bang-gia"
-                ),
-            )
-        if tu_dien_rieng and tu_dien_rieng.strip() and cap_ht < 3:
-            raise loi_can_nang_cap(
-                cap_hien_tai=cap_ht,
-                cap_yeu_cau=3,
-                tinh_nang="glossary",
-                thong_bao=(
-                    "Tính năng Sổ tay Nhân vật & Xưng hô cố định (Character Glossary) yêu cầu gói Standard trở lên. "
-                    "Vui lòng nâng cấp tại https://comic.io.vn/#bang-gia"
-                ),
-            )
+        kiem_tra_cong_goi_doc_truyen(
+            danh_tinh,
+            engine_name=engine,
+            font_style=font_style,
+            tu_dien_rieng=tu_dien_rieng,
+            co_byok=co_byok,
+        )
         if che_do is ChePipeline.day_du and cap_ht < 1 and danh_tinh.chot:
             chot0 = danh_tinh.chot[0]
             da_dung_hn = await da_dung_bat_dong_bo(session, chot0.loai, chot0.chu_the, ngay_han_muc())

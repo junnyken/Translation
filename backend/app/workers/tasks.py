@@ -132,6 +132,7 @@ def get_ctd_detector():
             if _ctd_detector is None:
                 from app.services.detect.ctd import CTDDetector
 
+                arena = False if settings.detect_engine == "ai_gemini" else settings.ctd_cpu_mem_arena
                 _ctd_detector = CTDDetector(
                     weights_path=settings.model_weights_path,
                     device=settings.ctd_device,
@@ -140,9 +141,17 @@ def get_ctd_detector():
                     nms_iou=settings.ctd_nms_iou,
                     input_size=settings.ctd_input_size,
                     intra_op_threads=settings.ctd_intra_op_threads,
-                    cpu_mem_arena=settings.ctd_cpu_mem_arena,
+                    cpu_mem_arena=arena,
                 )
     return _ctd_detector
+
+
+def _chay_ctd_va_mat_na(image_path: str):
+    """Chạy CTD phụ trợ tuần tự dưới khoá `_KHOA_MO_HINH_CUC_BO` để không nhân bản RAM khi chạy đa luồng."""
+    with _KHOA_MO_HINH_CUC_BO:
+        nguong = min(settings.worker_rss_soft_limit_mb, 650) if settings.worker_rss_soft_limit_mb > 0 else 0
+        ep_giai_phong_neu_cang({"detector"}, nguong)
+        return get_ctd_detector().detect_regions_va_mat_na(image_path)
 
 
 def reset_ctd_detector() -> None:
@@ -445,24 +454,15 @@ def _run_detect(job_id: uuid.UUID, *, outbox_claimed: bool = False) -> dict:
 
     da_gop_1_luot = False
     la_model2_pro = "[CHẾ ĐỘ AI PRO 2 LƯỢT" in (boi_canh_gop or "")
-    la_model3_som = (
-        la_model2_pro
-        or "[CHẾ ĐỘ ULTRA CLOUD AI 3 LƯỢT" in (boi_canh_gop or "")
-        or (
-            engine_dich_hieu_luc == TranslationEngine.llm_context.value
-            and (byok_cfg is not None or co_ai_vision_server)
-        )
-    )
     with anh_cuc_bo(image_rel) as image_path:
         try:
             if du_dieu_kien_gop_1_luot and hasattr(detector, "detect_va_dich_regions"):
                 ctd_som_regions = None
-                if la_model3_som and hasattr(detector, "detect_va_dich_som_regions"):
+                if hasattr(detector, "detect_va_dich_som_regions"):
                     try:
                         from app.services.detect.ctd import loc_va_thu_hep_khung_ctd
 
-                        ctd_neo = get_ctd_detector()
-                        ctd_raw, mat_na_chu_luu = ctd_neo.detect_regions_va_mat_na(image_path)
+                        ctd_raw, mat_na_chu_luu = _chay_ctd_va_mat_na(image_path)
                         ctd_som_regions = loc_va_thu_hep_khung_ctd(image_path, ctd_raw, mat_na_chu_luu)
                     except Exception:
                         ctd_som_regions = None
@@ -504,13 +504,12 @@ def _run_detect(job_id: uuid.UUID, *, outbox_claimed: bool = False) -> dict:
                         target_lang=du_an_target_lang,
                         boi_canh=boi_canh_gop,
                     )
-                    if la_model2_pro:
+                    if mat_na_chu_luu is None:
                         try:
                             from app.services.detect.ai_gemini import neo_khung_gemini_theo_ctd
                             from app.services.detect.ctd import loc_va_thu_hep_khung_ctd
 
-                            ctd_pro = get_ctd_detector()
-                            ctd_raw_pro, mat_na_chu_luu = ctd_pro.detect_regions_va_mat_na(image_path)
+                            ctd_raw_pro, mat_na_chu_luu = _chay_ctd_va_mat_na(image_path)
                             ctd_pro_regions = loc_va_thu_hep_khung_ctd(image_path, ctd_raw_pro, mat_na_chu_luu)
                             if ctd_pro_regions:
                                 regions = neo_khung_gemini_theo_ctd(regions, ctd_pro_regions, image_path)
@@ -538,6 +537,14 @@ def _run_detect(job_id: uuid.UUID, *, outbox_claimed: bool = False) -> dict:
                     regions = loc_va_thu_hep_khung_ctd(image_path, ctd_raw, mat_na_chu_luu)
                 else:
                     regions = detector.detect_regions(image_path)
+                    with contextlib.suppress(Exception):
+                        from app.services.detect.ai_gemini import neo_khung_gemini_theo_ctd
+                        from app.services.detect.ctd import loc_va_thu_hep_khung_ctd
+
+                        ctd_raw_aux, mat_na_chu_luu = _chay_ctd_va_mat_na(image_path)
+                        ctd_aux_regs = loc_va_thu_hep_khung_ctd(image_path, ctd_raw_aux, mat_na_chu_luu)
+                        if ctd_aux_regs and regions:
+                            regions = neo_khung_gemini_theo_ctd(regions, ctd_aux_regs, image_path)
         except Exception as exc_ai_det:
             from app.services.detect.ai_gemini import AIDetectError
 
@@ -557,8 +564,7 @@ def _run_detect(job_id: uuid.UUID, *, outbox_claimed: bool = False) -> dict:
                 )
                 from app.services.detect.ctd import loc_va_thu_hep_khung_ctd
 
-                ctd_fallback = get_ctd_detector()
-                ctd_raw_fb, mat_na_chu_luu = ctd_fallback.detect_regions_va_mat_na(image_path)
+                ctd_raw_fb, mat_na_chu_luu = _chay_ctd_va_mat_na(image_path)
                 regions = loc_va_thu_hep_khung_ctd(image_path, ctd_raw_fb, mat_na_chu_luu)
                 da_gop_1_luot = False
             else:
@@ -1326,7 +1332,7 @@ def _verify_text_removed(clean_abs_path: str, dilated: list, source_lang: str,
 
     from app.services.ocr.engines import dem_ky_tu_co_nghia
 
-    engine = get_ocr_engine_cached(source_lang)
+    engine = None
     toi_thieu = max(1, settings.inpaint_verify_min_chars)
     leftovers: list[str] = []
     with _Image.open(clean_abs_path) as _im:
@@ -1340,6 +1346,10 @@ def _verify_text_removed(clean_abs_path: str, dilated: list, source_lang: str,
             logger.info("kiểm chứng xoá chữ: vùng %d trắng trơn (mực %.4f) — không đọc lại",
                         thu_tu, muc)
             continue
+        if engine is None:
+            nguong = min(settings.worker_rss_soft_limit_mb, 550) if settings.worker_rss_soft_limit_mb > 0 else 0
+            ep_giai_phong_neu_cang({"ocr"}, nguong)
+            engine = get_ocr_engine_cached(source_lang)
         try:
             text, _confidence = engine.recognize(clean_abs_path, bbox)
         except Exception as exc:  # noqa: BLE001 - lỗi kiểm chứng không được giết job inpaint
@@ -1501,7 +1511,12 @@ def _run_inpaint(job_id: uuid.UUID) -> dict:
     # chỉ chạy 1 trang tại 1 thời điểm để không vọt RAM, trong khi các luồng `chi_chu` (Gemini API)
     # vẫn chạy song song 6 luồng không chờ nhau.
     with _KHOA_MO_HINH_CUC_BO:
-        ep_giai_phong_neu_cang({"inpainter", "ocr"}, settings.worker_rss_soft_limit_mb)
+        nguong_inpaint = (
+            min(settings.worker_rss_soft_limit_mb, 650)
+            if settings.worker_rss_soft_limit_mb > 0
+            else 0
+        )
+        ep_giai_phong_neu_cang({"inpainter"}, nguong_inpaint)
         ghi_moc("inpaint: trước")
         inpainter = get_inpainter()
         leftovers: list[str] = []

@@ -201,27 +201,114 @@ def xac_thuc_byok_cho_danh_tinh(
             "Model 3 còn 1,5 lượt/trang) mở khóa từ Gói 1 trở lên. "
             "Vui lòng nâng cấp Gói 1 tại https://comic.io.vn/#bang-gia để kích hoạt!"
         )
-        try:
-            from app.core.danh_tinh_khach import loi_can_nang_cap
-
-            raise loi_can_nang_cap(
-                cap_hien_tai=int(danh_tinh.cap_do or 0),
-                cap_yeu_cau=1,
-                tinh_nang="byok_api_key",
-                thong_bao=thong_bao,
-            )
-        except ImportError:
-            err = PermissionError(thong_bao)
-            err.status_code = 402  # type: ignore[attr-defined]
-            err.detail = {  # type: ignore[attr-defined]
-                "loi": "can_nang_cap",
-                "cap_hien_tai": int(danh_tinh.cap_do or 0),
-                "cap_yeu_cau": 1,
-                "tinh_nang": "byok_api_key",
-                "thong_bao": thong_bao,
-            }
-            raise err
+        _nem_loi_can_nang_cap(
+            cap_hien_tai=int(danh_tinh.cap_do or 0),
+            cap_yeu_cau=1,
+            tinh_nang="byok_api_key",
+            thong_bao=thong_bao,
+        )
     return cfg
+
+
+def _nem_loi_can_nang_cap(*, cap_hien_tai: int, cap_yeu_cau: int, tinh_nang: str, thong_bao: str) -> None:
+    try:
+        from app.core.danh_tinh_khach import loi_can_nang_cap
+
+        raise loi_can_nang_cap(
+            cap_hien_tai=int(cap_hien_tai or 0),
+            cap_yeu_cau=cap_yeu_cau,
+            tinh_nang=tinh_nang,
+            thong_bao=thong_bao,
+        )
+    except ImportError:
+        err = PermissionError(thong_bao)
+        err.status_code = 402  # type: ignore[attr-defined]
+        err.detail = {  # type: ignore[attr-defined]
+            "loi": "can_nang_cap",
+            "cap_hien_tai": int(cap_hien_tai or 0),
+            "cap_yeu_cau": cap_yeu_cau,
+            "tinh_nang": tinh_nang,
+            "thong_bao": thong_bao,
+        }
+        raise err
+
+
+def kiem_tra_cong_goi_doc_truyen(
+    danh_tinh: "DanhTinhHanMuc",
+    *,
+    engine_name: object,
+    font_style: str | None = None,
+    tu_dien_rieng: str | None = None,
+    co_byok: bool = False,
+) -> None:
+    """Kiểm tra phân quyền gói cước cho `/doc-truyen/trang`:
+    - Model 1 (`google_fast` / `local_ocr_gpu`): mở cho cả Free (`cap_do >= 0`).
+    - Model 2 (`[CHẾ ĐỘ AI PRO 2 LƯỢT]`) hoặc bật BYOK hợp lệ: mở từ Gói 1 (`cap_do >= 1`).
+    - Model 3 (`llm_context` không BYOK) hoặc Sổ tay nhân vật thủ công trên Web (không BYOK): yêu cầu Gói 2 / Pro (`cap_do >= 3`).
+    """
+    cap_ht = int(getattr(danh_tinh, "cap_do", 0) or 0)
+    eng = str(getattr(engine_name, "value", engine_name) or "").strip().lower()
+    td_sach = (tu_dien_rieng or "").strip()
+    la_pro_2_luot = "[CHẾ ĐỘ AI PRO 2 LƯỢT" in td_sach
+    co_nhan_ext = la_pro_2_luot or ("[CHẾ ĐỘ ULTRA CLOUD AI 3 LƯỢT" in td_sach)
+
+    if eng == "llm_context":
+        if la_pro_2_luot:
+            if cap_ht < 1 and not co_byok:
+                _nem_loi_can_nang_cap(
+                    cap_hien_tai=cap_ht,
+                    cap_yeu_cau=1,
+                    tinh_nang="local_hybrid_pro",
+                    thong_bao=(
+                        "Bộ máy OCR + AI Hội Thoại Pro (2 lượt/trang) yêu cầu Gói 1 trở lên. "
+                        "Xem chi tiết tại https://comic.io.vn/#bang-gia"
+                    ),
+                )
+        elif cap_ht < 3 and not co_byok:
+            _nem_loi_can_nang_cap(
+                cap_hien_tai=cap_ht,
+                cap_yeu_cau=3,
+                tinh_nang="llm_context",
+                thong_bao=(
+                    "Bộ máy Set-of-Mark Vision + LaMa Đám Mây yêu cầu Gói 2 trở lên, "
+                    "hoặc bạn có thể cắm API Key cá nhân (BYOK từ Gói 1) để mở khoá với giá chỉ 1,5 lượt/trang! "
+                    "Xem chi tiết tại https://comic.io.vn/#bang-gia"
+                ),
+            )
+
+    if font_style and font_style.strip().lower() not in ("", "bangers") and cap_ht < 1:
+        _nem_loi_can_nang_cap(
+            cap_hien_tai=cap_ht,
+            cap_yeu_cau=1,
+            tinh_nang="font_style",
+            thong_bao=(
+                "Tuỳ chọn Font chữ theo thể loại (Ngôn tình / Cổ trang / Hài hước) yêu cầu gói Starter trở lên. "
+                "Nâng cấp chỉ từ $3.99 (49.000đ) ưu đãi tháng đầu tại https://comic.io.vn/#bang-gia"
+            ),
+        )
+
+    if td_sach:
+        if co_nhan_ext or co_byok:
+            if cap_ht < 1:
+                _nem_loi_can_nang_cap(
+                    cap_hien_tai=cap_ht,
+                    cap_yeu_cau=1,
+                    tinh_nang="glossary",
+                    thong_bao=(
+                        "Tính năng Ngữ cảnh hội thoại Pro & BYOK yêu cầu Gói 1 trở lên. "
+                        "Xem chi tiết tại https://comic.io.vn/#bang-gia"
+                    ),
+                )
+        elif cap_ht < 3:
+            _nem_loi_can_nang_cap(
+                cap_hien_tai=cap_ht,
+                cap_yeu_cau=3,
+                tinh_nang="glossary",
+                thong_bao=(
+                    "Tính năng Sổ tay Nhân vật & Xưng hô cố định (Character Glossary) yêu cầu gói Standard trở lên. "
+                    "Vui lòng nâng cấp tại https://comic.io.vn/#bang-gia"
+                ),
+            )
 
 
 def he_so_luot_theo_engine(engine_name: str | None, *, co_byok: bool = False) -> float:
