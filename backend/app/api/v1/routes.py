@@ -2518,9 +2518,9 @@ async def doc_truyen_gui_trang(
         bam_thi_giac_goc = await run_in_threadpool(tinh_bam_thi_giac, data)
         la_som_3 = engine is TranslationEngine.llm_context and not la_ultra_3_luot and not la_pro_2_luot
         hau_to_tier = (
-            "_ultra3v4"
+            "_ultra3v5"
             if la_ultra_3_luot
-            else ("_pro2v4" if la_pro_2_luot else ("_som3v4" if la_som_3 else "_m1v4"))
+            else ("_pro2v5" if la_pro_2_luot else ("_som3v5" if la_som_3 else "_m1v5"))
         )
         bam_anh = f"{bam_anh_goc}{hau_to_tier}"
         bam_thi_giac = f"{bam_thi_giac_goc}{hau_to_tier}" if bam_thi_giac_goc else None
@@ -2720,9 +2720,9 @@ async def doc_truyen_lay_trang(
                     and "[CHẾ ĐỘ AI PRO 2 LƯỢT" not in td_cache
                 )
                 hau_to_cache = (
-                    "_ultra3v4"
+                    "_ultra3v5"
                     if "[CHẾ ĐỘ ULTRA CLOUD AI 3 LƯỢT" in td_cache
-                    else ("_pro2v4" if "[CHẾ ĐỘ AI PRO 2 LƯỢT" in td_cache else ("_som3v4" if la_som_cache else "_m1v4"))
+                    else ("_pro2v5" if "[CHẾ ĐỘ AI PRO 2 LƯỢT" in td_cache else ("_som3v5" if la_som_cache else "_m1v5"))
                 )
                 bam_anh = f"{bam_anh_goc}{hau_to_cache}"
                 bam_thi_giac = f"{bam_thi_giac_goc}{hau_to_cache}" if bam_thi_giac_goc else None

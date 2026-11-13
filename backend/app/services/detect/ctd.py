@@ -370,7 +370,14 @@ def loc_va_thu_hep_khung_ctd(
             )
         )
 
+    # Bắt nét chữ thò nhẹ ngoài mép khung (<= 12px) và lọc nhiễu nét vẽ khuôn mặt khỏi `mat_na_chu`
+    # TRƯỚC bước phục hồi `rem` để nét cuối chữ thò nhẹ (như chữ `'S`) được gộp vào khung mẹ
+    # thay vì tách thành hộp mồ côi riêng lẻ cản trở khung mẹ.
+    if has_mask and mat_na_chu is not None:
+        da_loc = lam_sach_mat_na_chu_tren_tranh(anh_gray, mat_na_chu, da_loc)
+
     # Phục hồi các cụm chữ nổi thật mà đầu `blk` bỏ sót nhưng đầu `seg` (`mat_na_chu`) đã phân đoạn rõ
+    so_truoc_rem = len(da_loc)
     if has_mask:
         rem = (mat_na_chu > 0).astype(np.uint8) * 255
         for reg in da_loc:
@@ -429,7 +436,7 @@ def loc_va_thu_hep_khung_ctd(
                     )
                 )
 
-    if has_mask and mat_na_chu is not None:
+    if has_mask and mat_na_chu is not None and len(da_loc) > so_truoc_rem:
         da_loc = lam_sach_mat_na_chu_tren_tranh(anh_gray, mat_na_chu, da_loc)
 
     return da_loc

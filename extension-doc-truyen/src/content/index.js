@@ -2440,19 +2440,25 @@ void (async () => {
 
         laMangToiDacPre.fill(0)
         let demMangToiPre = 0
-        for (let py = 3; py < rh - 3; py += 1) {
+        for (let py = 0; py < rh; py += 1) {
           const base = py * rw
-          for (let px = 3; px < rw - 3; px += 1) {
+          const y7a = Math.max(0, py - 3)
+          const y7b = Math.min(rh - 1, py + 3)
+          for (let px = 0; px < rw; px += 1) {
             const pos = base + px
             if (lumPx[pos] > 68) continue
+            const x7a = Math.max(0, px - 3)
+            const x7b = Math.min(rw - 1, px + 3)
             let cntDark7 = 0
-            for (let dy7 = -3; dy7 <= 3; dy7 += 1) {
-              const b7 = (py + dy7) * rw + px
-              for (let dx7 = -3; dx7 <= 3; dx7 += 1) {
-                if (lumPx[b7 + dx7] <= 72) cntDark7 += 1
+            let tot7 = 0
+            for (let yy7 = y7a; yy7 <= y7b; yy7 += 1) {
+              const b7 = yy7 * rw
+              for (let xx7 = x7a; xx7 <= x7b; xx7 += 1) {
+                tot7 += 1
+                if (lumPx[b7 + xx7] <= 72) cntDark7 += 1
               }
             }
-            if (cntDark7 >= 38) {
+            if (cntDark7 >= Math.ceil(tot7 * 0.77)) {
               laMangToiDacPre[pos] = 1
               if (px >= qx0 && px < qx1 && py >= qy0 && py < qy1) demMangToiPre += 1
             }
@@ -2855,7 +2861,25 @@ void (async () => {
               if (laMangToiDacPre[np]) mangToi += 1
             }
           }
-          const tong = mau.length
+          let tong = mau.length
+          if (tong < 4 && bk < 18) {
+            const yWa = Math.max(0, pyC - 18)
+            const yWb = Math.min(rh - 1, pyC + 18)
+            const xWa = Math.max(0, pxC - 18)
+            const xWb = Math.min(rw - 1, pxC + 18)
+            for (let yy = yWa; yy <= yWb; yy += 3) {
+              const rOff = yy * rw
+              for (let xx = xWa; xx <= xWb; xx += 3) {
+                const np = rOff + xx
+                if (matNaNetServer[np]) continue
+                const l = lumPx[np]
+                mau.push(l)
+                if (l < 224) khongTrang += 1
+                if (laMangToiDacPre[np]) mangToi += 1
+              }
+            }
+            tong = mau.length
+          }
           if (tong < 4) {
             return {
               medLum: lumNenTrungVi,
@@ -2906,6 +2930,7 @@ void (async () => {
               const oRiaMask = !matNaNetServer[pos - 1] || !matNaNetServer[pos + 1] || !matNaNetServer[pos - rw] || !matNaNetServer[pos + rw]
               const coHaloCanhNet = coHaloTrong5x5(px, py)
               if (!laDaoChieuHalo && !laNenToiChuNoi && oRiaMask && ketNoiToiBien[pos] && lumPx[pos] < 85 && !coHaloCanhNet) continue
+              if (!laDaoChieuHalo && !laNenToiChuNoi && ketNoiToiBien[pos] && laMangToiDacPre[pos] && lumPx[pos] < 48) continue
               if (laDaoChieuHalo) {
                 if (lumPx[pos] < 135 && lumPx[pos] > 115 && satPx[pos] < 30 && !laMauDamNet[pos]) continue
               } else {
@@ -2921,9 +2946,10 @@ void (async () => {
                   giuLoi = laMucToi || laHaloSang || Boolean(laMauDamNet[pos])
                 } else {
                   // Dải 3: Nền tóc đen / áo tối (#18) hoặc nền màu -> xoá cả chữ lẫn halo xám-trắng
+                  const khongPhaiGiayTrangHo = lumPx[pos] < 242 || nenCb.coMangToi || nenCb.medLum < 220 || doNenCucBoNgoaiMask(px, py, 8).medLum < 232
                   giuLoi = (nenCb.medLum < 85 && !laNenMauThuc)
                     ? (lumPx[pos] >= 34 || Boolean(laToiNet[pos] && coHaloCanhNet))
-                    : (lumPx[pos] < 235 || satPx[pos] >= 30 || Boolean(laMauDamNet[pos] || laTrangDac[pos] || laSangDac[pos]) || lumPx[pos] >= 165)
+                    : ((lumPx[pos] < 235 || satPx[pos] >= 30 || Boolean(laMauDamNet[pos] || laTrangDac[pos] || laSangDac[pos]) || lumPx[pos] >= 165) && khongPhaiGiayTrangHo)
                 }
                 if (!giuLoi) continue
               }
@@ -2937,6 +2963,24 @@ void (async () => {
             }
           }
           if (coCompChon) {
+            for (let i = 0; i < dsCompChu.length; i += 1) {
+              const c = dsCompChu[i]
+              if (!c.chon || c.tyLeVienHalo < 0.65 || c.w > 34 || c.h > 42) continue
+              if (c.x1 < sxMin - 6 || c.x0 > sxMax + 6 || c.y1 < syMin - 6 || c.y0 > syMax + 6) continue
+              if (c.x0 >= cx0 && c.x1 < cx1 && c.y0 >= cy0 && c.y1 < cy1) continue
+              for (let k = 0; k < c.pts.length; k += 1) {
+                const pC = c.pts[k]
+                if (ketNoiToiBien[pC] || vungBienBaoVe[pC]) continue
+                laLoiChu[pC] = 1
+                laChuGoc[pC] = 1
+                const xp = pC % rw
+                const yp = (pC - xp) / rw
+                if (xp < sxMin) sxMin = xp
+                if (yp < syMin) syMin = yp
+                if (xp + 1 > sxMax) sxMax = xp + 1
+                if (yp + 1 > syMax) syMax = yp + 1
+              }
+            }
             hx0 = Math.min(hx0, Math.max(1, sxMin - 3))
             hy0 = Math.min(hy0, Math.max(1, syMin - 3))
             hx1 = Math.max(hx1, Math.min(rw - 1, sxMax + 3))
@@ -3168,10 +3212,11 @@ void (async () => {
                 if (demMatNaServer >= 12) {
                   if (!laDaoChieuHalo && lumPx[npos] >= 238 && satPx[npos] < 28 && !coNenKhongTrangLanCan(nx, ny, 4)) continue
                   if (d2 > 1 && !(coMangToiLon && lumPx[npos] >= 130 && !laMangToiDacPre[npos])) continue
-                  const laDiemMaskCoHalo = Boolean(matNaNetServer[npos] && coHaloTrong5x5(nx, ny))
-                  if (!laDaoChieuHalo && laToiNet[npos] && !laLoiChu[npos] && lumPx[npos] < nguongBaoVeToiDil && !laDiemMaskCoHalo) continue
+                  const laKhoiToiBien = Boolean(ketNoiToiBien[npos] && laMangToiDacPre[npos] && lumPx[npos] < 48)
+                  const laDiemMaskCoHalo = Boolean(!laKhoiToiBien && matNaNetServer[npos] && coHaloTrong5x5(nx, ny))
+                  if (!laDaoChieuHalo && !laLoiChu[npos] && lumPx[npos] < (laMangToiDacPre[npos] ? 48 : nguongBaoVeToiDil) && !laDiemMaskCoHalo) continue
                 } else {
-                  if (!laDaoChieuHalo && laToiNet[npos] && !laLoiChu[npos] && lumPx[npos] < nguongBaoVeToiDil) continue
+                  if (!laDaoChieuHalo && !laLoiChu[npos] && (laToiNet[npos] || laMangToiDacPre[npos]) && lumPx[npos] < (laMangToiDacPre[npos] ? 48 : nguongBaoVeToiDil)) continue
                 }
                 vungXoaChu[npos] = 1
               }
@@ -3395,6 +3440,12 @@ void (async () => {
             }
             if (cuoi >= 280 || (chamBienToi && cuoi >= 90) || (coMangToiLon && chamXoaMangToi && cuoi >= 16)) {
               const laNenScreentoneXam = !laNenMauThuc && lumNenTrungVi < 210 && doNhieuHat >= 12
+              let demLoiToiDac = 0
+              for (let k = 0; k < cuoi; k += 1) {
+                const posK = hangDoi[k]
+                if (laMangToiDacPre[posK] && lum3x3[posK] <= 40) demLoiToiDac += 1
+              }
+              const laKhoiToiDacLon = !laNenScreentoneXam && demLoiToiDac >= 45
               for (let k = 0; k < cuoi; k += 1) {
                 const pos = hangDoi[k]
                 if (lumPx[pos] <= 68 && !vungXoaChu[pos]) {
@@ -3413,7 +3464,25 @@ void (async () => {
                   while (ddT < 6 && yt + ddT + 1 < rh && (lumPx[pos + (ddT + 1) * rw] <= 72 || vungXoaChu[pos + (ddT + 1) * rw])) ddT += 1
                   const wR = dlR + drR + 1
                   const hR = duR + ddR + 1
-                  if ((dlT + drT + 1) >= 5 && (duT + ddT + 1) >= 5 && wR >= 4 && hR >= 3 && Math.max(wR, hR) >= 5) laMangToiDac[pos] = 1
+                  const ganLoiToi5 = laKhoiToiDacLon && (() => {
+                    const yA = Math.max(0, yt - 5), yB = Math.min(rh - 1, yt + 5)
+                    const xA = Math.max(0, xt - 5), xB = Math.min(rw - 1, xt + 5)
+                    for (let yy = yA; yy <= yB; yy += 1) {
+                      const rO = yy * rw
+                      for (let xx = xA; xx <= xB; xx += 1) {
+                        const pK = rO + xx
+                        if (laMangToiDacPre[pK] && lum3x3[pK] <= 40) return true
+                      }
+                    }
+                    return false
+                  })()
+                  const vuotCauHen = laKhoiToiDacLon && lumPx[pos] <= 48 && (
+                    ((dlT + drT + 1) >= 5 && (duT + ddT + 1) >= 5) ||
+                    (ganLoiToi5 && (dlT + drT + 1) >= 3 && (duT + ddT + 1) >= 3 && Math.max(dlT + drT + 1, duT + ddT + 1) >= 5)
+                  )
+                  if (vuotCauHen || ((dlT + drT + 1) >= 5 && (duT + ddT + 1) >= 5 && wR >= 4 && hR >= 3 && Math.max(wR, hR) >= 5)) {
+                    laMangToiDac[pos] = 1
+                  }
                 }
               }
             }
@@ -3445,6 +3514,7 @@ void (async () => {
             let vienToiRem = 0
             let vienKhacRem = 0
             let remX0 = px, remX1 = px, remY0 = py, remY1 = py
+            let xaMatNaRem = false
             while (dau < cuoi) {
               const pR = hangDoi[dau++]
               const xr = pR % rw
@@ -3453,6 +3523,7 @@ void (async () => {
               if (xr > remX1) remX1 = xr
               if (yr < remY0) remY0 = yr
               if (yr > remY1) remY1 = yr
+              if (demMatNaServer >= 12 && !ganMatNa6px(xr, yr)) xaMatNaRem = true
               if (xr <= remMinX || xr >= remMaxX - 1 || yr <= remMinY || yr >= remMaxY - 1) chamBienRem = true
               for (let dyR = -1; dyR <= 1; dyR += 1) {
                 const nyr = yr + dyR
@@ -3483,8 +3554,9 @@ void (async () => {
               !chamBienRem &&
               chamXoaRem &&
               chamToiRem &&
+              (!xaMatNaRem || demMatNaServer < 12) &&
               vienToiRem >= (vienToiRem + vienKhacRem) * 0.72 &&
-              cuoi <= Math.max(950, Math.round(dienTichHopGoc * 0.20))
+              cuoi <= (demMatNaServer >= 12 ? 240 : Math.max(950, Math.round(dienTichHopGoc * 0.20)))
             )
             if (laRemNho || laRemLonTrenToi) {
               for (let k = 0; k < cuoi; k += 1) {
@@ -3506,9 +3578,10 @@ void (async () => {
                   for (let aIdx = 0; aIdx < 4; aIdx += 1) {
                     const npA = nbsA[aIdx]
                     if (npA >= 0 && !vungBienBaoVe[npA] && !laMangToiDac[npA] && lumPx[npA] >= 85) {
-                      vungXoaChu[npA] = 1
                       const xa = npA % rw
                       const ya = (npA - xa) / rw
+                      if (demMatNaServer >= 12 && !ganMatNa6px(xa, ya)) continue
+                      vungXoaChu[npA] = 1
                       if (xa < zx0) zx0 = xa
                       if (xa + 1 > zx1) zx1 = xa + 1
                       if (ya < zy0) zy0 = ya
@@ -4038,7 +4111,25 @@ void (async () => {
             }
           }
           if (!laDaoChieuHalo && laDaiTrangManh[pos]) {
-            if (laTuongTrangSach || coMangToiLon || kcLoi[pos] > 0) return false
+            if (laTuongTrangSach || kcLoi[pos] > 0) return false
+            if (coMangToiLon) {
+              let ganToiHoacXoa = lumPx[pos] < 244
+              for (let dyG = -4; dyG <= 4 && !ganToiHoacXoa; dyG += 1) {
+                const nyG = pyS + dyG
+                if (nyG < 0 || nyG >= rh) continue
+                const rG = nyG * rw
+                for (let dxG = -4; dxG <= 4; dxG += 1) {
+                  const nxG = pxS + dxG
+                  if (nxG < 0 || nxG >= rw) continue
+                  const pG = rG + nxG
+                  if (laMangToiDac[pG] || (Math.abs(dxG) <= 2 && Math.abs(dyG) <= 2 && vungXoaChu[pG])) {
+                    ganToiHoacXoa = true
+                    break
+                  }
+                }
+              }
+              if (ganToiHoacXoa) return false
+            }
             if (
               (pxS > 1 && vungXoaChu[pos - 2]) ||
               (pxS + 2 < rw && vungXoaChu[pos + 2]) ||
@@ -4055,6 +4146,7 @@ void (async () => {
           if (!laDaoChieuHalo && laNenMauThuc && laSangDac[pos] && lumNenTrungVi < 218) return false
           if (lumPx[pos] <= 90 && !laNenMauThuc) {
             if (laMangToiDac[pos]) {
+              if (lumPx[pos] <= 38) return true
               if (dxR !== 0 || dyR !== 0) {
                 const nxM = pxS + dxR
                 const nyM = pyS + dyR
@@ -4146,6 +4238,7 @@ void (async () => {
         const phaGBuf = new Int16Array(nChe).fill(-1)
         const phaBBuf = new Int16Array(nChe).fill(-1)
         const cumToiMask = new Uint8Array(nChe)
+        const tySoToiBuf = new Float32Array(nChe)
         for (let py = 0; py < chChe; py += 1) {
           const roiY = minY + py
           const baseY = roiY * rw
@@ -4158,6 +4251,7 @@ void (async () => {
             let wSang = 0, rSang = 0, gSang = 0, bSang = 0
             let wToi = 0, rToi = 0, gToi = 0, bToi = 0
             let demTiaTrangTinh = 0
+            let kcToiMin = 999
             const tiaToi = [false, false, false, false, false, false, false, false]
             let mauPhaR = -1, mauPhaG = -1, mauPhaB = -1, kcPhaTot = 999
             const phaX = roiX & 3
@@ -4188,7 +4282,9 @@ void (async () => {
                 const nx = roiX + dx * d
                 const ny = roiY + dy * d
                 if (nx < rayMinX || nx >= rayMaxX || ny < rayMinY || ny >= rayMaxY) {
-                  if (hIdx < 4 && !daQuaVungTrang && coMangToiLon && !laNenMauThuc) {
+                  const bienX = Math.max(0, Math.min(rw - 1, nx))
+                  const bienY = Math.max(0, Math.min(rh - 1, ny))
+                  if (hIdx < 4 && !daQuaVungTrang && coMangToiLon && !laNenMauThuc && lumPx[bienY * rw + bienX] < 180) {
                     const bx = Math.max(rayMinX + 5, Math.min(rayMaxX - 6, nx))
                     const by = Math.max(rayMinY + 5, Math.min(rayMaxY - 6, ny))
                     const chamBienDoc = (nx < rayMinX || nx >= rayMaxX)
@@ -4216,7 +4312,7 @@ void (async () => {
                         }
                       }
                     }
-                    if (kcToiBien <= 16 && kcToiBien < kcSangBien) {
+                    if (kcToiBien <= 6 && kcToiBien < kcSangBien) {
                       const kcThucB = d * heSoCheo
                       const wB = 1 / Math.pow(kcThucB + 1.0, 2.35)
                       wToi += wB
@@ -4224,6 +4320,7 @@ void (async () => {
                       gToi += gBien * wB
                       bToi += bBien * wB
                       tiaToi[hIdx] = true
+                      if (kcThucB < kcToiMin) kcToiMin = kcThucB
                     }
                   }
                   break
@@ -4254,6 +4351,11 @@ void (async () => {
                 ) {
                   rm = gm = bm = (lum3x3[npos] + lum3x3[npos2]) * 0.5
                   lm = rm
+                } else if (!laNenMauThuc && laMangToiDac[npos]) {
+                  rm = Math.min(data[i1], data[i2])
+                  gm = Math.min(data[i1 + 1], data[i2 + 1])
+                  bm = Math.min(data[i1 + 2], data[i2 + 2])
+                  lm = 0.299 * rm + 0.587 * gm + 0.114 * bm
                 } else {
                   rm = (data[i1] + data[i2]) * 0.5
                   gm = (data[i1 + 1] + data[i2 + 1]) * 0.5
@@ -4266,6 +4368,7 @@ void (async () => {
                   gToi += gm * w
                   bToi += bm * w
                   tiaToi[hIdx] = true
+                  if (kcThuc < kcToiMin) kcToiMin = kcThuc
                 } else {
                   wSang += w
                   rSang += rm * w
@@ -4317,20 +4420,18 @@ void (async () => {
             const nenSangCoMangToi = !laNenToiChuNoi && !laNenMauThuc && lumNenTrungVi >= 220
             const namTrongMangToi = nenSangCoMangToi
               ? Boolean(
-                  wSang === 0 ||
+                  (wSang === 0 && (demTiaToi >= 3 || kepNgangToi || kepDocToi || (demTiaToi >= 2 && kcToiMin <= 6))) ||
                   (demTiaToi >= 6 && wToi >= wSang * 0.85) ||
                   (demTiaToi >= 5 && wToi >= wSang * 1.15) ||
                   (demTiaToi >= 4 && wToi >= wSang * 1.05) ||
                   ((kepNgangToi || kepDocToi) && wToi >= wSang * 0.90) ||
-                  (kepNgangToi && kepDocToi && wToi >= wSang * 0.95) ||
-                  (coMangToiLon && tiaToi[2] && tiaToi[3] && wToi >= wSang * 0.55)
+                  (kepNgangToi && kepDocToi && wToi >= wSang * 0.95)
                 )
               : Boolean(
-                  (laNenToiChuNoi && (wToi >= wSang * 0.65 || (demTiaToi >= 4 && wToi >= wSang * 0.55))) ||
-                  wSang === 0 ||
+                  (laNenToiChuNoi && wSang > 0 && (wToi >= wSang * 0.65 || (demTiaToi >= 4 && wToi >= wSang * 0.55))) ||
+                  (wSang === 0 && (demTiaToi >= 3 || kepNgangToi || kepDocToi || (demTiaToi >= 2 && kcToiMin <= 8) || (laNenToiChuNoi && kcToiMin <= 8))) ||
                   (demTiaToi >= 5 && wToi >= wSang * 0.65) ||
                   (coMangToiLon && demTiaToi >= 4 && wToi >= wSang * 0.72) ||
-                  (coMangToiLon && tiaToi[2] && tiaToi[3] && wToi >= wSang * 0.55) ||
                   kepNgangToi ||
                   kepDocToi ||
                   (!laTuongTrangSach && kepCheoToi && demTiaToi >= 3) ||
@@ -4361,6 +4462,7 @@ void (async () => {
               gOut = Math.round(gToi / wToi)
               bOut = Math.round(bToi / wToi)
               cumToiMask[idxChe] = 1
+              tySoToiBuf[idxChe] = wSang > 0 ? (wToi / wSang) : demTiaToi
             } else if (wSang > 0) {
               rOut = rSangFb[idxChe]
               gOut = gSangFb[idxChe]
@@ -4370,6 +4472,62 @@ void (async () => {
               gOut = Math.round(gToi / wToi)
               bOut = Math.round(bToi / wToi)
               cumToiMask[idxChe] = 1
+              tySoToiBuf[idxChe] = demTiaToi
+            } else if (!laNenMauThuc && coMangToiLon) {
+              let handledDark = false
+              if (wSang === 0 && wToi === 0) {
+                let demToi5 = 0
+                let coSang5 = false
+                for (let dyZ = -2; dyZ <= 2 && !coSang5; dyZ += 1) {
+                  const nyZ = roiY + dyZ
+                  if (nyZ < 0 || nyZ >= rh) continue
+                  const rZ = nyZ * rw
+                  for (let dxZ = -2; dxZ <= 2; dxZ += 1) {
+                    const nxZ = roiX + dxZ
+                    if (nxZ < 0 || nxZ >= rw) continue
+                    const pZ = rZ + nxZ
+                    if (vungXoaChu[pZ]) continue
+                    if (laMangToiDac[pZ]) demToi5 += 1
+                    if (lumPx[pZ] >= 170) {
+                      coSang5 = true
+                      break
+                    }
+                  }
+                }
+                if (demToi5 >= 2 && !coSang5) {
+                  rOut = 10; gOut = 10; bOut = 10
+                  cumToiMask[idxChe] = 1
+                  tySoToiBuf[idxChe] = 99
+                  handledDark = true
+                }
+              }
+              if (!handledDark) {
+                let sumRx = 0, sumGx = 0, sumBx = 0, cntBx = 0
+                for (let rad = 1; rad <= 12 && cntBx === 0; rad += 1) {
+                  for (let dyZ = -rad; dyZ <= rad; dyZ += 1) {
+                    const nyZ = roiY + dyZ
+                    if (nyZ < 0 || nyZ >= rh) continue
+                    const rZ = nyZ * rw
+                    for (let dxZ = -rad; dxZ <= rad; dxZ += 1) {
+                      if (Math.abs(dxZ) !== rad && Math.abs(dyZ) !== rad) continue
+                      const nxZ = roiX + dxZ
+                      if (nxZ < 0 || nxZ >= rw) continue
+                      const pZ = rZ + nxZ
+                      if (vungXoaChu[pZ] || lumPx[pZ] < 185) continue
+                      const iZ = pZ * 4
+                      sumRx += data[iZ]; sumGx += data[iZ + 1]; sumBx += data[iZ + 2]; cntBx += 1
+                    }
+                  }
+                }
+                if (cntBx > 0) {
+                  rOut = Math.round(sumRx / cntBx)
+                  gOut = Math.round(sumGx / cntBx)
+                  bOut = Math.round(sumBx / cntBx)
+                  rSangFb[idxChe] = rOut
+                  gSangFb[idxChe] = gOut
+                  bSangFb[idxChe] = bOut
+                }
+              }
             }
             rBuf[idxChe] = rOut
             gBuf[idxChe] = gOut
@@ -4377,17 +4535,19 @@ void (async () => {
           }
         }
 
-        const nguongNbToi = laTuongTrangSach ? 3 : 4
-        for (let passM = 0; passM < 3; passM += 1) {
+        for (let passM = 0; passM < 2; passM += 1) {
           const snapToi = new Uint8Array(cumToiMask)
           let coThayDoiToi = false
           for (let py = 0; py < chChe; py += 1) {
             const roiY = minY + py
             for (let px = 0; px < cwChe; px += 1) {
               const idxChe = py * cwChe + px
-              if (!snapToi[idxChe] || rSangFb[idxChe] < 0) continue
               const roiX = minX + px
               let demNbToi = 0
+              let coNbToiNgoai = false
+              let coNbSangNgoai = false
+              let sumRSang = 0, sumGSang = 0, sumBSang = 0, cntSangNb = 0
+              let sumRToi = 0, sumGToi = 0, sumBToi = 0, cntToiNb = 0
               for (let dyM = -1; dyM <= 1; dyM += 1) {
                 const nym = roiY + dyM
                 if (nym < 0 || nym >= rh) continue
@@ -4400,35 +4560,132 @@ void (async () => {
                   if (vungXoaChu[npm]) {
                     const nxChe = px + dxM
                     const nyChe = py + dyM
-                    if (nxChe >= 0 && nxChe < cwChe && nyChe >= 0 && nyChe < chChe && snapToi[nyChe * cwChe + nxChe]) {
-                      demNbToi += 1
+                    if (nxChe >= 0 && nxChe < cwChe && nyChe >= 0 && nyChe < chChe) {
+                      const nCheIdx = nyChe * cwChe + nxChe
+                      if (snapToi[nCheIdx]) {
+                        demNbToi += 1
+                        sumRToi += rBuf[nCheIdx]
+                        sumGToi += gBuf[nCheIdx]
+                        sumBToi += bBuf[nCheIdx]
+                        cntToiNb += 1
+                      } else {
+                        sumRSang += rBuf[nCheIdx]
+                        sumGSang += gBuf[nCheIdx]
+                        sumBSang += bBuf[nCheIdx]
+                        cntSangNb += 1
+                      }
                     }
-                  } else if (laMangToiDac[npm]) {
-                    demNbToi += 1
+                  } else {
+                    const nbLaToi = Boolean(laMangToiDac[npm] || lumPx[npm] <= 42)
+                    if (nbLaToi) {
+                      demNbToi += 1
+                      coNbToiNgoai = true
+                      const iM = npm * 4
+                      sumRToi += data[iM]
+                      sumGToi += data[iM + 1]
+                      sumBToi += data[iM + 2]
+                      cntToiNb += 1
+                    } else {
+                      if (lumPx[npm] >= 155) coNbSangNgoai = true
+                      if (lumPx[npm] >= 185) {
+                        const iM = npm * 4
+                        sumRSang += data[iM]
+                        sumGSang += data[iM + 1]
+                        sumBSang += data[iM + 2]
+                        cntSangNb += 1
+                      }
+                    }
                   }
                 }
               }
-              if (demNbToi <= nguongNbToi) {
-                if (coMangToiLon && roiY > 0 && roiY + 1 < rh) {
-                  const posTren = (roiY - 1) * rw + roiX
-                  const posDuoi = (roiY + 1) * rw + roiX
-                  const toiTren = vungXoaChu[posTren]
-                    ? (py > 0 && Boolean(snapToi[(py - 1) * cwChe + px]))
-                    : Boolean(laMangToiDac[posTren])
-                  const toiDuoi = vungXoaChu[posDuoi]
-                    ? (py + 1 < chChe && Boolean(snapToi[(py + 1) * cwChe + px]))
-                    : Boolean(laMangToiDac[posDuoi])
-                  if (toiTren && toiDuoi) continue
+              if (snapToi[idxChe] === 1) {
+                if (!coNbToiNgoai && tySoToiBuf[idxChe] < 2.2 && (demNbToi <= 1 || (demNbToi === 2 && cntSangNb >= 5))) {
+                  cumToiMask[idxChe] = 0
+                  rBuf[idxChe] = rSangFb[idxChe] >= 0 ? rSangFb[idxChe] : (cntSangNb > 0 ? Math.round(sumRSang / cntSangNb) : Math.round(rNenTrungVi))
+                  gBuf[idxChe] = gSangFb[idxChe] >= 0 ? gSangFb[idxChe] : (cntSangNb > 0 ? Math.round(sumGSang / cntSangNb) : Math.round(gNenTrungVi))
+                  bBuf[idxChe] = bSangFb[idxChe] >= 0 ? bSangFb[idxChe] : (cntSangNb > 0 ? Math.round(sumBSang / cntSangNb) : Math.round(bNenTrungVi))
+                  coThayDoiToi = true
                 }
-                cumToiMask[idxChe] = 0
-                rBuf[idxChe] = rSangFb[idxChe]
-                gBuf[idxChe] = gSangFb[idxChe]
-                bBuf[idxChe] = bSangFb[idxChe]
-                coThayDoiToi = true
+              } else if (coMangToiLon && !laNenMauThuc) {
+                if (!coNbSangNgoai && demNbToi >= 6 && cntToiNb > 0) {
+                  cumToiMask[idxChe] = 1
+                  tySoToiBuf[idxChe] = 10
+                  rBuf[idxChe] = Math.round(sumRToi / cntToiNb)
+                  gBuf[idxChe] = Math.round(sumGToi / cntToiNb)
+                  bBuf[idxChe] = Math.round(sumBToi / cntToiNb)
+                  coThayDoiToi = true
+                }
               }
             }
           }
           if (!coThayDoiToi) break
+        }
+        // Khử mọi đảo tối nhỏ cô lập (`<= 18px`, ví dụ cụm 2x2 / 2x3 tia lạc từ mảng tóc xa) nằm lơ lửng giữa nền sáng và không chạm bất kỳ mảng tối thật nào bên ngoài `vungXoaChu`:
+        {
+          const daDuyetDaoToi = new Uint8Array(nChe)
+          const qDao = new Int32Array(32)
+          for (let py = 0; py < chChe; py += 1) {
+            for (let px = 0; px < cwChe; px += 1) {
+              const sChe = py * cwChe + px
+              if (!cumToiMask[sChe] || daDuyetDaoToi[sChe]) continue
+              let qH = 0, qT = 0
+              let quaLon = false
+              let chamToiThuc = false
+              let sumRS = 0, sumGS = 0, sumBS = 0, cntS = 0
+              daDuyetDaoToi[sChe] = 1
+              qDao[qT++] = sChe
+              while (qH < qT) {
+                const cur = qDao[qH++]
+                const cxC = cur % cwChe
+                const cyC = (cur - cxC) / cwChe
+                const rxC = minX + cxC
+                const ryC = minY + cyC
+                for (let dyD = -1; dyD <= 1; dyD += 1) {
+                  const nyR = ryC + dyD
+                  if (nyR < 0 || nyR >= rh) continue
+                  for (let dxD = -1; dxD <= 1; dxD += 1) {
+                    if (dxD === 0 && dyD === 0) continue
+                    const nxR = rxC + dxD
+                    if (nxR < 0 || nxR >= rw) continue
+                    const npR = nyR * rw + nxR
+                    if (vungXoaChu[npR]) {
+                      const nxC = cxC + dxD
+                      const nyC = cyC + dyD
+                      if (nxC >= 0 && nxC < cwChe && nyC >= 0 && nyC < chChe) {
+                        const nbC = nyC * cwChe + nxC
+                        if (cumToiMask[nbC]) {
+                          if (!daDuyetDaoToi[nbC]) {
+                            daDuyetDaoToi[nbC] = 1
+                            if (qT < 20) qDao[qT++] = nbC
+                            else quaLon = true
+                          }
+                        } else if (rBuf[nbC] >= 185) {
+                          sumRS += rBuf[nbC]; sumGS += gBuf[nbC]; sumBS += bBuf[nbC]; cntS += 1
+                        }
+                      }
+                    } else if (laMangToiDac[npR] || lumPx[npR] <= 68) {
+                      chamToiThuc = true
+                    } else if (lumPx[npR] >= 185) {
+                      const iS = npR * 4
+                      sumRS += data[iS]; sumGS += data[iS + 1]; sumBS += data[iS + 2]; cntS += 1
+                    }
+                  }
+                }
+              }
+              if (!quaLon && !chamToiThuc && qT <= 18 && cntS >= 4) {
+                const fbR = Math.round(sumRS / cntS)
+                const fbG = Math.round(sumGS / cntS)
+                const fbB = Math.round(sumBS / cntS)
+                for (let kD = 0; kD < qT; kD += 1) {
+                  const idxD = qDao[kD]
+                  cumToiMask[idxD] = 0
+                  rBuf[idxD] = rSangFb[idxD] >= 185 ? rSangFb[idxD] : fbR
+                  gBuf[idxD] = gSangFb[idxD] >= 185 ? gSangFb[idxD] : fbG
+                  bBuf[idxD] = bSangFb[idxD] >= 185 ? bSangFb[idxD] : fbB
+                }
+              }
+            }
+          }
         }
 
         // Làm mượt đẳng hướng 2D (giảm xuống 1 vòng nhẹ khi đè lên tranh phức tạp để tránh tạo sương mù xám)
@@ -4515,6 +4772,129 @@ void (async () => {
             outData[pOut + 1] = gFinal
             outData[pOut + 2] = bFinal
             outData[pOut + 3] = 255
+          }
+        }
+        if (!laNenMauThuc && coMangToiLon) {
+          const daKiemVunSang = new Uint8Array(N)
+          for (let py = 0; py < chChe; py += 1) {
+            const roiY = minY + py
+            const baseY = roiY * rw
+            for (let px = 0; px < cwChe; px += 1) {
+              const roiX = minX + px
+              const pos = baseY + roiX
+              if (vungXoaChu[pos] || lumPx[pos] < 20) continue
+              if (lumPx[pos] <= 165) {
+                let ganXoaToi = false
+                let nbR = 0, nbG = 0, nbB = 0
+                for (let dyF = -2; dyF <= 2 && !ganXoaToi; dyF += 1) {
+                  const nyF = roiY + dyF
+                  const pyF = py + dyF
+                  if (nyF < 0 || nyF >= rh || pyF < 0 || pyF >= chChe) continue
+                  for (let dxF = -2; dxF <= 2; dxF += 1) {
+                    const nxF = roiX + dxF
+                    const pxF = px + dxF
+                    if (nxF < 0 || nxF >= rw || pxF < 0 || pxF >= cwChe) continue
+                    const nbPos = nyF * rw + nxF
+                    const nbChe = pyF * cwChe + pxF
+                    if (vungXoaChu[nbPos] && cumToiMask[nbChe] === 1 && rCur[nbChe] <= 28) {
+                      ganXoaToi = true
+                      nbR = rCur[nbChe]
+                      nbG = gCur[nbChe]
+                      nbB = bCur[nbChe]
+                      break
+                    }
+                  }
+                }
+                if (!ganXoaToi) continue
+                let ganSang = false
+                for (let dyS = -2; dyS <= 2 && !ganSang; dyS += 1) {
+                  const nyS = roiY + dyS
+                  if (nyS < 0 || nyS >= rh) continue
+                  const rowS = nyS * rw
+                  for (let dxS = -2; dxS <= 2; dxS += 1) {
+                    const nxS = roiX + dxS
+                    if (nxS < 0 || nxS >= rw) continue
+                    const pS = rowS + nxS
+                    if (!vungXoaChu[pS] && lumPx[pS] >= 175) {
+                      ganSang = true
+                      break
+                    }
+                  }
+                }
+                if (ganSang) continue
+                const pOut = (py * cwChe + px) * 4
+                outData[pOut] = nbR
+                outData[pOut + 1] = nbG
+                outData[pOut + 2] = nbB
+                outData[pOut + 3] = 255
+              } else if (!daKiemVunSang[pos]) {
+                let nbR4 = -1, nbG4 = 0, nbB4 = 0
+                const dir4 = [[-1, 0], [1, 0], [0, -1], [0, 1]]
+                for (let d4 = 0; d4 < 4; d4 += 1) {
+                  const nx4 = roiX + dir4[d4][0]
+                  const ny4 = roiY + dir4[d4][1]
+                  const px4 = px + dir4[d4][0]
+                  const py4 = py + dir4[d4][1]
+                  if (nx4 < 0 || nx4 >= rw || ny4 < 0 || ny4 >= rh || px4 < 0 || px4 >= cwChe || py4 < 0 || py4 >= chChe) continue
+                  const nbPos = ny4 * rw + nx4
+                  const nbChe = py4 * cwChe + px4
+                  if (vungXoaChu[nbPos] && cumToiMask[nbChe] === 1 && rCur[nbChe] <= 28) {
+                    nbR4 = rCur[nbChe]; nbG4 = gCur[nbChe]; nbB4 = bCur[nbChe]
+                    break
+                  }
+                }
+                if (nbR4 < 0) continue
+                let qHead = 0, qTail = 0
+                let chamBienVun = false
+                let vuotGioiHanVun = false
+                daKiemVunSang[pos] = 1
+                hangDoi[qTail++] = pos
+                while (qHead < qTail) {
+                  const pV = hangDoi[qHead++]
+                  const xV = pV % rw
+                  const yV = (pV - xV) / rw
+                  if (xV <= 1 || xV >= rw - 2 || yV <= 1 || yV >= rh - 2) {
+                    chamBienVun = true
+                  }
+                  for (let dyV = -1; dyV <= 1; dyV += 1) {
+                    const nyV = yV + dyV
+                    if (nyV < 0 || nyV >= rh) continue
+                    const rOffV = nyV * rw
+                    for (let dxV = -1; dxV <= 1; dxV += 1) {
+                      if (dxV === 0 && dyV === 0) continue
+                      const nxV = xV + dxV
+                      if (nxV < 0 || nxV >= rw) continue
+                      const npV = rOffV + nxV
+                      if (vungXoaChu[npV] || lumPx[npV] < 140 || daKiemVunSang[npV]) continue
+                      daKiemVunSang[npV] = 1
+                      hangDoi[qTail++] = npV
+                      if (qTail > 10) {
+                        vuotGioiHanVun = true
+                        break
+                      }
+                    }
+                    if (vuotGioiHanVun) break
+                  }
+                  if (vuotGioiHanVun) break
+                }
+                if (!vuotGioiHanVun && !chamBienVun && qTail <= 10) {
+                  for (let kV = 0; kV < qTail; kV += 1) {
+                    const pV = hangDoi[kV]
+                    const xV = pV % rw
+                    const yV = (pV - xV) / rw
+                    const pxV = xV - minX
+                    const pyV = yV - minY
+                    if (pxV >= 0 && pxV < cwChe && pyV >= 0 && pyV < chChe) {
+                      const pOut = (pyV * cwChe + pxV) * 4
+                      outData[pOut] = nbR4
+                      outData[pOut + 1] = nbG4
+                      outData[pOut + 2] = nbB4
+                      outData[pOut + 3] = 255
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       } else {

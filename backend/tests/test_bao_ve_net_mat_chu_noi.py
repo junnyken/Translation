@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
+from app.services.detect.ctd import DetectedRegion, loc_va_thu_hep_khung_ctd
 from app.services.inpaint.mat_na_net import (
     _bao_ve_net_ve_va_da_trang_trong_o,
     loc_nhieu_net_ve_khoi_seg_crop,
@@ -124,3 +125,26 @@ def test_do_mau_chu_bat_vien_halo_trang_tren_nen_hon_hop():
     assert m_sach is not None
     assert m_sach.mau == (0, 0, 0)
     assert m_sach.mau_vien is None
+
+
+def test_loc_va_thu_hep_khung_ctd_mo_rong_net_chu_tho_ra_khong_tach_hop_moi(tmp_path: Path):
+    anh = np.full((140, 180, 3), 255, dtype=np.uint8)
+    seg = np.zeros((140, 180), dtype=np.uint8)
+
+    # Hai cột chữ tách biệt + một chữ cái lớn ở mép phải có thân nằm từ x=122..140, cao 36px
+    for bx in (40, 68, 96):
+        anh[40:76, bx : bx + 8] = 10
+        seg[40:76, bx : bx + 8] = 255
+    anh[40:76, 122:140] = 10
+    seg[40:76, 122:140] = 255
+
+    p_img = tmp_path / "protrude.png"
+    Image.fromarray(anh).save(p_img)
+
+    # Khung ban đầu bị cắt mất 8px bên phải của chữ cuối (x=132..140, 288px > ngưỡng 80px của `rem`)
+    vung = [DetectedRegion(bbox=BBox(x=36.0, y=36.0, w=96.0, h=44.0), confidence=0.85, cls=0)]
+    ket = loc_va_thu_hep_khung_ctd(str(p_img), vung, seg)
+
+    assert len(ket) == 1, f"Không được tách phần chữ thò <=12px thành hộp mồ côi: {ket}"
+    assert ket[0].bbox.x + ket[0].bbox.w >= 140.0
+
