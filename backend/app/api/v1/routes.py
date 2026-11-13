@@ -2541,12 +2541,10 @@ async def doc_truyen_gui_trang(
         )
 
         bam_anh_goc = tinh_bam_anh(data)
-        bam_thi_giac = await run_in_threadpool(tinh_bam_thi_giac, data)
-        bam_anh = (
-            f"{bam_anh_goc}_ultra3"
-            if la_ultra_3_luot
-            else (f"{bam_anh_goc}_pro2" if la_pro_2_luot else bam_anh_goc)
-        )
+        bam_thi_giac_goc = await run_in_threadpool(tinh_bam_thi_giac, data)
+        hau_to_tier = "_ultra3" if la_ultra_3_luot else ("_pro2v2" if la_pro_2_luot else "")
+        bam_anh = f"{bam_anh_goc}{hau_to_tier}"
+        bam_thi_giac = f"{bam_thi_giac_goc}{hau_to_tier}" if bam_thi_giac_goc else None
         if settings.doc_truyen_dung_cache_anh:
             trung_cache = await thu_sao_chep_tu_cache(
                 session,
@@ -2702,15 +2700,21 @@ async def doc_truyen_lay_trang(
 
                 raw_img = await run_in_threadpool(st_cache.read, page.image_path)
                 bam_anh_goc = tinh_bam_anh(raw_img)
-                bam_thi_giac = await run_in_threadpool(tinh_bam_thi_giac, raw_img)
+                bam_thi_giac_goc = await run_in_threadpool(tinh_bam_thi_giac, raw_img)
                 td_cache = await run_in_threadpool(doc_tu_dien_du_an, project.id)
-                bam_anh = (
-                    f"{bam_anh_goc}_ultra3"
+                hau_to_cache = (
+                    "_ultra3"
                     if "[CHẾ ĐỘ ULTRA CLOUD AI 3 LƯỢT" in td_cache
-                    else (f"{bam_anh_goc}_pro2" if "[CHẾ ĐỘ AI PRO 2 LƯỢT" in td_cache else bam_anh_goc)
+                    else ("_pro2v2" if "[CHẾ ĐỘ AI PRO 2 LƯỢT" in td_cache else "")
                 )
+                bam_anh = f"{bam_anh_goc}{hau_to_cache}"
+                bam_thi_giac = f"{bam_thi_giac_goc}{hau_to_cache}" if bam_thi_giac_goc else None
                 eng_cache = page.translate_engine_override or TranslationEngine.llm_context
-                ds_bam_luu = [b for b in dict.fromkeys([bam_anh, bam_anh_goc, bam_thi_giac or ""]) if b]
+                ds_bam_luu = (
+                    [b for b in dict.fromkeys([bam_anh, bam_thi_giac or ""]) if b]
+                    if hau_to_cache
+                    else [b for b in dict.fromkeys([bam_anh, bam_anh_goc, bam_thi_giac or ""]) if b]
+                )
                 for b_luu in ds_bam_luu:
                     ghi_nhan_trang_anh(
                         b_luu,

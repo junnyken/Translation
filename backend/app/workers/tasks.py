@@ -450,6 +450,26 @@ def _run_detect(job_id: uuid.UUID, *, outbox_claimed: bool = False) -> dict:
                         target_lang=du_an_target_lang,
                         boi_canh=boi_canh_gop,
                     )
+                    if "[CHẾ ĐỘ AI PRO 2 LƯỢT" in (boi_canh_gop or ""):
+                        try:
+                            from app.services.detect.ai_gemini import neo_khung_gemini_theo_ctd
+                            from app.services.detect.ctd import CTDDetector
+
+                            ctd_pro = CTDDetector(
+                                weights_path=settings.model_weights_path,
+                                device=settings.ctd_device,
+                                conf_threshold=settings.ctd_conf_threshold,
+                                raw_min_conf=settings.ctd_raw_min_conf,
+                                nms_iou=settings.ctd_nms_iou,
+                                input_size=settings.ctd_input_size,
+                                intra_op_threads=settings.ctd_intra_op_threads,
+                                cpu_mem_arena=settings.ctd_cpu_mem_arena,
+                            )
+                            ctd_pro_regions = ctd_pro.detect_regions(image_path)
+                            if ctd_pro_regions:
+                                regions = neo_khung_gemini_theo_ctd(regions, ctd_pro_regions, image_path)
+                        except Exception:
+                            pass
                 regions = [
                     r
                     for r in regions

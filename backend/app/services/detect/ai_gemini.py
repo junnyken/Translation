@@ -213,7 +213,7 @@ def can_chinh_khung_theo_bong_bong(
         import cv2
         import numpy as np
 
-        a = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+        a = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
         if a is None or a.size == 0:
             return regions
         H, W = a.shape
@@ -225,11 +225,21 @@ def can_chinh_khung_theo_bong_bong(
         num, labels, stats, _ = cv2.connectedComponentsWithStats(white, connectivity=4)
 
         bubbles: list[dict] = []
+        max_small_hole_w = round(26 * S)
+        max_small_hole_h = round(30 * S)
         for idx in range(1, num):
             x0, y0, bw, bh, area = (int(v) for v in stats[idx])
             x1, y1 = x0 + bw, y0 + bh
             if bw < 22 or bh < 18 or bw > W * 0.92 or bh > H * 0.92 or area < 450:
                 continue
+            cham_bien_trang = x0 <= 2 or y0 <= 2 or x1 >= W - 3 or y1 >= H - 3
+            ty_le_lap = area / max(1, bw * bh)
+            la_bong_dong = (
+                not cham_bien_trang
+                and bw <= W * 0.42
+                and bh <= H * 0.44
+                and ty_le_lap >= 0.40
+            )
             pad = np.zeros((bh + 2, bw + 2), dtype=np.uint8)
             pad[1 : bh + 1, 1 : bw + 1] = (labels[y0:y1, x0:x1] == idx).astype(np.uint8)
             inv = (1 - pad).astype(np.uint8)
@@ -246,7 +256,7 @@ def can_chinh_khung_theo_bong_bong(
                 if hx < 0 or hy < 0 or hx + hw > bw or hy + hh > bh:
                     continue
                 min_val = int(a[y0 + hy : y0 + hy + hh, x0 + hx : x0 + hx + hw].min())
-                if min_val <= 115 and ha >= 4 and hw <= round(48 * S) and hh <= round(48 * S):
+                if min_val <= 115 and ha >= 4 and hw <= min(round(48 * S), max_small_hole_w) and hh <= min(round(48 * S), max_small_hole_h):
                     all_holes.append([x0 + hx, y0 + hy, x0 + hx + hw, y0 + hy + hh, ha, hw, hh])
                 if (
                     min_val <= 105
@@ -323,7 +333,7 @@ def can_chinh_khung_theo_bong_bong(
                             "da_gan": False,
                         }
                     )
-            if len(sub_clusters) > 1:
+            if len(sub_clusters) > 1 and la_bong_dong:
                 merged = True
                 while merged and len(sub_clusters) > 1:
                     merged = False
@@ -404,13 +414,54 @@ def can_chinh_khung_theo_bong_bong(
 
         da_gan_r = [False] * len(regions)
 
-        def _co_khit_muc_trong_hop(hop: BBox) -> BBox:
+        def _co_khit_muc_trong_hop(hop: BBox, *, yeu_cau_nhieu_ky_tu: bool = False) -> BBox:
             rx0 = int(max(0, min(W - 1, round(hop.x))))
             ry0 = int(max(0, min(H - 1, round(hop.y))))
             rx1 = int(max(rx0 + 1, min(W, round(hop.x + hop.w))))
             ry1 = int(max(ry0 + 1, min(H, round(hop.y + hop.h))))
             sub = a[ry0:ry1, rx0:rx1]
-            if sub.size == 0 or float((sub > 200).mean()) < 0.42:
+            sh, sw = sub.shape[:2] if sub.size > 0 else (0, 0)
+            if sub.size == 0 or float((sub > 200).mean()) < 0.25:
+                return hop
+
+            # Loại bỏ mảng đen lớn chạm biên hộp (như mái tóc đen của nhân vật) trước khi co khít theo chữ
+            toi = (sub < 140).astype(np.uint8)
+            n_t, l_t, s_t, _ = cv2.connectedComponentsWithStats(toi, connectivity=8)
+            min_ch_x, min_ch_y = sw, sh
+            max_ch_x, max_ch_y = 0, 0
+            so_ky_tu = 0
+            max_cw = round(42 * S)
+            max_ch = round(44 * S)
+            for t_idx in range(1, n_t):
+                tx, ty, tw_c, th_c, ta = (int(v) for v in s_t[t_idx])
+                cham_bien = tx <= 1 or ty <= 1 or tx + tw_c >= sw - 1 or ty + th_c >= sh - 1
+                if cham_bien and (ta >= sub.size * 0.10 or tw_c > max_cw or th_c > max_ch):
+                    continue
+                if ta >= 6 and 2 <= tw_c <= max_cw and 3 <= th_c <= max_ch:
+                    # Đếm điểm sáng xung quanh ô chữ để tránh giữ đường nét tranh tối
+                    vx0_t, vy0_t = max(0, tx - 1), max(0, ty - 1)
+                    vx1_t, vy1_t = min(sw, tx + tw_c + 1), min(sh, ty + th_c + 1)
+                    vanh = sub[vy0_t:vy1_t, vx0_t:vx1_t]
+                    vanh_toi = toi[vy0_t:vy1_t, vx0_t:vx1_t]
+                    nen_xung_quanh = vanh[vanh_toi == 0]
+                    if nen_xung_quanh.size > 0 and float((nen_xung_quanh >= 195).mean()) < 0.45:
+                        continue
+                    so_ky_tu += 1
+                    min_ch_x = min(min_ch_x, tx)
+                    min_ch_y = min(min_ch_y, ty)
+                    max_ch_x = max(max_ch_x, tx + tw_c)
+                    max_ch_y = max(max_ch_y, ty + th_c)
+
+            if so_ky_tu >= 3 and (max_ch_y - min_ch_y) >= sh * 0.50 and (max_ch_x - min_ch_x) >= 12:
+                pad_px = max(3, round(4 * S))
+                nx0 = max(rx0, rx0 + min_ch_x - pad_px)
+                ny0 = max(ry0, ry0 + min_ch_y - pad_px)
+                nx1 = min(rx1, rx0 + max_ch_x + pad_px)
+                ny1 = min(ry1, ry0 + max_ch_y + pad_px)
+                if nx1 - nx0 >= 12 and ny1 - ny0 >= 12:
+                    return BBox(x=float(nx0), y=float(ny0), w=float(nx1 - nx0), h=float(ny1 - ny0))
+
+            if yeu_cau_nhieu_ky_tu or float((sub > 200).mean()) < 0.42:
                 return hop
             ys, xs = np.where(sub < 145)
             if len(xs) < 12:
@@ -509,6 +560,12 @@ def can_chinh_khung_theo_bong_bong(
                     if ty_le_sang >= 0.45 and ty_le_toi >= 0.02:
                         da_gan_r[r_idx] = True
                         regions[r_idx] = replace(r, bbox=_co_khit_muc_trong_hop(r.bbox))
+                    elif ty_le_sang >= 0.18 and ty_le_toi >= 0.05:
+                        # Chữ nằm gần mảng tối / tóc đen hoặc nền screentone có tương phản nét chữ rõ rệt:
+                        da_gan_r[r_idx] = True
+                        regions[r_idx] = replace(
+                            r, bbox=_co_khit_muc_trong_hop(r.bbox, yeu_cau_nhieu_ky_tu=True)
+                        )
                     elif ty_le_sang >= 0.12 and ty_le_toi >= 0.12:
                         # Chữ không viền bóng nằm trên nền tối / screentone có tương phản nét chữ rõ rệt:
                         da_gan_r[r_idx] = True
@@ -590,6 +647,41 @@ def can_chinh_khung_theo_bong_bong(
             bh_k = by1 - by0
             sub_k = a[by0:by1, bx0:bx1]
             if sub_k.size == 0 or float((sub_k > 210).mean()) < 0.48:
+                continue
+
+            # Chỉ nới rộng khi hộp chữ thực sự nằm bên trong lòng bong bóng trắng có đường viền bao quanh,
+            # không nới tự do trên nền giấy trắng hở (tránh phình đè tranh vẽ).
+            lim_wall_x = max(12, round(W * 0.20))
+            lim_wall_y = max(12, round(H * 0.22))
+            left_hit_wall = False
+            right_hit_wall = False
+            for d_w in range(1, lim_wall_x + 1):
+                if bx0 - d_w < 0:
+                    break
+                if int(a[by0:by1, bx0 - d_w].min()) < 165:
+                    left_hit_wall = True
+                    break
+            for d_w in range(lim_wall_x):
+                if bx1 + d_w >= W:
+                    break
+                if int(a[by0:by1, bx1 + d_w].min()) < 165:
+                    right_hit_wall = True
+                    break
+            up_hit_wall = False
+            down_hit_wall = False
+            for d_w in range(1, lim_wall_y + 1):
+                if by0 - d_w < 0:
+                    break
+                if int(a[by0 - d_w, bx0:bx1].min()) < 165:
+                    up_hit_wall = True
+                    break
+            for d_w in range(lim_wall_y):
+                if by1 + d_w >= H:
+                    break
+                if int(a[by1 + d_w, bx0:bx1].min()) < 165:
+                    down_hit_wall = True
+                    break
+            if not (left_hit_wall and right_hit_wall and (up_hit_wall or down_hit_wall)):
                 continue
 
             # Giới hạn mở rộng ngang tối đa để hộp chữ cân đối trong lòng bóng tròn/bầu dục
@@ -677,6 +769,74 @@ def can_chinh_khung_theo_bong_bong(
         return regions
 
 
+def neo_khung_gemini_theo_ctd(
+    regions_gemini: list[DetectedRegion],
+    regions_ctd: list[DetectedRegion],
+    image_path: str | Path | None = None,
+) -> list[DetectedRegion]:
+    """Neo khít toạ độ hộp chữ Gemini theo khung pixel chuẩn của CTD (1-đối-1) cho Model 2.
+
+    Chỉ thay thế `bbox` khi 1 vùng Gemini khớp duy nhất với 1 vùng CTD (và ngược lại),
+    giữ nguyên toàn bộ text gốc & bản dịch ngữ cảnh từ Gemini.
+    """
+    if not regions_gemini or not regions_ctd:
+        if image_path and regions_gemini:
+            return can_chinh_khung_theo_bong_bong(image_path, regions_gemini)
+        return regions_gemini
+
+    def _iou(a: BBox, b: BBox) -> float:
+        ix0 = max(a.x, b.x)
+        iy0 = max(a.y, b.y)
+        ix1 = min(a.x + a.w, b.x + b.w)
+        iy1 = min(a.y + a.h, b.y + b.h)
+        inter = max(0.0, ix1 - ix0) * max(0.0, iy1 - iy0)
+        if inter <= 0.0:
+            return 0.0
+        union = max(1e-6, a.w * a.h + b.w * b.h - inter)
+        return inter / union
+
+    def _khop(a: BBox, b: BBox) -> bool:
+        if _iou(a, b) >= 0.25:
+            return True
+        acx, acy = a.x + a.w * 0.5, a.y + a.h * 0.5
+        bcx, bcy = b.x + b.w * 0.5, b.y + b.h * 0.5
+        in_ab = b.x <= acx <= b.x + b.w and b.y <= acy <= b.y + b.h
+        in_ba = a.x <= bcx <= a.x + a.w and a.y <= bcy <= a.y + a.h
+        if not (in_ab or in_ba):
+            return False
+        ix0, iy0 = max(a.x, b.x), max(a.y, b.y)
+        ix1, iy1 = min(a.x + a.w, b.x + b.w), min(a.y + a.h, b.y + b.h)
+        inter = max(0.0, ix1 - ix0) * max(0.0, iy1 - iy0)
+        min_a = max(1.0, min(a.w * a.h, b.w * b.h))
+        return (inter / min_a) >= 0.40
+
+    g_to_c: dict[int, list[int]] = {i: [] for i in range(len(regions_gemini))}
+    c_to_g: dict[int, list[int]] = {j: [] for j in range(len(regions_ctd))}
+    for i, rg in enumerate(regions_gemini):
+        for j, rc in enumerate(regions_ctd):
+            if _khop(rg.bbox, rc.bbox):
+                g_to_c[i].append(j)
+                c_to_g[j].append(i)
+
+    ket_qua: list[DetectedRegion] = []
+    for i, rg in enumerate(regions_gemini):
+        c_idxs = g_to_c[i]
+        if len(c_idxs) == 1 and len(c_to_g[c_idxs[0]]) == 1:
+            rc = regions_ctd[c_idxs[0]]
+            ti_le_w = rc.bbox.w / max(1.0, rg.bbox.w)
+            ti_le_h = rc.bbox.h / max(1.0, rg.bbox.h)
+            dt_rc = rc.bbox.w * rc.bbox.h
+            dt_rg = rg.bbox.w * rg.bbox.h
+            if ti_le_w >= 0.55 and ti_le_h >= 0.72 and dt_rc <= dt_rg * 1.25:
+                ket_qua.append(replace(rg, bbox=rc.bbox))
+                continue
+        ket_qua.append(rg)
+
+    if image_path:
+        return can_chinh_khung_theo_bong_bong(image_path, ket_qua)
+    return ket_qua
+
+
 def _giao(a, b) -> float:
     """Phần giao / diện tích khung NHỎ hơn ([ymin, xmin, ymax, xmax])."""
     y0, x0 = max(a[0], b[0]), max(a[1], b[1])
@@ -758,7 +918,7 @@ def cat_dai_hoat_dong_co_chu(
         import numpy as np
         from PIL import Image
 
-        a = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+        a = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
         if a is None or a.shape[0] != cao_goc or a.shape[1] != rong_goc:
             return goc_bytes, 0, cao_goc
 

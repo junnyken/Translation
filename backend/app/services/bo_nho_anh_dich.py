@@ -102,7 +102,7 @@ def _duong_dan_cache_cong_dong(
     target_lang: TargetLang | str | None = None,
 ) -> str:
     tl = _chuan_target_lang(target_lang)
-    return f"cache_cong_dong/{bam_anh}_{source_lang.value}_{tl}_{engine.value}_{che_do.value}.json"
+    return f"cache_cong_dong_v2/{bam_anh}_{source_lang.value}_{tl}_{engine.value}_{che_do.value}.json"
 
 
 def ghi_nhan_trang_anh(
@@ -199,10 +199,21 @@ async def thu_sao_chep_tu_cache(
         return False
     k = _khoa(bam_anh, source_lang, engine, che_do, target_lang=target_lang)
     ung_vien_ids = list(reversed(_BO_NHO_BAM.get(k, [])))
-    bam_anh_goc = bam_anh.removesuffix("_ultra3").removesuffix("_pro2")
-    ds_bam_ung = [b for b in dict.fromkeys([bam_anh, bam_anh_goc, bam_phu or ""]) if b]
+    la_cap_cao = (
+        bam_anh.endswith("_ultra3")
+        or bam_anh.endswith("_pro2")
+        or bam_anh.endswith("_pro2v2")
+    )
+    if la_cap_cao:
+        ds_bam_ung = [b for b in dict.fromkeys([bam_anh, bam_phu or ""]) if b]
+        ds_eng_ung = [engine]
+    else:
+        bam_anh_goc = bam_anh.removesuffix("_ultra3").removesuffix("_pro2v2").removesuffix("_pro2")
+        ds_bam_ung = [b for b in dict.fromkeys([bam_anh, bam_anh_goc, bam_phu or ""]) if b]
+        ds_eng_ung = list(dict.fromkeys([engine, TranslationEngine.llm_context, TranslationEngine.google_fast]))
+
     for b_ung in ds_bam_ung:
-        for eng_ung in dict.fromkeys([engine, TranslationEngine.llm_context, TranslationEngine.google_fast]):
+        for eng_ung in ds_eng_ung:
             k_ung = _khoa(b_ung, source_lang, eng_ung, che_do, target_lang=target_lang)
             for pid_ung in reversed(_BO_NHO_BAM.get(k_ung, [])):
                 if pid_ung not in ung_vien_ids:
@@ -212,7 +223,7 @@ async def thu_sao_chep_tu_cache(
     du_lieu_file: dict | None = None
     if not ung_vien_ids and storage is not None:
         for b_ung in ds_bam_ung:
-            for eng_ung in dict.fromkeys([engine, TranslationEngine.llm_context, TranslationEngine.google_fast]):
+            for eng_ung in ds_eng_ung:
                 rel_ung = _duong_dan_cache_cong_dong(b_ung, source_lang, eng_ung, che_do, target_lang=target_lang)
                 du_lieu_file = await run_in_threadpool(_doc_cache_file_dong_bo, storage, rel_ung)
                 if du_lieu_file:

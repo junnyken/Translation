@@ -441,4 +441,9 @@ $('nut-dich')?.addEventListener('click', async () => {
   }
 })
 
+const elVerPopup = $('phien-ban-popup')
+if (elVerPopup && chrome?.runtime?.getManifest) {
+  elVerPopup.textContent = `v${chrome.runtime.getManifest().version}`
+}
+
 ve()
