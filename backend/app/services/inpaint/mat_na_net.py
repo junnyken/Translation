@@ -49,13 +49,104 @@ def no_va_bit(mat_na: np.ndarray, he_so: float = HE_SO_NO_MAC_DINH) -> np.ndarra
     return cv2.morphologyEx(cv2.dilate(mat_na, k), cv2.MORPH_CLOSE, k)
 
 
+def loc_nhieu_net_ve_khoi_seg_crop(
+    gray: np.ndarray,
+    seg_u8: np.ndarray,
+    img_hw: tuple[int, int] | None = None,
+) -> np.ndarray:
+    """Loại bỏ nét vẽ khuôn mặt, mắt, lông mày và đường viền dài khỏi mặt nạ `seg` trong một ô cắt."""
+    import cv2
+
+    if gray.ndim == 3:
+        gray = cv2.cvtColor(gray, cv2.COLOR_RGB2GRAY)
+    sh, sw = seg_u8.shape[:2]
+    if sh < 8 or sw < 8:
+        return ((seg_u8 > 0).astype(np.uint8)) * 255
+    seg_b = seg_u8 > 0
+    orig_sum = int(np.count_nonzero(seg_b))
+    if orig_sum == 0:
+        return np.zeros((sh, sw), dtype=np.uint8)
+
+    seg_clean = seg_b.copy()
+    ref_dim = max(img_hw) if img_hw else max(sh, sw)
+    max_glyph_h = max(26, round(ref_dim / 1024 * 40))
+    max_art_span = max(42, round(ref_dim / 1024 * 64))
+
+    # 1. Nét mực tối (bỏ qua mảng đen đặc lớn như tóc/áo dày >= 7px hoặc nhiễu nền lan toàn khung) chỉ chạm mép `seg` (`low_scov` / `no_halo_eye`):
+    blk_eroded = cv2.erode((gray <= 32).astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)), iterations=1)
+    nl_b, lbl_b, st_b, _ = cv2.connectedComponentsWithStats(blk_eroded, connectivity=8)
+    large_blk = np.zeros((sh, sw), dtype=np.uint8)
+    for bid in range(1, nl_b):
+        if int(st_b[bid, cv2.CC_STAT_AREA]) >= 120:
+            large_blk[lbl_b == bid] = 1
+    near_large_blk = cv2.dilate(large_blk, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)), iterations=1) > 0
+    dark = ((gray <= 165) & (~near_large_blk)).astype(np.uint8)
+    nl_d, lbl_d, st_d, _ = cv2.connectedComponentsWithStats(dark, connectivity=8)
+    max_comp_area = int(0.35 * sh * sw)
+    k7_ring = np.ones((7, 7), np.uint8)
+    for did in range(1, nl_d):
+        area = int(st_d[did, cv2.CC_STAT_AREA])
+        if area < 6 or area > max_comp_area:
+            continue
+        dx = int(st_d[did, cv2.CC_STAT_LEFT])
+        dy = int(st_d[did, cv2.CC_STAT_TOP])
+        dw = int(st_d[did, cv2.CC_STAT_WIDTH])
+        dh = int(st_d[did, cv2.CC_STAT_HEIGHT])
+        comp = lbl_d == did
+        inter = int(np.count_nonzero(seg_clean & comp))
+        if inter == 0:
+            continue
+        out_px = area - inter
+        seg_cov = inter / float(area)
+        touches_edge = dx <= 1 or dy <= 1 or (dx + dw) >= sw - 1 or (dy + dh) >= sh - 1
+        if (
+            seg_cov < 0.24
+            or (out_px >= 10 and seg_cov < 0.80)
+            or (out_px >= 5 and seg_cov < 0.78 and (dw >= 2.2 * dh or dh >= 2.2 * dw or touches_edge))
+            or (touches_edge and seg_cov < 0.68 and (area >= 12 or max(dw, dh) >= 10))
+        ):
+            seg_clean[comp] = False
+        elif dw >= 1.7 * dh and dh <= 9 and area <= 95:
+            ly0, ly1 = max(0, dy - 4), min(sh, dy + dh + 4)
+            lx0, lx1 = max(0, dx - 4), min(sw, dx + dw + 4)
+            g_loc = gray[ly0:ly1, lx0:lx1]
+            c_loc = comp[ly0:ly1, lx0:lx1]
+            g_bg = g_loc[~c_loc]
+            comp_u8 = comp.astype(np.uint8)
+            ring = (cv2.dilate(comp_u8, k7_ring) > 0) & (~comp) & (dark == 0)
+            if (
+                g_bg.size >= 16
+                and float((g_bg <= 35).mean()) < 0.15
+                and float(np.median(g_bg)) >= 215.0
+                and int(ring.sum()) >= 8
+                and float((gray[ring] >= 245).mean()) < 0.28
+            ):
+                seg_clean[comp] = False
+
+    # 2. Cụm `seg` dạng nét viền dài/cao mảnh (`tall_contour`) hoặc nhiễu nằm ngoài chữ:
+    nl_s, lbl_s, st_s, _ = cv2.connectedComponentsWithStats(seg_clean.astype(np.uint8), connectivity=8)
+    for sid in range(1, nl_s):
+        sw_c = int(st_s[sid, cv2.CC_STAT_WIDTH])
+        sh_c = int(st_s[sid, cv2.CC_STAT_HEIGHT])
+        sa = int(st_s[sid, cv2.CC_STAT_AREA])
+        fill_ratio = sa / max(1.0, float(sw_c * sh_c))
+        if (sh_c > max_glyph_h and (fill_ratio < 0.40 or sw_c <= 5) and sw_c <= 0.70 * sh_c) or (
+            max(sw_c, sh_c) > max_art_span and fill_ratio < 0.28
+        ):
+            seg_clean[lbl_s == sid] = False
+
+    if int(np.count_nonzero(seg_clean)) < max(8, int(0.35 * orig_sum)):
+        return (seg_b.astype(np.uint8)) * 255
+    return (seg_clean.astype(np.uint8)) * 255
+
+
 def _bao_ve_net_ve_va_da_trang_trong_o(
     anh_o: np.ndarray,
     seg_o: np.ndarray,
     net_no_o: np.ndarray,
 ) -> np.ndarray:
     """Giới hạn mặt nạ nở `net_no_o` trong ô `anh_o` để bảo toàn 100% nét vẽ nhân vật liên thông từ biên
-    (ngón tay, xương hàm, vành tai, điếu thuốc, tia tốc độ) và không nở rộng viền halo qua da/mảng trắng hở (`open_white`).
+    và nét vẽ nội bộ (mắt, lông mày, ngón tay, xương hàm) cùng nền da/nền trắng quanh chữ nổi.
     """
     import cv2
 
@@ -67,22 +158,41 @@ def _bao_ve_net_ve_va_da_trang_trong_o(
         sac = anh_o.max(axis=2).astype(np.int16) - anh_o.min(axis=2).astype(np.int16)
     else:
         sac = np.zeros_like(gray, dtype=np.int16)
+    seg_clean = loc_nhieu_net_ve_khoi_seg_crop(gray, seg_o)
     k3 = np.ones((3, 3), np.uint8)
-    core = ((seg_o > 0) & (gray <= 175)).astype(np.uint8)
+    seg_pos = seg_clean > 0
+    core = (seg_pos & (gray <= 175)).astype(np.uint8)
     if int(core.sum()) < 4:
-        core = (seg_o > 0).astype(np.uint8)
+        core = seg_pos.astype(np.uint8)
     if int(core.sum()) == 0:
         return net_no_o
 
-    # 1. Nét vẽ đen liên thông chạm biên ô cắt và nằm ngoài vùng lõi chữ -> khoá cứng không xoá:
-    dark_line = ((gray <= 135) & (core == 0)).astype(np.uint8)
+    is_halo_on_black = (
+        float((gray <= 32).mean()) >= 0.25
+        and float((seg_pos & (gray >= 175)).mean()) >= 0.03
+    )
+    la_chu_den = (
+        (not is_halo_on_black)
+        and bool(seg_pos.any())
+        and float((gray[seg_pos] <= 170).mean()) >= 0.28
+    )
+
+    # 1. Nét vẽ đen ngoài vùng lõi chữ (biên ô + nét nội bộ với chữ mực đen):
+    nguong_net = 155 if la_chu_den else 135
+    dark_line = ((gray <= nguong_net) & (core == 0)).astype(np.uint8)
     nl_d, lbl_d, st_d, _ = cv2.connectedComponentsWithStats(dark_line, connectivity=8)
     art_block = np.zeros((sh, sw), dtype=bool)
+    max_art_comp = int(0.35 * sh * sw)
     for did in range(1, nl_d):
         dx, dy = int(st_d[did, cv2.CC_STAT_LEFT]), int(st_d[did, cv2.CC_STAT_TOP])
         dw, dh = int(st_d[did, cv2.CC_STAT_WIDTH]), int(st_d[did, cv2.CC_STAT_HEIGHT])
         da = int(st_d[did, cv2.CC_STAT_AREA])
-        if (dx <= 1 or dy <= 1 or dx + dw >= sw - 1 or dy + dh >= sh - 1) and (da >= 18 or max(dw, dh) >= 12):
+        if da > max_art_comp:
+            continue
+        touches_edge = dx <= 1 or dy <= 1 or dx + dw >= sw - 1 or dy + dh >= sh - 1
+        if (touches_edge and (da >= 15 or max(dw, dh) >= 10)) or (
+            la_chu_den and da >= 10 and max(dw, dh) >= 7
+        ):
             art_block[lbl_d == did] = True
 
     # 2. Mảng tóc/áo đen đặc thực sự (sống sót sau co 3x3, loại bỏ viền mảnh 1-2px của ngón tay/mặt):
@@ -124,15 +234,18 @@ def _bao_ve_net_ve_va_da_trang_trong_o(
     )
     d1_core = cv2.dilate(core, k3, iterations=1) > 0
     cho_phep_tren_trang = (core > 0) | (d1_core & (gray < 245) & (~art_block))
-    ket = net_no_o & (~art_block)
+    if la_chu_den:
+        halo_zone = cv2.dilate(core, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)), iterations=1) > 0
+        ket = net_no_o & ((core > 0) | ((d1_core | (halo_zone & (gray > 175))) & (~art_block)))
+    else:
+        ket = net_no_o & (~art_block)
     ket = np.where(open_white, cho_phep_tren_trang, ket)
 
-    # Trường hợp chữ viền sáng trên mảng mực đen đặc (#18): tách nền trắng mở thật bên ngoài seg_o
-    is_halo_on_black = float((gray <= 32).mean()) >= 0.25 and float(((seg_o > 0) & (gray >= 175)).mean()) >= 0.03
+    # Trường hợp chữ viền sáng trên mảng mực đen đặc (#18): tách nền trắng mở thật bên ngoài seg_clean
     if is_halo_on_black:
         k7 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
         w_open_seed = cv2.morphologyEx(
-            ((gray >= 238) & (sac <= 26) & (seg_o == 0)).astype(np.uint8),
+            ((gray >= 238) & (sac <= 26) & (~seg_pos)).astype(np.uint8),
             cv2.MORPH_OPEN,
             k7,
         )
@@ -142,8 +255,10 @@ def _bao_ve_net_ve_va_da_trang_trong_o(
             & (sac <= 26)
             & (~art_block)
         )
-        seg_dil = cv2.dilate((seg_o > 0).astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))) > 0
-        halo_w = seg_dil & (gray >= 110) & (~true_open_white)
+        seg_dil = cv2.dilate(seg_pos.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))) > 0
+        halo_w = (seg_dil & (gray >= 110) & (~true_open_white)) | (
+            seg_dil & near_solid_black & (gray >= 28) & (~true_open_white)
+        )
         dark_in_seg = (seg_dil & (gray < 110)).astype(np.uint8)
         nl_dc, lbl_dc, st_dc, _ = cv2.connectedComponentsWithStats(dark_in_seg, connectivity=8)
         enclosed_core = np.zeros_like(seg_dil, dtype=bool)
@@ -163,14 +278,55 @@ def _bao_ve_net_ve_va_da_trang_trong_o(
         ink_on_open_w = cv2.dilate(
             (seg_dil & (gray < 235) & near_open_w).astype(np.uint8), k3, iterations=1
         ) > 0
-        return (mask_on_black | ink_on_open_w) & (~true_open_white) & (~art_block)
+        return (mask_on_black | ink_on_open_w) & (~true_open_white) & (~(art_block & (~near_solid_black)))
+
+    # Tách đảo viền sáng (halo sticker) nằm gọn trên nền tối/sọc chéo (vd dấu `...` cuối câu "was...")
+    bg_close = cv2.morphologyEx(gray, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11)))
+    bright_patch = ((bg_close >= 232) & (gray >= 195) & (sac <= 30) & (~near_solid_black)).astype(np.uint8)
+    nl_wp, lbl_wp, st_wp, _ = cv2.connectedComponentsWithStats(bright_patch, connectivity=8)
+    core_dil9 = cv2.dilate(core, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9)), iterations=1) > 0
+    k_ring9 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+    halo_island = np.zeros((sh, sw), dtype=bool)
+    max_island_area = int(0.42 * sh * sw)
+    for wid in range(1, nl_wp):
+        wa = int(st_wp[wid, cv2.CC_STAT_AREA])
+        if wa < 12 or wa > max_island_area:
+            continue
+        wx = int(st_wp[wid, cv2.CC_STAT_LEFT])
+        wy = int(st_wp[wid, cv2.CC_STAT_TOP])
+        ww = int(st_wp[wid, cv2.CC_STAT_WIDTH])
+        wh = int(st_wp[wid, cv2.CC_STAT_HEIGHT])
+        if (wx <= 1 and (wx + ww) >= sw - 1) or (wy <= 1 and (wy + wh) >= sh - 1):
+            continue
+        wc = lbl_wp == wid
+        if not np.any(wc & core_dil9):
+            continue
+        w_ring = (cv2.dilate(wc.astype(np.uint8), k_ring9, iterations=1) > 0) & (~wc) & (core == 0)
+        if int(w_ring.sum()) >= 12 and float(np.median(gray[w_ring])) < 195.0:
+            halo_island |= wc
+
+    halo_erase = np.zeros((sh, sw), dtype=bool)
+    if halo_island.any():
+        halo_closed = cv2.morphologyEx(halo_island.astype(np.uint8), cv2.MORPH_CLOSE, k_ring9) > 0
+        halo_fringe = (cv2.dilate(halo_closed.astype(np.uint8), k3, iterations=1) > 0) & (gray >= 125) & (~art_block)
+        halo_erase = halo_closed | halo_fringe
+        ket = ket & (~open_white)
+        ket = np.where(open_white & (~halo_erase), cho_phep_tren_trang, ket)
 
     # Giữ nền giấy trắng / da trắng sạch giữa các dòng chữ: không đục lỗ lớn qua nền trắng sạch
-    bg_close = cv2.morphologyEx(gray, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11)))
-    already_clean_white = (bg_close >= 238) & (gray >= 240) & (sac <= 26) & (~near_solid_black) & (~art_block)
-    ink_on_white = ((gray < 240) | (sac > 26)) & (seg_o > 0)
+    already_clean_white = (
+        (bg_close >= 238)
+        & (gray >= 240)
+        & (sac <= 26)
+        & (~near_solid_black)
+        & (~art_block)
+        & (~halo_erase)
+    )
+    ink_on_white = ((gray < 240) | (sac > 26)) & seg_pos
     ink_fringe = (cv2.dilate(ink_on_white.astype(np.uint8), k3, iterations=1) > 0) & (gray < 248) & (~art_block)
     ket = np.where(already_clean_white, ink_on_white | ink_fringe, ket)
+    if halo_erase.any():
+        ket = ket | halo_erase
     return ket
 
 
@@ -241,10 +397,12 @@ def mat_na_net_tren_tranh(anh: np.ndarray, o: tuple[int, int, int, int]) -> np.n
     den_cc = (sang < 135).astype(np.uint8)
     n_cc, labels_cc, stats_cc, _ = cv2.connectedComponentsWithStats(den_cc, connectivity=8)
     sh_v, sw_v = sang.shape[:2]
+    max_ch_glyph = max(27, round(max(cao, rong) / 1024 * 32))
+    max_cw_glyph = max(175, round(max(cao, rong) / 1024 * 175))
     char_core = np.zeros_like(den_cc)
     for i_cc in range(1, n_cc):
         cx_c, cy_c, cw_c, ch_c, area_c = (int(v) for v in stats_cc[i_cc])
-        if cw_c < 2 or cw_c > 175 or ch_c < 2 or ch_c > 27 or area_c < 3 or area_c > 2200:
+        if cw_c < 2 or cw_c > max_cw_glyph or ch_c < 2 or ch_c > max_ch_glyph or area_c < 3 or area_c > 2200:
             continue
         if cx_c <= 1 or cy_c <= 1 or cx_c + cw_c >= sw_v - 1 or cy_c + ch_c >= sh_v - 1:
             continue
@@ -261,6 +419,10 @@ def mat_na_net_tren_tranh(anh: np.ndarray, o: tuple[int, int, int, int]) -> np.n
         m_chu_halo = cv2.dilate(m_chu_halo.astype(np.uint8), np.ones((3, 3), np.uint8)) > 0
         if m_chu_halo.mean() <= TI_LE_MAT_NA_TOI_DA:
             return m_chu_halo
+        k_halo_nho = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        m_halo_nho = (char_core > 0) | ((cv2.dilate(char_core, k_halo_nho) > 0) & (sang >= 175))
+        if m_halo_nho.mean() <= TI_LE_MAT_NA_TOI_DA:
+            return m_halo_nho
 
     mau_sac_dam = sac >= 48
     k_sat = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 3, 2 * r + 3))
@@ -270,7 +432,7 @@ def mat_na_net_tren_tranh(anh: np.ndarray, o: tuple[int, int, int, int]) -> np.n
         # Chỉ giữ các điểm ruột (đen hoặc màu đậm) nằm sát viền trắng VÀ các điểm viền trắng/đen nằm sát nhau
         loi_co_vien_trang = (den | mau_sac_dam) & trang_no
         vien_trang_co_loi = trang & (cv2.dilate(loi_co_vien_trang.astype(np.uint8), k_sat) > 0)
-        loi_sang_co_vien_den = (trang | mau_sac_dam) & den_no
+        loi_sang_co_vien_den = trang & den_no
         vien_den_co_loi = den & (cv2.dilate(loi_sang_co_vien_den.astype(np.uint8), k_sat) > 0)
         cap_net = loi_co_vien_trang | vien_trang_co_loi | loi_sang_co_vien_den | vien_den_co_loi
         if cap_net.mean() >= TI_LE_VIEN_TOI_THIEU:

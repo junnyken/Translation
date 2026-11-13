@@ -122,7 +122,7 @@ def _mau_vien_phang(mau: np.ndarray) -> np.ndarray | None:
 TI_LE_NEN_DA_SO = 0.6
 
 
-def _to_net_trong_nen_da_so(anh, o, ngoai, lay, mat_na_chu: np.ndarray | None = None) -> bool:
+def _to_net_trong_nen_da_so(anh, o, ngoai, lay, mat_na_chu: np.ndarray | None = None, phu_khac: np.ndarray | None = None) -> bool:
     """E86 — dải viền KHÔNG phẳng toàn bộ, nhưng đa số là MỘT màu nền phẳng (bong bóng trắng không
     viền nằm trên nền trời: khung chữ sát mép bong bóng nên dải viền lẫn màu trời).
 
@@ -231,7 +231,7 @@ def _to_net_trong_nen_da_so(anh, o, ngoai, lay, mat_na_chu: np.ndarray | None = 
                 return False
     giu = cv2.dilate(nen_khac.astype(np.uint8), np.ones((3, 3), np.uint8)).astype(bool)
     anh[y1:y2, x1:x2][~giu] = mau
-    _xoa_net_chu_tho_ra_ngoai(anh, (x1, y1, x2, y2), mau, None)
+    _xoa_net_chu_tho_ra_ngoai(anh, (x1, y1, x2, y2), mau, phu_khac, mat_na_chu=mat_na_chu)
     return True
 
 
@@ -240,6 +240,7 @@ def _xoa_net_chu_tho_ra_ngoai(
     o: tuple[int, int, int, int],
     mau: np.ndarray,
     phu_khac: np.ndarray | None = None,
+    mat_na_chu: np.ndarray | None = None,
 ) -> None:
     """Xoá nốt các nét chữ / dấu câu bị bộ nhận diện (Gemini) khoanh hụt thò ra ngoài mép `o` trong lòng bong bóng.
 
@@ -272,8 +273,12 @@ def _xoa_net_chu_tho_ra_ngoai(
 
     cx1, cy1 = x1 - ex1, y1 - ey1
     cx2, cy2 = x2 - ex1, y2 - ey1
-    gan_hop = max(4, min(10, pad // 2))
+    gan_hop = min(5, max(3, pad // 4))
     mat_na_xoa = np.zeros((eh, ew), dtype=np.uint8)
+    seg_vung_d5: np.ndarray | None = None
+    if mat_na_chu is not None and mat_na_chu.shape[:2] == anh.shape[:2]:
+        seg_vung = (mat_na_chu[ey1:ey2, ex1:ex2] > 0).astype(np.uint8)
+        seg_vung_d5 = cv2.dilate(seg_vung, np.ones((5, 5), np.uint8)) > 0
 
     for k in range(1, so):
         bx = int(stats[k, cv2.CC_STAT_LEFT])
@@ -291,7 +296,12 @@ def _xoa_net_chu_tho_ra_ngoai(
             continue
         if area > (w * h * 0.45):
             continue
-        mat_na_xoa[nhan == k] = 255
+        comp_m = nhan == k
+        if seg_vung_d5 is not None:
+            inter_seg = int(np.count_nonzero(comp_m & seg_vung_d5))
+            if inter_seg == 0 or (area >= 12 and (inter_seg / float(area)) < 0.25):
+                continue
+        mat_na_xoa[comp_m] = 255
 
     if not mat_na_xoa.any():
         return
@@ -339,10 +349,14 @@ def to_phang(
             max(0, x1 - KHE_HO - ox1): min(ox2, x2 + KHE_HO) - ox1,
         ] = False
         lay &= ~phu[oy1:oy2, ox1:ox2]
+        phu_khac = np.zeros((cao, rong), dtype=bool)
+        for j, (ox1_j, oy1_j, ox2_j, oy2_j) in enumerate(o):
+            if j != i:
+                phu_khac[oy1_j:oy2_j, ox1_j:ox2_j] = True
         mau_vien = anh[oy1:oy2, ox1:ox2][lay]
         mau = _mau_vien_phang(mau_vien)
         if mau is None:
-            if _to_net_trong_nen_da_so(anh, (x1, y1, x2, y2), (ox1, oy1, ox2, oy2), lay, mat_na_chu=mat_na_chu):
+            if _to_net_trong_nen_da_so(anh, (x1, y1, x2, y2), (ox1, oy1, ox2, oy2), lay, mat_na_chu=mat_na_chu, phu_khac=phu_khac):
                 da_to.append(i)
             else:
                 con_lai.append(i)
@@ -357,6 +371,14 @@ def to_phang(
         if gan_nen.mean() < TI_LE_NEN_TRONG_TOI_THIEU:
             con_lai.append(i)
             continue
+        if mat_na_chu is not None and mat_na_chu.shape[:2] == anh.shape[:2]:
+            import cv2
+
+            seg_o = (mat_na_chu[y1:y2, x1:x2] > 0).astype(np.uint8)
+            seg_d5 = cv2.dilate(seg_o, np.ones((5, 5), np.uint8)) > 0
+            if int(np.count_nonzero((~gan_nen) & (~seg_d5))) >= 6:
+                con_lai.append(i)
+                continue
         mep = np.ones(gan_nen.shape, dtype=bool)
         mep[MEP_TRONG:-MEP_TRONG, MEP_TRONG:-MEP_TRONG] = False
         if vien_sach:
@@ -381,7 +403,7 @@ def to_phang(
             anh[ty1:ty2, tx1:tx2][vung] = mau
         else:
             anh[y1:y2, x1:x2] = mau
-        _xoa_net_chu_tho_ra_ngoai(anh, (x1, y1, x2, y2), mau, None)
+        _xoa_net_chu_tho_ra_ngoai(anh, (x1, y1, x2, y2), mau, phu_khac, mat_na_chu=mat_na_chu)
         da_to.append(i)
 
     return KetQuaToPhang(da_to=tuple(da_to), con_lai=tuple(con_lai))

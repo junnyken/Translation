@@ -266,4 +266,19 @@ def do_mau_chu(anh: np.ndarray, bbox: BBox) -> MauChu | None:
     m = nhan == k
     m_trong = m & trong
     mau = _trung_vi(o[m_trong]) if int(m_trong.sum()) >= 8 else _trung_vi(o[m])
-    return MauChu(mau=_chuan_hoa(mau))
+    mau_ch = _chuan_hoa(mau)
+    if _do_sang(mau_ch) < 110:
+        xam = o.mean(axis=2)
+        mep_toi = float((xam[mep] < 195).mean())
+        ink_m = ((xam < 130) & trong).astype(np.uint8)
+        if mep_toi >= 0.08 and int(ink_m.sum()) >= 8:
+            import cv2
+
+            d1 = cv2.dilate(ink_m, np.ones((3, 3), np.uint8)) > 0
+            d2 = cv2.dilate(ink_m, np.ones((7, 7), np.uint8)) > 0
+            ring = d2 & (~d1) & (xam >= 130)
+            ring_trang = float((xam[ring] >= 210).mean()) if ring.any() else 0.0
+            if int(ring.sum()) >= 6 and ring_trang >= 0.48:
+                vien_halo = float(max(2, round(max(cao, rong) / 1024 * 2.5)))
+                return MauChu(mau=mau_ch, mau_vien=(255, 255, 255), vien=vien_halo)
+    return MauChu(mau=mau_ch)

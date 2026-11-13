@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
 import threading
 import time
 import uuid
@@ -109,7 +110,7 @@ def get_detector():
         from app.services.detect.ctd import CTDDetector
 
         _detector = CTDDetector(
-            weights_path=settings.model_weights_path,
+            weights_path=_duong_dan_ctd_hieu_luc(),
             device=settings.ctd_device,
             conf_threshold=settings.ctd_conf_threshold,
             raw_min_conf=settings.ctd_raw_min_conf,
@@ -124,6 +125,22 @@ def get_detector():
     return _detector
 
 
+def _duong_dan_ctd_hieu_luc() -> str:
+    """Ưu tiên đường dẫn CTD đang tồn tại trên đĩa trước khi fallback về cấu hình mặc định."""
+    cand_raw = str(settings.model_weights_path or "").strip()
+    if cand_raw and Path(cand_raw).is_file():
+        return cand_raw
+    for alt in (
+        os.environ.get("CTD_WEIGHTS_PATH", ""),
+        "/models/comic-text-detector.onnx",
+        str(Path(__file__).resolve().parents[3] / "models" / "comic-text-detector.onnx"),
+    ):
+        alt_s = str(alt or "").strip()
+        if alt_s and Path(alt_s).is_file():
+            return alt_s
+    return cand_raw
+
+
 def get_ctd_detector():
     """Trả `CTDDetector` chia sẻ an toàn luồng trong process để không nạp lại weight 91MB mỗi trang."""
     global _ctd_detector
@@ -134,7 +151,7 @@ def get_ctd_detector():
 
                 arena = False if settings.detect_engine == "ai_gemini" else settings.ctd_cpu_mem_arena
                 _ctd_detector = CTDDetector(
-                    weights_path=settings.model_weights_path,
+                    weights_path=_duong_dan_ctd_hieu_luc(),
                     device=settings.ctd_device,
                     conf_threshold=settings.ctd_conf_threshold,
                     raw_min_conf=settings.ctd_raw_min_conf,
@@ -464,7 +481,8 @@ def _run_detect(job_id: uuid.UUID, *, outbox_claimed: bool = False) -> dict:
 
                         ctd_raw, mat_na_chu_luu = _chay_ctd_va_mat_na(image_path)
                         ctd_som_regions = loc_va_thu_hep_khung_ctd(image_path, ctd_raw, mat_na_chu_luu)
-                    except Exception:
+                    except Exception as exc:
+                        logger.warning("CTD SoM pre-detect thất bại, chuyển fallback: %s", exc, exc_info=True)
                         ctd_som_regions = None
 
                 if ctd_som_regions:

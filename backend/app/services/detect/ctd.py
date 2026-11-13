@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
@@ -429,4 +429,125 @@ def loc_va_thu_hep_khung_ctd(
                     )
                 )
 
+    if has_mask and mat_na_chu is not None:
+        da_loc = lam_sach_mat_na_chu_tren_tranh(anh_gray, mat_na_chu, da_loc)
+
     return da_loc
+
+
+def lam_sach_mat_na_chu_tren_tranh(
+    anh_gray: np.ndarray,
+    mat_na_chu: np.ndarray,
+    regions: list[DetectedRegion],
+) -> list[DetectedRegion]:
+    """Bắt nét chữ thò nhẹ ngoài mép khung (<= 12px) và lọc nhiễu nét vẽ khuôn mặt khỏi `mat_na_chu`."""
+    if not regions or mat_na_chu is None or mat_na_chu.shape[:2] != anh_gray.shape[:2]:
+        return regions
+    import cv2
+    from app.services.inpaint.mat_na_net import loc_nhieu_net_ve_khoi_seg_crop
+
+    H, W = anh_gray.shape[:2]
+    max_pad = 12
+
+    # Tạo mặt nạ sở hữu vùng khác để nới rộng không ăn nhầm sang khung lân cận:
+    boxes = [
+        (
+            max(0, int(round(r.bbox.x))),
+            max(0, int(round(r.bbox.y))),
+            min(W, int(round(r.bbox.x + r.bbox.w))),
+            min(H, int(round(r.bbox.y + r.bbox.h))),
+        )
+        for r in regions
+    ]
+
+    out_regions: list[DetectedRegion] = []
+    for idx, r in enumerate(regions):
+        x0, y0, x1, y1 = boxes[idx]
+        if x1 <= x0 or y1 <= y0:
+            out_regions.append(r)
+            continue
+
+        px0, py0 = max(0, x0 - max_pad), max(0, y0 - max_pad)
+        px1, py1 = min(W, x1 + max_pad), min(H, y1 + max_pad)
+        seg_pad = (mat_na_chu[py0:py1, px0:px1] > 0).astype(np.uint8) * 255
+        if np.count_nonzero(seg_pad) == 0:
+            out_regions.append(r)
+            continue
+
+        seg_pad_clean = loc_nhieu_net_ve_khoi_seg_crop(
+            anh_gray[py0:py1, px0:px1], seg_pad, img_hw=(H, W)
+        )
+        other_mask = np.zeros((py1 - py0, px1 - px0), dtype=bool)
+        for j, (ox0, oy0, ox1, oy1) in enumerate(boxes):
+            if j == idx or ox1 <= px0 or ox0 >= px1 or oy1 <= py0 or oy0 >= py1:
+                continue
+            other_mask[
+                max(0, oy0 - py0) : min(py1 - py0, oy1 - py0),
+                max(0, ox0 - px0) : min(px1 - px0, ox1 - px0),
+            ] = True
+
+        # Bước 1A: Giữ mọi thành phần `seg` sạch chạm vào phần ruột khung hiện tại (kèm cầu nối 3px ở mép cắt)
+        bx0, by0 = x0 - px0, y0 - py0
+        bx1, by1 = x1 - px0, y1 - py0
+        seed_box = np.zeros_like(seg_pad_clean, dtype=bool)
+        seed_box[max(0, by0 - 2) : min(py1 - py0, by1 + 2), max(0, bx0 - 2) : min(px1 - px0, bx1 + 2)] = True
+        in_core_only = np.zeros_like(seg_pad_clean, dtype=bool)
+        in_core_only[by0:by1, bx0:bx1] = True
+
+        # Chỉ bắt phần thò ra gần mép có sẵn chữ:
+        if np.any((seg_pad_clean > 0) & in_core_only):
+            # Gắn 1 cầu nối 3x3 cho chữ đứt nét ngay mép <= 12px
+            merged = cv2.dilate((seg_pad_clean > 0).astype(np.uint8), np.ones((3, 3), np.uint8), iterations=1)
+            nl_c, lbl_c, st_c, _ = cv2.connectedComponentsWithStats(merged, connectivity=8)
+            nx0, ny0, nx1, ny1 = x0, y0, x1, y1
+            for cid in range(1, nl_c):
+                comp = (lbl_c == cid) & (seg_pad_clean > 0)
+                if not np.any(comp & in_core_only):
+                    continue
+                if np.any(comp & other_mask):
+                    # Vẫn giữ phần thuộc chính khung nếu chạm nhẹ, không mở rộng sang khung khác
+                    comp = comp & (~other_mask)
+                ys_c, xs_c = np.where(comp)
+                if ys_c.size == 0:
+                    continue
+                # Chỉ cho phép nới ở cạnh thực sự có nét chữ chạm sát mép trong khung
+                cx_min = px0 + int(xs_c.min())
+                cy_min = py0 + int(ys_c.min())
+                cx_max = px0 + int(xs_c.max()) + 1
+                cy_max = py0 + int(ys_c.max()) + 1
+                nx0 = min(nx0, cx_min)
+                ny0 = min(ny0, cy_min)
+                nx1 = max(nx1, cx_max)
+                ny1 = max(ny1, cy_max)
+            if nx0 != x0 or ny0 != y0 or nx1 != x1 or ny1 != y1:
+                boxes[idx] = (nx0, ny0, nx1, ny1)
+                r = replace(
+                    r,
+                    bbox=BBox(
+                        x=float(nx0),
+                        y=float(ny0),
+                        w=float(nx1 - nx0),
+                        h=float(ny1 - ny0),
+                    ),
+                )
+        out_regions.append(r)
+
+    # Bước 1B: Ghi kết quả `seg` đã lọc nhiễu nét vẽ khuôn mặt trở lại `mat_na_chu` (không đè lên khung khác):
+    for idx, (x0, y0, x1, y1) in enumerate(boxes):
+        if x1 <= x0 or y1 <= y0:
+            continue
+        cleaned = loc_nhieu_net_ve_khoi_seg_crop(
+            anh_gray[y0:y1, x0:x1], mat_na_chu[y0:y1, x0:x1], img_hw=(H, W)
+        )
+        protect_other = np.zeros((y1 - y0, x1 - x0), dtype=bool)
+        for j, (ox0, oy0, ox1, oy1) in enumerate(boxes):
+            if j == idx or ox1 <= x0 or ox0 >= x1 or oy1 <= y0 or oy0 >= y1:
+                continue
+            protect_other[
+                max(0, oy0 - y0) : min(y1 - y0, oy1 - y0),
+                max(0, ox0 - x0) : min(x1 - x0, ox1 - x0),
+            ] = True
+        cur = mat_na_chu[y0:y1, x0:x1]
+        mat_na_chu[y0:y1, x0:x1] = np.where(protect_other, cur, cleaned)
+
+    return out_regions

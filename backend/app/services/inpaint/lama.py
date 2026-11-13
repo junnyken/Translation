@@ -372,12 +372,12 @@ class LamaInpainter:
             dirs8 = ((-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, -1), (-1, 1), (1, 1))
             for cid in range(1, n_cc):
                 area_c = int(st_cc[cid, cv2.CC_STAT_AREA])
-                if area_c < 4 or area_c > 12000:
+                if area_c < 4 or area_c > 120000:
                     continue
-                bx = max(0, int(st_cc[cid, cv2.CC_STAT_LEFT]) - 28)
-                by = max(0, int(st_cc[cid, cv2.CC_STAT_TOP]) - 28)
-                bx2 = min(width, int(st_cc[cid, cv2.CC_STAT_LEFT] + st_cc[cid, cv2.CC_STAT_WIDTH]) + 28)
-                by2 = min(height, int(st_cc[cid, cv2.CC_STAT_TOP] + st_cc[cid, cv2.CC_STAT_HEIGHT]) + 28)
+                bx = max(0, int(st_cc[cid, cv2.CC_STAT_LEFT]) - 48)
+                by = max(0, int(st_cc[cid, cv2.CC_STAT_TOP]) - 48)
+                bx2 = min(width, int(st_cc[cid, cv2.CC_STAT_LEFT] + st_cc[cid, cv2.CC_STAT_WIDTH]) + 48)
+                by2 = min(height, int(st_cc[cid, cv2.CC_STAT_TOP] + st_cc[cid, cv2.CC_STAT_HEIGHT]) + 48)
                 comp_sub = lbl_cc[by:by2, bx:bx2] == cid
                 mask_sub = mask[by:by2, bx:bx2] > 0
                 ring_sub = (cv2.dilate(comp_sub.astype(np.uint8), k_ring) > 0) & (~mask_sub)
@@ -391,31 +391,43 @@ class LamaInpainter:
                         black_col = np.median(ring_px[ring_lum <= 35.0], axis=0).astype(np.uint8)
                         sub_gray = anh_u8[by:by2, bx:bx2].mean(axis=2)
                         sh_s, sw_s = sub_gray.shape
+                        max_step = max(49, sh_s, sw_s)
                         fill_blk_mask = np.zeros_like(comp_sub, dtype=bool)
                         for py_s, px_s in np.argwhere(comp_sub):
                             n_blk = 0
                             w_blk = 0.0
                             w_wht = 0.0
                             for dy_s, dx_s in dirs8:
-                                for step in range(1, 49):
+                                for step in range(1, max_step):
                                     ny_s = int(py_s) + dy_s * step
                                     nx_s = int(px_s) + dx_s * step
                                     if ny_s < 0 or ny_s >= sh_s or nx_s < 0 or nx_s >= sw_s:
                                         break
                                     if not mask_sub[ny_s, nx_s]:
                                         gv = float(sub_gray[ny_s, nx_s])
+                                        if step <= 3 and 35.0 < gv < 145.0:
+                                            continue
                                         w_hit = 1.0 / ((step + 1.0) ** 1.5)
                                         if gv <= 35.0:
                                             n_blk += 1
                                             w_blk += w_hit
-                                        elif gv >= 180.0:
+                                        elif gv >= 165.0:
                                             w_wht += w_hit
                                         break
                             if n_blk >= 5 and w_blk >= w_wht * 1.6:
                                 fill_blk_mask[py_s, px_s] = True
                         if fill_blk_mask.any():
-                            anh_u8[by:by2, bx:bx2][fill_blk_mask] = black_col
-                            mask[by:by2, bx:bx2][fill_blk_mask] = 0.0
+                            near_bright = cv2.dilate((sub_gray >= 175.0).astype(np.uint8), np.ones((5, 5), np.uint8), iterations=1) > 0
+                            fringe_blk = (
+                                (cv2.dilate(fill_blk_mask.astype(np.uint8), np.ones((5, 5), np.uint8), iterations=1) > 0)
+                                & (~fill_blk_mask)
+                                & (sub_gray > 20.0)
+                                & (sub_gray < 155.0)
+                                & (~near_bright)
+                            )
+                            fill_all_blk = fill_blk_mask | fringe_blk
+                            anh_u8[by:by2, bx:bx2][fill_all_blk] = black_col
+                            mask[by:by2, bx:bx2][fill_all_blk] = 0.0
             if mask.max() <= 0:
                 masks = []
 
