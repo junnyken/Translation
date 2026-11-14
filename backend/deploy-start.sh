@@ -20,6 +20,7 @@ TRANG_THAI_WORKER="${WORKER_STATE_FILE:-/tmp/trang-thai-worker.json}"
 # P3m — worker tự ghi RSS của nó ra đây; /healthz đọc lên. Tệp RIÊNG với tệp trạng thái
 # ở trên: tệp kia do shell này ghi, hai người ghi chung một tệp là mất dữ liệu của cả hai.
 export WORKER_RSS_FILE="${WORKER_RSS_FILE:-/tmp/rss-worker.json}"
+export WORKER_READY_FILE="${WORKER_READY_FILE:-/tmp/worker-ready.json}"
 
 # Mặc định cho phép 120 lượt Gemini/phút và 6 luồng I/O đồng thời trên bản chạy thật
 # để phục vụ mượt 40-60 người dùng cùng lúc ở chế độ GPU/Canvas máy khách (`chi_chu`).
@@ -75,6 +76,7 @@ fi
 
 case "$ROLE" in
   worker)
+    rm -f "$WORKER_READY_FILE"
     ghi_trang_thai running 0
     exec bash -c "$(declare -f lenh_worker); lenh_worker"
     ;;
@@ -83,19 +85,25 @@ case "$ROLE" in
     exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT}"
     ;;
   all)
+    rm -f "$WORKER_READY_FILE"
     ghi_trang_thai starting 0
     (
       SO_LAN_CHET=0
+      MA_CU=null
       while true; do
+        rm -f "$WORKER_READY_FILE"
+        ghi_trang_thai starting "$SO_LAN_CHET" "$MA_CU"
         lenh_worker
         MA=$?
         SO_LAN_CHET=$((SO_LAN_CHET + 1))
+        MA_CU="$MA"
         # 137 = bị SIGKILL. E22: KHÔNG khẳng định "hết bộ nhớ" ở đây — nền tảng chưa xác nhận
         # nguyên nhân, và `app/workers/trang_thai_worker.py` đọc lại đúng mã này để job mồ côi
         # được gắn nhãn "nghi ngờ" (resource_limit_suspected), không phải "chắc chắn".
         if [ "$MA" -eq 137 ]; then
           echo "[worker] BỊ GIẾT (SIGKILL/137) — nghi ngờ hết bộ nhớ, CHƯA có xác nhận từ nền tảng." >&2
         fi
+        rm -f "$WORKER_READY_FILE"
         echo "[worker] đã thoát (mã $MA), lần chết thứ $SO_LAN_CHET — bật lại sau 10s" >&2
         ghi_trang_thai restarting "$SO_LAN_CHET" "$MA"
         sleep 10

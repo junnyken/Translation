@@ -10,6 +10,7 @@ server {
   root /usr/share/nginx/html;
   client_max_body_size 50M;
   server_tokens off;
+  resolver 1.1.1.1 8.8.8.8 valid=30s ipv6=off;
 
   # Header bảo mật — áp cho MỌI location bên dưới vì không location nào tự khai `add_header`
   # (nginx chỉ kế thừa khi location không có add_header riêng; thêm vào location là mất hết).
@@ -25,7 +26,8 @@ server {
 
   # Cho phép gọi trực tiếp https://comic.io.vn/api/v1/... (Developer API, Extension, App Windows & Web)
   location /api/ {
-    proxy_pass https://translation-api.vibe1.tinhgon.xyz/api/;
+    set $upstream_api_backend https://translation-api.vibe1.tinhgon.xyz;
+    proxy_pass $upstream_api_backend;
     proxy_ssl_server_name on;
     proxy_set_header Host translation-api.vibe1.tinhgon.xyz;
     proxy_set_header X-Real-IP $remote_addr;
@@ -36,9 +38,8 @@ server {
   }
 
   location = /healthz {
-    proxy_pass https://translation-api.vibe1.tinhgon.xyz/healthz;
-    proxy_ssl_server_name on;
-    proxy_set_header Host translation-api.vibe1.tinhgon.xyz;
+    default_type application/json;
+    return 200 '{"ok":true,"service":"frontend"}';
   }
 
   # SPA: mọi đường dẫn không phải file đều trả index.html, nếu không thì F5 sẽ ra 404.

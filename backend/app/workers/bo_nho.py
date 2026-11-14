@@ -15,10 +15,20 @@ một phụ thuộc chỉ để đọc một con số là cái giá không đán
 """
 from __future__ import annotations
 
+import ctypes
 import gc
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def ep_nha_heap_he_dieu_hanh() -> bool:
+    """Gọi `malloc_trim(0)` của glibc trên Linux để trả trang nhớ rảnh về hệ điều hành."""
+    try:
+        libc = ctypes.CDLL("libc.so.6")
+        return bool(libc.malloc_trim(0))
+    except Exception:  # noqa: BLE001 - Windows / musl không có glibc malloc_trim
+        return False
 
 #: Kích thước một trang bộ nhớ. Linux luôn 4096; đọc động để không đoán.
 try:  # pragma: no cover - phụ thuộc nền tảng
@@ -112,6 +122,7 @@ def giai_phong_model(giu: set[str]) -> list[str]:
         da_nha.append("ocr")
     if da_nha:
         gc.collect()
+        ep_nha_heap_he_dieu_hanh()
     return da_nha
 
 

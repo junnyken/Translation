@@ -162,8 +162,8 @@ void (async () => {
       if (cauDich.length >= 1 && cauDich.length <= 3 && cauDich.every((c) => TU_TUONG_THANH_VI.test(c))) {
         return true
       }
-      const tuDich = dich.replace(/[.!?…~]+/g, '').trim().split(/\s+/).filter(Boolean)
-      if (tuDich.length >= 1 && tuDich.length <= 2 && /(.)\1{2,}/iu.test(dich)) {
+      const tuDich = dich.replace(/[.!?…~]+/g, ' ').trim().split(/\s+/).filter(Boolean)
+      if (tuDich.length >= 1 && tuDich.length <= 2 && tuDich.some((t) => /(.)\1{2,}/iu.test(t))) {
         return true
       }
     }
@@ -2343,13 +2343,31 @@ void (async () => {
           for (let pxB = cx0; pxB < cx1; pxB += 1) {
             if (lumPx[baseB + pxB] <= 105) demToiB += 1
           }
-          if (demToiB >= spanWB * 0.72) {
-            let ranhTrangY = -1
-            for (let pyG = pyB - 3; pyG >= Math.max(0, pyB - 8); pyG -= 1) {
-              if (laRanhTrangNgang(pyG)) { ranhTrangY = pyG + 2; break }
+          let datBienTop = demToiB >= spanWB * 0.72
+          if (!datBienTop && demToiB >= spanWB * 0.52) {
+            let demLanCanT = 0
+            for (const nyC of [pyB - 1, pyB + 1]) {
+              if (nyC < 0 || nyC >= rh) continue
+              let cT = 0
+              const bC = nyC * rw
+              for (let pxB = cx0; pxB < cx1; pxB += 1) {
+                if (lumPx[bC + pxB] <= 105) cT += 1
+              }
+              if (cT > demLanCanT) demLanCanT = cT
             }
-            if (ranhTrangY >= 0) {
-              panelY0 = Math.max(qy0, ranhTrangY + 1)
+            if (demLanCanT >= spanWB * 0.42) datBienTop = true
+          }
+          if (datBienTop || demToiB >= spanWB * 0.52) {
+            let ranhTrangY = -1
+            let soRanhTrang = 0
+            for (let pyG = pyB - 1; pyG >= Math.max(0, pyB - 8); pyG -= 1) {
+              if (laRanhTrangNgang(pyG)) {
+                if (ranhTrangY < 0) ranhTrangY = pyG + 1
+                soRanhTrang += 1
+              }
+            }
+            if (ranhTrangY >= 0 && (datBienTop || soRanhTrang >= 2)) {
+              panelY0 = Math.max(qy0, Math.min(startPyTop + 1, pyB + 1))
               coBienPanelTren = true
               break
             }
@@ -2362,13 +2380,31 @@ void (async () => {
           for (let pxB = cx0; pxB < cx1; pxB += 1) {
             if (lumPx[baseB + pxB] <= 105) demToiB += 1
           }
-          if (demToiB >= spanWB * 0.72) {
-            let ranhTrangY = -1
-            for (let pyG = pyB + 1; pyG <= Math.min(rh - 3, pyB + 6); pyG += 1) {
-              if (laRanhTrangNgang(pyG)) { ranhTrangY = pyG; break }
+          let datBienBot = demToiB >= spanWB * 0.72
+          if (!datBienBot && demToiB >= spanWB * 0.52) {
+            let demLanCanB = 0
+            for (const nyC of [pyB - 1, pyB + 1]) {
+              if (nyC < 0 || nyC >= rh) continue
+              let cB = 0
+              const bC = nyC * rw
+              for (let pxB = cx0; pxB < cx1; pxB += 1) {
+                if (lumPx[bC + pxB] <= 105) cB += 1
+              }
+              if (cB > demLanCanB) demLanCanB = cB
             }
-            if (ranhTrangY >= 0) {
-              panelY1 = Math.min(qy1, ranhTrangY)
+            if (demLanCanB >= spanWB * 0.42) datBienBot = true
+          }
+          if (datBienBot || demToiB >= spanWB * 0.52) {
+            let ranhTrangY = -1
+            let soRanhTrang = 0
+            for (let pyG = pyB + 1; pyG <= Math.min(rh - 3, pyB + 8); pyG += 1) {
+              if (laRanhTrangNgang(pyG)) {
+                if (ranhTrangY < 0) ranhTrangY = pyG
+                soRanhTrang += 1
+              }
+            }
+            if (ranhTrangY >= 0 && (datBienBot || soRanhTrang >= 2)) {
+              panelY1 = Math.min(qy1, Math.max(startPyBot, pyB))
               coBienPanelDuoi = true
               break
             }
@@ -2380,13 +2416,30 @@ void (async () => {
           for (let pyB = cy0; pyB < cy1; pyB += 1) {
             if (lumPx[pyB * rw + pxB] <= 105) demToiB += 1
           }
-          if (demToiB >= spanHB * 0.72) {
-            let ranhTrangX = -1
-            for (let pxG = pxB - 3; pxG >= Math.max(0, pxB - 8); pxG -= 1) {
-              if (laRanhTrangDoc(pxG)) { ranhTrangX = pxG + 2; break }
+          let datBienLeft = demToiB >= spanHB * 0.72
+          if (!datBienLeft && demToiB >= spanHB * 0.52) {
+            let demLanCanL = 0
+            for (const nxC of [pxB - 1, pxB + 1]) {
+              if (nxC < 0 || nxC >= rw) continue
+              let cL = 0
+              for (let pyB = cy0; pyB < cy1; pyB += 1) {
+                if (lumPx[pyB * rw + nxC] <= 105) cL += 1
+              }
+              if (cL > demLanCanL) demLanCanL = cL
             }
-            if (ranhTrangX >= 0) {
-              panelX0 = Math.max(qx0, ranhTrangX + 1)
+            if (demLanCanL >= spanHB * 0.42) datBienLeft = true
+          }
+          if (datBienLeft || demToiB >= spanHB * 0.52) {
+            let ranhTrangX = -1
+            let soRanhTrang = 0
+            for (let pxG = pxB - 1; pxG >= Math.max(0, pxB - 8); pxG -= 1) {
+              if (laRanhTrangDoc(pxG)) {
+                if (ranhTrangX < 0) ranhTrangX = pxG + 1
+                soRanhTrang += 1
+              }
+            }
+            if (ranhTrangX >= 0 && (datBienLeft || soRanhTrang >= 2)) {
+              panelX0 = Math.max(qx0, Math.min(startPxLeft + 1, pxB + 1))
               coBienPanelTrai = true
               break
             }
@@ -2398,13 +2451,30 @@ void (async () => {
           for (let pyB = cy0; pyB < cy1; pyB += 1) {
             if (lumPx[pyB * rw + pxB] <= 105) demToiB += 1
           }
-          if (demToiB >= spanHB * 0.72) {
-            let ranhTrangX = -1
-            for (let pxG = pxB + 1; pxG <= Math.min(rw - 3, pxB + 6); pxG += 1) {
-              if (laRanhTrangDoc(pxG)) { ranhTrangX = pxG; break }
+          let datBienRight = demToiB >= spanHB * 0.72
+          if (!datBienRight && demToiB >= spanHB * 0.52) {
+            let demLanCanR = 0
+            for (const nxC of [pxB - 1, pxB + 1]) {
+              if (nxC < 0 || nxC >= rw) continue
+              let cR = 0
+              for (let pyB = cy0; pyB < cy1; pyB += 1) {
+                if (lumPx[pyB * rw + nxC] <= 105) cR += 1
+              }
+              if (cR > demLanCanR) demLanCanR = cR
             }
-            if (ranhTrangX >= 0) {
-              panelX1 = Math.min(qx1, ranhTrangX)
+            if (demLanCanR >= spanHB * 0.42) datBienRight = true
+          }
+          if (datBienRight || demToiB >= spanHB * 0.52) {
+            let ranhTrangX = -1
+            let soRanhTrang = 0
+            for (let pxG = pxB + 1; pxG <= Math.min(rw - 3, pxB + 8); pxG += 1) {
+              if (laRanhTrangDoc(pxG)) {
+                if (ranhTrangX < 0) ranhTrangX = pxG
+                soRanhTrang += 1
+              }
+            }
+            if (ranhTrangX >= 0 && (datBienRight || soRanhTrang >= 2)) {
+              panelX1 = Math.min(qx1, Math.max(startPxRight, pxB))
               coBienPanelPhai = true
               break
             }
@@ -4188,7 +4258,12 @@ void (async () => {
             }
             return false
           }
-          if (!laDaoChieuHalo && !laNenMauThuc && (laNenToiChuNoi || coMangToiLon) && !laMangToiDac[pos] && lumPx[pos] >= 40 && lumPx[pos] < 232) {
+          const laHatScreentoneGanXam =
+            lum3x3[pos] >= 90 &&
+            lum3x3[pos] <= 212 &&
+            lumPx[pos] < 224 &&
+            (!laNenToiChuNoi || doNhieuHat >= 11.5)
+          if (!laDaoChieuHalo && !laNenMauThuc && (laNenToiChuNoi || coMangToiLon) && !laMangToiDac[pos] && !laHatScreentoneGanXam && lumPx[pos] >= 40 && lumPx[pos] < 232) {
             for (let dyH = -2; dyH <= 2; dyH += 1) {
               const nyH = pyS + dyH
               if (nyH < 0 || nyH >= rh) continue
@@ -4362,7 +4437,7 @@ void (async () => {
                   bm = (data[i1 + 2] + data[i2 + 2]) * 0.5
                   lm = 0.299 * rm + 0.587 * gm + 0.114 * bm
                 }
-                if (lm < 85 && !laNenMauThuc && (laMangToiDac[npos] || laNenToiChuNoi)) {
+                if (lm < 85 && lum3x3[npos] <= 72 && !laNenMauThuc && (laMangToiDac[npos] || laNenToiChuNoi)) {
                   wToi += w
                   rToi += rm * w
                   gToi += gm * w
@@ -4728,7 +4803,7 @@ void (async () => {
                       }
                     }
                   } else if (laDiemNenSach(npos)) {
-                    const isDarkN = (!laNenMauThuc && (laMangToiDac[npos] || (laNenToiChuNoi && lumPx[npos] < 85))) ? 1 : 0
+                    const isDarkN = (!laNenMauThuc && lum3x3[npos] <= 72 && (laMangToiDac[npos] || (laNenToiChuNoi && lumPx[npos] < 85))) ? 1 : 0
                     if (isDarkN === cMode) {
                       const i4 = npos * 4
                       const dungTb = !laNenMauThuc && !laTuongTrangSach && !isDarkN && !(lumPx[npos] >= 225 && Math.abs(lumPx[npos] - lum3x3[npos]) >= 14)

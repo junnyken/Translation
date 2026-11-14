@@ -242,6 +242,33 @@ def _bao_ve_net_ve_va_da_trang_trong_o(
     ket = np.where(open_white, cho_phep_tren_trang, ket)
 
     # Trường hợp chữ viền sáng trên mảng mực đen đặc (#18): tách nền trắng mở thật bên ngoài seg_clean
+    def _tim_bien_panel_ngang(g_arr: np.ndarray, s_arr: np.ndarray) -> np.ndarray:
+        h_a, w_a = g_arr.shape
+        out = np.zeros((h_a, w_a), dtype=bool)
+        if h_a < 28 or w_a < 28:
+            return out
+        b_span = max(6, int(h_a * 0.28))
+        for edge_rows, g_bounds in (
+            (range(1, min(h_a - 2, b_span)), lambda r: (max(0, r - 8), r)),
+            (range(h_a - 2, max(1, h_a - 1 - b_span), -1), lambda r: (min(h_a, r + 1), min(h_a, r + 9))),
+        ):
+            for py_b in edge_rows:
+                if float((g_arr[py_b] <= 105).mean()) < 0.52:
+                    continue
+                if float(g_arr[py_b, :4].min()) > 105 and float(g_arr[py_b, -4:].min()) > 105:
+                    continue
+                g0, g1 = g_bounds(py_b)
+                if g1 <= g0:
+                    continue
+                has_gutter = bool(((g_arr[g0:g1] >= 225) & (s_arr[g0:g1] <= 26)).mean(axis=1).max() >= 0.72)
+                if has_gutter:
+                    y_lo = max(0, py_b - 1)
+                    y_hi = min(h_a, py_b + 2)
+                    out[y_lo:y_hi, :] |= g_arr[y_lo:y_hi, :] <= 115
+        return out
+
+    panel_border_mask = _tim_bien_panel_ngang(gray, sac) | _tim_bien_panel_ngang(gray.T, sac.T).T
+
     if is_halo_on_black:
         k7 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
         w_open_seed = cv2.morphologyEx(
@@ -256,10 +283,25 @@ def _bao_ve_net_ve_va_da_trang_trong_o(
             & (~art_block)
         )
         seg_dil = cv2.dilate(seg_pos.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))) > 0
+        seg_3 = cv2.dilate(seg_pos.astype(np.uint8), k3, iterations=1) > 0
+        # Bảo vệ mảng tóc / nền đen đặc nối ra ngoài vùng chữ (`p1 #7`) để viền chữ không liếm mất ngọn tóc
+        hair_cand = (gray <= 52) & (~seg_pos)
+        nl_hc, lbl_hc, st_hc, _ = cv2.connectedComponentsWithStats(hair_cand.astype(np.uint8), connectivity=8)
+        solid_hair_out = np.zeros_like(seg_pos, dtype=bool)
+        for hcid in range(1, nl_hc):
+            area_h = int(st_hc[hcid, cv2.CC_STAT_AREA])
+            if area_h < 10:
+                continue
+            comp_h = lbl_hc == hcid
+            if bool((comp_h & (~seg_dil)).any()) or area_h >= 120:
+                solid_hair_out |= comp_h
+        if solid_hair_out.any():
+            hair_edge = (cv2.dilate(solid_hair_out.astype(np.uint8), k3, iterations=1) > 0) & (~seg_pos) & (gray <= 95) & (core == 0)
+            solid_hair_out |= hair_edge
         halo_w = (seg_dil & (gray >= 110) & (~true_open_white)) | (
-            seg_dil & near_solid_black & (gray >= 28) & (~true_open_white)
+            seg_dil & near_solid_black & (gray >= 28) & (~true_open_white) & (~solid_hair_out)
         )
-        dark_in_seg = (seg_dil & (gray < 110)).astype(np.uint8)
+        dark_in_seg = (seg_dil & (gray < 110) & (~solid_hair_out)).astype(np.uint8)
         nl_dc, lbl_dc, st_dc, _ = cv2.connectedComponentsWithStats(dark_in_seg, connectivity=8)
         enclosed_core = np.zeros_like(seg_dil, dtype=bool)
         for dc_id in range(1, nl_dc):
@@ -276,9 +318,15 @@ def _bao_ve_net_ve_va_da_trang_trong_o(
         mask_on_black = cv2.dilate((halo_w | enclosed_core).astype(np.uint8), k3, iterations=1) > 0
         near_open_w = cv2.dilate(true_open_white.astype(np.uint8), np.ones((5, 5), np.uint8), iterations=1) > 0
         ink_on_open_w = cv2.dilate(
-            (seg_dil & (gray < 235) & near_open_w).astype(np.uint8), k3, iterations=1
+            (seg_3 & (gray < 235) & near_open_w & (~solid_hair_out)).astype(np.uint8), k3, iterations=1
         ) > 0
-        return (mask_on_black | ink_on_open_w) & (~true_open_white) & (~(art_block & (~near_solid_black)))
+        return (
+            (mask_on_black | ink_on_open_w)
+            & (~true_open_white)
+            & (~solid_hair_out)
+            & (~panel_border_mask)
+            & (~(art_block & (~near_solid_black)))
+        )
 
     # Tách đảo viền sáng (halo sticker) nằm gọn trên nền tối/sọc chéo (vd dấu `...` cuối câu "was...")
     bg_close = cv2.morphologyEx(gray, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11)))
@@ -327,7 +375,7 @@ def _bao_ve_net_ve_va_da_trang_trong_o(
     ket = np.where(already_clean_white, ink_on_white | ink_fringe, ket)
     if halo_erase.any():
         ket = ket | halo_erase
-    return ket
+    return ket & (~panel_border_mask)
 
 
 def tinh_mat_na_xoa(mat_na_khung: np.ndarray, mat_na_chu: np.ndarray,

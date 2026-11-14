@@ -277,6 +277,71 @@ def giai_ma_mat_na_vung_rle(chuoi: str | None) -> tuple[int, int, np.ndarray] | 
     return rw, rh, out.reshape((rh, rw))
 
 
+def _la_hoa_tiet_hinh_hoc_don(
+    sub_mask: np.ndarray,
+    sub_gray: np.ndarray,
+    tw: int,
+    th: int,
+    scov: float,
+) -> bool:
+    """Nhận diện họa tiết/biểu tượng đơn giản (khuy áo, viền tam giác `◁ ▷`) thay vì chữ nhiều nét."""
+    import cv2
+    import math
+
+    check_dark_ornament = tw <= 78 and th <= 78 and scov < 0.28 and float((sub_gray >= 225).mean()) < 0.45
+    check_border_poly = min(tw, th) <= 56 and max(tw, th) <= 120 and scov < 0.26
+    if not (check_dark_ornament or check_border_poly):
+        return False
+
+    contours, hierarchy = cv2.findContours(sub_mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours or hierarchy is None:
+        return False
+
+    hier = hierarchy[0]
+    holes_by_parent: dict[int, int] = {}
+    for _, hinfo in enumerate(hier):
+        parent_i = int(hinfo[3])
+        if parent_i >= 0:
+            holes_by_parent[parent_i] = holes_by_parent.get(parent_i, 0) + 1
+
+    n_outer_18 = 0
+    max_holes_18 = 0
+    toan_hinh_don_18 = True
+
+    n_outer_12 = 0
+    toan_da_giac_nho = True
+
+    for ci, hinfo in enumerate(hier):
+        if int(hinfo[3]) >= 0:
+            continue
+        cnt = contours[ci]
+        area_cnt = float(cv2.contourArea(cnt))
+        if area_cnt < 12.0:
+            continue
+        peri = float(cv2.arcLength(cnt, True))
+        n_holes = holes_by_parent.get(ci, 0)
+
+        n_outer_12 += 1
+        verts8 = len(cv2.approxPolyDP(cnt, 0.08 * peri, True)) if peri > 0 else 99
+        if area_cnt >= 180.0 or verts8 > 4 or n_holes > 2:
+            toan_da_giac_nho = False
+
+        if area_cnt >= 18.0:
+            n_outer_18 += 1
+            if n_holes > max_holes_18:
+                max_holes_18 = n_holes
+            circ = (4.0 * math.pi * area_cnt / (peri * peri)) if peri > 0 else 0.0
+            verts6 = len(cv2.approxPolyDP(cnt, 0.06 * peri, True)) if peri > 0 else 99
+            if n_holes > 1 or (circ < 0.42 and verts6 > 7):
+                toan_hinh_don_18 = False
+
+    if check_dark_ornament and 0 < n_outer_18 <= 3 and max_holes_18 <= 1 and toan_hinh_don_18:
+        return True
+    if check_border_poly and n_outer_12 > 0 and toan_da_giac_nho:
+        return True
+    return False
+
+
 def loc_va_thu_hep_khung_ctd(
     image_path: str,
     regions: list[DetectedRegion],
@@ -387,8 +452,103 @@ def loc_va_thu_hep_khung_ctd(
             ry1 = min(H, int(round(reg.bbox.y + reg.bbox.h)))
             rem[ry0:ry1, rx0:rx1] = 0
         if np.any(rem):
+            def _thu_nap_vung_rem(tx0: int, ty0: int, tx1: int, ty1: int, mask_px: int) -> None:
+                tw = tx1 - tx0
+                th = ty1 - ty0
+                if tw < 14 or th < 14 or tw > W * 0.48 or th > H * 0.48:
+                    return
+                area_cand = max(1, tw * th)
+                if mask_px < 45 or (mask_px / area_cand) < 0.08:
+                    return
+                for ex in da_loc:
+                    ex0, ey0 = ex.bbox.x, ex.bbox.y
+                    ex1, ey1 = ex0 + ex.bbox.w, ey0 + ex.bbox.h
+                    ix0, iy0 = max(tx0, ex0), max(ty0, ey0)
+                    ix1, iy1 = min(tx1, ex1), min(ty1, ey1)
+                    if ix1 <= ix0 or iy1 <= iy0:
+                        continue
+                    inter = (ix1 - ix0) * (iy1 - iy0)
+                    area_ex = max(1.0, ex.bbox.w * ex.bbox.h)
+                    iou = inter / max(1.0, area_cand + area_ex - inter)
+                    if iou > 0.35 or (inter / area_cand) > 0.50:
+                        return
+                da_loc.append(
+                    DetectedRegion(
+                        bbox=BBox(x=float(tx0), y=float(ty0), w=float(tw), h=float(th)),
+                        confidence=0.52,
+                        cls=0,
+                    )
+                )
+
+            # Tách bóng thoại trắng khép kín có rem bên trong trước khi dilate k_gom,
+            # tránh nhập chung bóng nhỏ (`Uma...?`) với SFX trôi bên trên/bên cạnh (`p1 #11`).
+            white_bg = (anh_gray >= 230).astype(np.uint8)
+            nw_b, lbl_wb, st_wb, _ = cv2.connectedComponentsWithStats(white_bg, connectivity=4)
+            k3_ring = np.ones((3, 3), np.uint8)
+            max_wb_w, max_wb_h = int(W * 0.42), int(H * 0.42)
+            for wbid in range(1, nw_b):
+                wb_x, wb_y, wb_w, wb_h, wb_area = (int(v) for v in st_wb[wbid])
+                if (
+                    wb_area < 450
+                    or wb_w < 14
+                    or wb_h < 14
+                    or wb_w > max_wb_w
+                    or wb_h > max_wb_h
+                    or wb_x <= 1
+                    or wb_y <= 1
+                    or wb_x + wb_w >= W - 1
+                    or wb_y + wb_h >= H - 1
+                ):
+                    continue
+                rx_0, ry_0 = max(0, wb_x - 2), max(0, wb_y - 2)
+                rx_1, ry_1 = min(W, wb_x + wb_w + 2), min(H, wb_y + wb_h + 2)
+                comp_wb = lbl_wb[ry_0:ry_1, rx_0:rx_1] == wbid
+                rem_roi = rem[ry_0:ry_1, rx_0:rx_1]
+                seg_in = (rem_roi > 0) & comp_wb
+                px_in = int(np.count_nonzero(seg_in))
+                # Loại halo trắng ôm sát chữ trên nền tóc/tối (`px_in / wb_area` > 0.58)
+                # để không xé nhỏ từng dòng trong một bóng thoại tối thành nhiều hộp đè nhau.
+                if px_in < 45 or (px_in / max(1, wb_area)) > 0.58:
+                    continue
+                ring_wb = (cv2.dilate(comp_wb.astype(np.uint8), k3_ring) > 0) & (~comp_wb)
+                if not np.any(ring_wb):
+                    continue
+                if float((anh_gray[ry_0:ry_1, rx_0:rx_1][ring_wb] <= 170).mean()) < 0.50:
+                    continue
+                ys_b, xs_b = np.nonzero(seg_in)
+                b_tx0 = max(rx_0, rx_0 + int(xs_b.min()) - 5)
+                b_ty0 = max(ry_0, ry_0 + int(ys_b.min()) - 4)
+                b_tx1 = min(rx_1, rx_0 + int(xs_b.max()) + 6)
+                b_ty1 = min(ry_1, ry_0 + int(ys_b.max()) + 5)
+                _thu_nap_vung_rem(b_tx0, b_ty0, b_tx1, b_ty1, px_in)
+                rem[ry_0:ry_1, rx_0:rx_1][comp_wb] = 0
+
+        if np.any(rem):
             k_gom = cv2.getStructuringElement(cv2.MORPH_RECT, (13, 15))
             dil = cv2.dilate(rem, k_gom)
+            # Chặn dil (k_gom) nối vọt qua biên panel + rãnh trắng panel (`p1 #3`)
+            min_line = min(45, max(28, int(min(H, W) * 0.04)))
+            h_line = cv2.morphologyEx(
+                (anh_gray <= 120).astype(np.uint8), cv2.MORPH_OPEN, np.ones((1, min_line), np.uint8)
+            ) > 0
+            v_line = cv2.morphologyEx(
+                (anh_gray <= 120).astype(np.uint8), cv2.MORPH_OPEN, np.ones((min_line, 1), np.uint8)
+            ) > 0
+            clean_w_no_rem = ((anh_gray >= 238) & (rem == 0)).astype(np.uint8)
+            h_white = cv2.morphologyEx(clean_w_no_rem, cv2.MORPH_OPEN, np.ones((1, min_line), np.uint8)) > 0
+            v_white = cv2.morphologyEx(clean_w_no_rem, cv2.MORPH_OPEN, np.ones((min_line, 1), np.uint8)) > 0
+            near_h_line = cv2.dilate(h_line.astype(np.uint8), np.ones((17, 1), np.uint8)) > 0
+            near_v_line = cv2.dilate(v_line.astype(np.uint8), np.ones((1, 17), np.uint8)) > 0
+            gutter_cut = (h_white & near_h_line) | (v_white & near_v_line) | ((h_line | v_line) & (rem == 0))
+            clean_w_broad = ((anh_gray >= 244) & (rem == 0)).astype(np.uint8)
+            borderless_h = cv2.morphologyEx(
+                clean_w_broad, cv2.MORPH_OPEN, np.ones((6, max(120, W // 6)), np.uint8)
+            ) > 0
+            borderless_v = cv2.morphologyEx(
+                clean_w_broad, cv2.MORPH_OPEN, np.ones((max(120, H // 6), 6), np.uint8)
+            ) > 0
+            dil[gutter_cut | borderless_h | borderless_v] = 0
+
             n_cc, lbl_cc, st_cc, _ = cv2.connectedComponentsWithStats(dil)
             for idx_cc in range(1, n_cc):
                 bx_c, by_c, bw_c, bh_c, area_c = (int(v) for v in st_cc[idx_cc])
@@ -403,41 +563,34 @@ def loc_va_thu_hep_khung_ctd(
                 ty0 = max(0, by_c + int(ys_c.min()) - 4)
                 tx1 = min(W, bx_c + int(xs_c.max()) + 6)
                 ty1 = min(H, by_c + int(ys_c.max()) + 5)
-                tw = tx1 - tx0
-                th = ty1 - ty0
-                if tw < 14 or th < 14 or tw > W * 0.48 or th > H * 0.48:
-                    continue
                 mask_px = int(np.count_nonzero(rem[ty0:ty1, tx0:tx1]))
-                mask_cov = mask_px / max(1, tw * th)
-                if mask_px < 80 or mask_cov < 0.08:
+                if mask_px < 80:
                     continue
-                area_cand = max(1, tw * th)
-                trung_cand = False
-                for ex in da_loc:
-                    ex0, ey0 = ex.bbox.x, ex.bbox.y
-                    ex1, ey1 = ex0 + ex.bbox.w, ey0 + ex.bbox.h
-                    ix0, iy0 = max(tx0, ex0), max(ty0, ey0)
-                    ix1, iy1 = min(tx1, ex1), min(ty1, ey1)
-                    if ix1 <= ix0 or iy1 <= iy0:
-                        continue
-                    inter = (ix1 - ix0) * (iy1 - iy0)
-                    area_ex = max(1.0, ex.bbox.w * ex.bbox.h)
-                    iou = inter / max(1.0, area_cand + area_ex - inter)
-                    if iou > 0.35 or (inter / area_cand) > 0.50:
-                        trung_cand = True
-                        break
-                if trung_cand:
-                    continue
-                da_loc.append(
-                    DetectedRegion(
-                        bbox=BBox(x=float(tx0), y=float(ty0), w=float(tw), h=float(th)),
-                        confidence=0.52,
-                        cls=0,
-                    )
-                )
+                _thu_nap_vung_rem(tx0, ty0, tx1, ty1, mask_px)
 
     if has_mask and mat_na_chu is not None and len(da_loc) > so_truoc_rem:
         da_loc = lam_sach_mat_na_chu_tren_tranh(anh_gray, mat_na_chu, da_loc)
+        # Hậu kiểm sau lọc nét vẽ: loại bỏ các vùng fallback `rem` bị tụt phủ (`scov < 0.085`)
+        # hoặc chỉ còn hình học đơn giản trên nền tranh/áo choàng (`p5` khuy áo, `p4` tam giác viền).
+        da_loc_sau: list[DetectedRegion] = list(da_loc[:so_truoc_rem])
+        for reg in da_loc[so_truoc_rem:]:
+            rx0 = max(0, int(round(reg.bbox.x)))
+            ry0 = max(0, int(round(reg.bbox.y)))
+            rx1 = min(W, int(round(reg.bbox.x + reg.bbox.w)))
+            ry1 = min(H, int(round(reg.bbox.y + reg.bbox.h)))
+            if rx1 <= rx0 or ry1 <= ry0:
+                continue
+            sub_mask = (mat_na_chu[ry0:ry1, rx0:rx1] > 0).astype(np.uint8)
+            clean_px = int(np.count_nonzero(sub_mask))
+            tw = rx1 - rx0
+            th = ry1 - ry0
+            scov = clean_px / max(1, tw * th)
+            if clean_px < 75 or scov < 0.085:
+                continue
+            if _la_hoa_tiet_hinh_hoc_don(sub_mask, anh_gray[ry0:ry1, rx0:rx1], tw, th, scov):
+                continue
+            da_loc_sau.append(reg)
+        da_loc = da_loc_sau
 
     return da_loc
 

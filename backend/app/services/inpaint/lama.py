@@ -380,16 +380,27 @@ class LamaInpainter:
                 by2 = min(height, int(st_cc[cid, cv2.CC_STAT_TOP] + st_cc[cid, cv2.CC_STAT_HEIGHT]) + 48)
                 comp_sub = lbl_cc[by:by2, bx:bx2] == cid
                 mask_sub = mask[by:by2, bx:bx2] > 0
+                sub_gray = anh_u8[by:by2, bx:bx2].mean(axis=2)
+                ext_dark = (sub_gray <= 38.0) & (~mask_sub)
+                ext_dark_core = cv2.erode(ext_dark.astype(np.uint8), np.ones((7, 7), np.uint8), iterations=1) > 0
+                has_ext_dark_core = bool((
+                    (cv2.dilate(comp_sub.astype(np.uint8), np.ones((15, 15), np.uint8), iterations=1) > 0)
+                    & ext_dark_core
+                ).sum() >= 6)
+                outer_ring_wht = int((
+                    (cv2.dilate(comp_sub.astype(np.uint8), np.ones((15, 15), np.uint8), iterations=1) > 0)
+                    & (~mask_sub)
+                    & (sub_gray >= 155.0)
+                ).sum())
                 ring_sub = (cv2.dilate(comp_sub.astype(np.uint8), k_ring) > 0) & (~mask_sub)
                 if int(ring_sub.sum()) >= 12:
                     ring_px = anh_u8[by:by2, bx:bx2][ring_sub]
                     ring_lum = ring_px.mean(axis=1)
-                    if float(np.percentile(ring_lum, 90)) <= 38.0:
+                    if float(np.percentile(ring_lum, 90)) <= 38.0 and (has_ext_dark_core or outer_ring_wht < 12):
                         anh_u8[by:by2, bx:bx2][comp_sub] = np.median(ring_px, axis=0).astype(np.uint8)
                         mask[by:by2, bx:bx2][comp_sub] = 0.0
-                    elif area_c >= 20 and float((ring_lum <= 35.0).mean()) >= 0.28:
+                    elif has_ext_dark_core and area_c >= 20 and float((ring_lum <= 35.0).mean()) >= 0.28:
                         black_col = np.median(ring_px[ring_lum <= 35.0], axis=0).astype(np.uint8)
-                        sub_gray = anh_u8[by:by2, bx:bx2].mean(axis=2)
                         sh_s, sw_s = sub_gray.shape
                         max_step = max(49, sh_s, sw_s)
                         fill_blk_mask = np.zeros_like(comp_sub, dtype=bool)
@@ -409,8 +420,22 @@ class LamaInpainter:
                                             continue
                                         w_hit = 1.0 / ((step + 1.0) ** 1.5)
                                         if gv <= 35.0:
-                                            n_blk += 1
-                                            w_blk += w_hit
+                                            # Nhìn xuyên tối đa 5px sau biên đen: nếu phía sau là nền trắng (>=155) thì đây chỉ là viền chữ rỗng (`KAAATSU!!`) chứ không phải tóc đen đặc
+                                            sau_la_trang = False
+                                            for ahead in range(1, 6):
+                                                ay = ny_s + dy_s * ahead
+                                                ax = nx_s + dx_s * ahead
+                                                if ay < 0 or ay >= sh_s or ax < 0 or ax >= sw_s:
+                                                    break
+                                                if mask_sub[ay, ax]:
+                                                    break
+                                                if float(sub_gray[ay, ax]) >= 155.0:
+                                                    w_wht += 1.0 / ((step + ahead + 1.0) ** 1.5)
+                                                    sau_la_trang = True
+                                                    break
+                                            if not sau_la_trang:
+                                                n_blk += 1
+                                                w_blk += w_hit
                                         elif gv >= 165.0:
                                             w_wht += w_hit
                                         break

@@ -55,7 +55,7 @@ from app.models.enums import (
 from app.services.safearea.service import van_tay_hien_vat
 from app.services.storage import get_storage, workspace
 from app.services.typeset.paths import preview_relative_path
-from app.workers.bo_nho import ep_giai_phong_neu_cang, ghi_moc
+from app.workers.bo_nho import ep_giai_phong_neu_cang, ep_nha_heap_he_dieu_hanh, ghi_moc
 from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -73,7 +73,7 @@ _OCR_HARD_LIMIT = settings.ocr_timeout_seconds + 30
 #: Detector nạp 1 lần/process (weight ~91MB) — nạp lại mỗi ảnh sẽ rất chậm.
 _detector = None
 _ctd_detector = None
-_KHOA_MO_HINH_CUC_BO = threading.Lock()
+_KHOA_MO_HINH_CUC_BO = threading.RLock()
 
 #: Cảnh báo `ja` + `ctd` chỉ ghi MỘT lần mỗi tiến trình — đây là vấn đề cấu hình, không
 #: phải vấn đề của từng trang. Lặp mỗi trang chỉ tạo tiếng ồn.
@@ -107,18 +107,20 @@ def get_detector():
             )
             return _detector
 
-        from app.services.detect.ctd import CTDDetector
+        with _KHOA_MO_HINH_CUC_BO:
+            if _detector is None:
+                from app.services.detect.ctd import CTDDetector
 
-        _detector = CTDDetector(
-            weights_path=_duong_dan_ctd_hieu_luc(),
-            device=settings.ctd_device,
-            conf_threshold=settings.ctd_conf_threshold,
-            raw_min_conf=settings.ctd_raw_min_conf,
-            nms_iou=settings.ctd_nms_iou,
-            input_size=settings.ctd_input_size,
-            intra_op_threads=settings.ctd_intra_op_threads,
-            cpu_mem_arena=settings.ctd_cpu_mem_arena,
-        )
+                _detector = CTDDetector(
+                    weights_path=_duong_dan_ctd_hieu_luc(),
+                    device=settings.ctd_device,
+                    conf_threshold=settings.ctd_conf_threshold,
+                    raw_min_conf=settings.ctd_raw_min_conf,
+                    nms_iou=settings.ctd_nms_iou,
+                    input_size=settings.ctd_input_size,
+                    intra_op_threads=settings.ctd_intra_op_threads,
+                    cpu_mem_arena=settings.ctd_cpu_mem_arena,
+                )
     elif settings.detect_engine == "ai_gemini" and hasattr(_detector, "api_keys"):
         if settings.gemini_api_key_list:
             _detector.api_keys = settings.gemini_api_key_list
@@ -192,13 +194,15 @@ def get_ocr_engine_cached(source_lang: str):
     """Trả engine OCR đã nạp sẵn cho source_lang (import trễ: API không nạp thư viện OCR)."""
     key = (source_lang, settings.ocr_device)
     if key not in _ocr_engines:
-        from app.services.ocr.engines import get_ocr_engine
+        with _KHOA_MO_HINH_CUC_BO:
+            if key not in _ocr_engines:
+                from app.services.ocr.engines import get_ocr_engine
 
-        _ocr_engines[key] = get_ocr_engine(
-            source_lang,
-            device=settings.ocr_device,
-            paddle_enable_mkldnn=settings.ocr_paddle_enable_mkldnn,
-        )
+                _ocr_engines[key] = get_ocr_engine(
+                    source_lang,
+                    device=settings.ocr_device,
+                    paddle_enable_mkldnn=settings.ocr_paddle_enable_mkldnn,
+                )
     return _ocr_engines[key]
 
 
@@ -551,7 +555,8 @@ def _run_detect(job_id: uuid.UUID, *, outbox_claimed: bool = False) -> dict:
                 if hasattr(detector, "detect_regions_va_mat_na"):
                     from app.services.detect.ctd import loc_va_thu_hep_khung_ctd
 
-                    ctd_raw, mat_na_chu_luu = detector.detect_regions_va_mat_na(image_path)
+                    with _KHOA_MO_HINH_CUC_BO:
+                        ctd_raw, mat_na_chu_luu = detector.detect_regions_va_mat_na(image_path)
                     regions = loc_va_thu_hep_khung_ctd(image_path, ctd_raw, mat_na_chu_luu)
                 else:
                     regions = detector.detect_regions(image_path)
@@ -949,33 +954,33 @@ def _run_ocr(job_id: uuid.UUID) -> dict:
             results.append((region_id, text, None, _classify_ocr(text, None), None,
                             OCREngine.ai_gemini))
     con_lai = [sp for sp in region_specs if sp[0] not in chu_san]
-    engine = None
     if con_lai:
-        ep_giai_phong_neu_cang({"ocr"}, settings.worker_rss_soft_limit_mb)
-        ghi_moc("ocr: trước")
-        engine = get_ocr_engine_cached(source_lang)
-    # Một lượt vật chất hoá cho CẢ trang: mỗi vùng một lượt tải thì với kho từ xa là
-    # 30 lượt tải cùng một ảnh cho một trang 30 vùng.
-    with (anh_cuc_bo(image_rel) if con_lai else contextlib.nullcontext(None)) as image_path:
-        for region_id, x, y, w, h, is_low in con_lai:
-            try:
-                # Engine nào cung cấp được đường bao từng dòng thì lấy luôn — đó là bằng chứng
-                # hình học duy nhất về hướng chữ, và nó chỉ tồn tại ở ĐÂY: sau bước xoá chữ thì
-                # trong bong bóng không còn chữ để đo nữa. Engine không có thì `None`, không bịa.
-                co_layout = getattr(engine, "recognize_with_layout", None)
-                if co_layout is not None:
-                    text, confidence, polys = co_layout(image_path, BBox(x=x, y=y, w=w, h=h))
-                else:
-                    text, confidence = engine.recognize(image_path, BBox(x=x, y=y, w=w, h=h))
-                    polys = None
-            except Exception as exc:  # noqa: BLE001 - 1 vùng hỏng không được giết cả trang
-                logger.warning("OCR region %s lỗi: %s", region_id, exc)
-                errors.append(f"{type(exc).__name__}: {exc}")
-                results.append((region_id, None, None, OCRStatus.needs_manual, None,
-                                engine.engine_enum))
-                continue
-            results.append((region_id, text, confidence, _classify_ocr(text, confidence), polys,
-                            engine.engine_enum))
+        with _KHOA_MO_HINH_CUC_BO:
+            ep_giai_phong_neu_cang({"ocr"}, settings.worker_rss_soft_limit_mb)
+            ghi_moc("ocr: trước")
+            engine = get_ocr_engine_cached(source_lang)
+            # Một lượt vật chất hoá cho CẢ trang: mỗi vùng một lượt tải thì với kho từ xa là
+            # 30 lượt tải cùng một ảnh cho một trang 30 vùng.
+            with anh_cuc_bo(image_rel) as image_path:
+                for region_id, x, y, w, h, is_low in con_lai:
+                    try:
+                        # Engine nào cung cấp được đường bao từng dòng thì lấy luôn — đó là bằng chứng
+                        # hình học duy nhất về hướng chữ, và nó chỉ tồn tại ở ĐÂY: sau bước xoá chữ thì
+                        # trong bong bóng không còn chữ để đo nữa. Engine không có thì `None`, không bịa.
+                        co_layout = getattr(engine, "recognize_with_layout", None)
+                        if co_layout is not None:
+                            text, confidence, polys = co_layout(image_path, BBox(x=x, y=y, w=w, h=h))
+                        else:
+                            text, confidence = engine.recognize(image_path, BBox(x=x, y=y, w=w, h=h))
+                            polys = None
+                    except Exception as exc:  # noqa: BLE001 - 1 vùng hỏng không được giết cả trang
+                        logger.warning("OCR region %s lỗi: %s", region_id, exc)
+                        errors.append(f"{type(exc).__name__}: {exc}")
+                        results.append((region_id, None, None, OCRStatus.needs_manual, None,
+                                        engine.engine_enum))
+                        continue
+                    results.append((region_id, text, confidence, _classify_ocr(text, confidence), polys,
+                                    engine.engine_enum))
 
     # MỌI region đều ném lỗi => engine hỏng, KHÔNG phải "trang này không có chữ".
     # Báo job failed thay vì ghi 100% needs_manual rồi tự nhận ocr_done (che mất sự cố).
@@ -1552,6 +1557,7 @@ def _run_inpaint(job_id: uuid.UUID) -> dict:
                 dilated = inpainter.dilated_masks(width, height, boxes)
                 leftovers = _verify_text_removed(clean_abs, dilated, source_lang, chu_goc_xoa)
 
+        ep_nha_heap_he_dieu_hanh()
         ghi_moc("inpaint: sau")
     elapsed = time.perf_counter() - started
     target_status = PageStatus.inpaint_needs_review if leftovers else PageStatus.inpainted
@@ -1667,19 +1673,29 @@ def _run_xoa_vung_to(job_id: uuid.UUID, mat_na_rel: str) -> dict:
         session.commit()
 
     storage = get_storage()
-    inpainter = get_inpainter()
     try:
-        with workspace() as ws:
-            nen_abs = storage.fetch_to(nen_rel, ws / ("nen_" + PurePosixPath(nen_rel).name))
-            mn_abs = storage.fetch_to(mat_na_rel, ws / "mat_na.png")
-            with _Image.open(mn_abs) as im:
-                if im.mode in ("RGBA", "LA"):
-                    mat_na = np.asarray(im.getchannel("A")) > 0
-                else:
-                    mat_na = np.asarray(im.convert("L")) > 127
-            dich = ws / "sach_moi.png"
-            so_cum = xoa_theo_mat_na(inpainter, str(nen_abs), mat_na, str(dich))
-            storage.save_file(clean_rel, dich)
+        with _KHOA_MO_HINH_CUC_BO:
+            nguong_inpaint = (
+                min(settings.worker_rss_soft_limit_mb, 650)
+                if settings.worker_rss_soft_limit_mb > 0
+                else 0
+            )
+            ep_giai_phong_neu_cang({"inpainter"}, nguong_inpaint)
+            ghi_moc("inpaint_vung: trước")
+            inpainter = get_inpainter()
+            with workspace() as ws:
+                nen_abs = storage.fetch_to(nen_rel, ws / ("nen_" + PurePosixPath(nen_rel).name))
+                mn_abs = storage.fetch_to(mat_na_rel, ws / "mat_na.png")
+                with _Image.open(mn_abs) as im:
+                    if im.mode in ("RGBA", "LA"):
+                        mat_na = np.asarray(im.getchannel("A")) > 0
+                    else:
+                        mat_na = np.asarray(im.convert("L")) > 127
+                dich = ws / "sach_moi.png"
+                so_cum = xoa_theo_mat_na(inpainter, str(nen_abs), mat_na, str(dich))
+                storage.save_file(clean_rel, dich)
+            ep_nha_heap_he_dieu_hanh()
+            ghi_moc("inpaint_vung: sau")
     finally:
         storage.delete(mat_na_rel)
 

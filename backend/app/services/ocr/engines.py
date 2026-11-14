@@ -122,6 +122,9 @@ def dem_ky_tu_co_nghia(text: str) -> int:
     return len(_MEANINGFUL.findall(text or ""))
 
 
+_KY_TU_HINH_HOC_DON = frozenset("Oo0Il1|VvXx+*•·○●◯△▲▽▼◁▷◇□■")
+
+
 def vung_dang_xoa_chu(text: str, confidence: float | None,
                       min_conf: float, min_ky_tu: int) -> bool:
     """Vùng này có đáng XOÁ CHỮ không?
@@ -153,6 +156,15 @@ def vung_dang_xoa_chu(text: str, confidence: float | None,
     if n == 0:
         return False                      # không ký tự nào: chắc chắn không có gì để dịch
     if confidence is not None:
+        if min_conf > 0:
+            sach = re.sub(r"[\s.!?,…~\"'`´-]+", "", text or "")
+            if sach and len(sach) <= 2 and set(sach) <= _KY_TU_HINH_HOC_DON:
+                return confidence >= max(min_conf, 0.88)
+            if n == 1:
+                if len(sach) == 1 and (sach.isdigit() or sach.isascii()):
+                    return confidence >= max(min_conf, 0.88)
+                if min_ky_tu >= 2:
+                    return confidence >= max(min_conf, 0.72)
         return confidence >= min_conf     # engine có trả điểm -> tin điểm
     return n >= min_ky_tu                 # engine không trả điểm -> đếm ký tự
 
