@@ -17,8 +17,12 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import re
 import uuid
 from collections import OrderedDict
+
+_RE_CAP_CAO_TIER = re.compile(r"_(?:ultra3(?:v\d+)?|pro2(?:v\d+)?|(?:som3|m1)v\d+)$")
+_RE_HAU_TO_TIER = re.compile(r"_(?:ultra3|pro2|som3|m1)(?:v\d+)?$")
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -200,28 +204,12 @@ async def thu_sao_chep_tu_cache(
         return False
     k = _khoa(bam_anh, source_lang, engine, che_do, target_lang=target_lang)
     ung_vien_ids = list(reversed(_BO_NHO_BAM.get(k, [])))
-    la_cap_cao = (
-        bam_anh.endswith("_ultra3")
-        or bam_anh.endswith("_pro2")
-        or bam_anh.endswith("_pro2v2")
-        or bam_anh.endswith("_ultra3v3")
-        or bam_anh.endswith("_pro2v3")
-        or bam_anh.endswith("_som3v3")
-        or bam_anh.endswith("_m1v3")
-    )
+    la_cap_cao = bool(_RE_CAP_CAO_TIER.search(bam_anh))
     if la_cap_cao:
         ds_bam_ung = [b for b in dict.fromkeys([bam_anh, bam_phu or ""]) if b]
         ds_eng_ung = [engine]
     else:
-        bam_anh_goc = (
-            bam_anh.removesuffix("_ultra3v3")
-            .removesuffix("_pro2v3")
-            .removesuffix("_som3v3")
-            .removesuffix("_m1v3")
-            .removesuffix("_ultra3")
-            .removesuffix("_pro2v2")
-            .removesuffix("_pro2")
-        )
+        bam_anh_goc = _RE_HAU_TO_TIER.sub("", bam_anh)
         ds_bam_ung = [b for b in dict.fromkeys([bam_anh, bam_anh_goc, bam_phu or ""]) if b]
         ds_eng_ung = list(dict.fromkeys([engine, TranslationEngine.llm_context, TranslationEngine.google_fast]))
 

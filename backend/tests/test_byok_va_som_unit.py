@@ -343,6 +343,63 @@ def test_bo_nho_nha_ctd_va_gom_cum_gioi_han_mpx():
         assert stub_tasks._ocr_engines == {}
 
 
+def test_som_khong_hoi_sinh_sfx_khi_ban_dich_trong_va_khong_goi_lap_1pass():
+    import numpy as np
+    from PIL import Image
+    from pathlib import Path
+    import tempfile
+
+    from app.services.detect.ai_gemini import AIGeminiDetector
+    from app.services.detect.ctd import DetectedRegion
+    from app.services.detect.som_vision import ghep_ket_qua_som_vao_khung_ctd
+    from app.services.interfaces import BBox
+
+    khung = [
+        DetectedRegion(bbox=BBox(x=10, y=10, w=120, h=80), confidence=0.95, cls=0),
+        DetectedRegion(bbox=BBox(x=200, y=200, w=80, h=50), confidence=0.90, cls=0),
+    ]
+    ket = ghep_ket_qua_som_vao_khung_ctd(
+        khung,
+        [
+            {"id": 1, "text": "Hello!", "ban_dich": "Xin chào!"},
+            {"id": 2, "text": "GULP", "ban_dich": ""},
+            {"id": 0, "text": "WHOOSH", "ban_dich": "", "box": [300, 300, 400, 450]},
+        ],
+        img_w=600,
+        img_h=800,
+    )
+    assert len(ket) == 1
+    assert ket[0].ban_dich == "Xin chào!"
+
+    # Khi Vision tuân thủ Set-of-Mark (có id 1..N) nhưng cố ý bỏ trống `ban_dich` toàn trang SFX,
+    # `detect_va_dich_som_regions` phải trả `[]` trực tiếp mà KHÔNG gọi lặp `detect_va_dich_regions`.
+    det = AIGeminiDetector(api_keys=["fake-key"], model_name="gemini-2.5-flash")
+    goi_lai_1pass = False
+
+    def _chan_1pass(*args, **kwargs):
+        nonlocal goi_lai_1pass
+        goi_lai_1pass = True
+        return []
+
+    det.detect_va_dich_regions = _chan_1pass
+    det._goi = lambda *args, **kwargs: [
+        {"id": 1, "text": "주절 - -", "ban_dich": ""},
+        {"id": 2, "text": "GULP", "ban_dich": ""},
+    ]
+
+    with tempfile.TemporaryDirectory() as td:
+        p = Path(td) / "sfx_only.png"
+        Image.fromarray(np.full((400, 300, 3), 240, dtype=np.uint8)).save(p)
+        out = det.detect_va_dich_som_regions(
+            str(p),
+            ctd_regions=khung,
+            source_lang="ko",
+            target_lang="vi",
+        )
+    assert out == []
+    assert goi_lai_1pass is False
+
+
 if __name__ == "__main__":
     test_funcs = [v for k, v in list(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in test_funcs:

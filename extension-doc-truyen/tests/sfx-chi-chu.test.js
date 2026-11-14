@@ -37,10 +37,23 @@ describe('nhận diện SFX và bảo vệ bóng thoại có dấu ba chấm', (
     const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'))
     const popupHtml = fs.readFileSync(path.join(ROOT, 'src', 'popup', 'index.html'), 'utf8')
     const optionsHtml = fs.readFileSync(path.join(ROOT, 'src', 'options', 'index.html'), 'utf8')
-    expect(manifest.version).toBe('5.24.5')
-    expect(pkg.version).toBe('5.24.5')
-    expect(popupHtml).toContain('v5.24.5')
-    expect(optionsHtml).toContain('v5.24.5')
+    expect(manifest.version).toBe('5.24.6')
+    expect(pkg.version).toBe('5.24.6')
+    expect(popupHtml).toContain('v5.24.6')
+    expect(optionsHtml).toContain('v5.24.6')
+  })
+
+  it('giữ nguyên SFX ngoài bóng thoại (주절 - -, ~~~꼬르르, GULP, ビュウ ガタガタ) nhưng giữ thoại thật (응응, 선배..., 나니)', () => {
+    expect(laVungSfx({ ban_dich: 'Lầm bầm - -', chu_goc: '주절 - -', _laBongKhepKin: true })).toBe(true)
+    expect(laVungSfx({ ban_dich: 'Lầm bầm~', chu_goc: '주절 ~', _laBongKhepKin: false })).toBe(true)
+    expect(laVungSfx({ ban_dich: 'Sôi bụng', chu_goc: '~~~꼬르르', _laBongKhepKin: false })).toBe(true)
+    expect(laVungSfx({ ban_dich: 'Ực', chu_goc: 'GULP', _laBongKhepKin: false })).toBe(true)
+    expect(laVungSfx({ ban_dich: 'Tức', chu_goc: '픽', _laBongKhepKin: false })).toBe(true)
+    expect(laVungSfx({ ban_dich: 'Vù lạch cạch', chu_goc: 'ビュウ ガタガタ', _laBongKhepKin: false })).toBe(true)
+    expect(laVungSfx({ ban_dich: 'Ừ, ừ.', chu_goc: '응응', _laBongKhepKin: true })).toBe(false)
+    expect(laVungSfx({ ban_dich: 'Ừ, ừ.', chu_goc: '응응', _laBongKhepKin: false })).toBe(false)
+    expect(laVungSfx({ ban_dich: 'Tiền bối...', chu_goc: '선배...', _laBongKhepKin: false })).toBe(false)
+    expect(laVungSfx({ ban_dich: 'Cái gì...?', chu_goc: 'なに…？', _laBongKhepKin: false })).toBe(false)
   })
 
   it('giữ ngưỡng nhận biên panel occluded (>= 0.52) và chặn screentone khỏi wToi (lum3x3 <= 72)', () => {

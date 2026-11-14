@@ -344,4 +344,95 @@ def test_loc_va_thu_hep_khong_xe_nho_halo_chu_tren_toc_den_va_bo_vien_tam_giac(t
     assert not tri_boxes, f"Viền tam giác nhỏ vẫn lọt hậu kiểm: {tri_boxes}"
 
 
+def test_loc_sfx_tranh_giu_bong_kin_va_chan_sfx_ngoai_bong():
+    import cv2
+    from app.services.ocr.loc_sfx_tranh import (
+        la_chu_tuong_thanh_sfx,
+        tao_ban_do_bong_thoai_tu_anh,
+        vung_can_thiet_dich,
+    )
+
+    # Tạo ảnh 520x520 trắng ở trên (bong bóng khép kín viền đen dày) và nền gạch chéo phức tạp ở dưới
+    anh = np.full((520, 520, 3), 245, dtype=np.uint8)
+    # 1. Bong bóng thoại khép kín bên trái trên: (30, 30, 150, 140)
+    cv2.ellipse(anh, (105, 100), (65, 62), 0, 0, 360, (255, 255, 255), -1)
+    cv2.ellipse(anh, (105, 100), (65, 62), 0, 0, 360, (15, 15, 15), 3)
+    # 2. Nửa dưới là nền tranh gạch sọc + nhiễu (phức tạp)
+    anh[220:500, :] = 190
+    for xx in range(10, 510, 7):
+        cv2.line(anh, (xx, 220), (xx - 30, 500), (45, 45, 45), 2)
+    # Tóc đen đặc cho thoại nội tâm dạng Akagi ở góc phải dưới: (310, 360, 180, 90)
+    anh[350:465, 300:505] = 12
+    # Halo trắng mảnh mô phỏng nét chữ nội tâm trên tóc đen (nằm NGOÀI bóng trắng khép kín)
+    cv2.putText(anh, "No matter", (315, 405), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (250, 250, 250), 3)
+
+    ban_do = tao_ban_do_bong_thoai_tu_anh(anh)
+    assert ban_do is not None
+
+    bbox_bong = BBox(x=68, y=72, w=74, h=56)
+    bbox_nen_phuc_tap = BBox(x=45, y=280, w=88, h=46)
+    bbox_toc_akagi = BBox(x=312, y=365, w=175, h=85)
+
+    assert ban_do.kiem_tra_vung(bbox_bong).trong_bong_kin is True
+    assert ban_do.kiem_tra_vung(bbox_nen_phuc_tap).trong_bong_kin is False
+    assert ban_do.kiem_tra_vung(bbox_nen_phuc_tap).nen_tranh_phuc_tap is True
+
+    # Thoại ngắn trong bong bóng khép kín (kể cả conf vừa) PHẢI luôn được giữ & dịch
+    assert vung_can_thiet_dich("응응", 0.56, 0.50, 2, source_lang="ko", bbox=bbox_bong, ban_do_bong=ban_do) is True
+    assert vung_can_thiet_dich("Uma...?", 0.62, 0.50, 2, source_lang="en", bbox=bbox_bong, ban_do_bong=ban_do) is True
+    assert vung_can_thiet_dich("WHOOOM!", 0.90, 0.50, 2, source_lang="en", bbox=bbox_bong, ban_do_bong=ban_do) is True
+
+    # SFX trôi nổi ngoài bóng thoại PHẢI bị loại sạch (kể cả conf 0.99)
+    for txt_sfx, lang in [
+        ("GULP", "en"),
+        ("주절 - -", "ko"),
+        ("주절 ~", "ko"),
+        ("~~~꼬르르", "ko"),
+        ("픽", "ko"),
+        ("ビュウ ガタガタ", "en"),
+        ("グキ", "ja"),
+        ("ピキ", "ja"),
+        ("ボワアア", "ja"),
+    ]:
+        assert la_chu_tuong_thanh_sfx(txt_sfx, lang) is True, f"Bỏ sót SFX: {txt_sfx}"
+        assert vung_can_thiet_dich(
+            txt_sfx, 0.98, 0.50, 2, source_lang=lang, bbox=bbox_nen_phuc_tap, ban_do_bong=ban_do
+        ) is False, f"Vẫn xoá/dịch SFX ngoài bóng: {txt_sfx}"
+
+    # Chữ OCR đọc bậy trên nền tranh phức tạp ngoài bóng thoại PHẢI bị chặn
+    assert vung_can_thiet_dich("LA UMa Z", 0.66, 0.50, 2, source_lang="en", bbox=bbox_nen_phuc_tap, ban_do_bong=ban_do) is False
+    assert vung_can_thiet_dich("Mi P", 0.65, 0.50, 2, source_lang="en", bbox=bbox_nen_phuc_tap, ban_do_bong=ban_do) is False
+    assert vung_can_thiet_dich("#? -- - 로 나 까", 0.77, 0.50, 2, source_lang="ko", bbox=bbox_nen_phuc_tap, ban_do_bong=ban_do) is False
+    assert vung_can_thiet_dich("1 피", 0.52, 0.50, 2, source_lang="ko", bbox=bbox_nen_phuc_tap, ban_do_bong=ban_do) is False
+
+    # Thoại nội tâm mạch lạc trên tóc đen (Akagi) PHẢI giữ nguyên 100% để dịch
+    assert vung_can_thiet_dich(
+        "No matter how I play...", 0.88, 0.50, 2, source_lang="en", bbox=bbox_toc_akagi, ban_do_bong=ban_do
+    ) is True
+    assert vung_can_thiet_dich(
+        "...There's something really strange", 0.91, 0.50, 2, source_lang="en", bbox=bbox_toc_akagi, ban_do_bong=ban_do
+    ) is True
+    assert vung_can_thiet_dich(
+        "Giants' fans are really loud...", 0.92, 0.50, 2, source_lang="en", bbox=bbox_toc_akagi, ban_do_bong=ban_do
+    ) is True
+    assert vung_can_thiet_dich("응응", 0.92, 0.50, 2, source_lang="ko", bbox=bbox_nen_phuc_tap, ban_do_bong=ban_do) is True
+    assert vung_can_thiet_dich("선배...", 0.88, 0.50, 2, source_lang="ko", bbox=bbox_nen_phuc_tap, ban_do_bong=ban_do) is True
+    assert vung_can_thiet_dich("なに…？", 0.88, 0.50, 2, source_lang="ja", bbox=bbox_nen_phuc_tap, ban_do_bong=ban_do) is True
+
+    # Nền góc nhọn trắng trong khung tranh (fill_ratio < 0.42) KHÔNG được nhận nhầm là bóng kín,
+    # và từ tượng thanh chắc chắn ("주절 - -") kể cả đặt trên nền sáng vẫn phải bị bỏ qua.
+    anh_goc = np.full((300, 420, 3), 60, dtype=np.uint8)
+    tam_giac = np.array([[20, 20], [340, 20], [20, 160]], dtype=np.int32)
+    cv2.fillPoly(anh_goc, [tam_giac], (255, 255, 255))
+    cv2.polylines(anh_goc, [tam_giac], True, (15, 15, 15), 3)
+    ban_do_goc = tao_ban_do_bong_thoai_tu_anh(anh_goc)
+    assert ban_do_goc is not None
+    bbox_goc_nhon = BBox(x=50, y=35, w=55, h=40)
+    assert ban_do_goc.kiem_tra_vung(bbox_goc_nhon).trong_bong_kin is False
+    assert vung_can_thiet_dich(
+        "주절 - -", 0.62, 0.50, 2, source_lang="ko", bbox=bbox_bong, ban_do_bong=ban_do
+    ) is False
+
+
+
 

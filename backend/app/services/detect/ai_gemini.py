@@ -188,10 +188,11 @@ def xay_loi_nhac_gop_dich(source_lang: str, target_lang: str, boi_canh: str = ""
 _CHI_LA_SO = __import__("re").compile(r"^(?=.*\d)[\s\d.,:/\-–—#]+$")
 _MAU_SFX_NGAN = __import__("re").compile(
     r"^(?:WHO+M+|BO+M+|KA-?RO+M+|KRA+K+|CRA+SH+|BA+M+|SLA+M+|THU+D+|ZWO+SH+|SPLA+SH+|SPLR+SH+|STOMP+|CLANK+|CLANG+|SWO+SH+|SLI+CE+|"
+    r"GU+LP+|GA+SP+|SNI+FF+|SOB+|PAN+T+|HU+FF+|THU+MP+|PO+OF+|"
     r"BÙM+|ẦM+|RẦM+|XOẸT+|XÈ+|KENG+|VÙ+|VỤT+|BỐP+|BỊCH+|UỲNH+|"
-    r"ドゴ+ン*|ゴゴ+|ズシ+ン*|ザッ+|パァ+ン*|ドォ+ン*|バァ+ン*|ガァ+ン*|シュッ+|ギュッ+|"
-    r"콰아+앙*|쿠구+구*|스윽+|번쩍+|퍼억+|쾅+|쿵+|휙+|"
-    r"轰隆*|砰+|嗖+|咔嚓*)[!?.\s…~〜ー]*$",
+    r"ドゴ+ン*|ゴゴ+|ズシ+ン*|ザッ+|パァ+ン*|ドォ+ン*|バァ+ン*|ガァ+ン*|シュッ+|ギュッ+|ビュウ+|ガタガタ+|グキ+|ピキ+|ボワアア+|ドキ+|ゴソ+|"
+    r"콰아+앙*|쿠구+구*|스윽+|번쩍+|퍼억+|쾅+|쿵+|휙+|주절+|준절+|수군+|웅성+|꼬르르+|두근+|픽+|삐질+|히익+|"
+    r"轰隆*|砰+|嗖+|咔嚓*)[!?.\s…~〜ー\-・]*$",
     __import__("re").IGNORECASE,
 )
 
@@ -1133,6 +1134,8 @@ class AIGeminiDetector:
                 continue
             ban_dich = muc.get("ban_dich")
             ban_dich = " ".join(ban_dich.split()) if isinstance(ban_dich, str) else None
+            if not ban_dich:
+                continue
             ra.append(DetectedRegion(
                 bbox=BBox(x=x0, y=y0, w=x1 - x0, h=y1 - y0),
                 confidence=None,
@@ -1208,6 +1211,19 @@ class AIGeminiDetector:
         )
         ra = ghep_ket_qua_som_vao_khung_ctd(khung_sap_xep, tho_som, rong_goc, cao_goc)
         if not ra:
+            # Nếu Gemini đã tuân thủ id Set-of-Mark (1..N) nhưng cố ý bỏ trống `ban_dich` toàn trang
+            # vì chỉ có SFX trang trí / nhiễu nền, giữ nguyên quyết định bỏ qua thay vì gọi lặp 1-pass.
+            da_theo_som = False
+            for muc_som in tho_som:
+                if isinstance(muc_som, dict):
+                    try:
+                        if 1 <= int(muc_som.get("id") or 0) <= len(khung_sap_xep):
+                            da_theo_som = True
+                            break
+                    except (TypeError, ValueError):
+                        pass
+            if da_theo_som:
+                return []
             # Nếu model ngoại lai không tuân thủ id Set-of-Mark, lùi mượt về 1-pass chuẩn
             return self.detect_va_dich_regions(
                 image_path, source_lang=source_lang, target_lang=target_lang, boi_canh=boi_canh

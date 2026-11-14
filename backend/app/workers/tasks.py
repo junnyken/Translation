@@ -1475,20 +1475,31 @@ def _run_inpaint(job_id: uuid.UUID) -> dict:
             session.commit()
             return {"status": "failed", "job_id": str(job_id), "error": job.error_log}
 
-        # Chỉ xoá vùng ĐỌC RA CHỮ THẬT. Khung nhận diện còn làm mask cho LaMa, nên khoanh nhầm
-        # nét vẽ là XOÁ MẤT NÉT VẼ — đã chứng minh: chạy bước này với các vùng model cũ khoanh
-        # trên một trang có hiệu ứng phát sáng thì toàn bộ ánh sáng và tia lấp lánh bị xoá sạch.
-        # Vùng không đọc ra chữ thì không có gì để dịch, nên xoá nó là phá tranh mà không đổi
-        # lại lợi ích nào. Ngưỡng và lý do: `ocr.engines.vung_dang_xoa_chu`.
-        from app.services.ocr.engines import vung_dang_xoa_chu
+        # Chỉ xoá vùng ĐỌC RA CHỮ THẬT & CẦN DỊCH (không xoá SFX trôi nổi ngoài bóng thoại
+        # hay chữ nhiễu OCR trên nền tranh phức tạp — giữ nguyên 100% nét vẽ gốc).
+        from app.services.ocr.loc_sfx_tranh import (
+            tao_ban_do_bong_thoai_tu_anh,
+            vung_can_thiet_dich,
+        )
+
+        ban_do_bong = None
+        if settings.vung_xoa_min_conf > 0 and image_rel:
+            try:
+                with anh_cuc_bo(image_rel) as _img_loc_path:
+                    ban_do_bong = tao_ban_do_bong_thoai_tu_anh(_img_loc_path)
+            except Exception:  # noqa: BLE001 — lọc hình học là lớp bảo vệ thêm, hỏng không làm chết job
+                logger.warning("inpaint trang %s: không tạo được bản đồ bóng thoại, dùng lọc văn bản", page_id)
 
         dang_xoa = [
             r for r in regions
-            if settings.vung_xoa_min_conf <= 0 or vung_dang_xoa_chu(
+            if settings.vung_xoa_min_conf <= 0 or vung_can_thiet_dich(
                 ket_qua_ocr[r.id].raw_text or "",
                 ket_qua_ocr[r.id].confidence,
                 settings.vung_xoa_min_conf,
                 settings.vung_xoa_min_ky_tu,
+                source_lang=source_lang,
+                bbox=BBox(x=r.bbox_x, y=r.bbox_y, w=r.bbox_w, h=r.bbox_h),
+                ban_do_bong=ban_do_bong,
             )
         ]
         bo_qua = len(regions) - len(dang_xoa)
@@ -2052,10 +2063,45 @@ def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dic
                 ban_dich_1pass_model = next((t.model_name for t in existing_tr_rows if t.model_name), settings.detect_ai_model)
                 ban_dich_1pass_tokens = next((t.token_cost for t in existing_tr_rows if t.token_cost is not None), None)
 
-        anh_kem = None
         da_doc_bang_ai_gemini = any(
             o.ocr_engine is OCREngine.ai_gemini for o in ocr_map.values()
         )
+        # Bỏ qua đồng bộ cả vùng SFX/nhiễu ngoài bóng thoại khỏi bước dịch (áp cho cả `chi_chu` & `day_du`)
+        # để không vẽ chữ dịch đè lên nét vẽ khi chưa từng xoá ở bước inpaint.
+        bo_qua_sfx_tranh: set = set()
+        if (
+            not da_doc_bang_ai_gemini
+            and not ban_dich_1pass_map
+            and settings.vung_xoa_min_conf > 0
+            and page.image_path
+        ):
+            try:
+                from app.services.ocr.loc_sfx_tranh import (
+                    tao_ban_do_bong_thoai_tu_anh,
+                    vung_can_thiet_dich,
+                )
+
+                with anh_cuc_bo(page.image_path) as _img_tr_path:
+                    _ban_do_tr = tao_ban_do_bong_thoai_tu_anh(_img_tr_path)
+                if _ban_do_tr is not None:
+                    for r in ordered:
+                        if r.id in giu_nguyen:
+                            continue
+                        ocr_row = ocr_map[r.id]
+                        if not vung_can_thiet_dich(
+                            ocr_row.raw_text or "",
+                            ocr_row.confidence,
+                            settings.vung_xoa_min_conf,
+                            settings.vung_xoa_min_ky_tu,
+                            source_lang=source_lang,
+                            bbox=BBox(x=r.bbox_x, y=r.bbox_y, w=r.bbox_w, h=r.bbox_h),
+                            ban_do_bong=_ban_do_tr,
+                        ):
+                            bo_qua_sfx_tranh.add(r.id)
+            except Exception:  # noqa: BLE001
+                logger.warning("dịch trang %s: không lọc được SFX ngoài bóng thoại, dịch bình thường", page_id)
+
+        anh_kem = None
         if (
             not ban_dich_1pass_map
             and not da_doc_bang_ai_gemini
@@ -2089,14 +2135,24 @@ def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dic
         session.commit()
 
     engine_name = engine_override or settings.translate_default_engine
-    # Chỉ gửi đi dịch những vùng KHÔNG giữ nguyên; vùng SFX được ghép lại đúng chỗ sau đó.
-    chi_so_dich = [i for i, (rid, _t, _p) in enumerate(ordered_specs) if rid not in giu_nguyen]
+    # Chỉ gửi đi dịch những vùng KHÔNG giữ nguyên và KHÔNG bị lọc SFX/nhiễu ngoài bóng thoại.
+    chi_so_dich = [
+        i
+        for i, (rid, _t, _p) in enumerate(ordered_specs)
+        if rid not in giu_nguyen and rid not in bo_qua_sfx_tranh
+    ]
     texts = [ordered_specs[i][1] for i in chi_so_dich]
 
     used_engine = engine_name
     fallback_reason: str | None = None
     translator = None
-    if ban_dich_1pass_map:
+    if not chi_so_dich:
+        translated = []
+        logger.info(
+            "dịch trang %s: 0 vùng cần gọi dịch (giu_nguyen=%d, bo_qua_sfx_tranh=%d)",
+            page_id, len(giu_nguyen), len(bo_qua_sfx_tranh),
+        )
+    elif ban_dich_1pass_map:
         used_engine = TranslationEngine.llm_context.value
         translated = [
             ban_dich_1pass_map.get(ordered_specs[i][0], "")
@@ -2156,17 +2212,28 @@ def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dic
                 translator = build_translator(used_engine)
                 translated = translator.translate(texts, source_lang, target_lang)
 
-    # Ghép về đúng thứ tự ban đầu: vùng giữ nguyên lấy lại CHỮ GỐC, vùng còn lại lấy bản dịch.
-    # Làm ở đây thay vì lúc ghi CSDL để phần bên dưới không phải biết gì về SFX.
-    if giu_nguyen:
+    # Ghép về đúng thứ tự ban đầu:
+    # - vùng `bo_qua_sfx_tranh` lấy chuỗi rỗng để không vẽ đè lên nét vẽ gốc chưa inpaint;
+    # - vùng `giu_nguyen` lấy lại CHỮ GỐC; vùng còn lại lấy bản dịch.
+    if giu_nguyen or bo_qua_sfx_tranh:
         _ban_dich = dict(zip(chi_so_dich, translated, strict=False))
         translated = [
-            _ban_dich.get(i, ordered_specs[i][1]) for i in range(len(ordered_specs))
+            _ban_dich.get(
+                i,
+                "" if ordered_specs[i][0] in bo_qua_sfx_tranh else ordered_specs[i][1],
+            )
+            for i in range(len(ordered_specs))
         ]
-        logger.info(
-            "dịch trang %s: giữ nguyên %d vùng possible_sfx (không gửi đi dịch)",
-            page_id, len(giu_nguyen),
-        )
+        if giu_nguyen:
+            logger.info(
+                "dịch trang %s: giữ nguyên %d vùng possible_sfx (không gửi đi dịch)",
+                page_id, len(giu_nguyen),
+            )
+        if bo_qua_sfx_tranh:
+            logger.info(
+                "dịch trang %s: bỏ qua %d vùng SFX/nhiễu ngoài bóng thoại (giữ nguyên nét vẽ gốc)",
+                page_id, len(bo_qua_sfx_tranh),
+            )
 
     # E66 — vùng mà CHÍNH mô hình tự báo là đang ĐOÁN.
     #
@@ -2191,12 +2258,13 @@ def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dic
 
         empty = 0
         for index, ((region_id, _src, _pos), text) in enumerate(zip(ordered_specs, translated, strict=False)):
-            is_empty = not (text or "").strip()
+            la_sfx_bo_qua = region_id in bo_qua_sfx_tranh
+            is_empty = (not la_sfx_bo_qua) and (not (text or "").strip())
             empty += int(is_empty)
             session.add(
                 TranslationResult(
                     region_id=region_id,
-                    translated_text=text or None,
+                    translated_text=None if la_sfx_bo_qua else (text or None),
                     engine=TranslationEngine(used_engine),
                     model_name=(
                         ban_dich_1pass_model
@@ -2211,12 +2279,16 @@ def _run_translate(job_id: uuid.UUID, engine_override: str | None = None) -> dic
                         else (usage.total_tokens if usage and index == 0 else None)
                     ),
                     status=(
-                        TranslationStatus.pending
-                        if is_empty
+                        TranslationStatus.ok
+                        if la_sfx_bo_qua
                         else (
-                            TranslationStatus.fallback_used
-                            if fallback_reason
-                            else TranslationStatus.ok
+                            TranslationStatus.pending
+                            if is_empty
+                            else (
+                                TranslationStatus.fallback_used
+                                if fallback_reason
+                                else TranslationStatus.ok
+                            )
                         )
                     ),
                 )
@@ -2520,9 +2592,8 @@ def render_page_preview(page_id: uuid.UUID, resolver=None) -> str:
 
     with sync_session() as session:
         page = session.get(Page, page_id)
-        if page is None or not page.clean_image_path:
+        if page is None:
             raise RuntimeError(f"no_clean_image: page {page_id} chưa có ảnh clean của M4")
-        clean_rel = page.clean_image_path
         he_so_ve_trang = float(page.he_so_ve or 1.0)
         rows = list(
             session.execute(
@@ -2532,6 +2603,12 @@ def render_page_preview(page_id: uuid.UUID, resolver=None) -> str:
                 .order_by(TextRegion.reading_order.nulls_last(), TextRegion.created_at)
             ).all()
         )
+        tat_ca_rong_sfx = bool(rows) and all(
+            not ((ts.wrapped_text or "").strip()) for _r, ts in rows
+        )
+        clean_rel = page.clean_image_path or (page.image_path if tat_ca_rong_sfx else None)
+        if not clean_rel:
+            raise RuntimeError(f"no_clean_image: page {page_id} chưa có ảnh clean của M4")
         from app.services.orientation.apply import nap_goc_nghieng
         from app.services.safearea.apply import nap_o_dat_chu
         from app.services.storage import get_storage as _lay_kho
@@ -2654,18 +2731,6 @@ def _run_typeset(job_id: uuid.UUID) -> dict:
             session.commit()
             return {"status": "failed", "job_id": str(job_id), "error": job.error_log}
 
-        # E43 — trang TRANH THUẦN đương nhiên không có ảnh clean: bước xoá chữ chưa từng chạy vì
-        # không có gì để xoá. Đó không phải lỗi, nên cho đi qua để rơi vào nhánh "không có vùng"
-        # ngay bên dưới.
-        #
-        # Thiếu điều kiện này thì bản sửa E43 dừng ở `translated` thay vì về đích `typeset_done`
-        # — đúng lỗi bài test bắt được lúc viết.
-        if not clean_rel and not khong_co_vung(session, page_id):
-            job.status = JobStatus.failed
-            job.error_log = "no_clean_image: page chưa có ảnh clean của M4"
-            session.commit()
-            return {"status": "failed", "job_id": str(job_id), "error": job.error_log}
-
         regions = list(
             session.execute(
                 select(TextRegion)
@@ -2693,6 +2758,21 @@ def _run_typeset(job_id: uuid.UUID) -> dict:
                 )
             ).scalars()
         }
+        tat_ca_bo_qua_sfx = (
+            len(translations) == len(regions)
+            and all(not (translations[r.id].translated_text or "").strip() for r in regions)
+        )
+        if not clean_rel:
+            if tat_ca_bo_qua_sfx and page.image_path:
+                # Mọi vùng trên trang đều là SFX/nhiễu bị bỏ qua nên M4 giữ nguyên ảnh gốc:
+                # dùng chính ảnh gốc làm nền preview (không vẽ chữ gì lên).
+                clean_rel = page.image_path
+            else:
+                job.status = JobStatus.failed
+                job.error_log = "no_clean_image: page chưa có ảnh clean của M4"
+                session.commit()
+                return {"status": "failed", "job_id": str(job_id), "error": job.error_log}
+
         if len(translations) < len(regions):
             # Thiếu bản dịch ⇒ KHÔNG tạo preview nửa vời.
             job.status = JobStatus.failed

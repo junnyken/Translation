@@ -142,19 +142,41 @@ void (async () => {
       ?.catch?.(() => {})
   }
 
-  const TU_TUONG_THANH_SFX = /^(?:splr*sh|splash|spurt|splat|stomp|bam|boom|ba-?boom|bang|blam|clang|cling|clong|clank|clink|crack|crackle|crash|crunch|thud|thump|whoosh|fwoosh|woosh|swish|swoosh|slash|slice|shing|zoom|zap|zip|zzt+|bzz+|wham|whack|smack|slam|pow|kaboom|rumble|roar+|screech|shriek|grr+|rrr+|krr+|skrr+|doki|ba-?dump|dun|don|gogo+|zuzu+|kra+k|krak|shwa+|fwip|fump|tap|tak|thwack|drip|drop|tick|tock|ding|dong|ring|beep|snap|pop|poof|puff|rustle|creak|clatter|shatter|sizzle|hiss+|fizz+|whirr+|vrr+|brr+|wobble|ripple|flash|flap|flutter|sway|shake|tremble|gasp|huff|pant|sniff|sob|gulp|ba-?dum|thump-?thump)[!.?~]*$/i
+  const TU_TUONG_THANH_SFX = /^(?:splr*sh|splash|spurt|splat|stomp|bam|boom|ba-?boom|bang|blam|clang|cling|clong|clank|clink|crack|crackle|crash|crunch|thud|thump|whoosh|fwoosh|woosh|swish|swoosh|slash|slice|shing|zoom|zap|zip|zzt+|bzz+|wham|whack|smack|slam|pow|kaboom|rumble|roar+|screech|shriek|grr+|rrr+|krr+|skrr+|doki|ba-?dump|dun|don|gogo+|zuzu+|kra+k|krak|shwa+|fwip|fump|tap|tak|thwack|drip|drop|tick|tock|ding|dong|ring|beep|snap|pop|poof|puff|rustle|creak|clatter|shatter|sizzle|hiss+|fizz+|whirr+|vrr+|brr+|wobble|ripple|flash|flap|flutter|sway|shake|tremble|gasp|huff|pant|sniff|sob|gulp|slurp|shiver|sweat|blush|bonk|flick|snicker|giggle|chuckle|murmur|mutter|grumble|growl)[!.?~]*$/i
 
-  const TU_TUONG_THANH_VI = /^(?:xè+|xèo+|xẹt+|xoẹt+|vụt+|vù+|vút+|vèo+|keng(?:\s*keng)?|leng\s*keng|loảng\s*xoảng|dậm+|thình\s*thịch|bịch+|bốp+|cốp+|chát+|rắc+|krắc+|crắc+|uỳnh+|đùng(?:\s*đùng|\s*đoàng)?|ầm(?:\s*ầm|\s*ĩ)?|rầm+|bùm+|ào(?:\s*ào)?|rào(?:\s*rào)?|roạt+|soạt+|sột\s*soạt|phập+|phụt+|phịch+|phựt+|bựt+|phạch+|bạch+|két+|kít+|rít+|gừ+|rừ+|grừ+|cạch+|cộp(?:\s*cộp)?|lộp\s*cộp|lộp\s*bộp|tách+|tí\s*tách|tõm+|ủm+|ùng\s*ục|khè+|phù+|u+|ù+|rè+|zè+|xì+|xì\s*xèo)[!?.…~]*$/i
+  // Tượng thanh tiếng Hàn chắc chắn (vẽ trôi nổi / lầm bầm / tim đập / sôi bụng) — tách khỏi thoại thật như "응응", "선배...".
+  const TU_TUONG_THANH_KO_CHAC = /^(?:주절(?:주절)?|준절|수군(?:수군)?|웅성(?:웅성)?|꼬르르+|두근(?:두근)?|콩닥(?:콩닥)?|우르르+|우당탕|와장창|콰아+앙*|쿠구+구*|번쩍+|꿀꺽+|꼴깍+|덜덜+|부들+|바들+|휘청+|삐걱+|우지끈+)$/
+  const TU_TUONG_THANH_KO = /^(?:픽+|스윽+|퍼억+|퍼퍽+|퍽+|쾅+|쿵+|쿵쿵|휙+|휘익+|슈욱+|스르륵|사락+|바스락|부스럭|삐질+|피식+|풉+|풋+|툭+|탁+|짝+|콱+|철푸덕|털썩|덜컹|달그락|딸랑|쨍그랑|츄릅|쪽+|히익+)$/
+  const TU_TUONG_THANH_JA_HIRA = /^(?:ぎゅ+|どき+|にや+|にこ+|はっ+|ふっ+|ぼそ+|ひそ+|ざわ+|ごろ+|ぴく+|ぶる+|がた+|ばた+|どさ+)$/
+  const TU_TUONG_THANH_VI = /^(?:xè+|xèo+|xẹt+|xoẹt+|vụt+|vù+|vút+|vèo+|keng(?:\s*keng)?|leng\s*keng|loảng\s*xoảng|dậm+|thình\s*thịch|bịch+|bốp+|cốp+|chát+|rắc+|krắc+|crắc+|uỳnh+|đùng(?:\s*đùng|\s*đoàng)?|ầm(?:\s*ầm|\s*ĩ)?|rầm+|bùm+|ào(?:\s*ào)?|rào(?:\s*rào)?|roạt+|soạt+|sột\s*soạt|phập+|phụt+|phịch+|phựt+|bựt+|phạch+|bạch+|két+|kít+|rít+|gừ+|rừ+|grừ+|cạch+|cộp(?:\s*cộp)?|lộp\s*cộp|lộp\s*bộp|tách+|tí\s*tách|tõm+|ủm+|ùng\s*ục|sôi\s*bụng|lầm\s*bầm|rì\s*rầm|khè+|phù+|u+|ù+|rè+|zè+|xì+|xì\s*xèo|ực+|hự+|phụt)[!?.…~]*$/i
 
   /**
-   * Nhận diện vùng chữ là TIẾNG ĐỘNG (SFX) vẽ cách điệu thẳng lên tranh (như SPLRRRSH, ドジュウウウウ, STOMP, XÈÈÈÈ!).
+   * Nhận diện vùng chữ là TIẾNG ĐỘNG (SFX) vẽ cách điệu thẳng lên tranh (như SPLRRRSH, ドジュウウウウ, STOMP, 주절 - -, XÈÈÈÈ!).
    * Mặc định ở chế độ `giu_nguyen`, các vùng SFX này sẽ được giữ nguyên 100% nét vẽ gốc, tuyệt đối không xoá nền
    * để tránh làm mất hình nhân vật hoặc gây vệt nhoè trên tranh.
    */
   function laVungSfx(v) {
-    if (!v || v._sfxDichDe || v._laBongKhepKin) return false
-    const dich = String(v.ban_dich || '').trim()
+    if (!v || v._sfxDichDe) return false
+    const dich = String(v.ban_dich || v.chu_dich || '').trim()
     const goc = String(v.chu_goc || '').trim()
+
+    // Tách token chữ gốc (bỏ gạch nối / ngã / chấm than rời như "주절 - -" hay "~~~꼬르르")
+    const tuGocTho = goc
+      ? goc
+          .replace(/[.!！?？…~〜～ー―・♡♥♪♫*]+/g, ' ')
+          .trim()
+          .split(/\s+/)
+          .map((t) => t.replace(/^-+|-+$/g, ''))
+          .filter(Boolean)
+      : []
+
+    // Lớp 0: Tượng thanh chắc chắn không bao giờ là thoại trong bóng (vd: "주절 - -", "~~~꼬르르", "두근두근"),
+    // kể cả khi quầng sáng halo quanh nét chữ đánh lừa flood-fill bóng thoại.
+    if (tuGocTho.length >= 1 && tuGocTho.length <= 2 && tuGocTho.every((t) => TU_TUONG_THANH_KO_CHAC.test(t))) {
+      return true
+    }
+
+    if (v._laBongKhepKin) return false
 
     // 1. Kiểm tra trực tiếp từ tượng thanh rõ ràng trong bản dịch Tiếng Việt (vd: "XÈÈÈÈ!", "DẬM. THÌNH THỊCH.", "KENG KENG.", "VỤT.")
     if (dich) {
@@ -168,23 +190,41 @@ void (async () => {
       }
     }
 
-    // 2. Kiểm tra trực tiếp từ tượng thanh trong chữ gốc (vd: "SPLRRRSH", "STOMP", "KRAAAK", "ドジュウウウウ")
-    if (goc) {
-      const tuGoc = goc.replace(/[.!！?？…~〜ー―\-・]+/g, ' ').trim().split(/\s+/).filter(Boolean)
-      if (tuGoc.length >= 1 && tuGoc.length <= 3 && tuGoc.every((t) => TU_TUONG_THANH_SFX.test(t))) {
-        return true
-      }
-      if (tuGoc.length >= 1 && tuGoc.length <= 2 && /([A-Za-z])\1{2,}/.test(goc)) {
-        return true
-      }
+    // 2. Kiểm tra trực tiếp từ tượng thanh trong chữ gốc (vd: "SPLRRRSH", "STOMP", "KRAAAK", "GULP", "픽")
+    if (tuGocTho.length >= 1 && tuGocTho.length <= 3 && tuGocTho.every((t) => TU_TUONG_THANH_SFX.test(t))) {
+      return true
+    }
+    if (tuGocTho.length >= 1 && tuGocTho.length <= 2 && /([A-Za-z])\1{2,}/.test(goc)) {
+      return true
+    }
+    if (tuGocTho.length >= 1 && tuGocTho.length <= 2 && tuGocTho.every((t) => TU_TUONG_THANH_KO.test(t) || TU_TUONG_THANH_KO_CHAC.test(t))) {
+      return true
     }
 
     // 3. Kiểm tra kết hợp hình học (không phải bong bóng thoại khép kín) + đặc trưng chữ SFX ngắn
-    if (v._laBongKhepKin) return false
     if (goc) {
-      const gocGon = goc.replace(/[\s!！?？.…~〜ー―\-・♡♥]+/g, '')
-      if (/^[\u3040-\u30ff\uff66-\uff9f]+$/.test(gocGon) && gocGon.length <= 6) return true
-      if (/^[\uac00-\ud7af]+$/.test(gocGon) && gocGon.length <= 4) return true
+      if (tuGocTho.length >= 1 && tuGocTho.length <= 2 && tuGocTho.every((t) => /^[\u30a0-\u30ff\uff66-\uff9fー]{1,8}$/.test(t))) {
+        return true
+      }
+      const gocGon = goc.replace(/[\s!！?？.…~〜ー―\-・♡♥♪♫*]+/g, '')
+      if (/^[\u30a0-\u30ff\uff66-\uff9fー]+$/.test(gocGon) && gocGon.length <= 10) return true
+      if (/^[\u3040-\u309f]+$/.test(gocGon)) {
+        if (TU_TUONG_THANH_JA_HIRA.test(gocGon) || /^([\u3040-\u309f]{1,2})\1+$/.test(gocGon)) return true
+        if (gocGon.length <= 6 && /[っぁぃぅぇぉゃゅょゎ〜ー]/.test(goc)) return true
+      }
+      if (
+        tuGocTho.length >= 1
+        && tuGocTho.length <= 2
+        && tuGocTho.every(
+          (t) =>
+            /^([가-힣]{2})\1$/.test(t)
+            || /^([가-힣])\1([가-힣])\2$/.test(t)
+            || /^[가-힣]([가-힣])\1$/.test(t)
+            || /^([가-힣])\1{2,}$/.test(t)
+        )
+      ) {
+        return true
+      }
       const tu = goc.split(/\s+/).filter(Boolean)
       if (tu.length === 1 && /^[A-Z]{2,10}[!.?]*$/.test(goc) && /([A-Z])\1{2,}/.test(goc)) return true
     }
@@ -2249,7 +2289,8 @@ void (async () => {
         ? Math.max(20, Math.round(dienTichHopGoc * 0.020))
         : 10
       const coNetTranhXuyenHop = ((!laBongKhepKin || demMangToiXuyenHop >= 18) && ((roRiBienThuc && demNetXuyenHop >= nguongXuyenHopBong) || demNetXuyenHop >= Math.max(24, nguongXuyenHopBong))) || (demMangToiXuyenHop >= 28 && tyLeCapHalo >= 0.22)
-      const laBongKhepKinThuc = laBongKhepKin && !coNetTranhXuyenHop && (doNhieuHat < 18 || tyLeCapHalo < 0.32 || laNenKemSangPhang) && (tyLeTrangTrenNenSang >= nguongTltBong || laNenKemSangPhang || (laBongMauDongNhat && doLechMauNen <= 24 && doNhieuHat < 14)) && (demNetXuyenHop < nguongXuyenHopBong)
+      const laHaloSfxNho = wGoc <= 88 && hGoc <= 68 && demLongTrang < dienTichHopGoc * 1.15 && ((tyLeCapHalo >= 0.24 && doNhieuHat >= 14) || demMangToiXuyenHop >= 14)
+      const laBongKhepKinThuc = laBongKhepKin && !coNetTranhXuyenHop && !laHaloSfxNho && (doNhieuHat < 18 || tyLeCapHalo < 0.32 || laNenKemSangPhang) && (tyLeTrangTrenNenSang >= nguongTltBong || laNenKemSangPhang || (laBongMauDongNhat && doLechMauNen <= 24 && doNhieuHat < 14)) && (demNetXuyenHop < nguongXuyenHopBong)
       laBongKhepKin = laBongKhepKinThuc
       v._laBongKhepKin = laBongKhepKinThuc
       const laNenTrangPhang = (

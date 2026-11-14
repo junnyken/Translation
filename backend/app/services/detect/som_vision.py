@@ -360,7 +360,10 @@ def xay_loi_nhac_som_gop_dich(
         "     * Rectangular narration / time-location captions: concise literary storytelling tone.\n"
         "     * Margin translator/editor notes (`*TN:`, `Note:`, `*`): compact explanatory note (`Chú thích: ...` for Vietnamese).\n"
         "     * In-world signs / labels / documents: authentic signage wording.\n"
-        "     * Pure decorative SFX strokes outside dialogue OR non-text/credit/watermark boxes: leave `ban_dich` empty (`\"\"`).\n"
+        "     * Context-driven SFX judgment (preserve clean artwork): keep plot-essential signs or story-critical sound cues, "
+        "but leave `ban_dich` strictly empty (`\"\"`) for ordinary decorative/ambient floating SFX strokes drawn over artwork "
+        "(e.g. `GULP`, `주절`, `꼬르르`, `픽`, `ビュウ`, `ガタガタ`, `グキ`, `ピキ`, `ボワアア`, `ドゴォン`, `ゴゴゴ`, `轰隆`), "
+        "garbled texture misreads, or watermark/credit boxes so the original artwork is left untouched.\n"
         "   - Output `id` equal to the tag number (`1` .. `N`). Do NOT drop valid dialogue/narration tags.\n"
         "2. Safety check for unmarked text: ONLY IF you clearly see an important dialogue/whisper/narration/note line on Image 1 "
         "that has NO `#id` tag at all, include an extra entry with `\"id\": 0` and its tight `[ymin, xmin, ymax, xmax]` (0..1000) in `box`.\n"
@@ -409,7 +412,9 @@ def ghep_ket_qua_som_vao_khung_ctd(
             continue
         ban_dich = muc.get("ban_dich")
         ban_dich = " ".join(ban_dich.split()) if isinstance(ban_dich, str) else ""
-        if not chu and not ban_dich:
+        # Khi Vision LLM cố ý để trống `ban_dich` (vì là SFX trang trí / nhiễu nền / watermark),
+        # tuyệt đối KHÔNG lấy lại `chu` để thay thế — tôn trọng quyết định bỏ qua để giữ nguyên nét tranh.
+        if not ban_dich:
             continue
         co_doan = bool(muc.get("doan"))
 
@@ -434,7 +439,7 @@ def ghep_ket_qua_som_vao_khung_ctd(
                     confidence=goc_reg.confidence,
                     cls=goc_reg.cls,
                     chu=chu or ban_dich or None,
-                    ban_dich=ban_dich or chu or None,
+                    ban_dich=ban_dich or None,
                     doan=co_doan,
                 )
         elif idx == 0:
@@ -466,7 +471,7 @@ def ghep_ket_qua_som_vao_khung_ctd(
                     confidence=None,
                     cls=0,
                     chu=chu or ban_dich or None,
-                    ban_dich=ban_dich or chu or None,
+                    ban_dich=ban_dich or None,
                     doan=co_doan,
                 )
             )
